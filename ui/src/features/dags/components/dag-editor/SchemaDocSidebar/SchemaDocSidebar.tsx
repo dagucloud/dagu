@@ -1,5 +1,6 @@
 import { cn } from '@/lib/utils';
 import { X, BookOpen, RefreshCw } from 'lucide-react';
+import { Spinner } from '@/components/ui/spinner';
 import { useSchema } from '@/contexts/SchemaContext';
 import { useSchemaLookup } from '@/hooks/useSchemaLookup';
 import type { JSONSchema } from '@/lib/schema-utils';
@@ -87,7 +88,7 @@ export function SchemaDocSidebar({
         {/* Loading State */}
         {isLoading && (
           <div className="flex items-center justify-center py-8 text-muted-foreground">
-            <RefreshCw className="w-4 h-4 animate-spin mr-2" />
+            <Spinner className="mr-2 size-4" />
             <span className="text-xs">
               <I18nText text={'Loading schema...'} />
             </span>

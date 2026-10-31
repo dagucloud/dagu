@@ -19,7 +19,7 @@ import {
 } from '@/components/ui/tooltip';
 import dayjs from '@/lib/dayjs';
 import ActionButton from '@/components/ui/action-button';
-import { Ban, CircleStop, RefreshCw, X } from 'lucide-react';
+import { Ban, CircleStop, RotateCcw, X } from 'lucide-react';
 import React from 'react';
 import { components, Status } from '../../../../api/v1/schema';
 import { useConfig } from '../../../../contexts/ConfigContext';
@@ -59,6 +59,23 @@ type Props = {
    * can point to the top-level run.
    */
   hideUnavailable?: boolean;
+  /**
+   * Offers 'Stop all running instances' in the Stop confirmation. A checked
+   * submit stops every running instance of this workflow file.
+   */
+  stopAll?: { fileName: string };
+  /**
+   * Marks the Stop and Retry buttons with a data-ww-action attribute, so
+   * that the command palette of the workspace can find them.
+   */
+  markActions?: boolean;
+  /**
+   * Called with the new run ID and its DAG name after 'Reschedule as a new
+   * run' succeeds.
+   */
+  onRescheduled?: (dagRunId: string, dagName: string) => void;
+  /** Called after the run was removed from the queue, before refresh. */
+  onDequeued?: () => void;
 };
 
 /**
@@ -71,6 +88,10 @@ function DAGRunActions({
   displayMode = 'compact',
   isRootLevel = true,
   hideUnavailable = false,
+  stopAll,
+  markActions = false,
+  onRescheduled,
+  onDequeued,
 }: Props) {
   const { ts } = useI18n();
   const remoteNode = useRemoteNode();
@@ -81,6 +102,8 @@ function DAGRunActions({
   const [isRetryModal, setIsRetryModal] = React.useState(false);
   const [isDequeueModal, setIsDequeueModal] = React.useState(false);
   const [isRejectModal, setIsRejectModal] = React.useState(false);
+  const [stopAllRunning, setStopAllRunning] = React.useState(false);
+  const stopAllId = React.useId();
 
   // Retry-as-new modal state
   const [retryAsNew, setRetryAsNew] = React.useState(false);
@@ -172,6 +195,8 @@ function DAGRunActions({
     },
   });
   const terminateAction = terminateDetails.action;
+  const offersStopAll = Boolean(stopAll) && terminateAction === 'stop';
+  const stopsAll = offersStopAll && stopAllRunning;
   const hasManagedAgentSession = Boolean(
     dagRun &&
       'nodes' in dagRun &&
@@ -238,7 +263,11 @@ function DAGRunActions({
                     )
                   }
                   disabled={!buttonState['terminate']}
-                  onClick={() => setIsStopModal(true)}
+                  data-ww-action={markActions ? 'stop' : undefined}
+                  onClick={() => {
+                    setStopAllRunning(false);
+                    setIsStopModal(true);
+                  }}
                   className="cursor-pointer"
                 >
                   {ts(terminateDetails.buttonText)}
@@ -260,8 +289,9 @@ function DAGRunActions({
               <span tabIndex={isRootLevel ? undefined : 0}>
                 <ActionButton
                   label={displayMode !== 'compact'}
-                  icon={<RefreshCw className="h-4 w-4" />}
+                  icon={<RotateCcw className="h-4 w-4" />}
                   disabled={!buttonState['retry']}
+                  data-ww-action={markActions ? 'retry' : undefined}
                   onClick={() => setIsRetryModal(true)}
                   className="cursor-pointer"
                 >
@@ -319,13 +349,57 @@ function DAGRunActions({
             title={
               terminateAction === 'cancel'
                 ? 'Cancel auto-retry?'
-                : 'Stop this run?'
+                : stopsAll
+                  ? 'Stop all running instances?'
+                  : 'Stop this run?'
             }
             buttonText={ts(terminateDetails.buttonText)}
             visible={isStopModal}
-            dismissModal={() => setIsStopModal(false)}
+            dismissModal={() => {
+              setIsStopModal(false);
+              setStopAllRunning(false);
+            }}
             onSubmit={async () => {
               setIsStopModal(false);
+              if (stopAll && stopsAll) {
+                const { data, error } = await client.POST(
+                  '/dags/{fileName}/stop-all',
+                  {
+                    params: {
+                      path: { fileName: stopAll.fileName },
+                      query: { remoteNode },
+                    },
+                  }
+                );
+                if (error) {
+                  console.error('Stop all API error:', error);
+                  showError(
+                    error.message || ts('Failed to stop all DAG instances'),
+                    ts(
+                      'Some instances may have already completed or the worker is unavailable.'
+                    )
+                  );
+                  return;
+                }
+                setStopAllRunning(false);
+                // A 200 lists the runs that did not stop.
+                if (data?.errors?.length) {
+                  showError(
+                    ts('Failed to stop all DAG instances'),
+                    ts(
+                      'Some instances may have already completed or the worker is unavailable.'
+                    ),
+                    undefined,
+                    data.errors
+                  );
+                } else {
+                  showToast(ts('Stop signal sent to all running instances'), {
+                    variant: 'info',
+                  });
+                }
+                reloadData();
+                return;
+              }
               const { error } = await client.POST(
                 '/dag-runs/{name}/{dagRunId}/stop',
                 {
@@ -348,11 +422,40 @@ function DAGRunActions({
                 );
                 return;
               }
-              showToast(ts('Stop signal sent'));
+              // The run stops later; the note confirms the request.
+              showToast(ts('Stop signal sent'), { variant: 'info' });
               reloadData();
             }}
           >
-            <div>{terminateDetails.confirmText}</div>
+            <div>
+              {stopsAll ? (
+                <I18nText
+                  text={
+                    'Running steps in every instance of this workflow are canceled.'
+                  }
+                />
+              ) : (
+                terminateDetails.confirmText
+              )}
+              {offersStopAll && (
+                <div className="mt-4 flex items-center space-x-2 p-2 bg-warning-muted rounded border border-warning/30">
+                  <Checkbox
+                    id={stopAllId}
+                    checked={stopAllRunning}
+                    onCheckedChange={(checked) =>
+                      setStopAllRunning(checked as boolean)
+                    }
+                    className="border-warning data-[state=checked]:bg-warning data-[state=checked]:border-warning data-[state=checked]:text-black"
+                  />
+                  <label
+                    htmlFor={stopAllId}
+                    className="text-sm font-medium leading-none peer-disabled:cursor-not-allowed peer-disabled:opacity-70 text-warning"
+                  >
+                    <I18nText text={'Stop all running instances'} />
+                  </label>
+                </div>
+              )}
+            </div>
           </ConfirmModal>
         </I18nProps>
 
@@ -401,6 +504,10 @@ function DAGRunActions({
                 // Show success message with new run ID
                 if (data?.dagRunId) {
                   showToast(`New DAG run created: ${data.dagRunId}`);
+                  onRescheduled?.(
+                    data.dagRunId,
+                    dagNameOverride.trim() || name
+                  );
                 }
                 resetRetryModalState();
               } else {
@@ -630,6 +737,7 @@ function DAGRunActions({
                 return;
               }
               showToast('DAG run dequeued');
+              onDequeued?.();
               reloadData();
             }}
           >

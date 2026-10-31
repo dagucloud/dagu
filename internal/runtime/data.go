@@ -58,6 +58,8 @@ type NodeState struct {
 	// This is used to generate unique run IDs for repeated steps in case the node
 	// runs nested DAGs.
 	Repeated bool
+	// Continuous is true for a step that repeats without a limit.
+	Continuous bool
 	// SkippedByRetry marks a skipped node that should not block downstream
 	// execution during a retry. Edit-and-retry uses this to preserve outputs;
 	// include-downstream step retry uses it for preserved skipped join prerequisites.
@@ -715,6 +717,22 @@ func (d *Data) setStepOutputFile(path string) {
 	d.inner.State.StepOutputFile = path
 }
 
+// ClampStartedAt moves the start of the node to notBefore when the recorded
+// start is earlier, and the finish with it when the finish would come before
+// the new start. A zero notBefore, or a node without a start, stays as it is.
+func (d *Data) ClampStartedAt(notBefore time.Time) {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+
+	started := d.inner.State.StartedAt
+	if !notBefore.IsZero() && !started.IsZero() && started.Before(notBefore) {
+		d.inner.State.StartedAt = notBefore
+		if finished := d.inner.State.FinishedAt; !finished.IsZero() && finished.Before(notBefore) {
+			d.inner.State.FinishedAt = notBefore
+		}
+	}
+}
+
 func (d *Data) stepOutputFile() string {
 	d.mu.RLock()
 	defer d.mu.RUnlock()
@@ -726,7 +744,13 @@ func (d *Data) Finish() {
 	d.mu.Lock()
 	defer d.mu.Unlock()
 
-	d.inner.State.FinishedAt = time.Now()
+	// A clamped start can be later than the clock, so the finish never goes
+	// before the start.
+	finished := time.Now()
+	if started := d.inner.State.StartedAt; finished.Before(started) {
+		finished = started
+	}
+	d.inner.State.FinishedAt = finished
 }
 
 func (d *Data) IncRetryCount() {
@@ -769,6 +793,14 @@ func (d *Data) SetRepeated(repeated bool) {
 	defer d.mu.Unlock()
 
 	d.inner.State.Repeated = repeated
+}
+
+// SetContinuous marks the node as a step that repeats without a limit.
+func (d *Data) SetContinuous(continuous bool) {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+
+	d.inner.State.Continuous = continuous
 }
 
 func (d *Data) SetSkippedByRetry(skipped bool) {

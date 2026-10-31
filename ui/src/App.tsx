@@ -18,7 +18,9 @@ import { ProtectedRoute } from './components/ProtectedRoute';
 import { QueryFeedback } from './components/QueryFeedback';
 import { ErrorModalProvider } from '@/components/ui/error-modal';
 import { ToastProvider } from '@/components/ui/simple-toast';
+import { WorkspaceLoading } from '@/features/workflow-workspace/WorkspaceLoading';
 import RunProgressStack from '@/features/dags/components/dag-execution/RunProgressStack';
+import LegacyRunRedirect from './pages/dag-runs/LegacyRunRedirect';
 import { AppBarContext } from './contexts/AppBarContext';
 import { AuthProvider, useCanAccessGitSync } from './contexts/AuthContext';
 import { Config, ConfigContext } from './contexts/ConfigContext';
@@ -59,7 +61,6 @@ const ArtifactsPage = React.lazy(() => import('./pages/artifacts'));
 const AuditLogsPage = React.lazy(() => import('./pages/audit-logs'));
 const BaseConfigPage = React.lazy(() => import('./pages/base-config'));
 const DAGRuns = React.lazy(() => import('./pages/dag-runs'));
-const DAGRunDetails = React.lazy(() => import('./pages/dag-runs/dag-run'));
 const DAGs = React.lazy(() => import('./pages/dags'));
 const DAGDetails = React.lazy(() => import('./pages/dags/dag'));
 const WikiPage = React.lazy(() => import('./pages/wiki'));
@@ -314,6 +315,25 @@ class LazyRouteErrorBoundary extends React.Component<
   }
 }
 
+/**
+ * The fallback while a page chunk loads. A workflow page gets its own loading
+ * frame, so that the bar is in place from the first paint.
+ */
+function RouteFallback(): React.ReactElement {
+  const { pathname } = useLocation();
+  const workflow = /^\/dags\/([^/]+)/.exec(pathname);
+  if (workflow) {
+    let name = workflow[1]!;
+    try {
+      name = decodeURIComponent(name);
+    } catch {
+      // A name that is not valid text stays as it is.
+    }
+    return <WorkspaceLoading fileName={name} />;
+  }
+  return <LoadingIndicator />;
+}
+
 function LazyRoutes({
   children,
 }: {
@@ -321,7 +341,7 @@ function LazyRoutes({
 }): React.ReactElement {
   return (
     <LazyRouteErrorBoundary>
-      <React.Suspense fallback={<LoadingIndicator />}>
+      <React.Suspense fallback={<RouteFallback />}>
         <Routes>{children}</Routes>
       </React.Suspense>
     </LazyRouteErrorBoundary>
@@ -763,7 +783,7 @@ function AppInner({ config: initialConfig }: Props): React.ReactElement {
                                       />
                                       <Route
                                         path="/dag-runs/:name/:dagRunId"
-                                        element={<DAGRunDetails />}
+                                        element={<LegacyRunRedirect />}
                                       />
                                       <Route
                                         path="/system-status"

@@ -11,6 +11,7 @@ import (
 
 	"github.com/dagucloud/dagu/v2/internal/cmn/logger"
 	"github.com/dagucloud/dagu/v2/internal/cmn/logger/tag"
+	"github.com/dagucloud/dagu/v2/internal/cmn/stringutil"
 	"github.com/dagucloud/dagu/v2/internal/dagrun"
 	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/persis"
@@ -45,7 +46,7 @@ func AbortQueuedDAGRun(ctx context.Context, dagRunRepository *persis.DAGRunRepos
 		return newDAGRunNotQueuedError(status)
 	}
 
-	finishedAt := time.Now().UTC().Format(time.RFC3339)
+	finishedAt := stringutil.FormatTime(time.Now().UTC())
 	currentStatus, swapped, err := dagRunRepository.CompareAndSwapLatestAttemptStatus(
 		ctx,
 		dagRun,

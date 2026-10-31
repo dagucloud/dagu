@@ -81,7 +81,7 @@ func TestSelectedStepNodes(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			nodes, err := intake.SelectedStepNodes(selectedStepsDAG(tt.dagType), tt.steps, tt.source, nil)
+			nodes, _, err := intake.SelectedStepNodes(selectedStepsDAG(tt.dagType), tt.steps, tt.source, nil, nil, nil)
 			if tt.wantErr != "" {
 				require.ErrorContains(t, err, tt.wantErr)
 				return
@@ -102,7 +102,7 @@ func TestSelectedStepNodes(t *testing.T) {
 	t.Run("ReusesOutputs", func(t *testing.T) {
 		t.Parallel()
 
-		nodes, err := intake.SelectedStepNodes(selectedStepsDAG(""), []string{"report"}, finished, nil)
+		nodes, _, err := intake.SelectedStepNodes(selectedStepsDAG(""), []string{"report"}, finished, nil, nil, nil)
 		require.NoError(t, err)
 		require.NotNil(t, nodes[0].State.StepOutputsValue)
 		require.JSONEq(t, output, *nodes[0].State.StepOutputsValue)
@@ -209,7 +209,7 @@ func TestSelectedStepNodesOutputs(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			nodes, err := intake.SelectedStepNodes(outputsDAG(), []string{"report"}, tt.source, tt.outputs)
+			nodes, _, err := intake.SelectedStepNodes(outputsDAG(), []string{"report"}, tt.source, nil, tt.outputs, nil)
 			if tt.wantErr != "" {
 				require.ErrorContains(t, err, tt.wantErr)
 				return
@@ -247,5 +247,336 @@ func outputsDAG() *ir.DAG {
 			{Name: "label", Depends: []string{"fetch"}},
 			{Name: "report", ID: "report", Depends: []string{"label"}},
 		},
+	}
+}
+
+// Every step of outputs names its run, and only those steps do.
+func TestCheckOutputSources(t *testing.T) {
+	t.Parallel()
+
+	values := map[string]string{"token": "x"}
+	from := intake.OutputSource{RunID: "run-1"}
+
+	tests := []struct {
+		name    string
+		outputs map[string]map[string]string
+		sources map[string]intake.OutputSource
+		wantErr string
+	}{
+		{name: "None"},
+		{
+			name:    "ByNameAndID",
+			outputs: map[string]map[string]string{"Log in": values, "fetch": values},
+			sources: map[string]intake.OutputSource{"login": from, "fetch": from},
+		},
+		{
+			name:    "NoSources",
+			outputs: map[string]map[string]string{"login": values},
+		},
+		{
+			name:    "SourceForOneStep",
+			outputs: map[string]map[string]string{"login": values, "fetch": values},
+			sources: map[string]intake.OutputSource{"fetch": from},
+		},
+		{
+			name:    "SourceWithoutOutputs",
+			outputs: map[string]map[string]string{"login": values},
+			sources: map[string]intake.OutputSource{"login": from, "fetch": from},
+			wantErr: "outputsSources names step fetch, which is not in outputs",
+		},
+		{
+			name:    "UnknownSourceStep",
+			sources: map[string]intake.OutputSource{"missing": from},
+			wantErr: `outputsSources: unknown step "missing"`,
+		},
+		{
+			name:    "SourceGivenTwice",
+			outputs: map[string]map[string]string{"login": values},
+			sources: map[string]intake.OutputSource{"login": from, "Log in": from},
+			wantErr: `outputsSources: step "Log in" is given by both`,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			err := intake.CheckOutputSources(outputsDAG(), tt.outputs, tt.sources)
+			if tt.wantErr != "" {
+				require.ErrorContains(t, err, tt.wantErr)
+				return
+			}
+			require.NoError(t, err)
+		})
+	}
+}
+
+// The provenance has one entry per skipped step that carried outputs, in DAG
+// step order, and a supplied entry wins over the source run.
+func TestSelectedStepNodesReusedInputs(t *testing.T) {
+	t.Parallel()
+
+	carried := `{"token":"old"}`
+	source := &ir.DAGRunStatus{
+		DAGRunID: "source",
+		Status:   ir.Succeeded,
+		Nodes: []*ir.Node{
+			{Step: ir.Step{Name: "Log in"}, Status: ir.NodeSucceeded, StepOutputsValue: &carried, StartedAt: "2026-10-26T09:59:50Z", FinishedAt: "2026-10-26T10:00:00Z"},
+			{Step: ir.Step{Name: "fetch"}, Status: ir.NodeSucceeded, StartedAt: "2026-10-26T10:00:30Z", FinishedAt: "2026-10-26T10:01:00Z"},
+			{Step: ir.Step{Name: "label"}, Status: ir.NodeFailed, FinishedAt: "2026-10-26T10:02:00Z"},
+		},
+	}
+
+	// Only the steps that a selected step depends on carry outputs. A step after
+	// the selected one is skipped and carries nothing, even when the source run
+	// has its outputs.
+	t.Run("OnlyUpstreamCarries", func(t *testing.T) {
+		t.Parallel()
+
+		full := &ir.DAGRunStatus{
+			DAGRunID: "source",
+			Status:   ir.Succeeded,
+			Nodes: []*ir.Node{
+				{Step: ir.Step{Name: "Log in"}, Status: ir.NodeSucceeded, StartedAt: "2026-10-26T09:59:50Z", FinishedAt: "2026-10-26T10:00:00Z"},
+				{Step: ir.Step{Name: "fetch"}, Status: ir.NodeSucceeded, StartedAt: "2026-10-26T10:00:30Z", FinishedAt: "2026-10-26T10:01:00Z"},
+				{Step: ir.Step{Name: "label"}, Status: ir.NodeSucceeded, Stdout: "label.out", StartedAt: "2026-10-26T10:01:10Z", FinishedAt: "2026-10-26T10:02:00Z"},
+				{Step: ir.Step{Name: "report"}, Status: ir.NodeSucceeded, Stdout: "report.out", StartedAt: "2026-10-26T10:02:10Z", FinishedAt: "2026-10-26T10:03:00Z"},
+			},
+		}
+
+		nodes, reused, err := intake.SelectedStepNodes(outputsDAG(), []string{"fetch"}, full, nil, nil, nil)
+		require.NoError(t, err)
+		require.Equal(t, []ir.ReusedInput{
+			{Step: "Log in", RunID: "source", CapturedAt: "2026-10-26T10:00:00Z", StartedAt: "2026-10-26T09:59:50Z", FinishedAt: "2026-10-26T10:00:00Z", Via: ir.ReusedInputViaRun},
+		}, reused)
+		for _, node := range nodes {
+			switch node.Step.Name {
+			case "label", "report":
+				require.Equal(t, ir.NodeSkipped, node.State.Status)
+				require.Empty(t, node.State.Stdout, node.Step.Name)
+				require.True(t, node.State.StartedAt.IsZero(), node.Step.Name)
+			}
+		}
+	})
+
+	t.Run("FromRun", func(t *testing.T) {
+		t.Parallel()
+
+		_, reused, err := intake.SelectedStepNodes(outputsDAG(), []string{"report"}, source, nil, nil, nil)
+		require.NoError(t, err)
+		require.Equal(t, []ir.ReusedInput{
+			{Step: "Log in", RunID: "source", CapturedAt: "2026-10-26T10:00:00Z", StartedAt: "2026-10-26T09:59:50Z", FinishedAt: "2026-10-26T10:00:00Z", Via: ir.ReusedInputViaRun},
+			{Step: "fetch", RunID: "source", CapturedAt: "2026-10-26T10:01:00Z", StartedAt: "2026-10-26T10:00:30Z", FinishedAt: "2026-10-26T10:01:00Z", Via: ir.ReusedInputViaRun},
+		}, reused)
+	})
+
+	t.Run("FromCache", func(t *testing.T) {
+		t.Parallel()
+
+		outputs := map[string]map[string]string{"login": {"token": "new"}}
+		sources := map[string]intake.OutputSource{"login": {RunID: "gone", CapturedAt: "2026-10-25T08:00:00Z"}}
+		_, reused, err := intake.SelectedStepNodes(outputsDAG(), []string{"report"}, nil, nil, outputs, sources)
+		require.NoError(t, err)
+		require.Equal(t, []ir.ReusedInput{
+			{Step: "Log in", RunID: "gone", CapturedAt: "2026-10-25T08:00:00Z", Via: ir.ReusedInputViaCache},
+		}, reused)
+	})
+
+	t.Run("CacheWinsOverRun", func(t *testing.T) {
+		t.Parallel()
+
+		outputs := map[string]map[string]string{"login": {"token": "new"}}
+		sources := map[string]intake.OutputSource{"Log in": {RunID: "gone"}}
+		_, reused, err := intake.SelectedStepNodes(outputsDAG(), []string{"report"}, source, nil, outputs, sources)
+		require.NoError(t, err)
+		require.Equal(t, []ir.ReusedInput{
+			{Step: "Log in", RunID: "gone", Via: ir.ReusedInputViaCache},
+			{Step: "fetch", RunID: "source", CapturedAt: "2026-10-26T10:01:00Z", StartedAt: "2026-10-26T10:00:30Z", FinishedAt: "2026-10-26T10:01:00Z", Via: ir.ReusedInputViaRun},
+		}, reused)
+	})
+
+	// A supplied step without a source has no entry, also when the source run
+	// carries it.
+	t.Run("CacheWithoutSource", func(t *testing.T) {
+		t.Parallel()
+
+		outputs := map[string]map[string]string{"login": {"token": "new"}}
+		_, reused, err := intake.SelectedStepNodes(outputsDAG(), []string{"report"}, source, nil, outputs, nil)
+		require.NoError(t, err)
+		require.Equal(t, []ir.ReusedInput{
+			{Step: "fetch", RunID: "source", CapturedAt: "2026-10-26T10:01:00Z", StartedAt: "2026-10-26T10:00:30Z", FinishedAt: "2026-10-26T10:01:00Z", Via: ir.ReusedInputViaRun},
+		}, reused)
+	})
+
+	t.Run("SelectedStepHasNone", func(t *testing.T) {
+		t.Parallel()
+
+		_, reused, err := intake.SelectedStepNodes(outputsDAG(), []string{"Log in", "fetch", "label", "report"}, source, nil, nil, nil)
+		require.NoError(t, err)
+		require.Empty(t, reused)
+	})
+}
+
+// A step can carry its outputs from a run of its own, in place of the main
+// source: the seeding is the same, the record names that run with the times
+// that the step had there, and the checks name the step and the run.
+func TestSelectedStepNodesFromRuns(t *testing.T) {
+	t.Parallel()
+
+	carried := `{"token":"old"}`
+	newer := `{"token":"newer"}`
+	main := &ir.DAGRunStatus{
+		DAGRunID: "main",
+		Status:   ir.Succeeded,
+		Nodes: []*ir.Node{
+			{Step: ir.Step{Name: "Log in"}, Status: ir.NodeSucceeded, StepOutputsValue: &carried, StartedAt: "2026-10-26T09:00:00Z", FinishedAt: "2026-10-26T09:00:10Z"},
+			{Step: ir.Step{Name: "fetch"}, Status: ir.NodeSucceeded, StartedAt: "2026-10-26T09:00:10Z", FinishedAt: "2026-10-26T09:00:40Z"},
+		},
+	}
+	other := &ir.DAGRunStatus{
+		DAGRunID: "other",
+		Status:   ir.Failed,
+		Nodes: []*ir.Node{
+			{Step: ir.Step{Name: "Log in"}, Status: ir.NodeSucceeded, StepOutputsValue: &newer, StartedAt: "2026-10-26T11:00:00Z", FinishedAt: "2026-10-26T11:00:20Z"},
+			{Step: ir.Step{Name: "fetch"}, Status: ir.NodeFailed},
+		},
+	}
+
+	t.Run("SeedsTheStepFromItsRun", func(t *testing.T) {
+		t.Parallel()
+
+		nodes, reused, err := intake.SelectedStepNodes(outputsDAG(), []string{"report"}, main, intake.RunStepSources{"login": other}, nil, nil)
+		require.NoError(t, err)
+		require.JSONEq(t, newer, *nodes[0].State.StepOutputsValue)
+		require.Equal(t, []ir.ReusedInput{
+			{Step: "Log in", RunID: "other", CapturedAt: "2026-10-26T11:00:20Z", StartedAt: "2026-10-26T11:00:00Z", FinishedAt: "2026-10-26T11:00:20Z", Via: ir.ReusedInputViaRun},
+			{Step: "fetch", RunID: "main", CapturedAt: "2026-10-26T09:00:40Z", StartedAt: "2026-10-26T09:00:10Z", FinishedAt: "2026-10-26T09:00:40Z", Via: ir.ReusedInputViaRun},
+		}, reused)
+	})
+
+	t.Run("WorksWithoutMainSource", func(t *testing.T) {
+		t.Parallel()
+
+		nodes, reused, err := intake.SelectedStepNodes(outputsDAG(), []string{"report"}, nil, intake.RunStepSources{"Log in": other}, nil, nil)
+		require.NoError(t, err)
+		require.JSONEq(t, newer, *nodes[0].State.StepOutputsValue)
+		require.Len(t, reused, 1)
+		require.Equal(t, "other", reused[0].RunID)
+	})
+
+	t.Run("SuppliedValuesStillWin", func(t *testing.T) {
+		t.Parallel()
+
+		outputs := map[string]map[string]string{"login": {"token": "mine"}}
+		sources := map[string]intake.OutputSource{"login": {RunID: "gone"}}
+		_, reused, err := intake.SelectedStepNodes(outputsDAG(), []string{"report"}, main, intake.RunStepSources{"login": other}, outputs, sources)
+		require.NoError(t, err)
+		require.Equal(t, ir.ReusedInputViaCache, reused[0].Via)
+		require.Equal(t, "gone", reused[0].RunID)
+	})
+
+	tests := []struct {
+		name    string
+		steps   []string
+		from    intake.RunStepSources
+		wantErr string
+	}{
+		{
+			name:    "StepDidNotSucceed",
+			steps:   []string{"report"},
+			from:    intake.RunStepSources{"fetch": other},
+			wantErr: "step fetch cannot be reused from run other: the step did not succeed there",
+		},
+		{
+			name:    "RunNotFinished",
+			steps:   []string{"report"},
+			from:    intake.RunStepSources{"fetch": {DAGRunID: "busy", Status: ir.Running}},
+			wantErr: "step fetch cannot be reused from run busy: the run is running, not finished",
+		},
+		{
+			name:    "StepNotInRun",
+			steps:   []string{"report"},
+			from:    intake.RunStepSources{"fetch": {DAGRunID: "thin", Status: ir.Succeeded}},
+			wantErr: "step fetch cannot be reused from run thin: the run has no such step",
+		},
+		{
+			name:    "StepSelectedToRun",
+			steps:   []string{"fetch"},
+			from:    intake.RunStepSources{"fetch": main},
+			wantErr: `outputsFromRuns names step "fetch", which is selected to run`,
+		},
+		{
+			name:    "UnknownStep",
+			steps:   []string{"report"},
+			from:    intake.RunStepSources{"missing": main},
+			wantErr: `unknown step "missing"`,
+		},
+		{
+			name:    "NameAndIDOfOneStep",
+			steps:   []string{"report"},
+			from:    intake.RunStepSources{"login": main, "Log in": main},
+			wantErr: "is given by both",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			_, _, err := intake.SelectedStepNodes(outputsDAG(), tt.steps, nil, tt.from, nil, nil)
+			require.ErrorContains(t, err, tt.wantErr)
+		})
+	}
+}
+
+// A selected-steps run calls the end-of-run handlers only when the selection
+// has a graph end step: a step that no other step depends on.
+func TestSelectionSkipsHandlers(t *testing.T) {
+	t.Parallel()
+
+	chain := &ir.DAG{Steps: []ir.Step{
+		{Name: "a", ID: "a_id"},
+		{Name: "b", Depends: []string{"a"}},
+		{Name: "c", Depends: []string{"b"}},
+	}}
+	diamond := &ir.DAG{Steps: []ir.Step{
+		{Name: "a"},
+		{Name: "b", Depends: []string{"a"}},
+		{Name: "c", Depends: []string{"a"}},
+		{Name: "d", Depends: []string{"b"}},
+	}}
+	inferred := &ir.DAG{Steps: []ir.Step{
+		{Name: "produce"},
+		{Name: "use", InferredDepends: []ir.InferredDependency{{Step: "produce"}}},
+	}}
+
+	tests := []struct {
+		name    string
+		dag     *ir.DAG
+		steps   []string
+		want    bool
+		wantErr string
+	}{
+		{name: "InteriorStep", dag: chain, steps: []string{"b"}, want: true},
+		{name: "EndStep", dag: chain, steps: []string{"c"}, want: false},
+		{name: "FirstAndInterior", dag: chain, steps: []string{"a", "b"}, want: true},
+		{name: "InteriorAndEnd", dag: chain, steps: []string{"a", "c"}, want: false},
+		{name: "ByID", dag: chain, steps: []string{"a_id"}, want: true},
+		{name: "DiamondEndStepOne", dag: diamond, steps: []string{"c"}, want: false},
+		{name: "DiamondEndStepTwo", dag: diamond, steps: []string{"d"}, want: false},
+		{name: "DiamondInterior", dag: diamond, steps: []string{"a", "b"}, want: true},
+		{name: "InferredProducerIsInterior", dag: inferred, steps: []string{"produce"}, want: true},
+		{name: "InferredConsumerIsEnd", dag: inferred, steps: []string{"use"}, want: false},
+		{name: "Unknown", dag: chain, steps: []string{"x"}, wantErr: `unknown step "x"`},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			got, err := intake.SelectionSkipsHandlers(tt.dag, tt.steps)
+			if tt.wantErr != "" {
+				require.ErrorContains(t, err, tt.wantErr)
+				return
+			}
+			require.NoError(t, err)
+			require.Equal(t, tt.want, got)
+		})
 	}
 }

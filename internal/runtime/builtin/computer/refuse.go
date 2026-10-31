@@ -19,6 +19,16 @@ import (
 // person presses that holds it, has a word with.refuse lists, such as 保存
 // or Save. It says why, for the model or the replay that tried.
 func (r *run) refusedElement(e desktop.Element) (string, bool) {
+	n, word, refused := r.refusedName(e)
+	if !refused {
+		return "", false
+	}
+	return fmt.Sprintf("%s %q is not pressed in this step, which refuses %q; leave it as it is", n.Role, n.Name, word), true
+}
+
+// refusedName returns the name, of e or of the element a person presses
+// that holds it, that has a word with.refuse lists, and that word.
+func (r *run) refusedName(e desktop.Element) (desktop.PathStep, string, bool) {
 	names := []desktop.PathStep{{Role: e.Role, Name: e.Name}}
 	for i := len(e.Path) - 2; i >= 0; i-- {
 		// A custom control, other to the system, is pressed as a button
@@ -30,11 +40,11 @@ func (r *run) refusedElement(e desktop.Element) (string, bool) {
 	for _, word := range r.cfg.Refuse {
 		for _, n := range names {
 			if namesWord(n.Name, word) {
-				return fmt.Sprintf("%s %q is not pressed in this step, which refuses %q; leave it as it is", n.Role, n.Name, word), true
+				return n, word, true
 			}
 		}
 	}
-	return "", false
+	return desktop.PathStep{}, "", false
 }
 
 // refusedAction reports an action that would press an element the step
@@ -96,7 +106,8 @@ func (r *run) refusedAt(at *image.Point) (string, bool) {
 }
 
 // refusedDefault reports a refused button in the window in front, which
-// Enter may press as the window's default button.
+// Enter may press as the window's default button. It says what sets a
+// field or an option instead.
 func (r *run) refusedDefault() (string, bool) {
 	els, err := r.elementsIfAvailable()
 	if err != nil {
@@ -114,8 +125,8 @@ func (r *run) refusedDefault() (string, bool) {
 		if e.Role != desktop.RoleButton {
 			continue
 		}
-		if why, refused := r.refusedElement(e); refused {
-			return "Enter may press " + why, true
+		if n, _, refused := r.refusedName(e); refused {
+			return fmt.Sprintf("Return is not pressed: it may press the default button %q, which this step never presses. To set a combo box or pop-up, call choose_option, or open it and click the option; to fill a text field, type without Return; to move on, press Tab.", n.Name), true
 		}
 	}
 	return "", false

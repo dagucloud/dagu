@@ -251,6 +251,47 @@ type DAGRunStatus struct {
 	Preconditions      []ConditionResult     `json:"preconditions,omitempty"`
 	Labels             []string              `json:"labels,omitempty"`
 	LeaseAt            int64                 `json:"leaseAt,omitempty"` // Unix millis; stamped by coordinator on observed run liveness
+
+	// Ephemeral marks a run that leaves no trace: it is stored apart from the
+	// history, is not listed, emits no events, and is removed after it ends.
+	Ephemeral bool `json:"ephemeral,omitempty"`
+
+	// SkipHandlers marks a selected-steps run whose selection has no graph end
+	// step. The run, and every retry of it, does not call the end-of-run
+	// handlers of the DAG.
+	SkipHandlers bool `json:"skipHandlers,omitempty"`
+
+	// ReusedInputs records, for each skipped step of a selected-steps run,
+	// where its carried outputs come from. The order is the DAG step order.
+	ReusedInputs []ReusedInput `json:"reusedInputs,omitempty"`
+}
+
+// ReusedInputVia tells how the outputs of a skipped step reached a run.
+type ReusedInputVia string
+
+const (
+	// ReusedInputViaRun marks outputs carried from a finished run named by the
+	// request (outputsFromRunId, or outputsFromRuns for one step).
+	ReusedInputViaRun ReusedInputVia = "run"
+	// ReusedInputViaCache marks outputs that the request supplied, with the run they were captured from.
+	ReusedInputViaCache ReusedInputVia = "cache"
+)
+
+// ReusedInput is the provenance of the outputs of one skipped step.
+type ReusedInput struct {
+	// Step is the name of the skipped step.
+	Step string `json:"step"`
+	// RunID is the run the outputs come from. That run may no longer exist.
+	RunID string `json:"runId"`
+	// CapturedAt is when the outputs were captured, in the format of the run
+	// timestamps. It is empty when unknown.
+	CapturedAt string `json:"capturedAt,omitempty"`
+	// StartedAt and FinishedAt are the times that the step had in the run the
+	// outputs come from, in the format of the run timestamps. They are empty
+	// when unknown, and for outputs that a request supplied.
+	StartedAt  string         `json:"startedAt,omitempty"`
+	FinishedAt string         `json:"finishedAt,omitempty"`
+	Via        ReusedInputVia `json:"via"`
 }
 
 // EffectiveClaimKey returns ClaimKey, falling back to AttemptKey when no claim

@@ -35,7 +35,7 @@ const ledgerPage = `<!doctype html><html><head><title>Ledger</title></head><body
 <p id="status">ready</p>
 <label>Password <input id="password" type="password"></label>
 <button onclick="post('/api/entries', JSON.stringify({amount: 1000, memo: 'taxi'}), 'application/json')">Save entry</button>
-<form method="post" action="/entries"><input name="amount" value="1000"><button type="submit">Submit form</button></form>
+<form method="post" action="/entries"><label>Amount <input name="amount" value="1000"></label><button type="submit">Submit form</button></form>
 <a href="/entries/1/delete">Delete entry</a>
 <button onclick="worker()">Start worker</button>
 <button onclick="navigator.sendBeacon('/beacon', 'x'); say('beacon sent')">Send beacon</button>
@@ -169,11 +169,13 @@ type gatedResult struct {
 	ID        string  `json:"id"`
 	CDPURL    string  `json:"cdp_url"`
 	Status    string  `json:"status"`
+	URL       string  `json:"url"`
 	Outline   string  `json:"outline"`
 	WriteGate string  `json:"write_gate"`
 	Writes    []write `json:"writes"`
 	Error     *struct {
-		Code string `json:"code"`
+		Code    string `json:"code"`
+		Message string `json:"message"`
 	} `json:"error"`
 }
 
@@ -450,4 +452,57 @@ func TestSessionRecordSendsAnAllowedWrite(t *testing.T) {
 	listed := g.dagu.RunWithEnv(g.env, "browser", "writes", "list", "books")
 	listed.ExpectExitCode(0)
 	assert.Contains(t, listed.Stdout(), signature)
+}
+
+// A form a recording session holds stays on the page as it was filled in,
+// so the same click, allowed its write, sends what was filled in.
+func TestSessionRecordSendsAHeldForm(t *testing.T) {
+	t.Parallel()
+
+	g := newGateEnv(t)
+	opened := g.open("--write-gate", "record")
+	typed := g.session(fmt.Sprintf(`{"type": {"into": %q, "text": "2500"}}`, g.find(opened.ID, "Amount")), "do", opened.ID)
+	typed.ExpectExitCode(0)
+	submit := fmt.Sprintf(`{"click": %q}`, g.find(opened.ID, "Submit form"))
+
+	held := g.session(submit, "do", opened.ID)
+	held.ExpectNonZeroExitCode()
+	refused := decode(t, held)
+	require.NotNil(t, refused.Error)
+	assert.Equal(t, "write_blocked", refused.Error.Code)
+	assert.Equal(t, g.ledger.url+"/", refused.URL, "the page stays")
+	require.Len(t, refused.Writes, 1)
+	sent, _ := g.ledger.written()
+	assert.Empty(t, sent)
+
+	allowed := g.session(submit, "do", opened.ID, "--allow-write", refused.Writes[0].Signature)
+	allowed.ExpectExitCode(0)
+	approved := byPath(decode(t, allowed).Writes)["/entries"]
+	assert.Equal(t, "approved sent", approved.Class+" "+approved.Outcome)
+	assert.Equal(t, "amount=2500", approved.Body)
+	sent, _ = g.ledger.written()
+	assert.Equal(t, map[string]int{"/entries": 1}, sent)
+}
+
+// A goto to an address the policy declares a write is held like any other
+// write: the goto fails at once, since its page never loads, the page stays
+// where it was, and the write is reported.
+func TestSessionHoldsAGoto(t *testing.T) {
+	t.Parallel()
+
+	g := newGateEnv(t)
+	opened := g.open("--write-gate", "rehearse", "--write-policy", g.policy)
+	held := g.session(fmt.Sprintf(`{"goto": %q, "timeout": "30s"}`, g.ledger.url+"/entries/1/delete"), "do", opened.ID)
+	held.ExpectNonZeroExitCode()
+	result := decode(t, held)
+	require.NotNil(t, result.Error, held.Stdout())
+	assert.Equal(t, "operation_failed", result.Error.Code)
+	// A goto that waited out its timeout would fail too, saying so.
+	assert.Contains(t, result.Error.Message, "cancelled the load")
+	assert.Equal(t, g.ledger.url+"/", result.URL)
+	deleted, ok := byPath(result.Writes)["/entries/1/delete"]
+	require.True(t, ok, held.Stdout())
+	assert.Equal(t, "write blocked", deleted.Class+" "+deleted.Outcome)
+	sent, _ := g.ledger.written()
+	assert.Empty(t, sent)
 }

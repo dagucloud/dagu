@@ -8627,7 +8627,7 @@
     },
     "templateRenderActionConfig": {
       "type": "object",
-      "additionalProperties": true,
+      "additionalProperties": false,
       "oneOf": [
         {
           "required": ["template"],
@@ -8648,6 +8648,14 @@
           "type": "string",
           "pattern": "^\\$\\{(?:consts\\.[A-Za-z][A-Za-z0-9_]*|params\\.[A-Za-z][A-Za-z0-9_]*|env\\.[A-Za-z_][A-Za-z0-9_]*|steps\\.[A-Za-z][A-Za-z0-9_]*\\.outputs\\.[A-Za-z_][A-Za-z0-9_]*|foreach\\.[A-Za-z][A-Za-z0-9_]*(?:\\.[A-Za-z][A-Za-z0-9_]*)?|context\\.(?:dag\\.name|run\\.(?:id|status|scheduled_at|root_name|root_id)|attempt\\.(?:id|started_at)|step\\.(?:id|name)|trigger\\.(?:type|actor)|paths\\.(?:log_file|work_dir|artifacts_dir|step_stdout_file|step_stderr_file|step_output_file)|profile\\.(?:name|resolved_at)|pushback\\.(?:iteration|previous_stdout_file)))\\}$",
           "description": "One complete scoped Dagu value reference resolved once to template text at runtime."
+        },
+        "data": {
+          "type": "object",
+          "description": "Template data variables accessible as {{ .key }} in the template."
+        },
+        "output": {
+          "type": "string",
+          "description": "File path to write the rendered output to. If empty, output is written to stdout."
         }
       },
       "description": "Configuration for action: template.render."

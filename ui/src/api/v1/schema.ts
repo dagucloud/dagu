@@ -1197,6 +1197,86 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/dag-runs/{name}/{dagRunId}/steps/{stepName}/samples": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Retrieve the samples of a continuous step, in buckets
+         * @description Returns the executions of a continuous step as buckets of one tier (1 second, 1 minute, 1 hour or 24 hours). The server picks the finest tier whose retention covers `from` and whose bucket count in the window is not more than `points`. The response has at most `points` buckets and does not depend on the count of executions.
+         */
+        get: operations["getDAGRunStepSamples"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/dag-runs/{name}/{dagRunId}/steps/{stepName}/events": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Retrieve the events of a continuous step
+         * @description Lists the events of a continuous step, the newest first: start, stop, failed and recovered.
+         */
+        get: operations["getDAGRunStepEvents"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/dag-runs/{name}/{dagRunId}/steps/{stepName}/availability": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Retrieve the availability of a continuous step
+         * @description Gives the availability of the last 24 hours, 7 days, 30 days and 365 days, and the current streak.
+         */
+        get: operations["getDAGRunStepAvailability"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/dag-runs/{name}/{dagRunId}/steps/{stepName}/outputs": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Retrieve outputs of a specific step in a DAG-run
+         * @description Fetches the persisted outputs and the output variable of one step in a DAG-run. The stepName parameter accepts a step name or a step id. The runtime masks secret values before it persists them. Each value is cut at 65536 bytes.
+         */
+        get: operations["getDAGRunStepOutputs"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/dag-runs/{name}/{dagRunId}/steps/{stepName}/log/download": {
         parameters: {
             query?: never;
@@ -5912,6 +5992,94 @@ export interface components {
              */
             class?: ValueReferenceNoticeClass;
         };
+        /** @description One structured validation result of a DAG spec. */
+        ValidationIssue: {
+            /**
+             * @description Severity of the issue.
+             * @enum {string}
+             */
+            severity: ValidationIssueSeverity;
+            /**
+             * @description Stage that produced the issue.
+             * @enum {string}
+             */
+            source: ValidationIssueSource;
+            /** @description Human-readable message. For errors, the same text as the matching errors entry. */
+            message: string;
+            /** @description Normalized name of the step, when known. */
+            stepName?: string;
+            /** @description Step key such as steps[3] or handler_on.failure, when known. */
+            stepPath?: string;
+            /** @description DAG field path such as steps[3].with.url or consts.image, when known. */
+            fieldPath?: string;
+            /** @description 1-based line in the spec, when known. */
+            line?: number;
+            /** @description 1-based column in the spec, when known. */
+            column?: number;
+            /** @description Machine-readable reason, for value-reference notices. */
+            reason?: string;
+        };
+        /** @description Values that a step of the DAG can reference. */
+        ReferenceScope: {
+            params: components["schemas"]["ReferenceScopeVariable"][];
+            consts: components["schemas"]["ReferenceScopeVariable"][];
+            /** @description Environment variable names. Values are not included. */
+            env: components["schemas"]["ReferenceScopeVariable"][];
+            /** @description Secret names. Values are not included. */
+            secrets: components["schemas"]["ReferenceScopeVariable"][];
+            steps: components["schemas"]["ReferenceScopeStep"][];
+        };
+        /** @description A named value that a step can reference. */
+        ReferenceScopeVariable: {
+            name: string;
+            /** @description Canonical reference token, such as ${params.region}. */
+            reference: string;
+            description?: string;
+            /** @description Default value. Set only for params and consts. */
+            defaultValue?: string;
+        };
+        /** @description A step and the outputs that other steps can reference. */
+        ReferenceScopeStep: {
+            name: string;
+            id?: string;
+            /** @description Step key such as steps[3] or handler_on.exit. */
+            stepPath: string;
+            /** @description Names of all ancestor steps. */
+            upstream: string[];
+            outputs: components["schemas"]["ReferenceScopeOutput"][];
+            /**
+             * @description static when the outputs are known from the spec, runtime when only a run gives them.
+             * @enum {string}
+             */
+            outputsKnown: ReferenceScopeStepOutputsKnown;
+        };
+        /** @description An output of a step that other steps can reference. */
+        ReferenceScopeOutput: {
+            name: string;
+            /** @description Reference token, such as ${steps.fetch.outputs.body} or ${RESULT} for an output variable. */
+            reference: string;
+            /** @enum {string} */
+            source: ReferenceScopeOutputSource;
+            type?: string;
+        };
+        /** @description Persisted outputs of one step in a DAG-run. */
+        StepOutputs: {
+            stepName: string;
+            stepId?: string;
+            status: components["schemas"]["NodeStatus"];
+            statusLabel: components["schemas"]["NodeStatusLabel"];
+            outputs: components["schemas"]["StepOutputValue"][];
+            outputVariable?: components["schemas"]["StepOutputValue"];
+        };
+        /** @description One output value of a step. The value is cut at 65536 bytes. */
+        StepOutputValue: {
+            name: string;
+            value: string;
+            /** @description True when the value was cut. */
+            truncated: boolean;
+            /** @description Size of the value in bytes before the cut. */
+            size: number;
+        };
         /** @description Editor-only metadata used to synthesize per-document schema hints */
         DAGEditorHints: {
             /** @description Deprecated legacy execution definitions inherited from base config and available to the current DAG */
@@ -6065,14 +6233,16 @@ export interface components {
             autoRetryLimit?: number | null;
             /** @description RFC 3339 timestamp of when the DAG-run was scheduled to run */
             scheduleTime?: string;
-            /** @description RFC 3339 timestamp when the DAG-run started */
+            /** @description RFC 3339 timestamp with millisecond precision when the DAG-run started. A run that an older version stored has second precision. */
             startedAt: string;
-            /** @description RFC 3339 timestamp when the DAG-run finished */
+            /** @description RFC 3339 timestamp with millisecond precision when the DAG-run finished. A run that an older version stored has second precision. */
             finishedAt: string;
             /** @description Whether artifact files are available for this DAG-run */
             artifactsAvailable: boolean;
             /** @description Whether reuse of prior build materializations was disabled for this DAG-run */
             noReuse?: boolean;
+            /** @description True for an ephemeral run (a test run that leaves no trace). Absent or false for other runs. Only the DAG history with includeEphemeral and the run by ID return such a run. */
+            ephemeral?: boolean;
             /** @description Runtime parameters passed to the DAG-run in JSON format */
             params?: string;
             /** @description Runtime profile selected for this DAG-run. */
@@ -6092,6 +6262,29 @@ export interface components {
              * @description Deprecated alias for labels. List of labels for categorizing and filtering DAG runs
              */
             tags?: string[];
+        };
+        /** @description The run that a step's supplied outputs were captured from. */
+        ReusedOutputSource: {
+            runId: components["schemas"]["DAGRunId"];
+            /** @description RFC 3339 timestamp of when the outputs were captured. Optional. */
+            capturedAt?: string;
+        };
+        /** @description Provenance of the outputs that a skipped step of a selected-steps run carries. */
+        ReusedInput: {
+            /** @description Name of the skipped step */
+            step: string;
+            runId: components["schemas"]["DAGRunId"];
+            /** @description RFC 3339 timestamp of when the outputs were captured. Absent when unknown. */
+            capturedAt?: string;
+            /** @description RFC 3339 timestamp with millisecond precision of when the step started in the source run. Present for via run; absent for via cache. */
+            startedAt?: string;
+            /** @description RFC 3339 timestamp with millisecond precision of when the step finished in the source run. Present for via run; absent for via cache. */
+            finishedAt?: string;
+            /**
+             * @description run: the outputs were carried from the run named by outputsFromRunId, or by outputsFromRuns for this step. cache: a client that is not the web UI supplied the outputs and named the run they were captured from in outputsSources.
+             * @enum {string}
+             */
+            via: ReusedInputVia;
         };
         /** @description Detailed status of a DAG-run including sub DAG-run nodes */
         DAGRunDetails: components["schemas"]["DAGRunSummary"] & {
@@ -6130,6 +6323,8 @@ export interface components {
             approvalResumePending?: boolean;
             /** @description Identifier of the attempt this status belongs to. Each retry of the DAG-run, including a resume after manual action, records a new attempt. */
             attemptId?: string;
+            /** @description Where the carried outputs of the skipped steps of a selected-steps run come from, one entry per skipped step, in DAG step order. Absent when the run carried no outputs. */
+            reusedInputs?: components["schemas"]["ReusedInput"][];
         };
         /** @description One file within a DAG-run's artifact directory */
         ArtifactListFile: {
@@ -6257,9 +6452,9 @@ export interface components {
             attempt?: number;
             /** @description Agent's justification, or why the call was rejected */
             reason?: string;
-            /** @description RFC3339 timestamp when the step started */
+            /** @description RFC 3339 timestamp with millisecond precision when the step started */
             startedAt?: string;
-            /** @description RFC3339 timestamp when the step finished */
+            /** @description RFC 3339 timestamp with millisecond precision when the step finished */
             finishedAt?: string;
             /** @description Child DAG-run this action produced, for linking to its run page. Absent for steps that run no child DAG. */
             childDagRunId?: string;
@@ -6307,9 +6502,9 @@ export interface components {
             stdout: string;
             /** @description Path to the standard error log file for this step */
             stderr: string;
-            /** @description RFC3339 timestamp when the step started */
+            /** @description RFC 3339 timestamp with millisecond precision when the step started. A step that an older version stored has second precision. */
             startedAt: string;
-            /** @description RFC3339 timestamp when the step finished */
+            /** @description RFC 3339 timestamp with millisecond precision when the step finished. A step that an older version stored has second precision. */
             finishedAt: string;
             status: components["schemas"]["NodeStatus"];
             statusLabel: components["schemas"]["NodeStatusLabel"];
@@ -6317,6 +6512,8 @@ export interface components {
             retryCount: number;
             /** @description Number of successful completions for repeating steps */
             doneCount: number;
+            /** @description True for a continuous step: a step that repeats without a limit. Its executions are recorded as samples (see the samples, events and availability endpoints). */
+            continuous?: boolean;
             /** @description List of sub DAG-runs associated with this step */
             subRuns?: components["schemas"]["SubDAGRun"][];
             /** @description List of repeated sub DAG-runs when using repeatPolicy */
@@ -6536,9 +6733,9 @@ export interface components {
             dagName?: string;
             status: components["schemas"]["Status"];
             statusLabel: components["schemas"]["StatusLabel"];
-            /** @description RFC 3339 timestamp when the sub DAG-run started */
+            /** @description RFC 3339 timestamp with millisecond precision when the sub DAG-run started */
             startedAt: string;
-            /** @description RFC 3339 timestamp when the sub DAG-run finished */
+            /** @description RFC 3339 timestamp with millisecond precision when the sub DAG-run finished */
             finishedAt?: string;
         };
         /** @description One named value output or build file output */
@@ -6886,9 +7083,9 @@ export interface components {
             statusLabel: components["schemas"]["NodeStatusLabel"];
             /** @description Error the body run reported, when it failed */
             error?: string;
-            /** @description RFC3339 timestamp when the body run started */
+            /** @description RFC 3339 timestamp with millisecond precision when the body run started */
             startedAt?: string;
-            /** @description RFC3339 timestamp when the body run finished */
+            /** @description RFC 3339 timestamp with millisecond precision when the body run finished */
             finishedAt?: string;
         };
         /** @description One item of a foreach step with the status of each body step */
@@ -6900,7 +7097,9 @@ export interface components {
             status: components["schemas"]["NodeStatus"];
             statusLabel: components["schemas"]["NodeStatusLabel"];
             error?: string;
+            /** @description RFC 3339 timestamp with millisecond precision when the body run started */
             startedAt?: string;
+            /** @description RFC 3339 timestamp with millisecond precision when the body run finished */
             finishedAt?: string;
             /** @description Body steps in execution order */
             steps: components["schemas"]["ForeachBodyStep"][];
@@ -6912,7 +7111,9 @@ export interface components {
             status: components["schemas"]["NodeStatus"];
             statusLabel: components["schemas"]["NodeStatusLabel"];
             error?: string;
+            /** @description RFC 3339 timestamp with millisecond precision when the body step started */
             startedAt?: string;
+            /** @description RFC 3339 timestamp with millisecond precision when the body step finished */
             finishedAt?: string;
             retryCount?: number;
             /** @description Whether a stdout log file was recorded for the step */
@@ -6923,6 +7124,98 @@ export interface components {
             foreachParent?: string;
             agentSession?: components["schemas"]["AgentSession"];
             modelUsage?: components["schemas"]["StepModelUsage"];
+        };
+        /** @description The samples of one time bucket of a continuous step */
+        SampleBucket: {
+            /**
+             * Format: date-time
+             * @description Start of the bucket, in UTC
+             */
+            time: string;
+            /**
+             * Format: int64
+             * @description Count of samples in the bucket
+             */
+            count: number;
+            /**
+             * Format: int64
+             * @description Count of failed samples (exit code not 0)
+             */
+            failures: number;
+            /** Format: int64 */
+            minMs: number;
+            /** Format: int64 */
+            maxMs: number;
+            /** Format: int64 */
+            p50Ms: number;
+            /** Format: int64 */
+            p95Ms: number;
+        };
+        StepSamples: {
+            /** @description Width of the tier that the buckets come from: 1, 60, 3600 or 86400 */
+            resolutionSeconds: number;
+            /** Format: date-time */
+            from: string;
+            /** Format: date-time */
+            to: string;
+            /** @description Buckets in time order. A bucket with no sample is not listed. */
+            buckets: components["schemas"]["SampleBucket"][];
+        };
+        /** @enum {string} */
+        StepEventKind: StepEventKind;
+        StepEvent: {
+            /** Format: date-time */
+            time: string;
+            kind: components["schemas"]["StepEventKind"];
+            exitCode?: number;
+            /** @description Last line of the standard error of a failed execution, 256 bytes at most */
+            message?: string;
+            /**
+             * Format: int64
+             * @description For `recovered` and for a repeated `failed` event: count of failed samples of the outage
+             */
+            failedCount?: number;
+            /**
+             * Format: int64
+             * @description For `recovered`: length of the outage
+             */
+            outageSeconds?: number;
+        };
+        StepEvents: {
+            events: components["schemas"]["StepEvent"][];
+            /** @description Cursor for the next page. Absent when there are no more events. */
+            nextCursor?: string;
+        };
+        AvailabilityWindow: {
+            /** @enum {string} */
+            window: AvailabilityWindowWindow;
+            /** Format: int64 */
+            count: number;
+            /** Format: int64 */
+            failures: number;
+            /**
+             * Format: double
+             * @description From 0 to 1. Absent when `count` is 0.
+             */
+            availability?: number;
+        };
+        StepAvailability: {
+            windows: components["schemas"]["AvailabilityWindow"][];
+            /**
+             * Format: int64
+             * @description Count of samples since the last failed sample. A lower bound once the raw tier no longer holds that sample.
+             */
+            streak: number;
+            /**
+             * Format: date-time
+             * @description Time of the last failed sample, or the start of its aggregate bucket once the raw tier no longer holds it. Absent when none failed.
+             */
+            lastFailureAt?: string;
+            /**
+             * Format: int64
+             * @description Count of all executions
+             */
+            totalCount: number;
         };
         /** @description Log information for the execution */
         Log: {
@@ -9314,6 +9607,11 @@ export interface operations {
                         errors: string[];
                         /** @description Non-fatal spec warnings; these do not affect valid */
                         warnings?: string[];
+                        /** @description Structured errors, warnings and notices of the spec, with step and location data when known */
+                        issues: components["schemas"]["ValidationIssue"][];
+                        /** @description Passive value-reference notices produced while loading this spec. These notices are not persisted. */
+                        valueReferenceNotices: components["schemas"]["ValueReferenceNotice"][];
+                        referenceScope?: components["schemas"]["ReferenceScope"];
                     };
                 };
             };
@@ -9460,12 +9758,25 @@ export interface operations {
                     /** @description Run only these steps, by step name or ID, in a new DAG-run of the current definition. Every other step is recorded as skipped and does not run. Not supported for agent DAGs. */
                     steps?: string[];
                     outputsFromRunId?: components["schemas"]["DAGRunId"] & unknown;
-                    /** @description Outputs of skipped steps, keyed by step name or ID and then by output name. A declared output, or any name when the step declares none, resolves through ${steps.<id>.outputs.<name>}; the name of the step's string-form output variable sets that variable. Takes precedence over outputs from outputsFromRunId. Requires steps. */
+                    /** @description The run that each skipped step carries its outputs from, keyed by step name or ID. A step named here takes its outputs from that run in place of outputsFromRunId; the work directory still comes only from outputsFromRunId. Each run must exist for the same DAG (a normal or an ephemeral run), be finished, and hold a node of the step that succeeded or that carries copied outputs; otherwise the request returns 400 with a message that names the step and the run. A step selected to run cannot be a key. The web UI names the run of each reused step with this field and never sends values. Requires steps. */
+                    outputsFromRuns?: {
+                        [key: string]: components["schemas"]["DAGRunId"];
+                    };
+                    /** @description Outputs of skipped steps, keyed by step name or ID and then by output name. For clients that are not the web UI; the web UI sends no values. A declared output, or any name when the step declares none, resolves through ${steps.<id>.outputs.<name>}; the name of the step's string-form output variable sets that variable. Takes precedence over outputs from outputsFromRunId and outputsFromRuns, and works without them: the caller can supply every value itself, and can name the run the values of each step come from in outputsSources. A reference to an output that nobody supplied stays unresolved text in the step. Requires steps. */
                     outputs?: {
                         [key: string]: {
                             [key: string]: string;
                         };
                     };
+                    /** @description Optional. The run each step of outputs was captured from, keyed by step name or ID. Dagu records it in the reusedInputs of the new run; a step of outputs without an entry has no entry there. An entry for a step not in outputs returns 400. The run is not required to exist any more. Requires steps. */
+                    outputsSources?: {
+                        [key: string]: components["schemas"]["ReusedOutputSource"];
+                    };
+                    /**
+                     * @description If true, the run leaves no trace. It runs like any run and is readable by its ID (details, step logs, step outputs, spec, SSE) while it exists, but it is not listed anywhere by default (run lists, DAG history unless includeEphemeral is set, last run, queues, dashboard, artifacts, events and notifications), it does not count in retention, and it cannot be retried, rescheduled or edited (409). The server removes it 10 minutes after it ends and at server start. Allowed only together with steps; a request for the whole DAG with ephemeral true returns 400. The audit log keeps the request, marked ephemeral.
+                     * @default false
+                     */
+                    ephemeral?: boolean;
                     /**
                      * @deprecated
                      * @description Deprecated alias for `labels`; mutually exclusive with `labels`.
@@ -9703,6 +10014,8 @@ export interface operations {
             query?: {
                 /** @description name of the remote node */
                 remoteNode?: components["parameters"]["RemoteNode"];
+                /** @description If true, the response also contains the ephemeral runs of this DAG, merged by start time with the other runs under the same limit. Each carries ephemeral true. No other list returns them. */
+                includeEphemeral?: boolean;
             };
             header?: never;
             path: {
@@ -9802,6 +10115,8 @@ export interface operations {
                         dag?: components["schemas"]["DAGDetails"];
                         /** @description The DAG spec in YAML format */
                         spec: string;
+                        /** @description Lowercase hex SHA-256 of the file bytes that spec holds */
+                        sha256?: string;
                         /** @description List of errors in the spec */
                         errors: string[];
                         /** @description Non-fatal spec warnings */
@@ -9840,6 +10155,8 @@ export interface operations {
                 "application/json": {
                     /** @description The new DAG spec in YAML format */
                     spec: string;
+                    /** @description Lowercase hex SHA-256 of the file that the client edited. When set and different from the current file, the server writes nothing and returns 409. */
+                    expectedSha256?: string;
                 };
             };
         };
@@ -9853,7 +10170,18 @@ export interface operations {
                     "application/json": {
                         /** @description List of errors in the spec */
                         errors: string[];
+                        /** @description Lowercase hex SHA-256 of the bytes written */
+                        sha256: string;
                     };
+                };
+            };
+            /** @description The current file does not match expectedSha256 */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
                 };
             };
             /** @description Generic error response */
@@ -10620,12 +10948,25 @@ export interface operations {
                     /** @description Run only these steps, by step name or ID, in a new DAG-run of the current definition. Every other step is recorded as skipped and does not run. Not supported for agent DAGs. */
                     steps?: string[];
                     outputsFromRunId?: components["schemas"]["DAGRunId"] & unknown;
-                    /** @description Outputs of skipped steps, keyed by step name or ID and then by output name. A declared output, or any name when the step declares none, resolves through ${steps.<id>.outputs.<name>}; the name of the step's string-form output variable sets that variable. Takes precedence over outputs from outputsFromRunId. Requires steps. */
+                    /** @description The run that each skipped step carries its outputs from, keyed by step name or ID. A step named here takes its outputs from that run in place of outputsFromRunId; the work directory still comes only from outputsFromRunId. Each run must exist for the same DAG (a normal or an ephemeral run), be finished, and hold a node of the step that succeeded or that carries copied outputs; otherwise the request returns 400 with a message that names the step and the run. A step selected to run cannot be a key. The web UI names the run of each reused step with this field and never sends values. Requires steps. */
+                    outputsFromRuns?: {
+                        [key: string]: components["schemas"]["DAGRunId"];
+                    };
+                    /** @description Outputs of skipped steps, keyed by step name or ID and then by output name. For clients that are not the web UI; the web UI sends no values. A declared output, or any name when the step declares none, resolves through ${steps.<id>.outputs.<name>}; the name of the step's string-form output variable sets that variable. Takes precedence over outputs from outputsFromRunId and outputsFromRuns, and works without them: the caller can supply every value itself, and can name the run the values of each step come from in outputsSources. A reference to an output that nobody supplied stays unresolved text in the step. Requires steps. */
                     outputs?: {
                         [key: string]: {
                             [key: string]: string;
                         };
                     };
+                    /** @description Optional. The run each step of outputs was captured from, keyed by step name or ID. Dagu records it in the reusedInputs of the new run; a step of outputs without an entry has no entry there. An entry for a step not in outputs returns 400. The run is not required to exist any more. Requires steps. */
+                    outputsSources?: {
+                        [key: string]: components["schemas"]["ReusedOutputSource"];
+                    };
+                    /**
+                     * @description If true, the run leaves no trace. It runs like any run and is readable by its ID (details, step logs, step outputs, spec, SSE) while it exists, but it is not listed anywhere by default (run lists, DAG history unless includeEphemeral is set, last run, queues, dashboard, artifacts, events and notifications), it does not count in retention, and it cannot be retried, rescheduled or edited (409). The server removes it 10 minutes after it ends and at server start. Allowed only together with steps; a request for the whole DAG with ephemeral true returns 400. The audit log keeps the request, marked ephemeral.
+                     * @default false
+                     */
+                    ephemeral?: boolean;
                     /**
                      * @deprecated
                      * @description Deprecated alias for `labels`; mutually exclusive with `labels`.
@@ -11027,7 +11368,7 @@ export interface operations {
                     "application/json": components["schemas"]["Error"];
                 };
             };
-            /** @description Conflict (run ID already exists) */
+            /** @description Conflict (run ID already exists, or the historic run is ephemeral) */
             409: {
                 headers: {
                     [name: string]: unknown;
@@ -11100,6 +11441,15 @@ export interface operations {
                     };
                 };
             };
+            /** @description Conflict: the DAG-run is ephemeral */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
             /** @description Generic error response */
             default: {
                 headers: {
@@ -11153,6 +11503,15 @@ export interface operations {
                         skippedSteps: string[];
                         startedSteps: string[];
                     };
+                };
+            };
+            /** @description Conflict: the DAG-run is ephemeral */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
                 };
             };
             /** @description Generic error response */
@@ -11591,6 +11950,15 @@ export interface operations {
                 };
                 content?: never;
             };
+            /** @description Conflict: the DAG-run is ephemeral */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
             /** @description Generic error response */
             default: {
                 headers: {
@@ -11920,6 +12288,230 @@ export interface operations {
                 };
             };
             /** @description Log file not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Generic error response */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+        };
+    };
+    getDAGRunStepSamples: {
+        parameters: {
+            query?: {
+                /** @description name of the remote node */
+                remoteNode?: components["parameters"]["RemoteNode"];
+                /** @description Start of the window (RFC 3339). Default: 24 hours before `to`. */
+                from?: string;
+                /** @description End of the window (RFC 3339). Default: now. */
+                to?: string;
+                /** @description Most buckets to return. */
+                points?: number;
+            };
+            header?: never;
+            path: {
+                /** @description name of the DAG */
+                name: components["parameters"]["DAGName"];
+                /** @description ID of the DAG-run or 'latest' to get the most recent DAG-run */
+                dagRunId: components["parameters"]["DAGRunId"];
+                /** @description name of the step */
+                stepName: components["parameters"]["StepName"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description A successful response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["StepSamples"];
+                };
+            };
+            /** @description A query parameter is not valid or out of its range, or from is after to */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description DAG-run or step not found, or the step is not a continuous step */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Generic error response */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+        };
+    };
+    getDAGRunStepEvents: {
+        parameters: {
+            query?: {
+                /** @description name of the remote node */
+                remoteNode?: components["parameters"]["RemoteNode"];
+                /** @description Start of the window (RFC 3339), inclusive. Default: no bound. */
+                from?: string;
+                /** @description End of the window (RFC 3339), exclusive. Default: no bound. */
+                to?: string;
+                /** @description Most events to return. */
+                limit?: number;
+                /** @description Opaque cursor from `nextCursor` of a previous response. */
+                before?: string;
+            };
+            header?: never;
+            path: {
+                /** @description name of the DAG */
+                name: components["parameters"]["DAGName"];
+                /** @description ID of the DAG-run or 'latest' to get the most recent DAG-run */
+                dagRunId: components["parameters"]["DAGRunId"];
+                /** @description name of the step */
+                stepName: components["parameters"]["StepName"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description A successful response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["StepEvents"];
+                };
+            };
+            /** @description A query parameter is not valid or out of its range, from is after to, or before is not a cursor that the server gave */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description DAG-run or step not found, or the step is not a continuous step */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Generic error response */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+        };
+    };
+    getDAGRunStepAvailability: {
+        parameters: {
+            query?: {
+                /** @description name of the remote node */
+                remoteNode?: components["parameters"]["RemoteNode"];
+            };
+            header?: never;
+            path: {
+                /** @description name of the DAG */
+                name: components["parameters"]["DAGName"];
+                /** @description ID of the DAG-run or 'latest' to get the most recent DAG-run */
+                dagRunId: components["parameters"]["DAGRunId"];
+                /** @description name of the step */
+                stepName: components["parameters"]["StepName"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description A successful response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["StepAvailability"];
+                };
+            };
+            /** @description DAG-run or step not found, or the step is not a continuous step */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Generic error response */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+        };
+    };
+    getDAGRunStepOutputs: {
+        parameters: {
+            query?: {
+                /** @description name of the remote node */
+                remoteNode?: components["parameters"]["RemoteNode"];
+            };
+            header?: never;
+            path: {
+                /** @description name of the DAG */
+                name: components["parameters"]["DAGName"];
+                /** @description ID of the DAG-run or 'latest' to get the most recent DAG-run */
+                dagRunId: components["parameters"]["DAGRunId"];
+                /** @description name of the step */
+                stepName: components["parameters"]["StepName"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description A successful response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["StepOutputs"];
+                };
+            };
+            /** @description DAG-run or step not found */
             404: {
                 headers: {
                     [name: string]: unknown;
@@ -22659,6 +23251,27 @@ export enum ValueReferenceNoticeClass {
     defect = "defect",
     runtime_only = "runtime_only"
 }
+export enum ValidationIssueSeverity {
+    error = "error",
+    warning = "warning",
+    notice = "notice"
+}
+export enum ValidationIssueSource {
+    load = "load",
+    build = "build",
+    warning = "warning",
+    valueReference = "valueReference"
+}
+export enum ReferenceScopeStepOutputsKnown {
+    static = "static",
+    runtime = "runtime"
+}
+export enum ReferenceScopeOutputSource {
+    declared = "declared",
+    stdoutField = "stdoutField",
+    outputVariable = "outputVariable",
+    action = "action"
+}
 export enum ParamDefType {
     string = "string",
     integer = "integer",
@@ -22669,6 +23282,10 @@ export enum DAGRunConditionStatus {
     True = "True",
     False = "False",
     Unknown = "Unknown"
+}
+export enum ReusedInputVia {
+    run = "run",
+    cache = "cache"
 }
 export enum ArtifactNodeType {
     directory = "directory",
@@ -22741,6 +23358,18 @@ export enum ForeachItemStatusFilter {
     succeeded = "succeeded",
     failed = "failed",
     aborted = "aborted"
+}
+export enum StepEventKind {
+    started = "started",
+    stopped = "stopped",
+    failed = "failed",
+    recovered = "recovered"
+}
+export enum AvailabilityWindowWindow {
+    Value24h = "24h",
+    Value7d = "7d",
+    Value30d = "30d",
+    Value365d = "365d"
 }
 export enum RepeatMode {
     While = "while",

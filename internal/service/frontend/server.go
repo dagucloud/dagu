@@ -136,6 +136,8 @@ type Server struct {
 	tunnelAPIOpts        []apiv1.APIOption
 	tunnelService        *tunnel.Service
 	dagRepository        *persis.DAGRepository
+	dagRunRepository     *persis.DAGRunRepository
+	ephemeralCleanup     ephemeralCleanupConfig
 	licenseManager       *license.Manager
 	remoteNodeResolver   *remotenode.Resolver
 	upgradeStore         upgrade.CacheStore
@@ -628,6 +630,7 @@ func NewServer(setup ServerConfig, opts ...ServerOption) (*Server, error) {
 		syncService:          syncSvc,
 		metricsRegistry:      mr,
 		dagRepository:        dr,
+		dagRunRepository:     dagRunRepository,
 		remoteNodeResolver:   remoteNodeResolver,
 		upgradeStore:         upgradeStore,
 		workspaceDeprecation: workspaceDeprecation,
@@ -1009,6 +1012,7 @@ func (srv *Server) Serve(ctx context.Context) error {
 	metrics.StartUptime(ctx)
 	logger.Info(ctx, "Server is starting", tag.Addr(srv.listener.Addr().String()), tag.URL(webURL))
 	srv.startPeriodicUpdateCheck(ctx)
+	srv.startEphemeralRunCleanup(ctx)
 
 	serveErr := make(chan error, 1)
 	go srv.startServer(ctx, serveErr)

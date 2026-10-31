@@ -1,0 +1,61 @@
+# Copyright (C) 2026 Yota Hamada
+# SPDX-License-Identifier: GPL-3.0-or-later
+
+type: build
+working_dir: .
+shell: [sh]
+
+steps:
+  - id: build
+    name: build
+    inputs:
+      - name: source
+        path: source.txt
+    outputs:
+      - name: intermediate
+        path: intermediate.txt
+    preconditions:
+      - condition: test -f "${inputs.source}"
+    script: |
+      count=$(cat build-count.txt 2>/dev/null || printf 0)
+      printf '%s\n' "$((count + 1))" > build-count.txt
+      if [ -f fail.txt ]; then
+        printf 'broken\n' > "${outputs.intermediate}"
+        exit 1
+      fi
+      cat "${inputs.source}" > "${outputs.intermediate}"
+
+  - id: consume
+    name: consume
+    inputs:
+      - name: intermediate
+        path: intermediate.txt
+    outputs:
+      - name: result
+        path: result.txt
+    env:
+      INPUT_PATH: ${inputs.intermediate}
+      OUTPUT_PATH: ${outputs.result}
+    script: |
+      count=$(cat consume-count.txt 2>/dev/null || printf 0)
+      printf '%s\n' "$((count + 1))" > consume-count.txt
+      cat "$INPUT_PATH" > "$OUTPUT_PATH"
+
+  - id: controlled
+    name: controlled
+    depends: build
+    inputs:
+      - name: source
+        path: source.txt
+    outputs:
+      - name: result
+        path: controlled.txt
+    script: |
+      count=$(cat controlled-count.txt 2>/dev/null || printf 0)
+      printf '%s\n' "$((count + 1))" > controlled-count.txt
+      cat "${inputs.source}" > "${outputs.result}"
+
+  - name: always
+    script: |
+      count=$(cat always-count.txt 2>/dev/null || printf 0)
+      printf '%s\n' "$((count + 1))" > always-count.txt

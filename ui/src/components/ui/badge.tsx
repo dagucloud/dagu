@@ -27,9 +27,15 @@ const badgeVariants = cva(
           'bg-destructive/10 text-[color-mix(in_srgb,var(--destructive)_85%,#000)] border-transparent dark:bg-destructive/15 dark:text-[color-mix(in_srgb,var(--destructive)_90%,#fff)]',
         cancelled: 'bg-muted text-muted-foreground border-transparent',
       },
+      size: {
+        default: '',
+        // Smaller chip for dense lists. It follows the base classes.
+        sm: 'h-4 px-1 text-[10px] leading-4',
+      },
     },
     defaultVariants: {
       variant: 'default',
+      size: 'default',
     },
   }
 );
@@ -37,6 +43,7 @@ const badgeVariants = cva(
 function Badge({
   className,
   variant,
+  size,
   asChild = false,
   ...props
 }: React.ComponentProps<'span'> &
@@ -46,7 +53,7 @@ function Badge({
   return (
     <Comp
       data-slot="badge"
-      className={cn(badgeVariants({ variant }), className)}
+      className={cn(badgeVariants({ variant, size }), className)}
       {...props}
     />
   );

@@ -5,15 +5,9 @@ import React from 'react';
 import { ToggleButton, ToggleGroup } from '@/components/ui/toggle-group';
 import { useI18n } from '@/i18n/I18nProvider';
 
-export type LogViewMode = 'tail' | 'head' | 'page';
+export type LogViewMode = 'tail' | 'page';
 
-const MODES: { value: LogViewMode; label: string }[] = [
-  { value: 'tail', label: 'Show end' },
-  { value: 'head', label: 'Show beginning' },
-  { value: 'page', label: 'Page View' },
-];
-
-/** Chooses which part of a log is loaded: its end, its start, or one page. */
+/** Chooses which part of a log is loaded: its latest lines, or one page. */
 export function LogViewModeSwitch({
   value,
   onChange,
@@ -25,19 +19,19 @@ export function LogViewModeSwitch({
 }): React.ReactElement {
   const { ts } = useI18n();
   return (
-    <ToggleGroup aria-label={ts('Lines shown')} className="p-0.5">
-      {MODES.map((mode) => (
-        <ToggleButton
-          key={mode.value}
-          value={mode.value}
-          groupValue={value}
-          onClick={() => onChange(mode.value)}
-          disabled={disabled}
-          className="h-7 px-2.5"
-        >
-          {ts(mode.label)}
-        </ToggleButton>
-      ))}
+    <ToggleGroup
+      aria-label={ts('Lines shown')}
+      className="max-w-full shrink-0 overflow-x-auto p-0.5"
+    >
+      <ToggleButton
+        value="page"
+        groupValue={value}
+        onClick={() => onChange(value === 'page' ? 'tail' : 'page')}
+        disabled={disabled}
+        className="h-6 whitespace-nowrap px-2"
+      >
+        {ts('Page View')}
+      </ToggleButton>
     </ToggleGroup>
   );
 }

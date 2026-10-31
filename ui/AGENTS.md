@@ -300,12 +300,12 @@ This document outlines the design principles and guidelines for the Dagu UI base
 
 ### Color & Styling
 - **Consistent Metadata Styling**: Use uniform backgrounds for similar information
-  - Example: `bg-slate-200 dark:bg-slate-700` for metadata blocks
+  - Example: `bg-muted` for metadata blocks
 - **Subtle Borders**: Use `border` class consistently, avoid thick borders
 - **Text Hierarchy**: Use size and weight, not excessive color variation
-  - Primary text: `text-slate-800 dark:text-slate-200`
-  - Secondary text: `text-slate-600 dark:text-slate-400`
-  - Muted text: `text-slate-500 dark:text-slate-500`
+  - Primary text: `text-foreground`
+  - Secondary and muted text: `text-muted-foreground`
+- **Theme Tokens**: Use semantic tokens, not palette classes such as `text-slate-*`; they follow dark mode without `dark:` variants
 
 ### Layout Principles
 - **Flexbox First**: Use flexbox for dynamic layouts that fill available space

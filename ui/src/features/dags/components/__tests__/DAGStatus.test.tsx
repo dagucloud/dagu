@@ -867,16 +867,45 @@ describe('DAGStatus', () => {
       );
     }
 
-    it('shows the run status without run tabs and links to the run page', () => {
+    // The header links the run ID to the run page, so the summary adds no link
+    // and no sentence of its own unless an agent waits.
+    it('shows the run status without run tabs and without a run page bar', () => {
       renderSummary(dagRun);
 
       expect(
         screen.queryByRole('button', { name: 'Outputs' })
       ).not.toBeInTheDocument();
       expect(screen.getByText('Node status table')).toBeInTheDocument();
+      expect(
+        screen.queryByRole('link', { name: /Open run/ })
+      ).not.toBeInTheDocument();
+      expect(
+        screen.queryByText(/are on the run page/)
+      ).not.toBeInTheDocument();
+    });
+
+    // The conversation of a waiting agent needs the full view of the run.
+    it('links to the run page while an agent waits', () => {
+      const run = agentSessionRun();
+      renderSummary({
+        ...run,
+        nodes: [
+          {
+            ...run.nodes![1]!,
+            agentSession: {
+              ...run.nodes![1]!.agentSession!,
+              state: AgentSessionState.waiting,
+            },
+          },
+        ],
+      });
+
+      expect(
+        screen.getByText('An agent is waiting for an answer.')
+      ).toBeInTheDocument();
       expect(screen.getByRole('link', { name: /Open run/ })).toHaveAttribute(
         'href',
-        `/dag-runs/${dagRun.name}/${dagRun.dagRunId}?remoteNode=local`
+        '/dags/example?remoteNode=local&run=run-1'
       );
     });
 

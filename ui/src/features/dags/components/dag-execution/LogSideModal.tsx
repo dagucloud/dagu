@@ -131,7 +131,7 @@ const LogSideModal: React.FC<LogSideModalProps> = ({
           isMobile
             ? 'border border-border rounded-none'
             : 'border-l border-border'
-        } overflow-hidden flex flex-col transition-all duration-150 ease-out ${
+        } overflow-hidden flex flex-col transition-[translate,opacity] duration-150 ease-out ${
           isMobile
             ? isVisible
               ? 'translate-y-0 opacity-100'

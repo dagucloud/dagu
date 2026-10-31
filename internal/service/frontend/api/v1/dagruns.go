@@ -192,7 +192,7 @@ func (a *API) ExecuteDAGRunFromSpec(ctx context.Context, request api.ExecuteDAGR
 		}
 	}
 
-	selection, err := selectedStepsFromBody(request.Body.Steps, request.Body.OutputsFromRunId, request.Body.Outputs)
+	selection, err := selectedStepsFromBody(request.Body.Steps, request.Body.OutputsFromRunId, request.Body.OutputsFromRuns, request.Body.Outputs, request.Body.OutputsSources, request.Body.Ephemeral)
 	if err != nil {
 		return nil, err
 	}
@@ -1060,34 +1060,38 @@ func (a *API) DownloadDAGRunArtifact(ctx context.Context, request api.DownloadDA
 	}, nil
 }
 
-func (a *API) GetDAGRunOutputs(ctx context.Context, request api.GetDAGRunOutputsRequestObject) (api.GetDAGRunOutputsResponseObject, error) {
-	var attempt dagrun.Attempt
-	var err error
-
-	if request.DagRunId == "latest" {
-		attempt, err = a.dagRunRepository.LatestAttempt(ctx, request.Name, persis.DAGRunLatestAttemptOptions{})
+// findVisibleAttempt resolves a DAG-run attempt by run ID ("latest" allowed)
+// and checks that its workspace is visible. A non-empty notFound message means
+// that the run does not exist.
+func (a *API) findVisibleAttempt(ctx context.Context, name, dagRunID string) (attempt dagrun.Attempt, notFound string, err error) {
+	if dagRunID == "latest" {
+		attempt, err = a.dagRunRepository.LatestAttempt(ctx, name, persis.DAGRunLatestAttemptOptions{})
 		if err != nil {
-			return api.GetDAGRunOutputs404JSONResponse{
-				Code:    api.ErrorCodeNotFound,
-				Message: fmt.Sprintf("no dag-runs found for DAG %s", request.Name),
-			}, nil
+			return nil, fmt.Sprintf("no dag-runs found for DAG %s", name), nil
 		}
 	} else {
-		ref := ir.NewDAGRunRef(request.Name, request.DagRunId)
-		attempt, err = a.dagRunRepository.FindAttempt(ctx, ref)
+		attempt, err = a.dagRunRepository.FindAttempt(ctx, ir.NewDAGRunRef(name, dagRunID))
 		if err != nil {
-			return api.GetDAGRunOutputs404JSONResponse{
-				Code:    api.ErrorCodeNotFound,
-				Message: fmt.Sprintf("dag-run ID %s not found for DAG %s", request.DagRunId, request.Name),
-			}, nil
+			return nil, fmt.Sprintf("dag-run ID %s not found for DAG %s", dagRunID, name), nil
 		}
 	}
 	workspaceName, err := workspaceNameForAttempt(ctx, attempt)
 	if err != nil {
-		return nil, err
+		return nil, "", err
 	}
 	if err := a.requireWorkspaceVisible(ctx, workspaceName); err != nil {
+		return nil, "", err
+	}
+	return attempt, "", nil
+}
+
+func (a *API) GetDAGRunOutputs(ctx context.Context, request api.GetDAGRunOutputsRequestObject) (api.GetDAGRunOutputsResponseObject, error) {
+	attempt, notFound, err := a.findVisibleAttempt(ctx, request.Name, request.DagRunId)
+	if err != nil {
 		return nil, err
+	}
+	if notFound != "" {
+		return api.GetDAGRunOutputs404JSONResponse{Code: api.ErrorCodeNotFound, Message: notFound}, nil
 	}
 
 	outputs, err := attempt.ReadOutputs(ctx)
@@ -3100,6 +3104,9 @@ func (a *API) retryDAGRun(ctx context.Context, dagName, dagRunID, retryDagRunID,
 	if prevStatus == nil {
 		return retryDAGRunResult{}, fmt.Errorf("error reading status: status data is nil")
 	}
+	if err := rejectEphemeralRun(prevStatus, "retried"); err != nil {
+		return retryDAGRunResult{}, err
+	}
 	if prevStatus.Status.IsActive() {
 		message := fmt.Sprintf("DAG-run %s is active and cannot be retried", prevStatus.DAGRun())
 		if prevStatus.Status == ir.Waiting {
@@ -3564,6 +3571,9 @@ func (a *API) rescheduleDAGRun(ctx context.Context, dagName, dagRunID string, op
 	}
 	if status == nil {
 		return rescheduleDAGRunResult{}, fmt.Errorf("failed to read status: status data is nil")
+	}
+	if err := rejectEphemeralRun(status, "rescheduled"); err != nil {
+		return rescheduleDAGRunResult{}, err
 	}
 	if err := a.requireDAGRunStatusExecute(ctx, status); err != nil {
 		return rescheduleDAGRunResult{}, err
@@ -4045,7 +4055,7 @@ func applyRejection(ctx context.Context, node *ir.Node, status *ir.DAGRunStatus,
 	}
 
 	status.Status = ir.Rejected
-	status.FinishedAt = time.Now().Format(time.RFC3339)
+	status.FinishedAt = stringutil.FormatTime(time.Now())
 }
 
 // resumeWaitingDAGRun accepts a manual resume only while its attempt and status

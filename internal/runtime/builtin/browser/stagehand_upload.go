@@ -5,6 +5,7 @@ package browser
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"mime"
@@ -26,8 +27,12 @@ const filePickerWait = 5 * time.Second
 // its type.
 const fileInputTest = `input[translate(@type,'FILE','file')='file']`
 
-// pageFileInputs matches the file inputs of the page's document.
-const pageFileInputs = "xpath=//" + fileInputTest
+// pageFileInputsExpression lists the file inputs of the page and of the
+// frames it shows, each by the XPath the browser runtime finds it by.
+const pageFileInputsExpression = `(() => {
+	` + shownDocumentsFunction + `
+	return shownDocuments(document).flatMap(({doc, path}) => [...doc.querySelectorAll("input[type=file i]")].map((input) => path + xpathOf(input)));
+})()`
 
 // uploadMIMETypes are the types of common business files, which a system's
 // own table may lack.
@@ -47,6 +52,7 @@ var uploadMIMETypes = map[string]string{
 }
 
 func (e *stagehandEngine) Upload(ctx context.Context, selector string, files []uploadFile, timeout time.Duration) (string, error) {
+	limit := time.Now().Add(timeout)
 	return boundCall(ctx, timeout+callTimeoutSlack, func(ctx context.Context) (string, error) {
 		page, err := e.page(ctx)
 		if err != nil {
@@ -56,7 +62,7 @@ func (e *stagehandEngine) Upload(ctx context.Context, selector string, files []u
 		how, err := e.upload(ctx, page, selector, files)
 		if err == nil {
 			// The page may start sending the files as soon as it has them.
-			e.settle(ctx)
+			e.settle(ctx, limit)
 		}
 		return how, err
 	})
@@ -64,16 +70,21 @@ func (e *stagehandEngine) Upload(ctx context.Context, selector string, files []u
 
 func (e *stagehandEngine) upload(ctx context.Context, page *stagehand.Page, selector string, files []uploadFile) (string, error) {
 	if selector == "" {
-		count, err := page.Locator(pageFileInputs).Count(ctx)
-		switch {
-		case err != nil:
+		raw, err := page.Evaluate(ctx, pageFileInputsExpression)
+		if err != nil {
 			return "", err
-		case count == 0:
-			return "", errNoFileInput
-		case count > 1:
-			return "", errFileInputs{count: count}
 		}
-		return uploadDirect, setInputFiles(ctx, page, pageFileInputs, files)
+		var inputs []string
+		if err := json.Unmarshal(raw, &inputs); err != nil {
+			return "", fmt.Errorf("find the page's file inputs: %w", err)
+		}
+		switch {
+		case len(inputs) == 0:
+			return "", errNoFileInput
+		case len(inputs) > 1:
+			return "", errFileInputs{count: len(inputs)}
+		}
+		return uploadDirect, setInputFiles(ctx, page, "xpath="+inputs[0], files)
 	}
 	xpath := strings.HasPrefix(selector, "xpath=") || strings.HasPrefix(selector, "/")
 	if xpath {

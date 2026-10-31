@@ -43,6 +43,10 @@ func (s dagDefinitionStoreStub) Update(ctx context.Context, id string, source []
 	return s.update(ctx, id, source)
 }
 
+func (s dagDefinitionStoreStub) UpdateIfMatch(ctx context.Context, id, _ string, source []byte) error {
+	return s.Update(ctx, id, source)
+}
+
 func TestDAGRepositoryLoadsDefinitionWithoutSourcePath(t *testing.T) {
 	repository := NewDAGRepository(dagDefinitionStoreStub{
 		definition: DAGDefinition{

@@ -3,7 +3,9 @@
 
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { components, ViewColumn } from '@/api/v1/schema';
-import DAGRunDetailsModal from '@/features/dag-runs/components/dag-run-details/DAGRunDetailsModal';
+import { useRemoteNode } from '@/contexts/RemoteNodeContext';
+import { buildDAGPageURL } from '@/features/dag-runs/lib/dagRunUrls';
+import { useOpenPage } from '@/features/dag-runs/lib/useOpenPage';
 import type { KanbanFilters } from '../hooks/useDateKanbanData';
 import { useInfiniteBuckets } from '../hooks/useInfiniteBuckets';
 import { ArtifactListModal } from './ArtifactListModal';
@@ -35,17 +37,28 @@ export function BucketKanbanList({
     intervalDays,
     resetKey
   );
-  const [selectedRun, setSelectedRun] = useState<DAGRunSummary | null>(null);
-  const [isDetailsOpen, setIsDetailsOpen] = useState(false);
+  const remoteNode = useRemoteNode();
+  const openPage = useOpenPage();
   const [artifactRun, setArtifactRun] = useState<DAGRunSummary | null>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   const sentinelRef = useRef<HTMLDivElement>(null);
   const awaitingSentinelExitRef = useRef(false);
 
-  const handleCardClick = useCallback((run: DAGRunSummary) => {
-    setSelectedRun(run);
-    setIsDetailsOpen(true);
-  }, []);
+  // A card opens its run on the workflow page, on the Artifacts tab when the run has artifacts.
+  const handleCardClick = useCallback(
+    (run: DAGRunSummary, event?: React.MouseEvent) => {
+      openPage(
+        buildDAGPageURL({
+          fileName: run.name,
+          remoteNode,
+          run: run.dagRunId,
+          dock: run.artifactsAvailable ? 'artifacts' : undefined,
+        }),
+        event
+      );
+    },
+    [openPage, remoteNode]
+  );
 
   const handleArtifactsClick = useCallback((run: DAGRunSummary) => {
     setArtifactRun(run);
@@ -117,19 +130,12 @@ export function BucketKanbanList({
               onClick={triggerLoadNext}
               className="rounded border border-border px-3 py-1.5 text-xs text-muted-foreground hover:text-foreground"
             >
-              <I18nText text={"Load older"} />
+              <I18nText text={'Load older'} />
             </button>
             <div ref={sentinelRef} className="h-1 w-full shrink-0" />
           </div>
         )}
       </div>
-      <DAGRunDetailsModal
-        name={selectedRun?.name ?? ''}
-        dagRunId={selectedRun?.dagRunId ?? ''}
-        isOpen={isDetailsOpen && !!selectedRun}
-        initialTab={selectedRun?.artifactsAvailable ? 'artifacts' : 'status'}
-        onClose={() => setIsDetailsOpen(false)}
-      />
       <ArtifactListModal
         run={artifactRun}
         isOpen={!!artifactRun}

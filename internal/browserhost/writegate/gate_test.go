@@ -16,6 +16,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -45,6 +46,17 @@ function post(path, opts) { return fetch(path, Object.assign({method: 'POST', bo
 function socket() { return new Promise(res => { const s = new WebSocket(location.origin.replace('http', 'ws') + '/ws'); s.onopen = () => res('open'); s.onerror = () => res('error'); setTimeout(() => res('timeout'), 3000); }); }
 </script></head><body><h1>Ledger</h1>
 <form id="form" method="post" action="/w/form"><input name="title" value="hello"></form></body></html>`
+
+// siteFrames shows a menu frame whose forms load the body frame, as a
+// frameset site moves between its pages.
+const siteFrames = `<!doctype html><html><head><title>Frames</title></head>
+<frameset cols="30%,70%"><frame name="menu" src="/menu"><frame name="body" src="/"></frameset></html>`
+
+const siteMenu = `<!doctype html><html><head><title>Menu</title></head><body>
+<form id="form" method="post" action="/w/frame" target="body"><input name="title" value="next"></form>
+<form id="read" method="get" action="/w/menu" target="body"><input name="title" value="next"></form></body></html>`
+
+const siteIframe = `<!doctype html><html><head><title>Outer</title></head><body><iframe name="inner" src="/"></iframe></body></html>`
 
 const siteWorker = `fetch('/w/worker', {method: 'POST', body: 'x'}).then(r => postMessage('ok ' + r.status), e => postMessage('error ' + e));`
 
@@ -112,8 +124,12 @@ func (s *site) serve(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/javascript")
 		_, _ = io.WriteString(w, siteStartWorker)
 	default:
+		page, ok := map[string]string{"/frames": siteFrames, "/menu": siteMenu, "/iframe": siteIframe}[r.URL.Path]
+		if !ok {
+			page = sitePage
+		}
 		w.Header().Set("Content-Type", "text/html")
-		_, _ = io.WriteString(w, sitePage)
+		_, _ = io.WriteString(w, page)
 	}
 }
 
@@ -157,12 +173,18 @@ func profileDir(t *testing.T) string {
 	return dir
 }
 
+// startupSlot lets one test browser start at a time: parallel Chrome
+// startups on a loaded CI host can together outlast the wait for DevTools.
+var startupSlot = make(chan struct{}, 1)
+
 // startBrowserOn starts the browser on the profile directory. The browser
 // chooses its DevTools port and writes it to the profile, so no other
 // process can take the port between choosing and listening.
 func startBrowserOn(t *testing.T, profile string) *browser {
 	t.Helper()
 	path := chrometest.Require(t)
+	startupSlot <- struct{}{}
+	defer func() { <-startupSlot }()
 	activePort := filepath.Join(profile, "DevToolsActivePort")
 	// A profile used before still names the port of the browser that used it.
 	if err := os.Remove(activePort); !errors.Is(err, os.ErrNotExist) {
@@ -255,6 +277,9 @@ type page struct {
 	sid  string
 	next int64
 	mu   sync.Mutex
+	// seen are the methods of the page's events read while waiting for a
+	// reply, so a wait for an event that came first still sees it.
+	seen []string
 }
 
 func openPage(t *testing.T, b *browser) *page {
@@ -303,13 +328,21 @@ func (p *page) call(sid, method string, params map[string]any, result any) {
 		_, data, err := p.conn.Read(ctx)
 		require.NoError(p.t, err, method)
 		var m struct {
-			ID     int64           `json:"id"`
-			Result json.RawMessage `json:"result"`
-			Error  *struct {
+			ID        int64           `json:"id"`
+			Method    string          `json:"method"`
+			SessionID string          `json:"sessionId"`
+			Result    json.RawMessage `json:"result"`
+			Error     *struct {
 				Message string `json:"message"`
 			} `json:"error"`
 		}
-		if json.Unmarshal(data, &m) != nil || m.ID != p.next {
+		if json.Unmarshal(data, &m) != nil {
+			continue
+		}
+		if m.Method != "" && m.SessionID == p.sid {
+			p.seen = append(p.seen, m.Method)
+		}
+		if m.ID != p.next {
 			continue
 		}
 		require.Nil(p.t, m.Error, "%s: %v", method, m.Error)
@@ -339,6 +372,61 @@ func (p *page) goTo(url string) {
 	require.Eventually(p.t, func() bool {
 		return p.eval(`location.href === `+quote(url)+` && document.readyState === 'complete'`) == "true"
 	}, 30*time.Second, 50*time.Millisecond)
+}
+
+// load runs statement, which starts a page load in the page or one of its
+// frames, and returns once the load ended, whether or not a document
+// loaded.
+func (p *page) load(statement string) {
+	p.t.Helper()
+	p.awaitLoad(func() { p.eval(statement + `; 1`) })
+}
+
+// navigate asks the browser to load url in the page, as a goto does, and
+// returns once the load ended, whether or not a document loaded.
+func (p *page) navigate(url string) {
+	p.t.Helper()
+	p.awaitLoad(func() { p.call(p.sid, "Page.navigate", map[string]any{"url": url}, nil) })
+}
+
+// awaitLoad runs start, which starts a page load, and returns once the load
+// ended.
+func (p *page) awaitLoad(start func()) {
+	p.t.Helper()
+	p.call(p.sid, "Page.enable", nil, nil)
+	p.mu.Lock()
+	p.seen = nil
+	p.mu.Unlock()
+	start()
+	p.await("Page.frameStoppedLoading")
+}
+
+// submit submits the form with ID form that frame, an expression such as
+// window or frames.menu, shows, and returns once the load it started
+// ended.
+func (p *page) submit(frame, form string) {
+	p.t.Helper()
+	p.load(frame + `.document.getElementById(` + quote(form) + `).submit()`)
+}
+
+// await returns once the page sent an event of method.
+func (p *page) await(method string) {
+	p.t.Helper()
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	ctx, cancel := context.WithTimeout(p.t.Context(), 30*time.Second)
+	defer cancel()
+	for !slices.Contains(p.seen, method) {
+		_, data, err := p.conn.Read(ctx)
+		require.NoError(p.t, err, "waiting for %s", method)
+		var m struct {
+			Method    string `json:"method"`
+			SessionID string `json:"sessionId"`
+		}
+		if json.Unmarshal(data, &m) == nil && m.Method != "" && m.SessionID == p.sid {
+			p.seen = append(p.seen, m.Method)
+		}
+	}
 }
 
 func quote(s string) string {
@@ -375,8 +463,7 @@ func TestGateBlocksWritesItRehearses(t *testing.T) {
 	assert.Equal(t, "ok 200", p.eval(`fetch('/w/read').then(r => 'ok ' + r.status)`))
 	assert.Equal(t, "true", p.eval(`navigator.sendBeacon('/w/beacon', 'x')`))
 	assert.Contains(t, p.eval(`new Promise(res => { const w = new Worker('/worker.js'); w.onmessage = e => res(e.data); })`), "error")
-	p.eval(`document.getElementById('form').submit(); 1`)
-	require.Eventually(t, func() bool { return p.eval(`document.title`) == "Not sent" }, 10*time.Second, 50*time.Millisecond)
+	p.submit("window", "form")
 
 	assert.Empty(t, s.written(), "no write reaches the site")
 	list := events(t, controls)
@@ -401,6 +488,97 @@ func TestGateBlocksWritesItRehearses(t *testing.T) {
 	assert.Equal(t, "Document", form.ResourceType)
 	_, read := find(list, "/w/read")
 	assert.False(t, read, "a read is not an event")
+}
+
+// A form the gate holds leaves the page as the person filled it in,
+// whichever frame the form loads, so the page shows what waits to be sent
+// and the same form can send it once allowed.
+func TestGateHoldsAFormOnItsPage(t *testing.T) {
+	t.Parallel()
+
+	for _, tc := range []struct {
+		name, path string
+		// form is the frame the form is in, shown the frame it loads, and
+		// write the path it posts to.
+		form, shown, write string
+	}{
+		{name: "page", path: "/", form: "window", shown: "window", write: "/w/form"},
+		{name: "frameset", path: "/frames", form: "frames.menu", shown: "frames.body", write: "/w/frame"},
+		{name: "iframe", path: "/iframe", form: "frames.inner", shown: "frames.inner", write: "/w/form"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			s := startSite(t)
+			b := startBrowser(t)
+			controls, _, _ := guard(t, b, writegate.Policy{}, nil)
+			p := openPage(t, b)
+			p.goTo(s.URL + tc.path)
+			// The form and the frame it loads are both filled in, and both
+			// stay so.
+			frames := []string{tc.form, tc.shown}
+			field := func(frame string) string { return frame + `.document.querySelector('[name=title]').value` }
+			for _, frame := range frames {
+				p.eval(field(frame) + ` = 'filled in'; 1`)
+			}
+			p.submit(tc.form, "form")
+
+			assert.Equal(t, s.URL+"/", p.eval(tc.shown+`.location.href`))
+			for _, frame := range frames {
+				assert.Equal(t, "filled in", p.eval(field(frame)), frame)
+			}
+			assert.Empty(t, s.written())
+			held, ok := find(events(t, controls), tc.write)
+			require.True(t, ok)
+			assert.Equal(t, writegate.OutcomeBlocked, held.Outcome)
+			assert.Equal(t, "Document", held.ResourceType)
+		})
+	}
+}
+
+// A form that reads loads its page in the frame it names, as any read does.
+func TestGateLoadsAFormThatReads(t *testing.T) {
+	t.Parallel()
+
+	s := startSite(t)
+	b := startBrowser(t)
+	controls, _, _ := guard(t, b, writegate.Policy{}, nil)
+	p := openPage(t, b)
+	p.goTo(s.URL + "/frames")
+	p.submit("frames.menu", "read")
+
+	assert.Equal(t, s.URL+"/w/menu?title=next", p.eval(`frames.body.location.href`))
+	_, ok := find(events(t, controls), "/w/menu")
+	assert.False(t, ok, "a read is not an event")
+}
+
+// A load of an address the policy declares a write keeps the page, as a
+// form does, whoever starts it: a link the page follows, with or without
+// the page's address as its Referer, or the browser asked for the address,
+// as a goto does.
+func TestGateHoldsALoadWhoeverStartsIt(t *testing.T) {
+	t.Parallel()
+
+	s := startSite(t)
+	b := startBrowser(t)
+	policy := writegate.Policy{Writes: []writegate.Rule{{Host: "127.0.0.1", Path: "/w/delete"}}}
+	controls, _, _ := guard(t, b, policy, nil)
+	p := openPage(t, b)
+	p.goTo(s.URL + "/")
+
+	p.load(`location.href = '/w/delete'`)
+	assert.Equal(t, s.URL+"/", p.eval(`location.href`))
+	// A link that withholds the page's address names no Referer.
+	p.load(`const a = document.createElement('a'); a.href = '/w/delete'; a.rel = 'noreferrer'; document.body.append(a); a.click()`)
+	assert.Equal(t, s.URL+"/", p.eval(`location.href`))
+	p.navigate(s.URL + "/w/delete")
+	assert.Equal(t, s.URL+"/", p.eval(`location.href`))
+
+	var outcomes []string
+	for _, e := range events(t, controls) {
+		outcomes = append(outcomes, strings.TrimPrefix(e.URL, s.URL)+" "+e.Outcome)
+	}
+	assert.Equal(t, []string{"/w/delete blocked", "/w/delete blocked", "/w/delete blocked"}, outcomes)
 }
 
 // A page loaded before the gate started is paused at its own target, so

@@ -42,6 +42,7 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/queue"
 	"github.com/dagucloud/dagu/v2/internal/remotenode"
 	"github.com/dagucloud/dagu/v2/internal/runtime"
+	"github.com/dagucloud/dagu/v2/internal/samples"
 	"github.com/dagucloud/dagu/v2/internal/schedulerstate"
 	secretpkg "github.com/dagucloud/dagu/v2/internal/secret"
 	authservice "github.com/dagucloud/dagu/v2/internal/service/auth"
@@ -97,6 +98,8 @@ type API struct {
 	defaultExecMode      config.ExecutionMode
 	dagWritesDisabled    bool // True when git sync read-only mode is active
 	baseConfigStore      dagsettings.BaseConfigStore
+	// samplesReader opens a samples store; nil means samples.OpenReader.
+	samplesReader        func(dir string) samples.Reader
 	dagSettingsStore     dagsettings.Store
 	dagPinStore          dagpin.Store
 	wikiStore            wiki.PageStore

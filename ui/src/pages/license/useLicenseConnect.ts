@@ -8,6 +8,7 @@ import {
   type LicenseMonitoringLevel,
 } from '@/api/v1/schema';
 import { useClient } from '@/hooks/api';
+import { subscribeClock } from '@/hooks/useClock';
 import { useI18n } from '@/i18n/I18nProvider';
 
 export type LicenseConnectStatus =
@@ -45,7 +46,7 @@ export function useLicenseConnect(remoteNode: string) {
   useEffect(() => {
     if (!pending) return;
     let stopped = false;
-    const timer = window.setInterval(async () => {
+    const stopPolling = subscribeClock(POLL_INTERVAL_MS, async () => {
       try {
         const { data } = await client.GET('/license/connect', {
           params: { query: { remoteNode } },
@@ -54,10 +55,10 @@ export function useLicenseConnect(remoteNode: string) {
       } catch {
         // A failed poll is retried on the next tick.
       }
-    }, POLL_INTERVAL_MS);
+    });
     return () => {
       stopped = true;
-      window.clearInterval(timer);
+      stopPolling();
     };
   }, [pending, client, remoteNode]);
 

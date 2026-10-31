@@ -27,4 +27,17 @@ describe('StatusChip', () => {
 
     expect(screen.getByText('exit 3')).toBeVisible();
   });
+
+  it('reads Healthy in the success token for a healthy run', () => {
+    render(
+      <StatusChip status={Status.Running} healthy>
+        {StatusLabel.running}
+      </StatusChip>
+    );
+
+    const chip = screen.getByText('Healthy').closest('[data-status]');
+    expect(chip).toHaveAttribute('data-status', String(Status.Running));
+    expect(chip).toHaveClass('status-success');
+    expect(screen.queryByText('Running')).toBeNull();
+  });
 });

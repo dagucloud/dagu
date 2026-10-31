@@ -4,11 +4,13 @@
 import { Checkbox } from '@/components/ui/checkbox';
 import { ChevronDown, ChevronRight } from 'lucide-react';
 import { useMemo, useState } from 'react';
+import { Link } from 'react-router-dom';
 import { components, Status } from '../../../../api/v1/schema';
 import dayjs from '../../../../lib/dayjs';
 import { getDAGRunScheduleSortValue } from '../../../../lib/dagRunTiming';
 import RelativeTime from '@/components/ui/relative-time';
 import StatusChip from '@/components/ui/status-chip';
+import { RunStatusChip } from '../common/RunStatusChip';
 import AutoRetryBadge from '../common/AutoRetryBadge';
 import {
   DAGRunSelectionItem,
@@ -16,7 +18,9 @@ import {
 } from '../../hooks/useBulkDAGRunSelection';
 import { StepDetailsTooltip } from './StepDetailsTooltip';
 import { DAGRunArtifactsButton } from './DAGRunArtifactsButton';
-import { useConfig } from '../../../../contexts/ConfigContext';
+import { useRemoteNode } from '../../../../contexts/RemoteNodeContext';
+import { buildDAGPageURL } from '../../lib/dagRunUrls';
+import { useOpenPage } from '../../lib/useOpenPage';
 import { I18nText } from '@/i18n/I18nText';
 import { useI18n } from '@/i18n/I18nProvider';
 
@@ -25,9 +29,6 @@ interface DAGRunGroupedViewProps {
   /** True while the first page is being fetched; suppresses the empty state. */
   isLoading?: boolean;
   selectedRunKeys?: Set<string>;
-  selectedDAGRun?: { name: string; dagRunId: string } | null;
-  onSelectDAGRun?: (dagRun: { name: string; dagRunId: string } | null) => void;
-  onViewArtifacts?: (dagRun: DAGRunSelectionItem) => void;
   onToggleBulkSelect?: (dagRun: DAGRunSelectionItem) => void;
 }
 
@@ -39,13 +40,19 @@ function DAGRunGroupedView({
   dagRuns,
   isLoading = false,
   selectedRunKeys,
-  selectedDAGRun = null,
-  onSelectDAGRun,
-  onViewArtifacts,
   onToggleBulkSelect,
 }: DAGRunGroupedViewProps) {
   const { ts } = useI18n();
-  const config = useConfig();
+  const remoteNode = useRemoteNode();
+  const openPage = useOpenPage();
+  // A row opens the run on its workflow page; the artifacts button opens the Artifacts tab.
+  const runURL = (dagRun: DAGRunSelectionItem, dock?: string) =>
+    buildDAGPageURL({
+      fileName: dagRun.name,
+      remoteNode,
+      run: dagRun.dagRunId,
+      dock,
+    });
   const [expandedGroups, setExpandedGroups] = useState<Set<string>>(new Set());
 
   // Group DAG runs by name
@@ -195,9 +202,6 @@ function DAGRunGroupedView({
   const sortedDagNames = Object.keys(groupedDAGRuns).sort();
   const isBulkSelected = (dagRun: DAGRunSelectionItem) =>
     selectedRunKeys?.has(getDAGRunSelectionKey(dagRun)) ?? false;
-  const isFocused = (dagRun: DAGRunSelectionItem) =>
-    selectedDAGRun?.name === dagRun.name &&
-    selectedDAGRun?.dagRunId === dagRun.dagRunId;
 
   return (
     <div className="border rounded-md bg-card">
@@ -223,9 +227,12 @@ function DAGRunGroupedView({
                     type="button"
                     className="flex-shrink-0 p-1 hover:bg-muted rounded"
                     aria-expanded={isExpanded}
-                    aria-label={ts(isExpanded ? 'Collapse {name}' : 'Expand {name}', {
-                      name: dagName,
-                    })}
+                    aria-label={ts(
+                      isExpanded ? 'Collapse {name}' : 'Expand {name}',
+                      {
+                        name: dagName,
+                      }
+                    )}
                     onClick={(e) => {
                       e.stopPropagation();
                       toggleGroup(dagName);
@@ -285,9 +292,14 @@ function DAGRunGroupedView({
                 </div>
                 <div className="flex items-center gap-2 flex-shrink-0">
                   {summary.allSameStatus && summary.uniformStatus != null ? (
-                    <StatusChip status={summary.uniformStatus} size="xs">
+                    <RunStatusChip
+                      name={summary.latestRun.name}
+                      dagRunId={summary.latestRun.dagRunId}
+                      status={summary.uniformStatus}
+                      size="xs"
+                    >
                       {summary.latestRun.statusLabel}
-                    </StatusChip>
+                    </RunStatusChip>
                   ) : (
                     <StatusChip status={undefined} size="xs">
                       <I18nText text={'Mixed'} />
@@ -303,23 +315,8 @@ function DAGRunGroupedView({
                     {runs.map((dagRun) => (
                       <div
                         key={dagRun.dagRunId}
-                        className={`px-3 py-2 pl-11 hover:bg-muted/20 cursor-pointer transition-colors text-xs ${
-                          isFocused(dagRun) ? 'bg-muted/20' : ''
-                        } ${isBulkSelected(dagRun) ? 'bg-muted/30' : ''}`}
-                        onClick={(e) => {
-                          if (e.ctrlKey || e.metaKey) {
-                            const basePath = config.basePath || '';
-                            window.open(
-                              `${basePath}/dag-runs/${dagRun.name}/${dagRun.dagRunId}`,
-                              '_blank'
-                            );
-                          } else if (onSelectDAGRun) {
-                            onSelectDAGRun({
-                              name: dagRun.name,
-                              dagRunId: dagRun.dagRunId,
-                            });
-                          }
-                        }}
+                        className={`px-3 py-2 pl-11 hover:bg-muted/20 cursor-pointer transition-colors text-xs ${isBulkSelected(dagRun) ? 'bg-muted/30' : ''}`}
+                        onClick={(e) => openPage(runURL(dagRun), e)}
                       >
                         <div className="flex items-start justify-between gap-3">
                           <div className="flex flex-1 items-start gap-3 min-w-0">
@@ -341,9 +338,13 @@ function DAGRunGroupedView({
                               </div>
                             )}
                             <div className="flex-1 min-w-0 space-y-1">
-                              <div className="font-mono text-muted-foreground truncate">
+                              <Link
+                                to={runURL(dagRun)}
+                                className="block truncate font-mono text-muted-foreground hover:underline"
+                                onClick={(event) => event.stopPropagation()}
+                              >
                                 {dagRun.dagRunId}
-                              </div>
+                              </Link>
                               <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs">
                                 {dagRun.scheduleTime && (
                                   <div className="whitespace-nowrap">
@@ -389,17 +390,20 @@ function DAGRunGroupedView({
                             </div>
                           </div>
                           <div className="mt-0.5 flex flex-shrink-0 items-start gap-2">
-                            {onViewArtifacts && (
-                              <DAGRunArtifactsButton
-                                dagRun={dagRun}
-                                onClick={() => onViewArtifacts(dagRun)}
-                              />
-                            )}
+                            <DAGRunArtifactsButton
+                              dagRun={dagRun}
+                              to={runURL(dagRun, 'artifacts')}
+                            />
                             <StepDetailsTooltip dagRun={dagRun}>
                               <div className="flex flex-col items-end gap-1">
-                                <StatusChip status={dagRun.status} size="xs">
+                                <RunStatusChip
+                                  name={dagRun.name}
+                                  dagRunId={dagRun.dagRunId}
+                                  status={dagRun.status}
+                                  size="xs"
+                                >
                                   {dagRun.statusLabel}
-                                </StatusChip>
+                                </RunStatusChip>
                                 <AutoRetryBadge
                                   status={dagRun.status}
                                   count={dagRun.autoRetryCount}

@@ -192,6 +192,7 @@ func queuedStatus(req QueueRequest, dagRun ir.DAGRunRef, attemptID, logFile, arc
 		ir.WithRuntimeProfile(req.ProfileName, "", nil),
 		ir.WithDAGDefinitionID(req.DefinitionID),
 		ir.WithNoReuse(req.NoReuse),
+		ir.WithEphemeral(req.AttemptOptions.Ephemeral),
 	}
 	if req.ScheduleTime != "" {
 		opts = append(opts, ir.WithScheduleTime(req.ScheduleTime))

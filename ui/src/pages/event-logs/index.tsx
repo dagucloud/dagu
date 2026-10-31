@@ -34,6 +34,7 @@ import {
 } from '@/components/ui/table';
 import { ToggleButton, ToggleGroup } from '@/components/ui/toggle-group';
 import { AppBarContext } from '@/contexts/AppBarContext';
+import { buildDAGPageURL } from '@/features/dag-runs/lib/dagRunUrls';
 import { useCanViewEventLogs } from '@/contexts/AuthContext';
 import { useConfig } from '@/contexts/ConfigContext';
 import { useSearchState } from '@/contexts/SearchStateContext';
@@ -180,11 +181,15 @@ function getInputTypeForPeriod(period: SpecificPeriod): string {
   }
 }
 
-function buildRunPath(entry: EventLogEntry): string | null {
+function buildRunPath(entry: EventLogEntry, remoteNode: string): string | null {
   if (!entry.dagName || !entry.dagRunId) {
     return null;
   }
-  return `/dag-runs/${encodeURIComponent(entry.dagName)}/${encodeURIComponent(entry.dagRunId)}`;
+  return buildDAGPageURL({
+    fileName: entry.dagName,
+    remoteNode,
+    run: entry.dagRunId,
+  });
 }
 
 function hasQueryParams(params: URLSearchParams): boolean {
@@ -1222,7 +1227,7 @@ export default function EventLogsPage() {
                   </TableRow>
                 ) : (
                   entries.map((entry) => {
-                    const runPath = buildRunPath(entry);
+                    const runPath = buildRunPath(entry, remoteKey);
                     return (
                       <TableRow key={entry.id}>
                         <TableCell className="whitespace-nowrap text-muted-foreground">

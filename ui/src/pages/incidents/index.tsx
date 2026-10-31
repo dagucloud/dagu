@@ -529,7 +529,7 @@ export function IncidentProvidersPage(): ReactElement {
             'Test incident delivery failed'
         );
       }
-      showToast('Test incident sent');
+      showToast('Test incident sent', { variant: 'info' });
     } catch (err) {
       setError(
         err instanceof Error ? err.message : 'Test incident delivery failed'

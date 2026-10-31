@@ -26,7 +26,9 @@ func (ts *testSessions) doAllowing(id, input string, signatures ...string) (DoRe
 }
 
 // A gated session reports each write with the command it happened in, and
-// one the page sent while it waited with the next command.
+// one the page sent while it waited with the next command. A rehearsal
+// also says in words that a write it blocked was not sent, since a blocked
+// form leaves its page as it was.
 func TestSessionReportsWrites(t *testing.T) {
 	ts := newTestSessions(t, pageModel(nil))
 	ts.engine.handle.WriteGate = runningGate()
@@ -45,6 +47,7 @@ func TestSessionReportsWrites(t *testing.T) {
 	require.Len(t, result.Writes, 1)
 	assert.Equal(t, writegate.OutcomeBlocked, result.Writes[0].Outcome)
 	assert.Equal(t, `{"amount":1000,"note":"*******"}`, result.Writes[0].Body, "a session's secrets are hidden")
+	assert.Contains(t, result.Warnings, "the write gate blocked POST https://books.example.com/api/deals, so nothing was saved; a rehearsal does not send it")
 
 	// The page writes on its own between commands.
 	ts.engine.mu.Lock()

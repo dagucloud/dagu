@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 /**
- * DAGEditButtons component provides buttons for renaming and deleting a DAG.
+ * DAGEditButtons component provides icon buttons for renaming and deleting a DAG.
  *
  * @module features/dags/components/dag-editor
  */
@@ -17,6 +17,7 @@ import { useRemoteNode } from '../../../../contexts/RemoteNodeContext';
 import { useClient } from '../../../../hooks/api';
 import { I18nText } from '@/i18n/I18nText';
 import { I18nProps } from '@/i18n/I18nProps';
+import { useI18n } from '@/i18n/I18nProvider';
 
 /**
  * Props for the DAGEditButtons component
@@ -28,23 +29,37 @@ type Props = {
   workspace?: string | null;
 };
 
+/** Rename and Delete of a DAG file, for any trigger (buttons or a menu). */
+export interface DAGEditActions {
+  /** The user may rename and delete the DAG in its workspace. */
+  canWrite: boolean;
+  openRename(): void;
+  openDelete(): void;
+  /** The rename and delete dialogs; render them once next to the triggers. */
+  dialogs: React.ReactNode;
+}
+
 /**
- * DAGEditButtons provides buttons for renaming and deleting a DAG
+ * Holds the rename and delete dialogs of a DAG and the requests that they
+ * send. After a success, the page loads the renamed DAG or the DAG list.
  */
-function DAGEditButtons({ fileName, workspace }: Props) {
+export function useDAGEditActions(
+  fileName: string,
+  workspace?: string | null
+): DAGEditActions {
   const remoteNode = useRemoteNode();
   const canWrite = useCanWriteForWorkspace(workspace);
   const client = useClient();
   const { showError } = useErrorModal();
+  const { ts } = useI18n();
   const [isDeleteModalOpen, setIsDeleteModalOpen] = React.useState(false);
   const [isDeleteLoading, setIsDeleteLoading] = React.useState(false);
   const [isRenameModalOpen, setIsRenameModalOpen] = React.useState(false);
   const [renameError, setRenameError] = React.useState<string | null>(null);
   const [isRenameLoading, setIsRenameLoading] = React.useState(false);
 
-  if (!canWrite) {
-    return null;
-  }
+  const openRename = React.useCallback(() => setIsRenameModalOpen(true), []);
+  const openDelete = React.useCallback(() => setIsDeleteModalOpen(true), []);
 
   const handleRenameClose = () => {
     setIsRenameModalOpen(false);
@@ -93,78 +108,74 @@ function DAGEditButtons({ fileName, workspace }: Props) {
     }
   };
 
-  return (
-    <div className="flex items-center gap-2">
-      <Button onClick={() => setIsRenameModalOpen(true)}>
-        <PencilLine className="h-4 w-4" />
-        <I18nText text={"Rename"} />
-      </Button>
+  const handleDeleteSubmit = async () => {
+    if (isDeleteLoading) return;
+    setIsDeleteLoading(true);
+    try {
+      const { error } = await client.DELETE('/dags/{fileName}', {
+        params: {
+          path: {
+            fileName: fileName,
+          },
+          query: {
+            remoteNode,
+          },
+        },
+      });
+      if (error) {
+        showError(
+          error.message || ts('Failed to delete DAG'),
+          ts('Please try again or check the server connection.')
+        );
+        return;
+      }
 
-      <Button
-        variant="ghost"
-        className="text-destructive hover:bg-destructive/10 hover:text-destructive"
-        onClick={() => setIsDeleteModalOpen(true)}
-      >
-        <Trash2 className="h-4 w-4" />
-        <I18nText text={"Delete"} />
-      </Button>
+      setIsDeleteModalOpen(false);
+      const basePath = window.location.pathname.split('/dags')[0] || '';
+      const searchParams = new URLSearchParams();
+      searchParams.set('remoteNode', remoteNode);
+      const query = searchParams.toString();
+      window.location.href = query
+        ? `${basePath}/dags/?${query}`
+        : `${basePath}/dags/`;
+    } catch {
+      showError(
+        ts('Failed to delete DAG'),
+        ts('Please try again or check the server connection.')
+      );
+    } finally {
+      setIsDeleteLoading(false);
+    }
+  };
 
-      <I18nProps><ConfirmModal
-        title="Delete workflow"
-        buttonText="Delete"
-        visible={isDeleteModalOpen}
-        dismissModal={() => {
-          if (!isDeleteLoading) setIsDeleteModalOpen(false);
-        }}
-        submitDisabled={isDeleteLoading}
-        onSubmit={async () => {
-          if (isDeleteLoading) return;
-          setIsDeleteLoading(true);
-          try {
-            const { error } = await client.DELETE('/dags/{fileName}', {
-              params: {
-                path: {
-                  fileName: fileName,
-                },
-                query: {
-                  remoteNode,
-                },
-              },
-            });
-            if (error) {
-              showError(
-                error.message || 'Failed to delete DAG',
-                'Please try again or check the server connection.'
-              );
-              return;
-            }
-
-            setIsDeleteModalOpen(false);
-            const basePath = window.location.pathname.split('/dags')[0] || '';
-            const searchParams = new URLSearchParams();
-            searchParams.set('remoteNode', remoteNode);
-            const query = searchParams.toString();
-            window.location.href = query
-              ? `${basePath}/dags/?${query}`
-              : `${basePath}/dags/`;
-          } catch {
-            showError(
-              'Failed to delete DAG',
-              'Please try again or check the server connection.'
-            );
-          } finally {
-            setIsDeleteLoading(false);
-          }
-        }}
-      >
-        <div className="space-y-2 text-sm">
-          <p><I18nText text={"Do you really want to delete this workflow?"} /></p>
-          <p className="font-mono text-xs">{fileName}</p>
-          <p className="text-muted-foreground">
-            <I18nText text={"The definition file is removed; past run history is kept. This action cannot be undone."} />
-          </p>
-        </div>
-      </ConfirmModal></I18nProps>
+  const dialogs = canWrite ? (
+    <>
+      <I18nProps>
+        <ConfirmModal
+          title="Delete workflow"
+          buttonText="Delete"
+          visible={isDeleteModalOpen}
+          dismissModal={() => {
+            if (!isDeleteLoading) setIsDeleteModalOpen(false);
+          }}
+          submitDisabled={isDeleteLoading}
+          onSubmit={handleDeleteSubmit}
+        >
+          <div className="space-y-2 text-sm">
+            <p>
+              <I18nText text={'Do you really want to delete this workflow?'} />
+            </p>
+            <p className="font-mono text-xs">{fileName}</p>
+            <p className="text-muted-foreground">
+              <I18nText
+                text={
+                  'The definition file is removed; past run history is kept. This action cannot be undone.'
+                }
+              />
+            </p>
+          </div>
+        </ConfirmModal>
+      </I18nProps>
 
       <DAGNameInputModal
         isOpen={isRenameModalOpen}
@@ -175,6 +186,50 @@ function DAGEditButtons({ fileName, workspace }: Props) {
         isLoading={isRenameLoading}
         externalError={renameError}
       />
+    </>
+  ) : null;
+
+  return { canWrite, openRename, openDelete, dialogs };
+}
+
+/**
+ * DAGEditButtons provides icon buttons for renaming and deleting a DAG
+ */
+function DAGEditButtons({ fileName, workspace }: Props) {
+  const { ts } = useI18n();
+  const { canWrite, openRename, openDelete, dialogs } = useDAGEditActions(
+    fileName,
+    workspace
+  );
+
+  if (!canWrite) {
+    return null;
+  }
+
+  return (
+    <div className="flex items-center gap-1">
+      <Button
+        variant="ghost"
+        size="icon-sm"
+        title={ts('Rename')}
+        aria-label={ts('Rename')}
+        onClick={openRename}
+      >
+        <PencilLine className="h-4 w-4" />
+      </Button>
+
+      <Button
+        variant="ghost"
+        size="icon-sm"
+        className="text-destructive hover:bg-destructive/10 hover:text-destructive"
+        title={ts('Delete')}
+        aria-label={ts('Delete')}
+        onClick={openDelete}
+      >
+        <Trash2 className="h-4 w-4" />
+      </Button>
+
+      {dialogs}
     </div>
   );
 }

@@ -1586,6 +1586,9 @@ func (a *Agent) Status(ctx context.Context) ir.DAGRunStatus {
 				ir.WithQueuedAt(source.QueuedAt),
 				ir.WithCreatedAt(source.CreatedAt),
 				ir.WithAgentSessions(source.AgentSessions),
+				ir.WithEphemeral(source.Ephemeral),
+				ir.WithSkipHandlers(source.SkipHandlers),
+				ir.WithReusedInputs(source.ReusedInputs),
 			)
 			if source.ScheduleTime != "" {
 				statusOpts = append(statusOpts, ir.WithScheduleTime(source.ScheduleTime))
@@ -1649,6 +1652,9 @@ func (a *Agent) Status(ctx context.Context) ir.DAGRunStatus {
 			ir.WithQueuedAt(source.QueuedAt),
 			ir.WithCreatedAt(source.CreatedAt),
 			ir.WithAgentSessions(source.AgentSessions),
+			ir.WithEphemeral(source.Ephemeral),
+			ir.WithSkipHandlers(source.SkipHandlers),
+			ir.WithReusedInputs(source.ReusedInputs),
 		)
 		if source.ScheduleTime != "" {
 			opts = append(opts, ir.WithScheduleTime(source.ScheduleTime))
@@ -1980,8 +1986,14 @@ func (a *Agent) newRunner(attempt runstate.Attempt) *runtime.Runner {
 		autoRetryLimit = a.dag.RetryPolicy.Limit
 	}
 
+	attemptDir := ""
+	if d, ok := attempt.(interface{ AttemptDir() string }); ok && !a.dry {
+		attemptDir = d.AttemptDir()
+	}
+
 	cfg := &runtime.Config{
 		LogDir:               runnerLogDir,
+		AttemptDir:           attemptDir,
 		MaxActiveSteps:       a.dag.MaxActiveSteps,
 		Timeout:              a.dag.Timeout,
 		Delay:                a.dag.Delay,
@@ -1999,6 +2011,7 @@ func (a *Agent) newRunner(attempt runstate.Attempt) *runtime.Runner {
 		DAGRunAutoRetryCount: a.currentAutoRetryCount(),
 		DAGRunAutoRetryLimit: autoRetryLimit,
 		DAGRunIsRoot:         a.parentDAGRun.Zero(),
+		SkipHandlers:         a.retryTarget != nil && a.retryTarget.SkipHandlers,
 	}
 	return runtime.New(cfg)
 }

@@ -1,0 +1,24 @@
+# A second build workflow, for the documentation.
+description: Render the guide and pack the documentation.
+type: build
+working_dir: ../demo-build
+steps:
+  - id: guide
+    name: guide
+    inputs:
+      - name: source
+        path: guide.md
+    outputs:
+      - name: html
+        path: docs/guide.html
+    run: sed 's/^# \(.*\)/<h1>\1<\/h1>/' "${inputs.source}" > "${outputs.html}"
+
+  - id: pack
+    name: pack
+    inputs:
+      - name: html
+        path: docs/guide.html
+    outputs:
+      - name: archive
+        path: docs/docs.tar
+    run: tar -cf "${outputs.archive}" -C docs guide.html

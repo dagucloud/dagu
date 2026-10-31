@@ -7,6 +7,7 @@ import { MemoryRouter, Route, Routes, useLocation } from 'react-router-dom';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { AppBarContext } from '@/contexts/AppBarContext';
 import { UserPreferencesProvider } from '@/contexts/UserPreference';
+import { buildDAGPageURL } from '@/features/dag-runs/lib/dagRunUrls';
 import { useQuery } from '@/hooks/api';
 import { I18nProvider } from '@/i18n/I18nProvider';
 import { WorkspaceKind } from '@/lib/workspace';
@@ -94,6 +95,9 @@ describe('CommandPalette', () => {
 
     expect(screen.getByRole('status', { name: 'location' })).toHaveTextContent(
       '/dags/etl-daily.yaml'
+    );
+    expect(screen.getByRole('status', { name: 'location' }).textContent).toBe(
+      buildDAGPageURL({ fileName: 'etl-daily.yaml', remoteNode: 'local' })
     );
   });
 

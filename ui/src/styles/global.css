@@ -67,6 +67,7 @@
   --color-success: var(--success);
   --color-success-muted: var(--success-muted);
   --color-warning: var(--warning);
+  --color-warning-foreground: var(--warning-foreground);
   --color-warning-muted: var(--warning-muted);
   --color-error: var(--status-error);
   --color-error-muted: var(--error-muted);
@@ -450,6 +451,23 @@
   }
 }
 
+/* No animation runs in a hidden tab (data-page-hidden, see lib/pageVisibility)
+   and the pulses stop for people who ask for less motion. */
+:root[data-page-hidden] *,
+:root[data-page-hidden] *::before,
+:root[data-page-hidden] *::after {
+  animation-play-state: paused !important;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .animate-pulse,
+  .animate-ping,
+  .animate-bounce,
+  .status-dot-pulse {
+    animation: none;
+  }
+}
+
 /* Pulse running graph nodes. The graph styler force-sets stroke properties
    inline with !important, so only opacity is safe to animate here. */
 @media (prefers-reduced-motion: no-preference) {
@@ -717,4 +735,65 @@ select:focus-visible {
       overscroll-behavior: contain;
     }
   }
+}
+
+/*
+ * Mermaid adds a tooltip element to the end of the body and places it with an
+ * inline `position: absolute`. It makes the document a few pixels taller than
+ * the window, so that every page shows a scroll bar once a graph has drawn.
+ * Fixed placement takes no room in the document.
+ */
+.mermaidTooltip {
+  position: fixed !important;
+  pointer-events: none;
+}
+
+/* The lines of the step that is selected on the canvas. */
+.ve-block-active {
+  background-color: color-mix(in srgb, var(--primary) 9%, transparent);
+}
+
+/*
+ * The change bars of the YAML panel: a bar in the margin for each line that
+ * differs from the last save, and a small triangle where lines are gone.
+ */
+:root {
+  --change-added: #2e9d54;
+  --change-modified: #2f7fd8;
+  --change-deleted: #d4443b;
+}
+.dark {
+  --change-added: #4cc477;
+  --change-modified: #5aa2f0;
+  --change-deleted: #f0675e;
+}
+.dag-change-added::before,
+.dag-change-modified::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 3px;
+  width: 3px;
+}
+.dag-change-added::before {
+  background: var(--change-added);
+}
+.dag-change-modified::before {
+  background: var(--change-modified);
+}
+.dag-change-deleted-above::after,
+.dag-change-deleted-below::after {
+  content: '';
+  position: absolute;
+  left: 3px;
+  border-left: 5px solid var(--change-deleted);
+  border-top: 4px solid transparent;
+  border-bottom: 4px solid transparent;
+}
+.dag-change-deleted-above::after {
+  top: 0;
+}
+.dag-change-deleted-below::after {
+  bottom: 0;
 }

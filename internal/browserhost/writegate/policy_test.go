@@ -4,10 +4,15 @@
 package writegate
 
 import (
+	"encoding/base64"
 	"testing"
 
 	cmnconfig "github.com/dagucloud/dagu/v2/internal/cmn/config"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+	"golang.org/x/text/encoding"
+	"golang.org/x/text/encoding/japanese"
+	"golang.org/x/text/encoding/unicode"
 )
 
 func TestClassify(t *testing.T) {
@@ -116,6 +121,42 @@ func TestDescribeHidesSensitiveValues(t *testing.T) {
 		d := r.describe(request{Method: "POST", URL: tc.url, ContentType: tc.contentType, Body: []byte(tc.body), BodyBytes: int64(len(tc.body))})
 		assert.Contains(t, d.URL+" "+d.Body, tc.keeps, tc.name)
 		assert.NotContains(t, d.URL+" "+d.Body, tc.hides, tc.name)
+	}
+}
+
+// An answer the browser hands over as bytes reads as text in the charset
+// its content type names, as a site in Shift_JIS sends it, with sensitive
+// values still hidden, also a secret sent in another charset than the one
+// named. An answer handed over as text is text already.
+func TestDescribeResponseReadsItsCharset(t *testing.T) {
+	t.Parallel()
+
+	r := newRules(Policy{}, map[string]string{"NOTE": "café", "WORD": "入札秘密"})
+	bytesIn := func(t *testing.T, enc encoding.Encoding, text string) string {
+		t.Helper()
+		data, err := enc.NewEncoder().String(text)
+		require.NoError(t, err)
+		return base64.StdEncoding.EncodeToString([]byte(data))
+	}
+	for name, tc := range map[string]struct {
+		body          string
+		base64Encoded bool
+		contentType   string
+		keeps, hides  string
+	}{
+		"shift_jis":                 {bytesIn(t, japanese.ShiftJIS, "<p>入札予定</p>"), true, "text/html;charset=Windows-31J", "<p>入札予定</p>", ""},
+		"euc-jp json":               {bytesIn(t, japanese.EUCJP, `{"件名":"入札","password":"hunter2"}`), true, "application/json; charset=EUC-JP", `"件名":"入札"`, "hunter2"},
+		"utf-8":                     {bytesIn(t, unicode.UTF8, "<p>入札</p>"), true, "text/html; charset=utf-8", "<p>入札</p>", ""},
+		"no charset":                {bytesIn(t, unicode.UTF8, `{"ok":"入札"}`), true, "application/json", `{"ok":"入札"}`, ""},
+		"text already":              {"<p>入札</p>", false, "text/html; charset=Shift_JIS", "<p>入札</p>", ""},
+		"shift_jis secret":          {bytesIn(t, japanese.ShiftJIS, "<p>合言葉は入札秘密</p>"), true, "text/html; charset=Shift_JIS", "<p>合言葉は", "入札秘密"},
+		"secret in another charset": {bytesIn(t, unicode.UTF8, `{"note":"café"}`), true, "text/plain; charset=windows-1252", `{"note":`, "caf"},
+	} {
+		got := r.describeResponse(tc.body, tc.base64Encoded, tc.contentType)
+		assert.Contains(t, got, tc.keeps, name)
+		if tc.hides != "" {
+			assert.NotContains(t, got, tc.hides, name)
+		}
 	}
 }
 

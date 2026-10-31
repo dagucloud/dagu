@@ -5,7 +5,6 @@ package writegate
 
 import (
 	"context"
-	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -38,6 +37,11 @@ const (
 	// a network error, and the browser does not count it among the
 	// requests allowed_domains blocked.
 	accessDenied = "AccessDenied"
+	// aborted is the reason a blocked page load fails with. The browser
+	// cancels the load without an error page, so the frame keeps its
+	// document, a form as it was filled in, and the browser does not count
+	// it among the requests allowed_domains blocked.
+	aborted = "Aborted"
 )
 
 // Control paths, under the token.
@@ -53,11 +57,6 @@ const (
 // maxLease bounds how long an operation's allowance lasts, so writes an
 // operation that never ended may send stop being sent.
 const maxLease = 30 * time.Minute
-
-// notSentPage answers a page load the gate blocked, so the page shows
-// where it stopped instead of a network error.
-const notSentPage = `<!doctype html><html><head><meta charset="utf-8"><title>Not sent</title></head>` +
-	`<body><h1>Not sent</h1><p>The browser held back this form; nothing was saved.</p></body></html>`
 
 // Config is what a gate decides, and for which browser.
 type Config struct {
@@ -515,15 +514,11 @@ func (g *gate) paused(sessionID string, params json.RawMessage) {
 	// the page's answer finds the write in the ledger.
 	event.Outcome = OutcomeBlocked
 	g.ledger.add(event)
+	reason := accessDenied
 	if req.ResourceType == resourceDocument {
-		g.send(sessionID, "Fetch.fulfillRequest", map[string]any{
-			"requestId": p.RequestID, "responseCode": http.StatusOK,
-			"responseHeaders": []map[string]string{{"name": "Content-Type", "value": "text/html; charset=utf-8"}},
-			"body":            base64.StdEncoding.EncodeToString([]byte(notSentPage)),
-		})
-	} else {
-		g.send(sessionID, "Fetch.failRequest", map[string]any{"requestId": p.RequestID, "errorReason": accessDenied})
+		reason = aborted
 	}
+	g.send(sessionID, "Fetch.failRequest", map[string]any{"requestId": p.RequestID, "errorReason": reason})
 }
 
 // describe returns the event of a write.

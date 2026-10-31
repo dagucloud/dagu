@@ -103,7 +103,8 @@ type Node struct {
 	RetriedAt           string               `json:"retriedAt,omitempty"`
 	RetryCount          int                  `json:"retryCount,omitempty"`
 	DoneCount           int                  `json:"doneCount,omitempty"`
-	Repeated            bool                 `json:"repeated,omitempty"` // indicates if the node has been repeated
+	Repeated            bool                 `json:"repeated,omitempty"`   // indicates if the node has been repeated
+	Continuous          bool                 `json:"continuous,omitempty"` // the step repeats without a limit (spec 083)
 	SkippedByRetry      bool                 `json:"skippedByRetry,omitempty"`
 	Error               string               `json:"error,omitempty"`
 	StatusDetails       []NodeStatusDetail   `json:"statusDetails,omitempty"`

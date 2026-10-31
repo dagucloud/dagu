@@ -22,7 +22,8 @@ import {
 } from '@/components/ui/dialog';
 import { RefreshButton } from '@/components/ui/refresh-button';
 import { AppBarContext } from '@/contexts/AppBarContext';
-import { DAGRunDetailsModal } from '@/features/dag-runs/components/dag-run-details';
+import { buildDAGPageURL } from '@/features/dag-runs/lib/dagRunUrls';
+import { useOpenPage } from '@/features/dag-runs/lib/useOpenPage';
 import { formatQueuedCount } from '@/features/queues/components/QueueCard';
 import QueueRunsTable from '@/features/queues/components/QueueRunsTable';
 import {
@@ -96,10 +97,7 @@ function QueueDetailsPage() {
   const queueName = React.useMemo(() => decodeQueueName(name), [name]);
   const appBarContext = React.useContext(AppBarContext);
   const remoteNode = appBarContext.selectedRemoteNode || 'local';
-  const [modalDAGRun, setModalDAGRun] = React.useState<{
-    name: string;
-    dagRunId: string;
-  } | null>(null);
+  const openPage = useOpenPage();
   const sentinelRef = React.useRef<HTMLDivElement>(null);
 
   React.useEffect(() => {
@@ -192,9 +190,15 @@ function QueueDetailsPage() {
 
   const handleDAGRunClick = React.useCallback(
     (dagRun: components['schemas']['DAGRunSummary']) => {
-      setModalDAGRun({ name: dagRun.name, dagRunId: dagRun.dagRunId });
+      openPage(
+        buildDAGPageURL({
+          fileName: dagRun.name,
+          remoteNode,
+          run: dagRun.dagRunId,
+        })
+      );
     },
-    []
+    [openPage, remoteNode]
   );
 
   const headerCheckboxState =
@@ -742,15 +746,6 @@ function QueueDetailsPage() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
-
-      {modalDAGRun && (
-        <DAGRunDetailsModal
-          name={modalDAGRun.name}
-          dagRunId={modalDAGRun.dagRunId}
-          isOpen={Boolean(modalDAGRun)}
-          onClose={() => setModalDAGRun(null)}
-        />
-      )}
     </>
   );
 }

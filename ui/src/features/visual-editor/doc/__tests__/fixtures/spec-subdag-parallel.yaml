@@ -1,0 +1,17 @@
+steps:
+  - id: fanout
+    action: dag.run
+    with:
+      dag: child
+      params: item=${ITEM}
+    parallel:
+      - a
+      - b
+
+---
+name: child
+steps:
+  - id: write
+    run: |
+      printf '%s\n' "$DAG_RUN_ID" > result.txt
+      pwd > pwd.txt

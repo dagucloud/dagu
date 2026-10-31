@@ -1,0 +1,35 @@
+# Demo: fetch JSON over HTTP, filter it with jq, log the result.
+description: Fetch a JSON document, extract its title with jq and log it.
+steps:
+  - id: fetch
+    name: fetch
+    action: http.request
+    with:
+      method: GET
+      url: https://httpbin.org/json
+      format: json
+      silent: true
+    output:
+      body:
+        from: stdout
+        decode: json
+        select: .body
+
+  - id: title
+    name: extract title
+    depends: [fetch]
+    action: jq.filter
+    with:
+      filter: .slideshow.title
+      data: ${steps.fetch.outputs.body}
+      raw: true
+    output:
+      text:
+        from: stdout
+        decode: text # plain text, no JSON quotes
+
+  - name: show title
+    depends: [title]
+    action: log.write
+    with:
+      message: "Title: ${steps.title.outputs.text}"

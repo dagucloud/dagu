@@ -1051,7 +1051,7 @@ func (h *Handler) writeInitialStatus(ctx context.Context, attempt dagrun.Attempt
 		AttemptID:    attempt.ID(),
 		AttemptKey:   task.AttemptKey,
 		Status:       ir.NotStarted,
-		StartedAt:    time.Now().UTC().Format(time.RFC3339),
+		StartedAt:    stringutil.FormatTime(time.Now().UTC()),
 		Root:         root,
 		Labels:       labels,
 		TriggerActor: task.TriggerActor,
@@ -2288,6 +2288,24 @@ func (h *Handler) ReportStatus(ctx context.Context, req *coordinatorv1.ReportSta
 	return &coordinatorv1.ReportStatusResponse{Accepted: true}, nil
 }
 
+// sameTimestamp reports whether two recorded times are the same instant. A
+// writer from before timestamps carried milliseconds drops the fraction, so a
+// value without one matches any time in the same second.
+func sameTimestamp(a, b string) bool {
+	if a == b {
+		return true
+	}
+	ta, errA := stringutil.ParseTime(a)
+	tb, errB := stringutil.ParseTime(b)
+	if errA != nil || errB != nil || ta.IsZero() || tb.IsZero() {
+		return false
+	}
+	if !strings.Contains(a, ".") || !strings.Contains(b, ".") {
+		return ta.Truncate(time.Second).Equal(tb.Truncate(time.Second))
+	}
+	return ta.Equal(tb)
+}
+
 func preservesCompletedManualActions(current, incoming *ir.DAGRunStatus) bool {
 	if current == nil || incoming == nil {
 		return false
@@ -2313,7 +2331,7 @@ func preservesCompletedManualActions(current, incoming *ir.DAGRunStatus) bool {
 			return false
 		}
 		if (completedHumanTask || completedApproval) &&
-			(next.Status != node.Status || next.FinishedAt != node.FinishedAt) {
+			(next.Status != node.Status || !sameTimestamp(next.FinishedAt, node.FinishedAt)) {
 			return false
 		}
 		if completedHumanTask &&

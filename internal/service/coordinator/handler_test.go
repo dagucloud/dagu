@@ -6518,3 +6518,17 @@ func TestHandler_GetOrOpenSubAttempt(t *testing.T) {
 		assert.Error(t, err)
 	})
 }
+
+// A status written before timestamps carried milliseconds names the same
+// instant in another form. An older worker that reports a stored time drops
+// its milliseconds.
+func TestSameTimestamp(t *testing.T) {
+	t.Parallel()
+
+	assert.True(t, sameTimestamp("2026-05-19T01:02:03Z", "2026-05-19T01:02:03.000Z"))
+	assert.True(t, sameTimestamp("2026-05-19T01:02:03Z", "2026-05-19T01:02:03.456Z"))
+	assert.True(t, sameTimestamp("", ""))
+	assert.False(t, sameTimestamp("2026-05-19T01:02:03Z", "2026-05-19T01:02:04.000Z"))
+	assert.False(t, sameTimestamp("2026-05-19T01:02:03.123Z", "2026-05-19T01:02:03.456Z"))
+	assert.False(t, sameTimestamp("", "2026-05-19T01:02:03.000Z"))
+}

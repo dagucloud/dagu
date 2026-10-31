@@ -4,6 +4,9 @@ import type { components } from '../../../api/v1/schema';
 import RelativeTime from '@/components/ui/relative-time';
 import { cn } from '../../../lib/utils';
 import WorkerHealth from '../../workers/components/WorkerHealth';
+import { useRemoteNode } from '../../../contexts/RemoteNodeContext';
+import { buildRunningTaskURL } from '../../dag-runs/lib/dagRunUrls';
+import { useOpenPage } from '../../dag-runs/lib/useOpenPage';
 import { I18nText } from '@/i18n/I18nText';
 import { useI18n } from '@/i18n/I18nProvider';
 
@@ -14,15 +17,9 @@ interface WorkersSummaryProps {
   workers: Worker[];
   isLoading: boolean;
   errors?: string[];
-  onTaskClick?: (task: RunningTask) => void;
 }
 
-function WorkersSummary({
-  workers,
-  isLoading,
-  errors,
-  onTaskClick,
-}: WorkersSummaryProps) {
+function WorkersSummary({ workers, isLoading, errors }: WorkersSummaryProps) {
   const { ts } = useI18n();
   const [expandedWorkers, setExpandedWorkers] = React.useState<Set<string>>(
     new Set()
@@ -94,7 +91,9 @@ function WorkersSummary({
             <span className="text-sm font-light tabular-nums text-foreground">
               {metrics.busyPollers}/{metrics.totalPollers}
             </span>
-            <span><I18nText text={"pollers"} /></span>
+            <span>
+              <I18nText text={'pollers'} />
+            </span>
           </div>
           <div className="flex items-baseline gap-1">
             <span className="text-sm font-light tabular-nums text-foreground">
@@ -106,7 +105,9 @@ function WorkersSummary({
             <span className="text-sm font-light tabular-nums text-foreground">
               {metrics.utilization}%
             </span>
-            <span><I18nText text={"util"} /></span>
+            <span>
+              <I18nText text={'util'} />
+            </span>
           </div>
         </div>
       </div>
@@ -115,7 +116,7 @@ function WorkersSummary({
       <div className="flex min-h-0 flex-1 flex-col overflow-auto">
         {isLoading && workers.length === 0 ? (
           <div className="flex flex-1 items-center justify-center py-6 text-sm text-muted-foreground">
-            <I18nText text={"Loading workers..."} />
+            <I18nText text={'Loading workers...'} />
           </div>
         ) : errors && errors.length > 0 ? (
           <div className="p-2 text-sm text-warning">
@@ -125,7 +126,7 @@ function WorkersSummary({
           </div>
         ) : workers.length === 0 ? (
           <div className="flex flex-1 items-center justify-center py-6 text-sm text-muted-foreground">
-            <I18nText text={"No workers connected"} />
+            <I18nText text={'No workers connected'} />
           </div>
         ) : (
           <div className="divide-y">
@@ -188,7 +189,7 @@ function WorkersSummary({
                     <div className="w-20 flex items-center gap-1">
                       <div className="flex-1 h-1 bg-muted rounded-full overflow-hidden">
                         <div
-                          className="h-full transition-all bg-foreground/40"
+                          className="h-full transition-[width] bg-foreground/40"
                           style={{ width: `${utilization}%` }}
                         />
                       </div>
@@ -212,11 +213,7 @@ function WorkersSummary({
                   {isExpanded && hasRunningTasks && (
                     <div className="bg-muted/20 border-t px-8 py-2 space-y-1">
                       {worker.runningTasks.map((task: RunningTask) => (
-                        <TaskRow
-                          key={task.dagRunId}
-                          task={task}
-                          onTaskClick={onTaskClick}
-                        />
+                        <TaskRow key={task.dagRunId} task={task} />
                       ))}
                     </div>
                   )}
@@ -230,13 +227,9 @@ function WorkersSummary({
   );
 }
 
-function TaskRow({
-  task,
-  onTaskClick,
-}: {
-  task: RunningTask;
-  onTaskClick?: (task: RunningTask) => void;
-}) {
+function TaskRow({ task }: { task: RunningTask }) {
+  const remoteNode = useRemoteNode();
+  const openPage = useOpenPage();
   const duration = React.useMemo(() => {
     if (!task.startedAt) return '';
     const start = new Date(task.startedAt).getTime();
@@ -248,23 +241,10 @@ function TaskRow({
     return `${Math.floor(seconds / 3600)}h ${Math.floor((seconds % 3600) / 60)}m`;
   }, [task.startedAt]);
 
+  // A task opens its run on the workflow page; Cmd or Ctrl opens a new tab.
   const handleClick = (e: React.MouseEvent) => {
     e.stopPropagation();
-    if (e.metaKey || e.ctrlKey) {
-      let url: string;
-      if (task.parentDagRunName && task.parentDagRunId) {
-        const searchParams = new URLSearchParams();
-        searchParams.set('subDAGRunId', task.dagRunId);
-        searchParams.set('dagRunId', task.parentDagRunId);
-        searchParams.set('dagRunName', task.parentDagRunName);
-        url = `/dag-runs/${task.parentDagRunName}/${task.parentDagRunId}?${searchParams.toString()}`;
-      } else {
-        url = `/dag-runs/${task.dagName}/${task.dagRunId}`;
-      }
-      window.open(url, '_blank');
-    } else if (onTaskClick) {
-      onTaskClick(task);
-    }
+    openPage(buildRunningTaskURL(task, remoteNode), e);
   };
 
   return (

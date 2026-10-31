@@ -26,6 +26,12 @@ type SeedRequest struct {
 	DAG              *ir.DAG
 	DAGRunID         string
 	Nodes            []runtime.NodeData
+	// ReusedInputs records where the carried outputs of skipped nodes come from.
+	ReusedInputs []ir.ReusedInput
+
+	// SkipHandlers records that the run does not call the end-of-run handlers
+	// of the DAG. See SelectionSkipsHandlers.
+	SkipHandlers bool
 
 	// Source is the run whose recorded outputs the skipped nodes carry. When
 	// set, its work directory is copied into the new run and the carried
@@ -38,6 +44,9 @@ type SeedRequest struct {
 	ProfileName  string
 	DefinitionID string
 	NoReuse      bool
+	// Ephemeral stores the run apart from the history and marks it so that it
+	// leaves no trace.
+	Ephemeral bool
 
 	LogBaseDir      string
 	ArtifactBaseDir string
@@ -53,7 +62,7 @@ func SeedRun(ctx context.Context, req SeedRequest) (dagrun.Attempt, *ir.DAGRunSt
 	repo := req.DAGRunRepository
 	dag := req.DAG
 	now := time.Now()
-	attempt, err := repo.CreateAttempt(ctx, dag, now, req.DAGRunID, persis.DAGRunCreateAttemptOptions{})
+	attempt, err := repo.CreateAttempt(ctx, dag, now, req.DAGRunID, persis.DAGRunCreateAttemptOptions{Ephemeral: req.Ephemeral})
 	if err != nil {
 		return nil, nil, fmt.Errorf("failed to create seeded attempt: %w", err)
 	}
@@ -93,6 +102,9 @@ func SeedRun(ctx context.Context, req SeedRequest) (dagrun.Attempt, *ir.DAGRunSt
 		ir.WithRuntimeProfile(req.ProfileName, "", nil),
 		ir.WithDAGDefinitionID(req.DefinitionID),
 		ir.WithNoReuse(req.NoReuse),
+		ir.WithEphemeral(req.Ephemeral),
+		ir.WithReusedInputs(req.ReusedInputs),
+		ir.WithSkipHandlers(req.SkipHandlers),
 	)
 	status.Params = req.Params
 	status.ParamsList = dag.Params

@@ -92,7 +92,10 @@ function emptyResponse(status: number): Promise<Response> {
 
 // The DAG page scopes its requests to one node, which can differ from the
 // node selected in the toolbar.
-function renderTab(toolbarRemoteNode = 'local') {
+function renderTab(
+  toolbarRemoteNode = 'local',
+  onDirtyChange?: (dirty: boolean) => void
+) {
   return render(
     <MemoryRouter>
       <ConfigContext.Provider value={config}>
@@ -105,7 +108,10 @@ function renderTab(toolbarRemoteNode = 'local') {
           }
         >
           <RemoteNodeProvider remoteNode="local">
-            <NotificationsTab fileName="example" />
+            <NotificationsTab
+              fileName="example"
+              onDirtyChange={onDirtyChange}
+            />
           </RemoteNodeProvider>
         </AppBarContext.Provider>
       </ConfigContext.Provider>
@@ -172,7 +178,97 @@ afterEach(() => {
   vi.unstubAllGlobals();
 });
 
+// parity:test-notifications-tab parity:api-notifications-incidents-wiki
 describe('NotificationsTab', () => {
+  // parity:notif-header-actions parity:notif-configure-override
+  // parity:notif-save parity:notif-reset-override
+  it('reports unsaved changes after configure, a save, an edit and a reset', async () => {
+    const user = userEvent.setup();
+    const onDirtyChange = vi.fn();
+    const settingsURL = '/api/v1/dags/example/notifications?remoteNode=local';
+    const saved = {
+      id: 'settings-1',
+      dagName: 'example',
+      enabled: true,
+      events: ['dag_run_failed'],
+      targets: [],
+      subscriptions: [],
+      createdAt: '2026-05-17T00:00:00Z',
+      updatedAt: '2026-05-17T00:00:00Z',
+    };
+    const defaultFetch = fetchMock.getMockImplementation()!;
+    fetchMock.mockImplementation(
+      (input: RequestInfo | URL, init?: RequestInit) => {
+        if (String(input) === settingsURL && init?.method === 'PUT') {
+          return jsonResponse(saved);
+        }
+        if (String(input) === settingsURL && init?.method === 'DELETE') {
+          return emptyResponse(204);
+        }
+        return defaultFetch(input, init);
+      }
+    );
+    renderTab('local', onDirtyChange);
+    const methodCalls = (method: string) =>
+      fetchMock.mock.calls.filter(
+        ([input, init]) =>
+          String(input) === settingsURL && init?.method === method
+      );
+
+    await screen.findByText('Effective Inherited Routes');
+    expect(onDirtyChange).toHaveBeenLastCalledWith(false);
+    // parity:notif-subnav
+    expect(screen.getByRole('link', { name: /^rules$/i })).toHaveAttribute(
+      'href',
+      '/notification-rules'
+    );
+    expect(screen.getByRole('link', { name: /^channels$/i })).toHaveAttribute(
+      'href',
+      '/notification-channels'
+    );
+
+    await user.click(
+      screen.getByRole('button', { name: /configure workflow override/i })
+    );
+    expect(onDirtyChange).toHaveBeenLastCalledWith(true);
+
+    await user.click(screen.getByRole('button', { name: /save changes/i }));
+    await waitFor(() => expect(onDirtyChange).toHaveBeenLastCalledWith(false));
+    expect(methodCalls('PUT')).toHaveLength(1);
+
+    await user.click(
+      screen.getByRole('switch', { name: 'Toggle notifications' })
+    );
+    expect(onDirtyChange).toHaveBeenLastCalledWith(true);
+
+    await user.click(screen.getByRole('button', { name: /reset to inherit/i }));
+    const dialog = await screen.findByRole('dialog');
+    await user.click(within(dialog).getByRole('button', { name: 'Reset' }));
+    await waitFor(() => expect(onDirtyChange).toHaveBeenLastCalledWith(false));
+    expect(methodCalls('DELETE')).toHaveLength(1);
+  });
+
+  // parity:notif-provider-email
+  it('adds an email destination to a new override', async () => {
+    const user = userEvent.setup();
+    renderTab();
+
+    await user.click(
+      await screen.findByRole('button', {
+        name: /configure workflow override/i,
+      })
+    );
+    await user.click(
+      screen.getAllByRole('button', { name: /add custom/i })[0]!
+    );
+
+    expect(
+      await screen.findByLabelText('Email subject template')
+    ).toBeVisible();
+    expect(screen.getByLabelText('Email body template')).toBeVisible();
+  });
+
+  // parity:notif-load
   it('blocks DAG controls when delivery is unavailable', async () => {
     dagSettingsResponse = () =>
       jsonResponse({ message: 'Notification delivery is unavailable' }, 503);
@@ -234,6 +330,20 @@ describe('NotificationsTab', () => {
     expect(screen.getByText('Inherited')).toBeVisible();
   });
 
+  // parity:notif-source-card parity:notif-inherited-routes
+  // The tab sits in the Workflow panel (360 to 560 px) in a window of any
+  // width, so the header row follows the width of its own box.
+  it('stacks the header by container width, not by window width', async () => {
+    renderTab();
+
+    const title = await screen.findByText('Workflow notifications');
+    const row = title.closest('h2')!.parentElement!.parentElement!;
+    expect(row).toHaveClass('flex-col', '@3xl:flex-row');
+    expect(row.className).not.toMatch(/(^|\s)(sm|md|lg|xl):/);
+    expect(row.parentElement!.parentElement).toHaveClass('@container');
+    expect(row.children[1]).toHaveClass('flex-wrap', 'min-w-0');
+  });
+
   it('shows inherited rules instead of silently creating a workflow override', async () => {
     renderTab();
 
@@ -249,6 +359,7 @@ describe('NotificationsTab', () => {
     expect(screen.queryByText('Send to')).not.toBeInTheDocument();
   });
 
+  // parity:notif-test-results
   it('tests the effective inherited route from the DAG page', async () => {
     const user = userEvent.setup();
     renderTab();
@@ -270,6 +381,7 @@ describe('NotificationsTab', () => {
     });
   });
 
+  // parity:notif-command-lock parity:notif-subscriptions
   it.each([
     { name: 'the toolbar node is local', toolbarRemoteNode: 'local' },
     { name: 'the toolbar shows another node', toolbarRemoteNode: 'edge' },
@@ -357,6 +469,52 @@ describe('NotificationsTab', () => {
     ).toHaveLength(1);
   });
 
+  // parity:notif-provider-slack-teams-telegram
+  it('shows the Slack and Telegram destination fields', async () => {
+    dagSettingsResponse = () =>
+      jsonResponse({
+        id: 'settings-1',
+        dagName: 'example',
+        enabled: true,
+        events: ['dag_run_failed'],
+        targets: [
+          {
+            id: 'slack-target',
+            name: 'Slack alerts',
+            type: 'slack',
+            enabled: true,
+            events: [],
+            slack: { webhookUrlConfigured: true, webhookUrlPreview: 'h...k' },
+          },
+          {
+            id: 'telegram-target',
+            name: 'Telegram alerts',
+            type: 'telegram',
+            enabled: true,
+            events: [],
+            telegram: {
+              botTokenConfigured: true,
+              botTokenPreview: '12...ab',
+              chatId: '-100',
+              topicId: '7',
+            },
+          },
+        ],
+        subscriptions: [],
+        createdAt: '2026-05-17T00:00:00Z',
+        updatedAt: '2026-05-17T00:00:00Z',
+      });
+    renderTab();
+
+    expect(await screen.findByText('Slack webhook URL')).toBeVisible();
+    expect(
+      screen.getByPlaceholderText('Webhook URL configured (h...k)')
+    ).toBeVisible();
+    expect(screen.getByLabelText('Telegram topic ID')).toHaveValue('7');
+    expect(screen.getByText('Chat ID')).toBeVisible();
+  });
+
+  // parity:notif-custom-destinations parity:notif-provider-webhook
   it('explains Teams setup and custom webhook body templates', async () => {
     dagSettingsResponse = () =>
       jsonResponse({

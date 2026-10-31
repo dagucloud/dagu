@@ -243,7 +243,7 @@ func (e *foreachExecutor) expandItems(ctx context.Context) ([]expandedItem, erro
 	for idx, value := range values {
 		key := strconv.Itoa(idx)
 		if cfg.Key != "" {
-			itemCtx, err := contextWithItemScope(ctx, cfg.As, idx, "", value)
+			itemCtx, err := contextWithItemScope(ctx, e.step.Name, cfg.As, idx, "", value)
 			if err != nil {
 				return nil, err
 			}
@@ -359,7 +359,7 @@ func (e *foreachExecutor) runItem(ctx context.Context, item expandedItem) itemRe
 		return itemResult{Index: item.index, Key: item.key, Status: ir.NodeFailed.String(), Error: err.Error()}
 	}
 
-	itemCtx, err := contextWithItemScope(ctx, e.step.Foreach.As, item.index, item.key, item.value)
+	itemCtx, err := contextWithItemScope(ctx, e.step.Name, e.step.Foreach.As, item.index, item.key, item.value)
 	if err != nil {
 		return failed(err)
 	}
@@ -483,7 +483,9 @@ func resolveStringValue(ctx context.Context, raw, key string) (string, error) {
 	return value, nil
 }
 
-func contextWithItemScope(ctx context.Context, alias string, index int, key string, item any) (context.Context, error) {
+// contextWithItemScope returns ctx with the scope of the item at index of
+// the foreach step named stepName.
+func contextWithItemScope(ctx context.Context, stepName, alias string, index int, key string, item any) (context.Context, error) {
 	env := runtime.GetEnv(ctx)
 	scope := env.Scope
 	if scope == nil {
@@ -501,6 +503,10 @@ func contextWithItemScope(ctx context.Context, alias string, index int, key stri
 	}
 	env.Scope = scope.WithEntry("foreach", string(data), cmnvalue.EnvSourceStepEnv)
 	env.Foreach = cmnvalue.Values(payload)
+	// An item nested in another extends that item's identity. The quoted
+	// name keeps one step's item apart from another's whose name holds
+	// brackets.
+	env.ForeachItem += fmt.Sprintf("%q[%d]", stepName, index)
 	return runtime.WithEnv(ctx, env), nil
 }
 

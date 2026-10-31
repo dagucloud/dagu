@@ -1,0 +1,11 @@
+name: embedded-local-example
+type: graph
+params:
+  - TARGET
+steps:
+  - name: greet
+    # Dagu resolves ${TARGET} from run parameters before the shell sees it.
+    run: echo "hello ${TARGET}"
+  - name: finish
+    run: echo "local embedded run complete"
+    depends: [greet]

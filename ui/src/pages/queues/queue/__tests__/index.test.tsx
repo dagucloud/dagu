@@ -22,10 +22,6 @@ vi.mock('@/hooks/api', () => ({
   useQuery: useQueryMock,
 }));
 
-vi.mock('@/features/dag-runs/components/dag-run-details', () => ({
-  DAGRunDetailsModal: () => null,
-}));
-
 const cappedZeroQueue: components['schemas']['Queue'] = {
   name: 'running-heavy-q',
   type: QueueType.dag_based,

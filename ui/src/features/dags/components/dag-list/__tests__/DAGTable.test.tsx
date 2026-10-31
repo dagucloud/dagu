@@ -9,17 +9,12 @@ import {
   within,
 } from '@testing-library/react';
 import React from 'react';
-import { MemoryRouter } from 'react-router-dom';
+import { MemoryRouter, useLocation } from 'react-router-dom';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { Status, ViewSortField, ViewSortOrder } from '@/api/v1/schema';
 import { PanelWidthContext } from '@/components/SplitLayout';
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogTitle,
-} from '@/components/ui/dialog';
 import { AppBarContext } from '@/contexts/AppBarContext';
+import { ConfigContext } from '@/contexts/ConfigContext';
 import { UserPreferencesProvider } from '@/contexts/UserPreference';
 import { I18nProvider } from '@/i18n/I18nProvider';
 import { WorkspaceKind } from '@/lib/workspace';
@@ -49,6 +44,7 @@ vi.mock('@/features/dags/components/common', async (importOriginal) => ({
 
 vi.mock('@/contexts/AuthContext', () => ({
   useCanWrite: () => true,
+  useCanManageWebhooks: () => false,
 }));
 
 // Reads the locale from stored preferences, as the app does.
@@ -57,6 +53,13 @@ function I18nWrapper({ children }: { children: React.ReactNode }) {
     <UserPreferencesProvider>
       <I18nProvider>{children}</I18nProvider>
     </UserPreferencesProvider>
+  );
+}
+
+function LocationProbe() {
+  const location = useLocation();
+  return (
+    <div data-testid="location">{`${location.pathname}${location.search}`}</div>
   );
 }
 
@@ -74,8 +77,6 @@ function renderTable(
     onDeleteDAGs?: React.ComponentProps<typeof DAGTable>['onDeleteDAGs'];
     onRenameDAG?: (fileName: string, newFileName: string) => Promise<void>;
     canPinDAG?: React.ComponentProps<typeof DAGTable>['canPinDAG'];
-    selectedDAG?: string;
-    onSelectDAG?: (fileName: string, title: string) => void;
   } = {}
 ) {
   const onShowAllWorkflows = vi.fn();
@@ -91,68 +92,69 @@ function renderTable(
     options.onRenameDAG ?? vi.fn().mockResolvedValue(undefined);
   const onSetDAGPinned = vi.fn().mockResolvedValue(undefined);
   const result = render(
-    <MemoryRouter>
-      <AppBarContext.Provider
-        value={
-          {
-            selectedRemoteNode: 'local',
-            workspaceSelection: { kind: WorkspaceKind.all },
-          } as never
-        }
-      >
-        <PanelWidthContext.Provider value={options.panelWidth ?? null}>
-          <DAGTable
-            dags={
-              options.dags ?? [
-                {
-                  fileName: 'example.yaml',
-                  dag: {
-                    name: searchText || 'example',
-                  },
-                  latestDAGRun: {
-                    status: Status.Success,
-                    statusLabel: 'Success',
-                  },
-                  suspended: false,
-                  errors: [],
-                } as never,
-              ]
-            }
-            group=""
-            refreshFn={vi.fn()}
-            searchText={searchText}
-            handleSearchTextChange={vi.fn()}
-            searchLabels={[]}
-            handleSearchLabelsChange={vi.fn()}
-            activeOnly={options.activeOnly ?? false}
-            handleActiveOnlyChange={handleActiveOnlyChange}
-            sortField="name"
-            sortOrder="asc"
-            onSortChange={vi.fn()}
-            workflowViews={options.workflowViews ?? []}
-            activeWorkflowViewId={options.activeWorkflowViewId ?? null}
-            isAllWorkflowsView={options.isAllWorkflowsView ?? true}
-            isWorkflowViewEdited={false}
-            canManageWorkflowViews={true}
-            canDeleteDAGs={options.canDeleteDAGs ?? true}
-            canRenameDAGs={options.canRenameDAGs ?? true}
-            onSelectWorkflowView={vi.fn()}
-            onShowAllWorkflows={onShowAllWorkflows}
-            onResetWorkflowView={vi.fn()}
-            onSaveWorkflowView={vi.fn()}
-            onUpdateWorkflowView={vi.fn()}
-            onSetDefaultWorkflowView={vi.fn()}
-            onSetPinnedWorkflowView={vi.fn()}
-            onDeleteWorkflowView={vi.fn()}
-            onDeleteDAGs={onDeleteDAGs}
-            onRenameDAG={onRenameDAG}
-            canPinDAG={options.canPinDAG ?? (() => true)}
-            onSetDAGPinned={onSetDAGPinned}
-            selectedDAG={options.selectedDAG}
-            onSelectDAG={options.onSelectDAG}
-          />
-        </PanelWidthContext.Provider>
-      </AppBarContext.Provider>
+    <MemoryRouter initialEntries={['/dags']}>
+      <LocationProbe />
+      <ConfigContext.Provider value={{ basePath: '' } as never}>
+        <AppBarContext.Provider
+          value={
+            {
+              selectedRemoteNode: 'local',
+              workspaceSelection: { kind: WorkspaceKind.all },
+            } as never
+          }
+        >
+          <PanelWidthContext.Provider value={options.panelWidth ?? null}>
+            <DAGTable
+              dags={
+                options.dags ?? [
+                  {
+                    fileName: 'example.yaml',
+                    dag: {
+                      name: searchText || 'example',
+                    },
+                    latestDAGRun: {
+                      status: Status.Success,
+                      statusLabel: 'Success',
+                    },
+                    suspended: false,
+                    errors: [],
+                  } as never,
+                ]
+              }
+              group=""
+              refreshFn={vi.fn()}
+              searchText={searchText}
+              handleSearchTextChange={vi.fn()}
+              searchLabels={[]}
+              handleSearchLabelsChange={vi.fn()}
+              activeOnly={options.activeOnly ?? false}
+              handleActiveOnlyChange={handleActiveOnlyChange}
+              sortField="name"
+              sortOrder="asc"
+              onSortChange={vi.fn()}
+              workflowViews={options.workflowViews ?? []}
+              activeWorkflowViewId={options.activeWorkflowViewId ?? null}
+              isAllWorkflowsView={options.isAllWorkflowsView ?? true}
+              isWorkflowViewEdited={false}
+              canManageWorkflowViews={true}
+              canDeleteDAGs={options.canDeleteDAGs ?? true}
+              canRenameDAGs={options.canRenameDAGs ?? true}
+              onSelectWorkflowView={vi.fn()}
+              onShowAllWorkflows={onShowAllWorkflows}
+              onResetWorkflowView={vi.fn()}
+              onSaveWorkflowView={vi.fn()}
+              onUpdateWorkflowView={vi.fn()}
+              onSetDefaultWorkflowView={vi.fn()}
+              onSetPinnedWorkflowView={vi.fn()}
+              onDeleteWorkflowView={vi.fn()}
+              onDeleteDAGs={onDeleteDAGs}
+              onRenameDAG={onRenameDAG}
+              canPinDAG={options.canPinDAG ?? (() => true)}
+              onSetDAGPinned={onSetDAGPinned}
+            />
+          </PanelWidthContext.Provider>
+        </AppBarContext.Provider>
+      </ConfigContext.Provider>
     </MemoryRouter>,
     { wrapper: I18nWrapper }
   );
@@ -211,7 +213,10 @@ describe('DAGTable', () => {
     renderTable();
 
     for (const link of screen.getAllByRole('link', { name: 'example' })) {
-      expect(link).toHaveAttribute('href', '/dags/example.yaml');
+      expect(link).toHaveAttribute(
+        'href',
+        '/dags/example.yaml?remoteNode=local'
+      );
     }
   });
 
@@ -645,52 +650,56 @@ describe('DAGTable', () => {
     ).toHaveAttribute('aria-pressed', 'false');
   });
 
-  // The pinned workflow belongs to a collapsed group, so it is only reachable
-  // because it is listed outside the group.
-  it('moves from the last pinned workflow to the next one with ArrowDown', () => {
-    const onSelectDAG = vi.fn();
+  it('opens the workflow page when a row is clicked', () => {
     renderTable('', {
-      selectedDAG: 'reports.yaml',
-      onSelectDAG,
-      dags: [
-        workflow({ name: 'reports', group: 'nightly', pinned: true }),
-        workflow({ name: 'alpha' }),
-      ],
-    });
-
-    fireEvent.keyDown(window, { key: 'ArrowDown' });
-
-    expect(onSelectDAG).toHaveBeenCalledWith('alpha.yaml', 'alpha');
-  });
-
-  // The detail panel opens over the list, so its fields and dialogs receive
-  // arrow keys meant for them, not for switching workflows.
-  it('leaves ArrowDown to text fields and dialogs above the list', () => {
-    const onSelectDAG = vi.fn();
-    renderTable('', {
-      selectedDAG: 'alpha.yaml',
-      onSelectDAG,
       dags: [workflow({ name: 'alpha' }), workflow({ name: 'reports' })],
     });
+    const table = screen.getByRole('table');
 
-    render(<input aria-label="Run ID" />);
-    const field = screen.getByRole('textbox', { name: 'Run ID' });
-    field.focus();
-    fireEvent.keyDown(field, { key: 'ArrowDown' });
-
-    render(
-      <Dialog open>
-        <DialogContent>
-          <DialogTitle>Start workflow</DialogTitle>
-          <DialogDescription>Configure the run.</DialogDescription>
-        </DialogContent>
-      </Dialog>
+    fireEvent.click(
+      within(table).getByRole('link', { name: 'reports' }).closest('tr')!
     );
-    expect(screen.getByRole('dialog')).toContainElement(
-      document.activeElement as HTMLElement
-    );
-    fireEvent.keyDown(document.activeElement!, { key: 'ArrowDown' });
 
-    expect(onSelectDAG).not.toHaveBeenCalled();
+    expect(screen.getByTestId('location')).toHaveTextContent(
+      '/dags/reports.yaml?remoteNode=local'
+    );
+  });
+
+  it('opens the workflow page when a card is clicked', () => {
+    renderTable('', {
+      panelWidth: 600,
+      dags: [workflow({ name: 'alpha' }), workflow({ name: 'reports' })],
+    });
+    const cards = screen.getByTestId('workflow-card-view');
+
+    fireEvent.click(
+      within(cards)
+        .getByRole('link', { name: 'alpha' })
+        .closest('.card-obsidian')!
+    );
+
+    expect(screen.getByTestId('location')).toHaveTextContent(
+      '/dags/alpha.yaml?remoteNode=local'
+    );
+  });
+
+  it('opens a new tab on Ctrl click and keeps the list', () => {
+    const openMock = vi.spyOn(window, 'open').mockImplementation(() => null);
+    renderTable('', { dags: [workflow({ name: 'alpha' })] });
+    const table = screen.getByRole('table');
+
+    fireEvent.click(
+      within(table).getByRole('link', { name: 'alpha' }).closest('tr')!,
+      { ctrlKey: true }
+    );
+
+    expect(openMock).toHaveBeenCalledWith(
+      '/dags/alpha.yaml?remoteNode=local',
+      '_blank',
+      'noopener'
+    );
+    expect(screen.getByTestId('location')).toHaveTextContent('/dags');
+    expect(screen.getByTestId('location')).not.toHaveTextContent('alpha');
+    openMock.mockRestore();
   });
 });

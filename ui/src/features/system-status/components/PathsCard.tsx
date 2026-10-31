@@ -45,7 +45,7 @@ function PathRow({ label, path }: PathRowProps) {
       onClick={handleCopy}
       aria-label={`Copy ${label} path`}
       className={cn(
-        'w-full flex items-center justify-between gap-3 px-3 py-2 rounded-lg cursor-pointer transition-all text-left',
+        'w-full flex items-center justify-between gap-3 px-3 py-2 rounded-lg cursor-pointer transition-colors text-left',
         'hover:bg-accent/50 group focus-visible:bg-accent/50'
       )}
     >
@@ -59,7 +59,7 @@ function PathRow({ label, path }: PathRowProps) {
       </div>
       <div
         className={cn(
-          'shrink-0 transition-all',
+          'shrink-0 transition-colors',
           copied
             ? 'text-success'
             : 'text-muted-foreground/50 group-hover:text-muted-foreground'

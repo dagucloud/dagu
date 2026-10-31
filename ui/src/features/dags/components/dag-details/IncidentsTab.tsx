@@ -11,7 +11,7 @@ import {
   Save,
   Settings,
 } from 'lucide-react';
-import { ReactElement, useEffect, useMemo, useState } from 'react';
+import { ReactElement, useEffect, useMemo, useRef, useState } from 'react';
 
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Button } from '@/components/ui/button';
@@ -35,6 +35,8 @@ import { I18nTemplate } from '@/i18n/I18nTemplate';
 type IncidentsTabProps = {
   fileName: string;
   workspaceName?: string;
+  /** Called with the unsaved-changes state when it changes, and once on mount. */
+  onDirtyChange?: (dirty: boolean) => void;
 };
 
 function apiErrorMessage(error: unknown, fallback: string): string | null {
@@ -49,6 +51,7 @@ function apiErrorMessage(error: unknown, fallback: string): string | null {
 export default function IncidentsTab({
   fileName,
   workspaceName,
+  onDirtyChange,
 }: IncidentsTabProps): ReactElement {
   const license = useLicense();
   const licensed = hasActiveLicense(license);
@@ -68,6 +71,12 @@ export default function IncidentsTab({
   const [confirmReset, setConfirmReset] = useState(false);
   const [localOverrideStarted, setLocalOverrideStarted] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [dirty, setDirty] = useState(false);
+  const onDirtyChangeRef = useRef(onDirtyChange);
+  onDirtyChangeRef.current = onDirtyChange;
+  useEffect(() => {
+    onDirtyChangeRef.current?.(dirty);
+  }, [dirty]);
 
   const {
     data: providersData,
@@ -120,6 +129,7 @@ export default function IncidentsTab({
         )
       );
       setLocalOverrideStarted(false);
+      setDirty(false);
     }
   }, [data, fileName]);
 
@@ -134,6 +144,7 @@ export default function IncidentsTab({
 
   const configureOverride = () => {
     setLocalOverrideStarted(true);
+    setDirty(true);
     setDraft((current) => ({ ...current, inheritParent: false }));
   };
 
@@ -151,6 +162,7 @@ export default function IncidentsTab({
         );
       }
       await mutate();
+      setDirty(false);
       showToast('DAG incident routing saved');
     } catch (err) {
       setError(
@@ -164,6 +176,7 @@ export default function IncidentsTab({
   const reset = async () => {
     if (!data?.id) {
       setLocalOverrideStarted(false);
+      setDirty(false);
       setDraft((current) => ({
         ...current,
         inheritParent: true,
@@ -181,6 +194,7 @@ export default function IncidentsTab({
         throw new Error(response.error.message || 'Failed to reset incidents');
       }
       await mutate();
+      setDirty(false);
       showToast('DAG now inherits incident routing');
     } catch (err) {
       setError(
@@ -192,9 +206,9 @@ export default function IncidentsTab({
   };
 
   return (
-    <div className="space-y-5">
+    <div className="@container space-y-5">
       <div className="space-y-4">
-        <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
+        <div className="flex flex-col gap-3 @3xl:flex-row @3xl:items-start @3xl:justify-between">
           <div className="min-w-0 max-w-2xl space-y-1">
             <h2 className="text-lg font-semibold text-foreground">
               <I18nText text={'Workflow incidents'} />
@@ -215,7 +229,7 @@ export default function IncidentsTab({
               />
             </p>
           </div>
-          <div className="flex shrink-0 flex-wrap items-center gap-2 lg:justify-end">
+          <div className="flex min-w-0 flex-wrap items-center gap-2 @3xl:shrink-0 @3xl:justify-end">
             <Button variant="outline" size="sm" onClick={refresh}>
               <RefreshCw className="h-4 w-4" />
               <I18nText text={'Refresh'} />
@@ -273,17 +287,21 @@ export default function IncidentsTab({
         </div>
       )}
 
-      <IncidentPolicyEditor
-        draft={visibleDraft}
-        providers={providers}
-        allowInherit
-        inheritTitle="DAG routing"
-        inheritDescription="Use inherited routing, turn incidents off for this DAG, or send this DAG to specific connections."
-        onChange={(next) => {
-          setLocalOverrideStarted(true);
-          setDraft(next);
-        }}
-      />
+      {/* A save or a reset replaces the draft when it ends: no edit until then. */}
+      <fieldset className="min-w-0" disabled={saving || resetting}>
+        <IncidentPolicyEditor
+          draft={visibleDraft}
+          providers={providers}
+          allowInherit
+          inheritTitle="DAG routing"
+          inheritDescription="Use inherited routing, turn incidents off for this DAG, or send this DAG to specific connections."
+          onChange={(next) => {
+            setLocalOverrideStarted(true);
+            setDirty(true);
+            setDraft(next);
+          }}
+        />
+      </fieldset>
 
       <I18nProps>
         <ConfirmModal

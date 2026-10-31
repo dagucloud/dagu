@@ -11,7 +11,7 @@ type DAGRunSummary = components['schemas']['DAGRunSummary'];
 interface Props {
   title: string;
   column: KanbanColumnData;
-  onCardClick: (run: DAGRunSummary) => void;
+  onCardClick: (run: DAGRunSummary, event?: React.MouseEvent) => void;
   onArtifactsClick: (run: DAGRunSummary) => void;
   hideHeader?: boolean;
 }
@@ -112,7 +112,7 @@ export function KanbanColumn({
                   <KanbanCard
                     key={run.dagRunId}
                     run={run}
-                    onClick={() => onCardClick(run)}
+                    onClick={(event) => onCardClick(run, event)}
                     onArtifactsClick={() => onArtifactsClick(run)}
                   />
                 ))}

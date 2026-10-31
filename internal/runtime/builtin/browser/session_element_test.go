@@ -74,6 +74,10 @@ func TestSessionRefusesAnElementItCannotUse(t *testing.T) {
 		assert.ErrorContains(t, err, message, input)
 	}
 	assert.Empty(t, ts.engine.replays, "nothing reached the page")
+	summaries, err := ts.sessions.List(ts.context())
+	require.NoError(t, err)
+	require.Len(t, summaries, 1)
+	assert.Equal(t, SessionIdle, summaries[0].State, "a refused command leaves the session waiting for the next")
 }
 
 // An element operation may carry when and timeout, which its act keeps.
@@ -94,4 +98,37 @@ func TestSessionElementOperationKeepsItsGuards(t *testing.T) {
 
 	_, err = ts.do(opened.ID, `{"click": "0-6", "timeout": "soon"}`)
 	assert.Equal(t, CodeInvalidInput, sessionCode(err), "its guards are checked as an act's")
+}
+
+// A control a form names only by its table row, or by its name attribute,
+// is acted on by its ID, and the act a step writes names it so.
+func TestSessionActsOnARowNamedElement(t *testing.T) {
+	t.Parallel()
+
+	ts := newTestSessions(t, pageModel(nil))
+	snap := fixtureSnapshot(t, "rowform")
+	snap.Attributes = rowFormAttributes
+	snap.XPaths = map[string]string{
+		"1-9":   "/html[1]/frameset[1]/frame[2]/html[1]/body[1]/form[1]/table[1]/tbody[1]/tr[1]/td[1]/select[1]",
+		"1-12":  "/html[1]/frameset[1]/frame[2]/html[1]/body[1]/form[1]/table[1]/tbody[1]/tr[3]/td[1]/input[1]",
+		"1-103": "/html[1]/frameset[1]/frame[2]/html[1]/body[1]/form[1]/table[1]/tbody[1]/tr[4]/td[2]/input[1]",
+		"1-17":  "/html[1]/frameset[1]/frame[2]/html[1]/body[1]/form[1]/table[1]/tbody[1]/tr[5]/td[1]/input[2]",
+		"1-13":  "/html[1]/frameset[1]/frame[2]/html[1]/body[1]/form[1]/table[1]/tbody[1]/tr[7]/td[1]/input[1]",
+	}
+	ts.engine.snapshot = snap
+	opened := ts.open(SessionOptions{URL: "https://bids.example.com/", LLM: testModel})
+
+	for _, tc := range []struct{ input, act string }{
+		{`{"select": {"in": "1-9", "option": "土木一式工事"}}`, `Select "土木一式工事" in the "工種又は業種" dropdown`},
+		{`{"type": {"into": "1-12", "text": "道路"}}`, `Type 道路 into the "案件名" field`},
+		{`{"click": "1-103"}`, `Click the "添付あり" checkbox`},
+		{`{"type": {"into": "1-17", "text": "2026/04/30"}}`, `Type 2026/04/30 into the "入札予定日範囲 2" field`},
+		{`{"type": {"into": "1-13", "text": "舗装"}}`, `Type 舗装 into the "FreeWord" field`},
+	} {
+		result, err := ts.do(opened.ID, tc.input)
+		require.NoError(t, err, tc.input)
+		assert.Equal(t, tc.act, result.Act, tc.input)
+		assert.True(t, result.Recorded, tc.input)
+	}
+	assert.Zero(t, actRequests(ts.provider), "no element operation asks the model")
 }

@@ -113,37 +113,6 @@ vi.mock('@/features/dag-runs/components/common/DAGRunBatchActions', () => ({
   default: () => null,
 }));
 
-vi.mock('@/features/dag-runs/components/dag-run-details', () => ({
-  DAGRunDetailsModal: ({
-    name,
-    dagRunId,
-    initialTab,
-    activeTab,
-    onTabChange,
-    onClose,
-    onNavigate,
-  }: {
-    name: string;
-    dagRunId: string;
-    initialTab: string;
-    activeTab?: string;
-    onTabChange?: (tab: 'outputs' | 'status') => void;
-    onClose: () => void;
-    onNavigate?: (direction: 'up' | 'down') => void;
-  }) => (
-    <div role="dialog">
-      Run modal for {name}/{dagRunId} on {activeTab ?? initialTab}
-      <button onClick={() => onTabChange?.('outputs')}>Show outputs</button>
-      <button onClick={() => onTabChange?.('status')}>Show status</button>
-      <button onClick={() => onNavigate?.('down')}>Next history</button>
-      <button onClick={() => onNavigate?.('up')}>Previous history</button>
-      <button type="button" onClick={onClose}>
-        Close run
-      </button>
-    </div>
-  ),
-}));
-
 vi.mock(
   '@/features/dag-runs/components/dag-run-list/DAGRunGroupedView',
   () => ({
@@ -156,30 +125,9 @@ const dagRunTableProps = vi.hoisted(() => ({
 }));
 
 vi.mock('@/features/dag-runs/components/dag-run-list/DAGRunTable', () => ({
-  default: (props: {
-    isLoading?: boolean;
-    onSelectDAGRun: (run: { name: string; dagRunId: string }) => void;
-    onViewArtifacts: (run: { name: string; dagRunId: string }) => void;
-  }) => {
+  default: (props: { isLoading?: boolean }) => {
     dagRunTableProps.current = props;
-    const { onSelectDAGRun, onViewArtifacts } = props;
-    return (
-      <div>
-        <div>Run Table</div>
-        <button
-          type="button"
-          onClick={() => onSelectDAGRun({ name: 'demo', dagRunId: 'run-1' })}
-        >
-          Open run
-        </button>
-        <button
-          type="button"
-          onClick={() => onViewArtifacts({ name: 'demo', dagRunId: 'run-1' })}
-        >
-          Open artifacts
-        </button>
-      </div>
-    );
+    return <div>Run Table</div>;
   },
 }));
 
@@ -250,7 +198,12 @@ function lastRunQuery(): Record<string, unknown> {
 
 function LocationProbe(): React.JSX.Element {
   const location = useLocation();
-  return <output data-testid="location-search">{location.search}</output>;
+  return (
+    <>
+      <output data-testid="location-path">{location.pathname}</output>
+      <output data-testid="location-search">{location.search}</output>
+    </>
+  );
 }
 
 function locationSearchParams(): URLSearchParams {
@@ -292,85 +245,6 @@ function renderPage(
 }
 
 describe('DAGRuns page', () => {
-  it.each([
-    'outputs',
-    'timeline',
-    'artifacts',
-    'spec',
-    'agent',
-    'chat',
-    'tasks',
-    'approval',
-    'human-tasks',
-    'status',
-    'invalid',
-  ])('restores the selected tab from the URL: %s', (tab) => {
-    runViewMode.current = 'grouped';
-    renderPage(
-      vi.fn(),
-      `/dag-runs?selectedRunName=demo&selectedRunId=run-1&selectedRunTab=${tab}`
-    );
-    expect(screen.getByRole('dialog')).toHaveTextContent(
-      `on ${tab === 'invalid' ? 'status' : tab}`
-    );
-  });
-
-  it('navigates loaded histories in grouped view and keeps the tab and URL', () => {
-    runViewMode.current = 'grouped';
-    usePaginatedDAGRunsMock.mockReturnValue({
-      dagRuns: [
-        {
-          name: 'demo',
-          dagRunId: 'run-1',
-          scheduleTime: '2026-09-16T02:00:00Z',
-        },
-        {
-          name: 'other',
-          dagRunId: 'other-run',
-          scheduleTime: '2026-09-16T01:30:00Z',
-        },
-        {
-          name: 'demo',
-          dagRunId: 'run-2',
-          scheduleTime: '2026-09-16T01:00:00Z',
-        },
-      ],
-      isInitialLoading: false,
-      isLoadingMore: false,
-      hasMore: false,
-      loadMore: vi.fn(),
-      refresh: vi.fn(),
-    });
-    renderPage(
-      vi.fn(),
-      '/dag-runs?name=demo&selectedRunName=demo&selectedRunId=run-1&selectedRunTab=artifacts'
-    );
-    fireEvent.click(screen.getByRole('button', { name: 'Show outputs' }));
-    expect(locationSearchParams().get('selectedRunTab')).toBe('outputs');
-    fireEvent.click(screen.getByRole('button', { name: 'Next history' }));
-    expect(screen.getByRole('dialog')).toHaveTextContent(
-      'demo/run-2 on outputs'
-    );
-    expect(locationSearchParams().get('selectedRunId')).toBe('run-2');
-    expect(locationSearchParams().get('name')).toBe('demo');
-    expect(locationSearchParams().get('selectedRunTab')).toBe('outputs');
-    fireEvent.click(screen.getByRole('button', { name: 'Next history' }));
-    expect(screen.getByRole('dialog')).toHaveTextContent(
-      'demo/run-2 on outputs'
-    );
-    fireEvent.click(screen.getByRole('button', { name: 'Previous history' }));
-    expect(screen.getByRole('dialog')).toHaveTextContent(
-      'demo/run-1 on outputs'
-    );
-    expect(locationSearchParams().get('selectedRunTab')).toBe('outputs');
-    fireEvent.click(screen.getByRole('button', { name: 'Previous history' }));
-    expect(screen.getByRole('dialog')).toHaveTextContent(
-      'demo/run-1 on outputs'
-    );
-    fireEvent.click(screen.getByRole('button', { name: 'Show status' }));
-    expect(locationSearchParams().has('selectedRunTab')).toBe(false);
-  });
-
   it('uses the Executions page title', () => {
     const setTitle = vi.fn();
 
@@ -493,55 +367,18 @@ describe('DAGRuns page', () => {
     );
   });
 
-  it('stores the selected run in the URL and clears it on close', () => {
-    renderPage();
-
-    fireEvent.click(screen.getByRole('button', { name: 'Open run' }));
-    expect(screen.getByRole('dialog')).toHaveTextContent(
-      'Run modal for demo/run-1 on status'
-    );
-    expect(screen.getByTestId('location-search')).toHaveTextContent(
-      '?selectedRunName=demo&selectedRunId=run-1'
+  // Links from before the run page replaced the side panel.
+  it('opens the run of a legacy ?selectedRunName link on its workflow page', () => {
+    renderPage(
+      vi.fn(),
+      '/dag-runs?selectedRunName=demo&selectedRunId=run-1&selectedRunTab=artifacts'
     );
 
-    fireEvent.click(screen.getByRole('button', { name: 'Close run' }));
-    expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
-    expect(screen.getByTestId('location-search')).toHaveTextContent('');
-  });
-
-  it('opens a run on the artifacts tab and stores that selection in the URL', () => {
-    renderPage();
-
-    fireEvent.click(screen.getByRole('button', { name: 'Open artifacts' }));
-
-    expect(screen.getByRole('dialog')).toHaveTextContent(
-      'Run modal for demo/run-1 on artifacts'
-    );
-    expect(screen.getByTestId('location-search')).toHaveTextContent(
-      '?selectedRunName=demo&selectedRunId=run-1&selectedRunTab=artifacts'
-    );
-  });
-
-  it('preserves execution filters when opening a run', async () => {
-    renderPage();
-
-    fireEvent.change(
-      screen.getByPlaceholderText('Filter by workflow name...'),
-      {
-        target: { value: 'deploy' },
-      }
-    );
-    fireEvent.click(screen.getByRole('button', { name: 'Search' }));
-
-    await waitFor(() => {
-      expect(locationSearchParams().get('name')).toBe('deploy');
-    });
-
-    fireEvent.click(screen.getByRole('button', { name: 'Open run' }));
-
-    expect(locationSearchParams().get('name')).toBe('deploy');
-    expect(locationSearchParams().get('selectedRunName')).toBe('demo');
-    expect(locationSearchParams().get('selectedRunId')).toBe('run-1');
+    expect(screen.getByTestId('location-path')).toHaveTextContent('/dags/demo');
+    expect(locationSearchParams().get('run')).toBe('run-1');
+    expect(locationSearchParams().get('dock')).toBe('artifacts');
+    expect(locationSearchParams().get('remoteNode')).toBe('local');
+    expect(locationSearchParams().has('selectedRunName')).toBe(false);
   });
 
   it('suggests DAG names and applies the selected suggestion as the filter', async () => {
@@ -689,17 +526,6 @@ describe('DAGRuns page', () => {
     const query = lastRunQuery();
     expect(query['fromDate']).toBe(Date.UTC(2026, 8, 15, 5, 0, 0) / 1000);
     expect(query['toDate']).toBe(Date.UTC(2026, 8, 16, 5, 0, 0) / 1000);
-  });
-
-  it('restores the run and artifact tab from the URL', () => {
-    renderPage(
-      vi.fn(),
-      '/dag-runs?selectedRunName=demo&selectedRunId=run-1&selectedRunTab=artifacts'
-    );
-
-    expect(screen.getByRole('dialog')).toHaveTextContent(
-      'Run modal for demo/run-1 on artifacts'
-    );
   });
 
   it('applies the default run view to the first request', async () => {

@@ -14,7 +14,7 @@ import { whenEnabled } from '@/hooks/queryUtils';
 import { ExternalLink, Layers } from 'lucide-react';
 import React, { useMemo, useState } from 'react';
 import { components, StatusLabel } from '../../../../api/v1/schema';
-import { StatusDot } from '../common';
+import { StatusDot } from '../common/StatusDot';
 import { statusLabelText } from '@/lib/status-utils';
 import { I18nText } from '@/i18n/I18nText';
 import { I18nProps } from '@/i18n/I18nProps';
@@ -161,11 +161,7 @@ export function ParallelExecutionModal({
 
     const handleKeyDown = (e: KeyboardEvent) => {
       if (filteredSubRuns.length === 0) {
-        if (
-          e.key === 'ArrowDown' ||
-          e.key === 'ArrowUp' ||
-          e.key === 'Enter'
-        ) {
+        if (e.key === 'ArrowDown' || e.key === 'ArrowUp' || e.key === 'Enter') {
           e.preventDefault();
           setSelectedIndex(null);
         }
@@ -283,7 +279,7 @@ export function ParallelExecutionModal({
           >
             {filteredSubRuns.length === 0 ? (
               <div className="text-center py-8 text-sm text-muted-foreground">
-                <I18nText text={"No sub DAG-runs match the selected filter"} />
+                <I18nText text={'No sub DAG-runs match the selected filter'} />
               </div>
             ) : (
               filteredSubRuns.map(({ subRun, originalIndex }, displayIndex) => {
@@ -296,7 +292,7 @@ export function ParallelExecutionModal({
                   >
                     <button
                       className={`
-                        flex-1 text-left transition-all duration-150 border rounded px-3 py-2 flex items-center gap-3 focus:outline-none
+                        flex-1 text-left transition-colors duration-150 border rounded px-3 py-2 flex items-center gap-3 focus:outline-none
                         ${
                           selectedIndex === displayIndex
                             ? 'border-info bg-info-muted'
@@ -329,20 +325,22 @@ export function ParallelExecutionModal({
                           </code>
                         ) : (
                           <span className="text-sm text-muted-foreground italic">
-                            <I18nText text={"No parameters"} />
+                            <I18nText text={'No parameters'} />
                           </span>
                         )}
                       </div>
                     </button>
-                    <I18nProps><button
-                      className="opacity-0 group-hover:opacity-100 transition-opacity duration-150 p-1.5 rounded hover:bg-muted focus:outline-none"
-                      onClick={() => {
-                        onSelectSubRun(originalIndex, true);
-                      }}
-                      title="Open in new tab"
-                    >
-                      <ExternalLink className="h-3 w-3 text-muted-foreground" />
-                    </button></I18nProps>
+                    <I18nProps>
+                      <button
+                        className="opacity-0 group-hover:opacity-100 transition-opacity duration-150 p-1.5 rounded hover:bg-muted focus:outline-none"
+                        onClick={() => {
+                          onSelectSubRun(originalIndex, true);
+                        }}
+                        title="Open in new tab"
+                      >
+                        <ExternalLink className="h-3 w-3 text-muted-foreground" />
+                      </button>
+                    </I18nProps>
                   </div>
                 );
               })
@@ -352,13 +350,22 @@ export function ParallelExecutionModal({
 
         <div className="px-4 py-2 bg-muted border-t border-border">
           <div className="flex items-center gap-3 text-xs text-muted-foreground font-mono">
-            <span>{isMac ? '⌘' : <I18nText text={"Ctrl"} />}<I18nText text={"+Click: new tab"} /></span>
+            <span>
+              {isMac ? '⌘' : <I18nText text={'Ctrl'} />}
+              <I18nText text={'+Click: new tab'} />
+            </span>
             <span className="opacity-40">•</span>
-            <span><I18nText text={"↑↓ Navigate"} /></span>
+            <span>
+              <I18nText text={'↑↓ Navigate'} />
+            </span>
             <span className="opacity-40">•</span>
-            <span><I18nText text={"Enter: select"} /></span>
+            <span>
+              <I18nText text={'Enter: select'} />
+            </span>
             <span className="opacity-40">•</span>
-            <span><I18nText text={"ESC: close"} /></span>
+            <span>
+              <I18nText text={'ESC: close'} />
+            </span>
           </div>
         </div>
       </DialogContent>

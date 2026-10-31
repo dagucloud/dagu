@@ -15,19 +15,22 @@ type DAGRunDetails = components['schemas']['DAGRunDetails'];
 /** Executor types whose steps persist an LLM transcript. */
 const LLM_STEP_TYPES = ['chat', 'agent'];
 
-interface ChatHistoryTabProps {
-  dagRun: DAGRunDetails;
+/** Whether the step persists an LLM transcript. */
+export function hasChatHistory(node: DAGRunDetails['nodes'][number]): boolean {
+  return LLM_STEP_TYPES.includes(node.step.executorConfig?.type ?? '');
 }
 
-export function ChatHistoryTab({ dagRun }: ChatHistoryTabProps) {
+interface ChatHistoryTabProps {
+  dagRun: DAGRunDetails;
+  /** Shows only the transcript of this step, without the step selector. */
+  stepName?: string;
+}
+
+export function ChatHistoryTab({ dagRun, stepName }: ChatHistoryTabProps) {
   const { ts } = useI18n();
   // Find all LLM-backed steps that persist message history.
   const historySteps = useMemo(() => {
-    return (
-      dagRun.nodes?.filter((node) =>
-        LLM_STEP_TYPES.includes(node.step.executorConfig?.type ?? '')
-      ) || []
-    );
+    return dagRun.nodes?.filter(hasChatHistory) || [];
   }, [dagRun.nodes]);
 
   // Determine default selected step: last finished chat step
@@ -92,10 +95,26 @@ export function ChatHistoryTab({ dagRun }: ChatHistoryTabProps) {
     dagRun.rootDAGRunName &&
     dagRun.rootDAGRunId !== dagRun.dagRunId;
 
+  if (stepName !== undefined) {
+    const node = historySteps.find((n) => n.step.name === stepName);
+    if (!node) return null;
+    return (
+      <StepMessagesTable
+        dagName={dagRun.name}
+        dagRunId={dagRun.dagRunId}
+        stepName={stepName}
+        isActive={isActiveNodeStatus(node.status)}
+        subDAGRunId={isSubDAGRun ? dagRun.dagRunId : undefined}
+        rootDagName={isSubDAGRun ? dagRun.rootDAGRunName : undefined}
+        rootDagRunId={isSubDAGRun ? dagRun.rootDAGRunId : undefined}
+      />
+    );
+  }
+
   if (historySteps.length === 0) {
     return (
       <div className="text-xs text-muted-foreground p-2">
-        <I18nText text={"No chat steps in this DAG run"} />
+        <I18nText text={'No chat steps in this DAG run'} />
       </div>
     );
   }
@@ -105,7 +124,7 @@ export function ChatHistoryTab({ dagRun }: ChatHistoryTabProps) {
       {/* Step selector dropdown */}
       <div className="flex items-center gap-2 text-xs">
         <label htmlFor="chat-step-select" className="text-muted-foreground">
-          <I18nText text={"Step:"} />
+          <I18nText text={'Step:'} />
         </label>
         <select
           id="chat-step-select"

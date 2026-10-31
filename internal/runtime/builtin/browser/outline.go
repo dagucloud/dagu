@@ -104,7 +104,7 @@ func renderOutline(snap pageSnapshot, opts outlineOptions) (string, bool, int) {
 	b := outlineBuilder{urls: snap.URLs}
 	b.page, _ = url.Parse(snap.URL)
 	var entries []*outlineEntry
-	for _, root := range parseSnapshotTree(snap.Tree) {
+	for _, root := range snap.roots() {
 		entries = append(entries, b.build(root)...)
 	}
 	entries = contentFirst(entries)

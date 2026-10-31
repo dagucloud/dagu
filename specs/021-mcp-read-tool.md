@@ -158,6 +158,8 @@ Minimum `data` models:
 | Wiki page | `data.id` is the page path string. `data.content` is the Markdown string. `data.mimeType` is `text/markdown`. `data.uri` is the canonical `dagu://wiki/{workspace}/{path}` URI. |
 | Wiki search | `data.results` is an array. Each result has `id` string, `uri` string, `matches` array of snippets, and `hasMoreMatches` boolean. `data.hasMore` is a boolean, and `data.nextCursor` is an opaque cursor string when another page is available. |
 
+Every `startedAt` and `finishedAt` value in these models is an RFC 3339 string with millisecond precision, for example `2026-10-27T08:02:02.158Z`. A run that an older version stored can have second precision, with no fraction.
+
 Implementations may add fields inside `data`. Conformance tests must not require
 absence of additional fields.
 

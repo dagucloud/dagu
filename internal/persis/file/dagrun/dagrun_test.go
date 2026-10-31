@@ -417,6 +417,58 @@ func TestRemoveLogFiles(t *testing.T) {
 		}
 	})
 
+	// A run seeded from another run, such as a selected-steps run, names the
+	// logs of the source run for its skipped steps. Those logs stay with the
+	// source run. The logs of an earlier attempt of the same run go.
+	t.Run("KeepsLogsOfAnotherRun", func(t *testing.T) {
+		tmpDir := t.TempDir()
+		path := func(dir, name string) string { return filepath.Join(tmpDir, dir, name) }
+		source := []string{path("source", "producer.out"), path("source", "producer.err")}
+		own := []string{
+			path("first", "scheduler.log"), path("first", "consumer.out"),
+			path("second", "scheduler.log"),
+		}
+		for _, logFile := range append(append([]string{}, source...), own...) {
+			require.NoError(t, os.MkdirAll(filepath.Dir(logFile), 0750))
+			require.NoError(t, os.WriteFile(logFile, []byte("test log content"), 0600))
+		}
+
+		root := setupTestDataRoot(t)
+		run := root.CreateTestDAGRun(t, "test-dag-run", persis.NewUTC(time.Now()))
+		dag := &ir.DAG{Name: "test-dag"}
+		producer := &ir.Node{
+			Step: ir.Step{Name: "producer"}, Status: ir.NodeSkipped, SkippedByRetry: true,
+			Stdout: source[0], Stderr: source[1],
+		}
+		write := func(ts time.Time, log string, consumer *ir.Node) {
+			status := ir.InitialStatus(dag)
+			status.DAGRunID = "test-dag-run"
+			status.Status = ir.Succeeded
+			status.Log = log
+			status.Nodes = []*ir.Node{producer, consumer}
+			att, err := run.CreateAttempt(run.Context, persis.NewUTC(ts), nil, "")
+			require.NoError(t, err)
+			require.NoError(t, att.Open(run.Context))
+			require.NoError(t, att.Write(run.Context, status))
+			require.NoError(t, att.Close(run.Context))
+		}
+		now := time.Now()
+		write(now, own[0], &ir.Node{Step: ir.Step{Name: "consumer"}, Stdout: own[1]})
+		// The retry carries the consumer of the first attempt.
+		write(now.Add(time.Second), own[2], &ir.Node{
+			Step: ir.Step{Name: "consumer"}, Status: ir.NodeSkipped, SkippedByRetry: true, Stdout: own[1],
+		})
+
+		require.NoError(t, run.removeLogFiles(run.Context))
+
+		for _, logFile := range source {
+			assert.FileExists(t, logFile)
+		}
+		for _, logFile := range own {
+			assert.NoFileExists(t, logFile)
+		}
+	})
+
 	t.Run("Idempotent", func(t *testing.T) {
 		dagRunLogDir := filepath.Join(t.TempDir(), "dag-run")
 		attemptLogDir := filepath.Join(dagRunLogDir, "attempt")

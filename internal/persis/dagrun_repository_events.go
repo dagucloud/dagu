@@ -21,16 +21,18 @@ import (
 type eventingAttempt struct {
 	dagrun.Attempt
 
-	mu                   sync.Mutex
-	dag                  *ir.DAG
+	mu  sync.Mutex
+	dag *ir.DAG
+	// ephemeral suppresses every event of the run.
+	ephemeral            bool
 	lastEmittedEventType eventstore.EventType
 }
 
-func newEventingAttempt(attempt dagrun.Attempt, dag *ir.DAG) dagrun.Attempt {
+func newEventingAttempt(attempt dagrun.Attempt, dag *ir.DAG, ephemeral bool) dagrun.Attempt {
 	if attempt == nil {
 		return nil
 	}
-	return &eventingAttempt{Attempt: attempt, dag: dag}
+	return &eventingAttempt{Attempt: attempt, dag: dag, ephemeral: ephemeral}
 }
 
 func (a *eventingAttempt) Open(ctx context.Context) error {
@@ -48,7 +50,7 @@ func (a *eventingAttempt) Open(ctx context.Context) error {
 		return err
 	}
 	a.lastEmittedEventType = ""
-	if _, _, ok := eventstore.FromContext(ctx); ok {
+	if _, _, ok := eventstore.FromContext(ctx); ok && !a.ephemeral {
 		if status, err := a.ReadStatus(ctx); err == nil && status != nil {
 			a.lastEmittedEventType, _ = eventstore.PersistedDAGRunEventTypeForStatus(status.Status)
 		}
@@ -62,6 +64,9 @@ func (a *eventingAttempt) Write(ctx context.Context, status ir.DAGRunStatus) err
 
 	if err := a.Attempt.Write(ctx, status); err != nil {
 		return err
+	}
+	if a.ephemeral || status.Ephemeral {
+		return nil
 	}
 	if _, _, ok := eventstore.FromContext(ctx); !ok {
 		return nil
@@ -79,6 +84,14 @@ func (a *eventingAttempt) Close(ctx context.Context) error {
 	a.mu.Lock()
 	defer a.mu.Unlock()
 	return a.Attempt.Close(ctx)
+}
+
+// Dir returns the directory of the wrapped attempt, or "" when it has none.
+func (a *eventingAttempt) Dir() string {
+	if p, ok := a.Attempt.(interface{ Dir() string }); ok {
+		return p.Dir()
+	}
+	return ""
 }
 
 func (a *eventingAttempt) SetDAG(dag *ir.DAG) {
@@ -115,9 +128,9 @@ func (r *DAGRunRepository) eventDataForDAGRun(ctx context.Context, root, dagRun 
 		err     error
 	)
 	if root.ID != dagRun.ID || root.Name != dagRun.Name {
-		attempt, err = r.store.FindSubAttempt(ctx, root, dagRun.ID)
+		attempt, err = r.FindSubAttempt(ctx, root, dagRun.ID)
 	} else {
-		attempt, err = r.store.FindAttempt(ctx, dagRun)
+		attempt, err = r.FindAttempt(ctx, dagRun)
 	}
 	if err != nil {
 		return nil

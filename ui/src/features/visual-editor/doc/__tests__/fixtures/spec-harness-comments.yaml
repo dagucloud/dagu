@@ -1,0 +1,16 @@
+harnesses:
+  remote-agent:
+    protocol: acp
+    transport: http                 # websocket for ws:// or wss:// endpoints
+    url: https://acp.example.com/acp # wss://acp.example.com/acp for secure WebSocket
+    cwd: /srv/project
+    # ca_file: /path/to/private-ca.pem
+    headers:
+      Authorization: Bearer ${ACP_TOKEN}
+steps:
+  - action: harness.run
+    timeout_sec: 120
+    with:
+      provider: remote-agent
+      prompt: Review the project without modifying files.
+    output: REVIEW

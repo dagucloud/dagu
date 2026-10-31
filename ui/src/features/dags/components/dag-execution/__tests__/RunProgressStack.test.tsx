@@ -3,7 +3,7 @@
 
 import { act, fireEvent, render, screen } from '@testing-library/react';
 import React from 'react';
-import { MemoryRouter } from 'react-router-dom';
+import { MemoryRouter, useLocation } from 'react-router-dom';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { Status, StatusLabel } from '@/api/v1/schema';
 import { useBoundedDAGRunDetails } from '@/features/dag-runs/hooks/useBoundedDAGRunDetails';
@@ -42,23 +42,6 @@ vi.mock('@/features/dag-runs/hooks/useBoundedDAGRunDetails', () => ({
   }),
 }));
 
-vi.mock('../RunProgressModal', () => ({
-  default: ({
-    dagName,
-    dagRunId,
-    visible,
-  }: {
-    dagName: string;
-    dagRunId: string;
-    visible: boolean;
-  }) =>
-    visible ? (
-      <div role="dialog" aria-label="Run progress">
-        {dagName} {dagRunId}
-      </div>
-    ) : null,
-}));
-
 beforeEach(() => {
   runStatuses.clear();
   vi.mocked(useBoundedDAGRunDetails).mockClear();
@@ -79,17 +62,28 @@ afterEach(() => {
   vi.useRealTimers();
 });
 
+function Where() {
+  const location = useLocation();
+  return (
+    <output data-testid="where">{location.pathname + location.search}</output>
+  );
+}
+
 function AddRunButton({
   dagName,
   dagRunId,
+  fileName,
 }: {
   dagName: string;
   dagRunId: string;
+  fileName?: string;
 }) {
   return (
     <button
       type="button"
-      onClick={() => pushRunProgress({ dagName, dagRunId, remoteNode: 'edge' })}
+      onClick={() =>
+        pushRunProgress({ dagName, fileName, dagRunId, remoteNode: 'edge' })
+      }
     >
       Add {dagRunId}
     </button>
@@ -97,7 +91,7 @@ function AddRunButton({
 }
 
 describe('RunProgressStack', () => {
-  it('stacks submitted runs without opening the modal', () => {
+  it('stacks submitted runs', () => {
     render(
       <MemoryRouter>
         <AddRunButton dagName="first" dagRunId="run-1" />
@@ -109,7 +103,6 @@ describe('RunProgressStack', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Add run-1' }));
     fireEvent.click(screen.getByRole('button', { name: 'Add run-2' }));
 
-    expect(screen.queryByRole('dialog', { name: 'Run progress' })).toBeNull();
     expect(
       screen.getByRole('button', { name: 'Open run progress for run-1' })
     ).toHaveTextContent('first');
@@ -118,11 +111,17 @@ describe('RunProgressStack', () => {
     ).toHaveTextContent('second');
   });
 
-  it('opens the modal when a stacked run is clicked', async () => {
+  // A click leaves the notification and shows the run on the workflow page.
+  it('goes to the run page and removes the card when a stacked run is clicked', () => {
     render(
       <MemoryRouter>
-        <AddRunButton dagName="example" dagRunId="run-1" />
+        <AddRunButton
+          dagName="Example name"
+          dagRunId="run-1"
+          fileName="example"
+        />
         <RunProgressStack />
+        <Where />
       </MemoryRouter>
     );
 
@@ -131,9 +130,28 @@ describe('RunProgressStack', () => {
       screen.getByRole('button', { name: 'Open run progress for run-1' })
     );
 
+    expect(screen.getByTestId('where')).toHaveTextContent(
+      '/dags/example?remoteNode=edge&run=run-1'
+    );
     expect(
-      await screen.findByRole('dialog', { name: 'Run progress' })
-    ).toHaveTextContent('example run-1');
+      screen.queryByRole('button', { name: 'Open run progress for run-1' })
+    ).toBeNull();
+    expect(screen.queryByRole('dialog')).toBeNull();
+  });
+
+  it('falls back on the DAG name when no file name is given', () => {
+    render(
+      <MemoryRouter>
+        <AddRunButton dagName="example" dagRunId="run-1" />
+        <RunProgressStack />
+        <Where />
+      </MemoryRouter>
+    );
+    fireEvent.click(screen.getByRole('button', { name: 'Add run-1' }));
+    fireEvent.click(
+      screen.getByRole('button', { name: 'Open run progress for run-1' })
+    );
+    expect(screen.getByTestId('where')).toHaveTextContent('/dags/example?');
   });
 
   it('caps the stack to the latest five runs', () => {
@@ -161,27 +179,6 @@ describe('RunProgressStack', () => {
     ).toBeVisible();
   });
 
-  it('removes the card subscription while the modal is open', async () => {
-    render(
-      <MemoryRouter>
-        <AddRunButton dagName="example" dagRunId="run-1" />
-        <RunProgressStack />
-      </MemoryRouter>
-    );
-
-    fireEvent.click(screen.getByRole('button', { name: 'Add run-1' }));
-    expect(useBoundedDAGRunDetails).toHaveBeenCalledTimes(1);
-
-    fireEvent.click(
-      screen.getByRole('button', { name: 'Open run progress for run-1' })
-    );
-
-    expect(
-      await screen.findByRole('dialog', { name: 'Run progress' })
-    ).toBeVisible();
-    expect(useBoundedDAGRunDetails).toHaveBeenCalledTimes(1);
-  });
-
   it('auto-dismisses successful runs', async () => {
     vi.useFakeTimers();
     runStatuses.set('run-1', Status.Success);
@@ -206,11 +203,12 @@ describe('RunProgressStack', () => {
     ).toBeNull();
   });
 
-  it('dismisses a stacked run without opening the modal', () => {
+  it('dismisses a stacked run without leaving the page', () => {
     render(
       <MemoryRouter>
         <AddRunButton dagName="example" dagRunId="run-1" />
         <RunProgressStack />
+        <Where />
       </MemoryRouter>
     );
 
@@ -222,6 +220,6 @@ describe('RunProgressStack', () => {
     expect(
       screen.queryByRole('button', { name: 'Open run progress for run-1' })
     ).toBeNull();
-    expect(screen.queryByRole('dialog', { name: 'Run progress' })).toBeNull();
+    expect(screen.getByTestId('where').textContent).toBe('/');
   });
 });

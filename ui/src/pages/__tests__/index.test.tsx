@@ -37,10 +37,6 @@ vi.mock('../../features/dags/components/common', async () => ({
   ).default,
 }));
 
-vi.mock('@/features/dag-runs/components/dag-run-details', () => ({
-  DAGRunDetailsModal: () => null,
-}));
-
 vi.mock('@/features/dag-runs/components/common', () => ({
   DAGRunActions: () => <button type="button">Retry</button>,
 }));
@@ -275,7 +271,7 @@ describe('DashboardPage', () => {
     expect(items[1]).toHaveTextContent('Waiting for input');
     expect(
       within(items[1]!).getByRole('link', { name: /Review/ })
-    ).toHaveAttribute('href', '/dag-runs/approve/a-1?remoteNode=local');
+    ).toHaveAttribute('href', '/dags/approve?remoteNode=local&run=a-1');
   });
 
   it('counts the runs and links each status to the window’s runs', () => {

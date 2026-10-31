@@ -58,6 +58,8 @@ type testRun struct {
 	base context.Context
 	// noModel runs the step without an llm block.
 	noModel bool
+	// foreachItem is the foreach item whose body runs the step, if any.
+	foreachItem string
 }
 
 func newTestRun(t *testing.T, answer func(*llmpkg.ChatRequest) (string, error)) *testRun {
@@ -127,7 +129,8 @@ func (r *testRun) context() context.Context {
 			DAGRunID: "run-1",
 			WorkerID: "worker-a",
 		},
-		Scope: scope,
+		Scope:       scope,
+		ForeachItem: r.foreachItem,
 	})
 }
 
@@ -218,6 +221,20 @@ func TestExpectFailureCapturesPage(t *testing.T) {
 	assert.FileExists(t, filepath.Join(run.artifacts, "browser", "shop", "01-failure.png"))
 }
 
+// A failure on a window another page opened and that stays open in front
+// of it names that page and captures it, since the window hides it.
+func TestFailureOnAWindowCapturesThePageBehindIt(t *testing.T) {
+	t.Parallel()
+
+	run := newTestRun(t, pageModel(nil))
+	run.engine.opener = "Bids"
+	execution := run.execute(`{"do": [{"expect": "The results are listed"}]}`, nil)
+
+	require.ErrorContains(t, execution.err, `the page read is a window that the page "Bids" opened and that is still open in front of it; browser/shop/02-failure-opener.png shows that page`)
+	assert.FileExists(t, filepath.Join(run.artifacts, "browser", "shop", "01-failure.png"))
+	assert.FileExists(t, filepath.Join(run.artifacts, "browser", "shop", "02-failure-opener.png"))
+}
+
 // A browser a previous attempt left open that does not close keeps its
 // record, so the reaper can retry, and the new attempt fails instead of
 // replacing that record with its own browser.
@@ -226,7 +243,7 @@ func TestStaleBrowserThatWillNotCloseFailsTheStep(t *testing.T) {
 
 	run := newTestRun(t, pageModel(nil))
 	stale := browserhost.Record{
-		ID:       browserhost.RecordID("run-1", "shop"),
+		ID:       browserhost.RecordID("run-1", "", "shop"),
 		DAGRunID: "run-1",
 		StepName: "shop",
 		State:    browserhost.StateDetached,
@@ -242,6 +259,32 @@ func TestStaleBrowserThatWillNotCloseFailsTheStep(t *testing.T) {
 	records := run.records()
 	require.Len(t, records, 1)
 	assert.Equal(t, stale.CDPURL, records[0].CDPURL)
+}
+
+// The step in one foreach item leaves alone the browser the same step opened
+// in another item of the same run, which is still running.
+func TestForeachItemLeavesOtherItemsBrowser(t *testing.T) {
+	t.Parallel()
+
+	run := newTestRun(t, pageModel(nil))
+	other := browserhost.Record{
+		ID:       browserhost.RecordID("run-1", "item-0", "shop"),
+		DAGRunID: "run-1",
+		StepName: "shop",
+		State:    browserhost.StateRunning,
+		OwnerPID: os.Getpid(),
+		// Closing it would fail the step.
+		CDPURL: serveHungBrowser(t),
+	}
+	require.NoError(t, browserhost.NewStore(filepath.Join(run.dataDir, browserhost.DataDirName)).Save(other))
+
+	run.foreachItem = "item-1"
+	execution := run.execute(`{"do": [{"act": "Click the checkout button"}]}`, nil)
+
+	require.NoError(t, execution.err)
+	records := run.records()
+	require.Len(t, records, 1, "the other item's browser keeps its record")
+	assert.Equal(t, other.CDPURL, records[0].CDPURL)
 }
 
 // Dialogs the browser accepted appear in the timeline after the operation
@@ -969,7 +1012,7 @@ func TestAskResumeAfterUnreadableRecord(t *testing.T) {
 
 	// A directory in place of the record cannot be read as a file by any
 	// process, whatever its privileges.
-	record := filepath.Join(run.dataDir, browserhost.DataDirName, "sessions", browserhost.RecordID("run-1", "shop")+".json")
+	record := filepath.Join(run.dataDir, browserhost.DataDirName, "sessions", browserhost.RecordID("run-1", "", "shop")+".json")
 	data, err := os.ReadFile(record)
 	require.NoError(t, err)
 	require.NoError(t, os.Remove(record))

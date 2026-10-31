@@ -169,7 +169,7 @@ describe('RunProgressModal', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Open graph step' }));
 
     expect(screen.getByLabelText('Location')).toHaveTextContent(
-      '/dag-runs/example/run-1?remoteNode=edge&step=build'
+      '/dags/example?remoteNode=edge&run=run-1&step=build'
     );
   });
 
@@ -187,7 +187,7 @@ describe('RunProgressModal', () => {
     fireEvent.click(screen.getByRole('button', { name: 'View details' }));
 
     expect(screen.getByLabelText('Location')).toHaveTextContent(
-      '/dag-runs/example/run-1?remoteNode=edge'
+      '/dags/example?remoteNode=edge&run=run-1'
     );
   });
 
@@ -205,7 +205,7 @@ describe('RunProgressModal', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Inspect step' }));
 
     expect(screen.getByLabelText('Location')).toHaveTextContent(
-      '/dag-runs/example/run-1?remoteNode=edge&step=build'
+      '/dags/example?remoteNode=edge&run=run-1&step=build'
     );
   });
 });

@@ -1,0 +1,36 @@
+# A build workflow: steps are skipped when their inputs did not change.
+description: Minify the style sheet, render the page and bundle the site.
+type: build
+working_dir: ../demo-build
+steps:
+  - id: css
+    name: css
+    inputs:
+      - name: source
+        path: style.css
+    outputs:
+      - name: minified
+        path: out/style.min.css
+    run: tr -d '\n' < "${inputs.source}" > "${outputs.minified}"
+
+  - id: page
+    name: page
+    inputs:
+      - name: source
+        path: index.md
+    outputs:
+      - name: html
+        path: out/index.html
+    run: sed 's/^# \(.*\)/<h1>\1<\/h1>/' "${inputs.source}" > "${outputs.html}"
+
+  - id: bundle
+    name: bundle
+    inputs:
+      - name: html
+        path: out/index.html
+      - name: css
+        path: out/style.min.css
+    outputs:
+      - name: site
+        path: out/site.tar
+    run: tar -cf "${outputs.site}" -C out index.html style.min.css

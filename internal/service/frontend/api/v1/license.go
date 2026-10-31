@@ -33,10 +33,10 @@ func toLicenseStatusResponse(status license.Status) api.LicenseStatusResponse {
 	return api.LicenseStatusResponse{
 		Valid:        status.Valid,
 		Plan:         status.Plan,
-		Expiry:       stringutil.FormatTime(status.Expiry),
+		Expiry:       stringutil.FormatTimeSeconds(status.Expiry),
 		Features:     status.Features,
 		GracePeriod:  status.GracePeriod,
-		GraceEndsAt:  stringutil.FormatTime(status.GraceEndsAt),
+		GraceEndsAt:  stringutil.FormatTimeSeconds(status.GraceEndsAt),
 		Community:    status.Community,
 		Source:       publicLicenseSource(status.Source),
 		WarningCode:  status.WarningCode,
@@ -47,7 +47,7 @@ func toLicenseStatusResponse(status license.Status) api.LicenseStatusResponse {
 		Workspace:    ptrOf(status.Workspace),
 		ConnectedVia: ptrOf(api.LicenseStatusResponseConnectedVia(status.ConnectedVia)),
 		ServerId:     ptrOf(status.ServerID),
-		LastCheckIn:  ptrOf(stringutil.FormatTime(status.LastCheckIn)),
+		LastCheckIn:  ptrOf(stringutil.FormatTimeSeconds(status.LastCheckIn)),
 		ConsoleUrl:   ptrOf(status.ConsoleURL),
 	}
 }
@@ -448,7 +448,7 @@ func (a *API) licenseMonitoring(ctx context.Context) (api.LicenseMonitoring, err
 		ErrorsOffered:   status.ErrorsOffered,
 	}
 	if !status.LastReportAt.IsZero() {
-		monitoring.LastReportAt = ptrOf(stringutil.FormatTime(status.LastReportAt))
+		monitoring.LastReportAt = ptrOf(stringutil.FormatTimeSeconds(status.LastReportAt))
 		monitoring.LastReport = ptrOf(string(status.LastReport))
 	}
 	if !status.RunsPausedUntil.IsZero() {
@@ -462,7 +462,7 @@ func toLicenseConnectStatus(status license.ConnectStatus) api.LicenseConnectStat
 		State:      api.LicenseConnectStatusState(status.State),
 		ConnectUrl: ptrOf(status.URL),
 		Code:       ptrOf(status.Code),
-		ExpiresAt:  ptrOf(stringutil.FormatTime(status.ExpiresAt)),
+		ExpiresAt:  ptrOf(stringutil.FormatTimeSeconds(status.ExpiresAt)),
 		Error:      ptrOf(status.Error),
 	}
 }

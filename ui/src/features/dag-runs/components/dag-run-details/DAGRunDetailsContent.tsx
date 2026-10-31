@@ -1,7 +1,7 @@
 import React from 'react';
 import { components } from '../../../../api/v1/schema';
 import { useRemoteNode } from '../../../../contexts/RemoteNodeContext';
-import { DAGStatus } from '../../../../features/dags/components';
+import DAGStatus from '../../../../features/dags/components/DAGStatus';
 import type { StatusTab } from '../../../../features/dags/components/DAGStatus';
 import { cn } from '../../../../lib/utils';
 import { DAGRunContext } from '../../contexts/DAGRunContext';

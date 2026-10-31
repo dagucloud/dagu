@@ -56,12 +56,7 @@ function renderSelector(
 ) {
   return render(
     <AppBarContext.Provider value={appBarValue}>
-      <TemplateSelector
-        selectedTemplate=""
-        selectedWorkspace=""
-        onSelect={vi.fn()}
-        {...props}
-      />
+      <TemplateSelector selectedWorkspace="" onSelect={vi.fn()} {...props} />
     </AppBarContext.Provider>
   );
 }
@@ -115,7 +110,7 @@ describe('TemplateSelector', () => {
     );
   });
 
-  it('keeps the selected template label after close without keeping /dags active', () => {
+  it('reports the picked template and closes without keeping /dags active', () => {
     useQueryMock.mockImplementation((path, init) => {
       queryCalls.push({ path, init });
       if (path === '/dags') {
@@ -126,29 +121,17 @@ describe('TemplateSelector', () => {
       }
       return { data: undefined } as never;
     });
+    const onSelect = vi.fn();
 
-    function StatefulSelector() {
-      const [selectedTemplate, setSelectedTemplate] = React.useState('');
-      return (
-        <AppBarContext.Provider value={appBarValue}>
-          <TemplateSelector
-            selectedTemplate={selectedTemplate}
-            selectedWorkspace=""
-            onSelect={setSelectedTemplate}
-          />
-        </AppBarContext.Provider>
-      );
-    }
-
-    render(<StatefulSelector />);
+    renderSelector({ onSelect });
 
     fireEvent.click(screen.getByRole('button', { name: /select template/i }));
     fireEvent.click(screen.getByText('Example DAG'));
 
+    expect(onSelect).toHaveBeenCalledTimes(1);
     expect(
       screen.queryByPlaceholderText('Search workflows...')
     ).not.toBeInTheDocument();
-    expect(screen.getByText('Example DAG')).toBeInTheDocument();
     expect(latestQueryCall('/dags')?.init).toBeNull();
   });
 

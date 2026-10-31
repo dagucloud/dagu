@@ -608,6 +608,16 @@ function StartDAGModal({
     };
   }, [dismissModal, handleSubmit, visible]);
 
+  // Without a note, an error or a parameter, the body would be an empty band.
+  const hasBody =
+    isFullscreen ||
+    paramsReadOnly ||
+    runIdReadOnly ||
+    !!loadError ||
+    !!submitError ||
+    loading ||
+    parameterCount > 0;
+
   return (
     <Dialog open={visible} onOpenChange={(open) => !open && dismissModal()}>
       <DialogContent
@@ -659,8 +669,10 @@ function StartDAGModal({
             >
               {!forceEnqueue && (
                 <div className="space-y-1.5">
-                  <span className="text-sm font-medium">
-                    <I18nText text={'Enqueue'} />
+                  {/* Keeps the row of the labels of the other fields; the
+                      checkbox label says Enqueue once. */}
+                  <span aria-hidden="true" className="block text-sm">
+                    &nbsp;
                   </span>
                   <div className="flex h-7 items-center gap-2">
                     <Checkbox
@@ -806,206 +818,219 @@ function StartDAGModal({
           </fieldset>
         </I18nProps>
 
-        <div className="min-h-0 flex-1 overflow-y-auto px-6 py-4">
-          <div className="space-y-4">
-            {(paramsReadOnly || runIdReadOnly) && (
-              <div className="rounded-md border border-warning/30 bg-warning-muted p-3">
-                <p className="text-sm text-warning">
-                  <strong>
-                    <I18nText text={'Note:'} />
-                  </strong>{' '}
-                  <I18nText text={'This DAG has restrictions:'} />
-                  {paramsReadOnly && runIdReadOnly && (
-                    <span>
-                      {' '}
-                      <I18nText
-                        text={
-                          'Parameter editing and custom run IDs are disabled.'
-                        }
-                      />
-                    </span>
-                  )}
-                  {paramsReadOnly && !runIdReadOnly && (
-                    <span>
-                      {' '}
-                      <I18nText text={'Parameter editing is disabled.'} />
-                    </span>
-                  )}
-                  {!paramsReadOnly && runIdReadOnly && (
-                    <span>
-                      {' '}
-                      <I18nText text={'Custom run IDs are disabled.'} />
-                    </span>
-                  )}
-                </p>
-              </div>
-            )}
-
-            {(loadError || submitError) && (
-              <Alert ref={submitErrorRef} variant="destructive" tabIndex={-1}>
-                <AlertTriangle className="h-4 w-4" />
-                <AlertDescription>{loadError ?? submitError}</AlertDescription>
-              </Alert>
-            )}
-
-            {(loading || parameterCount > 0) && (
-              <section
-                aria-labelledby="dag-parameters-heading"
-                className="space-y-4"
-              >
-                <div className="flex items-center gap-2">
-                  <h3 id="dag-parameters-heading" className="font-semibold">
-                    <I18nText text={'Parameters'} />
-                  </h3>
-                  <Badge variant="secondary" className="font-normal">
-                    {parameterCount}{' '}
-                    {parameterCount === 1 ? (
-                      <I18nText text={'field'} />
-                    ) : (
-                      <I18nText text={'fields'} />
+        {hasBody && (
+          <div
+            data-testid="start-dag-body"
+            className="min-h-0 flex-1 overflow-y-auto px-6 py-4"
+          >
+            <div className="space-y-4">
+              {(paramsReadOnly || runIdReadOnly) && (
+                <div className="rounded-md border border-warning/30 bg-warning-muted p-3">
+                  <p className="text-sm text-warning">
+                    <strong>
+                      <I18nText text={'Note:'} />
+                    </strong>{' '}
+                    <I18nText text={'This DAG has restrictions:'} />
+                    {paramsReadOnly && runIdReadOnly && (
+                      <span>
+                        {' '}
+                        <I18nText
+                          text={
+                            'Parameter editing and custom run IDs are disabled.'
+                          }
+                        />
+                      </span>
                     )}
-                  </Badge>
+                    {paramsReadOnly && !runIdReadOnly && (
+                      <span>
+                        {' '}
+                        <I18nText text={'Parameter editing is disabled.'} />
+                      </span>
+                    )}
+                    {!paramsReadOnly && runIdReadOnly && (
+                      <span>
+                        {' '}
+                        <I18nText text={'Custom run IDs are disabled.'} />
+                      </span>
+                    )}
+                  </p>
                 </div>
+              )}
 
-                {loading && (
-                  <div className="rounded-md border border-border bg-muted/40 p-3 text-sm text-muted-foreground">
-                    <I18nText text={'Loading workflow...'} />
+              {(loadError || submitError) && (
+                <Alert ref={submitErrorRef} variant="destructive" tabIndex={-1}>
+                  <AlertTriangle className="h-4 w-4" />
+                  <AlertDescription>
+                    {loadError ?? submitError}
+                  </AlertDescription>
+                </Alert>
+              )}
+
+              {(loading || parameterCount > 0) && (
+                <section
+                  aria-labelledby="dag-parameters-heading"
+                  className="space-y-4"
+                >
+                  <div className="flex items-center gap-2">
+                    <h3 id="dag-parameters-heading" className="font-semibold">
+                      <I18nText text={'Parameters'} />
+                    </h3>
+                    <Badge variant="secondary" className="font-normal">
+                      {parameterCount}{' '}
+                      {parameterCount === 1 ? (
+                        <I18nText text={'field'} />
+                      ) : (
+                        <I18nText text={'fields'} />
+                      )}
+                    </Badge>
                   </div>
-                )}
 
-                {!loading && dag && paramSchema && (
-                  <Form
-                    ref={schemaFormRef}
-                    tagName="div"
-                    schema={paramSchema as RJSFSchema}
-                    validator={validator}
-                    formData={schemaFormData}
-                    uiSchema={schemaFormUiSchema}
-                    templates={schemaFormTemplates}
-                    widgets={schemaFormWidgets}
-                    disabled={paramsReadOnly || submitting}
-                    readonly={paramsReadOnly}
-                    noHtml5Validate
-                    showErrorList={false}
-                    onChange={(event: IChangeEvent<SchemaFormData>) => {
-                      setSchemaFormData(
-                        (event.formData ?? {}) as SchemaFormData
-                      );
-                      setSubmitError(null);
-                    }}
-                    onError={() =>
-                      setSubmitError(
-                        'Fix the highlighted parameter errors before submitting.'
-                      )
-                    }
-                  />
-                )}
+                  {loading && (
+                    <div className="rounded-md border border-border bg-muted/40 p-3 text-sm text-muted-foreground">
+                      <I18nText text={'Loading workflow...'} />
+                    </div>
+                  )}
 
-                {!loading && dag && useTypedFields && (
-                  <>
-                    {typedFields.map((field, index) => {
-                      const label = field.name || `Parameter ${index + 1}`;
-                      const error = fieldErrors[field.key];
-                      const disableField = paramsReadOnly || submitting;
-                      const showUnsetButton =
-                        !field.required && !field.hasDefault && field.hasValue;
+                  {!loading && dag && paramSchema && (
+                    <Form
+                      ref={schemaFormRef}
+                      tagName="div"
+                      schema={paramSchema as RJSFSchema}
+                      validator={validator}
+                      formData={schemaFormData}
+                      uiSchema={schemaFormUiSchema}
+                      templates={schemaFormTemplates}
+                      widgets={schemaFormWidgets}
+                      disabled={paramsReadOnly || submitting}
+                      readonly={paramsReadOnly}
+                      noHtml5Validate
+                      showErrorList={false}
+                      onChange={(event: IChangeEvent<SchemaFormData>) => {
+                        setSchemaFormData(
+                          (event.formData ?? {}) as SchemaFormData
+                        );
+                        setSubmitError(null);
+                      }}
+                      onError={() =>
+                        setSubmitError(
+                          'Fix the highlighted parameter errors before submitting.'
+                        )
+                      }
+                    />
+                  )}
 
-                      return (
-                        <div key={field.key} className="space-y-2">
-                          <div className="flex items-center justify-between gap-3">
-                            <Label htmlFor={`param-${field.key}`}>
-                              {label}
-                              {field.required ? ' *' : ''}
-                            </Label>
-                            {showUnsetButton && (
-                              <Button
-                                type="button"
-                                variant="ghost"
-                                size="sm"
-                                className="h-7 px-2 text-xs"
-                                disabled={disableField}
-                                onClick={() =>
-                                  handleTypedFieldChange(field.key, {
-                                    hasValue: false,
-                                    value: '',
-                                  })
-                                }
-                              >
-                                <I18nText text={'Unset'} />
-                              </Button>
+                  {!loading && dag && useTypedFields && (
+                    <>
+                      {typedFields.map((field, index) => {
+                        const label = field.name || `Parameter ${index + 1}`;
+                        const error = fieldErrors[field.key];
+                        const disableField = paramsReadOnly || submitting;
+                        const showUnsetButton =
+                          !field.required &&
+                          !field.hasDefault &&
+                          field.hasValue;
+
+                        return (
+                          <div key={field.key} className="space-y-2">
+                            <div className="flex items-center justify-between gap-3">
+                              <Label htmlFor={`param-${field.key}`}>
+                                {label}
+                                {field.required ? ' *' : ''}
+                              </Label>
+                              {showUnsetButton && (
+                                <Button
+                                  type="button"
+                                  variant="ghost"
+                                  size="sm"
+                                  className="h-7 px-2 text-xs"
+                                  disabled={disableField}
+                                  onClick={() =>
+                                    handleTypedFieldChange(field.key, {
+                                      hasValue: false,
+                                      value: '',
+                                    })
+                                  }
+                                >
+                                  <I18nText text={'Unset'} />
+                                </Button>
+                              )}
+                            </div>
+
+                            {renderTypedField({
+                              field,
+                              disabled: disableField,
+                              onChange: (patch) =>
+                                handleTypedFieldChange(field.key, patch),
+                            })}
+
+                            {field.description && (
+                              <p className="text-xs text-muted-foreground">
+                                {field.description}
+                              </p>
+                            )}
+                            {error && (
+                              <p className="text-xs text-destructive">
+                                {error}
+                              </p>
                             )}
                           </div>
+                        );
+                      })}
+                    </>
+                  )}
 
-                          {renderTypedField({
-                            field,
-                            disabled: disableField,
-                            onChange: (patch) =>
-                              handleTypedFieldChange(field.key, patch),
-                          })}
-
-                          {field.description && (
-                            <p className="text-xs text-muted-foreground">
-                              {field.description}
-                            </p>
-                          )}
-                          {error && (
-                            <p className="text-xs text-destructive">{error}</p>
-                          )}
+                  {!loading && dag && !useSchemaFields && !useTypedFields && (
+                    <>
+                      {rawParams.map((param, index) => (
+                        <div
+                          key={`${param.Name ?? 'pos'}-${index}`}
+                          className="space-y-2"
+                        >
+                          <Label htmlFor={`param-${index}`}>
+                            {param.Name ?? `Parameter ${index + 1}`}
+                          </Label>
+                          <Textarea
+                            id={`param-${index}`}
+                            ref={(element) => {
+                              if (element) {
+                                autoGrowTextarea(element);
+                              }
+                            }}
+                            rows={1}
+                            value={rawParams[index]?.Value ?? ''}
+                            readOnly={paramsReadOnly}
+                            disabled={paramsReadOnly || submitting}
+                            className={
+                              paramsReadOnly
+                                ? 'bg-muted cursor-not-allowed'
+                                : ''
+                            }
+                            onInput={(event) =>
+                              autoGrowTextarea(event.currentTarget)
+                            }
+                            onChange={(event) => {
+                              if (paramsReadOnly) {
+                                return;
+                              }
+                              setRawParams((prev) =>
+                                prev.map((item, itemIndex) =>
+                                  itemIndex === index
+                                    ? { ...item, Value: event.target.value }
+                                    : item
+                                )
+                              );
+                              setSubmitError(null);
+                            }}
+                          />
                         </div>
-                      );
-                    })}
-                  </>
-                )}
-
-                {!loading && dag && !useSchemaFields && !useTypedFields && (
-                  <>
-                    {rawParams.map((param, index) => (
-                      <div
-                        key={`${param.Name ?? 'pos'}-${index}`}
-                        className="space-y-2"
-                      >
-                        <Label htmlFor={`param-${index}`}>
-                          {param.Name ?? `Parameter ${index + 1}`}
-                        </Label>
-                        <Textarea
-                          id={`param-${index}`}
-                          ref={(element) => {
-                            if (element) {
-                              autoGrowTextarea(element);
-                            }
-                          }}
-                          rows={1}
-                          value={rawParams[index]?.Value ?? ''}
-                          readOnly={paramsReadOnly}
-                          disabled={paramsReadOnly || submitting}
-                          className={
-                            paramsReadOnly ? 'bg-muted cursor-not-allowed' : ''
-                          }
-                          onInput={(event) =>
-                            autoGrowTextarea(event.currentTarget)
-                          }
-                          onChange={(event) => {
-                            if (paramsReadOnly) {
-                              return;
-                            }
-                            setRawParams((prev) =>
-                              prev.map((item, itemIndex) =>
-                                itemIndex === index
-                                  ? { ...item, Value: event.target.value }
-                                  : item
-                              )
-                            );
-                            setSubmitError(null);
-                          }}
-                        />
-                      </div>
-                    ))}
-                  </>
-                )}
-              </section>
-            )}
+                      ))}
+                    </>
+                  )}
+                </section>
+              )}
+            </div>
           </div>
-        </div>
+        )}
 
         <DialogFooter className="shrink-0 border-t border-border px-6 py-4">
           <Button

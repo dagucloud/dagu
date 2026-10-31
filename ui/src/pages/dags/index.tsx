@@ -20,8 +20,7 @@ import {
 } from '../../contexts/AuthContext';
 import { useSearchState } from '../../contexts/SearchStateContext';
 import { useUserPreferences } from '../../contexts/UserPreference';
-import { DAGDetailsModal } from '../../features/dags/components/dag-details';
-import { DAGErrors } from '../../features/dags/components/dag-editor';
+import DAGErrors from '../../features/dags/components/dag-editor/DAGErrors';
 import {
   DAGTable,
   type DAGDeleteResult,
@@ -35,6 +34,7 @@ import {
   viewMatchesScope,
   viewScopeForSelection,
 } from '../../features/views/viewScope';
+import { buildDAGPageURL } from '../../features/dag-runs/lib/dagRunUrls';
 import { setDAGPinned } from '../../features/dags/lib/dagPins';
 import { useClient, useQuery } from '../../hooks/api';
 import { useDAGsListSSE } from '../../hooks/useDAGsListSSE';
@@ -306,30 +306,6 @@ function DAGsContent() {
   const defaultWorkflowViewId = scopedWorkflowViews.find(
     (view) => view.isDefault
   )?.id;
-  const previousWorkspaceKeyRef = React.useRef(workspaceKey);
-  const [selectedDAG, setSelectedDAG] = React.useState<string | null>(() =>
-    query.get('selectedDAG')
-  );
-  const updateSelectedDAG = React.useCallback(
-    (fileName: string | null, replace = false) => {
-      setSelectedDAG(fileName);
-      const params = new URLSearchParams(location.search);
-      if (fileName) {
-        params.set('selectedDAG', fileName);
-      } else {
-        params.delete('selectedDAG');
-      }
-      const search = params.toString();
-      navigate(
-        {
-          pathname: location.pathname,
-          search: search ? `?${search}` : '',
-        },
-        { replace }
-      );
-    },
-    [location.pathname, location.search, navigate]
-  );
   const [olderDAGFiles, setOlderDAGFiles] = React.useState<
     components['schemas']['DAGFile'][]
   >([]);
@@ -371,17 +347,14 @@ function DAGsContent() {
     null
   );
 
+  // Links from before the workflow page replaced the side panel carry the
+  // workflow in ?selectedDAG; they open its page.
   React.useEffect(() => {
-    setSelectedDAG(query.get('selectedDAG'));
-  }, [query]);
-
-  React.useEffect(() => {
-    if (previousWorkspaceKeyRef.current === workspaceKey) {
-      return;
+    const fileName = query.get('selectedDAG');
+    if (fileName) {
+      navigate(buildDAGPageURL({ fileName, remoteNode }), { replace: true });
     }
-    previousWorkspaceKeyRef.current = workspaceKey;
-    updateSelectedDAG(null, true);
-  }, [updateSelectedDAG, workspaceKey]);
+  }, [navigate, query, remoteNode]);
 
   const resetLoadedPages = React.useCallback(() => {
     paginationGenerationRef.current += 1;
@@ -521,7 +494,6 @@ function DAGsContent() {
     };
 
     if (scopeChanged) {
-      params.delete('selectedDAG');
       const nextSearch = buildWorkflowFilterSearch(
         params.toString(),
         next,
@@ -759,23 +731,13 @@ function DAGsContent() {
         .map((result) => result.fileName);
 
       if (deletedFileNames.length > 0) {
-        if (selectedDAG && deletedFileNames.includes(selectedDAG)) {
-          updateSelectedDAG(null, true);
-        }
         resetLoadedPages();
         await mutate();
       }
 
       return results;
     },
-    [
-      client,
-      mutate,
-      remoteNode,
-      resetLoadedPages,
-      selectedDAG,
-      updateSelectedDAG,
-    ]
+    [client, mutate, remoteNode, resetLoadedPages]
   );
 
   const handleRenameDAG = React.useCallback(
@@ -791,20 +753,10 @@ function DAGsContent() {
         throw new Error(error.message || 'Failed to rename workflow');
       }
 
-      if (selectedDAG === fileName) {
-        updateSelectedDAG(newFileName, true);
-      }
       resetLoadedPages();
       await mutate();
     },
-    [
-      client,
-      mutate,
-      remoteNode,
-      resetLoadedPages,
-      selectedDAG,
-      updateSelectedDAG,
-    ]
+    [client, mutate, remoteNode, resetLoadedPages]
   );
 
   // Pinning moves a workflow across pages, so the list reloads from page one.
@@ -827,11 +779,6 @@ function DAGsContent() {
       await reloadDAGList();
     },
     [client, reloadDAGList, remoteNode, showError]
-  );
-
-  const handleSelectDAG = React.useCallback(
-    (fileName: string) => updateSelectedDAG(fileName),
-    [updateSelectedDAG]
   );
 
   React.useEffect(() => {
@@ -1197,8 +1144,6 @@ function DAGsContent() {
             canPinDAG={canPinDAG}
             onSetDAGPinned={handleSetDAGPinned}
             resultCount={data.pagination.totalRecords}
-            selectedDAG={selectedDAG}
-            onSelectDAG={handleSelectDAG}
           />
           <div className="mt-3 flex flex-col items-center gap-2">
             {loadMoreError && (
@@ -1241,15 +1186,6 @@ function DAGsContent() {
         />
       ) : (
         <LoadingIndicator />
-      )}
-
-      {selectedDAG && (
-        <DAGDetailsModal
-          fileName={selectedDAG}
-          isOpen={!!selectedDAG}
-          onClose={() => updateSelectedDAG(null, true)}
-          onPinnedChange={reloadDAGList}
-        />
       )}
     </div>
   );

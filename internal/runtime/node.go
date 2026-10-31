@@ -202,7 +202,11 @@ func (n *Node) setupContextWithTimeout(ctx context.Context) (context.Context, co
 		stepTimeout = step.Timeout
 		ctx, cancel := context.WithTimeout(ctx, stepTimeout)
 		n.setExecCancel(cancel)
-		logger.Info(ctx, "Step execution started with timeout",
+		logExec := logger.Info
+		if isContinuousStep(step) {
+			logExec = logger.Debug // once for each execution, for years
+		}
+		logExec(ctx, "Step execution started with timeout",
 			tag.Timeout(stepTimeout),
 		)
 		return ctx, func() {

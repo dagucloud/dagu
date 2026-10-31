@@ -103,6 +103,8 @@ describe('StartDAGModal', () => {
     expect(
       within(runSettings).getByRole('checkbox', { name: 'Enqueue' })
     ).toBeInTheDocument();
+    // The word shows once in the settings, as the checkbox label.
+    expect(within(runSettings).getAllByText('Enqueue')).toHaveLength(1);
     expect(
       within(runSettings).getByRole('textbox', {
         name: 'Run ID (optional)',
@@ -137,6 +139,21 @@ describe('StartDAGModal', () => {
     expect(
       screen.queryByText('Parameter editing is disabled.')
     ).not.toBeInTheDocument();
+  });
+
+  // The dialog has no empty band between the run settings and the buttons.
+  it('has no body band for a workflow without parameters', () => {
+    render(
+      <StartDAGModal
+        visible={true}
+        dismissModal={vi.fn()}
+        onSubmit={vi.fn()}
+        dag={{ name: 'example-dag' } as never}
+      />
+    );
+
+    expect(screen.queryByTestId('start-dag-body')).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /Start/ })).toBeInTheDocument();
   });
 
   it('toggles between compact and fullscreen layouts', async () => {

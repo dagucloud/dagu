@@ -1,19 +1,13 @@
 // Copyright (C) 2026 Yota Hamada
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-import {
-  act,
-  cleanup,
-  fireEvent,
-  render,
-  screen,
-} from '@testing-library/react';
+import { cleanup, fireEvent, render, screen } from '@testing-library/react';
 import React from 'react';
+import { MemoryRouter, useLocation } from 'react-router-dom';
 import { afterEach, describe, expect, it, vi } from 'vitest';
+import { type Config, ConfigContext } from '@/contexts/ConfigContext';
 import { DateKanbanList } from '../DateKanbanList';
 import { useInfiniteKanban } from '../../hooks/useInfiniteKanban';
-
-const dagRunDetailsModalMock = vi.hoisted(() => vi.fn());
 
 vi.mock('../../hooks/useInfiniteKanban', () => ({
   useInfiniteKanban: vi.fn(),
@@ -25,18 +19,21 @@ vi.mock('../DateKanbanSection', () => ({
     onCardClick,
   }: {
     date: string;
-    onCardClick: (run: unknown) => void;
+    onCardClick: (run: unknown, event: React.MouseEvent) => void;
   }) => (
     <div>
       <span>{date}</span>
       <button
         type="button"
-        onClick={() =>
-          onCardClick({
-            dagRunId: 'run-with-artifacts',
-            name: 'artifact-dag',
-            artifactsAvailable: true,
-          })
+        onClick={(event) =>
+          onCardClick(
+            {
+              dagRunId: 'run-with-artifacts',
+              name: 'artifact-dag',
+              artifactsAvailable: true,
+            },
+            event
+          )
         }
       >
         Open run {date}
@@ -49,34 +46,30 @@ vi.mock('../ArtifactListModal', () => ({
   ArtifactListModal: () => null,
 }));
 
-vi.mock(
-  '@/features/dag-runs/components/dag-run-details/DAGRunDetailsModal',
-  () => ({
-    default: (props: unknown) => {
-      dagRunDetailsModalMock(props);
-      return null;
-    },
-  })
-);
+function LocationProbe() {
+  const location = useLocation();
+  return (
+    <div data-testid="location">{`${location.pathname}${location.search}`}</div>
+  );
+}
+
+function renderList(props: React.ComponentProps<typeof DateKanbanList>) {
+  return render(
+    <MemoryRouter initialEntries={['/cockpit']}>
+      <DateKanbanList {...props} />
+      <LocationProbe />
+    </MemoryRouter>
+  );
+}
 
 const useInfiniteKanbanMock = useInfiniteKanban as unknown as {
   mockReturnValue: (value: unknown) => void;
 };
 
-function latestModalProps() {
-  const calls = dagRunDetailsModalMock.mock.calls;
-  return calls[calls.length - 1]?.[0] as {
-    name: string;
-    dagRunId: string;
-    isOpen: boolean;
-    initialTab: string;
-    onClose: () => void;
-  };
-}
-
 afterEach(() => {
   cleanup();
   vi.clearAllMocks();
+  vi.restoreAllMocks();
 });
 
 describe('DateKanbanList', () => {
@@ -89,14 +82,14 @@ describe('DateKanbanList', () => {
       loadNextDate,
     });
 
-    render(<DateKanbanList selectedWorkspace="ops" />);
+    renderList({ selectedWorkspace: 'ops' });
 
     fireEvent.click(screen.getByRole('button', { name: 'Load older day' }));
 
     expect(loadNextDate).toHaveBeenCalledTimes(1);
   });
 
-  it('disables demand loading while the template details modal is open', () => {
+  it('disables demand loading while the template selector is open', () => {
     const loadNextDate = vi.fn();
     useInfiniteKanbanMock.mockReturnValue({
       loadedDates: ['2026-03-21', '2026-03-20'],
@@ -105,7 +98,7 @@ describe('DateKanbanList', () => {
       loadNextDate,
     });
 
-    render(<DateKanbanList selectedWorkspace="ops" suspendLoadMore={true} />);
+    renderList({ selectedWorkspace: 'ops', suspendLoadMore: true });
 
     expect(
       screen.getByRole('button', { name: 'Load older day' })
@@ -114,7 +107,7 @@ describe('DateKanbanList', () => {
     expect(loadNextDate).not.toHaveBeenCalled();
   });
 
-  it('opens artifact runs on the artifacts tab and keeps props during close', () => {
+  it('opens an artifact run on the Artifacts tab of its workflow page', () => {
     useInfiniteKanbanMock.mockReturnValue({
       loadedDates: ['2026-03-21'],
       todayStr: '2026-03-21',
@@ -122,34 +115,45 @@ describe('DateKanbanList', () => {
       loadNextDate: vi.fn(),
     });
 
-    render(<DateKanbanList selectedWorkspace="ops" />);
+    renderList({ selectedWorkspace: 'ops' });
 
     fireEvent.click(
       screen.getByRole('button', { name: 'Open run 2026-03-21' })
     );
 
-    let modalProps = latestModalProps();
-    expect(modalProps).toEqual(
-      expect.objectContaining({
-        name: 'artifact-dag',
-        dagRunId: 'run-with-artifacts',
-        isOpen: true,
-        initialTab: 'artifacts',
-      })
+    expect(screen.getByTestId('location')).toHaveTextContent(
+      '/dags/artifact-dag?remoteNode=local&run=run-with-artifacts&dock=artifacts'
     );
+  });
 
-    act(() => {
-      modalProps.onClose();
+  it('opens a Ctrl-clicked run in a new tab', () => {
+    const openMock = vi.spyOn(window, 'open').mockImplementation(() => null);
+    useInfiniteKanbanMock.mockReturnValue({
+      loadedDates: ['2026-03-21'],
+      todayStr: '2026-03-21',
+      hasMore: false,
+      loadNextDate: vi.fn(),
     });
 
-    modalProps = latestModalProps();
-    expect(modalProps).toEqual(
-      expect.objectContaining({
-        name: 'artifact-dag',
-        dagRunId: 'run-with-artifacts',
-        isOpen: false,
-        initialTab: 'artifacts',
-      })
+    render(
+      <MemoryRouter initialEntries={['/cockpit']}>
+        <ConfigContext.Provider value={{ basePath: '' } as Config}>
+          <DateKanbanList selectedWorkspace="ops" />
+        </ConfigContext.Provider>
+        <LocationProbe />
+      </MemoryRouter>
     );
+
+    fireEvent.click(
+      screen.getByRole('button', { name: 'Open run 2026-03-21' }),
+      { ctrlKey: true }
+    );
+
+    expect(openMock).toHaveBeenCalledWith(
+      '/dags/artifact-dag?remoteNode=local&run=run-with-artifacts&dock=artifacts',
+      '_blank',
+      'noopener'
+    );
+    expect(screen.getByTestId('location')).toHaveTextContent('/cockpit');
   });
 });

@@ -13,7 +13,7 @@ type DAGRunSummary = components['schemas']['DAGRunSummary'];
 
 interface Props {
   columns: KanbanColumns;
-  onCardClick: (run: DAGRunSummary) => void;
+  onCardClick: (run: DAGRunSummary, event?: React.MouseEvent) => void;
   onArtifactsClick: (run: DAGRunSummary) => void;
   visibleColumns?: readonly ViewColumn[];
 }

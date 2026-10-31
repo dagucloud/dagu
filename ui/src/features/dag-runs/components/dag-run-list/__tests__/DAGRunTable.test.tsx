@@ -3,7 +3,7 @@
 
 import { fireEvent, render, screen } from '@testing-library/react';
 import React from 'react';
-import { MemoryRouter } from 'react-router-dom';
+import { MemoryRouter, useLocation } from 'react-router-dom';
 import { describe, expect, it, vi } from 'vitest';
 import { Status, StatusLabel, TriggerType } from '@/api/v1/schema';
 import { Input } from '@/components/ui/input';
@@ -70,6 +70,27 @@ const config = {
   },
 } as Config;
 
+function LocationProbe() {
+  const location = useLocation();
+  return (
+    <div data-testid="location">{`${location.pathname}${location.search}`}</div>
+  );
+}
+
+const queuedRun = {
+  dagRunId: 'run-1',
+  name: 'alpha',
+  status: Status.Failed,
+  statusLabel: StatusLabel.failed,
+  artifactsAvailable: false,
+  autoRetryCount: 0,
+  autoRetryLimit: 0,
+  triggerType: TriggerType.manual,
+  queuedAt: '2026-03-13T10:00:30Z',
+  startedAt: '2026-03-13T10:01:00Z',
+  finishedAt: '2026-03-13T10:02:00Z',
+};
+
 describe('DAGRunTable', () => {
   it('shows a loading row instead of the empty state while the first page loads', () => {
     render(
@@ -129,7 +150,7 @@ describe('DAGRunTable', () => {
     );
     expect(screen.getByRole('link', { name: 'scheduled-dag' })).toHaveAttribute(
       'href',
-      '/dag-runs/scheduled-dag/run-1'
+      '/dags/scheduled-dag?remoteNode=local&run=run-1'
     );
     // Queued At renders as relative time with the absolute time in the tooltip
     expect(screen.getByTitle('2026-03-13T10:00:30Z')).toBeInTheDocument();
@@ -226,32 +247,17 @@ describe('DAGRunTable', () => {
     expect(screen.queryByText('Profile')).not.toBeInTheDocument();
   });
 
-  it('toggles bulk selection without opening the focused run', () => {
-    const onSelectDAGRun = vi.fn();
+  it('toggles bulk selection without opening the run', () => {
     const onToggleBulkSelect = vi.fn();
 
     render(
-      <MemoryRouter>
+      <MemoryRouter initialEntries={['/dag-runs']}>
         <ConfigContext.Provider value={config}>
           <DAGRunTable
-            dagRuns={[
-              {
-                dagRunId: 'run-1',
-                name: 'bulk-dag',
-                status: Status.Failed,
-                statusLabel: StatusLabel.failed,
-                artifactsAvailable: false,
-                autoRetryCount: 0,
-                autoRetryLimit: 0,
-                triggerType: TriggerType.manual,
-                queuedAt: '2026-03-13T10:00:30Z',
-                startedAt: '2026-03-13T10:01:00Z',
-                finishedAt: '2026-03-13T10:02:00Z',
-              },
-            ]}
-            onSelectDAGRun={onSelectDAGRun}
+            dagRuns={[{ ...queuedRun, name: 'bulk-dag' }]}
             onToggleBulkSelect={onToggleBulkSelect}
           />
+          <LocationProbe />
         </ConfigContext.Provider>
       </MemoryRouter>
     );
@@ -264,48 +270,61 @@ describe('DAGRunTable', () => {
       name: 'bulk-dag',
       dagRunId: 'run-1',
     });
-    expect(onSelectDAGRun).not.toHaveBeenCalled();
+    expect(screen.getByTestId('location')).toHaveTextContent('/dag-runs');
+    expect(screen.getByTestId('location')).not.toHaveTextContent('/dags/');
   });
 
-  it('opens available artifacts without opening the status view', () => {
-    const onSelectDAGRun = vi.fn();
-    const onViewArtifacts = vi.fn();
-
+  it('opens the run on its workflow page when a row is clicked', () => {
     render(
-      <MemoryRouter>
+      <MemoryRouter initialEntries={['/dag-runs']}>
+        <ConfigContext.Provider value={config}>
+          <DAGRunTable dagRuns={[queuedRun]} />
+          <LocationProbe />
+        </ConfigContext.Provider>
+      </MemoryRouter>
+    );
+
+    const nameLink = screen.getByRole('link', { name: 'alpha' });
+    expect(nameLink).toHaveAttribute(
+      'href',
+      '/dags/alpha?remoteNode=local&run=run-1'
+    );
+    fireEvent.click(nameLink.closest('tr') ?? nameLink);
+
+    expect(screen.getByTestId('location')).toHaveTextContent(
+      '/dags/alpha?remoteNode=local&run=run-1'
+    );
+  });
+
+  it('opens available artifacts on the Artifacts tab of the run', () => {
+    render(
+      <MemoryRouter initialEntries={['/dag-runs']}>
         <ConfigContext.Provider value={config}>
           <DAGRunTable
             dagRuns={[
               {
-                dagRunId: 'run-1',
+                ...queuedRun,
                 name: 'artifact-dag',
                 status: Status.Success,
                 statusLabel: StatusLabel.succeeded,
                 artifactsAvailable: true,
-                autoRetryCount: 0,
-                triggerType: TriggerType.manual,
-                queuedAt: '2026-03-13T10:00:30Z',
-                startedAt: '2026-03-13T10:01:00Z',
-                finishedAt: '2026-03-13T10:02:00Z',
               },
             ]}
-            onSelectDAGRun={onSelectDAGRun}
-            onViewArtifacts={onViewArtifacts}
           />
+          <LocationProbe />
         </ConfigContext.Provider>
       </MemoryRouter>
     );
 
     fireEvent.click(
-      screen.getByRole('button', {
+      screen.getByRole('link', {
         name: 'View artifacts for artifact-dag run-1',
       })
     );
 
-    expect(onViewArtifacts).toHaveBeenCalledWith(
-      expect.objectContaining({ name: 'artifact-dag', dagRunId: 'run-1' })
+    expect(screen.getByTestId('location')).toHaveTextContent(
+      '/dags/artifact-dag?remoteNode=local&run=run-1&dock=artifacts'
     );
-    expect(onSelectDAGRun).not.toHaveBeenCalled();
   });
 
   it('opens the run in a new tab under the base path', () => {
@@ -318,15 +337,11 @@ describe('DAGRunTable', () => {
           <DAGRunTable
             dagRuns={[
               {
-                dagRunId: 'run-1',
+                ...queuedRun,
                 name: 'reporter',
-                status: Status.Failed,
-                statusLabel: StatusLabel.failed,
-                artifactsAvailable: false,
                 autoRetryCount: 1,
                 autoRetryLimit: 3,
                 triggerType: TriggerType.scheduler,
-                queuedAt: '2026-03-13T10:00:30Z',
                 scheduleTime: '2026-03-13T10:00:00Z',
                 startedAt: '2026-03-13T10:00:05Z',
                 finishedAt: '2026-03-13T10:01:05Z',
@@ -341,38 +356,41 @@ describe('DAGRunTable', () => {
     fireEvent.click(nameLink.closest('tr') ?? nameLink, { ctrlKey: true });
 
     expect(openMock).toHaveBeenCalledWith(
-      '/dagu/dag-runs/reporter/run-1',
-      '_blank'
+      '/dagu/dags/reporter?remoteNode=local&run=run-1',
+      '_blank',
+      'noopener'
+    );
+  });
+
+  it('opens the highlighted run with Enter', () => {
+    render(
+      <MemoryRouter initialEntries={['/dag-runs']}>
+        <ConfigContext.Provider value={config}>
+          <DAGRunTable
+            dagRuns={[queuedRun, { ...queuedRun, dagRunId: 'run-2' }]}
+          />
+          <LocationProbe />
+        </ConfigContext.Provider>
+      </MemoryRouter>
+    );
+
+    fireEvent.keyDown(window, { key: 'ArrowDown' });
+    fireEvent.keyDown(window, { key: 'Enter' });
+
+    expect(screen.getByTestId('location')).toHaveTextContent(
+      '/dags/alpha?remoteNode=local&run=run-2'
     );
   });
 
   it('ignores Enter shortcuts while a filter input is focused', () => {
-    const onSelectDAGRun = vi.fn();
-
     render(
-      <MemoryRouter>
+      <MemoryRouter initialEntries={['/dag-runs']}>
         <ConfigContext.Provider value={config}>
           <div>
             <Input aria-label="Filter by workflow name" />
-            <DAGRunTable
-              dagRuns={[
-                {
-                  dagRunId: 'run-1',
-                  name: 'alpha',
-                  status: Status.Failed,
-                  statusLabel: StatusLabel.failed,
-                  artifactsAvailable: false,
-                  autoRetryCount: 0,
-                  autoRetryLimit: 0,
-                  triggerType: TriggerType.manual,
-                  queuedAt: '2026-03-13T10:00:30Z',
-                  startedAt: '2026-03-13T10:01:00Z',
-                  finishedAt: '2026-03-13T10:02:00Z',
-                },
-              ]}
-              onSelectDAGRun={onSelectDAGRun}
-            />
+            <DAGRunTable dagRuns={[queuedRun]} />
           </div>
+          <LocationProbe />
         </ConfigContext.Provider>
       </MemoryRouter>
     );
@@ -385,6 +403,35 @@ describe('DAGRunTable', () => {
     input.focus();
     fireEvent.keyDown(input, { key: 'Enter' });
 
-    expect(onSelectDAGRun).not.toHaveBeenCalled();
+    expect(screen.getByTestId('location')).toHaveTextContent('/dag-runs');
+    expect(screen.getByTestId('location')).not.toHaveTextContent('/dags/');
+  });
+
+  // The items of a popup (the Status select, the view menu) are portaled
+  // out of the filters and take Enter themselves.
+  it.each([
+    ['an option of a select', { role: 'option' }],
+    [
+      'a key that a popup handled',
+      { onKeyDown: (event: React.KeyboardEvent) => event.preventDefault() },
+    ],
+  ])('ignores Enter on %s', (_, props) => {
+    render(
+      <MemoryRouter initialEntries={['/dag-runs']}>
+        <ConfigContext.Provider value={config}>
+          <DAGRunTable dagRuns={[queuedRun]} />
+          <div data-testid="popup-item" tabIndex={-1} {...props}>
+            Running
+          </div>
+          <LocationProbe />
+        </ConfigContext.Provider>
+      </MemoryRouter>
+    );
+
+    fireEvent.keyDown(window, { key: 'ArrowDown' });
+    fireEvent.keyDown(screen.getByTestId('popup-item'), { key: 'Enter' });
+
+    expect(screen.getByTestId('location')).toHaveTextContent('/dag-runs');
+    expect(screen.getByTestId('location')).not.toHaveTextContent('/dags/');
   });
 });
