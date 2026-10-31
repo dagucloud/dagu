@@ -1,0 +1,52 @@
+working_dir: .
+steps:
+  - id: write
+    action: xlsx.write
+    with:
+      path: orders.xlsx
+      columns: [注文番号, 状態]
+      rows:
+        - {"注文番号": "INV-1", "状態": ""}
+        - {"注文番号": "INV-2", "状態": ""}
+  - id: read
+    depends: write
+    action: xlsx.read
+    with:
+      path: orders.xlsx
+      columns:
+        - {注文番号: order_id}
+  - id: each
+    depends: read
+    foreach:
+      items: ${steps.read.outputs.rows}
+      key: ${foreach.item.order_id}
+      steps:
+        - id: submit
+          run: echo 'status=処理済み' >> "$DAGU_OUTPUT_FILE"
+          outputs:
+            - name: status
+      collect:
+        order_id: ${foreach.item.order_id}
+        status: ${steps.submit.outputs.status}
+    output: RESULTS
+  - id: mark
+    depends: each
+    action: xlsx.update_rows
+    with:
+      path: orders.xlsx
+      key: 注文番号
+      key_field: order_id
+      rows: ${RESULTS}
+      set:
+        状態: status
+  - id: read_after
+    depends: mark
+    action: xlsx.read
+    with:
+      path: orders.xlsx
+  - id: out
+    depends: read_after
+    action: file.write
+    with:
+      path: out.json
+      content: '{"rows": ${steps.read_after.outputs.rows}}'
