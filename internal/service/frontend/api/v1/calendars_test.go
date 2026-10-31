@@ -14,11 +14,14 @@ import (
 	"github.com/dagucloud/dagu/v2/api/v1"
 	"github.com/dagucloud/dagu/v2/internal/auth"
 	"github.com/dagucloud/dagu/v2/internal/cmn/config"
+	persisfile "github.com/dagucloud/dagu/v2/internal/persis/file"
 	filecalendar "github.com/dagucloud/dagu/v2/internal/persis/file/calendar"
+	"github.com/dagucloud/dagu/v2/internal/runtime"
 	localapi "github.com/dagucloud/dagu/v2/internal/service/frontend/api/v1"
 	"github.com/dagucloud/dagu/v2/internal/spec"
 	"github.com/dagucloud/dagu/v2/internal/test"
 	openapitypes "github.com/oapi-codegen/runtime/types"
+	"github.com/prometheus/client_golang/prometheus"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -136,6 +139,8 @@ func TestCalendarUsage(t *testing.T) {
 	writeCalendarFile(t, helper, "ops", "holidays: [2027-01-11]\n")
 	writeCalendarFile(t, helper, "wrapper", "include: [ops]\n")
 	writeCalendarFile(t, helper, "spare", "holidays: []\n")
+	// A calendar that does not load still names what it includes.
+	writeCalendarFile(t, helper, "broken", "include: [ops, missing]\n")
 	dags := map[string]string{
 		"direct": "schedule:\n  - expression: \"0 9 * * *\"\n    calendar: ops\n",
 		"nested": "calendar: wrapper\nschedule: \"0 9 * * *\"\n",
@@ -155,7 +160,7 @@ func TestCalendarUsage(t *testing.T) {
 	})
 
 	details := getCalendar(t, admin, apiImpl, "ops")
-	assert.Equal(t, []string{"wrapper"}, details.IncludedBy)
+	assert.Equal(t, []string{"broken", "wrapper"}, details.IncludedBy)
 	assert.Equal(t, []api.CalendarUser{
 		{FileName: "direct", Name: "direct"},
 		{FileName: "hidden", Name: "hidden", Workspace: new("secret")},
@@ -176,16 +181,42 @@ func TestCalendarUsage(t *testing.T) {
 		require.NotNil(t, calendar.DagCount, calendar.Name)
 		counts[calendar.Name] = *calendar.DagCount
 	}
-	assert.Equal(t, map[string]int{"ops": 3, "wrapper": 1, "spare": 0, "weekdays": 0}, counts)
+	assert.Equal(t, map[string]int{"ops": 3, "wrapper": 1, "spare": 0, "broken": 0, "weekdays": 0}, counts)
 
 	_, err = apiImpl.DeleteCalendar(scoped, api.DeleteCalendarRequestObject{Name: "ops"})
 	requireAPIErrorStatus(t, err, http.StatusConflict)
-	assert.ErrorContains(t, err, `calendar "ops" is in use: included by calendar wrapper; used by DAG direct, nested and 1 more`)
+	assert.ErrorContains(t, err, `calendar "ops" is in use: included by calendar broken, wrapper; used by DAG direct, nested and 1 more`)
 
 	_, err = apiImpl.DeleteCalendar(scoped, api.DeleteCalendarRequestObject{Name: "spare"})
 	require.NoError(t, err)
 	_, err = apiImpl.GetCalendar(admin, api.GetCalendarRequestObject{Name: "spare"})
 	requireAPIErrorStatus(t, err, http.StatusNotFound)
+}
+
+// DAGs found through the extra DAG search directories count as users too,
+// since the UI lists them.
+func TestCalendarUsageIncludesSearchPaths(t *testing.T) {
+	t.Parallel()
+	baseDir, altDir, calendarsDir := t.TempDir(), t.TempDir(), t.TempDir()
+	require.NoError(t, os.WriteFile(filepath.Join(altDir, "alt-dag.yaml"),
+		[]byte("calendar: ops\nschedule: \"0 9 * * *\"\nsteps:\n  - run: echo hi\n"), 0o600))
+	require.NoError(t, os.WriteFile(filepath.Join(calendarsDir, "ops.yaml"), []byte("holidays: []\n"), 0o600))
+	cfg := &config.Config{}
+	cfg.Paths.DAGsDir = baseDir
+	cfg.Paths.AltDAGsDir = altDir
+	cfg.Paths.CalendarsDir = calendarsDir
+	cfg.Core.SkipExamples = true
+	cfg.Server.Permissions = map[config.Permission]bool{config.PermissionWriteDAGs: true}
+	repo, err := persisfile.NewDAGRepository(cfg, persisfile.WithDAGSearchPaths([]string{altDir}))
+	require.NoError(t, err)
+	store, err := filecalendar.New(calendarsDir)
+	require.NoError(t, err)
+	apiImpl := localapi.New(repo, nil, nil, nil, runtime.Manager{}, cfg, nil, nil, prometheus.NewRegistry(), nil,
+		localapi.WithCalendarStore(store))
+
+	_, err = apiImpl.DeleteCalendar(context.Background(), api.DeleteCalendarRequestObject{Name: "ops"})
+	requireAPIErrorStatus(t, err, http.StatusConflict)
+	assert.ErrorContains(t, err, "used by DAG alt-dag")
 }
 
 func TestCalendarWritePermissions(t *testing.T) {
