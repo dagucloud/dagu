@@ -5,6 +5,7 @@ import type { components } from '@/api/v1/schema';
 import { I18nText } from '@/i18n/I18nText';
 import React from 'react';
 import { Link } from 'react-router-dom';
+import { calendarPath, dagPath } from '../navigation';
 
 type CalendarDetails = components['schemas']['CalendarDetails'];
 
@@ -14,8 +15,10 @@ type CalendarDetails = components['schemas']['CalendarDetails'];
  */
 export function CalendarDependents({
   calendar,
+  remoteNode,
 }: {
   calendar: CalendarDetails;
+  remoteNode: string;
 }): React.ReactElement {
   return (
     <dl className="grid gap-x-6 gap-y-2 text-sm sm:grid-cols-[auto_1fr]">
@@ -32,7 +35,7 @@ export function CalendarDependents({
             {calendar.usedBy.map((user) => (
               <li key={user.fileName}>
                 <Link
-                  to={`/dags/${encodeURIComponent(user.fileName)}`}
+                  to={dagPath(user.fileName, remoteNode, user.workspace)}
                   className="text-primary hover:underline"
                 >
                   {user.name}
@@ -65,7 +68,10 @@ export function CalendarDependents({
             <I18nText text={'Included by'} />
           </dt>
           <dd>
-            <CalendarLinks names={calendar.includedBy} />
+            <CalendarLinks
+              names={calendar.includedBy}
+              remoteNode={remoteNode}
+            />
           </dd>
         </>
       )}
@@ -75,7 +81,7 @@ export function CalendarDependents({
             <I18nText text={'Includes'} />
           </dt>
           <dd>
-            <CalendarLinks names={calendar.includes} />
+            <CalendarLinks names={calendar.includes} remoteNode={remoteNode} />
           </dd>
         </>
       )}
@@ -83,13 +89,19 @@ export function CalendarDependents({
   );
 }
 
-function CalendarLinks({ names }: { names: string[] }): React.ReactElement {
+function CalendarLinks({
+  names,
+  remoteNode,
+}: {
+  names: string[];
+  remoteNode: string;
+}): React.ReactElement {
   return (
     <ul className="flex flex-wrap gap-x-4 gap-y-1">
       {names.map((name) => (
         <li key={name}>
           <Link
-            to={`/calendars/${encodeURIComponent(name)}`}
+            to={calendarPath(name, remoteNode)}
             className="text-primary hover:underline"
           >
             {name}

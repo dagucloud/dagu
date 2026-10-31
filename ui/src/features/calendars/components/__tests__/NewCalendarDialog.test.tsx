@@ -15,6 +15,7 @@ function renderDialog(onCreated = vi.fn()) {
   render(
     <NewCalendarDialog
       open
+      remoteNode="local"
       existingNames={['ops']}
       onClose={vi.fn()}
       onCreated={onCreated}
@@ -42,6 +43,21 @@ describe('NewCalendarDialog', () => {
     submit(name);
     expect(screen.getByText(problem)).toBeInTheDocument();
     expect(post).not.toHaveBeenCalled();
+  });
+
+  it('lets the user try again after the request fails', async () => {
+    post.mockRejectedValueOnce(new Error('timeout'));
+    renderDialog();
+
+    submit('jp-banking');
+
+    expect(
+      await screen.findByText('Failed to create the calendar.')
+    ).toBeInTheDocument();
+    fireEvent.change(screen.getByLabelText('Name'), {
+      target: { value: 'jp-banking' },
+    });
+    expect(screen.getByRole('button', { name: 'Create' })).toBeEnabled();
   });
 
   it('creates the calendar and hands over its name', async () => {

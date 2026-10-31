@@ -28,6 +28,9 @@ const LEGEND_STATUSES = [
 type Props = {
   preview: CalendarPreview | null;
   year: number;
+  /** The last preview request failed. */
+  failed: boolean;
+  onRetry: () => void;
   onYearChange: (year: number) => void;
   /** dayjs locale for date labels. */
   locale: string;
@@ -38,13 +41,17 @@ type Props = {
  * unsaved changes ringed and the selected date described below.
  */
 export function CalendarYearView({
-  preview,
+  preview: lastPreview,
   year,
+  failed,
+  onRetry,
   onYearChange,
   locale,
 }: Props): React.ReactElement {
   const { ts } = useI18n();
   const [selected, setSelected] = useState<string | null>(null);
+  // A preview of another year stays out of view until this year's arrives.
+  const preview = lastPreview?.year === year ? lastPreview : null;
   const months = useMemo(() => {
     const byMonth: CalendarDay[][] = Array.from({ length: 12 }, () => []);
     for (const day of preview?.days ?? []) {
@@ -107,7 +114,24 @@ export function CalendarYearView({
         </ul>
       </div>
 
-      {preview && preview.days.length === 0 ? (
+      {failed && (
+        <p
+          role="alert"
+          className="flex flex-wrap items-center gap-2 text-sm text-destructive"
+        >
+          <I18nText text={"Couldn't preview the calendar."} />
+          <Button variant="outline" size="xs" onClick={onRetry}>
+            <I18nText text={'Retry'} />
+          </Button>
+        </p>
+      )}
+      {!preview ? (
+        !failed && (
+          <p className="text-sm text-muted-foreground">
+            <I18nText text={'Loading {year}...'} values={{ year }} />
+          </p>
+        )
+      ) : preview.days.length === 0 ? (
         <p className="text-sm text-muted-foreground">
           <I18nText
             text={'Fix the problems in the file to see its business days.'}

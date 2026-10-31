@@ -7,6 +7,10 @@ import dayjs from '@/lib/dayjs';
 import { Calendar, CheckSquare, Settings, Tag } from 'lucide-react';
 import React from 'react';
 import { Link } from 'react-router-dom';
+import {
+  calendarPath,
+  useScopedRemoteNode,
+} from '@/features/calendars/navigation';
 import { components, UpcomingRunsHold } from '../../../../api/v1/schema';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -46,6 +50,11 @@ function CalendarLinks({ schedules }: { schedules: Schedule[] }) {
   if (names.length === 0) {
     return null;
   }
+  return <CalendarLinkList names={names} />;
+}
+
+function CalendarLinkList({ names }: { names: string[] }) {
+  const remoteNode = useScopedRemoteNode();
   return (
     <div className="text-sm text-muted-foreground">
       <span className="font-medium text-foreground">
@@ -55,7 +64,7 @@ function CalendarLinks({ schedules }: { schedules: Schedule[] }) {
         <React.Fragment key={name}>
           {index > 0 && ', '}
           <Link
-            to={`/calendars/${encodeURIComponent(name)}`}
+            to={calendarPath(name, remoteNode)}
             className="text-primary hover:underline"
           >
             {name}
