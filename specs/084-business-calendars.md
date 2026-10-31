@@ -131,6 +131,14 @@ starting with its `[line:column]` in the file when it has one; a problem with
 an included calendar is placed on the `include` entry. The command exits
 non-zero when any calendar is invalid.
 
+## Editing through the API
+
+`/api/v1/calendars` creates, reads, updates, and deletes calendar files. A
+write needs the `write_dags` permission and, where roles apply, the developer
+role or above. Content with problems is not saved. A calendar is not deleted
+while a DAG's start schedule uses it, directly or through a calendar that
+includes it, or while another calendar includes it.
+
 ## Errors
 
 Loading a DAG fails when:
