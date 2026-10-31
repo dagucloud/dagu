@@ -97,6 +97,7 @@ type API struct {
 	defaultExecMode      config.ExecutionMode
 	dagWritesDisabled    bool // True when git sync read-only mode is active
 	baseConfigStore      dagsettings.BaseConfigStore
+	calendarStore        persis.CalendarStore
 	dagSettingsStore     dagsettings.Store
 	dagPinStore          dagpin.Store
 	wikiStore            wiki.PageStore
@@ -283,6 +284,14 @@ func WithTunnelService(ts *tunnel.Service) APIOption {
 func WithBaseConfigStore(store dagsettings.BaseConfigStore) APIOption {
 	return func(a *API) {
 		a.baseConfigStore = store
+	}
+}
+
+// WithCalendarStore returns an APIOption that sets the store of calendar
+// files.
+func WithCalendarStore(store persis.CalendarStore) APIOption {
+	return func(a *API) {
+		a.calendarStore = store
 	}
 }
 

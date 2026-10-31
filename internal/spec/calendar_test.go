@@ -139,9 +139,9 @@ func TestCalendarSourceReusesCalendars(t *testing.T) {
 
 	write("jp-banking", "holidays: nope\n")
 	_, err = source.Calendar("jp-banking")
-	require.ErrorContains(t, err, "holidays must be a list")
+	require.ErrorContains(t, err, "field 'holidays': must be a list")
 	_, err = source.Calendar("jp-banking")
-	require.ErrorContains(t, err, "holidays must be a list")
+	require.ErrorContains(t, err, "field 'holidays': must be a list")
 
 	require.NoError(t, os.Remove(filepath.Join(dir, "jp-banking.yaml")))
 	_, err = source.Calendar("jp-banking")
@@ -177,6 +177,161 @@ func TestCalendarSourceRetriesUnreadableFiles(t *testing.T) {
 	assert.True(t, ok)
 }
 
+// Check reports every problem of an unsaved calendar where the editor can
+// mark it, and still returns the calendar built from the valid parts.
+func TestCalendarSourceCheck(t *testing.T) {
+	t.Parallel()
+
+	dir := writeCalendars(t, map[string]string{
+		"ops":         "include: [jp-national]\n",
+		"jp-national": jpNationalCalendar,
+	})
+	source := spec.NewCalendarSource(dir)
+	check := func(name, content string) (*ir.Calendar, []string) {
+		t.Helper()
+		cal, errs := source.Check(name, []byte(content))
+		return cal, spec.ErrorMessages([]byte(content), errs)
+	}
+
+	t.Run("every problem, in document order", func(t *testing.T) {
+		t.Parallel()
+
+		cal, messages := check("draft", `description: Ops
+weekdays: [MON, FUN]
+holidays:
+  - 2027-13-01
+  - date: 2027-01-11
+    nam: typo
+  - date: 2027-05-03
+through: someday
+`)
+		assert.Equal(t, []string{
+			`[2:17] field 'weekdays[1]': unknown day FUN; use MON, TUE, WED, THU, FRI, SAT, or SUN`,
+			`[4:5] field 'holidays[0]': invalid date "2027-13-01": use YYYY-MM-DD`,
+			`[6:10] field 'holidays[1].nam': unknown key "nam"; use date, or from and to, with an optional name`,
+			`[8:10] field 'through': invalid date "someday": use YYYY-MM-DD`,
+		}, messages)
+		require.NotNil(t, cal)
+		assert.Equal(t, "Ops", cal.Description)
+		assert.True(t, cal.IsBusinessDay(civil(2027, 5, 10)), "Monday")
+		assert.False(t, cal.IsBusinessDay(civil(2027, 5, 11)), "Tuesday is not listed")
+		assert.False(t, cal.IsBusinessDay(civil(2027, 5, 3)), "valid holiday kept")
+	})
+
+	t.Run("syntax errors keep their position", func(t *testing.T) {
+		t.Parallel()
+
+		cal, messages := check("draft", "holidays: [2027-01-01\n")
+		assert.Nil(t, cal)
+		require.Len(t, messages, 1)
+		assert.Regexp(t, `^\[\d+:\d+\] `, messages[0])
+	})
+
+	t.Run("unknown keys", func(t *testing.T) {
+		t.Parallel()
+
+		_, messages := check("draft", "holiday: [2027-01-01]\n'a.b': 1\n")
+		require.Len(t, messages, 2)
+		assert.True(t, strings.HasPrefix(messages[0], `[1:10] field 'holiday': unknown key "holiday"`), messages[0])
+		assert.True(t, strings.HasPrefix(messages[1], `[2:8] `), messages[1])
+	})
+
+	t.Run("include problems are marked on the include", func(t *testing.T) {
+		t.Parallel()
+
+		_, messages := check("draft", "include: [jp-national, missing]\n")
+		require.Len(t, messages, 1)
+		assert.True(t, strings.HasPrefix(messages[0], `[1:24] field 'include[1]': unknown calendar "missing"`), messages[0])
+	})
+
+	// The saved ops calendar is fine, but the draft of jp-national would
+	// make the two include each other.
+	t.Run("a draft that closes an include cycle", func(t *testing.T) {
+		t.Parallel()
+
+		_, messages := check("jp-national", "include: [ops]\n")
+		require.Len(t, messages, 1)
+		assert.True(t, strings.HasPrefix(messages[0], `[1:11] field 'include[0]': calendar "ops": `), messages[0])
+		assert.Contains(t, messages[0], `calendar "jp-national" includes itself`)
+	})
+
+	t.Run("includes and merge keys", func(t *testing.T) {
+		t.Parallel()
+
+		cal, messages := check("draft", `include: [jp-national]
+holidays:
+  - &newyear {date: 2027-01-01, name: New Year}
+  - <<: *newyear
+    date: 2028-01-01
+`)
+		assert.Empty(t, messages)
+		assert.Equal(t, []string{"jp-national"}, cal.Includes)
+		for _, day := range []ir.CivilDate{civil(2027, 1, 1), civil(2028, 1, 1)} {
+			holiday, ok := cal.Holiday(day)
+			assert.True(t, ok, day)
+			assert.Equal(t, "New Year", holiday.Name)
+		}
+		_, ok := cal.Holiday(civil(2027, 2, 11))
+		assert.True(t, ok, "included holiday")
+	})
+
+	// A key repeated through a merge key takes its last value, as it does
+	// when the document is decoded into a map.
+	t.Run("merged keys take their last value", func(t *testing.T) {
+		t.Parallel()
+
+		cal, messages := check("draft", "<<: {holidays: [2027-01-01], include: [missing]}\nholidays: []\ninclude: []\n")
+		assert.Empty(t, messages)
+		assert.Empty(t, cal.Holidays)
+		assert.Empty(t, cal.Includes)
+	})
+
+	t.Run("names", func(t *testing.T) {
+		t.Parallel()
+
+		_, errs := source.Check("weekdays", []byte("holidays: []\n"))
+		require.Len(t, errs, 1)
+		assert.ErrorContains(t, errs[0], `"weekdays" is reserved`)
+		_, errs = source.Check("../ops", []byte("holidays: []\n"))
+		require.Len(t, errs, 1)
+		assert.ErrorContains(t, errs[0], "invalid calendar name")
+	})
+
+	t.Run("a document that is not a mapping", func(t *testing.T) {
+		t.Parallel()
+
+		cal, messages := check("draft", "- 2027-01-01\n")
+		assert.Nil(t, cal)
+		assert.Equal(t, []string{"a calendar file must be a mapping with keys such as weekdays and holidays"}, messages)
+	})
+
+	t.Run("the template is a valid calendar", func(t *testing.T) {
+		t.Parallel()
+
+		cal, errs := source.Check("draft", spec.CalendarTemplate(2027))
+		require.Empty(t, errs)
+		assert.Equal(t, civil(2027, 12, 31), cal.Through)
+		assert.True(t, cal.IsBusinessDay(civil(2027, 12, 31)), "Friday")
+		assert.False(t, cal.IsBusinessDay(civil(2028, 1, 1)), "Saturday")
+	})
+}
+
+// Checking a draft leaves the saved calendar's cached copy in place.
+func TestCalendarSourceCheckKeepsCache(t *testing.T) {
+	t.Parallel()
+
+	source := spec.NewCalendarSource(writeCalendars(t, map[string]string{"jp-national": jpNationalCalendar}))
+	saved, err := source.Calendar("jp-national")
+	require.NoError(t, err)
+
+	_, errs := source.Check("jp-national", []byte("holidays: [2027-05-03]\n"))
+	require.Empty(t, errs)
+
+	again, err := source.Calendar("jp-national")
+	require.NoError(t, err)
+	assert.Same(t, saved, again)
+}
+
 func TestLoadCalendarErrors(t *testing.T) {
 	t.Parallel()
 
@@ -186,10 +341,10 @@ func TestLoadCalendarErrors(t *testing.T) {
 		want    string
 	}{
 		{name: "unknown key", content: "holiday: [2027-01-01]\n", want: `unknown key "holiday"`},
-		{name: "malformed date", content: "holidays: [2027-13-01]\n", want: `holidays[0]: invalid date "2027-13-01"`},
+		{name: "malformed date", content: "holidays: [2027-13-01]\n", want: `field 'holidays[0]': invalid date "2027-13-01"`},
 		{name: "inverted range", content: "holidays:\n  - {from: 2027-01-05, to: 2027-01-03}\n", want: "range ends on 2027-01-03, before it starts on 2027-01-05"},
 		{name: "date and range", content: "holidays:\n  - {date: 2027-01-05, from: 2027-01-05, to: 2027-01-06}\n", want: "give either date, or from and to"},
-		{name: "empty weekdays", content: "weekdays: []\n", want: "weekdays must be a non-empty list"},
+		{name: "empty weekdays", content: "weekdays: []\n", want: "field 'weekdays': must be a non-empty list"},
 		{name: "unknown weekday", content: "weekdays: [MON, FUN]\n", want: "unknown day FUN"},
 		{name: "include cycle", content: "include: [cycle]\n", want: `calendar "cycle" includes itself`},
 		{name: "unknown include", content: "include: [missing]\n", want: `unknown calendar "missing"`},
@@ -219,7 +374,7 @@ func TestListCalendars(t *testing.T) {
 	dir := writeCalendars(t, map[string]string{
 		"jp-banking":  jpBankingCalendar,
 		"jp-national": jpNationalCalendar,
-		"broken":      "holidays: nope\n",
+		"broken":      "holidays: nope\ninclude: [jp-national, missing]\n",
 		"weekdays":    jpNationalCalendar,
 	})
 	require.NoError(t, os.WriteFile(filepath.Join(dir, "notes.txt"), []byte("x"), 0o600))
@@ -232,9 +387,11 @@ func TestListCalendars(t *testing.T) {
 		names[i] = summary.Name
 	}
 	assert.Equal(t, []string{"broken", "jp-banking", "jp-national", "weekdays", "weekdays"}, names)
-	assert.ErrorContains(t, summaries[0].Err, "holidays must be a list")
+	assert.ErrorContains(t, summaries[0].Err, "field 'holidays': must be a list")
 	assert.Equal(t, "Japanese bank business days", summaries[1].Description)
 	assert.Equal(t, civil(2099, 12, 31), summaries[1].Through)
+	assert.Equal(t, []string{"jp-national"}, summaries[1].Includes)
+	assert.Equal(t, []string{"jp-national", "missing"}, summaries[0].Includes, "kept when the calendar does not load")
 	builtinSeen := false
 	for _, summary := range summaries[3:] {
 		if summary.Builtin {

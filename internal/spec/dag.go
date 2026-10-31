@@ -802,7 +802,7 @@ func (s *dagBuildState) bindScheduleCalendars() {
 			s.errs = append(s.errs, ir.NewValidationError("schedule", sched.Expression, err))
 			continue
 		}
-		if warning := calendarExpiryWarning(cal, today); warning != "" && !reported[cal.Name] {
+		if warning := CalendarExpiryWarning(cal.Name, cal.Through, today); warning != "" && !reported[cal.Name] {
 			reported[cal.Name] = true
 			s.calendarWarnings = append(s.calendarWarnings, warning)
 		}

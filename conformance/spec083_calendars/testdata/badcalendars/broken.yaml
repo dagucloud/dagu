@@ -1,3 +1,4 @@
 holidays:
   - from: 2027-01-05
     to: 2027-01-03
+weekdays: [FUN]

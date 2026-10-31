@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"regexp"
 	"slices"
 	"sort"
 	"strings"
@@ -21,8 +22,8 @@ import (
 )
 
 const (
-	// calendarFileExtension is the extension of calendar files.
-	calendarFileExtension = ".yaml"
+	// CalendarFileExtension is the extension of calendar files.
+	CalendarFileExtension = ".yaml"
 	// maxHolidayRangeDays bounds a holiday range, which is expanded day by
 	// day.
 	maxHolidayRangeDays = 366
@@ -48,6 +49,9 @@ type CalendarSummary struct {
 	// zero when the calendar does not say.
 	Through ir.CivilDate
 	Builtin bool
+	// Includes names the calendars whose holidays it adds, also when the
+	// calendar does not load.
+	Includes []string
 	// Err is set when the calendar file does not load.
 	Err error
 }
@@ -78,9 +82,12 @@ type CalendarSource struct {
 // calendarEntry is a loaded calendar, or why it did not load, with the
 // files it was read from.
 type calendarEntry struct {
-	cal   *ir.Calendar
-	err   error
-	files []fileStamp
+	cal *ir.Calendar
+	err error
+	// includes names the calendars the file includes, known even when
+	// the calendar does not load.
+	includes []string
+	files    []fileStamp
 }
 
 // fileStamp identifies the version of a file, or that it was missing.
@@ -132,22 +139,46 @@ func (s *CalendarSource) Calendar(name string) (*ir.Calendar, error) {
 // the calendars it includes. A reserved name is an error, even when a file
 // has that name.
 func (s *CalendarSource) CalendarFile(name string) (*ir.Calendar, error) {
+	entry := s.entry(name)
+	return entry.cal, entry.err
+}
+
+// entry loads calendar file name, or returns the cached result while the
+// files it was read from are unchanged.
+func (s *CalendarSource) entry(name string) calendarEntry {
 	if isReservedCalendarName(name) {
-		return nil, fmt.Errorf("calendar file %s%s: %q is reserved", name, calendarFileExtension, name)
+		return calendarEntry{err: fmt.Errorf("calendar file %s%s: %q is reserved", name, CalendarFileExtension, name)}
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if entry, ok := s.entries[name]; ok && entry.current() {
-		return entry.cal, entry.err
+		return entry
 	}
-	loader := calendarLoader{dir: s.dir, loading: map[string]bool{}}
+	loader := newCalendarLoader(s.dir)
 	cal, err := loader.load(name)
+	entry := calendarEntry{cal: cal, err: err, includes: loader.includes[name], files: loader.files}
 	if loader.readFailed {
 		delete(s.entries, name)
 	} else {
-		s.entries[name] = calendarEntry{cal: cal, err: err, files: loader.files}
+		s.entries[name] = entry
 	}
-	return cal, err
+	return entry
+}
+
+// Check parses data as the content of calendar file <name>.yaml, with the
+// holidays of the calendars it includes from the source's directory, and
+// reports every problem found. A problem with a place in data is a
+// *FieldError. Check returns the calendar built from the valid parts, or
+// nil when data is not a calendar document. Nothing is cached.
+func (s *CalendarSource) Check(name string, data []byte) (*ir.Calendar, []error) {
+	if err := ir.ValidateCalendarName(name); err != nil {
+		return nil, []error{err}
+	}
+	if isReservedCalendarName(name) {
+		return nil, []error{fmt.Errorf("calendar file %s%s: %q is reserved", name, CalendarFileExtension, name)}
+	}
+	loader := newCalendarLoader(s.dir)
+	return loader.parse(name, data)
 }
 
 // List lists the built-in calendars and the calendar files, sorted by name.
@@ -161,12 +192,11 @@ func (s *CalendarSource) List() ([]CalendarSummary, error) {
 		return nil, err
 	}
 	for _, name := range names {
-		summary := CalendarSummary{Name: name}
-		if cal, err := s.CalendarFile(name); err != nil {
-			summary.Err = err
-		} else {
-			summary.Description = cal.Description
-			summary.Through = cal.Through
+		entry := s.entry(name)
+		summary := CalendarSummary{Name: name, Includes: entry.includes, Err: entry.err}
+		if entry.cal != nil {
+			summary.Description = entry.cal.Description
+			summary.Through = entry.cal.Through
 		}
 		summaries = append(summaries, summary)
 	}
@@ -188,7 +218,7 @@ func calendarFileNames(dir string) ([]string, error) {
 	}
 	var names []string
 	for _, entry := range entries {
-		name, ok := strings.CutSuffix(entry.Name(), calendarFileExtension)
+		name, ok := strings.CutSuffix(entry.Name(), CalendarFileExtension)
 		if !ok || entry.IsDir() || ir.ValidateCalendarName(name) != nil {
 			continue
 		}
@@ -222,6 +252,13 @@ type calendarLoader struct {
 	// readFailed reports a file that exists but could not be read. The
 	// failure can clear without the file changing, as with permissions.
 	readFailed bool
+	// includes records the include list of each calendar parsed, also of
+	// calendars that fail to load.
+	includes map[string][]string
+}
+
+func newCalendarLoader(dir string) *calendarLoader {
+	return &calendarLoader{dir: dir, loading: map[string]bool{}, includes: map[string][]string{}}
 }
 
 func (l *calendarLoader) load(name string) (*ir.Calendar, error) {
@@ -237,7 +274,7 @@ func (l *calendarLoader) load(name string) (*ir.Calendar, error) {
 	if l.dir == "" {
 		return nil, unknownCalendarError(l.dir, name)
 	}
-	path := filepath.Join(l.dir, name+calendarFileExtension)
+	path := filepath.Join(l.dir, name+CalendarFileExtension)
 	// Stamped before reading, so a write during the read shows as a change.
 	l.files = append(l.files, statFile(path))
 	data, err := os.ReadFile(path) //nolint:gosec // name matches the calendar name pattern, so the path stays in dir.
@@ -251,19 +288,32 @@ func (l *calendarLoader) load(name string) (*ir.Calendar, error) {
 		l.readFailed = true
 		return nil, fmt.Errorf("read calendar %q: %w", name, err)
 	}
-	cal, includes, err := parseCalendar(name, data)
-	if err != nil {
-		return nil, fmt.Errorf("calendar %q: %w", name, err)
+	cal, errs := l.parse(name, data)
+	if len(errs) > 0 {
+		return nil, calendarLoadError(name, errs)
 	}
+	return cal, nil
+}
 
+// parse builds calendar name from its file content and the calendars it
+// includes. It reports every problem found and returns the calendar built
+// from the valid parts, or nil when data is not a calendar document.
+func (l *calendarLoader) parse(name string, data []byte) (*ir.Calendar, []error) {
+	file, errs := parseCalendar(name, data)
+	if file.cal == nil {
+		return nil, errs
+	}
+	l.includes[name] = file.cal.Includes
+	cal := file.cal
 	digest := sha256.New()
 	digest.Write(data)
 	l.loading[name] = true
 	defer delete(l.loading, name)
-	for _, include := range includes {
+	for i, include := range cal.Includes {
 		included, err := l.load(include)
 		if err != nil {
-			return nil, fmt.Errorf("calendar %q: include %q: %w", name, include, err)
+			errs = append(errs, &FieldError{Path: file.includePaths[i], Err: err})
+			continue
 		}
 		for day, holiday := range included.Holidays {
 			if _, ok := cal.Holidays[day]; !ok {
@@ -273,15 +323,62 @@ func (l *calendarLoader) load(name string) (*ir.Calendar, error) {
 		digest.Write([]byte(included.Digest))
 	}
 	cal.Digest = hex.EncodeToString(digest.Sum(nil))
-	return cal, nil
+	return cal, errs
 }
 
-// parseCalendar decodes a calendar file and returns the names it includes.
-func parseCalendar(name string, data []byte) (*ir.Calendar, []string, error) {
-	var raw map[string]any
-	if err := yaml.Unmarshal(data, &raw); err != nil {
-		return nil, nil, err
+// calendarLoadError reports the problems of calendar name as one error. It
+// keeps only their text: their paths are in the calendar file, not in the
+// document that names the calendar.
+func calendarLoadError(name string, errs []error) error {
+	if len(errs) == 1 {
+		return fmt.Errorf("calendar %q: %s", name, errs[0])
 	}
+	return fmt.Errorf("calendar %q: %s (and %d more problems)", name, errs[0], len(errs)-1)
+}
+
+// CalendarTemplate returns the content of a new calendar file: Monday to
+// Friday, no holidays yet, maintained through the end of year.
+func CalendarTemplate(year int) []byte {
+	return fmt.Appendf(nil, `description: Business days
+weekdays: [MON, TUE, WED, THU, FRI]
+# Each holiday is a date, {date, name}, or a range {from, to, name}.
+holidays: []
+# Business days whatever their weekday, even when they are holidays.
+extra_business_days: []
+# The last date the holidays are maintained for.
+through: %04d-12-31
+`, year)
+}
+
+// calendarFile is a decoded calendar file.
+type calendarFile struct {
+	// cal lacks the holidays of the calendars it includes.
+	cal *ir.Calendar
+	// includePaths locates each name of cal.Includes in the file.
+	includePaths []string
+}
+
+// calendarParser decodes the keys of a calendar file, collecting each
+// problem with its place in the file.
+type calendarParser struct {
+	file calendarFile
+	errs []error
+}
+
+// parseCalendar decodes a calendar file. It reports every problem found,
+// each a *FieldError where it has a place in the file, and returns the
+// calendar built from the valid parts, or none when data is not a calendar
+// document.
+func parseCalendar(name string, data []byte) (calendarFile, []error) {
+	var document any
+	if err := yaml.UnmarshalWithOptions(data, &document, yaml.UseOrderedMap()); err != nil {
+		return calendarFile{}, []error{err}
+	}
+	keys, ok := document.(yaml.MapSlice)
+	if document != nil && !ok {
+		return calendarFile{}, []error{errors.New("a calendar file must be a mapping with keys such as weekdays and holidays")}
+	}
+
 	cal := &ir.Calendar{
 		Name:              name,
 		Holidays:          map[ir.CivilDate]string{},
@@ -290,165 +387,214 @@ func parseCalendar(name string, data []byte) (*ir.Calendar, []string, error) {
 	for day := time.Monday; day <= time.Friday; day++ {
 		cal.Weekdays[day] = true
 	}
-
-	var includes []string
-	for key, value := range raw {
-		var err error
+	p := calendarParser{file: calendarFile{cal: cal}}
+	for _, item := range lastValues(keys) {
+		key := fmt.Sprint(item.Key)
 		switch key {
 		case "description":
-			description, ok := value.(string)
-			if !ok {
-				return nil, nil, fmt.Errorf("description must be a string")
+			if description, ok := item.Value.(string); ok {
+				cal.Description = description
+			} else {
+				p.fail(key, "must be text")
 			}
-			cal.Description = description
 		case "weekdays":
-			cal.Weekdays, err = parseWeekdays(value)
+			p.weekdays(item.Value)
 		case "holidays":
-			err = parseHolidays(value, cal.Holidays)
+			p.holidays(item.Value)
 		case "extra_business_days":
-			err = parseExtraBusinessDays(value, cal.ExtraBusinessDays)
+			p.extraBusinessDays(item.Value)
 		case "include":
-			includes, err = parseIncludes(value)
+			p.includes(item.Value)
 		case "through":
-			cal.Through, err = parseDateValue(value)
-			if err != nil {
-				err = fmt.Errorf("through: %w", err)
+			if through, err := parseDateValue(item.Value); err != nil {
+				p.report(key, err)
+			} else {
+				cal.Through = through
 			}
 		default:
-			err = fmt.Errorf("unknown key %q", key)
-		}
-		if err != nil {
-			return nil, nil, err
+			p.fail(yamlPathKey(key), "unknown key %q; use description, weekdays, holidays, extra_business_days, include, or through", key)
 		}
 	}
-	return cal, includes, nil
+	return p.file, p.errs
 }
 
-func parseWeekdays(value any) ([7]bool, error) {
-	var weekdays [7]bool
+func (p *calendarParser) report(path string, err error) {
+	p.errs = append(p.errs, &FieldError{Path: path, Err: err})
+}
+
+func (p *calendarParser) fail(path, format string, args ...any) {
+	p.report(path, fmt.Errorf(format, args...))
+}
+
+func (p *calendarParser) weekdays(value any) {
 	items, ok := value.([]any)
 	if !ok || len(items) == 0 {
-		return weekdays, fmt.Errorf("weekdays must be a non-empty list such as [MON, TUE, WED, THU, FRI]")
+		p.fail("weekdays", "must be a non-empty list such as [MON, TUE, WED, THU, FRI]")
+		return
 	}
-	for _, item := range items {
+	var weekdays [7]bool
+	for i, item := range items {
 		text, _ := item.(string)
 		day, ok := weekdayNames[strings.ToUpper(strings.TrimSpace(text))]
 		if !ok {
-			return weekdays, fmt.Errorf("weekdays: unknown day %v; use MON, TUE, WED, THU, FRI, SAT, or SUN", item)
+			p.fail(fmt.Sprintf("weekdays[%d]", i), "unknown day %v; use MON, TUE, WED, THU, FRI, SAT, or SUN", item)
+			continue
 		}
 		weekdays[day] = true
 	}
-	return weekdays, nil
+	p.file.cal.Weekdays = weekdays
 }
 
-func parseHolidays(value any, holidays map[ir.CivilDate]string) error {
+func (p *calendarParser) holidays(value any) {
 	items, ok := value.([]any)
 	if !ok {
-		return fmt.Errorf("holidays must be a list")
+		p.fail("holidays", "must be a list")
+		return
 	}
 	for i, item := range items {
-		if err := parseHoliday(item, holidays); err != nil {
-			return fmt.Errorf("holidays[%d]: %w", i, err)
-		}
+		p.holiday(fmt.Sprintf("holidays[%d]", i), item)
 	}
-	return nil
 }
 
-// parseHoliday adds one holidays entry: a date, {date, name}, or
+// holiday adds one holidays entry: a date, {date, name}, or
 // {from, to, name}.
-func parseHoliday(item any, holidays map[ir.CivilDate]string) error {
-	entry, ok := item.(map[string]any)
+func (p *calendarParser) holiday(path string, item any) {
+	entry, ok := item.(yaml.MapSlice)
 	if !ok {
 		day, err := parseDateValue(item)
 		if err != nil {
-			return err
+			p.report(path, err)
+			return
 		}
-		holidays[day] = ""
-		return nil
+		p.file.cal.Holidays[day] = ""
+		return
 	}
 
 	var (
-		name           string
-		day, from, to  ir.CivilDate
-		hasDay, hasRng bool
+		name             string
+		day, from, to    ir.CivilDate
+		hasDay, hasRange bool
+		failed           bool
 	)
-	for key, value := range entry {
+	for _, field := range lastValues(entry) {
+		key := fmt.Sprint(field.Key)
+		fieldPath := path + "." + yamlPathKey(key)
 		var err error
 		switch key {
 		case "name":
-			name, ok = value.(string)
-			if !ok {
-				return fmt.Errorf("name must be a string")
+			if name, ok = field.Value.(string); !ok {
+				err = errors.New("must be text")
 			}
 		case "date":
-			day, err = parseDateValue(value)
+			day, err = parseDateValue(field.Value)
 			hasDay = true
 		case "from":
-			from, err = parseDateValue(value)
-			hasRng = true
+			from, err = parseDateValue(field.Value)
+			hasRange = true
 		case "to":
-			to, err = parseDateValue(value)
-			hasRng = true
+			to, err = parseDateValue(field.Value)
+			hasRange = true
 		default:
 			err = fmt.Errorf("unknown key %q; use date, or from and to, with an optional name", key)
 		}
 		if err != nil {
-			return err
+			p.report(fieldPath, err)
+			failed = true
 		}
+	}
+	if failed {
+		return
 	}
 
 	switch {
-	case hasDay && !hasRng:
-		holidays[day] = name
-	case hasRng && !hasDay:
+	case hasDay && !hasRange:
+		p.file.cal.Holidays[day] = name
+	case hasRange && !hasDay:
 		if from.IsZero() || to.IsZero() {
-			return fmt.Errorf("a range needs both from and to")
+			p.fail(path, "a range needs both from and to")
+			return
 		}
 		if to.Before(from) {
-			return fmt.Errorf("range ends on %s, before it starts on %s", to, from)
+			p.fail(path, "range ends on %s, before it starts on %s", to, from)
+			return
 		}
-		for current, days := from, 0; !to.Before(current); current, days = current.AddDays(1), days+1 {
-			if days == maxHolidayRangeDays {
-				return fmt.Errorf("range from %s to %s is longer than %d days", from, to, maxHolidayRangeDays)
+		days := make([]ir.CivilDate, 0, maxHolidayRangeDays)
+		for current := from; !to.Before(current); current = current.AddDays(1) {
+			if len(days) == maxHolidayRangeDays {
+				p.fail(path, "range from %s to %s is longer than %d days", from, to, maxHolidayRangeDays)
+				return
 			}
-			holidays[current] = name
+			days = append(days, current)
+		}
+		for _, current := range days {
+			p.file.cal.Holidays[current] = name
 		}
 	default:
-		return fmt.Errorf("give either date, or from and to")
+		p.fail(path, "give either date, or from and to")
 	}
-	return nil
 }
 
-func parseExtraBusinessDays(value any, days map[ir.CivilDate]struct{}) error {
+func (p *calendarParser) extraBusinessDays(value any) {
 	items, ok := value.([]any)
 	if !ok {
-		return fmt.Errorf("extra_business_days must be a list of dates")
+		p.fail("extra_business_days", "must be a list of dates")
+		return
 	}
 	for i, item := range items {
 		day, err := parseDateValue(item)
 		if err != nil {
-			return fmt.Errorf("extra_business_days[%d]: %w", i, err)
+			p.report(fmt.Sprintf("extra_business_days[%d]", i), err)
+			continue
 		}
-		days[day] = struct{}{}
+		p.file.cal.ExtraBusinessDays[day] = struct{}{}
 	}
-	return nil
 }
 
-func parseIncludes(value any) ([]string, error) {
+func (p *calendarParser) includes(value any) {
 	items, ok := value.([]any)
 	if !ok {
-		return nil, fmt.Errorf("include must be a list of calendar names")
+		p.fail("include", "must be a list of calendar names")
+		return
 	}
-	includes := make([]string, 0, len(items))
-	for _, item := range items {
+	for i, item := range items {
+		path := fmt.Sprintf("include[%d]", i)
 		name, ok := item.(string)
 		if !ok {
-			return nil, fmt.Errorf("include must be a list of calendar names")
+			p.fail(path, "must be a calendar name")
+			continue
 		}
-		includes = append(includes, name)
+		p.file.cal.Includes = append(p.file.cal.Includes, name)
+		p.file.includePaths = append(p.file.includePaths, path)
 	}
-	return includes, nil
 }
+
+// lastValues keeps the last value of each key, in the order of those
+// values. A key that a merge key repeats takes the value it would take in a
+// map.
+func lastValues(items yaml.MapSlice) yaml.MapSlice {
+	last := make(map[string]int, len(items))
+	for i, item := range items {
+		last[fmt.Sprint(item.Key)] = i
+	}
+	kept := make(yaml.MapSlice, 0, len(last))
+	for i, item := range items {
+		if last[fmt.Sprint(item.Key)] == i {
+			kept = append(kept, item)
+		}
+	}
+	return kept
+}
+
+// yamlPathKey writes key as a step of a YAML path, quoting a key the path
+// syntax would otherwise split.
+func yamlPathKey(key string) string {
+	if calendarPathKeyRe.MatchString(key) {
+		return key
+	}
+	return "'" + key + "'"
+}
+
+var calendarPathKeyRe = regexp.MustCompile(`^[A-Za-z0-9_-]+$`)
 
 // parseDateValue reads a date that YAML may decode as text or a timestamp.
 func parseDateValue(value any) (ir.CivilDate, error) {
@@ -465,19 +611,20 @@ func parseDateValue(value any) (ir.CivilDate, error) {
 	}
 }
 
-// calendarExpiryWarning reports a calendar whose holidays run out within
-// CalendarExpiryWarningDays of today, or already have.
-func calendarExpiryWarning(cal *ir.Calendar, today ir.CivilDate) string {
-	if cal.Through.IsZero() {
+// CalendarExpiryWarning reports a calendar whose holidays, listed through
+// the given date, run out within CalendarExpiryWarningDays of today, or
+// already have. It is empty otherwise.
+func CalendarExpiryWarning(name string, through, today ir.CivilDate) string {
+	if through.IsZero() {
 		return ""
 	}
 	switch {
-	case cal.Through.Before(today):
+	case through.Before(today):
 		return fmt.Sprintf("calendar %q lists holidays through %s; later dates count its weekdays alone, so add the next period's holidays",
-			cal.Name, cal.Through)
-	case cal.Through.Before(today.AddDays(CalendarExpiryWarningDays)):
+			name, through)
+	case through.Before(today.AddDays(CalendarExpiryWarningDays)):
 		return fmt.Sprintf("calendar %q lists holidays through %s; add the next period's holidays before then",
-			cal.Name, cal.Through)
+			name, through)
 	default:
 		return ""
 	}
