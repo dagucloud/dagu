@@ -1522,7 +1522,8 @@ const english = {
   'Sort by key': 'Sort by key',
   'Sort by value': 'Sort by value',
   'Sort DAG cards': 'Sort DAG cards',
-  'Sorts current page only': 'Sorts current page only',
+  'Sorting by this column is disabled for more than {count} workflows':
+    'Sorting by this column is disabled for more than {count} workflows',
   Source: 'Source',
   'Source DAG-run ID': 'Source DAG-run ID',
   Spec: 'Spec',
@@ -2302,6 +2303,7 @@ const english = {
   'Click to update status': 'Click to update status',
   '(unchanged)': '(unchanged)',
   'Next run': 'Next run',
+  'Last run': 'Last run',
   'Copy MCP setup prompt': 'Copy MCP setup prompt',
   'Profile tokens': 'Profile tokens',
   "Give each caller its own token. Requests with a profile token always run with that token's profile, and an {header} header naming another profile is rejected.":
@@ -3918,7 +3920,8 @@ const chinese = {
   'Sort by key': '按键排序',
   'Sort by value': '按值排序',
   'Sort DAG cards': '排序 DAG 卡片',
-  'Sorts current page only': '仅对当前页面排序',
+  'Sorting by this column is disabled for more than {count} workflows':
+    '超过 {count} 个工作流时无法按此列排序',
   Source: '来源',
   'Source DAG-run ID': '源 DAG 运行 ID',
   Spec: '规格',
@@ -4673,6 +4676,7 @@ const chinese = {
   'Click to update status': '单击以更新状态',
   '(unchanged)': '（不变）',
   'Next run': '下次运行',
+  'Last run': '上次运行',
   'Copy MCP setup prompt': '复制 MCP 配置提示词',
   'Profile tokens': '配置文件令牌',
   "Give each caller its own token. Requests with a profile token always run with that token's profile, and an {header} header naming another profile is rejected.":
@@ -6341,7 +6345,8 @@ const japanese = {
   'Sort by key': 'キーで並べ替え',
   'Sort by value': '値で並べ替え',
   'Sort DAG cards': 'DAG カードを並べ替え',
-  'Sorts current page only': '現在のページのみを並べ替え',
+  'Sorting by this column is disabled for more than {count} workflows':
+    'ワークフローが {count} 件を超えると、この列では並べ替えできません',
   Source: 'ソース',
   'Source DAG-run ID': 'ソース DAG 実行 ID',
   Spec: '仕様',
@@ -7126,6 +7131,7 @@ const japanese = {
   'Click to update status': 'クリックしてステータスを更新',
   '(unchanged)': '（変更なし）',
   'Next run': '次の実行',
+  'Last run': '最終実行',
   'Copy MCP setup prompt': 'MCP セットアップ用プロンプトをコピー',
   'Profile tokens': 'プロファイルトークン',
   "Give each caller its own token. Requests with a profile token always run with that token's profile, and an {header} header naming another profile is rejected.":

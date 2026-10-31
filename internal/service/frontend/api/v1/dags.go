@@ -4,6 +4,7 @@
 package api
 
 import (
+	"cmp"
 	"context"
 	"errors"
 	"fmt"
@@ -13,6 +14,7 @@ import (
 	"os"
 	"path/filepath"
 	osrt "runtime"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -25,6 +27,7 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/cmn/logger"
 	"github.com/dagucloud/dagu/v2/internal/cmn/logger/tag"
 	"github.com/dagucloud/dagu/v2/internal/cmn/procutil"
+	"github.com/dagucloud/dagu/v2/internal/cmn/stringutil"
 	cmnvalue "github.com/dagucloud/dagu/v2/internal/cmn/value"
 	"github.com/dagucloud/dagu/v2/internal/dagrun"
 	"github.com/dagucloud/dagu/v2/internal/dispatch"
@@ -42,7 +45,8 @@ import (
 // maxRunSortDAGs caps how many matching DAGs the server will read when sorting
 // by status or lastRun. The sort key is the latest run of each DAG, which is
 // only known after reading every matching DAG, so the set is bounded to keep
-// the per-DAG status reads reasonable.
+// the per-DAG status reads reasonable. Above the cap the list falls back to
+// the name sort.
 const maxRunSortDAGs = 300
 
 const defaultHistoryLimit = 30
@@ -2200,8 +2204,8 @@ func (a *API) listDAGsDataWithSearchPaths(ctx context.Context, listOpts persis.D
 // listDAGsDataSortedByRun lists DAGs and sorts them by the latest run of each
 // DAG (status or lastRun). The sort key is only known after reading each DAG's
 // latest run, so every matching DAG is loaded, keyed, sorted, and then
-// paginated. The number of DAGs is capped by maxRunSortDAGs; a larger match set
-// is rejected with HTTP 400 so the per-DAG status reads stay bounded.
+// paginated. The number of DAGs is capped by a.runSortDAGLimit; a larger match
+// set is listed with the name sort instead, and errors[] says so.
 func (a *API) listDAGsDataSortedByRun(ctx context.Context, listOpts persis.DAGListOptions, source dagListSource) (api.ListDAGs200JSONResponse, error) {
 	projectionTime := time.Now()
 	listOpts.Time = &projectionTime
@@ -2232,18 +2236,31 @@ func (a *API) listDAGsDataSortedByRun(ctx context.Context, listOpts persis.DAGLi
 	if err != nil {
 		return api.ListDAGs200JSONResponse{}, fmt.Errorf("error listing DAGs: %w", err)
 	}
-	if result.TotalCount > maxRunSortDAGs {
-		return api.ListDAGs200JSONResponse{}, &Error{
-			HTTPStatus: http.StatusBadRequest,
-			Code:       api.ErrorCodeBadRequest,
-			Message: fmt.Sprintf(
-				"sorting by %s requires %d or fewer matching DAGs, got %d",
-				listOpts.Sort, maxRunSortDAGs, result.TotalCount,
-			),
+	limit := a.runSortDAGLimit
+	if limit <= 0 {
+		limit = maxRunSortDAGs
+	}
+	if result.TotalCount > limit {
+		// Too many DAGs to read every latest run. List them by name in the
+		// requested order instead of failing, so API clients, the SSE topic
+		// and a ui.dags.sort_field default keep working on big installs.
+		requested := listOpts.Sort
+		listOpts.Sort = "name"
+		listOpts.Paginator = callerPaginator
+		resp, fallbackErr := a.listDAGsDataWithSearchPaths(ctx, listOpts, source)
+		if fallbackErr != nil {
+			return resp, fallbackErr
 		}
+		resp.Errors = append(resp.Errors, fmt.Sprintf(
+			"sorting by %s is limited to %d matching DAGs (found %d); sorted by name instead",
+			requested, limit, result.TotalCount,
+		))
+		return resp, nil
 	}
 
-	// Build the sort key (latest run status or start time) for each DAG.
+	// Build the sort key (latest run status or start time) for each DAG. A
+	// failed status read is reported below, only for the DAGs on the page,
+	// as the other list paths do.
 	type keyedItem struct {
 		item      persis.DAGListItem
 		dagStatus ir.DAGRunStatus
@@ -2254,28 +2271,29 @@ func (a *API) listDAGsDataSortedByRun(ctx context.Context, listOpts persis.DAGLi
 	keyed := make([]keyedItem, 0, len(result.Items))
 	for _, item := range result.Items {
 		dagStatus, statusErr := a.dagRunMgr.GetLatestStatus(ctx, item.DAG)
-		if statusErr != nil {
-			errList = append(errList, statusErr.Error())
-		}
+		// An empty or unparseable start time yields the zero time, which
+		// sorts as "never ran".
+		lastRun, _ := stringutil.ParseTime(dagStatus.StartedAt)
 		keyed = append(keyed, keyedItem{
 			item:      item,
 			dagStatus: dagStatus,
 			statusErr: statusErr,
 			status:    dagStatus.Status,
-			lastRun:   parseRunTime(dagStatus.StartedAt),
+			lastRun:   lastRun,
 		})
 	}
 
-	// Sort pinned DAGs first, then by the requested key, then by name for a
-	// stable order between requests.
+	// Sort pinned DAGs first when the list asks for it, then by the requested
+	// key, then by name and ID so pages stay stable between requests.
 	direction := 1
 	if listOpts.Order == "desc" {
 		direction = -1
 	}
-	sort.Slice(keyed, func(i, j int) bool {
-		a, b := keyed[i], keyed[j]
-		if c := comparePinned(pinnedIDs, a.item.ID, b.item.ID); c != 0 {
-			return c < 0
+	slices.SortFunc(keyed, func(a, b keyedItem) int {
+		if source.pinnedFirst {
+			if c := comparePinned(pinnedIDs, a.item.ID, b.item.ID); c != 0 {
+				return c
+			}
 		}
 		var c int
 		if listOpts.Sort == "status" {
@@ -2284,9 +2302,12 @@ func (a *API) listDAGsDataSortedByRun(ctx context.Context, listOpts persis.DAGLi
 			c = compareRunTime(a.lastRun, b.lastRun, direction)
 		}
 		if c != 0 {
-			return c < 0
+			return c
 		}
-		return strings.ToLower(a.item.Name) < strings.ToLower(b.item.Name)
+		if c = strings.Compare(strings.ToLower(a.item.Name), strings.ToLower(b.item.Name)); c != 0 {
+			return c
+		}
+		return strings.Compare(a.item.ID, b.item.ID)
 	})
 
 	// Paginate the sorted result with the caller's paginator.
@@ -2338,24 +2359,33 @@ func (a *API) listDAGsDataSortedByRun(ctx context.Context, listOpts persis.DAGLi
 	}, nil
 }
 
-// parseRunTime parses a run start time string (RFC3339) into a time.Time. An
-// empty or unparseable value yields the zero time, which sorts last.
-func parseRunTime(s string) time.Time {
-	if s == "" || s == "-" {
-		return time.Time{}
-	}
-	t, err := time.Parse(time.RFC3339, s)
-	if err != nil {
-		return time.Time{}
-	}
-	return t
+// runStatusRank is the ascending order of the status sort: live runs first,
+// then runs that need attention, then finished runs from worst to best. The
+// table is explicit so that adding a value to ir.Status does not silently
+// reorder the API. Keep it in sync with the `status` sort in api.yaml.
+var runStatusRank = map[ir.Status]int{
+	ir.Running:            0,
+	ir.Waiting:            1,
+	ir.Queued:             2,
+	ir.Failed:             3,
+	ir.Rejected:           4,
+	ir.Aborted:            5,
+	ir.PartiallySucceeded: 6,
+	ir.Succeeded:          7,
 }
 
-// compareRunStatus compares two run statuses in the requested direction. A
-// zero (not started) status sorts after any real status in both ascending and
-// descending order. The status order is the ir.Status enum order, which is
-// stable: NotStarted, Running, Failed, Aborted, Succeeded, Queued,
-// PartiallySucceeded, Waiting, Rejected.
+// rankRunStatus returns the sort rank of a status. A status missing from
+// runStatusRank sorts after every listed one.
+func rankRunStatus(s ir.Status) int {
+	if rank, ok := runStatusRank[s]; ok {
+		return rank
+	}
+	return len(runStatusRank)
+}
+
+// compareRunStatus compares two run statuses in the requested direction using
+// runStatusRank. A zero (not started) status sorts after any real status in
+// both ascending and descending order.
 func compareRunStatus(a, b ir.Status, direction int) int {
 	if a == ir.NotStarted && b == ir.NotStarted {
 		return 0
@@ -2366,7 +2396,7 @@ func compareRunStatus(a, b ir.Status, direction int) int {
 	if b == ir.NotStarted {
 		return -1
 	}
-	return direction * int(a-b)
+	return direction * cmp.Compare(rankRunStatus(a), rankRunStatus(b))
 }
 
 // compareRunTime compares two run start times in the requested direction. A
@@ -2386,7 +2416,8 @@ func compareRunTime(a, b time.Time, direction int) int {
 
 // comparePinned orders pinned DAGs before unpinned ones. It returns a negative
 // value when a is pinned and b is not, a positive value when b is pinned and a
-// is not, and zero when both are pinned or both are unpinned.
+// is not, and zero when both are pinned or both are unpinned. It matches
+// persis.comparePinned, which is not exported.
 func comparePinned(pinned map[string]struct{}, a, b string) int {
 	_, aPinned := pinned[a]
 	_, bPinned := pinned[b]

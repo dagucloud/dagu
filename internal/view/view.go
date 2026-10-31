@@ -36,6 +36,8 @@ const (
 const (
 	WorkflowSortName    = "name"
 	WorkflowSortNextRun = "nextRun"
+	WorkflowSortStatus  = "status"
+	WorkflowSortLastRun = "lastRun"
 	SortOrderAscending  = "asc"
 	SortOrderDescending = "desc"
 )
@@ -501,7 +503,12 @@ func ValidWorkspaceScope(scope string, workspace string) bool {
 
 // ValidWorkflowSortField reports whether field is supported by the Workflows page.
 func ValidWorkflowSortField(field string) bool {
-	return field == WorkflowSortName || field == WorkflowSortNextRun
+	switch field {
+	case WorkflowSortName, WorkflowSortNextRun, WorkflowSortStatus, WorkflowSortLastRun:
+		return true
+	default:
+		return false
+	}
 }
 
 // ValidSortOrder reports whether order is a supported view sort order.

@@ -106,6 +106,7 @@ type API struct {
 	apiKeyCreateMu       sync.Mutex
 	workspaceStore       workspace.Store
 	leaseStaleThreshold  time.Duration
+	runSortDAGLimit      int
 	schedulerStateStore  schedulerstate.Store
 	schedulerPauseStore  schedulerstate.PauseStore
 	dagMutationNotifier  func(fileName string)
@@ -449,6 +450,7 @@ func New(
 		resourceService:     rs,
 		defaultExecMode:     cfg.DefaultExecMode,
 		leaseStaleThreshold: dagrun.DefaultStaleLeaseThreshold,
+		runSortDAGLimit:     maxRunSortDAGs,
 	}
 
 	for _, opt := range opts {

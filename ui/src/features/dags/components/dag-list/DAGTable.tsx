@@ -101,7 +101,11 @@ import {
 } from '@/components/ui/select';
 import { Switch } from '@/components/ui/switch';
 import { AppBarContext } from '../../../../contexts/AppBarContext';
-import type { WorkflowFilterView } from './workflowViews';
+import {
+  isRunSortField,
+  maxRunSortDAGs,
+  type WorkflowFilterView,
+} from './workflowViews';
 import { useQuery } from '../../../../hooks/api';
 import { parseLabelParts } from '../../../../lib/utils';
 import {
@@ -1084,21 +1088,12 @@ const columnToSortField: Record<string, string> = {
   LastRun: 'lastRun',
 };
 
-// Client-side sortable columns. Kept empty because every column now sorts on
-// the server, so the sort choice stays in the URL like the Name sort does.
-const clientSortableColumns: string[] = [];
-
 const cardSortOptions = [
   { value: 'name', label: 'Name' },
   { value: 'nextRun', label: 'Next run' },
   { value: 'status', label: 'Status' },
   { value: 'lastRun', label: 'Last run' },
 ] as const;
-
-// The server reads every matching DAG to sort by status or lastRun, so those
-// sorts are capped at this many DAGs. Above it the server returns 400 and the
-// UI disables the two sorts.
-const maxRunSortDAGs = 300;
 
 function getCardSortLabel(sort: string): string {
   return (
@@ -1158,68 +1153,35 @@ function buildGrepSearchUrl(searchText: string): string {
   return '/search';
 }
 
-// --- Header Component for both Server-side and Client-side Sorting ---
+// --- Header Component for Server-side Sorting ---
 const SortableHeader = ({
   column,
   children,
   currentSort,
   currentOrder,
   onSort,
-  clientSort,
-  clientOrder,
-  onClientSort,
 }: {
   column: Column<Data, unknown>;
   children: React.ReactNode;
   currentSort?: string;
   currentOrder?: string;
   onSort?: (field: string, order: string) => void;
-  clientSort?: string;
-  clientOrder?: string;
-  onClientSort?: (field: string, order: string) => void;
 }) => {
   const serverSortField = columnToSortField[column.id];
-  const isClientSortable = clientSortableColumns.includes(column.id);
+  const isActive = Boolean(serverSortField) && currentSort === serverSortField;
 
-  // Check if this column is currently sorted (either server or client)
-  const isServerActive = serverSortField && currentSort === serverSortField;
-  const isClientActive = isClientSortable && clientSort === column.id;
-  const isActive = isServerActive || isClientActive;
-
-  // Determine if column is sortable at all
-  const isSortable =
-    (serverSortField && onSort) || (isClientSortable && onClientSort);
-
-  if (!isSortable) {
+  if (!serverSortField || !onSort) {
     return <>{children}</>;
   }
 
   const handleClick = () => {
-    if (serverSortField && onSort) {
-      // Server-side sorting
-      const newOrder =
-        isServerActive && currentOrder === 'asc' ? 'desc' : 'asc';
-      onSort(serverSortField, newOrder);
-      // Clear client sort when server sort is applied
-      if (onClientSort) {
-        onClientSort('', '');
-      }
-    } else if (isClientSortable && onClientSort) {
-      // Client-side sorting
-      const newOrder = isClientActive && clientOrder === 'asc' ? 'desc' : 'asc';
-      onClientSort(column.id, newOrder);
-    }
+    const newOrder = isActive && currentOrder === 'asc' ? 'desc' : 'asc';
+    onSort(serverSortField, newOrder);
   };
 
-  // Determine which order to show
-  function getDisplayOrder(): string {
-    if (isServerActive) return currentOrder || '';
-    if (isClientActive) return clientOrder || '';
-    return '';
-  }
-  const displayOrder = getDisplayOrder();
+  const displayOrder = isActive ? currentOrder || '' : '';
 
-  const button = (
+  return (
     <Button
       variant="ghost"
       onClick={handleClick}
@@ -1234,23 +1196,22 @@ const SortableHeader = ({
       )}
     </Button>
   );
-
-  // Wrap client-sortable columns with tooltip
-  if (isClientSortable) {
-    return (
-      <Tooltip>
-        <TooltipTrigger asChild>{button}</TooltipTrigger>
-        <TooltipContent className="bg-muted text-muted-foreground border">
-          <p className="text-xs">
-            <I18nText text={'Sorts current page only'} />
-          </p>
-        </TooltipContent>
-      </Tooltip>
-    );
-  }
-
-  return button;
 };
+
+// Tooltip body for a run sort (status or last run) that is disabled because
+// more workflows match than the server sorts by run.
+const RunSortDisabledTooltip = () => (
+  <TooltipContent className="bg-muted text-muted-foreground border">
+    <p className="text-xs">
+      <I18nText
+        text={
+          'Sorting by this column is disabled for more than {count} workflows'
+        }
+        values={{ count: maxRunSortDAGs }}
+      />
+    </p>
+  </TooltipContent>
+);
 
 /**
  * DAGTable component displays a table of DAGs with filtering, sorting, and grouping capabilities
@@ -1297,7 +1258,7 @@ function DAGTable({
 }: Props) {
   const { ts } = useI18n();
   // Status and LastRun sorts are disabled when the list total exceeds the
-  // server cap, because the server would reject the request with a 400.
+  // server cap, because the server would sort by name instead.
   const runSortDisabled = (resultCount ?? 0) > maxRunSortDAGs;
   const navigate = useNavigate();
   const columns = useMemo(
@@ -1364,9 +1325,6 @@ function DAGTable({
     },
     []
   );
-
-  const [clientSort, setClientSort] = useState<string>('');
-  const [clientOrder, setClientOrder] = useState<string>('asc');
 
   useEffect(() => {
     const loadedFileNames = new Set(dags.map((dag) => dag.fileName));
@@ -1522,12 +1480,6 @@ function DAGTable({
     [onRenameDAG, renameTarget]
   );
 
-  // Handler for client-side sorting
-  const handleClientSort = (field: string, order: string) => {
-    setClientSort(field);
-    setClientOrder(order);
-  };
-
   // Handler for DAG selection
   const handleSelectDAG = (fileName: string, title: string) => {
     // Check if screen is small (less than 768px width)
@@ -1587,54 +1539,14 @@ function DAGTable({
     [searchLabels, handleSearchLabelsChange]
   );
 
-  // Helper function for client-side sorting comparison
-  const getSortValue = useCallback(
-    (
-      dag: components['schemas']['DAGFile']
-    ): string | components['schemas']['Status'] => {
-      if (clientSort === 'Status') {
-        return dag.latestDAGRun?.status || '';
-      }
-      if (clientSort === 'LastRun') {
-        return dag.latestDAGRun?.startedAt || '';
-      }
-      return '';
-    },
-    [clientSort]
-  );
-
-  const compareDags = useCallback(
-    (
-      a: components['schemas']['DAGFile'],
-      b: components['schemas']['DAGFile']
-    ): number => {
-      let aValue = getSortValue(a);
-      let bValue = getSortValue(b);
-
-      if (clientOrder === 'desc') {
-        [aValue, bValue] = [bValue, aValue];
-      }
-
-      if (aValue < bValue) return -1;
-      if (aValue > bValue) return 1;
-      return 0;
-    },
-    [getSortValue, clientOrder]
-  );
-
   // Transform the flat list of DAGs into a hierarchical structure with groups.
-  // Pinned DAGs lead as flat rows, even when they belong to a group.
+  // Pinned DAGs lead as flat rows, even when they belong to a group. The rows
+  // keep the server order.
   const data = useMemo(() => {
-    const sortedDags = [...dags];
-
-    if (clientSort) {
-      sortedDags.sort(compareDags);
-    }
-
-    const pinnedRows: Data[] = sortedDags
+    const pinnedRows: Data[] = dags
       .filter((dag) => dag.pinned)
       .map((dag) => ({ kind: ItemKind.DAG, name: dag.dag.name, dag }));
-    const unpinnedDags = sortedDags.filter((dag) => !dag.pinned);
+    const unpinnedDags = dags.filter((dag) => !dag.pinned);
 
     const groups: { [key: string]: Data } = {};
     unpinnedDags.forEach((dag) => {
@@ -1655,19 +1567,6 @@ function DAGTable({
       }
     });
 
-    // Sort sub-rows within groups if client sorting is active
-    if (clientSort) {
-      Object.values(groups).forEach((group) => {
-        if (group.subRows) {
-          group.subRows.sort((a, b) => {
-            const aDag = (a as DAGRow).dag;
-            const bDag = (b as DAGRow).dag;
-            return compareDags(aDag, bDag);
-          });
-        }
-      });
-    }
-
     const hierarchicalData: Data[] = [...pinnedRows, ...Object.values(groups)];
     // Add DAGs without a group
     unpinnedDags
@@ -1680,7 +1579,7 @@ function DAGTable({
         });
       });
     return hierarchicalData;
-  }, [dags, clientSort, compareDags]);
+  }, [dags]);
 
   useEffect(() => {
     if (!selectedDAG || !tableInstanceRef.current || !onSelectDAG) return;
@@ -1956,8 +1855,7 @@ function DAGTable({
                 <SelectContent>
                   {cardSortOptions.map((option) => {
                     const disabled =
-                      runSortDisabled &&
-                      (option.value === 'status' || option.value === 'lastRun');
+                      runSortDisabled && isRunSortField(option.value);
                     const item = (
                       <SelectItem
                         key={option.value}
@@ -1973,15 +1871,7 @@ function DAGTable({
                         <TooltipTrigger asChild>
                           <div className="cursor-not-allowed">{item}</div>
                         </TooltipTrigger>
-                        <TooltipContent className="bg-muted text-muted-foreground border">
-                          <p className="text-xs">
-                            <I18nText
-                              text={
-                                'Sorting by this column is disabled for more than 300 workflows'
-                              }
-                            />
-                          </p>
-                        </TooltipContent>
+                        <RunSortDisabledTooltip />
                       </Tooltip>
                     ) : (
                       item
@@ -2051,12 +1941,11 @@ function DAGTable({
                       <div>
                         {' '}
                         {/* Wrap header content */}
-                        {columnToSortField[header.column.id] ||
-                        clientSortableColumns.includes(header.column.id) ? (
+                        {columnToSortField[header.column.id] ? (
                           runSortDisabled &&
-                          (columnToSortField[header.column.id] === 'status' ||
-                            columnToSortField[header.column.id] ===
-                              'lastRun') ? (
+                          isRunSortField(
+                            columnToSortField[header.column.id]
+                          ) ? (
                             <Tooltip>
                               <TooltipTrigger asChild>
                                 <span className="cursor-not-allowed">
@@ -2066,15 +1955,7 @@ function DAGTable({
                                   )}
                                 </span>
                               </TooltipTrigger>
-                              <TooltipContent className="bg-muted text-muted-foreground border">
-                                <p className="text-xs">
-                                  <I18nText
-                                    text={
-                                      'Sorting by this column is disabled for more than 300 workflows'
-                                    }
-                                  />
-                                </p>
-                              </TooltipContent>
+                              <RunSortDisabledTooltip />
                             </Tooltip>
                           ) : (
                             <SortableHeader
@@ -2082,9 +1963,6 @@ function DAGTable({
                               currentSort={sortField}
                               currentOrder={sortOrder}
                               onSort={onSortChange}
-                              clientSort={clientSort}
-                              clientOrder={clientOrder}
-                              onClientSort={handleClientSort}
                             >
                               {flexRender(
                                 header.column.columnDef.header,

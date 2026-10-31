@@ -270,3 +270,35 @@ func TestPinDAGAllowedInGitSyncReadOnlyMode(t *testing.T) {
 	server.Client().Get("/api/v1/dags/alpha").ExpectStatus(http.StatusOK).Send(t).Unmarshal(t, &details)
 	assert.True(t, details.Pinned)
 }
+
+// The status and lastRun sorts keep pinned DAGs first only where the list asks
+// for it. The alternate-directory list (MCP) reports pins but ignores them for
+// the order, as it does for the other sorts.
+func TestListDAGsRunSortPinnedFirstOnlyWhereRequested(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	helper := test.Setup(t, test.WithStatusPersistence())
+	writePinTestDAGs(t, helper, "alpha", "beta", "gamma")
+	apiImpl, _ := newDAGPinAPI(t, helper)
+
+	_, err := apiImpl.PinDAG(ctx, api.PinDAGRequestObject{FileName: "gamma"})
+	require.NoError(t, err)
+
+	for _, sortField := range []string{"status", "lastRun"} {
+		t.Run(sortField, func(t *testing.T) {
+			sseAny, err := apiImpl.GetDAGsListData(ctx, "perPage=3&sort="+sortField)
+			require.NoError(t, err)
+			sse, ok := sseAny.(api.ListDAGs200JSONResponse)
+			require.True(t, ok)
+			assert.Equal(t, []string{"gamma", "alpha", "beta"}, listedFileNames(sse.Dags))
+			assert.Empty(t, sse.Errors)
+
+			mcpAny, err := apiImpl.GetDAGsListDataIncludingAltDirs(ctx, "perPage=3&sort="+sortField)
+			require.NoError(t, err)
+			mcp, ok := mcpAny.(api.ListDAGs200JSONResponse)
+			require.True(t, ok)
+			assert.Equal(t, []string{"alpha", "beta", "gamma"}, listedFileNames(mcp.Dags))
+			assert.Equal(t, []bool{false, false, true}, listedPinned(mcp.Dags))
+		})
+	}
+}

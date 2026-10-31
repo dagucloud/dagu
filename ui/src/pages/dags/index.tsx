@@ -5,7 +5,6 @@ import React from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import {
   components,
-  ErrorCode,
   PathsDagsGetParametersQueryOrder,
   PathsDagsGetParametersQuerySort,
   ViewSortField,
@@ -28,9 +27,11 @@ import {
   type DAGDeleteResult,
 } from '../../features/dags/components/dag-list';
 import DAGListHeader from '../../features/dags/components/dag-list/DAGListHeader';
-import type {
-  WorkflowFilterSet,
-  WorkflowFilterView,
+import {
+  isRunSortField,
+  maxRunSortDAGs,
+  type WorkflowFilterSet,
+  type WorkflowFilterView,
 } from '../../features/dags/components/dag-list/workflowViews';
 import {
   viewMatchesScope,
@@ -637,7 +638,7 @@ function DAGsContent() {
   );
 
   const dagsListSSE = useDAGsListSSE(queryParams, filtersReady);
-  const { data, error, mutate, isLoading } = useQuery(
+  const { data, mutate, isLoading } = useQuery(
     '/dags',
     filtersReady
       ? {
@@ -859,22 +860,20 @@ function DAGsContent() {
     [activeWorkflowViewId, applyQueryFilters, updateFilterLocation]
   );
 
-  // A status or lastRun sort is rejected with a 400 (bad_request) when more
-  // than 300 DAGs match. Fall back to the name sort and drop the stale sort
-  // from the URL so the list does not stay broken for big installs.
+  // Above maxRunSortDAGs matching workflows the server sorts a status or
+  // lastRun request by name instead. Switch the filters to the name sort too,
+  // keeping the user's order, so the header, the URL and a saved view match
+  // the order on screen.
   React.useEffect(() => {
     if (
-      error &&
-      error.code === ErrorCode.bad_request &&
-      (requestFilters.sortField === ViewSortField.status ||
-        requestFilters.sortField === ViewSortField.lastRun)
+      data &&
+      !isLoading &&
+      data.pagination.totalRecords > maxRunSortDAGs &&
+      isRunSortField(requestFilters.sortField)
     ) {
-      patchFilters(
-        { sortField: ViewSortField.name, sortOrder: ViewSortOrder.asc },
-        true
-      );
+      patchFilters({ sortField: ViewSortField.name }, true);
     }
-  }, [error, requestFilters.sortField, patchFilters]);
+  }, [data, isLoading, requestFilters.sortField, patchFilters]);
 
   const searchTextChange = (nextSearchText: string) => {
     patchFilters({ searchText: nextSearchText });

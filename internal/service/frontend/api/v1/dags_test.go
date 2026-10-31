@@ -2321,7 +2321,7 @@ steps:
 		nil,
 	)
 
-	// Sort by status ascending: Running(1), Failed(2), Succeeded(4).
+	// Sort by status ascending in the rank order: Running, Failed, Succeeded.
 	order := api.ListDAGsParamsOrderAsc
 	sortField := api.ListDAGsParamsSortStatus
 	listRespObj, err := apiImpl.ListDAGs(context.Background(), api.ListDAGsRequestObject{
@@ -2476,4 +2476,118 @@ steps:
 	require.Equal(t, "sort-norun-0", listResp.Dags[0].Dag.Name)
 	require.Equal(t, "sort-norun-1", listResp.Dags[1].Dag.Name)
 	require.Equal(t, "sort-norun-none", listResp.Dags[2].Dag.Name)
+}
+
+// writeLatestRun records a finished run for dag with the given status and
+// startedAt string, created at createdAt.
+func writeLatestRun(t *testing.T, helper test.Helper, dag *ir.DAG, runID string, status ir.Status, createdAt time.Time, startedAt string) {
+	t.Helper()
+	attempt, err := helper.DAGRunRepository.CreateAttempt(helper.Context, dag, createdAt, runID, persis.DAGRunCreateAttemptOptions{})
+	require.NoError(t, err)
+	st := ir.InitialStatus(dag)
+	st.DAGRunID = runID
+	st.AttemptID = attempt.ID()
+	st.Status = status
+	st.StartedAt = startedAt
+	require.NoError(t, attempt.Open(helper.Context))
+	require.NoError(t, attempt.Write(helper.Context, st))
+	require.NoError(t, attempt.Close(helper.Context))
+}
+
+// TestListDAGsSortsByLastRunParsesLegacyTime verifies that a run whose start
+// time was stored in the legacy "2006-01-02 15:04:05" format sorts by that
+// time instead of as "never ran".
+func TestListDAGsSortsByLastRunParsesLegacyTime(t *testing.T) {
+	t.Parallel()
+
+	helper := test.Setup(t, test.WithStatusPersistence())
+
+	now := time.Now().Truncate(time.Second)
+	runs := []struct {
+		name      string
+		createdAt time.Time
+		startedAt string
+	}{
+		{"sort-legacy-old", now.Add(-3 * time.Minute), now.Add(-3 * time.Minute).Format(time.RFC3339)},
+		{"sort-legacy-new", now.Add(-1 * time.Minute), now.Add(-1 * time.Minute).In(time.Local).Format("2006-01-02 15:04:05")},
+		{"sort-legacy-mid", now.Add(-2 * time.Minute), now.Add(-2 * time.Minute).Format(time.RFC3339)},
+	}
+	for i, run := range runs {
+		dag := helper.DAG(t, fmt.Sprintf(`
+name: %s
+steps:
+  - run: echo hi
+`, run.name))
+		writeLatestRun(t, helper, dag.DAG, fmt.Sprintf("run-%d", i), ir.Succeeded, run.createdAt, run.startedAt)
+	}
+
+	apiImpl := localapi.New(
+		helper.DAGRepository,
+		helper.DAGRunRepository,
+		helper.QueueStore,
+		helper.ProcRepository,
+		helper.DAGRunMgr,
+		helper.Config,
+		nil,
+		helper.ServiceRegistry,
+		nil,
+		nil,
+	)
+
+	order := api.ListDAGsParamsOrderDesc
+	sortField := api.ListDAGsParamsSortLastRun
+	listRespObj, err := apiImpl.ListDAGs(context.Background(), api.ListDAGsRequestObject{
+		Params: api.ListDAGsParams{Sort: &sortField, Order: &order},
+	})
+	require.NoError(t, err)
+	listResp, ok := listRespObj.(*api.ListDAGs200JSONResponse)
+	require.True(t, ok)
+	require.Len(t, listResp.Dags, 3)
+	require.Equal(t, "sort-legacy-new", listResp.Dags[0].Dag.Name)
+	require.Equal(t, "sort-legacy-mid", listResp.Dags[1].Dag.Name)
+	require.Equal(t, "sort-legacy-old", listResp.Dags[2].Dag.Name)
+}
+
+// TestListDAGsRunSortFallsBackToNameAboveLimit verifies that a status or
+// lastRun sort over more matching DAGs than the limit is not rejected: the
+// list comes back sorted by name in the requested order, and errors[] says
+// why.
+func TestListDAGsRunSortFallsBackToNameAboveLimit(t *testing.T) {
+	t.Parallel()
+
+	helper := test.Setup(t, test.WithStatusPersistence())
+	writePinTestDAGs(t, helper, "run-a", "run-b", "other-c")
+	apiImpl, _ := newDAGPinAPI(t, helper, localapi.WithRunSortDAGLimitForTest(2))
+
+	for _, sortField := range []api.ListDAGsParamsSort{api.ListDAGsParamsSortStatus, api.ListDAGsParamsSortLastRun} {
+		t.Run(string(sortField), func(t *testing.T) {
+			// None of the DAGs has run, so the run sort would list them by
+			// name ascending. The fallback lists them by name descending.
+			order := api.ListDAGsParamsOrderDesc
+			resp, err := apiImpl.ListDAGs(context.Background(), api.ListDAGsRequestObject{
+				Params: api.ListDAGsParams{Sort: &sortField, Order: &order},
+			})
+			require.NoError(t, err)
+			list, ok := resp.(*api.ListDAGs200JSONResponse)
+			require.True(t, ok, "expected 200 response, got %T", resp)
+			assert.Equal(t, []string{"run-b", "run-a", "other-c"}, listedFileNames(list.Dags))
+			assert.Equal(t, 3, list.Pagination.TotalRecords)
+			require.Len(t, list.Errors, 1)
+			assert.Contains(t, list.Errors[0], "sorting by "+string(sortField)+" is limited to 2 matching DAGs (found 3)")
+		})
+	}
+
+	// At the limit the run sort applies: with no runs it lists by name
+	// ascending whatever the order, and reports nothing.
+	order := api.ListDAGsParamsOrderDesc
+	sortField := api.ListDAGsParamsSortStatus
+	name := "run-"
+	resp, err := apiImpl.ListDAGs(context.Background(), api.ListDAGsRequestObject{
+		Params: api.ListDAGsParams{Sort: &sortField, Order: &order, Name: &name},
+	})
+	require.NoError(t, err)
+	list, ok := resp.(*api.ListDAGs200JSONResponse)
+	require.True(t, ok, "expected 200 response, got %T", resp)
+	assert.Equal(t, []string{"run-a", "run-b"}, listedFileNames(list.Dags))
+	assert.Empty(t, list.Errors)
 }
