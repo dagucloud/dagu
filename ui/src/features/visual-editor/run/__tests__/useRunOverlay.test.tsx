@@ -179,7 +179,8 @@ describe('useRunOverlay', () => {
     expect(useQueryMock.mock.calls[0]?.[2].refreshInterval).toBeGreaterThan(0);
   });
 
-  it('follows the resolved run of latest and keeps polling', () => {
+  // SSE follows the resolved run: the query polls only as its fallback.
+  it('follows the resolved run of latest and does not poll with SSE up', () => {
     useQueryMock.mockReturnValue({
       data: { dagRunDetails: details('r9') },
       isLoading: false,
@@ -189,8 +190,7 @@ describe('useRunOverlay', () => {
     );
     expect(useSSEMock).toHaveBeenLastCalledWith('dag', 'r9', true, 'node-1');
     expect(result.current.runId).toBe('r9');
-    // Connected SSE would not poll for a concrete run; latest still does.
-    expect(useQueryMock.mock.lastCall?.[2].refreshInterval).toBeGreaterThan(0);
+    expect(useQueryMock.mock.lastCall?.[2].refreshInterval).toBe(0);
   });
 
   it('ignores SSE data of another run', () => {
