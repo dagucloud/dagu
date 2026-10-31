@@ -103,6 +103,13 @@ func (e *harnessExecutor) runManagedOpenCode(
 	sessionID, err := e.ensureManagedSession(ctx, client, cfg, cleanRestart)
 	if err != nil {
 		if ctx.Err() != nil {
+			e.mu.Lock()
+			persistedID := e.agentSession.SessionID
+			e.mu.Unlock()
+			if persistedID != "" {
+				// A resumed run's session may still run Dagu's earlier turn.
+				return e.finishManagedCancelled(ctx, client, persistedID)
+			}
 			// No session of this attempt exists, so there is no turn to stop.
 			return e.finishManagedAbort(ctx, nil)
 		}

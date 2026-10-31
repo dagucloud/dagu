@@ -676,6 +676,30 @@ func TestManagedOpenCodeCancelInterruptsSession(t *testing.T) {
 	}
 }
 
+// A resumed run that is stopped before it reattaches to its session still
+// stops the turn Dagu left running there.
+func TestManagedOpenCodeCancelDuringResume(t *testing.T) {
+	t.Parallel()
+
+	host := newManagedTestHost(t, func(h *managedTestHost) { h.busy["session-1"] = true })
+	exec := &harnessExecutor{prompt: "Do the work", workDir: t.TempDir(), agentSession: &ir.AgentSession{
+		Provider: "opencode", Generation: 1, SessionID: "session-1", SessionOwned: true,
+		PromptSent: true, PromptMessageID: "msg-1", State: ir.AgentSessionUnavailable,
+	}}
+	ctx, cancel := context.WithCancel(runtime.WithEnv(t.Context(), runtime.Env{}))
+	defer cancel()
+	exec.SetProgressCallback(cancel)
+
+	_, err := exec.runManagedOpenCode(ctx, providerConfig{flags: map[string]any{}}, host.config)
+
+	require.ErrorIs(t, err, context.Canceled)
+	assert.True(t, host.wasInterrupted("session-1"))
+	assert.False(t, host.isBusy("session-1"), "the session settled before the run returned")
+	session := exec.GetAgentSession()
+	assert.Equal(t, ir.AgentSessionAborted, session.State)
+	assert.Equal(t, "aborted", session.Events[len(session.Events)-1].Status)
+}
+
 // Stopping a managed attempt ends the step without starting the legacy CLI or
 // the next provider. Not parallel: the host is injected through the environment.
 func TestManagedOpenCodeStopEndsStep(t *testing.T) {
