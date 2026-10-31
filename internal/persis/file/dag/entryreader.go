@@ -549,7 +549,9 @@ func (er *entryReaderImpl) refreshRegistry(ctx context.Context) error {
 	er.reportIssues(ctx, state.issues)
 
 	events := er.replaceRegistry(state)
-	for _, event := range events {
+	for i, event := range events {
+		// The events of one refresh form one change.
+		event.More = i < len(events)-1
 		er.sendEvent(ctx, event)
 	}
 	return nil
