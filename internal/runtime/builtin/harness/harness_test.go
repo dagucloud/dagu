@@ -731,6 +731,68 @@ func TestManagedOpenCodeStopEndsStep(t *testing.T) {
 	}
 }
 
+// A retry discards the previous session. Its replacement starts only once the
+// previous attempt's work has stopped.
+func TestManagedOpenCodeRetrySettlesDiscardedSession(t *testing.T) {
+	t.Parallel()
+
+	t.Run("interrupts owned session", func(t *testing.T) {
+		t.Parallel()
+		host := newManagedTestHost(t, func(h *managedTestHost) { h.busy["session-old"] = true })
+		exec := &harnessExecutor{prompt: "Do the work", workDir: t.TempDir(), agentSession: &ir.AgentSession{
+			Provider: "opencode", Generation: 1, SessionID: "session-old", SessionOwned: true,
+			PromptSent: true, State: ir.AgentSessionAborted,
+		}}
+		ctx, cancel := context.WithCancel(runtime.WithEnv(t.Context(), runtime.Env{}))
+		defer cancel()
+		exec.SetProgressCallback(onManagedRunning(exec, cancel))
+
+		_, err := exec.runManagedOpenCode(ctx, providerConfig{flags: map[string]any{}}, host.config)
+
+		require.ErrorIs(t, err, context.Canceled)
+		requests := host.requestLog()
+		interrupt := slices.Index(requests, "POST /session/session-old/abort")
+		created := slices.Index(requests, "POST /session")
+		require.GreaterOrEqual(t, interrupt, 0, "the discarded session must be interrupted")
+		require.Greater(t, created, interrupt+2, "the replacement waits until the discarded session settles")
+		session := exec.GetAgentSession()
+		assert.Equal(t, 2, session.Generation)
+		assert.Equal(t, "session-1", session.SessionID)
+		assert.Equal(t, "session-old", session.DiscardedSessionID)
+	})
+
+	t.Run("waits for session it does not own", func(t *testing.T) {
+		t.Parallel()
+		host := newManagedTestHost(t, func(h *managedTestHost) { h.busy["session-user"] = true })
+		exec := &harnessExecutor{prompt: "Do the work", workDir: t.TempDir(), agentSession: &ir.AgentSession{
+			Provider: "opencode", Generation: 1, SessionID: "session-user",
+			PromptSent: true, State: ir.AgentSessionFailed,
+		}}
+		ctx, cancel := context.WithTimeout(runtime.WithEnv(t.Context(), runtime.Env{}), 300*time.Millisecond)
+		defer cancel()
+
+		stdout, err := exec.runManagedOpenCode(ctx, providerConfig{flags: map[string]any{}}, host.config)
+
+		require.Nil(t, stdout)
+		require.ErrorContains(t, err, "session-user from the previous attempt may still be running")
+		assert.Equal(t, ir.AgentSessionFailed, exec.GetAgentSession().State)
+		assert.NotContains(t, host.requestLog(), "POST /session", "no replacement beside active work")
+		assert.NotContains(t, host.requestLog(), "POST /session/session-user/abort", "never interrupt a session Dagu does not own")
+
+		// The next retry checks the same discarded session again.
+		host.setBusy("session-user", false)
+		ctx, cancel = context.WithCancel(runtime.WithEnv(t.Context(), runtime.Env{}))
+		defer cancel()
+		exec.SetProgressCallback(onManagedRunning(exec, cancel))
+		_, err = exec.runManagedOpenCode(ctx, providerConfig{flags: map[string]any{}}, host.config)
+		require.ErrorIs(t, err, context.Canceled)
+		assert.Contains(t, host.requestLog(), "POST /session")
+		session := exec.GetAgentSession()
+		assert.Equal(t, 2, session.Generation)
+		assert.Equal(t, "session-user", session.DiscardedSessionID)
+	})
+}
+
 // onManagedRunning returns a progress callback that calls fn once the managed
 // session starts running.
 func onManagedRunning(exec *harnessExecutor, fn func()) func() {
@@ -742,10 +804,10 @@ func onManagedRunning(exec *harnessExecutor, fn func()) func() {
 	}
 }
 
-// managedTestHost is an OpenCode v1 host for one managed session. The session
-// is busy from prompt submission until an interrupt, and settles after one
-// more status poll. With dropAfterInterrupt, status requests lose their
-// connection once the session is interrupted.
+// managedTestHost is an OpenCode v1 host that creates session-1. A session is
+// busy from prompt submission, or from setBusy, until an interrupt, and then
+// settles after one more status poll. With dropAfterInterrupt, status requests
+// lose their connection once any session is interrupted.
 type managedTestHost struct {
 	config             opencodehost.Config
 	dropAfterInterrupt bool
@@ -753,13 +815,13 @@ type managedTestHost struct {
 
 	mu          sync.Mutex
 	requests    []string
-	busy        bool
-	interrupted bool
+	busy        map[string]bool
+	interrupted map[string]bool
 }
 
 func newManagedTestHost(t *testing.T, configure func(*managedTestHost)) *managedTestHost {
 	t.Helper()
-	host := &managedTestHost{}
+	host := &managedTestHost{busy: map[string]bool{}, interrupted: map[string]bool{}}
 	if configure != nil {
 		configure(host)
 	}
@@ -787,38 +849,46 @@ func (h *managedTestHost) serve(w http.ResponseWriter, r *http.Request) {
 	case r.Method == http.MethodPost && r.URL.Path == "/session/session-1/prompt_async":
 		// The server notices a dropped client only after the body is consumed.
 		_, _ = io.Copy(io.Discard, r.Body)
-		h.mu.Lock()
-		h.busy = true
-		h.mu.Unlock()
+		h.setBusy("session-1", true)
 		if h.onPrompt != nil {
 			h.onPrompt(r)
 		}
 		w.WriteHeader(http.StatusNoContent)
-	case r.Method == http.MethodPost && r.URL.Path == "/session/session-1/abort":
+	case r.Method == http.MethodPost && strings.HasSuffix(r.URL.Path, "/abort"):
 		h.mu.Lock()
-		h.interrupted = true
+		h.interrupted[strings.TrimSuffix(strings.TrimPrefix(r.URL.Path, "/session/"), "/abort")] = true
 		h.mu.Unlock()
 		_, _ = io.WriteString(w, `true`)
 	case r.Method == http.MethodGet && r.URL.Path == "/session/status":
 		h.mu.Lock()
-		busy, interrupted := h.busy, h.interrupted
-		if interrupted {
-			h.busy = false
+		statuses := make(map[string]map[string]string, len(h.busy))
+		for sessionID := range h.busy {
+			statuses[sessionID] = map[string]string{"type": "busy"}
+			if h.interrupted[sessionID] {
+				delete(h.busy, sessionID)
+			}
 		}
+		drop := h.dropAfterInterrupt && len(h.interrupted) > 0
 		h.mu.Unlock()
-		if interrupted && h.dropAfterInterrupt {
+		if drop {
 			if conn, _, err := w.(http.Hijacker).Hijack(); err == nil {
 				_ = conn.Close()
 			}
 			return
 		}
-		if busy {
-			_, _ = io.WriteString(w, `{"session-1":{"type":"busy"}}`)
-			return
-		}
-		_, _ = io.WriteString(w, `{}`)
+		_ = json.NewEncoder(w).Encode(statuses)
 	default:
 		http.NotFound(w, r)
+	}
+}
+
+func (h *managedTestHost) setBusy(sessionID string, busy bool) {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	if busy {
+		h.busy[sessionID] = true
+	} else {
+		delete(h.busy, sessionID)
 	}
 }
 

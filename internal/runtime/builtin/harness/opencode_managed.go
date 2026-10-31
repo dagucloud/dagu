@@ -31,8 +31,8 @@ import (
 const (
 	maxManagedAgentEvents        = 1000
 	maxManagedAttachmentRawBytes = 10 * 1024 * 1024
-	// managedCleanupTimeout bounds how long a stopped run waits for its
-	// interrupted session to settle.
+	// managedCleanupTimeout bounds each wait for an interrupted or discarded
+	// session to settle.
 	managedCleanupTimeout = 10 * time.Second
 )
 
@@ -69,6 +69,7 @@ func (e *harnessExecutor) runManagedOpenCode(
 		e.agentSession.Generation = 1
 	}
 	cleanRestart := e.agentSession.RestartPending
+	discardedID, discardedOwned := e.agentSession.DiscardedSessionID, e.agentSession.DiscardedOwned
 	e.agentSession.ProviderVersion = host.Version
 	e.agentSession.HostInstanceID = host.InstanceID
 	e.agentSession.Directory = client.directory
@@ -87,6 +88,11 @@ func (e *harnessExecutor) runManagedOpenCode(
 		return nil, err
 	}
 
+	if cleanRestart && discardedID != "" {
+		if err := settleDiscardedSession(ctx, client, discardedID, discardedOwned); err != nil {
+			return e.finishManagedError(err)
+		}
+	}
 	sessionID, err := e.ensureManagedSession(ctx, client, cfg, cleanRestart)
 	if err != nil {
 		if errors.Is(err, errManagedSessionUnavailable) || (cleanRestart && errors.Is(err, errManagedHostUnavailable)) {
@@ -235,6 +241,22 @@ func (e *harnessExecutor) runManagedOpenCode(
 			}
 		}
 	}
+}
+
+// settleDiscardedSession keeps a replacement session from running beside work
+// left by the previous attempt in the same directory. Only a session that Dagu
+// created is interrupted; any other session is waited on.
+func settleDiscardedSession(ctx context.Context, client *openCodeClient, sessionID string, owned bool) error {
+	ctx, cancel := context.WithTimeout(ctx, managedCleanupTimeout)
+	defer cancel()
+	settle := client.awaitIdle
+	if owned {
+		settle = client.interruptAndAwaitIdle
+	}
+	if err := settle(ctx, sessionID); err != nil {
+		return fmt.Errorf("OpenCode session %s from the previous attempt may still be running: %w", sessionID, err)
+	}
+	return nil
 }
 
 func runtimeWorkerID(ctx context.Context) string {
