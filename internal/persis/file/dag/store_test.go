@@ -18,6 +18,7 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/pagination"
 	"github.com/dagucloud/dagu/v2/internal/persis"
 	"github.com/dagucloud/dagu/v2/internal/persis/file/dag/dagindex"
+	"github.com/dagucloud/dagu/v2/internal/spec"
 	"github.com/dagucloud/dagu/v2/internal/workspace"
 
 	"github.com/stretchr/testify/assert"
@@ -40,6 +41,7 @@ func newRepository(baseDir string, opts ...Option) *persis.DAGRepository {
 	return persis.NewDAGRepository(store, persis.DAGRepositoryOptions{
 		BaseConfigPath:         store.baseConfigPath,
 		WorkspaceBaseConfigDir: store.workspaceBaseConfigDir,
+		Calendars:              store.calendars,
 	})
 }
 
@@ -2619,4 +2621,57 @@ func TestMetadataInFlightBaseChange(t *testing.T) {
 	current, err := store.GetMetadata(t.Context(), "scheduled")
 	require.NoError(t, err)
 	require.Equal(t, "updated", current.ProcGroup())
+}
+
+// Listings rebuild DAGs from the index, which stores calendar names only;
+// their schedules must still skip the calendar's holidays.
+func TestCatalogBindsCalendars(t *testing.T) {
+	t.Parallel()
+
+	root := t.TempDir()
+	dir := filepath.Join(root, "dags")
+	calendars := filepath.Join(root, "calendars")
+	require.NoError(t, os.MkdirAll(dir, 0750))
+	require.NoError(t, os.MkdirAll(calendars, 0750))
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "payroll.yaml"),
+		[]byte("calendar: jp\nschedule: \"0 18 * * *\"\nsteps:\n  - run: echo pay\n"), 0600))
+	require.NoError(t, os.WriteFile(filepath.Join(calendars, "jp.yaml"), []byte("holidays: [2027-01-11]\n"), 0600))
+
+	store := NewStore(dir, WithSkipExamples(true), WithIndexDir(filepath.Join(root, "index")), WithCalendars(spec.NewCalendarSource(calendars)))
+	catalog, err := store.Catalog(t.Context())
+	require.NoError(t, err)
+
+	require.Len(t, catalog.Items, 1)
+	from := time.Date(2027, 1, 11, 0, 0, 0, 0, time.UTC)
+	assert.Equal(t, time.Date(2027, 1, 12, 18, 0, 0, 0, time.UTC), catalog.Items[0].NextRun(from))
+}
+
+// Cached metadata does not depend on calendar files as a whole, so plain
+// DAGs never reload for them; a DAG that names a calendar reloads when that
+// calendar changes.
+func TestMetadataFollowsCalendarEdits(t *testing.T) {
+	t.Parallel()
+
+	root := t.TempDir()
+	dir := filepath.Join(root, "dags")
+	calendars := filepath.Join(root, "calendars")
+	require.NoError(t, os.MkdirAll(dir, 0750))
+	require.NoError(t, os.MkdirAll(calendars, 0750))
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "payroll.yaml"),
+		[]byte("calendar: jp\nschedule: \"0 18 * * *\"\nsteps:\n  - run: echo pay\n"), 0600))
+	calendarFile := filepath.Join(calendars, "jp.yaml")
+	require.NoError(t, os.WriteFile(calendarFile, []byte("holidays: [2027-01-01]\n"), 0600))
+
+	store := NewStore(dir, WithSkipExamples(true), WithIndexDir(filepath.Join(root, "index")),
+		WithCalendars(spec.NewCalendarSource(calendars)), WithFileCache(fileutil.NewCache[*ir.DAG]("calendars", 10, 0)))
+	from := time.Date(2027, 1, 11, 0, 0, 0, 0, time.UTC)
+
+	dag, err := store.GetMetadata(t.Context(), "payroll")
+	require.NoError(t, err)
+	require.Equal(t, time.Date(2027, 1, 11, 18, 0, 0, 0, time.UTC), dag.NextRun(from))
+
+	require.NoError(t, os.WriteFile(calendarFile, []byte("holidays: [2027-01-01, 2027-01-11]\n"), 0600))
+	dag, err = store.GetMetadata(t.Context(), "payroll")
+	require.NoError(t, err)
+	assert.Equal(t, time.Date(2027, 1, 12, 18, 0, 0, 0, time.UTC), dag.NextRun(from))
 }

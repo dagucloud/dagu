@@ -4,7 +4,7 @@
 import { cleanup, fireEvent, render, screen } from '@testing-library/react';
 import React from 'react';
 import { afterEach, describe, expect, it } from 'vitest';
-import { ScheduleKind } from '@/api/v1/schema';
+import { ScheduleKind, UpcomingRunsHold } from '@/api/v1/schema';
 import { UserPreferencesProvider } from '@/contexts/UserPreference';
 import { I18nProvider } from '@/i18n/I18nProvider';
 import dayjs from '@/lib/dayjs';
@@ -118,6 +118,102 @@ describe('DAGAttributes', () => {
     ).toBeInTheDocument();
     expect(
       screen.getByText('Fri 2027-01-01 18:00 UTC', { exact: false })
+    ).toBeInTheDocument();
+  });
+
+  it('explains where a business calendar put each run', () => {
+    render(
+      <DAGAttributes
+        dag={{
+          name: 'payroll',
+          schedule: [
+            {
+              expression: '0 23 * * *',
+              kind: ScheduleKind.cron,
+              calendar: 'jp-banking',
+              businessDays: [3, -1],
+            },
+          ],
+          upcomingRuns: [
+            {
+              time: '2027-01-06T23:00:00Z',
+              scheduleIndex: 0,
+              timezone: 'UTC',
+              businessDay: 3,
+            },
+            {
+              time: '2027-01-29T23:00:00Z',
+              scheduleIndex: 0,
+              timezone: 'UTC',
+              businessDay: -1,
+            },
+            {
+              time: '2027-01-12T18:00:00Z',
+              scheduleIndex: 0,
+              timezone: 'UTC',
+              skippedHolidays: [
+                { date: '2027-01-11', name: 'Coming of Age Day' },
+              ],
+            },
+            {
+              time: '2027-10-09T18:00:00Z',
+              scheduleIndex: 0,
+              timezone: 'UTC',
+              extraBusinessDay: true,
+            },
+          ],
+        }}
+      />
+    );
+
+    expect(
+      screen.getByText('0 23 * * * · jp-banking [3, -1]')
+    ).toBeInTheDocument();
+    expect(
+      screen.getByText('· business day 3 of the month')
+    ).toBeInTheDocument();
+    expect(
+      screen.getByText('· last business day of the month')
+    ).toBeInTheDocument();
+    expect(
+      screen.getByText('· skips Mon 2027-01-11 (Coming of Age Day)')
+    ).toBeInTheDocument();
+    expect(screen.getByText('· extra business day')).toBeInTheDocument();
+  });
+
+  it('says when the listed runs will not start', () => {
+    const { rerender } = render(
+      <DAGAttributes
+        dag={{
+          name: 'held',
+          schedule: [{ expression: '0 12 * * *', kind: ScheduleKind.cron }],
+          upcomingRuns: [
+            { time: '2027-01-01T12:00:00Z', scheduleIndex: 0, timezone: 'UTC' },
+          ],
+          upcomingRunsHold: UpcomingRunsHold.suspended,
+        }}
+      />
+    );
+    expect(
+      screen.getByText(
+        'This DAG is suspended. None of these runs will start until it is resumed.'
+      )
+    ).toBeInTheDocument();
+
+    rerender(
+      <DAGAttributes
+        dag={{
+          name: 'held',
+          schedule: [{ expression: '0 12 * * *', kind: ScheduleKind.cron }],
+          upcomingRuns: [
+            { time: '2027-01-01T12:00:00Z', scheduleIndex: 0, timezone: 'UTC' },
+          ],
+          upcomingRunsHold: UpcomingRunsHold.schedulerPaused,
+        }}
+      />
+    );
+    expect(
+      screen.getByText('Scheduler is paused. No scheduled runs will start.')
     ).toBeInTheDocument();
   });
 

@@ -740,4 +740,24 @@ steps:
     expect(result.legacyDefinitions).toEqual([]);
     expect(result.actions).toEqual([]);
   });
+
+  it('offers calendar names for completion without restricting them', () => {
+    const schema = buildAugmentedDAGSchema(
+      {
+        ...baseSchema,
+        definitions: {
+          ...baseSchema.definitions,
+          calendarName: { type: 'string', examples: ['weekdays', 'none'] },
+        },
+      },
+      [],
+      [],
+      ['jp-banking', 'weekdays']
+    );
+
+    expect(schema.definitions?.calendarName).toEqual({
+      type: 'string',
+      examples: ['jp-banking', 'weekdays', 'none'],
+    });
+  });
 });

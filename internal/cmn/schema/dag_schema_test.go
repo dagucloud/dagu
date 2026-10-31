@@ -1280,6 +1280,45 @@ steps:
 `,
 		},
 		{
+			name: "BusinessDayCalendar",
+			spec: `
+calendar: jp-banking
+schedule:
+  - "0 18 * * *"
+  - expression: "0 23 * * *"
+    calendar: weekdays
+    business_days: [3, -1]
+  - expression: "0 3 * * *"
+    calendar: none
+steps:
+  - run: echo hi
+`,
+		},
+		{
+			name: "RejectCalendarOnStopSchedule",
+			spec: `
+schedule:
+  stop:
+    expression: "0 18 * * *"
+    calendar: jp-banking
+steps:
+  - run: echo hi
+`,
+			wantErr: "schedule",
+		},
+		{
+			name: "RejectBusinessDayZero",
+			spec: `
+schedule:
+  - expression: "0 18 * * *"
+    calendar: weekdays
+    business_days: [0]
+steps:
+  - run: echo hi
+`,
+			wantErr: "schedule",
+		},
+		{
 			name: "RejectTypedCronWithoutExpression",
 			spec: `
 schedule:

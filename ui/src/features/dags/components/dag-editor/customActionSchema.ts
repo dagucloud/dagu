@@ -643,10 +643,21 @@ export function customActionHintsEqual(
 export function buildAugmentedDAGSchema(
   baseSchema: JSONSchema,
   legacyDefinitions: EditorLegacyDefinitionHint[],
-  actions: EditorCustomActionHint[] = []
+  actions: EditorCustomActionHint[] = [],
+  calendarNames: string[] = []
 ): JSONSchema {
   const augmented = cloneJson(baseSchema);
   const definitions = augmented.definitions;
+
+  // Calendar names complete as examples rather than an enum, so a calendar
+  // added after the editor loaded is not flagged before the server sees it.
+  const calendarName = definitions?.calendarName;
+  if (definitions && calendarName && calendarNames.length > 0) {
+    definitions.calendarName = {
+      ...calendarName,
+      examples: [...new Set([...calendarNames, 'none'])],
+    };
+  }
 
   if (legacyDefinitions.length === 0 && actions.length === 0) {
     for (const path of collectStepSchemaPaths(augmented)) {

@@ -283,6 +283,7 @@ type PathsDef struct {
 	AdminLogsDir       string `mapstructure:"admin_logs_dir"`
 	EventStoreDir      string `mapstructure:"event_store_dir"`
 	BaseConfig         string `mapstructure:"base_config"`
+	CalendarsDir       string `mapstructure:"calendars_dir"`
 	AltDagsDir         string `mapstructure:"alt_dags_dir"`
 	DAGRunsDir         string `mapstructure:"dag_runs_dir"`
 	DAGRunWorkDir      string `mapstructure:"dag_run_work_dir"`

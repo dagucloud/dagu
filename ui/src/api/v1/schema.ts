@@ -3270,6 +3270,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/calendars": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List business calendars
+         * @description Lists the built-in calendars and the calendar files that start schedules can name.
+         */
+        get: operations["listCalendars"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/settings/base-config": {
         parameters: {
             query?: never;
@@ -5676,7 +5696,35 @@ export interface components {
             at?: string;
             /** @description Runtime profile name that activates this schedule entry */
             profile?: components["schemas"]["RuntimeProfileName"];
+            /** @description Calendar whose business days the schedule fires on */
+            calendar?: string;
+            /** @description Business days of the month the schedule keeps; negative values count from the end */
+            businessDays?: number[];
         };
+        /** @description A business calendar that start schedules can name */
+        CalendarSummary: {
+            name: string;
+            description?: string;
+            /**
+             * Format: date
+             * @description Last date the calendar's holidays are maintained for
+             */
+            through?: string;
+            /** @description Whether the calendar is built in rather than a file */
+            builtin: boolean;
+            /** @description Why the calendar file does not load */
+            error?: string;
+        };
+        Holiday: {
+            /** Format: date */
+            date: string;
+            name?: string;
+        };
+        /**
+         * @description Why none of the upcoming runs will start: the scheduler is paused, or the DAG is suspended
+         * @enum {string}
+         */
+        UpcomingRunsHold: UpcomingRunsHold;
         /** @description A time at which a start schedule fires */
         UpcomingRun: {
             /**
@@ -5688,6 +5736,12 @@ export interface components {
             scheduleIndex: number;
             /** @description Name of the zone the schedule is evaluated in */
             timezone: string;
+            /** @description Holidays since the previous fire on which the cron expression fired but the calendar did not */
+            skippedHolidays?: components["schemas"]["Holiday"][];
+            /** @description Listed business-day position the fire matched; negative counts from the end */
+            businessDay?: number;
+            /** @description Whether the fire falls on a business day only because the calendar lists it */
+            extraBusinessDay?: boolean;
         };
         /**
          * @description Numeric status code indicating current DAG-run state:
@@ -5840,6 +5894,7 @@ export interface components {
             nextRun?: string;
             /** @description Next fire times of the start schedules, earliest first. Derived from the definition alone: suspension, scheduler pauses, and runtime profiles do not filter it. */
             upcomingRuns?: components["schemas"]["UpcomingRun"][];
+            upcomingRunsHold?: components["schemas"]["UpcomingRunsHold"];
             /** @description Logical grouping of related DAGs for organizational purposes */
             group?: string;
             /** @description Unique identifier for the DAG within its group */
@@ -18265,6 +18320,40 @@ export interface operations {
             };
         };
     };
+    listCalendars: {
+        parameters: {
+            query?: {
+                /** @description name of the remote node */
+                remoteNode?: components["parameters"]["RemoteNode"];
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Calendars, sorted by name */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        calendars: components["schemas"]["CalendarSummary"][];
+                    };
+                };
+            };
+            /** @description Unexpected error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+        };
+    };
     getBaseConfig: {
         parameters: {
             query?: {
@@ -22558,6 +22647,10 @@ export enum HealthResponseStatus {
 export enum ScheduleKind {
     cron = "cron",
     at = "at"
+}
+export enum UpcomingRunsHold {
+    schedulerPaused = "schedulerPaused",
+    suspended = "suspended"
 }
 export enum Status {
     NotStarted = 0,
