@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"sync"
 	"time"
@@ -16,6 +17,7 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/cmn/config"
 	"github.com/dagucloud/dagu/v2/internal/cmn/filenotify"
 	persisfile "github.com/dagucloud/dagu/v2/internal/persis/file"
+	"github.com/dagucloud/dagu/v2/internal/workspace"
 	"github.com/fsnotify/fsnotify"
 )
 
@@ -662,6 +664,26 @@ func NewAppStreamService(cfg AppStreamConfig) (*AppStreamService, error) {
 			service.publishReset,
 		))
 	}
+	if cfg.Paths.BaseConfig != "" {
+		baseConfig := filepath.Clean(cfg.Paths.BaseConfig)
+		// A DAG root watcher already reports a base config stored in that root.
+		if baseDir := filepath.Dir(baseConfig); !slices.Contains(paths, baseDir) {
+			service.watchers = append(service.watchers, newDirectoryWatcher(
+				baseDir,
+				false,
+				service.baseConfigEventHandler(filepath.Base(baseConfig)),
+				service.publishReset,
+			))
+		}
+	}
+	if workspaceBaseDir := workspace.BaseConfigDir(cfg.Paths.DAGsDir); workspaceBaseDir != "" {
+		service.watchers = append(service.watchers, newOneLevelDirectoryWatcher(
+			workspaceBaseDir,
+			false,
+			service.handleWorkspaceBaseConfigEvent,
+			service.publishReset,
+		))
+	}
 	if cfg.Paths.DataDir != "" {
 		service.watchers = append(service.watchers, newDirectoryWatcher(
 			persisfile.SchedulerStateDir(cfg.Paths),
@@ -751,6 +773,34 @@ func (s *AppStreamService) handleSuspendFlagEvent(_, relPath string, op fsnotify
 	s.coalescer.Enqueue(AppEvent{
 		Type:   AppEventTypeDAGChanged,
 		Reason: "suspend_flag_" + fileEventReason(op),
+	})
+}
+
+// baseConfigEventHandler refreshes every DAG when the named base config file
+// changes, since each DAG inherits it.
+func (s *AppStreamService) baseConfigEventHandler(name string) func(root, relPath string, op fsnotify.Op) {
+	return func(_, relPath string, op fsnotify.Op) {
+		if relPath != name {
+			return
+		}
+		s.enqueueBaseConfigChange(op)
+	}
+}
+
+// handleWorkspaceBaseConfigEvent refreshes every DAG when the base config of a
+// workspace changes.
+func (s *AppStreamService) handleWorkspaceBaseConfigEvent(_, relPath string, op fsnotify.Op) {
+	parts := strings.Split(relPath, "/")
+	if len(parts) != 2 || parts[1] != workspace.BaseConfigFileName {
+		return
+	}
+	s.enqueueBaseConfigChange(op)
+}
+
+func (s *AppStreamService) enqueueBaseConfigChange(op fsnotify.Op) {
+	s.coalescer.Enqueue(AppEvent{
+		Type:   AppEventTypeDAGChanged,
+		Reason: "base_config_" + fileEventReason(op),
 	})
 }
 

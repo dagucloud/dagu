@@ -46,6 +46,41 @@ func TestLegacySuspendFlagEvent(t *testing.T) {
 	}
 }
 
+// Every DAG inherits the global and its workspace base config, so a write to
+// either has to refresh the DAGs.
+func TestBaseConfigEvent(t *testing.T) {
+	t.Parallel()
+	root := t.TempDir()
+	dagsDir := filepath.Join(root, "dags")
+	workspaceDir := filepath.Join(dagsDir, "workspaces", "ops")
+	require.NoError(t, os.MkdirAll(workspaceDir, 0o750))
+	service, err := NewAppStreamService(AppStreamConfig{
+		Paths: config.PathsConfig{
+			DAGsDir:    dagsDir,
+			BaseConfig: filepath.Join(root, "base.yaml"),
+		},
+	})
+	require.NoError(t, err)
+	t.Cleanup(service.Shutdown)
+
+	for _, path := range []string{
+		filepath.Join(root, "base.yaml"),
+		filepath.Join(workspaceDir, "base.yaml"),
+	} {
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		events, unsubscribe := service.Subscribe(ctx)
+		require.NoError(t, os.WriteFile(path, []byte("env:\n  - A: 1\n"), 0o600))
+		select {
+		case event := <-events:
+			assert.Equal(t, AppEventTypeDAGChanged, event.Type, path)
+		case <-ctx.Done():
+			t.Fatalf("writing %s did not trigger a DAG refresh", path)
+		}
+		unsubscribe()
+		cancel()
+	}
+}
+
 type recordingFileWatcher struct {
 	added []string
 }
