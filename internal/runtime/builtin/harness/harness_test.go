@@ -601,6 +601,7 @@ func TestManagedOpenCodeCancelInterruptsSession(t *testing.T) {
 		{name: "running", wantEvent: "aborted"},
 		{name: "prompt in flight", cancelOnPrompt: true, wantEvent: "aborted"},
 		{name: "unconfirmed", drop: true, wantEvent: "abort-unverified"},
+		{name: "prompt in flight unconfirmed", cancelOnPrompt: true, drop: true, wantEvent: "abort-unverified"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
@@ -628,6 +629,8 @@ func TestManagedOpenCodeCancelInterruptsSession(t *testing.T) {
 			session := exec.GetAgentSession()
 			assert.Equal(t, ir.AgentSessionAborted, session.State)
 			assert.Equal(t, tc.wantEvent, session.Events[len(session.Events)-1].Status)
+			// The host may have accepted the prompt, so a retry starts a new generation.
+			assert.True(t, session.PromptSent)
 			requests := host.requestLog()
 			interrupt := slices.Index(requests, "POST /session/session-1/abort")
 			require.GreaterOrEqual(t, interrupt, 0, "the session must be interrupted")

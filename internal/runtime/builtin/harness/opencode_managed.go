@@ -654,6 +654,13 @@ func (e *harnessExecutor) finishManagedRunError(ctx context.Context, client *ope
 // finishManagedCancelled interrupts the session of a cancelled run and records
 // whether the host confirmed that the session stopped.
 func (e *harnessExecutor) finishManagedCancelled(ctx context.Context, client *openCodeClient, sessionID string) (*os.File, error) {
+	e.mu.Lock()
+	// The host may have accepted a prompt cancelled in flight; a retry then
+	// replaces this session instead of submitting the prompt to it again.
+	if e.agentSession.PromptMessageID != "" {
+		e.agentSession.PromptSent = true
+	}
+	e.mu.Unlock()
 	cleanupCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), managedCleanupTimeout)
 	defer cancel()
 	if err := client.interruptAndAwaitIdle(cleanupCtx, sessionID); err != nil {
