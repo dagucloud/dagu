@@ -936,7 +936,8 @@ func (n *Node) setupExecutor(ctx context.Context) (context.Context, executor.Exe
 	// carries a reference, would otherwise be indistinguishable from an unset
 	// field and leave the step reading empty standard input.
 	if raw := n.Step().Stdin; raw != "" {
-		resolved, err := resolveRuntimeString(ctx, raw, cmnvalue.StepArtifactOutputField("stdin"))
+		field := cmnvalue.StepArtifactOutputField("stdin")
+		resolved, err := resolveRuntimeString(ctx, raw, field)
 		if err != nil {
 			return ctx, nil, fmt.Errorf("failed to eval stdin: %w", err)
 		}
@@ -944,7 +945,7 @@ func (n *Node) setupExecutor(ctx context.Context) (context.Context, executor.Exe
 		if resolved == "" {
 			return ctx, nil, fmt.Errorf("stdin %q resolved to an empty path", raw)
 		}
-		if cmnvalue.HasValueReference(resolved) {
+		if field.HasValueReference(resolved) {
 			return ctx, nil, fmt.Errorf("stdin %q must resolve before execution", raw)
 		}
 		n.SetStdin(resolved)

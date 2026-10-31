@@ -250,7 +250,7 @@ func expandStepDirEnvOnly(dir string, dag *ir.DAG) string {
 			}
 		}
 	}
-	return scope.Expand(dir)
+	return scope.ExpandPath(dir)
 }
 
 // resolveExpandedDir resolves an expanded directory path to an absolute path.
@@ -378,9 +378,9 @@ func expandDAGWorkingDirStrict(ctx context.Context, workingDir string, rCtx Cont
 
 func expandDAGWorkingDirEnvOnly(workingDir string, scope *cmnvalue.EnvScope) string {
 	if scope != nil {
-		return scope.Expand(workingDir)
+		return scope.ExpandPath(workingDir)
 	}
-	return cmnvalue.NewEnvScope(nil, true).Expand(workingDir)
+	return cmnvalue.NewEnvScope(nil, true).ExpandPath(workingDir)
 }
 
 // fallbackWorkingDir returns a fallback working directory when none is specified.

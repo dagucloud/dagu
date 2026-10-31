@@ -173,7 +173,7 @@ func validateBuildRuntimeOutputReferences(dag *ir.DAG, errs *ir.ErrorList) {
 	}
 	for _, field := range ReferenceFields(dag) {
 		for _, producer := range producers {
-			if !cmnvalue.HasStepRuntimeOutputReference(field.Value, producer.ID) {
+			if !field.Field.HasStepRuntimeOutputReference(field.Value, producer.ID) {
 				continue
 			}
 			*errs = append(*errs, ir.NewValidationError(field.Path, field.Value,
