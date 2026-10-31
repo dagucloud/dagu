@@ -414,7 +414,7 @@ func (w *referenceFieldWalker) walkStringLeaves(path string, raw any, base Refer
 		}
 	case map[string]string:
 		for _, key := range sortedStringKeys(value) {
-			w.add(base.withPathValue(path+"."+key, value[key]))
+			w.add(base.withField(base.Field.Key(key)).withPathValue(path+"."+key, value[key]))
 		}
 	default:
 		w.walkReflectStringLeaves(path, raw, base)

@@ -105,8 +105,13 @@ func (r Resolver) Int(ctx context.Context, raw string, field Field) (int, error)
 
 // Object resolves every string leaf in obj according to field.
 func (r Resolver) Object(ctx context.Context, obj any, field Field) (any, error) {
-	if entries, ok := obj.(map[string]any); ok && len(field.pathKeys) > 0 {
-		return r.objectEntries(ctx, entries, field)
+	if len(field.pathKeys) > 0 {
+		switch entries := obj.(type) {
+		case map[string]any:
+			return resolveEntries(ctx, r, entries, field)
+		case map[string]string:
+			return resolveEntries(ctx, r, entries, field)
+		}
 	}
 	policy := policyForField(field)
 	ctx = r.withRuntimeEnv(ctx)
@@ -126,19 +131,24 @@ func (r Resolver) Object(ctx context.Context, obj any, field Field) (any, error)
 	return result.Interface(), nil
 }
 
-// objectEntries resolves each entry of obj with the field for its key.
-func (r Resolver) objectEntries(ctx context.Context, obj map[string]any, field Field) (any, error) {
-	result := make(map[string]any, len(obj))
+// resolveEntries resolves each entry of obj with the field for its key and
+// keeps the map's type.
+func resolveEntries[V any](ctx context.Context, r Resolver, obj map[string]V, field Field) (any, error) {
+	result := make(map[string]V, len(obj))
 	for key, entry := range obj {
-		if entry == nil {
-			result[key] = nil
+		if any(entry) == nil {
+			result[key] = entry
 			continue
 		}
 		resolved, err := r.Object(ctx, entry, field.Key(key))
 		if err != nil {
 			return obj, err
 		}
-		result[key] = resolved
+		value, ok := resolved.(V)
+		if !ok {
+			return obj, fmt.Errorf("type assertion failed: expected %T, got %T", entry, resolved)
+		}
+		result[key] = value
 	}
 	return result, nil
 }

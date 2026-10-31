@@ -566,7 +566,7 @@ func TestResolverObjectPathKeys(t *testing.T) {
 	scope := value.NewEnvScope(nil, false).
 		WithEntry("NAME", "order-1.txt", value.EnvSourceStepEnv)
 	resolver := value.NewResolver(value.StaticScope{}, value.RuntimeScope{Env: scope})
-	field := value.ExecutorConfigField("with").WithPathKeys("destination", "import.input_file")
+	field := value.ExecutorConfigField("with").WithPathKeys("destination", "import.input_file", "files.report")
 
 	got, err := resolver.Object(ctx, map[string]any{
 		"destination": `C:\done\${NAME}`,
@@ -576,6 +576,10 @@ func TestResolverObjectPathKeys(t *testing.T) {
 		"import": map[string]any{
 			"input_file": `C:\in\${NAME}`,
 			"table":      `\${NAME}`,
+		},
+		"files": map[string]string{
+			"report": `C:\r\${NAME}`,
+			"note":   `\${NAME}`,
 		},
 	}, field)
 
@@ -588,6 +592,10 @@ func TestResolverObjectPathKeys(t *testing.T) {
 		"import": map[string]any{
 			"input_file": `C:\in\order-1.txt`,
 			"table":      "${NAME}",
+		},
+		"files": map[string]string{
+			"report": `C:\r\order-1.txt`,
+			"note":   "${NAME}",
 		},
 	}, got)
 }
