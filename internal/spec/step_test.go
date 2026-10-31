@@ -60,8 +60,10 @@ func TestMain(m *testing.M) {
 	registry.RegisterExecutorCapabilities("archive", registry.ExecutorCapabilities{Command: true})
 	// artifact: supports command only
 	registry.RegisterExecutorCapabilities("artifact", registry.ExecutorCapabilities{Command: true})
-	// file: supports command only
-	registry.RegisterExecutorCapabilities("file", registry.ExecutorCapabilities{Command: true})
+	// file: supports command only and takes path inputs
+	registry.RegisterExecutorCapabilities("file", registry.ExecutorCapabilities{
+		Command: true, PathInputs: []string{"path", "source", "destination"},
+	})
 	// data: supports operation commands only
 	registry.RegisterExecutorCapabilities("data", registry.ExecutorCapabilities{Command: true})
 	// wait: supports command only

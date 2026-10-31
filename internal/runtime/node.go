@@ -1025,16 +1025,16 @@ func (n *Node) cleanupStepOutputFile() error {
 
 func evalExecutorConfig(ctx context.Context, step ir.Step) (map[string]any, error) {
 	if step.ExecutorConfig.Type == "template" {
-		return evalTemplateConfig(ctx, step.ExecutorConfig.Config)
+		return evalTemplateConfig(ctx, step.ExecutorConfig.Config, registry.PathInputs(step))
 	}
-	got, err := resolveRuntimeObject(ctx, step.ExecutorConfig.Config, cmnvalue.ExecutorConfigField("with"))
+	got, err := resolveRuntimeObject(ctx, step.ExecutorConfig.Config, registry.ConfigField(step, "with"))
 	if err != nil {
 		return nil, err
 	}
 	return objectAsConfig(got)
 }
 
-func evalTemplateConfig(ctx context.Context, config map[string]any) (map[string]any, error) {
+func evalTemplateConfig(ctx context.Context, config map[string]any, pathKeys []string) (map[string]any, error) {
 	env := GetEnv(ctx)
 	scope := env.Scope
 	if scope == nil {
@@ -1046,7 +1046,7 @@ func evalTemplateConfig(ctx context.Context, config map[string]any) (map[string]
 	rawRef, hasRef := config["template_ref"]
 	delete(config, "template_ref")
 
-	got, err := resolveRuntimeObjectWithScope(ctx, env, scope, config, cmnvalue.TemplateConfigField("with"))
+	got, err := resolveRuntimeObjectWithScope(ctx, env, scope, config, cmnvalue.TemplateConfigField("with").WithPathKeys(pathKeys...))
 	if err != nil {
 		return nil, err
 	}

@@ -506,5 +506,8 @@ func installURL(vm *goja.Runtime) {
 }
 
 func init() {
-	executor.RegisterExecutor("js", newJS, validateStep, registry.ExecutorCapabilities{Script: true})
+	executor.RegisterExecutor("js", newJS, validateStep, registry.ExecutorCapabilities{
+		Script:     true,
+		PathInputs: []string{"input_file"},
+	})
 }

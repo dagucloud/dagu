@@ -56,7 +56,10 @@ type executorImpl struct {
 }
 
 func init() {
-	executor.RegisterExecutor(executorType, newExecutor, validateStep, registry.ExecutorCapabilities{Command: true})
+	executor.RegisterExecutor(executorType, newExecutor, validateStep, registry.ExecutorCapabilities{
+		Command:    true,
+		PathInputs: []string{"input"},
+	})
 }
 
 func newExecutor(ctx context.Context, step ir.Step) (executor.Executor, error) {

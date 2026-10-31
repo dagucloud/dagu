@@ -73,7 +73,10 @@ type checkoutResult struct {
 }
 
 func init() {
-	executor.RegisterExecutor(executorType, newExecutor, validateStep, registry.ExecutorCapabilities{Command: true})
+	executor.RegisterExecutor(executorType, newExecutor, validateStep, registry.ExecutorCapabilities{
+		Command:    true,
+		PathInputs: []string{"path", "ssh_key_path"},
+	})
 }
 
 func newExecutor(ctx context.Context, step ir.Step) (executor.Executor, error) {

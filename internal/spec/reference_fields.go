@@ -121,7 +121,7 @@ func (w *referenceFieldWalker) walkStep(path string, step ir.Step) {
 		w.add(base.withPathValue(fieldPath, arg).withField(cmnvalue.StepShellField(fieldPath)))
 	}
 
-	w.walkStringLeaves(path+".with", step.ExecutorConfig.Config, base.withField(cmnvalue.ExecutorConfigField(path+".with")))
+	w.walkStringLeaves(path+".with", step.ExecutorConfig.Config, base.withField(registry.ConfigField(step, path+".with")))
 	if step.HumanTask != nil {
 		fieldPath := path + ".with.prompt"
 		w.add(base.withPathValue(fieldPath, step.HumanTask.Prompt).withField(cmnvalue.WorkflowField(fieldPath)))
@@ -410,7 +410,7 @@ func (w *referenceFieldWalker) walkStringLeaves(path string, raw any, base Refer
 		}
 	case map[string]any:
 		for _, key := range sortedStringKeys(value) {
-			w.walkStringLeaves(path+"."+key, value[key], base)
+			w.walkStringLeaves(path+"."+key, value[key], base.withField(base.Field.Key(key)))
 		}
 	case map[string]string:
 		for _, key := range sortedStringKeys(value) {

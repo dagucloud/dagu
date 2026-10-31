@@ -283,5 +283,9 @@ func decodeJqConfig(dat map[string]any, cfg *jqConfig) error {
 }
 
 func init() {
-	executor.RegisterExecutor("jq", newJQ, nil, registry.ExecutorCapabilities{Command: true, Script: true})
+	executor.RegisterExecutor("jq", newJQ, nil, registry.ExecutorCapabilities{
+		Command:    true,
+		Script:     true,
+		PathInputs: []string{"input"},
+	})
 }

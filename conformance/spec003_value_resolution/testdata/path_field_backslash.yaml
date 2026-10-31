@@ -1,0 +1,21 @@
+params:
+  - name: name
+    type: string
+    default: prod
+env:
+  - NAME: order-1.txt
+working_dir: .
+steps:
+  - id: write
+    action: file.write
+    with:
+      path: out\${params.name}.txt
+      content: \${NAME}
+      create_dirs: true
+  - id: copy
+    depends: write
+    action: file.copy
+    with:
+      source: out\${params.name}.txt
+      destination: out\${NAME}
+      create_dirs: true

@@ -706,7 +706,11 @@ func init() {
 		"postgres",
 		newPostgresExecutor,
 		nil,
-		registry.ExecutorCapabilities{Command: true, Script: true},
+		registry.ExecutorCapabilities{
+			Command:    true,
+			Script:     true,
+			PathInputs: []string{"output_file", "import.input_file"},
+		},
 	)
 
 	// Register SQLite executor
@@ -714,6 +718,10 @@ func init() {
 		"sqlite",
 		newSQLiteExecutor,
 		nil,
-		registry.ExecutorCapabilities{Command: true, Script: true},
+		registry.ExecutorCapabilities{
+			Command:    true,
+			Script:     true,
+			PathInputs: []string{"dsn", "output_file", "import.input_file"},
+		},
 	)
 }

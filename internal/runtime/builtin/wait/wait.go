@@ -318,5 +318,8 @@ func poll(ctx context.Context, interval time.Duration, check func() (bool, error
 }
 
 func init() {
-	executor.RegisterExecutor(executorType, newExecutor, validateStep, registry.ExecutorCapabilities{Command: true})
+	executor.RegisterExecutor(executorType, newExecutor, validateStep, registry.ExecutorCapabilities{
+		Command:    true,
+		PathInputs: []string{"path"},
+	})
 }
