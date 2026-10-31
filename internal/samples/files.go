@@ -296,16 +296,22 @@ type aggCount struct {
 	n, f uint64
 }
 
-// aggCountCacheSize bounds the cached files; the counts of a minute file take
-// about 35 KB.
-const aggCountCacheSize = 128
+const (
+	// aggCountCacheSize bounds the cached files; the counts of a minute file
+	// take about 35 KB.
+	aggCountCacheSize = 128
+	// aggCountTTL bounds how long a rewrite by another process can go unseen
+	// when it keeps the size and the modification time of the file.
+	aggCountTTL = 5 * time.Minute
+)
 
 // aggCounts keeps the counts of aggregate files across queries, because the
 // availability reads a week of minute files that rarely change.
-var aggCounts = fileutil.NewCache[[]aggCount]("samples_agg_counts", aggCountCacheSize, 0)
+var aggCounts = fileutil.NewCache[[]aggCount]("samples_agg_counts", aggCountCacheSize, aggCountTTL)
 
 // readAggCounts returns the counts of the aggregates of a file, in order. A
-// file is read again when its size or modification time changes.
+// file is read again when its size or modification time changes, when the
+// store replaces it, and at the latest after aggCountTTL.
 func readAggCounts(path string) ([]aggCount, error) {
 	counts, err := aggCounts.LoadLatest(path, func() ([]aggCount, error) {
 		var out []aggCount
@@ -442,6 +448,8 @@ func (s *store) putFile(t Tier, start int64, list []agg) error {
 	if err := writeFile(path, buf); err != nil {
 		return err
 	}
+	// A replacement within one modification time tick can keep the size.
+	aggCounts.Invalidate(path)
 	s.lastT[path] = times[len(times)-1]
 	return nil
 }
