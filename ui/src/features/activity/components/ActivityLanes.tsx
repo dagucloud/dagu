@@ -4,8 +4,7 @@
 import React from 'react';
 import { Link } from 'react-router-dom';
 import { Status } from '@/api/v1/schema';
-import { buildDAGRunPageURL } from '@/features/dag-runs/lib/dagRunUrls';
-import { useOpenPage } from '@/features/dag-runs/lib/useOpenPage';
+import { usePeekOrOpen } from '@/features/peek/usePeekOrOpen';
 import { formatDurationMs } from '@/lib/formatDuration';
 import dayjs from '@/lib/dayjs';
 import { runStatusText } from '@/lib/status-utils';
@@ -145,7 +144,7 @@ export function ActivityLanes({
   onZoom,
 }: Props): React.ReactElement {
   const { ts } = useI18n();
-  const openPage = useOpenPage();
+  const peekOrOpen = usePeekOrOpen(remoteNode);
   const axisRef = React.useRef<HTMLDivElement>(null);
   const [axisWidth, setAxisWidth] = React.useState(0);
   const [hover, setHover] = React.useState<Hover | null>(null);
@@ -192,16 +191,10 @@ export function ActivityLanes({
       .format('HH:mm');
   const nowPercent = percentOf(range, nowSeconds);
 
-  // A plain open goes to the run on its workflow page; a modifier opens a new tab.
+  // A plain open shows the run in the peek; a modifier opens its workflow
+  // page in a new tab.
   const openRun = (name: string, run: ActivityRun, newTab: boolean) => {
-    openPage(
-      buildDAGRunPageURL({
-        rootDAGRunName: name,
-        rootDAGRunId: run.dagRunId,
-        remoteNode,
-      }),
-      { ctrlKey: newTab }
-    );
+    peekOrOpen({ dag: name, run: run.dagRunId }, { ctrlKey: newTab });
   };
 
   const sortedRuns = (workflow: ActivityLane) =>

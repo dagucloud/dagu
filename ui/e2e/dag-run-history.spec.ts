@@ -21,7 +21,8 @@ async function openNewestRunFromLane(page: Page, dagName: string) {
   await lane.press('Enter');
 }
 
-// A row of a run list opens the run on its workflow page: no side panel.
+// A run of a run list or of the Activity lanes shows in a peek over the
+// list, and Open workflow opens the run on its workflow page.
 for (const view of ['list', 'grouped', 'activity'] as const) {
   test(`opens a run on its workflow page from the ${view} view`, async ({
     page,
@@ -53,6 +54,7 @@ steps:
       const url = new URL(page.url());
       return { path: url.pathname, run: url.searchParams.get('run') };
     };
+    const peek = page.getByRole('dialog', { name: dagName });
 
     if (view === 'activity') {
       await page.goto('/dashboard');
@@ -60,18 +62,27 @@ steps:
       await openNewestRunFromLane(page, dagName);
     } else {
       await page.goto(`/dag-runs?name=${dagName}`);
+      // A click away from the links of the run row shows the peek.
       if (view === 'grouped') {
         await page.getByRole('button', { name: 'Grouped view' }).click();
         await page.getByText(dagName, { exact: true }).click();
-        await page.getByText(runId, { exact: true }).click();
+        await page
+          .getByRole('link', { name: runId, exact: true })
+          .locator('xpath=..')
+          .getByText('Duration:')
+          .click();
       } else {
         await page
           .getByRole('row')
           .filter({ hasText: dagName })
           .first()
+          .getByText(runId, { exact: true })
           .click();
       }
     }
+    await expect(peek).toBeVisible();
+    expect(new URL(page.url()).searchParams.get('peekRun')).toBe(runId);
+    await peek.getByRole('link', { name: 'Open workflow' }).click();
 
     await expect
       .poll(() => here())
@@ -81,8 +92,12 @@ steps:
     await expect(page.locator('.dagRun-modal-content')).toHaveCount(0);
 
     if (view === 'list') {
+      // Back returns to the open peek; the list takes clicks once it closes.
       await page.goBack();
       await expect(page).toHaveURL(/\/dag-runs\?/);
+      await expect(peek).toBeVisible();
+      await peek.press('Escape');
+      await expect(peek).toHaveCount(0);
       const [popup] = await Promise.all([
         page.context().waitForEvent('page'),
         page
