@@ -79,8 +79,8 @@ test.describe('workspace legacy links', () => {
     });
   });
 
-  // R9
-  test('opens /history on the timeline of the Run panel', async ({
+  // R9: the old History page was the steps grid of the History tab.
+  test('opens /history on the History tab of the Run panel', async ({
     page,
     request,
     fixtureDAG,
@@ -96,7 +96,7 @@ test.describe('workspace legacy links', () => {
       'visual-params.yaml',
       'e2e-ws-link'
     );
-    // The timeline tab of the Run panel needs a run.
+    // The History tab of the Run panel needs a run.
     const dagRunId = await startDAG(request, token, fileName);
     await waitForRunStatus(request, token, dagName, dagRunId, [
       'succeeded',
@@ -107,7 +107,7 @@ test.describe('workspace legacy links', () => {
     await gotoWorkspace(page, `${base}/history?remoteNode=local`);
     await expectAt(page, base, {
       view: null,
-      dock: 'timeline',
+      dock: 'history',
       remoteNode: 'local',
     });
     await expect(page.getByTestId('ww-pane')).toBeVisible();
@@ -116,8 +116,11 @@ test.describe('workspace legacy links', () => {
       timeout: 30_000,
     });
     await expect(
-      dock.getByRole('tab', { name: 'Timeline', exact: true })
+      dock.getByRole('tab', { name: 'History', exact: true })
     ).toHaveAttribute('aria-selected', 'true');
+    await expect(dock.getByRole('grid', { name: 'Steps by run' })).toBeVisible({
+      timeout: 30_000,
+    });
   });
 
   // R11, D6: the old Executions route redirects to the workflow route with

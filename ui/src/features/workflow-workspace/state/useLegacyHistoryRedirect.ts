@@ -26,8 +26,9 @@ export function runIdAtHistoryIndex(
 
 /**
  * The workflow URL of a legacy history link, with ?run; remoteNode and
- * workspace stay. A run opens the Run panel on its Timeline tab (?dock): the
- * panel reads ?run at mount only, and this link adds it after the mount.
+ * workspace stay. A run opens the Run panel on its History tab (?dock), the
+ * grid that the old History page was: the panel reads ?run at mount only,
+ * and this link adds it after the mount.
  */
 export function legacyHistoryTarget(
   fileName: string,
@@ -42,7 +43,7 @@ export function legacyHistoryTarget(
   return buildWorkspaceUrl(fileName, {
     ...parseWorkspaceUrl(undefined, carried),
     run: runId,
-    dock: runId ? 'timeline' : null,
+    dock: runId ? 'history' : null,
   });
 }
 

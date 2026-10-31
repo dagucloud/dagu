@@ -101,7 +101,7 @@ function withCarry(target: string): string {
 type Zone =
   | 'editor'
   | 'dock'
-  | 'timeline'
+  | 'history'
   | 'overview'
   | 'webhook'
   | 'notifications'
@@ -117,17 +117,17 @@ async function expectZone(page: Page, zone: Zone): Promise<void> {
     await expect(page.getByTestId('ww-pane')).toBeVisible({ timeout: 30_000 });
     return;
   }
-  if (zone === 'dock' || zone === 'timeline') {
+  if (zone === 'dock' || zone === 'history') {
     await expect(page.getByTestId('ww-dock')).toHaveAttribute(
       'data-state',
       'open',
       { timeout: 30_000 }
     );
-    if (zone === 'timeline') {
+    if (zone === 'history') {
       await expect(
         page
           .getByTestId('ww-dock')
-          .getByRole('tab', { name: 'Timeline', exact: true })
+          .getByRole('tab', { name: 'History', exact: true })
       ).toHaveAttribute('aria-selected', 'true');
     }
     return;
@@ -211,7 +211,7 @@ test.describe('workspace deep links', () => {
     test.setTimeout(180_000);
     const dag = await inlineDAG(labelledSpec('tab-paths'));
     const { fileName } = dag;
-    // The timeline tab of the Run panel needs a run.
+    // The History tab of the Run panel needs a run.
     await runToEnd(request, await adminToken(request), dag);
     const base = `/dags/${encodeURIComponent(fileName)}`;
     const rows: {
@@ -239,13 +239,13 @@ test.describe('workspace deep links', () => {
         query: { wtab: 'wiki', panel: null },
         zone: 'wiki',
       },
-      // The History grid is the timeline of the Run panel.
+      // The History grid is the History tab of the Run panel.
       {
         rule: 'R9',
         from: '/history',
         to: '',
-        query: { dock: 'timeline' },
-        zone: 'timeline',
+        query: { dock: 'history' },
+        zone: 'history',
       },
       // The runtime profile of the old settings path is in the Overview tab.
       {

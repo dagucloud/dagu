@@ -178,10 +178,10 @@ export function resolveLegacyLink(
     if (idx !== null && /^\d+$/.test(idx)) {
       return { kind: 'needsHistory', idx: Number(idx) };
     }
-    // R9: the History grid is the timeline of the Run panel.
-    const timelineQuery = new URLSearchParams([['dock', 'timeline']]);
-    for (const [key, value] of query) timelineQuery.append(key, value);
-    return redirect(join(dagPath(fileName), timelineQuery));
+    // R9: the History grid is the History tab of the Run panel.
+    const historyQuery = new URLSearchParams([['dock', 'history']]);
+    for (const [key, value] of query) historyQuery.append(key, value);
+    return redirect(join(dagPath(fileName), historyQuery));
   }
   // R10
   if (tab === 'log' || tab === 'dagRun-log') {

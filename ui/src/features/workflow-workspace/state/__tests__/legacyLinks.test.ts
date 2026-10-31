@@ -174,7 +174,7 @@ const ROWS: Row[] = [
     expected: {
       kind: 'redirect',
       path: '/dags/flow.yaml',
-      query: { dock: 'timeline' },
+      query: { dock: 'history' },
     },
   },
   // The Executions route is the workflow page: it redirects with every key.
@@ -318,7 +318,7 @@ describe('legacyToWorkspaceUrl', () => {
 
       expect(result).toEqual({
         kind: 'redirect',
-        to: '/dags/flow.yaml?dock=timeline',
+        to: '/dags/flow.yaml?dock=history',
       });
     }
   );
@@ -394,7 +394,7 @@ describe('legacyToWorkspaceUrl', () => {
 
     expect(result).toEqual({
       kind: 'redirect',
-      to: '/dags/flow.yaml?dock=timeline',
+      to: '/dags/flow.yaml?dock=history',
     });
   });
 
@@ -417,7 +417,7 @@ describe('legacyToWorkspaceUrl', () => {
       })
     ).toEqual({
       kind: 'redirect',
-      to: '/dags/flow.yaml?dock=timeline&remoteNode=edge&workspace=ops',
+      to: '/dags/flow.yaml?dock=history&remoteNode=edge&workspace=ops',
     });
   });
 });

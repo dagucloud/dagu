@@ -68,7 +68,7 @@ describe('useLegacyRedirect', () => {
       'a history link (R9)',
       '/dags/flow.yaml/history',
       'history',
-      '/dags/flow.yaml?dock=timeline',
+      '/dags/flow.yaml?dock=history',
     ],
   ])('stays pending on %s and navigates once', (_, entry, tab, to) => {
     const { result, rerender } = renderRedirect(entry, {

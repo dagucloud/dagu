@@ -94,7 +94,7 @@ describe('useLegacyHistoryRedirect', () => {
     expect(pathname).toBe('/dags/etl');
     expect(params.get('run')).toBe(runId);
     // D6: a link to a run opens the Run panel, which ?dock does after mount.
-    expect(params.get('dock')).toBe('timeline');
+    expect(params.get('dock')).toBe('history');
     expect(params.has('view')).toBe(false);
     expect(params.has('idx')).toBe(false);
     expect(params.has('dagRunId')).toBe(false);
@@ -179,7 +179,7 @@ describe('useLegacyHistoryRedirect', () => {
     const { params } = last();
     expect(Object.fromEntries(params)).toEqual({
       run: 'r2',
-      dock: 'timeline',
+      dock: 'history',
       remoteNode: 'edge',
       workspace: 'ops',
     });
