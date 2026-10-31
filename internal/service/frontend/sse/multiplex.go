@@ -239,8 +239,13 @@ func (m *Multiplexer) RegisterValidator(topicType TopicType, validator TopicVali
 	m.validators[topicType] = validator
 }
 
-// WakeTopic requests an immediate refetch for an active exact topic.
+// WakeTopic requests an immediate refetch for an active exact topic. A DAG
+// or DAG history topic matches its file with or without a YAML extension.
 func (m *Multiplexer) WakeTopic(topicType TopicType, identifier string) {
+	if topicType == TopicTypeDAG || topicType == TopicTypeDAGHistory {
+		m.wakeDAGFileTopics(topicType, identifier)
+		return
+	}
 	parsed, err := ParseTopic(string(topicType) + ":" + identifier)
 	if err != nil {
 		return
@@ -270,17 +275,19 @@ func (m *Multiplexer) WakeTopicType(topicType TopicType) {
 }
 
 // wakeDAGFileTopics requests an immediate refetch for the active topics of the
-// given type that name the DAG file. fileName has no YAML extension, as
-// ir.DAG.FileName returns it; a client can name the file with or without one.
+// given type that name the DAG file. A run event names the file without its
+// YAML extension, as ir.DAG.FileName returns it; a client or an API write can
+// name it with or without one.
 func (m *Multiplexer) wakeDAGFileTopics(topicType TopicType, fileName string) {
-	if fileName == "" {
+	name := fileutil.TrimYAMLFileExtension(fileName)
+	if name == "" {
 		return
 	}
 	m.mu.RLock()
 	var topics []*multiplexTopic
 	for _, topic := range m.topics {
 		if topic != nil && topic.topicType == topicType &&
-			(topic.identifier == fileName || fileutil.TrimYAMLFileExtension(topic.identifier) == fileName) {
+			fileutil.TrimYAMLFileExtension(topic.identifier) == name {
 			topics = append(topics, topic)
 		}
 	}

@@ -187,6 +187,42 @@ func TestDAGRunInvalidatorWakesDAGFileTopics(t *testing.T) {
 	}, 200*time.Millisecond, 20*time.Millisecond)
 }
 
+// An API write names a DAG file as its request did, with or without a YAML
+// extension; it wakes the topics of the file in either form.
+func TestWakeTopicMatchesDAGFileForms(t *testing.T) {
+	mux := NewMultiplexer(StreamConfig{}, nil)
+	t.Cleanup(mux.Shutdown)
+
+	var counts sync.Map
+	count := func(key string) int64 {
+		counter, ok := counts.Load(key)
+		if !ok {
+			return 0
+		}
+		return counter.(*atomic.Int64).Load()
+	}
+	mux.RegisterFetcher(TopicTypeDAG, func(_ context.Context, identifier string) (any, error) {
+		counter, _ := counts.LoadOrStore(identifier, &atomic.Int64{})
+		counter.(*atomic.Int64).Add(1)
+		return nil, nil
+	})
+	mux.SetRefreshMode(TopicTypeDAG, TopicRefreshModeOnDemand)
+
+	result, err := mux.createSession(context.Background(), httptest.NewRecorder(), []string{"dag:test", "dag:test.yaml", "dag:other"}, 0)
+	require.NoError(t, err)
+	require.NotNil(t, result.session)
+	defer mux.removeSession(result.session)
+
+	mux.WakeTopic(TopicTypeDAG, "test.yaml")
+
+	require.Eventually(t, func() bool {
+		return count("test") == 1 && count("test.yaml") == 1
+	}, time.Second, 10*time.Millisecond)
+	require.Never(t, func() bool {
+		return count("other") != 0
+	}, 200*time.Millisecond, 20*time.Millisecond)
+}
+
 func TestDAGRunInvalidatorBatchesAndTargetsLifecycleListRefreshes(t *testing.T) {
 	mux := NewMultiplexer(StreamConfig{}, nil)
 	t.Cleanup(mux.Shutdown)
