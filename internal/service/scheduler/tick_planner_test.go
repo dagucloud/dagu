@@ -409,6 +409,60 @@ func TestTickPlanner_FlushWritesCurrentSnapshot(t *testing.T) {
 	assert.NotNil(t, store.lastSaved())
 }
 
+// heldStateStore holds the save of the snapshot taken at holdTick until
+// release closes, to keep a flush between its snapshot and its save.
+type heldStateStore struct {
+	mockStateStore
+	holdTick time.Time
+	held     chan struct{}
+	release  chan struct{}
+}
+
+func (s *heldStateStore) Save(ctx context.Context, state *schedulerstate.State) error {
+	if state.LastTick.Equal(s.holdTick) {
+		close(s.held)
+		<-s.release
+	}
+	return s.mockStateStore.Save(ctx, state)
+}
+
+// A flush that snapshots later must save later, or the older snapshot stays
+// on disk until the next flush.
+func TestTickPlanner_FlushSavesInSnapshotOrder(t *testing.T) {
+	t.Parallel()
+
+	first := time.Date(2026, 2, 7, 13, 0, 0, 0, time.UTC)
+	second := first.Add(time.Minute)
+	store := &heldStateStore{holdTick: first, held: make(chan struct{}), release: make(chan struct{})}
+	tp, _ := newTestTickPlanner(store)
+	require.NoError(t, tp.Init(t.Context(), nil))
+
+	tp.Advance(first)
+	firstDone := make(chan struct{})
+	go func() {
+		tp.Flush(t.Context())
+		close(firstDone)
+	}()
+	<-store.held
+
+	tp.Advance(second)
+	secondDone := make(chan struct{})
+	go func() {
+		tp.Flush(t.Context())
+		close(secondDone)
+	}()
+	// Give the later flush time to overtake the held one.
+	select {
+	case <-secondDone:
+	case <-time.After(100 * time.Millisecond):
+	}
+	close(store.release)
+	<-firstDone
+	<-secondDone
+
+	assert.Equal(t, second, store.lastSaved().LastTick)
+}
+
 func TestTickPlanner_PlanCatchupDispatches(t *testing.T) {
 	t.Parallel()
 

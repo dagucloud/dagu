@@ -119,6 +119,8 @@ type TickPlannerConfig struct {
 //   - entries, buffers, and deletedGrace are protected by entryMu (accessed
 //     from drainEvents goroutine and cronLoop's Plan).
 //   - watermarkState is shared with the flusher goroutine and protected by mu.
+//   - flushMu spans a flush's snapshot and save, so a later snapshot is never
+//     overwritten by an earlier one. Lock order: entryMu, flushMu, mu.
 //   - Plan() holds entryMu during I/O calls (IsSuspended, IsRunning,
 //     GetLatestStatus, GenRunID). This is intentional: the lock prevents
 //     event processing during planning, ensuring a consistent snapshot of
@@ -133,6 +135,7 @@ type TickPlanner struct {
 	// watermark state (protected by mu)
 	mu             sync.RWMutex
 	watermarkState *schedulerstate.State
+	flushMu        sync.Mutex
 
 	// per-DAG tracking (protected by entryMu)
 	entryMu      sync.Mutex
@@ -1239,8 +1242,11 @@ func (tp *TickPlanner) markOneOffConsumed(dagName, fingerprint string, scheduled
 }
 
 // Flush writes the current scheduler state snapshot to durable storage.
-// Safe for concurrent use.
+// Safe for concurrent use; concurrent flushes save in snapshot order.
 func (tp *TickPlanner) Flush(ctx context.Context) {
+	tp.flushMu.Lock()
+	defer tp.flushMu.Unlock()
+
 	// Snapshot under read lock to avoid holding the lock during I/O.
 	tp.mu.RLock()
 	if tp.watermarkState == nil {
