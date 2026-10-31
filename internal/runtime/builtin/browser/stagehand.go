@@ -753,16 +753,23 @@ func (e *stagehandEngine) Act(ctx context.Context, instruction string, variables
 	// act may rename or remove. Without it, the actions go unidentified.
 	before, beforeErr := e.Snapshot(ctx)
 	e.watch(ctx)
+	var acted string
 	result, err := boundCall(ctx, timeout+callTimeoutSlack, func(ctx context.Context) (stagehand.ActResult, error) {
 		page, err := e.page(ctx)
 		if err != nil {
 			return stagehand.ActResult{}, err
 		}
+		acted = page.PageID()
 		return e.client.Act(ctx, stagehand.ActInstruction(instruction), actOptions(page, variables, timeout))
 	})
 	if lost := sessionLost(result, err); lost != nil {
-		// The act may have loaded a new document before the page was lost.
+		closed := e.pageClosed(ctx, acted)
+		// The act may have loaded a new document before the page was lost,
+		// or closed the window it acted on, leaving the page behind it.
 		e.settle(ctx, limit)
+		if closed {
+			return actOutcome{Success: true, Message: "the window closed before the act reported back"}, nil
+		}
 		return actOutcome{}, lost
 	}
 	if err != nil {
@@ -841,16 +848,23 @@ func (e *stagehandEngine) Replay(ctx context.Context, recorded recordedAction, v
 		action.Method = new(recorded.Method)
 	}
 	e.watch(ctx)
+	var acted string
 	result, err := boundCall(ctx, timeout+callTimeoutSlack, func(ctx context.Context) (stagehand.ActResult, error) {
 		page, err := e.page(ctx)
 		if err != nil {
 			return stagehand.ActResult{}, err
 		}
+		acted = page.PageID()
 		return e.client.Act(ctx, stagehand.ObservedAction(action), actOptions(page, variables, timeout))
 	})
 	if lost := sessionLost(result, err); lost != nil {
-		// The action may have loaded a new document before the page was lost.
+		closed := e.pageClosed(ctx, acted)
+		// The action may have loaded a new document before the page was
+		// lost, or closed the window it acted on, leaving the page behind it.
 		e.settle(ctx, limit)
+		if closed {
+			return true, nil
+		}
 		return false, lost
 	}
 	if err != nil {
@@ -1042,6 +1056,25 @@ func sessionLost(result stagehand.ActResult, err error) error {
 		}
 	}
 	return nil
+}
+
+// pageClosed reports whether the page with ID pageID has closed, as the
+// browser runtime tells; false when the runtime does not answer. The
+// runtime drops a page as its target goes, in the same step that fails the
+// commands left unanswered on it, so an action that lost its page to the
+// page closing finds it gone.
+func (e *stagehandEngine) pageClosed(ctx context.Context, pageID string) bool {
+	if pageID == "" {
+		return false
+	}
+	pages, err := boundCall(ctx, e.pageCallTimeout, func(ctx context.Context) ([]*stagehand.Page, error) {
+		browserContext, err := e.browser.Context()
+		if err != nil {
+			return nil, err
+		}
+		return browserContext.Pages(ctx)
+	})
+	return err == nil && !slices.ContainsFunc(pages, func(page *stagehand.Page) bool { return page.PageID() == pageID })
 }
 
 func (e *stagehandEngine) DocumentID(ctx context.Context) (string, error) {

@@ -941,6 +941,88 @@ func TestStagehandWorksInAWindowThatStays(t *testing.T) {
 	})
 }
 
+// serveClosingWindow serves a page whose Choose region button opens a
+// window of regions. The window's Register button gives a region to the
+// page and returns only once closeWindow, which the server calls when
+// Register asks, has closed the window. The browser then reports the
+// window closed before it answers the press, as it can for a window whose
+// button closes it.
+func serveClosingWindow(t *testing.T, closeWindow func() error) string {
+	t.Helper()
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/html")
+		switch r.URL.Path {
+		case "/":
+			_, _ = io.WriteString(w, `<p id="region">No region</p>
+<button onclick="window.open('/regions', 'regions', 'width=800,height=600')">Choose region</button>
+<script>function setRegion(name) { document.getElementById('region').textContent = name; }</script>`)
+		case "/regions":
+			// A synchronous request holds the press until the window closed.
+			_, _ = io.WriteString(w, `<title>Regions</title>
+<button onclick="opener.setRegion('Chiba'); const close = new XMLHttpRequest(); close.open('GET', '/close', false); close.send()">Register</button>`)
+		case "/close":
+			if err := closeWindow(); err != nil {
+				t.Errorf("close the window of regions: %v", err)
+			}
+		}
+	}))
+	t.Cleanup(server.Close)
+	return server.URL
+}
+
+// A press that closes its window completes, even when the browser reports
+// the window closed before it answers the press, and the operations after
+// it work on the page that opened the window: a press replayed, and one an
+// act performs.
+func TestStagehandPressClosesItsWindow(t *testing.T) {
+	t.Parallel()
+
+	// Choose region on the page and Register in the window are each the
+	// first button.
+	replayFirstButton := func(ctx context.Context, eng engine) (bool, error) {
+		return eng.Replay(ctx, recordedAction{Selector: "xpath=/html[1]/body[1]/button[1]", Method: "click"}, nil, time.Minute)
+	}
+	for name, register := range map[string]func(context.Context, engine) (bool, error){
+		"replay": replayFirstButton,
+		"act": func(ctx context.Context, eng engine) (bool, error) {
+			outcome, err := eng.Act(ctx, "Click Register", nil, nil, time.Minute)
+			return outcome.Success, err
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+			eng := launchBrowser(t, launchOptions{Generate: treeModel(where(buttonNamed("Register")), "click")})
+			closeRegions := func() error {
+				browserContext, err := eng.(*stagehandEngine).browser.Context()
+				if err != nil {
+					return err
+				}
+				pages, err := browserContext.Pages(t.Context())
+				if err != nil {
+					return err
+				}
+				for _, page := range pages {
+					if ref := page.Ref(); ref.URL != nil && strings.HasSuffix(*ref.URL, "/regions") {
+						return page.Close(t.Context())
+					}
+				}
+				return errors.New("no window of regions is open")
+			}
+			require.NoError(t, eng.Goto(t.Context(), serveClosingWindow(t, closeRegions), time.Minute))
+			opened, err := replayFirstButton(t.Context(), eng)
+			require.NoError(t, err)
+			require.True(t, opened, "the press on Choose region")
+
+			registered, err := register(t.Context(), eng)
+			require.NoError(t, err)
+			require.True(t, registered, "the press on Register")
+			text, err := eng.PageText(t.Context())
+			require.NoError(t, err)
+			assert.Contains(t, text, "Chiba", "the region the window registered")
+		})
+	}
+}
+
 // serveRefreshedDetails serves a page built of frames whose Search for
 // details button opens a details window that stays and posts into the
 // content frame. The answer comes as serveWindowedSearch's does, and two
