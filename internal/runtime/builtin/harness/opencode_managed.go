@@ -697,6 +697,10 @@ func (e *harnessExecutor) finishManagedCancelled(ctx context.Context, client *op
 	}
 	if err == nil {
 		err = client.interruptAndAwaitIdle(cleanupCtx, sessionID)
+	} else if cleanupCtx.Err() == nil {
+		// A lost status can hide a turn that started; the interrupt does
+		// nothing if it has not.
+		_ = client.abort(cleanupCtx, sessionID)
 	}
 	return e.finishManagedAbort(ctx, err)
 }

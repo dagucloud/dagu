@@ -821,6 +821,7 @@ func TestManagedOpenCodeRetryRedeliversUnstartedPrompt(t *testing.T) {
 	session := exec.GetAgentSession()
 	assert.Equal(t, "abort-unverified", session.Events[len(session.Events)-1].Status)
 	assert.False(t, session.PromptSent, "an unstarted prompt is delivered again")
+	assert.Contains(t, host.requestLog(), "POST /session/session-1/abort", "a turn the lost status hid is still interrupted")
 
 	host.setStatusDown(false)
 	host.setStartAfterPolls(0)
