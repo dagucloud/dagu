@@ -189,7 +189,8 @@ describe('DAGRunGroupedView', () => {
     );
   });
 
-  it('shows the peek of an expanded run under a peek host', () => {
+  // One group of one run, expanded, under a peek host.
+  const renderExpandedUnderPeek = () => {
     const peek = { open: vi.fn(), isOpen: false };
     renderView(
       <PeekContext.Provider value={peek}>
@@ -211,15 +212,43 @@ describe('DAGRunGroupedView', () => {
         />
       </PeekContext.Provider>
     );
-
     fireEvent.click(screen.getByText('grouped-dag'));
     const runLink = screen.getByRole('link', { name: 'run-1' });
-    fireEvent.click(runLink.closest('div[class*="cursor-pointer"]')!);
+    const row = runLink.closest<HTMLElement>('div[class*="cursor-pointer"]')!;
+    return { peek, runLink, row };
+  };
+
+  it('shows the peek of an expanded run under a peek host', () => {
+    const { peek, row } = renderExpandedUnderPeek();
+
+    fireEvent.click(row);
 
     expect(peek.open).toHaveBeenCalledWith({
       dag: 'grouped-dag',
       run: 'run-1',
     });
     expect(screen.getByTestId('location')).toHaveTextContent(/^\/dag-runs$/);
+  });
+
+  // Enter on the focused row shows its peek; the run ID link keeps its own
+  // Enter and click, which open the run on its workflow page.
+  it('shows the peek of a focused run row on Enter', () => {
+    const { peek, runLink, row } = renderExpandedUnderPeek();
+
+    row.focus();
+    expect(row).toHaveFocus();
+    fireEvent.keyDown(row, { key: 'Enter' });
+    fireEvent.keyDown(runLink, { key: 'Enter' });
+    expect(peek.open).toHaveBeenCalledTimes(1);
+    expect(peek.open).toHaveBeenCalledWith({
+      dag: 'grouped-dag',
+      run: 'run-1',
+    });
+
+    fireEvent.click(runLink);
+    expect(peek.open).toHaveBeenCalledTimes(1);
+    expect(screen.getByTestId('location')).toHaveTextContent(
+      '/dags/grouped-dag?remoteNode=local&run=run-1'
+    );
   });
 });

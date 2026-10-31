@@ -316,13 +316,28 @@ function DAGRunGroupedView({
                     {runs.map((dagRun) => (
                       <div
                         key={dagRun.dagRunId}
-                        className={`px-3 py-2 pl-11 hover:bg-muted/20 cursor-pointer transition-colors text-xs ${isBulkSelected(dagRun) ? 'bg-muted/30' : ''}`}
+                        tabIndex={0}
+                        className={`px-3 py-2 pl-11 hover:bg-muted/20 cursor-pointer transition-colors text-xs focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring ${isBulkSelected(dagRun) ? 'bg-muted/30' : ''}`}
                         onClick={(e) =>
                           peekOrOpen(
                             { dag: dagRun.name, run: dagRun.dagRunId },
                             e
                           )
                         }
+                        onKeyDown={(e) => {
+                          // Enter on the run ID link or a control stays theirs.
+                          if (
+                            e.key !== 'Enter' ||
+                            e.target !== e.currentTarget
+                          ) {
+                            return;
+                          }
+                          e.preventDefault();
+                          peekOrOpen(
+                            { dag: dagRun.name, run: dagRun.dagRunId },
+                            e
+                          );
+                        }}
                       >
                         <div className="flex items-start justify-between gap-3">
                           <div className="flex flex-1 items-start gap-3 min-w-0">
