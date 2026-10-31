@@ -12,6 +12,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -58,7 +59,10 @@ func TestRealV2Run(t *testing.T) {
 	if binary == "" {
 		t.Skip("DAGU_TEST_OPENCODE_V2_EXECUTABLE is not set")
 	}
-	var askQuestion atomic.Bool
+	var askQuestion, stallTurn atomic.Bool
+	var stallOnce sync.Once
+	turnStalled := make(chan struct{})
+	releaseStall := make(chan struct{})
 	provider := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "text/event-stream")
 		var request struct {
@@ -86,11 +90,24 @@ func TestRealV2Run(t *testing.T) {
 			_, _ = io.WriteString(w, `data: {"id":"question","object":"chat.completion.chunk","created":1,"model":"test","choices":[{"index":0,"delta":{},"finish_reason":"tool_calls"}]}`+"\n\ndata: [DONE]\n\n")
 			return
 		}
+		// Only an agent turn offers tools, so title generation never stalls.
+		if len(request.Tools) > 0 && stallTurn.Load() {
+			_, _ = io.Copy(io.Discard, r.Body)
+			_, _ = io.WriteString(w, "data: {\"id\":\"stall\",\"object\":\"chat.completion.chunk\",\"created\":1,\"model\":\"test\",\"choices\":[{\"index\":0,\"delta\":{\"role\":\"assistant\",\"content\":\"working\"},\"finish_reason\":null}]}\n\n")
+			w.(http.Flusher).Flush()
+			stallOnce.Do(func() { close(turnStalled) })
+			select {
+			case <-r.Context().Done():
+			case <-releaseStall:
+			}
+			return
+		}
 
 		_, _ = io.WriteString(w, "data: {\"id\":\"test\",\"object\":\"chat.completion.chunk\",\"created\":1,\"model\":\"test\",\"choices\":[{\"index\":0,\"delta\":{\"role\":\"assistant\",\"content\":\"DAGU_V2_OK\"},\"finish_reason\":null}]}\n\n")
 		_, _ = io.WriteString(w, "data: {\"id\":\"test\",\"object\":\"chat.completion.chunk\",\"created\":1,\"model\":\"test\",\"choices\":[{\"index\":0,\"delta\":{},\"finish_reason\":\"stop\"}],\"usage\":{\"prompt_tokens\":10,\"completion_tokens\":5,\"total_tokens\":15}}\n\ndata: [DONE]\n\n")
 	}))
 	defer provider.Close()
+	defer close(releaseStall)
 	root := t.TempDir()
 	for _, key := range []string{"XDG_CONFIG_HOME", "XDG_DATA_HOME", "XDG_CACHE_HOME", "XDG_STATE_HOME", "OPENCODE_CONFIG_DIR"} {
 		t.Setenv(key, filepath.Join(root, key))
@@ -154,6 +171,24 @@ func TestRealV2Run(t *testing.T) {
 	resumedText, err := io.ReadAll(resumedOutput)
 	require.NoError(t, err)
 	require.Contains(t, string(resumedText), "DAGU_V2_OK")
+
+	// A cancelled turn is reported aborted only after OpenCode settles it.
+	stallTurn.Store(true)
+	interruptCtx, interruptCancel := context.WithCancel(ctx)
+	defer interruptCancel()
+	go func() {
+		select {
+		case <-turnStalled:
+			interruptCancel()
+		case <-interruptCtx.Done():
+		}
+	}()
+	interruptExecutor := &harnessExecutor{prompt: "Start a long answer", workDir: root}
+	_, err = interruptExecutor.runManagedOpenCode(interruptCtx, providerConfig{flags: map[string]any{"model": "dagutest/test"}}, hostConfig)
+	require.ErrorIs(t, err, context.Canceled)
+	interrupted := interruptExecutor.GetAgentSession()
+	require.Equal(t, ir.AgentSessionAborted, interrupted.State)
+	require.Equal(t, "aborted", interrupted.Events[len(interrupted.Events)-1].Status, interrupted.LastError)
 	available, err := opencodehost.SessionAvailable(ctx, hostConfig, root, executor.agentSession.SessionID)
 	require.NoError(t, err)
 	require.True(t, available)
