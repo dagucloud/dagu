@@ -283,6 +283,70 @@ describe('useRunHistory with the test runs', () => {
       );
     });
 
+    // The server can remove a test run late: a list that still holds it is
+    // read up to 3 more times, a minute apart, then left alone.
+    it('reads the list a few more times while a removed test run stays', async () => {
+      withTest(Status.Success, new Date().toISOString());
+      const view = renderWorkspace(() =>
+        useRunHistory({
+          enabled: true,
+          includeEphemeral: true,
+          pollTestRuns: true,
+        })
+      );
+      await waitFor(() =>
+        expect(view.result.current?.value.runs).toHaveLength(3)
+      );
+      const first = historyCalls().length;
+      await poll(TEST_RUN_TTL_MS + TEST_RUN_REMOVAL_SLACK_MS + 1000);
+      expect(historyCalls().length).toBe(first + 1);
+      for (let retry = 1; retry <= 3; retry++) {
+        await poll(60_000);
+        expect(historyCalls().length).toBe(first + 1 + retry);
+      }
+      await poll(60_000 * 3);
+      expect(historyCalls().length).toBe(first + 4);
+    });
+
+    it('reads the list again a minute after a failed read at the removal', async () => {
+      withTest(Status.Success, new Date().toISOString());
+      const view = renderWorkspace(() =>
+        useRunHistory({
+          enabled: true,
+          includeEphemeral: true,
+          pollTestRuns: true,
+        })
+      );
+      await waitFor(() =>
+        expect(view.result.current?.value.runs).toHaveLength(3)
+      );
+      const first = historyCalls().length;
+      const answer = serve(server);
+      h.GET.mockImplementation(async (path: string, init?: object) =>
+        path === HISTORY_PATH
+          ? {
+              error: { code: 'internal', message: 'unavailable' },
+              response: { status: 500 },
+            }
+          : answer(path, init)
+      );
+      await poll(TEST_RUN_TTL_MS + TEST_RUN_REMOVAL_SLACK_MS + 1000);
+      expect(historyCalls().length).toBe(first + 1);
+
+      h.GET.mockImplementation(answer);
+      server.history = { dagRuns: [run('run-1'), run('run-0')], gridData: [] };
+      await poll(60_000);
+      expect(historyCalls().length).toBe(first + 2);
+      await waitFor(() =>
+        expect(view.result.current.value.runs.map((r) => r.dagRunId)).toEqual([
+          'run-1',
+          'run-0',
+        ])
+      );
+      await poll(60_000 * 3);
+      expect(historyCalls().length).toBe(first + 2);
+    });
+
     it('does not poll without a test run in the list or in this tab', async () => {
       renderWorkspace(() =>
         useRunHistory({

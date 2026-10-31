@@ -65,6 +65,13 @@ const START_GRACE_MS = 30_000;
 export const TEST_RUN_REMOVAL_SLACK_MS = 70_000;
 
 /**
+ * How many more times, and how far apart, the history is read when an ended
+ * test run is still listed after its removal or the read failed.
+ */
+const REMOVAL_RETRIES = 3;
+const REMOVAL_RETRY_MS = 60_000;
+
+/**
  * The events of the feed that already read a history with test runs again.
  * Every reader of a feed gets the same event object, so the first one reads
  * the list for all.
@@ -98,8 +105,8 @@ function firstTestRunRemoval(
  * revalidates it. With `pollTestRuns`, the list is read again every
  * `TEST_RUN_POLL_MS` while a test run in it is active or this tab started one
  * a moment ago. The server drops an ended test run without any event, so the
- * list is read once more when the first one is gone. Disabled, it makes no
- * request.
+ * list is read once more when the first one is gone, and a few more times
+ * while it is still listed. Disabled, it makes no request.
  */
 export function useRunHistory({
   enabled,
@@ -156,11 +163,12 @@ export function useRunHistory({
       : null;
   useEffect(() => {
     if (removal === null) return;
-    const timer = setTimeout(
-      () => void mutate(),
-      Math.max(0, removal - Date.now())
+    // A read that drops the run changes the removal and cancels the rest.
+    const due = Math.max(0, removal - Date.now());
+    const timers = Array.from({ length: 1 + REMOVAL_RETRIES }, (_, i) =>
+      setTimeout(() => void mutate(), due + i * REMOVAL_RETRY_MS)
     );
-    return () => clearTimeout(timer);
+    return () => timers.forEach(clearTimeout);
   }, [removal, mutate]);
   // The feed has no test run: it must not replace the list that has them.
   useSSECacheSync(
