@@ -56,6 +56,10 @@ import { I18nProvider, useI18n } from '@/i18n/I18nProvider';
 import { IconButton } from '@/components/ui/icon-button';
 import { LayoutChromeContext } from '@/contexts/LayoutChromeContext';
 import {
+  OverlayResizeHandle,
+  useOverlayWidth,
+} from '@/features/peek/OverlayResizeHandle';
+import {
   useWorkflowOverlay,
   WorkflowOverlayProvider,
 } from '@/features/peek/WorkflowOverlay';
@@ -406,6 +410,8 @@ function LazyRoutes({
 function WorkflowOverlayHost(): React.ReactElement | null {
   const overlay = useWorkflowOverlay();
   const { ts } = useI18n();
+  const panelRef = React.useRef<HTMLElement>(null);
+  const overlayWidth = useOverlayWidth();
   const isOpen = overlay?.isOpen ?? false;
   const close = overlay?.close;
   React.useEffect(() => {
@@ -431,8 +437,23 @@ function WorkflowOverlayHost(): React.ReactElement | null {
         role="dialog"
         aria-modal="true"
         aria-label={ts('Workflow')}
-        className="absolute inset-0 flex min-w-0 flex-col overflow-hidden bg-background shadow-2xl md:inset-y-3 md:left-auto md:right-3 md:w-[min(76rem,calc(100vw-18rem))] md:rounded-xl md:border md:border-border"
+        ref={panelRef}
+        // The width that the user set applies from md: a narrow window shows
+        // the panel at full width.
+        style={
+          overlayWidth.width === null
+            ? undefined
+            : ({
+                '--overlay-width': `${overlayWidth.width}px`,
+              } as React.CSSProperties)
+        }
+        className="absolute inset-0 flex min-w-0 flex-col bg-background shadow-2xl md:inset-y-3 md:left-auto md:right-3 md:w-[var(--overlay-width,min(76rem,calc(100vw-18rem)))] md:max-w-[calc(100vw-6rem)] md:rounded-xl md:border md:border-border"
       >
+        <OverlayResizeHandle
+          width={() => panelRef.current?.getBoundingClientRect().width ?? 0}
+          onResize={overlayWidth.set}
+          onReset={overlayWidth.reset}
+        />
         <div className="flex h-8 shrink-0 items-center justify-end gap-1 border-b border-border px-2">
           <IconButton
             icon={Maximize2}
@@ -447,7 +468,7 @@ function WorkflowOverlayHost(): React.ReactElement | null {
             onClick={overlay.close}
           />
         </div>
-        <div className="relative flex min-h-0 flex-1 flex-col overflow-hidden">
+        <div className="relative flex min-h-0 flex-1 flex-col overflow-hidden md:rounded-b-xl">
           {/* The frame of the page below stays as it is. */}
           <LayoutChromeContext.Provider value={null}>
             <LazyRouteErrorBoundary>
