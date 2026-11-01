@@ -253,6 +253,30 @@ func TestCalendarWritePermissions(t *testing.T) {
 		_, err := apiImpl.CreateCalendar(context.Background(), api.CreateCalendarRequestObject{Body: &api.CreateCalendarJSONRequestBody{Name: "new"}})
 		requireAPIErrorStatus(t, err, http.StatusForbidden)
 	})
+
+	// Git Sync owns calendar files in read-only mode, as it owns DAGs.
+	t.Run("Git Sync read-only mode blocks writes", func(t *testing.T) {
+		t.Parallel()
+		helper := test.Setup(t, test.WithConfigMutator(func(cfg *config.Config) {
+			cfg.GitSync.Enabled = true
+			cfg.GitSync.PushEnabled = false
+		}))
+		apiImpl := newCalendarAPI(t, helper)
+		writeCalendarFile(t, helper, "ops", "holidays: []\n")
+		ctx := context.Background()
+
+		_, err := apiImpl.PreviewCalendar(ctx, api.PreviewCalendarRequestObject{
+			Name: "ops", Body: &api.PreviewCalendarJSONRequestBody{Spec: "holidays: []\n", Year: 2027},
+		})
+		require.NoError(t, err)
+
+		_, err = apiImpl.CreateCalendar(ctx, api.CreateCalendarRequestObject{Body: &api.CreateCalendarJSONRequestBody{Name: "new"}})
+		requireAPIErrorStatus(t, err, http.StatusForbidden)
+		_, err = apiImpl.UpdateCalendar(ctx, api.UpdateCalendarRequestObject{Name: "ops", Body: &api.UpdateCalendarJSONRequestBody{Spec: "holidays: []\n"}})
+		requireAPIErrorStatus(t, err, http.StatusForbidden)
+		_, err = apiImpl.DeleteCalendar(ctx, api.DeleteCalendarRequestObject{Name: "ops"})
+		requireAPIErrorStatus(t, err, http.StatusForbidden)
+	})
 }
 
 func TestPreviewCalendar(t *testing.T) {

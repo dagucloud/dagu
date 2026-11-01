@@ -983,6 +983,11 @@ var (
 		Code:       api.ErrorCodeForbidden,
 		Message:    "DAG modifications disabled: Git sync is in read-only mode (pushEnabled: false)",
 	}
+	errCalendarWritesDisabled = &Error{
+		HTTPStatus: http.StatusForbidden,
+		Code:       api.ErrorCodeForbidden,
+		Message:    "Calendar changes disabled: Git sync is in read-only mode (pushEnabled: false)",
+	}
 	errAuthRequired = &Error{
 		HTTPStatus: http.StatusUnauthorized,
 		Code:       api.ErrorCodeUnauthorized,
