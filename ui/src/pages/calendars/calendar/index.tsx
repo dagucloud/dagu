@@ -81,6 +81,9 @@ function CalendarPage(): React.ReactNode {
   useEffect(() => {
     generationRef.current += 1;
   }, [editorKey]);
+  // Saving waits out a pending delete, whose response would otherwise be
+  // superseded by the save.
+  const deletePendingRef = useRef(false);
 
   useEffect(() => {
     appBarContext.setTitle('Calendars');
@@ -130,7 +133,12 @@ function CalendarPage(): React.ReactNode {
 
   const handleSave = useCallback(async () => {
     const value = editor.currentValue;
-    if (!editable || value === null || !editor.hasUnsavedChanges) {
+    if (
+      !editable ||
+      value === null ||
+      !editor.hasUnsavedChanges ||
+      deletePendingRef.current
+    ) {
       return;
     }
     const generation = ++generationRef.current;
@@ -197,11 +205,13 @@ function CalendarPage(): React.ReactNode {
 
   async function handleDelete(): Promise<void> {
     const generation = generationRef.current;
+    deletePendingRef.current = true;
     const response = await client
       .DELETE('/calendars/{name}', {
         params: { path: { name }, query: { remoteNode } },
       })
       .catch(() => null);
+    deletePendingRef.current = false;
     setIsDeleting(false);
     if (generationRef.current !== generation) {
       return;

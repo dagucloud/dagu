@@ -7,6 +7,7 @@ import {
   render,
   screen,
   waitFor,
+  within,
 } from '@testing-library/react';
 import { MemoryRouter, Route, Routes } from 'react-router-dom';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
@@ -19,13 +20,14 @@ type CalendarDetails = components['schemas']['CalendarDetails'];
 
 const mocks = vi.hoisted(() => ({
   put: vi.fn(),
+  del: vi.fn(),
   showError: vi.fn(),
   preview: { current: null as unknown },
   editorProps: { current: null as null | Record<string, unknown> },
 }));
 
 vi.mock('@/hooks/api', () => ({
-  useClient: () => ({ PUT: mocks.put, DELETE: vi.fn() }),
+  useClient: () => ({ PUT: mocks.put, DELETE: mocks.del }),
   useQuery: vi.fn(),
 }));
 vi.mock('@/contexts/AuthContext', () => ({
@@ -94,6 +96,7 @@ function renderPage(
         value={{ setTitle, selectedRemoteNode: node } as never}
       >
         <Routes>
+          <Route path="/calendars" element={<p>Calendar list</p>} />
           <Route path="/calendars/:name" element={<CalendarPage />} />
         </Routes>
       </AppBarContext.Provider>
@@ -113,6 +116,7 @@ function lastCalendarQueryNode(): unknown {
 describe('CalendarPage', () => {
   beforeEach(() => {
     mocks.put.mockReset();
+    mocks.del.mockReset();
     mocks.showError.mockReset();
     mocks.preview.current = null;
     mocks.editorProps.current = null;
@@ -300,6 +304,33 @@ describe('CalendarPage', () => {
       'holidays: [2027-01-12]\n'
     );
     expect(screen.getByRole('button', { name: 'Revert' })).toBeDisabled();
+  });
+
+  // A save started while the calendar is being deleted would also make the
+  // page ignore the delete's response.
+  it('does not save while a delete is pending', async () => {
+    let finishDelete: (response: unknown) => void = () => {};
+    mocks.del.mockReturnValue(
+      new Promise((resolve) => {
+        finishDelete = resolve;
+      })
+    );
+    renderPage(calendar());
+
+    fireEvent.change(await screen.findByLabelText('Calendar file'), {
+      target: { value: 'holidays: [2027-01-11]\n' },
+    });
+    fireEvent.click(screen.getByRole('button', { name: 'Delete' }));
+    fireEvent.click(
+      within(screen.getByRole('dialog')).getByRole('button', {
+        name: 'Delete',
+      })
+    );
+    fireEvent.keyDown(document, { key: 's', metaKey: true });
+    await act(async () => finishDelete({ data: {} }));
+
+    expect(mocks.put).not.toHaveBeenCalled();
+    expect(await screen.findByText('Calendar list')).toBeInTheDocument();
   });
 
   it('reports a save the server refused', async () => {
