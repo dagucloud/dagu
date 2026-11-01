@@ -5370,6 +5370,20 @@
       },
       "description": "Reusable named custom harness definitions. Null entries remove inherited definitions from base config."
     },
+    "harnessProvider": {
+      "anyOf": [
+        {
+          "type": "string",
+          "enum": ["aider", "amp", "claude", "cline", "codex", "copilot", "cursor", "deepseek", "droid", "gemini", "goose", "kilo", "kiro", "opencode", "pi", "qwen"],
+          "description": "Built-in CLI harness provider."
+        },
+        {
+          "type": "string",
+          "description": "Custom harness from the top-level harnesses, or a ${VAR} reference."
+        }
+      ],
+      "description": "Harness provider name: a built-in CLI provider or a custom top-level harnesses entry. Supports ${VAR} interpolation."
+    },
     "harnessProviderConfig": {
       "type": "object",
       "propertyNames": {
@@ -5379,8 +5393,7 @@
       },
       "properties": {
         "provider": {
-          "type": "string",
-          "description": "Harness provider name. Use a built-in CLI provider (aider, amp, claude, cline, codex, copilot, cursor, deepseek, droid, gemini, goose, kilo, kiro, opencode, pi, or qwen) or a custom top-level harnesses entry. Supports ${VAR} interpolation."
+          "$ref": "#/definitions/harnessProvider"
         },
         "model": {
           "type": "string",
@@ -5402,8 +5415,7 @@
       },
       "properties": {
         "provider": {
-          "type": "string",
-          "description": "Harness provider name. Use a built-in CLI provider (aider, amp, claude, cline, codex, copilot, cursor, deepseek, droid, gemini, goose, kilo, kiro, opencode, pi, or qwen) or a custom top-level harnesses entry. Supports ${VAR} interpolation."
+          "$ref": "#/definitions/harnessProvider"
         },
         "fallback": {
           "type": "array",
