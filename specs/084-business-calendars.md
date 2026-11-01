@@ -17,10 +17,14 @@ this conformance suite.
 Run a workflow on business days only, or on chosen business days of each month,
 with one shared list of holidays per calendar.
 
-## Calendar files
+## Behavior
 
-A calendar is a YAML file named `<name>.yaml` in `paths.calendars_dir`, which
-defaults to `$DAGU_HOME/calendars` (environment variable `DAGU_CALENDARS_DIR`).
+### Calendar files
+
+A calendar is a YAML file named `<name>.yaml` in `paths.calendars_dir`
+(environment variable `DAGU_CALENDARS_DIR`). It defaults to
+`$DAGU_HOME/calendars` when `DAGU_HOME` is set, and to
+`~/.config/dagu/calendars` otherwise.
 A name uses letters, digits, `-`, and `_`.
 
 ```yaml
@@ -55,12 +59,12 @@ The calendar `weekdays` is built in: Monday to Friday with no holidays. The
 names `weekdays` and `none` are reserved; a file with either name is reported
 as invalid.
 
-`through` does not change evaluation. Dates after it count the weekdays alone
-because no holidays are listed for them. From 30 days before `through`, and
+`through` does not change evaluation. Dates after it count the weekdays alone,
+except for holidays the calendar or an included calendar still lists for them. From 30 days before `through`, and
 after it, loading a DAG that uses the calendar reports a warning naming the
 calendar and the date.
 
-## Schedule keys
+### Schedule keys
 
 A start schedule entry in object form accepts two more keys.
 
@@ -85,7 +89,7 @@ steps:
   - run: echo scheduled
 ```
 
-## Fire times
+### Fire times
 
 The cron expression produces candidate times. A schedule with a calendar fires
 on the candidates whose date is a business day, and, when `business_days` is
@@ -115,7 +119,7 @@ previous fire on which the expression alone would have fired
 (`skips Mon 2027-01-11 (Coming of Age Day)`).
 
 `dagu calendar check [files...]` validates calendar files, by default every
-file in `paths.calendars_dir`. A file given as a path must be named
+`<name>.yaml` file with a valid name in `paths.calendars_dir`. A file given as a path must be named
 `<name>.yaml`, and resolves `include` against the files beside it. A file named after a reserved name is reported
 as invalid. The command exits non-zero when any calendar is invalid.
 
@@ -137,10 +141,55 @@ A calendar file fails to load on an unknown key, a malformed date, a range that
 ends before it starts or exceeds 366 days, an empty `weekdays` list, an unknown
 weekday, an include cycle, or an included calendar that does not exist.
 
-## Conformance
+## Examples
 
-`conformance/spec084_calendars/` checks schedule validation with calendars, the
-rows `dagu calendar fires` prints for holidays, business days, extra business
-days, and the built-in calendar, that `--from` keeps `core.tz`,
-`dagu calendar check` on valid and invalid files, and that `dagu ls -n` skips
-holidays.
+The calendar `jp-banking` includes `jp-national`:
+
+```yaml
+# jp-banking.yaml
+description: Japanese bank business days
+holidays:
+  - 2027-01-01
+  - date: 2027-01-11
+    name: Coming of Age Day
+extra_business_days:
+  - 2027-10-09
+include: [jp-national]
+```
+
+```yaml
+# jp-national.yaml
+holidays:
+  - date: 2027-02-11
+    name: National Foundation Day
+```
+
+A DAG that uses it:
+
+```yaml
+calendar: jp-banking
+schedule:
+  - "CRON_TZ=Asia/Tokyo 0 18 * * *"
+  - expression: "CRON_TZ=Asia/Tokyo 0 23 * * *"
+    business_days: [3, -1]
+steps:
+  - run: echo scheduled
+```
+
+`dagu calendar fires` for this DAG from `2026-12-31T00:00:00+09:00` lists,
+among others:
+
+```text
+Thu 2026-12-31 23:00 +09:00 CRON_TZ=Asia/Tokyo 0 23 * * * last business day
+Mon 2027-01-04 18:00 +09:00 CRON_TZ=Asia/Tokyo 0 18 * * * skips Fri 2027-01-01
+Wed 2027-01-06 23:00 +09:00 CRON_TZ=Asia/Tokyo 0 23 * * * 3rd business day
+Tue 2027-01-12 18:00 +09:00 CRON_TZ=Asia/Tokyo 0 18 * * * skips Mon 2027-01-11 (Coming of Age Day)
+```
+
+From `2027-02-10T19:00:00+09:00`, the next fire skips the included holiday:
+`Fri 2027-02-12 18:00 +09:00 ... skips Thu 2027-02-11 (National Foundation Day)`.
+From `2027-10-08T19:00:00+09:00`, it fires on the extra business day:
+`Sat 2027-10-09 18:00 +09:00 ... extra business day`.
+
+The fixtures under `conformance/spec084_calendars/testdata` hold these and the
+invalid cases listed under Errors.

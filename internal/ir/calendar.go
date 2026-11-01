@@ -132,7 +132,8 @@ func (c *Calendar) IsBusinessDay(d CivilDate) bool {
 	return c.Weekdays[d.Weekday()]
 }
 
-// Holiday returns the holiday on d, if d is one.
+// Holiday returns the holiday the calendar lists on d, if it lists one. An
+// extra business day on the same date still makes d a business day.
 func (c *Calendar) Holiday(d CivilDate) (Holiday, bool) {
 	name, ok := c.Holidays[d]
 	return Holiday{Date: d, Name: name}, ok
