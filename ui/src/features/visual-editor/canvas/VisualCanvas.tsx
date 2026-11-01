@@ -1016,8 +1016,10 @@ function CanvasView({
         onCommand({ kind: 'openInspector', step: selected });
       }
     },
-    // Without a handler the key is not consumed and reaches the host.
-    clear: escapeToHost ? undefined : () => selectStep(null),
+    // Without a handler the key is not consumed and reaches the host, as it
+    // does when there is no selection to clear.
+    clear:
+      escapeToHost || selected === null ? undefined : () => selectStep(null),
     palette: () => openPalette({ mode: 'after' }),
     fit: fitAll,
     menu: openSelectionMenu,
