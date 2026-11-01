@@ -503,6 +503,13 @@ function WorkflowOverlayHost(): React.ReactElement | null {
                 <Routes>
                   <Route path="/dags/:fileName/:tab" element={<DAGDetails />} />
                   <Route path="/dags/:fileName/" element={<DAGDetails />} />
+                  {/* From the click until the URL names the workflow. */}
+                  <Route
+                    path="*"
+                    element={
+                      <WorkspaceLoading fileName={overlay.target?.dag ?? ''} />
+                    }
+                  />
                 </Routes>
               </React.Suspense>
             </LazyRouteErrorBoundary>

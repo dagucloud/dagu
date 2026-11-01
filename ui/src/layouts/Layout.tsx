@@ -17,6 +17,7 @@ import { getResponsiveTitleClass } from '@/lib/text-utils';
 import { Menu, X } from 'lucide-react';
 import * as React from 'react';
 import { useLocation } from 'react-router-dom';
+import { useWorkflowOverlay } from '@/features/peek/WorkflowOverlay';
 import { ContentNavigation } from './ContentNavigation';
 import { mainListItems as MainListItems } from '../menu';
 import { useI18n } from '@/i18n/I18nProvider';
@@ -114,7 +115,9 @@ type LayoutProps = {
  */
 function Content({ navbarColor, children }: LayoutProps) {
   const config = useConfig();
-  const location = useLocation();
+  // Below a workflow overlay, the frame is that of the page under it.
+  const urlLocation = useLocation();
+  const location = useWorkflowOverlay()?.background ?? urlLocation;
   const { t } = useI18n();
   const {
     fullBleed,

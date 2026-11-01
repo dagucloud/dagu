@@ -40,6 +40,8 @@ export interface WorkflowOverlay {
   canStep(delta: -1 | 1): boolean;
   /** Shows the row before or after the shown one in place of it. */
   step(delta: -1 | 1): void;
+  /** The row that the overlay shows; null while it is closed. */
+  target: PeekTarget | null;
 }
 
 function sameTarget(a: PeekTarget, b: PeekTarget): boolean {
@@ -59,6 +61,11 @@ interface Opened {
   index: number | null;
   /** The row that the overlay shows. */
   target: PeekTarget;
+  /**
+   * True from the click until the URL names the workflow page: the overlay
+   * shows at once, and the page fills it when it is ready.
+   */
+  pending: boolean;
 }
 
 /** The index that the router keeps in the history state of each entry. */
@@ -86,8 +93,9 @@ export function WorkflowOverlayProvider({
   const onWorkflow = WORKFLOW_PATH.test(location.pathname);
   // Another page than the one below ends the overlay. The page below itself
   // keeps it, so that Forward shows the workflow over it again.
-  if (opened && !onWorkflow && location.key !== opened.background.key) {
-    setOpened(null);
+  if (opened && location.key !== opened.background.key) {
+    if (!onWorkflow) setOpened(null);
+    else if (opened.pending) setOpened({ ...opened, pending: false });
   }
   const locationRef = useRef(location);
   locationRef.current = location;
@@ -108,6 +116,7 @@ export function WorkflowOverlayProvider({
         background: locationRef.current,
         index: historyIndex(),
         target,
+        pending: true,
       });
       navigate(peekPageURL(target, remoteNode));
     },
@@ -143,7 +152,7 @@ export function WorkflowOverlayProvider({
 
   const expand = useCallback(() => setOpened(null), []);
 
-  const isOpen = opened !== null && onWorkflow;
+  const isOpen = opened !== null && (onWorkflow || opened.pending);
   const at =
     isOpen && opened
       ? sequence.findIndex((row) => sameTarget(row, opened.target))
@@ -158,6 +167,7 @@ export function WorkflowOverlayProvider({
       setSequence,
       canStep: (delta) => at !== -1 && sequence[at + delta] !== undefined,
       step,
+      target: isOpen && opened ? opened.target : null,
     }),
     [isOpen, opened, open, close, expand, setSequence, at, sequence, step]
   );
