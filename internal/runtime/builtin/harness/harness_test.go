@@ -601,6 +601,30 @@ func TestManagedOpenCodeTransportLossWaitsForRestart(t *testing.T) {
 	assert.Equal(t, ir.NodeWaiting, status)
 }
 
+// A run that cannot reach the host before it has a session fails, so the step
+// can fall back to the CLI or retry instead of waiting on nothing.
+func TestManagedOpenCodeHostDownAtStart(t *testing.T) {
+	t.Parallel()
+
+	for _, version := range []string{"1.18.0", "2.1.4"} {
+		t.Run(version, func(t *testing.T) {
+			t.Parallel()
+			server := httptest.NewServer(http.NotFoundHandler())
+			server.Close()
+
+			exec := &harnessExecutor{prompt: "Do the work", workDir: t.TempDir()}
+			ctx := runtime.WithEnv(t.Context(), runtime.Env{})
+			stdout, err := exec.runManagedOpenCode(ctx, providerConfig{flags: map[string]any{}}, opencodehost.Config{
+				URL: server.URL, Version: version,
+			})
+
+			require.ErrorIs(t, err, errManagedHostUnavailable)
+			assert.Nil(t, stdout)
+			assert.Equal(t, ir.AgentSessionFailed, exec.GetAgentSession().State)
+		})
+	}
+}
+
 // A cancelled run interrupts its session and records whether the host
 // confirmed that the session stopped.
 func TestManagedOpenCodeCancelInterruptsSession(t *testing.T) {

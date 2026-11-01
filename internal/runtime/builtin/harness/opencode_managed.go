@@ -309,7 +309,8 @@ func (e *harnessExecutor) ensureManagedSession(ctx context.Context, client *open
 	if persistedID != "" {
 		session, err = client.getSession(ctx, persistedID)
 		if err != nil {
-			if !errors.Is(err, errManagedSessionUnavailable) {
+			// An unreachable host leaves a resumed session waiting rather than failed.
+			if errors.Is(err, errManagedHostUnavailable) || (!client.host.IsV2() && !errors.Is(err, errManagedSessionUnavailable)) {
 				err = fmt.Errorf("%w: %v", errManagedSessionUnavailable, err)
 			}
 			return "", err
@@ -573,7 +574,7 @@ func (e *harnessExecutor) reconcileManagedSession(ctx context.Context, client *o
 			}
 		}
 	}
-	if _, err := e.refreshManagedMessages(ctx, client, sessionID); err != nil && isManagedUnavailable(err) {
+	if _, err := e.refreshManagedMessages(ctx, client, sessionID); err != nil && (isManagedUnavailable(err) || errors.Is(err, errManagedNotFound)) {
 		return false, err
 	}
 	return false, nil
@@ -1182,6 +1183,9 @@ func eventSessionID(raw json.RawMessage) string {
 var (
 	errManagedHostUnavailable    = errors.New("managed OpenCode host is unavailable")
 	errManagedSessionUnavailable = errors.New("managed OpenCode session is unavailable")
+	// errManagedNotFound marks a typed OpenCode v2 404 for a resource other
+	// than the session, such as a command, model, or location.
+	errManagedNotFound = errors.New("OpenCode reported a missing resource")
 )
 
 func isManagedUnavailable(err error) bool {
