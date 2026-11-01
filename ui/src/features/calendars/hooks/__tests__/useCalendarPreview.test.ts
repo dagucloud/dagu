@@ -3,7 +3,10 @@
 
 import { act, renderHook, waitFor } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { useCalendarPreview } from '../useCalendarPreview';
+import {
+  CALENDAR_PREVIEW_DEBOUNCE_MS,
+  useCalendarPreview,
+} from '../useCalendarPreview';
 
 const { post, client } = vi.hoisted(() => {
   const post = vi.fn();
@@ -109,8 +112,14 @@ describe('useCalendarPreview', () => {
 
     rerender({ spec: 'holidays: [2027-01-1' });
     await act(() => new Promise((resolve) => setTimeout(resolve, 50)));
-
     expect(post).toHaveBeenCalledTimes(1);
+
+    await waitFor(() => expect(post).toHaveBeenCalledTimes(2), {
+      timeout: CALENDAR_PREVIEW_DEBOUNCE_MS + 1000,
+    });
+    expect(post.mock.lastCall?.[1]).toMatchObject({
+      body: { spec: 'holidays: [2027-01-1' },
+    });
   });
 
   it('clears a failure while it tries again', async () => {
