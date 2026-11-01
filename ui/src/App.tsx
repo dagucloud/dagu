@@ -64,7 +64,10 @@ const CalendarsPage = React.lazy(() => import('./pages/calendars'));
 const CalendarPage = React.lazy(() => import('./pages/calendars/calendar'));
 const DAGRuns = React.lazy(() => import('./pages/dag-runs'));
 const DAGs = React.lazy(() => import('./pages/dags'));
-const DAGDetails = React.lazy(() => import('./pages/dags/dag'));
+// The workflow page opens from most pages: its code preloads while the
+// browser is idle (see preloadWhenIdle).
+const loadWorkflowPage = () => import('./pages/dags/dag');
+const DAGDetails = React.lazy(loadWorkflowPage);
 const WikiPage = React.lazy(() => import('./pages/wiki'));
 const EventLogsPage = React.lazy(() => import('./pages/event-logs'));
 const GitSyncPage = React.lazy(() => import('./pages/git-sync'));
@@ -337,6 +340,32 @@ function RouteFallback(): React.ReactElement {
   return <LoadingIndicator />;
 }
 
+// How long the preload waits for an idle moment before it runs anyway.
+const IDLE_PRELOAD_TIMEOUT_MS = 5000;
+
+/**
+ * Loads the code of the workflow page and of its canvas once the browser is
+ * idle, so that opening a workflow does not wait for it. Returns a cancel
+ * function.
+ */
+function preloadWhenIdle(): () => void {
+  const preload = () => {
+    void loadWorkflowPage()
+      .then((page) => page.preloadWorkflowCanvas())
+      .catch(() => {
+        // A failed preload is retried by the page when it opens.
+      });
+  };
+  if (typeof window.requestIdleCallback === 'function') {
+    const id = window.requestIdleCallback(preload, {
+      timeout: IDLE_PRELOAD_TIMEOUT_MS,
+    });
+    return () => window.cancelIdleCallback(id);
+  }
+  const id = window.setTimeout(preload, IDLE_PRELOAD_TIMEOUT_MS);
+  return () => window.clearTimeout(id);
+}
+
 function LazyRoutes({
   children,
 }: {
@@ -604,6 +633,11 @@ function AppInner({ config: initialConfig }: Props): React.ReactElement {
     workspaces,
     workspacesLoaded,
   ]);
+
+  React.useEffect(() => {
+    if (!canFetchAuthenticatedResources) return;
+    return preloadWhenIdle();
+  }, [canFetchAuthenticatedResources]);
 
   React.useEffect(() => {
     document.documentElement.classList.toggle('dark', theme === 'dark');

@@ -519,4 +519,12 @@ function DAGDetails() {
   );
 }
 
+/**
+ * Loads the canvas editor that the page shows. A call from this chunk loads
+ * the same chunk as the page's own import, so a preload is not wasted.
+ */
+export function preloadWorkflowCanvas(): Promise<unknown> {
+  return import('@/features/visual-editor');
+}
+
 export default DAGDetails;
