@@ -1,7 +1,7 @@
 // Copyright (C) 2026 Yota Hamada
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-import { Maximize2, X } from 'lucide-react';
+import { ChevronDown, ChevronUp, Maximize2, X } from 'lucide-react';
 import React from 'react';
 import { createPortal } from 'react-dom';
 import {
@@ -59,6 +59,7 @@ import {
   OverlayResizeHandle,
   useOverlayWidth,
 } from '@/features/peek/OverlayResizeHandle';
+import { overlayStepOfKey } from '@/features/peek/overlayKeys';
 import {
   useWorkflowOverlay,
   WorkflowOverlayProvider,
@@ -414,15 +415,24 @@ function WorkflowOverlayHost(): React.ReactElement | null {
   const overlayWidth = useOverlayWidth();
   const isOpen = overlay?.isOpen ?? false;
   const close = overlay?.close;
+  const step = overlay?.step;
   React.useEffect(() => {
-    if (!isOpen || !close) return;
-    // The window hears a key after the handlers of the workflow page.
+    if (!isOpen || !close || !step) return;
+    // The window hears a key after the handlers of the workflow page. Up and
+    // Down step through the rows of the page below, as the list does.
     const onKeyDown = (event: KeyboardEvent) => {
-      if (escFree(event)) close();
+      if (escFree(event)) {
+        close();
+        return;
+      }
+      const delta = overlayStepOfKey(event);
+      if (delta === null) return;
+      event.preventDefault();
+      step(delta);
     };
     window.addEventListener('keydown', onKeyDown);
     return () => window.removeEventListener('keydown', onKeyDown);
-  }, [isOpen, close]);
+  }, [isOpen, close, step]);
   if (!overlay?.isOpen) return null;
   return createPortal(
     <div className="fixed inset-0 z-40">
@@ -455,6 +465,23 @@ function WorkflowOverlayHost(): React.ReactElement | null {
           onReset={overlayWidth.reset}
         />
         <div className="flex h-8 shrink-0 items-center justify-end gap-1 border-b border-border px-2">
+          <IconButton
+            icon={ChevronUp}
+            size="sm"
+            label={ts('Previous')}
+            shortcut="↑"
+            disabled={!overlay.canStep(-1)}
+            onClick={() => overlay.step(-1)}
+          />
+          <IconButton
+            icon={ChevronDown}
+            size="sm"
+            label={ts('Next')}
+            shortcut="↓"
+            disabled={!overlay.canStep(1)}
+            onClick={() => overlay.step(1)}
+          />
+          <span className="mx-0.5 h-4 w-px bg-border" aria-hidden="true" />
           <IconButton
             icon={Maximize2}
             size="sm"

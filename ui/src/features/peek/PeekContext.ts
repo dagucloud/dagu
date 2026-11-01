@@ -10,6 +10,8 @@ export interface PeekController {
   open(target: PeekTarget): void;
   /** True while a peek is open over the list. */
   isOpen: boolean;
+  /** Sets the targets of the rows of the list, which the peek steps through. */
+  setSequence?(targets: readonly PeekTarget[]): void;
 }
 
 /** Null without a PeekHost above: the rows then open the full page. */

@@ -31,6 +31,19 @@ export interface WorkflowOverlay {
   close(): void;
   /** Keeps the workflow page as the page itself. */
   expand(): void;
+  /**
+   * Sets the targets of the rows of the page below, in their order: the
+   * overlay steps through them.
+   */
+  setSequence(targets: readonly PeekTarget[]): void;
+  /** True when a row comes before or after the shown one: -1 and 1. */
+  canStep(delta: -1 | 1): boolean;
+  /** Shows the row before or after the shown one in place of it. */
+  step(delta: -1 | 1): void;
+}
+
+function sameTarget(a: PeekTarget, b: PeekTarget): boolean {
+  return a.dag === b.dag && (a.run ?? null) === (b.run ?? null);
 }
 
 const WorkflowOverlayContext = createContext<WorkflowOverlay | null>(null);
@@ -44,6 +57,8 @@ interface Opened {
   background: Location;
   /** The history index of the page below, which close goes back to. */
   index: number | null;
+  /** The row that the overlay shows. */
+  target: PeekTarget;
 }
 
 /** The index that the router keeps in the history state of each entry. */
@@ -79,10 +94,38 @@ export function WorkflowOverlayProvider({
   const openedRef = useRef(opened);
   openedRef.current = opened;
 
+  const [sequence, setSequenceState] = useState<readonly PeekTarget[]>([]);
+  const sequenceRef = useRef(sequence);
+  sequenceRef.current = sequence;
+  const setSequence = useCallback(
+    (targets: readonly PeekTarget[]) => setSequenceState(targets),
+    []
+  );
+
   const open = useCallback(
     (target: PeekTarget) => {
-      setOpened({ background: locationRef.current, index: historyIndex() });
+      setOpened({
+        background: locationRef.current,
+        index: historyIndex(),
+        target,
+      });
       navigate(peekPageURL(target, remoteNode));
+    },
+    [navigate, remoteNode]
+  );
+
+  // A step replaces the entry of the shown row, so that close and Back
+  // still go to the page below.
+  const step = useCallback(
+    (delta: -1 | 1) => {
+      const current = openedRef.current;
+      if (!current) return;
+      const rows = sequenceRef.current;
+      const at = rows.findIndex((row) => sameTarget(row, current.target));
+      const next = at === -1 ? undefined : rows[at + delta];
+      if (!next) return;
+      setOpened({ ...current, target: next });
+      navigate(peekPageURL(next, remoteNode), { replace: true });
     },
     [navigate, remoteNode]
   );
@@ -101,6 +144,10 @@ export function WorkflowOverlayProvider({
   const expand = useCallback(() => setOpened(null), []);
 
   const isOpen = opened !== null && onWorkflow;
+  const at =
+    isOpen && opened
+      ? sequence.findIndex((row) => sameTarget(row, opened.target))
+      : -1;
   const value = useMemo<WorkflowOverlay>(
     () => ({
       background: isOpen && opened ? opened.background : null,
@@ -108,8 +155,11 @@ export function WorkflowOverlayProvider({
       open,
       close,
       expand,
+      setSequence,
+      canStep: (delta) => at !== -1 && sequence[at + delta] !== undefined,
+      step,
     }),
-    [isOpen, opened, open, close, expand]
+    [isOpen, opened, open, close, expand, setSequence, at, sequence, step]
   );
   return (
     <WorkflowOverlayContext.Provider value={value}>

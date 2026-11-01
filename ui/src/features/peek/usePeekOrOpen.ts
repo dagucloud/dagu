@@ -1,7 +1,7 @@
 // Copyright (C) 2026 Yota Hamada
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-import { useCallback, useContext } from 'react';
+import { useCallback, useContext, useEffect, useRef } from 'react';
 import { useRemoteNode } from '@/contexts/RemoteNodeContext';
 import { useOpenPage } from '@/features/dag-runs/lib/useOpenPage';
 import { PeekContext } from './PeekContext';
@@ -59,4 +59,21 @@ export function usePeekOrOpen(
 /** True while a peek is open over the list: list keys stand aside. */
 export function usePeekIsOpen(): boolean {
   return useContext(PeekContext)?.isOpen ?? false;
+}
+
+/**
+ * Gives the peek the targets of the rows of a list, in their order, so that
+ * the arrow keys of the peek step through the rows. The list that changed
+ * its rows last wins.
+ */
+export function usePeekSequence(targets: readonly PeekTarget[]): void {
+  const setSequence = useContext(PeekContext)?.setSequence;
+  const latest = useRef(targets);
+  latest.current = targets;
+  const key = targets
+    .map((target) => `${target.dag}\n${target.run ?? ''}`)
+    .join('\0');
+  useEffect(() => {
+    setSequence?.(latest.current);
+  }, [setSequence, key]);
 }

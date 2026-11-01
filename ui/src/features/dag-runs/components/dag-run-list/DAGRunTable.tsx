@@ -24,7 +24,11 @@ import {
   DAGRunSelectionItem,
   getDAGRunSelectionKey,
 } from '../../hooks/useBulkDAGRunSelection';
-import { usePeekIsOpen, usePeekOrOpen } from '@/features/peek/usePeekOrOpen';
+import {
+  usePeekIsOpen,
+  usePeekOrOpen,
+  usePeekSequence,
+} from '@/features/peek/usePeekOrOpen';
 import { StepDetailsTooltip } from './StepDetailsTooltip';
 import { DAGRunArtifactsButton } from './DAGRunArtifactsButton';
 import { I18nText } from '@/i18n/I18nText';
@@ -62,6 +66,10 @@ function DAGRunTable({
   const config = useConfig();
   const peekOrOpen = usePeekOrOpen();
   const peekOpen = usePeekIsOpen();
+  // The peek steps through the runs of the table, in their order.
+  usePeekSequence(
+    dagRuns.map((dagRun) => ({ dag: dagRun.name, run: dagRun.dagRunId }))
+  );
   const openRun = (
     dagRun: DAGRunSelectionItem,
     event?: Pick<MouseEvent, 'ctrlKey' | 'metaKey'>

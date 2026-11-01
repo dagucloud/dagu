@@ -79,7 +79,7 @@ import {
 import { Switch } from '@/components/ui/switch';
 import { AppBarContext } from '../../../../contexts/AppBarContext';
 import { PeekLink } from '@/features/peek/PeekLink';
-import { usePeekOrOpen } from '@/features/peek/usePeekOrOpen';
+import { usePeekOrOpen, usePeekSequence } from '@/features/peek/usePeekOrOpen';
 import {
   isRunSortField,
   maxRunSortDAGs,
@@ -1473,6 +1473,14 @@ function DAGTable({
       onTogglePin: (dag) => void togglePin(dag),
     },
   });
+  // The peek steps through the workflows that the table shows, in their
+  // order: the rows of the open groups too.
+  usePeekSequence(
+    instance
+      .getRowModel()
+      .rows.filter((row) => row.original?.kind === ItemKind.DAG)
+      .map((row) => ({ dag: (row.original as DAGRow).dag.fileName }))
+  );
 
   tableInstanceRef.current = instance as ReturnType<typeof useReactTable>;
   const pinnedRowCount = countLeadingPinnedRows(instance.getRowModel().rows);

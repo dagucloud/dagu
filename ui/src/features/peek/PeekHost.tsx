@@ -30,9 +30,10 @@ export function PeekHost({ children }: { children: ReactNode }): ReactElement {
 
   const open = overlay?.open;
   const isOpen = overlay?.isOpen ?? false;
+  const setSequence = overlay?.setSequence;
   const controller = useMemo<PeekController | null>(
-    () => (open ? { open, isOpen } : null),
-    [open, isOpen]
+    () => (open ? { open, isOpen, setSequence } : null),
+    [open, isOpen, setSequence]
   );
   return (
     <PeekContext.Provider value={controller}>{children}</PeekContext.Provider>

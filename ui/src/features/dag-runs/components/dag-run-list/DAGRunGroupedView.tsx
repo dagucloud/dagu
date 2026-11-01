@@ -18,7 +18,7 @@ import {
 } from '../../hooks/useBulkDAGRunSelection';
 import { StepDetailsTooltip } from './StepDetailsTooltip';
 import { DAGRunArtifactsButton } from './DAGRunArtifactsButton';
-import { usePeekOrOpen } from '@/features/peek/usePeekOrOpen';
+import { usePeekOrOpen, usePeekSequence } from '@/features/peek/usePeekOrOpen';
 import { I18nText } from '@/i18n/I18nText';
 import { useI18n } from '@/i18n/I18nProvider';
 
@@ -175,6 +175,19 @@ function DAGRunGroupedView({
         />
       </p>
     </div>
+  );
+
+  // The peek steps through the runs of the open groups, in their order.
+  usePeekSequence(
+    Object.keys(groupedDAGRuns)
+      .sort()
+      .filter((dagName) => expandedGroups.has(dagName))
+      .flatMap((dagName) =>
+        (groupedDAGRuns[dagName] ?? []).map((run) => ({
+          dag: run.name,
+          run: run.dagRunId,
+        }))
+      )
   );
 
   if (dagRuns.length === 0) {
