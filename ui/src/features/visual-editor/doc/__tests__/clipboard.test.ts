@@ -216,6 +216,26 @@ steps:
     expect(result.text).toContain('    env:\n      ID: 9007199254740993\n');
   });
 
+  // The pasted integers read as bigints and those of the file as numbers:
+  // the check of the result reads both as the same values.
+  it('inserts a step with an integer without rewriting the file', () => {
+    const result = done(
+      pasteStepsOp(
+        parseDagDoc(yamlArraySteps),
+        '- name: small\n  retry_policy:\n    limit: 2\n',
+        null
+      ),
+      yamlArraySteps
+    );
+    expect(result.edits).toEqual([
+      {
+        from: yamlArraySteps.length,
+        to: yamlArraySteps.length,
+        insert: '\n  - name: small\n    retry_policy:\n      limit: 2\n',
+      },
+    ]);
+  });
+
   // Like the server, a step named by a number is named by its text.
   it('renames a step named by a number and the depends on it', () => {
     const text = 'steps:\n  - name: 7\n    run: x\n';

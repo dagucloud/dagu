@@ -572,6 +572,10 @@ export interface DetailedEditResult {
 
 function sameValue(a: unknown, b: unknown): boolean {
   if (Object.is(a, b)) return true;
+  // An integer reads as a number, or as a bigint where it was parsed with
+  // `intAsBigInt`: the two match at float precision.
+  if (typeof a === 'number' && typeof b === 'bigint') return a === Number(b);
+  if (typeof a === 'bigint' && typeof b === 'number') return Number(a) === b;
   if (typeof a !== 'object' || typeof b !== 'object' || !a || !b) return false;
   if (a instanceof Map && b instanceof Map) {
     if (a.size !== b.size) return false;
