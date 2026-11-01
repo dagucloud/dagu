@@ -89,6 +89,7 @@ export function MonthGrid({
               type="button"
               title={label}
               aria-label={label}
+              aria-current={day.date === today ? 'date' : undefined}
               aria-pressed={selected === day.date}
               onClick={() => onSelect(day.date)}
               className={cn(
