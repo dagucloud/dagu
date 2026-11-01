@@ -570,12 +570,22 @@ export interface DetailedEditResult {
   fallback: boolean;
 }
 
+/**
+ * True when an integer read exactly and one read as a number are the same.
+ * A number beyond the safe range was rounded when it was read, so it can
+ * only match at float precision.
+ */
+function sameInteger(exact: bigint, read: number): boolean {
+  return Number.isSafeInteger(read)
+    ? exact === BigInt(read)
+    : Number(exact) === read;
+}
+
 function sameValue(a: unknown, b: unknown): boolean {
   if (Object.is(a, b)) return true;
-  // An integer reads as a number, or as a bigint where it was parsed with
-  // `intAsBigInt`: the two match at float precision.
-  if (typeof a === 'number' && typeof b === 'bigint') return a === Number(b);
-  if (typeof a === 'bigint' && typeof b === 'number') return Number(a) === b;
+  // An integer reads as a bigint where it was parsed with `intAsBigInt`.
+  if (typeof a === 'bigint' && typeof b === 'number') return sameInteger(a, b);
+  if (typeof a === 'number' && typeof b === 'bigint') return sameInteger(b, a);
   if (typeof a !== 'object' || typeof b !== 'object' || !a || !b) return false;
   if (a instanceof Map && b instanceof Map) {
     if (a.size !== b.size) return false;
@@ -605,7 +615,11 @@ function sameValue(a: unknown, b: unknown): boolean {
   );
 }
 
-/** True when `text` parses to the same documents as `expected` in document 0. */
+/**
+ * True when `text` parses to the same documents as `expected` in document 0.
+ * The integers of `text` read exactly, so a change beyond the float precision
+ * counts.
+ */
 function verifies(text: string, count: number, expected: Document): boolean {
   let expectedValue: unknown;
   try {
@@ -614,7 +628,7 @@ function verifies(text: string, count: number, expected: Document): boolean {
     return true; // Cannot compare values (for example an unresolved alias).
   }
   try {
-    const docs = parseAllDocumentsAsServer(text);
+    const docs = parseAllDocumentsAsServer(text, { intAsBigInt: true });
     const doc = docs[0];
     if (docs.length !== count || !doc || doc.errors.length > 0) return false;
     return sameValue(doc.toJS(), expectedValue);
