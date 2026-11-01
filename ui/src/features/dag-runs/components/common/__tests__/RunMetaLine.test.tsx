@@ -299,6 +299,26 @@ describe('RunMetaLine', () => {
       expect(rowsOf(await screen.findByRole('tooltip'))).toEqual(expected);
     });
 
+    // The workflow bar shows the start as '7d ago' in one row: its tooltip
+    // gives the times and the duration.
+    it('opens on the start of the inline row, with the duration', async () => {
+      render(<RunMetaLine dagRun={timed} inline showTimes />);
+
+      await userEvent.hover(
+        within(screen.getByTitle('Started')).getByText(/ago$/)
+      );
+
+      const rows = rowsOf(await screen.findByRole('tooltip'));
+      expect(rows.map(([label]) => label)).toEqual([
+        'Scheduled',
+        'Queued',
+        'Started',
+        'Finished',
+        'Duration',
+      ]);
+      expect(rows[3]).toEqual(['Finished', absoluteOf(timed.finishedAt)]);
+    });
+
     it('opens on keyboard focus of the start', async () => {
       render(<RunMetaLine dagRun={timed} showTimes />);
 

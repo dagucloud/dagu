@@ -109,6 +109,7 @@ export function RunFacts({
     <RunMetaLine
       dagRun={dagRun}
       inline
+      showTimes
       shown={visible}
       omitTrigger={failed}
       idMark={idMark}

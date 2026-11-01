@@ -69,7 +69,8 @@ type Props = {
   /**
    * Shows the Scheduled, Queued, Started and Finished absolute times that are
    * set in a tooltip on Started. Keyboard focus also opens it. Before the run
-   * starts, a Queued (or Scheduled) item carries the tooltip instead.
+   * starts, a Queued (or Scheduled) item carries the tooltip instead. In the
+   * inline row, the tooltip also has the duration.
    */
   showTimes?: boolean;
   /**
@@ -370,13 +371,16 @@ export function RunMetaLine({
             label={started ? 'Started' : (waiting?.label ?? 'Started')}
             className="shrink-0"
           >
-            <RelativeTime
-              timestamp={started ? dagRun.startedAt : waiting?.value}
-              fallback="--"
-              compact
-              ago
-              stable
-            />
+            <WithRunTimes dagRun={dagRun} enabled={showTimes} withDuration>
+              <RelativeTime
+                timestamp={started ? dagRun.startedAt : waiting?.value}
+                fallback="--"
+                compact
+                ago
+                stable
+                absolute={absolute}
+              />
+            </WithRunTimes>
           </MetaItem>
         )}
         {shown.has('duration') && <InlineDuration dagRun={dagRun} />}
