@@ -1035,9 +1035,31 @@ describe('dock tab bodies', () => {
       expect(highlightStep).toHaveBeenLastCalledWith(null);
     });
 
-    // A pick loads another run: the strip keeps History, and its body keeps
-    // its state.
+    // A pick loads another run: while its read is pending, the strip keeps
+    // History and its body keeps its state.
     it('keeps the body mounted while the picked run loads', async () => {
+      const reply = serve(server);
+      let release = () => {};
+      const pinned = new Promise<void>((resolve) => {
+        release = resolve;
+      });
+      const readsRun2 = ([path, init]: Parameters<typeof reply>) =>
+        path === '/dag-runs/{name}/{dagRunId}' &&
+        init?.params?.path?.dagRunId === 'run-2';
+      h.GET.mockImplementation(async (...args: Parameters<typeof reply>) => {
+        if (readsRun2(args)) await pinned;
+        return reply(...args);
+      });
+      const historyKept = () => {
+        expect(screen.getByRole('tab', { name: 'History' })).toHaveAttribute(
+          'aria-selected',
+          'true'
+        );
+        expect(
+          screen.getByRole('button', { name: 'Failures only' })
+        ).toHaveAttribute('aria-pressed', 'true');
+      };
+
       renderDock(`/dags/${FILE_NAME}?dock=history&step=a`);
       fireEvent.click(
         await screen.findByRole('button', { name: 'Failures only' })
@@ -1046,18 +1068,22 @@ describe('dock tab bodies', () => {
 
       await vi.waitFor(() => expect(query().get('run')).toBe('run-2'));
       await vi.waitFor(() =>
+        expect(
+          h.GET.mock.calls.some((call) =>
+            readsRun2(call as Parameters<typeof reply>)
+          )
+        ).toBe(true)
+      );
+      historyKept();
+
+      await act(async () => release());
+      await vi.waitFor(() =>
         expect(screen.getByTestId('ww-step-history-bar-run-2')).toHaveAttribute(
           'aria-selected',
           'true'
         )
       );
-      expect(screen.getByRole('tab', { name: 'History' })).toHaveAttribute(
-        'aria-selected',
-        'true'
-      );
-      expect(
-        screen.getByRole('button', { name: 'Failures only' })
-      ).toHaveAttribute('aria-pressed', 'true');
+      historyKept();
     });
   });
 
