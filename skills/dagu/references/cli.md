@@ -383,7 +383,7 @@ Start distributed worker: `dagu worker --worker.coordinators <host:port,...> [--
 
 ## Git Sync
 
-`dagu sync <subcommand>` — Git sync for workflows, Wiki content, and supporting files.
+`dagu sync <subcommand>` — Git sync for workflows, Wiki content, calendars, and supporting files.
 
 | Subcommand | Description |
 | ---------- | ----------- |

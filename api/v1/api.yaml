@@ -50,7 +50,7 @@ tags:
   - name: "events"
     description: "Centralized operational event log operations (manager or admin only)"
   - name: "sync"
-    description: "Git synchronization for workflows, Wiki content, and supporting files"
+    description: "Git synchronization for workflows, Wiki content, calendars, and supporting files"
   - name: "wiki"
     description: "Wiki page management operations"
   - name: "remote-nodes"
@@ -19291,6 +19291,7 @@ components:
         - doc
         - doc-asset
         - file
+        - calendar
 
     SyncItem:
       type: object

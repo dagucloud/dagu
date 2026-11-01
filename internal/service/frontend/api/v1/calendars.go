@@ -297,13 +297,17 @@ func (a *API) calendarSource() *spec.CalendarSource {
 }
 
 // requireCalendarWrite checks that the caller may change calendar files,
-// which change the business days of DAGs in every workspace.
+// which change the business days of DAGs in every workspace. Git Sync in
+// read-only mode owns the files, so they cannot change then.
 func (a *API) requireCalendarWrite(ctx context.Context) error {
 	if err := a.isAllowed(config.PermissionWriteDAGs); err != nil {
 		return err
 	}
 	if err := a.requireDeveloperOrAbove(ctx); err != nil {
 		return err
+	}
+	if a.dagWritesDisabled {
+		return errCalendarWritesDisabled
 	}
 	if a.calendarStore == nil {
 		return errCalendarsNotAvailable

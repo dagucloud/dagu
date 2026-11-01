@@ -24030,7 +24030,8 @@ export enum SyncItemKind {
     dag = "dag",
     doc = "doc",
     doc_asset = "doc-asset",
-    file = "file"
+    file = "file",
+    calendar = "calendar"
 }
 export enum SyncAuthConfigType {
     token = "token",
