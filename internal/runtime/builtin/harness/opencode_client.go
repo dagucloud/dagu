@@ -197,10 +197,13 @@ func (c *openCodeClient) apiError(resp *http.Response, method, path string) erro
 	if err := json.Unmarshal(data, &failure); err != nil {
 		return fmt.Errorf("OpenCode API %s %s returned %s with an invalid error response: %w", method, path, resp.Status, err)
 	}
-	if failure.Tag == "SessionNotFoundError" {
+	switch failure.Tag {
+	case "SessionNotFoundError":
 		return errManagedSessionUnavailable
+	case "":
+		return fmt.Errorf("OpenCode API %s %s returned %s", method, path, resp.Status)
 	}
-	return fmt.Errorf("OpenCode API %s %s returned %s (%s)", method, path, resp.Status, failure.Tag)
+	return fmt.Errorf("OpenCode API %s %s returned %s (%s): %w", method, path, resp.Status, failure.Tag, errManagedNotFound)
 }
 
 func (c *openCodeClient) postNoContent(ctx context.Context, path string, body any) error {

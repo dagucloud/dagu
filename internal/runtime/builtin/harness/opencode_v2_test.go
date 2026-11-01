@@ -483,21 +483,38 @@ func TestV2ResumeErrors(t *testing.T) {
 	}
 }
 
+// A typed 404 on history fails the poll; a transient error waits for the next one.
 func TestV2HistoryError(t *testing.T) {
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path == "/api/session/ses_test/message" {
-			w.WriteHeader(http.StatusNotFound)
-			_, _ = io.WriteString(w, `{"_tag":"LocationNotFoundError"}`)
-			return
-		}
-		_, _ = io.WriteString(w, `{"data":[]}`)
-	}))
-	defer server.Close()
-	client := &openCodeClient{host: opencodehost.Config{URL: server.URL, Version: "2.1.4"}, http: server.Client()}
-	executor := &harnessExecutor{agentSession: &ir.AgentSession{SessionID: "ses_test"}}
-	waiting, err := executor.reconcileManagedSession(t.Context(), client, "ses_test")
-	require.ErrorContains(t, err, "LocationNotFoundError")
-	require.False(t, waiting)
+	for _, tc := range []struct {
+		name    string
+		status  int
+		body    string
+		wantErr string
+	}{
+		{"location", http.StatusNotFound, `{"_tag":"LocationNotFoundError"}`, "LocationNotFoundError"},
+		{"transient", http.StatusInternalServerError, `{}`, ""},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				if r.URL.Path == "/api/session/ses_test/message" {
+					w.WriteHeader(tc.status)
+					_, _ = io.WriteString(w, tc.body)
+					return
+				}
+				_, _ = io.WriteString(w, `{"data":[]}`)
+			}))
+			defer server.Close()
+			client := &openCodeClient{host: opencodehost.Config{URL: server.URL, Version: "2.1.4"}, http: server.Client()}
+			executor := &harnessExecutor{agentSession: &ir.AgentSession{SessionID: "ses_test"}}
+			waiting, err := executor.reconcileManagedSession(t.Context(), client, "ses_test")
+			if tc.wantErr == "" {
+				require.NoError(t, err)
+			} else {
+				require.ErrorContains(t, err, tc.wantErr)
+			}
+			require.False(t, waiting)
+		})
+	}
 }
 
 func TestV2SnapshotRefresh(t *testing.T) {
