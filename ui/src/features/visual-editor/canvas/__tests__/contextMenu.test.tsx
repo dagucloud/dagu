@@ -176,7 +176,7 @@ describe('ContextMenu', () => {
     expect(screen.getByRole('menuitem', { name: /Fit view/ })).toHaveFocus();
     fireEvent.keyDown(menu, { key: 'Home' });
     fireEvent.keyDown(menu, { key: 'Enter' });
-    expect(onSelect).toHaveBeenCalledWith('viewLogs');
+    expect(onSelect).toHaveBeenCalledWith('viewLogs', 'keyboard');
   });
 
   it('shows the reason of a disabled row and does not select it', () => {
@@ -227,7 +227,7 @@ describe('ContextMenu', () => {
     );
     expect(screen.getByRole('menuitem', { name: /Add step/ })).toHaveFocus();
     fireEvent.keyDown(menu, { key: 'Enter' });
-    expect(onSelect).toHaveBeenCalledWith('addStep');
+    expect(onSelect).toHaveBeenCalledWith('addStep', 'keyboard');
   });
 
   it('moves the focus to a row that stays when the active row goes', () => {
@@ -274,6 +274,34 @@ describe('canvas menus', () => {
     expect(props.onCommand).toHaveBeenCalledWith({
       kind: 'step',
       cmd: { kind, step: 'transform' },
+    });
+  });
+
+  // jsdom does not match :focus-visible, so the tests read the focus options
+  // the canvas passes. After a key press, a browser marks focus moved by a
+  // script with the focus ring, so a row picked with the pointer must opt
+  // out of it, while Enter keeps the ring for keyboard users.
+  describe('focus after a row is chosen', () => {
+    function openStepMenu() {
+      renderCanvas();
+      const canvas = screen.getByTestId('ve-canvas');
+      const focus = vi.spyOn(canvas, 'focus');
+      rightClick(nodeBox('steps[1]'));
+      return { canvas, focus };
+    }
+
+    it('goes back to the canvas without the ring after a click', () => {
+      const { canvas, focus } = openStepMenu();
+      pick('View logs');
+      expect(canvas).toHaveFocus();
+      expect(focus).toHaveBeenLastCalledWith({ focusVisible: false });
+    });
+
+    it('goes back to the canvas as the browser shows it after Enter', () => {
+      const { canvas, focus } = openStepMenu();
+      fireEvent.keyDown(screen.getByRole('menu'), { key: 'Enter' });
+      expect(canvas).toHaveFocus();
+      expect(focus).toHaveBeenLastCalledWith();
     });
   });
 

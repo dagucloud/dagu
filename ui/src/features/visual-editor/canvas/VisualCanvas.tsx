@@ -42,7 +42,7 @@ import {
 } from './toolbarHost';
 import { revealDelta } from './revealDelta';
 import { SimplifiedToggle } from './SimplifiedToggle';
-import { ContextMenu } from './ContextMenu';
+import { ContextMenu, type MenuChoice } from './ContextMenu';
 import {
   contextMenuItems,
   type ContextMenuGates,
@@ -162,6 +162,11 @@ const HOSTED_COMPACT_WIDTH = 1200;
 const MINIMAP_MIN_WIDTH = 480;
 
 const NO_LAUNCHERS: readonly never[] = [];
+// Focus without the focus ring, for focus given back after a pointer action.
+// Browsers without the option ignore it.
+const POINTER_FOCUS: FocusOptions & { focusVisible?: boolean } = {
+  focusVisible: false,
+};
 const ZOOM_SHORTCUTS = {
   zoomIn: canvasShortcut('zoomIn'),
   zoomOut: canvasShortcut('zoomOut'),
@@ -1120,12 +1125,22 @@ function CanvasView({
         stepCommandGates.canSetStatus(node.serverName)
     );
 
-  const closeMenu = useCallback((restoreFocus: boolean) => {
-    setMenu(null);
-    if (restoreFocus) {
-      wrapperRef.current?.focus();
-    }
-  }, []);
+  const closeMenu = useCallback(
+    (restoreFocus: boolean, via: MenuChoice = 'keyboard') => {
+      setMenu(null);
+      if (!restoreFocus) {
+        return;
+      }
+      // After a key press, the browser rings any focus a script moves, so a
+      // row clicked with the pointer would ring the whole canvas.
+      if (via === 'pointer') {
+        wrapperRef.current?.focus(POINTER_FOCUS);
+      } else {
+        wrapperRef.current?.focus();
+      }
+    },
+    []
+  );
 
   const exportAs = (format: 'svg' | 'png') => {
     const { svg, width, height } = buildExportSvg(graph, positions, direction, {
@@ -1140,9 +1155,9 @@ function CanvasView({
     }
   };
 
-  const selectRow = (id: ContextMenuRowId) => {
+  const selectRow = (id: ContextMenuRowId, via: MenuChoice) => {
     const current = menu;
-    closeMenu(id !== 'keyHelp');
+    closeMenu(id !== 'keyHelp', via);
     if (!current) {
       return;
     }
