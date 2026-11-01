@@ -260,6 +260,11 @@ export type SetWorkspaceUrl = (
   patch: WorkspaceUrlPatch,
   opts?: { replace?: boolean }
 ) => void;
+/**
+ * Reads the URL state of the last write, also one that the router has not
+ * rendered yet. For event handlers that run between a write and its render.
+ */
+export type ReadWorkspaceUrl = () => WorkspaceUrlState;
 
 interface UrlSnapshot {
   /** Key of the router location that the snapshot starts from. */
@@ -294,7 +299,11 @@ function storeOf(navigator: object): RouterStore {
 }
 
 /** push for mode, run, def and popout; replace for step, subRun, ndv, dock, stream, item, body, sub, panel, wtab. */
-export function useWorkspaceUrl(): [WorkspaceUrlState, SetWorkspaceUrl] {
+export function useWorkspaceUrl(): [
+  WorkspaceUrlState,
+  SetWorkspaceUrl,
+  ReadWorkspaceUrl,
+] {
   const { fileName = '', tab } = useParams<{
     fileName: string;
     tab?: string;
@@ -329,15 +338,21 @@ export function useWorkspaceUrl(): [WorkspaceUrlState, SetWorkspaceUrl] {
     };
   }, [store]);
 
+  // The URL of the last write: the pending one, else the rendered location.
+  const latest = useCallback((): UrlSnapshot => {
+    const rendered = store.committed ?? {
+      key: location.key,
+      state,
+      search: location.search,
+    };
+    return store.pending?.key === rendered.key ? store.pending : rendered;
+  }, [location.key, location.search, state, store]);
+
+  const readUrl = useCallback<ReadWorkspaceUrl>(() => latest().state, [latest]);
+
   const setUrl = useCallback<SetWorkspaceUrl>(
     (patch, opts) => {
-      const rendered = store.committed ?? {
-        key: location.key,
-        state,
-        search: location.search,
-      };
-      const base =
-        store.pending?.key === rendered.key ? store.pending : rendered;
+      const base = latest();
       const withForeignKeys = (s: WorkspaceUrlState) => {
         const query = buildQuery(s);
         for (const [key, value] of new URLSearchParams(base.search)) {
@@ -361,7 +376,7 @@ export function useWorkspaceUrl(): [WorkspaceUrlState, SetWorkspaceUrl] {
         );
       const search = query.toString();
       store.pending = {
-        key: rendered.key,
+        key: base.key,
         state: parseWorkspaceUrl(tabOf(nextState), query),
         search: search ? `?${search}` : '',
       };
@@ -375,8 +390,8 @@ export function useWorkspaceUrl(): [WorkspaceUrlState, SetWorkspaceUrl] {
         ...(keepRedirect ? { state: location.state } : {}),
       });
     },
-    [fileName, location, navigate, state, store]
+    [fileName, latest, location, navigate, store]
   );
 
-  return [state, setUrl];
+  return [state, setUrl, readUrl];
 }

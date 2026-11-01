@@ -14,6 +14,7 @@ import {
   serve,
   type FakeServer,
 } from '../../data/__tests__/harness';
+import { useWorkspaceUrl } from '../../state/workspaceUrl';
 import { useWorkspaceKeys, workspaceKeyAction } from '../useWorkspaceKeys';
 
 const h = vi.hoisted(() => ({ GET: vi.fn() }));
@@ -271,6 +272,35 @@ describe('useWorkspaceKeys', () => {
 
     fireEvent.keyDown(document.body, { key: 'l' });
     expect(dock.openStep).toHaveBeenCalledWith('build');
+  });
+
+  // The router renders a URL write in a transition. A key that comes right
+  // after a click on a step, or on the empty canvas, acts on the written URL.
+  it("acts with 'l' on a step that the router has not rendered yet", async () => {
+    dock.openStep.mockClear();
+    const view = renderWorkspace(
+      () => {
+        useWorkspaceKeys();
+        return useWorkspaceUrl()[1];
+      },
+      { url: `/dags/${FILE_NAME}` }
+    );
+    await waitFor(() =>
+      expect(view.result.current?.location.search).toBe('?run=run-2')
+    );
+
+    act(() => {
+      view.result.current.value({ step: 'build' }, { replace: true });
+      fireEvent.keyDown(document.body, { key: 'l' });
+    });
+    expect(dock.openStep).toHaveBeenCalledWith('build');
+
+    dock.openStep.mockClear();
+    act(() => {
+      view.result.current.value({ step: null }, { replace: true });
+      fireEvent.keyDown(document.body, { key: 'l' });
+    });
+    expect(dock.openStep).not.toHaveBeenCalled();
   });
 
   it("does not open the dock with 'l' without a selected step", async () => {
