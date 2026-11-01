@@ -279,10 +279,10 @@ func (m *Multiplexer) WakeTopicType(topicType TopicType) {
 // YAML extension, as ir.DAG.FileName returns it; a client or an API write can
 // name it with or without one.
 func (m *Multiplexer) wakeDAGFileTopics(topicType TopicType, fileName string) {
-	name := fileutil.TrimYAMLFileExtension(fileName)
-	if name == "" {
+	if fileName == "" {
 		return
 	}
+	name := fileutil.TrimYAMLFileExtension(fileName)
 	m.mu.RLock()
 	var topics []*multiplexTopic
 	for _, topic := range m.topics {

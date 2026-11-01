@@ -6,6 +6,7 @@ package sse
 import (
 	"context"
 	"net/http/httptest"
+	"slices"
 	"strconv"
 	"sync"
 	"sync/atomic"
@@ -188,39 +189,77 @@ func TestDAGRunInvalidatorWakesDAGFileTopics(t *testing.T) {
 }
 
 // An API write names a DAG file as its request did, with or without a YAML
-// extension; it wakes the topics of the file in either form.
+// extension; it wakes the topics of the file in either form. A file named
+// only by its extension is a DAG file too.
 func TestWakeTopicMatchesDAGFileForms(t *testing.T) {
-	mux := NewMultiplexer(StreamConfig{}, nil)
-	t.Cleanup(mux.Shutdown)
-
-	var counts sync.Map
-	count := func(key string) int64 {
-		counter, ok := counts.Load(key)
-		if !ok {
-			return 0
-		}
-		return counter.(*atomic.Int64).Load()
+	tests := []struct {
+		name   string
+		wake   string
+		topics []string
+		woken  []string
+	}{
+		{
+			name:   "WithExtension",
+			wake:   "test.yaml",
+			topics: []string{"test", "test.yaml", "other"},
+			woken:  []string{"test", "test.yaml"},
+		},
+		{
+			name:   "ExtensionOnly",
+			wake:   ".yaml",
+			topics: []string{".yaml", ".yml", "yaml", "other"},
+			woken:  []string{".yaml", ".yml"},
+		},
 	}
-	mux.RegisterFetcher(TopicTypeDAG, func(_ context.Context, identifier string) (any, error) {
-		counter, _ := counts.LoadOrStore(identifier, &atomic.Int64{})
-		counter.(*atomic.Int64).Add(1)
-		return nil, nil
-	})
-	mux.SetRefreshMode(TopicTypeDAG, TopicRefreshModeOnDemand)
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			mux := NewMultiplexer(StreamConfig{}, nil)
+			t.Cleanup(mux.Shutdown)
 
-	result, err := mux.createSession(context.Background(), httptest.NewRecorder(), []string{"dag:test", "dag:test.yaml", "dag:other"}, 0)
-	require.NoError(t, err)
-	require.NotNil(t, result.session)
-	defer mux.removeSession(result.session)
+			var counts sync.Map
+			count := func(key string) int64 {
+				counter, ok := counts.Load(key)
+				if !ok {
+					return 0
+				}
+				return counter.(*atomic.Int64).Load()
+			}
+			mux.RegisterFetcher(TopicTypeDAG, func(_ context.Context, identifier string) (any, error) {
+				counter, _ := counts.LoadOrStore(identifier, &atomic.Int64{})
+				counter.(*atomic.Int64).Add(1)
+				return nil, nil
+			})
+			mux.SetRefreshMode(TopicTypeDAG, TopicRefreshModeOnDemand)
 
-	mux.WakeTopic(TopicTypeDAG, "test.yaml")
+			keys := make([]string, 0, len(tt.topics))
+			for _, topic := range tt.topics {
+				keys = append(keys, "dag:"+topic)
+			}
+			result, err := mux.createSession(context.Background(), httptest.NewRecorder(), keys, 0)
+			require.NoError(t, err)
+			require.NotNil(t, result.session)
+			defer mux.removeSession(result.session)
 
-	require.Eventually(t, func() bool {
-		return count("test") == 1 && count("test.yaml") == 1
-	}, time.Second, 10*time.Millisecond)
-	require.Never(t, func() bool {
-		return count("other") != 0
-	}, 200*time.Millisecond, 20*time.Millisecond)
+			mux.WakeTopic(TopicTypeDAG, tt.wake)
+
+			require.Eventually(t, func() bool {
+				for _, topic := range tt.woken {
+					if count(topic) != 1 {
+						return false
+					}
+				}
+				return true
+			}, time.Second, 10*time.Millisecond)
+			require.Never(t, func() bool {
+				for _, topic := range tt.topics {
+					if !slices.Contains(tt.woken, topic) && count(topic) != 0 {
+						return true
+					}
+				}
+				return false
+			}, 200*time.Millisecond, 20*time.Millisecond)
+		})
+	}
 }
 
 func TestDAGRunInvalidatorBatchesAndTargetsLifecycleListRefreshes(t *testing.T) {
