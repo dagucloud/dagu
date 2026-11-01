@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
@@ -2359,6 +2360,248 @@ auth:
 		}
 		assert.True(t, found, "expected weak password warning, got warnings: %v", cfg.Warnings)
 	})
+}
+
+func writeSecretFile(t *testing.T, content string) string {
+	t.Helper()
+	path := filepath.Join(t.TempDir(), "secret")
+	require.NoError(t, os.WriteFile(path, []byte(content), 0o600))
+	return path
+}
+
+func TestLoad_SecretFiles(t *testing.T) {
+	tests := []struct {
+		name string
+		yaml string
+		got  func(*Config) string
+	}{
+		{
+			name: "BasicPassword",
+			yaml: "auth:\n  mode: basic\n  basic:\n    username: admin\n    password_file: %s\n",
+			got:  func(cfg *Config) string { return cfg.Server.Auth.Basic.Password },
+		},
+		{
+			name: "OIDCClientSecret",
+			yaml: "auth:\n  mode: none\n  oidc:\n    client_secret_file: %s\n",
+			got:  func(cfg *Config) string { return cfg.Server.Auth.OIDC.ClientSecret },
+		},
+		{
+			name: "BuiltinTokenSecret",
+			yaml: "auth:\n  mode: builtin\n  builtin:\n    token:\n      secret_file: %s\n",
+			got:  func(cfg *Config) string { return cfg.Server.Auth.Builtin.Token.Secret },
+		},
+		{
+			name: "InitialAdminPassword",
+			yaml: "auth:\n  mode: builtin\n  builtin:\n    initial_admin:\n      username: admin\n      password_file: %s\n",
+			got:  func(cfg *Config) string { return cfg.Server.Auth.Builtin.InitialAdmin.Password },
+		},
+		{
+			name: "RemoteNodeBasicAuthPassword",
+			yaml: "remote_nodes:\n  - name: other\n    api_base_url: https://other.example.com/api/v1\n    auth_type: basic\n    basic_auth_username: admin\n    basic_auth_password_file: %s\n",
+			got:  func(cfg *Config) string { return cfg.Server.RemoteNodes[0].BasicAuthPassword },
+		},
+		{
+			name: "RemoteNodeAuthToken",
+			yaml: "remote_nodes:\n  - name: other\n    api_base_url: https://other.example.com/api/v1\n    auth_type: token\n    auth_token_file: %s\n",
+			got:  func(cfg *Config) string { return cfg.Server.RemoteNodes[0].AuthToken },
+		},
+		{
+			name: "GitSyncToken",
+			yaml: "git_sync:\n  enabled: true\n  repository: https://github.com/example/dags.git\n  auth:\n    token_file: %s\n",
+			got:  func(cfg *Config) string { return cfg.GitSync.Auth.Token },
+		},
+		{
+			name: "GitSyncSSHPassphrase",
+			yaml: "git_sync:\n  enabled: true\n  repository: git@github.com:example/dags.git\n  auth:\n    type: ssh\n    ssh_key_path: /keys/id_ed25519\n    ssh_passphrase_file: %s\n",
+			got:  func(cfg *Config) string { return cfg.GitSync.Auth.SSHPassphrase },
+		},
+		{
+			name: "VaultToken",
+			yaml: "secrets:\n  vault:\n    address: https://vault.example.com\n    token_file: %s\n",
+			got:  func(cfg *Config) string { return cfg.Secrets.Vault.Token },
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			path := writeSecretFile(t, "s3cr3t-from-file\n")
+			cfg := loadFromYAML(t, fmt.Sprintf(tt.yaml, path))
+			assert.Equal(t, "s3cr3t-from-file", tt.got(cfg))
+		})
+	}
+}
+
+func TestLoad_SecretFileFromEnv(t *testing.T) {
+	path := writeSecretFile(t, "env-file-secret\r\n")
+	cfg := loadWithEnv(t, "# empty", map[string]string{
+		"DAGU_AUTH_MODE":              "builtin",
+		"DAGU_AUTH_TOKEN_SECRET_FILE": path,
+	})
+	assert.Equal(t, "env-file-secret", cfg.Server.Auth.Builtin.Token.Secret)
+}
+
+func TestLoad_SecretFileWithEmptyEnv(t *testing.T) {
+	path := writeSecretFile(t, "env-file-secret\n")
+	cfg := loadWithEnv(t, "# empty", map[string]string{
+		"DAGU_AUTH_MODE":              "builtin",
+		"DAGU_AUTH_TOKEN_SECRET":      "",
+		"DAGU_AUTH_TOKEN_SECRET_FILE": path,
+	})
+	assert.Equal(t, "env-file-secret", cfg.Server.Auth.Builtin.Token.Secret)
+}
+
+// An empty inline secret counts as unset, so a template that renders every
+// key, such as the Helm chart, can still name the file.
+func TestLoad_SecretFileWithEmptyInline(t *testing.T) {
+	t.Run("FileFromEnv", func(t *testing.T) {
+		path := writeSecretFile(t, "from-file\n")
+		cfg := loadWithEnv(t, "auth:\n  mode: builtin\n  builtin:\n    token:\n      secret: \"\"\n      ttl: \"24h\"\n", map[string]string{
+			"DAGU_AUTH_TOKEN_SECRET_FILE": path,
+		})
+		assert.Equal(t, "from-file", cfg.Server.Auth.Builtin.Token.Secret)
+	})
+
+	t.Run("RemoteNode", func(t *testing.T) {
+		path := writeSecretFile(t, "from-file\n")
+		cfg := loadFromYAML(t, fmt.Sprintf("remote_nodes:\n  - name: other\n    api_base_url: https://other.example.com/api/v1\n    auth_type: token\n    auth_token: \"\"\n    auth_token_file: %s\n", path))
+		assert.Equal(t, "from-file", cfg.Server.RemoteNodes[0].AuthToken)
+	})
+}
+
+func TestLoad_SecretFileErrors(t *testing.T) {
+	t.Run("BothSet", func(t *testing.T) {
+		path := writeSecretFile(t, "from-file")
+		err := loadWithErrorFromYAML(t, fmt.Sprintf(`
+auth:
+  mode: builtin
+  builtin:
+    token:
+      secret: inline-secret
+      secret_file: %s
+`, path))
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "set either auth.builtin.token.secret or auth.builtin.token.secret_file, not both")
+	})
+
+	t.Run("BothSetWithTheFileFromEnv", func(t *testing.T) {
+		path := writeSecretFile(t, "from-file")
+		t.Setenv("DAGU_AUTH_TOKEN_SECRET_FILE", path)
+		err := loadWithErrorFromYAML(t, `
+auth:
+  mode: builtin
+  builtin:
+    token:
+      secret: inline-secret
+`)
+		require.Error(t, err)
+		// The file is named by the variable, so the message names the variable.
+		assert.Contains(t, err.Error(), "set either auth.builtin.token.secret or DAGU_AUTH_TOKEN_SECRET_FILE, not both")
+	})
+
+	t.Run("BothSetFromEnv", func(t *testing.T) {
+		path := writeSecretFile(t, "from-file")
+		t.Setenv("DAGU_GITSYNC_AUTH_TOKEN", "inline-token")
+		err := loadWithErrorFromYAML(t, fmt.Sprintf(`
+git_sync:
+  enabled: true
+  repository: https://github.com/example/dags.git
+  auth:
+    token_file: %s
+`, path))
+		require.Error(t, err)
+		// The inline value is in the environment, so the message names it.
+		assert.Contains(t, err.Error(), "set either DAGU_GITSYNC_AUTH_TOKEN or git_sync.auth.token_file, not both")
+	})
+
+	t.Run("MissingFile", func(t *testing.T) {
+		path := filepath.Join(t.TempDir(), "missing")
+		err := loadWithErrorFromYAML(t, fmt.Sprintf(`
+remote_nodes:
+  - name: other
+    api_base_url: https://other.example.com/api/v1
+    auth_type: token
+    auth_token_file: %s
+`, path))
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "read remote_nodes[0].auth_token_file:")
+		assert.Contains(t, err.Error(), path)
+	})
+
+	t.Run("BlankFile", func(t *testing.T) {
+		path := writeSecretFile(t, " \t\n")
+		err := loadWithErrorFromYAML(t, fmt.Sprintf(`
+secrets:
+  vault:
+    token_file: %s
+`, path))
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "secrets.vault.token_file "+path+" is empty")
+	})
+
+	t.Run("EmptyFile", func(t *testing.T) {
+		path := writeSecretFile(t, "\n")
+		err := loadWithErrorFromYAML(t, fmt.Sprintf(`
+secrets:
+  vault:
+    token_file: %s
+`, path))
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "secrets.vault.token_file "+path+" is empty")
+	})
+}
+
+// loadServerRemoteNodes copies the fields one by one, so a field added to
+// RemoteNodeDef and RemoteNode but not to the copy would be dropped without a
+// compile error. Each field of the definition, except the _file keys that
+// loadSecretFiles consumes, must arrive in the runtime node.
+func TestLoadServerRemoteNodesCopiesEveryField(t *testing.T) {
+	var def RemoteNodeDef
+	defValue := reflect.ValueOf(&def).Elem()
+	for i := range defValue.NumField() {
+		switch field := defValue.Field(i); field.Kind() {
+		case reflect.String:
+			field.SetString("value-" + defValue.Type().Field(i).Name)
+		case reflect.Bool:
+			field.SetBool(true)
+		case reflect.Int:
+			field.SetInt(7)
+		default:
+			t.Fatalf("RemoteNodeDef.%s has the kind %s: teach this test to fill it", defValue.Type().Field(i).Name, field.Kind())
+		}
+	}
+
+	var cfg Config
+	(&ConfigLoader{}).loadServerRemoteNodes(&cfg, Definition{RemoteNodes: []RemoteNodeDef{def}})
+	require.Len(t, cfg.Server.RemoteNodes, 1)
+
+	node := reflect.ValueOf(cfg.Server.RemoteNodes[0])
+	for i := range defValue.NumField() {
+		name := defValue.Type().Field(i).Name
+		// The two _file fields that loadSecretFiles consumes. A path that the
+		// runtime node should carry, such as a future CA file, must arrive.
+		if name == "BasicAuthPasswordFile" || name == "AuthTokenFile" {
+			continue
+		}
+		got := node.FieldByName(name)
+		require.True(t, got.IsValid(), "RemoteNode has no field %s", name)
+		assert.Equal(t, defValue.Field(i).Interface(), got.Interface(), "RemoteNode.%s", name)
+	}
+}
+
+func TestLoad_SecretFileSkippedForOtherServices(t *testing.T) {
+	configFile := filepath.Join(t.TempDir(), "config.yaml")
+	require.NoError(t, os.WriteFile(configFile, []byte(`
+auth:
+  mode: basic
+  basic:
+    username: admin
+    password_file: /nonexistent/password
+`), 0o600))
+
+	_ = testLoad(t, WithConfigFile(configFile), WithService(ServiceWorker))
+	err := testLoadWithError(t, WithConfigFile(configFile), WithService(ServiceServer))
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "read auth.basic.password_file:")
 }
 
 func TestLoad_MetricsAccess(t *testing.T) {

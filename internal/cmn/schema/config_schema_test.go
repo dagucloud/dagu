@@ -149,6 +149,43 @@ cloud:
 `)))
 }
 
+func TestConfigSchemaSecretFiles(t *testing.T) {
+	t.Parallel()
+
+	resolved := mustResolveConfigSchema(t)
+	require.NoError(t, resolved.Validate(mustParseYAMLDocument(t, `
+auth:
+  basic:
+    password_file: /run/secrets/basic-password
+  oidc:
+    client_secret_file: /run/secrets/oidc-client-secret
+  builtin:
+    token:
+      secret_file: /run/secrets/token-secret
+    initial_admin:
+      username: admin
+      password_file: /run/secrets/admin-password
+remote_nodes:
+  - name: other
+    api_base_url: https://other.example.com/api/v1
+    basic_auth_password_file: /run/secrets/other-password
+    auth_token_file: /run/secrets/other-token
+git_sync:
+  auth:
+    token_file: /run/secrets/git-token
+    ssh_passphrase_file: /run/secrets/ssh-passphrase
+secrets:
+  vault:
+    token_file: /run/secrets/vault-token
+`)))
+	require.Error(t, resolved.Validate(mustParseYAMLDocument(t, `
+auth:
+  builtin:
+    token:
+      secret_file: ""
+`)))
+}
+
 func TestConfigSchemaCloudRemoteAccess(t *testing.T) {
 	t.Parallel()
 

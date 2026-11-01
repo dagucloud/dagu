@@ -342,6 +342,11 @@
         "password": {
           "type": "string",
           "description": "Basic auth password."
+        },
+        "password_file": {
+          "type": "string",
+          "minLength": 1,
+          "description": "File holding the basic auth password. Do not set it with password."
         }
       }
     },
@@ -357,6 +362,11 @@
         "client_secret": {
           "type": "string",
           "description": "OAuth client secret."
+        },
+        "client_secret_file": {
+          "type": "string",
+          "minLength": 1,
+          "description": "File holding the OAuth client secret. Do not set it with client_secret."
         },
         "client_url": {
           "type": "string",
@@ -707,6 +717,29 @@
       "properties": {
         "token": {
           "$ref": "#/definitions/TokenConfigDef"
+        },
+        "initial_admin": {
+          "$ref": "#/definitions/InitialAdminDef"
+        }
+      }
+    },
+    "InitialAdminDef": {
+      "type": "object",
+      "description": "Admin user created on first start when no user exists.",
+      "additionalProperties": false,
+      "properties": {
+        "username": {
+          "type": "string",
+          "description": "Username of the initial admin."
+        },
+        "password": {
+          "type": "string",
+          "description": "Password of the initial admin."
+        },
+        "password_file": {
+          "type": "string",
+          "minLength": 1,
+          "description": "File holding the password of the initial admin. Do not set it with password."
         }
       }
     },
@@ -718,6 +751,11 @@
         "secret": {
           "type": "string",
           "description": "JWT signing secret."
+        },
+        "secret_file": {
+          "type": "string",
+          "minLength": 1,
+          "description": "File holding the JWT signing secret. Do not set it with secret."
         },
         "ttl": {
           "type": "string",
@@ -938,6 +976,11 @@
           "type": "string",
           "description": "Default Vault token."
         },
+        "token_file": {
+          "type": "string",
+          "minLength": 1,
+          "description": "File holding the default Vault token. Do not set it with token."
+        },
         "ca_cert": {
           "type": "string",
           "description": "CA certificate file for verifying a custom Vault TLS endpoint."
@@ -1080,9 +1123,19 @@
           "type": "string",
           "description": "Basic auth password for this remote node."
         },
+        "basic_auth_password_file": {
+          "type": "string",
+          "minLength": 1,
+          "description": "File holding the basic auth password for this remote node. Do not set it with basic_auth_password."
+        },
         "auth_token": {
           "type": "string",
           "description": "Auth token for this remote node."
+        },
+        "auth_token_file": {
+          "type": "string",
+          "minLength": 1,
+          "description": "File holding the auth token for this remote node. Do not set it with auth_token."
         },
         "skip_tls_verify": {
           "type": "boolean",
@@ -1592,6 +1645,11 @@
           "type": "string",
           "description": "Git access token."
         },
+        "token_file": {
+          "type": "string",
+          "minLength": 1,
+          "description": "File holding the Git access token. Do not set it with token."
+        },
         "ssh_key_path": {
           "type": "string",
           "description": "Path to SSH private key file."
@@ -1599,6 +1657,11 @@
         "ssh_passphrase": {
           "type": "string",
           "description": "Passphrase for the SSH key."
+        },
+        "ssh_passphrase_file": {
+          "type": "string",
+          "minLength": 1,
+          "description": "File holding the passphrase for the SSH key. Do not set it with ssh_passphrase."
         }
       }
     },
