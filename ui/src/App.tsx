@@ -381,15 +381,16 @@ function LazyRoutes({
   children: React.ReactNode;
 }): React.ReactElement {
   // While a workflow page shows over the page, the page keeps its location
-  // and takes no input.
+  // and takes no input. The routes always get a location: with one, they
+  // render under a provider of their own, and a switch between none and one
+  // would mount the page again and lose its state.
   const overlay = useWorkflowOverlay();
+  const location = useLocation();
   return (
     <LazyRouteErrorBoundary>
       <React.Suspense fallback={<RouteFallback />}>
         <div className="contents" inert={overlay?.isOpen || undefined}>
-          <Routes location={overlay?.background ?? undefined}>
-            {children}
-          </Routes>
+          <Routes location={overlay?.background ?? location}>{children}</Routes>
         </div>
       </React.Suspense>
     </LazyRouteErrorBoundary>
