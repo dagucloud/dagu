@@ -72,15 +72,12 @@ vi.mock('../../../bar/RunStartContext', () => ({
 vi.mock('@/features/dag-runs/hooks/useBoundedDAGRunDetails', () => ({
   useBoundedDAGRunDetails: vi.fn(),
 }));
-// The stack content renders DAGStatus; this stand-in shows the opened run.
-vi.mock(
-  '@/features/dag-runs/components/dag-run-details/DAGRunDetailsContent',
-  () => ({
-    default: ({ dagRunId }: { dagRunId: string }) => (
-      <div data-testid="child-content" data-run={dagRunId} />
-    ),
-  })
-);
+// The stack content renders the canvas; this stand-in shows the opened run.
+vi.mock('../../../hosts/SubRunView', () => ({
+  SubRunView: ({ run }: { run: { dagRunId: string } }) => (
+    <div data-testid="child-content" data-run={run.dagRunId} />
+  ),
+}));
 
 // Shared leaves with their own tests. TimelineChart and AgentTimeline stay
 // real, for the sub-run stack.

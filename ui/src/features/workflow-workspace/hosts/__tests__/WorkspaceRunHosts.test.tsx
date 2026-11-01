@@ -61,36 +61,33 @@ vi.mock('react-router-dom', async (importOriginal) => ({
 vi.mock('@/features/dag-runs/hooks/useBoundedDAGRunDetails', () => ({
   useBoundedDAGRunDetails: vi.fn(),
 }));
-// The real content renders DAGStatus. This stand-in shows the level and opens
+// The real view renders the canvas. This stand-in shows the level and opens
 // a deeper child through the opener that the modal gives its content.
-vi.mock(
-  '@/features/dag-runs/components/dag-run-details/DAGRunDetailsContent',
-  () => ({
-    default: function ChildContent({
-      dagRunId,
-      initialStepName,
-    }: {
-      dagRunId: string;
-      initialStepName?: string;
-    }) {
-      const open = useOpenSubRun();
-      return (
-        <div
-          data-testid="child-content"
-          data-run={dagRunId}
-          data-step={initialStepName}
+vi.mock('../SubRunView', () => ({
+  SubRunView: function ChildContent({
+    run,
+    initialStep,
+  }: {
+    run: { dagRunId: string };
+    initialStep?: string;
+  }) {
+    const open = useOpenSubRun();
+    return (
+      <div
+        data-testid="child-content"
+        data-run={run.dagRunId}
+        data-step={initialStep}
+      >
+        <button
+          type="button"
+          onClick={() => open?.({ name: 'grandchild', dagRunId: 'g-1' })}
         >
-          <button
-            type="button"
-            onClick={() => open?.({ name: 'grandchild', dagRunId: 'g-1' })}
-          >
-            open grandchild
-          </button>
-        </div>
-      );
-    },
-  })
-);
+          open grandchild
+        </button>
+      </div>
+    );
+  },
+}));
 
 let server: FakeServer;
 

@@ -69,6 +69,14 @@ type SubRunStackModalProps = {
   rootLabel: string;
   stack: SubRunStackEntry[];
   onChange: (next: SubRunStackEntry[]) => void;
+  /**
+   * Renders the run on top of the stack. Without it, the run shows in the
+   * run details view.
+   */
+  renderRun?: (
+    run: components['schemas']['DAGRunDetails'],
+    entry: SubRunStackEntry
+  ) => React.ReactNode;
 };
 
 /**
@@ -82,6 +90,7 @@ export function SubRunStackModal({
   rootLabel,
   stack,
   onChange,
+  renderRun,
 }: SubRunStackModalProps): React.ReactElement | null {
   const { ts } = useI18n();
   const remoteNode = useRemoteNode();
@@ -279,7 +288,9 @@ export function SubRunStackModal({
         <div className="min-h-0 flex-1 overflow-auto p-4">
           <SubRunOpenProvider value={push}>
             <React.Suspense fallback={<LoadingIndicator />}>
-              {shown ? (
+              {shown && top && renderRun ? (
+                renderRun(shown, top)
+              ) : shown ? (
                 <DAGRunDetailsContent
                   name={top.name}
                   dagRunId={top.dagRunId}

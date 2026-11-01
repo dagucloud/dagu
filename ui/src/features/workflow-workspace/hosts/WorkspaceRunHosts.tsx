@@ -9,6 +9,7 @@ import {
   useState,
   type ReactNode,
 } from 'react';
+import type { components } from '@/api/v1/schema';
 import { useRemoteNode } from '@/contexts/RemoteNodeContext';
 import {
   SubRunOpenProvider,
@@ -21,8 +22,16 @@ import { whenEnabled } from '@/hooks/queryUtils';
 import { WorkspaceDataContext } from '../data/context';
 import type { WorkspaceRunValue } from '../data/types';
 import { useWorkspaceUrl } from '../state/workspaceUrl';
+import { SubRunView } from './SubRunView';
 
 const noop = () => undefined;
+
+// A child run shows in the form of the workflow page; each run starts with
+// its own picked step.
+const renderSubRun = (
+  run: components['schemas']['DAGRunDetails'],
+  entry: SubRunStackEntry
+) => <SubRunView key={run.dagRunId} run={run} initialStep={entry.step} />;
 
 /**
  * Hosts the sub-run stack and the RootDAGRunContext of the selected run for
@@ -74,6 +83,7 @@ function RunHosts({
             rootLabel={details.name}
             stack={stack}
             onChange={setStack}
+            renderRun={renderSubRun}
           />
         )}
       </SubRunOpenProvider>
