@@ -15,8 +15,9 @@ export interface DockTabBodyProps {
    */
   step?: string;
   /**
-   * Selects another tab of the host strip. Absent where no tab of the host
-   * follows a run that the body selects.
+   * Selects another tab of the host strip. Undefined when the host is a step
+   * view that does not follow the selected run (`followsRun` false in
+   * StepRunTabs): a run that the body selects would not show in its tabs.
    */
   selectTab?(tab: DockTab): void;
 }
