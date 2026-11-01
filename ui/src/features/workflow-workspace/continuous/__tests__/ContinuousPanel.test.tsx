@@ -11,7 +11,7 @@ import {
 import { UserPreferencesProvider } from '@/contexts/UserPreference';
 import { I18nProvider } from '@/i18n/I18nProvider';
 import { ContinuousPanel } from '../ContinuousPanel';
-import { AVAILABILITY_POLL_MS, type SamplesWindow } from '../useContinuousData';
+import type { SamplesWindow } from '../useContinuousData';
 
 type StepAvailability = components['schemas']['StepAvailability'];
 type StepEvents = components['schemas']['StepEvents'];
@@ -501,7 +501,7 @@ describe('ContinuousPanel', () => {
     };
     renderPanel(true);
     expect(h.calls.find((c) => c.path === AVAIL)!.config?.refreshInterval).toBe(
-      AVAILABILITY_POLL_MS
+      60_000
     );
     expect(lastSamples()).toMatchObject({
       window: { preset: '24h' },
