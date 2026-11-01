@@ -556,20 +556,17 @@ func TestBaseWatchLifecycle(t *testing.T) {
 	}
 }
 
-// A holiday added to a calendar file must re-plan the DAGs that use it,
-// although their own files and base configs are unchanged.
-func TestCalendarWatch(t *testing.T) {
-	t.Parallel()
+// calendarWatchFrom is a business day of calendar jp until a test makes it
+// a holiday.
+var calendarWatchFrom = time.Date(2027, 1, 11, 0, 0, 0, 0, time.UTC)
 
-	root := t.TempDir()
-	dir := filepath.Join(root, "dags")
-	calendars := filepath.Join(root, "calendars")
-	require.NoError(t, os.MkdirAll(dir, 0750))
-	require.NoError(t, os.MkdirAll(calendars, 0750))
+// startCalendarWatch starts a reader on a DAG that runs at 18:00 on the
+// business days of calendar jp, read from calendars.
+func startCalendarWatch(t *testing.T, calendars string) *entryReaderImpl {
+	t.Helper()
+	dir := t.TempDir()
 	require.NoError(t, os.WriteFile(filepath.Join(dir, "payroll.yaml"),
 		[]byte("calendar: jp\nschedule: \"0 18 * * *\"\nsteps:\n  - run: echo pay\n"), 0600))
-	calendarFile := filepath.Join(calendars, "jp.yaml")
-	require.NoError(t, os.WriteFile(calendarFile, []byte("holidays: [2027-01-01]\n"), 0600))
 
 	repo := newRepository(dir, WithSkipExamples(true), WithCalendars(spec.NewCalendarSource(calendars)),
 		WithFileCache(fileutil.NewCache[*ir.DAG]("calendar-watch", 2, 0)))
@@ -577,15 +574,18 @@ func TestCalendarWatch(t *testing.T) {
 	require.NoError(t, reader.Init(t.Context()))
 	entries := reader.Entries()
 	require.Len(t, entries, 1)
-	from := time.Date(2027, 1, 11, 0, 0, 0, 0, time.UTC)
-	require.Equal(t, time.Date(2027, 1, 11, 18, 0, 0, 0, time.UTC), entries[0].DAG.NextRun(from))
+	require.Equal(t, time.Date(2027, 1, 11, 18, 0, 0, 0, time.UTC), entries[0].DAG.NextRun(calendarWatchFrom))
 
 	done := make(chan struct{})
 	go func() { defer close(done); reader.Start(t.Context()) }()
 	t.Cleanup(func() { reader.Stop(); <-done })
+	return reader
+}
 
-	require.NoError(t, os.WriteFile(calendarFile, []byte("holidays: [2027-01-01, 2027-01-11]\n"), 0600))
-
+// requireReplannedPastHoliday waits for the DAG update that follows
+// calendarWatchFrom becoming a holiday.
+func requireReplannedPastHoliday(t *testing.T, reader *entryReaderImpl) {
+	t.Helper()
 	timeout := time.NewTimer(5 * time.Second)
 	defer timeout.Stop()
 	for {
@@ -594,12 +594,54 @@ func TestCalendarWatch(t *testing.T) {
 			if event.Type != persis.DAGChangeUpdated {
 				continue
 			}
-			assert.Equal(t, time.Date(2027, 1, 12, 18, 0, 0, 0, time.UTC), event.DAG.NextRun(from))
+			assert.Equal(t, time.Date(2027, 1, 12, 18, 0, 0, 0, time.UTC), event.DAG.NextRun(calendarWatchFrom))
 			return
 		case <-timeout.C:
 			t.Fatal("missing update after the calendar changed")
 		}
 	}
+}
+
+// A holiday added to a calendar file must re-plan the DAGs that use it,
+// although their own files and base configs are unchanged.
+func TestCalendarWatch(t *testing.T) {
+	t.Parallel()
+
+	calendars := t.TempDir()
+	calendarFile := filepath.Join(calendars, "jp.yaml")
+	require.NoError(t, os.WriteFile(calendarFile, []byte("holidays: [2027-01-01]\n"), 0600))
+	reader := startCalendarWatch(t, calendars)
+
+	require.NoError(t, os.WriteFile(calendarFile, []byte("holidays: [2027-01-01, 2027-01-11]\n"), 0600))
+	requireReplannedPastHoliday(t, reader)
+}
+
+// A symlink swap, as a Kubernetes ConfigMap update does, can point a
+// calendar at a file of the same size and modification time.
+func TestCalendarWatchSymlinkSwap(t *testing.T) {
+	t.Parallel()
+	if runtime.GOOS == "windows" {
+		t.Skip("symlinks need privileges on Windows")
+	}
+
+	versions := t.TempDir()
+	before := filepath.Join(versions, "before.yaml")
+	after := filepath.Join(versions, "after.yaml")
+	require.NoError(t, os.WriteFile(before, []byte("holidays: [2027-01-01]\n"), 0600))
+	require.NoError(t, os.WriteFile(after, []byte("holidays: [2027-01-11]\n"), 0600))
+	stamp := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
+	require.NoError(t, os.Chtimes(before, stamp, stamp))
+	require.NoError(t, os.Chtimes(after, stamp, stamp))
+
+	calendars := t.TempDir()
+	link := filepath.Join(calendars, "jp.yaml")
+	require.NoError(t, os.Symlink(before, link))
+	reader := startCalendarWatch(t, calendars)
+
+	swap := filepath.Join(calendars, "jp.swap")
+	require.NoError(t, os.Symlink(after, swap))
+	require.NoError(t, os.Rename(swap, link))
+	requireReplannedPastHoliday(t, reader)
 }
 
 type observedWatcher struct {

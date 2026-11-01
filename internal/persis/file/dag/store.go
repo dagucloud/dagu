@@ -358,12 +358,20 @@ func describeCalendarsState(dir string) string {
 			continue
 		}
 		// Stat follows symlinks, so a retargeted calendar file counts as a change.
-		fi, err := os.Stat(filepath.Join(dir, entry.Name()))
+		path := filepath.Join(dir, entry.Name())
+		fi, err := os.Stat(path)
 		if err != nil {
 			states = append(states, entry.Name()+":error:"+err.Error())
 			continue
 		}
-		states = append(states, fmt.Sprintf("%s:%d:%d", entry.Name(), fi.Size(), fi.ModTime().UnixNano()))
+		state := fmt.Sprintf("%s:%d:%d", entry.Name(), fi.Size(), fi.ModTime().UnixNano())
+		if entry.Type()&os.ModeSymlink != 0 {
+			// The target is part of the state, as a swap can point the link
+			// at a file of the same size and modification time.
+			target, _ := filepath.EvalSymlinks(path)
+			state += ":" + target
+		}
+		states = append(states, state)
 	}
 	sort.Strings(states)
 	return strings.Join(states, ",")

@@ -177,6 +177,39 @@ func TestCalendarSourceRetriesUnreadableFiles(t *testing.T) {
 	assert.True(t, ok)
 }
 
+// A symlink swap, as a Kubernetes ConfigMap update does, can point a
+// calendar at a file of the same size and modification time.
+func TestCalendarSourceFollowsSymlinkSwaps(t *testing.T) {
+	t.Parallel()
+	if runtime.GOOS == "windows" {
+		t.Skip("symlinks need privileges on Windows")
+	}
+
+	versions := t.TempDir()
+	before := filepath.Join(versions, "before.yaml")
+	after := filepath.Join(versions, "after.yaml")
+	require.NoError(t, os.WriteFile(before, []byte("holidays: [2027-05-04]\n"), 0o600))
+	require.NoError(t, os.WriteFile(after, []byte("holidays: [2027-05-06]\n"), 0o600))
+	stamp := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
+	require.NoError(t, os.Chtimes(before, stamp, stamp))
+	require.NoError(t, os.Chtimes(after, stamp, stamp))
+
+	dir := t.TempDir()
+	link := filepath.Join(dir, "jp.yaml")
+	require.NoError(t, os.Symlink(before, link))
+	source := spec.NewCalendarSource(dir)
+	_, err := source.Calendar("jp")
+	require.NoError(t, err)
+
+	swap := filepath.Join(dir, "jp.swap")
+	require.NoError(t, os.Symlink(after, swap))
+	require.NoError(t, os.Rename(swap, link))
+	cal, err := source.Calendar("jp")
+	require.NoError(t, err)
+	_, ok := cal.Holiday(civil(2027, 5, 6))
+	assert.True(t, ok)
+}
+
 func TestLoadCalendarErrors(t *testing.T) {
 	t.Parallel()
 

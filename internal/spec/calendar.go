@@ -85,10 +85,9 @@ type calendarEntry struct {
 
 // fileStamp identifies the version of a file, or that it was missing.
 type fileStamp struct {
-	path    string
-	exists  bool
-	size    int64
-	modTime int64
+	path string
+	// info is nil when the file was missing.
+	info os.FileInfo
 }
 
 func statFile(path string) fileStamp {
@@ -96,12 +95,24 @@ func statFile(path string) fileStamp {
 	if err != nil {
 		return fileStamp{path: path}
 	}
-	return fileStamp{path: path, exists: true, size: info.Size(), modTime: info.ModTime().UnixNano()}
+	return fileStamp{path: path, info: info}
+}
+
+// sameVersion reports whether two stamps of one path describe the same
+// version. The file identity counts, as a symlink swap can point the path
+// at a file of the same size and modification time.
+func (f fileStamp) sameVersion(other fileStamp) bool {
+	if f.info == nil || other.info == nil {
+		return f.info == nil && other.info == nil
+	}
+	return os.SameFile(f.info, other.info) &&
+		f.info.Size() == other.info.Size() &&
+		f.info.ModTime().Equal(other.info.ModTime())
 }
 
 func (e calendarEntry) current() bool {
 	for _, file := range e.files {
-		if statFile(file.path) != file {
+		if !statFile(file.path).sameVersion(file) {
 			return false
 		}
 	}
