@@ -728,7 +728,9 @@ export function formatStepRange(text: string, step: StepSpan): TextEdit | null {
     } else if (line.startsWith(own)) {
       source.push(inner + line.slice(column));
     } else {
-      return null;
+      // A comment, or a line of a quoted string that the parse reads as the
+      // server does, can be less indented than the step: it stays as written.
+      source.push(line);
     }
   }
   const docs = readDocuments([...wrapper, ...source].join('\n'), {
