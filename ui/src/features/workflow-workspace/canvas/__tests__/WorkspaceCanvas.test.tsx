@@ -918,6 +918,14 @@ describe('WorkspaceCanvas', () => {
       expect(shownPanel()).toBeNull();
     });
 
+    it('stays shut for a link to a step that another view covers', () => {
+      renderCanvas('/dags/example.yaml?run=run-7&step=extract&def=run');
+      expect(shownPanel()).toBeNull();
+      fireEvent.click(screen.getByText('snapshot back'));
+      expect(location()).toHaveTextContent('step=extract');
+      expect(shownPanel()).toBeNull();
+    });
+
     // The panel takes the path of the node menu: the gates and the dialogs
     // of the step actions.
     it('sends its commands through the step actions and opens the node view', () => {

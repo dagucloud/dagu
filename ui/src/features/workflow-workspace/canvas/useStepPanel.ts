@@ -79,8 +79,6 @@ export function useStepPanel({
   }, [zoneRef]);
 
   const shown = open && step !== null && !covered;
-  const closeRef = useRef(close);
-  closeRef.current = close;
   useEffect(() => {
     if (!active || !shown) return;
     const onKeyDown = (event: KeyboardEvent) => {
@@ -90,11 +88,11 @@ export function useStepPanel({
         target === document.body || target === document.documentElement;
       if (!onPage && !(target && zoneRef.current?.contains(target))) return;
       event.preventDefault();
-      closeRef.current();
+      close();
     };
     document.addEventListener('keydown', onKeyDown);
     return () => document.removeEventListener('keydown', onKeyDown);
-  }, [active, shown, zoneRef]);
+  }, [active, shown, zoneRef, close]);
 
   return { shown, show, close };
 }

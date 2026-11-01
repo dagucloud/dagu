@@ -379,11 +379,14 @@ export function WorkspaceCanvas({
 
   // A click on a step opens its panel over the canvas; another right panel,
   // the node view or the snapshot takes its place.
+  const covered = url.ndv !== null || activePanel !== null || snapshot;
   const stepPanel = useStepPanel({
     zoneRef,
     step: url.step,
-    covered: url.ndv !== null || activePanel !== null || snapshot,
-    linked: url.step !== null && url.ndv === null && url.dock === null,
+    covered,
+    // A link to a step that another view covers keeps the panel shut.
+    linked:
+      url.step !== null && url.ndv === null && url.dock === null && !covered,
     active: paneActive,
   });
   const panelStep = stepPanel.shown ? url.step : null;
