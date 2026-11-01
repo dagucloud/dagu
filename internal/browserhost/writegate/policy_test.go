@@ -40,6 +40,12 @@ func TestClassify(t *testing.T) {
 		{"beacon", request{Method: "POST", URL: "https://app.example.com/log", ResourceType: "Ping"}, ClassNoise, true},
 		{"report", request{Method: "POST", URL: "https://app.example.com/csp", ResourceType: "CSPViolationReport"}, ClassNoise, true},
 		{"noise host", request{Method: "POST", URL: "https://eu.stats.example.com/collect"}, ClassNoise, true},
+		// A page's analytics sent by script are noise, not the work's saves.
+		{"site analytics", request{Method: "POST", URL: "https://app.example.com/cdn-cgi/rum", ResourceType: "XHR"}, ClassNoise, true},
+		{"analytics host", request{Method: "POST", URL: "https://region1.google-analytics.com/g/collect?v=2", ResourceType: "Fetch"}, ClassNoise, true},
+		{"error report", request{Method: "POST", URL: "https://o4507.ingest.us.sentry.io/api/12/envelope/", ResourceType: "Fetch"}, ClassNoise, true},
+		// The analytics product's own pages save like any other site.
+		{"analytics product", request{Method: "POST", URL: "https://analytics.google.com/analytics/web/save"}, ClassWrite, true},
 		{"not the web", request{Method: "POST", URL: "chrome-extension://abc/x"}, "", false},
 	}
 	for _, tc := range cases {

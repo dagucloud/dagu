@@ -28,6 +28,19 @@ const (
 	resourceDocument  = "Document"
 )
 
+// telemetry are endpoints that only collect a page's analytics or error
+// reports, which a page sends by itself without anyone saving anything.
+var telemetry = []Rule{
+	{Host: hostpattern.Any, Path: "/cdn-cgi/rum"}, // Cloudflare Web Analytics, on the site's own host
+	{Host: "*.google-analytics.com"},
+	{Host: "*.analytics.google.com"},
+	{Host: "*.clarity.ms"},
+	{Host: "*.nr-data.net"},
+	{Host: "*.ingest.sentry.io"},
+	{Host: "*.ingest.us.sentry.io"},
+	{Host: "*.ingest.de.sentry.io"},
+}
+
 // hidden replaces a sensitive value.
 const hidden = masking.DefaultMaskString
 
@@ -90,7 +103,7 @@ func (r *rules) classify(req request, person bool) (string, bool) {
 	case IsWrite(req.Method) && matchAny(r.policy.SignIn, u, req, r.secrets):
 		return ClassSignIn, true
 	case req.ResourceType == resourcePing || req.ResourceType == resourceCSPReport ||
-		hostpattern.MatchAny(u.Hostname(), r.policy.NoiseHosts):
+		hostpattern.MatchAny(u.Hostname(), r.policy.NoiseHosts) || matchAny(telemetry, u, req, nil):
 		return ClassNoise, true
 	}
 	return ClassWrite, true
