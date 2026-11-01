@@ -254,6 +254,7 @@ function CanvasView({
   launchers = NO_LAUNCHERS,
   activeLauncher = null,
   onLauncher,
+  onStepClick,
   fitPadding = FIT_PADDING,
 }: VisualCanvasProps): ReactElement {
   const { ts } = useI18n();
@@ -1321,7 +1322,10 @@ function CanvasView({
               onNodeClick={(key) => {
                 const launcher = launcherIdOf(key);
                 if (launcher) onLauncher?.(launcher);
-                else if (!isGhostKey(key)) selectStep(key);
+                else if (!isGhostKey(key)) {
+                  selectStep(key);
+                  onStepClick?.(key);
+                }
               }}
               onNodeDoubleClick={(id) => {
                 if (!isLauncherKey(id) && !isGhostKey(id)) {

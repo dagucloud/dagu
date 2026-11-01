@@ -336,6 +336,21 @@ describe.skipIf(realSchema === null)('VisualEditor in a host', () => {
       expect(onSelectedStepNameChange).toHaveBeenLastCalledWith('publish');
     });
 
+    it('tells the host of a click on a step, not of a key', () => {
+      const onStepClick = vi.fn();
+      renderEditor({ initial: yamlArraySteps, openNdvOn: 'open', onStepClick });
+
+      fireEvent.click(nodeCard('steps[2]'));
+      expect(onStepClick).toHaveBeenLastCalledWith('publish');
+      // A click on the selected step is a click again.
+      fireEvent.click(nodeCard('steps[2]'));
+      expect(onStepClick).toHaveBeenCalledTimes(2);
+
+      fireEvent.keyDown(screen.getByTestId('ve-canvas'), { key: 'ArrowUp' });
+      expect(isSelected('steps[1]')).toBe(true);
+      expect(onStepClick).toHaveBeenCalledTimes(2);
+    });
+
     it('pans to a step that the host selects', () => {
       const props = { initial: yamlArraySteps, selectedStepName: 'fetch' };
       const { update } = renderEditor(props);

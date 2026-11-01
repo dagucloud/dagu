@@ -375,6 +375,11 @@ export interface VisualCanvasProps {
   /** The user opens a launcher node. */
   onLauncher?(id: LauncherId): void;
   /**
+   * A pointer click on a step node, after its selection. A drag, a key and
+   * a click on a launcher or a ghost are no step click.
+   */
+  onStepClick?(step: StepKey): void;
+  /**
    * Margin around the graph when it fits, as a share of the graph's size on
    * each side. A small preview that leaves no room for editing uses less.
    */
@@ -535,6 +540,11 @@ export interface EditorHostProps {
   onRunStarted?(runId: string): void;
   selectedStepName?: string | null; // controlled, server step name
   onSelectedStepNameChange?(name: string | null): void;
+  /**
+   * A pointer click on a step node, by its server name, after the selection
+   * changed. A drag, a key or a step with no server name yet calls nothing.
+   */
+  onStepClick?(name: string): void;
   openNdvOn?: 'select' | 'open'; // default 'select' (classic)
   renderStepRun?(stepName: string, variant: 'facts'): ReactNode; // replaces StepRunPanel
   /**
