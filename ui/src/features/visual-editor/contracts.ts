@@ -569,6 +569,12 @@ export interface EditorHostProps {
   inputColumnRoot?: HTMLElement | null; // UpstreamDataPanel portal
   outputColumnRoot?: HTMLElement | null; // renderStepRun portal
   onStepCommand?(cmd: StepCommand): void; // run items hidden in menus when absent
+  /**
+   * Opening a step (a double click, Enter or Open step) asks the host first:
+   * true when the host opened what the step calls, such as a child run or a
+   * child workflow. The step view opens otherwise.
+   */
+  onOpenCall?(step: string): boolean;
   stepCommandGates?: StepCommandGates;
   /**
    * The runs that the step view follows in place: the last 'upstream' run

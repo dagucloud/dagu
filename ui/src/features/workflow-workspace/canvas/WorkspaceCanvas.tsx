@@ -3,7 +3,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { subscribeClock } from '@/hooks/useClock';
-import { useSearchParams } from 'react-router-dom';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import {
   useActiveRightPanel,
   useCloseRightPanel,
@@ -22,6 +22,8 @@ import {
   upstreamStepNames,
 } from '@/features/visual-editor/run/upstreamSteps';
 import { cn } from '@/lib/utils';
+import { useRemoteNode } from '@/contexts/RemoteNodeContext';
+import { buildDAGPageURL } from '@/features/dag-runs/lib/dagRunUrls';
 import { PanelPlacementProvider } from '@/features/dags/components/step-details/PanelShell';
 import {
   CanvasToolbarHostContext,
@@ -349,6 +351,14 @@ export function WorkspaceCanvas({
     setUrl({ ndv: 'docked' }, { replace: true });
   }, [handle, wantsYaml, setUrl]);
 
+  // A step that calls a workflow of another file opens that workflow.
+  const navigate = useNavigate();
+  const remoteNode = useRemoteNode();
+  const openWorkflow = useCallback(
+    (name: string) => navigate(buildDAGPageURL({ fileName: name, remoteNode })),
+    [navigate, remoteNode]
+  );
+
   // The YAML panel shows as the user left it, unless a link opens a view.
   const openYamlPanel = useMemo(
     () => (handle ? () => handle.toggleYaml(true) : null),
@@ -535,6 +545,7 @@ export function WorkspaceCanvas({
                   openNdvOn="open"
                   renderStepOutput={renderStepOutput}
                   onStepCommand={onStepCommand}
+                  onOpenWorkflow={openWorkflow}
                   stepCommandGates={stepCommandGates}
                   followedRuns={actions.followed}
                   inputRun={inputRun}

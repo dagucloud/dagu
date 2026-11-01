@@ -259,6 +259,7 @@ function DAGSpec({
   handleRef,
   runSource,
   onRunStarted,
+  onOpenWorkflow,
   selectedStepName,
   onSelectedStepNameChange,
   onStepClick,
@@ -1627,6 +1628,26 @@ function DAGSpec({
     />
   ) : null;
 
+  // Opening a step that calls a workflow opens that workflow: the child run
+  // in the shown run, else the tab of a child workflow of this file, else
+  // the page of the called workflow. Only the steps of the parent ran in the
+  // shown run.
+  const openCall = (step: string, inParent: boolean): boolean => {
+    if (inParent && onStepCommand && stepCommandGates?.hasSubRuns(step)) {
+      onStepCommand({ kind: 'openSubRun', step });
+      return true;
+    }
+    const call = preview.dag?.steps?.find((item) => item.name === step)?.call;
+    if (!call) return false;
+    if (localDags?.some((localDag) => localDag.name === call)) {
+      switchDocument(call);
+      return true;
+    }
+    if (!onOpenWorkflow) return false;
+    onOpenWorkflow(call);
+    return true;
+  };
+
   const selectedStep = selectedSpecStepName
     ? preview.dag?.steps?.find((step) => step.name === selectedSpecStepName)
     : undefined;
@@ -2106,6 +2127,7 @@ function DAGSpec({
                             (ndv ? ndvOutputRoot : undefined)
                           }
                           onStepCommand={onStepCommand}
+                          onOpenCall={(step) => openCall(step, true)}
                           stepCommandGates={stepCommandGates}
                           followedRuns={followedRuns}
                           inputRun={inputRun}
@@ -2124,6 +2146,7 @@ function DAGSpec({
                     <React.Suspense fallback={null}>
                       <DetailsCanvas
                         dag={preview.dag}
+                        onOpenStep={(step) => void openCall(step, false)}
                         workflowPanel={<WorkflowPanel dag={preview.dag} />}
                         // The order of the parent: selector, Workflow, YAML,
                         // then the actions.

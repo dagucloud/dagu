@@ -16,6 +16,7 @@ import DAGSpec, {
   type WorkspaceEditorHandle,
   type WorkspaceEditorState,
 } from '../DAGSpec';
+import type { StepCommandGates } from '@/features/visual-editor/contracts';
 import type { VisualEditorHandle, VisualEditorState } from '../hostTypes';
 
 const mocks = vi.hoisted(() => {
@@ -381,6 +382,88 @@ describe('DAGSpec host props', () => {
     fireEvent.click(screen.getByRole('tab', { name: 'child' }));
     await settle();
     expect(drawer.panelId).toBe('subdag-step');
+  });
+});
+
+// Opening a step that calls a workflow opens that workflow: the child run in
+// the shown run first, then a child workflow of the file, then the page of a
+// workflow of another file.
+describe('opening a step that calls a workflow', () => {
+  const localDags = [
+    {
+      name: 'child',
+      dag: { name: 'child', steps: [{ name: 'load' }] },
+      errors: [],
+    },
+  ] as Extra['localDags'];
+  const gates = (subRuns: boolean): StepCommandGates => ({
+    canRunStep: true,
+    canRetry: () => false,
+    canSetStatus: () => false,
+    hasSubRuns: () => subRuns,
+  });
+  const openCall = (step: string) => {
+    const open = visual.props?.onOpenCall as (step: string) => boolean;
+    let opened = false;
+    act(() => {
+      opened = open(step);
+    });
+    return opened;
+  };
+
+  beforeEach(() => {
+    mocks.useQuery.mockReturnValue(
+      specData({
+        steps: [
+          { name: 'local', call: 'child' },
+          { name: 'remote', call: 'other' },
+          { name: 'plain' },
+        ],
+      })
+    );
+  });
+
+  it('opens the child run in the shown run', async () => {
+    const onStepCommand = vi.fn();
+    await renderSpec({
+      localDags,
+      onStepCommand,
+      stepCommandGates: gates(true),
+    });
+
+    expect(openCall('local')).toBe(true);
+    expect(onStepCommand).toHaveBeenCalledWith({
+      kind: 'openSubRun',
+      step: 'local',
+    });
+  });
+
+  it('shows the tab of a child workflow of the file', async () => {
+    await renderSpec({
+      localDags,
+      onStepCommand: vi.fn(),
+      stepCommandGates: gates(false),
+    });
+
+    expect(openCall('local')).toBe(true);
+    await settle();
+    // The child shows on its own canvas in place of the parent editor.
+    expect(screen.getByTestId('details-canvas')).toBeInTheDocument();
+    expect(screen.queryByTestId('visual-editor-mock')).not.toBeInTheDocument();
+  });
+
+  it('opens the page of a workflow of another file', async () => {
+    const onOpenWorkflow = vi.fn();
+    await renderSpec({ localDags, onOpenWorkflow });
+
+    expect(openCall('remote')).toBe(true);
+    expect(onOpenWorkflow).toHaveBeenCalledWith('other');
+  });
+
+  it('leaves a step that calls no workflow to its step view', async () => {
+    await renderSpec({ onOpenWorkflow: vi.fn() });
+
+    expect(openCall('plain')).toBe(false);
   });
 });
 

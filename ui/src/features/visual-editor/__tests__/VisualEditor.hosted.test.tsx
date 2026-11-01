@@ -672,6 +672,25 @@ describe.skipIf(realSchema === null)('VisualEditor in a host', () => {
       expect(screen.getByTestId('ve-inspector')).toBeInTheDocument();
     });
 
+    // A host that opens what the step calls, such as its child run, takes
+    // the open: the YAML of the step stays shut.
+    it('lets the host open what a step calls', () => {
+      const onOpenCall = vi.fn(() => true);
+      renderEditor({
+        initial: yamlArraySteps,
+        openNdvOn: 'open',
+        bar: true,
+        onOpenCall,
+      });
+
+      fireEvent.doubleClick(nodeCard('steps[1]'));
+
+      expect(onOpenCall).toHaveBeenCalledWith('transform');
+      expect(
+        within(yamlBar).queryByRole('button', { name: 'Form' })
+      ).toBeNull();
+    });
+
     it("shows the YAML on a click with the default 'select'", () => {
       const onYamlVisibleChange = vi.fn();
       renderEditor({ initial: yamlArraySteps, onYamlVisibleChange });

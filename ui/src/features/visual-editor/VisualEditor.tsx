@@ -369,6 +369,7 @@ export function VisualEditor(props: VisualEditorProps): ReactElement {
     inputColumnRoot,
     outputColumnRoot,
     onStepCommand,
+    onOpenCall,
     stepCommandGates,
     followedRuns,
     inputRun,
@@ -978,10 +979,14 @@ export function VisualEditor(props: VisualEditorProps): ReactElement {
       case 'duplicate':
         duplicateSelection(command.step);
         return;
-      // Opening a step shows its YAML first; the form is one click away.
-      case 'openInspector':
+      // Opening a step shows its YAML first; the form is one click away. A
+      // step that calls a workflow opens it, when the host can.
+      case 'openInspector': {
+        const name = serverNameOf(command.step);
+        if (name !== null && onOpenCall?.(name)) return;
         showYamlFor(command.step);
         return;
+      }
       // The name is the first field of the form, and the form holds the
       // run panel.
       case 'rename':

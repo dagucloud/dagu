@@ -106,6 +106,11 @@ export interface DAGSpecHostProps extends EditorHostProps {
    * `bare`: the host content brings its own body.
    */
   renderWorkflowPanel?(overview: ReactNode, dag: DAGDetails): ReactNode;
+  /**
+   * Opens the page of a workflow that a step calls, when it is no workflow
+   * of this file. Without it, opening such a step opens its step view.
+   */
+  onOpenWorkflow?(fileName: string): void;
   /** Null until the spec has loaded. */
   editorHandleRef?: Ref<WorkspaceEditorHandle>;
   onEditorStateChange?(s: WorkspaceEditorState): void;
