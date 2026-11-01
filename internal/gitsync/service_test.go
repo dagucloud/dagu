@@ -354,6 +354,21 @@ func TestNormalizeTrackedItemsKeepsAssetKind(t *testing.T) {
 	assert.NotContains(t, state.Items, "bogus")
 }
 
+// A record without a kind predates calendar items, when a calendars/ ID
+// named a DAG. Keeping that kind lets a pull move the DAG copy aside.
+func TestNormalizeTrackedItemsInfersLegacyKinds(t *testing.T) {
+	t.Parallel()
+
+	state := &State{Items: map[string]*SyncItemState{
+		"calendars/jp":  {Status: StatusSynced},
+		"wiki/guides/a": {Status: StatusSynced},
+	}}
+	normalizeTrackedItems(state)
+
+	assert.Equal(t, SyncItemKindDAG, state.Items["calendars/jp"].Kind)
+	assert.Equal(t, SyncItemKindWikiPage, state.Items["wiki/guides/a"].Kind)
+}
+
 func TestIsSyncableRepoFile(t *testing.T) {
 	t.Parallel()
 

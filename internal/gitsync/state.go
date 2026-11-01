@@ -288,7 +288,12 @@ func normalizeTrackedItems(state *State) {
 		}
 		switch itemState.Kind {
 		case "":
+			// A record without a kind predates calendar items, so a
+			// calendars/ ID in it names a DAG.
 			itemState.Kind = SyncItemKindForID(itemID)
+			if itemState.Kind == SyncItemKindCalendar {
+				itemState.Kind = SyncItemKindDAG
+			}
 		case SyncItemKindDAG, SyncItemKindWikiPage, SyncItemKindWikiPageAsset, SyncItemKindFile, SyncItemKindCalendar:
 		default:
 			delete(state.Items, itemID)
