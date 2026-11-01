@@ -418,17 +418,19 @@ function WorkflowOverlayHost(): React.ReactElement | null {
   }, [isOpen, close]);
   if (!overlay?.isOpen) return null;
   return createPortal(
-    <div className="fixed inset-0 z-40 flex">
+    <div className="fixed inset-0 z-40">
       <div
         aria-hidden="true"
-        className="hidden flex-1 bg-black/40 md:block"
+        className="absolute inset-0 bg-black/60"
         onClick={overlay.close}
       />
+      {/* A panel inset from the window, so that the dimmed page below shows
+          around it: a layer over the page, not a new page. */}
       <section
         role="dialog"
         aria-modal="true"
         aria-label={ts('Workflow')}
-        className="flex h-full w-full min-w-0 flex-col border-l border-border bg-background shadow-2xl md:w-[88vw]"
+        className="absolute inset-0 flex min-w-0 flex-col overflow-hidden bg-background shadow-2xl md:inset-y-3 md:left-auto md:right-3 md:w-[min(76rem,calc(100vw-18rem))] md:rounded-xl md:border md:border-border"
       >
         <div className="flex h-8 shrink-0 items-center justify-end gap-1 border-b border-border px-2">
           <IconButton
