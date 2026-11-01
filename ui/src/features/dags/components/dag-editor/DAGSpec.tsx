@@ -52,6 +52,7 @@ import {
   type EditorCustomActionHint,
   type EditorLegacyDefinitionHint,
   extractLocalCustomDefinitionHints,
+  harnessNamesEqual,
   legacyDefinitionHintsEqual,
   mergeCustomActionHints,
   mergeLegacyDefinitionHints,
@@ -616,6 +617,9 @@ function DAGSpec({
   const [lastGoodLocalActions, setLastGoodLocalActions] = React.useState(
     () => extractLocalCustomDefinitionHints(serverSpec ?? '').actions
   );
+  const [lastGoodLocalHarnesses, setLastGoodLocalHarnesses] = React.useState(
+    () => extractLocalCustomDefinitionHints(serverSpec ?? '').harnesses
+  );
 
   const parsedInheritedLegacyDefinitions = React.useMemo(
     () => toInheritedLegacyDefinitionHints(editorHints),
@@ -654,6 +658,11 @@ function DAGSpec({
         ? previous
         : parsedLocalDefinitions.actions
     );
+    setLastGoodLocalHarnesses((previous) =>
+      harnessNamesEqual(previous, parsedLocalDefinitions.harnesses)
+        ? previous
+        : parsedLocalDefinitions.harnesses
+    );
   }, [parsedLocalDefinitions]);
 
   const effectiveLegacyDefinitions = React.useMemo(() => {
@@ -678,6 +687,17 @@ function DAGSpec({
       ? lastGoodLocalActions
       : parsedLocalDefinitions.actions;
   }, [lastGoodLocalActions, parsedLocalDefinitions]);
+  const effectiveLocalHarnesses = React.useMemo(() => {
+    if (!parsedLocalDefinitions.ok) {
+      return lastGoodLocalHarnesses;
+    }
+    return harnessNamesEqual(
+      lastGoodLocalHarnesses,
+      parsedLocalDefinitions.harnesses
+    )
+      ? lastGoodLocalHarnesses
+      : parsedLocalDefinitions.harnesses;
+  }, [lastGoodLocalHarnesses, parsedLocalDefinitions]);
 
   const editorSchema = React.useMemo(() => {
     if (!baseSchema) {
@@ -689,11 +709,13 @@ function DAGSpec({
         inheritedLegacyDefinitions,
         effectiveLegacyDefinitions
       ),
-      mergeCustomActionHints(inheritedCustomActions, effectiveLocalActions)
+      mergeCustomActionHints(inheritedCustomActions, effectiveLocalActions),
+      effectiveLocalHarnesses
     );
   }, [
     baseSchema,
     effectiveLocalActions,
+    effectiveLocalHarnesses,
     effectiveLegacyDefinitions,
     inheritedCustomActions,
     inheritedLegacyDefinitions,

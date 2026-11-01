@@ -740,4 +740,46 @@ steps:
     expect(result.legacyDefinitions).toEqual([]);
     expect(result.actions).toEqual([]);
   });
+
+  // A null entry removes an inherited harness, so it names no harness.
+  it('extracts the names of local harnesses from YAML', () => {
+    const result = extractLocalCustomDefinitionHints(`
+harnesses:
+  team-agent:
+    binary: team-agent
+  inherited: null
+  alpha:
+    binary: alpha
+`);
+
+    expect(result.harnesses).toEqual(['alpha', 'team-agent']);
+  });
+
+  it('suggests local harnesses after the builtin providers', () => {
+    const schema = buildAugmentedDAGSchema(
+      {
+        definitions: {
+          harnessProvider: {
+            anyOf: [
+              { type: 'string', enum: ['claude', 'codex'] },
+              { type: 'string' },
+            ],
+          },
+        },
+      },
+      [],
+      [],
+      ['codex', 'team-agent']
+    );
+
+    expect(schema.definitions?.harnessProvider?.anyOf).toEqual([
+      { type: 'string', enum: ['claude', 'codex'] },
+      {
+        type: 'string',
+        enum: ['team-agent'],
+        description: 'Custom harness declared in harnesses.',
+      },
+      { type: 'string' },
+    ]);
+  });
 });

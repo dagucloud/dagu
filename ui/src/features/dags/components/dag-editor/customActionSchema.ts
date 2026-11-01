@@ -24,6 +24,8 @@ export interface ExtractCustomDefinitionHintsResult {
   ok: boolean;
   legacyDefinitions: EditorLegacyDefinitionHint[];
   actions: EditorCustomActionHint[];
+  /** Names of the custom harnesses that the document defines, sorted. */
+  harnesses: string[];
 }
 
 const legacyDefinitionNamePattern = /^[A-Za-z][A-Za-z0-9_-]*$/;
@@ -32,6 +34,7 @@ const customActionNamePattern =
 const localLegacyDefinitionSchemaDefinitionsKey =
   'legacyDefinitionInputSchemas';
 const localCustomActionSchemaDefinitionsKey = 'customActionInputSchemas';
+const harnessProviderDefinitionKey = 'harnessProvider';
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
@@ -145,6 +148,35 @@ function buildCustomActionEnumBranch(
     description:
       'Custom action declared in actions or inherited from base config.',
   };
+}
+
+/**
+ * Adds the custom harnesses of the document to the names that a harness
+ * provider field suggests, after the built-in providers.
+ */
+function augmentHarnessProviderSchema(schema: JSONSchema, harnesses: string[]) {
+  const provider = schema.definitions?.[harnessProviderDefinitionKey];
+  if (!isRecord(provider) || !Array.isArray(provider.anyOf)) {
+    return;
+  }
+  const listed = new Set(
+    provider.anyOf.flatMap((entry) =>
+      isRecord(entry) && Array.isArray(entry.enum) ? entry.enum : []
+    )
+  );
+  const names = harnesses.filter((name) => !listed.has(name));
+  if (names.length === 0) {
+    return;
+  }
+  provider.anyOf = [
+    ...(provider.anyOf.slice(0, 1) as JSONSchema[]),
+    {
+      type: 'string',
+      enum: names,
+      description: 'Custom harness declared in harnesses.',
+    },
+    ...(provider.anyOf.slice(1) as JSONSchema[]),
+  ];
 }
 
 function augmentExecutorTypeSchema(
@@ -537,28 +569,42 @@ export function toInheritedCustomActionHints(
   return actions;
 }
 
+function parseLocalHarnessNames(document: Record<string, unknown>): string[] {
+  const harnesses = document.harnesses;
+  if (!isRecord(harnesses)) {
+    return [];
+  }
+  // A null entry removes an inherited harness: it names none.
+  return Object.entries(harnesses)
+    .filter(([, definition]) => isRecord(definition))
+    .map(([name]) => name.trim())
+    .filter((name) => name !== '')
+    .sort();
+}
+
 export function extractLocalCustomDefinitionHints(
   yamlContent: string
 ): ExtractCustomDefinitionHintsResult {
   if (!yamlContent.trim()) {
-    return { ok: true, legacyDefinitions: [], actions: [] };
+    return { ok: true, legacyDefinitions: [], actions: [], harnesses: [] };
   }
 
   let document: unknown;
   try {
     document = parseYaml(yamlContent);
   } catch {
-    return { ok: false, legacyDefinitions: [], actions: [] };
+    return { ok: false, legacyDefinitions: [], actions: [], harnesses: [] };
   }
 
   if (!isRecord(document)) {
-    return { ok: true, legacyDefinitions: [], actions: [] };
+    return { ok: true, legacyDefinitions: [], actions: [], harnesses: [] };
   }
 
   return {
     ok: true,
     legacyDefinitions: parseLocalLegacyDefinitionHints(document),
     actions: parseLocalCustomActionHints(document),
+    harnesses: parseLocalHarnessNames(document),
   };
 }
 
@@ -640,12 +686,21 @@ export function customActionHintsEqual(
   return true;
 }
 
+export function harnessNamesEqual(left: string[], right: string[]): boolean {
+  return (
+    left.length === right.length &&
+    left.every((name, index) => name === right[index])
+  );
+}
+
 export function buildAugmentedDAGSchema(
   baseSchema: JSONSchema,
   legacyDefinitions: EditorLegacyDefinitionHint[],
-  actions: EditorCustomActionHint[] = []
+  actions: EditorCustomActionHint[] = [],
+  harnesses: string[] = []
 ): JSONSchema {
   const augmented = cloneJson(baseSchema);
+  augmentHarnessProviderSchema(augmented, harnesses);
   const definitions = augmented.definitions;
 
   if (legacyDefinitions.length === 0 && actions.length === 0) {
