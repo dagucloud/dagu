@@ -41,12 +41,13 @@ export function scalarUnionKind(schema: RJSFSchema): ScalarKind | null {
 }
 
 /**
- * Values that the listed branches of a `oneOf`/`anyOf` of strings suggest,
- * such as `anyOf: [{type: string, enum: [claude, codex]}, {type: string}]`.
- * Gives null unless another branch takes any string.
+ * Values that the listed branches of an `anyOf` of strings suggest, such as
+ * `anyOf: [{type: string, enum: [claude, codex]}, {type: string}]`. Gives
+ * null unless another branch takes any string. A listed value of a `oneOf`
+ * would match that branch too, which `oneOf` rejects.
  */
 export function suggestedValues(schema: RJSFSchema): string[] | null {
-  const branches = (schema.oneOf ?? schema.anyOf ?? []) as RJSFSchema[];
+  const branches = (schema.anyOf ?? []) as RJSFSchema[];
   if (
     branches.length === 0 ||
     !branches.every((branch) => branch.type === 'string')

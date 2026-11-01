@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 import type { RJSFSchema } from '@rjsf/utils';
-import { fireEvent, screen } from '@testing-library/react';
+import { fireEvent, screen, within } from '@testing-library/react';
 import { describe, expect, it } from 'vitest';
 import { getActionWithSchema } from '../withSchema';
 import { scalarUnionKind, suggestedValues } from '../widgets';
@@ -144,7 +144,7 @@ describe('suggestedValues', () => {
     ],
     [
       {
-        oneOf: [
+        anyOf: [
           { type: 'string', enum: ['a'] },
           { type: 'string', enum: ['a', 'c'] },
           { type: 'string' },
@@ -152,6 +152,7 @@ describe('suggestedValues', () => {
       },
       ['a', 'c'],
     ],
+    [{ oneOf: [{ type: 'string', enum: ['a'] }, { type: 'string' }] }, null],
     [{ anyOf: [{ type: 'string', enum: ['a'] }] }, null],
     [{ anyOf: [{ type: 'string' }, { type: 'string' }] }, null],
     [{ anyOf: [{ type: 'string', enum: ['a'] }, { type: 'integer' }] }, null],
@@ -203,6 +204,13 @@ describe.skipIf(realSchema === null)('the providers of harness.run', () => {
     });
     fireEvent.focus(primary!);
     expect(screen.getByRole('option', { name: 'claude' })).toBeInTheDocument();
-    expect(fallback).toHaveValue('codex');
+    fireEvent.focus(fallback!);
+    expect(fallback).toHaveAttribute('aria-expanded', 'true');
+    const listbox = document.getElementById(
+      fallback!.getAttribute('aria-controls')!
+    )!;
+    expect(
+      within(listbox).getByRole('option', { name: 'codex' })
+    ).toBeInTheDocument();
   });
 });
