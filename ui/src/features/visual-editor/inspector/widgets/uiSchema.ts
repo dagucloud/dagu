@@ -4,7 +4,7 @@
 import type { RJSFSchema, UiSchema } from '@rjsf/utils';
 import type { JSONSchema } from '../../contracts';
 import { isStringOrMap } from './StringOrMap';
-import { scalarUnionKind } from './ValueOrReference';
+import { scalarUnionKind, suggestedValues } from './ValueOrReference';
 
 const LONG_TEXT_NAMES = new Set([
   'body',
@@ -70,6 +70,12 @@ function propertyUiSchema(
       'ui:fieldReplacesAnyOrOneOf': true,
     };
   }
+  if (suggestedValues(schema as RJSFSchema)) {
+    return {
+      'ui:field': 'SuggestedText',
+      'ui:fieldReplacesAnyOrOneOf': true,
+    };
+  }
   if (scalarUnionKind(schema as RJSFSchema)) {
     // Without the replace flag rjsf also renders its own oneOf selector.
     return {
@@ -87,16 +93,25 @@ function propertyUiSchema(
     const nested = buildUiSchema(schema);
     return Object.keys(nested).length > 0 ? nested : undefined;
   }
+  if (
+    schema.type === 'array' &&
+    isRecord(schema.items) &&
+    (schema.items as JSONSchema).properties
+  ) {
+    const items = buildUiSchema(schema.items as JSONSchema);
+    return Object.keys(items).length > 0 ? { items } : undefined;
+  }
   return undefined;
 }
 
 /**
  * Builds the uiSchema of a flat `with` schema: maps of strings use the
  * KeyValue field, string-or-map unions use the StringOrMap field,
- * scalar-or-string unions use the ValueOrReference field,
+ * scalar-or-string unions use the ValueOrReference field, string unions
+ * that list values use the SuggestedText field,
  * properties without a type use the FreeValue field and long text uses a
- * text area. Enums keep the select widgets of the theme. Nested objects
- * get their own entries.
+ * text area. Enums keep the select widgets of the theme. Nested objects,
+ * and the objects of arrays, get their own entries.
  */
 export function buildUiSchema(withSchema: JSONSchema): UiSchema {
   const uiSchema: UiSchema = {};

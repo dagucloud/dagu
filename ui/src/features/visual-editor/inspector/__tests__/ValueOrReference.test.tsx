@@ -4,8 +4,10 @@
 import type { RJSFSchema } from '@rjsf/utils';
 import { fireEvent, screen } from '@testing-library/react';
 import { describe, expect, it } from 'vitest';
-import { scalarUnionKind } from '../widgets';
+import { getActionWithSchema } from '../withSchema';
+import { scalarUnionKind, suggestedValues } from '../widgets';
 import { renderInspectorForm } from './formHarness';
+import { realSchema } from './realSchema';
 
 describe('scalarUnionKind', () => {
   it.each<[RJSFSchema, string | null]>([
@@ -131,5 +133,76 @@ describe('FreeValueField', () => {
     renderInspectorForm(schema, { data: { a: 1 } }, { uiSchema });
     expect(screen.queryByLabelText('data')).toBeNull();
     expect(screen.getByText('Edit this field in YAML')).toBeInTheDocument();
+  });
+});
+
+describe('suggestedValues', () => {
+  it.each<[RJSFSchema, string[] | null]>([
+    [
+      { anyOf: [{ type: 'string', enum: ['a', 'b'] }, { type: 'string' }] },
+      ['a', 'b'],
+    ],
+    [
+      {
+        oneOf: [
+          { type: 'string', enum: ['a'] },
+          { type: 'string', enum: ['a', 'c'] },
+          { type: 'string' },
+        ],
+      },
+      ['a', 'c'],
+    ],
+    [{ anyOf: [{ type: 'string', enum: ['a'] }] }, null],
+    [{ anyOf: [{ type: 'string' }, { type: 'string' }] }, null],
+    [{ anyOf: [{ type: 'string', enum: ['a'] }, { type: 'integer' }] }, null],
+    [{ type: 'string', enum: ['a'] }, null],
+  ])('%j gives %j', (schema, values) => {
+    expect(suggestedValues(schema)).toEqual(values);
+  });
+});
+
+describe('SuggestedTextField', () => {
+  const providerSchema = {
+    type: 'object',
+    properties: {
+      provider: {
+        title: 'provider',
+        anyOf: [
+          { type: 'string', enum: ['claude', 'codex'] },
+          { type: 'string' },
+        ],
+      },
+    },
+  };
+
+  it('writes a suggested value', () => {
+    const { onChange } = renderInspectorForm(providerSchema, {});
+    fireEvent.focus(screen.getByLabelText('provider'));
+    fireEvent.click(screen.getByRole('option', { name: 'codex' }));
+    expect(onChange.mock.lastCall?.[0]?.provider).toBe('codex');
+  });
+
+  it('keeps a value that is not suggested', () => {
+    const { onChange } = renderInspectorForm(providerSchema, {});
+    fireEvent.change(screen.getByLabelText('provider'), {
+      target: { value: '${HARNESS_PROVIDER}' },
+    });
+    expect(onChange.mock.lastCall?.[0]?.provider).toBe('${HARNESS_PROVIDER}');
+  });
+});
+
+describe.skipIf(realSchema === null)('the providers of harness.run', () => {
+  it('suggests the builtin providers, also for a fallback', () => {
+    const withSchema = getActionWithSchema(realSchema!, 'harness.run', [])!;
+    renderInspectorForm(withSchema, {
+      prompt: 'Write tests',
+      fallback: [{ provider: 'codex' }],
+    });
+    const [primary, fallback] = screen.getAllByRole('combobox', {
+      name: 'provider',
+    });
+    fireEvent.focus(primary!);
+    expect(screen.getByRole('option', { name: 'claude' })).toBeInTheDocument();
+    expect(fallback).toHaveValue('codex');
   });
 });
