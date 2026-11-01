@@ -19,9 +19,9 @@ func Sync() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "sync",
 		Short: "Git sync operations",
-		Long: `Manage Git synchronization for workflows, Wiki content, and supporting files.
+		Long: `Manage Git synchronization for workflows, Wiki content, calendars, and supporting files.
 
-Git sync synchronizes workflows, Wiki content, and supporting files with a remote Git repository.
+Git sync synchronizes workflows, Wiki content, calendars, and supporting files with a remote Git repository.
 This enables version control, collaboration, and backup of your workflow definitions.
 
 Available Commands:
@@ -143,7 +143,7 @@ func syncPull() *cobra.Command {
 			Short: "Pull changes from remote",
 			Long: `Pull changes from the remote Git repository.
 
-This command applies remote workflows, Wiki content, and supporting files locally.
+This command applies remote workflows, Wiki content, calendars, and supporting files locally.
 
 Example:
   dagu sync pull`,
