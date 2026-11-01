@@ -43,7 +43,9 @@ type engine interface {
 	// variable, and always when secret is nil. Its error wraps
 	// errPageSessionLost when the connection to the page went away before
 	// the act reported back, and errPageContextLost when its script context
-	// did; the act may or may not have taken effect.
+	// did; the act may or may not have taken effect. An act whose page
+	// closed before it reported back, as a window its button closes does,
+	// succeeds, and later operations work on the page in front.
 	Act(ctx context.Context, instruction string, variables map[string]string, secret func(name string) bool, timeout time.Duration) (actOutcome, error)
 	// Replay performs one recorded action without a model call and reports
 	// whether it succeeded. An action whose element is not visible, or is
@@ -51,7 +53,8 @@ type engine interface {
 	// succeed. Its error wraps errPageSessionLost when
 	// the connection to the page went away before the action reported back,
 	// and errPageContextLost when its script context did; the action may or
-	// may not have taken effect.
+	// may not have taken effect. An action whose page closed before it
+	// reported back succeeds, as Act's does.
 	Replay(ctx context.Context, action recordedAction, variables map[string]string, timeout time.Duration) (bool, error)
 	// DocumentID identifies the document the active page shows. It changes
 	// whenever the page loads a new document.
