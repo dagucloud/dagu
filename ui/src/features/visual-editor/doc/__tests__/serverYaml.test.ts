@@ -32,6 +32,7 @@ describe('parseAllDocumentsAsServer', () => {
   it('reads several such scalars', () => {
     const text = 'steps:\n- run: \'a\n\'\n- run: "b\nc"\n- run: d\n';
     const [doc] = parseAllDocumentsAsServer(text);
+    expect(doc!.errors).toEqual([]);
     expect(doc!.toJS()).toEqual({
       steps: [{ run: 'a ' }, { run: 'b c' }, { run: 'd' }],
     });
@@ -50,6 +51,7 @@ describe('parseAllDocumentsAsServer', () => {
   it('keeps the lines of a block scalar', () => {
     const text = "a: |\n  'x\n  y'\nb: 'p\nq'\n";
     const [doc] = parseAllDocumentsAsServer(text);
+    expect(doc!.errors).toEqual([]);
     expect(doc!.toJS()).toEqual({ a: "'x\ny'\n", b: 'p q' });
   });
 
@@ -70,6 +72,7 @@ describe('parseDocumentAsServer', () => {
   it('reads a step at column 0 and ranges it in the text', () => {
     const text = "id: owner\nrun: 'echo x\n\n'\n";
     const doc = parseDocumentAsServer(text);
+    expect(doc.errors).toEqual([]);
     expect(doc.toJS()).toEqual({ id: 'owner', run: 'echo x\n' });
     expect(valueText(doc, text, 'run')).toBe("'echo x\n\n'");
   });

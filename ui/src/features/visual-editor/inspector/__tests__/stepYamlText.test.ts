@@ -96,16 +96,15 @@ describe('step with a quoted scalar with unindented lines', () => {
     const yaml = stepYamlFromModel(model, step);
     expect(parseStepYaml(yaml).value).toEqual(step.value);
 
-    const result = applyEdit(yamlUnindentedQuote, {
-      kind: 'replaceStepYaml',
-      step: step.key,
-      yaml: yaml.replace('-f1', '-f2'),
+    expect(
+      applyEdit(yamlUnindentedQuote, {
+        kind: 'replaceStepYaml',
+        step: step.key,
+        yaml: yaml.replace('-f1', '-f2'),
+      })
+    ).toMatchObject({
+      ok: true,
+      text: yamlUnindentedQuote.replace('-f1', '-f2'),
     });
-    expect(result.ok).toBe(true);
-    const edited = parseDagDoc(result.ok ? result.text : '');
-    expect(edited.steps.map((s) => s.value.run)).toEqual([
-      `echo "\${REPO}" | cut -d'/' -f2\n`,
-      'echo done',
-    ]);
   });
 });
