@@ -199,11 +199,21 @@ export function StepsGrid({
   const gridRef = useRef<HTMLDivElement>(null);
   const selectedCol = runs.findIndex((run) => run.dagRunId === selectedId);
   const lastCol = runs.length - 1;
-  const [focus, setFocus] = useState<{ row: number; col: number } | null>(null);
+  // The focus names its run: a new run moves the columns under it.
+  const [focus, setFocus] = useState<{ row: number; runId: string } | null>(
+    null
+  );
+  const focusCol = focus
+    ? runs.findIndex((run) => run.dagRunId === focus.runId)
+    : -1;
   const tab =
-    focus && focus.row < grid.rows.length && focus.col <= lastCol
-      ? focus
-      : { row: 0, col: selectedCol >= 0 ? selectedCol : lastCol };
+    focus && focus.row < grid.rows.length && focusCol >= 0
+      ? { row: focus.row, col: focusCol }
+      : {
+          // Without step rows, the run row holds the tab stop.
+          row: grid.rows.length > 0 ? 0 : HEADER_ROW,
+          col: selectedCol >= 0 ? selectedCol : lastCol,
+        };
 
   // The newest run is in view when the grid opens and when a run comes.
   const newestId = runs[lastCol]?.dagRunId;
@@ -221,14 +231,14 @@ export function StepsGrid({
       const runId = columns[col]?.dagRunId;
       if (runId === undefined) return;
       if (row === HEADER_ROW) {
-        setFocus({ row, col });
+        setFocus({ row, runId });
         if (kind === 'pick') live.current.onPickRun(runId);
         else live.current.onSpotlight(null);
         return;
       }
       const step = current.rows[row]?.step;
       if (step === undefined) return;
-      setFocus({ row, col });
+      setFocus({ row, runId });
       if (kind === 'pick') live.current.onPick(runId, step);
       else live.current.onSpotlight(step);
     },

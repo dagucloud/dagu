@@ -45,6 +45,8 @@ const RUNS = [
   ]),
 ];
 
+let view: ReturnType<typeof render>;
+
 function renderGrid(over: Partial<StepsGridProps> = {}) {
   const props: StepsGridProps = {
     grid: stepGrid(DAG, RUNS, NOW),
@@ -56,7 +58,7 @@ function renderGrid(over: Partial<StepsGridProps> = {}) {
     onSpotlight: vi.fn(),
     ...over,
   };
-  render(<StepsGrid {...props} />);
+  view = render(<StepsGrid {...props} />);
   return props;
 }
 
@@ -128,6 +130,36 @@ describe('StepsGrid', () => {
 
     press('ArrowDown');
     expect(cell('build', 'r1')).toHaveFocus();
+  });
+
+  // A new run shifts the columns of a count window under the focused cell.
+  it('keeps the focused run when a new run shifts the columns', () => {
+    const props = renderGrid();
+    cell('build', 'r2').focus();
+    const shifted = [
+      RUNS[1]!,
+      RUNS[2]!,
+      runAt('r4', 4, [node('build'), node('test')]),
+    ];
+    view.rerender(
+      <StepsGrid {...props} grid={stepGrid(DAG, shifted, NOW)} runs={shifted} />
+    );
+    press('Enter');
+    expect(props.onPick).toHaveBeenCalledWith('r2', 'build');
+  });
+
+  it('puts the tab stop on the run row without step rows', () => {
+    const empty = [runAt('e1', 1, [])];
+    renderGrid({
+      grid: stepGrid(
+        { name: 'demo', steps: [] } as unknown as ApiDAGDetails,
+        empty,
+        NOW
+      ),
+      runs: empty,
+      selectedId: 'e1',
+    });
+    expect(runHeader('e1')).toHaveAttribute('tabindex', '0');
   });
 
   // One tab stop: the arrow keys move in two directions, Enter selects.
