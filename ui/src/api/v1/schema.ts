@@ -5778,7 +5778,7 @@ export interface components {
             profile?: components["schemas"]["RuntimeProfileName"];
             /** @description Calendar whose business days the schedule fires on */
             calendar?: string;
-            /** @description Business days of the month the schedule keeps; negative values count from the end */
+            /** @description Business days of the month the schedule keeps; negative values count from the end. 0 is never listed. */
             businessDays?: number[];
         };
         /** @description A business calendar that start schedules can name */
