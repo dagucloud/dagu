@@ -169,11 +169,12 @@ type IPAccessDef struct {
 
 // AuthDef configures authentication for the application.
 type AuthDef struct {
-	Mode    *string              `mapstructure:"mode"` // "none", "basic", or "builtin"
-	Basic   *AuthBasicDef        `mapstructure:"basic"`
-	OIDC    *AuthOIDCDef         `mapstructure:"oidc"`
-	Proxy   *AuthTrustedProxyDef `mapstructure:"proxy"`
-	Builtin *AuthBuiltinDef      `mapstructure:"builtin"`
+	Mode     *string              `mapstructure:"mode"` // "none", "basic", or "builtin"
+	Basic    *AuthBasicDef        `mapstructure:"basic"`
+	OIDC     *AuthOIDCDef         `mapstructure:"oidc"`
+	Proxy    *AuthTrustedProxyDef `mapstructure:"proxy"`
+	Builtin  *AuthBuiltinDef      `mapstructure:"builtin"`
+	External *AuthExternalDef     `mapstructure:"external"`
 }
 
 // AuthBasicDef configures basic authentication credentials.
@@ -259,6 +260,30 @@ type TrustedProxyRoleMappingDef struct {
 	DefaultWorkspaceAccess *string                                 `mapstructure:"default_workspace_access" yaml:"default_workspace_access"`
 	RequireMapping         *bool                                   `mapstructure:"require_mapping" yaml:"require_mapping"`
 	SkipOrgRoleSync        *bool                                   `mapstructure:"skip_org_role_sync" yaml:"skip_org_role_sync"`
+}
+
+// AuthExternalDef configures the external authorization hook.
+type AuthExternalDef struct {
+	Enabled *bool                     `mapstructure:"enabled"`
+	Token   *ExternalIdentityTokenDef `mapstructure:"token"`
+	AuthZEN *ExternalAuthZENDef       `mapstructure:"authzen"`
+}
+
+// ExternalIdentityTokenDef configures verification of the gateway identity token.
+type ExternalIdentityTokenDef struct {
+	Header         string `mapstructure:"header"`
+	Issuer         string `mapstructure:"issuer"`
+	Audience       string `mapstructure:"audience"`
+	MaxAge         string `mapstructure:"max_age"` // Default: 60s
+	PublicKeysFile string `mapstructure:"public_keys_file"`
+}
+
+// ExternalAuthZENDef configures the AuthZEN policy decision point.
+type ExternalAuthZENDef struct {
+	BaseURL   string `mapstructure:"base_url"`
+	Timeout   string `mapstructure:"timeout"`   // Default: 2s
+	CacheTTL  string `mapstructure:"cache_ttl"` // Default: 0 (no cache)
+	TokenFile string `mapstructure:"token_file"`
 }
 
 // PermissionsDef configures UI and API permissions.

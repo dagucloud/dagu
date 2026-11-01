@@ -438,6 +438,8 @@ type Auth struct {
 	OIDC    AuthOIDC
 	Proxy   AuthTrustedProxy
 	Builtin AuthBuiltin
+	// External delegates authorization to an external policy decision point.
+	External AuthExternal
 }
 
 // AuthBasic represents basic authentication credentials.
@@ -580,6 +582,42 @@ const (
 	// TrustedProxyDefaultWorkspaceAccessNone denies unmatched users access to named workspaces.
 	TrustedProxyDefaultWorkspaceAccessNone = "none"
 )
+
+// AuthExternal configures the external authorization hook. Dagu verifies a
+// signed identity token set by an access gateway and asks an OpenID AuthZEN
+// policy decision point (PDP) whether the subject may perform each action.
+// It stores no users, roles or decisions and requires auth.mode "none".
+type AuthExternal struct {
+	Enabled bool
+	Token   ExternalIdentityToken
+	AuthZEN ExternalAuthZEN
+}
+
+// ExternalIdentityToken configures verification of the gateway identity token.
+type ExternalIdentityToken struct {
+	// Header is the request header that carries the compact JWT.
+	Header string
+	// Issuer is the required "iss" claim.
+	Issuer string
+	// Audience is a required value of the "aud" claim.
+	Audience string
+	// MaxAge is the maximum accepted age of the token, measured from "iat".
+	MaxAge time.Duration
+	// PublicKeysFile is a PEM file or a JWKS document with the verification keys.
+	PublicKeysFile string
+}
+
+// ExternalAuthZEN configures the AuthZEN policy decision point.
+type ExternalAuthZEN struct {
+	// BaseURL is the PDP base URL; the evaluation paths are appended to it.
+	BaseURL string
+	// Timeout bounds each PDP request.
+	Timeout time.Duration
+	// CacheTTL keeps decisions in memory for this duration; zero disables the cache.
+	CacheTTL time.Duration
+	// TokenFile optionally holds a bearer token sent to the PDP.
+	TokenFile string
+}
 
 // PathsConfig represents the file system paths configuration.
 type PathsConfig struct {
@@ -830,6 +868,9 @@ func (c *Config) Validate() error {
 		return err
 	}
 	if err := c.validateBuiltinAuth(); err != nil {
+		return err
+	}
+	if err := c.validateExternalAuth(); err != nil {
 		return err
 	}
 	if err := c.validateExecutionMode(); err != nil {
@@ -1232,6 +1273,58 @@ func (c *Config) validateTrustedProxyAuth() error {
 		return err
 	}
 	return validateTrustedProxyRoleMapping(trustedProxy.RoleMapping)
+}
+
+func (c *Config) validateExternalAuth() error {
+	external := c.Server.Auth.External
+	if !external.Enabled {
+		return nil
+	}
+	if c.Server.Auth.Mode != AuthModeNone {
+		return fmt.Errorf("auth.external.enabled requires auth.mode to be none (got %q); the external hook does not combine with basic or builtin authentication", c.Server.Auth.Mode)
+	}
+	if err := validateTrustedProxyHeaderName("auth.external.token.header", external.Token.Header); err != nil {
+		return err
+	}
+	if external.Token.Issuer == "" {
+		return fmt.Errorf("auth.external.token.issuer is required")
+	}
+	if external.Token.Audience == "" {
+		return fmt.Errorf("auth.external.token.audience is required")
+	}
+	if external.Token.MaxAge <= 0 {
+		return fmt.Errorf("auth.external.token.max_age must be a positive duration")
+	}
+	if external.Token.PublicKeysFile == "" {
+		return fmt.Errorf("auth.external.token.public_keys_file is required")
+	}
+	if err := validateExternalAuthZENBaseURL(external.AuthZEN.BaseURL); err != nil {
+		return err
+	}
+	if external.AuthZEN.Timeout <= 0 {
+		return fmt.Errorf("auth.external.authzen.timeout must be a positive duration")
+	}
+	if external.AuthZEN.CacheTTL < 0 {
+		return fmt.Errorf("auth.external.authzen.cache_ttl must not be negative")
+	}
+	return nil
+}
+
+func validateExternalAuthZENBaseURL(raw string) error {
+	if raw == "" {
+		return fmt.Errorf("auth.external.authzen.base_url is required")
+	}
+	u, err := url.Parse(raw)
+	if err != nil {
+		return fmt.Errorf("auth.external.authzen.base_url is not a valid URL: %w", err)
+	}
+	if u.Scheme != "http" && u.Scheme != "https" {
+		return fmt.Errorf("auth.external.authzen.base_url must use http or https (got %q)", raw)
+	}
+	if u.Host == "" || u.User != nil || u.RawQuery != "" || u.Fragment != "" {
+		return fmt.Errorf("auth.external.authzen.base_url must be an absolute URL without credentials, query or fragment (got %q)", raw)
+	}
+	return nil
 }
 
 func validateTrustedProxySource(source string) error {
