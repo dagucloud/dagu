@@ -45,23 +45,28 @@ const RUNS = [
   ]),
 ];
 
+let view: ReturnType<typeof render>;
+
 function renderGrid(over: Partial<StepsGridProps> = {}) {
   const props: StepsGridProps = {
     grid: stepGrid(DAG, RUNS, NOW),
     runs: RUNS,
     selectedId: 'r2',
     onPick: vi.fn(),
+    onPickRun: vi.fn(),
     onOpenStep: vi.fn(),
     onSpotlight: vi.fn(),
     ...over,
   };
-  render(<StepsGrid {...props} />);
+  view = render(<StepsGrid {...props} />);
   return props;
 }
 
 const grid = () => screen.getByRole('grid', { name: 'Steps by run' });
 const cell = (step: string, runId: string) =>
   screen.getByTestId(`ww-history-cell-${step}-${runId}`);
+const runHeader = (runId: string) =>
+  screen.getByTestId(`ww-history-run-${runId}`);
 /** Presses a key on the focused element, as the keyboard does. */
 const press = (key: string) =>
   fireEvent.keyDown(document.activeElement ?? document.body, { key });
@@ -98,6 +103,63 @@ describe('StepsGrid', () => {
     const props = renderGrid();
     fireEvent.click(cell('test', 'r1'));
     expect(props.onPick).toHaveBeenCalledWith('r1', 'test');
+  });
+
+  it('selects a run alone from its column header', () => {
+    const props = renderGrid();
+    fireEvent.click(runHeader('r1'));
+    expect(props.onPickRun).toHaveBeenCalledWith('r1');
+    expect(props.onPick).not.toHaveBeenCalled();
+  });
+
+  // The run row is the first row of the keyboard moves.
+  it('moves into the run row and selects a run with Enter', () => {
+    const props = renderGrid();
+    cell('build', 'r2').focus();
+
+    press('ArrowUp');
+    expect(runHeader('r2')).toHaveFocus();
+    expect(runHeader('r2')).toHaveAttribute('tabindex', '0');
+    press('ArrowUp');
+    expect(runHeader('r2')).toHaveFocus();
+    press('ArrowLeft');
+    expect(runHeader('r1')).toHaveFocus();
+    press('Enter');
+    expect(props.onPickRun).toHaveBeenCalledWith('r1');
+    expect(props.onPick).not.toHaveBeenCalled();
+
+    press('ArrowDown');
+    expect(cell('build', 'r1')).toHaveFocus();
+  });
+
+  // A new run shifts the columns of a count window under the focused cell.
+  it('keeps the focused run when a new run shifts the columns', () => {
+    const props = renderGrid();
+    cell('build', 'r2').focus();
+    const shifted = [
+      RUNS[1]!,
+      RUNS[2]!,
+      runAt('r4', 4, [node('build'), node('test')]),
+    ];
+    view.rerender(
+      <StepsGrid {...props} grid={stepGrid(DAG, shifted, NOW)} runs={shifted} />
+    );
+    press('Enter');
+    expect(props.onPick).toHaveBeenCalledWith('r2', 'build');
+  });
+
+  it('puts the tab stop on the run row without step rows', () => {
+    const empty = [runAt('e1', 1, [])];
+    renderGrid({
+      grid: stepGrid(
+        { name: 'demo', steps: [] } as unknown as ApiDAGDetails,
+        empty,
+        NOW
+      ),
+      runs: empty,
+      selectedId: 'e1',
+    });
+    expect(runHeader('e1')).toHaveAttribute('tabindex', '0');
   });
 
   // One tab stop: the arrow keys move in two directions, Enter selects.

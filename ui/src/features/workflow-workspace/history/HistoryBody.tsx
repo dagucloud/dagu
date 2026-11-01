@@ -51,6 +51,16 @@ export function HistoryBody({ run, dag, step, selectTab }: DockTabBodyProps) {
       sub: null,
     });
   }, []);
+  // A run header selects that run alone, and the grid stays: a step that
+  // the auto-open chose for that run would show the step view instead.
+  const { openStep, dropAutoStep } = useDockCommands();
+  const pickColumn = useCallback(
+    (runId: string) => {
+      dropAutoStep?.();
+      setUrlRef.current({ run: runId });
+    },
+    [dropAutoStep]
+  );
 
   // The canvas lights the node of the row under the pointer, and the light
   // ends with the grid.
@@ -89,7 +99,6 @@ export function HistoryBody({ run, dag, step, selectTab }: DockTabBodyProps) {
   );
 
   // A step name opens the history of that step and keeps this tab.
-  const { openStep } = useDockCommands();
   const showStep = useCallback(
     (name: string) => openStep(name, { keepTab: true }),
     [openStep]
@@ -132,6 +141,7 @@ export function HistoryBody({ run, dag, step, selectTab }: DockTabBodyProps) {
         runs={runs}
         selectedId={visible.selectedId}
         onPick={pick}
+        onPickRun={pickColumn}
         onOpenStep={showStep}
         onSpotlight={spotlight}
       />
