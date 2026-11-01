@@ -257,15 +257,6 @@ vi.mock('@/features/dags/components/dag-list/DAGListHeader', () => ({
   default: () => null,
 }));
 
-vi.mock('@/features/peek/WorkflowPeek', async () => {
-  const { DialogTitle } = await import('@/components/ui/dialog');
-  return {
-    WorkflowPeek: ({ target }: { target: { dag: string } }) => (
-      <DialogTitle>{target.dag}</DialogTitle>
-    ),
-  };
-});
-
 vi.mock('@/hooks/api', () => ({
   useQuery: vi.fn(),
   useClient: () => ({
@@ -1151,11 +1142,13 @@ describe('DagsPage', () => {
     );
   });
 
-  it('shows the peek of a ?peek link over the list', () => {
+  // The preview of an older version had a ?peek link.
+  it('opens the workflow page of a ?peek link', () => {
     renderPage(vi.fn(), '/dags?view=all&peek=demo.yaml');
 
-    expect(screen.getByRole('dialog', { name: 'demo.yaml' })).toBeVisible();
-    expect(screen.getByTestId('location-path')).toHaveTextContent(/^\/dags$/);
+    expect(screen.getByTestId('location-path')).toHaveTextContent(
+      '/dags/demo.yaml'
+    );
   });
 
   it('drops the peek when the workspace scope changes', () => {

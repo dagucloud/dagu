@@ -4,7 +4,7 @@
 import { render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import React from 'react';
-import { MemoryRouter } from 'react-router-dom';
+import { MemoryRouter, Route, Routes } from 'react-router-dom';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import OverviewPage from '..';
 import { useViews } from '@/hooks/useViews';
@@ -38,15 +38,6 @@ vi.mock('@/contexts/AuthContext', () => ({
   useCanWriteForWorkspace: () => true,
 }));
 
-vi.mock('@/features/peek/WorkflowPeek', async () => {
-  const { DialogTitle } = await import('@/components/ui/dialog');
-  return {
-    WorkflowPeek: ({ target }: { target: { dag: string } }) => (
-      <DialogTitle>{target.dag}</DialogTitle>
-    ),
-  };
-});
-
 const useViewsMock = vi.mocked(useViews);
 
 // The page hosts a peek, which reads the URL.
@@ -76,11 +67,17 @@ describe('OverviewPage', () => {
     mockViews([]);
   });
 
-  it('shows the peek of a ?peek link over the panel', () => {
-    renderPage(<OverviewPage />, '/?peek=etl&peekRun=run-1');
+  // The preview of an older version had a ?peek link.
+  it('opens the workflow page of a ?peek link', () => {
+    renderPage(
+      <Routes>
+        <Route path="/" element={<OverviewPage />} />
+        <Route path="/dags/:fileName" element={<p>Workflow page</p>} />
+      </Routes>,
+      '/?peek=etl&peekRun=run-1'
+    );
 
-    expect(screen.getByRole('dialog', { name: 'etl' })).toBeInTheDocument();
-    expect(screen.getByText('Activity panel')).toBeInTheDocument();
+    expect(screen.getByText('Workflow page')).toBeInTheDocument();
   });
 
   it('defaults to the Activity tab', () => {

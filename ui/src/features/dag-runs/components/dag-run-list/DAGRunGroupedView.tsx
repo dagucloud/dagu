@@ -4,7 +4,7 @@
 import { Checkbox } from '@/components/ui/checkbox';
 import { ChevronDown, ChevronRight } from 'lucide-react';
 import { useMemo, useState } from 'react';
-import { Link } from 'react-router-dom';
+import { PeekLink } from '@/features/peek/PeekLink';
 import { components, Status } from '../../../../api/v1/schema';
 import dayjs from '../../../../lib/dayjs';
 import { getDAGRunScheduleSortValue } from '../../../../lib/dagRunTiming';
@@ -18,8 +18,6 @@ import {
 } from '../../hooks/useBulkDAGRunSelection';
 import { StepDetailsTooltip } from './StepDetailsTooltip';
 import { DAGRunArtifactsButton } from './DAGRunArtifactsButton';
-import { useRemoteNode } from '../../../../contexts/RemoteNodeContext';
-import { buildDAGPageURL } from '../../lib/dagRunUrls';
 import { usePeekOrOpen } from '@/features/peek/usePeekOrOpen';
 import { I18nText } from '@/i18n/I18nText';
 import { useI18n } from '@/i18n/I18nProvider';
@@ -43,17 +41,7 @@ function DAGRunGroupedView({
   onToggleBulkSelect,
 }: DAGRunGroupedViewProps) {
   const { ts } = useI18n();
-  const remoteNode = useRemoteNode();
   const peekOrOpen = usePeekOrOpen();
-  // The name link opens the run on its workflow page and the artifacts
-  // button its Artifacts tab; a click on a row shows the peek of the run.
-  const runURL = (dagRun: DAGRunSelectionItem, dock?: string) =>
-    buildDAGPageURL({
-      fileName: dagRun.name,
-      remoteNode,
-      run: dagRun.dagRunId,
-      dock,
-    });
   const [expandedGroups, setExpandedGroups] = useState<Set<string>>(new Set());
 
   // Group DAG runs by name
@@ -359,13 +347,16 @@ function DAGRunGroupedView({
                               </div>
                             )}
                             <div className="flex-1 min-w-0 space-y-1">
-                              <Link
-                                to={runURL(dagRun)}
+                              <PeekLink
+                                peek={{
+                                  dag: dagRun.name,
+                                  run: dagRun.dagRunId,
+                                }}
                                 className="block truncate font-mono text-muted-foreground hover:underline"
                                 onClick={(event) => event.stopPropagation()}
                               >
                                 {dagRun.dagRunId}
-                              </Link>
+                              </PeekLink>
                               <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs">
                                 {dagRun.scheduleTime && (
                                   <div className="whitespace-nowrap">
@@ -411,10 +402,7 @@ function DAGRunGroupedView({
                             </div>
                           </div>
                           <div className="mt-0.5 flex flex-shrink-0 items-start gap-2">
-                            <DAGRunArtifactsButton
-                              dagRun={dagRun}
-                              to={runURL(dagRun, 'artifacts')}
-                            />
+                            <DAGRunArtifactsButton dagRun={dagRun} />
                             <StepDetailsTooltip dagRun={dagRun}>
                               <div className="flex flex-col items-end gap-1">
                                 <RunStatusChip

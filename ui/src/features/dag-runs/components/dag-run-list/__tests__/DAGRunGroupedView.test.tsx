@@ -231,7 +231,7 @@ describe('DAGRunGroupedView', () => {
   });
 
   // Enter on the focused row shows its peek; the run ID link keeps its own
-  // Enter and click, which open the run on its workflow page.
+  // Enter, and a plain click on it shows the same peek.
   it('shows the peek of a focused run row on Enter', () => {
     const { peek, runLink, row } = renderExpandedUnderPeek();
 
@@ -246,8 +246,13 @@ describe('DAGRunGroupedView', () => {
     });
 
     fireEvent.click(runLink);
-    expect(peek.open).toHaveBeenCalledTimes(1);
-    expect(screen.getByTestId('location')).toHaveTextContent(
+    expect(peek.open).toHaveBeenCalledTimes(2);
+    expect(peek.open).toHaveBeenLastCalledWith({
+      dag: 'grouped-dag',
+      run: 'run-1',
+    });
+    expect(runLink).toHaveAttribute(
+      'href',
       '/dags/grouped-dag?remoteNode=local&run=run-1'
     );
   });

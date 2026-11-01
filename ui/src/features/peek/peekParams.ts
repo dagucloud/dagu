@@ -62,15 +62,6 @@ export function withoutPeek(search: string): string {
   return toSearch(params);
 }
 
-/** A location search that shows the target in a peek. */
-export function withPeek(search: string, target: PeekTarget): string {
-  const params = new URLSearchParams(withoutPeek(search));
-  params.set('peek', target.dag);
-  if (target.run) params.set('peekRun', target.run);
-  if (target.dock) params.set('peekDock', target.dock);
-  return toSearch(params);
-}
-
 /**
  * The full page of a target: the URL that the row of the target links. With
  * `step`, the page opens on that step.

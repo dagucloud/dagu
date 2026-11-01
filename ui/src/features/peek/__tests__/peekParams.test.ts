@@ -6,7 +6,7 @@ import {
   buildDAGPageURL,
   buildDAGRunPageURL,
 } from '@/features/dag-runs/lib/dagRunUrls';
-import { peekPageURL, readPeek, withoutPeek, withPeek } from '../peekParams';
+import { peekPageURL, readPeek, withoutPeek } from '../peekParams';
 
 describe('readPeek', () => {
   it('reads a workflow, a run and a dock tab', () => {
@@ -35,20 +35,11 @@ describe('readPeek', () => {
   });
 });
 
-describe('withPeek and withoutPeek', () => {
-  it('adds and drops the peek keys and keeps the list keys', () => {
-    const opened = withPeek('?view=all&sort=name', {
-      dag: 'etl',
-      run: 'run-1',
-    });
-    expect(opened).toBe('?view=all&sort=name&peek=etl&peekRun=run-1');
-    expect(withoutPeek(opened)).toBe('?view=all&sort=name');
-  });
-
-  it('replaces the keys of a peek that is already open', () => {
-    expect(
-      withPeek('?peek=etl&peekRun=run-1&peekDock=artifacts', { dag: 'etl' })
-    ).toBe('?peek=etl');
+describe('withoutPeek', () => {
+  it('drops the peek keys and keeps the list keys', () => {
+    expect(withoutPeek('?view=all&peek=etl&peekRun=run-1&sort=name')).toBe(
+      '?view=all&sort=name'
+    );
   });
 
   it('leaves an empty search empty', () => {

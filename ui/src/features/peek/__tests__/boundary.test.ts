@@ -34,7 +34,7 @@ function peekSources(): string[] {
 describe('peek boundary', () => {
   it('leaves no untranslated literal in its JSX', () => {
     const files = peekSources().filter((file) => file.endsWith('.tsx'));
-    expect(files).toContain(`${PEEK_DIR}/WorkflowPeek.tsx`);
+    expect(files).toContain(`${PEEK_DIR}/PeekLink.tsx`);
     const hits = findJsxLiterals(files, { srcDir }).map(
       (hit) => `${hit.file}:${hit.line}:${hit.column} ${hit.kind} "${hit.text}"`
     );

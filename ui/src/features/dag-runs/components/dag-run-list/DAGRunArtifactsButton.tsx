@@ -2,13 +2,13 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 import { Archive } from 'lucide-react';
-import { Link } from 'react-router-dom';
 import { components } from '@/api/v1/schema';
 import {
   Tooltip,
   TooltipContent,
   TooltipTrigger,
 } from '@/components/ui/tooltip';
+import { PeekLink } from '@/features/peek/PeekLink';
 import { I18nText } from '@/i18n/I18nText';
 import { useI18n } from '@/i18n/I18nProvider';
 
@@ -16,13 +16,10 @@ type DAGRunSummary = components['schemas']['DAGRunSummary'];
 
 type Props = {
   dagRun: DAGRunSummary;
-  /** The page with the artifacts of the run. */
-  to: string;
 };
 
 export function DAGRunArtifactsButton({
   dagRun,
-  to,
 }: Props): React.ReactElement | null {
   const { ts } = useI18n();
 
@@ -33,8 +30,8 @@ export function DAGRunArtifactsButton({
   return (
     <Tooltip>
       <TooltipTrigger asChild>
-        <Link
-          to={to}
+        <PeekLink
+          peek={{ dag: dagRun.name, run: dagRun.dagRunId, dock: 'artifacts' }}
           aria-label={ts('View artifacts for {name} {runId}', {
             name: dagRun.name,
             runId: dagRun.dagRunId,
@@ -43,7 +40,7 @@ export function DAGRunArtifactsButton({
           onClick={(event) => event.stopPropagation()}
         >
           <Archive className="h-4 w-4" />
-        </Link>
+        </PeekLink>
       </TooltipTrigger>
       <TooltipContent>
         <I18nText text={'View artifacts'} />

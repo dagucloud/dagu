@@ -26,15 +26,6 @@ vi.mock('@/features/views/ViewPanel', () => ({
   ),
 }));
 
-vi.mock('@/features/peek/WorkflowPeek', async () => {
-  const { DialogTitle } = await import('@/components/ui/dialog');
-  return {
-    WorkflowPeek: ({ target }: { target: { dag: string } }) => (
-      <DialogTitle>{target.dag}</DialogTitle>
-    ),
-  };
-});
-
 const useViewsMock = vi.mocked(useViews);
 
 function mockViews(views: Array<{ id: string; name: string }>) {
@@ -55,6 +46,7 @@ function renderAt(viewId: string, setTitle = vi.fn()) {
       <AppBarContext.Provider value={{ setTitle } as never}>
         <Routes>
           <Route path="/views/:viewId" element={<ViewPage />} />
+          <Route path="/dags/:fileName" element={<div>workflow page</div>} />
           <Route path="/" element={<div>home</div>} />
         </Routes>
       </AppBarContext.Provider>
@@ -74,15 +66,18 @@ describe('ViewPage', () => {
   it('renders the view board with no Overview tabs', () => {
     renderAt('v1');
 
-    expect(screen.getByRole('heading', { name: 'My View' })).toBeInTheDocument();
+    expect(
+      screen.getByRole('heading', { name: 'My View' })
+    ).toBeInTheDocument();
     expect(screen.getByText('View panel: My View')).toBeInTheDocument();
     expect(screen.queryByRole('tab')).not.toBeInTheDocument();
   });
 
-  it('shows the peek of a ?peek link over the board', () => {
+  // The preview of an older version had a ?peek link.
+  it('opens the workflow page of a ?peek link', () => {
     renderAt('v1?peek=etl&peekRun=run-1');
 
-    expect(screen.getByRole('dialog', { name: 'etl' })).toBeInTheDocument();
+    expect(screen.getByText('workflow page')).toBeInTheDocument();
   });
 
   it('explains when the view is missing', () => {

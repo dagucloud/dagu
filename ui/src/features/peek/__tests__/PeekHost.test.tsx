@@ -2,198 +2,125 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 import { act, fireEvent, render, screen } from '@testing-library/react';
-import { useContext } from 'react';
 import { MemoryRouter, useLocation, useNavigate } from 'react-router-dom';
-import { afterEach, describe, expect, it, vi } from 'vitest';
-import { type Config, ConfigContext } from '@/contexts/ConfigContext';
-import { PeekContext } from '../PeekContext';
+import { describe, expect, it } from 'vitest';
 import { PeekHost } from '../PeekHost';
-import type { PeekTarget } from '../peekParams';
+import { usePeekOrOpen } from '../usePeekOrOpen';
+import {
+  useWorkflowOverlay,
+  WorkflowOverlayProvider,
+} from '../WorkflowOverlay';
 
-vi.mock('../WorkflowPeek', async () => {
-  const { DialogTitle } = await import('@/components/ui/dialog');
-  return {
-    WorkflowPeek: ({
-      target,
-      onClose,
-      onSelectRun,
-    }: {
-      target: PeekTarget;
-      onClose(): void;
-      onSelectRun(run: { name: string; dagRunId: string }): void;
-    }) => (
-      <>
-        <DialogTitle>{target.dag}</DialogTitle>
-        <p>{target.run ? `run ${target.run}` : 'latest run'}</p>
-        <button type="button" onClick={onClose}>
-          Close
-        </button>
-        <button
-          type="button"
-          onClick={() => onSelectRun({ name: 'etl', dagRunId: 'run-2' })}
-        >
-          Older run
-        </button>
-      </>
-    ),
-  };
-});
-
-function OpenButton() {
-  const peek = useContext(PeekContext);
-  return (
-    <button type="button" onClick={() => peek?.open({ dag: 'etl' })}>
-      Open etl
-    </button>
-  );
-}
-
-function HistoryProbe() {
+/** The URL, the page below the overlay, and the controls of the overlay. */
+function Probe() {
   const location = useLocation();
   const navigate = useNavigate();
+  const overlay = useWorkflowOverlay();
+  const peekOrOpen = usePeekOrOpen();
+  const below = overlay?.background;
   return (
     <>
       <output data-testid="location">{`${location.pathname}${location.search}`}</output>
+      <output data-testid="overlay">
+        {below ? `over ${below.pathname}${below.search}` : 'none'}
+      </output>
+      <button type="button" onClick={() => peekOrOpen({ dag: 'etl' })}>
+        open etl
+      </button>
+      <button type="button" onClick={() => overlay?.close()}>
+        close
+      </button>
+      <button type="button" onClick={() => overlay?.expand()}>
+        expand
+      </button>
+      <button type="button" onClick={() => navigate('/dags/etl?run=r2')}>
+        pick run
+      </button>
       <button type="button" onClick={() => navigate(-1)}>
-        Back
+        back
+      </button>
+      <button type="button" onClick={() => navigate('/queues')}>
+        queues
       </button>
     </>
   );
 }
 
-function renderHost(entries = ['/home', '/dags?view=all']) {
-  return render(
-    <MemoryRouter initialEntries={entries} initialIndex={entries.length - 1}>
-      <ConfigContext.Provider value={{ basePath: '' } as Config}>
+function renderList(url = '/dag-runs?status=failed') {
+  render(
+    <MemoryRouter initialEntries={[url]}>
+      <WorkflowOverlayProvider>
         <PeekHost>
-          <OpenButton />
+          <Probe />
         </PeekHost>
-        <HistoryProbe />
-      </ConfigContext.Provider>
+      </WorkflowOverlayProvider>
     </MemoryRouter>
   );
 }
 
 const location = () => screen.getByTestId('location').textContent;
-// The modal sheet hides the rest of the page from the accessibility tree.
-const back = () =>
-  fireEvent.click(screen.getByRole('button', { name: 'Back', hidden: true }));
+const overlay = () => screen.getByTestId('overlay').textContent;
+const press = (name: string) =>
+  act(() => fireEvent.click(screen.getByRole('button', { name })));
 
-function openPeek() {
-  fireEvent.click(screen.getByRole('button', { name: 'Open etl' }));
-  return screen.getByRole('dialog', { name: 'etl' });
-}
+describe('the workflow overlay', () => {
+  it('keeps the list below the workflow page that it opens', () => {
+    renderList();
 
-describe('PeekHost', () => {
-  afterEach(() => {
-    vi.restoreAllMocks();
-  });
-
-  // Each close leaves the entry that the open pushed: the next Back leaves
-  // the list.
-  it.each([
-    [
-      'Esc',
-      (dialog: HTMLElement) => fireEvent.keyDown(dialog, { key: 'Escape' }),
-    ],
-    [
-      'the close button',
-      () => fireEvent.click(screen.getByRole('button', { name: 'Close' })),
-    ],
-    [
-      'the backdrop',
-      async () => {
-        // The outside-press listener arms on the next tick.
-        await act(() => new Promise((resolve) => setTimeout(resolve, 0)));
-        fireEvent.pointerDown(document.body);
-      },
-    ],
-  ])('closes on %s and pops its history entry', async (_, close) => {
-    renderHost();
-    const dialog = openPeek();
-    expect(location()).toBe('/dags?view=all&peek=etl');
-
-    await close(dialog);
-
-    expect(location()).toBe('/dags?view=all');
-    expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
-    back();
-    expect(location()).toBe('/home');
-  });
-
-  it('closes on Back', () => {
-    renderHost();
-    openPeek();
-
-    back();
-
-    expect(location()).toBe('/dags?view=all');
-    expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
-  });
-
-  it('closes a peek of a shared link in place', () => {
-    renderHost(['/home', '/dags?view=all&peek=etl']);
-    expect(screen.getByRole('dialog', { name: 'etl' })).toBeInTheDocument();
-
-    fireEvent.click(screen.getByRole('button', { name: 'Close' }));
-
-    expect(location()).toBe('/dags?view=all');
-    back();
-    expect(location()).toBe('/home');
-  });
-
-  it('shows another run in place of the shown one', () => {
-    renderHost();
-    openPeek();
-
-    fireEvent.click(screen.getByRole('button', { name: 'Older run' }));
-
-    expect(location()).toBe('/dags?view=all&peek=etl&peekRun=run-2');
-    expect(screen.getByText('run run-2')).toBeInTheDocument();
-    // The switch replaced the entry, so one close still pops it.
-    fireEvent.click(screen.getByRole('button', { name: 'Close' }));
-    expect(location()).toBe('/dags?view=all');
-  });
-
-  it.each(['Enter', 'f', 'F'])('opens the full page on %s', (key) => {
-    renderHost();
-    const dialog = openPeek();
-
-    fireEvent.keyDown(dialog, { key });
+    press('open etl');
 
     expect(location()).toBe('/dags/etl?remoteNode=local');
+    expect(overlay()).toBe('over /dag-runs?status=failed');
   });
 
-  it('opens the full page in a new tab on Ctrl+Enter', () => {
-    const open = vi.spyOn(window, 'open').mockImplementation(() => null);
-    renderHost();
-    const dialog = openPeek();
+  // The workflow page moves within itself: the overlay stays, and close goes
+  // back to the list, not to the previous state of the workflow page.
+  it('stays over the list while the workflow page moves, and closes to it', () => {
+    renderList();
+    press('open etl');
+    press('pick run');
+    expect(overlay()).toBe('over /dag-runs?status=failed');
 
-    fireEvent.keyDown(dialog, { key: 'Enter', ctrlKey: true });
+    press('close');
 
-    expect(open).toHaveBeenCalledWith(
-      '/dags/etl?remoteNode=local',
-      '_blank',
-      'noopener'
-    );
-    expect(location()).toBe('/dags?view=all&peek=etl');
+    expect(location()).toBe('/dag-runs?status=failed');
+    expect(overlay()).toBe('none');
   });
 
-  it('leaves Enter on a button to the button', () => {
-    renderHost();
-    openPeek();
+  it('ends when Back reaches the list', () => {
+    renderList();
+    press('open etl');
 
-    fireEvent.keyDown(screen.getByRole('button', { name: 'Older run' }), {
-      key: 'Enter',
-    });
+    press('back');
 
-    expect(location()).toBe('/dags?view=all&peek=etl');
+    expect(location()).toBe('/dag-runs?status=failed');
+    expect(overlay()).toBe('none');
   });
 
-  it('takes the focus into the sheet', () => {
-    renderHost();
-    const dialog = openPeek();
+  it('ends when the workflow page links to another page', () => {
+    renderList();
+    press('open etl');
 
-    expect(dialog).toHaveFocus();
+    press('queues');
+
+    expect(location()).toBe('/queues');
+    expect(overlay()).toBe('none');
+  });
+
+  it('keeps the workflow page as the page on expand', () => {
+    renderList();
+    press('open etl');
+
+    press('expand');
+
+    expect(location()).toBe('/dags/etl?remoteNode=local');
+    expect(overlay()).toBe('none');
+  });
+
+  // The version before had a preview at ?peek: its links open the workflow.
+  it('opens the workflow page of a link with ?peek', () => {
+    renderList('/dag-runs?peek=etl&peekRun=run-1');
+
+    expect(location()).toBe('/dags/etl?remoteNode=local&run=run-1');
   });
 });

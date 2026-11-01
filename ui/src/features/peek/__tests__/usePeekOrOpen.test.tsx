@@ -10,20 +10,22 @@ import { PeekHost } from '../PeekHost';
 import { PeekLink } from '../PeekLink';
 import type { PeekTarget } from '../peekParams';
 import { usePeekOrOpen } from '../usePeekOrOpen';
-
-vi.mock('../WorkflowPeek', async () => {
-  const { DialogTitle } = await import('@/components/ui/dialog');
-  return {
-    WorkflowPeek: ({ target }: { target: PeekTarget }) => (
-      <DialogTitle>{target.dag}</DialogTitle>
-    ),
-  };
-});
+import {
+  useWorkflowOverlay,
+  WorkflowOverlayProvider,
+} from '../WorkflowOverlay';
 
 function LocationProbe() {
   const location = useLocation();
+  const overlay = useWorkflowOverlay();
+  const below = overlay?.background;
   return (
-    <output data-testid="location">{`${location.pathname}${location.search}`}</output>
+    <>
+      <output data-testid="location">{`${location.pathname}${location.search}`}</output>
+      <output data-testid="overlay">
+        {below ? `over ${below.pathname}${below.search}` : 'none'}
+      </output>
+    </>
   );
 }
 
@@ -40,27 +42,30 @@ function renderList(children: ReactNode, { host = true } = {}) {
   return render(
     <MemoryRouter initialEntries={['/dags?view=all']}>
       <ConfigContext.Provider value={{ basePath: '/dagu' } as Config}>
-        {host ? <PeekHost>{children}</PeekHost> : children}
-        <LocationProbe />
+        <WorkflowOverlayProvider>
+          {host ? <PeekHost>{children}</PeekHost> : children}
+          <LocationProbe />
+        </WorkflowOverlayProvider>
       </ConfigContext.Provider>
     </MemoryRouter>
   );
 }
 
 const location = () => screen.getByTestId('location').textContent;
+const overlay = () => screen.getByTestId('overlay').textContent;
 
 describe('usePeekOrOpen', () => {
   afterEach(() => {
     vi.restoreAllMocks();
   });
 
-  it('shows a plain click in the peek over the list', () => {
+  it('opens the workflow page over the list on a plain click', () => {
     renderList(<Row target={{ dag: 'etl', run: 'run-1' }} />);
 
     fireEvent.click(screen.getByRole('row'));
 
-    expect(location()).toBe('/dags?view=all&peek=etl&peekRun=run-1');
-    expect(screen.getByRole('dialog', { name: 'etl' })).toBeInTheDocument();
+    expect(location()).toBe('/dags/etl?remoteNode=local&run=run-1');
+    expect(overlay()).toBe('over /dags?view=all');
   });
 
   it.each(['ctrlKey', 'metaKey'])(
@@ -86,6 +91,7 @@ describe('usePeekOrOpen', () => {
     fireEvent.click(screen.getByRole('row'));
 
     expect(location()).toBe('/dags/etl?remoteNode=local');
+    expect(overlay()).toBe('none');
   });
 
   it('opens the full page on a narrow viewport', () => {
@@ -95,7 +101,7 @@ describe('usePeekOrOpen', () => {
     fireEvent.click(screen.getByRole('row'));
 
     expect(location()).toBe('/dags/etl?remoteNode=local');
-    expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+    expect(overlay()).toBe('none');
   });
 
   it('opens the full page of a name that no peek can read', () => {
@@ -108,7 +114,7 @@ describe('usePeekOrOpen', () => {
 });
 
 describe('PeekLink', () => {
-  it('links the full page and shows the peek on a plain click', () => {
+  it('links the full page and opens it over the list on a plain click', () => {
     renderList(<PeekLink peek={{ dag: 'etl', run: 'run-1' }}>etl</PeekLink>);
     const link = screen.getByRole('link', { name: 'etl' });
 
@@ -118,7 +124,8 @@ describe('PeekLink', () => {
     );
     fireEvent.click(link);
 
-    expect(location()).toBe('/dags?view=all&peek=etl&peekRun=run-1');
+    expect(location()).toBe('/dags/etl?remoteNode=local&run=run-1');
+    expect(overlay()).toBe('over /dags?view=all');
   });
 
   it('keeps the native link for a modified click', () => {
@@ -132,7 +139,7 @@ describe('PeekLink', () => {
     });
 
     expect(location()).toBe('/dags?view=all');
-    expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+    expect(overlay()).toBe('none');
     document.removeEventListener('click', stopNavigation);
   });
 

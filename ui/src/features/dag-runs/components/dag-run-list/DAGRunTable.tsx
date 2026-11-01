@@ -3,7 +3,7 @@
 
 import { useEffect, useRef, useState } from 'react';
 import { Checkbox } from '@/components/ui/checkbox';
-import { Link } from 'react-router-dom';
+import { PeekLink } from '@/features/peek/PeekLink';
 import { SlidersHorizontal } from 'lucide-react';
 import { components, Status } from '../../../../api/v1/schema';
 import {
@@ -15,7 +15,6 @@ import {
   TableRow,
 } from '@/components/ui/table';
 import { useConfig } from '../../../../contexts/ConfigContext';
-import { useRemoteNode } from '../../../../contexts/RemoteNodeContext';
 import dayjs from '../../../../lib/dayjs';
 import RelativeTime from '@/components/ui/relative-time';
 import { RunStatusChip } from '../common/RunStatusChip';
@@ -25,7 +24,6 @@ import {
   DAGRunSelectionItem,
   getDAGRunSelectionKey,
 } from '../../hooks/useBulkDAGRunSelection';
-import { buildDAGPageURL } from '../../lib/dagRunUrls';
 import { usePeekIsOpen, usePeekOrOpen } from '@/features/peek/usePeekOrOpen';
 import { StepDetailsTooltip } from './StepDetailsTooltip';
 import { DAGRunArtifactsButton } from './DAGRunArtifactsButton';
@@ -62,18 +60,8 @@ function DAGRunTable({
   onToggleBulkSelect,
 }: DAGRunTableProps) {
   const config = useConfig();
-  const remoteNode = useRemoteNode();
   const peekOrOpen = usePeekOrOpen();
   const peekOpen = usePeekIsOpen();
-  // The name link opens the run on its workflow page and the artifacts
-  // button its Artifacts tab; a click on a row shows the peek of the run.
-  const runURL = (dagRun: DAGRunSelectionItem, dock?: string) =>
-    buildDAGPageURL({
-      fileName: dagRun.name,
-      remoteNode,
-      run: dagRun.dagRunId,
-      dock,
-    });
   const openRun = (
     dagRun: DAGRunSelectionItem,
     event?: Pick<MouseEvent, 'ctrlKey' | 'metaKey'>
@@ -323,19 +311,16 @@ function DAGRunTable({
                     />
                   </div>
                 )}
-                <Link
-                  to={runURL(dagRun)}
+                <PeekLink
+                  peek={{ dag: dagRun.name, run: dagRun.dagRunId }}
                   className="font-normal text-sm hover:underline"
                   onClick={(event) => event.stopPropagation()}
                 >
                   {dagRun.name}
-                </Link>
+                </PeekLink>
               </div>
               <div className="flex items-start gap-2">
-                <DAGRunArtifactsButton
-                  dagRun={dagRun}
-                  to={runURL(dagRun, 'artifacts')}
-                />
+                <DAGRunArtifactsButton dagRun={dagRun} />
                 <StepDetailsTooltip dagRun={dagRun}>
                   <div className="flex flex-col items-end gap-1">
                     <RunStatusChip
@@ -556,17 +541,14 @@ function DAGRunTable({
               )}
               <TableCell className="py-1 px-2 font-normal">
                 <div className="flex items-center gap-2">
-                  <Link
-                    to={runURL(dagRun)}
+                  <PeekLink
+                    peek={{ dag: dagRun.name, run: dagRun.dagRunId }}
                     className="min-w-0 truncate hover:underline"
                     onClick={(event) => event.stopPropagation()}
                   >
                     {dagRun.name}
-                  </Link>
-                  <DAGRunArtifactsButton
-                    dagRun={dagRun}
-                    to={runURL(dagRun, 'artifacts')}
-                  />
+                  </PeekLink>
+                  <DAGRunArtifactsButton dagRun={dagRun} />
                 </div>
               </TableCell>
               <TableCell className="py-1 px-2 font-mono text-muted-foreground">

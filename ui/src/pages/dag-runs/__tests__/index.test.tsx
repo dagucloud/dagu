@@ -145,15 +145,6 @@ vi.mock('@/features/dag-runs/components/dag-run-list/DAGRunTable', async () => {
   };
 });
 
-vi.mock('@/features/peek/WorkflowPeek', async () => {
-  const { DialogTitle } = await import('@/components/ui/dialog');
-  return {
-    WorkflowPeek: ({ target }: { target: { dag: string } }) => (
-      <DialogTitle>{target.dag}</DialogTitle>
-    ),
-  };
-});
-
 const config = {
   tzOffsetInSec: undefined,
 } as Config;
@@ -390,23 +381,16 @@ describe('DAGRuns page', () => {
     );
   });
 
-  // Links from before the run page replaced the side panel.
-  // The filters are read from the URL, which the peek writes its keys to.
-  it('keeps a typed filter while a peek opens and closes', async () => {
+  // Without the overlay of the app around it, a run opens on its page.
+  it('opens a run of the list on its workflow page', () => {
     renderPage();
-    const input = screen.getByPlaceholderText('Filter by workflow name...');
-    fireEvent.change(input, { target: { value: 'typed' } });
 
     fireEvent.click(screen.getByRole('button', { name: 'Peek alpha' }));
-    const peek = screen.getByRole('dialog', { name: 'alpha' });
-    expect(locationSearchParams().get('peekRun')).toBe('run-1');
-    fireEvent.keyDown(peek, { key: 'Escape' });
 
-    await waitFor(() => {
-      expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
-    });
-    expect(locationSearchParams().has('peek')).toBe(false);
-    expect(input).toHaveValue('typed');
+    expect(screen.getByTestId('location-path')).toHaveTextContent(
+      '/dags/alpha'
+    );
+    expect(locationSearchParams().get('run')).toBe('run-1');
   });
 
   it('opens the run of a legacy ?selectedRunName link on its workflow page', () => {
