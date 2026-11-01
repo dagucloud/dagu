@@ -61,7 +61,9 @@ function lastRunQueryOptions() {
   const calls = h.querySpy.mock.calls.filter(
     (call) => call[0] === RUN_PATH && call[1] !== null
   );
-  return calls[calls.length - 1]?.[2] as { refreshInterval: number };
+  return calls[calls.length - 1]?.[2] as {
+    refreshInterval: (latest?: unknown) => number;
+  };
 }
 
 beforeEach(() => {
@@ -208,7 +210,7 @@ describe('useWorkspaceRun, pinned', () => {
       },
     });
     // The SSE is down: the query polls every 2 s, as useSSECacheSync gives.
-    expect(lastRunQueryOptions().refreshInterval).toBe(2000);
+    expect(lastRunQueryOptions().refreshInterval()).toBe(2000);
 
     // The SSE connects and pushes new details into the SWR cache.
     h.runSSE.mockReturnValue({
@@ -221,7 +223,30 @@ describe('useWorkspaceRun, pinned', () => {
         NodeStatus.Failed
       )
     );
-    expect(lastRunQueryOptions().refreshInterval).toBe(0);
+    expect(lastRunQueryOptions().refreshInterval()).toBe(0);
+  });
+
+  // A test run writes no events: with the SSE up, its stream never reports
+  // that it ended, so the run is read again while it is active.
+  it('reads an active test run again with the SSE up', async () => {
+    const testRun = (status: Status) => ({
+      ...run('run-0', [node('a', NodeStatus.Running)], status),
+      ephemeral: true,
+    });
+    server.runs['run-0'] = testRun(Status.Running);
+    h.runSSE.mockReturnValue(connectedSSE);
+    const view = renderWorkspace(() => useWorkspaceRun(), {
+      url: '/dags/demo?run=run-0',
+    });
+    await waitFor(() =>
+      expect(view.result.current?.value.details?.dagRunId).toBe('run-0')
+    );
+    const interval = lastRunQueryOptions().refreshInterval;
+    expect(interval({ dagRunDetails: testRun(Status.Running) })).toBe(2000);
+    expect(interval({ dagRunDetails: testRun(Status.Success) })).toBe(0);
+    expect(interval({ dagRunDetails: run('run-0', [], Status.Running) })).toBe(
+      0
+    );
   });
 
   it('keeps an SSE event of another run out of the pinned cache', async () => {
