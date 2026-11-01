@@ -82,6 +82,70 @@ func TestCalendarBusinessDays(t *testing.T) {
 	assert.Zero(t, fromEnd)
 }
 
+func TestCalendarMonth(t *testing.T) {
+	t.Parallel()
+
+	cal := jpBanking()
+	cal.Holidays[date(2027, 1, 3)] = "Sunday holiday"
+	cal.Holidays[date(2027, 10, 11)] = "Sports Day"
+	cal.ExtraBusinessDays[date(2027, 10, 11)] = struct{}{}
+
+	january := cal.Month(2027, time.January)
+	require.Len(t, january, 31)
+	assert.Equal(t, ir.CalendarDay{Date: date(2027, 1, 1), Status: ir.DayHoliday}, january[0])
+	assert.Equal(t, ir.CalendarDay{Date: date(2027, 1, 2), Status: ir.DayNonBusiness}, january[1])
+	assert.Equal(t, ir.CalendarDay{Date: date(2027, 1, 3), Status: ir.DayHoliday, HolidayName: "Sunday holiday"}, january[2])
+	assert.Equal(t, ir.CalendarDay{Date: date(2027, 1, 4), Status: ir.DayBusiness, FromStart: 1, FromEnd: -19}, january[3])
+	assert.Equal(t, ir.CalendarDay{Date: date(2027, 1, 11), Status: ir.DayHoliday, HolidayName: "Coming of Age Day"}, january[10])
+	assert.Equal(t, ir.CalendarDay{Date: date(2027, 1, 29), Status: ir.DayBusiness, FromStart: 19, FromEnd: -1}, january[28])
+
+	// October 2027 has 22 business days, counting the extra business days
+	// on Saturday the 9th and on the holiday of Monday the 11th.
+	october := cal.Month(2027, time.October)
+	require.Len(t, october, 31)
+	assert.Equal(t, ir.CalendarDay{Date: date(2027, 10, 9), Status: ir.DayExtraBusiness, FromStart: 7, FromEnd: -16}, october[8])
+	assert.Equal(t, ir.CalendarDay{Date: date(2027, 10, 11), Status: ir.DayExtraBusiness, HolidayName: "Sports Day", FromStart: 8, FromEnd: -15}, october[10])
+
+	assert.Len(t, cal.Month(2028, time.February), 29, "leap year")
+}
+
+func TestDiffCalendars(t *testing.T) {
+	t.Parallel()
+
+	before := jpBanking()
+	assert.Empty(t, ir.DiffCalendars(before, jpBanking()))
+
+	after := jpBanking()
+	after.Holidays[date(2027, 1, 1)] = "New Year's Day"
+	delete(after.Holidays, date(2027, 1, 11))
+	after.Holidays[date(2027, 3, 22)] = "Vernal Equinox Day"
+	after.Weekdays[time.Saturday] = true
+	after.Weekdays[time.Friday] = false
+
+	changes := ir.DiffCalendars(before, after)
+	assert.Equal(t, []time.Weekday{time.Saturday}, changes.WeekdaysAdded)
+	assert.Equal(t, []time.Weekday{time.Friday}, changes.WeekdaysRemoved)
+	assert.Equal(t, []ir.DateChange{
+		{
+			Before: ir.CalendarDay{Date: date(2027, 1, 1), Status: ir.DayHoliday},
+			After:  ir.CalendarDay{Date: date(2027, 1, 1), Status: ir.DayHoliday, HolidayName: "New Year's Day"},
+		},
+		{
+			Before: ir.CalendarDay{Date: date(2027, 1, 11), Status: ir.DayHoliday, HolidayName: "Coming of Age Day"},
+			After:  ir.CalendarDay{Date: date(2027, 1, 11), Status: ir.DayBusiness},
+		},
+		{
+			Before: ir.CalendarDay{Date: date(2027, 3, 22), Status: ir.DayBusiness},
+			After:  ir.CalendarDay{Date: date(2027, 3, 22), Status: ir.DayHoliday, HolidayName: "Vernal Equinox Day"},
+		},
+		// A business day either way, but no longer only because it is listed.
+		{
+			Before: ir.CalendarDay{Date: date(2027, 10, 9), Status: ir.DayExtraBusiness},
+			After:  ir.CalendarDay{Date: date(2027, 10, 9), Status: ir.DayBusiness},
+		},
+	}, changes.Dates)
+}
+
 func TestBuiltinWeekdaysCalendar(t *testing.T) {
 	t.Parallel()
 

@@ -41,6 +41,12 @@ func TestSchemaCommand(t *testing.T) {
 		assert.Contains(t, out, "license")
 	})
 
+	t.Run("CalendarHolidays", func(t *testing.T) {
+		out, err := runSchemaCmd("schema", "calendar", "holidays")
+		require.NoError(t, err)
+		assert.Contains(t, out, "inclusive range")
+	})
+
 	t.Run("DAGSteps", func(t *testing.T) {
 		out, err := runSchemaCmd("schema", "dag", "steps")
 		require.NoError(t, err)

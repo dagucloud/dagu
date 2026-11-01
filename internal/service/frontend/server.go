@@ -414,6 +414,9 @@ func NewServer(setup ServerConfig, opts ...ServerOption) (*Server, error) {
 	if stores.BaseConfig != nil {
 		apiOpts = append(apiOpts, apiv1.WithBaseConfigStore(stores.BaseConfig))
 	}
+	if stores.Calendar != nil {
+		apiOpts = append(apiOpts, apiv1.WithCalendarStore(stores.Calendar))
+	}
 
 	// Initialize the workspace store before OIDC provisioning so login-time
 	// mapping can report dormant grants without making workspace existence a
@@ -1276,6 +1279,11 @@ func (srv *Server) setupAssetRoutesWithFS(r *chi.Mux, basePath string, assetFS f
 		if strings.HasSuffix(r.URL.Path, "config.schema.json") {
 			w.Header().Set("Content-Type", "application/json")
 			_, _ = w.Write(cmnschema.ConfigSchemaJSON)
+			return
+		}
+		if strings.HasSuffix(r.URL.Path, "calendar.schema.json") {
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write(cmnschema.CalendarSchemaJSON)
 			return
 		}
 

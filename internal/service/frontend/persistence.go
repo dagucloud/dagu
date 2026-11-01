@@ -11,6 +11,7 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/eventstore"
 	"github.com/dagucloud/dagu/v2/internal/incident"
 	"github.com/dagucloud/dagu/v2/internal/notification"
+	"github.com/dagucloud/dagu/v2/internal/persis"
 	"github.com/dagucloud/dagu/v2/internal/profile"
 	"github.com/dagucloud/dagu/v2/internal/publicwebhook"
 	"github.com/dagucloud/dagu/v2/internal/remotenode"
@@ -27,6 +28,7 @@ import (
 type Stores struct {
 	WorkspaceBaseConfig  dagsettings.BaseConfigProvider
 	BaseConfig           dagsettings.BaseConfigStore
+	Calendar             persis.CalendarStore
 	AuthService          *authservice.Service
 	UserStore            authmodel.UserStore
 	AuthSetupRequired    bool

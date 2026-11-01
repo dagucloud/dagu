@@ -11,3 +11,6 @@ var DAGSchemaJSON []byte
 
 //go:embed config.schema.json
 var ConfigSchemaJSON []byte
+
+//go:embed calendar.schema.json
+var CalendarSchemaJSON []byte

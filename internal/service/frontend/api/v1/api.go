@@ -100,6 +100,7 @@ type API struct {
 	baseConfigStore      dagsettings.BaseConfigStore
 	// samplesReader opens a samples store; nil means samples.OpenReader.
 	samplesReader        func(dir string) samples.Reader
+	calendarStore        persis.CalendarStore
 	dagSettingsStore     dagsettings.Store
 	dagPinStore          dagpin.Store
 	wikiStore            wiki.PageStore
@@ -287,6 +288,14 @@ func WithTunnelService(ts *tunnel.Service) APIOption {
 func WithBaseConfigStore(store dagsettings.BaseConfigStore) APIOption {
 	return func(a *API) {
 		a.baseConfigStore = store
+	}
+}
+
+// WithCalendarStore returns an APIOption that sets the store of calendar
+// files.
+func WithCalendarStore(store persis.CalendarStore) APIOption {
+	return func(a *API) {
+		a.calendarStore = store
 	}
 }
 

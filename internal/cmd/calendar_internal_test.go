@@ -26,11 +26,13 @@ func TestRunCalendarCheck(t *testing.T) {
 	require.NoError(t, runCalendarCheck(&out, dir, nil))
 	assert.Equal(t, "ok   jp-banking: 1 holiday, through 2027-12-31\n", out.String())
 
-	require.NoError(t, os.WriteFile(filepath.Join(dir, "broken.yaml"), []byte("holidays: [2027-02-30]\n"), 0o600))
+	// Each problem is a line with its position in the file.
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "broken.yaml"), []byte("holidays: [2027-02-30]\nweekdays: [FUN]\n"), 0o600))
 	out.Reset()
 	err := runCalendarCheck(&out, dir, nil)
 	require.EqualError(t, err, "1 of 2 calendars are invalid")
-	assert.Contains(t, out.String(), `FAIL broken: calendar "broken": holidays[0]: invalid date "2027-02-30"`)
+	assert.Contains(t, out.String(), "FAIL broken: [1:12] field 'holidays[0]': invalid date \"2027-02-30\": use YYYY-MM-DD\n"+
+		"FAIL broken: [2:12] field 'weekdays[0]': unknown day FUN")
 
 	// A file given as a path is checked with the calendars beside it.
 	out.Reset()
