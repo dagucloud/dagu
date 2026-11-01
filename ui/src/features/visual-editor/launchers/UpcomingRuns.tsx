@@ -5,6 +5,7 @@ import { useState, type ReactElement } from 'react';
 import { UpcomingRunsHold, type components } from '@/api/v1/schema';
 import { Button } from '@/components/ui/button';
 import { useI18n } from '@/i18n/I18nProvider';
+import { ScheduleCalendarLinks } from '@/features/calendars/components/ScheduleCalendarLinks';
 import dayjs from '@/lib/dayjs';
 import { formatFireTime, getScheduleLabel } from '@/lib/dagSchedule';
 
@@ -48,6 +49,7 @@ export function UpcomingRuns({
           </span>
         )}
       </h3>
+      <ScheduleCalendarLinks schedules={schedules} />
       {hold && (
         <p className="text-sm text-warning">
           {ts(
