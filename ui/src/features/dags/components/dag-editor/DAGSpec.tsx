@@ -2051,6 +2051,7 @@ function DAGSpec({
                             ) : undefined
                           }
                           customActions={visualCustomActions}
+                          harnesses={effectiveLocalHarnesses}
                           yamlEditorRef={yamlEditorRef}
                           yamlVisible={sectionOpen}
                           onYamlVisibleChange={setSectionOpen}
