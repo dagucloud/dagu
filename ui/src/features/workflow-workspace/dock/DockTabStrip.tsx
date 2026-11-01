@@ -84,7 +84,8 @@ export function dockTabLabel<T extends string>(
   tab: T,
   labels?: Partial<Record<T, string>>
 ): string {
-  return labels?.[tab] ?? DOCK_TAB_LABELS[tab as string as DockTab];
+  // A host tab without a label shows its id rather than nothing.
+  return labels?.[tab] ?? DOCK_TAB_LABELS[tab as string as DockTab] ?? tab;
 }
 
 /**

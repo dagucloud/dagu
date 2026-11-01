@@ -5,7 +5,7 @@ import { fireEvent, render, screen } from '@testing-library/react';
 import { useState } from 'react';
 import { describe, expect, it } from 'vitest';
 import type { DockTab } from '../../state/workspaceUrl';
-import { DockTabStrip } from '../DockTabStrip';
+import { DockTabStrip, dockTabLabel } from '../DockTabStrip';
 
 const TABS: DockTab[] = ['log', 'timeline', 'outputs', 'actions'];
 
@@ -115,5 +115,12 @@ describe('DockTabStrip', () => {
       />
     );
     expect(tab('Actions, 2 waiting')).toHaveTextContent('Actions2');
+  });
+});
+
+describe('dockTabLabel', () => {
+  it('names a host tab without a label by its id', () => {
+    expect(dockTabLabel('details', {})).toBe('details');
+    expect(dockTabLabel('details', { details: 'Details' })).toBe('Details');
   });
 });
