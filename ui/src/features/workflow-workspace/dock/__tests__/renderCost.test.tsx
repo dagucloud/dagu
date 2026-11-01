@@ -391,6 +391,38 @@ describe('FreezeWhenHidden', () => {
     expect(await screen.findByText('v2')).toBeInTheDocument();
     expect(fetcher).toHaveBeenCalledTimes(2);
   });
+
+  // A query that mounts as the subtree shows, as the log of another run,
+  // makes its own first read and is not read a second time.
+  it('reads a query that mounts as it shows only once', async () => {
+    const fetcher = vi.fn(async (key: string) => key);
+    function Reader({ runKey }: { runKey: string }) {
+      const { data } = useSWR(runKey, fetcher, { revalidateOnFocus: false });
+      return <span>{data ?? ''}</span>;
+    }
+    const tree = (hidden: boolean, runKey: string) => (
+      <SWRConfig value={{ provider: () => new Map(), dedupingInterval: 0 }}>
+        <FreezeWhenHidden hidden={hidden}>
+          <Reader runKey={runKey} />
+        </FreezeWhenHidden>
+      </SWRConfig>
+    );
+
+    const { rerender } = render(tree(false, 'log-1'));
+    expect(await screen.findByText('log-1')).toBeInTheDocument();
+    rerender(tree(true, 'log-1'));
+    rerender(tree(false, 'log-2'));
+    expect(await screen.findByText('log-2')).toBeInTheDocument();
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 50));
+    });
+    expect(fetcher.mock.calls.filter(([key]) => key === 'log-2')).toHaveLength(
+      1
+    );
+    expect(fetcher.mock.calls.filter(([key]) => key === 'log-1')).toHaveLength(
+      1
+    );
+  });
 });
 
 describe('RunStepList render cost', () => {

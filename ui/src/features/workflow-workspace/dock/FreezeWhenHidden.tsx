@@ -67,8 +67,8 @@ export function useDockHidden(): boolean {
  * and data. While hidden, the SWR hooks in it do not poll and its SSE hooks
  * hold no subscription: the frozen props can still say that a run that ended
  * is active, and the server reads a log for each subscription. Once shown
- * again, every query in it is read once, since a run can have ended and
- * written its last log while nothing read it.
+ * again, every query that was in it while hidden is read once, since a run
+ * can have ended and written its last log while nothing read it.
  */
 export function FreezeWhenHidden({
   hidden,
@@ -88,13 +88,22 @@ export function FreezeWhenHidden({
     return { shown: { use: [track] }, hidden: { use: [track, noPolling] } };
   }, [mounted]);
 
+  // The queries mounted when the subtree hid are the ones that can have
+  // missed a change. A query that mounts as it shows makes its own first
+  // read, so it is not read again. The effects of the children run first:
+  // on show, `mounted` already drops the queries that went away.
   const { mutate } = useSWRConfig();
-  const wasHidden = useRef(hidden);
+  const missed = useRef<string[] | null>(null);
   useEffect(() => {
-    if (wasHidden.current && !hidden) {
-      for (const id of mounted.keys()) void mutate(id);
+    if (hidden) {
+      missed.current = [...mounted.keys()];
+      return;
     }
-    wasHidden.current = hidden;
+    const ids = missed.current ?? [];
+    missed.current = null;
+    for (const id of ids) {
+      if (mounted.has(id)) void mutate(id);
+    }
   }, [hidden, mounted, mutate]);
 
   return (
