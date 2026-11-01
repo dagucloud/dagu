@@ -20,6 +20,9 @@ import type { ContextMenuRow, ContextMenuRowId } from './contextMenuItems';
 
 const EDGE_GAP = 4;
 
+/** How a row was chosen: a click, or Enter or Space. */
+export type MenuChoice = 'pointer' | 'keyboard';
+
 export interface ContextMenuProps {
   rows: ContextMenuRow[];
   /** Client coordinates of the top-left corner. */
@@ -27,7 +30,7 @@ export interface ContextMenuProps {
   y: number;
   /** Accessible name of the menu. */
   label: string;
-  onSelect(id: ContextMenuRowId): void;
+  onSelect(id: ContextMenuRowId, via: MenuChoice): void;
   /** `restoreFocus` is true when the focus goes back to the canvas. */
   onClose(restoreFocus: boolean): void;
 }
@@ -123,10 +126,10 @@ export function ContextMenu({
     setActive(enabled[next]!);
   };
 
-  const choose = (id: ContextMenuRowId | null) => {
+  const choose = (id: ContextMenuRowId | null, via: MenuChoice) => {
     const item = rows.find((candidate) => candidate.id === id);
     if (item && !item.disabled) {
-      onSelect(item.id);
+      onSelect(item.id, via);
     }
   };
 
@@ -154,7 +157,7 @@ export function ContextMenu({
         break;
       case 'Enter':
       case ' ':
-        choose(active);
+        choose(active, 'keyboard');
         break;
       case 'Escape':
       case 'Tab':
@@ -209,7 +212,7 @@ export function ContextMenu({
               tabIndex={item.id === active ? 0 : -1}
               title={item.reason ? ts(item.reason) : undefined}
               data-row={item.id}
-              onClick={() => choose(item.id)}
+              onClick={() => choose(item.id, 'pointer')}
               onPointerMove={() => {
                 if (!item.disabled && active !== item.id) setActive(item.id);
               }}
