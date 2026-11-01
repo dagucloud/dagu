@@ -210,9 +210,6 @@ type secretFile struct {
 	key   string
 	file  string
 	value *string
-	// set reports that the configuration gives the key, even with an
-	// empty value.
-	set bool
 	// env names the environment variable that gives the key, when one is set.
 	env string
 }
@@ -224,38 +221,38 @@ func (l *ConfigLoader) loadSecretFiles(def *Definition) error {
 	var secrets []secretFile
 	if def.Secrets != nil && def.Secrets.Vault != nil {
 		vault := def.Secrets.Vault
-		secrets = append(secrets, l.secretFile("secrets.vault.token", vault.TokenFile, &vault.Token))
+		secrets = append(secrets, newSecretFile("secrets.vault.token", vault.TokenFile, &vault.Token))
 	}
 	if l.requires(SectionServer) {
 		if auth := def.Auth; auth != nil {
 			if auth.Basic != nil {
-				secrets = append(secrets, l.secretFile("auth.basic.password", auth.Basic.PasswordFile, &auth.Basic.Password))
+				secrets = append(secrets, newSecretFile("auth.basic.password", auth.Basic.PasswordFile, &auth.Basic.Password))
 			}
 			if auth.OIDC != nil {
-				secrets = append(secrets, l.secretFile("auth.oidc.client_secret", auth.OIDC.ClientSecretFile, &auth.OIDC.ClientSecret))
+				secrets = append(secrets, newSecretFile("auth.oidc.client_secret", auth.OIDC.ClientSecretFile, &auth.OIDC.ClientSecret))
 			}
 			if auth.Builtin != nil && auth.Builtin.Token != nil {
 				token := auth.Builtin.Token
-				secrets = append(secrets, l.secretFile("auth.builtin.token.secret", token.SecretFile, &token.Secret))
+				secrets = append(secrets, newSecretFile("auth.builtin.token.secret", token.SecretFile, &token.Secret))
 			}
 			if auth.Builtin != nil && auth.Builtin.InitialAdmin != nil {
 				admin := auth.Builtin.InitialAdmin
-				secrets = append(secrets, l.secretFile("auth.builtin.initial_admin.password", admin.PasswordFile, &admin.Password))
+				secrets = append(secrets, newSecretFile("auth.builtin.initial_admin.password", admin.PasswordFile, &admin.Password))
 			}
 		}
 		for i := range def.RemoteNodes {
 			node := &def.RemoteNodes[i]
 			secrets = append(secrets,
-				l.remoteNodeSecretFile(i, "basic_auth_password", node.BasicAuthPasswordFile, &node.BasicAuthPassword),
-				l.remoteNodeSecretFile(i, "auth_token", node.AuthTokenFile, &node.AuthToken),
+				newSecretFile(fmt.Sprintf("remote_nodes[%d].basic_auth_password", i), node.BasicAuthPasswordFile, &node.BasicAuthPassword),
+				newSecretFile(fmt.Sprintf("remote_nodes[%d].auth_token", i), node.AuthTokenFile, &node.AuthToken),
 			)
 		}
 	}
 	if l.requires(SectionGitSync) && def.GitSync != nil && def.GitSync.Auth != nil {
 		auth := def.GitSync.Auth
 		secrets = append(secrets,
-			l.secretFile("git_sync.auth.token", auth.TokenFile, &auth.Token),
-			l.secretFile("git_sync.auth.ssh_passphrase", auth.SSHPassphraseFile, &auth.SSHPassphrase),
+			newSecretFile("git_sync.auth.token", auth.TokenFile, &auth.Token),
+			newSecretFile("git_sync.auth.ssh_passphrase", auth.SSHPassphraseFile, &auth.SSHPassphrase),
 		)
 	}
 	for _, secret := range secrets {
@@ -266,11 +263,11 @@ func (l *ConfigLoader) loadSecretFiles(def *Definition) error {
 	return nil
 }
 
-// secretFile describes a secret at a configuration key. The key counts as
-// set when the configuration gives it, even with an empty value. An empty
-// environment variable does not set the key.
-func (l *ConfigLoader) secretFile(key, file string, value *string) secretFile {
-	return secretFile{key: key, file: file, value: value, set: l.v.IsSet(key), env: inlineEnvName(key)}
+// newSecretFile describes a secret at a configuration key. An empty value
+// counts as unset, whether it comes from the configuration file or the
+// environment.
+func newSecretFile(key, file string, value *string) secretFile {
+	return secretFile{key: key, file: file, value: value, env: inlineEnvName(key)}
 }
 
 // inlineEnvName returns the environment variable that gives the configuration
@@ -288,34 +285,18 @@ func inlineEnvName(key string) string {
 	return ""
 }
 
-// remoteNodeSecretFile describes a secret of the remote node at index i.
-// Viper cannot address list items by key, so the raw entry of the node tells
-// whether the configuration gives the key. The entry is a []any of
-// map[string]any, which is what viper builds from YAML. For any other shape the
-// type assertions fail, set stays false, and the check for an empty inline key
-// beside its _file key does not run. A non-empty inline value still conflicts
-// with the _file key in readSecretFile.
-func (l *ConfigLoader) remoteNodeSecretFile(i int, name, file string, value *string) secretFile {
-	secret := secretFile{key: fmt.Sprintf("remote_nodes[%d].%s", i, name), file: file, value: value}
-	if nodes, ok := l.v.Get("remote_nodes").([]any); ok && i < len(nodes) {
-		if node, ok := nodes[i].(map[string]any); ok {
-			secret.set = node[name] != nil
-		}
-	}
-	return secret
-}
-
 // readSecretFile sets the secret to the content of its file, without its
 // trailing line ends: every trailing \r and \n is removed, so a secret cannot
-// end with one. Setting both the key and its _file key is an error, as is a file
-// that cannot be read or holds only blanks. A file with no content is an error
-// here, unlike the passphrase_file of a TLS certificate, because an empty
-// credential is a configuration mistake and not a key without a passphrase.
+// end with one. A non-empty key beside its _file key is an error, as is a file
+// that cannot be read or holds only blanks. An empty key is ignored. A file
+// with no content is an error here, unlike the passphrase_file of a TLS
+// certificate, because an empty credential is a configuration mistake and not
+// a key without a passphrase.
 func (l *ConfigLoader) readSecretFile(secret secretFile) error {
 	if secret.file == "" {
 		return nil
 	}
-	if secret.set || *secret.value != "" {
+	if *secret.value != "" {
 		// The inline value may come from the environment, where the operator
 		// looks for the variable and not for the key.
 		// The same holds for the _file side: DAGU_..._FILE can name the file while

@@ -2450,6 +2450,24 @@ func TestLoad_SecretFileWithEmptyEnv(t *testing.T) {
 	assert.Equal(t, "env-file-secret", cfg.Server.Auth.Builtin.Token.Secret)
 }
 
+// An empty inline secret counts as unset, so a template that renders every
+// key, such as the Helm chart, can still name the file.
+func TestLoad_SecretFileWithEmptyInline(t *testing.T) {
+	t.Run("FileFromEnv", func(t *testing.T) {
+		path := writeSecretFile(t, "from-file\n")
+		cfg := loadWithEnv(t, "auth:\n  mode: builtin\n  builtin:\n    token:\n      secret: \"\"\n      ttl: \"24h\"\n", map[string]string{
+			"DAGU_AUTH_TOKEN_SECRET_FILE": path,
+		})
+		assert.Equal(t, "from-file", cfg.Server.Auth.Builtin.Token.Secret)
+	})
+
+	t.Run("RemoteNode", func(t *testing.T) {
+		path := writeSecretFile(t, "from-file\n")
+		cfg := loadFromYAML(t, fmt.Sprintf("remote_nodes:\n  - name: other\n    api_base_url: https://other.example.com/api/v1\n    auth_type: token\n    auth_token: \"\"\n    auth_token_file: %s\n", path))
+		assert.Equal(t, "from-file", cfg.Server.RemoteNodes[0].AuthToken)
+	})
+}
+
 func TestLoad_SecretFileErrors(t *testing.T) {
 	t.Run("BothSet", func(t *testing.T) {
 		path := writeSecretFile(t, "from-file")
@@ -2463,34 +2481,6 @@ auth:
 `, path))
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), "set either auth.builtin.token.secret or auth.builtin.token.secret_file, not both")
-	})
-
-	t.Run("BothSetWithEmptyInline", func(t *testing.T) {
-		path := writeSecretFile(t, "from-file")
-		err := loadWithErrorFromYAML(t, fmt.Sprintf(`
-auth:
-  mode: builtin
-  builtin:
-    token:
-      secret: ""
-      secret_file: %s
-`, path))
-		require.Error(t, err)
-		assert.Contains(t, err.Error(), "set either auth.builtin.token.secret or auth.builtin.token.secret_file, not both")
-	})
-
-	t.Run("BothSetWithEmptyInlineRemoteNode", func(t *testing.T) {
-		path := writeSecretFile(t, "from-file")
-		err := loadWithErrorFromYAML(t, fmt.Sprintf(`
-remote_nodes:
-  - name: other
-    api_base_url: https://other.example.com/api/v1
-    auth_type: token
-    auth_token: ""
-    auth_token_file: %s
-`, path))
-		require.Error(t, err)
-		assert.Contains(t, err.Error(), "set either remote_nodes[0].auth_token or remote_nodes[0].auth_token_file, not both")
 	})
 
 	t.Run("BothSetWithTheFileFromEnv", func(t *testing.T) {
