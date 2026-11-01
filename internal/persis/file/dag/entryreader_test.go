@@ -562,7 +562,7 @@ var calendarWatchFrom = time.Date(2027, 1, 11, 0, 0, 0, 0, time.UTC)
 
 // startCalendarWatch starts a reader on a DAG that runs at 18:00 on the
 // business days of calendar jp, read from calendars.
-func startCalendarWatch(t *testing.T, calendars string) *entryReaderImpl {
+func startCalendarWatch(t *testing.T, calendars string, opts ...EntryReaderOption) *entryReaderImpl {
 	t.Helper()
 	dir := t.TempDir()
 	require.NoError(t, os.WriteFile(filepath.Join(dir, "payroll.yaml"),
@@ -570,7 +570,7 @@ func startCalendarWatch(t *testing.T, calendars string) *entryReaderImpl {
 
 	repo := newRepository(dir, WithSkipExamples(true), WithCalendars(spec.NewCalendarSource(calendars)),
 		WithFileCache(fileutil.NewCache[*ir.DAG]("calendar-watch", 2, 0)))
-	reader := NewFileEntryReader(dir, repo, false, "", "", WatchCalendars(calendars))
+	reader := NewFileEntryReader(dir, repo, false, "", "", append([]EntryReaderOption{WatchCalendars(calendars)}, opts...)...)
 	require.NoError(t, reader.Init(t.Context()))
 	entries := reader.Entries()
 	require.Len(t, entries, 1)
@@ -617,8 +617,10 @@ func TestCalendarWatch(t *testing.T) {
 }
 
 // A symlink swap, as a Kubernetes ConfigMap update does, can point a
-// calendar at a file of the same size and modification time.
-func TestCalendarWatchSymlinkSwap(t *testing.T) {
+// calendar at a file of the same size and modification time. A refresh must
+// see the new target. kqueue may report no event for a rename onto an
+// existing name, so the periodic re-read triggers the refresh here.
+func TestCalendarRefreshSymlinkSwap(t *testing.T) {
 	t.Parallel()
 	if runtime.GOOS == "windows" {
 		t.Skip("symlinks need privileges on Windows")
@@ -636,7 +638,7 @@ func TestCalendarWatchSymlinkSwap(t *testing.T) {
 	calendars := t.TempDir()
 	link := filepath.Join(calendars, "jp.yaml")
 	require.NoError(t, os.Symlink(before, link))
-	reader := startCalendarWatch(t, calendars)
+	reader := startCalendarWatch(t, calendars, withResyncInterval(250*time.Millisecond))
 
 	swap := filepath.Join(calendars, "jp.swap")
 	require.NoError(t, os.Symlink(after, swap))

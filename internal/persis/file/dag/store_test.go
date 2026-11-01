@@ -2749,3 +2749,31 @@ func TestMetadataFollowsCalendarEdits(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, time.Date(2027, 1, 12, 18, 0, 0, 0, time.UTC), dag.NextRun(from))
 }
+
+// A symlink swap can point a calendar at a file of the same size and
+// modification time; the directory state must still change, as it decides
+// whether a watcher event refreshes the DAGs.
+func TestCalendarsStateFollowsSymlinkSwaps(t *testing.T) {
+	t.Parallel()
+
+	versions := t.TempDir()
+	before := filepath.Join(versions, "before.yaml")
+	after := filepath.Join(versions, "after.yaml")
+	require.NoError(t, os.WriteFile(before, []byte("holidays: [2027-01-01]\n"), 0600))
+	require.NoError(t, os.WriteFile(after, []byte("holidays: [2027-01-11]\n"), 0600))
+	stamp := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
+	require.NoError(t, os.Chtimes(before, stamp, stamp))
+	require.NoError(t, os.Chtimes(after, stamp, stamp))
+
+	calendars := t.TempDir()
+	link := filepath.Join(calendars, "jp.yaml")
+	if err := os.Symlink(before, link); err != nil {
+		t.Skipf("symlink creation is unavailable: %v", err)
+	}
+	state := describeCalendarsState(calendars)
+
+	swap := filepath.Join(calendars, "jp.swap")
+	require.NoError(t, os.Symlink(after, swap))
+	require.NoError(t, os.Rename(swap, link))
+	assert.NotEqual(t, state, describeCalendarsState(calendars))
+}
