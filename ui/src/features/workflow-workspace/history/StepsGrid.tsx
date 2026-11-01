@@ -26,6 +26,10 @@ import type { StepGrid, StepGridRow, StepRunEntry } from './stepHistoryModel';
 const CELL_CLASS = 'flex h-6 w-4 shrink-0 items-center justify-center';
 const NAME_CLASS =
   'sticky left-0 z-[1] flex h-6 w-44 shrink-0 items-center gap-1 border-r border-border bg-card px-3';
+const FOCUS_CLASS =
+  'cursor-pointer outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring';
+// The row of the run headers, above the step rows, in the keyboard moves.
+const HEADER_ROW = -1;
 
 export interface StepsGridProps {
   grid: StepGrid;
@@ -34,6 +38,8 @@ export interface StepsGridProps {
   selectedId: string | null;
   /** Selects the run and the step of a cell. */
   onPick(runId: string, step: string): void;
+  /** Selects a run alone, from its column header. */
+  onPickRun(runId: string): void;
   /** Shows the history of one step, from a click on its name. */
   onOpenStep(step: string): void;
   /** The step under the pointer or the keyboard focus; null when none. */
@@ -159,7 +165,7 @@ const GridRow = memo(function GridRow({
             onClick={() => onCell(index, col, 'pick')}
             className={cn(
               CELL_CLASS,
-              'cursor-pointer outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring',
+              FOCUS_CLASS,
               col === selectedCol && 'bg-primary/10'
             )}
           >
@@ -174,15 +180,17 @@ const GridRow = memo(function GridRow({
 /**
  * The steps of the workflow by run: a row for each step, a column for each
  * run, the newest on the right and scrolled into view. The name column and
- * the run row stay in place while the grid scrolls. The grid is one tab
- * stop; the arrow keys, Home and End move in it and Enter selects the run
- * and the step of the cell.
+ * the run row stay in place while the grid scrolls. A run header selects
+ * that run alone. The grid is one tab stop; the arrow keys, Home and End
+ * move in it, the run row included, and Enter selects the run and the step
+ * of the cell, or the run of a header.
  */
 export function StepsGrid({
   grid,
   runs,
   selectedId,
   onPick,
+  onPickRun,
   onOpenStep,
   onSpotlight,
 }: StepsGridProps) {
@@ -205,14 +213,21 @@ export function StepsGrid({
   }, [newestId]);
 
   // Stable, so that the memoized rows skip a render for another row.
-  const live = useRef({ grid, runs, onPick, onSpotlight });
-  live.current = { grid, runs, onPick, onSpotlight };
+  const live = useRef({ grid, runs, onPick, onPickRun, onSpotlight });
+  live.current = { grid, runs, onPick, onPickRun, onSpotlight };
   const onCell = useCallback(
     (row: number, col: number, kind: 'focus' | 'pick') => {
       const { grid: current, runs: columns } = live.current;
-      const step = current.rows[row]?.step;
       const runId = columns[col]?.dagRunId;
-      if (step === undefined || runId === undefined) return;
+      if (runId === undefined) return;
+      if (row === HEADER_ROW) {
+        setFocus({ row, col });
+        if (kind === 'pick') live.current.onPickRun(runId);
+        else live.current.onSpotlight(null);
+        return;
+      }
+      const step = current.rows[row]?.step;
+      if (step === undefined) return;
       setFocus({ row, col });
       if (kind === 'pick') live.current.onPick(runId, step);
       else live.current.onSpotlight(step);
@@ -228,9 +243,10 @@ export function StepsGrid({
     if (event.altKey || event.ctrlKey || event.metaKey || event.shiftKey) {
       return;
     }
-    // The keys act on the focused cell; a clicked step name keeps its own.
-    const target = event.target as HTMLElement;
-    if (target.getAttribute('role') !== 'gridcell') return;
+    // The keys act on the focused cell or run header; a clicked step name
+    // keeps its own.
+    const role = (event.target as HTMLElement).getAttribute('role');
+    if (role !== 'gridcell' && role !== 'columnheader') return;
     const { row, col } = tab;
     if (event.key === 'Enter' || event.key === ' ') {
       event.preventDefault();
@@ -248,7 +264,7 @@ export function StepsGrid({
     if (!next) return;
     event.preventDefault();
     const to = {
-      row: Math.min(grid.rows.length - 1, Math.max(0, next.row)),
+      row: Math.min(grid.rows.length - 1, Math.max(HEADER_ROW, next.row)),
       col: Math.min(lastCol, Math.max(0, next.col)),
     };
     gridRef.current
@@ -283,6 +299,7 @@ export function StepsGrid({
         <div
           role="row"
           aria-rowindex={1}
+          onPointerEnter={() => onSpotlight(null)}
           className="sticky top-0 z-[2] flex min-w-max border-b border-border bg-card"
         >
           <div
@@ -307,11 +324,18 @@ export function StepsGrid({
               <div
                 key={run.dagRunId}
                 role="columnheader"
+                tabIndex={tab.row === HEADER_ROW && col === tab.col ? 0 : -1}
                 aria-label={label}
                 title={label}
                 aria-selected={col === selectedCol}
+                data-cell={`${HEADER_ROW}:${col}`}
+                data-testid={`ww-history-run-${run.dagRunId}`}
+                onFocus={() => onCell(HEADER_ROW, col, 'focus')}
+                onClick={() => onCell(HEADER_ROW, col, 'pick')}
                 className={cn(
                   CELL_CLASS,
+                  FOCUS_CLASS,
+                  'hover:bg-muted',
                   col === selectedCol && 'bg-primary/10'
                 )}
               >

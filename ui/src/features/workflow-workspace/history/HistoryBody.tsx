@@ -51,6 +51,10 @@ export function HistoryBody({ run, dag, step, selectTab }: DockTabBodyProps) {
       sub: null,
     });
   }, []);
+  // A run header selects that run alone, and the grid stays.
+  const pickColumn = useCallback((runId: string) => {
+    setUrlRef.current({ run: runId });
+  }, []);
 
   // The canvas lights the node of the row under the pointer, and the light
   // ends with the grid.
@@ -132,6 +136,7 @@ export function HistoryBody({ run, dag, step, selectTab }: DockTabBodyProps) {
         runs={runs}
         selectedId={visible.selectedId}
         onPick={pick}
+        onPickRun={pickColumn}
         onOpenStep={showStep}
         onSpotlight={spotlight}
       />

@@ -944,6 +944,16 @@ describe('dock tab bodies', () => {
       });
     });
 
+    it('selects a run alone from its header and keeps the grid', async () => {
+      await renderBody('history');
+      fireEvent.click(await screen.findByTestId('ww-history-run-run-2'));
+      await vi.waitFor(() => expect(query().get('run')).toBe('run-2'));
+      expect(query().get('step')).toBeNull();
+      expect(
+        screen.getByRole('grid', { name: 'Steps by run' })
+      ).toBeInTheDocument();
+    });
+
     it('shows the runs of the step in a step view', async () => {
       await renderBody('history', `/dags/${FILE_NAME}`, 'a');
       const section = await screen.findByRole('region', {
