@@ -99,8 +99,9 @@ export function useWorkspaceKeys(): void {
   const run = useWorkspaceRun();
   const refresh = useWorkspaceRefresh();
   const dock = useDockCommands();
-  const [url] = useWorkspaceUrl();
-  const step = url.step;
+  // The router renders a URL write later: a key right after a click on a
+  // step reads the step from the written URL.
+  const [, , readUrl] = useWorkspaceUrl();
   const [historyEnabled, setHistoryEnabled] = useState(false);
   const visible = useVisibleRuns({ enabled: historyEnabled });
   // A move asked before the history loaded; applied once it has.
@@ -118,7 +119,7 @@ export function useWorkspaceKeys(): void {
     historyEnabled,
     move,
     dock,
-    step,
+    readUrl,
   });
   useEffect(() => {
     latest.current = {
@@ -128,7 +129,7 @@ export function useWorkspaceKeys(): void {
       historyEnabled,
       move,
       dock,
-      step,
+      readUrl,
     };
   });
 
@@ -148,9 +149,11 @@ export function useWorkspaceKeys(): void {
         case 'refresh':
           void current.refresh().catch(() => undefined);
           return;
-        case 'stepLog':
-          if (current.step) current.dock.openStep(current.step);
+        case 'stepLog': {
+          const { step } = current.readUrl();
+          if (step) current.dock.openStep(step);
           return;
+        }
         case 'latest':
           if (current.run.selection !== 'latest') current.run.select('latest');
           return;
