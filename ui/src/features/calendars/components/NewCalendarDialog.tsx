@@ -55,6 +55,9 @@ export function NewCalendarDialog({
       setName('');
       setError(null);
     }
+    return () => {
+      openRef.current = false;
+    };
   }, [open]);
 
   function nameProblem(value: string): string | null {

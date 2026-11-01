@@ -90,6 +90,26 @@ describe('NewCalendarDialog', () => {
     expect(onCreated).not.toHaveBeenCalled();
   });
 
+  it('ignores a request that ends after the page closed', async () => {
+    let answer: (value: unknown) => void = () => undefined;
+    post.mockReturnValue(new Promise((resolve) => (answer = resolve)));
+    const onCreated = vi.fn();
+    const { unmount } = render(
+      <NewCalendarDialog
+        open
+        remoteNode="local"
+        existingNames={[]}
+        onClose={vi.fn()}
+        onCreated={onCreated}
+      />
+    );
+    submit('jp-banking');
+
+    unmount();
+    await act(async () => answer({ data: { name: 'jp-banking' } }));
+    expect(onCreated).not.toHaveBeenCalled();
+  });
+
   it('creates the calendar and hands over its name', async () => {
     post.mockResolvedValue({ data: { name: 'jp-banking' } });
     const onCreated = renderDialog();
