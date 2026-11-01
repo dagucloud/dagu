@@ -30,6 +30,7 @@ import {
 export { createTextHistory } from './history';
 export { attributeIssues, groupIssues, locateIssue } from './issues';
 export { parseDagDoc, parseDagDocLenient, resolveStepNames } from './parse';
+export { parseAllDocumentsAsServer, parseDocumentAsServer } from './serverYaml';
 export { readSchedule } from './ops/schedule';
 export type { ScheduleView } from './ops/schedule';
 

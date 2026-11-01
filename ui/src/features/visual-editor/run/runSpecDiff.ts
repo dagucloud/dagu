@@ -1,9 +1,12 @@
 // Copyright (C) 2026 Yota Hamada
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-import { parseAllDocuments } from 'yaml';
 import type { ApiDAGDetails, DagDocModel } from '../contracts';
-import { parseDagDocLenient, resolveStepNames } from '../doc';
+import {
+  parseAllDocumentsAsServer,
+  parseDagDocLenient,
+  resolveStepNames,
+} from '../doc';
 
 /** Line ends and trailing blanks do not make a different definition. */
 export function normalizeSpec(spec: string): string {
@@ -75,7 +78,7 @@ function headValue(js: unknown): unknown {
  */
 export function headOf(model: DagDocModel): string | null {
   try {
-    const [doc, ...later] = parseAllDocuments(
+    const [doc, ...later] = parseAllDocumentsAsServer(
       model.sanitizedText ?? model.text
     );
     if (!doc || doc.errors.length > 0) return null;

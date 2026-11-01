@@ -13,6 +13,7 @@ import {
   yamlArraySteps,
   yamlBroken,
   yamlHttpJq,
+  yamlUnindentedQuote,
 } from '../testing/fixtures';
 import { DOC_MODEL_DELAY_MS } from '../useDocModel';
 import { VisualEditor, type VisualEditorProps } from '../VisualEditor';
@@ -205,17 +206,16 @@ describe.skipIf(realSchema === null)('VisualEditor', () => {
     }
   });
 
-  // The browser parser rejects a closing quote that is less indented than
-  // its step, while the server reads the file and runs it.
+  // An error outside the steps leaves no step to read from the text, while
+  // the server read the steps of the saved file.
   it('shows the steps that the server read while no text has parsed', () => {
     renderEditor({
       initial: [
         'type: graph',
         'steps:',
         '- id: a',
-        "  run: 'echo x",
-        '',
-        "'",
+        '  run: echo x',
+        'env: [A=1',
         '- id: b',
         '  depends: [a]',
         '  run: echo y',
@@ -234,12 +234,32 @@ describe.skipIf(realSchema === null)('VisualEditor', () => {
     expect(screen.getByTestId('ve-canvas-node-b')).toBeInTheDocument();
     expect(
       screen.getByText(
-        'The editor cannot read the YAML at line 5: the canvas shows the steps the server read'
+        'The editor cannot read the YAML at line 6: the canvas shows the steps the server read'
       )
     ).toBeInTheDocument();
     // The canvas is frozen: the n key does not open the list of steps.
     fireEvent.keyDown(screen.getByTestId('ve-canvas'), { key: 'n' });
     expect(screen.queryByTestId('ve-add-step')).toBeNull();
+  });
+
+  // The server reads a quoted scalar up to its closing quote, whatever the
+  // indent of its later lines: the canvas reads the steps from the text.
+  it('edits a file with a closing quote at column 0', () => {
+    renderEditor({
+      initial: yamlUnindentedQuote,
+      validation: {
+        issues: [],
+        dag: {
+          name: 'example',
+          steps: [{ name: 'owner' }, { name: 'notes', depends: ['owner'] }],
+        },
+      } as never,
+    });
+
+    expect(screen.getByTestId('ve-canvas-node-steps[0]')).toBeInTheDocument();
+    expect(screen.queryByText(/cannot read the YAML/)).toBeNull();
+    fireEvent.keyDown(screen.getByTestId('ve-canvas'), { key: 'n' });
+    expect(screen.getByTestId('ve-add-step')).toBeInTheDocument();
   });
 
   // "At the end of the workflow" chains the step after the last leaf.

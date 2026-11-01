@@ -7,6 +7,7 @@ import {
   yamlArraySteps,
   yamlMultiDoc,
   yamlRouter,
+  yamlUnindentedQuote,
 } from '../../testing/fixtures';
 import * as doc from '../index';
 import { applyTextEdits } from '../patch';
@@ -117,5 +118,22 @@ describe('applyEdit', () => {
         );
       }
     }
+  });
+});
+
+// A quoted scalar with unindented lines parses as the server reads it, so an
+// edit elsewhere changes only its own lines.
+describe('applyEdit with a quoted scalar with unindented lines', () => {
+  it('keeps the quoted scalar as it is', () => {
+    expect(
+      doc.applyEdit(yamlUnindentedQuote, {
+        kind: 'removeDependency',
+        step: 'steps[1]',
+        dependsOn: 'steps[0]',
+      })
+    ).toMatchObject({
+      ok: true,
+      text: yamlUnindentedQuote.replace('  depends: [owner]\n', ''),
+    });
   });
 });

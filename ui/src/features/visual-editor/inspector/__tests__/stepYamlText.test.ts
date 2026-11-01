@@ -7,6 +7,7 @@ import {
   modelArraySteps,
   yamlHandlers,
   yamlMapSteps,
+  yamlUnindentedQuote,
 } from '../../testing/fixtures';
 import { parseStepYaml, stepYamlFromModel } from '../stepYamlText';
 import { httpStep, jqStep, modelHttpJq } from './fixtures';
@@ -83,5 +84,28 @@ describe('parseStepYaml', () => {
       ok: true,
       value: { run: 'echo hi' },
     });
+  });
+});
+
+// The server reads a quoted scalar whatever the indent of its later lines:
+// the inspector reads and replaces such a step too.
+describe('step with a quoted scalar with unindented lines', () => {
+  it('parses back to the step value and replaces it', () => {
+    const model = parseDagDoc(yamlUnindentedQuote);
+    const step = model.steps[0]!;
+    const yaml = stepYamlFromModel(model, step);
+    expect(parseStepYaml(yaml).value).toEqual(step.value);
+
+    const result = applyEdit(yamlUnindentedQuote, {
+      kind: 'replaceStepYaml',
+      step: step.key,
+      yaml: yaml.replace('-f1', '-f2'),
+    });
+    expect(result.ok).toBe(true);
+    const edited = parseDagDoc(result.ok ? result.text : '');
+    expect(edited.steps.map((s) => s.value.run)).toEqual([
+      `echo "\${REPO}" | cut -d'/' -f2\n`,
+      'echo done',
+    ]);
   });
 });

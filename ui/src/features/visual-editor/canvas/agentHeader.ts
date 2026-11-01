@@ -1,7 +1,7 @@
 // Copyright (C) 2026 Yota Hamada
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-import { parseAllDocuments } from 'yaml';
+import { parseAllDocumentsAsServer } from '../doc';
 
 /** A task of an agent DAG, as written in the YAML. */
 export interface AgentTaskDef {
@@ -43,7 +43,9 @@ function firstLine(value: unknown): string | undefined {
 }
 
 function readHeader(source: string): AgentHeader {
-  const root = parseAllDocuments(source)[0]?.toJS({ maxAliasCount: 100 });
+  const root = parseAllDocumentsAsServer(source)[0]?.toJS({
+    maxAliasCount: 100,
+  });
   if (!isRecord(root)) {
     return EMPTY;
   }

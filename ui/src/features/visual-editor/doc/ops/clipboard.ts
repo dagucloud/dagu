@@ -11,8 +11,6 @@ import {
   isNode,
   isScalar,
   isSeq,
-  parseAllDocuments,
-  parseDocument,
   visit,
 } from 'yaml';
 import type { Node } from 'yaml';
@@ -25,6 +23,10 @@ import type {
 import { uniqueStepName, validateStepId, validateStepName } from '../names';
 import { BASE_EMIT_OPTIONS, editDocument } from '../patch';
 import type { MutateOutcome } from '../patch';
+import {
+  parseAllDocumentsAsServer,
+  parseDocumentAsServer,
+} from '../serverYaml';
 import { explicitNameOf, findStep, getDagType, indexSteps } from '../stepIndex';
 import type { IndexedStep } from '../stepIndex';
 import { detectDependsStyle, readDepends, writeDepends } from './depends';
@@ -139,7 +141,7 @@ function entryForCopy(
 const EXACT_INTS = { intAsBigInt: true };
 
 function firstDocument(text: string): Document | null {
-  const doc = parseAllDocuments(text, EXACT_INTS)[0];
+  const doc = parseAllDocumentsAsServer(text, EXACT_INTS)[0];
   return doc && doc.errors.length === 0 ? (doc as Document) : null;
 }
 
@@ -209,7 +211,7 @@ function stepsOf(node: unknown): YAMLMap[] | null {
 function readClipboard(
   yaml: string
 ): { doc: Document; entries: YAMLMap[] } | null {
-  const doc = parseDocument(yaml, EXACT_INTS);
+  const doc = parseDocumentAsServer(yaml, EXACT_INTS);
   if (doc.errors.length > 0) return null;
   const root = doc.contents;
   let entries: YAMLMap[] | null = null;

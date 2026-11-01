@@ -9,7 +9,6 @@ import {
   isNode,
   isScalar,
   isSeq,
-  parseDocument,
 } from 'yaml';
 import type { Document, Node, Scalar } from 'yaml';
 import type {
@@ -22,6 +21,7 @@ import type {
 import { validateStepId, validateStepName } from '../names';
 import { editDocument } from '../patch';
 import type { MutateOutcome } from '../patch';
+import { parseDocumentAsServer } from '../serverYaml';
 import { explicitNameOf, findStep, idOf, indexSteps } from '../stepIndex';
 import type { IndexedStep } from '../stepIndex';
 import { mentionsStep, rewriteStepReferences } from './references';
@@ -264,7 +264,7 @@ export function opReplaceStepYaml(
   // eslint-disable-next-line @typescript-eslint/no-unused-vars
   _options: ApplyEditOptions = {}
 ): EditResult {
-  const parsed = parseDocument(op.yaml);
+  const parsed = parseDocumentAsServer(op.yaml);
   const error = parsed.errors[0];
   if (error) {
     const first = error.message.split('\n')[0] ?? error.message;

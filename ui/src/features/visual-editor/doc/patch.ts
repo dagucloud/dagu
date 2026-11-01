@@ -1,29 +1,25 @@
 // Copyright (C) 2026 Yota Hamada
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-import {
-  parseAllDocuments,
-  parseDocument,
-  type Document,
-  type ToStringOptions,
-} from 'yaml';
+import { parseDocument, type Document, type ToStringOptions } from 'yaml';
 import type {
   EditErrorCode,
   EditResult,
   StepKey,
   TextEdit,
 } from '../contracts';
+import { parseAllDocumentsAsServer } from './serverYaml';
 
 /**
  * Returns the offset where the text of document 0 ends: the line start of the
  * `---` marker that opens document 1 or of the `...` marker that closes
  * document 0, or the text length when there is no later document. Text from
  * this offset on is never part of an edit. `docs` is the result of
- * `parseAllDocuments(text)`, when the caller has it already.
+ * `parseAllDocumentsAsServer(text)`, when the caller has it already.
  */
 export function documentZeroEnd(
   text: string,
-  docs: Document[] = parseAllDocuments(text) as Document[]
+  docs: Document[] = parseAllDocumentsAsServer(text)
 ): number {
   const range = docs.length > 1 ? docs[0]?.range : undefined;
   if (!range) return text.length;
@@ -614,7 +610,7 @@ function verifies(text: string, count: number, expected: Document): boolean {
     return true; // Cannot compare values (for example an unresolved alias).
   }
   try {
-    const docs = parseAllDocuments(text);
+    const docs = parseAllDocumentsAsServer(text);
     const doc = docs[0];
     if (docs.length !== count || !doc || doc.errors.length > 0) return false;
     return sameValue(doc.toJS(), expectedValue);
@@ -635,7 +631,7 @@ export function editDocumentDetailed(
   text: string,
   mutate: (doc: Document) => MutateOutcome
 ): DetailedEditResult {
-  const docs = parseAllDocuments(text);
+  const docs = parseAllDocumentsAsServer(text);
   const doc = docs[0] ?? parseDocument(text);
   const count = Math.max(docs.length, 1);
   const firstError = doc.errors[0];

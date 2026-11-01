@@ -17,6 +17,7 @@ import {
   yamlRouter,
   yamlHttpJq,
   yamlShorthandSteps,
+  yamlUnindentedQuote,
 } from '../../testing/fixtures';
 import { parseDagDoc, resolveStepNames } from '../parse';
 
@@ -760,5 +761,33 @@ describe('alias entries', () => {
       kind: 'run',
       value: { run: 'echo hi' },
     });
+  });
+});
+
+// The server reads a quoted scalar up to its closing quote, whatever the
+// indent of its later lines, so a file in that shape runs and must parse.
+describe('quoted scalar with unindented lines', () => {
+  it('reads the steps as the server does', () => {
+    const model = parseDagDoc(yamlUnindentedQuote);
+    expect(model.ok).toBe(true);
+    expect(model.parseErrors).toEqual([]);
+    expect(model.steps.map((s) => s.value.run)).toEqual([
+      `echo "\${REPO}" | cut -d'/' -f1\n`,
+      'echo done',
+    ]);
+  });
+
+  it('ranges the steps in the text', () => {
+    const model = parseDagDoc(yamlUnindentedQuote);
+    expect(
+      model.steps.map((s) => [
+        slice(yamlUnindentedQuote, s),
+        s.range.startLine,
+        s.range.endLine,
+      ])
+    ).toEqual([
+      [`id: owner\n  run: 'echo "\${REPO}" | cut -d''/'' -f1\n\n'`, 2, 5],
+      ['id: notes\n  depends: [owner]\n  run: echo done', 6, 8],
+    ]);
   });
 });
