@@ -565,8 +565,12 @@ var calendarWatchFrom = time.Date(2027, 1, 11, 0, 0, 0, 0, time.UTC)
 func startCalendarWatch(t *testing.T, calendars string, opts ...EntryReaderOption) *entryReaderImpl {
 	t.Helper()
 	dir := t.TempDir()
-	require.NoError(t, os.WriteFile(filepath.Join(dir, "payroll.yaml"),
+	dagFile := filepath.Join(dir, "payroll.yaml")
+	require.NoError(t, os.WriteFile(dagFile,
 		[]byte("calendar: jp\nschedule: \"0 18 * * *\"\nsteps:\n  - run: echo pay\n"), 0600))
+	// An old file, as most DAGs are, so a refresh may reuse the loaded DAG.
+	old := time.Now().Add(-time.Hour)
+	require.NoError(t, os.Chtimes(dagFile, old, old))
 
 	repo := newRepository(dir, WithSkipExamples(true), WithCalendars(spec.NewCalendarSource(calendars)),
 		WithFileCache(fileutil.NewCache[*ir.DAG]("calendar-watch", 2, 0)))
@@ -616,34 +620,22 @@ func TestCalendarWatch(t *testing.T) {
 	requireReplannedPastHoliday(t, reader)
 }
 
-// A symlink swap, as a Kubernetes ConfigMap update does, can point a
-// calendar at a file of the same size and modification time. A refresh must
-// see the new target. kqueue may report no event for a rename onto an
-// existing name, so the periodic re-read triggers the refresh here.
-func TestCalendarRefreshSymlinkSwap(t *testing.T) {
+// A calendar replaced with one of the same size and modification time must
+// still re-plan the DAGs that use it. kqueue may report no event for a
+// rename onto an existing name, so the periodic re-read triggers the
+// refresh here.
+func TestCalendarRefreshSameStampSwap(t *testing.T) {
 	t.Parallel()
-	if runtime.GOOS == "windows" {
-		t.Skip("symlinks need privileges on Windows")
+
+	for _, tc := range sameStampSwaps {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			calendars, swap := tc.prepare(t, "holidays: [2027-01-01]\n", "holidays: [2027-01-11]\n")
+			reader := startCalendarWatch(t, calendars, withResyncInterval(250*time.Millisecond))
+			swap()
+			requireReplannedPastHoliday(t, reader)
+		})
 	}
-
-	versions := t.TempDir()
-	before := filepath.Join(versions, "before.yaml")
-	after := filepath.Join(versions, "after.yaml")
-	require.NoError(t, os.WriteFile(before, []byte("holidays: [2027-01-01]\n"), 0600))
-	require.NoError(t, os.WriteFile(after, []byte("holidays: [2027-01-11]\n"), 0600))
-	stamp := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
-	require.NoError(t, os.Chtimes(before, stamp, stamp))
-	require.NoError(t, os.Chtimes(after, stamp, stamp))
-
-	calendars := t.TempDir()
-	link := filepath.Join(calendars, "jp.yaml")
-	require.NoError(t, os.Symlink(before, link))
-	reader := startCalendarWatch(t, calendars, withResyncInterval(250*time.Millisecond))
-
-	swap := filepath.Join(calendars, "jp.swap")
-	require.NoError(t, os.Symlink(after, swap))
-	require.NoError(t, os.Rename(swap, link))
-	requireReplannedPastHoliday(t, reader)
 }
 
 type observedWatcher struct {

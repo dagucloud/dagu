@@ -357,21 +357,16 @@ func describeCalendarsState(dir string) string {
 		if !strings.HasSuffix(entry.Name(), ".yaml") {
 			continue
 		}
-		// Stat follows symlinks, so a retargeted calendar file counts as a change.
-		path := filepath.Join(dir, entry.Name())
-		fi, err := os.Stat(path)
+		// The content is the state: a replacement can keep the size and
+		// modification time, as symlink swaps and time-preserving copies do.
+		// Calendar files are few and small, so reading them stays cheap.
+		data, err := os.ReadFile(filepath.Join(dir, entry.Name())) //nolint:gosec // entry names come from listing the calendars directory.
 		if err != nil {
 			states = append(states, entry.Name()+":error:"+err.Error())
 			continue
 		}
-		state := fmt.Sprintf("%s:%d:%d", entry.Name(), fi.Size(), fi.ModTime().UnixNano())
-		if entry.Type()&os.ModeSymlink != 0 {
-			// The target is part of the state, as a swap can point the link
-			// at a file of the same size and modification time.
-			target, _ := filepath.EvalSymlinks(path)
-			state += ":" + target
-		}
-		states = append(states, state)
+		sum := sha256.Sum256(data)
+		states = append(states, entry.Name()+":"+hex.EncodeToString(sum[:]))
 	}
 	sort.Strings(states)
 	return strings.Join(states, ",")

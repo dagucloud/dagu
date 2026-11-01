@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"runtime"
 	"sync"
 	"testing"
 	"time"
@@ -2750,30 +2751,85 @@ func TestMetadataFollowsCalendarEdits(t *testing.T) {
 	assert.Equal(t, time.Date(2027, 1, 12, 18, 0, 0, 0, time.UTC), dag.NextRun(from))
 }
 
-// A symlink swap can point a calendar at a file of the same size and
-// modification time; the directory state must still change, as it decides
-// whether a watcher event refreshes the DAGs.
-func TestCalendarsStateFollowsSymlinkSwaps(t *testing.T) {
-	t.Parallel()
+// sameStampSwap prepares a calendars directory holding calendar jp with
+// content before. The returned swap replaces jp with content after, keeping
+// its size and modification time.
+type sameStampSwap struct {
+	name    string
+	prepare func(t *testing.T, before, after string) (calendars string, swap func())
+}
 
-	versions := t.TempDir()
-	before := filepath.Join(versions, "before.yaml")
-	after := filepath.Join(versions, "after.yaml")
-	require.NoError(t, os.WriteFile(before, []byte("holidays: [2027-01-01]\n"), 0600))
-	require.NoError(t, os.WriteFile(after, []byte("holidays: [2027-01-11]\n"), 0600))
+// sameStampSwaps are ways a deployment can replace a calendar file without
+// changing its size or modification time, as Kubernetes ConfigMap updates
+// and stores with pinned times do.
+var sameStampSwaps = []sameStampSwap{
+	{name: "file symlink", prepare: func(t *testing.T, before, after string) (string, func()) {
+		versions := t.TempDir()
+		beforePath := writeStampedFile(t, filepath.Join(versions, "before.yaml"), before)
+		afterPath := writeStampedFile(t, filepath.Join(versions, "after.yaml"), after)
+		calendars := t.TempDir()
+		link := filepath.Join(calendars, "jp.yaml")
+		symlinkOrSkip(t, beforePath, link)
+		return calendars, func() { replaceSymlink(t, afterPath, link) }
+	}},
+	{name: "atomic rename", prepare: func(t *testing.T, before, after string) (string, func()) {
+		calendars := t.TempDir()
+		path := writeStampedFile(t, filepath.Join(calendars, "jp.yaml"), before)
+		return calendars, func() {
+			require.NoError(t, os.Rename(writeStampedFile(t, filepath.Join(calendars, "jp.tmp"), after), path))
+		}
+	}},
+	{name: "directory symlink", prepare: func(t *testing.T, before, after string) (string, func()) {
+		if runtime.GOOS == "windows" {
+			t.Skip("Windows cannot rename a directory symlink over another")
+		}
+		root := t.TempDir()
+		for version, content := range map[string]string{"v1": before, "v2": after} {
+			require.NoError(t, os.MkdirAll(filepath.Join(root, version), 0750))
+			writeStampedFile(t, filepath.Join(root, version, "jp.yaml"), content)
+		}
+		calendars := filepath.Join(root, "calendars")
+		symlinkOrSkip(t, filepath.Join(root, "v1"), calendars)
+		return calendars, func() { replaceSymlink(t, filepath.Join(root, "v2"), calendars) }
+	}},
+}
+
+// writeStampedFile writes content to path with a fixed modification time.
+func writeStampedFile(t *testing.T, path, content string) string {
+	t.Helper()
+	require.NoError(t, os.WriteFile(path, []byte(content), 0600))
 	stamp := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
-	require.NoError(t, os.Chtimes(before, stamp, stamp))
-	require.NoError(t, os.Chtimes(after, stamp, stamp))
+	require.NoError(t, os.Chtimes(path, stamp, stamp))
+	return path
+}
 
-	calendars := t.TempDir()
-	link := filepath.Join(calendars, "jp.yaml")
-	if err := os.Symlink(before, link); err != nil {
+func symlinkOrSkip(t *testing.T, target, link string) {
+	t.Helper()
+	if err := os.Symlink(target, link); err != nil {
 		t.Skipf("symlink creation is unavailable: %v", err)
 	}
-	state := describeCalendarsState(calendars)
+}
 
-	swap := filepath.Join(calendars, "jp.swap")
-	require.NoError(t, os.Symlink(after, swap))
+// replaceSymlink points link at target in one rename.
+func replaceSymlink(t *testing.T, target, link string) {
+	t.Helper()
+	swap := link + ".swap"
+	require.NoError(t, os.Symlink(target, swap))
 	require.NoError(t, os.Rename(swap, link))
-	assert.NotEqual(t, state, describeCalendarsState(calendars))
+}
+
+// The calendars state decides whether a refresh reloads the DAGs, so it must
+// change when a calendar does, even with the same size and time.
+func TestCalendarsStateFollowsSameStampSwaps(t *testing.T) {
+	t.Parallel()
+
+	for _, tc := range sameStampSwaps {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			calendars, swap := tc.prepare(t, "holidays: [2027-01-01]\n", "holidays: [2027-01-11]\n")
+			state := describeCalendarsState(calendars)
+			swap()
+			assert.NotEqual(t, state, describeCalendarsState(calendars))
+		})
+	}
 }
