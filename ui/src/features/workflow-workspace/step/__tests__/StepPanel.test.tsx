@@ -65,9 +65,14 @@ const DAG = {
   ],
 } as unknown as ApiDAGDetails;
 
-function runValue(details: ApiDAGRunDetails | null): WorkspaceRunValue {
+/** The selected run; with `loadingId` alone, a run whose details are not read yet. */
+function runValue(
+  details: ApiDAGRunDetails | null,
+  loadingId?: string
+): WorkspaceRunValue {
+  const runId = details?.dagRunId ?? loadingId;
   return {
-    ref: details ? { name: DAG_NAME, runId: details.dagRunId } : null,
+    ref: runId ? { name: DAG_NAME, runId } : null,
     details,
     hasRun: details !== null,
     isActive: false,
@@ -90,27 +95,29 @@ function setup({
   details,
   step = 'build',
   allow = true,
+  loadingId,
 }: {
   details: ApiDAGRunDetails | null;
   step?: string;
   allow?: boolean;
+  loadingId?: string;
 }) {
   const onClose = vi.fn();
   const onStepCommand = vi.fn();
   const onOpenStep = vi.fn();
-  const panel = (value: ApiDAGRunDetails | null) => (
+  const panel = (value: ApiDAGRunDetails | null, name = step) => (
     <MemoryRouter>
       <WorkspaceDataContext.Provider
         value={
           {
             fileName: FILE_NAME,
             dagData: { dag: DAG },
-            run: runValue(value),
+            run: runValue(value, loadingId),
           } as unknown as WorkspaceDataValue
         }
       >
         <StepPanel
-          step={step}
+          step={name}
           onClose={onClose}
           onStepCommand={onStepCommand}
           gates={gates(allow)}
@@ -125,6 +132,7 @@ function setup({
     onStepCommand,
     onOpenStep,
     rerun: (next: ApiDAGRunDetails | null) => view.rerender(panel(next)),
+    showStep: (name: string) => view.rerender(panel(details, name)),
   };
 }
 
@@ -218,6 +226,24 @@ describe('StepPanel', () => {
     expect(screen.queryByTestId('ww-step-facts-line')).toBeNull();
     expect(screen.queryByRole('button', { name: 'Retry step' })).toBeNull();
     expect(screen.getByRole('button', { name: 'Open step' })).toBeVisible();
+  });
+
+  it('opens another step on Details, whatever tab the last one showed', () => {
+    const { showStep } = setup({ details: failedBuild() });
+    fireEvent.click(screen.getByRole('tab', { name: 'Log' }));
+
+    showStep('fetch');
+    expect(screen.getByRole('tab', { name: 'Details' })).toHaveAttribute(
+      'aria-selected',
+      'true'
+    );
+  });
+
+  it('says that the run loads while its details are not read', () => {
+    setup({ details: null, loadingId: 'r9' });
+    expect(screen.getByTestId('ww-step-panel-details')).toHaveTextContent(
+      'Loading run...'
+    );
   });
 
   it('follows the selected run', () => {

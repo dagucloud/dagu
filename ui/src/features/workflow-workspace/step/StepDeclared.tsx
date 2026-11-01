@@ -2,10 +2,12 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 import { Link } from 'react-router-dom';
+import type { components } from '@/api/v1/schema';
 import { useI18n } from '@/i18n/I18nProvider';
 import type { ApiNode } from '../contracts';
 import { useWorkspaceData } from '../data/context';
 import { buildWorkspaceUrl, useWorkspaceUrl } from '../state/workspaceUrl';
+import { stepDefinitionOf } from './stepDefinition';
 
 /**
  * What the definition of a step declares for the steps after it: the output
@@ -16,19 +18,19 @@ import { buildWorkspaceUrl, useWorkspaceUrl } from '../state/workspaceUrl';
 export function StepDeclared({
   step,
   node,
+  definition: shown,
 }: {
   step: string;
   node: ApiNode | undefined;
+  /** The definition that the host shows; else the run's, else the saved one. */
+  definition?: components['schemas']['Step'];
 }) {
   const { ts } = useI18n();
   const { fileName, dagData, run } = useWorkspaceData('StepDeclared');
   const [url] = useWorkspaceUrl();
   const dag = dagData.dag;
 
-  const definition =
-    node?.step ??
-    dag?.steps?.find((s) => s.name === step) ??
-    Object.values(dag?.handlerOn ?? {}).find((s) => s?.name === step);
+  const definition = shown ?? node?.step ?? stepDefinitionOf(dag, step);
 
   const rows: { token: string; kind?: string }[] = [];
   if (definition?.output) rows.push({ token: `\${${definition.output}}` });

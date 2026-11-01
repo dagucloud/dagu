@@ -16,10 +16,11 @@ import type {
 import { useI18n } from '@/i18n/I18nProvider';
 import { cn } from '@/lib/utils';
 import { useWorkspaceEditor } from '../canvas/WorkspaceEditorContext';
-import type { ApiDAGDetails, ApiNode, WorkspaceRunValue } from '../contracts';
+import type { ApiNode, WorkspaceRunValue } from '../contracts';
 import { useWorkspaceData } from '../data/context';
 import { Z } from '../zLayers';
 import { StepDeclared } from './StepDeclared';
+import { stepDefinitionOf } from './stepDefinition';
 import { StepFacts } from './StepFacts';
 import { StepRunTabs } from './StepRunTabs';
 
@@ -43,17 +44,6 @@ export interface StepPanelProps {
   onOpenStep(): void;
 }
 
-/** The definition of a step: a step of the list or a handler. */
-function definitionOf(
-  dag: ApiDAGDetails | undefined,
-  step: string
-): ApiStep | undefined {
-  return (
-    dag?.steps?.find((s) => s.name === step) ??
-    Object.values(dag?.handlerOn ?? {}).find((s) => s?.name === step)
-  );
-}
-
 /**
  * The panel of one step over the right of the canvas. It does not move the
  * graph and does not take the focus. It shows the step in the selected run:
@@ -75,7 +65,7 @@ export function StepPanel({
   // The draft that the canvas shows, else the saved file; the run has the
   // definition that it ran.
   const definition =
-    node?.step ?? definitionOf(handle?.getDag() ?? dagData.dag, step);
+    node?.step ?? stepDefinitionOf(handle?.getDag() ?? dagData.dag, step);
 
   const [armed, setArmed] = useState(false);
   useEffect(() => {
@@ -116,11 +106,13 @@ export function StepPanel({
       </header>
       <div className="min-h-0 flex-1">
         <StepRunTabs
+          // The tab chosen for one step is not the tab of the next one.
+          key={step}
           step={step}
           runId={run.ref?.runId ?? null}
           declared={
             <div className="p-3">
-              <StepDeclared step={step} node={node} />
+              <StepDeclared step={step} node={node} definition={definition} />
             </div>
           }
           details={
@@ -234,6 +226,12 @@ function StepPanelDetails({
     facts = (
       <PanelMessage tone="muted" align="start" className="p-0">
         {ts('Not run in this run')}
+      </PanelMessage>
+    );
+  } else {
+    facts = (
+      <PanelMessage tone="muted" align="start" className="p-0">
+        {ts('Loading run...')}
       </PanelMessage>
     );
   }
