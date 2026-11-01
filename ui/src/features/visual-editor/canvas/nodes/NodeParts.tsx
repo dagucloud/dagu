@@ -675,7 +675,11 @@ export function NodeToolbar({
   centred?: boolean;
 }) {
   const { ts } = useI18n();
-  const { editable, readOnly, onCommand, onDeleteStep } = useCanvasActions();
+  const { editable, readOnly, onCommand, onDeleteStep, stepCommandGates } =
+    useCanvasActions();
+  // A host that takes the runs says whether a step can run.
+  const canRun =
+    runnable && !readOnly && (stepCommandGates?.canRunStep ?? true);
   // Only the toolbar of the selected step is a tab stop: the arrow keys
   // select a step, so a graph of 100 steps is not 400 tab stops.
   const tabIndex = selected ? 0 : -1;
@@ -771,7 +775,7 @@ export function NodeToolbar({
     >
       {active && (
         <div className="flex items-center gap-0.5 rounded-md border bg-card p-0.5 shadow-sm">
-          {runnable && !readOnly && (
+          {canRun && (
             <IconButton
               {...toolProps}
               size="sm"

@@ -984,7 +984,9 @@ export function VisualEditor(props: VisualEditorProps): ReactElement {
       case 'openInspector': {
         const name = serverNameOf(command.step);
         if (name !== null && onOpenCall?.(name)) return;
-        showYamlFor(command.step);
+        // Without a YAML view of the host, the form is the view of a step.
+        if (onYamlVisibleChange) showYamlFor(command.step);
+        else showFormFor(command.step);
         return;
       }
       // The name is the first field of the form, and the form holds the

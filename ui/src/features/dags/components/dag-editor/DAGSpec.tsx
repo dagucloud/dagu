@@ -60,6 +60,7 @@ import {
   toInheritedLegacyDefinitionHints,
 } from './customActionSchema';
 import type { QuickFixSource } from './quickFixProvider';
+import { childDocumentSpan, replaceSpan } from './childDocument';
 import { DocumentTabs } from './DocumentTabs';
 import { buildIssueMarkers } from './issueMarkers';
 import { issueRows } from './issueRows';
@@ -100,7 +101,11 @@ import type {
   CodeEditorLike,
   VisualEditorValidation,
 } from '@/features/visual-editor';
-import type { EditResult, TextEdit } from '@/features/visual-editor/contracts';
+import type {
+  EditResult,
+  StepCommandGates,
+  TextEdit,
+} from '@/features/visual-editor/contracts';
 import { frozenMessage } from '@/features/visual-editor/editMessages';
 import {
   InspectorViewProvider,
@@ -214,6 +219,15 @@ function commitFocusedField(): void {
 
 // The last text that draftStepTitle parsed: a render parses it once.
 type ApiStepList = NonNullable<components['schemas']['DAGDetails']['steps']>;
+
+/** The run gates of a child workflow of the file: none of its steps runs. */
+const NO_RUN_GATES: StepCommandGates = {
+  canRunStep: false,
+  canRetry: () => false,
+  canSetStatus: () => false,
+  hasSubRuns: () => false,
+};
+const ignoreStepCommand = () => undefined;
 let parsedDraft: {
   text: string;
   model: ReturnType<typeof parseDagDoc>;
@@ -595,6 +609,22 @@ function DAGSpec({
     savedResult,
     serverSpec,
   ]);
+
+  // A child workflow edits its own document of the file: its editor gets the
+  // text of that document, and each edit goes back into the file.
+  const fileText = editable
+    ? (currentValue ?? serverSpec ?? '')
+    : (serverSpec ?? '');
+  const childSpan = React.useMemo(
+    () =>
+      activeTab === 'parent' ? null : childDocumentSpan(fileText, activeTab),
+    [activeTab, fileText]
+  );
+  const savedChildText = React.useMemo(() => {
+    if (activeTab === 'parent' || serverSpec == null) return undefined;
+    const span = childDocumentSpan(serverSpec, activeTab);
+    return span ? serverSpec.slice(span.from, span.to) : undefined;
+  }, [activeTab, serverSpec]);
 
   // Read by the `${...}` completion of the YAML editor at each request.
   const referenceSource = React.useRef({
@@ -1012,9 +1042,16 @@ function DAGSpec({
       setDrawerForm(false);
       setYamlKind('file');
       setYamlStepPath(null);
+      // The step that the host shows is a step of the parent.
+      if (tab !== 'parent') onSelectedStepNameChange?.(null);
       handleActiveTabChange(tab);
     },
-    [handleActiveTabChange, setDrawerForm, setYamlKind]
+    [
+      handleActiveTabChange,
+      onSelectedStepNameChange,
+      setDrawerForm,
+      setYamlKind,
+    ]
   );
   // The node details view claims its own panel.
   useRightPanelClaim(ndv ? null : 'yaml', sectionOpen, closeSection);
@@ -1944,6 +1981,25 @@ function DAGSpec({
             )}
           </div>
         );
+        // The YAML of a child is the whole file, which also has the Save of the
+        // parent.
+        const childTrail = (
+          <>
+            <Button
+              type="button"
+              variant="ghost"
+              size="xs"
+              aria-pressed={sectionOpen}
+              onPointerEnter={preloadDAGEditor}
+              onFocus={preloadDAGEditor}
+              onClick={() => setSectionOpen(!sectionOpen, 'panel')}
+            >
+              <FileCode className="h-3.5 w-3.5" />
+              {ts('YAML')}
+            </Button>
+            {specActions}
+          </>
+        );
 
         return (
           data?.dag && (
@@ -2142,6 +2198,40 @@ function DAGSpec({
                         />
                       </InspectorViewProvider>
                     </React.Suspense>
+                  ) : childSpan ? (
+                    <React.Suspense fallback={null}>
+                      <VisualEditor
+                        key={`child:${activeTab}`}
+                        fileName={fileName}
+                        dagName={activeTab}
+                        text={fileText.slice(childSpan.from, childSpan.to)}
+                        onTextChange={(next) => {
+                          if (editable) {
+                            setCurrentValue(
+                              replaceSpan(fileText, childSpan, next)
+                            );
+                          }
+                        }}
+                        validation={{ dag: preview.dag, issues: [] }}
+                        editable={editable}
+                        isDirty={localHasUnsavedChanges}
+                        savedText={savedChildText}
+                        toolbarStart={documentTabs}
+                        toolbarTrail={childTrail}
+                        customActions={visualCustomActions}
+                        workflowPanel={
+                          preview.dag ? (
+                            <WorkflowPanel dag={preview.dag} />
+                          ) : undefined
+                        }
+                        // A child runs only from the step of its parent
+                        // that calls it.
+                        chrome={{ ...chrome, hideRunBar: true }}
+                        onStepCommand={ignoreStepCommand}
+                        stepCommandGates={NO_RUN_GATES}
+                        onOpenCall={(step) => openCall(step, false)}
+                      />
+                    </React.Suspense>
                   ) : preview.dag ? (
                     <React.Suspense fallback={null}>
                       <DetailsCanvas
@@ -2151,27 +2241,7 @@ function DAGSpec({
                         // The order of the parent: selector, Workflow, YAML,
                         // then the actions.
                         toolbarStart={documentTabs}
-                        toolbarTrail={
-                          <>
-                            <Button
-                              type="button"
-                              variant="ghost"
-                              size="xs"
-                              aria-pressed={sectionOpen}
-                              onPointerEnter={preloadDAGEditor}
-                              onFocus={preloadDAGEditor}
-                              onClick={() =>
-                                setSectionOpen(!sectionOpen, 'panel')
-                              }
-                            >
-                              <FileCode className="h-3.5 w-3.5" />
-                              {ts('YAML')}
-                            </Button>
-                            {/* The YAML drawer edits the whole file: it
-                                keeps Save. */}
-                            {specActions}
-                          </>
-                        }
+                        toolbarTrail={childTrail}
                         onSelectStep={(name) => {
                           setSelectedSpecStepName(name);
                           setIsSpecStepDetailsOpen(name !== null);

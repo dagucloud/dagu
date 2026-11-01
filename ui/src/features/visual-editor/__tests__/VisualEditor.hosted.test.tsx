@@ -802,6 +802,27 @@ describe.skipIf(realSchema === null)('VisualEditor in a host', () => {
       expect(calls).toEqual([]);
     });
 
+    // A host that cannot run the steps, such as for a child workflow of the
+    // file, gives no Run step to the nodes.
+    it('shows no Run step when the host cannot run steps', () => {
+      renderEditor({
+        initial: yamlArraySteps,
+        onStepCommand: vi.fn(),
+        stepCommandGates: {
+          canRunStep: false,
+          canRetry: () => false,
+          canSetStatus: () => false,
+          hasSubRuns: () => false,
+        },
+      });
+
+      fireEvent.pointerEnter(nodeWrapper('steps[1]'));
+
+      expect(
+        within(nodeWrapper('steps[1]')).queryByLabelText('Run step')
+      ).toBeNull();
+    });
+
     it('confirms the run itself without a host', () => {
       renderEditor({ initial: yamlArraySteps });
 

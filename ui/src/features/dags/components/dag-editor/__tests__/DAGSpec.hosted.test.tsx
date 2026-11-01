@@ -385,6 +385,65 @@ describe('DAGSpec host props', () => {
   });
 });
 
+// A child workflow of the file opens in the editor on its own document; an
+// edit goes back into the file at its place.
+describe('a child workflow of the file', () => {
+  const file = [
+    'steps:',
+    '  - call: child',
+    '---',
+    'name: child',
+    'steps:',
+    '  - command: echo child',
+    '---',
+    'name: other',
+    'steps:',
+    '  - command: echo other',
+    '',
+  ].join('\n');
+  const localDags = ['child', 'other'].map((name) => ({
+    name,
+    dag: { name, steps: [{ name: 'load' }] },
+    errors: [],
+  })) as Extra['localDags'];
+
+  beforeEach(() => {
+    const saved = specData();
+    mocks.useQuery.mockReturnValue({
+      ...saved,
+      data: { ...saved.data, spec: file },
+    });
+  });
+
+  it('edits its own document in place', async () => {
+    await renderSpec({ localDags });
+
+    fireEvent.click(screen.getByRole('tab', { name: 'child' }));
+    await settle();
+    expect(visual.props?.text).toBe(
+      'name: child\nsteps:\n  - command: echo child\n'
+    );
+
+    fireEvent.click(screen.getByRole('button', { name: 'Visual edit' }));
+
+    expect(screen.getByLabelText('DAG spec')).toHaveValue(
+      file.replace(
+        '  - command: echo child\n',
+        '  - command: echo child\n# visual\n'
+      )
+    );
+  });
+
+  it('clears the step of the parent that the host shows', async () => {
+    const onSelectedStepNameChange = vi.fn();
+    await renderSpec({ localDags, onSelectedStepNameChange });
+
+    fireEvent.click(screen.getByRole('tab', { name: 'child' }));
+
+    expect(onSelectedStepNameChange).toHaveBeenCalledWith(null);
+  });
+});
+
 // Opening a step that calls a workflow opens that workflow: the child run in
 // the shown run first, then a child workflow of the file, then the page of a
 // workflow of another file.
