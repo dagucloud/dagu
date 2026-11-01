@@ -73,6 +73,13 @@ function CalendarPage(): React.ReactNode {
   const [year, setYear] = useState(() => dayjs().year());
   const [isDeleting, setIsDeleting] = useState(false);
   const saveRef = useRef<(() => Promise<void>) | null>(null);
+  // The node and calendar shown now. A request that finishes after the user
+  // moved on must not change what the page shows.
+  const editorKey = `${remoteNode}:${name}`;
+  const editorKeyRef = useRef(editorKey);
+  useEffect(() => {
+    editorKeyRef.current = editorKey;
+  }, [editorKey]);
 
   useEffect(() => {
     appBarContext.setTitle('Calendars');
@@ -90,7 +97,7 @@ function CalendarPage(): React.ReactNode {
   const builtin = !!data?.builtin;
   const editable = canWrite && !!data && !builtin;
   const editor = useContentEditor({
-    key: `${remoteNode}:${name}`,
+    key: editorKey,
     serverContent: data ? data.spec : null,
   });
   const content = editable ? editor.currentValue : (data?.spec ?? null);
@@ -134,6 +141,9 @@ function CalendarPage(): React.ReactNode {
         body: { spec: value },
       })
       .catch(() => null);
+    if (editorKeyRef.current !== editorKey) {
+      return;
+    }
     const result = response?.data;
     if (!result) {
       editor.cancelSave();
@@ -157,6 +167,7 @@ function CalendarPage(): React.ReactNode {
     client,
     editable,
     editor,
+    editorKey,
     mutate,
     name,
     remoteNode,
@@ -190,6 +201,9 @@ function CalendarPage(): React.ReactNode {
       })
       .catch(() => null);
     setIsDeleting(false);
+    if (editorKeyRef.current !== editorKey) {
+      return;
+    }
     if (!response || response.error) {
       showError(
         response?.error?.message || ts('Failed to delete the calendar.')

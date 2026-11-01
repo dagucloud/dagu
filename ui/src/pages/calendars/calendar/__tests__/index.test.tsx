@@ -244,6 +244,30 @@ describe('CalendarPage', () => {
     expect(screen.getByRole('button', { name: 'Save' })).toBeEnabled();
   });
 
+  // A save that finishes after the user picked another node belongs to the
+  // calendar it was sent for, not to the one the editor shows now.
+  it('ignores a save that finishes on another node', async () => {
+    let finishSave: (response: unknown) => void = () => {};
+    mocks.put.mockReturnValue(
+      new Promise((resolve) => {
+        finishSave = resolve;
+      })
+    );
+    const { selectNode } = renderPage(calendar());
+
+    fireEvent.change(await screen.findByLabelText('Calendar file'), {
+      target: { value: 'holidays: [2027-01-11]\n' },
+    });
+    fireEvent.click(screen.getByRole('button', { name: 'Save' }));
+    act(() => selectNode('staging'));
+    await act(async () => finishSave({ data: { errors: [], warnings: [] } }));
+
+    expect(screen.getByLabelText('Calendar file')).toHaveValue(
+      'holidays: []\n'
+    );
+    expect(screen.getByRole('button', { name: 'Revert' })).toBeDisabled();
+  });
+
   it('reports a save the server refused', async () => {
     mocks.put.mockResolvedValue({
       data: {
