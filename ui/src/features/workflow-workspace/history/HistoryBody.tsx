@@ -6,6 +6,7 @@ import { useI18n } from '@/i18n/I18nProvider';
 import { isContinuousStep } from '@/lib/runDisplayStatus';
 import { useWorkspaceEditor } from '../canvas/WorkspaceEditorContext';
 import { useVisibleRuns } from '../data/useVisibleRuns';
+import { useDockCommands } from '../dock/DockContext';
 import { RunTabEmpty } from '../dock/tabs/runTabBodies';
 import type { DockTabBodyProps } from '../dock/tabs/types';
 import { useWorkspaceUrl } from '../state/workspaceUrl';
@@ -68,6 +69,13 @@ export function HistoryBody({ run, dag, step, selectTab }: DockTabBodyProps) {
     [runs, step]
   );
 
+  // A step name opens the history of that step and keeps this tab.
+  const { openStep } = useDockCommands();
+  const showStep = useCallback(
+    (name: string) => openStep(name, { keepTab: true }),
+    [openStep]
+  );
+
   const pickRun = useCallback(
     (runId: string) => {
       if (step !== undefined) pick(runId, step);
@@ -105,6 +113,7 @@ export function HistoryBody({ run, dag, step, selectTab }: DockTabBodyProps) {
         runs={runs}
         selectedId={visible.selectedId}
         onPick={pick}
+        onOpenStep={showStep}
         onSpotlight={spotlight}
       />
     );

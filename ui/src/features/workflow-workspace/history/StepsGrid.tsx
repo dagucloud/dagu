@@ -34,6 +34,8 @@ export interface StepsGridProps {
   selectedId: string | null;
   /** Selects the run and the step of a cell. */
   onPick(runId: string, step: string): void;
+  /** Shows the history of one step, from a click on its name. */
+  onOpenStep(step: string): void;
   /** The step under the pointer or the keyboard focus; null when none. */
   onSpotlight(step: string | null): void;
 }
@@ -78,6 +80,7 @@ interface GridRowProps {
   tabCol: number;
   onCell(row: number, col: number, kind: 'focus' | 'pick'): void;
   onSpotlight(step: string | null): void;
+  onOpenStep(step: string): void;
 }
 
 /**
@@ -92,6 +95,7 @@ function rowEqual(prev: GridRowProps, next: GridRowProps): boolean {
     prev.tabCol === next.tabCol &&
     prev.onCell === next.onCell &&
     prev.onSpotlight === next.onSpotlight &&
+    prev.onOpenStep === next.onOpenStep &&
     sameContent(prev.row, next.row) &&
     sameContent(prev.cells, next.cells)
   );
@@ -105,6 +109,7 @@ const GridRow = memo(function GridRow({
   tabCol,
   onCell,
   onSpotlight,
+  onOpenStep,
 }: GridRowProps) {
   const { ts } = useI18n();
   return (
@@ -120,14 +125,18 @@ const GridRow = memo(function GridRow({
         title={row.step}
         className={cn(NAME_CLASS, 'group-hover/row:bg-muted')}
       >
-        <span
+        {/* The grid keeps one tab stop: Enter on a cell reaches the step too. */}
+        <button
+          type="button"
+          tabIndex={-1}
+          onClick={() => onOpenStep(row.step)}
           className={cn(
-            'min-w-0 truncate text-xs',
+            'min-w-0 cursor-pointer truncate text-left text-xs hover:underline',
             row.removed ? 'text-muted-foreground' : 'text-foreground'
           )}
         >
           {row.step}
-        </span>
+        </button>
         {row.removed && (
           <span className="sr-only">{ts('not in current definition')}</span>
         )}
@@ -174,6 +183,7 @@ export function StepsGrid({
   runs,
   selectedId,
   onPick,
+  onOpenStep,
   onSpotlight,
 }: StepsGridProps) {
   const { ts } = useI18n();
@@ -322,6 +332,7 @@ export function StepsGrid({
             tabCol={index === tab.row ? tab.col : -1}
             onCell={onCell}
             onSpotlight={spotlight}
+            onOpenStep={onOpenStep}
           />
         ))}
       </div>

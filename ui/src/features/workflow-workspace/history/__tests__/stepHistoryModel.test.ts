@@ -211,6 +211,7 @@ describe('stepGrid', () => {
 });
 
 describe('summarizeStepHistory', () => {
+  // An aborted step was stopped before its own outcome: it is not counted.
   it('counts the finished runs where the step ran, and no test run', () => {
     const summary = summarizeStepHistory([
       entry({ durationMs: 1000 }),
@@ -225,7 +226,7 @@ describe('summarizeStepHistory', () => {
       entry({ durationMs: 2000 }),
     ]);
     expect(summary).toEqual({
-      counted: 5,
+      counted: 4,
       succeeded: 3,
       // The median of the succeeded runs only.
       usualMs: 2000,

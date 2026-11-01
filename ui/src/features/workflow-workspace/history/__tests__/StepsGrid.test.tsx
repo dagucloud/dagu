@@ -50,6 +50,7 @@ function renderGrid(over: Partial<StepsGridProps> = {}) {
     runs: RUNS,
     selectedId: 'r2',
     onPick: vi.fn(),
+    onOpenStep: vi.fn(),
     onSpotlight: vi.fn(),
     ...over,
   };
@@ -96,6 +97,14 @@ describe('StepsGrid', () => {
   });
 
   // One tab stop: the arrow keys move in two directions, Enter selects.
+  // The name opens that step's history and keeps the selected run.
+  it('opens the history of a step from its name', () => {
+    const props = renderGrid();
+    fireEvent.click(within(grid()).getByRole('button', { name: 'test' }));
+    expect(props.onOpenStep).toHaveBeenCalledWith('test');
+    expect(props.onPick).not.toHaveBeenCalled();
+  });
+
   it('moves with the arrow keys and selects with Enter', () => {
     const props = renderGrid();
     const start = cell('build', 'r2');

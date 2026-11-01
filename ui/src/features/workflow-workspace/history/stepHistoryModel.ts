@@ -261,11 +261,14 @@ export function isFailedEntry(entry: StepRunEntry): boolean {
   );
 }
 
+// An aborted step was stopped, by a user or a failure before it: it tells
+// nothing about how the step itself does, so the rate leaves it out.
 function isCounted(entry: StepRunEntry): boolean {
   return (
     entry.state === 'ran' &&
     !entry.testRun &&
     entry.status !== null &&
+    entry.status !== NodeStatus.Aborted &&
     FINISHED.has(entry.status)
   );
 }
