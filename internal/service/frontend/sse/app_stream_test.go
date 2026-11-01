@@ -84,6 +84,24 @@ func TestBaseConfigEventForNewWorkspace(t *testing.T) {
 	writeBaseConfig(t, service, workspace.BaseConfigPath(dagsDir, "dev"))
 }
 
+// A global base config whose directory chain does not exist at startup
+// refreshes the DAGs once the chain and the file appear.
+func TestBaseConfigEventForMissingDirs(t *testing.T) {
+	t.Parallel()
+	root := t.TempDir()
+	baseConfig := filepath.Join(root, "config", "dagu", "base.yaml")
+	service, err := NewAppStreamService(AppStreamConfig{
+		Paths: config.PathsConfig{
+			DAGsDir:    filepath.Join(root, "dags"),
+			BaseConfig: baseConfig,
+		},
+	})
+	require.NoError(t, err)
+	t.Cleanup(service.Shutdown)
+
+	writeBaseConfig(t, service, baseConfig)
+}
+
 // writeBaseConfig writes a base config, with its missing directories, and
 // waits for the DAG refresh that the write raises.
 func writeBaseConfig(t *testing.T, service *AppStreamService, path string) {
