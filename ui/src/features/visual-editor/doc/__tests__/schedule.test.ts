@@ -3,6 +3,7 @@
 
 import { describe, expect, it } from 'vitest';
 import { applyEdit, readSchedule } from '..';
+import { yamlUnindentedQuote } from '../../testing/fixtures';
 
 function set(text: string, expressions: string[]): string {
   const result = applyEdit(text, { kind: 'setSchedule', expressions });
@@ -144,5 +145,24 @@ steps:
   it('refuses a change that changes nothing', () => {
     const result = applyEdit(BASE, { kind: 'setSchedule', expressions: [] });
     expect(result.ok).toBe(false);
+  });
+});
+
+// The server reads a quoted string whatever the indent of its later lines.
+describe('schedule of a file with a quoted string with unindented lines', () => {
+  const text = `schedule: '0 1 * * *'\n${yamlUnindentedQuote}`;
+
+  it('reads the schedule', () => {
+    expect(readSchedule(text)).toEqual({
+      present: true,
+      expressions: ['0 1 * * *'],
+      others: 0,
+    });
+  });
+
+  it('sets the schedule and keeps the quoted string', () => {
+    expect(set(text, ['5 4 * * *'])).toBe(
+      `schedule: 5 4 * * *\n${yamlUnindentedQuote}`
+    );
   });
 });

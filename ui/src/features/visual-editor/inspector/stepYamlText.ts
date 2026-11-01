@@ -1,8 +1,9 @@
 // Copyright (C) 2026 Yota Hamada
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-import { isMap, isNode, parseDocument } from 'yaml';
+import { isMap, isNode } from 'yaml';
 import type { DagDocModel, StepView } from '../contracts';
+import { parseDocumentAsServer } from '../doc';
 
 /** The line without up to `indent` of its leading spaces. */
 function cutIndent(line: string, indent: number): string {
@@ -19,7 +20,7 @@ function cutIndent(line: string, indent: number): string {
  * lines below the key.
  */
 function pairValueText(text: string): string {
-  const doc = parseDocument(text);
+  const doc = parseDocumentAsServer(text);
   const pair = isMap(doc.contents) ? doc.contents.items[0] : undefined;
   const keyEnd = isNode(pair?.key) ? pair.key.range?.[1] : undefined;
   const colon = keyEnd === undefined ? -1 : text.indexOf(':', keyEnd);
@@ -74,7 +75,7 @@ export interface StepYamlCheck {
 
 /** Parses the YAML of one step; the text must hold one mapping. */
 export function parseStepYaml(text: string): StepYamlCheck {
-  const doc = parseDocument(text);
+  const doc = parseDocumentAsServer(text);
   const [first] = doc.errors;
   if (first) {
     const pos = first.linePos?.[0];

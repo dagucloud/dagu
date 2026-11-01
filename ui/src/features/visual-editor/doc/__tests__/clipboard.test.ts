@@ -12,6 +12,7 @@ import {
   yamlMapSteps,
   yamlNestedParallel,
   yamlShorthandSteps,
+  yamlUnindentedQuote,
 } from '../../testing/fixtures';
 import { useEditSession } from '../../useEditSession';
 import {
@@ -214,6 +215,26 @@ steps:
       yamlChain
     );
     expect(result.text).toContain('    env:\n      ID: 9007199254740993\n');
+  });
+
+  // The pasted integers read as bigints and those of the file as numbers:
+  // the check of the result reads both as the same values.
+  it('inserts a step with an integer without rewriting the file', () => {
+    const result = done(
+      pasteStepsOp(
+        parseDagDoc(yamlArraySteps),
+        '- name: small\n  retry_policy:\n    limit: 2\n',
+        null
+      ),
+      yamlArraySteps
+    );
+    expect(result.edits).toEqual([
+      {
+        from: yamlArraySteps.length,
+        to: yamlArraySteps.length,
+        insert: '\n  - name: small\n    retry_policy:\n      limit: 2\n',
+      },
+    ]);
   });
 
   // Like the server, a step named by a number is named by its text.
@@ -449,6 +470,41 @@ steps:
 
 // The editor applies a clipboard result as a whole new text; the edit
 // session records it as one undo step (VisualEditor applyResult).
+// The server reads a quoted string whatever the indent of its later lines:
+// copy, paste and duplicate read such a step too.
+describe('a step with a quoted string with unindented lines', () => {
+  it('copies the step as YAML that parses', () => {
+    expect(copyStepsYaml(parseDagDoc(yamlUnindentedQuote), ['steps[0]'])).toBe(
+      `- id: owner\n  run: 'echo "\${REPO}" | cut -d''/'' -f1\n\n    '\n`
+    );
+  });
+
+  it('pastes the step', () => {
+    const result = done(
+      pasteStepsOp(
+        parseDagDoc(yamlChain),
+        "- id: owner\n  run: 'echo x\n\n'\n",
+        null
+      ),
+      yamlChain
+    );
+    expect(parseDagDoc(result.text).steps[3]!.value.run).toBe('echo x\n');
+  });
+
+  it('duplicates the step and keeps the lines of the original', () => {
+    const result = done(
+      duplicateStepsOp(parseDagDoc(yamlUnindentedQuote), ['steps[0]']),
+      yamlUnindentedQuote
+    );
+    expect(result.text).toBe(
+      yamlUnindentedQuote.replace(
+        '- id: notes',
+        `- id: owner_2\n  run: 'echo "\${REPO}" | cut -d''/'' -f1\n\n    '\n- id: notes`
+      )
+    );
+  });
+});
+
 describe('clipboard edits in the edit session', () => {
   function useHarness(initial: string) {
     const [text, setText] = useState(initial);

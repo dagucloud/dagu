@@ -17,6 +17,7 @@ import {
   minimalEdit,
 } from '../format';
 import { parseDagDoc } from '../parse';
+import { yamlUnindentedQuote } from '../../testing/fixtures';
 import { applyTextEdits } from '../patch';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
@@ -706,5 +707,19 @@ describe('formatStepRange', () => {
     for (const step of model.steps) {
       expect(formatStepRange(text, step)).toBeNull();
     }
+  });
+
+  // The server reads a quoted string whatever the indent of its later lines.
+  it('indents the lines of a quoted string less indented than the step', () => {
+    expect(formatStep(yamlUnindentedQuote, 0)).toBe(
+      yamlUnindentedQuote.replace("-f1\n\n'", "-f1\n\n    '")
+    );
+  });
+
+  it('indents a comment less indented than the step', () => {
+    const text = 'steps:\n- id: a\n# note\n  run: echo x\n';
+    expect(formatStep(text, 0)).toBe(
+      'steps:\n- id: a\n  # note\n  run: echo x\n'
+    );
   });
 });

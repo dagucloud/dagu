@@ -9,7 +9,6 @@ import {
   isPair,
   isScalar,
   isSeq,
-  parseAllDocuments,
 } from 'yaml';
 import type { Document, Node, Pair } from 'yaml';
 import type {
@@ -34,6 +33,7 @@ import {
 import type { IndexedStep } from './stepIndex';
 import { salvageText } from './salvage';
 import type { BrokenItem, Salvage } from './salvage';
+import { parseAllDocumentsAsServer } from './serverYaml';
 
 /**
  * Parses the text into the model of the DAG. Only document 0 is the DAG;
@@ -81,19 +81,18 @@ interface Original {
 
 function buildModel(source: string, original?: Original): DagDocModel {
   const text = source;
+  // The parser can read a copy of the text with other line starts, and does
+  // not count all the blank lines that replace a broken entry: the line
+  // breaks of the text are counted here.
+  const docs = parseAllDocumentsAsServer(text);
   const lineCounter = new LineCounter();
-  // The blank lines that replace a broken entry are not all counted by the
-  // parser: the line breaks of the text are counted here.
-  const docs = parseAllDocuments(text, original ? {} : { lineCounter });
-  if (original) {
-    lineCounter.addNewLine(0);
-    for (
-      let at = text.indexOf('\n');
-      at !== -1;
-      at = text.indexOf('\n', at + 1)
-    ) {
-      lineCounter.addNewLine(at + 1);
-    }
+  lineCounter.addNewLine(0);
+  for (
+    let at = text.indexOf('\n');
+    at !== -1;
+    at = text.indexOf('\n', at + 1)
+  ) {
+    lineCounter.addNewLine(at + 1);
   }
   const doc = docs[0];
   if (!doc) return modelWithoutSteps(text, true, 0, 'graph', []);

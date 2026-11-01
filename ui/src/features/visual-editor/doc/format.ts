@@ -9,15 +9,7 @@
  * comments stay in the result of `formatYaml` and count in `isSameYaml`.
  */
 
-import {
-  isMap,
-  isNode,
-  isPair,
-  isScalar,
-  isSeq,
-  parseAllDocuments,
-  visit,
-} from 'yaml';
+import { isMap, isNode, isPair, isScalar, isSeq, visit } from 'yaml';
 import { stringifyString } from 'yaml/util';
 import type { StepView, TextEdit } from '../contracts';
 import type {
@@ -30,6 +22,7 @@ import type {
   YAMLMap,
   YAMLSeq,
 } from 'yaml';
+import { parseAllDocumentsAsServer } from './serverYaml';
 
 /** Keys of the top level, in canonical order. Other keys follow, in their own order. */
 export const DAG_KEY_ORDER: readonly string[] = [
@@ -265,7 +258,7 @@ function readDocuments(
   options?: ParseOptions & DocumentOptions & SchemaOptions
 ): Document[] | null {
   try {
-    const docs = parseAllDocuments(toLf(text), options);
+    const docs = parseAllDocumentsAsServer(toLf(text), options);
     const list = Array.isArray(docs) ? docs : [docs];
     return list.some((doc) => doc.errors.length > 0) ? null : list;
   } catch {
@@ -668,7 +661,7 @@ export function minimalEdit(
 
 /** True when a flow collection of document 0 holds the text at `offset`. */
 function inFlowCollection(text: string, offset: number): boolean {
-  const doc = parseAllDocuments(text)[0];
+  const doc = parseAllDocumentsAsServer(text)[0];
   if (!doc) return false;
   let inside = false;
   visit(doc, {
@@ -735,7 +728,9 @@ export function formatStepRange(text: string, step: StepSpan): TextEdit | null {
     } else if (line.startsWith(own)) {
       source.push(inner + line.slice(column));
     } else {
-      return null;
+      // A comment, or a line of a quoted string that the parse reads as the
+      // server does, can be less indented than the step: it stays as written.
+      source.push(line);
     }
   }
   const docs = readDocuments([...wrapper, ...source].join('\n'), {

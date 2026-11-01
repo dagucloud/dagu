@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 import { describe, expect, it } from 'vitest';
+import { yamlUnindentedQuote } from '../../testing/fixtures';
 import { diffRunSpec, normalizeSpec, specTextDiffers } from '../runSpecDiff';
 
 const BASE = `name: demo
@@ -104,6 +105,16 @@ steps:
     const before = 'steps:\n  - name: a\n    run: echo x\n';
     const after = 'steps:\n  - {name: a, run: echo x}\n';
     expect([...diffRunSpec(before, after).changed]).toEqual([]);
+  });
+
+  // The server reads a quoted string whatever the indent of its later lines.
+  it('reads texts with a quoted string with unindented lines', () => {
+    const diff = diffRunSpec(
+      yamlUnindentedQuote,
+      `# Owner and notes\n${yamlUnindentedQuote}`
+    );
+    expect(diff.headChanged).toBe(false);
+    expect([...diff.changed]).toEqual([]);
   });
 
   it('gives headChanged for a text that cannot be read', () => {

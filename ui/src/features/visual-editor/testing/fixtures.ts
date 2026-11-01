@@ -144,6 +144,21 @@ steps:
     run: echo a
 `;
 
+/**
+ * A quoted `run` whose closing quote is at column 0. YAML 1.2 needs the
+ * lines after the first to be indented; the server reads it as
+ * `echo "${REPO}" | cut -d'/' -f1\n` and runs it.
+ */
+export const yamlUnindentedQuote = `steps:
+- id: owner
+  run: 'echo "\${REPO}" | cut -d''/'' -f1
+
+'
+- id: notes
+  depends: [owner]
+  run: echo done
+`;
+
 /** A tab in the top level keys: no step can be read, so the canvas freezes. */
 export const yamlUnreadable = `\tname: broken
 steps:

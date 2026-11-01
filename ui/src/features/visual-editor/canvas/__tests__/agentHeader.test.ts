@@ -38,6 +38,16 @@ tasks:
     expect(readAgentHeader('- a\n- b\n')).toEqual({ tasks: [] });
   });
 
+  // The server reads a quoted string whatever the indent of its later lines.
+  it('reads a task description with unindented lines', () => {
+    const header = readAgentHeader(
+      "type: agent\ntasks:\n  - name: report\n    description: 'Write the\nreport'\n"
+    );
+    expect(header.tasks).toEqual([
+      { name: 'report', description: 'Write the report' },
+    ]);
+  });
+
   it('never throws on broken YAML', () => {
     expect(readAgentHeader('llm: [unclosed\n  tasks: {')).toEqual({
       tasks: [],

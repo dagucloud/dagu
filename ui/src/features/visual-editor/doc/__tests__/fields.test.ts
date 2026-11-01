@@ -419,6 +419,47 @@ describe('opReplaceStepYaml', () => {
       'unknownStep'
     );
   });
+
+  // The file reads the integer of another step as a rounded number: an edit
+  // elsewhere must neither take it as changed nor round it.
+  it('keeps an integer beyond the float precision in another step', () => {
+    const input =
+      'steps:\n  - name: a\n    timeout_sec: 9007199254740993\n  - name: b\n    run: echo b\n';
+    expect(
+      textOf(input, replace(input, 'steps[1]', 'name: b\nrun: echo c\n'))
+    ).toBe(input.replace('echo b', 'echo c'));
+  });
+
+  // At float precision the two integers are the same, so the prints before
+  // and after the edit keep the line of the old one; the check of the result
+  // must read it exactly to see the change.
+  it('changes an integer beyond the float precision', () => {
+    const input =
+      'steps:\n  - name: a\n    timeout_sec: 9007199254740993\n    run: echo a\n';
+    expect(
+      textOf(
+        input,
+        replace(
+          input,
+          'steps[0]',
+          'name: a\ntimeout_sec: 9007199254740992\nrun: echo b\n'
+        )
+      )
+    ).toBe(
+      'steps:\n  - name: a\n    timeout_sec: 9007199254740992\n    run: echo b\n'
+    );
+  });
+
+  // The server reads integers exactly, beyond the float precision.
+  it('keeps an integer beyond the float precision', () => {
+    const input = 'steps:\n  - name: a\n    run: echo a\n';
+    expect(
+      textOf(
+        input,
+        replace(input, 'steps[0]', 'name: a\ntimeout_sec: 9007199254740993\n')
+      )
+    ).toBe('steps:\n  - name: a\n    timeout_sec: 9007199254740993\n');
+  });
 });
 
 describe('opRenameStep', () => {

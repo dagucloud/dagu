@@ -1,19 +1,12 @@
 // Copyright (C) 2026 Yota Hamada
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-import {
-  Pair,
-  Scalar,
-  YAMLSeq,
-  isMap,
-  isScalar,
-  isSeq,
-  parseAllDocuments,
-} from 'yaml';
+import { Pair, Scalar, YAMLSeq, isMap, isScalar, isSeq } from 'yaml';
 import type { Document, YAMLMap } from 'yaml';
 import type { DagEditOp, EditResult } from '../../contracts';
 import { editDocument } from '../patch';
 import type { MutateOutcome } from '../patch';
+import { parseAllDocumentsAsServer } from '../serverYaml';
 
 /** The `schedule` of a DAG, as the YAML writes it. */
 export interface ScheduleView {
@@ -69,7 +62,7 @@ function readEntries(node: unknown): Omit<ScheduleView, 'present'> {
  */
 export function readSchedule(text: string): ScheduleView {
   try {
-    const doc = parseAllDocuments(text)[0];
+    const doc = parseAllDocumentsAsServer(text)[0];
     if (!doc || doc.errors.length > 0 || !isMap(doc.contents)) {
       return NO_SCHEDULE;
     }

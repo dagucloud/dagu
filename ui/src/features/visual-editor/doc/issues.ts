@@ -1,15 +1,7 @@
 // Copyright (C) 2026 Yota Hamada
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-import {
-  isMap,
-  isNode,
-  isScalar,
-  isSeq,
-  parseAllDocuments,
-  type Document,
-  type Node,
-} from 'yaml';
+import { isMap, isNode, isScalar, isSeq, type Document, type Node } from 'yaml';
 import type {
   DagDocModel,
   IssueGroups,
@@ -19,6 +11,7 @@ import type {
   TextRange,
   ValidationIssue,
 } from '../contracts';
+import { parseAllDocumentsAsServer } from './serverYaml';
 
 function position(
   text: string,
@@ -285,7 +278,7 @@ function locateFieldPath(
   if (tokens.length === 0) return null;
   let doc: Document | undefined;
   try {
-    doc = parseAllDocuments(model.sanitizedText ?? model.text)[0];
+    doc = parseAllDocumentsAsServer(model.sanitizedText ?? model.text)[0];
   } catch {
     return null;
   }
