@@ -216,11 +216,6 @@ function CanvasContexts({
   );
 }
 
-/**
- * Interactive DAG canvas. It shows `graph` and turns user gestures into
- * `onEdit` operations and `onCommand` commands. It never edits YAML text and
- * keeps node positions only in component state.
- */
 // Controls inside a card (its toolbar, a link) act on their own.
 const CARD_CONTROL =
   'button, a, input, select, textarea, [role="button"], [role="menuitem"]';
@@ -236,6 +231,11 @@ function isCardClick(event: ReactMouseEvent<HTMLElement>): boolean {
   return control === null || !event.currentTarget.contains(control);
 }
 
+/**
+ * Interactive DAG canvas. It shows `graph` and turns user gestures into
+ * `onEdit` operations and `onCommand` commands. It never edits YAML text and
+ * keeps node positions only in component state.
+ */
 export function VisualCanvas(props: VisualCanvasProps): ReactElement {
   return (
     <FlowProvider minZoom={MIN_ZOOM} maxZoom={MAX_ZOOM}>

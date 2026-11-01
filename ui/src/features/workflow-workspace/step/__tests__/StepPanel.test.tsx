@@ -126,13 +126,21 @@ function setup({
       </WorkspaceDataContext.Provider>
     </MemoryRouter>
   );
+  // The run and the step that the panel shows now: each helper changes one.
+  let shown = { details, step };
   const view = render(panel(details));
   return {
     onClose,
     onStepCommand,
     onOpenStep,
-    rerun: (next: ApiDAGRunDetails | null) => view.rerender(panel(next)),
-    showStep: (name: string) => view.rerender(panel(details, name)),
+    rerun: (next: ApiDAGRunDetails | null) => {
+      shown = { ...shown, details: next };
+      view.rerender(panel(shown.details, shown.step));
+    },
+    showStep: (name: string) => {
+      shown = { ...shown, step: name };
+      view.rerender(panel(shown.details, shown.step));
+    },
   };
 }
 
