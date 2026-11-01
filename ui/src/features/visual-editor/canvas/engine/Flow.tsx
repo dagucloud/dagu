@@ -79,7 +79,7 @@ export interface FlowProps<N extends FlowNode, E extends FlowEdge> {
   edges: E[];
   nodeTypes: Record<string, ComponentType<NodeProps<N>>>;
   edgeTypes: Record<string, ComponentType<EdgeProps<E>>>;
-  onNodeClick?(id: string): void;
+  onNodeClick?(id: string, event: ReactMouseEvent<HTMLElement>): void;
   onNodeDoubleClick?(id: string): void;
   onEdgeClick?(id: string): void;
   onPaneClick?(): void;
@@ -1026,7 +1026,7 @@ const FlowNodeBox = memo(function FlowNodeBox({
   node: FlowNode;
   Component: ComponentType<NodeProps<FlowNode>>;
   connectable: boolean;
-  onClick?: (id: string) => void;
+  onClick?: (id: string, event: ReactMouseEvent<HTMLElement>) => void;
   onDoubleClick?: (id: string) => void;
   onContextMenu?: (id: string, event: ReactMouseEvent<HTMLElement>) => void;
 }) {
@@ -1044,7 +1044,7 @@ const FlowNodeBox = memo(function FlowNodeBox({
         height: node.height,
         transform: `translate(${node.position.x}px, ${node.position.y}px)`,
       }}
-      onClick={() => onClick?.(node.id)}
+      onClick={(event) => onClick?.(node.id, event)}
       onDoubleClick={() => onDoubleClick?.(node.id)}
       onContextMenu={(event) => onContextMenu?.(node.id, event)}
     >

@@ -9,6 +9,7 @@ import {
   useMemo,
   useRef,
   useState,
+  type MouseEvent as ReactMouseEvent,
   type ReactElement,
   type ReactNode,
 } from 'react';
@@ -220,6 +221,21 @@ function CanvasContexts({
  * `onEdit` operations and `onCommand` commands. It never edits YAML text and
  * keeps node positions only in component state.
  */
+// Controls inside a card (its toolbar, a link) act on their own.
+const CARD_CONTROL =
+  'button, a, input, select, textarea, [role="button"], [role="menuitem"]';
+
+/**
+ * True for a pointer click on a card itself: a key that activates a control
+ * gives a click with no count, and a click on a control of the card is the
+ * control's own.
+ */
+function isCardClick(event: ReactMouseEvent<HTMLElement>): boolean {
+  if (event.detail === 0) return false;
+  const control = (event.target as Element).closest(CARD_CONTROL);
+  return control === null || !event.currentTarget.contains(control);
+}
+
 export function VisualCanvas(props: VisualCanvasProps): ReactElement {
   return (
     <FlowProvider minZoom={MIN_ZOOM} maxZoom={MAX_ZOOM}>
@@ -1319,12 +1335,12 @@ function CanvasView({
               nodeTypes={nodeTypes}
               edgeTypes={edgeTypes}
               onNodesMove={moveNodes}
-              onNodeClick={(key) => {
+              onNodeClick={(key, event) => {
                 const launcher = launcherIdOf(key);
                 if (launcher) onLauncher?.(launcher);
                 else if (!isGhostKey(key)) {
                   selectStep(key);
-                  onStepClick?.(key);
+                  if (isCardClick(event)) onStepClick?.(key);
                 }
               }}
               onNodeDoubleClick={(id) => {

@@ -375,8 +375,9 @@ export interface VisualCanvasProps {
   /** The user opens a launcher node. */
   onLauncher?(id: LauncherId): void;
   /**
-   * A pointer click on a step node, after its selection. A drag, a key and
-   * a click on a launcher or a ghost are no step click.
+   * A pointer click on a step node, after its selection. A drag, a key, a
+   * click on a control of the card (its toolbar) and a click on a launcher
+   * or a ghost are no step click.
    */
   onStepClick?(step: StepKey): void;
   /**
