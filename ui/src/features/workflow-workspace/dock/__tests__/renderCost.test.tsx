@@ -276,6 +276,40 @@ describe('FreezeWhenHidden', () => {
     return null;
   }
 
+  // One cache for the whole test, so that a rerender keeps the cache of the
+  // hooks whatever SWR does with a new provider.
+  function swrValue() {
+    const cache = new Map();
+    return { provider: () => cache, dedupingInterval: 0 };
+  }
+
+  /** A value that changes below a frozen subtree, as the URL does. */
+  function urlValue<T>(initial: T) {
+    let current = initial;
+    const listeners = new Set<() => void>();
+    return {
+      set(next: T) {
+        current = next;
+        listeners.forEach((listener) => listener());
+      },
+      useValue(): T {
+        return useSyncExternalStore(
+          (listener) => {
+            listeners.add(listener);
+            return () => listeners.delete(listener);
+          },
+          () => current
+        );
+      },
+    };
+  }
+
+  /** Lets the reads that the last render started finish. */
+  const settle = () =>
+    act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 50));
+    });
+
   function Host({
     hidden,
     data,
@@ -337,12 +371,13 @@ describe('FreezeWhenHidden', () => {
   it('stops the SWR polls below it while hidden', async () => {
     vi.useFakeTimers({ shouldAdvanceTime: true });
     const fetcher = vi.fn(async () => 'ok');
+    const swr = swrValue();
     function Poller() {
       useSWR('poll', fetcher, { refreshInterval: 1000 });
       return null;
     }
     const tree = (hidden: boolean) => (
-      <SWRConfig value={{ provider: () => new Map(), dedupingInterval: 0 }}>
+      <SWRConfig value={swr}>
         <FreezeWhenHidden hidden={hidden}>
           <Poller />
         </FreezeWhenHidden>
@@ -372,12 +407,13 @@ describe('FreezeWhenHidden', () => {
   it('reads the queries below it once when it shows again', async () => {
     let version = 1;
     const fetcher = vi.fn(async () => `v${version}`);
+    const swr = swrValue();
     function Reader() {
       const { data } = useSWR('log', fetcher, { revalidateOnFocus: false });
       return <span>{data ?? ''}</span>;
     }
     const tree = (hidden: boolean) => (
-      <SWRConfig value={{ provider: () => new Map(), dedupingInterval: 0 }}>
+      <SWRConfig value={swr}>
         <FreezeWhenHidden hidden={hidden}>
           <Reader />
         </FreezeWhenHidden>
@@ -399,25 +435,15 @@ describe('FreezeWhenHidden', () => {
   it('reads a query that mounted while hidden once more when it shows', async () => {
     let version = 1;
     const fetcher = vi.fn(async (key: string) => `${key}:v${version}`);
-    let current = 'step-log';
-    const listeners = new Set<() => void>();
-    const setKey = (key: string) => {
-      current = key;
-      listeners.forEach((listener) => listener());
-    };
+    const swr = swrValue();
+    const url = urlValue('step-log');
     function Reader() {
-      const key = useSyncExternalStore(
-        (listener) => {
-          listeners.add(listener);
-          return () => listeners.delete(listener);
-        },
-        () => current
-      );
+      const key = url.useValue();
       const { data } = useSWR(key, fetcher, { revalidateOnFocus: false });
       return <span>{data ?? ''}</span>;
     }
     const tree = (hidden: boolean) => (
-      <SWRConfig value={{ provider: () => new Map(), dedupingInterval: 0 }}>
+      <SWRConfig value={swr}>
         <FreezeWhenHidden hidden={hidden}>
           <Reader />
         </FreezeWhenHidden>
@@ -427,7 +453,7 @@ describe('FreezeWhenHidden', () => {
     const { rerender } = render(tree(false));
     expect(await screen.findByText('step-log:v1')).toBeInTheDocument();
     rerender(tree(true));
-    act(() => setKey('run-log'));
+    act(() => url.set('run-log'));
     expect(await screen.findByText('run-log:v1')).toBeInTheDocument();
     version = 2;
     rerender(tree(false));
@@ -438,12 +464,13 @@ describe('FreezeWhenHidden', () => {
   // makes its own first read and is not read a second time.
   it('reads a query that mounts as it shows only once', async () => {
     const fetcher = vi.fn(async (key: string) => key);
+    const swr = swrValue();
     function Reader({ runKey }: { runKey: string }) {
       const { data } = useSWR(runKey, fetcher, { revalidateOnFocus: false });
       return <span>{data ?? ''}</span>;
     }
     const tree = (hidden: boolean, runKey: string) => (
-      <SWRConfig value={{ provider: () => new Map(), dedupingInterval: 0 }}>
+      <SWRConfig value={swr}>
         <FreezeWhenHidden hidden={hidden}>
           <Reader runKey={runKey} />
         </FreezeWhenHidden>
@@ -455,9 +482,7 @@ describe('FreezeWhenHidden', () => {
     rerender(tree(true, 'log-1'));
     rerender(tree(false, 'log-2'));
     expect(await screen.findByText('log-2')).toBeInTheDocument();
-    await act(async () => {
-      await new Promise((resolve) => setTimeout(resolve, 50));
-    });
+    await settle();
     expect(fetcher.mock.calls.filter(([key]) => key === 'log-2')).toHaveLength(
       1
     );
