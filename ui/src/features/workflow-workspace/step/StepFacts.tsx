@@ -67,6 +67,12 @@ export interface StepFactsProps {
   holder: ApiDAGRunDetails | null;
   node: ApiNode | undefined;
   onOpenLogs?(t: StepRunTarget): void;
+  /**
+   * 'details' is the Details tab of the step panel. It leaves out what the
+   * panel shows around it: the status, the repeat policy, the log and run
+   * buttons, the commands and the outputs.
+   */
+  variant?: 'full' | 'details';
 }
 
 const sectionTitle = 'text-xs font-medium text-muted-foreground';
@@ -515,6 +521,7 @@ export function StepFacts({
   holder,
   node,
   onOpenLogs,
+  variant = 'full',
 }: StepFactsProps) {
   const { ts } = useI18n();
   const { fileName } = useWorkspaceData('StepFacts');
@@ -558,40 +565,45 @@ export function StepFacts({
     if (onOpenLogs) onOpenLogs(t);
     else actions.openLogs(t);
   };
+  const full = variant === 'full';
   const canSetStatus = !!gates?.setStatus;
   // Run step is the 'Execute step' button of the node view header: one run
   // action there, none here.
-  const hasActions = !!gates && (gates.retry || gates.setStatus);
+  const hasActions = full && !!gates && (gates.retry || gates.setStatus);
 
   return (
     <div className="space-y-3 text-sm" data-testid="ww-step-facts">
-      <div className="flex flex-wrap items-center gap-1.5">
-        <span
-          role={canSetStatus ? 'button' : undefined}
-          tabIndex={canSetStatus ? 0 : undefined}
-          title={canSetStatus ? ts('Click to update status') : undefined}
-          className={cn(canSetStatus && 'cursor-pointer')}
-          onClick={() => {
-            if (canSetStatus) actions.setStatus(node.step.name);
-          }}
-          onKeyDown={(e) => {
-            if (!canSetStatus || (e.key !== 'Enter' && e.key !== ' ')) return;
-            e.preventDefault();
-            actions.setStatus(node.step.name);
-          }}
-        >
-          <StatusChip node={node} />
-        </span>
+      {full ? (
+        <div className="flex flex-wrap items-center gap-1.5">
+          <span
+            role={canSetStatus ? 'button' : undefined}
+            tabIndex={canSetStatus ? 0 : undefined}
+            title={canSetStatus ? ts('Click to update status') : undefined}
+            className={cn(canSetStatus && 'cursor-pointer')}
+            onClick={() => {
+              if (canSetStatus) actions.setStatus(node.step.name);
+            }}
+            onKeyDown={(e) => {
+              if (!canSetStatus || (e.key !== 'Enter' && e.key !== ' ')) return;
+              e.preventDefault();
+              actions.setStatus(node.step.name);
+            }}
+          >
+            <StatusChip node={node} />
+          </span>
+          <BuildDecisionBadge node={node} />
+          {node.retryCount > 0 && <RetryCount count={node.retryCount} />}
+        </div>
+      ) : (
         <BuildDecisionBadge node={node} />
-        {node.retryCount > 0 && <RetryCount count={node.retryCount} />}
-      </div>
+      )}
 
       <ErrorCards node={node} />
       <TimingFacts node={node} />
-      <RepeatPolicy node={node} />
+      {full && <RepeatPolicy node={node} />}
       <ManualAudit node={node} />
 
-      {(node.stdout || node.stderr) && (
+      {full && (node.stdout || node.stderr) && (
         <div className="flex flex-wrap gap-2">
           {node.stdout && (
             <Button asChild variant="outline" size="xs">
@@ -648,8 +660,12 @@ export function StepFacts({
         </div>
       )}
 
-      <ExecutionSection holder={holder} node={node} />
-      <OutputsSection holder={holder} node={node} />
+      {full && (
+        <>
+          <ExecutionSection holder={holder} node={node} />
+          <OutputsSection holder={holder} node={node} />
+        </>
+      )}
 
       {allSubRunsOf(node).length > 0 && (
         <section className="space-y-1" aria-label={ts('Sub-runs')}>

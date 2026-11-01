@@ -6,22 +6,14 @@ import { useI18n } from '@/i18n/I18nProvider';
 import type { DockTab } from '../state/workspaceUrl';
 import {
   DOCK_ID_PREFIX,
-  DOCK_TAB_LABELS,
   DockTabStrip,
   dockPanelId,
+  dockTabLabel,
+  type DockTabStripProps,
 } from './DockTabStrip';
 
-export interface RunTabsPaneProps {
-  tabs: DockTab[];
-  active: DockTab;
-  badges: Partial<Record<DockTab, number>>;
-  onSelect(tab: DockTab): void;
-  /** Prefix of the ids, when a second pane is on the page. */
-  idPrefix?: string;
-  /** Accessible name of the tab list. Default: 'Logs'. */
-  label?: string;
-  /** Labels that replace the default ones: see DockTabStrip. */
-  labels?: Partial<Record<DockTab, string>>;
+export interface RunTabsPaneProps<T extends string = DockTab>
+  extends DockTabStripProps<T> {
   /** The body of the active tab. */
   children?: ReactNode;
 }
@@ -31,7 +23,7 @@ export interface RunTabsPaneProps {
  * active tab. The dock of Executions and the OUTPUT column of the step view
  * in the editor both render it, so that the two never differ.
  */
-export function RunTabsPane({
+export function RunTabsPane<T extends string = DockTab>({
   tabs,
   active,
   badges,
@@ -39,8 +31,9 @@ export function RunTabsPane({
   idPrefix = DOCK_ID_PREFIX,
   label,
   labels,
+  icons,
   children,
-}: RunTabsPaneProps) {
+}: RunTabsPaneProps<T>) {
   const { ts } = useI18n();
   return (
     <div className="flex min-h-0 min-w-0 flex-1 flex-col">
@@ -53,13 +46,14 @@ export function RunTabsPane({
           idPrefix={idPrefix}
           label={label}
           labels={labels}
+          icons={icons}
         />
       </div>
       {/* Always present, so the aria-controls of the tabs name an element. */}
       <div
         id={dockPanelId(idPrefix)}
         role="tabpanel"
-        aria-label={ts(labels?.[active] ?? DOCK_TAB_LABELS[active])}
+        aria-label={ts(dockTabLabel(active, labels))}
         className="min-h-0 flex-1 overflow-hidden"
       >
         {children}

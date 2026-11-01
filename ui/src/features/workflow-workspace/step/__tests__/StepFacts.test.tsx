@@ -30,12 +30,12 @@ vi.mock('@/features/visual-editor/api/useStepOutputs', () => ({
 vi.mock('../../data/context', () => ({
   useWorkspaceData: () => ({ fileName: 'demo.yaml' }),
 }));
+const gates = vi.hoisted(() => ({ retry: false, setStatus: false }));
 vi.mock('../useStepRunActions', async (importOriginal) => ({
   ...(await importOriginal<object>()),
   useStepRunActions: () => ({
     can: () => ({
-      retry: false,
-      setStatus: false,
+      ...gates,
       runStep: false,
       subRuns: false,
     }),
@@ -67,6 +67,8 @@ function renderFacts(
 
 afterEach(() => {
   vi.useRealTimers();
+  gates.retry = false;
+  gates.setStatus = false;
 });
 
 describe('StepFacts colours and durations', () => {
@@ -187,5 +189,64 @@ describe('StepFacts outputs', () => {
       null,
       null
     );
+  });
+});
+
+// The step panel shows the status, the run buttons, the logs, the outputs
+// and the definition around its Details tab: the tab does not repeat them.
+describe('StepFacts details variant', () => {
+  function renderDetails(step: ApiNode, status = Status.Success) {
+    return render(
+      <MemoryRouter>
+        <StepFacts
+          target={{ step: step.step.name }}
+          holder={run('run-1', [step], status)}
+          node={step}
+          variant="details"
+        />
+      </MemoryRouter>
+    );
+  }
+
+  it('keeps the error, the times and the audit of the step', () => {
+    renderDetails(
+      node('a', NodeStatus.Failed, {
+        statusLabel: NodeStatusLabel.failed,
+        error: 'exit status 2',
+        retryCount: 1,
+        rejectedBy: 'alice',
+        rejectionReason: 'wrong input',
+      }),
+      Status.Failed
+    );
+
+    expect(screen.getByRole('alert')).toHaveTextContent('exit status 2');
+    for (const label of ['Started', 'Finished', 'Duration', 'Retries']) {
+      expect(screen.getByText(label)).toBeInTheDocument();
+    }
+    expect(screen.getByText('Rejected by:')).toBeInTheDocument();
+    expect(screen.getByText('wrong input')).toBeInTheDocument();
+  });
+
+  it('leaves out the status, the buttons, the commands and the outputs', () => {
+    gates.retry = true;
+    gates.setStatus = true;
+    useStepOutputsMock.mockClear();
+    renderDetails(
+      node('a', NodeStatus.Failed, {
+        statusLabel: NodeStatusLabel.failed,
+        stdout: '/logs/a.out',
+        stderr: '/logs/a.err',
+        step: { commands: [{ command: 'make' }] },
+      }),
+      Status.Failed
+    );
+
+    expect(screen.queryByTestId('ww-step-status')).toBeNull();
+    expect(screen.queryByText('View stdout')).toBeNull();
+    expect(screen.queryByRole('button', { name: 'Retry step' })).toBeNull();
+    expect(screen.queryByRole('button', { name: 'Change status' })).toBeNull();
+    expect(screen.queryByRole('region', { name: 'Execution' })).toBeNull();
+    expect(useStepOutputsMock).not.toHaveBeenCalled();
   });
 });

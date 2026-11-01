@@ -59,17 +59,33 @@ export function dockPanelId(prefix = DOCK_ID_PREFIX): string {
 
 export const DOCK_PANEL_ID = dockPanelId();
 
-export interface DockTabStripProps {
-  tabs: DockTab[];
-  active: DockTab;
-  badges: Partial<Record<DockTab, number>>;
-  onSelect(tab: DockTab): void;
+/**
+ * The props of a strip of Run panel tabs. A host may add tabs of its own
+ * (T beyond DockTab): each of them needs a label and an icon.
+ */
+export interface DockTabStripProps<T extends string = DockTab> {
+  tabs: readonly T[];
+  active: T;
+  badges: Partial<Record<T, number>>;
+  // The tabs give T: a handler that takes more tabs does not widen it.
+  onSelect(tab: NoInfer<T>): void;
   /** Prefix of the ids, when a second strip is on the page. */
   idPrefix?: string;
   /** Accessible name of the tab list. Default: 'Logs'. */
   label?: string;
   /** Labels that replace the default ones, as a step view names its tabs. */
-  labels?: Partial<Record<DockTab, string>>;
+  labels?: Partial<Record<T, string>>;
+  /** Icons of the tabs that are no Run panel tab. */
+  icons?: Partial<Record<T, LucideIcon>>;
+}
+
+/** The label of a tab: the host's, else the one of the Run panel. */
+export function dockTabLabel<T extends string>(
+  tab: T,
+  labels?: Partial<Record<T, string>>
+): string {
+  // A host tab without a label shows its id rather than nothing.
+  return labels?.[tab] ?? DOCK_TAB_LABELS[tab as string as DockTab] ?? tab;
 }
 
 /**
@@ -77,7 +93,7 @@ export interface DockTabStripProps {
  * tabs show their icon only, with a tooltip, and the row scrolls if the icons
  * do not fit. There is no overflow menu and no select.
  */
-export function DockTabStrip({
+export function DockTabStrip<T extends string = DockTab>({
   tabs,
   active,
   badges,
@@ -85,29 +101,30 @@ export function DockTabStrip({
   idPrefix = DOCK_ID_PREFIX,
   label = 'Logs',
   labels,
-}: DockTabStripProps) {
+  icons,
+}: DockTabStripProps<T>) {
   const { ts } = useI18n();
   const panelId = dockPanelId(idPrefix);
   const stripTabs = useMemo<TabStripTab[]>(
     () =>
       tabs.map((tab) => ({
         id: tab,
-        label: ts(labels?.[tab] ?? DOCK_TAB_LABELS[tab]),
-        icon: DOCK_TAB_ICONS[tab],
+        label: ts(dockTabLabel(tab, labels)),
+        icon: icons?.[tab] ?? DOCK_TAB_ICONS[tab as string as DockTab],
         badge: badges[tab],
         badgeLabel: badges[tab]
           ? ts('{count} waiting', { count: badges[tab] })
           : undefined,
         controls: panelId,
       })),
-    [tabs, badges, panelId, labels, ts]
+    [tabs, badges, panelId, labels, icons, ts]
   );
   return (
     <TabStrip
       label={ts(label)}
       tabs={stripTabs}
       value={active}
-      onChange={(id) => onSelect(id as DockTab)}
+      onChange={(id) => onSelect(id as T)}
       idPrefix={idPrefix}
       className="flex-1"
     />

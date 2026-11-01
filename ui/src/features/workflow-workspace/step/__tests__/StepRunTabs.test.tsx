@@ -414,6 +414,70 @@ describe('StepRunTabs with the selected run', () => {
   });
 });
 
+// The step panel puts a Details tab before the run tabs and its controls
+// between the facts line and the strip.
+describe('StepRunTabs with a Details tab', () => {
+  function withDetails(runId: string | null, value: WorkspaceDataValue) {
+    return render(
+      <MemoryRouter>
+        <WorkspaceDataContext.Provider value={value}>
+          <StepRunTabs
+            step="merge"
+            runId={runId}
+            declared={<div data-testid="declared" />}
+            details={<div data-testid="details-body" />}
+            toolbar={<button type="button">Retry step</button>}
+          />
+        </WorkspaceDataContext.Provider>
+      </MemoryRouter>
+    );
+  }
+
+  it('leads the strip and opens first, also on a failed step', () => {
+    const merge = node('merge', NodeStatus.Failed);
+    withDetails('r2', selected(run('r2', [merge], Status.Failed)));
+    expect(tabNames()[0]).toBe('Details');
+    expect(screen.getByRole('tab', { name: 'Details' })).toHaveAttribute(
+      'aria-selected',
+      'true'
+    );
+    expect(screen.getByTestId('details-body')).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('tab', { name: 'Log' }));
+    expect(screen.getByTestId('body-log')).toBeInTheDocument();
+    expect(screen.queryByTestId('details-body')).toBeNull();
+  });
+
+  it('opens on Details for a step that never ran', () => {
+    withDetails(null, data);
+    expect(tabNames()).toEqual(['Details', 'Log', 'Output']);
+    expect(screen.getByTestId('details-body')).toBeInTheDocument();
+  });
+
+  it('opens a waiting step on Actions', () => {
+    const merge = node('merge', NodeStatus.Waiting, {
+      step: { approval: {} },
+      statusLabel: NodeStatusLabel.waiting,
+    });
+    withDetails('r2', selected(run('r2', [merge], Status.Waiting)));
+    expect(screen.getByRole('tab', { name: /Actions/ })).toHaveAttribute(
+      'aria-selected',
+      'true'
+    );
+  });
+
+  it('puts the toolbar between the facts line and the strip', () => {
+    withDetails('r2', selected(run('r2', [node('merge')])));
+    const toolbar = screen.getByRole('button', { name: 'Retry step' });
+    const following = (a: Element, b: Element) =>
+      !!(a.compareDocumentPosition(b) & Node.DOCUMENT_POSITION_FOLLOWING);
+    expect(following(screen.getByTestId('ww-step-facts-line'), toolbar)).toBe(
+      true
+    );
+    expect(following(toolbar, screen.getByRole('tablist'))).toBe(true);
+  });
+});
+
 describe('the strip of the step view and of the Run panel', () => {
   // Both hosts render DockTabStrip: the same tabs give the same buttons.
   it('renders the same tab bar markup apart from the ids', () => {

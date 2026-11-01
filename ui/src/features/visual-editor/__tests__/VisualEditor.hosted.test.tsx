@@ -336,6 +336,36 @@ describe.skipIf(realSchema === null)('VisualEditor in a host', () => {
       expect(onSelectedStepNameChange).toHaveBeenLastCalledWith('publish');
     });
 
+    // A pointer click has a click count; a key that activates an element
+    // dispatches a click without one.
+    it('tells the host of a click on a step, not of a key', () => {
+      const onStepClick = vi.fn();
+      renderEditor({ initial: yamlArraySteps, openNdvOn: 'open', onStepClick });
+
+      fireEvent.click(nodeCard('steps[2]'), { detail: 1 });
+      expect(onStepClick).toHaveBeenLastCalledWith('publish');
+      // A click on the selected step is a click again.
+      fireEvent.click(nodeCard('steps[2]'), { detail: 1 });
+      expect(onStepClick).toHaveBeenCalledTimes(2);
+
+      fireEvent.keyDown(screen.getByTestId('ve-canvas'), { key: 'ArrowUp' });
+      expect(isSelected('steps[1]')).toBe(true);
+      fireEvent.click(nodeCard('steps[1]'), { detail: 0 });
+      expect(onStepClick).toHaveBeenCalledTimes(2);
+    });
+
+    it('tells the host of no click on a control of the card', () => {
+      const onStepClick = vi.fn();
+      renderEditor({ initial: yamlArraySteps, openNdvOn: 'open', onStepClick });
+      const card = nodeCard('steps[2]');
+      const control = document.createElement('button');
+      card.appendChild(control);
+
+      fireEvent.click(control, { detail: 1 });
+      expect(isSelected('steps[2]')).toBe(true);
+      expect(onStepClick).not.toHaveBeenCalled();
+    });
+
     it('pans to a step that the host selects', () => {
       const props = { initial: yamlArraySteps, selectedStepName: 'fetch' };
       const { update } = renderEditor(props);

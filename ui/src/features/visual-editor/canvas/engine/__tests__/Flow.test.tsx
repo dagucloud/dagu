@@ -241,7 +241,7 @@ describe('Flow', () => {
     renderFlow({ onNodeClick, onNodeDoubleClick, onEdgeClick, onPaneClick });
 
     fireEvent.click(nodeBox('b'));
-    expect(onNodeClick).toHaveBeenCalledWith('b');
+    expect(onNodeClick).toHaveBeenCalledWith('b', expect.anything());
     fireEvent.doubleClick(nodeBox('a'));
     expect(onNodeDoubleClick).toHaveBeenCalledWith('a');
     fireEvent.click(document.querySelector('[data-flow-edge="a-b"]')!);

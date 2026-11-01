@@ -88,6 +88,7 @@ import w14c from './w14c';
 import w15h from './w15h';
 import cr1 from './cr1';
 import sh1 from './sh1';
+import sp1 from './sp1';
 
 export const workspaceModules = {
   q2,
@@ -175,6 +176,7 @@ export const workspaceModules = {
   w15h,
   cr1,
   sh1,
+  sp1,
 } as const;
 
 export const workspaceMessages = {
@@ -264,6 +266,7 @@ export const workspaceMessages = {
     ...w15h.en,
     ...cr1.en,
     ...sh1.en,
+    ...sp1.en,
   },
   'zh-CN': {
     ...q2['zh-CN'],
@@ -351,6 +354,7 @@ export const workspaceMessages = {
     ...w15h['zh-CN'],
     ...cr1['zh-CN'],
     ...sh1['zh-CN'],
+    ...sp1['zh-CN'],
   },
   ja: {
     ...q2.ja,
@@ -438,5 +442,6 @@ export const workspaceMessages = {
     ...w15h.ja,
     ...cr1.ja,
     ...sh1.ja,
+    ...sp1.ja,
   },
 } as const;

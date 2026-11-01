@@ -261,6 +261,7 @@ function DAGSpec({
   onRunStarted,
   selectedStepName,
   onSelectedStepNameChange,
+  onStepClick,
   openNdvOn,
   renderStepRun,
   renderStepOutput,
@@ -2084,6 +2085,7 @@ function DAGSpec({
                           onRunStarted={onRunStarted}
                           selectedStepName={selectedStepName}
                           onSelectedStepNameChange={onSelectedStepNameChange}
+                          onStepClick={onStepClick}
                           openNdvOn={openNdvOn}
                           renderStepRun={renderStepRun}
                           renderStepOutput={renderStepOutput}

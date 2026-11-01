@@ -362,6 +362,7 @@ export function VisualEditor(props: VisualEditorProps): ReactElement {
     onRunStarted,
     selectedStepName,
     onSelectedStepNameChange,
+    onStepClick,
     openNdvOn = 'select',
     renderStepRun,
     renderStepOutput,
@@ -1668,6 +1669,10 @@ export function VisualEditor(props: VisualEditorProps): ReactElement {
               launchers={launcherHost ? launcherData?.states : undefined}
               activeLauncher={launcherOpen}
               onLauncher={openLauncher}
+              onStepClick={(key) => {
+                const name = serverNameOf(key);
+                if (name !== null) onStepClick?.(name);
+              }}
             />
           </AgentRunContext.Provider>
           {canvasOverlay ? (

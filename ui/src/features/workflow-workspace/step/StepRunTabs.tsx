@@ -1,6 +1,7 @@
 // Copyright (C) 2026 Yota Hamada
 // SPDX-License-Identifier: GPL-3.0-or-later
 
+import { Info } from 'lucide-react';
 import { useMemo, useState, type ReactNode } from 'react';
 import { NodeStatus, Status } from '@/api/v1/schema';
 import { SubRunOpenProvider } from '@/features/dags/components/common/SubRunStackModal';
@@ -42,6 +43,15 @@ const ID_PREFIX = 'ww-step-output';
 const NO_RUN_TABS: DockTab[] = ['log', 'outputs'];
 /** The tabs while the run loads: History reads the run list, not the run. */
 const LOADING_TABS: DockTab[] = ['log', 'history', 'outputs'];
+
+/** The tab of a host that leads the strip: the details of the step. */
+const DETAILS_TAB = 'details';
+type StepTab = DockTab | typeof DETAILS_TAB;
+const DETAILS_LABELS: Partial<Record<StepTab, string>> = {
+  ...STEP_TAB_LABELS,
+  [DETAILS_TAB]: 'Details',
+};
+const DETAILS_ICONS = { [DETAILS_TAB]: Info };
 
 /**
  * The tabs of the right pane. With a run, the tabs of the Run panel for the
@@ -94,6 +104,13 @@ export interface StepRunTabsProps {
   runId: string | null;
   /** Shown in the Output tab while no run exists: the declared outputs. */
   declared: ReactNode;
+  /**
+   * The body of a Details tab that leads the strip. It opens first, unless
+   * the step waits for an answer that a tab of the run takes.
+   */
+  details?: ReactNode;
+  /** Controls between the facts line and the tab strip. */
+  toolbar?: ReactNode;
 }
 
 /**
@@ -127,7 +144,8 @@ export function defaultStepTab(
  * The run that the workspace selected comes from the workspace data, so it
  * has one read and one stream. Another run id, such as the one that 'Execute
  * step' started, has its own read. With no run, the Output tab shows the
- * declared outputs and the Log tab asks to execute the step.
+ * declared outputs and the Log tab asks to execute the step. The step panel
+ * gives a Details tab and its controls (`details`, `toolbar`).
  */
 export function StepRunTabs(props: StepRunTabsProps) {
   const data = useWorkspaceData('StepRunTabs');
@@ -182,6 +200,8 @@ function StepRunTabsView({
   step,
   runId,
   declared,
+  details: detailsBody,
+  toolbar,
   run,
   context,
   ownSubRuns = false,
@@ -204,18 +224,35 @@ function StepRunTabsView({
     [details, step]
   );
   const loading = runId !== null && details === null;
-  const tabs = useMemo(
+  const runTabs = useMemo(
     () => stepRunTabs(details, step, loading),
     [details, step, loading]
   );
+  const hasDetails = detailsBody !== undefined;
+  const tabs = useMemo<StepTab[]>(
+    () => (hasDetails ? [DETAILS_TAB, ...runTabs] : runTabs),
+    [hasDetails, runTabs]
+  );
   const badges = useMemo(() => dockTabBadges(facts), [facts]);
-  const [chosen, setChosen] = useState<DockTab | null>(null);
-  const preferred: DockTab = chosen ?? defaultStepTab(details, node, tabs);
-  const shown = fallbackDockTab(preferred, tabs);
-  const Body = dockTabBodies[shown];
+  const [chosen, setChosen] = useState<StepTab | null>(null);
+  const runDefault = defaultStepTab(details, node, runTabs);
+  // A step that waits opens the tab that takes the answer, not the details.
+  const answers = runDefault === 'actions' || runDefault === 'agent';
+  const preferred: StepTab =
+    chosen ?? (hasDetails && !answers ? DETAILS_TAB : runDefault);
+  const shown: StepTab =
+    preferred === DETAILS_TAB && hasDetails
+      ? DETAILS_TAB
+      : fallbackDockTab(
+          preferred === DETAILS_TAB ? runDefault : preferred,
+          runTabs
+        );
+  const Body = shown === DETAILS_TAB ? undefined : dockTabBodies[shown];
 
   let body: ReactNode = null;
-  if (!runId || !run || !context || !dag) {
+  if (shown === DETAILS_TAB) {
+    body = <div className="h-full overflow-auto">{detailsBody}</div>;
+  } else if (!runId || !run || !context || !dag) {
     body =
       shown === 'outputs' ? (
         <div className="h-full overflow-auto">{declared}</div>
@@ -249,14 +286,16 @@ function StepRunTabsView({
       className="flex h-full min-h-64 flex-col"
     >
       <StepFactsLine node={node} testRun={isEphemeralRun(details)} />
-      <RunTabsPane
+      {toolbar}
+      <RunTabsPane<StepTab>
         tabs={tabs}
         active={shown}
         badges={badges}
         onSelect={setChosen}
         idPrefix={ID_PREFIX}
         label="Run"
-        labels={STEP_TAB_LABELS}
+        labels={hasDetails ? DETAILS_LABELS : STEP_TAB_LABELS}
+        icons={DETAILS_ICONS}
       >
         {body}
       </RunTabsPane>

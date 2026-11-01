@@ -319,6 +319,84 @@ test.describe('workspace node details view', () => {
       .click({ trial: true, timeout: 5_000 });
   });
 
+  // A single click opens the step panel over the canvas, on the step in the
+  // selected run. It switches with the selection and closes on its button,
+  // on Esc and on a click on the pane, and the Runs panel stays shut.
+  test('opens the step panel on a click, switches it and closes it', async ({
+    page,
+    request,
+    inlineDAG,
+    gotoWorkspace,
+  }) => {
+    test.setTimeout(150_000);
+    const token = await adminToken(request);
+    const { dagName, fileName } = await inlineDAG(FAILING);
+    const runId = await startDAG(request, token, fileName);
+    await waitForRunStatus(request, token, dagName, runId, ['failed']);
+
+    await openWorkspace(page, gotoWorkspace, workflowPath(fileName));
+    await expect(nodeStatus(page, 'steps[1]')).toHaveAttribute(
+      'data-status',
+      NODE_FAILED,
+      { timeout: 60_000 }
+    );
+    const dock = page.getByTestId('ww-dock');
+    await expect(dock).toHaveAttribute('data-state', 'collapsed');
+
+    // The failed step: its facts, its run actions and its stderr log.
+    await canvasNode(page, 'steps[1]').click();
+    const broken = page.getByRole('complementary', {
+      name: 'Details of broken',
+    });
+    await expect(broken).toBeVisible({ timeout: 30_000 });
+    expect(query(page, 'step')).toBe('broken');
+    expect(query(page, 'ndv')).toBeNull();
+    await expect(broken.getByTestId('ww-step-facts-status')).toHaveText(
+      'Failed'
+    );
+    await expect(
+      broken.getByRole('tab', { name: 'Details', exact: true })
+    ).toHaveAttribute('aria-selected', 'true');
+    await expect(
+      broken.getByRole('button', { name: 'Retry step', exact: true })
+    ).toBeVisible();
+    await broken.getByRole('tab', { name: 'Log', exact: true }).click();
+    await expect(broken.getByTestId('ww-step-log')).toContainText(
+      'broken-stderr-marker',
+      { timeout: 30_000 }
+    );
+    await expect(dock).toHaveAttribute('data-state', 'collapsed');
+
+    // A click on another step switches the panel.
+    await canvasNode(page, 'steps[0]').click();
+    const ok = page.getByRole('complementary', { name: 'Details of ok' });
+    await expect(ok).toBeVisible();
+    await expect(broken).toHaveCount(0);
+    expect(query(page, 'step')).toBe('ok');
+
+    // Close and Esc close the panel and keep the step.
+    await ok.getByRole('button', { name: 'Close', exact: true }).click();
+    await expect(ok).toHaveCount(0);
+    expect(query(page, 'step')).toBe('ok');
+    await canvasNode(page, 'steps[0]').click();
+    await expect(ok).toBeVisible();
+    await page.keyboard.press('Escape');
+    await expect(ok).toHaveCount(0);
+    expect(query(page, 'step')).toBe('ok');
+
+    // A click on the empty canvas closes it and clears the step.
+    await canvasNode(page, 'steps[0]').click();
+    await expect(ok).toBeVisible();
+    await page
+      .getByTestId('ww-canvas')
+      .getByTestId('ve-canvas-frame')
+      // Below the floating toolbar row, left of the graph.
+      .click({ position: { x: 24, y: 160 } });
+    await expect(ok).toHaveCount(0);
+    await expect.poll(() => query(page, 'step')).toBeNull();
+    await expect(dock).toHaveAttribute('data-state', 'collapsed');
+  });
+
   // parity:drawer-url-sync
   test('shows the declared outputs of a step that never ran', async ({
     page,
