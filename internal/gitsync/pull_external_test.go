@@ -272,6 +272,54 @@ func TestPullSyncsCalendars(t *testing.T) {
 	assert.Equal(t, gitsync.SyncItemKindDAG, status.Items["calendars/nested/report"].Kind)
 }
 
+// Calendars are often made on the server before Git Sync is set up. One the
+// repository also has must keep its content as a conflict, whether or not a
+// status check listed it as untracked first.
+func TestPullKeepsUntrackedLocalCalendar(t *testing.T) {
+	for _, tc := range []struct {
+		name          string
+		checkedBefore bool
+	}{
+		{name: "never listed"},
+		{name: "listed as untracked", checkedBefore: true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			ctx := context.Background()
+			root := t.TempDir()
+			remotePath := filepath.Join(root, "remote")
+			remoteRepo := initPullExternalTestRepo(t, remotePath)
+			commitPullExternalTestFile(t, remoteRepo, remotePath, "calendars/jp.yaml", "holidays: [2027-01-11]\n", "calendar")
+
+			dataDir := filepath.Join(root, "data")
+			clonePullExternalTestRepo(ctx, t, dataDir, remotePath)
+			dagsDir := filepath.Join(root, "dags")
+			calendarsDir := filepath.Join(root, "calendars")
+			require.NoError(t, os.MkdirAll(calendarsDir, 0755))
+			localPath := filepath.Join(calendarsDir, "jp.yaml")
+			require.NoError(t, os.WriteFile(localPath, []byte("holidays: [2027-05-03]\n"), 0600))
+			svc := gitsync.NewService(&gitsync.Config{
+				Enabled:    true,
+				Repository: remotePath,
+				Branch:     "main",
+			}, dagsDir, filepath.Join(dagsDir, "wiki"), calendarsDir, dataDir)
+			if tc.checkedBefore {
+				_, err := svc.GetStatus(ctx)
+				require.NoError(t, err)
+			}
+
+			result, err := svc.Pull(ctx)
+			require.NoError(t, err)
+			assert.Contains(t, result.Conflicts, "calendars/jp")
+			assert.Equal(t, "holidays: [2027-05-03]\n", readPullExternalTestFile(t, localPath))
+			status, err := svc.GetStatus(ctx)
+			require.NoError(t, err)
+			assert.Equal(t, gitsync.StatusConflict, status.Items["calendars/jp"].Status)
+		})
+	}
+}
+
 // Calendars synced before the calendar kind existed were tracked as DAGs
 // of the same ID. A .yml file is still a DAG, so renaming it to .yaml takes
 // the same switch.

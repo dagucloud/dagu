@@ -362,6 +362,11 @@ func (s *serviceImpl) syncFilesToLocal(_ context.Context, pullResult *PullResult
 			delete(state.Items, item.id)
 			itemState = nil
 		}
+		// A calendar listed only as untracked was made on the server, so Git
+		// Sync knows no more of it than of one without a record.
+		if itemState != nil && item.kind == SyncItemKindCalendar && itemState.Status == StatusUntracked {
+			itemState = nil
+		}
 		// Unchanged fast path: the item was synced against this exact commit
 		// and refreshLocalHashes above found no local drift, so neither side
 		// needs to be read. This keeps pulls from re-reading every file
@@ -453,7 +458,9 @@ func (s *serviceImpl) syncFilesToLocal(_ context.Context, pullResult *PullResult
 		remoteChanged := itemState == nil || itemState.RemoteDeleted || itemState.LastSyncedHash != repoHash ||
 			(item.kind == SyncItemKindFile && itemState.LastSyncedExecutable != remoteExecutable)
 		localChanged := itemState != nil && (itemState.Status == StatusModified || itemState.Status == StatusConflict)
-		if itemState == nil && item.kind == SyncItemKindFile {
+		// A file or calendar already present that Git Sync never synced
+		// holds local work, so differing content is a conflict.
+		if itemState == nil && (item.kind == SyncItemKindFile || item.kind == SyncItemKindCalendar) {
 			localChanged = true
 		}
 		if localChanged {
