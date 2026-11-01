@@ -1250,7 +1250,6 @@ describe('DAGSpec visual view', () => {
     expect(screen.getByTestId('diff-edited')).toHaveTextContent('# typed');
   });
 
-  // An agent DAG is edited on the same canvas as every other DAG.
   it('gives the visual editor the harnesses of the document', async () => {
     mocks.useQuery.mockReturnValue(
       specData({
@@ -1262,6 +1261,7 @@ describe('DAGSpec visual view', () => {
     expect(visual.props?.harnesses).toEqual(['team-agent']);
   });
 
+  // An agent DAG is edited on the same canvas as every other DAG.
   it('shows an agent DAG in the visual editor, like any other', async () => {
     mocks.useQuery.mockReturnValue(
       specData({
