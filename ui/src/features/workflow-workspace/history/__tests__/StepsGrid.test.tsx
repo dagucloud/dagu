@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 import { fireEvent, render, screen, within } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
 import { describe, expect, it, vi } from 'vitest';
 import { NodeStatus, Status } from '@/api/v1/schema';
 import type { ApiDAGDetails, ApiDAGRunDetails } from '../../contracts';
@@ -61,6 +62,9 @@ function renderGrid(over: Partial<StepsGridProps> = {}) {
 const grid = () => screen.getByRole('grid', { name: 'Steps by run' });
 const cell = (step: string, runId: string) =>
   screen.getByTestId(`ww-history-cell-${step}-${runId}`);
+/** Presses a key on the focused element, as the keyboard does. */
+const press = (key: string) =>
+  fireEvent.keyDown(document.activeElement ?? document.body, { key });
 
 describe('StepsGrid', () => {
   it('has a row for each step in execution order, and a removed step last', () => {
@@ -105,6 +109,17 @@ describe('StepsGrid', () => {
     expect(props.onPick).not.toHaveBeenCalled();
   });
 
+  // A click focuses the name; Enter on it opens the step again and leaves
+  // the cell of the tab stop alone.
+  it('opens the step with Enter on a clicked name', async () => {
+    const user = userEvent.setup();
+    const props = renderGrid();
+    await user.click(within(grid()).getByRole('button', { name: 'test' }));
+    await user.keyboard('{Enter}');
+    expect(props.onOpenStep).toHaveBeenCalledTimes(2);
+    expect(props.onPick).not.toHaveBeenCalled();
+  });
+
   it('moves with the arrow keys and selects with Enter', () => {
     const props = renderGrid();
     const start = cell('build', 'r2');
@@ -116,18 +131,18 @@ describe('StepsGrid', () => {
     ).toHaveLength(1);
     start.focus();
 
-    fireEvent.keyDown(grid(), { key: 'ArrowDown' });
+    press('ArrowDown');
     expect(cell('test', 'r2')).toHaveFocus();
-    fireEvent.keyDown(grid(), { key: 'ArrowRight' });
+    press('ArrowRight');
     expect(cell('test', 'r3')).toHaveFocus();
-    fireEvent.keyDown(grid(), { key: 'Home' });
+    press('Home');
     expect(cell('test', 'r1')).toHaveFocus();
-    fireEvent.keyDown(grid(), { key: 'ArrowUp' });
+    press('ArrowUp');
     expect(cell('build', 'r1')).toHaveFocus();
     expect(cell('build', 'r1')).toHaveAttribute('tabindex', '0');
     expect(props.onPick).not.toHaveBeenCalled();
 
-    fireEvent.keyDown(grid(), { key: 'Enter' });
+    press('Enter');
     expect(props.onPick).toHaveBeenCalledWith('r1', 'build');
   });
 

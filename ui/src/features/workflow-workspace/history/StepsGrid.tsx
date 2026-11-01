@@ -228,6 +228,9 @@ export function StepsGrid({
     if (event.altKey || event.ctrlKey || event.metaKey || event.shiftKey) {
       return;
     }
+    // The keys act on the focused cell; a clicked step name keeps its own.
+    const target = event.target as HTMLElement;
+    if (target.getAttribute('role') !== 'gridcell') return;
     const { row, col } = tab;
     if (event.key === 'Enter' || event.key === ' ') {
       event.preventDefault();
