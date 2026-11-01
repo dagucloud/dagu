@@ -1,7 +1,14 @@
 // Copyright (C) 2026 Yota Hamada
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-import { useCallback, useMemo, useRef, type ReactNode } from 'react';
+import {
+  useCallback,
+  useLayoutEffect,
+  useMemo,
+  useReducer,
+  useRef,
+  type ReactNode,
+} from 'react';
 import { useRemoteNode } from '@/contexts/RemoteNodeContext';
 import { WorkspaceDataContext, type WorkspaceDataValue } from './context';
 import type { ApiDAGRunDetails, DAGPageData, WorkspaceRunValue } from './types';
@@ -30,13 +37,23 @@ export function WorkspaceDataProvider({
   // a refresh reads all of them again, as SWR merges the calls of one key.
   const historyMutators = useRef(new Set<() => Promise<unknown>>());
   const historyLists = useRef(new Set<() => readonly ApiDAGRunDetails[]>());
+  // The selected run whose details nothing has yet: a list that brings it
+  // renders the selection again.
+  const awaited = useRef<string | null>(null);
+  const [, relist] = useReducer((count: number) => count + 1, 0);
   const registerHistory = useCallback(
     (
       mutate: () => Promise<unknown>,
       runs?: () => readonly ApiDAGRunDetails[]
     ) => {
       historyMutators.current.add(mutate);
-      if (runs) historyLists.current.add(runs);
+      if (runs) {
+        historyLists.current.add(runs);
+        const id = awaited.current;
+        if (id !== null && runs().some((run) => run.dagRunId === id)) {
+          relist();
+        }
+      }
       return () => {
         historyMutators.current.delete(mutate);
         if (runs) historyLists.current.delete(runs);
@@ -52,11 +69,18 @@ export function WorkspaceDataProvider({
     return null;
   }, []);
 
-  const { run: selectedRun, mutatePinned } = useSelectedRun({
+  const {
+    run: selectedRun,
+    mutatePinned,
+    awaitedRunId,
+  } = useSelectedRun({
     dagData,
     remoteNode,
     listedRun,
   });
+  useLayoutEffect(() => {
+    awaited.current = awaitedRunId;
+  }, [awaitedRunId]);
 
   // The page may pass a new function on each render.
   const refreshDagRef = useRef(refreshDag);

@@ -1,13 +1,7 @@
 // Copyright (C) 2026 Yota Hamada
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-import {
-  useCallback,
-  useEffect,
-  useRef,
-  useState,
-  useSyncExternalStore,
-} from 'react';
+import { useCallback, useEffect, useState, useSyncExternalStore } from 'react';
 import type { components } from '@/api/v1/schema';
 import { useQuery } from '@/hooks/api';
 import { whenEnabled } from '@/hooks/queryUtils';
@@ -191,16 +185,16 @@ export function useRunHistory({
     void mutate();
   }, [events, includeEphemeral, mutate]);
 
+  // Registered again with each committed list: a render that React drops
+  // must not show its runs.
   const runs = data?.dagRuns ?? NO_RUNS;
-  const runsRef = useRef(runs);
-  runsRef.current = runs;
   useEffect(() => {
     if (!active) return;
     return registerHistory(
       () => mutate(),
-      () => runsRef.current
+      () => runs
     );
-  }, [active, mutate, registerHistory]);
+  }, [active, mutate, registerHistory, runs]);
 
   return {
     runs,

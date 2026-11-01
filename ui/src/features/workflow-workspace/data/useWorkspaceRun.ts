@@ -53,6 +53,8 @@ export interface SelectedRun {
   run: Omit<WorkspaceRunValue, 'refresh'>;
   /** Revalidates the pinned run; null while the latest run is selected. */
   mutatePinned: (() => Promise<unknown>) | null;
+  /** The pinned run while nothing has its details yet; else null. */
+  awaitedRunId: string | null;
 }
 
 /**
@@ -197,11 +199,16 @@ export function useSelectedRun({
     serverDetails = pinnedServer;
   } else if (heldLatest.current?.dagRunId === pinnedRunId) {
     serverDetails = heldLatest.current;
-  } else {
+  } else if (pinnedError == null) {
     // A run picked from a history list shows the details that the list has
-    // until its own query answers, so the page does not blink.
+    // until its own query answers, so the page does not blink. A failed
+    // read shows none: the list can be stale.
     serverDetails = listedRun?.(pinnedRunId) ?? null;
-  }
+  } else serverDetails = null;
+  const awaitedRunId =
+    pinnedRunId !== null && serverDetails === null && pinnedError == null
+      ? pinnedRunId
+      : null;
 
   // The run of the link was shown once: a later 404 means that it was
   // removed (dequeued, deleted), which is no bad link.
@@ -354,5 +361,5 @@ export function useSelectedRun({
       applyNodeStatus,
     ]
   );
-  return { run, mutatePinned };
+  return { run, mutatePinned, awaitedRunId };
 }

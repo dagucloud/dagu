@@ -229,8 +229,27 @@ describe('useWorkspaceRun, pinned', () => {
 
   // A test run writes no events: with the SSE up, its stream never reports
   // that it ended, so the run is read again while it is active.
-  // A run picked from a history list shows the details of the list while
-  // its own query is out: the page does not go blank in between.
+  it('reads an active test run again with the SSE up', async () => {
+    const testRun = (status: Status) => ({
+      ...run('run-0', [node('a', NodeStatus.Running)], status),
+      ephemeral: true,
+    });
+    server.runs['run-0'] = testRun(Status.Running);
+    h.runSSE.mockReturnValue(connectedSSE);
+    const view = renderWorkspace(() => useWorkspaceRun(), {
+      url: '/dags/demo?run=run-0',
+    });
+    await waitFor(() =>
+      expect(view.result.current?.value.details?.dagRunId).toBe('run-0')
+    );
+    const interval = lastRunQueryOptions().refreshInterval;
+    expect(interval({ dagRunDetails: testRun(Status.Running) })).toBe(2000);
+    expect(interval({ dagRunDetails: testRun(Status.Success) })).toBe(0);
+    expect(interval({ dagRunDetails: run('run-0', [], Status.Running) })).toBe(
+      0
+    );
+  });
+
   it('shows the listed details of a picked run until its query answers', async () => {
     server.history = {
       dagRuns: [run('run-0', [node('a', NodeStatus.Failed)], Status.Failed)],
@@ -274,25 +293,82 @@ describe('useWorkspaceRun, pinned', () => {
     );
   });
 
-  it('reads an active test run again with the SSE up', async () => {
-    const testRun = (status: Status) => ({
-      ...run('run-0', [node('a', NodeStatus.Running)], status),
-      ephemeral: true,
+  // The list can load after the run was picked, as with a link to it.
+  it('shows the details of a list that loads after the pick', async () => {
+    const serveAll = serve(server);
+    let answerList: (value: unknown) => void = () => {};
+    h.GET.mockImplementation((path: string, init?: never) => {
+      if (path === RUN_PATH) return new Promise(() => {});
+      if (path === '/dags/{fileName}/dag-runs') {
+        return new Promise((resolve) => {
+          answerList = resolve;
+        });
+      }
+      return serveAll(path, init);
     });
-    server.runs['run-0'] = testRun(Status.Running);
-    h.runSSE.mockReturnValue(connectedSSE);
-    const view = renderWorkspace(() => useWorkspaceRun(), {
-      url: '/dags/demo?run=run-0',
-    });
+    const view = renderWorkspace(
+      () => ({
+        listed: useRunHistory({ enabled: true }).runs.length,
+        run: useWorkspaceRun(),
+      }),
+      { url: '/dags/demo?run=run-0' }
+    );
     await waitFor(() =>
-      expect(view.result.current?.value.details?.dagRunId).toBe('run-0')
+      expect(view.result.current?.value.run.ref?.runId).toBe('run-0')
     );
-    const interval = lastRunQueryOptions().refreshInterval;
-    expect(interval({ dagRunDetails: testRun(Status.Running) })).toBe(2000);
-    expect(interval({ dagRunDetails: testRun(Status.Success) })).toBe(0);
-    expect(interval({ dagRunDetails: run('run-0', [], Status.Running) })).toBe(
-      0
+    expect(view.result.current.value.run.details).toBeNull();
+
+    act(() =>
+      answerList({
+        data: {
+          dagRuns: [
+            run('run-0', [node('a', NodeStatus.Failed)], Status.Failed),
+          ],
+          gridData: [],
+        },
+      })
     );
+    await waitFor(() =>
+      expect(view.result.current.value.run.details?.dagRunId).toBe('run-0')
+    );
+  });
+
+  // The list can be stale: a failed read of the run shows no details.
+  it('shows no listed details after the read of the run fails', async () => {
+    server.history = {
+      dagRuns: [run('run-0', [node('a', NodeStatus.Running)], Status.Running)],
+      gridData: [],
+    };
+    const serveAll = serve(server);
+    let answerRun: (value: unknown) => void = () => {};
+    h.GET.mockImplementation((path: string, init?: never) =>
+      path === RUN_PATH
+        ? new Promise((resolve) => {
+            answerRun = resolve;
+          })
+        : serveAll(path, init)
+    );
+    const view = renderWorkspace(
+      () => ({
+        listed: useRunHistory({ enabled: true }).runs.length,
+        run: useWorkspaceRun(),
+      }),
+      { url: '/dags/demo?run=run-0' }
+    );
+    await waitFor(() =>
+      expect(view.result.current?.value.run.details?.dagRunId).toBe('run-0')
+    );
+
+    act(() =>
+      answerRun({
+        error: { code: 'internal', message: 'boom' },
+        response: { status: 500 },
+      })
+    );
+    await waitFor(() =>
+      expect(view.result.current.value.run.details).toBeNull()
+    );
+    expect(view.result.current.value.run.ref?.runId).toBe('run-0');
   });
 
   // The SSE connects before the first read: SWR armed no timer then, and the

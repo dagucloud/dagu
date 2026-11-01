@@ -13,7 +13,8 @@ export interface WorkspaceDataValue {
   refresh(): Promise<void>;
   /**
    * Registers the mutator of a mounted, enabled history query, and a reader
-   * of the runs that it lists. Returns the unregister function.
+   * of the runs that it lists, registered again when they change. Returns
+   * the unregister function.
    */
   registerHistory(
     mutate: () => Promise<unknown>,
