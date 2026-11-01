@@ -65,6 +65,11 @@ type ForeachBodyStepStatus struct {
 	RetryCount int        `json:"retryCount,omitempty"`
 	Stdout     string     `json:"stdout,omitempty"`
 	Stderr     string     `json:"stderr,omitempty"`
+	// AgentSession is the step's agent session, such as the operations of a
+	// browser step, kept as a node of the run status keeps it.
+	AgentSession *AgentSession `json:"agentSession,omitempty"`
+	// ModelUsage is what the step's calls to models used.
+	ModelUsage *StepModelUsage `json:"modelUsage,omitempty"`
 	// Foreach marks a body step that is itself a foreach, whose items live
 	// in a nested directory.
 	Foreach bool `json:"foreach,omitempty"`

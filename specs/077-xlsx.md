@@ -676,9 +676,15 @@ The model answers through one `respond` tool whose parameters list each
 property as an A1 address, with or without a sheet, or `null` for a field
 the sheet lacks, and `labels`, the addresses of the cells that are labels
 or headings rather than values, which the cache watches; a property named
-`labels` is refused at validation. An answer that is not an object, that
-names something other than one cell within the listed sheet and range, or
-whose `labels` is not a list of addresses, is unusable: the
+`labels` is refused at validation. A reply without a `respond` call is
+accepted when its text is valid JSON. Any other reply without usable
+`respond` arguments gets one correction: the next request to the same model
+carries the rejected reply as an assistant message, followed by a user
+message stating why it was rejected, and the step log shows the rejected
+reply after `warning: <provider>/<model> answer rejected: <reason>`. An
+answer that is not an object, that names something other than one cell
+within the listed sheet and range, or whose `labels` is not a list of
+addresses, is unusable, as is a corrected reply that is still unusable: the
 next configured model is asked, and when every model's answer is unusable
 the step fails with `model request failed: <provider>/<model>: ...` naming
 each answer's fault. An empty cell within the range is a null value, since
@@ -692,12 +698,14 @@ found "n/a"`; Japanese text such as `￥123,000`, `12万3,500円`, `令和8年10
 
 The step takes the DAG-level `llm` block, or `with.llm`, which replaces it,
 as browser steps do. Several models are tried in order, each set up when
-its turn comes, and an unusable answer or a model that cannot be set up
-counts as a failed request. The outputs are
-each property, `cells` (property to the `Sheet1!B7` it was read from,
-empty when absent), `sheet`, `warnings`, and `source`, `model` or `cache`.
+its turn comes, and an unusable answer, after its correction when it gets
+one, or a model that cannot be set up counts as a failed request. The
+outputs are each property, `cells` (property to the `Sheet1!B7` it was
+read from, empty when absent), `sheet`, `warnings`, and `source`, `model`
+or `cache`.
 The stdout line is `Extracted 4 fields from quote.xlsx Sheet1 (model, 1234
-tokens)` or `Extracted 4 fields from quote.xlsx Sheet1 (cache)`.
+tokens)` or `Extracted 4 fields from quote.xlsx Sheet1 (cache)`; the token
+count covers every model call, a rejected reply's included.
 
 With `cache: true`, the default, the answered addresses are kept by sheet
 layout under `<data dir>/xlsx/cache/<dag>/<step>.json`. The layout is the

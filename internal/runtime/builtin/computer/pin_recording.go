@@ -5,6 +5,7 @@ package computer
 
 import (
 	"encoding/json"
+	"maps"
 	"math"
 	"slices"
 	"strings"
@@ -34,6 +35,13 @@ type PinnedOperation struct {
 	Fields map[string]pinnedField `json:"fields,omitempty"`
 	// Unpinnable lists an act's recorded actions that have no pinned form.
 	Unpinnable []UnpinnableAction `json:"unpinnable,omitempty"`
+	// Assumes names the variables the act's instruction names that its
+	// recorded actions never use, such as an item its list already showed:
+	// pinned, the steps leave each as a run finds it, whatever its value.
+	Assumes []string `json:"assumes,omitempty"`
+	// AssumesUnknown marks an act recorded before recordings noted those
+	// variables, whose steps may leave some of them alone.
+	AssumesUnknown bool `json:"assumes_unknown,omitempty"`
 }
 
 // UnpinnableAction is a recorded action with no pinned form and why: Code
@@ -84,7 +92,7 @@ var unpinnableReasons = map[string]string{
 // format, or one that recorded nothing.
 func PinRecording(entry json.RawMessage) (PinnedOperation, bool) {
 	var rec recording
-	if err := json.Unmarshal(entry, &rec); err != nil || rec.Version != recordingVersion {
+	if err := json.Unmarshal(entry, &rec); err != nil || !replayable(rec.Version) {
 		return PinnedOperation{}, false
 	}
 	system := rec.System
@@ -97,6 +105,12 @@ func PinRecording(entry json.RawMessage) (PinnedOperation, bool) {
 	case len(rec.Turns) > 0:
 		pinned.Kind = opAct
 		pinned.Recorded, pinned.Unpinnable = pinAct(rec.Turns)
+		switch {
+		case rec.Version < assumingVersion:
+			pinned.AssumesUnknown = true
+		case rec.Assumed != nil:
+			pinned.Assumes = slices.Sorted(maps.Keys(rec.Assumed.Digests))
+		}
 	case len(rec.Fields) > 0:
 		pinned.Kind = opExtract
 		pinned.Fields = pinFields(rec.Fields)
@@ -174,6 +188,10 @@ func pinAction(rec recordedAction) ([]pinnedStep, string) {
 		sel := pinnedSelector(*rec.Element)
 		left := action.Button == "" || action.Button == computeruse.ButtonLeft
 		switch {
+		case rec.Checked != nil && left && action.Count <= 1 && *rec.Checked:
+			return []pinnedStep{{Check: &sel}}, ""
+		case rec.Checked != nil && left && action.Count <= 1:
+			return []pinnedStep{{Uncheck: &sel}}, ""
 		case left && action.Count <= 1:
 			return []pinnedStep{{Click: &sel}}, ""
 		case left && action.Count == 2:
@@ -187,6 +205,11 @@ func pinAction(rec recordedAction) ([]pinnedStep, string) {
 			return nil, unpinnableNoField
 		}
 		return []pinnedStep{{Type: &pinnedType{Into: pinnedSelector(*rec.Element), Text: action.Text}}}, ""
+	case computeruse.KindChoose:
+		if rec.Element == nil {
+			return nil, unpinnableNoElement
+		}
+		return []pinnedStep{{Choose: &pinnedChoose{From: pinnedSelector(*rec.Element), Option: action.Text}}}, ""
 	case computeruse.KindKey:
 		step := pinnedStep{Key: strings.Join(action.Keys, "+")}
 		if step.validate() != nil {

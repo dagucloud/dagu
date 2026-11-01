@@ -33,10 +33,15 @@ func (r *run) performOne(ctx context.Context, index int, action computeruse.Acti
 	// screen; the pointer has not moved yet either.
 	display, replayable := r.toDisplay(action, seen)
 	var element *recordedElement
+	var before *bool
 	if replayable {
-		element = r.elementOf(display)
+		element, before = r.elementOf(display)
 	}
+	field, typing := r.typedField(action)
 	result := r.runAction(ctx, action, seen.toFull, &seen, limit)
+	if !result.Failed() && typing {
+		r.reportTyped(ctx, &result, field, action.Text)
+	}
 	if result.Failed() {
 		logAction(r.timeline, index, "  failed: "+result.Error)
 		return result, nil
@@ -47,27 +52,89 @@ func (r *run) performOne(ctx context.Context, index int, action computeruse.Acti
 	if element != nil && action.Kind == computeruse.KindType {
 		r.proveValue(element, action.Text)
 	}
-	rec := recordAction(display, seen.full, element)
+	rec := recordAction(display, element)
+	rec.Checked = r.checkedAfter(ctx, display, element, before)
 	return result, &rec
 }
 
+// A recorded click on a checkbox waits up to checkedSettle, looking every
+// checkedPoll, for the box to show the state the click left it in.
+const (
+	checkedSettle = time.Second
+	checkedPoll   = 50 * time.Millisecond
+)
+
+// checkedAfter reads the state a plain click left a checkbox in, so the
+// recording replays the click as that state rather than as a toggle that
+// would undo a box already in it. An application may update the box a
+// moment after the click, so it waits for a state other than before, the
+// one the box showed before the click, when that is known. It is nil for
+// any other action or element, and when the box shows no state or still
+// shows the one it had.
+func (r *run) checkedAfter(ctx context.Context, display computeruse.Action, element *recordedElement, before *bool) *bool {
+	if element == nil || element.Selector.Role != desktop.RoleCheckbox || !plainClick(display) {
+		return nil
+	}
+	els, err := r.elementsIfAvailable()
+	if err != nil {
+		return nil
+	}
+	for deadline := time.Now().Add(checkedSettle); ; {
+		found, reason, err := r.lookRecorded(els, *element)
+		if err == nil && reason == "" {
+			if checked, known := checkedState(found); known && (before == nil || checked != *before) {
+				return &checked
+			}
+		}
+		if !time.Now().Before(deadline) || sleep(ctx, checkedPoll) != nil {
+			return nil
+		}
+	}
+}
+
 // elementOf reads the element a replayable action lands on, in display
-// pixels, or types into, when the host can read elements.
-func (r *run) elementOf(display computeruse.Action) *recordedElement {
+// pixels, or types into, when the host can read elements, and the state a
+// checkbox shows before the action, when it is one.
+func (r *run) elementOf(display computeruse.Action) (*recordedElement, *bool) {
 	if at, pointer := target(display); pointer {
 		if e, err := r.elementAt(at); err == nil {
 			// The application comes from the window the action lands on, so
 			// an action in a second visible window records its own window,
 			// not the one the turn started in.
-			return r.recordElement(e, &at, r.driver.WindowAt(at).App)
+			return r.recordElement(e, &at, r.driver.WindowAt(at).App), checkedBefore(e)
 		}
-		return nil
+		return nil, nil
 	}
 	switch display.Kind {
 	case computeruse.KindType, computeruse.KindKey, computeruse.KindHoldKey:
 		if e, err := r.focusedElement(); err == nil {
-			return r.recordElement(e, nil, r.driver.FocusedWindow().App)
+			return r.recordElement(e, nil, r.driver.FocusedWindow().App), nil
 		}
+	}
+	return nil, nil
+}
+
+// checkedNow reads the state a checkbox shows now, where the screen has it,
+// rather than trusting e, which the step read earlier; it falls back to e
+// when the box cannot be found again, and is nil for any other element.
+func (r *run) checkedNow(els desktop.Elements, e desktop.Element) *bool {
+	if e.Role != desktop.RoleCheckbox {
+		return nil
+	}
+	centre := elementCentre(e)
+	if rec := r.recordElement(e, &centre, r.driver.WindowAt(centre).App); rec != nil {
+		if found, reason, err := r.lookRecorded(els, *rec); err == nil && reason == "" {
+			return checkedBefore(found)
+		}
+	}
+	return checkedBefore(e)
+}
+
+// checkedBefore is the state a checkbox shows, or nil for an element that
+// shows none.
+func checkedBefore(e desktop.Element) *bool {
+	if checked, known := checkedState(e); known && e.Role == desktop.RoleCheckbox {
+		return &checked
 	}
 	return nil
 }
@@ -81,13 +148,22 @@ func (r *run) runAction(ctx context.Context, action computeruse.Action, toFull p
 		p := toFull(*action.Point)
 		at = &p
 	}
-	// The step never operates the application that runs it: a keystroke
-	// to a window of its own a person just focused could close it.
-	if own, ok := r.ownWindow(action, at, toFull); ok {
-		result.Error = fmt.Sprintf("%q belongs to the application that runs this step, which it never operates", own.Title)
+	// The step never operates the application that runs it, where a
+	// keystroke to a window of its own a person just focused could close
+	// it, nor another application the person had open.
+	own, ok, err := r.offLimitsWindow(action, at, toFull)
+	if err != nil {
+		result.Error = err.Error()
 		return result
 	}
-	var err error
+	if ok {
+		result.Error = r.offLimitsMessage(own)
+		return result
+	}
+	if why, refused := r.refusedAction(action, at, toFull); refused {
+		result.Error = why
+		return result
+	}
 	switch action.Kind {
 	case computeruse.KindClick:
 		err = r.click(ctx, action, at)
@@ -173,34 +249,53 @@ func (r *run) click(ctx context.Context, action computeruse.Action, at *image.Po
 	return r.driver.Click(ctx, at, button, max(action.Count, 1), modifiers)
 }
 
-// ownWindow reports a window an action would operate that belongs to the
-// application that runs the step. It gathers every window the action
+// offLimitsWindow reports a window an action would operate that the step
+// never operates: one of the application that runs it, or of another
+// application the person had open (confine.go). It gathers every window the action
 // reaches: the focused window for keys and typing, the window under the
-// position for pointer actions, the window under the cursor for a button
-// press that moves nothing, every point a drag crosses, and the focused
+// position for pointer actions, the window under the cursor for a click or
+// scroll that names no position and for a button press, which moves
+// nothing, every point a drag crosses, and the focused
 // window for any pointer action that holds modifiers, whose key-down
 // reaches the focus wherever the pointer is. It reports the first of those
-// the step owns, so a keystroke or click never reaches the application.
-func (r *run) ownWindow(action computeruse.Action, at *image.Point, toFull positionMapper) (desktop.WindowID, bool) {
+// that is off limits, so a keystroke or click never reaches it. An
+// action at the cursor is refused with an error when the cursor's position
+// cannot be read, since the window it would reach is unknown.
+func (r *run) offLimitsWindow(action computeruse.Action, at *image.Point, toFull positionMapper) (desktop.WindowID, bool, error) {
 	var windows []desktop.WindowID
+	underCursor := func() error {
+		p, err := r.driver.CursorPosition()
+		if err != nil {
+			return fmt.Errorf("the pointer's position cannot be read to check the window it is over: %w", err)
+		}
+		windows = append(windows, r.driver.WindowAt(p))
+		return nil
+	}
 	switch action.Kind {
 	case computeruse.KindType, computeruse.KindKey, computeruse.KindHoldKey:
 		windows = append(windows, r.driver.FocusedWindow())
-	case computeruse.KindClick, computeruse.KindMove, computeruse.KindScroll:
+	case computeruse.KindClick, computeruse.KindScroll:
+		// One that names no position acts at the cursor.
+		if at != nil {
+			windows = append(windows, r.driver.WindowAt(*at))
+		} else if err := underCursor(); err != nil {
+			return desktop.WindowID{}, false, err
+		}
+	case computeruse.KindMove:
 		if at != nil {
 			windows = append(windows, r.driver.WindowAt(*at))
 		}
 	case computeruse.KindMouseDown, computeruse.KindMouseUp:
 		// A button press acts at the cursor, which the action does not move.
-		if p, err := r.driver.CursorPosition(); err == nil {
-			windows = append(windows, r.driver.WindowAt(p))
+		if err := underCursor(); err != nil {
+			return desktop.WindowID{}, false, err
 		}
 	case computeruse.KindDrag:
 		for _, p := range action.Path {
 			windows = append(windows, r.driver.WindowAt(toFull(p)))
 		}
 	default:
-		return desktop.WindowID{}, false
+		return desktop.WindowID{}, false, nil
 	}
 	// A pointer action that holds modifiers sends key-downs to the focused
 	// window wherever the pointer is; a button press sends none.
@@ -208,11 +303,11 @@ func (r *run) ownWindow(action computeruse.Action, at *image.Point, toFull posit
 		windows = append(windows, r.driver.FocusedWindow())
 	}
 	for _, window := range windows {
-		if r.driver.Owned(window) {
-			return window, true
+		if r.offLimits(window) {
+			return window, true, nil
 		}
 	}
-	return desktop.WindowID{}, false
+	return desktop.WindowID{}, false, nil
 }
 
 // snapshot captures the screen, or a region of it, scaled to the model's
@@ -300,12 +395,15 @@ func describeAction(action computeruse.Action) string {
 		}
 	case computeruse.KindScroll:
 		fmt.Fprintf(&b, " %d,%d", action.ScrollX, action.ScrollY)
-	case computeruse.KindType:
+	case computeruse.KindType, computeruse.KindChoose:
 		fmt.Fprintf(&b, " %q", action.Text)
 	case computeruse.KindKey, computeruse.KindHoldKey:
 		b.WriteString(" " + strings.Join(action.Keys, "+"))
 		if action.Repeat > 1 {
 			fmt.Fprintf(&b, " x%d", action.Repeat)
+		}
+		if action.Kind == computeruse.KindHoldKey {
+			b.WriteString(" for " + min(action.Duration, maxActionPause).String())
 		}
 	case computeruse.KindWait:
 		b.WriteString(" " + action.Duration.String())

@@ -27,6 +27,23 @@ func TestInputMatchesWin32Layout(t *testing.T) {
 	assert.LessOrEqual(t, unsafe.Sizeof(keybdInput{}), unsafe.Sizeof(mouseInput{}))
 }
 
+// A scroll sends one wheel message per notch, as a mouse wheel does. Wheel
+// data is negative toward the user and to the left.
+func TestWheelInputsSendANotchPerMessage(t *testing.T) {
+	t.Parallel()
+
+	oneNotchBack := uint32(0xFFFFFF88) // -120
+	events := wheelInputs(-2, 3)
+	require.Len(t, events, 5)
+	for _, event := range events[:3] {
+		assert.Equal(t, mouseInput{Flags: mouseWheel, MouseData: oneNotchBack}, event.Mouse)
+	}
+	for _, event := range events[3:] {
+		assert.Equal(t, mouseInput{Flags: mouseHWheel, MouseData: oneNotchBack}, event.Mouse)
+	}
+	assert.Equal(t, uint32(120), wheelInputs(0, -1)[0].Mouse.MouseData)
+}
+
 // Only an active session draws; every other connect state is reported as a
 // disconnected session, which is not a locked screen.
 func TestSessionProblemForState(t *testing.T) {

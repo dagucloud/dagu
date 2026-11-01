@@ -17,6 +17,8 @@ import {
 import { Input } from '@/components/ui/input';
 import StatusChip from '@/components/ui/status-chip';
 import dayjs from '@/lib/dayjs';
+import { JsonValue } from '@/features/visual-editor/references/JsonValue';
+import { cn } from '@/lib/utils';
 import { I18nText } from '@/i18n/I18nText';
 import { useI18n } from '@/i18n/I18nProvider';
 import { I18nProps } from '@/i18n/I18nProps';
@@ -46,14 +48,41 @@ function statusLabelToStatus(label: StatusLabel): Status {
 type Props = {
   dagName: string;
   dagRunId: string;
+  /** The container pads the tab: the messages add no padding of their own. */
+  padded?: boolean;
+  /**
+   * Show each value with JsonValue (prettified JSON, its own Copy value)
+   * in place of the plain text and the copy button of the row.
+   */
+  prettyValues?: boolean;
+  /**
+   * Read again every 2 s while the answer has no output: a run that just
+   * ended may save its outputs after its status. The host turns it off.
+   */
+  pollWhileEmpty?: boolean;
+  /**
+   * The host shows the run status and times itself: no header card with the
+   * count, the status, the completion time and the attempt.
+   */
+  bare?: boolean;
 };
+
+const EMPTY_POLL_MS = 2000;
 
 type SortConfig = {
   key: 'name' | 'value';
   direction: 'asc' | 'desc';
 };
 
-function DAGRunOutputs({ dagName, dagRunId }: Props) {
+function DAGRunOutputs({
+  dagName,
+  dagRunId,
+  padded = true,
+  prettyValues = false,
+  pollWhileEmpty = false,
+  bare = false,
+}: Props) {
+  const messageClass = cn('text-sm text-muted-foreground', padded && 'p-4');
   const { ts } = useI18n();
   const remoteNode = useRemoteNode();
   const [filter, setFilter] = useState('');
@@ -71,7 +100,13 @@ function DAGRunOutputs({ dagName, dagRunId }: Props) {
         path: { name: dagName, dagRunId },
       },
     },
-    { revalidateOnFocus: false }
+    pollWhileEmpty
+      ? {
+          revalidateOnFocus: false,
+          refreshInterval: (latest) =>
+            Object.keys(latest?.outputs ?? {}).length > 0 ? 0 : EMPTY_POLL_MS,
+        }
+      : { revalidateOnFocus: false }
   );
 
   // Filter and sort outputs
@@ -123,16 +158,16 @@ function DAGRunOutputs({ dagName, dagRunId }: Props) {
   // Only show loading on initial load when no data exists
   if (isLoading && !data) {
     return (
-      <div className="text-sm text-muted-foreground p-4">
-        <I18nText text={"Loading outputs..."} />
+      <div className={messageClass}>
+        <I18nText text={'Loading outputs...'} />
       </div>
     );
   }
 
   if (error || !data) {
     return (
-      <div className="text-sm text-muted-foreground p-4">
-        <I18nText text={"No outputs available"} />
+      <div className={messageClass}>
+        <I18nText text={'No outputs available'} />
       </div>
     );
   }
@@ -143,8 +178,8 @@ function DAGRunOutputs({ dagName, dagRunId }: Props) {
   // Show simple message when no outputs
   if (outputCount === 0) {
     return (
-      <div className="text-sm text-muted-foreground p-4">
-        <I18nText text={"No outputs collected"} />
+      <div className={messageClass}>
+        <I18nText text={'No outputs collected'} />
       </div>
     );
   }
@@ -152,48 +187,65 @@ function DAGRunOutputs({ dagName, dagRunId }: Props) {
   return (
     <div className="space-y-4">
       {/* Metadata Header */}
-      <div className="bg-surface border border-border rounded-lg p-4">
-        <div className="flex items-center gap-2 mb-3">
-          <Package className="h-4 w-4 text-muted-foreground" />
-          <span className="text-sm font-semibold"><I18nText text={"Outputs"} /></span>
-          <span className="text-xs text-muted-foreground">
-            ({ts(outputCount === 1 ? '{count} item' : '{count} items', {
-              count: outputCount,
-            })})
-          </span>
-        </div>
-
-        <div className="flex flex-wrap gap-4 text-xs">
-          <div className="flex items-center gap-1">
-            <span className="text-muted-foreground"><I18nText text={"Status:"} /></span>
-            <StatusChip status={statusLabelToStatus(metadata.status)} size="xs">
-              {metadata.status}
-            </StatusChip>
-          </div>
-          <div>
-            <span className="text-muted-foreground"><I18nText text={"Completed:"} /> </span>
-            <span className="font-mono">
-              {dayjs(metadata.completedAt).format('YYYY-MM-DD HH:mm:ss')}
+      {!bare && (
+        <div className="bg-surface border border-border rounded-lg p-4">
+          <div className="flex items-center gap-2 mb-3">
+            <Package className="h-4 w-4 text-muted-foreground" />
+            <span className="text-sm font-semibold">
+              <I18nText text={'Outputs'} />
+            </span>
+            <span className="text-xs text-muted-foreground">
+              (
+              {ts(outputCount === 1 ? '{count} item' : '{count} items', {
+                count: outputCount,
+              })}
+              )
             </span>
           </div>
-          {metadata.attemptId && (
-            <div>
-              <span className="text-muted-foreground"><I18nText text={"Attempt:"} /> </span>
-              <span className="font-mono">{metadata.attemptId}</span>
+
+          <div className="flex flex-wrap gap-4 text-xs">
+            <div className="flex items-center gap-1">
+              <span className="text-muted-foreground">
+                <I18nText text={'Status:'} />
+              </span>
+              <StatusChip
+                status={statusLabelToStatus(metadata.status)}
+                size="xs"
+              >
+                {metadata.status}
+              </StatusChip>
             </div>
-          )}
+            <div>
+              <span className="text-muted-foreground">
+                <I18nText text={'Completed:'} />{' '}
+              </span>
+              <span className="font-mono">
+                {dayjs(metadata.completedAt).format('YYYY-MM-DD HH:mm:ss')}
+              </span>
+            </div>
+            {metadata.attemptId && (
+              <div>
+                <span className="text-muted-foreground">
+                  <I18nText text={'Attempt:'} />{' '}
+                </span>
+                <span className="font-mono">{metadata.attemptId}</span>
+              </div>
+            )}
+          </div>
         </div>
-      </div>
+      )}
 
       {/* Filter Input */}
       <div className="relative">
         <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-        <I18nProps><Input
-          placeholder="Filter outputs by key or value..."
-          value={filter}
-          onChange={(e) => setFilter(e.target.value)}
-          className="pl-9 h-8 text-sm"
-        /></I18nProps>
+        <I18nProps>
+          <Input
+            placeholder="Filter outputs by key or value..."
+            value={filter}
+            onChange={(e) => setFilter(e.target.value)}
+            className="pl-9 h-8 text-sm"
+          />
+        </I18nProps>
       </div>
 
       {/* Outputs Table */}
@@ -202,26 +254,30 @@ function DAGRunOutputs({ dagName, dagRunId }: Props) {
           <TableHeader>
             <TableRow>
               <TableHead className="w-[200px]">
-                <I18nProps><button
-                  type="button"
-                  onClick={() => handleSort('name')}
-                  className="flex items-center gap-1 cursor-pointer select-none focus:outline-none rounded"
-                  aria-label="Sort by key"
-                >
-                  <I18nText text={"Key"} />
-                  <ArrowUpDown className="h-3 w-3 text-muted-foreground" />
-                </button></I18nProps>
+                <I18nProps>
+                  <button
+                    type="button"
+                    onClick={() => handleSort('name')}
+                    className="flex items-center gap-1 cursor-pointer select-none focus:outline-none rounded"
+                    aria-label="Sort by key"
+                  >
+                    <I18nText text={'Key'} />
+                    <ArrowUpDown className="h-3 w-3 text-muted-foreground" />
+                  </button>
+                </I18nProps>
               </TableHead>
               <TableHead>
-                <I18nProps><button
-                  type="button"
-                  onClick={() => handleSort('value')}
-                  className="flex items-center gap-1 cursor-pointer select-none focus:outline-none rounded"
-                  aria-label="Sort by value"
-                >
-                  <I18nText text={"Value"} />
-                  <ArrowUpDown className="h-3 w-3 text-muted-foreground" />
-                </button></I18nProps>
+                <I18nProps>
+                  <button
+                    type="button"
+                    onClick={() => handleSort('value')}
+                    className="flex items-center gap-1 cursor-pointer select-none focus:outline-none rounded"
+                    aria-label="Sort by value"
+                  >
+                    <I18nText text={'Value'} />
+                    <ArrowUpDown className="h-3 w-3 text-muted-foreground" />
+                  </button>
+                </I18nProps>
               </TableHead>
               <TableHead className="w-[50px]">
                 <span className="sr-only">
@@ -237,7 +293,7 @@ function DAGRunOutputs({ dagName, dagRunId }: Props) {
                   colSpan={3}
                   className="text-center text-muted-foreground py-8"
                 >
-                  <I18nText text={"No outputs match your filter"} />
+                  <I18nText text={'No outputs match your filter'} />
                 </TableCell>
               </TableRow>
             ) : (
@@ -245,22 +301,26 @@ function DAGRunOutputs({ dagName, dagRunId }: Props) {
                 <TableRow key={key} className="hover:bg-muted/50">
                   <TableCell className="font-mono font-medium">{key}</TableCell>
                   <TableCell className="font-mono text-muted-foreground whitespace-normal break-words">
-                    {value}
+                    {prettyValues ? <JsonValue value={String(value)} /> : value}
                   </TableCell>
                   <TableCell>
-                    <I18nProps><button
-                      type="button"
-                      onClick={() => handleCopy(key, value)}
-                      className="p-1 hover:bg-accent rounded focus:outline-none"
-                      title="Copy value"
-                      aria-label={`Copy value for ${key}`}
-                    >
-                      {copiedKey === key ? (
-                        <Check className="h-3.5 w-3.5 text-success" />
-                      ) : (
-                        <Copy className="h-3.5 w-3.5 text-muted-foreground" />
-                      )}
-                    </button></I18nProps>
+                    {!prettyValues && (
+                      <I18nProps>
+                        <button
+                          type="button"
+                          onClick={() => handleCopy(key, value)}
+                          className="p-1 hover:bg-accent rounded focus:outline-none"
+                          title="Copy value"
+                          aria-label={`Copy value for ${key}`}
+                        >
+                          {copiedKey === key ? (
+                            <Check className="h-3.5 w-3.5 text-success" />
+                          ) : (
+                            <Copy className="h-3.5 w-3.5 text-muted-foreground" />
+                          )}
+                        </button>
+                      </I18nProps>
+                    )}
                   </TableCell>
                 </TableRow>
               ))

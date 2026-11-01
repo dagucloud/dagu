@@ -60,6 +60,18 @@ is idle, and a page it changed in place until its requests end and it stops
 changing for half a second. A page that has not settled after five seconds is
 read as it is.
 
+Such an operation can open a window and make the page that opened it load
+a document, as a search does that opens a "searching" window and posts into
+a frame whose answer closes the window. That window is not the page
+operations work on: the operation waits, up to its timeout, until the window
+closes or stays open half a second past the load, and until then every
+operation works on the page that opened it. A window still open after that,
+such as one to fill in and close, is the page operations work on, as is a
+window opened without making its opener load. A step that fails on such a
+window, as on a "searching" window a site leaves open over an error, names
+the page that opened it and, when the step takes screenshots on failure,
+saves that page as `NN-failure-opener.png`.
+
 Any operation may set `when`, a condition checked once before the operation;
 the operation is skipped unless it holds. Any operation may set `timeout`, a
 duration such as `30s`; the default is two minutes. A browser that stops
@@ -117,7 +129,11 @@ A fixed check may set `within`, a duration during which it keeps reading the
 page until it holds. A fixed `when` reads the page once unless `within` is set;
 a fixed `expect` keeps reading until `within`, or the operation timeout when
 `within` is unset. A model-judged condition is asked once. A `selector` check
-holds when any matching element is visible.
+holds when any matching element is visible. A fixed check that finds the page
+between documents, as just after a click that submits a form, waits for the
+new document to load and reads that; one that still finds it between
+documents reads it again while the window lasts and fails the step once the
+window passes.
 
 ### Model
 
@@ -132,7 +148,11 @@ listed, each model request tries them in order.
 
 Every model request asks for a tool call whose parameters are the response
 schema. A reply without a tool call is accepted when its text is valid JSON.
-Models that follow tool-call schemas reliably are required for dependable
+Any other reply gets one correction: the next request to the same model
+carries the rejected reply as an assistant message, followed by a user message
+stating why it was rejected, and the step log shows the rejected reply. When
+the corrected reply is also unusable, that model has failed and the next
+listed model is tried. Models that follow tool-call schemas reliably are required for dependable
 results.
 
 ### Variables and secrets
@@ -174,6 +194,11 @@ those outputs. Operation progress is written to stderr.
 (unauthenticated), `allowed_domains`, `screenshots`, `profile`, and
 `client_certificates`.
 
+Each execution of a step drives a browser of its own. The items of a
+`foreach` whose body runs the step each have their own browser, and an item
+starting never closes the browser of an item still running. A new attempt
+of the step closes a browser its earlier attempt left open.
+
 A browser without a window sends the user agent its executable sends with
 one, never `HeadlessChrome`, so a site treats the step as it treats a person.
 The user agent is learned from the executable the first time it runs without
@@ -191,6 +216,14 @@ the host starts, for hosts where the sandbox cannot start. The sandbox is on
 by default, and a DAG cannot change it. With the sandbox on, a step fails
 before starting a browser where the browser runtime would turn the sandbox off
 anyway: when `CI` is set, or when Dagu runs as root on Linux.
+
+The host configuration `browser.max_open`, or the environment variable
+`DAGU_BROWSER_MAX_OPEN`, bounds how many browsers are open at once on the
+host, counting the browsers of steps, of steps waiting for a person, and of
+browser sessions, whichever DAG run or process opened them. A browser past
+the limit waits for one to close, within the step's timeout, and the step
+reports that it is waiting. A browser counts until its process exits. `0`, the
+default, sets no limit, and a DAG cannot change it.
 
 ### Client certificates
 
@@ -373,7 +406,9 @@ wait is left to the operations that follow and reported as above.
 
 A DAG with a browser action enables artifact storage unless it sets
 `artifacts.enabled: false`. Files are written under `browser/<step id>/` in the
-run's artifacts directory and are not masked.
+run's artifacts directory and are not masked. A step in a `foreach` body writes
+every item's files there, and each item's timeline names the screenshots and
+downloads that item saved.
 
 | `screenshots` | Automatic screenshots |
 | --- | --- |
@@ -439,6 +474,16 @@ step on the same host replays them without a model request when the operation
 position, instruction, and page URL without query or fragment match, unless
 the act's choice is `every_run`. When a replay fails, the step asks the model
 again, or fails under `never` (see How much AI decides).
+An `act`'s recording replays only on a run its actions fit. A variable the
+instruction names that no recorded action uses, in its arguments, its
+element's name, or the row text that tells its element apart, such as a
+field the page already filled with the value, is kept with a salted digest
+of the value it had, never the value. A run in which such a variable holds
+another value does not replay: the model acts and its actions replace the
+recording, and under `never` the act fails with `its recording does nothing
+with %item%, so it fits only the value %item% had when it was recorded`. An
+approved commit act replays the actions a person approved, whatever the
+values.
 If the step succeeds, the model's new actions replace the recording; an act
 that records no actions, such as one whose click loaded a new document before
 it reported back, removes the recording instead, unless another run of the step
@@ -513,7 +558,11 @@ or its replay misses, as described under How much AI decides. When an `act`
 fails because its model chose no element, the error names the model, since
 some models give that answer for every request. An
 `act` whose model picks an option that the select does not offer does not
-complete. An `upload` fails when a file cannot be uploaded, the model finds no
+complete. Its error names the option compared, filled in with the values of
+the variables it references, and up to 15 options the select offers. A
+variable whose value holds a declared secret or an `ask` answer, of any
+length, is named without its value.
+An `upload` fails when a file cannot be uploaded, the model finds no
 element for `into`, or the element leads to no single file input, as
 described under Uploads. A page that does not load because of a client certificate fails the
 operation that opened it, as described under Client certificates. A failure

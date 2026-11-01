@@ -3,18 +3,22 @@
 
 import React from 'react';
 import { X } from 'lucide-react';
+import { createPortal } from 'react-dom';
+import { useNavigate } from 'react-router-dom';
 import { Status } from '@/api/v1/schema';
 import LoadingIndicator from '@/components/ui/loading-indicator';
+import { getNotificationRoot } from '@/components/ui/notification-root';
 import StatusChip from '@/components/ui/status-chip';
 import { Button } from '@/components/ui/button';
 import { useBoundedDAGRunDetails } from '@/features/dag-runs/hooks/useBoundedDAGRunDetails';
+import { buildDAGPageURL } from '@/features/dag-runs/lib/dagRunUrls';
 import { useI18n } from '@/i18n/I18nProvider';
-
-const RunProgressModal = React.lazy(() => import('./RunProgressModal'));
 
 type RunProgressItem = {
   id: string;
   dagName: string;
+  /** The workflow file of the run page; the DAG name when absent. */
+  fileName?: string;
   dagRunId: string;
   remoteNode: string;
 };
@@ -41,10 +45,8 @@ export function pushRunProgress(run: AddRunProgressInput): void {
 
 function RunProgressStack() {
   const { ts } = useI18n();
+  const navigate = useNavigate();
   const [runs, setRuns] = React.useState<RunProgressItem[]>([]);
-  const [expandedRunId, setExpandedRunId] = React.useState<string | null>(null);
-  const expandedRun = runs.find((run) => run.id === expandedRunId) ?? null;
-  const visibleRuns = runs.filter((run) => run.id !== expandedRunId);
 
   const addRun = React.useCallback((run: AddRunProgressInput) => {
     const item = { ...run, id: runKey(run) };
@@ -72,38 +74,40 @@ function RunProgressStack() {
 
   const dismissRun = React.useCallback((id: string) => {
     setRuns((current) => current.filter((run) => run.id !== id));
-    setExpandedRunId((current) => (current === id ? null : current));
   }, []);
 
-  return (
-    <>
-      {visibleRuns.length > 0 && (
-        <div
-          aria-label={ts('Run progress stack')}
-          className="pointer-events-none fixed bottom-4 right-4 z-40 flex max-h-[calc(100dvh-2rem)] w-[min(24rem,calc(100vw-2rem))] flex-col-reverse gap-2 overflow-y-auto"
-        >
-          {visibleRuns.map((run) => (
-            <RunProgressCard
-              key={run.id}
-              run={run}
-              onOpen={() => setExpandedRunId(run.id)}
-              onDismiss={() => dismissRun(run.id)}
-            />
-          ))}
-        </div>
-      )}
-      {expandedRun && (
-        <React.Suspense fallback={null}>
-          <RunProgressModal
-            dagName={expandedRun.dagName}
-            dagRunId={expandedRun.dagRunId}
-            remoteNode={expandedRun.remoteNode}
-            visible={true}
-            dismissModal={() => setExpandedRunId(null)}
-          />
-        </React.Suspense>
-      )}
-    </>
+  // A click on a card leaves the notification: the run page shows the run.
+  const openRun = React.useCallback(
+    (run: RunProgressItem) => {
+      dismissRun(run.id);
+      navigate(
+        buildDAGPageURL({
+          fileName: run.fileName ?? run.dagName,
+          remoteNode: run.remoteNode,
+          run: run.dagRunId,
+        })
+      );
+    },
+    [dismissRun, navigate]
+  );
+
+  if (runs.length === 0) return null;
+  // The cards are in the stack of the notifications, with the toasts.
+  return createPortal(
+    <div
+      aria-label={ts('Run progress stack')}
+      className="flex flex-col-reverse gap-2"
+    >
+      {runs.map((run) => (
+        <RunProgressCard
+          key={run.id}
+          run={run}
+          onOpen={() => openRun(run)}
+          onDismiss={() => dismissRun(run.id)}
+        />
+      ))}
+    </div>,
+    getNotificationRoot()
   );
 }
 

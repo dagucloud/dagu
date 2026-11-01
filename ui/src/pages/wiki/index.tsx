@@ -25,7 +25,6 @@ import {
 import { UnsavedChangesProvider } from '@/contexts/UnsavedChangesContext';
 import { useUserPreferences } from '@/contexts/UserPreference';
 import { CockpitToolbar } from '@/features/cockpit/components/CockpitToolbar';
-import { useCockpitState } from '@/features/cockpit/hooks/useCockpitState';
 import { useClient, useQuery } from '@/hooks/api';
 import { useIsMobile } from '@/hooks/useIsMobile';
 import { useWikiTreeSSE } from '@/hooks/useWikiTreeSSE';
@@ -92,7 +91,6 @@ function WikiContent() {
   const { showToast } = useSimpleToast();
   const isMobile = useIsMobile();
 
-  const { selectedTemplate, selectTemplate } = useCockpitState();
   const workspaceSelection = appBarContext.workspaceSelection;
   const normalizedWorkspaceSelection =
     sanitizeWorkspaceSelection(workspaceSelection);
@@ -404,12 +402,16 @@ function WikiContent() {
       workspace?: string | null
     ) => {
       if (!canWrite) {
-        showToast('You do not have permission to edit Wiki pages');
+        showToast('You do not have permission to edit Wiki pages', {
+          variant: 'error',
+        });
         return;
       }
       const mutationWorkspace = normalizedWikiWorkspace(workspace);
       if (hasUnsavedTabs(oldPath, mutationWorkspace)) {
-        showToast('Save open changes before renaming or moving this path');
+        showToast('Save open changes before renaming or moving this path', {
+          variant: 'info',
+        });
         return;
       }
       const failureMessage = `Failed to ${
@@ -423,7 +425,7 @@ function WikiContent() {
         revalidateOnFailure: true,
       });
       if (error) {
-        showToast(error);
+        showToast(error, { variant: 'error' });
         return;
       }
       showToast(`Wiki page ${action}`);
@@ -455,14 +457,16 @@ function WikiContent() {
   // Delete handler (supports both files and directories)
   const handleDelete = useCallback(async () => {
     if (!canWrite) {
-      showToast('You do not have permission to delete Wiki pages');
+      showToast('You do not have permission to delete Wiki pages', {
+        variant: 'error',
+      });
       setDeleteConfirmOpen(false);
       return;
     }
     try {
       const error = await deletePath(deleteWikiPagePath, deleteWorkspace);
       if (error) {
-        showToast(error);
+        showToast(error, { variant: 'error' });
         return;
       }
       showToast('Wiki page deleted');
@@ -474,7 +478,9 @@ function WikiContent() {
   // Batch delete handler
   const handleBatchDelete = useCallback(async () => {
     if (!canWrite) {
-      showToast('You do not have permission to delete Wiki pages');
+      showToast('You do not have permission to delete Wiki pages', {
+        variant: 'error',
+      });
       setBatchDeleteConfirmOpen(false);
       setBatchDeleteTargets([]);
       return;
@@ -487,7 +493,8 @@ function WikiContent() {
           ts('Deleted {deleted}, {failed} failed', {
             deleted: deletedCount,
             failed: failedCount,
-          })
+          }),
+          { variant: 'error' }
         );
       } else {
         showToast(
@@ -500,7 +507,7 @@ function WikiContent() {
         );
       }
     } catch {
-      showToast('Failed to delete Wiki pages');
+      showToast('Failed to delete Wiki pages', { variant: 'error' });
     } finally {
       setBatchDeleteConfirmOpen(false);
       setBatchDeleteTargets([]);
@@ -557,11 +564,7 @@ function WikiContent() {
 
   const cockpitToolbar = (
     <div className="[&>div]:mb-0">
-      <CockpitToolbar
-        selectedWorkspace={selectedWorkspace}
-        selectedTemplate={selectedTemplate}
-        onSelectTemplate={selectTemplate}
-      />
+      <CockpitToolbar selectedWorkspace={selectedWorkspace} />
     </div>
   );
 

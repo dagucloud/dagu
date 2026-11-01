@@ -36,8 +36,11 @@ import {
   TableHeader,
   TableRow,
 } from '@/components/ui/table';
+import { useRemoteNode } from '@/contexts/RemoteNodeContext';
+import { buildDAGPageURL } from '@/features/dag-runs/lib/dagRunUrls';
 import { useClient, useQuery } from '@/hooks/api';
 import { whenEnabled } from '@/hooks/queryUtils';
+import { useCopyFeedback } from '@/hooks/useCopyFeedback';
 import dayjs from '@/lib/dayjs';
 import { formatBytes } from '@/lib/formatBytes';
 import { I18nProps } from '@/i18n/I18nProps';
@@ -93,7 +96,6 @@ function parseEvents(text: string): string[] {
 
 function WebhookPublicURLCard({
   fileName,
-  dagName,
   isAdmin,
   remoteNode,
   webhook,
@@ -108,7 +110,7 @@ function WebhookPublicURLCard({
   const [pendingAction, setPendingAction] = useState<
     'disable' | 'regenerate' | null
   >(null);
-  const [copied, setCopied] = useState(false);
+  const { copied, copy: handleCopy } = useCopyFeedback(1500);
   const [sender, setSender] = useState<string>(ANYONE);
   const [secret, setSecret] = useState('');
   const [events, setEvents] = useState('');
@@ -224,16 +226,6 @@ function WebhookPublicURLCard({
         throw new Error(error.message || 'Failed to dismiss');
       }
     }, 'Failed to dismiss');
-
-  const handleCopy = async (url: string) => {
-    try {
-      await navigator.clipboard.writeText(url);
-      setCopied(true);
-      setTimeout(() => setCopied(false), 1500);
-    } catch {
-      // Clipboard API might not be available
-    }
-  };
 
   const keepsSecret =
     !!settings?.secretConfigured && settings.sender === sender;
@@ -490,7 +482,7 @@ function WebhookPublicURLCard({
 
             {!loadFailed && (
               <Deliveries
-                dagName={dagName}
+                fileName={fileName}
                 deliveries={details?.deliveries ?? []}
               />
             )}
@@ -580,12 +572,13 @@ function PublicURLState({
 }
 
 function Deliveries({
-  dagName,
+  fileName,
   deliveries,
 }: {
-  dagName: string;
+  fileName: string;
   deliveries: WebhookPublicDelivery[];
 }) {
+  const remoteNode = useRemoteNode();
   return (
     <div className="space-y-1">
       <span className="text-xs text-muted-foreground">
@@ -633,12 +626,16 @@ function Deliveries({
                 <TableCell className="text-xs sm:min-w-48">
                   <div>
                     <I18nText text={outcomeLabels[delivery.outcome]} />
-                    {delivery.dagRunId && dagName && (
+                    {delivery.dagRunId && fileName && (
                       <>
                         {' · '}
                         <Link
                           className="font-mono text-primary hover:underline"
-                          to={`/dag-runs/${encodeURIComponent(dagName)}/${encodeURIComponent(delivery.dagRunId)}`}
+                          to={buildDAGPageURL({
+                            fileName,
+                            remoteNode,
+                            run: delivery.dagRunId,
+                          })}
                         >
                           {delivery.dagRunId.slice(0, 8)}
                         </Link>

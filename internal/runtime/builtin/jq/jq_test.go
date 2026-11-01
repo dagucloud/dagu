@@ -451,6 +451,33 @@ func TestJQExecutor_ConfigInput(t *testing.T) {
 	assert.Equal(t, "a\nb\n", stdout.String())
 }
 
+// The with object resolves before the executor runs, so the input path is used
+// as given and a backslash before $ in it is not read as an escape again.
+func TestJQExecutor_ConfigInputUsesResolvedPath(t *testing.T) {
+	t.Parallel()
+
+	filePath := filepath.Join(t.TempDir(), `in\$x.json`)
+	require.NoError(t, os.MkdirAll(filepath.Dir(filePath), 0o750))
+	require.NoError(t, os.WriteFile(filePath, []byte(`{"name": "a"}`), 0o600))
+
+	step := ir.Step{
+		Commands: []ir.CommandEntry{{CmdWithArgs: `.name`}},
+		ExecutorConfig: ir.ExecutorConfig{
+			Type:   "jq",
+			Config: map[string]any{"raw": true, "input": filePath},
+		},
+	}
+
+	ctx := context.Background()
+	executor, err := newJQ(ctx, step)
+	require.NoError(t, err)
+
+	var stdout bytes.Buffer
+	executor.SetStdout(&stdout)
+	require.NoError(t, executor.Run(ctx))
+	assert.Equal(t, "a\n", stdout.String())
+}
+
 func TestJQExecutor_ConfigInputWithRawFalse(t *testing.T) {
 	t.Parallel()
 

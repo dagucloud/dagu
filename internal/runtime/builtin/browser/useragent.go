@@ -18,6 +18,7 @@ import (
 	stagehand "github.com/browserbase/stagehand/packages/sdk-go/v4"
 	"github.com/dagucloud/dagu/v2/internal/browserhost"
 	"github.com/dagucloud/dagu/v2/internal/browserhost/certproxy"
+	"github.com/dagucloud/dagu/v2/internal/browserhost/writegate"
 	"github.com/dagucloud/dagu/v2/internal/cmn/fileutil"
 	"github.com/dagucloud/dagu/v2/internal/cmn/procutil"
 )
@@ -218,10 +219,12 @@ type startedBrowser struct {
 	// proxy presents the browser's client certificates; nil when it presents
 	// none.
 	proxy *certproxy.Handle
+	// gate decides the browser's writes; nil without a gate.
+	gate *writegate.Handle
 }
 
 // end terminates the browser, waiting for its processes to exit so its
-// profile is free, and then its certificate proxy.
+// profile is free, and then its certificate proxy and its write gate.
 func (b startedBrowser) end(ctx context.Context) error {
 	ctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), shutdownTimeout)
 	defer cancel()
@@ -229,7 +232,7 @@ func (b startedBrowser) end(ctx context.Context) error {
 		return browserhost.BrowserProcessID(ctx, b.cdpURL)
 	})
 	startedAt, _ := procutil.StartTime(pid)
-	return errors.Join(closeBrowser(ctx, pid, startedAt, b.browser.Close), killCertProxy(b.proxy))
+	return errors.Join(closeBrowser(ctx, pid, startedAt, b.browser.Close), killCertProxy(b.proxy), killWriteGate(b.gate))
 }
 
 // warnOnce returns warn reporting each message once, as a browser started

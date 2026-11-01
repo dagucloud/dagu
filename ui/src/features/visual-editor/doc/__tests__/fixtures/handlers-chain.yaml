@@ -1,0 +1,20 @@
+type: chain
+name: release
+handler_on:
+  init:
+    run: echo init
+  success:
+    run: echo ok
+  failure:
+    # Notify on failure.
+    run: ./notify.sh
+  abort:
+    run: echo aborted
+  exit:
+    run: echo exit
+steps:
+  - name: build
+    run: make build
+  - name: test
+    run: make test
+  - make deploy

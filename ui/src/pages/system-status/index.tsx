@@ -113,7 +113,7 @@ function SystemStatus() {
       },
     },
     {
-      refreshInterval: autoRefresh ? 1000 : 0,
+      refreshInterval: autoRefresh ? 2000 : 0,
     }
   );
 

@@ -782,6 +782,44 @@ func TestLoad_BrowserSandboxFromEnv(t *testing.T) {
 	require.True(t, testLoad(t).Browser.NoSandbox)
 }
 
+// Open browsers are unlimited unless the config file or the environment sets
+// browser.max_open.
+func TestLoad_BrowserMaxOpen(t *testing.T) {
+	require.Zero(t, testLoad(t).Browser.MaxOpen, "no limit by default")
+
+	configFile := filepath.Join(t.TempDir(), "config.yaml")
+	require.NoError(t, os.WriteFile(configFile, []byte("browser:\n  max_open: 4\n"), 0o600))
+	require.Equal(t, 4, testLoad(t, WithConfigFile(configFile)).Browser.MaxOpen)
+
+	t.Setenv("DAGU_BROWSER_MAX_OPEN", "2")
+	require.Equal(t, 2, testLoad(t).Browser.MaxOpen)
+
+	t.Setenv("DAGU_BROWSER_MAX_OPEN", "-1")
+	require.ErrorContains(t, testLoadWithError(t), "browser.max_open must not be negative")
+}
+
+// The write gate floor and policy come from the config file or the
+// environment.
+func TestLoad_BrowserWriteGate(t *testing.T) {
+	cfg := testLoad(t)
+	require.Empty(t, cfg.Browser.WriteGate, "no gate by default")
+	require.Empty(t, cfg.Browser.WritePolicy)
+
+	dir := t.TempDir()
+	configFile := filepath.Join(dir, "config.yaml")
+	policy := filepath.Join(dir, "policy.yaml")
+	require.NoError(t, os.WriteFile(configFile, []byte("browser:\n  write_gate: rehearse\n  write_policy: "+policy+"\n"), 0o600))
+	cfg = testLoad(t, WithConfigFile(configFile))
+	require.Equal(t, "rehearse", cfg.Browser.WriteGate)
+	require.Equal(t, policy, cfg.Browser.WritePolicy)
+
+	t.Setenv("DAGU_BROWSER_WRITE_GATE", "off")
+	require.Equal(t, "off", testLoad(t, WithConfigFile(configFile)).Browser.WriteGate)
+
+	t.Setenv("DAGU_BROWSER_WRITE_GATE", "loose")
+	require.ErrorContains(t, testLoadWithError(t), `browser.write_gate must be one of off, record, ask, rehearse, got "loose"`)
+}
+
 func TestLoad_BrowserClientCertificates(t *testing.T) {
 	dir := t.TempDir()
 	configFile := filepath.Join(dir, "config.yaml")

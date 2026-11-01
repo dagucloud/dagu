@@ -740,4 +740,81 @@ steps:
     expect(result.legacyDefinitions).toEqual([]);
     expect(result.actions).toEqual([]);
   });
+
+  // A null entry removes an inherited harness, so it names no harness.
+  it('extracts the names of local harnesses from YAML', () => {
+    const result = extractLocalCustomDefinitionHints(`
+harnesses:
+  team-agent:
+    binary: team-agent
+  inherited: null
+  alpha:
+    binary: alpha
+`);
+
+    expect(result.harnesses).toEqual(['alpha', 'team-agent']);
+  });
+
+  it('extracts the definitions of the first document of a file', () => {
+    const result = extractLocalCustomDefinitionHints(`
+harnesses:
+  team-agent:
+    binary: team-agent
+steps:
+  - call: child
+---
+name: child
+steps:
+  - run: echo child
+`);
+
+    expect(result.ok).toBe(true);
+    expect(result.harnesses).toEqual(['team-agent']);
+  });
+
+  // The editors get a dereferenced schema: each provider field holds its
+  // own copy of the provider definition.
+  it('suggests local harnesses after the builtin providers', () => {
+    const schema = buildAugmentedDAGSchema(
+      dereferenceSchema({
+        properties: {
+          steps: {
+            type: 'array',
+            items: {
+              properties: {
+                with: {
+                  properties: {
+                    provider: { $ref: '#/definitions/harnessProvider' },
+                  },
+                },
+              },
+            },
+          },
+        },
+        definitions: {
+          harnessProvider: {
+            anyOf: [
+              { type: 'string', enum: ['claude', 'codex'] },
+              { type: 'string' },
+            ],
+          },
+        },
+      }),
+      [],
+      [],
+      ['codex', 'team-agent']
+    );
+
+    expect(
+      getSchemaAtPath(schema, ['steps', '0', 'with', 'provider'])?.anyOf
+    ).toEqual([
+      { type: 'string', enum: ['claude', 'codex'] },
+      {
+        type: 'string',
+        enum: ['team-agent'],
+        description: 'Custom harness declared in harnesses.',
+      },
+      { type: 'string' },
+    ]);
+  });
 });

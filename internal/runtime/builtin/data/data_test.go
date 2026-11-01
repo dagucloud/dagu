@@ -115,6 +115,28 @@ func TestConvertInputFile(t *testing.T) {
 	assert.JSONEq(t, `[{"name":"Alice"}]`, out.String())
 }
 
+// The with object resolves before the executor runs, so the input path is used
+// as given and a backslash before $ in it is not read as an escape again.
+func TestConvertInputFileUsesResolvedPath(t *testing.T) {
+	t.Parallel()
+
+	workDir := t.TempDir()
+	input := filepath.Join(workDir, `in\$x.csv`)
+	require.NoError(t, os.MkdirAll(filepath.Dir(input), 0o750))
+	require.NoError(t, os.WriteFile(input, []byte("name\nAlice\n"), 0o600))
+
+	step := dataStep(opConvert, map[string]any{"from": "csv", "to": "json", "input": input})
+	ctx := dataContext(workDir, step)
+
+	exec, err := newExecutor(ctx, step)
+	require.NoError(t, err)
+
+	out := &bytes.Buffer{}
+	exec.SetStdout(out)
+	require.NoError(t, exec.Run(ctx))
+	assert.JSONEq(t, `[{"name":"Alice"}]`, out.String())
+}
+
 func TestConvertRejectsDataAndInput(t *testing.T) {
 	t.Parallel()
 

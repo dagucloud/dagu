@@ -29,6 +29,9 @@ type operator struct {
 	bridge         *modelBridge
 	variables      map[string]string
 	allowedDomains []string
+	// secret reports whether the value of a variable holds a secret, which
+	// messages leave out; nil counts every value as one.
+	secret func(name string) bool
 	// recorder replays and records acts; nil when acts do neither.
 	recorder actRecorder
 	// choice returns how much AI decides for an act or an upload with the
@@ -55,14 +58,31 @@ type operator struct {
 	// presented maps the hosts the proxy presented a certificate to, to the
 	// certificate's label.
 	presented map[string]string
+	// committed returns the recorded actions of an approved commit act at
+	// key, which the act replays and asks no model about; nil when no act
+	// is one.
+	committed func(key string) ([]recordedAction, bool)
 }
 
-// actRecorder keeps the actions acts and uploads performed, keyed by
-// replayKey and uploadReplayKey.
+// holdsSecret reports whether value contains a value of secrets, however
+// short: a value shown whole shows each secret in it.
+func holdsSecret(value string, secrets ...map[string]string) bool {
+	for _, values := range secrets {
+		for _, secret := range values {
+			if secret != "" && strings.Contains(value, secret) {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+// actRecorder keeps what acts and uploads did, keyed by replayKey and
+// uploadReplayKey.
 type actRecorder interface {
-	// lookup returns the actions recorded under key, if any.
-	lookup(key string) ([]recordedAction, bool)
-	stage(key string, actions []recordedAction)
+	// lookup returns what was recorded under key, if anything.
+	lookup(key string) (recording, bool)
+	stage(key string, rec recording)
 	drop(key string)
 }
 
@@ -271,7 +291,30 @@ func (o *operator) act(ctx context.Context, index int, spec actSpec, timeout tim
 		key = replayKey(index, spec.Instruction, pageURL)
 	}
 	status := agentstep.StatusCompleted
-	actions, ok := o.recording(choice, key)
+	rec, ok := o.recording(choice, key)
+	actions := rec.Actions
+	// An approved commit act does only what was approved: the actions it
+	// recorded, never what a model picks.
+	isCommit := false
+	if o.committed != nil {
+		var committed []recordedAction
+		if committed, isCommit = o.committed(key); isCommit {
+			choice, actions, ok = aiNever, committed, true
+		}
+	}
+	// A recording made where the page already showed a value the act names
+	// is not replayed with another value; it is kept for the runs it fits,
+	// and what the model does here replaces it.
+	if ok && !isCommit {
+		if name := unfit(spec.Instruction, rec, o.variables); name != "" {
+			reason := fmt.Sprintf("its recording does nothing with %%%s%%, so it fits only the value %%%s%% had when it was recorded", name, name)
+			if choice == aiNever {
+				return opResult{}, replayMiss{kind: opAct, reason: reason}
+			}
+			o.warn(index, "not replayed: "+reason)
+			actions, ok = nil, false
+		}
+	}
 	if !ok && choice == aiNever {
 		return opResult{}, replayMiss{kind: opAct, reason: noRecording}
 	}
@@ -315,11 +358,12 @@ func (o *operator) act(ctx context.Context, index int, spec actSpec, timeout tim
 		return opResult{}, fmt.Errorf("act did not complete: %s", outcome.Message)
 	}
 	if recorded && len(outcome.Actions) > 0 {
-		o.recorder.stage(key, outcome.Actions)
+		o.recorder.stage(key, recordAct(spec.Instruction, outcome.Actions, o.variables))
 	}
 	detail := describeActions(outcome.Actions)
 	if len(outcome.Actions) == 0 {
-		// An act counted done because it loaded a new document says so.
+		// An act counted done without its actions, because it loaded a new
+		// document or closed its window, says so.
 		detail = outcome.Message
 	}
 	return opResult{
@@ -347,22 +391,22 @@ func (o *operator) decide(ai string, cache *bool) (choice string, recorded bool)
 	}
 }
 
-// recording returns the actions recorded under key when the choice replays
-// them. Under every_run nothing is looked up, so nothing counts as replayed.
-func (o *operator) recording(choice, key string) ([]recordedAction, bool) {
+// recording returns what was recorded under key when the choice replays
+// it. Under every_run nothing is looked up, so nothing counts as replayed.
+func (o *operator) recording(choice, key string) (recording, bool) {
 	if choice == aiEveryRun {
-		return nil, false
+		return recording{}, false
 	}
 	return o.lookup(key)
 }
 
-// lookup returns the actions recorded under key, if there are any.
-func (o *operator) lookup(key string) ([]recordedAction, bool) {
+// lookup returns what was recorded under key, if it holds any action.
+func (o *operator) lookup(key string) (recording, bool) {
 	if key == "" {
-		return nil, false
+		return recording{}, false
 	}
-	actions, ok := o.recorder.lookup(key)
-	return actions, ok && len(actions) > 0
+	rec, ok := o.recorder.lookup(key)
+	return rec, ok && len(rec.Actions) > 0
 }
 
 // replay performs recorded actions in order and returns how many
@@ -395,7 +439,7 @@ func (o *operator) replay(ctx context.Context, actions []recordedAction, documen
 // that check could submit a form twice.
 func (o *operator) performAct(ctx context.Context, index int, instruction, document string, timeout time.Duration) (actOutcome, error) {
 	for retried := false; ; retried = true {
-		outcome, err := o.eng.Act(ctx, instruction, o.variables, timeout)
+		outcome, err := o.eng.Act(ctx, instruction, o.variables, o.secret, timeout)
 		if !errors.Is(err, errPageSessionLost) {
 			return outcome, err
 		}
@@ -485,12 +529,15 @@ func (o *operator) expect(ctx context.Context, index int, c condition, timeout t
 
 // await evaluates a condition. The model judges a statement once; a fixed
 // check is read repeatedly until it holds or window passes. A zero window
-// reads the page once.
+// reads the page once. A read that lost its script context found the page
+// between documents, which is not readable yet, so it fails the check only
+// once window passes.
 func (o *operator) await(ctx context.Context, c condition, window, timeout time.Duration) (bool, string, error) {
 	deadline := time.Now().Add(window)
 	for {
 		holds, reason, err := o.evaluate(ctx, c, timeout)
-		if err != nil || holds || c.judged() || !time.Now().Before(deadline) {
+		unreadable := errors.Is(err, errPageContextLost)
+		if (err != nil && !unreadable) || holds || c.judged() || !time.Now().Before(deadline) {
 			return holds, reason, err
 		}
 		select {
@@ -596,6 +643,6 @@ type stepRecorder struct {
 	cache *replayCache
 }
 
-func (r stepRecorder) lookup(key string) ([]recordedAction, bool) { return r.cache.Lookup(key) }
-func (r stepRecorder) stage(key string, actions []recordedAction) { r.cache.Stage(key, actions) }
-func (r stepRecorder) drop(key string)                            { r.cache.Drop(key) }
+func (r stepRecorder) lookup(key string) (recording, bool) { return r.cache.Lookup(key) }
+func (r stepRecorder) stage(key string, rec recording)     { r.cache.Stage(key, rec) }
+func (r stepRecorder) drop(key string)                     { r.cache.Drop(key) }

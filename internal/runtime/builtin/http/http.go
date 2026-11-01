@@ -412,5 +412,9 @@ func splitMethodURL(cmdWithArgs string) (string, string) {
 }
 
 func init() {
-	executor.RegisterExecutor("http", newHTTP, nil, registry.ExecutorCapabilities{Command: true, Script: true})
+	executor.RegisterExecutor("http", newHTTP, nil, registry.ExecutorCapabilities{
+		Command:    true,
+		Script:     true,
+		PathInputs: []string{"output", "files"},
+	})
 }

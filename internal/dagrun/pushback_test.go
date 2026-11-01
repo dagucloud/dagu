@@ -70,6 +70,20 @@ func TestApplyPushBack(t *testing.T) {
 	assert.Equal(t, "Review", status.Nodes[3].Step.HumanTask.Prompt)
 }
 
+// A pushed-back step keeps what its rewound attempt spent on models, which
+// the run still spent.
+func TestApplyPushBackKeepsModelUsage(t *testing.T) {
+	t.Parallel()
+
+	status := pushBackStatus()
+	usage := &ir.StepModelUsage{Models: []ir.ModelUsage{{Provider: "openai", Model: "gpt", Calls: 3}}}
+	status.Nodes[1].ModelUsage = usage
+	_, err := dagrun.ApplyPushBack(status, status.Nodes[3], dagrun.PushBack{TargetName: "implement", At: "2026-09-23T10:00:00Z"})
+	require.NoError(t, err)
+	assert.Equal(t, ir.NodeNotStarted, status.Nodes[1].Status)
+	assert.Equal(t, usage, status.Nodes[1].ModelUsage)
+}
+
 // A later push-back builds on the source step's history and drops inputs the
 // allowlist does not declare, including those recorded earlier.
 func TestApplyPushBackExtendsSourceHistory(t *testing.T) {

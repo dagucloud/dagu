@@ -103,7 +103,8 @@ type Node struct {
 	RetriedAt           string               `json:"retriedAt,omitempty"`
 	RetryCount          int                  `json:"retryCount,omitempty"`
 	DoneCount           int                  `json:"doneCount,omitempty"`
-	Repeated            bool                 `json:"repeated,omitempty"` // indicates if the node has been repeated
+	Repeated            bool                 `json:"repeated,omitempty"`   // indicates if the node has been repeated
+	Continuous          bool                 `json:"continuous,omitempty"` // the step repeats without a limit (spec 083)
 	SkippedByRetry      bool                 `json:"skippedByRetry,omitempty"`
 	Error               string               `json:"error,omitempty"`
 	StatusDetails       []NodeStatusDetail   `json:"statusDetails,omitempty"`
@@ -157,6 +158,9 @@ type Node struct {
 	ToolDefinitions []ToolDefinition `json:"toolDefinitions,omitempty"`
 	// AgentSession stores managed coding-agent state for display and durable resume.
 	AgentSession *AgentSession `json:"agentSession,omitempty"`
+	// ModelUsage is what the step's calls to models used, over every attempt
+	// of the step in this run.
+	ModelUsage *StepModelUsage `json:"modelUsage,omitempty"`
 
 	// outputsValueFrom and stepOutputsValueFrom name the output field whose
 	// value a stored node repeats, so a status file holds that value once.

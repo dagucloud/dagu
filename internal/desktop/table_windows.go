@@ -185,25 +185,6 @@ func (w *uiaWorker) readRows(ctx context.Context, container Selector, columns []
 	return out, nil
 }
 
-// columnIndexes maps each wanted column name to its grid column, by the
-// header that names it, comparing as a person reads. A column with no
-// header is a miss.
-func columnIndexes(columns, headers []string) ([]int, error) {
-	byName := make(map[string]int, len(headers))
-	for i, head := range headers {
-		byName[NormalizeText(head)] = i
-	}
-	indexes := make([]int, len(columns))
-	for i, column := range columns {
-		index, ok := byName[NormalizeText(column)]
-		if !ok {
-			return nil, fmt.Errorf("%w: no column is headed %q", ErrNotFound, column)
-		}
-		indexes[i] = index
-	}
-	return indexes, nil
-}
-
 // nodeByPath returns the live element at a path in a read subtree.
 func nodeByPath(tree *subtree, path []PathStep) *element {
 	for _, node := range tree.nodes {

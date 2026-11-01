@@ -476,6 +476,11 @@ func (r *run) readBinding(ctx context.Context, index int, els desktop.Elements, 
 	values := make(map[string]any, len(entry.Fields))
 	for _, field := range entry.Fields {
 		if field.Table != nil {
+			// A table is read straight from the front window, so a screen a
+			// handler clears is cleared first.
+			if _, err := r.clearScreens(ctx, index); err != nil {
+				return nil, "", err
+			}
 			rows, reason, err := r.readTable(ctx, els, field, maxRows)
 			if err != nil || reason != "" {
 				return nil, reason, err
@@ -510,6 +515,9 @@ func (r *run) readBinding(ctx context.Context, index int, els desktop.Elements, 
 func (r *run) readTable(ctx context.Context, els desktop.Elements, field fieldBinding, maxRows int) ([]any, string, error) {
 	tbl := field.Table
 	front, err := els.FrontWindow()
+	if errors.Is(err, desktop.ErrNoWindow) {
+		return nil, fmt.Sprintf("table %q cannot be read: %v", field.Name, err), nil
+	}
 	if err != nil {
 		return nil, "", err
 	}
@@ -530,7 +538,7 @@ func (r *run) readTable(ctx context.Context, els desktop.Elements, field fieldBi
 	}
 	read, err := els.Rows(ctx, substituteSelector(tbl.Container, r.variables), headers, maxRows)
 	switch {
-	case errors.Is(err, desktop.ErrNotFound):
+	case errors.Is(err, desktop.ErrNotFound) || errors.Is(err, desktop.ErrNoWindow):
 		return nil, fmt.Sprintf("table %q cannot be read: %s", field.Name, err.Error()), nil
 	case err != nil:
 		return nil, "", err

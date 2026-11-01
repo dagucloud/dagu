@@ -16,10 +16,27 @@ import (
 
 const (
 	legacyTimeFormat = "2006-01-02 15:04:05"
+
+	// TimestampLayout is the layout of the run and step timestamps that
+	// FormatTime writes. It always has three fractional digits, so values keep
+	// a stable length and sort as plain strings when they share a zone.
+	TimestampLayout = "2006-01-02T15:04:05.000Z07:00"
 )
 
-// FormatTime returns formatted time.
+// FormatTime returns the time with millisecond precision in TimestampLayout.
+// A zero time gives an empty string.
 func FormatTime(t time.Time) string {
+	if t.IsZero() {
+		return ""
+	}
+
+	return t.Format(TimestampLayout)
+}
+
+// FormatTimeSeconds returns the time with second precision in RFC 3339. A zero
+// time gives an empty string. Use it for a time that is not a run or step
+// timestamp, such as a license date or a time shown to the user.
+func FormatTimeSeconds(t time.Time) string {
 	if t.IsZero() {
 		return ""
 	}
@@ -27,11 +44,15 @@ func FormatTime(t time.Time) string {
 	return t.Format(time.RFC3339)
 }
 
-// ParseTime parses time string.
+// ParseTime parses a time string. It accepts TimestampLayout, RFC 3339 values
+// with or without a fraction (the format of older status files), and the
+// legacy layout. An empty string and "-" give the zero time.
 func ParseTime(val string) (time.Time, error) {
 	if val == "" || val == "-" {
 		return time.Time{}, nil
 	}
+	// The RFC3339 layout also accepts a fractional second, so it reads both
+	// second-precision and millisecond-precision values.
 	if t, err := time.ParseInLocation(time.RFC3339, val, time.Local); err == nil {
 		return t, nil
 	}

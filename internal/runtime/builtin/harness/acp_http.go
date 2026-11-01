@@ -13,6 +13,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"net/http/cookiejar"
 	"net/url"
@@ -37,32 +38,105 @@ const (
 )
 
 // acpRemoteHTTPClient keeps TLS verification enabled, optionally adding private CA roots.
-func acpRemoteHTTPClient(caFile, workDir string) (*http.Client, error) {
+// A client with private roots belongs to one execution: release closes every
+// connection it opened, whether idle or not, once the execution is done.
+func acpRemoteHTTPClient(caFile, workDir string) (client *http.Client, release func(), err error) {
 	if caFile == "" {
-		return acpRemoteDefaultHTTPClient, nil
+		return acpRemoteDefaultHTTPClient, func() {}, nil
 	}
 	if !filepath.IsAbs(caFile) {
 		caFile = filepath.Join(workDir, caFile)
 	}
 	pem, err := os.ReadFile(caFile) // #nosec G304 -- explicitly configured local CA file.
 	if err != nil {
-		return nil, fmt.Errorf("harness: cannot read ACP ca_file: %w", err)
+		return nil, nil, fmt.Errorf("harness: cannot read ACP ca_file: %w", err)
 	}
 	roots, err := x509.SystemCertPool()
 	if err != nil {
-		return nil, errors.New("harness: cannot load system certificate roots")
+		return nil, nil, errors.New("harness: cannot load system certificate roots")
 	}
 	if !roots.AppendCertsFromPEM(pem) {
-		return nil, errors.New("harness: ACP ca_file contains no certificates")
+		return nil, nil, errors.New("harness: ACP ca_file contains no certificates")
 	}
 	transport, ok := newOpenCodeTransport().(*http.Transport)
 	if !ok {
-		return nil, errors.New("harness: configured HTTP transport cannot use ca_file")
+		return nil, nil, errors.New("harness: configured HTTP transport cannot use ca_file")
 	}
 	transport.TLSClientConfig = &tls.Config{RootCAs: roots, MinVersion: tls.VersionTLS12}
-	client := *acpRemoteDefaultHTTPClient
-	client.Transport = transport
-	return &client, nil
+	// A cancelled HTTP/2 stream is released from its connection a moment
+	// after its body closes, so closing only idle connections at the end of
+	// an execution can miss one and leave it open; the connections are
+	// tracked and closed outright instead.
+	conns := &connectionSet{conns: map[*trackedConn]struct{}{}}
+	dial := transport.DialContext
+	if dial == nil {
+		dial = (&net.Dialer{}).DialContext
+	}
+	transport.DialContext = func(ctx context.Context, network, addr string) (net.Conn, error) {
+		conn, err := dial(ctx, network, addr)
+		if err != nil {
+			return nil, err
+		}
+		return conns.add(conn), nil
+	}
+	copied := *acpRemoteDefaultHTTPClient
+	copied.Transport = transport
+	return &copied, func() {
+		transport.CloseIdleConnections()
+		conns.closeAll()
+	}, nil
+}
+
+// connectionSet holds the open connections of one execution's transport.
+type connectionSet struct {
+	mu     sync.Mutex
+	conns  map[*trackedConn]struct{}
+	closed bool
+}
+
+// trackedConn leaves its set when it closes.
+type trackedConn struct {
+	net.Conn
+	set  *connectionSet
+	once sync.Once
+}
+
+func (c *trackedConn) Close() error {
+	c.once.Do(func() {
+		c.set.mu.Lock()
+		delete(c.set.conns, c)
+		c.set.mu.Unlock()
+	})
+	return c.Conn.Close()
+}
+
+// add records a new connection, or closes it when the set already closed.
+func (s *connectionSet) add(conn net.Conn) net.Conn {
+	tracked := &trackedConn{Conn: conn, set: s}
+	s.mu.Lock()
+	closed := s.closed
+	if !closed {
+		s.conns[tracked] = struct{}{}
+	}
+	s.mu.Unlock()
+	if closed {
+		_ = conn.Close()
+	}
+	return tracked
+}
+
+// closeAll closes every open connection and any dialed afterwards.
+func (s *connectionSet) closeAll() {
+	s.mu.Lock()
+	s.closed = true
+	conns := make([]*trackedConn, 0, len(s.conns))
+	for conn := range s.conns {
+		conns = append(conns, conn)
+	}
+	s.mu.Unlock()
+	for _, conn := range conns {
+		_ = conn.Close()
+	}
 }
 
 // acpTransportError reports the network cause of a failed request without the

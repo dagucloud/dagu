@@ -313,7 +313,7 @@ const DAGPagination = ({
               </svg>
             </Button>
             {/* Opens on hover, and on keyboard focus anywhere inside it. */}
-            <div className="absolute right-0 mt-1 w-[100px] bg-background border border-border rounded-md opacity-0 invisible group-hover:opacity-100 group-hover:visible group-has-[:focus-visible]:opacity-100 group-has-[:focus-visible]:visible transition-all duration-200 z-10">
+            <div className="absolute right-0 mt-1 w-[100px] bg-background border border-border rounded-md opacity-0 invisible group-hover:opacity-100 group-hover:visible group-has-[:focus-visible]:opacity-100 group-has-[:focus-visible]:visible transition-[opacity,visibility] duration-200 z-10">
               {[10, 25, 50, 100, 200].map((limit) => (
                 <button
                   type="button"

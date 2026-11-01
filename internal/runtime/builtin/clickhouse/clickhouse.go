@@ -297,6 +297,10 @@ func init() {
 		executorType,
 		newClickHouseExecutor,
 		validateStep,
-		registry.ExecutorCapabilities{Command: true, Script: true},
+		registry.ExecutorCapabilities{
+			Command:    true,
+			Script:     true,
+			PathInputs: []string{"file", "tls_ca"},
+		},
 	)
 }

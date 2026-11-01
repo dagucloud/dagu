@@ -124,8 +124,8 @@ func wakeTopicsForDAGRunEvent(mux *Multiplexer, event *eventstore.Event) []ir.St
 
 	affectedStatuses := affectedDAGRunListStatuses(event.Type, snapshot.Status)
 	if snapshot.DAGFile != "" {
-		mux.WakeTopic(TopicTypeDAG, snapshot.DAGFile)
-		mux.WakeTopic(TopicTypeDAGHistory, snapshot.DAGFile)
+		mux.wakeDAGFileTopics(TopicTypeDAG, snapshot.DAGFile)
+		mux.wakeDAGFileTopics(TopicTypeDAGHistory, snapshot.DAGFile)
 		return affectedStatuses
 	}
 

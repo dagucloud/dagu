@@ -30,10 +30,17 @@ import { useScrollFade } from '@/hooks/useScrollFade';
 import BorderedBox from '@/components/ui/bordered-box';
 import { DAGRunOutputs } from '../../dag-runs/components/dag-run-details';
 import { buildDAGRunPageURL } from '../../dag-runs/lib/dagRunUrls';
-import { getManualActionState } from '../../dag-runs/lib/manualActionState';
 import { DAGContext } from '../contexts/DAGContext';
 import { getEventHandlers } from '../lib/getEventHandlers';
 import { updateDAGRunNodeStatus } from '../lib/nodeStatus';
+import {
+  autoRunTab,
+  fallbackRunTab,
+  runViewFacts,
+  visibleRunTabs,
+  type RunViewTab,
+} from '../lib/runViewTabs';
+import { canChangeStepStatus } from '../lib/stepStatusGate';
 import { ApprovalTab } from './approval';
 import { ApprovalResumeAlert } from './approval/ApprovalResumeAlert';
 import { AgentSessionTab } from './agent-session';
@@ -47,7 +54,7 @@ import {
   type SubRunStackEntry,
 } from './common';
 import { DAGStatusOverview, NodeStatusTable } from './dag-details';
-import { DAGSpecReadOnly } from './dag-editor';
+import DAGSpecReadOnly from './dag-editor/DAGSpecReadOnly';
 import { StepDetailsDrawer } from './step-details';
 import type { ForeachLogTarget } from '../hooks/useStepLogQuery';
 import {
@@ -89,17 +96,7 @@ type Props = {
   showRunMeta?: boolean;
 };
 
-export type StatusTab =
-  | 'status'
-  | 'timeline'
-  | 'outputs'
-  | 'artifacts'
-  | 'agent'
-  | 'chat'
-  | 'tasks'
-  | 'spec'
-  | 'approval'
-  | 'human-tasks';
+export type StatusTab = RunViewTab;
 
 /** Check if the current DAG run is a sub DAG-run (has a different root) */
 function isSubDAGRun(dagRun: components['schemas']['DAGRunDetails']): boolean {
@@ -111,9 +108,10 @@ function isSubDAGRun(dagRun: components['schemas']['DAGRunDetails']): boolean {
 }
 
 /**
- * Names the shown run and links to its page, where the timeline, outputs,
- * artifacts, and run spec live. An agent waiting for an answer is pointed
- * there too, since its conversation needs the full view.
+ * Points an agent that waits for an answer to the run page, since its
+ * conversation needs the full view. Otherwise nothing shows: the run ID of the
+ * header links to the run page, where the timeline, outputs, artifacts and run
+ * spec live.
  */
 function RunSummaryBar({
   dagRun,
@@ -124,6 +122,9 @@ function RunSummaryBar({
   remoteNode: string;
   waitingAgentCount: number;
 }) {
+  if (waitingAgentCount === 0) {
+    return null;
+  }
   const subRun = isSubDAGRun(dagRun);
   const runURL = buildDAGRunPageURL({
     rootDAGRunName: subRun ? dagRun.rootDAGRunName : dagRun.name,
@@ -134,13 +135,7 @@ function RunSummaryBar({
   return (
     <div className="flex flex-wrap items-center justify-between gap-2">
       <p className="text-sm text-muted-foreground">
-        {waitingAgentCount > 0 ? (
-          <I18nText text={'An agent is waiting for an answer.'} />
-        ) : (
-          <I18nText
-            text={'Timeline, outputs, and artifacts are on the run page.'}
-          />
-        )}
+        <I18nText text={'An agent is waiting for an answer.'} />
       </p>
       <Link
         to={runURL}
@@ -499,25 +494,15 @@ function DAGStatus({
   // Handle right-click on graph node (show status update modal)
   const onRightClickStepOnGraph = React.useCallback(
     (id: string) => {
-      // Check if user has permission to run DAGs
-      if (!config.permissions.runDags) {
-        return;
-      }
-
-      const status = displayDAGRun.status;
-      if (
-        status === Status.NotStarted ||
-        status === Status.Running ||
-        status === Status.Queued ||
-        status === Status.Waiting
-      ) {
-        return;
-      }
-
       const node = displayDAGRun.nodes?.find(
         (candidate) => toMermaidNodeId(candidate.step.name) === id
       );
-      if (!node || node.step.humanTask) {
+      if (
+        !node ||
+        !canChangeStepStatus(displayDAGRun, node, {
+          runDags: config.permissions.runDags,
+        }).ok
+      ) {
         return;
       }
 
@@ -549,29 +534,17 @@ function DAGStatus({
     });
   };
 
-  // Check if timeline should be shown (any status except not started)
-  const showTimeline = displayDAGRun.status !== Status.NotStarted;
-
-  // Chat and agent steps both persist an LLM transcript. Runs recorded before
-  // agent DAGs were renamed still carry the 'controller' executor type.
-  const hasChatSteps = !!displayDAGRun.nodes?.some((node) =>
-    ['chat', 'agent', 'controller'].includes(
-      node.step.executorConfig?.type ?? ''
-    )
-  );
-  const agentNodes = (displayDAGRun.nodes || []).filter(
-    (node) => !!node.agentSession
-  );
-  const hasAgentSessions = agentNodes.length > 0;
-  const waitingAgentCount = agentNodes.filter(
-    (node) =>
-      node.agentSession?.state === 'waiting' ||
-      node.agentSession?.state === 'unavailable'
-  ).length;
+  const runFacts = runViewFacts(displayDAGRun, { artifactEnabled });
+  const visibleTabs = visibleRunTabs(runFacts);
+  const isTabVisible = (tab: StatusTab) => visibleTabs.includes(tab);
+  const showTimeline = isTabVisible('timeline');
+  const hasChatSteps = isTabVisible('chat');
+  const hasAgentSessions = isTabVisible('agent');
+  const waitingAgentCount = runFacts.agentWaiting;
 
   // Agent DAG-runs track goal progress alongside their steps.
   const agentTasks = displayDAGRun.agentTasks ?? [];
-  const hasAgentTasks = agentTasks.length > 0;
+  const hasAgentTasks = isTabVisible('tasks');
   const failedNode = displayDAGRun.nodes?.find(
     (node) =>
       node.status === NodeStatus.Failed || node.status === NodeStatus.Rejected
@@ -582,12 +555,11 @@ function DAGStatus({
   const agentEvents = displayDAGRun.agentEvents ?? [];
   const isAgentRun = hasAgentTasks || agentEvents.length > 0;
 
-  const { waitingApprovalNodes, waitingHumanTaskNodes, hasHumanTaskWork } =
-    getManualActionState(displayDAGRun);
-  const waitingApprovalCount = waitingApprovalNodes.length;
-  const waitingHumanTaskCount = waitingHumanTaskNodes.length;
-  const hasWaitingApprovals = waitingApprovalCount > 0;
-  const hasArtifacts = artifactEnabled || !!displayDAGRun.artifactsAvailable;
+  const waitingApprovalCount = runFacts.waitingApprovals;
+  const waitingHumanTaskCount = runFacts.humanTasksWaiting;
+  const hasHumanTaskWork = isTabVisible('human-tasks');
+  const hasWaitingApprovals = isTabVisible('approval');
+  const hasArtifacts = isTabVisible('artifacts');
   const displayDAGRunIdentity = JSON.stringify([
     remoteNode,
     displayDAGRun.name,
@@ -605,38 +577,13 @@ function DAGStatus({
   }, [displayDAGRunIdentity]);
 
   // Reset to status tab if selected tab is not available
+  const visibleTabsKey = visibleTabs.join(',');
   useEffect(() => {
-    if (activeTab === 'timeline' && !showTimeline) {
-      setActiveTab('status');
+    const nextTab = fallbackRunTab(activeTab, visibleTabs);
+    if (nextTab !== activeTab) {
+      setActiveTab(nextTab);
     }
-    if (activeTab === 'chat' && !hasChatSteps) {
-      setActiveTab('status');
-    }
-    if (activeTab === 'agent' && !hasAgentSessions) {
-      setActiveTab('status');
-    }
-    if (activeTab === 'tasks' && !hasAgentTasks) {
-      setActiveTab('status');
-    }
-    if (activeTab === 'approval' && !hasWaitingApprovals) {
-      setActiveTab('status');
-    }
-    if (activeTab === 'human-tasks' && !hasHumanTaskWork) {
-      setActiveTab('status');
-    }
-    if (activeTab === 'artifacts' && !hasArtifacts) {
-      setActiveTab('status');
-    }
-  }, [
-    showTimeline,
-    hasChatSteps,
-    hasAgentSessions,
-    hasAgentTasks,
-    hasWaitingApprovals,
-    hasHumanTaskWork,
-    hasArtifacts,
-    activeTab,
-  ]);
+  }, [visibleTabsKey, activeTab]);
 
   // Surface a newly available manual action from the default status tab.
   // A summary shows the action inline instead, and a step named by the URL
@@ -645,21 +592,10 @@ function DAGStatus({
     if (summary || stepLinked.current) {
       return;
     }
-    setActiveTab((currentTab) => {
-      if (currentTab !== 'status') {
-        return currentTab;
-      }
-      if (waitingAgentCount > 0) {
-        return 'agent';
-      }
-      if (hasHumanTaskWork) {
-        return 'human-tasks';
-      }
-      if (hasWaitingApprovals) {
-        return 'approval';
-      }
-      return currentTab;
-    });
+    const autoTab = autoRunTab(runFacts);
+    setActiveTab((currentTab) =>
+      currentTab === 'status' && autoTab ? autoTab : currentTab
+    );
   }, [
     displayDAGRunIdentity,
     waitingAgentCount,

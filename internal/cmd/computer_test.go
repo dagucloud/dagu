@@ -39,14 +39,14 @@ func TestComputerCacheShow(t *testing.T) {
 
 	th := test.SetupCommand(t)
 	writeComputerRecordings(t, th, "invoices", "post", map[string]string{
-		"older": `{"op": 0, "version": 2, "system": "windows", "saved_at": "2026-10-01T09:00:00Z", "turns": [{"actions": [{"action": {"kind": "key", "keys": ["ctrl", "s"]}}]}]}`,
-		"newer": `{"op": 0, "version": 2, "system": "windows", "saved_at": "2026-10-02T09:00:00Z", "turns": [{"actions": [{"action": {"kind": "click", "point": {"x": 1, "y": 2}}, "element": {"selector": {"role": "button", "name": "保存", "id": "saveButton"}, "path": [], "app": "expense", "window": "経費精算", "fx": 0.5, "fy": 0.5}}]}]}`,
-		"drag":  `{"op": 1, "version": 2, "system": "windows", "turns": [{"actions": [{"action": {"kind": "drag", "path": [{"x": 1, "y": 2}, {"x": 3, "y": 4}]}}]}]}`,
+		"older": `{"op": 0, "version": 5, "system": "windows", "saved_at": "2026-10-01T09:00:00Z", "turns": [{"actions": [{"action": {"kind": "key", "keys": ["ctrl", "s"]}}]}]}`,
+		"newer": `{"op": 0, "version": 5, "system": "windows", "saved_at": "2026-10-02T09:00:00Z", "turns": [{"actions": [{"action": {"kind": "click", "point": {"x": 1, "y": 2}}, "element": {"selector": {"role": "button", "name": "保存", "id": "saveButton"}, "path": [], "app": "expense", "window": "経費精算", "fx": 0.5, "fy": 0.5}}]}]}`,
+		"drag":  `{"op": 1, "version": 5, "system": "windows", "turns": [{"actions": [{"action": {"kind": "drag", "path": [{"x": 1, "y": 2}, {"x": 3, "y": 4}]}}]}]}`,
 		"read":  `{"op": 2, "version": 2, "system": "windows", "fields": [{"name": "amount", "kind": "number", "element": {"selector": {"role": "text_field", "id": "amountBox"}, "path": [], "app": "expense", "window": "経費精算", "fx": 0, "fy": 0}}]}`,
 		"stale": `{"op": 0, "version": 1, "turns": [{"actions": [{"action": {"kind": "key", "keys": ["enter"]}}]}]}`,
 	})
 	writeComputerRecordings(t, th, "invoices", "check", map[string]string{
-		"enter": `{"op": 0, "version": 2, "system": "windows", "turns": [{"actions": [{"action": {"kind": "key", "keys": ["enter"]}}]}]}`,
+		"enter": `{"op": 0, "version": 5, "system": "windows", "turns": [{"actions": [{"action": {"kind": "key", "keys": ["enter"]}}]}]}`,
 	})
 
 	out, err := runCommand(th, cmd.Computer(), "computer", "cache", "show", "invoices", "--step", "post", "--format", "json")
@@ -98,6 +98,51 @@ recorded:
 	out, err = runCommand(th, cmd.Computer(), "computer", "cache", "show", "invoices", "--step", "missing")
 	require.NoError(t, err)
 	assert.Equal(t, "No computer recordings for step \"missing\" of DAG \"invoices\"\n", out)
+}
+
+// A recording that never used a variable its task names, as one made where
+// a field already showed the value, says so beside its pin, since the pinned
+// steps would leave that field alone for every value. One recorded before
+// recordings noted such variables says to check its steps.
+func TestComputerCacheShowNamesWhatAPinLeavesAlone(t *testing.T) {
+	t.Parallel()
+
+	th := test.SetupCommand(t)
+	writeComputerRecordings(t, th, "invoices", "post", map[string]string{
+		"save": `{"op": 0, "version": 5, "system": "macos", "assumed": {"salt": "s", "digests": {"qty": "d1", "item": "d2"}}, "turns": [{"actions": [{"action": {"kind": "key", "keys": ["cmd", "s"]}}]}]}`,
+	})
+	writeComputerRecordings(t, th, "invoices", "check", map[string]string{
+		"enter": `{"op": 0, "version": 4, "system": "macos", "turns": [{"actions": [{"action": {"kind": "key", "keys": ["enter"]}}]}]}`,
+	})
+
+	out, err := runCommand(th, cmd.Computer(), "computer", "cache", "show", "invoices", "--step", "post", "--format", "json")
+	require.NoError(t, err)
+	assert.JSONEq(t, `{"operations": [
+		{"step": "post", "op": 1, "kind": "act", "system": "macos", "recorded": [{"key": "cmd+s"}], "assumes": ["item", "qty"]}
+	]}`, out)
+
+	out, err = runCommand(th, cmd.Computer(), "computer", "cache", "show", "invoices", "--step", "post")
+	require.NoError(t, err)
+	assert.Equal(t, `Step "post", task 1 (act):
+# The steps never use %item%, %qty%, which the task names; pinned, they leave each as a run finds it, whatever its value.
+recorded:
+  macos:
+  - key: cmd+s
+`, out)
+
+	out, err = runCommand(th, cmd.Computer(), "computer", "cache", "show", "invoices", "--step", "check", "--format", "json")
+	require.NoError(t, err)
+	assert.JSONEq(t, `{"operations": [
+		{"step": "check", "op": 1, "kind": "act", "system": "macos", "recorded": [{"key": "enter"}], "assumes_unknown": true}
+	]}`, out)
+	out, err = runCommand(th, cmd.Computer(), "computer", "cache", "show", "invoices", "--step", "check")
+	require.NoError(t, err)
+	assert.Equal(t, `Step "check", task 1 (act):
+# Recorded before recordings noted the variables they never use; check that the steps use each variable the task names.
+recorded:
+  macos:
+  - key: enter
+`, out)
 }
 
 func TestComputerCacheShowInvalidInput(t *testing.T) {
@@ -192,8 +237,8 @@ func TestComputerElementsInvalidInput(t *testing.T) {
 
 // A system that cannot read elements says so with a code.
 func TestComputerElementsUnsupported(t *testing.T) {
-	if goruntime.GOOS == "windows" {
-		t.Skip("the result depends on the desktop session")
+	if goruntime.GOOS == "windows" || goruntime.GOOS == "darwin" {
+		t.Skip("macOS and Windows read elements; the result depends on the desktop session")
 	}
 	t.Parallel()
 
@@ -206,10 +251,7 @@ func TestComputerElementsUnsupported(t *testing.T) {
 		} `json:"error"`
 	}
 	require.NoError(t, json.Unmarshal([]byte(out), &result), out)
-	assert.Contains(t, []string{"unsupported", "no_session", "other_session", "screen_locked", "no_display", "screen_recording", "accessibility", "load_failed", "service_session", "session_disconnected"}, result.Error.Code)
-	if goruntime.GOOS != "darwin" {
-		assert.Equal(t, "unsupported", result.Error.Code)
-	}
+	assert.Equal(t, "unsupported", result.Error.Code)
 }
 
 func computerReplayCache(th test.Command) *replaycache.Store {

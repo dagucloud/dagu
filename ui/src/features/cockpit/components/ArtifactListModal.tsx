@@ -210,7 +210,7 @@ export function ArtifactListModal({
         aria-modal="true"
         aria-labelledby="cockpit-artifacts-title"
         className={cn(
-          'relative z-10 flex h-full w-full flex-col border-l border-border bg-background shadow-xl transition-all duration-200 ease-out will-change-transform sm:w-[calc(100vw-2rem)]',
+          'relative z-10 flex h-full w-full flex-col border-l border-border bg-background shadow-xl transition-[translate,opacity] duration-200 ease-out sm:w-[calc(100vw-2rem)]',
           isVisible ? 'translate-x-0 opacity-100' : 'translate-x-full opacity-0'
         )}
       >

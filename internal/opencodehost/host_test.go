@@ -87,6 +87,15 @@ func TestScanEndpointLongLines(t *testing.T) {
 	require.Equal(t, "http://127.0.0.1:4096", <-ready)
 }
 
+func TestScanEndpointV2(t *testing.T) {
+	t.Parallel()
+
+	ready := make(chan string, 1)
+	scanEndpoint(strings.NewReader("server listening on http://127.0.0.1:4096\n"), ready)
+	require.Len(t, ready, 1, "OpenCode v2 listening endpoint was not found")
+	require.Equal(t, "http://127.0.0.1:4096", <-ready)
+}
+
 func TestValidateRequiresManagedCredentials(t *testing.T) {
 	t.Parallel()
 
@@ -188,5 +197,44 @@ func TestRealOpenCodeCapabilities(t *testing.T) {
 	require.NotEmpty(t, hostConfig.InstanceID)
 	if expected := os.Getenv("DAGU_TEST_OPENCODE_VERSION"); expected != "" {
 		require.Equal(t, expected, hostConfig.Version)
+	}
+}
+
+func TestHealthV2(t *testing.T) {
+	t.Parallel()
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/api/info" {
+			_, _ = w.Write([]byte(`{"version":"2.1.4","pid":123,"urls":[],"paths":{"tmp":"/tmp"}}`))
+			return
+		}
+		_, _ = w.Write([]byte("<html>OpenCode</html>"))
+	}))
+	defer server.Close()
+	host := New(t.Context(), config.OpenCodeConfig{})
+	version, err := host.probeHealth(t.Context(), Config{URL: server.URL})
+	require.NoError(t, err)
+	require.Equal(t, "2.1.4", version)
+}
+
+func TestManagedPasswordV2(t *testing.T) {
+	env, err := managedEnvironment([]string{"OPENCODE_PASSWORD=inherited", "PATH=/bin"}, nil)
+	require.NoError(t, err)
+	require.Equal(t, []string{"PATH=/bin"}, env)
+	_, err = managedEnvironment(nil, []string{"OPENCODE_PASSWORD"})
+	require.Error(t, err)
+}
+
+func TestSharingV2(t *testing.T) {
+	for _, tc := range []struct {
+		input    string
+		disabled bool
+	}{
+		{`[{"type":"document","info":{"share":"auto"}},{"type":"directory","path":"/tmp"},{"type":"document","info":{"share":"disabled"}}]`, true},
+		{`[{"type":"document","info":{"share":"disabled"}},{"type":"document","info":{"share":"auto"}}]`, false},
+		{`[]`, false},
+	} {
+		var value any
+		require.NoError(t, json.Unmarshal([]byte(tc.input), &value))
+		require.Equal(t, tc.disabled, SharingDisabled(value))
 	}
 }

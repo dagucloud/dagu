@@ -49,6 +49,19 @@ function stableStringify(value: unknown): string {
   return JSON.stringify(normalizeForFingerprint(value));
 }
 
+// The text of a schema, by object: a schema is big, and an editor builds its
+// registration again at each render with the same object.
+const schemaPrints = new WeakMap<object, string>();
+
+function schemaPrint(schema: object): string {
+  let print = schemaPrints.get(schema);
+  if (print === undefined) {
+    print = stableStringify(schema);
+    schemaPrints.set(schema, print);
+  }
+  return print;
+}
+
 export function getDocumentSchemaUri(modelUri: string): string {
   const stableId = modelUri
     .replace(/^[A-Za-z][A-Za-z0-9+.-]*:\/\//, '')
@@ -79,7 +92,16 @@ export function buildSchemaRegistration(
     ownerId,
     modelUri,
     registration,
-    fingerprint: stableStringify(registration),
+    // The id of the document replaces the id of the schema, so it is a part
+    // of the text next to the schema text. The schema text is added as it is:
+    // to put it in JSON would escape the whole text again at each render.
+    fingerprint: schema
+      ? `${stableStringify({
+          fileMatch: registration.fileMatch,
+          uri: registration.uri,
+          id: documentSchemaUri,
+        })}\n${schemaPrint(schema)}`
+      : stableStringify(registration),
   };
 }
 

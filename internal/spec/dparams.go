@@ -29,6 +29,9 @@ type dagParamPlan struct {
 	schemaOrder      []string
 	schemaProperties map[string]*jsonschema.Schema
 	schemaClosed     bool
+	// inheritedNames holds the named params the base config declares and the
+	// DAG does not. Overrides of them pass through without validation.
+	inheritedNames map[string]struct{}
 }
 
 type dagParamEntry struct {
@@ -46,6 +49,7 @@ func buildDAGParamsResult(ctx buildContext, d *dag) (*paramsResult, error) {
 	if err := finalizeDAGParamPlan(plan); err != nil {
 		return nil, err
 	}
+	plan.inheritedNames = inheritedParamNames(ctx.baseDAG, plan)
 
 	resolveRuntimeParams := shouldResolveRuntimeParams(ctx)
 	defaultEntries := cloneParamEntries(plan.entries)
@@ -57,7 +61,7 @@ func buildDAGParamsResult(ctx buildContext, d *dag) (*paramsResult, error) {
 		if plan.schema == nil {
 			finalPairs = defaultPairs
 			if resolveRuntimeParams {
-				finalPairs, err = resolveLegacyRuntimePairs(plan.entries, ctx.opts.Parameters, ctx.opts.ParametersList)
+				finalPairs, err = resolveLegacyRuntimePairs(plan.entries, plan.inheritedNames, ctx.opts.Parameters, ctx.opts.ParametersList)
 				if err != nil {
 					return nil, err
 				}
@@ -188,6 +192,41 @@ func paramDeclarationsForPlan(plan *dagParamPlan) cmnvalue.Values {
 		return nil
 	}
 	return params
+}
+
+// inheritedParamNames returns the named params the base config declares or sets
+// that the DAG does not declare itself.
+func inheritedParamNames(base *ir.DAG, plan *dagParamPlan) map[string]struct{} {
+	if base == nil {
+		return nil
+	}
+	names := make(map[string]struct{})
+	add := func(name string) {
+		if name != "" && !isPositionalName(name) {
+			names[name] = struct{}{}
+		}
+	}
+	for _, def := range base.ParamDefs {
+		add(def.Name)
+	}
+	for _, param := range base.Params {
+		if name, _, ok := strings.Cut(param, "="); ok {
+			add(name)
+		}
+	}
+	for _, entry := range plan.entries {
+		delete(names, entry.Name)
+	}
+	for _, def := range plan.paramDefs {
+		delete(names, def.Name)
+	}
+	for name := range plan.schemaProperties {
+		delete(names, name)
+	}
+	if len(names) == 0 {
+		return nil
+	}
+	return names
 }
 
 func paramPlanHasEval(plan *dagParamPlan) bool {
@@ -351,16 +390,27 @@ func buildExternalSchemaParamPlan(input any, workingDir, dagLocation string) (*d
 	if err != nil {
 		return nil, err
 	}
+	entries, err := keepUntypedValueText(entriesFromTypedMap(typedDefaults, schemaOrder), typedDefaults, basePairs, resolvedSchema, schemaProperties)
+	if err != nil {
+		return nil, err
+	}
 
 	plan := &dagParamPlan{
 		kind:             dagParamKindExternalSchema,
 		schema:           resolvedSchema,
 		schemaOrder:      schemaOrder,
 		schemaProperties: schemaProperties,
-		entries:          entriesFromTypedMap(typedDefaults, schemaOrder),
+		entries:          entries,
 	}
 
-	paramDefs, ok := deriveExternalSchemaParamDefs(root, typedDefaults)
+	// The start form offers untyped values as the run would receive them.
+	formDefaults := maps.Clone(typedDefaults)
+	for _, entry := range entries {
+		if _, typed := schemaScalarType(schemaProperties[entry.Name]); !typed {
+			formDefaults[entry.Name] = entry.Value
+		}
+	}
+	paramDefs, ok := deriveExternalSchemaParamDefs(root, formDefaults)
 	if ok {
 		plan.paramDefs = paramDefs
 	}

@@ -95,6 +95,20 @@ func TestHealedPinnedActRecordsTheStepsThatRan(t *testing.T) {
 	]`, steps, "the pinned steps that ran, then what the model did in place of the one that missed")
 }
 
+// When a pinned step misses, the model that takes over is told every step
+// that acted before it, a key sent without an element included.
+func TestHealedPinnedActKnowsTheStepsThatActed(t *testing.T) {
+	t.Parallel()
+
+	const pinned = `[{"key": "ctrl+s"}, {"click": {"role": "button", "name": "送信", "id": "submit"}}]`
+	run := elementRun(t)
+	run.sessions = []*scriptedSession{{turns: []*computeruse.Turn{done("It was saved")}}}
+	healed := run.execute(`{"find_within": "50ms", "do": [{"act": {"instruction": "Save the invoice", "recorded": {"windows": `+pinned+`}}}]}`, nil)
+	require.NoError(t, healed.err)
+	require.Len(t, run.sessionOptions, 1)
+	assert.Contains(t, run.sessionOptions[0].System, "already carried out: key ctrl+s. The replay stopped because ")
+}
+
 // An element without an id is looked for in its closest named container, so
 // a name that repeats in the window still names one element.
 func TestPinnedRecordingNamesTheContainer(t *testing.T) {
@@ -130,6 +144,7 @@ func TestPinnedRecordingConvertsEachAction(t *testing.T) {
 	untitled := &recordedElement{Selector: desktop.Selector{Role: desktop.RoleButton, Name: "OK"}, Window: "確認 - %invoice%", FractionX: 0.7, FractionY: 0.3}
 	saveEdge := &recordedElement{Selector: save.Selector, App: "expense", FractionX: 0.95, FractionY: 0.5}
 	amount := &recordedElement{Selector: desktop.Selector{Role: desktop.RoleTextField, ID: "amountBox"}, App: "expense", FractionX: 0.05, FractionY: 0.5}
+	agree := &recordedElement{Selector: desktop.Selector{Role: desktop.RoleCheckbox, ID: "agreeBox"}, App: "expense", FractionX: 0.5, FractionY: 0.5}
 	at := &computeruse.Point{X: 235, Y: 194}
 	for _, tc := range []struct {
 		name       string
@@ -150,6 +165,9 @@ func TestPinnedRecordingConvertsEachAction(t *testing.T) {
 				{Action: computeruse.Action{Kind: computeruse.KindKey, Keys: []string{"shift", "tab"}, Repeat: 2}, Element: amount},
 				{Action: computeruse.Action{Kind: computeruse.KindWait, Duration: 1500 * time.Millisecond}},
 				{Action: computeruse.Action{Kind: computeruse.KindWait, Duration: 5 * time.Minute}},
+				{Action: computeruse.Action{Kind: computeruse.KindClick, Point: at}, Element: agree, Checked: new(true)},
+				{Action: computeruse.Action{Kind: computeruse.KindClick, Point: at}, Element: agree, Checked: new(false)},
+				{Action: computeruse.Action{Kind: computeruse.KindClick, Button: computeruse.ButtonLeft, Count: 2, Point: at}, Element: agree, Checked: new(true)},
 			},
 			steps: `[
 				{"click": {"app": "expense", "role": "button", "name": "保存", "id": "saveButton"}},
@@ -159,7 +177,10 @@ func TestPinnedRecordingConvertsEachAction(t *testing.T) {
 				{"key": "tab"}, {"key": "tab"},
 				{"click": {"app": "expense", "role": "text_field", "id": "amountBox"}},
 				{"key": "shift+tab", "focus": {"app": "expense", "role": "text_field", "id": "amountBox"}}, {"key": "shift+tab"},
-				{"wait": "1.5s"}, {"wait": "1m0s"}
+				{"wait": "1.5s"}, {"wait": "1m0s"},
+				{"check": {"app": "expense", "role": "checkbox", "id": "agreeBox"}},
+				{"uncheck": {"app": "expense", "role": "checkbox", "id": "agreeBox"}},
+				{"double_click": {"app": "expense", "role": "checkbox", "id": "agreeBox"}}
 			]`,
 		},
 		{
@@ -238,14 +259,15 @@ func TestPinnedRecordingReadsExtractOnAnotherDevice(t *testing.T) {
 	assert.Empty(t, device.vision.requests, "no model request")
 }
 
-// Only a recording of the current format that recorded something converts;
-// one that does not name its system was made on this host.
+// Only a recording of a format this engine replays that recorded something
+// converts; one that does not name its system was made on this host.
 func TestPinRecordingSkipsWhatCannotReplay(t *testing.T) {
 	t.Parallel()
 
 	enter := []recordedTurn{{Actions: []recordedAction{{Action: keyPress("enter")}}}}
 	for name, entry := range map[string]string{
-		"older format": marshal(t, recording{Version: recordingVersion - 1, Turns: enter}),
+		"older format": marshal(t, recording{Version: oldestRecordingVersion - 1, Turns: enter}),
+		"newer format": marshal(t, recording{Version: recordingVersion + 1, Turns: enter}),
 		"nothing":      marshal(t, recording{Version: recordingVersion}),
 		"not json":     `{`,
 	} {
@@ -258,4 +280,7 @@ func TestPinRecordingSkipsWhatCannotReplay(t *testing.T) {
 	assert.Equal(t, hostSystem(), pinned.System)
 	assert.Equal(t, 3, pinned.Op)
 	assert.True(t, pinned.SavedAt.IsZero())
+
+	_, ok = PinRecording(json.RawMessage(marshal(t, recording{Version: oldestRecordingVersion, Turns: enter})))
+	assert.True(t, ok, "a recording from before windows were recorded still converts")
 }

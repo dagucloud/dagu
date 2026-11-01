@@ -482,3 +482,28 @@ func TestStreamResponse_LargeEvent(t *testing.T) {
 	require.True(t, done)
 	require.Equal(t, []string{big}, deltas)
 }
+
+// A stream's usage keeps the input counts message_start reports when
+// message_delta later reports only the output, as the API does.
+func TestStreamResponse_MergesUsage(t *testing.T) {
+	t.Parallel()
+
+	stream := "data: {\"type\":\"message_start\",\"message\":{\"usage\":{\"input_tokens\":12,\"cache_read_input_tokens\":100,\"cache_creation_input_tokens\":8,\"output_tokens\":1}}}\n\n" +
+		"data: {\"type\":\"content_block_delta\",\"delta\":{\"type\":\"text_delta\",\"text\":\"hi\"}}\n\n" +
+		"data: {\"type\":\"message_delta\",\"usage\":{\"output_tokens\":40}}\n\n" +
+		"data: {\"type\":\"message_stop\"}\n\n"
+
+	provider := &Provider{}
+	events := make(chan llm.StreamEvent)
+	go provider.streamResponse(context.Background(), io.NopCloser(strings.NewReader(stream)), events)
+
+	var usage *llm.Usage
+	for event := range events {
+		require.NoError(t, event.Error)
+		if event.Done {
+			usage = event.Usage
+		}
+	}
+	require.NotNil(t, usage)
+	assert.Equal(t, llm.Usage{PromptTokens: 120, CompletionTokens: 40, TotalTokens: 160, CachedPromptTokens: 100, CacheWritePromptTokens: 8}, *usage)
+}

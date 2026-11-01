@@ -132,6 +132,18 @@ func TestWindowsElements(t *testing.T) {
 	assert.Equal(t, "同意する", byID["agreeBox"].Name)
 	assert.Equal(t, PathStep{Role: RoleGroup, Name: "支払情報", Index: 0}, byID["paymentSaveButton"].Path[0], "the path leads through the group")
 
+	// The disabled submit button reads as disabled, and enabled selects by it.
+	require.Contains(t, byID, "submitButton")
+	assert.True(t, byID["submitButton"].Disabled, "a disabled button reads as disabled")
+	assert.False(t, byID["saveButton"].Disabled)
+	grayed, err := els.Find(Selector{Role: RoleButton, Name: "送信", Enabled: new(false)})
+	require.NoError(t, err)
+	require.Len(t, grayed, 1, "%+v", grayed)
+	assert.Equal(t, "submitButton", grayed[0].ID)
+	usable, err := els.Find(Selector{Role: RoleButton, Name: "送信", Enabled: new(true)})
+	require.NoError(t, err)
+	assert.Empty(t, usable, "the disabled button is not an enabled one")
+
 	// Find agrees with matching the outline.
 	began = time.Now()
 	saves, err := els.Find(Selector{Role: RoleButton, Name: "保存"})
@@ -280,11 +292,13 @@ func TestWindowsDirectInput(t *testing.T) {
 		front, err = els.FrontWindow()
 		return err == nil && front.Name == "確認"
 	}, 3*time.Second, 100*time.Millisecond, "the dialog is not in front: %+v %v", front, err)
+	assert.Equal(t, RoleDialog, front.Role, "a message box holds the window it belongs to")
 	require.NoError(t, driver.PressKeys(ctx, []Key{KeyEnter}, 1))
 	require.Eventually(t, func() bool {
 		front, err = els.FrontWindow()
 		return err == nil && front.Name == elementsWindowTitle
 	}, 3*time.Second, 100*time.Millisecond, "the window is not back in front: %+v %v", front, err)
+	assert.Equal(t, RoleWindow, front.Role)
 	require.NoError(t, els.Apply(byID["agreeBox"], PatternToggle, ""))
 	expectStatus("同意: True")
 }

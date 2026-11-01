@@ -7,6 +7,11 @@ on:
     paths:
       - "ui/**"
       - ".github/workflows/frontend-ci.yaml"
+      # The golden round-trip test of the UI reads these YAML corpora.
+      - "examples/**"
+      - "internal/**/*.y*ml"
+      - "conformance/**/*.y*ml"
+      - "specs/**"
   pull_request:
     # Keep this workflow directly rerunnable from PR-only maintenance commits.
     types:
@@ -17,6 +22,11 @@ on:
     paths:
       - "ui/**"
       - ".github/workflows/frontend-ci.yaml"
+      # The golden round-trip test of the UI reads these YAML corpora.
+      - "examples/**"
+      - "internal/**/*.y*ml"
+      - "conformance/**/*.y*ml"
+      - "specs/**"
   workflow_dispatch:
 
 # Restrict to read-only: this workflow only runs tests and builds the frontend,
@@ -24,6 +34,14 @@ on:
 # broad token permissions from being available if the workflow is ever compromised.
 permissions:
   contents: read
+
+concurrency:
+  # A new commit to a pull request cancels the run of the commit it
+  # replaces, so superseded runs stop holding the org's runners. Runs for
+  # main and manual dispatches each get a group of their own and always
+  # finish.
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.run_id }}
+  cancel-in-progress: true
 
 jobs:
   build:

@@ -5,6 +5,7 @@ package spec003_value_resolution_test
 
 import (
 	"path/filepath"
+	"runtime"
 	"testing"
 
 	"github.com/dagucloud/dagu/v2/conformance/harness"
@@ -100,6 +101,28 @@ func TestInsertedTextStaysLiteral(t *testing.T) {
 	result.ExpectExitCode(0)
 	dagu.ExpectFileContent("insertion.txt", "p\\$INSERTED\n$INSERTED/data\n$INSERTED/data\nexpanded\nexpanded$INSERTED/data\n"+
 		"$INSERTED/data\n$INSERTED\np\\$INSERTED\n$INSERTED/data-spec003-insertion\n")
+}
+
+// TestPathFieldBackslashIsPathText proves the "Path Fields" rule: a backslash
+// before a reference in a path field is path text, so the reference resolves
+// and the backslash stays, for Dagu-owned and unqualified references alike.
+// The content field is not a path field and keeps the escape.
+func TestPathFieldBackslashIsPathText(t *testing.T) {
+	t.Parallel()
+
+	dagu := harness.NewRunner(t)
+	dagu.Run("start", "path_field_backslash.yaml").ExpectExitCode(0)
+
+	// Windows reads the backslash as a separator; other systems keep it in
+	// the file name.
+	path := func(dir, name string) string {
+		if runtime.GOOS == "windows" {
+			return filepath.Join(dir, name)
+		}
+		return dir + `\` + name
+	}
+	dagu.ExpectFileContent(path("out", "prod.txt"), "${NAME}")
+	dagu.ExpectFileContent(path("out", "order-1.txt"), "${NAME}")
 }
 
 // A retry rebuilds the DAG from its stored definition, and root env inserted

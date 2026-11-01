@@ -4,6 +4,7 @@
 package computer
 
 import (
+	"cmp"
 	"context"
 	"errors"
 	"fmt"
@@ -15,6 +16,7 @@ import (
 
 	"github.com/dagucloud/dagu/v2/internal/desktop"
 	"github.com/dagucloud/dagu/v2/internal/llm/computeruse"
+	"github.com/dagucloud/dagu/v2/internal/runtime/builtin/internal/agentstep"
 )
 
 const (
@@ -66,8 +68,14 @@ func (r *run) recordElement(e desktop.Element, at *image.Point, app string) *rec
 	if e.Role == desktop.RoleWindow || e.Bounds.Empty() || (e.Name == "" && e.ID == "") {
 		return nil
 	}
+	// A name kept as a placeholder finds the element by the next run's
+	// value, which the element's own id would override.
+	name, id := r.elementName(e.Name), e.ID
+	if name != e.Name {
+		id = ""
+	}
 	rec := &recordedElement{
-		Selector: desktop.Selector{Role: e.Role, Name: r.placeholder(e.Name), ID: e.ID},
+		Selector: desktop.Selector{Role: e.Role, Name: name, ID: id},
 		Path:     e.Path,
 		App:      app,
 		Window:   r.placeholderIn(e.Window),
@@ -102,6 +110,21 @@ func (r *run) placeholder(text string) string {
 		}
 	}
 	return text
+}
+
+// elementName is the name a recording keeps for an element. A name that is
+// the value of a variable the model may see holds its placeholder however
+// short it is, since the model chose the element by that value; any other
+// name is kept as placeholder keeps it.
+func (r *run) elementName(name string) string {
+	if wanted := desktop.NormalizeText(name); wanted != "" {
+		for _, visible := range slices.Sorted(slices.Values(r.cfg.Visible)) {
+			if desktop.NormalizeText(r.variables[visible]) == wanted {
+				return "%" + visible + "%"
+			}
+		}
+	}
+	return r.placeholder(name)
 }
 
 // placeholderIn replaces every variable value text contains with its
@@ -156,7 +179,57 @@ func describeRecorded(rec recordedAction, at image.Point) string {
 	case computeruse.KindKey, computeruse.KindHoldKey:
 		return fmt.Sprintf("%s %s in %s", rec.Action.Kind, strings.Join(rec.Action.Keys, "+"), rec.Element.describe())
 	default:
-		return fmt.Sprintf("%s %s at %d,%d", rec.Action.Kind, rec.Element.describe(), at.X, at.Y)
+		kind := string(rec.Action.Kind)
+		if rec.Checked != nil {
+			kind = map[bool]string{true: "check", false: "uncheck"}[*rec.Checked]
+		}
+		return fmt.Sprintf("%s %s at %d,%d", kind, rec.Element.describe(), at.X, at.Y)
+	}
+}
+
+// checkedState reads whether a checkbox is checked, from the state its
+// value holds; it is unknown for an element whose value says neither.
+func checkedState(e desktop.Element) (checked, known bool) {
+	switch e.Value {
+	case "true":
+		return true, true
+	case "false":
+		return false, true
+	}
+	return false, false
+}
+
+// checkedWord names a checkbox state.
+func checkedWord(checked bool) string {
+	if checked {
+		return "checked"
+	}
+	return "unchecked"
+}
+
+// awaitChecked waits until a checkbox a step clicked is in the state the
+// step leaves it in, looking again until findWithin passes, and says why
+// it is not.
+func (r *run) awaitChecked(ctx context.Context, els desktop.Elements, rec recordedElement, want bool, findWithin time.Duration) (string, error) {
+	deadline := time.Now().Add(findWithin)
+	for {
+		found, reason, err := r.lookRecorded(els, rec)
+		if err != nil {
+			return "", err
+		}
+		if reason == "" {
+			state, known := checkedState(found)
+			if known && state == want {
+				return "", nil
+			}
+			reason = fmt.Sprintf("it is not %s after the click", checkedWord(want))
+		}
+		if !time.Now().Before(deadline) {
+			return reason, nil
+		}
+		if err := sleep(ctx, min(exactPollInterval, time.Until(deadline))); err != nil {
+			return "", err
+		}
 	}
 }
 
@@ -252,11 +325,35 @@ func windowMatchesRecorded(w desktop.WindowID, app, title string) bool {
 // is not there. The window in front must be the application the element was
 // recorded in.
 func (r *run) lookRecorded(els desktop.Elements, rec recordedElement) (desktop.Element, string, error) {
-	sel := substituteSelector(rec.Selector, r.variables)
 	front, err := els.FrontWindow()
+	if errors.Is(err, desktop.ErrNoWindow) {
+		return desktop.Element{}, err.Error(), nil
+	}
 	if err != nil {
 		return desktop.Element{}, "", err
 	}
+	title := r.substitute(rec.Window)
+	held := front.Role == desktop.RoleDialog && r.dialogHolds(front, r.recordedWindow(rec.App, title), rec.App, title)
+	// A dialog that holds the recorded window is not searched when the
+	// recording names another window: a window matches by its application
+	// alone, and a match in the dialog would answer a question the
+	// recording never saw.
+	if held && title != "" {
+		return desktop.Element{}, describeDialog(els, front), nil
+	}
+	found, reason, err := r.lookIn(els, front, rec)
+	// Such a dialog is why the element is not there, whatever else the
+	// look found.
+	if err == nil && reason != "" && held {
+		reason = describeDialog(els, front)
+	}
+	return found, reason, err
+}
+
+// lookIn finds a recorded element in the window in front, or says why it
+// is not there.
+func (r *run) lookIn(els desktop.Elements, front desktop.Element, rec recordedElement) (desktop.Element, string, error) {
+	sel := substituteSelector(rec.Selector, r.variables)
 	if ok, reason := r.frontMatches(front, rec.App, rec.Window); !ok {
 		return desktop.Element{}, reason, nil
 	}
@@ -264,6 +361,8 @@ func (r *run) lookRecorded(els desktop.Elements, rec recordedElement) (desktop.E
 	switch {
 	case errors.Is(err, desktop.ErrNoElements):
 		return desktop.Element{}, fmt.Sprintf("%q exposes no elements", front.Name), nil
+	case errors.Is(err, desktop.ErrNoWindow):
+		return desktop.Element{}, err.Error(), nil
 	case errors.Is(err, desktop.ErrNotFound) || errors.Is(err, desktop.ErrAmbiguous):
 		return desktop.Element{}, err.Error(), nil
 	case err != nil:
@@ -271,6 +370,10 @@ func (r *run) lookRecorded(els desktop.Elements, rec recordedElement) (desktop.E
 	}
 	found, err := desktop.One(desktop.MatchPath(matches, rec.Path), sel)
 	if err == nil {
+		if front.App != "" {
+			r.workApp = front.App
+			r.trustWorkApp(front.App)
+		}
 		return found, "", nil
 	}
 	if ambiguous, ok := errors.AsType[*desktop.AmbiguousError](err); ok {
@@ -285,6 +388,24 @@ func (r *run) resolveElement(ctx context.Context, index int, els desktop.Element
 	deadline := time.Now().Add(findWithin)
 	title := r.substitute(rec.Window)
 	for {
+		// A person who used the desktop meanwhile may have left another
+		// window in front; the element is looked for again from when they
+		// stop.
+		if resumed, err := r.resumeAfterPerson(ctx, index); err != nil {
+			return desktop.Element{}, "", err
+		} else if resumed {
+			deadline = time.Now().Add(findWithin)
+		}
+		// A screen a handler clears, such as a confirmation, may hide the
+		// element or stand over it; it is cleared before every look, while
+		// it is still in front, and the wait starts over.
+		handled, err := r.handleScreens(ctx, index)
+		if err != nil {
+			return desktop.Element{}, "", err
+		}
+		if handled {
+			deadline = time.Now().Add(findWithin)
+		}
 		// A window that slipped behind another is brought forward rather
 		// than counted a miss, so a replay survives a focus change.
 		r.bringForward(ctx, index, rec.App, title)
@@ -292,10 +413,13 @@ func (r *run) resolveElement(ctx context.Context, index int, els desktop.Element
 		if err != nil || reason == "" {
 			return found, reason, err
 		}
+		if handled {
+			continue
+		}
 		if !time.Now().Before(deadline) {
 			return desktop.Element{}, reason, nil
 		}
-		if err := sleep(ctx, min(exactPollInterval, time.Until(deadline))); err != nil {
+		if err := r.pollSleep(ctx, min(exactPollInterval, time.Until(deadline))); err != nil {
 			return desktop.Element{}, "", err
 		}
 	}
@@ -309,18 +433,42 @@ const foregroundSettle = 200 * time.Millisecond
 // so a replay acts on it even after it lost the focus. The window is matched
 // by its application; among several windows of that application the one whose
 // title still matches is preferred. It never raises the step's own
-// application, and is a best effort: the look that follows still checks the
-// front window. title is already substituted.
+// application, nor a window a dialog of its application holds, since acting
+// in it would go past a question nobody answered. It is a best effort: the
+// look that follows still checks the front window. title is already
+// substituted.
 func (r *run) bringForward(ctx context.Context, index int, app, title string) {
-	if app == "" && title == "" {
+	target := r.recordedWindow(app, title)
+	if target == nil {
 		return
+	}
+	// Already acting on the best window? Leave it; only raise when a better
+	// window than the one in front is open.
+	if front := r.driver.FocusedWindow(); front.Known() && front.Handle == target.Handle {
+		return
+	}
+	if els, err := r.elementsIfAvailable(); err == nil && r.heldByDialog(els, target, app, title) {
+		return
+	}
+	if err := r.driver.Raise(*target); err != nil {
+		return
+	}
+	logAction(r.timeline, index, fmt.Sprintf("bringing %q to the front", target.Title))
+	_ = sleep(ctx, foregroundSettle)
+}
+
+// recordedWindow chooses the window bringForward raises, or returns nil
+// when none is open. title is already substituted.
+func (r *run) recordedWindow(app, title string) *desktop.WindowID {
+	if app == "" && title == "" {
+		return nil
 	}
 	// Choose the best window before looking at the focused one: a window of
 	// the recorded app whose title still matches is preferred, so a second
 	// document of the same application does not win just by holding the
 	// focus; any window of the app is the fallback.
 	windows := r.driver.Windows()
-	var best, any *desktop.WindowID
+	var any *desktop.WindowID
 	for i := range windows {
 		w := windows[i]
 		if r.driver.Owned(w) || !windowMatchesRecorded(w, app, title) {
@@ -330,27 +478,65 @@ func (r *run) bringForward(ctx context.Context, index int, app, title string) {
 			any = &windows[i]
 		}
 		if title != "" && desktop.WindowMatches(w.Title, title) {
-			best = &windows[i]
-			break
+			return &windows[i]
 		}
 	}
-	target := best
-	if target == nil {
-		target = any
+	return any
+}
+
+// heldByDialog reports whether a dialog in front holds the recorded
+// window; see dialogHolds. A front window it cannot read may be such a
+// dialog, so it holds the window too; only no window in front holds none.
+func (r *run) heldByDialog(els desktop.Elements, target *desktop.WindowID, app, title string) bool {
+	front, err := els.FrontWindow()
+	if errors.Is(err, desktop.ErrNoWindow) {
+		return false
 	}
-	if target == nil {
-		return
+	return err != nil || r.dialogHolds(front, target, app, title)
+}
+
+// dialogHolds reports whether the window in front is a dialog that holds
+// the recorded window of app, titled title: a dialog of that application,
+// else of target's, the window a step would bring forward, else of the
+// step's own. Only its title makes the dialog the recorded window itself,
+// since target may be any window of the application when no title
+// matches. title is already substituted.
+func (r *run) dialogHolds(front desktop.Element, target *desktop.WindowID, app, title string) bool {
+	if front.Role != desktop.RoleDialog {
+		return false
 	}
-	// Already acting on the best window? Leave it; only raise when a better
-	// window than the one in front is open.
-	if front := r.driver.FocusedWindow(); front.Known() && front.Handle == target.Handle {
-		return
+	if title != "" && desktop.WindowMatches(front.Name, title) {
+		return false
 	}
-	if err := r.driver.Raise(*target); err != nil {
-		return
+	if app == "" && target != nil {
+		app = target.App
 	}
-	logAction(r.timeline, index, fmt.Sprintf("bringing %q to the front", target.Title))
-	_ = sleep(ctx, foregroundSettle)
+	app = cmp.Or(app, r.workApp)
+	return app == "" || front.App == "" || strings.EqualFold(front.App, app)
+}
+
+// describeDialog says which dialog is in front and the text it shows, so
+// a step that stops on a dialog it was not told about names it.
+func describeDialog(els desktop.Elements, dialog desktop.Element) string {
+	var texts []string
+	if outline, err := els.Outline(dialog, 0); err == nil {
+		for _, e := range outline {
+			if e.Role != desktop.RoleText {
+				continue
+			}
+			if text := cmp.Or(strings.TrimSpace(e.Name), strings.TrimSpace(e.Value)); text != "" {
+				texts = append(texts, text)
+			}
+		}
+	}
+	what := "a dialog"
+	if dialog.Name != "" {
+		what = fmt.Sprintf("the dialog %q", dialog.Name)
+	}
+	if len(texts) == 0 {
+		return what + " is in front"
+	}
+	return fmt.Sprintf("%s is in front, showing %s", what, agentstep.QuoteShort(strings.Join(texts, " ")))
 }
 
 // proveValue marks a typed field whose value, read back after the typing,
@@ -401,6 +587,29 @@ func directInput(rec recordedAction) (desktop.Pattern, bool) {
 		return desktop.PatternExpand, true
 	}
 	return "", false
+}
+
+// applyPattern has an element perform a pattern. A pattern can send keys of
+// its own, as choosing an option of Chromium's list box does; they are the
+// step's input, so the desktop is not taken to be in a person's use. A
+// pattern refused before it acted sent nothing, so a person's input just
+// before it still counts.
+func (r *run) applyPattern(els desktop.Elements, e desktop.Element, pattern desktop.Pattern, value string) error {
+	err := els.Apply(e, pattern, value)
+	if err == nil || !desktop.Refused(err) {
+		r.driver.AssumeInputSent(time.Now())
+	}
+	return err
+}
+
+// choosesOption reports an option of a list box's menu, which is chosen
+// through its own pattern under either input: on macOS the menu showing it
+// is drawn apart from the window, so the option has no place there that a
+// click could aim at.
+func choosesOption(e desktop.Element) bool {
+	return e.Role == desktop.RoleMenuItem && slices.ContainsFunc(e.Path, func(step desktop.PathStep) bool {
+		return step.Role == desktop.RoleComboBox
+	})
 }
 
 // patternVerbs say what a pattern did, or could not do, to an element.
@@ -455,7 +664,27 @@ func (r *run) direct(ctx context.Context, index, position, total int, els deskto
 	}
 	deadline := time.Now().Add(findWithin)
 	for {
-		err := els.Apply(found, pattern, value)
+		// The element is found again on each try, so where it is now is
+		// checked each time, as the first try's was.
+		if own, owned := r.elementOffLimits(found); owned {
+			return false, fmt.Sprintf("%s at turn %d of %d: %s", rec.Element.describe(), position+1, total, r.offLimitsMessage(own)), nil
+		}
+		if why, refused := r.refusedElement(found); refused {
+			return false, fmt.Sprintf("%s at turn %d of %d: %s", rec.Element.describe(), position+1, total, why), nil
+		}
+		// A checkbox found again may have reached its state meanwhile, and
+		// a toggle would then undo it.
+		if rec.Checked != nil {
+			state, known := checkedState(found)
+			if !known {
+				return false, fmt.Sprintf("%s does not say whether it is checked, at turn %d of %d", rec.Element.describe(), position+1, total), nil
+			}
+			if state == *rec.Checked {
+				logAction(r.timeline, index, fmt.Sprintf("replay by element: %s is already %s", rec.Element.describe(), checkedWord(state)))
+				return true, "", nil
+			}
+		}
+		err := r.applyPattern(els, found, pattern, value)
 		switch {
 		case err == nil:
 			logAction(r.timeline, index, "replay by element: "+describeDirect(pattern, rec))
@@ -464,18 +693,23 @@ func (r *run) direct(ctx context.Context, index, position, total int, els deskto
 			logAction(r.timeline, index, fmt.Sprintf("%s offers no %s pattern; using the screen", rec.Element.describe(), pattern))
 			return false, "", nil
 		case errors.Is(err, desktop.ErrDisabled) || errors.Is(err, desktop.ErrNotFound):
-			if !time.Now().Before(deadline) {
-				return false, fmt.Sprintf("%s could not be %s within %s at turn %d of %d: %s", rec.Element.describe(), patternVerbs[pattern], findWithin, position+1, total, directReason(err)), nil
-			}
-			if err := sleep(ctx, min(exactPollInterval, time.Until(deadline))); err != nil {
-				return false, "", err
-			}
-			again, reason, err := r.resolveElement(ctx, index, els, *rec.Element, 0)
-			if err != nil {
-				return false, "", err
-			}
-			if reason == "" {
-				found = again
+			// The element is looked for again until it is there, never
+			// tried again as it was, which may now name another element.
+			for {
+				if !time.Now().Before(deadline) {
+					return false, fmt.Sprintf("%s could not be %s within %s at turn %d of %d: %s", rec.Element.describe(), patternVerbs[pattern], findWithin, position+1, total, directReason(err)), nil
+				}
+				if err := sleep(ctx, min(exactPollInterval, time.Until(deadline))); err != nil {
+					return false, "", err
+				}
+				again, reason, err := r.resolveElement(ctx, index, els, *rec.Element, 0)
+				if err != nil {
+					return false, "", err
+				}
+				if reason == "" {
+					found = again
+					break
+				}
 			}
 		default:
 			return false, fmt.Sprintf("%s could not be %s at turn %d of %d: %v", rec.Element.describe(), patternVerbs[pattern], position+1, total, err), nil
@@ -488,6 +722,19 @@ func (r *run) direct(ctx context.Context, index, position, total int, els deskto
 // It returns the reason the turn missed, or "" when every action ran.
 func (r *run) replayByElement(ctx context.Context, index, position, total int, turn recordedTurn, els desktop.Elements, findWithin time.Duration, direct bool, outcome *replayOutcome) (string, error) {
 	for _, rec := range turn.Actions {
+		// Every action waits for a person using the desktop to stop, so a
+		// click or text never lands in their window.
+		if _, err := r.resumeAfterPerson(ctx, index); err != nil {
+			return "", err
+		}
+		// A screen a handler clears is cleared before the action, so the
+		// action never lands on it, or through it on the element behind; an
+		// action on an element clears it as it looks for the element.
+		if rec.Element == nil {
+			if _, err := r.clearScreens(ctx, index); err != nil {
+				return "", err
+			}
+		}
 		action := rec.Action
 		if rec.Element == nil {
 			logAction(r.timeline, index, "replay "+describeAction(action))
@@ -499,13 +746,45 @@ func (r *run) replayByElement(ctx context.Context, index, position, total int, t
 			if reason != "" {
 				return fmt.Sprintf("%s was not found within %s at turn %d of %d: %s", rec.Element.describe(), findWithin, position+1, total, reason), nil
 			}
-			if direct {
+			if own, owned := r.elementOffLimits(found); owned {
+				return fmt.Sprintf("%s at turn %d of %d: %s", rec.Element.describe(), position+1, total, r.offLimitsMessage(own)), nil
+			}
+			if why, refused := r.refusedElement(found); refused {
+				return fmt.Sprintf("%s at turn %d of %d: %s", rec.Element.describe(), position+1, total, why), nil
+			}
+			if action.Kind == computeruse.KindChoose {
+				reason, err := r.choose(ctx, index, els, found, r.substitute(action.Text))
+				if err != nil {
+					return "", err
+				}
+				if reason != "" {
+					return fmt.Sprintf("%s at turn %d of %d: %s", rec.Element.describe(), position+1, total, reason), nil
+				}
+				outcome.actions++
+				outcome.carried = append(outcome.carried, rec)
+				continue
+			}
+			if rec.Checked != nil {
+				state, known := checkedState(found)
+				if !known {
+					return fmt.Sprintf("%s does not say whether it is checked, at turn %d of %d", rec.Element.describe(), position+1, total), nil
+				}
+				if state == *rec.Checked {
+					logAction(r.timeline, index, fmt.Sprintf("replay by element: %s is already %s", rec.Element.describe(), checkedWord(state)))
+					continue
+				}
+			}
+			if direct || rec.Invoked || choosesOption(found) {
 				done, reason, err := r.direct(ctx, index, position, total, els, rec, found, findWithin)
 				if err != nil || reason != "" {
 					return reason, err
 				}
 				if done {
 					outcome.actions++
+					outcome.carried = append(outcome.carried, rec)
+					if reason, err := r.confirmChecked(ctx, els, rec, position, total, findWithin); err != nil || reason != "" {
+						return reason, err
+					}
 					continue
 				}
 			}
@@ -534,24 +813,56 @@ func (r *run) replayByElement(ctx context.Context, index, position, total int, t
 		if result := r.runAction(ctx, action, identity, nil, computeruse.ImageLimit{}); result.Failed() {
 			return fmt.Sprintf("%s failed at turn %d of %d: %s", describeAction(action), position+1, total, result.Error), ctx.Err()
 		}
+		outcome.carried = append(outcome.carried, rec)
+		if reason, err := r.confirmChecked(ctx, els, rec, position, total, findWithin); err != nil || reason != "" {
+			return reason, err
+		}
 	}
 	return "", nil
+}
+
+// confirmChecked waits, for a click that leaves its checkbox in a state,
+// until the checkbox is in it, and says why it is not.
+func (r *run) confirmChecked(ctx context.Context, els desktop.Elements, rec recordedAction, position, total int, findWithin time.Duration) (string, error) {
+	if rec.Checked == nil || rec.Element == nil {
+		return "", nil
+	}
+	reason, err := r.awaitChecked(ctx, els, *rec.Element, *rec.Checked, findWithin)
+	if err != nil || reason == "" {
+		return "", err
+	}
+	return fmt.Sprintf("%s at turn %d of %d: %s", rec.Element.describe(), position+1, total, reason), nil
 }
 
 // awaitLandmarks checks the screen an element replay ends on: the window
 // in front and the landmarks, looking again until they are there or
 // findWithin passes. It returns the reason they are not.
-func (r *run) awaitLandmarks(ctx context.Context, els desktop.Elements, entry recording, findWithin time.Duration) (string, error) {
+func (r *run) awaitLandmarks(ctx context.Context, index int, els desktop.Elements, entry recording, findWithin time.Duration) (string, error) {
 	deadline := time.Now().Add(findWithin)
 	for {
+		if resumed, err := r.resumeAfterPerson(ctx, index); err != nil {
+			return "", err
+		} else if resumed {
+			deadline = time.Now().Add(findWithin)
+		}
+		handled, err := r.handleScreens(ctx, index)
+		if err != nil {
+			return "", err
+		}
+		if handled {
+			deadline = time.Now().Add(findWithin)
+		}
 		reason, err := r.lookLandmarks(els, entry)
 		if err != nil || reason == "" {
 			return reason, err
 		}
+		if handled {
+			continue
+		}
 		if !time.Now().Before(deadline) {
 			return reason, nil
 		}
-		if err := sleep(ctx, min(exactPollInterval, time.Until(deadline))); err != nil {
+		if err := r.pollSleep(ctx, min(exactPollInterval, time.Until(deadline))); err != nil {
 			return "", err
 		}
 	}
@@ -559,6 +870,9 @@ func (r *run) awaitLandmarks(ctx context.Context, els desktop.Elements, entry re
 
 func (r *run) lookLandmarks(els desktop.Elements, entry recording) (string, error) {
 	front, err := els.FrontWindow()
+	if errors.Is(err, desktop.ErrNoWindow) {
+		return err.Error(), nil
+	}
 	if err != nil {
 		return "", err
 	}

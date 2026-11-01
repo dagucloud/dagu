@@ -1,0 +1,16 @@
+working_dir: .
+env:
+  - SHOP_URL: ${SHOP_URL}
+  - LLM_BASE_URL: ${LLM_BASE_URL}
+llm:
+  provider: local
+  model: test-model
+  base_url: ${LLM_BASE_URL}
+steps:
+  - id: search
+    action: browser.run
+    with:
+      url: ${SHOP_URL}/bids
+      do:
+        - act: Click the Search button
+        - expect: {text: Road repair, within: 2s}

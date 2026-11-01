@@ -17,7 +17,7 @@ type DAGRunSummary = components['schemas']['DAGRunSummary'];
 
 interface Props {
   run: DAGRunSummary;
-  onClick: () => void;
+  onClick: (event?: React.MouseEvent) => void;
   onArtifactsClick?: () => void;
 }
 

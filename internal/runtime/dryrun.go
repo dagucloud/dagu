@@ -149,7 +149,7 @@ func dryRunHook(ctx context.Context, step ir.Step, caps registry.ExecutorCapabil
 	if caps.DryRunCheck == nil {
 		return nil
 	}
-	resolved, err := resolverWithoutNotices(GetEnv(ctx)).Object(ctx, step.ExecutorConfig.Config, cmnvalue.ExecutorConfigField("with"))
+	resolved, err := resolverWithoutNotices(GetEnv(ctx)).Object(ctx, step.ExecutorConfig.Config, registry.ConfigField(step, "with"))
 	if err == nil {
 		if config, err := objectAsConfig(resolved); err == nil {
 			step.ExecutorConfig.Config = config

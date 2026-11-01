@@ -34,25 +34,19 @@ import React, {
   useRef,
   useState,
 } from 'react';
-import { Link, useNavigate } from 'react-router-dom';
+import { Link } from 'react-router-dom';
 import { DAGNameInputModal } from '@/components/DAGNameInputModal';
 import { components, Status } from '../../../../api/v1/schema';
 import dayjs from '../../../../lib/dayjs';
-import {
-  getScheduleKey,
-  getScheduleLabel,
-  parseNextRun,
-} from '../../../../lib/dagSchedule';
 import RelativeTime from '@/components/ui/relative-time';
-import StatusChip from '@/components/ui/status-chip';
-import Ticker from '@/components/ui/ticker';
+import { RunStatusChip } from '@/features/dag-runs/components/common/RunStatusChip';
 import VisuallyHidden from '@/components/ui/visually-hidden';
 import { CreateDAGButton, DAGPagination } from '../common';
 import DAGActions from '../common/DAGActions';
 import LiveSwitch from '../common/LiveSwitch';
+import { ScheduleLine } from './ScheduleSummary';
 import PinToggle from '../common/PinToggle';
 import { formatDurationMs } from '@/lib/formatDuration';
-import { shouldIgnoreKeyboardShortcuts } from '@/lib/keyboard-shortcuts';
 
 // Import shadcn/ui components
 import { PanelWidthContext } from '../../../../components/SplitLayout';
@@ -84,7 +78,14 @@ import {
 } from '@/components/ui/select';
 import { Switch } from '@/components/ui/switch';
 import { AppBarContext } from '../../../../contexts/AppBarContext';
-import type { WorkflowFilterView } from './workflowViews';
+import { useRemoteNode } from '../../../../contexts/RemoteNodeContext';
+import { buildDAGPageURL } from '../../../dag-runs/lib/dagRunUrls';
+import { usePeekOrOpen } from '@/features/peek/usePeekOrOpen';
+import {
+  isRunSortField,
+  maxRunSortDAGs,
+  type WorkflowFilterView,
+} from './workflowViews';
 import { useQuery } from '../../../../hooks/api';
 import { parseLabelParts } from '../../../../lib/utils';
 import {
@@ -100,11 +101,44 @@ import { useI18n } from '@/i18n/I18nProvider';
 // Set higher than table's comfortable minimum width (~700px for all columns)
 const CARD_VIEW_THRESHOLD = 700;
 
+/** The name of a workflow: a real link, so a middle click or a Ctrl click opens a new tab. */
+function DAGNameLink({
+  fileName,
+  children,
+}: {
+  fileName: string;
+  children: React.ReactNode;
+}) {
+  const remoteNode = useRemoteNode();
+  return (
+    <Link
+      to={buildDAGPageURL({ fileName, remoteNode })}
+      className="block truncate text-sm font-medium text-foreground hover:underline"
+      onClick={(event) => event.stopPropagation()}
+    >
+      {children}
+    </Link>
+  );
+}
+
+/**
+ * A key handler that opens on Enter pressed on the element itself. Enter on a
+ * link or a control inside it stays with that control.
+ */
+function onOwnEnter(open: (event: React.KeyboardEvent) => void) {
+  return (event: React.KeyboardEvent) => {
+    if (event.key !== 'Enter' || event.target !== event.currentTarget) return;
+    event.preventDefault();
+    open(event);
+  };
+}
+
 // Reusable DAG Card component for mobile and narrow panel views
 interface DAGCardProps {
   dag: components['schemas']['DAGFile'];
-  isSelected: boolean;
-  onSelect: (fileName: string, title: string) => void;
+  /** The workflow page that the name link opens. */
+  href: string;
+  onOpen: (event: React.MouseEvent | React.KeyboardEvent) => void;
   onLabelClick: (label: string) => void;
   refreshFn: () => void;
   canDeleteDAGs: boolean;
@@ -168,8 +202,8 @@ function DeleteDAGButton({
 
 function DAGCard({
   dag,
-  isSelected,
-  onSelect,
+  href,
+  onOpen,
   onLabelClick,
   refreshFn,
   canDeleteDAGs,
@@ -189,22 +223,15 @@ function DAGCard({
   const statusLabel = dag.latestDAGRun?.statusLabel;
   const labels = withoutWorkspaceLabels(dag.dag.labels ?? dag.dag.tags ?? []);
   const description = dag.dag.description;
-  const schedules = dag.dag.schedule || [];
-  const hasSchedule = schedules.length > 0;
-  const nextRun = parseNextRun(dag.nextRun);
+  const hasSchedule = (dag.dag.schedule ?? []).length > 0;
 
-  const handleCardClick = (e: React.MouseEvent) => {
-    if (e.metaKey || e.ctrlKey) {
-      window.open(`/dags/${fileName}`, '_blank');
-    } else {
-      onSelect(fileName, title);
-    }
-  };
-
+  // The outline marks the focus: the shadow of card-obsidian hides a ring.
   return (
     <div
-      className={`card-obsidian p-2.5 cursor-pointer hover:bg-white/[0.05] transition-all duration-300 ${isSelected ? 'shadow-[inset_3px_0_0_0_var(--primary)] bg-white/[0.04]' : ''} ${status === Status.Running ? 'animate-running-row' : ''} ${className}`}
-      onClick={handleCardClick}
+      tabIndex={0}
+      className={`card-obsidian p-2.5 cursor-pointer hover:bg-white/[0.05] transition-colors duration-300 focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-ring ${status === Status.Running ? 'animate-running-row' : ''} ${className}`}
+      onClick={onOpen}
+      onKeyDown={onOwnEnter(onOpen)}
     >
       {/* Header: Name + Status */}
       <div className="flex justify-between items-start gap-2 mb-1.5">
@@ -222,7 +249,7 @@ function DAGCard({
             </div>
           )}
           <Link
-            to={`/dags/${fileName}`}
+            to={href}
             className="font-medium text-xs truncate flex-1 min-w-0 hover:underline"
             onClick={(event) => event.stopPropagation()}
           >
@@ -238,9 +265,14 @@ function DAGCard({
             onToggle={() => onTogglePin(dag)}
             className="size-6"
           />
-          <StatusChip status={status} size="xs">
+          <RunStatusChip
+            name={title}
+            dagRunId={dag.latestDAGRun?.dagRunId}
+            status={status}
+            size="xs"
+          >
             {statusLabel}
-          </StatusChip>
+          </RunStatusChip>
         </div>
       </div>
 
@@ -253,15 +285,7 @@ function DAGCard({
 
       {/* Schedule & Last Run */}
       <div className="flex flex-wrap items-center gap-1.5 text-xs text-muted-foreground mb-1.5">
-        {schedules.map((schedule, idx) => (
-          <Badge
-            key={getScheduleKey(schedule, idx)}
-            variant="outline"
-            className={`h-[18px] rounded px-1.5 py-0 font-mono text-[11px] font-normal normal-case tracking-normal ${schedule.kind === 'at' ? 'border-0' : ''}`}
-          >
-            {getScheduleLabel(schedule)}
-          </Badge>
-        ))}
+        <ScheduleLine dag={dag} emptyLabel={false} />
         {dag.latestDAGRun.startedAt && dag.latestDAGRun.startedAt !== '-' && (
           <span className="flex items-center gap-0.5">
             <Calendar className="h-2.5 w-2.5" />
@@ -273,34 +297,6 @@ function DAGCard({
           </span>
         )}
       </div>
-
-      {hasSchedule && !dag.suspended && (
-        <div className="text-xs text-muted-foreground mb-1.5 leading-tight">
-          {nextRun ? (
-            <Ticker intervalMs={1000}>
-              {() => {
-                const ms = nextRun.getTime() - new Date().getTime();
-                if (ms <= 0) {
-                  return (
-                    <span>
-                      <I18nText text={'Due now'} />
-                    </span>
-                  );
-                }
-                return (
-                  <span>
-                    <I18nText text={'Run in'} /> {formatDurationMs(ms)}
-                  </span>
-                );
-              }}
-            </Ticker>
-          ) : (
-            <span>
-              <I18nText text={'No upcoming run'} />
-            </span>
-          )}
-        </div>
-      )}
 
       {/* Labels */}
       {labels.length > 0 && (
@@ -469,10 +465,6 @@ type Props = {
   onSetDAGPinned: (fileName: string, pinned: boolean) => Promise<void>;
   /** Total workflows matching the server-side filters */
   resultCount?: number;
-  /** Currently selected DAG file name */
-  selectedDAG?: string | null;
-  /** Handler for DAG selection changes */
-  onSelectDAG?: (fileName: string, title: string) => void;
 };
 
 export type DAGDeleteResult = {
@@ -680,13 +672,7 @@ const defaultColumns = [
             style={{ paddingLeft: `${row.depth * 1.5}rem` }}
             className="space-y-0.5 min-w-0"
           >
-            <Link
-              to={`/dags/${data.dag.fileName}`}
-              className="block truncate text-sm font-medium text-foreground hover:underline"
-              onClick={(event) => event.stopPropagation()}
-            >
-              {getValue()}
-            </Link>
+            <DAGNameLink fileName={data.dag.fileName}>{getValue()}</DAGNameLink>
 
             {description && (
               <div className="text-xs text-muted-foreground whitespace-normal leading-tight line-clamp-2">
@@ -810,9 +796,14 @@ const defaultColumns = [
       if (data.kind === ItemKind.DAG) {
         // Use the updated StatusChip component with xs size
         return (
-          <StatusChip status={data.dag.latestDAGRun.status} size="xs">
+          <RunStatusChip
+            name={data.dag.dag.name}
+            dagRunId={data.dag.latestDAGRun?.dagRunId}
+            status={data.dag.latestDAGRun.status}
+            size="xs"
+          >
             {data.dag.latestDAGRun?.statusLabel}
-          </StatusChip>
+          </RunStatusChip>
         );
       }
       return null;
@@ -878,8 +869,8 @@ const defaultColumns = [
   }),
   columnHelper.accessor('kind', {
     id: 'ScheduleAndNextRun',
-    size: 140,
-    minSize: 120,
+    size: 220,
+    minSize: 180,
     header: () => (
       <span className="text-xs">
         <I18nText text={'Schedule'} />
@@ -891,87 +882,21 @@ const defaultColumns = [
         return null;
       }
 
-      const schedules = data.dag.dag.schedule || [];
-      if (schedules.length === 0) {
-        return (
-          <span className="text-xs text-muted-foreground">
-            <I18nText text={'No schedule'} />
-          </span>
-        );
-      }
-
-      const liveSwitch = (
-        <div
-          onClick={(e) => e.stopPropagation()}
-          className="flex-shrink-0 p-0.5"
-        >
-          <LiveSwitch dag={data.dag} refresh={table.options.meta?.refreshFn} />
-        </div>
-      );
-
-      // Display schedule expressions
-      const scheduleContent = (
-        <div className="flex flex-wrap gap-0.5">
-          {schedules.map((schedule, index) => (
-            <Badge
-              key={getScheduleKey(schedule, index)}
-              variant="outline"
-              className="h-[18px] rounded px-1.5 py-0 font-mono text-[11px] font-normal normal-case tracking-normal"
-            >
-              {getScheduleLabel(schedule)}
-            </Badge>
-          ))}
-        </div>
-      );
-
-      // Display next run information
-      let nextRunContent: React.ReactNode | null = null;
-      if (!data.dag.suspended && schedules.length > 0) {
-        const nextRun = parseNextRun(data.dag.nextRun);
-        if (nextRun) {
-          nextRunContent = (
-            <div className="text-xs text-muted-foreground font-normal leading-tight">
-              <Ticker intervalMs={1000}>
-                {() => {
-                  const ms = nextRun.getTime() - new Date().getTime();
-                  if (ms <= 0) {
-                    return (
-                      <span>
-                        <I18nText text={'Due now'} />
-                      </span>
-                    );
-                  }
-                  return (
-                    <span>
-                      <I18nText text={'Run in'} /> {formatDurationMs(ms)}
-                    </span>
-                  );
-                }}
-              </Ticker>
-            </div>
-          );
-        } else {
-          nextRunContent = (
-            <div className="text-xs text-muted-foreground font-normal leading-tight">
-              <I18nText text={'No upcoming run'} />
-            </div>
-          );
-        }
-      } else if (data.dag.suspended) {
-        nextRunContent = (
-          <div className="text-xs text-muted-foreground font-normal leading-tight">
-            <I18nText text={'Suspended'} />
-          </div>
-        );
-      }
-
+      const hasSchedule = (data.dag.dag.schedule ?? []).length > 0;
       return (
-        <div className="flex items-start gap-1 min-w-0">
-          {liveSwitch}
-          <div className="space-y-0.5 min-w-0 overflow-hidden">
-            {scheduleContent}
-            {nextRunContent}
-          </div>
+        <div className="flex min-w-0 items-center gap-1">
+          {hasSchedule && (
+            <div
+              onClick={(e) => e.stopPropagation()}
+              className="flex-shrink-0 p-0.5"
+            >
+              <LiveSwitch
+                dag={data.dag}
+                refresh={table.options.meta?.refreshFn}
+              />
+            </div>
+          )}
+          <ScheduleLine dag={data.dag} />
         </div>
       );
     },
@@ -996,7 +921,7 @@ const defaultColumns = [
       return (
         // Wrap DAGActions in a div and stop propagation on its click
         <div
-          className="flex items-center justify-center gap-0.5 opacity-0 transition-opacity group-hover/row:opacity-100 group-focus-within/row:opacity-100 pointer-coarse:opacity-100"
+          className="flex items-center justify-center gap-0.5"
           onClick={(e) => e.stopPropagation()}
         >
           <DAGActions
@@ -1028,14 +953,15 @@ const defaultColumns = [
 const columnToSortField: Record<string, string> = {
   Name: 'name',
   ScheduleAndNextRun: 'nextRun',
+  Status: 'status',
+  LastRun: 'lastRun',
 };
-
-// Client-side sortable columns
-const clientSortableColumns = ['Status', 'LastRun'];
 
 const cardSortOptions = [
   { value: 'name', label: 'Name' },
   { value: 'nextRun', label: 'Next run' },
+  { value: 'status', label: 'Status' },
+  { value: 'lastRun', label: 'Last run' },
 ] as const;
 
 function getCardSortLabel(sort: string): string {
@@ -1100,68 +1026,35 @@ function buildGrepSearchUrl(searchText: string): string {
   return '/search';
 }
 
-// --- Header Component for both Server-side and Client-side Sorting ---
+// --- Header Component for Server-side Sorting ---
 const SortableHeader = ({
   column,
   children,
   currentSort,
   currentOrder,
   onSort,
-  clientSort,
-  clientOrder,
-  onClientSort,
 }: {
   column: Column<Data, unknown>;
   children: React.ReactNode;
   currentSort?: string;
   currentOrder?: string;
   onSort?: (field: string, order: string) => void;
-  clientSort?: string;
-  clientOrder?: string;
-  onClientSort?: (field: string, order: string) => void;
 }) => {
   const serverSortField = columnToSortField[column.id];
-  const isClientSortable = clientSortableColumns.includes(column.id);
+  const isActive = Boolean(serverSortField) && currentSort === serverSortField;
 
-  // Check if this column is currently sorted (either server or client)
-  const isServerActive = serverSortField && currentSort === serverSortField;
-  const isClientActive = isClientSortable && clientSort === column.id;
-  const isActive = isServerActive || isClientActive;
-
-  // Determine if column is sortable at all
-  const isSortable =
-    (serverSortField && onSort) || (isClientSortable && onClientSort);
-
-  if (!isSortable) {
+  if (!serverSortField || !onSort) {
     return <>{children}</>;
   }
 
   const handleClick = () => {
-    if (serverSortField && onSort) {
-      // Server-side sorting
-      const newOrder =
-        isServerActive && currentOrder === 'asc' ? 'desc' : 'asc';
-      onSort(serverSortField, newOrder);
-      // Clear client sort when server sort is applied
-      if (onClientSort) {
-        onClientSort('', '');
-      }
-    } else if (isClientSortable && onClientSort) {
-      // Client-side sorting
-      const newOrder = isClientActive && clientOrder === 'asc' ? 'desc' : 'asc';
-      onClientSort(column.id, newOrder);
-    }
+    const newOrder = isActive && currentOrder === 'asc' ? 'desc' : 'asc';
+    onSort(serverSortField, newOrder);
   };
 
-  // Determine which order to show
-  function getDisplayOrder(): string {
-    if (isServerActive) return currentOrder || '';
-    if (isClientActive) return clientOrder || '';
-    return '';
-  }
-  const displayOrder = getDisplayOrder();
+  const displayOrder = isActive ? currentOrder || '' : '';
 
-  const button = (
+  return (
     <Button
       variant="ghost"
       onClick={handleClick}
@@ -1176,23 +1069,22 @@ const SortableHeader = ({
       )}
     </Button>
   );
-
-  // Wrap client-sortable columns with tooltip
-  if (isClientSortable) {
-    return (
-      <Tooltip>
-        <TooltipTrigger asChild>{button}</TooltipTrigger>
-        <TooltipContent className="bg-muted text-muted-foreground border">
-          <p className="text-xs">
-            <I18nText text={'Sorts current page only'} />
-          </p>
-        </TooltipContent>
-      </Tooltip>
-    );
-  }
-
-  return button;
 };
+
+// Tooltip body for a run sort (status or last run) that is disabled because
+// more workflows match than the server sorts by run.
+const RunSortDisabledTooltip = () => (
+  <TooltipContent className="bg-muted text-muted-foreground border">
+    <p className="text-xs">
+      <I18nText
+        text={
+          'Sorting by this column is disabled for more than {count} workflows'
+        }
+        values={{ count: maxRunSortDAGs }}
+      />
+    </p>
+  </TooltipContent>
+);
 
 /**
  * DAGTable component displays a table of DAGs with filtering, sorting, and grouping capabilities
@@ -1234,11 +1126,16 @@ function DAGTable({
   canPinDAG,
   onSetDAGPinned,
   resultCount,
-  selectedDAG = null,
-  onSelectDAG,
 }: Props) {
   const { ts } = useI18n();
-  const navigate = useNavigate();
+  // Status and LastRun sorts are disabled when the list total exceeds the
+  // server cap, because the server would sort by name instead.
+  const runSortDisabled = (resultCount ?? 0) > maxRunSortDAGs;
+  const remoteNode = useRemoteNode();
+  const peekOrOpen = usePeekOrOpen();
+  // The name links open the workflow page; a click on a row shows its peek.
+  const dagURL = (fileName: string) =>
+    buildDAGPageURL({ fileName, remoteNode });
   const columns = useMemo(
     () =>
       canDeleteDAGs
@@ -1303,9 +1200,6 @@ function DAGTable({
     },
     []
   );
-
-  const [clientSort, setClientSort] = useState<string>('');
-  const [clientOrder, setClientOrder] = useState<string>('asc');
 
   useEffect(() => {
     const loadedFileNames = new Set(dags.map((dag) => dag.fileName));
@@ -1461,26 +1355,6 @@ function DAGTable({
     [onRenameDAG, renameTarget]
   );
 
-  // Handler for client-side sorting
-  const handleClientSort = (field: string, order: string) => {
-    setClientSort(field);
-    setClientOrder(order);
-  };
-
-  // Handler for DAG selection
-  const handleSelectDAG = (fileName: string, title: string) => {
-    // Check if screen is small (less than 768px width)
-    const isSmallScreen = window.innerWidth < 768;
-
-    if (isSmallScreen) {
-      // For small screens, navigate directly to the DAG details page
-      navigate(`/dags/${fileName}`);
-    } else if (onSelectDAG) {
-      // For larger screens, call the selection handler
-      onSelectDAG(fileName, title);
-    }
-  };
-
   useEffect(() => {
     const nameFilter = columnFilters.find((f) => f.id === 'Name');
 
@@ -1526,54 +1400,14 @@ function DAGTable({
     [searchLabels, handleSearchLabelsChange]
   );
 
-  // Helper function for client-side sorting comparison
-  const getSortValue = useCallback(
-    (
-      dag: components['schemas']['DAGFile']
-    ): string | components['schemas']['Status'] => {
-      if (clientSort === 'Status') {
-        return dag.latestDAGRun?.status || '';
-      }
-      if (clientSort === 'LastRun') {
-        return dag.latestDAGRun?.startedAt || '';
-      }
-      return '';
-    },
-    [clientSort]
-  );
-
-  const compareDags = useCallback(
-    (
-      a: components['schemas']['DAGFile'],
-      b: components['schemas']['DAGFile']
-    ): number => {
-      let aValue = getSortValue(a);
-      let bValue = getSortValue(b);
-
-      if (clientOrder === 'desc') {
-        [aValue, bValue] = [bValue, aValue];
-      }
-
-      if (aValue < bValue) return -1;
-      if (aValue > bValue) return 1;
-      return 0;
-    },
-    [getSortValue, clientOrder]
-  );
-
   // Transform the flat list of DAGs into a hierarchical structure with groups.
-  // Pinned DAGs lead as flat rows, even when they belong to a group.
+  // Pinned DAGs lead as flat rows, even when they belong to a group. The rows
+  // keep the server order.
   const data = useMemo(() => {
-    const sortedDags = [...dags];
-
-    if (clientSort) {
-      sortedDags.sort(compareDags);
-    }
-
-    const pinnedRows: Data[] = sortedDags
+    const pinnedRows: Data[] = dags
       .filter((dag) => dag.pinned)
       .map((dag) => ({ kind: ItemKind.DAG, name: dag.dag.name, dag }));
-    const unpinnedDags = sortedDags.filter((dag) => !dag.pinned);
+    const unpinnedDags = dags.filter((dag) => !dag.pinned);
 
     const groups: { [key: string]: Data } = {};
     unpinnedDags.forEach((dag) => {
@@ -1594,19 +1428,6 @@ function DAGTable({
       }
     });
 
-    // Sort sub-rows within groups if client sorting is active
-    if (clientSort) {
-      Object.values(groups).forEach((group) => {
-        if (group.subRows) {
-          group.subRows.sort((a, b) => {
-            const aDag = (a as DAGRow).dag;
-            const bDag = (b as DAGRow).dag;
-            return compareDags(aDag, bDag);
-          });
-        }
-      });
-    }
-
     const hierarchicalData: Data[] = [...pinnedRows, ...Object.values(groups)];
     // Add DAGs without a group
     unpinnedDags
@@ -1619,52 +1440,7 @@ function DAGTable({
         });
       });
     return hierarchicalData;
-  }, [dags, clientSort, compareDags]);
-
-  useEffect(() => {
-    if (!selectedDAG || !tableInstanceRef.current || !onSelectDAG) return;
-
-    const handleKeyDown = (event: KeyboardEvent) => {
-      if (shouldIgnoreKeyboardShortcuts(event)) {
-        return;
-      }
-
-      // Get all DAG rows from the sorted table rows (not groups)
-      const sortedRows = tableInstanceRef.current?.getRowModel().rows || [];
-      const dagRows = sortedRows
-        .filter((row) => (row.original as Data)?.kind === ItemKind.DAG)
-        .map((row) => ({
-          fileName: (row.original as DAGRow).dag.fileName,
-          title: (row.original as DAGRow).dag.dag.name,
-        }));
-
-      // Find current index
-      const currentIndex = dagRows.findIndex(
-        (item) => item.fileName === selectedDAG
-      );
-      if (currentIndex === -1) return;
-
-      // Navigate with arrow keys
-      if (event.key === 'ArrowDown' && currentIndex < dagRows.length - 1) {
-        event.preventDefault();
-        const nextDAG = dagRows[currentIndex + 1];
-        if (nextDAG) {
-          onSelectDAG(nextDAG.fileName, nextDAG.title);
-        }
-      } else if (event.key === 'ArrowUp' && currentIndex > 0) {
-        event.preventDefault();
-        const prevDAG = dagRows[currentIndex - 1];
-        if (prevDAG) {
-          onSelectDAG(prevDAG.fileName, prevDAG.title);
-        }
-      }
-    };
-
-    window.addEventListener('keydown', handleKeyDown);
-    return () => {
-      window.removeEventListener('keydown', handleKeyDown);
-    };
-  }, [selectedDAG, onSelectDAG]);
+  }, [dags]);
 
   const instance = useReactTable<Data>({
     data,
@@ -1899,15 +1675,30 @@ function DAGTable({
                   </SelectTrigger>
                 </I18nProps>
                 <SelectContent>
-                  {cardSortOptions.map((option) => (
-                    <SelectItem
-                      key={option.value}
-                      value={option.value}
-                      className="text-xs"
-                    >
-                      <I18nText text={option.label} />
-                    </SelectItem>
-                  ))}
+                  {cardSortOptions.map((option) => {
+                    const disabled =
+                      runSortDisabled && isRunSortField(option.value);
+                    const item = (
+                      <SelectItem
+                        key={option.value}
+                        value={option.value}
+                        className="text-xs"
+                        disabled={disabled}
+                      >
+                        <I18nText text={option.label} />
+                      </SelectItem>
+                    );
+                    return disabled ? (
+                      <Tooltip key={option.value}>
+                        <TooltipTrigger asChild>
+                          <div className="cursor-not-allowed">{item}</div>
+                        </TooltipTrigger>
+                        <RunSortDisabledTooltip />
+                      </Tooltip>
+                    ) : (
+                      item
+                    );
+                  })}
                 </SelectContent>
               </Select>
               <Button
@@ -1950,14 +1741,14 @@ function DAGTable({
           className={`w-full text-xs ${isLoading ? 'opacity-70' : ''}`}
           style={{ tableLayout: 'fixed' }}
         >
-          {/* Column widths: Select 40px, Expand 32px, Name auto, Status 10%, LastRun 18%, Schedule 20%, Actions 160px */}
+          {/* Column widths: Select 40px, Expand 32px, Name auto, Status 10%, LastRun 12%, Schedule 28%, Actions 160px */}
           <colgroup>
             {canDeleteDAGs && <col style={{ width: '40px' }} />}
             <col style={{ width: '32px' }} />
             <col />
             <col style={{ width: '10%' }} />
-            <col style={{ width: '18%' }} />
-            <col style={{ width: '20%' }} />
+            <col style={{ width: '12%' }} />
+            <col style={{ width: '28%' }} />
             <col style={{ width: '160px' }} />
           </colgroup>
           <TableHeader>
@@ -1972,22 +1763,35 @@ function DAGTable({
                       <div>
                         {' '}
                         {/* Wrap header content */}
-                        {columnToSortField[header.column.id] ||
-                        clientSortableColumns.includes(header.column.id) ? (
-                          <SortableHeader
-                            column={header.column}
-                            currentSort={sortField}
-                            currentOrder={sortOrder}
-                            onSort={onSortChange}
-                            clientSort={clientSort}
-                            clientOrder={clientOrder}
-                            onClientSort={handleClientSort}
-                          >
-                            {flexRender(
-                              header.column.columnDef.header,
-                              header.getContext()
-                            )}
-                          </SortableHeader>
+                        {columnToSortField[header.column.id] ? (
+                          runSortDisabled &&
+                          isRunSortField(
+                            columnToSortField[header.column.id]
+                          ) ? (
+                            <Tooltip>
+                              <TooltipTrigger asChild>
+                                <span className="cursor-not-allowed">
+                                  {flexRender(
+                                    header.column.columnDef.header,
+                                    header.getContext()
+                                  )}
+                                </span>
+                              </TooltipTrigger>
+                              <RunSortDisabledTooltip />
+                            </Tooltip>
+                          ) : (
+                            <SortableHeader
+                              column={header.column}
+                              currentSort={sortField}
+                              currentOrder={sortOrder}
+                              onSort={onSortChange}
+                            >
+                              {flexRender(
+                                header.column.columnDef.header,
+                                header.getContext()
+                              )}
+                            </SortableHeader>
+                          )
                         ) : (
                           flexRender(
                             header.column.columnDef.header,
@@ -2029,31 +1833,28 @@ function DAGTable({
                     className={`text-[0.8125rem] ${
                       row.original?.kind === ItemKind.Group
                         ? 'bg-muted/50 font-semibold cursor-pointer hover:bg-muted/70'
-                        : isDAGRow &&
-                            'dag' in row.original &&
-                            selectedDAG ===
-                              (row.original as DAGRow).dag.fileName
-                          ? 'cursor-pointer hover:bg-muted/50 shadow-[inset_3px_0_0_0_var(--primary)]'
-                          : 'cursor-pointer hover:bg-muted/50'
-                    } ${isDAGRow && 'dag' in row.original && (row.original as DAGRow).dag.latestDAGRun?.status === Status.Running ? 'animate-running-row' : ''} ${isDAGRow ? 'group/row' : ''} ${endsPinnedSection ? 'border-b-2' : ''}`}
+                        : 'cursor-pointer hover:bg-muted/50'
+                    } ${isDAGRow && 'dag' in row.original && (row.original as DAGRow).dag.latestDAGRun?.status === Status.Running ? 'animate-running-row' : ''} ${isDAGRow ? 'group/row focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring' : ''} ${endsPinnedSection ? 'border-b-2' : ''}`}
+                    tabIndex={isDAGRow ? 0 : undefined}
+                    onKeyDown={
+                      isDAGRow && 'dag' in row.original
+                        ? onOwnEnter((e) =>
+                            peekOrOpen(
+                              { dag: (row.original as DAGRow).dag.fileName },
+                              e
+                            )
+                          )
+                        : undefined
+                    }
                     onClick={(e) => {
                       // Handle group row clicks - toggle expanded state
                       if ((row.original as Data)?.kind === ItemKind.Group) {
                         row.toggleExpanded();
                       }
-                      // Handle DAG row clicks - select DAG or open in new tab
+                      // Handle DAG row clicks - show the peek, or a new tab with Cmd/Ctrl
                       else if (isDAGRow && 'dag' in row.original) {
                         const dagRow = row.original as DAGRow;
-                        const fileName = dagRow.dag.fileName;
-                        const title = dagRow.dag.dag.name;
-
-                        // If Cmd (Mac) or Ctrl (Windows/Linux) key is pressed, open in new tab
-                        if (e.metaKey || e.ctrlKey) {
-                          window.open(`/dags/${fileName}`, '_blank');
-                        } else {
-                          // Normal click behavior - select the DAG
-                          handleSelectDAG(fileName, title);
-                        }
+                        peekOrOpen({ dag: dagRow.dag.fileName }, e);
                       }
                     }}
                   >
@@ -2148,8 +1949,10 @@ function DAGTable({
                             <DAGCard
                               key={subRow.id}
                               dag={dagRow.dag}
-                              isSelected={selectedDAG === dagRow.dag.fileName}
-                              onSelect={handleSelectDAG}
+                              href={dagURL(dagRow.dag.fileName)}
+                              onOpen={(e) =>
+                                peekOrOpen({ dag: dagRow.dag.fileName }, e)
+                              }
                               onLabelClick={handleLabelClick}
                               refreshFn={refreshFn}
                               canDeleteDAGs={canDeleteDAGs}
@@ -2192,8 +1995,8 @@ function DAGTable({
                 <React.Fragment key={row.id}>
                   <DAGCard
                     dag={dagRow.dag}
-                    isSelected={selectedDAG === dagRow.dag.fileName}
-                    onSelect={handleSelectDAG}
+                    href={dagURL(dagRow.dag.fileName)}
+                    onOpen={(e) => peekOrOpen({ dag: dagRow.dag.fileName }, e)}
                     onLabelClick={handleLabelClick}
                     refreshFn={refreshFn}
                     canDeleteDAGs={canDeleteDAGs}

@@ -11,11 +11,13 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"net/http"
 	"strings"
 
 	"github.com/dagucloud/dagu/v2/internal/llm"
 	"github.com/dagucloud/dagu/v2/internal/llm/claudemodel"
 	"github.com/dagucloud/dagu/v2/internal/llm/providers/chatcontent"
+	"github.com/dagucloud/dagu/v2/internal/llm/providers/chatusage"
 )
 
 const (
@@ -77,19 +79,15 @@ func (p *Provider) Chat(ctx context.Context, req *llm.ChatRequest) (*llm.ChatRes
 		return nil, llm.WrapError(providerName, fmt.Errorf("failed to decode response: %w", err))
 	}
 
-	if len(resp.Choices) == 0 {
-		return nil, llm.WrapError(providerName, fmt.Errorf("no choices in response"))
+	if err := resp.failure(); err != nil {
+		return nil, err
 	}
 
 	choice := resp.Choices[0]
 	result := &llm.ChatResponse{
 		Content:      choice.Message.Content,
 		FinishReason: choice.FinishReason,
-		Usage: llm.Usage{
-			PromptTokens:     resp.Usage.PromptTokens,
-			CompletionTokens: resp.Usage.CompletionTokens,
-			TotalTokens:      resp.Usage.TotalTokens,
-		},
+		Usage:        resp.Usage.LLM(),
 	}
 
 	// Extract tool calls if present
@@ -171,6 +169,12 @@ func (p *Provider) buildRequestBody(req *llm.ChatRequest, stream bool) ([]byte, 
 	}
 	if len(req.Stop) > 0 {
 		chatReq.Stop = req.Stop
+	}
+	// allow_fallbacks keeps OpenRouter's default. The account's data policy
+	// still filters every fallback endpoint, and refusing fallbacks would
+	// fail the request whenever the named endpoints are unavailable.
+	if len(p.config.ProviderOrder) > 0 {
+		chatReq.Provider = &providerPreferences{Order: p.config.ProviderOrder}
 	}
 
 	// Add reasoning configuration if enabled
@@ -324,13 +328,17 @@ func (p *Provider) streamResponse(ctx context.Context, body io.ReadCloser, event
 			continue
 		}
 
+		// A failure after the status was sent arrives as an error chunk
+		// that ends the stream.
+		if chunk.Error != nil {
+			events <- llm.StreamEvent{Error: chunk.Error.apiError(), Done: true}
+			return
+		}
+
 		// Capture usage if present
 		if chunk.Usage != nil {
-			usage = &llm.Usage{
-				PromptTokens:     chunk.Usage.PromptTokens,
-				CompletionTokens: chunk.Usage.CompletionTokens,
-				TotalTokens:      chunk.Usage.TotalTokens,
-			}
+			chunkUsage := chunk.Usage.LLM()
+			usage = &chunkUsage
 		}
 
 		if len(chunk.Choices) > 0 {
@@ -375,6 +383,14 @@ type chatCompletionRequest struct {
 	ToolChoice       any               `json:"tool_choice,omitempty"`
 	Plugins          []plugin          `json:"plugins,omitempty"`
 	WebSearchOptions *webSearchOptions `json:"web_search_options,omitempty"`
+	// Provider routes the request among the upstream providers serving the
+	// model.
+	Provider *providerPreferences `json:"provider,omitempty"`
+}
+
+// providerPreferences is OpenRouter's provider routing object.
+type providerPreferences struct {
+	Order []string `json:"order"`
 }
 
 // plugin represents an OpenRouter plugin configuration.
@@ -432,12 +448,65 @@ type chatCompletionResponse struct {
 		Index        int             `json:"index"`
 		Message      responseMessage `json:"message"`
 		FinishReason string          `json:"finish_reason"`
+		// Error reports a failure that cut the choice short.
+		Error *responseError `json:"error,omitempty"`
 	} `json:"choices"`
-	Usage struct {
-		PromptTokens     int `json:"prompt_tokens"`
-		CompletionTokens int `json:"completion_tokens"`
-		TotalTokens      int `json:"total_tokens"`
-	} `json:"usage"`
+	Usage chatusage.Usage `json:"usage"`
+	// Error reports a failure in place of any choice.
+	Error *responseError `json:"error,omitempty"`
+}
+
+// failure returns the error a response reports in place of an answer: an
+// error object at the top level or on the first choice. A response with no
+// choice at all is a transient failure.
+func (r *chatCompletionResponse) failure() error {
+	reported := r.Error
+	if reported == nil && len(r.Choices) > 0 {
+		reported = r.Choices[0].Error
+	}
+	if reported != nil {
+		return reported.apiError()
+	}
+	if len(r.Choices) == 0 {
+		return &llm.APIError{
+			Provider:   providerName,
+			StatusCode: http.StatusOK,
+			Message:    "no choices in response",
+			Retryable:  true,
+		}
+	}
+	return nil
+}
+
+// errorTypeContextLength is the typed error OpenRouter reports when a request
+// exceeds the model's context window.
+const errorTypeContextLength = "context_length_exceeded"
+
+// responseError is the error object OpenRouter sends with a 200 status when
+// the upstream provider fails after accepting the request. Code is the HTTP
+// status the failure maps to.
+type responseError struct {
+	Code     int    `json:"code"`
+	Message  string `json:"message"`
+	Metadata struct {
+		// ErrorType is OpenRouter's typed error code, which stays the same
+		// whatever the upstream provider's message says.
+		ErrorType string `json:"error_type"`
+	} `json:"metadata"`
+}
+
+// apiError classifies the reported failure like the same status sent as an
+// HTTP error. Any server error is retryable, since the upstream provider
+// failed after accepting the request.
+func (e *responseError) apiError() *llm.APIError {
+	apiErr := llm.NewAPIError(providerName, e.Code, e.Message)
+	if e.Code >= http.StatusInternalServerError && e.Code < 600 {
+		apiErr.Retryable = true
+	}
+	if e.Metadata.ErrorType == errorTypeContextLength {
+		apiErr.Err = llm.ErrContextTooLong
+	}
+	return apiErr
 }
 
 type streamChunk struct {
@@ -453,9 +522,7 @@ type streamChunk struct {
 		} `json:"delta"`
 		FinishReason string `json:"finish_reason,omitempty"`
 	} `json:"choices"`
-	Usage *struct {
-		PromptTokens     int `json:"prompt_tokens"`
-		CompletionTokens int `json:"completion_tokens"`
-		TotalTokens      int `json:"total_tokens"`
-	} `json:"usage,omitempty"`
+	Usage *chatusage.Usage `json:"usage,omitempty"`
+	// Error reports a failure that ends the stream.
+	Error *responseError `json:"error,omitempty"`
 }

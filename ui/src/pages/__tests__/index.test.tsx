@@ -8,6 +8,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { DAGRunActivityQueueBlockedReason, Status } from '@/api/v1/schema';
 import { AppBarContext } from '@/contexts/AppBarContext';
 import { ConfigContext, type Config } from '@/contexts/ConfigContext';
+import { PeekContext } from '@/features/peek/PeekContext';
 import { WorkspaceKind } from '@/lib/workspace';
 import {
   type DAGRunActivityState,
@@ -35,10 +36,6 @@ vi.mock('../../features/dags/components/common', async () => ({
   CreateDAGButton: (
     await import('../../features/dags/components/common/CreateDAGButton')
   ).default,
-}));
-
-vi.mock('@/features/dag-runs/components/dag-run-details', () => ({
-  DAGRunDetailsModal: () => null,
 }));
 
 vi.mock('@/features/dag-runs/components/common', () => ({
@@ -275,7 +272,31 @@ describe('DashboardPage', () => {
     expect(items[1]).toHaveTextContent('Waiting for input');
     expect(
       within(items[1]!).getByRole('link', { name: /Review/ })
-    ).toHaveAttribute('href', '/dag-runs/approve/a-1?remoteNode=local');
+    ).toHaveAttribute('href', '/dags/approve?remoteNode=local&run=a-1');
+  });
+
+  // The Overview mounts a peek host above the dashboard. Review opens the
+  // full page, where a waiting run can be acted on.
+  it('shows the runs and workflows of the panels in the peek', () => {
+    mockActivity({ activity: busyActivity });
+    const peek = { open: vi.fn(), isOpen: false };
+
+    render(pageTree(), {
+      wrapper: ({ children }) => (
+        <PeekContext.Provider value={peek}>{children}</PeekContext.Provider>
+      ),
+    });
+
+    const attention = screen.getByRole('region', { name: /Needs attention/ });
+    fireEvent.click(within(attention).getByRole('link', { name: 'billing' }));
+    expect(peek.open).toHaveBeenCalledWith({
+      dag: 'billing',
+      run: 'billing-9',
+    });
+    fireEvent.click(within(attention).getByRole('link', { name: /Review/ }));
+    expect(peek.open).not.toHaveBeenCalledWith({ dag: 'approve', run: 'a-1' });
+    fireEvent.click(screen.getByRole('link', { name: 'nightly' }));
+    expect(peek.open).toHaveBeenCalledWith({ dag: 'nightly' });
   });
 
   it('counts the runs and links each status to the window’s runs', () => {

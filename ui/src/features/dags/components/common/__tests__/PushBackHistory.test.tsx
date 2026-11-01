@@ -22,7 +22,7 @@ describe('PushBackHistory', () => {
 
     expect(screen.getByText('5 minutes ago')).toHaveAttribute(
       'title',
-      dayjs(at).format('YYYY-MM-DD HH:mm:ss Z')
+      dayjs(at).format('YYYY-MM-DD HH:mm:ss')
     );
   });
 

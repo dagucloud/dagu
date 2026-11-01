@@ -18,6 +18,9 @@ The `run` field has two string forms:
 This spec also defines the accepted array form, where each array item is a
 command-form `run` entry.
 
+It also defines selected-step runs: a start request that runs only some steps,
+with explicit input values and, optionally, no trace in the history.
+
 This spec does not define:
 
 - The `action: exec` direct argv execution contract.
@@ -286,6 +289,118 @@ Shell selection order is:
 - Step outputs are published through the step outputs spec.
 
 - Captured stdout and stderr are not step outputs unless published through the step outputs spec.
+
+### Selected Step Runs
+
+`POST /api/v1/dags/{fileName}/start` and `POST /api/v1/dag-runs` accept these body fields to run only some steps of a DAG.
+
+- `steps` lists the steps to run, by step name or ID. It must name at least one step. Every other step is recorded as skipped by retry and does not run.
+
+- `outputsFromRunId` names a finished run of the same DAG. Its step outputs and work directory are carried into the skipped steps that a selected step depends on. It requires `steps`.
+
+- `outputsFromRuns` names, for single skipped steps, the run that the step carries its outputs from. It is an object that maps a step name or ID to a run ID. It requires `steps`.
+
+- A step in `outputsFromRuns` takes its outputs from its own run, not from `outputsFromRunId`. The server seeds the step from the node of that run in the same way as for `outputsFromRunId`. The work directory still comes only from `outputsFromRunId`.
+
+- The server MUST reject an entry of `outputsFromRuns` with HTTP 400 and the message `step X cannot be reused from run Y: <reason>` when one of these is true. The run does not exist for the DAG (it was removed, or it belongs to another DAG). The run is not finished. The run has no node for the step. The step did not succeed in the run and does not carry copied outputs. A normal run and an ephemeral run that still exists can both be the source.
+
+- A step selected to run MUST NOT be a key of `outputsFromRuns`. An unknown step, a run ID that is not valid, or two keys that address one step is rejected with HTTP 400.
+
+- `outputs` supplies values for the outputs of skipped steps, keyed by step name or ID and then by output name. It is for clients that are not the web UI: the web UI sends no values. It requires `steps` and works with or without `outputsFromRunId`. A supplied value takes precedence over the carried value of the same output.
+
+- `outputsSources` names the run that each step of `outputs` was captured from. It is an object keyed by step name or ID. Each value has `runId` and an optional `capturedAt`. It requires `steps`.
+
+- `outputsSources` is optional. A step in `outputs` with no entry is accepted and has no entry in `ReusedInputs`. An entry for a step that is not in `outputs` is rejected with HTTP 400.
+
+- `runId` MUST be a valid run ID, as for `outputsFromRunId`. The run does not need to exist, because the values can come from a run that was removed. `capturedAt` is an RFC 3339 timestamp. An invalid `runId` or `capturedAt` is rejected with HTTP 400.
+
+- A supplied output reaches `${steps.<id>.outputs.<name>}` in the selected steps. The name of a step's string-form `output: VAR` sets that variable.
+
+- A request that supplies an output the step does not declare, an output of a selected step, or an output that is not valid for its declared type is rejected with HTTP 400.
+
+- A reference to an output that nobody supplied is not an error of the request. The reference stays literal text, as Spec 007 defines, and the selected step runs with that text.
+
+#### Command Line
+
+`dagu start --only <step>` runs only the named steps, as the `steps` field does. Repeat `--only` to select more than one step.
+
+- `--outputs-from <run-id>` is the command line form of `outputsFromRunId`. It carries the work directory, and the outputs of the skipped steps that the selected steps depend on, from one finished run.
+
+- `--output-from <step>=<run-id>` is the command line form of `outputsFromRuns`. It names the run that gives the outputs of one skipped step. Repeat the flag for more than one step. The step is a step name or ID. It requires `--only`.
+
+- The command applies the same rules and gives the same errors as the server does for `outputsFromRuns`, with the message `step X cannot be reused from run Y: <reason>`. The command reads the run with the same code as the server. It stops before it starts a run when one entry is not valid.
+
+- A step selected by `--only` MUST NOT be named in `--output-from`. Two entries for one step are an error.
+
+- A step named in `--output-from` takes its outputs from its own run, not from `--outputs-from`. The run records `ReusedInputs` with `via` set to `run`, as for the server.
+
+- `--output <step>.<name>=<value>` is the command line form of `outputs`. It is deprecated in favor of `--output-from`, and it still works: it requires `--only`, can be repeated, and takes precedence over `--outputs-from` and `--output-from` for that output. The command has no form of `outputsSources`, so a step set by `--output` has no entry in `ReusedInputs`.
+
+#### Handlers of a Selected-Steps Run
+
+A graph end step is a step that no other step depends on. A dependency is an entry of `depends`, an inferred dependency from a `${steps.<id>...}` reference, or the dependency that a router adds to each of its target steps. Dagu uses the dependency data of the DAG definition that the planner uses.
+
+- A selected-steps run calls the handlers that run after the steps only when the selection has at least one graph end step. These handlers are `handler_on.success`, `failure`, `abort`, `wait` and `exit`.
+
+- When the selection has no graph end step, the run does not call these handlers. This includes `exit`. The skipped handlers do not run, and the run status has no node for them.
+
+- `handler_on.init` runs before the steps. A selected-steps run calls it as any other run does.
+
+- The run status is computed from the selected steps in the same way as for any run. A skipped handler does not change it.
+
+- The rule is the same for a normal run and an ephemeral run, and for every way to start the run: the API, the web UI and `dagu start --only`.
+
+- The run status records the rule in `skipHandlers`. A retry of the run keeps the same rule. A request without `steps` does not set it, and the run calls its handlers as before.
+
+#### Reused Inputs
+
+A selected-steps run records where the carried outputs of its skipped steps come from. The record is `ReusedInputs` in the run status.
+
+- `ReusedInputs` has one entry for each skipped step that carried outputs, except a step in `outputs` with no entry in `outputsSources`. The order of the entries is the order of the steps in the DAG.
+
+- Only a skipped step that a selected step depends on, directly or through other steps, carries outputs. This includes a step that `outputs` or `outputsFromRuns` names. A skipped step that no selected step depends on, such as a step after the selected steps, carries no outputs, no log and no times. It is recorded as skipped, has no entry, and shows no mark of reuse.
+
+- An entry has `step` (the step name), `runId`, `capturedAt`, `startedAt`, `finishedAt` and `via`. `capturedAt` is absent when it is unknown.
+
+- `via` is `run` for a step whose outputs come from `outputsFromRunId`, or from `outputsFromRuns` for that step. Then `runId` is the run that gave the outputs. `startedAt` and `finishedAt` are the times that the step had in that run, with the precision that the source run stored (millisecond for a new run), and `capturedAt` is the finish time of the step in that run. A time is absent when the node of that run has none.
+
+- A step in `outputsFromRuns` has the entry of its own run, not the entry of `outputsFromRunId`.
+
+- `via` is `cache` for a step whose outputs come from `outputs`. Then `runId` and `capturedAt` come from `outputsSources`, and the entry has no `startedAt` and no `finishedAt`. The web UI does not use this form.
+
+- A step that has a run and supplied outputs has the `cache` entry, because the values in `outputs` take precedence. Without an entry in `outputsSources`, it has no entry.
+
+- A step that carried no outputs has no entry.
+
+- The record stays on the run for all its attempts.
+
+- The run details response gives the record as `reusedInputs`. It is absent when the list is empty.
+
+#### Ephemeral Runs
+
+`ephemeral` is an optional boolean, `false` by default. A request with `ephemeral: true` runs the selected steps in a run that leaves no trace.
+
+- `ephemeral` is allowed only together with `steps`. A request for the whole DAG with `ephemeral: true` is rejected with HTTP 400.
+
+- An ephemeral run executes like any run, with the same runner, logs, status, and outputs. Its run ID is a normal run ID, and the start endpoints answer as they do for any run.
+
+- While it exists, the run is readable by its ID through the run details, step log, step outputs, spec, and SSE endpoints.
+
+- The run is listed nowhere by default: not in the run lists, the DAG history (unless the request sets `includeEphemeral`), the latest run of a DAG, the queues, the dashboard and system counters, the artifact listing, or the events feed. It does not count in history retention.
+
+- The run produces no event, so notification rules and incident policies do not see it. Being ephemeral does not change which `handler_on` handlers run: they belong to the definition and follow the rule for the handlers of a selected-steps run.
+
+- The run cannot be retried, rescheduled, or edited. These requests answer HTTP 409.
+
+- The server removes the run 10 minutes after it ends, and removes every ended ephemeral run when it starts. A run that has not ended is never removed.
+
+- The audit log records the start request as for any run, marked `ephemeral`.
+
+- The run details response and the run summary items have `ephemeral: true` for an ephemeral run. The field is absent for other runs.
+
+- `GET /api/v1/dags/{fileName}/dag-runs` accepts the optional query parameter `includeEphemeral`, `false` by default. When it is `true`, the response also has the ephemeral runs of that DAG. They are merged by start time with the other runs, under the same limit and order, and each has `ephemeral: true`. No other list accepts this parameter.
+
+An ephemeral run can be the `outputsFromRunId` source of another request while it exists.
 
 ### Exit, Abort, And Timeout
 

@@ -195,6 +195,28 @@ func WithNoReuse(disabled bool) StatusOption {
 	}
 }
 
+// WithEphemeral marks the run as one that leaves no trace.
+func WithEphemeral(ephemeral bool) StatusOption {
+	return func(status *DAGRunStatus) {
+		status.Ephemeral = ephemeral
+	}
+}
+
+// WithSkipHandlers marks the run as one that does not call the end-of-run
+// handlers of the DAG.
+func WithSkipHandlers(skip bool) StatusOption {
+	return func(status *DAGRunStatus) {
+		status.SkipHandlers = skip
+	}
+}
+
+// WithReusedInputs records where the carried outputs of skipped steps come from.
+func WithReusedInputs(inputs []ReusedInput) StatusOption {
+	return func(status *DAGRunStatus) {
+		status.ReusedInputs = append([]ReusedInput(nil), inputs...)
+	}
+}
+
 // WithAgentSessions carries Dagu-owned provider sessions across DAG-run attempts.
 func WithAgentSessions(resources []AgentSessionResource) StatusOption {
 	return func(status *DAGRunStatus) {

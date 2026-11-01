@@ -120,12 +120,8 @@ func (p *Provider) Chat(ctx context.Context, req *llm.ChatRequest) (*llm.ChatRes
 	result := &llm.ChatResponse{
 		Content:      content.String(),
 		FinishReason: resp.StopReason,
-		Usage: llm.Usage{
-			PromptTokens:     resp.Usage.InputTokens,
-			CompletionTokens: resp.Usage.OutputTokens,
-			TotalTokens:      resp.Usage.InputTokens + resp.Usage.OutputTokens,
-		},
-		ToolCalls: toolCalls,
+		Usage:        resp.Usage.llm(),
+		ToolCalls:    toolCalls,
 	}
 	if len(resp.Content) > 0 {
 		result.ProviderState = &llm.ProviderState{Provider: llm.ProviderAnthropic, Data: raw.Content}
@@ -460,7 +456,18 @@ func (p *Provider) streamResponse(ctx context.Context, body io.ReadCloser, event
 
 	scanner := bufio.NewScanner(body)
 	scanner.Buffer(make([]byte, 0, 64*1024), 8*1024*1024)
-	var usage *llm.Usage
+	// message_start carries the input counts and message_delta the
+	// cumulative output, so each event's usage is merged into what the
+	// stream has seen.
+	var usage *apiUsage
+	done := func() llm.StreamEvent {
+		event := llm.StreamEvent{Done: true}
+		if usage != nil {
+			total := usage.llm()
+			event.Usage = &total
+		}
+		return event
+	}
 
 	for scanner.Scan() {
 		select {
@@ -494,25 +501,17 @@ func (p *Provider) streamResponse(ctx context.Context, body io.ReadCloser, event
 			}
 
 		case "message_delta":
-			// Message completed, may contain usage
 			if event.Usage != nil {
-				usage = &llm.Usage{
-					PromptTokens:     event.Usage.InputTokens,
-					CompletionTokens: event.Usage.OutputTokens,
-					TotalTokens:      event.Usage.InputTokens + event.Usage.OutputTokens,
-				}
+				usage = usage.merge(*event.Usage)
 			}
 
 		case "message_start":
-			// May contain initial usage (input tokens)
 			if event.Message != nil && event.Message.Usage != nil {
-				usage = &llm.Usage{
-					PromptTokens: event.Message.Usage.InputTokens,
-				}
+				usage = usage.merge(*event.Message.Usage)
 			}
 
 		case "message_stop":
-			events <- llm.StreamEvent{Done: true, Usage: usage}
+			events <- done()
 			return
 
 		case "error":
@@ -534,7 +533,7 @@ func (p *Provider) streamResponse(ctx context.Context, body io.ReadCloser, event
 	}
 
 	// If we get here without message_stop, still signal completion
-	events <- llm.StreamEvent{Done: true, Usage: usage}
+	events <- done()
 }
 
 // API request/response types
@@ -593,32 +592,58 @@ type messagesResponse struct {
 	Model        string         `json:"model"`
 	StopReason   string         `json:"stop_reason"`
 	StopSequence string         `json:"stop_sequence,omitempty"`
-	Usage        struct {
-		InputTokens  int `json:"input_tokens"`
-		OutputTokens int `json:"output_tokens"`
-	} `json:"usage"`
+	Usage        apiUsage       `json:"usage"`
+}
+
+// apiUsage is the usage object of the Messages API, whose input_tokens leave
+// out the tokens read from and written to the prompt cache.
+type apiUsage struct {
+	InputTokens              int `json:"input_tokens"`
+	OutputTokens             int `json:"output_tokens"`
+	CacheCreationInputTokens int `json:"cache_creation_input_tokens"`
+	CacheReadInputTokens     int `json:"cache_read_input_tokens"`
+}
+
+// llm returns the usage as llm.Usage, whose prompt counts the cached tokens
+// too.
+func (u apiUsage) llm() llm.Usage {
+	prompt := u.InputTokens + u.CacheCreationInputTokens + u.CacheReadInputTokens
+	return llm.Usage{
+		PromptTokens:           prompt,
+		CompletionTokens:       u.OutputTokens,
+		TotalTokens:            prompt + u.OutputTokens,
+		CachedPromptTokens:     u.CacheReadInputTokens,
+		CacheWritePromptTokens: u.CacheCreationInputTokens,
+	}
+}
+
+// merge folds a stream event's usage into what the stream has seen. Each
+// event reports counts so far, so the larger of each count stands.
+func (u *apiUsage) merge(event apiUsage) *apiUsage {
+	merged := event
+	if u != nil {
+		merged.InputTokens = max(u.InputTokens, event.InputTokens)
+		merged.OutputTokens = max(u.OutputTokens, event.OutputTokens)
+		merged.CacheCreationInputTokens = max(u.CacheCreationInputTokens, event.CacheCreationInputTokens)
+		merged.CacheReadInputTokens = max(u.CacheReadInputTokens, event.CacheReadInputTokens)
+	}
+	return &merged
 }
 
 type streamEvent struct {
 	Type    string `json:"type"`
 	Index   int    `json:"index,omitempty"`
 	Message *struct {
-		ID    string `json:"id"`
-		Type  string `json:"type"`
-		Role  string `json:"role"`
-		Usage *struct {
-			InputTokens  int `json:"input_tokens"`
-			OutputTokens int `json:"output_tokens"`
-		} `json:"usage,omitempty"`
+		ID    string    `json:"id"`
+		Type  string    `json:"type"`
+		Role  string    `json:"role"`
+		Usage *apiUsage `json:"usage,omitempty"`
 	} `json:"message,omitempty"`
 	Delta *struct {
 		Type string `json:"type"`
 		Text string `json:"text,omitempty"`
 	} `json:"delta,omitempty"`
-	Usage *struct {
-		InputTokens  int `json:"input_tokens"`
-		OutputTokens int `json:"output_tokens"`
-	} `json:"usage,omitempty"`
+	Usage *apiUsage `json:"usage,omitempty"`
 	Error *struct {
 		Type    string `json:"type"`
 		Message string `json:"message"`

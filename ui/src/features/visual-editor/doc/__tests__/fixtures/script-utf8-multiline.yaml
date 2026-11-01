@@ -1,0 +1,9 @@
+working_dir: .
+steps:
+  - id: pwsh_utf8_multiline
+    run: |
+      Write-Output "first"
+      $text = '台帳に伝票を3件入力（未保存）'
+      [System.IO.File]::WriteAllText((Join-Path (Get-Location) 'pwsh-utf8-multiline.txt'), $text, (New-Object System.Text.UTF8Encoding $false))
+    with:
+      shell: pwsh

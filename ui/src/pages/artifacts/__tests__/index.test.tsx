@@ -309,10 +309,10 @@ describe('Artifacts page', () => {
     // Each run links to its DAG-run page.
     expect(
       screen.getByRole('link', { name: 'Open DAG run reporter' })
-    ).toHaveAttribute('href', '/dag-runs/reporter/run-1');
+    ).toHaveAttribute('href', '/dags/reporter?remoteNode=local&run=run-1');
     expect(
       screen.getByRole('link', { name: 'Open DAG run ingest' })
-    ).toHaveAttribute('href', '/dag-runs/ingest/run-2');
+    ).toHaveAttribute('href', '/dags/ingest?remoteNode=local&run=run-2');
   });
 
   it('previews a file after it is selected', () => {
@@ -459,9 +459,10 @@ describe('Artifacts page', () => {
   });
 
   it('loads only the new remote node selection after switching nodes', async () => {
-    const { ArtifactFilePreview: RealArtifactFilePreview } = await vi.importActual<
-      typeof import('@/features/dags/components/artifacts/ArtifactFilePreview')
-    >('@/features/dags/components/artifacts/ArtifactFilePreview');
+    const { ArtifactFilePreview: RealArtifactFilePreview } =
+      await vi.importActual<
+        typeof import('@/features/dags/components/artifacts/ArtifactFilePreview')
+      >('@/features/dags/components/artifacts/ArtifactFilePreview');
     vi.mocked(ArtifactFilePreview).mockImplementation(RealArtifactFilePreview);
     const get = vi.fn(async () => ({
       data: { kind: 'text', content: 'Artifact contents', size: 17 },
@@ -787,12 +788,18 @@ describe('Artifacts page', () => {
 
     renderPage();
 
-    fireEvent.change(screen.getByPlaceholderText('Filter by workflow name...'), {
-      target: { value: 'nightly-etl' },
-    });
-    fireEvent.keyDown(screen.getByPlaceholderText('Filter by workflow name...'), {
-      key: 'Enter',
-    });
+    fireEvent.change(
+      screen.getByPlaceholderText('Filter by workflow name...'),
+      {
+        target: { value: 'nightly-etl' },
+      }
+    );
+    fireEvent.keyDown(
+      screen.getByPlaceholderText('Filter by workflow name...'),
+      {
+        key: 'Enter',
+      }
+    );
     await waitFor(() => {
       expect(locationSearchParams().get('name')).toBe('nightly-etl');
     });
@@ -1077,12 +1084,18 @@ describe('Artifacts page', () => {
       expect(lastQuery()['name']).toBe('nightly-etl');
     });
 
-    fireEvent.change(screen.getByPlaceholderText('Filter by workflow name...'), {
-      target: { value: 'other' },
-    });
-    fireEvent.keyDown(screen.getByPlaceholderText('Filter by workflow name...'), {
-      key: 'Enter',
-    });
+    fireEvent.change(
+      screen.getByPlaceholderText('Filter by workflow name...'),
+      {
+        target: { value: 'other' },
+      }
+    );
+    fireEvent.keyDown(
+      screen.getByPlaceholderText('Filter by workflow name...'),
+      {
+        key: 'Enter',
+      }
+    );
 
     await waitFor(() => {
       expect(screen.getByText('Edited')).toBeVisible();

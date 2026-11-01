@@ -24,7 +24,7 @@ function QueueCard({ queue }: QueueCardProps) {
   return (
     <Link
       to={`/queues/${encodeURIComponent(queue.name)}`}
-      className="card-obsidian group flex h-full flex-col gap-4 px-4 py-4 transition-all duration-200 hover:border-border-strong hover:bg-muted/5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+      className="card-obsidian group flex h-full flex-col gap-4 px-4 py-4 transition-colors duration-200 hover:border-border-strong hover:bg-muted/5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
     >
       <div className="flex items-start justify-between gap-3">
         <div className="min-w-0">
@@ -51,7 +51,7 @@ function QueueCard({ queue }: QueueCardProps) {
           <div className="h-1.5 overflow-hidden rounded-full bg-muted">
             <div
               className={cn(
-                'h-full transition-all duration-300',
+                'h-full transition-[width,background-color] duration-300',
                 queuedCount > 0 ? 'bg-warning' : 'bg-primary'
               )}
               style={{ width: `${utilization || 0}%` }}

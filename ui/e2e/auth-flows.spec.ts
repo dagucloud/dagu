@@ -42,7 +42,11 @@ test.describe('auth flows', () => {
     await loginViaUI(page, username, oldPassword);
 
     // Open user menu and start password change
-    await page.locator('aside').getByRole('button').filter({ hasText: username }).click();
+    await page
+      .locator('aside')
+      .getByRole('button')
+      .filter({ hasText: username })
+      .click();
     await page.getByRole('menuitem', { name: 'Change Password' }).click();
 
     const dialog = page.getByRole('dialog');
@@ -52,7 +56,9 @@ test.describe('auth flows', () => {
     await dialog.getByLabel('Confirm New Password').fill(newPassword);
     await dialog.getByRole('button', { name: 'Change Password' }).click();
 
-    await expect(dialog.getByText('Password changed successfully')).toBeVisible();
+    await expect(
+      dialog.getByText('Password changed successfully')
+    ).toBeVisible();
 
     // Clear session and login with new password
     await clearSession(page);
@@ -66,7 +72,10 @@ test.describe('auth flows', () => {
     expect(failResponse.status()).toBe(401);
   });
 
-  test('manager can create DAGs but cannot manage users', async ({ page, request }) => {
+  test('manager can create DAGs but cannot manage users', async ({
+    page,
+    request,
+  }) => {
     const stack = await loadStack();
     const adminToken = await loginViaAPI(
       request,
@@ -94,7 +103,9 @@ test.describe('auth flows', () => {
     await expect(dialog).toBeVisible();
     await dialog.getByLabel('Workflow name').fill(dagName);
     await dialog.getByRole('button', { name: 'Create' }).click();
-    await expect(page).toHaveURL(new RegExp(`/dags/${dagName}/spec$`));
+    await expect
+      .poll(() => new URL(page.url()).pathname)
+      .toMatch(new RegExp(`^/dags/${dagName}(/spec)?$`));
     await expect(
       page.getByRole('heading', { level: 1, name: dagName, exact: true })
     ).toBeVisible();
@@ -104,7 +115,10 @@ test.describe('auth flows', () => {
     await expect(page).not.toHaveURL(/\/users$/);
   });
 
-  test('operator cannot write DAGs but can execute them', async ({ page, request }) => {
+  test('operator cannot write DAGs but can execute them', async ({
+    page,
+    request,
+  }) => {
     const stack = await loadStack();
     const adminToken = await loginViaAPI(
       request,
@@ -137,22 +151,32 @@ steps:
     // Operator should not see Create button
     await useDefaultWorkspaceScope(page);
     await page.goto('/dags/');
-    await expect(page.getByRole('button', { name: 'Create new DAG' })).toBeHidden();
+    await expect(
+      page.getByRole('button', { name: 'Create new DAG' })
+    ).toBeHidden();
 
-    // Operator should not see Rename/Delete on spec tab
-    await page.goto(`/dags/${encodeURIComponent(fileName)}/spec`);
+    // Operator should not see Rename/Delete in the workflow bar
+    await page.goto(`/dags/${encodeURIComponent(fileName)}`);
     await expect(
       page.getByRole('heading', { level: 1, name: dagName, exact: true })
     ).toBeVisible();
+    const bar = page.getByTestId('ww-bar');
     await expect(
-      page.getByRole('button', { name: 'Rename', exact: true })
-    ).toBeHidden();
+      bar.getByRole('button', { name: 'Refresh', exact: true })
+    ).toBeVisible();
     await expect(
-      page.getByRole('button', { name: 'Delete', exact: true })
-    ).toBeHidden();
+      bar.getByRole('button', { name: 'Rename', exact: true })
+    ).toHaveCount(0);
+    await expect(
+      bar.getByRole('button', { name: 'Delete', exact: true })
+    ).toHaveCount(0);
 
     // Operator can still execute via API
-    const operatorToken = await loginViaAPI(request, operatorUser, operatorPass);
+    const operatorToken = await loginViaAPI(
+      request,
+      operatorUser,
+      operatorPass
+    );
     const startResponse = await request.post(
       `/api/v1/dags/${encodeURIComponent(fileName)}/start?remoteNode=local`,
       {
@@ -166,7 +190,10 @@ steps:
     expect(startResponse.ok()).toBeTruthy();
   });
 
-  test('admin resets user password from management page', async ({ page, request }) => {
+  test('admin resets user password from management page', async ({
+    page,
+    request,
+  }) => {
     const stack = await loadStack();
     const adminToken = await loginViaAPI(
       request,

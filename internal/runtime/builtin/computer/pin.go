@@ -42,10 +42,16 @@ type pinnedStep struct {
 	Click       *desktop.Selector `json:"click,omitempty"`
 	DoubleClick *desktop.Selector `json:"double_click,omitempty"`
 	RightClick  *desktop.Selector `json:"right_click,omitempty"`
-	Type        *pinnedType       `json:"type,omitempty"`
-	Key         string            `json:"key,omitempty"`
-	Scroll      *pinnedScroll     `json:"scroll,omitempty"`
-	Wait        string            `json:"wait,omitempty"`
+	// Check and Uncheck leave a checkbox checked or unchecked, clicking it
+	// only when it is not already, so running the step again changes
+	// nothing.
+	Check   *desktop.Selector `json:"check,omitempty"`
+	Uncheck *desktop.Selector `json:"uncheck,omitempty"`
+	Type    *pinnedType       `json:"type,omitempty"`
+	Key     string            `json:"key,omitempty"`
+	Scroll  *pinnedScroll     `json:"scroll,omitempty"`
+	Choose  *pinnedChoose     `json:"choose,omitempty"`
+	Wait    string            `json:"wait,omitempty"`
 	// Focus is the element a key step focuses before it presses its keys,
 	// so the keys reach the element they went to when the step was learned.
 	Focus *desktop.Selector `json:"focus,omitempty"`
@@ -54,6 +60,12 @@ type pinnedStep struct {
 type pinnedType struct {
 	Into desktop.Selector `json:"into"`
 	Text string           `json:"text"`
+}
+
+// pinnedChoose sets the choice control From names to Option.
+type pinnedChoose struct {
+	From   desktop.Selector `json:"from"`
+	Option string           `json:"option"`
 }
 
 type pinnedScroll struct {
@@ -93,14 +105,14 @@ func (s *pinnedStep) UnmarshalJSON(data []byte) error {
 	}
 	*s = pinnedStep(r)
 	if n := s.actionCount(); n != 1 {
-		return fmt.Errorf("a pinned step sets %d actions; it must set exactly one of click, double_click, right_click, type, key, scroll, or wait", n)
+		return fmt.Errorf("a pinned step sets %d actions; it must set exactly one of click, double_click, right_click, check, uncheck, type, key, scroll, or wait", n)
 	}
 	return nil
 }
 
 func (s pinnedStep) actionCount() int {
 	n := 0
-	for _, set := range []bool{s.Click != nil, s.DoubleClick != nil, s.RightClick != nil, s.Type != nil, s.Key != "", s.Scroll != nil, s.Wait != ""} {
+	for _, set := range []bool{s.Click != nil, s.DoubleClick != nil, s.RightClick != nil, s.Check != nil, s.Uncheck != nil, s.Type != nil, s.Key != "", s.Scroll != nil, s.Wait != "", s.Choose != nil} {
 		if set {
 			n++
 		}
@@ -121,12 +133,22 @@ func (s pinnedStep) validate() error {
 			return fmt.Errorf("focus: %w", err)
 		}
 	}
-	for _, sel := range []*desktop.Selector{s.Click, s.DoubleClick, s.RightClick} {
+	for _, sel := range []*desktop.Selector{s.Check, s.Uncheck} {
+		if sel != nil && sel.Role != desktop.RoleCheckbox {
+			return fmt.Errorf("check and uncheck take a checkbox, not a %s", sel.Role)
+		}
+	}
+	for _, sel := range []*desktop.Selector{s.Click, s.DoubleClick, s.RightClick, s.Check, s.Uncheck} {
 		if sel != nil {
 			return sel.Validate()
 		}
 	}
 	switch {
+	case s.Choose != nil:
+		if strings.TrimSpace(s.Choose.Option) == "" {
+			return errors.New("choose needs an option")
+		}
+		return s.Choose.From.Validate()
 	case s.Type != nil:
 		return s.Type.Into.Validate()
 	case s.Scroll != nil:
@@ -146,7 +168,7 @@ func (s pinnedStep) validate() error {
 // instruction's, so a typo or a reference to a skipped ask is caught.
 func (s pinnedStep) references() []string {
 	var texts []string
-	for _, sel := range []*desktop.Selector{s.Click, s.DoubleClick, s.RightClick, s.Focus} {
+	for _, sel := range []*desktop.Selector{s.Click, s.DoubleClick, s.RightClick, s.Check, s.Uncheck, s.Focus} {
 		if sel != nil {
 			texts = append(texts, selectorTexts(*sel)...)
 		}
@@ -157,6 +179,10 @@ func (s pinnedStep) references() []string {
 	}
 	if s.Scroll != nil {
 		texts = append(texts, selectorTexts(s.Scroll.On)...)
+	}
+	if s.Choose != nil {
+		texts = append(texts, s.Choose.Option)
+		texts = append(texts, selectorTexts(s.Choose.From)...)
 	}
 	var names []string
 	for _, text := range texts {
@@ -257,10 +283,16 @@ func (s pinnedStep) recordedAction() (recordedAction, bool) {
 		return recordedAction{Action: computeruse.Action{Kind: computeruse.KindClick, Count: 2, Point: &computeruse.Point{}}, Element: new(pinnedElement(*s.DoubleClick))}, true
 	case s.RightClick != nil:
 		return recordedAction{Action: computeruse.Action{Kind: computeruse.KindClick, Button: "right", Point: &computeruse.Point{}}, Element: new(pinnedElement(*s.RightClick))}, true
+	case s.Check != nil:
+		return recordedAction{Action: computeruse.Action{Kind: computeruse.KindClick, Point: &computeruse.Point{}}, Element: new(pinnedElement(*s.Check)), Checked: new(true)}, true
+	case s.Uncheck != nil:
+		return recordedAction{Action: computeruse.Action{Kind: computeruse.KindClick, Point: &computeruse.Point{}}, Element: new(pinnedElement(*s.Uncheck)), Checked: new(false)}, true
 	case s.Type != nil:
 		return recordedAction{Action: computeruse.Action{Kind: computeruse.KindType, Text: s.Type.Text}, Element: new(pinnedElement(s.Type.Into))}, true
 	case s.Scroll != nil:
 		return recordedAction{Action: computeruse.Action{Kind: computeruse.KindScroll, ScrollY: s.Scroll.Dy, Point: &computeruse.Point{}}, Element: new(pinnedElement(s.Scroll.On))}, true
+	case s.Choose != nil:
+		return recordedAction{Action: computeruse.Action{Kind: computeruse.KindChoose, Text: s.Choose.Option}, Element: new(pinnedElement(s.Choose.From))}, true
 	case s.Key != "":
 		rec := recordedAction{Action: computeruse.Action{Kind: computeruse.KindKey, Keys: strings.Split(s.Key, "+")}}
 		if s.Focus != nil {
@@ -283,8 +315,11 @@ type pinnedOutcome struct {
 	// an act the model finishes covers the whole task. It is empty when none
 	// of them acted on an element, since such a turn could replay only by
 	// pixels it never recorded.
-	ran    []recordedTurn
-	reason string
+	ran []recordedTurn
+	// carried lists the steps that acted, element or not, for the model
+	// that takes over when one misses.
+	carried []recordedAction
+	reason  string
 }
 
 // replayPinned runs an act's pinned steps in order through the same element
@@ -294,9 +329,9 @@ func (r *run) replayPinned(ctx context.Context, index int, steps []pinnedStep, d
 	var result pinnedOutcome
 	els, err := r.elementsIfAvailable()
 	if err != nil {
-		// A pin replays only by element; a host that reads none, macOS
-		// until phase 8 or a 32-bit Windows, misses rather than failing, so
-		// on_miss hands the act to the model and never reports the miss.
+		// A pin replays only by element; a host that reads none, such as a
+		// 32-bit Windows, misses rather than failing, so on_miss hands the
+		// act to the model and never reports the miss.
 		result.reason = fmt.Sprintf("pinned steps need the window's elements, which this host cannot read: %v", err)
 		return result, nil
 	}
@@ -322,19 +357,13 @@ func (r *run) replayPinned(ctx context.Context, index int, steps []pinnedStep, d
 		if !ok {
 			return result, fmt.Errorf("a pinned step sets no action")
 		}
-		// Wait until nobody has touched the desktop for the idle window, as a
-		// learned replay and the model loop do, so a pinned click or text
-		// never lands in a person's window.
-		if err := r.awaitPerson(ctx); err != nil {
-			return result, err
-		}
 		turn := recordedTurn{Actions: []recordedAction{rec}}
 		reason, err := r.replayByElement(ctx, index, i, total, turn, els, findWithin, direct, &outcome)
 		if err != nil {
 			return result, err
 		}
 		if reason != "" {
-			result.reason = reason
+			result.reason, result.carried = reason, outcome.carried
 			keepRan()
 			return result, nil
 		}

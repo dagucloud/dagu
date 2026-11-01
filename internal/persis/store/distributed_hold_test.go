@@ -29,28 +29,53 @@ func heldTask(runID string, holdUntil time.Time) *dispatch.DispatchTask {
 	}
 }
 
-// A held task outlives the reservation TTL: it waits for a matching worker as
-// long as its hold says, while an ordinary task is recycled.
-func TestDispatchTaskStore_HeldPendingOutlivesReservationTTL(t *testing.T) {
+// A pending task outlives the reservation TTL, held or not: it waits until a
+// matching worker claims it or the coordinator drops it.
+func TestDispatchTaskStore_PendingOutlivesReservationTTL(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
 	s := heldStore(t, 30*time.Millisecond)
 
 	require.NoError(t, s.Enqueue(ctx, heldTask("held", time.Now().Add(time.Hour))))
-	require.NoError(t, s.Enqueue(ctx, &dispatch.DispatchTask{
-		DAGRunID: "plain", Target: "dag-plain", AttemptID: "attempt-plain", AttemptKey: "key-plain",
-		WorkerSelector: map[string]string{"type": "cpu"},
-	}))
+	require.NoError(t, s.Enqueue(ctx, heldTask("plain", time.Time{})))
 	time.Sleep(60 * time.Millisecond)
-
-	claimed, err := s.ClaimNext(ctx, dispatch.DispatchTaskClaim{WorkerID: "w", PollerID: "p", Labels: map[string]string{"type": "cpu"}})
-	require.NoError(t, err)
-	require.NotNil(t, claimed)
-	assert.Equal(t, "held", claimed.Task.DAGRunID, "the held task is still there; the plain one expired")
 
 	outstanding, err := s.HasOutstandingAttempt(ctx, "key-plain", time.Minute)
 	require.NoError(t, err)
-	assert.False(t, outstanding)
+	assert.True(t, outstanding)
+
+	var claimedRuns []string
+	for range 2 {
+		claimed, err := s.ClaimNext(ctx, dispatch.DispatchTaskClaim{WorkerID: "w", PollerID: "p", Labels: map[string]string{"type": "cpu"}})
+		require.NoError(t, err)
+		require.NotNil(t, claimed)
+		claimedRuns = append(claimedRuns, claimed.Task.DAGRunID)
+	}
+	assert.ElementsMatch(t, []string{"held", "plain"}, claimedRuns)
+}
+
+// ListStalePending lists the unheld tasks enqueued before the cutoff and
+// leaves them claimable.
+func TestDispatchTaskStore_ListStalePending(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	s := heldStore(t, time.Hour)
+
+	require.NoError(t, s.Enqueue(ctx, heldTask("held", time.Now().Add(time.Hour))))
+	require.NoError(t, s.Enqueue(ctx, heldTask("old", time.Time{})))
+	time.Sleep(10 * time.Millisecond)
+	cutoff := time.Now()
+	time.Sleep(10 * time.Millisecond)
+	require.NoError(t, s.Enqueue(ctx, heldTask("new", time.Time{})))
+
+	stale, err := s.ListStalePending(ctx, cutoff)
+	require.NoError(t, err)
+	require.Len(t, stale, 1)
+	assert.Equal(t, "old", stale[0].DAGRunID)
+
+	outstanding, err := s.HasOutstandingAttempt(ctx, "key-old", time.Minute)
+	require.NoError(t, err)
+	assert.True(t, outstanding)
 }
 
 // Once its hold has passed, a held task is no longer handed out; it is left

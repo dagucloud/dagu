@@ -35,7 +35,7 @@ function Tab({
 }: Omit<TabProps, 'value'>) {
   const classes = cn(
     'inline-flex items-center justify-center gap-1.5 whitespace-nowrap h-11 px-3 text-sm font-medium relative',
-    'transition-all duration-150 ease-in-out focus-visible:outline-none',
+    'transition-colors duration-150 ease-in-out focus-visible:outline-none',
     'disabled:pointer-events-none disabled:opacity-50',
     'border-b-2',
     isActive

@@ -1,8 +1,8 @@
 // Copyright (C) 2026 Yota Hamada
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-// Package deprecation finds the workspace settings in use that stop applying
-// when workspaces are removed in v3.0.
+// Package deprecation finds the workspace settings in use that v3.0 moves
+// into projects.
 package deprecation
 
 import (
@@ -28,7 +28,7 @@ import (
 )
 
 // Warning is the message logged with the settings Find returns.
-const Warning = "Workspaces are removed in v3.0, and these workspace settings will stop applying"
+const Warning = "Workspaces become projects in v3.0, and a migration command moves these settings, so no action is needed now"
 
 // Kind is a kind of workspace setting.
 type Kind string

@@ -89,6 +89,15 @@ type Record struct {
 	CertProxyPID       int    `json:"certProxyPid,omitempty"`
 	CertProxyStartedAt int64  `json:"certProxyStartedAt,omitempty"`
 
+	// WriteGateURL locates the gate deciding the browser's writes;
+	// WriteGatePID and WriteGateStartedAt identify its process. A browser
+	// whose gate is gone sends writes nothing decides, so it is closed.
+	// WriteGateSeq is the last of the gate's events reported.
+	WriteGateURL       string `json:"writeGateUrl,omitempty"`
+	WriteGatePID       int    `json:"writeGatePid,omitempty"`
+	WriteGateStartedAt int64  `json:"writeGateStartedAt,omitempty"`
+	WriteGateSeq       int64  `json:"writeGateSeq,omitempty"`
+
 	// OwnerPID and OwnerStartedAt identify the process driving a running
 	// browser, so a crashed owner can be detected even after PID reuse.
 	OwnerPID       int   `json:"ownerPid,omitempty"`
@@ -113,9 +122,12 @@ type Record struct {
 	Interactive json.RawMessage `json:"interactive,omitempty"`
 }
 
-// RecordID returns the record identifier for a step of a DAG run.
-func RecordID(dagRunID, stepName string) string {
-	sum := sha256.Sum256([]byte(dagRunID + "\x00" + stepName))
+// RecordID returns the record identifier for a step of a DAG run. item
+// identifies the foreach item whose body runs the step, so the items of one
+// foreach each have a record of their own; it is empty for a step outside a
+// foreach body.
+func RecordID(dagRunID, item, stepName string) string {
+	sum := sha256.Sum256([]byte(dagRunID + "\x00" + item + "\x00" + stepName))
 	return hex.EncodeToString(sum[:16])
 }
 

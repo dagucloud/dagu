@@ -3,7 +3,7 @@
 
 import { useEffect, useRef, useState } from 'react';
 import { Checkbox } from '@/components/ui/checkbox';
-import { Link, useNavigate } from 'react-router-dom';
+import { Link } from 'react-router-dom';
 import { SlidersHorizontal } from 'lucide-react';
 import { components, Status } from '../../../../api/v1/schema';
 import {
@@ -15,15 +15,18 @@ import {
   TableRow,
 } from '@/components/ui/table';
 import { useConfig } from '../../../../contexts/ConfigContext';
+import { useRemoteNode } from '../../../../contexts/RemoteNodeContext';
 import dayjs from '../../../../lib/dayjs';
 import RelativeTime from '@/components/ui/relative-time';
-import StatusChip from '@/components/ui/status-chip';
+import { RunStatusChip } from '../common/RunStatusChip';
 import AutoRetryBadge from '../common/AutoRetryBadge';
 import { TriggerTypeIndicator } from '../../../dags/components/common/TriggerTypeIndicator';
 import {
   DAGRunSelectionItem,
   getDAGRunSelectionKey,
 } from '../../hooks/useBulkDAGRunSelection';
+import { buildDAGPageURL } from '../../lib/dagRunUrls';
+import { usePeekIsOpen, usePeekOrOpen } from '@/features/peek/usePeekOrOpen';
 import { StepDetailsTooltip } from './StepDetailsTooltip';
 import { DAGRunArtifactsButton } from './DAGRunArtifactsButton';
 import { I18nText } from '@/i18n/I18nText';
@@ -33,9 +36,6 @@ interface DAGRunTableProps {
   /** True while the first page is being fetched; suppresses the empty state. */
   isLoading?: boolean;
   selectedRunKeys?: Set<string>;
-  selectedDAGRun?: { name: string; dagRunId: string } | null;
-  onSelectDAGRun?: (dagRun: { name: string; dagRunId: string } | null) => void;
-  onViewArtifacts?: (dagRun: DAGRunSelectionItem) => void;
   onToggleBulkSelect?: (dagRun: DAGRunSelectionItem) => void;
 }
 
@@ -50,7 +50,7 @@ function isInteractiveEventTarget(target: EventTarget | null): boolean {
 
   return Boolean(
     target.closest(
-      'input, textarea, select, button, a, [role="button"], [role="combobox"], [role="textbox"], [contenteditable="true"]'
+      'input, textarea, select, button, a, [role="button"], [role="combobox"], [role="textbox"], [role="option"], [role="menuitem"], [contenteditable="true"]'
     )
   );
 }
@@ -59,13 +59,25 @@ function DAGRunTable({
   dagRuns,
   isLoading = false,
   selectedRunKeys,
-  selectedDAGRun = null,
-  onSelectDAGRun,
-  onViewArtifacts,
   onToggleBulkSelect,
 }: DAGRunTableProps) {
   const config = useConfig();
-  const navigate = useNavigate();
+  const remoteNode = useRemoteNode();
+  const peekOrOpen = usePeekOrOpen();
+  const peekOpen = usePeekIsOpen();
+  // The name link opens the run on its workflow page and the artifacts
+  // button its Artifacts tab; a click on a row shows the peek of the run.
+  const runURL = (dagRun: DAGRunSelectionItem, dock?: string) =>
+    buildDAGPageURL({
+      fileName: dagRun.name,
+      remoteNode,
+      run: dagRun.dagRunId,
+      dock,
+    });
+  const openRun = (
+    dagRun: DAGRunSelectionItem,
+    event?: Pick<MouseEvent, 'ctrlKey' | 'metaKey'>
+  ) => peekOrOpen({ dag: dagRun.name, run: dagRun.dagRunId }, event);
   const [isSmallScreen, setIsSmallScreen] = useState(false);
   const [selectedIndex, setSelectedIndex] = useState<number>(-1);
   const tableRef = useRef<HTMLDivElement>(null);
@@ -99,76 +111,42 @@ function DAGRunTable({
     }
   };
 
-  // Update selectedIndex when selectedDAGRun changes from parent
+  // Keyboard navigation: arrows move the highlighted row, Enter opens its run.
   useEffect(() => {
-    if (selectedDAGRun) {
-      const index = dagRuns.findIndex(
-        (item) => item.dagRunId === selectedDAGRun.dagRunId
-      );
-      if (index !== -1 && index !== selectedIndex) {
-        setSelectedIndex(index);
-        scrollToSelectedRow(index);
-      }
-    }
-  }, [selectedDAGRun, dagRuns]);
-
-  // Keyboard navigation - works both when panel is open and closed
-  useEffect(() => {
-    if (!onSelectDAGRun) return;
-
     const handleKeyDown = (event: KeyboardEvent) => {
-      if (isInteractiveEventTarget(event.target)) {
+      // A popup item or another control took the key, or the peek has it.
+      if (
+        peekOpen ||
+        event.defaultPrevented ||
+        isInteractiveEventTarget(event.target)
+      ) {
         return;
       }
-
-      // Find current index based on selectedDAGRun or selectedIndex
-      const currentIdx = selectedDAGRun
-        ? dagRuns.findIndex((item) => item.dagRunId === selectedDAGRun.dagRunId)
-        : selectedIndex;
+      if (event.metaKey || event.ctrlKey || event.altKey) {
+        return;
+      }
 
       if (event.key === 'ArrowDown') {
         event.preventDefault();
         const newIndex =
-          currentIdx < dagRuns.length - 1 ? currentIdx + 1 : currentIdx;
-        if (newIndex !== currentIdx) {
+          selectedIndex < dagRuns.length - 1
+            ? selectedIndex + 1
+            : selectedIndex;
+        if (newIndex !== selectedIndex) {
           setSelectedIndex(newIndex);
           scrollToSelectedRow(newIndex);
-          // If panel is open, navigate to new item
-          if (selectedDAGRun && dagRuns[newIndex]) {
-            onSelectDAGRun({
-              name: dagRuns[newIndex].name,
-              dagRunId: dagRuns[newIndex].dagRunId,
-            });
-          }
         }
       } else if (event.key === 'ArrowUp') {
         event.preventDefault();
-        let newIndex: number;
-        if (currentIdx > 0) {
-          newIndex = currentIdx - 1;
-        } else if (currentIdx === -1) {
-          newIndex = 0;
-        } else {
-          newIndex = currentIdx;
-        }
-        if (newIndex !== currentIdx || currentIdx === -1) {
+        const newIndex = selectedIndex > 0 ? selectedIndex - 1 : 0;
+        if (newIndex !== selectedIndex) {
           setSelectedIndex(newIndex);
           scrollToSelectedRow(newIndex);
-          const dagRunAtNewIndex = dagRuns[newIndex];
-          if (selectedDAGRun && dagRunAtNewIndex) {
-            onSelectDAGRun({
-              name: dagRunAtNewIndex.name,
-              dagRunId: dagRunAtNewIndex.dagRunId,
-            });
-          }
         }
-      } else if (event.key === 'Enter' && !selectedDAGRun && currentIdx >= 0) {
-        const selectedItem = dagRuns[currentIdx];
+      } else if (event.key === 'Enter' && selectedIndex >= 0) {
+        const selectedItem = dagRuns[selectedIndex];
         if (selectedItem) {
-          onSelectDAGRun({
-            name: selectedItem.name,
-            dagRunId: selectedItem.dagRunId,
-          });
+          openRun(selectedItem);
         }
       }
     };
@@ -177,7 +155,7 @@ function DAGRunTable({
     return () => {
       window.removeEventListener('keydown', handleKeyDown);
     };
-  }, [selectedDAGRun, dagRuns, selectedIndex, onSelectDAGRun]);
+  }, [dagRuns, selectedIndex, peekOpen, peekOrOpen]);
 
   // Initialize selection when dagRuns change
   useEffect(() => {
@@ -281,10 +259,14 @@ function DAGRunTable({
     <div className="flex flex-col items-center justify-center py-12 px-4 border rounded-md bg-card">
       <div className="text-6xl mb-4">🔍</div>
       <h3 className="text-lg font-normal text-foreground mb-2">
-        <I18nText text={"No runs found"} />
+        <I18nText text={'No runs found'} />
       </h3>
       <p className="text-sm text-muted-foreground text-center max-w-md mb-4">
-        <I18nText text={"No runs in the selected time range. Adjust the date range or filters, or start a workflow from the Workflows page."} />
+        <I18nText
+          text={
+            'No runs in the selected time range. Adjust the date range or filters, or start a workflow from the Workflows page.'
+          }
+        />
       </p>
     </div>
   );
@@ -294,7 +276,7 @@ function DAGRunTable({
     if (isLoading) {
       return (
         <div className="flex items-center justify-center py-12 text-sm text-muted-foreground">
-          <I18nText text={"Loading runs..."} />
+          <I18nText text={'Loading runs...'} />
         </div>
       );
     }
@@ -309,20 +291,7 @@ function DAGRunTable({
           <div
             key={dagRun.dagRunId}
             className={`p-3 rounded-lg border border-l-4 min-h-[80px] flex flex-col bg-card border-border ${selectedIndex === index ? 'border-l-border' : 'border-l-transparent'} ${isBulkSelected(dagRun) ? 'bg-muted/30' : ''} ${dagRun.status === Status.Running ? 'animate-running-row' : ''} cursor-pointer`}
-            onClick={(e) => {
-              // Navigate directly to DAG-run page with correct URL pattern
-              if (e.metaKey || e.ctrlKey) {
-                // Open in new tab if Cmd/Ctrl is pressed
-                const basePath = config.basePath || '';
-                window.open(
-                  `${basePath}/dag-runs/${dagRun.name}/${dagRun.dagRunId}`,
-                  '_blank'
-                );
-              } else {
-                // Use React Router for SPA navigation
-                navigate(`/dag-runs/${dagRun.name}/${dagRun.dagRunId}`);
-              }
-            }}
+            onClick={(e) => openRun(dagRun, e)}
           >
             {/* Header with name and status */}
             <div className="flex justify-between items-start gap-3 mb-2">
@@ -355,7 +324,7 @@ function DAGRunTable({
                   </div>
                 )}
                 <Link
-                  to={`/dag-runs/${dagRun.name}/${dagRun.dagRunId}`}
+                  to={runURL(dagRun)}
                   className="font-normal text-sm hover:underline"
                   onClick={(event) => event.stopPropagation()}
                 >
@@ -363,17 +332,20 @@ function DAGRunTable({
                 </Link>
               </div>
               <div className="flex items-start gap-2">
-                {onViewArtifacts && (
-                  <DAGRunArtifactsButton
-                    dagRun={dagRun}
-                    onClick={() => onViewArtifacts(dagRun)}
-                  />
-                )}
+                <DAGRunArtifactsButton
+                  dagRun={dagRun}
+                  to={runURL(dagRun, 'artifacts')}
+                />
                 <StepDetailsTooltip dagRun={dagRun}>
                   <div className="flex flex-col items-end gap-1">
-                    <StatusChip status={dagRun.status} size="xs">
+                    <RunStatusChip
+                      name={dagRun.name}
+                      dagRunId={dagRun.dagRunId}
+                      status={dagRun.status}
+                      size="xs"
+                    >
                       {dagRun.statusLabel}
-                    </StatusChip>
+                    </RunStatusChip>
                     <AutoRetryBadge
                       status={dagRun.status}
                       count={dagRun.autoRetryCount}
@@ -401,7 +373,9 @@ function DAGRunTable({
               {dagRun.scheduleTime && (
                 <div className="flex justify-between items-center">
                   <div className="whitespace-normal break-words">
-                    <span className="text-muted-foreground"><I18nText text={"Scheduled:"} /> </span>
+                    <span className="text-muted-foreground">
+                      <I18nText text={'Scheduled:'} />{' '}
+                    </span>
                     <span title={dagRun.scheduleTime}>
                       {formatScheduleTime(dagRun.scheduleTime)}
                     </span>
@@ -410,14 +384,18 @@ function DAGRunTable({
               )}
               <div className="flex justify-between items-center">
                 <div>
-                  <span className="text-muted-foreground"><I18nText text={"Queued:"} /> </span>
+                  <span className="text-muted-foreground">
+                    <I18nText text={'Queued:'} />{' '}
+                  </span>
                   <RelativeTime
                     timestamp={dagRun.queuedAt}
                     absolute={dagRun.queuedAt}
                   />
                 </div>
                 <div>
-                  <span className="text-muted-foreground"><I18nText text={"Started:"} /> </span>
+                  <span className="text-muted-foreground">
+                    <I18nText text={'Started:'} />{' '}
+                  </span>
                   <RelativeTime
                     timestamp={dagRun.startedAt}
                     absolute={dagRun.startedAt}
@@ -425,7 +403,9 @@ function DAGRunTable({
                 </div>
               </div>
               <div className="text-left flex items-center gap-1.5">
-                <span className="text-muted-foreground"><I18nText text={"Duration:"} /> </span>
+                <span className="text-muted-foreground">
+                  <I18nText text={'Duration:'} />{' '}
+                </span>
                 <span className="flex items-center gap-1">
                   {calculateDuration(
                     dagRun.startedAt,
@@ -436,13 +416,17 @@ function DAGRunTable({
               </div>
               {dagRun.workerId && (
                 <div className="text-left">
-                  <span className="text-muted-foreground"><I18nText text={"Worker:"} /> </span>
+                  <span className="text-muted-foreground">
+                    <I18nText text={'Worker:'} />{' '}
+                  </span>
                   {dagRun.workerId}
                 </div>
               )}
               {dagRun.profileName && (
                 <div className="text-left flex min-w-0 items-center gap-1.5">
-                  <span className="text-muted-foreground"><I18nText text={"Profile:"} /> </span>
+                  <span className="text-muted-foreground">
+                    <I18nText text={'Profile:'} />{' '}
+                  </span>
                   <span
                     className="inline-flex min-w-0 items-center gap-1 font-mono"
                     title={dagRun.profileName}
@@ -471,35 +455,59 @@ function DAGRunTable({
         <TableHeader>
           <TableRow>
             {onToggleBulkSelect && (
-              <TableHead className="w-10"><I18nText text={"Select"} /></TableHead>
+              <TableHead className="w-10">
+                <I18nText text={'Select'} />
+              </TableHead>
             )}
-            <TableHead><I18nText text={"Workflow name"} /></TableHead>
-            <TableHead><I18nText text={"Run ID"} /></TableHead>
-            <TableHead><I18nText text={"Status"} /></TableHead>
-            <TableHead><I18nText text={"Trigger"} /></TableHead>
-            {showProfileColumn && <TableHead><I18nText text={"Profile"} /></TableHead>}
+            <TableHead>
+              <I18nText text={'Workflow name'} />
+            </TableHead>
+            <TableHead>
+              <I18nText text={'Run ID'} />
+            </TableHead>
+            <TableHead>
+              <I18nText text={'Status'} />
+            </TableHead>
+            <TableHead>
+              <I18nText text={'Trigger'} />
+            </TableHead>
+            {showProfileColumn && (
+              <TableHead>
+                <I18nText text={'Profile'} />
+              </TableHead>
+            )}
             {showScheduleColumn && (
               <TableHead>
-                <div><I18nText text={"Scheduled At"} /></div>
+                <div>
+                  <I18nText text={'Scheduled At'} />
+                </div>
                 <div className="text-xs text-muted-foreground font-normal">
                   {timezoneInfo}
                 </div>
               </TableHead>
             )}
             <TableHead>
-              <div><I18nText text={"Queued At"} /></div>
+              <div>
+                <I18nText text={'Queued At'} />
+              </div>
               <div className="text-xs text-muted-foreground font-normal">
                 {timezoneInfo}
               </div>
             </TableHead>
             <TableHead>
-              <div><I18nText text={"Started At"} /></div>
+              <div>
+                <I18nText text={'Started At'} />
+              </div>
               <div className="text-xs text-muted-foreground font-normal">
                 {timezoneInfo}
               </div>
             </TableHead>
-            <TableHead><I18nText text={"Duration"} /></TableHead>
-            <TableHead><I18nText text={"Worker"} /></TableHead>
+            <TableHead>
+              <I18nText text={'Duration'} />
+            </TableHead>
+            <TableHead>
+              <I18nText text={'Worker'} />
+            </TableHead>
           </TableRow>
         </TableHeader>
         <TableBody>
@@ -513,24 +521,8 @@ function DAGRunTable({
               } ${isBulkSelected(dagRun) ? 'bg-muted/30' : ''} ${dagRun.status === Status.Running ? 'animate-running-row' : ''}`}
               style={{ fontSize: '0.8125rem' }}
               onClick={(e) => {
-                if (e.ctrlKey || e.metaKey) {
-                  // Open in new tab
-                  const basePath = config.basePath || '';
-                  window.open(
-                    `${basePath}/dag-runs/${dagRun.name}/${dagRun.dagRunId}`,
-                    '_blank'
-                  );
-                } else if (isSmallScreen) {
-                  // On small screens, navigate to full page
-                  navigate(`/dag-runs/${dagRun.name}/${dagRun.dagRunId}`);
-                } else if (onSelectDAGRun) {
-                  // Select the DAG run
-                  setSelectedIndex(index);
-                  onSelectDAGRun({
-                    name: dagRun.name,
-                    dagRunId: dagRun.dagRunId,
-                  });
-                }
+                setSelectedIndex(index);
+                openRun(dagRun, e);
               }}
             >
               {onToggleBulkSelect && (
@@ -565,18 +557,16 @@ function DAGRunTable({
               <TableCell className="py-1 px-2 font-normal">
                 <div className="flex items-center gap-2">
                   <Link
-                    to={`/dag-runs/${dagRun.name}/${dagRun.dagRunId}`}
+                    to={runURL(dagRun)}
                     className="min-w-0 truncate hover:underline"
                     onClick={(event) => event.stopPropagation()}
                   >
                     {dagRun.name}
                   </Link>
-                  {onViewArtifacts && (
-                    <DAGRunArtifactsButton
-                      dagRun={dagRun}
-                      onClick={() => onViewArtifacts(dagRun)}
-                    />
-                  )}
+                  <DAGRunArtifactsButton
+                    dagRun={dagRun}
+                    to={runURL(dagRun, 'artifacts')}
+                  />
                 </div>
               </TableCell>
               <TableCell className="py-1 px-2 font-mono text-muted-foreground">
@@ -585,9 +575,14 @@ function DAGRunTable({
               <TableCell className="py-1 px-2">
                 <StepDetailsTooltip dagRun={dagRun}>
                   <div className="flex flex-wrap items-center gap-1">
-                    <StatusChip status={dagRun.status} size="xs">
+                    <RunStatusChip
+                      name={dagRun.name}
+                      dagRunId={dagRun.dagRunId}
+                      status={dagRun.status}
+                      size="xs"
+                    >
                       {dagRun.statusLabel}
-                    </StatusChip>
+                    </RunStatusChip>
                     <AutoRetryBadge
                       status={dagRun.status}
                       count={dagRun.autoRetryCount}

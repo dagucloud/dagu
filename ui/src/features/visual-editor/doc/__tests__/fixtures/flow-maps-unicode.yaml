@@ -1,0 +1,18 @@
+working_dir: .
+steps:
+  - id: run
+    action: computer.run
+    with:
+      ai: never
+      idle: "0"
+      do:
+        - launch:
+            command: powershell.exe
+            args: [-NoProfile, -ExecutionPolicy, Bypass, -File, elements.ps1]
+        - wait: 3s
+        - act:
+            instruction: Save the form
+            recorded:
+              windows:
+                - click: {app: powershell, window: "Dagu elements test", role: button, name: 保存, id: saveButton}
+        - expect: {text: 保存しました, within: 10s}

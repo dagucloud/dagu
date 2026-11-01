@@ -33,14 +33,12 @@ import { I18nProps } from '@/i18n/I18nProps';
 type DAGFile = components['schemas']['DAGFile'];
 
 interface Props {
-  selectedTemplate: string;
   selectedWorkspace: string;
   onSelect: (fileName: string) => void;
   onOpenChange?: (isOpen: boolean) => void;
 }
 
 export function TemplateSelector({
-  selectedTemplate,
   onSelect,
   onOpenChange,
 }: Props): React.ReactElement {
@@ -58,7 +56,6 @@ export function TemplateSelector({
   const [selectedLabels, setSelectedLabels] = useState<string[]>([]);
   const [isLabelFilterOpen, setIsLabelFilterOpen] = useState(false);
   const [highlightedIndex, setHighlightedIndex] = useState(-1);
-  const [selectedDag, setSelectedDag] = useState<DAGFile | null>(null);
 
   const containerRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
@@ -113,18 +110,6 @@ export function TemplateSelector({
     setHighlightedIndex(-1);
     setIsLabelFilterOpen(false);
   }, []);
-
-  // Cache selected DAG for trigger display
-  useEffect(() => {
-    if (!selectedTemplate) {
-      setSelectedDag(null);
-      return;
-    }
-    const found = dags.find((d) => d.fileName === selectedTemplate);
-    if (found) {
-      setSelectedDag(found);
-    }
-  }, [dags, selectedTemplate]);
 
   // Group DAGs by group field
   const groupedDags = useMemo(() => {
@@ -181,7 +166,6 @@ export function TemplateSelector({
     setDebouncedTerm('');
     setSelectedLabels([]);
     setHighlightedIndex(-1);
-    setSelectedDag(null);
   }, [remoteNode, workspaceKey]);
 
   // Scroll highlighted item into view
@@ -193,13 +177,11 @@ export function TemplateSelector({
 
   const handleSelect = useCallback(
     (fileName: string) => {
-      const dag = dags.find((d) => d.fileName === fileName);
-      if (dag) setSelectedDag(dag);
       setIsOpen(false);
       resetFilters();
       onSelect(fileName);
     },
-    [dags, onSelect, resetFilters]
+    [onSelect, resetFilters]
   );
 
   const toggleLabel = useCallback((label: string) => {
@@ -242,7 +224,6 @@ export function TemplateSelector({
     setTimeout(() => inputRef.current?.focus(), 0);
   };
 
-  const selectedDagName = selectedDag?.dag.name;
   const hasGroups = groupedDags.some(([group]) => group !== '');
 
   return (
@@ -257,41 +238,10 @@ export function TemplateSelector({
           isOpen && 'border-ring'
         )}
       >
-        {selectedTemplate && selectedDagName ? (
-          <>
-            <span className="truncate flex-1 text-left">{selectedDagName}</span>
-            <I18nProps>
-              <span
-                role="button"
-                tabIndex={0}
-                onClick={(e) => {
-                  e.stopPropagation();
-                  onSelect('');
-                  setSelectedDag(null);
-                }}
-                onKeyDown={(e) => {
-                  if (e.key === 'Enter' || e.key === ' ') {
-                    e.stopPropagation();
-                    e.preventDefault();
-                    onSelect('');
-                    setSelectedDag(null);
-                  }
-                }}
-                aria-label="Clear selection"
-                className="p-0.5 rounded hover:bg-muted-foreground/20 hover:text-destructive cursor-pointer"
-              >
-                <X className="h-3 w-3" />
-              </span>
-            </I18nProps>
-          </>
-        ) : (
-          <>
-            <Search className="h-3 w-3 text-muted-foreground shrink-0" />
-            <span className="text-muted-foreground truncate flex-1 text-left">
-              <I18nText text={'Select template...'} />
-            </span>
-          </>
-        )}
+        <Search className="h-3 w-3 text-muted-foreground shrink-0" />
+        <span className="text-muted-foreground truncate flex-1 text-left">
+          <I18nText text={'Select template...'} />
+        </span>
         <ChevronDown
           className={cn(
             'h-3 w-3 text-muted-foreground shrink-0 transition-transform',

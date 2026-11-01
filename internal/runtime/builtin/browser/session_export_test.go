@@ -190,6 +190,36 @@ func TestExportRefusesAStepThatCannotRun(t *testing.T) {
 	assert.Equal(t, CodeSessionNotFound, sessionCode(err))
 }
 
+// An act whose actions never used a variable its instruction names is
+// exported with the value's digest, so the step replays it for that value.
+// One a session recorded before acts noted the digest is exported without a
+// recording, since it would fit no value.
+func TestExportKeepsWhatAnActAssumed(t *testing.T) {
+	t.Parallel()
+
+	ts := newTestSessions(t, pageModel(nil))
+	opened := ts.open(SessionOptions{URL: "https://portal.example.com/login", LLM: testModel})
+	_, err := ts.do(opened.ID, `{"act": "Sign in as %user%", "variables": {"user": "alice"}}`)
+	require.NoError(t, err)
+	exported, err := ts.sessions.Export(ts.context(), ExportRequest{ID: opened.ID, DAG: "orders", Step: "shop", DryRun: true})
+	require.NoError(t, err)
+	assert.Equal(t, 1, exported.Recordings)
+	assert.Empty(t, exported.Warnings)
+
+	record, state := ts.record(opened.ID), ts.state(opened.ID)
+	for i := range state.Ops {
+		state.Ops[i].Assumed = nil
+	}
+	record.Interactive, err = state.encode()
+	require.NoError(t, err)
+	require.NoError(t, ts.store().Save(record))
+	exported, err = ts.sessions.Export(ts.context(), ExportRequest{ID: opened.ID, DAG: "orders", Step: "shop", DryRun: true})
+	require.NoError(t, err)
+	assert.Zero(t, exported.Recordings)
+	assert.False(t, exported.Ops[0].Recorded)
+	assert.Equal(t, []string{`operation 0 (act "Sign in as %user%") never uses %user%, and the session did not note its value, so its recording is not exported and the first run may ask the model for it`}, exported.Warnings)
+}
+
 // A session whose browser closed can still be exported from its history.
 func TestExportAfterTheSessionEnded(t *testing.T) {
 	t.Parallel()

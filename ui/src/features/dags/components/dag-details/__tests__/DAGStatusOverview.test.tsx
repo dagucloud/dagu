@@ -15,7 +15,7 @@ import {
 import dayjs from '@/lib/dayjs';
 import DAGStatusOverview from '../DAGStatusOverview';
 
-const ABSOLUTE_FORMAT = 'YYYY-MM-DD HH:mm:ss Z';
+const ABSOLUTE_FORMAT = 'YYYY-MM-DD HH:mm:ss';
 
 beforeEach(() => {
   // Only Date is faked so relative labels stay stable without stalling timers.

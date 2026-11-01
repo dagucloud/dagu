@@ -90,6 +90,8 @@ type ModelEntry struct {
 	BaseURL string `json:"baseURL,omitempty"`
 	// APIKeyName overrides the API key environment variable for this model.
 	APIKeyName string `json:"apiKeyName,omitempty"`
+	// ProviderOrder overrides the shared providerOrder for this model.
+	ProviderOrder []string `json:"providerOrder,omitempty"`
 }
 
 // LLMConfig contains the configuration for LLM-based executors.
@@ -117,6 +119,9 @@ type LLMConfig struct {
 	// APIKeyName is the name of the environment variable containing the API key.
 	// If not specified, the default environment variable for the provider is used.
 	APIKeyName string `json:"apiKeyName,omitempty"`
+	// ProviderOrder names the upstream providers OpenRouter tries first, in
+	// order. Only the openrouter provider accepts it.
+	ProviderOrder []string `json:"providerOrder,omitempty"`
 	// Stream enables or disables streaming output.
 	// Default is true.
 	Stream *bool `json:"stream,omitempty"`
@@ -142,6 +147,8 @@ type LLMConfig struct {
 	ObservationKeepRecent *int `json:"observationKeepRecent,omitempty"`
 	// WebSearch configures provider-native web search.
 	WebSearch *WebSearchConfig `json:"webSearch,omitempty"`
+	// Files names the files the model reads with the prompt.
+	Files []string `json:"files,omitempty"`
 }
 
 // PromptMessage represents an authored message used to initialize an LLM session.

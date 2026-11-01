@@ -51,7 +51,8 @@ $confirm.Add_Click({ [void][System.Windows.Forms.MessageBox]::Show($form, '確�
 $group = Add-Control $form 'GroupBox' 'paymentGroup' '支払情報' 20 190 540 150
 [void](Add-Control $group 'Label' 'lblPaymentAmount' '金額' 20 30 60 24)
 [void](Add-Control $group 'TextBox' 'paymentAmountBox' '' 90 30 200 24)
-[void](Add-Control $group 'Button' 'paymentSaveButton' '保存' 90 70 90 28)
+$paymentSave = Add-Control $group 'Button' 'paymentSaveButton' '保存' 90 70 90 28
+$paymentSave.Add_Click({ $status.Text = '保存しました' })
 
 # A table in Details view, for tests that read rows by column header.
 $lines = Add-Control $form 'ListView' 'linesList' '' 20 350 540 100

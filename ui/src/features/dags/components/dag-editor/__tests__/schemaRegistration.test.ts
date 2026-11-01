@@ -93,6 +93,26 @@ describe('schemaRegistration', () => {
     expect(second.fingerprint).toBe(first.fingerprint);
   });
 
+  // An editor builds its registration at each render. The text of a big
+  // schema object is made once: the next build only copies the object.
+  it('reads the same schema object once for its fingerprint', () => {
+    let reads = 0;
+    const schema = new Proxy(
+      { type: 'object', properties: { image: { type: 'string' } } },
+      {
+        ownKeys(target) {
+          reads++;
+          return Reflect.ownKeys(target);
+        },
+      }
+    ) as JSONSchema;
+    const first = registrationFor(schema);
+    const firstReads = reads;
+    const second = registrationFor(schema);
+    expect(second.fingerprint).toBe(first.fingerprint);
+    expect(reads - firstReads).toBeLessThan(firstReads);
+  });
+
   it('does not update Monaco registrations for equal-content schemas', () => {
     const registrations = new Map<string, StoredSchemaRegistration>();
     const first = registrationFor({

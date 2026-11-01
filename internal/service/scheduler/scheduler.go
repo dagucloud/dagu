@@ -97,6 +97,7 @@ type Scheduler struct {
 	notificationMonitor *chatbridge.NotificationMonitor
 	incidentMonitor     *chatbridge.NotificationMonitor
 	publicWebhooks      *publicwebhook.Service
+	folderWatcher       *folderWatcher // Starts runs for files arriving in watched folders
 }
 
 type schedulerHooks struct {
@@ -135,6 +136,9 @@ type Dependencies struct {
 	Webhooks           publicwebhook.Webhooks
 	PublicWebhookStore publicwebhook.Store
 	CloudCredentials   func() (license.CloudCredentials, bool)
+	// WatchStore remembers the files watched folders held across restarts;
+	// nil remembers them for the process only.
+	WatchStore schedulerstate.WatchStore
 }
 
 type startupState struct {
@@ -177,6 +181,7 @@ func New(cfg *config.Config, deps Dependencies) (*Scheduler, error) {
 		scheduler.incidentMonitor = newIncidentMonitor(cfg, deps)
 	}
 	scheduler.publicWebhooks = newPublicWebhooks(cfg, deps, scheduler)
+	scheduler.folderWatcher.cfg.Store = deps.WatchStore
 	scheduler.queueProcessor.dagRunLeaseStore = deps.DAGRunLeaseStore
 	scheduler.queueProcessor.dispatchTaskStore = deps.DispatchTaskStore
 	scheduler.queueProcessor.dispatchAdmissionStore = dispatchAdmissionStoreFromTaskStore(deps.DispatchTaskStore)
@@ -347,7 +352,7 @@ func newScheduler(
 	}
 	retryScanner.processes = procRepository
 
-	return &Scheduler{
+	s := &Scheduler{
 		quit:             make(chan any),
 		entryReader:      er,
 		dagRepository:    dagRepository,
@@ -364,7 +369,14 @@ func newScheduler(
 		planner:          planner,
 		clock:            defaultClock,
 		wakeHold:         newWakeHold(cfg.Scheduler.WakeHold, pauseStore),
-	}, nil
+	}
+	s.folderWatcher = newFolderWatcher(folderWatcherConfig{
+		Entries:     er.Entries,
+		IsSuspended: isSuspended,
+		Enqueue:     s.enqueueFileRun,
+		Clock:       func() time.Time { return s.clock() },
+	})
+	return s, nil
 }
 
 // SetClock sets a custom clock function for testing purposes.
@@ -696,6 +708,10 @@ func (s *Scheduler) Start(ctx context.Context) error {
 
 	wg.Go(func() {
 		s.startPublicWebhooks(ctx)
+	})
+
+	wg.Go(func() {
+		s.folderWatcher.Start(ctx)
 	})
 
 	wg.Go(func() {
@@ -1031,6 +1047,35 @@ func (s *Scheduler) stopCron(ctx context.Context) {
 // Catchup runs are dispatched synchronously (enqueue is fast file I/O and
 // we need the result to decide whether to advance the watermark).
 // Non-catchup runs are dispatched in a goroutine (process spawn can be slow).
+// enqueueFileRun queues the run of a file that arrived in a watched folder.
+func (s *Scheduler) enqueueFileRun(ctx context.Context, entry DAGEntry, runID, params string) error {
+	profileName, err := s.dagExecutor.defaultProfileName(ctx, entry.DefinitionID, entry.DAG)
+	if err != nil {
+		return fmt.Errorf("failed to resolve DAG profile: %w", err)
+	}
+	return enqueueTriggeredRun(
+		ctx,
+		s.dagRunRepository,
+		s.queueStore,
+		s.config.Paths.LogDir,
+		s.config.Paths.ArtifactDir,
+		s.config.Paths.BaseConfig,
+		workspace.BaseConfigDir(s.config.Paths.DAGsDir),
+		entry.DefinitionID,
+		entry.DAG,
+		runID,
+		params,
+		profileName,
+		s.clock(),
+		ir.TriggerTypeFile,
+		errInvalidFileRun,
+	)
+}
+
+// errInvalidFileRun says a watched DAG, or the file's params, cannot start a
+// run.
+var errInvalidFileRun = errors.New("the file cannot start a run")
+
 func (s *Scheduler) dispatchRun(ctx context.Context, run PlannedRun) {
 	if run.TriggerType == ir.TriggerTypeCatchUp {
 		s.dispatchPlannedRun(ctx, run)

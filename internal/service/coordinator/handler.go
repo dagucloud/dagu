@@ -1051,13 +1051,15 @@ func (h *Handler) writeInitialStatus(ctx context.Context, attempt dagrun.Attempt
 		AttemptID:    attempt.ID(),
 		AttemptKey:   task.AttemptKey,
 		Status:       ir.NotStarted,
-		StartedAt:    time.Now().UTC().Format(time.RFC3339),
+		StartedAt:    stringutil.FormatTime(time.Now().UTC()),
 		Root:         root,
 		Labels:       labels,
 		TriggerActor: task.TriggerActor,
 		ScheduleTime: task.ScheduleTime,
 		DefinitionID: task.DefinitionId,
 		ProfileName:  task.ProfileName,
+		// Every step's model usage is recorded from the start.
+		ModelUsageRecorded: true,
 	}
 	return attempt.Write(ctx, initialStatus)
 }
@@ -1380,6 +1382,54 @@ func (h *Handler) failHeldDispatch(ctx context.Context, task *dispatch.DispatchT
 		logger.Warn(ctx, "Failed to drop a held dispatch past its wait",
 			tag.RunID(task.DAGRunID), tag.AttemptKey(task.AttemptKey), tag.Error(err))
 	}
+}
+
+// dropOrphanedDispatches removes the pending tasks that have waited a lease
+// period for runs that no longer await them, such as a run dequeued before any
+// worker claimed it. A task whose run still waits keeps its place however long
+// the matching workers stay busy.
+func (h *Handler) dropOrphanedDispatches(ctx context.Context, now time.Time) {
+	if h.dispatchTaskStore == nil || h.dagRunRepository == nil {
+		return
+	}
+	tasks, err := h.dispatchTaskStore.ListStalePending(ctx, now.Add(-h.staleLeaseThreshold))
+	if err != nil {
+		logger.Warn(ctx, "Failed to list long-pending dispatches", tag.Error(err))
+		return
+	}
+	storeCtx := context.WithoutCancel(ctx)
+	for _, task := range tasks {
+		if !h.dispatchOrphaned(storeCtx, task) {
+			continue
+		}
+		if err := h.dispatchTaskStore.DeletePending(storeCtx, task.AttemptKey); err != nil {
+			logger.Warn(ctx, "Failed to drop a pending dispatch whose run moved on",
+				tag.RunID(task.DAGRunID), tag.AttemptKey(task.AttemptKey), tag.Error(err))
+			continue
+		}
+		logger.Info(ctx, "Dropped a pending dispatch whose run moved on",
+			tag.RunID(task.DAGRunID), tag.AttemptKey(task.AttemptKey))
+	}
+}
+
+// dispatchOrphaned reports whether the run of a pending task is gone or no
+// longer waits for the attempt the task starts. A run that cannot be read
+// keeps its task, so the next pass checks it again.
+func (h *Handler) dispatchOrphaned(ctx context.Context, task *dispatch.DispatchTask) bool {
+	rootRef := ir.DAGRunRef{Name: task.RootDAGRunName, ID: task.RootDAGRunID}
+	_, runStatus, err := h.resolveLatestAttempt(ctx, task.Target, task.DAGRunID, rootRef)
+	switch {
+	case errors.Is(err, dagrun.ErrDAGRunIDNotFound), errors.Is(err, dagrun.ErrNoStatusData):
+		return true
+	case err != nil:
+		logger.Warn(ctx, "Failed to read the run of a long-pending dispatch",
+			tag.RunID(task.DAGRunID), tag.Error(err))
+		return false
+	}
+	if task.AttemptID != "" && runStatus.AttemptID != task.AttemptID {
+		return true
+	}
+	return runStatus.Status != ir.Queued && runStatus.Status != ir.NotStarted
 }
 
 // writeHeldAttemptStatus writes through the attempt handle kept open since the
@@ -2286,6 +2336,24 @@ func (h *Handler) ReportStatus(ctx context.Context, req *coordinatorv1.ReportSta
 	return &coordinatorv1.ReportStatusResponse{Accepted: true}, nil
 }
 
+// sameTimestamp reports whether two recorded times are the same instant. A
+// writer from before timestamps carried milliseconds drops the fraction, so a
+// value without one matches any time in the same second.
+func sameTimestamp(a, b string) bool {
+	if a == b {
+		return true
+	}
+	ta, errA := stringutil.ParseTime(a)
+	tb, errB := stringutil.ParseTime(b)
+	if errA != nil || errB != nil || ta.IsZero() || tb.IsZero() {
+		return false
+	}
+	if !strings.Contains(a, ".") || !strings.Contains(b, ".") {
+		return ta.Truncate(time.Second).Equal(tb.Truncate(time.Second))
+	}
+	return ta.Equal(tb)
+}
+
 func preservesCompletedManualActions(current, incoming *ir.DAGRunStatus) bool {
 	if current == nil || incoming == nil {
 		return false
@@ -2311,7 +2379,7 @@ func preservesCompletedManualActions(current, incoming *ir.DAGRunStatus) bool {
 			return false
 		}
 		if (completedHumanTask || completedApproval) &&
-			(next.Status != node.Status || next.FinishedAt != node.FinishedAt) {
+			(next.Status != node.Status || !sameTimestamp(next.FinishedAt, node.FinishedAt)) {
 			return false
 		}
 		if completedHumanTask &&
@@ -2962,6 +3030,9 @@ func (h *Handler) detectAndCleanupZombies(ctx context.Context) {
 
 	// Pass 3: held dispatches whose wait for a matching worker has passed.
 	h.expireHeldDispatches(ctx, time.Now().UTC())
+
+	// Pass 4: pending dispatches left behind by runs that moved on.
+	h.dropOrphanedDispatches(ctx, time.Now().UTC())
 }
 
 func (h *Handler) cleanupWorkspaceBundles(ctx context.Context, now time.Time) {

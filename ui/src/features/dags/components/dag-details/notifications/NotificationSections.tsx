@@ -87,7 +87,19 @@ type ProviderFieldsProps = {
   onChange: (next: DeliveryDraft) => void;
 };
 
-function ProviderFields({ draft, onChange }: ProviderFieldsProps) {
+/**
+ * Provider fields adapt to the width of their own box, as the same fields sit
+ * in the narrow Workflow panel and in a dialog.
+ */
+function ProviderFields(props: ProviderFieldsProps) {
+  return (
+    <div className="@container">
+      <ProviderFieldsBody {...props} />
+    </div>
+  );
+}
+
+function ProviderFieldsBody({ draft, onChange }: ProviderFieldsProps) {
   const { ts } = useI18n();
   const fieldId = useId();
   const update = (patch: Partial<DeliveryDraft>) =>
@@ -95,7 +107,7 @@ function ProviderFields({ draft, onChange }: ProviderFieldsProps) {
 
   if (draft.type === NotificationProviderType.email) {
     return (
-      <div className="grid gap-3 md:grid-cols-2">
+      <div className="grid gap-3 @xl:grid-cols-2">
         <label className="block space-y-2">
           <span className="text-sm font-medium">
             <I18nText text={'To'} />
@@ -168,13 +180,13 @@ function ProviderFields({ draft, onChange }: ProviderFieldsProps) {
             />
           </I18nProps>
         </label>
-        <label className="block space-y-2 md:col-span-2">
+        <label className="block space-y-2 @xl:col-span-2">
           <span className="text-sm font-medium">
             <I18nText text={'Email subject template'} />
           </span>
           <I18nProps>
             <Textarea
-              className="md:col-span-2"
+              className="@xl:col-span-2"
               aria-label="Email subject template"
               value={draft.email.subjectTemplate}
               placeholder={DEFAULT_SUBJECT_TEMPLATE}
@@ -189,13 +201,13 @@ function ProviderFields({ draft, onChange }: ProviderFieldsProps) {
             />
           </I18nProps>
         </label>
-        <label className="block space-y-2 md:col-span-2">
+        <label className="block space-y-2 @xl:col-span-2">
           <span className="text-sm font-medium">
             <I18nText text={'Email body template'} />
           </span>
           <I18nProps>
             <Textarea
-              className="min-h-24 py-1 md:col-span-2"
+              className="min-h-24 py-1 @xl:col-span-2"
               aria-label="Email body template"
               value={draft.email.bodyTemplate}
               placeholder={DEFAULT_MESSAGE_TEMPLATE}
@@ -373,7 +385,7 @@ function ProviderFields({ draft, onChange }: ProviderFieldsProps) {
             <code>{'{"text": "{{message}}"}'}</code>
           </div>
         </div>
-        <div className="grid gap-2 md:grid-cols-2">
+        <div className="grid gap-2 @xl:grid-cols-2">
           <label className="flex h-9 items-center gap-2 rounded-md border border-border px-3 text-sm">
             <Checkbox
               checked={draft.webhook.clearHeaders}
@@ -601,7 +613,7 @@ function ProviderFields({ draft, onChange }: ProviderFieldsProps) {
 
   return (
     <div className="space-y-3">
-      <div className="grid gap-3 md:grid-cols-2">
+      <div className="grid gap-3 @xl:grid-cols-2">
         <label className="block space-y-2">
           <span className="text-sm font-medium">
             <I18nText text={'Bot token'} />
@@ -772,9 +784,9 @@ export function NotificationOverviewCard({
 }: NotificationOverviewCardProps) {
   return (
     <Card>
-      <CardHeader className="grid-cols-[1fr_auto]">
-        <div className="flex items-center gap-2">
-          <Bell className="h-4 w-4 text-muted-foreground" />
+      <CardHeader className="grid-cols-[minmax(0,1fr)_auto]">
+        <div className="flex min-w-0 flex-wrap items-center gap-2">
+          <Bell className="h-4 w-4 shrink-0 text-muted-foreground" />
           <CardTitle className="text-sm">
             <I18nText text={'Notification source'} />
           </CardTitle>
@@ -901,7 +913,7 @@ export function NotificationOverviewCard({
         )}
 
         {testResults.length > 0 && (
-          <div className="grid gap-2 sm:grid-cols-2">
+          <div className="grid gap-2 @xl:grid-cols-2">
             {testResults.map((result) => (
               <div
                 key={`${result.targetId}-${result.provider}`}
@@ -955,7 +967,7 @@ export function InheritedNotificationRoutesCard({
 
   return (
     <Card>
-      <CardHeader className="grid-cols-[1fr_auto]">
+      <CardHeader className="grid-cols-[minmax(0,1fr)_auto]">
         <div className="flex min-w-0 items-center gap-2">
           <Link2 className="h-4 w-4 shrink-0 text-muted-foreground" />
           <CardTitle className="truncate text-sm">
@@ -987,7 +999,7 @@ export function InheritedNotificationRoutesCard({
               return (
                 <div
                   key={route.id}
-                  className="flex flex-col gap-2 px-3 py-3 text-sm sm:flex-row sm:items-center sm:justify-between"
+                  className="flex flex-col gap-2 px-3 py-3 text-sm @xl:flex-row @xl:items-center @xl:justify-between"
                 >
                   <div className="flex min-w-0 items-center gap-2">
                     <Icon className="h-4 w-4 shrink-0 text-muted-foreground" />
@@ -1724,7 +1736,7 @@ export function DAGSubscriptionsSection({
                       <I18nText text={lockReason} />
                     </p>
                   )}
-                  <div className="grid gap-3 md:grid-cols-[minmax(220px,320px)_minmax(0,1fr)]">
+                  <div className="grid gap-3 @xl:grid-cols-[minmax(220px,320px)_minmax(0,1fr)]">
                     <Select
                       value={subscription.channelId}
                       onValueChange={(channelId) =>
@@ -1766,7 +1778,7 @@ export function DAGSubscriptionsSection({
                           }
                         />
                       </span>
-                      <div className="flex items-center gap-2">
+                      <div className="flex flex-wrap items-center gap-2">
                         {hasCustomEvents && (
                           <Button
                             variant="ghost"
@@ -1922,7 +1934,7 @@ export function DAGLocalTargetsSection({
                 </div>
               </CardHeader>
               <CardContent className="space-y-4">
-                <div className="grid gap-3 md:grid-cols-[minmax(0,1fr)_180px]">
+                <div className="grid gap-3 @xl:grid-cols-[minmax(0,1fr)_180px]">
                   <I18nProps>
                     <Input
                       value={target.name}

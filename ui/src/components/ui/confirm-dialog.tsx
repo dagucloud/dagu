@@ -12,6 +12,7 @@ import {
   DialogFooter,
   DialogHeader,
   DialogTitle,
+  type DialogLayer,
 } from '@/components/ui/dialog';
 import { cn } from '@/lib/utils';
 import { I18nText } from '@/i18n/I18nText';
@@ -29,6 +30,20 @@ type ConfirmDialogProps = {
   headerClassName?: string;
   bodyClassName?: string;
   footerClassName?: string;
+  /** 'raised' puts the dialog above the node view; see DialogLayer. */
+  layer?: DialogLayer;
+  /** A short second choice between Cancel and the confirm button. */
+  secondary?: { text: string; onClick: () => void };
+  /**
+   * The button that has the focus when the dialog opens. 'confirm' is the
+   * default: Enter confirms. A destructive question passes 'cancel'.
+   */
+  initialFocus?: 'confirm' | 'cancel';
+  /**
+   * When true, the focus goes back to the element that had it before the
+   * dialog opened, if that element is still on the page.
+   */
+  restoreFocus?: boolean;
 };
 
 function ConfirmDialog({
@@ -44,19 +59,14 @@ function ConfirmDialog({
   headerClassName,
   bodyClassName,
   footerClassName,
+  layer,
+  secondary,
+  initialFocus = 'confirm',
+  restoreFocus = false,
 }: ConfirmDialogProps) {
   const cancelButtonRef = React.useRef<HTMLButtonElement>(null);
   const submitButtonRef = React.useRef<HTMLButtonElement>(null);
-
-  React.useEffect(() => {
-    if (!visible || !submitButtonRef.current) {
-      return;
-    }
-
-    requestAnimationFrame(() => {
-      submitButtonRef.current?.focus();
-    });
-  }, [visible]);
+  const returnTo = React.useRef<HTMLElement | null>(null);
 
   React.useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent) => {
@@ -108,15 +118,33 @@ function ConfirmDialog({
     <Dialog open={visible} onOpenChange={(open) => !open && dismissModal()}>
       <DialogContent
         fullscreen={fullscreen}
+        layer={layer}
         className={cn(
           !fullscreen && !contentClassName && 'sm:max-w-[500px]',
           contentClassName
         )}
+        onOpenAutoFocus={(event) => {
+          const active = document.activeElement;
+          returnTo.current = active instanceof HTMLElement ? active : null;
+          event.preventDefault();
+          // A disabled button cannot take the focus.
+          const target =
+            initialFocus === 'cancel' || submitDisabled
+              ? cancelButtonRef
+              : submitButtonRef;
+          target.current?.focus();
+        }}
+        onCloseAutoFocus={(event) => {
+          if (!restoreFocus) return;
+          event.preventDefault();
+          if (returnTo.current?.isConnected) returnTo.current.focus();
+          returnTo.current = null;
+        }}
       >
         <DialogHeader className={headerClassName}>
           <DialogTitle>{title}</DialogTitle>
           <DialogDescription className="sr-only">
-            <I18nText text={"Confirm the requested action."} />
+            <I18nText text={'Confirm the requested action.'} />
           </DialogDescription>
         </DialogHeader>
 
@@ -125,8 +153,13 @@ function ConfirmDialog({
         <DialogFooter className={footerClassName}>
           <Button ref={cancelButtonRef} variant="ghost" onClick={dismissModal}>
             <X className="h-4 w-4" />
-            <I18nText text={"Cancel"} />
+            <I18nText text={'Cancel'} />
           </Button>
+          {secondary && (
+            <Button variant="outline" onClick={secondary.onClick}>
+              {secondary.text}
+            </Button>
+          )}
           <Button
             ref={submitButtonRef}
             variant="primary"

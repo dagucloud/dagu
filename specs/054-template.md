@@ -117,6 +117,11 @@ validate`), not only when the step runs:
   `"template: parse error"`. When the undefined function name is a
   `with.data` key, the error also contains `is a with.data key and needs a
   leading dot`.
+- A `with` field other than `template`, `template_ref`, `data`, and
+  `output`: an error containing `unexpected additional properties` and the
+  field name. When a defined field is a likely misspelling of it, the error
+  also suggests that field, such as `did you mean "data" instead of
+  "datas"?`.
 
 ### Runtime
 

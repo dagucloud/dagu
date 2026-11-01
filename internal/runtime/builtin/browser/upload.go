@@ -5,16 +5,15 @@ package browser
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
-	"slices"
 	"strings"
 	"time"
 
 	"github.com/dagucloud/dagu/v2/internal/runtime/builtin/internal/agentstep"
+	"github.com/dagucloud/dagu/v2/internal/runtime/builtin/internal/filerefs"
 )
 
 // An upload gives local files to a file input of the page. Without into, the
@@ -125,12 +124,12 @@ func (o *operator) upload(ctx context.Context, index int, spec uploadSpec, timeo
 	// and tells whether a recorded element is still the one recorded.
 	snap, snapErr := o.eng.Snapshot(ctx)
 	status := agentstep.StatusCompleted
-	actions, ok := o.recording(choice, key)
+	rec, ok := o.recording(choice, key)
 	if !ok && choice == aiNever {
 		return opResult{}, replayMiss{kind: opUpload, reason: noRecording}
 	}
 	if ok {
-		action := actions[0]
+		action := rec.Actions[0]
 		if snapErr == nil && stillTargets(action, snap, o.variables) {
 			how, err := o.eng.Upload(ctx, action.Selector, files, timeout)
 			if err != nil {
@@ -159,7 +158,7 @@ func (o *operator) upload(ctx context.Context, index int, spec uploadSpec, timeo
 			"if the element is on the page, reword into or try another model", o.bridge.modelName(), spec.Into)
 	}
 	action := recordedAction{Selector: found[0].Selector, Description: found[0].Description, Method: uploadMethod}
-	if target, ok := targetOf(snap, action.Selector); ok && snapErr == nil {
+	if target, ok := identifyingTarget(snap, action.Selector); ok && snapErr == nil {
 		action = identified(action, target, o.variables)
 	}
 	how, err := o.eng.Upload(ctx, action.Selector, files, timeout)
@@ -167,7 +166,7 @@ func (o *operator) upload(ctx context.Context, index int, spec uploadSpec, timeo
 		return opResult{}, err
 	}
 	if recorded {
-		o.recorder.stage(key, []recordedAction{action})
+		o.recorder.stage(key, recording{Actions: []recordedAction{action}})
 	}
 	return result(status, agentstep.ViaModel, &action, how, pageURL), nil
 }
@@ -202,142 +201,21 @@ func describeUpload(files []uploadFile, action *recordedAction, how string) stri
 }
 
 // resolveUploadFiles returns the files upload.files names, in order and
-// each once. An entry is a path or a glob pattern, several of them one per
-// line, or JSON as an earlier step publishes it: a list of paths, of objects
-// with a path such as saved mail attachments, or of emails from mail.search,
-// whose saved attachments it names, or one such object. Relative paths
-// resolve against workDir, or the current directory when it is empty.
+// each once, as filerefs.Paths reads them.
 func resolveUploadFiles(entries []string, workDir string) ([]uploadFile, error) {
-	var files []uploadFile
-	seen := map[string]bool{}
-	for _, entry := range entries {
-		paths, err := uploadPaths(entry)
-		if err != nil {
-			return nil, err
-		}
-		for _, path := range paths {
-			matches, err := expandUploadPath(path, workDir)
-			if err != nil {
-				return nil, err
-			}
-			for _, match := range matches {
-				if seen[match] {
-					continue
-				}
-				seen[match] = true
-				file, err := statUploadFile(match)
-				if err != nil {
-					return nil, err
-				}
-				files = append(files, file)
-			}
-		}
-	}
-	if len(files) == 0 {
-		return nil, errors.New("files names no file")
-	}
-	return files, nil
-}
-
-// uploadPaths returns the paths and patterns an entry of upload.files
-// names.
-func uploadPaths(entry string) ([]string, error) {
-	text := strings.TrimSpace(entry)
-	if strings.HasPrefix(text, "[") || strings.HasPrefix(text, "{") {
-		var value any
-		if json.Unmarshal([]byte(text), &value) == nil {
-			return jsonUploadPaths(value)
-		}
-	}
-	var paths []string
-	for line := range strings.Lines(text) {
-		if path := strings.TrimSpace(line); path != "" {
-			paths = append(paths, path)
-		}
-	}
-	return paths, nil
-}
-
-// jsonUploadPaths returns the paths a JSON value lists.
-func jsonUploadPaths(value any) ([]string, error) {
-	items, isList := value.([]any)
-	if !isList {
-		items = []any{value}
-	}
-	paths := make([]string, 0, len(items))
-	for _, item := range items {
-		switch item := item.(type) {
-		case string:
-			if strings.TrimSpace(item) != "" {
-				paths = append(paths, strings.TrimSpace(item))
-			}
-		case map[string]any:
-			// An email without attachments lists them as null.
-			if attachments, isEmail := item["attachments"]; isEmail {
-				list, _ := attachments.([]any)
-				saved, err := jsonUploadPaths(list)
-				if err != nil {
-					return nil, err
-				}
-				paths = append(paths, saved...)
-				continue
-			}
-			path, _ := item["path"].(string)
-			if strings.TrimSpace(path) == "" {
-				name, _ := item["name"].(string)
-				return nil, fmt.Errorf("files lists %s without a path; save mail attachments with save_attachments: true", listedName(name))
-			}
-			paths = append(paths, strings.TrimSpace(path))
-		default:
-			return nil, fmt.Errorf("files lists %v, which is neither a path nor an object with a path", item)
-		}
-	}
-	return paths, nil
-}
-
-// listedName names a listed object by its name, if it has one.
-func listedName(name string) string {
-	if name == "" {
-		return "an object"
-	}
-	return fmt.Sprintf("%q", name)
-}
-
-// expandUploadPath returns the file at path, or the files a glob pattern
-// matches, sorted.
-func expandUploadPath(path, workDir string) ([]string, error) {
-	resolved, err := absUploadPath(path, workDir)
+	paths, err := filerefs.Paths(entries, workDir)
 	if err != nil {
 		return nil, err
 	}
-	if _, err := os.Lstat(resolved); err == nil || !strings.ContainsAny(path, "*?[") {
-		return []string{resolved}, nil
-	}
-	matches, err := filepath.Glob(resolved)
-	if err != nil {
-		return nil, fmt.Errorf("files pattern %s: %w", path, err)
-	}
-	if len(matches) == 0 {
-		return nil, fmt.Errorf("no file matches %s", resolved)
-	}
-	slices.Sort(matches)
-	return matches, nil
-}
-
-// absUploadPath makes path absolute: a leading ~ is the home directory, and
-// a relative path is under workDir.
-func absUploadPath(path, workDir string) (string, error) {
-	if path == "~" || strings.HasPrefix(path, "~/") || strings.HasPrefix(path, `~\`) {
-		home, err := os.UserHomeDir()
+	files := make([]uploadFile, 0, len(paths))
+	for _, path := range paths {
+		file, err := statUploadFile(path)
 		if err != nil {
-			return "", fmt.Errorf("resolve %s: %w", path, err)
+			return nil, err
 		}
-		return filepath.Join(home, path[1:]), nil
+		files = append(files, file)
 	}
-	if !filepath.IsAbs(path) && workDir != "" {
-		path = filepath.Join(workDir, path)
-	}
-	return filepath.Abs(path)
+	return files, nil
 }
 
 // statUploadFile checks that path is a file an upload can give.

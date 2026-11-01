@@ -202,7 +202,11 @@ func (n *Node) setupContextWithTimeout(ctx context.Context) (context.Context, co
 		stepTimeout = step.Timeout
 		ctx, cancel := context.WithTimeout(ctx, stepTimeout)
 		n.setExecCancel(cancel)
-		logger.Info(ctx, "Step execution started with timeout",
+		logExec := logger.Info
+		if isContinuousStep(step) {
+			logExec = logger.Debug // once for each execution, for years
+		}
+		logExec(ctx, "Step execution started with timeout",
 			tag.Timeout(stepTimeout),
 		)
 		return ctx, func() {
@@ -932,7 +936,8 @@ func (n *Node) setupExecutor(ctx context.Context) (context.Context, executor.Exe
 	// carries a reference, would otherwise be indistinguishable from an unset
 	// field and leave the step reading empty standard input.
 	if raw := n.Step().Stdin; raw != "" {
-		resolved, err := resolveRuntimeString(ctx, raw, cmnvalue.StepArtifactOutputField("stdin"))
+		field := cmnvalue.StepArtifactOutputField("stdin")
+		resolved, err := resolveRuntimeString(ctx, raw, field)
 		if err != nil {
 			return ctx, nil, fmt.Errorf("failed to eval stdin: %w", err)
 		}
@@ -940,7 +945,7 @@ func (n *Node) setupExecutor(ctx context.Context) (context.Context, executor.Exe
 		if resolved == "" {
 			return ctx, nil, fmt.Errorf("stdin %q resolved to an empty path", raw)
 		}
-		if cmnvalue.HasValueReference(resolved) {
+		if field.HasValueReference(resolved) {
 			return ctx, nil, fmt.Errorf("stdin %q must resolve before execution", raw)
 		}
 		n.SetStdin(resolved)
@@ -1020,16 +1025,16 @@ func (n *Node) cleanupStepOutputFile() error {
 
 func evalExecutorConfig(ctx context.Context, step ir.Step) (map[string]any, error) {
 	if step.ExecutorConfig.Type == "template" {
-		return evalTemplateConfig(ctx, step.ExecutorConfig.Config)
+		return evalTemplateConfig(ctx, step.ExecutorConfig.Config, registry.PathInputs(step))
 	}
-	got, err := resolveRuntimeObject(ctx, step.ExecutorConfig.Config, cmnvalue.ExecutorConfigField("with"))
+	got, err := resolveRuntimeObject(ctx, step.ExecutorConfig.Config, registry.ConfigField(step, "with"))
 	if err != nil {
 		return nil, err
 	}
 	return objectAsConfig(got)
 }
 
-func evalTemplateConfig(ctx context.Context, config map[string]any) (map[string]any, error) {
+func evalTemplateConfig(ctx context.Context, config map[string]any, pathKeys []string) (map[string]any, error) {
 	env := GetEnv(ctx)
 	scope := env.Scope
 	if scope == nil {
@@ -1041,7 +1046,7 @@ func evalTemplateConfig(ctx context.Context, config map[string]any) (map[string]
 	rawRef, hasRef := config["template_ref"]
 	delete(config, "template_ref")
 
-	got, err := resolveRuntimeObjectWithScope(ctx, env, scope, config, cmnvalue.TemplateConfigField("with"))
+	got, err := resolveRuntimeObjectWithScope(ctx, env, scope, config, cmnvalue.TemplateConfigField("with").WithPathKeys(pathKeys...))
 	if err != nil {
 		return nil, err
 	}

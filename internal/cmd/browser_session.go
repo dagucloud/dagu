@@ -51,6 +51,29 @@ var (
 		isStringArray: true,
 		usage:         "Keep the browser on this host or *.domain; repeat for more",
 	}
+	sessionWriteGateFlag = commandLineFlag{
+		name:  "write-gate",
+		usage: "Write gate mode: rehearse blocks and reports the page's writes, but the sign-ins --write-policy lists (default: the host's browser.write_gate)",
+	}
+	sessionWritePolicyFlag = commandLineFlag{
+		name:  "write-policy",
+		usage: "Write gate policy file naming the sign-in endpoints whose writes are sent",
+	}
+	sessionAllowWriteFlag = commandLineFlag{
+		name:          "allow-write",
+		isStringArray: true,
+		usage:         "Let the operation send the write of this signature, in a session whose write gate records; repeat for more",
+	}
+	sessionPersonFlag = commandLineFlag{
+		name:   "person",
+		isBool: true,
+		usage:  "A person holds the browser: send the writes they make, still reporting each",
+	}
+	sessionGuardFlag = commandLineFlag{
+		name:   "guard",
+		isBool: true,
+		usage:  "Hand the browser back to the write gate's mode",
+	}
 	sessionIdleTimeoutFlag = commandLineFlag{
 		name:         "idle-timeout",
 		defaultValue: browser.DefaultSessionIdleTimeout.String(),
@@ -179,9 +202,40 @@ Examples:
 		browserSessionExportCommand(),
 		browserSessionCloseCommand(),
 		browserSessionListCommand(),
+		browserSessionGateCommand(),
 		browserSessionReapCommand(),
 	)
 	return cmd
+}
+
+func browserSessionGateCommand() *cobra.Command {
+	return NewCommand(&cobra.Command{
+		Use:   "gate (--person | --guard) <session ID>",
+		Short: "Tell a session's write gate who holds the browser",
+		Long: `Tell the session's write gate that a person holds the browser, with --person,
+or hands it back, with --guard. While a person holds it, the gate sends the
+writes the page makes and still reports each with the next command.
+
+Examples:
+  dagu browser session gate --person ab2cd3ef4g
+  dagu browser session gate --guard ab2cd3ef4g
+`,
+		Args: cobra.ExactArgs(1),
+	}, []commandLineFlag{sessionPersonFlag, sessionGuardFlag}, runBrowserSessionGate)
+}
+
+func runBrowserSessionGate(ctx *Context, args []string) error {
+	flags := ctx.Command.Flags()
+	person, _ := flags.GetBool(sessionPersonFlag.name)
+	guard, _ := flags.GetBool(sessionGuardFlag.name)
+	if person == guard {
+		return writeSessionError(ctx, invalidSessionInput("give one of --person or --guard"))
+	}
+	result, err := browser.NewSessions().Gate(ctx, browser.GateRequest{ID: args[0], Person: person})
+	if err != nil {
+		return writeSessionError(ctx, err)
+	}
+	return writeIndentedJSON(ctx.Command.OutOrStdout(), result)
 }
 
 func browserSessionOpenCommand() *cobra.Command {
@@ -198,6 +252,19 @@ Give the model the session's acts, extracts, and judged conditions ask with
 operations that need no model, such as goto and fixed expects. The model's
 API key is read from the environment on every command.
 
+With --write-gate rehearse, every write the page sends, any request but GET,
+HEAD, or OPTIONS, is blocked and reported under writes, by this command and
+by the next for a write the page sent while it waited. With --write-gate
+record, writes are blocked the same way unless the do command that sends
+one allows its signature with --allow-write; a blocked write fails the
+operation with write_blocked. Sign-ins the --write-policy file lists are
+sent:
+
+  sign_in:
+    - host: login.example.com
+      path: /session
+      secret: PORTAL_PASSWORD   # sent only when it carries this variable's value
+
 Examples:
   dagu browser session open https://portal.example.com/login --provider openai --model gpt-5-mini
   dagu browser session open https://shop.example.com --headed --profile shop --llm '{provider: anthropic, model: claude-sonnet-4-6}'
@@ -206,7 +273,7 @@ Examples:
 	}, []commandLineFlag{
 		sessionProfileFlag, sessionHeadedFlag, sessionViewportFlag, sessionExecutableFlag, sessionProxyFlag,
 		sessionAllowedDomainFlag, sessionIdleTimeoutFlag, sessionLLMFlag, sessionProviderFlag, sessionModelFlag,
-		sessionBaseURLFlag, sessionAPIKeyNameFlag, sessionOutlineFlag,
+		sessionBaseURLFlag, sessionAPIKeyNameFlag, sessionOutlineFlag, sessionWriteGateFlag, sessionWritePolicyFlag,
 	}, runBrowserSessionOpen)
 }
 
@@ -265,6 +332,8 @@ func sessionOpenOptions(ctx *Context, args []string) (browser.SessionOptions, er
 	opts.Executable, _ = flags.GetString(sessionExecutableFlag.name)
 	opts.Proxy, _ = flags.GetString(sessionProxyFlag.name)
 	opts.AllowedDomains, _ = flags.GetStringArray(sessionAllowedDomainFlag.name)
+	opts.WriteGate, _ = flags.GetString(sessionWriteGateFlag.name)
+	opts.WritePolicyFile, _ = flags.GetString(sessionWritePolicyFlag.name)
 	if text, _ := flags.GetString(sessionViewportFlag.name); text != "" {
 		width, height, ok := strings.Cut(strings.ToLower(text), "x")
 		w, wErr := strconv.Atoi(width)
@@ -359,17 +428,25 @@ upload into the element in words, reported as into, with the action it took
 as its recording.
 
 The result reports what the operation did, the actions an act performed,
-what an extract read, and the page the browser is on next. An operation that
-fails is reported with status failed and the command exits 1; the session
-stays open.
+what an extract read, the writes the write gate decided, and the page the
+browser is on next. An operation that fails is reported with status failed
+and the command exits 1; the session stays open.
+
+In a session whose write gate records, --allow-write lets the operation
+send the write of a signature a blocked write reported; it sends no other.
+A form whose write was blocked stays on the page as the page's script
+left it, normally as it was filled in. If the form still accepts the
+same operation, allowing its write sends the values the form holds then,
+so check them before allowing it.
 
 Examples:
   echo '{"act": "Click Sign in"}' | dagu browser session do ab2cd3ef4g
   echo '{"click": "0-131"}' | dagu browser session do ab2cd3ef4g
+  echo '{"click": "0-88"}' | dagu browser session do ab2cd3ef4g --allow-write 'POST https://books.example.com/api/deals? {amount}'
   dagu browser session do ab2cd3ef4g < operation.yaml
 `,
 		Args: cobra.ExactArgs(1),
-	}, []commandLineFlag{sessionOutlineFlag}, runBrowserSessionDo)
+	}, []commandLineFlag{sessionOutlineFlag, sessionAllowWriteFlag}, runBrowserSessionDo)
 }
 
 func runBrowserSessionDo(ctx *Context, args []string) error {
@@ -385,9 +462,11 @@ func runBrowserSessionDo(ctx *Context, args []string) error {
 	if err != nil {
 		return writeSessionError(ctx, err)
 	}
-	result, err := browser.NewSessions().Do(ctx, browser.DoRequest{ID: args[0], Operation: op, Variables: variables, OutlineChars: chars})
+	allowed, _ := ctx.Command.Flags().GetStringArray(sessionAllowWriteFlag.name)
+	result, err := browser.NewSessions().Do(ctx, browser.DoRequest{ID: args[0], Operation: op, Variables: variables, OutlineChars: chars, AllowWrites: allowed})
 	var sessionErr *browser.SessionError
-	if err != nil && (!errors.As(err, &sessionErr) || sessionErr.Code != browser.CodeOperationFailed) {
+	// An operation that ran reports its result, failed or not.
+	if err != nil && (!errors.As(err, &sessionErr) || sessionErr.Code != browser.CodeOperationFailed && sessionErr.Code != browser.CodeWriteBlocked) {
 		return writeSessionError(ctx, err)
 	}
 	if writeErr := writeIndentedJSON(ctx.Command.OutOrStdout(), result); writeErr != nil {
@@ -594,7 +673,7 @@ func runBrowserSessionList(ctx *Context, _ []string) error {
 	if err != nil {
 		return writeSessionError(ctx, err)
 	}
-	return writeIndentedJSON(ctx.Command.OutOrStdout(), map[string]any{"sessions": sessions, "capabilities": []string{"trusted_cas"}})
+	return writeIndentedJSON(ctx.Command.OutOrStdout(), map[string]any{"sessions": sessions, "capabilities": []string{"trusted_cas", "write_gate"}})
 }
 
 func sessionCharsFlag(ctx *Context, name string) (int, error) {

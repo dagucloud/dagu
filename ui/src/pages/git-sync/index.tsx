@@ -435,7 +435,7 @@ export default function GitSyncPage() {
       if (response.error) {
         showError(response.error.message || 'Connection test failed');
       } else if (response.data?.success) {
-        showToast('Connection successful');
+        showToast('Connection successful', { variant: 'info' });
       } else {
         showError(response.data?.error || 'Connection test failed');
       }

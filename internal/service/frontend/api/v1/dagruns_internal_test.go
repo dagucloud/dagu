@@ -2009,12 +2009,39 @@ func TestValidateAgentQuestionResponse(t *testing.T) {
 				return &openapiv1.AgentInteractionResponseRequest{Decision: &decision}
 			}(),
 		},
+		{
+			name:        "skip of a permission other than a browser write",
+			interaction: ir.AgentInteraction{Kind: ir.AgentInteractionPermission, Permission: "edit"},
+			body: func() *openapiv1.AgentInteractionResponseRequest {
+				decision := openapiv1.AgentInteractionResponseRequestDecisionSkip
+				return &openapiv1.AgentInteractionResponseRequest{Decision: &decision}
+			}(),
+		},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
 			require.Error(t, validateAgentInteractionResponse(test.interaction, test.body))
 		})
 	}
+}
+
+// A browser write may be skipped: the step goes on without running the
+// operation that would send it.
+func TestApplyAgentInteractionSkipsABrowserWrite(t *testing.T) {
+	t.Parallel()
+
+	node := &ir.Node{Status: ir.NodeWaiting, AgentSession: &ir.AgentSession{
+		State: ir.AgentSessionWaiting,
+		Interactions: []ir.AgentInteraction{{
+			ID: "ask-2-1", Kind: ir.AgentInteractionPermission, Status: ir.AgentInteractionPending,
+			Permission: ir.AgentPermissionBrowserWrite, Patterns: []string{"POST https://x/deals? {amount}"},
+		}},
+	}}
+	decision := openapiv1.AgentInteractionResponseRequestDecisionSkip
+	require.NoError(t, applyAgentInteractionResponse(t.Context(), node, "ask-2-1", &openapiv1.AgentInteractionResponseRequest{Decision: &decision}))
+	assert.Equal(t, ir.AgentInteractionAnswered, node.AgentSession.Interactions[0].Status)
+	assert.Equal(t, ir.AgentDecisionSkip, node.AgentSession.Interactions[0].Decision)
+	assert.Equal(t, ir.NodeNotStarted, node.Status, "the step runs again to apply the answer")
 }
 
 func TestApplyAgentInteractionRejectsPermission(t *testing.T) {
@@ -2087,7 +2114,7 @@ func TestBrowserSessionWaiting(t *testing.T) {
 			dataDir := t.TempDir()
 			if test.record != nil {
 				record := *test.record
-				record.ID = browserhost.RecordID("run-1", "login")
+				record.ID = browserhost.RecordID("run-1", "", "login")
 				require.NoError(t, browserhost.NewStore(filepath.Join(dataDir, browserhost.DataDirName)).Save(record))
 			}
 			waiting, err := browserSessionWaiting(t.Context(), dataDir, "run-1", "login", now)

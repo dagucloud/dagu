@@ -53,6 +53,10 @@ type Context struct {
 	Quiet   bool
 	Scope   commandScope
 
+	// configLoader is the loader that produced Config; it still knows where
+	// each value came from.
+	configLoader *config.ConfigLoader
+
 	EventSourceInstance string
 	Persistence         Persistence
 	DAGRunMgr           runtime.Manager
@@ -254,6 +258,7 @@ func NewContext(cmd *cobra.Command, flags []commandLineFlag) (*Context, error) {
 			Config:              cfg,
 			Quiet:               quiet,
 			Flags:               flags,
+			configLoader:        loader,
 			EventSourceInstance: eventSourceInstance,
 			ContextStore:        contextStore,
 			CLIContext:          selectedContext,
@@ -290,6 +295,7 @@ func NewContext(cmd *cobra.Command, flags []commandLineFlag) (*Context, error) {
 			Config:              cfg,
 			Quiet:               quiet,
 			Flags:               flags,
+			configLoader:        loader,
 			EventSourceInstance: eventSourceInstance,
 			ContextStore:        contextStore,
 			CLIContext:          selectedContext,
@@ -393,6 +399,7 @@ func NewContext(cmd *cobra.Command, flags []commandLineFlag) (*Context, error) {
 		backend:             backend,
 		event:               eventService,
 		Flags:               flags,
+		configLoader:        loader,
 		Caches:              caches,
 		LicenseManager:      licMgr,
 		ContextStore:        contextStore,

@@ -142,6 +142,20 @@ describe('DaguRunBlock', () => {
     expect(await screen.findByText('View run →')).toBeInTheDocument();
   });
 
+  // The DAG name (daily-etl) differs from its file (etl.yaml): the link
+  // names the file.
+  it('links the started run to the page of its workflow file', async () => {
+    const user = userEvent.setup();
+    renderBlock();
+
+    await user.click(screen.getByRole('button', { name: /run/i }));
+    await user.click(screen.getByRole('button', { name: 'Run' }));
+
+    expect(
+      await screen.findByRole('link', { name: 'View run →' })
+    ).toHaveAttribute('href', '/dags/etl.yaml?remoteNode=local&run=run-1');
+  });
+
   it('uses the enqueue endpoint and singleton flag when configured', async () => {
     const user = userEvent.setup();
     renderBlock('dag: daily-etl\nmode: enqueue\nsingleton: true\n');

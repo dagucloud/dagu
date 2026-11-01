@@ -9,6 +9,7 @@ import (
 	"encoding/json"
 	"encoding/pem"
 	"fmt"
+	"io"
 	"net"
 	"net/http"
 	"net/http/httptest"
@@ -266,4 +267,66 @@ func TestACPHTTPS(t *testing.T) {
 	require.Equal(t, "http:hello", out.String())
 	require.EqualValues(t, 1, deleted.Load())
 	require.Eventually(t, func() bool { return connections.Load() == 0 }, time.Second, 10*time.Millisecond, "private CA transport left an idle connection open")
+}
+
+// TestACPRemoteClientReleaseClosesBusyConnections verifies that releasing a
+// private CA client closes a connection still carrying a request, which
+// closing idle connections leaves open.
+func TestACPRemoteClientReleaseClosesBusyConnections(t *testing.T) {
+	streaming, stop := make(chan struct{}), make(chan struct{})
+	server := httptest.NewUnstartedServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/event-stream")
+		w.WriteHeader(http.StatusOK)
+		w.(http.Flusher).Flush()
+		close(streaming)
+		// The stream lasts until the client goes, or the test ends, so a
+		// failure does not hold the server open.
+		select {
+		case <-r.Context().Done():
+		case <-stop:
+		}
+	}))
+	server.EnableHTTP2 = true
+	var open atomic.Int32
+	server.Config.ConnState = func(_ net.Conn, state http.ConnState) {
+		switch state {
+		case http.StateNew:
+			open.Add(1)
+		case http.StateClosed, http.StateHijacked:
+			open.Add(-1)
+		}
+	}
+	server.StartTLS()
+	defer server.Close()
+	defer close(stop)
+	caFile := filepath.Join(t.TempDir(), "ca.pem")
+	require.NoError(t, os.WriteFile(caFile, pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: server.TLS.Certificates[0].Certificate[0]}), 0o600))
+	client, release, err := acpRemoteHTTPClient(caFile, t.TempDir())
+	require.NoError(t, err)
+
+	done := make(chan error, 1)
+	go func() {
+		response, err := client.Get(server.URL)
+		if err == nil {
+			_, err = io.Copy(io.Discard, response.Body)
+			_ = response.Body.Close()
+		}
+		done <- err
+	}()
+	select {
+	case <-streaming:
+	case <-time.After(5 * time.Second):
+		t.Fatal("the request did not reach the server")
+	}
+	release()
+	select {
+	case err := <-done:
+		require.Error(t, err, "the busy connection was closed under the request")
+	case <-time.After(5 * time.Second):
+		t.Fatal("release left the busy connection open")
+	}
+	require.Eventually(t, func() bool { return open.Load() == 0 }, 5*time.Second, 10*time.Millisecond)
+
+	_, err = client.Get(server.URL)
+	require.Error(t, err, "a released client dials nothing new")
 }

@@ -16,7 +16,11 @@ import (
 var ErrNoElements = errors.New("the application exposes no accessible elements")
 
 // ErrElementsUnsupported reports a system that cannot read elements.
-var ErrElementsUnsupported = errors.New("accessible elements are supported on 64-bit Windows only")
+var ErrElementsUnsupported = errors.New("accessible elements are supported on macOS and 64-bit Windows only")
+
+// ErrNoWindow reports that no application window is in front, as for a
+// moment between one window closing and the next one opening.
+var ErrNoWindow = errors.New("no window is in front")
 
 // ErrNoPattern reports an element that cannot perform a pattern itself, so
 // the action falls back to the pointer and keys.
@@ -26,9 +30,28 @@ var ErrNoPattern = errors.New("the element offers no such pattern")
 // enables it.
 var ErrDisabled = errors.New("the element is disabled")
 
+// ErrRefused marks an error an element gave before it acted, such as a
+// read-only field asked for a value, so nothing reached the application.
+var ErrRefused = errors.New("the element refused before acting")
+
+// refusal is an error an element gives before it acts: it reads as its own
+// message and matches ErrRefused.
+type refusal string
+
+func (r refusal) Error() string { return string(r) }
+
+func (refusal) Is(target error) bool { return target == ErrRefused }
+
+// Refused reports an error from Apply that came before the element acted:
+// the element was not there, was disabled, lacked the pattern, or refused
+// it. Any other error may have come after the element acted.
+func Refused(err error) bool {
+	return errors.Is(err, ErrNotFound) || errors.Is(err, ErrDisabled) || errors.Is(err, ErrNoPattern) || errors.Is(err, ErrRefused)
+}
+
 // Pattern is something an element does by itself when asked through the
 // system's automation, with no pointer or key: the UI Automation control
-// patterns on Windows.
+// patterns on Windows, and Accessibility actions and attributes on macOS.
 type Pattern string
 
 const (
@@ -38,7 +61,8 @@ const (
 	PatternToggle Pattern = "toggle"
 	// PatternSelect selects a radio button, list item, tab, or cell.
 	PatternSelect Pattern = "select"
-	// PatternExpand opens a combo box or another collapsed element.
+	// PatternExpand opens a combo box or another collapsed element, and
+	// leaves one already open as it is.
 	PatternExpand Pattern = "expand"
 	// PatternSetValue replaces the text of a field.
 	PatternSetValue Pattern = "set_value"
@@ -62,6 +86,12 @@ const (
 	RoleWindow    = "window"
 	RoleOther     = "other"
 )
+
+// RoleDialog is the role of a window in front that holds the window behind
+// it until it is answered: a macOS sheet or modal alert, or a Windows
+// dialog that keeps its owner disabled. It is a window's role only, so no
+// selector names it.
+const RoleDialog = "dialog"
 
 // Roles lists every role a selector may name.
 var Roles = []string{
@@ -87,11 +117,16 @@ type Element struct {
 	Role string
 	Name string
 	// ID is the identifier the application gives the element, when it
-	// sets one: the UI Automation AutomationId on Windows.
+	// sets one: the UI Automation AutomationId on Windows, and on macOS the
+	// accessibility identifier, or a web page's element id.
 	ID string
 	// Value is what the element holds, such as the text of a field. It is
 	// blank for a password field.
 	Value string
+	// Placeholder is the hint a field shows while it holds nothing, such as
+	// a grey "0". It is read on macOS; Windows UI Automation has no such
+	// property.
+	Placeholder string
 	// Label is the name of the element that labels this one, when the
 	// application links them.
 	Label string
@@ -102,6 +137,9 @@ type Element struct {
 	Bounds image.Rectangle
 	// Window is the title of the window the element belongs to.
 	Window string
+	// Disabled is set for an element the system reports takes no input
+	// until the application enables it, such as a grayed-out button.
+	Disabled bool
 	// Path leads from the window down to the element. A window's path is
 	// empty.
 	Path []PathStep

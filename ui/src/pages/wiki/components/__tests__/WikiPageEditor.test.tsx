@@ -20,6 +20,8 @@ const testState = vi.hoisted(() => ({
   },
   mutate: vi.fn(),
   put: vi.fn(),
+  patch: vi.fn(),
+  showToast: vi.fn(),
 }));
 
 vi.mock('@/components/editors/MarkdownEditor', async () => {
@@ -67,7 +69,7 @@ vi.mock('@/components/ui/wiki-page-markdown-preview', () => ({
 }));
 
 vi.mock('@/components/ui/simple-toast', () => ({
-  useSimpleToast: () => ({ showToast: vi.fn() }),
+  useSimpleToast: () => ({ showToast: testState.showToast }),
 }));
 
 vi.mock('@/contexts/AuthContext', () => ({
@@ -76,7 +78,7 @@ vi.mock('@/contexts/AuthContext', () => ({
 }));
 
 vi.mock('@/hooks/api', () => ({
-  useClient: () => ({ PUT: testState.put }),
+  useClient: () => ({ PUT: testState.put, PATCH: testState.patch }),
   useQuery: () => ({ data: testState.page, mutate: testState.mutate }),
 }));
 
@@ -154,6 +156,8 @@ describe('WikiPageEditor', () => {
     };
     testState.mutate.mockReset();
     testState.put.mockReset();
+    testState.patch.mockReset();
+    testState.showToast.mockReset();
     testState.put.mockResolvedValue({
       data: { name: 'logo.png' },
       error: undefined,
@@ -163,6 +167,24 @@ describe('WikiPageEditor', () => {
 
   afterEach(() => {
     vi.useRealTimers();
+  });
+
+  // A success shows no toast, so a failure must say that it is one.
+  it('reports a failed save as an error', async () => {
+    testState.patch.mockResolvedValue({ error: { message: 'denied' } });
+    renderEditor();
+
+    fireEvent.change(screen.getByLabelText('Markdown editor'), {
+      target: { value: 'edited' },
+    });
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: 'Save' }));
+    });
+
+    expect(testState.showToast).toHaveBeenCalledWith(
+      'Failed to save Wiki page',
+      { variant: 'error' }
+    );
   });
 
   it('copies the legacy editor mode without deleting it', () => {

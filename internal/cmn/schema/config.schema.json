@@ -1206,9 +1206,24 @@
           "description": "Keep Chromium's sandbox on for every browser started on this host. Set to false only where the sandbox cannot start; pages are then isolated from the host only by the operating system user.",
           "default": true
         },
+        "max_open": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "The most browsers open at once on this host, counting browser steps and browser sessions. A browser past it waits for one to close. 0 sets no limit.",
+          "default": 0
+        },
         "guard_client_certificates": {
           "type": "boolean",
           "description": "Send a browser's other HTTPS requests through the certificate proxy too, so the browser never asks the operating system for a client certificate; a site that asks for one gets none and the step says so. Defaults to on whenever the browser presents client certificates."
+        },
+        "write_gate": {
+          "type": "string",
+          "enum": ["off", "record", "ask", "rehearse"],
+          "description": "The least strict write gate mode every browser on this host runs in; a step or a browser session can only ask for a stricter one. rehearse blocks the writes a page sends (any request but GET, HEAD, or OPTIONS), except sign-ins browser.write_policy lists and, in a browser session, writes made while a person holds the browser, and reports what it would have sent; a step stops at the first blocked write of the work and ends partially succeeded. record sends only the writes approved commit points name (dagu browser writes approve) and blocks the others. ask does the same and has a step wait for a person before each commit operation. off, the default, runs no gate."
+        },
+        "write_policy": {
+          "type": "string",
+          "description": "Path to the write gate policy browser steps follow: sign_in rules (host, path, and optionally the secret the request must carry) whose writes are sent, writes rules that declare reads that save, and noise_hosts whose writes do not count."
         },
         "trusted_cas": {
           "type": "array",

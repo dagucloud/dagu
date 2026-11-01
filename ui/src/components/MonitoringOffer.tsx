@@ -1,7 +1,7 @@
 // Copyright (C) 2026 Yota Hamada
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-import { useContext, useId } from 'react';
+import { useCallback, useContext, useId, useMemo } from 'react';
 import { Link } from 'react-router-dom';
 import { BellRing, X } from 'lucide-react';
 import { Button } from '@/components/ui/button';
@@ -15,6 +15,35 @@ import { cn } from '@/lib/utils';
 
 const DISMISSED = 'dismissed';
 
+export interface MonitoringOfferState {
+  visible: boolean;
+  /** Hides the offer everywhere for the selected server. */
+  dismiss(): void;
+}
+
+/**
+ * Gates of the monitoring offer: an administrator of a Community server whose
+ * license is loaded and not set by the environment, and who has not dismissed
+ * the offer for the selected server.
+ */
+export function useMonitoringOfferState(): MonitoringOfferState {
+  const isAdmin = useIsAdmin();
+  const { license, loading, error } = useLicenseState();
+  const { selectedRemoteNode } = useContext(AppBarContext);
+  const [state, setState] = useStoredValue(
+    `dagu.monitoringOffer:${selectedRemoteNode || 'local'}`
+  );
+  const visible =
+    isAdmin &&
+    !loading &&
+    !error &&
+    license.community &&
+    !isLicenseManagedByEnv(license) &&
+    state !== DISMISSED;
+  const dismiss = useCallback(() => setState(DISMISSED), [setState]);
+  return useMemo(() => ({ visible, dismiss }), [visible, dismiss]);
+}
+
 /**
  * Offers administrators of a Community server free monitoring from Dagu
  * Console where alerts matter. Dismissing it hides it everywhere for the
@@ -23,22 +52,9 @@ const DISMISSED = 'dismissed';
 export function MonitoringOffer({ className }: { className?: string }) {
   const { ts } = useI18n();
   const headingId = useId();
-  const isAdmin = useIsAdmin();
-  const { license, loading, error } = useLicenseState();
-  const { selectedRemoteNode } = useContext(AppBarContext);
-  const [state, setState] = useStoredValue(
-    `dagu.monitoringOffer:${selectedRemoteNode || 'local'}`
-  );
+  const { visible, dismiss } = useMonitoringOfferState();
 
-  if (
-    !isAdmin ||
-    loading ||
-    error ||
-    !license.community ||
-    isLicenseManagedByEnv(license) ||
-    state === DISMISSED
-  )
-    return null;
+  if (!visible) return null;
 
   return (
     <section
@@ -68,7 +84,7 @@ export function MonitoringOffer({ className }: { className?: string }) {
         </div>
         <button
           type="button"
-          onClick={() => setState(DISMISSED)}
+          onClick={dismiss}
           className="shrink-0 rounded p-0.5 text-muted-foreground hover:text-foreground"
           aria-label={ts('Dismiss')}
         >

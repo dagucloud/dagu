@@ -21,6 +21,7 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/runctx"
 	"github.com/dagucloud/dagu/v2/internal/runtime/agentloop"
+	"github.com/dagucloud/dagu/v2/internal/runtime/modelusage"
 )
 
 // observationLogLines bounds how much of a step's output is reported back to the
@@ -91,6 +92,10 @@ func (r *Runner) runAgentLoop(ctx context.Context, plan *Plan, progressCh chan P
 		func(msgs []ir.LLMMessage) []ir.LLMMessage {
 			return MaskSecretsForProvider(agentCtx, msgs)
 		})
+	// The agent's own decisions count toward the agent node; the steps it
+	// runs count toward their own nodes, so only the planner gets this
+	// meter.
+	agentMeter := modelusage.NewMeter(agentNode.ModelUsage())
 
 	// A run that suspended mid-batch resumes here. No result from the batch is
 	// reported until every waiting member has finished.
@@ -165,7 +170,8 @@ func (r *Runner) runAgentLoop(ctx context.Context, plan *Plan, progressCh chan P
 		}
 
 		decisions, err := planner.Next(
-			agentCtx, state, observationKeepRecent, dag.AgentObservationMaxBytes())
+			modelusage.WithMeter(agentCtx, agentMeter), state, observationKeepRecent, dag.AgentObservationMaxBytes())
+		agentNode.SetModelUsage(agentMeter.Snapshot())
 		if err != nil {
 			r.failAgent(agentCtx, plan, agentNode, err, progressCh)
 			if state.ObservationAging {

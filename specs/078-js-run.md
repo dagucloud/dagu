@@ -72,9 +72,12 @@ and fail the step.
 ## Errors
 
 `dagu validate` rejects a missing `with.script`, configurations that set
-both `with.input` and `with.input_file`, and a script that does not compile.
-It exits nonzero with an error identifying the invalid configuration; a
-compile error names the script line.
+both `with.input` and `with.input_file`, a `with` field other than `script`,
+`input`, `input_file`, `format`, and `timeout`, and a script that does not
+compile. It exits nonzero with an error identifying the invalid
+configuration; a compile error names the script line, and an unknown field's
+error names the field and, when a defined field is a likely misspelling of
+it, suggests that field.
 
 An invalid `with.format`, an invalid `with.timeout`, a missing or unreadable
 `input_file`, and invalid JSON under `format: json` fail executor setup.

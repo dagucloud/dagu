@@ -93,6 +93,24 @@ func (r *DAGRepository) LoadSpec(ctx context.Context, source []byte, name string
 }
 
 func (r *DAGRepository) UpdateSpec(ctx context.Context, id string, source []byte) error {
+	if err := r.validateSpec(ctx, id, source); err != nil {
+		return err
+	}
+	return r.store.Update(ctx, id, source)
+}
+
+// UpdateSpecIfMatch is UpdateSpec for a source that was read with the SHA-256
+// expectedSHA256. When the source changed since, it writes nothing and
+// returns an error that wraps ErrConflict.
+func (r *DAGRepository) UpdateSpecIfMatch(ctx context.Context, id, expectedSHA256 string, source []byte) error {
+	if err := r.validateSpec(ctx, id, source); err != nil {
+		return err
+	}
+	return r.store.UpdateIfMatch(ctx, id, expectedSHA256, source)
+}
+
+// validateSpec loads source as the DAG id and validates it.
+func (r *DAGRepository) validateSpec(ctx context.Context, id string, source []byte) error {
 	definition, err := r.store.Get(ctx, id)
 	if err != nil {
 		return fmt.Errorf("failed to locate DAG %s: %w", id, err)
@@ -110,10 +128,7 @@ func (r *DAGRepository) UpdateSpec(ctx context.Context, id string, source []byte
 	if err != nil {
 		return err
 	}
-	if err := dag.Validate(); err != nil {
-		return err
-	}
-	return r.store.Update(ctx, id, source)
+	return dag.Validate()
 }
 
 func (r *DAGRepository) SetSuspended(ctx context.Context, id string, suspended bool) error {

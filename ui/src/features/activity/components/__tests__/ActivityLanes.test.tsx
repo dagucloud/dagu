@@ -5,27 +5,10 @@ import { fireEvent, render, screen, within } from '@testing-library/react';
 import { MemoryRouter, Route, Routes, useLocation } from 'react-router-dom';
 import { describe, expect, it, vi } from 'vitest';
 import { Status } from '@/api/v1/schema';
+import { PeekContext, type PeekController } from '@/features/peek/PeekContext';
 import { formatDurationMs } from '@/lib/formatDuration';
 import type { ActivityRun } from '../../lib/activityModel';
 import { ActivityLanes } from '../ActivityLanes';
-
-vi.mock('@/features/dag-runs/components/dag-run-details', () => ({
-  DAGRunDetailsModal: ({
-    name,
-    dagRunId,
-    onNavigate,
-  }: {
-    name: string;
-    dagRunId: string;
-    onNavigate: (direction: 'up' | 'down') => void;
-  }) => (
-    <div role="dialog" aria-label={`${name} ${dagRunId}`}>
-      <button type="button" onClick={() => onNavigate('down')}>
-        Older run
-      </button>
-    </div>
-  ),
-}));
 
 const FROM = 1_790_000_000 - (1_790_000_000 % 900);
 const TO = FROM + 96 * 900;
@@ -74,7 +57,9 @@ const backfill: ActivityRun = {
 
 function LocationProbe() {
   const location = useLocation();
-  return <div data-testid="location">{location.pathname}</div>;
+  return (
+    <div data-testid="location">{`${location.pathname}${location.search}`}</div>
+  );
 }
 
 // jsdom lays nothing out, so pointer tests give a lane an explicit width.
@@ -96,7 +81,13 @@ function stubLaneWidth(lane: HTMLElement, width: number) {
 function renderLanes({
   laneRuns = runs,
   hasMore = false,
-}: { laneRuns?: ActivityRun[]; hasMore?: boolean } = {}) {
+  peek = null,
+}: {
+  laneRuns?: ActivityRun[];
+  hasMore?: boolean;
+  /** A peek host above the lanes. */
+  peek?: PeekController | null;
+} = {}) {
   return render(
     <MemoryRouter initialEntries={['/']}>
       <Routes>
@@ -117,7 +108,19 @@ function renderLanes({
         />
         <Route path="*" element={<LocationProbe />} />
       </Routes>
-    </MemoryRouter>
+    </MemoryRouter>,
+    {
+      wrapper: ({ children }) => (
+        <PeekContext.Provider value={peek}>{children}</PeekContext.Provider>
+      ),
+    }
+  );
+}
+
+// A plain open goes to the run on its workflow page.
+function expectRunPage(name: string, dagRunId: string) {
+  expect(screen.getByTestId('location')).toHaveTextContent(
+    `/dags/${name}?remoteNode=local&run=${dagRunId}`
   );
 }
 
@@ -144,19 +147,20 @@ describe('ActivityLanes', () => {
     expect(screen.getByRole('tooltip')).toHaveTextContent('report');
     fireEvent.keyDown(lane, { key: 'Enter' });
 
-    expect(screen.getByRole('dialog')).toHaveAccessibleName('report report-2');
+    expectRunPage('report', 'report-2');
   });
 
-  it('steps the run modal through the lane’s runs, newest to oldest', () => {
-    renderLanes();
+  it('shows the run in the peek under a peek host', () => {
+    const peek = { open: vi.fn(), isOpen: false };
+    renderLanes({ peek });
     const lane = screen.getByRole('group', { name: /^report:/ });
+
     lane.focus();
     fireEvent.keyDown(lane, { key: 'ArrowRight' });
     fireEvent.keyDown(lane, { key: 'Enter' });
 
-    fireEvent.click(screen.getByRole('button', { name: 'Older run' }));
-
-    expect(screen.getByRole('dialog')).toHaveAccessibleName('report report-1');
+    expect(peek.open).toHaveBeenCalledWith({ dag: 'report', run: 'report-2' });
+    expect(screen.getByRole('group', { name: /^report:/ })).toBeVisible();
   });
 
   it('opens a long run from anywhere along its bar', () => {
@@ -177,9 +181,7 @@ describe('ActivityLanes', () => {
     fireEvent.pointerDown(lane, { button: 0, clientX: 240 });
     fireEvent.pointerUp(lane, { clientX: 240 });
 
-    expect(screen.getByRole('dialog')).toHaveAccessibleName(
-      'nightly nightly-1'
-    );
+    expectRunPage('nightly', 'nightly-1');
   });
 
   // A mark is drawn at least a few pixels wide, so a click inside a short
@@ -217,7 +219,7 @@ describe('ActivityLanes', () => {
     fireEvent.pointerDown(lane, { button: 0, clientX });
     fireEvent.pointerUp(lane, { clientX });
 
-    expect(screen.getByRole('dialog')).toHaveAccessibleName(`etl ${dagRunId}`);
+    expectRunPage('etl', dagRunId);
   });
 
   // Problem runs draw taller, so a failed run under a later run shows above
@@ -250,9 +252,7 @@ describe('ActivityLanes', () => {
     fireEvent.pointerDown(lane, { button: 0, clientX: 240, clientY });
     fireEvent.pointerUp(lane, { clientX: 240, clientY });
 
-    expect(screen.getByRole('dialog')).toHaveAccessibleName(
-      `deploy ${dagRunId}`
-    );
+    expectRunPage('deploy', dagRunId);
   });
 
   it('shows a run that started before the window', () => {
@@ -270,9 +270,7 @@ describe('ActivityLanes', () => {
 
     fireEvent.pointerDown(lane, { button: 0, clientX: 4 });
     fireEvent.pointerUp(lane, { clientX: 4 });
-    expect(screen.getByRole('dialog')).toHaveAccessibleName(
-      'backfill backfill-1'
-    );
+    expectRunPage('backfill', 'backfill-1');
   });
 
   // Older pages hold only runs created in the window, so a run from before

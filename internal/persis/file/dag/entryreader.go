@@ -9,6 +9,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"maps"
 	"math"
 	"os"
 	"path/filepath"
@@ -48,6 +49,8 @@ type entryReaderImpl struct {
 	events                 chan persis.DAGChangeEvent
 	newWatcher             func() filenotify.FileWatcher
 	resyncInterval         time.Duration
+	symlinkPollInterval    time.Duration
+	symlinkTargets         map[string]symlinkTarget
 	marker                 *ChangeMarker
 	markerInterval         time.Duration
 	markerRefreshGap       time.Duration
@@ -65,6 +68,14 @@ type EntryReaderOption func(*entryReaderImpl)
 func withResyncInterval(interval time.Duration) EntryReaderOption {
 	return func(er *entryReaderImpl) {
 		er.resyncInterval = interval
+	}
+}
+
+// withSymlinkPollInterval sets how often the reader checks what its symlinked
+// DAG files resolve to. A non-positive value disables the check.
+func withSymlinkPollInterval(interval time.Duration) EntryReaderOption {
+	return func(er *entryReaderImpl) {
+		er.symlinkPollInterval = interval
 	}
 }
 
@@ -126,6 +137,11 @@ const (
 	// tools (git, kubectl cp, editors), which native file watches also miss on a
 	// network file system.
 	defaultResyncInterval = 5 * time.Minute
+	// defaultSymlinkPollInterval is how often symlinked DAG files are checked
+	// for a new target. Directory watches miss such changes: the target can be
+	// outside the watched directories, and kqueue reports nothing when a link
+	// is re-pointed under the same name.
+	defaultSymlinkPollInterval = 5 * time.Second
 	// minStampAge is how long before its load a file must have been last
 	// modified for a full refresh to trust an unchanged stamp. File systems
 	// record modification times in ticks of up to 2s, so a write in the same
@@ -136,6 +152,13 @@ const (
 type dagFileStamp struct {
 	size    int64
 	modTime int64
+}
+
+// symlinkTarget is the file a symlinked DAG file resolved to when observed.
+// The zero value records a link that did not resolve.
+type symlinkTarget struct {
+	path  string
+	stamp dagFileStamp
 }
 
 // dagFileLoad records what a registry entry was loaded from, so a full refresh
@@ -170,6 +193,7 @@ func NewFileEntryReader(dir string, dagRepository *persis.DAGRepository, recursi
 		events:                 make(chan persis.DAGChangeEvent, 64),
 		newWatcher:             func() filenotify.FileWatcher { return filenotify.New(time.Minute) },
 		resyncInterval:         defaultResyncInterval,
+		symlinkPollInterval:    defaultSymlinkPollInterval,
 		markerRefreshGap:       defaultMarkerRefreshGap,
 	}
 	for _, opt := range opts {
@@ -204,6 +228,7 @@ func (er *entryReaderImpl) Init(ctx context.Context) error {
 		_ = er.watcher.Close()
 		return err
 	}
+	er.symlinkTargets = er.observeSymlinkTargets()
 	if err := er.initialize(ctx); err != nil {
 		_ = er.watcher.Close()
 		return fmt.Errorf("failed to initialize DAGs: %w", err)
@@ -256,6 +281,13 @@ func (er *entryReaderImpl) watch(ctx context.Context) {
 		resync = resyncTicker.C
 	}
 
+	var symlinkPoll <-chan time.Time
+	if er.symlinkPollInterval > 0 {
+		symlinkTicker := time.NewTicker(er.symlinkPollInterval)
+		defer symlinkTicker.Stop()
+		symlinkPoll = symlinkTicker.C
+	}
+
 	var markerPoll <-chan time.Time
 	if er.marker != nil && er.markerInterval > 0 {
 		markerTicker := time.NewTicker(er.markerInterval)
@@ -283,6 +315,12 @@ func (er *entryReaderImpl) watch(ctx context.Context) {
 			return
 		case <-resync:
 			scheduleRefresh()
+		case <-symlinkPoll:
+			// A pending refresh observes the links itself, and rescheduling it
+			// would postpone it.
+			if refresh == nil && !maps.Equal(er.observeSymlinkTargets(), er.symlinkTargets) {
+				scheduleRefresh()
+			}
 		case <-markerPoll:
 			if !er.markerSignalsChange(ctx) || deferredMarkerRefresh != nil {
 				continue
@@ -519,6 +557,7 @@ func (er *entryReaderImpl) initRecursive(ctx context.Context) error {
 		_ = er.watcher.Close()
 		return err
 	}
+	er.symlinkTargets = er.observeSymlinkTargets()
 
 	state, err := er.loadRegistry(ctx, scan, scannedAt)
 	if err != nil {
@@ -536,6 +575,10 @@ func (er *entryReaderImpl) initRecursive(ctx context.Context) error {
 
 func (er *entryReaderImpl) refreshRegistry(ctx context.Context) error {
 	scannedAt := time.Now()
+	// Observed before the scan, so a link changed during the refresh no longer
+	// matches, and kept only once the refresh succeeds, so a failed one is
+	// retried by the next symlink poll.
+	symlinkTargets := er.observeSymlinkTargets()
 	scan, err := Discover(er.targetDir, DiscoveryOptions{Recursive: er.recursive})
 	if err != nil {
 		return err
@@ -549,7 +592,10 @@ func (er *entryReaderImpl) refreshRegistry(ctx context.Context) error {
 	er.reportIssues(ctx, state.issues)
 
 	events := er.replaceRegistry(state)
-	for _, event := range events {
+	er.symlinkTargets = symlinkTargets
+	for i, event := range events {
+		// The events of one refresh form one change.
+		event.More = i < len(events)-1
 		er.sendEvent(ctx, event)
 	}
 	return nil
@@ -755,6 +801,38 @@ func (er *entryReaderImpl) replaceRegistry(state registryState) []persis.DAGChan
 	er.registry = state.dags
 	er.loads = state.loads
 	return events
+}
+
+// observeSymlinkTargets returns, by link path, what each symlinked DAG file in
+// the watched DAG directories resolves to.
+func (er *entryReaderImpl) observeSymlinkTargets() map[string]symlinkTarget {
+	targets := make(map[string]symlinkTarget)
+	for dir := range er.watchedDirs {
+		if !pathWithin(dir, er.targetDir) {
+			continue
+		}
+		entries, err := os.ReadDir(dir)
+		if err != nil {
+			continue
+		}
+		for _, entry := range entries {
+			if entry.Type()&os.ModeSymlink == 0 || !fileutil.IsYAMLFile(entry.Name()) {
+				continue
+			}
+			link := filepath.Join(dir, entry.Name())
+			var target symlinkTarget
+			if resolved, err := filepath.EvalSymlinks(link); err == nil {
+				if info, err := os.Stat(resolved); err == nil {
+					target = symlinkTarget{
+						path:  resolved,
+						stamp: dagFileStamp{size: info.Size(), modTime: info.ModTime().UnixNano()},
+					}
+				}
+			}
+			targets[link] = target
+		}
+	}
+	return targets
 }
 
 func sortedRegistryKeys(registry map[string]*ir.DAG) []string {

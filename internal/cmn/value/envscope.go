@@ -326,6 +326,16 @@ func (e *EnvScope) Expand(s string) string {
 	return expandWithLookup(s, e.Get, true)
 }
 
+// ExpandPath expands ${VAR} and $VAR in the filesystem path s using this
+// scope. A backslash in s is path text, never an escape marker. Variables not
+// found in the scope are preserved in their original form.
+func (e *EnvScope) ExpandPath(s string) string {
+	if e == nil {
+		return s
+	}
+	return expandWithLookup(s, e.Get, false)
+}
+
 // Debug returns a string representation for debugging
 func (e *EnvScope) Debug() string {
 	if e == nil {

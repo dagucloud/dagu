@@ -224,9 +224,55 @@ func waitForBrowserStep(t *testing.T, server test.Server, dagName, runID string,
 					}
 				}
 			}
-			require.NotEqual(t, ir.Failed, status.Status, "run failed before waiting for input")
+			if status.Status == ir.Failed {
+				t.Fatalf("run failed before waiting for input\n%s", describeBrowserRun(status))
+			}
 		}
 		time.Sleep(200 * time.Millisecond)
 	}
 	t.Fatalf("step login did not wait for input within the timeout")
+}
+
+// describeBrowserRun reports why a run ended: its error, each step's status
+// and error, and the end of the login step's stderr and of the run's log.
+func describeBrowserRun(status *ir.DAGRunStatus) string {
+	var b strings.Builder
+	fmt.Fprintf(&b, "run: %s %s\n", status.Status, status.Error)
+	for _, node := range status.Nodes {
+		fmt.Fprintf(&b, "step %s: %s %s\n", node.Step.Name, node.Status, node.Error)
+		if node.Step.Name == "login" {
+			fmt.Fprintf(&b, "login stderr:\n%s\n", fileTail(node.Stderr))
+		}
+	}
+	fmt.Fprintf(&b, "run log:\n%s", fileTail(status.Log))
+	return b.String()
+}
+
+// fileTail returns the last lines of the file at path, read from its last
+// 64 KiB however long it grew, or why it cannot.
+func fileTail(path string) string {
+	const lines, window = 40, 64 << 10
+	if path == "" {
+		return "(no file)"
+	}
+	f, err := os.Open(path)
+	if err != nil {
+		return fmt.Sprintf("(%v)", err)
+	}
+	defer func() { _ = f.Close() }()
+	info, err := f.Stat()
+	if err != nil {
+		return fmt.Sprintf("(%v)", err)
+	}
+	offset := max(info.Size()-window, 0)
+	data := make([]byte, info.Size()-offset)
+	if _, err := f.ReadAt(data, offset); err != nil && err != io.EOF {
+		return fmt.Sprintf("(%v)", err)
+	}
+	all := strings.Split(strings.TrimRight(string(data), "\n"), "\n")
+	if offset > 0 {
+		// The window starts within a line.
+		all = all[1:]
+	}
+	return strings.Join(all[max(len(all)-lines, 0):], "\n")
 }

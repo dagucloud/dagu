@@ -13,10 +13,12 @@ import (
 	"os"
 	"path/filepath"
 	goruntime "runtime"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
 	"sync"
+	"syscall"
 	"testing"
 	"time"
 
@@ -25,6 +27,7 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/opencodehost"
 	"github.com/dagucloud/dagu/v2/internal/runtime"
 	dockerexec "github.com/dagucloud/dagu/v2/internal/runtime/builtin/docker"
+	"github.com/dagucloud/dagu/v2/internal/runtime/modelusage"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -119,7 +122,7 @@ func TestNormalizeOpenCodeMessages(t *testing.T) {
 		},
 	}}
 
-	chat, events, usage := normalizeOpenCodeMessages(messages)
+	chat, events, usage, models := normalizeOpenCodeMessages(messages)
 
 	require.Len(t, chat, 2)
 	assert.Equal(t, ir.LLMRoleAssistant, chat[0].Role)
@@ -135,6 +138,56 @@ func TestNormalizeOpenCodeMessages(t *testing.T) {
 	assert.NotEqual(t, events[0].ID, events[1].ID)
 	assert.Equal(t, int64(28), usage.TotalTokens)
 	assert.Equal(t, 0.30, usage.Cost)
+	require.Len(t, models, 1)
+	assert.Equal(t, ir.ModelUsage{
+		Provider: "openai", Model: "gpt-5", Calls: 2, InputTokens: 14, OutputTokens: 11, ReasoningTokens: 3,
+		Cost: 0.30, CostReportedCalls: 2,
+	}, models[0])
+}
+
+// A step's model usage from an OpenCode session names the model of each
+// message and counts the cached prompt in its input, which OpenCode reports
+// apart.
+func TestOpenCodeModelUsageCountsCache(t *testing.T) {
+	t.Parallel()
+
+	_, _, _, models := normalizeOpenCodeMessages([]openCodeMessage{{
+		Info:  json.RawMessage(`{"role":"assistant","id":"message-1","providerID":"anthropic","modelID":"claude-sonnet-4-6"}`),
+		Parts: []json.RawMessage{json.RawMessage(`{"type":"step-finish","tokens":{"input":5,"output":20,"reasoning":4,"cache":{"read":300,"write":40}}}`)},
+	}, {
+		Info:  json.RawMessage(`{"role":"user","id":"message-2"}`),
+		Parts: []json.RawMessage{json.RawMessage(`{"type":"text","text":"more"}`)},
+	}})
+	assert.Equal(t, []ir.ModelUsage{{
+		Provider: "anthropic", Model: "claude-sonnet-4-6", Calls: 1,
+		InputTokens: 345, CachedInputTokens: 300, CacheWriteTokens: 40, OutputTokens: 20, ReasoningTokens: 4,
+	}}, models)
+}
+
+// Refreshing a session again reports its latest total, which replaces the
+// one before, so the step's usage is the session's, not the sum of refreshes.
+func TestManagedOpenCodeRefreshReportsModelUsage(t *testing.T) {
+	t.Parallel()
+
+	turn := `[{"info":{"role":"assistant","id":"message-1","providerID":"openai","modelID":"gpt-5"},"parts":[{"type":"step-finish","tokens":{"input":10,"output":2},"cost":0.01}]}]`
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = io.WriteString(w, turn)
+	}))
+	t.Cleanup(server.Close)
+	exec := &harnessExecutor{agentSession: &ir.AgentSession{Generation: 1}}
+	client := &openCodeClient{host: opencodehost.Config{URL: server.URL, Password: "test"}, http: server.Client()}
+	meter := modelusage.NewMeter(nil)
+	ctx := modelusage.WithMeter(t.Context(), meter)
+
+	for range 3 {
+		_, err := exec.refreshManagedMessages(ctx, client, "session-1")
+		require.NoError(t, err)
+	}
+
+	usage := meter.Snapshot()
+	require.NotNil(t, usage)
+	assert.Equal(t, []ir.ModelUsage{{Provider: "openai", Model: "gpt-5", Calls: 1, InputTokens: 10, OutputTokens: 2, Cost: 0.01, CostReportedCalls: 1}}, usage.Total())
 }
 
 func TestManagedOpenCodeResult(t *testing.T) {
@@ -376,6 +429,75 @@ func TestHarnessStopContinuesAfterManagedAbort(t *testing.T) {
 	assert.True(t, fallbackStopped)
 }
 
+func TestOpenCodeInterruptAwaitsIdle(t *testing.T) {
+	t.Parallel()
+
+	const statusPoll = "GET /session/status"
+	for _, tc := range []struct {
+		name            string
+		interruptStatus int
+		busy            bool
+		wantErr         error
+		wantPolls       int
+	}{
+		{name: "settles after interrupt", busy: true, wantPolls: 2},
+		{name: "rejected interrupt of idle session", interruptStatus: http.StatusInternalServerError, wantPolls: 1},
+		{name: "missing session", interruptStatus: http.StatusNotFound, busy: true},
+		{name: "still busy at deadline", interruptStatus: http.StatusInternalServerError, busy: true, wantErr: context.DeadlineExceeded},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			host := newManagedTestHost(t, func(h *managedTestHost) {
+				h.interruptStatus = tc.interruptStatus
+				h.busy["session-1"] = tc.busy
+			})
+			client := &openCodeClient{host: host.config, http: newOpenCodeHTTPClient(time.Second)}
+			ctx := t.Context()
+			if tc.wantErr != nil {
+				var cancel context.CancelFunc
+				ctx, cancel = context.WithTimeout(ctx, 300*time.Millisecond)
+				defer cancel()
+			}
+
+			err := client.interruptAndAwaitIdle(ctx, "session-1")
+
+			if tc.wantErr != nil {
+				require.ErrorIs(t, err, tc.wantErr)
+				assert.Contains(t, err.Error(), "still busy")
+				return
+			}
+			require.NoError(t, err)
+			assert.Equal(t, "POST /session/session-1/abort", host.requestLog()[0])
+			assert.Equal(t, tc.wantPolls, host.count(statusPoll))
+		})
+	}
+
+	t.Run("unreachable host", func(t *testing.T) {
+		t.Parallel()
+		server := httptest.NewServer(http.NotFoundHandler())
+		server.Close()
+		client := &openCodeClient{host: opencodehost.Config{URL: server.URL}, http: newOpenCodeHTTPClient(time.Second)}
+		ctx, cancel := context.WithTimeout(t.Context(), time.Minute)
+		defer cancel()
+		require.ErrorIs(t, client.interruptAndAwaitIdle(ctx, "session-1"), errManagedHostUnavailable)
+		require.NoError(t, ctx.Err(), "an unreachable host must not consume the cleanup budget")
+	})
+}
+
+// In a session Dagu does not own, an active turn may be the user's, so only a
+// reply shows that Dagu's prompt started.
+func TestOpenCodePromptStartEvidence(t *testing.T) {
+	t.Parallel()
+
+	host := newManagedTestHost(t, func(h *managedTestHost) { h.busy["session-1"] = true })
+	client := &openCodeClient{host: host.config, http: newOpenCodeHTTPClient(time.Second)}
+	require.NoError(t, client.awaitPromptStart(t.Context(), "session-1", "msg-1", true))
+
+	ctx, cancel := context.WithTimeout(t.Context(), 300*time.Millisecond)
+	defer cancel()
+	require.ErrorIs(t, client.awaitPromptStart(ctx, "session-1", "msg-1", false), context.DeadlineExceeded)
+}
+
 // Closing the idle connections of http.DefaultTransport, as
 // httptest.Server.Close does, can fail a request that is in flight on it. The
 // OpenCode connection must survive such a reset. Not parallel: it resets the
@@ -477,6 +599,565 @@ func TestManagedOpenCodeTransportLossWaitsForRestart(t *testing.T) {
 	status, err := exec.DetermineNodeStatus()
 	require.NoError(t, err)
 	assert.Equal(t, ir.NodeWaiting, status)
+}
+
+// A run that cannot reach the host before it has a session fails, so the step
+// can fall back to the CLI or retry instead of waiting on nothing.
+func TestManagedOpenCodeHostDownAtStart(t *testing.T) {
+	t.Parallel()
+
+	for _, version := range []string{"1.18.0", "2.1.4"} {
+		t.Run(version, func(t *testing.T) {
+			t.Parallel()
+			server := httptest.NewServer(http.NotFoundHandler())
+			server.Close()
+
+			exec := &harnessExecutor{prompt: "Do the work", workDir: t.TempDir()}
+			ctx := runtime.WithEnv(t.Context(), runtime.Env{})
+			stdout, err := exec.runManagedOpenCode(ctx, providerConfig{flags: map[string]any{}}, opencodehost.Config{
+				URL: server.URL, Version: version,
+			})
+
+			require.ErrorIs(t, err, errManagedHostUnavailable)
+			assert.Nil(t, stdout)
+			assert.Equal(t, ir.AgentSessionFailed, exec.GetAgentSession().State)
+		})
+	}
+}
+
+// A cancelled run interrupts its session and records whether the host
+// confirmed that the session stopped.
+func TestManagedOpenCodeCancelInterruptsSession(t *testing.T) {
+	t.Parallel()
+
+	const prompt = "POST /session/session-1/prompt_async"
+	for _, tc := range []struct {
+		name            string
+		cancelAt        string
+		startAfterPolls int
+		drop            bool
+		wantEvent       string
+	}{
+		{name: "running", cancelAt: "running", wantEvent: "aborted"},
+		{name: "turn starts after acceptance", cancelAt: "running", startAfterPolls: 2, wantEvent: "aborted"},
+		{name: "prompt in flight", cancelAt: "submitting", wantEvent: "aborted"},
+		{name: "before submission", cancelAt: "before submit", wantEvent: "aborted"},
+		{name: "before the session", cancelAt: "before session", wantEvent: "aborted"},
+		{name: "unconfirmed", cancelAt: "running", drop: true, wantEvent: "abort-unverified"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			ctx, cancel := context.WithCancel(runtime.WithEnv(t.Context(), runtime.Env{}))
+			defer cancel()
+			host := newManagedTestHost(t, func(h *managedTestHost) {
+				h.dropAfterInterrupt = tc.drop
+				h.startAfterPolls = tc.startAfterPolls
+				if tc.cancelAt == "submitting" {
+					h.onPrompt = func(*http.Request) { cancel() }
+				}
+			})
+			exec := &harnessExecutor{prompt: "Do the work", workDir: t.TempDir()}
+			switch tc.cancelAt {
+			case "running":
+				exec.SetProgressCallback(onManagedRunning(exec, cancel))
+			case "before submit":
+				exec.SetProgressCallback(func() {
+					if session := exec.GetAgentSession(); session.State == ir.AgentSessionStarting && session.PromptMessageID != "" {
+						cancel()
+					}
+				})
+			case "before session":
+				exec.SetProgressCallback(cancel)
+			}
+
+			stdout, err := exec.runManagedOpenCode(ctx, providerConfig{flags: map[string]any{}}, host.config)
+
+			require.Nil(t, stdout)
+			require.ErrorIs(t, err, context.Canceled)
+			session := exec.GetAgentSession()
+			assert.Equal(t, ir.AgentSessionAborted, session.State)
+			assert.Equal(t, tc.wantEvent, session.Events[len(session.Events)-1].Status)
+			if tc.cancelAt == "before session" {
+				assert.NotContains(t, host.requestLog(), "POST /session", "a cancelled run creates no session")
+			}
+			if tc.cancelAt == "before submit" || tc.cancelAt == "before session" {
+				assert.False(t, session.PromptSent)
+				assert.NotContains(t, host.requestLog(), prompt, "a cancelled run submits no prompt")
+				assert.NotContains(t, host.requestLog(), "POST /session/session-1/abort", "no turn of Dagu's to interrupt")
+				return
+			}
+			// A submission completes despite cancellation, so the run knows the host took the prompt.
+			assert.True(t, session.PromptSent)
+			assert.True(t, host.wasInterrupted("session-1"), "the interrupt must reach the running turn")
+			if tc.drop {
+				require.ErrorIs(t, err, errManagedHostUnavailable)
+				assert.Contains(t, session.LastError, "did not confirm")
+				return
+			}
+			assert.Empty(t, session.LastError)
+			assert.False(t, host.isBusy("session-1"), "the session settled before the run returned")
+		})
+	}
+}
+
+// A resumed run that is stopped before it reattaches to its session still
+// stops the turn Dagu left running there. In a session the user supplied, it
+// interrupts only while Dagu's prompt is the latest input; newer input is the
+// user's own turn.
+func TestManagedOpenCodeCancelDuringResume(t *testing.T) {
+	t.Parallel()
+
+	const daguPrompt = `{"info":{"id":"msg-1","role":"user"},"parts":[]}`
+	for _, tc := range []struct {
+		name          string
+		owned         bool
+		history       string
+		busy          bool
+		wantInterrupt bool
+	}{
+		{name: "owned session", owned: true, history: "[" + daguPrompt + "]", busy: true, wantInterrupt: true},
+		{name: "Dagu's turn in a user session", history: "[" + daguPrompt + "]", busy: true, wantInterrupt: true},
+		{name: "user's turn in a user session", history: "[" + daguPrompt + `,{"info":{"id":"msg-user","role":"user"},"parts":[]}]`},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			host := newManagedTestHost(t, func(h *managedTestHost) {
+				h.history = tc.history
+				h.busy["session-1"] = tc.busy
+			})
+			exec := &harnessExecutor{prompt: "Do the work", workDir: t.TempDir(), agentSession: &ir.AgentSession{
+				Provider: "opencode", Generation: 1, SessionID: "session-1", SessionOwned: tc.owned,
+				PromptSent: true, PromptMessageID: "msg-1", State: ir.AgentSessionUnavailable,
+			}}
+			ctx, cancel := context.WithCancel(runtime.WithEnv(t.Context(), runtime.Env{}))
+			defer cancel()
+			exec.SetProgressCallback(cancel)
+
+			_, err := exec.runManagedOpenCode(ctx, providerConfig{flags: map[string]any{}}, host.config)
+
+			require.ErrorIs(t, err, context.Canceled)
+			assert.False(t, host.isBusy("session-1"), "the session settled before the run returned")
+			session := exec.GetAgentSession()
+			assert.Equal(t, ir.AgentSessionAborted, session.State)
+			assert.Equal(t, "aborted", session.Events[len(session.Events)-1].Status)
+			if tc.wantInterrupt {
+				assert.True(t, host.wasInterrupted("session-1"))
+				return
+			}
+			assert.NotContains(t, host.requestLog(), "POST /session/session-1/abort", "the user's own turn is not interrupted")
+		})
+	}
+}
+
+// Stopping a managed attempt ends the step without starting the legacy CLI or
+// the next provider. Not parallel: the host is injected through the environment.
+func TestManagedOpenCodeStopEndsStep(t *testing.T) {
+	if goruntime.GOOS == "windows" {
+		t.Skip("Skipping shell-based test on Windows")
+	}
+
+	for _, stage := range []string{"before start", "running"} {
+		t.Run(stage, func(t *testing.T) {
+			host := newManagedTestHost(t, nil)
+			t.Setenv("_DAGU_INTERNAL_OPENCODE_URL", host.config.URL)
+			t.Setenv("_DAGU_INTERNAL_OPENCODE_USERNAME", host.config.Username)
+			t.Setenv("_DAGU_INTERNAL_OPENCODE_PASSWORD", host.config.Password)
+			t.Setenv("_DAGU_INTERNAL_OPENCODE_INSTANCE_ID", host.config.InstanceID)
+			marker := filepath.Join(t.TempDir(), "cli-ran")
+			definition := &ir.HarnessDefinition{
+				Binary:     writeHarnessTestBinary(t, "opencode", "#!/bin/sh\ntouch \""+marker+"\"\n"),
+				PromptMode: ir.HarnessPromptModeArg,
+				FlagStyle:  ir.HarnessFlagStyleGNULong,
+			}
+			exec := &harnessExecutor{
+				stdout:  &strings.Builder{},
+				stderr:  &strings.Builder{},
+				prompt:  "Do the work",
+				workDir: t.TempDir(),
+				configs: []providerConfig{
+					{name: "opencode", definition: definition, managed: true},
+					{name: "fallback", definition: definition},
+				},
+			}
+			stop := func() { _ = exec.Stop(cmdutil.TerminationFromSignal(syscall.SIGTERM)) }
+			if stage == "running" {
+				exec.SetProgressCallback(onManagedRunning(exec, stop))
+			} else {
+				stop()
+			}
+
+			err := exec.Run(runtime.WithEnv(t.Context(), runtime.Env{}))
+
+			require.ErrorIs(t, err, context.Canceled)
+			assert.NoFileExists(t, marker)
+			if stage == "running" {
+				assert.Equal(t, ir.AgentSessionAborted, exec.GetAgentSession().State)
+				assert.Contains(t, host.requestLog(), "POST /session/session-1/abort")
+				return
+			}
+			assert.Empty(t, host.requestLog())
+		})
+	}
+}
+
+// A retry discards the previous session. Its replacement starts only once the
+// previous attempt's work has stopped.
+func TestManagedOpenCodeRetrySettlesDiscardedSession(t *testing.T) {
+	t.Parallel()
+
+	t.Run("interrupts owned session", func(t *testing.T) {
+		t.Parallel()
+		host := newManagedTestHost(t, func(h *managedTestHost) { h.busy["session-old"] = true })
+		exec := &harnessExecutor{prompt: "Do the work", workDir: t.TempDir(), agentSession: &ir.AgentSession{
+			Provider: "opencode", Generation: 1, SessionID: "session-old", SessionOwned: true,
+			PromptSent: true, State: ir.AgentSessionAborted,
+		}}
+		ctx, cancel := context.WithCancel(runtime.WithEnv(t.Context(), runtime.Env{}))
+		defer cancel()
+		exec.SetProgressCallback(onManagedRunning(exec, cancel))
+
+		_, err := exec.runManagedOpenCode(ctx, providerConfig{flags: map[string]any{}}, host.config)
+
+		require.ErrorIs(t, err, context.Canceled)
+		requests := host.requestLog()
+		interrupt := slices.Index(requests, "POST /session/session-old/abort")
+		created := slices.Index(requests, "POST /session")
+		require.GreaterOrEqual(t, interrupt, 0, "the discarded session must be interrupted")
+		require.Greater(t, created, interrupt+2, "the replacement waits until the discarded session settles")
+		session := exec.GetAgentSession()
+		assert.Equal(t, 2, session.Generation)
+		assert.Equal(t, "session-1", session.SessionID)
+		assert.Equal(t, "session-old", session.DiscardedSessionID)
+	})
+
+	t.Run("keeps settling after stop", func(t *testing.T) {
+		t.Parallel()
+		host := newManagedTestHost(t, func(h *managedTestHost) { h.busy["session-old"] = true })
+		exec := &harnessExecutor{prompt: "Do the work", workDir: t.TempDir(), agentSession: &ir.AgentSession{
+			Provider: "opencode", Generation: 1, SessionID: "session-old", SessionOwned: true,
+			PromptSent: true, State: ir.AgentSessionAborted,
+		}}
+		ctx, cancel := context.WithCancel(runtime.WithEnv(t.Context(), runtime.Env{}))
+		defer cancel()
+		// The stop arrives as the new attempt starts, before the discarded session settles.
+		exec.SetProgressCallback(cancel)
+
+		_, err := exec.runManagedOpenCode(ctx, providerConfig{flags: map[string]any{}}, host.config)
+
+		require.ErrorIs(t, err, context.Canceled)
+		assert.True(t, host.wasInterrupted("session-old"))
+		assert.False(t, host.isBusy("session-old"), "the discarded session settled before the run returned")
+		assert.NotContains(t, host.requestLog(), "POST /session", "a stopped attempt creates no replacement")
+		session := exec.GetAgentSession()
+		assert.Equal(t, ir.AgentSessionAborted, session.State)
+		assert.Equal(t, "aborted", session.Events[len(session.Events)-1].Status)
+	})
+
+	t.Run("waits for session it does not own", func(t *testing.T) {
+		t.Parallel()
+		host := newManagedTestHost(t, func(h *managedTestHost) { h.busy["session-user"] = true })
+		client := &openCodeClient{host: host.config, http: newOpenCodeHTTPClient(time.Second)}
+		ctx, cancel := context.WithTimeout(t.Context(), 300*time.Millisecond)
+		defer cancel()
+
+		err := settleDiscardedSession(ctx, client, "session-user", false)
+
+		require.ErrorContains(t, err, "session-user from the previous attempt may still be running")
+		assert.NotContains(t, host.requestLog(), "POST /session/session-user/abort", "never interrupt a session Dagu does not own")
+	})
+
+	t.Run("checks again on the next attempt", func(t *testing.T) {
+		t.Parallel()
+		host := newManagedTestHost(t, func(h *managedTestHost) { h.statusDown = true })
+		exec := &harnessExecutor{prompt: "Do the work", workDir: t.TempDir(), agentSession: &ir.AgentSession{
+			Provider: "opencode", Generation: 1, SessionID: "session-user",
+			PromptSent: true, State: ir.AgentSessionFailed,
+		}}
+		ctx := runtime.WithEnv(t.Context(), runtime.Env{})
+
+		_, err := exec.runManagedOpenCode(ctx, providerConfig{flags: map[string]any{}}, host.config)
+
+		require.NoError(t, err)
+		assert.Equal(t, ir.AgentSessionUnavailable, exec.GetAgentSession().State)
+		assert.NotContains(t, host.requestLog(), "POST /session", "no replacement before the discarded session settles")
+
+		host.setStatusDown(false)
+		runCtx, cancel := context.WithCancel(ctx)
+		defer cancel()
+		exec.SetProgressCallback(onManagedRunning(exec, cancel))
+		_, err = exec.runManagedOpenCode(runCtx, providerConfig{flags: map[string]any{}}, host.config)
+		require.ErrorIs(t, err, context.Canceled)
+		assert.Contains(t, host.requestLog(), "POST /session")
+		session := exec.GetAgentSession()
+		assert.Equal(t, 2, session.Generation)
+		assert.Equal(t, "session-user", session.DiscardedSessionID)
+	})
+}
+
+// A prompt whose turn was never seen to start may still start in its session.
+// A retry then submits it to that session again rather than replacing it.
+func TestManagedOpenCodeRetryRedeliversUnstartedPrompt(t *testing.T) {
+	t.Parallel()
+
+	// The host takes the prompt, but its turn has not started when the
+	// cancelled run loses the host's status.
+	host := newManagedTestHost(t, func(h *managedTestHost) {
+		h.startAfterPolls = 1000
+		h.interruptStatus = http.StatusInternalServerError
+	})
+	exec := &harnessExecutor{prompt: "Do the work", workDir: t.TempDir()}
+	ctx, cancel := context.WithCancel(runtime.WithEnv(t.Context(), runtime.Env{}))
+	defer cancel()
+	exec.SetProgressCallback(onManagedRunning(exec, func() {
+		host.setStatusDown(true)
+		cancel()
+	}))
+	_, err := exec.runManagedOpenCode(ctx, providerConfig{flags: map[string]any{}}, host.config)
+	require.ErrorIs(t, err, errManagedHostUnavailable)
+	session := exec.GetAgentSession()
+	assert.Equal(t, "abort-unverified", session.Events[len(session.Events)-1].Status)
+	assert.False(t, session.PromptSent, "an unstarted prompt is delivered again")
+	assert.Contains(t, host.requestLog(), "POST /session/session-1/abort", "a turn the lost status hid is still interrupted")
+	assert.Contains(t, session.LastError, "/abort returned 500", "the rejected interrupt is reported")
+
+	host.setStatusDown(false)
+	host.setStartAfterPolls(0)
+	host.setInterruptStatus(0)
+	ctx, cancel = context.WithCancel(runtime.WithEnv(t.Context(), runtime.Env{}))
+	defer cancel()
+	exec.SetProgressCallback(onManagedRunning(exec, cancel))
+	_, err = exec.runManagedOpenCode(ctx, providerConfig{flags: map[string]any{}}, host.config)
+
+	require.ErrorIs(t, err, context.Canceled)
+	assert.Equal(t, 1, host.count("POST /session"), "the retry keeps the session")
+	prompts := host.promptMessageIDs()
+	require.Len(t, prompts, 2)
+	assert.Equal(t, prompts[0], prompts[1], "the retry submits the same prompt")
+	session = exec.GetAgentSession()
+	assert.Equal(t, 1, session.Generation)
+	assert.Equal(t, "aborted", session.Events[len(session.Events)-1].Status)
+}
+
+// A session the user supplied may run the user's own turn. When Dagu cannot see
+// its prompt's turn start there, it does not interrupt the session.
+func TestManagedOpenCodeCancelLeavesUnownedSession(t *testing.T) {
+	t.Parallel()
+
+	host := newManagedTestHost(t, func(h *managedTestHost) { h.startAfterPolls = 1000 })
+	exec := &harnessExecutor{prompt: "Do the work", workDir: t.TempDir()}
+	ctx, cancel := context.WithCancel(runtime.WithEnv(t.Context(), runtime.Env{}))
+	defer cancel()
+	exec.SetProgressCallback(onManagedRunning(exec, func() {
+		host.setStatusDown(true)
+		cancel()
+	}))
+
+	_, err := exec.runManagedOpenCode(ctx, providerConfig{flags: map[string]any{"session": "session-1"}}, host.config)
+
+	require.ErrorIs(t, err, errManagedHostUnavailable)
+	session := exec.GetAgentSession()
+	assert.False(t, session.SessionOwned)
+	assert.Equal(t, "abort-unverified", session.Events[len(session.Events)-1].Status)
+	assert.NotContains(t, host.requestLog(), "POST /session/session-1/abort")
+}
+
+// onManagedRunning returns a progress callback that calls fn once the managed
+// session starts running.
+func onManagedRunning(exec *harnessExecutor, fn func()) func() {
+	var once sync.Once
+	return func() {
+		if session := exec.GetAgentSession(); session != nil && session.State == ir.AgentSessionRunning {
+			once.Do(fn)
+		}
+	}
+}
+
+// managedTestHost is an OpenCode v1 host that creates session-1. A session is
+// busy from prompt submission, or from setBusy, until an interrupt, and then
+// settles after one more status poll; an interrupt of an idle session does
+// nothing. With startAfterPolls, an accepted prompt's turn starts only after
+// that many status polls. A non-zero interruptStatus rejects interrupts with
+// that status. With dropAfterInterrupt, status requests lose their connection
+// once any session is interrupted, and with setStatusDown until it is lifted.
+type managedTestHost struct {
+	config             opencodehost.Config
+	interruptStatus    int
+	startAfterPolls    int
+	dropAfterInterrupt bool
+	onPrompt           func(r *http.Request)
+
+	// history is session-1's message list; empty means no messages.
+	history string
+
+	mu           sync.Mutex
+	requests     []string
+	promptIDs    []string
+	statusDown   bool
+	pendingPolls int
+	busy         map[string]bool
+	interrupted  map[string]bool
+}
+
+func newManagedTestHost(t *testing.T, configure func(*managedTestHost)) *managedTestHost {
+	t.Helper()
+	host := &managedTestHost{busy: map[string]bool{}, interrupted: map[string]bool{}}
+	if configure != nil {
+		configure(host)
+	}
+	server := httptest.NewServer(http.HandlerFunc(host.serve))
+	t.Cleanup(server.Close)
+	host.config = opencodehost.Config{URL: server.URL, Username: "opencode", Password: "test", InstanceID: "host-1"}
+	return host
+}
+
+func (h *managedTestHost) serve(w http.ResponseWriter, r *http.Request) {
+	h.mu.Lock()
+	h.requests = append(h.requests, r.Method+" "+r.URL.Path)
+	h.mu.Unlock()
+	w.Header().Set("Content-Type", "application/json")
+	switch {
+	case r.Method == http.MethodGet && r.URL.Path == "/config":
+		_, _ = io.WriteString(w, `{"share":"disabled"}`)
+	case r.Method == http.MethodPost && r.URL.Path == "/session",
+		r.Method == http.MethodGet && r.URL.Path == "/session/session-1":
+		_, _ = io.WriteString(w, `{"id":"session-1"}`)
+	case r.Method == http.MethodGet && r.URL.Path == "/event":
+		w.Header().Set("Content-Type", "text/event-stream")
+		w.WriteHeader(http.StatusOK)
+		w.(http.Flusher).Flush()
+		<-r.Context().Done()
+	case r.Method == http.MethodPost && r.URL.Path == "/session/session-1/prompt_async":
+		// Reading the whole body also lets the server notice a dropped client.
+		var body struct {
+			MessageID string `json:"messageID"`
+		}
+		_ = json.NewDecoder(r.Body).Decode(&body)
+		_, _ = io.Copy(io.Discard, r.Body)
+		h.mu.Lock()
+		h.promptIDs = append(h.promptIDs, body.MessageID)
+		if h.pendingPolls = h.startAfterPolls; h.pendingPolls == 0 {
+			h.busy["session-1"] = true
+		}
+		h.mu.Unlock()
+		if h.onPrompt != nil {
+			h.onPrompt(r)
+		}
+		w.WriteHeader(http.StatusNoContent)
+	case r.Method == http.MethodPost && strings.HasSuffix(r.URL.Path, "/abort"):
+		sessionID := strings.TrimSuffix(strings.TrimPrefix(r.URL.Path, "/session/"), "/abort")
+		h.mu.Lock()
+		rejected := h.interruptStatus
+		if rejected == 0 && h.busy[sessionID] {
+			h.interrupted[sessionID] = true
+		}
+		h.mu.Unlock()
+		if rejected != 0 {
+			w.WriteHeader(rejected)
+			return
+		}
+		_, _ = io.WriteString(w, `true`)
+	case r.Method == http.MethodGet && r.URL.Path == "/session/session-1/message":
+		history := h.history
+		if history == "" {
+			history = `[]`
+		}
+		_, _ = io.WriteString(w, history)
+	case r.Method == http.MethodGet && r.URL.Path == "/session/status":
+		h.mu.Lock()
+		if h.statusDown {
+			h.mu.Unlock()
+			if conn, _, err := w.(http.Hijacker).Hijack(); err == nil {
+				_ = conn.Close()
+			}
+			return
+		}
+		if h.pendingPolls > 0 {
+			if h.pendingPolls--; h.pendingPolls == 0 {
+				h.busy["session-1"] = true
+			}
+		}
+		statuses := make(map[string]map[string]string, len(h.busy))
+		for sessionID, busy := range h.busy {
+			if !busy {
+				continue
+			}
+			statuses[sessionID] = map[string]string{"type": "busy"}
+			if h.interrupted[sessionID] {
+				delete(h.busy, sessionID)
+			}
+		}
+		drop := h.dropAfterInterrupt && len(h.interrupted) > 0
+		h.mu.Unlock()
+		if drop {
+			if conn, _, err := w.(http.Hijacker).Hijack(); err == nil {
+				_ = conn.Close()
+			}
+			return
+		}
+		_ = json.NewEncoder(w).Encode(statuses)
+	default:
+		http.NotFound(w, r)
+	}
+}
+
+func (h *managedTestHost) setBusy(sessionID string, busy bool) {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	h.busy[sessionID] = busy
+}
+
+func (h *managedTestHost) setStatusDown(down bool) {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	h.statusDown = down
+}
+
+func (h *managedTestHost) setInterruptStatus(status int) {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	h.interruptStatus = status
+}
+
+func (h *managedTestHost) setStartAfterPolls(polls int) {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	h.startAfterPolls = polls
+}
+
+func (h *managedTestHost) promptMessageIDs() []string {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	return slices.Clone(h.promptIDs)
+}
+
+func (h *managedTestHost) isBusy(sessionID string) bool {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	return h.busy[sessionID]
+}
+
+func (h *managedTestHost) wasInterrupted(sessionID string) bool {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	return h.interrupted[sessionID]
+}
+
+func (h *managedTestHost) count(request string) int {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	n := 0
+	for _, r := range h.requests {
+		if r == request {
+			n++
+		}
+	}
+	return n
+}
+
+func (h *managedTestHost) requestLog() []string {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	return slices.Clone(h.requests)
 }
 
 func TestManagedOpenCodeRefreshUpdatesTimeline(t *testing.T) {
@@ -1119,6 +1800,35 @@ exit 0
 	assert.Equal(t, 0, exec.ExitCode())
 }
 
+// A coding agent run through its command line reports no model usage, so
+// the step names it rather than showing that it used nothing.
+func TestHarnessExecutorRun_MarksModelUsageNotReported(t *testing.T) {
+	if goruntime.GOOS == "windows" {
+		t.Skip("Skipping shell-based test on Windows")
+	}
+
+	agent := writeHarnessTestBinary(t, "agent", `#!/bin/sh
+echo "done"
+`)
+	exec := &harnessExecutor{
+		stdout: &strings.Builder{},
+		stderr: &strings.Builder{},
+		configs: []providerConfig{{
+			name: "claude",
+			definition: &ir.HarnessDefinition{
+				Binary:     agent,
+				PromptMode: ir.HarnessPromptModeArg,
+				FlagStyle:  ir.HarnessFlagStyleGNULong,
+			},
+		}},
+		prompt: "hello",
+	}
+	meter := modelusage.NewMeter(nil)
+
+	require.NoError(t, exec.Run(modelusage.WithMeter(context.Background(), meter)))
+	assert.Equal(t, &ir.StepModelUsage{NotReported: "claude"}, meter.Snapshot())
+}
+
 func TestHarnessExecutorRun_IncludesFailedStdoutInError(t *testing.T) {
 	if goruntime.GOOS == "windows" {
 		t.Skip("Skipping shell-based test on Windows")
@@ -1215,6 +1925,91 @@ exec sleep 60
 			assert.Equal(t, 124, exec.ExitCode())
 		})
 	}
+}
+
+// A graceful stop does not cancel the step context, so the fallback decision
+// relies on the stop request itself.
+func TestHarnessExecutorRun_StopSkipsFallback(t *testing.T) {
+	if goruntime.GOOS == "windows" {
+		t.Skip("Skipping shell-based test on Windows")
+	}
+
+	marker := filepath.Join(t.TempDir(), "fallback-ran")
+	primary := writeHarnessTestBinary(t, "primary", `#!/bin/sh
+echo "ready" >&2
+exec sleep 60
+`)
+	fallback := writeHarnessTestBinary(t, "fallback", "#!/bin/sh\ntouch \""+marker+"\"\nexit 0\n")
+	var stderr strings.Builder
+	exec := &harnessExecutor{
+		stdout: &strings.Builder{},
+		configs: []providerConfig{
+			{
+				name: "primary",
+				definition: &ir.HarnessDefinition{
+					Binary:     primary,
+					PromptMode: ir.HarnessPromptModeArg,
+					FlagStyle:  ir.HarnessFlagStyleGNULong,
+				},
+			},
+			{
+				name: "fallback",
+				definition: &ir.HarnessDefinition{
+					Binary:     fallback,
+					PromptMode: ir.HarnessPromptModeArg,
+					FlagStyle:  ir.HarnessFlagStyleGNULong,
+				},
+			},
+		},
+		prompt: "hello",
+	}
+	var stopOnce sync.Once
+	exec.stderr = &callOnWrite{Writer: &stderr, call: func() {
+		stopOnce.Do(func() { _ = exec.Stop(cmdutil.TerminationFromSignal(syscall.SIGTERM)) })
+	}}
+
+	require.Error(t, exec.Run(context.Background()))
+	assert.NoFileExists(t, marker)
+	assert.NotContains(t, stderr.String(), "trying fallback")
+}
+
+// A stop that arrives before an attempt starts its backend keeps it from
+// starting, as one between a failed attempt and its fallback does.
+func TestHarnessExecutorRun_StopBeforeStart(t *testing.T) {
+	if goruntime.GOOS == "windows" {
+		t.Skip("Skipping shell-based test on Windows")
+	}
+
+	marker := filepath.Join(t.TempDir(), "agent-ran")
+	exec := &harnessExecutor{
+		stdout: &strings.Builder{},
+		stderr: &strings.Builder{},
+		configs: []providerConfig{{
+			name: "agent",
+			definition: &ir.HarnessDefinition{
+				Binary:     writeHarnessTestBinary(t, "agent", "#!/bin/sh\ntouch \""+marker+"\"\n"),
+				PromptMode: ir.HarnessPromptModeArg,
+				FlagStyle:  ir.HarnessFlagStyleGNULong,
+			},
+		}},
+		prompt: "hello",
+	}
+	require.NoError(t, exec.Stop(cmdutil.TerminationFromSignal(syscall.SIGTERM)))
+
+	require.ErrorIs(t, exec.Run(context.Background()), context.Canceled)
+	assert.NoFileExists(t, marker)
+}
+
+// callOnWrite runs call after each write, once the subprocess has started.
+type callOnWrite struct {
+	io.Writer
+	call func()
+}
+
+func (w *callOnWrite) Write(p []byte) (int, error) {
+	n, err := w.Writer.Write(p)
+	w.call()
+	return n, err
 }
 
 // cancelOnWrite cancels only after the subprocess signals that it has started.

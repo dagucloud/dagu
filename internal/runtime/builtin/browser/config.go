@@ -10,6 +10,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/dagucloud/dagu/v2/internal/browserhost/writegate"
 	cmnconfig "github.com/dagucloud/dagu/v2/internal/cmn/config"
 	"github.com/dagucloud/dagu/v2/internal/executor/registry"
 	"github.com/dagucloud/dagu/v2/internal/ir"
@@ -83,6 +84,9 @@ type browserOptions struct {
 	// ClientCertificates are presented to the hosts they name, before
 	// those configured for the host.
 	ClientCertificates []cmnconfig.BrowserClientCertificate `json:"client_certificates,omitempty"`
+	// WriteGate is the write gate mode the step asks for; the browser runs
+	// in the stricter of it and the host's browser.write_gate.
+	WriteGate string `json:"write_gate,omitempty"`
 }
 
 type viewport struct {
@@ -393,6 +397,9 @@ func (c config) validate() error {
 	if profile := c.Browser.Profile; profile != "" && !agentstep.FileNamePattern.MatchString(profile) {
 		return fmt.Errorf("browser: profile %q must match %s", profile, agentstep.FileNamePattern)
 	}
+	if _, err := writegate.ParseMode(c.Browser.WriteGate); err != nil {
+		return fmt.Errorf("browser: write_gate: %w", err)
+	}
 	outputs := make(map[string]int)
 	asks := make(map[string]int)
 	for i, op := range c.Do {
@@ -649,6 +656,7 @@ var configSchema = &jsonschema.Schema{
 				"allowed_domains": {Type: "array", Items: agentstep.NonEmptyString()},
 				"screenshots":     {Type: "string", Enum: []any{screenshotsOnFailure, screenshotsFinal, screenshotsEach, screenshotsNever}},
 				"profile":         agentstep.NonEmptyString(),
+				"write_gate":      {Type: "string", Enum: []any{writegate.ModeOff, writegate.ModeRecord, writegate.ModeAsk, writegate.ModeRehearse}},
 				"client_certificates": {
 					Type: "array",
 					Items: &jsonschema.Schema{

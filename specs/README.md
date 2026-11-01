@@ -81,6 +81,7 @@ It must not be treated as product behavior until implementation catches up.
 | [078: JS Run Action](078-js-run.md) | Implemented |
 | [079: Browser Sessions](079-browser-session.md) | Implemented for local commands |
 | [081: ClickHouse Action](081-clickhouse.md) | Partially implemented |
+| [083: Continuous Runs](083-continuous-runs.md) | Partially implemented |
 
 **Writing guidelines:**
 

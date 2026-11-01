@@ -167,6 +167,26 @@ func TestForeachRuntime(t *testing.T) {
 		)
 	})
 
+	t.Run("an item field without the foreach namespace fails its item", func(t *testing.T) {
+		t.Parallel()
+
+		dagu := harness.NewRunner(t)
+		result := dagu.Run("start", "foreach_unqualified_item_field.yaml")
+		result.ExpectNonZeroExitCode()
+		result.ExpectStderrContains("${item.wallet} does not reference the foreach item; use ${foreach.item.wallet}")
+		dagu.ExpectNoFile("foreach-unqualified-item-field.txt")
+	})
+
+	t.Run("an unqualified item field reads a dotenv value of the same name", func(t *testing.T) {
+		t.Parallel()
+
+		dagu := harness.NewRunner(t)
+		dagu.WriteFile(".env", `item={"wallet":"from-dotenv"}`+"\n")
+		result := dagu.Run("start", "foreach_unqualified_item_field.yaml")
+		result.ExpectExitCode(0)
+		dagu.ExpectFileContent("foreach-unqualified-item-field.txt", "from-dotenv")
+	})
+
 	t.Run("a missing quoted collect field fails its item", func(t *testing.T) {
 		t.Parallel()
 

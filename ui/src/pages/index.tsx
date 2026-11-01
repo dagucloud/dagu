@@ -39,6 +39,7 @@ import {
 import { CreateDAGButton } from '../features/dags/components/common';
 import PathsCard from '../features/system-status/components/PathsCard';
 import { useQuery } from '../hooks/api';
+import { useClock } from '../hooks/useClock';
 import { useSchedulerPause } from '../hooks/useSchedulerPause';
 import dayjs from '../lib/dayjs';
 import { workspaceSelectionQuery } from '../lib/workspace';
@@ -67,15 +68,7 @@ function getDayBounds(
 }
 
 function useNowSeconds(): number {
-  const [now, setNow] = React.useState(() => Math.floor(Date.now() / 1000));
-  React.useEffect(() => {
-    const timer = setInterval(
-      () => setNow(Math.floor(Date.now() / 1000)),
-      NOW_TICK_MS
-    );
-    return () => clearInterval(timer);
-  }, []);
-  return now;
+  return useClock(NOW_TICK_MS, (now) => Math.floor(now / 1000));
 }
 
 function GettingStartedPanel(): React.ReactElement {

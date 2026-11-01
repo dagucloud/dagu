@@ -500,6 +500,16 @@ func (store *Store) RemoveDAGRun(ctx context.Context, req persis.DAGRunRemoveReq
 		return fmt.Errorf("failed to find dag-run %s: %w", dagRun.ID, err)
 	}
 
+	if req.ExpectedAttemptID != "" {
+		newest, err := run.newestAttemptID()
+		if err != nil {
+			return fmt.Errorf("failed to list attempts of dag-run %s: %w", dagRun.ID, err)
+		}
+		if newest != req.ExpectedAttemptID {
+			return fmt.Errorf("%w: attempt %s is not the newest", dagrun.ErrDAGRunActive, req.ExpectedAttemptID)
+		}
+	}
+
 	if req.RejectActive {
 		attempt, err := run.LatestAttempt(ctx, store.cache)
 		if err != nil {

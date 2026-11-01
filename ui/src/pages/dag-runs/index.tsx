@@ -25,7 +25,6 @@ import { useConfig } from '../../contexts/ConfigContext';
 import { useSearchState } from '../../contexts/SearchStateContext';
 import { useUserPreferences } from '../../contexts/UserPreference';
 import DAGRunBatchActions from '../../features/dag-runs/components/common/DAGRunBatchActions';
-import { DAGRunDetailsModal } from '../../features/dag-runs/components/dag-run-details';
 import DAGRunGroupedView from '../../features/dag-runs/components/dag-run-list/DAGRunGroupedView';
 import DAGRunTable from '../../features/dag-runs/components/dag-run-list/DAGRunTable';
 import { usePaginatedDAGRuns } from '../../features/dag-runs/hooks/dagRunPagination';
@@ -43,16 +42,17 @@ import {
 import { useViews, type View } from '../../hooks/useViews';
 import { useQuery } from '../../hooks/api';
 import { useDebouncedValue } from '../../hooks/useDebouncedValue';
+import { legacyRunPageRedirectURL } from '../../features/dag-runs/lib/dagRunUrls';
 import { useBulkDAGRunSelection } from '../../features/dag-runs/hooks/useBulkDAGRunSelection';
+import { PeekHost } from '../../features/peek/PeekHost';
+import { withoutPeek } from '../../features/peek/peekParams';
 import {
   withoutWorkspaceLabels,
   workspaceSelectionKey,
   workspaceSelectionQuery,
 } from '../../lib/workspace';
-import { getDAGRunScheduleSortValue } from '../../lib/dagRunTiming';
 import StatusChip from '@/components/ui/status-chip';
 import Title from '@/components/ui/title';
-import type { StatusTab } from '@/features/dags/components/DAGStatus';
 import { I18nText } from '@/i18n/I18nText';
 import { useI18n } from '@/i18n/I18nProvider';
 import { LoadErrorState } from '@/components/PageStates';
@@ -62,25 +62,6 @@ import { statusLabelText } from '@/lib/status-utils';
 type DAGRunsFilters = DAGRunsFilterSet;
 
 const ALL_RUNS_VIEW_PARAM = 'all';
-
-function readSelectedRunTab(search: string): StatusTab {
-  const tab = new URLSearchParams(search).get('selectedRunTab');
-  switch (tab) {
-    case 'status':
-    case 'timeline':
-    case 'outputs':
-    case 'artifacts':
-    case 'agent':
-    case 'chat':
-    case 'tasks':
-    case 'spec':
-    case 'approval':
-    case 'human-tasks':
-      return tab;
-    default:
-      return 'status';
-  }
-}
 
 const RUN_FILTER_QUERY_KEYS = [
   'name',
@@ -341,73 +322,21 @@ function DAGRuns() {
     defaultFilters.toDate
   );
 
-  // State for selected DAG run in split layout
-  const [selectedDAGRun, setSelectedDAGRun] = React.useState<{
-    name: string;
-    dagRunId: string;
-  } | null>(() => {
-    const params = new URLSearchParams(location.search);
-    const name = params.get('selectedRunName');
-    const dagRunId = params.get('selectedRunId');
-    return name && dagRunId ? { name, dagRunId } : null;
-  });
-  const [selectedDAGRunTab, setSelectedDAGRunTab] = React.useState<StatusTab>(
-    () => readSelectedRunTab(location.search)
-  );
-  const updateSelectedDAGRun = React.useCallback(
-    (
-      dagRun: { name: string; dagRunId: string } | null,
-      initialTab: StatusTab = 'status',
-      replace = false
-    ) => {
-      setSelectedDAGRun(dagRun);
-      setSelectedDAGRunTab(initialTab);
-      const params = new URLSearchParams(location.search);
-      if (dagRun) {
-        params.set('selectedRunName', dagRun.name);
-        params.set('selectedRunId', dagRun.dagRunId);
-        if (initialTab === 'status') {
-          params.delete('selectedRunTab');
-        } else {
-          params.set('selectedRunTab', initialTab);
-        }
-      } else {
-        params.delete('selectedRunName');
-        params.delete('selectedRunId');
-        params.delete('selectedRunTab');
-      }
-      const search = params.toString();
-      navigate(
-        {
-          pathname: location.pathname,
-          search: search ? `?${search}` : '',
-        },
-        { replace }
-      );
-    },
-    [location.pathname, location.search, navigate]
-  );
-
+  // Links from before the run page replaced the side panel carry the run in
+  // ?selectedRunName and ?selectedRunId; they open the run on its workflow page.
   React.useEffect(() => {
     const params = new URLSearchParams(location.search);
     const name = params.get('selectedRunName');
     const dagRunId = params.get('selectedRunId');
-    setSelectedDAGRun(name && dagRunId ? { name, dagRunId } : null);
-    setSelectedDAGRunTab(readSelectedRunTab(location.search));
-  }, [location.search]);
-
-  const selectDAGRun = React.useCallback(
-    (dagRun: { name: string; dagRunId: string } | null) => {
-      updateSelectedDAGRun(dagRun);
-    },
-    [updateSelectedDAGRun]
-  );
-  const viewDAGRunArtifacts = React.useCallback(
-    (dagRun: { name: string; dagRunId: string }) => {
-      updateSelectedDAGRun(dagRun, 'artifacts');
-    },
-    [updateSelectedDAGRun]
-  );
+    if (!name || !dagRunId) {
+      return;
+    }
+    const tab = params.get('selectedRunTab');
+    const legacy = new URLSearchParams(tab ? { tab } : undefined);
+    navigate(legacyRunPageRedirectURL(name, dagRunId, legacy, remoteKey), {
+      replace: true,
+    });
+  }, [location.search, navigate, remoteKey]);
   const loadMoreSentinelRef = React.useRef<HTMLDivElement>(null);
   const autoLoadPendingRef = React.useRef(false);
 
@@ -518,7 +447,10 @@ function DAGRuns() {
           const date = dayjs(value);
           return {
             from: date.startOf('month').format('YYYY-MM-DDTHH:mm'),
-            to: date.startOf('month').add(1, 'month').format('YYYY-MM-DDTHH:mm'),
+            to: date
+              .startOf('month')
+              .add(1, 'month')
+              .format('YYYY-MM-DDTHH:mm'),
           };
         }
         case 'year': {
@@ -557,6 +489,8 @@ function DAGRuns() {
   );
 
   const previousRunScopeRef = React.useRef(searchStateScope);
+  // A peek opens and closes without touching the filters, typed or not.
+  const filterSearch = withoutPeek(location.search);
 
   React.useEffect(() => {
     if (runViewsLoading) {
@@ -581,7 +515,7 @@ function DAGRuns() {
       return;
     }
 
-    const params = new URLSearchParams(location.search);
+    const params = new URLSearchParams(filterSearch);
     const stored = searchState.readState<DAGRunsFilters>(
       'dagRuns',
       searchStateScope
@@ -744,7 +678,7 @@ function DAGRuns() {
   }, [
     defaultFilters,
     defaultRunViewId,
-    location.search,
+    filterSearch,
     navigate,
     parseDateFromUrl,
     resolveRunViewFilters,
@@ -884,34 +818,6 @@ function DAGRuns() {
     return [...ids];
   }, [dagRuns]);
 
-  const navigateGroupedRunHistory = React.useCallback(
-    (direction: 'up' | 'down') => {
-      if (!selectedDAGRun) {
-        return;
-      }
-      const groupRuns = dagRuns
-        .filter((run) => run.name === selectedDAGRun.name)
-        .sort(
-          (a, b) =>
-            getDAGRunScheduleSortValue(b) - getDAGRunScheduleSortValue(a)
-        );
-      const index = groupRuns.findIndex(
-        (run) => run.dagRunId === selectedDAGRun.dagRunId
-      );
-      if (index < 0) {
-        return;
-      }
-      const nextRun = groupRuns[index + (direction === 'down' ? 1 : -1)];
-      if (nextRun) {
-        updateSelectedDAGRun(
-          { name: nextRun.name, dagRunId: nextRun.dagRunId },
-          selectedDAGRunTab,
-          true
-        );
-      }
-    },
-    [dagRuns, selectedDAGRun, selectedDAGRunTab, updateSelectedDAGRun]
-  );
   React.useEffect(() => {
     if (!isLoadingMore) {
       autoLoadPendingRef.current = false;
@@ -1648,9 +1554,6 @@ function DAGRuns() {
           <DAGRunTable
             dagRuns={dagRuns}
             isLoading={isInitialLoading}
-            selectedDAGRun={selectedDAGRun}
-            onSelectDAGRun={selectDAGRun}
-            onViewArtifacts={viewDAGRunArtifacts}
             selectedRunKeys={selectedKeys}
             onToggleBulkSelect={toggleSelection}
           />
@@ -1658,9 +1561,6 @@ function DAGRuns() {
           <DAGRunGroupedView
             dagRuns={dagRuns}
             isLoading={isInitialLoading}
-            selectedDAGRun={selectedDAGRun}
-            onSelectDAGRun={selectDAGRun}
-            onViewArtifacts={viewDAGRunArtifacts}
             selectedRunKeys={selectedKeys}
             onToggleBulkSelect={toggleSelection}
           />
@@ -1698,28 +1598,16 @@ function DAGRuns() {
           ) : null}
         </div>
       </div>
-
-      {/* Side Modal for DAG Run Details */}
-      {selectedDAGRun && (
-        <DAGRunDetailsModal
-          name={selectedDAGRun.name}
-          dagRunId={selectedDAGRun.dagRunId}
-          isOpen={!!selectedDAGRun}
-          onClose={() => updateSelectedDAGRun(null, 'status', true)}
-          onNavigate={
-            viewMode === 'grouped' ? navigateGroupedRunHistory : undefined
-          }
-          initialTab={selectedDAGRunTab}
-          activeTab={viewMode === 'grouped' ? selectedDAGRunTab : undefined}
-          onTabChange={
-            viewMode === 'grouped'
-              ? (tab) => updateSelectedDAGRun(selectedDAGRun, tab, true)
-              : undefined
-          }
-        />
-      )}
     </div>
   );
 }
 
-export default DAGRuns;
+function DAGRunsPage() {
+  return (
+    <PeekHost>
+      <DAGRuns />
+    </PeekHost>
+  );
+}
+
+export default DAGRunsPage;

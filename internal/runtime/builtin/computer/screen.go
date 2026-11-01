@@ -10,6 +10,7 @@ import (
 	"image"
 	"time"
 
+	"github.com/dagucloud/dagu/v2/internal/cmn/imagefit"
 	"github.com/dagucloud/dagu/v2/internal/desktop"
 	llmpkg "github.com/dagucloud/dagu/v2/internal/llm"
 	"github.com/dagucloud/dagu/v2/internal/llm/computeruse"
@@ -53,10 +54,10 @@ type screen struct {
 // newScreen scales a capture to fit a model's image limit.
 func newScreen(full *image.RGBA, limit computeruse.ImageLimit) (screen, error) {
 	bounds := full.Bounds()
-	width, height := desktop.FitSize(bounds.Dx(), bounds.Dy(), limit.LongEdge, limit.MaxPixels)
+	width, height := imagefit.FitSize(bounds.Dx(), bounds.Dy(), limit.LongEdge, limit.MaxPixels)
 	scaled := full
 	if width != bounds.Dx() || height != bounds.Dy() {
-		scaled = desktop.Resize(full, width, height)
+		scaled = imagefit.Resize(full, width, height)
 	}
 	data, err := desktop.EncodePNG(scaled)
 	if err != nil {

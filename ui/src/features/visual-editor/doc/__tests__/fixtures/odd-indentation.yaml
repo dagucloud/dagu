@@ -1,0 +1,9 @@
+name:    odd   # extra spaces after the colon
+steps:
+-   name: a
+    run: echo a
+-   name: b
+    depends:   [a]
+    run:   echo b
+    env:
+          - K: v

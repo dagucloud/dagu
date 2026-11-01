@@ -172,12 +172,25 @@ type ToolCallFunction struct {
 
 // Usage contains token usage information from an LLM API call.
 type Usage struct {
-	// PromptTokens is the number of tokens in the prompt.
+	// PromptTokens is the number of tokens in the prompt, those read from or
+	// written to the provider's prompt cache included.
 	PromptTokens int `json:"prompt_tokens"`
-	// CompletionTokens is the number of tokens in the completion.
+	// CompletionTokens is the number of tokens in the completion, reasoning
+	// tokens included.
 	CompletionTokens int `json:"completion_tokens"`
 	// TotalTokens is the sum of prompt and completion tokens.
 	TotalTokens int `json:"total_tokens"`
+	// CachedPromptTokens is the part of PromptTokens read from the prompt
+	// cache.
+	CachedPromptTokens int `json:"cached_prompt_tokens,omitempty"`
+	// CacheWritePromptTokens is the part of PromptTokens written to the
+	// prompt cache.
+	CacheWritePromptTokens int `json:"cache_write_prompt_tokens,omitempty"`
+	// ReasoningTokens is the part of CompletionTokens spent on reasoning.
+	ReasoningTokens int `json:"reasoning_tokens,omitempty"`
+	// Cost is what the provider reported the call cost, in US dollars. It is
+	// nil when the provider reports no cost; zero is a reported free call.
+	Cost *float64 `json:"cost,omitempty"`
 }
 
 // OAuthCredential contains dynamic bearer-auth details resolved at request time.
@@ -200,6 +213,9 @@ type Config struct {
 	AccountID string
 	// BaseURL is the API endpoint URL. If empty, the provider's default is used.
 	BaseURL string
+	// ProviderOrder names the upstream providers OpenRouter tries first, in
+	// order, such as "azure/eu". Other providers do not read it.
+	ProviderOrder []string
 	// OAuthCredentialProvider resolves dynamic bearer credentials on demand.
 	OAuthCredentialProvider OAuthCredentialProvider
 	// Timeout is the maximum time to wait for a response.

@@ -43,6 +43,7 @@ func InitialStatus(dag *DAG) DAGRunStatus {
 	return DAGRunStatus{
 		Name:                 dag.Name,
 		Status:               NotStarted,
+		ModelUsageRecorded:   true,
 		PID:                  PID(0),
 		Nodes:                NewNodesFromSteps(dag.Steps),
 		OnInit:               newNodeOrNil(dag.HandlerOn.Init),
@@ -203,25 +204,29 @@ type DAGRunStatus struct {
 	TriggerActor string            `json:"triggerActor,omitempty"`
 	// Resume marks a queued checkpoint resume. Retry planning honors it only
 	// while the attempt is queued, so retries of finished runs reset as usual.
-	Resume         bool                   `json:"resume,omitempty"`
-	WorkerID       string                 `json:"workerId,omitempty"`
-	PID            PID                    `json:"pid,omitempty"`
-	PIDStartedAt   int64                  `json:"pidStartedAt,omitempty"`
-	Nodes          []*Node                `json:"nodes,omitempty"`
-	AgentSessions  []AgentSessionResource `json:"agentSessions,omitempty"`
-	OnInit         *Node                  `json:"onInit,omitempty"`
-	OnExit         *Node                  `json:"onExit,omitempty"`
-	OnSuccess      *Node                  `json:"onSuccess,omitempty"`
-	OnFailure      *Node                  `json:"onFailure,omitempty"`
-	OnAbort        *Node                  `json:"onAbort,omitempty"`
-	OnWait         *Node                  `json:"onWait,omitempty"`
-	CreatedAt      int64                  `json:"createdAt,omitempty"`
-	QueuedAt       string                 `json:"queuedAt,omitempty"`
-	ScheduleTime   string                 `json:"scheduleTime,omitempty"`
-	StartedAt      string                 `json:"startedAt,omitempty"`
-	FinishedAt     string                 `json:"finishedAt,omitempty"`
-	AutoRetryCount int                    `json:"autoRetryCount,omitempty"`
-	AutoRetryLimit int                    `json:"autoRetryLimit,omitempty"`
+	Resume        bool                   `json:"resume,omitempty"`
+	WorkerID      string                 `json:"workerId,omitempty"`
+	PID           PID                    `json:"pid,omitempty"`
+	PIDStartedAt  int64                  `json:"pidStartedAt,omitempty"`
+	Nodes         []*Node                `json:"nodes,omitempty"`
+	AgentSessions []AgentSessionResource `json:"agentSessions,omitempty"`
+	// ModelUsageRecorded marks a status written by an engine that records
+	// each step's model usage, so a run that shows none used no model
+	// rather than ran before the engine recorded it.
+	ModelUsageRecorded bool   `json:"modelUsageRecorded,omitempty"`
+	OnInit             *Node  `json:"onInit,omitempty"`
+	OnExit             *Node  `json:"onExit,omitempty"`
+	OnSuccess          *Node  `json:"onSuccess,omitempty"`
+	OnFailure          *Node  `json:"onFailure,omitempty"`
+	OnAbort            *Node  `json:"onAbort,omitempty"`
+	OnWait             *Node  `json:"onWait,omitempty"`
+	CreatedAt          int64  `json:"createdAt,omitempty"`
+	QueuedAt           string `json:"queuedAt,omitempty"`
+	ScheduleTime       string `json:"scheduleTime,omitempty"`
+	StartedAt          string `json:"startedAt,omitempty"`
+	FinishedAt         string `json:"finishedAt,omitempty"`
+	AutoRetryCount     int    `json:"autoRetryCount,omitempty"`
+	AutoRetryLimit     int    `json:"autoRetryLimit,omitempty"`
 	// AutoRetryInterval is stored as a duration snapshot for retry scanner decisions.
 	AutoRetryInterval time.Duration `json:"autoRetryInterval,omitempty"`
 	AutoRetryBackoff  float64       `json:"autoRetryBackoff,omitempty"`
@@ -246,6 +251,47 @@ type DAGRunStatus struct {
 	Preconditions      []ConditionResult     `json:"preconditions,omitempty"`
 	Labels             []string              `json:"labels,omitempty"`
 	LeaseAt            int64                 `json:"leaseAt,omitempty"` // Unix millis; stamped by coordinator on observed run liveness
+
+	// Ephemeral marks a run that leaves no trace: it is stored apart from the
+	// history, is not listed, emits no events, and is removed after it ends.
+	Ephemeral bool `json:"ephemeral,omitempty"`
+
+	// SkipHandlers marks a selected-steps run whose selection has no graph end
+	// step. The run, and every retry of it, does not call the end-of-run
+	// handlers of the DAG.
+	SkipHandlers bool `json:"skipHandlers,omitempty"`
+
+	// ReusedInputs records, for each skipped step of a selected-steps run,
+	// where its carried outputs come from. The order is the DAG step order.
+	ReusedInputs []ReusedInput `json:"reusedInputs,omitempty"`
+}
+
+// ReusedInputVia tells how the outputs of a skipped step reached a run.
+type ReusedInputVia string
+
+const (
+	// ReusedInputViaRun marks outputs carried from a finished run named by the
+	// request (outputsFromRunId, or outputsFromRuns for one step).
+	ReusedInputViaRun ReusedInputVia = "run"
+	// ReusedInputViaCache marks outputs that the request supplied, with the run they were captured from.
+	ReusedInputViaCache ReusedInputVia = "cache"
+)
+
+// ReusedInput is the provenance of the outputs of one skipped step.
+type ReusedInput struct {
+	// Step is the name of the skipped step.
+	Step string `json:"step"`
+	// RunID is the run the outputs come from. That run may no longer exist.
+	RunID string `json:"runId"`
+	// CapturedAt is when the outputs were captured, in the format of the run
+	// timestamps. It is empty when unknown.
+	CapturedAt string `json:"capturedAt,omitempty"`
+	// StartedAt and FinishedAt are the times that the step had in the run the
+	// outputs come from, in the format of the run timestamps. They are empty
+	// when unknown, and for outputs that a request supplied.
+	StartedAt  string         `json:"startedAt,omitempty"`
+	FinishedAt string         `json:"finishedAt,omitempty"`
+	Via        ReusedInputVia `json:"via"`
 }
 
 // EffectiveClaimKey returns ClaimKey, falling back to AttemptKey when no claim

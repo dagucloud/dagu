@@ -20,6 +20,7 @@ import (
 
 	"github.com/coder/websocket"
 	"github.com/dagucloud/dagu/v2/internal/browserhost/certproxy"
+	"github.com/dagucloud/dagu/v2/internal/browserhost/writegate"
 	llmpkg "github.com/dagucloud/dagu/v2/internal/llm"
 	"github.com/dagucloud/dagu/v2/internal/runtime/builtin/internal/agentstep"
 )
@@ -94,6 +95,21 @@ type fakeEngine struct {
 	blockedErr error
 	// certificateEvents are what the certificate proxy reports next.
 	certificateEvents []certproxy.Event
+	// actWrites are the writes the write gate decides while the next act
+	// runs, numbered as they are kept in writes.
+	actWrites []writegate.Event
+	writes    []writegate.Event
+	// writesErr is the error every read of the write gate reports.
+	writesErr error
+	// downloadWrites are the writes the gate decides while the next
+	// download wait runs.
+	downloadWrites []writegate.Event
+	// allowed are the signatures the write gate was told the operation
+	// running may send, one entry per operation, and allowing whether it
+	// still runs; endErr is the error telling the gate it ended reports.
+	allowed  [][]string
+	allowing bool
+	endErr   error
 	// outcome is what the browser shows after a page opened.
 	outcome pageOutcome
 	// pending are the connections the certificate proxy waits on.
@@ -103,11 +119,19 @@ type fakeEngine struct {
 	// pageText and visible describe the page that fixed checks read.
 	pageText string
 	visible  []string
+	// textReadsLoseContext is how many of the next page text reads lose
+	// their script context to a new document.
+	textReadsLoseContext int
 	// snapshot is the page's accessibility tree; its URL is the page's.
 	snapshot pageSnapshot
-	// downloads and downloadErr script what the next download wait reports.
-	downloads   []string
-	downloadErr error
+	// opener is the title of the page that opened the window operations
+	// work on; empty when no open page opened it.
+	opener string
+	// downloads and downloadErr script what the next download wait reports,
+	// and lateDownloads what only a wait that allows them to begin does.
+	downloads     []string
+	downloadErr   error
+	lateDownloads []string
 	// downloadWaits records the timeout of each download wait.
 	downloadWaits []time.Duration
 	// uploadHow is how uploads report the files reached the page;
@@ -131,6 +155,8 @@ type fakeEngine struct {
 type fakeAct struct {
 	instruction string
 	variables   map[string]string
+	// secret names the variables the act was told hold a secret.
+	secret []string
 }
 
 // fakeUpload is an upload the page was given: the element, or "" for the
@@ -175,6 +201,52 @@ func (e *fakeEngine) TakeCertificateEvents(context.Context) ([]certproxy.Event, 
 	return events, nil
 }
 
+// keepWrites numbers writes as the gate keeps them, sending one the
+// operation running may send. The caller holds e.mu.
+func (e *fakeEngine) keepWrites(writes []writegate.Event) {
+	for _, write := range writes {
+		if e.allowing && slices.Contains(e.allowed[len(e.allowed)-1], write.Signature) {
+			write.Class, write.Outcome = writegate.ClassApproved, writegate.OutcomeSent
+		}
+		write.Seq = int64(len(e.writes) + 1)
+		e.writes = append(e.writes, write)
+	}
+}
+
+func (e *fakeEngine) Writes(ctx context.Context, after int64) ([]writegate.Event, error) {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	// The runtime's calls end with their context, as the real engine's do.
+	if err := cmp.Or(ctx.Err(), e.writesErr); err != nil {
+		return nil, err
+	}
+	var events []writegate.Event
+	for _, write := range e.writes {
+		if write.Seq > after {
+			events = append(events, write)
+		}
+	}
+	return events, nil
+}
+
+func (e *fakeEngine) BeginWrites(_ context.Context, signatures []string, _ time.Duration) error {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	e.allowed = append(e.allowed, signatures)
+	e.allowing = true
+	return nil
+}
+
+func (e *fakeEngine) EndWrites(context.Context) error {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	if e.endErr != nil {
+		return e.endErr
+	}
+	e.allowing = false
+	return nil
+}
+
 func (e *fakeEngine) PageOutcome(context.Context) (pageOutcome, error) {
 	e.mu.Lock()
 	defer e.mu.Unlock()
@@ -214,15 +286,23 @@ var errFakeSessionLost = fmt.Errorf("%w: Failed to perform act: -32001 Session w
 // script context a new document replaced.
 var errFakeContextLost = fmt.Errorf("%w: Failed to perform act: -32000 Cannot find context with specified id", errPageContextLost)
 
-func (e *fakeEngine) Act(ctx context.Context, instruction string, variables map[string]string, _ time.Duration) (actOutcome, error) {
+func (e *fakeEngine) Act(ctx context.Context, instruction string, variables map[string]string, secret func(string) bool, _ time.Duration) (actOutcome, error) {
+	act := fakeAct{instruction: instruction, variables: maps.Clone(variables)}
+	for _, name := range slices.Sorted(maps.Keys(variables)) {
+		if secret == nil || secret(name) {
+			act.secret = append(act.secret, name)
+		}
+	}
 	e.mu.Lock()
-	e.acts = append(e.acts, fakeAct{instruction: instruction, variables: maps.Clone(variables)})
+	e.acts = append(e.acts, act)
 	if e.actNavigatesTo != "" {
 		e.load(e.actNavigatesTo)
 	}
 	e.dialogs = append(e.dialogs, e.actDialogs...)
 	e.actDialogs = nil
 	e.blocked, e.actBlocked = e.actBlocked, nil
+	e.keepWrites(e.actWrites)
+	e.actWrites = nil
 	generate, onAct, twoStep, fills := e.generate, e.onAct, e.twoStepAct, e.actFills
 	losesPage, pageLoss := e.actLosesPage > 0, cmp.Or(e.pageLoss, errFakeSessionLost)
 	if losesPage {
@@ -353,6 +433,14 @@ func (e *fakeEngine) Screenshot(context.Context) ([]byte, error) {
 	return []byte("png"), nil
 }
 
+func (e *fakeEngine) Opener(context.Context) (string, bool, error) {
+	return e.opener, e.opener != "", nil
+}
+
+func (e *fakeEngine) OpenerScreenshot(context.Context) ([]byte, error) {
+	return []byte("opener png"), nil
+}
+
 func (e *fakeEngine) CurrentURL(context.Context) (string, error) {
 	e.mu.Lock()
 	defer e.mu.Unlock()
@@ -369,6 +457,10 @@ func (e *fakeEngine) setPageText(text string) {
 func (e *fakeEngine) PageText(context.Context) (string, error) {
 	e.mu.Lock()
 	defer e.mu.Unlock()
+	if e.textReadsLoseContext > 0 {
+		e.textReadsLoseContext--
+		return "", errFakeContextLost
+	}
 	return e.pageText, nil
 }
 
@@ -389,12 +481,18 @@ func (e *fakeEngine) Snapshot(context.Context) (pageSnapshot, error) {
 
 // WaitForDownloads reports the scripted downloads once, as if they finished
 // after the operation that started them.
-func (e *fakeEngine) WaitForDownloads(_ context.Context, _ time.Duration, timeout time.Duration) ([]string, error) {
+func (e *fakeEngine) WaitForDownloads(_ context.Context, grace time.Duration, timeout time.Duration) ([]string, error) {
 	e.mu.Lock()
 	defer e.mu.Unlock()
 	e.downloadWaits = append(e.downloadWaits, timeout)
+	e.keepWrites(e.downloadWrites)
+	e.downloadWrites = nil
 	downloads := e.downloads
 	e.downloads = nil
+	if grace > 0 {
+		downloads = append(downloads, e.lateDownloads...)
+		e.lateDownloads = nil
+	}
 	return downloads, e.downloadErr
 }
 
@@ -427,6 +525,8 @@ func (e *fakeEngine) actInstructions() []string {
 }
 
 // scriptedProvider answers each model request through a respond tool call.
+// An answer that is not JSON comes back as text, as from a model that
+// ignored the tool.
 type scriptedProvider struct {
 	answer func(req *llmpkg.ChatRequest) (string, error)
 	mu     sync.Mutex
@@ -441,12 +541,16 @@ func (p *scriptedProvider) Chat(_ context.Context, req *llmpkg.ChatRequest) (*ll
 	if err != nil {
 		return nil, err
 	}
+	usage := llmpkg.Usage{PromptTokens: 10, CompletionTokens: 2, TotalTokens: 12}
+	if !json.Valid([]byte(arguments)) {
+		return &llmpkg.ChatResponse{Content: arguments, Usage: usage}, nil
+	}
 	return &llmpkg.ChatResponse{
 		ToolCalls: []llmpkg.ToolCall{{
 			ID: "call-1", Type: "function",
 			Function: llmpkg.ToolCallFunction{Name: agentstep.RespondToolName, Arguments: arguments},
 		}},
-		Usage: llmpkg.Usage{PromptTokens: 10, CompletionTokens: 2, TotalTokens: 12},
+		Usage: usage,
 	}, nil
 }
 
@@ -499,6 +603,72 @@ func pageModel(extracts map[string]string, trueStatements ...string) func(req *l
 		}
 		return "", errors.New("unexpected request: " + text)
 	}
+}
+
+// serveSilentBrowser serves the DevTools endpoint of a browser that takes
+// commands without ever answering them, and keeps running.
+func serveSilentBrowser(t *testing.T) string {
+	t.Helper()
+	var server *httptest.Server
+	server = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/json/version" {
+			wsURL := "ws" + strings.TrimPrefix(server.URL, "http") + "/devtools/browser/silent"
+			_ = json.NewEncoder(w).Encode(map[string]string{"webSocketDebuggerUrl": wsURL})
+			return
+		}
+		conn, err := websocket.Accept(w, r, nil)
+		if err != nil {
+			return
+		}
+		defer func() { _ = conn.CloseNow() }()
+		// Read until the client hangs up, answering nothing.
+		for {
+			if _, _, err := conn.Read(r.Context()); err != nil {
+				return
+			}
+		}
+	}))
+	t.Cleanup(server.Close)
+	return server.URL
+}
+
+// serveExitingBrowser serves the DevTools endpoint of a browser that, asked
+// to close, acknowledges the request and stops accepting DevTools connections
+// at once, as Chrome does early in its exit, and then calls exit to finish
+// exiting.
+func serveExitingBrowser(t *testing.T, exit func()) string {
+	t.Helper()
+	var server *httptest.Server
+	server = httptest.NewUnstartedServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/json/version" {
+			wsURL := "ws" + strings.TrimPrefix(server.URL, "http") + "/devtools/browser/exiting"
+			_ = json.NewEncoder(w).Encode(map[string]string{"webSocketDebuggerUrl": wsURL})
+			return
+		}
+		conn, err := websocket.Accept(w, r, nil)
+		if err != nil {
+			return
+		}
+		defer func() { _ = conn.CloseNow() }()
+		_, data, err := conn.Read(r.Context())
+		if err != nil {
+			return
+		}
+		var request struct {
+			ID int `json:"id"`
+		}
+		_ = json.Unmarshal(data, &request)
+		response, _ := json.Marshal(map[string]any{"id": request.ID, "result": map[string]any{}})
+		_ = conn.Write(r.Context(), websocket.MessageText, response)
+		_ = server.Listener.Close()
+		go exit()
+	}))
+	// A kept-alive connection would let a request reach the browser after it
+	// stopped accepting connections.
+	server.Config.SetKeepAlivesEnabled(false)
+	server.Start()
+	t.Cleanup(server.Close)
+	return server.URL
 }
 
 // serveHungBrowser serves the DevTools endpoint of a browser that

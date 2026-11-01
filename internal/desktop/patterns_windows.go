@@ -59,9 +59,12 @@ const (
 	uiaScrollItemScrollIntoView      = 3
 )
 
-// expandCollapseLeafNode is the ExpandCollapseState of an element with
+// ExpandCollapseState values: an element open in full, and one with
 // nothing to expand.
-const expandCollapseLeafNode = 3
+const (
+	expandCollapseExpanded = 1
+	expandCollapseLeafNode = 3
+)
 
 // Results a pattern call answers with.
 const (
@@ -77,8 +80,8 @@ const (
 const transactionTimeout = elementsTimeout - time.Second
 
 var (
-	errReadOnly = errors.New("the field is read-only")
-	errLeaf     = errors.New("the element has nothing to expand")
+	errReadOnly error = refusal("the field is read-only")
+	errLeaf     error = refusal("the element has nothing to expand")
 )
 
 // patternAs returns the element's interface for a pattern, which the
@@ -146,7 +149,10 @@ func (e *element) expand() error {
 	if err := check("get_CurrentExpandCollapseState", p.call(uiaExpandCollapseGetCurrentState, out(&state))); err != nil {
 		return err
 	}
-	if state == expandCollapseLeafNode {
+	switch state {
+	case expandCollapseExpanded:
+		return nil
+	case expandCollapseLeafNode:
 		return errLeaf
 	}
 	return check("Expand", p.call(uiaExpandCollapseExpand))

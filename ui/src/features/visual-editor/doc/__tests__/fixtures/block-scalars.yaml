@@ -1,0 +1,30 @@
+name: block-scalars
+description: >-
+  A folded scalar that
+  strips the final line break.
+steps:
+  - name: literal
+    run: |
+      echo "line one"
+        echo "indented line"
+
+      echo "after a blank line"
+  - name: keep
+    run: |+
+      keeps trailing blank lines
+
+  - name: strip
+    run: |-
+      no trailing line break
+  - name: folded
+    run: >
+      echo this folded text
+      is one line
+
+      and a second line
+  - name: explicit indent
+    run: |2
+        two extra spaces
+      base
+  - name: last
+    run: echo done

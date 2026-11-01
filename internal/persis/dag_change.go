@@ -18,6 +18,10 @@ const (
 type DAGChangeEvent struct {
 	DAGEntry
 	Type DAGChangeType
+	// More reports that further events of the same change follow, as when
+	// one refresh changes several DAGs. The last event of a change has it
+	// unset.
+	More bool
 }
 
 // DAGEntry pairs a DAG definition with its stable persistence identity.

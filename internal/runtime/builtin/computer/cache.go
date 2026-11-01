@@ -31,9 +31,24 @@ const (
 	targetRadiusDivisor = 40
 )
 
-// recordingVersion is the format of the recordings written now. A
-// recording of another version is ignored once and replaced.
-const recordingVersion = 2
+// recordingVersion is the format of the recordings written now. Version 3
+// adds the window a pixel turn was recorded on. A version 2 recording, which
+// has none, still replays on the whole display as it was recorded; an older
+// recording is ignored once and replaced. An engine that knows only version
+// 2 ignores a version 3 recording rather than click at the window's own
+// positions as if they were the display's. Version 5 notes what an act
+// assumed (see recording.Assumed); an older one notes nothing, so which
+// variables it never uses is not known without its instruction.
+const (
+	recordingVersion       = 5
+	oldestRecordingVersion = 2
+	assumingVersion        = 5
+)
+
+// replayable reports a recording version this engine replays.
+func replayable(version int) bool {
+	return version >= oldestRecordingVersion && version <= recordingVersion
+}
 
 // recording is what an act did, so a later run can repeat it without a
 // model when the screens, or the elements, match.
@@ -46,6 +61,9 @@ type recording struct {
 	Height  int                 `json:"height"`
 	Turns   []recordedTurn      `json:"turns"`
 	Final   desktop.Fingerprint `json:"final"`
+	// FinalWindow is the window the act ended on, which Final fingerprints
+	// alone; Final covers the whole display when it is nil.
+	FinalWindow *recordedWindow `json:"final_window,omitempty"`
 	// App is the application of the front window when the act ended: the
 	// process image name without its extension, which a replay by elements
 	// matches instead of the title, since a title often shows the
@@ -61,6 +79,10 @@ type recording struct {
 	// the value from, so a later run reads it again with no model. An act
 	// has none; an extract has no turns.
 	Fields []fieldBinding `json:"fields,omitempty"`
+	// Assumed holds the values of the variables the act names that its
+	// actions never use, such as an item its list already showed, so the
+	// recording replays only where they still hold; see unfit.
+	Assumed *agentstep.Assumed `json:"assumed,omitempty"`
 	// System is the system the recording was made on, windows or macos,
 	// which keys its pinned form. SavedAt is when the run that made it ran.
 	System  string    `json:"system,omitempty"`
@@ -95,16 +117,20 @@ type columnBinding struct {
 	Kind     string `json:"kind"`
 }
 
-// recordedTurn is a screen the model saw and the actions it chose.
+// recordedTurn is a screen the model saw and the actions it chose. With a
+// Window, Screen fingerprints that window alone and the actions' positions
+// are relative to its top left; without one, Screen covers the whole
+// display and positions are display pixels.
 type recordedTurn struct {
 	Screen  desktop.Fingerprint `json:"screen"`
+	Window  *recordedWindow     `json:"window,omitempty"`
 	Actions []recordedAction    `json:"actions"`
 	// Confirmed marks a turn the model provider asked a person to confirm.
 	Confirmed bool `json:"confirmed,omitempty"`
 }
 
-// recordedAction is an action in display pixels. Typed text keeps its
-// %name% placeholders, so secrets are never stored.
+// recordedAction is an action in the pixels of its turn's view. Typed text
+// keeps its %name% placeholders, so secrets are never stored.
 type recordedAction struct {
 	Action computeruse.Action `json:"action"`
 	// Target fingerprints the area the action lands on.
@@ -112,19 +138,27 @@ type recordedAction struct {
 	// Element is the element the action landed on or typed into, when the
 	// host could read it.
 	Element *recordedElement `json:"element,omitempty"`
+	// Checked, when set, is the state a click leaves its checkbox in: the
+	// replay clicks only a checkbox in the other state, and confirms the
+	// state after.
+	Checked *bool `json:"checked,omitempty"`
+	// Invoked marks a click the act carried out through the element itself,
+	// which a replay carries out the same way rather than at the element's
+	// centre, where the pointer may not reach what the element's pattern
+	// did.
+	Invoked bool `json:"invoked,omitempty"`
 }
 
-func recordAction(action computeruse.Action, full *image.RGBA, element *recordedElement) recordedAction {
-	recorded := recordedAction{Action: action, Element: element}
-	if at, ok := target(action); ok {
-		fingerprint := desktop.FingerprintAround(full, at, targetRadius(full))
-		recorded.Target = &fingerprint
-	}
-	return recorded
+// recordAction records an action in display pixels; its turn's view later
+// places it.
+func recordAction(action computeruse.Action, element *recordedElement) recordedAction {
+	return recordedAction{Action: action, Element: element}
 }
 
-func targetRadius(full *image.RGBA) int {
-	return max(minTargetRadius, full.Bounds().Dx()/targetRadiusDivisor)
+// targetRadius is the half-width of the area compared around an action's
+// position: wider for a wider view, the same for the same size.
+func targetRadius(rect image.Rectangle) int {
+	return max(minTargetRadius, rect.Dx()/targetRadiusDivisor)
 }
 
 // replayCache stores the recordings of act operations. Entries are keyed by
@@ -142,13 +176,40 @@ func replayKey(index int, instruction string) string {
 	return hex.EncodeToString(sum[:])
 }
 
+// unusedVariables returns the variables an act's instruction names that its
+// recorded turns never use: no action types or chooses the variable's
+// placeholder, nor finds its element by it.
+func unusedVariables(instruction string, turns []recordedTurn) []string {
+	var texts []string
+	for _, turn := range turns {
+		for _, rec := range turn.Actions {
+			texts = append(texts, rec.Action.Text)
+			if rec.Element != nil {
+				texts = append(texts, selectorTexts(rec.Element.Selector)...)
+			}
+		}
+	}
+	return agentstep.UnusedVariables(instruction, texts)
+}
+
+// unfit names a variable the act's instruction names that the recording
+// never uses and whose value is not the one it was recorded with, or
+// returns "" when the recording fits this run. Such a recording was made
+// where the screen already showed the value, as a field holding its
+// default, so a replay with another value would leave the field wrong.
+func (r *run) unfit(instruction string, entry recording) string {
+	return entry.Assumed.Unmet(unusedVariables(instruction, entry.Turns), r.variables)
+}
+
 // replayOutcome is how far a replay got.
 type replayOutcome struct {
 	// turns counts the recorded turns replayed in full.
 	turns int
 	// actions counts the actions performed, including those of a turn cut
-	// short by a failed action.
+	// short by a failed action, and carried lists the recorded actions that
+	// succeeded, in order, for the model that takes over.
 	actions int
+	carried []recordedAction
 	// complete reports that every turn replayed and the final screen
 	// matched.
 	complete bool
@@ -192,7 +253,10 @@ func (r *run) replay(ctx context.Context, index int, entry recording, budget int
 			outcome.reason = fmt.Sprintf("turn %d of %d needs a person's confirmation", i+1, total)
 			return outcome, nil
 		}
-		if err := r.awaitPerson(ctx); err != nil {
+		if _, err := r.resumeAfterPerson(ctx, index); err != nil {
+			return outcome, err
+		}
+		if err := r.fit(ctx, index); err != nil {
 			return outcome, err
 		}
 		if elementTurn(turn) {
@@ -211,21 +275,43 @@ func (r *run) replay(ctx context.Context, index int, entry recording, budget int
 			}
 		}
 		outcome.pixelTurns++
-		current, err := r.awaitScreen(ctx, entry, turn, findWithin)
+		v, found, err := r.awaitScreen(ctx, index, entry, turn, findWithin)
 		if err != nil {
 			return outcome, err
 		}
-		if current == nil {
-			outcome.reason = fmt.Sprintf("the screen differs from the recording at turn %d of %d", i+1, total)
+		if !found {
+			outcome.reason = turnDiffers(turn, i, total)
 			return outcome, nil
 		}
-		for _, recorded := range turn.Actions {
-			logAction(r.timeline, index, "replay by pixels: "+describeAction(recorded.Action))
+		for j, recorded := range turn.Actions {
+			// A screen an earlier action of the turn brought up is cleared
+			// before the next lands on it; the turn's screen was checked
+			// before its first. A handler may move the turn's window, so the
+			// rest of the turn lands where the window is now.
+			if j > 0 {
+				handled, err := r.clearScreens(ctx, index)
+				if err != nil {
+					return outcome, err
+				}
+				if handled {
+					current, err := r.settleClear(ctx, index)
+					if err != nil {
+						return outcome, err
+					}
+					if v, found = r.turnView(current, entry, turn); !found {
+						outcome.reason = turnDiffers(turn, i, total)
+						return outcome, nil
+					}
+				}
+			}
+			action := v.absolute(recorded.Action)
+			logAction(r.timeline, index, "replay by pixels: "+describeAction(action))
 			outcome.actions++
-			if result := r.runAction(ctx, recorded.Action, identity, nil, computeruse.ImageLimit{}); result.Failed() {
-				outcome.reason = fmt.Sprintf("%s failed at turn %d of %d: %s", describeAction(recorded.Action), i+1, total, result.Error)
+			if result := r.runAction(ctx, action, identity, nil, computeruse.ImageLimit{}); result.Failed() {
+				outcome.reason = fmt.Sprintf("%s failed at turn %d of %d: %s", describeAction(action), i+1, total, result.Error)
 				return outcome, ctx.Err()
 			}
+			outcome.carried = append(outcome.carried, recorded)
 		}
 		outcome.turns++
 	}
@@ -233,61 +319,107 @@ func (r *run) replay(ctx context.Context, index int, entry recording, budget int
 	// has some; any other ends on the recorded final screen, which a
 	// pixel turn needs anyway.
 	if outcome.pixelTurns == 0 && outcome.elementTurns > 0 && len(entry.Landmarks) > 0 && els != nil {
-		reason, err := r.awaitLandmarks(ctx, els, entry, findWithin)
+		reason, err := r.awaitLandmarks(ctx, index, els, entry, findWithin)
 		if err != nil {
 			return outcome, err
 		}
 		outcome.complete, outcome.reason = reason == "", reason
 		return outcome, nil
 	}
-	final, err := r.settle(ctx)
+	final, err := r.settleClear(ctx, index)
 	if err != nil {
 		return outcome, err
 	}
-	outcome.complete = desktop.FingerprintOf(final).Distance(entry.Final) <= replayScreenDistance
+	v, found := r.finalView(final, entry)
+	outcome.complete = found && v.fingerprint(final).Distance(entry.Final) <= replayScreenDistance
 	if !outcome.complete {
 		outcome.reason = "the screen after the last turn differs from the recording"
 	}
 	return outcome, nil
 }
 
+// turnDiffers is why a recorded turn's screen, or its window, is not found.
+func turnDiffers(turn recordedTurn, i, total int) string {
+	if turn.Window != nil {
+		return fmt.Sprintf("the window of %s differs from the recording at turn %d of %d", turn.Window.App, i+1, total)
+	}
+	return fmt.Sprintf("the screen differs from the recording at turn %d of %d", i+1, total)
+}
+
 // awaitScreen waits for the screen to look like a recorded turn's,
-// capturing again until it does or findWithin passes. It returns nil when
-// the screen still differs.
-func (r *run) awaitScreen(ctx context.Context, entry recording, turn recordedTurn, findWithin time.Duration) (*image.RGBA, error) {
+// capturing again until it does or findWithin passes. It returns the view
+// the turn replays in, and false when the screen still differs.
+func (r *run) awaitScreen(ctx context.Context, index int, entry recording, turn recordedTurn, findWithin time.Duration) (view, bool, error) {
 	deadline := time.Now().Add(findWithin)
 	for {
+		// A screen a handler clears may cover the window the turn replays
+		// in; the wait starts over once it is cleared.
+		handled, err := r.handleScreens(ctx, index)
+		if err != nil {
+			return view{}, false, err
+		}
+		if handled {
+			deadline = time.Now().Add(findWithin)
+		}
+		// A window that appears while the turn waits, such as one an
+		// application is still opening, is maximized as it was when the
+		// turn was recorded.
+		if err := r.fit(ctx, index); err != nil {
+			return view{}, false, err
+		}
 		current, err := r.settle(ctx)
 		if err != nil {
-			return nil, err
+			return view{}, false, err
 		}
-		if matches(current, entry, turn) {
-			return current, nil
+		if v, ok := r.turnView(current, entry, turn); ok && matches(current, v, turn) {
+			return v, true, nil
 		}
 		if !time.Now().Before(deadline) {
-			return nil, nil
+			return view{}, false, nil
 		}
 		if err := sleep(ctx, min(exactPollInterval, time.Until(deadline))); err != nil {
-			return nil, err
+			return view{}, false, err
 		}
 	}
 }
 
-// matches reports whether a screen looks like the one a recorded turn was
-// chosen on, overall and where each action lands.
-func matches(current *image.RGBA, entry recording, turn recordedTurn) bool {
-	if current.Bounds().Dx() != entry.Width || current.Bounds().Dy() != entry.Height {
-		return false
+// turnView finds where a recorded turn is compared now: its window, wherever
+// the window is, or the whole display for a turn recorded without one, which
+// needs the display size it was recorded on.
+func (r *run) turnView(current *image.RGBA, entry recording, turn recordedTurn) (view, bool) {
+	if turn.Window == nil {
+		return displayView(current), current.Bounds().Dx() == entry.Width && current.Bounds().Dy() == entry.Height
 	}
-	if desktop.FingerprintOf(current).Distance(turn.Screen) > replayScreenDistance {
+	return r.placedView(current, *turn.Window)
+}
+
+// finalView finds where the screen an act ended on is compared now.
+func (r *run) finalView(final *image.RGBA, entry recording) (view, bool) {
+	if entry.FinalWindow == nil {
+		return displayView(final), true
+	}
+	return r.placedView(final, *entry.FinalWindow)
+}
+
+// placedView finds a recorded window now. A window off the display shows
+// nothing to compare, so it is not found.
+func (r *run) placedView(current *image.RGBA, rec recordedWindow) (view, bool) {
+	rect, ok := r.findWindow(rec)
+	return view{rect: rect, window: &rec}, ok && rect.Overlaps(current.Bounds())
+}
+
+// matches reports whether a screen looks like the one a recorded turn was
+// chosen on, within the turn's view, overall and where each action lands.
+func matches(current *image.RGBA, v view, turn recordedTurn) bool {
+	if v.fingerprint(current).Distance(turn.Screen) > replayScreenDistance {
 		return false
 	}
 	for _, recorded := range turn.Actions {
 		if recorded.Target == nil {
 			continue
 		}
-		at, _ := target(recorded.Action)
-		if desktop.FingerprintAround(current, at, targetRadius(current)).Distance(*recorded.Target) > replayTargetDistance {
+		at, _ := target(v.absolute(recorded.Action))
+		if v.targetPrint(current, at).Distance(*recorded.Target) > replayTargetDistance {
 			return false
 		}
 	}

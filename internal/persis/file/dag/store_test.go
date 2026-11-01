@@ -5,6 +5,8 @@ package dag
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -1067,6 +1069,78 @@ steps:
 	invalidContent := `invalid: yaml: content`
 	err = store.UpdateSpec(ctx, "update-dag", []byte(invalidContent))
 	require.Error(t, err)
+}
+
+// Two saves from the same read of a DAG: one writes, the other gets a
+// conflict and writes nothing.
+func TestUpdateSpecIfMatch(t *testing.T) {
+	tmpDir := fileutil.MustTempDir("test-update-spec-if-match")
+	defer func() {
+		_ = os.RemoveAll(tmpDir)
+	}()
+
+	store := newRepository(tmpDir, WithSkipExamples(true))
+	ctx := context.Background()
+	initial := "name: cas-dag\nsteps:\n  - name: step1\n    run: echo initial\n"
+	require.NoError(t, store.Create(ctx, "cas-dag", []byte(initial)))
+	sum := sha256.Sum256([]byte(initial))
+	base := hex.EncodeToString(sum[:])
+
+	contents := []string{
+		"name: cas-dag\nsteps:\n  - name: step1\n    run: echo first\n",
+		"name: cas-dag\nsteps:\n  - name: step1\n    run: echo second\n",
+	}
+	errs := make([]error, len(contents))
+	var wg sync.WaitGroup
+	for i, content := range contents {
+		wg.Go(func() { errs[i] = store.UpdateSpecIfMatch(ctx, "cas-dag", base, []byte(content)) })
+	}
+	wg.Wait()
+
+	var won []string
+	for i, err := range errs {
+		if err == nil {
+			won = append(won, contents[i])
+			continue
+		}
+		require.ErrorIs(t, err, persis.ErrConflict)
+	}
+	require.Len(t, won, 1)
+	spec, err := store.GetSpec(ctx, "cas-dag")
+	require.NoError(t, err)
+	assert.Equal(t, won[0], spec)
+}
+
+// A plain update waits while a conditional update holds the lock of the file,
+// so it cannot land between the hash check and the write.
+func TestUpdateWaitsForSpecLock(t *testing.T) {
+	store := NewStore(t.TempDir(), WithSkipExamples(true))
+	ctx := context.Background()
+	initial := "name: lock-dag\nsteps:\n  - name: step1\n    run: echo initial\n"
+	require.NoError(t, store.Create(ctx, "lock-dag", []byte(initial)))
+	resolved, err := store.locateDAG(ctx, "lock-dag")
+	require.NoError(t, err)
+
+	unlock, err := store.lockSpec(ctx, "lock-dag", resolved)
+	require.NoError(t, err)
+	next := "name: lock-dag\nsteps:\n  - name: step1\n    run: echo next\n"
+	done := make(chan error, 1)
+	go func() { done <- store.Update(ctx, "lock-dag", []byte(next)) }()
+	select {
+	case err := <-done:
+		unlock()
+		t.Fatalf("Update returned while the lock was held: %v", err)
+	case <-time.After(300 * time.Millisecond):
+	}
+	current, err := os.ReadFile(resolved.ResolvedPath)
+	require.NoError(t, err)
+	assert.Equal(t, initial, string(current))
+
+	unlock()
+	require.NoError(t, <-done)
+	current, err = os.ReadFile(resolved.ResolvedPath)
+	require.NoError(t, err)
+	assert.Equal(t, next, string(current))
 }
 
 func TestDelete(t *testing.T) {

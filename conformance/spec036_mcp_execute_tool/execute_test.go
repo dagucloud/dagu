@@ -225,6 +225,20 @@ func readRun(t *testing.T, session *mcpsdk.ClientSession, name, dagRunID, subRun
 	return data
 }
 
+// pollRun reads a root run's detail model for a poll, reporting a failed
+// read to c so the poll tries again.
+func pollRun(t *testing.T, c *assert.CollectT, session *mcpsdk.ClientSession, name, dagRunID string) (map[string]any, bool) {
+	result, err := session.CallTool(mcptest.Context(t), &mcpsdk.CallToolParams{
+		Name:      "dagu_read",
+		Arguments: map[string]any{"target": "run", "name": name, "dagRunId": dagRunID},
+	})
+	if !assert.NoError(c, err) || !assert.False(c, result.IsError, "dagu_read failed") {
+		return nil, false
+	}
+	run, ok := mcptest.StructuredMap(t, result)["data"].(map[string]any)
+	return run, assert.True(c, ok)
+}
+
 func readStep(t *testing.T, run map[string]any, name string) map[string]any {
 	t.Helper()
 
@@ -337,11 +351,18 @@ func TestExecuteRefusesDecisionFromEarlierAttempt(t *testing.T) {
 
 	var current string
 	require.EventuallyWithT(t, func(c *assert.CollectT) {
-		run := readRun(t, session, dagName, dagRunID, "")
+		// A read can fail while the run's new attempt starts, so a failed
+		// read is polled again rather than failing the test.
+		run, ok := pollRun(t, c, session, dagName, dagRunID)
+		if !ok {
+			return
+		}
 		current, _ = run["attemptId"].(string)
 		assert.NotEqual(c, earlier, current)
 		assert.Equal(c, "waiting", readStep(t, run, "deploy_gate")["statusLabel"])
-	}, mcptest.Timeout, 250*time.Millisecond, "the pushed-back gate never waited again in a new attempt")
+		// The gate waits before the run does, and only a waiting run takes a decision.
+		assert.Equal(c, "waiting", run["statusLabel"])
+	}, mcptest.Timeout, 250*time.Millisecond, "the pushed-back run never waited again in a new attempt")
 
 	result = callExecute(t, session, map[string]any{
 		"action":    "approve",

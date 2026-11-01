@@ -14,6 +14,7 @@ import {
 } from '@/components/MonitoringDialog';
 import { Button } from '@/components/ui/button';
 import { Checkbox } from '@/components/ui/checkbox';
+import { useClock } from '@/hooks/useClock';
 import type { LicenseMonitoring } from '@/hooks/useLicenseMonitoring';
 import { useI18n } from '@/i18n/I18nProvider';
 import dayjs from '@/lib/dayjs';
@@ -23,14 +24,14 @@ import type { useLicenseConnect } from './useLicenseConnect';
 
 function Countdown({ expiresAt }: { expiresAt?: string }) {
   const { ts } = useI18n();
-  const [now, setNow] = useState(Date.now);
-  useEffect(() => {
-    const timer = window.setInterval(() => setNow(Date.now()), 1000);
-    return () => window.clearInterval(timer);
-  }, []);
-  if (!expiresAt || !dayjs(expiresAt).isValid()) return null;
-  const seconds = Math.max(0, dayjs(expiresAt).diff(dayjs(now), 'second'));
-  const time = `${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, '0')}`;
+  const valid = !!expiresAt && dayjs(expiresAt).isValid();
+  // The text is the snapshot of the shared clock: a render when it changes.
+  const time = useClock(valid ? 1000 : null, (now) => {
+    if (!valid) return '';
+    const seconds = Math.max(0, dayjs(expiresAt).diff(dayjs(now), 'second'));
+    return `${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, '0')}`;
+  });
+  if (!valid) return null;
   return (
     <span className="text-xs text-muted-foreground">
       {ts('Expires in {time}', { time })}

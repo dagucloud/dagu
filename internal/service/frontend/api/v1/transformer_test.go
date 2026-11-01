@@ -106,6 +106,61 @@ func TestToDAGRunDetailsIncludesScheduleTime(t *testing.T) {
 	assert.Equal(t, "alice", *details.TriggerActor)
 }
 
+// A run's detail shows each step's model usage and the run's total, its
+// handlers included, with zero counts left out; a run that used no model
+// shows none.
+func TestToDAGRunDetailsIncludesModelUsage(t *testing.T) {
+	step := &ir.StepModelUsage{Models: []ir.ModelUsage{{Provider: "openrouter", Model: "kitewell/included", Calls: 2, InputTokens: 300, OutputTokens: 40, Cost: 0.0012, CostReportedCalls: 2}}}
+	handler := &ir.StepModelUsage{Models: []ir.ModelUsage{{Provider: "openrouter", Model: "kitewell/included", Calls: 1, InputTokens: 100, OutputTokens: 10}}}
+	details := ToDAGRunDetails(ir.DAGRunStatus{
+		Name: "test-dag", DAGRunID: "run-1",
+		Nodes:     []*ir.Node{{Step: ir.Step{Name: "ask"}, ModelUsage: step}, {Step: ir.Step{Name: "copy"}}},
+		OnFailure: &ir.Node{Step: ir.Step{Name: "onFailure"}, ModelUsage: handler},
+	})
+
+	require.NotNil(t, details.Nodes[0].ModelUsage)
+	require.NotNil(t, details.Nodes[0].ModelUsage.Models)
+	node := (*details.Nodes[0].ModelUsage.Models)[0]
+	assert.Equal(t, int64(2), node.Calls)
+	require.NotNil(t, node.Cost)
+	assert.InDelta(t, 0.0012, *node.Cost, 1e-12)
+	assert.Nil(t, node.CachedInputTokens, "zero counts are left out")
+	assert.Nil(t, details.Nodes[1].ModelUsage)
+
+	require.NotNil(t, details.ModelUsage)
+	total := (*details.ModelUsage.Models)[0]
+	assert.Equal(t, int64(3), total.Calls)
+	assert.Equal(t, int64(400), *total.InputTokens)
+	assert.Equal(t, int64(2), *total.CostReportedCalls, "the handler's call reported no cost")
+
+	assert.Nil(t, ToDAGRunDetails(ir.DAGRunStatus{Name: "test-dag", DAGRunID: "run-2"}).ModelUsage, "recorded before the engine recorded usage")
+	none := ToDAGRunDetails(ir.DAGRunStatus{Name: "test-dag", DAGRunID: "run-3", ModelUsageRecorded: true}).ModelUsage
+	require.NotNil(t, none, "a run that used no model says so")
+	assert.Nil(t, none.Models)
+}
+
+// A step's usage counts what the tools it ran reported, and names a tool
+// whose usage could not be read.
+func TestToDAGRunDetailsStepModelUsageSources(t *testing.T) {
+	reported := &ir.StepModelUsage{
+		Models:   []ir.ModelUsage{{Provider: "openai", Model: "gpt-5", Calls: 1, InputTokens: 10}},
+		Reported: []ir.ReportedModelUsage{{Source: "opencode:s1:0", Models: []ir.ModelUsage{{Provider: "openai", Model: "gpt-5", Calls: 4, InputTokens: 40}}}},
+	}
+	details := ToDAGRunDetails(ir.DAGRunStatus{Name: "test-dag", DAGRunID: "run-1", Nodes: []*ir.Node{
+		{Step: ir.Step{Name: "code"}, ModelUsage: reported},
+		{Step: ir.Step{Name: "agent"}, ModelUsage: &ir.StepModelUsage{NotReported: "claude"}},
+	}})
+
+	models := *details.Nodes[0].ModelUsage.Models
+	require.Len(t, models, 1)
+	assert.Equal(t, int64(5), models[0].Calls)
+	assert.Equal(t, int64(50), *models[0].InputTokens)
+
+	require.NotNil(t, details.Nodes[1].ModelUsage)
+	assert.Equal(t, "claude", *details.Nodes[1].ModelUsage.NotReported)
+	assert.Equal(t, int64(5), (*details.ModelUsage.Models)[0].Calls)
+}
+
 func TestToDAGRunDetailsIncludesAttemptID(t *testing.T) {
 	details := ToDAGRunDetails(ir.DAGRunStatus{Name: "test-dag", DAGRunID: "run-1", AttemptID: "attempt-2"})
 	require.NotNil(t, details.AttemptId)

@@ -912,13 +912,17 @@ func TestSendWithRecipientsAddsCcHeaderAndOmitsBccHeader(t *testing.T) {
 	host, port, err := net.SplitHostPort(server.Address())
 	require.NoError(t, err)
 
+	// The blind copy's address has letters that are not hex digits, so the
+	// random hex Message-ID, which ends in the sender's domain, can never
+	// spell it by chance.
+	const hidden = "hidden@example.com"
 	mailer := New(Config{Host: host, Port: port})
 	err = mailer.SendWithRecipients(
 		context.Background(),
 		"from@example.com",
 		[]string{"to@example.com"},
 		[]string{"cc@example.com"},
-		[]string{"bcc@example.com"},
+		[]string{hidden},
 		"Subject",
 		"Body",
 		nil,
@@ -930,11 +934,12 @@ func TestSendWithRecipientsAddsCcHeaderAndOmitsBccHeader(t *testing.T) {
 	payload := payloads[0]
 	require.Contains(t, payload, "To: to@example.com")
 	require.Contains(t, payload, "Cc: cc@example.com")
-	require.NotContains(t, payload, "bcc@example.com")
+	require.NotContains(t, payload, "\r\nBcc:")
+	require.NotContains(t, payload, hidden)
 	assert.ElementsMatch(t, []string{
 		"to@example.com",
 		"cc@example.com",
-		"bcc@example.com",
+		hidden,
 	}, server.RecordedRecipients())
 }
 

@@ -38,6 +38,8 @@ type Record struct {
 	StartedAt  string   `json:"startedAt,omitempty"`
 	FinishedAt string   `json:"finishedAt,omitempty"`
 	Labels     []string `json:"labels,omitempty"`
+	// Ephemeral keeps the run out of listings.
+	Ephemeral bool `json:"ephemeral,omitempty"`
 
 	// Dir is absolute, and points outside the date tree when the DAG relocates
 	// its artifacts with artifacts.dir.
@@ -55,6 +57,7 @@ func RecordFromStatus(status ir.DAGRunStatus) Record {
 		StartedAt:  status.StartedAt,
 		FinishedAt: status.FinishedAt,
 		Labels:     status.Labels,
+		Ephemeral:  status.Ephemeral,
 		Dir:        status.ArchiveDir,
 	}
 }

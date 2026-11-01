@@ -42,6 +42,7 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/queue"
 	"github.com/dagucloud/dagu/v2/internal/remotenode"
 	"github.com/dagucloud/dagu/v2/internal/runtime"
+	"github.com/dagucloud/dagu/v2/internal/samples"
 	"github.com/dagucloud/dagu/v2/internal/schedulerstate"
 	secretpkg "github.com/dagucloud/dagu/v2/internal/secret"
 	authservice "github.com/dagucloud/dagu/v2/internal/service/auth"
@@ -97,6 +98,8 @@ type API struct {
 	defaultExecMode      config.ExecutionMode
 	dagWritesDisabled    bool // True when git sync read-only mode is active
 	baseConfigStore      dagsettings.BaseConfigStore
+	// samplesReader opens a samples store; nil means samples.OpenReader.
+	samplesReader        func(dir string) samples.Reader
 	dagSettingsStore     dagsettings.Store
 	dagPinStore          dagpin.Store
 	wikiStore            wiki.PageStore
@@ -111,6 +114,7 @@ type API struct {
 	apiKeyCreateMu       sync.Mutex
 	workspaceStore       workspace.Store
 	leaseStaleThreshold  time.Duration
+	runSortDAGLimit      int
 	schedulerStateStore  schedulerstate.Store
 	schedulerPauseStore  schedulerstate.PauseStore
 	dagMutationNotifier  func(fileName string)
@@ -498,6 +502,7 @@ func New(
 		metricsRegistry:     mr,
 		defaultExecMode:     cfg.DefaultExecMode,
 		leaseStaleThreshold: dagrun.DefaultStaleLeaseThreshold,
+		runSortDAGLimit:     maxRunSortDAGs,
 	}
 	// A nil service must leave the field nil, not a typed nil.
 	if rs != nil {

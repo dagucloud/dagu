@@ -47,6 +47,27 @@ func SeedNodes(dag *ir.DAG, source *ir.DAGRunStatus, skipped []string) []runtime
 	return nodes
 }
 
+// SeedNodesCarrying is SeedNodes for a run in which only the steps in carry
+// take the outputs of source. The other steps named in skipped are recorded as
+// skipped by retry and carry nothing.
+func SeedNodesCarrying(dag *ir.DAG, source *ir.DAGRunStatus, skipped []string, carry map[string]struct{}) []runtime.NodeData {
+	nodes := SeedNodes(dag, source, skipped)
+	skipSet := make(map[string]struct{}, len(skipped))
+	for _, stepName := range skipped {
+		skipSet[stepName] = struct{}{}
+	}
+	for i := range nodes {
+		name := nodes[i].Step.Name
+		if _, isSkipped := skipSet[name]; !isSkipped {
+			continue
+		}
+		if _, carries := carry[name]; !carries {
+			nodes[i].State = skippedNodeState(nil)
+		}
+	}
+	return nodes
+}
+
 // Reusable reports whether a node's recorded state may stand in for a skipped
 // step of another run: the node succeeded, or it was itself skipped by retry.
 func Reusable(node *ir.Node) bool {
@@ -76,6 +97,7 @@ func skippedNodeState(source *ir.Node) runtime.NodeState {
 	state.RetryCount = source.RetryCount
 	state.DoneCount = source.DoneCount
 	state.Repeated = source.Repeated
+	state.Continuous = source.Continuous
 	state.OutputVariables = cloneSyncMap(source.OutputVariables)
 	state.OutputValue = cloneString(source.OutputValue)
 	state.OutputsValue = cloneString(source.OutputsValue)

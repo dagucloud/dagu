@@ -8,6 +8,10 @@ import { MonitoringNotice } from '@/components/MonitoringNotice';
 import { SchedulerPauseBanner } from '@/components/SchedulerPauseBanner';
 import { UpdateBanner } from '@/components/UpdateBanner';
 import { useConfig } from '@/contexts/ConfigContext';
+import {
+  LayoutChromeProvider,
+  useLayoutChromeState,
+} from '@/contexts/LayoutChromeContext';
 import { cn } from '@/lib/utils';
 import { getResponsiveTitleClass } from '@/lib/text-utils';
 import { Menu, X } from 'lucide-react';
@@ -76,6 +80,22 @@ function getSidebarOverlayColor(foreground: string, alpha: number): string {
 // Constants
 const NAV_SIDEBAR_EXPANDED_WIDTH = 240;
 const NAV_SIDEBAR_COLLAPSED_WIDTH = 56;
+// Below this window width the sidebar starts as its icon rail, so that the
+// content keeps its room. The saved choice applies again at this width.
+export const NAV_SIDEBAR_AUTO_COLLAPSE_BELOW = 900;
+
+function subscribeToResize(onChange: () => void) {
+  window.addEventListener('resize', onChange);
+  return () => window.removeEventListener('resize', onChange);
+}
+
+function useWideWindow(): boolean {
+  return React.useSyncExternalStore(
+    subscribeToResize,
+    () => window.innerWidth >= NAV_SIDEBAR_AUTO_COLLAPSE_BELOW,
+    () => true
+  );
+}
 
 type LayoutProps = {
   navbarColor?: string;
@@ -96,6 +116,18 @@ function Content({ navbarColor, children }: LayoutProps) {
   const config = useConfig();
   const location = useLocation();
   const { t } = useI18n();
+  const {
+    fullBleed,
+    hideBreadcrumb,
+    value: layoutChrome,
+  } = useLayoutChromeState();
+
+  // The workflow page draws its own first row and fills the area. The frame
+  // takes that shape from the address, before the page has loaded, so that a
+  // reload shows no breadcrumb strip and no padding that then go away.
+  const workspaceRoute = /^\/dags\/[^/]+/.test(location.pathname);
+  const bleed = fullBleed || workspaceRoute;
+  const noBreadcrumb = hideBreadcrumb || workspaceRoute;
 
   const hasCustomColor: boolean = Boolean(
     navbarColor && navbarColor.trim() !== ''
@@ -127,6 +159,14 @@ function Content({ navbarColor, children }: LayoutProps) {
     const saved = localStorage.getItem('sidebarExpanded');
     return saved ? saved === 'true' : true;
   });
+  // On a window below the auto-collapse width the choice of the user applies
+  // to this visit only, and the saved choice stays as it was.
+  const wideWindow = useWideWindow();
+  const [isNarrowSidebarExpanded, setIsNarrowSidebarExpanded] =
+    React.useState(false);
+  const sidebarExpanded = wideWindow
+    ? isSidebarExpanded
+    : isNarrowSidebarExpanded;
   // Mobile sidebar state (hidden by default)
   const [isMobileSidebarOpen, setIsMobileSidebarOpen] = React.useState(false);
   const openMenuButtonRef = React.useRef<HTMLButtonElement>(null);
@@ -188,10 +228,14 @@ function Content({ navbarColor, children }: LayoutProps) {
 
   // Toggle sidebar function
   const toggleSidebar = () => {
-    setIsSidebarExpanded(!isSidebarExpanded);
+    if (wideWindow) {
+      setIsSidebarExpanded(!isSidebarExpanded);
+    } else {
+      setIsNarrowSidebarExpanded(!isNarrowSidebarExpanded);
+    }
   };
 
-  const desktopSidebarWidth = isSidebarExpanded
+  const desktopSidebarWidth = sidebarExpanded
     ? NAV_SIDEBAR_EXPANDED_WIDTH
     : NAV_SIDEBAR_COLLAPSED_WIDTH;
   const desktopSidebarStyle = {
@@ -215,7 +259,7 @@ function Content({ navbarColor, children }: LayoutProps) {
         <div className="flex flex-col h-full">
           <div className="flex-1 overflow-y-auto min-h-0 px-2 py-3">
             <MainListItems
-              isOpen={isSidebarExpanded}
+              isOpen={sidebarExpanded}
               onToggle={toggleSidebar}
               customColor={hasCustomColor}
             />
@@ -261,7 +305,7 @@ function Content({ navbarColor, children }: LayoutProps) {
 
         {/* Scrollable Content - More Compact Padding */}
         <main className="flex min-h-0 flex-1 flex-col overflow-hidden">
-          <ContentNavigation pathname={location.pathname} />
+          {!noBreadcrumb && <ContentNavigation pathname={location.pathname} />}
           <UpdateBanner />
           {/* The license page states these itself, with their actions. */}
           {location.pathname !== '/license' && (
@@ -271,8 +315,15 @@ function Content({ navbarColor, children }: LayoutProps) {
             </>
           )}
           <SchedulerPauseBanner />
-          <div className="min-h-0 flex-1 overflow-auto p-4 md:p-6 w-full">
-            {children}
+          <div
+            className={cn(
+              'min-h-0 flex-1 w-full',
+              bleed ? 'overflow-hidden' : 'overflow-auto p-4 md:p-6'
+            )}
+          >
+            <LayoutChromeProvider value={layoutChrome}>
+              {children}
+            </LayoutChromeProvider>
           </div>
         </main>
       </div>

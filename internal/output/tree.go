@@ -325,7 +325,7 @@ func formatInteractionTime(value string) string {
 	if err != nil {
 		return value
 	}
-	return stringutil.FormatTime(t.Local())
+	return stringutil.FormatTimeSeconds(t.Local())
 }
 
 // renderDetails renders one line per detail, splitting multi-line values.

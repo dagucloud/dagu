@@ -63,6 +63,9 @@ const (
 	KindZoom Kind = "zoom"
 	// KindCursorPosition reports the pointer position.
 	KindCursorPosition Kind = "cursor_position"
+	// KindChoose sets the combo box or pop-up ElementID names to the option
+	// Text, through the control itself.
+	KindChoose Kind = "choose"
 )
 
 // Pointer buttons.
@@ -148,6 +151,9 @@ type Observation struct {
 	// Note is an instruction for the model, such as a reminder to report
 	// the task done.
 	Note string
+	// ReportOnly asks the model for its report instead of more actions. A
+	// session that can limit the model's tools offers it only done.
+	ReportOnly bool
 	// Elements are the actionable elements of the front window the model
 	// may target by id, more reliable than aiming at a pixel. Empty when
 	// the desktop exposes no elements.
@@ -160,6 +166,14 @@ type Element struct {
 	ID   string
 	Role string
 	Name string
+	// Value is what the element holds, such as a field's text or the option
+	// a combo box shows, with the values the step types written as their
+	// placeholders.
+	Value string
+	// Hint is the text an empty field shows in place of a value, such as a
+	// grey "0", which the field does not hold. Empty when the field holds a
+	// value or the desktop does not report one.
+	Hint string
 }
 
 // Result reports how one action went.

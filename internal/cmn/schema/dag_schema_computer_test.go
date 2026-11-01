@@ -34,6 +34,8 @@ steps:
       mode: native
       ai: on_miss
       find_within: 5s
+      maximize: false
+      refuse: [保存, Save]
       max_actions: 40
       on_confirmation: allow
       screenshots: each
@@ -46,7 +48,7 @@ steps:
           when: A login form is visible
         - act: {instruction: Open billing, cache: false, max_actions: 10}
           timeout: 2m
-        - act: {instruction: Save it, ai: never, find_within: "0"}
+        - act: {instruction: Save it, ai: never, find_within: "0", maximize: true}
         - act:
             instruction: Submit
             recorded:
@@ -67,8 +69,16 @@ steps:
             instruction: The document number
             ai: every_run
             schema: {type: object, properties: {doc: {type: string}}}
+        - extract:
+            instruction: The invoice lines
+            schema: {type: object, properties: {number: {type: string}, lines: {type: array, items: {type: object, properties: {item: {type: string}}}}}}
+            fields:
+              windows:
+                number: {role: text, id: docNumber, enabled: true}
+                lines: {container: {role: list, name: 明細}, columns: {item: 品目}}
         - wait: 2s
         - screenshot: posted
+        - outline: posted_window
 `
 	resolved := mustResolveDAGSchema(t)
 	require.NoError(t, resolved.Validate(mustParseYAMLDocument(t, source)))
@@ -82,6 +92,8 @@ steps:
 		{"unknown ai on act", "ai: never", "ai: always"},
 		{"unknown confirmation policy", "on_confirmation: allow", "on_confirmation: ask"},
 		{"zero max actions", "max_actions: 40", "max_actions: 0"},
+		{"maximize that is not a boolean", "maximize: false", "maximize: sometimes"},
+		{"refuse with an empty word", "refuse: [保存, Save]", "refuse: [\"\"]"},
 		{"launch without command", "{command: open, args: [-a, TextEdit]}", "{args: [-a, TextEdit]}"},
 		{"two check keys", "{text: Posted, within: 10s}", "{text: Posted, window: App}"},
 		{"statement and text", "{statement: A document number is shown, within: 30s}", "{statement: Shown, text: Posted}"},
@@ -91,6 +103,10 @@ steps:
 		{"element role alone", "{role: text_field, near: {label: 金額, side: right}, nth: 0}", "{role: text_field}"},
 		{"unknown selector key", "{role: button, name: 保存, in: {role: group, name: 支払情報}}", "{role: button, title: 保存}"},
 		{"bad side", "side: right", "side: beside"},
+		{"table field with a selector beside its container", "lines: {container:", "lines: {enabled: false, container:"},
+		{"scalar field with columns", "id: docNumber, enabled: true}", "id: docNumber, columns: {item: 品目}}"},
+		{"outline name that is not an identifier", "outline: posted_window", "outline: posted window"},
+		{"outline name that starts with an underscore", "outline: posted_window", "outline: _posted_window"},
 		{"focus without key", "                - key: enter\n", "                - click: {role: button, name: OK}\n"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {

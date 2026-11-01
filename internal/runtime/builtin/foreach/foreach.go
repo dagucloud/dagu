@@ -27,6 +27,7 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/runtime"
 	"github.com/dagucloud/dagu/v2/internal/runtime/executor"
+	"github.com/dagucloud/dagu/v2/internal/runtime/modelusage"
 )
 
 var (
@@ -242,7 +243,7 @@ func (e *foreachExecutor) expandItems(ctx context.Context) ([]expandedItem, erro
 	for idx, value := range values {
 		key := strconv.Itoa(idx)
 		if cfg.Key != "" {
-			itemCtx, err := contextWithItemScope(ctx, cfg.As, idx, "", value)
+			itemCtx, err := contextWithItemScope(ctx, e.step.Name, cfg.As, idx, "", value)
 			if err != nil {
 				return nil, err
 			}
@@ -350,7 +351,7 @@ dispatch:
 
 func (e *foreachExecutor) runItem(ctx context.Context, item expandedItem) itemResult {
 	logDir := filepath.Join(e.stepDir, strconv.Itoa(item.index))
-	recorder := newItemRecorder(logDir, item)
+	recorder := newItemRecorder(ctx, logDir, item)
 	// An item that fails before its body runs is still recorded, so the
 	// record and the aggregate agree on it.
 	failed := func(err error) itemResult {
@@ -358,7 +359,7 @@ func (e *foreachExecutor) runItem(ctx context.Context, item expandedItem) itemRe
 		return itemResult{Index: item.index, Key: item.key, Status: ir.NodeFailed.String(), Error: err.Error()}
 	}
 
-	itemCtx, err := contextWithItemScope(ctx, e.step.Foreach.As, item.index, item.key, item.value)
+	itemCtx, err := contextWithItemScope(ctx, e.step.Name, e.step.Foreach.As, item.index, item.key, item.value)
 	if err != nil {
 		return failed(err)
 	}
@@ -382,10 +383,22 @@ func (e *foreachExecutor) runItem(ctx context.Context, item expandedItem) itemRe
 	err = runner.Run(itemCtx, plan, progressCh)
 	close(progressCh)
 	<-recorded
+	// The body's steps are not saved with the run, so what they used on
+	// models counts toward the foreach step.
+	modelusage.FromContext(ctx).Add(bodyModelUsage(plan))
 
 	result := e.itemResult(itemCtx, plan, item, err, runner.Status(itemCtx, plan))
 	recorder.finished(ctx, recordedItemStatus(ctx, result), result.Error)
 	return result
+}
+
+// bodyModelUsage sums what an item's body steps used on models.
+func bodyModelUsage(plan *runtime.Plan) []ir.ModelUsage {
+	var total []ir.ModelUsage
+	for _, node := range plan.Nodes() {
+		total = ir.MergeModelUsage(total, node.ModelUsage().Total()...)
+	}
+	return total
 }
 
 // itemResult turns a body run's outcome into the item's aggregate entry.
@@ -470,7 +483,9 @@ func resolveStringValue(ctx context.Context, raw, key string) (string, error) {
 	return value, nil
 }
 
-func contextWithItemScope(ctx context.Context, alias string, index int, key string, item any) (context.Context, error) {
+// contextWithItemScope returns ctx with the scope of the item at index of
+// the foreach step named stepName.
+func contextWithItemScope(ctx context.Context, stepName, alias string, index int, key string, item any) (context.Context, error) {
 	env := runtime.GetEnv(ctx)
 	scope := env.Scope
 	if scope == nil {
@@ -488,6 +503,10 @@ func contextWithItemScope(ctx context.Context, alias string, index int, key stri
 	}
 	env.Scope = scope.WithEntry("foreach", string(data), cmnvalue.EnvSourceStepEnv)
 	env.Foreach = cmnvalue.Values(payload)
+	// An item nested in another extends that item's identity. The quoted
+	// name keeps one step's item apart from another's whose name holds
+	// brackets.
+	env.ForeachItem += fmt.Sprintf("%q[%d]", stepName, index)
 	return runtime.WithEnv(ctx, env), nil
 }
 

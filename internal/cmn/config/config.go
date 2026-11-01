@@ -47,7 +47,7 @@ type Config struct {
 	Notices         []string
 	Warnings        []string
 	// WorkspaceAccessKeys lists the workspace access keys the configuration
-	// sets. Workspaces are removed in v3.0, which makes these keys unknown.
+	// sets. v3.0 reads them as their project equivalents until v3.1.
 	WorkspaceAccessKeys []string
 }
 
@@ -64,6 +64,10 @@ type BrowserConfig struct {
 	// this host, for hosts where the sandbox cannot start. Pages are then
 	// isolated from the host only by the operating system user.
 	NoSandbox bool
+	// MaxOpen is the most browsers open at once on this host, counting
+	// browser steps and browser sessions; a browser past it waits for one
+	// to close. Zero sets no limit.
+	MaxOpen int
 	// ClientCertificates are presented by every browser started on this
 	// host, after the certificates a step names itself.
 	ClientCertificates []BrowserClientCertificate
@@ -74,7 +78,18 @@ type BrowserConfig struct {
 	// operating system for a client certificate. Unset, it is on whenever
 	// the browser presents certificates.
 	GuardClientCertificates *bool
+	// WriteGate is the least strict write gate mode a browser on this host
+	// runs in, one of BrowserWriteGateModes; a step or a session may only
+	// ask for a stricter one. Empty runs no gate.
+	WriteGate string
+	// WritePolicy is the file of the write gate policy browser steps on
+	// this host follow: the sign-in endpoints whose writes are sent.
+	WritePolicy string
 }
+
+// BrowserWriteGateModes are the modes browser.write_gate takes. The write
+// gate defines what each does.
+var BrowserWriteGateModes = []string{"off", "record", "ask", "rehearse"}
 
 // BrowserTrustedCA adds server certificate authorities for specific hosts.
 type BrowserTrustedCA struct {
@@ -852,7 +867,7 @@ func (c *Config) Validate() error {
 func (c *Config) validateOpenCode() error {
 	for _, key := range c.OpenCode.EnvPassthrough {
 		normalized := strings.ToUpper(strings.TrimSpace(key))
-		if normalized == "OPENCODE_SERVER_USERNAME" || normalized == "OPENCODE_SERVER_PASSWORD" || strings.HasPrefix(normalized, "_DAGU_INTERNAL_") {
+		if normalized == "OPENCODE_PASSWORD" || normalized == "OPENCODE_SERVER_USERNAME" || normalized == "OPENCODE_SERVER_PASSWORD" || strings.HasPrefix(normalized, "_DAGU_INTERNAL_") {
 			return fmt.Errorf("opencode.env_passthrough must not include reserved variable %q", key)
 		}
 	}

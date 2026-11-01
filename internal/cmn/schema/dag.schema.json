@@ -784,6 +784,27 @@
       },
       "description": "DAG-level webhook trigger behavior. Use this to forward selected request headers into webhook-triggered runs."
     },
+    "watch": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["path"],
+      "properties": {
+        "path": {
+          "type": "string",
+          "minLength": 1,
+          "description": "The folder watched; a leading ~ is the home directory. Each file that arrives in it starts one run, with the file's path as WATCH_FILE and its name as WATCH_NAME. A file counts as arrived once its size and modification time hold still between two readings, so a file still being copied waits. Files the folder holds when the watch starts are left alone. A file runs again only when it is replaced."
+        },
+        "pattern": {
+          "type": "string",
+          "description": "A glob the file's name must match, such as *.pdf. Files whose names start with . or ~$ and files still being written (.tmp, .part, .crdownload) never match."
+        },
+        "interval": {
+          "type": "string",
+          "description": "How often the folder is read, such as 30s. Defaults to 10s; at least 1s."
+        }
+      },
+      "description": "Start a run for each file that arrives in a folder."
+    },
     "worker_selector": {
       "oneOf": [
         {
@@ -1442,9 +1463,9 @@
         },
         "type": {
           "type": "string",
-          "enum": ["standard", "github_content"],
+          "enum": ["standard", "github_content", "local"],
           "default": "standard",
-          "description": "Aqua registry type. Local registries are not supported for worker-local installation."
+          "description": "Aqua registry type. A local registry points to an absolute path on the worker filesystem."
         },
         "repo_owner": {
           "type": "string",
@@ -1461,7 +1482,7 @@
         },
         "path": {
           "type": "string",
-          "description": "Registry file path inside a github_content registry repository."
+          "description": "Repository-relative file for github_content, or worker-absolute file for local registries. POSIX, Windows drive, and UNC absolute paths are accepted."
         }
       },
       "allOf": [
@@ -1474,6 +1495,23 @@
           },
           "then": {
             "required": ["repo_owner", "repo_name", "ref", "path"]
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "type": { "const": "local" }
+            },
+            "required": ["type"]
+          },
+          "then": {
+            "required": ["path"],
+            "properties": {
+              "path": {
+                "minLength": 1,
+                "pattern": "^\\s*(/|[A-Za-z]:[/\\\\]|\\\\\\\\[^\\\\]+\\\\[^\\\\]+)"
+              }
+            }
           }
         }
       ]
@@ -5332,6 +5370,20 @@
       },
       "description": "Reusable named custom harness definitions. Null entries remove inherited definitions from base config."
     },
+    "harnessProvider": {
+      "anyOf": [
+        {
+          "type": "string",
+          "enum": ["aider", "amp", "claude", "cline", "codex", "copilot", "cursor", "deepseek", "droid", "gemini", "goose", "kilo", "kiro", "opencode", "pi", "qwen"],
+          "description": "Built-in CLI harness provider."
+        },
+        {
+          "type": "string",
+          "description": "Custom harness from the top-level harnesses, or a ${VAR} reference."
+        }
+      ],
+      "description": "Harness provider name: a built-in CLI provider or a custom top-level harnesses entry. Supports ${VAR} interpolation."
+    },
     "harnessProviderConfig": {
       "type": "object",
       "propertyNames": {
@@ -5341,8 +5393,7 @@
       },
       "properties": {
         "provider": {
-          "type": "string",
-          "description": "Harness provider name. Use a built-in CLI provider (aider, amp, claude, cline, codex, copilot, cursor, deepseek, droid, gemini, goose, kilo, kiro, opencode, pi, or qwen) or a custom top-level harnesses entry. Supports ${VAR} interpolation."
+          "$ref": "#/definitions/harnessProvider"
         },
         "model": {
           "type": "string",
@@ -5364,8 +5415,7 @@
       },
       "properties": {
         "provider": {
-          "type": "string",
-          "description": "Harness provider name. Use a built-in CLI provider (aider, amp, claude, cline, codex, copilot, cursor, deepseek, droid, gemini, goose, kilo, kiro, opencode, pi, or qwen) or a custom top-level harnesses entry. Supports ${VAR} interpolation."
+          "$ref": "#/definitions/harnessProvider"
         },
         "fallback": {
           "type": "array",
@@ -6567,6 +6617,11 @@
       ],
       "description": "LLM provider name. Supports value references such as ${params.PROVIDER} resolved when the step runs."
     },
+    "llmProviderOrder": {
+      "type": "array",
+      "items": { "type": "string" },
+      "description": "OpenRouter upstream providers to try first, in order, such as [azure/eu]. A model entry's provider_order replaces the shared one. Only the openrouter provider accepts it."
+    },
     "llmConfig": {
       "type": "object",
       "additionalProperties": false,
@@ -6590,7 +6645,8 @@
                   "max_tokens": { "type": "integer" },
                   "top_p": { "type": "number" },
                   "base_url": { "type": "string" },
-                  "api_key_name": { "type": "string" }
+                  "api_key_name": { "type": "string" },
+                  "provider_order": { "$ref": "#/definitions/llmProviderOrder" }
                 }
               }
             }
@@ -6626,6 +6682,9 @@
           "type": "string",
           "description": "Name of the environment variable containing the API key. If not specified, the default for the provider is used (e.g., OPENAI_API_KEY)."
         },
+        "provider_order": {
+          "$ref": "#/definitions/llmProviderOrder"
+        },
         "stream": {
           "type": "boolean",
           "default": true,
@@ -6656,6 +6715,9 @@
         "web_search": {
           "$ref": "#/definitions/webSearchConfig",
           "description": "Provider-native web search configuration. Supported by Anthropic, Gemini, and OpenRouter."
+        },
+        "files": {
+          "$ref": "#/definitions/modelFiles"
         }
       },
       "description": "LLM configuration. Supports OpenAI, Anthropic, Google Gemini, OpenRouter, and local models (Ollama/vLLM)."
@@ -7672,9 +7734,19 @@
             "$ref": "#/definitions/llmMessage"
           },
           "description": "Explicit chat messages."
+        },
+        "files": {
+          "$ref": "#/definitions/modelFiles"
         }
       },
       "description": "Configuration for action: chat.completion."
+    },
+    "modelFiles": {
+      "oneOf": [
+        { "type": "string", "minLength": 1 },
+        { "type": "array", "minItems": 1, "items": { "type": "string", "minLength": 1 } }
+      ],
+      "description": "Files the model reads with the prompt: paths or glob patterns, one per entry or per line, or a list an earlier step published, such as the emails mail.search found with their attachments saved. PDF, Word (.docx), Excel (.xlsx) and text files are given as text, images as images, and a PDF page without text as an image."
     },
     "browserExtractActionConfig": {
       "type": "object",
@@ -7788,6 +7860,11 @@
           "type": "string",
           "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]*$",
           "description": "Persistent profile name. Cookies and storage are kept across runs; runs sharing a profile wait for each other."
+        },
+        "write_gate": {
+          "type": "string",
+          "enum": ["off", "record", "ask", "rehearse"],
+          "description": "Write gate mode: rehearse blocks the writes the page sends (any request but GET, HEAD, or OPTIONS), except sign-ins the host's browser.write_policy lists, and reports what it would have sent; the step stops at the first blocked write of the work and ends partially succeeded. record sends only the writes an act's approved commit points name, replaying that act's recorded actions, and fails the step with write_blocked on any other. ask does what record does and, before each act or upload that is a commit point, waits for a person to answer once, session, reject, or skip, which ends the step there, sending nothing further. The browser runs in the stricter of this and the host's browser.write_gate, so a step can only tighten it."
         },
         "client_certificates": {
           "type": "array",
@@ -8084,6 +8161,11 @@
           "additionalProperties": { "type": "string" },
           "description": "Values referenced as %name% in act instructions. The model sees only the names; the values are typed for it."
         },
+        "visible": {
+          "type": "array",
+          "items": { "type": "string", "pattern": "^[A-Za-z_][A-Za-z0-9_]*$" },
+          "description": "Names of variables that are not secret whose values the model may see, such as an item to choose from a list. An element it chooses by such a value is recorded by the placeholder."
+        },
         "screenshots": { "$ref": "#/definitions/computerScreenshots" },
         "ai": { "$ref": "#/definitions/computerAI" },
         "cache": {
@@ -8119,6 +8201,48 @@
           "minimum": 1,
           "default": 10000,
           "description": "Most rows an extract reads from a table bound to a grid, table, or list. Defaults to 10000."
+        },
+        "maximize": {
+          "type": "boolean",
+          "default": true,
+          "description": "Maximize the front window before each operation looks at the screen, so the app is operated at one size every run and recordings replay. A dialog, a window of fixed size, and a window already maximized are left as they are. Set false to keep windows at their size."
+        },
+        "refuse": {
+          "type": "array",
+          "items": { "type": "string", "minLength": 1 },
+          "description": "Words the step never presses an element named with, such as Save, to keep a run from pressing the buttons that save or send. It limits presses only, and only where the host reads elements, since a click on what it cannot read goes on: the step still types into fields and sends other keys. A click on such an element, by the model or a replay, is refused, as is Enter while one is in the window in front. A Latin word matches a whole word, ignoring case and character width; any other word matches wherever a name holds it."
+        },
+        "handle": {
+          "type": "array",
+          "description": "Screens that may come up at any point of the step, such as a confirmation an application shows only sometimes. Whenever the step looks at the screen (before it looks for an element, reads a check or a table, compares a replayed screen, or shows the model a screenshot) and before an action without an element, the first handler whose check holds in the front window runs its pinned steps, and the step carries on; a modal drawn over a page, which leaves the elements behind it readable, is cleared before anything reads or presses them. A run that never meets the screen waits nothing for it. One handler runs at most 20 times in a step.",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["when", "recorded"],
+            "properties": {
+              "name": { "type": "string", "minLength": 1, "description": "A name for the screen, shown in the timeline when it is handled." },
+              "when": {
+                "type": "object",
+                "additionalProperties": false,
+                "oneOf": [{ "required": ["text"] }, { "required": ["element"] }, { "required": ["window"] }],
+                "properties": {
+                  "text": { "type": "string", "minLength": 1 },
+                  "element": { "$ref": "#/definitions/computerSelector" },
+                  "window": { "type": "string", "minLength": 1 }
+                },
+                "description": "An exact check without within that finds the screen in the front window: text a visible element shows, an element, or the window title."
+              },
+              "recorded": {
+                "type": "object",
+                "additionalProperties": false,
+                "description": "The pinned steps that clear the screen, keyed by system (windows or macos).",
+                "properties": {
+                  "windows": { "type": "array", "minItems": 1, "items": { "$ref": "#/definitions/computerPinnedStep" } },
+                  "macos": { "type": "array", "minItems": 1, "items": { "$ref": "#/definitions/computerPinnedStep" } }
+                }
+              }
+            }
+          }
         },
         "llm": {
           "$ref": "#/definitions/standardLLMConfig",
@@ -8165,7 +8289,8 @@
             { "required": ["statement"] },
             { "required": ["text"] },
             { "required": ["element"] },
-            { "required": ["window"] }
+            { "required": ["window"] },
+            { "required": ["value"] }
           ],
           "properties": {
             "statement": {
@@ -8187,12 +8312,24 @@
               "minLength": 1,
               "description": "Holds when the title of the window in front contains this text; * matches any run of characters. Read without a model."
             },
+            "value": {
+              "type": "string",
+              "description": "Data the step was given, such as ${params.NAME} or a %name% variable, compared with equals or not_equals. Decided at once, without the screen or a model, so a when on a value runs an operation only for the runs whose data asks for it, such as {value: \"${params.SECOND_CONTACT}\", not_equals: \"\"}. An empty value is allowed. Compared as names are: full- and half-width forms and runs of spaces are the same."
+            },
+            "equals": {
+              "type": "string",
+              "description": "With value: holds when value is this text."
+            },
+            "not_equals": {
+              "type": "string",
+              "description": "With value: holds when value is not this text; \"\" asks whether value is set."
+            },
             "within": {
               "type": "string",
-              "description": "How long to keep looking before deciding, such as 30s. A statement is judged once by default; an exact when reads once, and an exact expect keeps looking until the operation timeout."
+              "description": "How long to keep looking before deciding, such as 30s. A statement is judged once by default; an exact when reads once, and an exact expect keeps looking until the operation timeout. A value takes none."
             }
           },
-          "description": "A statement the model judges, or an exact check that reads the window's elements without a model call, on 64-bit Windows."
+          "description": "A statement the model judges, an exact check that reads the window's elements without a model call (macOS and 64-bit Windows), or a check on the step's data with value and equals or not_equals."
         }
       ]
     },
@@ -8203,15 +8340,26 @@
         { "required": ["click"] },
         { "required": ["double_click"] },
         { "required": ["right_click"] },
+        { "required": ["check"] },
+        { "required": ["uncheck"] },
         { "required": ["type"] },
         { "required": ["key"] },
         { "required": ["scroll"] },
-        { "required": ["wait"] }
+        { "required": ["wait"] },
+        { "required": ["choose"] }
       ],
       "properties": {
         "click": { "$ref": "#/definitions/computerSelector" },
         "double_click": { "$ref": "#/definitions/computerSelector" },
         "right_click": { "$ref": "#/definitions/computerSelector" },
+        "check": {
+          "allOf": [{ "$ref": "#/definitions/computerSelector" }, { "required": ["role"], "properties": { "role": { "enum": ["checkbox"] } } }],
+          "description": "A checkbox to leave checked: clicked only when it is unchecked, then confirmed checked."
+        },
+        "uncheck": {
+          "allOf": [{ "$ref": "#/definitions/computerSelector" }, { "required": ["role"], "properties": { "role": { "enum": ["checkbox"] } } }],
+          "description": "A checkbox to leave unchecked: clicked only when it is checked, then confirmed unchecked."
+        },
         "type": {
           "type": "object",
           "additionalProperties": false,
@@ -8232,15 +8380,28 @@
           }
         },
         "wait": { "type": "string", "minLength": 1, "description": "A time to pause, such as 1s." },
-        "focus": { "$ref": "#/definitions/computerSelector", "description": "With key: the element to focus before pressing the keys." }
+        "focus": { "$ref": "#/definitions/computerSelector", "description": "With key: the element to focus before pressing the keys." },
+        "choose": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["from", "option"],
+          "properties": {
+            "from": { "$ref": "#/definitions/computerSelector", "description": "The combo box or pop-up." },
+            "option": { "type": "string", "minLength": 1, "description": "The option to choose, by its text; %name% placeholders allowed." }
+          },
+          "description": "Set a combo box or pop-up to an option through the control itself: done when it shows the option already, else by opening it and pressing the option, typing the option, or stepping through its list, each checked by what the control then shows."
+        }
       },
       "dependencies": { "focus": ["key"] },
-      "description": "One pinned step of an act: exactly one of click, double_click, right_click (a selector), type (into, text), key (a chord, with an optional focus), scroll (on, dy), or wait."
+      "description": "One pinned step of an act: exactly one of click, double_click, right_click, check, uncheck (a selector), type (into, text), key (a chord, with an optional focus), scroll (on, dy), choose (from, option), or wait."
     },
     "computerPinnedField": {
       "type": "object",
       "additionalProperties": false,
-      "description": "A pinned extract field: a selector for a scalar, or a container and columns for a table.",
+      "description": "A pinned extract field: a selector for a scalar, or a container and columns alone for a table, whose selector keys go inside container.",
+      "if": { "required": ["container"] },
+      "then": { "propertyNames": { "enum": ["container", "columns"] } },
+      "dependencies": { "columns": ["container"] },
       "properties": {
         "role": { "type": "string", "enum": ["button", "text_field", "text", "checkbox", "radio", "combo_box", "list_item", "menu_item", "tab", "link", "cell", "list", "group", "window", "other"] },
         "name": { "type": "string", "minLength": 1 },
@@ -8258,6 +8419,7 @@
           }
         },
         "nth": { "type": "integer", "minimum": 0 },
+        "enabled": { "type": "boolean" },
         "container": { "$ref": "#/definitions/computerSelector" },
         "columns": { "type": "object", "additionalProperties": { "type": "string", "minLength": 1 } }
       }
@@ -8323,9 +8485,13 @@
           "type": "integer",
           "minimum": 0,
           "description": "Which of several equal matches, in reading order, from 0."
+        },
+        "enabled": {
+          "type": "boolean",
+          "description": "Keeps the elements that take input (true) or the ones that do not, such as a grayed-out button (false). As an exact check, {element: {..., enabled: false}} holds while the element is grayed out."
         }
       },
-      "description": "Names an element: role with name, id, or near, narrowed by app, window, in, and nth. More than one match is a miss."
+      "description": "Names an element: role with name, id, or near, narrowed by app, window, in, enabled, and nth. More than one match is a miss."
     },
     "computerOperation": {
       "type": "object",
@@ -8337,6 +8503,7 @@
         { "required": ["expect"] },
         { "required": ["wait"] },
         { "required": ["screenshot"] },
+        { "required": ["outline"] },
         { "required": ["ask"] }
       ],
       "properties": {
@@ -8385,6 +8552,10 @@
                   "$ref": "#/definitions/computerInput",
                   "description": "How a replay of this act reaches the application, in place of with.input."
                 },
+                "maximize": {
+                  "type": "boolean",
+                  "description": "Whether to maximize the front window while this act runs, in place of with.maximize."
+                },
                 "recorded": {
                   "type": "object",
                   "additionalProperties": false,
@@ -8414,6 +8585,10 @@
               "minimum": 1,
               "description": "Most rows this extract reads from a table, in place of with.max_rows."
             },
+            "maximize": {
+              "type": "boolean",
+              "description": "Whether to maximize the front window before this extract reads the screen, in place of with.maximize."
+            },
             "schema": { "$ref": "#/definitions/extractSchema" },
             "fields": {
               "type": "object",
@@ -8440,6 +8615,11 @@
           "type": "string",
           "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]*$",
           "description": "Save a screenshot with this name as a run artifact."
+        },
+        "outline": {
+          "type": "string",
+          "pattern": "^[A-Za-z][A-Za-z0-9_]*$",
+          "description": "Read the front window's elements (role, name, label, value, id, and whether each is disabled) with no model and no screenshot, and publish them as text under this output name."
         },
         "ask": {
           "type": "object",
@@ -8476,7 +8656,7 @@
     },
     "templateRenderActionConfig": {
       "type": "object",
-      "additionalProperties": true,
+      "additionalProperties": false,
       "oneOf": [
         {
           "required": ["template"],
@@ -8497,6 +8677,14 @@
           "type": "string",
           "pattern": "^\\$\\{(?:consts\\.[A-Za-z][A-Za-z0-9_]*|params\\.[A-Za-z][A-Za-z0-9_]*|env\\.[A-Za-z_][A-Za-z0-9_]*|steps\\.[A-Za-z][A-Za-z0-9_]*\\.outputs\\.[A-Za-z_][A-Za-z0-9_]*|foreach\\.[A-Za-z][A-Za-z0-9_]*(?:\\.[A-Za-z][A-Za-z0-9_]*)?|context\\.(?:dag\\.name|run\\.(?:id|status|scheduled_at|root_name|root_id)|attempt\\.(?:id|started_at)|step\\.(?:id|name)|trigger\\.(?:type|actor)|paths\\.(?:log_file|work_dir|artifacts_dir|step_stdout_file|step_stderr_file|step_output_file)|profile\\.(?:name|resolved_at)|pushback\\.(?:iteration|previous_stdout_file)))\\}$",
           "description": "One complete scoped Dagu value reference resolved once to template text at runtime."
+        },
+        "data": {
+          "type": "object",
+          "description": "Template data variables accessible as {{ .key }} in the template."
+        },
+        "output": {
+          "type": "string",
+          "description": "File path to write the rendered output to. If empty, output is written to stdout."
         }
       },
       "description": "Configuration for action: template.render."

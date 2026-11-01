@@ -291,6 +291,12 @@ func withOnInit(step ir.Step) runnerOption {
 	}
 }
 
+func withSkipHandlers() runnerOption {
+	return func(cfg *runtime.Config) {
+		cfg.SkipHandlers = true
+	}
+}
+
 func withOnSuccess(step ir.Step) runnerOption {
 	return func(cfg *runtime.Config) {
 		cfg.OnSuccess = &step

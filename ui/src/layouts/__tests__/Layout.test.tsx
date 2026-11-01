@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 import {
+  act,
   fireEvent,
   render,
   screen,
@@ -12,6 +13,10 @@ import React from 'react';
 import { MemoryRouter } from 'react-router-dom';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { ConfigContext, type Config } from '@/contexts/ConfigContext';
+import {
+  useFullBleed,
+  useHideBreadcrumb,
+} from '@/contexts/LayoutChromeContext';
 import { UserPreferencesProvider } from '@/contexts/UserPreference';
 import { I18nProvider } from '@/i18n/I18nProvider';
 import { dispatchHandledEscape } from '@/test/keyboard';
@@ -28,11 +33,11 @@ vi.mock('@/components/MonitoringNotice', () => ({
 }));
 
 vi.mock('@/components/UpdateBanner', () => ({
-  UpdateBanner: () => null,
+  UpdateBanner: () => <div data-testid="update-banner" />,
 }));
 
 vi.mock('@/components/SchedulerPauseBanner', () => ({
-  SchedulerPauseBanner: () => null,
+  SchedulerPauseBanner: () => <div data-testid="scheduler-pause-banner" />,
 }));
 
 vi.mock('../../menu', () => ({
@@ -44,15 +49,27 @@ const config = {
   navbarColor: '',
 } as Config;
 
-function renderLayout(path: string, configOverride?: Partial<Config>) {
+function FullBleedPage({ on }: { on: boolean }) {
+  useFullBleed(on);
+  return <div>Page Content</div>;
+}
+
+function HideBreadcrumbPage({ on }: { on: boolean }) {
+  useHideBreadcrumb(on);
+  return <div>Page Content</div>;
+}
+
+function renderLayout(
+  path: string,
+  configOverride?: Partial<Config>,
+  page: React.ReactElement = <div>Page Content</div>
+) {
   return render(
     <UserPreferencesProvider>
       <I18nProvider>
         <MemoryRouter initialEntries={[path]}>
           <ConfigContext.Provider value={{ ...config, ...configOverride }}>
-            <Layout>
-              <div>Page Content</div>
-            </Layout>
+            <Layout>{page}</Layout>
           </ConfigContext.Provider>
         </MemoryRouter>
       </I18nProvider>
@@ -72,9 +89,7 @@ describe('Layout', () => {
   });
 
   it('renders content home navigation and breadcrumbs for detail pages', () => {
-    renderLayout(
-      '/dag-runs/briefing_gmail_fetch_test/019df6cf-0127-7340-bd96-d51bc1453045'
-    );
+    renderLayout('/queues/briefing_gmail_fetch_test');
 
     expect(screen.getByRole('link', { name: 'Content home' })).toHaveAttribute(
       'href',
@@ -91,18 +106,10 @@ describe('Layout', () => {
       within(breadcrumbs).getByRole('link', {
         name: 'briefing_gmail_fetch_test',
       })
-    ).toHaveAttribute('href', '/dag-runs?name=briefing_gmail_fetch_test');
+    ).toHaveAttribute('href', '/queues/briefing_gmail_fetch_test');
     expect(
       within(breadcrumbs).getByRole('link', {
-        name: '019df6cf-0127-7340-bd96-d51bc1453045',
-      })
-    ).toHaveAttribute(
-      'href',
-      '/dag-runs/briefing_gmail_fetch_test/019df6cf-0127-7340-bd96-d51bc1453045'
-    );
-    expect(
-      within(breadcrumbs).getByRole('link', {
-        name: '019df6cf-0127-7340-bd96-d51bc1453045',
+        name: 'briefing_gmail_fetch_test',
       })
     ).toHaveAttribute('aria-current', 'page');
     expect(within(breadcrumbs).getAllByRole('link')).toHaveLength(4);
@@ -173,7 +180,7 @@ describe('Layout', () => {
       'user_preferences',
       JSON.stringify({ locale: 'zh-CN' })
     );
-    renderLayout('/dag-runs/example/run-1');
+    renderLayout('/queues/example');
 
     const breadcrumbs = screen.getByRole('navigation', { name: '面包屑' });
     expect(
@@ -182,6 +189,35 @@ describe('Layout', () => {
     expect(
       within(breadcrumbs).getByRole('link', { name: '执行记录' })
     ).toBeVisible();
+  });
+
+  // Below 900px the icon rail leaves the content its room; the saved choice
+  // (expanded) is kept for wider windows.
+  it('starts the sidebar as its icon rail on a window under 900px', () => {
+    window.innerWidth = 800;
+    const { unmount } = renderLayout('/dags/example');
+    expect(screen.getByTestId('app-sidebar').style.width).toBe('56px');
+    expect(localStorage.getItem('sidebarExpanded')).toBe('true');
+    unmount();
+
+    window.innerWidth = 900;
+    renderLayout('/dags/example');
+    expect(screen.getByTestId('app-sidebar').style.width).toBe('240px');
+  });
+
+  it('follows a resize across the 900px width', () => {
+    renderLayout('/dags/example');
+    expect(screen.getByTestId('app-sidebar').style.width).toBe('240px');
+    act(() => {
+      window.innerWidth = 700;
+      window.dispatchEvent(new Event('resize'));
+    });
+    expect(screen.getByTestId('app-sidebar').style.width).toBe('56px');
+    act(() => {
+      window.innerWidth = 1200;
+      window.dispatchEvent(new Event('resize'));
+    });
+    expect(screen.getByTestId('app-sidebar').style.width).toBe('240px');
   });
 
   // Custom navbar colors drive every sidebar text token, so labels stay
@@ -206,6 +242,89 @@ describe('Layout', () => {
     expect(sidebar.style.getPropertyValue('--sidebar-accent-foreground')).toBe(
       '#fff'
     );
+  });
+
+  // parity:shell-layout-breadcrumb
+  // A full-bleed page (the workflow workspace) owns its scroll and padding;
+  // the breadcrumb and the banners stay above it.
+  it('removes content padding and scroll only for a full-bleed page', () => {
+    const contentArea = () => screen.getByText('Page Content').parentElement;
+    const scrolling = ['overflow-auto', 'p-4', 'md:p-6'];
+
+    const { unmount } = renderLayout(
+      '/queues/example',
+      undefined,
+      <FullBleedPage on={false} />
+    );
+    expect(contentArea()).toHaveClass(...scrolling, 'min-h-0', 'flex-1');
+    expect(contentArea()).not.toHaveClass('overflow-hidden');
+    unmount();
+
+    renderLayout('/queues/example', undefined, <FullBleedPage on />);
+
+    expect(contentArea()).toHaveClass('overflow-hidden', 'min-h-0', 'flex-1');
+    for (const name of scrolling) {
+      expect(contentArea()).not.toHaveClass(name);
+    }
+    expect(screen.getByRole('link', { name: 'Content home' })).toBeVisible();
+    expect(
+      screen.getByRole('navigation', { name: 'breadcrumb' })
+    ).toBeInTheDocument();
+    expect(screen.getByTestId('update-banner')).toBeInTheDocument();
+    expect(screen.getByTestId('license-banner')).toBeInTheDocument();
+    expect(screen.getByTestId('scheduler-pause-banner')).toBeInTheDocument();
+  });
+
+  // The workflow workspace draws its own first row: the page asks the layout
+  // to drop the strip. The other pages keep it, and so do the banners.
+  it('hides the breadcrumb strip only while a page asks for it', () => {
+    const { unmount } = renderLayout(
+      '/queues/example',
+      undefined,
+      <HideBreadcrumbPage on={false} />
+    );
+    expect(
+      screen.getByRole('navigation', { name: 'breadcrumb' })
+    ).toBeInTheDocument();
+    unmount();
+
+    renderLayout('/queues/example', undefined, <HideBreadcrumbPage on />);
+
+    expect(
+      screen.queryByRole('navigation', { name: 'breadcrumb' })
+    ).not.toBeInTheDocument();
+    expect(
+      screen.queryByRole('link', { name: 'Content home' })
+    ).not.toBeInTheDocument();
+    expect(screen.getByTestId('update-banner')).toBeInTheDocument();
+    expect(screen.getByTestId('license-banner')).toBeInTheDocument();
+    expect(screen.getByTestId('scheduler-pause-banner')).toBeInTheDocument();
+  });
+
+  // The workflow page owns its first row and its area: the frame takes that
+  // shape from the address, with no claim, so that a reload shows no strip and
+  // no padding that go away once the page has loaded.
+  it('gives a workflow page its frame from the first render', () => {
+    renderLayout('/dags/example', undefined, <FullBleedPage on={false} />);
+    const contentArea = screen.getByText('Page Content').parentElement;
+    expect(contentArea).toHaveClass('overflow-hidden', 'min-h-0', 'flex-1');
+    expect(contentArea).not.toHaveClass('p-4');
+    expect(
+      screen.queryByRole('navigation', { name: 'breadcrumb' })
+    ).not.toBeInTheDocument();
+    expect(screen.getByTestId('update-banner')).toBeInTheDocument();
+  });
+
+  it('keeps the strip on the other pages and on the workflow list', () => {
+    const { unmount } = renderLayout('/dags');
+    expect(
+      screen.getByRole('navigation', { name: 'breadcrumb' })
+    ).toBeInTheDocument();
+    unmount();
+    renderLayout('/queues/example');
+    expect(
+      screen.getByRole('navigation', { name: 'breadcrumb' })
+    ).toBeInTheDocument();
   });
 
   it('leaves license and monitoring notices to the license page', () => {

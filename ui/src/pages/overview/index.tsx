@@ -5,6 +5,7 @@ import { Tab, Tabs } from '@/components/ui/tabs';
 import { useCanWrite, useCanWriteForWorkspace } from '@/contexts/AuthContext';
 import { ViewEditorDialog } from '@/features/views/ViewEditorDialog';
 import { ViewPanel } from '@/features/views/ViewPanel';
+import { PeekHost } from '@/features/peek/PeekHost';
 import { View, useViews } from '@/hooks/useViews';
 import { Activity, Gauge, LayoutGrid, Pencil, Plus } from 'lucide-react';
 import React from 'react';
@@ -216,7 +217,7 @@ export default function OverviewPage({
         aria-labelledby={tabElementId(activeTab)}
         className="min-h-0 flex-1 overflow-hidden"
       >
-        {panel}
+        <PeekHost>{panel}</PeekHost>
       </div>
 
       <ViewEditorDialog

@@ -1,7 +1,7 @@
 // Copyright (C) 2026 Yota Hamada
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-import { fireEvent, render } from '@testing-library/react';
+import { fireEvent, render, screen } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
 import { components } from '@/api/v1/schema';
 import { dispatchHandledEscape } from '@/test/keyboard';
@@ -31,5 +31,24 @@ describe('StepDetailsDrawer', () => {
 
     fireEvent.keyDown(window, { key: 'Escape' });
     expect(onClose).toHaveBeenCalledTimes(1);
+  });
+
+  // The drawer focuses itself on open. Shift+Tab from there goes to its last
+  // control, not to the page behind it.
+  it('keeps Shift+Tab from the drawer itself inside the drawer', () => {
+    render(
+      <StepDetailsDrawer
+        isOpen
+        onClose={vi.fn()}
+        step={{ name: 'build' } as Step}
+      />
+    );
+    const dialog = screen.getByRole('dialog');
+    dialog.focus();
+
+    fireEvent.keyDown(dialog, { key: 'Tab', shiftKey: true });
+
+    expect(document.activeElement).not.toBe(dialog);
+    expect(dialog).toContainElement(document.activeElement as HTMLElement);
   });
 });

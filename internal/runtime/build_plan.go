@@ -123,10 +123,11 @@ func validateBuildRuntimeRedirectAliases(ctx context.Context, plan *Plan, node *
 		return nil
 	}
 	step := node.Step()
-	if !cmnvalue.HasValueReference(step.Stdout) &&
-		!cmnvalue.HasValueReference(step.Stderr) &&
-		!cmnvalue.HasValueReference(step.StdoutArtifact) &&
-		!cmnvalue.HasValueReference(step.StderrArtifact) {
+	field := cmnvalue.StepArtifactOutputField("")
+	if !field.HasValueReference(step.Stdout) &&
+		!field.HasValueReference(step.Stderr) &&
+		!field.HasValueReference(step.StdoutArtifact) &&
+		!field.HasValueReference(step.StderrArtifact) {
 		return nil
 	}
 
@@ -185,11 +186,12 @@ func validateBuildRedirectAliases(
 		if redirect.path == "" {
 			continue
 		}
-		resolved, err := resolver.String(ctx, redirect.path, cmnvalue.StepArtifactOutputField(redirect.field))
+		field := cmnvalue.StepArtifactOutputField(redirect.field)
+		resolved, err := resolver.String(ctx, redirect.path, field)
 		if err != nil {
 			return err
 		}
-		if cmnvalue.HasValueReference(resolved) {
+		if field.HasValueReference(resolved) {
 			if deferUnresolved {
 				continue
 			}

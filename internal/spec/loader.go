@@ -440,8 +440,13 @@ func assembleLoadedDAGs(dags []*ir.DAG, emptyErr error) (*ir.DAG, error) {
 	if err := attachLocalDAGs(mainDAG, dags[1:]); err != nil {
 		return nil, err
 	}
+	// Warnings about the shared base config are identical in every document.
 	for _, localDAG := range dags[1:] {
-		mainDAG.BuildWarnings = append(mainDAG.BuildWarnings, localDAG.BuildWarnings...)
+		for _, warning := range localDAG.BuildWarnings {
+			if !slices.Contains(mainDAG.BuildWarnings, warning) {
+				mainDAG.BuildWarnings = append(mainDAG.BuildWarnings, warning)
+			}
+		}
 	}
 
 	return mainDAG, nil

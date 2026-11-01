@@ -13,6 +13,7 @@ import (
 	"path/filepath"
 	"slices"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/dagucloud/dagu/v2/internal/cmn/replaycache"
@@ -167,15 +168,21 @@ device of that system with no model and no recording of its own.
 
 An act with an action that has no pinned form, such as a drag or a click
 where no element could be read, cannot be pinned; each such action is
-listed with the reason instead.
+listed with the reason instead. An act whose actions never used a variable
+its task names, as one recorded where a field already showed the value, says
+so in a comment above its steps: pinned, they leave that field as each run
+finds it. An act recorded by an older version, which did not note them, says
+to check its steps instead.
 
 Identify the DAG by name or by YAML file path. Without --step, every step
 of the DAG is shown. A task whose instruction changed, or that ran with
 other parameters, has a recording for each; the newest comes first.
 
 With --format json, the result is one JSON object holding operations, each
-with step, op, kind, system, saved_at, and either recorded, fields, or
-unpinnable, whose items carry turn, action, code, and reason.
+with step, op, kind, system, saved_at, assumes, which names those
+variables, assumes_unknown, set for an act recorded before recordings noted
+them, and either recorded, fields, or unpinnable, whose items carry turn,
+action, code, and reason.
 
 Examples:
   dagu computer cache show invoices                        # Every step
@@ -315,11 +322,28 @@ func printPinnedOperations(out io.Writer, dagName, step string, ops []computerCa
 		if data, err = yaml.JSONToYAML(data); err != nil {
 			return err
 		}
-		if _, err := fmt.Fprintf(out, "%s:\n%s", header, data); err != nil {
+		if _, err := fmt.Fprintf(out, "%s:\n%s%s", header, assumesNote(op.PinnedOperation), data); err != nil {
 			return err
 		}
 	}
 	return nil
+}
+
+// assumesNote is a YAML comment naming the variables an act's recording
+// never used, which its pinned steps leave as each run finds them, or saying
+// the recording is too old to tell; "" when there are none.
+func assumesNote(op computer.PinnedOperation) string {
+	if op.AssumesUnknown {
+		return "# Recorded before recordings noted the variables they never use; check that the steps use each variable the task names.\n"
+	}
+	if len(op.Assumes) == 0 {
+		return ""
+	}
+	placeholders := make([]string, len(op.Assumes))
+	for i, name := range op.Assumes {
+		placeholders[i] = "%" + name + "%"
+	}
+	return fmt.Sprintf("# The steps never use %s, which the task names; pinned, they leave each as a run finds it, whatever its value.\n", strings.Join(placeholders, ", "))
 }
 
 func computerReplayCache(ctx *Context) *replaycache.Store {

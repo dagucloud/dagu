@@ -6,17 +6,27 @@
  *
  * @module features/dags/components/dag-editor
  */
-import {
-  KILN_DARK,
-  KILN_LIGHT,
-  registerKilnThemes,
-} from '@/lib/monaco-theme';
+import { KILN_DARK, KILN_LIGHT, registerKilnThemes } from '@/lib/monaco-theme';
 import type { JSONSchema } from '@/lib/schema-utils';
 import { cn } from '@/lib/utils';
 import MonacoEditor, { loader } from '@monaco-editor/react';
 import * as monaco from 'monaco-editor';
-import { configureMonacoYaml } from 'monaco-yaml';
-import { useEffect, useId, useRef, useState } from 'react';
+import { monacoYaml } from '@/lib/monaco-yaml';
+import { registerReferenceCompletion } from '@/features/visual-editor/references/monacoCompletion';
+import type { ReferenceEditorState } from '@/features/visual-editor/references/editorState';
+import { useEffect, useId, useMemo, useRef, useState } from 'react';
+import { buildEditorOptions } from './editorOptions';
+import { ISSUE_MARKER_OWNER } from './issueMarkers';
+import {
+  registerQuickFixSource,
+  type QuickFixSource,
+} from './quickFixProvider';
+import { useChangeBars, type ChangeBarEditor } from './useChangeBars';
+import {
+  registerStepLenses,
+  type StepLensRegistration,
+  type StepLensSource,
+} from './stepLenses';
 import {
   buildSchemaRegistration,
   removeSchemaRegistration,
@@ -31,16 +41,6 @@ declare function getConfig(): { basePath: string };
 const schemaUrl = `${getConfig().basePath}/assets/dag.schema.json`;
 
 const schemaRegistrations = new Map<string, StoredSchemaRegistration>();
-
-// Configure YAML language service once at module load time.
-const monacoYaml = configureMonacoYaml(monaco, {
-  enableSchemaRequest: true,
-  hover: true,
-  completion: true,
-  validate: true,
-  format: true,
-  schemas: [],
-});
 
 loader.config({ monaco });
 
@@ -85,6 +85,28 @@ type Props = {
   schema?: JSONSchema | null;
   /** Server-side validation markers rendered under the 'dagu-server' owner */
   markers?: monaco.editor.IMarkerData[];
+  /**
+   * The issues behind the markers. With it, the editor offers their quick
+   * fixes as code actions: hover, lightbulb and Ctrl+.
+   */
+  quickFixSource?: QuickFixSource;
+  /** Receives the editor after it mounts, and null when it unmounts. */
+  onEditorMount?: (editor: monaco.editor.IStandaloneCodeEditor | null) => void;
+  /**
+   * Scope of the value references, read at each completion. When set, the
+   * editor completes and explains `${...}` references.
+   */
+  referenceState?: () => ReferenceEditorState;
+  /**
+   * The saved text. With it, a bar in the margin marks each line that
+   * differs from it: added, modified, and where lines are gone.
+   */
+  changeBaseline?: string;
+  /**
+   * The lenses above the steps of the whole file: each opens its step in
+   * the full-screen step view.
+   */
+  stepLenses?: StepLensSource;
 };
 
 /**
@@ -101,25 +123,71 @@ function DAGEditor({
   modelUri,
   schema,
   markers,
+  quickFixSource,
+  onEditorMount,
+  referenceState,
+  changeBaseline,
+  stepLenses,
 }: Omit<Props, 'highlightLine'>) {
   const editorRef = useRef<monaco.editor.IStandaloneCodeEditor | null>(null);
+  const onEditorMountRef = useRef(onEditorMount);
+  onEditorMountRef.current = onEditorMount;
   const activeSchemaRegistrationRef = useRef<SchemaRegistrationOwner | null>(
     null
   );
   const effectiveModelUri = modelUri ?? 'inmemory://dagu/editor/default.yaml';
   const schemaRegistrationOwnerId = useId();
-  const nextSchemaRegistration = buildSchemaRegistration(
-    schemaRegistrationOwnerId,
-    effectiveModelUri,
-    schema,
-    schemaUrl
+  // The fingerprint serialises the whole schema: build it when an input
+  // changes, not at each render.
+  const nextSchemaRegistration = useMemo(
+    () =>
+      buildSchemaRegistration(
+        schemaRegistrationOwnerId,
+        effectiveModelUri,
+        schema,
+        schemaUrl
+      ),
+    [schemaRegistrationOwnerId, effectiveModelUri, schema]
   );
   const nextSchemaRegistrationRef = useRef(nextSchemaRegistration);
   nextSchemaRegistrationRef.current = nextSchemaRegistration;
 
+  // Reference completion is global to YAML models, so only an editor that
+  // gives a scope registers it, once for its lifetime.
+  const referenceStateRef = useRef(referenceState);
+  referenceStateRef.current = referenceState;
+  const wantsReferences = referenceState !== undefined;
+  useEffect(() => {
+    if (!wantsReferences) {
+      return;
+    }
+    const registration = registerReferenceCompletion(
+      monaco,
+      () => referenceStateRef.current?.() ?? {}
+    );
+    return () => registration.dispose();
+  }, [wantsReferences]);
+
+  // The code actions of the quick fixes go to this editor's model only, and
+  // go away with it.
+  const quickFixSourceRef = useRef(quickFixSource);
+  quickFixSourceRef.current = quickFixSource;
+  const wantsQuickFixes = quickFixSource !== undefined;
+  useEffect(() => {
+    if (!wantsQuickFixes) {
+      return;
+    }
+    const registration = registerQuickFixSource(monaco, effectiveModelUri, {
+      getPlan: () => quickFixSourceRef.current?.getPlan() ?? null,
+      onApplied: (text) => quickFixSourceRef.current?.onApplied?.(text),
+    });
+    return () => registration.dispose();
+  }, [wantsQuickFixes, effectiveModelUri]);
+
   // Clean up editor on unmount
   useEffect(() => {
     return () => {
+      onEditorMountRef.current?.(null);
       editorRef.current?.dispose();
     };
   }, []);
@@ -181,6 +249,39 @@ function DAGEditor({
   // owner so monaco-yaml's own schema diagnostics are untouched. The model
   // exists only after the editor mounts.
   const [isEditorMounted, setIsEditorMounted] = useState(false);
+  useChangeBars(
+    isEditorMounted ? (editorRef.current as ChangeBarEditor | null) : null,
+    changeBaseline,
+    value
+  );
+  // The lenses of the steps stand in the editor that gets them, and follow
+  // the steps and the label.
+  const stepLensesRef = useRef(stepLenses);
+  stepLensesRef.current = stepLenses;
+  const wantsStepLenses = stepLenses !== undefined;
+  const stepLensRegistration = useRef<StepLensRegistration | null>(null);
+  useEffect(() => {
+    const codeEditor = editorRef.current;
+    if (!isEditorMounted || !wantsStepLenses || !codeEditor) {
+      return;
+    }
+    const registration = registerStepLenses(
+      monaco,
+      codeEditor,
+      () => stepLensesRef.current ?? null
+    );
+    stepLensRegistration.current = registration;
+    return () => {
+      stepLensRegistration.current = null;
+      registration.dispose();
+    };
+  }, [isEditorMounted, wantsStepLenses]);
+  const lensKey = stepLenses
+    ? `${stepLenses.label}\n${stepLenses.steps.map((step) => `${step.line}:${step.name}`).join('\n')}`
+    : '';
+  useEffect(() => {
+    stepLensRegistration.current?.refresh();
+  }, [lensKey]);
   useEffect(() => {
     if (!isEditorMounted) {
       return;
@@ -189,10 +290,10 @@ function DAGEditor({
     if (!model) {
       return;
     }
-    monaco.editor.setModelMarkers(model, 'dagu-server', markers ?? []);
+    monaco.editor.setModelMarkers(model, ISSUE_MARKER_OWNER, markers ?? []);
     return () => {
       if (!model.isDisposed()) {
-        monaco.editor.setModelMarkers(model, 'dagu-server', []);
+        monaco.editor.setModelMarkers(model, ISSUE_MARKER_OWNER, []);
       }
     };
   }, [markers, effectiveModelUri, isEditorMounted]);
@@ -229,6 +330,7 @@ function DAGEditor({
   const editorDidMount = (editor: monaco.editor.IStandaloneCodeEditor) => {
     editorRef.current = editor;
     setIsEditorMounted(true);
+    onEditorMountRef.current?.(editor);
 
     if (!readOnly) {
       editor.addAction({
@@ -278,6 +380,13 @@ function DAGEditor({
     }
   };
 
+  // One options object per setting: the editor applies the options again when
+  // the object changes, and would reset the line numbers that the step view sets.
+  const options = useMemo(
+    () => buildEditorOptions({ readOnly, lineNumbers }),
+    [readOnly, lineNumbers]
+  );
+
   // Detect dark mode
   const isDarkMode =
     typeof window !== 'undefined' &&
@@ -293,28 +402,7 @@ function DAGEditor({
         value={value}
         onChange={readOnly ? undefined : onChange}
         onMount={editorDidMount}
-        options={{
-          readOnly: readOnly,
-          // automaticLayout: true,
-          minimap: { enabled: false },
-          scrollBeyondLastLine: false,
-          quickSuggestions: readOnly
-            ? false
-            : { other: true, comments: false, strings: true },
-          suggestOnTriggerCharacters: !readOnly,
-          formatOnType: false,
-          formatOnPaste: !readOnly,
-          renderValidationDecorations: readOnly ? 'off' : 'on',
-          lineNumbers: lineNumbers ? 'on' : 'off',
-          glyphMargin: true,
-          fontFamily:
-            "'JetBrains Mono', 'Fira Code', Menlo, Monaco, 'Courier New', monospace",
-          fontSize: 13,
-          padding: {
-            top: 8,
-            bottom: 8,
-          },
-        }}
+        options={options}
       />
     </div>
   );

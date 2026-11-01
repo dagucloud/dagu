@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/dagucloud/dagu/v2/internal/browserhost/certproxy"
+	"github.com/dagucloud/dagu/v2/internal/browserhost/writegate"
 )
 
 // errPageSessionLost reports an operation whose connection to the page went
@@ -32,19 +33,28 @@ type launcher interface {
 
 // engine drives one browser session.
 type engine interface {
+	// Goto loads url in the page and returns once the page settled on the
+	// document it brought, the browser's error page included. A load that
+	// brings no new document, such as a download, an answer with no
+	// content, or a move to a fragment, returns at once.
 	Goto(ctx context.Context, url string, timeout time.Duration) error
-	// Act performs one action described in natural language. Its error wraps
+	// Act performs one action described in natural language. A message
+	// naming a variable leaves out its value when secret reports the
+	// variable, and always when secret is nil. Its error wraps
 	// errPageSessionLost when the connection to the page went away before
 	// the act reported back, and errPageContextLost when its script context
-	// did; the act may or may not have taken effect.
-	Act(ctx context.Context, instruction string, variables map[string]string, timeout time.Duration) (actOutcome, error)
+	// did; the act may or may not have taken effect. An act whose page
+	// closed before it reported back, as a window its button closes does,
+	// succeeds, and later operations work on the page in front.
+	Act(ctx context.Context, instruction string, variables map[string]string, secret func(name string) bool, timeout time.Duration) (actOutcome, error)
 	// Replay performs one recorded action without a model call and reports
 	// whether it succeeded. An action whose element is not visible, or is
 	// no longer the element it recorded, is not performed and does not
 	// succeed. Its error wraps errPageSessionLost when
 	// the connection to the page went away before the action reported back,
 	// and errPageContextLost when its script context did; the action may or
-	// may not have taken effect.
+	// may not have taken effect. An action whose page closed before it
+	// reported back succeeds, as Act's does.
 	Replay(ctx context.Context, action recordedAction, variables map[string]string, timeout time.Duration) (bool, error)
 	// DocumentID identifies the document the active page shows. It changes
 	// whenever the page loads a new document.
@@ -55,18 +65,31 @@ type engine interface {
 	Observe(ctx context.Context, instruction string, timeout time.Duration) ([]recordedAction, error)
 	// Upload gives files to a file input and reports how they reached it,
 	// as uploadDirect, uploadPicker, or uploadNearby. With an empty
-	// selector, the page's only file input gets them. Otherwise the element
-	// at selector gets them when it is a file input or holds exactly one;
-	// else a click on it opens a file picker that gets them; else the one
-	// file input nearest it does.
+	// selector, the only file input of the page and the frames of its
+	// origin it shows gets them. Otherwise the element at selector gets them when it is a
+	// file input or holds exactly one; else a click on it opens a file
+	// picker that gets them; else the one file input nearest it does.
 	Upload(ctx context.Context, selector string, files []uploadFile, timeout time.Duration) (string, error)
+	// WaitForSelector waits up to timeout for selector to match a visible
+	// element: a CSS selector as SelectorVisible matches it, and a selector
+	// that hops into frames with >>, or an XPath, as written.
 	WaitForSelector(ctx context.Context, selector string, timeout time.Duration) error
 	Screenshot(ctx context.Context) ([]byte, error)
+	// Opener returns the title of the page that opened the window
+	// operations work on, while that page is still open. found is false
+	// when operations work on a page no open page opened.
+	Opener(ctx context.Context) (title string, found bool, err error)
+	// OpenerScreenshot captures the page Opener names.
+	OpenerScreenshot(ctx context.Context) ([]byte, error)
 	CurrentURL(ctx context.Context) (string, error)
-	// PageText returns the visible text of the page.
+	// PageText returns the visible text of the page and the frames of its
+	// origin it shows. Its error wraps errPageContextLost when new documents
+	// kept replacing the script context it read in.
 	PageText(ctx context.Context) (string, error)
 	// SelectorVisible reports whether a CSS selector matches a visible
-	// element.
+	// element of the page or the frames of its origin it shows, inside open
+	// shadow roots too. Its error wraps errPageContextLost as PageText's
+	// does.
 	SelectorVisible(ctx context.Context, selector string) (bool, error)
 	// Snapshot returns the active page's accessibility tree, the one an act
 	// shows the model, without a model call.
@@ -98,6 +121,15 @@ type engine interface {
 	// server certificate of host on a route it still carries; false without
 	// a proxy.
 	CertificateVerified(ctx context.Context, host string) (bool, error)
+	// Writes returns what the write gate decided after the event numbered
+	// after, or nothing without a gate. Its error reports that the gate no
+	// longer answers, so the browser's writes go undecided.
+	Writes(ctx context.Context, after int64) ([]writegate.Event, error)
+	// BeginWrites tells the write gate which writes the operation starting
+	// may send, for at most lease; EndWrites that it ended. Without a gate
+	// they do nothing.
+	BeginWrites(ctx context.Context, signatures []string, lease time.Duration) error
+	EndWrites(ctx context.Context) error
 	Handle() browserHandle
 	// Detach releases the session while the browser keeps running.
 	Detach(ctx context.Context) error
@@ -126,12 +158,21 @@ type launchOptions struct {
 	// Guard sends the browser's other https: requests through the proxy
 	// too.
 	Guard bool
+	// WriteGate decides the browser's writes from before its first page
+	// loads; nil runs no gate.
+	WriteGate *writeGateOptions
 	// Warn reports what the launch could not set up as configured without
 	// failing.
 	Warn func(string)
 	// BrowserDir keeps what launches learn about browser executables; empty
 	// keeps nothing, so every headless launch learns it again.
 	BrowserDir string
+	// MaxOpen is the most browsers open at once under BrowserDir; a launch
+	// waits while that many are. Zero sets no limit.
+	MaxOpen int
+	// Waiting reports, once, that the launch waits for another browser to
+	// close.
+	Waiting func()
 }
 
 // browserHandle locates a running browser.
@@ -148,6 +189,17 @@ type browserHandle struct {
 	// CertProxy is the proxy presenting the browser's client certificates,
 	// or nil when it presents none.
 	CertProxy *certproxy.Handle
+	// WriteGate is the gate deciding the browser's writes, or nil.
+	WriteGate *writegate.Handle
+}
+
+// writeGateOptions configures the write gate a browser starts with.
+type writeGateOptions struct {
+	Mode   string
+	Policy writegate.Policy
+	// Secrets holds the values of the secrets the policy's sign-in rules
+	// name.
+	Secrets map[string]string
 }
 
 // pageOutcome is what the browser shows after it opened a page.
@@ -179,8 +231,11 @@ type pageSnapshot struct {
 	URLs map[string]string
 	// XPaths maps the IDs of nodes to the XPaths that find them on the page.
 	XPaths map[string]string
-	URL    string
-	Title  string
+	// Attributes maps the IDs of controls the tree leaves unnamed to their
+	// name attribute, or else their id.
+	Attributes map[string]string
+	URL        string
+	Title      string
 }
 
 // dialog is a JavaScript dialog the browser accepted.
@@ -215,6 +270,9 @@ type recordedTarget struct {
 	// others. Both are empty when its parent already holds another.
 	Context string `json:"context,omitempty"`
 	Depth   int    `json:"depth,omitempty"`
+	// ContextVariables names the variables whose placeholders the text
+	// Context digests held, which a replay finds the element by.
+	ContextVariables []string `json:"context_variables,omitempty"`
 }
 
 type actOutcome struct {

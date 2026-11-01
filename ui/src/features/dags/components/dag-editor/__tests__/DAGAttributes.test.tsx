@@ -5,9 +5,6 @@ import { cleanup, render, screen } from '@testing-library/react';
 import React from 'react';
 import { afterEach, describe, expect, it } from 'vitest';
 import { ScheduleKind } from '@/api/v1/schema';
-import { UserPreferencesProvider } from '@/contexts/UserPreference';
-import { I18nProvider } from '@/i18n/I18nProvider';
-import dayjs from '@/lib/dayjs';
 import DAGAttributes from '../DAGAttributes';
 
 afterEach(() => {
@@ -15,63 +12,54 @@ afterEach(() => {
 });
 
 describe('DAGAttributes', () => {
-  it('renders the next scheduled run when present', () => {
-    const nextRun = '2026-04-03T12:00:00Z';
-
+  // The schedule is a launcher of the canvas, not part of the overview.
+  it('shows no schedule block', () => {
     render(
       <DAGAttributes
         dag={{
           name: 'scheduled-dag',
           schedule: [{ expression: '0 12 * * *', kind: ScheduleKind.cron }],
-          nextRun,
+          nextRun: '2026-04-03T12:00:00Z',
         }}
       />
     );
 
-    expect(screen.getByText('Next run:')).toBeInTheDocument();
-    expect(
-      screen.getByText(
-        `${dayjs(nextRun).format('YYYY-MM-DD HH:mm:ss')} (${dayjs(nextRun).fromNow()})`
-      )
-    ).toBeInTheDocument();
+    expect(screen.queryByText('Schedule')).toBeNull();
+    expect(screen.queryByText('Next run:')).toBeNull();
+    expect(screen.queryByText('0 12 * * *')).toBeNull();
   });
 
-  it('renders no upcoming run when the next run is unavailable', () => {
+  it('labels the concurrency limit as steps, not runs', () => {
+    render(
+      <DAGAttributes
+        dag={{ name: 'limits', maxActiveRuns: 1, maxActiveSteps: 10 }}
+      />
+    );
+
+    expect(screen.getByText('Max Active Steps')).toBeInTheDocument();
+    expect(screen.getByText('10')).toBeInTheDocument();
+    expect(screen.queryByText('Max Active Runs')).toBeNull();
+  });
+
+  it('lists the labels and the names of the environment variables', () => {
     render(
       <DAGAttributes
         dag={{
-          name: 'scheduled-dag',
-          schedule: [{ expression: '0 12 * * *', kind: ScheduleKind.cron }],
+          name: 'labelled',
+          labels: ['team=data', 'nightly'],
+          tags: ['nightly'],
+          env: ['API_TOKEN=s3cret', 'MODE=prod'],
         }}
       />
     );
 
-    expect(screen.getByText('Next run:')).toBeInTheDocument();
-    expect(screen.getByText('No upcoming run')).toBeInTheDocument();
-  });
-
-  it('localizes the relative next run time', () => {
-    const nextRun = '2026-04-03T12:00:00Z';
-    localStorage.setItem('user_preferences', JSON.stringify({ locale: 'ja' }));
-
-    render(
-      <UserPreferencesProvider>
-        <I18nProvider>
-          <DAGAttributes
-            dag={{
-              name: 'scheduled-dag',
-              schedule: [{ expression: '0 12 * * *', kind: ScheduleKind.cron }],
-              nextRun,
-            }}
-          />
-        </I18nProvider>
-      </UserPreferencesProvider>
-    );
-
-    expect(
-      screen.getByText(
-        `${dayjs(nextRun).format('YYYY-MM-DD HH:mm:ss')} (${dayjs(nextRun).locale('ja').fromNow()})`
-      )
-    ).toBeInTheDocument();
+    expect(screen.getByText('Labels')).toBeInTheDocument();
+    expect(screen.getAllByText('nightly')).toHaveLength(1);
+    expect(screen.getByText('team=data')).toBeInTheDocument();
+    expect(screen.getByText('Environment variables')).toBeInTheDocument();
+    expect(screen.getByText('API_TOKEN')).toBeInTheDocument();
+    expect(screen.getByText('MODE')).toBeInTheDocument();
+    // A value may be a secret: only names show.
+    expect(screen.queryByText(/s3cret/)).toBeNull();
   });
 });

@@ -172,7 +172,7 @@ func resolveInlineSchemaEntriesNoValidation(plan *dagParamPlan, rawParams string
 	if err != nil {
 		return nil, err
 	}
-	overridePairs, internalPairs := splitInternalRuntimeOverridePairs(overridePairs, declaredRuntimeParamNamesForPlan(plan))
+	overridePairs, passThroughPairs := splitPassThroughOverridePairs(overridePairs, declaredRuntimeParamNamesForPlan(plan), plan.inheritedNames)
 
 	values := make(map[string]any, len(plan.entries)+len(overridePairs))
 	for _, entry := range plan.entries {
@@ -200,7 +200,7 @@ func resolveInlineSchemaEntriesNoValidation(plan *dagParamPlan, rawParams string
 		values[pair.Name] = pair.Value
 	}
 
-	return appendInternalRuntimeEntries(entriesFromTypedMap(values, plan.schemaOrder), internalPairs), nil
+	return appendPassThroughEntries(entriesFromTypedMap(values, plan.schemaOrder), passThroughPairs), nil
 }
 
 func schemaDisallowsAdditionalProperties(root *jsonschema.Schema) bool {

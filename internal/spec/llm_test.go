@@ -4,6 +4,7 @@
 package spec
 
 import (
+	"context"
 	"testing"
 
 	"github.com/goccy/go-yaml"
@@ -162,6 +163,202 @@ model:
 			} else {
 				assert.NoError(t, err)
 			}
+		})
+	}
+}
+
+func TestChatFiles(t *testing.T) {
+	t.Parallel()
+
+	t.Run("one or several", func(t *testing.T) {
+		t.Parallel()
+		dag, err := LoadYAML(context.Background(), []byte(`
+steps:
+  - id: one
+    action: chat.completion
+    with:
+      provider: openai
+      model: gpt-4o
+      prompt: Read the invoice.
+      files: invoices/*.pdf
+  - id: several
+    action: chat.completion
+    with:
+      provider: openai
+      model: gpt-4o
+      prompt: Read them.
+      files:
+        - receipt.png
+        - ${steps.find.outputs.messages}
+`))
+		require.NoError(t, err)
+		assert.Equal(t, []string{"invoices/*.pdf"}, dag.Steps[0].LLM.Files)
+		assert.Equal(t, []string{"receipt.png", "${steps.find.outputs.messages}"}, dag.Steps[1].LLM.Files)
+	})
+
+	t.Run("not at the DAG level", func(t *testing.T) {
+		t.Parallel()
+		_, err := LoadYAML(context.Background(), []byte(`
+llm:
+  provider: openai
+  model: gpt-4o
+  files: invoice.pdf
+steps:
+  - id: ask
+    action: chat.completion
+    with:
+      prompt: Read it.
+`))
+		require.ErrorContains(t, err, "files is not valid in a DAG-level llm block; set it on a chat.completion step, under with")
+	})
+}
+
+func TestProviderOrder(t *testing.T) {
+	t.Parallel()
+
+	t.Run("accepted for openrouter", func(t *testing.T) {
+		t.Parallel()
+		dag, err := LoadYAML(context.Background(), []byte(`
+llm:
+  provider: openrouter
+  model: openai/gpt-6.1-terra
+  provider_order: [azure/eu]
+steps:
+  - id: inherit
+    action: chat.completion
+    with:
+      prompt: Hello.
+  - id: own
+    action: chat.completion
+    with:
+      provider: openrouter
+      model: openai/gpt-6.1-terra
+      provider_order: [azure/eu, openai]
+      prompt: Hello.
+  - id: entries
+    action: chat.completion
+    with:
+      model:
+        - provider: openrouter
+          name: openai/gpt-6.1-terra
+          provider_order: [azure/eu]
+        - provider: anthropic
+          name: claude-sonnet-4-6
+      prompt: Hello.
+  - id: reference
+    action: chat.completion
+    with:
+      provider: ${env.LLM_PROVIDER}
+      model: openai/gpt-6.1-terra
+      provider_order: [azure/eu]
+      prompt: Hello.
+`))
+		require.NoError(t, err)
+		assert.Equal(t, []string{"azure/eu"}, dag.LLM.ProviderOrder)
+		assert.Equal(t, []string{"azure/eu"}, dag.Steps[0].LLM.ProviderOrder)
+		assert.Equal(t, []string{"azure/eu", "openai"}, dag.Steps[1].LLM.ProviderOrder)
+		assert.Equal(t, []string{"azure/eu"}, dag.Steps[2].LLM.Models[0].ProviderOrder)
+		assert.Empty(t, dag.Steps[2].LLM.Models[1].ProviderOrder)
+		assert.Equal(t, []string{"azure/eu"}, dag.Steps[3].LLM.ProviderOrder)
+	})
+
+	for _, tc := range []struct {
+		name    string
+		yaml    string
+		wantErr string
+	}{
+		{
+			name: "DAG-level other provider",
+			yaml: `
+llm:
+  provider: openai
+  model: gpt-5.4
+  provider_order: [azure/eu]
+steps:
+  - action: chat.completion
+    with:
+      prompt: Hello.
+`,
+			wantErr: `field 'llm.provider_order': provider_order is only supported by the openrouter provider, not "openai"`,
+		},
+		{
+			name: "step other provider",
+			yaml: `
+steps:
+  - action: chat.completion
+    with:
+      provider: anthropic
+      model: claude-sonnet-4-6
+      provider_order: [azure/eu]
+      prompt: Hello.
+`,
+			wantErr: `field 'llm.provider_order': provider_order is only supported by the openrouter provider, not "anthropic"`,
+		},
+		{
+			name: "shared order reaching another provider's entry",
+			yaml: `
+steps:
+  - action: computer.run
+    with:
+      do:
+        - act: Open the settings.
+      llm:
+        provider_order: [azure/eu]
+        model:
+          - provider: openrouter
+            name: openai/gpt-6.1-terra
+          - provider: anthropic
+            name: claude-sonnet-4-6
+`,
+			wantErr: `field 'llm.provider_order': provider_order is only supported by the openrouter provider, not "anthropic"`,
+		},
+		{
+			name: "entry of another provider",
+			yaml: `
+steps:
+  - action: chat.completion
+    with:
+      model:
+        - provider: openrouter
+          name: openai/gpt-6.1-terra
+        - provider: gemini
+          name: gemini-3.8-flash
+          provider_order: [azure/eu]
+      prompt: Hello.
+`,
+			wantErr: `field 'llm.model[1].provider_order': provider_order is only supported by the openrouter provider, not "gemini"`,
+		},
+		{
+			name: "missing provider",
+			yaml: `
+steps:
+  - action: chat.completion
+    with:
+      model: openai/gpt-6.1-terra
+      provider_order: [azure/eu]
+      prompt: Hello.
+`,
+			wantErr: "provider is required",
+		},
+		{
+			name: "entry order not a list",
+			yaml: `
+steps:
+  - action: chat.completion
+    with:
+      model:
+        - provider: openrouter
+          name: openai/gpt-6.1-terra
+          provider_order: azure/eu
+      prompt: Hello.
+`,
+			wantErr: "model[0].provider_order: must be a list of strings",
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			_, err := LoadYAML(context.Background(), []byte(tc.yaml))
+			require.ErrorContains(t, err, tc.wantErr)
 		})
 	}
 }

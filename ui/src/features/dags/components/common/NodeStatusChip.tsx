@@ -9,23 +9,27 @@ import {
   isActiveNodeStatus,
   statusLabelText,
 } from '@/lib/status-utils';
+import { useClock } from '@/hooks/useClock';
+import { usePrefersReducedMotion } from '@/hooks/usePrefersReducedMotion';
 import { useI18n } from '@/i18n/I18nProvider';
 import MatrixText from '@/components/ui/matrix-text';
-import React, { useEffect, useState } from 'react';
+import React from 'react';
 import { NodeStatus } from '../../../../api/v1/schema';
 
 const BRAILLE_FRAMES = ['⠋', '⠙', '⠹', '⠸', '⠼', '⠴', '⠦', '⠧', '⠇', '⠏'];
 
+const BRAILLE_FRAME_MS = 80;
+
+// The frame is read from the shared clock, so that all spinners show the same
+// frame, on one timer, and none runs while the tab is hidden. It stays on the
+// first frame when the user asks for reduced motion.
 function BrailleSpinner() {
-  const [frame, setFrame] = useState(0);
-
-  useEffect(() => {
-    const interval = setInterval(() => {
-      setFrame((prev) => (prev + 1) % BRAILLE_FRAMES.length);
-    }, 80);
-    return () => clearInterval(interval);
-  }, []);
-
+  const reducedMotion = usePrefersReducedMotion();
+  const frame = useClock(reducedMotion ? null : BRAILLE_FRAME_MS, (now) =>
+    reducedMotion
+      ? 0
+      : Math.floor(now / BRAILLE_FRAME_MS) % BRAILLE_FRAMES.length
+  );
   return <>{BRAILLE_FRAMES[frame]}</>;
 }
 

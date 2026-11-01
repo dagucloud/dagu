@@ -132,20 +132,23 @@ func TestVerifyPackageDigestsRejectsWrongAlgorithm(t *testing.T) {
 	assert.Contains(t, err.Error(), `algorithm "sha512"`)
 }
 
-func TestApplyDigestIsolation(t *testing.T) {
+func TestApplyRootIsolation(t *testing.T) {
 	t.Parallel()
 
 	paths, err := tools.CachePaths(t.TempDir(), "darwin-arm64", "hash123")
 	require.NoError(t, err)
 
-	shared := applyDigestIsolation(paths, &ir.ToolConfig{Packages: []ir.ToolPackage{
+	shared := applyRootIsolation(paths, &ir.ToolConfig{Packages: []ir.ToolPackage{
 		{Package: "jqlang/jq", Version: "jq-1.7.1"},
 	}})
 	assert.Equal(t, paths.RootDir, shared.RootDir)
 
-	isolated := applyDigestIsolation(paths, &ir.ToolConfig{Packages: []ir.ToolPackage{
+	isolated := applyRootIsolation(paths, &ir.ToolConfig{Packages: []ir.ToolPackage{
 		{Package: "jqlang/jq", Version: "jq-1.7.1", Digest: "sha256:" + testArtifactSHA},
 	}})
 	assert.Equal(t, filepath.Join(paths.EnvDir, "root"), isolated.RootDir)
 	assert.NotEqual(t, paths.RootDir, isolated.RootDir)
+
+	local := applyRootIsolation(paths, &ir.ToolConfig{Registry: &ir.ToolRegistry{Type: "local"}})
+	assert.Equal(t, filepath.Join(paths.EnvDir, "root"), local.RootDir)
 }

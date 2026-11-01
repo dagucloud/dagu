@@ -7,6 +7,9 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"path/filepath"
+	"regexp"
+	"slices"
 	"strings"
 	"time"
 
@@ -30,8 +33,13 @@ const (
 	opExpect     = "expect"
 	opWait       = "wait"
 	opScreenshot = "screenshot"
+	opOutline    = "outline"
 	opAsk        = "ask"
 )
+
+// outlineNamePattern is what an outline's output may be named: a step's
+// declared outputs start with a letter.
+var outlineNamePattern = regexp.MustCompile(`^[A-Za-z][A-Za-z0-9_]*$`)
 
 // Automatic screenshot policies.
 const (
@@ -84,14 +92,20 @@ func init() {
 
 // config is the resolved with block of a computer step.
 type config struct {
-	Mode           string            `json:"mode,omitempty"`
-	Variables      map[string]string `json:"variables,omitempty"`
-	Screenshots    string            `json:"screenshots,omitempty"`
-	AI             string            `json:"ai,omitempty"`
-	Cache          *bool             `json:"cache,omitempty"`
-	MaxActions     int               `json:"max_actions,omitempty"`
-	OnConfirmation string            `json:"on_confirmation,omitempty"`
-	Idle           string            `json:"idle,omitempty"`
+	Mode      string            `json:"mode,omitempty"`
+	Variables map[string]string `json:"variables,omitempty"`
+	// Visible names variables whose values the model may see, for values
+	// that are not secret, such as the item a row chooses from a list.
+	Visible []string `json:"visible,omitempty"`
+	// Refuse lists words the step never presses an element named with,
+	// such as Save, so a run that should not save presses no Save button.
+	Refuse         []string `json:"refuse,omitempty"`
+	Screenshots    string   `json:"screenshots,omitempty"`
+	AI             string   `json:"ai,omitempty"`
+	Cache          *bool    `json:"cache,omitempty"`
+	MaxActions     int      `json:"max_actions,omitempty"`
+	OnConfirmation string   `json:"on_confirmation,omitempty"`
+	Idle           string   `json:"idle,omitempty"`
 	// FindWithin is how long a replayed action waits for its element, or a
 	// replayed turn for its screen, before it is a miss.
 	FindWithin string `json:"find_within,omitempty"`
@@ -99,8 +113,14 @@ type config struct {
 	// default, or direct.
 	Input string `json:"input,omitempty"`
 	// MaxRows bounds how many rows an extract reads from a table.
-	MaxRows int         `json:"max_rows,omitempty"`
-	Do      []operation `json:"do"`
+	MaxRows int `json:"max_rows,omitempty"`
+	// Maximize, true unless set false, maximizes the front window before an
+	// operation looks at the screen.
+	Maximize *bool `json:"maximize,omitempty"`
+	// Handle lists screens that may come up at any point of the step, each
+	// with the pinned steps that clear it.
+	Handle []handler   `json:"handle,omitempty"`
+	Do     []operation `json:"do"`
 }
 
 // operation is one item of with.do. Exactly one operation field is set.
@@ -111,9 +131,27 @@ type operation struct {
 	Expect     *condition   `json:"expect,omitempty"`
 	Wait       string       `json:"wait,omitempty"`
 	Screenshot string       `json:"screenshot,omitempty"`
+	Outline    string       `json:"outline,omitempty"`
 	Ask        *askSpec     `json:"ask,omitempty"`
 	When       *condition   `json:"when,omitempty"`
 	Timeout    string       `json:"timeout,omitempty"`
+}
+
+// maximize is the operation's own maximize setting, if it has one.
+func (o operation) maximize() *bool {
+	switch {
+	case o.Act != nil:
+		return o.Act.Maximize
+	case o.Extract != nil:
+		return o.Extract.Maximize
+	}
+	return nil
+}
+
+// looksAtScreen reports an operation that reads or acts on the screen, or
+// checks it before running, which the front window is maximized for.
+func (o operation) looksAtScreen() bool {
+	return o.Act != nil || o.Extract != nil || (o.Expect != nil && !o.Expect.onValue()) || o.Screenshot != "" || o.Outline != "" || (o.When != nil && !o.When.onValue())
 }
 
 type launchSpec struct {
@@ -128,6 +166,7 @@ type actSpec struct {
 	MaxActions  int    `json:"max_actions,omitempty"`
 	FindWithin  string `json:"find_within,omitempty"`
 	Input       string `json:"input,omitempty"`
+	Maximize    *bool  `json:"maximize,omitempty"`
 	// Recorded holds the act's pinned steps, keyed by system (windows or
 	// macos). A device of that system runs them first, ignoring its own
 	// recording, so a learned act travels across devices.
@@ -138,6 +177,7 @@ type extractSpec struct {
 	Instruction string         `json:"instruction"`
 	AI          string         `json:"ai,omitempty"`
 	MaxRows     int            `json:"max_rows,omitempty"`
+	Maximize    *bool          `json:"maximize,omitempty"`
 	Schema      map[string]any `json:"schema"`
 	// Fields holds the extract's pinned bindings, keyed by system then by
 	// output name, so a device reads them with no model even if it never
@@ -149,6 +189,27 @@ type askSpec struct {
 	Prompt  string `json:"prompt"`
 	As      string `json:"as"`
 	Timeout string `json:"timeout,omitempty"`
+}
+
+// app is the application a launch opens by name, as the system names its
+// windows' application: the one open -a names on macOS, by its name or its
+// path, or the program of a Windows .exe. It is "" for any other launch.
+func (l launchSpec) app() string {
+	if l.Command == "open" {
+		if i := slices.Index(l.Args, "-a"); i >= 0 && i+1 < len(l.Args) {
+			name := filepath.Base(strings.TrimSuffix(l.Args[i+1], "/"))
+			if base, ok := strings.CutSuffix(strings.ToLower(name), ".app"); ok {
+				return name[:len(base)]
+			}
+			return name
+		}
+		return ""
+	}
+	program := filepath.Base(strings.ReplaceAll(l.Command, `\`, "/"))
+	if name, ok := strings.CutSuffix(strings.ToLower(program), ".exe"); ok {
+		return program[:len(name)]
+	}
+	return ""
 }
 
 // UnmarshalJSON accepts a command string or an object.
@@ -188,6 +249,8 @@ func (o operation) kind() string {
 		return opWait
 	case o.Screenshot != "":
 		return opScreenshot
+	case o.Outline != "":
+		return opOutline
 	case o.Ask != nil:
 		return opAsk
 	default:
@@ -238,6 +301,8 @@ func (o operation) subject() string {
 		return o.Wait
 	case o.Screenshot != "":
 		return o.Screenshot
+	case o.Outline != "":
+		return o.Outline
 	case o.Ask != nil:
 		return o.Ask.Prompt
 	}
@@ -377,6 +442,18 @@ func (c config) direct(spec actSpec) (bool, error) {
 	return false, nil
 }
 
+// maximizes reports whether the front window is maximized before an
+// operation looks at the screen: the operation's own setting, the step's,
+// or true.
+func (c config) maximizes(own *bool) bool {
+	for _, value := range []*bool{own, c.Maximize} {
+		if value != nil {
+			return *value
+		}
+	}
+	return true
+}
+
 // maxActions returns the action budget of an act.
 func (c config) maxActions(spec actSpec) int {
 	switch {
@@ -479,6 +556,21 @@ func (c config) validate() error {
 			return fmt.Errorf("computer: variable name %q must match %s", name, agentstep.IdentifierPattern)
 		}
 	}
+	for _, name := range c.Visible {
+		if _, ok := c.Variables[name]; !ok {
+			return fmt.Errorf("computer: visible names %q, which is not in with.variables", name)
+		}
+	}
+	for i, h := range c.Handle {
+		if err := h.validate(); err != nil {
+			return fmt.Errorf("computer: handle[%d]: %w", i, err)
+		}
+		for _, name := range h.references() {
+			if _, ok := c.Variables[name]; !ok {
+				return fmt.Errorf("computer: handle[%d] references %%%s%%, which is not in with.variables", i, name)
+			}
+		}
+	}
 	outputs := make(map[string]int)
 	asks := make(map[string]int)
 	for i, op := range c.Do {
@@ -517,10 +609,16 @@ func (c config) validate() error {
 			properties, _ := op.Extract.Schema["properties"].(map[string]any)
 			for name := range properties {
 				if first, exists := outputs[name]; exists {
-					return fmt.Errorf("computer: do[%d]: output %q is already extracted by do[%d]", i, name, first)
+					return fmt.Errorf("computer: do[%d]: output %q is already published by do[%d]", i, name, first)
 				}
 				outputs[name] = i
 			}
+		}
+		if op.Outline != "" {
+			if first, exists := outputs[op.Outline]; exists {
+				return fmt.Errorf("computer: do[%d]: output %q is already published by do[%d]", i, op.Outline, first)
+			}
+			outputs[op.Outline] = i
 		}
 		if op.Ask != nil {
 			if _, exists := c.Variables[op.Ask.As]; exists {
@@ -563,7 +661,7 @@ func (c config) validateChoice(o operation) error {
 
 func (o operation) validate() error {
 	if o.kind() == "" {
-		return errors.New("operation must set one of launch, act, extract, expect, wait, screenshot, or ask")
+		return errors.New("operation must set one of launch, act, extract, expect, wait, screenshot, outline, or ask")
 	}
 	if err := agentstep.ValidateDuration("timeout", o.Timeout); err != nil {
 		return err
@@ -609,6 +707,10 @@ func (o operation) validate() error {
 	case o.Screenshot != "":
 		if !agentstep.FileNamePattern.MatchString(o.Screenshot) {
 			return fmt.Errorf("screenshot name %q must match %s", o.Screenshot, agentstep.FileNamePattern)
+		}
+	case o.Outline != "":
+		if !outlineNamePattern.MatchString(o.Outline) {
+			return fmt.Errorf("outline name %q must match %s", o.Outline, outlineNamePattern)
 		}
 	case o.Ask != nil:
 		if strings.TrimSpace(o.Ask.Prompt) == "" {
@@ -659,17 +761,21 @@ func conditionSchema() *jsonschema.Schema {
 			Type:                 "object",
 			AdditionalProperties: agentstep.NoExtraProperties(),
 			Properties: map[string]*jsonschema.Schema{
-				"statement": agentstep.NonEmptyString(),
-				"text":      agentstep.NonEmptyString(),
-				"element":   {Ref: "#/$defs/selector"},
-				"window":    agentstep.NonEmptyString(),
-				"within":    agentstep.StringSchema(),
+				"statement":  agentstep.NonEmptyString(),
+				"text":       agentstep.NonEmptyString(),
+				"element":    {Ref: "#/$defs/selector"},
+				"window":     agentstep.NonEmptyString(),
+				"value":      agentstep.StringSchema(),
+				"equals":     agentstep.StringSchema(),
+				"not_equals": agentstep.StringSchema(),
+				"within":     agentstep.StringSchema(),
 			},
 			OneOf: []*jsonschema.Schema{
 				{Required: []string{"statement"}},
 				{Required: []string{"text"}},
 				{Required: []string{"element"}},
 				{Required: []string{"window"}},
+				{Required: []string{"value"}},
 			},
 		},
 	}}
@@ -689,9 +795,48 @@ func pinnedBySystem(value func() *jsonschema.Schema) *jsonschema.Schema {
 	}
 }
 
+// handlerSchema accepts a handler: an exact check and the pinned steps that
+// clear the screen it finds.
+func handlerSchema() *jsonschema.Schema {
+	return &jsonschema.Schema{
+		Type:                 "object",
+		AdditionalProperties: agentstep.NoExtraProperties(),
+		Required:             []string{"when", "recorded"},
+		Properties: map[string]*jsonschema.Schema{
+			"name":     agentstep.NonEmptyString(),
+			"when":     exactCheckSchema(),
+			"recorded": pinnedBySystem(pinnedStepsSchema),
+		},
+	}
+}
+
+// exactCheckSchema accepts a check read from the window's elements alone:
+// text, an element, or a window title, without within.
+func exactCheckSchema() *jsonschema.Schema {
+	return &jsonschema.Schema{
+		Type:                 "object",
+		AdditionalProperties: agentstep.NoExtraProperties(),
+		Properties: map[string]*jsonschema.Schema{
+			"text":    agentstep.NonEmptyString(),
+			"element": {Ref: "#/$defs/selector"},
+			"window":  agentstep.NonEmptyString(),
+		},
+		OneOf: []*jsonschema.Schema{{Required: []string{"text"}}, {Required: []string{"element"}}, {Required: []string{"window"}}},
+	}
+}
+
 // pinnedStepsSchema accepts a non-empty list of pinned steps.
 func pinnedStepsSchema() *jsonschema.Schema {
 	return &jsonschema.Schema{Type: "array", MinItems: new(1), Items: pinnedStepSchema()}
+}
+
+// checkboxSelector accepts a selector for a checkbox alone, as check and
+// uncheck take.
+func checkboxSelector() *jsonschema.Schema {
+	return &jsonschema.Schema{AllOf: []*jsonschema.Schema{
+		{Ref: "#/$defs/selector"},
+		{Required: []string{"role"}, Properties: map[string]*jsonschema.Schema{"role": {Enum: []any{desktop.RoleCheckbox}}}},
+	}}
 }
 
 // pinnedStepSchema accepts exactly one action of a pinned step.
@@ -704,6 +849,8 @@ func pinnedStepSchema() *jsonschema.Schema {
 			"click":        selector(),
 			"double_click": selector(),
 			"right_click":  selector(),
+			"check":        checkboxSelector(),
+			"uncheck":      checkboxSelector(),
 			"type": {
 				Type:                 "object",
 				AdditionalProperties: agentstep.NoExtraProperties(),
@@ -719,20 +866,32 @@ func pinnedStepSchema() *jsonschema.Schema {
 			},
 			"wait":  agentstep.NonEmptyString(),
 			"focus": selector(),
+			"choose": {
+				Type:                 "object",
+				AdditionalProperties: agentstep.NoExtraProperties(),
+				Required:             []string{"from", "option"},
+				Properties:           map[string]*jsonschema.Schema{"from": selector(), "option": agentstep.NonEmptyString()},
+			},
 		},
 		OneOf: []*jsonschema.Schema{
 			{Required: []string{"click"}}, {Required: []string{"double_click"}}, {Required: []string{"right_click"}},
+			{Required: []string{"check"}}, {Required: []string{"uncheck"}},
 			{Required: []string{"type"}}, {Required: []string{"key"}}, {Required: []string{"scroll"}}, {Required: []string{"wait"}},
+			{Required: []string{"choose"}},
 		},
 	}
 }
 
 // pinnedFieldSchema accepts an extract's pinned field: a selector for a
-// scalar, or a container and columns for a table.
+// scalar, or a container and columns alone for a table, whose selector
+// keys go inside container.
 func pinnedFieldSchema() *jsonschema.Schema {
 	return &jsonschema.Schema{
 		Type:                 "object",
 		AdditionalProperties: agentstep.NoExtraProperties(),
+		If:                   &jsonschema.Schema{Required: []string{"container"}},
+		Then:                 &jsonschema.Schema{PropertyNames: &jsonschema.Schema{Enum: []any{"container", "columns"}}},
+		DependentRequired:    map[string][]string{"columns": {"container"}},
 		Properties: map[string]*jsonschema.Schema{
 			"role":      {Type: "string", Enum: roleValues()},
 			"name":      agentstep.NonEmptyString(),
@@ -742,6 +901,7 @@ func pinnedFieldSchema() *jsonschema.Schema {
 			"in":        {Ref: "#/$defs/selector"},
 			"near":      nearSchema(),
 			"nth":       {Type: "integer", Minimum: new(0.0)},
+			"enabled":   {Type: "boolean"},
 			"container": {Ref: "#/$defs/selector"},
 			"columns":   {Type: "object", AdditionalProperties: agentstep.NonEmptyString()},
 		},
@@ -776,14 +936,15 @@ func selectorSchema() *jsonschema.Schema {
 		AdditionalProperties: agentstep.NoExtraProperties(),
 		Required:             []string{"role"},
 		Properties: map[string]*jsonschema.Schema{
-			"role":   {Type: "string", Enum: roleValues()},
-			"name":   agentstep.NonEmptyString(),
-			"id":     agentstep.NonEmptyString(),
-			"app":    agentstep.NonEmptyString(),
-			"window": agentstep.NonEmptyString(),
-			"in":     {Ref: "#/$defs/selector"},
-			"near":   nearSchema(),
-			"nth":    {Type: "integer", Minimum: new(0.0)},
+			"role":    {Type: "string", Enum: roleValues()},
+			"name":    agentstep.NonEmptyString(),
+			"id":      agentstep.NonEmptyString(),
+			"app":     agentstep.NonEmptyString(),
+			"window":  agentstep.NonEmptyString(),
+			"in":      {Ref: "#/$defs/selector"},
+			"near":    nearSchema(),
+			"nth":     {Type: "integer", Minimum: new(0.0)},
+			"enabled": {Type: "boolean"},
 		},
 		AnyOf: []*jsonschema.Schema{
 			{Required: []string{"name"}},
@@ -819,6 +980,7 @@ var operationSchema = &jsonschema.Schema{
 				"max_actions": positiveInteger(),
 				"find_within": agentstep.StringSchema(),
 				"input":       inputSchema(),
+				"maximize":    {Type: "boolean"},
 				"recorded":    pinnedBySystem(pinnedStepsSchema),
 			},
 		},
@@ -830,6 +992,7 @@ var operationSchema = &jsonschema.Schema{
 				"instruction": agentstep.NonEmptyString(),
 				"ai":          aiSchema(),
 				"max_rows":    positiveInteger(),
+				"maximize":    {Type: "boolean"},
 				"schema":      {Type: "object"},
 				"fields": pinnedBySystem(func() *jsonschema.Schema {
 					return &jsonschema.Schema{Type: "object", AdditionalProperties: pinnedFieldSchema()}
@@ -839,6 +1002,7 @@ var operationSchema = &jsonschema.Schema{
 		opExpect:     conditionSchema(),
 		opWait:       agentstep.NonEmptyString(),
 		opScreenshot: agentstep.NonEmptyString(),
+		opOutline:    agentstep.NonEmptyString(),
 		opAsk: {
 			Type:                 "object",
 			AdditionalProperties: agentstep.NoExtraProperties(),
@@ -859,6 +1023,7 @@ var operationSchema = &jsonschema.Schema{
 		{Required: []string{opExpect}},
 		{Required: []string{opWait}},
 		{Required: []string{opScreenshot}},
+		{Required: []string{opOutline}},
 		{Required: []string{opAsk}},
 	},
 }
@@ -870,6 +1035,7 @@ var configSchema = &jsonschema.Schema{
 	Properties: map[string]*jsonschema.Schema{
 		"mode":            {Type: "string", Enum: []any{string(computeruse.ModeAuto), string(computeruse.ModeNative), string(computeruse.ModeGeneric)}},
 		"variables":       {Type: "object", AdditionalProperties: agentstep.StringSchema()},
+		"visible":         {Type: "array", Items: agentstep.StringSchema()},
 		"screenshots":     {Type: "string", Enum: []any{screenshotsOnFailure, screenshotsFinal, screenshotsEach, screenshotsNever}},
 		"ai":              aiSchema(),
 		"cache":           {Type: "boolean"},
@@ -879,6 +1045,9 @@ var configSchema = &jsonschema.Schema{
 		"find_within":     agentstep.StringSchema(),
 		"input":           inputSchema(),
 		"max_rows":        positiveInteger(),
+		"maximize":        {Type: "boolean"},
+		"handle":          {Type: "array", Items: handlerSchema()},
+		"refuse":          {Type: "array", Items: agentstep.NonEmptyString()},
 		"do":              {Type: "array", MinItems: new(1), Items: operationSchema},
 	},
 	Defs: map[string]*jsonschema.Schema{"selector": selectorSchema()},

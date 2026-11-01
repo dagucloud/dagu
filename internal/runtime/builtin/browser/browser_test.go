@@ -5,11 +5,13 @@ package browser
 
 import (
 	"bytes"
+	"cmp"
 	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
+	"math"
 	"os"
 	"path/filepath"
 	goruntime "runtime"
@@ -48,8 +50,17 @@ type testRun struct {
 	hostTrustedCAs   []cmnconfig.BrowserTrustedCA
 	// hostGuard is the host config's guard_client_certificates.
 	hostGuard *bool
+	// hostWriteGate and hostWritePolicy are the host config's
+	// browser.write_gate and browser.write_policy.
+	hostWriteGate   string
+	hostWritePolicy string
+	// base is the context executions run under, in place of the test's,
+	// for a test that cancels one.
+	base context.Context
 	// noModel runs the step without an llm block.
 	noModel bool
+	// foreachItem is the foreach item whose body runs the step, if any.
+	foreachItem string
 }
 
 func newTestRun(t *testing.T, answer func(*llmpkg.ChatRequest) (string, error)) *testRun {
@@ -106,9 +117,12 @@ func (r *testRun) context() context.Context {
 	for name, secret := range r.secrets {
 		scope = scope.WithEntry(name, secret, value.EnvSourceSecret)
 	}
-	ctx := cmnconfig.WithConfig(r.t.Context(), &cmnconfig.Config{
-		Paths:   cmnconfig.PathsConfig{DataDir: r.dataDir},
-		Browser: cmnconfig.BrowserConfig{NoSandbox: r.noSandbox, ClientCertificates: r.hostCertificates, TrustedCAs: r.hostTrustedCAs, GuardClientCertificates: r.hostGuard},
+	ctx := cmnconfig.WithConfig(cmp.Or(r.base, r.t.Context()), &cmnconfig.Config{
+		Paths: cmnconfig.PathsConfig{DataDir: r.dataDir},
+		Browser: cmnconfig.BrowserConfig{
+			NoSandbox: r.noSandbox, ClientCertificates: r.hostCertificates, TrustedCAs: r.hostTrustedCAs, GuardClientCertificates: r.hostGuard,
+			WriteGate: r.hostWriteGate, WritePolicy: r.hostWritePolicy,
+		},
 	})
 	return runtime.WithEnv(ctx, runtime.Env{
 		Context: runtime.Context{
@@ -116,7 +130,8 @@ func (r *testRun) context() context.Context {
 			DAGRunID: "run-1",
 			WorkerID: "worker-a",
 		},
-		Scope: scope,
+		Scope:       scope,
+		ForeachItem: r.foreachItem,
 	})
 }
 
@@ -207,6 +222,45 @@ func TestExpectFailureCapturesPage(t *testing.T) {
 	assert.FileExists(t, filepath.Join(run.artifacts, "browser", "shop", "01-failure.png"))
 }
 
+// A fixed expect after an act whose click submits a form reads the page
+// again when the document the click loads replaced the script context a
+// read ran in, and fails on that only once its window passes.
+func TestExpectReadsAgainAPageBetweenDocuments(t *testing.T) {
+	t.Parallel()
+
+	const steps = `{"do": [
+		{"act": "Press the Save button"},
+		{"expect": {"text": "Saved", "within": "%s"}}
+	]}`
+	run := newTestRun(t, pageModel(nil))
+	run.engine.setPageText("Saved")
+	run.engine.textReadsLoseContext = 1
+	execution := run.execute(fmt.Sprintf(steps, "10s"), nil)
+	require.NoError(t, execution.err)
+	assert.Equal(t, []string{"act:completed", "expect:completed"}, eventNames(execution.exec.GetAgentSession()))
+
+	unreadable := newTestRun(t, pageModel(nil))
+	unreadable.engine.setPageText("Saved")
+	unreadable.engine.textReadsLoseContext = math.MaxInt
+	execution = unreadable.execute(fmt.Sprintf(steps, "300ms"), nil)
+	require.ErrorContains(t, execution.err,
+		"do[1] expect failed: the browser lost its connection to the page: a new document replaced its script context")
+}
+
+// A failure on a window another page opened and that stays open in front
+// of it names that page and captures it, since the window hides it.
+func TestFailureOnAWindowCapturesThePageBehindIt(t *testing.T) {
+	t.Parallel()
+
+	run := newTestRun(t, pageModel(nil))
+	run.engine.opener = "Bids"
+	execution := run.execute(`{"do": [{"expect": "The results are listed"}]}`, nil)
+
+	require.ErrorContains(t, execution.err, `the page read is a window that the page "Bids" opened and that is still open in front of it; browser/shop/02-failure-opener.png shows that page`)
+	assert.FileExists(t, filepath.Join(run.artifacts, "browser", "shop", "01-failure.png"))
+	assert.FileExists(t, filepath.Join(run.artifacts, "browser", "shop", "02-failure-opener.png"))
+}
+
 // A browser a previous attempt left open that does not close keeps its
 // record, so the reaper can retry, and the new attempt fails instead of
 // replacing that record with its own browser.
@@ -215,7 +269,7 @@ func TestStaleBrowserThatWillNotCloseFailsTheStep(t *testing.T) {
 
 	run := newTestRun(t, pageModel(nil))
 	stale := browserhost.Record{
-		ID:       browserhost.RecordID("run-1", "shop"),
+		ID:       browserhost.RecordID("run-1", "", "shop"),
 		DAGRunID: "run-1",
 		StepName: "shop",
 		State:    browserhost.StateDetached,
@@ -231,6 +285,32 @@ func TestStaleBrowserThatWillNotCloseFailsTheStep(t *testing.T) {
 	records := run.records()
 	require.Len(t, records, 1)
 	assert.Equal(t, stale.CDPURL, records[0].CDPURL)
+}
+
+// The step in one foreach item leaves alone the browser the same step opened
+// in another item of the same run, which is still running.
+func TestForeachItemLeavesOtherItemsBrowser(t *testing.T) {
+	t.Parallel()
+
+	run := newTestRun(t, pageModel(nil))
+	other := browserhost.Record{
+		ID:       browserhost.RecordID("run-1", "item-0", "shop"),
+		DAGRunID: "run-1",
+		StepName: "shop",
+		State:    browserhost.StateRunning,
+		OwnerPID: os.Getpid(),
+		// Closing it would fail the step.
+		CDPURL: serveHungBrowser(t),
+	}
+	require.NoError(t, browserhost.NewStore(filepath.Join(run.dataDir, browserhost.DataDirName)).Save(other))
+
+	run.foreachItem = "item-1"
+	execution := run.execute(`{"do": [{"act": "Click the checkout button"}]}`, nil)
+
+	require.NoError(t, execution.err)
+	records := run.records()
+	require.Len(t, records, 1, "the other item's browser keeps its record")
+	assert.Equal(t, other.CDPURL, records[0].CDPURL)
 }
 
 // Dialogs the browser accepted appear in the timeline after the operation
@@ -439,6 +519,24 @@ func TestVariablesReachTheBrowserOnly(t *testing.T) {
 			assert.NotContains(t, message.Content, "hunter2-secret")
 		}
 	}
+}
+
+// The browser is told which variables hold a declared secret, however
+// short, so what it reports leaves their values out. A plain variable is
+// not secret.
+func TestActKnowsSecretVariables(t *testing.T) {
+	t.Parallel()
+
+	run := newTestRun(t, pageModel(nil))
+	run.secrets = map[string]string{"VENDOR_PIN": "42"}
+	execution := run.execute(`{
+		"variables": {"pin": "42", "login": "alice-42", "account": "Checking"},
+		"do": [{"act": "Type %pin% into the PIN field"}]
+	}`, nil)
+	require.NoError(t, execution.err)
+
+	require.Len(t, run.engine.acts, 1)
+	assert.Equal(t, []string{"login", "pin"}, run.engine.acts[0].secret)
 }
 
 // A repeated run replays recorded actions instead of asking the model, and
@@ -747,7 +845,7 @@ func TestReplaySeesOtherRuns(t *testing.T) {
 
 	healed := []recordedAction{{Selector: "xpath=/html/body/nav/a[3]", Method: "click"}}
 	run.engine.onAct = otherRun(func(other *replayCache) error {
-		other.Stage(key, healed)
+		other.Stage(key, recording{Actions: healed})
 		return other.Commit(t.Context())
 	})
 	replayed := run.execute(steps, nil)
@@ -919,6 +1017,7 @@ func TestAskWaitsAndResumesSameBrowser(t *testing.T) {
 	assert.Len(t, run.launcher.launches, 1, "the resumed step reuses the browser")
 	assert.Equal(t, []string{"Sign in", "Type %otp% and submit"}, run.engine.actInstructions())
 	assert.Equal(t, "123456", run.engine.acts[1].variables["otp"])
+	assert.Equal(t, []string{"otp"}, run.engine.acts[1].secret, "an answer is secret")
 	assert.Equal(t, map[string]any{"account": "acme"}, resumed.exec.GetOutputs())
 	assert.True(t, resumed.exec.GetAgentSession().Interactions[0].Applied)
 	assert.True(t, run.engine.closed)
@@ -939,7 +1038,7 @@ func TestAskResumeAfterUnreadableRecord(t *testing.T) {
 
 	// A directory in place of the record cannot be read as a file by any
 	// process, whatever its privileges.
-	record := filepath.Join(run.dataDir, browserhost.DataDirName, "sessions", browserhost.RecordID("run-1", "shop")+".json")
+	record := filepath.Join(run.dataDir, browserhost.DataDirName, "sessions", browserhost.RecordID("run-1", "", "shop")+".json")
 	data, err := os.ReadFile(record)
 	require.NoError(t, err)
 	require.NoError(t, os.Remove(record))
@@ -1091,7 +1190,7 @@ func TestModelBridgeFallsBackAndMasks(t *testing.T) {
 		return working, nil
 	}
 	ctx := runtime.WithEnv(t.Context(), runtime.Env{Scope: value.NewEnvScope(nil, false)})
-	bridge, err := newModelBridge(ctx, cfg, agentstep.NewMasker(map[string]string{"TOKEN": "s3cr3t-token"}, nil), factory)
+	bridge, err := newModelBridge(ctx, cfg, agentstep.NewMasker(map[string]string{"TOKEN": "s3cr3t-token"}, nil), io.Discard, factory)
 	require.NoError(t, err)
 
 	resp, err := bridge.generate(ctx, generateRequest{
@@ -1108,6 +1207,89 @@ func TestModelBridgeFallsBackAndMasks(t *testing.T) {
 	assert.Equal(t, agentstep.ToolChoiceRequired, request.ToolChoice)
 	assert.NotContains(t, request.Tools[0].Function.Parameters, "$schema")
 	assert.Equal(t, "tree contains *******", lastUserText(request))
+}
+
+// alwaysProse never answers through the respond tool.
+func alwaysProse(*llmpkg.ChatRequest) (string, error) {
+	return "I would click the checkout button.", nil
+}
+
+func TestUnusableAnswerIsCorrected(t *testing.T) {
+	t.Parallel()
+
+	// The model answers in prose, holding a secret, until it is told why
+	// that cannot be used.
+	model := pageModel(nil)
+	run := newTestRun(t, func(req *llmpkg.ChatRequest) (string, error) {
+		if strings.Contains(lastUserText(req), "Call the respond tool again") {
+			return model(req)
+		}
+		return "I would click the checkout button with s3cr3t-token.", nil
+	})
+	run.secrets = map[string]string{"TOKEN": "s3cr3t-token"}
+	execution := run.execute(`{"do": [{"act": "Click the checkout button"}]}`, nil)
+	require.NoError(t, execution.err)
+
+	require.Equal(t, 2, run.provider.callCount())
+	corrected := run.provider.calls[1].Messages
+	require.Len(t, corrected, 3)
+	assert.Equal(t, llmpkg.RoleAssistant, corrected[1].Role)
+	assert.Equal(t, "I would click the checkout button with *******.", corrected[1].Content)
+	assert.Equal(t, llmpkg.RoleUser, corrected[2].Role)
+	assert.Contains(t, corrected[2].Content, "model did not return structured output")
+
+	log := execution.stderr.String()
+	assert.Contains(t, log, "openai/test-model answer rejected: model did not return structured output")
+	assert.Contains(t, log, "I would click the checkout button with *******.")
+	assert.NotContains(t, log, "s3cr3t-token")
+	assert.Equal(t, int64(24), execution.exec.GetAgentSession().Usage.TotalTokens, "both answers count")
+}
+
+func TestUnusableCorrectionFailsOperation(t *testing.T) {
+	t.Parallel()
+
+	run := newTestRun(t, alwaysProse)
+	execution := run.execute(`{"do": [{"act": "Click the checkout button"}]}`, nil)
+
+	require.ErrorContains(t, execution.err, "do[0] act failed: model request failed: openai/test-model: model did not return structured output")
+	assert.Equal(t, 2, run.provider.callCount())
+	assert.Equal(t, int64(24), execution.exec.GetAgentSession().Usage.TotalTokens, "both answers count")
+}
+
+func TestModelBridgeFallsBackAfterCorrection(t *testing.T) {
+	t.Parallel()
+
+	primary := &scriptedProvider{answer: alwaysProse}
+	backup := &scriptedProvider{answer: func(*llmpkg.ChatRequest) (string, error) {
+		return `{"ok":true}`, nil
+	}}
+	cfg := &ir.LLMConfig{Models: []ir.ModelEntry{
+		{Provider: "openai", Name: "primary"},
+		{Provider: "openai", Name: "backup"},
+	}}
+	factory := func(_ context.Context, cfg *ir.LLMConfig) (llmpkg.Provider, error) {
+		if cfg.Model == "primary" {
+			return primary, nil
+		}
+		return backup, nil
+	}
+	ctx := runtime.WithEnv(t.Context(), runtime.Env{Scope: value.NewEnvScope(nil, false)})
+	var log bytes.Buffer
+	bridge, err := newModelBridge(ctx, cfg, agentstep.NewMasker(nil, nil), &log, factory)
+	require.NoError(t, err)
+
+	resp, err := bridge.generate(ctx, generateRequest{
+		Messages: []generateMessage{{Role: "user", Text: "instruction: Click the checkout button"}},
+		Schema:   json.RawMessage(`{"type":"object"}`),
+	})
+	require.NoError(t, err)
+	assert.JSONEq(t, `{"ok":true}`, string(resp.JSON))
+	assert.Equal(t, "backup", bridge.modelName())
+	assert.Equal(t, 2, primary.callCount())
+	require.Equal(t, 1, backup.callCount())
+	assert.Len(t, backup.calls[0].Messages, 1, "the backup model gets the original request")
+	assert.Equal(t, 36, bridge.totals().total())
+	assert.Equal(t, 2, strings.Count(log.String(), "openai/primary answer rejected"))
 }
 
 func TestCheckAllowedDomain(t *testing.T) {

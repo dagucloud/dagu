@@ -1,0 +1,57 @@
+# Agent: the agent chooses which step to run until every task is done.
+type: agent
+description: Ship a small release. The agent plans, builds, checks, asks for approval and publishes.
+llm:
+  provider: anthropic
+  model: claude-opus-5
+  max_tool_iterations: 30
+  system: |
+    You ship a small release. Plan first, then build, then check the result.
+    Ask a person to approve before you publish. Never publish without approval.
+params:
+  - VERSION: 1.4.0
+steps:
+  - id: plan
+    name: plan
+    description: Write the plan of the release.
+    run: echo "plan for ${params.VERSION}"
+
+  - id: build
+    name: build
+    description: Build the release artifacts.
+    run: echo "building ${params.VERSION}"
+
+  - id: check
+    name: check
+    description: Check that the artifacts exist and report their size.
+    run: echo "artifacts 3, size 12 MB"
+
+  - id: approve
+    name: approve
+    description: Ask a person to approve the release before it goes out.
+    action: human.task
+    with:
+      prompt: Approve the release ${params.VERSION}?
+      form:
+        type: object
+        properties:
+          approved:
+            type: boolean
+          note:
+            type: string
+        required: [approved]
+
+  - id: publish
+    name: publish
+    description: Publish the release. Run it only after the approval.
+    run: echo "published ${params.VERSION}"
+
+tasks:
+  - name: planned
+    description: Finished when the plan of the release exists.
+  - name: built
+    description: Finished when the build ran and the check passed.
+  - name: approved
+    description: Finished when a person approved the release.
+  - name: published
+    description: Finished when the release was published after the approval.

@@ -40,21 +40,24 @@ function HistoryTable({ dagRuns, gridData, onSelect, idx }: Props) {
       <Table className="select-none">
         <TableHeader className="bg-muted">
           <TableRow>
-            <TableHead className="py-3">
-              <span className="sr-only">
-                <I18nText text={'Step Name'} />
-              </span>
+            {/* Sized to the longest step name: the run columns stay narrow. */}
+            <TableHead className="w-px whitespace-nowrap py-3">
+              <I18nText text={'Step Name'} />
             </TableHead>
             {dagRuns.map((_, i) => {
               if (!dagRuns || i >= dagRuns.length || !dagRuns[i]) {
                 return null;
               }
 
-              // Format the date for the column header
+              // Format the date and the time for the column header
               let date;
+              let time = '--:--';
+              let full;
               const startedAt = dagRuns[i].startedAt;
               if (startedAt && startedAt != '-') {
                 date = dayjs(startedAt).format('M/D');
+                time = dayjs(startedAt).format('HH:mm');
+                full = dayjs(startedAt).format('YYYY-MM-DD HH:mm:ss');
               } else {
                 date = dayjs().format('M/D');
               }
@@ -76,11 +79,20 @@ function HistoryTable({ dagRuns, gridData, onSelect, idx }: Props) {
                     'hover:bg-muted/50 transition-colors duration-200',
                     i === idx && 'bg-muted/50'
                   )}
+                  title={full}
                   onClick={() => {
                     onSelect(i);
                   }}
                 >
-                  {flag ? date : <span className="sr-only">{date}</span>}
+                  {/* The day shows once, at its first column. Every column
+                      shows its start time, turned to fit 22px. */}
+                  <span className={flag ? 'block' : 'sr-only'}>{date}</span>
+                  <span
+                    data-testid="history-column-time"
+                    className="block text-[10px] font-normal tabular-nums text-muted-foreground [writing-mode:vertical-rl]"
+                  >
+                    {time}
+                  </span>
                 </TableHead>
               );
             })}

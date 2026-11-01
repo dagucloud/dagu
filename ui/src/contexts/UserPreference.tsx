@@ -10,10 +10,11 @@ import { writeLocalStorage } from '@/lib/local-storage-migration';
 export type DAGRunsViewMode = 'list' | 'grouped';
 export type Locale = 'en' | 'zh-CN' | 'ja';
 
+/** Which end of a log is at the top of the viewer. */
+export type LogOrder = 'oldToNew' | 'newToOld';
+
 export type WikiSortField = 'name' | 'type' | 'mtime';
 export type WikiSortOrder = 'asc' | 'desc';
-/** Which panes the DAG spec tab shows: the preview, the YAML, or both. */
-export type SpecViewMode = 'graph' | 'yaml' | 'split';
 /** The chosen color theme; `system` follows the operating system. */
 export type ThemePreference = 'light' | 'dark' | 'system';
 export type ResolvedTheme = 'light' | 'dark';
@@ -22,13 +23,13 @@ export type UserPreferences = {
   pageLimit: number;
   dagRunsViewMode: DAGRunsViewMode;
   logWrap: boolean;
+  logOrder: LogOrder;
   theme: ThemePreference;
   locale: Locale;
   safeMode: boolean;
   wikiSortField: WikiSortField;
   wikiSortOrder: WikiSortOrder;
   pinnedViewOrder: Record<string, string[]>;
-  specViewMode: SpecViewMode;
 };
 
 const UserPreferencesContext = createContext<{
@@ -43,13 +44,13 @@ const defaultPreferences: UserPreferences = {
   pageLimit: 50,
   dagRunsViewMode: 'list',
   logWrap: true,
+  logOrder: 'oldToNew',
   theme: 'system',
   locale: 'en',
   safeMode: false,
   wikiSortField: 'type',
   wikiSortOrder: 'asc',
   pinnedViewOrder: {},
-  specViewMode: 'split',
 };
 
 function isWikiSortField(value: unknown): value is WikiSortField {
@@ -60,16 +61,16 @@ function isWikiSortOrder(value: unknown): value is WikiSortOrder {
   return value === 'asc' || value === 'desc';
 }
 
+function isLogOrder(value: unknown): value is LogOrder {
+  return value === 'oldToNew' || value === 'newToOld';
+}
+
 function isLocale(value: unknown): value is Locale {
   return value === 'en' || value === 'zh-CN' || value === 'ja';
 }
 
 function isThemePreference(value: unknown): value is ThemePreference {
   return value === 'light' || value === 'dark' || value === 'system';
-}
-
-function isSpecViewMode(value: unknown): value is SpecViewMode {
-  return value === 'graph' || value === 'yaml' || value === 'split';
 }
 
 function loadPreferences(): UserPreferences {
@@ -80,9 +81,16 @@ function loadPreferences(): UserPreferences {
     }
     const preferences = JSON.parse(saved) as Record<string, unknown>;
     delete preferences.workflowFilterViews;
+    // The spec tab has one view; an old choice of another is dropped.
+    delete preferences.specViewMode;
+    // The workflow page has one body; an old choice of another is dropped.
+    delete preferences.workflowPage;
     const migrated = {
       ...defaultPreferences,
       ...preferences,
+      logOrder: isLogOrder(preferences.logOrder)
+        ? preferences.logOrder
+        : defaultPreferences.logOrder,
       locale: isLocale(preferences.locale)
         ? preferences.locale
         : defaultPreferences.locale,
@@ -96,9 +104,6 @@ function loadPreferences(): UserPreferences {
         : isWikiSortOrder(preferences.docSortOrder)
           ? preferences.docSortOrder
           : defaultPreferences.wikiSortOrder,
-      specViewMode: isSpecViewMode(preferences.specViewMode)
-        ? preferences.specViewMode
-        : defaultPreferences.specViewMode,
       theme: isThemePreference(preferences.theme)
         ? preferences.theme
         : defaultPreferences.theme,

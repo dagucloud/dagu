@@ -28,3 +28,19 @@ export async function copyText(text: string): Promise<boolean> {
     document.body.removeChild(textArea);
   }
 }
+
+/**
+ * The text of the system clipboard, or '' when the browser does not give it
+ * or the user denies the read.
+ */
+export async function readClipboardText(): Promise<string> {
+  const clipboard = navigator.clipboard;
+  if (!clipboard?.readText) {
+    return '';
+  }
+  try {
+    return await clipboard.readText();
+  } catch {
+    return '';
+  }
+}

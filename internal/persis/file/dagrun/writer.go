@@ -76,6 +76,36 @@ func (w *Writer) Open() error {
 	return nil
 }
 
+// reopenIfReplaced opens the target again when the path names another file
+// than the open one, as after another writer of the same file compacted it.
+// Appends to the replaced file would reach no reader. A path that cannot be
+// read keeps the open file.
+func (w *Writer) reopenIfReplaced() error {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+
+	if !w.isOpenLocked() {
+		return nil
+	}
+	current, err := os.Stat(w.target)
+	if err != nil {
+		return nil
+	}
+	open, err := w.file.Stat()
+	if err != nil || os.SameFile(open, current) {
+		return err
+	}
+	file, err := fileutil.OpenOrCreateFile(w.target)
+	if err != nil {
+		return fmt.Errorf("failed to open file %s: %w", w.target, err)
+	}
+	// Each write flushes, so the buffer holds nothing for the replaced file.
+	_ = w.file.Close()
+	w.file = file
+	w.buffer.Reset(file)
+	return nil
+}
+
 // Write serializes the status to JSON and appends it to the file.
 // It automatically flushes data to ensure durability.
 func (w *Writer) Write(ctx context.Context, st ir.DAGRunStatus) error {

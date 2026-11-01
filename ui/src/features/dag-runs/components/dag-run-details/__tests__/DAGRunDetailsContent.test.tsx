@@ -17,8 +17,8 @@ vi.mock('@/features/dag-runs/components/common', () => ({
   DAGRunActions: () => null,
 }));
 
-vi.mock('@/features/dags/components', () => ({
-  DAGStatus: () => null,
+vi.mock('@/features/dags/components/DAGStatus', () => ({
+  default: () => null,
 }));
 
 vi.mock('@/components/ui/matrix-text', () => ({

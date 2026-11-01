@@ -62,13 +62,11 @@ func (e *harnessExecutor) runACPRemote(ctx context.Context, cfg providerConfig, 
 	if len(def.Headers) != 0 && sendsCleartext(def.URL) {
 		_, _ = fmt.Fprintln(e.stderrWriter(), "harness: warning: remote ACP headers are sent unencrypted; use wss:// or https:// for non-loopback hosts")
 	}
-	httpClient, err := acpRemoteHTTPClient(settings.CAFile, e.workDir)
+	httpClient, release, err := acpRemoteHTTPClient(settings.CAFile, e.workDir)
 	if err != nil {
 		return err
 	}
-	if def.CAFile != "" {
-		defer httpClient.CloseIdleConnections()
-	}
+	defer release()
 	wireCtx, closeWire := context.WithCancel(context.Background())
 	defer closeWire()
 	var stream io.ReadWriteCloser

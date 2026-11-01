@@ -445,7 +445,7 @@ func TestSessionWorkAndExport(t *testing.T) {
 	s.session("", "close", id).ExpectExitCode(0)
 	listed := s.session("", "list")
 	listed.ExpectExitCode(0)
-	assert.JSONEq(t, `{"sessions": [], "capabilities": ["trusted_cas"]}`, listed.Stdout())
+	assert.JSONEq(t, `{"sessions": [], "capabilities": ["trusted_cas", "write_gate"]}`, listed.Stdout())
 
 	acts := s.model.count(kindAct)
 	s.dagu.RunWithEnv(s.env, "start", "orders.yaml").ExpectExitCode(0)
@@ -548,7 +548,9 @@ func TestSessionEndsWhenIdle(t *testing.T) {
 	t.Parallel()
 
 	s := newSessionEnv(t)
-	id := s.open("--idle-timeout", "3s")
+	// The timeout starts at open, so it has to outlast the do that follows,
+	// which on a loaded runner takes seconds to start and reach the browser.
+	id := s.open("--idle-timeout", "15s")
 	s.session(`{"expect": {"text": "Order portal"}}`, "do", id).ExpectExitCode(0)
 
 	require.Eventually(t, func() bool {

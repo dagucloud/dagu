@@ -84,6 +84,16 @@ function humanizePathSegment(segment: string): string {
     .replace(/\b\w/g, (char) => char.toUpperCase());
 }
 
+// Workflow page sections that have a catalog name. The others are shown as
+// their path segment.
+const DAG_SECTION_KEYS: Record<string, TranslationKey> = {
+  executions: 'navigation.executions',
+  wiki: 'navigation.wiki',
+  notifications: 'navigation.notifications',
+  incidents: 'navigation.incidents',
+  webhook: 'navigation.webhooks',
+};
+
 export function getBreadcrumbItems(
   pathname: string,
   t: Translate = (key) => translate('en', key)
@@ -111,8 +121,9 @@ export function getBreadcrumbItems(
       });
     }
     if (segments[2]) {
+      const sectionKey = DAG_SECTION_KEYS[segments[2]];
       items.push({
-        label: humanizePathSegment(segments[2]),
+        label: sectionKey ? t(sectionKey) : humanizePathSegment(segments[2]),
         to: `/dags/${segments[1]}/${segments[2]}`,
       });
     }
@@ -121,19 +132,6 @@ export function getBreadcrumbItems(
 
   if (segments[0] === 'dag-runs') {
     items.push({ label: t('navigation.executions'), to: '/dag-runs' });
-    if (segments[1]) {
-      const dagName = decodePathSegment(segments[1]);
-      items.push({
-        label: dagName,
-        to: `/dag-runs?name=${encodeURIComponent(dagName)}`,
-      });
-    }
-    if (segments[2]) {
-      items.push({
-        label: decodePathSegment(segments[2]),
-        to: `/dag-runs/${segments[1]}/${segments[2]}`,
-      });
-    }
     return items;
   }
 
@@ -306,7 +304,7 @@ export function ContentNavigation({
   const items = getBreadcrumbItems(pathname, t);
 
   return (
-    <div className="hidden min-h-12 items-center gap-3 border-b border-border bg-background/95 px-4 backdrop-blur md:flex">
+    <div className="hidden min-h-12 items-center gap-3 border-b border-border bg-background/95 px-4 md:flex">
       <Button asChild variant="ghost" size="icon-sm" className="shrink-0">
         <Link to="/home" aria-label={t('navigation.contentHome')}>
           <Home className="h-4 w-4" />

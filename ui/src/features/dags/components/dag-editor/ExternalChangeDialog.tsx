@@ -2,6 +2,7 @@ import { Button } from '@/components/ui/button';
 import {
   Dialog,
   DialogContent,
+  DialogDescription,
   DialogFooter,
   DialogHeader,
   DialogTitle,
@@ -64,9 +65,9 @@ function ExternalChangeDialog({ visible, onDiscard, onIgnore }: Props) {
         </DialogHeader>
 
         <div className="py-4 space-y-3">
-          <p className="text-sm text-muted-foreground">
+          <DialogDescription className="text-sm text-muted-foreground">
             <I18nText text={"The DAG specification has been modified externally while you were editing."} />
-          </p>
+          </DialogDescription>
           <div className="text-sm space-y-1">
             <p className="font-medium"><I18nText text={"What would you like to do?"} /></p>
             <ul className="text-muted-foreground space-y-1 ml-4 list-disc">

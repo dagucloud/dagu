@@ -13,9 +13,9 @@ import {
   writeLocalDAG,
 } from './helpers/e2e';
 
-// The run page is the one place a run is selected, and its URL keeps the
-// open tab and step so a link or reload lands on the same view.
-test('opens runs, steps, and tabs from their links', async ({
+// A run is selected on its workflow page with ?run, and the URL keeps the
+// open tab and step. The links of the removed run page redirect there.
+test('opens runs, steps, and tabs from their old links', async ({
   page,
   request,
 }) => {
@@ -43,31 +43,45 @@ steps:
   await waitForRunStatus(request, token, dagName, runId, ['succeeded']);
   await loginViaUI(page, stack.auth.adminUsername, stack.auth.adminPassword);
 
+  const here = () => {
+    const url = new URL(page.url());
+    return {
+      path: url.pathname,
+      run: url.searchParams.get('run'),
+      step: url.searchParams.get('step'),
+      dock: url.searchParams.get('dock'),
+    };
+  };
+
   await page.goto(
     `/dags/${encodeURIComponent(fileName)}?dagRunId=${runId}&dagRunName=${dagName}`
   );
   await expect
-    .poll(() => new URL(page.url()).pathname)
-    .toBe(`/dag-runs/${dagName}/${runId}`);
+    .poll(() => here())
+    .toMatchObject({ path: `/dags/${dagName}`, run: runId });
 
-  await page.goto(`/dag-runs/${dagName}/${runId}?step=publish`);
-  await expect(page.getByRole('dialog', { name: 'publish' })).toBeVisible();
-  await page.keyboard.press('Escape');
-  await expect
-    .poll(() => new URL(page.url()).searchParams.get('step'))
-    .toBeNull();
+  // A step view has no Timeline tab (the timeline is the view of the run): the
+  // old link with a step and the timeline tab opens the Log of the step.
+  await page.goto(`/dag-runs/${dagName}/${runId}?step=publish&tab=timeline`);
+  await expect.poll(() => here().path).toBe(`/dags/${dagName}`);
+  expect(here().run).toBe(runId);
+  await expect(
+    page.getByTestId('ww-dock').getByRole('tab', { name: 'Log', exact: true })
+  ).toHaveAttribute('aria-selected', 'true', { timeout: 30_000 });
 
-  await page.getByRole('button', { name: 'Timeline', exact: true }).click();
-  await expect
-    .poll(() => new URL(page.url()).searchParams.get('tab'))
-    .toBe('timeline');
+  await page.goto(`/dag-runs/${dagName}/${runId}?tab=timeline`);
+  await expect.poll(() => here().path).toBe(`/dags/${dagName}`);
+  expect(here().run).toBe(runId);
+  await expect(page.getByTestId('ww-pane')).toBeVisible();
+  const dock = page.getByTestId('ww-dock');
+  await expect(
+    dock.getByRole('tab', { name: 'Timeline', exact: true })
+  ).toHaveAttribute('aria-selected', 'true', { timeout: 30_000 });
+  expect(here().dock).toBe('timeline');
+
   await page.reload();
-  // The timeline replaces the step table that the Status tab shows.
   await expect(
-    page.getByText('prepare', { exact: true }).first()
-  ).toBeVisible();
-  await expect(
-    page.getByRole('columnheader', { name: 'Step Name' })
-  ).toHaveCount(0);
-  expect(new URL(page.url()).searchParams.get('tab')).toBe('timeline');
+    dock.getByRole('tab', { name: 'Timeline', exact: true })
+  ).toHaveAttribute('aria-selected', 'true', { timeout: 30_000 });
+  expect(here().run).toBe(runId);
 });

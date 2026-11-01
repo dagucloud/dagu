@@ -298,7 +298,7 @@ export function ArtifactFilePreview({
                     );
                   });
                 }}
-                className="flex items-center gap-1 rounded-md px-2 py-0.5 text-xs text-muted-foreground transition-all hover:bg-muted hover:text-foreground"
+                className="flex items-center gap-1 rounded-md px-2 py-0.5 text-xs text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
                 title="Copy content"
               >
                 {copiedContent ? (

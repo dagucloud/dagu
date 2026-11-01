@@ -20,17 +20,26 @@ type NodeData = components['schemas']['Node'];
 interface ApprovalTabProps {
   dagRun: DAGRunDetails;
   dagName: string;
+  /** Shows only the card of this step. */
+  stepName?: string;
+  /**
+   * The host is a padded panel: the cards have no frame, and a line apart
+   * from the next one.
+   */
+  bare?: boolean;
 }
 
 function ApprovalCard({
   node,
   dagRun,
   dagName,
+  bare,
   onAction,
 }: {
   node: NodeData;
   dagRun: DAGRunDetails;
   dagName: string;
+  bare?: boolean;
   onAction: (node: NodeData, action: 'approve' | 'retry') => void;
 }) {
   const step = node.step;
@@ -38,7 +47,13 @@ function ApprovalCard({
   const iteration = node?.approvalIteration || 0;
 
   return (
-    <div className="bg-surface border border-border rounded-lg p-4 space-y-3">
+    <div
+      className={
+        bare
+          ? 'space-y-3 border-b border-border pb-4 last:border-b-0 last:pb-0'
+          : 'bg-surface border border-border rounded-lg p-4 space-y-3'
+      }
+    >
       {/* Header + Action buttons */}
       <div className="flex items-start justify-between gap-4">
         <div className="space-y-1">
@@ -46,7 +61,7 @@ function ApprovalCard({
             <span className="text-sm font-semibold">{step.name}</span>
             {iteration > 0 && (
               <span className="text-xs font-normal text-muted-foreground bg-muted px-1.5 py-0.5 rounded">
-                <I18nText text={"Iteration"} /> {iteration}
+                <I18nText text={'Iteration'} /> {iteration}
               </span>
             )}
           </div>
@@ -62,7 +77,7 @@ function ApprovalCard({
               onClick={() => onAction(node, 'retry')}
             >
               <RotateCcw className="h-4 w-4" />
-              <I18nText text={"Retry"} />
+              <I18nText text={'Retry'} />
             </Button>
           )}
           <Button
@@ -71,7 +86,7 @@ function ApprovalCard({
             onClick={() => onAction(node, 'approve')}
           >
             <Check className="h-4 w-4" />
-            <I18nText text={"Approve"} />
+            <I18nText text={'Approve'} />
           </Button>
         </div>
       </div>
@@ -83,7 +98,7 @@ function ApprovalCard({
       {/* Step Output */}
       <div>
         <div className="text-xs font-medium text-muted-foreground mb-1">
-          <I18nText text={"Step Output"} />
+          <I18nText text={'Step Output'} />
         </div>
         <div className="max-h-[400px] overflow-y-auto rounded border border-border">
           <InlineLogViewer
@@ -99,7 +114,12 @@ function ApprovalCard({
   );
 }
 
-export function ApprovalTab({ dagRun, dagName }: ApprovalTabProps) {
+export function ApprovalTab({
+  dagRun,
+  dagName,
+  stepName,
+  bare,
+}: ApprovalTabProps) {
   const client = useClient();
   const remoteNode = useRemoteNode();
 
@@ -108,7 +128,11 @@ export function ApprovalTab({ dagRun, dagName }: ApprovalTabProps) {
     action: 'approve' | 'retry';
   } | null>(null);
 
-  const { waitingApprovalNodes: waitingNodes } = getManualActionState(dagRun);
+  const { waitingApprovalNodes } = getManualActionState(dagRun);
+  const waitingNodes =
+    stepName === undefined
+      ? waitingApprovalNodes
+      : waitingApprovalNodes.filter((node) => node.step.name === stepName);
 
   const isSubRun = !!(
     dagRun.rootDAGRunId &&
@@ -156,7 +180,7 @@ export function ApprovalTab({ dagRun, dagName }: ApprovalTabProps) {
   if (waitingNodes.length === 0) {
     return (
       <div className="text-center text-muted-foreground py-8 text-sm">
-        <I18nText text={"No steps awaiting approval."} />
+        <I18nText text={'No steps awaiting approval.'} />
       </div>
     );
   }
@@ -169,6 +193,7 @@ export function ApprovalTab({ dagRun, dagName }: ApprovalTabProps) {
           node={node}
           dagRun={dagRun}
           dagName={dagName}
+          bare={bare}
           onAction={(n, action) => setReviewState({ node: n, action })}
         />
       ))}

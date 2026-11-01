@@ -1227,6 +1227,18 @@ func TestHandler_Poll(t *testing.T) {
 		require.Equal(t, "alice", status.TriggerActor)
 	})
 
+	t.Run("WriteInitialStatusRecordsModelUsage", func(t *testing.T) {
+		t.Parallel()
+
+		h := NewHandler(HandlerConfig{})
+		attempt := &mockAttempt{}
+		require.NoError(t, h.writeInitialStatus(context.Background(), attempt, &coordinatorv1.Task{DagRunId: "run-123"}, "test-dag", ir.DAGRunRef{}, nil))
+
+		status, err := attempt.ReadStatus(context.Background())
+		require.NoError(t, err)
+		require.True(t, status.ModelUsageRecorded, "a dispatched run that has not started yet has used no model")
+	})
+
 	t.Run("DispatchFailsWhenAttemptPreparationFails", func(t *testing.T) {
 		t.Parallel()
 		registerCommandExecutorCapsForCoordinatorTest()
@@ -1727,6 +1739,10 @@ func (s *failingDispatchTaskStore) HasOutstandingAttempt(context.Context, string
 }
 
 func (s *failingDispatchTaskStore) ListExpiredHeld(context.Context, time.Time) ([]*dispatch.DispatchTask, error) {
+	return nil, nil
+}
+
+func (s *failingDispatchTaskStore) ListStalePending(context.Context, time.Time) ([]*dispatch.DispatchTask, error) {
 	return nil, nil
 }
 
@@ -6505,4 +6521,18 @@ func TestHandler_GetOrOpenSubAttempt(t *testing.T) {
 		_, err := h.getOrOpenSubAttempt(ctx, rootRef, "non-existent")
 		assert.Error(t, err)
 	})
+}
+
+// A status written before timestamps carried milliseconds names the same
+// instant in another form. An older worker that reports a stored time drops
+// its milliseconds.
+func TestSameTimestamp(t *testing.T) {
+	t.Parallel()
+
+	assert.True(t, sameTimestamp("2026-05-19T01:02:03Z", "2026-05-19T01:02:03.000Z"))
+	assert.True(t, sameTimestamp("2026-05-19T01:02:03Z", "2026-05-19T01:02:03.456Z"))
+	assert.True(t, sameTimestamp("", ""))
+	assert.False(t, sameTimestamp("2026-05-19T01:02:03Z", "2026-05-19T01:02:04.000Z"))
+	assert.False(t, sameTimestamp("2026-05-19T01:02:03.123Z", "2026-05-19T01:02:03.456Z"))
+	assert.False(t, sameTimestamp("", "2026-05-19T01:02:03.000Z"))
 }

@@ -20,6 +20,7 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/persis"
 	"github.com/dagucloud/dagu/v2/internal/runctx"
+	"github.com/dagucloud/dagu/v2/internal/runtime/modelusage"
 	"github.com/dagucloud/dagu/v2/internal/runtime/workspacebundle"
 )
 
@@ -215,7 +216,7 @@ func (e *SubDAGExecutor) Execute(ctx context.Context, runParams RunParams, workD
 	if err := e.cancellationErr(ctx); err != nil {
 		return nil, err
 	}
-	return e.subWorkflowRunner.Run(runCtx, req)
+	return reportSubRunUsage(ctx)(e.subWorkflowRunner.Run(runCtx, req))
 }
 
 // Reuse returns the persisted result of a child run without executing it.
@@ -238,7 +239,7 @@ func (e *SubDAGExecutor) Reuse(ctx context.Context, runParams RunParams, workDir
 	if err := e.cancellationErr(ctx); err != nil {
 		return nil, err
 	}
-	return e.subWorkflowRunner.Run(runCtx, req)
+	return reportSubRunUsage(ctx)(e.subWorkflowRunner.Run(runCtx, req))
 }
 
 // Retry executes a parent-managed step retry for a previously started sub DAG.
@@ -266,12 +267,25 @@ func (e *SubDAGExecutor) Retry(ctx context.Context, runParams RunParams, stepNam
 	// Only an explicit child retry path carries the parent's bypass scope.
 	// Automatic retries of a newly started child have no retry path.
 	bypassPreconditions := runctx.GetContext(ctx).BypassPreconditions && path.Step != ""
-	return e.subWorkflowRunner.Retry(runCtx, SubWorkflowRetryRequest{
+	return reportSubRunUsage(ctx)(e.subWorkflowRunner.Retry(runCtx, SubWorkflowRetryRequest{
 		SubWorkflowRequest:  req,
 		StepName:            stepName,
 		IncludeDownstream:   runctx.GetContext(ctx).IncludeDownstream,
 		BypassPreconditions: bypassPreconditions,
-	})
+	}))
+}
+
+// reportSubRunUsage passes a child run's result through, after keeping what
+// the child used on models as the step's. The child's entry replaces the one
+// before, since a retried or reused child's total already covers its earlier
+// attempts.
+func reportSubRunUsage(ctx context.Context) func(*ir.RunStatus, error) (*ir.RunStatus, error) {
+	return func(result *ir.RunStatus, err error) (*ir.RunStatus, error) {
+		if result != nil {
+			modelusage.FromContext(ctx).SetReported(modelusage.SubRunSource(result.DAGRunID), result.ModelUsage)
+		}
+		return result, err
+	}
 }
 
 func validateSubWorkflowRequest(req SubWorkflowRequest) error {

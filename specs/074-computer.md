@@ -131,7 +131,8 @@ and earlier `ask` answers, which validation checks as it does for an
 `act`; a selector's `id` and `app` are identifiers and stay as written. An
 exact check never reaches the model, so the secret check does not apply to
 it, and its values are masked in the timeline as typed values are. Exact
-checks need 64-bit Windows; elsewhere the step fails at the first one.
+checks need macOS or 64-bit Windows; elsewhere the step fails at the first
+one.
 
 ### Model
 
@@ -156,6 +157,15 @@ runs without one.
 When several models are listed, an `act` moves to the next model only when a
 model fails before any action ran. `extract` and conditions try the models in
 order for every request.
+
+`extract` and conditions ask for a `respond` tool call whose parameters are
+the answer schema. A reply without a tool call is accepted when its text is
+valid JSON. Any other reply gets one correction: the next request to the same
+model carries the rejected reply as an assistant message, followed by a user
+message stating why it was rejected, and the step log shows the rejected reply
+after `warning: <provider>/<model> answer rejected: <reason>`. When the
+corrected reply is also unusable, that model has failed and the next listed
+model is tried. Tokens of every call count, the rejected reply's included.
 
 ### Act
 
@@ -184,8 +194,33 @@ The act fails when:
 
 A step never operates the application that runs it: an action aimed at one
 of its windows, or keys and typing while one has the focus, fails with a
-result naming the window, and the model is told. On Windows those are the
-windows of the Dagu process and the processes that started it.
+result naming the window, and the model is told. Those are the windows of
+the Dagu process and the processes that started it, and on any system the
+windows of the applications named, by executable name and separated by
+commas, in the `DAGU_DESKTOP_PROTECTED_APPS` environment variable, and the
+windows whose title matches one named, separated by commas and matched as
+a window title is anywhere else, in `DAGU_DESKTOP_PROTECTED_TITLES`. The
+first protects an application a person starts automation from when a
+service manager, rather than that application, starts Dagu, as on macOS;
+the second protects that application's pages in a browser a person also
+uses, where a click could start the automation again.
+
+### Window size
+
+Unless `with.maximize` is `false`, a step maximizes the window in front
+before an operation looks at the screen: before an `act` and each model turn
+of it, each replayed turn and while a pixel turn waits for its screen, and
+before an `extract`, an `expect`, a `when`, and a `screenshot`. An `act` or
+an `extract` may set its own `maximize`. The application is then operated at
+one size every run, so recordings replay, and the model reads larger text.
+On Windows the window is maximized as its maximize button would; on macOS it
+fills the main display between the menu bar and the Dock, without entering
+full screen, which would move it to a Space of its own. A window on another
+display moves to the main display, the only one captured. A dialog, a sheet,
+a panel, a window of fixed size, a window already maximized, and a window of
+a protected application are left as they are. Each window is maximized at
+most once per step attempt, so a window a person or its application resizes
+afterwards keeps its size. The step log names each window it maximized.
 
 The step log lists each action; the timeline records one event per operation.
 
@@ -197,11 +232,17 @@ pointer or keyboard for `with.idle` (default `5s`), and logs that it is
 waiting in an event named `person`. Input the step itself sent does not count, including input sent by
 the step that held the desktop before it. When a person uses the desktop
 after the screenshot the model answered, the step waits for the idle period
-again. If the screen then still looks like the one the model saw, overall
-and where each action lands, and the keyboard focus is still on the window
-it was on, the actions run; otherwise they are not run, and the new
-screenshot is sent with a note saying why. Where the system does not report
-the focus, a turn that types or presses keys is not run either. The end of
+again. If the window the actions land on still looks as the model saw it,
+overall and where each action lands, and the keyboard focus is still on the
+window it was on, the actions run; otherwise they are not run, and the new
+screenshot is sent with a note saying why. Before that screenshot, an act
+brings back the application it was working in: the one in front when the
+act started, or the one its last action that ran operated (where a pointer
+action landed, or the window in front as keys were sent; a screenshot or a
+wait operates none). The window the person
+left in front is theirs, so the step never maximizes it. A change elsewhere on the screen
+does not stop the actions. Where the system does not report the focus, the
+screen check alone guards a turn that types or presses keys. The end of
 a wait is a lifecycle event of its own, `running`, so a view knows the step
 is at work again. Skipped actions do
 not count toward `max_actions`. The waiting does not count toward the
@@ -226,6 +267,15 @@ text containing `%name%`, the value is typed instead. Values typed into fields
 that show them can appear in later screenshots, which are sent to the model
 and saved as artifacts.
 
+`with.visible` lists variables whose values the model may see, for values
+that are not secret: the model is told what each one stands for, so it can
+find or choose it on the screen, such as an item in a list a row chooses
+from. It still types the placeholder, and an element it chose by such a
+value is recorded by the placeholder (see Recordings), so the next run
+chooses its own value. A name in `with.visible` must be in
+`with.variables`, and the step fails before operating the desktop when a
+visible value holds a declared secret's value, however short.
+
 The step fails before operating the desktop when an `act`, `extract`, `ask`,
 `expect`, or `when` text contains the resolved value of a secret declared
 under `secrets:` that has four or more characters. Declared secret values and
@@ -247,7 +297,9 @@ A DAG with a computer action enables artifact storage unless it sets
 `computer/<step id>/` in the run's artifacts directory, scaled to at most
 1920 pixels on the long edge, and are not masked. `with.screenshots` takes the
 same values as for browser actions: `on_failure` (default), `final`, `each`,
-or `never`. With artifacts disabled, a `screenshot` operation fails.
+or `never`. A step in a `foreach` body writes every item's screenshots there,
+and each item's timeline names the screenshots it took. With artifacts
+disabled, a `screenshot` operation fails.
 
 ### How much AI decides
 
@@ -291,11 +343,16 @@ chose on it, and the recordings are kept when the step succeeds. Beside the
 pixels of each action, a recording keeps the element the action landed on,
 or typed into, when the host can read elements (see Elements): its role,
 its name or id, its path in the window, and where in it the pointer went.
-An element with neither a name nor an id is recorded by its pixels alone.
-A name or a typed text equal to a variable's value or an `ask` answer of
-two or more characters is recorded as the `%name%` placeholder, and a
-window title containing such a value likewise, so a recording made on one
-record replays on the next. The recording keeps the application of the
+An element with neither a name nor an id is recorded by its pixels alone. A
+name or a typed text equal to a variable's value or an `ask` answer of two
+or more characters is recorded as the `%name%` placeholder, and so is a
+name equal to a `with.visible` value however short, since the model chose
+the element by it; an element recorded by a placeholder is recorded without
+its id, which would find the recorded element again. In a window title,
+each such value of two or more characters is replaced by its placeholder
+likewise, so a recording made on one record replays on the next; a shorter
+value stays as it is there, since one character would match parts of the
+title that are not the value. The recording keeps the application of the
 window the act ran on — the process image name — which a replay matches on,
 and each window's title only to tell apart several windows of one
 application and as a fallback when the application cannot be read. The
@@ -303,24 +360,50 @@ recording ends with its landmarks: the window in front and up to three of
 the elements the act touched last that were still there.
 
 A later run of the same step on the same host replays a recording without
-a model request when the operation position and instruction match. Each
+a model request when the operation position and instruction match, and the
+recording fits the run's values. A recording fits only where it does what
+the instruction asks for each variable the instruction names: a variable no
+recorded action types, chooses, or finds its element by, such as an item a
+pop-up already showed on the row the recording was made on, is kept with a
+salted digest of the value it had, never the value. A run in which such a
+variable holds another value, or whose recording keeps no digest of it,
+does not replay: the model works the act and records afresh, and under
+`never` the act fails with `its recording does nothing with %item%, so it
+fits only the value %item% had when it was recorded`. A variable an
+instruction names only to say where the act works, which its actions never
+need, costs a model request for each new value, so an instruction names only
+the variables its actions use. Each
 turn replays by its elements when every pointer action of the turn has one
 and the application in front is the recorded one: each element is found again,
 with the recorded path breaking a tie between equal matches, and the action
 runs where it is now, typing into it after focusing it. Otherwise the turn
-replays by its pixels, which need the recorded display size and each
-screen, and the area around each pointer action, to look as recorded. A
+replays by its pixels within the application window it was recorded on: the
+window its first pointer action landed on, or the window with the keyboard
+focus for a turn that only types or presses keys, or the front window of
+that window's application when the action landed on a menu. The replay
+finds the application's front window of the recorded size, needs that
+window, and the area around each pointer action inside it, to look as
+recorded, and acts at the recorded positions relative to the window's
+corner. A window that moved and a change elsewhere on the screen do not
+stop it; a window of another size does. A turn recorded where the system
+named no window compares the whole display, which then needs the recorded
+display size. A
 replayed action waits for its element, and a pixel turn for its screen,
 looking again every quarter second until `find_within` passes: 10 seconds
 unless `with.find_within` or `act.find_within` says otherwise, 0 to look
 once. The wait counts toward the operation timeout. After the last turn, a
 replay whose turns all ran by elements needs its landmarks in front, when
-the recording has some; any other replay needs the screen to look as
-recorded.
+the recording has some; any other replay needs the window the act ended on,
+or the whole display where the system named none, to look as recorded.
 
 `with.input`, or `act.input` for one act, says how a replayed action
 reaches the application. `screen`, the default, sends the pointer and keys
-as the model did. `direct` has the element act itself through its
+as the model did; a click the model carried out through the element itself,
+as it does on a button, replays the same way under either input, since a
+click at the element's centre may not reach what the pattern did. A click
+the model aims at a combo box lands on it as a person's click does, opening
+one that only offers a list and putting the caret in one that takes typing.
+`direct` has the element act itself through its
 automation pattern, which moves no pointer and needs no window in front: a
 plain click on a `button`, `menu_item`, `link`, or a control of role
 `other` invokes it, on a `checkbox` toggles it, on a `radio`, `list_item`,
@@ -342,8 +425,11 @@ proved it sets the value as `sets_value`.
 
 When an element or a screen is not found, or an action fails, the model
 continues the task from the current screen and the new actions are
-recorded; the timeline marks the operation `healed`. When the step
-succeeds, the turns that replayed and the new actions replace the
+recorded; the timeline marks the operation `healed`. The model is told
+which recorded actions the replay already carried out and why it stopped,
+so it does only what is still needed, and nothing when the task is already
+done, such as a form the replay saved before its last screen differed. When
+the step succeeds, the turns that replayed and the new actions replace the
 recording; when there are none, the recording is removed unless another run
 of the step replaced it first. A full replay is marked `cache-hit`, with
 `via: element` when every turn replayed by elements and `via: screen`
@@ -427,11 +513,10 @@ device of a system with no first-time learning, an act takes `recorded` and
 an extract takes `fields`, written into the step and keyed by system
 (`windows` or `macos`). A device whose system matches runs them ahead of its
 own recording; a block for another system is ignored. The system is the
-host's: Windows runs the `windows` block, macOS the `macos` block. A `macos`
-pin is accepted now but runs only once the macOS element reader lands (phase
-8); until then a Mac host reads no elements, so a `macos` pin misses rather
-than failing, and `on_miss` hands the act to the model while `never` reports
-the miss. A Windows host that cannot open UI Automation behaves the same.
+host's: Windows runs the `windows` block, macOS the `macos` block. A host
+that cannot read elements, such as a Windows host that cannot open UI
+Automation, misses a pin rather than failing, and `on_miss` hands the act to
+the model while `never` reports the miss.
 
 `recorded` is a list of steps, each exactly one of: `click`, `double_click`,
 `right_click` (a selector); `type` (`{into, text}`, where `text` keeps its
@@ -482,10 +567,16 @@ scroll more than 30% of the element's width or height from its centre
 (except on a text field), since a pin acts at the centre, a move alone, a
 held key, or a button pressed or released alone. An act with one lists each such action
 with its turn and why, instead of steps, since a pin that skipped an action
-would report success without doing the task. An extract's bindings become
-its fields. `--format json` prints `{"operations": [...]}`, each with
-`step`, `op`, `kind`, `system`, `saved_at`, and `recorded`, `fields`, or
-`unpinnable`, whose items carry `turn`, `action`, `reason`, and a `code` for
+would report success without doing the task. An act whose recording never
+used a variable its instruction names (see Replay cache) says so in a
+comment above its steps, since pinned steps run for every value and would
+leave that variable's field as each run finds it; an act recorded before
+recordings noted those variables (format version 4 or older) says to check
+that its steps use each variable the task names. An extract's bindings
+become its fields. `--format json` prints `{"operations": [...]}`, each with
+`step`, `op`, `kind`, `system`, `saved_at`, `assumes`, which names those
+variables, `assumes_unknown`, set for such an older act, and `recorded`,
+`fields`, or `unpinnable`, whose items carry `turn`, `action`, `reason`, and a `code` for
 a program: `no_element`, `edge_click`, `click_with_keys`, `click`,
 `no_field`, `keys`, `edge_scroll`, `scroll`, `move`, `drag`, `hold_key`,
 `button`, or `unsupported`.
@@ -561,12 +652,29 @@ Elements are read on 64-bit Windows through UI Automation, so Win32,
 WinForms, WPF, UWP, Office, and Chromium windows expose them; a Chromium
 window builds its tree when first asked. A window of a process run as
 administrator, or one that draws its own controls, gives `no_elements`.
-Other systems give `unsupported`. Direct input uses the control patterns
-the same elements offer: Invoke, Toggle, SelectionItem, ExpandCollapse, and
-Value, with ScrollItem to bring an item into view first. A pattern call
-runs on a thread of its own, so an application that opens a dialog inside
-the call holds only that call, which comes back as a miss after five
-seconds while the elements stay readable.
+Direct input uses the control patterns the same elements offer: Invoke,
+Toggle, SelectionItem, ExpandCollapse, and Value, with ScrollItem to bring
+an item into view first. A pattern call runs on a thread of its own, so an
+application that opens a dialog inside the call holds only that call, which
+comes back as a miss after five seconds while the elements stay readable.
+
+On macOS elements are read through Accessibility, with the Accessibility
+permission a step already needs, so AppKit, SwiftUI, Catalyst, and Chromium
+and Electron windows expose them. The step turns on a Chromium or Electron
+application's tree, which it builds a moment after a client asks, through
+its `AXManualAccessibility` attribute. Roles map from Accessibility roles:
+`AXButton` is a `button`, `AXTextField` and `AXTextArea` a `text_field`,
+`AXStaticText` a `text` named by what it shows, `AXCheckBox` a `checkbox`,
+`AXRadioButton` a `radio`, or a `tab` in a tab group, `AXPopUpButton` and
+`AXComboBox` a `combo_box`, `AXRow` a `list_item`, `AXCell` a `cell`,
+`AXTable`, `AXOutline`, and `AXList` a `list`, and `AXGroup` a `group`,
+named by the element that titles it when it has no title of its own. An
+element's id is its accessibility identifier, or a web page's element id.
+Direct input presses an element, sets its selected state, shows its menu,
+or sets its value. Every request to an application is bounded by a two
+second timeout, so an application that opens a dialog inside a press holds
+only that call, which comes back as a miss while the elements stay
+readable. Other systems give `unsupported`.
 
 ## Errors
 

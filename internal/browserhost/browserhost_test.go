@@ -135,7 +135,7 @@ func TestStoreRoundTrip(t *testing.T) {
 
 	store := browserhost.NewStore(t.TempDir())
 	record := browserhost.Record{
-		ID:       browserhost.RecordID("run-1", "login"),
+		ID:       browserhost.RecordID("run-1", "", "login"),
 		DAGRunID: "run-1",
 		StepName: "login",
 		State:    browserhost.StateDetached,
@@ -293,6 +293,19 @@ func TestSweep(t *testing.T) {
 			name:   "detached for a step that cannot resume",
 			record: browserhost.Record{State: browserhost.StateDetached, Deadline: now.Add(time.Hour), StepName: "cancelled"},
 		},
+		{
+			name:   "running with a live write gate",
+			record: browserhost.Record{State: browserhost.StateRunning, OwnerPID: os.Getpid(), OwnerStartedAt: startedAt, WriteGatePID: os.Getpid(), WriteGateStartedAt: startedAt},
+			kept:   true,
+		},
+		{
+			name:   "running after its write gate died",
+			record: browserhost.Record{State: browserhost.StateRunning, OwnerPID: os.Getpid(), OwnerStartedAt: startedAt, WriteGatePID: 1 << 30},
+		},
+		{
+			name:   "detached after its write gate died",
+			record: browserhost.Record{State: browserhost.StateDetached, Deadline: now.Add(time.Hour), WriteGatePID: 1 << 30},
+		},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
@@ -348,6 +361,7 @@ func TestSweepSessions(t *testing.T) {
 		{name: "idle past its deadline while a command holds it", record: browserhost.Record{State: browserhost.StateInteractive, Deadline: now.Add(-time.Second)}, held: true, want: "kept"},
 		{name: "running with a live command", record: browserhost.Record{State: browserhost.StateRunning, OwnerPID: os.Getpid(), OwnerStartedAt: startedAt}, want: "kept"},
 		{name: "running after its command died", record: browserhost.Record{State: browserhost.StateRunning, OwnerPID: 1 << 30}, want: "ended"},
+		{name: "idle after its write gate died", record: browserhost.Record{State: browserhost.StateInteractive, Deadline: now.Add(time.Minute), WriteGatePID: 1 << 30}, want: "ended"},
 		{name: "ended within its retention", record: browserhost.Record{State: browserhost.StateEnded, Deadline: now.Add(time.Hour)}, want: "kept"},
 		{name: "ended past its retention", record: browserhost.Record{State: browserhost.StateEnded, Deadline: now.Add(-time.Second)}, want: "purged"},
 	} {

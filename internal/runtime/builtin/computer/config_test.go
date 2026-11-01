@@ -53,11 +53,30 @@ func TestValidateStep(t *testing.T) {
 		{name: "unknown variable in selector", with: `{"do": [{"act": "x", "when": {"element": {"role": "text_field", "near": {"label": "%label%", "side": "right"}}}}]}`, llm: model, want: "when references %label%"},
 		{name: "variable in a container from an earlier ask", with: `{"do": [{"ask": {"prompt": "Group?", "as": "group"}}, {"expect": {"element": {"role": "button", "name": "保存", "in": {"role": "group", "name": "%group%"}}}}]}`, llm: model},
 		{name: "variable in a window from variables", with: `{"variables": {"doc": "1042"}, "do": [{"expect": {"window": "請求書 %doc%"}}]}`, llm: model},
+		{name: "visible variable", with: `{"variables": {"item": "Toner T-20"}, "visible": ["item"], "do": [{"act": "Choose %item%"}]}`, llm: model},
+		{name: "visible names an unknown variable", with: `{"variables": {"item": "Toner T-20"}, "visible": ["sku"], "do": [{"act": "Choose %item%"}]}`, llm: model, want: `visible names "sku", which is not in with.variables`},
 		{name: "never with extract of no bindable field", with: `{"ai": "never", "do": [{"extract": {"instruction": "a", "schema": {"type": "object"}}}]}`, llm: model, want: "has no field that reads from an element"},
 		{name: "never with extract of a bindable field", with: `{"ai": "never", "do": [{"extract": {"instruction": "a", "schema": {"type": "object", "properties": {"total": {"type": "number"}}}}}]}`, llm: model},
 		{name: "never with extract of an object field", with: `{"ai": "never", "do": [{"extract": {"instruction": "a", "schema": {"type": "object", "properties": {"total": {"type": "number"}, "lines": {"type": "object"}}}}}]}`, llm: model, want: `extract under never cannot read lines`},
 		{name: "extract that overrides never", with: `{"ai": "never", "do": [{"extract": {"instruction": "a", "ai": "on_miss", "schema": {"type": "object"}}}]}`, llm: model},
 		{name: "ai and cache", with: `{"ai": "never", "cache": true, "do": [{"act": "x"}]}`, llm: model, want: "set ai or cache, not both"},
+		{name: "when on a value needs no model", with: `{"ai": "never", "variables": {"same": "あり"}, "do": [{"wait": "1s", "when": {"value": "%same%", "equals": "あり"}}, {"wait": "1s", "when": {"value": "", "not_equals": ""}}]}`},
+		{name: "value without equals", with: `{"do": [{"wait": "1s", "when": {"value": "a"}}]}`, want: "value takes exactly one of equals or not_equals"},
+		{name: "value with equals and not_equals", with: `{"do": [{"wait": "1s", "when": {"value": "a", "equals": "a", "not_equals": "b"}}]}`, want: "value takes exactly one of equals or not_equals"},
+		{name: "value with within", with: `{"do": [{"wait": "1s", "when": {"value": "a", "equals": "a", "within": "5s"}}]}`, want: "value is decided at once and takes no within"},
+		{name: "equals without value", with: `{"do": [{"wait": "1s", "when": {"text": "a", "equals": "a"}}]}`, want: "equals and not_equals go with value"},
+		{name: "value with an unknown variable", with: `{"do": [{"wait": "1s", "when": {"value": "%nope%", "equals": "a"}}]}`, want: "when references %nope%"},
+		{name: "handler", with: `{"ai": "never", "variables": {"answer": "はい"}, "handle": [{"name": "確認", "when": {"text": "クリアしていいですか"}, "recorded": {"macos": [{"click": {"role": "button", "name": "%answer%"}}]}}], "do": [{"expect": {"window": "受付"}}]}`},
+		{name: "handler judged by a statement", with: `{"handle": [{"when": "A confirmation is open", "recorded": {"macos": [{"click": {"role": "button", "name": "はい"}}]}}], "do": [{"act": "x"}]}`, llm: model, want: "/properties/handle/items/properties/when"},
+		{name: "handler with within", with: `{"handle": [{"when": {"text": "確認", "within": "5s"}, "recorded": {"macos": [{"click": {"role": "button", "name": "はい"}}]}}], "do": [{"act": "x"}]}`, llm: model, want: `unexpected additional properties ["within"]`},
+		{name: "handler on a value", with: `{"handle": [{"when": {"value": "a", "equals": "a"}, "recorded": {"macos": [{"click": {"role": "button", "name": "はい"}}]}}], "do": [{"act": "x"}]}`, llm: model, want: "/properties/handle/items/properties/when"},
+		{name: "handler without steps", with: `{"handle": [{"when": {"text": "確認"}, "recorded": {}}], "do": [{"act": "x"}]}`, llm: model, want: "handle[0]: recorded must list the steps"},
+		{name: "handler with an unknown variable", with: `{"handle": [{"when": {"text": "確認"}, "recorded": {"macos": [{"click": {"role": "button", "name": "%answer%"}}]}}], "do": [{"act": "x"}]}`, llm: model, want: "handle[0] references %answer%"},
+		{name: "check a checkbox", with: `{"ai": "never", "do": [{"act": {"instruction": "x", "recorded": {"macos": [{"check": {"role": "checkbox", "id": "agree"}}, {"uncheck": {"role": "checkbox", "id": "news"}}]}}}]}`},
+		{name: "check a button", with: `{"ai": "never", "do": [{"act": {"instruction": "x", "recorded": {"macos": [{"check": {"role": "button", "id": "save"}}]}}}]}`, want: "/properties/check"},
+		{name: "check with an unknown variable", with: `{"ai": "never", "do": [{"act": {"instruction": "x", "recorded": {"macos": [{"check": {"role": "checkbox", "name": "%kasho%"}}]}}}]}`, want: "act references %kasho%"},
+		{name: "maximize on the step and an operation", with: `{"maximize": false, "do": [{"act": {"instruction": "x", "maximize": true}}, {"extract": {"instruction": "a", "maximize": true, "schema": {"type": "object"}}}]}`, llm: model},
+		{name: "maximize that is not a boolean", with: `{"maximize": "yes", "do": [{"act": "x"}]}`, llm: model, want: "maximize"},
 		{name: "ai and cache on act", with: `{"do": [{"act": {"instruction": "x", "ai": "never", "cache": false}}]}`, llm: model, want: "act: set ai or cache, not both"},
 		{name: "unknown ai", with: `{"ai": "sometimes", "do": [{"act": "x"}]}`, llm: model, want: "ai"},
 		{name: "find within", with: `{"find_within": "5s", "do": [{"act": {"instruction": "x", "find_within": "0"}}]}`, llm: model},
@@ -82,6 +101,8 @@ func TestValidateStep(t *testing.T) {
 		{name: "pin container without columns", with: `{"do": [{"extract": {"instruction": "a", "schema": {"type": "object", "properties": {"rows": {"type": "array", "items": {"type": "object", "properties": {"name": {"type": "string"}}}}}}, "fields": {"windows": {"rows": {"container": {"role": "group", "id": "g"}}}}}}]}`, llm: model, want: "names no columns"},
 		{name: "pin column not in items", with: `{"do": [{"extract": {"instruction": "a", "schema": {"type": "object", "properties": {"rows": {"type": "array", "items": {"type": "object", "properties": {"name": {"type": "string"}}}}}}, "fields": {"windows": {"rows": {"container": {"role": "group", "id": "g"}, "columns": {"wrong": "W"}}}}}}]}`, llm: model, want: `column "wrong" is not a property`},
 		{name: "pin valid table", with: `{"do": [{"extract": {"instruction": "a", "schema": {"type": "object", "properties": {"rows": {"type": "array", "items": {"type": "object", "properties": {"name": {"type": "string"}}}}}}, "fields": {"windows": {"rows": {"container": {"role": "group", "id": "g"}, "columns": {"name": "名前"}}}}}}]}`, llm: model},
+		{name: "pin table with a selector beside its container", with: `{"do": [{"extract": {"instruction": "a", "schema": {"type": "object", "properties": {"rows": {"type": "array", "items": {"type": "object", "properties": {"name": {"type": "string"}}}}}}, "fields": {"windows": {"rows": {"enabled": false, "container": {"role": "group", "id": "g"}, "columns": {"name": "名前"}}}}}}]}`, llm: model, want: "enabled does not equal any of: [container columns]"},
+		{name: "pin scalar with columns", with: `{"do": [{"extract": {"instruction": "a", "schema": {"type": "object", "properties": {"total": {"type": "number"}}}, "fields": {"windows": {"total": {"role": "text", "id": "t", "columns": {"total": "T"}}}}}}]}`, llm: model, want: `dependentRequired["columns"]: missing properties ["container"]`},
 		{name: "pin valid scalar field", with: `{"do": [{"extract": {"instruction": "a", "schema": {"type": "object", "properties": {"total": {"type": "number"}}}, "fields": {"windows": {"total": {"role": "text", "id": "t"}}}}}]}`, llm: model},
 		{name: "empty do", with: `{"do": []}`, llm: model, want: "do"},
 		{name: "unknown field", with: `{"url": "https://example.com", "do": [{"act": "x"}]}`, llm: model, want: "url"},
@@ -93,10 +114,17 @@ func TestValidateStep(t *testing.T) {
 		{name: "duplicate output", with: `{"do": [
 			{"extract": {"instruction": "a", "schema": {"type": "object", "properties": {"total": {}}}}},
 			{"extract": {"instruction": "b", "schema": {"type": "object", "properties": {"total": {}}}}}
-		]}`, llm: model, want: `output "total" is already extracted by do[0]`},
+		]}`, llm: model, want: `output "total" is already published by do[0]`},
 		{name: "bad wait", with: `{"do": [{"wait": "soon"}]}`, llm: model, want: "must be a positive duration"},
 		{name: "bad within", with: `{"do": [{"expect": {"statement": "Saved", "within": "later"}}]}`, llm: model, want: "within"},
 		{name: "bad screenshot name", with: `{"do": [{"screenshot": "../x"}]}`, llm: model, want: "screenshot name"},
+		{name: "outline", with: `{"ai": "never", "do": [{"outline": "window"}]}`},
+		{name: "bad outline name", with: `{"do": [{"outline": "the window"}]}`, llm: model, want: "outline name"},
+		{name: "outline name that is no declared output", with: `{"do": [{"outline": "_window"}]}`, llm: model, want: "outline name"},
+		{name: "outline collides with an extract", with: `{"do": [
+			{"extract": {"instruction": "a", "schema": {"type": "object", "properties": {"window": {}}}}},
+			{"outline": "window"}
+		]}`, llm: model, want: `output "window" is already published by do[0]`},
 		{name: "unknown mode", with: `{"mode": "fast", "do": [{"act": "x"}]}`, llm: model, want: "mode"},
 		{name: "no idle wait", with: `{"idle": "0", "do": [{"act": "x"}]}`, llm: model},
 		{name: "bad idle", with: `{"idle": "soon", "do": [{"act": "x"}]}`, llm: model, want: `idle "soon" must be a duration`},
@@ -169,7 +197,7 @@ func TestConfigShorthands(t *testing.T) {
 	assert.False(t, exact.Do[2].When.judged())
 	assert.Equal(t, 5*time.Second, exact.Do[0].Expect.window(time.Minute))
 	assert.Equal(t, time.Minute, exact.Do[1].Expect.window(time.Minute), "without within the fallback applies")
-	require.ErrorContains(t, condition{Text: "a", Window: "b"}.validate(), "exactly one of statement, text, element, or window")
+	require.ErrorContains(t, condition{Text: "a", Window: "b"}.validate(), "exactly one of statement, text, element, window, or value")
 	require.ErrorContains(t, condition{}.validate(), "exactly one of")
 }
 

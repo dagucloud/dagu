@@ -45,6 +45,23 @@ describe('UserPreferencesProvider', () => {
     );
   });
 
+  it('reads the order of the log lines and drops a value that is not known', () => {
+    localStorage.setItem(
+      'user_preferences',
+      JSON.stringify({ logOrder: 'newToOld' })
+    );
+    const saved = renderHook(() => useUserPreferences(), { wrapper });
+    expect(saved.result.current.preferences.logOrder).toBe('newToOld');
+    saved.unmount();
+
+    localStorage.setItem(
+      'user_preferences',
+      JSON.stringify({ logOrder: 'sideways' })
+    );
+    const bad = renderHook(() => useUserPreferences(), { wrapper });
+    expect(bad.result.current.preferences.logOrder).toBe('oldToNew');
+  });
+
   it('uses Wiki sorting defaults when no sorting preference was saved', () => {
     localStorage.setItem('user_preferences', JSON.stringify({ pageLimit: 25 }));
 
@@ -64,28 +81,6 @@ describe('UserPreferencesProvider', () => {
 
     expect(result.current.preferences.wikiSortField).toBe('type');
     expect(result.current.preferences.wikiSortOrder).toBe('asc');
-  });
-
-  it('loads a saved spec view', () => {
-    localStorage.setItem(
-      'user_preferences',
-      JSON.stringify({ specViewMode: 'yaml' })
-    );
-
-    const { result } = renderHook(() => useUserPreferences(), { wrapper });
-
-    expect(result.current.preferences.specViewMode).toBe('yaml');
-  });
-
-  it('shows the split spec view when the saved view is unknown', () => {
-    localStorage.setItem(
-      'user_preferences',
-      JSON.stringify({ specViewMode: 'diagram' })
-    );
-
-    const { result } = renderHook(() => useUserPreferences(), { wrapper });
-
-    expect(result.current.preferences.specViewMode).toBe('split');
   });
 
   it('loads a saved Japanese locale', () => {
@@ -127,6 +122,22 @@ describe('UserPreferencesProvider', () => {
       local: ['reports', 'workflows'],
     });
     expect(result.current.preferences.theme).toBe('system');
+  });
+
+  // The workflow page has one body; an old stored choice is dropped.
+  it('drops the stored workflow page choice of an older version', () => {
+    localStorage.setItem(
+      'user_preferences',
+      JSON.stringify({ workflowPage: 'classic', locale: 'ja' })
+    );
+
+    const { result } = renderHook(() => useUserPreferences(), { wrapper });
+
+    expect(result.current.preferences).not.toHaveProperty('workflowPage');
+    expect(result.current.preferences.locale).toBe('ja');
+    expect(
+      JSON.parse(localStorage.getItem('user_preferences') ?? '{}')
+    ).not.toHaveProperty('workflowPage');
   });
 
   describe('useResolvedTheme', () => {

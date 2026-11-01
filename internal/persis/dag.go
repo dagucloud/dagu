@@ -47,6 +47,11 @@ type DAGDefinitionStore interface {
 	Delete(ctx context.Context, id string) error
 	Get(ctx context.Context, id string) (DAGDefinition, error)
 	Update(ctx context.Context, id string, source []byte) error
+	// UpdateIfMatch is Update for a source that is still the one with the
+	// SHA-256 expectedSHA256, in hex. Otherwise it writes nothing and returns an
+	// error that wraps ErrConflict. The check and the write are atomic for every
+	// process that shares the store.
+	UpdateIfMatch(ctx context.Context, id, expectedSHA256 string, source []byte) error
 	Rename(ctx context.Context, oldID, newID string) error
 	GetMetadata(ctx context.Context, id string) (*ir.DAG, error)
 	Catalog(ctx context.Context) (DAGCatalog, error)

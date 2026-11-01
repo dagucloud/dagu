@@ -3,6 +3,11 @@
 
 package ir
 
+import (
+	"fmt"
+	"strings"
+)
+
 const (
 	// DefaultAquaStandardRegistryRef is the last-resort aqua standard registry
 	// commit, used only when the latest registry release cannot be resolved
@@ -25,6 +30,32 @@ type ToolRegistry struct {
 	RepoName  string `json:"repoName,omitempty"`
 	Ref       string `json:"ref,omitempty"`
 	Path      string `json:"path,omitempty"`
+}
+
+// ValidateWorkerAbsPath accepts POSIX, Windows drive, and UNC absolute paths.
+// The DAG parser's host OS may differ from the worker's, so filepath.IsAbs cannot be used.
+func ValidateWorkerAbsPath(path string) error {
+	p := strings.TrimSpace(path)
+	if p == "" {
+		return fmt.Errorf("path is required")
+	}
+	if strings.HasPrefix(p, "/") {
+		return nil
+	}
+	if len(p) >= 3 && p[1] == ':' && (p[2] == '/' || p[2] == '\\') {
+		if drive := p[0]; (drive >= 'A' && drive <= 'Z') || (drive >= 'a' && drive <= 'z') {
+			return nil
+		}
+	}
+	if strings.HasPrefix(p, `\\`) {
+		server, rest, found := strings.Cut(p[2:], `\`)
+		share, _, _ := strings.Cut(rest, `\`)
+		// Both components must be nonempty, including the share in \\server\\share.
+		if found && server != "" && share != "" {
+			return nil
+		}
+	}
+	return fmt.Errorf("path must be an absolute path, got %q", p)
 }
 
 // ToolPackage declares one aqua package and optional command names Dagu should expose.

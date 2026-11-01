@@ -36,6 +36,7 @@ type scriptedBrowser struct {
 	server   *httptest.Server
 	script   func(cdpCommand) []cdpEvent
 	refuse   func(cdpCommand) string
+	answer   func(cdpCommand) map[string]any
 	mu       sync.Mutex
 	commands []cdpCommand
 	conns    []*websocket.Conn
@@ -50,7 +51,18 @@ func newScriptedBrowser(t *testing.T, script func(cdpCommand) []cdpEvent) *scrip
 // returns a message for with that error.
 func newRefusingBrowser(t *testing.T, script func(cdpCommand) []cdpEvent, refuse func(cdpCommand) string) *scriptedBrowser {
 	t.Helper()
-	fake := &scriptedBrowser{script: script, refuse: refuse}
+	return startScriptedBrowser(t, &scriptedBrowser{script: script, refuse: refuse})
+}
+
+// newAnsweringBrowser is a scripted browser whose replies carry the result
+// answer returns for a command, and an empty one where it returns nil.
+func newAnsweringBrowser(t *testing.T, script func(cdpCommand) []cdpEvent, answer func(cdpCommand) map[string]any) *scriptedBrowser {
+	t.Helper()
+	return startScriptedBrowser(t, &scriptedBrowser{script: script, answer: answer})
+}
+
+func startScriptedBrowser(t *testing.T, fake *scriptedBrowser) *scriptedBrowser {
+	t.Helper()
 	fake.server = httptest.NewServer(http.HandlerFunc(fake.serve))
 	t.Cleanup(fake.server.Close)
 	return fake
@@ -90,7 +102,13 @@ func (f *scriptedBrowser) serve(w http.ResponseWriter, r *http.Request) {
 		f.mu.Lock()
 		f.commands = append(f.commands, command.cdpCommand)
 		f.mu.Unlock()
-		reply := map[string]any{"id": command.ID, "sessionId": command.SessionID, "result": map[string]any{}}
+		result := map[string]any{}
+		if f.answer != nil {
+			if answered := f.answer(command.cdpCommand); answered != nil {
+				result = answered
+			}
+		}
+		reply := map[string]any{"id": command.ID, "sessionId": command.SessionID, "result": result}
 		if f.refuse != nil {
 			if message := f.refuse(command.cdpCommand); message != "" {
 				reply = map[string]any{"id": command.ID, "sessionId": command.SessionID, "error": map[string]any{"code": -32000, "message": message}}

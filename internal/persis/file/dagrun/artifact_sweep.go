@@ -79,7 +79,7 @@ func (store *Store) PruneArtifacts(ctx context.Context, req persis.ArtifactPrune
 	// within moments of, its artifact directory, so every candidate found
 	// above already has its record on disk. An enumeration failure aborts the
 	// sweep, because a run missed here would look orphaned while still live.
-	live, err := store.liveArtifactNames(ctx)
+	live, err := store.liveArtifactNames(ctx, req.SharedStores)
 	if err != nil {
 		return nil, err
 	}
@@ -378,17 +378,28 @@ func runDirTimestamp(day, timeOfDay string) time.Time {
 }
 
 // liveArtifactNames collects the names that keep an artifact directory alive:
-// every run ID in the dag-runs tree, plus the directory name suffix derived
-// from it. Directory names alone carry the ID, so no status file is read.
-func (store *Store) liveArtifactNames(ctx context.Context) (liveSets, error) {
-	roots, err := store.listRoot(ctx, "")
-	if err != nil {
-		return liveSets{}, fmt.Errorf("failed to list DAG data roots: %w", err)
+// every run ID in the dag-runs tree of the store and of the shared stores,
+// plus the directory name suffix derived from it. Directory names alone carry
+// the ID, so no status file is read.
+func (store *Store) liveArtifactNames(ctx context.Context, shared []persis.DAGRunStore) (liveSets, error) {
+	stores := []*Store{store}
+	for _, other := range shared {
+		fileStore, ok := other.(*Store)
+		if !ok {
+			return liveSets{}, fmt.Errorf("cannot list the runs of %T for an artifact sweep", other)
+		}
+		stores = append(stores, fileStore)
 	}
 	live := liveSets{ids: map[string]struct{}{}, suffixes: map[string]struct{}{}}
-	for _, root := range roots {
-		if err := collectRunIDs(ctx, root.dagRunsDir, &live); err != nil {
-			return liveSets{}, err
+	for _, s := range stores {
+		roots, err := s.listRoot(ctx, "")
+		if err != nil {
+			return liveSets{}, fmt.Errorf("failed to list DAG data roots: %w", err)
+		}
+		for _, root := range roots {
+			if err := collectRunIDs(ctx, root.dagRunsDir, &live); err != nil {
+				return liveSets{}, err
+			}
 		}
 	}
 	return live, nil

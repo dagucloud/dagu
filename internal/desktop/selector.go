@@ -50,6 +50,9 @@ type Selector struct {
 	Near *Near `json:"near,omitempty"`
 	// Nth picks one of several equal matches, in reading order, from 0.
 	Nth *int `json:"nth,omitempty"`
+	// Enabled, when set, keeps the elements that take input (true) or the
+	// ones that do not, such as a grayed-out button (false).
+	Enabled *bool `json:"enabled,omitempty"`
 }
 
 // Near names a label an element sits next to.
@@ -133,8 +136,9 @@ func (s Selector) String() string {
 // is ambiguous, naming it.
 //
 // The search runs in a fixed order: in narrows, an id wins when it is
-// unique there, otherwise role and name select the candidates, near keeps
-// the one labelled by the label, and nth comes last.
+// unique there, otherwise role and name select the candidates, enabled
+// keeps those in that state, near keeps the one labelled by the label, and
+// nth comes last.
 func Match(window Element, elements []Element, sel Selector) ([]Element, error) {
 	if sel.App != "" && !strings.EqualFold(sel.App, window.App) {
 		return nil, nil
@@ -155,6 +159,9 @@ func Match(window Element, elements []Element, sel Selector) ([]Element, error) 
 		scope = within(elements, container)
 	}
 	candidates := sel.candidates(scope)
+	if sel.Enabled != nil {
+		candidates = slices.DeleteFunc(candidates, func(e Element) bool { return e.Disabled == *sel.Enabled })
+	}
 	if sel.Near != nil {
 		candidates = near(candidates, scope, *sel.Near)
 	}

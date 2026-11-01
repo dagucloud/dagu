@@ -97,7 +97,7 @@ Accepted root fields:
 | `steps` | Yes | Executable steps. |
 | `type` | No | Step scheduling mode: `graph`, `chain`, or `agent`. `controller` is a deprecated alias for `agent`. |
 | `tasks` | Only with `type: agent` | Goals an Agent DAG run must satisfy. |
-| `handler_on` | No | Lifecycle handler steps. |
+| `handler_on` | No | Lifecycle handler steps. A selected-steps run without a graph end step skips all but `init` (Spec 013). |
 | `preconditions` | No | Workflow start conditions. |
 | `retry_policy` | No | Workflow retry policy. |
 | `timeout_sec` | No | Workflow timeout in seconds. |

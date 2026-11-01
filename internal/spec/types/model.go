@@ -31,13 +31,14 @@ type ModelValue struct {
 
 // ModelEntry represents a single model in the model array for fallback support.
 type ModelEntry struct {
-	Provider    string   // Required: LLM provider
-	Name        string   // Required: Model name
-	Temperature *float64 // Optional: Override temperature (0.0-2.0)
-	MaxTokens   *int     // Optional: Override max tokens (>=1)
-	TopP        *float64 // Optional: Override top-p (0.0-1.0)
-	BaseURL     string   // Optional: Custom API endpoint
-	APIKeyName  string   // Optional: API key env var name
+	Provider      string   // Required: LLM provider
+	Name          string   // Required: Model name
+	Temperature   *float64 // Optional: Override temperature (0.0-2.0)
+	MaxTokens     *int     // Optional: Override max tokens (>=1)
+	TopP          *float64 // Optional: Override top-p (0.0-1.0)
+	BaseURL       string   // Optional: Custom API endpoint
+	APIKeyName    string   // Optional: API key env var name
+	ProviderOrder []string // Optional: OpenRouter upstream providers to try first
 }
 
 // UnmarshalYAML implements BytesUnmarshaler for goccy/go-yaml.
@@ -147,7 +148,33 @@ func parseModelEntry(m map[string]any, index int) (ModelEntry, error) {
 		entry.APIKeyName = apiKeyName
 	}
 
+	// Optional: provider_order
+	if raw, ok := m["provider_order"]; ok {
+		order, ok := toStrings(raw)
+		if !ok {
+			return entry, fmt.Errorf("model[%d].provider_order: must be a list of strings", index)
+		}
+		entry.ProviderOrder = order
+	}
+
 	return entry, nil
+}
+
+// toStrings converts a YAML list of strings to a string slice.
+func toStrings(v any) ([]string, bool) {
+	items, ok := v.([]any)
+	if !ok {
+		return nil, false
+	}
+	result := make([]string, len(items))
+	for i, item := range items {
+		s, ok := item.(string)
+		if !ok {
+			return nil, false
+		}
+		result[i] = s
+	}
+	return result, true
 }
 
 // toFloat64 converts various numeric types to float64.

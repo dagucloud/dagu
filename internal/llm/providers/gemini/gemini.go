@@ -121,11 +121,7 @@ func (p *Provider) Chat(ctx context.Context, req *llm.ChatRequest) (*llm.ChatRes
 	// Calculate usage
 	var usage llm.Usage
 	if resp.UsageMetadata != nil {
-		usage = llm.Usage{
-			PromptTokens:     resp.UsageMetadata.PromptTokenCount,
-			CompletionTokens: resp.UsageMetadata.CandidatesTokenCount,
-			TotalTokens:      resp.UsageMetadata.TotalTokenCount,
-		}
+		usage = resp.UsageMetadata.llm()
 	}
 
 	result := &llm.ChatResponse{
@@ -531,11 +527,8 @@ func (p *Provider) streamResponse(ctx context.Context, body io.ReadCloser, event
 
 		// Capture usage if present
 		if chunk.UsageMetadata != nil {
-			usage = &llm.Usage{
-				PromptTokens:     chunk.UsageMetadata.PromptTokenCount,
-				CompletionTokens: chunk.UsageMetadata.CandidatesTokenCount,
-				TotalTokens:      chunk.UsageMetadata.TotalTokenCount,
-			}
+			chunkUsage := chunk.UsageMetadata.llm()
+			usage = &chunkUsage
 		}
 
 		// Extract text content
@@ -677,9 +670,5 @@ type generateContentResponse struct {
 			Probability string `json:"probability"`
 		} `json:"safetyRatings"`
 	} `json:"candidates"`
-	UsageMetadata *struct {
-		PromptTokenCount     int `json:"promptTokenCount"`
-		CandidatesTokenCount int `json:"candidatesTokenCount"`
-		TotalTokenCount      int `json:"totalTokenCount"`
-	} `json:"usageMetadata"`
+	UsageMetadata *usageMetadata `json:"usageMetadata"`
 }
