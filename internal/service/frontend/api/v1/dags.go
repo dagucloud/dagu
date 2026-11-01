@@ -132,14 +132,13 @@ func (a *API) ValidateDAGSpecData(ctx context.Context, name, source string) (*ap
 	}
 
 	if dag != nil && len(dag.BuildErrors) > 0 {
-		for _, e := range dag.BuildErrors {
-			errs = append(errs, e.Error())
-		}
+		errs = append(errs, spec.ErrorMessages([]byte(source), dag.BuildErrors)...)
 	}
 
 	details := toDAGDetails(dag)
 	if details != nil {
 		details.UpcomingRuns = a.scheduleFires(dag)
+		details.UpcomingRunsHold = a.upcomingRunsHold(ctx, name, details.UpcomingRuns)
 	}
 
 	notices := a.specValueReferenceNotices(ctx, name, source)
@@ -275,6 +274,7 @@ func (a *API) GetDAGSpec(ctx context.Context, request api.GetDAGSpecRequestObjec
 		spec.WithAllowBuildErrors(),
 		spec.WithoutEval(),
 		spec.WithWorkspaceBaseConfigDir(workspace.BaseConfigDir(a.config.Paths.DAGsDir)),
+		spec.WithCalendars(a.calendarSource()),
 	}
 	if a.config.Paths.BaseConfig != "" {
 		loadOpts = append(loadOpts, spec.WithBaseConfig(a.config.Paths.BaseConfig))
@@ -303,7 +303,7 @@ func (a *API) GetDAGSpec(ctx context.Context, request api.GetDAGSpecRequestObjec
 			errs = append(errs, err.Error())
 		}
 	} else {
-		errs = append(errs, extractBuildErrors(dag.BuildErrors)...)
+		errs = append(errs, spec.ErrorMessages([]byte(yamlSpec), dag.BuildErrors)...)
 	}
 	if err := a.requireWorkspaceVisible(ctx, dagWorkspaceName(dag)); err != nil {
 		return nil, err
@@ -320,6 +320,7 @@ func (a *API) GetDAGSpec(ctx context.Context, request api.GetDAGSpecRequestObjec
 		}
 		details.NextRun = a.projectNextRun(ctx, projectionDAG)
 		details.UpcomingRuns = a.scheduleFires(dag)
+		details.UpcomingRunsHold = a.upcomingRunsHold(ctx, request.FileName, details.UpcomingRuns)
 	}
 
 	return &api.GetDAGSpec200JSONResponse{
@@ -604,6 +605,7 @@ func (a *API) getDAGDetailsData(ctx context.Context, fileName string) (api.GetDA
 	if details != nil {
 		details.NextRun = a.projectNextRun(ctx, dag)
 		details.UpcomingRuns = a.scheduleFires(dag)
+		details.UpcomingRunsHold = a.upcomingRunsHold(ctx, fileName, details.UpcomingRuns)
 	}
 
 	localDAGs := make([]api.LocalDag, 0, len(dag.LocalDAGs))
@@ -2645,13 +2647,51 @@ func (a *API) scheduleFires(dag *ir.DAG) *[]api.UpcomingRun {
 	fires := dag.UpcomingFires(time.Now().In(location), upcomingRunsLimit)
 	runs := make([]api.UpcomingRun, 0, len(fires))
 	for _, fire := range fires {
-		runs = append(runs, api.UpcomingRun{
+		run := api.UpcomingRun{
 			Time:          fire.Time,
 			ScheduleIndex: fire.ScheduleIndex,
 			Timezone:      fireZoneLabel(fire.Time),
-		})
+		}
+		if len(fire.SkippedHolidays) > 0 {
+			holidays := make([]api.Holiday, 0, len(fire.SkippedHolidays))
+			for _, holiday := range fire.SkippedHolidays {
+				entry := api.Holiday{Date: toAPIDate(holiday.Date)}
+				if holiday.Name != "" {
+					entry.Name = ptrOf(holiday.Name)
+				}
+				holidays = append(holidays, entry)
+			}
+			run.SkippedHolidays = &holidays
+		}
+		if fire.BusinessDay != 0 {
+			run.BusinessDay = ptrOf(fire.BusinessDay)
+		}
+		if fire.ExtraBusinessDay {
+			run.ExtraBusinessDay = ptrOf(true)
+		}
+		runs = append(runs, run)
 	}
 	return &runs
+}
+
+// upcomingRunsHold reports why listed upcoming runs will not start: the
+// scheduler is paused, or the DAG is suspended. fileName may name a DAG that
+// is not saved yet, which is never suspended.
+func (a *API) upcomingRunsHold(ctx context.Context, fileName string, runs *[]api.UpcomingRun) *api.UpcomingRunsHold {
+	if runs == nil || len(*runs) == 0 {
+		return nil
+	}
+	if a.schedulerPauseStore != nil {
+		if paused, err := a.schedulerPauseStore.IsPaused(ctx); err == nil && paused {
+			return ptrOf(api.UpcomingRunsHoldSchedulerPaused)
+		}
+	}
+	if fileName != "" {
+		if suspended, err := a.dagRepository.IsSuspended(ctx, fileName); err == nil && suspended {
+			return ptrOf(api.UpcomingRunsHoldSuspended)
+		}
+	}
+	return nil
 }
 
 // fireZoneLabel names the zone of a fire time: its time zone name, or its

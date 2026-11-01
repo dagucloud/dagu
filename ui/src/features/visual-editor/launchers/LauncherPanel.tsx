@@ -3,7 +3,7 @@
 
 import { Plus, Trash2 } from 'lucide-react';
 import { useState, type ReactElement, type ReactNode } from 'react';
-import type { components } from '@/api/v1/schema';
+import type { components, UpcomingRunsHold } from '@/api/v1/schema';
 import { Button } from '@/components/ui/button';
 import { useConfig } from '@/contexts/ConfigContext';
 import WebhookTab from '@/features/dags/components/dag-details/WebhookTab';
@@ -187,6 +187,7 @@ export function CronLauncherPanel({
   schedule,
   editable,
   upcomingRuns,
+  upcomingRunsHold,
   schedules = [],
   onChange,
   onClose,
@@ -195,6 +196,8 @@ export function CronLauncherPanel({
   editable: boolean;
   /** Next runs of the saved or validated schedule, from the server. */
   upcomingRuns?: UpcomingRun[];
+  /** Why none of the upcoming runs will start, if they will not. */
+  upcomingRunsHold?: UpcomingRunsHold;
   /** The server's start schedules, which upcomingRuns index. */
   schedules?: Schedule[];
   /** The new list of start expressions; the other entries stay. */
@@ -240,7 +243,11 @@ export function CronLauncherPanel({
         </ul>
       )}
       {upcomingRuns && schedule.present && (
-        <UpcomingRuns runs={upcomingRuns} schedules={schedules} />
+        <UpcomingRuns
+          runs={upcomingRuns}
+          hold={upcomingRunsHold}
+          schedules={schedules}
+        />
       )}
       {schedule.others > 0 && (
         <p className="text-xs text-muted-foreground">

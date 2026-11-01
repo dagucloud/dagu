@@ -36,6 +36,12 @@ func toSchedule(s ir.Schedule) api.Schedule {
 		schedule.At = &at
 	}
 	schedule.Profile = toRuntimeProfileName(s.Profile)
+	if s.HasCalendar() {
+		schedule.Calendar = ptrOf(s.Calendar)
+	}
+	if len(s.BusinessDays) > 0 {
+		schedule.BusinessDays = ptrOf(append([]int(nil), s.BusinessDays...))
+	}
 	return schedule
 }
 

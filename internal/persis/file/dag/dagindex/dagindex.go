@@ -24,7 +24,7 @@ const (
 	// IndexFileName is the name of the DAG definition index file.
 	IndexFileName = ".dag.index"
 	// IndexVersion is the current index format version.
-	IndexVersion = 4
+	IndexVersion = 5
 )
 
 // YAMLFileMeta holds stat metadata for a single YAML file.

@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"runtime"
 	"sync"
 	"testing"
 	"time"
@@ -20,6 +21,7 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/pagination"
 	"github.com/dagucloud/dagu/v2/internal/persis"
 	"github.com/dagucloud/dagu/v2/internal/persis/file/dag/dagindex"
+	"github.com/dagucloud/dagu/v2/internal/spec"
 	"github.com/dagucloud/dagu/v2/internal/workspace"
 
 	"github.com/stretchr/testify/assert"
@@ -42,6 +44,7 @@ func newRepository(baseDir string, opts ...Option) *persis.DAGRepository {
 	return persis.NewDAGRepository(store, persis.DAGRepositoryOptions{
 		BaseConfigPath:         store.baseConfigPath,
 		WorkspaceBaseConfigDir: store.workspaceBaseConfigDir,
+		Calendars:              store.calendars,
 	})
 }
 
@@ -2693,4 +2696,147 @@ func TestMetadataInFlightBaseChange(t *testing.T) {
 	current, err := store.GetMetadata(t.Context(), "scheduled")
 	require.NoError(t, err)
 	require.Equal(t, "updated", current.ProcGroup())
+}
+
+// Listings rebuild DAGs from the index, which stores calendar names only;
+// their schedules must still skip the calendar's holidays.
+func TestCatalogBindsCalendars(t *testing.T) {
+	t.Parallel()
+
+	root := t.TempDir()
+	dir := filepath.Join(root, "dags")
+	calendars := filepath.Join(root, "calendars")
+	require.NoError(t, os.MkdirAll(dir, 0750))
+	require.NoError(t, os.MkdirAll(calendars, 0750))
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "payroll.yaml"),
+		[]byte("calendar: jp\nschedule: \"0 18 * * *\"\nsteps:\n  - run: echo pay\n"), 0600))
+	require.NoError(t, os.WriteFile(filepath.Join(calendars, "jp.yaml"), []byte("holidays: [2027-01-11]\n"), 0600))
+
+	store := NewStore(dir, WithSkipExamples(true), WithIndexDir(filepath.Join(root, "index")), WithCalendars(spec.NewCalendarSource(calendars)))
+	catalog, err := store.Catalog(t.Context())
+	require.NoError(t, err)
+
+	require.Len(t, catalog.Items, 1)
+	from := time.Date(2027, 1, 11, 0, 0, 0, 0, time.UTC)
+	assert.Equal(t, time.Date(2027, 1, 12, 18, 0, 0, 0, time.UTC), catalog.Items[0].NextRun(from))
+}
+
+// Cached metadata does not depend on calendar files as a whole, so plain
+// DAGs never reload for them; a DAG that names a calendar reloads when that
+// calendar changes.
+func TestMetadataFollowsCalendarEdits(t *testing.T) {
+	t.Parallel()
+
+	root := t.TempDir()
+	dir := filepath.Join(root, "dags")
+	calendars := filepath.Join(root, "calendars")
+	require.NoError(t, os.MkdirAll(dir, 0750))
+	require.NoError(t, os.MkdirAll(calendars, 0750))
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "payroll.yaml"),
+		[]byte("calendar: jp\nschedule: \"0 18 * * *\"\nsteps:\n  - run: echo pay\n"), 0600))
+	calendarFile := filepath.Join(calendars, "jp.yaml")
+	require.NoError(t, os.WriteFile(calendarFile, []byte("holidays: [2027-01-01]\n"), 0600))
+
+	store := NewStore(dir, WithSkipExamples(true), WithIndexDir(filepath.Join(root, "index")),
+		WithCalendars(spec.NewCalendarSource(calendars)), WithFileCache(fileutil.NewCache[*ir.DAG]("calendars", 10, 0)))
+	from := time.Date(2027, 1, 11, 0, 0, 0, 0, time.UTC)
+
+	dag, err := store.GetMetadata(t.Context(), "payroll")
+	require.NoError(t, err)
+	require.Equal(t, time.Date(2027, 1, 11, 18, 0, 0, 0, time.UTC), dag.NextRun(from))
+
+	require.NoError(t, os.WriteFile(calendarFile, []byte("holidays: [2027-01-01, 2027-01-11]\n"), 0600))
+	dag, err = store.GetMetadata(t.Context(), "payroll")
+	require.NoError(t, err)
+	assert.Equal(t, time.Date(2027, 1, 12, 18, 0, 0, 0, time.UTC), dag.NextRun(from))
+}
+
+// sameStampSwap prepares a calendars directory holding calendar jp with
+// content before. The returned swap replaces jp with content after, keeping
+// its size and modification time.
+type sameStampSwap struct {
+	name    string
+	prepare func(t *testing.T, before, after string) (calendars string, swap func())
+}
+
+// sameStampSwaps are ways a deployment can replace a calendar file without
+// changing its size or modification time, as Kubernetes ConfigMap updates
+// and stores with pinned times do.
+var sameStampSwaps = []sameStampSwap{
+	{name: "file symlink", prepare: func(t *testing.T, before, after string) (string, func()) {
+		versions := t.TempDir()
+		beforePath := writeStampedFile(t, filepath.Join(versions, "before.yaml"), before)
+		afterPath := writeStampedFile(t, filepath.Join(versions, "after.yaml"), after)
+		calendars := t.TempDir()
+		link := filepath.Join(calendars, "jp.yaml")
+		symlinkOrSkip(t, beforePath, link)
+		return calendars, func() { replaceSymlink(t, afterPath, link) }
+	}},
+	{name: "atomic rename", prepare: func(t *testing.T, before, after string) (string, func()) {
+		calendars := t.TempDir()
+		path := writeStampedFile(t, filepath.Join(calendars, "jp.yaml"), before)
+		return calendars, func() {
+			require.NoError(t, os.Rename(writeStampedFile(t, filepath.Join(calendars, "jp.tmp"), after), path))
+		}
+	}},
+	{name: "in-place rewrite", prepare: func(t *testing.T, before, after string) (string, func()) {
+		calendars := t.TempDir()
+		path := writeStampedFile(t, filepath.Join(calendars, "jp.yaml"), before)
+		// Writing over the file keeps its identity, as a copy that preserves
+		// times does.
+		return calendars, func() { writeStampedFile(t, path, after) }
+	}},
+	{name: "directory symlink", prepare: func(t *testing.T, before, after string) (string, func()) {
+		if runtime.GOOS == "windows" {
+			t.Skip("Windows cannot rename a directory symlink over another")
+		}
+		root := t.TempDir()
+		for version, content := range map[string]string{"v1": before, "v2": after} {
+			require.NoError(t, os.MkdirAll(filepath.Join(root, version), 0750))
+			writeStampedFile(t, filepath.Join(root, version, "jp.yaml"), content)
+		}
+		calendars := filepath.Join(root, "calendars")
+		symlinkOrSkip(t, filepath.Join(root, "v1"), calendars)
+		return calendars, func() { replaceSymlink(t, filepath.Join(root, "v2"), calendars) }
+	}},
+}
+
+// writeStampedFile writes content to path with a fixed modification time.
+func writeStampedFile(t *testing.T, path, content string) string {
+	t.Helper()
+	require.NoError(t, os.WriteFile(path, []byte(content), 0600))
+	stamp := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
+	require.NoError(t, os.Chtimes(path, stamp, stamp))
+	return path
+}
+
+func symlinkOrSkip(t *testing.T, target, link string) {
+	t.Helper()
+	if err := os.Symlink(target, link); err != nil {
+		t.Skipf("symlink creation is unavailable: %v", err)
+	}
+}
+
+// replaceSymlink points link at target in one rename.
+func replaceSymlink(t *testing.T, target, link string) {
+	t.Helper()
+	swap := link + ".swap"
+	require.NoError(t, os.Symlink(target, swap))
+	require.NoError(t, os.Rename(swap, link))
+}
+
+// The calendars state decides whether a refresh reloads the DAGs, so it must
+// change when a calendar does, even with the same size and time.
+func TestCalendarsStateFollowsSameStampSwaps(t *testing.T) {
+	t.Parallel()
+
+	for _, tc := range sameStampSwaps {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			calendars, swap := tc.prepare(t, "holidays: [2027-01-01]\n", "holidays: [2027-01-11]\n")
+			state := describeCalendarsState(calendars)
+			swap()
+			assert.NotEqual(t, state, describeCalendarsState(calendars))
+		})
+	}
 }

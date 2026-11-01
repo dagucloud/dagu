@@ -59,9 +59,10 @@ func computeMissedScheduleIntervals(schedules []ir.Schedule, replayFrom, replayT
 		if sched.Parsed == nil {
 			continue
 		}
-		// Exclusive start: replayFrom was already dispatched.
+		// Exclusive start: replayFrom was already dispatched. A zero time
+		// means the schedule never fires again.
 		t := sched.Parsed.Next(replayFrom).Round(0)
-		for !t.After(replayTo) {
+		for !t.IsZero() && !t.After(replayTo) {
 			if _, dup := seen[t]; !dup {
 				seen[t] = struct{}{}
 				result = append(result, missedScheduleInterval{

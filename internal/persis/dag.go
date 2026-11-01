@@ -10,6 +10,7 @@ import (
 
 	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/pagination"
+	"github.com/dagucloud/dagu/v2/internal/spec"
 	"github.com/dagucloud/dagu/v2/internal/textsearch"
 	"github.com/dagucloud/dagu/v2/internal/workspace"
 )
@@ -75,6 +76,8 @@ type DAGLoadOptions struct {
 type DAGRepositoryOptions struct {
 	BaseConfigPath         string
 	WorkspaceBaseConfigDir string
+	// Calendars loads the calendar files that schedules name.
+	Calendars *spec.CalendarSource
 }
 
 // DAGListOptions contains parameters for paginated DAG listing.

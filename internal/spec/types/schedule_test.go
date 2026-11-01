@@ -507,3 +507,18 @@ start:
 		assert.Contains(t, err.Error(), "explicit offset")
 	})
 }
+
+// An empty schedule string holds no start schedule, so no path names one.
+func TestScheduleValue_StartPathOfEmptyString(t *testing.T) {
+	t.Parallel()
+
+	var value types.ScheduleValue
+	require.NoError(t, yaml.Unmarshal([]byte(`""`), &value))
+	_, ok := value.StartPath(0)
+	assert.False(t, ok)
+
+	require.NoError(t, yaml.Unmarshal([]byte(`"0 9 * * *"`), &value))
+	path, ok := value.StartPath(0)
+	assert.True(t, ok)
+	assert.Equal(t, "schedule", path)
+}

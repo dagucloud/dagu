@@ -82,6 +82,7 @@ It must not be treated as product behavior until implementation catches up.
 | [079: Browser Sessions](079-browser-session.md) | Implemented for local commands |
 | [081: ClickHouse Action](081-clickhouse.md) | Partially implemented |
 | [083: Continuous Runs](083-continuous-runs.md) | Partially implemented |
+| [084: Business Calendars](084-business-calendars.md) | Implemented |
 
 **Writing guidelines:**
 

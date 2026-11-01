@@ -342,6 +342,16 @@ function DAGSpec({
     },
     sseFallbackOptions(poll ? FEED_DOWN : FEED_UP)
   );
+  const { data: calendarsData } = useQuery('/calendars', {
+    params: { query: { remoteNode } },
+  });
+  const calendarNames = React.useMemo(
+    () =>
+      (calendarsData?.calendars ?? [])
+        .filter((calendar) => !calendar.error)
+        .map((calendar) => calendar.name),
+    [calendarsData]
+  );
 
   const dagWorkspaceName = React.useMemo(
     () =>
@@ -711,10 +721,12 @@ function DAGSpec({
         effectiveLegacyDefinitions
       ),
       mergeCustomActionHints(inheritedCustomActions, effectiveLocalActions),
-      effectiveLocalHarnesses
+      effectiveLocalHarnesses,
+      calendarNames
     );
   }, [
     baseSchema,
+    calendarNames,
     effectiveLocalActions,
     effectiveLocalHarnesses,
     effectiveLegacyDefinitions,

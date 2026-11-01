@@ -817,4 +817,51 @@ steps:
       { type: 'string' },
     ]);
   });
+
+  // The editor receives a dereferenced schema, where each calendar field is
+  // an inline copy of the definition with its own description.
+  it('offers calendar names on every calendar field of a resolved schema', () => {
+    const calendarName = {
+      type: 'string',
+      pattern: '^[A-Za-z0-9_-]+$',
+      examples: ['weekdays', 'none'],
+    };
+    const resolved = dereferenceSchema({
+      ...baseSchema,
+      properties: {
+        ...baseSchema.properties,
+        calendar: {
+          $ref: '#/definitions/calendarName',
+          description: 'DAG calendar',
+        },
+        schedule: {
+          type: 'array',
+          items: {
+            type: 'object',
+            properties: {
+              calendar: {
+                $ref: '#/definitions/calendarName',
+                description: 'Entry calendar',
+              },
+            },
+          },
+        },
+      },
+      definitions: { ...baseSchema.definitions, calendarName },
+    });
+
+    const schema = buildAugmentedDAGSchema(
+      resolved,
+      [],
+      [],
+      [],
+      ['jp-banking']
+    );
+
+    const examples = ['jp-banking', 'none'];
+    expect(getSchemaAtPath(schema, ['calendar'])?.examples).toEqual(examples);
+    expect(
+      getSchemaAtPath(schema, ['schedule', '0', 'calendar'])?.examples
+    ).toEqual(examples);
+  });
 });

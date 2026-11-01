@@ -11,7 +11,14 @@ export function getScheduleLabel(schedule: Schedule): string {
     return schedule.at ? `at ${schedule.at}` : 'at';
   }
 
-  return schedule.expression || '';
+  const parts = [schedule.expression || ''];
+  if (schedule.calendar) {
+    const days = schedule.businessDays?.length
+      ? ` [${schedule.businessDays.join(', ')}]`
+      : '';
+    parts.push(`${schedule.calendar}${days}`);
+  }
+  return parts.join(' · ');
 }
 
 export function getScheduleKey(schedule: Schedule, index: number): string {

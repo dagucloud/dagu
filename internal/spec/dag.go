@@ -72,6 +72,8 @@ type dag struct {
 	Dotenv types.StringOrArray `yaml:"dotenv,omitempty"`
 	// Schedule is the cron schedule to run the DAG.
 	Schedule types.ScheduleValue `yaml:"schedule,omitempty"`
+	// Calendar is the calendar of start schedules that name none.
+	Calendar string `yaml:"calendar,omitempty"`
 	// SkipIfSuccessful is the flag to skip the DAG on schedule when it is
 	// executed manually before the schedule.
 	SkipIfSuccessful *bool `yaml:"skip_if_successful,omitempty"`
@@ -563,6 +565,7 @@ var metadataParamsEnvStage = transformStage{
 
 var metadataScheduleStage = transformStage{
 	dagField("schedule", buildSchedule, func(out *ir.DAG, v []ir.Schedule) { out.Schedule = v }),
+	dagField("calendar", buildCalendar, func(out *ir.DAG, v string) { out.Calendar = v }),
 	dagField("watch", buildWatchConfig, func(out *ir.DAG, v *ir.WatchConfig) { out.Watch = v }),
 	dagField("stop_schedule", buildStopSchedule, func(out *ir.DAG, v []ir.Schedule) { out.StopSchedule = v }),
 	dagField("restart_schedule", buildRestartSchedule, func(out *ir.DAG, v []ir.Schedule) { out.RestartSchedule = v }),
@@ -694,6 +697,8 @@ type dagBuildState struct {
 	// ownEnv counts the DAG's own env entries before base-config entries are
 	// composed in front of them.
 	ownEnv int
+	// calendarWarnings reports calendars whose holidays run out soon.
+	calendarWarnings []string
 }
 
 func newDAGBuildState(ctx buildContext, spec *dag) *dagBuildState {
@@ -750,6 +755,105 @@ func (s *dagBuildState) composeInheritedContext() {
 		return
 	}
 	s.result = merged
+}
+
+// bindScheduleCalendars gives each start schedule its effective calendar,
+// its own or the DAG's, and binds the calendar so the schedule fires on its
+// business days. A base config is left as written: its schedules take the
+// calendar of the DAG it merges into.
+func (s *dagBuildState) bindScheduleCalendars() {
+	if s.ctx.opts.Has(buildFlagBaseDefinition) {
+		return
+	}
+	now := time.Now()
+	today := ir.DateOf(now)
+	// reported holds the calendars already warned or failed about, so one
+	// calendar shared by several schedules is reported once.
+	reported := make(map[string]bool)
+	for i := range s.result.Schedule {
+		sched := &s.result.Schedule[i]
+		if !sched.IsCron() {
+			continue
+		}
+		calendarField := "calendar"
+		if sched.Calendar == "" {
+			sched.Calendar = s.result.Calendar
+			calendarField = ""
+		}
+		if !sched.HasCalendar() {
+			sched.Calendar = ""
+			if len(sched.BusinessDays) > 0 {
+				s.errs = append(s.errs, s.scheduleFieldError(i, "business_days",
+					fmt.Errorf("business_days needs a calendar: set calendar on the entry or the DAG")))
+			}
+			continue
+		}
+		cal, err := resolveScheduleCalendar(s.ctx.opts.Calendars, sched.Calendar)
+		if err != nil && !reported[sched.Calendar] {
+			reported[sched.Calendar] = true
+			s.errs = append(s.errs, s.scheduleFieldError(i, calendarField, err))
+		}
+		if cal == nil {
+			// Unresolved calendar schedules stay unbound and never fire.
+			sched.Parsed = nil
+			continue
+		}
+		if err := sched.BindCalendar(cal); err != nil {
+			s.errs = append(s.errs, ir.NewValidationError("schedule", sched.Expression, err))
+			continue
+		}
+		if warning := calendarExpiryWarning(cal, today); warning != "" && !reported[cal.Name] {
+			reported[cal.Name] = true
+			s.calendarWarnings = append(s.calendarWarnings, warning)
+		}
+		// The search covers the same years as cron's, so a zero next fire
+		// means the expression and the calendar never agree.
+		if sched.Next(now).IsZero() {
+			s.calendarWarnings = append(s.calendarWarnings, fmt.Sprintf(
+				"schedule %q never fires: no time it matches falls on a business day of calendar %q",
+				sched.Expression, sched.Calendar))
+		}
+	}
+}
+
+// scheduleFieldError reports err at a field of start schedule i, or at the
+// DAG's calendar when field is empty because the schedule took the DAG's.
+// Errors about schedules or calendars inherited from a base config have no
+// field in the document.
+func (s *dagBuildState) scheduleFieldError(i int, field string, err error) error {
+	if field == "" {
+		if s.spec.Calendar != "" {
+			return &FieldError{Path: "calendar", Err: err}
+		}
+	} else if path, ok := s.spec.Schedule.StartPath(i); ok {
+		return &FieldError{Path: path + "." + field, Err: err}
+	}
+	return ir.NewValidationError("schedule", nil, err)
+}
+
+// resolveScheduleCalendar loads a calendar a schedule names. Without a
+// source with a directory it returns only built-in calendars, and nil
+// otherwise.
+func resolveScheduleCalendar(source *CalendarSource, name string) (*ir.Calendar, error) {
+	if cal, ok := ir.BuiltinCalendar(name); ok || source == nil || source.Dir() == "" {
+		return cal, nil
+	}
+	return source.Calendar(name)
+}
+
+// BindScheduleCalendars binds the calendars that decoded start schedules
+// name, such as schedules rebuilt from an index entry. A calendar that does
+// not load leaves its schedule unbound, so it never fires.
+func BindScheduleCalendars(schedules []ir.Schedule, source *CalendarSource) {
+	for i := range schedules {
+		sched := &schedules[i]
+		if !sched.HasCalendar() {
+			continue
+		}
+		if cal, err := resolveScheduleCalendar(source, sched.Calendar); err == nil && cal != nil {
+			_ = sched.BindCalendar(cal)
+		}
+	}
 }
 
 func (s *dagBuildState) resolveWorkerSelector() {
@@ -850,6 +954,7 @@ func (s *dagBuildState) collectWarnings() {
 	for _, sched := range s.result.RestartSchedule {
 		s.result.BuildWarnings = append(s.result.BuildWarnings, sched.Warnings...)
 	}
+	s.result.BuildWarnings = append(s.result.BuildWarnings, s.calendarWarnings...)
 	if !s.ctx.opts.Has(buildFlagOnlyMetadata) {
 		s.result.BuildWarnings = append(s.result.BuildWarnings, harnessWorkingDirWarnings(s.result)...)
 		s.result.BuildWarnings = append(s.result.BuildWarnings, executorConfigWarnings(s.result)...)
@@ -1041,6 +1146,7 @@ func (d *dag) build(ctx buildContext) (*ir.DAG, error) {
 	state.prepareParamEnvStage()
 	state.runFieldStages()
 	state.composeInheritedContext()
+	state.bindScheduleCalendars()
 	state.resolveWorkerSelector()
 	state.markEnvEvaluated()
 	state.buildActionGraph()
@@ -1953,6 +2059,17 @@ func buildSchedule(_ buildContext, d *dag) ([]ir.Schedule, error) {
 		return nil, nil
 	}
 	return slices.Clone(d.Schedule.Starts()), nil
+}
+
+func buildCalendar(_ buildContext, d *dag) (string, error) {
+	name := strings.TrimSpace(d.Calendar)
+	if name == "" {
+		return "", nil
+	}
+	if err := ir.ValidateCalendarName(name); err != nil {
+		return "", err
+	}
+	return name, nil
 }
 
 func buildStopSchedule(_ buildContext, d *dag) ([]ir.Schedule, error) {

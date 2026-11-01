@@ -1766,6 +1766,7 @@ export function VisualEditor(props: VisualEditorProps): ReactElement {
               schedule={schedule}
               editable={canEdit}
               upcomingRuns={details?.upcomingRuns}
+              upcomingRunsHold={details?.upcomingRunsHold}
               schedules={details?.schedule}
               onChange={setSchedule}
               onClose={closeLauncher}

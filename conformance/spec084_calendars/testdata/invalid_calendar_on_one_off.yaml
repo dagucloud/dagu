@@ -1,0 +1,5 @@
+schedule:
+  - at: "2027-01-04T09:00:00+09:00"
+    calendar: weekdays
+steps:
+  - run: echo scheduled

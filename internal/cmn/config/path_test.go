@@ -37,6 +37,7 @@ func TestResolver(t *testing.T) {
 			AdminLogsDir:          filepath.Join(tmpDir, config.AppSlug, "logs/admin"),
 			EventStoreDir:         filepath.Join(tmpDir, config.AppSlug, "logs/admin/events"),
 			BaseConfigFile:        filepath.Join(tmpDir, config.AppSlug, "base.yaml"),
+			CalendarsDir:          filepath.Join(tmpDir, config.AppSlug, "calendars"),
 		}, paths)
 	})
 	t.Run("AppHomeDirectoryRelativePath", func(t *testing.T) {
@@ -79,6 +80,7 @@ func TestResolver(t *testing.T) {
 			AdminLogsDir:          filepath.Join(legacyPath, "logs", "admin"),
 			EventStoreDir:         filepath.Join(legacyPath, "logs", "admin", "events"),
 			BaseConfigFile:        filepath.Join(legacyPath, "base.yaml"),
+			CalendarsDir:          filepath.Join(legacyPath, "calendars"),
 			Notices:               []string{config.ExistingHomeDirNoticePrefix + legacyPath + "."},
 		}, paths)
 	})
@@ -108,6 +110,7 @@ func TestResolver(t *testing.T) {
 			AdminLogsDir:          filepath.Join(dataHome, config.AppSlug, "logs", "admin"),
 			EventStoreDir:         filepath.Join(dataHome, config.AppSlug, "logs", "admin", "events"),
 			BaseConfigFile:        filepath.Join(configHome, config.AppSlug, "base.yaml"),
+			CalendarsDir:          filepath.Join(configHome, config.AppSlug, "calendars"),
 		}, paths)
 	})
 }

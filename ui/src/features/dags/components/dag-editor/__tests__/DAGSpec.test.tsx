@@ -1755,7 +1755,13 @@ describe('DAGSpec live spec', () => {
     mocks.useQuery.mockReturnValue({ ...specData({ sha256: sha }), mutate });
     sse.state = connected(null);
     const view = await renderSpec();
-    const lastQuery = () => mocks.useQuery.mock.lastCall ?? [];
+    // The spec query, among the other queries of the page.
+    const lastQuery = () => {
+      const calls = mocks.useQuery.mock.calls.filter(
+        (call: unknown[]) => call[0] === '/dags/{fileName}/spec'
+      );
+      return calls[calls.length - 1] ?? [];
+    };
 
     expect(sse.args).toEqual(['example.yaml', true, 'local']);
     expect(lastQuery()[0]).toBe('/dags/{fileName}/spec');

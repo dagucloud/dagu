@@ -1,6 +1,7 @@
 // Copyright (C) 2026 Yota Hamada
 // SPDX-License-Identifier: GPL-3.0-or-later
 
+import { applyCalendarNameExamples } from '@/lib/calendarNameExamples';
 import { dereferenceSchema, type JSONSchema } from '@/lib/schema-utils';
 import { parseAllDocuments } from 'yaml';
 import type { components } from '../../../../api/v1/schema';
@@ -741,11 +742,18 @@ export function buildAugmentedDAGSchema(
   baseSchema: JSONSchema,
   legacyDefinitions: EditorLegacyDefinitionHint[],
   actions: EditorCustomActionHint[] = [],
-  harnesses: string[] = []
+  harnesses: string[] = [],
+  calendarNames: string[] = []
 ): JSONSchema {
   const augmented = cloneJson(baseSchema);
   augmentHarnessProviderSchema(augmented, harnesses);
   const definitions = augmented.definitions;
+
+  if (calendarNames.length > 0) {
+    applyCalendarNameExamples(augmented, [
+      ...new Set([...calendarNames, 'none']),
+    ]);
+  }
 
   if (legacyDefinitions.length === 0 && actions.length === 0) {
     for (const path of collectStepSchemaPaths(augmented)) {

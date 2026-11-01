@@ -599,6 +599,7 @@ type PathsConfig struct {
 	AdminLogsDir          string
 	EventStoreDir         string
 	BaseConfig            string
+	CalendarsDir          string
 	AltDAGsDir            string
 	DAGRunsDir            string
 	DAGRunWorkDir         string

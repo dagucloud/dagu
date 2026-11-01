@@ -1,0 +1,8 @@
+description: Japanese bank business days
+holidays:
+  - 2027-01-01
+  - date: 2027-01-11
+    name: Coming of Age Day
+extra_business_days:
+  - 2027-10-09
+include: [jp-national]

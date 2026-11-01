@@ -12,6 +12,7 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/cmn/fileutil"
 	"github.com/dagucloud/dagu/v2/internal/cmn/logger"
 	"github.com/dagucloud/dagu/v2/internal/persis"
+	"github.com/dagucloud/dagu/v2/internal/spec"
 	"github.com/dagucloud/dagu/v2/internal/workspace"
 	"os"
 	"path/filepath"
@@ -551,6 +552,88 @@ func TestBaseWatchLifecycle(t *testing.T) {
 			expect(persis.DAGChangeUpdated, "final")
 			retryFileOp(func() error { return os.Remove(base) })
 			expect(persis.DAGChangeUpdated, "scheduled")
+		})
+	}
+}
+
+// calendarWatchFrom is a business day of calendar jp until a test makes it
+// a holiday.
+var calendarWatchFrom = time.Date(2027, 1, 11, 0, 0, 0, 0, time.UTC)
+
+// startCalendarWatch starts a reader on a DAG that runs at 18:00 on the
+// business days of calendar jp, read from calendars.
+func startCalendarWatch(t *testing.T, calendars string, opts ...EntryReaderOption) *entryReaderImpl {
+	t.Helper()
+	dir := t.TempDir()
+	dagFile := filepath.Join(dir, "payroll.yaml")
+	require.NoError(t, os.WriteFile(dagFile,
+		[]byte("calendar: jp\nschedule: \"0 18 * * *\"\nsteps:\n  - run: echo pay\n"), 0600))
+	// An old file, as most DAGs are, so a refresh may reuse the loaded DAG.
+	old := time.Now().Add(-time.Hour)
+	require.NoError(t, os.Chtimes(dagFile, old, old))
+
+	repo := newRepository(dir, WithSkipExamples(true), WithCalendars(spec.NewCalendarSource(calendars)),
+		WithFileCache(fileutil.NewCache[*ir.DAG]("calendar-watch", 2, 0)))
+	reader := NewFileEntryReader(dir, repo, false, "", "", append([]EntryReaderOption{WatchCalendars(calendars)}, opts...)...)
+	require.NoError(t, reader.Init(t.Context()))
+	entries := reader.Entries()
+	require.Len(t, entries, 1)
+	require.Equal(t, time.Date(2027, 1, 11, 18, 0, 0, 0, time.UTC), entries[0].DAG.NextRun(calendarWatchFrom))
+
+	done := make(chan struct{})
+	go func() { defer close(done); reader.Start(t.Context()) }()
+	t.Cleanup(func() { reader.Stop(); <-done })
+	return reader
+}
+
+// requireReplannedPastHoliday waits for the DAG update that follows
+// calendarWatchFrom becoming a holiday.
+func requireReplannedPastHoliday(t *testing.T, reader *entryReaderImpl) {
+	t.Helper()
+	timeout := time.NewTimer(5 * time.Second)
+	defer timeout.Stop()
+	for {
+		select {
+		case event := <-reader.Events():
+			if event.Type != persis.DAGChangeUpdated {
+				continue
+			}
+			assert.Equal(t, time.Date(2027, 1, 12, 18, 0, 0, 0, time.UTC), event.DAG.NextRun(calendarWatchFrom))
+			return
+		case <-timeout.C:
+			t.Fatal("missing update after the calendar changed")
+		}
+	}
+}
+
+// A holiday added to a calendar file must re-plan the DAGs that use it,
+// although their own files and base configs are unchanged.
+func TestCalendarWatch(t *testing.T) {
+	t.Parallel()
+
+	calendars := t.TempDir()
+	calendarFile := filepath.Join(calendars, "jp.yaml")
+	require.NoError(t, os.WriteFile(calendarFile, []byte("holidays: [2027-01-01]\n"), 0600))
+	reader := startCalendarWatch(t, calendars)
+
+	require.NoError(t, os.WriteFile(calendarFile, []byte("holidays: [2027-01-01, 2027-01-11]\n"), 0600))
+	requireReplannedPastHoliday(t, reader)
+}
+
+// A calendar replaced with one of the same size and modification time must
+// still re-plan the DAGs that use it. kqueue may report no event for a
+// rename onto an existing name, so the periodic re-read triggers the
+// refresh here.
+func TestCalendarRefreshSameStampSwap(t *testing.T) {
+	t.Parallel()
+
+	for _, tc := range sameStampSwaps {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			calendars, swap := tc.prepare(t, "holidays: [2027-01-01]\n", "holidays: [2027-01-11]\n")
+			reader := startCalendarWatch(t, calendars, withResyncInterval(250*time.Millisecond))
+			swap()
+			requireReplannedPastHoliday(t, reader)
 		})
 	}
 }
@@ -1254,4 +1337,20 @@ func repointSymlink(t *testing.T, link, target string) {
 	staged := link + ".staged"
 	require.NoError(t, os.Symlink(target, staged))
 	require.NoError(t, os.Rename(staged, link))
+}
+
+// The calendars directory is optional, so a calendars path that is not a
+// directory leaves the DAGs readable.
+func TestCalendarWatchUnusableDir(t *testing.T) {
+	t.Parallel()
+
+	dir := t.TempDir()
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "hello.yaml"), []byte("steps:\n  - run: echo hi\n"), 0600))
+	calendars := filepath.Join(t.TempDir(), "calendars")
+	require.NoError(t, os.WriteFile(calendars, nil, 0600))
+
+	repo := newRepository(dir, WithSkipExamples(true), WithCalendars(spec.NewCalendarSource(calendars)))
+	reader := NewFileEntryReader(dir, repo, false, "", "", WatchCalendars(calendars))
+	require.NoError(t, reader.Init(t.Context()))
+	assert.Len(t, reader.Entries(), 1)
 }
