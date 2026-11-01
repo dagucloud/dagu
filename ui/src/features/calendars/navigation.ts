@@ -68,10 +68,8 @@ function withQuery(
   path: string,
   { remoteNode, workspace }: { remoteNode: string; workspace?: string }
 ): string {
-  const params = new URLSearchParams();
-  if (remoteNode !== LOCAL_NODE) {
-    params.set('remoteNode', remoteNode);
-  }
+  // The node is named even when local, as the app bar may pick another.
+  const params = new URLSearchParams({ remoteNode });
   if (workspace) {
     params.set('workspace', workspace);
   }

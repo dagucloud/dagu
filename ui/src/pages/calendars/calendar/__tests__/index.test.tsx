@@ -77,7 +77,11 @@ function calendar(overrides: Partial<CalendarDetails> = {}): CalendarDetails {
   };
 }
 
-function renderPage(details: CalendarDetails, search = '') {
+function renderPage(
+  details: CalendarDetails,
+  search = '',
+  appBarNode = 'local'
+) {
   useQueryMock.mockImplementation((path: string) =>
     path === '/calendars/{name}'
       ? { data: details, error: undefined, mutate: vi.fn() }
@@ -95,7 +99,7 @@ function renderPage(details: CalendarDetails, search = '') {
       </AppBarContext.Provider>
     </MemoryRouter>
   );
-  const view = render(tree('local'));
+  const view = render(tree(appBarNode));
   return { selectNode: (node: string) => view.rerender(tree(node)) };
 }
 
@@ -133,7 +137,7 @@ describe('CalendarPage', () => {
     expect(screen.getByRole('button', { name: 'Delete' })).toBeDisabled();
     expect(screen.getByRole('link', { name: 'payroll' })).toHaveAttribute(
       'href',
-      '/dags/payroll'
+      '/dags/payroll?remoteNode=local'
     );
     expect(screen.getByText('(via jp-all)')).toBeInTheDocument();
   });
@@ -165,6 +169,29 @@ describe('CalendarPage', () => {
     expect(screen.getByRole('link', { name: 'jp-national' })).toHaveAttribute(
       'href',
       '/calendars/jp-national?remoteNode=production'
+    );
+  });
+
+  // A link that names the local node keeps it, although the app bar picks
+  // another node.
+  it('keeps the local node its link names', () => {
+    renderPage(
+      calendar({
+        usedBy: [{ fileName: 'payroll', name: 'payroll' }],
+        includes: ['jp-national'],
+      }),
+      '?remoteNode=local',
+      'production'
+    );
+
+    expect(lastCalendarQueryNode()).toBe('local');
+    expect(screen.getByRole('link', { name: 'payroll' })).toHaveAttribute(
+      'href',
+      '/dags/payroll?remoteNode=local'
+    );
+    expect(screen.getByRole('link', { name: 'jp-national' })).toHaveAttribute(
+      'href',
+      '/calendars/jp-national?remoteNode=local'
     );
   });
 

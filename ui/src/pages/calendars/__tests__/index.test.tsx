@@ -79,7 +79,7 @@ describe('CalendarsPage', () => {
     const banking = screen.getByRole('row', { name: /jp-banking/ });
     expect(
       within(banking).getByRole('link', { name: 'jp-banking' })
-    ).toHaveAttribute('href', '/calendars/jp-banking');
+    ).toHaveAttribute('href', '/calendars/jp-banking?remoteNode=local');
     expect(within(banking).getByText('Holidays run out')).toBeInTheDocument();
     expect(within(banking).getByText('3')).toBeInTheDocument();
 

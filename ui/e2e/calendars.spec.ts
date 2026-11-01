@@ -46,7 +46,9 @@ test.describe('Business calendars', () => {
     const dialog = page.getByRole('dialog');
     await dialog.getByLabel('Name').fill(calendarName);
     await dialog.getByRole('button', { name: 'Create' }).click();
-    await expect(page).toHaveURL(new RegExp(`/calendars/${calendarName}$`));
+    await expect(page).toHaveURL(
+      new RegExp(`/calendars/${calendarName}\\?remoteNode=local$`)
+    );
     await expect(
       page.getByRole('heading', { level: 1, name: calendarName, exact: true })
     ).toBeVisible();

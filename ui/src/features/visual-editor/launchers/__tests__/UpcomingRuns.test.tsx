@@ -116,7 +116,7 @@ describe('UpcomingRuns', () => {
 
     expect(screen.getByRole('link', { name: 'jp-banking' })).toHaveAttribute(
       'href',
-      '/calendars/jp-banking'
+      '/calendars/jp-banking?remoteNode=local'
     );
     expect(
       screen.getByText('· business day 3 of the month')
