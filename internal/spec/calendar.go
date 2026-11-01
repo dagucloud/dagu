@@ -151,7 +151,7 @@ func (s *CalendarSource) CalendarFile(name string) (*ir.Calendar, error) {
 	if entry, ok := s.entries[name]; ok && entry.current() {
 		return entry.cal, entry.err
 	}
-	loader := calendarLoader{dir: s.dir, loading: map[string]bool{}}
+	loader := calendarLoader{dir: s.dir, loading: map[string]bool{}, included: map[string]loadResult{}}
 	cal, err := loader.load(name)
 	if loader.readFailed {
 		delete(s.entries, name)
@@ -228,11 +228,20 @@ type calendarLoader struct {
 	dir string
 	// loading holds the calendars being loaded, to detect include cycles.
 	loading map[string]bool
+	// included holds the result of each included calendar, so calendars
+	// that share includes read them once, not once per include path.
+	included map[string]loadResult
 	// files records each file read, or found missing, while loading.
 	files []fileStamp
 	// readFailed reports a file that exists but could not be read. The
 	// failure can clear without the file changing, as with permissions.
 	readFailed bool
+}
+
+// loadResult is a loaded calendar, or why it did not load.
+type loadResult struct {
+	cal *ir.Calendar
+	err error
 }
 
 func (l *calendarLoader) load(name string) (*ir.Calendar, error) {
@@ -272,7 +281,7 @@ func (l *calendarLoader) load(name string) (*ir.Calendar, error) {
 	l.loading[name] = true
 	defer delete(l.loading, name)
 	for _, include := range includes {
-		included, err := l.load(include)
+		included, err := l.include(include)
 		if err != nil {
 			return nil, fmt.Errorf("calendar %q: include %q: %w", name, include, err)
 		}
@@ -285,6 +294,18 @@ func (l *calendarLoader) load(name string) (*ir.Calendar, error) {
 	}
 	cal.Digest = hex.EncodeToString(digest.Sum(nil))
 	return cal, nil
+}
+
+// include loads an included calendar, or returns its result from an earlier
+// include. Any result shaped by a calendar still loading comes from an
+// include cycle, which fails the calendar being loaded anyway.
+func (l *calendarLoader) include(name string) (*ir.Calendar, error) {
+	if result, ok := l.included[name]; ok {
+		return result.cal, result.err
+	}
+	cal, err := l.load(name)
+	l.included[name] = loadResult{cal: cal, err: err}
+	return cal, err
 }
 
 // parseCalendar decodes a calendar file and returns the names it includes.
