@@ -83,8 +83,9 @@ const SPOTLIT =
  * State classes of a node card: the selection ring wins over the light of the
  * cursor of the YAML or of a host, and that wins over the colour of the run
  * status, which is the border of the card itself. The card of a previous step
- * that the run reused (see `reusedOutline`) has none of these: its dashed
- * outline is its only line.
+ * that the run reused (see `reusedOutline`) has no selection ring and no
+ * border colour: its dashed outline is its only line, except while the cursor
+ * of the YAML or a host lights it.
  */
 export function cardStateClass(
   node: Pick<CanvasNode, 'run' | 'reuseOutline'>,
@@ -92,8 +93,8 @@ export function cardStateClass(
   highlighted?: boolean
 ): string | undefined {
   if (node.reuseOutline && node.run) {
-    // The dashed outline is the one line of a reused card: no ring and no
-    // border colour, at rest, on hover or selected (its dashes turn violet).
+    // The dashed outline is the one line of a reused card at rest, on hover
+    // or selected (its dashes turn violet); only the light adds a ring.
     if (selected) return undefined;
     return highlighted ? HIGHLIGHT : SPOTLIT;
   }
