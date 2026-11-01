@@ -490,6 +490,68 @@ describe('FreezeWhenHidden', () => {
       1
     );
   });
+
+  // A reader that replaces the held one with the same key as the subtree
+  // shows makes its own first read: the held reader is gone, so there is
+  // nothing to catch up.
+  it('reads a query once for a reader that replaces the held one', async () => {
+    const fetcher = vi.fn(async () => 'log');
+    const swr = swrValue();
+    function Reader() {
+      const { data } = useSWR('log', fetcher, { revalidateOnFocus: false });
+      return <span>{data ?? ''}</span>;
+    }
+    const tree = (hidden: boolean, reader: string) => (
+      <SWRConfig value={swr}>
+        <FreezeWhenHidden hidden={hidden}>
+          <Reader key={reader} />
+        </FreezeWhenHidden>
+      </SWRConfig>
+    );
+
+    const { rerender } = render(tree(false, 'held'));
+    expect(await screen.findByText('log')).toBeInTheDocument();
+    rerender(tree(true, 'held'));
+    rerender(tree(false, 'replacement'));
+    await settle();
+    expect(fetcher).toHaveBeenCalledTimes(2);
+  });
+
+  // A reader that a URL change removes while hidden leaves nothing to catch
+  // up, also when a new reader of its key mounts as the subtree shows.
+  it('forgets a query whose reader left while hidden', async () => {
+    const fetcher = vi.fn(async () => 'log');
+    const swr = swrValue();
+    const url = urlValue(true);
+    function Reader() {
+      const { data } = useSWR('log', fetcher, { revalidateOnFocus: false });
+      return <span>{data ?? ''}</span>;
+    }
+    function Readers({ added }: { added: boolean }) {
+      const kept = url.useValue();
+      return (
+        <>
+          {kept && <Reader />}
+          {added && <Reader />}
+        </>
+      );
+    }
+    const tree = (hidden: boolean, added: boolean) => (
+      <SWRConfig value={swr}>
+        <FreezeWhenHidden hidden={hidden}>
+          <Readers added={added} />
+        </FreezeWhenHidden>
+      </SWRConfig>
+    );
+
+    const { rerender } = render(tree(false, false));
+    expect(await screen.findByText('log')).toBeInTheDocument();
+    rerender(tree(true, false));
+    act(() => url.set(false));
+    rerender(tree(false, true));
+    await settle();
+    expect(fetcher).toHaveBeenCalledTimes(2);
+  });
 });
 
 describe('RunStepList render cost', () => {
