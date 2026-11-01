@@ -44,3 +44,38 @@ func TestCalendarSharedIncludesCountOnce(t *testing.T) {
 	assert.True(t, ok)
 	assert.Len(t, source.entries["top"].files, 2*depth+2)
 }
+
+// A rewrite in place can keep a file's identity, size and modification
+// time, which lookups compare on every call; the content is rechecked too,
+// at most once per interval.
+func TestCalendarSourceRechecksContent(t *testing.T) {
+	t.Parallel()
+
+	dir := t.TempDir()
+	path := filepath.Join(dir, "jp"+CalendarFileExtension)
+	stamp := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
+	write := func(content string) {
+		t.Helper()
+		require.NoError(t, os.WriteFile(path, []byte(content), 0o600))
+		require.NoError(t, os.Chtimes(path, stamp, stamp))
+	}
+	holiday := ir.CivilDate{Year: 2027, Month: time.January, Day: 11}
+
+	write("holidays: [2027-01-01]\n")
+	source := NewCalendarSource(dir)
+	source.contentRecheck = time.Hour
+	_, err := source.Calendar("jp")
+	require.NoError(t, err)
+
+	write("holidays: [2027-01-11]\n")
+	cached, err := source.Calendar("jp")
+	require.NoError(t, err)
+	_, ok := cached.Holiday(holiday)
+	assert.False(t, ok, "rechecked before the interval passed")
+
+	source.contentRecheck = 0
+	cal, err := source.Calendar("jp")
+	require.NoError(t, err)
+	_, ok = cal.Holiday(holiday)
+	assert.True(t, ok)
+}

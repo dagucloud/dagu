@@ -4,6 +4,7 @@
 package spec
 
 import (
+	"bytes"
 	"crypto/sha256"
 	"encoding/hex"
 	"errors"
@@ -67,14 +68,22 @@ func ListCalendars(dir string) ([]CalendarSummary, error) {
 // CalendarSource loads the calendar files of one directory. It keeps each
 // parsed calendar until its file, or a file it includes, changes identity,
 // size or modification time, or until Invalidate, so DAGs that share a
-// calendar parse it once. A file
+// calendar parse it once. The content of the files is rechecked too, at
+// most once a second per calendar, for rewrites that keep all three. A file
 // that cannot be read is retried on every call. The calendars it returns
 // are shared and must not be modified.
 type CalendarSource struct {
 	dir     string
 	mu      sync.Mutex
 	entries map[string]calendarEntry
+	// contentRecheck is how long a calendar is used before the content of
+	// its files is read again.
+	contentRecheck time.Duration
 }
+
+// calendarContentRecheck bounds how long a rewrite that keeps a file's
+// identity, size and modification time goes unnoticed.
+const calendarContentRecheck = time.Second
 
 // calendarEntry is a loaded calendar, or why it did not load, with the
 // files it was read from.
@@ -82,6 +91,8 @@ type calendarEntry struct {
 	cal   *ir.Calendar
 	err   error
 	files []fileStamp
+	// checkedAt is when the content of the files was last read.
+	checkedAt time.Time
 }
 
 // fileStamp identifies the version of a file, or that it was missing.
@@ -89,6 +100,8 @@ type fileStamp struct {
 	path string
 	// info is nil when the file was missing.
 	info os.FileInfo
+	// digest is the SHA-256 of the content, nil unless the file was read.
+	digest []byte
 }
 
 func statFile(path string) fileStamp {
@@ -111,19 +124,37 @@ func (f fileStamp) sameVersion(other fileStamp) bool {
 		f.info.ModTime().Equal(other.info.ModTime())
 }
 
-func (e calendarEntry) current() bool {
+// current reports whether the files are unchanged, reading their content
+// again once recheck has passed since it was last read.
+func (e *calendarEntry) current(now time.Time, recheck time.Duration) bool {
 	for _, file := range e.files {
 		if !statFile(file.path).sameVersion(file) {
 			return false
 		}
 	}
+	if now.Sub(e.checkedAt) < recheck {
+		return true
+	}
+	for _, file := range e.files {
+		if file.digest == nil {
+			continue
+		}
+		data, err := os.ReadFile(file.path) //nolint:gosec // paths are calendar files read by an earlier load.
+		if err != nil {
+			return false
+		}
+		if sum := sha256.Sum256(data); !bytes.Equal(sum[:], file.digest) {
+			return false
+		}
+	}
+	e.checkedAt = now
 	return true
 }
 
 // NewCalendarSource returns a source for the calendar files in dir. With an
 // empty dir, only built-in calendars exist.
 func NewCalendarSource(dir string) *CalendarSource {
-	return &CalendarSource{dir: dir, entries: map[string]calendarEntry{}}
+	return &CalendarSource{dir: dir, entries: map[string]calendarEntry{}, contentRecheck: calendarContentRecheck}
 }
 
 // Dir returns the directory of the calendar files.
@@ -158,7 +189,9 @@ func (s *CalendarSource) CalendarFile(name string) (*ir.Calendar, error) {
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	if entry, ok := s.entries[name]; ok && entry.current() {
+	now := time.Now()
+	if entry, ok := s.entries[name]; ok && entry.current(now, s.contentRecheck) {
+		s.entries[name] = entry
 		return entry.cal, entry.err
 	}
 	loader := calendarLoader{dir: s.dir, loading: map[string]bool{}, included: map[string]loadResult{}}
@@ -166,7 +199,7 @@ func (s *CalendarSource) CalendarFile(name string) (*ir.Calendar, error) {
 	if loader.readFailed {
 		delete(s.entries, name)
 	} else {
-		s.entries[name] = calendarEntry{cal: cal, err: err, files: loader.files}
+		s.entries[name] = calendarEntry{cal: cal, err: err, files: loader.files, checkedAt: now}
 	}
 	return cal, err
 }
@@ -269,6 +302,7 @@ func (l *calendarLoader) load(name string) (*ir.Calendar, error) {
 	}
 	path := filepath.Join(l.dir, name+CalendarFileExtension)
 	// Stamped before reading, so a write during the read shows as a change.
+	stamp := len(l.files)
 	l.files = append(l.files, statFile(path))
 	data, err := os.ReadFile(path) //nolint:gosec // name matches the calendar name pattern, so the path stays in dir.
 	if errors.Is(err, os.ErrNotExist) {
@@ -281,6 +315,8 @@ func (l *calendarLoader) load(name string) (*ir.Calendar, error) {
 		l.readFailed = true
 		return nil, fmt.Errorf("read calendar %q: %w", name, err)
 	}
+	sum := sha256.Sum256(data)
+	l.files[stamp].digest = sum[:]
 	cal, includes, err := parseCalendar(name, data)
 	if err != nil {
 		return nil, fmt.Errorf("calendar %q: %w", name, err)
