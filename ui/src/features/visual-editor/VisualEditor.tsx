@@ -1760,6 +1760,8 @@ export function VisualEditor(props: VisualEditorProps): ReactElement {
             <CronLauncherPanel
               schedule={schedule}
               editable={canEdit}
+              upcomingRuns={details?.upcomingRuns}
+              schedules={details?.schedule}
               onChange={setSchedule}
               onClose={closeLauncher}
             />

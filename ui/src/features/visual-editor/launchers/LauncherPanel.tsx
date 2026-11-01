@@ -3,6 +3,7 @@
 
 import { Plus, Trash2 } from 'lucide-react';
 import { useState, type ReactElement, type ReactNode } from 'react';
+import type { components } from '@/api/v1/schema';
 import { Button } from '@/components/ui/button';
 import { useConfig } from '@/contexts/ConfigContext';
 import WebhookTab from '@/features/dags/components/dag-details/WebhookTab';
@@ -16,6 +17,10 @@ import type { ScheduleView } from '../doc';
 import { LAUNCHER_ICONS, LAUNCHER_LABELS } from './LauncherNode';
 import type { LauncherId } from './model';
 import { nextRuns, SCHEDULE_PRESETS } from './nextRuns';
+import { UpcomingRuns } from './UpcomingRuns';
+
+type Schedule = components['schemas']['Schedule'];
+type UpcomingRun = components['schemas']['UpcomingRun'];
 
 function Shell({
   id,
@@ -97,11 +102,14 @@ export function ManualLauncherPanel({
 function ExpressionRow({
   expression,
   editable,
+  serverPreview,
   onCommit,
   onRemove,
 }: {
   expression: string;
   editable: boolean;
+  /** The panel lists the server's runs, so the row previews only drafts. */
+  serverPreview: boolean;
   /** False when the panel refuses the expression: the draft goes back. */
   onCommit(next: string): boolean;
   onRemove(): void;
@@ -110,6 +118,7 @@ function ExpressionRow({
   const { tz } = useConfig();
   const [draft, setDraft] = useState(expression);
   const runs = nextRuns(draft.trim(), 3, new Date(), tz);
+  const previewed = !serverPreview || draft.trim() !== expression;
   const commit = () => {
     const next = draft.trim();
     if (next === expression) return;
@@ -146,7 +155,7 @@ function ExpressionRow({
           </Button>
         )}
       </div>
-      {runs ? (
+      {!previewed ? null : runs ? (
         <p
           className="text-xs text-muted-foreground"
           data-testid="ve-launcher-next-runs"
@@ -170,16 +179,24 @@ function ExpressionRow({
 
 /**
  * The schedule of the workflow, as a list of cron expressions. An edit is
- * one change of the YAML text.
+ * one change of the YAML text. The server's next runs, when given, cover
+ * every start entry; without them each expression is previewed in the
+ * browser.
  */
 export function CronLauncherPanel({
   schedule,
   editable,
+  upcomingRuns,
+  schedules = [],
   onChange,
   onClose,
 }: {
   schedule: ScheduleView;
   editable: boolean;
+  /** Next runs of the saved or validated schedule, from the server. */
+  upcomingRuns?: UpcomingRun[];
+  /** The server's start schedules, which upcomingRuns index. */
+  schedules?: Schedule[];
   /** The new list of start expressions; the other entries stay. */
   onChange(expressions: string[]): void;
   onClose(): void;
@@ -209,6 +226,7 @@ export function CronLauncherPanel({
               key={`${expression}-${index}`}
               expression={expression}
               editable={editable}
+              serverPreview={upcomingRuns !== undefined}
               onCommit={(next) => {
                 if (expressions.includes(next)) return false;
                 onChange(expressions.map((e, i) => (i === index ? next : e)));
@@ -220,6 +238,9 @@ export function CronLauncherPanel({
             />
           ))}
         </ul>
+      )}
+      {upcomingRuns && schedule.present && (
+        <UpcomingRuns runs={upcomingRuns} schedules={schedules} />
       )}
       {schedule.others > 0 && (
         <p className="text-xs text-muted-foreground">
