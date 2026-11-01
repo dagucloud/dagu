@@ -3,6 +3,7 @@
 
 import { createContext, useContext, useRef, type ReactNode } from 'react';
 import { SWRConfig, type Middleware } from 'swr';
+import { SSEPausedContext } from '@/hooks/useSSE';
 import { WorkspaceDataContext } from '../data/context';
 
 const HiddenContext = createContext(false);
@@ -31,8 +32,9 @@ export function useDockHidden(): boolean {
  * `hidden`, a render of the parent gives it the same elements and the data
  * of the workspace does not reach it, so it renders no more for the events of
  * a run. It renders once when `hidden` turns false, with the live elements
- * and data. While hidden, the SWR hooks in it do not poll: the frozen props
- * can still say that a run that ended is active.
+ * and data. While hidden, the SWR hooks in it do not poll and its SSE hooks
+ * hold no subscription: the frozen props can still say that a run that ended
+ * is active, and the server reads a log for each subscription.
  */
 export function FreezeWhenHidden({
   hidden,
@@ -46,11 +48,13 @@ export function FreezeWhenHidden({
   if (!hidden) shown.current = { data, children };
   return (
     <HiddenContext.Provider value={hidden}>
-      <SWRConfig value={hidden ? HIDDEN_SWR : SHOWN_SWR}>
-        <WorkspaceDataContext.Provider value={shown.current.data}>
-          {shown.current.children}
-        </WorkspaceDataContext.Provider>
-      </SWRConfig>
+      <SSEPausedContext.Provider value={hidden}>
+        <SWRConfig value={hidden ? HIDDEN_SWR : SHOWN_SWR}>
+          <WorkspaceDataContext.Provider value={shown.current.data}>
+            {shown.current.children}
+          </WorkspaceDataContext.Provider>
+        </SWRConfig>
+      </SSEPausedContext.Provider>
     </HiddenContext.Provider>
   );
 }

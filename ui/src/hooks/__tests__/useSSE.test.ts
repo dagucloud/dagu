@@ -6,7 +6,7 @@ import { act, renderHook } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { ConfigContext, type Config } from '@/contexts/ConfigContext';
 import { sseFallbackOptions } from '../useSSECacheSync';
-import { buildSSEEndpoint, useSSE } from '../useSSE';
+import { buildSSEEndpoint, SSEPausedContext, useSSE } from '../useSSE';
 import { sseManager } from '../SSEManager';
 
 class MockEventSource {
@@ -191,5 +191,38 @@ describe('useSSE', () => {
 
     first.unmount();
     second.unmount();
+  });
+
+  // A hidden part of the page holds no subscription: the server reads a
+  // topic for each one.
+  it('holds no subscription while paused, and subscribes once shown', () => {
+    const unsubscribe = vi.fn();
+    const subscribe = vi
+      .spyOn(sseManager, 'subscribe')
+      .mockReturnValue(unsubscribe);
+    let paused = true;
+    const pausedWrapper = ({ children }: { children: React.ReactNode }) =>
+      wrapper({
+        children: React.createElement(
+          SSEPausedContext.Provider,
+          { value: paused },
+          children
+        ),
+      });
+    const view = renderHook(
+      () => useSSE('/events/dag-runs/demo/run-1/logs', true, 'local'),
+      { wrapper: pausedWrapper }
+    );
+    expect(subscribe).not.toHaveBeenCalled();
+
+    paused = false;
+    view.rerender();
+    expect(subscribe).toHaveBeenCalledTimes(1);
+
+    paused = true;
+    view.rerender();
+    expect(unsubscribe).toHaveBeenCalledTimes(1);
+    expect(subscribe).toHaveBeenCalledTimes(1);
+    view.unmount();
   });
 });
