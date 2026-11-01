@@ -235,6 +235,22 @@ describe('summarizeStepHistory', () => {
     });
   });
 
+  // A partial success is a success of the step: it counts in the rate and
+  // in the usual time.
+  it('counts a partial success as a success', () => {
+    const summary = summarizeStepHistory([
+      entry({ status: NodeStatus.Failed, durationMs: 50 }),
+      entry({ durationMs: 1000 }),
+      entry({ status: NodeStatus.PartialSuccess, durationMs: 4000 }),
+    ]);
+    expect(summary).toEqual({
+      counted: 3,
+      succeeded: 2,
+      usualMs: 2500,
+      failingSince: null,
+    });
+  });
+
   it('gives the start of the failures that end the counted runs', () => {
     const summary = summarizeStepHistory([
       entry({ at: 't1', status: NodeStatus.Failed }),

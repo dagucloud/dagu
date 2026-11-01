@@ -76,7 +76,7 @@ export interface StepGrid {
 export interface StepHistorySummary {
   /** Finished runs where the step ran: no test run and no reused step. */
   counted: number;
-  /** The counted runs where the step succeeded. */
+  /** The counted runs where the step succeeded, wholly or partly. */
   succeeded: number;
   /** The median time of the counted runs where the step succeeded. */
   usualMs: number | null;
@@ -98,6 +98,11 @@ const FINISHED: ReadonlySet<NodeStatus> = new Set([
   NodeStatus.Failed,
   NodeStatus.Aborted,
   NodeStatus.Rejected,
+]);
+
+const SUCCEEDED: ReadonlySet<NodeStatus> = new Set([
+  NodeStatus.Success,
+  NodeStatus.PartialSuccess,
 ]);
 
 const FAILED: ReadonlySet<NodeStatus> = new Set([
@@ -299,7 +304,9 @@ export function summarizeStepHistory(
   entries: readonly StepRunEntry[]
 ): StepHistorySummary {
   const counted = entries.filter(isCounted);
-  const succeeded = counted.filter((e) => e.status === NodeStatus.Success);
+  const succeeded = counted.filter(
+    (e) => e.status !== null && SUCCEEDED.has(e.status)
+  );
   const times = succeeded
     .map((e) => e.durationMs)
     .filter((ms): ms is number => ms !== null);
