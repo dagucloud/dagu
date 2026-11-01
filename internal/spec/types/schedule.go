@@ -163,7 +163,7 @@ func parseScheduleEntry(v any, opts ir.ScheduleParseOptions) ([]ir.Schedule, err
 func (s ScheduleValue) StartPath(i int) (string, bool) {
 	switch v := s.raw.(type) {
 	case string:
-		return "schedule", i == 0
+		return "schedule", i == 0 && v != ""
 	case []any:
 		return fmt.Sprintf("schedule[%d]", i), i < len(v)
 	case map[string]any:
