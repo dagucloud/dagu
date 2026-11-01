@@ -114,6 +114,7 @@ type API struct {
 	apiKeyCreateMu       sync.Mutex
 	workspaceStore       workspace.Store
 	leaseStaleThreshold  time.Duration
+	runSortDAGLimit      int
 	schedulerStateStore  schedulerstate.Store
 	schedulerPauseStore  schedulerstate.PauseStore
 	dagMutationNotifier  func(fileName string)
@@ -501,6 +502,7 @@ func New(
 		metricsRegistry:     mr,
 		defaultExecMode:     cfg.DefaultExecMode,
 		leaseStaleThreshold: dagrun.DefaultStaleLeaseThreshold,
+		runSortDAGLimit:     maxRunSortDAGs,
 	}
 	// A nil service must leave the field nil, not a typed nil.
 	if rs != nil {

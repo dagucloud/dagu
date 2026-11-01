@@ -4,6 +4,7 @@
 package api
 
 import (
+	"cmp"
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
@@ -15,6 +16,7 @@ import (
 	"os"
 	"path/filepath"
 	osrt "runtime"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -27,6 +29,7 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/cmn/logger"
 	"github.com/dagucloud/dagu/v2/internal/cmn/logger/tag"
 	"github.com/dagucloud/dagu/v2/internal/cmn/procutil"
+	"github.com/dagucloud/dagu/v2/internal/cmn/stringutil"
 	cmnvalue "github.com/dagucloud/dagu/v2/internal/cmn/value"
 	"github.com/dagucloud/dagu/v2/internal/dagrun"
 	"github.com/dagucloud/dagu/v2/internal/dispatch"
@@ -40,6 +43,13 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/spec"
 	"github.com/dagucloud/dagu/v2/internal/workspace"
 )
+
+// maxRunSortDAGs caps how many matching DAGs the server will read when sorting
+// by status or lastRun. The sort key is the latest run of each DAG, which is
+// only known after reading every matching DAG, so the set is bounded to keep
+// the per-DAG status reads reasonable. Above the cap the list falls back to
+// the name sort.
+const maxRunSortDAGs = 300
 
 const defaultHistoryLimit = 30
 
@@ -2308,6 +2318,13 @@ func (a *API) listDAGsData(ctx context.Context, listOpts persis.DAGListOptions) 
 // is true, also includes DAGs found under the configured alternate directory
 // (paths.alt_dags_dir). Query semantics are applied to the combined collection.
 func (a *API) listDAGsDataWithSearchPaths(ctx context.Context, listOpts persis.DAGListOptions, source dagListSource) (api.ListDAGs200JSONResponse, error) {
+	// Sorting by status or lastRun needs the latest run of every matching DAG,
+	// which is only known after the catalog is loaded. Route those sorts to a
+	// dedicated path that reads all matching DAGs, sorts, and then paginates.
+	if listOpts.Sort == "status" || listOpts.Sort == "lastRun" {
+		return a.listDAGsDataSortedByRun(ctx, listOpts, source)
+	}
+
 	projectionTime := time.Now()
 	nextRunProjection := a.nextRunProjection(ctx)
 
@@ -2365,6 +2382,236 @@ func (a *API) listDAGsDataWithSearchPaths(ctx context.Context, listOpts persis.D
 		Errors:     errList,
 		Pagination: toPagination(result),
 	}, nil
+}
+
+// listDAGsDataSortedByRun lists DAGs and sorts them by the latest run of each
+// DAG (status or lastRun). The sort key is only known after reading each DAG's
+// latest run, so every matching DAG is loaded, keyed, sorted, and then
+// paginated. The number of DAGs is capped by a.runSortDAGLimit; a larger match
+// set is listed with the name sort instead, and errors[] says so.
+func (a *API) listDAGsDataSortedByRun(ctx context.Context, listOpts persis.DAGListOptions, source dagListSource) (api.ListDAGs200JSONResponse, error) {
+	projectionTime := time.Now()
+	listOpts.Time = &projectionTime
+	listOpts.NextRunProjection = a.nextRunProjection(ctx)
+	nextRunProjection := listOpts.NextRunProjection
+	pinnedIDs := a.pinnedDAGIDs(ctx)
+	if source.pinnedFirst {
+		listOpts.PinnedIDs = pinnedIDs
+	}
+
+	// Save the caller's paginator. It is replaced below with an unbounded one
+	// so the repository returns every matching DAG for the sort, then restored
+	// for the final pagination of the sorted result.
+	callerPaginator := listOpts.Paginator
+	all := pagination.NewPaginator(1, int(^uint(0)>>1))
+	listOpts.Paginator = &all
+
+	var (
+		result  pagination.PaginatedResult[persis.DAGListItem]
+		errList []string
+		err     error
+	)
+	if source.includeSearchPaths {
+		result, errList, err = a.dagRepository.ListIncludingSearchPaths(ctx, listOpts)
+	} else {
+		result, errList, err = a.dagRepository.List(ctx, listOpts)
+	}
+	if err != nil {
+		return api.ListDAGs200JSONResponse{}, fmt.Errorf("error listing DAGs: %w", err)
+	}
+	limit := a.runSortDAGLimit
+	if limit <= 0 {
+		limit = maxRunSortDAGs
+	}
+	if result.TotalCount > limit {
+		// Too many DAGs to read every latest run. List them by name in the
+		// requested order instead of failing, so API clients, the SSE topic
+		// and a ui.dags.sort_field default keep working on big installs.
+		requested := listOpts.Sort
+		listOpts.Sort = "name"
+		listOpts.Paginator = callerPaginator
+		resp, fallbackErr := a.listDAGsDataWithSearchPaths(ctx, listOpts, source)
+		if fallbackErr != nil {
+			return resp, fallbackErr
+		}
+		resp.Errors = append(resp.Errors, fmt.Sprintf(
+			"sorting by %s is limited to %d matching DAGs (found %d); sorted by name instead",
+			requested, limit, result.TotalCount,
+		))
+		return resp, nil
+	}
+
+	// Build the sort key (latest run status or start time) for each DAG. A
+	// failed status read is reported below, only for the DAGs on the page,
+	// as the other list paths do.
+	type keyedItem struct {
+		item      persis.DAGListItem
+		dagStatus ir.DAGRunStatus
+		statusErr error
+		status    ir.Status
+		lastRun   time.Time
+	}
+	keyed := make([]keyedItem, 0, len(result.Items))
+	for _, item := range result.Items {
+		dagStatus, statusErr := a.dagRunMgr.GetLatestStatus(ctx, item.DAG)
+		// An empty or unparseable start time yields the zero time, which
+		// sorts as "never ran".
+		lastRun, _ := stringutil.ParseTime(dagStatus.StartedAt)
+		keyed = append(keyed, keyedItem{
+			item:      item,
+			dagStatus: dagStatus,
+			statusErr: statusErr,
+			status:    dagStatus.Status,
+			lastRun:   lastRun,
+		})
+	}
+
+	// Sort pinned DAGs first when the list asks for it, then by the requested
+	// key, then by name and ID so pages stay stable between requests.
+	direction := 1
+	if listOpts.Order == "desc" {
+		direction = -1
+	}
+	slices.SortFunc(keyed, func(a, b keyedItem) int {
+		if source.pinnedFirst {
+			if c := comparePinned(pinnedIDs, a.item.ID, b.item.ID); c != 0 {
+				return c
+			}
+		}
+		var c int
+		if listOpts.Sort == "status" {
+			c = compareRunStatus(a.status, b.status, direction)
+		} else {
+			c = compareRunTime(a.lastRun, b.lastRun, direction)
+		}
+		if c != 0 {
+			return c
+		}
+		if c = strings.Compare(strings.ToLower(a.item.Name), strings.ToLower(b.item.Name)); c != 0 {
+			return c
+		}
+		return strings.Compare(a.item.ID, b.item.ID)
+	})
+
+	// Paginate the sorted result with the caller's paginator.
+	pg := callerPaginator
+	totalCount := len(keyed)
+	start := pg.Offset()
+	end := min(start+pg.Limit(), totalCount)
+	var pageKeyed []keyedItem
+	if start < totalCount {
+		pageKeyed = keyed[start:end]
+	}
+	items := make([]persis.DAGListItem, 0, len(pageKeyed))
+	for _, k := range pageKeyed {
+		items = append(items, k.item)
+	}
+	paged := pagination.NewPaginatedResult(items, totalCount, *pg)
+
+	dagFiles := make([]api.DAGFile, 0, len(paged.Items))
+	for _, k := range pageKeyed {
+		item := k.item
+		var nextRun time.Time
+		if !item.Suspended {
+			nextRun = nextRunProjection(item.DAG, projectionTime)
+		}
+		var nextRunAt *time.Time
+		if !nextRun.IsZero() {
+			nextRunAt = &nextRun
+		}
+		_, pinned := pinnedIDs[item.ID]
+		dagFile := api.DAGFile{
+			FileName:     item.ID,
+			LatestDAGRun: toDAGRunSummary(k.dagStatus),
+			Suspended:    item.Suspended,
+			Pinned:       pinned,
+			Dag:          toDAG(item.DAG),
+			NextRun:      nextRunAt,
+			Errors:       extractBuildErrors(item.BuildErrors),
+		}
+		if k.statusErr != nil {
+			errList = append(errList, k.statusErr.Error())
+		}
+		dagFiles = append(dagFiles, dagFile)
+	}
+
+	return api.ListDAGs200JSONResponse{
+		Dags:       dagFiles,
+		Errors:     errList,
+		Pagination: toPagination(paged),
+	}, nil
+}
+
+// runStatusRank is the ascending order of the status sort: live runs first,
+// then runs that need attention, then finished runs from worst to best. The
+// table is explicit so that adding a value to ir.Status does not silently
+// reorder the API. Keep it in sync with the `status` sort in api.yaml.
+var runStatusRank = map[ir.Status]int{
+	ir.Running:            0,
+	ir.Waiting:            1,
+	ir.Queued:             2,
+	ir.Failed:             3,
+	ir.Rejected:           4,
+	ir.Aborted:            5,
+	ir.PartiallySucceeded: 6,
+	ir.Succeeded:          7,
+}
+
+// rankRunStatus returns the sort rank of a status. A status missing from
+// runStatusRank sorts after every listed one.
+func rankRunStatus(s ir.Status) int {
+	if rank, ok := runStatusRank[s]; ok {
+		return rank
+	}
+	return len(runStatusRank)
+}
+
+// compareRunStatus compares two run statuses in the requested direction using
+// runStatusRank. A zero (not started) status sorts after any real status in
+// both ascending and descending order.
+func compareRunStatus(a, b ir.Status, direction int) int {
+	if a == ir.NotStarted && b == ir.NotStarted {
+		return 0
+	}
+	if a == ir.NotStarted {
+		return 1
+	}
+	if b == ir.NotStarted {
+		return -1
+	}
+	return direction * cmp.Compare(rankRunStatus(a), rankRunStatus(b))
+}
+
+// compareRunTime compares two run start times in the requested direction. A
+// zero time sorts after any real time in both ascending and descending order.
+func compareRunTime(a, b time.Time, direction int) int {
+	if a.IsZero() && b.IsZero() {
+		return 0
+	}
+	if a.IsZero() {
+		return 1
+	}
+	if b.IsZero() {
+		return -1
+	}
+	return direction * a.Compare(b)
+}
+
+// comparePinned orders pinned DAGs before unpinned ones. It returns a negative
+// value when a is pinned and b is not, a positive value when b is pinned and a
+// is not, and zero when both are pinned or both are unpinned. It matches
+// persis.comparePinned, which is not exported.
+func comparePinned(pinned map[string]struct{}, a, b string) int {
+	_, aPinned := pinned[a]
+	_, bPinned := pinned[b]
+	switch {
+	case aPinned == bPinned:
+		return 0
+	case aPinned:
+		return -1
+	default:
+		return 1
+	}
 }
 
 func (a *API) projectNextRun(ctx context.Context, dag *ir.DAG) *time.Time {

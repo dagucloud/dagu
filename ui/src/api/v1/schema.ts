@@ -9467,6 +9467,10 @@ export interface operations {
                 /** @description Field to sort by:
                  *     - `name`: Sort alphabetically by DAG name (case-insensitive)
                  *     - `nextRun`: Sort by next scheduled run time. DAGs with earlier next run times appear first in ascending order. DAGs without schedules appear last.
+                 *     - `status`: Sort by the status of the latest run. Ascending order is running, waiting, queued, failed, rejected, aborted, partially succeeded, succeeded. DAGs without a latest run sort by name after the rest; the sort reads every matching DAG so it is accurate across pages. It is limited to 300 matching DAGs after filtering; above that the list is sorted by `name` instead and `errors` explains why.
+                 *     - `lastRun`: Sort by the start time of the latest run. DAGs without a latest run sort by name after the rest; the sort reads every matching DAG so it is accurate across pages. It is limited to 300 matching DAGs after filtering; above that the list is sorted by `name` instead and `errors` explains why.
+                 *
+                 *     DAGs without a latest run when sorting by `status` or `lastRun` come last in both ascending and descending order.
                  *
                  *     Pinned DAGs are listed before all others; `sort` and `order` apply within the pinned and unpinned parts.
                  *      */
@@ -22987,7 +22991,9 @@ export interface operations {
 }
 export enum PathsDagsGetParametersQuerySort {
     name = "name",
-    nextRun = "nextRun"
+    nextRun = "nextRun",
+    status = "status",
+    lastRun = "lastRun"
 }
 export enum PathsDagsGetParametersQueryOrder {
     asc = "asc",
@@ -23512,7 +23518,9 @@ export enum ViewWorkspaceScope {
 }
 export enum ViewSortField {
     name = "name",
-    nextRun = "nextRun"
+    nextRun = "nextRun",
+    status = "status",
+    lastRun = "lastRun"
 }
 export enum ViewSortOrder {
     asc = "asc",

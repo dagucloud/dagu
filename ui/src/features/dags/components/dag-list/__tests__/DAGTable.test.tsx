@@ -80,8 +80,10 @@ function renderTable(
     canPinDAG?: React.ComponentProps<typeof DAGTable>['canPinDAG'];
     /** A peek host above the table. */
     peek?: PeekController;
+    resultCount?: number;
   } = {}
 ) {
+  const onSortChange = vi.fn();
   const onShowAllWorkflows = vi.fn();
   const handleActiveOnlyChange = vi.fn();
   const onDeleteDAGs =
@@ -134,7 +136,7 @@ function renderTable(
               handleActiveOnlyChange={handleActiveOnlyChange}
               sortField="name"
               sortOrder="asc"
-              onSortChange={vi.fn()}
+              onSortChange={onSortChange}
               workflowViews={options.workflowViews ?? []}
               activeWorkflowViewId={options.activeWorkflowViewId ?? null}
               isAllWorkflowsView={options.isAllWorkflowsView ?? true}
@@ -154,6 +156,7 @@ function renderTable(
               onRenameDAG={onRenameDAG}
               canPinDAG={options.canPinDAG ?? (() => true)}
               onSetDAGPinned={onSetDAGPinned}
+              resultCount={options.resultCount}
             />
           </PanelWidthContext.Provider>
         </AppBarContext.Provider>
@@ -176,6 +179,7 @@ function renderTable(
     onRenameDAG,
     onSetDAGPinned,
     onShowAllWorkflows,
+    onSortChange,
   };
 }
 
@@ -583,22 +587,39 @@ describe('DAGTable', () => {
     ).not.toBeInTheDocument();
   });
 
-  // Ascending status order alone would put the failed workflow first.
-  it('keeps pinned workflows on top when sorting by status', () => {
-    renderTable('', {
+  // The server sorts by status. The table asks for that sort and keeps the
+  // rows it gets, with pinned workflows on top.
+  it('asks the server to sort by status and keeps pinned workflows on top', () => {
+    const { onSortChange } = renderTable('', {
       dags: [
-        workflow({ name: 'zeta', pinned: true, status: Status.Success }),
         workflow({ name: 'alpha', status: Status.Failed }),
+        workflow({ name: 'zeta', pinned: true, status: Status.Success }),
       ],
     });
     const table = screen.getByRole('table');
 
     fireEvent.click(within(table).getByRole('button', { name: /^Status/ }));
 
+    expect(onSortChange).toHaveBeenCalledWith('status', 'asc');
     const texts = bodyRowTexts(table);
     expect(texts.findIndex((text) => text.includes('zeta'))).toBeLessThan(
       texts.findIndex((text) => text.includes('alpha'))
     );
+  });
+
+  it('disables the run sorts when more workflows match than the server sorts by run', () => {
+    renderTable('', { resultCount: 301 });
+    const table = screen.getByRole('table');
+
+    expect(
+      within(table).queryByRole('button', { name: /^Status/ })
+    ).not.toBeInTheDocument();
+    expect(
+      within(table).queryByRole('button', { name: /^Last Run/ })
+    ).not.toBeInTheDocument();
+    expect(
+      within(table).getByRole('button', { name: /^Name/ })
+    ).toBeInTheDocument();
   });
 
   it('pins and unpins workflows from their rows', () => {

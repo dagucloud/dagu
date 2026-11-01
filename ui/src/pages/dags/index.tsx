@@ -26,9 +26,11 @@ import {
   type DAGDeleteResult,
 } from '../../features/dags/components/dag-list';
 import DAGListHeader from '../../features/dags/components/dag-list/DAGListHeader';
-import type {
-  WorkflowFilterSet,
-  WorkflowFilterView,
+import {
+  isRunSortField,
+  maxRunSortDAGs,
+  type WorkflowFilterSet,
+  type WorkflowFilterView,
 } from '../../features/dags/components/dag-list/workflowViews';
 import {
   viewMatchesScope,
@@ -89,8 +91,10 @@ const ALL_WORKFLOWS_VIEW_PARAM = 'all';
 const DELETE_BATCH_SIZE = 5;
 
 function normalizeWorkflowSortField(value?: string | null): ViewSortField {
-  return value === ViewSortField.nextRun
-    ? ViewSortField.nextRun
+  return value === ViewSortField.nextRun ||
+    value === ViewSortField.status ||
+    value === ViewSortField.lastRun
+    ? (value as ViewSortField)
     : ViewSortField.name;
 }
 
@@ -103,7 +107,11 @@ function workflowSortFieldQuery(
 ): PathsDagsGetParametersQuerySort {
   return value === ViewSortField.nextRun
     ? PathsDagsGetParametersQuerySort.nextRun
-    : PathsDagsGetParametersQuerySort.name;
+    : value === ViewSortField.status
+      ? PathsDagsGetParametersQuerySort.status
+      : value === ViewSortField.lastRun
+        ? PathsDagsGetParametersQuerySort.lastRun
+        : PathsDagsGetParametersQuerySort.name;
 }
 
 function workflowSortOrderQuery(
@@ -804,6 +812,21 @@ function DAGsContent() {
     },
     [activeWorkflowViewId, applyQueryFilters, updateFilterLocation]
   );
+
+  // Above maxRunSortDAGs matching workflows the server sorts a status or
+  // lastRun request by name instead. Switch the filters to the name sort too,
+  // keeping the user's order, so the header, the URL and a saved view match
+  // the order on screen.
+  React.useEffect(() => {
+    if (
+      data &&
+      !isLoading &&
+      data.pagination.totalRecords > maxRunSortDAGs &&
+      isRunSortField(requestFilters.sortField)
+    ) {
+      patchFilters({ sortField: ViewSortField.name }, true);
+    }
+  }, [data, isLoading, requestFilters.sortField, patchFilters]);
 
   const searchTextChange = (nextSearchText: string) => {
     patchFilters({ searchText: nextSearchText });
