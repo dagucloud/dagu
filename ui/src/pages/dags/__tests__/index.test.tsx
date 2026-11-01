@@ -91,23 +91,6 @@ vi.mock('@/hooks/useViews', () => ({
   }),
 }));
 
-vi.mock('@/features/dags/components/dag-details', () => ({
-  DAGDetailsModal: ({
-    fileName,
-    onClose,
-  }: {
-    fileName: string;
-    onClose: () => void;
-  }) => (
-    <div role="dialog">
-      Workflow modal for {fileName}
-      <button type="button" onClick={onClose}>
-        Close workflow
-      </button>
-    </div>
-  ),
-}));
-
 vi.mock('@/features/dags/components/dag-editor', () => ({
   DAGErrors: () => null,
 }));
@@ -119,8 +102,6 @@ vi.mock('@/features/dags/components/dag-list', () => ({
     handleSearchTextChange,
     activeOnly,
     handleActiveOnlyChange,
-    selectedDAG,
-    onSelectDAG,
     activeWorkflowViewId,
     workflowViewError,
     onSaveWorkflowView,
@@ -143,8 +124,6 @@ vi.mock('@/features/dags/components/dag-list', () => ({
     handleSearchTextChange: (value: string) => void;
     activeOnly: boolean;
     handleActiveOnlyChange: (value: boolean) => void;
-    selectedDAG?: string | null;
-    onSelectDAG?: (fileName: string, title: string) => void;
     activeWorkflowViewId: string | null;
     workflowViewError?: string | null;
     onSaveWorkflowView: (
@@ -181,14 +160,6 @@ vi.mock('@/features/dags/components/dag-list', () => ({
       >
         Active only
       </button>
-      <button
-        type="button"
-        aria-pressed={selectedDAG === 'demo.yaml'}
-        onClick={() => onSelectDAG?.('demo.yaml', 'demo')}
-      >
-        Open demo workflow
-      </button>
-      <span data-testid="selected-dag">{selectedDAG ?? 'none'}</span>
       <span data-testid="active-workflow-view">
         {activeWorkflowViewId ?? 'none'}
       </span>
@@ -360,6 +331,9 @@ function makeConfig(overrides: Partial<Config> = {}): Config {
     gitSyncEnabled: false,
     updateAvailable: false,
     latestVersion: '',
+    upgradeCommand: '',
+    restartRequired: false,
+    restartCommand: '',
     permissions: {
       writeDags: true,
       runDags: true,
@@ -394,7 +368,12 @@ function makeConfig(overrides: Partial<Config> = {}): Config {
 
 function LocationProbe() {
   const location = useLocation();
-  return <output data-testid="location-search">{location.search}</output>;
+  return (
+    <>
+      <output data-testid="location-path">{location.pathname}</output>
+      <output data-testid="location-search">{location.search}</output>
+    </>
+  );
 }
 
 function DagsPageHarness({
@@ -993,9 +972,6 @@ describe('DagsPage', () => {
   it('deletes selected workflows through the existing DAG endpoint', async () => {
     renderPage();
 
-    fireEvent.click(screen.getByRole('button', { name: 'Open demo workflow' }));
-    expect(screen.getByTestId('selected-dag')).toHaveTextContent('demo.yaml');
-
     await act(async () => {
       fireEvent.click(
         screen.getByRole('button', { name: 'Delete demo workflow' })
@@ -1008,19 +984,16 @@ describe('DagsPage', () => {
         query: { remoteNode: 'remote-a' },
       },
     });
-    expect(screen.getByTestId('selected-dag')).toHaveTextContent('none');
     expect(deleteResultsMock).toHaveBeenCalledWith([
       { fileName: 'demo.yaml', error: undefined },
     ]);
   });
 
-  it('returns the individual delete error without clearing the selection', async () => {
+  it('returns the individual delete error', async () => {
     clientDeleteMock.mockResolvedValueOnce({
       error: { message: 'workflow is read-only' },
     });
     renderPage();
-    fireEvent.click(screen.getByRole('button', { name: 'Open demo workflow' }));
-
     await act(async () => {
       fireEvent.click(
         screen.getByRole('button', { name: 'Delete demo workflow' })
@@ -1030,7 +1003,6 @@ describe('DagsPage', () => {
     expect(deleteResultsMock).toHaveBeenCalledWith([
       { fileName: 'demo.yaml', error: 'workflow is read-only' },
     ]);
-    expect(screen.getByTestId('selected-dag')).toHaveTextContent('demo.yaml');
   });
 
   it('limits concurrent workflow deletion requests', async () => {
@@ -1065,9 +1037,6 @@ describe('DagsPage', () => {
   it('renames workflows through the existing DAG endpoint', async () => {
     renderPage();
 
-    fireEvent.click(screen.getByRole('button', { name: 'Open demo workflow' }));
-    expect(screen.getByTestId('selected-dag')).toHaveTextContent('demo.yaml');
-
     await act(async () => {
       fireEvent.click(
         screen.getByRole('button', { name: 'Rename demo workflow' })
@@ -1081,9 +1050,6 @@ describe('DagsPage', () => {
       },
       body: { newFileName: 'renamed.yaml' },
     });
-    expect(screen.getByTestId('selected-dag')).toHaveTextContent(
-      'renamed.yaml'
-    );
   });
 
   it('pins and unpins workflows through the pin endpoint', async () => {
@@ -1176,77 +1142,15 @@ describe('DagsPage', () => {
     );
   });
 
-  it('opens workflow details in the page-level modal when a table row is selected', () => {
-    renderPage();
-
-    fireEvent.click(screen.getByRole('button', { name: 'Open demo workflow' }));
-
-    expect(screen.getByRole('dialog')).toHaveTextContent(
-      'Workflow modal for demo.yaml'
-    );
-    expect(
-      screen.getByRole('button', { name: 'Open demo workflow' })
-    ).toHaveAttribute('aria-pressed', 'true');
-    expect(screen.getByTestId('location-search')).toHaveTextContent(
-      '?selectedDAG=demo.yaml'
-    );
-  });
-
-  it('restores and closes workflow details from the URL', () => {
+  // Links from before the workflow page replaced the side panel.
+  it('opens the workflow of a legacy ?selectedDAG link on its page', () => {
     renderPage(vi.fn(), '/dags?selectedDAG=demo.yaml');
 
-    expect(screen.getByRole('dialog')).toHaveTextContent(
-      'Workflow modal for demo.yaml'
+    expect(screen.getByTestId('location-path')).toHaveTextContent(
+      '/dags/demo.yaml'
     );
-    fireEvent.click(screen.getByRole('button', { name: 'Close workflow' }));
-    expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
-    expect(screen.getByTestId('location-search')).toHaveTextContent('');
-  });
-
-  it('closes workflow details and removes its URL state when the workspace changes', () => {
-    function WorkspaceSwitchHarness() {
-      const [workspaceSelection, setWorkspaceSelection] =
-        React.useState<WorkspaceSelection>({
-          kind: WorkspaceKind.all,
-        });
-
-      return (
-        <>
-          <button
-            type="button"
-            onClick={() =>
-              setWorkspaceSelection({
-                kind: WorkspaceKind.workspace,
-                workspace: 'production',
-              })
-            }
-          >
-            Switch workspace
-          </button>
-          <DagsPageHarness
-            setTitle={vi.fn()}
-            workspaceSelection={workspaceSelection}
-          />
-        </>
-      );
-    }
-
-    render(
-      <MemoryRouter initialEntries={['/dags?selectedDAG=demo.yaml']}>
-        <LocationProbe />
-        <WorkspaceSwitchHarness />
-      </MemoryRouter>
-    );
-
-    expect(screen.getByRole('dialog')).toHaveTextContent(
-      'Workflow modal for demo.yaml'
-    );
-
-    fireEvent.click(screen.getByRole('button', { name: 'Switch workspace' }));
-
-    expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
-    expect(screen.getByTestId('location-search')).not.toHaveTextContent(
-      'selectedDAG'
+    expect(screen.getByTestId('location-search')).toHaveTextContent(
+      '?remoteNode=remote-a'
     );
   });
 

@@ -151,7 +151,7 @@ function ValueReferenceNoticesDialog({
         <div className="max-h-[60vh] space-y-4 overflow-y-auto">
           {defects.length > 0 && (
             <section className="space-y-3">
-              <h3 className="text-xs font-semibold uppercase tracking-wide text-foreground">
+              <h3 className="text-xs font-semibold text-foreground">
                 <I18nText text={'Needs a fix'} />
               </h3>
               {defects.map((notice, index) => (
@@ -167,7 +167,7 @@ function ValueReferenceNoticesDialog({
               <button
                 type="button"
                 onClick={() => setShowRuntimeOnly((shown) => !shown)}
-                className="flex w-full items-center justify-between text-xs font-semibold uppercase tracking-wide text-muted-foreground hover:text-foreground"
+                className="flex w-full items-center justify-between text-xs font-semibold text-muted-foreground hover:text-foreground"
               >
                 <span>
                   <I18nText

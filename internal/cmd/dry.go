@@ -4,19 +4,22 @@
 package cmd
 
 import (
+	"encoding/json"
 	"fmt"
+	"io"
 	"path/filepath"
 
 	"github.com/dagucloud/dagu/v2/internal/cmn/stringutil"
 	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/persis"
+	"github.com/dagucloud/dagu/v2/internal/runtime"
 	"github.com/dagucloud/dagu/v2/internal/runtime/agent"
 	"github.com/dagucloud/dagu/v2/internal/spec"
 	"github.com/dagucloud/dagu/v2/internal/workspace"
 	"github.com/spf13/cobra"
 )
 
-var dryFlags = []commandLineFlag{paramsFlag, nameFlag, profileFlag, noReuseFlag}
+var dryFlags = []commandLineFlag{paramsFlag, nameFlag, profileFlag, noReuseFlag, dryFormatFlag}
 
 // Dry returns the cobra command for dry-run simulation.
 func Dry() *cobra.Command {
@@ -32,8 +35,11 @@ without producing any side effects or running actual commands.
 Parameters after the "--" separator are passed as execution parameters (either positional or key=value pairs),
 allowing you to test different parameter configurations.
 
+--format json writes one JSON object to stdout, {"checks":[...]}, and omits the run summary. text, the default, keeps warnings on stderr and the summary on stdout. A check does not change the exit status.
+
 Example:
   dagu dry my_dag.yaml -- P1=foo P2=bar
+  dagu dry --format json my_dag.yaml
 `,
 			Args: cobra.MinimumNArgs(1),
 		}, dryFlags,
@@ -43,6 +49,11 @@ Example:
 
 // runDry executes a dry-run simulation of the specified DAG.
 func runDry(ctx *Context, args []string) error {
+	format, err := dryOutputFormat(ctx)
+	if err != nil {
+		return err
+	}
+
 	dag, err := loadDAGForDryRun(ctx, args)
 	if err != nil {
 		return err
@@ -114,9 +125,40 @@ func runDry(ctx *Context, args []string) error {
 		return fmt.Errorf("failed to execute dag-run %s (dag-run ID: %s): %w", dag.Name, dagRunID, err)
 	}
 
+	if format == "json" {
+		return writeDryRunJSON(ctx.Command.OutOrStdout(), ag.DryRunChecks())
+	}
+
 	ag.PrintSummary(ctx)
 
 	return nil
+}
+
+func dryOutputFormat(ctx *Context) (string, error) {
+	format, err := ctx.StringParam("format")
+	if err != nil {
+		return "", err
+	}
+	switch format {
+	case "", "text":
+		return "text", nil
+	case "json":
+		return "json", nil
+	default:
+		return "", fmt.Errorf("--format %q: use text or json", format)
+	}
+}
+
+func writeDryRunJSON(out io.Writer, checks []runtime.DryRunCheck) error {
+	if checks == nil {
+		checks = []runtime.DryRunCheck{}
+	}
+	payload := struct {
+		Checks []runtime.DryRunCheck `json:"checks"`
+	}{Checks: checks}
+	encoder := json.NewEncoder(out)
+	encoder.SetIndent("", "  ")
+	return encoder.Encode(payload)
 }
 
 // loadDAGForDryRun loads the DAG with parameters from flags or command-line arguments.

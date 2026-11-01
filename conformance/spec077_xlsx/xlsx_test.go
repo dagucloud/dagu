@@ -303,6 +303,17 @@ func TestXlsxTypeErrors(t *testing.T) {
 	readJSON(t, warn, "out_null.json", &asNull)
 	require.Equal(t, out.Rows, asNull.Rows)
 	require.Equal(t, out.Warnings, asNull.Warnings)
+
+	// on_type_error: keep keeps the value as read, with the same warning.
+	var kept struct {
+		Rows     []map[string]any `json:"rows"`
+		Warnings []string         `json:"warnings"`
+	}
+	readJSON(t, warn, "out_keep.json", &kept)
+	require.Len(t, kept.Rows, 2)
+	require.Equal(t, "N/A", kept.Rows[0]["Amount"])
+	require.Equal(t, float64(7), kept.Rows[1]["Amount"])
+	require.Equal(t, out.Warnings, kept.Warnings)
 }
 
 func TestXlsxUnsupportedFormat(t *testing.T) {

@@ -28,8 +28,11 @@ func TestEnqueueWebhookRun_PropagatesFindAttemptErrors(t *testing.T) {
 		t.TempDir(),
 		t.TempDir(),
 		"",
+		"",
+		"ci.yaml",
 		&ir.DAG{Name: "ci"},
 		"run-1",
+		"",
 		"",
 		time.Now(),
 	)

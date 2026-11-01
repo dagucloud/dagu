@@ -32,6 +32,7 @@ const (
 	ProviderSlack    ProviderType = "slack"
 	ProviderTelegram ProviderType = "telegram"
 	ProviderTeams    ProviderType = "teams"
+	ProviderCommand  ProviderType = "command"
 )
 
 var defaultEvents = []eventstore.EventType{
@@ -92,6 +93,7 @@ type Channel struct {
 	Slack    *SlackTarget    `json:"slack,omitempty"`
 	Telegram *TelegramTarget `json:"telegram,omitempty"`
 	Teams    *TeamsTarget    `json:"teams,omitempty"`
+	Command  *CommandTarget  `json:"command,omitempty"`
 
 	CreatedAt time.Time `json:"createdAt"`
 	UpdatedAt time.Time `json:"updatedAt"`
@@ -154,6 +156,7 @@ type Target struct {
 	Slack    *SlackTarget    `json:"slack,omitempty"`
 	Telegram *TelegramTarget `json:"telegram,omitempty"`
 	Teams    *TeamsTarget    `json:"teams,omitempty"`
+	Command  *CommandTarget  `json:"command,omitempty"`
 }
 
 type EmailTarget struct {
@@ -196,6 +199,12 @@ type TeamsTarget struct {
 	MessageTemplate string `json:"messageTemplate,omitempty"`
 }
 
+// CommandTarget is a shell command the notification server runs locally.
+// The command string is stored as written. It is not a secret.
+type CommandTarget struct {
+	Command string `json:"command,omitempty"`
+}
+
 type PublicSettings struct {
 	ID            string               `json:"id"`
 	DAGName       string               `json:"dagName"`
@@ -219,6 +228,7 @@ type PublicChannel struct {
 	Slack    *PublicSlackTarget    `json:"slack,omitempty"`
 	Telegram *PublicTelegramTarget `json:"telegram,omitempty"`
 	Teams    *PublicTeamsTarget    `json:"teams,omitempty"`
+	Command  *CommandTarget        `json:"command,omitempty"`
 
 	CreatedAt time.Time `json:"createdAt"`
 	UpdatedAt time.Time `json:"updatedAt"`
@@ -289,6 +299,7 @@ type PublicTarget struct {
 	Slack    *PublicSlackTarget    `json:"slack,omitempty"`
 	Telegram *PublicTelegramTarget `json:"telegram,omitempty"`
 	Teams    *PublicTeamsTarget    `json:"teams,omitempty"`
+	Command  *CommandTarget        `json:"command,omitempty"`
 }
 
 type PublicWebhookTarget struct {
@@ -384,6 +395,9 @@ func Normalize(settings *Settings, updatedBy string) (*Settings, error) {
 	settings.Events = events
 
 	for i := range settings.Targets {
+		if settings.Targets[i].Type == ProviderCommand {
+			return nil, fmt.Errorf("%w: %s", ErrUnsupportedTarget, settings.Targets[i].Type)
+		}
 		if err := normalizeTarget(&settings.Targets[i]); err != nil {
 			return nil, err
 		}
@@ -665,6 +679,14 @@ func normalizeTarget(target *Target) error {
 		if err := validateHTTPSURL(target.Teams.WebhookURL); err != nil {
 			return err
 		}
+	case ProviderCommand:
+		if target.Command == nil || strings.TrimSpace(target.Command.Command) == "" {
+			return fmt.Errorf("%w: command target requires command", ErrInvalidSettings)
+		}
+		target.Command.Command = strings.TrimSpace(target.Command.Command)
+		if strings.ContainsRune(target.Command.Command, 0) {
+			return fmt.Errorf("%w: command contains a null byte", ErrInvalidSettings)
+		}
 	default:
 		return fmt.Errorf("%w: %s", ErrUnsupportedTarget, target.Type)
 	}
@@ -883,6 +905,7 @@ func (c Channel) ToPublic() PublicChannel {
 		Slack:     target.Slack,
 		Telegram:  target.Telegram,
 		Teams:     target.Teams,
+		Command:   target.Command,
 		CreatedAt: c.CreatedAt,
 		UpdatedAt: c.UpdatedAt,
 		UpdatedBy: c.UpdatedBy,
@@ -975,6 +998,10 @@ func (c Channel) ToTarget() Target {
 		copy := *c.Teams
 		target.Teams = &copy
 	}
+	if c.Command != nil {
+		copy := *c.Command
+		target.Command = &copy
+	}
 	return target
 }
 
@@ -988,6 +1015,7 @@ func (c *Channel) applyTarget(target Target) {
 	c.Slack = target.Slack
 	c.Telegram = target.Telegram
 	c.Teams = target.Teams
+	c.Command = target.Command
 }
 
 func (t Target) ToPublic() PublicTarget {
@@ -1042,6 +1070,11 @@ func (t Target) ToPublic() PublicTarget {
 				WebhookURLPreview:    PreviewSecret(t.Teams.WebhookURL),
 				MessageTemplate:      t.Teams.MessageTemplate,
 			}
+		}
+	case ProviderCommand:
+		if t.Command != nil {
+			copy := *t.Command
+			pub.Command = &copy
 		}
 	}
 	return pub

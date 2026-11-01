@@ -53,6 +53,20 @@ Each warning is written to stderr, contains
 or script, or the `with` field an executor's check found wanting, as
 `field 'with.path': orders.xlsx: workbook not found`.
 
+`--format text` is the default. It leaves those warnings on stderr and prints
+the run summary on stdout.
+
+`--format json` prints one JSON object on stdout and no run summary. The
+warnings stay on stderr. `checks` lists every problem, in step order, and is
+empty when every step passes. Several problems of one step are several
+objects, in the order the check reported them. `step` is the step name,
+`field` is the name inside the warning (`with.sheet`, `run`, `shell`), and
+`message` is the text after that field label. The exit status is unchanged.
+
+```json
+{"checks": [{"step": "read", "field": "with.sheet", "message": "orders.xlsx: sheet \"Order\" not found; sheets present: Orders, Summary"}]}
+```
+
 ## Examples
 
 ```yaml
@@ -69,5 +83,7 @@ steps:
 step-level shell, and a non-executable script invoked by path, each producing a
 warning with exit status 0 and no step output. It also covers a resolvable
 command, shell, and executable script producing no warning. The execute
-permission checks are skipped on Windows. The xlsx actions' registered check
-is covered in `conformance/spec077_xlsx/`.
+permission checks are skipped on Windows. `--format json` is covered by a DAG
+whose xlsx and file steps each produce one check, and by a dry run that
+produces none. The xlsx actions' registered check is covered in
+`conformance/spec077_xlsx/`.

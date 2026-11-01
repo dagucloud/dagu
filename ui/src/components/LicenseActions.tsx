@@ -5,7 +5,7 @@ import { Link } from 'react-router-dom';
 import { useIsAdmin } from '@/contexts/AuthContext';
 import { useLicenseState } from '@/hooks/useLicense';
 import { useI18n } from '@/i18n/I18nProvider';
-import { licenseLink } from '@/lib/license';
+import { isFreeLicense, licenseLink } from '@/lib/license';
 import { Button } from './ui/button';
 
 export function LicenseActions({
@@ -32,9 +32,12 @@ export function LicenseActions({
         )}
       </p>
     );
+  const free = isFreeLicense(license);
+  // A Community server starts the trial by connecting with it chosen; one on
+  // free monitoring starts it from its page in Dagu Console.
   const action = license.error
     ? 'manage'
-    : license.community
+    : license.community || free
       ? 'trial'
       : license.plan === 'trial' || license.valid
         ? 'plans'
@@ -50,13 +53,21 @@ export function LicenseActions({
   return (
     <div className="flex flex-wrap items-center gap-2">
       <Button asChild size="sm" variant="outline">
-        <a
-          href={licenseLink(action, content)}
-          target="_blank"
-          rel="noopener noreferrer"
-        >
-          {ts(label)}
-        </a>
+        {action === 'trial' && license.community ? (
+          <Link to="/license?trial=1#monitoring">{ts(label)}</Link>
+        ) : (
+          <a
+            href={
+              action === 'trial'
+                ? license.consoleUrl || licenseLink('manage', content)
+                : licenseLink(action, content)
+            }
+            target="_blank"
+            rel="noopener noreferrer"
+          >
+            {ts(label)}
+          </a>
+        )}
       </Button>
       {action !== 'plans' && (
         <Button asChild variant="link" size="sm">

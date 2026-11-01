@@ -15,6 +15,7 @@ import (
 	"os"
 	"path"
 	"path/filepath"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -152,6 +153,57 @@ func (l *ConfigLoader) resolvePath(fieldName, pathValue string) (string, error) 
 	return resolved, nil
 }
 
+// loadBrowserTrustedCAs resolves the file of each trusted authority and
+// rejects a malformed one.
+func (l *ConfigLoader) loadBrowserTrustedCAs(defs []BrowserTrustedCADef) ([]BrowserTrustedCA, error) {
+	var authorities []BrowserTrustedCA
+	for i, def := range defs {
+		field := fmt.Sprintf("browser.trusted_cas[%d]", i)
+		caFile, err := l.resolvePath(field+".ca_file", def.CAFile)
+		if err != nil {
+			return nil, err
+		}
+		authority := BrowserTrustedCA{Hosts: def.Hosts, CAFile: caFile}
+		if err := authority.Validate(); err != nil {
+			return nil, fmt.Errorf("%s: %w", field, err)
+		}
+		authorities = append(authorities, authority)
+	}
+	return authorities, nil
+}
+
+// loadBrowserClientCertificates resolves the files of each client
+// certificate and rejects a malformed one.
+func (l *ConfigLoader) loadBrowserClientCertificates(defs []BrowserClientCertificateDef) ([]BrowserClientCertificate, error) {
+	var certificates []BrowserClientCertificate
+	for i, def := range defs {
+		field := fmt.Sprintf("browser.client_certificates[%d]", i)
+		certificate := BrowserClientCertificate{Hosts: def.Hosts, Passphrase: def.Passphrase}
+		for _, file := range []struct {
+			name  string
+			value string
+			into  *string
+		}{
+			{"pfx_file", def.PFXFile, &certificate.PFXFile},
+			{"cert_file", def.CertFile, &certificate.CertFile},
+			{"key_file", def.KeyFile, &certificate.KeyFile},
+			{"ca_file", def.CAFile, &certificate.CAFile},
+			{"passphrase_file", def.PassphraseFile, &certificate.PassphraseFile},
+		} {
+			resolved, err := l.resolvePath(field+"."+file.name, file.value)
+			if err != nil {
+				return nil, err
+			}
+			*file.into = resolved
+		}
+		if err := certificate.Validate(); err != nil {
+			return nil, fmt.Errorf("%s: %w", field, err)
+		}
+		certificates = append(certificates, certificate)
+	}
+	return certificates, nil
+}
+
 // parseDuration parses a duration string, returning zero and adding a warning if invalid.
 func (l *ConfigLoader) parseDuration(fieldName, value string) time.Duration {
 	if value == "" {
@@ -268,8 +320,27 @@ func (l *ConfigLoader) Load() (*Config, error) {
 	l.finalizeBaseEnv(cfg)
 	cfg.Notices = l.notices
 	cfg.Warnings = l.warnings
+	cfg.WorkspaceAccessKeys = l.workspaceAccessKeys()
 
 	return cfg, nil
+}
+
+// workspaceAccessKeys returns the workspace access keys set by a config
+// file or the environment.
+func (l *ConfigLoader) workspaceAccessKeys() []string {
+	const proxyWorkspaceMappings = "auth.proxy.role_mapping.workspace_mappings"
+	var keys []string
+	for _, key := range []string{
+		"auth.oidc.role_mapping.workspace_mappings",
+		"auth.oidc.role_mapping.default_workspace_access",
+		proxyWorkspaceMappings,
+		"auth.proxy.role_mapping.default_workspace_access",
+	} {
+		if l.v.IsSet(key) || key == proxyWorkspaceMappings && l.trustedProxyWorkspaceMappingsSet {
+			keys = append(keys, key)
+		}
+	}
+	return keys
 }
 
 // buildConfig transforms the Definition into a validated Config structure,
@@ -368,7 +439,34 @@ func (l *ConfigLoader) loadCoreConfig(cfg *Config, def Definition) error {
 	if cfg.OpenCode.Executable == "" {
 		cfg.OpenCode.Executable = "opencode"
 	}
-	cfg.Browser = BrowserConfig{NoSandbox: !l.v.GetBool("browser.sandbox")}
+	cfg.Browser = BrowserConfig{
+		NoSandbox:   !l.v.GetBool("browser.sandbox"),
+		MaxOpen:     l.v.GetInt("browser.max_open"),
+		WriteGate:   strings.TrimSpace(l.v.GetString("browser.write_gate")),
+		WritePolicy: strings.TrimSpace(l.v.GetString("browser.write_policy")),
+	}
+	if cfg.Browser.MaxOpen < 0 {
+		return fmt.Errorf("browser.max_open must not be negative, got %d", cfg.Browser.MaxOpen)
+	}
+	if mode := cfg.Browser.WriteGate; mode != "" && !slices.Contains(BrowserWriteGateModes, mode) {
+		return fmt.Errorf("browser.write_gate must be one of %s, got %q", strings.Join(BrowserWriteGateModes, ", "), mode)
+	}
+	if l.v.IsSet("browser.guard_client_certificates") {
+		guard := l.v.GetBool("browser.guard_client_certificates")
+		cfg.Browser.GuardClientCertificates = &guard
+	}
+	if def.Browser != nil {
+		certificates, err := l.loadBrowserClientCertificates(def.Browser.ClientCertificates)
+		if err != nil {
+			return err
+		}
+		cfg.Browser.ClientCertificates = certificates
+		authorities, err := l.loadBrowserTrustedCAs(def.Browser.TrustedCAs)
+		if err != nil {
+			return err
+		}
+		cfg.Browser.TrustedCAs = authorities
+	}
 	cfg.DAGDiscovery = DAGDiscoveryConfig{
 		Recursive: l.v.GetBool("dag_discovery.recursive"),
 		Symlinks:  l.v.GetBool("dag_discovery.symlinks"),
@@ -1171,6 +1269,15 @@ func (l *ConfigLoader) loadServerDefaults(cfg *Config, def Definition) {
 	cfg.Server.BasePath = cleanServerBasePath(cfg.Server.BasePath)
 	cfg.Server.CheckUpdates = l.v.GetBool("check_updates")
 	cfg.Server.CORSAllowedOrigins = parseStringList(l.v.Get("cors_allowed_origins"))
+	cfg.Server.AllowedHosts = parseStringList(l.v.Get("allowed_hosts"))
+	if slices.Contains(cfg.Server.AllowedHosts, "*") {
+		warning := `allowed_hosts contains "*"; any website may reach first-admin setup through DNS rebinding`
+		if cfg.Server.Auth.Mode == AuthModeNone {
+			warning = `allowed_hosts contains "*"; any website may reach the Dagu API through DNS rebinding, ` +
+				`and auth.mode "none" allows those requests to execute workflows without authentication`
+		}
+		l.warnings = append(l.warnings, warning)
+	}
 	cfg.Server.IPAccess = IPAccessConfig{
 		AllowedIPs:     parseStringList(l.v.Get("ip_access.allowed_ips")),
 		TrustedProxies: parseStringList(l.v.Get("ip_access.trusted_proxies")),
@@ -1299,14 +1406,28 @@ func (l *ConfigLoader) loadQueuesConfig(cfg *Config, def Definition) {
 	}
 }
 
+// defaultCoordinatorWorkerWaitTimeout outlasts one worker heartbeat staleness
+// window and one dispatch reservation, so a worker that is merely late is not
+// failed, while an unroutable run still fails within the same sitting.
+const defaultCoordinatorWorkerWaitTimeout = 2 * time.Minute
+
 func (l *ConfigLoader) loadCoordinatorConfig(cfg *Config, def Definition) {
 	cfg.Coordinator.Enabled = l.resolveCoordinatorEnabled(def)
+	cfg.Coordinator.WorkerWaitTimeout = defaultCoordinatorWorkerWaitTimeout
 
 	if def.Coordinator != nil {
 		cfg.Coordinator.Host = def.Coordinator.Host
 		cfg.Coordinator.Advertise = def.Coordinator.Advertise
 		cfg.Coordinator.Port = def.Coordinator.Port
 		cfg.Coordinator.HealthPort = def.Coordinator.HealthPort
+		if def.Coordinator.WorkerWaitTimeout != "" {
+			timeout, err := time.ParseDuration(def.Coordinator.WorkerWaitTimeout)
+			if err != nil {
+				l.warnings = append(l.warnings, fmt.Sprintf("Invalid coordinator.worker_wait_timeout value: %s", def.Coordinator.WorkerWaitTimeout))
+			} else {
+				cfg.Coordinator.WorkerWaitTimeout = timeout
+			}
+		}
 	}
 
 	l.setCoordinatorDefaults(cfg)
@@ -1466,6 +1587,7 @@ func (l *ConfigLoader) loadSchedulerConfig(cfg *Config, def Definition) {
 		cfg.Scheduler.ZombieDetectionInterval = l.parseDuration("scheduler.zombie_detection_interval", def.Scheduler.ZombieDetectionInterval)
 		cfg.Scheduler.RetryFailureWindow = l.parseDuration("scheduler.retry_failure_window", def.Scheduler.RetryFailureWindow)
 		cfg.Scheduler.FailureThreshold = def.Scheduler.FailureThreshold
+		cfg.Scheduler.WakeHold = l.parseDuration("scheduler.wake_hold", def.Scheduler.WakeHold)
 	}
 
 	l.setSchedulerDefaults(cfg)
@@ -1736,6 +1858,11 @@ func (l *ConfigLoader) loadLicenseConfig(cfg *Config, def Definition) {
 func (l *ConfigLoader) loadCloudConfig(cfg *Config, def Definition) {
 	if def.Cloud != nil {
 		cfg.Cloud.Report = ReportLevel(strings.ToLower(strings.TrimSpace(def.Cloud.Report)))
+		cfg.Cloud.RemoteAccess = RemoteAccessLevel(strings.ToLower(strings.TrimSpace(def.Cloud.RemoteAccess)))
+	}
+	if l.v.IsSet("cloud.remote_approvals") {
+		approvals := l.v.GetBool("cloud.remote_approvals")
+		cfg.Cloud.RemoteApprovals = &approvals
 	}
 }
 
@@ -2120,6 +2247,9 @@ type envBinding struct {
 	env      string
 	isPath   bool
 	requires ConfigSection
+	// secret marks a setting that carries a credential, which workflow steps
+	// never inherit; see IsCredentialEnv.
+	secret bool
 }
 
 var envBindings = []envBinding{
@@ -2128,6 +2258,7 @@ var envBindings = []envBinding{
 	{key: "access_log_mode", env: "ACCESS_LOG_MODE"},
 	{key: "public_url", env: "PUBLIC_URL"},
 	{key: "base_path", env: "BASE_PATH"},
+	{key: "api_base_path", env: "API_BASE_PATH"},
 	{key: "api_base_url", env: "API_BASE_URL"},
 	{key: "tz", env: "TZ"},
 	{key: "host", env: "HOST"},
@@ -2136,6 +2267,7 @@ var envBindings = []envBinding{
 	{key: "headless", env: "HEADLESS"},
 	{key: "check_updates", env: "CHECK_UPDATES"},
 	{key: "cors_allowed_origins", env: "CORS_ALLOWED_ORIGINS"},
+	{key: "allowed_hosts", env: "ALLOWED_HOSTS"},
 	{key: "ip_access.allowed_ips", env: "IP_ACCESS_ALLOWED_IPS", requires: SectionServer},
 	{key: "ip_access.trusted_proxies", env: "IP_ACCESS_TRUSTED_PROXIES", requires: SectionServer},
 	{key: "latest_status_today", env: "LATEST_STATUS_TODAY"},
@@ -2165,10 +2297,14 @@ var envBindings = []envBinding{
 	{key: "opencode.executable", env: "OPENCODE_EXECUTABLE"},
 	{key: "opencode.env_passthrough", env: "OPENCODE_ENV_PASSTHROUGH"},
 	{key: "browser.sandbox", env: "BROWSER_SANDBOX"},
+	{key: "browser.max_open", env: "BROWSER_MAX_OPEN"},
+	{key: "browser.guard_client_certificates", env: "BROWSER_GUARD_CLIENT_CERTIFICATES"},
+	{key: "browser.write_gate", env: "BROWSER_WRITE_GATE"},
+	{key: "browser.write_policy", env: "BROWSER_WRITE_POLICY", isPath: true},
 
 	// Secrets
 	{key: "secrets.vault.address", env: "SECRETS_VAULT_ADDRESS"},
-	{key: "secrets.vault.token", env: "SECRETS_VAULT_TOKEN"},
+	{key: "secrets.vault.token", env: "SECRETS_VAULT_TOKEN", secret: true},
 	{key: "secrets.vault.ca_cert", env: "SECRETS_VAULT_CA_CERT", isPath: true},
 	{key: "secrets.vault.client_cert", env: "SECRETS_VAULT_CLIENT_CERT", isPath: true},
 	{key: "secrets.vault.client_key", env: "SECRETS_VAULT_CLIENT_KEY", isPath: true},
@@ -2190,6 +2326,7 @@ var envBindings = []envBinding{
 	{key: "scheduler.zombie_detection_interval", env: "SCHEDULER_ZOMBIE_DETECTION_INTERVAL"},
 	{key: "scheduler.retry_failure_window", env: "SCHEDULER_RETRY_FAILURE_WINDOW"},
 	{key: "scheduler.failure_threshold", env: "SCHEDULER_FAILURE_THRESHOLD"},
+	{key: "scheduler.wake_hold", env: "SCHEDULER_WAKE_HOLD"},
 
 	// Proc
 	{key: "proc.heartbeat_interval", env: "PROC_HEARTBEAT_INTERVAL"},
@@ -2214,10 +2351,10 @@ var envBindings = []envBinding{
 	// Auth
 	{key: "auth.mode", env: "AUTH_MODE"},
 	{key: "auth.basic.username", env: "AUTH_BASIC_USERNAME"},
-	{key: "auth.basic.password", env: "AUTH_BASIC_PASSWORD"},
+	{key: "auth.basic.password", env: "AUTH_BASIC_PASSWORD", secret: true},
 	// Auth OIDC
 	{key: "auth.oidc.client_id", env: "AUTH_OIDC_CLIENT_ID"},
-	{key: "auth.oidc.client_secret", env: "AUTH_OIDC_CLIENT_SECRET"},
+	{key: "auth.oidc.client_secret", env: "AUTH_OIDC_CLIENT_SECRET", secret: true},
 	{key: "auth.oidc.client_url", env: "AUTH_OIDC_CLIENT_URL"},
 	{key: "auth.oidc.issuer", env: "AUTH_OIDC_ISSUER"},
 	{key: "auth.oidc.scopes", env: "AUTH_OIDC_SCOPES"},
@@ -2245,10 +2382,10 @@ var envBindings = []envBinding{
 	{key: "auth.proxy.role_mapping.require_mapping", env: "AUTH_PROXY_REQUIRE_MAPPING", requires: SectionServer},
 	{key: "auth.proxy.role_mapping.skip_org_role_sync", env: "AUTH_PROXY_SKIP_ORG_ROLE_SYNC", requires: SectionServer},
 	// Auth (builtin)
-	{key: "auth.builtin.token.secret", env: "AUTH_TOKEN_SECRET"},
+	{key: "auth.builtin.token.secret", env: "AUTH_TOKEN_SECRET", secret: true},
 	{key: "auth.builtin.token.ttl", env: "AUTH_TOKEN_TTL"},
 	{key: "auth.builtin.initial_admin.username", env: "AUTH_BUILTIN_INITIAL_ADMIN_USERNAME"},
-	{key: "auth.builtin.initial_admin.password", env: "AUTH_BUILTIN_INITIAL_ADMIN_PASSWORD"},
+	{key: "auth.builtin.initial_admin.password", env: "AUTH_BUILTIN_INITIAL_ADMIN_PASSWORD", secret: true},
 
 	// TLS
 	{key: "tls.cert_file", env: "CERT_FILE"},
@@ -2294,6 +2431,7 @@ var envBindings = []envBinding{
 	{key: "coordinator.advertise", env: "COORDINATOR_ADVERTISE"},
 	{key: "coordinator.port", env: "COORDINATOR_PORT"},
 	{key: "coordinator.health_port", env: "COORDINATOR_HEALTH_PORT"},
+	{key: "coordinator.worker_wait_timeout", env: "COORDINATOR_WORKER_WAIT_TIMEOUT"},
 
 	// Worker
 	{key: "worker.id", env: "WORKER_ID"},
@@ -2323,7 +2461,7 @@ var envBindings = []envBinding{
 	// Tunnel
 	{key: "tunnel.enabled", env: "TUNNEL"},
 	{key: "tunnel.enabled", env: "TUNNEL_ENABLED"},
-	{key: "tunnel.tailscale.auth_key", env: "TUNNEL_TAILSCALE_AUTH_KEY"},
+	{key: "tunnel.tailscale.auth_key", env: "TUNNEL_TAILSCALE_AUTH_KEY", secret: true},
 	{key: "tunnel.tailscale.hostname", env: "TUNNEL_TAILSCALE_HOSTNAME"},
 	{key: "tunnel.tailscale.funnel", env: "TUNNEL_TAILSCALE_FUNNEL"},
 	{key: "tunnel.tailscale.https", env: "TUNNEL_TAILSCALE_HTTPS"},
@@ -2336,12 +2474,14 @@ var envBindings = []envBinding{
 	{key: "tunnel.rate_limiting.block_duration_seconds", env: "TUNNEL_RATE_LIMITING_BLOCK_DURATION_SECONDS"},
 
 	// License
-	{key: "license.key", env: "LICENSE_KEY"},
+	{key: "license.key", env: "LICENSE_KEY", secret: true},
 	{key: "license.cloud_url", env: "LICENSE_CLOUD_URL"},
 	{key: "license.server_name", env: "LICENSE_SERVER_NAME"},
 
 	// Dagu Console
 	{key: "cloud.report", env: "CLOUD_REPORT"},
+	{key: "cloud.remote_access", env: "CLOUD_REMOTE_ACCESS"},
+	{key: "cloud.remote_approvals", env: "CLOUD_REMOTE_APPROVALS"},
 
 	// GitSync
 	{key: "git_sync.enabled", env: "GITSYNC_ENABLED"},
@@ -2350,9 +2490,9 @@ var envBindings = []envBinding{
 	{key: "git_sync.path", env: "GITSYNC_PATH"},
 	{key: "git_sync.push_enabled", env: "GITSYNC_PUSH_ENABLED"},
 	{key: "git_sync.auth.type", env: "GITSYNC_AUTH_TYPE"},
-	{key: "git_sync.auth.token", env: "GITSYNC_AUTH_TOKEN"},
+	{key: "git_sync.auth.token", env: "GITSYNC_AUTH_TOKEN", secret: true},
 	{key: "git_sync.auth.ssh_key_path", env: "GITSYNC_AUTH_SSH_KEY_PATH", isPath: true},
-	{key: "git_sync.auth.ssh_passphrase", env: "GITSYNC_AUTH_SSH_PASSPHRASE"},
+	{key: "git_sync.auth.ssh_passphrase", env: "GITSYNC_AUTH_SSH_PASSPHRASE", secret: true},
 	{key: "git_sync.auto_sync.enabled", env: "GITSYNC_AUTOSYNC_ENABLED"},
 	{key: "git_sync.auto_sync.on_startup", env: "GITSYNC_AUTOSYNC_ON_STARTUP"},
 	{key: "git_sync.auto_sync.interval", env: "GITSYNC_AUTOSYNC_INTERVAL"},

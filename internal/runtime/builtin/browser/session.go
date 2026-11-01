@@ -11,6 +11,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"maps"
 	"os"
 	"path/filepath"
@@ -20,6 +21,8 @@ import (
 	"time"
 
 	"github.com/dagucloud/dagu/v2/internal/browserhost"
+	"github.com/dagucloud/dagu/v2/internal/browserhost/certproxy"
+	"github.com/dagucloud/dagu/v2/internal/browserhost/writegate"
 	cmnconfig "github.com/dagucloud/dagu/v2/internal/cmn/config"
 	"github.com/dagucloud/dagu/v2/internal/cmn/dirlock"
 	"github.com/dagucloud/dagu/v2/internal/cmn/masking"
@@ -61,6 +64,12 @@ const (
 	CodeLaunchFailed    = "launch_failed"
 	CodeOperationFailed = "operation_failed"
 	CodeExportInvalid   = "export_invalid"
+	// CodeWriteGateLost reports a session whose write gate stopped, which
+	// closed its browser.
+	CodeWriteGateLost = "write_gate_lost"
+	// CodeWriteBlocked reports an operation whose write the write gate
+	// blocked in record mode, since nothing allowed it.
+	CodeWriteBlocked = "write_blocked"
 	// CodeFailed reports any other failure, such as a file that could not
 	// be written.
 	CodeFailed = "failed"
@@ -89,11 +98,25 @@ type Sessions struct {
 	launcher    launcher
 	newProvider providerFactory
 	now         func() time.Time
+	// wait returns once d has passed on the clock now reads, or ctx ended.
+	wait func(ctx context.Context, d time.Duration) error
 }
 
 // NewSessions returns the browser sessions of this host.
 func NewSessions() *Sessions {
-	return &Sessions{launcher: stagehandLauncher{}, now: time.Now}
+	return &Sessions{launcher: stagehandLauncher{}, now: time.Now, wait: sleepContext}
+}
+
+// sleepContext returns once d has passed, or ctx ended.
+func sleepContext(ctx context.Context, d time.Duration) error {
+	timer := time.NewTimer(d)
+	defer timer.Stop()
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	case <-timer.C:
+		return nil
+	}
 }
 
 // SessionOptions configures the browser a session opens.
@@ -117,6 +140,13 @@ type SessionOptions struct {
 	// OutlineChars bounds the page outline the result reports; zero omits
 	// it.
 	OutlineChars int
+	// WriteGate is the write gate mode the session asks for; the browser
+	// runs in the stricter of it and the host's browser.write_gate.
+	WriteGate string
+	// WritePolicyFile is the write gate policy, naming the sign-in
+	// endpoints whose writes the gate sends. The secrets its rules name are
+	// read from the environment.
+	WritePolicyFile string
 }
 
 // SessionViewport is the size of the browser's page area.
@@ -134,9 +164,23 @@ type SessionPageView struct {
 	OutlineTruncated bool   `json:"outline_truncated,omitempty"`
 }
 
+// SessionRefusal is a site answering with a refusal or a bot check in place
+// of the page the browser asked for.
+type SessionRefusal struct {
+	Host   string `json:"host"`
+	Status int    `json:"status"`
+	// BotCheck names the check the site answered with, such as cloudflare.
+	BotCheck string `json:"bot_check,omitempty"`
+	// Message says what happened in a sentence.
+	Message string `json:"message"`
+}
+
 // OpenResult reports an opened session.
 type OpenResult struct {
 	ID string `json:"id"`
+	// TLSVerified confirms the proxy verified the final HTTPS page's host.
+	// False means no such evidence was available, not a certificate failure.
+	TLSVerified bool `json:"tls_verified"`
 	// CDPURL is the browser's DevTools address, where an application can
 	// show the page and let a person act on it.
 	CDPURL       string    `json:"cdp_url"`
@@ -145,6 +189,13 @@ type OpenResult struct {
 	Model        string    `json:"model,omitempty"`
 	IdleDeadline time.Time `json:"idle_deadline"`
 	Warnings     []string  `json:"warnings"`
+	// Refused is the refusal the page shows, if any.
+	Refused *SessionRefusal `json:"refused,omitempty"`
+	// WriteGate is the write gate mode the browser runs in, empty without
+	// a gate.
+	WriteGate string `json:"write_gate,omitempty"`
+	// Writes are what the gate decided while the page opened.
+	Writes []writegate.Event `json:"writes,omitempty"`
 	SessionPageView
 }
 
@@ -158,6 +209,9 @@ type DoRequest struct {
 	// OutlineChars bounds the page outline the result reports; zero omits
 	// it.
 	OutlineChars int
+	// AllowWrites are the signatures of the writes the operation may send,
+	// in a session whose write gate records; it sends no other.
+	AllowWrites []string
 }
 
 // SessionAction is one action an act performed on the page.
@@ -188,19 +242,26 @@ type DoResult struct {
 	Actions []SessionAction `json:"actions"`
 	// Act is the act a step writes for an element operation.
 	Act string `json:"act,omitempty"`
+	// Into is the into a step writes for an element upload.
+	Into string `json:"into,omitempty"`
 	// Recorded reports that a step exported from the session replays the
-	// act's actions.
+	// act's or the upload's actions.
 	Recorded bool           `json:"recorded"`
 	Outputs  map[string]any `json:"outputs,omitempty"`
 	// Screenshot is the file a screenshot operation saved.
-	Screenshot   string          `json:"screenshot,omitempty"`
-	Downloads    []string        `json:"downloads"`
-	Dialogs      []SessionDialog `json:"dialogs"`
-	Blocked      map[string]int  `json:"blocked,omitempty"`
-	Tokens       int             `json:"tokens"`
-	DurationMS   int64           `json:"duration_ms"`
-	Warnings     []string        `json:"warnings"`
-	IdleDeadline time.Time       `json:"idle_deadline"`
+	Screenshot string          `json:"screenshot,omitempty"`
+	Downloads  []string        `json:"downloads"`
+	Dialogs    []SessionDialog `json:"dialogs"`
+	Blocked    map[string]int  `json:"blocked,omitempty"`
+	// Writes are what the write gate decided since the previous command,
+	// including what the page sent while it waited.
+	Writes       []writegate.Event `json:"writes,omitempty"`
+	Tokens       int               `json:"tokens"`
+	DurationMS   int64             `json:"duration_ms"`
+	Warnings     []string          `json:"warnings"`
+	IdleDeadline time.Time         `json:"idle_deadline"`
+	// Refused is the refusal the page shows after the operation, if any.
+	Refused *SessionRefusal `json:"refused,omitempty"`
 	SessionPageView
 }
 
@@ -227,6 +288,8 @@ type DescribeResult struct {
 	Screenshot   string    `json:"screenshot,omitempty"`
 	IdleDeadline time.Time `json:"idle_deadline"`
 	Warnings     []string  `json:"warnings"`
+	// Refused is the refusal the page shows, if any.
+	Refused *SessionRefusal `json:"refused,omitempty"`
 }
 
 // SessionSummary describes a session for a list.
@@ -279,9 +342,26 @@ func (s *Sessions) Open(ctx context.Context, opts SessionOptions) (OpenResult, e
 	if err != nil {
 		return OpenResult{}, &SessionError{Code: CodeInvalidInput, Message: fmt.Sprintf("model: %v", err)}
 	}
+	mode, err := writeGateMode(ctx, opts.WriteGate)
+	if err != nil {
+		return OpenResult{}, &SessionError{Code: CodeInvalidInput, Message: err.Error()}
+	}
+	policy, err := loadWritePolicy(opts.WritePolicyFile)
+	if err != nil {
+		return OpenResult{}, &SessionError{Code: CodeInvalidInput, Message: err.Error()}
+	}
+	gate := writeGateFor(mode, policy, os.LookupEnv)
 	sweepCtx, cancel := context.WithTimeout(ctx, sweepBudget)
 	_ = browserhost.SweepAll(sweepCtx, browserDir, s.now(), nil)
 	cancel()
+	certificates, warnings, err := loadClientCertificates(ctx, nil, "")
+	if err != nil {
+		return OpenResult{}, &SessionError{Code: CodeLaunchFailed, Message: err.Error()}
+	}
+	authorities, err := loadTrustedCAs(ctx)
+	if err != nil {
+		return OpenResult{}, &SessionError{Code: CodeLaunchFailed, Message: err.Error()}
+	}
 
 	id, workDir, err := reserveSession(store)
 	if err != nil {
@@ -322,6 +402,14 @@ func (s *Sessions) Open(ctx context.Context, opts SessionOptions) (OpenResult, e
 		AllowedDomains: opts.AllowedDomains,
 		NoSandbox:      cmnconfig.GetConfig(ctx).Browser.NoSandbox,
 		Generate:       generate,
+
+		ClientCertificates: certificates,
+		TrustedCAs:         authorities,
+		Guard:              guardsCertificates(ctx, certificates),
+		WriteGate:          gate,
+		Warn:               func(message string) { warnings = append(warnings, message) },
+		BrowserDir:         browserDir,
+		MaxOpen:            cmnconfig.GetConfig(ctx).Browser.MaxOpen,
 	}
 	if opts.Viewport != nil {
 		launch.Viewport = &viewport{Width: opts.Viewport.Width, Height: opts.Viewport.Height}
@@ -352,6 +440,9 @@ func (s *Sessions) Open(ctx context.Context, opts SessionOptions) (OpenResult, e
 		},
 		LLM: opts.LLM,
 	}
+	if gate != nil {
+		state.WriteGate = mode
+	}
 	record := browserhost.Record{
 		ID:               id,
 		CDPURL:           handle.CDPURL,
@@ -365,39 +456,78 @@ func (s *Sessions) Open(ctx context.Context, opts SessionOptions) (OpenResult, e
 		BrowserStartedAt: handle.BrowserStartedAt,
 		WorkDir:          workDir,
 	}
+	recordCertProxy(&record, handle.CertProxy)
+	recordWriteGate(&record, handle.WriteGate)
 	if err := saveSessionRecord(store, &record, state, browserhost.StateRunning, time.Time{}); err != nil {
 		return OpenResult{}, errors.Join(err, closeSession(ctx, eng, store, record))
 	}
-	var warnings []string
 	if warning := jobWarning(); warning != "" {
 		warnings = append(warnings, warning)
 	}
-	op := s.operator(eng, bridge, state, nil, workDir, &warnings)
+	op := s.operator(eng, bridge, state, sessionValues{}, workDir, &warnings)
 	if opts.URL != "" {
 		if _, err := op.gotoURL(ctx, -1, opts.URL, defaultOperationTimeout); err != nil {
-			return OpenResult{}, errors.Join(&SessionError{Code: CodeOperationFailed, Message: "open " + opts.URL + ": " + err.Error()},
-				closeSession(ctx, eng, store, record))
+			message := "open " + opts.URL + ": " + err.Error()
+			if refused, ok := op.pageRefusal(ctx); ok {
+				message += "; " + refused.String()
+			}
+			return OpenResult{}, errors.Join(&SessionError{Code: CodeOperationFailed, Message: message}, closeSession(ctx, eng, store, record))
 		}
 	}
-	if err := op.checkPage(ctx); err != nil {
+	if err := op.checkPage(ctx, -1); err != nil {
 		return OpenResult{}, errors.Join(&SessionError{Code: CodeOperationFailed, Message: err.Error()}, closeSession(ctx, eng, store, record))
 	}
+	writes, err := takeWrites(ctx, eng, &state, masker)
+	if err != nil {
+		return OpenResult{}, errors.Join(writeGateLost(record.ID), closeSession(ctx, eng, store, record))
+	}
 	view, pageURL := s.view(ctx, eng, masker, opts.OutlineChars, &warnings)
-	state.Page = sessionPage{URL: pageURL, Title: view.Title}
+	refused := pageRefusal(ctx, op, sessionPage{}, pageURL)
+	state.Page = sessionPage{URL: pageURL, Title: view.Title, Refused: refused}
 	deadline := now.Add(idle)
 	if err := s.park(ctx, eng, store, &record, state, deadline); err != nil {
 		return OpenResult{}, err
 	}
 	return OpenResult{
 		ID:              id,
+		TLSVerified:     op.tlsVerified(ctx, pageURL),
 		CDPURL:          record.CDPURL,
 		Headless:        opts.Headless,
 		Profile:         opts.Profile,
 		Model:           state.modelLabel(),
 		IdleDeadline:    deadline,
 		Warnings:        nonNil(warnings),
+		Refused:         sessionRefusal(refused, masker),
+		WriteGate:       state.WriteGate,
+		Writes:          writes,
 		SessionPageView: view,
 	}, nil
+}
+
+// takeWrites returns what the session's write gate decided since the last
+// command, and notes it in state. Its error reports a gate that is gone.
+func takeWrites(ctx context.Context, eng engine, state *sessionState, masker *masking.Masker) ([]writegate.Event, error) {
+	gate := eng.Handle().WriteGate
+	if gate == nil {
+		return nil, nil
+	}
+	events, err := eng.Writes(ctx, state.WriteSeq)
+	if err != nil {
+		if !gate.Alive() {
+			return nil, errWriteGateLost
+		}
+		// A gate that runs still decides; what it reports waits for the
+		// next command.
+		return nil, nil
+	}
+	if len(events) > 0 {
+		state.WriteSeq = events[len(events)-1].Seq
+	}
+	return maskEvents(masker, events), nil
+}
+
+func writeGateLost(id string) error {
+	return &SessionError{Code: CodeWriteGateLost, Message: fmt.Sprintf("browser session %s has ended: %s; open a new session", id, errWriteGateLost)}
 }
 
 func (o SessionOptions) validate() error {
@@ -426,6 +556,9 @@ func (o SessionOptions) validate() error {
 	if o.OutlineChars < 0 {
 		return invalid("the outline size must not be negative")
 	}
+	if _, err := writegate.ParseMode(o.WriteGate); err != nil {
+		return invalid("%v", err)
+	}
 	return nil
 }
 
@@ -442,7 +575,7 @@ func (s *Sessions) modelBridge(ctx context.Context, cfg *ir.LLMConfig, masker *m
 		}
 		return &modelBridge{masker: masker, runCtx: ctx}, noModel, nil
 	}
-	bridge, err := newModelBridge(ctx, cfg, masker, s.newProvider)
+	bridge, err := newModelBridge(ctx, cfg, masker, io.Discard, s.newProvider)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -484,7 +617,8 @@ func sessionModelEnv(cfg *ir.LLMConfig) *cmnvalue.EnvScope {
 }
 
 // operator returns the operator that runs a command's operation.
-func (s *Sessions) operator(eng engine, bridge *modelBridge, state sessionState, variables map[string]string, workDir string, warnings *[]string) *operator {
+func (s *Sessions) operator(eng engine, bridge *modelBridge, state sessionState, values sessionValues, workDir string, warnings *[]string) *operator {
+	variables := values.all
 	if variables == nil {
 		variables = map[string]string{}
 	}
@@ -492,11 +626,18 @@ func (s *Sessions) operator(eng engine, bridge *modelBridge, state sessionState,
 		eng:            eng,
 		bridge:         bridge,
 		variables:      variables,
+		secret:         func(name string) bool { return holdsSecret(variables[name], values.secrets) },
 		allowedDomains: state.Browser.AllowedDomains,
 		recorder:       sessionRecorder{},
 		shots:          agentstep.NewArtifactStore(workDir, "", "screenshots"),
 		warn: func(_ int, message string) {
 			*warnings = append(*warnings, message)
+		},
+		certificateProxy: eng.Handle().CertProxy != nil,
+		certificateEvent: func(_ int, event certproxy.Event) {
+			if event.Kind != certproxy.EventConnect {
+				*warnings = append(*warnings, "browser TLS: "+describeCertificateEvent(event))
+			}
 		},
 	}
 }
@@ -508,9 +649,11 @@ type sessionRecorder struct {
 	preset []recordedAction
 }
 
-func (r sessionRecorder) lookup(string) ([]recordedAction, bool) { return r.preset, len(r.preset) > 0 }
-func (sessionRecorder) stage(string, []recordedAction)           {}
-func (sessionRecorder) drop(string)                              {}
+func (r sessionRecorder) lookup(string) (recording, bool) {
+	return recording{Actions: r.preset}, len(r.preset) > 0
+}
+func (sessionRecorder) stage(string, recording) {}
+func (sessionRecorder) drop(string)             {}
 
 // checkOperation refuses an operation the session cannot run as given: an
 // act using a variable no value was given for, one needing a model the
@@ -556,6 +699,9 @@ func (s *Sessions) Do(ctx context.Context, req DoRequest) (DoResult, error) {
 	}
 	defer use.release()
 	state := use.state
+	if len(req.AllowWrites) > 0 && !writegate.Sends(state.WriteGate) {
+		return DoResult{}, &SessionError{Code: CodeInvalidInput, Message: "only a session whose write gate records sends a write it is allowed; open one with --write-gate record"}
+	}
 	if len(state.Ops) >= maxSessionOperations {
 		return DoResult{}, &SessionError{Code: CodeInvalidInput, Message: fmt.Sprintf("the session has run %d operations; export it or close it", maxSessionOperations)}
 	}
@@ -577,15 +723,15 @@ func (s *Sessions) Do(ctx context.Context, req DoRequest) (DoResult, error) {
 	if err != nil {
 		return DoResult{}, err
 	}
-	// An element operation is the act it stands for, with its action as the
-	// act's recording.
+	// An element operation is the act or upload it stands for, with its
+	// action as its recording.
 	var preset []recordedAction
 	if isElement {
 		snap, err := eng.Snapshot(ctx)
 		if err != nil {
 			return DoResult{}, &SessionError{Code: CodeOperationFailed, Message: "read the page: " + masker.MaskString(err.Error())}
 		}
-		instruction, action, err := elementAct(snap, element)
+		instruction, action, err := elementAct(snap, element, values.all)
 		if err != nil {
 			return DoResult{}, &SessionError{Code: CodeInvalidInput, Message: masker.MaskString(err.Error())}
 		}
@@ -601,15 +747,21 @@ func (s *Sessions) Do(ctx context.Context, req DoRequest) (DoResult, error) {
 	began := time.Now()
 	index := len(state.Ops)
 	var warnings []string
-	operator := s.operator(eng, bridge, state, values.all, use.record.WorkDir, &warnings)
+	operator := s.operator(eng, bridge, state, values, use.record.WorkDir, &warnings)
 	operator.recorder = sessionRecorder{preset: preset}
 	urlBefore, _ := eng.CurrentURL(ctx)
 	if state.Page.URL != "" && urlBefore != state.Page.URL {
 		warnings = append(warnings, fmt.Sprintf("the page changed since the last command, from %s to %s", state.Page.URL, urlBefore))
 	}
+	if op.Extract != nil {
+		warnings = append(warnings, extractWarnings(*op.Extract)...)
+	}
 	result := DoResult{ID: req.ID, Index: index, Kind: op.kind(), Status: OperationDone}
-	if isElement {
+	switch {
+	case isElement && op.Act != nil:
 		result.Act = op.Act.Instruction
+	case isElement && op.Upload != nil:
+		result.Into = op.Upload.Into
 	}
 	canonical, err := json.Marshal(op)
 	if err != nil {
@@ -620,7 +772,7 @@ func (s *Sessions) Do(ctx context.Context, req DoRequest) (DoResult, error) {
 		entry.Variables = agentstep.VariableReferences(op.Act.Instruction)
 	}
 	var opErr error
-	skipped := false
+	skipped, allowing := false, false
 	if op.When != nil {
 		holds, reason, err := operator.await(ctx, *op.When, op.When.window(0), op.timeout())
 		switch {
@@ -634,9 +786,16 @@ func (s *Sessions) Do(ctx context.Context, req DoRequest) (DoResult, error) {
 	}
 	if opErr == nil && !skipped {
 		var done opResult
+		if len(req.AllowWrites) > 0 {
+			// The allowance lasts until the operation's downloads settle.
+			if err := eng.BeginWrites(ctx, req.AllowWrites, 2*op.timeout()+sessionDownloadGrace+commitLeaseSlack); err != nil {
+				return DoResult{}, err
+			}
+			allowing = true
+		}
 		done, opErr = operator.runOperation(ctx, index, op)
 		if opErr == nil {
-			opErr = operator.checkPage(ctx)
+			opErr = operator.checkPage(ctx, index)
 		}
 		if opErr == nil {
 			result.Detail = done.Detail
@@ -644,16 +803,19 @@ func (s *Sessions) Do(ctx context.Context, req DoRequest) (DoResult, error) {
 				entry.URLBefore = done.PageURL
 			}
 			result.Actions = sessionActions(done.Actions, masker)
-			if op.Act != nil {
+			if op.Act != nil || op.Upload != nil {
 				entry.Recordable = done.PageURL != "" && len(done.Actions) > 0
 				if entry.Recordable && holdsValue(done.Actions, values.all) {
 					entry.Recordable = false
-					warnings = append(warnings, "the act's actions hold a variable's value, so an exported step asks the model for this act on every run")
+					warnings = append(warnings, "the operation's actions hold a variable's value, so an exported step asks the model for this operation on every run")
 				}
 				// Only actions an export replays are kept, and those hold no
 				// variable's value.
 				if entry.Recordable {
 					entry.Actions = done.Actions
+					if op.Act != nil {
+						entry.Assumed = agentstep.Assume(unusedVariables(op.Act.Instruction, done.Actions), values.all)
+					}
 				}
 				result.Recorded = entry.Recordable
 			}
@@ -675,9 +837,6 @@ func (s *Sessions) Do(ctx context.Context, req DoRequest) (DoResult, error) {
 	for _, d := range eng.TakeDialogs() {
 		result.Dialogs = append(result.Dialogs, SessionDialog{Type: d.Type, Message: masker.MaskString(d.Message)})
 	}
-	if blocked, err := eng.TakeBlockedRequests(); err == nil && len(blocked) > 0 {
-		result.Blocked = blocked
-	}
 	if op.Act != nil || op.Goto != "" {
 		grace := time.Duration(0)
 		if op.Act != nil {
@@ -691,10 +850,58 @@ func (s *Sessions) Do(ctx context.Context, req DoRequest) (DoResult, error) {
 			warnings = append(warnings, "wait for downloads: "+masker.MaskString(err.Error()))
 		}
 	}
+	// The writes sent while downloads settled are the operation's too.
+	if allowing {
+		if err := eng.EndWrites(context.WithoutCancel(ctx)); err != nil {
+			return result, use.retire(context.WithoutCancel(ctx), writeGateLost(req.ID))
+		}
+	}
+	if result.Writes, err = takeWrites(ctx, eng, &state, masker); err != nil {
+		return result, use.retire(ctx, writeGateLost(req.ID))
+	}
+	blocked := false
+	for _, write := range result.Writes {
+		if write.Consequential() || write.Class == writegate.ClassApproved {
+			entry.Writes = append(entry.Writes, write.Signature)
+		}
+		// In record mode a write nothing allowed did not save what the
+		// operation was for, which explains any failure that followed.
+		if write.Consequential() && writegate.Sends(state.WriteGate) && !blocked {
+			blocked = true
+			message := fmt.Sprintf("%s; allow it with --allow-write %q", writeBlocked{write: write}, write.Signature)
+			result.Status = OperationFailed
+			result.Error = &SessionError{Code: CodeWriteBlocked, Message: message}
+			entry.Status, entry.Error = OperationFailed, message
+		}
+		// A blocked form stays on its page as it was filled in, so a
+		// rehearsal says what became of the write rather than leave the
+		// operation looking as if it did nothing.
+		if write.Consequential() && !writegate.Sends(state.WriteGate) {
+			warnings = append(warnings, fmt.Sprintf("the write gate blocked %s, so nothing was saved; a rehearsal does not send it", write))
+		}
+	}
+	if blocked, err := eng.TakeBlockedRequests(); err == nil && len(blocked) > 0 {
+		result.Blocked = blocked
+	}
 	view, pageURL := s.view(ctx, eng, masker, req.OutlineChars, &warnings)
+	// Reading a browser that stopped answering would only wait for it again,
+	// so a page still at the address last seen keeps the refusal seen there.
+	refused := state.Page.Refused
+	switch {
+	case !errors.Is(opErr, errBrowserUnresponsive):
+		refused = pageRefusal(ctx, operator, state.Page, pageURL)
+	case pageURL != state.Page.URL:
+		refused = nil
+	}
+	if refused != nil && result.Error != nil {
+		note := masker.MaskString(refused.String())
+		result.Error.Message += "; " + note
+		entry.Error += "; " + note
+	}
+	result.Refused = sessionRefusal(refused, masker)
 	entry.URLAfter = pageURL
 	state.Ops = append(state.Ops, entry)
-	state.Page = sessionPage{URL: pageURL, Title: view.Title}
+	state.Page = sessionPage{URL: pageURL, Title: view.Title, Refused: refused}
 	usage := bridge.totals()
 	state.Usage.Input += usage.Input
 	state.Usage.Output += usage.Output
@@ -777,13 +984,61 @@ func (s *Sessions) Describe(ctx context.Context, req DescribeRequest) (DescribeR
 			warnings = append(warnings, "screenshot: "+masker.MaskString(err.Error()))
 		}
 	}
-	state.Page = sessionPage{URL: snap.URL, Title: result.Title}
+	refused := pageRefusal(ctx, &operator{eng: eng, certificateProxy: eng.Handle().CertProxy != nil}, state.Page, snap.URL)
+	result.Refused = sessionRefusal(refused, masker)
+	state.Page = sessionPage{URL: snap.URL, Title: result.Title, Refused: refused}
 	result.IdleDeadline = s.now().Add(state.idleTimeout())
 	if err := use.park(ctx, state, result.IdleDeadline); err != nil {
 		return result, err
 	}
 	result.Warnings = nonNil(warnings)
 	return result, nil
+}
+
+// GateRequest tells a session's write gate who holds the browser.
+type GateRequest struct {
+	ID string
+	// Person reports that a person holds the browser, whose writes the
+	// gate sends; false hands it back to the gate's mode.
+	Person bool
+}
+
+// GateResult reports a session's write gate.
+type GateResult struct {
+	ID        string `json:"id"`
+	WriteGate string `json:"write_gate"`
+	// Person reports that the gate sends the browser's writes, which a
+	// person makes.
+	Person       bool      `json:"person"`
+	IdleDeadline time.Time `json:"idle_deadline"`
+}
+
+// Gate tells the session's write gate whether a person holds the browser.
+// The gate then sends every write, still reporting each; it never stops
+// deciding, since a request it does not pause is never seen.
+func (s *Sessions) Gate(ctx context.Context, req GateRequest) (GateResult, error) {
+	use, err := s.use(ctx, req.ID)
+	if err != nil {
+		return GateResult{}, err
+	}
+	defer use.release()
+	handle := recordedHandle(use.record).WriteGate
+	if handle == nil {
+		return GateResult{}, &SessionError{Code: CodeInvalidInput, Message: fmt.Sprintf("browser session %s has no write gate; open one with --write-gate", req.ID)}
+	}
+	if err := writegate.SetPerson(ctx, handle.URL, req.Person); err != nil {
+		if !handle.Alive() {
+			return GateResult{}, use.retire(ctx, writeGateLost(req.ID))
+		}
+		return GateResult{}, err
+	}
+	state := use.state
+	state.Person = req.Person
+	deadline := s.now().Add(state.idleTimeout())
+	if err := use.park(ctx, state, deadline); err != nil {
+		return GateResult{}, err
+	}
+	return GateResult{ID: req.ID, WriteGate: state.WriteGate, Person: req.Person, IdleDeadline: deadline}, nil
 }
 
 // CloseRequest closes a session.
@@ -952,13 +1207,7 @@ func (s *Sessions) use(ctx context.Context, id string) (*sessionUse, error) {
 // attach reattaches to the session's browser for the command.
 func (u *sessionUse) attach(ctx context.Context, generate generateFunc) (engine, error) {
 	record := u.record
-	eng, err := u.sessions.launcher.Reattach(ctx, browserHandle{
-		CDPURL:           record.CDPURL,
-		ExtensionID:      record.ExtensionID,
-		ExtensionDir:     record.ExtensionDir,
-		BrowserPID:       record.BrowserPID,
-		BrowserStartedAt: record.BrowserStartedAt,
-	}, launchOptions{
+	eng, err := u.sessions.launcher.Reattach(ctx, recordedHandle(record), launchOptions{
 		DownloadsDir:   record.DownloadsDir,
 		AllowedDomains: u.state.Browser.AllowedDomains,
 		Generate:       generate,
@@ -995,10 +1244,22 @@ func (s *Sessions) park(ctx context.Context, eng engine, store *browserhost.Stor
 	return errors.Join(errs...)
 }
 
+// retire ends the session, closing its browser, and returns cause.
+func (u *sessionUse) retire(ctx context.Context, cause error) error {
+	if u.eng != nil {
+		_ = u.eng.Detach(context.WithoutCancel(ctx))
+		u.eng = nil
+	}
+	_, err := browserhost.Retire(ctx, u.store, u.record, u.sessions.now().Add(browserhost.SessionRetention))
+	return errors.Join(cause, err)
+}
+
+// release ends the command's hold on the session. A browser the command
+// attached and neither parked nor retired, as when it refused its input,
+// is left waiting for the next command.
 func (u *sessionUse) release() {
 	if u.eng != nil {
-		_ = u.eng.Detach(context.Background())
-		u.eng = nil
+		_ = u.park(context.Background(), u.state, u.sessions.now().Add(u.state.idleTimeout()))
 	}
 	u.stop()
 	_ = u.lock.Unlock()
@@ -1049,6 +1310,32 @@ func (s *Sessions) view(ctx context.Context, eng engine, masker *masking.Masker,
 	}, snap.URL
 }
 
+// pageRefusal returns the refusal the page at pageURL shows after a
+// command, with the bot check an earlier command saw on that page: a
+// browser reattached since cannot tell it, as when a person reloaded the
+// page between commands.
+func pageRefusal(ctx context.Context, op *operator, before sessionPage, pageURL string) *refusal {
+	refused, ok := op.pageRefusal(ctx)
+	if !ok {
+		return nil
+	}
+	if seen := before.Refused; refused.BotCheck == "" && seen != nil && before.URL == pageURL && seen.Host == refused.Host && seen.Status == refused.Status {
+		refused.BotCheck = seen.BotCheck
+	}
+	return &refused
+}
+
+// sessionRefusal reports refused in a command's result.
+func sessionRefusal(refused *refusal, masker *masking.Masker) *SessionRefusal {
+	if refused == nil {
+		return nil
+	}
+	return &SessionRefusal{
+		Host: masker.MaskString(refused.Host), Status: refused.Status, BotCheck: refused.BotCheck,
+		Message: masker.MaskString(refused.String()),
+	}
+}
+
 // closeSession closes a session whose opening failed.
 func closeSession(ctx context.Context, eng engine, store *browserhost.Store, record browserhost.Record) error {
 	closeErr := eng.Close(context.WithoutCancel(ctx))
@@ -1083,8 +1370,12 @@ func reserveSession(store *browserhost.Store) (string, string, error) {
 func sessionActions(actions []recordedAction, masker *masking.Masker) []SessionAction {
 	out := make([]SessionAction, 0, len(actions))
 	for _, action := range actions {
-		action.Arguments = maskAll(masker, slices.Clone(action.Arguments))
-		out = append(out, SessionAction(action))
+		out = append(out, SessionAction{
+			Selector:    action.Selector,
+			Description: action.Description,
+			Method:      action.Method,
+			Arguments:   maskAll(masker, slices.Clone(action.Arguments)),
+		})
 	}
 	return out
 }

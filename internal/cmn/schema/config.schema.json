@@ -47,6 +47,11 @@
       "items": { "type": "string" },
       "description": "Origins allowed to make cross-origin requests. When unset or empty, cross-origin browser access is disabled. Exact origins enable credentials. An explicit '*' allows every origin without credentials and emits a security warning."
     },
+    "allowed_hosts": {
+      "type": "array",
+      "items": { "type": "string" },
+      "description": "Host names the server answers to where no credential is needed: every request with auth mode 'none', and first-admin setup. IP addresses, single-label names, names under the special-use local domains localhost, local, internal, test, example, invalid, alt, home.arpa, and service.arpa, the configured host, the public_url host, and this machine's hostname are always accepted. Entries are exact names, '.example.com' for a domain and its subdomains, or '*' to accept any name."
+    },
     "ip_access": {
       "$ref": "#/definitions/IPAccessDef"
     },
@@ -1113,6 +1118,10 @@
           "description": "Coordinator HTTP health check port. Default: 8091. Set to 0 to disable.",
           "minimum": 0,
           "maximum": 65535
+        },
+        "worker_wait_timeout": {
+          "type": "string",
+          "description": "How long a dispatch with no healthy worker matching its selector is held, as a queued run, for such a worker to register before the run fails. Default: '2m'. Set to '0' to refuse the dispatch at once."
         }
       }
     },
@@ -1143,6 +1152,88 @@
           "type": "boolean",
           "description": "Keep Chromium's sandbox on for every browser started on this host. Set to false only where the sandbox cannot start; pages are then isolated from the host only by the operating system user.",
           "default": true
+        },
+        "max_open": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "The most browsers open at once on this host, counting browser steps and browser sessions. A browser past it waits for one to close. 0 sets no limit.",
+          "default": 0
+        },
+        "guard_client_certificates": {
+          "type": "boolean",
+          "description": "Send a browser's other HTTPS requests through the certificate proxy too, so the browser never asks the operating system for a client certificate; a site that asks for one gets none and the step says so. Defaults to on whenever the browser presents client certificates."
+        },
+        "write_gate": {
+          "type": "string",
+          "enum": ["off", "record", "ask", "rehearse"],
+          "description": "The least strict write gate mode every browser on this host runs in; a step or a browser session can only ask for a stricter one. rehearse blocks the writes a page sends (any request but GET, HEAD, or OPTIONS), except sign-ins browser.write_policy lists and, in a browser session, writes made while a person holds the browser, and reports what it would have sent; a step stops at the first blocked write of the work and ends partially succeeded. record sends only the writes approved commit points name (dagu browser writes approve) and blocks the others. ask does the same and has a step wait for a person before each commit operation. off, the default, runs no gate."
+        },
+        "write_policy": {
+          "type": "string",
+          "description": "Path to the write gate policy browser steps follow: sign_in rules (host, path, and optionally the secret the request must carry) whose writes are sent, writes rules that declare reads that save, and noise_hosts whose writes do not count."
+        },
+        "trusted_cas": {
+          "type": "array",
+          "description": "Server certificate authorities trusted only for the hosts each names, in addition to existing trust. Matching entries combine independently of client certificates.",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["hosts", "ca_file"],
+            "properties": {
+              "hosts": {
+                "type": "array",
+                "minItems": 1,
+                "items": { "type": "string", "minLength": 1 },
+                "description": "Host names, IP addresses, *.example.com for subdomains excluding the apex, or * for every host."
+              },
+              "ca_file": {
+                "type": "string",
+                "minLength": 1,
+                "description": "PEM file of certificate authorities or self-signed server certificates, without private keys. Text around the certificates is ignored."
+              }
+            }
+          }
+        },
+        "client_certificates": {
+          "type": "array",
+          "description": "TLS client certificates every browser started on this host presents to the hosts each names, after those a step names. The first entry whose hosts match is used.",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["hosts"],
+            "properties": {
+              "hosts": {
+                "type": "array",
+                "minItems": 1,
+                "items": { "type": "string", "minLength": 1 },
+                "description": "Hosts the certificate is presented to: a host name or IP address, *.example.com for the subdomains of example.com, or * for every host."
+              },
+              "pfx_file": {
+                "type": "string",
+                "description": "PKCS#12 (.pfx or .p12) file holding the certificate, its private key, and optionally its chain."
+              },
+              "cert_file": {
+                "type": "string",
+                "description": "PEM certificate, followed by its chain. Used with key_file instead of pfx_file."
+              },
+              "key_file": {
+                "type": "string",
+                "description": "Unencrypted PEM private key for cert_file."
+              },
+              "ca_file": {
+                "type": "string",
+                "description": "PEM certificates to trust for these hosts' servers, in addition to the system's."
+              },
+              "passphrase": {
+                "type": "string",
+                "description": "Passphrase of pfx_file."
+              },
+              "passphrase_file": {
+                "type": "string",
+                "description": "File holding the passphrase of pfx_file."
+              }
+            }
+          }
         }
       }
     },
@@ -1251,6 +1342,10 @@
         "zombie_detection_interval": {
           "type": "string",
           "description": "Interval for detecting zombie processes. Default: '45s'. Set to '0' to disable."
+        },
+        "wake_hold": {
+          "type": "string",
+          "description": "How long at most the scheduler holds its ticks after the host wakes from sleep. It pauses itself, as 'scheduler', so definitions can be refreshed before the first tick; clearing the pause through the API ends the hold, and the held ticks then run. Default: '0', no hold."
         },
         "failure_threshold": {
           "type": "integer",
@@ -1646,8 +1741,17 @@
       "properties": {
         "report": {
           "type": "string",
-          "enum": ["off", "health", "runs"],
-          "description": "What this server reports to Dagu Console beyond its license check-in. off (default) reports nothing; health reports the Dagu version, OS, architecture, start time, and how many schedulers and coordinators run; runs also reports each reportable status change of a top-level DAG run (events without a valid status snapshot, or with names or IDs longer than Dagu Console keeps, are left out): DAG name, run and attempt IDs, status, times, and up to 50 failed step names. Logs, outputs, parameters, commands, error messages, DAG files, and the values of workflow secrets are never sent. Every report also carries the license and server IDs and the heartbeat secret, as the license check-in does."
+          "enum": ["off", "health", "runs", "errors"],
+          "description": "What this server reports to Dagu Console beyond its license check-in. off (default) reports nothing but one report saying so after health, runs, or errors; health reports the Dagu version, OS, architecture, start time, and how many schedulers and coordinators run; runs also reports each reportable status change of a top-level DAG run (events without a valid status snapshot, or with names or IDs longer than Dagu Console keeps, are left out): DAG name, run and attempt IDs, status, times, and up to 50 failed step names; errors also reports why a run failed: the error messages of up to 5 failed steps, or the run's own, each up to 2 KB from its end. A step's error can end with the last lines of its stderr; the values of workflow secrets are masked in it. Full logs, outputs, parameters, commands, DAG files, and the values of workflow secrets are never sent. Every report also carries the license and server IDs and the heartbeat secret, as the license check-in does."
+        },
+        "remote_access": {
+          "type": "string",
+          "enum": ["off", "viewer", "operator", "developer"],
+          "description": "The highest role a Dagu Cloud user gets on calls Dagu Cloud carries to this server over the connection the server opens, which needs a paid plan or a trial. off refuses every call; viewer reads DAGs, runs, and logs; operator also starts, enqueues, retries, and stops runs of existing DAGs, with any parameters they take; developer also changes DAG definitions and runs inline specs, and since DAG steps run commands, it lets those users run any command on this host as the user Dagu runs as. Each user gets the lower of this role and the one Dagu Cloud grants them. Omit it to choose in the UI, where it starts off."
+        },
+        "remote_approvals": {
+          "type": "boolean",
+          "description": "Whether calls from Dagu Cloud may approve, reject, or push back steps waiting for a person, at operator or above. Omit it to choose in the UI, where it starts off."
         }
       }
     }

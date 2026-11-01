@@ -128,8 +128,22 @@ func Inspect(ctx context.Context, path string, opts InspectOptions) (*Info, erro
 		return nil, err
 	}
 	defer w.close()
+	return inspect(ctx, w, opts)
+}
 
-	info := &Info{Path: path, DateSystem: "1900", Sheets: []SheetInfo{}, NamedRanges: []NamedRange{}, Warnings: []string{}}
+// InspectBytes describes a workbook supplied as bytes. Path is used only as
+// the result and error label, so callers can report stdin as "-".
+func InspectBytes(ctx context.Context, path string, data []byte, opts InspectOptions) (*Info, error) {
+	w, err := openBytes(path, data, opts.Password)
+	if err != nil {
+		return nil, err
+	}
+	defer w.close()
+	return inspect(ctx, w, opts)
+}
+
+func inspect(ctx context.Context, w *file, opts InspectOptions) (*Info, error) {
+	info := &Info{Path: w.path, DateSystem: "1900", Sheets: []SheetInfo{}, NamedRanges: []NamedRange{}, Warnings: []string{}}
 	if w.date1904 {
 		info.DateSystem = "1904"
 	}

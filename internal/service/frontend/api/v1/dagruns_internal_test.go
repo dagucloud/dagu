@@ -697,6 +697,7 @@ func TestManualResumeLaunchFailure(t *testing.T) {
 			latest, err := attempt.ReadStatusUncached(t.Context())
 			require.NoError(t, err)
 			assert.Equal(t, status.Nodes, latest.Nodes)
+			assert.False(t, latest.Resume)
 			// A failed launch must leave the checkpoint available for admission.
 			admission, err := queue.PrepareRetry(t.Context(), repository, dag, latest, queue.EnqueueRetryOptions{})
 			require.NoError(t, err)
@@ -737,6 +738,7 @@ func TestManualResumeDispatch(t *testing.T) {
 			} else {
 				require.NoError(t, err)
 				assert.Equal(t, ir.Queued, status.Status)
+				assert.True(t, status.Resume)
 				require.NoError(t, a.resumeWaitingDAGRun(t.Context(), status.DAGRun(), before))
 				assert.Len(t, recorder.dispatched, 1)
 			}
@@ -1655,6 +1657,44 @@ func TestSubDAGRunDataRequiresRootAndChildWorkspaceAccess(t *testing.T) {
 	require.Equal(t, http.StatusNotFound, apiErr.HTTPStatus)
 }
 
+// The live step log stream feeds a stdout-only viewer, so reading stderr on
+// every refresh is wasted I/O.
+func TestStepLogStreamReadsOnlyStdout(t *testing.T) {
+	ctx := t.Context()
+	dir := t.TempDir()
+	stdoutPath := filepath.Join(dir, "stdout.log")
+	stderrPath := filepath.Join(dir, "stderr.log")
+	require.NoError(t, os.WriteFile(stdoutPath, []byte("out\n"), 0o600))
+	require.NoError(t, os.WriteFile(stderrPath, []byte("err\n"), 0o600))
+
+	repository := testutil.NewFileDAGRunRepository(t.TempDir(), persis.DAGRunRepositoryOptions{})
+	dag := &ir.DAG{Name: "logs"}
+	attempt, err := repository.CreateAttempt(ctx, dag, time.Now(), "run-1", persis.DAGRunCreateAttemptOptions{})
+	require.NoError(t, err)
+	require.NoError(t, attempt.Open(ctx))
+	status := ir.InitialStatus(dag)
+	status.DAGRunID = "run-1"
+	status.AttemptID = attempt.ID()
+	status.Nodes = []*ir.Node{{Step: ir.Step{Name: "main"}, Stdout: stdoutPath, Stderr: stderrPath}}
+	require.NoError(t, attempt.Write(ctx, status))
+	require.NoError(t, attempt.Close(ctx))
+
+	cfg := &config.Config{}
+	a := &API{
+		dagRunRepository: repository,
+		dagRunMgr:        runtimepkg.NewManager(repository, nil, cfg),
+		config:           cfg,
+	}
+
+	result, err := a.GetStepLogData(ctx, "logs/run-1/main")
+
+	require.NoError(t, err)
+	resp, ok := result.(StepLogResponse)
+	require.True(t, ok)
+	require.Equal(t, "out", resp.StdoutContent)
+	require.Empty(t, resp.StderrContent)
+}
+
 func TestStepLogLimitWithoutOffsetReadsFromBeginning(t *testing.T) {
 	stdoutPath := filepath.Join(t.TempDir(), "stdout.log")
 	require.NoError(t, os.WriteFile(stdoutPath, []byte("one\ntwo\nthree\n"), 0o600))
@@ -1766,12 +1806,14 @@ func TestAgentResumeQueue(t *testing.T) {
 				assert.Empty(t, f.recorder.dispatched)
 			} else if tt.direct {
 				assert.Equal(t, ir.Queued, status.Status)
+				assert.True(t, f.recorder.dispatched[0].PreviousStatus.Resume)
 				assert.Empty(t, items)
 				require.Len(t, f.recorder.dispatched, 1)
 				assert.Equal(t, ir.Queued, f.recorder.dispatched[0].PreviousStatus.Status)
 			} else {
 				assert.Empty(t, f.recorder.dispatched)
 				assert.Equal(t, ir.Queued, status.Status)
+				assert.True(t, status.Resume)
 				require.Len(t, items, 1)
 				ref, err := items[0].Data()
 				require.NoError(t, err)
@@ -1779,6 +1821,24 @@ func TestAgentResumeQueue(t *testing.T) {
 			}
 		})
 	}
+}
+
+// A failed agent step in a finished child run offers a clean restart, which
+// must start a new attempt rather than require the child to be waiting.
+func TestAgentRestartFinishedChild(t *testing.T) {
+	f := newAgentResumeFixture(t, true, false)
+	f.status.Status = ir.Failed
+	f.status.Nodes = f.status.Nodes[:1]
+	agentNode := f.status.Nodes[0]
+	agentNode.Status = ir.NodeFailed
+	agentNode.AgentSession.State = ir.AgentSessionFailed
+	agentNode.AgentSession.Interactions = nil
+
+	_, err := f.api.restartAgentSession(t.Context(), f.root, f.subRunID, "agent")
+	require.NoError(t, err)
+	require.Len(t, f.recorder.dispatched, 1)
+	assert.Equal(t, ir.Queued, f.recorder.dispatched[0].PreviousStatus.Status)
+	assert.True(t, f.recorder.dispatched[0].PreviousStatus.Resume)
 }
 
 // Agent actions on a run that is still executing must leave it untouched: a
@@ -1949,12 +2009,39 @@ func TestValidateAgentQuestionResponse(t *testing.T) {
 				return &openapiv1.AgentInteractionResponseRequest{Decision: &decision}
 			}(),
 		},
+		{
+			name:        "skip of a permission other than a browser write",
+			interaction: ir.AgentInteraction{Kind: ir.AgentInteractionPermission, Permission: "edit"},
+			body: func() *openapiv1.AgentInteractionResponseRequest {
+				decision := openapiv1.AgentInteractionResponseRequestDecisionSkip
+				return &openapiv1.AgentInteractionResponseRequest{Decision: &decision}
+			}(),
+		},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
 			require.Error(t, validateAgentInteractionResponse(test.interaction, test.body))
 		})
 	}
+}
+
+// A browser write may be skipped: the step goes on without running the
+// operation that would send it.
+func TestApplyAgentInteractionSkipsABrowserWrite(t *testing.T) {
+	t.Parallel()
+
+	node := &ir.Node{Status: ir.NodeWaiting, AgentSession: &ir.AgentSession{
+		State: ir.AgentSessionWaiting,
+		Interactions: []ir.AgentInteraction{{
+			ID: "ask-2-1", Kind: ir.AgentInteractionPermission, Status: ir.AgentInteractionPending,
+			Permission: ir.AgentPermissionBrowserWrite, Patterns: []string{"POST https://x/deals? {amount}"},
+		}},
+	}}
+	decision := openapiv1.AgentInteractionResponseRequestDecisionSkip
+	require.NoError(t, applyAgentInteractionResponse(t.Context(), node, "ask-2-1", &openapiv1.AgentInteractionResponseRequest{Decision: &decision}))
+	assert.Equal(t, ir.AgentInteractionAnswered, node.AgentSession.Interactions[0].Status)
+	assert.Equal(t, ir.AgentDecisionSkip, node.AgentSession.Interactions[0].Decision)
+	assert.Equal(t, ir.NodeNotStarted, node.Status, "the step runs again to apply the answer")
 }
 
 func TestApplyAgentInteractionRejectsPermission(t *testing.T) {
@@ -2027,7 +2114,7 @@ func TestBrowserSessionWaiting(t *testing.T) {
 			dataDir := t.TempDir()
 			if test.record != nil {
 				record := *test.record
-				record.ID = browserhost.RecordID("run-1", "login")
+				record.ID = browserhost.RecordID("run-1", "", "login")
 				require.NoError(t, browserhost.NewStore(filepath.Join(dataDir, browserhost.DataDirName)).Save(record))
 			}
 			waiting, err := browserSessionWaiting(t.Context(), dataDir, "run-1", "login", now)

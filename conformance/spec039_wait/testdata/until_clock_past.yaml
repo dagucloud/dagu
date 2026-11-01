@@ -1,0 +1,6 @@
+steps:
+  - action: wait.until
+    timeout_sec: 5
+    with:
+      until: "00:00"
+      offset: -1s

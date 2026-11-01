@@ -5,7 +5,6 @@ package value
 
 import (
 	"context"
-	"os"
 	"strings"
 )
 
@@ -127,7 +126,7 @@ func (r *resolver) resolveForShell(name string) (string, bool) {
 		return val, true
 	}
 	if r.expandOS {
-		return os.LookupEnv(name)
+		return lookupProcessEnv(name)
 	}
 	return "", false
 }
@@ -159,7 +158,7 @@ func (r *resolver) resolveJSONSource(name string) (string, bool) {
 				return val, true
 			}
 		}
-		return os.LookupEnv(name)
+		return lookupProcessEnv(name)
 	}
 	return r.lookupScopeNonOS(name)
 }

@@ -9,6 +9,7 @@
     <title>{{ navbarTitle }}</title>
     <script>
       function getConfig() {
+        {{- $update := updateStatus }}
         return {
           apiURL: "{{ apiURL }}",
           basePath: "{{ basePath }}",
@@ -32,8 +33,11 @@
             writeDags: "{{ permissionsWriteDags }}" === "true",
             runDags: "{{ permissionsRunDags }}" === "true",
           },
-          updateAvailable: "{{ updateAvailable }}" === "true",
-          latestVersion: "{{ latestVersion }}",
+          updateAvailable: "{{ $update.UpdateAvailable }}" === "true",
+          latestVersion: "{{ js $update.LatestVersion }}",
+          upgradeCommand: "{{ js $update.UpgradeCommand }}",
+          restartRequired: "{{ $update.RestartRequired }}" === "true",
+          restartCommand: "{{ js $update.RestartCommand }}",
           license: {
             valid: "{{ licenseValid }}" === "true",
             plan: "{{ licensePlan }}",
@@ -65,6 +69,25 @@
           },
         };
       }
+    </script>
+    <script>
+      // Apply the saved or system theme before the app loads so the page
+      // does not flash the other theme.
+      (function () {
+        var theme;
+        try {
+          theme = JSON.parse(localStorage.getItem('user_preferences') || '{}').theme;
+        } catch (e) {}
+        var dark =
+          theme === 'dark' ||
+          (theme !== 'light' &&
+            !!window.matchMedia &&
+            window.matchMedia('(prefers-color-scheme: dark)').matches);
+        var root = document.documentElement;
+        root.classList.toggle('dark', dark);
+        root.style.colorScheme = dark ? 'dark' : 'light';
+        root.style.backgroundColor = dark ? '#0b0d12' : '#f4f2ed';
+      })();
     </script>
     <script
       defer="defer"

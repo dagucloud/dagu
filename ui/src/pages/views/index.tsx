@@ -1,14 +1,21 @@
 // Copyright (C) 2026 Yota Hamada
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-import React, { useEffect, useState } from 'react';
+import React, { useContext, useEffect, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { Pencil } from 'lucide-react';
+import { AppBarContext } from '@/contexts/AppBarContext';
 import { useCanWriteForWorkspace } from '@/contexts/AuthContext';
 import { ViewEditorDialog } from '@/features/views/ViewEditorDialog';
 import { ViewPanel } from '@/features/views/ViewPanel';
 import { useViews } from '@/hooks/useViews';
 import { I18nText } from '@/i18n/I18nText';
+import { useI18n } from '@/i18n/I18nProvider';
+import {
+  LoadErrorState,
+  NotFoundState,
+  PageLoading,
+} from '@/components/PageStates';
 
 /**
  * Standalone page for a single saved view (reached from a sidebar pin or a
@@ -18,20 +25,39 @@ import { I18nText } from '@/i18n/I18nText';
 export default function ViewPage(): React.ReactElement | null {
   const { viewId } = useParams();
   const navigate = useNavigate();
-  const { views, isLoading } = useViews();
+  const { views, isLoading, error, refresh } = useViews();
+  const { ts } = useI18n();
   const view = views.find((v) => v.id === viewId);
   const canWrite = useCanWriteForWorkspace(view?.workspace ?? '');
   const [editorOpen, setEditorOpen] = useState(false);
+  const { setTitle } = useContext(AppBarContext);
+  const viewTitle =
+    view?.name ?? (isLoading || error ? '' : ts('View not found'));
 
-  // Once views have loaded, redirect home if the requested view is gone.
   useEffect(() => {
-    if (!isLoading && viewId && !view) {
-      navigate('/');
-    }
-  }, [isLoading, viewId, view, navigate]);
+    setTitle(viewTitle);
+  }, [setTitle, viewTitle]);
 
   if (!view) {
-    return null;
+    if (isLoading) {
+      return <PageLoading />;
+    }
+    if (error) {
+      return (
+        <LoadErrorState
+          title={ts("Couldn't load views")}
+          error={error}
+          onRetry={() => void refresh()}
+        />
+      );
+    }
+    return (
+      <NotFoundState
+        title={ts('View not found')}
+        description={ts('This view may have been deleted.')}
+        action={{ to: '/', label: ts('Go to Overview') }}
+      />
+    );
   }
 
   return (

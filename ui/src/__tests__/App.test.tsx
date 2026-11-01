@@ -176,6 +176,9 @@ function makeConfig(overrides: Partial<Config> = {}): Config {
     gitSyncEnabled: true,
     updateAvailable: false,
     latestVersion: '',
+    upgradeCommand: '',
+    restartRequired: false,
+    restartCommand: '',
     permissions: {
       writeDags: true,
       runDags: true,

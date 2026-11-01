@@ -9,9 +9,11 @@ package workbook
 
 import (
 	"archive/zip"
+	"bytes"
 	"encoding/binary"
 	"errors"
 	"fmt"
+	"io"
 	"io/fs"
 	"os"
 	"path/filepath"
@@ -158,6 +160,31 @@ func open(path, password string) (*file, error) {
 	return w, nil
 }
 
+// openBytes opens a workbook from bounded in-memory bytes. Keeping the path
+// label preserves the file error messages and the inspect result for stdin.
+func openBytes(path string, b []byte, password string) (*file, error) {
+	f, err := excelize.OpenReader(bytes.NewReader(b), excelize.Options{Password: password})
+	if err != nil {
+		if decryptFailed(err) {
+			if cause := encryptionCauseBytes(b); cause != nil {
+				return nil, fmt.Errorf("%s: %w", filepath.Base(path), cause)
+			}
+		}
+		if errors.Is(err, excelize.ErrWorkbookPassword) {
+			// excelize blames the password for any zip failure once one is
+			// set, but this input is not an encrypted package.
+			return nil, fmt.Errorf("%s: %w", filepath.Base(path), ErrNotWorkbook)
+		}
+		return nil, fmt.Errorf("%s: %w: %v", filepath.Base(path), ErrNotWorkbook, err)
+	}
+	w := &file{f: f, path: path, base: filepath.Base(path), kinds: map[int]cellKind{}, grids: map[string][][]string{}}
+	w.sheets = f.GetSheetList()
+	if props, err := f.GetWorkbookProps(); err == nil && props.Date1904 != nil {
+		w.date1904 = *props.Date1904
+	}
+	return w, nil
+}
+
 // encryptionInfoStream names the stream of an encrypted package that
 // starts with the encryption version.
 const encryptionInfoStream = "EncryptionInfo"
@@ -181,7 +208,15 @@ func encryptionCause(path string) error {
 		return nil
 	}
 	defer func() { _ = f.Close() }()
-	doc, err := mscfb.New(f)
+	return encryptionCauseReader(f)
+}
+
+func encryptionCauseBytes(b []byte) error {
+	return encryptionCauseReader(bytes.NewReader(b))
+}
+
+func encryptionCauseReader(r io.ReaderAt) error {
+	doc, err := mscfb.New(r)
 	if err != nil {
 		return nil
 	}

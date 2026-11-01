@@ -35,11 +35,11 @@ type DAGRunTerminateActionOptions = {
 };
 
 const defaultTerminateCopy: DAGRunTerminateCopy = {
-  nonRootTooltipText: 'Stop action only available at root dagRun level',
-  stopTooltipText: 'Stop DAGRun execution',
-  cancelTooltipText: 'Cancel auto-retry for this failed DAGRun',
-  stopConfirmText: 'Do you really want to stop this dagRun?',
-  cancelConfirmText: 'Do you really want to cancel auto-retry for this dagRun?',
+  nonRootTooltipText: 'Stop is only available on the top-level run',
+  stopTooltipText: 'Stop this run',
+  cancelTooltipText: 'Cancel auto-retry for this run',
+  stopConfirmText: 'Running steps are canceled.',
+  cancelConfirmText: 'The failed run will not be retried automatically.',
   stopErrorDescription:
     'The DAG run may have already completed or the worker is unavailable.',
   cancelErrorDescription:

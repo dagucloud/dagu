@@ -1,0 +1,5 @@
+steps:
+  - action: wait.until
+    with:
+      until: "2000-01-01T00:00:00Z"
+      if_past: fail

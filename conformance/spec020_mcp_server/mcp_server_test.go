@@ -4,8 +4,13 @@
 package spec020_mcp_server_test
 
 import (
+	"bufio"
+	"context"
+	"net/http"
 	"slices"
+	"strings"
 	"testing"
+	"time"
 
 	api "github.com/dagucloud/dagu/v2/api/v1"
 	"github.com/dagucloud/dagu/v2/conformance/mcptest"
@@ -75,4 +80,28 @@ func TestAPIKeySurfaceControlsMCPConnection(t *testing.T) {
 		t.Cleanup(func() { _ = rejected.Close() })
 	}
 	require.Error(t, err)
+}
+
+// Proxies such as Cloudflare hold the response headers until the first body
+// byte, so an idle standalone stream must still send a byte right away.
+func TestStandaloneStreamStartsWithComment(t *testing.T) {
+	server := mcptest.NewServer(t)
+	session := server.Connect(t, "")
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, server.Endpoint(), nil)
+	require.NoError(t, err)
+	req.Header.Set("Accept", "text/event-stream")
+	req.Header.Set("Mcp-Session-Id", session.ID())
+
+	resp, err := http.DefaultClient.Do(req)
+	require.NoError(t, err)
+	defer func() { _ = resp.Body.Close() }()
+	require.Equal(t, http.StatusOK, resp.StatusCode)
+	require.True(t, strings.HasPrefix(resp.Header.Get("Content-Type"), "text/event-stream"))
+
+	line, err := bufio.NewReader(resp.Body).ReadString('\n')
+	require.NoError(t, err)
+	require.True(t, strings.HasPrefix(line, ":"), "first line %q is not an SSE comment", line)
 }

@@ -4,6 +4,7 @@
 package license
 
 import (
+	"crypto/ed25519"
 	"strings"
 	"testing"
 	"time"
@@ -150,6 +151,25 @@ func TestVerifyToken(t *testing.T) {
 		require.NotNil(t, got.ExpiresAt)
 		assert.True(t, got.ExpiresAt.After(time.Now()), "expiry should be in the future")
 	})
+}
+
+// Dagu Cloud signs relay tickets and call assertions with the license key,
+// each with an audience, so neither may pass for a license.
+func TestVerifyRejectsTokensWithAnAudience(t *testing.T) {
+	t.Parallel()
+
+	pub, priv := testKeyPair(t)
+	claims := validClaims()
+	claims.Audience = jwt.ClaimStrings{"dagu-server"}
+	tokenString := signToken(t, priv, claims)
+
+	for name, verify := range map[string]func(ed25519.PublicKey, string) (*LicenseClaims, error){
+		"VerifyToken": VerifyToken, "VerifyTokenLenient": VerifyTokenLenient,
+	} {
+		got, err := verify(pub, tokenString)
+		require.Error(t, err, name)
+		assert.Nil(t, got, name)
+	}
 }
 
 func TestVerifyTokenLenient(t *testing.T) {

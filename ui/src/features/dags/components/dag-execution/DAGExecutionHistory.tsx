@@ -18,7 +18,7 @@ import {
 import { useRemoteNode } from '../../../../contexts/RemoteNodeContext';
 import { useClient, useQuery } from '../../../../hooks/api';
 import { useDAGHistorySSE } from '../../../../hooks/useDAGHistorySSE';
-import { buildDAGPageURL } from '../../../dag-runs/lib/dagRunUrls';
+import { buildDAGRunPageURL } from '../../../dag-runs/lib/dagRunUrls';
 import {
   sseFallbackOptions,
   useSSECacheSync,
@@ -367,8 +367,7 @@ function DAGHistoryTable({
       const subDAGRun = subRuns[0];
       if (subDAGRun && subDAGRun.dagRunId) {
         navigate(
-          buildDAGPageURL({
-            fileName,
+          buildDAGRunPageURL({
             remoteNode,
             rootDAGRunId: dagRun.rootDAGRunId,
             rootDAGRunName: dagRun.rootDAGRunName,
@@ -449,8 +448,7 @@ function DAGHistoryTable({
                 onRightClickStep={onRightClickStepOnGraph}
                 onOpenSubRun={({ dagRunId }) =>
                   navigate(
-                    buildDAGPageURL({
-                      fileName,
+                    buildDAGRunPageURL({
                       remoteNode,
                       rootDAGRunId: selectedDAGRun.rootDAGRunId,
                       rootDAGRunName: selectedDAGRun.rootDAGRunName,
@@ -540,6 +538,7 @@ function DAGHistoryTable({
                 }
                 logType={logViewer.logType}
                 dagName={selectedDAGRun.name}
+                fileName={fileName}
                 dagRunId={logViewer.dagRunId}
                 stepName={logViewer.stepName}
                 dagRun={selectedDAGRun}
@@ -608,8 +607,7 @@ function DAGHistoryTable({
                 return;
               }
               navigate(
-                buildDAGPageURL({
-                  fileName,
+                buildDAGRunPageURL({
                   remoteNode,
                   rootDAGRunId: selectedDAGRun.rootDAGRunId,
                   rootDAGRunName: selectedDAGRun.rootDAGRunName,

@@ -269,7 +269,7 @@ func (s *Service) enqueuePushBackResume(ctx context.Context, target *target, res
 		s.QueueStore,
 		target.dag,
 		target.status,
-		queue.EnqueueRetryOptions{},
+		queue.EnqueueRetryOptions{Resume: true},
 	)
 	if err == nil {
 		result.Queued = queued

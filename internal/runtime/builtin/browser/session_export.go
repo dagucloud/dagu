@@ -16,6 +16,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/dagucloud/dagu/v2/internal/browserhost/writegate"
 	"github.com/dagucloud/dagu/v2/internal/cmn/replaycache"
 	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/spec"
@@ -43,8 +44,11 @@ type ExportResult struct {
 	Step ExportedStep `json:"step"`
 	// CacheFile is where the recordings were written; empty on a dry run.
 	CacheFile string `json:"cache_file,omitempty"`
-	// Recordings counts the acts a first run replays.
+	// Recordings counts the acts and uploads a first run replays.
 	Recordings int `json:"recordings"`
+	// CommitPoints counts the writes of the step's acts and uploads kept as
+	// commit points to approve.
+	CommitPoints int `json:"commit_points"`
 	// Ops maps each operation of the step to the session's history.
 	Ops []ExportedOperation `json:"ops"`
 	// Variables says how to give the step each variable's value.
@@ -84,7 +88,7 @@ type ExportedOperation struct {
 	SessionIndex int    `json:"session_index"`
 	Index        int    `json:"index"`
 	Kind         string `json:"kind"`
-	// Recorded reports that the step's first run replays the act.
+	// Recorded reports that the step's first run replays the act or upload.
 	Recorded bool `json:"recorded"`
 }
 
@@ -166,7 +170,13 @@ func (s *Sessions) Export(ctx context.Context, req ExportRequest) (ExportResult,
 		Warnings:  exported.warnings,
 	}
 	result.Recordings = len(exported.recordings)
+	result.CommitPoints = len(exported.commits)
 	if !req.DryRun {
+		if len(exported.commits) > 0 {
+			if err := writegate.NewCommitStore(browserDir).Note(ctx, req.DAG, req.Step, exported.commits...); err != nil {
+				return ExportResult{}, fmt.Errorf("keep the commit points: %w", err)
+			}
+		}
 		cache := openReplayCache(browserDir, req.DAG, req.Step)
 		for _, key := range slices.Sorted(maps.Keys(exported.recordings)) {
 			cache.Stage(key, exported.recordings[key])
@@ -186,8 +196,10 @@ type exportedSession struct {
 	step       ExportedStep
 	ops        []ExportedOperation
 	variables  []ExportedVariable
-	recordings map[string][]recordedAction
-	warnings   []string
+	recordings map[string]recording
+	// commits are the writes the step's operations sent or tried to send.
+	commits  []writegate.CommitPoint
+	warnings []string
 	// sessionIndex maps each operation of the step to the history.
 	sessionIndex []int
 }
@@ -195,7 +207,7 @@ type exportedSession struct {
 func exportStep(state sessionState, req ExportRequest) (*exportedSession, error) {
 	exported := &exportedSession{
 		step:       ExportedStep{ID: req.Step, Action: "browser.run", With: ExportedWith{URL: state.StartURL}},
-		recordings: map[string][]recordedAction{},
+		recordings: map[string]recording{},
 	}
 	if browser := exportBrowser(state.Browser); browser != nil {
 		exported.step.With.Browser = browser
@@ -215,6 +227,9 @@ func exportStep(state sessionState, req ExportRequest) (*exportedSession, error)
 		exported.step.With.Do = append(exported.step.With.Do, entry.Op)
 		exported.sessionIndex = append(exported.sessionIndex, sessionIndex)
 		item := ExportedOperation{SessionIndex: sessionIndex, Index: index, Kind: entry.Kind}
+		// key is where the step's replay cache keeps what the operation did,
+		// and what names it in a warning.
+		key, what := "", ""
 		if op.Act != nil {
 			for _, name := range entry.Variables {
 				used[name] = true
@@ -222,19 +237,43 @@ func exportStep(state sessionState, req ExportRequest) (*exportedSession, error)
 			if strings.Contains(op.Act.Instruction, "$") {
 				exported.warnf("operation %d's instruction holds $, which a step may fill in from its parameters before acting, so the first run may ask the model for it", sessionIndex)
 			}
-			switch {
-			case entry.Status != OperationDone:
-				// A skipped act has nothing to replay.
-			case !entry.Recordable:
-				exported.warnf("operation %d (act %q) has no recording, so every run asks the model for it", sessionIndex, op.Act.Instruction)
-			default:
-				exported.recordings[replayKey(index, op.Act.Instruction, entry.URLBefore)] = entry.Actions
-				item.Recorded = true
-				if previous != "" && pagePath(previous) != pagePath(entry.URLBefore) {
-					exported.warnf("the page changed from %s to %s before operation %d outside the exported operations, so the first run may ask the model for it; an expect: {url: ...} before it makes the step wait for that page",
-						previous, entry.URLBefore, sessionIndex)
-				}
+			key, what = replayKey(index, op.Act.Instruction, entry.URLBefore), fmt.Sprintf("act %q", op.Act.Instruction)
+		}
+		if op.Upload != nil {
+			exported.warnf("operation %d uploads %s, the files the session was given; give the step the files each run uploads, such as an earlier step's output",
+				sessionIndex, strings.Join(op.Upload.Files, ", "))
+			if op.Upload.Into != "" {
+				key, what = uploadReplayKey(index, op.Upload.Into, entry.URLBefore), fmt.Sprintf("upload into %q", op.Upload.Into)
 			}
+		}
+		// An act the session recorded before acts noted what their actions
+		// took for granted fits no value of a variable they never use.
+		var unnoted []string
+		if op.Act != nil && entry.Recordable && entry.Assumed == nil {
+			unnoted = unusedVariables(op.Act.Instruction, entry.Actions)
+		}
+		switch {
+		case key == "", entry.Status != OperationDone:
+			// A skipped operation has nothing to replay.
+		case !entry.Recordable:
+			exported.warnf("operation %d (%s) has no recording, so every run asks the model for it", sessionIndex, what)
+		case len(unnoted) > 0:
+			exported.warnf("operation %d (%s) never uses %%%s%%, and the session did not note its value, so its recording is not exported and the first run may ask the model for it", sessionIndex, what, unnoted[0])
+		default:
+			exported.recordings[key] = recording{Actions: entry.Actions, Assumed: entry.Assumed}
+			item.Recorded = true
+			if previous != "" && pagePath(previous) != pagePath(entry.URLBefore) {
+				exported.warnf("the page changed from %s to %s before operation %d outside the exported operations, so the first run may ask the model for it; an expect: {url: ...} before it makes the step wait for that page",
+					previous, entry.URLBefore, sessionIndex)
+			}
+		}
+		switch {
+		case entry.Status != OperationDone:
+		case key != "":
+			exported.noteCommits(key, index, op, entry)
+		case len(entry.Writes) > 0:
+			exported.warnf("operation %d (%s) tried to send %s, but only an act or an upload with into keeps a commit point to approve, so the step in record mode blocks it",
+				sessionIndex, entry.Kind, strings.Join(entry.Writes, ", "))
 		}
 		if entry.URLAfter != "" {
 			previous = entry.URLAfter
@@ -325,6 +364,21 @@ func (e *exportedSession) check() error {
 
 // doReference is how a step's checks name one of its operations.
 var doReference = regexp.MustCompile(`do\[(\d+)\]`)
+
+// noteCommits keeps the writes the operation at index of the step sent or
+// tried to send as commit points to approve, with its recording.
+func (e *exportedSession) noteCommits(key string, index int, op operation, entry sessionOp) {
+	var actions json.RawMessage
+	if entry.Recordable {
+		actions, _ = json.Marshal(entry.Actions)
+	}
+	for _, signature := range entry.Writes {
+		e.commits = append(e.commits, writegate.CommitPoint{
+			Key: key, Op: index, Operation: opWords(op), Page: pagePath(entry.URLBefore),
+			Signature: signature, Actions: actions, SeenAt: entry.At,
+		})
+	}
+}
 
 func (e *exportedSession) warnf(format string, args ...any) {
 	e.warnings = append(e.warnings, fmt.Sprintf(format, args...))

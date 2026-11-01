@@ -75,7 +75,38 @@ type Webhook struct {
 	HMACSecret string `json:"-"`
 	// HMACSecretGeneratedAt records when the HMAC secret was last generated.
 	HMACSecretGeneratedAt *time.Time `json:"-"`
+	// Public is the webhook's public URL through Dagu Cloud; nil while it
+	// has none.
+	Public *WebhookPublic `json:"-"`
 }
+
+// WebhookPublic is a webhook's public URL through Dagu Cloud and what it
+// accepts.
+type WebhookPublic struct {
+	// Token is the secret the URL ends in, stored decrypted in memory and
+	// encrypted at rest. Dagu Cloud knows only its SHA-256.
+	Token string
+	// Sender names whose signature requests must carry, as webhooksig names
+	// it; empty accepts anyone with the URL.
+	Sender string
+	// SenderSecret is the sender's signing secret, stored decrypted in memory
+	// and encrypted at rest.
+	SenderSecret string
+	// Events names the events that start runs; empty takes every event.
+	Events []string
+	// CreatedAt orders public URLs when a plan allows fewer than exist.
+	CreatedAt time.Time
+}
+
+// WebhookHookID is the ID Dagu Cloud knows a webhook's public URL by. It is
+// built from the webhook's own ID, so it stays the same when the DAG is
+// renamed and requests waiting for the URL survive the rename.
+func WebhookHookID(webhookID string) string {
+	return WebhookHookIDPrefix + webhookID
+}
+
+// WebhookHookIDPrefix starts every hook ID.
+const WebhookHookIDPrefix = "webhook/"
 
 // WebhookProfileToken is a webhook token bound to one runtime profile.
 // The token is stored as a bcrypt hash.
@@ -155,6 +186,17 @@ type WebhookForStorage struct {
 	HMACEnforcementMode   WebhookHMACEnforcementMode      `json:"hmacEnforcementMode,omitempty"`
 	HMACSecretEnc         string                          `json:"hmacSecretEnc,omitempty"`
 	HMACSecretGeneratedAt *time.Time                      `json:"hmacSecretGeneratedAt,omitempty"`
+	Public                *WebhookPublicForStorage        `json:"public,omitempty"`
+}
+
+// WebhookPublicForStorage is the persisted form of a WebhookPublic, with its
+// token and sender secret encrypted.
+type WebhookPublicForStorage struct {
+	TokenEnc        string    `json:"tokenEnc"`
+	Sender          string    `json:"sender,omitempty"`
+	SenderSecretEnc string    `json:"senderSecretEnc,omitempty"`
+	Events          []string  `json:"events,omitempty"`
+	CreatedAt       time.Time `json:"createdAt"`
 }
 
 // WebhookProfileTokenForStorage is the persisted form of a WebhookProfileToken,
@@ -189,6 +231,7 @@ func (w *Webhook) ToStorage() *WebhookForStorage {
 		AuthMode:              w.AuthMode,
 		HMACEnforcementMode:   w.HMACEnforcementMode,
 		HMACSecretGeneratedAt: w.HMACSecretGeneratedAt,
+		Public:                publicToStorage(w.Public),
 	}
 }
 
@@ -211,6 +254,33 @@ func (s *WebhookForStorage) ToWebhook() *Webhook {
 		AuthMode:              s.AuthMode,
 		HMACEnforcementMode:   s.HMACEnforcementMode,
 		HMACSecretGeneratedAt: s.HMACSecretGeneratedAt,
+		Public:                publicFromStorage(s.Public),
+	}
+}
+
+// publicToStorage copies a public URL's settings, leaving the token and the
+// sender secret for the store to encrypt.
+func publicToStorage(p *WebhookPublic) *WebhookPublicForStorage {
+	if p == nil {
+		return nil
+	}
+	return &WebhookPublicForStorage{
+		Sender:    p.Sender,
+		Events:    append([]string(nil), p.Events...),
+		CreatedAt: p.CreatedAt,
+	}
+}
+
+// publicFromStorage copies a stored public URL's settings, leaving the token
+// and the sender secret for the store to decrypt.
+func publicFromStorage(p *WebhookPublicForStorage) *WebhookPublic {
+	if p == nil {
+		return nil
+	}
+	return &WebhookPublic{
+		Sender:    p.Sender,
+		Events:    append([]string(nil), p.Events...),
+		CreatedAt: p.CreatedAt,
 	}
 }
 

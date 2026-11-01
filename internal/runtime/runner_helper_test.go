@@ -93,6 +93,12 @@ func withStdout(stdout string) stepOption {
 	}
 }
 
+func withStderr(stderr string) stepOption {
+	return func(step *ir.Step) {
+		step.Stderr = stderr
+	}
+}
+
 func withStdin(stdin string) stepOption {
 	return func(step *ir.Step) {
 		step.Stdin = stdin
@@ -276,6 +282,18 @@ func newHandlerStep(_ *testing.T, name, id, command string) ir.Step {
 		Name:     name,
 		ID:       id,
 		Commands: []ir.CommandEntry{parseCommand(command)},
+	}
+}
+
+func withOnInit(step ir.Step) runnerOption {
+	return func(cfg *runtime.Config) {
+		cfg.OnInit = &step
+	}
+}
+
+func withSkipHandlers() runnerOption {
+	return func(cfg *runtime.Config) {
+		cfg.SkipHandlers = true
 	}
 }
 

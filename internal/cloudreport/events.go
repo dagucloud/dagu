@@ -11,9 +11,11 @@ import (
 	"errors"
 	"fmt"
 	"slices"
+	"strings"
 	"time"
 	"unicode/utf8"
 
+	"github.com/dagucloud/dagu/v2/internal/cmn/config"
 	"github.com/dagucloud/dagu/v2/internal/cmn/dirlock"
 	"github.com/dagucloud/dagu/v2/internal/cmn/logger"
 	"github.com/dagucloud/dagu/v2/internal/cmn/logger/tag"
@@ -35,10 +37,14 @@ const (
 	maxFailedSteps   = 50
 	// maxStepNameBytes is the longest failed step name Dagu Console keeps.
 	maxStepNameBytes = 512
+	// maxRunErrors and maxErrorBytes bound the errors a finished run carries
+	// at the errors level, as Dagu Console keeps them.
+	maxRunErrors  = 5
+	maxErrorBytes = 2048
 	// maxNameBytes and maxIDBytes are the longest DAG name and run or
 	// attempt ID Dagu Console keeps; reports leave out a run with a longer
-	// one. With them, a finished run encodes to about 28 KiB at most, and
-	// about 160 KiB even if JSON escapes every byte: always inside a batch.
+	// one. With them, a finished run encodes to about 41 KiB at most, and
+	// about 245 KiB even if JSON escapes every byte: always inside a batch.
 	maxNameBytes = 512
 	maxIDBytes   = 256
 	// caughtUpSaveInterval is how often an idle reporter records that it has
@@ -54,6 +60,8 @@ const (
 	warnLease           = "Failed to take the lease to report DAG-run events to Dagu Console"
 	warnLeaseLost       = "Lost the lease to report DAG-run events to Dagu Console"
 	warnActive          = "Failed to list the DAG runs in progress; reports to Dagu Console leave them out until listing succeeds"
+	warnMarkStale       = "Failed to record that DAG-run events stopped being reported to Dagu Console"
+	warnClearStale      = "Failed to clear the record that DAG-run events stopped being reported to Dagu Console"
 )
 
 // Events configures the DAG runs that reports carry: the runs that finish,
@@ -66,6 +74,10 @@ type Events struct {
 	RetentionDays int
 	// State persists which events Dagu Console has acknowledged.
 	State StateStore
+	// Stale persists, without the lease, that the position in State predates
+	// a period below runs, so that the next process to take the lease
+	// discards it. It must be set when Reader is.
+	Stale StateStore
 	// Lease lets one process at a time report the events of a shared data
 	// directory.
 	Lease Lease
@@ -121,6 +133,16 @@ type finishedRun struct {
 	StartedAt   reportTime `json:"started_at"`
 	FinishedAt  string     `json:"finished_at"`
 	FailedSteps []string   `json:"failed_steps"`
+	// Errors say why the run failed; reports carry them only at the errors
+	// level.
+	Errors []stepError `json:"errors,omitempty"`
+}
+
+// stepError is why a run failed: a failed step's error, or the run's own
+// when Step is empty.
+type stepError struct {
+	Step    string `json:"step"`
+	Message string `json:"message"`
 }
 
 // reportGap tells Dagu Console that events after Since were lost.
@@ -172,6 +194,9 @@ func newReportedEvent(event *eventstore.Event) (reportedEvent, bool) {
 			FinishedAt:  finishedAt,
 			FailedSteps: failedSteps(status),
 		}
+		if runFailed(status.Status) {
+			reported.finished.Errors = runErrors(status)
+		}
 	}
 	return reported, true
 }
@@ -189,6 +214,61 @@ func failedSteps(status *ir.DAGRunStatus) []string {
 		}
 	}
 	return names
+}
+
+// runFailed reports whether a run ended without succeeding: failed,
+// aborted, or rejected. A run that partly succeeded did not fail.
+func runFailed(status ir.Status) bool {
+	return status == ir.Failed || status == ir.Aborted || status == ir.Rejected
+}
+
+// runErrors returns why status failed: the errors of its failed steps,
+// handlers included, in run order, else the run's own, at most maxRunErrors
+// of them. Each is without terminal escapes and cut to its last
+// maxErrorBytes, where an error says what went wrong. A step's error is
+// masked as the run's status is, and ends with the tail of its stderr.
+func runErrors(status *ir.DAGRunStatus) []stepError {
+	var errs []stepError
+	for _, node := range status.NodesInRunOrder() {
+		if node.Status != ir.NodeFailed {
+			continue
+		}
+		if message := errorMessage(node.Error); message != "" {
+			errs = append(errs, stepError{Step: truncateBytes(node.Step.Name, maxStepNameBytes), Message: message})
+			if len(errs) == maxRunErrors {
+				return errs
+			}
+		}
+	}
+	if message := errorMessage(status.Error); len(errs) == 0 && message != "" {
+		errs = append(errs, stepError{Message: message})
+	}
+	return errs
+}
+
+// errorMessage is an error as reports carry it: trimmed, without terminal
+// escapes, and cut to its last maxErrorBytes after an ellipsis.
+func errorMessage(text string) string {
+	text = strings.TrimSpace(stringutil.StripANSI(text))
+	if len(text) <= maxErrorBytes {
+		return text
+	}
+	const ellipsis = "…"
+	i := len(text) - (maxErrorBytes - len(ellipsis))
+	for i < len(text) && !utf8.RuneStart(text[i]) {
+		i++
+	}
+	return ellipsis + text[i:]
+}
+
+// withoutErrors returns runs as a level that sends no errors carries them.
+func withoutErrors(runs []finishedRun) []finishedRun {
+	out := make([]finishedRun, len(runs))
+	for i, run := range runs {
+		run.Errors = nil
+		out[i] = run
+	}
+	return out
 }
 
 // truncateBytes shortens s to at most n bytes without splitting a character.
@@ -301,6 +381,7 @@ type eventFeed struct {
 	reader        eventstore.DAGRunReader
 	retentionDays int
 	store         StateStore
+	stale         StateStore
 	lease         Lease
 	statuses      RunStatuses
 	now           func() time.Time
@@ -342,6 +423,7 @@ func newEventFeed(events Events) *eventFeed {
 		reader:        events.Reader,
 		retentionDays: events.RetentionDays,
 		store:         events.State,
+		stale:         events.Stale,
 		lease:         events.Lease,
 		statuses:      events.Statuses,
 		now:           time.Now,
@@ -400,8 +482,20 @@ func (f *eventFeed) hold(ctx context.Context) bool {
 }
 
 // load reads the persisted state of serverID. It moves to the newest event
-// when there is no state, and after events were lost.
+// when there is no state, when the state is marked stale, and after events
+// were lost.
 func (f *eventFeed) load(ctx context.Context, serverID string) bool {
+	if !f.loaded && f.isStale(ctx) {
+		if !f.restart(ctx, eventState{ServerID: serverID}) {
+			return false
+		}
+		// Cleared only after the restart, so that a failure in between
+		// leaves out more events rather than reporting stale ones.
+		if err := f.saveStale(ctx, false); err != nil {
+			f.warn(ctx, warnClearStale, err)
+		}
+		return true
+	}
 	if !f.loaded {
 		state, err := f.readState(ctx)
 		if err != nil {
@@ -635,6 +729,12 @@ func (f *eventFeed) stopRebuild() {
 	f.rebuild = nil
 }
 
+// reports reports whether this process reports the events, holding their
+// lease.
+func (f *eventFeed) reports() bool {
+	return f != nil && f.loaded
+}
+
 // fill adds the prepared finished runs, the runs in progress, and any gap to
 // req.
 func (f *eventFeed) fill(req *reportRequest) {
@@ -643,6 +743,9 @@ func (f *eventFeed) fill(req *reportRequest) {
 	}
 	if f.batch != nil {
 		req.Finished = f.batch.finished
+		if req.Level != config.ReportErrors {
+			req.Finished = withoutErrors(req.Finished)
+		}
 		req.Cursor = f.batch.token
 	}
 	if !f.state.GapSince.IsZero() {
@@ -730,14 +833,64 @@ func (f *eventFeed) save(ctx context.Context, next eventState) bool {
 	return true
 }
 
-// forget gives up the lease after moving the position to the newest event,
-// so that reporting events again later leaves out the events in between.
+// forget discards the saved position and gives up the lease, so that
+// reporting events again later, in this process or another, leaves out the
+// events in between. Without the lease, it marks a saved position stale for
+// the next process that takes the lease to discard.
 func (f *eventFeed) forget(ctx context.Context) {
-	if f == nil || !f.held {
+	if f == nil {
 		return
 	}
-	f.save(ctx, eventState{Version: eventStateVersion})
+	if !f.held || !f.save(ctx, eventState{Version: eventStateVersion}) {
+		f.markStale(ctx)
+	}
 	f.close(ctx)
+}
+
+// staleMark is the persisted record that the saved position predates a
+// period below runs.
+type staleMark struct {
+	Stale bool `json:"stale"`
+}
+
+// markStale marks the saved position stale. It writes nothing while no
+// position is saved, so that a server that never reported runs creates no
+// files, or while the position is already marked.
+func (f *eventFeed) markStale(ctx context.Context) {
+	state, err := f.readState(ctx)
+	if err == nil && (state == nil || state.ServerID == "") {
+		return
+	}
+	if f.isStale(ctx) {
+		return
+	}
+	if err := f.saveStale(ctx, true); err != nil {
+		f.warn(ctx, warnMarkStale, err)
+		return
+	}
+	f.recovered(warnMarkStale)
+}
+
+// isStale reports whether the saved position is marked stale. A mark that
+// cannot be read counts as one, so that stale events are never reported.
+func (f *eventFeed) isStale(ctx context.Context) bool {
+	data, found, err := f.stale.Load(ctx)
+	if err != nil {
+		return true
+	}
+	if !found {
+		return false
+	}
+	var mark staleMark
+	return json.Unmarshal(data, &mark) != nil || mark.Stale
+}
+
+func (f *eventFeed) saveStale(ctx context.Context, stale bool) error {
+	data, err := json.Marshal(staleMark{Stale: stale})
+	if err != nil {
+		return err
+	}
+	return f.stale.Save(ctx, data)
 }
 
 // close gives up the lease.

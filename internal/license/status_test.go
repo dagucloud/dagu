@@ -65,7 +65,8 @@ func TestManagerStatusIdentity(t *testing.T) {
 		require.NoError(t, err)
 		status := m.Status()
 
-		assert.Equal(t, "build-01", status.ServerName)
+		assert.Equal(t, "build-01", status.ServerName, "without a name from Dagu Console, the reported one")
+		assert.Equal(t, "build-01", status.ReportedServerName)
 		assert.Equal(t, "lic-123", status.LicenseID)
 		assert.Equal(t, "acme", status.Workspace)
 		assert.Equal(t, ConnectedViaKey, status.ConnectedVia)

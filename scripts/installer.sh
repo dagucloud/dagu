@@ -2133,6 +2133,10 @@ print_summary() {
     elif [[ "$SERVICE_MODE" == "yes" ]]; then
         ui_kv "First-time setup" "${SERVICE_URL}/setup"
     fi
+    if [[ "$SERVICE_MODE" == "yes" ]]; then
+        ui_kv "Workflows" "${DAGU_HOME_DIR}/dags"
+        ui_kv "Free monitoring" "${SERVICE_URL}/license#monitoring"
+    fi
     ui_kv "Skill install" "$( [[ ${#EXPLICIT_SKILL_DIRS[@]} -gt 0 || "${SKILL_MODE:-skip}" == "auto" ]] && printf 'configured' || printf 'skipped' )"
 }
 

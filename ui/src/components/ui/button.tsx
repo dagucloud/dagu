@@ -5,22 +5,22 @@ import * as React from 'react';
 import { cn } from '@/lib/utils';
 
 const buttonVariants = cva(
-  'inline-flex shrink-0 cursor-pointer items-center justify-center gap-2 whitespace-nowrap rounded-md border text-sm font-medium outline-none transition-colors duration-150 focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background disabled:pointer-events-none disabled:opacity-50 [&_svg]:pointer-events-none [&_svg]:size-4 [&_svg]:shrink-0',
+  'inline-flex shrink-0 cursor-pointer items-center justify-center gap-1.5 whitespace-nowrap rounded-md border text-sm font-medium outline-none transition-colors duration-150 focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background disabled:pointer-events-none disabled:opacity-50 [&_svg]:pointer-events-none [&_svg]:size-4 [&_svg]:shrink-0',
   {
     variants: {
       variant: {
         default:
           'border-input bg-card text-foreground shadow-sm hover:border-border-strong hover:bg-muted',
         primary:
-          'border-primary bg-primary text-primary-foreground shadow-sm hover:border-primary-hover hover:bg-primary-hover',
+          'border-primary-fill bg-primary-fill text-primary-foreground shadow-sm hover:border-primary-fill-hover hover:bg-primary-fill-hover',
         destructive:
           'border-destructive bg-destructive text-destructive-foreground shadow-sm hover:opacity-90',
         outline:
           'border-input bg-card text-foreground shadow-sm hover:border-border-strong hover:bg-muted',
         secondary:
-          'border-secondary bg-secondary text-secondary-foreground hover:border-border-strong hover:bg-secondary/80',
+          'border-transparent bg-secondary text-secondary-foreground hover:bg-accent',
         ghost:
-          'border-transparent bg-transparent text-text-secondary hover:bg-muted hover:text-foreground',
+          'border-transparent bg-transparent text-muted-foreground hover:bg-muted hover:text-foreground',
         link: 'border-transparent bg-transparent text-primary hover:text-primary-hover hover:underline',
       },
       size: {

@@ -303,7 +303,7 @@ func (a *API) workspaceFilterForParams(ctx context.Context, workspaceParam *api.
 }
 
 func (a *API) effectiveRoleForWorkspace(ctx context.Context, workspaceName string) (auth.Role, bool, error) {
-	if a.authService == nil {
+	if !a.rolesApply(ctx) {
 		return auth.RoleAdmin, true, nil
 	}
 	user, ok := auth.UserFromContext(ctx)

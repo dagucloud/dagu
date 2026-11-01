@@ -331,6 +331,13 @@ Step and handler projection:
 | `DAG_RUN_STEP_STDERR_FILE` | `context.paths.step_stderr_file` | Current executable step after stream files are assigned. |
 | `DAGU_OUTPUT_FILE` | `context.paths.step_output_file` | Current step attempt after output publication is prepared. |
 
+Trace context projection:
+
+| Environment variable | Source | Availability |
+| --- | --- | --- |
+| `TRACEPARENT` | W3C `traceparent` of the current step span | Current executable step when the step span is valid. |
+| `TRACESTATE` | W3C `tracestate` of the current step span | Current executable step when the step span is valid and has a trace state. |
+
 Status and wait-handler projection:
 
 | Environment variable | Source | Availability |
@@ -375,6 +382,35 @@ Reserved specialized run-control names:
 
 These names are reserved for owning run-control surfaces. They are not normal
 workflow context values unless an owning spec explicitly adds them.
+
+### Trace Context Projection
+
+When OpenTelemetry tracing is enabled for a DAG, Dagu records a span for each
+executable step. Trace context projection lets a process that the step starts
+create child spans of that step span.
+
+Rules:
+
+- The step span is valid only when tracing is enabled for the DAG and the run
+  has a valid DAG span. Without a valid step span, Dagu projects neither name.
+- `TRACEPARENT` and `TRACESTATE` use the W3C Trace Context format. The names
+  are the upper-case propagator keys, as in the OpenTelemetry convention for
+  environment variables as context carriers.
+- `TRACEPARENT` names the trace of the DAG run and the span ID of the current
+  step span. A child span of the step span uses this span ID as its parent.
+- `TRACESTATE` is projected only when the step span has a trace state. When
+  the step span has no trace state and the root run environment scope has a
+  `TRACESTATE`, Dagu replaces it with an empty value, because it belongs to
+  another span.
+- Lifecycle handlers have no step span, so Dagu projects neither name for them.
+- The names extend the OpenTelemetry carrier convention, not the `DAG_` or
+  `DAGU_` families. Tools read these exact names, so the `DAGU_` prefix rule
+  for new projection variables does not apply.
+- Precedence follows Spec 006: the names replace root-scope values of the same
+  name, and a step-local source that sets either name shadows both names. A
+  root-scope value of the name that the step does not set becomes empty.
+  A step can set `TRACEPARENT` to an empty string to give its process no
+  trace context.
 
 ### Availability
 

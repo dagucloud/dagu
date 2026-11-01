@@ -19,9 +19,17 @@ import {
   TooltipTrigger,
 } from '@/components/ui/tooltip'; // Import Shadcn Tooltip
 import dayjs from '@/lib/dayjs';
+import { cn } from '@/lib/utils';
 import ActionButton from '@/components/ui/action-button';
 import StatusChip from '@/components/ui/status-chip';
-import { AlertTriangle, Ban, Play, RefreshCw, Square, X } from 'lucide-react';
+import {
+  AlertTriangle,
+  Ban,
+  CircleStop,
+  Play,
+  RotateCcw,
+  X,
+} from 'lucide-react';
 import React from 'react';
 import { components, Status } from '../../../../api/v1/schema';
 import { useCanManageProfiles } from '../../../../contexts/AuthContext';
@@ -36,10 +44,16 @@ import { getManualActionState } from '@/features/dag-runs/lib/manualActionState'
 import { getDAGRunTerminateActionDetails } from '../../../dag-runs/components/common/terminateAction';
 import { RejectDAGRunDialog } from '../../../dag-runs/components/common/RejectDAGRunDialog';
 import { DAGContext } from '../../contexts/DAGContext';
-import { pushRunProgress, StartDAGModal } from '../dag-execution';
+import { useProfiles } from '../../hooks/useProfiles';
+import { pushRunProgress } from '../dag-execution/RunProgressStack';
 import { I18nText } from '@/i18n/I18nText';
 import { I18nProps } from '@/i18n/I18nProps';
 import { useI18n } from '@/i18n/I18nProvider';
+
+// The run form holds the schema form libraries: it loads when first opened.
+const StartDAGModal = React.lazy(
+  () => import('../dag-execution/StartDAGModal')
+);
 
 /**
  * Props for the DAGActions component
@@ -59,6 +73,27 @@ type Props = {
   refresh?: () => void;
   /** Display mode: 'compact' for icon-only, 'full' for text+icon buttons */
   displayMode?: 'compact' | 'full';
+  /**
+   * Shows only these buttons, with their dialogs. A parent that splits the
+   * actions in two places renders two copies, so the one that has the Start
+   * button is the only one that opens the start dialog on request.
+   */
+  only?: ReadonlyArray<'start' | 'stop' | 'retry'>;
+  /**
+   * Marks the Start, Stop and Retry buttons with a data-ww-action attribute,
+   * so that the command palette of the workspace can find them.
+   */
+  markActions?: boolean;
+  /**
+   * The Start button shows its icon only, in the primary style, with 'Start'
+   * as its accessible name and its tooltip.
+   */
+  startIconOnly?: boolean;
+  /**
+   * The Start button keeps its Play icon in the layout but does not show it.
+   * A host that draws a feedback icon over the button sets it.
+   */
+  startIconHidden?: boolean;
 };
 
 /**
@@ -70,7 +105,16 @@ function DAGActions({
   dag,
   refresh,
   displayMode = 'compact',
+  only,
+  markActions = false,
+  startIconOnly = false,
+  startIconHidden = false,
 }: Props) {
+  const shows = (action: 'start' | 'stop' | 'retry') =>
+    !only || only.includes(action);
+  const hasStartButton = shows('start');
+  const mark = (action: 'start' | 'stop' | 'retry') =>
+    markActions ? action : undefined;
   const { ts } = useI18n();
   const dagContext = React.useContext(DAGContext);
   const config = useConfig();
@@ -79,6 +123,9 @@ function DAGActions({
   const { showToast } = useSimpleToast();
   const canManageProfiles = useCanManageProfiles();
   const [isEnqueueModal, setIsEnqueueModal] = React.useState(false);
+  // Once opened, the modal stays mounted, so that it can close with its exit.
+  const [startModalOpened, setStartModalOpened] = React.useState(false);
+  if (isEnqueueModal && !startModalOpened) setStartModalOpened(true);
   const [startModalDag, setStartModalDag] =
     React.useState<components['schemas']['DAGDetails']>();
   const [startModalLoading, setStartModalLoading] = React.useState(false);
@@ -103,20 +150,9 @@ function DAGActions({
 
   const client = useClient();
   const remoteNode = useRemoteNode();
-  const profilesQuery = React.useMemo(
-    () =>
-      whenEnabled(canManageProfiles, {
-        params: {
-          query: { remoteNode },
-        },
-      }),
-    [canManageProfiles, remoteNode]
+  const { profiles: runtimeProfiles, isLoading: profilesLoading } = useProfiles(
+    { enabled: canManageProfiles }
   );
-  const { data: profilesData, isLoading: profilesLoading } = useQuery(
-    '/profiles',
-    profilesQuery
-  );
-  const runtimeProfiles = profilesData?.profiles || [];
   const dagSettingsQuery = React.useMemo(
     () =>
       whenEnabled(isEnqueueModal && !!fileName, {
@@ -179,10 +215,10 @@ function DAGActions({
 
   // Auto-open start modal when requested (e.g., from cockpit preview)
   React.useEffect(() => {
-    if (dagContext.autoOpenStartModal) {
+    if (dagContext.autoOpenStartModal && hasStartButton) {
       setIsEnqueueModal(true);
     }
-  }, [dagContext.autoOpenStartModal]);
+  }, [dagContext.autoOpenStartModal, hasStartButton]);
 
   React.useEffect(() => {
     if (!isEnqueueModal) {
@@ -249,17 +285,11 @@ function DAGActions({
   const hasWaitingApprovals = Boolean(waitingApprovalStepName);
   const terminateDetails = getDAGRunTerminateActionDetails(status, {
     copy: {
-      stopTooltipText: 'Stop DAG execution',
-      cancelTooltipText: 'Cancel auto-retry for this failed DAG execution',
-      stopConfirmText:
-        status?.name && status?.dagRunId
-          ? ts('Do you really want to stop the dag-run "{name}"?', {
-              name: status.name,
-            })
-          : 'Do you really want to cancel the DAG?',
+      stopTooltipText: 'Stop the latest run',
+      cancelTooltipText: 'Cancel auto-retry for the latest run',
+      stopConfirmText: ts('Running steps are canceled.'),
       cancelConfirmText: ts(
-        'Do you really want to cancel auto-retry for the dag-run "{name}"?',
-        { name: status?.name ?? '' }
+        'The failed run will not be retried automatically.'
       ),
     },
   });
@@ -276,7 +306,7 @@ function DAGActions({
     if (!dagName || !dagRunId) {
       return;
     }
-    pushRunProgress({ dagName, dagRunId, remoteNode });
+    pushRunProgress({ dagName, fileName, dagRunId, remoteNode });
   }
 
   // Determine which buttons should be enabled based on current status
@@ -301,86 +331,102 @@ function DAGActions({
         className={`flex items-center ${displayMode === 'compact' ? 'space-x-1' : 'space-x-2'}`}
       >
         {/* Start Button */}
-        <Tooltip>
-          <TooltipTrigger asChild>
-            <ActionButton
-              label={displayMode !== 'compact'}
-              icon={<Play className="h-4 w-4" />}
-              disabled={!buttonState['enqueue']}
-              onClick={() => {
-                if (hasUnsavedChanges) {
-                  setIsUnsavedChangesModal(true);
-                } else {
-                  setIsEnqueueModal(true);
-                }
-              }}
-              className="cursor-pointer"
-            >
-              <I18nText text={'Start'} />
-            </ActionButton>
-          </TooltipTrigger>
-          <TooltipContent>
-            <p>
-              <I18nText text={'Start DAG execution'} />
-            </p>
-          </TooltipContent>
-        </Tooltip>
-
-        {/* Stop / Reject Button */}
-        {buttonState.reject ? (
+        {shows('start') && (
           <Tooltip>
             <TooltipTrigger asChild>
               <ActionButton
-                label={displayMode !== 'compact'}
-                icon={<Ban className="h-4 w-4" />}
-                onClick={() => setIsRejectModal(true)}
+                label={displayMode !== 'compact' && !startIconOnly}
+                variant={
+                  displayMode !== 'compact' || startIconOnly
+                    ? 'primary'
+                    : undefined
+                }
+                icon={
+                  <Play
+                    className={cn('h-4 w-4', startIconHidden && 'invisible')}
+                  />
+                }
+                aria-label={startIconOnly ? ts('Start') : undefined}
+                disabled={!buttonState['enqueue']}
+                data-ww-action={mark('start')}
+                onClick={() => {
+                  if (hasUnsavedChanges) {
+                    setIsUnsavedChangesModal(true);
+                  } else {
+                    setIsEnqueueModal(true);
+                  }
+                }}
                 className="cursor-pointer"
               >
-                <I18nText text={'Reject'} />
+                <I18nText text={'Start'} />
               </ActionButton>
             </TooltipTrigger>
             <TooltipContent>
               <p>
-                <I18nText text={'Reject DAG run'} />
+                <I18nText text={'Start a new run'} />
               </p>
-            </TooltipContent>
-          </Tooltip>
-        ) : (
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <ActionButton
-                label={displayMode !== 'compact'}
-                icon={
-                  terminateAction === 'cancel' ? (
-                    <X className="h-4 w-4" />
-                  ) : (
-                    <Square className="h-4 w-4" />
-                  )
-                }
-                disabled={!buttonState['terminate']}
-                onClick={() => {
-                  setStopAllRunning(false);
-                  setIsStopModal(true);
-                }}
-                className="cursor-pointer"
-              >
-                {terminateDetails.buttonText}
-              </ActionButton>
-            </TooltipTrigger>
-            <TooltipContent>
-              <p>{terminateDetails.tooltipText}</p>
             </TooltipContent>
           </Tooltip>
         )}
 
+        {/* Stop / Reject Button */}
+        {shows('stop') &&
+          (buttonState.reject ? (
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <ActionButton
+                  label={displayMode !== 'compact'}
+                  icon={<Ban className="h-4 w-4" />}
+                  onClick={() => setIsRejectModal(true)}
+                  className="cursor-pointer"
+                >
+                  <I18nText text={'Reject'} />
+                </ActionButton>
+              </TooltipTrigger>
+              <TooltipContent>
+                <p>
+                  <I18nText text={'Reject this run'} />
+                </p>
+              </TooltipContent>
+            </Tooltip>
+          ) : (
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <ActionButton
+                  label={displayMode !== 'compact'}
+                  icon={
+                    terminateAction === 'cancel' ? (
+                      <X className="h-4 w-4" />
+                    ) : (
+                      <CircleStop className="h-4 w-4" />
+                    )
+                  }
+                  disabled={!buttonState['terminate']}
+                  data-ww-action={mark('stop')}
+                  onClick={() => {
+                    setStopAllRunning(false);
+                    setIsStopModal(true);
+                  }}
+                  className="cursor-pointer"
+                >
+                  {terminateDetails.buttonText}
+                </ActionButton>
+              </TooltipTrigger>
+              <TooltipContent>
+                <p>{terminateDetails.tooltipText}</p>
+              </TooltipContent>
+            </Tooltip>
+          ))}
+
         {/* Retry Button */}
-        {!isSubDAGRun && (
+        {shows('retry') && !isSubDAGRun && (
           <Tooltip>
             <TooltipTrigger asChild>
               <ActionButton
                 label={displayMode !== 'compact'}
-                icon={<RefreshCw className="h-4 w-4" />}
+                icon={<RotateCcw className="h-4 w-4" />}
                 disabled={!buttonState['retry']}
+                data-ww-action={mark('retry')}
                 onClick={async () => {
                   // Get the current URL parameters
                   const urlParams = new URLSearchParams(window.location.search);
@@ -448,7 +494,7 @@ function DAGActions({
             </TooltipTrigger>
             <TooltipContent>
               <p>
-                <I18nText text={'Retry DAG execution'} />
+                <I18nText text={'Retry this run'} />
               </p>
             </TooltipContent>
           </Tooltip>
@@ -466,7 +512,13 @@ function DAGActions({
 
         <I18nProps>
           <ConfirmModal
-            title="Confirmation"
+            title={
+              terminateAction === 'cancel'
+                ? 'Cancel auto-retry?'
+                : stopAllRunning
+                  ? 'Stop all running instances?'
+                  : 'Stop this run?'
+            }
             buttonText={terminateDetails.buttonText}
             visible={isStopModal}
             dismissModal={() => {
@@ -542,7 +594,7 @@ function DAGActions({
                 {terminateAction === 'stop' && stopAllRunning ? (
                   <I18nText
                     text={
-                      'Do you really want to stop all running instances of this DAG?'
+                      'Running steps in every instance of this workflow are canceled.'
                     }
                   />
                 ) : (
@@ -551,14 +603,14 @@ function DAGActions({
               </p>
               {!stopAllRunning && status?.name && (
                 <I18nProps>
-                  <LabeledItem label="DAG-Run-Name">
+                  <LabeledItem label="Workflow">
                     <span className="font-mono text-sm">{status.name}</span>
                   </LabeledItem>
                 </I18nProps>
               )}
               {!stopAllRunning && status?.dagRunId && (
                 <I18nProps>
-                  <LabeledItem label="DAG-Run-ID">
+                  <LabeledItem label="Run ID">
                     <span className="font-mono text-sm">{status.dagRunId}</span>
                   </LabeledItem>
                 </I18nProps>
@@ -604,8 +656,8 @@ function DAGActions({
         </I18nProps>
         <I18nProps>
           <ConfirmModal
-            title={retryAsNew ? 'Reschedule DAG Run' : 'Confirmation'}
-            buttonText={retryAsNew ? 'Reschedule' : 'Rerun'}
+            title={retryAsNew ? 'Reschedule as a new run?' : 'Retry this run?'}
+            buttonText={retryAsNew ? 'Reschedule' : 'Retry'}
             visible={isRetryModal}
             dismissModal={() => {
               setIsRetryModal(false);
@@ -706,28 +758,15 @@ function DAGActions({
           >
             {/* Keep modal content structure */}
             <div className="space-y-3">
-              <p className="mb-2">
-                {status?.name && retryDagRunId ? (
-                  ts('Do you really want to retry the dag-run "{name}"?', {
-                    name: status.name,
-                  })
-                ) : (
-                  <I18nText
-                    text={
-                      'Do you really want to rerun the following execution?'
-                    }
-                  />
-                )}
-              </p>
               <I18nProps>
-                <LabeledItem label="DAG-Run-Name">
+                <LabeledItem label="Workflow">
                   <span className="font-mono text-sm">
                     {status?.name || 'N/A'}
                   </span>
                 </LabeledItem>
               </I18nProps>
               <I18nProps>
-                <LabeledItem label="DAG-Run-ID">
+                <LabeledItem label="Run ID">
                   <span className="font-mono text-sm">
                     {retryDagRunId || status?.dagRunId || 'N/A'}
                   </span>
@@ -766,7 +805,7 @@ function DAGActions({
                   htmlFor="reschedule-dag"
                   className="cursor-pointer text-sm"
                 >
-                  <I18nText text={'Reschedule with new DAG-run'} />
+                  <I18nText text={'Reschedule as a new run'} />
                 </Label>
               </div>
 
@@ -775,7 +814,7 @@ function DAGActions({
                 <div className="space-y-3 pt-2">
                   <div className="space-y-1.5">
                     <Label htmlFor="new-dagrun-id-dag" className="text-sm">
-                      <I18nText text={'New DAG-Run ID (optional)'} />
+                      <I18nText text={'New run ID (optional)'} />
                     </Label>
                     <I18nProps>
                       <Input
@@ -838,98 +877,108 @@ function DAGActions({
             </div>
           </ConfirmModal>
         </I18nProps>
-        <StartDAGModal
-          dag={startModalDag}
-          visible={isEnqueueModal}
-          loading={startModalLoading}
-          loadError={startModalLoadError}
-          action={dagContext.forceEnqueue ? 'enqueue' : undefined}
-          profiles={runtimeProfiles}
-          profilesLoading={profilesLoading}
-          defaultProfile={dagSettingsData?.profile}
-          defaultProfileLoading={dagSettingsLoading}
-          onSubmit={async (params, dagRunId, immediate, profile, noReuse) => {
-            if (dagContext.onEnqueue) {
-              const result = await dagContext.onEnqueue(
+        {(isEnqueueModal || startModalOpened) && (
+          <React.Suspense fallback={null}>
+            <StartDAGModal
+              dag={startModalDag}
+              visible={isEnqueueModal}
+              loading={startModalLoading}
+              loadError={startModalLoadError}
+              action={dagContext.forceEnqueue ? 'enqueue' : undefined}
+              profiles={runtimeProfiles}
+              profilesLoading={profilesLoading}
+              defaultProfile={dagSettingsData?.profile}
+              defaultProfileLoading={dagSettingsLoading}
+              onSubmit={async (
                 params,
                 dagRunId,
                 immediate,
                 profile,
                 noReuse
-              );
-              const startedRunId =
-                typeof result === 'string' && result ? result : dagRunId;
-              if (startedRunId) {
-                showRunProgress(startedRunId);
-              }
-              showToast(immediate ? 'DAG run started' : 'DAG run enqueued');
-              reloadData();
-              return;
-            }
+              ) => {
+                if (dagContext.onEnqueue) {
+                  const result = await dagContext.onEnqueue(
+                    params,
+                    dagRunId,
+                    immediate,
+                    profile,
+                    noReuse
+                  );
+                  const startedRunId =
+                    typeof result === 'string' && result ? result : dagRunId;
+                  if (startedRunId) {
+                    showRunProgress(startedRunId);
+                  }
+                  showToast(immediate ? 'DAG run started' : 'DAG run enqueued');
+                  reloadData();
+                  return;
+                }
 
-            const body: {
-              params: string;
-              dagRunId?: string;
-              profile?: string;
-              noReuse?: boolean;
-            } = { params };
-            if (dagRunId) {
-              body.dagRunId = dagRunId;
-            }
-            if (profile !== undefined) {
-              body.profile = profile;
-            }
-            if (noReuse !== undefined) {
-              body.noReuse = noReuse;
-            }
+                const body: {
+                  params: string;
+                  dagRunId?: string;
+                  profile?: string;
+                  noReuse?: boolean;
+                } = { params };
+                if (dagRunId) {
+                  body.dagRunId = dagRunId;
+                }
+                if (profile !== undefined) {
+                  body.profile = profile;
+                }
+                if (noReuse !== undefined) {
+                  body.noReuse = noReuse;
+                }
 
-            // Use /start endpoint if immediate is true, otherwise use /enqueue
-            const { data, error } = await (immediate
-              ? client.POST('/dags/{fileName}/start', {
-                  params: {
-                    path: {
-                      fileName: fileName,
-                    },
-                    query: {
-                      remoteNode,
-                    },
-                  },
-                  body,
-                })
-              : client.POST('/dags/{fileName}/enqueue', {
-                  params: {
-                    path: {
-                      fileName: fileName,
-                    },
-                    query: {
-                      remoteNode,
-                    },
-                  },
-                  body,
-                }));
-            if (error) {
-              throw new Error(
-                error.message || 'Failed to start DAG execution.'
-              );
-            }
+                // Use /start endpoint if immediate is true, otherwise use /enqueue
+                const { data, error } = await (immediate
+                  ? client.POST('/dags/{fileName}/start', {
+                      params: {
+                        path: {
+                          fileName: fileName,
+                        },
+                        query: {
+                          remoteNode,
+                        },
+                      },
+                      body,
+                    })
+                  : client.POST('/dags/{fileName}/enqueue', {
+                      params: {
+                        path: {
+                          fileName: fileName,
+                        },
+                        query: {
+                          remoteNode,
+                        },
+                      },
+                      body,
+                    }));
+                if (error) {
+                  throw new Error(
+                    error.message || 'Failed to start DAG execution.'
+                  );
+                }
 
-            if (data?.dagRunId) {
-              showRunProgress(data.dagRunId);
-            }
-            showToast(immediate ? 'DAG run started' : 'DAG run enqueued');
-            // Just refresh the current page data
-            reloadData();
-          }}
-          dismissModal={() => {
-            setIsEnqueueModal(false);
-            setStartModalDag(undefined);
-            setStartModalLoadError(null);
-          }}
-        />
+                if (data?.dagRunId) {
+                  showRunProgress(data.dagRunId);
+                }
+                showToast(immediate ? 'DAG run started' : 'DAG run enqueued');
+                // Just refresh the current page data
+                reloadData();
+              }}
+              dismissModal={() => {
+                setIsEnqueueModal(false);
+                setStartModalDag(undefined);
+                setStartModalLoadError(null);
+              }}
+            />
+          </React.Suspense>
+        )}
         <I18nProps>
           <ConfirmModal
             title="Unsaved Changes"
-            buttonText="Run Anyway"
+            buttonText="Run anyway"
             visible={isUnsavedChangesModal}
             dismissModal={() => {
               setIsUnsavedChangesModal(false);

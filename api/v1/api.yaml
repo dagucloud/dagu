@@ -980,9 +980,25 @@ paths:
                     x-go-type-skip-optional-pointer: true
                     items:
                       type: string
+                  issues:
+                    type: array
+                    description: "Structured errors, warnings and notices of the spec, with step and location data when known"
+                    x-go-type-skip-optional-pointer: true
+                    items:
+                      $ref: "#/components/schemas/ValidationIssue"
+                  valueReferenceNotices:
+                    type: array
+                    description: "Passive value-reference notices produced while loading this spec. These notices are not persisted."
+                    x-go-type-skip-optional-pointer: true
+                    items:
+                      $ref: "#/components/schemas/ValueReferenceNotice"
+                  referenceScope:
+                    $ref: "#/components/schemas/ReferenceScope"
                 required:
                   - valid
                   - errors
+                  - issues
+                  - valueReferenceNotices
         default:
           description: "Generic error response"
           content:
@@ -1104,6 +1120,9 @@ paths:
                 dagName:
                   type: string
                   description: "Optional DAG name override to use for the created dag-run"
+                workerSelector:
+                  allOf:
+                    - $ref: "#/components/schemas/WorkerSelectorOverride"
                 profile:
                   allOf:
                     - $ref: "#/components/schemas/RuntimeProfileOverride"
@@ -1131,13 +1150,27 @@ paths:
                   allOf:
                     - $ref: "#/components/schemas/DAGRunId"
                     - description: "Finished DAG-run of the same DAG whose step outputs and work directory are carried into the skipped steps. Outputs come only from steps that succeeded there. Requires steps."
+                outputsFromRuns:
+                  type: object
+                  description: "The run that each skipped step carries its outputs from, keyed by step name or ID. A step named here takes its outputs from that run in place of outputsFromRunId; the work directory still comes only from outputsFromRunId. Each run must exist for the same DAG (a normal or an ephemeral run), be finished, and hold a node of the step that succeeded or that carries copied outputs; otherwise the request returns 400 with a message that names the step and the run. A step selected to run cannot be a key. The web UI names the run of each reused step with this field and never sends values. Requires steps."
+                  additionalProperties:
+                    $ref: "#/components/schemas/DAGRunId"
                 outputs:
                   type: object
-                  description: "Outputs of skipped steps, keyed by step name or ID and then by output name. A declared output, or any name when the step declares none, resolves through ${steps.<id>.outputs.<name>}; the name of the step's string-form output variable sets that variable. Takes precedence over outputs from outputsFromRunId. Requires steps."
+                  description: "Outputs of skipped steps, keyed by step name or ID and then by output name. For clients that are not the web UI; the web UI sends no values. A declared output, or any name when the step declares none, resolves through ${steps.<id>.outputs.<name>}; the name of the step's string-form output variable sets that variable. Takes precedence over outputs from outputsFromRunId and outputsFromRuns, and works without them: the caller can supply every value itself, and can name the run the values of each step come from in outputsSources. A reference to an output that nobody supplied stays unresolved text in the step. Requires steps."
                   additionalProperties:
                     type: object
                     additionalProperties:
                       type: string
+                outputsSources:
+                  type: object
+                  description: "Optional. The run each step of outputs was captured from, keyed by step name or ID. Dagu records it in the reusedInputs of the new run; a step of outputs without an entry has no entry there. An entry for a step not in outputs returns 400. The run is not required to exist any more. Requires steps."
+                  additionalProperties:
+                    $ref: "#/components/schemas/ReusedOutputSource"
+                ephemeral:
+                  type: boolean
+                  default: false
+                  description: "If true, the run leaves no trace. It runs like any run and is readable by its ID (details, step logs, step outputs, spec, SSE) while it exists, but it is not listed anywhere by default (run lists, DAG history unless includeEphemeral is set, last run, queues, dashboard, artifacts, events and notifications), it does not count in retention, and it cannot be retried, rescheduled or edited (409). The server removes it 10 minutes after it ends and at server start. Allowed only together with steps; a request for the whole DAG with ephemeral true returns 400. The audit log keeps the request, marked ephemeral."
                 tags:
                   allOf:
                     - $ref: "#/components/schemas/Tags"
@@ -1155,6 +1188,20 @@ paths:
                   - type: object
                     required:
                       - outputs
+                    not:
+                      type: object
+                      required:
+                        - steps
+                  - type: object
+                    required:
+                      - outputsFromRuns
+                    not:
+                      type: object
+                      required:
+                        - steps
+                  - type: object
+                    required:
+                      - outputsSources
                     not:
                       type: object
                       required:
@@ -1227,6 +1274,9 @@ paths:
                 dagName:
                   type: string
                   description: "Optional DAG name override to use for the created dag-run"
+                workerSelector:
+                  allOf:
+                    - $ref: "#/components/schemas/WorkerSelectorOverride"
                 profile:
                   allOf:
                     - $ref: "#/components/schemas/RuntimeProfileOverride"
@@ -1324,6 +1374,9 @@ paths:
                 queue:
                   type: string
                   description: "Override the DAG-level queue definition"
+                workerSelector:
+                  allOf:
+                    - $ref: "#/components/schemas/WorkerSelectorOverride"
                 singleton:
                   type: boolean
                   description: "If true, prevent enqueuing if DAG is already running or queued (returns 409 conflict)"
@@ -1382,6 +1435,13 @@ paths:
       parameters:
         - $ref: "#/components/parameters/RemoteNode"
         - $ref: "#/components/parameters/DAGFileName"
+        - name: includeEphemeral
+          in: query
+          required: false
+          description: "If true, the response also contains the ephemeral runs of this DAG, merged by start time with the other runs under the same limit. Each carries ephemeral true. No other list returns them."
+          schema:
+            type: boolean
+            default: false
       responses:
         "200":
           description: "A successful response"
@@ -1463,6 +1523,10 @@ paths:
                   spec:
                     type: string
                     description: "The DAG spec in YAML format"
+                  sha256:
+                    type: string
+                    description: "Lowercase hex SHA-256 of the file bytes that spec holds"
+                    x-go-type-skip-optional-pointer: true
                   errors:
                     type: array
                     description: "List of errors in the spec"
@@ -1508,6 +1572,10 @@ paths:
                 spec:
                   type: string
                   description: "The new DAG spec in YAML format"
+                expectedSha256:
+                  type: string
+                  description: "Lowercase hex SHA-256 of the file that the client edited. When set and different from the current file, the server writes nothing and returns 409."
+                  pattern: "^[a-f0-9]{64}$"
               required:
                 - spec
       responses:
@@ -1523,8 +1591,18 @@ paths:
                     description: "List of errors in the spec"
                     items:
                       type: string
+                  sha256:
+                    type: string
+                    description: "Lowercase hex SHA-256 of the bytes written"
                 required:
                   - errors
+                  - sha256
+        "409":
+          description: "The current file does not match expectedSha256"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
 
         default:
           description: "Generic error response"
@@ -2020,6 +2098,61 @@ paths:
               schema:
                 $ref: "#/components/schemas/Error"
 
+  /dag-run-activity:
+    get:
+      summary: "Summarize DAG-run activity"
+      description: |
+        Lists the DAG-runs created in a time window, newest first, one page at
+        a time. The first page also lists the DAGs whose latest run did not
+        succeed, runs still in progress (including ones created before the
+        window), queues with work, and the next scheduled runs. Without fromDate, the window is
+        the last `hours` hours, aligned to a 96th of its length. To load older
+        runs, pass the first page's from and to as fromDate and toDate, with
+        nextCursor as cursor.
+      operationId: "getDAGRunActivity"
+      tags:
+        - "dag-runs"
+      parameters:
+        - $ref: "#/components/parameters/RemoteNode"
+        - $ref: "#/components/parameters/Workspace"
+        - $ref: "#/components/parameters/DateTimeFrom"
+        - $ref: "#/components/parameters/DateTimeTo"
+        - name: "hours"
+          in: "query"
+          required: false
+          schema:
+            type: "integer"
+            minimum: 1
+            maximum: 48
+            default: 24
+          description: "Length of a window that ends now. Ignored when fromDate is set."
+        - name: "labels"
+          in: "query"
+          required: false
+          schema:
+            type: "string"
+          description: "Only include runs of DAGs that have ALL these comma-separated labels"
+        - $ref: "#/components/parameters/DAGRunListCursor"
+      responses:
+        "200":
+          description: "A successful response"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DAGRunActivity"
+        "400":
+          description: "The window, filters, or cursor are invalid"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        default:
+          description: "Generic error response"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
   /dag-runs:
     get:
       summary: "List all DAG-runs"
@@ -2104,6 +2237,9 @@ paths:
                   allOf:
                     - $ref: "#/components/schemas/RuntimeProfileOverride"
                   description: "Runtime profile to apply to this DAG-run. Set to an empty string or omit to run without a profile."
+                workerSelector:
+                  allOf:
+                    - $ref: "#/components/schemas/WorkerSelectorOverride"
                 params:
                   type: string
                   description: "Parameters to pass to the DAG-run in JSON format"
@@ -2134,13 +2270,27 @@ paths:
                   allOf:
                     - $ref: "#/components/schemas/DAGRunId"
                     - description: "Finished DAG-run of the same DAG whose step outputs and work directory are carried into the skipped steps. Outputs come only from steps that succeeded there. Requires steps."
+                outputsFromRuns:
+                  type: object
+                  description: "The run that each skipped step carries its outputs from, keyed by step name or ID. A step named here takes its outputs from that run in place of outputsFromRunId; the work directory still comes only from outputsFromRunId. Each run must exist for the same DAG (a normal or an ephemeral run), be finished, and hold a node of the step that succeeded or that carries copied outputs; otherwise the request returns 400 with a message that names the step and the run. A step selected to run cannot be a key. The web UI names the run of each reused step with this field and never sends values. Requires steps."
+                  additionalProperties:
+                    $ref: "#/components/schemas/DAGRunId"
                 outputs:
                   type: object
-                  description: "Outputs of skipped steps, keyed by step name or ID and then by output name. A declared output, or any name when the step declares none, resolves through ${steps.<id>.outputs.<name>}; the name of the step's string-form output variable sets that variable. Takes precedence over outputs from outputsFromRunId. Requires steps."
+                  description: "Outputs of skipped steps, keyed by step name or ID and then by output name. For clients that are not the web UI; the web UI sends no values. A declared output, or any name when the step declares none, resolves through ${steps.<id>.outputs.<name>}; the name of the step's string-form output variable sets that variable. Takes precedence over outputs from outputsFromRunId and outputsFromRuns, and works without them: the caller can supply every value itself, and can name the run the values of each step come from in outputsSources. A reference to an output that nobody supplied stays unresolved text in the step. Requires steps."
                   additionalProperties:
                     type: object
                     additionalProperties:
                       type: string
+                outputsSources:
+                  type: object
+                  description: "Optional. The run each step of outputs was captured from, keyed by step name or ID. Dagu records it in the reusedInputs of the new run; a step of outputs without an entry has no entry there. An entry for a step not in outputs returns 400. The run is not required to exist any more. Requires steps."
+                  additionalProperties:
+                    $ref: "#/components/schemas/ReusedOutputSource"
+                ephemeral:
+                  type: boolean
+                  default: false
+                  description: "If true, the run leaves no trace. It runs like any run and is readable by its ID (details, step logs, step outputs, spec, SSE) while it exists, but it is not listed anywhere by default (run lists, DAG history unless includeEphemeral is set, last run, queues, dashboard, artifacts, events and notifications), it does not count in retention, and it cannot be retried, rescheduled or edited (409). The server removes it 10 minutes after it ends and at server start. Allowed only together with steps; a request for the whole DAG with ephemeral true returns 400. The audit log keeps the request, marked ephemeral."
                 tags:
                   allOf:
                     - $ref: "#/components/schemas/Tags"
@@ -2160,6 +2310,20 @@ paths:
                   - type: object
                     required:
                       - outputs
+                    not:
+                      type: object
+                      required:
+                        - steps
+                  - type: object
+                    required:
+                      - outputsFromRuns
+                    not:
+                      type: object
+                      required:
+                        - steps
+                  - type: object
+                    required:
+                      - outputsSources
                     not:
                       type: object
                       required:
@@ -2235,6 +2399,9 @@ paths:
                 queue:
                   type: string
                   description: "Override the queue to use for this DAG-run"
+                workerSelector:
+                  allOf:
+                    - $ref: "#/components/schemas/WorkerSelectorOverride"
                 singleton:
                   type: boolean
                   description: "If true, prevent enqueuing if DAG is already running or queued (returns 409 conflict)"
@@ -2484,7 +2651,7 @@ paths:
               schema:
                 $ref: "#/components/schemas/Error"
         "409":
-          description: "Conflict (run ID already exists)"
+          description: "Conflict (run ID already exists, or the historic run is ephemeral)"
           content:
             application/json:
               schema:
@@ -2579,6 +2746,12 @@ paths:
                   - ineligibleSteps
                   - errors
                   - warnings
+        "409":
+          description: "Conflict: the DAG-run is ephemeral"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
         default:
           description: "Generic error response"
           content:
@@ -2647,6 +2820,12 @@ paths:
                   - queued
                   - skippedSteps
                   - startedSteps
+        "409":
+          description: "Conflict: the DAG-run is ephemeral"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
         default:
           description: "Generic error response"
           content:
@@ -2992,6 +3171,12 @@ paths:
       responses:
         "200":
           description: "A successful response"
+        "409":
+          description: "Conflict: the DAG-run is ephemeral"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
         default:
           description: "Generic error response"
           content:
@@ -3222,6 +3407,191 @@ paths:
                 $ref: "#/components/schemas/Log"
         "404":
           description: "Log file not found"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        default:
+          description: "Generic error response"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
+  /dag-runs/{name}/{dagRunId}/steps/{stepName}/samples:
+    get:
+      summary: "Retrieve the samples of a continuous step, in buckets"
+      description: "Returns the executions of a continuous step as buckets of one tier (1 second, 1 minute, 1 hour or 24 hours). The server picks the finest tier whose retention covers `from` and whose bucket count in the window is not more than `points`. The response has at most `points` buckets and does not depend on the count of executions."
+      operationId: "getDAGRunStepSamples"
+      tags:
+        - "dag-runs"
+      parameters:
+        - $ref: "#/components/parameters/RemoteNode"
+        - $ref: "#/components/parameters/DAGName"
+        - $ref: "#/components/parameters/DAGRunId"
+        - $ref: "#/components/parameters/StepName"
+        - name: from
+          in: query
+          description: "Start of the window (RFC 3339). Default: 24 hours before `to`."
+          schema:
+            type: string
+            format: date-time
+        - name: to
+          in: query
+          description: "End of the window (RFC 3339). Default: now."
+          schema:
+            type: string
+            format: date-time
+        - name: points
+          in: query
+          description: "Most buckets to return."
+          schema:
+            type: integer
+            minimum: 10
+            maximum: 2000
+            default: 600
+      responses:
+        "200":
+          description: "A successful response"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/StepSamples"
+        "400":
+          description: "A query parameter is not valid or out of its range, or from is after to"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "404":
+          description: "DAG-run or step not found, or the step is not a continuous step"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        default:
+          description: "Generic error response"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
+  /dag-runs/{name}/{dagRunId}/steps/{stepName}/events:
+    get:
+      summary: "Retrieve the events of a continuous step"
+      description: "Lists the events of a continuous step, the newest first: start, stop, failed and recovered."
+      operationId: "getDAGRunStepEvents"
+      tags:
+        - "dag-runs"
+      parameters:
+        - $ref: "#/components/parameters/RemoteNode"
+        - $ref: "#/components/parameters/DAGName"
+        - $ref: "#/components/parameters/DAGRunId"
+        - $ref: "#/components/parameters/StepName"
+        - name: from
+          in: query
+          description: "Start of the window (RFC 3339), inclusive. Default: no bound."
+          schema:
+            type: string
+            format: date-time
+        - name: to
+          in: query
+          description: "End of the window (RFC 3339), exclusive. Default: no bound."
+          schema:
+            type: string
+            format: date-time
+        - name: limit
+          in: query
+          description: "Most events to return."
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 500
+            default: 100
+        - name: before
+          in: query
+          description: "Opaque cursor from `nextCursor` of a previous response."
+          schema:
+            type: string
+      responses:
+        "200":
+          description: "A successful response"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/StepEvents"
+        "400":
+          description: "A query parameter is not valid or out of its range, from is after to, or before is not a cursor that the server gave"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "404":
+          description: "DAG-run or step not found, or the step is not a continuous step"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        default:
+          description: "Generic error response"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
+  /dag-runs/{name}/{dagRunId}/steps/{stepName}/availability:
+    get:
+      summary: "Retrieve the availability of a continuous step"
+      description: "Gives the availability of the last 24 hours, 7 days, 30 days and 365 days, and the current streak."
+      operationId: "getDAGRunStepAvailability"
+      tags:
+        - "dag-runs"
+      parameters:
+        - $ref: "#/components/parameters/RemoteNode"
+        - $ref: "#/components/parameters/DAGName"
+        - $ref: "#/components/parameters/DAGRunId"
+        - $ref: "#/components/parameters/StepName"
+      responses:
+        "200":
+          description: "A successful response"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/StepAvailability"
+        "404":
+          description: "DAG-run or step not found, or the step is not a continuous step"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        default:
+          description: "Generic error response"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
+  /dag-runs/{name}/{dagRunId}/steps/{stepName}/outputs:
+    get:
+      summary: "Retrieve outputs of a specific step in a DAG-run"
+      description: "Fetches the persisted outputs and the output variable of one step in a DAG-run. The stepName parameter accepts a step name or a step id. The runtime masks secret values before it persists them. Each value is cut at 65536 bytes."
+      operationId: "getDAGRunStepOutputs"
+      tags:
+        - "dag-runs"
+      parameters:
+        - $ref: "#/components/parameters/RemoteNode"
+        - $ref: "#/components/parameters/DAGName"
+        - $ref: "#/components/parameters/DAGRunId"
+        - $ref: "#/components/parameters/StepName"
+      responses:
+        "200":
+          description: "A successful response"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/StepOutputs"
+        "404":
+          description: "DAG-run or step not found"
           content:
             application/json:
               schema:
@@ -5202,7 +5572,9 @@ paths:
         bearer token only, bearer token plus HMAC, or HMAC only.
 
         The request body is passed to the DAG as the WEBHOOK_PAYLOAD environment
-        variable. If the DAG configures `webhook.forward_headers`, selected
+        variable, and as a file named by WEBHOOK_PAYLOAD_FILE. A body too large
+        for one environment variable is passed only as the file. If the DAG
+        configures `webhook.forward_headers`, selected
         request headers are passed as the WEBHOOK_HEADERS environment variable.
         For safety, the `Authorization` header is never forwarded.
         The DAG run is enqueued and the endpoint returns immediately with the
@@ -6752,6 +7124,221 @@ paths:
               schema:
                 $ref: "#/components/schemas/Error"
 
+  /dags/{fileName}/webhook/public:
+    get:
+      summary: "Get the webhook's public URL"
+      description: |
+        Returns the webhook's public URL through Dagu Cloud, the state of the
+        relay connection that holds it, and its latest deliveries.
+        Developer, manager, or admin only.
+      operationId: "getDAGWebhookPublic"
+      tags:
+        - "webhooks"
+      parameters:
+        - $ref: "#/components/parameters/RemoteNode"
+        - $ref: "#/components/parameters/DAGFileName"
+      responses:
+        "200":
+          description: "The public URL and its deliveries"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/WebhookPublicDetails"
+        "404":
+          description: "No webhook, or no public URL, for this DAG"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        default:
+          description: "Unexpected error"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
+    post:
+      summary: "Turn on the webhook's public URL"
+      description: |
+        Gives the webhook a public URL through Dagu Cloud. A webhook that has
+        one keeps it. The server must be connected to Dagu Cloud, and the plan
+        must allow another public URL. Admin only.
+      operationId: "enableDAGWebhookPublic"
+      tags:
+        - "webhooks"
+      parameters:
+        - $ref: "#/components/parameters/RemoteNode"
+        - $ref: "#/components/parameters/DAGFileName"
+      responses:
+        "200":
+          description: "The webhook with its public URL turned on"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/WebhookDetails"
+        "400":
+          description: "The server is not connected to Dagu Cloud, or the plan allows no more public URLs"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "404":
+          description: "No webhook configured for this DAG"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "501":
+          description: "Public URLs need encrypted storage, which is not available on this node"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        default:
+          description: "Unexpected error"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
+    delete:
+      summary: "Turn off the webhook's public URL"
+      description: |
+        Removes the webhook's public URL and its delivery log. Dagu Cloud drops
+        the URL and any deliveries waiting for it. Admin only.
+      operationId: "disableDAGWebhookPublic"
+      tags:
+        - "webhooks"
+      parameters:
+        - $ref: "#/components/parameters/RemoteNode"
+        - $ref: "#/components/parameters/DAGFileName"
+      responses:
+        "200":
+          description: "The webhook with its public URL turned off"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/WebhookDetails"
+        "404":
+          description: "No webhook configured for this DAG"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        default:
+          description: "Unexpected error"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
+  /dags/{fileName}/webhook/public/regenerate:
+    post:
+      summary: "Replace the webhook's public URL"
+      description: |
+        Gives the webhook a new public URL. The old URL stops working.
+        Requests Dagu Cloud already took through it are still delivered;
+        turning the URL off drops them. Admin only.
+      operationId: "regenerateDAGWebhookPublicURL"
+      tags:
+        - "webhooks"
+      parameters:
+        - $ref: "#/components/parameters/RemoteNode"
+        - $ref: "#/components/parameters/DAGFileName"
+      responses:
+        "200":
+          description: "The webhook with its new public URL"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/WebhookDetails"
+        "404":
+          description: "No webhook, or no public URL, for this DAG"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        default:
+          description: "Unexpected error"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
+  /dags/{fileName}/webhook/public/sender:
+    put:
+      summary: "Set who may send to the webhook's public URL"
+      description: |
+        Sets the sender whose signature requests to the public URL must
+        carry, its signing secret, and the events that start runs. For
+        GitHub, Dagu makes the secret when none is entered, and returns it
+        only this once. Admin only.
+      operationId: "configureDAGWebhookPublicSender"
+      tags:
+        - "webhooks"
+      parameters:
+        - $ref: "#/components/parameters/RemoteNode"
+        - $ref: "#/components/parameters/DAGFileName"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/WebhookPublicSenderRequest"
+      responses:
+        "200":
+          description: "The webhook with its new sender settings"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/WebhookPublicSenderResponse"
+        "400":
+          description: "Invalid sender, secret, or events"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "404":
+          description: "No webhook, or no public URL, for this DAG"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        default:
+          description: "Unexpected error"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
+  /dags/{fileName}/webhook/public/missed:
+    delete:
+      summary: "Dismiss the webhook's missed deliveries"
+      description: |
+        Clears the counts of deliveries Dagu Cloud dropped for the public URL.
+        Admin only.
+      operationId: "dismissDAGWebhookPublicMissed"
+      tags:
+        - "webhooks"
+      parameters:
+        - $ref: "#/components/parameters/RemoteNode"
+        - $ref: "#/components/parameters/DAGFileName"
+      responses:
+        "204":
+          description: "Missed deliveries dismissed"
+        "404":
+          description: "No webhook, or no public URL, for this DAG"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        default:
+          description: "Unexpected error"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
   /dags/{fileName}/settings:
     get:
       summary: "Get DAG settings"
@@ -7319,7 +7906,7 @@ paths:
             type: string
         - name: type
           in: query
-          description: "Filter by event type (e.g., dag.run.failed, llm.usage.recorded)"
+          description: "Filter by event type (e.g., dag.run.failed, llm.usage.recorded). Without it, dag.run.updated entries are omitted."
           required: false
           schema:
             type: string
@@ -8327,12 +8914,21 @@ paths:
   /license/connect:
     post:
       summary: "Connect this server to Dagu Console"
-      description: "Starts a request for a license from Dagu Console, or returns the pending one. Open connectUrl to approve it; the license is installed once a workspace owner approves. Admin only."
+      description: "Starts a request for a license from Dagu Console, or returns the pending one. Open connectUrl to approve it; the license is installed once a workspace owner approves. A report level, when given, chooses what this server reports to Dagu Console, starting once the license is installed, unless cloud.report in the configuration sets it. Admin only."
       operationId: "startLicenseConnect"
       tags:
         - "system"
       parameters:
         - $ref: "#/components/parameters/RemoteNode"
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                report:
+                  $ref: "#/components/schemas/LicenseMonitoringLevel"
       responses:
         "200":
           description: "Current connection request"
@@ -8340,6 +8936,12 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/LicenseConnectStatus"
+        "400":
+          description: "Unknown report level"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
         "403":
           description: "Insufficient permissions"
           content:
@@ -8347,7 +8949,7 @@ paths:
               schema:
                 $ref: "#/components/schemas/Error"
         "409":
-          description: "The license is set outside Dagu or the server already has an active license"
+          description: "The license is set outside Dagu or the server already has a license"
           content:
             application/json:
               schema:
@@ -8431,6 +9033,60 @@ paths:
                 $ref: "#/components/schemas/LicenseStatusResponse"
         "400":
           description: "The license does not check in with Dagu Console"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "403":
+          description: "Insufficient permissions"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "502":
+          description: "Dagu Console could not be reached"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        default:
+          description: "Unexpected error"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
+  /license/server-name:
+    put:
+      summary: "Rename this server in Dagu Console"
+      description: "Sets the name Dagu Console and Dagu show for this server, in place of the name it reports. An empty name shows the reported name again. Admin only."
+      operationId: "renameLicenseServer"
+      tags:
+        - "system"
+      parameters:
+        - $ref: "#/components/parameters/RemoteNode"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - name
+              properties:
+                name:
+                  type: string
+                  maxLength: 100
+                  description: "Name to show, at most 100 characters; empty clears it"
+      responses:
+        "200":
+          description: "License status after the rename"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/LicenseStatusResponse"
+        "400":
+          description: "The name is too long, the license does not check in with Dagu Console, or Dagu Console refused the name"
           content:
             application/json:
               schema:
@@ -8563,6 +9219,127 @@ paths:
                 $ref: "#/components/schemas/Error"
         "403":
           description: "Insufficient permissions"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        default:
+          description: "Unexpected error"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
+  /license/monitoring/dismiss-errors-notice:
+    post:
+      summary: "Dismiss the notice that offers to send error messages"
+      description: "Stops offering administrators to have this server also send the error messages of failed runs to Dagu Console. Admin only."
+      operationId: "dismissLicenseMonitoringErrorsNotice"
+      tags:
+        - "system"
+      parameters:
+        - $ref: "#/components/parameters/RemoteNode"
+      responses:
+        "200":
+          description: "What this server reports"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/LicenseMonitoring"
+        "400":
+          description: "License management is not available"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "403":
+          description: "Insufficient permissions"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        default:
+          description: "Unexpected error"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
+  /license/remote-access:
+    get:
+      summary: "Get how far calls from Dagu Cloud may go on this server"
+      description: "Returns the highest role calls from Dagu Cloud get on this server, whether they may decide steps waiting for a person, whether configuration fixes either, and whether this server process holds its connection for those calls. Admin only."
+      operationId: "getLicenseRemoteAccess"
+      tags:
+        - "system"
+      parameters:
+        - $ref: "#/components/parameters/RemoteNode"
+      responses:
+        "200":
+          description: "Remote access on this server"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/LicenseRemoteAccess"
+        "400":
+          description: "License management is not available"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "403":
+          description: "Insufficient permissions"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        default:
+          description: "Unexpected error"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+    put:
+      summary: "Choose how far calls from Dagu Cloud may go on this server"
+      description: "Sets the highest role calls from Dagu Cloud get on this server, whether they may decide steps waiting for a person, or both. Changes apply at once; off closes the connection and ends the calls in flight. Admin only."
+      operationId: "updateLicenseRemoteAccess"
+      tags:
+        - "system"
+      parameters:
+        - $ref: "#/components/parameters/RemoteNode"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                level:
+                  $ref: "#/components/schemas/LicenseRemoteAccessLevel"
+                approvals:
+                  type: boolean
+                  description: "Whether calls from Dagu Cloud may approve, reject, or push back steps waiting for a person"
+      responses:
+        "200":
+          description: "Remote access on this server after the change"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/LicenseRemoteAccess"
+        "400":
+          description: "Unknown level, nothing to change, or license management is not available"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "403":
+          description: "Insufficient permissions"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "409":
+          description: "cloud.remote_access or cloud.remote_approvals in the configuration fixes the setting"
           content:
             application/json:
               schema:
@@ -10922,6 +11699,29 @@ paths:
               schema:
                 $ref: "#/components/schemas/Error"
 
+  /workspaces/deprecation:
+    get:
+      summary: "List workspace settings that v3.0 moves into projects"
+      description: "Lists the workspace settings in use that v3.0 moves into projects. Admin only."
+      operationId: "getWorkspaceDeprecation"
+      tags:
+        - "workspaces"
+      parameters:
+        - $ref: "#/components/parameters/RemoteNode"
+      responses:
+        "200":
+          description: "Workspace settings in use"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/WorkspaceDeprecationResponse"
+        default:
+          description: "Generic error response"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
   /workspaces/{workspaceId}:
     get:
       summary: "Get workspace by ID"
@@ -11440,7 +12240,7 @@ components:
     DateTimeFrom:
       name: fromDate
       in: query
-      description: start datetime for filtering DAG-runs in ISO 8601 format with timezone
+      description: start of the time range for filtering DAG-runs, as a Unix timestamp in seconds
       required: false
       schema:
         $ref: "#/components/schemas/UnixTimestamp"
@@ -11448,7 +12248,7 @@ components:
     DateTimeTo:
       name: toDate
       in: query
-      description: end datetime for filtering DAG-runs in ISO 8601 format with timezone
+      description: end of the time range for filtering DAG-runs, as a Unix timestamp in seconds
       required: false
       schema:
         $ref: "#/components/schemas/UnixTimestamp"
@@ -11702,6 +12502,147 @@ components:
       required:
         - dagRuns
 
+    DAGRunActivity:
+      type: object
+      description: "One page of DAG-run activity for a time window"
+      properties:
+        from:
+          type: integer
+          format: int64
+          description: "Window start as Unix seconds"
+        to:
+          type: integer
+          format: int64
+          description: "Window end as Unix seconds"
+        runs:
+          type: array
+          description: "Up to 100 runs created in the window, newest first"
+          items:
+            $ref: "#/components/schemas/DAGRunActivityRun"
+        nextCursor:
+          type: string
+          description: "Opaque cursor for loading the next page of older runs"
+        attention:
+          type: array
+          description: "First page only: the latest run of each DAG whose latest run was created in the window and did not succeed, newest first, at most 20"
+          items:
+            $ref: "#/components/schemas/DAGRunActivityRun"
+        active:
+          type: array
+          description: "First page only: runs still running, waiting, or queued, oldest first, at most 100, including up to 50 live runs created before the window"
+          items:
+            $ref: "#/components/schemas/DAGRunActivityRun"
+        upcoming:
+          type: array
+          description: "First page only: next scheduled runs, soonest first"
+          items:
+            $ref: "#/components/schemas/DAGRunActivityUpcoming"
+        queues:
+          type: array
+          description: "First page only: queues with runs running or waiting, the longest wait first, at most 20"
+          items:
+            $ref: "#/components/schemas/DAGRunActivityQueue"
+        diskUsedPercent:
+          type: integer
+          description: "First page only: how full the data directory's disk is, in percent; set only when it is at least 90 and the caller may view system status"
+      required:
+        - from
+        - to
+        - runs
+        - attention
+        - active
+        - upcoming
+        - queues
+
+    DAGRunActivityQueue:
+      type: object
+      description: "A queue with runs running or waiting"
+      properties:
+        name:
+          type: string
+        running:
+          type: integer
+          description: "Number of runs running; a lower bound when runningCapped is set"
+        runningCapped:
+          type: boolean
+          description: "True when reading running runs stopped early, so running is a lower bound"
+        maxConcurrency:
+          type: integer
+          description: "Maximum number of runs the queue runs at once"
+        queued:
+          type: integer
+          description: "Number of runs waiting; a lower bound when queuedCapped is set"
+        queuedCapped:
+          type: boolean
+          description: "True when counting stopped early, so queued is a lower bound"
+        nextQueuedAt:
+          type: integer
+          format: int64
+          description: "When the next run in line was queued, as Unix seconds"
+        blockedReason:
+          $ref: "#/components/schemas/DAGRunActivityQueueBlockedReason"
+      required:
+        - name
+        - running
+        - queued
+
+    DAGRunActivityQueueBlockedReason:
+      type: string
+      description: "Why queued runs cannot start: no healthy worker matches their selector, no healthy worker exists, or runs cannot be handed to workers"
+      enum:
+        - "noMatchingWorker"
+        - "noAvailableWorker"
+        - "workerDispatchUnavailable"
+
+    DAGRunActivityRun:
+      type: object
+      description: "One DAG-run in an activity summary"
+      properties:
+        name:
+          type: string
+          description: "DAG name"
+        dagRunId:
+          type: string
+        status:
+          $ref: "#/components/schemas/Status"
+        startedAt:
+          type: integer
+          format: int64
+          description: "Start as Unix seconds, or the queue time when the run has not started"
+        finishedAt:
+          type: integer
+          format: int64
+          description: "Finish as Unix seconds"
+        failedStep:
+          type: string
+          description: "First failed step; set on attention runs"
+        error:
+          type: string
+          description: "Error of the failed step or the run, shortened; set on attention runs"
+        queue:
+          type: string
+          description: "Queue the run runs or waits in; set on active runs"
+      required:
+        - name
+        - dagRunId
+        - status
+
+    DAGRunActivityUpcoming:
+      type: object
+      properties:
+        name:
+          type: string
+        fileName:
+          type: string
+        nextRun:
+          type: integer
+          format: int64
+          description: "Next scheduled run as Unix seconds"
+      required:
+        - name
+        - fileName
+        - nextRun
+
     ApproveStepRequest:
       type: object
       description: "Request body for approving a waiting step"
@@ -11895,7 +12836,7 @@ components:
 
     AgentInteractionResponseRequest:
       type: object
-      description: "Answer to a pending managed-agent permission or question"
+      description: "Answer to a pending managed-agent permission or question. A browser.write permission also takes skip: the operation is not run and the step ends without failing."
       properties:
         decision:
           type: string
@@ -11903,6 +12844,7 @@ components:
             - once
             - session
             - reject
+            - skip
         answers:
           type: array
           items:
@@ -12269,6 +13211,172 @@ components:
           type: string
           format: date-time
           description: "When the webhook was last triggered"
+        public:
+          $ref: "#/components/schemas/WebhookPublicSettings"
+
+    WebhookPublicSender:
+      type: string
+      description: "A service whose signed requests a public URL accepts"
+      enum:
+        - "github"
+        - "stripe"
+        - "slack"
+        - "standard"
+
+    WebhookPublicSettings:
+      type: object
+      description: "What the webhook's public URL accepts"
+      required:
+        - secretConfigured
+        - events
+        - createdAt
+      properties:
+        sender:
+          $ref: "#/components/schemas/WebhookPublicSender"
+        secretConfigured:
+          type: boolean
+          description: "Whether the sender's signing secret is stored"
+        events:
+          type: array
+          description: "Events that start runs; empty takes every event"
+          items:
+            type: string
+        createdAt:
+          type: string
+          format: date-time
+          description: "When the public URL was turned on"
+
+    WebhookPublicState:
+      type: string
+      description: |
+        Whether Dagu Cloud holds the public URL: `active` once it does,
+        `connecting` before then, `overLimit` when the plan allows fewer
+        public URLs than exist and this one is left out, and `error` when the
+        server cannot connect.
+      enum:
+        - "active"
+        - "connecting"
+        - "overLimit"
+        - "error"
+
+    WebhookPublicDetails:
+      type: object
+      description: "The webhook's public URL, its state, and its latest deliveries"
+      required:
+        - state
+        - deliveries
+        - missed
+      properties:
+        url:
+          type: string
+          description: "The public URL; absent until Dagu Cloud has given this server its address"
+        state:
+          $ref: "#/components/schemas/WebhookPublicState"
+        error:
+          type: string
+          description: "Why the server cannot connect"
+        maxHooks:
+          type: integer
+          description: "The most public URLs the plan allows, once known"
+        deliveries:
+          type: array
+          description: "The latest deliveries, newest first"
+          items:
+            $ref: "#/components/schemas/WebhookPublicDelivery"
+        missed:
+          $ref: "#/components/schemas/WebhookPublicMissed"
+
+    WebhookPublicDelivery:
+      type: object
+      description: "One request Dagu Cloud handed over for the public URL"
+      required:
+        - id
+        - receivedAt
+        - size
+        - outcome
+      properties:
+        id:
+          type: string
+          description: "The delivery's ID, which names the run it starts"
+        receivedAt:
+          type: string
+          format: date-time
+          description: "When Dagu Cloud received the request"
+        size:
+          type: integer
+          description: "The body's size in bytes"
+        event:
+          type: string
+          description: "What the request is about, as its sender labels it"
+        outcome:
+          type: string
+          description: |
+            What became of the delivery: `started` a run, `waiting` at Dagu
+            Cloud to be sent again, `rejected` by the sender's signature
+            check, `skipped` as an event that starts no run, `ignored` while
+            the webhook was disabled, or `failed`.
+          enum:
+            - "started"
+            - "waiting"
+            - "rejected"
+            - "skipped"
+            - "ignored"
+            - "failed"
+        dagRunId:
+          type: string
+          description: "The run a started delivery started"
+        error:
+          type: string
+          description: "Why the delivery was rejected, skipped, waiting, or failed"
+
+    WebhookPublicMissed:
+      type: object
+      description: |
+        Deliveries Dagu Cloud dropped since they were last dismissed: those
+        that waited more than 7 days, and those refused while 1,000 waited.
+      required:
+        - expired
+        - refused
+      properties:
+        expired:
+          type: integer
+        refused:
+          type: integer
+        since:
+          type: string
+          format: date-time
+          description: "When the first of them was counted"
+
+    WebhookPublicSenderRequest:
+      type: object
+      description: "Who may send to a public URL, and which events start runs"
+      properties:
+        sender:
+          $ref: "#/components/schemas/WebhookPublicSender"
+        secret:
+          type: string
+          description: |
+            The sender's signing secret. Empty keeps the stored secret of the
+            same sender, or, for GitHub, makes one.
+        generateSecret:
+          type: boolean
+          description: "Make a new GitHub signing secret"
+        events:
+          type: array
+          description: "Events that start runs; empty takes every event"
+          items:
+            type: string
+
+    WebhookPublicSenderResponse:
+      type: object
+      required:
+        - webhook
+      properties:
+        webhook:
+          $ref: "#/components/schemas/WebhookDetails"
+        secret:
+          type: string
+          description: "The signing secret Dagu made, shown only this once"
 
     WebhookCreateResponse:
       type: object
@@ -12413,6 +13521,17 @@ components:
     NotificationProviderType:
       type: string
       description: "Notification delivery provider"
+      enum:
+        - email
+        - webhook
+        - slack
+        - telegram
+        - teams
+        - command
+
+    NotificationTargetProviderType:
+      type: string
+      description: "Provider for a DAG-local notification target. Local commands are reusable channels, not inline targets."
       enum:
         - email
         - webhook
@@ -12884,6 +14003,16 @@ components:
           type: string
           description: "Optional Teams message template. When omitted, Dagu sends the default notification text."
 
+    NotificationCommandTarget:
+      type: object
+      description: "Local shell command run by the Dagu server when this channel delivers a notification."
+      required:
+        - command
+      properties:
+        command:
+          type: string
+          description: "Shell command, run as written. Run values are exported as environment variables, including DAG_NAME, DAG_RUN_ID, STATUS, ERROR, and RUN_URL; Dagu does not substitute tokens such as {{dag.name}} into the command. EXECUTION_LOG is the path of a temporary file containing up to 1 MiB of the run log; Dagu removes that file after the command exits. Unix runs the command with sh -c and reads values as \"$ERROR\". Windows runs it with PowerShell and reads values as $env:ERROR."
+
     NotificationTargetInput:
       type: object
       description: "Notification target input"
@@ -12898,7 +14027,7 @@ components:
           type: string
           description: "Human-readable target name"
         type:
-          $ref: "#/components/schemas/NotificationProviderType"
+          $ref: "#/components/schemas/NotificationTargetProviderType"
         enabled:
           type: boolean
           description: "Whether this target receives notifications"
@@ -12933,7 +14062,7 @@ components:
           type: string
           description: "Human-readable target name"
         type:
-          $ref: "#/components/schemas/NotificationProviderType"
+          $ref: "#/components/schemas/NotificationTargetProviderType"
         enabled:
           type: boolean
           description: "Whether this target receives notifications"
@@ -12979,6 +14108,8 @@ components:
           $ref: "#/components/schemas/NotificationTelegramTargetInput"
         teams:
           $ref: "#/components/schemas/NotificationTeamsTargetInput"
+        command:
+          $ref: "#/components/schemas/NotificationCommandTarget"
 
     NotificationChannel:
       type: object
@@ -13012,6 +14143,8 @@ components:
           $ref: "#/components/schemas/NotificationTelegramTarget"
         teams:
           $ref: "#/components/schemas/NotificationTeamsTarget"
+        command:
+          $ref: "#/components/schemas/NotificationCommandTarget"
         createdAt:
           type: string
           format: date-time
@@ -13846,6 +14979,7 @@ components:
         - "subdag"
         - "retry"
         - "catchup"
+        - "file"
 
     NodeStatus:
       type: integer
@@ -13940,6 +15074,9 @@ components:
         reason:
           type: string
           description: "Operator-facing explanation shown while paused"
+        schedulerRunning:
+          type: boolean
+          description: "Whether a scheduler instance is running. Omitted when the server cannot tell."
       required:
         - paused
 
@@ -14168,6 +15305,202 @@ components:
             - runtime_only
       required:
         - message
+
+    ValidationIssue:
+      type: object
+      description: "One structured validation result of a DAG spec."
+      properties:
+        severity:
+          type: string
+          description: "Severity of the issue."
+          enum:
+            - error
+            - warning
+            - notice
+        source:
+          type: string
+          description: "Stage that produced the issue."
+          enum:
+            - load
+            - build
+            - warning
+            - valueReference
+        message:
+          type: string
+          description: "Human-readable message. For errors, the same text as the matching errors entry."
+        stepName:
+          type: string
+          description: "Normalized name of the step, when known."
+        stepPath:
+          type: string
+          description: "Step key such as steps[3] or handler_on.failure, when known."
+        fieldPath:
+          type: string
+          description: "DAG field path such as steps[3].with.url or consts.image, when known."
+        line:
+          type: integer
+          description: "1-based line in the spec, when known."
+        column:
+          type: integer
+          description: "1-based column in the spec, when known."
+        reason:
+          type: string
+          description: "Machine-readable reason, for value-reference notices."
+      required:
+        - severity
+        - source
+        - message
+
+    ReferenceScope:
+      type: object
+      description: "Values that a step of the DAG can reference."
+      properties:
+        params:
+          type: array
+          items:
+            $ref: "#/components/schemas/ReferenceScopeVariable"
+        consts:
+          type: array
+          items:
+            $ref: "#/components/schemas/ReferenceScopeVariable"
+        env:
+          type: array
+          description: "Environment variable names. Values are not included."
+          items:
+            $ref: "#/components/schemas/ReferenceScopeVariable"
+        secrets:
+          type: array
+          description: "Secret names. Values are not included."
+          items:
+            $ref: "#/components/schemas/ReferenceScopeVariable"
+        steps:
+          type: array
+          items:
+            $ref: "#/components/schemas/ReferenceScopeStep"
+      required:
+        - params
+        - consts
+        - env
+        - secrets
+        - steps
+
+    ReferenceScopeVariable:
+      type: object
+      description: "A named value that a step can reference."
+      properties:
+        name:
+          type: string
+        reference:
+          type: string
+          description: "Canonical reference token, such as ${params.region}."
+        description:
+          type: string
+        defaultValue:
+          type: string
+          description: "Default value. Set only for params and consts."
+      required:
+        - name
+        - reference
+
+    ReferenceScopeStep:
+      type: object
+      description: "A step and the outputs that other steps can reference."
+      properties:
+        name:
+          type: string
+        id:
+          type: string
+        stepPath:
+          type: string
+          description: "Step key such as steps[3] or handler_on.exit."
+        upstream:
+          type: array
+          description: "Names of all ancestor steps."
+          items:
+            type: string
+        outputs:
+          type: array
+          items:
+            $ref: "#/components/schemas/ReferenceScopeOutput"
+        outputsKnown:
+          type: string
+          description: "static when the outputs are known from the spec, runtime when only a run gives them."
+          enum:
+            - static
+            - runtime
+      required:
+        - name
+        - stepPath
+        - upstream
+        - outputs
+        - outputsKnown
+
+    ReferenceScopeOutput:
+      type: object
+      description: "An output of a step that other steps can reference."
+      properties:
+        name:
+          type: string
+        reference:
+          type: string
+          description: "Reference token, such as ${steps.fetch.outputs.body} or ${RESULT} for an output variable."
+        source:
+          type: string
+          enum:
+            - declared
+            - stdoutField
+            - outputVariable
+            - action
+        type:
+          type: string
+      required:
+        - name
+        - reference
+        - source
+
+    StepOutputs:
+      type: object
+      description: "Persisted outputs of one step in a DAG-run."
+      properties:
+        stepName:
+          type: string
+        stepId:
+          type: string
+        status:
+          $ref: "#/components/schemas/NodeStatus"
+        statusLabel:
+          $ref: "#/components/schemas/NodeStatusLabel"
+        outputs:
+          type: array
+          items:
+            $ref: "#/components/schemas/StepOutputValue"
+        outputVariable:
+          $ref: "#/components/schemas/StepOutputValue"
+      required:
+        - stepName
+        - status
+        - statusLabel
+        - outputs
+
+    StepOutputValue:
+      type: object
+      description: "One output value of a step. The value is cut at 65536 bytes."
+      properties:
+        name:
+          type: string
+        value:
+          type: string
+        truncated:
+          type: boolean
+          description: "True when the value was cut."
+        size:
+          type: integer
+          description: "Size of the value in bytes before the cut."
+      required:
+        - name
+        - value
+        - truncated
+        - size
 
     DAGEditorHints:
       type: object
@@ -14446,16 +15779,19 @@ components:
           description: "RFC 3339 timestamp of when the DAG-run was scheduled to run"
         startedAt:
           type: string
-          description: "RFC 3339 timestamp when the DAG-run started"
+          description: "RFC 3339 timestamp with millisecond precision when the DAG-run started. A run that an older version stored has second precision."
         finishedAt:
           type: string
-          description: "RFC 3339 timestamp when the DAG-run finished"
+          description: "RFC 3339 timestamp with millisecond precision when the DAG-run finished. A run that an older version stored has second precision."
         artifactsAvailable:
           type: boolean
           description: "Whether artifact files are available for this DAG-run"
         noReuse:
           type: boolean
           description: "Whether reuse of prior build materializations was disabled for this DAG-run"
+        ephemeral:
+          type: boolean
+          description: "True for an ephemeral run (a test run that leaves no trace). Absent or false for other runs. Only the DAG history with includeEphemeral and the run by ID return such a run."
         params:
           type: string
           description: "Runtime parameters passed to the DAG-run in JSON format"
@@ -14499,6 +15835,47 @@ components:
         - artifactsAvailable
         - autoRetryCount
 
+    ReusedOutputSource:
+      type: object
+      description: "The run that a step's supplied outputs were captured from."
+      properties:
+        runId:
+          $ref: "#/components/schemas/DAGRunId"
+        capturedAt:
+          type: string
+          description: "RFC 3339 timestamp of when the outputs were captured. Optional."
+      required:
+        - runId
+
+    ReusedInput:
+      type: object
+      description: "Provenance of the outputs that a skipped step of a selected-steps run carries."
+      properties:
+        step:
+          type: string
+          description: "Name of the skipped step"
+        runId:
+          $ref: "#/components/schemas/DAGRunId"
+        capturedAt:
+          type: string
+          description: "RFC 3339 timestamp of when the outputs were captured. Absent when unknown."
+        startedAt:
+          type: string
+          description: "RFC 3339 timestamp with millisecond precision of when the step started in the source run. Present for via run; absent for via cache."
+        finishedAt:
+          type: string
+          description: "RFC 3339 timestamp with millisecond precision of when the step finished in the source run. Present for via run; absent for via cache."
+        via:
+          type: string
+          enum:
+            - run
+            - cache
+          description: "run: the outputs were carried from the run named by outputsFromRunId, or by outputsFromRuns for this step. cache: a client that is not the web UI supplied the outputs and named the run they were captured from in outputsSources."
+      required:
+        - step
+        - runId
+        - via
+
     DAGRunDetails:
       type: object
       description: "Detailed status of a DAG-run including sub DAG-run nodes"
@@ -14541,6 +15918,8 @@ components:
               $ref: "#/components/schemas/Node"
             onWait:
               $ref: "#/components/schemas/Node"
+            modelUsage:
+              $ref: "#/components/schemas/RunModelUsage"
             preconditions:
               type: array
               description: "List of preconditions that must be met before the DAG-run can start"
@@ -14572,6 +15951,14 @@ components:
             approvalResumePending:
               type: boolean
               description: "Whether a root run has a saved approval and ready work whose resume still needs to be accepted"
+            attemptId:
+              type: string
+              description: "Identifier of the attempt this status belongs to. Each retry of the DAG-run, including a resume after manual action, records a new attempt."
+            reusedInputs:
+              type: array
+              description: "Where the carried outputs of the skipped steps of a selected-steps run come from, one entry per skipped step, in DAG step order. Absent when the run carried no outputs."
+              items:
+                $ref: "#/components/schemas/ReusedInput"
           required:
             - rootDAGRunName
             - rootDAGRunId
@@ -14810,10 +16197,10 @@ components:
           description: "Agent's justification, or why the call was rejected"
         startedAt:
           type: string
-          description: "RFC3339 timestamp when the step started"
+          description: "RFC 3339 timestamp with millisecond precision when the step started"
         finishedAt:
           type: string
-          description: "RFC3339 timestamp when the step finished"
+          description: "RFC 3339 timestamp with millisecond precision when the step finished"
         childDagRunId:
           type: string
           description: "Child DAG-run this action produced, for linking to its run page. Absent for steps that run no child DAG."
@@ -14894,10 +16281,10 @@ components:
           description: "Path to the standard error log file for this step"
         startedAt:
           type: string
-          description: "RFC3339 timestamp when the step started"
+          description: "RFC 3339 timestamp with millisecond precision when the step started. A step that an older version stored has second precision."
         finishedAt:
           type: string
-          description: "RFC3339 timestamp when the step finished"
+          description: "RFC 3339 timestamp with millisecond precision when the step finished. A step that an older version stored has second precision."
         status:
           $ref: "#/components/schemas/NodeStatus"
         statusLabel:
@@ -14908,6 +16295,9 @@ components:
         doneCount:
           type: integer
           description: "Number of successful completions for repeating steps"
+        continuous:
+          type: boolean
+          description: "True for a continuous step: a step that repeats without a limit. Its executions are recorded as samples (see the samples, events and availability endpoints)."
         subRuns:
           type: array
           description: "List of sub DAG-runs associated with this step"
@@ -14970,6 +16360,8 @@ components:
             $ref: "#/components/schemas/PushBackHistoryEntry"
         agentSession:
           $ref: "#/components/schemas/AgentSession"
+        modelUsage:
+          $ref: "#/components/schemas/StepModelUsage"
       required:
         - step
         - stdout
@@ -15046,6 +16438,76 @@ components:
         cost:
           type: number
           format: double
+
+    ModelUsage:
+      type: object
+      description: "What calls to one model used: their number, tokens, and the cost the provider reported"
+      properties:
+        provider:
+          type: string
+          description: "Provider of the model, such as openai or openrouter"
+        model:
+          type: string
+          description: "Model the calls named"
+        calls:
+          type: integer
+          format: int64
+          description: "Number of calls"
+        inputTokens:
+          type: integer
+          format: int64
+          description: "Prompt tokens, cached and cache-write tokens included"
+        cachedInputTokens:
+          type: integer
+          format: int64
+          description: "Prompt tokens read from the provider's prompt cache"
+        cacheWriteTokens:
+          type: integer
+          format: int64
+          description: "Prompt tokens written to the provider's prompt cache"
+        outputTokens:
+          type: integer
+          format: int64
+          description: "Completion tokens, reasoning tokens included"
+        reasoningTokens:
+          type: integer
+          format: int64
+          description: "Completion tokens spent on reasoning"
+        cost:
+          type: number
+          format: double
+          description: "Cost in US dollars the provider reported for costReportedCalls of the calls"
+        costReportedCalls:
+          type: integer
+          format: int64
+          description: "Number of calls whose cost the provider reported; cost is whole only when it equals calls"
+      required:
+        - provider
+        - model
+        - calls
+
+    StepModelUsage:
+      type: object
+      description: "What a step's calls to models used, over every attempt of the step in its run"
+      properties:
+        models:
+          type: array
+          description: "Usage of each model: the step's own calls and what the tools it ran, such as a coding agent, reported"
+          items:
+            $ref: "#/components/schemas/ModelUsage"
+        notReported:
+          type: string
+          description: "A tool the step ran whose model usage could not be read, such as a coding agent's command line"
+
+    RunModelUsage:
+      type: object
+      description: "What every step of a DAG-run, its handlers included, used on models. A run recorded by an engine that records model usage always has it, with no models when the run used none; a run recorded before has it only when its steps report usage."
+      properties:
+        models:
+          type: array
+          description: "Usage of each model the run called"
+          items:
+            $ref: "#/components/schemas/ModelUsage"
 
     AgentInteraction:
       type: object
@@ -15227,10 +16689,10 @@ components:
           $ref: "#/components/schemas/StatusLabel"
         startedAt:
           type: string
-          description: "RFC 3339 timestamp when the sub DAG-run started"
+          description: "RFC 3339 timestamp with millisecond precision when the sub DAG-run started"
         finishedAt:
           type: string
-          description: "RFC 3339 timestamp when the sub DAG-run finished"
+          description: "RFC 3339 timestamp with millisecond precision when the sub DAG-run finished"
       required:
         - dagRunId
         - status
@@ -15960,10 +17422,10 @@ components:
           description: "Error the body run reported, when it failed"
         startedAt:
           type: string
-          description: "RFC3339 timestamp when the body run started"
+          description: "RFC 3339 timestamp with millisecond precision when the body run started"
         finishedAt:
           type: string
-          description: "RFC3339 timestamp when the body run finished"
+          description: "RFC 3339 timestamp with millisecond precision when the body run finished"
       required:
         - item
         - index
@@ -15990,8 +17452,10 @@ components:
           type: string
         startedAt:
           type: string
+          description: "RFC 3339 timestamp with millisecond precision when the body run started"
         finishedAt:
           type: string
+          description: "RFC 3339 timestamp with millisecond precision when the body run finished"
         steps:
           type: array
           description: "Body steps in execution order"
@@ -16021,8 +17485,10 @@ components:
           type: string
         startedAt:
           type: string
+          description: "RFC 3339 timestamp with millisecond precision when the body step started"
         finishedAt:
           type: string
+          description: "RFC 3339 timestamp with millisecond precision when the body step finished"
         retryCount:
           type: integer
         hasStdout:
@@ -16034,12 +17500,167 @@ components:
         foreachParent:
           type: string
           description: "For a body step that is itself a foreach, the parent path that lists its items"
+        agentSession:
+          $ref: "#/components/schemas/AgentSession"
+        modelUsage:
+          $ref: "#/components/schemas/StepModelUsage"
       required:
         - name
         - status
         - statusLabel
         - hasStdout
         - hasStderr
+
+    SampleBucket:
+      type: object
+      description: "The samples of one time bucket of a continuous step"
+      properties:
+        time:
+          type: string
+          format: date-time
+          description: "Start of the bucket, in UTC"
+        count:
+          type: integer
+          format: int64
+          description: "Count of samples in the bucket"
+        failures:
+          type: integer
+          format: int64
+          description: "Count of failed samples (exit code not 0)"
+        minMs:
+          type: integer
+          format: int64
+        maxMs:
+          type: integer
+          format: int64
+        p50Ms:
+          type: integer
+          format: int64
+        p95Ms:
+          type: integer
+          format: int64
+      required:
+        - time
+        - count
+        - failures
+        - minMs
+        - maxMs
+        - p50Ms
+        - p95Ms
+
+    StepSamples:
+      type: object
+      properties:
+        resolutionSeconds:
+          type: integer
+          description: "Width of the tier that the buckets come from: 1, 60, 3600 or 86400"
+        from:
+          type: string
+          format: date-time
+        to:
+          type: string
+          format: date-time
+        buckets:
+          type: array
+          description: "Buckets in time order. A bucket with no sample is not listed."
+          items:
+            $ref: "#/components/schemas/SampleBucket"
+      required:
+        - resolutionSeconds
+        - from
+        - to
+        - buckets
+
+    StepEventKind:
+      type: string
+      enum:
+        - started
+        - stopped
+        - failed
+        - recovered
+
+    StepEvent:
+      type: object
+      properties:
+        time:
+          type: string
+          format: date-time
+        kind:
+          $ref: "#/components/schemas/StepEventKind"
+        exitCode:
+          type: integer
+        message:
+          type: string
+          description: "Last line of the standard error of a failed execution, 256 bytes at most"
+        failedCount:
+          type: integer
+          format: int64
+          description: "For `recovered` and for a repeated `failed` event: count of failed samples of the outage"
+        outageSeconds:
+          type: integer
+          format: int64
+          description: "For `recovered`: length of the outage"
+      required:
+        - time
+        - kind
+
+    StepEvents:
+      type: object
+      properties:
+        events:
+          type: array
+          items:
+            $ref: "#/components/schemas/StepEvent"
+        nextCursor:
+          type: string
+          description: "Cursor for the next page. Absent when there are no more events."
+      required:
+        - events
+
+    AvailabilityWindow:
+      type: object
+      properties:
+        window:
+          type: string
+          enum: ["24h", "7d", "30d", "365d"]
+        count:
+          type: integer
+          format: int64
+        failures:
+          type: integer
+          format: int64
+        availability:
+          type: number
+          format: double
+          description: "From 0 to 1. Absent when `count` is 0."
+      required:
+        - window
+        - count
+        - failures
+
+    StepAvailability:
+      type: object
+      properties:
+        windows:
+          type: array
+          items:
+            $ref: "#/components/schemas/AvailabilityWindow"
+        streak:
+          type: integer
+          format: int64
+          description: "Count of samples since the last failed sample. A lower bound once the raw tier no longer holds that sample."
+        lastFailureAt:
+          type: string
+          format: date-time
+          description: "Time of the last failed sample, or the start of its aggregate bucket once the raw tier no longer holds it. Absent when none failed."
+        totalCount:
+          type: integer
+          format: int64
+          description: "Count of all executions"
+      required:
+        - windows
+        - streak
+        - totalCount
 
     Log:
       type: object
@@ -16581,7 +18202,10 @@ components:
           description: "User-facing explanation when a configured license is unusable"
         serverName:
           type: string
-          description: "Name that identifies this server in Dagu Console"
+          description: "Name Dagu Console shows for this server: the one a person gave it, else reportedName"
+        reportedName:
+          type: string
+          description: "Name this server reports to Dagu Console: license.server_name, else the hostname"
         licenseId:
           type: string
           description: "Identifier of the loaded license"
@@ -16623,7 +18247,7 @@ components:
           description: "Progress of the request"
         connectUrl:
           type: string
-          description: "Dagu Console page that approves the request"
+          description: "Dagu Console page that approves the request. Its report query parameter names what this server reports once connected, and is absent when it reports nothing"
         code:
           type: string
           description: "Short code Dagu Console shows so the approver can confirm the request"
@@ -16638,8 +18262,8 @@ components:
 
     LicenseMonitoringLevel:
       type: string
-      enum: ["off", "health", "runs"]
-      description: "How much this server reports to Dagu Console: off sends nothing, health sends its version and which services run, and runs also sends the status of finished DAG runs and the runs in progress"
+      enum: ["off", "health", "runs", "errors"]
+      description: "How much this server reports to Dagu Console: off sends nothing but one report saying so after health, runs, or errors, health sends its version and which services run, runs also sends the status of finished DAG runs and the runs in progress, and errors also sends the error messages of failed runs"
 
     LicenseMonitoring:
       type: object
@@ -16656,6 +18280,9 @@ components:
         noticeDismissed:
           type: boolean
           description: "Whether an administrator dismissed the notice that asks what to report"
+        errorsOffered:
+          type: boolean
+          description: "Whether an administrator was offered to send error messages: they chose a level on this server, or dismissed the notice that offers them"
         lastReportAt:
           type: string
           description: "When Dagu Console accepted the last report this server sent"
@@ -16671,6 +18298,40 @@ components:
         - configured
         - chosen
         - noticeDismissed
+        - errorsOffered
+
+    LicenseRemoteAccessLevel:
+      type: string
+      enum: ["off", "viewer", "operator", "developer"]
+      description: "The highest role calls from Dagu Cloud get on this server: off refuses them, viewer reads DAGs, runs, and logs, operator also starts, enqueues, retries, and stops runs of existing DAGs, and developer also changes DAG definitions and runs inline specs"
+
+    LicenseRemoteAccess:
+      type: object
+      description: "How far calls from Dagu Cloud may go on this server, and whether they reach it"
+      properties:
+        level:
+          $ref: "#/components/schemas/LicenseRemoteAccessLevel"
+        levelConfigured:
+          type: boolean
+          description: "Whether cloud.remote_access in the configuration fixes the level"
+        approvals:
+          type: boolean
+          description: "Whether calls from Dagu Cloud may approve, reject, or push back steps waiting for a person"
+        approvalsConfigured:
+          type: boolean
+          description: "Whether cloud.remote_approvals in the configuration fixes approvals"
+        connected:
+          type: boolean
+          description: "Whether this server process holds its connection to the relay, so calls from Dagu Cloud reach it"
+        error:
+          type: string
+          description: "Why the last connection failed or Dagu Cloud refused it, such as a workspace without a plan or a trial"
+      required:
+        - level
+        - levelConfigured
+        - approvals
+        - approvalsConfigured
+        - connected
 
     ChangePasswordRequest:
       type: object
@@ -17554,6 +19215,12 @@ components:
       pattern: "^$|^[a-z0-9][a-z0-9._-]*$"
       description: "Runtime profile override. Empty string means no profile."
 
+    WorkerSelectorOverride:
+      type: object
+      additionalProperties:
+        type: string
+      description: "Worker labels this DAG-run requires. Replaces the DAG-level worker_selector for this run, including its \"local\" value, and is kept with the run so retries, reschedules, and queued dispatch route the same way. Not allowed for DAGs with approval steps."
+
     RuntimeProfileKey:
       type: string
       minLength: 1
@@ -18165,6 +19832,39 @@ components:
           type: array
           items:
             $ref: "#/components/schemas/WorkspaceResponse"
+
+    WorkspaceDeprecationResponse:
+      type: object
+      required:
+        - items
+      properties:
+        items:
+          type: array
+          description: "Workspace settings in use, ordered by kind and name"
+          items:
+            $ref: "#/components/schemas/WorkspaceDeprecationItem"
+
+    WorkspaceDeprecationItem:
+      type: object
+      required:
+        - kind
+        - name
+      properties:
+        kind:
+          type: string
+          enum:
+            - baseConfig
+            - secret
+            - profileEntry
+            - notificationRoute
+            - incidentPolicy
+            - configKey
+            - user
+            - apiKey
+            - wikiDirectory
+        name:
+          type: string
+          description: "The setting, such as a workspace, a secret and its workspace, or a username"
 
 # Apply security requirements globally
 security:

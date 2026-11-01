@@ -120,7 +120,7 @@ steps:
   ).toBeFocused();
   await expect(
     page.getByRole('link', { name: 'Open DAG run', exact: true })
-  ).toHaveAttribute('href', `/dag-runs/${name}/${olderRun}`);
+  ).toHaveAttribute('href', `/dags/${name}?remoteNode=local&run=${olderRun}`);
   await page.keyboard.press('Shift+Tab');
   await page.keyboard.press('/');
   const filter = page.getByPlaceholder('Filter by file name...');
@@ -131,8 +131,7 @@ steps:
   await expect(first.nth(1)).toBeFocused();
   await page.screenshot({ path: testInfo.outputPath('artifact-keyboard.png') });
 
-  await page.goto(`/dag-runs/${name}/${newerRun}`);
-  await page.getByRole('button', { name: 'Artifacts', exact: true }).click();
+  await page.goto(`/dag-runs/${name}/${newerRun}?tab=artifacts`);
   const runFile = page.getByRole('treeitem', { name: 'a.txt', exact: true });
   await runFile.focus();
   await page.keyboard.press('j');

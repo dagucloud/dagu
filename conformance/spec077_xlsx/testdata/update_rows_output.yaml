@@ -1,0 +1,56 @@
+working_dir: .
+steps:
+  - id: write
+    action: xlsx.write
+    with:
+      path: orders.xlsx
+      columns: [Invoice No, Status]
+      rows: [{"Invoice No": "INV-1", "Status": ""}]
+  - id: mark
+    depends: write
+    action: xlsx.update_rows
+    with:
+      path: orders.xlsx
+      output: marked.xlsx
+      key: Invoice No
+      rows: [{"Invoice No": "INV-1", "Status": "Submitted"}]
+  - id: add
+    depends: write
+    action: xlsx.append
+    with:
+      path: orders.xlsx
+      output: added.xlsx
+      rows: [{"Invoice No": "INV-2", "Status": "New"}]
+  - id: read_orders
+    depends: [mark, add]
+    action: xlsx.read
+    with:
+      path: orders.xlsx
+  - id: read_marked
+    depends: mark
+    action: xlsx.read
+    with:
+      path: marked.xlsx
+  - id: read_added
+    depends: add
+    action: xlsx.read
+    with:
+      path: added.xlsx
+  - id: out
+    depends: [read_orders, read_marked, read_added]
+    action: file.write
+    with:
+      path: out.json
+      content: '{"orders": ${steps.read_orders.outputs.rows}, "marked": ${steps.read_marked.outputs.rows}, "added": ${steps.read_added.outputs.rows}}'
+  - id: mark_path
+    depends: mark
+    action: file.write
+    with:
+      path: mark_path.txt
+      content: ${steps.mark.outputs.path}
+  - id: add_path
+    depends: add
+    action: file.write
+    with:
+      path: add_path.txt
+      content: ${steps.add.outputs.path}

@@ -121,7 +121,7 @@ function WikiPageTabBar({
               onKeyDown={(e) => handleKeyDown(e, tab.id)}
               className={cn(
                 'group relative flex items-center gap-2 h-8 px-3 min-w-[120px] max-w-[200px]',
-                'border-b-2 transition-all duration-150 cursor-pointer shrink-0',
+                'border-b-2 transition-colors duration-150 cursor-pointer shrink-0',
                 'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1',
                 isActive
                   ? 'border-primary bg-transparent text-foreground'

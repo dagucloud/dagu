@@ -9,16 +9,25 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/dagucloud/dagu/v2/internal/cmn/cmdutil"
 	"github.com/dagucloud/dagu/v2/internal/cmn/value"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
+const psEchoHello = cmdutil.PowerShellImportCoreModules + "; echo hello"
+
 func TestBuildShellCommandForPowerShellUsesStableInvocation(t *testing.T) {
 	cmd := value.BuildShellCommandForTest("pwsh", "echo hello")
 
 	assert.Equal(t, "pwsh", shellBaseNameForTest(cmd.Path))
-	assert.Equal(t, []string{"-NoProfile", "-NonInteractive", "-Command", "echo hello"}, cmd.Args[1:])
+	assert.Equal(t, []string{"-NoProfile", "-NonInteractive", "-Command", psEchoHello}, cmd.Args[1:])
+}
+
+func TestBuildShellCommandForPowerShellKeepsUsingFirst(t *testing.T) {
+	cmd := value.BuildShellCommandForTest("pwsh", "using namespace System.Text; [StringBuilder]::new().Length")
+
+	assert.Equal(t, "using namespace System.Text; [StringBuilder]::new().Length", cmd.Args[len(cmd.Args)-1])
 }
 
 func TestBuildShellCommandParsesConfiguredShellArgs(t *testing.T) {
@@ -31,20 +40,20 @@ func TestBuildShellCommandParsesConfiguredShellArgs(t *testing.T) {
 		"-NoProfile",
 		"-NonInteractive",
 		"-Command",
-		"echo hello",
+		psEchoHello,
 	}, cmd.Args[1:])
 }
 
 func TestBuildShellCommandDoesNotDuplicateCommandFlag(t *testing.T) {
 	cmd := value.BuildShellCommandForTest("pwsh -NoProfile -Command", "echo hello")
 
-	assert.Equal(t, []string{"-NoProfile", "-NonInteractive", "-Command", "echo hello"}, cmd.Args[1:])
+	assert.Equal(t, []string{"-NoProfile", "-NonInteractive", "-Command", psEchoHello}, cmd.Args[1:])
 }
 
 func TestBuildShellCommandDoesNotDuplicatePowerShellAliasFlag(t *testing.T) {
 	cmd := value.BuildShellCommandForTest("pwsh -NoProfile -C", "echo hello")
 
-	assert.Equal(t, []string{"-NoProfile", "-NonInteractive", "-C", "echo hello"}, cmd.Args[1:])
+	assert.Equal(t, []string{"-NoProfile", "-NonInteractive", "-C", psEchoHello}, cmd.Args[1:])
 }
 
 func TestBuildShellCommandUsesNixShellCommandFlag(t *testing.T) {
@@ -62,7 +71,7 @@ func TestBuildShellCommandKeepsExistingShellPathWithSpaces(t *testing.T) {
 	cmd := value.BuildShellCommandForTest(shellPath, "echo hello")
 
 	assert.Equal(t, shellPath, cmd.Path)
-	assert.Equal(t, []string{"-NoProfile", "-NonInteractive", "-Command", "echo hello"}, cmd.Args[1:])
+	assert.Equal(t, []string{"-NoProfile", "-NonInteractive", "-Command", psEchoHello}, cmd.Args[1:])
 }
 
 func shellBaseNameForTest(path string) string {

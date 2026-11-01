@@ -90,7 +90,7 @@ function InfoTable({ rows }: { rows: [string, React.ReactNode][] }) {
 
 function SectionTitle({ children }: { children: React.ReactNode }) {
   return (
-    <div className="mt-2 mb-1 text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
+    <div className="mt-2 mb-1 text-[10px] font-medium text-muted-foreground">
       {children}
     </div>
   );

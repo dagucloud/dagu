@@ -168,7 +168,11 @@ func wakeDAGRunListTopics(mux *Multiplexer, affectedStatuses map[ir.Status]struc
 	mux.mu.RLock()
 	topics := make([]*multiplexTopic, 0, len(mux.topics))
 	for _, topic := range mux.topics {
-		if topic != nil && topic.topicType == TopicTypeDAGRuns && dagRunListTopicMatchesStatuses(topic.identifier, affectedStatuses) {
+		if topic == nil {
+			continue
+		}
+		if topic.topicType == TopicTypeDAGRunActivity ||
+			topic.topicType == TopicTypeDAGRuns && dagRunListTopicMatchesStatuses(topic.identifier, affectedStatuses) {
 			topics = append(topics, topic)
 		}
 	}

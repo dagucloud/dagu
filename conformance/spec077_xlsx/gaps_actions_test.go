@@ -140,6 +140,7 @@ func TestXlsxRuntimeErrorsActions(t *testing.T) {
 		{"write_cells_same_cell.yaml", "name the same cell Sheet1!B3"},
 		{"write_cells_missing_workbook.yaml", "template.xlsx: workbook not found"},
 		{"write_cells_same_output.yaml", "output must be a different file from path"},
+		{"update_rows_same_output.yaml", "orders.xlsx: output must be a different file from path; leave output out to update the workbook in place"},
 		{"sheet_exists.yaml", `report.xlsx: sheet "October" already exists`},
 		{"sheet_copy_self.yaml", `sheet "Template" cannot be copied onto itself`},
 		{"sheet_position.yaml", "position 5 is outside 1 to 2"},

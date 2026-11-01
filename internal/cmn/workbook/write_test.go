@@ -973,3 +973,45 @@ func TestAppendNewColumnUnderMergedHeaderIsRefused(t *testing.T) {
 	require.EqualError(t, err, `header.xlsx Sheet1!C1: merged cell B1:C1 covers the header cell of new column "note"; unmerge it to add the column`)
 	assert.Equal(t, before, fileHash(t, path))
 }
+
+func TestAppendOutputLeavesTheWorkbookAlone(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	path := filepath.Join(dir, "log.xlsx")
+	_, err := Write(context.Background(), path, Table{Columns: []string{"a", "b"}, Rows: [][]any{{1, 2}}}, WriteOptions{Header: true})
+	require.NoError(t, err)
+	before, err := os.ReadFile(path)
+	require.NoError(t, err)
+
+	output := filepath.Join(dir, "copies", "log.xlsx")
+	result, err := Append(context.Background(), path, Table{Columns: []string{"a", "b"}, Rows: [][]any{{3, 4}}}, WriteOptions{Header: true, Output: output})
+	require.NoError(t, err)
+	assert.Equal(t, output, result.Path)
+	assert.Equal(t, "Sheet1!A3:B3", result.Changes.Range)
+	after, err := os.ReadFile(path)
+	require.NoError(t, err)
+	assert.Equal(t, before, after, "the workbook at path is byte-identical")
+	back, err := Read(context.Background(), output, ReadOptions{})
+	require.NoError(t, err)
+	assert.Equal(t, 2, back.Count, "the output holds the existing rows and the appended one")
+	assert.Equal(t, int64(3), back.Rows[1]["a"])
+
+	_, err = Append(context.Background(), path, Table{Columns: []string{"a"}, Rows: [][]any{{5}}}, WriteOptions{Header: true, Output: filepath.Join(dir, ".", "log.xlsx")})
+	require.ErrorContains(t, err, "log.xlsx: output must be a different file from path; leave output out to append to the workbook in place")
+	_, err = Append(context.Background(), path, Table{Columns: []string{"a"}, Rows: [][]any{{5}}}, WriteOptions{Header: true, Output: filepath.Join(dir, "out.csv")})
+	require.ErrorIs(t, err, ErrUnsupportedFormat)
+	after, err = os.ReadFile(path)
+	require.NoError(t, err)
+	assert.Equal(t, before, after)
+
+	// A path that does not exist starts a new workbook at the output.
+	missing := filepath.Join(dir, "none.xlsx")
+	fresh := filepath.Join(dir, "fresh.xlsx")
+	_, err = Append(context.Background(), missing, Table{Columns: []string{"a"}, Rows: [][]any{{1}}}, WriteOptions{Header: true, Output: fresh})
+	require.NoError(t, err)
+	_, err = os.Stat(missing)
+	assert.ErrorIs(t, err, os.ErrNotExist, "path stays absent")
+	back, err = Read(context.Background(), fresh, ReadOptions{})
+	require.NoError(t, err)
+	assert.Equal(t, []string{"a"}, back.Headers)
+}

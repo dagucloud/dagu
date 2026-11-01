@@ -11,6 +11,7 @@ import (
 	"image"
 	"image/draw"
 	"image/png"
+	"math"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -72,9 +73,20 @@ const (
 	anyInputEventType         = 0xFFFFFFFF
 
 	mouseEventClickState = 1
-	scrollUnitLine       = 1
+	scrollUnitPixel      = 0
+	// notchPoints is how far one wheel notch scrolls, about what a notch
+	// of a Windows mouse wheel moves a browser page. A scroll in line units
+	// would move most applications a single 10-point line per notch.
+	notchPoints = 100
 	// maxUnicodeChunk is how many UTF-16 units one keyboard event carries.
 	maxUnicodeChunk = 20
+)
+
+// pointerWait bounds how long a move waits for the window server to put the
+// pointer where it was asked to, looked at every pointerPoll.
+const (
+	pointerWait = 500 * time.Millisecond
+	pointerPoll = 2 * time.Millisecond
 )
 
 // Modifier flags carried by every posted event.
@@ -116,6 +128,7 @@ var (
 	cgEventSetIntegerValueField     func(event uintptr, field uint32, value int64)
 	cgEventSetFlags                 func(event uintptr, flags uint64)
 	cgEventPost                     func(tap uint32, event uintptr)
+	cgEventPostToPid                func(pid int32, event uintptr)
 	cgEventSourceSecondsSinceLast   func(state int32, eventType uint32) float64
 	cgPreflightScreenCaptureAccess  func() bool
 	cgRequestScreenCaptureAccess    func() bool
@@ -174,6 +187,7 @@ func load() error {
 		purego.RegisterLibFunc(&cgEventSetIntegerValueField, cg, "CGEventSetIntegerValueField")
 		purego.RegisterLibFunc(&cgEventSetFlags, cg, "CGEventSetFlags")
 		purego.RegisterLibFunc(&cgEventPost, cg, "CGEventPost")
+		purego.RegisterLibFunc(&cgEventPostToPid, cg, "CGEventPostToPid")
 		purego.RegisterLibFunc(&cgEventSourceSecondsSinceLast, cg, "CGEventSourceSecondsSinceLastEventType")
 		purego.RegisterLibFunc(&cgPreflightScreenCaptureAccess, cg, "CGPreflightScreenCaptureAccess")
 		purego.RegisterLibFunc(&cgRequestScreenCaptureAccess, cg, "CGRequestScreenCaptureAccess")
@@ -188,6 +202,9 @@ func load() error {
 		}
 		purego.RegisterLibFunc(&axIsProcessTrusted, as, "AXIsProcessTrusted")
 		purego.RegisterLibFunc(&axIsProcessTrustedWithOptions, as, "AXIsProcessTrustedWithOptions")
+		if errLoad = loadWindowFuncs(cg, cf, as); errLoad != nil {
+			return
+		}
 		iokit, err := purego.Dlopen(ioKitPath, purego.RTLD_NOW|purego.RTLD_GLOBAL)
 		if err != nil {
 			errLoad = fmt.Errorf("load IOKit: %w", err)
@@ -440,10 +457,7 @@ func (b *darwinBackend) Capture() (*image.RGBA, error) {
 }
 
 func (b *darwinBackend) toPoints(x, y int) cgPoint {
-	return cgPoint{
-		X: b.display.bounds.Origin.X + float64(x)/b.display.scale,
-		Y: b.display.bounds.Origin.Y + float64(y)/b.display.scale,
-	}
+	return b.display.points(image.Pt(x, y))
 }
 
 func (b *darwinBackend) location() cgPoint {
@@ -452,6 +466,10 @@ func (b *darwinBackend) location() cgPoint {
 	return cgEventGetLocation(event)
 }
 
+// MoveTo moves the pointer and waits until the window server has put it
+// there, which it does a moment after the event is posted: a press made at
+// the pointer right after would otherwise land where the pointer was. A
+// pointer that does not get there within pointerWait is an error.
 func (b *darwinBackend) MoveTo(x, y int) error {
 	eventType, button := uint32(eventMouseMoved), uint32(mouseButtonLeft)
 	switch {
@@ -462,7 +480,19 @@ func (b *darwinBackend) MoveTo(x, y int) error {
 	case b.buttons[ButtonMiddle]:
 		eventType, button = eventOtherMouseDragged, mouseButtonCenter
 	}
-	return b.post(cgEventCreateMouseEvent(0, eventType, b.toPoints(x, y), button))
+	target := b.toPoints(x, y)
+	if err := b.post(cgEventCreateMouseEvent(0, eventType, target, button)); err != nil {
+		return err
+	}
+	for deadline := time.Now().Add(pointerWait); ; time.Sleep(pointerPoll) {
+		if at := b.location(); math.Abs(at.X-target.X) < 1 && math.Abs(at.Y-target.Y) < 1 {
+			return nil
+		}
+		if !time.Now().Before(deadline) {
+			px, py, _ := b.Position()
+			return fmt.Errorf("the pointer did not reach %d,%d within %s; it is at %d,%d", x, y, pointerWait, px, py)
+		}
+	}
 }
 
 func (b *darwinBackend) Position() (int, int, error) {
@@ -484,6 +514,12 @@ func (b *darwinBackend) Button(button Button, down bool, clicks int) error {
 	default:
 		return fmt.Errorf("unknown mouse button %q", button)
 	}
+	// A press starting a click on a window in the background brings it
+	// forward first, so the click reaches the window.
+	if button == ButtonLeft && down && clicks == 1 {
+		x, y, _ := b.Position()
+		b.bringForwardAt(image.Pt(x, y))
+	}
 	event := cgEventCreateMouseEvent(0, eventType, b.location(), number)
 	if event == 0 {
 		return errors.New("create mouse event")
@@ -495,8 +531,9 @@ func (b *darwinBackend) Button(button Button, down bool, clicks int) error {
 }
 
 func (b *darwinBackend) Wheel(dx, dy int) error {
-	// Positive wheel values scroll up and left.
-	return b.post(cgEventCreateScrollWheelEvent2(0, scrollUnitLine, 2, int32(-dy), int32(-dx), 0)) //nolint:gosec // notch counts are small
+	// Positive wheel values scroll up and left. A scroll in pixel units,
+	// as a trackpad sends, moves every application by the same distance.
+	return b.post(cgEventCreateScrollWheelEvent2(0, scrollUnitPixel, 2, int32(-dy*notchPoints), int32(-dx*notchPoints), 0)) //nolint:gosec // notch counts are small
 }
 
 func (b *darwinBackend) Key(key Key, down bool) error {
@@ -546,13 +583,6 @@ func (b *darwinBackend) LastInput() time.Time {
 	seconds := cgEventSourceSecondsSinceLast(eventSourceStateHIDSystem, anyInputEventType)
 	return time.Now().Add(-time.Duration(seconds * float64(time.Second)))
 }
-
-// FocusedWindow and WindowAt are not yet read on macOS, so the focus is
-// unknown there and a step treats it conservatively.
-func (b *darwinBackend) FocusedWindow() WindowID    { return WindowID{} }
-func (b *darwinBackend) WindowAt(int, int) WindowID { return WindowID{} }
-func (b *darwinBackend) Windows() []WindowID        { return nil }
-func (b *darwinBackend) Raise(WindowID) error       { return nil }
 
 func (b *darwinBackend) Close() error {
 	b.wake()

@@ -63,7 +63,7 @@ export function ToggleGroup({
     <div
       ref={groupRef}
       className={cn(
-        'inline-flex rounded-lg border border-border overflow-hidden bg-muted/50 p-1 gap-1',
+        'inline-flex rounded-lg overflow-hidden bg-muted p-0.5 gap-0.5',
         className
       )}
       role="group"
@@ -82,7 +82,9 @@ type ToggleButtonProps = {
   children: React.ReactNode;
   className?: string;
   'aria-label'?: string;
+  title?: string;
   position?: 'first' | 'middle' | 'last' | 'single';
+  disabled?: boolean;
 };
 
 export function ToggleButton({
@@ -92,6 +94,8 @@ export function ToggleButton({
   children,
   className,
   'aria-label': ariaLabel,
+  title,
+  disabled,
 }: ToggleButtonProps): React.ReactElement {
   const isSelected = groupValue === value;
 
@@ -99,15 +103,17 @@ export function ToggleButton({
     <button
       type="button"
       className={cn(
-        'inline-flex items-center justify-center h-8 px-4 text-xs font-bold transition-all rounded-md cursor-pointer',
+        'inline-flex items-center justify-center h-8 px-3 text-xs font-medium transition-colors rounded-md cursor-pointer disabled:cursor-not-allowed disabled:opacity-50',
         isSelected
-          ? 'bg-primary text-primary-foreground shadow-sm scale-100 dark:bg-transparent dark:border dark:border-primary dark:text-primary'
-          : 'text-muted-foreground hover:bg-muted hover:text-foreground active:scale-95',
+          ? 'bg-card text-foreground shadow-sm dark:bg-accent'
+          : 'text-muted-foreground hover:text-foreground',
         className
       )}
       onClick={onClick}
+      disabled={disabled}
       aria-pressed={isSelected}
       aria-label={ariaLabel}
+      title={title}
     >
       {children}
     </button>

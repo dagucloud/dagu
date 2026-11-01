@@ -72,7 +72,7 @@ function IncidentHomeLinks({
 }): ReactElement {
   return (
     <section className="space-y-2">
-      <h3 className="text-xs font-semibold uppercase text-muted-foreground">
+      <h3 className="text-xs font-semibold text-muted-foreground">
         <I18nText text={'Setup'} />
       </h3>
       <div className="grid gap-2 md:grid-cols-2 xl:grid-cols-3">
@@ -176,12 +176,12 @@ function ProvidersHeader({ onAdd }: { onAdd: () => void }): ReactElement {
           <p className="text-sm text-muted-foreground">
             <I18nText
               text={
-                'Connections are configured once, then selected by Global, workspace, or DAG incident routing.'
+                'Connections are configured once, then selected by Global, workspace, or workflow incident routing.'
               }
             />
           </p>
         </div>
-        <Button size="sm" onClick={onAdd}>
+        <Button size="sm" variant="primary" onClick={onAdd}>
           <Plus className="h-4 w-4" />
           <I18nText text={'Add connection'} />
         </Button>
@@ -529,7 +529,7 @@ export function IncidentProvidersPage(): ReactElement {
             'Test incident delivery failed'
         );
       }
-      showToast('Test incident sent');
+      showToast('Test incident sent', { variant: 'info' });
     } catch (err) {
       setError(
         err instanceof Error ? err.message : 'Test incident delivery failed'
@@ -626,7 +626,7 @@ function PoliciesHeader({
           </h1>
           <p className="text-sm text-muted-foreground">
             <I18nText
-              text={'Effective order is DAG, workspace, then Global.'}
+              text={'Effective order is workflow, workspace, then Global.'}
             />
           </p>
         </div>
@@ -697,7 +697,7 @@ function ScopeSelector({
           <p className="mt-2 text-xs leading-5 text-muted-foreground">
             <I18nText
               text={
-                'Default route for DAGs without workspace or DAG overrides.'
+                'Default route for workflows without workspace or workflow overrides.'
               }
             />
           </p>

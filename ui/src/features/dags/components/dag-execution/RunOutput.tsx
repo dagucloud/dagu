@@ -17,6 +17,7 @@ import { useI18n } from '@/i18n/I18nProvider';
 import { isActiveNodeStatus } from '@/lib/status-utils';
 import { cn } from '@/lib/utils';
 import StepLog from './StepLog';
+import { statusLabelText } from '@/lib/status-utils';
 
 type Node = components['schemas']['Node'];
 type Props = {
@@ -241,7 +242,7 @@ function RunOutputPanel({ dagRun, onInspect }: Props) {
                       failed && 'text-destructive'
                     )}
                   >
-                    {ts(node.statusLabel)}
+                    {ts(statusLabelText(node.statusLabel))}
                   </span>
                 </span>
               </button>
@@ -263,7 +264,7 @@ function RunOutputPanel({ dagRun, onInspect }: Props) {
               )}
               {nodes.map((node) => (
                 <option key={node.step.name} value={node.step.name}>
-                  {node.step.name} · {ts(node.statusLabel)}
+                  {node.step.name} · {ts(statusLabelText(node.statusLabel))}
                 </option>
               ))}
             </select>
@@ -276,7 +277,7 @@ function RunOutputPanel({ dagRun, onInspect }: Props) {
               </span>
               {selected && (
                 <span className="ml-2 text-xs text-muted-foreground">
-                  {ts(selected.statusLabel)}
+                  {ts(statusLabelText(selected.statusLabel))}
                 </span>
               )}
             </div>

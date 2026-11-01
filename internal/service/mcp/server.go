@@ -15,6 +15,7 @@ import (
 	"time"
 
 	daguapi "github.com/dagucloud/dagu/v2/api/v1"
+	"github.com/dagucloud/dagu/v2/internal/audit"
 	"github.com/dagucloud/dagu/v2/internal/cmn/config"
 	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/persis"
@@ -47,6 +48,15 @@ type Service struct {
 
 	watchPollInterval time.Duration
 	watchMaxErrors    int
+
+	// remote is set on the server that takes calls from Dagu Cloud.
+	remote *remoteCalls
+}
+
+// remoteCalls is what the server that takes calls from Dagu Cloud checks.
+type remoteCalls struct {
+	// approvals reports whether calls may decide steps waiting for a person.
+	approvals func(context.Context) bool
 }
 
 type resourceWatcher struct {
@@ -56,26 +66,79 @@ type resourceWatcher struct {
 }
 
 // NewHTTPHandler returns a Streamable HTTP MCP handler backed by the Dagu API.
+// Open event streams carry periodic SSE comments so proxies keep them open.
 func NewHTTPHandler(api *frontendapi.API) http.Handler {
 	server := NewServer(api)
+	return withSSEHeartbeat(newStreamableHandler(server), sseHeartbeatInterval)
+}
+
+// newStreamableHandler serves server over Streamable HTTP. Replies to POST are
+// plain JSON, so server-initiated messages use the standalone event stream.
+func newStreamableHandler(server *mcpsdk.Server) http.Handler {
 	return mcpsdk.NewStreamableHTTPHandler(
 		func(*http.Request) *mcpsdk.Server { return server },
 		&mcpsdk.StreamableHTTPOptions{JSONResponse: true},
 	)
 }
 
+// NewCloudHandler returns the stateless MCP handler for the calls Dagu Cloud
+// carries to this server. It offers no resource subscriptions. It decides a
+// step waiting for a person only while approvals reports true, and only for
+// the attempt the call names.
+func NewCloudHandler(api *frontendapi.API, approvals func(context.Context) bool) http.Handler {
+	return newCloudHandler(newServer(api, &remoteCalls{approvals: approvals}))
+}
+
+// newCloudHandler serves server to calls from Dagu Cloud, each in a session
+// of its own, and ends the work of a call when its request ends.
+func newCloudHandler(server *mcpsdk.Server) http.Handler {
+	server.AddReceivingMiddleware(endWithRequest)
+	handler := mcpsdk.NewStreamableHTTPHandler(
+		func(*http.Request) *mcpsdk.Server { return server },
+		&mcpsdk.StreamableHTTPOptions{Stateless: true, JSONResponse: true, PropagateRequestCancellation: true},
+	)
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		ctx := audit.WithSourceContext(r.Context(), ensureMCPSourceContext(r.Context()))
+		ctx = context.WithValue(ctx, requestContextKey{}, r.Context())
+		handler.ServeHTTP(w, r.WithContext(ctx))
+	})
+}
+
+// requestContextKey carries the context of the HTTP request a call came in.
+type requestContextKey struct{}
+
+// endWithRequest cancels a method's context when the request it came in ends.
+// The SDK does this itself only for protocol versions from 2026-07-28, and
+// turning remote access off must end the calls in flight whatever version a
+// call uses.
+func endWithRequest(next mcpsdk.MethodHandler) mcpsdk.MethodHandler {
+	return func(ctx context.Context, method string, req mcpsdk.Request) (mcpsdk.Result, error) {
+		request, ok := ctx.Value(requestContextKey{}).(context.Context)
+		if !ok {
+			return next(ctx, method, req)
+		}
+		ctx, cancel := context.WithCancel(ctx)
+		defer cancel()
+		stop := context.AfterFunc(request, cancel)
+		defer stop()
+		return next(ctx, method, req)
+	}
+}
+
 // NewServer builds the MCP server used by the Streamable HTTP transport.
 func NewServer(api *frontendapi.API) *mcpsdk.Server {
+	return newServer(api, nil)
+}
+
+func newServer(api *frontendapi.API, remote *remoteCalls) *mcpsdk.Server {
 	svc := &Service{
 		api:               api,
 		watchers:          make(map[string]*resourceWatcher),
 		watchPollInterval: defaultRunWatchPollInterval,
 		watchMaxErrors:    defaultRunWatchMaxErrors,
+		remote:            remote,
 	}
-	server := mcpsdk.NewServer(&mcpsdk.Implementation{
-		Name:    "dagu",
-		Version: config.Version,
-	}, &mcpsdk.ServerOptions{
+	options := &mcpsdk.ServerOptions{
 		Capabilities: &mcpsdk.ServerCapabilities{
 			Extensions: map[string]any{
 				mcpAppsExtensionURI: mcpAppsCapability(),
@@ -87,7 +150,17 @@ func NewServer(api *frontendapi.API) *mcpsdk.Server {
 		Instructions:       instructions,
 		SubscribeHandler:   svc.subscribe,
 		UnsubscribeHandler: svc.unsubscribe,
-	})
+	}
+	if remote != nil {
+		// A stateless call ends with its response, so nothing could carry
+		// an update.
+		options.Capabilities.Resources = &mcpsdk.ResourceCapabilities{}
+		options.SubscribeHandler, options.UnsubscribeHandler = nil, nil
+	}
+	server := mcpsdk.NewServer(&mcpsdk.Implementation{
+		Name:    "dagu",
+		Version: config.Version,
+	}, options)
 	svc.server = server
 
 	registerTools(server, svc)
@@ -142,13 +215,13 @@ func registerTools(server *mcpsdk.Server, svc *Service) {
 	server.AddTool(&mcpsdk.Tool{
 		Meta:        runInspectorToolMeta(),
 		Name:        toolExecute,
-		Title:       "Execute, enqueue, retry, or stop DAG-runs",
-		Description: "Run control entry point. action=start or enqueue launches a DAG or inline spec; action=retry retries a DAG-run; action=stop terminates a DAG-run. Set wait=true to wait for the run result.",
+		Title:       "Execute DAG-runs and decide waiting steps",
+		Description: "Run control entry point. action=start or enqueue launches a DAG or inline spec; action=retry retries a DAG-run; action=stop terminates a DAG-run. When dagu_read target=run shows a step waiting for a person (approval or humanTask), action=approve, reject, or push_back decides that step; pass the run's attemptId from that read so a decision based on a stale read is refused. Set wait=true to wait for the run result.",
 		InputSchema: executeToolInputSchema(),
 		Annotations: &mcpsdk.ToolAnnotations{
 			DestructiveHint: truePtr,
 			OpenWorldHint:   falsePtr,
-			Title:           "Execute, enqueue, retry, or stop DAG-runs",
+			Title:           "Execute DAG-runs and decide waiting steps",
 		},
 	}, svc.executeTool)
 }

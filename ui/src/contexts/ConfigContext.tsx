@@ -34,6 +34,7 @@ export type LicenseStatus = {
   error?: string;
   // Identity fields are absent when the server predates them.
   serverName?: string;
+  reportedName?: string;
   licenseId?: string;
   workspace?: string;
   connectedVia?: components['schemas']['LicenseStatusResponse']['connectedVia'];
@@ -65,6 +66,9 @@ export type Config = {
   gitSyncEnabled: boolean;
   updateAvailable: boolean;
   latestVersion: string;
+  upgradeCommand: string;
+  restartRequired: boolean;
+  restartCommand: string;
   permissions: {
     writeDags: boolean;
     runDags: boolean;

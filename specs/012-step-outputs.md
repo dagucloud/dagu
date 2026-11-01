@@ -42,7 +42,7 @@ dagu validate <path/to/dag_file>
 Workflow execution uses:
 
 ```sh
-dagu run <workflow_target>
+dagu start <path/to/dag_file>
 ```
 
 Rules:

@@ -36,6 +36,7 @@ import { I18nProps } from '@/i18n/I18nProps';
 import { I18nText } from '@/i18n/I18nText';
 import dayjs from '@/lib/dayjs';
 import ConfirmModal from '@/components/ui/confirm-dialog';
+import { EmptyState } from '@/components/PageStates';
 import {
   Check,
   Copy,
@@ -262,14 +263,14 @@ export default function WebhooksPage() {
   }
 
   return (
-    <div className="flex flex-col gap-4 max-w-7xl">
+    <div className="flex flex-col gap-4">
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-lg font-semibold">
+          <h1 className="text-2xl font-semibold tracking-[-0.01em]">
             <I18nText text={'Webhooks'} />
           </h1>
           <p className="text-sm text-muted-foreground">
-            <I18nText text={'Manage webhooks across all DAGs'} />
+            <I18nText text={'Manage webhooks across all workflows'} />
           </p>
         </div>
       </div>
@@ -280,12 +281,29 @@ export default function WebhooksPage() {
         </div>
       )}
 
-      <div className="card-obsidian overflow-auto">
+      {!isLoading && webhooks.length === 0 ? (
+        <EmptyState
+          icon={<Webhook />}
+          title={<I18nText text={'No webhooks yet'} />}
+          description={
+            <I18nText
+              text={
+                "Create a webhook from a workflow's Webhook tab to trigger it over HTTP."
+              }
+            />
+          }
+          action={
+            <Button variant="outline" onClick={() => navigate('/dags')}>
+              <I18nText text={'Go to Workflows'} />
+            </Button>
+          }
+        />
+      ) : (
         <Table className="text-xs">
           <TableHeader>
             <TableRow>
               <TableHead className="w-[250px]">
-                <I18nText text={'DAG'} />
+                <I18nText text={'Workflow'} />
               </TableHead>
               <TableHead className="w-[150px]">
                 <I18nText text={'Token'} />
@@ -305,7 +323,11 @@ export default function WebhooksPage() {
               <TableHead className="w-[180px]">
                 <I18nText text={'Last Triggered'} />
               </TableHead>
-              <TableHead className="w-[80px]"></TableHead>
+              <TableHead className="w-[80px]">
+                <span className="sr-only">
+                  <I18nText text={'Actions'} />
+                </span>
+              </TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
@@ -316,19 +338,6 @@ export default function WebhooksPage() {
                   className="text-center text-muted-foreground py-8"
                 >
                   <I18nText text={'Loading webhooks...'} />
-                </TableCell>
-              </TableRow>
-            ) : webhooks.length === 0 ? (
-              <TableRow>
-                <TableCell
-                  colSpan={8}
-                  className="text-center text-muted-foreground py-8"
-                >
-                  <I18nText
-                    text={
-                      'No webhooks found. Create webhooks from individual DAG pages.'
-                    }
-                  />
                 </TableCell>
               </TableRow>
             ) : (
@@ -418,7 +427,7 @@ export default function WebhooksPage() {
                           onClick={() => setRegeneratingWebhook(webhook)}
                         >
                           <RefreshCw className="h-4 w-4 mr-2" />
-                          <I18nText text={'Regenerate Token'} />
+                          <I18nText text={'Regenerate token'} />
                         </DropdownMenuItem>
                         <DropdownMenuItem
                           onClick={() => setDeletingWebhook(webhook)}
@@ -435,13 +444,13 @@ export default function WebhooksPage() {
             )}
           </TableBody>
         </Table>
-      </div>
+      )}
 
       {/* Regenerate Token Confirmation / Token Display */}
       {regeneratingWebhook && !newToken && (
         <I18nProps>
           <ConfirmModal
-            title="Regenerate Token"
+            title="Regenerate token"
             buttonText="Regenerate"
             visible={true}
             dismissModal={() => setRegeneratingWebhook(null)}

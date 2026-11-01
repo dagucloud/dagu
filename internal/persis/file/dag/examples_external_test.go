@@ -15,6 +15,7 @@ import (
 	"github.com/dagucloud/dagu/v2"
 	"github.com/dagucloud/dagu/v2/internal/ir"
 	filedag "github.com/dagucloud/dagu/v2/internal/persis/file/dag"
+	filedagrun "github.com/dagucloud/dagu/v2/internal/persis/file/dagrun"
 	"github.com/dagucloud/dagu/v2/internal/spec"
 
 	"github.com/stretchr/testify/require"
@@ -28,12 +29,13 @@ func TestFirstLaunchExamplesLoadAndRun(t *testing.T) {
 	require.NoError(t, store.Initialize())
 
 	files := yamlFiles(t, dagsDir)
-	require.NotEmpty(t, files)
+	require.Contains(t, files, retryExampleFile)
 
+	dataDir := t.TempDir()
 	eng, err := dagu.New(ctx, dagu.Options{
 		HomeDir:     t.TempDir(),
 		DAGsDir:     dagsDir,
-		DataDir:     t.TempDir(),
+		DataDir:     dataDir,
 		LogDir:      t.TempDir(),
 		ArtifactDir: t.TempDir(),
 	})
@@ -63,7 +65,27 @@ func TestFirstLaunchExamplesLoadAndRun(t *testing.T) {
 			require.Equal(t, ir.Succeeded.String(), status.Status)
 		})
 	}
+
+	// The retry demo fails its first attempt on purpose, so the run history
+	// shows a step that succeeded on its retry.
+	t.Run("RetryDemoRetriesOnce", func(t *testing.T) {
+		name := strings.TrimSuffix(retryExampleFile, filepath.Ext(retryExampleFile))
+		attempt, err := filedagrun.NewStore(filepath.Join(dataDir, "dag-runs")).
+			FindAttempt(ctx, ir.NewDAGRunRef(name, name))
+		require.NoError(t, err)
+		status, err := attempt.ReadStatus(ctx)
+		require.NoError(t, err)
+		require.Equal(t, ir.Succeeded, status.Status)
+
+		retried := make(map[string]int)
+		for _, node := range status.Nodes {
+			retried[node.Step.ID] = node.RetryCount
+		}
+		require.Equal(t, map[string]int{"call_api": 1, "report": 0}, retried)
+	})
 }
+
+const retryExampleFile = "example-06-retry-on-failure.yaml"
 
 func yamlFiles(t *testing.T, dir string) []string {
 	t.Helper()

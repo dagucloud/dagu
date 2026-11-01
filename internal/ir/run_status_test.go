@@ -8,6 +8,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/dagucloud/dagu/v2/internal/cmn/stringutil"
 	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -255,7 +256,7 @@ func TestNewDAGRunCondition(t *testing.T) {
 		Status:    "False",
 		Reason:    "MaxConcurrencyReached",
 		Message:   "The DAG-run cannot start because the queue active-run concurrency limit has been reached.",
-		CheckedAt: "2026-05-19T01:02:03Z",
+		CheckedAt: "2026-05-19T01:02:03.000Z",
 	}, condition)
 
 	data, err := json.Marshal(condition)
@@ -265,7 +266,7 @@ func TestNewDAGRunCondition(t *testing.T) {
 		"status": "False",
 		"reason": "MaxConcurrencyReached",
 		"message": "The DAG-run cannot start because the queue active-run concurrency limit has been reached.",
-		"checkedAt": "2026-05-19T01:02:03Z"
+		"checkedAt": "2026-05-19T01:02:03.000Z"
 	}`, string(data))
 }
 
@@ -528,4 +529,41 @@ func TestDAGRunStatusErrorText(t *testing.T) {
 			assert.Equal(t, tt.want, tt.status.ErrorText())
 		})
 	}
+}
+
+// The status stores the run times as strings with millisecond precision. A
+// status file that an older version wrote has second precision and loads as it
+// is, with no migration.
+func TestDAGRunStatusTimestampsJSON(t *testing.T) {
+	t.Parallel()
+
+	dag := &ir.DAG{Name: "timing"}
+	startedAt := time.Date(2026, 5, 19, 1, 2, 3, 45_678_901, time.UTC)
+	finishedAt := startedAt.Add(187 * time.Millisecond)
+	status := ir.NewStatusBuilder(dag).Create(
+		"run-1", ir.Succeeded, 0, startedAt, ir.WithFinishedAt(finishedAt),
+	)
+
+	data, err := json.Marshal(status)
+	require.NoError(t, err)
+
+	var fields map[string]any
+	require.NoError(t, json.Unmarshal(data, &fields))
+	assert.Equal(t, "2026-05-19T01:02:03.045Z", fields["startedAt"])
+	assert.Equal(t, "2026-05-19T01:02:03.232Z", fields["finishedAt"])
+
+	t.Run("OldSecondPrecisionStatusLoads", func(t *testing.T) {
+		old := []byte(`{"name":"timing","dagRunId":"run-1","status":4,` +
+			`"startedAt":"2026-05-19T01:02:03Z","finishedAt":"2026-05-19T01:02:05Z"}`)
+
+		var decoded ir.DAGRunStatus
+		require.NoError(t, json.Unmarshal(old, &decoded))
+		assert.Equal(t, "2026-05-19T01:02:03Z", decoded.StartedAt)
+
+		started, err := stringutil.ParseTime(decoded.StartedAt)
+		require.NoError(t, err)
+		finished, err := stringutil.ParseTime(decoded.FinishedAt)
+		require.NoError(t, err)
+		assert.Equal(t, 2*time.Second, finished.Sub(started))
+	})
 }

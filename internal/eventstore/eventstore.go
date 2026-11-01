@@ -146,6 +146,7 @@ func (e *Event) Validate() error {
 type QueryFilter struct {
 	Kind           EventKind
 	Type           EventType
+	ExcludeTypes   []EventType
 	DAGName        string
 	DAGRunID       string
 	AttemptID      string

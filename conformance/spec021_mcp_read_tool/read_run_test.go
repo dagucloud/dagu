@@ -4,7 +4,9 @@
 package spec021_mcp_read_tool_test
 
 import (
+	"regexp"
 	"testing"
+	"time"
 
 	api "github.com/dagucloud/dagu/v2/api/v1"
 	"github.com/dagucloud/dagu/v2/conformance/mcptest"
@@ -46,6 +48,38 @@ func TestReadRunTargets(t *testing.T) {
 		output := requireReadSuccess(t, result, "run_logs", runLogsURI(fixture.dagName, fixture.dagRunID, query), "dag_run_logs", "application/json")
 		requireRunLogsData(t, requireData(t, output))
 	})
+}
+
+// Spec 021: a run and its steps carry RFC 3339 times with millisecond
+// precision, and a very fast step never finishes before it starts.
+func TestReadRunTimesHaveMilliseconds(t *testing.T) {
+	fixture := newReadFixture(t)
+	result := callRead(t, fixture.session, map[string]any{
+		"target":   "run",
+		"name":     fixture.dagName,
+		"dagRunId": fixture.dagRunID,
+	})
+	output := requireReadSuccess(t, result, "run", runURI(fixture.dagName, fixture.dagRunID), "dag_run", "application/json")
+	data := requireData(t, output)
+
+	withMillis := regexp.MustCompile(`^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}(Z|[+-]\d{2}:\d{2})$`)
+	requirePair := func(holder map[string]any) {
+		t.Helper()
+		startedAt := requireString(t, holder, "startedAt")
+		finishedAt := requireString(t, holder, "finishedAt")
+		require.Regexp(t, withMillis, startedAt)
+		require.Regexp(t, withMillis, finishedAt)
+		started, err := time.Parse(time.RFC3339, startedAt)
+		require.NoError(t, err)
+		finished, err := time.Parse(time.RFC3339, finishedAt)
+		require.NoError(t, err)
+		require.False(t, finished.Before(started), "%s is before %s", finishedAt, startedAt)
+	}
+
+	requirePair(data)
+	steps, ok := data["steps"].([]any)
+	require.True(t, ok)
+	requirePair(requireItem(t, steps, "name", "main"))
 }
 
 func TestReadStepLogQueries(t *testing.T) {
@@ -293,6 +327,7 @@ func requireRunData(t *testing.T, data map[string]any, dagName, dagRunID string)
 	require.Equal(t, dagRunID, data["dagRunId"])
 	require.Equal(t, runURI(dagName, dagRunID), data["uri"])
 	require.Equal(t, runLogsURI(dagName, dagRunID, ""), data["logsUri"])
+	require.NotEmpty(t, requireString(t, data, "attemptId"))
 	requireNumber(t, data, "status")
 	require.NotEmpty(t, requireString(t, data, "statusLabel"))
 	// The fixture run is finished, so both run timestamps must be present.

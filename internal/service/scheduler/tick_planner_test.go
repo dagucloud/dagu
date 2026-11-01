@@ -215,7 +215,7 @@ func TestCatchupBufferLimit(t *testing.T) {
 							updated := *dag
 							updated.Timeout = time.Minute
 							planner.entryMu.Lock()
-							planner.handleEvent(t.Context(), DAGChangeEvent{Type: DAGChangeUpdated, DAGEntry: DAGEntry{DAG: &updated}})
+							planner.applyEvent(t.Context(), DAGChangeEvent{Type: DAGChangeUpdated, DAGEntry: DAGEntry{DAG: &updated}})
 							planner.entryMu.Unlock()
 						}
 					}
@@ -225,9 +225,7 @@ func TestCatchupBufferLimit(t *testing.T) {
 					if policy == ir.OverlapPolicyLatest {
 						count = 1
 					}
-					if path == "resume" {
-						planner.Flush(t.Context())
-					}
+					planner.Flush(t.Context())
 					if count < pending+gap {
 						// Persist discarded slots without consuming the retained backlog.
 						want := now.Add(-time.Duration(count) * time.Minute)
@@ -282,7 +280,7 @@ func TestCatchupTimezone(t *testing.T) {
 				switch path {
 				case "update":
 					planner.entryMu.Lock()
-					planner.handleEvent(t.Context(), DAGChangeEvent{Type: DAGChangeUpdated, DAGEntry: DAGEntry{DAG: dag}})
+					planner.applyEvent(t.Context(), DAGChangeEvent{Type: DAGChangeUpdated, DAGEntry: DAGEntry{DAG: dag}})
 					planner.entryMu.Unlock()
 				case "resume":
 					planner.resume(t.Context(), now)
@@ -407,6 +405,102 @@ func TestTickPlanner_FlushWritesCurrentSnapshot(t *testing.T) {
 
 	tp.Flush(context.Background())
 	assert.NotNil(t, store.lastSaved())
+}
+
+// heldStateStore holds the save of the snapshot taken at holdTick until
+// release closes, to keep a flush between its snapshot and its save.
+type heldStateStore struct {
+	mockStateStore
+	holdTick time.Time
+	held     chan struct{}
+	release  chan struct{}
+}
+
+func (s *heldStateStore) Save(ctx context.Context, state *schedulerstate.State) error {
+	if state.LastTick.Equal(s.holdTick) {
+		close(s.held)
+		<-s.release
+	}
+	return s.mockStateStore.Save(ctx, state)
+}
+
+// A flush that snapshots later must save later, or the older snapshot stays
+// on disk until the next flush.
+func TestTickPlanner_FlushSavesInSnapshotOrder(t *testing.T) {
+	t.Parallel()
+
+	first := time.Date(2026, 2, 7, 13, 0, 0, 0, time.UTC)
+	second := first.Add(time.Minute)
+	store := &heldStateStore{holdTick: first, held: make(chan struct{}), release: make(chan struct{})}
+	tp, _ := newTestTickPlanner(store)
+	require.NoError(t, tp.Init(t.Context(), nil))
+
+	tp.Advance(first)
+	firstDone := make(chan struct{})
+	go func() {
+		tp.Flush(t.Context())
+		close(firstDone)
+	}()
+	<-store.held
+
+	tp.Advance(second)
+	secondDone := make(chan struct{})
+	go func() {
+		tp.Flush(t.Context())
+		close(secondDone)
+	}()
+	// Give the later flush time to overtake the held one.
+	select {
+	case <-secondDone:
+	case <-time.After(100 * time.Millisecond):
+	}
+	close(store.release)
+	<-firstDone
+	<-secondDone
+
+	assert.Equal(t, second, store.lastSaved().LastTick)
+}
+
+// Events already queued, as one directory refresh sends them, are saved
+// together, and a lone event is still saved without waiting for the
+// periodic flush.
+func TestTickPlanner_DrainSavesQueuedEventsOnce(t *testing.T) {
+	t.Parallel()
+
+	const queued = 200
+	store := &mockStateStore{}
+	tp, eventCh := newTestTickPlanner(store)
+	require.NoError(t, tp.Init(t.Context(), nil))
+	savesAfterInit := len(store.saved)
+
+	addEvent := func(name string) DAGChangeEvent {
+		return DAGChangeEvent{Type: DAGChangeAdded, DAGEntry: DAGEntry{DAG: &ir.DAG{
+			Name:     name,
+			Schedule: []ir.Schedule{mustParseSchedule(t, "0 * * * *")},
+		}}}
+	}
+	for i := range queued {
+		eventCh <- addEvent(fmt.Sprintf("dag-%d", i))
+	}
+	savedDAGs := func() int {
+		saved := store.lastSaved()
+		if saved == nil {
+			return 0
+		}
+		return len(saved.DAGs)
+	}
+
+	ctx, cancel := context.WithCancel(t.Context())
+	defer cancel()
+	tp.Start(ctx)
+	require.Eventually(t, func() bool { return savedDAGs() == queued }, 2*time.Second, 5*time.Millisecond)
+	store.mu.Lock()
+	burstSaves := len(store.saved) - savesAfterInit
+	store.mu.Unlock()
+	assert.Equal(t, 1, burstSaves)
+
+	eventCh <- addEvent("lone-dag")
+	require.Eventually(t, func() bool { return savedDAGs() == queued+1 }, 2*time.Second, 5*time.Millisecond)
 }
 
 func TestTickPlanner_PlanCatchupDispatches(t *testing.T) {
@@ -651,7 +745,7 @@ func TestTickPlanner_PlanSuspendedCatchupDropsBufferAndAdvancesWatermark(t *test
 	assert.Equal(t, now, wm.LastScheduledTime)
 }
 
-func TestTickPlanner_HandleEvent_Added(t *testing.T) {
+func TestTickPlanner_ApplyEvent_Added(t *testing.T) {
 	t.Parallel()
 
 	store := &mockStateStore{}
@@ -664,7 +758,7 @@ func TestTickPlanner_HandleEvent_Added(t *testing.T) {
 	}
 
 	tp.entryMu.Lock()
-	tp.handleEvent(context.Background(), DAGChangeEvent{
+	tp.applyEvent(context.Background(), DAGChangeEvent{
 		Type:     DAGChangeAdded,
 		DAGEntry: DAGEntry{DAG: newDAG},
 	})
@@ -679,10 +773,9 @@ func TestTickPlanner_HandleEvent_Added(t *testing.T) {
 	_, hasWM := tp.watermarkState.DAGs["new-dag"]
 	tp.mu.RUnlock()
 	assert.True(t, hasWM, "watermark should be set for new DAG")
-	assert.NotNil(t, store.lastSaved(), "new DAG watermark should be flushed immediately")
 }
 
-func TestTickPlanner_HandleEvent_Deleted(t *testing.T) {
+func TestTickPlanner_ApplyEvent_Deleted(t *testing.T) {
 	t.Parallel()
 
 	store := &mockStateStore{}
@@ -699,7 +792,7 @@ func TestTickPlanner_HandleEvent_Deleted(t *testing.T) {
 	require.True(t, ok)
 
 	tp.entryMu.Lock()
-	tp.handleEvent(context.Background(), DAGChangeEvent{
+	tp.applyEvent(context.Background(), DAGChangeEvent{
 		Type:     DAGChangeDeleted,
 		DAGEntry: DAGEntry{DAG: dag},
 	})
@@ -758,7 +851,7 @@ func TestTickPlanner_DeletedWatermarkExpiresAfterGraceWindow(t *testing.T) {
 	require.NoError(t, tp.Init(context.Background(), testDAGEntries(dag)))
 
 	tp.entryMu.Lock()
-	tp.handleEvent(context.Background(), DAGChangeEvent{
+	tp.applyEvent(context.Background(), DAGChangeEvent{
 		Type:     DAGChangeDeleted,
 		DAGEntry: DAGEntry{DAG: dag},
 	})
@@ -784,7 +877,7 @@ func TestTickPlanner_DeletedWatermarkExpiresAfterGraceWindow(t *testing.T) {
 	assert.False(t, hasPersisted, "expired deleted watermark should not be persisted")
 }
 
-func TestTickPlanner_HandleEvent_Updated(t *testing.T) {
+func TestTickPlanner_ApplyEvent_Updated(t *testing.T) {
 	t.Parallel()
 
 	store := &mockStateStore{
@@ -807,7 +900,7 @@ func TestTickPlanner_HandleEvent_Updated(t *testing.T) {
 	}
 
 	tp.entryMu.Lock()
-	tp.handleEvent(context.Background(), DAGChangeEvent{
+	tp.applyEvent(context.Background(), DAGChangeEvent{
 		Type:     DAGChangeUpdated,
 		DAGEntry: DAGEntry{DAG: updatedDAG},
 	})
@@ -860,7 +953,7 @@ func TestUpdatePreservesPending(t *testing.T) {
 				want = []time.Time{base}
 			}
 			planner.entryMu.Lock()
-			planner.handleEvent(t.Context(), DAGChangeEvent{Type: DAGChangeUpdated,
+			planner.applyEvent(t.Context(), DAGChangeEvent{Type: DAGChangeUpdated,
 				DAGEntry: DAGEntry{DAG: &updated, DefinitionID: "updated"}})
 			planner.entryMu.Unlock()
 			for _, scheduled := range want {
@@ -886,13 +979,165 @@ func TestUpdatePreservesPending(t *testing.T) {
 	}
 }
 
-func TestTickPlanner_HandleEvent_UpdatedFlushesWatermarkMutationsImmediately(t *testing.T) {
+// A change sent as several events, such as one refresh, is saved once after
+// its last event, even when the queue empties between its events.
+func TestTickPlanner_DrainSavesAChangeAfterItsLastEvent(t *testing.T) {
+	t.Parallel()
+
+	store := &mockStateStore{}
+	tp, eventCh := newTestTickPlanner(store)
+	require.NoError(t, tp.Init(t.Context(), nil))
+	saves := func() int {
+		store.mu.Lock()
+		defer store.mu.Unlock()
+		return len(store.saved)
+	}
+	savesAfterInit := saves()
+	addEvent := func(name string, more bool) DAGChangeEvent {
+		return DAGChangeEvent{Type: DAGChangeAdded, More: more, DAGEntry: DAGEntry{DAG: &ir.DAG{
+			Name:     name,
+			Schedule: []ir.Schedule{mustParseSchedule(t, "0 * * * *")},
+		}}}
+	}
+
+	ctx, cancel := context.WithCancel(t.Context())
+	defer cancel()
+	tp.Start(ctx)
+	eventCh <- addEvent("first", true)
+	require.Eventually(t, func() bool {
+		tp.entryMu.Lock()
+		defer tp.entryMu.Unlock()
+		_, ok := tp.entries["first"]
+		return ok
+	}, 2*time.Second, 5*time.Millisecond)
+	// Leave the drainer time to save early, which it must not do.
+	time.Sleep(50 * time.Millisecond)
+	assert.Equal(t, savesAfterInit, saves(), "a change must not be saved before its last event")
+
+	eventCh <- addEvent("last", false)
+	require.Eventually(t, func() bool {
+		saved := store.lastSaved()
+		return saved != nil && len(saved.DAGs) == 2
+	}, 2*time.Second, 5*time.Millisecond)
+	assert.Equal(t, savesAfterInit+1, saves())
+}
+
+// State a restart cannot rebuild from the DAG files is saved before the next
+// event, even inside a change. Other state waits for the change to end.
+func TestTickPlanner_DrainSavesUnrebuildableStateAtOnce(t *testing.T) {
+	t.Parallel()
+
+	hourly := mustParseSchedule(t, "0 * * * *")
+	halfHourly := mustParseSchedule(t, "*/30 * * * *")
+	tests := []struct {
+		name    string
+		initial *ir.DAG
+		// prior is applied first, in the same unsaved change.
+		prior   *DAGChangeEvent
+		event   DAGChangeEvent
+		saveNow bool
+	}{
+		{
+			name:    "new catch-up DAG",
+			event:   DAGChangeEvent{Type: DAGChangeAdded, DAGEntry: DAGEntry{DAG: &ir.DAG{Name: "d", CatchupWindow: time.Hour, Schedule: []ir.Schedule{hourly}}}},
+			saveNow: true,
+		},
+		{
+			name:  "new DAG without catch-up",
+			event: DAGChangeEvent{Type: DAGChangeAdded, DAGEntry: DAGEntry{DAG: &ir.DAG{Name: "d", Schedule: []ir.Schedule{hourly}}}},
+		},
+		{
+			name:    "pending one-off",
+			event:   DAGChangeEvent{Type: DAGChangeAdded, DAGEntry: DAGEntry{DAG: &ir.DAG{Name: "d", Schedule: []ir.Schedule{mustOneOffSchedule(t, "2026-02-07T13:00:00Z")}}}},
+			saveNow: true,
+		},
+		{
+			name:    "removed one-off",
+			initial: &ir.DAG{Name: "d", Schedule: []ir.Schedule{mustOneOffSchedule(t, "2026-02-07T13:00:00Z")}},
+			event:   DAGChangeEvent{Type: DAGChangeUpdated, DAGEntry: DAGEntry{DAG: &ir.DAG{Name: "d"}}},
+			saveNow: true,
+		},
+		{
+			name:    "one-off registered after its time",
+			event:   DAGChangeEvent{Type: DAGChangeAdded, DAGEntry: DAGEntry{DAG: &ir.DAG{Name: "d", Schedule: []ir.Schedule{mustOneOffSchedule(t, "2026-02-07T11:00:00Z")}}}},
+			saveNow: true,
+		},
+		{
+			name:    "catch-up enabled on a DAG added in the same change",
+			prior:   &DAGChangeEvent{Type: DAGChangeAdded, DAGEntry: DAGEntry{DAG: &ir.DAG{Name: "d", Schedule: []ir.Schedule{hourly}}}},
+			event:   DAGChangeEvent{Type: DAGChangeUpdated, DAGEntry: DAGEntry{DAG: &ir.DAG{Name: "d", CatchupWindow: time.Hour, Schedule: []ir.Schedule{hourly}}}},
+			saveNow: true,
+		},
+		{
+			name:    "schedule edit with skip_if_successful",
+			initial: &ir.DAG{Name: "d", SkipIfSuccessful: true, Schedule: []ir.Schedule{hourly}},
+			event:   DAGChangeEvent{Type: DAGChangeUpdated, DAGEntry: DAGEntry{DAG: &ir.DAG{Name: "d", SkipIfSuccessful: true, Schedule: []ir.Schedule{halfHourly}}}},
+			saveNow: true,
+		},
+		{
+			name:    "schedule edit without skip_if_successful",
+			initial: &ir.DAG{Name: "d", Schedule: []ir.Schedule{hourly}},
+			event:   DAGChangeEvent{Type: DAGChangeUpdated, DAGEntry: DAGEntry{DAG: &ir.DAG{Name: "d", Schedule: []ir.Schedule{halfHourly}}}},
+		},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			store := &mockStateStore{}
+			tp, eventCh := newTestTickPlanner(store)
+			var initial []DAGEntry
+			if tc.initial != nil {
+				initial = testDAGEntries(tc.initial)
+			}
+			require.NoError(t, tp.Init(t.Context(), initial))
+			saves := func() int {
+				store.mu.Lock()
+				defer store.mu.Unlock()
+				return len(store.saved)
+			}
+			savesAfterInit := saves()
+
+			ctx, cancel := context.WithCancel(t.Context())
+			defer cancel()
+			tp.Start(ctx)
+			applied := func(dag *ir.DAG) func() bool {
+				return func() bool {
+					tp.entryMu.Lock()
+					defer tp.entryMu.Unlock()
+					entry, ok := tp.entries["d"]
+					return ok && entry.DAG == dag
+				}
+			}
+			// More events of the change follow, so only state saved at once
+			// reaches the store.
+			if tc.prior != nil {
+				tc.prior.More = true
+				eventCh <- *tc.prior
+				require.Eventually(t, applied(tc.prior.DAG), 2*time.Second, 5*time.Millisecond)
+				require.Equal(t, savesAfterInit, saves())
+			}
+			tc.event.More = true
+			eventCh <- tc.event
+			if tc.saveNow {
+				require.Eventually(t, func() bool { return saves() > savesAfterInit }, 2*time.Second, 5*time.Millisecond)
+				return
+			}
+			require.Eventually(t, applied(tc.event.DAG), 2*time.Second, 5*time.Millisecond)
+			// Leave the drainer time to save early, which it must not do.
+			time.Sleep(50 * time.Millisecond)
+			assert.Equal(t, savesAfterInit, saves())
+		})
+	}
+}
+
+func TestTickPlanner_UpdatedEventSavesWatermarkMutations(t *testing.T) {
 	t.Parallel()
 
 	store := &mockStateStore{
 		state: newMockState(time.Date(2026, 2, 7, 9, 0, 0, 0, time.UTC)),
 	}
-	tp, _ := newTestTickPlanner(store)
+	tp, eventCh := newTestTickPlanner(store)
 
 	dag := &ir.DAG{
 		Name:          "upd-latest-dag",
@@ -901,9 +1146,12 @@ func TestTickPlanner_HandleEvent_UpdatedFlushesWatermarkMutationsImmediately(t *
 		OverlapPolicy: ir.OverlapPolicyLatest,
 	}
 	require.NoError(t, tp.Init(context.Background(), testDAGEntries(dag)))
+	initFingerprint := store.lastSaved().DAGs[dag.Name].StartScheduleFingerprint
 
-	tp.entryMu.Lock()
-	tp.handleEvent(context.Background(), DAGChangeEvent{
+	ctx, cancel := context.WithCancel(t.Context())
+	defer cancel()
+	tp.Start(ctx)
+	eventCh <- DAGChangeEvent{
 		Type: DAGChangeUpdated,
 		DAGEntry: DAGEntry{
 			DAG: &ir.DAG{
@@ -913,10 +1161,12 @@ func TestTickPlanner_HandleEvent_UpdatedFlushesWatermarkMutationsImmediately(t *
 				OverlapPolicy: ir.OverlapPolicyLatest,
 			},
 		},
-	})
-	tp.entryMu.Unlock()
+	}
 
-	assert.NotNil(t, store.lastSaved(), "watermark mutations should be flushed immediately on update")
+	// The save comes from the event, well before the periodic flush.
+	require.Eventually(t, func() bool {
+		return store.lastSaved().DAGs[dag.Name].StartScheduleFingerprint != initFingerprint
+	}, 2*time.Second, 5*time.Millisecond, "watermark mutations should be saved on update")
 }
 
 func TestTickPlanner_ConcurrentFlushAndAdvance(t *testing.T) {
@@ -2735,7 +2985,7 @@ func TestBaseRefreshUpdatesPlanner(t *testing.T) {
 			select {
 			case event := <-reader.Events():
 				require.Equal(t, DAGChangeUpdated, event.Type)
-				planner.handleEvent(t.Context(), event)
+				planner.applyEvent(t.Context(), event)
 			case <-time.After(3 * time.Second):
 				t.Fatal("base update did not notify the planner")
 			}
@@ -2744,4 +2994,218 @@ func TestBaseRefreshUpdatesPlanner(t *testing.T) {
 			require.Equal(t, "*/5 * * * *", dag.Schedule[0].Expression)
 		})
 	}
+}
+
+// lastSlot is the DAG's latest start slot as the planner keeps it.
+func lastSlot(tp *TickPlanner, dagName string) *schedulerstate.ScheduleSlot {
+	tp.mu.RLock()
+	defer tp.mu.RUnlock()
+	return tp.watermarkState.DAGs[dagName].LastSlot
+}
+
+// Each due cron slot keeps what came of it: why a guard held it back, or
+// that it was planned to run.
+func TestTickPlanner_SlotOutcomes(t *testing.T) {
+	t.Parallel()
+
+	slot := time.Date(2026, 2, 7, 12, 0, 0, 0, time.UTC)
+	errCheck := errors.New("check failed")
+	for _, tc := range []struct {
+		name string
+		set  func(*TickPlanner, *ir.DAG)
+		want schedulerstate.SlotOutcome
+	}{
+		{"planned", func(*TickPlanner, *ir.DAG) {}, schedulerstate.SlotPlanned},
+		{"running", func(tp *TickPlanner, _ *ir.DAG) {
+			tp.cfg.IsRunning = func(context.Context, *ir.DAG) (bool, error) { return true, nil }
+		}, schedulerstate.SlotRunning},
+		{"queued", func(tp *TickPlanner, _ *ir.DAG) {
+			tp.cfg.IsQueued = func(context.Context, *ir.DAG) (bool, error) { return true, nil }
+		}, schedulerstate.SlotQueued},
+		{"check error", func(tp *TickPlanner, _ *ir.DAG) {
+			tp.cfg.IsRunning = func(context.Context, *ir.DAG) (bool, error) { return false, errCheck }
+		}, schedulerstate.SlotFailed},
+		{"run ID error", func(tp *TickPlanner, _ *ir.DAG) {
+			tp.cfg.GenRunID = func(context.Context) (string, error) { return "", errCheck }
+		}, schedulerstate.SlotFailed},
+		{"done", func(tp *TickPlanner, _ *ir.DAG) {
+			tp.cfg.GetLatestStatus = func(context.Context, *ir.DAG) (ir.DAGRunStatus, error) {
+				return ir.DAGRunStatus{Status: ir.Succeeded, ScheduleTime: "2026-02-07T12:00:00Z"}, nil
+			}
+		}, schedulerstate.SlotDone},
+		{"succeeded", func(tp *TickPlanner, dag *ir.DAG) {
+			dag.SkipIfSuccessful = true
+			tp.cfg.GetLatestStatus = func(context.Context, *ir.DAG) (ir.DAGRunStatus, error) {
+				return ir.DAGRunStatus{Status: ir.Succeeded, StartedAt: "2026-02-07T11:30:00Z"}, nil
+			}
+		}, schedulerstate.SlotSucceeded},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			tp, _ := newTestTickPlanner(&mockStateStore{})
+			dag := &ir.DAG{Name: "hourly", Schedule: []ir.Schedule{mustParseSchedule(t, "0 * * * *")}}
+			tc.set(tp, dag)
+			require.NoError(t, tp.Init(t.Context(), testDAGEntries(dag)))
+
+			tp.Plan(t.Context(), slot)
+
+			assert.Equal(t, &schedulerstate.ScheduleSlot{At: slot, Outcome: tc.want}, lastSlot(tp, "hourly"))
+		})
+	}
+}
+
+// A planned slot settles as dispatched or failed by its dispatch, even when
+// the dispatch finishes before the tick advances; planning it again changes
+// nothing.
+func TestTickPlanner_DispatchSettlesSlot(t *testing.T) {
+	t.Parallel()
+
+	slot := time.Date(2026, 2, 7, 12, 0, 0, 0, time.UTC)
+	for _, tc := range []struct {
+		name string
+		err  error
+		want schedulerstate.SlotOutcome
+	}{
+		{"dispatched", nil, schedulerstate.SlotDispatched},
+		{"failed", errors.New("spawn failed"), schedulerstate.SlotFailed},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			tp, _ := newTestTickPlanner(&mockStateStore{})
+			tp.cfg.Dispatch = func(context.Context, DAGEntry, string, ir.TriggerType, time.Time) error { return tc.err }
+			dag := &ir.DAG{Name: "hourly", Schedule: []ir.Schedule{mustParseSchedule(t, "0 * * * *")}}
+			require.NoError(t, tp.Init(t.Context(), testDAGEntries(dag)))
+
+			runs := tp.Plan(t.Context(), slot)
+			require.Len(t, runs, 1)
+			tp.DispatchRun(t.Context(), runs[0])
+			tp.Advance(slot)
+			assert.False(t, tp.recordSlot("hourly", slot, schedulerstate.SlotPlanned), "a settled slot is not planned again")
+
+			assert.Equal(t, &schedulerstate.ScheduleSlot{At: slot, Outcome: tc.want}, lastSlot(tp, "hourly"))
+		})
+	}
+}
+
+// The latest slot never moves back to an earlier one.
+func TestTickPlanner_SlotNeverMovesBack(t *testing.T) {
+	t.Parallel()
+
+	tp, _ := newTestTickPlanner(&mockStateStore{})
+	require.NoError(t, tp.Init(t.Context(), nil))
+	later := time.Date(2026, 2, 7, 12, 0, 0, 0, time.UTC)
+
+	require.True(t, tp.recordSlot("dag", later, schedulerstate.SlotMissed))
+	assert.False(t, tp.recordSlot("dag", later.Add(-time.Hour), schedulerstate.SlotDispatched))
+	assert.Equal(t, &schedulerstate.ScheduleSlot{At: later, Outcome: schedulerstate.SlotMissed}, lastSlot(tp, "dag"))
+}
+
+// A slot that was dispatched stays so when it is looked at again, as by a
+// scheduler restarted within the slot's minute.
+func TestTickPlanner_DispatchedSlotStays(t *testing.T) {
+	t.Parallel()
+
+	slot := time.Date(2026, 2, 7, 12, 0, 0, 0, time.UTC)
+	tp, _ := newTestTickPlanner(&mockStateStore{})
+	require.NoError(t, tp.Init(t.Context(), nil))
+
+	require.True(t, tp.recordSlot("dag", slot, schedulerstate.SlotDispatched))
+	assert.False(t, tp.recordSlot("dag", slot, schedulerstate.SlotRunning))
+	assert.Equal(t, schedulerstate.SlotDispatched, lastSlot(tp, "dag").Outcome)
+}
+
+// A catch-up slot records its dispatch, and one its overlap policy drops
+// records the overlap.
+func TestTickPlanner_CatchupSlots(t *testing.T) {
+	t.Parallel()
+
+	tp, _ := newTestTickPlanner(&mockStateStore{state: newMockState(time.Date(2026, 2, 7, 10, 0, 0, 0, time.UTC))})
+	tp.cfg.Enqueue = func(context.Context, DAGEntry, string, ir.TriggerType, time.Time) error { return nil }
+	dag := newHourlyCatchupDAG(t, "catchup")
+	require.NoError(t, tp.Init(t.Context(), testDAGEntries(dag)))
+	now := time.Date(2026, 2, 7, 12, 0, 0, 0, time.UTC)
+
+	runs := tp.Plan(t.Context(), now)
+	require.Len(t, runs, 1)
+	tp.DispatchRun(t.Context(), runs[0])
+	assert.Equal(t, &schedulerstate.ScheduleSlot{At: runs[0].ScheduledTime, Outcome: schedulerstate.SlotDispatched},
+		lastSlot(tp, "catchup"))
+
+	dag.OverlapPolicy = ir.OverlapPolicySkip
+	tp.buffers["catchup"].overlapPolicy = ir.OverlapPolicySkip
+	tp.cfg.IsRunning = func(context.Context, *ir.DAG) (bool, error) { return true, nil }
+	tp.Plan(t.Context(), now.Add(time.Minute))
+	assert.Equal(t, schedulerstate.SlotOverlap, lastSlot(tp, "catchup").Outcome)
+}
+
+// A scheduler that starts after its last tick records, for each DAG it does
+// not catch up, the latest slot that came due meanwhile as missed; the
+// current minute's slot is left to the first tick. A DAG caught up or
+// suspended records none.
+func TestTickPlanner_InitRecordsMissedSlot(t *testing.T) {
+	t.Parallel()
+
+	tp, _ := newTestTickPlanner(&mockStateStore{state: newMockState(time.Date(2026, 2, 7, 9, 30, 0, 0, time.UTC))})
+	tp.cfg.IsSuspended = func(_ context.Context, name string) (bool, error) { return name == "suspended", nil }
+	hourly := func(name string) *ir.DAG {
+		return &ir.DAG{Name: name, Schedule: []ir.Schedule{mustParseSchedule(t, "0 * * * *")}}
+	}
+	suspended := hourly("suspended")
+	require.NoError(t, tp.Init(t.Context(), testDAGEntries(hourly("hourly"), newHourlyCatchupDAG(t, "catchup"), suspended)))
+
+	assert.Equal(t, &schedulerstate.ScheduleSlot{At: time.Date(2026, 2, 7, 11, 0, 0, 0, time.UTC), Outcome: schedulerstate.SlotMissed},
+		lastSlot(tp, "hourly"))
+	assert.Nil(t, lastSlot(tp, "catchup"))
+	assert.Nil(t, lastSlot(tp, "suspended"))
+}
+
+// A slot left planned when the scheduler stopped is dispatched once the
+// DAG's latest run is of that slot; otherwise it stays planned.
+func TestTickPlanner_InitSettlesPlannedSlot(t *testing.T) {
+	t.Parallel()
+
+	slot := time.Date(2026, 2, 7, 11, 0, 0, 0, time.UTC)
+	for _, tc := range []struct {
+		name         string
+		scheduleTime string
+		want         schedulerstate.SlotOutcome
+	}{
+		{"ran", "2026-02-07T11:00:00Z", schedulerstate.SlotDispatched},
+		{"never ran", "2026-02-07T10:00:00Z", schedulerstate.SlotPlanned},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			state := newMockState(time.Date(2026, 2, 7, 11, 0, 0, 0, time.UTC))
+			state.DAGs["hourly"] = schedulerstate.DAGWatermark{
+				LastSlot: &schedulerstate.ScheduleSlot{At: slot, Outcome: schedulerstate.SlotPlanned},
+			}
+			tp, _ := newTestTickPlanner(&mockStateStore{state: state})
+			tp.cfg.GetLatestStatus = func(context.Context, *ir.DAG) (ir.DAGRunStatus, error) {
+				return ir.DAGRunStatus{Status: ir.Succeeded, ScheduleTime: tc.scheduleTime}, nil
+			}
+			dag := &ir.DAG{Name: "hourly", Schedule: []ir.Schedule{mustParseSchedule(t, "0 * * * *")}}
+
+			require.NoError(t, tp.Init(t.Context(), testDAGEntries(dag)))
+
+			assert.Equal(t, &schedulerstate.ScheduleSlot{At: slot, Outcome: tc.want}, lastSlot(tp, "hourly"))
+		})
+	}
+}
+
+// A tick that wakes late records the latest slot it slept through as
+// missed, even without queues; the slot of the tick it wakes at is its own.
+func TestTickPlanner_ResumeRecordsMissedSlot(t *testing.T) {
+	t.Parallel()
+
+	start := time.Date(2026, 2, 7, 12, 0, 0, 0, time.UTC)
+	tp, _ := newTestTickPlanner(&mockStateStore{})
+	tp.cfg.QueuesEnabled = false
+	dag := &ir.DAG{Name: "quarterly", Schedule: []ir.Schedule{mustParseSchedule(t, "*/15 * * * *")}}
+	require.NoError(t, tp.Init(t.Context(), testDAGEntries(dag)))
+	tp.Advance(start)
+
+	tp.resume(t.Context(), start.Add(30*time.Minute))
+
+	assert.Equal(t, &schedulerstate.ScheduleSlot{At: start.Add(15 * time.Minute), Outcome: schedulerstate.SlotMissed},
+		lastSlot(tp, "quarterly"))
 }

@@ -103,6 +103,14 @@ type NotificationBatchDeliveryPolicyTransport interface {
 	ShouldDeliverNotificationBatch(batch NotificationBatch) bool
 }
 
+// NotificationProgressTransport can acknowledge events of a batch as each one
+// is delivered. When the flush then fails, only the events it did not
+// acknowledge are retried. The monitor uses it in place of
+// FlushNotificationBatch.
+type NotificationProgressTransport interface {
+	FlushNotificationBatchWithProgress(ctx context.Context, destination string, batch NotificationBatch, allowLLM bool, delivered func(NotificationEvent)) bool
+}
+
 // StateStore persists the monitor's encoded delivery state.
 type StateStore interface {
 	Load(ctx context.Context) (data []byte, found bool, err error)
@@ -763,11 +771,33 @@ func (m *NotificationMonitor) flushReadyBatches(ctx context.Context, ready []Not
 	for _, pending := range ready {
 		acked := m.flushPendingBatch(ctx, pending, true)
 		if !acked && ctx.Err() != nil {
-			pendingCopy := pending
-			return &pendingCopy
+			return m.undeliveredRemainder(pending)
 		}
 	}
 	return nil
+}
+
+// undeliveredRemainder returns pending without the events its destination
+// acknowledged during a failed flush, or nil when none remain.
+func (m *NotificationMonitor) undeliveredRemainder(pending NotificationPendingBatch) *NotificationPendingBatch {
+	m.stateMu.Lock()
+	defer m.stateMu.Unlock()
+
+	var delivered map[string]time.Time
+	if destState := m.state.Destinations[pending.Destination]; destState != nil {
+		delivered = destState.Delivered
+	}
+	events := make([]NotificationEvent, 0, len(pending.Batch.Events))
+	for _, event := range pending.Batch.Events {
+		if _, ok := delivered[event.Key]; !ok {
+			events = append(events, event)
+		}
+	}
+	if len(events) == 0 {
+		return nil
+	}
+	pending.Batch.Events = events
+	return &pending
 }
 
 func (m *NotificationMonitor) flushPendingBatch(ctx context.Context, pending NotificationPendingBatch, allowLLM bool) bool {
@@ -795,7 +825,14 @@ func (m *NotificationMonitor) flushPendingBatch(ctx context.Context, pending Not
 	}
 	defer cancel()
 
-	acked := m.transport.FlushNotificationBatch(flushCtx, pending.Destination, pending.Batch, allowLLM)
+	var acked bool
+	if progress, ok := m.transport.(NotificationProgressTransport); ok {
+		acked = progress.FlushNotificationBatchWithProgress(flushCtx, pending.Destination, pending.Batch, allowLLM, func(event NotificationEvent) {
+			m.markBatchDelivered(ctx, pending.Destination, NotificationBatch{Events: []NotificationEvent{event}})
+		})
+	} else {
+		acked = m.transport.FlushNotificationBatch(flushCtx, pending.Destination, pending.Batch, allowLLM)
+	}
 	if acked {
 		m.markBatchDelivered(ctx, pending.Destination, pending.Batch)
 	}

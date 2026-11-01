@@ -43,6 +43,27 @@ result carries the session ID, the page's URL, title, and outline, and the
 browser's DevTools address (`cdp_url`), where an application can show the
 page and let a person act on it.
 
+`open` also returns `tls_verified`: true confirms that the certificate proxy
+verified the final HTTPS page's host. False means no such evidence was
+available; it does not by itself mean the certificate failed. A host the
+guard carried counts only while the guard runs, since the browser reaches it
+directly once the guard stops. This confirms transport trust, not login or
+whether a configured authority was needed.
+`list` includes `capabilities: ["trusted_cas"]` so applications can detect
+support without assuming an engine version.
+
+A session's browser presents the client certificates of the host
+configuration's `browser.client_certificates`, and guards its other HTTPS
+requests as the host configuration says, as a browser step does, for as long
+as the browser runs, including between commands. What the certificate
+proxy reports while a command runs, such as a site rejecting the certificate,
+appears in the command's warnings or error. Between commands the browser and
+its proxy keep running, so local processes can use the certificates as long
+as the session lasts, as they can during a browser step.
+
+The host's `browser.trusted_cas` also applies, with the same scoped trust and
+browser-lifetime snapshot as a workflow browser.
+
 ### Lifetime
 
 A session waits between commands until its idle deadline, which every
@@ -63,28 +84,44 @@ session in use fails at once with `session_busy`.
 ### Operations
 
 `do` reads one operation from stdin in the form of an item of a browser
-step's `with.do`: `goto`, `act`, `extract`, `expect`, `wait`, or
+step's `with.do`: `goto`, `act`, `upload`, `extract`, `expect`, `wait`, or
 `screenshot`, with `when` and `timeout`. `ask` is refused. Each operation
-behaves as the same operation in a step, except that an `act` never replays
-a recording; it asks the model and records what it did.
+behaves as the same operation in a step, except that an `act` or an `upload`
+into words never replays a recording; it asks the model and records what it
+did. An upload's relative paths are under the command's working directory.
 
 `do` also acts on an element the outline shows with its ID, without the
-model: `{"click": ID}`, `{"type": {"into": ID, "text": TEXT}}`, or
-`{"select": {"in": ID, "option": OPTION}}`, each with `when` and `timeout`
-as an act takes them. The element must still be on the page, have a name,
-and be one the operation fits: a field to type into, a select to pick from.
-The session keeps the operation as the act a step writes, such as `Click the
-"Sign in" button`, which the result reports as `act`, with the action it
-took as the act's recording, so an exported step replays exactly that action
-and heals by the act's words when the page changes.
+model: `{"click": ID}`, `{"type": {"into": ID, "text": TEXT}}`,
+`{"select": {"in": ID, "option": OPTION}}`, or `{"upload": {"into": ID,
+"files": FILES}}`, each with `when` and `timeout` as an act takes them. The
+element must still be on the page, have a name, and be one the operation
+fits: a field to type into, a select to pick from. The session keeps a
+click, typing, or pick as the act a step writes, such as `Click the "Sign
+in" button`, which the result reports as `act`, and an upload as the upload
+into the element in words, such as `the "Receipt" file input`, which the
+result reports as `into`, with the action it took as its recording, so an
+exported step replays exactly that action and heals by the operation's
+words when the page changes.
 
 The result reports the operation's index in the session's history, its
 status (`done`, `failed`, or `skipped` when its `when` does not hold), the
-actions an act performed and whether an exported step will replay them,
+actions an act or upload performed and whether an exported step will replay
+them,
 what an extract read, the files a screenshot or download saved, the dialogs
 the browser accepted, the requests `allowed_domains` blocked, the tokens
 used, and the page the browser is on next with its outline. A failed
-operation is kept in the history and the session stays open.
+operation is kept in the history and the session stays open. An extract
+warns about the same link fields loading a step does.
+
+`open`, `do`, and `describe` report a page its site refused, as a browser
+step counts one, as `refused`: the `host`, the HTTP `status`, `bot_check`
+naming the check, such as `cloudflare`, when the site answered with one, and
+a `message` saying so in a sentence. The error of an operation that failed on
+it ends with that sentence. A browser reattached by a later command learns a
+bot check only from pages it loads, so a command that finds the browser on
+the same page, with the same host and status, as the command before keeps the
+bot check that command reported, as after a person reloaded the page between
+commands.
 
 ### Variables
 
@@ -93,25 +130,27 @@ on the command line. A value given as `{"env": NAME}` is read from the
 environment on that command and every later one, which then require it,
 and is masked like a secret in everything the session reports. A literal
 value serves its own command only and is not masked. No value is ever kept
-in the session's state. An instruction that holds a secret value is
+in the session's state, only the salted digest of one an act's actions
+never used. An instruction that holds a secret value is
 refused, and an act whose recorded actions hold a variable's value is not
 exported for replay.
 
 ### Model
 
-A session asks the model given to `open` for acts, extracts, and judged
-conditions. The model's settings read the environment variables they name,
-its API key's and those its base URL references, on each command; no other
-variable is visible to them. A session opened without a model refuses
-those operations with `model_required` and runs the rest.
+A session asks the model given to `open` for acts, uploads into words,
+extracts, and judged conditions. The model's settings read the environment
+variables they name, its API key's and those its base URL references, on
+each command; no other variable is visible to them. A session opened
+without a model refuses those operations with `model_required` and runs the
+rest.
 
 ### Outline
 
 The outline describes the page without a model request, from the same
 accessibility tree an act shows the model: headings, fields with their
-labels, selects with their choice and options, buttons, checkboxes, links
-with their addresses, messages, and tables and lists by their
-columns and rows. Each element an operation can act on shows its ID in
+labels, selects with their choice and options, file inputs, buttons,
+checkboxes, links with their addresses, messages, and tables and lists by
+their columns and rows. Each element an operation can act on shows its ID in
 brackets, and a link to the page's own site shows its path; a list item that
 is one link shows only the link. The page's own content comes first, and the
 site's header, menus, sidebars, and footer after it, so a limit on the
@@ -132,13 +171,19 @@ out, and `--skip <index>` leaves out others. The page `open` went to becomes
 that variable, which the DAG declares under its secrets; a literal one
 becomes a parameter of its own name.
 
-Unless `--dry-run` is given, export writes the acts' recordings to the
-replay cache of the named DAG and step on this host, keyed by their places
-in the step's `with.do`, so the step's first run replays them without a
-model request when it meets the pages the session met, and heals as usual
-when it does not. Export runs the checks the step gets when its DAG loads
-and warns about an act with no recording and about a page reached outside
-the exported operations. `--format yaml` prints the step alone.
+Unless `--dry-run` is given, export writes the recordings of the acts and
+uploads to the replay cache of the named DAG and step on this host, keyed by
+their places in the step's `with.do`, so the step's first run replays them
+without a model request when it meets the pages the session met, and heals
+as usual when it does not. An act whose actions never used a variable its
+instruction names keeps a salted digest of the value the session gave it,
+so the step replays it only while that variable has that value (Spec 072);
+one the session recorded without the digest is exported with a warning and
+no recording. Export runs the checks the step gets when its DAG
+loads and warns about an act or upload with no recording, about a page
+reached outside the exported operations, and about each upload, whose files
+are those the session was given until the step names what each run
+uploads. `--format yaml` prints the step alone.
 
 ### Profiles
 
@@ -185,6 +230,8 @@ dagu browser session close ab2cd3ef4g
 process against a real Chrome, a local portal, and a scripted model. It
 works the portal through a failed operation, exports the step, and checks it
 against a static fixture, whose first run then makes no act model request;
-the password never reaches the model or the output. It checks the profile a
-session holds, a session ending once idle with its history still exported,
-a session without a model, and input refused before a browser starts.
+the password never reaches the model or the output. It uploads a file into a
+file input by its ID without the model and checks that the exported step's
+first run replays it. It checks the profile a session holds, a session
+ending once idle with its history still exported, a session without a
+model, and input refused before a browser starts.

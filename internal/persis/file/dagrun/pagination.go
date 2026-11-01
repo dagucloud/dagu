@@ -10,6 +10,7 @@ import (
 	"math"
 	"os"
 	"path/filepath"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -72,11 +73,6 @@ func (store *Store) listStatusesOrdered(
 		return nil, "", err
 	}
 
-	iterators, err := store.newStatusIterators(ctx, opts)
-	if err != nil {
-		return nil, "", err
-	}
-
 	limit := opts.Limit
 	target := limit
 	if target == 0 {
@@ -84,6 +80,15 @@ func (store *Store) listStatusesOrdered(
 	}
 	if target < math.MaxInt {
 		target++
+	}
+
+	iterOpts := statusIterOptions{seek: cursorKey.Timestamp, hasSeek: opts.Cursor != ""}
+	if limit > 0 {
+		iterOpts.pageTarget = target
+	}
+	iterators, err := store.newStatusIterators(ctx, opts, iterOpts)
+	if err != nil {
+		return nil, "", err
 	}
 
 	pq := make(dagRunIteratorHeap, 0, len(iterators))
@@ -133,7 +138,18 @@ func (store *Store) listStatusesOrdered(
 	return statuses[:limit], nextCursor, nil
 }
 
-func (store *Store) newStatusIterators(ctx context.Context, opts persis.DAGRunStatusQuery) ([]*dagRunStatusIterator, error) {
+// statusIterOptions tunes how the iterators of one list call read days.
+type statusIterOptions struct {
+	// pageTarget is the number of items the list needs, or zero to read
+	// every day whole.
+	pageTarget int
+	// seek is the cursor's creation time. Newer runs sort before the cursor,
+	// so they are skipped without being read.
+	seek    time.Time
+	hasSeek bool
+}
+
+func (store *Store) newStatusIterators(ctx context.Context, opts persis.DAGRunStatusQuery, iterOpts statusIterOptions) ([]*dagRunStatusIterator, error) {
 	var roots []DataRoot
 	if opts.ExactName == "" {
 		listed, err := store.listRoot(ctx, "")
@@ -147,7 +163,7 @@ func (store *Store) newStatusIterators(ctx context.Context, opts persis.DAGRunSt
 
 	iterators := make([]*dagRunStatusIterator, 0, len(roots))
 	for _, root := range roots {
-		iterator, err := newDAGRunStatusIterator(store, root, opts)
+		iterator, err := newDAGRunStatusIterator(store, root, opts, iterOpts)
 		if err != nil {
 			return nil, err
 		}
@@ -161,20 +177,77 @@ type dagRunStatusIterator struct {
 	store           *Store
 	root            DataRoot
 	opts            persis.DAGRunStatusQuery
+	iterOpts        statusIterOptions
+	start           time.Time
+	end             time.Time
 	dayPaths        []string
 	dayIndex        int
 	dayItems        []dagRunListItem
 	dayItemIndex    int
+	day             *lazyDay
 	labelFilters    []ir.LabelFilter
 	statusesFilter  map[ir.Status]struct{}
 	hasStatusFilter bool
+	// preferFull reads the remaining days whole once a filter has proven
+	// too selective for reading runs one by one.
+	preferFull bool
 }
 
-func newDAGRunStatusIterator(store *Store, root DataRoot, opts persis.DAGRunStatusQuery) (*dagRunStatusIterator, error) {
-	dayPaths, err := listDayPathsInRange(root, opts.From, opts.To)
+// lazyDay reads one large day newest first, one group of runs created in the
+// same second at a time, so a page reads about as many runs as it lists.
+type lazyDay struct {
+	path string
+	// entries are sorted by name, and so by creation time.
+	entries []os.DirEntry
+	// pos is the end of the entries not read yet.
+	pos  int
+	runs int
+	// index lists finished runs without reading their statuses.
+	index *dagrunindex.DayIndex
+	// before is the creation time of the last group handled. Falling back to
+	// a whole-day read takes only the runs created before it.
+	before   time.Time
+	resolved int
+	accepted int
+	rejected int
+}
+
+// statusListTuning decides when a list reads a day lazily and when it stops.
+type statusListTuning struct {
+	// minDayRuns is the fewest runs a day needs to be read lazily.
+	minDayRuns int
+	// pagesPerDay is the number of pages a day must hold to be read lazily.
+	pagesPerDay int
+	// resolveShare caps the runs a lazy day reads at runs/resolveShare.
+	resolveShare int
+	// rejectFloor and rejectRatio detect a selective filter: past
+	// rejectFloor rejected runs, and rejectRatio times as many rejected as
+	// accepted, the rest of the day is read whole.
+	rejectFloor int
+	rejectRatio int
+}
+
+// defaultStatusListTuning reads a day lazily only when it is large enough
+// that reading runs one by one beats reading the day whole.
+var defaultStatusListTuning = statusListTuning{
+	minDayRuns:   1024,
+	pagesPerDay:  8,
+	resolveShare: 8,
+	rejectFloor:  64,
+	rejectRatio:  4,
+}
+
+func newDAGRunStatusIterator(store *Store, root DataRoot, opts persis.DAGRunStatusQuery, iterOpts statusIterOptions) (*dagRunStatusIterator, error) {
+	// Days after the cursor's hold only runs that sort before it.
+	dayListEnd := opts.To
+	if iterOpts.hasSeek && (dayListEnd.IsZero() || iterOpts.seek.Before(dayListEnd.Time)) {
+		dayListEnd = persis.NewUTC(iterOpts.seek)
+	}
+	dayPaths, err := listDayPathsInRange(root, opts.From, dayListEnd)
 	if err != nil {
 		return nil, err
 	}
+	start, end := effectiveTimeRange(opts.From, opts.To)
 
 	statusesFilter := make(map[ir.Status]struct{}, len(opts.Statuses))
 	for _, status := range opts.Statuses {
@@ -192,6 +265,9 @@ func newDAGRunStatusIterator(store *Store, root DataRoot, opts persis.DAGRunStat
 		store:           store,
 		root:            root,
 		opts:            opts,
+		iterOpts:        iterOpts,
+		start:           start,
+		end:             end,
 		dayPaths:        dayPaths,
 		labelFilters:    labelFilters,
 		statusesFilter:  statusesFilter,
@@ -211,68 +287,208 @@ func (it *dagRunStatusIterator) Next(ctx context.Context) (*dagRunListItem, erro
 			return &item, nil
 		}
 
+		if it.day != nil {
+			items, err := it.nextLazyGroup(ctx)
+			if err != nil {
+				return nil, err
+			}
+			it.dayItems = items
+			it.dayItemIndex = 0
+			continue
+		}
+
 		if it.dayIndex >= len(it.dayPaths) {
 			return nil, nil
 		}
 
-		items, err := it.loadDay(ctx, it.dayPaths[it.dayIndex])
+		dayPath := it.dayPaths[it.dayIndex]
 		it.dayIndex++
+		entries, err := os.ReadDir(dayPath)
+		if err != nil {
+			if os.IsNotExist(err) {
+				continue
+			}
+			return nil, fmt.Errorf("read day directory %s: %w", dayPath, err)
+		}
+
+		if runs := countDAGRunDirs(entries); it.readsLazily(runs) {
+			it.day = &lazyDay{
+				path:    dayPath,
+				entries: entries,
+				pos:     len(entries),
+				runs:    runs,
+				index:   dagrunindex.NewDayIndex(dayPath, runs/it.store.listTuning.resolveShare),
+			}
+			continue
+		}
+		items, err := it.loadDay(ctx, dayPath, entries, time.Time{})
 		if err != nil {
 			return nil, err
 		}
-		if len(items) == 0 {
-			continue
-		}
-
 		it.dayItems = items
 		it.dayItemIndex = 0
 	}
 }
 
-func (it *dagRunStatusIterator) loadDay(ctx context.Context, dayPath string) ([]dagRunListItem, error) {
-	entries, err := os.ReadDir(dayPath)
-	if err != nil {
-		if os.IsNotExist(err) {
-			return nil, nil
-		}
-		return nil, fmt.Errorf("read day directory %s: %w", dayPath, err)
+// readsLazily reports whether a day with this many runs is read lazily.
+func (it *dagRunStatusIterator) readsLazily(runs int) bool {
+	if it.iterOpts.pageTarget == 0 || it.preferFull {
+		return false
 	}
+	tuning := it.store.listTuning
+	return runs >= max(tuning.minDayRuns, tuning.pagesPerDay*it.iterOpts.pageTarget)
+}
 
+// loadDay reads a whole day and returns its matching runs created before
+// before, or all of them when before is zero, newest first.
+func (it *dagRunStatusIterator) loadDay(ctx context.Context, dayPath string, entries []os.DirEntry, before time.Time) ([]dagRunListItem, error) {
 	runs, err := loadDayRuns(ctx, dayPath, entries, it.statusesFilter, it.hasStatusFilter)
 	if err != nil {
 		return nil, err
 	}
 
-	startTime, endTime := effectiveTimeRange(it.opts.From, it.opts.To)
 	items := make([]dagRunListItem, 0, len(runs))
 	for _, run := range runs {
-		if !inTimeRange(run.timestamp, startTime, endTime, it.opts.From.IsZero(), it.opts.To.IsZero()) {
+		if !it.allowsTimestamp(run.timestamp, before) {
 			continue
 		}
-		if it.opts.DAGRunID != "" && !strings.Contains(run.dagRunID, it.opts.DAGRunID) {
-			continue
+		if item, ok := it.toListItem(ctx, run); ok {
+			items = append(items, item)
 		}
-
-		status := it.store.resolveStatus(ctx, run, it.labelFilters, it.opts.WorkspaceFilter, it.statusesFilter, it.hasStatusFilter)
-		if status == nil {
-			continue
-		}
-		if it.opts.Name != "" && !containsFold(status.Name, it.opts.Name) {
-			continue
-		}
-
-		items = append(items, dagRunListItem{
-			Key: dagRunListKey{
-				Timestamp: run.timestamp.UTC(),
-				Name:      status.Name,
-				DAGRunID:  status.DAGRunID,
-			},
-			Status: status,
-		})
 	}
 
 	sortDayItems(items)
 	return items, nil
+}
+
+// nextLazyGroup returns the next matching runs of the lazy day, newest
+// first. Once reading runs one by one stops paying off, it returns the rest
+// of the day read whole. It returns no items when the day is done.
+func (it *dagRunStatusIterator) nextLazyGroup(ctx context.Context) ([]dagRunListItem, error) {
+	day := it.day
+	tuning := it.store.listTuning
+	for day.pos > 0 {
+		if err := ctx.Err(); err != nil {
+			return nil, err
+		}
+
+		group, groupStart := nextRunGroup(day.entries, day.pos)
+		runs := make([]*DAGRun, 0, len(group))
+		for _, entry := range group {
+			if run, err := NewDAGRun(filepath.Join(day.path, entry.Name())); err == nil {
+				runs = append(runs, run)
+			}
+		}
+		if len(runs) == 0 {
+			day.pos = groupStart
+			continue
+		}
+
+		created := runs[0].timestamp
+		if !it.opts.From.IsZero() && created.Before(it.start) {
+			break
+		}
+		if !it.allowsTimestamp(created, time.Time{}) {
+			day.pos = groupStart
+			day.before = created
+			continue
+		}
+
+		selective := day.rejected > tuning.rejectFloor && day.rejected > tuning.rejectRatio*day.accepted
+		if selective || day.resolved+len(runs) > day.runs/tuning.resolveShare {
+			it.preferFull = it.preferFull || selective
+			it.day = nil
+			return it.loadDay(ctx, day.path, day.entries, day.before)
+		}
+
+		items := make([]dagRunListItem, 0, len(runs))
+		// Index lookups go from the newest run directory down.
+		for _, run := range slices.Backward(runs) {
+			if entry, ok := day.index.Lookup(filepath.Base(run.baseDir), run.timestamp); ok {
+				run.summary = summaryFromIndexEntry(entry)
+			}
+			if item, ok := it.toListItem(ctx, run); ok {
+				items = append(items, item)
+			}
+		}
+		day.resolved += len(runs)
+		day.accepted += len(items)
+		day.rejected += len(runs) - len(items)
+		day.pos = groupStart
+		day.before = created
+		if len(items) > 0 {
+			sortDayItems(items)
+			return items, nil
+		}
+	}
+
+	it.day = nil
+	return nil, nil
+}
+
+// dagRunDirTimePrefixLen is the length of "dag-run_YYYYMMDD_HHMMSSZ_", the
+// part of a run directory name set by its creation time.
+var dagRunDirTimePrefixLen = len(DAGRunDirPrefix) + len("20060102_150405Z_")
+
+// nextRunGroup returns the run directories that share a creation second
+// with entries[end-1], and the index where they start. Entries are sorted by
+// name, so that group is contiguous. An entry with no creation time in its
+// name forms a group of its own with no runs.
+func nextRunGroup(entries []os.DirEntry, end int) ([]os.DirEntry, int) {
+	name := entries[end-1].Name()
+	if len(name) < dagRunDirTimePrefixLen || !strings.HasPrefix(name, DAGRunDirPrefix) {
+		return nil, end - 1
+	}
+
+	prefix := name[:dagRunDirTimePrefixLen]
+	start := end - 1
+	for start > 0 && strings.HasPrefix(entries[start-1].Name(), prefix) {
+		start--
+	}
+
+	group := make([]os.DirEntry, 0, end-start)
+	for _, entry := range entries[start:end] {
+		if entry.IsDir() {
+			group = append(group, entry)
+		}
+	}
+	return group, start
+}
+
+// allowsTimestamp reports whether a run created at ts is in the query's
+// range, not newer than the cursor, and created before before when that is
+// set.
+func (it *dagRunStatusIterator) allowsTimestamp(ts, before time.Time) bool {
+	if !inTimeRange(ts, it.start, it.end, it.opts.From.IsZero(), it.opts.To.IsZero()) {
+		return false
+	}
+	if it.iterOpts.hasSeek && ts.After(it.iterOpts.seek) {
+		return false
+	}
+	return before.IsZero() || ts.Before(before)
+}
+
+// toListItem reads a run into a list item, or reports false when the run is
+// unreadable or filtered out.
+func (it *dagRunStatusIterator) toListItem(ctx context.Context, run *DAGRun) (dagRunListItem, bool) {
+	if it.opts.DAGRunID != "" && !strings.Contains(run.dagRunID, it.opts.DAGRunID) {
+		return dagRunListItem{}, false
+	}
+	status := it.store.resolveStatus(ctx, run, it.labelFilters, it.opts.WorkspaceFilter, it.statusesFilter, it.hasStatusFilter)
+	if status == nil {
+		return dagRunListItem{}, false
+	}
+	if it.opts.Name != "" && !containsFold(status.Name, it.opts.Name) {
+		return dagRunListItem{}, false
+	}
+	return dagRunListItem{
+		Key: dagRunListKey{
+			Timestamp: run.timestamp.UTC(),
+			Name:      status.Name,
+			DAGRunID:  status.DAGRunID,
+		},
+		Status: status,
+	}, true
 }
 
 func containsFold(value, query string) bool {

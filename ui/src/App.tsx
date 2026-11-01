@@ -18,7 +18,9 @@ import { ProtectedRoute } from './components/ProtectedRoute';
 import { QueryFeedback } from './components/QueryFeedback';
 import { ErrorModalProvider } from '@/components/ui/error-modal';
 import { ToastProvider } from '@/components/ui/simple-toast';
+import { WorkspaceLoading } from '@/features/workflow-workspace/WorkspaceLoading';
 import RunProgressStack from '@/features/dags/components/dag-execution/RunProgressStack';
+import LegacyRunRedirect from './pages/dag-runs/LegacyRunRedirect';
 import { AppBarContext } from './contexts/AppBarContext';
 import { AuthProvider, useCanAccessGitSync } from './contexts/AuthContext';
 import { Config, ConfigContext } from './contexts/ConfigContext';
@@ -27,7 +29,7 @@ import { SchemaProvider } from './contexts/SchemaContext';
 import { SearchStateProvider } from './contexts/SearchStateContext';
 import {
   UserPreferencesProvider,
-  useUserPreferences,
+  useResolvedTheme,
 } from './contexts/UserPreference';
 import Layout from './layouts/Layout';
 import fetchJson from './lib/fetchJson';
@@ -59,7 +61,6 @@ const ArtifactsPage = React.lazy(() => import('./pages/artifacts'));
 const AuditLogsPage = React.lazy(() => import('./pages/audit-logs'));
 const BaseConfigPage = React.lazy(() => import('./pages/base-config'));
 const DAGRuns = React.lazy(() => import('./pages/dag-runs'));
-const DAGRunDetails = React.lazy(() => import('./pages/dag-runs/dag-run'));
 const DAGs = React.lazy(() => import('./pages/dags'));
 const DAGDetails = React.lazy(() => import('./pages/dags/dag'));
 const WikiPage = React.lazy(() => import('./pages/wiki'));
@@ -75,6 +76,7 @@ const IncidentProvidersPage = React.lazy(
 const IncidentsPage = React.lazy(() => import('./pages/incidents'));
 const IntegrationsPage = React.lazy(() => import('./pages/integrations'));
 const LicensePage = React.lazy(() => import('./pages/license'));
+const NotFoundPage = React.lazy(() => import('./pages/not-found'));
 const NotificationChannelsPage = React.lazy(
   () => import('./pages/notification-channels')
 );
@@ -118,7 +120,7 @@ const STATIC_PAGE_TITLES = new Set([
   'Notifications',
   'Profiles & Secrets',
   'Queue',
-  'Queue Dashboard',
+  'Queues',
   'Remote Nodes',
   'Search',
   'System Status',
@@ -242,7 +244,7 @@ function LicensedRoute({
 }): React.ReactElement {
   const hasFeature = useHasFeature(feature);
   if (hasFeature) return children;
-  return <LicenseFeaturePrompt feature={feature} />;
+  return <LicenseFeaturePrompt feature={feature} headingLevel={1} />;
 }
 
 function ActiveLicenseDeveloperElement({
@@ -254,7 +256,11 @@ function ActiveLicenseDeveloperElement({
   const licensed = hasActiveLicense(license);
   return (
     <DeveloperElement>
-      {licensed ? children : <LicenseFeaturePrompt feature="incidents" />}
+      {licensed ? (
+        children
+      ) : (
+        <LicenseFeaturePrompt feature="incidents" headingLevel={1} />
+      )}
     </DeveloperElement>
   );
 }
@@ -296,7 +302,7 @@ class LazyRouteErrorBoundary extends React.Component<
           </p>
           <button
             type="button"
-            className="rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground"
+            className="rounded-md bg-primary-fill px-4 py-2 text-sm font-medium text-primary-foreground"
             onClick={() => window.location.reload()}
           >
             <I18nText text={'Reload'} />
@@ -309,6 +315,25 @@ class LazyRouteErrorBoundary extends React.Component<
   }
 }
 
+/**
+ * The fallback while a page chunk loads. A workflow page gets its own loading
+ * frame, so that the bar is in place from the first paint.
+ */
+function RouteFallback(): React.ReactElement {
+  const { pathname } = useLocation();
+  const workflow = /^\/dags\/([^/]+)/.exec(pathname);
+  if (workflow) {
+    let name = workflow[1]!;
+    try {
+      name = decodeURIComponent(name);
+    } catch {
+      // A name that is not valid text stays as it is.
+    }
+    return <WorkspaceLoading fileName={name} />;
+  }
+  return <LoadingIndicator />;
+}
+
 function LazyRoutes({
   children,
 }: {
@@ -316,7 +341,7 @@ function LazyRoutes({
 }): React.ReactElement {
   return (
     <LazyRouteErrorBoundary>
-      <React.Suspense fallback={<LoadingIndicator />}>
+      <React.Suspense fallback={<RouteFallback />}>
         <Routes>{children}</Routes>
       </React.Suspense>
     </LazyRouteErrorBoundary>
@@ -333,8 +358,7 @@ function AppInner({ config: initialConfig }: Props): React.ReactElement {
   }, []);
 
   const [title, setTitle] = React.useState<string>('');
-  const { preferences } = useUserPreferences();
-  const theme = preferences.theme || 'dark';
+  const theme = useResolvedTheme();
 
   const [remoteNodes, setRemoteNodes] = React.useState<string[]>(() =>
     parseRemoteNodes(config.remoteNodes)
@@ -580,6 +604,7 @@ function AppInner({ config: initialConfig }: Props): React.ReactElement {
 
   React.useEffect(() => {
     document.documentElement.classList.toggle('dark', theme === 'dark');
+    document.documentElement.style.colorScheme = theme;
     document.documentElement.style.backgroundColor = 'var(--background)';
   }, [theme]);
 
@@ -758,7 +783,7 @@ function AppInner({ config: initialConfig }: Props): React.ReactElement {
                                       />
                                       <Route
                                         path="/dag-runs/:name/:dagRunId"
-                                        element={<DAGRunDetails />}
+                                        element={<LegacyRunRedirect />}
                                       />
                                       <Route
                                         path="/system-status"
@@ -876,6 +901,10 @@ function AppInner({ config: initialConfig }: Props): React.ReactElement {
                                             <GitSyncPage />
                                           </GitSyncElement>
                                         }
+                                      />
+                                      <Route
+                                        path="*"
+                                        element={<NotFoundPage />}
                                       />
                                     </LazyRoutes>
                                   </Layout>

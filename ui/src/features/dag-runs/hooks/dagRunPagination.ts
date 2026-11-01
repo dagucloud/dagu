@@ -15,6 +15,7 @@ import {
 } from '@/hooks/useDAGRunsListSSE';
 import { sseFallbackOptions, useSSECacheSync } from '@/hooks/useSSECacheSync';
 import { isAbortLikeError } from '@/lib/requestTimeout';
+import { getQueryErrorMessage } from '@/lib/queryErrors';
 
 export type DAGRunSummary = components['schemas']['DAGRunSummary'];
 export type DAGRunsPageResponse = components['schemas']['DAGRunsPageResponse'];
@@ -126,13 +127,6 @@ export async function fetchAllDAGRuns(
   }
 }
 
-type UseExactDAGRunsOptions = {
-  query: DAGRunListQuery;
-  enabled?: boolean;
-  liveEnabled?: boolean;
-  fallbackIntervalMs?: number;
-};
-
 type UsePaginatedDAGRunsOptions = {
   query: DAGRunListQuery;
   enabled?: boolean;
@@ -152,201 +146,6 @@ type UsePaginatedDAGRunsResult = {
   refresh: () => Promise<void>;
   loadMore: () => Promise<void>;
 };
-
-type UseExactDAGRunsResult = {
-  data: DAGRunSummary[];
-  error: Error | null;
-  isLoading: boolean;
-  isValidating: boolean;
-  refresh: () => Promise<void>;
-};
-
-export function useExactDAGRuns({
-  query,
-  enabled = true,
-  liveEnabled = true,
-  fallbackIntervalMs = 5000,
-}: UseExactDAGRunsOptions): UseExactDAGRunsResult {
-  const appBarContext = useContext(AppBarContext);
-  const client = useClient();
-  const remoteNode =
-    query?.remoteNode || appBarContext.selectedRemoteNode || 'local';
-  const resolvedQuery = useMemo(
-    () => ({
-      ...query,
-      remoteNode,
-    }),
-    [query, remoteNode]
-  );
-  const sseState = useDAGRunsListSSE(query, enabled && liveEnabled, remoteNode);
-  const [data, setData] = useState<DAGRunSummary[]>([]);
-  const [error, setError] = useState<Error | null>(null);
-  const [isLoading, setIsLoading] = useState(false);
-  const [isValidating, setIsValidating] = useState(false);
-
-  const dataRef = useRef<DAGRunSummary[]>([]);
-  const controllerRef = useRef<AbortController | null>(null);
-  const requestIDRef = useRef(0);
-  const queryRef = useRef(resolvedQuery);
-  const lastSSEPayloadRef = useRef<DAGRunsListSSEResponse | null>(null);
-  const skipNextSSERefreshRef = useRef(true);
-  const queryKey = useMemo(
-    () => getDAGRunListQueryKey(resolvedQuery),
-    [resolvedQuery]
-  );
-
-  dataRef.current = data;
-  queryRef.current = resolvedQuery;
-
-  const refresh = useCallback(async (): Promise<void> => {
-    if (!enabled) {
-      return;
-    }
-
-    const requestID = requestIDRef.current + 1;
-    requestIDRef.current = requestID;
-
-    controllerRef.current?.abort();
-    const controller = new AbortController();
-    controllerRef.current = controller;
-    setError(null);
-
-    const hadExistingData = dataRef.current.length > 0;
-
-    if (!hadExistingData) {
-      setIsLoading(true);
-    } else {
-      setIsValidating(true);
-    }
-
-    try {
-      const next = await fetchAllDAGRuns(client, queryRef.current, {
-        remoteNode,
-        signal: controller.signal,
-        onPage: (pageRuns, page) => {
-          if (controller.signal.aborted || requestID !== requestIDRef.current) {
-            return;
-          }
-
-          dataRef.current = pageRuns;
-          setData(pageRuns);
-          setError(null);
-
-          if (!hadExistingData) {
-            setIsLoading(false);
-            setIsValidating(Boolean(page.nextCursor));
-          }
-        },
-      });
-      if (controller.signal.aborted || requestID !== requestIDRef.current) {
-        return;
-      }
-      dataRef.current = next;
-      setData(next);
-      setError(null);
-    } catch (fetchError) {
-      if (
-        (controller.signal.aborted && isAbortLikeError(fetchError)) ||
-        requestID !== requestIDRef.current
-      ) {
-        return;
-      }
-      setError(
-        fetchError instanceof Error
-          ? fetchError
-          : new Error('Failed to load DAG runs')
-      );
-    } finally {
-      if (requestID === requestIDRef.current) {
-        if (controllerRef.current === controller) {
-          controllerRef.current = null;
-        }
-        setIsLoading(false);
-        setIsValidating(false);
-      }
-    }
-  }, [client, enabled, remoteNode]);
-
-  useEffect(() => {
-    if (!enabled) {
-      controllerRef.current?.abort();
-      controllerRef.current = null;
-      setData([]);
-      setError(null);
-      setIsLoading(false);
-      setIsValidating(false);
-      return;
-    }
-
-    // Trigger reloads only when the semantic query changes, not when callers
-    // allocate a fresh but equivalent query object during rerenders.
-    void refresh();
-
-    return () => {
-      controllerRef.current?.abort();
-      controllerRef.current = null;
-    };
-  }, [enabled, queryKey, refresh]);
-
-  useEffect(() => {
-    lastSSEPayloadRef.current = null;
-    skipNextSSERefreshRef.current = true;
-  }, [enabled, liveEnabled, queryKey]);
-
-  useEffect(() => {
-    if (
-      !enabled ||
-      !liveEnabled ||
-      !sseState.isConnected ||
-      sseState.data == null ||
-      sseState.data === lastSSEPayloadRef.current
-    ) {
-      return;
-    }
-
-    lastSSEPayloadRef.current = sseState.data;
-    if (skipNextSSERefreshRef.current) {
-      skipNextSSERefreshRef.current = false;
-      return;
-    }
-
-    void refresh();
-  }, [enabled, liveEnabled, refresh, sseState.data, sseState.isConnected]);
-
-  useEffect(() => {
-    if (
-      !enabled ||
-      fallbackIntervalMs <= 0 ||
-      (liveEnabled && sseState.isConnected && !sseState.shouldUseFallback)
-    ) {
-      return;
-    }
-
-    const timer = window.setInterval(() => {
-      void refresh();
-    }, fallbackIntervalMs);
-
-    return () => {
-      window.clearInterval(timer);
-    };
-  }, [
-    enabled,
-    fallbackIntervalMs,
-    liveEnabled,
-    sseState.isConnected,
-    sseState.isConnecting,
-    sseState.shouldUseFallback,
-    refresh,
-  ]);
-
-  return {
-    data,
-    error,
-    isLoading,
-    isValidating,
-    refresh,
-  };
-}
 
 export function usePaginatedDAGRuns({
   query,
@@ -551,7 +350,7 @@ export function usePaginatedDAGRuns({
       error instanceof Error
         ? error
         : error
-          ? new Error('Failed to load DAG runs')
+          ? new Error(getQueryErrorMessage(error, 'Failed to load DAG runs'))
           : null,
     isInitialLoading: isLoading,
     isLoadingMore,

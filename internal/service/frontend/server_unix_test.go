@@ -62,7 +62,7 @@ func TestShutdownPreservesSignalCause(t *testing.T) {
 
 	cancel(shutdownSignalCause{signal: syscall.SIGTERM})
 	srv := &Server{}
-	srv.setupGracefulShutdown(ctx)
+	require.NoError(t, srv.setupGracefulShutdown(ctx, nil))
 	select {
 	case err := <-res.Done:
 		require.NoError(t, err)
@@ -92,7 +92,7 @@ func TestShutdownWithoutSignalKeepsRuns(t *testing.T) {
 	})
 	cancel()
 	srv := &Server{}
-	srv.setupGracefulShutdown(ctx)
+	require.NoError(t, srv.setupGracefulShutdown(ctx, nil))
 	select {
 	case err := <-res.Done:
 		t.Fatalf("ordinary cancellation stopped the run: %v", err)

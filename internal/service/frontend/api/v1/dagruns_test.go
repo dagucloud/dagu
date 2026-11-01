@@ -3373,20 +3373,20 @@ func TestListDAGRunsFilterByPartialName(t *testing.T) {
 		)
 	}
 
-	resp := server.Client().Get("/api/v1/dag-runs?name=test").
-		ExpectStatus(http.StatusOK).Send(t)
+	require.Eventually(t, func() bool {
+		resp := server.Client().Get("/api/v1/dag-runs?name=test").
+			ExpectStatus(http.StatusOK).Send(t)
 
-	var body api.ListDAGRuns200JSONResponse
-	resp.Unmarshal(t, &body)
+		var body api.ListDAGRuns200JSONResponse
+		resp.Unmarshal(t, &body)
 
-	names := make(map[string]bool)
-	for _, run := range body.DagRuns {
-		names[run.Name] = true
-	}
+		names := make(map[string]bool)
+		for _, run := range body.DagRuns {
+			names[run.Name] = true
+		}
 
-	require.True(t, names["test-params-flag"])
-	require.True(t, names["alpha-test-case"])
-	require.False(t, names["other-dag"])
+		return names["test-params-flag"] && names["alpha-test-case"] && !names["other-dag"]
+	}, dagRunEventuallyTimeout(5*time.Second), 200*time.Millisecond)
 }
 
 func TestListDAGRunsByNameRemainsExact(t *testing.T) {
@@ -3411,16 +3411,23 @@ func TestListDAGRunsByNameRemainsExact(t *testing.T) {
 		)
 	}
 
-	resp := server.Client().Get("/api/v1/dag-runs/test-params-flag").
-		ExpectStatus(http.StatusOK).Send(t)
+	require.Eventually(t, func() bool {
+		resp := server.Client().Get("/api/v1/dag-runs/test-params-flag").
+			ExpectStatus(http.StatusOK).Send(t)
 
-	var body api.ListDAGRunsByName200JSONResponse
-	resp.Unmarshal(t, &body)
+		var body api.ListDAGRunsByName200JSONResponse
+		resp.Unmarshal(t, &body)
 
-	require.NotEmpty(t, body.DagRuns)
-	for _, run := range body.DagRuns {
-		require.Equal(t, "test-params-flag", run.Name)
-	}
+		if len(body.DagRuns) == 0 {
+			return false
+		}
+		for _, run := range body.DagRuns {
+			if run.Name != "test-params-flag" {
+				return false
+			}
+		}
+		return true
+	}, dagRunEventuallyTimeout(5*time.Second), 200*time.Millisecond)
 }
 
 func TestGetDAGRunDetailsExposesLocalProcessWhileRunning(t *testing.T) {

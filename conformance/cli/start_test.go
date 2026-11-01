@@ -62,8 +62,39 @@ func TestStartOnlyKeepsReference(t *testing.T) {
 	dagu.ExpectFileContent("consume.out", "${steps.produce.outputs.value}\nmissing\n")
 }
 
-// TestStartOnlySetsOutput proves --output feeds a declared output to the
-// selected step with no earlier run, through a strict step-output reference.
+// TestStartOnlyOutputFrom proves --output-from feeds the declared outputs of
+// one finished run to the selected step.
+func TestStartOnlyOutputFrom(t *testing.T) {
+	t.Parallel()
+
+	dagu := harness.NewRunner(t)
+	env := sharedEnv(t)
+
+	source := dagu.RunWithEnv(env, "start", "--run-id=cli-start-output-from", "only_outputs.yaml")
+	source.ExpectExitCode(0)
+	dagu.WriteFile("consume.out", "")
+
+	result := dagu.RunWithEnv(env, "start", "--only=consume", "--output-from=produce=cli-start-output-from", "only_outputs.yaml")
+	result.ExpectExitCode(0)
+	// Only --outputs-from carries the work directory of the source run.
+	dagu.ExpectFileContent("consume.out", "from-source\nmissing\n")
+}
+
+// TestStartOnlyOutputFromMissingRun proves that a run that does not exist
+// stops the command before any step runs.
+func TestStartOnlyOutputFromMissingRun(t *testing.T) {
+	t.Parallel()
+
+	dagu := harness.NewRunner(t)
+	result := dagu.RunWithEnv(sharedEnv(t), "start", "--only=consume", "--output-from=produce=cli-start-no-such-run", "only_outputs.yaml")
+	result.ExpectNonZeroExitCode()
+	result.ExpectStderrContains("step produce cannot be reused from run cli-start-no-such-run")
+	dagu.ExpectNoFile("consume.out")
+}
+
+// TestStartOnlySetsOutput proves the deprecated --output still feeds a
+// declared output to the selected step with no earlier run, through a strict
+// step-output reference.
 func TestStartOnlySetsOutput(t *testing.T) {
 	t.Parallel()
 

@@ -120,8 +120,8 @@ func xlsxExtractOutputs(schema any) capturedOutputContract {
 }
 
 // extractOperationOutputs lists the fields a browser or computer step
-// extracts. Each extract operation publishes the top-level properties its
-// schema lists.
+// publishes. Each extract operation publishes the top-level properties its
+// schema lists, and each outline the text under the name it gives.
 func extractOperationOutputs(operations any) capturedOutputContract {
 	items, ok := operations.([]any)
 	if !ok {
@@ -130,6 +130,12 @@ func extractOperationOutputs(operations any) capturedOutputContract {
 	var contract capturedOutputContract
 	for _, item := range items {
 		operation, _ := item.(map[string]any)
+		if name, ok := operation["outline"].(string); ok && declaredOutputNamePattern.MatchString(name) {
+			contract.declarations = append(contract.declarations, ir.StepOutputDeclaration{
+				Name: name, Type: ir.StepDeclaredOutputTypeString, Source: ir.StepDeclaredOutputSourceCapture,
+			})
+			continue
+		}
 		extract, ok := operation["extract"].(map[string]any)
 		if !ok {
 			continue

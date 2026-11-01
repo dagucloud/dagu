@@ -1,9 +1,12 @@
 import React from 'react';
+import { Link } from 'react-router-dom';
 import { ChevronDown, ChevronRight, Clock, AlertCircle } from 'lucide-react';
 import type { components } from '../../../api/v1/schema';
 import RelativeTime from '@/components/ui/relative-time';
 import { cn } from '../../../lib/utils';
 import WorkerHealth from './WorkerHealth';
+import { useRemoteNode } from '../../../contexts/RemoteNodeContext';
+import { buildRunningTaskURL } from '../../dag-runs/lib/dagRunUrls';
 import { I18nText } from '@/i18n/I18nText';
 
 type Worker = components['schemas']['Worker'];
@@ -13,15 +16,9 @@ interface WorkerListProps {
   workers: Worker[];
   isLoading: boolean;
   errors?: string[];
-  onTaskClick?: (task: RunningTask) => void;
 }
 
-function WorkerList({
-  workers,
-  isLoading,
-  errors,
-  onTaskClick,
-}: WorkerListProps) {
+function WorkerList({ workers, isLoading, errors }: WorkerListProps) {
   const [expandedWorkers, setExpandedWorkers] = React.useState<Set<string>>(
     new Set()
   );
@@ -165,11 +162,7 @@ function WorkerList({
                     />
                   </div>
                   {worker.runningTasks.map((task: RunningTask) => (
-                    <TaskRow
-                      key={task.dagRunId}
-                      task={task}
-                      onTaskClick={onTaskClick}
-                    />
+                    <TaskRow key={task.dagRunId} task={task} />
                   ))}
                 </div>
               </div>
@@ -195,7 +188,7 @@ function UtilizationBar({ busy, total }: { busy: number; total: number }) {
       <div className="h-1.5 bg-muted rounded-full overflow-hidden">
         <div
           className={cn(
-            'h-full transition-all duration-300',
+            'h-full transition-[width,background-color] duration-300',
             percentage >= 90
               ? 'bg-error'
               : percentage >= 70
@@ -213,13 +206,8 @@ function UtilizationBar({ busy, total }: { busy: number; total: number }) {
   );
 }
 
-function TaskRow({
-  task,
-  onTaskClick,
-}: {
-  task: RunningTask;
-  onTaskClick?: (task: RunningTask) => void;
-}) {
+function TaskRow({ task }: { task: RunningTask }) {
+  const remoteNode = useRemoteNode();
   const duration = React.useMemo(() => {
     if (!task.startedAt) return '';
     const start = new Date(task.startedAt).getTime();
@@ -234,30 +222,10 @@ function TaskRow({
   const isNestedTask =
     task.rootDagRunName && task.rootDagRunName !== task.dagName;
 
-  const handleClick = (e: React.MouseEvent) => {
-    if (e.metaKey || e.ctrlKey) {
-      // Open in new tab
-      let url: string;
-      if (task.parentDagRunName && task.parentDagRunId) {
-        const searchParams = new URLSearchParams();
-        searchParams.set('subDAGRunId', task.dagRunId);
-        searchParams.set('dagRunId', task.parentDagRunId);
-        searchParams.set('dagRunName', task.parentDagRunName);
-        url = `/dag-runs/${task.parentDagRunName}/${task.parentDagRunId}?${searchParams.toString()}`;
-      } else {
-        url = `/dag-runs/${task.dagName}/${task.dagRunId}`;
-      }
-      window.open(url, '_blank');
-    } else if (onTaskClick) {
-      // Open modal
-      onTaskClick(task);
-    }
-  };
-
   return (
-    <div
+    <Link
+      to={buildRunningTaskURL(task, remoteNode)}
       className="flex items-center gap-3 p-1.5 rounded bg-background/50 cursor-pointer hover:bg-background/80 transition-colors"
-      onClick={handleClick}
     >
       <Clock className="h-3 w-3 text-muted-foreground flex-shrink-0" />
       <div className="flex-1 min-w-0">
@@ -286,7 +254,7 @@ function TaskRow({
       <div className="text-xs text-muted-foreground whitespace-nowrap">
         {duration}
       </div>
-    </div>
+    </Link>
   );
 }
 

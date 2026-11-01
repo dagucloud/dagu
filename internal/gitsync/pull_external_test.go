@@ -265,46 +265,160 @@ func TestPullSyncsSupportingFilesUnderConfiguredPath(t *testing.T) {
 	assert.NoFileExists(t, filepath.Join(dagsDir, "outside.txt"))
 }
 
-func TestPullRemovesUnchangedSupportingFileDeletedRemotely(t *testing.T) {
-	t.Parallel()
-
-	ctx := context.Background()
-	root := t.TempDir()
-	remotePath := filepath.Join(root, "remote")
-	remoteRepo := initPullExternalTestRepo(t, remotePath)
-	commitPullExternalTestFile(t, remoteRepo, remotePath, "scripts/run.sh", "echo ok\n", "script")
-
-	dataDir := filepath.Join(root, "data")
-	clonePullExternalTestRepo(ctx, t, dataDir, remotePath)
-	dagsDir := filepath.Join(root, "dags")
-	svc := gitsync.NewService(&gitsync.Config{
-		Enabled:    true,
-		Repository: remotePath,
-		Branch:     "main",
-	}, dagsDir, filepath.Join(dagsDir, "wiki"), dataDir)
-
-	_, err := svc.Pull(ctx)
-	require.NoError(t, err)
-	removePullExternalTestFile(t, remoteRepo, "scripts/run.sh", "remove script")
-
-	result, err := svc.Pull(ctx)
-	require.NoError(t, err)
-	assert.Contains(t, result.Deleted, "scripts/run.sh")
-	assert.NoFileExists(t, filepath.Join(dagsDir, "scripts", "run.sh"))
-
-	status, err := svc.GetStatus(ctx)
-	require.NoError(t, err)
-	assert.NotContains(t, status.Items, "scripts/run.sh")
+// remoteDeleteTestItems covers every tracked item kind. Paths are relative to
+// the DAGs directory, which also hosts the Wiki directory. prunedDir is left
+// empty by the removal; rootDir holds the item and must survive it.
+var remoteDeleteTestItems = []struct {
+	name      string
+	repoPath  string
+	localPath string
+	prunedDir string
+	rootDir   string
+	id        string
+	kind      gitsync.SyncItemKind
+}{
+	{
+		name:      "supporting file",
+		repoPath:  "scripts/run.sh",
+		localPath: "scripts/run.sh",
+		prunedDir: "scripts",
+		rootDir:   ".",
+		id:        "scripts/run.sh",
+		kind:      gitsync.SyncItemKindFile,
+	},
+	{
+		name:      "DAG",
+		repoPath:  "task.yaml",
+		localPath: "task.yaml",
+		rootDir:   ".",
+		id:        "task",
+		kind:      gitsync.SyncItemKindDAG,
+	},
+	{
+		name:      "Wiki page",
+		repoPath:  "wiki/guides/setup.md",
+		localPath: "wiki/guides/setup.md",
+		prunedDir: "wiki/guides",
+		rootDir:   "wiki",
+		id:        "wiki/guides/setup",
+		kind:      gitsync.SyncItemKindWikiPage,
+	},
+	{
+		name:      "Wiki page attachment",
+		repoPath:  "wiki/.attachments/guide/logo.png",
+		localPath: "wiki/.attachments/guide/logo.png",
+		prunedDir: "wiki/.attachments",
+		rootDir:   "wiki",
+		id:        "wiki/.attachments/guide/logo.png",
+		kind:      gitsync.SyncItemKindWikiPageAsset,
+	},
 }
 
-func TestPullPreservesModifiedSupportingFileDeletedRemotely(t *testing.T) {
+func TestPullRemovesUnchangedItemDeletedRemotely(t *testing.T) {
+	t.Parallel()
+
+	for _, tc := range remoteDeleteTestItems {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			ctx := context.Background()
+			root := t.TempDir()
+			remotePath := filepath.Join(root, "remote")
+			remoteRepo := initPullExternalTestRepo(t, remotePath)
+			commitPullExternalTestFile(t, remoteRepo, remotePath, tc.repoPath, "remote\n", "add item")
+
+			dataDir := filepath.Join(root, "data")
+			clonePullExternalTestRepo(ctx, t, dataDir, remotePath)
+			dagsDir := filepath.Join(root, "dags")
+			svc := gitsync.NewService(&gitsync.Config{
+				Enabled:    true,
+				Repository: remotePath,
+				Branch:     "main",
+			}, dagsDir, filepath.Join(dagsDir, "wiki"), dataDir)
+
+			_, err := svc.Pull(ctx)
+			require.NoError(t, err)
+			localPath := filepath.Join(dagsDir, filepath.FromSlash(tc.localPath))
+			require.FileExists(t, localPath)
+			removePullExternalTestFile(t, remoteRepo, tc.repoPath, "remove item")
+
+			result, err := svc.Pull(ctx)
+			require.NoError(t, err)
+			assert.Contains(t, result.Deleted, tc.id)
+			assert.NoFileExists(t, localPath)
+			if tc.prunedDir != "" {
+				assert.NoDirExists(t, filepath.Join(dagsDir, filepath.FromSlash(tc.prunedDir)))
+			}
+			assert.DirExists(t, filepath.Join(dagsDir, filepath.FromSlash(tc.rootDir)))
+
+			status, err := svc.GetStatus(ctx)
+			require.NoError(t, err)
+			assert.NotContains(t, status.Items, tc.id)
+		})
+	}
+}
+
+func TestPullPreservesModifiedItemDeletedRemotely(t *testing.T) {
+	t.Parallel()
+
+	for _, tc := range remoteDeleteTestItems {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			ctx := context.Background()
+			root := t.TempDir()
+			remotePath := filepath.Join(root, "remote")
+			remoteRepo := initPullExternalTestRepo(t, remotePath)
+			commitPullExternalTestFile(t, remoteRepo, remotePath, tc.repoPath, "remote\n", "add item")
+
+			dataDir := filepath.Join(root, "data")
+			clonePullExternalTestRepo(ctx, t, dataDir, remotePath)
+			dagsDir := filepath.Join(root, "dags")
+			svc := gitsync.NewService(&gitsync.Config{
+				Enabled:    true,
+				Repository: remotePath,
+				Branch:     "main",
+			}, dagsDir, filepath.Join(dagsDir, "wiki"), dataDir)
+
+			_, err := svc.Pull(ctx)
+			require.NoError(t, err)
+			// Keep the size and mtime so only a content check can detect the edit.
+			localPath := filepath.Join(dagsDir, filepath.FromSlash(tc.localPath))
+			info, err := os.Stat(localPath)
+			require.NoError(t, err)
+			require.NoError(t, os.WriteFile(localPath, []byte("edited\n"), 0600))
+			require.NoError(t, os.Chtimes(localPath, info.ModTime(), info.ModTime()))
+			removePullExternalTestFile(t, remoteRepo, tc.repoPath, "remove item")
+
+			result, err := svc.Pull(ctx)
+			require.NoError(t, err)
+			assert.Contains(t, result.Conflicts, tc.id)
+			assert.NotContains(t, result.Deleted, tc.id)
+			assert.Equal(t, "edited\n", readPullExternalTestFile(t, localPath))
+
+			diff, err := svc.GetSyncItemDiff(ctx, tc.id)
+			require.NoError(t, err)
+			assert.True(t, diff.RemoteDeleted)
+			assert.Equal(t, tc.kind, diff.Kind)
+			assert.Empty(t, diff.RemoteContent)
+
+			require.NoError(t, svc.Discard(ctx, tc.id))
+			assert.NoFileExists(t, localPath)
+			status, err := svc.GetStatus(ctx)
+			require.NoError(t, err)
+			assert.NotContains(t, status.Items, tc.id)
+		})
+	}
+}
+
+func TestPullFollowsRemoteDAGRename(t *testing.T) {
 	t.Parallel()
 
 	ctx := context.Background()
 	root := t.TempDir()
 	remotePath := filepath.Join(root, "remote")
 	remoteRepo := initPullExternalTestRepo(t, remotePath)
-	commitPullExternalTestFile(t, remoteRepo, remotePath, "scripts/run.sh", "echo remote\n", "script")
+	commitPullExternalTestFile(t, remoteRepo, remotePath, "old.yaml", "steps: []\n", "add workflow")
 
 	dataDir := filepath.Join(root, "data")
 	clonePullExternalTestRepo(ctx, t, dataDir, remotePath)
@@ -317,31 +431,59 @@ func TestPullPreservesModifiedSupportingFileDeletedRemotely(t *testing.T) {
 
 	_, err := svc.Pull(ctx)
 	require.NoError(t, err)
-	localPath := filepath.Join(dagsDir, "scripts", "run.sh")
-	info, err := os.Stat(localPath)
-	require.NoError(t, err)
-	require.NoError(t, os.WriteFile(localPath, []byte("echo edited\n"), 0600))
-	require.NoError(t, os.Chtimes(localPath, info.ModTime(), info.ModTime()))
-	removePullExternalTestFile(t, remoteRepo, "scripts/run.sh", "remove script")
+	commitPullExternalTestFile(t, remoteRepo, remotePath, "new.yaml", "steps: []\n", "copy workflow")
+	removePullExternalTestFile(t, remoteRepo, "old.yaml", "remove old workflow")
 
 	result, err := svc.Pull(ctx)
 	require.NoError(t, err)
-	assert.Contains(t, result.Conflicts, "scripts/run.sh")
-	content, err := os.ReadFile(localPath)
-	require.NoError(t, err)
-	assert.Equal(t, "echo edited\n", string(content))
+	assert.Equal(t, []string{"old"}, result.Deleted)
+	assert.Equal(t, []string{"new"}, result.Synced)
+	assert.NoFileExists(t, filepath.Join(dagsDir, "old.yaml"))
+	assert.Equal(t, "steps: []\n", readPullExternalTestFile(t, filepath.Join(dagsDir, "new.yaml")))
 
-	diff, err := svc.GetSyncItemDiff(ctx, "scripts/run.sh")
-	require.NoError(t, err)
-	assert.True(t, diff.RemoteDeleted)
-	assert.Equal(t, gitsync.SyncItemKindFile, diff.Kind)
-	assert.Empty(t, diff.RemoteContent)
-
-	require.NoError(t, svc.Discard(ctx, "scripts/run.sh"))
-	assert.NoFileExists(t, localPath)
 	status, err := svc.GetStatus(ctx)
 	require.NoError(t, err)
-	assert.NotContains(t, status.Items, "scripts/run.sh")
+	assert.NotContains(t, status.Items, "old")
+	require.Contains(t, status.Items, "new")
+	assert.Equal(t, gitsync.StatusSynced, status.Items["new"].Status)
+}
+
+func TestPullKeepsUntrackedLocalDAG(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	root := t.TempDir()
+	remotePath := filepath.Join(root, "remote")
+	remoteRepo := initPullExternalTestRepo(t, remotePath)
+	commitPullExternalTestFile(t, remoteRepo, remotePath, "remote.yaml", "steps: []\n", "add workflow")
+
+	dataDir := filepath.Join(root, "data")
+	clonePullExternalTestRepo(ctx, t, dataDir, remotePath)
+	dagsDir := filepath.Join(root, "dags")
+	svc := gitsync.NewService(&gitsync.Config{
+		Enabled:    true,
+		Repository: remotePath,
+		Branch:     "main",
+	}, dagsDir, filepath.Join(dagsDir, "wiki"), dataDir)
+
+	_, err := svc.Pull(ctx)
+	require.NoError(t, err)
+	localPath := filepath.Join(dagsDir, "local.yaml")
+	require.NoError(t, os.WriteFile(localPath, []byte("steps: []\n"), 0600))
+
+	// The first pull registers the local DAG as untracked; the next must keep it.
+	for range 2 {
+		result, err := svc.Pull(ctx)
+		require.NoError(t, err)
+		assert.NotContains(t, result.Deleted, "local")
+		assert.NotContains(t, result.Conflicts, "local")
+	}
+	assert.FileExists(t, localPath)
+
+	status, err := svc.GetStatus(ctx)
+	require.NoError(t, err)
+	require.Contains(t, status.Items, "local")
+	assert.Equal(t, gitsync.StatusUntracked, status.Items["local"].Status)
 }
 
 func TestPullAfterRacyEdit(t *testing.T) {

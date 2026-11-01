@@ -14,6 +14,7 @@ import (
 	"log/slog"
 	"os"
 	"path/filepath"
+	"slices"
 	"sort"
 	"strings"
 	"time"
@@ -365,6 +366,9 @@ func matchesFilter(event *eventstore.Event, filter eventstore.QueryFilter) bool 
 		return false
 	}
 	if filter.Type != "" && event.Type != filter.Type {
+		return false
+	}
+	if slices.Contains(filter.ExcludeTypes, event.Type) {
 		return false
 	}
 	if filter.DAGName != "" && event.DAGName != filter.DAGName {

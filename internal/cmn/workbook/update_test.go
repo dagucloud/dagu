@@ -437,3 +437,41 @@ func TestUpdateRowsAddedColumnUnderMergedHeader(t *testing.T) {
 	require.EqualError(t, err, `merged.xlsx Sheet1!E1: merged cell D1:E1 covers the header cell of new column "Checked"; unmerge it to add the column`)
 	assert.Equal(t, before, fileHash(t, path))
 }
+
+func TestUpdateRowsOutputLeavesTheWorkbookAlone(t *testing.T) {
+	t.Parallel()
+	path := ordersBook(t)
+	before := fileHash(t, path)
+	output := filepath.Join(filepath.Dir(path), "updated.xlsx")
+	rows := []Row{{"Invoice No": "INV-1", "Status": "Submitted"}}
+	result, err := UpdateRows(context.Background(), path, UpdateOptions{Key: "Invoice No", Rows: rows, Output: output})
+	require.NoError(t, err)
+	assert.Equal(t, output, result.Path)
+	assert.Equal(t, 1, result.Changes.RowsUpdated)
+	assert.Equal(t, before, fileHash(t, path), "the workbook at path is untouched")
+	back, err := Read(context.Background(), output, ReadOptions{})
+	require.NoError(t, err)
+	assert.Equal(t, "Submitted", back.Rows[0]["Status"])
+	assert.Equal(t, "Done", back.Rows[1]["Status"], "the output carries the rest of the workbook")
+
+	nested := filepath.Join(filepath.Dir(path), "copies", "updated.xlsx")
+	result, err = UpdateRows(context.Background(), path, UpdateOptions{Key: "Invoice No", Rows: rows, Output: nested})
+	require.NoError(t, err, "the output's parent directory is created, as for write_cells and append")
+	assert.Equal(t, nested, result.Path)
+	back, err = Read(context.Background(), nested, ReadOptions{})
+	require.NoError(t, err)
+	assert.Equal(t, "Submitted", back.Rows[0]["Status"])
+	assert.Equal(t, before, fileHash(t, path))
+
+	dry, err := UpdateRows(context.Background(), path, UpdateOptions{Key: "Invoice No", Rows: rows, Output: filepath.Join(filepath.Dir(path), "dry.xlsx"), DryRun: true})
+	require.NoError(t, err)
+	assert.Equal(t, filepath.Join(filepath.Dir(path), "dry.xlsx"), dry.Path)
+	_, err = os.Stat(dry.Path)
+	assert.ErrorIs(t, err, os.ErrNotExist, "a dry run writes no output")
+
+	_, err = UpdateRows(context.Background(), path, UpdateOptions{Key: "Invoice No", Rows: rows, Output: path})
+	require.ErrorContains(t, err, "orders.xlsx: output must be a different file from path; leave output out to update the workbook in place")
+	_, err = UpdateRows(context.Background(), path, UpdateOptions{Key: "Invoice No", Rows: rows, Output: filepath.Join(filepath.Dir(path), "out.csv")})
+	require.ErrorIs(t, err, ErrUnsupportedFormat)
+	assert.Equal(t, before, fileHash(t, path))
+}

@@ -5,6 +5,7 @@ package spec
 
 import (
 	"context"
+	"fmt"
 	"testing"
 
 	"github.com/dagucloud/dagu/v2/internal/ir"
@@ -482,6 +483,11 @@ func TestStepSchemaV2_ActionJSRunErrors(t *testing.T) {
 		{name: "missing script", with: "input: 1", err: "with.script is required"},
 		{name: "blank script", with: "script: '  '", err: "with.script must be a non-empty string"},
 		{name: "both inputs", with: "script: return 1\n      input: 1\n      input_file: /tmp/x", err: "js.run does not allow both with.input and with.input_file"},
+		{
+			name: "unknown field",
+			with: "script: return 1\n      inputs: {n: '5'}",
+			err:  `invalid js config: validating root: unexpected additional properties ["inputs"]; did you mean "input" instead of "inputs"?`,
+		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -496,6 +502,25 @@ steps:
 			require.Error(t, err)
 			assert.Contains(t, err.Error(), tt.err)
 		})
+	}
+}
+
+func TestStepSchemaV2_ActionJSRunAcceptsEveryField(t *testing.T) {
+	t.Parallel()
+
+	for _, with := range []string{
+		"input: '5'\n      format: text\n      timeout: 5s",
+		"input_file: data.json\n      format: json\n      timeout: 30",
+	} {
+		_, err := LoadYAML(context.Background(), []byte(`
+steps:
+  - id: s
+    action: js.run
+    with:
+      script: return input
+      `+with+`
+`))
+		require.NoError(t, err, with)
 	}
 }
 
@@ -570,6 +595,25 @@ steps:
 			require.ErrorContains(t, err, tt.err)
 		})
 	}
+}
+
+func TestStepSchemaV2_ActionTemplateFields(t *testing.T) {
+	t.Parallel()
+
+	const yaml = `
+steps:
+  - id: render
+    action: template.render
+    with:
+      template: "Hello, {{ .name }}"
+      %s: {name: Alice}
+      output: hello.txt
+`
+	_, err := LoadYAML(context.Background(), fmt.Appendf(nil, yaml, "data"))
+	require.NoError(t, err)
+
+	_, err = LoadYAML(context.Background(), fmt.Appendf(nil, yaml, "datas"))
+	require.ErrorContains(t, err, `invalid template config: validating root: unexpected additional properties ["datas"]; did you mean "data" instead of "datas"?`)
 }
 
 func TestStepSchemaV2_ActionDataConvert(t *testing.T) {
@@ -720,6 +764,105 @@ steps:
 			require.NotNil(t, step.ExecutorConfig.Config)
 			assert.Equal(t, tt.dsn, step.ExecutorConfig.Config["dsn"])
 			assert.Contains(t, step.ExecutorConfig.Config, "import")
+		})
+	}
+}
+
+func TestStepSchemaV2_ActionClickHouseQuery(t *testing.T) {
+	t.Parallel()
+
+	t.Run("InlineQuery", func(t *testing.T) {
+		t.Parallel()
+
+		dag, err := LoadYAML(context.Background(), []byte(`
+steps:
+  - id: rollup
+    action: clickhouse.query
+    with:
+      url: "${CLICKHOUSE_URL}"
+      query: |
+        INSERT INTO daily SELECT * FROM raw WHERE day = {day:Date};
+        SELECT count() FROM daily
+      params:
+        day: "2024-01-02"
+      settings:
+        readonly: 0
+      output_format: csv
+`))
+		require.NoError(t, err)
+		require.Len(t, dag.Steps, 1)
+
+		// A multi-line query becomes the step script.
+		step := dag.Steps[0]
+		assert.Equal(t, "clickhouse", step.ExecutorConfig.Type)
+		assert.Empty(t, step.Commands)
+		assert.Contains(t, step.Script, "INSERT INTO daily SELECT * FROM raw WHERE day = {day:Date};")
+		assert.Contains(t, step.Script, "SELECT count() FROM daily")
+		assert.Equal(t, "${CLICKHOUSE_URL}", step.ExecutorConfig.Config["url"])
+		assert.Equal(t, "csv", step.ExecutorConfig.Config["output_format"])
+		assert.NotContains(t, step.ExecutorConfig.Config, "query")
+	})
+
+	t.Run("SingleLineQuery", func(t *testing.T) {
+		t.Parallel()
+
+		dag, err := LoadYAML(context.Background(), []byte(`
+steps:
+  - id: one
+    action: clickhouse.query
+    with:
+      url: http://localhost:8123
+      query: "SELECT `+"`a;b`"+`, 'it''s' FROM t WHERE x = {x:String}; SELECT 2"
+`))
+		require.NoError(t, err)
+		step := dag.Steps[0]
+		require.Len(t, step.Commands, 1)
+		assert.Equal(t, "SELECT `a;b`, 'it''s' FROM t WHERE x = {x:String}; SELECT 2", step.Commands[0].CmdWithArgs)
+	})
+
+	t.Run("File", func(t *testing.T) {
+		t.Parallel()
+
+		dag, err := LoadYAML(context.Background(), []byte(`
+steps:
+  - id: load
+    action: clickhouse.query
+    with:
+      url: http://localhost:8123
+      file: sql/load.sql
+`))
+		require.NoError(t, err)
+		require.Len(t, dag.Steps, 1)
+
+		step := dag.Steps[0]
+		assert.Equal(t, "clickhouse", step.ExecutorConfig.Type)
+		assert.Empty(t, step.Commands)
+		assert.Equal(t, "sql/load.sql", step.ExecutorConfig.Config["file"])
+	})
+
+	for _, tt := range []struct {
+		name    string
+		with    string
+		message string
+	}{
+		{"NeitherQueryNorFile", "url: http://localhost:8123", "with.query or with.file is required"},
+		{"BothQueryAndFile", "url: http://localhost:8123\n      query: SELECT 1\n      file: q.sql", "mutually exclusive"},
+		{"MissingURL", "query: SELECT 1", "url is required"},
+		{"EmbeddedCredentials", "url: http://u:p@localhost:8123\n      query: SELECT 1", "credentials must not be embedded"},
+		{"UnknownOption", "url: http://localhost:8123\n      query: SELECT 1\n      read_only: true", "read_only"},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			_, err := LoadYAML(context.Background(), []byte(`
+steps:
+  - id: bad
+    action: clickhouse.query
+    with:
+      `+tt.with+`
+`))
+			require.Error(t, err)
+			assert.Contains(t, err.Error(), tt.message)
 		})
 	}
 }

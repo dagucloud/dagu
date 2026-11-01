@@ -6,6 +6,8 @@ package api_test
 import (
 	"bytes"
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"fmt"
 	"net/http"
 	"os"
@@ -729,6 +731,80 @@ steps:
 		}
 
 		_ = server.Client().Delete("/api/v1/dags/" + dagName).ExpectStatus(http.StatusNoContent).Send(t)
+	})
+
+	// A per-run selector is kept in the run's own DAG snapshot, which is what
+	// the queue dispatcher, a retry, and a reschedule read.
+	t.Run("EnqueueDAGWithWorkerSelector", func(t *testing.T) {
+		spec := `
+worker_selector: local
+steps:
+  - name: echo
+    run: echo "routed"
+`
+		dagName := "test_enqueue_worker_selector_dag"
+
+		_ = server.Client().Post("/api/v1/dags", api.CreateNewDAGJSONRequestBody{
+			Name: dagName,
+			Spec: &spec,
+		}).ExpectStatus(http.StatusCreated).Send(t)
+
+		selector := api.WorkerSelectorOverride{"zone": "b", "gpu": "yes"}
+		resp := server.Client().Post("/api/v1/dags/"+dagName+"/enqueue", api.EnqueueDAGDAGRunJSONRequestBody{
+			WorkerSelector: &selector,
+		}).ExpectStatus(http.StatusOK).Send(t)
+
+		var enqResp api.EnqueueDAGDAGRun200JSONResponse
+		resp.Unmarshal(t, &enqResp)
+		require.NotEmpty(t, enqResp.DagRunId)
+
+		snapshot := snapshotDAGOf(t, server, dagName, enqResp.DagRunId)
+		assert.Equal(t, map[string]string{"zone": "b", "gpu": "yes"}, snapshot.WorkerSelector)
+		assert.False(t, snapshot.ForceLocal)
+
+		_ = server.Client().Delete("/api/v1/dags/" + dagName).ExpectStatus(http.StatusNoContent).Send(t)
+	})
+
+	t.Run("WorkerSelectorRefusedWhenInvalidOrWithApproval", func(t *testing.T) {
+		plain := `
+steps:
+  - name: echo
+    run: echo "test"
+`
+		approval := `
+steps:
+  - name: gate
+    run: echo "gate"
+    approval:
+      prompt: "Approve the gate"
+`
+		for _, tc := range []struct {
+			name     string
+			spec     string
+			selector api.WorkerSelectorOverride
+		}{
+			{name: "test_ws_bad_key_dag", spec: plain, selector: api.WorkerSelectorOverride{"bad key": "b"}},
+			{name: "test_ws_empty_value_dag", spec: plain, selector: api.WorkerSelectorOverride{"zone": ""}},
+			{name: "test_ws_approval_dag", spec: approval, selector: api.WorkerSelectorOverride{"zone": "b"}},
+		} {
+			_ = server.Client().Post("/api/v1/dags", api.CreateNewDAGJSONRequestBody{
+				Name: tc.name,
+				Spec: &tc.spec,
+			}).ExpectStatus(http.StatusCreated).Send(t)
+
+			for _, path := range []string{"/start", "/enqueue"} {
+				resp := server.Client().Post("/api/v1/dags/"+tc.name+path, api.ExecuteDAGJSONRequestBody{
+					WorkerSelector: &tc.selector,
+				}).ExpectStatus(http.StatusBadRequest).Send(t)
+
+				var errResp api.Error
+				resp.Unmarshal(t, &errResp)
+				require.Equal(t, api.ErrorCodeBadRequest, errResp.Code, "%s %s", tc.name, path)
+				require.Contains(t, errResp.Message, "workerSelector", "%s %s", tc.name, path)
+			}
+
+			_ = server.Client().Delete("/api/v1/dags/" + tc.name).ExpectStatus(http.StatusNoContent).Send(t)
+		}
 	})
 
 	t.Run("EnqueueDAGWithInvalidLabels", func(t *testing.T) {
@@ -2590,4 +2666,158 @@ func TestListDAGsRunSortFallsBackToNameAboveLimit(t *testing.T) {
 	require.True(t, ok, "expected 200 response, got %T", resp)
 	assert.Equal(t, []string{"run-a", "run-b"}, listedFileNames(list.Dags))
 	assert.Empty(t, list.Errors)
+}
+
+const validateScopeSpec = `
+name: scope-spec
+params:
+  - region: eu
+consts:
+  - image: ${consts.missing}
+steps:
+  - name: fetch
+    id: fetch
+    run: echo hi
+    outputs:
+      - name: body
+        type: string
+  - name: use
+    run: echo ${steps.fetch.outputs.body}
+    depends: [fetch]
+`
+
+func TestValidateIssuesAndScope(t *testing.T) {
+	server := test.SetupServer(t)
+	name := "validate_scope"
+
+	var body api.ValidateDAGSpec200JSONResponse
+	server.Client().Post("/api/v1/dags/validate", api.ValidateDAGSpecJSONRequestBody{
+		Name: &name, Spec: validateScopeSpec,
+	}).ExpectStatus(http.StatusOK).Send(t).Unmarshal(t, &body)
+
+	require.True(t, body.Valid)
+	require.Empty(t, body.Errors)
+
+	require.Len(t, body.ValueReferenceNotices, 1)
+	require.NotNil(t, body.ValueReferenceNotices[0].FieldPath)
+	assert.Equal(t, "consts.image", *body.ValueReferenceNotices[0].FieldPath)
+	require.Len(t, body.Issues, 1)
+	assert.Equal(t, api.ValidationIssueSeverityNotice, body.Issues[0].Severity)
+	assert.Equal(t, api.ValidationIssueSourceValueReference, body.Issues[0].Source)
+
+	require.NotNil(t, body.ReferenceScope)
+	scope := body.ReferenceScope
+	require.Len(t, scope.Params, 1)
+	assert.Equal(t, "${params.region}", scope.Params[0].Reference)
+	require.NotNil(t, scope.Params[0].DefaultValue)
+	assert.Equal(t, "eu", *scope.Params[0].DefaultValue)
+	require.Len(t, scope.Steps, 2)
+	fetch, use := scope.Steps[0], scope.Steps[1]
+	assert.Equal(t, "steps[0]", fetch.StepPath)
+	require.NotNil(t, fetch.Id)
+	assert.Equal(t, "fetch", *fetch.Id)
+	require.Len(t, fetch.Outputs, 1)
+	assert.Equal(t, "${steps.fetch.outputs.body}", fetch.Outputs[0].Reference)
+	assert.Equal(t, api.ReferenceScopeOutputSourceDeclared, fetch.Outputs[0].Source)
+	assert.Equal(t, api.ReferenceScopeStepOutputsKnownStatic, fetch.OutputsKnown)
+	assert.Equal(t, []string{"fetch"}, use.Upstream)
+}
+
+func TestValidateIssuesInvalidSpec(t *testing.T) {
+	server := test.SetupServer(t)
+	name := "validate_invalid"
+
+	var body api.ValidateDAGSpec200JSONResponse
+	server.Client().Post("/api/v1/dags/validate", api.ValidateDAGSpecJSONRequestBody{
+		Name: &name,
+		Spec: "steps:\n  - name: a\n    run: echo a\n    depends: [missing]\n",
+	}).ExpectStatus(http.StatusOK).Send(t).Unmarshal(t, &body)
+
+	require.False(t, body.Valid)
+	require.NotEmpty(t, body.Errors)
+	var messages []string
+	for _, issue := range body.Issues {
+		if issue.Severity == api.ValidationIssueSeverityError {
+			messages = append(messages, issue.Message)
+		}
+	}
+	assert.Equal(t, body.Errors, messages)
+}
+
+func TestValidateIssuesBaseConfig(t *testing.T) {
+	server := test.SetupServer(t)
+	require.NoError(t, os.WriteFile(server.Config.Paths.BaseConfig, []byte("type: graph\n"), 0600))
+	name := "validate_base"
+
+	var body api.ValidateDAGSpec200JSONResponse
+	server.Client().Post("/api/v1/dags/validate", api.ValidateDAGSpecJSONRequestBody{
+		Name: &name,
+		Spec: "steps:\n  - name: build\n    run: echo b\n  - name: test\n    run: echo t\n    depends: [build]\n",
+	}).ExpectStatus(http.StatusOK).Send(t).Unmarshal(t, &body)
+
+	require.True(t, body.Valid)
+	require.NotNil(t, body.ReferenceScope)
+	require.Len(t, body.ReferenceScope.Steps, 2)
+	assert.Equal(t, []string{"build"}, body.ReferenceScope.Steps[1].Upstream)
+}
+
+func TestDAGSpecSha256(t *testing.T) {
+	server := test.SetupServer(t)
+	spec := "steps:\n  - run: echo hash\n"
+	server.Client().Post("/api/v1/dags", api.CreateNewDAGJSONRequestBody{
+		Name: "sha_get", Spec: &spec,
+	}).ExpectStatus(http.StatusCreated).Send(t)
+
+	var body api.GetDAGSpec200JSONResponse
+	server.Client().Get("/api/v1/dags/sha_get/spec").
+		ExpectStatus(http.StatusOK).Send(t).Unmarshal(t, &body)
+
+	sum := sha256.Sum256([]byte(body.Spec))
+	assert.Equal(t, hex.EncodeToString(sum[:]), body.Sha256)
+	assert.Equal(t, spec, body.Spec)
+}
+
+func TestUpdateDAGSpecSha256(t *testing.T) {
+	server := test.SetupServer(t)
+	spec := "steps:\n  - run: echo one\n"
+	server.Client().Post("/api/v1/dags", api.CreateNewDAGJSONRequestBody{
+		Name: "sha_put", Spec: &spec,
+	}).ExpectStatus(http.StatusCreated).Send(t)
+	var got api.GetDAGSpec200JSONResponse
+	server.Client().Get("/api/v1/dags/sha_put/spec").
+		ExpectStatus(http.StatusOK).Send(t).Unmarshal(t, &got)
+
+	next := "steps:\n  - run: echo two\n"
+	var put api.UpdateDAGSpec200JSONResponse
+	server.Client().Put("/api/v1/dags/sha_put/spec", api.UpdateDAGSpecJSONRequestBody{
+		Spec: next, ExpectedSha256: &got.Sha256,
+	}).ExpectStatus(http.StatusOK).Send(t).Unmarshal(t, &put)
+	sum := sha256.Sum256([]byte(next))
+	assert.Equal(t, hex.EncodeToString(sum[:]), put.Sha256)
+
+	// The returned hash lets the client save again without a re-read.
+	server.Client().Put("/api/v1/dags/sha_put/spec", api.UpdateDAGSpecJSONRequestBody{
+		Spec: spec, ExpectedSha256: &put.Sha256,
+	}).ExpectStatus(http.StatusOK).Send(t)
+}
+
+func TestUpdateDAGSpecConflict(t *testing.T) {
+	server := test.SetupServer(t)
+	spec := "steps:\n  - run: echo one\n"
+	server.Client().Post("/api/v1/dags", api.CreateNewDAGJSONRequestBody{
+		Name: "sha_conflict", Spec: &spec,
+	}).ExpectStatus(http.StatusCreated).Send(t)
+
+	wrong := strings.Repeat("0", 64)
+	var apiErr api.Error
+	server.Client().Put("/api/v1/dags/sha_conflict/spec", api.UpdateDAGSpecJSONRequestBody{
+		Spec: "steps:\n  - run: echo two\n", ExpectedSha256: &wrong,
+	}).ExpectStatus(http.StatusConflict).Send(t).Unmarshal(t, &apiErr)
+	assert.Equal(t, api.ErrorCodeConflict, apiErr.Code)
+	assert.NotEmpty(t, apiErr.Message)
+
+	var got api.GetDAGSpec200JSONResponse
+	server.Client().Get("/api/v1/dags/sha_conflict/spec").
+		ExpectStatus(http.StatusOK).Send(t).Unmarshal(t, &got)
+	assert.Equal(t, spec, got.Spec)
 }

@@ -11,6 +11,8 @@ import (
 	"sort"
 	"strings"
 	"sync"
+
+	"github.com/dagucloud/dagu/v2/internal/cmn/config"
 )
 
 // internalSecretPrefix must match secrets.PresolvedEnvPrefix.
@@ -65,21 +67,36 @@ func NewEnvScope(parent *EnvScope, includeOS bool) *EnvScope {
 	}
 	if includeOS {
 		for _, env := range os.Environ() {
-			if k, v, ok := strings.Cut(env, "="); ok {
-				// Skip internal transport vars for pre-resolved secrets.
-				// These are only consumed by the env secret resolver via
-				// direct os.LookupEnv; they must not appear in step environments.
-				// Must match secrets.PresolvedEnvPrefix (duplicated to avoid
-				// circular import: eval <- secrets).
-				normalizedKey := strings.ToUpper(k)
-				if strings.HasPrefix(normalizedKey, internalSecretPrefix) || strings.HasPrefix(normalizedKey, internalTransportPrefix) || normalizedKey == internalBuildEnvFileKey {
-					continue
-				}
+			if k, v, ok := strings.Cut(env, "="); ok && !hiddenFromWorkflows(k) {
 				e.entries[k] = EnvEntry{Key: k, Value: v, Source: EnvSourceOS}
 			}
 		}
 	}
 	return e
+}
+
+// hiddenFromWorkflows reports whether a process environment variable stays
+// out of everything a workflow sees or expands. The internal transport
+// variables for pre-resolved secrets are consumed only by the env secret
+// resolver, through a direct os.LookupEnv; Dagu's own credentials are for the
+// processes Dagu starts for itself.
+func hiddenFromWorkflows(key string) bool {
+	// Must match secrets.PresolvedEnvPrefix (duplicated to avoid circular
+	// import: eval <- secrets).
+	normalizedKey := strings.ToUpper(key)
+	return strings.HasPrefix(normalizedKey, internalSecretPrefix) ||
+		strings.HasPrefix(normalizedKey, internalTransportPrefix) ||
+		normalizedKey == internalBuildEnvFileKey ||
+		config.IsCredentialEnv(key)
+}
+
+// lookupProcessEnv looks name up in the process environment as a workflow
+// sees it: the expansion fallback when no scope applies.
+func lookupProcessEnv(name string) (string, bool) {
+	if hiddenFromWorkflows(name) {
+		return "", false
+	}
+	return os.LookupEnv(name)
 }
 
 // WithEntry returns a new EnvScope with the given entry added.
@@ -307,6 +324,16 @@ func (e *EnvScope) Expand(s string) string {
 		return s
 	}
 	return expandWithLookup(s, e.Get, true)
+}
+
+// ExpandPath expands ${VAR} and $VAR in the filesystem path s using this
+// scope. A backslash in s is path text, never an escape marker. Variables not
+// found in the scope are preserved in their original form.
+func (e *EnvScope) ExpandPath(s string) string {
+	if e == nil {
+		return s
+	}
+	return expandWithLookup(s, e.Get, false)
 }
 
 // Debug returns a string representation for debugging

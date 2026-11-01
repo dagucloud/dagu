@@ -9,7 +9,7 @@ import OverviewPage from '..';
 import { useViews } from '@/hooks/useViews';
 
 vi.mock('../..', () => ({
-  default: () => <div>Timeline panel</div>,
+  default: () => <div>Activity panel</div>,
 }));
 
 vi.mock('../../cockpit', () => ({
@@ -57,14 +57,14 @@ describe('OverviewPage', () => {
     mockViews([]);
   });
 
-  it('defaults to the Timeline tab', () => {
+  it('defaults to the Activity tab', () => {
     render(<OverviewPage />);
 
-    expect(screen.getByRole('tab', { name: /timeline/i })).toHaveAttribute(
+    expect(screen.getByRole('tab', { name: /activity/i })).toHaveAttribute(
       'aria-selected',
       'true'
     );
-    expect(screen.getByText('Timeline panel')).toBeInTheDocument();
+    expect(screen.getByText('Activity panel')).toBeInTheDocument();
     expect(screen.queryByText('Cockpit panel')).not.toBeInTheDocument();
   });
 
@@ -95,11 +95,11 @@ describe('OverviewPage', () => {
 
     render(<OverviewPage initialTab="timeline" />);
 
-    expect(screen.getByRole('tab', { name: /timeline/i })).toHaveAttribute(
+    expect(screen.getByRole('tab', { name: /activity/i })).toHaveAttribute(
       'aria-selected',
       'true'
     );
-    expect(screen.getByText('Timeline panel')).toBeInTheDocument();
+    expect(screen.getByText('Activity panel')).toBeInTheDocument();
   });
 
   it('renders a tab per saved view and shows its panel when selected', async () => {

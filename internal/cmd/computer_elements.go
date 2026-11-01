@@ -95,7 +95,8 @@ With --format json, the result is one object. A failing command prints
 unsupported, load_failed, no_elements, not_found, ambiguous, failed, and
 the problem codes of dagu computer check.
 
-Elements are read on 64-bit Windows.
+Elements are read through Accessibility on macOS, which needs the
+Accessibility permission, and through UI Automation on 64-bit Windows.
 `,
 		Args: cobra.NoArgs,
 	}, []commandLineFlag{elementsFormatFlag, elementsLimitFlag, elementsAtPointerFlag, elementsAfterFlag, elementsWatchFlag, elementsMatchFlag}, runComputerElements)

@@ -19,7 +19,7 @@ export function InlineLogViewer({
   stream,
   dagRun,
   foreach,
-  live = true,
+  live = false,
 }: {
   dagName: string;
   dagRunId: string;

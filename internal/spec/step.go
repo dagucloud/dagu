@@ -261,7 +261,8 @@ type retryPolicy struct {
 type thinkingConfig struct {
 	// Enabled activates thinking mode for supported models.
 	Enabled bool `yaml:"enabled,omitempty"`
-	// Effort controls reasoning depth: low, medium, high, xhigh.
+	// Effort controls reasoning depth: none, minimal, low, medium, high,
+	// xhigh, max.
 	Effort string `yaml:"effort,omitempty"`
 	// BudgetTokens sets explicit token budget (provider-specific).
 	BudgetTokens *int `yaml:"budget_tokens,omitempty"`
@@ -312,6 +313,9 @@ type llmConfig struct {
 	// APIKeyName is the name of the environment variable containing the API key.
 	// If not specified, the default environment variable for the provider is used.
 	APIKeyName string `yaml:"api_key_name,omitempty"`
+	// ProviderOrder names the upstream providers OpenRouter tries first, in
+	// order. Only the openrouter provider accepts it.
+	ProviderOrder []string `yaml:"provider_order,omitempty"`
 	// Stream enables or disables streaming output.
 	// Default is true.
 	Stream *bool `yaml:"stream,omitempty"`
@@ -332,6 +336,9 @@ type llmConfig struct {
 	ObservationKeepRecent *int `yaml:"observation_keep_recent,omitempty"`
 	// WebSearch configures provider-native web search.
 	WebSearch *webSearchConfig `yaml:"web_search,omitempty"`
+	// Files names the files the model reads with the prompt: paths, glob
+	// patterns, or a list an earlier step published.
+	Files types.StringOrArray `yaml:"files,omitempty"`
 }
 
 // llmMessage defines a message in the LLM session.
@@ -1037,15 +1044,6 @@ func buildStepRepeatPolicy(_ stepBuildContext, s *step) (ir.RepeatPolicy, error)
 	// No repeat if mode is not determined
 	if mode == "" {
 		return ir.RepeatPolicy{}, nil
-	}
-
-	// Validate that explicit string while/until modes have appropriate conditions
-	// (bool true is allowed without conditions for backward compatibility)
-	if rp.Repeat.IsSet() && !rp.Repeat.IsBool() {
-		m := rp.Repeat.String()
-		if (m == "while" || m == "until") && rp.Condition == "" && len(rp.ExitCode) == 0 {
-			return ir.RepeatPolicy{}, fmt.Errorf("repeat mode '%s' requires either 'condition' or 'exit_code' to be specified", m)
-		}
 	}
 
 	var result ir.RepeatPolicy
@@ -2173,7 +2171,16 @@ func buildStepExecutor(ctx stepBuildContext, s *step, result *ir.Step) error {
 		mergeRedisConfig(ctx.dag.Redis, result.ExecutorConfig.Config)
 	}
 	if result.ExecutorConfig.Type == "harness" && ctx.dag != nil && ctx.dag.Harness != nil {
-		result.ExecutorConfig.Config = mergeHarnessConfig(ctx.dag.Harness, ctx.dag.Harnesses, stepConfig)
+		config, inherited := mergeHarnessConfig(ctx.dag.Harness, ctx.dag.Harnesses, stepConfig)
+		result.ExecutorConfig.Config = config
+		// A provider chosen by a variable is unknown here, so the runtime filters
+		// the inherited options once the provider resolves.
+		if len(inherited) > 0 && strings.Contains(harnessProviderName(config), "${") {
+			if result.ExecutorConfig.Metadata == nil {
+				result.ExecutorConfig.Metadata = make(map[string]any, 1)
+			}
+			result.ExecutorConfig.Metadata[ir.HarnessInheritedOptionsKey] = inherited
+		}
 	}
 	if isKubernetesExecutorType(result.ExecutorConfig.Type) && ctx.dag != nil && ctx.dag.Kubernetes != nil {
 		result.ExecutorConfig.Config = mergeKubernetesExecutorConfig(ctx.dag.Kubernetes, result.ExecutorConfig.Config)
@@ -2248,7 +2255,9 @@ func mergeRedisConfig(dagRedis *ir.RedisConfig, stepConfig map[string]any) {
 	setIfMissing("max_retries", dagRedis.MaxRetries)
 }
 
-func mergeHarnessConfig(dagHarness *ir.HarnessConfig, defs ir.HarnessDefinitions, stepConfig map[string]any) map[string]any {
+// mergeHarnessConfig applies DAG-level harness defaults to a step config and
+// returns the merged config with the sorted keys it inherited.
+func mergeHarnessConfig(dagHarness *ir.HarnessConfig, defs ir.HarnessDefinitions, stepConfig map[string]any) (map[string]any, []string) {
 	effectiveProvider := harnessProviderName(stepConfig)
 	if effectiveProvider == "" && dagHarness != nil {
 		effectiveProvider = harnessProviderName(dagHarness.Config)
@@ -2263,19 +2272,29 @@ func mergeHarnessConfig(dagHarness *ir.HarnessConfig, defs ir.HarnessDefinitions
 	}
 
 	if dagHarness == nil {
-		return merged
+		return merged, nil
 	}
 
+	def := defs[effectiveProvider]
 	dagConfig := dagHarness.Config
 	if ir.IsEffectiveBuiltinCLIHarnessProvider(effectiveProvider, defs) {
 		dagConfig = ir.NormalizeBuiltinHarnessFlagKeys(dagConfig)
 	}
+	// Remote ACP agents accept no CLI options, so DAG-level options meant for
+	// other providers are not inherited.
+	remoteACP := def != nil && def.IsRemote()
 
+	var inherited []string
 	for key, value := range dagConfig {
+		if remoteACP && key != "provider" && key != "acp_permission" {
+			continue
+		}
 		if _, exists := merged[key]; !exists {
 			merged[key] = cloneAny(value)
+			inherited = append(inherited, key)
 		}
 	}
+	slices.Sort(inherited)
 
 	if _, exists := stepConfig["fallback"]; exists {
 		merged["fallback"] = cloneAny(stepConfig["fallback"])
@@ -2283,7 +2302,7 @@ func mergeHarnessConfig(dagHarness *ir.HarnessConfig, defs ir.HarnessDefinitions
 		merged["fallback"] = cloneAny(dagHarness.Fallback)
 	}
 
-	return merged
+	return merged, inherited
 }
 
 func harnessProviderName(cfg map[string]any) string {
@@ -2699,6 +2718,9 @@ func llmConfigOf(cfg *llmConfig) (*ir.LLMConfig, error) {
 	if err := validateAgentLLMLimits(cfg, false); err != nil {
 		return nil, err
 	}
+	if err := validateProviderOrder(cfg, models); err != nil {
+		return nil, err
+	}
 
 	// Validate top_p range
 	if cfg.TopP != nil {
@@ -2723,11 +2745,13 @@ func llmConfigOf(cfg *llmConfig) (*ir.LLMConfig, error) {
 		TopP:              cfg.TopP,
 		BaseURL:           cfg.BaseURL,
 		APIKeyName:        cfg.APIKeyName,
+		ProviderOrder:     cfg.ProviderOrder,
 		Stream:            cfg.Stream,
 		Thinking:          thinking,
 		Tools:             cfg.Tools,
 		MaxToolIterations: cfg.MaxToolIterations,
 		WebSearch:         buildWebSearchConfig(cfg.WebSearch),
+		Files:             cfg.Files.Values(),
 	}, nil
 }
 
@@ -2789,6 +2813,39 @@ func validateLLMProvider(provider string) error {
 	return err
 }
 
+// validateProviderOrder refuses provider_order for a model whose provider is
+// not openrouter, the one provider that routes among upstream providers. A
+// model entry's own provider_order replaces the shared one. A provider that
+// carries a value reference is checked once the step resolves it.
+func validateProviderOrder(cfg *llmConfig, models []ir.ModelEntry) error {
+	if len(models) == 0 {
+		return requireOpenRouter("llm.provider_order", cfg.ProviderOrder, cfg.Provider)
+	}
+	for i, model := range models {
+		path, order := "llm.provider_order", cfg.ProviderOrder
+		if len(model.ProviderOrder) > 0 {
+			path, order = fmt.Sprintf("llm.model[%d].provider_order", i), model.ProviderOrder
+		}
+		if err := requireOpenRouter(path, order, model.Provider); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// requireOpenRouter refuses an order for a provider other than openrouter. A
+// missing provider is left to the check that requires one.
+func requireOpenRouter(path string, order []string, provider string) error {
+	if len(order) == 0 || provider == "" || cmnvalue.HasValueReference(provider) {
+		return nil
+	}
+	if providerType, _ := llm.ParseProviderType(provider); providerType == llm.ProviderOpenRouter {
+		return nil
+	}
+	return ir.NewValidationError(path, order,
+		fmt.Errorf("provider_order is only supported by the openrouter provider, not %q", provider))
+}
+
 // convertModelEntries converts types.ModelEntry slice to ir.ModelEntry slice with validation.
 func convertModelEntries(entries []types.ModelEntry) ([]ir.ModelEntry, error) {
 	models := make([]ir.ModelEntry, len(entries))
@@ -2797,13 +2854,14 @@ func convertModelEntries(entries []types.ModelEntry) ([]ir.ModelEntry, error) {
 			return nil, ir.NewValidationError(fmt.Sprintf("llm.model[%d].provider", i), e.Provider, err)
 		}
 		models[i] = ir.ModelEntry{
-			Provider:    e.Provider,
-			Name:        e.Name,
-			Temperature: e.Temperature,
-			MaxTokens:   e.MaxTokens,
-			TopP:        e.TopP,
-			BaseURL:     e.BaseURL,
-			APIKeyName:  e.APIKeyName,
+			Provider:      e.Provider,
+			Name:          e.Name,
+			Temperature:   e.Temperature,
+			MaxTokens:     e.MaxTokens,
+			TopP:          e.TopP,
+			BaseURL:       e.BaseURL,
+			APIKeyName:    e.APIKeyName,
+			ProviderOrder: e.ProviderOrder,
 		}
 	}
 	return models, nil

@@ -25,12 +25,14 @@ const (
 	streamPrefix               = "data: "
 	anthropicWebSearchToolType = "web_search_20260209"
 
-	// Thinking budget token limits for different effort levels.
-	// Note: Anthropic recommends budgets <= 32K to avoid timeout issues.
-	thinkingBudgetLow    = 1024
-	thinkingBudgetMedium = 4096
-	thinkingBudgetHigh   = 16384
-	thinkingBudgetXHigh  = 32768
+	// Thinking types: a fixed token budget, or adaptive thinking whose depth
+	// follows the effort level.
+	thinkingTypeEnabled  = "enabled"
+	thinkingTypeAdaptive = "adaptive"
+
+	// adaptiveThinkingMaxTokens is the max_tokens default under adaptive
+	// thinking, which spends max_tokens on thinking ahead of the answer.
+	adaptiveThinkingMaxTokens = 32768
 )
 
 func init() {
@@ -118,12 +120,8 @@ func (p *Provider) Chat(ctx context.Context, req *llm.ChatRequest) (*llm.ChatRes
 	result := &llm.ChatResponse{
 		Content:      content.String(),
 		FinishReason: resp.StopReason,
-		Usage: llm.Usage{
-			PromptTokens:     resp.Usage.InputTokens,
-			CompletionTokens: resp.Usage.OutputTokens,
-			TotalTokens:      resp.Usage.InputTokens + resp.Usage.OutputTokens,
-		},
-		ToolCalls: toolCalls,
+		Usage:        resp.Usage.llm(),
+		ToolCalls:    toolCalls,
 	}
 	if len(resp.Content) > 0 {
 		result.ProviderState = &llm.ProviderState{Provider: llm.ProviderAnthropic, Data: raw.Content}
@@ -227,20 +225,20 @@ func (p *Provider) buildRequestBody(req *llm.ChatRequest, stream bool) ([]byte, 
 
 	// Add thinking configuration if enabled
 	// Must be done before setting max_tokens since max_tokens must be > budget_tokens
+	chatReq.Thinking, chatReq.OutputConfig = thinkingConfig(req.Thinking)
 	var thinkingBudget int
-	if req.Thinking != nil && req.Thinking.Enabled {
-		thinkingBudget = p.getThinkingBudget(req.Thinking)
-		chatReq.Thinking = &thinkingRequest{
-			Type:        "enabled",
-			BudgetToken: thinkingBudget,
-		}
+	if chatReq.Thinking != nil {
+		thinkingBudget = chatReq.Thinking.BudgetToken
 	}
 
 	// Set max_tokens (required by Anthropic)
 	// When thinking is enabled, max_tokens must be > budget_tokens
-	if req.MaxTokens != nil {
+	switch {
+	case req.MaxTokens != nil:
 		chatReq.MaxTokens = *req.MaxTokens
-	} else {
+	case chatReq.Thinking != nil && chatReq.Thinking.Type == thinkingTypeAdaptive:
+		chatReq.MaxTokens = adaptiveThinkingMaxTokens
+	default:
 		// Default to 4096 if not specified
 		chatReq.MaxTokens = 4096
 	}
@@ -404,30 +402,40 @@ func inputSchema(parameters map[string]any) map[string]any {
 // The API rejects a forced choice while thinking is enabled, and on models
 // that do not accept one at all.
 func forcedToolChoiceSupported(req *llm.ChatRequest) bool {
-	thinking := req.Thinking != nil && req.Thinking.Enabled
-	return !thinking && claudemodel.ForcedToolChoiceSupported(req.Model)
+	thinking, _ := thinkingConfig(req.Thinking)
+	return thinking == nil && claudemodel.ForcedToolChoiceSupported(req.Model)
 }
 
-// getThinkingBudget determines the token budget for thinking mode.
-// Uses explicit BudgetTokens if provided, otherwise maps effort level to tokens.
-func (p *Provider) getThinkingBudget(thinking *llm.ThinkingRequest) int {
-	// Use explicit budget if provided
-	if thinking.BudgetTokens != nil && *thinking.BudgetTokens > 0 {
-		return *thinking.BudgetTokens
+// thinkingConfig returns the thinking and output settings for a request, or
+// nil settings when the request runs without thinking. An explicit budget
+// asks for a fixed budget, which models that predate adaptive thinking need;
+// otherwise the model thinks adaptively at the requested effort, and effort
+// none leaves thinking out.
+func thinkingConfig(thinking *llm.ThinkingRequest) (*thinkingRequest, *outputConfig) {
+	if thinking == nil || !thinking.Enabled {
+		return nil, nil
 	}
+	if thinking.BudgetTokens != nil && *thinking.BudgetTokens > 0 {
+		return &thinkingRequest{Type: thinkingTypeEnabled, BudgetToken: *thinking.BudgetTokens}, nil
+	}
+	if thinking.Effort == llm.ThinkingEffortNone {
+		return nil, nil
+	}
+	return &thinkingRequest{Type: thinkingTypeAdaptive}, &outputConfig{Effort: string(adaptiveEffort(thinking.Effort))}
+}
 
-	// Map effort level to budget tokens
-	switch thinking.Effort {
-	case llm.ThinkingEffortLow:
-		return thinkingBudgetLow
-	case llm.ThinkingEffortMedium:
-		return thinkingBudgetMedium
-	case llm.ThinkingEffortHigh:
-		return thinkingBudgetHigh
-	case llm.ThinkingEffortXHigh:
-		return thinkingBudgetXHigh
+// adaptiveEffort returns the effort level sent with adaptive thinking: the
+// requested level, or low for levels below the lowest the API accepts. An
+// unset effort is medium.
+func adaptiveEffort(effort llm.ThinkingEffort) llm.ThinkingEffort {
+	switch effort {
+	case llm.ThinkingEffortNone, llm.ThinkingEffortMinimal:
+		return llm.ThinkingEffortLow
+	case llm.ThinkingEffortLow, llm.ThinkingEffortMedium, llm.ThinkingEffortHigh,
+		llm.ThinkingEffortXHigh, llm.ThinkingEffortMax:
+		return effort
 	default:
-		return thinkingBudgetMedium
+		return llm.ThinkingEffortMedium
 	}
 }
 
@@ -448,7 +456,18 @@ func (p *Provider) streamResponse(ctx context.Context, body io.ReadCloser, event
 
 	scanner := bufio.NewScanner(body)
 	scanner.Buffer(make([]byte, 0, 64*1024), 8*1024*1024)
-	var usage *llm.Usage
+	// message_start carries the input counts and message_delta the
+	// cumulative output, so each event's usage is merged into what the
+	// stream has seen.
+	var usage *apiUsage
+	done := func() llm.StreamEvent {
+		event := llm.StreamEvent{Done: true}
+		if usage != nil {
+			total := usage.llm()
+			event.Usage = &total
+		}
+		return event
+	}
 
 	for scanner.Scan() {
 		select {
@@ -482,25 +501,17 @@ func (p *Provider) streamResponse(ctx context.Context, body io.ReadCloser, event
 			}
 
 		case "message_delta":
-			// Message completed, may contain usage
 			if event.Usage != nil {
-				usage = &llm.Usage{
-					PromptTokens:     event.Usage.InputTokens,
-					CompletionTokens: event.Usage.OutputTokens,
-					TotalTokens:      event.Usage.InputTokens + event.Usage.OutputTokens,
-				}
+				usage = usage.merge(*event.Usage)
 			}
 
 		case "message_start":
-			// May contain initial usage (input tokens)
 			if event.Message != nil && event.Message.Usage != nil {
-				usage = &llm.Usage{
-					PromptTokens: event.Message.Usage.InputTokens,
-				}
+				usage = usage.merge(*event.Message.Usage)
 			}
 
 		case "message_stop":
-			events <- llm.StreamEvent{Done: true, Usage: usage}
+			events <- done()
 			return
 
 		case "error":
@@ -522,7 +533,7 @@ func (p *Provider) streamResponse(ctx context.Context, body io.ReadCloser, event
 	}
 
 	// If we get here without message_stop, still signal completion
-	events <- llm.StreamEvent{Done: true, Usage: usage}
+	events <- done()
 }
 
 // API request/response types
@@ -549,6 +560,7 @@ type messagesRequest struct {
 	StopSequences []string         `json:"stop_sequences,omitempty"`
 	Stream        bool             `json:"stream,omitempty"`
 	Thinking      *thinkingRequest `json:"thinking,omitempty"`
+	OutputConfig  *outputConfig    `json:"output_config,omitempty"`
 	Tools         []any            `json:"tools,omitempty"`
 	ToolChoice    any              `json:"tool_choice,omitempty"` // "auto", "any", or {"type": "tool", "name": "..."}
 }
@@ -556,7 +568,12 @@ type messagesRequest struct {
 // thinkingRequest represents Anthropic's extended thinking configuration.
 type thinkingRequest struct {
 	Type        string `json:"type"`
-	BudgetToken int    `json:"budget_tokens"`
+	BudgetToken int    `json:"budget_tokens,omitempty"`
+}
+
+// outputConfig carries the effort level for adaptive thinking.
+type outputConfig struct {
+	Effort string `json:"effort"`
 }
 
 type contentBlock struct {
@@ -575,32 +592,58 @@ type messagesResponse struct {
 	Model        string         `json:"model"`
 	StopReason   string         `json:"stop_reason"`
 	StopSequence string         `json:"stop_sequence,omitempty"`
-	Usage        struct {
-		InputTokens  int `json:"input_tokens"`
-		OutputTokens int `json:"output_tokens"`
-	} `json:"usage"`
+	Usage        apiUsage       `json:"usage"`
+}
+
+// apiUsage is the usage object of the Messages API, whose input_tokens leave
+// out the tokens read from and written to the prompt cache.
+type apiUsage struct {
+	InputTokens              int `json:"input_tokens"`
+	OutputTokens             int `json:"output_tokens"`
+	CacheCreationInputTokens int `json:"cache_creation_input_tokens"`
+	CacheReadInputTokens     int `json:"cache_read_input_tokens"`
+}
+
+// llm returns the usage as llm.Usage, whose prompt counts the cached tokens
+// too.
+func (u apiUsage) llm() llm.Usage {
+	prompt := u.InputTokens + u.CacheCreationInputTokens + u.CacheReadInputTokens
+	return llm.Usage{
+		PromptTokens:           prompt,
+		CompletionTokens:       u.OutputTokens,
+		TotalTokens:            prompt + u.OutputTokens,
+		CachedPromptTokens:     u.CacheReadInputTokens,
+		CacheWritePromptTokens: u.CacheCreationInputTokens,
+	}
+}
+
+// merge folds a stream event's usage into what the stream has seen. Each
+// event reports counts so far, so the larger of each count stands.
+func (u *apiUsage) merge(event apiUsage) *apiUsage {
+	merged := event
+	if u != nil {
+		merged.InputTokens = max(u.InputTokens, event.InputTokens)
+		merged.OutputTokens = max(u.OutputTokens, event.OutputTokens)
+		merged.CacheCreationInputTokens = max(u.CacheCreationInputTokens, event.CacheCreationInputTokens)
+		merged.CacheReadInputTokens = max(u.CacheReadInputTokens, event.CacheReadInputTokens)
+	}
+	return &merged
 }
 
 type streamEvent struct {
 	Type    string `json:"type"`
 	Index   int    `json:"index,omitempty"`
 	Message *struct {
-		ID    string `json:"id"`
-		Type  string `json:"type"`
-		Role  string `json:"role"`
-		Usage *struct {
-			InputTokens  int `json:"input_tokens"`
-			OutputTokens int `json:"output_tokens"`
-		} `json:"usage,omitempty"`
+		ID    string    `json:"id"`
+		Type  string    `json:"type"`
+		Role  string    `json:"role"`
+		Usage *apiUsage `json:"usage,omitempty"`
 	} `json:"message,omitempty"`
 	Delta *struct {
 		Type string `json:"type"`
 		Text string `json:"text,omitempty"`
 	} `json:"delta,omitempty"`
-	Usage *struct {
-		InputTokens  int `json:"input_tokens"`
-		OutputTokens int `json:"output_tokens"`
-	} `json:"usage,omitempty"`
+	Usage *apiUsage `json:"usage,omitempty"`
 	Error *struct {
 		Type    string `json:"type"`
 		Message string `json:"message"`

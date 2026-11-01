@@ -268,7 +268,7 @@ export function ViewSelector({
             {views.length > 0 && (
               <>
                 <DropdownMenuSeparator />
-                <DropdownMenuLabel className="text-[11px] uppercase tracking-wide text-muted-foreground">
+                <DropdownMenuLabel className="text-[11px] text-muted-foreground">
                   <I18nText text={'Shared views'} />
                 </DropdownMenuLabel>
                 {views.map((view) => (

@@ -5,6 +5,7 @@ package browser
 
 import (
 	"bufio"
+	"cmp"
 	"context"
 	"encoding/json"
 	"errors"
@@ -19,6 +20,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"runtime"
+	"slices"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -27,6 +29,9 @@ import (
 
 	stagehand "github.com/browserbase/stagehand/packages/sdk-go/v4"
 	"github.com/dagucloud/dagu/v2/internal/browserhost"
+	"github.com/dagucloud/dagu/v2/internal/browserhost/writegate"
+	"github.com/dagucloud/dagu/v2/internal/cmn/procutil"
+	"github.com/dagucloud/dagu/v2/internal/test/chrometest"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -48,51 +53,25 @@ const shopPage = `<!doctype html><html><head><title>Shop</title></head><body>
 <button onclick="document.getElementById('status').textContent='clicked'">Submit</button>
 </body></html>`
 
+// testBrowserDir keeps what test browsers learn about the executable, so
+// only the first headless launch of a test process learns its user agent.
+var testBrowserDir string
+
+func TestMain(m *testing.M) {
+	dir, err := os.MkdirTemp("", "dagu-browser-state-")
+	if err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		os.Exit(1)
+	}
+	testBrowserDir = dir
+	code := m.Run()
+	_ = os.RemoveAll(dir)
+	os.Exit(code)
+}
+
 // elementIDPattern finds a node ID in the accessibility tree the runtime
 // sends to the model, such as "[0-23] button: Submit".
 var elementIDPattern = regexp.MustCompile(`\[(\d+-\d+)\] button: Submit`)
-
-// requireChrome skips when no Chrome is installed, except in CI, where the
-// runners provide one and a missing browser is a setup failure.
-func requireChrome(t *testing.T) {
-	t.Helper()
-	if chromePath() != "" {
-		return
-	}
-	if os.Getenv("CI") != "" {
-		t.Fatal("Chrome is required in CI; set CHROME_PATH")
-	}
-	t.Skip("Chrome is not installed; set CHROME_PATH to run browser tests")
-}
-
-func chromePath() string {
-	if path := os.Getenv("CHROME_PATH"); path != "" {
-		return path
-	}
-	var candidates []string
-	switch runtime.GOOS {
-	case "darwin":
-		candidates = []string{"/Applications/Google Chrome.app/Contents/MacOS/Google Chrome", "/Applications/Chromium.app/Contents/MacOS/Chromium"}
-	case "windows":
-		for _, root := range []string{os.Getenv("PROGRAMFILES"), os.Getenv("PROGRAMFILES(X86)"), os.Getenv("LOCALAPPDATA")} {
-			if root != "" {
-				candidates = append(candidates, filepath.Join(root, "Google", "Chrome", "Application", "chrome.exe"))
-			}
-		}
-	default:
-		for _, name := range []string{"google-chrome-stable", "google-chrome", "chromium-browser", "chromium"} {
-			if path, err := exec.LookPath(name); err == nil {
-				candidates = append(candidates, path)
-			}
-		}
-	}
-	for _, candidate := range candidates {
-		if _, err := os.Stat(candidate); err == nil {
-			return candidate
-		}
-	}
-	return ""
-}
 
 func serveShop(t *testing.T) string {
 	t.Helper()
@@ -154,12 +133,15 @@ func launchShop(t *testing.T, model *shopModel) engine {
 // test ends.
 func launchBrowser(t *testing.T, opts launchOptions) engine {
 	t.Helper()
-	requireChrome(t)
+	chrometest.Require(t)
 	ctx := t.Context()
-	opts.Executable = chromePath()
+	opts.Executable = cmp.Or(opts.Executable, chrometest.Path())
 	opts.Headless = true
-	opts.UserDataDir = browserProfileDir(t)
+	if opts.UserDataDir == "" {
+		opts.UserDataDir = browserProfileDir(t)
+	}
 	opts.NoSandbox = true
+	opts.BrowserDir = cmp.Or(opts.BrowserDir, testBrowserDir)
 	var eng engine
 	err := withStartupSlot(func() (err error) {
 		eng, err = stagehandLauncher{}.Launch(ctx, opts)
@@ -276,7 +258,7 @@ func TestStagehandActRecordsReplayableActions(t *testing.T) {
 	model := &shopModel{}
 	eng := launchShop(t, model)
 
-	outcome, err := eng.Act(t.Context(), "Click the Submit button", nil, time.Minute)
+	outcome, err := eng.Act(t.Context(), "Click the Submit button", nil, nil, time.Minute)
 	require.NoError(t, err)
 	require.True(t, outcome.Success, outcome.Message)
 	require.NotEmpty(t, outcome.Actions)
@@ -309,6 +291,268 @@ func TestStagehandReplayHiddenElement(t *testing.T) {
 	replayed, err = eng.Replay(t.Context(), typeInto("xpath=/html/body/input[1]"), nil, time.Minute)
 	require.NoError(t, err)
 	assert.True(t, replayed, "the field outside the dialog is visible")
+}
+
+// treeModel answers act requests with method and arguments on the element
+// find finds in the tree the runtime sends.
+func treeModel(find func(roots []*outlineNode) *outlineNode, method string, arguments ...string) generateFunc {
+	return func(_ context.Context, req generateRequest) (generateResponse, error) {
+		if !strings.Contains(string(req.Schema), "elementId") {
+			return generateResponse{JSON: json.RawMessage(`{"completed":true,"progress":"done"}`)}, nil
+		}
+		text := ""
+		for _, message := range req.Messages {
+			text += message.Text + "\n"
+		}
+		node := find(parseSnapshotTree(text))
+		if node == nil {
+			return generateResponse{}, fmt.Errorf("no element to act on in:\n%s", text)
+		}
+		action, err := json.Marshal(map[string]any{
+			"elementId": node.id, "description": node.role, "method": method, "arguments": append([]string{}, arguments...),
+		})
+		if err != nil {
+			return generateResponse{}, err
+		}
+		return generateResponse{JSON: json.RawMessage(`{"action":` + string(action) + `,"twoStep":false}`)}, nil
+	}
+}
+
+// where finds the first node pick accepts.
+func where(pick func(*outlineNode) bool) func([]*outlineNode) *outlineNode {
+	return func(roots []*outlineNode) *outlineNode { return nodeWhere(roots, pick) }
+}
+
+func nodeWhere(nodes []*outlineNode, pick func(*outlineNode) bool) *outlineNode {
+	for _, n := range nodes {
+		if pick(n) {
+			return n
+		}
+		if found := nodeWhere(n.children, pick); found != nil {
+			return found
+		}
+	}
+	return nil
+}
+
+func buttonNamed(name string) func(*outlineNode) bool {
+	return func(n *outlineNode) bool { return n.role == "button" && n.name == name }
+}
+
+func selectOffering(option string) func(*outlineNode) bool {
+	return func(n *outlineNode) bool {
+		return slices.Contains(choiceRoles, n.role) && slices.ContainsFunc(optionsOf(n), func(o *outlineNode) bool { return o.name == option })
+	}
+}
+
+// statusPage is a page whose elements report what was done to them in its
+// status line, which starts as "idle".
+func statusPage(body string) string {
+	return "data:text/html;charset=utf-8," + url.PathEscape(`<p id="status">idle</p>`+body+
+		`<script>function report(s) { document.getElementById("status").textContent = s; }</script>`)
+}
+
+func requireStatus(t *testing.T, eng engine, want string) {
+	t.Helper()
+	text, err := eng.PageText(t.Context())
+	require.NoError(t, err)
+	require.Equal(t, want, strings.SplitN(text, "\n", 2)[0])
+}
+
+// savePage has a Save button. A banner puts a Dismiss button before it, at
+// the location Save had.
+func savePage(banner bool) string {
+	dismiss := ""
+	if banner {
+		dismiss = `<button onclick="report('dismissed')">Dismiss</button>`
+	}
+	return statusPage(`<div>` + dismiss + `<button onclick="report('saved')">Save</button></div>`)
+}
+
+// A replay acts only on the element it recorded. When the layout moves
+// another element to the recorded location, the replay misses instead of
+// acting on it.
+func TestStagehandReplayMissesShiftedElement(t *testing.T) {
+	t.Parallel()
+
+	eng := launchBrowser(t, launchOptions{Generate: treeModel(where(buttonNamed("Save")), "click")})
+	require.NoError(t, eng.Goto(t.Context(), savePage(false), time.Minute))
+	outcome, err := eng.Act(t.Context(), "Click Save", nil, nil, time.Minute)
+	require.NoError(t, err)
+	require.True(t, outcome.Success, outcome.Message)
+	require.Len(t, outcome.Actions, 1)
+	save := outcome.Actions[0]
+
+	require.NoError(t, eng.Goto(t.Context(), savePage(true), time.Minute))
+	replayed, err := eng.Replay(t.Context(), save, nil, time.Minute)
+	require.NoError(t, err)
+	assert.False(t, replayed, "Dismiss is where Save was")
+	requireStatus(t, eng, "idle")
+
+	require.NoError(t, eng.Goto(t.Context(), savePage(false), time.Minute))
+	replayed, err = eng.Replay(t.Context(), save, nil, time.Minute)
+	require.NoError(t, err)
+	assert.True(t, replayed)
+	requireStatus(t, eng, "saved")
+}
+
+// priceForm has unlabeled lower and upper price selects. A banner puts a
+// sort select before them, so the upper price's location holds the lower.
+func priceForm(banner bool) string {
+	sort := ""
+	if banner {
+		sort = `<select onchange="report(this.value)"><option>新着順</option><option>価格順</option></select>`
+	}
+	return statusPage(`<div>` + sort +
+		`<select onchange="report(this.value)"><option>下限なし</option><option>7000万円以上</option></select>` +
+		`<select onchange="report(this.value)"><option>上限なし</option><option>7000万円未満</option></select></div>`)
+}
+
+// A replayed select acts only on a select offering the recorded option. The
+// runtime would otherwise reset another select at the recorded location to
+// its first option and report success.
+func TestStagehandReplayMissesShiftedSelect(t *testing.T) {
+	t.Parallel()
+
+	eng := launchBrowser(t, launchOptions{Generate: treeModel(where(selectOffering("7000万円未満")), "selectOptionFromDropdown", "7000万円未満")})
+	require.NoError(t, eng.Goto(t.Context(), priceForm(false), time.Minute))
+	outcome, err := eng.Act(t.Context(), "Choose 7000万円未満 as the upper price", nil, nil, time.Minute)
+	require.NoError(t, err)
+	require.True(t, outcome.Success, outcome.Message)
+	require.Len(t, outcome.Actions, 1)
+	upper := outcome.Actions[0]
+
+	require.NoError(t, eng.Goto(t.Context(), priceForm(true), time.Minute))
+	replayed, err := eng.Replay(t.Context(), upper, nil, time.Minute)
+	require.NoError(t, err)
+	assert.False(t, replayed, "the lower price select is where the upper was")
+	requireStatus(t, eng, "idle")
+
+	require.NoError(t, eng.Goto(t.Context(), statusPage(`<div><select><option>下限なし</option></select><select onchange="report(this.value)"></select></div>`), time.Minute))
+	replayed, err = eng.Replay(t.Context(), upper, nil, time.Minute)
+	require.NoError(t, err)
+	assert.False(t, replayed, "the upper price select has no options yet")
+
+	require.NoError(t, eng.Goto(t.Context(), priceForm(false), time.Minute))
+	replayed, err = eng.Replay(t.Context(), upper, nil, time.Minute)
+	require.NoError(t, err)
+	assert.True(t, replayed)
+	requireStatus(t, eng, "7000万円未満")
+}
+
+// deleteList has a Delete button in each row.
+func deleteList(rows ...string) string {
+	body := "<ul>"
+	for _, row := range rows {
+		body += fmt.Sprintf(`<li>%[1]s <button onclick="report('deleted %[1]s')">Delete</button></li>`, row)
+	}
+	return statusPage(body + "</ul>")
+}
+
+// A replayed action on one of several lookalike elements, such as the Delete
+// button of a row, acts only on the one in the row it recorded.
+func TestStagehandReplayMissesShiftedRow(t *testing.T) {
+	t.Parallel()
+
+	betaDelete := func(roots []*outlineNode) *outlineNode {
+		row := nodeWhere(roots, func(n *outlineNode) bool { return n.role == "listitem" && strings.Contains(textOf(n), "Beta") })
+		if row == nil {
+			return nil
+		}
+		return nodeWhere(row.children, buttonNamed("Delete"))
+	}
+	eng := launchBrowser(t, launchOptions{Generate: treeModel(betaDelete, "click")})
+	require.NoError(t, eng.Goto(t.Context(), deleteList("Alpha", "Beta"), time.Minute))
+	outcome, err := eng.Act(t.Context(), "Delete Beta", nil, nil, time.Minute)
+	require.NoError(t, err)
+	require.True(t, outcome.Success, outcome.Message)
+	require.Len(t, outcome.Actions, 1)
+	deleteBeta := outcome.Actions[0]
+
+	require.NoError(t, eng.Goto(t.Context(), deleteList("Gamma", "Alpha", "Beta"), time.Minute))
+	replayed, err := eng.Replay(t.Context(), deleteBeta, nil, time.Minute)
+	require.NoError(t, err)
+	assert.False(t, replayed, "Alpha's Delete is where Beta's was")
+	requireStatus(t, eng, "idle")
+
+	require.NoError(t, eng.Goto(t.Context(), deleteList("Alpha", "Beta"), time.Minute))
+	replayed, err = eng.Replay(t.Context(), deleteBeta, nil, time.Minute)
+	require.NoError(t, err)
+	assert.True(t, replayed)
+	requireStatus(t, eng, "deleted Beta")
+
+	// A Delete alone in its list when recorded has no row to be told apart
+	// by, so a row added before it makes the replay miss.
+	require.NoError(t, eng.Goto(t.Context(), deleteList("Beta"), time.Minute))
+	outcome, err = eng.Act(t.Context(), "Delete Beta", nil, nil, time.Minute)
+	require.NoError(t, err)
+	require.True(t, outcome.Success, outcome.Message)
+	require.NoError(t, eng.Goto(t.Context(), deleteList("Alpha", "Beta"), time.Minute))
+	replayed, err = eng.Replay(t.Context(), outcome.Actions[0], nil, time.Minute)
+	require.NoError(t, err)
+	assert.False(t, replayed, "Alpha's Delete is where the lone one was")
+	requireStatus(t, eng, "idle")
+}
+
+// An act whose model picks an option the select does not offer does not
+// complete, though the runtime reports success for it. Its message names
+// the value the option's variable was given, unless that value is secret.
+func TestStagehandActMissingOption(t *testing.T) {
+	t.Parallel()
+
+	eng := launchBrowser(t, launchOptions{Generate: treeModel(where(selectOffering("7000万円未満")), "selectOptionFromDropdown", "%upper%")})
+	require.NoError(t, eng.Goto(t.Context(), priceForm(false), time.Minute))
+	upper := map[string]string{"upper": "8000万円未満"}
+	outcome, err := eng.Act(t.Context(), "Choose %upper% as the upper price", upper, func(string) bool { return false }, time.Minute)
+	require.NoError(t, err)
+	assert.False(t, outcome.Success)
+	assert.Equal(t, `the select offers no option "8000万円未満", the value of "%upper%"; it offers "上限なし", "7000万円未満"`, outcome.Message)
+
+	outcome, err = eng.Act(t.Context(), "Choose %upper% as the upper price", upper, func(string) bool { return true }, time.Minute)
+	require.NoError(t, err)
+	assert.False(t, outcome.Success)
+	assert.NotContains(t, outcome.Message, "8000万円未満")
+}
+
+// servePerPage serves a list whose results-per-page select reloads the page
+// when an option is chosen. The reloaded list shows its results a moment
+// after its first bytes. The change handler holds the page's script for a
+// moment after starting the reload, so the new document replaces the select
+// before the runtime is done with it, as on a page that answers fast.
+func servePerPage(t *testing.T) string {
+	t.Helper()
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/html")
+		_, _ = io.WriteString(w, `<select onchange="location.search = '?per_page=' + this.value;
+const end = Date.now() + 300; while (Date.now() < end) {}">
+<option value="20">20</option><option value="100">100</option></select>`)
+		if perPage := r.URL.Query().Get("per_page"); perPage != "" {
+			w.(http.Flusher).Flush()
+			time.Sleep(time.Second)
+			_, _ = fmt.Fprintf(w, "<p>Showing %s results</p>", perPage)
+		}
+	}))
+	t.Cleanup(server.Close)
+	return server.URL
+}
+
+// An act that chooses an option which reloads the page completes, and the
+// next operation reads the reloaded page.
+func TestStagehandActSelectThatReloads(t *testing.T) {
+	t.Parallel()
+
+	eng := launchBrowser(t, launchOptions{Generate: treeModel(where(selectOffering("100")), selectOptionMethod, "100")})
+	require.NoError(t, eng.Goto(t.Context(), servePerPage(t), time.Minute))
+	document, err := eng.DocumentID(t.Context())
+	require.NoError(t, err)
+
+	op := &operator{eng: eng, warn: func(_ int, message string) { t.Log(message) }}
+	outcome, err := op.performAct(t.Context(), 0, "Show 100 results per page", document, time.Minute)
+	require.NoError(t, err)
+	require.True(t, outcome.Success, outcome.Message)
+	text, err := eng.PageText(t.Context())
+	require.NoError(t, err)
+	assert.Contains(t, text, "Showing 100 results")
 }
 
 // servePager serves a page that draws its list from a request it makes on
@@ -401,6 +645,456 @@ func TestStagehandWaitsForThePageAPressOpens(t *testing.T) {
 	assert.Contains(t, text, "Welcome back", "the greeting the home page fetched")
 }
 
+// serveFramedSearch serves a page built of frames, as older sites are,
+// whose menu frame posts a search into the content frame: Search at once,
+// Search later a moment after it is pressed, and Search with notice while
+// a window it opens says to wait, which the results close. The results are
+// answered a moment after the search is posted.
+func serveFramedSearch(t *testing.T) string {
+	t.Helper()
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/html")
+		switch r.URL.Path {
+		case "/":
+			_, _ = io.WriteString(w, `<frameset cols="200,*"><frame src="/menu"><frame name="main" src="/home"></frameset>`)
+		case "/menu":
+			_, _ = io.WriteString(w, `<form id="search" method="post" action="/results" target="main"></form>
+<button onclick="document.getElementById('search').submit()">Search</button>
+<button onclick="setTimeout(() => document.getElementById('search').submit(), 200)">Search later</button>
+<button onclick="top.notice = window.open('/wait', 'notice', 'width=300,height=100'); document.getElementById('search').submit()">Search with notice</button>`)
+		case "/home":
+			_, _ = io.WriteString(w, "<p>Home</p>")
+		case "/wait":
+			_, _ = io.WriteString(w, "<p>Searching</p>")
+		case "/results":
+			time.Sleep(1500 * time.Millisecond)
+			_, _ = io.WriteString(w, `<p>Road repair</p><script>if (top.notice) top.notice.close()</script>`)
+		}
+	}))
+	t.Cleanup(server.Close)
+	return server.URL
+}
+
+// A press that posts a form into another frame waits for the frame to load
+// the answer, so the next operation reads the results rather than the
+// frame as it was: a press replayed, one an act performs after its model
+// took a while to answer, which posts a moment after the act returns, and
+// one that opens a window, which the browser then shows in front.
+func TestStagehandWaitsForTheFrameAPressLoads(t *testing.T) {
+	t.Parallel()
+
+	replayPress := func(selector string) func(context.Context, engine) error {
+		return func(ctx context.Context, eng engine) error {
+			replayed, err := eng.Replay(ctx, recordedAction{Selector: selector, Method: "click"}, nil, time.Minute)
+			if err == nil && !replayed {
+				err = errors.New("the press was not replayed")
+			}
+			return err
+		}
+	}
+	// The model answers after the page has long been quiet.
+	slowModel := func(generate generateFunc) generateFunc {
+		return func(ctx context.Context, req generateRequest) (generateResponse, error) {
+			select {
+			case <-ctx.Done():
+				return generateResponse{}, ctx.Err()
+			case <-time.After(time.Second):
+			}
+			return generate(ctx, req)
+		}
+	}
+	for name, tc := range map[string]struct {
+		generate generateFunc
+		press    func(context.Context, engine) error
+	}{
+		"replay": {
+			generate: (&shopModel{}).generate,
+			press:    replayPress("xpath=/html[1]/frameset[1]/frame[1]/html[1]/body[1]/button[1]"),
+		},
+		"window": {
+			generate: (&shopModel{}).generate,
+			press:    replayPress("xpath=/html[1]/frameset[1]/frame[1]/html[1]/body[1]/button[3]"),
+		},
+		"act": {
+			generate: slowModel(treeModel(where(buttonNamed("Search later")), "click")),
+			press: func(ctx context.Context, eng engine) error {
+				outcome, err := eng.Act(ctx, "Click Search later", nil, nil, time.Minute)
+				if err == nil && !outcome.Success {
+					err = errors.New(outcome.Message)
+				}
+				return err
+			},
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+			eng := launchBrowser(t, launchOptions{Generate: tc.generate})
+			require.NoError(t, eng.Goto(t.Context(), serveFramedSearch(t), time.Minute))
+			// A press returns once the page has settled, long before the wait
+			// for it would give up.
+			eng.(*stagehandEngine).settleWait = time.Minute
+
+			began := time.Now()
+			require.NoError(t, tc.press(t.Context(), eng))
+			assert.Less(t, time.Since(began), 20*time.Second, "the press waited out the settle limit")
+			snap, err := eng.Snapshot(t.Context())
+			require.NoError(t, err)
+			assert.Contains(t, snap.Tree, "Road repair", "the results the search loaded")
+		})
+	}
+}
+
+// serveWindowedSearch serves a site built of frames that opens windows as
+// older sites do. Search writes a "searching" window in place and posts
+// into the content frame, whose answer comes once answer returns, or the
+// server stops, and closes the window as it loads; Search for details opens a details window that
+// stays while it posts the same search. Choose region opens a window to tick
+// regions in, which stays until Register gives them to the menu and closes
+// it. Mark marks the menu.
+func serveWindowedSearch(t *testing.T, answer func(stopped context.Context)) string {
+	t.Helper()
+	stopped, stop := context.WithCancel(context.Background())
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/html")
+		switch r.URL.Path {
+		case "/":
+			_, _ = io.WriteString(w, `<script>
+function openSearching() {
+	top.searching = window.open("/blank", "searching", "width=320,height=120");
+	top.searching.document.write("<title>Searching</title><p>Searching, please wait</p><input name='indicator'>");
+	top.searching.document.close();
+}
+function closeSearching() { if (top.searching) top.searching.close(); }
+</script><frameset cols="200,*"><frame src="/menu"><frame name="main" src="/home"></frameset>`)
+		case "/menu":
+			_, _ = io.WriteString(w, `<form id="search" method="post" action="/results" target="main"></form>
+<p id="region">No region</p>
+<button onclick="top.openSearching(); document.getElementById('search').submit()">Search</button>
+<button onclick="window.open('/regions', 'regions', 'width=800,height=600')">Choose region</button>
+<button onclick="window.open('/details', 'details', 'width=800,height=600'); document.getElementById('search').submit()">Search for details</button>
+<button onclick="document.getElementById('region').textContent = 'Marked'">Mark</button>
+<script>function setRegion(name) { document.getElementById('region').textContent = name; }</script>`)
+		case "/regions":
+			_, _ = io.WriteString(w, `<title>Regions</title><label><input type="checkbox" value="Chiba">Chiba</label>
+<label><input type="checkbox" value="Funabashi">Funabashi</label>
+<button onclick="opener.setRegion([...document.querySelectorAll('input:checked')].map(box => box.value).join(', ')); window.close()">Register</button>`)
+		case "/details":
+			_, _ = io.WriteString(w, "<title>Details</title><p>Details of the bid</p>")
+		case "/home":
+			_, _ = io.WriteString(w, "<p>Home</p>")
+		case "/results":
+			answer(stopped)
+			_, _ = io.WriteString(w, `<body onload="top.closeSearching()"><p>Road repair</p><button onclick="this.textContent = 'Opened'">Open</button></body>`)
+		}
+	}))
+	t.Cleanup(server.Close)
+	// The server closes once its handlers return, so they stop waiting first.
+	t.Cleanup(stop)
+	return server.URL
+}
+
+// answerAfter returns an answer of serveWindowedSearch that comes after
+// delay.
+func answerAfter(delay time.Duration) func(context.Context) {
+	return func(stopped context.Context) {
+		select {
+		case <-time.After(delay):
+		case <-stopped.Done():
+		}
+	}
+}
+
+// gatedAnswer returns an answer of serveWindowedSearch that comes once
+// release is called.
+func gatedAnswer() (answer func(context.Context), release func()) {
+	gate := make(chan struct{})
+	answer = func(stopped context.Context) {
+		select {
+		case <-gate:
+		case <-stopped.Done():
+		}
+	}
+	return answer, sync.OnceFunc(func() { close(gate) })
+}
+
+// windowedSearchPress replays a press on a button of serveWindowedSearch's
+// menu frame, given by its position.
+func windowedSearchPress(ctx context.Context, eng engine, button int, timeout time.Duration) error {
+	selector := fmt.Sprintf("xpath=/html[1]/frameset[1]/frame[1]/html[1]/body[1]/button[%d]", button)
+	replayed, err := eng.Replay(ctx, recordedAction{Selector: selector, Method: "click"}, nil, timeout)
+	if err == nil && !replayed {
+		err = errors.New("the press was not replayed")
+	}
+	return err
+}
+
+// A "searching" window a search opens, which its answer closes, is not the
+// page the operations after the search work on, even when the answer takes
+// longer than a page takes to settle: the search waits for the answer, and
+// the snapshot, page text, extract, and act that follow read the results.
+func TestStagehandWorksBehindASearchingWindow(t *testing.T) {
+	t.Parallel()
+
+	act := treeModel(where(buttonNamed("Open")), "click")
+	model := func(ctx context.Context, req generateRequest) (generateResponse, error) {
+		if !strings.Contains(string(req.Schema), `"found"`) {
+			return act(ctx, req)
+		}
+		text := ""
+		for _, message := range req.Messages {
+			text += message.Text
+		}
+		return generateResponse{JSON: json.RawMessage(fmt.Sprintf(`{"found":%t}`, strings.Contains(text, "Road repair")))}, nil
+	}
+	eng := launchBrowser(t, launchOptions{Generate: model})
+	require.NoError(t, eng.Goto(t.Context(), serveWindowedSearch(t, answerAfter(1500*time.Millisecond)), time.Minute))
+	eng.(*stagehandEngine).settleWait = 200 * time.Millisecond
+
+	began := time.Now()
+	require.NoError(t, windowedSearchPress(t.Context(), eng, 1, time.Minute))
+	assert.Less(t, time.Since(began), 20*time.Second, "the search waited out its timeout")
+	snap, err := eng.Snapshot(t.Context())
+	require.NoError(t, err)
+	assert.Contains(t, snap.Tree, "Road repair", "the outline of the results")
+	assert.NotContains(t, snap.Tree, "Searching")
+	text, err := eng.PageText(t.Context())
+	require.NoError(t, err)
+	assert.Contains(t, text, "Road repair", "the text an expect reads")
+	found, err := eng.Extract(t.Context(), "Whether the page lists Road repair", json.RawMessage(`{"type":"object","properties":{"found":{"type":"boolean"}}}`), time.Minute)
+	require.NoError(t, err)
+	assert.JSONEq(t, `{"found":true}`, string(found), "what an extract reads")
+	outcome, err := eng.Act(t.Context(), "Click Open", nil, nil, time.Minute)
+	require.NoError(t, err)
+	require.True(t, outcome.Success, outcome.Message)
+	text, err = eng.PageText(t.Context())
+	require.NoError(t, err)
+	assert.Contains(t, text, "Opened", "the press the act made on the results")
+}
+
+// A search whose answer outlasts its timeout returns when the timeout ends,
+// and the operations that follow, a later press too, work on the page that
+// searched while the "searching" window is still up, until the answer
+// closes it.
+func TestStagehandSearchingWindowWaitEndsWithTimeout(t *testing.T) {
+	t.Parallel()
+
+	eng := launchBrowser(t, launchOptions{Generate: (&shopModel{}).generate})
+	answer, release := gatedAnswer()
+	require.NoError(t, eng.Goto(t.Context(), serveWindowedSearch(t, answer), time.Minute))
+	eng.(*stagehandEngine).settleWait = 200 * time.Millisecond
+
+	timeout := time.Second
+	began := time.Now()
+	require.NoError(t, windowedSearchPress(t.Context(), eng, 1, timeout))
+	// An operation is abandoned callTimeoutSlack after its timeout at the
+	// latest.
+	assert.Less(t, time.Since(began), timeout+callTimeoutSlack, "the search waited past its timeout")
+	snap, err := eng.Snapshot(t.Context())
+	require.NoError(t, err)
+	assert.Contains(t, snap.Tree, "Choose region", "the page that searched")
+	assert.NotContains(t, snap.Tree, "Searching")
+	require.NoError(t, windowedSearchPress(t.Context(), eng, 4, timeout), "a press on the page that searched")
+	text, err := eng.PageText(t.Context())
+	require.NoError(t, err)
+	assert.Contains(t, text, "Marked")
+	release()
+	require.Eventually(t, func() bool {
+		text, err := eng.PageText(t.Context())
+		return err == nil && strings.Contains(text, "Road repair")
+	}, 20*time.Second, 100*time.Millisecond, "the results, once they came")
+}
+
+// A window that stays open is a page to work on: one a press opens without
+// loading anything else, such as a list of regions to tick and register,
+// and one a press opens while its page loads, once that load has ended.
+func TestStagehandWorksInAWindowThatStays(t *testing.T) {
+	t.Parallel()
+
+	t.Run("dialog", func(t *testing.T) {
+		t.Parallel()
+		eng := launchBrowser(t, launchOptions{Generate: (&shopModel{}).generate})
+		require.NoError(t, eng.Goto(t.Context(), serveWindowedSearch(t, answerAfter(0)), time.Minute))
+
+		require.NoError(t, windowedSearchPress(t.Context(), eng, 2, time.Minute))
+		snap, err := eng.Snapshot(t.Context())
+		require.NoError(t, err)
+		assert.Contains(t, snap.Tree, "Register", "the window of regions")
+		document, err := eng.DocumentID(t.Context())
+		require.NoError(t, err)
+		// Register closes the window, which can end its click before the
+		// click reports back; the operator judges that by the document.
+		op := &operator{eng: eng}
+		replayed, err := op.replay(t.Context(), []recordedAction{
+			{Selector: "xpath=/html[1]/body[1]/label[2]/input[1]", Method: "click"},
+			{Selector: "xpath=/html[1]/body[1]/button[1]", Method: "click"},
+		}, document, time.Minute)
+		require.NoError(t, err)
+		require.Equal(t, 2, replayed)
+		text, err := eng.PageText(t.Context())
+		require.NoError(t, err)
+		assert.Contains(t, text, "Funabashi", "the region the window registered")
+	})
+	t.Run("details", func(t *testing.T) {
+		t.Parallel()
+		eng := launchBrowser(t, launchOptions{Generate: (&shopModel{}).generate})
+		require.NoError(t, eng.Goto(t.Context(), serveWindowedSearch(t, answerAfter(1500*time.Millisecond)), time.Minute))
+		eng.(*stagehandEngine).settleWait = 200 * time.Millisecond
+
+		require.NoError(t, windowedSearchPress(t.Context(), eng, 3, time.Minute))
+		text, err := eng.PageText(t.Context())
+		require.NoError(t, err)
+		assert.Contains(t, text, "Details of the bid", "the window the search left open")
+	})
+}
+
+// serveClosingWindow serves a page whose Choose region button opens a
+// window of regions. The window's Register button gives a region to the
+// page and returns only once closeWindow, which the server calls when
+// Register asks, has closed the window. The browser then reports the
+// window closed before it answers the press, as it can for a window whose
+// button closes it.
+func serveClosingWindow(t *testing.T, closeWindow func() error) string {
+	t.Helper()
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/html")
+		switch r.URL.Path {
+		case "/":
+			_, _ = io.WriteString(w, `<p id="region">No region</p>
+<button onclick="window.open('/regions', 'regions', 'width=800,height=600')">Choose region</button>
+<script>function setRegion(name) { document.getElementById('region').textContent = name; }</script>`)
+		case "/regions":
+			// A synchronous request holds the press until the window closed.
+			_, _ = io.WriteString(w, `<title>Regions</title>
+<button onclick="opener.setRegion('Chiba'); const close = new XMLHttpRequest(); close.open('GET', '/close', false); close.send()">Register</button>`)
+		case "/close":
+			if err := closeWindow(); err != nil {
+				t.Errorf("close the window of regions: %v", err)
+			}
+		}
+	}))
+	t.Cleanup(server.Close)
+	return server.URL
+}
+
+// A press that closes its window completes, even when the browser reports
+// the window closed before it answers the press, and the operations after
+// it work on the page that opened the window: a press replayed, and one an
+// act performs.
+func TestStagehandPressClosesItsWindow(t *testing.T) {
+	t.Parallel()
+
+	// Choose region on the page and Register in the window are each the
+	// first button.
+	replayFirstButton := func(ctx context.Context, eng engine) (bool, error) {
+		return eng.Replay(ctx, recordedAction{Selector: "xpath=/html[1]/body[1]/button[1]", Method: "click"}, nil, time.Minute)
+	}
+	for name, register := range map[string]func(context.Context, engine) (bool, error){
+		"replay": replayFirstButton,
+		"act": func(ctx context.Context, eng engine) (bool, error) {
+			outcome, err := eng.Act(ctx, "Click Register", nil, nil, time.Minute)
+			return outcome.Success, err
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+			eng := launchBrowser(t, launchOptions{Generate: treeModel(where(buttonNamed("Register")), "click")})
+			closeRegions := func() error {
+				browserContext, err := eng.(*stagehandEngine).browser.Context()
+				if err != nil {
+					return err
+				}
+				pages, err := browserContext.Pages(t.Context())
+				if err != nil {
+					return err
+				}
+				for _, page := range pages {
+					if ref := page.Ref(); ref.URL != nil && strings.HasSuffix(*ref.URL, "/regions") {
+						return page.Close(t.Context())
+					}
+				}
+				return errors.New("no window of regions is open")
+			}
+			require.NoError(t, eng.Goto(t.Context(), serveClosingWindow(t, closeRegions), time.Minute))
+			opened, err := replayFirstButton(t.Context(), eng)
+			require.NoError(t, err)
+			require.True(t, opened, "the press on Choose region")
+
+			registered, err := register(t.Context(), eng)
+			require.NoError(t, err)
+			require.True(t, registered, "the press on Register")
+			text, err := eng.PageText(t.Context())
+			require.NoError(t, err)
+			assert.Contains(t, text, "Chiba", "the region the window registered")
+		})
+	}
+}
+
+// serveRefreshedDetails serves a page built of frames whose Search for
+// details button opens a details window that stays and posts into the
+// content frame. The answer comes as serveWindowedSearch's does, and two
+// seconds after it loads the frame moves to a page that is not answered
+// while the server runs, as one that refreshes itself does; refreshing is
+// closed once that page is asked for.
+func serveRefreshedDetails(t *testing.T, answer func(context.Context)) (string, <-chan struct{}) {
+	t.Helper()
+	refreshing := make(chan struct{})
+	asked := sync.OnceFunc(func() { close(refreshing) })
+	stopped, stop := context.WithCancel(context.Background())
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/html")
+		switch r.URL.Path {
+		case "/":
+			_, _ = io.WriteString(w, `<frameset cols="200,*"><frame src="/menu"><frame name="main" src="/home"></frameset>`)
+		case "/menu":
+			_, _ = io.WriteString(w, `<form id="search" method="post" action="/results" target="main"></form>
+<button onclick="window.open('/details', 'details', 'width=800,height=600'); document.getElementById('search').submit()">Search for details</button>`)
+		case "/details":
+			_, _ = io.WriteString(w, "<title>Details</title><p>Details of the bid</p>")
+		case "/home":
+			_, _ = io.WriteString(w, "<p>Home</p>")
+		case "/results":
+			answer(stopped)
+			_, _ = io.WriteString(w, `<p>Road repair</p><script>onload = () => setTimeout(() => location.assign("/refresh"), 2000)</script>`)
+		case "/refresh":
+			asked()
+			<-stopped.Done()
+		}
+	}))
+	t.Cleanup(server.Close)
+	// The server closes once its handlers return, so they stop waiting first.
+	t.Cleanup(stop)
+	return server.URL, refreshing
+}
+
+// A window held while its opener loads what the press began is let go
+// once that load has ended and the quiet period passed, even when no
+// operation looked at it then: a load its opener begins later of its own
+// accord does not hold it again.
+func TestStagehandHeldWindowLetGoAfterItsLoad(t *testing.T) {
+	t.Parallel()
+
+	eng := launchBrowser(t, launchOptions{Generate: (&shopModel{}).generate})
+	answer, release := gatedAnswer()
+	site, refreshing := serveRefreshedDetails(t, answer)
+	require.NoError(t, eng.Goto(t.Context(), site, time.Minute))
+	eng.(*stagehandEngine).settleWait = 200 * time.Millisecond
+
+	// The press ends with its timeout while the window is still held.
+	require.NoError(t, windowedSearchPress(t.Context(), eng, 1, time.Second))
+	release()
+	select {
+	case <-refreshing:
+	case <-t.Context().Done():
+		t.Fatal("the content frame never refreshed")
+	}
+	// Reading the page does not hold the window again.
+	for range 2 {
+		text, err := eng.PageText(t.Context())
+		require.NoError(t, err)
+		assert.Contains(t, text, "Details of the bid", "the window that stayed")
+	}
+}
+
 // menuPage adds an Approve button once its menu is opened.
 const menuPage = `<p id="status">pending</p>
 <button onclick="openMenu()">Open menu</button>
@@ -443,7 +1137,7 @@ func TestStagehandActPerformsOneAction(t *testing.T) {
 	eng := launchBrowser(t, launchOptions{Generate: model})
 	require.NoError(t, eng.Goto(t.Context(), "data:text/html,"+url.PathEscape(menuPage), 30*time.Second))
 
-	outcome, err := eng.Act(t.Context(), "Open the menu", nil, time.Minute)
+	outcome, err := eng.Act(t.Context(), "Open the menu", nil, nil, time.Minute)
 	require.NoError(t, err)
 	require.True(t, outcome.Success, outcome.Message)
 	assert.Len(t, outcome.Actions, 1)
@@ -453,9 +1147,10 @@ func TestStagehandActPerformsOneAction(t *testing.T) {
 	assert.Contains(t, text, "pending", "Approve is not clicked")
 }
 
-// The runtime reports a detached page session in a failed act result when
-// the action failed, and as an RPC error when the work around it did. Other
-// failures, including the SDK's own connection errors, are not a lost page.
+// The runtime reports a lost page, a detached session or a script context a
+// new document replaced, in a failed act result when the action failed, and
+// as an RPC error when the work around it did. Other failures, including the
+// SDK's own connection errors, are not a lost page.
 func TestSessionLost(t *testing.T) {
 	t.Parallel()
 
@@ -463,11 +1158,16 @@ func TestSessionLost(t *testing.T) {
 		return stagehand.ActResult{Data: stagehand.ActResultData{Message: message}}
 	}
 	for name, tc := range map[string]struct {
-		result stagehand.ActResult
-		err    error
-		lost   bool
+		result  stagehand.ActResult
+		err     error
+		lost    bool
+		context bool
 	}{
 		"failed action": {result: failed("Failed to perform act: -32001 Session with given id not found."), lost: true},
+		"replaced context": {
+			result: failed("Failed to perform act: -32000 Cannot find context with specified id"),
+			lost:   true, context: true,
+		},
 		"rpc error": {
 			err:  fmt.Errorf("act: %w", &stagehand.RPCError{Code: -32603, Message: "No Page found for target closed before CDP response (sessionId=s1, targetId=t1)"}),
 			lost: true,
@@ -478,6 +1178,46 @@ func TestSessionLost(t *testing.T) {
 	} {
 		lost := sessionLost(tc.result, tc.err)
 		assert.Equal(t, tc.lost, errors.Is(lost, errPageSessionLost), name)
+		assert.Equal(t, tc.context, errors.Is(lost, errPageContextLost), name)
+	}
+}
+
+// A read whose script context a new document replaced runs once more after
+// that document settles, and reports errPageContextLost only when the second
+// run loses its context too. Other failures return at once, as they are.
+func TestRereadOnNewDocument(t *testing.T) {
+	t.Parallel()
+
+	lost := fmt.Errorf("evaluate: %w", &stagehand.RPCError{Code: -32000, Message: "-32000 Cannot find context with specified id"})
+	detached := &stagehand.RPCError{Code: -32001, Message: "-32001 Session with given id not found."}
+	for name, tc := range map[string]struct {
+		// reads are what each run of the read returns; nil reads the page.
+		reads   []error
+		settled bool
+		err     error
+	}{
+		"lost once":            {reads: []error{lost, nil}, settled: true},
+		"lost twice":           {reads: []error{lost, lost}, settled: true, err: errPageContextLost},
+		"lost, then detached":  {reads: []error{lost, detached}, settled: true, err: detached},
+		"detached":             {reads: []error{detached}, err: detached},
+		"read at the first go": {reads: []error{nil}},
+	} {
+		runs, settled := 0, false
+		raw, err := rereadOnNewDocument(func() (json.RawMessage, error) {
+			runs++
+			if read := tc.reads[runs-1]; read != nil {
+				return nil, read
+			}
+			return json.RawMessage(`"Saved"`), nil
+		}, func() { settled = true })
+		assert.Equal(t, len(tc.reads), runs, name)
+		assert.Equal(t, tc.settled, settled, name)
+		if tc.err != nil {
+			assert.ErrorIs(t, err, tc.err, name)
+			continue
+		}
+		assert.NoError(t, err, name)
+		assert.JSONEq(t, `"Saved"`, string(raw), name)
 	}
 }
 
@@ -488,7 +1228,7 @@ func TestStagehandDetachHelper(t *testing.T) {
 		t.Skip("helper process")
 	}
 	eng, err := stagehandLauncher{}.Launch(t.Context(), launchOptions{
-		Executable:  chromePath(),
+		Executable:  chrometest.Path(),
 		Headless:    true,
 		UserDataDir: os.Getenv(detachHelperEnv),
 		NoSandbox:   true,
@@ -506,7 +1246,7 @@ func TestStagehandDetachHelper(t *testing.T) {
 // its extension's service worker has gone idle, keeps its page, and closes.
 func TestStagehandReattachAfterProcessExit(t *testing.T) {
 	t.Parallel()
-	requireChrome(t)
+	chrometest.Require(t)
 
 	userDataDir := browserProfileDir(t)
 	cmd := exec.CommandContext(t.Context(), os.Args[0], "-test.run=^TestStagehandDetachHelper$", "-test.v")
@@ -544,7 +1284,7 @@ func TestStagehandReattachAfterProcessExit(t *testing.T) {
 	require.NoError(t, err)
 	assert.True(t, strings.HasPrefix(pageURL, "data:text/html"), pageURL)
 
-	outcome, err := eng.Act(t.Context(), "Click the Submit button", nil, time.Minute)
+	outcome, err := eng.Act(t.Context(), "Click the Submit button", nil, nil, time.Minute)
 	require.NoError(t, err)
 	assert.True(t, outcome.Success, outcome.Message)
 
@@ -599,13 +1339,13 @@ func reportModel(_ context.Context, req generateRequest) (generateResponse, erro
 // before the watcher reports it.
 func TestStagehandWaitsForDownloads(t *testing.T) {
 	t.Parallel()
-	requireChrome(t)
+	chrometest.Require(t)
 
 	downloads := t.TempDir()
 	eng := launchBrowser(t, launchOptions{DownloadsDir: downloads, Generate: reportModel})
 	require.NoError(t, eng.Goto(t.Context(), serveReport(t), time.Minute))
 
-	outcome, err := eng.Act(t.Context(), "Click the Download report link", nil, time.Minute)
+	outcome, err := eng.Act(t.Context(), "Click the Download report link", nil, nil, time.Minute)
 	require.NoError(t, err)
 	require.True(t, outcome.Success, outcome.Message)
 
@@ -615,6 +1355,119 @@ func TestStagehandWaitsForDownloads(t *testing.T) {
 	data, err := os.ReadFile(filepath.Join(downloads, "report.csv"))
 	require.NoError(t, err)
 	assert.Equal(t, reportBody, string(data))
+}
+
+// serveLoads serves a page that names its path, the report as a download,
+// an answer with no content, and an answer that closes the connection
+// unanswered, for which the browser shows its error page.
+func serveLoads(t *testing.T) string {
+	t.Helper()
+	mux := http.NewServeMux()
+	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/html")
+		_, _ = io.WriteString(w, "<!doctype html><title>Loads</title><p>page "+r.URL.Path+"</p>")
+	})
+	mux.HandleFunc("/report.csv", func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "text/csv")
+		w.Header().Set("Content-Disposition", `attachment; filename="report.csv"`)
+		_, _ = io.WriteString(w, reportBody)
+	})
+	mux.HandleFunc("/empty", func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusNoContent)
+	})
+	mux.HandleFunc("/unanswered", func(w http.ResponseWriter, _ *http.Request) {
+		conn, _, err := w.(http.Hijacker).Hijack()
+		if err == nil {
+			_ = conn.Close()
+		}
+	})
+	server := httptest.NewServer(mux)
+	t.Cleanup(server.Close)
+	return server.URL
+}
+
+// A goto ends when its load does. One that brings no document, a download
+// or an answer with no content, returns as soon as the browser reports it
+// and leaves the page where it was; the download is saved. One that brings
+// a document returns once it is parsed, the browser's error page for an
+// address that cannot be reached included.
+func TestStagehandGotoEndsWithItsLoad(t *testing.T) {
+	t.Parallel()
+
+	downloads := t.TempDir()
+	eng := launchBrowser(t, launchOptions{DownloadsDir: downloads, Generate: reportModel})
+	site := serveLoads(t)
+	// A load that never reports would wait out this timeout and fail.
+	const timeout = 30 * time.Second
+	require.NoError(t, eng.Goto(t.Context(), site+"/start", timeout))
+
+	for path, want := range map[string][]string{"/report.csv": {"report.csv"}, "/empty": {}} {
+		began := time.Now()
+		require.NoError(t, eng.Goto(t.Context(), site+path, timeout), path)
+		assert.Less(t, time.Since(began), timeout/2, path)
+		current, err := eng.CurrentURL(t.Context())
+		require.NoError(t, err)
+		assert.Equal(t, site+"/start", current, "%s leaves the page where it was", path)
+		// Without a grace, only a download already seen to begin is waited
+		// for, as a session waits after a goto.
+		names, err := eng.WaitForDownloads(t.Context(), 0, time.Minute)
+		require.NoError(t, err)
+		assert.Equal(t, want, names, path)
+	}
+
+	// The code an error page names varies by platform, as where Chrome
+	// probes DNS, so only that the error page shows is checked; each load
+	// starts from a page, which names none.
+	for _, target := range []string{"http://dagu-test.invalid/", site + "/unanswered"} {
+		require.NoError(t, eng.Goto(t.Context(), site+"/start", timeout))
+		require.NoError(t, eng.Goto(t.Context(), target, timeout), target)
+		page, err := eng.PageOutcome(t.Context())
+		require.NoError(t, err)
+		assert.NotEmpty(t, page.Code, "%s shows the browser's error page: %+v", target, page)
+	}
+
+	require.NoError(t, eng.Goto(t.Context(), site+"/next", timeout))
+	text, err := eng.PageText(t.Context())
+	require.NoError(t, err)
+	assert.Contains(t, text, "page /next")
+	// A move to a fragment keeps the document.
+	require.NoError(t, eng.Goto(t.Context(), site+"/next#part", timeout))
+	current, err := eng.CurrentURL(t.Context())
+	require.NoError(t, err)
+	assert.Equal(t, site+"/next#part", current)
+}
+
+// A goto whose load another load replaces before the site answers fails,
+// and the page shows the load that replaced it.
+func TestStagehandGotoFailsWhenItsLoadIsCancelled(t *testing.T) {
+	t.Parallel()
+
+	requested := make(chan struct{}, 1)
+	mux := http.NewServeMux()
+	mux.HandleFunc("/slow", func(_ http.ResponseWriter, r *http.Request) {
+		requested <- struct{}{}
+		// No answer comes; the browser drops the request once the load is
+		// replaced.
+		<-r.Context().Done()
+	})
+	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/html")
+		_, _ = io.WriteString(w, "<!doctype html><title>Loads</title><p>page "+r.URL.Path+"</p>")
+	})
+	server := httptest.NewServer(mux)
+	t.Cleanup(server.Close)
+	eng := launchBrowser(t, launchOptions{Generate: reportModel})
+	const timeout = 30 * time.Second
+	require.NoError(t, eng.Goto(t.Context(), server.URL+"/start", timeout))
+
+	cancelled := make(chan error, 1)
+	go func() { cancelled <- eng.Goto(t.Context(), server.URL+"/slow", timeout) }()
+	<-requested
+	require.NoError(t, eng.Goto(t.Context(), server.URL+"/next", timeout))
+	assert.ErrorContains(t, <-cancelled, "cancelled the load")
+	current, err := eng.CurrentURL(t.Context())
+	require.NoError(t, err)
+	assert.Equal(t, server.URL+"/next", current)
 }
 
 func TestStagehandPageChecks(t *testing.T) {
@@ -637,6 +1490,93 @@ func TestStagehandPageChecks(t *testing.T) {
 	visible, err = eng.SelectorVisible(t.Context(), ".row")
 	require.NoError(t, err)
 	assert.True(t, visible)
+
+	// An element inside an open shadow root is matched, by a check and by
+	// a wait.
+	shadow := `<div id="host"></div><script>document.getElementById("host").attachShadow({mode: "open"}).innerHTML = "<p id=inner>Inside</p>"</script>`
+	require.NoError(t, eng.Goto(t.Context(), "data:text/html,"+url.PathEscape(shadow), time.Minute))
+	visible, err = eng.SelectorVisible(t.Context(), "#inner")
+	require.NoError(t, err)
+	assert.True(t, visible)
+	require.NoError(t, eng.WaitForSelector(t.Context(), "#inner", 10*time.Second))
+}
+
+// serveFrames serves a page built of frames, as older sites are: a
+// frameset whose content frame is a frameset of its own, one of whose
+// frames hides its body and one adds an element a moment after it loads,
+// and a menu that holds a frame hidden by display and one hidden by
+// visibility.
+func serveFrames(t *testing.T) string {
+	t.Helper()
+	pages := map[string]string{
+		"/":          `<frameset cols="150,*"><frame src="/menu"><frame src="/main"></frameset>`,
+		"/menu":      `<p>Bid schedule</p><iframe src="/draft" style="display:none"></iframe><iframe src="/withdrawn" style="visibility:hidden"></iframe>`,
+		"/main":      `<frameset rows="40%,40%,20%"><frame src="/search"><frame src="/results"><frame src="/notice"></frameset>`,
+		"/search":    `<p>Search</p><script>setTimeout(() => document.body.insertAdjacentHTML("beforeend", "<p id=later>Ready</p>"), 2000)</script>`,
+		"/results":   `<table><tr><td>Road repair</td><td><a id="show" href="#">Show</a></td></tr></table>`,
+		"/notice":    `<body style="display:none"><p>Maintenance notice</p></body>`,
+		"/draft":     `<p id="draft">Unpublished case</p>`,
+		"/withdrawn": `<p id="withdrawn">Withdrawn case</p>`,
+	}
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		page, ok := pages[r.URL.Path]
+		if !ok {
+			http.NotFound(w, r)
+			return
+		}
+		w.Header().Set("Content-Type", "text/html")
+		_, _ = io.WriteString(w, page)
+	}))
+	t.Cleanup(server.Close)
+	return server.URL
+}
+
+// A page's text and elements include those of the frames it shows, nested
+// ones too, and leave out the frames it hides and a body hidden in a frame.
+func TestStagehandPageChecksReadFrames(t *testing.T) {
+	t.Parallel()
+
+	eng := launchBrowser(t, launchOptions{Generate: (&shopModel{}).generate})
+	require.NoError(t, eng.Goto(t.Context(), serveFrames(t), time.Minute))
+
+	text, err := eng.PageText(t.Context())
+	require.NoError(t, err)
+	assert.Contains(t, text, "Bid schedule")
+	assert.Contains(t, text, "Road repair")
+	for _, hidden := range []string{"Unpublished case", "Withdrawn case", "Maintenance notice"} {
+		assert.NotContains(t, text, hidden)
+	}
+
+	visible, err := eng.SelectorVisible(t.Context(), "#show")
+	require.NoError(t, err)
+	assert.True(t, visible)
+	for _, hidden := range []string{"#draft", "#withdrawn"} {
+		visible, err = eng.SelectorVisible(t.Context(), hidden)
+		require.NoError(t, err)
+		assert.False(t, visible, hidden)
+	}
+}
+
+// A wait for a CSS selector finds it in the frames the page shows too, also
+// once it appears there, and a selector that hops into frames or an XPath
+// through them is found as written. An element of a hidden frame never
+// appears.
+func TestStagehandWaitsForSelectorInFrames(t *testing.T) {
+	t.Parallel()
+
+	eng := launchBrowser(t, launchOptions{Generate: (&shopModel{}).generate})
+	require.NoError(t, eng.Goto(t.Context(), serveFrames(t), time.Minute))
+
+	for _, selector := range []string{
+		"#later",
+		"#show",
+		`frame[src="/main"] >> frame[src="/results"] >> #show`,
+		"xpath=/html[1]/frameset[1]/frame[2]/html[1]/frameset[1]/frame[2]/html[1]/body[1]/table[1]/tbody[1]/tr[1]/td[2]/a[1]",
+	} {
+		require.NoError(t, eng.WaitForSelector(t.Context(), selector, 10*time.Second), selector)
+	}
+	err := eng.WaitForSelector(t.Context(), "#draft", time.Second)
+	assert.ErrorContains(t, err, `selector "#draft" did not appear within 1s`)
 }
 
 // A document keeps its ID while it stays loaded, and loading the same URL
@@ -679,6 +1619,80 @@ func TestStagehandReportsBrowserProcess(t *testing.T) {
 		stopped := errors.Is(err, browserhost.ErrUnreachable) || (errors.As(err, &netErr) && netErr.Timeout())
 		assert.True(c, stopped, "the browser stops answering; last probe: %v", err)
 	}, 10*time.Second, 200*time.Millisecond)
+}
+
+// A sign-in a browser makes stays in its profile when the browser closes,
+// so the next browser on the profile is still signed in.
+func TestStagehandCloseKeepsProfileCookies(t *testing.T) {
+	t.Parallel()
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/html")
+		if r.URL.Path == "/login" {
+			http.SetCookie(w, &http.Cookie{Name: "sid", Value: "member", Path: "/", MaxAge: 3600, HttpOnly: true})
+			_, _ = io.WriteString(w, "<p>Signed in</p>")
+			return
+		}
+		if cookie, err := r.Cookie("sid"); err == nil && cookie.Value == "member" {
+			_, _ = io.WriteString(w, "<p>Welcome back</p>")
+			return
+		}
+		_, _ = io.WriteString(w, "<p>Please sign in</p>")
+	}))
+	t.Cleanup(server.Close)
+	ctx := t.Context()
+	profile := browserProfileDir(t)
+
+	first := launchBrowser(t, launchOptions{UserDataDir: profile})
+	require.NoError(t, first.Goto(ctx, server.URL+"/login", time.Minute))
+	require.NoError(t, first.Close(context.WithoutCancel(ctx)))
+
+	second := launchBrowser(t, launchOptions{UserDataDir: profile})
+	require.NoError(t, second.Goto(ctx, server.URL+"/", time.Minute))
+	text, err := second.PageText(ctx)
+	require.NoError(t, err)
+	require.Contains(t, text, "Welcome back", "the profile keeps the session cookie the first browser received")
+}
+
+// A browser that stops answering DevTools does not hold up its close: the
+// request to exit gives up, so the runtime can end the browser.
+func TestAskToExitGivesUpOnASilentBrowser(t *testing.T) {
+	t.Parallel()
+
+	started := time.Now()
+	err := askToExit(context.Background(), serveSilentBrowser(t))
+	require.ErrorIs(t, err, errBrowserUnresponsive)
+	require.Less(t, time.Since(started), exitRequestTimeout+10*time.Second)
+}
+
+// A browser asked to exit stops answering DevTools before it has finished
+// writing its profile. Exiting a launched browser returns only once its
+// process has gone, so the runtime does not end it partway through.
+func TestExitLaunchedBrowserWaitsForProcess(t *testing.T) {
+	t.Parallel()
+
+	browser := startSleeper(t)
+	reaped := make(chan struct{})
+	go func() {
+		_ = browser.Wait()
+		close(reaped)
+	}()
+	var finished atomic.Bool
+	cdpURL := serveExitingBrowser(t, func() {
+		// The browser takes a while to write its profile before it exits.
+		time.Sleep(500 * time.Millisecond)
+		finished.Store(true)
+		_ = browser.Process.Kill()
+	})
+	startedAt, _ := procutil.StartTime(browser.Process.Pid)
+
+	exitLaunchedBrowser(t.Context(), browserHandle{
+		CDPURL:           cdpURL,
+		BrowserPID:       browser.Process.Pid,
+		BrowserStartedAt: startedAt,
+	})
+	assert.True(t, finished.Load(), "returned while the browser was still exiting")
+	<-reaped
 }
 
 // dialogPage opens an alert, a confirm, and a prompt while it loads, and
@@ -754,6 +1768,22 @@ func TestStagehandBoundsUnresponsivePage(t *testing.T) {
 	assert.Less(t, time.Since(began), 10*time.Second)
 }
 
+// A wait for a selector on a page that stops answering ends near its own
+// timeout, not at the longer bound of a single page read.
+func TestStagehandSelectorWaitKeepsItsTimeout(t *testing.T) {
+	t.Parallel()
+
+	eng := launchShop(t, &shopModel{})
+	require.NoError(t, eng.Goto(t.Context(), "data:text/html,"+url.PathEscape("<p>busy</p>"), 30*time.Second))
+	_, err := eng.(*stagehandEngine).evaluate(t.Context(), "setTimeout(() => { for (;;) {} }, 0)")
+	require.NoError(t, err)
+
+	began := time.Now()
+	err = eng.WaitForSelector(t.Context(), "#missing", time.Second)
+	require.ErrorContains(t, err, `selector "#missing" did not appear within 1s`)
+	assert.Less(t, time.Since(began), 10*time.Second)
+}
+
 // A runtime close that fails while the browser is still running is
 // reported. The browser's start time is unknown here, so closing relies on
 // the runtime alone.
@@ -791,7 +1821,7 @@ func TestLaunchRefusesSilentSandboxOff(t *testing.T) {
 	t.Setenv("CI", "true")
 
 	_, err := stagehandLauncher{}.Launch(t.Context(), launchOptions{
-		Executable:  chromePath(),
+		Executable:  chrometest.Path(),
 		Headless:    true,
 		UserDataDir: t.TempDir(),
 	})
@@ -804,7 +1834,7 @@ func TestLaunchRefusesSilentSandboxOff(t *testing.T) {
 // Windows, removing a profile that a running browser holds stalls cleanup.
 func TestStagehandFailedLaunchEndsBrowser(t *testing.T) {
 	t.Parallel()
-	requireChrome(t)
+	chrometest.Require(t)
 	if runtime.GOOS == "windows" {
 		t.Skip("the browser wrapper is a shell script")
 	}
@@ -814,16 +1844,21 @@ func TestStagehandFailedLaunchEndsBrowser(t *testing.T) {
 	// The wrapper records the browser's arguments and disables extensions,
 	// so the runtime extension never starts.
 	wrapper := filepath.Join(t.TempDir(), "chrome")
-	chrome := "'" + strings.ReplaceAll(chromePath(), "'", `'\''`) + "'"
+	chrome := "'" + strings.ReplaceAll(chrometest.Path(), "'", `'\''`) + "'"
 	script := fmt.Sprintf("#!/bin/sh\nprintf '%%s\\n' \"$@\" > \"$0.args\"\nexec %s \"$@\" --disable-extensions\n", chrome)
 	require.NoError(t, os.WriteFile(wrapper, []byte(script), 0o700))
 
+	// A kept user agent spares the probe, which would wait out the same
+	// minute first.
+	browserDir := t.TempDir()
+	require.NoError(t, keepUserAgent(browserDir, headedUserAgent{Executable: wrapper, Product: "Chrome/1.0.0.0", UserAgent: "Mozilla/5.0 Chrome/1.0.0.0"}))
 	err := withStartupSlot(func() error {
 		_, err := stagehandLauncher{}.Launch(t.Context(), launchOptions{
 			Executable:  wrapper,
 			Headless:    true,
 			UserDataDir: browserProfileDir(t),
 			NoSandbox:   true,
+			BrowserDir:  browserDir,
 			Generate:    (&shopModel{}).generate,
 		})
 		return err
@@ -839,11 +1874,320 @@ func TestStagehandFailedLaunchEndsBrowser(t *testing.T) {
 	}, 10*time.Second, 200*time.Millisecond, "the failed launch ends the browser")
 }
 
+// serveUserAgent serves a page showing the user agent its request came
+// with.
+func serveUserAgent(t *testing.T) string {
+	t.Helper()
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/plain")
+		_, _ = io.WriteString(w, r.UserAgent())
+	}))
+	t.Cleanup(server.Close)
+	return server.URL
+}
+
+// pageUserAgent reads the user agent a page's request came with, and the
+// one its scripts see, with the brands it reports.
+func pageUserAgent(t *testing.T, eng engine, pageURL string) (header, script string, brands []string) {
+	t.Helper()
+	require.NoError(t, eng.Goto(t.Context(), pageURL, time.Minute))
+	header, err := eng.PageText(t.Context())
+	require.NoError(t, err)
+	raw, err := eng.(*stagehandEngine).evaluate(t.Context(), `({agent: navigator.userAgent, brands: navigator.userAgentData.brands.map((b) => b.brand)})`)
+	require.NoError(t, err)
+	var seen struct {
+		Agent  string   `json:"agent"`
+		Brands []string `json:"brands"`
+	}
+	require.NoError(t, json.Unmarshal(raw, &seen))
+	return strings.TrimSpace(header), seen.Agent, seen.Brands
+}
+
+// A browser without a window sends the user agent it sends with one, so a
+// site treats a step as it treats a person.
+func TestStagehandLooksHeaded(t *testing.T) {
+	t.Parallel()
+
+	eng := launchBrowser(t, launchOptions{Generate: (&shopModel{}).generate})
+	header, script, brands := pageUserAgent(t, eng, serveUserAgent(t))
+	assert.Equal(t, header, script, "the request and the page's scripts see the same user agent")
+	assert.Contains(t, header, headedProduct)
+	assert.NotContains(t, header, "Headless")
+	assert.NotContains(t, brands, "HeadlessChrome")
+}
+
+// A browser without a window reports a desktop's screen, one that holds its
+// window, so a page that sizes itself by the screen lays out as it does for
+// a person.
+func TestStagehandScreenHoldsWindow(t *testing.T) {
+	t.Parallel()
+
+	for name, size := range map[string]*viewport{"default size": nil, "large viewport": {Width: 2400, Height: 1300}} {
+		eng := launchBrowser(t, launchOptions{Viewport: size, Generate: (&shopModel{}).generate})
+		require.NoError(t, eng.Goto(t.Context(), "data:text/html,<p>screen</p>", time.Minute))
+		raw, err := eng.(*stagehandEngine).evaluate(t.Context(), `[screen.width, screen.height, outerWidth, outerHeight]`)
+		require.NoError(t, err)
+		var sizes [4]int
+		require.NoError(t, json.Unmarshal(raw, &sizes), name)
+		screenWidth, screenHeight, windowWidth, windowHeight := sizes[0], sizes[1], sizes[2], sizes[3]
+		t.Logf("%s: screen %dx%d, window %dx%d", name, screenWidth, screenHeight, windowWidth, windowHeight)
+		assert.GreaterOrEqual(t, screenWidth, max(windowWidth, headlessScreenWidth), name)
+		assert.GreaterOrEqual(t, screenHeight, max(windowHeight, headlessScreenHeight), name)
+	}
+}
+
+// loggingWrapper returns an executable that runs Chrome and logs each start
+// to its .log file: the user agent the start was given, or none. With
+// failProbe, a start on a probe's profile exits at once and logs probe.
+func loggingWrapper(t *testing.T, failProbe bool) string {
+	t.Helper()
+	chrometest.Require(t)
+	if runtime.GOOS == "windows" {
+		t.Skip("the browser wrapper is a shell script")
+	}
+	probe := ""
+	if failProbe {
+		probe = `--user-data-dir=*dagu-browser-probe-*) echo probe >> "$0.log"; exit 1;; `
+	}
+	wrapper := filepath.Join(t.TempDir(), "chrome")
+	chrome := "'" + strings.ReplaceAll(chrometest.Path(), "'", `'\''`) + "'"
+	script := fmt.Sprintf("#!/bin/sh\nagent=none\nfor arg in \"$@\"; do case \"$arg\" in %s--user-agent=*) agent=\"${arg#--user-agent=}\";; esac; done\n"+
+		"printf '%%s\\n' \"$agent\" >> \"$0.log\"\nexec %s \"$@\"\n", probe, chrome)
+	require.NoError(t, os.WriteFile(wrapper, []byte(script), 0o700))
+	return wrapper
+}
+
+// loggedStarts returns the starts wrapper logged after the first skip.
+func loggedStarts(t *testing.T, wrapper string, skip int) []string {
+	t.Helper()
+	data, err := os.ReadFile(wrapper + ".log")
+	require.NoError(t, err)
+	return strings.Split(strings.TrimSpace(string(data)), "\n")[skip:]
+}
+
+// The user agent an executable sends with a window is learned once, by a
+// browser started for it alone, and asked again only once the executable
+// reports another version, starting the browser again only when the user
+// agent changed with it.
+func TestStagehandLearnsUserAgentOnce(t *testing.T) {
+	t.Parallel()
+
+	wrapper := loggingWrapper(t, false)
+	browserDir := t.TempDir()
+	pageURL := serveUserAgent(t)
+	logged := 0
+	// launch starts and closes a browser, and returns the user agents its
+	// starts were given and the one its page's request came with.
+	launch := func() ([]string, string) {
+		t.Helper()
+		eng := launchBrowser(t, launchOptions{Executable: wrapper, BrowserDir: browserDir, Generate: (&shopModel{}).generate})
+		header, _, _ := pageUserAgent(t, eng, pageURL)
+		require.NoError(t, eng.Close(t.Context()))
+		starts := loggedStarts(t, wrapper, logged)
+		logged += len(starts)
+		return starts, header
+	}
+
+	starts, header := launch()
+	require.Len(t, starts, 2, "a probe, then the browser")
+	assert.Equal(t, "none", starts[0], "the probe sends its own user agent")
+	assert.Equal(t, header, starts[1])
+	assert.NotContains(t, header, "Headless")
+	headed := header
+
+	starts, _ = launch()
+	assert.Equal(t, []string{headed}, starts, "the kept user agent needs no probe")
+
+	kept, ok := loadUserAgent(browserDir, wrapper)
+	require.True(t, ok)
+	updated := kept
+	updated.Product = "Chrome/1.0.0.0"
+	require.NoError(t, keepUserAgent(browserDir, updated))
+	starts, _ = launch()
+	assert.Equal(t, []string{headed, "none"}, starts, "another version is probed, and the same user agent keeps the browser")
+
+	updated.UserAgent = "Mozilla/5.0 Chrome/1.0.0.0"
+	require.NoError(t, keepUserAgent(browserDir, updated))
+	starts, header = launch()
+	assert.Equal(t, []string{updated.UserAgent, "none", headed}, starts, "a changed user agent starts the browser again")
+	assert.Equal(t, headed, header)
+	kept, ok = loadUserAgent(browserDir, wrapper)
+	require.True(t, ok)
+	assert.Equal(t, headed, kept.UserAgent)
+}
+
+// A probe that cannot start the browser only warns: the browser starts, its
+// own user agent tells the one it sends with a window, and it starts again
+// sending that.
+func TestStagehandLaunchesWhenTheProbeFails(t *testing.T) {
+	t.Parallel()
+
+	wrapper := loggingWrapper(t, true)
+	var warnings []string
+	eng := launchBrowser(t, launchOptions{
+		Executable: wrapper, BrowserDir: t.TempDir(), Generate: (&shopModel{}).generate,
+		Warn: func(message string) { warnings = append(warnings, message) },
+	})
+	header, _, _ := pageUserAgent(t, eng, serveUserAgent(t))
+	assert.NotContains(t, header, "Headless")
+	assert.Equal(t, []string{"probe", "none", header}, loggedStarts(t, wrapper, 0))
+	require.Len(t, warnings, 1)
+	assert.Contains(t, warnings[0], "learn the user agent the browser sends with a window: start the browser")
+}
+
+// serveRefusals serves a page behind a bot check, answered as Cloudflare
+// answers, and a forbidden page without a body.
+func serveRefusals(t *testing.T) string {
+	t.Helper()
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/checked":
+			w.Header().Set("Content-Type", "text/html")
+			w.Header().Set("Cf-Mitigated", "challenge")
+			w.WriteHeader(http.StatusForbidden)
+			_, _ = io.WriteString(w, "<title>Just a moment...</title><p>Checking your browser</p>")
+		case "/forbidden":
+			w.WriteHeader(http.StatusForbidden)
+		default:
+			w.Header().Set("Content-Type", "text/html")
+			_, _ = io.WriteString(w, "<p>Welcome</p>")
+		}
+	}))
+	t.Cleanup(server.Close)
+	return server.URL
+}
+
+// A page a site refused tells how: a bot check, or a refusal the browser
+// shows its own error page for.
+func TestStagehandTellsRefusedPages(t *testing.T) {
+	t.Parallel()
+
+	eng := launchBrowser(t, launchOptions{Generate: (&shopModel{}).generate})
+	// The check here never passes.
+	eng.(*stagehandEngine).botCheckWait = time.Second
+	site := serveRefusals(t)
+	host := urlHost(site)
+	for path, want := range map[string]refusal{
+		"/checked":   {Host: host, Status: http.StatusForbidden, BotCheck: browserhost.BotCheckCloudflare},
+		"/forbidden": {Host: host, Status: http.StatusForbidden},
+	} {
+		// A browser that shows its own error page for the answer reports
+		// the navigation as failed.
+		_ = eng.Goto(t.Context(), site+path, time.Minute)
+		page, err := eng.PageOutcome(t.Context())
+		require.NoError(t, err, path)
+		refused, ok := refusalOf(page)
+		require.True(t, ok, "%s: %+v", path, page)
+		assert.Equal(t, want, refused, path)
+	}
+	require.NoError(t, eng.Goto(t.Context(), site, time.Minute))
+	page, err := eng.PageOutcome(t.Context())
+	require.NoError(t, err)
+	_, refused := refusalOf(page)
+	assert.False(t, refused, "%+v", page)
+}
+
+// A wait that ends while it reads the page leaves the browser answering: a
+// read whose context had ended as it wrote to the browser runtime would
+// close the runtime's connection to the browser.
+func TestStagehandWaitEndingMidReadKeepsBrowser(t *testing.T) {
+	t.Parallel()
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/html")
+		if r.URL.Path == "/checked" {
+			w.Header().Set("Cf-Mitigated", "challenge")
+			w.WriteHeader(http.StatusForbidden)
+			_, _ = io.WriteString(w, "<title>Just a moment...</title><p>Checking your browser</p>")
+			return
+		}
+		// A page that changes all the time never settles, and one that keeps
+		// its main thread busy reads slowly, as on a loaded host.
+		_, _ = io.WriteString(w, `<p id="clock"></p><script>setInterval(() => {
+  const end = Date.now() + 30; while (Date.now() < end) {}
+  clock.textContent = Date.now();
+}, 40);</script>`)
+	}))
+	t.Cleanup(server.Close)
+	for name, tc := range map[string]struct {
+		path string
+		// limit sets the wait's limit, and wait waits.
+		limit func(*stagehandEngine, time.Duration)
+		wait  func(*stagehandEngine, context.Context)
+	}{
+		"bot check": {
+			path:  "/checked",
+			limit: func(e *stagehandEngine, d time.Duration) { e.botCheckWait = d },
+			wait:  (*stagehandEngine).awaitBotCheck,
+		},
+		"settle": {
+			path:  "/changing",
+			limit: func(e *stagehandEngine, d time.Duration) { e.settleWait = d },
+			wait: func(e *stagehandEngine, ctx context.Context) {
+				e.settleDocument(ctx, time.Now().Add(e.settleWait), time.Time{})
+			},
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+			eng := launchBrowser(t, launchOptions{Generate: (&shopModel{}).generate})
+			e := eng.(*stagehandEngine)
+			tc.limit(e, 0)
+			require.NoError(t, eng.Goto(t.Context(), server.URL+tc.path, time.Minute))
+			require.Equal(t, tc.path == "/checked", e.showsBotCheck(t.Context()))
+			// Waits a few milliseconds apart end at every moment of a read.
+			for i := range 80 {
+				limit := time.Duration(i) * 3 * time.Millisecond
+				tc.limit(e, limit)
+				tc.wait(e, t.Context())
+				_, err := e.DocumentID(t.Context())
+				require.NoError(t, err, "after a wait of %s", limit)
+			}
+		})
+	}
+}
+
+// serveCheckThatPasses serves a page behind a bot check that passes on its
+// own a moment after it loads, as one that needs no person does: it marks
+// the browser and loads the page again.
+func serveCheckThatPasses(t *testing.T) string {
+	t.Helper()
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/html")
+		if _, err := r.Cookie("passed"); err == nil {
+			_, _ = io.WriteString(w, "<p>Welcome</p>")
+			return
+		}
+		w.Header().Set("Cf-Mitigated", "challenge")
+		w.WriteHeader(http.StatusForbidden)
+		_, _ = io.WriteString(w, `<title>Just a moment...</title><p>Checking your browser</p>
+<script>setTimeout(() => { document.cookie = "passed=1; path=/"; location.reload(); }, 1000);</script>`)
+	}))
+	t.Cleanup(server.Close)
+	return server.URL
+}
+
+// Going to a page behind a bot check that passes on its own returns once it
+// passed, so the next operation reads the page and not the check.
+func TestStagehandWaitsForBotCheckToPass(t *testing.T) {
+	t.Parallel()
+
+	eng := launchBrowser(t, launchOptions{Generate: (&shopModel{}).generate})
+	require.NoError(t, eng.Goto(t.Context(), serveCheckThatPasses(t), time.Minute))
+	text, err := eng.PageText(t.Context())
+	require.NoError(t, err)
+	assert.Contains(t, text, "Welcome")
+	page, err := eng.PageOutcome(t.Context())
+	require.NoError(t, err)
+	_, refused := refusalOf(page)
+	assert.False(t, refused, "%+v", page)
+}
+
 // A real page's snapshot renders as the outline the renderer is built for,
 // so a change in the tree the browser runtime reports shows up here.
 func TestStagehandSnapshotOutlinesThePage(t *testing.T) {
 	t.Parallel()
-	requireChrome(t)
+	chrometest.Require(t)
 
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.Header().Set("Content-Type", "text/html; charset=utf-8")
@@ -872,13 +2216,13 @@ form
 
 	// The ID before an element finds it again: an element operation acts on
 	// it by its XPath, as a replayed action does.
-	selected, help, err := elementAct(snap, elementOperation{kind: opSelect, element: elementRef(t, text, `select "Status"`), text: "All"})
+	selected, help, err := elementAct(snap, elementOperation{kind: opSelect, element: elementRef(t, text, `select "Status"`), text: "All"}, nil)
 	require.NoError(t, err)
 	assert.Equal(t, `Select "All" in the "Status" dropdown`, selected)
 	done, err := eng.Replay(t.Context(), help, nil, time.Minute)
 	require.NoError(t, err)
 	assert.True(t, done, "the select takes the option")
-	_, click, err := elementAct(snap, elementOperation{kind: opClick, element: elementRef(t, text, `link "Help"`)})
+	_, click, err := elementAct(snap, elementOperation{kind: opClick, element: elementRef(t, text, `link "Help"`)}, nil)
 	require.NoError(t, err)
 	done, err = eng.Replay(t.Context(), click, nil, time.Minute)
 	require.NoError(t, err)
@@ -912,7 +2256,7 @@ func TestStagehandDetachEndsAModelCallItWaitsOn(t *testing.T) {
 	}
 	eng := launchBrowser(t, launchOptions{Generate: hanging})
 	require.NoError(t, eng.Goto(t.Context(), "data:text/html,"+strings.ReplaceAll(shopPage, "#", "%23"), time.Minute))
-	_, err := eng.Act(t.Context(), "Click Add to cart", nil, 2*time.Second)
+	_, err := eng.Act(t.Context(), "Click Add to cart", nil, nil, 2*time.Second)
 	require.Error(t, err, "the act waits on a model that never answers")
 	require.NoError(t, eng.Detach(t.Context()), "the runtime closes once its model call ends")
 
@@ -923,4 +2267,150 @@ func TestStagehandDetachEndsAModelCallItWaitsOn(t *testing.T) {
 	})
 	require.NoError(t, err)
 	require.NoError(t, reattached.Goto(t.Context(), "data:text/html,"+strings.ReplaceAll(shopPage, "#", "%23"), time.Minute))
+}
+
+// notesPage saves through a request when Submit is pressed.
+const notesPage = `<!doctype html><html><head><title>Notes</title></head><body>
+<p id="status">ready</p>
+<button onclick="fetch('/save', {method: 'POST', body: new URLSearchParams({note: 'hello'})}).then(() => { document.getElementById('status').textContent = 'saved'; }, () => { document.getElementById('status').textContent = 'not saved'; })">Submit</button>
+</body></html>`
+
+// A browser launched with a write gate has every write decided from its
+// first page on: an act's save is blocked and reported, and the act still
+// completes.
+func TestStagehandWriteGateDecidesFromTheFirstPage(t *testing.T) {
+	t.Parallel()
+	chrometest.Require(t)
+
+	var saves atomic.Int64
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == http.MethodPost {
+			saves.Add(1)
+		}
+		w.Header().Set("Content-Type", "text/html")
+		_, _ = io.WriteString(w, notesPage)
+	}))
+	t.Cleanup(server.Close)
+	launcher := stagehandLauncher{startGate: func(ctx context.Context, _ string, cfg writegate.Config) (*writegate.Handle, error) {
+		ready := make(chan writegate.Ready, 1)
+		failed := make(chan error, 1)
+		go func() {
+			failed <- writegate.Serve(context.WithoutCancel(ctx), cfg, func(r writegate.Ready) { ready <- r })
+		}()
+		select {
+		case r := <-ready:
+			// No process to end: the gate ends with its browser.
+			return &writegate.Handle{URL: fmt.Sprintf("http://127.0.0.1:%d/%s", r.Port, cfg.Token)}, nil
+		case err := <-failed:
+			return nil, err
+		}
+	}}
+	model := &shopModel{}
+	var eng engine
+	err := withStartupSlot(func() (err error) {
+		eng, err = launcher.Launch(t.Context(), launchOptions{
+			Executable: chrometest.Path(), Headless: true, UserDataDir: browserProfileDir(t), NoSandbox: true, BrowserDir: testBrowserDir,
+			Generate: model.generate, WriteGate: &writeGateOptions{Mode: writegate.ModeRehearse},
+		})
+		return err
+	})
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = eng.Close(context.WithoutCancel(t.Context())) })
+	require.NotNil(t, eng.Handle().WriteGate)
+
+	require.NoError(t, eng.Goto(t.Context(), server.URL, time.Minute))
+	outcome, err := eng.Act(t.Context(), "Click the Submit button", nil, nil, time.Minute)
+	require.NoError(t, err)
+	require.True(t, outcome.Success, outcome.Message)
+	text, err := eng.PageText(t.Context())
+	require.NoError(t, err)
+	assert.Contains(t, text, "not saved")
+	assert.Zero(t, saves.Load())
+
+	writes, err := eng.Writes(t.Context(), 0)
+	require.NoError(t, err)
+	require.Len(t, writes, 1)
+	assert.True(t, writes[0].Consequential())
+	assert.Equal(t, "POST "+server.URL+"/save", writes[0].String())
+	assert.Equal(t, []string{"note"}, writes[0].Fields)
+}
+
+// serveRowForm serves a page built of frames whose form, in a frame, is laid
+// out in a table: each control is named only by the label cell of its row,
+// as forms of older sites are, two fields of a date range share one, and
+// one field follows a button. Outside the table, a field and a field in
+// the shadow root of its host are named by nothing but their name
+// attributes.
+func serveRowForm(t *testing.T) string {
+	t.Helper()
+	pages := map[string]string{
+		"/":     `<frameset cols="30%,70%"><frame src="/menu"><frame name="main" src="/form"></frameset>`,
+		"/menu": `<p>Menu</p>`,
+		"/form": `<form><table border="1">
+<tr><th>工種又は業種</th><td><select name="KoujiSyubetu"><option></option><option>土木一式工事</option></select></td></tr>
+<tr><th>案件名</th><td><input type="text" name="AnkenName"></td></tr>
+<tr><td>添付あり</td><td><input type="checkbox" name="Tenpu"></td></tr>
+<tr><th>入札予定日範囲</th><td><input type="text" name="DateFrom"> ～ <input type="text" name="DateTo"></td></tr>
+<tr><th>文字列検索</th><td><input type="text" name="Mojiretu"> <select name="AndOr"><option>AND</option><option>OR</option></select></td></tr>
+<tr><th>担当課</th><td><button type="button">選択</button></td><td><input type="text" name="Tantoka"></td></tr>
+<tr><td><input type="text" name="FreeWord"></td></tr>
+</table><x-field id="host"><input type="text" name="Slotted"></x-field></form>
+<script>document.getElementById("host").attachShadow({mode: "open"}).innerHTML = '<input type="text" name="Inner"><slot></slot>'</script>`,
+	}
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/html; charset=utf-8")
+		_, _ = io.WriteString(w, pages[r.URL.Path])
+	}))
+	t.Cleanup(server.Close)
+	return server.URL
+}
+
+// A control a form names only by its table row, or by its name attribute,
+// in a frame, is outlined by that name and taken by an element operation by
+// its ID: a select picks its option, a field takes text, and a checkbox is
+// checked. Fields that share a row's label are told apart by their order,
+// and a field in a shadow root takes its own name attribute.
+func TestStagehandNamesControlsByTheirRow(t *testing.T) {
+	t.Parallel()
+
+	eng := launchBrowser(t, launchOptions{Generate: (&shopModel{}).generate})
+	require.NoError(t, eng.Goto(t.Context(), serveRowForm(t), time.Minute))
+	snap, err := eng.Snapshot(t.Context())
+	require.NoError(t, err)
+	outline, _, _ := renderOutline(snap, outlineOptions{})
+	idOf := func(line string) string {
+		t.Helper()
+		match := regexp.MustCompile(`\[(\d+-\d+)\] ` + regexp.QuoteMeta(line)).FindStringSubmatch(outline)
+		require.NotNil(t, match, "%s in\n%s", line, outline)
+		return match[1]
+	}
+
+	for _, op := range []elementOperation{
+		{kind: opSelect, element: idOf(`select "工種又は業種"`), text: "土木一式工事"},
+		{kind: opType, element: idOf(`textbox "案件名"`), text: "道路"},
+		{kind: opClick, element: idOf(`checkbox "添付あり"`)},
+		{kind: opType, element: idOf(`textbox "入札予定日範囲 2"`), text: "2026/04/30"},
+		{kind: opType, element: idOf(`textbox "FreeWord"`), text: "舗装"},
+	} {
+		_, action, err := elementAct(snap, op, nil)
+		require.NoError(t, err, op.element)
+		replayed, err := eng.Replay(t.Context(), action, nil, time.Minute)
+		require.NoError(t, err, op.element)
+		require.True(t, replayed, op.element)
+	}
+
+	snap, err = eng.Snapshot(t.Context())
+	require.NoError(t, err)
+	outline, _, _ = renderOutline(snap, outlineOptions{})
+	assert.Contains(t, outline, `select "工種又は業種" = 土木一式工事`)
+	assert.Contains(t, outline, `checkbox "添付あり" [checked]`)
+	assert.Contains(t, outline, `textbox "入札予定日範囲 1"`)
+	assert.Contains(t, outline, `textbox "文字列検索"`)
+	assert.Contains(t, outline, `select "文字列検索" = AND`)
+	assert.Contains(t, outline, `textbox "担当課"`)
+	assert.Contains(t, outline, `textbox "Inner"`)
+	assert.Contains(t, outline, `textbox "Slotted"`)
+	typed, err := eng.(*stagehandEngine).evaluate(t.Context(), `Object.fromEntries([...frames[1].document.querySelectorAll("input[type=text]")].map((input) => [input.name, input.value]))`)
+	require.NoError(t, err)
+	assert.JSONEq(t, `{"AnkenName":"道路","DateFrom":"","DateTo":"2026/04/30","Mojiretu":"","Tantoka":"","FreeWord":"舗装","Slotted":""}`, string(typed))
 }

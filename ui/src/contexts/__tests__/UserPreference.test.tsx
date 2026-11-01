@@ -4,7 +4,11 @@
 import { act, renderHook } from '@testing-library/react';
 import React from 'react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { UserPreferencesProvider, useUserPreferences } from '../UserPreference';
+import {
+  UserPreferencesProvider,
+  useResolvedTheme,
+  useUserPreferences,
+} from '../UserPreference';
 
 const wrapper = ({ children }: { children: React.ReactNode }) => (
   <UserPreferencesProvider>{children}</UserPreferencesProvider>
@@ -41,6 +45,23 @@ describe('UserPreferencesProvider', () => {
     );
   });
 
+  it('reads the order of the log lines and drops a value that is not known', () => {
+    localStorage.setItem(
+      'user_preferences',
+      JSON.stringify({ logOrder: 'newToOld' })
+    );
+    const saved = renderHook(() => useUserPreferences(), { wrapper });
+    expect(saved.result.current.preferences.logOrder).toBe('newToOld');
+    saved.unmount();
+
+    localStorage.setItem(
+      'user_preferences',
+      JSON.stringify({ logOrder: 'sideways' })
+    );
+    const bad = renderHook(() => useUserPreferences(), { wrapper });
+    expect(bad.result.current.preferences.logOrder).toBe('oldToNew');
+  });
+
   it('uses Wiki sorting defaults when no sorting preference was saved', () => {
     localStorage.setItem('user_preferences', JSON.stringify({ pageLimit: 25 }));
 
@@ -60,28 +81,6 @@ describe('UserPreferencesProvider', () => {
 
     expect(result.current.preferences.wikiSortField).toBe('type');
     expect(result.current.preferences.wikiSortOrder).toBe('asc');
-  });
-
-  it('loads a saved spec view', () => {
-    localStorage.setItem(
-      'user_preferences',
-      JSON.stringify({ specViewMode: 'yaml' })
-    );
-
-    const { result } = renderHook(() => useUserPreferences(), { wrapper });
-
-    expect(result.current.preferences.specViewMode).toBe('yaml');
-  });
-
-  it('shows the split spec view when the saved view is unknown', () => {
-    localStorage.setItem(
-      'user_preferences',
-      JSON.stringify({ specViewMode: 'diagram' })
-    );
-
-    const { result } = renderHook(() => useUserPreferences(), { wrapper });
-
-    expect(result.current.preferences.specViewMode).toBe('split');
   });
 
   it('loads a saved Japanese locale', () => {
@@ -122,6 +121,87 @@ describe('UserPreferencesProvider', () => {
     expect(result.current.preferences.pinnedViewOrder).toEqual({
       local: ['reports', 'workflows'],
     });
-    expect(result.current.preferences.theme).toBe('light');
+    expect(result.current.preferences.theme).toBe('system');
+  });
+
+  // The workflow page has one body; an old stored choice is dropped.
+  it('drops the stored workflow page choice of an older version', () => {
+    localStorage.setItem(
+      'user_preferences',
+      JSON.stringify({ workflowPage: 'classic', locale: 'ja' })
+    );
+
+    const { result } = renderHook(() => useUserPreferences(), { wrapper });
+
+    expect(result.current.preferences).not.toHaveProperty('workflowPage');
+    expect(result.current.preferences.locale).toBe('ja');
+    expect(
+      JSON.parse(localStorage.getItem('user_preferences') ?? '{}')
+    ).not.toHaveProperty('workflowPage');
+  });
+
+  describe('useResolvedTheme', () => {
+    let prefersDark = false;
+    let notifyChange: (() => void) | undefined;
+
+    beforeEach(() => {
+      prefersDark = false;
+      notifyChange = undefined;
+      vi.stubGlobal(
+        'matchMedia',
+        vi.fn(() => ({
+          get matches() {
+            return prefersDark;
+          },
+          addEventListener: (_: string, listener: () => void) => {
+            notifyChange = listener;
+          },
+          removeEventListener: vi.fn(),
+        }))
+      );
+    });
+
+    afterEach(() => {
+      vi.unstubAllGlobals();
+    });
+
+    const useThemeState = () => ({
+      resolved: useResolvedTheme(),
+      ...useUserPreferences(),
+    });
+
+    it('follows the operating system by default', () => {
+      const { result } = renderHook(useThemeState, { wrapper });
+      expect(result.current.preferences.theme).toBe('system');
+      expect(result.current.resolved).toBe('light');
+
+      act(() => {
+        prefersDark = true;
+        notifyChange?.();
+      });
+      expect(result.current.resolved).toBe('dark');
+    });
+
+    it('uses an explicit choice over the operating system', () => {
+      prefersDark = true;
+      const { result } = renderHook(useThemeState, { wrapper });
+
+      act(() => result.current.updatePreference('theme', 'light'));
+
+      expect(result.current.resolved).toBe('light');
+    });
+
+    it('treats an unknown saved theme as system', () => {
+      prefersDark = true;
+      localStorage.setItem(
+        'user_preferences',
+        JSON.stringify({ theme: 'sepia' })
+      );
+
+      const { result } = renderHook(useThemeState, { wrapper });
+
+      expect(result.current.preferences.theme).toBe('system');
+      expect(result.current.resolved).toBe('dark');
+    });
   });
 });

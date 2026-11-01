@@ -22,11 +22,12 @@ import {
 } from '@/components/ui/dialog';
 import { useErrorModal } from '@/components/ui/error-modal';
 import { useSimpleToast } from '@/components/ui/simple-toast';
+import { Spinner } from '@/components/ui/spinner';
 import { useCanWrite } from '@/contexts/AuthContext';
 import { useConfig } from '@/contexts/ConfigContext';
-import { useUserPreferences } from '@/contexts/UserPreference';
+import { useResolvedTheme } from '@/contexts/UserPreference';
 import { cn } from '@/lib/utils';
-import { RefreshCw, Save, X } from 'lucide-react';
+import { RotateCcw, Save, X } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import {
   components,
@@ -36,11 +37,26 @@ import {
 import { useRemoteNode } from '../../../../contexts/RemoteNodeContext';
 import { useClient, useQuery } from '../../../../hooks/api';
 import ConfirmModal from '@/components/ui/confirm-dialog';
-import Graph, { type FlowchartType } from '../visualization/Graph';
+import type {
+  ApiDAGDetails,
+  RunOverlay,
+} from '@/features/visual-editor/contracts';
+import type { FlowchartType } from '../visualization/Graph';
+import { diffViewerStyles } from '@/features/visual-editor/run/diffStyles';
+import { buildDAGRunPageURL } from '@/features/dag-runs/lib/dagRunUrls';
 import DAGEditorWithDocs from './DAGEditorWithDocs';
 import { I18nText } from '@/i18n/I18nText';
 import { I18nProps } from '@/i18n/I18nProps';
 import { useI18n } from '@/i18n/I18nProvider';
+
+// Lazy so that no static import chain from this file reaches Mermaid.
+const Graph = React.lazy(() => import('../visualization/Graph'));
+// Lazy so that the run page does not load the canvas it does not use.
+const DetailsCanvas = React.lazy(
+  () => import('@/features/visual-editor/DetailsCanvas')
+);
+
+export type PreviewEngine = 'mermaid' | 'canvas';
 
 /**
  * Props for the DAGSpecReadOnly component
@@ -56,6 +72,8 @@ type DAGSpecReadOnlyProps = {
   sourceFileName?: string;
   /** Additional class name for the container */
   className?: string;
+  /** What draws the graph of the retry preview. Default: 'mermaid'. */
+  previewEngine?: PreviewEngine;
 };
 
 type EditRetryPreview = {
@@ -91,6 +109,26 @@ const orderedSelectedSkipSteps = (
 ) => {
   const selected = new Set(selectedSkipSteps);
   return steps.map((step) => step.name).filter((name) => selected.has(name));
+};
+
+// The canvas marks a reused step Skipped: it does not run in the new run.
+const buildPreviewOverlay = (
+  steps: components['schemas']['Step'][],
+  selectedSkipSteps: string[],
+  labels: { reuse: string; run: string }
+): RunOverlay => {
+  const selected = new Set(selectedSkipSteps);
+  const overlay: RunOverlay = {};
+  for (const step of steps) {
+    const reuse = selected.has(step.name);
+    overlay[step.name] = {
+      status: reuse ? NodeStatus.Skipped : NodeStatus.NotStarted,
+      statusLabel: reuse ? labels.reuse : labels.run,
+      retryCount: 0,
+      doneCount: 0,
+    };
+  }
+  return overlay;
 };
 
 const buildPreviewNodes = (
@@ -152,6 +190,7 @@ function DAGSpecReadOnly({
   subDAGRunId,
   sourceFileName,
   className,
+  previewEngine = 'mermaid',
 }: DAGSpecReadOnlyProps) {
   const { ts } = useI18n();
   const remoteNode = useRemoteNode();
@@ -262,16 +301,16 @@ function DAGSpecReadOnly({
       );
       if (previewError) {
         showError(
-          previewError.message || 'Failed to preview edited retry',
-          'Check the edited YAML and try again.'
+          previewError.message || ts('Failed to preview edited retry'),
+          ts('Check the edited YAML and try again.')
         );
         return;
       }
       const preview = normalizeEditRetryPreview(previewData);
       if (!preview) {
         showError(
-          'Failed to preview edited retry',
-          'The server did not return a retry preview.'
+          ts('Failed to preview edited retry'),
+          ts('The server did not return a retry preview.')
         );
         return;
       }
@@ -283,8 +322,8 @@ function DAGSpecReadOnly({
       showError(
         err instanceof Error && err.message
           ? err.message
-          : 'Failed to preview edited retry',
-        'Check your connection and try again.'
+          : ts('Failed to preview edited retry'),
+        ts('Check your connection and try again.')
       );
     } finally {
       setPreviewLoading(false);
@@ -301,6 +340,7 @@ function DAGSpecReadOnly({
     retrySubmitting,
     showError,
     sourceSaving,
+    ts,
   ]);
 
   const submitEditedRetry = React.useCallback(async () => {
@@ -340,33 +380,34 @@ function DAGSpecReadOnly({
       );
       if (retryError) {
         showError(
-          retryError.message || 'Failed to retry edited DAG',
-          'Check the edited YAML and preview, then try again.'
+          retryError.message || ts('Failed to retry edited DAG'),
+          ts('Check the edited YAML and preview, then try again.')
         );
         return;
       }
       if (!retryData?.dagRunId) {
         showError(
-          'Failed to retry edited DAG',
-          'The server did not return a new DAG-run ID.'
+          ts('Failed to retry edited DAG'),
+          ts('The server did not return a new DAG-run ID.')
         );
         return;
       }
       setPreviewVisible(false);
-      showToast(`New DAG run created: ${retryData.dagRunId}`);
-      const searchParams = new URLSearchParams();
-      searchParams.set('remoteNode', remoteNode);
+      showToast(ts('New DAG run created: {id}', { id: retryData.dagRunId }));
       navigate(
-        `/dag-runs/${encodeURIComponent(dagName)}/${encodeURIComponent(
-          retryData.dagRunId
-        )}?${searchParams.toString()}`
+        buildDAGRunPageURL({
+          rootDAGRunName: dagName,
+          rootDAGRunId: retryData.dagRunId,
+          fileName: sourceFileName,
+          remoteNode,
+        })
       );
     } catch (err) {
       showError(
         err instanceof Error && err.message
           ? err.message
-          : 'Failed to retry edited DAG',
-        'Check your connection and try again.'
+          : ts('Failed to retry edited DAG'),
+        ts('Check your connection and try again.')
       );
     } finally {
       setRetrySubmitting(false);
@@ -384,6 +425,8 @@ function DAGSpecReadOnly({
     selectedSkipSteps,
     showError,
     showToast,
+    sourceFileName,
+    ts,
   ]);
 
   const openSourceDAGDiff = React.useCallback(async () => {
@@ -415,8 +458,10 @@ function DAGSpecReadOnly({
       );
       if (sourceError) {
         showError(
-          sourceError.message || 'Failed to load source DAG',
-          'The source DAG file may no longer be editable from the DAGs directory.'
+          sourceError.message || ts('Failed to load source DAG'),
+          ts(
+            'The source DAG file may no longer be editable from the DAGs directory.'
+          )
         );
         return;
       }
@@ -424,7 +469,9 @@ function DAGSpecReadOnly({
       const currentSourceSpec = sourceData?.spec ?? '';
       setSourceDAGSpec(currentSourceSpec);
       if (currentSourceSpec === editorSpec) {
-        showToast('Source DAG already matches the edited spec');
+        showToast(ts('Source DAG already matches the edited spec'), {
+          variant: 'info',
+        });
         return;
       }
       setSourceDiffVisible(true);
@@ -432,8 +479,8 @@ function DAGSpecReadOnly({
       showError(
         err instanceof Error && err.message
           ? err.message
-          : 'Failed to load source DAG',
-        'Check your connection and try again.'
+          : ts('Failed to load source DAG'),
+        ts('Check your connection and try again.')
       );
     } finally {
       setSourceDiffLoading(false);
@@ -449,6 +496,7 @@ function DAGSpecReadOnly({
     sourceDiffLoading,
     sourceFileName,
     sourceSaving,
+    ts,
   ]);
 
   const saveSourceDAG = React.useCallback(async () => {
@@ -483,17 +531,17 @@ function DAGSpecReadOnly({
 
       if (saveError) {
         showError(
-          saveError.message || 'Failed to save source DAG',
-          'Please check the YAML syntax and try again.'
+          saveError.message || ts('Failed to save source DAG'),
+          ts('Please check the YAML syntax and try again.')
         );
         return;
       }
 
       if (responseData?.errors?.length) {
         showError(
-          'The spec was not saved',
+          ts('The spec was not saved'),
           undefined,
-          'Validation errors',
+          ts('Validation errors'),
           responseData.errors
         );
         return;
@@ -501,13 +549,13 @@ function DAGSpecReadOnly({
 
       setSourceDAGSpec(editorSpec);
       setSourceDiffVisible(false);
-      showToast('Source DAG saved successfully');
+      showToast(ts('Source DAG saved successfully'));
     } catch (err) {
       showError(
         err instanceof Error && err.message
           ? err.message
-          : 'Failed to save source DAG',
-        'Check your connection and try again.'
+          : ts('Failed to save source DAG'),
+        ts('Check your connection and try again.')
       );
     } finally {
       setSourceSaving(false);
@@ -522,6 +570,7 @@ function DAGSpecReadOnly({
     sourceDAGSpec,
     sourceFileName,
     sourceSaving,
+    ts,
   ]);
 
   const handleSpecChange = React.useCallback((value?: string) => {
@@ -538,6 +587,30 @@ function DAGSpecReadOnly({
         : [],
     [retryPreview, selectedSkipSteps]
   );
+
+  // The steps of previewNodes, kept stable when a reuse box changes so the
+  // canvas does not lay out again.
+  const previewDag = React.useMemo(
+    () =>
+      ({ name: dagName, steps: retryPreview?.steps ?? [] }) as ApiDAGDetails,
+    [dagName, retryPreview]
+  );
+
+  const previewOverlay = React.useMemo(
+    () =>
+      buildPreviewOverlay(retryPreview?.steps ?? [], selectedSkipSteps, {
+        reuse: ts('Reuse previous output'),
+        run: ts('Run again'),
+      }),
+    [retryPreview, selectedSkipSteps, ts]
+  );
+
+  const selectPreviewStep = React.useCallback((stepName: string | null) => {
+    // A click on the empty canvas keeps the step that the review shows.
+    if (stepName) {
+      setSelectedPreviewStep(stepName);
+    }
+  }, []);
 
   const selectedPreviewNode = React.useMemo(
     () =>
@@ -609,10 +682,11 @@ function DAGSpecReadOnly({
         onChange={handleSpecChange}
         readOnly={!isEditableRetry}
         className={className}
+        defaultDocsOpen={false}
         headerActions={
           isEditableRetry && hasLoadedSpec ? (
             <div className="flex flex-wrap items-center justify-end gap-2">
-              {canWrite && sourceFileName && (
+              {canWrite && sourceFileName && hasEdits && (
                 <Button
                   type="button"
                   size="xs"
@@ -626,15 +700,11 @@ function DAGSpecReadOnly({
                   onClick={() => void openSourceDAGDiff()}
                 >
                   {sourceDiffLoading ? (
-                    <RefreshCw className="h-3.5 w-3.5 animate-spin" />
+                    <Spinner />
                   ) : (
                     <Save className="h-3.5 w-3.5" />
                   )}
-                  {sourceDiffLoading ? (
-                    <I18nText text={'Loading diff...'} />
-                  ) : (
-                    <I18nText text={'Save source DAG'} />
-                  )}
+                  <I18nText text={'Save source DAG'} />
                 </Button>
               )}
               {canRetryEditedSpec && (
@@ -651,12 +721,12 @@ function DAGSpecReadOnly({
                   }
                   onClick={() => void previewEditedSpec()}
                 >
-                  <RefreshCw className="h-3.5 w-3.5" />
                   {previewLoading ? (
-                    <I18nText text={'Previewing...'} />
+                    <Spinner />
                   ) : (
-                    <I18nText text={'Retry as a new run'} />
+                    <RotateCcw className="h-3.5 w-3.5" />
                   )}
+                  <I18nText text={'Retry as a new run'} />
                 </Button>
               )}
             </div>
@@ -685,7 +755,7 @@ function DAGSpecReadOnly({
 
       <I18nProps>
         <ConfirmModal
-          title="Retry Edited DAG Run"
+          title={ts('Retry edited run')}
           buttonText={retrySubmitting ? 'Creating...' : 'Create new run'}
           visible={previewVisible}
           dismissModal={() => {
@@ -707,7 +777,7 @@ function DAGSpecReadOnly({
               <div className="flex min-h-0 flex-col rounded-md border bg-surface">
                 <div className="grid grid-cols-2 gap-3 border-b px-3 py-2 text-xs sm:grid-cols-4">
                   <div className="min-w-0">
-                    <div className="text-xs uppercase text-muted-foreground">
+                    <div className="text-xs text-muted-foreground">
                       <I18nText text={'Target DAG'} />
                     </div>
                     <div className="truncate font-mono text-xs">
@@ -715,36 +785,55 @@ function DAGSpecReadOnly({
                     </div>
                   </div>
                   <div className="min-w-0">
-                    <div className="text-xs uppercase text-muted-foreground">
+                    <div className="text-xs text-muted-foreground">
                       <I18nText text={'Reuse previous output'} />
                     </div>
                     <div>{selectedSkipSteps.length}</div>
                   </div>
                   <div className="min-w-0">
-                    <div className="text-xs uppercase text-muted-foreground">
+                    <div className="text-xs text-muted-foreground">
                       <I18nText text={'Run again'} />
                     </div>
                     <div>{retryStepCount}</div>
                   </div>
                   <div className="min-w-0">
-                    <div className="text-xs uppercase text-muted-foreground">
+                    <div className="text-xs text-muted-foreground">
                       <I18nText text={'Source DAG-run ID'} />
                     </div>
                     <div className="truncate font-mono text-xs">{dagRunId}</div>
                   </div>
                 </div>
                 <div className="min-h-0 flex-1 overflow-hidden p-2">
-                  <Graph
-                    steps={previewNodes}
-                    name={dagName}
-                    type="status"
-                    flowchart={previewFlowchart}
-                    onChangeFlowchart={setPreviewFlowchart}
-                    onClickNode={setSelectedPreviewStep}
-                    onRightClickNode={setSelectedPreviewStep}
-                    isExpandedView={true}
-                    height="100%"
-                  />
+                  <React.Suspense
+                    fallback={
+                      <div
+                        data-testid="preview-graph-placeholder"
+                        className="h-full w-full rounded-md bg-muted/30"
+                      />
+                    }
+                  >
+                    {previewEngine === 'canvas' ? (
+                      <DetailsCanvas
+                        dag={previewDag}
+                        overlay={previewOverlay}
+                        selectedStepName={selectedPreviewNode?.step.name ?? ''}
+                        onSelectStep={selectPreviewStep}
+                        className="h-full min-h-0"
+                      />
+                    ) : (
+                      <Graph
+                        steps={previewNodes}
+                        name={dagName}
+                        type="status"
+                        flowchart={previewFlowchart}
+                        onChangeFlowchart={setPreviewFlowchart}
+                        onClickNode={setSelectedPreviewStep}
+                        onRightClickNode={setSelectedPreviewStep}
+                        isExpandedView={true}
+                        height="100%"
+                      />
+                    )}
+                  </React.Suspense>
                 </div>
               </div>
 
@@ -884,8 +973,7 @@ function SourceDAGDiffDialog({
   saving: boolean;
   onSave: () => void;
 }) {
-  const preferencesContext = useUserPreferences();
-  const isDarkMode = preferencesContext?.preferences.theme === 'dark';
+  const isDarkMode = useResolvedTheme() === 'dark';
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -923,45 +1011,11 @@ function SourceDAGDiffDialog({
             compareMethod={DiffMethod.LINES}
             showDiffOnly={false}
             styles={{
-              variables: {
-                dark: {
-                  diffViewerBackground: '#1e1e1e',
-                  gutterBackground: '#252526',
-                  addedBackground: '#1e3a29',
-                  addedGutterBackground: '#1e3a29',
-                  removedBackground: '#3a1e1e',
-                  removedGutterBackground: '#3a1e1e',
-                  wordAddedBackground: '#2ea043',
-                  wordRemovedBackground: '#f85149',
-                  emptyLineBackground: '#1e1e1e',
-                  gutterColor: '#6e7681',
-                },
-                light: {
-                  diffViewerBackground: '#ffffff',
-                  gutterBackground: '#f6f8fa',
-                  addedBackground: '#e6ffec',
-                  addedGutterBackground: '#ccffd8',
-                  removedBackground: '#ffebe9',
-                  removedGutterBackground: '#ffd7d5',
-                  wordAddedBackground: '#abf2bc',
-                  wordRemovedBackground: '#ff818266',
-                  emptyLineBackground: '#ffffff',
-                  gutterColor: '#57606a',
-                },
-              },
-              contentText: {
-                fontFamily:
-                  'ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace',
-                fontSize: '12px',
-                lineHeight: '1.5',
-              },
+              ...diffViewerStyles,
               titleBlock: {
                 padding: '8px 12px',
                 fontSize: '12px',
                 fontWeight: 500,
-              },
-              line: {
-                padding: '0 8px',
               },
             }}
           />
@@ -979,16 +1033,8 @@ function SourceDAGDiffDialog({
             <I18nText text={'Cancel'} />
           </Button>
           <Button type="button" size="sm" disabled={saving} onClick={onSave}>
-            {saving ? (
-              <RefreshCw className="h-3.5 w-3.5 animate-spin" />
-            ) : (
-              <Save className="h-3.5 w-3.5" />
-            )}
-            {saving ? (
-              <I18nText text={'Saving...'} />
-            ) : (
-              <I18nText text={'Save source DAG'} />
-            )}
+            {saving ? <Spinner /> : <Save className="h-3.5 w-3.5" />}
+            <I18nText text={'Save source DAG'} />
           </Button>
         </DialogFooter>
       </DialogContent>

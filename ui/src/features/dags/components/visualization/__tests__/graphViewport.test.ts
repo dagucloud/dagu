@@ -61,7 +61,7 @@ describe('fittedScale', () => {
 
 describe('autoGraphMaxHeight', () => {
   it('grows with the window but never below the default height', () => {
-    expect(autoGraphMaxHeight(1000)).toBe(600);
+    expect(autoGraphMaxHeight(1000)).toBe(450);
     expect(autoGraphMaxHeight(400)).toBe(GRAPH_DEFAULT_HEIGHT);
   });
 });

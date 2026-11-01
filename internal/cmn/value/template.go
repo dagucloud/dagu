@@ -100,7 +100,7 @@ func resolveBindings(
 	ctx context.Context,
 	input string,
 	scope RuntimeScope,
-	field string,
+	field Field,
 	notices ValueReferenceNoticeSink,
 ) (string, protectedReferences, error) {
 	var all, toCommand, fromCommand []string
@@ -110,18 +110,49 @@ func resolveBindings(
 	if !strings.Contains(input, "DAGU_") {
 		taken = ""
 	}
+	protectOriginal := func(token string) string {
+		placeholder := uniqueToken(taken, "\uE000DAGU_UNRESOLVED_REF_")
+		// Shells get an ASCII token because Windows substitution output may not keep other runes.
+		commandToken := uniqueToken(taken, "__DAGU_UNRESOLVED_REF__")
+		all = append(all, placeholder, token)
+		toCommand = append(toCommand, placeholder, commandToken)
+		fromCommand = append(fromCommand, commandToken, placeholder)
+		return placeholder
+	}
+	// An item scope owns every foreach path, so quoted fields resolve and escaped ones stay literal.
+	itemPath := func(path string) bool {
+		return len(scope.Foreach) > 0 && strings.HasPrefix(path, "foreach.")
+	}
+	owned := func(path string) bool {
+		segments := strings.Split(path, ".")
+		return itemPath(path) || supportedStrictBinding(segments) || reservedBuiltinContextReference(segments)
+	}
 	// A leading non-identifier rune keeps an adjacent $NAME from absorbing a placeholder.
-	resolved, err := walkBindings(input, func(token string, path string) (string, error) {
-		value, err := bindingValue(ctx, path, scope, true)
+	resolved, err := walkBindings(input, field.escapesDollar(), owned, func(token string, path string, escaped bool) (string, error) {
+		item := itemPath(path)
+		switch {
+		case escaped && item:
+			return protectOriginal(token), nil
+		case escaped:
+			return token, nil
+		case item && foreachStepReference(ctx, path, scope.Steps):
+			// The legacy pass applies the field's quoting rules to step values.
+			return token, nil
+		}
+		var value any
+		var err error
+		if item && !supportedStrictBinding(strings.Split(path, ".")) {
+			segments, ok := quotedForeachField(path)
+			if !ok {
+				return token, nil
+			}
+			value, err = bindingForeachValue(path, segments, scope.Foreach, true)
+		} else {
+			value, err = bindingValue(ctx, path, scope, true)
+		}
 		if err != nil {
-			addUnresolvedReferenceNotice(notices, field, token, err)
-			placeholder := uniqueToken(taken, "\uE000DAGU_UNRESOLVED_REF_")
-			// Shells get an ASCII token because Windows substitution output may not keep other runes.
-			commandToken := uniqueToken(taken, "__DAGU_UNRESOLVED_REF__")
-			all = append(all, placeholder, token)
-			toCommand = append(toCommand, placeholder, commandToken)
-			fromCommand = append(fromCommand, commandToken, placeholder)
-			return placeholder, nil
+			addUnresolvedReferenceNotice(notices, field.path, token, err)
+			return protectOriginal(token), nil
 		}
 		placeholder := uniqueToken(taken, "\uE000DAGU_RESOLVED_REF_")
 		text := formatBindingValue(value)
@@ -356,23 +387,24 @@ func isEscapedSingleQuote(input string, idx int) bool {
 	return backslashes%2 == 1
 }
 
-func walkBindings(input string, visit func(token, path string) (string, error)) (string, error) {
+// walkBindings replaces each owned reference with the result of visit. When
+// escapes is set, an escaped owned reference loses its escape marker;
+// otherwise a backslash before it is ordinary text.
+func walkBindings(input string, escapes bool, owned func(path string) bool, visit func(token, path string, escaped bool) (string, error)) (string, error) {
 	var b strings.Builder
 	last := 0
 	for _, loc := range bindingRefPattern.FindAllStringSubmatchIndex(input, -1) {
 		path := strings.TrimSpace(input[loc[2]:loc[3]])
-		segments := strings.Split(path, ".")
-		if !supportedStrictBinding(segments) && !reservedBuiltinContextReference(segments) {
+		if !owned(path) {
 			continue
 		}
-		if isEscapedDollar(input, loc[0]) {
-			b.WriteString(input[last : loc[0]-1])
-			b.WriteString(input[loc[0]:loc[1]])
-			last = loc[1]
-			continue
+		start := loc[0]
+		escaped := escapes && isEscapedDollar(input, start)
+		if escaped {
+			start--
 		}
-		b.WriteString(input[last:loc[0]])
-		replacement, err := visit(input[loc[0]:loc[1]], path)
+		b.WriteString(input[last:start])
+		replacement, err := visit(input[loc[0]:loc[1]], path, escaped)
 		if err != nil {
 			return "", err
 		}
@@ -499,6 +531,43 @@ func bindingMapValue(namespace, name string, values Values, requireValue bool) (
 	return value, nil
 }
 
+func quotedForeachField(path string) ([]string, bool) {
+	itemPath, ok := strings.CutPrefix(path, "foreach.")
+	if !ok {
+		return nil, false
+	}
+	end := strings.IndexAny(itemPath, ".[")
+	if end < 0 || !bindingNamePattern.MatchString(itemPath[:end]) {
+		return nil, false
+	}
+	quoted := itemPath[end+1:]
+	if itemPath[end] == '[' {
+		quoted, ok = strings.CutSuffix(quoted, "]")
+		if !ok {
+			return nil, false
+		}
+	}
+	quoted = strings.TrimSpace(quoted)
+	if !strings.HasPrefix(quoted, `"`) {
+		return nil, false
+	}
+	var field string
+	if err := json.Unmarshal([]byte(quoted), &field); err != nil {
+		return nil, false
+	}
+	return []string{"foreach", itemPath[:end], field}, true
+}
+
+// foreachStepReference reports whether path reads a property of a step named
+// foreach. Such a step takes precedence over the item scope.
+func foreachStepReference(ctx context.Context, path string, steps map[string]StepInfo) bool {
+	if _, ok := steps["foreach"]; !ok {
+		return false
+	}
+	_, ok := resolveStepProperty(ctx, "foreach", strings.TrimPrefix(path, "foreach"), steps)
+	return ok
+}
+
 func bindingForeachValue(path string, segments []string, values Values, requireValue bool) (any, error) {
 	if len(values) == 0 {
 		if !requireValue {
@@ -607,8 +676,9 @@ func supportedStrictBinding(segments []string) bool {
 			return false
 		}
 		// An item field is a data key, so it may start with an underscore,
-		// as the _row a workbook reader attaches to each row does.
-		return len(segments) == 2 || validOutputPathSegment(segments[2])
+		// as the _row a workbook reader attaches to each row does, and use
+		// any script, as workbook headers do.
+		return len(segments) == 2 || validItemFieldSegment(segments[2])
 	case "inputs", "outputs":
 		return len(segments) == 2 && bindingNamePattern.MatchString(segments[1])
 	case "context":

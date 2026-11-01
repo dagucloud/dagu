@@ -1,0 +1,4 @@
+steps:
+  - action: clickhouse.query
+    with:
+      query: SELECT 1

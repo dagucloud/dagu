@@ -352,6 +352,11 @@ func TestReadWhereColumnsTypes(t *testing.T) {
 	assert.Nil(t, lenient.Rows[2]["Amount"])
 	assert.Contains(t, lenient.Warnings[0], `Sheet1!C4: expected number, found "N/A"`)
 
+	kept, err := Read(context.Background(), path, ReadOptions{Types: map[string]ColumnType{"Amount": TypeNumber}, OnTypeError: TypeErrorKeep})
+	require.NoError(t, err)
+	assert.Equal(t, "N/A", kept.Rows[2]["Amount"])
+	assert.Equal(t, lenient.Warnings, kept.Warnings)
+
 	_, err = Read(context.Background(), path, ReadOptions{Columns: []ColumnSelect{{Source: "Nope", As: "n"}}})
 	require.ErrorContains(t, err, `columns: column "Nope" not found; headers present: Invoice No, Status, Amount`)
 	_, err = Read(context.Background(), path, ReadOptions{Where: map[string]any{"Status": map[string]any{"like": "x"}}})
@@ -454,6 +459,25 @@ func TestParseHeaderAndColumns(t *testing.T) {
 	require.Error(t, err)
 	_, err = ParseColumns(5)
 	require.Error(t, err)
+
+	types, err := ParseTypes("Amount:number, 単価:税込:int")
+	require.NoError(t, err)
+	assert.Equal(t, map[string]ColumnType{"Amount": TypeNumber, "単価:税込": TypeInteger}, types)
+	types, err = ParseTypes(`{"a,b": "date"}`)
+	require.NoError(t, err)
+	assert.Equal(t, map[string]ColumnType{"a,b": TypeDate}, types)
+	types, err = ParseTypes(" ")
+	require.NoError(t, err)
+	assert.Nil(t, types)
+	for text, want := range map[string]string{
+		"Amount":        `"Amount" must be name:type`,
+		":number":       "a column name is empty",
+		"Amount:money":  `types.Amount: unknown column type "money"`,
+		`{"Amount": 1}`: "types must be a JSON object",
+	} {
+		_, err := ParseTypes(text)
+		require.ErrorContains(t, err, want, text)
+	}
 }
 
 func TestCustomFormatKind(t *testing.T) {

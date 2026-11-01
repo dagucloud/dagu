@@ -107,7 +107,7 @@ function StatusUpdateModal({ visible, dismissModal, step, onSubmit }: Props) {
       <DialogContent className="sm:max-w-[400px]">
         <DialogHeader>
           <DialogTitle className="text-base font-mono">
-            <I18nText text={"Update Status"} />
+            <I18nText text={"Update status"} />
           </DialogTitle>
           <p className="text-sm text-muted-foreground font-mono mt-1">
             {step.name}
@@ -119,7 +119,7 @@ function StatusUpdateModal({ visible, dismissModal, step, onSubmit }: Props) {
             <button
               ref={successButtonRef}
               className={`
-                group relative overflow-hidden rounded-lg border p-4 transition-all duration-200 focus:outline-none
+                group relative overflow-hidden rounded-lg border p-4 transition-colors duration-200 focus:outline-none
                 ${
                   selectedButton === 0
                     ? 'border-success bg-success-muted'
@@ -138,7 +138,7 @@ function StatusUpdateModal({ visible, dismissModal, step, onSubmit }: Props) {
             <button
               ref={failedButtonRef}
               className={`
-                group relative overflow-hidden rounded-lg border p-4 transition-all duration-200 focus:outline-none
+                group relative overflow-hidden rounded-lg border p-4 transition-colors duration-200 focus:outline-none
                 ${
                   selectedButton === 1
                     ? 'border-error bg-error-muted'

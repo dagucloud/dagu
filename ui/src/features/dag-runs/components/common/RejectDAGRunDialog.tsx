@@ -85,7 +85,7 @@ export function RejectDAGRunDialog({
     <Dialog open={open} onOpenChange={handleOpenChange}>
       <DialogContent className="sm:max-w-[450px]">
         <DialogHeader>
-          <DialogTitle><I18nText text={"Reject DAG Run"} /></DialogTitle>
+          <DialogTitle><I18nText text={"Reject run"} /></DialogTitle>
         </DialogHeader>
         <div className="py-2">
           <label htmlFor="rejection-reason" className="sr-only">

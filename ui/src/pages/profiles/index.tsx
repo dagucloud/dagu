@@ -76,6 +76,7 @@ import React, {
 import { useLocation, useNavigate } from 'react-router-dom';
 import { I18nText } from '@/i18n/I18nText';
 import { I18nProps } from '@/i18n/I18nProps';
+import { InlineLoadError } from '@/components/PageStates';
 
 type RuntimeProfileResponse = components['schemas']['RuntimeProfileResponse'];
 type InheritedRuntimeProfileResponse =
@@ -390,7 +391,12 @@ export default function ProfilesPage(): React.ReactNode {
     [canManageProfiles, remoteNode]
   );
 
-  const { data, mutate, isLoading } = useQuery('/profiles', queryInit);
+  const {
+    data,
+    error: loadError,
+    mutate,
+    isLoading,
+  } = useQuery('/profiles', queryInit);
   const profiles = data?.profiles || [];
   const activeProfiles = useMemo(
     () =>
@@ -658,15 +664,15 @@ export default function ProfilesPage(): React.ReactNode {
   }
 
   return (
-    <div className="flex h-full min-h-0 max-w-7xl flex-col gap-4 overflow-hidden">
+    <div className="flex h-full min-h-0 flex-col gap-4 overflow-hidden">
       <div className="shrink-0">
-        <h1 className="text-lg font-semibold">
+        <h1 className="text-2xl font-semibold tracking-[-0.01em]">
           <I18nText text={'Profiles & Secrets'} />
         </h1>
         <p className="text-sm text-muted-foreground">
           <I18nText
             text={
-              'Manage environment profiles and individual secret references used by DAG runs.'
+              'Manage environment profiles and individual secret references used by runs.'
             }
           />
         </p>
@@ -704,7 +710,7 @@ export default function ProfilesPage(): React.ReactNode {
             className="cursor-pointer gap-2"
           >
             <KeyRound className="h-4 w-4" />
-            <I18nText text={'DAG Secret Refs'} />
+            <I18nText text={'Secret refs'} />
           </Tab>
         </Tabs>
       </I18nProps>
@@ -731,6 +737,7 @@ export default function ProfilesPage(): React.ReactNode {
               </div>
               <Button
                 size="sm"
+                variant="primary"
                 className="h-8"
                 disabled={!canManageProfiles}
                 onClick={() => {
@@ -739,7 +746,7 @@ export default function ProfilesPage(): React.ReactNode {
                 }}
               >
                 <Plus className="mr-1.5 h-4 w-4" />
-                <I18nText text={'Add Profile'} />
+                <I18nText text={'Add profile'} />
               </Button>
             </div>
 
@@ -935,7 +942,11 @@ export default function ProfilesPage(): React.ReactNode {
                     <TableHead className="w-[170px]">
                       <I18nText text={'Updated'} />
                     </TableHead>
-                    <TableHead className="w-[80px]"></TableHead>
+                    <TableHead className="w-[80px]">
+                      <span className="sr-only">
+                        <I18nText text={'Actions'} />
+                      </span>
+                    </TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
@@ -959,6 +970,15 @@ export default function ProfilesPage(): React.ReactNode {
                         className="py-8 text-center text-muted-foreground"
                       >
                         <I18nText text={'Loading profiles...'} />
+                      </TableCell>
+                    </TableRow>
+                  ) : loadError && !data ? (
+                    <TableRow>
+                      <TableCell colSpan={5} className="py-8">
+                        <InlineLoadError
+                          error={loadError}
+                          onRetry={() => void mutate()}
+                        />
                       </TableCell>
                     </TableRow>
                   ) : profiles.length === 0 ? (
@@ -1140,7 +1160,7 @@ export default function ProfilesPage(): React.ReactNode {
 
       <I18nProps>
         <ConfirmModal
-          title="Delete Profile"
+          title="Delete profile"
           buttonText="Delete"
           visible={!!deletingProfile}
           dismissModal={() => setDeletingProfile(null)}
@@ -1161,7 +1181,7 @@ export default function ProfilesPage(): React.ReactNode {
 
       <I18nProps>
         <ConfirmModal
-          title="Delete Entry"
+          title="Delete entry"
           buttonText="Delete"
           visible={!!deletingEntry}
           dismissModal={() => setDeletingEntry(null)}
@@ -1442,9 +1462,9 @@ function ProfileFormDialog({
           <DialogHeader>
             <DialogTitle>
               {isEditing ? (
-                <I18nText text={'Edit Profile'} />
+                <I18nText text={'Edit profile'} />
               ) : (
-                <I18nText text={'Add Profile'} />
+                <I18nText text={'Add profile'} />
               )}
             </DialogTitle>
             <DialogDescription className="sr-only">
@@ -1516,7 +1536,7 @@ function ProfileFormDialog({
             >
               <I18nText text={'Cancel'} />
             </Button>
-            <Button type="submit" disabled={isSaving}>
+            <Button type="submit" variant="primary" disabled={isSaving}>
               {isSaving ? (
                 <I18nText text={'Saving...'} />
               ) : (
@@ -1659,7 +1679,7 @@ function ProfileEntryDialog({
             >
               <I18nText text={'Cancel'} />
             </Button>
-            <Button type="submit" disabled={isSaving}>
+            <Button type="submit" variant="primary" disabled={isSaving}>
               {isSaving ? (
                 <I18nText text={'Saving...'} />
               ) : (

@@ -25,6 +25,7 @@ import {
 import { I18nText } from '@/i18n/I18nText';
 import { I18nProps } from '@/i18n/I18nProps';
 import { useI18n } from '@/i18n/I18nProvider';
+import { cn } from '@/lib/utils';
 
 interface DAGRunBatchActionsProps {
   loadedCount: number;
@@ -83,8 +84,10 @@ function DAGRunBatchActions({
 
   const summaryText =
     selectedCount === 0
-      ? ts('{count} loaded', { count: loadedCount })
-      : ts('{selected} selected of {loaded} loaded', {
+      ? ts(loadedCount === 1 ? '{count} run' : '{count} runs', {
+          count: loadedCount,
+        })
+      : ts('{selected} of {loaded} selected', {
           selected: selectedCount,
           loaded: loadedCount,
         });
@@ -208,45 +211,72 @@ function DAGRunBatchActions({
 
   return (
     <>
-      <div className="mb-3 flex flex-wrap items-center justify-between gap-2 rounded-lg border bg-card px-3 py-2">
-        <div className="text-sm text-muted-foreground">{summaryText}</div>
+      <div
+        className={cn(
+          'mb-3 flex min-h-11 flex-wrap items-center justify-between gap-2 rounded-lg border px-3 py-1.5 transition-colors',
+          selectedCount > 0
+            ? 'border-primary/40 bg-primary/5'
+            : 'border-transparent'
+        )}
+      >
+        <div
+          className={cn(
+            'text-sm',
+            selectedCount > 0
+              ? 'font-medium text-foreground'
+              : 'text-muted-foreground'
+          )}
+        >
+          {summaryText}
+        </div>
+        {/* Bulk actions appear only once there is something to act on. */}
         <div className="flex flex-wrap items-center gap-2">
-          <Button
-            variant="outline"
-            onClick={onSelectAllLoaded}
-            disabled={loadedCount === 0 || isRunning}
-          >
-            <I18nText text={'Select all loaded'} />
-          </Button>
-          <Button
-            variant="outline"
-            onClick={onClearSelection}
-            disabled={selectedCount === 0 || isRunning}
-          >
-            <I18nText text={'Clear selection'} />
-          </Button>
-          <Button
-            variant="outline"
-            onClick={() => openBatchDialog('retry')}
-            disabled={selectedCount === 0 || isRunning}
-          >
-            <I18nText text={'Retry selected'} />
-          </Button>
-          <Button
-            variant="outline"
-            onClick={() => openBatchDialog('reschedule')}
-            disabled={selectedCount === 0 || isRunning}
-          >
-            <I18nText text={'Reschedule selected'} />
-          </Button>
-          <Button
-            variant="destructive"
-            onClick={() => openBatchDialog('delete')}
-            disabled={selectedCount === 0 || isRunning}
-          >
-            <Trash2 className="h-4 w-4" />
-            <I18nText text={'Delete selected'} />
-          </Button>
+          {selectedCount === 0 ? (
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={onSelectAllLoaded}
+              disabled={loadedCount === 0 || isRunning}
+            >
+              <I18nText text={'Select all loaded'} />
+            </Button>
+          ) : (
+            <>
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={onClearSelection}
+                disabled={isRunning}
+              >
+                <I18nText text={'Clear selection'} />
+              </Button>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => openBatchDialog('retry')}
+                disabled={isRunning}
+              >
+                <I18nText text={'Retry selected'} />
+              </Button>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => openBatchDialog('reschedule')}
+                disabled={isRunning}
+              >
+                <I18nText text={'Reschedule selected'} />
+              </Button>
+              <Button
+                variant="destructive"
+                size="sm"
+                onClick={() => openBatchDialog('delete')}
+                disabled={isRunning}
+              >
+                <Trash2 className="h-4 w-4" />
+                <I18nText text={'Delete selected'} />
+              </Button>
+            </>
+          )}
         </div>
       </div>
 
@@ -421,7 +451,7 @@ function DAGRunBatchActions({
                       {phase === 'running' ? (
                         <I18nText text={'Submitting requests...'} />
                       ) : progress.isRefreshing ? (
-                        <I18nText text={'Refreshing DAG runs...'} />
+                        <I18nText text={'Refreshing runs...'} />
                       ) : (
                         <I18nText text={'Finished submitting requests'} />
                       )}
@@ -443,7 +473,7 @@ function DAGRunBatchActions({
               </div>
 
               <div className="rounded-md border bg-muted/20 p-3">
-                <div className="mb-1 text-xs font-medium uppercase tracking-wide text-muted-foreground">
+                <div className="mb-1 text-xs font-medium text-muted-foreground">
                   <I18nText text={'Current item'} />
                 </div>
                 {progress.currentItem ? (
@@ -473,7 +503,7 @@ function DAGRunBatchActions({
               )}
 
               <div className="rounded-md border">
-                <div className="border-b px-3 py-2 text-xs font-medium uppercase tracking-wide text-muted-foreground">
+                <div className="border-b px-3 py-2 text-xs font-medium text-muted-foreground">
                   <I18nText text={'Results'} />
                 </div>
                 <div className="min-h-40 max-h-[45vh] space-y-3 overflow-y-auto p-3">

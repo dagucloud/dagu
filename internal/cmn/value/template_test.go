@@ -109,6 +109,90 @@ func TestExpandStringResolvesForeachBindingsWithScope(t *testing.T) {
 	assert.Equal(t, `2 episode-3 https://example.test/episode-3 {"slug":"episode-3","url":"https://example.test/episode-3"}`, got)
 }
 
+// An item field written without the foreach namespace fails resolution when
+// no other source resolves it, and the error names the supported form.
+func TestResolverRejectsUnqualifiedItemField(t *testing.T) {
+	t.Parallel()
+
+	resolver := value.NewResolver(
+		value.StaticScope{},
+		value.RuntimeScope{Foreach: value.Values{"index": "0", "key": "0", "item": map[string]any{"wallet": "A"}}},
+		value.RejectUnqualifiedItemFields(),
+	)
+
+	_, err := resolver.String(context.Background(), `echo "${item.wallet}"`, value.WorkflowField("run"))
+	require.ErrorContains(t, err, "run: ${item.wallet} does not reference the foreach item; use ${foreach.item.wallet}")
+}
+
+// Text that only resembles an unqualified item field resolves as before:
+// shell variables, escaped and unsupported forms, a name another source
+// defines, and scripts passed to their executor as written.
+func TestResolverKeepsItemLikeText(t *testing.T) {
+	t.Parallel()
+
+	item := value.Values{"index": "0", "key": "0", "item": map[string]any{"wallet": "A"}}
+	tests := []struct {
+		name  string
+		raw   string
+		scope value.RuntimeScope
+		field value.Field
+		want  string
+	}{
+		{
+			name:  "shell variables",
+			raw:   "${item} $item.txt",
+			scope: value.RuntimeScope{Foreach: item},
+			field: value.WorkflowField("run"),
+			want:  "${item} $item.txt",
+		},
+		{
+			name:  "escaped and unsupported forms",
+			raw:   `\${item.wallet} ${item:-a.b} ${item.a.b}`,
+			scope: value.RuntimeScope{Foreach: item},
+			field: value.WorkflowField("run"),
+			want:  "${item.wallet} ${item:-a.b} ${item.a.b}",
+		},
+		{
+			name: "env entry",
+			raw:  "${item.wallet}",
+			scope: value.RuntimeScope{
+				Foreach: item,
+				Env:     value.NewEnvScope(nil, false).WithEntry("item", `{"wallet":"E"}`, value.EnvSourceDotEnv),
+			},
+			field: value.WorkflowField("run"),
+			want:  "E",
+		},
+		{
+			name: "step property",
+			raw:  "${item.stdout}",
+			scope: value.RuntimeScope{
+				Foreach: item,
+				Steps:   map[string]value.StepInfo{"item": {Stdout: "out"}},
+			},
+			field: value.WorkflowField("run"),
+			want:  "out",
+		},
+		{
+			name:  "verbatim script",
+			raw:   "return `${item.wallet}`;",
+			scope: value.RuntimeScope{Foreach: item},
+			field: value.TemplateScriptField("script"),
+			want:  "return `${item.wallet}`;",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			resolver := value.NewResolver(value.StaticScope{}, tt.scope, value.RejectUnqualifiedItemFields())
+			got, err := resolver.String(context.Background(), tt.raw, tt.field)
+			require.NoError(t, err)
+			assert.Equal(t, tt.want, got)
+		})
+	}
+}
+
 func TestExpandStringPreservesUnavailableForeachBinding(t *testing.T) {
 	t.Parallel()
 

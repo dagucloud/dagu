@@ -1,11 +1,17 @@
 // Copyright (C) 2026 Yota Hamada
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-import { fireEvent, render, screen, within } from '@testing-library/react';
+import {
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+  within,
+} from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import React from 'react';
 import { MemoryRouter } from 'react-router-dom';
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { components } from '@/api/v1/schema';
 import {
   NodeStatus,
@@ -17,6 +23,7 @@ import { ToastProvider } from '@/components/ui/simple-toast';
 import { AppBarContext } from '@/contexts/AppBarContext';
 import { DAGRunContext } from '@/features/dag-runs/contexts/DAGRunContext';
 import { useQuery } from '@/hooks/api';
+import dayjs from '@/lib/dayjs';
 import { DAGContext } from '../../../contexts/DAGContext';
 import NodeStatusTableRow from '../NodeStatusTableRow';
 
@@ -67,10 +74,66 @@ const dagRun = {
 } as components['schemas']['DAGRunDetails'];
 
 const mockedUseQuery = vi.mocked(
-  useQuery as unknown as (path: unknown, init: unknown) => unknown
+  useQuery as unknown as (
+    path: unknown,
+    init: unknown,
+    config?: unknown
+  ) => unknown
 );
 
 const stepLogPath = '/dag-runs/{name}/{dagRunId}/steps/{stepName}/log';
+
+const NOW = '2026-07-22T01:05:00Z';
+const FIVE_MINUTES_AGO = '2026-07-22T01:00:00Z';
+const ABSOLUTE_FORMAT = 'YYYY-MM-DD HH:mm:ss';
+
+const timedNode = {
+  step: { name: 'build' },
+  status: NodeStatus.Success,
+  statusLabel: NodeStatusLabel.succeeded,
+  stdout: '',
+  stderr: '',
+  startedAt: '',
+  finishedAt: '',
+  retryCount: 0,
+  doneCount: 1,
+} as components['schemas']['Node'];
+
+// Fakes only Date so relative labels are stable without stalling timers.
+function freezeNow() {
+  vi.useFakeTimers({ toFake: ['Date'] });
+  vi.setSystemTime(new Date(NOW));
+}
+
+function renderRow(
+  node: components['schemas']['Node'],
+  view: 'desktop' | 'mobile',
+  props: Partial<React.ComponentProps<typeof NodeStatusTableRow>> = {}
+) {
+  const row = (
+    <NodeStatusTableRow
+      rownum={1}
+      node={node}
+      name="example.yaml"
+      dagRun={dagRun}
+      view={view}
+      {...props}
+    />
+  );
+  return render(
+    <MemoryRouter>
+      <AppBarContext.Provider value={appBarValue}>
+        {view === 'desktop' ? (
+          <table>
+            <tbody>{row}</tbody>
+          </table>
+        ) : (
+          row
+        )}
+      </AppBarContext.Provider>
+    </MemoryRouter>
+  );
+}
 
 describe('NodeStatusTableRow', () => {
   beforeEach(() => {
@@ -86,6 +149,10 @@ describe('NodeStatusTableRow', () => {
       isValidating: false,
       mutate: vi.fn(),
     }));
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
   });
 
   it('keeps the selected remote node in producer run links', async () => {
@@ -140,7 +207,7 @@ describe('NodeStatusTableRow', () => {
     for (const link of links) {
       expect(link).toHaveAttribute(
         'href',
-        '/dag-runs/producer/run-2?remoteNode=worker-a'
+        '/dags/producer?remoteNode=worker-a&run=run-2'
       );
     }
   });
@@ -247,6 +314,163 @@ describe('NodeStatusTableRow', () => {
 
     expect(screen.getByText(/full \| minimal/)).toBeInTheDocument();
   });
+
+  it.each(['desktop', 'mobile'] as const)(
+    'shows the step start time relative to now in the %s view',
+    (view) => {
+      freezeNow();
+      renderRow({ ...timedNode, startedAt: FIVE_MINUTES_AGO }, view);
+
+      expect(screen.getByText('5 minutes ago')).toHaveAttribute(
+        'title',
+        dayjs(FIVE_MINUTES_AGO).format(ABSOLUTE_FORMAT)
+      );
+    }
+  );
+
+  it.each(['desktop', 'mobile'] as const)(
+    'shows how often a step was retried in the %s view',
+    (view) => {
+      renderRow({ ...timedNode, retryCount: 2 }, view);
+
+      expect(screen.getByText('Retried 2×')).toBeVisible();
+    }
+  );
+
+  it('shows no retry count for a step that ran once', () => {
+    renderRow(timedNode, 'desktop');
+
+    expect(screen.queryByText(/Retried/)).not.toBeInTheDocument();
+  });
+
+  it.each([
+    [
+      'Completed by:',
+      { humanTaskCompletedBy: 'alice', finishedAt: FIVE_MINUTES_AGO },
+    ],
+    ['Approved by:', { approvedBy: 'alice', approvedAt: FIVE_MINUTES_AGO }],
+    ['Rejected by:', { rejectedBy: 'alice', rejectedAt: FIVE_MINUTES_AGO }],
+  ])('shows the "%s" time relative to now', (label, fields) => {
+    freezeNow();
+    renderRow({ ...timedNode, ...fields }, 'desktop');
+
+    const line = screen.getByText(label).parentElement!;
+    expect(within(line).getByText('5 minutes ago')).toHaveAttribute(
+      'title',
+      dayjs(FIVE_MINUTES_AGO).format(ABSOLUTE_FORMAT)
+    );
+  });
+
+  it.each([
+    ['finished', NodeStatus.Success, 0],
+    ['running', NodeStatus.Running, 2000],
+  ])(
+    'polls the expanded log of a %s step only while it runs',
+    (_, status, interval) => {
+      // Running status text animates and reads the reduced-motion preference.
+      Object.defineProperty(window, 'matchMedia', {
+        writable: true,
+        value: vi.fn().mockImplementation((query: string) => ({
+          matches: false,
+          media: query,
+          addEventListener: vi.fn(),
+          removeEventListener: vi.fn(),
+        })),
+      });
+      mockedUseQuery.mockClear();
+      const node = {
+        ...timedNode,
+        status,
+        stdout: '/tmp/build.out',
+      } as components['schemas']['Node'];
+
+      render(
+        <MemoryRouter>
+          <AppBarContext.Provider value={appBarValue}>
+            <table>
+              <tbody>
+                <NodeStatusTableRow
+                  rownum={1}
+                  node={node}
+                  name="example.yaml"
+                  dagRun={dagRun}
+                  view="desktop"
+                  defaultLogExpanded
+                />
+              </tbody>
+            </table>
+          </AppBarContext.Provider>
+        </MemoryRouter>
+      );
+
+      const inlineLogCalls = mockedUseQuery.mock.calls.filter(
+        ([path, init]) =>
+          path === stepLogPath &&
+          (init as { params?: { query?: { tail?: number } } } | undefined)
+            ?.params?.query?.tail === 100
+      );
+      expect(inlineLogCalls.length).toBeGreaterThan(0);
+      for (const call of inlineLogCalls) {
+        expect(call[2]).toMatchObject({ refreshInterval: interval });
+      }
+    }
+  );
+
+  // A row and its graph node open the same step details; the chevron keeps
+  // the quick inline log.
+  it('opens step details from a row click and keeps the log toggle', () => {
+    const onInspect = vi.fn();
+    const node = {
+      ...timedNode,
+      stdout: '/tmp/build.out',
+    } as components['schemas']['Node'];
+    render(
+      <MemoryRouter>
+        <AppBarContext.Provider value={appBarValue}>
+          <table>
+            <tbody>
+              <NodeStatusTableRow
+                rownum={1}
+                node={node}
+                name="example.yaml"
+                dagRun={dagRun}
+                view="desktop"
+                selected
+                onInspect={onInspect}
+              />
+            </tbody>
+          </table>
+        </AppBarContext.Provider>
+      </MemoryRouter>
+    );
+
+    const row = screen.getByText('build').closest('tr')!;
+    expect(row).toHaveAttribute('data-selected', 'true');
+    fireEvent.click(row);
+    expect(onInspect).toHaveBeenCalledWith('build');
+
+    fireEvent.click(screen.getByRole('button', { name: 'Show logs' }));
+    expect(screen.getByRole('button', { name: 'Hide logs' })).toHaveAttribute(
+      'aria-expanded',
+      'true'
+    );
+    expect(onInspect).toHaveBeenCalledTimes(1);
+  });
+
+  // The step name is a button, so keyboard and touch users reach the same
+  // details a row click opens.
+  it.each(['desktop', 'mobile'] as const)(
+    'opens step details from the step name in the %s view',
+    (view) => {
+      const onInspect = vi.fn();
+      renderRow(timedNode, view, { onInspect });
+
+      fireEvent.click(screen.getByRole('button', { name: 'build' }));
+
+      expect(onInspect).toHaveBeenCalledTimes(1);
+      expect(onInspect).toHaveBeenCalledWith('build');
+    }
+  );
 
   it('falls back to the configured log message when stdout cannot be loaded', () => {
     mockedUseQuery.mockImplementation((path, init) => ({
@@ -585,8 +809,9 @@ describe('NodeStatusTableRow', () => {
         }
       );
     });
-    expect(await screen.findByText('Step retry started')).toBeVisible();
-    expect(refresh).toHaveBeenCalled();
+    await waitFor(() => expect(refresh).toHaveBeenCalled());
+    // A success shows no notification in the middle of the screen.
+    expect(screen.queryByText('Step retry started')).toBeNull();
   });
 
   it('retries the selected step and downstream steps when requested', async () => {
@@ -659,8 +884,9 @@ describe('NodeStatusTableRow', () => {
         }
       );
     });
-    expect(await screen.findByText('Step retry started')).toBeVisible();
-    expect(refresh).toHaveBeenCalled();
+    await waitFor(() => expect(refresh).toHaveBeenCalled());
+    // A success shows no notification in the middle of the screen.
+    expect(screen.queryByText('Step retry started')).toBeNull();
   });
 
   it('sends bypassPreconditions when the checkbox is checked', async () => {
@@ -733,8 +959,9 @@ describe('NodeStatusTableRow', () => {
         }
       );
     });
-    expect(await screen.findByText('Step retry started')).toBeVisible();
-    expect(refresh).toHaveBeenCalled();
+    await waitFor(() => expect(refresh).toHaveBeenCalled());
+    // A success shows no notification in the middle of the screen.
+    expect(screen.queryByText('Step retry started')).toBeNull();
   });
 
   it('resets the bypass preconditions checkbox each time the dialog opens', async () => {
@@ -919,7 +1146,7 @@ describe('NodeStatusTableRow', () => {
       await user.click(screen.getByRole('button', { name: 'Step actions' }));
       await user.click(screen.getByRole('menuitem', { name: 'Change status' }));
 
-      expect(screen.getByText('Update Status')).toBeVisible();
+      expect(screen.getByText('Update status')).toBeVisible();
     }
   );
 
@@ -979,9 +1206,9 @@ describe('NodeStatusTableRow', () => {
       </MemoryRouter>
     );
 
-    fireEvent.click(screen.getByText(NodeStatusLabel.waiting));
+    fireEvent.click(screen.getByText('Waiting'));
 
-    expect(screen.queryByText('Update Status')).not.toBeInTheDocument();
+    expect(screen.queryByText('Update status')).not.toBeInTheDocument();
   });
 
   it.each(['desktop', 'mobile'] as const)(

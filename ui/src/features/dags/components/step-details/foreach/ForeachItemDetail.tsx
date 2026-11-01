@@ -2,8 +2,9 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 import { components, NodeStatus, Stream } from '@/api/v1/schema';
-import { formatRunDuration } from '@/lib/dagRunTiming';
+import { formatElapsed } from '@/lib/dagRunTiming';
 import { isActiveNodeStatus } from '@/lib/status-utils';
+import { RetryCount } from '@/components/ui/retry-count';
 import { cn } from '@/lib/utils';
 import { I18nText } from '@/i18n/I18nText';
 import { I18nProps } from '@/i18n/I18nProps';
@@ -97,8 +98,7 @@ function BodyStepRow({
   const { ts } = useI18n();
   const [stream, setStream] = useState<Stream | null>(null);
   const live = isActiveNodeStatus(step.status);
-  const duration =
-    step.startedAt && formatRunDuration(step.startedAt, step.finishedAt);
+  const duration = formatElapsed(step.startedAt, step.finishedAt, { live });
   const toggleStream = (next: Stream) =>
     setStream((current) => (current === next ? null : next));
 
@@ -111,15 +111,13 @@ function BodyStepRow({
         <NodeStatusChip status={step.status} size="sm">
           {step.statusLabel}
         </NodeStatusChip>
-        {duration && duration !== '-' && (
+        {duration && (
           <span className="tabular-nums text-xs text-muted-foreground">
             {duration}
           </span>
         )}
         {!!step.retryCount && step.retryCount > 0 && (
-          <span className="text-xs text-muted-foreground">
-            <I18nText text={'Retries'} />: {step.retryCount}
-          </span>
+          <RetryCount count={step.retryCount} />
         )}
         <div className="flex items-center gap-1">
           {([Stream.stdout, Stream.stderr] as const).map((candidate) => {

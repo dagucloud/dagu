@@ -30,14 +30,15 @@ Dagu turns existing scripts and runbooks into production workflows with scheduli
 - Schedule workflows with cron syntax, timezones, overlap policies, and catch-up windows.
 - Keep logs, run history, retries, notifications, and webhook triggers in one place.
 - Built-in MCP server for inspecting workflows and runs, maintaining Wiki pages, applying changes, and controlling runs.
+- Optional monitoring in Dagu Console: every server's runs and trends in one place, and an email when a workflow fails or a server stops reporting. Opt-in, outbound HTTPS only, metadata only.
 
 ## Quick Look
 
 For a quick look at how workflows are defined, see the examples.
 
 <div align="center">
-  <a href="./assets/images/dagu-demo.mp4?raw=1">
-    <img src="./assets/images/cockpit-demo-poster.jpg" width="720" alt="Dagu Cockpit showing queued, running, completed, and failed workflow runs">
+  <a href="https://dagu.sh/dagu-film.mp4">
+    <img src="./assets/images/dagu-film-poster.jpg" width="720" alt="Watch the Dagu film: your code is the engine, Dagu is the cockpit">
   </a>
 </div>
 
@@ -148,7 +149,7 @@ The script installers run a guided wizard that can add Dagu to your PATH, set it
 
 ### Create and run a workflow
 
-Create `hello.yaml`:
+Create `hello.yaml` in an empty folder:
 
 ```yaml
 steps:
@@ -164,33 +165,40 @@ dagu start hello.yaml
 
 ### Start the server
 
+From that folder, run:
+
 ```sh
 dagu start-all --dags .
 ```
 
-Visit http://localhost:8080
+Open http://localhost:8080. On first launch, create the admin account unless the installer wizard already created one.
+
+If a script installer set Dagu up as a background service, it is already running on port 8080, so add workflows from the UI or put `hello.yaml` in the DAGs directory the installer printed.
 
 ## How You Run Dagu
 
-Dagu runs on one machine, on temporary workers your platform creates for each run, or on workers you keep running. All three are self-hosted, and the same workflow YAML runs on any of them. See the [Deployment Models guide](https://docs.dagu.sh/overview/deployment-models).
+Dagu runs on one machine, on temporary workers your platform creates for each run, or on workers you keep running. All three are self-hosted, and the same workflow YAML runs on any of them. Any of them can report to Dagu Console, which shows your servers together and emails you when a workflow fails or a server goes silent. See the [Deployment Models guide](https://docs.dagu.sh/overview/deployment-models).
 
 <table>
   <tr>
     <td width="50%" align="center" valign="top">
       <strong>Single server</strong><br>
-      <img src="./assets/images/deployment-model-local.gif" width="100%" alt="Single-server deployment model with one Dagu server handling scheduling and execution.">
+      <img src="./assets/images/deployment-model-single-server.svg" width="100%" alt="Single server: one machine runs dagu start-all; the Dagu server runs your steps and writes DAGs, run history, and logs to local files.">
     </td>
     <td width="50%" align="center" valign="top">
       <strong>Temporary workers</strong><br>
-      <img src="./assets/images/deployment-model-shared-volume.gif" width="100%" alt="Deployment model where a launcher provisions a temporary worker per run, the worker writes state to a shared volume and is destroyed, and an always-on Dagu server reads that state.">
+      <img src="./assets/images/deployment-model-temporary-workers.svg" width="100%" alt="Temporary workers: your launcher starts a temporary worker that runs dagu start and writes state to a shared volume; the always-on Dagu server reads the same volume, with no network path between the two.">
     </td>
   </tr>
   <tr>
     <td width="50%" align="center" valign="top">
       <strong>Distributed workers</strong><br>
-      <img src="./assets/images/deployment-model-self-hosted.gif" width="100%" alt="Distributed-worker deployment where the Dagu server dispatches tasks into a coordinator and workers on separate hosts poll it over gRPC, reporting status and logs back, with the server and persistent volume sharing the same data.">
+      <img src="./assets/images/deployment-model-distributed-workers.svg" width="100%" alt="Distributed workers: workers on your hosts poll the coordinator in the Dagu server over outbound gRPC, so they need no inbound port; the server writes status, logs, and artifacts to Dagu data.">
     </td>
-    <td width="50%"></td>
+    <td width="50%" align="center" valign="top">
+      <strong>Monitoring with Dagu Console</strong><br>
+      <img src="./assets/images/deployment-model-console-monitoring.svg" width="100%" alt="Monitoring with Dagu Console: three servers, one per topology, report metadata to Dagu Console over outbound HTTPS; Dagu Console shows them together and emails you when a workflow fails or a server goes silent, while logs, outputs, and secrets stay on each server.">
+    </td>
   </tr>
 </table>
 
@@ -202,8 +210,22 @@ Dagu runs on one machine, on temporary workers your platform creates for each ru
 
 ### Licensing
 
-- **Community self-host:** No license key required. You operate the server, storage, upgrades, networking, and workers. Start with the [installation guide](https://docs.dagu.sh/getting-started/installation/).
-- **Self-host license:** Adds SSO, RBAC, audit logging, and incident SaaS integration to Dagu. See [self-host licensing](https://dagu.sh/pricing#self-host).
+- **Community self-host:** No license key required. You operate the server, storage, upgrades, networking, and workers. One server can be [monitored in Dagu Console](#monitor-every-server-from-one-place) for free. Start with the [installation guide](https://docs.dagu.sh/getting-started/installation/).
+- **Self-host license:** Adds SSO, RBAC, audit logging, incident SaaS integration, and [monitoring in Dagu Console](#monitor-every-server-from-one-place) to Dagu. See [self-host licensing](https://dagu.sh/pricing#self-host).
+
+## Monitor Every Server from One Place
+
+Connect your Dagu servers to [Dagu Console](https://console.dagu.sh) and see all of them in one place: which servers report, what failed today, open alerts, and run and duration trends for each workflow. Alert emails go out when a workflow fails or recovers, and when a server stops reporting.
+
+<div align="center">
+  <img src="./assets/images/readme-console-overview.png" width="720" alt="Dagu Console Overview showing two of three servers reporting, failures today, open alerts including a server that stopped reporting, and the 7-day success rate.">
+</div>
+
+- **Opt-in:** a server reports nothing until an administrator turns monitoring on in **Plan & features**, or sets `cloud.report: runs`.
+- **Outbound only:** the server reports over HTTPS every 60 seconds, or every 5 minutes on the free tier. No inbound port and no VPN.
+- **Metadata only:** run status, timing, and failed step names. Logs, outputs, parameters, and secrets are never sent, and the server shows the exact JSON it last sent.
+
+Workflows keep running on your servers whether or not Dagu Console can be reached. Monitoring is in beta. It is free for one server on Dagu v2.19.2 or later, with lower limits; a Team or Pro plan, or a trial, covers every licensed server. See [Monitoring](https://docs.dagu.sh/overview/console-monitoring).
 
 ## Key Features
 
@@ -602,6 +624,7 @@ Dagu includes built-in actions that run within the Dagu process or on the select
 | `computer.extract` / `computer.run` | Automate desktop applications on macOS and Windows workers with natural-language tasks, screen extraction, and human input |
 | `postgres.query` / `postgres.import` | PostgreSQL queries and imports |
 | `sqlite.query` / `sqlite.import` | SQLite queries and imports |
+| `clickhouse.query` | ClickHouse queries and statements over the HTTP interface |
 | `redis.<operation>` | Redis commands, pipelines, and Lua scripts |
 | `s3.upload` / `s3.download` / `s3.list` / `s3.delete` | Upload, download, list, and delete S3 objects |
 | `file.stat` / `file.read` / `file.write` / `file.copy` / `file.move` / `file.delete` / `file.mkdir` / `file.list` | Local file operations without shell commands |
@@ -743,6 +766,10 @@ Dagu exposes Prometheus-compatible metrics:
 - `dagu_worker_pollers`: Worker poller capacity by state
 - `dagu_worker_running_tasks`: Running tasks per worker
 - `dagu_worker_oldest_running_task_age_seconds`: Age of the oldest running task per worker
+
+### Dagu Console Monitoring
+
+Connected servers can report their health and run status to Dagu Console for one view across servers, trends, and alert emails. See [Monitor Every Server from One Place](#monitor-every-server-from-one-place).
 
 ### Structured Logging
 

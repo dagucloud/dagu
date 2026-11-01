@@ -13,6 +13,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"slices"
 	"testing"
 
 	"github.com/dagucloud/dagu/v2/internal/executor/registry"
@@ -705,6 +706,77 @@ func TestHTTPExecutor_CmdWithArgsExpansion(t *testing.T) {
 		err = httpExec.Run(context.Background())
 		assert.NoError(t, err)
 	})
+}
+
+// A silent success prints only the body; status_code and headers stay in
+// the output when silent is off or the response is not a success. A JSON
+// null body stays as "body": null, and with.output replaces the body.
+func TestHTTPExecutor_JSONOutputFields(t *testing.T) {
+	okBody := map[string]any{"ok": true}
+	for _, tc := range []struct {
+		name     string
+		status   int
+		response string
+		silent   bool
+		output   bool
+		keys     []string
+		body     any
+	}{
+		{"SilentSuccess", nethttp.StatusAccepted, `{"ok":true}`, true, false, []string{"body"}, okBody},
+		{"Success", nethttp.StatusAccepted, `{"ok":true}`, false, false, []string{"body", "headers", "status_code"}, okBody},
+		{"SilentError", nethttp.StatusServiceUnavailable, `{"ok":true}`, true, false, []string{"body", "headers", "status_code"}, okBody},
+		{"SilentNullBody", nethttp.StatusOK, `null`, true, false, []string{"body"}, nil},
+		{"NullBody", nethttp.StatusOK, `null`, false, false, []string{"body", "headers", "status_code"}, nil},
+		{"SilentNullBodyToFile", nethttp.StatusOK, `null`, true, true, []string{"output"}, nil},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			server := httptest.NewServer(nethttp.HandlerFunc(func(w nethttp.ResponseWriter, _ *nethttp.Request) {
+				w.Header().Set("Content-Type", "application/json")
+				w.WriteHeader(tc.status)
+				_, _ = w.Write([]byte(tc.response))
+			}))
+			defer server.Close()
+
+			cfg := map[string]any{
+				"format": "json",
+				"silent": tc.silent,
+			}
+			if tc.output {
+				cfg["output"] = filepath.Join(t.TempDir(), "response.json")
+			}
+			step := ir.Step{
+				Commands: []ir.CommandEntry{{Command: "POST", Args: []string{server.URL}}},
+				ExecutorConfig: ir.ExecutorConfig{
+					Type:   "http",
+					Config: cfg,
+				},
+			}
+
+			executor, err := newHTTP(context.Background(), step)
+			require.NoError(t, err)
+
+			out := &testWriter{}
+			httpExec, ok := executor.(*http)
+			require.True(t, ok)
+			httpExec.SetStdout(out)
+			httpExec.SetStderr(&testWriter{})
+
+			err = httpExec.Run(context.Background())
+			if tc.status >= 300 {
+				require.ErrorIs(t, err, errHTTPStatusCode)
+			} else {
+				require.NoError(t, err)
+			}
+
+			var result map[string]any
+			require.NoError(t, json.Unmarshal(out.data, &result))
+			assert.ElementsMatch(t, tc.keys, slices.Collect(maps.Keys(result)))
+			assert.Equal(t, tc.body, result["body"])
+			if _, ok := result["status_code"]; ok {
+				assert.InDelta(t, tc.status, result["status_code"], 0)
+			}
+		})
+	}
 }
 
 type testWriter struct {

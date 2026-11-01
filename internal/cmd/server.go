@@ -7,19 +7,26 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"net"
+	"os"
 	"path/filepath"
+	goruntime "runtime"
 	"strconv"
+	"strings"
 	"syscall"
 	"time"
 
 	"github.com/dagucloud/dagu/v2/internal/agentsession"
+	"github.com/dagucloud/dagu/v2/internal/cloudaccess"
+	"github.com/dagucloud/dagu/v2/internal/cloudrelay"
 	"github.com/dagucloud/dagu/v2/internal/cloudreport"
 	"github.com/dagucloud/dagu/v2/internal/cmn/config"
 	"github.com/dagucloud/dagu/v2/internal/cmn/dirlock"
 	"github.com/dagucloud/dagu/v2/internal/cmn/logger"
 	"github.com/dagucloud/dagu/v2/internal/cmn/logger/tag"
 	"github.com/dagucloud/dagu/v2/internal/ir"
+	"github.com/dagucloud/dagu/v2/internal/license"
 	"github.com/dagucloud/dagu/v2/internal/opencodehost"
 	filemonitor "github.com/dagucloud/dagu/v2/internal/persis/file/monitor"
 	"github.com/dagucloud/dagu/v2/internal/service/frontend"
@@ -61,6 +68,9 @@ Example:
 var serverFlags = []commandLineFlag{dagsFlag, hostFlag, portFlag, tunnelFlag, tunnelTokenFlag, tunnelFunnelFlag, tunnelHTTPSFlag}
 
 const localAgentSessionShutdownTimeout = 10 * time.Second
+
+// webPortInUseHint explains a web UI listen failure caused by a taken port.
+const webPortInUseHint = "another Dagu may be running; stop it, or choose a free port with --port or DAGU_PORT"
 
 func newServer(ctx *Context, rs *resource.Service, stores frontend.Stores, opts ...frontend.ServerOption) (*frontend.Server, error) {
 	coordinatorClient, err := ctx.NewCoordinatorClient()
@@ -107,8 +117,10 @@ func runServer(ctx *Context, _ []string, serverOpts ...frontend.ServerOption) er
 	var tunnelService *tunnel.Service
 	var resourceService *resource.Service
 	var cloudReporter *cloudreport.Reporter
+	stopCloudAccess := func() {}
 	defer func() {
 		stop()
+		stopCloudAccess()
 		if cloudReporter != nil {
 			cloudReporter.Stop()
 		}
@@ -163,6 +175,11 @@ func runServer(ctx *Context, _ []string, serverOpts ...frontend.ServerOption) er
 	if cloudMonitoring != nil {
 		serverOpts = append(serverOpts, frontend.WithAPIOption(apiv1.WithCloudReport(cloudMonitoring)))
 	}
+	cloudAccess := newCloudAccess(serviceCtx)
+	if cloudAccess != nil {
+		serverOpts = append(serverOpts, frontend.WithAPIOption(apiv1.WithCloudAccess(cloudAccess)))
+	}
+	serverOpts = append(serverOpts, frontend.WithOnReady(printStartupBanner(serviceCtx, stores.AuthSetupRequired)))
 
 	// Initialize server (includes auth setup). Use serviceCtx so auth providers can
 	// respond to termination signals during potentially slow network operations.
@@ -190,15 +207,35 @@ func runServer(ctx *Context, _ []string, serverOpts ...frontend.ServerOption) er
 		}
 	}
 
-	cloudReporter = startCloudReport(serviceCtx, cloudMonitoring)
+	cloudReporter = startCloudReport(serviceCtx, cloudMonitoring, cloudAccess)
+	stopCloudAccess = startCloudAccess(serviceCtx, cloudAccess, server)
 
 	err = server.Serve(serviceCtx)
 	stop() // Let a second SIGINT end deferred cleanup; SIGTERM stays absorbed.
 	if err != nil {
-		return fmt.Errorf("failed to start server: %w", err)
+		return fmt.Errorf("failed to start server: %w", withPortInUseHint(err, webPortInUseHint))
 	}
 
 	return nil
+}
+
+// withPortInUseHint appends hint to err when err reports an address already
+// in use, and returns other errors unchanged.
+func withPortInUseHint(err error, hint string) error {
+	if !isAddrInUse(err) {
+		return err
+	}
+	return fmt.Errorf("%w (%s)", err, hint)
+}
+
+// isAddrInUse reports whether err comes from binding an address already in
+// use. Windows reports WSAEADDRINUSE (10048), which syscall.EADDRINUSE does
+// not match there.
+func isAddrInUse(err error) bool {
+	if errors.Is(err, syscall.EADDRINUSE) {
+		return true
+	}
+	return goruntime.GOOS == "windows" && errors.Is(err, syscall.Errno(10048))
 }
 
 func startLocalAgentSessionCleanup(ctx context.Context, persistence Persistence, host *opencodehost.Host) (context.CancelFunc, <-chan struct{}) {
@@ -278,18 +315,77 @@ func newCloudReportMonitoring(ctx *Context) *cloudreport.Monitoring {
 	if ctx.LicenseManager == nil {
 		return nil
 	}
-	settingsFile := filepath.Join(ctx.Config.Paths.DataDir, "cloud", "report-settings.json")
-	return cloudreport.NewMonitoring(ctx.Config.Cloud.Report, filemonitor.NewStateStore(settingsFile))
+	return cloudreport.NewMonitoring(ctx.Config.Cloud.Report, filemonitor.NewStateStore(cloudReportSettingsFile(ctx.Config)))
+}
+
+// cloudReportSettingsFile is where an administrator's choice of what the
+// server reports to Dagu Console is kept.
+func cloudReportSettingsFile(cfg *config.Config) string {
+	return filepath.Join(cfg.Paths.DataDir, "cloud", "report-settings.json")
 }
 
 // startCloudReport reports to Dagu Console at the level monitoring sets while
-// the server holds an online license. It returns nil when monitoring is nil
-// or cloud.report is off.
-func startCloudReport(ctx *Context, monitoring *cloudreport.Monitoring) *cloudreport.Reporter {
-	if monitoring == nil || ctx.Config.Cloud.Report == config.ReportOff {
+// the server holds an online license, with how far access lets calls from
+// Dagu Cloud go. When cloud.report is off, it only tells Dagu Console that the
+// server no longer reports, if it reported before. It returns nil when
+// monitoring is nil.
+func startCloudReport(ctx *Context, monitoring *cloudreport.Monitoring, access *cloudaccess.Service) *cloudreport.Reporter {
+	if monitoring == nil {
 		return nil
 	}
-	return cloudreport.Start(ctx, ctx.LicenseManager.CloudCredentials, ctx.Persistence.ServiceRegistry, cloudReportEvents(ctx), monitoring)
+	var remote cloudreport.RemoteAccess
+	if access != nil {
+		remote = access
+	}
+	scheduler := cloudreport.Scheduler{State: ctx.Persistence.SchedulerStateStore, Pause: ctx.Persistence.SchedulerPauseStore}
+	return cloudreport.Start(ctx, ctx.LicenseManager.CloudCredentials, ctx.Persistence.ServiceRegistry, cloudReportEvents(ctx), scheduler, monitoring, remote, ctx.LicenseManager.Refresh)
+}
+
+// newCloudAccess returns what takes calls from Dagu Cloud while remote access
+// is on: as cloud.remote_access and cloud.remote_approvals fix it, or else as
+// an administrator chooses. It returns nil when no license manager runs.
+func newCloudAccess(ctx *Context) *cloudaccess.Service {
+	if ctx.LicenseManager == nil {
+		return nil
+	}
+	key, err := license.PublicKey()
+	if err != nil {
+		logger.Warn(ctx, "Remote access is unavailable: the license public key could not be loaded", tag.Error(err))
+		return nil
+	}
+	settingsFile := filepath.Join(ctx.Config.Paths.DataDir, "cloud", "access-settings.json")
+	name := ctx.Config.License.ServerName
+	if name == "" {
+		name, _ = os.Hostname()
+	}
+	return cloudaccess.New(cloudaccess.Config{
+		Credentials: ctx.LicenseManager.CloudCredentials,
+		Settings:    cloudaccess.NewSettings(ctx.Config.Cloud, filemonitor.NewStateStore(settingsFile)),
+		Key:         key,
+		Hello:       cloudrelay.Hello{Name: name, Version: config.Version},
+	})
+}
+
+// startCloudAccess takes calls from Dagu Cloud through server's MCP tools
+// until the returned function stops it. It does nothing when access is nil.
+func startCloudAccess(ctx *Context, access *cloudaccess.Service, server *frontend.Server) (stop func()) {
+	if access == nil {
+		return func() {}
+	}
+	approvals := func(ctx context.Context) bool {
+		status, err := access.Status(ctx)
+		return err == nil && status.Approvals
+	}
+	runCtx, cancel := context.WithCancel(ctx)
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		access.Run(runCtx, server.CloudMCPHandler(approvals))
+	}()
+	return func() {
+		cancel()
+		<-done
+	}
 }
 
 // cloudReportLeaseStaleThreshold outlasts the longest pause between the
@@ -298,11 +394,11 @@ const cloudReportLeaseStaleThreshold = time.Minute
 
 // cloudReportEvents configures the DAG runs that reports to Dagu Console carry
 // at the runs level: finished runs from the event store, and runs in progress
-// followed through it. It configures none when cloud.report fixes a lower
-// level, or while the event store is disabled.
+// followed through it. A reporter below runs uses them only to discard where
+// they stopped being reported. It configures none while the event store is
+// disabled.
 func cloudReportEvents(ctx *Context) cloudreport.Events {
-	report := ctx.Config.Cloud.Report
-	if (report != "" && report != config.ReportRuns) || ctx.event == nil {
+	if ctx.event == nil {
 		return cloudreport.Events{}
 	}
 	stateFile := filepath.Join(ctx.Config.Paths.DataDir, "cloud", "report-state.json")
@@ -310,9 +406,82 @@ func cloudReportEvents(ctx *Context) cloudreport.Events {
 		Reader:        ctx.event,
 		RetentionDays: ctx.Config.EventStore.RetentionDays,
 		State:         filemonitor.NewStateStore(stateFile),
+		Stale:         filemonitor.NewStateStore(stateFile + ".stale"),
 		Lease:         filemonitor.NewLease(stateFile, &dirlock.LockOptions{StaleThreshold: cloudReportLeaseStaleThreshold}),
 		Statuses:      ctx.Persistence.DAGRunRepository,
 	}
+}
+
+// startupBanner tells the person who started Dagu where to open it.
+type startupBanner struct {
+	version       string
+	url           string
+	dagsDir       string
+	setupRequired bool
+	// license is nil when no license manager runs.
+	license *license.Status
+}
+
+// printStartupBanner returns a frontend.WithOnReady hook that prints the
+// startup banner to stdout. When stdout is not a terminal, as in a container,
+// the hook logs the free monitoring offer instead. It returns nil in quiet
+// mode or when the server has no web UI.
+func printStartupBanner(ctx *Context, setupRequired bool) func(url string) {
+	if ctx.Quiet || ctx.Config.Server.Headless {
+		return nil
+	}
+	if !isTerminal(os.Stdout) {
+		return func(url string) {
+			if ctx.LicenseManager == nil {
+				return
+			}
+			status := ctx.LicenseManager.Status()
+			if link, ok := monitoringOffer(url, &status); ok {
+				logger.Info(ctx, "Free monitoring: Dagu Console emails you when a workflow fails or this server stops", tag.URL(link))
+			}
+		}
+	}
+	return func(url string) {
+		banner := startupBanner{
+			version:       config.Version,
+			url:           url,
+			dagsDir:       ctx.Config.Paths.DAGsDir,
+			setupRequired: setupRequired,
+		}
+		if ctx.LicenseManager != nil {
+			status := ctx.LicenseManager.Status()
+			banner.license = &status
+		}
+		banner.write(os.Stdout)
+	}
+}
+
+// monitoringOffer returns the page that connects the server at url to Dagu
+// Console for free monitoring, and whether to offer it: only on a Community
+// server whose license is not managed by the environment. A nil status
+// offers nothing.
+func monitoringOffer(url string, status *license.Status) (string, bool) {
+	if status == nil || !status.Community || status.Source.IsEnv() {
+		return "", false
+	}
+	return url + "/license#monitoring", true
+}
+
+// write prints the banner in plain ASCII. It offers free monitoring only on
+// Community servers whose license is not managed by the environment.
+func (b startupBanner) write(w io.Writer) {
+	var out strings.Builder
+	fmt.Fprintf(&out, "\nDagu %s is ready\n", b.version)
+	fmt.Fprintf(&out, "  Web UI:  %s\n", b.url)
+	if b.setupRequired {
+		fmt.Fprintf(&out, "  Setup:   create the admin account at %s/setup\n", b.url)
+	}
+	fmt.Fprintf(&out, "  DAGs:    %s\n", b.dagsDir)
+	if link, ok := monitoringOffer(b.url, b.license); ok {
+		fmt.Fprintf(&out, "  Alerts:  get an email if a workflow fails or this server stops, free: %s\n", link)
+	}
+	out.WriteString("\n")
+	_, _ = io.WriteString(w, out.String())
 }
 
 // logTunnelStatus logs the tunnel status prominently to the console.

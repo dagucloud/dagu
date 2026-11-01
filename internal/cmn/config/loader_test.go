@@ -169,12 +169,15 @@ func TestLoad_Env(t *testing.T) {
 		"DAGU_COORDINATOR_PORT":        "50099",
 		"DAGU_COORDINATOR_HEALTH_PORT": "50101",
 
+		"DAGU_COORDINATOR_WORKER_WAIT_TIMEOUT": "90s",
+
 		"DAGU_WORKER_ID":              "test-worker-123",
 		"DAGU_WORKER_MAX_ACTIVE_RUNS": "200",
 		"DAGU_WORKER_HEALTH_PORT":     "50102",
 
 		"DAGU_SCHEDULER_PORT":                      "9999",
 		"DAGU_SCHEDULER_ZOMBIE_DETECTION_INTERVAL": "90s",
+		"DAGU_SCHEDULER_WAKE_HOLD":                 "4m",
 
 		"DAGU_AUTH_OIDC_CLIENT_ID":     "test-client-id",
 		"DAGU_AUTH_OIDC_CLIENT_SECRET": "test-secret",
@@ -341,11 +344,12 @@ func TestLoad_Env(t *testing.T) {
 		},
 		Queues: Queues{Enabled: false},
 		Coordinator: Coordinator{
-			Enabled:    true,
-			Host:       "0.0.0.0",
-			Advertise:  "dagu-coordinator",
-			Port:       50099,
-			HealthPort: 50101,
+			Enabled:           true,
+			Host:              "0.0.0.0",
+			Advertise:         "dagu-coordinator",
+			Port:              50099,
+			HealthPort:        50101,
+			WorkerWaitTimeout: 90 * time.Second,
 		},
 		Worker: Worker{
 			ID:              "test-worker-123",
@@ -370,6 +374,7 @@ func TestLoad_Env(t *testing.T) {
 			ZombieDetectionInterval: 90 * time.Second,
 			RetryFailureWindow:      24 * time.Hour,
 			FailureThreshold:        3,
+			WakeHold:                4 * time.Minute,
 		},
 		Monitoring: MonitoringConfig{
 			Retention: 24 * time.Hour,
@@ -428,6 +433,29 @@ worker:
 
 	assert.Zero(t, cfg.Coordinator.HealthPort)
 	assert.Zero(t, cfg.Worker.HealthPort)
+}
+
+// The hold for a matching worker defaults to two minutes; "0" turns it into
+// an immediate refusal, and an unparsable value keeps the default.
+func TestLoad_WorkerWaitTimeout(t *testing.T) {
+	for name, tc := range map[string]struct {
+		yaml string
+		want time.Duration
+	}{
+		"default":  {yaml: "# minimal config", want: 2 * time.Minute},
+		"set":      {yaml: "coordinator:\n  worker_wait_timeout: 45s\n", want: 45 * time.Second},
+		"disabled": {yaml: "coordinator:\n  worker_wait_timeout: \"0\"\n", want: 0},
+		"invalid":  {yaml: "coordinator:\n  worker_wait_timeout: soon\n", want: 2 * time.Minute},
+	} {
+		t.Run(name, func(t *testing.T) {
+			configFile := filepath.Join(t.TempDir(), "config.yaml")
+			require.NoError(t, os.WriteFile(configFile, []byte(tc.yaml), 0600))
+
+			cfg := testLoad(t, WithConfigFile(configFile))
+
+			assert.Equal(t, tc.want, cfg.Coordinator.WorkerWaitTimeout)
+		})
+	}
 }
 
 func TestLoad_WorkerShutdownTimeout(t *testing.T) {
@@ -657,6 +685,14 @@ cloud:
 		require.True(t, report.Reports())
 	})
 
+	t.Run("Errors", func(t *testing.T) {
+		t.Setenv("DAGU_CLOUD_REPORT", "errors")
+		report := testLoad(t).Cloud.Report
+		require.Equal(t, ReportErrors, report)
+		require.True(t, report.Reports())
+		require.True(t, report.ReportsRuns(), "the errors level reports runs too")
+	})
+
 	t.Run("Env", func(t *testing.T) {
 		t.Setenv("DAGU_CLOUD_REPORT", "Health")
 		require.Equal(t, ReportHealth, testLoad(t).Cloud.Report)
@@ -673,6 +709,52 @@ cloud:
 			err := loadWithErrorFromYAML(t, "cloud:\n  report: "+value+"\n")
 			require.ErrorContains(t, err, "invalid cloud.report", value)
 		}
+	})
+}
+
+func TestLoad_CloudRemoteAccess(t *testing.T) {
+	t.Run("DefaultIsChosenInTheUI", func(t *testing.T) {
+		t.Setenv("DAGU_CLOUD_REMOTE_ACCESS", "")
+		t.Setenv("DAGU_CLOUD_REMOTE_APPROVALS", "")
+		cloud := testLoad(t).Cloud
+		require.Equal(t, RemoteAccessLevel(""), cloud.RemoteAccess)
+		require.Nil(t, cloud.RemoteApprovals)
+	})
+
+	t.Run("YAML", func(t *testing.T) {
+		t.Setenv("DAGU_CLOUD_REMOTE_ACCESS", "")
+		t.Setenv("DAGU_CLOUD_REMOTE_APPROVALS", "")
+		cfg := loadFromYAML(t, `
+cloud:
+  remote_access: Operator
+  remote_approvals: false
+`)
+		require.Equal(t, RemoteAccessOperator, cfg.Cloud.RemoteAccess)
+		require.Equal(t, new(false), cfg.Cloud.RemoteApprovals)
+	})
+
+	t.Run("Env", func(t *testing.T) {
+		t.Setenv("DAGU_CLOUD_REMOTE_ACCESS", "developer")
+		t.Setenv("DAGU_CLOUD_REMOTE_APPROVALS", "true")
+		cloud := testLoad(t).Cloud
+		require.Equal(t, RemoteAccessDeveloper, cloud.RemoteAccess)
+		require.Equal(t, new(true), cloud.RemoteApprovals)
+	})
+
+	t.Run("Invalid", func(t *testing.T) {
+		t.Setenv("DAGU_CLOUD_REMOTE_ACCESS", "")
+		for _, value := range []string{"admin", "manager", "true"} {
+			err := loadWithErrorFromYAML(t, "cloud:\n  remote_access: "+value+"\n")
+			require.ErrorContains(t, err, "invalid cloud.remote_access", value)
+		}
+	})
+
+	// A typo in the environment must not lock approvals off.
+	t.Run("InvalidApprovals", func(t *testing.T) {
+		t.Setenv("DAGU_CLOUD_REMOTE_ACCESS", "")
+		t.Setenv("DAGU_CLOUD_REMOTE_APPROVALS", "yes please")
+		err := loadWithErrorFromYAML(t, "cloud:\n  report: off\n")
+		require.ErrorContains(t, err, "cloud.remote_approvals")
 	})
 }
 
@@ -697,6 +779,118 @@ func TestLoad_BrowserSandbox(t *testing.T) {
 func TestLoad_BrowserSandboxFromEnv(t *testing.T) {
 	t.Setenv("DAGU_BROWSER_SANDBOX", "false")
 	require.True(t, testLoad(t).Browser.NoSandbox)
+}
+
+// Open browsers are unlimited unless the config file or the environment sets
+// browser.max_open.
+func TestLoad_BrowserMaxOpen(t *testing.T) {
+	require.Zero(t, testLoad(t).Browser.MaxOpen, "no limit by default")
+
+	configFile := filepath.Join(t.TempDir(), "config.yaml")
+	require.NoError(t, os.WriteFile(configFile, []byte("browser:\n  max_open: 4\n"), 0o600))
+	require.Equal(t, 4, testLoad(t, WithConfigFile(configFile)).Browser.MaxOpen)
+
+	t.Setenv("DAGU_BROWSER_MAX_OPEN", "2")
+	require.Equal(t, 2, testLoad(t).Browser.MaxOpen)
+
+	t.Setenv("DAGU_BROWSER_MAX_OPEN", "-1")
+	require.ErrorContains(t, testLoadWithError(t), "browser.max_open must not be negative")
+}
+
+// The write gate floor and policy come from the config file or the
+// environment.
+func TestLoad_BrowserWriteGate(t *testing.T) {
+	cfg := testLoad(t)
+	require.Empty(t, cfg.Browser.WriteGate, "no gate by default")
+	require.Empty(t, cfg.Browser.WritePolicy)
+
+	dir := t.TempDir()
+	configFile := filepath.Join(dir, "config.yaml")
+	policy := filepath.Join(dir, "policy.yaml")
+	require.NoError(t, os.WriteFile(configFile, []byte("browser:\n  write_gate: rehearse\n  write_policy: "+policy+"\n"), 0o600))
+	cfg = testLoad(t, WithConfigFile(configFile))
+	require.Equal(t, "rehearse", cfg.Browser.WriteGate)
+	require.Equal(t, policy, cfg.Browser.WritePolicy)
+
+	t.Setenv("DAGU_BROWSER_WRITE_GATE", "off")
+	require.Equal(t, "off", testLoad(t, WithConfigFile(configFile)).Browser.WriteGate)
+
+	t.Setenv("DAGU_BROWSER_WRITE_GATE", "loose")
+	require.ErrorContains(t, testLoadWithError(t), `browser.write_gate must be one of off, record, ask, rehearse, got "loose"`)
+}
+
+func TestLoad_BrowserClientCertificates(t *testing.T) {
+	dir := t.TempDir()
+	configFile := filepath.Join(dir, "config.yaml")
+	require.NoError(t, os.WriteFile(configFile, []byte(`
+browser:
+  client_certificates:
+    - hosts: [portal.example.com, "*.corp.example"]
+      pfx_file: `+filepath.Join(dir, "client.p12")+`
+      passphrase_file: `+filepath.Join(dir, "client.passphrase")+`
+    - hosts: ["*"]
+      cert_file: `+filepath.Join(dir, "client.pem")+`
+      key_file: `+filepath.Join(dir, "client.key")+`
+      ca_file: `+filepath.Join(dir, "ca.pem")+`
+`), 0o600))
+
+	cfg := testLoad(t, WithConfigFile(configFile))
+	require.Equal(t, []BrowserClientCertificate{
+		{
+			Hosts:          []string{"portal.example.com", "*.corp.example"},
+			PFXFile:        filepath.Join(dir, "client.p12"),
+			PassphraseFile: filepath.Join(dir, "client.passphrase"),
+		},
+		{
+			Hosts:    []string{"*"},
+			CertFile: filepath.Join(dir, "client.pem"),
+			KeyFile:  filepath.Join(dir, "client.key"),
+			CAFile:   filepath.Join(dir, "ca.pem"),
+		},
+	}, cfg.Browser.ClientCertificates)
+}
+
+func TestLoad_BrowserTrustedCAs(t *testing.T) {
+	dir := t.TempDir()
+	configFile := filepath.Join(dir, "config.yaml")
+	caFile := filepath.Join(dir, "ca.pem")
+	require.NoError(t, os.WriteFile(configFile, []byte("browser:\n  trusted_cas:\n    - hosts: [portal.example.com, '*.corp.example']\n      ca_file: "+caFile+"\n"), 0o600))
+	cfg := testLoad(t, WithConfigFile(configFile))
+	assert.Equal(t, []BrowserTrustedCA{{Hosts: []string{"portal.example.com", "*.corp.example"}, CAFile: caFile}}, cfg.Browser.TrustedCAs)
+	for _, value := range []string{"hosts: []\n      ca_file: ca.pem", "hosts: [https://portal.example.com]\n      ca_file: ca.pem", "hosts: [portal.example.com]"} {
+		err := loadWithErrorFromYAML(t, "browser:\n  trusted_cas:\n    - "+value+"\n")
+		require.ErrorContains(t, err, "browser.trusted_cas[0]")
+	}
+}
+
+// The certificate guard follows the browser's certificates unless the
+// config file or the environment turns it on or off.
+func TestLoad_BrowserGuardClientCertificates(t *testing.T) {
+	require.Nil(t, testLoad(t).Browser.GuardClientCertificates, "unset, the guard follows the certificates")
+
+	configFile := filepath.Join(t.TempDir(), "config.yaml")
+	require.NoError(t, os.WriteFile(configFile, []byte("browser:\n  guard_client_certificates: false\n"), 0o600))
+	guard := testLoad(t, WithConfigFile(configFile)).Browser.GuardClientCertificates
+	require.NotNil(t, guard)
+	require.False(t, *guard)
+
+	t.Setenv("DAGU_BROWSER_GUARD_CLIENT_CERTIFICATES", "true")
+	guard = testLoad(t).Browser.GuardClientCertificates
+	require.NotNil(t, guard)
+	require.True(t, *guard)
+}
+
+func TestLoad_BrowserClientCertificatesRejectsMalformed(t *testing.T) {
+	configFile := filepath.Join(t.TempDir(), "config.yaml")
+	require.NoError(t, os.WriteFile(configFile, []byte(`
+browser:
+  client_certificates:
+    - hosts: [portal.example.com]
+      cert_file: /tmp/client.pem
+`), 0o600))
+
+	err := testLoadWithError(t, WithConfigFile(configFile))
+	require.ErrorContains(t, err, "browser.client_certificates[0]: set pfx_file, or cert_file and key_file")
 }
 
 func TestLoad_OpenCodeRejectsReservedPassthrough(t *testing.T) {
@@ -805,6 +999,7 @@ scheduler:
   lock_stale_threshold: 50s
   lock_retry_interval: 10s
   zombie_detection_interval: 60s
+  wake_hold: 3m
 `)
 
 	utcLoc, _ := time.LoadLocation("UTC")
@@ -959,10 +1154,11 @@ scheduler:
 			},
 		},
 		Coordinator: Coordinator{
-			Enabled:    true,
-			Host:       "coordinator.example.com",
-			Port:       8081,
-			HealthPort: 8091,
+			Enabled:           true,
+			Host:              "coordinator.example.com",
+			Port:              8081,
+			HealthPort:        8091,
+			WorkerWaitTimeout: 2 * time.Minute,
 		},
 		Worker: Worker{
 			ID:              "worker-1",
@@ -991,6 +1187,7 @@ scheduler:
 			ZombieDetectionInterval: 60 * time.Second,
 			RetryFailureWindow:      24 * time.Hour,
 			FailureThreshold:        3,
+			WakeHold:                3 * time.Minute,
 		},
 		Monitoring: MonitoringConfig{
 			Retention: 24 * time.Hour,
@@ -1661,6 +1858,49 @@ func TestLoad_OIDCWorkspaceAccessDefaultsToAll(t *testing.T) {
 	require.False(t, cfg.Server.Auth.OIDC.RoleMapping.WorkspaceAccessPolicyActive())
 }
 
+func TestLoad_WorkspaceAccessKeys(t *testing.T) {
+	t.Run("None", func(t *testing.T) {
+		cfg := loadFromYAML(t, "# minimal config")
+
+		require.Empty(t, cfg.WorkspaceAccessKeys)
+	})
+
+	t.Run("FromYAML", func(t *testing.T) {
+		cfg := loadFromYAML(t, `
+auth:
+  mode: builtin
+  oidc:
+    role_mapping:
+      default_workspace_access: all
+  proxy:
+    role_mapping:
+      workspace_mappings:
+        sre-team:
+          - workspace: payments
+            role: viewer
+      default_workspace_access: none
+`)
+
+		require.Equal(t, []string{
+			"auth.oidc.role_mapping.default_workspace_access",
+			"auth.proxy.role_mapping.workspace_mappings",
+			"auth.proxy.role_mapping.default_workspace_access",
+		}, cfg.WorkspaceAccessKeys)
+	})
+
+	t.Run("FromEnvironment", func(t *testing.T) {
+		cfg := loadWithEnv(t, "# minimal config", map[string]string{
+			"DAGU_AUTH_OIDC_WORKSPACE_MAPPINGS":       `{"sre-team":[{"workspace":"payments","role":"viewer"}]}`,
+			"DAGU_AUTH_OIDC_DEFAULT_WORKSPACE_ACCESS": "none",
+		})
+
+		require.Equal(t, []string{
+			"auth.oidc.role_mapping.workspace_mappings",
+			"auth.oidc.role_mapping.default_workspace_access",
+		}, cfg.WorkspaceAccessKeys)
+	})
+}
+
 func TestLoad_OIDCWorkspaceMappingCamelCaseKeyHints(t *testing.T) {
 	tests := []struct {
 		legacy string
@@ -2241,6 +2481,51 @@ ip_access:
 
 		assert.Equal(t, []string{"203.0.113.10", "2001:db8::/32"}, cfg.Server.IPAccess.AllowedIPs)
 		assert.Equal(t, []string{"127.0.0.1", "::1"}, cfg.Server.IPAccess.TrustedProxies)
+	})
+}
+
+func TestLoad_AllowedHosts(t *testing.T) {
+	t.Run("YAML", func(t *testing.T) {
+		cfg := loadFromYAML(t, `
+allowed_hosts:
+  - dagu.lan
+  - .corp.example
+`)
+
+		assert.Equal(t, []string{"dagu.lan", ".corp.example"}, cfg.Server.AllowedHosts)
+	})
+
+	t.Run("Environment", func(t *testing.T) {
+		cfg := loadWithEnv(t, "# empty", map[string]string{
+			"DAGU_ALLOWED_HOSTS": "dagu.lan, .corp.example",
+		})
+
+		assert.Equal(t, []string{"dagu.lan", ".corp.example"}, cfg.Server.AllowedHosts)
+	})
+
+	// A wildcard accepts every name even beside specific entries.
+	t.Run("WildcardWarning", func(t *testing.T) {
+		cfg := loadFromYAML(t, `
+auth:
+  mode: builtin
+allowed_hosts:
+  - dagu.lan
+  - "*"
+`)
+		require.Len(t, cfg.Warnings, 1)
+		assert.Contains(t, cfg.Warnings[0], "first-admin setup through DNS rebinding")
+	})
+
+	t.Run("WildcardWithoutAuthWarning", func(t *testing.T) {
+		cfg := loadFromYAML(t, `
+auth:
+  mode: none
+allowed_hosts:
+  - "*"
+`)
+		require.Len(t, cfg.Warnings, 1)
+		assert.Contains(t, cfg.Warnings[0], `auth.mode "none"`)
+		assert.Contains(t, cfg.Warnings[0], "execute workflows without authentication")
 	})
 }
 

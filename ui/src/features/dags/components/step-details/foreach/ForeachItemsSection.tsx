@@ -6,7 +6,7 @@ import {
   ForeachItemStatusFilter,
   NodeStatus,
 } from '@/api/v1/schema';
-import { formatRunDuration } from '@/lib/dagRunTiming';
+import { formatElapsed } from '@/lib/dagRunTiming';
 import { isActiveNodeStatus } from '@/lib/status-utils';
 import { cn } from '@/lib/utils';
 import { I18nText } from '@/i18n/I18nText';
@@ -221,7 +221,7 @@ export function ForeachItemsSection({
 
 function SectionHeading() {
   return (
-    <h3 className="text-xs font-medium uppercase text-muted-foreground">
+    <h3 className="text-xs font-medium text-muted-foreground">
       <I18nText text={'Items'} />
     </h3>
   );
@@ -271,8 +271,9 @@ function ItemRow({
   onOpenLog?: OpenBodyStepLog;
 }) {
   const { ts } = useI18n();
-  const duration =
-    item.startedAt && formatRunDuration(item.startedAt, item.finishedAt);
+  const duration = formatElapsed(item.startedAt, item.finishedAt, {
+    live: isActiveNodeStatus(item.status),
+  });
   const showKey = item.key !== String(item.index);
   const Chevron = expanded ? ChevronDown : ChevronRight;
 
@@ -301,7 +302,7 @@ function ItemRow({
         <NodeStatusChip status={item.status} size="sm">
           {item.statusLabel}
         </NodeStatusChip>
-        {duration && duration !== '-' && (
+        {duration && (
           <span className="shrink-0 tabular-nums text-xs text-muted-foreground">
             {duration}
           </span>

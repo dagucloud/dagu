@@ -7,6 +7,7 @@ import { ChevronDown, X } from 'lucide-react';
 import * as React from 'react';
 import { I18nProps } from '@/i18n/I18nProps';
 import { I18nText } from '@/i18n/I18nText';
+import { useI18n } from '@/i18n/I18nProvider';
 
 interface LabelComboboxProps {
   selectedLabels: string[];
@@ -33,6 +34,7 @@ function LabelCombobox({
   placeholder = 'Filter by labels...',
   className,
 }: LabelComboboxProps) {
+  const { ts } = useI18n();
   const [inputValue, setInputValue] = React.useState('');
   const [isOpen, setIsOpen] = React.useState(false);
   const [highlightedIndex, setHighlightedIndex] = React.useState(-1);
@@ -204,6 +206,7 @@ function LabelCombobox({
                   e.preventDefault();
                 }}
                 className="ml-0.5 rounded-sm hover:bg-muted-foreground/20 hover:text-destructive focus:outline-none"
+                aria-label={ts('Remove {label}', { label })}
               >
                 <X className="h-3 w-3" />
               </button>

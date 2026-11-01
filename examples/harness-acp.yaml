@@ -1,0 +1,13 @@
+# Install and authenticate an ACP adapter, such as @agentclientprotocol/codex-acp.
+harnesses:
+  coding-agent:
+    protocol: acp
+    binary: codex-acp
+
+steps:
+  - id: review
+    action: harness.run
+    with:
+      provider: coding-agent
+      prompt: Review the code in this directory and summarize its modules without modifying files.
+    output: REVIEW

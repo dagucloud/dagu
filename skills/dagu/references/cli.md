@@ -21,13 +21,15 @@ Flags:
 - `--run-id/-r` — Custom run ID
 - `--from-run-id` — Historic dag-run ID to use as the template for a new run
 - `--only` — Run only this step (name or ID) in a new run of the current definition; repeatable. Other steps are recorded as skipped. Not with `--from-run-id`
-- `--outputs-from` — Finished run of the same DAG whose step outputs and work directory feed the `--only` steps (requires `--only`)
-- `--output` — Output of a step skipped by `--only`, as `<step>.<name>=<value>`; repeatable, takes precedence over `--outputs-from` (requires `--only`)
+- `--outputs-from` — Finished run of the same DAG whose work directory, and the outputs of the skipped steps that the `--only` steps depend on, feed the run (requires `--only`)
+- `--output-from` — Run that gives the outputs of ONE skipped step, as `<step>=<run-id>`; repeatable, takes precedence over `--outputs-from` for that step (requires `--only`). The run must be a finished run of the same DAG, and the step must have succeeded there
+- `--output` — Deprecated: use `--output-from`. Output of a step skipped by `--only`, as `<step>.<name>=<value>`; repeatable, takes precedence over `--outputs-from` and `--output-from` (requires `--only`)
 - `--labels` — Additional labels (comma-separated key=value or key-only)
 - `--tags` — Deprecated alias for `--labels`
 - `--default-working-dir` — Default working directory for DAGs without explicit workingDir
 - `--no-reuse` — Recompute reusable build steps while preserving staged, atomic publication
 - `--worker-id` — Worker ID executing this DAG run; auto-set in distributed mode and defaults to `local`
+- `--worker-label` — Worker label (`key=value`) this run requires, replacing the DAG's `worker_selector` for this run and kept with the run for retries; repeatable. Not with `--worker-id`
 - `--trigger-type` — Trigger source (`scheduler`, `manual`, `webhook`, `subdag`, `retry`, `catchup`); defaults to `manual`
 
 ### dagu enqueue
@@ -44,6 +46,7 @@ Flags:
 - `--name/-N` — Override DAG name
 - `--run-id/-r` — Custom run ID
 - `--queue/-u` — Override the DAG-level queue definition
+- `--worker-label` — Worker label (`key=value`) this run requires, replacing the DAG's `worker_selector` for this run and kept with the run so queued dispatch and retries route the same way; repeatable
 - `--labels` — Additional labels (comma-separated key=value or key-only)
 - `--tags` — Deprecated alias for `--labels`
 - `--default-working-dir` — Default working directory for DAGs without explicit workingDir
@@ -137,7 +140,9 @@ dagu human-task push-back --run-id=run-1 --step=review --input feedback="Add tes
 
 ### dagu dry
 
-Dry-run a DAG without executing commands: `dagu dry [--params/-p] [--name/-N] [--no-reuse] <dag> [-- params...]`
+Dry-run a DAG without executing commands: `dagu dry [--params/-p] [--name/-N] [--no-reuse] [--format/-f text|json] <dag> [-- params...]`
+
+`--format json` prints one JSON object on stdout, `{"checks":[...]}`, and omits the run summary. `text` is the default. A check does not change the exit status.
 
 For a build DAG, `--no-reuse` previews the decisions with manifest reuse disabled. Dry-run still creates no locks, staging files, manifests, or run history.
 
@@ -215,12 +220,13 @@ dagu browser cache clear <dag> [--step <id>]
 
 ### dagu browser session
 
-Work a site in a browser kept open between commands, then turn what worked into a `browser.run` step. Each `do` runs one operation, read from stdin in the form of a `with.do` item, exactly as a step would, and reports what it did, the actions an act performed, what an extract read, and the page next with its outline. `describe` outlines the page without a model: fields with their labels, selects with their options, buttons, links with their addresses, tables and lists, each element with an ID that `do` can act on without a model: `{"click": ID}`, `{"type": {"into": ID, "text": TEXT}}`, `{"select": {"in": ID, "option": OPTION}}`, kept as the act a step writes, with its recording. `export` builds the step from the operations that succeeded and writes their act recordings to the step's replay cache, so its first run on this host replays them without a model request. Variable values go on stdin under `variables`; `{"env": NAME}` is read from the environment on every command and masked, a plain string serves one command. Every command prints one JSON object; a failure prints `{"error": {"code", "message"}}` and exits 1. A session closes its browser when idle past `--idle-timeout` (default `30m`); its history can be exported for a day after. `close --keep` ends it the same way at once, freeing its profile for a step.
+Work a site in a browser kept open between commands, then turn what worked into a `browser.run` step. Each `do` runs one operation, read from stdin in the form of a `with.do` item, exactly as a step would, and reports what it did, the actions an act performed, what an extract read, and the page next with its outline. `describe` outlines the page without a model: fields with their labels (a field the page labels only by the cell before it in a table row takes that cell's text, numbered in order when fields of one kind share the cell, else its `name` or `id` attribute), selects with their options, file inputs, buttons, links with their addresses, tables and lists, each element with an ID that `do` can act on without a model: `{"click": ID}`, `{"type": {"into": ID, "text": TEXT}}`, `{"select": {"in": ID, "option": OPTION}}`, kept as the act a step writes, and `{"upload": {"into": ID, "files": PATHS}}`, kept as the upload into that element in words, each with its recording. An upload's relative paths are under the current directory, and the exported step uploads the same files until you point `files` at what each run uploads. `export` builds the step from the operations that succeeded and writes their act and upload recordings to the step's replay cache, so its first run on this host replays them without a model request. Variable values go on stdin under `variables`; `{"env": NAME}` is read from the environment on every command and masked, a plain string serves one command. Every command prints one JSON object; a failure prints `{"error": {"code", "message"}}` and exits 1. When the site refused the page, with a bot check or a 403 or 429, `open`, `do`, and `describe` report `refused: {host, status, bot_check, message}`, and the error of an operation that failed on it ends with the message. A session closes its browser when idle past `--idle-timeout` (default `30m`); its history can be exported for a day after. `close --keep` ends it the same way at once, freeing its profile for a step.
 
 ```sh
 dagu browser session open [URL] [--provider P --model M | --llm '<llm block>'] [--profile N] [--headed] [--viewport WxH] [--allowed-domain D]... [--idle-timeout 30m]
 echo '{"act": "Click Sign in"}' | dagu browser session do <id>
 echo '{"click": "0-131"}' | dagu browser session do <id>
+echo '{"upload": {"into": "0-57", "files": "/path/to/invoice.pdf"}}' | dagu browser session do <id>
 dagu browser session describe <id> [--find TEXT] [--format text] [--screenshot NAME]
 dagu browser session export <id> --dag <name|file> --step <id> [--skip N]... [--dry-run] [--close] [--format yaml]
 dagu browser session close <id> [--force] [--keep]
@@ -229,7 +235,7 @@ dagu browser session list
 
 ### dagu computer check
 
-Check that computer steps can capture the screen and send input in the current session. Run it as the user and in the session of the worker that runs computer steps. On macOS it also asks macOS to show the Screen Recording and Accessibility prompts for missing permissions. Exits nonzero and lists the problems when the desktop cannot be automated. `--format json` prints `{os, width, height, ready, problems}`, each problem with a `code` (such as `screen_recording`, `accessibility`, or `screen_locked`) and a `message`.
+Check that computer steps can capture the screen and send input in the current session. Run it as the user and in the session of the worker that runs computer steps. On macOS it also asks macOS to show the Screen Recording and Accessibility prompts for missing permissions. Exits nonzero and lists the problems when the desktop cannot be automated. `--format json` prints `{os, width, height, ready, problems}`, each problem with a `code` (such as `screen_recording`, `accessibility`, `screen_locked`, or `session_disconnected` for a Remote Desktop or child session whose client has gone) and a `message`.
 
 ```sh
 dagu computer check [--format json]
@@ -237,7 +243,7 @@ dagu computer check [--format json]
 
 ### dagu computer elements
 
-List the accessible elements of the window in front on 64-bit Windows: each with `role`, `name`, `id`, `value`, `label`, `bounds` in display pixels, `window`, and `path` from the window down. `--at-pointer` reports the element under the pointer after `--after`; `--watch` reports it whenever it changes, one JSON object per line, until stdin closes; `--match` reports the elements a selector matches and succeeds only on exactly one, with `-` reading the selector from stdin. A selector is JSON with `role` and `name`, `id`, or `near` (`{label, side}`), optionally `app`, `window`, `in`, and `nth`; names take `*`. `--format json` prints one object; a failure prints `{"error": {"code", "message"}}` and exits 1, with `invalid_input`, `unsupported`, `load_failed`, `no_elements`, `not_found`, `ambiguous`, `failed`, or a `check` problem code.
+List the accessible elements of the window in front on macOS (with the Accessibility permission) or 64-bit Windows: each with `role`, `name`, `id`, `value`, `placeholder` (the hint an empty field shows, on macOS), `label`, `bounds` in display pixels, `window`, and `path` from the window down. `--at-pointer` reports the element under the pointer after `--after`; `--watch` reports it whenever it changes, one JSON object per line, until stdin closes; `--match` reports the elements a selector matches and succeeds only on exactly one, with `-` reading the selector from stdin. A selector is JSON with `role` and `name`, `id`, or `near` (`{label, side}`), optionally `app`, `window`, `in`, and `nth`; names take `*`. `--format json` prints one object; a failure prints `{"error": {"code", "message"}}` and exits 1, with `invalid_input`, `unsupported`, `load_failed`, `no_elements`, `not_found`, `ambiguous`, `failed`, or a `check` problem code.
 
 ```sh
 dagu computer elements [--format json] [--limit N] [--at-pointer [--after 3s] | --watch | --match '<selector JSON>' | --match -]
@@ -248,7 +254,15 @@ dagu computer elements [--format json] [--limit N] [--at-pointer [--after 3s] | 
 Clear the recorded `act` operations that computer steps replay, so the next run asks the model again. Without `--step`, every step of the DAG is cleared. The cache lives on the host that ran the step; in distributed mode, run it on the worker.
 
 ```sh
-dagu computer cache clear <dag> [--step <id>]
+dagu computer cache clear <dag> [--step <id> [--op <position>]]
+```
+
+### dagu computer cache show
+
+Show what a DAG's computer steps recorded on this host in the form a step pins it, to review and write into the step's `recorded` or `fields` so every device of that system runs it with no model. Without `--step`, every step is shown; `--op` keeps one task, counted from 1. A task recorded under several instructions or parameters shows each, newest first. An act with an action that has no pinned form, such as a drag, a click where no element could be read, or one near an element's edge, lists each such action and why instead of steps. An act whose actions never used a variable its task names, as one recorded where a field already showed the value, says so in a comment above its steps, since pinned they leave that field as each run finds it; one recorded by an older version, which did not note them, says to check its steps. `--format json` prints `{operations}`, each with `step`, `op`, `kind`, `system`, `saved_at`, `assumes` (those variables), `assumes_unknown` (recorded before they were noted), and `recorded`, `fields`, or `unpinnable` (`turn`, `action`, `code`, `reason`).
+
+```sh
+dagu computer cache show <dag> [--step <id> [--op <position>]] [--format json]
 ```
 
 ### dagu xlsx inspect
@@ -261,10 +275,10 @@ dagu xlsx inspect <path> [--sheet <name>] [--rows <n>] [--password <password>] [
 
 ### dagu xlsx read
 
-Print the typed rows of a sheet the way `xlsx.read` publishes them: numbers stay numbers, dates become ISO 8601 text, text keeps its leading zeros, and each row carries `_row`. The flags mirror the action's fields: `--sheet`, `--range`, `--header` (`true`, `false`, a row number, or `3,4`), `--columns` (comma-separated, with `name:alias` renames), `--max-rows`, `--skip-hidden` (leave out rows hidden by a filter or by hand), and `--password` (a protected workbook; prefer `DAGU_XLSX_PASSWORD`, which keeps it out of the process list, and the flag wins when both are set). The text format is tab-separated, with tabs, line breaks, and backslashes inside a cell escaped as `\t`, `\n`, `\r`, and `\\` so one cell stays in one column; `--format json` prints `rows`, `count`, `headers`, `sheet`, `range`, `warnings`, and `truncated`.
+Print the typed rows of a sheet the way `xlsx.read` publishes them: numbers stay numbers, dates become ISO 8601 text, text keeps its leading zeros, and each row carries `_row`. The flags mirror the action's fields: `--sheet`, `--range`, `--header` (`true`, `false`, a row number, or `3,4`), `--columns` (comma-separated, with `name:alias` renames), `--types` (`name:type` pairs such as `Amount:number,Due:date`, or a JSON object; Japanese forms such as `１２３,４５６` and `令和8年10月3日` convert as under the action's `types`), `--on-type-error` (`fail`, `warn` to read the cell as null, or `keep` to keep it as read; both warn), `--max-rows`, `--skip-hidden` (leave out rows hidden by a filter or by hand), and `--password` (a protected workbook; prefer `DAGU_XLSX_PASSWORD`, which keeps it out of the process list, and the flag wins when both are set). The text format is tab-separated, with tabs, line breaks, and backslashes inside a cell escaped as `\t`, `\n`, `\r`, and `\\` so one cell stays in one column; `--format json` prints `rows`, `count`, `headers`, `sheet`, `range`, `warnings`, and `truncated`.
 
 ```sh
-dagu xlsx read <path> [--sheet <name>] [--range A2:F] [--header false] [--columns "a,b:c"] [--max-rows <n>] [--skip-hidden] [--password <password>] [--format json]
+dagu xlsx read <path> [--sheet <name>] [--range A2:F] [--header false] [--columns "a,b:c"] [--types "a:number"] [--on-type-error keep] [--max-rows <n>] [--skip-hidden] [--password <password>] [--format json]
 ```
 
 ### dagu ps

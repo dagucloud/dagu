@@ -95,6 +95,13 @@ func defaultTestLicenseManager() *license.Manager {
 // Pro license. Extra config mutators are applied after the base auth config.
 func setupWebhookTestServer(t *testing.T, extraMutators ...func(*config.Config)) test.Server {
 	t.Helper()
+	return setupWebhookTestServerWithLicense(t, defaultTestLicenseManager(), extraMutators...)
+}
+
+// setupWebhookTestServerWithLicense is setupWebhookTestServer with the given
+// license manager.
+func setupWebhookTestServerWithLicense(t *testing.T, licenseManager *license.Manager, extraMutators ...func(*config.Config)) test.Server {
+	t.Helper()
 
 	server := test.SetupServer(t,
 		test.WithConfigMutator(func(cfg *config.Config) {
@@ -105,7 +112,7 @@ func setupWebhookTestServer(t *testing.T, extraMutators ...func(*config.Config))
 				m(cfg)
 			}
 		}),
-		test.WithServerOptions(frontend.WithLicenseManager(defaultTestLicenseManager())),
+		test.WithServerOptions(frontend.WithLicenseManager(licenseManager)),
 	)
 
 	// Create admin via setup endpoint

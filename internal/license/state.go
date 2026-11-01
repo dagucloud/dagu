@@ -71,12 +71,13 @@ func cloneClaims(c *LicenseClaims) *LicenseClaims {
 }
 
 // IsFeatureEnabled returns true if the feature is available.
-// Features remain active during the grace period after expiry.
+// Features remain active during the grace period after expiry. The free plan
+// enables none.
 func (s *State) IsFeatureEnabled(feature string) bool {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 
-	if s.claims == nil {
+	if s.claims == nil || s.claims.IsFree() {
 		return false
 	}
 	if !s.claims.HasFeature(feature) {

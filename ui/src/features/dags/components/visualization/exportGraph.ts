@@ -18,7 +18,7 @@ export function graphExportBackground(): string {
     return value;
   }
   return document.documentElement.classList.contains('dark')
-    ? '#181b22'
+    ? '#141417'
     : '#ffffff';
 }
 
@@ -57,7 +57,7 @@ function replaceForeignObjectLabels(
     const labelStyle = source?.firstElementChild
       ? window.getComputedStyle(source.firstElementChild)
       : null;
-    text.style.fill = labelStyle?.color || '#14161b';
+    text.style.fill = labelStyle?.color || '#111114';
     text.style.stroke = 'none';
     text.style.fontFamily = labelStyle?.fontFamily || 'Arial, sans-serif';
     text.style.fontSize = labelStyle?.fontSize || '16px';

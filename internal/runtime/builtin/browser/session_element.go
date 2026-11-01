@@ -6,16 +6,19 @@ package browser
 import (
 	"encoding/json"
 	"fmt"
+	"maps"
+	"regexp"
 	"slices"
 	"strconv"
 	"strings"
 )
 
 // An element operation acts, without a model, on an element the outline
-// names by its ID: a click, typing into a field, or picking an option. The
-// session keeps it as the act a step writes, with the action it took as the
-// act's recording, so the step replays exactly that action and heals by the
-// act's words when the page changes.
+// names by its ID: a click, typing into a field, picking an option, or an
+// upload into the element. The session keeps it as the act or upload a step
+// writes, with the action it took as its recording, so the step replays
+// exactly that action and heals by the operation's words when the page
+// changes.
 
 // The kinds of element operation.
 const (
@@ -29,12 +32,19 @@ type elementOperation struct {
 	kind, element string
 	// text is what type types, or the option select picks.
 	text string
+	// upload is an upload's with block as given, whose into names the
+	// element.
+	upload map[string]json.RawMessage
 	// guards are its when and timeout, which its act takes as written.
 	guards map[string]json.RawMessage
 }
 
 // elementGuards are what an element operation may carry besides its kind.
 var elementGuards = []string{"when", "timeout"}
+
+// outlineIDPattern matches an element's ID as the outline shows it, with or
+// without its brackets.
+var outlineIDPattern = regexp.MustCompile(`^\[?\d+-\d+\]?$`)
 
 // parseElementOperation reads raw as an element operation, and reports
 // false for any other operation.
@@ -80,6 +90,17 @@ func parseElementOperation(raw json.RawMessage) (elementOperation, bool, error) 
 			if err == nil && op.text == "" {
 				err = fmt.Errorf("select needs the option to pick")
 			}
+		case opUpload:
+			// An upload into an element the words describe runs as written.
+			var into string
+			if json.Unmarshal(value, &op.upload) != nil || json.Unmarshal(op.upload["into"], &into) != nil ||
+				!outlineIDPattern.MatchString(strings.TrimSpace(into)) {
+				return elementOperation{}, false, nil
+			}
+			if _, ok := op.upload["cache"]; ok {
+				return elementOperation{}, true, &SessionError{Code: CodeInvalidInput, Message: "upload: an upload into an element by its ID replays that element, so it takes no cache"}
+			}
+			op.element, err = elementID(op.upload["into"])
 		default:
 			return elementOperation{}, false, nil
 		}
@@ -92,10 +113,20 @@ func parseElementOperation(raw json.RawMessage) (elementOperation, bool, error) 
 	return elementOperation{}, false, nil
 }
 
-// operation is the act the element operation stands for, carrying its
-// guards, checked as any act is.
+// operation is the act or upload the element operation stands for, with
+// instruction as the act's words or the upload's into, carrying its guards,
+// checked as any operation is.
 func (op elementOperation) operation(instruction string) (operation, error) {
 	item := map[string]any{opAct: instruction}
+	if op.kind == opUpload {
+		upload := maps.Clone(op.upload)
+		into, err := json.Marshal(instruction)
+		if err != nil {
+			return operation{}, err
+		}
+		upload["into"] = into
+		item = map[string]any{opUpload: upload}
+	}
 	for name, value := range op.guards {
 		item[name] = value
 	}
@@ -124,15 +155,23 @@ func elementID(raw json.RawMessage) (string, error) {
 	return id, nil
 }
 
-// elementAct is the act an element operation stands for on the page snap
-// shows: the act's instruction, and the action that does it.
-func elementAct(snap pageSnapshot, op elementOperation) (string, recordedAction, error) {
-	node := findNode(parseSnapshotTree(snap.Tree), op.element)
+// elementAct is the act or upload an element operation stands for on the
+// page snap shows: the act's instruction or the upload's into, and the
+// action that does it, identifying the element with variables' values as
+// their placeholders.
+func elementAct(snap pageSnapshot, op elementOperation, variables map[string]string) (string, recordedAction, error) {
+	roots := snap.roots()
+	path := pathTo(roots, op.element)
 	xpath := snap.XPaths[op.element]
-	if node == nil || xpath == "" {
+	if path == nil || xpath == "" {
 		return "", recordedAction{}, fmt.Errorf("element %s is not on the page now; describe the page again for its elements", op.element)
 	}
+	target := pageTarget{roots: roots, path: path}
+	node := target.node()
 	if node.name == "" {
+		if op.kind == opUpload {
+			return "", recordedAction{}, fmt.Errorf("element %s has no name a step could find it by again; describe it in into, or leave into out when it is the page's only file input", op.element)
+		}
 		return "", recordedAction{}, fmt.Errorf("element %s has no name a step could find it by again; act on it with an instruction that describes it", op.element)
 	}
 	selector := xpath
@@ -140,7 +179,7 @@ func elementAct(snap pageSnapshot, op elementOperation) (string, recordedAction,
 		selector = "xpath=" + selector
 	}
 	name := strconv.Quote(clip(node.name, outlineTextRunes))
-	action := recordedAction{Selector: selector, Description: withName(node.role, node.name)}
+	action := identified(recordedAction{Selector: selector, Description: withName(node.role, node.name)}, target, variables)
 	switch op.kind {
 	case opType:
 		if !slices.Contains(fieldRoles, node.role) && node.role != "combobox" {
@@ -154,6 +193,9 @@ func elementAct(snap pageSnapshot, op elementOperation) (string, recordedAction,
 		}
 		action.Method, action.Arguments = "selectOptionFromDropdown", []string{op.text}
 		return fmt.Sprintf("Select %s in the %s dropdown", strconv.Quote(op.text), name), action, nil
+	case opUpload:
+		action.Method = uploadMethod
+		return fmt.Sprintf("the %s %s", name, roleWord(node.role)), action, nil
 	default:
 		action.Method = "click"
 		return fmt.Sprintf("Click the %s %s", name, roleWord(node.role)), action, nil
@@ -171,19 +213,8 @@ func roleWord(role string) string {
 		return "field"
 	case "treeitem":
 		return "item"
+	case fileInputRole:
+		return "file input"
 	}
 	return role
-}
-
-// findNode finds the node with id among nodes and the nodes they hold.
-func findNode(nodes []*outlineNode, id string) *outlineNode {
-	for _, n := range nodes {
-		if n.id == id {
-			return n
-		}
-		if found := findNode(n.children, id); found != nil {
-			return found
-		}
-	}
-	return nil
 }

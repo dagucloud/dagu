@@ -116,6 +116,26 @@ describe('notificationDrafts', () => {
     });
   });
 
+  it('round-trips a custom command channel', () => {
+    const draft = draftChannelFromAPI({
+      id: 'command-1',
+      name: 'Desktop',
+      type: NotificationProviderType.command,
+      enabled: true,
+      createdAt: '2026-10-09T00:00:00Z',
+      updatedAt: '2026-10-09T00:00:00Z',
+      command: {
+        command: 'notify-send "$DAG_NAME" "$STATUS"',
+      },
+    });
+
+    expect(draft.command.command).toBe('notify-send "$DAG_NAME" "$STATUS"');
+    expect(channelInput(draft)).toMatchObject({
+      type: NotificationProviderType.command,
+      command: { command: 'notify-send "$DAG_NAME" "$STATUS"' },
+    });
+  });
+
   it('keeps a custom channel name when the provider changes', () => {
     const channel = blankChannel(NotificationProviderType.email);
     channel.name = 'Ops Alerts';

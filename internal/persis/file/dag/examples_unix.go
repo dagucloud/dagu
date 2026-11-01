@@ -67,7 +67,7 @@ steps:
 	"example-03-scheduling.yaml": `# Scheduled Workflows
 # Add a schedule to run workflows automatically
 
-description: Example of a scheduled workflow
+description: Runs on demand; uncomment the schedule to run it daily
 type: graph
 
 # Uncomment to run daily at 2:00 AM
@@ -176,5 +176,34 @@ steps:
     with:
       path: ${context.paths.artifacts_dir}/first-launch-report.md
     depends: [render_report]
+`,
+
+	"example-06-retry-on-failure.yaml": `# Retry on Failure
+# A flaky step fails once, then succeeds when it is retried
+
+description: Retry a flaky step automatically
+type: graph
+
+steps:
+  # The first attempt leaves a marker file and fails; the retry finds the
+  # marker and succeeds. Each run has its own artifacts folder, so every run
+  # starts with a failure.
+  - id: call_api
+    working_dir: ${context.paths.artifacts_dir}
+    run: |
+      if [ -f api-called ]; then
+        echo "API responded"
+      else
+        touch api-called
+        echo "API timed out (simulated)"
+        exit 1
+      fi
+    retry_policy:
+      limit: 2
+      interval_sec: 2
+
+  - id: report
+    run: echo "Report sent after the API call succeeded"
+    depends: [call_api]
 `,
 }

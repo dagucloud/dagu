@@ -168,6 +168,20 @@ func TestOnTypeErrorNullSpelling(t *testing.T) {
 	assert.Contains(t, te.stderr.String(), `warning: Sheet1!A2: expected number, found "N/A"`)
 }
 
+func TestOnTypeErrorKeep(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	writeBook(t, dir, "orders.xlsx", []any{"Amount"}, []any{"N/A"}, []any{"７"})
+	te, err := newTestExecutor(t, dir, opRead, map[string]any{"path": "orders.xlsx", "types": map[string]any{"Amount": "number"}, "on_type_error": "keep"})
+	require.NoError(t, err)
+	require.NoError(t, te.exec.Run(context.Background()))
+	rows := te.exec.GetOutputs()["rows"].([]workbook.Row)
+	require.Len(t, rows, 2)
+	assert.Equal(t, "N/A", rows[0]["Amount"])
+	assert.Equal(t, int64(7), rows[1]["Amount"])
+	assert.Contains(t, te.stderr.String(), `warning: Sheet1!A2: expected number, found "N/A"`)
+}
+
 func TestInfoAndListSheets(t *testing.T) {
 	t.Parallel()
 	dir := t.TempDir()
@@ -209,7 +223,7 @@ func TestValidation(t *testing.T) {
 		{"skip_hidden on info", opInfo, map[string]any{"path": "a.xlsx", "skip_hidden": true}, "with.skip_hidden is not valid for xlsx.info"},
 		{"bad merged", opRead, map[string]any{"path": "a.xlsx", "merged": "middle"}, "merged must be fill or first"},
 		{"bad formulas", opRead, map[string]any{"path": "a.xlsx", "formulas": "eval"}, "formulas must be cached, text, or calculate"},
-		{"bad on_type_error", opRead, map[string]any{"path": "a.xlsx", "on_type_error": "ignore"}, "on_type_error must be fail, warn, or null"},
+		{"bad on_type_error", opRead, map[string]any{"path": "a.xlsx", "on_type_error": "ignore"}, "on_type_error must be fail, warn, null, or keep"},
 		{"bad header", opRead, map[string]any{"path": "a.xlsx", "header": "yes"}, "header must be true, false, a row number"},
 		{"bad columns", opRead, map[string]any{"path": "a.xlsx", "columns": map[string]any{"a": "b"}}, "columns must be a list"},
 		{"bad type", opRead, map[string]any{"path": "a.xlsx", "types": map[string]any{"a": "money"}}, `types.a: unknown column type "money"`},

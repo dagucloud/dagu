@@ -84,6 +84,12 @@ func (s *Service) GetHistory(duration time.Duration) *ResourceHistory {
 	return s.store.GetHistory(duration)
 }
 
+// DiskUsedPercent returns how full the data directory's disk was at the
+// latest sample, and false before a sample succeeds.
+func (s *Service) DiskUsedPercent() (float64, bool) {
+	return s.store.DiskUsedPercent()
+}
+
 func (s *Service) loop(ctx context.Context) {
 	defer close(s.done)
 

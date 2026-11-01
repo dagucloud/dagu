@@ -16,6 +16,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/dagucloud/dagu/v2/internal/cmn/config"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -106,6 +107,7 @@ func TestManager_Connect(t *testing.T) {
 		require.NoError(t, err)
 		assert.Equal(t, "/servers/connect", link.Path)
 		assert.Equal(t, "build-01", link.Query().Get("name"))
+		assert.Equal(t, config.Version, link.Query().Get("version"))
 		code := link.Query().Get("code")
 		assert.Len(t, code, 64)
 		assert.Equal(t, strings.ToUpper(code[:8]), status.Code)
@@ -133,6 +135,34 @@ func TestManager_Connect(t *testing.T) {
 		require.NotNil(t, saved)
 		assert.Equal(t, ConnectedViaConsole, saved.Via)
 		assert.Empty(t, saved.LicenseKey)
+
+		_, err = m.Connect()
+		assert.ErrorIs(t, err, ErrAlreadyLicensed)
+	})
+
+	// A free license unlocks no paid features, yet the server is connected:
+	// it checks in, can report, and cannot start a second connection.
+	t.Run("free approval connects the server for monitoring", func(t *testing.T) {
+		clearLicenseEnv(t)
+		grant := make(chan struct{})
+		var token string
+		m, _, priv := newConnectManager(t, mockCloudServerConfig{
+			connectHandler:   connectAnswers(new(atomic.Int32), grant, func(w http.ResponseWriter, r *http.Request) { grantWith(token)(w, r) }),
+			heartbeatHandler: func(w http.ResponseWriter, r *http.Request) { heartbeatHandlerFn(token)(w, r) },
+		}, nil)
+		token = signToken(t, priv, freeClaims())
+
+		_, err := m.Connect()
+		require.NoError(t, err)
+		close(grant)
+		waitConnectState(t, m, ConnectGranted)
+
+		assert.False(t, HasActiveLicense(m.Checker()))
+		assert.True(t, HasLicense(m.Checker()))
+		_, reports := m.CloudCredentials()
+		assert.True(t, reports)
+		require.NoError(t, m.Refresh(context.Background()))
+		assert.Equal(t, PlanFree, m.Status().Plan)
 
 		_, err = m.Connect()
 		assert.ErrorIs(t, err, ErrAlreadyLicensed)

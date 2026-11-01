@@ -1,0 +1,35 @@
+working_dir: .
+steps:
+  - id: fanout
+    action: dag.run
+    with:
+      dag: ${ITEM.dag}
+    parallel:
+      items:
+        - dag: retry-partial-child
+        - dag: retry-partial-stable
+  - id: independent
+    run: printf 'independent\n' >> independent.out
+  - id: downstream
+    depends: fanout
+    run: printf 'downstream\n' >> parallel-downstream.out
+
+---
+name: retry-partial-child
+working_dir: .
+steps:
+  - id: temporary
+    continue_on: failed
+    run: |
+      printf 'child\n' >> parallel-child-runs.out
+      test -f allow-child
+  - id: completed
+    depends: temporary
+    run: "true"
+
+---
+name: retry-partial-stable
+working_dir: .
+steps:
+  - id: stable
+    run: printf 'stable\n' >> parallel-stable-runs.out

@@ -36,6 +36,13 @@ func TestServerCommand(t *testing.T) {
 			ExpectedOut: []string{port},
 		})
 	})
+	t.Run("PortInUse", func(t *testing.T) {
+		th := test.SetupCommand(t)
+		_, port := test.ReserveServerListener(t)
+		err := commandError(t, th, cmd.Server(), "server", "--host=127.0.0.1", "--port="+port)
+		require.ErrorContains(t, err, "--port")
+		require.ErrorContains(t, err, "DAGU_PORT")
+	})
 }
 
 func TestServerSecondInterruptTerminatesBlockedCleanup(t *testing.T) {

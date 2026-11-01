@@ -197,6 +197,18 @@ func TestJS_InputFile(t *testing.T) {
 		assert.Equal(t, "/a\n", got.stdout)
 	})
 
+	// The with object resolves before the executor runs, so the path is used
+	// as given and a backslash before $ in it is not read as an escape again.
+	t.Run("ResolvedPath", func(t *testing.T) {
+		t.Parallel()
+		path := filepath.Join(dir, `in\$x.txt`)
+		require.NoError(t, os.MkdirAll(filepath.Dir(path), 0o750))
+		require.NoError(t, os.WriteFile(path, []byte("hello"), 0o600))
+		got := run(t, context.Background(), `return input`, map[string]any{"input_file": path})
+		require.NoError(t, got.err)
+		assert.Equal(t, "hello\n", got.stdout)
+	})
+
 	t.Run("JSON", func(t *testing.T) {
 		t.Parallel()
 		got := run(t, context.Background(), `return input.city`, map[string]any{"input_file": jsonPath, "format": "json"})

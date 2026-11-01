@@ -315,7 +315,7 @@ func (s *serviceImpl) syncFilesToLocal(_ context.Context, pullResult *PullResult
 	for _, item := range items {
 		repoFileSet[item.id] = struct{}{}
 	}
-	deleted, deleteConflicts, err := s.syncRemoteFileDeletes(state, repoFileSet, pullResult.CurrentCommit)
+	deleted, deleteConflicts, err := s.syncRemoteDeletes(state, repoFileSet, pullResult.CurrentCommit)
 	if err != nil {
 		return localSyncResult{}, err
 	}
@@ -580,11 +580,14 @@ func (s *serviceImpl) trackedItemRepoPaths() (map[string][]string, error) {
 	return paths, nil
 }
 
-func (s *serviceImpl) syncRemoteFileDeletes(state *State, repoFileSet map[string]struct{}, remoteCommit string) ([]string, []string, error) {
+// syncRemoteDeletes removes unchanged local copies of tracked items that the
+// remote no longer contains. Locally changed items become conflicts so their
+// content is never lost; untracked items are local-only and left alone.
+func (s *serviceImpl) syncRemoteDeletes(state *State, repoFileSet map[string]struct{}, remoteCommit string) ([]string, []string, error) {
 	var deleted []string
 	var conflicts []string
 	for itemID, itemState := range state.Items {
-		if itemState.Kind != SyncItemKindFile {
+		if itemState.Status == StatusUntracked {
 			continue
 		}
 		if _, exists := repoFileSet[itemID]; exists {
@@ -597,7 +600,7 @@ func (s *serviceImpl) syncRemoteFileDeletes(state *State, repoFileSet map[string
 		if itemState.Status == StatusSynced {
 			matchesBase, err := s.localItemMatchesBase(itemID, itemState)
 			if err != nil {
-				return nil, nil, fmt.Errorf("failed to verify remotely deleted file %q: %w", itemID, err)
+				return nil, nil, fmt.Errorf("failed to verify remotely deleted sync item %q: %w", itemID, err)
 			}
 			if !matchesBase {
 				s.markRemoteDeleteConflict(itemState, remoteCommit)
@@ -605,7 +608,7 @@ func (s *serviceImpl) syncRemoteFileDeletes(state *State, repoFileSet map[string
 				continue
 			}
 			if err := s.removeItemFile(itemID, itemState); err != nil && !os.IsNotExist(err) {
-				return nil, nil, fmt.Errorf("failed to remove remotely deleted file %q: %w", itemID, err)
+				return nil, nil, fmt.Errorf("failed to remove remotely deleted sync item %q: %w", itemID, err)
 			}
 			delete(state.Items, itemID)
 			deleted = append(deleted, itemID)
@@ -2788,7 +2791,26 @@ func safeRemoveFileWithinBase(baseDir, targetPath string) error {
 	if err := rejectUnsafeRootPath(root, relPath, targetPath, "remove", true); err != nil {
 		return err
 	}
-	return root.Remove(relPath)
+	if err := root.Remove(relPath); err != nil {
+		return err
+	}
+	removeEmptyRootParents(root, relPath)
+	return nil
+}
+
+// removeEmptyRootParents prunes directories left empty by a removal, as Git
+// does not track empty directories. The root itself is always kept.
+func removeEmptyRootParents(root *os.Root, relPath string) {
+	for dir := filepath.Dir(filepath.Clean(relPath)); dir != "."; dir = filepath.Dir(dir) {
+		info, err := root.Lstat(dir)
+		if err != nil || !info.IsDir() {
+			return
+		}
+		// Removing a non-empty directory fails, which ends the walk.
+		if err := root.Remove(dir); err != nil {
+			return
+		}
+	}
 }
 
 func safeRenameFileWithinBase(baseDir, oldPath, newPath string) error {

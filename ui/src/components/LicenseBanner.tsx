@@ -6,6 +6,7 @@ import { useLicenseState } from '@/hooks/useLicense';
 import { useI18n } from '@/i18n/I18nProvider';
 import { I18nTemplate } from '@/i18n/I18nTemplate';
 import {
+  isFreeLicense,
   LICENSE_WARNING_DAYS,
   licenseDaysLeft,
   licenseLink,
@@ -39,7 +40,8 @@ export function LicenseBanner() {
         {warning}
       </div>
     );
-  if (license.community) return null;
+  // A free license unlocks nothing that its expiry would take away.
+  if (license.community || isFreeLicense(license)) return null;
 
   const trial = license.plan === 'trial';
   const action = (label: string) =>

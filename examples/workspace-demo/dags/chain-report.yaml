@@ -1,0 +1,10 @@
+# Steps that run one after the other.
+description: Collect, format and publish a report in order.
+type: chain
+steps:
+  - name: collect
+    run: echo "collecting"
+  - name: format
+    run: echo "formatting"
+  - name: publish
+    run: echo "publishing"

@@ -60,6 +60,7 @@ type TopicType string
 //   - TopicTypeDAGRunLogs: "dagName/dagRunId"
 //   - TopicTypeStepLog: "dagName/dagRunId/stepName"
 //   - TopicTypeDAGRuns: URL query string (e.g., "limit=50&offset=0")
+//   - TopicTypeDAGRunActivity: URL query string (e.g., "hours=24")
 //   - TopicTypeQueueItems: "queueName"
 //   - TopicTypeQueues: URL query string
 //   - TopicTypeDAGsList: URL query string (e.g., "page=1&perPage=100&name=mydag")
@@ -73,11 +74,14 @@ const (
 	TopicTypeDAGRunLogs TopicType = "dagrunlogs"
 	TopicTypeStepLog    TopicType = "steplog"
 	TopicTypeDAGRuns    TopicType = "dagruns"
-	TopicTypeQueueItems TopicType = "queueitems"
-	TopicTypeQueues     TopicType = "queues"
-	TopicTypeDAGsList   TopicType = "dagslist"
-	TopicTypeWikiPage   TopicType = "wikipage"
-	TopicTypeWikiTree   TopicType = "wikitree"
+	// TopicTypeDAGRunActivity streams the aggregated activity of a window
+	// that ends now.
+	TopicTypeDAGRunActivity TopicType = "dagrunactivity"
+	TopicTypeQueueItems     TopicType = "queueitems"
+	TopicTypeQueues         TopicType = "queues"
+	TopicTypeDAGsList       TopicType = "dagslist"
+	TopicTypeWikiPage       TopicType = "wikipage"
+	TopicTypeWikiTree       TopicType = "wikitree"
 	// TopicTypeLegacyDoc is the deprecated alias for TopicTypeWikiPage.
 	TopicTypeLegacyDoc TopicType = "doc"
 	// TopicTypeLegacyDocTree is the deprecated alias for TopicTypeWikiTree.

@@ -26,6 +26,7 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/runtime"
 	rtagent "github.com/dagucloud/dagu/v2/internal/runtime/agent"
 	"github.com/dagucloud/dagu/v2/internal/runtime/executor"
+	"github.com/dagucloud/dagu/v2/internal/runtime/modelusage"
 	"github.com/dagucloud/dagu/v2/internal/runtime/runstate"
 	secretpkg "github.com/dagucloud/dagu/v2/internal/secret"
 	"github.com/dagucloud/dagu/v2/internal/secret/providers"
@@ -554,7 +555,9 @@ func (r *Local) runAgent(ctx context.Context, runID string, child *rtagent.Agent
 		r.mu.Unlock()
 	}()
 
-	runErr := child.Run(ctx)
+	// The child's steps count toward their own nodes; the parent step reads
+	// the child's total from its status, so the parent's meter is hidden.
+	runErr := child.Run(modelusage.WithMeter(ctx, nil))
 	status := child.Status(ctx)
 	result := statusToRunStatus(&status, runID)
 	if runErr != nil {
@@ -660,9 +663,9 @@ func inProcessLoadOptions(
 	if cfg != nil {
 		loadOpts = append(loadOpts, spec.WithWorkspaceBaseConfigDir(workspace.BaseConfigDir(cfg.Paths.DAGsDir)))
 	}
-	if req.Params != "" {
-		loadOpts = append(loadOpts, spec.WithParams(req.Params))
-	}
+	// Params are always applied so that a child started without params still
+	// enforces its required params.
+	loadOpts = append(loadOpts, spec.WithParams(req.Params))
 	if req.Workspace != nil && workDir != "" {
 		loadOpts = append(loadOpts, spec.WithDefaultWorkingDir(workDir))
 	}

@@ -5,7 +5,7 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog';
 import { ToggleButton, ToggleGroup } from '@/components/ui/toggle-group';
-import { useUserPreferences } from '@/contexts/UserPreference';
+import { useResolvedTheme } from '@/contexts/UserPreference';
 import { cn, toMermaidNodeId } from '@/lib/utils';
 import {
   ArrowDownUp,
@@ -15,7 +15,6 @@ import {
   GitGraph,
   ImageDown,
   Maximize2,
-  RotateCcw,
   ZoomIn,
   ZoomOut,
 } from 'lucide-react';
@@ -84,6 +83,10 @@ type Props = {
   height?: string | number;
   /** DAG name used for export filenames */
   name?: string;
+  /** Content shown at the start of the toolbar, such as an interactions hint. */
+  toolbarStart?: React.ReactNode;
+  /** Step drawn as selected, such as the one whose details are open. */
+  selectedStepName?: string;
 };
 
 const GRAPH_STATUS_STROKES = {
@@ -99,9 +102,53 @@ const GRAPH_STATUS_STROKES = {
   rejected: '#ef5350',
 } as const;
 
+// Statuses that keep the plain card fill instead of a tint.
+const GRAPH_UNTINTED_CLASSES = new Set(['none', 'skipped']);
+const GRAPH_STATUS_TINT = 0.1;
+const GRAPH_NODE_STROKE_WIDTH = '2px';
+const GRAPH_NODE_CORNER_RADIUS = '6';
+
 const GRAPH_SUCCESS_LINK_STROKE = '#3fa76b';
 const GRAPH_RENDERED_NODE_SHAPE_SELECTOR =
   'rect, polygon, path, circle, ellipse';
+
+/** Blends two `#rrggbb` colors, taking `amount` of `color` over `base`. */
+function mixHexColors(color: string, base: string, amount: number): string {
+  const channel = (hex: string, index: number) =>
+    parseInt(hex.slice(1 + index * 2, 3 + index * 2), 16);
+  const mixed = [0, 1, 2].map((index) =>
+    Math.round(
+      channel(color, index) * amount + channel(base, index) * (1 - amount)
+    )
+      .toString(16)
+      .padStart(2, '0')
+  );
+  return `#${mixed.join('')}`;
+}
+
+/** Ring drawn around the selected node; SVG has no outline. */
+const GRAPH_SELECTED_FILTER =
+  'drop-shadow(0 0 1.5px var(--ring)) drop-shadow(0 0 4px var(--ring))';
+
+/**
+ * Marks the rendered node of nodeId as selected and clears the others.
+ * Mermaid wraps the id in its own element id; node ids contain only id
+ * characters, so any other character delimits them.
+ */
+function markSelectedNode(container: HTMLElement, nodeId?: string): void {
+  const pattern = nodeId
+    ? new RegExp(`(^|[^A-Za-z0-9_])${nodeId}($|[^A-Za-z0-9_])`)
+    : null;
+  container.querySelectorAll<SVGGElement>('g.node').forEach((nodeElement) => {
+    const selected = !!pattern && pattern.test(nodeElement.id);
+    nodeElement.style.filter = selected ? GRAPH_SELECTED_FILTER : '';
+    if (selected) {
+      nodeElement.setAttribute('data-selected', 'true');
+    } else {
+      nodeElement.removeAttribute('data-selected');
+    }
+  });
+}
 
 function applyRenderedGraphStyles(container: HTMLDivElement): void {
   Object.entries(GRAPH_STATUS_STROKES).forEach(([className, stroke]) => {
@@ -112,13 +159,17 @@ function applyRenderedGraphStyles(container: HTMLDivElement): void {
           .querySelectorAll<SVGElement>(GRAPH_RENDERED_NODE_SHAPE_SELECTOR)
           .forEach((shapeElement) => {
             shapeElement.setAttribute('stroke', stroke);
-            shapeElement.setAttribute('stroke-width', '2.5px');
+            shapeElement.setAttribute('stroke-width', GRAPH_NODE_STROKE_WIDTH);
             shapeElement.style.setProperty('stroke', stroke, 'important');
             shapeElement.style.setProperty(
               'stroke-width',
-              '2.5px',
+              GRAPH_NODE_STROKE_WIDTH,
               'important'
             );
+            if (shapeElement.tagName.toLowerCase() === 'rect') {
+              shapeElement.setAttribute('rx', GRAPH_NODE_CORNER_RADIUS);
+              shapeElement.setAttribute('ry', GRAPH_NODE_CORNER_RADIUS);
+            }
           });
       });
   });
@@ -147,14 +198,30 @@ function Graph({
   isExpandedView = false,
   height,
   name,
+  toolbarStart,
+  selectedStepName,
 }: Props): React.JSX.Element {
   const [isModalOpen, setIsModalOpen] = useState(false);
   const containerRef = React.useRef<HTMLDivElement>(null);
   const viewportRef = React.useRef<HTMLDivElement>(null);
-  const { preferences } = useUserPreferences();
-  const isDarkMode = preferences.theme !== 'light';
-  const applyGraphStyles = React.useCallback(applyRenderedGraphStyles, []);
-  const graphControlButtonClass = 'h-8 w-9 shrink-0 px-0 sm:w-auto sm:px-4';
+  const isDarkMode = useResolvedTheme() === 'dark';
+  const selectedNodeId = selectedStepName
+    ? toMermaidNodeId(selectedStepName)
+    : undefined;
+  const selectedNodeIdRef = React.useRef(selectedNodeId);
+  selectedNodeIdRef.current = selectedNodeId;
+  const applyGraphStyles = React.useCallback((container: HTMLDivElement) => {
+    applyRenderedGraphStyles(container);
+    markSelectedNode(container, selectedNodeIdRef.current);
+  }, []);
+  React.useEffect(() => {
+    if (containerRef.current) {
+      markSelectedNode(containerRef.current, selectedNodeId);
+    }
+  }, [selectedNodeId]);
+  const graphControlButtonClass = 'h-7 w-7 shrink-0 px-0 font-medium';
+  const selectedLayoutClass =
+    'bg-muted text-foreground shadow-none dark:border-0 dark:bg-muted dark:text-foreground';
 
   const handleExport = (format: 'png' | 'svg') => {
     // Scope to the mermaid wrapper; the control bar renders its own icon SVGs.
@@ -173,21 +240,18 @@ function Graph({
 
   const mermaidStyle: React.CSSProperties = React.useMemo(() => {
     const gridBackground = isDarkMode
-      ? `linear-gradient(90deg, rgba(255,255,255,0.05) 1px, transparent 1px),
-         linear-gradient(180deg, rgba(255,255,255,0.05) 1px, transparent 1px)`
-      : `linear-gradient(90deg, rgba(0,0,0,0.08) 1px, transparent 1px),
-         linear-gradient(180deg, rgba(0,0,0,0.08) 1px, transparent 1px)`;
+      ? 'radial-gradient(circle, rgba(255,255,255,0.09) 1px, transparent 1.2px)'
+      : 'radial-gradient(circle, rgba(17,17,20,0.14) 1px, transparent 1.2px)';
 
     return {
       display: 'flex',
       alignItems: 'center',
       justifyContent: 'center',
       padding: GRAPH_CONTENT_PADDING_PX,
-      borderRadius: '0.5em',
       cursor: 'grab',
       userSelect: 'none',
       background: gridBackground,
-      backgroundSize: '20px 20px',
+      backgroundSize: '16px 16px',
     };
   }, [isDarkMode]);
 
@@ -370,40 +434,19 @@ function Graph({
 
     // Define node styles for different states
     // Use theme-appropriate colors for light/dark modes
-    const nodeFill = isDarkMode ? '#12141b' : '#fbfaf6'; // --card per mode
-    const nodeColor = isDarkMode ? '#f2f1ec' : '#14161b'; // --foreground per mode
+    const nodeFill = isDarkMode ? '#141417' : '#ffffff'; // --card per mode
+    const nodeColor = isDarkMode ? '#ededf0' : '#111114'; // --foreground per mode
 
-    // Unified status colors
-    dat.push(
-      `classDef none color:${nodeColor},fill:${nodeFill},stroke:${GRAPH_STATUS_STROKES.none},stroke-width:2.5px`
-    );
-    dat.push(
-      `classDef running color:${nodeColor},fill:${nodeFill},stroke:${GRAPH_STATUS_STROKES.running},stroke-width:2.5px`
-    );
-    dat.push(
-      `classDef retrying color:${nodeColor},fill:${nodeFill},stroke:${GRAPH_STATUS_STROKES.retrying},stroke-width:2.5px`
-    );
-    dat.push(
-      `classDef error color:${nodeColor},fill:${nodeFill},stroke:${GRAPH_STATUS_STROKES.error},stroke-width:2.5px`
-    );
-    dat.push(
-      `classDef cancel color:${nodeColor},fill:${nodeFill},stroke:${GRAPH_STATUS_STROKES.cancel},stroke-width:2.5px`
-    );
-    dat.push(
-      `classDef done color:${nodeColor},fill:${nodeFill},stroke:${GRAPH_STATUS_STROKES.done},stroke-width:2.5px`
-    );
-    dat.push(
-      `classDef skipped color:${nodeColor},fill:${nodeFill},stroke:${GRAPH_STATUS_STROKES.skipped},stroke-width:2.5px`
-    );
-    dat.push(
-      `classDef partial color:${nodeColor},fill:${nodeFill},stroke:${GRAPH_STATUS_STROKES.partial},stroke-width:2.5px`
-    );
-    dat.push(
-      `classDef waiting color:${nodeColor},fill:${nodeFill},stroke:${GRAPH_STATUS_STROKES.waiting},stroke-width:2.5px`
-    );
-    dat.push(
-      `classDef rejected color:${nodeColor},fill:${nodeFill},stroke:${GRAPH_STATUS_STROKES.rejected},stroke-width:2.5px`
-    );
+    // Status shows in the border and a light tint of the same color, so a
+    // node stays readable in both themes.
+    Object.entries(GRAPH_STATUS_STROKES).forEach(([className, stroke]) => {
+      const fill = GRAPH_UNTINTED_CLASSES.has(className)
+        ? nodeFill
+        : mixHexColors(stroke, nodeFill, GRAPH_STATUS_TINT);
+      dat.push(
+        `classDef ${className} color:${nodeColor},fill:${fill},stroke:${stroke},stroke-width:${GRAPH_NODE_STROKE_WIDTH}`
+      );
+    });
 
     // Add custom link styles
     dat.push(...linkStyles);
@@ -426,11 +469,12 @@ function Graph({
       }}
       ref={containerRef}
     >
-      <div className="absolute inset-x-2 top-2 z-10 max-w-[calc(100%-1rem)] overflow-x-auto rounded-md border border-border/50 bg-card shadow-sm sm:left-auto sm:right-4">
+      <div className="@container flex shrink-0 items-center gap-2 border-b border-border px-2 py-1">
+        {toolbarStart}
         <I18nProps>
           <ToggleGroup
             aria-label="Graph controls"
-            className="min-w-max border-0 bg-transparent"
+            className="ml-auto min-w-0 gap-0.5 overflow-x-auto rounded-none border-0 bg-transparent p-0"
           >
             {onChangeFlowchart && (
               <>
@@ -440,8 +484,12 @@ function Graph({
                     groupValue={flowchart}
                     onClick={() => onChangeFlowchart('LR')}
                     aria-label="Horizontal layout"
+                    title="Horizontal layout"
                     position="first"
-                    className={graphControlButtonClass}
+                    className={cn(
+                      graphControlButtonClass,
+                      flowchart === 'LR' && selectedLayoutClass
+                    )}
                   >
                     <ArrowRightLeft className="h-4 w-4" />
                   </ToggleButton>
@@ -452,13 +500,17 @@ function Graph({
                     groupValue={flowchart}
                     onClick={() => onChangeFlowchart('TD')}
                     aria-label="Vertical layout"
+                    title="Vertical layout"
                     position="middle"
-                    className={graphControlButtonClass}
+                    className={cn(
+                      graphControlButtonClass,
+                      flowchart === 'TD' && selectedLayoutClass
+                    )}
                   >
                     <ArrowDownUp className="h-4 w-4" />
                   </ToggleButton>
                 </I18nProps>
-                <div className="h-6 w-px shrink-0 self-center bg-border" />
+                <div className="mx-1 h-4 w-px shrink-0 self-center bg-border" />
               </>
             )}
 
@@ -467,6 +519,7 @@ function Graph({
                 value="zoomin"
                 onClick={() => zoomIn()}
                 aria-label="Zoom in"
+                title="Zoom in"
                 position={onChangeFlowchart ? 'middle' : 'first'}
                 className={graphControlButtonClass}
               >
@@ -478,6 +531,7 @@ function Graph({
                 value="zoomout"
                 onClick={() => zoomOut()}
                 aria-label="Zoom out"
+                title="Zoom out"
                 position="middle"
                 className={graphControlButtonClass}
               >
@@ -489,6 +543,7 @@ function Graph({
                 value="fit"
                 onClick={() => fitToView()}
                 aria-label="Fit to screen"
+                title="Fit to screen"
                 position="middle"
                 className={graphControlButtonClass}
               >
@@ -500,22 +555,21 @@ function Graph({
                 value="reset"
                 onClick={() => resetZoom()}
                 aria-label="Reset zoom"
+                title="Reset zoom"
                 position="middle"
-                className={graphControlButtonClass}
+                className={cn(graphControlButtonClass, 'w-auto px-1.5')}
               >
-                <RotateCcw className="h-4 w-4" />
-                <span className="ml-1.5 hidden tabular-nums sm:inline">
-                  {Math.round(scale * 100)}%
-                </span>
+                <span className="tabular-nums">{Math.round(scale * 100)}%</span>
               </ToggleButton>
             </I18nProps>
 
-            <div className="h-6 w-px shrink-0 self-center bg-border" />
+            <div className="mx-1 h-4 w-px shrink-0 self-center bg-border" />
             <I18nProps>
               <ToggleButton
                 value="export-png"
                 onClick={() => handleExport('png')}
                 aria-label="Export as PNG"
+                title="Export as PNG"
                 position="middle"
                 className={graphControlButtonClass}
               >
@@ -527,6 +581,7 @@ function Graph({
                 value="export-svg"
                 onClick={() => handleExport('svg')}
                 aria-label="Export as SVG"
+                title="Export as SVG"
                 position={isExpandedView ? 'last' : 'middle'}
                 className={graphControlButtonClass}
               >
@@ -536,12 +591,13 @@ function Graph({
 
             {!isExpandedView && (
               <>
-                <div className="h-6 w-px shrink-0 self-center bg-border" />
+                <div className="mx-1 h-4 w-px shrink-0 self-center bg-border" />
                 <I18nProps>
                   <ToggleButton
                     value="expand"
                     onClick={() => setIsModalOpen(true)}
                     aria-label="Expand graph"
+                    title="Expand graph"
                     position="last"
                     className={graphControlButtonClass}
                   >
@@ -556,7 +612,7 @@ function Graph({
 
       <div
         className={cn(
-          'custom-scrollbar min-h-0 flex-1 overflow-hidden pt-14 sm:pt-0',
+          'custom-scrollbar min-h-0 flex-1 overflow-hidden',
           isExpandedView ? 'rounded-lg border border-border/30 bg-muted/5' : ''
         )}
       >

@@ -106,7 +106,19 @@ func hasShebang(script string) bool {
 	return strings.HasPrefix(script, "#!")
 }
 
+// powerShellPreambleStatements run before every PowerShell script and inline
+// command. The first statement imports the two core modules by name. Without
+// it, the first unknown cmdlet (the preamble's own New-Object, or Set-Content
+// in a user script) makes Windows PowerShell discover the module through
+// command auto-discovery, which analyzes every module on PSModulePath when the
+// module analysis cache is cold: each module is imported, or its assembly is
+// loaded in a throwaway AppDomain, before the script's first line runs. On a
+// fresh machine that takes tens of seconds; a short-lived process never saves
+// the cache, so it pays again every time. Importing by name skips discovery
+// and costs a few milliseconds in both Windows PowerShell and pwsh, where the
+// modules are already loaded.
 var powerShellPreambleStatements = []string{
+	cmdutil.PowerShellImportCoreModules,
 	"$ErrorActionPreference = 'Stop'",
 	"$utf8NoBom = New-Object -TypeName System.Text.UTF8Encoding -ArgumentList $false",
 	"[Console]::InputEncoding = $utf8NoBom",

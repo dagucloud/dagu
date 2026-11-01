@@ -52,6 +52,7 @@ type fixtureConfig struct {
 	staleHeartbeatThreshold time.Duration
 	staleLeaseThreshold     time.Duration
 	zombieDetectionInterval time.Duration
+	workerWaitTimeout       time.Duration
 }
 
 type procConfig struct {
@@ -138,6 +139,12 @@ func withZombieDetectionInterval(interval time.Duration) fixtureOption {
 	}
 }
 
+func withWorkerWaitTimeout(timeout time.Duration) fixtureOption {
+	return func(c *fixtureConfig) {
+		c.workerWaitTimeout = timeout
+	}
+}
+
 type testFixture struct {
 	t                   *testing.T
 	coord               *test.Coordinator
@@ -195,6 +202,9 @@ func newTestFixture(t *testing.T, yaml string, opts ...fixtureOption) *testFixtu
 	}
 	if cfg.staleHeartbeatThreshold > 0 || cfg.staleLeaseThreshold > 0 {
 		coordOpts = append(coordOpts, test.WithStaleThresholds(cfg.staleHeartbeatThreshold, cfg.staleLeaseThreshold))
+	}
+	if cfg.workerWaitTimeout > 0 {
+		coordOpts = append(coordOpts, test.WithWorkerWaitTimeout(cfg.workerWaitTimeout))
 	}
 	for _, mutate := range cfg.configMutators {
 		coordOpts = append(coordOpts, test.WithConfigMutator(mutate))

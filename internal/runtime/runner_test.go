@@ -19,6 +19,7 @@ import (
 	"time"
 
 	"github.com/dagucloud/dagu/v2/internal/cmn/cmdutil"
+	"github.com/dagucloud/dagu/v2/internal/cmn/stringutil"
 
 	"github.com/dagucloud/dagu/v2/internal/executor/registry"
 
@@ -1102,6 +1103,67 @@ func TestRunner(t *testing.T) {
 		require.ErrorIs(t, result.Error, context.Canceled)
 		result.assertNodeStatus(t, "onExit", ir.NodeFailed)
 	})
+	// A selected-steps run without a graph end step sets SkipHandlers. The
+	// handlers that run after the steps get no node, so they do not run and
+	// the status has no node for them.
+	t.Run("SkipHandlersOnSuccess", func(t *testing.T) {
+		r := setupRunner(t,
+			withSkipHandlers(),
+			withOnSuccess(successStep("onSuccess")),
+			withOnExit(successStep("onExit")),
+		)
+
+		plan := r.newPlan(t, successStep("a"), successStep("b", "a"))
+		result := plan.assertRun(t, ir.Succeeded)
+
+		result.assertNodeStatus(t, "b", ir.NodeSucceeded)
+		require.Nil(t, r.runner.HandlerNode(ir.HandlerOnSuccess))
+		require.Nil(t, r.runner.HandlerNode(ir.HandlerOnExit))
+	})
+	t.Run("SkipHandlersOnFailure", func(t *testing.T) {
+		r := setupRunner(t,
+			withSkipHandlers(),
+			withOnFailure(successStep("onFailure")),
+			withOnExit(successStep("onExit")),
+		)
+
+		plan := r.newPlan(t, failStep("a"))
+		result := plan.assertRun(t, ir.Failed)
+
+		result.assertNodeStatus(t, "a", ir.NodeFailed)
+		require.Nil(t, r.runner.HandlerNode(ir.HandlerOnFailure))
+		require.Nil(t, r.runner.HandlerNode(ir.HandlerOnExit))
+	})
+	t.Run("SkipHandlersOnAbort", func(t *testing.T) {
+		r := setupRunner(t,
+			withSkipHandlers(),
+			withOnAbort(successStep("onAbort")),
+		)
+
+		plan := r.newPlan(t, newStep("1", withCommand("sleep 0.5")))
+		go func() {
+			waitForNodeStatus(plan.Plan, "1", ir.NodeRunning, 5*time.Second)
+			plan.signal(syscall.SIGTERM)
+		}()
+		result := plan.assertRun(t, ir.Aborted)
+
+		result.assertNodeStatus(t, "1", ir.NodeAborted)
+		require.Nil(t, r.runner.HandlerNode(ir.HandlerOnAbort))
+	})
+	t.Run("SkipHandlersKeepsInitHandler", func(t *testing.T) {
+		r := setupRunner(t,
+			withSkipHandlers(),
+			withOnInit(successStep("onInit")),
+			withOnSuccess(successStep("onSuccess")),
+		)
+
+		plan := r.newPlan(t, successStep("a"))
+		plan.assertRun(t, ir.Succeeded)
+
+		require.NotNil(t, r.runner.HandlerNode(ir.HandlerOnInit))
+		require.Equal(t, ir.NodeSucceeded, r.runner.HandlerNode(ir.HandlerOnInit).State().Status)
+		require.Nil(t, r.runner.HandlerNode(ir.HandlerOnSuccess))
+	})
 	t.Run("OnFailureHandlerSkippedWhileRootDAGAutoRetryPending", func(t *testing.T) {
 		r := setupRunner(t,
 			withDAGAutoRetry(0, 2, true),
@@ -1542,6 +1604,24 @@ func TestRunner(t *testing.T) {
 		content, err := os.ReadFile(expected)
 		require.NoError(t, err)
 		assert.Contains(t, string(content), "downstream")
+	})
+
+	t.Run("RedirectToDevNull", func(t *testing.T) {
+		if windowsShellTest() {
+			t.Skip("uses /dev/null")
+		}
+		r := setupRunner(t)
+
+		plan := r.newPlan(t,
+			newStep("quiet",
+				withCommand("echo discarded"),
+				withStdout("/dev/null"),
+				withStderr("/dev/null"),
+			),
+		)
+
+		result := plan.assertRun(t, ir.Succeeded)
+		result.assertNodeStatus(t, "quiet", ir.NodeSucceeded)
 	})
 
 	t.Run("StdinPipesStepStdoutFileToProcess", func(t *testing.T) {
@@ -2249,6 +2329,48 @@ func TestRunner_DryRunStepChecks(t *testing.T) {
 		result.assertNodeStatus(t, "onSuccess", ir.NodeSucceeded)
 	})
 
+	// The following subtests use a missing shell rather than a missing
+	// command: command names are not checked under the Windows default
+	// shell, while a missing shell is reported on every platform.
+	missingShell := withShell(missing + "-shell")
+
+	// A repeating step reports its problems once, not on every pass.
+	t.Run("RepeatingStepCheckedOnce", func(t *testing.T) {
+		r := setupRunner(t, func(cfg *runtime.Config) {
+			cfg.Dry = true
+		})
+		step := newStep("1", withCommand("true"), missingShell, withRepeatPolicy(true, 0))
+		step.RepeatPolicy.Limit = 3
+
+		plan := r.newPlan(t, step)
+
+		result := plan.assertRun(t, ir.Succeeded)
+		require.Equal(t, []runtime.DryRunCheck{{
+			Step:    "1",
+			Field:   "shell",
+			Message: fmt.Sprintf("shell %q not found on this host", missing+"-shell"),
+		}}, result.runner.DryRunChecks(result.Plan))
+	})
+
+	t.Run("ChecksFollowRunOrder", func(t *testing.T) {
+		r := setupRunner(t,
+			func(cfg *runtime.Config) {
+				cfg.Dry = true
+			},
+			withOnInit(newStep("onInit", withCommand("true"), missingShell)),
+			withOnExit(newStep("onExit", withCommand("true"), missingShell)),
+		)
+
+		plan := r.newPlan(t, newStep("1", withCommand("true"), missingShell))
+
+		result := plan.assertRun(t, ir.Succeeded)
+		var steps []string
+		for _, check := range result.runner.DryRunChecks(result.Plan) {
+			steps = append(steps, check.Step)
+		}
+		require.Equal(t, []string{"onInit", "1", "onExit"}, steps)
+	})
+
 	t.Run("HandlerEnvErrorFailsHandler", func(t *testing.T) {
 		handler := successStep("onSuccess")
 		handler.Env = []string{"DAGU_TEST_NO_EQUALS"}
@@ -2735,6 +2857,71 @@ func TestRunner_ComplexDependencyChains(t *testing.T) {
 		result.assertNodeStatus(t, "3", ir.NodeSucceeded)
 		result.assertNodeStatus(t, "4", ir.NodeAborted) // Canceled due to 2's failure
 	})
+}
+
+// A step must never record a start earlier than the finish of a step it
+// depends on, even when the steps are instantaneous. The plan holds a chain
+// and many diamonds, so that a join starts while its branches finish.
+func TestRunner_StepTimesFollowDependencies(t *testing.T) {
+	r := setupRunner(t)
+
+	const length = 30
+	const diamonds = 20
+	var steps []ir.Step
+	depends := map[string][]string{}
+	add := func(name string, deps ...string) {
+		steps = append(steps, successStep(name, deps...))
+		depends[name] = deps
+	}
+	add("s0")
+	for i := 1; i < length; i++ {
+		add(fmt.Sprintf("s%d", i), fmt.Sprintf("s%d", i-1))
+	}
+	for i := range diamonds {
+		top := fmt.Sprintf("d%d-top", i)
+		add(top)
+		add(fmt.Sprintf("d%d-left", i), top)
+		add(fmt.Sprintf("d%d-right", i), top)
+		add(fmt.Sprintf("d%d-join", i), fmt.Sprintf("d%d-left", i), fmt.Sprintf("d%d-right", i))
+	}
+	result := r.newPlan(t, steps...).assertRun(t, ir.Succeeded)
+
+	for name, deps := range depends {
+		state := result.GetNodeByName(name).State()
+		require.False(t, state.StartedAt.IsZero(), name)
+		require.False(t, state.FinishedAt.Before(state.StartedAt), "step %s finishes before it starts", name)
+		for _, dep := range deps {
+			finished := result.GetNodeByName(dep).State().FinishedAt
+			require.False(t, state.StartedAt.Before(finished),
+				"step %s starts at %s, before the finish of %s at %s", name,
+				stringutil.FormatTime(state.StartedAt), dep, stringutil.FormatTime(finished))
+		}
+	}
+}
+
+// A clock that went back after a dependency finished must not give the next
+// step a start earlier than that finish. The step keeps its real start when it
+// is later.
+func TestRunner_StepStartClampedToDependencyFinish(t *testing.T) {
+	r := setupRunner(t)
+
+	finished := time.Now().Add(time.Hour)
+	plan, err := runtime.NewPlanFromNodes(
+		runtime.NewNode(successStep("1"), runtime.NodeState{
+			Status:     ir.NodeSucceeded,
+			StartedAt:  finished.Add(-time.Second),
+			FinishedAt: finished,
+		}),
+		runtime.NewNode(successStep("2", "1"), runtime.NodeState{Status: ir.NodeNotStarted}),
+	)
+	require.NoError(t, err)
+
+	result := planHelper{testHelper: r, Plan: plan, workDir: t.TempDir()}.assertRun(t, ir.Succeeded)
+
+	state := result.GetNodeByName("2").State()
+	require.True(t, state.StartedAt.Equal(finished), "start %s, want %s",
+		stringutil.FormatTime(state.StartedAt), stringutil.FormatTime(finished))
+	require.False(t, state.FinishedAt.Before(state.StartedAt), "finish before start")
 }
 
 func TestRunner_EdgeCases(t *testing.T) {

@@ -30,8 +30,12 @@ type Status struct {
 	WarningCode string
 	Failure     string
 
-	// ServerName identifies this server in Dagu Console.
+	// ServerName is the name Dagu Console shows for this server: the one a
+	// person gave it there or in Dagu, else ReportedServerName.
 	ServerName string
+	// ReportedServerName is the name this server reports at each check-in:
+	// license.server_name, else the hostname.
+	ReportedServerName string
 	// LicenseID and Workspace identify the loaded license.
 	LicenseID string
 	Workspace string
@@ -84,8 +88,12 @@ func (m *Manager) Status() Status {
 	status.Source = m.Source()
 	status.Failure = m.Failure()
 	status.ServerName = m.serverName
+	status.ReportedServerName = m.serverName
 	if status.Community {
 		return status
+	}
+	if claims := m.state.Claims(); claims != nil && claims.ServerName != "" {
+		status.ServerName = claims.ServerName
 	}
 
 	ad := m.currentActivation()

@@ -486,6 +486,8 @@ func (a *API) readForeachItem(node *ir.Node, item string) (api.ForeachItem, erro
 			HasStdout:   step.Stdout != "",
 			HasStderr:   step.Stderr != "",
 		}
+		entry.AgentSession = toAgentSession(step.AgentSession)
+		entry.ModelUsage = toStepModelUsage(step.ModelUsage)
 		if step.Foreach {
 			entry.ForeachParent = ptrOf(logpath.ForeachNestedParent(item, step.Name))
 		}

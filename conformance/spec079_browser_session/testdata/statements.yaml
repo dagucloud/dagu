@@ -1,0 +1,19 @@
+working_dir: .
+env:
+  - SHOP_URL: ${SHOP_URL}
+  - LLM_BASE_URL: ${LLM_BASE_URL}
+  - STATEMENT: ${STATEMENT}
+llm:
+  provider: local
+  model: test-model
+  base_url: ${LLM_BASE_URL}
+steps:
+  - id: attach
+    action: browser.run
+    with:
+      url: ${SHOP_URL}/statements
+      do:
+        - upload:
+            files: ${STATEMENT}
+            into: the "Statement" file input
+        - expect: {text: Received statement.pdf, within: 10s}

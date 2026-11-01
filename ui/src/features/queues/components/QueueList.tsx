@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 import { Layers } from 'lucide-react';
+import { EmptyState } from '@/components/PageStates';
 import React from 'react';
 import type { components } from '../../../api/v1/schema';
 import QueueCard from './QueueCard';
@@ -26,12 +27,17 @@ function QueueList({ queues, isLoading }: QueueListProps) {
 
   if (queues.length === 0) {
     return (
-      <div className="flex h-32 items-center justify-center">
-        <div className="space-y-2 text-center">
-          <Layers className="mx-auto h-8 w-8 text-muted-foreground" />
-          <p className="text-sm text-muted-foreground"><I18nText text={"No queues found"} /></p>
-        </div>
-      </div>
+      <EmptyState
+        icon={<Layers />}
+        title={<I18nText text={'No active queues'} />}
+        description={
+          <I18nText
+            text={
+              'Queues defined in the server configuration appear here, along with any queue that has running or waiting runs.'
+            }
+          />
+        }
+      />
     );
   }
 

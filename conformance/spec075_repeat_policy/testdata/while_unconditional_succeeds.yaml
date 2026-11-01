@@ -1,0 +1,8 @@
+working_dir: .
+steps:
+  - id: repeatable
+    run: printf '%s\n' tick >> ticks.txt
+    repeat_policy:
+      repeat: while
+      interval_sec: 0
+      limit: 2

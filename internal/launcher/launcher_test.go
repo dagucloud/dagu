@@ -456,6 +456,15 @@ func TestStart(t *testing.T) {
 		assert.Contains(t, spec.Args, "/path/to/dag.yaml")
 	})
 
+	t.Run("StartWithWorkerSelector", func(t *testing.T) {
+		t.Parallel()
+		spec := builder.Start(dag, launcher.StartOptions{
+			WorkerSelector: map[string]string{"zone": "b", "gpu": "yes"},
+		})
+
+		assert.Equal(t, []string{"--worker-label=gpu=yes", "--worker-label=zone=b"}, workerLabelArgsOf(spec.Args))
+	})
+
 	t.Run("StartWithoutConfigFile", func(t *testing.T) {
 		t.Parallel()
 		cfgNoFile := &config.Config{
@@ -470,6 +479,17 @@ func TestStart(t *testing.T) {
 
 		assert.NotContains(t, spec.Args, "--config")
 	})
+}
+
+// workerLabelArgsOf keeps the --worker-label arguments of a spec, in order.
+func workerLabelArgsOf(args []string) []string {
+	var labels []string
+	for _, arg := range args {
+		if strings.HasPrefix(arg, "--worker-label=") {
+			labels = append(labels, arg)
+		}
+	}
+	return labels
 }
 
 func TestEnqueue(t *testing.T) {
@@ -512,6 +532,16 @@ func TestEnqueue(t *testing.T) {
 		assert.Contains(t, spec.Args, "--params-stdin")
 		assert.NotContains(t, spec.Args, "key=value")
 		assert.Equal(t, "key=value", spec.Params)
+	})
+
+	t.Run("EnqueueWithWorkerSelector", func(t *testing.T) {
+		t.Parallel()
+		spec := builder.Enqueue(dag, launcher.EnqueueOptions{
+			WorkerSelector: map[string]string{"zone": "b", "gpu": "yes"},
+		})
+
+		assert.Equal(t, []string{"--worker-label=gpu=yes", "--worker-label=zone=b"}, workerLabelArgsOf(spec.Args))
+		assert.Equal(t, "/path/to/dag.yaml", spec.Args[len(spec.Args)-1], "the DAG stays the last argument")
 	})
 
 	t.Run("EnqueueWithQuiet", func(t *testing.T) {

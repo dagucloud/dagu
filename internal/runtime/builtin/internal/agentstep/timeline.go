@@ -28,9 +28,9 @@ const (
 	StatusHealed    = "healed"
 
 	// How an operation ran, carried as the via of its event: a recording
-	// replayed by the window's elements, a recording replayed by the
-	// pixels of the screen, the model, or an exact check that read the
-	// window's elements without one.
+	// replayed by the window's or page's elements, a recording replayed by
+	// the pixels of the screen, the model, or an exact check that read the
+	// window or page without one.
 	ViaElement = "element"
 	ViaScreen  = "screen"
 	ViaModel   = "model"

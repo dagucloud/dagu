@@ -200,6 +200,32 @@ func (m *Manager) CloudCredentials() (CloudCredentials, bool) {
 	}, true
 }
 
+// StoredCloudCredentials returns a function that reads the credentials of
+// the activation saved in store, for a process that does not run the
+// license manager, such as a scheduler on its own. pubKey verifies the
+// activation's token; cloudURL is the configured Dagu Console URL, empty for
+// the production one. The function reports false while there is no
+// activation or its token does not verify.
+func StoredCloudCredentials(store ActivationStore, pubKey ed25519.PublicKey, cloudURL string) func() (CloudCredentials, bool) {
+	baseURL := NewCloudClient(cloudURL).baseURL
+	return func() (CloudCredentials, bool) {
+		ad, err := store.Load()
+		if err != nil || ad == nil || ad.Token == "" || ad.HeartbeatSecret == "" {
+			return CloudCredentials{}, false
+		}
+		claims, err := VerifyTokenLenient(pubKey, ad.Token)
+		if err != nil {
+			return CloudCredentials{}, false
+		}
+		return CloudCredentials{
+			CloudURL:        baseURL,
+			LicenseID:       claims.ID,
+			ServerID:        ad.ServerID,
+			HeartbeatSecret: ad.HeartbeatSecret,
+		}, true
+	}
+}
+
 // Start performs discovery, optional activation, JWT verification, and starts the heartbeat loop.
 // It always returns nil for graceful degradation: license errors are logged but never prevent
 // the application from starting.
@@ -560,21 +586,33 @@ func (m *Manager) checkIn(ctx context.Context, ad *ActivationData) error {
 		return err
 	}
 
-	// Verify the refreshed token
-	newClaims, verifyErr := VerifyToken(m.pubKey, resp.Token)
-	if verifyErr != nil {
-		m.logger.Warn("Refreshed token verification failed",
-			slog.String("error", verifyErr.Error()))
-		return fmt.Errorf("refreshed token verification failed: %w", verifyErr)
+	newClaims, err := m.applyToken(ad, resp.Token, time.Now())
+	if err != nil {
+		return err
 	}
 
-	m.state.Update(newClaims, resp.Token)
+	m.logger.Debug("License heartbeat successful",
+		slog.String("plan", newClaims.Plan))
+	return nil
+}
+
+// applyToken verifies a token Dagu Console issued for the activation ad,
+// makes it the current license, and saves it with checkedInAt.
+func (m *Manager) applyToken(ad *ActivationData, token string, checkedInAt time.Time) (*LicenseClaims, error) {
+	newClaims, err := VerifyToken(m.pubKey, token)
+	if err != nil {
+		m.logger.Warn("Refreshed token verification failed",
+			slog.String("error", err.Error()))
+		return nil, fmt.Errorf("refreshed token verification failed: %w", err)
+	}
+
+	m.state.Update(newClaims, token)
 	m.setFailure("")
 
 	// Persist the refreshed token using a copy to avoid mutating the shared ActivationData.
 	updated := *ad
-	updated.Token = resp.Token
-	updated.CheckedInAt = time.Now()
+	updated.Token = token
+	updated.CheckedInAt = checkedInAt
 	m.setActivation(&updated)
 	if m.store != nil {
 		if err := m.store.Save(&updated); err != nil {
@@ -582,8 +620,5 @@ func (m *Manager) checkIn(ctx context.Context, ad *ActivationData) error {
 				slog.String("error", err.Error()))
 		}
 	}
-
-	m.logger.Debug("License heartbeat successful",
-		slog.String("plan", newClaims.Plan))
-	return nil
+	return newClaims, nil
 }

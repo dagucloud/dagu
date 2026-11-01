@@ -69,6 +69,7 @@ func TestRoundTrip(t *testing.T) {
 			DAGRunID:   "run-123",
 			AttemptID:  "attempt-1",
 			Status:     ir.Running,
+			Resume:     true,
 			WorkerID:   "worker-1",
 			PID:        12345,
 			Root:       ir.DAGRunRef{Name: "root-dag", ID: "root-run"},
@@ -118,6 +119,7 @@ func TestRoundTrip(t *testing.T) {
 		require.NoError(t, err)
 		result, err := ProtoToDAGRunStatus(proto)
 		require.NoError(t, err)
+		assert.True(t, result.Resume)
 
 		// Verify all fields are preserved
 		require.NotNil(t, result)

@@ -21,7 +21,7 @@ describe('translations', () => {
     expect(translate('zh-CN', 'navigation.integrations')).toBe('集成');
     expect(translate('zh-CN', 'navigation.profilesSecrets')).toBe('配置与密钥');
     expect(translate('zh-CN', 'navigation.administration')).toBe('系统管理');
-    expect(translate('zh-CN', 'theme.darkMode')).toBe('深色模式');
+    expect(translate('zh-CN', 'theme.dark')).toBe('深色');
   });
 
   it('keeps every Chinese catalog key aligned with English', () => {
@@ -48,12 +48,8 @@ describe('translations', () => {
   });
 
   it('translates first-party UI copy', () => {
-    expect(translateStatic('zh-CN', 'No DAG runs found')).toBe(
-      '未找到 DAG 运行'
-    );
-    expect(translateStatic('ja', 'No DAG runs found')).toBe(
-      'DAG実行が見つかりません'
-    );
+    expect(translateStatic('zh-CN', 'No runs found')).toBe('未找到运行记录');
+    expect(translateStatic('ja', 'No runs found')).toBe('実行が見つかりません');
   });
 
   it('interpolates complete static messages', () => {
@@ -69,6 +65,13 @@ describe('translations', () => {
     ).toBe(
       '同期管理から欠落アイテムを 2 件削除しますか？ファイルはリモートリポジトリに残ります。'
     );
+  });
+
+  // Status chips pass arbitrary text through, so inherited object keys
+  // must come back unchanged instead of resolving to prototype members.
+  it('returns unknown text unchanged', () => {
+    expect(translateStatic('ja', '__proto__')).toBe('__proto__');
+    expect(translateStatic('zh-CN', 'constructor')).toBe('constructor');
   });
 
   it('localizes plural messages without English suffixes', () => {

@@ -20,7 +20,6 @@ import (
 const (
 	flagEnv          = "env"
 	flagDotenv       = "dotenv"
-	flagWorkerLabel  = "worker-label"
 	flagWorkdir      = "workdir"
 	flagShell        = "shell"
 	flagBase         = "base"
@@ -114,9 +113,12 @@ func runExec(ctx *Context, args []string) error {
 		return err
 	}
 
-	workerLabels, err := parseWorkerLabels(ctx)
+	workerLabels, err := workerLabelsFromFlags(ctx)
 	if err != nil {
 		return err
+	}
+	if len(workerLabels) > 0 && !ctx.Config.Queues.Enabled {
+		return fmt.Errorf("worker selector requires queues; enable queues or remove --worker-label")
 	}
 
 	opts := ExecOptions{
@@ -258,31 +260,4 @@ func resolveDotenvPaths(ctx *Context) ([]string, error) {
 		dotenvPaths = append(dotenvPaths, resolved)
 	}
 	return dotenvPaths, nil
-}
-
-// parseWorkerLabels validates and returns worker labels from the flag.
-func parseWorkerLabels(ctx *Context) (map[string]string, error) {
-	workerLabelPairs, err := ctx.Command.Flags().GetStringArray(flagWorkerLabel)
-	if err != nil {
-		return nil, fmt.Errorf("failed to read worker-label flags: %w", err)
-	}
-
-	workerLabels := make(map[string]string, len(workerLabelPairs))
-	for _, pair := range workerLabelPairs {
-		trimmed := strings.TrimSpace(pair)
-		if trimmed == "" {
-			continue
-		}
-		key, value, found := strings.Cut(trimmed, "=")
-		if !found || key == "" || value == "" {
-			return nil, fmt.Errorf("invalid worker label %q: expected key=value", pair)
-		}
-		workerLabels[key] = value
-	}
-
-	if len(workerLabels) > 0 && !ctx.Config.Queues.Enabled {
-		return nil, fmt.Errorf("worker selector requires queues; enable queues or remove --worker-label")
-	}
-
-	return workerLabels, nil
 }

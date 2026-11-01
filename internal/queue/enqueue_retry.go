@@ -28,13 +28,18 @@ type RetryAdmission struct {
 	Status *ir.DAGRunStatus
 
 	repository *persis.DAGRunRepository
+	root       ir.DAGRunRef
 	original   ir.DAGRunStatus
 	queued     ir.DAGRunStatus
 }
 
 // Rollback restores the checkpoint only if this admission still owns the run.
 func (a *RetryAdmission) Rollback(ctx context.Context) error {
-	return rollbackQueuedRetry(ctx, a.repository, a.queued.DAGRun(), &a.queued, &a.original)
+	root := a.root
+	if root.Zero() {
+		root = a.queued.DAGRun()
+	}
+	return rollbackQueuedRetry(ctx, a.repository, a.queued.DAGRun(), root, &a.queued, &a.original)
 }
 
 // RunProcesses reports whether the execution that recorded an attempt still
@@ -45,6 +50,12 @@ type RunProcesses interface {
 
 // EnqueueRetryOptions configure a retry enqueue.
 type EnqueueRetryOptions struct {
+	// RootDAGRun identifies the root storage tree when admitting a child
+	// attempt. Empty preserves root DAG-run behavior.
+	RootDAGRun ir.DAGRunRef
+	// Resume preserves partially succeeded nodes and completed manual gates in
+	// a checkpoint resume. Ordinary retries leave this false.
+	Resume bool
 	// AutoRetry marks scheduler-issued DAG auto-retries. These consume the
 	// DAG-level retry budget at enqueue time.
 	AutoRetry bool
@@ -191,6 +202,7 @@ func PrepareRetry(
 			latest.PIDStartedAt = 0
 			latest.LeaseAt = 0
 			latest.TriggerType = ir.TriggerTypeRetry
+			latest.Resume = opts.Resume
 			if opts.TriggerActor != nil {
 				latest.TriggerActor = *opts.TriggerActor
 			}
@@ -201,7 +213,7 @@ func PrepareRetry(
 				latest.Root = status.Root
 			}
 			return nil
-		}, persis.DAGRunCompareAndSwapOptions{},
+		}, persis.DAGRunCompareAndSwapOptions{RootDAGRun: opts.RootDAGRun},
 	)
 	if err != nil {
 		return nil, fmt.Errorf("persist queued retry status: %w", err)
@@ -214,7 +226,7 @@ func PrepareRetry(
 		}
 		return nil, ErrRetryStaleLatest
 	}
-	return &RetryAdmission{Status: updatedStatus, repository: dagRunRepository,
+	return &RetryAdmission{Status: updatedStatus, repository: dagRunRepository, root: opts.RootDAGRun,
 		original: *originalStatus, queued: *updatedStatus}, nil
 }
 
@@ -231,6 +243,7 @@ func rollbackQueuedRetry(
 	ctx context.Context,
 	dagRunRepository *persis.DAGRunRepository,
 	dagRun ir.DAGRunRef,
+	root ir.DAGRunRef,
 	queued *ir.DAGRunStatus,
 	original *ir.DAGRunStatus,
 ) error {
@@ -254,10 +267,11 @@ func rollbackQueuedRetry(
 			latest.LeaseAt = original.LeaseAt
 			latest.TriggerType = original.TriggerType
 			latest.TriggerActor = original.TriggerActor
+			latest.Resume = original.Resume
 			latest.AutoRetryCount = original.AutoRetryCount
 			latest.Root = original.Root
 			return nil
-		}, persis.DAGRunCompareAndSwapOptions{},
+		}, persis.DAGRunCompareAndSwapOptions{RootDAGRun: root},
 	)
 	if err != nil {
 		return err

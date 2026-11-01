@@ -5,6 +5,7 @@ package xlsx
 
 import (
 	"context"
+	"os"
 	"path/filepath"
 	"testing"
 
@@ -94,6 +95,76 @@ func TestUpdateRowsValidation(t *testing.T) {
 			t.Parallel()
 			step := ir.Step{
 				Commands:       []ir.CommandEntry{{Command: opUpdateRows}},
+				ExecutorConfig: ir.ExecutorConfig{Type: executorType, Config: tc.cfg},
+			}
+			require.ErrorContains(t, validateStep(step), tc.want)
+		})
+	}
+}
+
+func TestUpdateRowsAndAppendWriteToOutput(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	book := writeBook(t, dir, "orders.xlsx",
+		[]any{"Invoice No", "Status"},
+		[]any{"INV-1", ""},
+	)
+	before, err := os.ReadFile(book)
+	require.NoError(t, err)
+
+	artifacts := filepath.Join(dir, "artifacts")
+	update, err := newTestWriterWithArtifacts(t, dir, artifacts, opUpdateRows, map[string]any{
+		"path":     "orders.xlsx",
+		"output":   "updated.xlsx",
+		"key":      "Invoice No",
+		"rows":     `[{"Invoice No": "INV-1", "Status": "Submitted"}]`,
+		"artifact": true,
+	})
+	require.NoError(t, err)
+	require.NoError(t, update.exec.Run(context.Background()))
+	assert.Equal(t, filepath.Join(dir, "updated.xlsx"), update.exec.GetOutputs()["path"])
+	assert.Equal(t, filepath.ToSlash(filepath.Join("xlsx", "xlsx-write", "updated.xlsx")), filepath.ToSlash(update.exec.GetOutputs()["artifact"].(string)),
+		"the output is the artifact")
+	assert.Equal(t, "Updated 1 rows in updated.xlsx Sheet1\n", update.stdout.String())
+	updated, err := workbook.Read(context.Background(), filepath.Join(dir, "updated.xlsx"), workbook.ReadOptions{})
+	require.NoError(t, err)
+	assert.Equal(t, "Submitted", updated.Rows[0]["Status"])
+
+	appended, err := newTestWriter(t, dir, opAppend, map[string]any{
+		"path":   "orders.xlsx",
+		"output": "appended.xlsx",
+		"rows":   `[{"Invoice No": "INV-2", "Status": "New"}]`,
+	})
+	require.NoError(t, err)
+	require.NoError(t, appended.exec.Run(context.Background()))
+	assert.Equal(t, filepath.Join(dir, "appended.xlsx"), appended.exec.GetOutputs()["path"])
+	assert.Equal(t, "Appended 1 rows to appended.xlsx Sheet1\n", appended.stdout.String())
+	back, err := workbook.Read(context.Background(), filepath.Join(dir, "appended.xlsx"), workbook.ReadOptions{})
+	require.NoError(t, err)
+	assert.Equal(t, 2, back.Count)
+	assert.Equal(t, "INV-2", back.Rows[1]["Invoice No"])
+
+	after, err := os.ReadFile(book)
+	require.NoError(t, err)
+	assert.Equal(t, before, after, "the workbook at path is untouched")
+}
+
+func TestOutputValidationForUpdateRowsAndAppend(t *testing.T) {
+	t.Parallel()
+	for _, tc := range []struct {
+		name string
+		op   string
+		cfg  map[string]any
+		want string
+	}{
+		{"update_rows csv output", opUpdateRows, map[string]any{"path": "a.xlsx", "key": "id", "rows": "[]", "output": "out.csv"}, "output: out.csv: only .xlsx and .xlsm workbooks are supported; save as .xlsx"},
+		{"append csv output", opAppend, map[string]any{"path": "a.xlsx", "rows": "[]", "output": "out.csv"}, "output: out.csv: only .xlsx and .xlsm workbooks are supported; save as .xlsx"},
+		{"output on write", opWrite, map[string]any{"path": "a.xlsx", "rows": "[]", "output": "b.xlsx"}, "with.output is not valid for xlsx.write"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			step := ir.Step{
+				Commands:       []ir.CommandEntry{{Command: tc.op}},
 				ExecutorConfig: ir.ExecutorConfig{Type: executorType, Config: tc.cfg},
 			}
 			require.ErrorContains(t, validateStep(step), tc.want)

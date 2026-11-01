@@ -33,6 +33,9 @@ Rules:
 - Requests sent to any other path are outside this spec.
 - The endpoint must not expose filesystem paths or storage paths as MCP route
   structure.
+- While a standalone event stream (`GET`) is open, the server writes an SSE
+  comment immediately after the response headers and again at intervals of no
+  more than 30 seconds. Clients ignore SSE comments.
 
 ### Authentication
 

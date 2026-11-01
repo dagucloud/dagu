@@ -6,6 +6,7 @@ package mcp
 import (
 	"context"
 	"encoding/json"
+	"net/http"
 	"net/http/httptest"
 	"os"
 	"path/filepath"
@@ -441,6 +442,15 @@ func TestExecuteInputValidation(t *testing.T) {
 		{name: "wait timeout rejects zero", input: `{"action":"start","name":"etl","wait":true,"waitTimeoutSeconds":0}`, wantField: executeFieldWaitTimeoutSeconds},
 		{name: "wait timeout range", input: `{"action":"start","name":"etl","wait":true,"waitTimeoutSeconds":301}`, wantField: executeFieldWaitTimeoutSeconds},
 		{name: "params must be string or object", input: `{"action":"start","name":"etl","params":[1]}`, wantField: executeFieldParams},
+		{name: "approve requires step name", input: `{"action":"approve","name":"etl","dagRunId":"run-1"}`, wantField: executeFieldStepName},
+		{name: "reject requires dagRunId", input: `{"action":"reject","name":"etl","stepName":"gate"}`, wantField: executeFieldDAGRunID},
+		{name: "push back requires run target", input: `{"action":"push_back","targetType":"dag","name":"etl","dagRunId":"run-1","stepName":"gate"}`, wantField: executeFieldTargetType},
+		{name: "inputs must be object", input: `{"action":"approve","name":"etl","dagRunId":"run-1","stepName":"gate","inputs":"ticket=1"}`, wantField: executeFieldInputs},
+		{name: "reject rejects inputs", input: `{"action":"reject","name":"etl","dagRunId":"run-1","stepName":"gate","inputs":{}}`, wantField: executeFieldInputs},
+		{name: "approve rejects reason", input: `{"action":"approve","name":"etl","dagRunId":"run-1","stepName":"gate","reason":"no"}`, wantField: executeFieldReason},
+		{name: "approve rejects downstream", input: `{"action":"approve","name":"etl","dagRunId":"run-1","stepName":"gate","includeDownstream":true}`, wantField: executeFieldIncludeDownstream},
+		{name: "retry rejects attempt ID", input: `{"action":"retry","name":"etl","dagRunId":"run-1","attemptId":"a-1"}`, wantField: executeFieldAttemptID},
+		{name: "stop rejects sub-DAG run ID", input: `{"action":"stop","name":"etl","dagRunId":"run-1","subDAGRunId":"child-1"}`, wantField: executeFieldSubDAGRunID},
 	}
 
 	for _, test := range tests {
@@ -689,6 +699,72 @@ func TestHTTPHandlerServesStreamableMCP(t *testing.T) {
 	resource, err := session.ReadResource(ctx, &mcpsdk.ReadResourceParams{URI: runInspectorURI})
 	require.NoError(t, err)
 	require.Len(t, resource.Contents, 1)
+}
+
+// Each call from Dagu Cloud stands alone, so the handler keeps no sessions
+// and offers no subscriptions.
+func TestCloudHandlerIsStateless(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), testConnectTimeout)
+	defer cancel()
+	httpServer := httptest.NewServer(NewCloudHandler(nil, func(context.Context) bool { return false }))
+	t.Cleanup(httpServer.Close)
+
+	client := mcpsdk.NewClient(&mcpsdk.Implementation{Name: "dagu-cloud-test", Version: "v0.0.0"}, nil)
+	session, err := client.Connect(ctx, &mcpsdk.StreamableClientTransport{
+		Endpoint:             httpServer.URL,
+		DisableStandaloneSSE: true,
+	}, nil)
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = session.Close() })
+	require.Empty(t, session.ID())
+	require.False(t, session.InitializeResult().Capabilities.Resources.Subscribe)
+
+	result, err := session.ListTools(ctx, nil)
+	require.NoError(t, err)
+	require.Len(t, result.Tools, 3)
+
+	res, err := http.Get(httpServer.URL)
+	require.NoError(t, err)
+	_ = res.Body.Close()
+	require.Equal(t, http.StatusMethodNotAllowed, res.StatusCode)
+}
+
+// Turning remote access off ends the calls in flight, so a tool's work must
+// end with its request even in protocol versions where the SDK keeps it going.
+func TestCloudHandlerEndsAToolWithItsRequest(t *testing.T) {
+	server := mcpsdk.NewServer(&mcpsdk.Implementation{Name: "test", Version: "v0.0.0"}, nil)
+	started, ended := make(chan struct{}), make(chan struct{})
+	mcpsdk.AddTool(server, &mcpsdk.Tool{Name: "block"},
+		func(ctx context.Context, _ *mcpsdk.CallToolRequest, _ struct{}) (*mcpsdk.CallToolResult, any, error) {
+			close(started)
+			<-ctx.Done()
+			close(ended)
+			return &mcpsdk.CallToolResult{}, nil, nil
+		})
+	ctx, cancel := context.WithCancel(context.Background())
+	req := httptest.NewRequestWithContext(ctx, http.MethodPost, "/mcp",
+		strings.NewReader(`{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"block","arguments":{}}}`))
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Accept", "application/json, text/event-stream")
+	req.Header.Set("Mcp-Protocol-Version", "2025-06-18")
+	served := make(chan struct{})
+	go func() {
+		defer close(served)
+		newCloudHandler(server).ServeHTTP(httptest.NewRecorder(), req)
+	}()
+
+	select {
+	case <-started:
+	case <-time.After(testConnectTimeout):
+		t.Fatal("the tool did not start")
+	}
+	cancel()
+	select {
+	case <-ended:
+	case <-time.After(testConnectTimeout):
+		t.Fatal("the tool kept running after its request ended")
+	}
+	<-served
 }
 
 func TestServerExposesReferenceResourcesAndPrompts(t *testing.T) {
@@ -1079,10 +1155,12 @@ func TestNormalizeRunDetailsIncludesStepsAndFailureDetails(t *testing.T) {
 	stepError := "exit status 1"
 	queuedAt := "2026-08-23T01:00:00Z"
 	params := `{"TARGET":"orders"}`
+	attemptID := "attempt-1"
 	raw := daguapi.GetDAGRunDetails200JSONResponse{
 		DagRunDetails: daguapi.DAGRunDetails{
 			Name:        "etl",
 			DagRunId:    "run-1",
+			AttemptId:   &attemptID,
 			Status:      2,
 			StatusLabel: "failed",
 			StartedAt:   "2026-08-23T01:00:05Z",
@@ -1118,6 +1196,7 @@ func TestNormalizeRunDetailsIncludesStepsAndFailureDetails(t *testing.T) {
 	require.Equal(t, "run-1", data["dagRunId"])
 	require.Equal(t, "dagu://runs/etl/run-1", data["uri"])
 	require.Equal(t, "dagu://runs/etl/run-1/logs", data["logsUri"])
+	require.Equal(t, attemptID, data["attemptId"])
 	require.Equal(t, "2026-08-23T01:00:05Z", data["startedAt"])
 	require.Equal(t, "2026-08-23T01:00:09Z", data["finishedAt"])
 	require.Equal(t, queuedAt, data["queuedAt"])

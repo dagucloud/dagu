@@ -40,7 +40,8 @@ func TestComputerValidation(t *testing.T) {
 
 	for _, tc := range []struct{ fixture, message string }{
 		{"missing_llm.yaml", "computer actions need a model"},
-		{"duplicate_output.yaml", `output "invoice" is already extracted by do[0]`},
+		{"duplicate_output.yaml", `output "invoice" is already published by do[0]`},
+		{"duplicate_outline.yaml", `output "invoice" is already published by do[0]`},
 		{"native_mode.yaml", `provider "openrouter" has no native computer use`},
 		{"unknown_variable.yaml", "act references %password%"},
 		{"unknown_input.yaml", "mouse does not equal any of: [screen direct]"},
@@ -295,6 +296,61 @@ func TestComputerPinnedAct(t *testing.T) {
 		_ = exec.Command("taskkill", "/F", "/FI", "WINDOWTITLE eq "+elementsWindowTitle).Run()
 	})
 	result := dagu.Run("start", "pinned.yaml")
+	t.Cleanup(func() {
+		if t.Failed() {
+			t.Logf("stdout:\n%s\nstderr:\n%s", result.Stdout(), result.Stderr())
+		}
+	})
+	result.ExpectExitCode(0)
+}
+
+// An outline lists the window the step launched with no model, each control
+// nested under the group that holds it.
+func TestComputerOutlineStep(t *testing.T) {
+	if runtime.GOOS != "windows" || os.Getenv("DAGU_DESKTOP_E2E") != "1" {
+		t.Skip("set DAGU_DESKTOP_E2E=1 on an interactive Windows desktop to run")
+	}
+	dagu := harness.NewRunner(t).WithCommandTimeout(desktopCommandTimeout)
+	t.Cleanup(func() {
+		_ = exec.Command("taskkill", "/F", "/FI", "WINDOWTITLE eq "+elementsWindowTitle).Run()
+	})
+	result := dagu.Run("start", "outline.yaml")
+	t.Cleanup(func() {
+		if t.Failed() {
+			t.Logf("stdout:\n%s\nstderr:\n%s", result.Stdout(), result.Stderr())
+		}
+	})
+	result.ExpectExitCode(0)
+	// The step prints its outputs as JSON, which escapes the quotes and the
+	// line breaks of the outline.
+	dagu.ExpectFileContains("outline.json",
+		`window \"Dagu elements test\" app=\"powershell\"\n`,
+		`\n  button \"保存\" id=\"saveButton\"\n`,
+		`\n  group \"支払情報\" id=\"paymentGroup\"\n`,
+		`\n    button \"保存\" id=\"paymentSaveButton\"\n`,
+	)
+}
+
+// A pinned choose step sets the elements window's payment method pop-up to
+// an option by name, which the window's status label reports, on a real
+// macOS or Windows desktop.
+func TestComputerChoosesAnOption(t *testing.T) {
+	if (runtime.GOOS != "windows" && runtime.GOOS != "darwin") || os.Getenv("DAGU_DESKTOP_E2E") != "1" {
+		t.Skip("set DAGU_DESKTOP_E2E=1 on an interactive macOS or Windows desktop to run")
+	}
+	dagu := harness.NewRunner(t).WithCommandTimeout(desktopCommandTimeout)
+	fixture := "choose.yaml"
+	t.Cleanup(func() {
+		if runtime.GOOS == "darwin" {
+			_ = exec.Command("pkill", "-f", "elements.js").Run()
+			return
+		}
+		_ = exec.Command("taskkill", "/F", "/FI", "WINDOWTITLE eq "+elementsWindowTitle).Run()
+	})
+	if runtime.GOOS == "darwin" {
+		fixture = "choose_macos.yaml"
+	}
+	result := dagu.Run("start", fixture)
 	t.Cleanup(func() {
 		if t.Failed() {
 			t.Logf("stdout:\n%s\nstderr:\n%s", result.Stdout(), result.Stderr())

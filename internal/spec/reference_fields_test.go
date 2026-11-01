@@ -6,6 +6,7 @@ package spec_test
 import (
 	"testing"
 
+	"github.com/dagucloud/dagu/v2/internal/executor/registry"
 	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/spec"
 	"github.com/stretchr/testify/assert"
@@ -284,6 +285,48 @@ func TestReferenceFieldsIncludesHumanTaskArtifacts(t *testing.T) {
 	assert.Contains(t, got, "steps[0].with.prompt")
 	assert.Contains(t, got, "steps[0].with.artifacts[0]")
 	assert.Contains(t, got, "steps[0].with.artifacts[1]")
+}
+
+// A nested path input reads a backslash as path text whether the map holding
+// it decoded from YAML or was built as a map[string]string.
+func TestReferenceFieldsReadNestedPathInputs(t *testing.T) {
+	t.Parallel()
+
+	const executorType = "reference_fields_nested_path"
+	registry.RegisterExecutorCapabilities(executorType, registry.ExecutorCapabilities{
+		PathInputs: []string{"import.input_file"},
+	})
+	t.Cleanup(func() { registry.UnregisterExecutorCapabilities(executorType) })
+
+	const raw = `in\${steps.read.outputs.rows}`
+	tests := []struct {
+		name     string
+		imported any
+	}{
+		{name: "AnyMap", imported: map[string]any{"input_file": raw, "table": raw}},
+		{name: "StringMap", imported: map[string]string{"input_file": raw, "table": raw}},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			dag := &ir.DAG{Steps: []ir.Step{{
+				Name: "load",
+				ExecutorConfig: ir.ExecutorConfig{
+					Type:   executorType,
+					Config: map[string]any{"import": tt.imported},
+				},
+			}}}
+
+			refs := make(map[string]int)
+			for _, field := range spec.ReferenceFields(dag) {
+				refs[field.Path] = len(field.Field.StepOutputReferences(field.Value))
+			}
+			assert.Equal(t, 1, refs["steps[0].with.import.input_file"])
+			assert.Equal(t, 0, refs["steps[0].with.import.table"])
+		})
+	}
 }
 
 // Only a numeric comparison resolves a reference in expected, so only that form

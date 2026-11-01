@@ -152,7 +152,7 @@ function SchemaCheckboxWidget<
           className={cn(
             'border-input bg-card shadow-sm',
             'focus-visible:ring-2 focus-visible:ring-ring/50 focus-visible:ring-offset-1 focus-visible:ring-offset-background',
-            'data-[state=checked]:border-primary data-[state=checked]:bg-primary data-[state=checked]:text-primary-foreground',
+            'data-[state=checked]:border-primary data-[state=checked]:bg-primary-fill data-[state=checked]:text-primary-foreground',
             className
           )}
         />

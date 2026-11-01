@@ -107,3 +107,10 @@ func dagIndexDir(cfg *config.Config) string {
 	}
 	return filepath.Join(cfg.Paths.DataDir, "cache", "dag-index")
 }
+
+// DAGChangeMarkerPath returns this host's file that signals DAG definition
+// changes to readers on other hosts, or "" when there is no data directory to
+// keep it in.
+func DAGChangeMarkerPath(cfg *config.Config) string {
+	return filedag.ChangeMarkerPath(dagIndexDir(cfg), cfg.Paths.DAGsDir)
+}

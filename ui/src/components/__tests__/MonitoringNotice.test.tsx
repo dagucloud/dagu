@@ -63,24 +63,41 @@ const unchosen: LicenseMonitoring = {
   configured: false,
   chosen: false,
   noticeDismissed: false,
+  errorsOffered: false,
 };
 
 const notice = 'Monitor this server from Dagu Console';
 
+const atRuns: LicenseMonitoring = {
+  ...unchosen,
+  level: LicenseMonitoringLevel.runs,
+  chosen: true,
+};
+
+const errorsOffer = 'Show why runs fail in Dagu Console';
+
 // Serves monitoring the way the server does: PUT chooses a level and POST
-// dismisses the notice.
+// dismisses the notice it names.
 function serve(initial: LicenseMonitoring) {
   let monitoring = initial;
   const client = {
     GET: vi.fn(() => Promise.resolve({ data: monitoring })),
     PUT: vi.fn(
       (_path: string, init: { body: { level: LicenseMonitoringLevel } }) => {
-        monitoring = { ...monitoring, level: init.body.level, chosen: true };
+        monitoring = {
+          ...monitoring,
+          level: init.body.level,
+          chosen: true,
+          errorsOffered: true,
+        };
         return Promise.resolve({ data: monitoring });
       }
     ),
-    POST: vi.fn(() => {
-      monitoring = { ...monitoring, noticeDismissed: true };
+    POST: vi.fn((path: string) => {
+      monitoring =
+        path === '/license/monitoring/dismiss-errors-notice'
+          ? { ...monitoring, errorsOffered: true }
+          : { ...monitoring, noticeDismissed: true };
       return Promise.resolve({ data: monitoring });
     }),
   };
@@ -137,7 +154,7 @@ describe('MonitoringNotice', () => {
 
     expect(client.PUT).toHaveBeenCalledWith('/license/monitoring', {
       params: { query: { remoteNode: 'local' } },
-      body: { level: 'runs' },
+      body: { level: 'errors' },
     });
     await waitFor(() =>
       expect(screen.queryByText(notice)).not.toBeInTheDocument()
@@ -167,8 +184,65 @@ describe('MonitoringNotice', () => {
     );
   });
 
+  it('offers a server at run status to send error messages', async () => {
+    const client = serve(atRuns);
+    renderNotice();
+
+    await userEvent.click(
+      await screen.findByRole('button', { name: 'Send error messages' })
+    );
+    const dialog = await screen.findByRole('dialog', {
+      name: 'Choose what this server reports',
+    });
+    expect(
+      within(dialog).getByRole('radio', {
+        name: 'Health, run status, and error messages (recommended)',
+      })
+    ).toBeChecked();
+    await userEvent.click(within(dialog).getByRole('button', { name: 'Save' }));
+
+    expect(client.PUT).toHaveBeenCalledWith('/license/monitoring', {
+      params: { query: { remoteNode: 'local' } },
+      body: { level: 'errors' },
+    });
+    await waitFor(() =>
+      expect(screen.queryByText(errorsOffer)).not.toBeInTheDocument()
+    );
+    expect(client.POST).not.toHaveBeenCalled();
+  });
+
+  it('stops offering error messages once dismissed', async () => {
+    const client = serve(atRuns);
+    renderNotice();
+
+    await userEvent.click(
+      await screen.findByRole('button', { name: 'Dismiss monitoring notice' })
+    );
+
+    expect(client.POST).toHaveBeenCalledWith(
+      '/license/monitoring/dismiss-errors-notice',
+      { params: { query: { remoteNode: 'local' } } }
+    );
+    await waitFor(() =>
+      expect(screen.queryByText(errorsOffer)).not.toBeInTheDocument()
+    );
+  });
+
   it.each([
     ['the level is chosen', { ...unchosen, chosen: true }],
+    [
+      'the level sends errors',
+      { ...atRuns, level: LicenseMonitoringLevel.errors },
+    ],
+    [
+      'it reports health only',
+      { ...atRuns, level: LicenseMonitoringLevel.health },
+    ],
+    [
+      'the configuration sets runs',
+      { ...atRuns, chosen: false, configured: true },
+    ],
+    ['the offer was dismissed', { ...atRuns, errorsOffered: true }],
     ['the configuration sets the level', { ...unchosen, configured: true }],
     ['it was dismissed', { ...unchosen, noticeDismissed: true }],
   ])('is not shown when %s', async (_case, monitoring) => {
@@ -181,6 +255,7 @@ describe('MonitoringNotice', () => {
       await client.GET.mock.results[0]?.value;
     });
     expect(screen.queryByText(notice)).not.toBeInTheDocument();
+    expect(screen.queryByText(errorsOffer)).not.toBeInTheDocument();
   });
 
   it('asks only admins of a server that checks in with Dagu Console', () => {

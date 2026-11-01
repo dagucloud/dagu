@@ -1,0 +1,7 @@
+steps:
+  - action: clickhouse.query
+    with:
+      url: http://localhost:8123
+      query: SELECT 1
+      settings:
+        compress: 1

@@ -17,7 +17,8 @@ type jsConfig struct {
 }
 
 var configSchema = &jsonschema.Schema{
-	Type: "object",
+	Type:                 "object",
+	AdditionalProperties: &jsonschema.Schema{Not: &jsonschema.Schema{}},
 	Properties: map[string]*jsonschema.Schema{
 		"input": {
 			Description: "Value bound to the script's input parameter. Any YAML value; strings may use ${...} references. Mutually exclusive with input_file.",

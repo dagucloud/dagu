@@ -24,22 +24,40 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/opencodehost"
 	"github.com/dagucloud/dagu/v2/internal/runtime"
+	"github.com/dagucloud/dagu/v2/internal/runtime/modelusage"
 	"github.com/google/uuid"
 )
 
 const (
 	maxManagedAgentEvents        = 1000
 	maxManagedAttachmentRawBytes = 10 * 1024 * 1024
+	// managedCleanupTimeout bounds each wait for an interrupted or discarded
+	// session to settle.
+	managedCleanupTimeout = 10 * time.Second
 )
 
 func (e *harnessExecutor) runManagedOpenCode(
-	ctx context.Context,
+	parent context.Context,
 	cfg providerConfig,
 	host opencodehost.Config,
 ) (*os.File, error) {
+	ctx, cancel := context.WithCancel(parent)
+	defer cancel()
 	client := &openCodeClient{host: host, directory: e.workDir, http: newOpenCodeHTTPClient(30 * time.Second)}
 	e.mu.Lock()
+	// Register before setup so a Stop that arrives while the session starts is not lost.
+	if e.stopRequested {
+		e.mu.Unlock()
+		return nil, context.Canceled
+	}
+	e.managedCancel = cancel
+	defer func() {
+		e.mu.Lock()
+		e.managedCancel = nil
+		e.mu.Unlock()
+	}()
 	e.managedHost = host
+	e.promptSubmitted = false
 	e.hasDeterminedStatus = false
 	if e.agentSession == nil {
 		e.agentSession = &ir.AgentSession{Provider: "opencode", Generation: 1}
@@ -52,6 +70,7 @@ func (e *harnessExecutor) runManagedOpenCode(
 		e.agentSession.Generation = 1
 	}
 	cleanRestart := e.agentSession.RestartPending
+	discardedID, discardedOwned := e.agentSession.DiscardedSessionID, e.agentSession.DiscardedOwned
 	e.agentSession.ProviderVersion = host.Version
 	e.agentSession.HostInstanceID = host.InstanceID
 	e.agentSession.Directory = client.directory
@@ -70,27 +89,50 @@ func (e *harnessExecutor) runManagedOpenCode(
 		return nil, err
 	}
 
+	if cleanRestart && discardedID != "" {
+		// Settlement outlives cancellation, so a stop cannot leave the
+		// previous attempt's work running unnoticed.
+		err := settleDiscardedSession(context.WithoutCancel(ctx), client, discardedID, discardedOwned)
+		if ctx.Err() != nil {
+			return e.finishManagedAbort(ctx, err)
+		}
+		if err != nil {
+			return e.finishManagedError(err)
+		}
+	}
 	sessionID, err := e.ensureManagedSession(ctx, client, cfg, cleanRestart)
 	if err != nil {
+		if ctx.Err() != nil {
+			e.mu.Lock()
+			persistedID := e.agentSession.SessionID
+			e.mu.Unlock()
+			if persistedID != "" {
+				// A resumed run's session may still run Dagu's earlier turn.
+				return e.finishManagedCancelled(ctx, client, persistedID)
+			}
+			// No session of this attempt exists, so there is no turn to stop.
+			return e.finishManagedAbort(ctx, nil)
+		}
 		if errors.Is(err, errManagedSessionUnavailable) || (cleanRestart && errors.Is(err, errManagedHostUnavailable)) {
 			return e.finishManagedError(err)
 		}
 		e.failManagedSession(err)
 		return nil, err
 	}
+	client.sessionID = sessionID
 	e.mu.Lock()
 	e.agentSession.RestartPending = false
 	e.mu.Unlock()
 
 	events, eventErrs, closeEvents, err := client.subscribe(ctx)
 	if err != nil {
-		return e.finishManagedError(err)
+		return e.finishManagedRunError(ctx, client, sessionID, err)
 	}
 	defer closeEvents()
 
 	resumed, err := e.applyManagedInteractionResponses(ctx, client, sessionID)
 	if err != nil {
-		return e.finishManagedError(err)
+		return e.finishManagedRunError(ctx, client, sessionID, err)
 	}
 
 	e.mu.Lock()
@@ -100,7 +142,7 @@ func (e *harnessExecutor) runManagedOpenCode(
 	if promptSent && promptMessageID == "" {
 		messages, refreshErr := e.refreshManagedMessages(ctx, client, sessionID)
 		if refreshErr != nil {
-			return e.finishManagedError(refreshErr)
+			return e.finishManagedRunError(ctx, client, sessionID, refreshErr)
 		}
 		promptMessageID = latestOpenCodeUserMessageID(messages)
 		if promptMessageID != "" {
@@ -119,9 +161,16 @@ func (e *harnessExecutor) runManagedOpenCode(
 			e.mu.Unlock()
 			e.notifyProgress()
 		}
-		commandErrs, err = e.submitManagedPrompt(ctx, client, cfg, sessionID, promptMessageID, files)
+		if ctx.Err() != nil {
+			return e.finishManagedCancelled(ctx, client, sessionID)
+		}
+		var submitted bool
+		commandErrs, submitted, err = e.submitManagedPrompt(ctx, client, cfg, sessionID, promptMessageID, files)
+		e.mu.Lock()
+		e.promptSubmitted = submitted
+		e.mu.Unlock()
 		if err != nil {
-			return e.finishManagedError(err)
+			return e.finishManagedRunError(ctx, client, sessionID, err)
 		}
 		e.mu.Lock()
 		e.agentSession.PromptSent = true
@@ -138,11 +187,7 @@ func (e *harnessExecutor) runManagedOpenCode(
 	for {
 		select {
 		case <-ctx.Done():
-			abortCtx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
-			_ = client.abort(abortCtx, sessionID)
-			cancel()
-			e.setManagedState(ir.AgentSessionAborted, "aborted", "OpenCode session aborted")
-			return nil, ctx.Err()
+			return e.finishManagedCancelled(ctx, client, sessionID)
 		case err, ok := <-eventErrs:
 			if !ok {
 				eventErrs = nil
@@ -155,7 +200,7 @@ func (e *harnessExecutor) runManagedOpenCode(
 		case err, ok := <-commandErrs:
 			commandErrs = nil
 			if ok && err != nil {
-				return e.finishManagedError(err)
+				return e.finishManagedRunError(ctx, client, sessionID, err)
 			}
 			return e.finishManagedSuccess(ctx, client, sessionID)
 		case event, ok := <-events:
@@ -166,7 +211,7 @@ func (e *harnessExecutor) runManagedOpenCode(
 			matched, busy, eventErr := e.handleManagedEvent(ctx, client, sessionID, event)
 			seenBusy = seenBusy || busy
 			if eventErr != nil {
-				return e.finishManagedError(eventErr)
+				return e.finishManagedRunError(ctx, client, sessionID, eventErr)
 			}
 			if matched {
 				return e.finishManagedWaiting("OpenCode needs input")
@@ -177,6 +222,9 @@ func (e *harnessExecutor) runManagedOpenCode(
 		case <-ticker.C:
 			waiting, err := e.reconcileManagedSession(ctx, client, sessionID)
 			if err != nil {
+				if ctx.Err() != nil {
+					return e.finishManagedCancelled(ctx, client, sessionID)
+				}
 				if errors.Is(err, errManagedSessionUnavailable) {
 					return e.finishManagedUnavailable("The OpenCode session is no longer available")
 				}
@@ -195,6 +243,9 @@ func (e *harnessExecutor) runManagedOpenCode(
 			}
 			status, err := client.sessionStatus(ctx, sessionID)
 			if err != nil {
+				if ctx.Err() != nil {
+					return e.finishManagedCancelled(ctx, client, sessionID)
+				}
 				if errors.Is(err, errManagedSessionUnavailable) {
 					return e.finishManagedUnavailable("The OpenCode session is no longer available")
 				}
@@ -215,6 +266,22 @@ func (e *harnessExecutor) runManagedOpenCode(
 			}
 		}
 	}
+}
+
+// settleDiscardedSession keeps a replacement session from running beside work
+// left by the previous attempt in the same directory. Only a session that Dagu
+// created is interrupted; any other session is waited on.
+func settleDiscardedSession(ctx context.Context, client *openCodeClient, sessionID string, owned bool) error {
+	ctx, cancel := context.WithTimeout(ctx, managedCleanupTimeout)
+	defer cancel()
+	settle := client.awaitIdle
+	if owned {
+		settle = client.interruptAndAwaitIdle
+	}
+	if err := settle(ctx, sessionID); err != nil {
+		return fmt.Errorf("OpenCode session %s from the previous attempt may still be running: %w", sessionID, err)
+	}
+	return nil
 }
 
 func runtimeWorkerID(ctx context.Context) string {
@@ -286,7 +353,13 @@ func (e *harnessExecutor) ensureManagedSession(ctx context.Context, client *open
 	return session.ID, nil
 }
 
-func (e *harnessExecutor) submitManagedPrompt(ctx context.Context, client *openCodeClient, cfg providerConfig, sessionID, messageID string, files []map[string]any) (<-chan error, error) {
+// submitManagedPrompt reports whether the prompt submission began, so a
+// cancelled caller knows whether the host may have taken the prompt.
+func (e *harnessExecutor) submitManagedPrompt(ctx context.Context, client *openCodeClient, cfg providerConfig, sessionID, messageID string, files []map[string]any) (<-chan error, bool, error) {
+	if client.host.IsV2() {
+		submitted, err := e.submitManagedPromptV2(ctx, client, cfg, sessionID, messageID, files)
+		return nil, submitted, err
+	}
 	parts := []map[string]any{{"type": "text", "text": e.effectivePrompt()}}
 	if strings.TrimSpace(e.script) != "" {
 		parts = append(parts, map[string]any{"type": "text", "text": "Supplementary input:\n" + e.script})
@@ -294,7 +367,8 @@ func (e *harnessExecutor) submitManagedPrompt(ctx context.Context, client *openC
 	parts = append(parts, files...)
 
 	if command := stringFlag(cfg.flags, "command"); command != "" {
-		return client.commandAsync(ctx, sessionID, messageID, command, e.effectivePrompt(), cfg, files), nil
+		// The command request lasts for its whole turn, so it stays cancellable.
+		return client.commandAsync(ctx, sessionID, messageID, command, e.effectivePrompt(), cfg, files), true, nil
 	}
 	body := map[string]any{"messageID": messageID, "parts": parts}
 	if agent := stringFlag(cfg.flags, "agent"); agent != "" {
@@ -303,14 +377,16 @@ func (e *harnessExecutor) submitManagedPrompt(ctx context.Context, client *openC
 	if model := stringFlag(cfg.flags, "model"); model != "" {
 		provider, modelID, ok := strings.Cut(model, "/")
 		if !ok || provider == "" || modelID == "" {
-			return nil, errors.New("managed OpenCode model must use provider/model format")
+			return nil, false, errors.New("managed OpenCode model must use provider/model format")
 		}
 		body["model"] = map[string]any{"providerID": provider, "modelID": modelID}
 	}
 	if variant := stringFlag(cfg.flags, "variant"); variant != "" {
 		body["variant"] = variant
 	}
-	return nil, client.postNoContent(ctx, "/session/"+url.PathEscape(sessionID)+"/prompt_async", body)
+	// A started submission outlives cancellation, so the run learns whether
+	// the host took the prompt. The client timeout still bounds it.
+	return nil, true, client.postNoContent(context.WithoutCancel(ctx), "/session/"+url.PathEscape(sessionID)+"/prompt_async", body)
 }
 
 func managedFileParts(workDir string, value any) ([]map[string]any, error) {
@@ -407,6 +483,24 @@ func (e *harnessExecutor) applyManagedInteractionResponses(ctx context.Context, 
 }
 
 func (e *harnessExecutor) handleManagedEvent(ctx context.Context, client *openCodeClient, sessionID string, event openCodeEvent) (waiting, busy bool, err error) {
+	if client.host.IsV2() {
+		// V2 events carry data rather than properties. Reconcile the current
+		// requests so a reply racing the event cannot restore a stale prompt.
+		if event.Type == "permission.asked" || event.Type == "form.created" {
+			var data struct {
+				SessionID string `json:"sessionID"`
+				Form      struct {
+					SessionID string `json:"sessionID"`
+				} `json:"form"`
+			}
+			if json.Unmarshal(event.Data, &data) == nil && (data.SessionID == sessionID || data.Form.SessionID == sessionID) {
+				waiting, err = e.reconcileManagedSession(ctx, client, sessionID)
+				return waiting, false, err
+			}
+		}
+		return false, false, nil
+	}
+
 	switch event.Type {
 	case "permission.asked":
 		var request openCodePermissionRequest
@@ -511,7 +605,7 @@ func (e *harnessExecutor) finishManagedUnavailable(message string) (*os.File, er
 func (e *harnessExecutor) finishManagedSuccess(ctx context.Context, client *openCodeClient, sessionID string) (*os.File, error) {
 	messages, err := e.refreshManagedMessages(ctx, client, sessionID)
 	if err != nil {
-		return e.finishManagedError(err)
+		return e.finishManagedRunError(ctx, client, sessionID, err)
 	}
 	e.mu.Lock()
 	promptMessageID := e.agentSession.PromptMessageID
@@ -579,6 +673,90 @@ func (e *harnessExecutor) finishManagedError(err error) (*os.File, error) {
 	}
 }
 
+// finishManagedRunError reports a failure of a run whose session exists. A
+// failure caused by cancellation interrupts the session instead.
+func (e *harnessExecutor) finishManagedRunError(ctx context.Context, client *openCodeClient, sessionID string, err error) (*os.File, error) {
+	if ctx.Err() != nil {
+		return e.finishManagedCancelled(ctx, client, sessionID)
+	}
+	return e.finishManagedError(err)
+}
+
+// finishManagedCancelled interrupts the turn of a cancelled run and records
+// whether the host confirmed that the session stopped.
+func (e *harnessExecutor) finishManagedCancelled(ctx context.Context, client *openCodeClient, sessionID string) (*os.File, error) {
+	e.mu.Lock()
+	promptSent, submitted := e.agentSession.PromptSent, e.promptSubmitted
+	promptID, owned := e.agentSession.PromptMessageID, e.agentSession.SessionOwned
+	e.mu.Unlock()
+	if !promptSent && !submitted {
+		// Dagu has no turn here; the session may run work that is not Dagu's.
+		return e.finishManagedAbort(ctx, nil)
+	}
+	cleanupCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), managedCleanupTimeout)
+	defer cancel()
+	var err error
+	if submitted && promptID != "" {
+		// An interrupt does nothing before the host starts the prompt's turn.
+		if err = client.awaitPromptStart(cleanupCtx, sessionID, promptID, owned); err != nil {
+			// The turn may still start in this session, so a retry submits the
+			// prompt to it again instead of replacing it.
+			e.mu.Lock()
+			e.agentSession.PromptSent = false
+			e.mu.Unlock()
+		}
+	}
+	switch {
+	case err != nil:
+		if owned && cleanupCtx.Err() == nil {
+			// A lost status can hide a turn that started; the interrupt does
+			// nothing if it has not. Another session may run the user's own turn.
+			if abortErr := client.abort(cleanupCtx, sessionID); abortErr != nil {
+				err = errors.Join(err, abortErr)
+			}
+		}
+	case owned:
+		err = client.interruptAndAwaitIdle(cleanupCtx, sessionID)
+	default:
+		err = settleUserSession(cleanupCtx, client, sessionID, promptID)
+	}
+	return e.finishManagedAbort(ctx, err)
+}
+
+// settleUserSession stops Dagu's turn in a session the user supplied. While
+// Dagu's prompt is the session's latest input the active turn is Dagu's and
+// is interrupted; newer input belongs to the user, whose turn is waited on.
+func settleUserSession(ctx context.Context, client *openCodeClient, sessionID, promptID string) error {
+	messages, err := client.messages(ctx, sessionID)
+	if errors.Is(err, errManagedSessionUnavailable) {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	if promptID != "" && latestOpenCodeUserMessageID(messages) == promptID {
+		return client.interruptAndAwaitIdle(ctx, sessionID)
+	}
+	return client.awaitIdle(ctx, sessionID)
+}
+
+// finishManagedAbort records a cancelled run, and whether cleanup confirmed
+// that Dagu's work in OpenCode stopped.
+func (e *harnessExecutor) finishManagedAbort(ctx context.Context, cleanupErr error) (*os.File, error) {
+	if cleanupErr == nil {
+		e.setManagedState(ir.AgentSessionAborted, "aborted", "OpenCode session aborted")
+		return nil, ctx.Err()
+	}
+	cleanupErr = fmt.Errorf("OpenCode did not confirm the session stopped: %w", cleanupErr)
+	e.mu.Lock()
+	e.agentSession.State = ir.AgentSessionAborted
+	e.agentSession.LastError = cleanupErr.Error()
+	e.appendAgentEventLocked("lifecycle", "abort-unverified", cleanupErr.Error())
+	e.mu.Unlock()
+	e.notifyProgress()
+	return nil, errors.Join(ctx.Err(), cleanupErr)
+}
+
 func (e *harnessExecutor) setManagedState(state ir.AgentSessionState, status, content string) {
 	e.mu.Lock()
 	e.agentSession.State = state
@@ -622,8 +800,9 @@ func (e *harnessExecutor) refreshManagedMessages(ctx context.Context, client *op
 	if err != nil {
 		return nil, err
 	}
-	chat, events, usage := normalizeOpenCodeMessages(messages)
+	chat, events, usage, models := normalizeOpenCodeMessages(messages)
 	e.mu.Lock()
+	generation := e.agentSession.Generation
 	changed := !reflect.DeepEqual(e.savedMessages, chat) || e.agentSession.Usage != usage
 	e.savedMessages = chat
 	eventIndexes := make(map[string]int, len(e.agentSession.Events))
@@ -655,6 +834,9 @@ func (e *harnessExecutor) refreshManagedMessages(ctx context.Context, client *op
 		changed = true
 	}
 	e.mu.Unlock()
+	// The session's totals replace what it reported before, so a resumed
+	// session does not count its earlier calls twice.
+	modelusage.FromContext(ctx).SetReported(fmt.Sprintf("opencode:%s:%d", sessionID, generation), models)
 	if changed {
 		e.notifyProgress()
 	}
@@ -676,15 +858,7 @@ func managedOpenCodeResult(messages []openCodeMessage, promptMessageID string) (
 	if promptMessageID == "" {
 		return "", false, nil
 	}
-	var response *openCodeMessage
-	var responseInfo openCodeMessageInfo
-	for i := range messages {
-		var info openCodeMessageInfo
-		if json.Unmarshal(messages[i].Info, &info) == nil && info.Role == "assistant" && info.ParentID == promptMessageID {
-			response = &messages[i]
-			responseInfo = info
-		}
-	}
+	response, responseInfo := openCodeReply(messages, promptMessageID)
 	if response == nil {
 		return "", false, nil
 	}
@@ -705,6 +879,20 @@ func managedOpenCodeResult(messages []openCodeMessage, promptMessageID string) (
 		}
 	}
 	return strings.Join(textParts, "\n"), true, nil
+}
+
+// openCodeReply returns the latest assistant reply to the prompt, or nil.
+func openCodeReply(messages []openCodeMessage, promptMessageID string) (*openCodeMessage, openCodeMessageInfo) {
+	var response *openCodeMessage
+	var responseInfo openCodeMessageInfo
+	for i := range messages {
+		var info openCodeMessageInfo
+		if json.Unmarshal(messages[i].Info, &info) == nil && info.Role == "assistant" && info.ParentID == promptMessageID {
+			response = &messages[i]
+			responseInfo = info
+		}
+	}
+	return response, responseInfo
 }
 
 func openCodeSessionError(properties json.RawMessage, sessionID string) (string, bool) {
@@ -740,10 +928,14 @@ func openCodeErrorMessage(raw json.RawMessage) string {
 	return strings.TrimSpace(value.Name)
 }
 
-func normalizeOpenCodeMessages(messages []openCodeMessage) ([]ir.LLMMessage, []ir.AgentSessionEvent, ir.AgentUsage) {
+// normalizeOpenCodeMessages turns a session's messages into the step's chat,
+// its events, the session's usage, and that usage by the model each
+// assistant message came from.
+func normalizeOpenCodeMessages(messages []openCodeMessage) ([]ir.LLMMessage, []ir.AgentSessionEvent, ir.AgentUsage, []ir.ModelUsage) {
 	chat := make([]ir.LLMMessage, 0, len(messages))
 	var events []ir.AgentSessionEvent
 	var usage ir.AgentUsage
+	var models []ir.ModelUsage
 	for _, message := range messages {
 		var info openCodeMessageInfo
 		if json.Unmarshal(message.Info, &info) != nil {
@@ -754,6 +946,7 @@ func normalizeOpenCodeMessages(messages []openCodeMessage) ([]ir.LLMMessage, []i
 		var textParts []string
 		var toolCalls []ir.ToolCall
 		var messageUsage ir.AgentUsage
+		modelUsage := ir.ModelUsage{Provider: info.ProviderID, Model: info.ModelID}
 		for partIndex, raw := range message.Parts {
 			var part map[string]any
 			if json.Unmarshal(raw, &part) != nil {
@@ -794,8 +987,14 @@ func normalizeOpenCodeMessages(messages []openCodeMessage) ([]ir.LLMMessage, []i
 					messageUsage.OutputTokens += int64(number(tokens["output"]))
 					messageUsage.ReasoningTokens += int64(number(tokens["reasoning"]))
 					messageUsage.TotalTokens += int64(number(tokens["total"]))
+					addOpenCodeStep(&modelUsage, tokens)
 				}
+				modelUsage.Calls++
 				messageUsage.Cost += number(part["cost"])
+				if _, reported := part["cost"]; reported {
+					modelUsage.Cost += number(part["cost"])
+					modelUsage.CostReportedCalls++
+				}
 			}
 			if event.ID == "" {
 				event.ID = fmt.Sprintf("%s:%s:%d", messageID, partType, partIndex)
@@ -807,6 +1006,9 @@ func normalizeOpenCodeMessages(messages []openCodeMessage) ([]ir.LLMMessage, []i
 		usage.ReasoningTokens += messageUsage.ReasoningTokens
 		usage.TotalTokens += messageUsage.TotalTokens
 		usage.Cost += messageUsage.Cost
+		if role == "assistant" && modelUsage.Calls > 0 {
+			models = ir.MergeModelUsage(models, modelUsage)
+		}
 		if role != "user" && role != "assistant" {
 			continue
 		}
@@ -819,7 +1021,20 @@ func normalizeOpenCodeMessages(messages []openCodeMessage) ([]ir.LLMMessage, []i
 		}
 		chat = append(chat, msg)
 	}
-	return chat, events, usage
+	return chat, events, usage, models
+}
+
+// addOpenCodeStep adds one model step's tokens. OpenCode counts the prompt
+// apart from the tokens read from and written to the prompt cache, and the
+// output with the reasoning in it.
+func addOpenCodeStep(usage *ir.ModelUsage, tokens map[string]any) {
+	cache, _ := tokens["cache"].(map[string]any)
+	read, write := int64(number(cache["read"])), int64(number(cache["write"]))
+	usage.InputTokens += int64(number(tokens["input"])) + read + write
+	usage.CachedInputTokens += read
+	usage.CacheWriteTokens += write
+	usage.OutputTokens += int64(number(tokens["output"]))
+	usage.ReasoningTokens += int64(number(tokens["reasoning"]))
 }
 
 func number(value any) float64 {

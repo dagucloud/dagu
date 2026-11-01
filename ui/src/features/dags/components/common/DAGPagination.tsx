@@ -7,6 +7,7 @@ import {
 } from '@/components/ui/pagination'; // Import shadcn Pagination components
 import React from 'react';
 import { I18nText } from '@/i18n/I18nText';
+import { useI18n } from '@/i18n/I18nProvider';
 import { I18nProps } from '@/i18n/I18nProps';
 
 /**
@@ -232,6 +233,7 @@ const DAGPagination = ({
   onPageLimitChange,
   showPageLimitSelector = !!onPageLimitChange,
 }: DAGPaginationProps) => {
+  const { ts } = useI18n();
   // State for the input field value
   const [inputValue, setInputValue] = React.useState(pageLimit.toString());
 
@@ -287,6 +289,8 @@ const DAGPagination = ({
           <span className="text-xs text-muted-foreground">{pageLimit}</span>
           <div className="relative group">
             <Button
+              aria-label={ts('Items per page')}
+              title={ts('Items per page')}
               variant="ghost"
               size="icon"
               className="h-6 w-6 rounded-md hover:bg-muted flex items-center justify-center cursor-pointer"
@@ -308,15 +312,18 @@ const DAGPagination = ({
                 <circle cx="12" cy="19" r="1" />
               </svg>
             </Button>
-            <div className="absolute right-0 mt-1 w-[100px] bg-background border border-border rounded-md opacity-0 invisible group-hover:opacity-100 group-hover:visible transition-all duration-200 z-10">
+            {/* Opens on hover, and on keyboard focus anywhere inside it. */}
+            <div className="absolute right-0 mt-1 w-[100px] bg-background border border-border rounded-md opacity-0 invisible group-hover:opacity-100 group-hover:visible group-has-[:focus-visible]:opacity-100 group-has-[:focus-visible]:visible transition-[opacity,visibility] duration-200 z-10">
               {[10, 25, 50, 100, 200].map((limit) => (
-                <div
+                <button
+                  type="button"
                   key={limit}
-                  className={`px-2 py-1 text-xs cursor-pointer hover:bg-muted transition-colors ${pageLimit === limit ? 'bg-primary/15 text-primary font-medium' : ''}`}
+                  aria-pressed={pageLimit === limit}
+                  className={`block w-full px-2 py-1 text-left text-xs cursor-pointer hover:bg-muted focus-visible:bg-muted focus-visible:outline-none transition-colors ${pageLimit === limit ? 'bg-primary/15 text-primary font-medium' : ''}`}
                   onClick={() => onPageLimitChange(limit)}
                 >
                   {limit}
-                </div>
+                </button>
               ))}
               <div className="px-2 py-1 border-t border-border">
                 <I18nProps>

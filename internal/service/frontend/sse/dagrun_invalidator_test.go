@@ -74,10 +74,22 @@ func TestDAGRunInvalidatorRefreshesListsOnlyForLifecycleEvents(t *testing.T) {
 			})
 			mux.SetRefreshMode(TopicTypeDAGRuns, TopicRefreshModeOnDemand)
 
+			// Activity has no status filter, so every lifecycle event wakes it.
+			var activityRefreshes atomic.Int64
+			mux.RegisterFetcher(TopicTypeDAGRunActivity, func(_ context.Context, _ string) (any, error) {
+				activityRefreshes.Add(1)
+				return nil, nil
+			})
+			mux.SetRefreshMode(TopicTypeDAGRunActivity, TopicRefreshModeOnDemand)
+
 			result, err := mux.createSession(
 				context.Background(),
 				httptest.NewRecorder(),
-				[]string{"dagrun:test/run-1", "dagruns:status=" + strconv.Itoa(int(tt.filterStatus))},
+				[]string{
+					"dagrun:test/run-1",
+					"dagruns:status=" + strconv.Itoa(int(tt.filterStatus)),
+					"dagrunactivity:hours=24",
+				},
 				0,
 			)
 			require.NoError(t, err)
@@ -100,11 +112,13 @@ func TestDAGRunInvalidatorRefreshesListsOnlyForLifecycleEvents(t *testing.T) {
 			wakeTopicsForDAGRunEvents(mux, []*eventstore.Event{event})
 
 			require.Eventually(t, func() bool {
-				return detailRefreshes.Load() == 1 && listRefreshes.Load() == tt.wantListRefreshes
+				return detailRefreshes.Load() == 1 &&
+					listRefreshes.Load() == tt.wantListRefreshes &&
+					activityRefreshes.Load() == tt.wantListRefreshes
 			}, time.Second, 10*time.Millisecond)
 			if tt.wantListRefreshes == 0 {
 				require.Never(t, func() bool {
-					return listRefreshes.Load() != 0
+					return listRefreshes.Load() != 0 || activityRefreshes.Load() != 0
 				}, 200*time.Millisecond, 20*time.Millisecond)
 			}
 		})

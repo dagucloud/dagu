@@ -18,6 +18,7 @@ import (
 	"github.com/dagucloud/dagu/v2/api/v1"
 	"github.com/dagucloud/dagu/v2/internal/audit"
 	"github.com/dagucloud/dagu/v2/internal/auth"
+	"github.com/dagucloud/dagu/v2/internal/cloudaccess"
 	"github.com/dagucloud/dagu/v2/internal/cloudreport"
 	"github.com/dagucloud/dagu/v2/internal/cmn/config"
 	"github.com/dagucloud/dagu/v2/internal/cmn/logger"
@@ -37,9 +38,11 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/pagination"
 	"github.com/dagucloud/dagu/v2/internal/persis"
 	profilepkg "github.com/dagucloud/dagu/v2/internal/profile"
+	"github.com/dagucloud/dagu/v2/internal/publicwebhook"
 	"github.com/dagucloud/dagu/v2/internal/queue"
 	"github.com/dagucloud/dagu/v2/internal/remotenode"
 	"github.com/dagucloud/dagu/v2/internal/runtime"
+	"github.com/dagucloud/dagu/v2/internal/samples"
 	"github.com/dagucloud/dagu/v2/internal/schedulerstate"
 	secretpkg "github.com/dagucloud/dagu/v2/internal/secret"
 	authservice "github.com/dagucloud/dagu/v2/internal/service/auth"
@@ -54,6 +57,7 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/view"
 	"github.com/dagucloud/dagu/v2/internal/wiki"
 	"github.com/dagucloud/dagu/v2/internal/workspace"
+	"github.com/dagucloud/dagu/v2/internal/workspace/deprecation"
 	"github.com/getkin/kin-openapi/openapi3"
 	"github.com/getkin/kin-openapi/openapi3filter"
 	"github.com/go-chi/chi/v5"
@@ -83,7 +87,7 @@ type API struct {
 	coordinatorCli       coordinator.Client
 	serviceRegistry      serviceregistry.ServiceRegistry
 	subCmdBuilder        *launcher.SubCmdBuilder
-	resourceService      *resource.Service
+	resourceService      resourceMonitor
 	authService          AuthService
 	auditService         *audit.Service
 	eventService         *eventstore.Service
@@ -94,6 +98,8 @@ type API struct {
 	defaultExecMode      config.ExecutionMode
 	dagWritesDisabled    bool // True when git sync read-only mode is active
 	baseConfigStore      dagsettings.BaseConfigStore
+	// samplesReader opens a samples store; nil means samples.OpenReader.
+	samplesReader        func(dir string) samples.Reader
 	dagSettingsStore     dagsettings.Store
 	dagPinStore          dagpin.Store
 	wikiStore            wiki.PageStore
@@ -102,7 +108,9 @@ type API struct {
 	profileStore         profilepkg.Store
 	viewStore            view.Store
 	licenseManager       *license.Manager
+	publicWebhookStore   publicwebhook.Store
 	cloudReport          CloudReportService
+	cloudAccess          CloudAccessService
 	apiKeyCreateMu       sync.Mutex
 	workspaceStore       workspace.Store
 	leaseStaleThreshold  time.Duration
@@ -114,6 +122,7 @@ type API struct {
 	baseConfigProvider   dagsettings.BaseConfigProvider
 	oidcRoleMapping      func() config.OIDCRoleMapping
 	openCodeHost         *opencodehost.Host
+	workspaceDeprecation deprecation.Sources
 }
 
 type processRepository interface {
@@ -121,6 +130,12 @@ type processRepository interface {
 	CountAliveByDAGName(ctx context.Context, groupName, dagName string) (int, error)
 	IsAttemptAlive(ctx context.Context, groupName string, dagRun ir.DAGRunRef, attemptID string) (bool, error)
 	ListAllAlive(ctx context.Context) (map[string][]ir.DAGRunRef, error)
+}
+
+// resourceMonitor serves the system resource samples the server collects.
+type resourceMonitor interface {
+	GetHistory(duration time.Duration) *resource.ResourceHistory
+	DiskUsedPercent() (float64, bool)
 }
 
 type NotificationService interface {
@@ -137,7 +152,8 @@ type NotificationService interface {
 	SaveChannel(ctx context.Context, channel *notificationmodel.Channel, updatedBy string) (*notificationmodel.Channel, error)
 	DeleteChannel(ctx context.Context, channelID string) error
 	SendChannelTest(ctx context.Context, channelID string) ([]notificationservice.TestResult, error)
-	SendTest(ctx context.Context, dagName, targetID string, eventType eventstore.EventType) ([]notificationservice.TestResult, error)
+	SendTest(ctx context.Context, dagName, targetID string, eventType eventstore.EventType, opts ...notificationservice.TestOption) ([]notificationservice.TestResult, error)
+	CommandChannelsEnabled() bool
 }
 
 type IncidentService interface {
@@ -158,6 +174,15 @@ type CloudReportService interface {
 	Status(ctx context.Context) (cloudreport.Status, error)
 	SetLevel(ctx context.Context, level config.ReportLevel) error
 	DismissNotice(ctx context.Context) error
+	DismissErrorsNotice(ctx context.Context) error
+}
+
+// CloudAccessService lets administrators see and choose how far calls from
+// Dagu Cloud may go on the server, and see whether they reach it.
+type CloudAccessService interface {
+	Status(ctx context.Context) (cloudaccess.Status, error)
+	Set(ctx context.Context, level *config.RemoteAccessLevel, approvals *bool) error
+	State() cloudaccess.State
 }
 
 // AuthService defines the interface for authentication operations.
@@ -198,6 +223,11 @@ type AuthService interface {
 	ToggleWebhook(ctx context.Context, dagName string, enabled bool) (*auth.Webhook, error)
 	ValidateWebhookToken(ctx context.Context, dagName, token string) (*auth.Webhook, error)
 	HasWebhookStore() bool
+	EnablePublicWebhook(ctx context.Context, dagName string) (*auth.Webhook, error)
+	DisablePublicWebhook(ctx context.Context, dagName string) (*auth.Webhook, error)
+	RenameWebhook(ctx context.Context, oldName, newName string) error
+	RegeneratePublicWebhookToken(ctx context.Context, dagName string) (*auth.Webhook, error)
+	ConfigurePublicWebhookSender(ctx context.Context, dagName string, input authservice.PublicWebhookSenderInput) (*authservice.PublicWebhookSenderResult, error)
 	// Setup
 	CountUsers(ctx context.Context) (int64, error)
 }
@@ -308,10 +338,25 @@ func WithWikiStore(store wiki.PageStore) APIOption {
 	}
 }
 
+// WithPublicWebhookStore returns an APIOption that sets the store of public
+// webhook URL status and deliveries.
+func WithPublicWebhookStore(store publicwebhook.Store) APIOption {
+	return func(a *API) {
+		a.publicWebhookStore = store
+	}
+}
+
 // WithLicenseManager returns an APIOption that sets the API's license manager.
 func WithLicenseManager(m *license.Manager) APIOption {
 	return func(a *API) {
 		a.licenseManager = m
+	}
+}
+
+// WithCloudAccess sets how far calls from Dagu Cloud may go on the server.
+func WithCloudAccess(s CloudAccessService) APIOption {
+	return func(a *API) {
+		a.cloudAccess = s
 	}
 }
 
@@ -347,6 +392,14 @@ func WithArtifactRepository(ar *persis.ArtifactRepository) APIOption {
 func WithWorkspaceStore(s workspace.Store) APIOption {
 	return func(a *API) {
 		a.workspaceStore = s
+	}
+}
+
+// WithWorkspaceDeprecation sets where the workspace settings that v3.0 stops
+// applying are read from.
+func WithWorkspaceDeprecation(src deprecation.Sources) APIOption {
+	return func(a *API) {
+		a.workspaceDeprecation = src
 	}
 }
 
@@ -447,10 +500,13 @@ func New(
 		coordinatorCli:      cc,
 		serviceRegistry:     sr,
 		metricsRegistry:     mr,
-		resourceService:     rs,
 		defaultExecMode:     cfg.DefaultExecMode,
 		leaseStaleThreshold: dagrun.DefaultStaleLeaseThreshold,
 		runSortDAGLimit:     maxRunSortDAGs,
+	}
+	// A nil service must leave the field nil, not a typed nil.
+	if rs != nil {
+		a.resourceService = rs
 	}
 
 	for _, opt := range opts {
@@ -853,10 +909,20 @@ func (a *API) isAllowed(perm config.Permission) error {
 	return nil
 }
 
+// rolesApply reports whether the caller's role limits the request: on a
+// server with users of its own, and always for a user Dagu Cloud vouches for.
+func (a *API) rolesApply(ctx context.Context) bool {
+	if a.authService != nil {
+		return true
+	}
+	user, ok := auth.UserFromContext(ctx)
+	return ok && user.AuthProvider == auth.AuthProviderCloud
+}
+
 // requireAdmin checks if the current user has admin role.
-// Returns nil if auth is not enabled (authService is nil).
+// Returns nil when roles do not apply to the caller (see rolesApply).
 func (a *API) requireAdmin(ctx context.Context) error {
-	if a.authService == nil {
+	if !a.rolesApply(ctx) {
 		return nil
 	}
 	user, ok := auth.UserFromContext(ctx)
@@ -870,9 +936,9 @@ func (a *API) requireAdmin(ctx context.Context) error {
 }
 
 // requireManagerOrAbove checks if the current user has manager or admin role.
-// Returns nil if auth is not enabled (authService is nil).
+// Returns nil when roles do not apply to the caller (see rolesApply).
 func (a *API) requireManagerOrAbove(ctx context.Context) error {
-	if a.authService == nil {
+	if !a.rolesApply(ctx) {
 		return nil
 	}
 	user, ok := auth.UserFromContext(ctx)
@@ -886,9 +952,9 @@ func (a *API) requireManagerOrAbove(ctx context.Context) error {
 }
 
 // requireDeveloperOrAbove checks if the current user has developer, manager, or admin role.
-// Returns nil if auth is not enabled (authService is nil).
+// Returns nil when roles do not apply to the caller (see rolesApply).
 func (a *API) requireDeveloperOrAbove(ctx context.Context) error {
-	if a.authService == nil {
+	if !a.rolesApply(ctx) {
 		return nil
 	}
 	user, ok := auth.UserFromContext(ctx)
@@ -953,7 +1019,7 @@ func (a *API) requireDAGWrite(ctx context.Context) error {
 	if !a.config.Server.Permissions[config.PermissionWriteDAGs] {
 		return errPermissionDenied
 	}
-	if a.authService != nil {
+	if a.rolesApply(ctx) {
 		user, ok := auth.UserFromContext(ctx)
 		if !ok {
 			return errAuthRequired
@@ -1123,6 +1189,7 @@ func mergeAuditSourceDetails(details map[string]any, source *audit.SourceContext
 	put("subject_type", source.SubjectType)
 	put("subject_id", source.SubjectID)
 	put("subject_name", source.SubjectName)
+	put("cloud_workspace", source.CloudWorkspace)
 	put("mcp_tool", source.MCPTool)
 	put("mcp_action", source.MCPAction)
 	if len(source.CredentialAllowedSurfaces) > 0 {

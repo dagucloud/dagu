@@ -1,0 +1,23 @@
+working_dir: .
+env:
+  - LLM_BASE_URL: ${LLM_BASE_URL}
+  - UPSTREAM_PROXY: ${UPSTREAM_PROXY}
+  - CERT_PASSPHRASE: ${CERT_PASSPHRASE}
+llm:
+  provider: local
+  model: test-model
+  base_url: ${LLM_BASE_URL}
+steps:
+  - id: portal
+    action: browser.run
+    with:
+      browser:
+        proxy: ${UPSTREAM_PROXY}
+        client_certificates:
+          - hosts: [mtls.test]
+            pfx_file: client.p12
+            passphrase: ${CERT_PASSPHRASE}
+            ca_file: ca.pem
+      do:
+        - goto: https://mtls.test/
+        - expect: {text: "Hello client-1"}

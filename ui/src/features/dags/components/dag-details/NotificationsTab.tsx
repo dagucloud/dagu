@@ -12,7 +12,7 @@ import {
   Save,
   Settings,
 } from 'lucide-react';
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
 
 import { Button } from '@/components/ui/button';
@@ -54,6 +54,8 @@ import { I18nProps } from '@/i18n/I18nProps';
 type NotificationsTabProps = {
   fileName: string;
   workspaceName?: string;
+  /** Called with the unsaved-changes state when it changes, and once on mount. */
+  onDirtyChange?: (dirty: boolean) => void;
 };
 
 type DAGNotificationHeaderProps = {
@@ -87,19 +89,23 @@ function DAGNotificationHeader({
 }: DAGNotificationHeaderProps) {
   return (
     <div className="space-y-4">
-      <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
-        <div className="space-y-1">
-          <h1 className="text-2xl font-semibold tracking-normal text-foreground">
-            <I18nText text={"DAG Notifications"} />
-          </h1>
+      <div className="flex flex-col gap-3 @3xl:flex-row @3xl:items-start @3xl:justify-between">
+        <div className="min-w-0 max-w-2xl space-y-1">
+          <h2 className="text-lg font-semibold text-foreground">
+            <I18nText text={'Workflow notifications'} />
+          </h2>
           <p className="text-sm text-muted-foreground">
-            <I18nText text={"This DAG inherits rules by default. Configure a DAG override only when this DAG needs different events or destinations."} />
+            <I18nText
+              text={
+                'This workflow inherits rules by default. Configure a workflow override only when it needs different events or destinations.'
+              }
+            />
           </p>
         </div>
-        <div className="flex flex-wrap items-center gap-2">
+        <div className="flex min-w-0 flex-wrap items-center gap-2 @3xl:shrink-0 @3xl:justify-end">
           <Button variant="outline" size="sm" onClick={onRefresh}>
             <RefreshCw className="h-4 w-4" />
-            <I18nText text={"Refresh"} />
+            <I18nText text={'Refresh'} />
           </Button>
           {!loadFailed && (
             <>
@@ -118,7 +124,7 @@ function DAGNotificationHeader({
                 ) : (
                   <FlaskConical className="h-4 w-4" />
                 )}
-                <I18nText text={"Send test"} />
+                <I18nText text={'Send test'} />
               </Button>
               {isDAGConfigured ? (
                 <>
@@ -133,7 +139,7 @@ function DAGNotificationHeader({
                     ) : (
                       <RotateCcw className="h-4 w-4" />
                     )}
-                    <I18nText text={"Reset to inherit"} />
+                    <I18nText text={'Reset to inherit'} />
                   </Button>
                   <Button
                     size="sm"
@@ -145,13 +151,13 @@ function DAGNotificationHeader({
                     ) : (
                       <Save className="h-4 w-4" />
                     )}
-                    <I18nText text={"Save changes"} />
+                    <I18nText text={'Save changes'} />
                   </Button>
                 </>
               ) : (
                 <Button size="sm" onClick={onConfigureDAG}>
                   <Settings className="h-4 w-4" />
-                  <I18nText text={"Configure DAG override"} />
+                  <I18nText text={'Configure workflow override'} />
                 </Button>
               )}
             </>
@@ -162,28 +168,32 @@ function DAGNotificationHeader({
       <div className="flex items-center gap-1 border-b border-border">
         <span className="inline-flex h-10 items-center gap-2 border-b-2 border-primary px-3 text-sm font-medium text-foreground">
           <Bell className="h-4 w-4 text-primary" />
-          <I18nText text={"This DAG"} />
+          <I18nText text={'This workflow'} />
         </span>
         <Link
           to="/notification-rules"
           className="inline-flex h-10 items-center gap-2 border-b-2 border-transparent px-3 text-sm font-medium text-muted-foreground hover:text-foreground"
         >
           <RouteIcon className="h-4 w-4" />
-          <I18nText text={"Rules"} />
+          <I18nText text={'Rules'} />
         </Link>
         <Link
           to="/notification-channels"
           className="inline-flex h-10 items-center gap-2 border-b-2 border-transparent px-3 text-sm font-medium text-muted-foreground hover:text-foreground"
         >
           <Mail className="h-4 w-4" />
-          <I18nText text={"Channels"} />
+          <I18nText text={'Channels'} />
         </Link>
       </div>
     </div>
   );
 }
 
-function NotificationsTab({ fileName, workspaceName }: NotificationsTabProps) {
+function NotificationsTab({
+  fileName,
+  workspaceName,
+  onDirtyChange,
+}: NotificationsTabProps) {
   const { ts } = useI18n();
   const config = useConfig();
   const remoteNode = useRemoteNode();
@@ -215,6 +225,11 @@ function NotificationsTab({ fileName, workspaceName }: NotificationsTabProps) {
   const [isSaving, setIsSaving] = useState(false);
   const [isResetting, setIsResetting] = useState(false);
   const [hasUnsavedChanges, setHasUnsavedChanges] = useState(false);
+  const onDirtyChangeRef = useRef(onDirtyChange);
+  onDirtyChangeRef.current = onDirtyChange;
+  useEffect(() => {
+    onDirtyChangeRef.current?.(hasUnsavedChanges);
+  }, [hasUnsavedChanges]);
   const localizedRouteSourceLabel =
     effectiveRouteSourceLabel === 'Global rules'
       ? ts('Global rules')
@@ -486,7 +501,7 @@ function NotificationsTab({ fileName, workspaceName }: NotificationsTabProps) {
 
   if (loadFailed) {
     return (
-      <div className="space-y-4">
+      <div className="@container space-y-4">
         {header}
         <Card>
           <CardContent className="py-4 text-sm text-destructive">
@@ -498,14 +513,14 @@ function NotificationsTab({ fileName, workspaceName }: NotificationsTabProps) {
   }
 
   return (
-    <div className="space-y-4">
+    <div className="@container space-y-4">
       {header}
 
       {isLoading && (
         <Card>
           <CardContent className="flex items-center gap-2 py-3 text-sm text-muted-foreground">
             <Loader2 className="h-4 w-4 animate-spin" />
-            <I18nText text={"Refreshing notifications..."} />
+            <I18nText text={'Refreshing notifications...'} />
           </CardContent>
         </Card>
       )}
@@ -559,39 +574,51 @@ function NotificationsTab({ fileName, workspaceName }: NotificationsTabProps) {
         />
       )}
 
-      <I18nProps><ConfirmDialog
-        title="Reset DAG Override"
-        buttonText="Reset"
-        visible={resetVisible}
-        dismissModal={() => setResetVisible(false)}
-        onSubmit={resetDAGSettings}
-      >
-        <I18nText text={"Remove this DAG override and inherit workspace or Global notification rules?"} />
-      </ConfirmDialog></I18nProps>
+      <I18nProps>
+        <ConfirmDialog
+          title="Reset workflow override"
+          buttonText="Reset"
+          visible={resetVisible}
+          dismissModal={() => setResetVisible(false)}
+          onSubmit={resetDAGSettings}
+        >
+          <I18nText
+            text={
+              'Remove this workflow override and inherit workspace or Global notification rules?'
+            }
+          />
+        </ConfirmDialog>
+      </I18nProps>
 
-      <I18nProps><ConfirmDialog
-        title="Delete Destination"
-        buttonText="Delete"
-        visible={deleteTargetIndex !== null}
-        dismissModal={() => setDeleteTargetIndex(null)}
-        onSubmit={removeTarget}
-      >
-        <I18nText text={"Delete"} />{' '}
-        {deleteTargetIndex !== null && draft.targets[deleteTargetIndex]
-          ? deliveryLabel(draft.targets[deleteTargetIndex])
-          : <I18nText text={"target"} />}
-        ?
-      </ConfirmDialog></I18nProps>
+      <I18nProps>
+        <ConfirmDialog
+          title="Delete destination"
+          buttonText="Delete"
+          visible={deleteTargetIndex !== null}
+          dismissModal={() => setDeleteTargetIndex(null)}
+          onSubmit={removeTarget}
+        >
+          <I18nText text={'Delete'} />{' '}
+          {deleteTargetIndex !== null && draft.targets[deleteTargetIndex] ? (
+            deliveryLabel(draft.targets[deleteTargetIndex])
+          ) : (
+            <I18nText text={'target'} />
+          )}
+          ?
+        </ConfirmDialog>
+      </I18nProps>
 
-      <I18nProps><ConfirmDialog
-        title="Delete Subscription"
-        buttonText="Delete"
-        visible={deleteSubscriptionIndex !== null}
-        dismissModal={() => setDeleteSubscriptionIndex(null)}
-        onSubmit={removeSubscription}
-      >
-        <I18nText text={"Delete this subscription?"} />
-      </ConfirmDialog></I18nProps>
+      <I18nProps>
+        <ConfirmDialog
+          title="Delete subscription"
+          buttonText="Delete"
+          visible={deleteSubscriptionIndex !== null}
+          dismissModal={() => setDeleteSubscriptionIndex(null)}
+          onSubmit={removeSubscription}
+        >
+          <I18nText text={'Delete this subscription?'} />
+        </ConfirmDialog>
+      </I18nProps>
     </div>
   );
 }

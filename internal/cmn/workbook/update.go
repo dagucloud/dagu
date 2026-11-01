@@ -48,6 +48,9 @@ type UpdateOptions struct {
 	// other than the key and _row to the column of the same name.
 	Set     map[string]SetValue
 	Missing MissingMode
+	// Output, when set, receives the result while the workbook at path is
+	// left as it was.
+	Output  string
 	InPlace bool
 	DryRun  bool
 	Lock    LockOptions
@@ -160,7 +163,7 @@ func UpdateRows(ctx context.Context, path string, opts UpdateOptions) (*WriteRes
 	}
 	return withLock(ctx, path, opts.Lock, func() (*WriteResult, error) {
 		return updateOnce(ctx, path, opts)
-	})
+	}, opts.Output)
 }
 
 type updatePlan struct {
@@ -215,6 +218,12 @@ func updateOnce(ctx context.Context, path string, opts UpdateOptions) (*WriteRes
 	}
 	if warning != "" {
 		warn(warning)
+	}
+	if opts.Output != "" {
+		if err := checkOutput(path, opts.Output, "update", warn); err != nil {
+			return nil, err
+		}
+		result.Path = opts.Output
 	}
 	w, err := open(path, opts.Password)
 	if err != nil {
@@ -286,6 +295,12 @@ func updateOnce(ctx context.Context, path string, opts UpdateOptions) (*WriteRes
 	w.forget(plan.sheet)
 	if opts.DryRun {
 		return result, nil
+	}
+	if opts.Output != "" {
+		if err := ensureParentDir(opts.Output); err != nil {
+			return nil, err
+		}
+		w.path, w.base = opts.Output, Base(opts.Output)
 	}
 	if err := w.save(opts.InPlace); err != nil {
 		return nil, err

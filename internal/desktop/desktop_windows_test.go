@@ -12,6 +12,7 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"golang.org/x/sys/windows"
 )
 
 // SendInput rejects events whose size differs from the platform's INPUT.
@@ -24,6 +25,53 @@ func TestInputMatchesWin32Layout(t *testing.T) {
 	}
 	assert.Equal(t, want, unsafe.Sizeof(input{}))
 	assert.LessOrEqual(t, unsafe.Sizeof(keybdInput{}), unsafe.Sizeof(mouseInput{}))
+}
+
+// A scroll sends one wheel message per notch, as a mouse wheel does. Wheel
+// data is negative toward the user and to the left.
+func TestWheelInputsSendANotchPerMessage(t *testing.T) {
+	t.Parallel()
+
+	oneNotchBack := uint32(0xFFFFFF88) // -120
+	events := wheelInputs(-2, 3)
+	require.Len(t, events, 5)
+	for _, event := range events[:3] {
+		assert.Equal(t, mouseInput{Flags: mouseWheel, MouseData: oneNotchBack}, event.Mouse)
+	}
+	for _, event := range events[3:] {
+		assert.Equal(t, mouseInput{Flags: mouseHWheel, MouseData: oneNotchBack}, event.Mouse)
+	}
+	assert.Equal(t, uint32(120), wheelInputs(0, -1)[0].Mouse.MouseData)
+}
+
+// Only an active session draws; every other connect state is reported as a
+// disconnected session, which is not a locked screen.
+func TestSessionProblemForState(t *testing.T) {
+	t.Parallel()
+
+	_, ok := sessionProblemForState(windows.WTSActive)
+	assert.False(t, ok)
+
+	for name, state := range map[string]uint32{
+		"connected":    windows.WTSConnected,
+		"disconnected": windows.WTSDisconnected,
+		"idle":         windows.WTSIdle,
+	} {
+		problem, ok := sessionProblemForState(state)
+		require.True(t, ok, name)
+		assert.Equal(t, "session_disconnected", problem.Code, name)
+		assert.Contains(t, problem.Message, "disconnected", name)
+	}
+}
+
+// The current session is always listed, in session 0 as well, so the lookup
+// itself never fails; what it reports depends on where the test runs.
+func TestSessionConnectState(t *testing.T) {
+	t.Parallel()
+
+	state, err := sessionConnectState()
+	require.NoError(t, err)
+	assert.LessOrEqual(t, state, uint32(windows.WTSInit))
 }
 
 // e2eDesktop skips unless the test runs on an interactive desktop, which

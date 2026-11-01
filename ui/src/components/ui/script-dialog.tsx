@@ -41,7 +41,7 @@ export function ScriptDialog({
     <Dialog open={open} onOpenChange={setOpen}>
       <div
         onClick={() => setOpen(true)}
-        className="cursor-pointer"
+        className="min-w-0 cursor-pointer"
         role="button"
         tabIndex={0}
         onKeyDown={(e) => {
@@ -93,17 +93,34 @@ interface ScriptBadgeProps {
 }
 
 /**
- * ScriptBadge is a pre-styled trigger that shows "Script defined" badge.
- * Clicking it opens the ScriptDialog.
+ * ScriptBadge previews the first line of a script and opens the full script
+ * in a ScriptDialog when clicked.
  */
 export function ScriptBadge({ script, stepName }: ScriptBadgeProps) {
+  const { ts } = useI18n();
+  const lines = script
+    .split('\n')
+    .map((line) => line.trim())
+    .filter(Boolean);
+  const moreLines = Math.max(0, lines.length - 1);
+
   return (
     <ScriptDialog script={script} stepName={stepName}>
-      <div className="flex items-center gap-1.5 text-xs bg-warning-muted rounded-md px-1.5 py-0.5 w-fit hover:bg-warning-muted transition-colors">
-        <FileText className="h-3.5 w-3.5 text-warning" />
-        <span className="font-medium text-warning">
-          <I18nText text={'Script defined'} />
+      <div
+        className="flex min-w-0 max-w-full items-center gap-1.5 text-xs font-medium"
+        title={ts('View script')}
+      >
+        <FileText className="h-4 w-4 shrink-0 text-primary" />
+        <span className="min-w-0 truncate whitespace-pre rounded-md bg-muted px-1.5 py-0.5 font-mono text-foreground/90 hover:bg-accent">
+          {lines[0] ?? ''}
         </span>
+        {moreLines > 0 && (
+          <span className="shrink-0 text-muted-foreground">
+            {ts(moreLines === 1 ? '+{count} line' : '+{count} lines', {
+              count: moreLines,
+            })}
+          </span>
+        )}
       </div>
     </ScriptDialog>
   );

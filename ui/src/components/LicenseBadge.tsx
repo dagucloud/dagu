@@ -16,6 +16,7 @@ import { useI18n } from '@/i18n/I18nProvider';
 import { I18nTemplate } from '@/i18n/I18nTemplate';
 import dayjs from '@/lib/dayjs';
 import {
+  isFreeLicense,
   licensePlanLabel,
   licenseStatus,
   monitoringLevelLabels,
@@ -80,8 +81,9 @@ function MonitoringValue({
 
 /**
  * States the plan and workspace of the selected server in one line, or what
- * needs attention instead. Collapsed, it shows only an alert icon, and only
- * when something needs attention. Details open on hover or focus.
+ * needs attention instead; a free license states that it monitors only.
+ * Collapsed, it shows only an alert icon, and only when something needs
+ * attention. Details open on hover or focus.
  */
 export function LicenseBadge({
   onNavigate,
@@ -104,6 +106,7 @@ export function LicenseBadge({
   const stale = online && monitoringStale(monitoring, now);
 
   const status = licenseStatus(license, now);
+  const free = isFreeLicense(license);
   let attention: LicenseStatusText | undefined;
   if (known && (status.tone === 'warning' || status.tone === 'error')) {
     attention = status;
@@ -112,7 +115,9 @@ export function LicenseBadge({
   }
   const detail = attention
     ? ts(attention.text, attention.values)
-    : license.workspace;
+    : free
+      ? ts(status.text)
+      : license.workspace;
   const label = loading
     ? ts('Checking license…')
     : error
@@ -129,7 +134,7 @@ export function LicenseBadge({
   if (compact && !attention) return null;
 
   const expiry =
-    known && license.expiry && dayjs(license.expiry).isValid()
+    known && !free && license.expiry && dayjs(license.expiry).isValid()
       ? dayjs(license.expiry).format('YYYY-MM-DD')
       : undefined;
   const details = (

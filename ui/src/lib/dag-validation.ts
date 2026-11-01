@@ -10,13 +10,10 @@ export const DAG_NAME_MAX_LEN = 40;
 // Regex pattern for valid DAG names
 export const DAG_NAME_PATTERN = /^[a-zA-Z0-9_.-]+$/;
 
-// Pattern string for display
-export const DAG_NAME_PATTERN_STRING = '^[a-zA-Z0-9_.-]+$';
-
-// Error messages
+// Error messages, as translation sources; {max} is DAG_NAME_MAX_LEN.
 export const DAG_NAME_ERROR_MESSAGES = {
   empty: 'DAG name cannot be empty',
-  tooLong: `DAG name must be ${DAG_NAME_MAX_LEN} characters or less`,
+  tooLong: 'DAG name must be {max} characters or less',
   invalid: 'DAG name can only contain letters, numbers, underscores, dots, and hyphens',
   space: 'DAG name cannot contain spaces',
 } as const;

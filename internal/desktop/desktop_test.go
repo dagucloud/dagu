@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"image"
+	"math"
 	"testing"
 	"time"
 
@@ -20,6 +21,8 @@ import (
 type recordingBackend struct {
 	events  []string
 	failKey desktop.Key
+	// failReleases is how many more button releases fail.
+	failReleases int
 	// personInputAt is the last input the desktop received from a person.
 	personInputAt time.Time
 }
@@ -37,6 +40,10 @@ func (b *recordingBackend) Position() (int, int, error) { return 7, 8, nil }
 
 func (b *recordingBackend) Button(button desktop.Button, down bool, clicks int) error {
 	b.events = append(b.events, fmt.Sprintf("%s %s #%d", button, upDown(down), clicks))
+	if !down && b.failReleases > 0 {
+		b.failReleases--
+		return errors.New("release failed")
+	}
 	return nil
 }
 
@@ -60,10 +67,16 @@ func (b *recordingBackend) Type(text string) error {
 
 func (b *recordingBackend) LastInput() time.Time { return b.personInputAt }
 
-func (b *recordingBackend) FocusedWindow() desktop.WindowID    { return desktop.WindowID{} }
-func (b *recordingBackend) WindowAt(int, int) desktop.WindowID { return desktop.WindowID{} }
-func (b *recordingBackend) Windows() []desktop.WindowID        { return nil }
-func (b *recordingBackend) Raise(desktop.WindowID) error       { return nil }
+func (b *recordingBackend) FocusedWindow() desktop.WindowID      { return desktop.WindowID{} }
+func (b *recordingBackend) WindowAt(int, int) desktop.WindowID   { return desktop.WindowID{} }
+func (b *recordingBackend) Windows() []desktop.WindowID          { return nil }
+func (b *recordingBackend) ReachableWindows() []desktop.WindowID { return nil }
+func (b *recordingBackend) Raise(desktop.WindowID) error         { return nil }
+
+func (b *recordingBackend) Maximize(w desktop.WindowID) (bool, error) {
+	b.events = append(b.events, "maximize "+w.App)
+	return true, nil
+}
 
 func (b *recordingBackend) Close() error { return nil }
 
@@ -143,6 +156,10 @@ func TestDriverScrollAtPoint(t *testing.T) {
 	require.NoError(t, driver.Scroll(context.Background(), &at, 0, -3, nil))
 
 	assert.Equal(t, []string{"move 5,6", "wheel 0,-3"}, backend.events)
+
+	require.ErrorContains(t, driver.Scroll(context.Background(), &at, 0, 101, nil), "at most 100 notches")
+	require.ErrorContains(t, driver.Scroll(context.Background(), &at, math.MinInt, 0, nil), "at most 100 notches")
+	assert.Len(t, backend.events, 2, "a scroll too long sends nothing")
 }
 
 func TestParseButton(t *testing.T) {
@@ -211,4 +228,78 @@ func TestDriverWaitForIdle(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Millisecond)
 	defer cancel()
 	assert.ErrorIs(t, driver.WaitForIdle(ctx, time.Hour, poll, onWait), context.DeadlineExceeded)
+}
+
+// Only problems a person clears at the computer are worth waiting for; one
+// that needs a permission or another setup fails at once.
+func TestDiagnosticsAwaitsPerson(t *testing.T) {
+	t.Parallel()
+
+	diagnostics := func(codes ...string) desktop.Diagnostics {
+		var d desktop.Diagnostics
+		for _, code := range codes {
+			d.Problems = append(d.Problems, desktop.Problem{Code: code, Message: code})
+		}
+		return d
+	}
+	for _, codes := range [][]string{{"screen_locked"}, {"no_session"}, {"other_session"}} {
+		assert.True(t, diagnostics(codes...).AwaitsPerson(), codes)
+	}
+	for _, codes := range [][]string{nil, {"screen_recording"}, {"screen_locked", "accessibility"}, {"service_session"}, {"unsupported"}} {
+		assert.False(t, diagnostics(codes...).AwaitsPerson(), codes)
+	}
+}
+
+func TestDriverOwnedProtectsTitles(t *testing.T) {
+	t.Parallel()
+
+	driver := desktop.New(&recordingBackend{})
+	driver.ProtectTitles(" · Runbook ", "")
+	driver.ProtectApps("Runbook")
+
+	page := desktop.WindowID{Handle: 1, PID: 999999, App: "Google Chrome", Title: "バッチ · Runbook"}
+	assert.True(t, driver.Owned(page), "a page with a protected title is owned in any application")
+	assert.True(t, driver.OwnedPage(page), "it is owned as a page another application shows")
+	assert.False(t, driver.Owned(desktop.WindowID{Handle: 2, PID: 999999, App: "Google Chrome", Title: "Inbox - Mail"}))
+	assert.False(t, driver.Owned(desktop.WindowID{Handle: 3, PID: 999999, App: "Google Chrome"}), "a window without a title is nobody's")
+	own := desktop.WindowID{Handle: 4, PID: 999999, App: "Runbook", Title: "Settings · Runbook"}
+	assert.True(t, driver.Owned(own))
+	assert.False(t, driver.OwnedPage(own), "a protected application's own window is not a page another shows")
+}
+
+func TestDriverOwnedProtectsApps(t *testing.T) {
+	t.Parallel()
+
+	driver := desktop.New(&recordingBackend{})
+	driver.ProtectApps(" runbook ", "")
+
+	assert.True(t, driver.Owned(desktop.WindowID{Handle: 1, PID: 999999, App: "Runbook"}), "a protected app is owned whatever its process")
+	assert.False(t, driver.Owned(desktop.WindowID{Handle: 2, PID: 999999, App: "TextEdit"}))
+	assert.False(t, driver.Owned(desktop.WindowID{Handle: 3}), "a window the system does not name is nobody's")
+}
+
+// A button pressed and not released is released by ReleaseHeld, and one
+// whose release fails stays pressed for the next ReleaseHeld.
+func TestReleaseHeldReleasesWhatStaysPressed(t *testing.T) {
+	t.Parallel()
+
+	backend := &recordingBackend{failReleases: 2}
+	driver := desktop.New(backend)
+	require.NoError(t, driver.PressButton(desktop.ButtonLeft))
+	require.Error(t, driver.ReleaseButton(desktop.ButtonLeft))
+	require.Error(t, driver.ReleaseHeld())
+	require.NoError(t, driver.ReleaseHeld())
+	require.NoError(t, driver.ReleaseHeld())
+	assert.Equal(t, []string{"left down #1", "left up #1", "left up #1", "left up #1"}, backend.events)
+}
+
+// Closing the driver releases a button still pressed.
+func TestCloseReleasesWhatStaysPressed(t *testing.T) {
+	t.Parallel()
+
+	backend := &recordingBackend{}
+	driver := desktop.New(backend)
+	require.NoError(t, driver.PressButton(desktop.ButtonLeft))
+	require.NoError(t, driver.Close())
+	assert.Equal(t, []string{"left down #1", "left up #1"}, backend.events)
 }

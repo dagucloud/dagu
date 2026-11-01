@@ -27,6 +27,7 @@ type Store struct {
 	mu          sync.RWMutex
 	fileCache   *fileutil.Cache[string]
 	skipDefault bool
+	onChange    func(context.Context)
 }
 
 // Option is a functional option for configuring the Store.
@@ -43,6 +44,13 @@ func WithFileCache(cache *fileutil.Cache[string]) Option {
 func WithSkipDefault(skip bool) Option {
 	return func(s *Store) {
 		s.skipDefault = skip
+	}
+}
+
+// WithOnChange registers a function called after every successful UpdateSpec.
+func WithOnChange(fn func(context.Context)) Option {
+	return func(s *Store) {
+		s.onChange = fn
 	}
 }
 
@@ -114,7 +122,7 @@ func (s *Store) readFromFile() (string, error) {
 }
 
 // UpdateSpec writes the given YAML content to the base configuration file.
-func (s *Store) UpdateSpec(_ context.Context, spec []byte) error {
+func (s *Store) UpdateSpec(ctx context.Context, spec []byte) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
@@ -124,6 +132,9 @@ func (s *Store) UpdateSpec(_ context.Context, spec []byte) error {
 
 	if s.fileCache != nil {
 		s.fileCache.Invalidate(s.filePath)
+	}
+	if s.onChange != nil {
+		s.onChange(ctx)
 	}
 
 	return nil

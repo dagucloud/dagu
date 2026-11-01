@@ -9,6 +9,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"slices"
 
 	"github.com/dagucloud/dagu/v2/internal/eventstore"
 )
@@ -65,27 +66,29 @@ func decodeQueryCursor(cursor string, filter eventstore.QueryFilter) (queryCurso
 
 func queryFilterHash(filter eventstore.QueryFilter) string {
 	normalized := struct {
-		Kind      string `json:"kind,omitempty"`
-		Type      string `json:"type,omitempty"`
-		DAGName   string `json:"dag_name,omitempty"`
-		DAGRunID  string `json:"dag_run_id,omitempty"`
-		AttemptID string `json:"attempt_id,omitempty"`
-		SessionID string `json:"session_id,omitempty"`
-		UserID    string `json:"user_id,omitempty"`
-		Model     string `json:"model,omitempty"`
-		Status    string `json:"status,omitempty"`
-		StartTime string `json:"start_time,omitempty"`
-		EndTime   string `json:"end_time,omitempty"`
+		Kind         string                 `json:"kind,omitempty"`
+		Type         string                 `json:"type,omitempty"`
+		ExcludeTypes []eventstore.EventType `json:"exclude_types,omitempty"`
+		DAGName      string                 `json:"dag_name,omitempty"`
+		DAGRunID     string                 `json:"dag_run_id,omitempty"`
+		AttemptID    string                 `json:"attempt_id,omitempty"`
+		SessionID    string                 `json:"session_id,omitempty"`
+		UserID       string                 `json:"user_id,omitempty"`
+		Model        string                 `json:"model,omitempty"`
+		Status       string                 `json:"status,omitempty"`
+		StartTime    string                 `json:"start_time,omitempty"`
+		EndTime      string                 `json:"end_time,omitempty"`
 	}{
-		Kind:      string(filter.Kind),
-		Type:      string(filter.Type),
-		DAGName:   filter.DAGName,
-		DAGRunID:  filter.DAGRunID,
-		AttemptID: filter.AttemptID,
-		SessionID: filter.SessionID,
-		UserID:    filter.UserID,
-		Model:     filter.Model,
-		Status:    filter.Status,
+		Kind:         string(filter.Kind),
+		Type:         string(filter.Type),
+		ExcludeTypes: slices.Sorted(slices.Values(filter.ExcludeTypes)),
+		DAGName:      filter.DAGName,
+		DAGRunID:     filter.DAGRunID,
+		AttemptID:    filter.AttemptID,
+		SessionID:    filter.SessionID,
+		UserID:       filter.UserID,
+		Model:        filter.Model,
+		Status:       filter.Status,
 	}
 	if !filter.StartTime.IsZero() {
 		normalized.StartTime = filter.StartTime.UTC().Format(jsonTimeLayout)

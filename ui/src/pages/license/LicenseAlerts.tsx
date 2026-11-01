@@ -9,6 +9,7 @@ import type { LicenseStatus } from '@/contexts/ConfigContext';
 import { useI18n } from '@/i18n/I18nProvider';
 import dayjs from '@/lib/dayjs';
 import {
+  isFreeLicense,
   LICENSE_WARNING_DAYS,
   licenseDaysLeft,
   licenseLink,
@@ -74,7 +75,8 @@ export function CalloutLink({
 /**
  * Shows one callout for each license problem of the selected server: an
  * error, a warning from Dagu Console, the grace period, expiry, or expiry
- * within the warning window.
+ * within the warning window. A free license unlocks nothing that its expiry
+ * would take away, so it gets no expiry callouts.
  */
 export function LicenseAlerts({
   license,
@@ -87,6 +89,7 @@ export function LicenseAlerts({
 }) {
   const { ts } = useI18n();
   const trial = license.plan === 'trial';
+  const expiryMatters = !license.community && !isFreeLicense(license);
   const renew = (
     <CalloutLink href={licenseLink(trial ? 'plans' : 'manage', 'plan-page')}>
       {ts(trial ? 'View plans' : 'Renew license')}
@@ -94,7 +97,7 @@ export function LicenseAlerts({
   );
   const days = licenseDaysLeft(license.expiry, now);
   const expiring =
-    !license.community &&
+    expiryMatters &&
     license.valid &&
     days !== undefined &&
     days <= (trial ? TRIAL_WARNING_DAYS : LICENSE_WARNING_DAYS);
@@ -137,7 +140,7 @@ export function LicenseAlerts({
               })}
         </LicenseCallout>
       )}
-      {license.gracePeriod && !license.community && (
+      {license.gracePeriod && expiryMatters && (
         <LicenseCallout
           tone="warning"
           title={ts('License expired')}
@@ -152,7 +155,7 @@ export function LicenseAlerts({
       )}
       {!license.valid &&
         !license.gracePeriod &&
-        !license.community &&
+        expiryMatters &&
         !license.error && (
           <LicenseCallout
             tone="error"

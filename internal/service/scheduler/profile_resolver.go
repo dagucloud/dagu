@@ -5,13 +5,16 @@ package scheduler
 
 import (
 	"context"
-	"fmt"
+	"errors"
 
 	"github.com/dagucloud/dagu/v2/internal/dagsettings"
 	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/profile"
 	"github.com/dagucloud/dagu/v2/internal/workspace"
 )
+
+// errInvalidWorkspaceLabel marks a DAG whose workspace label is malformed.
+var errInvalidWorkspaceLabel = errors.New("invalid workspace label")
 
 type dagProfileResolver struct {
 	settingsStore dagsettings.Store
@@ -43,7 +46,7 @@ func dagWorkspaceName(dag *ir.DAG) (string, error) {
 	case workspace.WorkspaceLabelMissing:
 		return "", nil
 	case workspace.WorkspaceLabelInvalid:
-		return "", fmt.Errorf("invalid workspace label")
+		return "", errInvalidWorkspaceLabel
 	}
 	return "", nil
 }

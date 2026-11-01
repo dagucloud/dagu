@@ -20,6 +20,8 @@ const (
 	TypeErrorWarn TypeErrorMode = "warn"
 	// TypeErrorNull is accepted as a spelling of TypeErrorWarn.
 	TypeErrorNull TypeErrorMode = "null"
+	// TypeErrorKeep keeps the cell's value as read and records a warning.
+	TypeErrorKeep TypeErrorMode = "keep"
 )
 
 func (m TypeErrorMode) warns() bool {
@@ -67,6 +69,17 @@ type ReadResult struct {
 // Read returns the typed rows of a sheet.
 func Read(ctx context.Context, path string, opts ReadOptions) (*ReadResult, error) {
 	w, err := open(path, opts.Password)
+	if err != nil {
+		return nil, err
+	}
+	defer w.close()
+	return w.read(ctx, opts)
+}
+
+// ReadBytes reads a workbook supplied as bytes. Path is used only as the
+// result and error label, so callers can report stdin as "-".
+func ReadBytes(ctx context.Context, path string, data []byte, opts ReadOptions) (*ReadResult, error) {
+	w, err := openBytes(path, data, opts.Password)
 	if err != nil {
 		return nil, err
 	}
@@ -241,10 +254,14 @@ func (w *file) readRow(sheet string, reg region, r int, grid [][]string, merges 
 		if t, ok := types[name]; ok && value != nil {
 			coerced, cerr := coerce(value, t, w.date1904)
 			if cerr != nil {
-				if opts.OnTypeError.warns() {
+				switch {
+				case opts.OnTypeError == TypeErrorKeep:
+					warn(fmt.Sprintf("%s!%s: %v", sheet, cellName(c, r), cerr))
+					coerced = value
+				case opts.OnTypeError.warns():
 					warn(fmt.Sprintf("%s!%s: %v", sheet, cellName(c, r), cerr))
 					coerced = nil
-				} else {
+				default:
 					return nil, false, w.cellError(sheet, c, r, cerr.Error())
 				}
 			}

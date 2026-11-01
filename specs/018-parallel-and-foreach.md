@@ -490,6 +490,11 @@ Rules:
 
 - `${foreach.<as>.field}` resolves to a top-level object field.
 
+- A field name that starts with a letter or underscore and continues with
+  letters, marks, digits, or underscores, in any script, may be written
+  unquoted. Any other field name is written as `${foreach.<as>."name"}` or
+  `${foreach.<as>["name"]}`.
+
 - Nested item field paths such as `${foreach.item.a.b}` are outside this spec.
 
 - Item scope is available to `foreach.key`.
@@ -501,6 +506,17 @@ Rules:
 
 - The uppercase `${ITEM}` item reference is owned by `parallel`. It is not a
   `foreach` item reference.
+
+- `${<as>.field}` without the `foreach.` namespace is not an item reference.
+  When a field with item scope is evaluated, an unescaped `${<as>.field}`
+  whose field may be written unquoted fails that item unless another source
+  resolves it: an environment value named `<as>` holding a JSON object with
+  that field, from any source the field reads (root `env`, dotenv, params,
+  step `env`, an output variable, or the process environment where the field
+  reads it), or a step property such as `${<as>.stdout}` of a step whose id
+  is `<as>`. Validation cannot decide this, because run-time params, dotenv
+  files, and the process environment may define `<as>`. `${<as>}` and
+  `$<as>.field` are not affected, so shell variables keep their meaning.
 
 #### Body Step Scope
 
@@ -691,6 +707,8 @@ Runtime execution must fail when:
 - item expansion produces more than `1000` items.
 - `foreach.key` resolves to an empty string.
 - two item slots resolve to the same item key.
+- a field with item scope keeps `${<as>.field}` without the `foreach.`
+  namespace, as the Item Scope section defines; that item fails.
 - every item body fails; a collect expression that fails to resolve after
   its item body succeeded counts as that item's failure. When some item
   bodies fail and others succeed, the step is `partially_succeeded`, as the

@@ -2,8 +2,9 @@
 
 - **Status:** Proposed
 - **Date:** 2026-10-09
-- **Affected areas:** `license`, `eventstore`, `tunnel`, `serviceregistry`,
-  `service/frontend` (auth, API, UI), `audit`, `cmn/config`, and `cmd`
+- **Affected areas:** `license`, `eventstore`, `cloudrelay`, `cloudaccess`,
+  `serviceregistry`, `service/frontend` (auth, API, UI), `service/mcp`,
+  `audit`, `cmn/config`, and `cmd`
 
 ## Summary
 
@@ -39,7 +40,8 @@ Today they:
 1. **One step.** Activating an online license connects the server.
 2. **Nothing without consent.** Upgrading or connecting sends nothing new.
    Reporting starts only when the server's admin chooses it, and then sends
-   metadata only: health, version, and run status. No logs, outputs,
+   metadata: health, version, and run status, and failed steps' error
+   messages only at the level that names them. No full logs, outputs,
    parameters, or secrets.
 3. **Outbound only.** Remote access rides a connection the server opens.
 4. **The server decides.** Remote access is opt-in per server, capped by a
@@ -84,7 +86,7 @@ a way to activate a license, not as a new concept:
 ```text
  Dagu server                           Dagu Cloud console                 Owner (browser)
    │ secret = 32 random bytes                 │                                │
-   │ open /servers/connect?code=sha256(secret)&server_id=…&name=… ───────────▶ │
+   │ open /servers/connect?code=sha256(secret)&server_id=…&name=…&version=… ─▶ │
    │                                          │ ◀── sign in, pick workspace ── │
    │                                          │ ◀── approve ────────────────── │
    │ POST /api/v1/licenses/connect {connection_secret, server_id} (every 3 s)  │
@@ -92,14 +94,47 @@ a way to activate a license, not as a new concept:
    │ persist activation (as `license activate` does today)                     │
 ```
 
-The approval page states what the server will report. Approvals expire after
-15 minutes, as the console enforces today.
+The approval page states what the server will report. The admin may choose
+the report level when starting the connection; the URL then carries the level
+in effect as `report`, the approval page states it, and reporting starts once
+the license is granted. Approvals expire after 15 minutes, as the console
+enforces today.
+
+`version` is the Dagu version, the same string the server sends as
+`client_version`: `2.19.2` from a release, `v2.19.2-3-gabc1234` from a source
+build, or `dev`. The approval page uses it to turn away servers too old for
+the plan on offer (see Free plan).
 
 ### Disconnecting
 
 **Disconnect** on the license settings page calls `POST /api/v1/licenses/release`,
 clears the activation, and stops reporting and remote access at once. Disconnecting
 from the console has the same effect on the next report (`401`).
+
+### Free plan
+
+A workspace can connect a server without a paid plan, so that Dagu Cloud
+monitors it: the server's runs, failures, and trends, with an email when a
+workflow fails or the server stops reporting.
+
+- **Token.** The license token has `plan` `free` and an empty `features`
+  list. Dagu treats it as Community for every paid feature: SSO, RBAC, audit
+  logs, incident routing, and API keys beyond two stay off, even if the token
+  claims features.
+- **Still connected.** The server checks in hourly and reports at the level
+  its admin chooses, as any connected server does. Starting another
+  connection fails as it does with a paid license, and disconnecting frees the
+  server's free slot.
+- **Slower reports.** Dagu Cloud may answer a free server with
+  `next_report_seconds` `300`, and answer reports that come sooner, early
+  reports included, with `429` and `Retry-After`. The reporter honors both
+  (see Cadence and Wire contract).
+- **Plan changes.** The next check-in replaces the token, so paid features
+  turn on or off without reconnecting.
+- **Version gate.** Releases before v2.19.2 treat any license as paid. Dagu
+  Cloud refuses a free connection when `version` is missing or older than
+  v2.19.2, with the message "Update Dagu to v2.19.2 or later to use free
+  monitoring."
 
 ## Reporting
 
@@ -110,49 +145,61 @@ runs. A field is listed here, under its level, before any release sends it.
 
 Every report also carries what identifies and authenticates the server, as
 its license check-in does: the protocol version, license ID, server ID, and
-heartbeat secret. At `runs` it also carries the reporter's cursor and, after
-events were lost, the time they were lost from.
+heartbeat secret, and the level it was sent at. A report at any level but `off`
+carries the time it was built, by the server's clock. At `runs` and `errors` it
+also carries the reporter's cursor and, after events were lost, the time they
+were lost from.
 
 | Level | Fields | When |
 | --- | --- | --- |
-| `health` | Dagu version, OS, architecture, process start time, and service counts: schedulers holding the scheduler lock, and registered coordinators | Every report |
-| `runs` | The `health` fields, plus the status of each top-level DAG run that finishes, with its failed step names (up to 50) and how it was triggered, and the list of runs queued, running, or waiting. Each run is sent as its DAG name, run ID, attempt ID, status, trigger, and queued, started, and finished times | Each finished run once, at most 500 and 512 KiB of them per report; the runs in progress with every report, at most 200 of them and a count of all; within 5 seconds of a failed, aborted, or rejected run or a change to the runs in progress |
+| `health` | Dagu version, OS, architecture, process start time, service counts (schedulers holding the scheduler lock, and registered coordinators), the scheduler's last tick and whether it is paused, and the remote access level and whether remote approvals are on | Every report |
+| `runs` | The `health` fields, plus the status of each top-level DAG run that finishes, with its failed step names (up to 50) and how it was triggered, and the list of runs queued, running, or waiting. Each run is sent as its DAG name, run ID, attempt ID, status, trigger, and queued, started, and finished times. Also each scheduled DAG: its name, its next run, and its latest start-schedule slot that came due with what the scheduler did with it (dispatched, skipped as running, queued, done, succeeded, or overlapping, failed, planned, or missed while no scheduler ran) | Each finished run once, at most 500 and 512 KiB of them per report; the runs in progress with every report, at most 200 of them and a count of all; within 5 seconds of a failed, aborted, or rejected run or a change to the runs in progress. The scheduled DAGs with every report from the process that reports the runs, those whose slot did not run first, at most 500 and 128 KiB of them and a count of all |
+| `errors` | The `runs` fields, plus why each finished run failed: the error messages of its failed steps and handlers, at most 5, or the run's own error when no step has one. Each is sent without terminal escapes, at most 2048 bytes from its end. A command step's error ends with the last 1 KiB of its stderr; the values of workflow secrets are masked in it as in logs | With the finished run it belongs to |
 
 A run is reported unless its event has no valid status snapshot, or it names
 a DAG longer than 512 bytes or a run or attempt ID longer than 256 bytes,
 which Dagu Cloud would not keep. Those runs are left out.
 
-**Planned, not sent by any level yet:** queue depth, worker counts, the list
-of DAGs, and the remote access level. Each joins the table above, under its
-level, before it is sent.
+**Planned, not sent by any level yet:** queue depth, worker counts, and the
+list of unscheduled DAGs. Each joins the table above, under its level, before
+it is sent.
 
-**Never sent:** logs, outputs, parameters, environment, step commands, DAG YAML,
-the values of workflow secrets, and error message text.
+**Never sent:** full logs, outputs, parameters, environment, step commands, DAG
+YAML, schedule expressions, and the values of workflow secrets. Error messages are sent only at
+`errors`.
 
-DAG names and step names are sent at `runs`. An administrator who considers
-them sensitive chooses `health`, which sends neither.
+DAG names and step names are sent at `runs` and `errors`. An administrator who
+considers them sensitive chooses `health`, which sends neither. Error messages
+often contain hosts, paths, or data the step printed; masking covers only the
+values of declared secrets. An administrator who would not send them chooses
+`runs`.
 
 ### Choosing what to report
 
 | `cloud.report` | Sends |
 | --- | --- |
-| unset or `off` (default) | Nothing beyond the license check-in |
-| `health` | Dagu version, OS, architecture, start time, and which services run |
-| `runs` | Also the status of finished runs and the runs in progress: DAG names, run IDs, status, triggers, times, failed step names |
+| unset or `off` (default) | Nothing beyond the license check-in, except one report that says so, carrying only what identifies the server, when the level becomes `off` after a report at `health`, `runs`, or `errors` |
+| `health` | Dagu version, OS, architecture, start time, which services run, and whether the scheduler ticks or is paused |
+| `runs` | Also the status of finished runs and the runs in progress: DAG names, run IDs, status, triggers, times, failed step names; and each scheduled DAG's next run and whether its latest scheduled run started |
+| `errors` | Also the error messages of failed steps, cut to their end |
 
 - **Upgrading changes nothing.** A server licensed before reporting existed
   keeps sending only its license check-in.
 - **The admin chooses in the UI**, at a moment it is useful: right after the
   server connects to Dagu Cloud, or from a one-time notice on a server that
-  was already licensed. The dialog lists what each level sends and what is
-  never sent, before anything is. The choice persists in the data directory
+  was already licensed. A server that chose run status before error
+  messages could be sent is offered them once, from the same kind of
+  notice. The dialog lists what each level sends and what is never sent,
+  before anything is. The choice persists in the data directory
   and applies without a restart.
 - **Config wins.** Set in configuration, `cloud.report` fixes the level for
   servers managed as code, and the UI shows it read-only.
 - **Inspectable and reversible.** The license settings page shows the level,
   when the last report was sent, and the exact last report, with its
   heartbeat secret redacted. Turning it off takes effect at once and stops a
-  report in flight, and Dagu Cloud can delete what a server reported.
+  report in flight; one last report then says that reporting is off, so that
+  Dagu Cloud does not take the silence for an outage. Dagu Cloud can delete
+  what a server reported.
 - **No catching up.** When the level drops below `runs` while the server
   runs, the reporter moves its cursor to the newest event, so choosing `runs`
   again never sends the runs that finished in between. It lists the runs in
@@ -169,7 +216,7 @@ was queued, started, began waiting, or finished. Once a report is throttled,
 rejected, or fails, nothing is reported early until one is accepted, and news
 that an accepted report carried calls for no further early report. Dagu Cloud
 can lengthen the interval in its response (`next_report_seconds`) to shed
-load.
+load, and does for free servers (see Free plan).
 
 Many workflows run at the top of the hour, so reports are spread out:
 
@@ -217,10 +264,12 @@ activation's credentials, as the heartbeat is.
   "license_id": "…",
   "server_id": "…",
   "heartbeat_secret": "…",
+  "level": "runs",
   "health": { "version": "3.0.0", "os": "linux", "arch": "amd64",
               "started_at": "2026-10-09T12:00:00Z",
               "services": [{ "name": "scheduler", "instances": 1 },
-                           { "name": "coordinator", "instances": 0 }] },
+                           { "name": "coordinator", "instances": 0 }],
+              "remote_access": "operator", "remote_approvals": false },
   "finished": [{ "workflow": "etl", "dag_run_id": "…", "attempt_id": "…",
                  "status": "failed", "trigger_type": "scheduler",
                  "queued_at": "2026-10-10T01:00:00Z",
@@ -236,8 +285,13 @@ activation's credentials, as the heartbeat is.
 }
 ```
 
+`level` is the level the report was sent at, `health`, `runs`, or `errors`, or
+`off` for the report that says reporting stopped.
+
 A scheduler count of zero means no scheduler holds the lock; leaving
-`services` out means the count is unknown.
+`services` out means the count is unknown. `remote_access` is `off`,
+`viewer`, `operator`, or `developer`; it and `remote_approvals` are left out
+when the server cannot read its remote access settings.
 
 `finished` holds top-level runs that succeeded, partially succeeded, failed,
 were aborted, or were rejected, oldest first. `workflow` is the DAG name.
@@ -245,7 +299,10 @@ were aborted, or were rejected, oldest first. `workflow` is the DAG name.
 `rejected`; `trigger_type` is `scheduler`, `manual`, `webhook`, `retry`, or
 `catchup`, and empty when unknown. Times are RFC 3339; `queued_at` and
 `started_at` are null when unknown. `failed_steps` names failed steps and
-handlers, at most 50 of at most 512 bytes each.
+handlers, at most 50 of at most 512 bytes each. At `errors`, a failed run
+also carries `errors`: `[{"step": "load", "message": "exit status 1\n…"}]`, at
+most 5, with `step` empty for the run's own error; it is left out when the
+run has none and at every other level.
 
 `cursor`, at most 4096 bytes, identifies the position after `finished`; it
 comes with every `finished`, which is empty when the cursor moves only past
@@ -259,6 +316,23 @@ recently started or queued first. `active_total` counts them all. Each
 report's list replaces the one before. Both are left out at `health`, and at
 `runs` until the reporter knows the runs in progress; a report without them
 says nothing about the runs in progress.
+
+**Reporting off.** When the level becomes `off` after a report at `health` or
+`runs`, whether chosen in the UI or set in configuration and applied at the
+next start, the next report due is the last one:
+
+```json
+{ "protocol": 2, "license_id": "…", "server_id": "…",
+  "heartbeat_secret": "…", "level": "off" }
+```
+
+It carries no `health` and no runs. It is retried like any report on `429`,
+`5xx`, and network errors; once Dagu Cloud answers otherwise, nothing more is
+sent until a level that reports is chosen. The server records the level of
+its last report in the data directory, so a server stopped before sending
+this report sends it after it starts. If that record cannot be saved, which
+the server logs, a restart may send the report again or not at all. A level
+that cannot be read stops reports without it, since no one chose `off`.
 
 The response is:
 
@@ -289,76 +363,106 @@ version a supported Dagu release sends.
 ### Shape
 
 ```text
- Browser ──HTTPS──▶ Relay (per-server origin) ──▶ Relay object for this server
-                                                         ▲
-                                                         │ WebSocket, opened by the server (wss, 443)
-                                                         │
-                            Dagu server: dagucloud tunnel provider ──▶ HTTP handler (in process)
+ AI app ──MCP──▶ Dagu Cloud console ──POST /servers/call──▶ Relay object for this server
+   (OAuth 2.1)    (checks the grant,      (single-use call token,        │
+                   mints an assertion)     assertion passed on unread)   │ WebSocket "access", opened by
+                                                                         │ each server process (wss, 443)
+                                                                         ▼
+                                       Dagu server process: cloudaccess ──▶ verify ──▶ MCP handler (in process)
 ```
 
-- A `dagucloud` provider joins `tailscale` behind `tunnel.Provider`. It runs
-  while the license is online and either remote access is on or a trigger is
-  `public` (RFC 004). With remote access off, it answers every proxied request
-  with `403` and carries only webhook deliveries. It reports its state through
-  `GET /services/tunnel`.
-- The provider receives the server's HTTP handler, not its listen address.
-  Tunnel requests never pass through the public listener, and the public
-  listener never accepts Dagu Cloud assertions.
-- The server gets a relay ticket from `POST /api/v1/servers/relay` with its
-  activation credentials and reconnects with a fresh ticket when the relay
-  closes the connection.
+- **Dagu Cloud terminates MCP.** An AI app connects to Dagu Cloud's MCP
+  endpoint with OAuth; its token never reaches a server. For a live answer,
+  Dagu Cloud calls the server through the relay with an assertion bound to
+  that one request.
+- **Each server process holds its own connection.** While the license is
+  online and remote access is not off, every process that serves the UI
+  (`server`, `start-all`) asks for a relay ticket with
+  `purpose: "access"` and connects with a random instance ID in the
+  `Dagu-Instance` header. The relay keeps one connection per instance beside
+  the scheduler's webhook connection, and sends each call to the connection
+  heard from last. Dagu Cloud refuses the ticket while the server's workspace
+  has neither a plan nor a trial; the server then waits 10 minutes, or until
+  its remote access settings change.
+- **Calls reach the MCP tools only.** The connection carries `POST /mcp` to a
+  stateless MCP handler in the process, with the same tools as the server's
+  own MCP endpoint and no resource subscriptions. Any other path answers
+  `404`. The handler never passes through the public listener, and the public
+  listener never accepts assertions.
+- **A browser UI over the same connection** is a later step. It will use
+  assertions with `use = session`, which servers refuse today.
 
 ### Turning it on
 
 Remote access is set on the server, never from Dagu Cloud. The level is the
 highest role any remote user gets.
 
-- **UI.** The license settings page has a **Remote access** control for the
-  server's admins: off, viewer, operator, developer, manager, or admin. It
-  starts off. A change applies at once and is persisted in the data directory;
-  turning it off closes the tunnel and cancels requests in flight.
-- **Config.** For servers managed as code, `cloud.remote_access` fixes the
-  level, and the UI shows it read-only.
+- **UI.** The license settings page has a **Remote access** section for the
+  server's admins: off, viewer, operator, or developer, chosen from a dialog
+  that says what each allows, and warns that developer runs any command on
+  the host, and a switch for **approvals**, which lets
+  calls approve, reject, or push back steps waiting for a person. Both start
+  off. A change applies at once and is persisted in the data directory; other
+  processes sharing it apply it within 6 seconds. Turning remote access off
+  closes the connection and cancels the calls in flight.
+- **Config.** For servers managed as code, `cloud.remote_access` and
+  `cloud.remote_approvals` fix the settings, and the UI shows them read-only.
 
 ```yaml
 cloud:
-  report: off                    # off | health | runs; omit to choose in the UI
-  remote_access: off             # off | viewer | operator | developer | manager | admin
-                                 # omit to set it in the UI
+  report: off                    # off | health | runs | errors; omit to choose in the UI
+  remote_access: off             # off | viewer | operator | developer; omit to choose in the UI
+  remote_approvals: false        # omit to choose in the UI
 ```
 
-A `cloud:` identity can never change the level (see below).
+| Level | A call may |
+| --- | --- |
+| `off` | Nothing; every call answers `403` |
+| `viewer` | Read DAGs, runs, and logs |
+| `operator` | Also start, enqueue, retry, and stop runs of existing DAGs, with any parameters they take, and, with approvals on, decide waiting steps |
+| `developer` | Also change DAG definitions and run inline specs; since DAG steps run commands, any command on the host, as the user Dagu runs as |
+
+A `cloud:` identity can never change these settings (see below).
 
 ### Identity
 
-Each request from the relay carries an assertion minted by Dagu Cloud:
+Each call carries an assertion minted by Dagu Cloud and signed with the
+license key:
 
 | Claim | Value |
 | --- | --- |
-| `iss` | Dagu Cloud |
+| `iss` | Dagu Cloud's console URL |
 | `aud` | `dagu-server` |
-| `server_id` | This server's ID; any other value is rejected |
+| `use` | `call` |
+| `license_id`, `server_id` | This server's; any other value is rejected |
+| `tid` | The Dagu Cloud workspace ID |
 | `sub`, `email` | The Dagu Cloud user |
-| `workspace` | The Dagu Cloud workspace name, for display and audit |
-| `role` | The Dagu role Dagu Cloud grants this user on this server |
-| `exp` | At most 15 minutes after `iat` |
-| `jti` | Unique; replays inside the validity window are rejected |
+| `cloud_workspace` | The Dagu Cloud workspace name, for display and audit |
+| `role` | `viewer`, `operator`, or `developer`: the role Dagu Cloud grants this user on this server; any other value is rejected |
+| `grant`, `client` | The user's connection from an AI app, and the app's name |
+| `req_sha256` | Unpadded base64url SHA-256 of the method, a space, the request target, a newline, and the body |
+| `iat`, `exp` | `exp` at most 60 seconds after `iat` |
+| `jti` | Unique; the relay and the server each accept it once |
 
 - Verified with the pinned Dagu Cloud key (`license/pubkey.go`), with 60
   seconds of clock skew.
 - **Effective role** = the lower of `role` and `cloud.remote_access`.
-- The request runs as a synthetic user `cloud:<sub>`, like API key users
-  (`apikey:<id>`). No local user is created.
-- Audit entries use credential type `cloud` and record the email and workspace.
-- The UI served through the tunnel starts signed in as that identity and shows
-  a bar: *Opened from Dagu Cloud · workspace · role*. When the assertion
-  expires, the UI reloads to obtain a new one.
+- The request runs as a synthetic user `cloud:<sub>`, named by the email,
+  like API key users (`apikey:<id>`). No local user is created. Its role
+  limits it even on a server without users of its own (`auth.mode: none` or
+  basic auth).
+- **Approvals.** A call decides a waiting step only while remote approvals
+  are on, and only with the `attemptId` it read, so a decision made from a
+  stale read is refused.
+- Audit entries use credential type `cloud`, transport `cloud_relay`, the
+  grant as credential ID, the app as credential name, and record the email
+  and Dagu Cloud workspace. The license settings page lists the latest of
+  them.
 
 **Key hygiene.** Dagu Cloud signs licenses, relay tickets, and assertions with
-one key and separates them by audience. License verification today checks no
-audience (`license/verify.go`). The assertion verifier requires
-`aud = dagu-server`, and license verification is changed in the same release to
-reject tokens that carry any audience other than its own.
+one key and separates them by audience. Licenses carry no audience; license
+verification rejects any token that carries one, and the assertion verifier
+requires `aud = dagu-server` and `use = call`.
 
 ### What remote users cannot do
 
@@ -368,7 +472,8 @@ Regardless of role, a `cloud:` identity cannot:
 - manage users, API keys, SSO, the license, remote nodes, or `cloud.*`
   settings.
 
-Any of these would let Dagu Cloud widen or keep its own access.
+Calls reach only the MCP tools, and no level reaches manager or admin. Any of
+these would let Dagu Cloud widen or keep its own access.
 
 ### Relay frames
 
@@ -377,17 +482,20 @@ the existing relay where they apply.
 
 | Direction | Frame |
 | --- | --- |
-| Server → relay | `hello{protocol, version, server_id}` |
+| Server → relay | `hello{protocol, version, name}` |
+| Relay → server | `limits{calls, request_bytes, answer_bytes, call_seconds}` on a connection for calls |
 | Relay → server | `req{id, method, path, headers, assertion}` |
 | Relay → server | binary request body chunks for `id`, then `end{id}` |
 | Server → relay | `res{id, status, headers}` |
 | Server → relay | binary response body chunks for `id`, then `end{id}` |
-| Either | `cancel{id}` |
+| Relay → server | `cancel{id}` |
 | Server → relay | `"ping"` every 15 seconds; the relay answers `"pong"` |
-| Both | `hooks`, `hooked`, `delivery`, `delivered` for public triggers (RFC 004) |
+| Both | `hooks`, `hooked`, `delivery`, `delivered` for public triggers (RFC 004), on the scheduler's connection |
 
-Streaming responses carry server-sent events and live logs. Limits are set by
-the relay and announced in its reply to `hello`.
+A binary chunk is a version byte (`1`), the 16 bytes of the call's UUID, and
+up to 64 KiB of the body. The relay sends request bodies of at most 512 KiB,
+takes answers of at most 4 MiB, holds at most 16 calls in flight per server,
+and ends a call after 100 seconds.
 
 ## Failure behavior
 
@@ -395,27 +503,30 @@ the relay and announced in its reply to `hello`.
 | --- | --- |
 | Dagu Cloud unreachable | Workflows unaffected. Reports back off and resume from the cursor. License grace applies as today. |
 | Unreachable longer than event retention | The next report carries a gap. |
-| Relay unreachable | The tunnel reconnects with backoff. Remote users see the server as offline. |
-| License revoked or server disconnected | Reporting and the tunnel stop at once. |
-| Remote access turned off | The tunnel closes, unless public triggers keep it open for deliveries; requests in flight are cancelled. |
-| Assertion invalid, expired, replayed, or for another server | `401`; nothing runs. |
+| Relay unreachable | Each connection reconnects with backoff, from 1 second to 1 minute. Dagu Cloud answers its users with the server's last report and when it was last seen. |
+| License revoked or server disconnected | Reporting and the connections stop at once. |
+| Remote access turned off | The connection for calls closes; calls in flight are cancelled. Calls that still arrive answer `403` with `remote_access_off`. |
+| Workspace without a plan or a trial | Dagu Cloud refuses the access ticket; the license settings page says so. |
+| Assertion invalid, expired, replayed, or for another server or request | `401` with `invalid_assertion`; nothing runs. |
 
 ## Observability
 
 - **License settings page:** connected workspace, last report, reporting
-  state, tunnel state, remote access level.
-- **Metrics:** reports sent and failed, event lag, tunnel state, remote
-  requests by status.
-- **Audit:** every state-changing remote request, and every remote session
-  opened.
+  state, remote access level and approvals, whether the connection for calls
+  holds or why Dagu Cloud refused it, and the latest calls.
+- **Metrics:** reports sent and failed, event lag, connection state, remote
+  calls by status.
+- **Audit:** every call from Dagu Cloud, with its tool, action, and outcome.
 
 ## Compatibility and rollout
 
 | Release | Ships |
 | --- | --- |
 | v2.19 | Browser approval; reporting; the `cloud` config section. Dagu Cloud's report endpoint must be live first. |
+| v2.19.2 | The free plan, and `version` on the connect URL. |
 | v2.20 | The `dagucloud` tunnel provider, carrying webhook deliveries for public triggers only (RFC 004). |
-| v3.0 | Remote access over the same connection: assertions, the Remote access control, the UI bar. License audience check. |
+| v2.22 | Remote access for MCP calls over each server process's own connection: assertions, the Remote access section, remote approvals, the license audience check, and the remote access level in health reports. |
+| Later | A browser UI over the same connection, with `use = session` assertions and the UI bar. |
 
 Older servers keep working as they do: they heartbeat and never report.
 
@@ -455,13 +566,11 @@ Older servers keep working as they do: they heartbeat and never report.
 
 - Fewer servers report than with reporting on by default; in exchange, no
   server sends anything its admin did not choose.
-- The tunnel ingress is new attack surface. It is bounded by the local role
-  cap, blocked admin endpoints, short-lived server-bound assertions, and a
-  separate origin per server.
+- Calls from Dagu Cloud are new attack surface. They are bounded by the local
+  role cap, the MCP tools as their only path, and short-lived assertions
+  bound to one server, one request, and one use.
 - License verification gains an audience check.
 
-## Open questions
+## Resolved questions
 
-1. Should error text ever be offered, as its own choice, for more useful
-   alerts? It often contains hosts, paths, or data.
-2. Should remote access ship in a v2 minor rather than wait for v3.0?
+1. Remote access ships in a v2 minor, v2.22, rather than waiting for v3.0.

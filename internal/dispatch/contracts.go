@@ -6,6 +6,7 @@ package dispatch
 import (
 	"context"
 	"fmt"
+	"time"
 
 	"github.com/dagucloud/dagu/v2/internal/ir"
 )
@@ -69,6 +70,11 @@ type DispatchTask struct {
 	SourceWorkDir       string
 
 	WorkerSelector map[string]string
+
+	// HoldUntil is set when the task was accepted with no healthy worker
+	// matching it. Until then the task waits for one to register; after it
+	// the coordinator fails the run instead.
+	HoldUntil time.Time
 
 	ExternalStepRetry   bool
 	IncludeDownstream   bool

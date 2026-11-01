@@ -5,6 +5,8 @@ package dag
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -1069,6 +1071,78 @@ steps:
 	require.Error(t, err)
 }
 
+// Two saves from the same read of a DAG: one writes, the other gets a
+// conflict and writes nothing.
+func TestUpdateSpecIfMatch(t *testing.T) {
+	tmpDir := fileutil.MustTempDir("test-update-spec-if-match")
+	defer func() {
+		_ = os.RemoveAll(tmpDir)
+	}()
+
+	store := newRepository(tmpDir, WithSkipExamples(true))
+	ctx := context.Background()
+	initial := "name: cas-dag\nsteps:\n  - name: step1\n    run: echo initial\n"
+	require.NoError(t, store.Create(ctx, "cas-dag", []byte(initial)))
+	sum := sha256.Sum256([]byte(initial))
+	base := hex.EncodeToString(sum[:])
+
+	contents := []string{
+		"name: cas-dag\nsteps:\n  - name: step1\n    run: echo first\n",
+		"name: cas-dag\nsteps:\n  - name: step1\n    run: echo second\n",
+	}
+	errs := make([]error, len(contents))
+	var wg sync.WaitGroup
+	for i, content := range contents {
+		wg.Go(func() { errs[i] = store.UpdateSpecIfMatch(ctx, "cas-dag", base, []byte(content)) })
+	}
+	wg.Wait()
+
+	var won []string
+	for i, err := range errs {
+		if err == nil {
+			won = append(won, contents[i])
+			continue
+		}
+		require.ErrorIs(t, err, persis.ErrConflict)
+	}
+	require.Len(t, won, 1)
+	spec, err := store.GetSpec(ctx, "cas-dag")
+	require.NoError(t, err)
+	assert.Equal(t, won[0], spec)
+}
+
+// A plain update waits while a conditional update holds the lock of the file,
+// so it cannot land between the hash check and the write.
+func TestUpdateWaitsForSpecLock(t *testing.T) {
+	store := NewStore(t.TempDir(), WithSkipExamples(true))
+	ctx := context.Background()
+	initial := "name: lock-dag\nsteps:\n  - name: step1\n    run: echo initial\n"
+	require.NoError(t, store.Create(ctx, "lock-dag", []byte(initial)))
+	resolved, err := store.locateDAG(ctx, "lock-dag")
+	require.NoError(t, err)
+
+	unlock, err := store.lockSpec(ctx, "lock-dag", resolved)
+	require.NoError(t, err)
+	next := "name: lock-dag\nsteps:\n  - name: step1\n    run: echo next\n"
+	done := make(chan error, 1)
+	go func() { done <- store.Update(ctx, "lock-dag", []byte(next)) }()
+	select {
+	case err := <-done:
+		unlock()
+		t.Fatalf("Update returned while the lock was held: %v", err)
+	case <-time.After(300 * time.Millisecond):
+	}
+	current, err := os.ReadFile(resolved.ResolvedPath)
+	require.NoError(t, err)
+	assert.Equal(t, initial, string(current))
+
+	unlock()
+	require.NoError(t, <-done)
+	current, err = os.ReadFile(resolved.ResolvedPath)
+	require.NoError(t, err)
+	assert.Equal(t, next, string(current))
+}
+
 func TestDelete(t *testing.T) {
 	tmpDir := fileutil.MustTempDir("test-delete")
 	defer func() {
@@ -1486,6 +1560,48 @@ steps:
 	require.Equal(t, 1, cache.Size())
 }
 
+// A workspace directory reached through a symlink is read through the link,
+// so editing its base config must refresh cached metadata too.
+func TestGetMetadataRefreshesCacheWhenSymlinkedWorkspaceBaseConfigChanges(t *testing.T) {
+	rootDir := t.TempDir()
+	dagDir := filepath.Join(rootDir, "dags")
+	workspaceConfigDir := filepath.Join(rootDir, "workspaces")
+	targetDir := filepath.Join(rootDir, "ops-config")
+	require.NoError(t, os.MkdirAll(dagDir, 0750))
+	require.NoError(t, os.MkdirAll(workspaceConfigDir, 0750))
+	require.NoError(t, os.MkdirAll(targetDir, 0750))
+	if err := os.Symlink(targetDir, filepath.Join(workspaceConfigDir, "ops")); err != nil {
+		t.Skipf("symlink creation is unavailable: %v", err)
+	}
+	workspaceBaseConfig := filepath.Join(targetDir, "base.yaml")
+	require.NoError(t, os.WriteFile(workspaceBaseConfig, []byte("max_active_steps: 1\n"), 0600))
+
+	store := newRepository(
+		dagDir,
+		WithWorkspaceBaseConfigDir(workspaceConfigDir),
+		WithFileCache(fileutil.NewCache[*ir.DAG]("dag_definition", 16, time.Hour)),
+		WithSkipExamples(true),
+	)
+	ctx := context.Background()
+	require.NoError(t, os.WriteFile(filepath.Join(dagDir, "linked-workspace.yaml"), []byte(`labels:
+  - workspace=ops
+steps:
+  - name: step1
+    run: echo "hello"
+`), 0600))
+
+	dag, err := store.GetMetadata(ctx, "linked-workspace")
+	require.NoError(t, err)
+	require.Equal(t, 1, dag.MaxActiveSteps)
+
+	time.Sleep(10 * time.Millisecond)
+	require.NoError(t, os.WriteFile(workspaceBaseConfig, []byte("max_active_steps: 2\n"), 0600))
+
+	reloaded, err := store.GetMetadata(ctx, "linked-workspace")
+	require.NoError(t, err)
+	require.Equal(t, 2, reloaded.MaxActiveSteps)
+}
+
 func TestListRebuildsIndexWhenBaseConfigChanges(t *testing.T) {
 	rootDir := t.TempDir()
 	dagDir := filepath.Join(rootDir, "dags")
@@ -1575,6 +1691,58 @@ steps:
 	indexInfoAfter, err := os.Stat(indexPath)
 	require.NoError(t, err)
 	require.True(t, indexInfoAfter.ModTime().After(indexInfoBefore.ModTime()))
+}
+
+// The base config may live inside the DAG directory; it applies to every DAG
+// but must not be listed as one.
+func TestListExcludesBaseConfigInDAGDir(t *testing.T) {
+	baseConfigYAML := []byte(`actions:
+  greet:
+    input_schema:
+      type: object
+      required: [message]
+      properties:
+        message:
+          type: string
+    template:
+      run: echo "{{ .input.message }}"
+`)
+	greetYAML := []byte(`steps:
+  - action: greet
+    with:
+      message: hello
+`)
+
+	for _, tc := range []struct {
+		name       string
+		recursive  bool
+		baseRelDir string
+	}{
+		{name: "Flat", baseRelDir: "."},
+		{name: "Recursive", recursive: true, baseRelDir: "shared"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			dagDir := t.TempDir()
+			baseConfig := filepath.Join(dagDir, tc.baseRelDir, "base.yaml")
+			require.NoError(t, os.MkdirAll(filepath.Dir(baseConfig), 0750))
+			require.NoError(t, os.WriteFile(baseConfig, baseConfigYAML, 0600))
+			require.NoError(t, os.WriteFile(filepath.Join(dagDir, "greet.yaml"), greetYAML, 0600))
+
+			store := newRepository(
+				dagDir,
+				WithBaseConfig(baseConfig),
+				WithRecursiveDiscovery(tc.recursive),
+				WithSkipExamples(true),
+			)
+
+			result, errList, err := store.List(context.Background(), persis.DAGListOptions{})
+			require.NoError(t, err)
+			require.Empty(t, errList)
+			require.Len(t, result.Items, 1)
+			require.Equal(t, "greet", result.Items[0].Name)
+			require.Empty(t, result.Items[0].BuildErrors)
+		})
+	}
 }
 
 func TestListWithPagination(t *testing.T) {

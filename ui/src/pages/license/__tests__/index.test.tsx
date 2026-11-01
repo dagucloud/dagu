@@ -22,9 +22,11 @@ import { SWRConfig } from 'swr';
 import { Link, MemoryRouter } from 'react-router-dom';
 import {
   LicenseMonitoringLevel,
+  LicenseRemoteAccessLevel,
   LicenseStatusResponseConnectedVia,
 } from '@/api/v1/schema';
 import type { LicenseMonitoring } from '@/hooks/useLicenseMonitoring';
+import type { LicenseRemoteAccess } from '@/hooks/useLicenseRemoteAccess';
 import dayjs from '@/lib/dayjs';
 
 vi.mock('@/hooks/api', async () => {
@@ -71,6 +73,9 @@ function makeConfig(licenseOverrides: Partial<LicenseStatus> = {}): Config {
     gitSyncEnabled: false,
     updateAvailable: false,
     latestVersion: '',
+    upgradeCommand: '',
+    restartRequired: false,
+    restartCommand: '',
     permissions: {
       writeDags: true,
       runDags: true,
@@ -155,11 +160,20 @@ const online: Partial<LicenseStatus> = {
   lastCheckIn: new Date().toISOString(),
 };
 
+// A server connected on the free plan, whose token claims no features.
+const freeOnline: Partial<LicenseStatus> = {
+  ...online,
+  plan: 'free',
+  features: [],
+  workspace: 'acme',
+};
+
 const unchosen: LicenseMonitoring = {
   level: LicenseMonitoringLevel.off,
   configured: false,
   chosen: false,
   noticeDismissed: false,
+  errorsOffered: false,
 };
 
 function overview() {
@@ -175,10 +189,6 @@ function row(label: string) {
 async function openKeyForm(name = 'Use a different license key') {
   await userEvent.click(screen.getByRole('button', { name }));
   return screen.getByLabelText('License key');
-}
-
-function monitoringCard() {
-  return screen.getByRole('region', { name: 'Monitoring' });
 }
 
 function findMonitoringCard() {
@@ -409,6 +419,80 @@ describe('LicensePage', () => {
     ).toHaveAttribute('href', 'https://console.dagu.sh/servers?server=srv-123');
   });
 
+  it('renames this server in Dagu Console', async () => {
+    const reported = 's-macbook-pro.taild5c75a.ts.net';
+    const renamed = makeConfig({
+      ...online,
+      serverName: 'Build box',
+      reportedName: reported,
+    }).license;
+    const put = vi.fn().mockResolvedValue({ data: renamed });
+    useClientMock.mockReturnValue({
+      POST: vi.fn(),
+      PUT: put,
+      GET: vi.fn().mockReturnValue(new Promise(() => {})),
+    } as never);
+    renderPage({ ...online, serverName: reported, reportedName: reported });
+
+    expect(row('Server')).not.toHaveTextContent('Reports as');
+    await userEvent.click(screen.getByRole('button', { name: 'Rename' }));
+    const input = screen.getByLabelText('Server name');
+    expect(input).toHaveValue('');
+    expect(input).toHaveAttribute('placeholder', reported);
+    await userEvent.type(input, '  Build box ');
+    await userEvent.click(screen.getByRole('button', { name: 'Save' }));
+
+    expect(put).toHaveBeenCalledWith('/license/server-name', {
+      params: { query: { remoteNode: 'local' } },
+      body: { name: 'Build box' },
+    });
+    await waitFor(() => expect(row('Server')).toHaveTextContent('Build box'));
+    expect(row('Server')).toHaveTextContent(`Reports as ${reported}`);
+    expect(screen.queryByLabelText('Server name')).not.toBeInTheDocument();
+  });
+
+  it('starts a rename from the name a person gave the server', async () => {
+    useClientMock.mockReturnValue({
+      POST: vi.fn(),
+      PUT: vi.fn(),
+      GET: vi.fn().mockReturnValue(new Promise(() => {})),
+    } as never);
+    renderPage({ ...online, serverName: 'Build box', reportedName: 'ip-10' });
+
+    await userEvent.click(screen.getByRole('button', { name: 'Rename' }));
+
+    expect(screen.getByLabelText('Server name')).toHaveValue('Build box');
+  });
+
+  it('says why a rename failed and keeps the form open', async () => {
+    useClientMock.mockReturnValue({
+      POST: vi.fn(),
+      PUT: vi.fn().mockResolvedValue({
+        error: { message: 'Server names are at most 100 characters.' },
+      }),
+      GET: vi.fn().mockReturnValue(new Promise(() => {})),
+    } as never);
+    renderPage({ ...online, serverName: 'build-01', reportedName: 'build-01' });
+
+    await userEvent.click(screen.getByRole('button', { name: 'Rename' }));
+    await userEvent.type(screen.getByLabelText('Server name'), 'Build box');
+    await userEvent.click(screen.getByRole('button', { name: 'Save' }));
+
+    expect(await screen.findByRole('alert')).toHaveTextContent(
+      'Server names are at most 100 characters.'
+    );
+    expect(screen.getByLabelText('Server name')).toHaveValue('Build box');
+  });
+
+  it('offers no rename for a license that does not check in', () => {
+    renderPage({ serverName: 'build-01' });
+
+    expect(row('Server')).toHaveTextContent('build-01');
+    expect(
+      within(overview()).queryByRole('button', { name: 'Rename' })
+    ).not.toBeInTheDocument();
+  });
+
   it('checks in with Dagu Console on demand', async () => {
     const checkedIn = makeConfig({
       connectedVia: LicenseStatusResponseConnectedVia.key,
@@ -431,6 +515,39 @@ describe('LicensePage', () => {
     expect(post).toHaveBeenCalledWith('/license/refresh', {
       params: { query: { remoteNode: 'local' } },
     });
+  });
+
+  // A trial started in Dagu Console shows as soon as the person comes back,
+  // to the tab or the window: the page checks in once on return, and not on
+  // later returns.
+  it('checks in on coming back from Dagu Console', async () => {
+    const trial = makeConfig({ ...online, plan: 'trial' }).license;
+    const post = vi.fn().mockResolvedValue({ data: trial });
+    useClientMock.mockReturnValue({
+      POST: post,
+      GET: vi.fn().mockReturnValue(new Promise(() => {})),
+    } as never);
+    renderPage({
+      ...freeOnline,
+      consoleUrl: 'https://console.dagu.sh/servers',
+    });
+
+    document.dispatchEvent(new Event('visibilitychange'));
+    expect(post).not.toHaveBeenCalled();
+
+    await userEvent.click(
+      screen.getByRole('link', { name: 'Start free trial' })
+    );
+    // Back from Console in another window.
+    window.dispatchEvent(new Event('focus'));
+    expect(post).toHaveBeenCalledTimes(1);
+    document.dispatchEvent(new Event('visibilitychange'));
+
+    expect(post).toHaveBeenCalledTimes(1);
+    expect(post).toHaveBeenCalledWith('/license/refresh', {
+      params: { query: { remoteNode: 'local' } },
+    });
+    expect(await screen.findByText('Trial plan')).toBeVisible();
   });
 
   it('says why a check-in failed', async () => {
@@ -543,6 +660,16 @@ describe('LicensePage', () => {
       vi.restoreAllMocks();
     });
 
+    function offer() {
+      return screen.getByRole('region', {
+        name: 'Monitor this server for free',
+      });
+    }
+
+    function connectButton() {
+      return within(offer()).getByRole('button', { name: 'Connect for free' });
+    }
+
     it('opens the approval page and installs the license once approved', async () => {
       const tab = { opener: {}, location: { href: '' }, close: vi.fn() };
       vi.spyOn(window, 'open').mockReturnValue(tab as unknown as Window);
@@ -563,12 +690,11 @@ describe('LicensePage', () => {
       useClientMock.mockReturnValue({ POST: post, GET: get } as never);
       renderPage(community());
 
-      await userEvent.click(
-        screen.getByRole('button', { name: 'Connect to Dagu Console' })
-      );
+      await userEvent.click(connectButton());
 
       expect(post).toHaveBeenCalledWith('/license/connect', {
         params: { query: { remoteNode: 'local' } },
+        body: { report: 'errors' },
       });
       expect(window.open).toHaveBeenCalledWith('about:blank', '_blank');
       expect(tab.opener).toBeNull();
@@ -589,9 +715,14 @@ describe('LicensePage', () => {
     });
 
     // After approval, the server checks in with Dagu Console and can report.
-    function approveAndConnect(monitoring: LicenseMonitoring) {
+    // A level chosen when connecting is saved unless configuration sets one.
+    function approveAndConnect(
+      initial: LicenseMonitoring,
+      connected: Partial<LicenseStatus> = { plan: 'team', ...online }
+    ) {
       vi.spyOn(window, 'open').mockReturnValue(null);
       let approved = false;
+      let monitoring = initial;
       const get = vi.fn((path: string) =>
         Promise.resolve({
           data:
@@ -602,17 +733,26 @@ describe('LicensePage', () => {
               : path === '/license/monitoring'
                 ? monitoring
                 : approved
-                  ? makeConfig({ plan: 'team', ...online }).license
+                  ? makeConfig(connected).license
                   : community(),
         })
       );
-      const post = vi.fn((path: string) =>
-        Promise.resolve({
-          data:
-            path === '/license/connect'
-              ? pending
-              : { ...monitoring, noticeDismissed: true },
-        })
+      const post = vi.fn(
+        (
+          path: string,
+          init?: { body?: { report?: LicenseMonitoringLevel } }
+        ) => {
+          if (path !== '/license/connect') {
+            return Promise.resolve({
+              data: { ...monitoring, noticeDismissed: true },
+            });
+          }
+          const report = init?.body?.report;
+          if (report && !monitoring.configured) {
+            monitoring = { ...monitoring, level: report, chosen: true };
+          }
+          return Promise.resolve({ data: pending });
+        }
       );
       const put = vi.fn(
         (_path: string, init: { body: { level: LicenseMonitoringLevel } }) =>
@@ -629,53 +769,235 @@ describe('LicensePage', () => {
       return {
         post,
         put,
-        approve: async () => {
-          await userEvent.click(
-            screen.getByRole('button', { name: 'Connect to Dagu Console' })
-          );
+        // The server's first report reaches Dagu Console.
+        report: () => {
+          monitoring = {
+            ...monitoring,
+            lastReportAt: new Date().toISOString(),
+            lastReport: '{"protocol":2}',
+          };
+        },
+        approve: async (button = connectButton) => {
+          await userEvent.click(button());
           await screen.findByText('ABCD1234');
           approved = true;
         },
       };
     }
 
-    it('offers failure emails right after connecting', async () => {
-      const { put, approve } = approveAndConnect(unchosen);
+    it('connects a free server reporting at the level chosen', async () => {
+      const { approve } = approveAndConnect(unchosen, freeOnline);
       await approve();
 
-      const dialog = await screen.findByRole(
-        'dialog',
-        { name: 'Monitor this server from Dagu Console' },
-        { timeout: 5000 }
-      );
-      await userEvent.click(
-        within(dialog).getByRole('button', { name: 'Turn on' })
-      );
-
-      expect(put).toHaveBeenCalledWith('/license/monitoring', {
-        params: { query: { remoteNode: 'local' } },
-        body: { level: 'runs' },
-      });
-      await waitFor(() =>
-        expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
-      );
-      expect(monitoringCard()).toHaveTextContent('Health and run status');
+      expect(
+        await screen.findByText('Connected to acme.', undefined, {
+          timeout: 5000,
+        })
+      ).toBeVisible();
+      expect(row('Plan')).toHaveTextContent('Free plan');
+      expect(row('Status')).toHaveTextContent('Monitoring only');
+      expect(
+        await within(await findMonitoringCard()).findByText(
+          'Health, run status, and error messages'
+        )
+      ).toBeVisible();
+      expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
     });
 
-    it('stops asking once the offer after connecting is declined', async () => {
-      const { post, approve } = approveAndConnect(unchosen);
+    // The first report shows within seconds of connecting, not at the next
+    // regular refresh half a minute later.
+    it('shows the first report soon after connecting', async () => {
+      const { approve, report } = approveAndConnect(unchosen);
       await approve();
-
-      const dialog = await screen.findByRole(
-        'dialog',
-        { name: 'Monitor this server from Dagu Console' },
+      const card = await screen.findByRole(
+        'region',
+        { name: 'Monitoring' },
         { timeout: 5000 }
       );
+      report();
+
+      expect(
+        await within(card).findByRole(
+          'button',
+          { name: 'View last report' },
+          { timeout: 5000 }
+        )
+      ).toBeVisible();
+    }, 15_000);
+
+    // The trial starts in the same approval: the approval page offers it
+    // first, as it does when another page asked for the trial.
+    it('asks the approval page for the trial when chosen', async () => {
+      const tab = { opener: {}, location: { href: '' }, close: vi.fn() };
+      vi.spyOn(window, 'open').mockReturnValue(tab as unknown as Window);
+      useClientMock.mockReturnValue({
+        POST: vi.fn().mockResolvedValue({ data: pending }),
+        GET: vi.fn().mockReturnValue(new Promise(() => {})),
+      } as never);
+      renderPage(community());
+
       await userEvent.click(
-        within(dialog).getByRole('button', { name: 'Not now' })
+        within(offer()).getByRole('checkbox', {
+          name: /Also try paid features free for 14 days/,
+        })
+      );
+      // The card no longer promises that paid features stay off.
+      expect(offer()).toHaveTextContent(
+        'Free for one server, with 14 days of paid features. After the trial: reports every 5 minutes and keeps 7 days of run history.'
+      );
+      expect(offer()).not.toHaveTextContent('Paid features stay off.');
+      await userEvent.click(
+        within(offer()).getByRole('button', { name: 'Connect and start trial' })
       );
 
-      expect(post).toHaveBeenCalledWith('/license/monitoring/dismiss-notice', {
+      const withTrial = pending.connectUrl + '&trial=1';
+      expect(tab.location.href).toBe(withTrial);
+      expect(
+        await screen.findByRole('link', { name: 'Open Dagu Console' })
+      ).toHaveAttribute('href', withTrial);
+    });
+
+    it('chooses the trial when the page is asked for it', () => {
+      useClientMock.mockReturnValue({
+        GET: vi.fn().mockReturnValue(new Promise(() => {})),
+      } as never);
+      renderPage(community(), { path: '/license?trial=1#monitoring' });
+
+      expect(
+        within(offer()).getByRole('checkbox', {
+          name: /Also try paid features free for 14 days/,
+        })
+      ).toBeChecked();
+      expect(
+        within(offer()).getByRole('button', { name: 'Connect and start trial' })
+      ).toBeVisible();
+    });
+
+    it('starts the same request from the free monitoring offer', async () => {
+      vi.spyOn(window, 'open').mockReturnValue(null);
+      const post = vi.fn().mockResolvedValue({ data: pending });
+      useClientMock.mockReturnValue({
+        POST: post,
+        GET: vi.fn().mockReturnValue(new Promise(() => {})),
+      } as never);
+      renderPage(community());
+
+      expect(offer()).toHaveTextContent(
+        'Reporting starts as soon as the server connects.'
+      );
+      expect(offer()).toHaveTextContent(
+        'Free for one server: reports every 5 minutes and keeps 7 days of run history. Paid features stay off.'
+      );
+      expect(offer()).toHaveTextContent(
+        'Never sent: full logs, outputs, parameters, environment, step commands, DAG YAML, schedule expressions, and the values of workflow secrets.'
+      );
+      expect(
+        within(offer()).getByRole('radio', {
+          name: 'Health, run status, and error messages (recommended)',
+        })
+      ).toBeChecked();
+      await userEvent.click(
+        within(offer()).getByRole('button', { name: 'Connect for free' })
+      );
+
+      expect(post).toHaveBeenCalledWith('/license/connect', {
+        params: { query: { remoteNode: 'local' } },
+        body: { report: 'errors' },
+      });
+      expect(await screen.findByText('ABCD1234')).toBeVisible();
+      expect(
+        screen.queryByRole('region', { name: 'Monitor this server for free' })
+      ).not.toBeInTheDocument();
+    });
+
+    it('reports the level chosen in the offer without asking again', async () => {
+      const { post, approve } = approveAndConnect(unchosen);
+      await userEvent.click(
+        within(offer()).getByRole('radio', { name: 'Health only' })
+      );
+      await approve(() =>
+        within(offer()).getByRole('button', { name: 'Connect for free' })
+      );
+
+      expect(post).toHaveBeenCalledWith('/license/connect', {
+        params: { query: { remoteNode: 'local' } },
+        body: { report: 'health' },
+      });
+      expect(
+        await screen.findByText('Connected to Dagu Console.', undefined, {
+          timeout: 5000,
+        })
+      ).toBeVisible();
+      expect(
+        await within(await findMonitoringCard()).findByText('Health only')
+      ).toBeVisible();
+      expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+    });
+
+    it('keeps the level chosen before when the server connects again', async () => {
+      const { post, approve } = approveAndConnect({
+        ...unchosen,
+        level: LicenseMonitoringLevel.runs,
+        chosen: true,
+      });
+      // The level chosen before is selected once the server's choice loads.
+      await waitFor(() =>
+        expect(
+          within(offer()).getByRole('radio', { name: 'Health and run status' })
+        ).toBeChecked()
+      );
+      await approve(() =>
+        within(offer()).getByRole('button', { name: 'Connect for free' })
+      );
+
+      expect(post).toHaveBeenCalledWith('/license/connect', {
+        params: { query: { remoteNode: 'local' } },
+        body: { report: 'runs' },
+      });
+    });
+
+    it('promises failure emails only with run status', async () => {
+      approveAndConnect(unchosen);
+      const runsText =
+        "Dagu Console shows this server's runs, failures, and trends, and emails you when a workflow fails or the server stops reporting.";
+      expect(
+        await within(offer()).findByText(runsText, { exact: false })
+      ).toBeVisible();
+
+      await userEvent.click(
+        within(offer()).getByRole('radio', { name: 'Health only' })
+      );
+
+      expect(
+        within(offer()).getByText(
+          "Dagu Console shows this server's health and emails you when the server stops reporting.",
+          { exact: false }
+        )
+      ).toBeVisible();
+      expect(
+        within(offer()).queryByText(runsText, { exact: false })
+      ).not.toBeInTheDocument();
+    });
+
+    it('shows a level set in the configuration in the offer', async () => {
+      const { post, approve } = approveAndConnect({
+        ...unchosen,
+        level: LicenseMonitoringLevel.health,
+        configured: true,
+      });
+
+      expect(
+        await within(offer()).findByText(
+          'cloud.report in the server configuration sets this. Change it there and restart Dagu.'
+        )
+      ).toBeVisible();
+      expect(within(offer()).getByText('Health only')).toBeVisible();
+      expect(within(offer()).queryByRole('radio')).not.toBeInTheDocument();
+      await approve(() =>
+        within(offer()).getByRole('button', { name: 'Connect for free' })
+      );
+
+      expect(post).toHaveBeenCalledWith('/license/connect', {
         params: { query: { remoteNode: 'local' } },
       });
     });
@@ -705,9 +1027,7 @@ describe('LicensePage', () => {
       } as never);
       renderPage(community());
 
-      await userEvent.click(
-        screen.getByRole('button', { name: 'Connect to Dagu Console' })
-      );
+      await userEvent.click(connectButton());
 
       expect(
         await screen.findByText(
@@ -730,9 +1050,7 @@ describe('LicensePage', () => {
       } as never);
       renderPage(community());
 
-      await userEvent.click(
-        screen.getByRole('button', { name: 'Connect to Dagu Console' })
-      );
+      await userEvent.click(connectButton());
 
       expect(await screen.findByRole('alert')).toHaveTextContent(
         'this server already has an active license'
@@ -753,13 +1071,11 @@ describe('LicensePage', () => {
       } as never);
       renderPage(community());
 
-      await userEvent.click(
-        screen.getByRole('button', { name: 'Connect to Dagu Console' })
-      );
+      await userEvent.click(connectButton());
       const callout = await screen.findByRole('alert');
       expect(callout).toHaveTextContent('Could not connect to Dagu Console');
       expect(
-        screen.queryByRole('button', { name: 'Connect to Dagu Console' })
+        screen.queryByRole('button', { name: 'Connect for free' })
       ).not.toBeInTheDocument();
 
       await userEvent.click(
@@ -771,7 +1087,7 @@ describe('LicensePage', () => {
       expect(within(request).getByText('ABCD1234')).toBeVisible();
       expect(post).toHaveBeenCalledTimes(2);
       expect(
-        screen.queryByRole('button', { name: 'Connect to Dagu Console' })
+        screen.queryByRole('button', { name: 'Connect for free' })
       ).not.toBeInTheDocument();
     });
 
@@ -793,9 +1109,7 @@ describe('LicensePage', () => {
         GET: get,
       } as never);
       renderPage(community());
-      await userEvent.click(
-        screen.getByRole('button', { name: 'Connect to Dagu Console' })
-      );
+      await userEvent.click(connectButton());
       const request = await screen.findByRole('region', {
         name: 'Waiting for approval',
       });
@@ -823,9 +1137,7 @@ describe('LicensePage', () => {
       await userEvent.type(await openKeyForm('Use a license key'), 'key');
       await userEvent.click(screen.getByRole('button', { name: 'Activate' }));
 
-      expect(
-        screen.getByRole('button', { name: 'Connect to Dagu Console' })
-      ).toBeDisabled();
+      expect(connectButton()).toBeDisabled();
       expect(
         screen.getByRole('button', { name: 'Activating...' })
       ).toBeDisabled();
@@ -840,9 +1152,7 @@ describe('LicensePage', () => {
         DELETE: del,
       } as never);
       renderPage(community());
-      await userEvent.click(
-        screen.getByRole('button', { name: 'Connect to Dagu Console' })
-      );
+      await userEvent.click(connectButton());
       await screen.findByText('ABCD1234');
 
       await userEvent.click(screen.getByRole('button', { name: 'Cancel' }));
@@ -850,9 +1160,7 @@ describe('LicensePage', () => {
       expect(del).toHaveBeenCalledWith('/license/connect', {
         params: { query: { remoteNode: 'local' } },
       });
-      expect(
-        screen.getByRole('button', { name: 'Connect to Dagu Console' })
-      ).toBeVisible();
+      expect(connectButton()).toBeVisible();
     });
 
     it('keeps waiting when the cancel does not reach the server', async () => {
@@ -863,9 +1171,7 @@ describe('LicensePage', () => {
         DELETE: vi.fn().mockRejectedValue(new TypeError('Failed to fetch')),
       } as never);
       renderPage(community());
-      await userEvent.click(
-        screen.getByRole('button', { name: 'Connect to Dagu Console' })
-      );
+      await userEvent.click(connectButton());
       await screen.findByText('ABCD1234');
 
       await userEvent.click(screen.getByRole('button', { name: 'Cancel' }));
@@ -875,7 +1181,7 @@ describe('LicensePage', () => {
       );
       expect(screen.getByText('ABCD1234')).toBeVisible();
       expect(
-        screen.queryByRole('button', { name: 'Connect to Dagu Console' })
+        screen.queryByRole('button', { name: 'Connect for free' })
       ).not.toBeInTheDocument();
     });
 
@@ -886,7 +1192,7 @@ describe('LicensePage', () => {
         screen.getByText(/license is set by DAGU_LICENSE or DAGU_LICENSE_KEY/)
       ).toBeVisible();
       expect(
-        screen.queryByRole('button', { name: 'Connect to Dagu Console' })
+        screen.queryByRole('button', { name: 'Connect for free' })
       ).not.toBeInTheDocument();
     });
   });
@@ -925,6 +1231,7 @@ describe('LicensePage', () => {
         configured: false,
         chosen: true,
         noticeDismissed: false,
+        errorsOffered: false,
         lastReportAt: new Date().toISOString(),
         lastReport: '{"protocol":2,"heartbeat_secret":"[redacted]"}',
       });
@@ -963,20 +1270,29 @@ describe('LicensePage', () => {
       });
       const health = within(dialog).getByRole('radio', { name: 'Health only' });
       const runs = within(dialog).getByRole('radio', {
-        name: 'Health and run status (recommended)',
+        name: 'Health and run status',
       });
-      expect(runs).toBeChecked();
+      const errors = within(dialog).getByRole('radio', {
+        name: 'Health, run status, and error messages (recommended)',
+      });
+      expect(errors).toBeChecked();
+      expect(errors).toHaveAccessibleDescription(
+        "Sends everything Health and run status sends, plus why each failed run failed: the error messages of up to 5 failed steps and handlers, or the run's own, each up to 2 KB from its end. A step's error can end with the last lines of its stderr, with the values of workflow secrets masked."
+      );
       expect(health).toHaveAccessibleDescription(
-        'Sends the Dagu version, OS, architecture, process start time, and service counts: schedulers holding the scheduler lock, and registered coordinators.'
+        "Sends the Dagu version, OS, architecture, process start time, service counts (schedulers holding the scheduler lock, and registered coordinators), the scheduler's last tick and whether it is paused, and how far remote access lets calls from Dagu Cloud go."
       );
       expect(runs).toHaveAccessibleDescription(
-        'Sends the health fields, plus the status of each top-level DAG run that finishes, with its failed step names (up to 50) and how it was triggered, and the list of runs queued, running, or waiting. Each run is sent as its DAG name, run ID, attempt ID, status, trigger, and queued, started, and finished times. No parameters, logs, or outputs.'
+        "Sends the health fields, plus the status of each top-level DAG run that finishes, with its failed step names (up to 50) and how it was triggered, and the list of runs queued, running, or waiting. Each run is sent as its DAG name, run ID, attempt ID, status, trigger, and queued, started, and finished times. Also each scheduled DAG's next run, and whether its latest scheduled run started. No parameters, logs, or outputs."
       );
       expect(dialog).toHaveTextContent(
-        'Never sent: logs, outputs, parameters, environment, step commands, DAG YAML, the values of workflow secrets, and error message text.'
+        'Never sent: full logs, outputs, parameters, environment, step commands, DAG YAML, schedule expressions, and the values of workflow secrets.'
       );
       expect(dialog).toHaveTextContent(
         'the protocol version, license ID, server ID, and heartbeat secret'
+      );
+      expect(dialog).toHaveTextContent(
+        'Turning reporting off sends one last report that carries only what identifies and authenticates this server and the choice Off'
       );
 
       await userEvent.click(health);
@@ -1091,6 +1407,7 @@ describe('LicensePage', () => {
         configured: false,
         chosen: true,
         noticeDismissed: false,
+        errorsOffered: false,
         lastReportAt: new Date(Date.now() - 11 * 60_000).toISOString(),
       });
       const card = await findMonitoringCard();
@@ -1108,6 +1425,7 @@ describe('LicensePage', () => {
         configured: false,
         chosen: true,
         noticeDismissed: false,
+        errorsOffered: false,
         lastReportAt: new Date(Date.now() - 9 * 60_000).toISOString(),
       });
       const card = await findMonitoringCard();
@@ -1123,6 +1441,7 @@ describe('LicensePage', () => {
         configured: false,
         chosen: true,
         noticeDismissed: false,
+        errorsOffered: false,
         lastReportAt: new Date().toISOString(),
         runsPausedUntil: until.toISOString(),
       });
@@ -1141,6 +1460,7 @@ describe('LicensePage', () => {
         configured: false,
         chosen: true,
         noticeDismissed: false,
+        errorsOffered: false,
         lastReportAt: new Date().toISOString(),
         runsPausedUntil: new Date(Date.now() - 60_000).toISOString(),
       });
@@ -1169,6 +1489,188 @@ describe('LicensePage', () => {
     });
   });
 
+  describe('remote access', () => {
+    const remoteOff: LicenseRemoteAccess = {
+      level: LicenseRemoteAccessLevel.off,
+      levelConfigured: false,
+      approvals: false,
+      approvalsConfigured: false,
+      connected: false,
+    };
+
+    // Serves an online license with audit logs, the given remote access,
+    // which PUT changes the way the server does, and the given audit entries.
+    function serveRemoteAccess(initial: LicenseRemoteAccess, entries = []) {
+      let access = initial;
+      const get = vi.fn((path: string) =>
+        Promise.resolve({
+          data:
+            path === '/license/remote-access'
+              ? access
+              : path === '/license/monitoring'
+                ? unchosen
+                : path === '/audit'
+                  ? { entries, total: entries.length }
+                  : makeConfig(online).license,
+        })
+      );
+      const put = vi.fn(
+        (
+          _path: string,
+          init: {
+            body: { level?: LicenseRemoteAccessLevel; approvals?: boolean };
+          }
+        ) => {
+          access = { ...access, ...init.body };
+          return Promise.resolve({ data: access });
+        }
+      );
+      useClientMock.mockReturnValue({
+        GET: get,
+        POST: vi.fn(),
+        PUT: put,
+      } as never);
+      renderPage(online);
+      return { get, put };
+    }
+
+    function findRemoteAccessCard() {
+      return screen.findByRole('region', { name: 'Remote access' });
+    }
+
+    it('turns remote access on with the chosen role', async () => {
+      const { put } = serveRemoteAccess(remoteOff);
+      const card = await findRemoteAccessCard();
+      await within(card).findByText('Off');
+      expect(within(card).queryByText('Connection')).not.toBeInTheDocument();
+
+      await userEvent.click(
+        within(card).getByRole('button', { name: 'Turn on' })
+      );
+      const dialog = await screen.findByRole('dialog', {
+        name: 'Choose remote access',
+      });
+      expect(
+        within(dialog).getByRole('radio', { name: 'Viewer' })
+      ).toBeChecked();
+      const operator = within(dialog).getByRole('radio', { name: 'Operator' });
+      expect(operator).toHaveAccessibleDescription(
+        'Also start, enqueue, retry, and stop runs of existing DAGs, with any parameters those DAGs take.'
+      );
+      await userEvent.click(operator);
+      await userEvent.click(
+        within(dialog).getByRole('button', { name: 'Turn on' })
+      );
+
+      expect(put).toHaveBeenCalledWith('/license/remote-access', {
+        params: { query: { remoteNode: 'local' } },
+        body: { level: 'operator' },
+      });
+      expect(await within(card).findByText('Operator')).toBeVisible();
+      expect(within(card).getByText('Connecting…')).toBeVisible();
+      expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+    });
+
+    it('warns that developer runs any command on the machine', async () => {
+      serveRemoteAccess(remoteOff);
+      const card = await findRemoteAccessCard();
+      await userEvent.click(
+        await within(card).findByRole('button', { name: 'Turn on' })
+      );
+      const dialog = await screen.findByRole('dialog', {
+        name: 'Choose remote access',
+      });
+      expect(within(dialog).queryByRole('alert')).not.toBeInTheDocument();
+      await userEvent.click(
+        within(dialog).getByRole('radio', { name: 'Developer' })
+      );
+      expect(within(dialog).getByRole('alert')).toHaveTextContent(
+        'run any command on this machine, as the user Dagu runs as'
+      );
+    });
+
+    it('lets approvals be turned on and shows the connection', async () => {
+      const { put } = serveRemoteAccess({
+        ...remoteOff,
+        level: LicenseRemoteAccessLevel.operator,
+        connected: true,
+      });
+      const card = await findRemoteAccessCard();
+      expect(await within(card).findByText('Connected')).toBeVisible();
+
+      const approvals = within(card).getByRole('switch', { name: 'Approvals' });
+      expect(approvals).not.toBeChecked();
+      await userEvent.click(approvals);
+      expect(put).toHaveBeenCalledWith('/license/remote-access', {
+        params: { query: { remoteNode: 'local' } },
+        body: { approvals: true },
+      });
+      await waitFor(() => expect(approvals).toBeChecked());
+    });
+
+    it('says why Dagu Cloud refused the connection', async () => {
+      serveRemoteAccess({
+        ...remoteOff,
+        level: LicenseRemoteAccessLevel.viewer,
+        error: 'Access from Dagu Cloud needs a plan or a trial.',
+      });
+      const card = await findRemoteAccessCard();
+      expect(
+        await within(card).findByText(
+          'Access from Dagu Cloud needs a plan or a trial.'
+        )
+      ).toBeVisible();
+    });
+
+    it('lists the calls agents made lately', async () => {
+      serveRemoteAccess(
+        { ...remoteOff, level: LicenseRemoteAccessLevel.operator },
+        [
+          {
+            id: '2',
+            timestamp: new Date().toISOString(),
+            category: 'mcp',
+            action: 'mcp.tool_call.denied',
+            mcpTool: 'dagu_change',
+            username: 'ana@example.com',
+            details: '{"mcp_action":"upsert_dag","resource_id":"etl"}',
+          },
+          {
+            id: '1',
+            timestamp: new Date().toISOString(),
+            category: 'mcp',
+            action: 'mcp.tool_call.started',
+            mcpTool: 'dagu_execute',
+            username: 'ana@example.com',
+          },
+        ] as never
+      );
+      const card = await findRemoteAccessCard();
+      const activity = await within(card).findByText(
+        'dagu_change upsert_dag etl'
+      );
+      expect(activity.closest('li')).toHaveTextContent('Denied');
+      expect(within(card).getAllByRole('listitem')).toHaveLength(1);
+    });
+
+    it('leaves configured settings read-only', async () => {
+      serveRemoteAccess({
+        ...remoteOff,
+        level: LicenseRemoteAccessLevel.viewer,
+        levelConfigured: true,
+        approvalsConfigured: true,
+        connected: true,
+      });
+      const card = await findRemoteAccessCard();
+      await within(card).findByText('Viewer');
+      expect(within(card).queryByRole('button', { name: 'Change' })).toBeNull();
+      expect(within(card).queryByRole('switch')).toBeNull();
+      expect(card).toHaveTextContent(
+        'cloud.remote_access and cloud.remote_approvals in the server configuration set these.'
+      );
+    });
+  });
+
   it('waits for authoritative activation status and preserves warnings', async () => {
     const community = makeConfig({
       community: true,
@@ -1184,10 +1686,16 @@ describe('LicensePage', () => {
     const pending = new Promise<{ data: LicenseStatus }>((done) => {
       resolve = done;
     });
-    const get = vi
-      .fn()
-      .mockResolvedValueOnce({ data: community })
-      .mockReturnValue(pending);
+    // The first status read answers at once; the one after activating
+    // waits. Other reads never answer.
+    const get = vi.fn((path: string) => {
+      if (path !== '/license/status') return new Promise(() => {});
+      return statusReads() === 1
+        ? Promise.resolve({ data: community })
+        : pending;
+    });
+    const statusReads = () =>
+      get.mock.calls.filter(([path]) => path === '/license/status').length;
     useClientMock.mockReturnValue({
       POST: vi.fn().mockResolvedValue({
         data: { plan: 'team', features: status.features },
@@ -1195,10 +1703,10 @@ describe('LicensePage', () => {
       GET: get,
     } as never);
     renderPage(community);
-    await waitFor(() => expect(get).toHaveBeenCalledTimes(1));
+    await waitFor(() => expect(statusReads()).toBe(1));
     await userEvent.type(await openKeyForm('Use a license key'), 'key');
     await userEvent.click(screen.getByRole('button', { name: 'Activate' }));
-    await waitFor(() => expect(get).toHaveBeenCalledTimes(2));
+    await waitFor(() => expect(statusReads()).toBe(2));
     expect(screen.getByText('Community', { exact: true })).toBeVisible();
     await act(async () => {
       resolve({ data: status });
@@ -1223,7 +1731,7 @@ describe('LicensePage', () => {
         .map((title) => title.closest<HTMLElement>('[role]')!);
     }
 
-    it('offers a community server a connection and a trial', () => {
+    it('offers a community server one way to connect, with the trial', () => {
       renderPage({
         valid: false,
         community: true,
@@ -1233,12 +1741,17 @@ describe('LicensePage', () => {
         source: '',
       });
 
+      expect(screen.getAllByRole('button', { name: /^Connect / })).toHaveLength(
+        1
+      );
       expect(
-        screen.getAllByRole('button', { name: 'Connect to Dagu Console' })
-      ).toHaveLength(1);
+        screen.getByRole('checkbox', {
+          name: /Also try paid features free for 14 days/,
+        })
+      ).not.toBeChecked();
       expect(
-        screen.getByRole('link', { name: 'Start free trial' })
-      ).toHaveAttribute('href', expect.stringContaining('content=plan-page'));
+        screen.queryByRole('link', { name: 'Start free trial' })
+      ).not.toBeInTheDocument();
       expect(
         screen.queryByRole('link', { name: 'Manage in Dagu Console' })
       ).not.toBeInTheDocument();
@@ -1266,10 +1779,69 @@ describe('LicensePage', () => {
         'https://console.dagu.sh/servers?server=srv-123'
       );
       expect(
-        screen.queryByRole('button', { name: 'Connect to Dagu Console' })
+        screen.queryByRole('button', { name: 'Connect for free' })
       ).not.toBeInTheDocument();
       expect(callouts()).toHaveLength(0);
       expect(row('Status')).toHaveTextContent('Active');
+    });
+
+    it('treats a free license as monitoring only', () => {
+      renderPage({
+        ...freeOnline,
+        expiry: inDays(2),
+        consoleUrl: 'https://console.dagu.sh/servers?server=srv-123',
+      });
+
+      expect(
+        screen.getByRole('link', { name: 'Manage in Dagu Console' })
+      ).toHaveAttribute(
+        'href',
+        'https://console.dagu.sh/servers?server=srv-123'
+      );
+      expect(
+        screen.getByRole('link', { name: 'Start free trial' })
+      ).toHaveAttribute(
+        'href',
+        'https://console.dagu.sh/servers?server=srv-123'
+      );
+      expect(
+        screen.queryByRole('button', { name: 'Connect for free' })
+      ).not.toBeInTheDocument();
+      expect(
+        screen.queryByRole('region', { name: 'Monitor this server for free' })
+      ).not.toBeInTheDocument();
+      expect(row('Plan')).toHaveTextContent('Free plan');
+      expect(row('Status')).toHaveTextContent('Monitoring only');
+      expect(
+        within(overview()).queryByText('Expires', { selector: 'dt' })
+      ).not.toBeInTheDocument();
+      expect(callouts()).toHaveLength(0);
+      expect(screen.getAllByText('Included in Team and Pro')).toHaveLength(5);
+      expect(screen.queryByText('Included')).not.toBeInTheDocument();
+    });
+
+    it('calls out no expiry of a free license', () => {
+      renderPage({
+        ...freeOnline,
+        valid: false,
+        gracePeriod: true,
+        graceEndsAt: '2099-05-14T00:00:00Z',
+      });
+
+      expect(callouts()).toHaveLength(0);
+      expect(row('Status')).toHaveTextContent('Monitoring only');
+    });
+
+    it('says that disconnecting a free server stops monitoring', async () => {
+      renderPage(freeOnline);
+
+      await userEvent.click(screen.getByRole('button', { name: 'Disconnect' }));
+
+      const dialog = await screen.findByRole('dialog');
+      expect(dialog).toHaveTextContent(
+        'Dagu Console stops monitoring this server, and its free slot becomes available to another server.'
+      );
+      expect(dialog).not.toHaveTextContent('Paid features');
     });
 
     it('stays quiet more than 30 days before a paid license expires', () => {
@@ -1456,5 +2028,20 @@ describe('LicensePage', () => {
 
       expect(screen.getByLabelText('License key')).toHaveFocus();
     });
+  });
+
+  // The sidebar and the monitoring offers link to #monitoring.
+  it('scrolls to free monitoring from a link to #monitoring', () => {
+    const scroll = vi.spyOn(Element.prototype, 'scrollIntoView');
+
+    renderPage(
+      { valid: false, community: true, plan: '', features: [] },
+      { path: '/license#monitoring' }
+    );
+
+    expect(scroll.mock.contexts).toContain(
+      screen.getByRole('region', { name: 'Monitor this server for free' })
+    );
+    scroll.mockRestore();
   });
 });

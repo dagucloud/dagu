@@ -88,13 +88,48 @@ func Unwrap(provider Provider) Provider {
 	return provider
 }
 
-// Chat normalizes each request before delegating to the concrete provider.
+// Chat normalizes each request before delegating to the concrete provider,
+// and reports the usage of an answered call to the context's usage sink.
 func (p normalizedProvider) Chat(ctx context.Context, req *ChatRequest) (*ChatResponse, error) {
-	return p.Provider.Chat(ctx, NormalizeChatRequest(req))
+	req = NormalizeChatRequest(req)
+	resp, err := p.Provider.Chat(ctx, req)
+	if err == nil && resp != nil {
+		RecordUsage(ctx, UsageRecord{Provider: p.Name(), Model: req.Model, Usage: resp.Usage})
+	}
+	return resp, err
 }
 
 // ChatStream normalizes each streaming request before delegating to the
-// concrete provider.
+// concrete provider. When the context carries a usage sink, the stream's
+// final event reports the call's usage to it; otherwise the provider's
+// stream is returned as it is.
 func (p normalizedProvider) ChatStream(ctx context.Context, req *ChatRequest) (<-chan StreamEvent, error) {
-	return p.Provider.ChatStream(ctx, NormalizeChatRequest(req))
+	req = NormalizeChatRequest(req)
+	events, err := p.Provider.ChatStream(ctx, req)
+	sink := usageSink(ctx)
+	if err != nil || sink == nil {
+		return events, err
+	}
+	out := make(chan StreamEvent)
+	go func() {
+		defer close(out)
+		for event := range events {
+			if event.Done && event.Error == nil {
+				var usage Usage
+				if event.Usage != nil {
+					usage = *event.Usage
+				}
+				sink.RecordLLMUsage(UsageRecord{Provider: p.Name(), Model: req.Model, Usage: usage})
+			}
+			select {
+			case out <- event:
+			case <-ctx.Done():
+				// The reader is gone; drain so the provider can finish.
+				for range events {
+				}
+				return
+			}
+		}
+	}()
+	return out, nil
 }

@@ -54,6 +54,25 @@ func CheckTextSecrets(step, field, text string, secrets map[string]string) error
 	return nil
 }
 
+// CheckValueSecrets rejects a value the model is shown whole, such as a
+// variable it may see, that contains a secret. Unlike text, which is
+// checked only for secrets long enough to tell from ordinary words, such a
+// value is checked for every secret however short, since nothing else
+// keeps it from the model.
+func CheckValueSecrets(step, field, value string, secrets map[string]string) error {
+	names := make([]string, 0, len(secrets))
+	for name, secret := range secrets {
+		if secret != "" {
+			names = append(names, name)
+		}
+	}
+	sort.Strings(names)
+	if name, found := secretIn(value, names, secrets); found {
+		return fmt.Errorf("%s: with.%s contains the value of secret %s, which would be sent to the model", step, field, name)
+	}
+	return nil
+}
+
 // checkableSecrets lists, in order, the secrets long enough to check.
 func checkableSecrets(secrets map[string]string) []string {
 	names := make([]string, 0, len(secrets))

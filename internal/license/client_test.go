@@ -483,3 +483,21 @@ func TestCloudClient_Release(t *testing.T) {
 		assert.Equal(t, http.StatusNotFound, cloudErr.StatusCode)
 	})
 }
+
+func TestCloudClient_Rename(t *testing.T) {
+	t.Parallel()
+
+	_, client := newTestCloudClient(t, func(w http.ResponseWriter, r *http.Request) {
+		assert.Equal(t, "/api/v1/licenses/rename", r.URL.Path)
+		body, err := io.ReadAll(r.Body)
+		assert.NoError(t, err)
+		assert.JSONEq(t, `{"license_id":"lic","server_id":"srv","heartbeat_secret":"hb","name":""}`, string(body),
+			"an empty name is sent, which clears the name")
+		_, _ = w.Write([]byte(`{"token":"renamed-token"}`))
+	})
+
+	resp, err := client.Rename(context.Background(), RenameRequest{LicenseID: "lic", ServerID: "srv", HeartbeatSecret: "hb"})
+
+	require.NoError(t, err)
+	assert.Equal(t, "renamed-token", resp.Token)
+}

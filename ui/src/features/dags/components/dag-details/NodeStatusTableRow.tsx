@@ -9,7 +9,7 @@
 import { Button } from '@/components/ui/button';
 import { CommandDisplay } from '@/components/ui/command-display';
 import { useErrorModal } from '@/components/ui/error-modal';
-import { useSimpleToast } from '@/components/ui/simple-toast';
+import RelativeTime from '@/components/ui/relative-time';
 import { ScriptBadge } from '@/components/ui/script-dialog';
 import { TableCell } from '@/components/ui/table';
 import {
@@ -21,6 +21,7 @@ import { useConfig } from '@/contexts/ConfigContext';
 import { useRemoteNode } from '@/contexts/RemoteNodeContext';
 import { useClient, useQuery } from '@/hooks/api';
 import { whenEnabled } from '@/hooks/queryUtils';
+import { useClock } from '@/hooks/useClock';
 import {
   formatLogStepOutput,
   getExecutorCommand,
@@ -28,15 +29,7 @@ import {
 } from '@/lib/executor-utils';
 import { isHarnessStep } from '@/lib/harness-step';
 import { isActiveNodeStatus } from '@/lib/status-utils';
-import dayjs from '@/lib/dayjs';
 import { cn } from '@/lib/utils';
-import {
-  Dialog,
-  DialogContent,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from '@/components/ui/dialog';
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -54,7 +47,6 @@ import {
   GitBranch,
   Play,
   RefreshCw,
-  X,
 } from 'lucide-react';
 import { useContext, useEffect, useRef, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
@@ -74,6 +66,8 @@ import { DAGContext } from '../../contexts/DAGContext';
 import NodeStatusChip from '../common/NodeStatusChip';
 import { useOpenSubRun } from '../common/SubRunStackModal';
 import { InlineLogViewer } from '../common/InlineLogViewer';
+import { StepRetryDialog } from '../common/StepRetryDialog';
+import { canChangeStepStatus, canRetryStep } from '../../lib/stepStatusGate';
 import StatusUpdateModal from '../dag-execution/StatusUpdateModal';
 import HarnessStepSummary from './HarnessStepSummary';
 import { LogStepMessage } from './LogStepMessage';
@@ -83,7 +77,6 @@ import { ManualActionSubject } from '../common/ManualActionSubject';
 import { I18nText } from '@/i18n/I18nText';
 import { I18nProps } from '@/i18n/I18nProps';
 import { useI18n } from '@/i18n/I18nProvider';
-import { I18nTemplate } from '@/i18n/I18nTemplate';
 
 /**
  * Props for the NodeStatusTableRow component
@@ -111,6 +104,10 @@ type Props = {
   hideActions?: boolean;
   /** Whether the inline log starts expanded */
   defaultLogExpanded?: boolean;
+  /** Whether this step's details are open */
+  selected?: boolean;
+  /** Opens this step's details; without it a row click toggles the log */
+  onInspect?: (stepName: string) => void;
 };
 
 type BuildExecution = components['schemas']['BuildExecution'];
@@ -172,17 +169,16 @@ function BuildDecisionBadge({
   );
 }
 
-/**
- * Format timestamp for better readability
- */
-const formatTimestamp = (timestamp: string | undefined) => {
-  if (!timestamp || timestamp == '-') return '-';
-  try {
-    return dayjs(timestamp).format('YYYY-MM-DD HH:mm:ss Z');
-  } catch {
-    return timestamp;
-  }
-};
+/** Shows how many times a step was retried, if it was. */
+function RetryCountBadge({ count }: { count: number }) {
+  if (count <= 0) return null;
+
+  return (
+    <span className="inline-flex rounded-full border border-warning/30 bg-warning/10 px-2 py-0.5 text-[11px] font-medium text-warning">
+      <I18nText text={'Retried {count}×'} values={{ count }} />
+    </span>
+  );
+}
 
 /**
  * Calculate duration between two timestamps
@@ -190,13 +186,14 @@ const formatTimestamp = (timestamp: string | undefined) => {
  */
 const calculateDuration = (
   startTime: string | undefined,
-  endTime: string | undefined
+  endTime: string | undefined,
+  now: number
 ) => {
   if (!startTime) return '-';
 
   try {
     const start = new Date(startTime).getTime();
-    const end = endTime ? new Date(endTime).getTime() : new Date().getTime();
+    const end = endTime ? new Date(endTime).getTime() : now;
 
     if (isNaN(start) || isNaN(end)) return '-';
 
@@ -243,9 +240,7 @@ function ManualActionDetails({
             className="text-info"
           />
           {node.finishedAt && (
-            <span className="ml-1">
-              <I18nText text={'at'} /> {formatTimestamp(node.finishedAt)}
-            </span>
+            <RelativeTime className="ml-1" timestamp={node.finishedAt} />
           )}
         </div>
       ) : null}
@@ -260,9 +255,7 @@ function ManualActionDetails({
             className="text-info"
           />
           {node.approvedAt && (
-            <span className="ml-1">
-              <I18nText text={'at'} /> {formatTimestamp(node.approvedAt)}
-            </span>
+            <RelativeTime className="ml-1" timestamp={node.approvedAt} />
           )}
         </div>
       ) : null}
@@ -290,9 +283,7 @@ function ManualActionDetails({
             className="text-error"
           />
           {node.rejectedAt && (
-            <span className="ml-1">
-              <I18nText text={'at'} /> {formatTimestamp(node.rejectedAt)}
-            </span>
+            <RelativeTime className="ml-1" timestamp={node.rejectedAt} />
           )}
         </div>
       ) : null}
@@ -323,6 +314,8 @@ function NodeStatusTableRow({
   view = 'desktop',
   hideActions = false,
   defaultLogExpanded = false,
+  selected = false,
+  onInspect,
 }: Props) {
   const { ts } = useI18n();
   const { dagRunId, name: dagName } = dagRun;
@@ -334,16 +327,9 @@ function NodeStatusTableRow({
   const dagRunContext = useContext(DAGRunContext);
   const remoteNode = useRemoteNode();
   const { showError } = useErrorModal();
-  const { showToast } = useSimpleToast();
-  // State to store the current duration for running tasks
-  const [currentDuration, setCurrentDuration] = useState<string>('-');
   // State for expanding/collapsing parallel executions
   const [isExpanded, setIsExpanded] = useState(false);
   const [showDialog, setShowDialog] = useState(false);
-  const [includeDownstream, setIncludeDownstream] = useState(false);
-  const [bypassPreconditions, setBypassPreconditions] = useState(false);
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
   // State for inline log expansion
   const [isLogExpanded, setIsLogExpanded] = useState(defaultLogExpanded);
   const [activeLogTab, setActiveLogTab] = useState<'stdout' | 'stderr'>(
@@ -391,25 +377,17 @@ function NodeStatusTableRow({
   );
   const canUpdateStepStatus =
     showStepActions &&
-    !node.step.humanTask &&
-    dagRun.status !== Status.NotStarted &&
-    dagRun.status !== Status.Running &&
-    dagRun.status !== Status.Queued &&
-    dagRun.status !== Status.Waiting;
-  const canRetryStep =
-    showStepActions &&
-    dagRun.status !== Status.Waiting &&
-    dagRun.status !== Status.Queued &&
-    !node.step.humanTask &&
-    node.status !== NodeStatus.Waiting &&
-    node.status !== NodeStatus.Rejected;
+    canChangeStepStatus(dagRun, node, { runDags: config.permissions.runDags })
+      .ok;
   const rootRunning =
     isSubDAGRun && dagRunContext.rootStatus === Status.Running;
-  const retryDisabled =
-    loading || dagRun.status === Status.Running || rootRunning;
-  const retryTitle = rootRunning
-    ? 'Retry unavailable while the root DAG run is running.'
-    : 'Retry this step';
+  const retryGate = canRetryStep(dagRun, node, {
+    runDags: config.permissions.runDags,
+    rootRunning,
+  });
+  const canRetry = showStepActions && retryGate.ok;
+  const retryDisabled = retryGate.disabled;
+  const retryTitle = rootRunning ? retryGate.reason : 'Retry this step';
 
   const subDAGLogQuery = useQuery(
     '/dag-runs/{name}/{dagRunId}/sub-dag-runs/{subDAGRunId}/steps/{stepName}/log',
@@ -467,24 +445,17 @@ function NodeStatusTableRow({
         ? 'Loading log output...'
         : logMessage;
 
-  // Update duration every second for active tasks.
-  useEffect(() => {
-    if (isActiveNode && node.startedAt) {
-      // Initial calculation
-      setCurrentDuration(calculateDuration(node.startedAt, node.finishedAt));
-
-      // Set up interval to update duration every second
-      const intervalId = setInterval(() => {
-        setCurrentDuration(calculateDuration(node.startedAt, node.finishedAt));
-      }, 1000);
-
-      // Clean up interval on unmount or when status changes
-      return () => clearInterval(intervalId);
-    } else {
-      // For non-running tasks, calculate once
-      setCurrentDuration(calculateDuration(node.startedAt, node.finishedAt));
-    }
-  }, [isActiveNode, node.startedAt, node.finishedAt]);
+  // Active tasks read the shared one-second clock; the others never tick.
+  // The time is cut to the second, so each read within a tick is the same.
+  const currentDuration = useClock(
+    isActiveNode && node.startedAt ? 1000 : null,
+    (now) =>
+      calculateDuration(
+        node.startedAt,
+        node.finishedAt,
+        Math.floor(now / 1000) * 1000
+      )
+  );
 
   const url = buildDAGPageURL({
     fileName: name,
@@ -516,76 +487,19 @@ function NodeStatusTableRow({
         return;
       }
 
-      // Check if we're in a dagRun context or a DAG context
-      // More reliable detection by checking the current URL path or the dagRun object
-      const currentPath = window.location.pathname;
-      const isModal = document.querySelector('.dagRun-modal-content') !== null;
-      const isDAGRunContext =
-        dagRun && (currentPath.startsWith('/dag-runs/') || isModal);
-
-      if (isDAGRunContext) {
-        // For dagRuns, navigate to /dag-runs/{root-dag-name}/{root-dag-run-id}?subDAGRunId=...
-        const searchParams = new URLSearchParams();
-        searchParams.set('remoteNode', remoteNode);
-        searchParams.set('subDAGRunId', subDAGRunId);
-
-        // Determine root DAG information
-        let rootDAGRunId: string;
-        let rootDAGName: string;
-
-        if (dagRun && dagRun.rootDAGRunId) {
-          // If this is already a sub dagRun, use its root information
-          rootDAGRunId = dagRun.rootDAGRunId;
-          rootDAGName = dagRun.rootDAGRunName;
-          searchParams.set('dagRunId', dagRun.rootDAGRunId);
-          searchParams.set('dagRunName', dagRun.rootDAGRunName);
-        } else {
-          // Otherwise, use the current dagRun as the root
-          rootDAGRunId = dagRunId || '';
-          rootDAGName = dagRun?.name || name;
-          searchParams.set('dagRunId', dagRunId || '');
-          searchParams.set('dagRunName', dagRun?.name || name);
-        }
-
-        searchParams.set('step', node.step.name);
-        const url = `/dag-runs/${rootDAGName}/${rootDAGRunId}?${searchParams.toString()}`;
-
-        // If Cmd/Ctrl key is pressed, open in new tab
-        if (e && (e.metaKey || e.ctrlKey)) {
-          window.open(url, '_blank');
-        } else {
-          navigate(url);
-        }
+      // Child runs open on the run page under their root run.
+      const url = buildDAGRunPageURL({
+        rootDAGRunName: dagRun?.rootDAGRunId
+          ? dagRun.rootDAGRunName
+          : dagRun?.name || name,
+        rootDAGRunId: dagRun?.rootDAGRunId || dagRunId || '',
+        subDAGRunId,
+        remoteNode,
+      });
+      if (modifierClick) {
+        window.open(url, '_blank');
       } else {
-        // For DAGs, use the existing approach with query parameters
-        const searchParams = new URLSearchParams();
-        searchParams.set('remoteNode', remoteNode);
-        searchParams.set('subDAGRunId', subDAGRunId);
-
-        // Use root dagRun information from the dagRun prop if available
-        if (dagRun && dagRun.rootDAGRunId) {
-          // If this is already a sub dagRun, use its root information
-          searchParams.set('dagRunId', dagRun.rootDAGRunId);
-        } else {
-          // Otherwise, use the current dagRun as the root
-          searchParams.set('dagRunId', dagRunId || '');
-        }
-
-        // Add dagRunName parameter to avoid waiting for DAG details
-        // Use the root dagRun name or current dagRun name
-        if (dagRun) {
-          searchParams.set('dagRunName', dagRun.rootDAGRunName);
-        }
-
-        searchParams.set('step', node.step.name);
-        const url = `/dags/${name}?${searchParams.toString()}`;
-
-        // If Cmd/Ctrl key is pressed, open in new tab
-        if (e && (e.metaKey || e.ctrlKey)) {
-          window.open(url, '_blank');
-        } else {
-          navigate(url);
-        }
+        navigate(url);
       }
     }
   };
@@ -597,54 +511,6 @@ function NodeStatusTableRow({
     if (!(e.metaKey || e.ctrlKey) && onViewLog) {
       e.preventDefault();
       onViewLog(node.step.name, dagRunId || '', node);
-    }
-  };
-
-  const handleRetry = async () => {
-    if (!config.permissions.runDags) {
-      return;
-    }
-
-    setLoading(true);
-    setError(null);
-    try {
-      const retryDAGName = isSubDAGRun ? dagRun.rootDAGRunName : dagName;
-      const retryDAGRunId = isSubDAGRun ? dagRun.rootDAGRunId : dagRunId;
-      const { error: requestError } = await client.POST(
-        '/dag-runs/{name}/{dagRunId}/retry',
-        {
-          params: {
-            path: { name: retryDAGName, dagRunId: retryDAGRunId },
-            query: { remoteNode },
-          },
-          body: {
-            dagRunId: retryDAGRunId,
-            stepName: node.step.name,
-            ...(includeDownstream ? { includeDownstream: true } : {}),
-            ...(bypassPreconditions ? { bypassPreconditions: true } : {}),
-            ...(isSubDAGRun ? { subDAGRunId: dagRun.dagRunId } : {}),
-          },
-        }
-      );
-      if (requestError) {
-        setError(requestError.message || 'Failed to retry DAG run');
-        return;
-      }
-      setShowDialog(false);
-      showToast('Step retry started');
-      dagContext.refresh();
-    } catch (e) {
-      const requestError = e as {
-        data?: { message?: string };
-        message?: string;
-      };
-      setError(
-        requestError?.data?.message ||
-          requestError.message ||
-          'Failed to retry DAG run'
-      );
-    } finally {
-      setLoading(false);
     }
   };
 
@@ -696,126 +562,18 @@ function NodeStatusTableRow({
   const currentStream: components['schemas']['Stream'] =
     activeLogTab === 'stderr' && hasStderr ? Stream.stderr : Stream.stdout;
 
-  const handleRetryDialogOpenChange = (open: boolean) => {
-    setShowDialog(open);
-    setError(null);
-    if (open) {
-      setIncludeDownstream(false);
-      setBypassPreconditions(false);
-    }
-  };
-
   const retryDialog = (
-    <Dialog open={showDialog} onOpenChange={handleRetryDialogOpenChange}>
-      <DialogContent>
-        <DialogHeader>
-          <DialogTitle>
-            <I18nText text={'Retry this step?'} />
-          </DialogTitle>
-        </DialogHeader>
-        <div className="py-2 text-sm space-y-3">
-          <p>
-            <I18nTemplate
-              text="This will re-execute {step}. Are you sure?"
-              values={{ step: <b>{node.step.name}</b> }}
-            />
-          </p>
-          <fieldset className="space-y-1.5">
-            <legend className="text-xs text-muted-foreground">
-              <I18nText text={'Retry scope'} />
-            </legend>
-            <label className="flex items-start gap-2 cursor-pointer">
-              <input
-                type="radio"
-                name="retry-scope"
-                className="mt-0.5"
-                checked={!includeDownstream}
-                onChange={() => setIncludeDownstream(false)}
-              />
-              <span>
-                <span className="font-medium">
-                  <I18nText text={'This step only'} />
-                </span>
-                <span className="block text-xs text-muted-foreground">
-                  <I18nText
-                    text={'Downstream steps keep their current status.'}
-                  />
-                </span>
-              </span>
-            </label>
-            <label className="flex items-start gap-2 cursor-pointer">
-              <input
-                type="radio"
-                name="retry-scope"
-                className="mt-0.5"
-                checked={includeDownstream}
-                onChange={() => setIncludeDownstream(true)}
-              />
-              <span>
-                <span className="font-medium">
-                  <I18nText text={'This step and all downstream steps'} />
-                </span>
-                <span className="block text-xs text-muted-foreground">
-                  <I18nText
-                    text={
-                      'Reset this step and every reachable descendant. Unrelated branches are left unchanged.'
-                    }
-                  />
-                </span>
-              </span>
-            </label>
-          </fieldset>
-          <label className="flex items-start gap-2 cursor-pointer">
-            <input
-              type="checkbox"
-              className="mt-0.5"
-              checked={bypassPreconditions}
-              onChange={(e) => setBypassPreconditions(e.target.checked)}
-            />
-            <span>
-              <span className="font-medium">
-                <I18nText text={'Bypass step preconditions'} />
-              </span>
-              <span className="block text-xs text-muted-foreground">
-                <I18nText
-                  text={
-                    'Skip precondition checks for the retried steps. Workflow-level preconditions still apply.'
-                  }
-                />
-              </span>
-            </span>
-          </label>
-          {error && <div className="text-error mt-2">{error}</div>}
-        </div>
-        <DialogFooter>
-          <Button
-            size="sm"
-            variant="ghost"
-            onClick={() => handleRetryDialogOpenChange(false)}
-            disabled={loading}
-          >
-            <X className="h-4 w-4" />
-            <I18nText text={'Cancel'} />
-          </Button>
-          <Button
-            size="sm"
-            onClick={handleRetry}
-            disabled={retryDisabled || !canRetryStep}
-          >
-            <Play className="h-4 w-4" />
-            {loading ? (
-              <I18nText text={'Retrying...'} />
-            ) : (
-              <I18nText text={'Retry'} />
-            )}
-          </Button>
-        </DialogFooter>
-      </DialogContent>
-    </Dialog>
+    <StepRetryDialog
+      open={showDialog}
+      onOpenChange={setShowDialog}
+      dagRun={dagRun}
+      stepName={node.step.name}
+      disabled={retryDisabled || !canRetry}
+    />
   );
 
   const stepActionsMenu =
-    canRetryStep || canUpdateStepStatus ? (
+    canRetry || canUpdateStepStatus ? (
       <DropdownMenu>
         <Tooltip>
           <TooltipTrigger asChild>
@@ -839,17 +597,17 @@ function NodeStatusTableRow({
           align="end"
           onClick={(event) => event.stopPropagation()}
         >
-          {canRetryStep && (
+          {canRetry && (
             <DropdownMenuItem
               disabled={retryDisabled}
-              onSelect={() => handleRetryDialogOpenChange(true)}
+              onSelect={() => setShowDialog(true)}
               title={retryTitle}
             >
               <Play className="mr-2 h-4 w-4 text-success" />
               <I18nText text={'Retry step'} />
             </DropdownMenuItem>
           )}
-          {canRetryStep && canUpdateStepStatus && <DropdownMenuSeparator />}
+          {canRetry && canUpdateStepStatus && <DropdownMenuSeparator />}
           {canUpdateStepStatus && (
             <DropdownMenuItem onSelect={() => setShowStatusModal(true)}>
               <CircleDot className="mr-2 h-4 w-4" />
@@ -860,13 +618,38 @@ function NodeStatusTableRow({
       </DropdownMenu>
     ) : null;
 
+  // A button, so keyboard and touch users reach the details a row click
+  // opens. It stops the click so the row does not handle it again.
+  const stepName = onInspect ? (
+    <button
+      type="button"
+      onClick={(event) => {
+        event.stopPropagation();
+        onInspect(node.step.name);
+      }}
+      className="rounded-sm text-left hover:underline focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+    >
+      {node.step.name}
+    </button>
+  ) : (
+    node.step.name
+  );
+
   // Render desktop view (table row)
   if (view === 'desktop') {
     return (
       <>
         <StyledTableRow
-          className="hover:bg-muted/50 transition-colors duration-200 h-auto cursor-pointer"
+          className={cn(
+            'hover:bg-muted/50 transition-colors duration-200 h-auto cursor-pointer',
+            selected && 'bg-primary/5 hover:bg-primary/10'
+          )}
+          data-selected={selected || undefined}
           onClick={() => {
+            if (onInspect) {
+              onInspect(node.step.name);
+              return;
+            }
             if (hasLogs) {
               setIsLogExpanded(!isLogExpanded);
               // Set default tab based on what's available
@@ -880,6 +663,7 @@ function NodeStatusTableRow({
             <div className="flex items-center justify-center gap-2">
               {hasLogs && (
                 <button
+                  type="button"
                   onClick={(e) => {
                     e.stopPropagation();
                     setIsLogExpanded(!isLogExpanded);
@@ -888,6 +672,8 @@ function NodeStatusTableRow({
                     }
                   }}
                   className="text-muted-foreground hover:text-foreground/90"
+                  aria-expanded={isLogExpanded}
+                  aria-label={ts(isLogExpanded ? 'Hide logs' : 'Show logs')}
                 >
                   {isLogExpanded ? (
                     <ChevronDown className="h-4 w-4" />
@@ -906,7 +692,7 @@ function NodeStatusTableRow({
           <TableCell>
             <div className="space-y-0.5">
               <div className="text-sm font-semibold text-foreground text-wrap break-all flex items-center gap-1.5">
-                {node.step.name}
+                {stepName}
                 {hasSubDAGRun && (
                   <Tooltip>
                     <TooltipTrigger asChild>
@@ -996,7 +782,7 @@ function NodeStatusTableRow({
 
           {/* Combined Command & Args */}
           <TableCell>
-            <div className="space-y-1.5">
+            <div className="min-w-0 space-y-1.5">
               {isHarnessStep(node.step) ? (
                 <HarnessStepSummary step={node.step} />
               ) : logStepDisplayMessage !== null ? (
@@ -1041,7 +827,7 @@ function NodeStatusTableRow({
           <TableCell>
             <div className="space-y-0.5">
               <div className="font-medium text-foreground/90 text-sm">
-                {formatTimestamp(node.startedAt)}
+                <RelativeTime timestamp={node.startedAt} />
               </div>
               {node.startedAt && (
                 <div className="text-xs text-muted-foreground flex items-center gap-1.5 leading-tight">
@@ -1081,6 +867,7 @@ function NodeStatusTableRow({
                 </div>
               </I18nProps>
               <BuildDecisionBadge build={node.build} remoteNode={remoteNode} />
+              <RetryCountBadge count={node.retryCount} />
             </div>
           </TableCell>
 
@@ -1161,7 +948,10 @@ function NodeStatusTableRow({
 
               {/* Errors - Simplified */}
               {node.error && (
-                <div className="text-xs text-error leading-relaxed whitespace-normal break-words">
+                <div
+                  className="line-clamp-3 text-xs leading-relaxed whitespace-pre-wrap break-words text-error"
+                  title={node.error}
+                >
                   {node.error}
                 </div>
               )}
@@ -1198,7 +988,7 @@ function NodeStatusTableRow({
                           setActiveLogTab('stdout');
                         }}
                         className={cn(
-                          'px-3 py-1.5 text-xs font-medium transition-all border-b-2',
+                          'px-3 py-1.5 text-xs font-medium transition-colors border-b-2',
                           activeLogTab === 'stdout'
                             ? 'text-foreground border-primary'
                             : 'text-muted-foreground border-transparent hover:text-foreground'
@@ -1212,7 +1002,7 @@ function NodeStatusTableRow({
                           setActiveLogTab('stderr');
                         }}
                         className={cn(
-                          'px-3 py-1.5 text-xs font-medium transition-all border-b-2',
+                          'px-3 py-1.5 text-xs font-medium transition-colors border-b-2',
                           activeLogTab === 'stderr'
                             ? 'text-foreground border-primary'
                             : 'text-muted-foreground border-transparent hover:text-foreground'
@@ -1264,6 +1054,7 @@ function NodeStatusTableRow({
                   stepName={node.step.name}
                   stream={currentStream}
                   dagRun={dagRun}
+                  live={isActiveNode}
                 />
               </div>
             </TableCell>
@@ -1283,21 +1074,21 @@ function NodeStatusTableRow({
 
   // Render mobile view (card)
   return (
-    <div className="p-4 rounded-2xl border border-border bg-card">
+    <div className="p-4 rounded-lg border border-border bg-card">
       {/* Header with number and status */}
       <div className="flex justify-between items-center mb-3">
         <div className="flex items-center gap-2">
           <span className="font-semibold text-foreground/90 text-sm bg-muted rounded-full w-6 h-6 flex items-center justify-center">
             {rownum}
           </span>
-          <h3 className="font-semibold text-foreground">
-            {node.step.name}
+          <p className="font-semibold text-foreground">
+            {stepName}
             {hasSubDAGRun && (
               <span className="inline-flex items-center text-primary ml-1.5">
                 <GitBranch className="h-4 w-4" />
               </span>
             )}
-          </h3>
+          </p>
         </div>
         <div className="flex items-center gap-1">
           <NodeStatusChip status={node.status} size="sm">
@@ -1425,7 +1216,8 @@ function NodeStatusTableRow({
         </div>
         <div className="space-y-0.5">
           <div className="text-xs text-muted-foreground">
-            <I18nText text={'Started:'} /> {formatTimestamp(node.startedAt)}
+            <I18nText text={'Started:'} />{' '}
+            <RelativeTime timestamp={node.startedAt} />
           </div>
           {node.startedAt && (
             <div className="text-xs text-muted-foreground flex items-center gap-1.5">
@@ -1440,6 +1232,7 @@ function NodeStatusTableRow({
               {currentDuration}
             </div>
           )}
+          <RetryCountBadge count={node.retryCount} />
           <ManualActionDetails node={node} />
         </div>
       </div>

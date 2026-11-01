@@ -30,8 +30,6 @@ func replayCaches(ctx *Context) []namedReplayCache {
 	}
 }
 
-// clearReplayCache clears the recorded actions of a DAG's steps, or of the
-// step named by --step, and reports what it removed.
 // replayCacheOpFlag names one task of a step by its position in with.do,
 // counted from 1 as the run log and the timeline do.
 var replayCacheOpFlag = commandLineFlag{
@@ -78,6 +76,8 @@ func clearReplayCacheOp(ctx *Context, dagArg string, cache namedReplayCache, opA
 	return err
 }
 
+// clearReplayCache clears the recorded actions of a DAG's steps, or of the
+// step named by --step, and reports what it removed.
 func clearReplayCache(ctx *Context, dagArg string, cache namedReplayCache) error {
 	dagName, err := extractDAGName(ctx, dagArg)
 	if err != nil {

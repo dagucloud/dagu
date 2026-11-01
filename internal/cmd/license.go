@@ -4,19 +4,25 @@
 package cmd
 
 import (
+	"bufio"
 	"errors"
 	"fmt"
 	"io"
 	"log/slog"
+	"net/url"
 	"os"
 	"os/signal"
+	"strconv"
 	"strings"
 	"syscall"
 	"time"
 
+	"github.com/dagucloud/dagu/v2/internal/cloudreport"
+	"github.com/dagucloud/dagu/v2/internal/cmn/config"
 	"github.com/dagucloud/dagu/v2/internal/license"
 	"github.com/dagucloud/dagu/v2/internal/persis"
 	"github.com/dagucloud/dagu/v2/internal/persis/file"
+	filemonitor "github.com/dagucloud/dagu/v2/internal/persis/file/monitor"
 	"github.com/spf13/cobra"
 )
 
@@ -46,10 +52,11 @@ With a key, activate the server key or license key from Dagu Console.
 
 Without a key, request a license from Dagu Console: open the printed URL in
 any browser and approve the request as a workspace owner. The license is
-saved once approved; restart a running Dagu server to load it. Without a
-terminal, a key is required.`,
+saved once approved; restart a running Dagu server to load it. --report sets
+what the server then reports to Dagu Console, which is asked when omitted.
+Without a terminal, a key is required.`,
 			Args: cobra.MaximumNArgs(1),
-		}, nil, func(ctx *Context, args []string) error {
+		}, []commandLineFlag{reportFlag}, func(ctx *Context, args []string) error {
 			if len(args) == 1 {
 				return activateWithKey(ctx, args[0])
 			}
@@ -137,9 +144,73 @@ func licenseCheck() *cobra.Command {
 	)
 }
 
+var reportFlag = commandLineFlag{
+	name:  "report",
+	usage: "What this server reports to Dagu Console once connected: errors, runs, health, or off (asked when omitted)",
+}
+
+// reportChoices are the levels a server connected from the CLI may report
+// at, in the order the question lists them.
+var reportChoices = []struct {
+	level config.ReportLevel
+	label string
+}{
+	{config.ReportErrors, "Health, run status, and error messages (recommended)"},
+	{config.ReportRuns, "Health and run status"},
+	{config.ReportHealth, "Health only"},
+	{config.ReportOff, "Nothing"},
+}
+
+// chooseReportLevel returns what a server connected from the CLI reports: the
+// level cloud.report fixes, else the level flag names, else the answer read
+// from in to a question written to out.
+func chooseReportLevel(in io.Reader, out io.Writer, flag string, configured config.ReportLevel) (config.ReportLevel, error) {
+	if configured != "" {
+		return configured, nil
+	}
+	if flag != "" {
+		level := config.ReportLevel(strings.ToLower(strings.TrimSpace(flag)))
+		for _, choice := range reportChoices {
+			if choice.level == level {
+				return level, nil
+			}
+		}
+		return "", errors.New("--report must be one of errors, runs, health, or off")
+	}
+	_, _ = fmt.Fprintln(out, "What should this server report to Dagu Console?")
+	for i, choice := range reportChoices {
+		_, _ = fmt.Fprintf(out, "  %d) %s\n", i+1, choice.label)
+	}
+	_, _ = fmt.Fprintln(out, "Never sent: full logs, outputs, parameters, environment, step commands, DAG YAML, schedule expressions, and the values of workflow secrets.")
+	_, _ = fmt.Fprint(out, "Choose [1]: ")
+	answer, err := bufio.NewReader(in).ReadString('\n')
+	if err != nil && !errors.Is(err, io.EOF) {
+		return "", fmt.Errorf("failed to read the answer: %w", err)
+	}
+	answer = strings.TrimSpace(answer)
+	if answer == "" {
+		return reportChoices[0].level, nil
+	}
+	n, err := strconv.Atoi(answer)
+	if err != nil || n < 1 || n > len(reportChoices) {
+		return "", errors.New("choose 1, 2, 3, or 4")
+	}
+	return reportChoices[n-1].level, nil
+}
+
 // activateFromConsole requests a license from Dagu Console and waits until a
-// workspace owner approves this server in a browser.
+// workspace owner approves this server in a browser. What the server reports
+// once connected is chosen first, so that the approval page can state it.
 func activateFromConsole(ctx *Context) error {
+	flag, err := ctx.Command.Flags().GetString(reportFlag.name)
+	if err != nil {
+		return fmt.Errorf("failed to read --report: %w", err)
+	}
+	level, err := chooseReportLevel(os.Stdin, os.Stdout, flag, ctx.Config.Cloud.Report)
+	if err != nil {
+		return err
+	}
+
 	mgr, err := newLicenseManager(ctx, ctx.Config.License.Key)
 	if err != nil {
 		return err
@@ -153,7 +224,11 @@ func activateFromConsole(ctx *Context) error {
 	if err != nil {
 		return fmt.Errorf("activation failed: %w", err)
 	}
-	fmt.Printf("Open this URL in a browser and approve the request:\n\n  %s\n\n", status.URL)
+	approveURL := status.URL
+	if level.Reports() {
+		approveURL = withReportLevel(approveURL, level)
+	}
+	fmt.Printf("\nOpen this URL in a browser and approve the request:\n\n  %s\n\n", approveURL)
 	fmt.Printf("Confirm that Dagu Console shows the code %s. The request expires at %s.\n",
 		status.Code, status.ExpiresAt.Format(time.Kitchen))
 	fmt.Println("Waiting for approval... (press Ctrl-C to cancel)")
@@ -176,6 +251,9 @@ func activateFromConsole(ctx *Context) error {
 			continue
 		case license.ConnectGranted:
 			fmt.Println("License activated from Dagu Console. Restart a running Dagu server to load it.")
+			if err := saveReportLevel(ctx, level); err != nil {
+				return err
+			}
 			printLicenseStatus(os.Stdout, mgr.Status())
 			return nil
 		case license.ConnectIdle, license.ConnectFailed, license.ConnectExpired:
@@ -186,6 +264,32 @@ func activateFromConsole(ctx *Context) error {
 			return fmt.Errorf("activation failed: %s", reason)
 		}
 	}
+}
+
+// withReportLevel names level in the approval URL, so that Dagu Console states
+// what the server reports once connected.
+func withReportLevel(raw string, level config.ReportLevel) string {
+	u, err := url.Parse(raw)
+	if err != nil {
+		return raw
+	}
+	query := u.Query()
+	query.Set("report", string(level))
+	u.RawQuery = query.Encode()
+	return u.String()
+}
+
+// saveReportLevel records level as the administrator's choice of what the
+// server reports, unless cloud.report fixes it.
+func saveReportLevel(ctx *Context, level config.ReportLevel) error {
+	if ctx.Config.Cloud.Report != "" {
+		return nil
+	}
+	monitoring := cloudreport.NewMonitoring("", filemonitor.NewStateStore(cloudReportSettingsFile(ctx.Config)))
+	if err := monitoring.SetLevel(ctx, level); err != nil {
+		return fmt.Errorf("failed to save what this server reports: %w", err)
+	}
+	return nil
 }
 
 // printLicenseStatus writes the license summary shown by `license check`.

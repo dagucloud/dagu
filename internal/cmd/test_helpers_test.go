@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"github.com/dagucloud/dagu/v2/internal/test"
+	"github.com/spf13/cobra"
 	"github.com/stretchr/testify/require"
 )
 
@@ -47,6 +48,26 @@ func cancelWhenLogContains(t *testing.T, th test.Command, want ...string) {
 	t.Cleanup(func() {
 		require.True(t, <-done, "startup log never appeared: %v", want)
 	})
+}
+
+// commandError runs a command expected to exit on its own and returns its
+// error. The test fails when the command keeps running.
+func commandError(t *testing.T, th test.Command, command *cobra.Command, args ...string) error {
+	t.Helper()
+
+	done := make(chan error, 1)
+	go func() {
+		done <- th.ExecuteCommand(command, test.CmdTest{Args: args})
+	}()
+	select {
+	case err := <-done:
+		return err
+	case <-time.After(commandLogWaitTimeout()):
+		th.Cancel()
+		<-done
+		t.Fatalf("%s kept running; output: %s", args[0], th.LoggingOutput.String())
+		return nil
+	}
 }
 
 func commandLogWaitTimeout() time.Duration {

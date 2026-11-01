@@ -67,6 +67,7 @@ const reporting = (lastReportAt?: string): LicenseMonitoring => ({
   configured: false,
   chosen: true,
   noticeDismissed: false,
+  errorsOffered: false,
   lastReportAt,
 });
 
@@ -146,6 +147,10 @@ describe('license presentation', () => {
     [{ valid: false }, 'Team · Expired'],
     [{ warningCode: 'MACHINE_LIMIT_EXCEEDED' }, 'Team · Needs attention'],
     [{ community: true, error: 'Invalid token' }, 'License error'],
+    [
+      { plan: 'free', features: [], expiry: '2026-10-02T00:00:00Z' },
+      'Free · Monitoring only',
+    ],
   ])('shows accurate license details for %j', async (license, label) => {
     renderLicense(license);
     await userEvent.tab();
@@ -180,26 +185,27 @@ describe('license presentation', () => {
     ).not.toBeInTheDocument();
   });
 
-  it('tags trial and comparison links with the feature entry point', () => {
-    renderLicense({ community: true, valid: false });
-    const link = new URL(
-      screen
-        .getByRole('link', { name: 'Start free trial' })
-        .getAttribute('href')!
-    );
-    expect(link.origin + link.pathname).toBe('https://console.dagu.sh/signup');
-    expect(Object.fromEntries(link.searchParams)).toEqual({
-      source: 'dagu-ui',
-      medium: 'product',
-      content: 'audit',
-      deployment: 'self-hosted',
-      intent: 'license-trial',
-      plan: 'trial',
-    });
+  // A Community server starts its trial by connecting with it chosen; one on
+  // free monitoring starts it from its page in Dagu Console.
+  it('starts the trial where this server can start it', () => {
+    const view = renderLicense({ community: true, valid: false });
+    expect(
+      screen.getByRole('link', { name: 'Start free trial' })
+    ).toHaveAttribute('href', '/license?trial=1#monitoring');
     expect(screen.getByRole('link', { name: 'View plans' })).toHaveAttribute(
       'href',
-      expect.stringContaining('https://dagu.sh/pricing?')
+      expect.stringContaining('content=audit')
     );
+    view.unmount();
+
+    renderLicense({
+      plan: 'free',
+      features: [],
+      consoleUrl: 'https://console.dagu.sh/servers?server=srv-1',
+    });
+    expect(
+      screen.getByRole('link', { name: 'Start free trial' })
+    ).toHaveAttribute('href', 'https://console.dagu.sh/servers?server=srv-1');
   });
 
   it('offers renewal when a paid license expires', () => {
@@ -281,6 +287,19 @@ describe('sidebar license line', () => {
       { community: true, valid: false, error: 'Invalid token' },
       'License error',
       'destructive',
+    ],
+    [
+      // A free license unlocks nothing that its expiry would take away.
+      'a free license',
+      {
+        ...connected,
+        plan: 'free',
+        features: [],
+        valid: false,
+        gracePeriod: true,
+      },
+      'Free plan · Monitoring only',
+      'muted',
     ],
   ])('names %s', (_case, license, text, tone) => {
     renderBadge(license);

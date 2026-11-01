@@ -34,6 +34,13 @@ module.exports = {
         test: /\.ttf$/,
         type: 'asset/resource',
       },
+      {
+        test: /\.woff2$/,
+        type: 'asset/resource',
+        generator: {
+          filename: '[name].[contenthash:16][ext]',
+        },
+      },
     ],
   },
   plugins: [

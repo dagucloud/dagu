@@ -46,7 +46,7 @@ func TestEnqueueRunWritesQueuedStatusBeforeQueuePublish(t *testing.T) {
 	require.NotNil(t, f.attempt.status)
 	assert.Equal(t, ir.Queued, f.attempt.status.Status)
 	assert.Equal(t, "attempt-1", f.attempt.status.AttemptID)
-	assert.Equal(t, "2026-05-19T01:02:03Z", f.attempt.status.QueuedAt)
+	assert.Equal(t, "2026-05-19T01:02:03.000Z", f.attempt.status.QueuedAt)
 	assert.Equal(t, ir.TriggerTypeManual, f.attempt.status.TriggerType)
 	assert.Equal(t, "alice", f.attempt.status.TriggerActor)
 	assert.Equal(t, "prod", f.attempt.status.ProfileName)

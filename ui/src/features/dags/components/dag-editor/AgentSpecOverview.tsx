@@ -81,7 +81,7 @@ export function AgentSpecOverview({ dag }: Props) {
                     type="button"
                     aria-pressed={isSelected}
                     className={cn(
-                      'relative block min-h-[76px] w-full px-5 py-3 text-left outline-none transition-colors hover:bg-muted/40 focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-primary',
+                      'relative block min-h-[76px] w-full px-5 py-3 text-left outline-none transition-colors hover:bg-muted/40 focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring',
                       isSelected &&
                         'bg-primary/[0.08] before:absolute before:inset-y-0 before:left-0 before:w-0.5 before:bg-primary'
                     )}

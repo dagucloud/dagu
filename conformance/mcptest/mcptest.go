@@ -103,7 +103,7 @@ func (s *Server) TryConnect(t *testing.T, token string) (*mcpsdk.ClientSession, 
 	}, nil)
 
 	transport := &mcpsdk.StreamableClientTransport{
-		Endpoint:             s.endpoint(),
+		Endpoint:             s.Endpoint(),
 		DisableStandaloneSSE: true,
 	}
 	if token != "" {
@@ -270,7 +270,8 @@ func (s *Server) adminToken(t *testing.T) string {
 	return result.Token
 }
 
-func (s *Server) endpoint() string {
+// Endpoint returns the URL of the server's MCP endpoint.
+func (s *Server) Endpoint() string {
 	return fmt.Sprintf("http://%s:%d/mcp", s.server.Config.Server.Host, s.server.Config.Server.Port)
 }
 

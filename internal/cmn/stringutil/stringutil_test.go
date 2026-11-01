@@ -16,7 +16,7 @@ func Test_FormatTime(t *testing.T) {
 	t.Run("Valid", func(t *testing.T) {
 		tm := time.Date(2022, 2, 1, 2, 2, 2, 0, time.UTC)
 		formatted := stringutil.FormatTime(tm)
-		require.Equal(t, "2022-02-01T02:02:02Z", formatted)
+		require.Equal(t, "2022-02-01T02:02:02.000Z", formatted)
 
 		parsed, err := stringutil.ParseTime(formatted)
 		require.NoError(t, err)
@@ -32,6 +32,37 @@ func Test_FormatTime(t *testing.T) {
 		// Test empty time
 		require.Equal(t, "", stringutil.FormatTime(time.Time{}))
 	})
+	t.Run("Milliseconds", func(t *testing.T) {
+		tm := time.Date(2022, 2, 1, 2, 2, 2, 187_654_321, time.UTC)
+		formatted := stringutil.FormatTime(tm)
+		require.Equal(t, "2022-02-01T02:02:02.187Z", formatted)
+
+		parsed, err := stringutil.ParseTime(formatted)
+		require.NoError(t, err)
+		require.Equal(t, tm.Truncate(time.Millisecond), parsed)
+	})
+	// The layout keeps three fractional digits, so every value has the same
+	// length in a zone and sorts as a string.
+	t.Run("FixedWidth", func(t *testing.T) {
+		zone := time.FixedZone("test", 2*3600)
+		base := time.Date(2022, 2, 1, 2, 2, 2, 0, zone)
+		var previous string
+		for i, nanos := range []int{0, 1_000_000, 10_000_000, 100_000_000, 999_000_000} {
+			formatted := stringutil.FormatTime(base.Add(time.Duration(nanos)))
+			require.Len(t, formatted, len("2022-02-01T02:02:02.000+02:00"), formatted)
+			if i > 0 {
+				require.Less(t, previous, formatted)
+			}
+			previous = formatted
+		}
+		require.Equal(t, "2022-02-01T00:00:00.000Z", stringutil.FormatTime(time.Date(2022, 2, 1, 0, 0, 0, 0, time.UTC)))
+	})
+}
+
+func Test_FormatTimeSeconds(t *testing.T) {
+	tm := time.Date(2022, 2, 1, 2, 2, 2, 987_000_000, time.UTC)
+	require.Equal(t, "2022-02-01T02:02:02Z", stringutil.FormatTimeSeconds(tm))
+	require.Equal(t, "", stringutil.FormatTimeSeconds(time.Time{}))
 }
 
 func Test_ParseTime(t *testing.T) {
@@ -39,6 +70,25 @@ func Test_ParseTime(t *testing.T) {
 		parsed, err := stringutil.ParseTime("2022-02-01T02:02:02Z")
 		require.NoError(t, err)
 		require.Equal(t, time.Date(2022, 2, 1, 2, 2, 2, 0, time.UTC), parsed)
+	})
+	t.Run("ValidMilliseconds", func(t *testing.T) {
+		parsed, err := stringutil.ParseTime("2022-02-01T02:02:02.007Z")
+		require.NoError(t, err)
+		require.Equal(t, time.Date(2022, 2, 1, 2, 2, 2, 7_000_000, time.UTC), parsed)
+
+		parsed, err = stringutil.ParseTime("2022-02-01T02:02:02.250+02:00")
+		require.NoError(t, err)
+		require.True(t, time.Date(2022, 2, 1, 0, 2, 2, 250_000_000, time.UTC).Equal(parsed))
+	})
+	t.Run("ValidSecondPrecisionWithOffset", func(t *testing.T) {
+		parsed, err := stringutil.ParseTime("2022-02-01T02:02:02+09:00")
+		require.NoError(t, err)
+		require.True(t, time.Date(2022, 2, 0, 17, 2, 2, 0, time.UTC).Equal(parsed))
+	})
+	t.Run("GoZeroTime", func(t *testing.T) {
+		parsed, err := stringutil.ParseTime("0001-01-01T00:00:00Z")
+		require.NoError(t, err)
+		require.True(t, parsed.IsZero())
 	})
 	t.Run("ValidLegacy", func(t *testing.T) {
 		parsed, err := stringutil.ParseTime("2022-02-01 02:02:02")

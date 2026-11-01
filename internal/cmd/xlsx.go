@@ -18,6 +18,8 @@ import (
 	"github.com/spf13/cobra"
 )
 
+const maxXlsxStdinBytes = 64 << 20
+
 // xlsxPasswordEnv supplies a workbook password when --password is omitted.
 const xlsxPasswordEnv = "DAGU_XLSX_PASSWORD" //nolint:gosec // This is an environment variable name, not a credential.
 
@@ -65,6 +67,8 @@ column name:
 This is what xlsx.info publishes, read straight from the file. Nothing is
 written and no run is created.
 
+A path of "-" reads the workbook from standard input, up to 64 MiB.
+
 A protected workbook needs a password. Set DAGU_XLSX_PASSWORD rather
 than --password where other users share the host: a flag value shows in
 the process list and stays in shell history. The flag wins when both are
@@ -103,6 +107,14 @@ With --format json, the result is one JSON object: rows, count, headers,
 sheet, range, warnings, and truncated. The text format prints a tab-separated
 header line and one line per row.
 
+A path of "-" reads the workbook from standard input, up to 64 MiB.
+
+--types pins column types as xlsx.read's types does, Japanese forms such as
+１２３,４５６ and 令和8年10月3日 included: name:type pairs, or a JSON object
+when a name holds a comma. A cell that cannot convert fails the read, or
+with --on-type-error warn reads as null, or with keep stays as it was read;
+both of those add a warning.
+
 A protected workbook needs a password. Set DAGU_XLSX_PASSWORD rather
 than --password where other users share the host: a flag value shows in
 the process list and stays in shell history. The flag wins when both are
@@ -111,6 +123,7 @@ set.
 		Example: `  dagu xlsx read orders.xlsx
   dagu xlsx read orders.xlsx --sheet Orders --range A2:F --header false
   dagu xlsx read orders.xlsx --columns "Invoice No,Amount" --format json
+  dagu xlsx read orders.xlsx --types "Amount:number,Due:date" --on-type-error keep
   dagu xlsx read orders.xlsx --skip-hidden`,
 		Args:         cobra.ExactArgs(1),
 		SilenceUsage: true,
@@ -120,6 +133,8 @@ set.
 	cmd.Flags().String("range", "", "Cell range, Sheet!A2:F reference, named range, or table name")
 	cmd.Flags().String("header", "true", "Header: true, false, a row number, or rows such as 3,4")
 	cmd.Flags().String("columns", "", "Columns to keep, comma-separated, with optional name:alias renames")
+	cmd.Flags().String("types", "", "Column types to pin: name:type pairs, comma-separated, or a JSON object")
+	cmd.Flags().String("on-type-error", "fail", "What a cell that fails its type does: fail, warn (read as null; also spelled null), or keep")
 	cmd.Flags().Int("max-rows", 0, "Most rows to print (default 5000)")
 	cmd.Flags().Bool("skip-hidden", false, "Leave out rows hidden by a filter or by hand")
 	cmd.Flags().String("password", "", "Password of a protected workbook; prefer DAGU_XLSX_PASSWORD, which keeps it out of the process list")
@@ -157,23 +172,44 @@ func xlsxPath(arg string) (string, error) {
 	return filepath.Abs(resolved)
 }
 
+func xlsxStdin(cmd *cobra.Command) ([]byte, error) {
+	data, err := io.ReadAll(io.LimitReader(cmd.InOrStdin(), maxXlsxStdinBytes+1))
+	if err != nil {
+		return nil, fmt.Errorf("reading workbook from stdin: %w", err)
+	}
+	if len(data) > maxXlsxStdinBytes {
+		return nil, fmt.Errorf("stdin workbook exceeds 64 MiB limit")
+	}
+	return data, nil
+}
+
 func runXlsxInspect(cmd *cobra.Command, args []string) error {
 	format, err := xlsxFormat(cmd)
-	if err != nil {
-		return err
-	}
-	path, err := xlsxPath(args[0])
 	if err != nil {
 		return err
 	}
 	rows, _ := cmd.Flags().GetInt("rows")
 	sheet, _ := cmd.Flags().GetString("sheet")
 
-	info, err := workbook.Inspect(cmd.Context(), path, workbook.InspectOptions{
+	var info *workbook.Info
+	opts := workbook.InspectOptions{
 		Password:   xlsxPassword(cmd),
 		Sheet:      sheet,
 		SampleRows: max(rows, 0),
-	})
+	}
+	if strings.TrimSpace(args[0]) == "-" {
+		data, readErr := xlsxStdin(cmd)
+		if readErr != nil {
+			return readErr
+		}
+		info, err = workbook.InspectBytes(cmd.Context(), "-", data, opts)
+	} else {
+		path, pathErr := xlsxPath(args[0])
+		if pathErr != nil {
+			return pathErr
+		}
+		info, err = workbook.Inspect(cmd.Context(), path, opts)
+	}
 	if err != nil {
 		return err
 	}
@@ -186,10 +222,6 @@ func runXlsxInspect(cmd *cobra.Command, args []string) error {
 
 func runXlsxRead(cmd *cobra.Command, args []string) error {
 	format, err := xlsxFormat(cmd)
-	if err != nil {
-		return err
-	}
-	path, err := xlsxPath(args[0])
 	if err != nil {
 		return err
 	}
@@ -208,8 +240,32 @@ func runXlsxRead(cmd *cobra.Command, args []string) error {
 			return fmt.Errorf("--columns: %w", err)
 		}
 	}
+	types, _ := cmd.Flags().GetString("types")
+	if opts.Types, err = workbook.ParseTypes(types); err != nil {
+		return fmt.Errorf("--types: %w", err)
+	}
+	onTypeError, _ := cmd.Flags().GetString("on-type-error")
+	switch mode := workbook.TypeErrorMode(onTypeError); mode {
+	case workbook.TypeErrorFail, workbook.TypeErrorWarn, workbook.TypeErrorNull, workbook.TypeErrorKeep:
+		opts.OnTypeError = mode
+	default:
+		return fmt.Errorf("--on-type-error: %q is not fail, warn, null, or keep", onTypeError)
+	}
 
-	result, err := workbook.Read(cmd.Context(), path, opts)
+	var result *workbook.ReadResult
+	if strings.TrimSpace(args[0]) == "-" {
+		data, readErr := xlsxStdin(cmd)
+		if readErr != nil {
+			return readErr
+		}
+		result, err = workbook.ReadBytes(cmd.Context(), "-", data, opts)
+	} else {
+		path, pathErr := xlsxPath(args[0])
+		if pathErr != nil {
+			return pathErr
+		}
+		result, err = workbook.Read(cmd.Context(), path, opts)
+	}
 	if err != nil {
 		return err
 	}

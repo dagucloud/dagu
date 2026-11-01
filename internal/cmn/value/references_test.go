@@ -74,6 +74,7 @@ func TestIsExactRef(t *testing.T) {
 		{token: "${foreach.item}", want: true},
 		{token: "${foreach.item.template}", want: true},
 		{token: "${foreach.row._row}", want: true},
+		{token: "${foreach.row.請求番号}", want: true},
 		{token: "${context.run.id}", want: true},
 		{token: "${params}", want: false},
 		{token: "${run.id}", want: false},
@@ -432,5 +433,35 @@ func TestIsWholeReference(t *testing.T) {
 	}
 	for _, text := range notWhole {
 		assert.False(t, value.IsWholeReference(text), "%q should not be a whole reference", text)
+	}
+}
+
+func TestHasAnyReference(t *testing.T) {
+	t.Parallel()
+
+	withReference := []string{
+		"${params.delay}",
+		"${BASE_URL}",
+		"$BASE_URL",
+		"${BASE_URL}/health",
+		"http://$HOST:8080/ready",
+		"${SECS}s",
+		"$params.delay",
+		"$1",
+	}
+	for _, text := range withReference {
+		assert.True(t, value.HasAnyReference(text), "%q should hold a reference", text)
+	}
+
+	withoutReference := []string{
+		"",
+		"30s",
+		"http://example.com/ready",
+		"$",
+		`\${BASE_URL}/health`,
+		`\$BASE_URL`,
+	}
+	for _, text := range withoutReference {
+		assert.False(t, value.HasAnyReference(text), "%q should not hold a reference", text)
 	}
 }

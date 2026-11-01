@@ -1,4 +1,7 @@
-@layer theme, base, components, utilities;
+/* The API reference stylesheet resets Tailwind's --tw-* variables on every
+   element inside its own layers. Declaring those layers first keeps them below
+   the app's layers once that stylesheet loads. */
+@layer scalar-base, scalar-theme, scalar-config, theme, base, components, utilities;
 
 @import 'tailwindcss';
 @import 'tw-animate-css';
@@ -19,6 +22,8 @@
   --color-primary: var(--primary);
   --color-primary-foreground: var(--primary-foreground);
   --color-primary-hover: var(--primary-hover);
+  --color-primary-fill: var(--primary-fill);
+  --color-primary-fill-hover: var(--primary-fill-hover);
 
   --color-secondary: var(--secondary);
   --color-secondary-foreground: var(--secondary-foreground);
@@ -53,8 +58,8 @@
   --color-sidebar-ring: var(--sidebar-ring);
 
   /* Border Radius */
-  --radius-lg: 12px;
-  --radius-md: 8px;
+  --radius-lg: 10px;
+  --radius-md: 6px;
   --radius-sm: 4px;
   --radius-xs: 2px;
 
@@ -62,6 +67,7 @@
   --color-success: var(--success);
   --color-success-muted: var(--success-muted);
   --color-warning: var(--warning);
+  --color-warning-foreground: var(--warning-foreground);
   --color-warning-muted: var(--warning-muted);
   --color-error: var(--status-error);
   --color-error-muted: var(--error-muted);
@@ -70,20 +76,28 @@
 
   /* Font Family */
   --font-sans:
-    'Hanken Grotesk', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto,
-    sans-serif;
+    'Hanken Grotesk Variable', -apple-system, BlinkMacSystemFont, 'Segoe UI',
+    Roboto, sans-serif;
   --font-heading:
-    'Hanken Grotesk', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto,
-    sans-serif;
+    'Hanken Grotesk Variable', -apple-system, BlinkMacSystemFont, 'Segoe UI',
+    Roboto, sans-serif;
 
   /* Font Sizes */
-  --text-xs: 11px;
-  --text-sm: 12px;
+  --text-xs: 12px;
+  --text-sm: 13px;
   --text-base: 14px;
   --text-lg: 16px;
   --text-xl: 18px;
-  --text-2xl: 20px;
-  --text-3xl: 24px;
+  --text-2xl: 22px;
+  --text-3xl: 28px;
+
+  /* Elevation for shadow utilities: hairline-soft, never a glow. */
+  --shadow-xs: 0 1px 1px 0 rgb(17 17 20 / 0.03);
+  --shadow-sm: 0 1px 2px 0 rgb(17 17 20 / 0.05);
+  --shadow-md:
+    0 2px 6px -1px rgb(17 17 20 / 0.08), 0 1px 2px -1px rgb(17 17 20 / 0.05);
+  --shadow-lg:
+    0 12px 28px -8px rgb(17 17 20 / 0.16), 0 4px 10px -4px rgb(17 17 20 / 0.08);
 
   /* Component Heights - Consistent */
   --height-sm: 32px;
@@ -93,35 +107,37 @@
 
 @layer base {
   :root {
-    /* "Kiln" daylight — warm cream paper, ink sidebar, one violet accent,
-       signal-green success. */
-    --background: #f4f2ed;
-    --foreground: #14161b;
+    /* Neutral daylight: near-white canvas, white surfaces, cool hairlines,
+       one violet accent. */
+    --background: #f9f9fa;
+    --foreground: #111114;
 
-    --card: #fbfaf6;
-    --card-foreground: #14161b;
-    --popover: #fbfaf6;
-    --popover-foreground: #14161b;
-    --surface: #fbfaf6;
-    --surface-variant: #ece9e0;
+    --card: #ffffff;
+    --card-foreground: #111114;
+    --popover: #ffffff;
+    --popover-foreground: #111114;
+    --surface: #ffffff;
+    --surface-variant: #f4f4f6;
 
     --primary: #5d4fe0;
     --primary-foreground: #ffffff;
-    --primary-hover: #4b3dd1;
+    --primary-hover: #4e40d4;
+    --primary-fill: #5d4fe0;
+    --primary-fill-hover: #4e40d4;
 
-    --secondary: #ece9e0;
-    --secondary-foreground: #1c1e25;
-    --muted: #ece9e0;
-    --muted-foreground: #6d7078;
-    --accent: #eae6dc;
-    --accent-foreground: #14161b;
+    --secondary: #f1f1f4;
+    --secondary-foreground: #18181c;
+    --muted: #f1f1f4;
+    --muted-foreground: #6b6b76;
+    --accent: #ededf1;
+    --accent-foreground: #111114;
 
     --destructive: #c8382f;
     --destructive-foreground: #ffffff;
     --success: #178a44;
     --success-foreground: #ffffff;
     --success-muted: color-mix(in srgb, var(--success) 10%, transparent);
-    --warning: #b47110;
+    --warning: #9a5d0b;
     --warning-foreground: #111827;
     --warning-muted: color-mix(in srgb, var(--warning) 10%, transparent);
     --info: #5d4fe0;
@@ -132,67 +148,71 @@
     --status-error: #c8382f;
     --error-muted: color-mix(in srgb, var(--status-error) 10%, transparent);
     --status-running: #5d4fe0;
-    --status-neutral: #83868f;
-    --status-warning: #b47110;
+    --status-neutral: #80808b;
+    --status-warning: #9a5d0b;
     --status-aborted: #9333ea;
 
-    --border: #e0dcd0;
-    --border-strong: #cdc8b9;
-    --input: #cdc8b9;
+    --border: #e7e7ec;
+    --border-strong: #d3d3db;
+    --input: #dcdce3;
     --ring: #5d4fe0;
 
-    --text-primary: #14161b;
-    --text-secondary: #4c4f58;
-    --text-tertiary: #75787f;
-    --text-disabled: #a3a6ad;
+    --text-primary: #111114;
+    --text-secondary: #52525c;
+    --text-tertiary: #80808a;
+    --text-disabled: #ababb4;
 
-    --sidebar: #0b0d12;
-    --sidebar-foreground: #a2a5ad;
-    --sidebar-border: #1e212b;
-    --sidebar-hover: #12141b;
-    --sidebar-active: #1a1c23;
-    --sidebar-primary: #a89ff8;
-    --sidebar-primary-foreground: #0b0d12;
-    --sidebar-accent: #12141b;
-    --sidebar-accent-foreground: #f2f1ec;
-    --sidebar-ring: #7c6ef4;
+    --sidebar: #f4f4f6;
+    --sidebar-foreground: #52525c;
+    --sidebar-border: #e7e7ec;
+    --sidebar-hover: #eaeaee;
+    --sidebar-active: #e4e4ea;
+    --sidebar-primary: #5d4fe0;
+    --sidebar-primary-foreground: #ffffff;
+    --sidebar-accent: #eaeaee;
+    --sidebar-accent-foreground: #111114;
+    --sidebar-ring: #5d4fe0;
 
-    --shadow-sm: 0 1px 2px 0 rgba(30, 26, 12, 0.05);
+    --shadow-sm: 0 1px 2px 0 rgba(17, 17, 20, 0.04);
     --shadow-md:
-      0 1px 3px 0 rgba(30, 26, 12, 0.08), 0 1px 2px 0 rgba(30, 26, 12, 0.05);
+      0 1px 3px 0 rgba(17, 17, 20, 0.06), 0 1px 2px -1px rgba(17, 17, 20, 0.04);
     --shadow-lg:
-      0 10px 15px -3px rgba(30, 26, 12, 0.1), 0 4px 6px -4px rgba(30, 26, 12, 0.08);
+      0 12px 24px -6px rgba(17, 17, 20, 0.12),
+      0 4px 8px -4px rgba(17, 17, 20, 0.06);
 
-    --bg: 244 242 237;
-    --text: 20 22 27;
-    --sidebar-bg: 11 13 18;
-    --sidebar-text: 162 165 173;
+    --bg: 249 249 250;
+    --text: 17 17 20;
+    --sidebar-bg: 244 244 246;
+    --sidebar-text: 82 82 92;
     --primary-rgb: 93 79 224;
   }
 
   .dark {
-    /* "Kiln" — the ink room. Matte #0B0D12 surfaces, one violet accent,
-       signal-green success. */
-    --background: #0b0d12;
-    --foreground: #f2f1ec;
+    /* Neutral night: graphite surfaces without a blue cast, the same violet
+       accent, signal-green success. */
+    --background: #0e0e11;
+    --foreground: #ededf0;
 
-    --card: #12141b;
-    --card-foreground: #f2f1ec;
-    --popover: #1a1c23;
-    --popover-foreground: #f2f1ec;
-    --surface: #12141b;
-    --surface-variant: #1a1c23;
+    --card: #141417;
+    --card-foreground: #ededf0;
+    --popover: #1a1a1e;
+    --popover-foreground: #ededf0;
+    --surface: #141417;
+    --surface-variant: #1a1a1e;
 
     --primary: #7c6ef4;
     --primary-foreground: #ffffff;
-    --primary-hover: #948af7;
+    --primary-hover: #8e82f6;
+    /* Darker than --primary so white labels clear 4.5:1 on dark surfaces. */
+    --primary-fill: #6a5ce8;
+    --primary-fill-hover: #6355e0;
 
-    --secondary: #1a1c23;
-    --secondary-foreground: #f2f1ec;
-    --muted: #1a1c23;
-    --muted-foreground: #a2a5ad;
-    --accent: #1a1c23;
-    --accent-foreground: #f2f1ec;
+    --secondary: #1c1c21;
+    --secondary-foreground: #ededf0;
+    --muted: #1c1c21;
+    --muted-foreground: #9a9aa5;
+    --accent: #1f1f25;
+    --accent-foreground: #ededf0;
 
     --destructive: #ef5350;
     --destructive-foreground: #1f0909;
@@ -214,25 +234,25 @@
     --status-warning: #d9a03c;
     --status-aborted: #c084fc;
 
-    --border: #1e212b;
-    --border-strong: #2c3040;
-    --input: #2c3040;
+    --border: #24242a;
+    --border-strong: #32323a;
+    --input: #2e2e36;
     --ring: #7c6ef4;
 
-    --text-primary: #f2f1ec;
-    --text-secondary: #a2a5ad;
-    --text-tertiary: #6d707b;
-    --text-disabled: #6d707b;
+    --text-primary: #ededf0;
+    --text-secondary: #a8a8b2;
+    --text-tertiary: #74747f;
+    --text-disabled: #5e5e68;
 
-    --sidebar: #0b0d12;
-    --sidebar-foreground: #a2a5ad;
-    --sidebar-border: #1e212b;
-    --sidebar-hover: #12141b;
-    --sidebar-active: #1a1c23;
+    --sidebar: #0a0a0c;
+    --sidebar-foreground: #a1a1ab;
+    --sidebar-border: #1f1f24;
+    --sidebar-hover: #16161a;
+    --sidebar-active: #1c1c21;
     --sidebar-primary: #a89ff8;
-    --sidebar-primary-foreground: #0b0d12;
-    --sidebar-accent: #1a1c23;
-    --sidebar-accent-foreground: #f2f1ec;
+    --sidebar-primary-foreground: #0a0a0c;
+    --sidebar-accent: #1c1c21;
+    --sidebar-accent-foreground: #ededf0;
     --sidebar-ring: #7c6ef4;
 
     /* Elevation (More Subtle in Dark Mode) */
@@ -242,10 +262,10 @@
       0 4px 6px -1px rgba(0, 0, 0, 0.4), 0 2px 4px -1px rgba(0, 0, 0, 0.3);
 
     /* RGB fallbacks */
-    --bg: 11 13 18;
-    --text: 242 241 236;
-    --sidebar-bg: 11 13 18;
-    --sidebar-text: 162 165 173;
+    --bg: 14 14 17;
+    --text: 237 237 240;
+    --sidebar-bg: 10 10 12;
+    --sidebar-text: 161 161 171;
     --primary-rgb: 124 110 244;
   }
 
@@ -258,7 +278,7 @@
     color: var(--foreground);
     font-family: var(--font-sans);
     font-size: 14px;
-    line-height: 1.4;
+    line-height: 1.5;
     -webkit-font-smoothing: antialiased;
     -moz-osx-font-smoothing: grayscale;
     letter-spacing: normal;
@@ -277,8 +297,8 @@
   h6 {
     font-family: var(--font-heading);
     font-weight: 600;
-    letter-spacing: 0;
-    line-height: 1.2;
+    letter-spacing: -0.01em;
+    line-height: 1.25;
   }
 
   h1 {
@@ -327,103 +347,85 @@
 }
 
 .status-success {
-  color: var(--status-success);
-  background-color: color-mix(in srgb, var(--status-success) 10%, transparent);
-  border: 1px solid color-mix(in srgb, var(--status-success) 20%, transparent);
-  border-radius: 4px;
+  color: color-mix(in srgb, var(--status-success) 85%, #000);
+  background-color: color-mix(in srgb, var(--status-success) 11%, transparent);
+  border-color: transparent;
 }
 .dark .status-success {
   color: var(--status-success);
-  background-color: color-mix(in srgb, var(--status-success) 14%, transparent);
-  border-color: color-mix(in srgb, var(--status-success) 24%, transparent);
+  background-color: color-mix(in srgb, var(--status-success) 18%, transparent);
 }
 
 .status-failed,
 .status-error {
-  color: var(--status-error);
-  background-color: color-mix(in srgb, var(--status-error) 10%, transparent);
-  border: 1px solid color-mix(in srgb, var(--status-error) 20%, transparent);
-  border-radius: 4px;
+  color: color-mix(in srgb, var(--status-error) 85%, #000);
+  background-color: color-mix(in srgb, var(--status-error) 11%, transparent);
+  border-color: transparent;
 }
 .dark .status-failed,
 .dark .status-error {
-  color: var(--status-error);
-  background-color: color-mix(in srgb, var(--status-error) 14%, transparent);
-  border-color: color-mix(in srgb, var(--status-error) 24%, transparent);
+  color: color-mix(in srgb, var(--status-error) 90%, #fff);
+  background-color: color-mix(in srgb, var(--status-error) 18%, transparent);
 }
 
 .status-running {
   color: var(--status-running);
-  background-color: color-mix(in srgb, var(--status-running) 10%, transparent);
-  border: 1px solid color-mix(in srgb, var(--status-running) 20%, transparent);
-  border-radius: 4px;
+  background-color: color-mix(in srgb, var(--status-running) 11%, transparent);
+  border-color: transparent;
 }
 .dark .status-running {
-  color: var(--status-running);
-  background-color: color-mix(in srgb, var(--status-running) 14%, transparent);
-  border-color: color-mix(in srgb, var(--status-running) 24%, transparent);
+  background-color: color-mix(in srgb, var(--status-running) 18%, transparent);
 }
 
 .status-warning {
-  color: var(--status-warning);
-  background-color: color-mix(in srgb, var(--status-warning) 10%, transparent);
-  border: 1px solid color-mix(in srgb, var(--status-warning) 20%, transparent);
-  border-radius: 4px;
+  color: color-mix(in srgb, var(--status-warning) 85%, #000);
+  background-color: color-mix(in srgb, var(--status-warning) 11%, transparent);
+  border-color: transparent;
 }
 .dark .status-warning {
   color: var(--status-warning);
-  background-color: color-mix(in srgb, var(--status-warning) 14%, transparent);
-  border-color: color-mix(in srgb, var(--status-warning) 24%, transparent);
+  background-color: color-mix(in srgb, var(--status-warning) 18%, transparent);
 }
 
 .status-aborted {
-  color: var(--status-aborted);
-  background-color: color-mix(in srgb, var(--status-aborted) 10%, transparent);
-  border: 1px solid color-mix(in srgb, var(--status-aborted) 20%, transparent);
-  border-radius: 4px;
+  color: color-mix(in srgb, var(--status-aborted) 85%, #000);
+  background-color: color-mix(in srgb, var(--status-aborted) 11%, transparent);
+  border-color: transparent;
 }
 .dark .status-aborted {
   color: var(--status-aborted);
-  background-color: color-mix(in srgb, var(--status-aborted) 14%, transparent);
-  border-color: color-mix(in srgb, var(--status-aborted) 24%, transparent);
+  background-color: color-mix(in srgb, var(--status-aborted) 18%, transparent);
 }
 
 .status-neutral {
-  color: var(--status-neutral);
-  background-color: color-mix(in srgb, var(--status-neutral) 10%, transparent);
-  border: 1px solid color-mix(in srgb, var(--status-neutral) 20%, transparent);
-  border-radius: 4px;
+  color: color-mix(in srgb, var(--status-neutral) 80%, #000);
+  background-color: color-mix(in srgb, var(--status-neutral) 11%, transparent);
+  border-color: transparent;
 }
 .dark .status-neutral {
-  color: var(--status-neutral);
-  background-color: color-mix(in srgb, var(--status-neutral) 14%, transparent);
-  border-color: color-mix(in srgb, var(--status-neutral) 24%, transparent);
+  color: color-mix(in srgb, var(--status-neutral) 90%, #fff);
+  background-color: color-mix(in srgb, var(--status-neutral) 18%, transparent);
 }
 
 .status-info {
   color: var(--info);
-  background-color: color-mix(in srgb, var(--info) 10%, transparent);
-  border: 1px solid color-mix(in srgb, var(--info) 20%, transparent);
-  border-radius: 4px;
+  background-color: color-mix(in srgb, var(--info) 11%, transparent);
+  border-color: transparent;
 }
 .dark .status-info {
-  color: var(--info);
-  background-color: color-mix(in srgb, var(--info) 14%, transparent);
-  border-color: color-mix(in srgb, var(--info) 24%, transparent);
+  background-color: color-mix(in srgb, var(--info) 18%, transparent);
 }
 
 .status-muted,
 .status-cancelled {
-  color: var(--status-neutral);
-  background-color: color-mix(in srgb, var(--status-neutral) 10%, transparent);
-  border: 1px solid color-mix(in srgb, var(--status-neutral) 20%, transparent);
-  border-radius: 4px;
+  color: color-mix(in srgb, var(--status-neutral) 80%, #000);
+  background-color: color-mix(in srgb, var(--status-neutral) 11%, transparent);
+  border-color: transparent;
 }
 .dark .status-muted,
 .dark .status-cancelled {
-  color: var(--status-neutral);
-  background-color: color-mix(in srgb, var(--status-neutral) 14%, transparent);
-  border-color: color-mix(in srgb, var(--status-neutral) 24%, transparent);
+  color: color-mix(in srgb, var(--status-neutral) 90%, #fff);
+  background-color: color-mix(in srgb, var(--status-neutral) 18%, transparent);
 }
 
 /* Status Dot Indicator (for running states) */
@@ -446,6 +448,23 @@
   }
   50% {
     opacity: 0.5;
+  }
+}
+
+/* No animation runs in a hidden tab (data-page-hidden, see lib/pageVisibility)
+   and the pulses stop for people who ask for less motion. */
+:root[data-page-hidden] *,
+:root[data-page-hidden] *::before,
+:root[data-page-hidden] *::after {
+  animation-play-state: paused !important;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .animate-pulse,
+  .animate-ping,
+  .animate-bounce,
+  .status-dot-pulse {
+    animation: none;
   }
 }
 
@@ -481,7 +500,7 @@
 .card-container {
   background: var(--card);
   border: 1px solid var(--border);
-  border-radius: var(--radius-md);
+  border-radius: var(--radius-lg);
   overflow: hidden;
   box-shadow: var(--shadow-sm);
 }
@@ -504,7 +523,7 @@
 [data-radix-popper-content-wrapper] [data-slot='select-content'] {
   background-color: var(--popover) !important;
   border: 1px solid var(--border) !important;
-  border-radius: var(--radius-md) !important;
+  border-radius: var(--radius-lg) !important;
   box-shadow: var(--shadow-lg) !important;
 }
 
@@ -522,6 +541,7 @@
   --sidebar-foreground: currentColor;
 }
 .custom-sidebar-color .text-sidebar-foreground,
+.custom-sidebar-color .text-sidebar-accent-foreground,
 .custom-sidebar-color .text-muted-foreground,
 .custom-sidebar-color .text-foreground,
 .custom-sidebar-color .text-primary {
@@ -715,4 +735,65 @@ select:focus-visible {
       overscroll-behavior: contain;
     }
   }
+}
+
+/*
+ * Mermaid adds a tooltip element to the end of the body and places it with an
+ * inline `position: absolute`. It makes the document a few pixels taller than
+ * the window, so that every page shows a scroll bar once a graph has drawn.
+ * Fixed placement takes no room in the document.
+ */
+.mermaidTooltip {
+  position: fixed !important;
+  pointer-events: none;
+}
+
+/* The lines of the step that is selected on the canvas. */
+.ve-block-active {
+  background-color: color-mix(in srgb, var(--primary) 9%, transparent);
+}
+
+/*
+ * The change bars of the YAML panel: a bar in the margin for each line that
+ * differs from the last save, and a small triangle where lines are gone.
+ */
+:root {
+  --change-added: #2e9d54;
+  --change-modified: #2f7fd8;
+  --change-deleted: #d4443b;
+}
+.dark {
+  --change-added: #4cc477;
+  --change-modified: #5aa2f0;
+  --change-deleted: #f0675e;
+}
+.dag-change-added::before,
+.dag-change-modified::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 3px;
+  width: 3px;
+}
+.dag-change-added::before {
+  background: var(--change-added);
+}
+.dag-change-modified::before {
+  background: var(--change-modified);
+}
+.dag-change-deleted-above::after,
+.dag-change-deleted-below::after {
+  content: '';
+  position: absolute;
+  left: 3px;
+  border-left: 5px solid var(--change-deleted);
+  border-top: 4px solid transparent;
+  border-bottom: 4px solid transparent;
+}
+.dag-change-deleted-above::after {
+  top: 0;
+}
+.dag-change-deleted-below::after {
+  bottom: 0;
 }

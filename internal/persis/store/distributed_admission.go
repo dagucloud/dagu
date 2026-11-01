@@ -479,11 +479,10 @@ func (s *DispatchTaskStore) addLegacyDispatchRecords(
 		if payload.AdmissionReservationToken != "" {
 			continue
 		}
-		recordAt := dispatchRecordTimestamp(payload.EnqueuedAt, rec.CreatedAt)
-		if prefix == dispatchClaimsPrefix {
-			recordAt = dispatchRecordTimestamp(payload.ClaimedAt, rec.UpdatedAt)
-		}
-		if now.Sub(recordAt) >= staleThreshold {
+		// A pending task holds its place until it is claimed or dropped; a
+		// stale claim is about to return to pending and is counted there.
+		if prefix == dispatchClaimsPrefix &&
+			now.Sub(dispatchRecordTimestamp(payload.ClaimedAt, rec.UpdatedAt)) >= staleThreshold {
 			continue
 		}
 		key := payload.Task.AttemptKey

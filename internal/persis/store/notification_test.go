@@ -311,6 +311,29 @@ func TestNotificationStoreRequiresEncryptorForSecrets(t *testing.T) {
 	assert.ErrorIs(t, s.SaveChannel(ctx, channel), notification.ErrSecretStoreMissing)
 }
 
+func TestNotificationStoreRoundTripsCommandChannelWithoutEncryptor(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	s, _ := newMemoryNotificationStore(t, false)
+
+	channel, err := notification.NormalizeChannel(&notification.Channel{
+		Name:    "Desktop",
+		Type:    notification.ProviderCommand,
+		Enabled: true,
+		Command: &notification.CommandTarget{
+			Command: `notify-send "Dagu" "DAG $DAG_NAME status $STATUS"`,
+		},
+	}, "tester")
+	require.NoError(t, err)
+	require.NoError(t, s.SaveChannel(ctx, channel))
+
+	loaded, err := s.GetChannel(ctx, channel.ID)
+	require.NoError(t, err)
+	require.NotNil(t, loaded.Command)
+	assert.Equal(t, channel.Command.Command, loaded.Command.Command)
+	assert.Equal(t, notification.ProviderCommand, loaded.Type)
+}
+
 func TestNotificationStoreMissingRecords(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()

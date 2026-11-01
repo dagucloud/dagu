@@ -5,6 +5,7 @@ package openaicodex
 
 import (
 	"context"
+	"encoding/json"
 	"io"
 	"strings"
 	"testing"
@@ -138,8 +139,47 @@ func TestStreamResponse_CollectsTextToolCallsAndUsage(t *testing.T) {
 	assert.Equal(t, "lookup", final.ToolCalls[0].Function.Name)
 	assert.Equal(t, `{"city":"tokyo"}`, final.ToolCalls[0].Function.Arguments)
 	require.NotNil(t, final.Usage)
-	assert.Equal(t, 15, final.Usage.PromptTokens)
+	assert.Equal(t, 20, final.Usage.PromptTokens, "input includes the cached tokens")
+	assert.Equal(t, 5, final.Usage.CachedPromptTokens)
 	assert.Equal(t, 10, final.Usage.CompletionTokens)
 	assert.Equal(t, 30, final.Usage.TotalTokens)
 	assert.Equal(t, "tool_calls", final.FinishReason)
+}
+
+// Reasoning effort passes through, except that an unset effort is medium
+// and max becomes xhigh.
+func TestBuildRequestBody_ReasoningEffort(t *testing.T) {
+	t.Parallel()
+
+	provider := &Provider{config: llm.Config{APIKey: "test-key"}}
+	reasoning := func(effort string) map[string]any { return map[string]any{"effort": effort, "summary": "auto"} }
+
+	tests := []struct {
+		name     string
+		thinking *llm.ThinkingRequest
+		expected any
+	}{
+		{name: "Disabled", thinking: &llm.ThinkingRequest{Effort: llm.ThinkingEffortHigh}},
+		{name: "Unset", thinking: &llm.ThinkingRequest{Enabled: true}, expected: reasoning("medium")},
+		{name: "None", thinking: &llm.ThinkingRequest{Enabled: true, Effort: llm.ThinkingEffortNone}, expected: reasoning("none")},
+		{name: "Minimal", thinking: &llm.ThinkingRequest{Enabled: true, Effort: llm.ThinkingEffortMinimal}, expected: reasoning("minimal")},
+		{name: "XHigh", thinking: &llm.ThinkingRequest{Enabled: true, Effort: llm.ThinkingEffortXHigh}, expected: reasoning("xhigh")},
+		{name: "Max", thinking: &llm.ThinkingRequest{Enabled: true, Effort: llm.ThinkingEffortMax}, expected: reasoning("xhigh")},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			req := &llm.ChatRequest{
+				Model:    "gpt-5.5-codex",
+				Messages: []llm.Message{{Role: llm.RoleUser, Content: "Hello"}},
+				Thinking: tt.thinking,
+			}
+			body, err := provider.buildRequestBody(req)
+			require.NoError(t, err)
+
+			var parsed map[string]any
+			require.NoError(t, json.Unmarshal(body, &parsed))
+			assert.Equal(t, tt.expected, parsed["reasoning"])
+		})
+	}
 }

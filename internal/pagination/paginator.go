@@ -24,12 +24,17 @@ func NewPaginator(page, perPage int) Paginator {
 	if perPage > maxPerPage && perPage != maxInt {
 		perPage = maxPerPage
 	}
-	if perPage == 0 {
+	if perPage <= 0 {
 		perPage = defaultPerPage
+	}
+	// A page past the addressable range starts after every result.
+	offset := maxInt
+	if page-1 <= maxInt/perPage {
+		offset = (page - 1) * perPage
 	}
 	return Paginator{
 		limit:       perPage,
-		offset:      (page - 1) * perPage,
+		offset:      offset,
 		currentPage: page,
 		perPage:     perPage,
 		initialized: true,
@@ -77,7 +82,7 @@ func NewPaginatedResult[T any](items []T, total int, pg Paginator) PaginatedResu
 		Offset:      pg.offset,
 		HasNextPage: pg.currentPage < totalPages,
 		HasPrevPage: pg.currentPage > 1,
-		NextPage:    min(pg.currentPage+1, totalPages),
+		NextPage:    min(pg.currentPage, totalPages-1) + 1,
 		PrevPage:    max(pg.currentPage-1, 1),
 	}
 }

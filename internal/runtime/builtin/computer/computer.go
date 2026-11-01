@@ -40,6 +40,12 @@ type computerExecutor struct {
 	step        ir.Step
 	cfg         config
 	openDesktop func() (*desktop.Driver, error)
+	// checkDesktop reports whether the desktop can be automated. A step
+	// waits while it reports only problems a person clears, checking every
+	// screenPoll, for up to screenWait when the step sets no timeout.
+	checkDesktop func() desktop.Diagnostics
+	screenPoll   time.Duration
+	screenWait   time.Duration
 	// openElements reads the front window's elements for exact checks. It
 	// is called on the first one.
 	openElements func() (desktop.Elements, error)
@@ -63,11 +69,16 @@ type computerExecutor struct {
 	// for a person unless idle is set.
 	onConsole func() bool
 	// system is which pinned block this device runs, windows or macos, or
-	// "" on a host that reads no elements. It is hostSystem() in
-	// production; a test sets it so pins resolve on any runner.
+	// "" on another system. It is hostSystem() in production; a test sets
+	// it so pins resolve on any runner.
 	system string
-	stdout io.Writer
-	stderr io.Writer
+	// protectedApps are applications whose windows the step never operates
+	// or maximizes, from DAGU_DESKTOP_PROTECTED_APPS in production, and
+	// protectedTitles window titles, from DAGU_DESKTOP_PROTECTED_TITLES.
+	protectedApps   []string
+	protectedTitles []string
+	stdout          io.Writer
+	stderr          io.Writer
 
 	mu            sync.Mutex
 	cancel        context.CancelFunc
@@ -84,22 +95,27 @@ func newExecutor(_ context.Context, step ir.Step) (executor.Executor, error) {
 		return nil, err
 	}
 	return &computerExecutor{
-		step:         step,
-		cfg:          cfg,
-		openDesktop:  desktop.Open,
-		openElements: desktop.OpenElements,
-		launch:       desktop.Launch,
-		newProvider:  runtime.NewLLMProvider,
-		newSession:   computeruse.New,
-		settle:       defaultSettle,
-		desktopLock:  userDesktopLock(),
-		idlePoll:     defaultIdlePoll,
-		personWait:   defaultPersonWait,
-		findWithin:   defaultFindWithin,
-		onConsole:    desktop.OnConsoleSession,
-		system:       hostSystem(),
-		stdout:       os.Stdout,
-		stderr:       os.Stderr,
+		step:            step,
+		cfg:             cfg,
+		openDesktop:     desktop.Open,
+		checkDesktop:    desktop.Check,
+		screenPoll:      defaultScreenPoll,
+		screenWait:      defaultScreenWait,
+		openElements:    desktop.OpenElements,
+		launch:          desktop.Launch,
+		newProvider:     runtime.NewLLMProvider,
+		newSession:      computeruse.New,
+		settle:          defaultSettle,
+		desktopLock:     userDesktopLock(),
+		idlePoll:        defaultIdlePoll,
+		personWait:      defaultPersonWait,
+		findWithin:      defaultFindWithin,
+		onConsole:       desktop.OnConsoleSession,
+		system:          hostSystem(),
+		protectedApps:   protectedApps(),
+		protectedTitles: protectedTitles(),
+		stdout:          os.Stdout,
+		stderr:          os.Stderr,
 	}, nil
 }
 

@@ -29,6 +29,7 @@ vi.mock('@/contexts/AuthContext', () => ({
 
 vi.mock('@/contexts/UserPreference', () => ({
   useUserPreferences: () => ({ preferences: { theme: 'light' } }),
+  useResolvedTheme: () => 'light',
 }));
 
 vi.mock('@/components/ui/error-modal', () => ({
@@ -102,7 +103,7 @@ describe('GitSyncPage', () => {
     await user.click(screen.getByTitle('Configuration'));
 
     expect(
-      screen.queryByRole('button', { name: 'Test Connection' })
+      screen.queryByRole('button', { name: 'Test connection' })
     ).not.toBeInTheDocument();
   });
 

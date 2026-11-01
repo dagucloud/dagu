@@ -104,7 +104,7 @@ Common step fields:
 | `retry_policy` | Retry behavior for this step. |
 | `repeat_policy` | Repeat or polling behavior. |
 | `continue_on` | Continue after selected failure, skip, exit-code, or output conditions. |
-| `preconditions` | Conditions that must pass before the step starts. |
+| `preconditions` | Conditions that must pass before the step starts. An unmet condition skips the step without failing the run; see [Failing on Unmet Conditions](https://docs.dagu.sh/writing-workflows/control-flow#failing-on-unmet-conditions). |
 | `worker_selector` | Required worker labels. Keys and values support variable substitution (e.g. `${VAR}`); parallel sub-DAG steps can reference `${ITEM}`. |
 | `stdin` | File path piped to the step command's standard input. |
 | `stdout`, `stderr`, `log_output` | Step log output configuration. `stdout` can also publish DAG/action outputs. |
@@ -195,6 +195,7 @@ Current builtin actions:
 | `k8s.run`, `kubernetes.run` | Kubernetes job execution | optional `command`, Kubernetes config |
 | `postgres.query`, `sqlite.query` | SQL queries | `query`, database config |
 | `postgres.import`, `sqlite.import` | SQL imports | `import`, database config |
+| `clickhouse.query` | ClickHouse queries over HTTP | `url`, `query` or `file`, optional `params`, `settings` |
 | `redis.<operation>` | Redis operations | Redis config; operation comes from the action suffix |
 | `jq.filter` | jq transforms | `filter`, plus `data` or `input` |
 | `js.run` | Sandboxed JavaScript | `script`, optional `input` or `input_file` |

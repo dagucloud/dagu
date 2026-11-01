@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
 interface ConflictState {
   hasConflict: boolean;
@@ -10,6 +10,11 @@ interface UseContentEditorOptions {
   key: string;
   /** Server content from any source (SSE or polling) */
   serverContent: string | null;
+  /**
+   * Tells if two texts are the same content. A buffer that is the same as the
+   * last saved content is not a change. Default: strict equality.
+   */
+  isSame?: (a: string, b: string) => boolean;
 }
 
 interface UseContentEditorResult {
@@ -26,6 +31,10 @@ interface UseContentEditorResult {
   discardChanges: () => void;
 }
 
+function strictlyEqual(a: string, b: string): boolean {
+  return a === b;
+}
+
 /**
  * Generic content editor hook with conflict detection.
  * Decoupled from data transport — receives serverContent from any source.
@@ -34,6 +43,7 @@ interface UseContentEditorResult {
 export function useContentEditor({
   key,
   serverContent,
+  isSame = strictlyEqual,
 }: UseContentEditorOptions): UseContentEditorResult {
   // Track local edits (null = not yet initialized)
   const [currentValue, setCurrentValueState] = useState<string | null>(null);
@@ -53,6 +63,9 @@ export function useContentEditor({
 
   // Track pending save content so its server echo is not treated as external.
   const pendingSaveContentRef = useRef<string | null>(null);
+
+  const isSameRef = useRef(isSame);
+  isSameRef.current = isSame;
 
   // Ref for currentValue to avoid effect re-runs on every keystroke
   const currentValueRef = useRef<string | null>(null);
@@ -104,7 +117,8 @@ export function useContentEditor({
     // Server content changed externally
     const hasLocalChanges =
       hasUserEditedRef.current &&
-      currentValueRef.current !== lastServerContentRef.current;
+      currentValueRef.current !== null &&
+      !isSameRef.current(currentValueRef.current, lastServerContentRef.current);
 
     if (hasLocalChanges) {
       // Conflict: user has unsaved edits AND external change occurred
@@ -179,10 +193,14 @@ export function useContentEditor({
   );
 
   // Calculate unsaved changes
-  const hasUnsavedChanges =
-    lastServerContent !== null &&
-    currentValue !== null &&
-    currentValue !== lastServerContent;
+  const hasUnsavedChanges = useMemo(
+    () =>
+      lastServerContent !== null &&
+      currentValue !== null &&
+      currentValue !== lastServerContent &&
+      !isSame(currentValue, lastServerContent),
+    [currentValue, lastServerContent, isSame]
+  );
 
   return {
     currentValue,

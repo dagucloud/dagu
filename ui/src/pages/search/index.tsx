@@ -336,8 +336,8 @@ function DAGSearchFeed({ query, remoteNode, workspaceQuery }: SearchFeedProps) {
     <I18nProps>
       <CursorSearchFeed<DagResult>
         endpoint="/search/dags"
-        title="DAGs"
-        emptyMessage="No dags found"
+        title="Workflows"
+        emptyMessage="No workflows found"
         query={query}
         remoteNode={remoteNode}
         workspaceQuery={workspaceQuery}
@@ -381,6 +381,11 @@ function Search() {
   const [, setSearchParams] = useSearchParams();
   const location = useLocation();
   const appBarContext = React.useContext(AppBarContext);
+  const { setTitle } = appBarContext;
+
+  React.useEffect(() => {
+    setTitle('Search');
+  }, [setTitle]);
   const searchState = useSearchState();
   const remoteKey = appBarContext.selectedRemoteNode || 'local';
   const workspaceSelection = appBarContext.workspaceSelection;
@@ -467,7 +472,7 @@ function Search() {
   const remoteNode = appBarContext.selectedRemoteNode || 'local';
 
   return (
-    <div className="max-w-5xl">
+    <div>
       <div className="w-full">
         <Title>
           <I18nText text={'Search'} />
@@ -513,7 +518,7 @@ function Search() {
                     });
                   }}
                 >
-                  <I18nText text={'DAGs'} />
+                  <I18nText text={'Workflows'} />
                 </ToggleButton>
                 <ToggleButton
                   value="wiki"

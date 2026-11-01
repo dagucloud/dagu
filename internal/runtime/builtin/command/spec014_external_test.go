@@ -209,6 +209,7 @@ func TestSpec014ShellBuilderCommandCarrierValidation(t *testing.T) {
 
 func spec014PowerShellInline(command string) string {
 	statements := []string{
+		"Import-Module Microsoft.PowerShell.Utility, Microsoft.PowerShell.Management",
 		"$ErrorActionPreference = 'Stop'",
 		"$utf8NoBom = New-Object -TypeName System.Text.UTF8Encoding -ArgumentList $false",
 		"[Console]::InputEncoding = $utf8NoBom",

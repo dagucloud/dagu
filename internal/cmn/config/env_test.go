@@ -117,6 +117,47 @@ func TestLoadBaseEnvWithExtras_PrefixMatchingHonorsPlatformCaseRules(t *testing.
 	}
 }
 
+// Dagu's child processes load their settings from the environment, so the
+// base environment keeps Dagu's credentials; the environment a workflow's
+// processes start from leaves them out and keeps Dagu's other settings.
+func TestBaseEnvWithoutCredentials(t *testing.T) {
+	credentials := []string{
+		"DAGU_AUTH_BASIC_PASSWORD",
+		"DAGU_AUTH_OIDC_CLIENT_SECRET",
+		"DAGU_AUTH_TOKEN_SECRET",
+		"DAGU_AUTH_BUILTIN_INITIAL_ADMIN_PASSWORD",
+		"DAGU_SECRETS_VAULT_TOKEN",
+		"DAGU_TUNNEL_TAILSCALE_AUTH_KEY",
+		"DAGU_LICENSE",
+		"DAGU_LICENSE_KEY",
+		"DAGU_GITSYNC_AUTH_TOKEN",
+		"DAGU_GITSYNC_AUTH_SSH_PASSPHRASE",
+		"DAGU_ENCRYPTION_KEY",
+		"DAGU_XLSX_PASSWORD",
+	}
+	for _, name := range credentials {
+		t.Setenv(name, "credential")
+	}
+	t.Setenv("DAGU_HOME", "/srv/dagu")
+
+	baseEnv := config.LoadBaseEnv()
+	inherited := parseEnvSlice(baseEnv.AsSlice())
+	forSteps := parseEnvSlice(baseEnv.WithoutCredentials())
+	for _, name := range credentials {
+		require.Contains(t, inherited, name, "Dagu's child processes need %s", name)
+		require.NotContains(t, forSteps, name, "a workflow must not see %s", name)
+		require.True(t, config.IsCredentialEnv(name), name)
+	}
+	require.Equal(t, "/srv/dagu", forSteps["DAGU_HOME"])
+	require.False(t, config.IsCredentialEnv("DAGU_HOME"))
+}
+
+func TestIsCredentialEnvHonorsPlatformCaseRules(t *testing.T) {
+	t.Parallel()
+
+	require.Equal(t, runtime.GOOS == "windows", config.IsCredentialEnv("dagu_auth_basic_password"))
+}
+
 func parseEnvSlice(envSlice []string) map[string]string {
 	envMap := make(map[string]string)
 	for _, kv := range envSlice {

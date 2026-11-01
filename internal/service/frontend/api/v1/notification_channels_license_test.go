@@ -24,6 +24,121 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+func TestNotificationChannels_CreateCommandChannel(t *testing.T) {
+	t.Parallel()
+
+	server := test.SetupServer(t)
+	command := `notify-send "Dagu" "$DAG_NAME $STATUS"`
+	created := server.Client().Post("/api/v1/notification-channels", api.NotificationChannelInput{
+		Name:    "Desktop",
+		Type:    api.NotificationProviderTypeCommand,
+		Enabled: true,
+		Command: &api.NotificationCommandTarget{Command: command},
+	}).ExpectStatus(http.StatusCreated).Send(t)
+
+	var channel api.NotificationChannel
+	created.Unmarshal(t, &channel)
+	require.NotNil(t, channel.Command)
+	assert.Equal(t, command, channel.Command.Command)
+	assert.Equal(t, api.NotificationProviderTypeCommand, channel.Type)
+
+	listed := server.Client().Get("/api/v1/notification-channels").
+		ExpectStatus(http.StatusOK).Send(t)
+	var result api.NotificationChannelListResponse
+	listed.Unmarshal(t, &result)
+	require.Len(t, result.Channels, 1)
+	require.NotNil(t, result.Channels[0].Command)
+	assert.Equal(t, command, result.Channels[0].Command.Command)
+}
+
+// Command channels run shell commands on the server, so saving or
+// test-sending one, directly or through a DAG, is limited to admins.
+func TestNotificationChannels_CommandChannelRequiresAdmin(t *testing.T) {
+	t.Parallel()
+
+	server := setupWebhookTestServer(t)
+	adminToken := getWebhookAdminToken(t, server)
+	developerToken := createRuntimeProfileUserToken(t, server, adminToken, "developer-user", "developer1", api.UserRoleDeveloper)
+	input := commandChannelInput()
+
+	server.Client().Post("/api/v1/notification-channels", input).
+		WithBearerToken(developerToken).ExpectStatus(http.StatusForbidden).Send(t)
+	created := server.Client().Post("/api/v1/notification-channels", input).
+		WithBearerToken(adminToken).ExpectStatus(http.StatusCreated).Send(t)
+	var channel api.NotificationChannel
+	created.Unmarshal(t, &channel)
+
+	server.Client().Put("/api/v1/notification-channels/"+channel.Id, input).
+		WithBearerToken(developerToken).ExpectStatus(http.StatusForbidden).Send(t)
+	server.Client().Post("/api/v1/notification-channels/"+channel.Id+"/test", nil).
+		WithBearerToken(developerToken).ExpectStatus(http.StatusForbidden).Send(t)
+
+	createTestDAG(t, server, adminToken, "daily-report")
+	server.Client().Put("/api/v1/dags/daily-report/notifications", api.UpdateDAGNotificationsRequest{
+		Enabled:       true,
+		Events:        []api.NotificationEventType{api.NotificationEventTypeDagRunFailed},
+		Targets:       []api.NotificationTargetInput{},
+		Subscriptions: &[]api.NotificationSubscriptionInput{{ChannelId: channel.Id, Enabled: true}},
+	}).WithBearerToken(developerToken).ExpectStatus(http.StatusOK).Send(t)
+	// The DAG test does not name the channel it would run, so the error does.
+	denied := server.Client().Post("/api/v1/dags/daily-report/notifications/test", nil).
+		WithBearerToken(developerToken).ExpectStatus(http.StatusForbidden).Send(t)
+	var errResp api.Error
+	denied.Unmarshal(t, &errResp)
+	assert.Equal(t, "Only admins can change or test local command channels", errResp.Message)
+	server.Client().Post("/api/v1/dags/daily-report/notifications/test", nil).
+		WithBearerToken(adminToken).ExpectStatus(http.StatusOK).Send(t)
+}
+
+func TestNotificationChannels_CommandChannelRequiresDAGPermissions(t *testing.T) {
+	t.Parallel()
+
+	for _, permission := range []config.Permission{config.PermissionWriteDAGs, config.PermissionRunDAGs} {
+		t.Run(string(permission), func(t *testing.T) {
+			t.Parallel()
+
+			server := setupWebhookTestServer(t, func(cfg *config.Config) {
+				cfg.Server.Permissions = map[config.Permission]bool{
+					config.PermissionWriteDAGs: true,
+					config.PermissionRunDAGs:   true,
+				}
+				cfg.Server.Permissions[permission] = false
+			})
+			resp := server.Client().Post("/api/v1/notification-channels", commandChannelInput()).
+				WithBearerToken(getWebhookAdminToken(t, server)).
+				ExpectStatus(http.StatusForbidden).Send(t)
+			var errResp api.Error
+			resp.Unmarshal(t, &errResp)
+			assert.Equal(t, "Local command channels need permissions.write_dags and permissions.run_dags on this server", errResp.Message)
+		})
+	}
+}
+
+func commandChannelInput() api.NotificationChannelInput {
+	return api.NotificationChannelInput{
+		Name:    "Desktop",
+		Type:    api.NotificationProviderTypeCommand,
+		Enabled: true,
+		Command: &api.NotificationCommandTarget{Command: "exit 0"},
+	}
+}
+
+func TestDAGNotifications_RejectCommandTarget(t *testing.T) {
+	t.Parallel()
+
+	server := test.SetupServer(t)
+	createTestDAG(t, server, "", "daily-report")
+	server.Client().Put("/api/v1/dags/daily-report/notifications", map[string]any{
+		"enabled": true,
+		"events":  []string{"dag.run.failed"},
+		"targets": []map[string]any{{
+			"name":    "Desktop",
+			"type":    "command",
+			"enabled": true,
+		}},
+	}).ExpectStatus(http.StatusBadRequest).Send(t)
+}
+
 func TestNotificationChannels_AvailableWithoutLicense(t *testing.T) {
 	t.Parallel()
 

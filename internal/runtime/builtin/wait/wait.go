@@ -15,6 +15,7 @@ import (
 	"sync"
 	"time"
 
+	cmnconfig "github.com/dagucloud/dagu/v2/internal/cmn/config"
 	"github.com/dagucloud/dagu/v2/internal/executor/registry"
 
 	"github.com/dagucloud/dagu/v2/internal/ir"
@@ -54,7 +55,7 @@ func newExecutor(ctx context.Context, step ir.Step) (executor.Executor, error) {
 	}
 
 	op := stepOperation(step)
-	parsed, err := parseConfig(op, cfg)
+	parsed, err := parseConfig(op, cfg, false)
 	if err != nil {
 		return nil, err
 	}
@@ -80,7 +81,7 @@ func validateStep(step ir.Step) error {
 	if err := decodeConfig(step.ExecutorConfig.Config, &cfg); err != nil {
 		return err
 	}
-	_, err := parseConfig(stepOperation(step), cfg)
+	_, err := parseConfig(stepOperation(step), cfg, true)
 	return err
 }
 
@@ -116,7 +117,7 @@ func (e *executorImpl) Run(ctx context.Context) error {
 	case opDuration:
 		return waitFor(ctx, e.cfg.duration)
 	case opUntil:
-		return waitUntil(ctx, e.cfg.until)
+		return e.waitUntil(ctx)
 	case opFile:
 		return e.waitFile(ctx)
 	case opHTTP:
@@ -150,12 +151,100 @@ func waitFor(ctx context.Context, duration time.Duration) error {
 	}
 }
 
+func (e *executorImpl) waitUntil(ctx context.Context) error {
+	deadline := e.deadline(ctx)
+	e.logDeadline(deadline)
+	switch e.cfg.ifPast {
+	case ifPastFail:
+		if !time.Now().Before(deadline) {
+			return fmt.Errorf("wait: until %q resolved to %s which is in the past", e.cfg.Until, deadline.Format(time.RFC3339Nano))
+		}
+	case ifPastWindow:
+		if time.Since(deadline) > e.cfg.window {
+			return fmt.Errorf("wait: until %q resolved to %s outside window %s", e.cfg.Until, deadline.Format(time.RFC3339Nano), e.cfg.Window)
+		}
+	}
+	return waitUntil(ctx, deadline)
+}
+
 func waitUntil(ctx context.Context, until time.Time) error {
 	duration := time.Until(until)
 	if duration <= 0 {
 		return ctx.Err()
 	}
 	return waitFor(ctx, duration)
+}
+
+// deadline returns the instant with.until and with.offset resolve to.
+func (e *executorImpl) deadline(ctx context.Context) time.Time {
+	if e.cfg.clock == nil {
+		return e.cfg.until.Add(e.cfg.offset)
+	}
+	loc := e.cfg.location
+	if loc == nil {
+		loc = configuredLocation(ctx)
+	}
+	return clockDeadline(logicalDay(ctx, loc), *e.cfg.clock, loc, e.cfg.offset)
+}
+
+// clockDeadline maps clock onto base's day in loc and applies offset. A
+// deadline that already passed stays on that day for if_past to handle.
+func clockDeadline(base time.Time, clock clockTime, loc *time.Location, offset time.Duration) time.Time {
+	return wallClock(base, clock, loc).Add(offset)
+}
+
+// wallClock returns the instant loc's clocks read clock on day. As in RFC
+// 5545, a time skipped by a daylight-saving transition is read with the UTC
+// offset before the gap, and a time repeated by one resolves to its first
+// occurrence.
+func wallClock(day time.Time, clock clockTime, loc *time.Location) time.Time {
+	t := time.Date(day.Year(), day.Month(), day.Day(), clock.hour, clock.minute, clock.second, 0, loc)
+	wall := time.Date(day.Year(), day.Month(), day.Day(), clock.hour, clock.minute, clock.second, 0, time.UTC)
+	// time.Date leaves the zone ambiguous near a transition, and the one that
+	// affects wall is a bound of the zone it picked.
+	start, end := t.ZoneBounds()
+	for _, transition := range []time.Time{start, end} {
+		if transition.IsZero() {
+			continue
+		}
+		_, before := transition.Add(-time.Nanosecond).Zone()
+		_, after := transition.Zone()
+		from := transition.UTC().Add(time.Duration(min(before, after)) * time.Second)
+		to := transition.UTC().Add(time.Duration(max(before, after)) * time.Second)
+		if !wall.Before(from) && wall.Before(to) {
+			return wall.Add(-time.Duration(before) * time.Second).In(loc)
+		}
+	}
+	return t
+}
+
+// logicalDay returns the run's logical day in loc: the schedule time when
+// present, otherwise when the current attempt started, otherwise now.
+func logicalDay(ctx context.Context, loc *time.Location) time.Time {
+	rCtx := runtime.GetDAGContext(ctx)
+	for _, raw := range []string{rCtx.ScheduleTime, rCtx.RunStartedAt} {
+		if t, err := time.Parse(time.RFC3339Nano, strings.TrimSpace(raw)); err == nil {
+			return t.In(loc)
+		}
+	}
+	return time.Now().In(loc)
+}
+
+func (e *executorImpl) logDeadline(deadline time.Time) {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	zone, _ := deadline.Zone()
+	_, _ = fmt.Fprintf(e.stderr, "wait: deadline %s (zone %s, if_past %s)\n",
+		deadline.Format(time.RFC3339Nano), zone, e.cfg.ifPast)
+}
+
+// configuredLocation returns the run-configured zone (core.tz) when the
+// executor context carries it, falling back to the process local zone.
+func configuredLocation(ctx context.Context) *time.Location {
+	if loc := cmnconfig.GetConfig(ctx).Core.Location; loc != nil {
+		return loc
+	}
+	return time.Local
 }
 
 func (e *executorImpl) waitFile(ctx context.Context) error {
@@ -202,7 +291,7 @@ func (e *executorImpl) waitHTTP(ctx context.Context) error {
 		}
 		defer func() { _ = resp.Body.Close() }()
 		_, _ = io.Copy(io.Discard, resp.Body)
-		return resp.StatusCode == e.cfg.Status, nil
+		return resp.StatusCode == e.cfg.expectedStatus, nil
 	})
 }
 
@@ -229,5 +318,8 @@ func poll(ctx context.Context, interval time.Duration, check func() (bool, error
 }
 
 func init() {
-	executor.RegisterExecutor(executorType, newExecutor, validateStep, registry.ExecutorCapabilities{Command: true})
+	executor.RegisterExecutor(executorType, newExecutor, validateStep, registry.ExecutorCapabilities{
+		Command:    true,
+		PathInputs: []string{"path"},
+	})
 }

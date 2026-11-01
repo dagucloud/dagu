@@ -244,10 +244,50 @@ jobs:
 
           node update-deps.js "${PKG_VERSION}"
 
-      - name: Wait for npm registry propagation
+      # npm processes a package after `npm publish` returns and serves it only
+      # once done, which took up to eight minutes for the largest binaries.
+      # The main package must not go out before its platform packages can be
+      # installed, or installs fail on every platform still processing.
+      - name: Wait until the platform packages can be installed
+        # The 30-minute deadline is checked between rounds, and a round of
+        # bounded requests takes at most 12 minutes, so this caps the step
+        # outright.
+        timeout-minutes: 45
         run: |
-          echo "Waiting 60 seconds for npm registry to propagate platform packages..."
-          sleep 60
+          PKG_VERSION="${VERSION#v}"
+          # These platforms' publish steps may fail without failing the release.
+          best_effort="@dagucloud/dagu-linux-ppc64 @dagucloud/dagu-linux-s390x @dagucloud/dagu-linux-armv6"
+          pending=$(node -p "Object.keys(require('./npm/dagu/package.json').optionalDependencies).join(' ')")
+          deadline=$((SECONDS + 1800))
+          while [ -n "$pending" ] && [ "$SECONDS" -lt "$deadline" ]; do
+            waiting=""
+            for pkg in $pending; do
+              # Each request is bounded, so a stalled one cannot hold the
+              # loop past its deadline.
+              tarball=$(npm view --prefer-online --fetch-timeout=30000 --fetch-retries=0 "${pkg}@${PKG_VERSION}" dist.tarball 2>/dev/null || true)
+              if [ -n "$tarball" ] && curl -fsIL --connect-timeout 10 --max-time 30 -o /dev/null "$tarball"; then
+                echo "${pkg}@${PKG_VERSION} can be installed"
+              else
+                waiting="$waiting $pkg"
+              fi
+            done
+            pending="${waiting# }"
+            if [ -n "$pending" ]; then
+              sleep 15
+            fi
+          done
+
+          missing=""
+          for pkg in $pending; do
+            case " $best_effort " in
+              *" $pkg "*) echo "::warning::${pkg}@${PKG_VERSION} cannot be installed; installs on its platform will fail" ;;
+              *) missing="$missing $pkg" ;;
+            esac
+          done
+          if [ -n "$missing" ]; then
+            echo "::error::Not installable after 30 minutes:${missing}"
+            exit 1
+          fi
 
       - name: Publish main package
         run: |

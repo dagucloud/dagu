@@ -4,8 +4,8 @@
 
 Partially implemented.
 
-Conformance covers one request/response exchange, failed response file handling,
-TLS verification, and required fields. Multipart encoding, output variants, and
+Conformance covers one request/response exchange, silent JSON output, failed
+response file handling, TLS verification, and required fields. Multipart encoding, output variants, and
 transport internals belong in executor unit and integration tests.
 
 ## Scope
@@ -23,7 +23,8 @@ Workflow authors can make an HTTP request and consume its result.
 - `with.headers` and `with.query` supply request headers and query parameters.
 - With `with.format: json`, a successful JSON response produces `status_code`
   (integer), `headers` (header-name to string-array object), and `body` (the parsed
-  JSON value) on stdout.
+  JSON value) on stdout. With `with.silent: true`, a successful response omits
+  `status_code` and `headers`; a non-success response keeps them.
 - An explicit `with.skip_tls_verify: false` rejects an untrusted server
   certificate. Setting it to `true` permits that certificate.
 

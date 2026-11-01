@@ -16,6 +16,7 @@ import (
 	"time"
 
 	"github.com/dagucloud/dagu/v2/internal/cmn/cmdutil"
+	"github.com/dagucloud/dagu/v2/internal/cmn/config"
 	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/runtime"
 	"github.com/dagucloud/dagu/v2/internal/runtime/executor"
@@ -56,6 +57,14 @@ func TestPowerShellPreambleUsesLegacyCompatibleSyntax(t *testing.T) {
 	assert.NotContains(t, preamble, "PSDefaultParameterValues")
 	assert.NotContains(t, preamble, "Out-File:Encoding")
 	assert.Contains(t, preamble, "New-Object -TypeName System.Text.UTF8Encoding -ArgumentList $false")
+}
+
+// The core modules are imported by name before the first cmdlet so Windows
+// PowerShell does not fall back to command auto-discovery, which analyzes
+// every module on PSModulePath when its analysis cache is cold.
+func TestPowerShellPreambleImportsCoreModulesFirst(t *testing.T) {
+	assert.Equal(t, "Import-Module Microsoft.PowerShell.Utility, Microsoft.PowerShell.Management", powerShellPreambleStatements[0])
+	assert.True(t, strings.HasPrefix(powerShellInlineCommand("Get-Date"), "Import-Module Microsoft.PowerShell.Utility, Microsoft.PowerShell.Management; "))
 }
 
 func TestDirectShell(t *testing.T) {
@@ -561,6 +570,10 @@ func setupTestContext(t *testing.T, dag *ir.DAG, step ir.Step) context.Context {
 			Env:  []string{},
 		}
 	}
+	// Steps only see variables passed through BaseEnv, so pass the host PATH.
+	ctx = config.WithConfig(ctx, &config.Config{
+		Core: config.Core{BaseEnv: config.NewBaseEnv([]string{"PATH=" + os.Getenv("PATH")})},
+	})
 	ctx = runtime.NewContext(ctx, dag, "test-run", "")
 	env := runtime.NewEnv(ctx, step)
 	env.WorkingDir = t.TempDir()
@@ -676,9 +689,8 @@ func TestCommandExecutor_Stdin(t *testing.T) {
 			Commands: []ir.CommandEntry{{Command: "cat", CmdWithArgs: "cat"}},
 			Stdin:    "data.txt",
 		}
-		ctx := context.Background()
-		ctx = runtime.NewContext(ctx, &ir.DAG{Name: "test-dag"}, "test-run", "")
-		env := runtime.NewEnv(ctx, step)
+		ctx := setupTestContext(t, nil, step)
+		env := runtime.GetEnv(ctx)
 		env.WorkingDir = workDir
 		ctx = runtime.WithEnv(ctx, env)
 

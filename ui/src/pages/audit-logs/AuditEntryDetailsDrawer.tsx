@@ -53,7 +53,7 @@ function DetailSection({
 }) {
   return (
     <section>
-      <h3 className="border-b border-border pb-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+      <h3 className="border-b border-border pb-2 text-xs font-semibold text-muted-foreground">
         <I18nText text={title} />
       </h3>
       <dl className="mt-2 divide-y divide-border/60">
@@ -262,7 +262,7 @@ export function AuditEntryDetailsDrawer({
               />
             </I18nProps>
             <section>
-              <h3 className="border-b border-border pb-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+              <h3 className="border-b border-border pb-2 text-xs font-semibold text-muted-foreground">
                 <I18nText text={'Details'} />
               </h3>
               {details ? (

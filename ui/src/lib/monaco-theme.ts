@@ -2,9 +2,8 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 /**
- * "Kiln" Monaco themes — the brand code look: phosphor-amber keys,
- * signal-green strings, violet accents. Dark renders on an ink panel;
- * light renders on cream paper.
+ * Monaco themes matching the app palette: amber keys, green strings, and
+ * violet accents on the card surface of each theme.
  *
  * @module lib/monaco-theme
  */
@@ -24,7 +23,7 @@ export function registerKilnThemes() {
     base: 'vs-dark',
     inherit: true,
     rules: [
-      { token: 'comment', foreground: '62656f' },
+      { token: 'comment', foreground: '8b8b95' },
       { token: 'string', foreground: '8fd9a8' },
       { token: 'number', foreground: 'd8b4fe' },
       { token: 'keyword', foreground: 'e2a566' },
@@ -35,17 +34,17 @@ export function registerKilnThemes() {
       { token: 'operators', foreground: 'c6c8ce' },
     ],
     colors: {
-      'editor.background': '#0b0d12',
-      'editor.foreground': '#dddcd4',
-      'editor.lineHighlightBackground': '#14161d',
-      'editor.selectionBackground': '#2a2452',
-      'editorCursor.foreground': '#dddcd4',
-      'editorLineNumber.foreground': '#4a4d57',
-      'editorLineNumber.activeForeground': '#a2a5ad',
-      'editorIndentGuide.background1': '#1e212b',
-      'editorWidget.background': '#12141b',
-      'editorWidget.border': '#2c3040',
-      'editorSuggestWidget.selectedBackground': '#2a2452',
+      'editor.background': '#141417',
+      'editor.foreground': '#ededf0',
+      'editor.lineHighlightBackground': '#1a1a1e',
+      'editor.selectionBackground': '#2f2a5a',
+      'editorCursor.foreground': '#ededf0',
+      'editorLineNumber.foreground': '#86868f',
+      'editorLineNumber.activeForeground': '#c4c4cc',
+      'editorIndentGuide.background1': '#24242a',
+      'editorWidget.background': '#1a1a1e',
+      'editorWidget.border': '#32323a',
+      'editorSuggestWidget.selectedBackground': '#2f2a5a',
     },
   });
 
@@ -53,28 +52,28 @@ export function registerKilnThemes() {
     base: 'vs',
     inherit: true,
     rules: [
-      { token: 'comment', foreground: '8f9299' },
-      { token: 'string', foreground: '178a44' },
+      { token: 'comment', foreground: '6e6e78' },
+      { token: 'string', foreground: '14753a' },
       { token: 'number', foreground: '7c3aed' },
-      { token: 'keyword', foreground: 'a06315' },
-      { token: 'type', foreground: 'a06315' },
+      { token: 'keyword', foreground: '9a5d0b' },
+      { token: 'type', foreground: '9a5d0b' },
       { token: 'variable', foreground: '5d4fe0' },
       { token: 'namespace', foreground: '5d4fe0' },
-      { token: 'delimiter', foreground: '4c4f58' },
-      { token: 'operators', foreground: '4c4f58' },
+      { token: 'delimiter', foreground: '52525c' },
+      { token: 'operators', foreground: '52525c' },
     ],
     colors: {
-      'editor.background': '#fbfaf6',
-      'editor.foreground': '#14161b',
-      'editor.lineHighlightBackground': '#f0ede4',
-      'editor.selectionBackground': '#d9d3f5',
-      'editorCursor.foreground': '#14161b',
-      'editorLineNumber.foreground': '#a3a6ad',
-      'editorLineNumber.activeForeground': '#4c4f58',
-      'editorIndentGuide.background1': '#e0dcd0',
-      'editorWidget.background': '#fbfaf6',
-      'editorWidget.border': '#cdc8b9',
-      'editorSuggestWidget.selectedBackground': '#e5e1fb',
+      'editor.background': '#ffffff',
+      'editor.foreground': '#111114',
+      'editor.lineHighlightBackground': '#f4f4f6',
+      'editor.selectionBackground': '#dedafa',
+      'editorCursor.foreground': '#111114',
+      'editorLineNumber.foreground': '#71717a',
+      'editorLineNumber.activeForeground': '#111114',
+      'editorIndentGuide.background1': '#e7e7ec',
+      'editorWidget.background': '#ffffff',
+      'editorWidget.border': '#d3d3db',
+      'editorSuggestWidget.selectedBackground': '#ebe8fc',
     },
   });
 }

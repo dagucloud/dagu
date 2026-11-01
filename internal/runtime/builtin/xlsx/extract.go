@@ -388,7 +388,7 @@ func (e *extractExecutor) query(ctx context.Context, layout *workbook.SheetLayou
 			errs = append(errs, fmt.Errorf("%s: %w", m.label(), err))
 			continue
 		}
-		resp, err := llmpkg.ChatWithRetry(ctx, provider, &llmpkg.ChatRequest{
+		answer, err := e.ask(ctx, provider, m, &llmpkg.ChatRequest{
 			Model:       m.cfg.Model,
 			Messages:    messages,
 			Temperature: m.cfg.Temperature,
@@ -402,18 +402,12 @@ func (e *extractExecutor) query(ctx context.Context, layout *workbook.SheetLayou
 					Parameters:  e.parameters,
 				},
 			}},
-			ToolChoice: "required",
-		}, llmpkg.DefaultLogicalRetryConfig())
+			ToolChoice: agentstep.ToolChoiceRequired,
+		})
 		if err != nil {
 			if ctx.Err() != nil {
 				return nil, nil, ctx.Err()
 			}
-			errs = append(errs, fmt.Errorf("%s: %w", m.label(), err))
-			continue
-		}
-		e.usage.add(resp.Usage)
-		answer, err := agentstep.StructuredAnswer(resp)
-		if err != nil {
 			errs = append(errs, fmt.Errorf("%s: %w", m.label(), err))
 			continue
 		}
@@ -433,6 +427,31 @@ func (e *extractExecutor) query(ctx context.Context, layout *workbook.SheetLayou
 		return result, labels, nil
 	}
 	return nil, nil, fmt.Errorf("model request failed: %w", errors.Join(errs...))
+}
+
+// ask asks one model for a structured answer and counts the tokens of its
+// calls. An answer that cannot be used is logged and corrected once, as
+// plain messages, before the model counts as failed.
+func (e *extractExecutor) ask(ctx context.Context, provider llmpkg.Provider, m model, req *llmpkg.ChatRequest) (json.RawMessage, error) {
+	corrected := false
+	for {
+		resp, err := llmpkg.ChatWithRetry(ctx, provider, req, llmpkg.DefaultLogicalRetryConfig())
+		if err != nil {
+			return nil, err
+		}
+		e.usage.add(resp.Usage)
+		answer, err := agentstep.StructuredAnswer(resp)
+		if err == nil {
+			return answer, nil
+		}
+		rejected := e.masker.MaskString(agentstep.RejectedAnswer(resp))
+		_, _ = fmt.Fprintf(e.stderr, "warning: %s answer rejected: %v\n%s\n", m.label(), err, rejected)
+		if corrected {
+			return nil, err
+		}
+		corrected = true
+		agentstep.AppendCorrection(req, rejected, err)
+	}
 }
 
 // ensureModels resolves the configured models on the first request, so a

@@ -120,6 +120,47 @@ func TestReportRuns(t *testing.T) {
 	assert.JSONEq(t, wantActive, decodeActive(t, next).json(t))
 }
 
+// At the errors level, a failed run also carries why it failed: the errors
+// of its failed steps without terminal escapes, each cut to its end, where
+// the error says what went wrong; or the run's own error when no step says.
+// A run that partly succeeded carries none.
+func TestReportRunsWithErrors(t *testing.T) {
+	t.Parallel()
+
+	dir := newEventDir(t)
+	console := newFakeConsole(t)
+	_, clock := newEventReporterAt(t, console.credentials, dir, testClockStart, config.ReportErrors)
+
+	failed := etlRun(ir.Failed)
+	failed.Error = "the run failed"
+	failed.Nodes = []*ir.Node{
+		{Step: ir.Step{Name: "load"}, Status: ir.NodeFailed, Error: "exit status 1\nrecent stderr (tail):\n\x1b[31mconnection refused\x1b[0m"},
+		{Step: ir.Step{Name: "copy"}, Status: ir.NodeFailed, Error: strings.Repeat("é", 2000) + "\nError: disk full"},
+		{Step: ir.Step{Name: "notify"}, Status: ir.NodeFailed},
+	}
+	dir.emit(eventstore.TypeDAGRunFailed, failed)
+	timedOut := etlRun(ir.Failed)
+	timedOut.DAGRunID, timedOut.AttemptID, timedOut.Error = "run-2", "attempt-2", "the run timed out"
+	dir.emit(eventstore.TypeDAGRunFailed, timedOut)
+	partly := etlRun(ir.PartiallySucceeded)
+	partly.DAGRunID, partly.AttemptID = "run-3", "attempt-3"
+	partly.Nodes = []*ir.Node{{Step: ir.Step{Name: "optional"}, Status: ir.NodeFailed, Error: "skipped data"}}
+	dir.emit(eventstore.TypeDAGRunPartiallySucceeded, partly)
+
+	report, _ := clock.nextReport(console)
+	var runs []finishedRun
+	require.NoError(t, json.Unmarshal(decodeFinished(t, report).Finished, &runs))
+	require.Len(t, runs, 3)
+	assert.Empty(t, runs[2].Errors, "a run that partly succeeded did not fail")
+	require.Len(t, runs[0].Errors, 2, "a step without an error says nothing, and the run's own error waits")
+	assert.Equal(t, stepError{Step: "load", Message: "exit status 1\nrecent stderr (tail):\nconnection refused"}, runs[0].Errors[0])
+	assert.Equal(t, "copy", runs[0].Errors[1].Step)
+	assert.LessOrEqual(t, len(runs[0].Errors[1].Message), maxErrorBytes)
+	assert.True(t, strings.HasPrefix(runs[0].Errors[1].Message, "…é"), "a message is cut between characters")
+	assert.True(t, strings.HasSuffix(runs[0].Errors[1].Message, "Error: disk full"))
+	assert.Equal(t, []stepError{{Message: "the run timed out"}}, runs[1].Errors)
+}
+
 // A read that finds only events that reports leave out still moves the
 // cursor, so the console acknowledges a report with no finished runs.
 func TestReportRunsOnlySkipped(t *testing.T) {
@@ -487,16 +528,20 @@ func TestReportRunsSizeCap(t *testing.T) {
 
 	dir := newEventDir(t)
 	console := newFakeConsole(t)
-	clock := startEventReporter(t, console, dir, testClockStart)
+	// The errors level carries the most: each run's errors too.
+	_, clock := newEventReporterAt(t, console.credentials, dir, testClockStart, config.ReportErrors)
 	longName := strings.Repeat("あ", 300) // 900 bytes
+	longError := strings.Repeat("\u0001", 3000)
 	var ids []string
 	for i := range 45 {
 		failed := run("etl", fmt.Sprintf("run-%d", i), ir.Failed)
 		for j := range maxFailedSteps {
-			failed.Nodes = append(failed.Nodes, &ir.Node{
-				Step:   ir.Step{Name: fmt.Sprintf("%02d-%s", j, longName)},
-				Status: ir.NodeFailed,
-			})
+			node := &ir.Node{Step: ir.Step{Name: fmt.Sprintf("%02d-%s", j, longName)}, Status: ir.NodeFailed}
+			// One error more than a run carries, so the cap is reached.
+			if j <= maxRunErrors {
+				node.Error = longError
+			}
+			failed.Nodes = append(failed.Nodes, node)
 		}
 		dir.emit(eventstore.TypeDAGRunFailed, failed)
 		ids = append(ids, failed.DAGRunID)
@@ -515,6 +560,7 @@ func TestReportRunsSizeCap(t *testing.T) {
 		require.Less(t, len(batch), len(ids), "a batch of large runs is capped by size")
 		for _, run := range batch {
 			require.Len(t, run.FailedSteps, maxFailedSteps)
+			require.Len(t, run.Errors, maxRunErrors)
 			for _, name := range run.FailedSteps {
 				require.LessOrEqual(t, len(name), maxStepNameBytes)
 				require.True(t, utf8.ValidString(name), "a step name is cut between characters")
@@ -825,6 +871,7 @@ func (d *eventDir) events() Events {
 		Reader:        d.store,
 		RetentionDays: 1,
 		State:         filemonitor.NewStateStore(d.stateFile),
+		Stale:         filemonitor.NewStateStore(d.stateFile + ".stale"),
 		Lease:         filemonitor.NewLease(d.stateFile, nil),
 		Statuses:      d.statuses,
 	}
@@ -916,7 +963,19 @@ func newEventReporter(
 	start time.Time,
 ) (*Reporter, *fakeClock) {
 	t.Helper()
-	r := newReporter(credentials, nil, fixedLevel(config.ReportRuns))
+	return newEventReporterAt(t, credentials, dir, start, config.ReportRuns)
+}
+
+// newEventReporterAt is newEventReporter reporting at level.
+func newEventReporterAt(
+	t *testing.T,
+	credentials func() (license.CloudCredentials, bool),
+	dir *eventDir,
+	start time.Time,
+	level config.ReportLevel,
+) (*Reporter, *fakeClock) {
+	t.Helper()
+	r := newReporter(credentials, nil, fixedLevel(level))
 	r.events = newEventFeed(dir.events())
 	clock := startReporterAt(t.Context(), t, r, noJitter, start)
 	clock.wait()

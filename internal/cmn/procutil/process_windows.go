@@ -13,6 +13,9 @@ import (
 
 const maxPIDUint32 = 1<<32 - 1
 
+// stillActiveExitCode is the exit code Windows reports for a running process.
+const stillActiveExitCode = 259
+
 func isAlive(pid int) bool {
 	if !canUseWindowsPID(pid) {
 		return false
@@ -51,7 +54,22 @@ func startTime(pid int) (int64, bool) {
 		return 0, false
 	}
 	defer windows.CloseHandle(handle) //nolint:errcheck
+	// An exited process stays queryable while any handle to it is open, so its
+	// creation time alone would still match the recorded one.
+	if handleExited(handle) {
+		return 0, false
+	}
 	return HandleStartTime(handle)
+}
+
+// handleExited reports whether the process behind handle has certainly exited.
+// A process that exits with the still-active code reads as running.
+func handleExited(handle windows.Handle) bool {
+	var code uint32
+	if err := windows.GetExitCodeProcess(handle, &code); err != nil {
+		return false
+	}
+	return code != stillActiveExitCode
 }
 
 // HandleStartTime returns the creation time of the process behind handle as

@@ -14,7 +14,8 @@ permissions:
 jobs:
   # Build release binaries
   goreleaser:
-    runs-on: ubuntu-latest
+    # The ubuntu-26.04 image runs out of disk space during the release build.
+    runs-on: ubuntu-24.04
     # id-token and attestations let the attest step below record build
     # provenance for the archives this job produces.
     permissions:

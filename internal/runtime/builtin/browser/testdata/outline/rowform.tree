@@ -1,0 +1,89 @@
+[3-2] RootWebArea
+  [3-19] scrollable, html
+    [3-21] frameset
+      [3-22] Iframe
+        [0-6] RootWebArea
+          [0-23] scrollable, html
+            [0-26] paragraph
+              [0-27] StaticText: Menu
+      [3-28] Iframe
+        [1-7] RootWebArea
+          [1-29] scrollable, html
+            [1-8] form
+              [1-32] table
+                [1-33] tbody
+                  [1-34] row
+                    [1-35] rowheader: 工種又は業種
+                    [1-37] cell
+                      [1-9] select
+                        [1-41] MenuListPopup
+                          [1-42] slot
+                            [1-43] option [selected]
+                            [1-44] option: 土木一式工事
+                  [1-55] row
+                    [1-56] cell: 年度
+                    [1-58] cell
+                      [1-10] select
+                        [1-62] MenuListPopup
+                          [1-63] slot
+                            [1-64] option [selected]
+                            [1-65] option: 令和8年度
+                    [1-76] cell: 調達機関
+                    [1-78] cell: 千葉県
+                      [1-11] select
+                        [1-83] MenuListPopup
+                          [1-85] option: 千葉県 [selected]
+                  [1-93] row
+                    [1-94] rowheader: 案件名
+                    [1-96] cell
+                      [1-12] textbox
+                  [1-99] row
+                    [1-100] cell: 添付あり
+                    [1-102] cell
+                      [1-103] checkbox
+                  [1-200] row
+                    [1-201] rowheader: 入札予定日範囲
+                    [1-203] cell: ～
+                      [1-16] textbox
+                      [1-17] textbox
+                  [1-209] row
+                    [1-210] rowheader: 文字列検索
+                    [1-212] cell: AND
+                      [1-18] textbox
+                      [1-19] select
+                        [1-219] MenuListPopup
+                          [1-220] slot
+                            [1-221] option: AND [selected]
+                            [1-222] option: OR
+                  [1-300] row
+                    [1-301] rowheader: 担当課
+                    [1-303] cell: 選択
+                      [1-304] button: 選択
+                    [1-306] cell
+                      [1-20] textbox
+                  [1-104] row
+                    [1-105] cell
+                      [1-13] textbox
+                  [1-108] row
+                    [1-109] cell: 入札方式
+                    [1-111] cell: 一般競争
+                      [1-15] checkbox: 一般競争
+              [1-14] textbox
+      [3-116] Iframe
+        [2-16] RootWebArea
+          [2-117] scrollable, html
+            [2-120] LayoutTable
+              [2-121] tbody
+                [2-122] LayoutTableRow
+                  [2-123] LayoutTableCell: 担当者
+                  [2-125] LayoutTableCell
+                    [2-17] textbox
+                [2-128] LayoutTableRow
+                  [2-129] LayoutTableCell: 期間
+                  [2-131] LayoutTableCell: 今月
+                    [2-132] LayoutTable
+                      [2-134] LayoutTableRow
+                        [2-135] LayoutTableCell: 今月
+                          [2-18] select
+                            [2-140] MenuListPopup
+                              [2-142] option: 今月 [selected]

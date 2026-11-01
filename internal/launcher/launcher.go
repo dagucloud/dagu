@@ -8,9 +8,11 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
+	"maps"
 	"os"
 	"os/exec"
 	"runtime/debug"
+	"slices"
 	"strings"
 	"unicode/utf8"
 
@@ -171,6 +173,7 @@ func (b *SubCmdBuilder) Start(dag *ir.DAG, opts StartOptions) CmdSpec {
 	if opts.NoReuse {
 		args = append(args, "--no-reuse")
 	}
+	args = append(args, workerLabelArgs(opts.WorkerSelector)...)
 	if b.configFile != "" {
 		args = append(args, "--config", b.configFile)
 	}
@@ -230,6 +233,7 @@ func (b *SubCmdBuilder) Enqueue(dag *ir.DAG, opts EnqueueOptions) CmdSpec {
 	if opts.NoReuse {
 		args = append(args, "--no-reuse")
 	}
+	args = append(args, workerLabelArgs(opts.WorkerSelector)...)
 	args = append(args, dag.Location)
 
 	return CmdSpec{
@@ -362,6 +366,8 @@ type StartOptions struct {
 	ProfileName  string  // Runtime profile name
 	DefinitionID string  // Stable DAG definition identity
 	NoReuse      bool    // Disable build materialization reuse
+	// WorkerSelector replaces the DAG's worker_selector for this run.
+	WorkerSelector map[string]string
 }
 
 // EnqueueOptions contains options for enqueuing a dag-run.
@@ -379,6 +385,18 @@ type EnqueueOptions struct {
 	ProfileName  string // Runtime profile name
 	DefinitionID string // Stable DAG definition identity
 	NoReuse      bool   // Disable build materialization reuse
+	// WorkerSelector replaces the DAG's worker_selector for this run.
+	WorkerSelector map[string]string
+}
+
+// workerLabelArgs renders a per-run worker selector as repeatable
+// --worker-label flags, in key order so a spec is the same for the same input.
+func workerLabelArgs(selector map[string]string) []string {
+	args := make([]string, 0, len(selector))
+	for _, key := range slices.Sorted(maps.Keys(selector)) {
+		args = append(args, fmt.Sprintf("--worker-label=%s=%s", key, selector[key]))
+	}
+	return args
 }
 
 func definitionIDEnv(id string) []string {

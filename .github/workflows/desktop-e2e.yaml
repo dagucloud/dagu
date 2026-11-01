@@ -37,7 +37,7 @@ concurrency:
   cancel-in-progress: true
 
 env:
-  GO_VERSION: "1.27.0"
+  GO_VERSION: "1.27.3"
 
 jobs:
   windows-desktop:
@@ -77,11 +77,11 @@ jobs:
         shell: bash
         env:
           DESKTOP_E2E_ARTIFACTS: ${{ runner.temp }}/desktop-artifacts
-        run: DAGU_BIN="$PWD/.local/bin/dagu.exe" go test -count=1 -run 'TestComputerTypesIntoWindow|TestComputerElements|TestComputerPinnedAct' -v ./conformance/spec074_computer/
+        run: DAGU_BIN="$PWD/.local/bin/dagu.exe" go test -count=1 -run 'TestComputerTypesIntoWindow|TestComputerElements|TestComputerPinnedAct|TestComputerOutlineStep|TestComputerChoosesAnOption' -v ./conformance/spec074_computer/
 
       - name: Upload screenshots
         if: failure()
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: desktop-e2e-screenshots
           path: ${{ runner.temp }}/desktop-artifacts

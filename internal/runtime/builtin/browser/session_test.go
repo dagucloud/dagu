@@ -7,15 +7,18 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 	"testing"
 	"time"
 
 	"github.com/dagucloud/dagu/v2/internal/browserhost"
+	"github.com/dagucloud/dagu/v2/internal/browserhost/certproxy"
 	cmnconfig "github.com/dagucloud/dagu/v2/internal/cmn/config"
 	"github.com/dagucloud/dagu/v2/internal/ir"
 	llmpkg "github.com/dagucloud/dagu/v2/internal/llm"
@@ -54,7 +57,8 @@ func newTestSessions(t *testing.T, answer func(*llmpkg.ChatRequest) (string, err
 		newProvider: func(context.Context, *ir.LLMConfig) (llmpkg.Provider, error) {
 			return ts.provider, nil
 		},
-		now: func() time.Time { return ts.clock },
+		now:  func() time.Time { return ts.clock },
+		wait: sleepContext,
 	}
 	return ts
 }
@@ -82,6 +86,29 @@ func (ts *testSessions) state(id string) sessionState {
 }
 
 var testModel = &ir.LLMConfig{Provider: "openai", Model: "test-model"}
+
+// tls_verified reports whether the certificate proxy vouches for the final
+// page's host.
+func TestSessionTLSVerification(t *testing.T) {
+	t.Parallel()
+	for name, tt := range map[string]struct {
+		verified []string
+		want     bool
+	}{
+		"PageHost":   {verified: []string{"portal.example.com"}, want: true},
+		"OtherHost":  {verified: []string{"redirect.example.com"}},
+		"NoEvidence": {},
+	} {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+			ts := newTestSessions(t, pageModel(nil))
+			ts.engine.handle.CertProxy = &certproxy.Handle{URL: "http://127.0.0.1:1/token"}
+			ts.engine.verifiedHosts = tt.verified
+			opened := ts.open(SessionOptions{URL: "https://portal.example.com/", Headless: true})
+			assert.Equal(t, tt.want, opened.TLSVerified)
+		})
+	}
+}
 
 func (ts *testSessions) open(opts SessionOptions) OpenResult {
 	ts.t.Helper()
@@ -172,6 +199,8 @@ func TestSessionVariables(t *testing.T) {
 	_, err = ts.do(opened.ID, `{"act": "Type %password% into the Password field", "variables": {"password": {"env": "`+env+`"}}}`)
 	require.NoError(t, err)
 	assert.Equal(t, "s3cret-value", ts.engine.acts[1].variables["password"], "the browser types the value")
+	assert.Empty(t, ts.engine.acts[0].secret)
+	assert.Equal(t, []string{"password"}, ts.engine.acts[1].secret)
 
 	// The password is still known to the next command; the user is not.
 	_, err = ts.do(opened.ID, `{"act": "Type %password% again"}`)
@@ -195,6 +224,20 @@ func TestSessionVariables(t *testing.T) {
 
 	_, err = ts.do(opened.ID, `{"act": "Type s3cret-value into the box"}`)
 	assert.Equal(t, CodeInvalidInput, sessionCode(err), "a secret value never goes to the model")
+}
+
+// An extract whose link field has no format: uri warns while the step is
+// being built, since a step with that schema gets the link's element id.
+func TestSessionLinkFieldWarning(t *testing.T) {
+	t.Parallel()
+
+	ts := newTestSessions(t, pageModel(map[string]string{"The first listing": `{"link":"0-11"}`}))
+	opened := ts.open(SessionOptions{URL: "https://shop.example.com/listings", LLM: testModel})
+
+	result, err := ts.do(opened.ID, `{"extract": {"instruction": "The first listing", "schema": {"type": "object", "properties": {"link": {"type": "string"}}}}}`)
+	require.NoError(t, err)
+	require.Len(t, result.Warnings, 1)
+	assert.Contains(t, result.Warnings[0], `extract field "link" has no format: uri`)
 }
 
 // An act that typed a variable's value itself reports its actions with
@@ -258,6 +301,61 @@ func TestSessionFailedAndSkippedOperations(t *testing.T) {
 		statuses = append(statuses, op.Status)
 	}
 	assert.Equal(t, []string{OperationFailed, OperationSkipped, OperationDone}, statuses)
+}
+
+// A page the site refused is reported by every command while the browser
+// shows it, and named in the failure of an operation on it. A bot check an
+// earlier command saw stays named while the page is the same, though a
+// reattached browser cannot tell it, as after a person reloads the page.
+func TestSessionReportsRefusedPage(t *testing.T) {
+	t.Parallel()
+
+	ts := newTestSessions(t, pageModel(nil))
+	ts.engine.pageText = "Just a moment..."
+	ts.engine.outcome = pageOutcome{Host: "shop.example.com", Status: 403, BotCheck: browserhost.BotCheckCloudflare}
+	botCheck := &SessionRefusal{
+		Host: "shop.example.com", Status: 403, BotCheck: browserhost.BotCheckCloudflare,
+		Message: "shop.example.com answered with a Cloudflare bot check (HTTP 403) in place of the page",
+	}
+	opened := ts.open(SessionOptions{URL: "https://shop.example.com/cart", LLM: testModel})
+	assert.Equal(t, botCheck, opened.Refused)
+
+	result, err := ts.do(opened.ID, `{"expect": {"text": "Cart"}, "timeout": "10ms"}`)
+	assert.Equal(t, CodeOperationFailed, sessionCode(err))
+	assert.Equal(t, botCheck, result.Refused)
+	assert.True(t, strings.HasSuffix(result.Error.Message, "; "+botCheck.Message), result.Error.Message)
+
+	ts.engine.outcome.BotCheck = ""
+	described, err := ts.sessions.Describe(ts.context(), DescribeRequest{ID: opened.ID})
+	require.NoError(t, err)
+	assert.Equal(t, botCheck, described.Refused)
+
+	ts.engine.outcome = pageOutcome{Host: "shop.example.com", Status: 200}
+	result, err = ts.do(opened.ID, `{"goto": "https://shop.example.com/cart"}`)
+	require.NoError(t, err)
+	assert.Nil(t, result.Refused)
+}
+
+// An operation the browser stopped answering leaves the page unread: the
+// refusal seen on it stays, for the commands that follow.
+func TestSessionKeepsRefusalWhenBrowserStopsAnswering(t *testing.T) {
+	t.Parallel()
+
+	files := writeFiles(t, t.TempDir(), "invoice.pdf")
+	ts := newTestSessions(t, pageModel(nil))
+	ts.engine.outcome = pageOutcome{Host: "shop.example.com", Status: 403, BotCheck: browserhost.BotCheckCloudflare}
+	opened := ts.open(SessionOptions{URL: "https://shop.example.com/receipts"})
+	require.NotNil(t, opened.Refused)
+
+	// The page now reads as fine, which only a read would report.
+	ts.engine.outcome = pageOutcome{Host: "shop.example.com", Status: 200}
+	ts.engine.uploadErr = fmt.Errorf("%w within 30s", errBrowserUnresponsive)
+	input, err := json.Marshal(map[string]any{"upload": map[string]any{"files": files}})
+	require.NoError(t, err)
+	result, err := ts.do(opened.ID, string(input))
+	assert.Equal(t, CodeOperationFailed, sessionCode(err))
+	assert.Equal(t, opened.Refused, result.Refused)
+	assert.Equal(t, browserhost.BotCheckCloudflare, ts.state(opened.ID).Page.Refused.BotCheck)
 }
 
 // A session opened without a model refuses the operations that ask one and
@@ -501,4 +599,74 @@ func TestSessionModelReadsItsKeyFromTheEnvironment(t *testing.T) {
 	mu.Lock()
 	defer mu.Unlock()
 	assert.Equal(t, "Bearer sk-session-1234", authorization)
+}
+
+// An upload into an element the outline names runs without the model and
+// is kept as the upload a step writes, into the element in words, with its
+// action as the recording. An upload into words asks the model.
+func TestSessionUploads(t *testing.T) {
+	t.Parallel()
+
+	files := writeFiles(t, t.TempDir(), "invoice.pdf")
+	ts := newTestSessions(t, pageModel(nil))
+	ts.engine.snapshot = uploadPage("Upload receipt")
+	opened := ts.open(SessionOptions{URL: "https://books.example.com/receipts", LLM: testModel})
+
+	input, err := json.Marshal(map[string]any{"upload": map[string]any{"into": "[0-5]", "files": files[0]}, "timeout": "30s"})
+	require.NoError(t, err)
+	result, err := ts.do(opened.ID, string(input))
+	require.NoError(t, err)
+	assert.Equal(t, opUpload, result.Kind)
+	assert.Equal(t, `the "Upload receipt" button`, result.Into)
+	assert.True(t, result.Recorded)
+	assert.Equal(t, []SessionAction{{Selector: "xpath=/html/body/button", Description: `button "Upload receipt"`, Method: uploadMethod}}, result.Actions)
+	assert.Contains(t, result.Detail, "invoice.pdf into xpath=/html/body/button")
+	assert.Zero(t, ts.provider.callCount(), "an element upload asks no model")
+	op, err := json.Marshal(map[string]any{"upload": map[string]any{"files": files[0], "into": `the "Upload receipt" button`}, "timeout": "30s"})
+	require.NoError(t, err)
+	assert.JSONEq(t, string(op), string(ts.state(opened.ID).Ops[0].Op))
+
+	input, err = json.Marshal(map[string]any{"upload": map[string]any{"into": "the receipt box", "files": files}})
+	require.NoError(t, err)
+	result, err = ts.do(opened.ID, string(input))
+	require.NoError(t, err)
+	assert.Empty(t, result.Into)
+	assert.True(t, result.Recorded)
+	assert.Equal(t, 1, ts.provider.callCount())
+	assert.Equal(t, []fakeUpload{
+		{selector: "xpath=/html/body/button", paths: files},
+		{selector: "xpath=/html/body/button", paths: files},
+	}, ts.engine.uploaded())
+
+	_, err = ts.do(opened.ID, `{"upload": {"into": "0-5", "files": "invoice.pdf", "cache": false}}`)
+	assert.Equal(t, CodeInvalidInput, sessionCode(err))
+	assert.ErrorContains(t, err, "an upload into an element by its ID replays that element, so it takes no cache")
+
+	_, err = ts.do(opened.ID, `{"upload": {"into": "0-6", "files": "invoice.pdf"}}`)
+	require.Error(t, err)
+	assert.Equal(t, CodeInvalidInput, sessionCode(err))
+	assert.ErrorContains(t, err, "element 0-6 has no name a step could find it by again; describe it in into, or leave into out when it is the page's only file input")
+}
+
+// A session without a model uploads into the page's only file input and
+// into elements by ID, and refuses an upload into words.
+func TestSessionUploadsWithoutModel(t *testing.T) {
+	t.Parallel()
+
+	files := writeFiles(t, t.TempDir(), "invoice.pdf")
+	ts := newTestSessions(t, pageModel(nil))
+	ts.engine.snapshot = uploadPage("Upload receipt")
+	opened := ts.open(SessionOptions{URL: "https://books.example.com/receipts"})
+
+	for _, upload := range []map[string]any{{"files": files}, {"files": files, "into": "0-5"}} {
+		input, err := json.Marshal(map[string]any{"upload": upload})
+		require.NoError(t, err)
+		_, err = ts.do(opened.ID, string(input))
+		require.NoError(t, err)
+	}
+	input, err := json.Marshal(map[string]any{"upload": map[string]any{"files": files, "into": "the receipt box"}})
+	require.NoError(t, err)
+	_, err = ts.do(opened.ID, string(input))
+	assert.Equal(t, CodeModelRequired, sessionCode(err))
+	assert.Len(t, ts.engine.uploaded(), 2)
 }

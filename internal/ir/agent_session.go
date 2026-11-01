@@ -33,6 +33,16 @@ const (
 	AgentInteractionRejected AgentInteractionStatus = "rejected"
 )
 
+// AgentPermissionBrowserWrite is the permission a browser step asks for
+// before an operation that sends a write. Besides once, session, and
+// reject, its answer may be AgentDecisionSkip.
+const AgentPermissionBrowserWrite = "browser.write"
+
+// AgentDecisionSkip answers a browser write permission: neither the
+// operation nor any after it runs, so nothing further is sent, and the
+// step ends without failing.
+const AgentDecisionSkip = "skip"
+
 // AgentQuestion is one question in a managed agent interaction.
 type AgentQuestion struct {
 	Header   string                `json:"header"`
@@ -198,6 +208,21 @@ func CloneAgentSession(session *AgentSession) *AgentSession {
 		clone.Events[i].Files = append([]string(nil), session.Events[i].Files...)
 	}
 	return &clone
+}
+
+// MaskAgentSession returns a detached copy of session with mask applied to
+// its displayed text. Interaction answers are kept as given, since a resumed
+// step reads them back from status.
+func MaskAgentSession(session *AgentSession, mask func(string) string) *AgentSession {
+	if session == nil {
+		return nil
+	}
+	masked := CloneAgentSession(session)
+	masked.LastError = mask(masked.LastError)
+	for i := range masked.Events {
+		masked.Events[i].Content = mask(masked.Events[i].Content)
+	}
+	return masked
 }
 
 // MergeAgentSessionResources retains every Dagu-owned provider session observed by a DAG run.

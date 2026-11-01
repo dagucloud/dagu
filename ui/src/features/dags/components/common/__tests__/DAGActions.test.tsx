@@ -19,9 +19,12 @@ import { DAGContext } from '@/features/dags/contexts/DAGContext';
 const client = vi.hoisted(() => ({ POST: vi.fn(), GET: vi.fn() }));
 const runProgress = vi.hoisted(() => ({ pushRunProgress: vi.fn() }));
 
-vi.mock('../../dag-execution', () => ({
+vi.mock('../../dag-execution/RunProgressStack', () => ({
   pushRunProgress: runProgress.pushRunProgress,
-  StartDAGModal: ({
+}));
+
+vi.mock('../../dag-execution/StartDAGModal', () => ({
+  default: ({
     visible,
     onSubmit,
   }: {
@@ -108,10 +111,13 @@ describe('DAGActions', () => {
         </MemoryRouter>
       );
       fireEvent.click(screen.getByRole('button', { name: 'Start' }));
-      fireEvent.click(screen.getByRole('button', { name: `Submit ${action}` }));
+      fireEvent.click(
+        await screen.findByRole('button', { name: `Submit ${action}` })
+      );
       await waitFor(() =>
         expect(runProgress.pushRunProgress).toHaveBeenCalledWith({
           dagName: 'example',
+          fileName: 'example-file',
           dagRunId: 'created-run',
           remoteNode: 'edge',
         })
@@ -140,10 +146,13 @@ describe('DAGActions', () => {
       </MemoryRouter>
     );
     fireEvent.click(screen.getByRole('button', { name: 'Start' }));
-    fireEvent.click(screen.getByRole('button', { name: 'Submit start' }));
+    fireEvent.click(
+      await screen.findByRole('button', { name: 'Submit start' })
+    );
     await waitFor(() =>
       expect(runProgress.pushRunProgress).toHaveBeenCalledWith({
         dagName: 'example',
+        fileName: 'example-file',
         dagRunId: 'created-run',
         remoteNode: 'local',
       })
@@ -266,5 +275,106 @@ describe('DAGActions', () => {
     expect(
       within(view.container).queryByRole('button', { name: 'Retry' })
     ).not.toBeInTheDocument();
+  });
+
+  // The workflow header puts Stop and Retry next to the run and Start apart, so
+  // it renders two copies, each with some of the buttons.
+  describe('only', () => {
+    const run = {
+      name: 'example',
+      dagRunId: 'run-1',
+      status: Status.Failed,
+      statusLabel: StatusLabel.failed,
+    } as never;
+
+    function renderOnly(only: Array<'start' | 'stop' | 'retry'>) {
+      render(
+        <MemoryRouter>
+          <DAGActions
+            fileName="example-file"
+            dag={{ name: 'example' }}
+            status={run}
+            displayMode="full"
+            only={only}
+          />
+        </MemoryRouter>
+      );
+    }
+
+    it('shows only Stop and Retry for the run', () => {
+      renderOnly(['stop', 'retry']);
+
+      expect(screen.getByRole('button', { name: /Retry/ })).toBeInTheDocument();
+      expect(
+        screen.getByRole('button', { name: /Stop|Cancel/ })
+      ).toBeInTheDocument();
+      expect(
+        screen.queryByRole('button', { name: 'Start' })
+      ).not.toBeInTheDocument();
+    });
+
+    it('shows only Start apart from the run', () => {
+      renderOnly(['start']);
+
+      expect(screen.getByRole('button', { name: 'Start' })).toBeInTheDocument();
+      expect(
+        screen.queryByRole('button', { name: /Retry/ })
+      ).not.toBeInTheDocument();
+      expect(
+        screen.queryByRole('button', { name: /Stop|Cancel/ })
+      ).not.toBeInTheDocument();
+    });
+
+    // The workflow bar shows the icon only: the name stays for the screen
+    // reader, and the dialog opens as with the text button.
+    it('shows the Start icon only on request, with its name', () => {
+      render(
+        <MemoryRouter>
+          <DAGActions
+            fileName="example-file"
+            dag={{ name: 'example' }}
+            displayMode="full"
+            only={['start']}
+            startIconOnly
+          />
+        </MemoryRouter>
+      );
+
+      const start = screen.getByRole('button', { name: 'Start' });
+      expect(start).toHaveAttribute('aria-label', 'Start');
+      expect(start.querySelector('svg')).not.toBeNull();
+      expect(within(start).getByText('Start')).toHaveClass('sr-only');
+      fireEvent.click(start);
+      expect(
+        screen.getByRole('button', { name: 'Submit start' })
+      ).toBeVisible();
+    });
+
+    it('opens the start dialog on request in the copy that has Start only', () => {
+      render(
+        <MemoryRouter>
+          <DAGContext.Provider value={{ autoOpenStartModal: true } as never}>
+            <DAGActions
+              fileName="example-file"
+              dag={{ name: 'example' }}
+              status={run}
+              displayMode="full"
+              only={['stop', 'retry']}
+            />
+            <DAGActions
+              fileName="example-file"
+              dag={{ name: 'example' }}
+              status={run}
+              displayMode="full"
+              only={['start']}
+            />
+          </DAGContext.Provider>
+        </MemoryRouter>
+      );
+
+      expect(
+        screen.getAllByRole('button', { name: 'Submit start' })
+      ).toHaveLength(1);
+    });
   });
 });

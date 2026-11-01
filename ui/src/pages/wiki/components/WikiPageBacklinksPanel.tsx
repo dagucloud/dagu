@@ -47,7 +47,7 @@ function WikiPageBacklinksPanel({ wikiPagePath, workspace, onSelectWikiPage }: P
         type="button"
         onClick={() => setCollapsed((c) => !c)}
         aria-expanded={!collapsed}
-        className="w-full flex items-center gap-1 px-3 py-1.5 text-xs font-medium uppercase tracking-wide text-muted-foreground hover:text-foreground"
+        className="w-full flex items-center gap-1 px-3 py-1.5 text-xs font-medium text-muted-foreground hover:text-foreground"
       >
         {collapsed ? (
           <ChevronRight className="h-3 w-3" />

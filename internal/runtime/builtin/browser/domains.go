@@ -11,13 +11,12 @@ import (
 	"regexp"
 	"slices"
 	"strings"
+
+	"github.com/dagucloud/dagu/v2/internal/cmn/hostpattern"
 )
 
-const (
-	wildcardPrefix = "*."
-	// maxBlockedHosts caps the hosts a blocked-request summary names.
-	maxBlockedHosts = 10
-)
+// maxBlockedHosts caps the hosts a blocked-request summary names.
+const maxBlockedHosts = 10
 
 // domainLabelPattern matches one DNS label, as the browser runtime requires.
 var domainLabelPattern = regexp.MustCompile(`^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$`)
@@ -25,11 +24,11 @@ var domainLabelPattern = regexp.MustCompile(`^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9]
 // validateDomainPattern rejects an allowed_domains entry the browser runtime
 // would reject: a host with at least two labels, optionally prefixed by *.
 func validateDomainPattern(pattern string) error {
-	host := canonicalHost(pattern)
+	host := hostpattern.Canonical(pattern)
 	if strings.ContainsAny(host, "/:?#") {
 		return fmt.Errorf("allowed domain %q must be a host name without a scheme, port, or path", pattern)
 	}
-	host = strings.TrimPrefix(host, wildcardPrefix)
+	host = strings.TrimPrefix(host, hostpattern.WildcardPrefix)
 	if strings.Contains(host, "*") {
 		return fmt.Errorf("allowed domain %q may use * only as a leading *.", pattern)
 	}
@@ -60,24 +59,10 @@ func checkAllowedDomain(target string, allowed []string) error {
 	if parsed.Scheme != "http" && parsed.Scheme != "https" {
 		return nil
 	}
-	host := canonicalHost(parsed.Hostname())
-	for _, pattern := range allowed {
-		pattern = canonicalHost(pattern)
-		if domain, wildcard := strings.CutPrefix(pattern, wildcardPrefix); wildcard {
-			if strings.HasSuffix(host, "."+domain) {
-				return nil
-			}
-			continue
-		}
-		if host == pattern {
-			return nil
-		}
+	if hostpattern.MatchAny(parsed.Hostname(), allowed) {
+		return nil
 	}
 	return fmt.Errorf("%s is outside browser.allowed_domains", parsed.Host)
-}
-
-func canonicalHost(host string) string {
-	return strings.TrimRight(strings.ToLower(strings.TrimSpace(host)), ".")
 }
 
 // describeBlocked summarizes blocked requests by host, most blocked first,

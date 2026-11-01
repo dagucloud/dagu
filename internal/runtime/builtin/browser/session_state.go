@@ -50,11 +50,19 @@ type sessionState struct {
 	Page         sessionPage       `json:"page"`
 	Usage        sessionUsage      `json:"usage"`
 	Ops          []sessionOp       `json:"ops"`
+	// WriteGate is the write gate mode the browser runs in, empty without
+	// a gate; WriteSeq is the last of its events reported, and Person
+	// whether a person holds the browser.
+	WriteGate string `json:"writeGate,omitempty"`
+	WriteSeq  int64  `json:"writeSeq,omitempty"`
+	Person    bool   `json:"person,omitempty"`
 }
 
 type sessionPage struct {
 	URL   string `json:"url"`
 	Title string `json:"title"`
+	// Refused is the refusal the page showed, if any.
+	Refused *refusal `json:"refused,omitempty"`
 }
 
 type sessionUsage struct {
@@ -78,10 +86,16 @@ type sessionOp struct {
 	// Recordable reports that the act's actions may be replayed by a step:
 	// the act was recorded and its actions hold no variable's value.
 	Recordable bool `json:"recordable,omitempty"`
+	// Assumed is what the act's actions took for granted about the values
+	// of the variables they never use, which the step's recording keeps.
+	Assumed *agentstep.Assumed `json:"assumed,omitempty"`
 	// Outputs names the values an extract read.
 	Outputs []string `json:"outputs,omitempty"`
 	// Variables names the variables the operation used.
 	Variables []string `json:"variables,omitempty"`
+	// Writes are the signatures of the writes of the work the operation
+	// sent or tried to send, which an export keeps as commit points.
+	Writes []string `json:"writes,omitempty"`
 }
 
 func (s sessionState) idleTimeout() time.Duration {
@@ -203,7 +217,7 @@ func parseSessionOperation(raw json.RawMessage) (operation, error) {
 
 // needsModel reports whether the operation asks the model.
 func (o operation) needsModel() bool {
-	return o.Act != nil || o.Extract != nil ||
+	return o.Act != nil || o.Extract != nil || (o.Upload != nil && o.Upload.Into != "") ||
 		(o.Expect != nil && o.Expect.judged()) || (o.When != nil && o.When.judged())
 }
 

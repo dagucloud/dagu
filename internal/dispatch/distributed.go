@@ -107,6 +107,17 @@ type DispatchTaskStore interface {
 	ListBundleDigests(ctx context.Context) ([]string, error)
 	CountOutstandingByQueue(ctx context.Context, queueName string, claimTimeout time.Duration) (int, error)
 	HasOutstandingAttempt(ctx context.Context, attemptKey string, claimTimeout time.Duration) (bool, error)
+	// ListExpiredHeld returns the pending tasks whose HoldUntil has passed at
+	// now. They are no longer claimable; the coordinator fails their runs and
+	// removes them with DeletePending.
+	ListExpiredHeld(ctx context.Context, now time.Time) ([]*DispatchTask, error)
+	// ListStalePending returns the pending tasks, held ones aside, enqueued
+	// before cutoff. They stay claimable; the coordinator removes, with
+	// DeletePending, the ones whose runs no longer await them.
+	ListStalePending(ctx context.Context, cutoff time.Time) ([]*DispatchTask, error)
+	// DeletePending removes the pending task of an attempt, if any. A task
+	// already claimed is left alone.
+	DeletePending(ctx context.Context, attemptKey string) error
 }
 
 // WorkerHeartbeatRecord is the shared presence record for a worker.

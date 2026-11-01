@@ -37,8 +37,16 @@ const (
 	exactWhenWait = 2 * time.Second
 	// defaultIdlePoll spaces the checks for a person using the desktop, and
 	// defaultPersonWait bounds how long a step waits for one to stop.
-	defaultIdlePoll   = 500 * time.Millisecond
+	defaultIdlePoll = 500 * time.Millisecond
+	// personPoll spaces the checks for a person while a wait sleeps between
+	// two looks at the screen, so the wait makes way for them at once.
+	personPoll        = 20 * time.Millisecond
 	defaultPersonWait = time.Hour
+	// defaultScreenPoll spaces the checks of a screen waiting for a person
+	// to unlock it, and defaultScreenWait bounds that wait for a step with
+	// no timeout.
+	defaultScreenPoll = 2 * time.Second
+	defaultScreenWait = 24 * time.Hour
 	// artifactLongEdge keeps saved screenshots readable at a modest size.
 	artifactLongEdge = 1920
 	finalShotLabel   = "final"
@@ -73,19 +81,42 @@ type run struct {
 	// a host that cannot read them, which records pixels alone.
 	elements    desktop.Elements
 	elementsErr error
-	lease       *desktopLease
+	// operation is the context of the operation running now, which the
+	// element reader's waits end with.
+	operation context.Context
+	lease     *desktopLease
 	// clock is the working-time bound of the operation running, paused
 	// while the step waits for a person.
 	clock *activeContext
 	// remoteNoted records that the step has said once why it does not wait
 	// for a person in a remote session.
 	remoteNoted bool
-	variables   map[string]string
+	// workApp is the application whose window was in front when the step,
+	// or the run's step before it, last found an element or saw an exact
+	// check hold there, and personHandled is when the step last made way for
+	// a person; see resumeAfterPerson.
+	workApp       string
+	personHandled time.Time
+	// present are the windows on the screen when the step began, by
+	// handle, and workApps the applications the step works in; see
+	// confine.go.
+	present  map[uint64]bool
+	workApps []string
+	// handling is set while a handler's steps run, and handled counts each
+	// handler's runs; see handleScreens.
+	handling  bool
+	handled   map[int]int
+	variables map[string]string
 	// system is which pinned block this device runs; see the executor field.
 	system string
 	// answers holds the values people gave to ask operations.
 	answers map[string]string
 	outputs map[string]any
+	// maximize is whether the operation running maximizes the front window
+	// before it looks at the screen, and fitted are the windows this
+	// attempt already maximized or found it could not.
+	maximize bool
+	fitted   map[uint64]bool
 }
 
 func newRun(ctx context.Context, e *computerExecutor) (*run, error) {
@@ -102,6 +133,11 @@ func newRun(ctx context.Context, e *computerExecutor) (*run, error) {
 	}
 	if err := agentstep.CheckSecrets(executorType, e.cfg.operationTexts(), secrets); err != nil {
 		return nil, err
+	}
+	for _, name := range e.cfg.Visible {
+		if err := agentstep.CheckValueSecrets(executorType, "variables."+name, e.cfg.Variables[name], secrets); err != nil {
+			return nil, fmt.Errorf("%w, as with.visible names it", err)
+		}
 	}
 	dagName := ""
 	if env.DAG != nil {
@@ -123,6 +159,7 @@ func newRun(ctx context.Context, e *computerExecutor) (*run, error) {
 	masker := agentstep.NewMasker(secrets, nil)
 	computerDir := filepath.Join(dataDir, computerhost.DataDirName)
 	r := &run{
+		operation:   ctx,
 		exec:        e,
 		cfg:         e.cfg,
 		dagName:     dagName,
@@ -140,6 +177,7 @@ func newRun(ctx context.Context, e *computerExecutor) (*run, error) {
 		system:      e.system,
 		answers:     map[string]string{},
 		outputs:     map[string]any{},
+		fitted:      map[uint64]bool{},
 	}
 	if r.variables == nil {
 		r.variables = map[string]string{}
@@ -156,6 +194,17 @@ func (r *run) execute(ctx context.Context) error {
 	}
 	for i := start; i < len(r.cfg.Do); i++ {
 		op := r.cfg.Do[i]
+		r.maximize = r.cfg.maximizes(op.maximize())
+		// A when on the step's data is decided before the window is fitted,
+		// so an operation it skips leaves the windows as they are; a when
+		// that reads the screen reads the window as the operation will see
+		// it.
+		onData := op.When != nil && op.When.onValue()
+		if !onData {
+			if err := r.fitFor(ctx, i, op); err != nil {
+				return r.fail(ctx, i, op.kind(), err)
+			}
+		}
 		if op.When != nil {
 			began, before := time.Now(), r.usage
 			// A statement is judged once; an exact check keeps looking for a
@@ -165,10 +214,10 @@ func (r *run) execute(ctx context.Context) error {
 			var reason string
 			if err == nil {
 				fallback := time.Duration(0)
-				if !c.judged() {
+				if !c.judged() && !c.onValue() {
 					fallback = exactWhenWait
 				}
-				holds, reason, err = r.await(ctx, c, c.window(fallback), op.timeout())
+				holds, reason, err = r.await(ctx, i, c, c.window(fallback), op.timeout())
 			}
 			if err != nil {
 				err = fmt.Errorf("evaluate when: %w", err)
@@ -176,11 +225,17 @@ func (r *run) execute(ctx context.Context) error {
 				return r.fail(ctx, i, op.kind(), err)
 			}
 			if !holds {
+				// The operation names what was skipped; the reason, why.
 				r.timeline.Operation(agentstep.Report{
-					Index: i, Kind: op.kind(), Subject: op.When.String(), Status: agentstep.StatusSkipped, Via: c.via(), Detail: reason,
+					Index: i, Kind: op.kind(), Subject: op.subject(), Status: agentstep.StatusSkipped, Via: c.via(), Detail: reason,
 					Tokens: r.usage.sub(before).total(), Duration: time.Since(began),
 				})
 				continue
+			}
+		}
+		if onData {
+			if err := r.fitFor(ctx, i, op); err != nil {
+				return r.fail(ctx, i, op.kind(), err)
 			}
 		}
 		if op.Ask != nil {
@@ -255,6 +310,9 @@ func (r *run) start(ctx context.Context) (int, error) {
 		})
 	}
 
+	if err := r.awaitUnlock(ctx); err != nil {
+		return 0, err
+	}
 	lockDir := r.exec.desktopLock
 	if lockDir == "" {
 		lockDir = filepath.Join(r.computerDir, desktopLockName)
@@ -269,7 +327,12 @@ func (r *run) start(ctx context.Context) (int, error) {
 		return 0, fmt.Errorf("open the desktop: %w", err)
 	}
 	r.driver = driver
+	r.driver.ProtectApps(r.exec.protectedApps...)
+	r.driver.ProtectTitles(r.exec.protectedTitles...)
 	r.driver.AssumeInputSent(r.lease.lastInput())
+	r.workApp = r.lease.workApp(r.dagRunID)
+	r.trustWorkApp(r.workApp)
+	r.noteStartingWindows()
 	if cursor > 0 {
 		r.timeline.Lifecycle(agentstep.StatusRunning, "Resumed after input")
 	} else {
@@ -282,7 +345,7 @@ func (r *run) runOperation(ctx context.Context, index int, op operation) error {
 	timeout := op.timeout()
 	switch {
 	case op.Launch != nil:
-		return r.launch(ctx, index, *op.Launch)
+		return r.launch(ctx, index, *op.Launch, timeout)
 	case op.Act != nil:
 		return r.act(ctx, index, *op.Act, timeout)
 	case op.Extract != nil:
@@ -293,17 +356,23 @@ func (r *run) runOperation(ctx context.Context, index int, op operation) error {
 		return r.wait(ctx, index, op.Wait)
 	case op.Screenshot != "":
 		return r.screenshot(ctx, index, op.Screenshot)
+	case op.Outline != "":
+		return r.outline(ctx, index, op.Outline, timeout)
 	}
 	return fmt.Errorf("unsupported operation %q", op.kind())
 }
 
-func (r *run) launch(ctx context.Context, index int, spec launchSpec) error {
+func (r *run) launch(ctx context.Context, index int, spec launchSpec, timeout time.Duration) error {
 	began := time.Now()
 	// A new window takes the keyboard focus from a person who is typing.
 	if err := r.awaitPerson(ctx); err != nil {
 		return err
 	}
+	before := r.driver.FocusedWindow()
 	if err := r.exec.launch(r.workingDir, spec.Command, spec.Args); err != nil {
+		return err
+	}
+	if err := r.awaitLaunched(ctx, index, spec, before, min(launchFront, timeout)); err != nil {
 		return err
 	}
 	subject := strings.Join(append([]string{spec.Command}, spec.Args...), " ")
@@ -317,8 +386,10 @@ func (r *run) launch(ctx context.Context, index int, spec launchSpec) error {
 // reads the bindings first and asks the model only when one is missing;
 // never reads the bindings and fails when one is missing.
 func (r *run) extract(ctx context.Context, index int, spec extractSpec, timeout time.Duration) error {
-	ctx, cancel := context.WithTimeout(ctx, timeout)
+	// A person's use of the desktop pauses the timeout, as it does an act's.
+	ctx, cancel := r.operationContext(ctx, timeout)
 	defer cancel()
+	defer r.during(ctx)()
 	began, before := time.Now(), r.usage
 	choice := r.cfg.extractChoice(spec)
 	key := replayKey(index, spec.Instruction)
@@ -332,7 +403,7 @@ func (r *run) extract(ctx context.Context, index int, spec extractSpec, timeout 
 	pins := pinnedBindings(spec, r.system)
 	if choice != aiEveryRun {
 		device, ok := r.cache.Lookup(key)
-		if ok && device.Version != recordingVersion {
+		if ok && !replayable(device.Version) {
 			r.cache.Drop(key)
 			device, ok = recording{}, false
 		}
@@ -411,7 +482,7 @@ func (r *run) replayExtract(ctx context.Context, index int, spec extractSpec, ke
 // modelExtract reads an extract with the model and binds each field it read
 // to the element it came from, when the host can read elements.
 func (r *run) modelExtract(ctx context.Context, index int, spec extractSpec, key string, began time.Time, before tokenUsage) error {
-	full, err := r.settle(ctx)
+	full, err := r.settleClear(ctx, index)
 	if err != nil {
 		return err
 	}
@@ -442,6 +513,13 @@ func (r *run) modelExtract(ctx context.Context, index int, spec extractSpec, key
 	if err := json.Unmarshal(data, &values); err != nil {
 		return fmt.Errorf("extract returned a non-object value: %w", err)
 	}
+	// A screen that came up while the model answered covers the elements
+	// its answer is bound to; it is cleared and the extract read again.
+	if handled, err := r.handleScreens(ctx, index); err != nil {
+		return err
+	} else if handled {
+		return r.modelExtract(ctx, index, spec, key, began, before)
+	}
 	out := unwrapAnswer(values, spec.Schema, wrapped)
 	if wrapped {
 		fields, bound := r.bindExtract(ctx, values, spec.Schema, outline, front, reader, r.cfg.maxRows(spec))
@@ -449,7 +527,7 @@ func (r *run) modelExtract(ctx context.Context, index int, spec extractSpec, key
 		// model run reads the same as every later run.
 		maps.Copy(out, bound)
 		if len(fields) > 0 {
-			r.cache.Stage(key, recording{Op: index, Version: recordingVersion, Fields: fields})
+			r.cache.Stage(key, recording{Op: index, Version: recordingVersion, Fields: fields, System: r.system, SavedAt: time.Now().UTC()})
 		} else {
 			// Nothing bound; forget any stale binding so a later on_miss run
 			// does not wait for an element that is gone before it asks again.
@@ -486,7 +564,7 @@ func (r *run) expect(ctx context.Context, index int, spec condition, timeout tim
 	if !c.judged() {
 		fallback = timeout
 	}
-	holds, reason, err := r.await(ctx, c, c.window(fallback), timeout)
+	holds, reason, err := r.await(ctx, index, c, c.window(fallback), timeout)
 	if err != nil {
 		return err
 	}
@@ -510,7 +588,9 @@ func (r *run) resolve(spec condition) (condition, error) {
 		if !ok {
 			return condition{}, fmt.Errorf("the check uses %%%s%%, but the ask that sets it did not run", name)
 		}
-		if value == "" {
+		// A check on data may ask whether a value is empty; one on the
+		// screen would look for nothing.
+		if value == "" && !spec.onValue() {
 			return condition{}, fmt.Errorf("the check uses %%%s%%, but its value is empty", name)
 		}
 	}
@@ -520,20 +600,47 @@ func (r *run) resolve(spec condition) (condition, error) {
 // await evaluates a condition until it holds or window passes, within the
 // operation timeout. When the timeout cuts an exact check short, the last
 // reason stands as the answer rather than the deadline.
-func (r *run) await(ctx context.Context, c condition, window, timeout time.Duration) (bool, string, error) {
+func (r *run) await(ctx context.Context, index int, c condition, window, timeout time.Duration) (bool, string, error) {
+	// A check on data has its answer at once and reads no screen.
+	if c.onValue() {
+		holds, reason := c.valueHolds()
+		return holds, reason, nil
+	}
 	deadline := time.Now().Add(window)
-	ctx, cancel := context.WithTimeout(ctx, timeout)
+	// A person's use of the desktop pauses the timeout, as it does an act's.
+	ctx, cancel := r.operationContext(ctx, timeout)
 	defer cancel()
+	defer r.during(ctx)()
 	interval := conditionPollInterval
 	if !c.judged() {
 		interval = exactPollInterval
 	}
 	for {
+		// A person who used the desktop meanwhile may have left another
+		// window in front; the check looks again from when they stop.
+		if resumed, err := r.resumeAfterPerson(ctx, index); err != nil {
+			return false, "", err
+		} else if resumed {
+			deadline = time.Now().Add(window)
+		}
+		// A screen a handler clears, such as a confirmation, may stand in
+		// the way of the check or over what it reads; it is cleared before
+		// every look.
+		handled, err := r.handleScreens(ctx, index)
+		if err != nil {
+			return false, "", err
+		}
+		if handled {
+			deadline = time.Now().Add(window)
+		}
 		holds, reason, err := r.evaluate(ctx, c)
 		if err != nil || holds || !time.Now().Before(deadline) {
 			return holds, reason, err
 		}
-		if err := sleep(ctx, min(interval, time.Until(deadline))); err != nil {
+		if handled {
+			continue
+		}
+		if err := r.pollSleep(ctx, min(interval, time.Until(deadline))); err != nil {
 			if errors.Is(err, context.DeadlineExceeded) && !c.judged() {
 				return false, reason, nil
 			}
@@ -561,15 +668,38 @@ func (r *run) evaluate(ctx context.Context, c condition) (bool, string, error) {
 	if err != nil {
 		return false, "", err
 	}
+	// For a moment between one window closing and the next one opening, no
+	// window is in front; the check looks again rather than fail.
 	front, err := els.FrontWindow()
+	if errors.Is(err, desktop.ErrNoWindow) {
+		return false, err.Error(), nil
+	}
 	if err != nil {
 		return false, "", err
 	}
+	holds, reason, err := evaluateFront(els, front, c)
+	if holds && front.App != "" {
+		r.workApp = front.App
+		r.trustWorkApp(front.App)
+	}
+	// A dialog in front is often why a check fails, so the reason names it.
+	if !holds && err == nil && front.Role == desktop.RoleDialog {
+		reason = describeDialog(els, front) + "; " + reason
+	}
+	return holds, reason, err
+}
+
+// evaluateFront reports whether an exact condition holds in the front
+// window, and why.
+func evaluateFront(els desktop.Elements, front desktop.Element, c condition) (bool, string, error) {
 	switch {
 	case c.Text != "":
 		elements, err := els.Outline(front, 0)
-		if errors.Is(err, desktop.ErrNoElements) {
+		switch {
+		case errors.Is(err, desktop.ErrNoElements):
 			return false, fmt.Sprintf("%q exposes no elements", front.Name), nil
+		case errors.Is(err, desktop.ErrNoWindow):
+			return false, err.Error(), nil
 		}
 		if err != nil {
 			return false, "", err
@@ -587,6 +717,8 @@ func (r *run) evaluate(ctx context.Context, c condition) (bool, string, error) {
 		switch {
 		case errors.Is(err, desktop.ErrNoElements):
 			return false, fmt.Sprintf("%q exposes no elements", front.Name), nil
+		case errors.Is(err, desktop.ErrNoWindow):
+			return false, err.Error(), nil
 		case errors.Is(err, desktop.ErrNotFound) || errors.Is(err, desktop.ErrAmbiguous):
 			// The container the selector names is the trouble.
 			return false, fmt.Sprintf("%s is not there: %v", sel, err), nil
@@ -608,6 +740,14 @@ func (r *run) evaluate(ctx context.Context, c condition) (bool, string, error) {
 	}
 }
 
+// during makes ctx the context of the operation running now, until the
+// returned function restores the one before.
+func (r *run) during(ctx context.Context) func() {
+	before := r.operation
+	r.operation = ctx
+	return func() { r.operation = before }
+}
+
 // elementsReader opens the elements reader on the first exact check and
 // keeps it for the run.
 func (r *run) elementsReader() (desktop.Elements, error) {
@@ -617,12 +757,12 @@ func (r *run) elementsReader() (desktop.Elements, error) {
 	els, err := r.exec.openElements()
 	if err != nil {
 		if errors.Is(err, desktop.ErrElementsUnsupported) {
-			return nil, fmt.Errorf("exact checks need 64-bit Windows: %w", err)
+			return nil, fmt.Errorf("exact checks need macOS or 64-bit Windows: %w", err)
 		}
 		return nil, fmt.Errorf("open the elements: %w", err)
 	}
-	r.elements = els
-	return els, nil
+	r.elements = newSteadyElements(els, r.driver.Windows, r.driver.InputSentAt, func() context.Context { return r.operation })
+	return r.elements, nil
 }
 
 func (r *run) wait(ctx context.Context, index int, value string) error {
@@ -717,7 +857,9 @@ func (r *run) fail(ctx context.Context, index int, kind string, cause error) err
 		cause = ctx.Err()
 	}
 	var files []string
-	if r.cfg.screenshotPolicy() != screenshotsNever && r.artifacts.Enabled() && r.driver != nil {
+	// A window an outline refused to read is not captured either.
+	_, refused := errors.AsType[refusedWindow](cause)
+	if !refused && r.cfg.screenshotPolicy() != screenshotsNever && r.artifacts.Enabled() && r.driver != nil {
 		if rel, err := r.capture(context.WithoutCancel(ctx), failureShotLabel); err == nil {
 			files = append(files, rel)
 		}
@@ -757,21 +899,10 @@ func (r *run) operationContext(ctx context.Context, timeout time.Duration) (cont
 // so the step's input does not collide with a person's. The wait is the
 // person's time, not the operation's, and has its own cap.
 func (r *run) awaitPerson(ctx context.Context) error {
+	if !r.guardsPerson() {
+		return nil
+	}
 	idle := r.cfg.idle()
-	if idle <= 0 {
-		return nil
-	}
-	// A remote session has no person at the keyboard to avoid, and its
-	// connection feeds the desktop synthetic input of its own, so the
-	// desktop never looks idle there: the wait is skipped unless the step
-	// asked for one.
-	if r.cfg.Idle == "" && r.exec.onConsole != nil && !r.exec.onConsole() {
-		if !r.remoteNoted {
-			r.remoteNoted = true
-			r.timeline.Lifecycle(agentstep.StatusRunning, "Running in a remote session, so not waiting for a person; set idle to wait")
-		}
-		return nil
-	}
 	if r.clock != nil {
 		r.clock.pause()
 		defer r.clock.resume()
@@ -796,6 +927,134 @@ func (r *run) awaitPerson(ctx context.Context) error {
 		r.timeline.Lifecycle(agentstep.StatusRunning, fmt.Sprintf("Nobody has used the desktop for %s; continuing", idle))
 	}
 	return err
+}
+
+// guardsPerson reports whether the step waits for a person using the
+// desktop, as idle sets. A remote session has no person at the keyboard to
+// avoid, and its connection feeds the desktop synthetic input of its own,
+// so the desktop never looks idle there: the step waits there only when it
+// asked to, and says once why it does not.
+func (r *run) guardsPerson() bool {
+	if r.cfg.idle() <= 0 {
+		return false
+	}
+	if r.cfg.Idle == "" && r.exec.onConsole != nil && !r.exec.onConsole() {
+		if !r.remoteNoted {
+			r.remoteNoted = true
+			r.timeline.Lifecycle(agentstep.StatusRunning, "Running in a remote session, so not waiting for a person; set idle to wait")
+		}
+		return false
+	}
+	return true
+}
+
+// resumeAfterPerson makes way for a person who used the desktop since the
+// step's last input or since the step last made way for one: it waits until
+// they stop, then brings the application the step was working in back to
+// the front, where they may have left another. It reports whether a person
+// used the desktop, so a caller looking for something on the screen starts
+// its wait again.
+func (r *run) resumeAfterPerson(ctx context.Context, index int) (bool, error) {
+	if !r.guardsPerson() {
+		return false, nil
+	}
+	if !r.driver.PersonInputSince(r.personSince()) {
+		return false, nil
+	}
+	if err := r.awaitPerson(ctx); err != nil {
+		return true, err
+	}
+	r.personHandled = time.Now()
+	if r.workApp != "" {
+		r.bringForward(ctx, index, r.workApp, "")
+	}
+	return true, nil
+}
+
+// noteWorkApp makes w's application the one the step works in, unless the
+// system names no application for it or the step never operates it.
+func (r *run) noteWorkApp(w desktop.WindowID) {
+	if w.App != "" && !r.offLimits(w) {
+		r.workApp = w.App
+	}
+}
+
+// personSince is when the step last sent input or made way for a person,
+// whichever came later: input after it is a person's the step has not made
+// way for yet.
+func (r *run) personSince() time.Time {
+	since := r.driver.InputSentAt()
+	if r.personHandled.After(since) {
+		since = r.personHandled
+	}
+	return since
+}
+
+// pollSleep waits between two looks at the screen, ending early when a
+// person starts using the desktop, so the next look makes way for them at
+// once rather than after the wait, which the operation's time would cover.
+func (r *run) pollSleep(ctx context.Context, d time.Duration) error {
+	if !r.guardsPerson() {
+		return sleep(ctx, d)
+	}
+	since := r.personSince()
+	for deadline := time.Now().Add(d); ; {
+		left := time.Until(deadline)
+		if left <= 0 {
+			return nil
+		}
+		if err := sleep(ctx, min(left, personPoll)); err != nil {
+			return err
+		}
+		if r.driver.PersonInputSince(since) {
+			return nil
+		}
+	}
+}
+
+// fitFor fits the front window before an operation that looks at the
+// screen, reporting a failure as the operation's.
+func (r *run) fitFor(ctx context.Context, index int, op operation) error {
+	if !op.looksAtScreen() {
+		return nil
+	}
+	began, before := time.Now(), r.usage
+	if err := r.fit(ctx, index); err != nil {
+		r.reportFailure(index, op.kind(), op.subject(), err, began, before)
+		return err
+	}
+	return nil
+}
+
+// awaitUnlock waits while the desktop is unusable only until a person
+// unlocks it, as when a run caught up on wake starts on the lock screen.
+// Any other problem is left for opening the desktop to report. The step's
+// timeout bounds the wait; a step without one gives up after screenWait.
+func (r *run) awaitUnlock(ctx context.Context) error {
+	diag := r.exec.checkDesktop()
+	if !diag.AwaitsPerson() {
+		return nil
+	}
+	r.timeline.Waiting(waitReasonScreen, "Waiting for the screen to be unlocked: "+diag.Err().Error())
+	// A deadline the step inherits from its DAG may be later than the cap,
+	// so only the step's own timeout replaces it.
+	waitCtx := ctx
+	if r.exec.step.Timeout <= 0 {
+		var cancel context.CancelFunc
+		waitCtx, cancel = context.WithTimeout(ctx, r.exec.screenWait)
+		defer cancel()
+	}
+	for diag.AwaitsPerson() {
+		if err := sleep(waitCtx, r.exec.screenPoll); err != nil {
+			if ctx.Err() != nil {
+				return ctx.Err()
+			}
+			return fmt.Errorf("open the desktop after waiting %s: %w", stringutil.FormatDuration(r.exec.screenWait), diag.Err())
+		}
+		diag = r.exec.checkDesktop()
+	}
+	r.timeline.Lifecycle(agentstep.StatusRunning, "The screen is unlocked; continuing")
+	return nil
 }
 
 // forgetReplays settles the replay cache of a failed step. An operation that
@@ -826,6 +1085,7 @@ func (r *run) shutdown() {
 	}
 	if r.driver != nil {
 		r.lease.recordInput(r.driver.InputSentAt())
+		r.lease.recordWorkApp(r.dagRunID, r.workApp)
 		_ = r.driver.Close()
 		r.driver = nil
 	}

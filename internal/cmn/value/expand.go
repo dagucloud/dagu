@@ -5,7 +5,6 @@ package value
 
 import (
 	"context"
-	"os"
 	"strings"
 
 	"mvdan.cc/sh/v3/expand"
@@ -13,12 +12,13 @@ import (
 )
 
 // ExpandEnvContext expands ${VAR} and $VAR in s using EnvScope from context,
-// falling back to os.LookupEnv if no scope in context.
+// falling back to the process environment, as a workflow sees it, if no
+// scope is in context.
 // Variables not found are preserved in their original form.
 func ExpandEnvContext(ctx context.Context, s string) string {
 	scope := GetEnvScope(ctx)
 	if scope == nil {
-		return expandWithLookup(s, os.LookupEnv, true)
+		return expandWithLookup(s, lookupProcessEnv, true)
 	}
 	return scope.Expand(s)
 }

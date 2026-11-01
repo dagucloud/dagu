@@ -1575,6 +1575,9 @@ func normalizeRunDetails(raw any, addr runAddress) (map[string]any, error) {
 	if addr.subRunID == "" {
 		out["logsUri"] = runLogsURI(addr.name, addr.dagRunID)
 	}
+	if run.AttemptId != nil && *run.AttemptId != "" {
+		out["attemptId"] = *run.AttemptId
+	}
 	if isSetTimestamp(run.StartedAt) {
 		out["startedAt"] = run.StartedAt
 	}

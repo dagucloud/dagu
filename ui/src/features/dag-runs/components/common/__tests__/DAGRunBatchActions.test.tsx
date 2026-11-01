@@ -52,6 +52,40 @@ describe('DAGRunBatchActions', () => {
     } as never);
   });
 
+  it('offers bulk actions only once runs are selected', () => {
+    const onSelectAllLoaded = vi.fn();
+    const renderBar = (selectedRuns: { name: string; dagRunId: string }[]) => (
+      <AppBarContext.Provider value={appBarContextValue}>
+        <DAGRunBatchActions
+          selectedRuns={selectedRuns}
+          loadedCount={18}
+          onSelectAllLoaded={onSelectAllLoaded}
+          onClearSelection={vi.fn()}
+          onReplaceSelection={vi.fn()}
+          onActionComplete={vi.fn()}
+        />
+      </AppBarContext.Provider>
+    );
+    const { rerender } = render(renderBar([]));
+
+    expect(screen.getByText('18 runs')).toBeInTheDocument();
+    expect(
+      screen.queryByRole('button', { name: 'Delete selected' })
+    ).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'Select all loaded' }));
+    expect(onSelectAllLoaded).toHaveBeenCalled();
+
+    rerender(renderBar([{ name: 'alpha', dagRunId: 'run-1' }]));
+
+    expect(screen.getByText('1 of 18 selected')).toBeInTheDocument();
+    expect(
+      screen.getByRole('button', { name: 'Delete selected' })
+    ).toBeEnabled();
+    expect(
+      screen.queryByRole('button', { name: 'Select all loaded' })
+    ).not.toBeInTheDocument();
+  });
+
   it('submits reschedules sequentially and keeps failed items selected', async () => {
     const firstRequest = createDeferred<{
       data: {

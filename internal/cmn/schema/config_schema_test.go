@@ -140,13 +140,25 @@ func TestConfigSchemaCloudReport(t *testing.T) {
 	t.Parallel()
 
 	resolved := mustResolveConfigSchema(t)
-	for _, level := range []string{"off", "health", "runs"} {
+	for _, level := range []string{"off", "health", "runs", "errors"} {
 		require.NoError(t, resolved.Validate(mustParseYAMLDocument(t, "cloud:\n  report: "+level+"\n")), level)
 	}
 	require.Error(t, resolved.Validate(mustParseYAMLDocument(t, `
 cloud:
   report: true
 `)))
+}
+
+func TestConfigSchemaCloudRemoteAccess(t *testing.T) {
+	t.Parallel()
+
+	resolved := mustResolveConfigSchema(t)
+	for _, level := range []string{"off", "viewer", "operator", "developer"} {
+		require.NoError(t, resolved.Validate(mustParseYAMLDocument(t, "cloud:\n  remote_access: "+level+"\n  remote_approvals: true\n")), level)
+	}
+	for _, spec := range []string{"cloud:\n  remote_access: admin\n", "cloud:\n  remote_approvals: yes please\n"} {
+		require.Error(t, resolved.Validate(mustParseYAMLDocument(t, spec)), spec)
+	}
 }
 
 func TestConfigSchemaOIDCWorkspaceMappings(t *testing.T) {

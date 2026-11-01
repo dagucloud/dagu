@@ -8,10 +8,8 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"maps"
 	"net/http"
 	"slices"
-	"strconv"
 	"strings"
 	"unicode/utf8"
 
@@ -20,6 +18,7 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/auth"
 	"github.com/dagucloud/dagu/v2/internal/cmn/logger"
 	"github.com/dagucloud/dagu/v2/internal/cmn/logger/tag"
+	"github.com/dagucloud/dagu/v2/internal/intake"
 	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/persis"
 	profilepkg "github.com/dagucloud/dagu/v2/internal/profile"
@@ -162,6 +161,7 @@ func (a *API) DeleteDAGWebhook(ctx context.Context, request api.DeleteDAGWebhook
 		}
 	}
 
+	a.deletePublicWebhookLog(ctx, targetWebhook)
 	logger.Info(ctx, "Webhook deleted", tag.Name(request.FileName))
 	auditDetails := map[string]any{"dag_name": request.FileName}
 	if targetWebhook != nil {
@@ -780,7 +780,7 @@ func (a *API) TriggerWebhook(ctx context.Context, request api.TriggerWebhookRequ
 
 	// Enqueue directly from the API layer so accepted webhook payloads do not
 	// need to fit in a subprocess command line.
-	if err := a.enqueuePreparedDAGRun(ctx, dag, params, dagRunID, ir.TriggerTypeWebhook, profileName, false); err != nil {
+	if err := a.enqueuePreparedDAGRun(ctx, dag, params, dagRunID, ir.TriggerTypeWebhook, profileName, false, nil); err != nil {
 		logger.Error(ctx, "Webhook: failed to enqueue DAG run",
 			tag.DAG(dag.Name),
 			tag.Error(err),
@@ -916,7 +916,7 @@ func buildWebhookRequestRuntimeParams(
 		}
 	}
 
-	return buildWebhookRuntimeParams(payload, headers, nil), nil
+	return intake.WebhookRuntimeParams(payload, headers), nil
 }
 
 // requireWebhookManagement checks if webhook management is enabled and
@@ -966,6 +966,7 @@ func toWebhookDetails(wh *auth.Webhook) api.WebhookDetails {
 		UpdatedAt:     wh.UpdatedAt,
 		CreatedBy:     ptrOf(wh.CreatedBy),
 		LastUsedAt:    wh.LastUsedAt,
+		Public:        toWebhookPublicSettings(wh.Public),
 	}
 }
 
@@ -1055,46 +1056,6 @@ func marshalWebhookPayload(ctx context.Context, body *api.TriggerWebhookJSONRequ
 // request headers. Header names are matched case-insensitively and emitted as
 // lowercase keys with []string values. Authorization is never forwarded.
 func marshalWebhookHeaders(ctx context.Context, allowList []string) (string, error) {
-	forwarded := make(map[string][]string)
-	if len(allowList) == 0 {
-		return "{}", nil
-	}
-
 	headers := requestHeadersFromContext(ctx)
-	if len(headers) == 0 {
-		return "{}", nil
-	}
-
-	for _, raw := range allowList {
-		headerName := ir.NormalizeWebhookForwardHeader(raw)
-		if headerName == "" || ir.IsDeniedWebhookForwardHeader(headerName) {
-			continue
-		}
-		values := headers[headerName]
-		if len(values) == 0 {
-			continue
-		}
-		forwarded[headerName] = append([]string(nil), values...)
-	}
-
-	encoded, err := json.Marshal(forwarded)
-	if err != nil {
-		return "", err
-	}
-	return string(encoded), nil
-}
-
-func buildWebhookRuntimeParams(payload, headers string, extras map[string]string) string {
-	parts := []string{
-		fmt.Sprintf("WEBHOOK_PAYLOAD=%s", strconv.Quote(payload)),
-		fmt.Sprintf("WEBHOOK_HEADERS=%s", strconv.Quote(headers)),
-	}
-
-	for _, key := range slices.Sorted(maps.Keys(extras)) {
-		if value := extras[key]; value != "" {
-			parts = append(parts, fmt.Sprintf("%s=%s", key, strconv.Quote(value)))
-		}
-	}
-
-	return strings.Join(parts, " ")
+	return intake.WebhookHeaders(allowList, func(name string) []string { return headers[name] })
 }

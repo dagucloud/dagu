@@ -5,6 +5,7 @@ package persis
 
 import (
 	"context"
+	"math"
 	"os"
 	"path/filepath"
 	"testing"
@@ -40,6 +41,10 @@ func (s dagDefinitionStoreStub) Update(ctx context.Context, id string, source []
 		return nil
 	}
 	return s.update(ctx, id, source)
+}
+
+func (s dagDefinitionStoreStub) UpdateIfMatch(ctx context.Context, id, _ string, source []byte) error {
+	return s.Update(ctx, id, source)
 }
 
 func TestDAGRepositoryLoadsDefinitionWithoutSourcePath(t *testing.T) {
@@ -207,6 +212,20 @@ func TestDAGRepositoryListsPinnedFirst(t *testing.T) {
 			}
 		})
 	}
+}
+
+// A page number past the addressable range lists nothing instead of slicing
+// with an overflowed offset.
+func TestDAGRepositoryListsNothingPastAddressablePages(t *testing.T) {
+	repository := NewDAGRepository(dagDefinitionStoreStub{
+		catalog: DAGCatalog{Items: []DAGListItem{{ID: "alpha", DAG: &ir.DAG{Name: "alpha"}}}},
+	}, DAGRepositoryOptions{})
+	paginator := pagination.NewPaginator(math.MaxInt/2+2, 2)
+
+	result, _, err := repository.List(context.Background(), DAGListOptions{Paginator: &paginator})
+	require.NoError(t, err)
+	assert.Empty(t, result.Items)
+	assert.Equal(t, 1, result.TotalCount)
 }
 
 func TestDAGRepositorySearchOrdersBackendResultsByIdentity(t *testing.T) {

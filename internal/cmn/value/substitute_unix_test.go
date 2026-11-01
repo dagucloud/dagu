@@ -11,6 +11,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/dagucloud/dagu/v2/internal/cmn/cmdutil"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -50,13 +51,13 @@ func TestBuildShellCommand(t *testing.T) {
 			name:     "PowershellDetectionEvenOnUnix",
 			shell:    "/usr/local/bin/powershell",
 			cmdStr:   "echo hello",
-			wantArgs: []string{"-NoProfile", "-NonInteractive", "-Command", "echo hello"},
+			wantArgs: []string{"-NoProfile", "-NonInteractive", "-Command", cmdutil.PowerShellImportCoreModules + "; echo hello"},
 		},
 		{
 			name:     "PwshDetection",
 			shell:    "/usr/local/bin/pwsh",
 			cmdStr:   "echo hello",
-			wantArgs: []string{"-NoProfile", "-NonInteractive", "-Command", "echo hello"},
+			wantArgs: []string{"-NoProfile", "-NonInteractive", "-Command", cmdutil.PowerShellImportCoreModules + "; echo hello"},
 		},
 	}
 

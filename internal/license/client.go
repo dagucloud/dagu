@@ -99,6 +99,15 @@ type ReleaseRequest struct {
 	HeartbeatSecret string `json:"heartbeat_secret"`
 }
 
+// RenameRequest sets the name Dagu Console shows for the server.
+type RenameRequest struct {
+	LicenseID       string `json:"license_id"`
+	ServerID        string `json:"server_id"`
+	HeartbeatSecret string `json:"heartbeat_secret"`
+	// Name is the name to show; empty shows the name the server reports.
+	Name string `json:"name"`
+}
+
 // CloudError represents an error response from the Cloud API.
 type CloudError struct {
 	StatusCode int
@@ -131,6 +140,16 @@ func (c *CloudClient) Heartbeat(ctx context.Context, req HeartbeatRequest) (*Hea
 func (c *CloudClient) Connect(ctx context.Context, req ConnectRequest) (*ConnectResponse, error) {
 	var resp ConnectResponse
 	if err := c.doJSON(ctx, http.MethodPost, "/api/v1/licenses/connect", req, &resp); err != nil {
+		return nil, err
+	}
+	return &resp, nil
+}
+
+// Rename sets the name Dagu Console shows for the server and returns a token
+// that carries it.
+func (c *CloudClient) Rename(ctx context.Context, req RenameRequest) (*HeartbeatResponse, error) {
+	var resp HeartbeatResponse
+	if err := c.doJSON(ctx, http.MethodPost, "/api/v1/licenses/rename", req, &resp); err != nil {
 		return nil, err
 	}
 	return &resp, nil

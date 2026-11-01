@@ -273,7 +273,7 @@ function InteractionCard({
       {questions.map((question, questionIndex) => (
         <div key={`${interaction.id}-${questionIndex}`} className="space-y-2">
           <div>
-            <div className="text-xs font-medium uppercase text-muted-foreground">
+            <div className="text-xs font-medium text-muted-foreground">
               {question.header}
             </div>
             <div className="text-sm">{question.question}</div>

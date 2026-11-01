@@ -1,0 +1,25 @@
+working_dir: .
+env:
+  - LEDGER_URL: ${LEDGER_URL}
+  - LLM_BASE_URL: ${LLM_BASE_URL}
+llm:
+  provider: local
+  model: test-model
+  base_url: ${LLM_BASE_URL}
+steps:
+  - id: book
+    action: browser.run
+    continue_on:
+      failure: true
+    with:
+      url: ${LEDGER_URL}
+      browser:
+        write_gate: record
+      do:
+        - act: Click the Open entry button
+        - act: Click the Save entry button
+        - act: Click the Postback button
+        - screenshot: after
+  - id: report
+    depends: book
+    run: cp "$DAG_RUN_ARTIFACTS_DIR/browser/book/write-gate.json" gate.out

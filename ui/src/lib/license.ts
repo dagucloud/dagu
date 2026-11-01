@@ -1,7 +1,11 @@
 // Copyright (C) 2026 Yota Hamada
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-import { LicenseMonitoringLevel, type components } from '@/api/v1/schema';
+import {
+  LicenseMonitoringLevel,
+  LicenseRemoteAccessLevel,
+  type components,
+} from '@/api/v1/schema';
 import type { LicenseStatus } from '@/contexts/ConfigContext';
 import type { StaticTranslationValues } from '@/i18n/staticMessages';
 import { LICENSE_CONSOLE_URL } from './constants';
@@ -55,8 +59,38 @@ export const licensedFeatures = [
 
 export type LicensedFeature = (typeof licensedFeatures)[number]['id'];
 
-export function hasActiveLicense(license: LicenseStatus): boolean {
+/**
+ * Reports whether the license is on the free plan, which lets Dagu Console
+ * monitor the server and unlocks no paid features.
+ */
+export function isFreeLicense(license: LicenseStatus): boolean {
+  return !license.community && license.plan === 'free';
+}
+
+/**
+ * Reports whether an environment variable supplies the license, so the UI can
+ * neither replace nor remove it.
+ */
+export function isLicenseManagedByEnv(license: LicenseStatus): boolean {
+  return license.connectedVia
+    ? license.connectedVia === 'env'
+    : license.source === 'env';
+}
+
+/**
+ * Reports whether any license, free included, is valid or in its grace
+ * period.
+ */
+export function hasLicense(license: LicenseStatus): boolean {
   return !license.community && (license.valid || license.gracePeriod);
+}
+
+/**
+ * Reports whether a license that unlocks paid features is valid or in its
+ * grace period. The free plan unlocks none.
+ */
+export function hasActiveLicense(license: LicenseStatus): boolean {
+  return hasLicense(license) && !isFreeLicense(license);
 }
 
 export function hasLicensedFeature(
@@ -78,11 +112,21 @@ export function licensePlanName(license: LicenseStatus): string {
   return plan ? plan.charAt(0).toUpperCase() + plan.slice(1) : 'Licensed';
 }
 
+/** The highest role each remote access level gives calls from Dagu Cloud. */
+export const remoteAccessLevelLabels: Record<LicenseRemoteAccessLevel, string> =
+  {
+    [LicenseRemoteAccessLevel.off]: 'Off',
+    [LicenseRemoteAccessLevel.viewer]: 'Viewer',
+    [LicenseRemoteAccessLevel.operator]: 'Operator',
+    [LicenseRemoteAccessLevel.developer]: 'Developer',
+  };
+
 /** What each monitoring level reports, as a short label. */
 export const monitoringLevelLabels: Record<LicenseMonitoringLevel, string> = {
   [LicenseMonitoringLevel.off]: 'Off',
   [LicenseMonitoringLevel.health]: 'Health only',
   [LicenseMonitoringLevel.runs]: 'Health and run status',
+  [LicenseMonitoringLevel.errors]: 'Health, run status, and error messages',
 };
 
 /** Names the plan as a plan ("Team plan"), or "Community" without one. */
@@ -108,7 +152,8 @@ export type LicenseStatusText = {
  * Describes where a license stands, most urgent condition first. A trial
  * always shows when it expires; a paid license only within
  * LICENSE_WARNING_DAYS. Expiry is a warning within TRIAL_WARNING_DAYS for a
- * trial and LICENSE_WARNING_DAYS for a paid license, as in LicenseBanner.
+ * trial and LICENSE_WARNING_DAYS for a paid license, as in LicenseBanner. A
+ * free license, which unlocks nothing that could lapse, never shows expiry.
  */
 export function licenseStatus(
   license: LicenseStatus,
@@ -116,6 +161,8 @@ export function licenseStatus(
 ): LicenseStatusText {
   if (license.error) return { text: 'License error', tone: 'error' };
   if (license.warningCode) return { text: 'Needs attention', tone: 'warning' };
+  if (isFreeLicense(license))
+    return { text: 'Monitoring only', tone: 'neutral' };
   if (license.gracePeriod) return { text: 'Grace period', tone: 'warning' };
   if (license.community) return { text: 'Community', tone: 'neutral' };
   if (!license.valid) return { text: 'Expired', tone: 'error' };
@@ -163,7 +210,7 @@ export function licenseDaysLeft(
 }
 
 export function licenseLink(
-  action: 'trial' | 'plans' | 'manage',
+  action: 'plans' | 'manage',
   content: string
 ): string {
   const url = new URL(
@@ -173,10 +220,5 @@ export function licenseLink(
   url.searchParams.set('medium', 'product');
   url.searchParams.set('content', content);
   url.searchParams.set('deployment', 'self-hosted');
-  if (action === 'trial') {
-    url.pathname = '/signup';
-    url.searchParams.set('intent', 'license-trial');
-    url.searchParams.set('plan', 'trial');
-  }
   return url.toString();
 }

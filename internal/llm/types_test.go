@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func TestParseRole(t *testing.T) {
@@ -34,4 +35,23 @@ func TestParseRole(t *testing.T) {
 			assert.Equal(t, tc.expected, ParseRole(tc.input))
 		})
 	}
+}
+
+func TestParseThinkingEffort(t *testing.T) {
+	t.Parallel()
+
+	for _, input := range []string{"", "none", "minimal", "low", "medium", "high", "xhigh", "max"} {
+		t.Run(input, func(t *testing.T) {
+			t.Parallel()
+			effort, err := ParseThinkingEffort(input)
+			require.NoError(t, err)
+			assert.Equal(t, ThinkingEffort(input), effort)
+		})
+	}
+
+	t.Run("invalid", func(t *testing.T) {
+		t.Parallel()
+		_, err := ParseThinkingEffort("extreme")
+		require.ErrorContains(t, err, "invalid thinking effort")
+	})
 }

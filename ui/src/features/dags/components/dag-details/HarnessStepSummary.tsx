@@ -37,7 +37,7 @@ function HarnessStepSummary({ step, className, compact = false }: Props) {
 
   const promptContent = summary.prompt ? (
     <div className="rounded-md border border-border/70 bg-background/70 px-2 py-1.5">
-      <div className="mb-1 text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
+      <div className="mb-1 text-[11px] font-medium text-muted-foreground">
         <I18nText text={'Prompt'} />
       </div>
       <div className="line-clamp-3 whitespace-pre-wrap break-words text-xs leading-relaxed text-foreground/90">

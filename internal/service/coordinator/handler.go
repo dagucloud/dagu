@@ -192,6 +192,9 @@ type Handler struct {
 	// Stale lease threshold - configurable
 	staleLeaseThreshold time.Duration
 
+	// How long a dispatch waits for a matching worker; 0 refuses at once.
+	workerWaitTimeout time.Duration
+
 	// Zombie detector shutdown synchronization
 	zombieDetectorMu      sync.Mutex
 	zombieDetectorStarted bool
@@ -263,6 +266,11 @@ type HandlerConfig struct {
 	// lease is considered stale (worker stopped pushing status). Defaults to 90 seconds.
 	StaleLeaseThreshold time.Duration
 
+	// WorkerWaitTimeout is how long a dispatch with no healthy matching worker
+	// is held, as a queued run, for such a worker to register. 0 refuses the
+	// dispatch at once, which is also the default.
+	WorkerWaitTimeout time.Duration
+
 	// EventService persists coordinator-originated event envelopes.
 	EventService *eventstore.Service
 
@@ -318,6 +326,7 @@ func NewHandler(cfg HandlerConfig) *Handler {
 		agentSessionCleanupQueue:  cfg.AgentSessionCleanupQueue,
 		staleHeartbeatThreshold:   cfg.StaleHeartbeatThreshold,
 		staleLeaseThreshold:       cfg.StaleLeaseThreshold,
+		workerWaitTimeout:         cfg.WorkerWaitTimeout,
 		eventService:              cfg.EventService,
 		eventSourceInstance:       cfg.EventSourceInstance,
 	}
@@ -552,11 +561,9 @@ func (h *Handler) Dispatch(ctx context.Context, req *coordinatorv1.DispatchReque
 	if err != nil {
 		return nil, status.Error(codes.Internal, "failed to list workers: "+err.Error())
 	}
-	if len(healthyWorkers) == 0 {
-		return nil, status.Error(codes.Unavailable, errNoAvailableWorkers.Error())
-	}
-	if !anyWorkerMatches(healthyWorkers, req.Task.WorkerSelector, req.Task.TargetWorkerId) {
-		return nil, status.Error(codes.FailedPrecondition, errNoMatchingWorkers.Error())
+	shortfall := workerShortfall(healthyWorkers, req.Task)
+	if shortfall != nil && !h.holdsDispatch(req.Task) {
+		return nil, status.Error(dispatchErrorCode(shortfall), shortfall.Error())
 	}
 	if err := h.prepareDispatchTaskWorkspace(ctx, req.Task); err != nil {
 		h.releaseAdmissionToken(ctx, admissionToken)
@@ -573,6 +580,16 @@ func (h *Handler) Dispatch(ctx context.Context, req *coordinatorv1.DispatchReque
 		h.markPreparedAttemptDispatchFailed(ctx, req.Task, prepared, err)
 		h.releaseAdmissionToken(ctx, admissionToken)
 		return nil, status.Error(codes.Internal, "failed to encode task: "+err.Error())
+	}
+	if shortfall != nil {
+		// The run is queued before the task is stored, so a worker that
+		// registers in between cannot have its first status overwritten.
+		dispatchTask.HoldUntil = time.Now().Add(h.workerWaitTimeout).UTC()
+		if err := h.markPreparedAttemptHeld(ctx, req.Task, prepared, shortfall); err != nil {
+			h.markPreparedAttemptDispatchFailed(ctx, req.Task, prepared, err)
+			h.releaseAdmissionToken(ctx, admissionToken)
+			return nil, status.Error(codes.Internal, "failed to queue task for a worker: "+err.Error())
+		}
 	}
 	if err := h.enqueueOrBindDispatchTask(ctx, admissionToken, dispatchTask); err != nil {
 		h.markPreparedAttemptDispatchFailed(ctx, req.Task, prepared, err)
@@ -810,6 +827,7 @@ func (h *Handler) createAttemptForTask(ctx context.Context, task *coordinatorv1.
 		return nil, fmt.Errorf("failed to parse DAG definition: %w", err)
 	}
 	dag.SourceFile = task.SourceFile
+	applyTaskWorkerSelector(dag, task)
 	// An unlabeled legacy child still needs its parent's provenance; named workspaces are already known.
 	if task.BaseConfigWorkspace != nil || (dag.BaseConfigWorkspace != nil && *dag.BaseConfigWorkspace == "") {
 		dag.BaseConfigWorkspace = task.BaseConfigWorkspace
@@ -981,6 +999,7 @@ func (h *Handler) createSubAttemptForTask(ctx context.Context, task *coordinator
 		return nil, fmt.Errorf("failed to parse DAG definition: %w", err)
 	}
 	dag.SourceFile = task.SourceFile
+	applyTaskWorkerSelector(dag, task)
 	if task.BaseConfigWorkspace != nil || (dag.BaseConfigWorkspace != nil && *dag.BaseConfigWorkspace == "") {
 		dag.BaseConfigWorkspace = task.BaseConfigWorkspace
 	}
@@ -1032,15 +1051,28 @@ func (h *Handler) writeInitialStatus(ctx context.Context, attempt dagrun.Attempt
 		AttemptID:    attempt.ID(),
 		AttemptKey:   task.AttemptKey,
 		Status:       ir.NotStarted,
-		StartedAt:    time.Now().UTC().Format(time.RFC3339),
+		StartedAt:    stringutil.FormatTime(time.Now().UTC()),
 		Root:         root,
 		Labels:       labels,
 		TriggerActor: task.TriggerActor,
 		ScheduleTime: task.ScheduleTime,
 		DefinitionID: task.DefinitionId,
 		ProfileName:  task.ProfileName,
+		// Every step's model usage is recorded from the start.
+		ModelUsageRecorded: true,
 	}
 	return attempt.Write(ctx, initialStatus)
+}
+
+// applyTaskWorkerSelector records the selector the task was dispatched with in
+// the attempt's DAG snapshot, so a retry, a reschedule, or a queued re-dispatch
+// routes the way the run was routed, not the way its YAML would.
+func applyTaskWorkerSelector(dag *ir.DAG, task *coordinatorv1.Task) {
+	if len(task.WorkerSelector) == 0 {
+		return
+	}
+	dag.WorkerSelector = maps.Clone(task.WorkerSelector)
+	dag.ForceLocal = false
 }
 
 func labelsForInitialStatus(task *coordinatorv1.Task, dag *ir.DAG) []string {
@@ -1218,6 +1250,220 @@ func (h *Handler) markPreparedAttemptDispatchFailed(ctx context.Context, task *c
 		tag.AttemptKey(task.AttemptKey),
 		tag.Error(dispatchErr),
 	)
+}
+
+// workerShortfall reports why no healthy worker can take the task now:
+// errNoAvailableWorkers when there is none at all, errNoMatchingWorkers when
+// none carries the task's selector or target, nil when one does.
+func workerShortfall(healthyWorkers []dispatch.WorkerHeartbeatRecord, task *coordinatorv1.Task) error {
+	if len(healthyWorkers) == 0 {
+		return errNoAvailableWorkers
+	}
+	if !anyWorkerMatches(healthyWorkers, task.WorkerSelector, task.TargetWorkerId) {
+		return errNoMatchingWorkers
+	}
+	return nil
+}
+
+// holdsDispatch reports whether a task with no healthy matching worker is
+// kept for one to register rather than refused. The scheduler's re-dispatch
+// of a queued run is always refused: the queue already holds that run and
+// reads the refusal to keep it queued.
+func (h *Handler) holdsDispatch(task *coordinatorv1.Task) bool {
+	if h.workerWaitTimeout <= 0 {
+		return false
+	}
+	queued, err := queueDispatchStatusForTask(task)
+	return err == nil && queued == nil
+}
+
+// markPreparedAttemptHeld records that the run is waiting for a worker: the
+// attempt becomes Queued with the conditions the scheduler's queue writes for
+// the same situation, so the run reads the same however it was dispatched.
+func (h *Handler) markPreparedAttemptHeld(ctx context.Context, task *coordinatorv1.Task, prepared *preparedDispatchAttempt, shortfall error) error {
+	if prepared == nil || prepared.attempt == nil {
+		return nil
+	}
+	dagRunID := task.GetDagRunId()
+	held := h.runLocks.lock(dagRunID)
+	defer h.runLocks.unlock(dagRunID, held)
+
+	runStatus, err := prepared.attempt.ReadStatus(ctx)
+	if err != nil {
+		return fmt.Errorf("read prepared attempt: %w", err)
+	}
+	if runStatus == nil {
+		return nil
+	}
+	now := time.Now()
+	switch runStatus.Status { //nolint:exhaustive // only a run that has not started can wait for a worker
+	case ir.NotStarted:
+		runStatus.Status = ir.Queued
+		runStatus.QueuedAt = stringutil.FormatTime(now)
+	case ir.Queued:
+	default:
+		return nil
+	}
+	conditions := ir.NoMatchingWorkerConditions(now)
+	if errors.Is(shortfall, errNoAvailableWorkers) {
+		conditions = ir.NoAvailableWorkerConditions(now)
+	}
+	runStatus.Conditions = ir.MergeDAGRunConditions(runStatus.Conditions, conditions...)
+	if err := prepared.attempt.Write(ctx, *runStatus); err != nil {
+		return fmt.Errorf("write queued status: %w", err)
+	}
+	logger.Info(ctx, "Holding dispatched task until a matching worker registers",
+		tag.RunID(dagRunID),
+		tag.AttemptKey(task.AttemptKey),
+		slog.Any("worker-selector", task.WorkerSelector),
+		slog.Duration("wait", h.workerWaitTimeout),
+	)
+	return nil
+}
+
+// expireHeldDispatches fails the runs of held tasks whose wait has passed.
+// It runs with the zombie detector, so the failure follows the deadline by
+// at most one detection interval.
+func (h *Handler) expireHeldDispatches(ctx context.Context, now time.Time) {
+	if h.dispatchTaskStore == nil || h.dagRunRepository == nil {
+		return
+	}
+	expired, err := h.dispatchTaskStore.ListExpiredHeld(ctx, now)
+	if err != nil {
+		logger.Warn(ctx, "Failed to list held dispatches past their wait", tag.Error(err))
+		return
+	}
+	for _, task := range expired {
+		h.failHeldDispatch(ctx, task, now)
+	}
+}
+
+// failHeldDispatch fails the run of one held task that no worker claimed in
+// time, then drops the task. A run that is no longer queued, was claimed after
+// all, or no longer exists only loses the stale task. A run that cannot be read
+// keeps its task, so the next pass tries again instead of leaving the run
+// queued with nothing behind it.
+func (h *Handler) failHeldDispatch(ctx context.Context, task *dispatch.DispatchTask, now time.Time) {
+	if task == nil {
+		return
+	}
+	held := h.runLocks.lock(task.DAGRunID)
+	defer h.runLocks.unlock(task.DAGRunID, held)
+
+	storeCtx := context.WithoutCancel(ctx)
+	rootRef := ir.DAGRunRef{Name: task.RootDAGRunName, ID: task.RootDAGRunID}
+	attempt, runStatus, err := h.resolveLatestAttempt(storeCtx, task.Target, task.DAGRunID, rootRef)
+	switch {
+	case errors.Is(err, dagrun.ErrDAGRunIDNotFound), errors.Is(err, dagrun.ErrNoStatusData):
+		// Nothing is left to fail; only the task remains.
+	case err != nil:
+		logger.Warn(ctx, "Failed to read the run of a held dispatch past its wait",
+			tag.RunID(task.DAGRunID), tag.Error(err))
+		return
+	case runStatus != nil && runStatus.Status == ir.Queued && runStatus.WorkerID == "" &&
+		(task.AttemptID == "" || runStatus.AttemptID == task.AttemptID):
+		runStatus.Status = ir.Failed
+		runStatus.FinishedAt = stringutil.FormatTime(now)
+		runStatus.Error = heldDispatchFailure(task, h.workerWaitTimeout)
+		if writeErr := h.writeHeldAttemptStatus(storeCtx, task.DAGRunID, attempt, *runStatus); writeErr != nil {
+			logger.Warn(ctx, "Failed to fail the run of a held dispatch past its wait",
+				tag.RunID(task.DAGRunID), tag.Error(writeErr))
+			return
+		}
+		h.finalizeAdmissionForStatus(storeCtx, runStatus, attempt.ID())
+		logger.Warn(ctx, "No worker took a held dispatch within its wait; the run failed",
+			tag.RunID(task.DAGRunID),
+			tag.AttemptKey(task.AttemptKey),
+			slog.Any("worker-selector", task.WorkerSelector),
+			slog.Duration("wait", h.workerWaitTimeout),
+		)
+	}
+	if err := h.dispatchTaskStore.DeletePending(storeCtx, task.AttemptKey); err != nil {
+		logger.Warn(ctx, "Failed to drop a held dispatch past its wait",
+			tag.RunID(task.DAGRunID), tag.AttemptKey(task.AttemptKey), tag.Error(err))
+	}
+}
+
+// dropOrphanedDispatches removes the pending tasks that have waited a lease
+// period for runs that no longer await them, such as a run dequeued before any
+// worker claimed it. A task whose run still waits keeps its place however long
+// the matching workers stay busy.
+func (h *Handler) dropOrphanedDispatches(ctx context.Context, now time.Time) {
+	if h.dispatchTaskStore == nil || h.dagRunRepository == nil {
+		return
+	}
+	tasks, err := h.dispatchTaskStore.ListStalePending(ctx, now.Add(-h.staleLeaseThreshold))
+	if err != nil {
+		logger.Warn(ctx, "Failed to list long-pending dispatches", tag.Error(err))
+		return
+	}
+	storeCtx := context.WithoutCancel(ctx)
+	for _, task := range tasks {
+		if !h.dispatchOrphaned(storeCtx, task) {
+			continue
+		}
+		if err := h.dispatchTaskStore.DeletePending(storeCtx, task.AttemptKey); err != nil {
+			logger.Warn(ctx, "Failed to drop a pending dispatch whose run moved on",
+				tag.RunID(task.DAGRunID), tag.AttemptKey(task.AttemptKey), tag.Error(err))
+			continue
+		}
+		logger.Info(ctx, "Dropped a pending dispatch whose run moved on",
+			tag.RunID(task.DAGRunID), tag.AttemptKey(task.AttemptKey))
+	}
+}
+
+// dispatchOrphaned reports whether the run of a pending task is gone or no
+// longer waits for the attempt the task starts. A run that cannot be read
+// keeps its task, so the next pass checks it again.
+func (h *Handler) dispatchOrphaned(ctx context.Context, task *dispatch.DispatchTask) bool {
+	rootRef := ir.DAGRunRef{Name: task.RootDAGRunName, ID: task.RootDAGRunID}
+	_, runStatus, err := h.resolveLatestAttempt(ctx, task.Target, task.DAGRunID, rootRef)
+	switch {
+	case errors.Is(err, dagrun.ErrDAGRunIDNotFound), errors.Is(err, dagrun.ErrNoStatusData):
+		return true
+	case err != nil:
+		logger.Warn(ctx, "Failed to read the run of a long-pending dispatch",
+			tag.RunID(task.DAGRunID), tag.Error(err))
+		return false
+	}
+	if task.AttemptID != "" && runStatus.AttemptID != task.AttemptID {
+		return true
+	}
+	return runStatus.Status != ir.Queued && runStatus.Status != ir.NotStarted
+}
+
+// writeHeldAttemptStatus writes through the attempt handle kept open since the
+// dispatch when there is one, so no two handles write the same run; otherwise
+// it opens the attempt for the one write.
+func (h *Handler) writeHeldAttemptStatus(ctx context.Context, dagRunID string, attempt dagrun.Attempt, runStatus ir.DAGRunStatus) error {
+	h.attemptsMu.Lock()
+	cached, ok := h.openAttempts[dagRunID]
+	if ok && cached.ID() == attempt.ID() {
+		delete(h.openAttempts, dagRunID)
+	} else {
+		cached = nil
+	}
+	h.attemptsMu.Unlock()
+	if cached != nil {
+		defer func() { _ = cached.Close(ctx) }()
+		return cached.Write(ctx, runStatus)
+	}
+	if err := attempt.Open(ctx); err != nil {
+		return fmt.Errorf("open attempt: %w", err)
+	}
+	defer func() { _ = attempt.Close(ctx) }()
+	return attempt.Write(ctx, runStatus)
+}
+
+// heldDispatchFailure is the run error for a held dispatch no worker took.
+func heldDispatchFailure(task *dispatch.DispatchTask, wait time.Duration) string {
+	if len(task.WorkerSelector) > 0 {
+		return fmt.Sprintf("no worker matched the selector %s within %s", ir.FormatWorkerSelector(task.WorkerSelector), wait)
+	}
+	if task.TargetWorkerID != "" {
+		return fmt.Sprintf("worker %s did not register within %s", task.TargetWorkerID, wait)
+	}
+	return fmt.Sprintf("no worker became available within %s", wait)
 }
 
 func (h *Handler) releasePreparedDispatchAttempt(ctx context.Context, dagRunID string, attempt dagrun.Attempt) {
@@ -2090,6 +2336,24 @@ func (h *Handler) ReportStatus(ctx context.Context, req *coordinatorv1.ReportSta
 	return &coordinatorv1.ReportStatusResponse{Accepted: true}, nil
 }
 
+// sameTimestamp reports whether two recorded times are the same instant. A
+// writer from before timestamps carried milliseconds drops the fraction, so a
+// value without one matches any time in the same second.
+func sameTimestamp(a, b string) bool {
+	if a == b {
+		return true
+	}
+	ta, errA := stringutil.ParseTime(a)
+	tb, errB := stringutil.ParseTime(b)
+	if errA != nil || errB != nil || ta.IsZero() || tb.IsZero() {
+		return false
+	}
+	if !strings.Contains(a, ".") || !strings.Contains(b, ".") {
+		return ta.Truncate(time.Second).Equal(tb.Truncate(time.Second))
+	}
+	return ta.Equal(tb)
+}
+
 func preservesCompletedManualActions(current, incoming *ir.DAGRunStatus) bool {
 	if current == nil || incoming == nil {
 		return false
@@ -2115,7 +2379,7 @@ func preservesCompletedManualActions(current, incoming *ir.DAGRunStatus) bool {
 			return false
 		}
 		if (completedHumanTask || completedApproval) &&
-			(next.Status != node.Status || next.FinishedAt != node.FinishedAt) {
+			(next.Status != node.Status || !sameTimestamp(next.FinishedAt, node.FinishedAt)) {
 			return false
 		}
 		if completedHumanTask &&
@@ -2690,14 +2954,8 @@ func (h *Handler) StartZombieDetector(ctx context.Context, interval time.Duratio
 
 	go func() {
 		defer close(h.zombieDetectorDone)
-		if h.dagRunLeaseStore != nil {
-			timer := time.NewTimer(h.staleLeaseThreshold)
-			select {
-			case <-ctx.Done():
-				timer.Stop()
-				return
-			case <-timer.C:
-			}
+		if h.dagRunLeaseStore != nil && !h.awaitLeaseGrace(ctx, interval) {
+			return
 		}
 		h.detectAndCleanupZombies(ctx)
 		h.cleanupWorkspaceBundles(ctx, time.Now().UTC())
@@ -2718,6 +2976,28 @@ func (h *Handler) StartZombieDetector(ctx context.Context, interval time.Duratio
 			}
 		}
 	}()
+}
+
+// awaitLeaseGrace waits one lease period before the first stale-run pass, so
+// a replacement coordinator does not fail runs whose workers have not yet
+// reported to it. Held dispatches carry their own deadline and keep expiring
+// meanwhile. It reports false when ctx ends first.
+func (h *Handler) awaitLeaseGrace(ctx context.Context, interval time.Duration) bool {
+	grace := time.NewTimer(h.staleLeaseThreshold)
+	defer grace.Stop()
+	ticker := time.NewTicker(interval)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-ctx.Done():
+			return false
+		case <-grace.C:
+			return true
+		case now := <-ticker.C:
+			h.expireHeldDispatches(ctx, now.UTC())
+		}
+	}
 }
 
 // WaitZombieDetector waits for the zombie detector goroutine to finish.
@@ -2747,6 +3027,12 @@ func (h *Handler) detectAndCleanupZombies(ctx context.Context) {
 	// stopped reporting owner-bound run heartbeats, including after coordinator
 	// restarts or owner coordinator loss.
 	h.detectStaleLeases(ctx)
+
+	// Pass 3: held dispatches whose wait for a matching worker has passed.
+	h.expireHeldDispatches(ctx, time.Now().UTC())
+
+	// Pass 4: pending dispatches left behind by runs that moved on.
+	h.dropOrphanedDispatches(ctx, time.Now().UTC())
 }
 
 func (h *Handler) cleanupWorkspaceBundles(ctx context.Context, now time.Time) {
@@ -3546,9 +3832,30 @@ func (h *Handler) RequestCancel(ctx context.Context, req *coordinatorv1.RequestC
 		}, nil
 	}
 	h.finalizeAdmissionForAttempt(ctx, attempt)
+	h.dropHeldDispatch(ctx, attempt)
 
 	logger.Info(ctx, "DAG run cancellation requested successfully")
 	return &coordinatorv1.RequestCancelResponse{Accepted: true}, nil
+}
+
+// dropHeldDispatch removes the pending task of a cancelled run that was
+// waiting for a worker, so a worker registering later does not run it.
+func (h *Handler) dropHeldDispatch(ctx context.Context, attempt dagrun.Attempt) {
+	if h.dispatchTaskStore == nil || attempt == nil {
+		return
+	}
+	runStatus, err := attempt.ReadStatus(ctx)
+	if err != nil || runStatus == nil || runStatus.Status != ir.Aborted {
+		return
+	}
+	attemptKey := dispatch.AttemptKeyForStatus(runStatus, attempt.ID())
+	if attemptKey == "" {
+		return
+	}
+	if err := h.dispatchTaskStore.DeletePending(context.WithoutCancel(ctx), attemptKey); err != nil {
+		logger.Warn(ctx, "Failed to drop the pending task of a cancelled run",
+			tag.AttemptKey(attemptKey), tag.Error(err))
+	}
 }
 
 // notStartedCancellationReason is the run error shown to users for a run
@@ -3564,7 +3871,12 @@ func finalizeNotStartedCancellation(ctx context.Context, attempt dagrun.Attempt)
 	if err != nil {
 		return fmt.Errorf("read attempt status: %w", err)
 	}
-	if status == nil || status.Status != ir.NotStarted {
+	if status == nil {
+		return nil
+	}
+	// A queued run that no worker has claimed is also one that never started;
+	// a held dispatch waits in that state.
+	if status.Status != ir.NotStarted && (status.Status != ir.Queued || status.WorkerID != "") {
 		return nil
 	}
 

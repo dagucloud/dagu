@@ -89,6 +89,15 @@ func (c *Store) Clear(dagName, stepKey string) ([]string, error) {
 	return steps, nil
 }
 
+// Entries returns the records of one step as stored, by key. A step without
+// records, or whose file cannot be decoded, has none.
+func (c *Store) Entries(dagName, stepKey string) (map[string]json.RawMessage, error) {
+	if dagName == "" || stepKey == "" {
+		return nil, errors.New("dag name and step are required")
+	}
+	return read[json.RawMessage](c.Path(dagName, stepKey))
+}
+
 // Drop removes the records of one step that drop accepts, under the lock a
 // run takes to change the file, and returns how many it removed. A step
 // without records has nothing to drop.

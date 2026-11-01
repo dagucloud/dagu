@@ -1,0 +1,33 @@
+# Shows the reuse of earlier outputs: run it once, edit "middle", then run the last step.
+description: A slow first step, a middle step and a last step that reads both.
+type: graph
+steps:
+  - id: slow
+    name: slow
+    run: |
+      sleep 20
+      echo '{"n": 1}'
+    output:
+      data:
+        from: stdout
+        decode: json
+
+  - id: middle
+    name: middle
+    depends: [slow]
+    run: |
+      cat <<'EOF'
+      middle ${steps.slow.outputs.data}
+      EOF
+    output:
+      text:
+        from: stdout
+        decode: text
+
+  - id: use
+    name: use
+    depends: [middle]
+    run: |
+      cat <<'EOF'
+      use ${steps.middle.outputs.text}
+      EOF

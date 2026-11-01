@@ -213,10 +213,20 @@ type observedPauseStore struct {
 }
 
 func (s *observedPauseStore) IsPaused(ctx context.Context) (bool, error) {
+	s.observe()
+	return s.PauseStore.IsPaused(ctx)
+}
+
+// Get is how the planner's guards read the pause, to tell a wake hold apart.
+func (s *observedPauseStore) Get(ctx context.Context) (schedulerstate.Pause, error) {
+	s.observe()
+	return s.PauseStore.Get(ctx)
+}
+
+func (s *observedPauseStore) observe() {
 	s.mu.Lock()
 	s.lastCheck = s.now()
 	s.mu.Unlock()
-	return s.PauseStore.IsPaused(ctx)
 }
 
 func (s *observedPauseStore) checkedAtOrAfter(t time.Time) bool {

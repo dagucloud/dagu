@@ -159,7 +159,9 @@ Each row carries `_row`, its 1-based sheet row number. `types` pins columns
 to `string`, `number`, `integer`, `boolean`, `date`, or `datetime`; a cell
 that cannot convert fails the step naming the cell, or with
 `on_type_error: warn` (also spelled `"null"`, quoted so YAML keeps the
-word) becomes null with a warning.
+word) becomes null with a warning. With `on_type_error: keep` it keeps the
+value it was read as, with the same warning, for a reader that shows a
+person what to fix.
 
 #### Japanese text under a pinned type
 
@@ -353,7 +355,14 @@ header so the first run creates a table. A cell to append that lies in a
 merged cell, such as an empty notes box below the rows, fails the step with
 `Sheet1!A3: cannot append into merged cell A3:B4; unmerge it to write this
 cell`, since every value written inside it would land in its top-left
-cell.
+cell. With `output`, `xlsx.append` writes the result there and leaves the
+workbook at `path` as it was, by the rules `xlsx.write_cells` follows (see
+Writing cells), with `leave output out to append to the workbook in place`
+ending the message for an output that is the workbook itself; a `path`
+that does not exist starts a new workbook at `output`. An existing `output`
+is replaced, not appended to: `path` is read, the rows are appended in
+memory, and the result overwrites `output`, so an `xlsx.append` with a fixed
+`output` inside a `foreach` keeps only the last iteration's rows.
 
 Fields are placed by name. Object rows, rows from a CSV header, and rows
 given `columns` are matched to the sheet's header row, its first row, by
@@ -423,6 +432,17 @@ write it the same value, which is written once and counted once in
 write different values to merged cell Sheet1!C2:C3`, a row that leaves the
 cell as it already is included.
 
+With `output`, the updated workbook is written there and the workbook at
+`path` is left as it was, so one workbook serves many updates; on Windows a
+workbook another program holds still fails the step, as for
+`xlsx.write_cells`. A missing parent folder of `output` is created as for
+`xlsx.write`.
+`output` must be a workbook and a different file from `path`, a hard link
+included, else `orders.xlsx: output must be a different file from path;
+leave output out to update the workbook in place`; the output path takes
+the saved file's place in `path` and `artifact`. An existing output is
+replaced.
+
 ### Shape checks
 
 Three checks run before anything is saved, and any failure aborts the step
@@ -483,9 +503,10 @@ and starts when that write ends; the wait is not limited by
 `wait_for_unlock`, and a step stopped while it waits leaves the workbook
 untouched. Paths that reach one file through a symbolic link, or that
 differ only in case on a filesystem that ignores case, are one workbook,
-and `xlsx.write_cells` with `output` holds both the template and the
-output. Writes from another process, such as another `dagu start` or a
-distributed worker, are not coordinated: the last save wins.
+and a writer with `output` (`xlsx.write_cells`, `xlsx.update_rows`, or
+`xlsx.append`) holds both the workbook at `path` and the output. Writes
+from another process, such as another `dagu start` or a distributed
+worker, are not coordinated: the last save wins.
 
 ### Artifacts
 
@@ -506,9 +527,15 @@ prints what `xlsx.info` publishes plus up to N typed sample rows per sheet;
 `--sheet` describes one sheet, matched as `sheet` matches, and a name that
 is not in the workbook fails with `sheet "Nope" not found; sheets present:
 ...`. `dagu xlsx read <path>
-[--sheet] [--range] [--header] [--columns] [--max-rows] [--skip-hidden]
-[--password P] [--format]` prints what `xlsx.read` publishes, the flags
-taking the values the fields take.
+[--sheet] [--range] [--header] [--columns] [--types] [--on-type-error]
+[--max-rows] [--skip-hidden] [--password P] [--format]` prints what
+`xlsx.read` publishes, the flags taking the values the fields take.
+`--types` is comma-separated `name:type` pairs, split at each pair's last
+colon, or a JSON object when a name holds a comma; `--on-type-error` is
+`fail` (default), `warn`, or `keep`.
+For both commands, a path of `-` reads the workbook from standard input. The
+input is limited to 64 MiB; larger input fails before workbook parsing. The
+JSON inspect result uses `-` as its `path`.
 `--password` is the password of a protected workbook. When the flag is
 omitted, `DAGU_XLSX_PASSWORD` supplies it; when both are set, the flag
 wins, including when the flag is empty. The variable is the recommended
@@ -516,8 +543,9 @@ form, since a flag value is visible in the process list and kept in
 shell history. A protected workbook opened
 without the right password fails with `<name>: workbook password is
 missing or incorrect`.
-Both read the file directly, create no run, and exit non-zero with the
-error on stderr. The `text` format of `inspect` prints a heading,
+Both read the supplied path or standard input directly, create no run, and
+exit non-zero with the error on stderr. The `text` format of `inspect` prints a
+heading,
 `orders.xlsx: 2 sheets, 1900 date system`, then one line per sheet,
 `Sheet "Orders": used A1:C3, table Orders!A1:C3, header row 1, 2 rows`,
 with `(hidden)` after the name of a hidden sheet, `, 3 hidden` after the
@@ -648,9 +676,15 @@ The model answers through one `respond` tool whose parameters list each
 property as an A1 address, with or without a sheet, or `null` for a field
 the sheet lacks, and `labels`, the addresses of the cells that are labels
 or headings rather than values, which the cache watches; a property named
-`labels` is refused at validation. An answer that is not an object, that
-names something other than one cell within the listed sheet and range, or
-whose `labels` is not a list of addresses, is unusable: the
+`labels` is refused at validation. A reply without a `respond` call is
+accepted when its text is valid JSON. Any other reply without usable
+`respond` arguments gets one correction: the next request to the same model
+carries the rejected reply as an assistant message, followed by a user
+message stating why it was rejected, and the step log shows the rejected
+reply after `warning: <provider>/<model> answer rejected: <reason>`. An
+answer that is not an object, that names something other than one cell
+within the listed sheet and range, or whose `labels` is not a list of
+addresses, is unusable, as is a corrected reply that is still unusable: the
 next configured model is asked, and when every model's answer is unusable
 the step fails with `model request failed: <provider>/<model>: ...` naming
 each answer's fault. An empty cell within the range is a null value, since
@@ -664,12 +698,14 @@ found "n/a"`; Japanese text such as `￥123,000`, `12万3,500円`, `令和8年10
 
 The step takes the DAG-level `llm` block, or `with.llm`, which replaces it,
 as browser steps do. Several models are tried in order, each set up when
-its turn comes, and an unusable answer or a model that cannot be set up
-counts as a failed request. The outputs are
-each property, `cells` (property to the `Sheet1!B7` it was read from,
-empty when absent), `sheet`, `warnings`, and `source`, `model` or `cache`.
+its turn comes, and an unusable answer, after its correction when it gets
+one, or a model that cannot be set up counts as a failed request. The
+outputs are each property, `cells` (property to the `Sheet1!B7` it was
+read from, empty when absent), `sheet`, `warnings`, and `source`, `model`
+or `cache`.
 The stdout line is `Extracted 4 fields from quote.xlsx Sheet1 (model, 1234
-tokens)` or `Extracted 4 fields from quote.xlsx Sheet1 (cache)`.
+tokens)` or `Extracted 4 fields from quote.xlsx Sheet1 (cache)`; the token
+count covers every model call, a rejected reply's included.
 
 With `cache: true`, the default, the answered addresses are kept by sheet
 layout under `<data dir>/xlsx/cache/<dag>/<step>.json`. The layout is the
@@ -742,6 +778,7 @@ the cell stores, so a date written over text is a change.
 The workbook must exist: a template fill needs a template, and `xlsx.write`
 creates workbooks. With `output`, the result is written there and the
 workbook at `path` is left as it was, so one template serves many fills;
+a missing parent folder of `output` is created as for `xlsx.write`;
 `output` must be a different file from `path`, a hard link included, else
 `output must be a different file from path; leave output out to fill the
 workbook in place`; the output path takes the saved file's place in `path`
@@ -844,6 +881,11 @@ Every one of these is rejected by `dagu validate`:
 - `xlsx.update_rows` without `key`: `key is required for update_rows`;
   without `rows`: `update_rows requires with.rows`; with `header: false`:
   `update_rows needs a header row; header: false is not supported`.
+- An `output` of `xlsx.update_rows` or `xlsx.append` that is not a
+  workbook: `output: out.csv: only .xlsx and .xlsm workbooks are
+  supported; save as .xlsx`. `xlsx.write` takes no `output`, also with
+  `mode: append`: `with.output is not valid for xlsx.write`; use
+  `xlsx.append` to append to a copy.
 - A field of another operation, such as `range` on `xlsx.info`:
   `with.range is not valid for xlsx.info`.
 - An unknown field: `unexpected additional properties ["strip"]`. A value
@@ -851,7 +893,7 @@ Every one of these is rejected by `dagu validate`:
   of: [<the accepted values>]`, so `merged: join` gives `join does not equal
   any of: [fill first]`; the enums are `merged` (`fill`, `first`),
   `formulas` (`cached`, `text`, `calculate`), `on_type_error` (`fail`,
-  `warn`, `null`), `mode` (`replace`, `append`), `style` (`table`, `none`),
+  `warn`, `null`, `keep`), `mode` (`replace`, `append`), `style` (`table`, `none`),
   `format` (`json`, `jsonl`, `csv`), `missing` (`fail`, `skip`, `append`),
   `on_problem` (`warn`, `fail`), `operation` (`add`, `copy`, `rename`,
   `delete`), `if_exists` (`fail`, `skip`, `replace`), `encoding` (`utf-8`,
@@ -961,6 +1003,10 @@ Every one of these is rejected by `dagu validate`:
   it to write this cell`; a new column whose header cell is inside a merged
   cell: `Sheet1!C1: merged cell B1:C1 covers the header cell of new column
   "note"; unmerge it to add the column`.
+- An `output` of `xlsx.update_rows` or `xlsx.append` that is the workbook
+  itself: `orders.xlsx: output must be a different file from path; leave
+  output out to update the workbook in place`, or `to append to the
+  workbook in place`.
 - A workbook another program holds, on Windows:
   `orders.xlsx is open in another program; close it and retry`.
 - `artifact: true` in a DAG whose artifacts are disabled:

@@ -186,6 +186,7 @@ func (h *Host) start() (Config, error) {
 		return Config{}, err
 	}
 	env = append(env,
+		"OPENCODE_PASSWORD="+password,
 		"OPENCODE_SERVER_USERNAME="+managedUsername,
 		"OPENCODE_SERVER_PASSWORD="+password,
 	)
@@ -287,7 +288,8 @@ func scanEndpoint(stdout io.Reader, ready chan<- string) {
 	fileutil.ConfigureScanner(scanner)
 	for scanner.Scan() {
 		line := strings.TrimSpace(scanner.Text())
-		if endpoint, ok := strings.CutPrefix(line, "opencode server listening on "); ok {
+		line = strings.TrimPrefix(line, "opencode ")
+		if endpoint, ok := strings.CutPrefix(line, "server listening on "); ok {
 			select {
 			case ready <- strings.TrimSpace(endpoint):
 			default:
@@ -301,14 +303,18 @@ func (h *Host) preflight(hostConfig Config) (string, error) {
 	if err != nil {
 		return "", fmt.Errorf("OpenCode health capability failed: %w", err)
 	}
-	for _, path := range []string{"/config", "/session/status", "/permission", "/question"} {
+	hostConfig.Version = version
+	paths := []string{"/config", "/session/status", "/permission", "/question"}
+	if hostConfig.IsV2() {
+		paths = []string{"/api/config", "/api/session/active", "/api/permission/request", "/api/form"}
+	}
+	for _, path := range paths {
 		var target any
 		if err := hostJSON(h.ctx, hostConfig, path, &target); err != nil {
 			return "", fmt.Errorf("OpenCode capability %s is unavailable: %w", path, err)
 		}
-		if path == "/config" {
-			settings, ok := target.(map[string]any)
-			if !ok || settings["share"] != "disabled" {
+		if path == "/config" || path == "/api/config" {
+			if !SharingDisabled(target) {
 				return "", errors.New("OpenCode managed sharing could not be disabled")
 			}
 		}
@@ -322,7 +328,13 @@ func (h *Host) probeHealth(ctx context.Context, hostConfig Config) (string, erro
 		Version string `json:"version"`
 	}
 	if err := hostJSON(ctx, hostConfig, "/global/health", &health); err != nil {
-		return "", err
+		var info struct {
+			Version string `json:"version"`
+		}
+		if v2err := hostJSON(ctx, hostConfig, "/api/info", &info); v2err != nil || !strings.HasPrefix(info.Version, "2.") {
+			return "", err
+		}
+		return info.Version, nil
 	}
 	if !health.Healthy {
 		return "", errors.New("OpenCode reported an unhealthy service")
@@ -409,7 +421,7 @@ func managedEnvironment(environ, extra []string) ([]string, error) {
 	for _, key := range extra {
 		key = strings.TrimSpace(key)
 		normalized := strings.ToUpper(key)
-		if normalized == "OPENCODE_SERVER_USERNAME" || normalized == "OPENCODE_SERVER_PASSWORD" || strings.HasPrefix(normalized, "_DAGU_INTERNAL_") {
+		if normalized == "OPENCODE_PASSWORD" || normalized == "OPENCODE_SERVER_USERNAME" || normalized == "OPENCODE_SERVER_PASSWORD" || strings.HasPrefix(normalized, "_DAGU_INTERNAL_") {
 			return nil, fmt.Errorf("opencode.env_passthrough contains reserved variable %q", key)
 		}
 		if key != "" {
@@ -424,7 +436,7 @@ func managedEnvironment(environ, extra []string) ([]string, error) {
 			continue
 		}
 		normalized := strings.ToUpper(key)
-		if strings.HasPrefix(normalized, envPrefix) || normalized == "OPENCODE_SERVER_USERNAME" || normalized == "OPENCODE_SERVER_PASSWORD" {
+		if strings.HasPrefix(normalized, envPrefix) || normalized == "OPENCODE_PASSWORD" || normalized == "OPENCODE_SERVER_USERNAME" || normalized == "OPENCODE_SERVER_PASSWORD" {
 			continue
 		}
 		if allowed[normalized] || strings.HasPrefix(normalized, "LC_") || strings.HasPrefix(normalized, "OPENCODE_") {
@@ -550,7 +562,12 @@ func DeleteSession(ctx context.Context, hostConfig Config, directory, sessionID 
 	defer cancel()
 	query := url.Values{}
 	query.Set("directory", directory)
-	req, err := http.NewRequestWithContext(deleteCtx, http.MethodDelete, hostConfig.URL+"/session/"+url.PathEscape(sessionID)+"?"+query.Encode(), nil)
+	prefix := ""
+	if hostConfig.IsV2() {
+		query.Del("directory")
+		prefix = "/api"
+	}
+	req, err := http.NewRequestWithContext(deleteCtx, http.MethodDelete, hostConfig.URL+prefix+"/session/"+url.PathEscape(sessionID)+"?"+query.Encode(), nil)
 	if err != nil {
 		return err
 	}
@@ -578,7 +595,12 @@ func SessionAvailable(ctx context.Context, hostConfig Config, directory, session
 	defer cancel()
 	query := url.Values{}
 	query.Set("directory", directory)
-	req, err := http.NewRequestWithContext(probeCtx, http.MethodGet, hostConfig.URL+"/session/"+url.PathEscape(sessionID)+"?"+query.Encode(), nil)
+	prefix := ""
+	if hostConfig.IsV2() {
+		query.Del("directory")
+		prefix = "/api"
+	}
+	req, err := http.NewRequestWithContext(probeCtx, http.MethodGet, hostConfig.URL+prefix+"/session/"+url.PathEscape(sessionID)+"?"+query.Encode(), nil)
 	if err != nil {
 		return false, err
 	}
@@ -596,9 +618,17 @@ func SessionAvailable(ctx context.Context, hostConfig Config, directory, session
 	}
 	var session struct {
 		Directory string `json:"directory"`
+		Data      struct {
+			Location struct {
+				Directory string `json:"directory"`
+			} `json:"location"`
+		} `json:"data"`
 	}
 	if err := json.NewDecoder(io.LimitReader(resp.Body, 1<<20)).Decode(&session); err != nil {
 		return false, errors.New("OpenCode session lookup returned an invalid response")
+	}
+	if hostConfig.IsV2() {
+		session.Directory = session.Data.Location.Directory
 	}
 	if directory != "" && session.Directory != "" && filepath.Clean(directory) != filepath.Clean(session.Directory) {
 		return false, nil

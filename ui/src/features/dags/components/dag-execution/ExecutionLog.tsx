@@ -6,12 +6,19 @@
  *
  * @module features/dags/components/dag-execution
  */
-import React, { useCallback, useEffect, useRef, useState } from 'react';
+import React, {
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useRef,
+  useState,
+} from 'react';
 import { Download, FileArchive } from 'lucide-react';
 import { components, Status } from '../../../../api/v1/schema';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
-import { ReloadButton } from '@/components/ui/reload-button';
+import { RefreshButton } from '@/components/ui/refresh-button';
+import { Spinner } from '@/components/ui/spinner';
 import { Switch } from '@/components/ui/switch';
 import { downloadFromUrl, downloadFromForm } from '@/lib/download';
 import { useSimpleToast } from '@/components/ui/simple-toast';
@@ -28,10 +35,23 @@ import { ActivityLine } from './ActivityLine';
 import LogPageSizeSelect from './LogPageSizeSelect';
 import { I18nText } from '@/i18n/I18nText';
 import { I18nProps } from '@/i18n/I18nProps';
+import { useI18n } from '@/i18n/I18nProvider';
+import { LogChunks } from './LogChunks';
+import {
+  awayKeys,
+  distanceFromLiveEnd,
+  lineAt,
+  LogOrderToggle,
+  useLogOrder,
+} from './LogOrderToggle';
+import { LogViewModeSwitch, type LogViewMode } from './LogViewModeSwitch';
+import { ToggleButton, ToggleGroup } from '@/components/ui/toggle-group';
 
 // Largest tail size streamed over SSE; larger page sizes fall back to REST
 // polling so a live stream does not push very large payloads on every update.
 const MAX_SSE_TAIL_LINES = 10000;
+/** Distance from the bottom, in pixels, that still counts as following. */
+const TAIL_THRESHOLD_PX = 4;
 
 // Extended Log type with pagination fields
 interface LogWithPagination {
@@ -56,18 +76,36 @@ type Props = {
   dagRunId: string;
   /** Full DAG-run details (optional) - used to determine if this is a sub DAG-run */
   dagRun?: components['schemas']['DAGRunDetails'];
+  /**
+   * Lines that ran before the run, such as the logs of the steps that it
+   * reused. They scroll with the lines of the log: before them when the
+   * oldest line is at the top, after them when the newest line is.
+   */
+  cachedLines?:
+    | React.ReactNode
+    | ((mode: 'activity' | 'raw') => React.ReactNode);
+  /** Offers the Page View switch (default true). Without it only the tail shows. */
+  pageView?: boolean;
 };
 
 /**
  * ExecutionLog displays the log output for a DAG run
  * Fetches log data from the API and refreshes every 30 seconds
  */
-function ExecutionLog({ name, dagRunId, dagRun }: Props) {
+function ExecutionLog({
+  name,
+  dagRunId,
+  dagRun,
+  cachedLines,
+  pageView = true,
+}: Props) {
+  const { ts } = useI18n();
   const remoteNode = useRemoteNode();
   const config = useConfig();
   const { showToast } = useSimpleToast();
   const { preferences, updatePreference } = useUserPreferences();
-  const [viewMode, setViewMode] = useState<'tail' | 'head' | 'page'>('tail');
+  const [viewMode, setViewMode] = useState<LogViewMode>('tail');
+  const { newestFirst, toggle: toggleOrder } = useLogOrder();
   const [pageSize, setPageSize] = useState(1000);
   const [currentPage, setCurrentPage] = useState(1);
   const [pageInput, setPageInput] = useState<number | ''>(1);
@@ -85,6 +123,30 @@ function ExecutionLog({ name, dagRunId, dagRun }: Props) {
       setIsLiveMode(false);
     }
   }, [isRunning]);
+
+  // Following keeps the newest lines in view. Reading earlier lines pauses
+  // it and holds the shown lines, since a live tail drops its oldest lines.
+  const [following, setFollowing] = useState(true);
+  // Lines held while reading, with the range they were read from.
+  const [pausedData, setPausedData] = useState<{
+    range: string;
+    data: LogWithPagination;
+  } | null>(null);
+  // The range a reader moved through while the log was not live. There is
+  // nothing to hold or resume, but their place is kept when lines change.
+  const [readerAwayRange, setReaderAwayRange] = useState<string | null>(null);
+
+  // The log stays mounted when the page moves to another run, which starts
+  // again from its newest lines.
+  const runKey = JSON.stringify([name, dagRunId, dagRun?.dagRunId]);
+  const [shownRunKey, setShownRunKey] = useState(runKey);
+  if (shownRunKey !== runKey) {
+    setShownRunKey(runKey);
+    setFollowing(true);
+    setPausedData(null);
+    setReaderAwayRange(null);
+    setIsLiveMode(isRunning);
+  }
 
   // Keep track of previous data to prevent flashing
   const [cachedData, setCachedData] = useState<LogWithPagination | null>(null);
@@ -122,7 +184,6 @@ function ExecutionLog({ name, dagRunId, dagRun }: Props) {
 
   // Build query params based on view mode
   const tail = viewMode === 'tail' ? pageSize : undefined;
-  const head = viewMode === 'head' ? pageSize : undefined;
   const offset =
     viewMode === 'page' ? (currentPage - 1) * pageSize + 1 : undefined;
   const limit = viewMode === 'page' ? pageSize : undefined;
@@ -146,7 +207,6 @@ function ExecutionLog({ name, dagRunId, dagRun }: Props) {
         query: {
           remoteNode,
           tail,
-          head,
           offset,
           limit,
         },
@@ -168,7 +228,6 @@ function ExecutionLog({ name, dagRunId, dagRun }: Props) {
         query: {
           remoteNode,
           tail,
-          head,
           offset,
           limit,
         },
@@ -190,11 +249,56 @@ function ExecutionLog({ name, dagRunId, dagRun }: Props) {
   const sseLogData: LogWithPagination | null =
     useSSE && sseResult.data ? { ...sseResult.data.schedulerLog } : null;
 
-  const scrollToBottom = useCallback(() => {
-    if (logContainerRef.current) {
-      logContainerRef.current.scrollTop = logContainerRef.current.scrollHeight;
+  // The live end of the log: the bottom when the oldest line is at the top,
+  // the top when the newest line is.
+  const scrollToLiveEnd = useCallback(() => {
+    const container = logContainerRef.current;
+    if (container) {
+      container.scrollTop = newestFirst ? 0 : container.scrollHeight;
     }
+  }, [newestFirst]);
+
+  const latestData = (sseLogData || data || cachedData) as
+    | LogWithPagination
+    | null
+    | undefined;
+  const canFollow = viewMode === 'tail' && isLiveMode;
+  const range = `${viewMode}:${pageSize}:${currentPage}`;
+
+  const pauseFollowing = useCallback(() => {
+    if (!canFollow) {
+      setReaderAwayRange(range);
+      return;
+    }
+    if (!following) return;
+    setFollowing(false);
+    setPausedData(latestData ? { range, data: latestData } : null);
+  }, [canFollow, following, latestData, range]);
+
+  const resumeFollowing = useCallback(() => {
+    setPausedData(null);
+    setViewMode('tail');
+    setCurrentPage(1);
+    setFollowing(true);
   }, []);
+
+  // Switching how lines render keeps a live reader on the newest line but
+  // leaves a finished log where its reader is. A finished log opens on its
+  // newest lines and keeps following them until its reader moves.
+  const followedDisplayMode = canFollow ? displayMode : undefined;
+  const keepsReaderPlace = !isLiveMode && readerAwayRange === range;
+  useLayoutEffect(() => {
+    if (following && viewMode === 'tail' && !keepsReaderPlace) {
+      scrollToLiveEnd();
+    }
+  }, [
+    latestData?.content,
+    followedDisplayMode,
+    following,
+    keepsReaderPlace,
+    viewMode,
+    scrollToLiveEnd,
+  ]);
 
   // Handle data loading and navigation state
   useEffect(() => {
@@ -209,16 +313,12 @@ function ExecutionLog({ name, dagRunId, dagRun }: Props) {
         clearTimeout(navigationTimeoutRef.current);
         navigationTimeoutRef.current = null;
       }
-
-      if (viewMode === 'tail') {
-        setTimeout(scrollToBottom, 100);
-      }
     }
 
     if (!isLoading && !activeData && cachedData && !isInitialLoad.current) {
       setIsNavigating(false);
     }
-  }, [data, sseLogData, isLoading, cachedData, viewMode, scrollToBottom]);
+  }, [data, sseLogData, isLoading, cachedData]);
 
   // Track navigation state when view parameters change
   useEffect(() => {
@@ -248,7 +348,7 @@ function ExecutionLog({ name, dagRunId, dagRun }: Props) {
     setPageInput(currentPage);
   }, [currentPage]);
 
-  function handleViewModeChange(mode: 'tail' | 'head' | 'page'): void {
+  function handleViewModeChange(mode: LogViewMode): void {
     if (mode === viewMode) return;
     setViewMode(mode);
     setCurrentPage(1);
@@ -275,7 +375,8 @@ function ExecutionLog({ name, dagRunId, dagRun }: Props) {
 
     // Scroll to the line after DOM updates
     setTimeout(() => {
-      const lineElements = document.querySelectorAll('[data-line-number]');
+      const lineElements =
+        logContainerRef.current?.querySelectorAll('[data-line-number]') ?? [];
       for (const element of lineElements) {
         const htmlElement = element as HTMLElement;
         const lineNumber = parseInt(
@@ -343,8 +444,15 @@ function ExecutionLog({ name, dagRunId, dagRun }: Props) {
     return <LoadingIndicator />;
   }
 
-  // Prioritize SSE data, then REST data, then cached data
-  const logData = (sseLogData || data || cachedData) as LogWithPagination;
+  // Prioritize lines held for the shown range, then SSE, REST, and cached data
+  const heldData = pausedData?.range === range ? pausedData.data : null;
+  const logData = (heldData || latestData) as LogWithPagination;
+  // A tail of repeated lines can read the same after a line is added, so the
+  // line count is compared too.
+  const hasNewOutput =
+    !!heldData &&
+    (latestData?.content !== heldData.content ||
+      latestData?.totalLines !== heldData.totalLines);
 
   // Handle error state (but not 404 - that just means no log file exists yet)
   if (error && !logData) {
@@ -379,6 +487,8 @@ function ExecutionLog({ name, dagRunId, dagRun }: Props) {
   const totalPages = calculateTotalPages(effectiveTotalLines, pageSize);
   const showNavigation = effectiveTotalLines > lines.length || hasMore;
   const activityLines = lines.map(parseSchedulerLogLine);
+  const shownCachedLines =
+    typeof cachedLines === 'function' ? cachedLines(displayMode) : cachedLines;
 
   function handlePageJump(): void {
     if (pageInput === '' || !Number.isFinite(pageInput)) {
@@ -393,8 +503,6 @@ function ExecutionLog({ name, dagRunId, dagRun }: Props) {
     switch (viewMode) {
       case 'tail':
         return Math.max(1, effectiveTotalLines - lines.length + 1) + index;
-      case 'head':
-        return index + 1;
       case 'page':
         return (currentPage - 1) * pageSize + index + 1;
     }
@@ -403,55 +511,41 @@ function ExecutionLog({ name, dagRunId, dagRun }: Props) {
   return (
     <div className="w-full h-full flex flex-col">
       {/* Controls for log navigation */}
-      <div className="mb-2 flex flex-col gap-2 rounded bg-muted p-3">
-        <div className="flex flex-wrap items-center gap-2">
-          <div className="flex gap-1">
-            <Button
-              size="sm"
-              variant={displayMode === 'activity' ? 'primary' : 'default'}
+      <div
+        data-testid="execution-log-toolbar"
+        className="mb-1 flex shrink-0 flex-col gap-1 rounded bg-muted px-2 py-1"
+      >
+        <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
+          <ToggleGroup aria-label={ts('Log display')} className="p-0.5">
+            <ToggleButton
+              value="activity"
+              groupValue={displayMode}
               onClick={() => setDisplayMode('activity')}
-              aria-pressed={displayMode === 'activity'}
+              className="h-6 px-2"
             >
-              <I18nText text={'Activity'} />
-            </Button>
-            <Button
-              size="sm"
-              variant={displayMode === 'raw' ? 'primary' : 'default'}
+              {ts('Activity')}
+            </ToggleButton>
+            <ToggleButton
+              value="raw"
+              groupValue={displayMode}
               onClick={() => setDisplayMode('raw')}
-              aria-pressed={displayMode === 'raw'}
+              className="h-6 px-2"
             >
-              <I18nText text={'Raw'} />
-            </Button>
-          </div>
+              {ts('Raw')}
+            </ToggleButton>
+          </ToggleGroup>
+
+          <LogOrderToggle newestFirst={newestFirst} onToggle={toggleOrder} />
 
           {showNavigation && (
             <>
-              <div className="flex flex-wrap gap-1">
-                <Button
-                  size="sm"
-                  variant={viewMode === 'tail' ? 'primary' : 'default'}
-                  onClick={() => handleViewModeChange('tail')}
+              {pageView && (
+                <LogViewModeSwitch
+                  value={viewMode}
+                  onChange={handleViewModeChange}
                   disabled={isNavigating}
-                >
-                  <I18nText text={'Show End'} />
-                </Button>
-                <Button
-                  size="sm"
-                  variant={viewMode === 'head' ? 'primary' : 'default'}
-                  onClick={() => handleViewModeChange('head')}
-                  disabled={isNavigating}
-                >
-                  <I18nText text={'Show Beginning'} />
-                </Button>
-                <Button
-                  size="sm"
-                  variant={viewMode === 'page' ? 'primary' : 'default'}
-                  onClick={() => handleViewModeChange('page')}
-                  disabled={isNavigating}
-                >
-                  <I18nText text={'Page View'} />
-                </Button>
-              </div>
+                />
+              )}
 
               <LogPageSizeSelect
                 pageSize={pageSize}
@@ -461,6 +555,15 @@ function ExecutionLog({ name, dagRunId, dagRun }: Props) {
                   setCurrentPage(1);
                 }}
               />
+
+              <span className="whitespace-nowrap text-xs text-muted-foreground">
+                <I18nText
+                  text="Showing {visible} of {total} lines"
+                  values={{ visible: lines.length, total: effectiveTotalLines }}
+                />{' '}
+                {isEstimate ? <I18nText text={'(estimated)'} /> : ''}{' '}
+                {hasMore ? <I18nText text={'(more available)'} /> : ''}
+              </span>
             </>
           )}
 
@@ -481,21 +584,21 @@ function ExecutionLog({ name, dagRunId, dagRun }: Props) {
 
             {/* Reload button */}
             <I18nProps>
-              <ReloadButton
-                onReload={async () => {
+              <RefreshButton
+                onRefresh={async () => {
                   if (mutate) {
                     await mutate();
                   }
                 }}
                 isLoading={isNavigating || isLoading}
-                title="Reload logs"
+                description="Reload logs"
               />
             </I18nProps>
 
             {/* Download button */}
             <I18nProps>
               <Button
-                size="sm"
+                size="icon-sm"
                 variant="outline"
                 onClick={handleDownload}
                 disabled={isNavigating}
@@ -508,7 +611,7 @@ function ExecutionLog({ name, dagRunId, dagRun }: Props) {
             {/* Download step log archive */}
             <I18nProps>
               <Button
-                size="sm"
+                size="icon-sm"
                 variant="outline"
                 onClick={handleDownloadStepLogs}
                 disabled={isNavigating}
@@ -521,7 +624,7 @@ function ExecutionLog({ name, dagRunId, dagRun }: Props) {
             {/* Live mode toggle - only visible when DAG is running */}
             {isRunning && (
               <Button
-                size="sm"
+                size="xs"
                 variant={isLiveMode ? 'primary' : 'default'}
                 onClick={() => setIsLiveMode(!isLiveMode)}
               >
@@ -531,26 +634,29 @@ function ExecutionLog({ name, dagRunId, dagRun }: Props) {
                 <I18nText text={'LIVE'} />
               </Button>
             )}
+            {!following && (
+              <>
+                {hasNewOutput && (
+                  <span role="status" className="text-xs text-muted-foreground">
+                    <I18nText text={'New output available'} />
+                  </span>
+                )}
+                <Button size="xs" onClick={resumeFollowing}>
+                  <I18nText text="Back to live" />
+                </Button>
+              </>
+            )}
           </div>
         </div>
 
-        <div className="text-xs text-muted-foreground flex items-center">
-          {showNavigation ? (
-            <I18nText
-              text="Showing {visible} of {total} lines"
-              values={{ visible: lines.length, total: effectiveTotalLines }}
-            />
-          ) : (
-            <I18nText
-              text={
-                effectiveTotalLines === 1 ? '{count} line' : '{count} lines'
-              }
-              values={{ count: effectiveTotalLines }}
-            />
-          )}{' '}
-          {isEstimate ? <I18nText text={'(estimated)'} /> : ''}{' '}
-          {hasMore ? <I18nText text={'(more available)'} /> : ''}
-        </div>
+        {/* The count is for screen readers: a view that shows all the lines
+            has no visible count, and a partial view says so in the row. */}
+        <span className="sr-only">
+          <I18nText
+            text={effectiveTotalLines === 1 ? '{count} line' : '{count} lines'}
+            values={{ count: effectiveTotalLines }}
+          />
+        </span>
 
         {/* Page navigation controls */}
         {showNavigation && viewMode === 'page' && totalLines > 0 && (
@@ -611,7 +717,8 @@ function ExecutionLog({ name, dagRunId, dagRun }: Props) {
           </div>
         )}
 
-        {showNavigation && (
+        {/* A jump opens a page: a tail-only log has none. */}
+        {showNavigation && pageView && (
           <div className="flex items-center gap-2 mt-2">
             <span className="text-xs text-muted-foreground">
               <I18nText text={'Jump to line:'} />
@@ -659,46 +766,85 @@ function ExecutionLog({ name, dagRunId, dagRun }: Props) {
 
       <div
         ref={logContainerRef}
-        className={`relative flex-1 overflow-auto rounded-lg ${displayMode === 'raw' ? `bg-muted pb-4 pr-4 pt-4 ${preferences.logWrap ? '' : 'overflow-x-auto'}` : 'border border-border bg-card'}`}
+        role="region"
+        aria-label={ts('Run log')}
+        tabIndex={0}
+        onWheel={(event) => {
+          // Reading away from the live end pauses the follow.
+          if (newestFirst ? event.deltaY > 0 : event.deltaY < 0) {
+            pauseFollowing();
+          }
+        }}
+        onPointerDown={pauseFollowing}
+        onTouchStart={pauseFollowing}
+        onKeyDown={(event) => {
+          if (awayKeys(newestFirst).includes(event.key)) {
+            pauseFollowing();
+          }
+        }}
+        onScroll={(event) => {
+          if (
+            distanceFromLiveEnd(event.currentTarget, newestFirst) >
+            TAIL_THRESHOLD_PX
+          ) {
+            pauseFollowing();
+          }
+        }}
+        className={`relative min-h-0 flex-1 overflow-auto rounded-lg ${displayMode === 'raw' ? `bg-muted pb-4 pr-4 pt-4 ${preferences.logWrap ? '' : 'overflow-x-auto'}` : 'border border-border bg-card'}`}
       >
         {isNavigating && (
           <div className="absolute inset-0 bg-black/20 flex items-center justify-center z-10 pointer-events-none">
             <div className="bg-card rounded-lg p-2">
-              <div className="h-5 w-5 animate-spin rounded-full border-3 border-primary border-t-transparent"></div>
+              <Spinner className="size-5 text-primary" />
             </div>
           </div>
         )}
+        {!newestFirst && shownCachedLines}
         {displayMode === 'activity' ? (
           <div>
-            {activityLines.map((line, index) => (
-              <ActivityLine
-                key={index}
-                line={line}
-                lineNumber={getLineNumber(index)}
-              />
-            ))}
+            <LogChunks
+              count={activityLines.length}
+              renderLine={(row) => {
+                const index = lineAt(row, activityLines.length, newestFirst);
+                return (
+                  <ActivityLine
+                    key={getLineNumber(index)}
+                    line={activityLines[index]!}
+                    lineNumber={getLineNumber(index)}
+                  />
+                );
+              }}
+            />
           </div>
         ) : (
           <pre
             className={`h-full font-mono text-sm text-foreground log-content ${preferences.logWrap ? '' : 'min-w-max'}`}
           >
-            {lines.map((line, index) => (
-              <div key={index} className="flex pr-2 py-0.5">
-                <span
-                  className="text-muted-foreground mr-4 select-none w-14 text-right flex-shrink-0 self-start sticky left-0 bg-muted pl-4 pr-2 z-10"
-                  data-line-number={getLineNumber(index)}
-                >
-                  {getLineNumber(index)}
-                </span>
-                <span
-                  className={`flex-grow select-text cursor-text ${preferences.logWrap ? 'whitespace-pre-wrap break-words' : 'whitespace-pre'}`}
-                >
-                  {line ? <AnsiLine text={line} /> : ' '}
-                </span>
-              </div>
-            ))}
+            <LogChunks
+              count={lines.length}
+              renderLine={(row) => {
+                const index = lineAt(row, lines.length, newestFirst);
+                const line = lines[index];
+                return (
+                  <div key={row} className="flex pr-2 py-0.5">
+                    <span
+                      className="text-muted-foreground mr-4 select-none w-14 text-right flex-shrink-0 self-start sticky left-0 bg-muted pl-4 pr-2 z-10"
+                      data-line-number={getLineNumber(index)}
+                    >
+                      {getLineNumber(index)}
+                    </span>
+                    <span
+                      className={`flex-grow select-text cursor-text ${preferences.logWrap ? 'whitespace-pre-wrap break-words' : 'whitespace-pre'}`}
+                    >
+                      {line ? <AnsiLine text={line} /> : ' '}
+                    </span>
+                  </div>
+                );
+              }}
+            />
           </pre>
         )}
+        {newestFirst && shownCachedLines}
       </div>
     </div>
   );

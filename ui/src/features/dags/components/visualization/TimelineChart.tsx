@@ -19,13 +19,23 @@ import {
 } from '@/components/ui/tooltip';
 import { useRemoteNode } from '@/contexts/RemoteNodeContext';
 import { useQuery } from '@/hooks/api';
+import { useElementWidth } from '@/hooks/useElementWidth';
 import { whenEnabled } from '@/hooks/queryUtils';
 import dayjs from '@/lib/dayjs';
-import { isActiveNodeStatus } from '@/lib/status-utils';
+import { HATCH_PATTERN } from '@/lib/hatchPattern';
+import { shortRunId } from '@/lib/shortRunId';
+import { Archive, History } from 'lucide-react';
+import { formatStepSpan } from '@/lib/formatStepSpan';
+import {
+  isActiveNodeStatus,
+  nodeStatusText,
+  runStatusText,
+} from '@/lib/status-utils';
 import React, {
   forwardRef,
   useEffect,
   useMemo,
+  useRef,
   type KeyboardEvent,
 } from 'react';
 import { components, NodeStatus, Status } from '../../../../api/v1/schema';
@@ -35,12 +45,28 @@ import {
 } from '../common/SubRunStackModal';
 import {
   buildTimelineRows,
+  buildTimeMarkers,
   getSubRunQueryContext,
   getTimelineSubRuns,
   hasTimelineSubRuns,
-  TimelineRow,
+  MIN_BAR_PX,
+  minBarMs,
+  placeTimelineRows,
+  type PlacedRow,
+  type TimelineRow,
 } from './timelineItems';
 import { I18nText } from '@/i18n/I18nText';
+import { useI18n } from '@/i18n/I18nProvider';
+
+/** Width in px of the column of step names: the plot starts after it. */
+const LABEL_COLUMN_PX = 130;
+
+/**
+ * The left part of the axis, before the start of the run: faint diagonal
+ * lines that read as time that the run did not spend (the cached time).
+ */
+const CACHED_ZONE_PATTERN =
+  'repeating-linear-gradient(135deg, var(--border) 0 1px, transparent 1px 6px)';
 
 /**
  * Props for the TimelineChart component
@@ -55,93 +81,11 @@ type Props = {
   onOpenSubRun?: (entry: SubRunStackEntry) => void;
 };
 
-/** Format for displaying timestamps in tooltips */
-const timeFormat = 'HH:mm:ss';
-
-/**
- * Get status label for display
- */
-function getNodeStatusLabel(status: NodeStatus): string {
-  switch (status) {
-    case NodeStatus.NotStarted:
-      return 'Not Started';
-    case NodeStatus.Running:
-      return 'Running';
-    case NodeStatus.Retrying:
-      return 'Retrying';
-    case NodeStatus.Success:
-      return 'Success';
-    case NodeStatus.Failed:
-      return 'Failed';
-    case NodeStatus.Aborted:
-      return 'Aborted';
-    case NodeStatus.Skipped:
-      return 'Skipped';
-    case NodeStatus.PartialSuccess:
-      return 'Partial Success';
-    case NodeStatus.Waiting:
-      return 'Waiting';
-    case NodeStatus.Rejected:
-      return 'Rejected';
-    default:
-      return 'Unknown';
-  }
-}
-
-/**
- * Get DAG-run status label for display
- */
-function getDAGRunStatusLabel(status: Status): string {
-  switch (status) {
-    case Status.NotStarted:
-      return 'Not Started';
-    case Status.Running:
-      return 'Running';
-    case Status.Success:
-      return 'Success';
-    case Status.Failed:
-      return 'Failed';
-    case Status.Aborted:
-      return 'Aborted';
-    case Status.Queued:
-      return 'Queued';
-    case Status.PartialSuccess:
-      return 'Partial Success';
-    case Status.Waiting:
-      return 'Waiting';
-    case Status.Rejected:
-      return 'Rejected';
-    default:
-      return 'Unknown';
-  }
-}
-
 function getStatusLabel(row: TimelineRow): string {
   if (row.statusSource === 'dagrun') {
-    return getDAGRunStatusLabel(row.status as Status);
+    return runStatusText(row.status as Status);
   }
-  return getNodeStatusLabel(row.status as NodeStatus);
-}
-
-/**
- * Calculate duration between two timestamps
- */
-function calculateDuration(startMs: number, endMs: number): string {
-  const durationMs = endMs - startMs;
-
-  if (durationMs < 1000) {
-    return `${durationMs}ms`;
-  } else if (durationMs < 60000) {
-    return `${(durationMs / 1000).toFixed(1)}s`;
-  } else if (durationMs < 3600000) {
-    const minutes = Math.floor(durationMs / 60000);
-    const seconds = Math.floor((durationMs % 60000) / 1000);
-    return `${minutes}m ${seconds}s`;
-  } else {
-    const hours = Math.floor(durationMs / 3600000);
-    const minutes = Math.floor((durationMs % 3600000) / 60000);
-    return `${hours}h ${minutes}m`;
-  }
+  return nodeStatusText(row.status as NodeStatus);
 }
 
 /**
@@ -250,6 +194,37 @@ function getStatusColor(row: TimelineRow): { bg: string; border: string } {
   );
 }
 
+/**
+ * The real duration of a row, in the one text of the steps. Both ends are
+ * real values: the tooltip never shows the drawn interval.
+ */
+function rowSpan(row: PlacedRow, belowSecond: string): string | null {
+  const active = isActiveTimelineStatus(row);
+  return formatStepSpan(
+    new Date(row.startMs).toISOString(),
+    active ? undefined : new Date(row.endMs).toISOString(),
+    { live: active, belowSecond, wholeSecond: row.wholeSecond ?? false }
+  );
+}
+
+/** The time that a ghost step took in its source run, in the text of the steps. */
+function ghostDuration(row: TimelineRow, ts: ReturnType<typeof useI18n>['ts']) {
+  const ghost = row.ghost;
+  if (!ghost) return null;
+  return formatStepSpan(
+    new Date(0).toISOString(),
+    new Date(ghost.durationMs).toISOString(),
+    { belowSecond: ts('<1s'), wholeSecond: true }
+  );
+}
+
+/** The text of a ghost row: the source run and the time that the step took there. */
+function ghostLabel(row: TimelineRow, ts: ReturnType<typeof useI18n>['ts']) {
+  const ghost = row.ghost;
+  if (!ghost) return null;
+  return `${ts('run {id}', { id: shortRunId(ghost.runId) })} · ${ghostDuration(row, ts) ?? ''}`;
+}
+
 function isActiveTimelineStatus(row: TimelineRow): boolean {
   if (row.statusSource === 'dagrun') {
     return row.status === Status.Running || row.status === Status.Queued;
@@ -262,7 +237,10 @@ type TimelineBarProps = {
   leftPercent: number;
   widthPercent: number;
   colors: { bg: string; border: string };
-  isActive: boolean;
+  /** A step that did not run: a dotted hairline, not a bar of its length. */
+  skipped?: boolean;
+  /** A step reused from another run: a hatched bar of its original length. */
+  ghost?: boolean;
   openSubRun?: (entry: SubRunStackEntry) => void;
 } & React.ComponentPropsWithoutRef<'div'>;
 
@@ -277,7 +255,8 @@ const TimelineBar = forwardRef<HTMLDivElement, TimelineBarProps>(
       leftPercent,
       widthPercent,
       colors,
-      isActive,
+      skipped = false,
+      ghost = false,
       openSubRun,
       className,
       style,
@@ -321,6 +300,7 @@ const TimelineBar = forwardRef<HTMLDivElement, TimelineBarProps>(
       <div
         ref={ref}
         data-testid={`timeline-bar-${item.id}`}
+        data-ghost={ghost ? 'true' : undefined}
         {...props}
         role={canOpen ? 'button' : undefined}
         tabIndex={canOpen ? 0 : undefined}
@@ -329,17 +309,27 @@ const TimelineBar = forwardRef<HTMLDivElement, TimelineBarProps>(
             ? `Open ${openName} run ${item.dagRunId}`
             : undefined
         }
-        className={`absolute h-5 rounded transition-opacity hover:opacity-80 ${
+        className={`absolute rounded transition-opacity hover:opacity-80 ${
+          // The pseudo element widens the 2px hairline to a bar-high target.
+          skipped && !ghost
+            ? "h-0 border-t-2 border-dotted before:absolute before:inset-x-0 before:-top-2.5 before:h-5 before:content-['']"
+            : 'h-5'
+        } ${
           canOpen
             ? 'cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary'
             : ''
-        } ${isActive ? 'animate-pulse' : ''} ${className ?? ''}`}
+        } ${className ?? ''}`}
         style={{
-          left: `calc(${leftPercent}% + 130px)`,
-          width: `calc(${Math.max(widthPercent, 0.5)}% - 130px)`,
-          minWidth: '4px',
-          backgroundColor: colors.bg,
-          borderLeft: `2px solid ${colors.border}`,
+          left: `${leftPercent}%`,
+          width: `${widthPercent}%`,
+          minWidth: `${MIN_BAR_PX}px`,
+          ...(skipped && !ghost
+            ? { borderTopColor: colors.border }
+            : {
+                backgroundColor: colors.bg,
+                borderLeft: `2px solid ${colors.border}`,
+                ...(ghost ? { backgroundImage: HATCH_PATTERN } : {}),
+              }),
           ...style,
         }}
         onClick={canOpen ? handleClick : onClick}
@@ -352,7 +342,15 @@ const TimelineBar = forwardRef<HTMLDivElement, TimelineBarProps>(
 /**
  * TimelineChart component renders a horizontal bar chart showing step execution
  */
+/** The time format of a row: with the date when the row crosses a day. */
+function spanFormat(item: { startMs: number; endMs: number }): string {
+  return dayjs(item.startMs).isSame(item.endMs, 'day')
+    ? 'HH:mm:ss'
+    : 'YYYY-MM-DD HH:mm:ss';
+}
+
 function TimelineChart({ status, onOpenSubRun }: Props) {
+  const { ts } = useI18n();
   const remoteNode = useRemoteNode();
   const openSubRunFromContext = useOpenSubRun();
   const openSubRun = onOpenSubRun ?? openSubRunFromContext;
@@ -395,38 +393,44 @@ function TimelineChart({ status, onOpenSubRun }: Props) {
     refetchSubRuns();
   }, [shouldFetchSubRuns, eligibleSubRunIdsKey, refetchSubRuns]);
 
+  // The axis drops the labels that do not fit the width of the chart. The
+  // frame is there with and without rows, so the measure never misses it.
+  const frameRef = useRef<HTMLDivElement>(null);
+  const frameWidth = useElementWidth(frameRef);
+  const axisWidth =
+    frameWidth === null ? null : Math.max(frameWidth - LABEL_COLUMN_PX, 1);
+
   const { items, timelineStart, timelineEnd, timeMarkers } = useMemo(() => {
-    const validItems = buildTimelineRows({
+    const realRows = buildTimelineRows({
       dagRun: status,
       subRunDetails: subRunsData?.subRuns || [],
       nowMs: Date.now(),
     });
 
-    if (validItems.length === 0) {
+    if (realRows.length === 0) {
       return { items: [], timelineStart: 0, timelineEnd: 0, timeMarkers: [] };
     }
 
-    // Calculate timeline bounds
-    const minStart = Math.min(...validItems.map((i) => i.startMs));
-    const maxEnd = Math.max(...validItems.map((i) => i.endMs));
-    const range = maxEnd - minStart;
-    const padding = Math.max(range * 0.02, 500);
+    // Runs that an older version stored have times with a resolution of one
+    // second. The bars are drawn from placed intervals: a step starts after
+    // its dependencies, and a step of 0 ms is a thin bar. The axis spans the
+    // placed intervals.
+    const span = (rows: ReadonlyArray<{ a: number; b: number }>) => {
+      const min = Math.min(...rows.map((i) => i.a));
+      const max = Math.max(...rows.map((i) => i.b));
+      const padding = Math.max((max - min) * 0.02, 500);
+      return { start: min - padding, end: max + padding };
+    };
+    const real = span(realRows.map((i) => ({ a: i.startMs, b: i.endMs })));
+    const validItems = placeTimelineRows(
+      realRows,
+      minBarMs(real.end - real.start, axisWidth ?? undefined)
+    );
+    const { start, end } = span(
+      validItems.map((i) => ({ a: i.shownStartMs, b: i.shownEndMs }))
+    );
 
-    const start = minStart - padding;
-    const end = maxEnd + padding;
-
-    // Generate time markers
-    const totalRange = end - start;
-    const markerCount = 5;
-    const markers: { position: number; label: string }[] = [];
-
-    for (let i = 0; i <= markerCount; i++) {
-      const time = start + (totalRange * i) / markerCount;
-      markers.push({
-        position: (i / markerCount) * 100,
-        label: dayjs(time).format(timeFormat),
-      });
-    }
+    const markers = buildTimeMarkers(start, end, axisWidth ?? undefined);
 
     return {
       items: validItems,
@@ -434,43 +438,107 @@ function TimelineChart({ status, onOpenSubRun }: Props) {
       timelineEnd: end,
       timeMarkers: markers,
     };
-  }, [status, subRunsData?.subRuns, timeFormat]);
+  }, [status, subRunsData?.subRuns, axisWidth]);
 
   // Don't render if there are no items
   if (items.length === 0) {
     return (
-      <div className="text-sm text-muted-foreground p-4">
-        <I18nText text={'No step execution data available.'} />
+      <div ref={frameRef} className="w-full">
+        <div className="text-sm text-muted-foreground p-4">
+          <I18nText text={'No step execution data available.'} />
+        </div>
       </div>
     );
   }
 
   const totalRange = timelineEnd - timelineStart;
+  const plotArea = { left: `${LABEL_COLUMN_PX}px` };
+  // The reused steps stand before the start of the run: the part of the axis
+  // on the left of that start is the cached time.
+  const runStartMs = items.find((item) => item.ghost)?.ghost?.runStartMs;
+  const runStartPercent =
+    runStartMs === undefined
+      ? null
+      : ((runStartMs - timelineStart) / totalRange) * 100;
+  const cachedZone = runStartPercent !== null && (
+    <div
+      data-testid="timeline-cached-zone"
+      className="pointer-events-none absolute inset-y-0 left-0 border-r border-foreground/40 opacity-60"
+      style={{
+        width: `${runStartPercent}%`,
+        backgroundImage: CACHED_ZONE_PATTERN,
+      }}
+    />
+  );
 
   return (
-    <div className="w-full bg-card rounded-md border border-border overflow-hidden">
+    <div
+      ref={frameRef}
+      className="w-full bg-card rounded-md border border-border overflow-hidden"
+    >
       {/* Time axis header */}
       <div className="relative h-6 bg-muted border-b border-border">
-        {timeMarkers.map((marker, idx) => (
-          <div
-            key={idx}
-            className="absolute top-0 h-full flex items-center"
-            style={{
-              left: `${marker.position}%`,
-              transform: 'translateX(-50%)',
-            }}
-          >
-            <span className="text-xs text-muted-foreground font-mono">
-              {marker.label}
+        <div className="absolute inset-y-0 right-0" style={plotArea}>
+          {timeMarkers.map((marker, idx) => (
+            <div
+              key={idx}
+              className={`absolute top-0 h-full flex items-center ${
+                idx === 0
+                  ? 'pl-2'
+                  : idx === timeMarkers.length - 1
+                    ? 'pr-2'
+                    : ''
+              }`}
+              style={{
+                left: `${marker.position}%`,
+                // The first label starts at the edge and the last one ends at
+                // it: centred, they would be cut by the chart.
+                transform:
+                  idx === 0
+                    ? 'none'
+                    : idx === timeMarkers.length - 1
+                      ? 'translateX(-100%)'
+                      : 'translateX(-50%)',
+              }}
+            >
+              <span className="text-xs text-muted-foreground font-mono">
+                {marker.label}
+              </span>
+            </div>
+          ))}
+        </div>
+      </div>
+
+      {/* The start of the run, when reused steps stand before it */}
+      {runStartPercent !== null && runStartMs !== undefined && (
+        <div className="relative h-5 border-b border-border bg-muted/40">
+          <div className="absolute inset-y-0 right-0" style={plotArea}>
+            {cachedZone}
+            <span
+              data-testid="timeline-run-start"
+              // Near the right edge, the label stands before the line.
+              style={
+                runStartPercent > 60
+                  ? { right: `calc(${100 - runStartPercent}% + 6px)` }
+                  : { left: `calc(${runStartPercent}% + 6px)` }
+              }
+              className="absolute top-1/2 -translate-y-1/2 whitespace-nowrap font-mono text-[10px] leading-4 text-muted-foreground"
+            >
+              {ts('Run starts {time}', {
+                time: dayjs(runStartMs).format('HH:mm:ss'),
+              })}
             </span>
           </div>
-        ))}
-      </div>
+        </div>
+      )}
 
       {/* Timeline rows */}
       <div className="relative">
         {/* Grid lines */}
-        <div className="absolute inset-0 pointer-events-none">
+        <div
+          className="absolute inset-y-0 right-0 pointer-events-none"
+          style={plotArea}
+        >
           {timeMarkers.map((marker, idx) => (
             <div
               key={idx}
@@ -483,17 +551,20 @@ function TimelineChart({ status, onOpenSubRun }: Props) {
         {/* Step rows */}
         {items.map((item, idx) => {
           const leftPercent =
-            ((item.startMs - timelineStart) / totalRange) * 100;
-          const widthPercent = ((item.endMs - item.startMs) / totalRange) * 100;
-          const colors = getStatusColor(item);
-          const isActive = isActiveTimelineStatus(item);
+            ((item.shownStartMs - timelineStart) / totalRange) * 100;
+          const widthPercent =
+            ((item.shownEndMs - item.shownStartMs) / totalRange) * 100;
+          // A ghost shows the colour of the step that ran in the other run.
+          const colors = item.ghost
+            ? statusColors[NodeStatus.Success]
+            : getStatusColor(item);
 
           return (
             <div
               key={item.id}
               data-testid="timeline-row"
               data-row-id={item.id}
-              className={`relative h-8 flex items-center ${
+              className={`relative h-8 flex items-center [contain:layout_paint] ${
                 idx % 2 === 0 ? 'bg-background' : 'bg-muted/20'
               }`}
             >
@@ -506,73 +577,150 @@ function TimelineChart({ status, onOpenSubRun }: Props) {
               </div>
 
               {/* Timeline bar */}
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <TimelineBar
-                    item={item}
-                    leftPercent={leftPercent}
-                    widthPercent={widthPercent}
-                    colors={colors}
-                    isActive={isActive}
-                    openSubRun={openSubRun ?? undefined}
-                  />
-                </TooltipTrigger>
-                <TooltipContent side="top" className="max-w-xs">
-                  <div className="space-y-1">
-                    <div className="font-semibold">
-                      {item.kind === 'subdag'
-                        ? `${item.parentStepName} ${item.label}`
-                        : item.label}
-                    </div>
-                    {item.description && (
-                      <div className="text-xs text-muted-foreground">
-                        {item.description}
-                      </div>
+              <div className="absolute inset-y-0 right-0" style={plotArea}>
+                {cachedZone}
+                {item.ghost && (
+                  <span
+                    data-testid="timeline-ghost-label"
+                    // A ghost near the right edge has its label on the left of
+                    // the bar, so that the edge does not cut it.
+                    style={
+                      leftPercent > 60
+                        ? { right: `calc(${100 - leftPercent}% + 4px)` }
+                        : { left: `calc(${leftPercent}% + 6px)` }
+                    }
+                    className="pointer-events-none absolute top-1/2 z-10 max-w-[70%] -translate-y-1/2 truncate whitespace-nowrap rounded-sm bg-card/85 px-1 font-mono text-[10px] leading-4 text-foreground"
+                  >
+                    {item.ghost.source === 'cache' ? (
+                      <Archive
+                        aria-hidden="true"
+                        className="mr-1 inline size-3"
+                      />
+                    ) : (
+                      <History
+                        aria-hidden="true"
+                        className="mr-1 inline size-3"
+                      />
                     )}
-                    {item.dagName && (
+                    {ghostLabel(item, ts)}
+                  </span>
+                )}
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <TimelineBar
+                      item={item}
+                      leftPercent={leftPercent}
+                      widthPercent={widthPercent}
+                      colors={colors}
+                      skipped={
+                        item.statusSource === 'node' &&
+                        item.status === NodeStatus.Skipped
+                      }
+                      ghost={item.ghost !== undefined}
+                      openSubRun={openSubRun ?? undefined}
+                    />
+                  </TooltipTrigger>
+                  <TooltipContent side="top" className="max-w-xs">
+                    <div className="space-y-1">
+                      <div className="font-semibold">
+                        {item.kind === 'subdag'
+                          ? `${item.parentStepName} ${item.label}`
+                          : item.label}
+                      </div>
+                      {item.description && (
+                        <div className="text-xs text-muted-foreground">
+                          {item.description}
+                        </div>
+                      )}
+                      {item.dagName && (
+                        <div className="text-xs">
+                          <I18nText text={'DAG:'} /> {item.dagName}
+                        </div>
+                      )}
+                      {item.dagRunId && (
+                        <div className="text-xs">
+                          <I18nText text={'Run ID:'} /> {item.dagRunId}
+                        </div>
+                      )}
+                      {item.params && (
+                        <div className="text-xs">
+                          <I18nText text={'Params:'} /> {item.params}
+                        </div>
+                      )}
+                      {item.parentStepName && (
+                        <div className="text-xs text-muted-foreground">
+                          <I18nText text={'Parent:'} /> {item.parentStepName}
+                        </div>
+                      )}
                       <div className="text-xs">
-                        <I18nText text={'DAG:'} /> {item.dagName}
+                        <I18nText text={'Status:'} />{' '}
+                        <span className="font-medium">
+                          {item.ghost ? (
+                            ts('Reused')
+                          ) : (
+                            <I18nText text={getStatusLabel(item)} />
+                          )}
+                        </span>
                       </div>
-                    )}
-                    {item.dagRunId && (
+                      {item.ghost && (
+                        <div
+                          data-testid="timeline-ghost-source"
+                          className="space-y-0.5 text-xs"
+                        >
+                          <div>
+                            {ts('Reused from run {id}', {
+                              id: item.ghost.runId,
+                            })}
+                          </div>
+                          {item.ghost.startedAt !== null &&
+                            item.ghost.finishedAt !== null && (
+                              <div className="text-muted-foreground">
+                                {ts('In that run: {start} → {finish}', {
+                                  start: dayjs(item.ghost.startedAt).format(
+                                    'YYYY-MM-DD HH:mm:ss'
+                                  ),
+                                  finish: dayjs(item.ghost.finishedAt).format(
+                                    'HH:mm:ss'
+                                  ),
+                                })}
+                              </div>
+                            )}
+                        </div>
+                      )}
                       <div className="text-xs">
-                        <I18nText text={'Run ID:'} /> {item.dagRunId}
+                        <I18nText text={'Duration:'} />{' '}
+                        <span className="font-mono">
+                          {item.ghost
+                            ? ghostDuration(item, ts)
+                            : rowSpan(item, ts('<1s'))}
+                        </span>
                       </div>
-                    )}
-                    {item.params && (
-                      <div className="text-xs">
-                        <I18nText text={'Params:'} /> {item.params}
-                      </div>
-                    )}
-                    {item.parentStepName && (
-                      <div className="text-xs text-muted-foreground">
-                        <I18nText text={'Parent:'} /> {item.parentStepName}
-                      </div>
-                    )}
-                    <div className="text-xs">
-                      <I18nText text={'Status:'} />{' '}
-                      <span className="font-medium">
-                        <I18nText text={getStatusLabel(item)} />
-                      </span>
+                      {!item.ghost && (
+                        <div className="text-xs text-muted-foreground">
+                          {/* A span over more than one day names its dates. */}
+                          {dayjs(item.startMs).format(spanFormat(item))} →{' '}
+                          {dayjs(item.endMs).format(spanFormat(item))}
+                        </div>
+                      )}
+                      {item.shiftedAfter !== undefined && item.wholeSecond && (
+                        <div className="text-xs text-muted-foreground">
+                          {ts(
+                            'Shown after {step} (times are rounded to the second)',
+                            {
+                              step: item.shiftedAfter,
+                            }
+                          )}
+                        </div>
+                      )}
+                      {item.error && (
+                        <div className="text-xs text-destructive">
+                          <I18nText text={'Error:'} /> {item.error}
+                        </div>
+                      )}
                     </div>
-                    <div className="text-xs">
-                      <I18nText text={'Duration:'} />{' '}
-                      <span className="font-mono">
-                        {calculateDuration(item.startMs, item.endMs)}
-                      </span>
-                    </div>
-                    <div className="text-xs text-muted-foreground">
-                      {dayjs(item.startMs).format('HH:mm:ss')} →{' '}
-                      {dayjs(item.endMs).format('HH:mm:ss')}
-                    </div>
-                    {item.error && (
-                      <div className="text-xs text-destructive">
-                        <I18nText text={'Error:'} /> {item.error}
-                      </div>
-                    )}
-                  </div>
-                </TooltipContent>
-              </Tooltip>
+                  </TooltipContent>
+                </Tooltip>
+              </div>
             </div>
           );
         })}

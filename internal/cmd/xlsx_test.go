@@ -4,11 +4,14 @@
 package cmd_test
 
 import (
+	"archive/zip"
 	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
+	"os"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -41,6 +44,82 @@ func runXlsx(t *testing.T, args ...string) (string, error) {
 	root.SetArgs(args)
 	err := root.ExecuteContext(context.Background())
 	return out.String(), err
+}
+
+func runXlsxWithStdin(t *testing.T, input []byte, args ...string) (string, error) {
+	t.Helper()
+	return runXlsxReader(t, bytes.NewReader(input), args...)
+}
+
+func runXlsxReader(t *testing.T, input io.Reader, args ...string) (string, error) {
+	t.Helper()
+	root := cmd.Xlsx()
+	var out bytes.Buffer
+	root.SetIn(input)
+	root.SetOut(&out)
+	root.SetErr(&out)
+	root.SetArgs(args)
+	err := root.ExecuteContext(context.Background())
+	return out.String(), err
+}
+
+type countedReader struct {
+	data []byte
+	read int
+}
+
+func (r *countedReader) Read(p []byte) (int, error) {
+	if len(r.data) == 0 {
+		return 0, io.EOF
+	}
+	n := copy(p, r.data)
+	r.data = r.data[n:]
+	r.read += n
+	return n, nil
+}
+
+type errorReader struct{}
+
+func (errorReader) Read([]byte) (int, error) { return 0, errors.New("stdin closed") }
+
+func workbookAtSize(t *testing.T, path string, size int) []byte {
+	t.Helper()
+	source, err := zip.OpenReader(path)
+	require.NoError(t, err)
+	t.Cleanup(func() { require.NoError(t, source.Close()) })
+
+	build := func(padding int) []byte {
+		var out bytes.Buffer
+		writer := zip.NewWriter(&out)
+		for _, entry := range source.File {
+			reader, readErr := entry.Open()
+			require.NoError(t, readErr)
+			header := entry.FileHeader
+			file, createErr := writer.CreateHeader(&header)
+			require.NoError(t, createErr)
+			_, copyErr := io.Copy(file, reader)
+			require.NoError(t, copyErr)
+			require.NoError(t, reader.Close())
+		}
+		header := &zip.FileHeader{Name: "padding.bin", Method: zip.Store}
+		file, err := writer.CreateHeader(header)
+		require.NoError(t, err)
+		_, err = io.CopyN(file, bytes.NewReader(make([]byte, padding)), int64(padding))
+		require.NoError(t, err)
+		require.NoError(t, writer.Close())
+		return out.Bytes()
+	}
+
+	padding := size
+	for range 3 {
+		data := build(padding)
+		if len(data) == size {
+			return data
+		}
+		padding += size - len(data)
+	}
+	t.Fatalf("could not build workbook of exactly %d bytes", size)
+	return nil
 }
 
 func TestXlsxInspectJSON(t *testing.T) {
@@ -144,6 +223,37 @@ func TestXlsxReadJSONAndText(t *testing.T) {
 	assert.Contains(t, text, "Warning: stopped after 1 rows")
 }
 
+// --types reads Japanese forms under a pinned type. A cell that still does
+// not convert fails the read, or with --on-type-error reads as null or as it
+// was, with a warning either way.
+func TestXlsxReadPinsTypes(t *testing.T) {
+	t.Parallel()
+	path := filepath.Join(t.TempDir(), "amounts.xlsx")
+	table := workbook.Table{Columns: []string{"金額", "期日"}, Rows: [][]any{{"１２３,４５６", "令和8年10月3日"}, {"未定", "R8.10.31"}}}
+	_, err := workbook.Write(context.Background(), path, table, workbook.WriteOptions{Header: true})
+	require.NoError(t, err)
+
+	_, err = runXlsx(t, "read", path, "--types", "金額:number,期日:date")
+	require.ErrorContains(t, err, `Sheet1!A3: expected number, found "未定"`)
+	for mode, want := range map[string]any{"warn": nil, "keep": "未定"} {
+		out, err := runXlsx(t, "read", path, "--types", `{"金額": "number", "期日": "date"}`, "--on-type-error", mode, "--format", "json")
+		require.NoError(t, err, mode)
+		var result workbook.ReadResult
+		require.NoError(t, json.Unmarshal([]byte(out), &result))
+		require.Len(t, result.Rows, 2)
+		assert.Equal(t, float64(123456), result.Rows[0]["金額"])
+		assert.Equal(t, "2026-10-03", result.Rows[0]["期日"])
+		assert.Equal(t, want, result.Rows[1]["金額"], mode)
+		assert.Equal(t, "2026-10-31", result.Rows[1]["期日"])
+		assert.Len(t, result.Warnings, 1, mode)
+	}
+
+	_, err = runXlsx(t, "read", path, "--types", "金額:money")
+	require.ErrorContains(t, err, `--types: types.金額: unknown column type "money"`)
+	_, err = runXlsx(t, "read", path, "--on-type-error", "skip")
+	require.ErrorContains(t, err, `--on-type-error: "skip" is not fail, warn, null, or keep`)
+}
+
 func TestXlsxReadTextEscapesDelimiters(t *testing.T) {
 	t.Parallel()
 	path := filepath.Join(t.TempDir(), "notes.xlsx")
@@ -221,6 +331,71 @@ func TestXlsxProtectedWorkbook(t *testing.T) {
 	require.ErrorContains(t, err, want)
 	_, err = runXlsx(t, "inspect", path, "--password", "")
 	require.ErrorContains(t, err, want)
+
+	input, err := os.ReadFile(path)
+	require.NoError(t, err)
+	_, err = runXlsxWithStdin(t, input, "inspect", "-", "--password", "nope")
+	require.ErrorContains(t, err, "-: "+workbook.ErrPassword.Error())
+	out, err = runXlsxWithStdin(t, input, "read", "-", "--password", "secret", "--format", "json")
+	require.NoError(t, err)
+	assert.Contains(t, out, "INV-1")
+}
+
+func TestXlsxStdinMatchesFile(t *testing.T) {
+	t.Parallel()
+	path := writeTestWorkbook(t)
+	input, err := os.ReadFile(path)
+	require.NoError(t, err)
+
+	fileRead, err := runXlsx(t, "read", path, "--format", "json")
+	require.NoError(t, err)
+	stdinRead, err := runXlsxWithStdin(t, input, "read", "-", "--format", "json")
+	require.NoError(t, err)
+	assert.JSONEq(t, fileRead, stdinRead)
+	fileReadText, err := runXlsx(t, "read", path)
+	require.NoError(t, err)
+	stdinReadText, err := runXlsxWithStdin(t, input, "read", "-")
+	require.NoError(t, err)
+	assert.Equal(t, fileReadText, stdinReadText)
+
+	fileInspect, err := runXlsx(t, "inspect", path, "--format", "json", "--rows", "1")
+	require.NoError(t, err)
+	stdinInspect, err := runXlsxWithStdin(t, input, "inspect", "-", "--format", "json", "--rows", "1")
+	require.NoError(t, err)
+	var want, got map[string]any
+	require.NoError(t, json.Unmarshal([]byte(fileInspect), &want))
+	require.NoError(t, json.Unmarshal([]byte(stdinInspect), &got))
+	want["path"] = "-"
+	assert.Equal(t, want, got)
+
+	fileInspectText, err := runXlsx(t, "inspect", path)
+	require.NoError(t, err)
+	stdinInspectText, err := runXlsxWithStdin(t, input, "inspect", "-")
+	require.NoError(t, err)
+	fileInspectText = strings.Replace(fileInspectText, filepath.Base(path)+":", "-:", 1)
+	assert.Equal(t, fileInspectText, stdinInspectText)
+}
+
+func TestXlsxStdinErrorsAndLimit(t *testing.T) {
+	t.Parallel()
+	_, err := runXlsxWithStdin(t, nil, "read", "-")
+	require.ErrorContains(t, err, "-: not a valid .xlsx workbook")
+
+	_, err = runXlsxReader(t, errorReader{}, "inspect", "-")
+	require.ErrorContains(t, err, "reading workbook from stdin: stdin closed")
+
+	const max = 64 << 20
+	input := &countedReader{data: bytes.Repeat([]byte{'x'}, max+8)}
+	_, err = runXlsxReader(t, input, "read", "-")
+	require.ErrorContains(t, err, "stdin workbook exceeds 64 MiB limit")
+	assert.Equal(t, max+1, input.read, "stdin is consumed only through the bounded probe")
+}
+
+func TestXlsxStdinAcceptsLimit(t *testing.T) {
+	path := writeTestWorkbook(t)
+	input := workbookAtSize(t, path, 64<<20)
+	_, err := runXlsxWithStdin(t, input, "read", "-", "--format", "json")
+	require.NoError(t, err)
 }
 
 func TestXlsxErrors(t *testing.T) {

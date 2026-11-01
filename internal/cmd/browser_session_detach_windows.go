@@ -9,8 +9,8 @@ import (
 	"errors"
 	"os/exec"
 	"path/filepath"
-	"syscall"
 
+	"github.com/dagucloud/dagu/v2/internal/cmn/cmdutil"
 	"golang.org/x/sys/windows"
 )
 
@@ -19,18 +19,18 @@ import (
 // runs in the command's own directory rather than the caller's, which
 // Windows would keep from being removed while it runs.
 func startDetached(command string, args []string) error {
-	err := startWithFlags(command, args, windows.CREATE_NEW_PROCESS_GROUP|windows.DETACHED_PROCESS|windows.CREATE_BREAKAWAY_FROM_JOB)
+	err := startWithBreakaway(command, args, true)
 	if errors.Is(err, windows.ERROR_ACCESS_DENIED) {
 		// The job forbids breaking away; start the command inside it.
-		err = startWithFlags(command, args, windows.CREATE_NEW_PROCESS_GROUP|windows.DETACHED_PROCESS)
+		err = startWithBreakaway(command, args, false)
 	}
 	return err
 }
 
-func startWithFlags(command string, args []string, flags uint32) error {
+func startWithBreakaway(command string, args []string, breakaway bool) error {
 	cmd := exec.Command(command, args...) //nolint:gosec // starting this executable's own watchdog is the purpose
 	cmd.Dir = filepath.Dir(command)
-	cmd.SysProcAttr = &syscall.SysProcAttr{CreationFlags: flags}
+	cmd.SysProcAttr = cmdutil.DetachAttr(breakaway)
 	if err := cmd.Start(); err != nil {
 		return err
 	}

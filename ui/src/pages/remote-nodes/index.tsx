@@ -203,10 +203,10 @@ export default function RemoteNodesPage() {
     node.source === RemoteNodeResponseSource.store;
 
   return (
-    <div className="flex flex-col gap-4 max-w-7xl">
+    <div className="flex flex-col gap-4">
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-lg font-semibold">
+          <h1 className="text-2xl font-semibold tracking-[-0.01em]">
             <I18nText text={'Remote Nodes'} />
           </h1>
           <p className="text-sm text-muted-foreground">
@@ -216,10 +216,11 @@ export default function RemoteNodesPage() {
         <Button
           onClick={() => setShowCreateModal(true)}
           size="sm"
+          variant="primary"
           className="h-8"
         >
           <Plus className="h-4 w-4 mr-1.5" />
-          <I18nText text={'Add Node'} />
+          <I18nText text={'Add node'} />
         </Button>
       </div>
 
@@ -251,7 +252,11 @@ export default function RemoteNodesPage() {
               <TableHead className="w-[120px]">
                 <I18nText text={'Status'} />
               </TableHead>
-              <TableHead className="w-[80px]"></TableHead>
+              <TableHead className="w-[80px]">
+                <span className="sr-only">
+                  <I18nText text={'Actions'} />
+                </span>
+              </TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
@@ -359,7 +364,7 @@ export default function RemoteNodesPage() {
                             disabled={isTesting}
                           >
                             <Unplug className="h-4 w-4 mr-2" />
-                            <I18nText text={'Test Connection'} />
+                            <I18nText text={'Test connection'} />
                           </DropdownMenuItem>
                           {isStoreNode(node) && (
                             <DropdownMenuItem
@@ -415,7 +420,7 @@ export default function RemoteNodesPage() {
       {/* Delete Confirmation */}
       <I18nProps>
         <ConfirmModal
-          title="Delete Remote Node"
+          title="Delete remote node"
           buttonText="Delete"
           visible={!!deletingNode}
           dismissModal={() => setDeletingNode(null)}

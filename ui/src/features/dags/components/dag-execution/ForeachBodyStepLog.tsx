@@ -17,6 +17,8 @@ type Props = {
   stream: Stream;
   /** Status of the body step when the viewer opened. */
   initialStatus?: NodeStatus;
+  /** Offers the Page View switch (default true). */
+  pageView?: boolean;
 };
 
 /**
@@ -32,6 +34,7 @@ function ForeachBodyStepLog({
   foreach,
   stream,
   initialStatus,
+  pageView,
 }: Props) {
   const [status, setStatus] = React.useState(initialStatus);
   const { data } = useForeachItem(
@@ -57,6 +60,7 @@ function ForeachBodyStepLog({
       stream={stream}
       status={status}
       foreach={foreach}
+      pageView={pageView}
     />
   );
 }

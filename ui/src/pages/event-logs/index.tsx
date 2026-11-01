@@ -34,12 +34,14 @@ import {
 } from '@/components/ui/table';
 import { ToggleButton, ToggleGroup } from '@/components/ui/toggle-group';
 import { AppBarContext } from '@/contexts/AppBarContext';
+import { buildDAGPageURL } from '@/features/dag-runs/lib/dagRunUrls';
 import { useCanViewEventLogs } from '@/contexts/AuthContext';
 import { useConfig } from '@/contexts/ConfigContext';
 import { useSearchState } from '@/contexts/SearchStateContext';
 import { useClient, useQuery } from '@/hooks/api';
 import { FetchError } from '@/lib/fetchJson';
 import dayjs from '@/lib/dayjs';
+import { statusLabelText } from '@/lib/status-utils';
 import { cn } from '@/lib/utils';
 import {
   Activity,
@@ -53,6 +55,7 @@ import { Link, useSearchParams } from 'react-router-dom';
 import { I18nText } from '@/i18n/I18nText';
 import { I18nProps } from '@/i18n/I18nProps';
 import { useI18n } from '@/i18n/I18nProvider';
+import { getQueryErrorMessage } from '@/lib/queryErrors';
 
 type EventLogEntry = components['schemas']['EventLogEntry'];
 type EventLogsResponse = components['schemas']['EventLogsResponse'];
@@ -126,7 +129,9 @@ function getOutcomeLabel(type: string, status?: string): string {
       return 'Rejected';
     default:
       if (status) {
-        return status.replace(/_/g, ' ');
+        // Statuses outside the known set still read as words.
+        const label = statusLabelText(status);
+        return label === status ? status.replace(/_/g, ' ') : label;
       }
       return type;
   }
@@ -176,11 +181,15 @@ function getInputTypeForPeriod(period: SpecificPeriod): string {
   }
 }
 
-function buildRunPath(entry: EventLogEntry): string | null {
+function buildRunPath(entry: EventLogEntry, remoteNode: string): string | null {
   if (!entry.dagName || !entry.dagRunId) {
     return null;
   }
-  return `/dag-runs/${encodeURIComponent(entry.dagName)}/${encodeURIComponent(entry.dagRunId)}`;
+  return buildDAGPageURL({
+    fileName: entry.dagName,
+    remoteNode,
+    run: entry.dagRunId,
+  });
 }
 
 function hasQueryParams(params: URLSearchParams): boolean {
@@ -844,7 +853,7 @@ export default function EventLogsPage() {
   } else if (error instanceof Error) {
     errorMessage = error.message;
   } else if (error) {
-    errorMessage = 'Failed to load event logs';
+    errorMessage = getQueryErrorMessage(error, 'Failed to load event logs');
   }
 
   if (!canViewEventLogs) {
@@ -859,17 +868,15 @@ export default function EventLogsPage() {
 
   return (
     <>
-      <div className="flex flex-col gap-4 max-w-7xl h-full">
+      <div className="flex flex-col gap-4 h-full">
         <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
           <div>
-            <h1 className="text-lg font-semibold">
+            <h1 className="text-2xl font-semibold tracking-[-0.01em]">
               <I18nText text={'Events'} />
             </h1>
             <p className="text-sm text-muted-foreground">
               <I18nText
-                text={
-                  'Recent DAG-run outcome events for the selected remote node'
-                }
+                text={'Recent run outcome events for the selected remote node'}
               />
             </p>
             <p className="text-xs text-muted-foreground mt-1">
@@ -905,6 +912,7 @@ export default function EventLogsPage() {
                 }
               }}
               disabled={!isAutoRefreshAvailable}
+              aria-pressed={autoRefresh && isAutoRefreshAvailable}
               aria-label={ts('Auto-refresh {state}', {
                 state: ts(autoRefresh ? 'enabled' : 'disabled'),
               })}
@@ -922,24 +930,26 @@ export default function EventLogsPage() {
                   autoRefresh && isAutoRefreshAvailable && 'text-success'
                 )}
               />
-              <I18nText text={'Auto:'} />{' '}
               {autoRefresh && isAutoRefreshAvailable ? (
-                <I18nText text={'ON'} />
+                <I18nText text={'Live'} />
               ) : (
-                <I18nText text={'OFF'} />
+                <I18nText text={'Paused'} />
               )}
             </Button>
             <RefreshButton onRefresh={handleRefresh} />
           </div>
         </div>
 
-        <div className="card-obsidian p-4 flex flex-col gap-4">
+        <div className="flex flex-col gap-2">
           <div className="flex flex-wrap items-center gap-2">
             <Select
               value={draftFilters.type}
               onValueChange={(value) => updateDraftFilters({ type: value })}
             >
-              <SelectTrigger className="w-[180px] h-8">
+              <SelectTrigger
+                className="w-[180px] h-8"
+                aria-label={ts('Outcome')}
+              >
                 <I18nProps>
                   <SelectValue placeholder="All outcomes" />
                 </I18nProps>
@@ -961,7 +971,7 @@ export default function EventLogsPage() {
                     updateDraftFilters({ dagName: event.target.value })
                   }
                   onKeyDown={handleKeyDown}
-                  placeholder="Filter by DAG name"
+                  placeholder="Filter by workflow name"
                   className="h-8 w-[220px] pl-7"
                 />
               </I18nProps>
@@ -973,7 +983,7 @@ export default function EventLogsPage() {
                   updateDraftFilters({ dagRunId: event.target.value })
                 }
                 onKeyDown={handleKeyDown}
-                placeholder="DAG run ID"
+                placeholder="Run ID"
                 className="h-8 w-[220px]"
               />
             </I18nProps>
@@ -989,7 +999,8 @@ export default function EventLogsPage() {
               />
             </I18nProps>
             <Button type="button" size="sm" onClick={handleApplyFilters}>
-              <I18nText text={'Apply Filters'} />
+              <Search className="h-4 w-4" />
+              <I18nText text={'Search'} />
             </Button>
             <Button
               type="button"
@@ -1043,7 +1054,10 @@ export default function EventLogsPage() {
                 value={draftFilters.datePreset}
                 onValueChange={handleDatePresetChange}
               >
-                <SelectTrigger className="w-[180px] h-8">
+                <SelectTrigger
+                  className="w-[180px] h-8"
+                  aria-label={ts('Time range')}
+                >
                   <I18nProps>
                     <SelectValue placeholder="Select period" />
                   </I18nProps>
@@ -1075,7 +1089,10 @@ export default function EventLogsPage() {
                   value={draftFilters.specificPeriod}
                   onValueChange={handleSpecificPeriodSelect}
                 >
-                  <SelectTrigger className="w-[110px] h-8">
+                  <SelectTrigger
+                    className="w-[110px] h-8"
+                    aria-label={ts('Period')}
+                  >
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
@@ -1171,7 +1188,7 @@ export default function EventLogsPage() {
                     <I18nText text={'Outcome'} />
                   </TableHead>
                   <TableHead>
-                    <I18nText text={'DAG'} />
+                    <I18nText text={'Workflow'} />
                   </TableHead>
                   <TableHead>
                     <I18nText text={'Run ID'} />
@@ -1210,7 +1227,7 @@ export default function EventLogsPage() {
                   </TableRow>
                 ) : (
                   entries.map((entry) => {
-                    const runPath = buildRunPath(entry);
+                    const runPath = buildRunPath(entry, remoteKey);
                     return (
                       <TableRow key={entry.id}>
                         <TableCell className="whitespace-nowrap text-muted-foreground">
@@ -1237,7 +1254,7 @@ export default function EventLogsPage() {
                             <span className="text-muted-foreground">-</span>
                           )}
                         </TableCell>
-                        <TableCell className="font-mono break-all">
+                        <TableCell className="font-mono whitespace-nowrap">
                           {runPath && entry.dagRunId ? (
                             <Link
                               to={runPath}
@@ -1251,7 +1268,7 @@ export default function EventLogsPage() {
                             <span className="text-muted-foreground">-</span>
                           )}
                         </TableCell>
-                        <TableCell className="font-mono break-all">
+                        <TableCell className="font-mono whitespace-nowrap">
                           {entry.attemptId || '-'}
                         </TableCell>
                         <TableCell>
@@ -1270,7 +1287,7 @@ export default function EventLogsPage() {
                               <Button variant="ghost" size="sm" asChild>
                                 <Link to={runPath}>
                                   <ExternalLink className="h-4 w-4" />
-                                  <I18nText text={'Open Run'} />
+                                  <I18nText text={'Open run'} />
                                 </Link>
                               </Button>
                             ) : null}
@@ -1281,7 +1298,7 @@ export default function EventLogsPage() {
                               onClick={() => setSelectedEvent(entry)}
                             >
                               <FileJson className="h-4 w-4" />
-                              <I18nText text={'View Raw'} />
+                              <I18nText text={'View raw'} />
                             </Button>
                           </div>
                         </TableCell>
@@ -1318,7 +1335,7 @@ export default function EventLogsPage() {
                   {isLoadingMore ? (
                     <I18nText text={'Loading...'} />
                   ) : (
-                    <I18nText text={'Load More'} />
+                    <I18nText text={'Load more'} />
                   )}
                 </Button>
               ) : null}

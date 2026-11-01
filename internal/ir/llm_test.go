@@ -160,6 +160,16 @@ func TestParseThinkingEffort(t *testing.T) {
 			want:  "",
 		},
 		{
+			name:  "none effort",
+			input: "none",
+			want:  ThinkingEffortNone,
+		},
+		{
+			name:  "minimal effort",
+			input: "minimal",
+			want:  ThinkingEffortMinimal,
+		},
+		{
 			name:  "low effort",
 			input: "low",
 			want:  ThinkingEffortLow,
@@ -178,6 +188,11 @@ func TestParseThinkingEffort(t *testing.T) {
 			name:  "xhigh effort",
 			input: "xhigh",
 			want:  ThinkingEffortXHigh,
+		},
+		{
+			name:  "max effort",
+			input: "max",
+			want:  ThinkingEffortMax,
 		},
 		{
 			name:    "invalid effort",

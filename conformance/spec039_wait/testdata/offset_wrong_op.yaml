@@ -1,0 +1,5 @@
+steps:
+  - action: wait.duration
+    with:
+      duration: 1s
+      offset: 1m

@@ -3,16 +3,11 @@
  *
  * @module features/dags/components/dag-editor
  */
-import dayjs from '@/lib/dayjs';
-import { Calendar, CheckSquare, Settings, Tag } from 'lucide-react';
+import { CheckSquare, Settings, Tag, Variable } from 'lucide-react';
 import { components } from '../../../../api/v1/schema';
 import { Badge } from '@/components/ui/badge';
-import {
-  getScheduleKey,
-  getScheduleLabel,
-  parseNextRun,
-} from '../../../../lib/dagSchedule';
 import { useI18n } from '@/i18n/I18nProvider';
+import { envVariableNames, visibleLabels } from './workflowLabels';
 import { I18nText } from '@/i18n/I18nText';
 
 /**
@@ -24,62 +19,25 @@ type Props = {
 };
 
 /**
- * DAGAttributes displays the configuration of a DAG, such as its schedule,
- * parameters and run limits.
+ * DAGAttributes displays the configuration of a DAG, such as its parameters
+ * and run limits. The schedule is a launcher of the canvas.
  */
 function DAGAttributes({ dag }: Props) {
-  const { locale } = useI18n();
-  const nextRun = parseNextRun(dag.nextRun);
+  const { ts } = useI18n();
+  const labels = visibleLabels(dag);
+  const envNames = envVariableNames(dag.env);
 
   return (
     <div>
       <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-        {/* Schedule */}
-        <div className="space-y-1 md:col-span-2">
-          <div className="flex items-center gap-2 text-sm font-medium text-muted-foreground mb-2">
-            <Calendar className="h-4 w-4" />
-            <span><I18nText text={"Schedule"} /></span>
-          </div>
-
-          {!dag.schedule?.length ? (
-            <div className="text-sm text-muted-foreground italic">
-              <I18nText text={"No schedule defined"} />
-            </div>
-          ) : (
-            <div className="space-y-2">
-              <div className="flex flex-wrap gap-2">
-                {dag.schedule?.map((schedule, index) => (
-                  <Badge
-                    key={getScheduleKey(schedule, index)}
-                    variant="outline"
-                    title={
-                      schedule.kind === 'at'
-                        ? schedule.at || undefined
-                        : schedule.expression || undefined
-                    }
-                    className="max-w-full justify-start bg-primary/10 px-2.5 py-1 text-primary border-primary/30 whitespace-nowrap normal-case tracking-normal"
-                  >
-                    {getScheduleLabel(schedule)}
-                  </Badge>
-                ))}
-              </div>
-
-              <div className="text-sm text-muted-foreground">
-                <span className="font-medium text-foreground"><I18nText text={"Next run:"} /></span>{' '}
-                {nextRun
-                  ? `${dayjs(nextRun).format('YYYY-MM-DD HH:mm:ss')} (${dayjs(nextRun).locale(locale === 'zh-CN' ? 'zh-cn' : locale).fromNow()})`
-                  : <I18nText text="No upcoming run" />}
-              </div>
-            </div>
-          )}
-        </div>
-
         {/* Parameters */}
         {dag.params && dag.params.length > 0 && (
           <div className="space-y-1">
             <div className="flex items-center gap-2 text-sm font-medium text-muted-foreground mb-2">
               <Tag className="h-4 w-4" />
-              <span><I18nText text={"Parameters"} /></span>
+              <span>
+                <I18nText text={'Parameters'} />
+              </span>
             </div>
 
             <div className="flex flex-wrap gap-2">
@@ -96,12 +54,60 @@ function DAGAttributes({ dag }: Props) {
           </div>
         )}
 
-        {/* Max Active Runs */}
+        {/* Labels */}
+        {labels.length > 0 && (
+          <div className="space-y-1">
+            <div className="flex items-center gap-2 text-sm font-medium text-muted-foreground mb-2">
+              <Tag className="h-4 w-4" />
+              <span>
+                <I18nText text={'Labels'} />
+              </span>
+            </div>
+
+            <div className="flex flex-wrap gap-2">
+              {labels.map((label) => (
+                <Badge
+                  key={label}
+                  variant="outline"
+                  className="h-auto max-w-full whitespace-normal wrap-anywhere bg-muted text-foreground/90 px-2.5 py-1"
+                >
+                  {label}
+                </Badge>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {/* Environment variables: names only, a value may be a secret */}
+        {envNames.length > 0 && (
+          <div className="space-y-1">
+            <div className="flex items-center gap-2 text-sm font-medium text-muted-foreground mb-2">
+              <Variable className="h-4 w-4" />
+              <span>
+                <I18nText text={'Environment variables'} />
+              </span>
+            </div>
+
+            <div className="flex flex-wrap gap-2">
+              {envNames.map((name) => (
+                <Badge
+                  key={name}
+                  variant="outline"
+                  className="h-auto max-w-full whitespace-normal wrap-anywhere bg-muted font-mono text-foreground/90 px-2.5 py-1 normal-case tracking-normal"
+                >
+                  {name}
+                </Badge>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {/* Max Active Steps: maxActiveRuns is ignored for local queues */}
         {dag.maxActiveSteps && (
           <div className="space-y-1">
             <div className="flex items-center gap-2 text-sm font-medium text-muted-foreground mb-2">
               <Settings className="h-4 w-4" />
-              <span><I18nText text={"Max Active Runs"} /></span>
+              <span>{ts('Max Active Steps')}</span>
             </div>
 
             <div className="font-medium text-foreground">
@@ -115,7 +121,9 @@ function DAGAttributes({ dag }: Props) {
           <div className="space-y-1">
             <div className="flex items-center gap-2 text-sm font-medium text-muted-foreground mb-2">
               <CheckSquare className="h-4 w-4" />
-              <span><I18nText text={"Preconditions"} /></span>
+              <span>
+                <I18nText text={'Preconditions'} />
+              </span>
             </div>
 
             <div className="space-y-2">

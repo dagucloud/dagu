@@ -8,9 +8,13 @@ import (
 	"fmt"
 	"log/slog"
 
+	"github.com/dagucloud/dagu/v2/internal/cmn/config"
 	"github.com/dagucloud/dagu/v2/internal/cmn/logger"
 	"github.com/dagucloud/dagu/v2/internal/cmn/logger/tag"
 	"github.com/dagucloud/dagu/v2/internal/eventstore"
+	"github.com/dagucloud/dagu/v2/internal/license"
+	"github.com/dagucloud/dagu/v2/internal/persis"
+	"github.com/dagucloud/dagu/v2/internal/persis/file"
 	filedag "github.com/dagucloud/dagu/v2/internal/persis/file/dag"
 	"github.com/dagucloud/dagu/v2/internal/runtime"
 	"github.com/dagucloud/dagu/v2/internal/service/scheduler"
@@ -63,6 +67,7 @@ func newScheduler(ctx *Context, deps scheduler.Dependencies) (*scheduler.Schedul
 			ctx.Config.Paths.DAGsDir, ctx.Persistence.DAGRepository,
 			ctx.Config.DAGDiscovery.Recursive, ctx.Config.Paths.BaseConfig,
 			workspace.BaseConfigDir(ctx.Config.Paths.DAGsDir),
+			filedag.WithChangeMarker(file.DAGChangeMarkerPath(ctx.Config), 0),
 		)
 	}
 	deps.DAGRepository = ctx.Persistence.DAGRepository
@@ -73,11 +78,49 @@ func newScheduler(ctx *Context, deps scheduler.Dependencies) (*scheduler.Schedul
 	deps.CoordinatorClient = coordinatorClient
 	deps.SchedulerStateStore = ctx.Persistence.SchedulerStateStore
 	deps.SchedulerPauseStore = ctx.Persistence.SchedulerPauseStore
+	deps.WatchStore = ctx.Persistence.WatchStateStore
 	deps.DAGRunLeaseStore = ctx.Persistence.DAGRunLeaseStore
 	deps.DispatchTaskStore = ctx.Persistence.DispatchTaskStore
 	deps.WorkerHeartbeatStore = ctx.Persistence.WorkerHeartbeatStore
 	deps.LicenseManager = ctx.LicenseManager
+	addPublicWebhooks(ctx, &deps)
 	return scheduler.New(ctx.Config, deps)
+}
+
+// addPublicWebhooks gives the scheduler what holding public webhook URLs
+// needs. Webhooks exist only under builtin auth.
+func addPublicWebhooks(ctx *Context, deps *scheduler.Dependencies) {
+	if ctx.Config.Server.Auth.Mode != config.AuthModeBuiltin {
+		return
+	}
+	webhooks, status, err := schedulerfile.NewPublicWebhookStores(ctx.Config, ctx.backend)
+	if err != nil {
+		logger.Warn(ctx, "Public webhook URLs are disabled because the webhook store is unavailable", tag.Error(err))
+		return
+	}
+	credentials := cloudCredentials(ctx)
+	if credentials == nil {
+		return
+	}
+	deps.Webhooks = webhooks
+	deps.PublicWebhookStore = status
+	deps.CloudCredentials = credentials
+}
+
+// cloudCredentials returns the server's Dagu Cloud credentials from the
+// license manager, or from the stored license in a scheduler started on its
+// own, which runs no license manager.
+func cloudCredentials(ctx *Context) func() (license.CloudCredentials, bool) {
+	if ctx.LicenseManager != nil {
+		return ctx.LicenseManager.CloudCredentials
+	}
+	pubKey, err := license.PublicKey()
+	if err != nil {
+		logger.Warn(ctx, "Public webhook URLs are disabled because the license public key is unavailable", tag.Error(err))
+		return nil
+	}
+	activations := file.NewLicenseStore(ctx, ctx.backend.Collection(persis.CollectionLicense))
+	return license.StoredCloudCredentials(activations, pubKey, ctx.Config.License.CloudURL)
 }
 
 // runScheduler reads the "dags" flag (if present) to override the configured DAGs directory, initializes a scheduler, and starts it in the foreground.

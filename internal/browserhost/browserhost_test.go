@@ -79,7 +79,7 @@ func (f *fakeBrowser) start() {
 func (f *fakeBrowser) serve(w http.ResponseWriter, r *http.Request) {
 	if r.URL.Path == "/json/version" {
 		wsURL := "ws" + strings.TrimPrefix(f.server.URL, "http") + "/devtools/browser/test"
-		_ = json.NewEncoder(w).Encode(map[string]string{"webSocketDebuggerUrl": wsURL})
+		_ = json.NewEncoder(w).Encode(map[string]string{"webSocketDebuggerUrl": wsURL, "Browser": fakeProduct, "User-Agent": fakeUserAgent})
 		return
 	}
 	conn, err := websocket.Accept(w, r, nil)
@@ -120,6 +120,12 @@ func (f *fakeBrowser) calls() []string {
 	return append([]string(nil), f.methods...)
 }
 
+// fakeProduct and fakeUserAgent are what a fakeBrowser says about itself.
+const (
+	fakeProduct   = "Chrome/155.0.8059.80"
+	fakeUserAgent = "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/155.0.0.0 Safari/537.36"
+)
+
 // unreachableURL is a DevTools URL nothing can listen on. A port freed by a
 // closed server is not used, since a concurrent test may bind it again.
 const unreachableURL = "http://127.0.0.1:0"
@@ -129,7 +135,7 @@ func TestStoreRoundTrip(t *testing.T) {
 
 	store := browserhost.NewStore(t.TempDir())
 	record := browserhost.Record{
-		ID:       browserhost.RecordID("run-1", "login"),
+		ID:       browserhost.RecordID("run-1", "", "login"),
 		DAGRunID: "run-1",
 		StepName: "login",
 		State:    browserhost.StateDetached,
@@ -200,6 +206,34 @@ func TestProbeAndClose(t *testing.T) {
 	assert.NoError(t, browserhost.CloseBrowser(context.Background(), unreachableURL), "an unreachable browser is already closed")
 }
 
+func TestBrowserID(t *testing.T) {
+	t.Parallel()
+
+	first, second := newFakeBrowser(t), newFakeBrowser(t)
+	id, err := browserhost.BrowserID(context.Background(), first.server.URL)
+	require.NoError(t, err)
+	again, err := browserhost.BrowserID(context.Background(), first.server.URL)
+	require.NoError(t, err)
+	assert.Equal(t, id, again)
+	other, err := browserhost.BrowserID(context.Background(), second.server.URL)
+	require.NoError(t, err)
+	assert.NotEqual(t, id, other)
+
+	_, err = browserhost.BrowserID(context.Background(), unreachableURL)
+	assert.ErrorIs(t, err, browserhost.ErrUnreachable)
+}
+
+func TestBrowserVersion(t *testing.T) {
+	t.Parallel()
+
+	version, err := browserhost.BrowserVersion(context.Background(), newFakeBrowser(t).server.URL)
+	require.NoError(t, err)
+	assert.Equal(t, browserhost.Version{Product: fakeProduct, UserAgent: fakeUserAgent}, version)
+
+	_, err = browserhost.BrowserVersion(context.Background(), unreachableURL)
+	assert.ErrorIs(t, err, browserhost.ErrUnreachable)
+}
+
 func TestUsesProfile(t *testing.T) {
 	t.Parallel()
 
@@ -259,6 +293,19 @@ func TestSweep(t *testing.T) {
 			name:   "detached for a step that cannot resume",
 			record: browserhost.Record{State: browserhost.StateDetached, Deadline: now.Add(time.Hour), StepName: "cancelled"},
 		},
+		{
+			name:   "running with a live write gate",
+			record: browserhost.Record{State: browserhost.StateRunning, OwnerPID: os.Getpid(), OwnerStartedAt: startedAt, WriteGatePID: os.Getpid(), WriteGateStartedAt: startedAt},
+			kept:   true,
+		},
+		{
+			name:   "running after its write gate died",
+			record: browserhost.Record{State: browserhost.StateRunning, OwnerPID: os.Getpid(), OwnerStartedAt: startedAt, WriteGatePID: 1 << 30},
+		},
+		{
+			name:   "detached after its write gate died",
+			record: browserhost.Record{State: browserhost.StateDetached, Deadline: now.Add(time.Hour), WriteGatePID: 1 << 30},
+		},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
@@ -314,6 +361,7 @@ func TestSweepSessions(t *testing.T) {
 		{name: "idle past its deadline while a command holds it", record: browserhost.Record{State: browserhost.StateInteractive, Deadline: now.Add(-time.Second)}, held: true, want: "kept"},
 		{name: "running with a live command", record: browserhost.Record{State: browserhost.StateRunning, OwnerPID: os.Getpid(), OwnerStartedAt: startedAt}, want: "kept"},
 		{name: "running after its command died", record: browserhost.Record{State: browserhost.StateRunning, OwnerPID: 1 << 30}, want: "ended"},
+		{name: "idle after its write gate died", record: browserhost.Record{State: browserhost.StateInteractive, Deadline: now.Add(time.Minute), WriteGatePID: 1 << 30}, want: "ended"},
 		{name: "ended within its retention", record: browserhost.Record{State: browserhost.StateEnded, Deadline: now.Add(time.Hour)}, want: "kept"},
 		{name: "ended past its retention", record: browserhost.Record{State: browserhost.StateEnded, Deadline: now.Add(-time.Second)}, want: "purged"},
 	} {

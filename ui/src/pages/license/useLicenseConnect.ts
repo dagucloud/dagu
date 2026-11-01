@@ -1,9 +1,14 @@
 // Copyright (C) 2026 Yota Hamada
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-import { useCallback, useEffect, useState } from 'react';
-import { LicenseConnectStatusState, type components } from '@/api/v1/schema';
+import { useCallback, useEffect, useRef, useState } from 'react';
+import {
+  LicenseConnectStatusState,
+  type components,
+  type LicenseMonitoringLevel,
+} from '@/api/v1/schema';
 import { useClient } from '@/hooks/api';
+import { subscribeClock } from '@/hooks/useClock';
 import { useI18n } from '@/i18n/I18nProvider';
 
 export type LicenseConnectStatus =
@@ -11,10 +16,21 @@ export type LicenseConnectStatus =
 
 const POLL_INTERVAL_MS = 2000;
 
+/** Asks the approval page to offer the trial of paid features first. */
+function withTrial(url: string | undefined, trial: boolean) {
+  if (!url || !trial) return url;
+  const next = new URL(url);
+  next.searchParams.set('trial', '1');
+  return next.toString();
+}
+
 /**
  * Drives a request to connect the selected server to Dagu Console: starts it,
  * opens the approval page, and follows it until it is approved, fails, or
- * expires. `failure` says why the last request failed, if it did.
+ * expires. `start` takes what the server reports once connected, if chosen,
+ * and whether to start the trial of paid features; `retry` starts again with
+ * the same choices. `connectUrl` opens the approval page of the pending
+ * request. `failure` says why the last request failed, if it did.
  */
 export function useLicenseConnect(remoteNode: string) {
   const client = useClient();
@@ -23,12 +39,14 @@ export function useLicenseConnect(remoteNode: string) {
   const [starting, setStarting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [popupBlocked, setPopupBlocked] = useState(false);
+  const lastReport = useRef<LicenseMonitoringLevel | undefined>(undefined);
+  const [trial, setTrial] = useState(false);
 
   const pending = status?.state === LicenseConnectStatusState.pending;
   useEffect(() => {
     if (!pending) return;
     let stopped = false;
-    const timer = window.setInterval(async () => {
+    const stopPolling = subscribeClock(POLL_INTERVAL_MS, async () => {
       try {
         const { data } = await client.GET('/license/connect', {
           params: { query: { remoteNode } },
@@ -37,47 +55,62 @@ export function useLicenseConnect(remoteNode: string) {
       } catch {
         // A failed poll is retried on the next tick.
       }
-    }, POLL_INTERVAL_MS);
+    });
     return () => {
       stopped = true;
-      window.clearInterval(timer);
+      stopPolling();
     };
   }, [pending, client, remoteNode]);
 
-  const start = useCallback(async () => {
-    // Opened before any await so the browser treats it as a user action.
-    const tab = window.open('about:blank', '_blank');
-    if (tab) tab.opener = null;
-    setStarting(true);
-    setError(null);
-    setPopupBlocked(false);
-    try {
-      const { data, error: apiError } = await client.POST('/license/connect', {
-        params: { query: { remoteNode } },
-      });
-      if (apiError || !data) {
-        throw new Error(
-          apiError?.message || ts('Could not start connecting to Dagu Console.')
+  const start = useCallback(
+    async (report?: LicenseMonitoringLevel, withTrialOffer = false) => {
+      // Opened before any await so the browser treats it as a user action.
+      const tab = window.open('about:blank', '_blank');
+      if (tab) tab.opener = null;
+      lastReport.current = report;
+      setTrial(withTrialOffer);
+      setStarting(true);
+      setError(null);
+      setPopupBlocked(false);
+      try {
+        const { data, error: apiError } = await client.POST(
+          '/license/connect',
+          {
+            params: { query: { remoteNode } },
+            ...(report && { body: { report } }),
+          }
         );
-      }
-      setStatus(data);
-      if (tab && data.connectUrl) {
-        tab.location.href = data.connectUrl;
-      } else {
+        if (apiError || !data) {
+          throw new Error(
+            apiError?.message ||
+              ts('Could not start connecting to Dagu Console.')
+          );
+        }
+        setStatus(data);
+        if (tab && data.connectUrl) {
+          tab.location.href = withTrial(data.connectUrl, withTrialOffer)!;
+        } else {
+          tab?.close();
+          setPopupBlocked(true);
+        }
+      } catch (err) {
         tab?.close();
-        setPopupBlocked(true);
+        setError(
+          err instanceof Error
+            ? err.message
+            : ts('Could not start connecting to Dagu Console.')
+        );
+      } finally {
+        setStarting(false);
       }
-    } catch (err) {
-      tab?.close();
-      setError(
-        err instanceof Error
-          ? err.message
-          : ts('Could not start connecting to Dagu Console.')
-      );
-    } finally {
-      setStarting(false);
-    }
-  }, [client, remoteNode, ts]);
+    },
+    [client, remoteNode, ts]
+  );
+
+  const retry = useCallback(
+    () => start(lastReport.current, trial),
+    [start, trial]
+  );
 
   // The request stays pending here until the server confirms the cancel;
   // otherwise an approval could still install a license after "Cancel".
@@ -110,11 +143,13 @@ export function useLicenseConnect(remoteNode: string) {
 
   return {
     status,
+    connectUrl: withTrial(status?.connectUrl, trial),
     starting,
     error,
     failure,
     popupBlocked,
     start,
+    retry,
     cancel,
     clear,
   };

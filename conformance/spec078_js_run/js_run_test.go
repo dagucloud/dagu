@@ -83,6 +83,7 @@ func TestJSRunConfig(t *testing.T) {
 		{"missing_script.yaml", "with.script is required"},
 		{"both_inputs.yaml", "does not allow both with.input and with.input_file"},
 		{"syntax_error.yaml", "js: compile error"},
+		{"unknown_field.yaml", `unexpected additional properties ["inputs"]; did you mean "input" instead of "inputs"?`},
 	} {
 		t.Run(tc.fixture, func(t *testing.T) {
 			t.Parallel()

@@ -110,7 +110,7 @@ export default function APIDocsPage(): React.ReactElement {
         </div>
       </div>
 
-      <div className="min-h-0 flex-1 overflow-hidden rounded-2xl border border-border bg-background shadow-sm">
+      <div className="min-h-0 flex-1 overflow-hidden rounded-lg border border-border bg-background">
         {state.status === 'loading' && (
           <div className="flex h-full min-h-[420px] flex-col items-center justify-center gap-3 px-6 text-center">
             <RefreshCw className="h-5 w-5 animate-spin text-muted-foreground" />

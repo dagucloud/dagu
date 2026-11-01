@@ -24,6 +24,7 @@ const (
 	genericWait   = "wait"
 
 	genericClickElement = "click_element"
+	genericChooseOption = "choose_option"
 )
 
 // The done tool is how a model reports the task finished, in every mode.
@@ -40,13 +41,17 @@ const (
 	// conversation; older ones are replaced with a note to bound its size.
 	keptScreenshots   = 3
 	omittedScreenshot = "(An earlier screenshot was removed from the conversation.)"
+	// elementsHeader begins a screen's element list, and omittedElements
+	// stands in for one an earlier screen had.
+	elementsHeader  = "\nElements you can target with click_element by id:"
+	omittedElements = "(This screen's element list was removed; only the latest list's ids can be targeted.)"
 )
 
 // genericImageLimit fits the image limits of common vision models.
 var genericImageLimit = ImageLimit{LongEdge: 1568, MaxPixels: 1_150_000}
 
 const genericSystemPrompt = `You operate a computer by calling tools. After each round of tool calls you receive a screenshot of the screen. Coordinates are pixels in that screenshot, measured from its top-left corner.
-Put every action whose outcome you can predict into one round: for example, click a field, select all, type the text, and press Return together. Wait for a new screenshot only before an action that depends on what will appear, such as after opening a menu or a dialog. When the control you need is listed as an element, target it with click_element by its id instead of guessing a pixel position, which is far more reliable for buttons and menu items. To close a window, press Alt+F4 (on macOS, Cmd+Q) while it has the focus, which is more reliable than aiming at a small close button; these keys act on the focused window, so when another window may have the focus, click the target window first. This step refuses to operate the application that runs it, so these keys cannot close it. When a dialog asks whether to save, choose not to save. Key names follow common spelling, such as "Return", "Tab", "ctrl+c" or "cmd+space".
+Put every action whose outcome you can predict into one round: for example, click a field, select all, type the text, and press Tab to move to the next field. Wait for a new screenshot only before an action that depends on what will appear, such as after opening a menu or a dialog. When the control you need is listed as an element, target it with click_element by its id instead of guessing a pixel position, which is far more reliable for buttons and menu items; to pick an option of a combo box or pop-up, call choose_option with its id and the option's text. In a form or dialog, Return may press the default button, such as Save or OK, so do not press it to confirm a field or an option. To close a window, press Alt+F4 (on macOS, Cmd+Q) while it has the focus, which is more reliable than aiming at a small close button; these keys act on the focused window, so when another window may have the focus, click the target window first. This step refuses to operate the application that runs it, so these keys cannot close it. When a dialog asks whether to save, choose not to save. Key names follow common spelling, such as "Return", "Tab", "ctrl+c" or "cmd+space".
 ` + DoneInstruction
 
 // genericSession drives a model through plain function tools.
@@ -58,6 +63,15 @@ type genericSession struct {
 	// pending are the tool calls of the last turn, which the next
 	// observation must answer.
 	pending []pendingCall
+	// list is where the latest screen's element list begins, so the next
+	// screen removes that list and nothing else, such as a task that
+	// quotes its header; nil when no list is kept.
+	list *listStart
+}
+
+// listStart is the message an element list is in and the byte it starts at.
+type listStart struct {
+	message, at int
 }
 
 // pendingCall is a tool call awaiting its result. err is set when the call
@@ -78,12 +92,18 @@ func (s *genericSession) ImageLimit() ImageLimit {
 
 func (s *genericSession) Next(ctx context.Context, obs Observation) (*Turn, error) {
 	s.appendObservation(obs)
+	// A model asked only for its report is offered nothing else, so even
+	// one that cannot be forced to call a tool can only report or answer.
+	tools := genericTools
+	if obs.ReportOnly {
+		tools = []llm.Tool{doneTool}
+	}
 	resp, err := llm.ChatWithRetry(ctx, s.provider, &llm.ChatRequest{
 		Model:       s.opts.Model,
 		Messages:    s.messages,
 		Temperature: s.opts.Temperature,
 		MaxTokens:   s.opts.MaxTokens,
-		Tools:       genericTools,
+		Tools:       tools,
 		ToolChoice:  "required",
 	}, llm.DefaultLogicalRetryConfig())
 	if err != nil {
@@ -158,10 +178,18 @@ func (s *genericSession) appendObservation(obs Observation) {
 		text.WriteString(obs.Note + "\n\n")
 	}
 	fmt.Fprintf(&text, "Current screen (%dx%d pixels).", obs.Screen.Width, obs.Screen.Height)
+	s.dropOldElements()
 	if len(obs.Elements) > 0 {
-		text.WriteString("\nElements you can target with click_element by id:")
+		s.list = &listStart{message: len(s.messages), at: text.Len()}
+		text.WriteString(elementsHeader)
 		for _, e := range obs.Elements {
 			fmt.Fprintf(&text, "\n- %s: %s %q", e.ID, e.Role, e.Name)
+			switch {
+			case e.Value != "":
+				fmt.Fprintf(&text, " value %q", e.Value)
+			case e.Hint != "":
+				fmt.Fprintf(&text, " empty, showing the hint %q", e.Hint)
+			}
 		}
 	}
 	s.dropOldScreenshots()
@@ -170,6 +198,18 @@ func (s *genericSession) appendObservation(obs Observation) {
 		Content: text.String(),
 		Images:  []llm.Image{obs.Screen.Image},
 	})
+}
+
+// dropOldElements removes the element lists of earlier screens, whose ids
+// only the latest list names now, so the conversation does not carry every
+// list again.
+func (s *genericSession) dropOldElements() {
+	if s.list == nil {
+		return
+	}
+	message := &s.messages[s.list.message]
+	message.Content = message.Content[:s.list.at] + "\n" + omittedElements
+	s.list = nil
 }
 
 // dropOldScreenshots removes images from all but the latest screenshots,
@@ -228,6 +268,7 @@ type genericArgs struct {
 	Repeat    int      `json:"repeat"`
 	Seconds   float64  `json:"seconds"`
 	ElementID string   `json:"element_id"`
+	Option    string   `json:"option"`
 }
 
 func parseGenericAction(call llm.ToolCall) (Action, error) {
@@ -256,6 +297,13 @@ func parseGenericAction(call llm.ToolCall) (Action, error) {
 		action.Button = args.Button
 		action.Count = args.Count
 		action.Modifiers = args.Modifiers
+	case genericChooseOption:
+		if strings.TrimSpace(args.ElementID) == "" || strings.TrimSpace(args.Option) == "" {
+			return Action{}, fmt.Errorf("element_id and option are required")
+		}
+		action.Kind = KindChoose
+		action.ElementID = args.ElementID
+		action.Text = args.Option
 	case genericMove:
 		point, err := requiredPoint(args.X, args.Y)
 		if err != nil {
@@ -351,6 +399,10 @@ var genericTools = []llm.Tool{
 		"count":      map[string]any{"type": "integer", "minimum": 1, "maximum": 3, "description": "Number of clicks; 2 for a double click."},
 		"modifiers":  map[string]any{"type": "array", "items": map[string]any{"type": "string"}, "description": "Keys held during the click, such as shift or ctrl."},
 	}, "element_id"),
+	genericTool(genericChooseOption, "Choose an option of a combo box or pop-up listed by id in the latest observation, by the option's text, which the computer picks through the control itself. Prefer this over clicking through the control's list.", map[string]any{
+		"element_id": map[string]any{"type": "string", "description": "The id of the combo box or pop-up, such as e3."},
+		"option":     map[string]any{"type": "string", "description": "The option's text exactly as the list shows it."},
+	}, "element_id", "option"),
 	genericTool(genericMove, "Move the pointer without clicking.", map[string]any{
 		"x": integerProperty("Horizontal pixel position."),
 		"y": integerProperty("Vertical pixel position."),
@@ -377,8 +429,12 @@ var genericTools = []llm.Tool{
 	genericTool(genericWait, "Wait before looking at the screen again.", map[string]any{
 		"seconds": map[string]any{"type": "number", "minimum": 0, "maximum": 60},
 	}, "seconds"),
-	{Type: "function", Function: llm.ToolFunction{Name: DoneToolName, Description: DoneToolDescription, Parameters: DoneParameters()}},
+	doneTool,
 }
+
+// doneTool reports the task finished; a request for the model's report
+// offers it alone.
+var doneTool = llm.Tool{Type: "function", Function: llm.ToolFunction{Name: DoneToolName, Description: DoneToolDescription, Parameters: DoneParameters()}}
 
 func genericTool(name, description string, properties map[string]any, required ...string) llm.Tool {
 	return llm.Tool{

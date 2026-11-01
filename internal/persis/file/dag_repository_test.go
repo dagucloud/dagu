@@ -441,3 +441,23 @@ func newLegacyFlagsRepository(t *testing.T) (*persis.DAGRepository, *config.Conf
 	require.NoError(t, err)
 	return repo, cfg
 }
+
+// TestDAGChangeMarkerPathMatchesStore verifies the path readers poll is the
+// file the DAG store bumps for the same configuration.
+func TestDAGChangeMarkerPathMatchesStore(t *testing.T) {
+	t.Parallel()
+	cfg, _ := newDAGIndexTestConfig(t)
+	repo, err := persisfile.NewDAGRepository(cfg, persisfile.WithDAGSkipExamples(true))
+	require.NoError(t, err)
+
+	markerPath := persisfile.DAGChangeMarkerPath(cfg)
+	require.NotEmpty(t, markerPath)
+	assert.Equal(t, filepath.Join(cfg.Paths.DataDir, "cache", "dag-index"), filepath.Dir(markerPath))
+	require.NoFileExists(t, markerPath)
+
+	require.NoError(t, repo.Create(context.Background(), "beta", []byte("steps:\n  - name: s\n    command: echo hi\n")))
+	assert.FileExists(t, markerPath)
+
+	cfg.Paths.DataDir = ""
+	assert.Empty(t, persisfile.DAGChangeMarkerPath(cfg), "no data directory, no marker")
+}

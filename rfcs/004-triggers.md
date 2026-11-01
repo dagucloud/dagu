@@ -1,7 +1,8 @@
 # RFC 004: Triggers
 
-- **Status:** Proposed
-- **Date:** 2026-10-09
+- **Status:** Proposed; its first release, public URLs for per-DAG webhooks,
+  is specified below
+- **Date:** 2026-10-09, first release added 2026-10-14
 - **Affected areas:** `spec`, `eventstore`, `service/scheduler`,
   `service/frontend` (API, UI), `auth` (webhooks), `secret`, `tunnel`, and
   `cmn/config`
@@ -147,7 +148,7 @@ POST {base}/api/v1/triggers/{dag}/{trigger}/{token}
 ### Dagu Cloud
 
 ```text
-Sender ── POST https://hooks.<dagu domain>/<object id>/<token> ──▶ Dagu Cloud relay
+Sender ── POST https://hooks.dagu.sh/<object id>/<token> ──▶ Dagu Cloud relay
           ◀── 202 at once; the raw request is kept up to 7 days
 Relay ─── delivery frame over the server's outbound WebSocket ──▶ Dagu server
           ◀── delivered, once the event is persisted
@@ -158,8 +159,9 @@ Relay ─── delivery frame over the server's outbound WebSocket ──▶ Da
   With remote access off, the server answers every proxied request with `403`
   and handles only delivery frames.
 - **Frames:** `hooks`, `hooked`, `delivery`, and `delivered`, unchanged from
-  the relay's existing webhook contract. `hooks` replaces the whole set; the
-  hook ID is `<dag>/<trigger>`.
+  the relay's existing webhook contract. `hooks` replaces the whole set. A
+  hook ID names the trigger by an ID that survives renaming the DAG; the
+  built-in webhook trigger keeps `webhook/<webhook ID>`.
 - **The token is made by the server** (32 random bytes). The relay keeps only
   its SHA-256.
 - **Raw bytes and headers pass through unchanged,** so the server verifies
@@ -266,15 +268,118 @@ In v3.0, the per-DAG webhook becomes the DAG's built-in `webhook` trigger:
 | Condition errors or times out | The delivery shows the error; nothing starts. |
 | Same event delivered twice | The derived run ID already exists; nothing new starts. |
 
+## First release: public URLs for per-DAG webhooks
+
+A public URL is useful on its own, before sources, conditions, the matcher,
+and the builder. The first release gives each existing per-DAG webhook an
+optional public URL through Dagu Cloud. The trigger model follows only if
+public URLs are used.
+
+### Turning it on
+
+- Off by default. An admin turns it on per webhook, and the audit log records
+  it. The server must be connected to Dagu Cloud.
+- Turning it on makes a 32-byte token. The webhook store keeps it encrypted,
+  like the HMAC secret, so the page can show the URL again. Dagu Cloud gets
+  only its SHA-256. **New URL** replaces it; requests Dagu Cloud already
+  took through the old URL are still delivered. Turning the URL off drops
+  them.
+- The hook ID is `webhook/<webhook ID>`, so it stays the same when the DAG
+  is renamed: the webhook moves with the DAG, and its URL and anything
+  waiting for it survive the rename. The built-in webhook trigger keeps
+  this ID when triggers arrive, so URLs survive that move too.
+- The local endpoint keeps its token and `X-Dagu-Signature` checks.
+
+### Sender and events
+
+- **Sender:** anyone with the URL (the default), GitHub, Stripe, Slack, or
+  Standard Webhooks. The sender's secret is encrypted at rest. Timestamps are
+  checked against the time Dagu Cloud received the request, within 5
+  minutes, since a delivery can wait days. For GitHub, Dagu makes the secret.
+- **Slack** has Dagu Cloud answer its URL check, which starts no run.
+- **Events:** an optional list of event names. A name also takes the events
+  under it, so `issues` takes `issues.opened`; an empty list takes every
+  event. The name is GitHub's `X-GitHub-Event` and `.action` joined by a dot,
+  the body's `type` for Stripe and Standard Webhooks, and the wrapped
+  event's type for Slack.
+- GitHub's `ping`, sent when a webhook is created, never starts a run.
+
+### Connection
+
+- The scheduler that holds the scheduler lock holds the connection, so one
+  process per server connects. It connects only while the server is
+  connected to Dagu Cloud and some webhook is public, or Dagu Cloud still
+  holds URLs since turned off, which the server then drops.
+- It asks Dagu Cloud for a five-minute ticket with the license's
+  credentials (`POST /api/v1/servers/relay`), which also names the most
+  public URLs the plan allows, and connects to `wss://relay.dagu.sh/server`.
+  Every connection uses a fresh ticket.
+- Reconnects back off from 1 second to 1 minute. A connection closed with
+  reason `dropped` means Dagu Cloud disconnected the server; a refused ticket,
+  or one that allows none of the public URLs, waits 10 minutes before the
+  next try.
+
+### Hook set
+
+- The scheduler rereads the webhook store every 10 seconds and sends `hooks`
+  when the set changes, so turning a URL off takes effect within 10 seconds.
+- A new set makes Dagu Cloud delete every waiting delivery whose hook it
+  leaves out. So the set is sent only from a complete read: never before the
+  first read succeeds, and never from a read that failed or could not decode
+  a record. On such a read the last set stays.
+- It holds at most as many URLs as the ticket allows, the oldest first; the
+  page shows the others as over the plan's limit.
+
+### A delivery
+
+| Situation | Answer | Logged as |
+| --- | --- | --- |
+| Hook unknown, webhook removed, disabled, or not public | `ignored` | `ignored` |
+| Sender chosen and signature missing or invalid | `ignored` | `rejected`, with the reason |
+| GitHub's `ping`, or an event the list leaves out | `ignored` | `skipped` |
+| Body larger than `webhooks.max_payload_size` | `failed` | `failed` |
+| 100 runs already queued on the DAG's queue | `retry` after 60 seconds | `waiting` |
+| DAG fails to load or validate | `failed` | `failed`, with the error |
+| Storage error while enqueueing | `retry` after 30 seconds | `waiting` |
+| Enqueued, or a run with the delivery ID already exists | `started` | `started`, with the run |
+
+- The run ID is the delivery ID, so a delivery Dagu Cloud sends again starts
+  one run; a request the sender sends again is a new delivery.
+- The run's trigger type is `webhook`, and it uses the DAG's default
+  profile.
+
+### What the run receives
+
+- `WEBHOOK_PAYLOAD` is the body as it came, whatever its content type. It is
+  not read as the local endpoint's JSON request.
+- `WEBHOOK_HEADERS` holds the headers named in `webhook.forward_headers`, as
+  for local requests.
+- `WEBHOOK_PAYLOAD_FILE` is the path of a file holding the body, written by
+  the process that runs the DAG, so it works on workers too.
+  `WEBHOOK_PAYLOAD` stays set only while the body fits in one environment
+  variable where the run executes (128 KiB on Linux and macOS, 32,767
+  characters on Windows). Local requests get the same.
+
+### Deliveries and data
+
+- The scheduler keeps each public webhook's latest 20 deliveries: arrival,
+  size, event, how it was logged, and the run or the error. A delivery Dagu
+  Cloud sends again replaces its earlier entry. Bodies are not kept there.
+- It also keeps the counts Dagu Cloud reports of deliveries that waited longer
+  than 7 days or were refused while 1,000 waited, until an admin dismisses
+  them.
+- Webhook bodies wait at Dagu Cloud for up to 7 days.
+
 ## Compatibility and rollout
 
 | Release | Ships |
 | --- | --- |
-| v2.20 | Trigger model; `webhook`, `file`, and `dag` sources; local and public ingress; the UI builder and Deliveries; `DAGU_EVENT_FILE`; 7-day event retention when triggers exist. |
-| v2.21 | `github`, `stripe`, and `slack` sources. |
+| v2.20 | Public URLs for per-DAG webhooks (above). |
+| Later | Trigger model; `webhook`, `file`, and `dag` sources; local and public ingress; the UI builder and Deliveries; `DAGU_EVENT_FILE`; 7-day event retention when triggers exist. Starts only if public URLs are used. |
+| Later | `github`, `stripe`, and `slack` sources. |
 | v3.0 | The per-DAG webhook becomes a `webhook` trigger. |
 
-Public ingress ships in v2.20 because receiving webhooks behind a firewall is
+Public ingress ships first because receiving webhooks behind a firewall is
 useful to a single server; it does not wait for remote access.
 
 ## Verification and acceptance criteria

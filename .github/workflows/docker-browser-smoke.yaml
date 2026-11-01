@@ -1,5 +1,7 @@
 name: Dev Image Browser
 
+# Pull requests run only for changes to the image and the code the smoke tests
+# target directly. Pushes to main also cover the packages on the shutdown path.
 on:
   pull_request:
     types:
@@ -14,13 +16,9 @@ on:
       - deploy/docker/browser/**
       - internal/runtime/builtin/browser/**
       - internal/browserhost/**
-      - internal/cmn/config/**
-      - internal/cmd/**
+      - internal/cmd/signal.go
+      - internal/cmd/startall.go
       - internal/launcher/**
-      - internal/service/frontend/**
-      - internal/service/scheduler/**
-      - internal/runtime/node.go
-      - internal/runtime/plan.go
       - go.mod
       - go.sum
       - .github/workflows/docker-browser-smoke.yaml

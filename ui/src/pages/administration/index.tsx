@@ -26,9 +26,9 @@ function SectionLinks({
 }): React.ReactElement {
   return (
     <section className="space-y-2">
-      <h3 className="text-xs font-semibold uppercase text-muted-foreground">
+      <h2 className="text-sm font-medium text-muted-foreground">
         {section.title}
-      </h3>
+      </h2>
       <div className="grid gap-2 md:grid-cols-2 xl:grid-cols-3">
         {section.links.map((link) => (
           <Link

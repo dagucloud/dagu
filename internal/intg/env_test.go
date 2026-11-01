@@ -333,3 +333,48 @@ steps:
 	require.Contains(t, subOutputs.Outputs, "result")
 	assert.Equal(t, "/mnt/data/results", subOutputs.Outputs["result"])
 }
+
+// Dagu's own credentials reach the processes Dagu starts for itself, never a
+// step: not through the step's environment, and not through a DAG env entry
+// that names one. Dagu's other settings still reach the step.
+func TestStepsNeverSeeDaguCredentials(t *testing.T) {
+	t.Setenv("DAGU_AUTH_MODE", "basic")
+	t.Setenv("DAGU_AUTH_BASIC_USERNAME", "admin")
+	t.Setenv("DAGU_AUTH_BASIC_PASSWORD", "server-password")
+	t.Setenv("DAGU_ENCRYPTION_KEY", "store-key")
+	t.Setenv("DAGU_STEP_ENV_SETTING", "visible")
+	th := test.Setup(t)
+
+	credentials := `case "${DAGU_AUTH_BASIC_PASSWORD}|${DAGU_ENCRYPTION_KEY}|${FROM_DAG_ENV}" in
+  *server-password*|*store-key*) echo leaked ;;
+  *) echo hidden ;;
+esac`
+	setting := `echo "${DAGU_STEP_ENV_SETTING}"`
+	if runtime.GOOS == "windows" {
+		credentials = `if ("$env:DAGU_AUTH_BASIC_PASSWORD|$env:DAGU_ENCRYPTION_KEY|$env:FROM_DAG_ENV" -match 'server-password|store-key') {
+  Write-Output "leaked"
+} else {
+  Write-Output "hidden"
+}`
+		setting = `Write-Output $env:DAGU_STEP_ENV_SETTING`
+	}
+	dag := th.DAG(t, `
+env:
+  - FROM_DAG_ENV: "${DAGU_AUTH_BASIC_PASSWORD}"
+
+steps:
+  - name: credentials
+    run: |
+`+indentTestScript(credentials, 6)+`
+    output: CREDENTIALS
+  - name: setting
+    run: |
+`+indentTestScript(setting, 6)+`
+    output: SETTING
+`)
+	dag.Agent().RunSuccess(t)
+	dag.AssertOutputs(t, map[string]any{
+		"CREDENTIALS": "hidden",
+		"SETTING":     "visible",
+	})
+}

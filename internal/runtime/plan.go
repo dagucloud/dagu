@@ -78,8 +78,21 @@ func NewPlan(steps ...ir.Step) (*Plan, error) {
 	return p, nil
 }
 
+// RetryPlanOptions configures a default retry plan.
+type RetryPlanOptions struct {
+	// Resume preserves partially succeeded nodes for a checkpoint resume.
+	// Explicit retries leave this false and rerun partial work.
+	Resume bool
+}
+
 // CreateRetryPlan creates a new execution plan for retrying specific nodes.
 func CreateRetryPlan(ctx context.Context, dag *ir.DAG, nodes ...*Node) (*Plan, error) {
+	return CreateRetryPlanWithOptions(ctx, dag, RetryPlanOptions{}, nodes...)
+}
+
+// CreateRetryPlanWithOptions creates a default retry plan with explicit
+// checkpoint-resume behavior.
+func CreateRetryPlanWithOptions(ctx context.Context, dag *ir.DAG, opts RetryPlanOptions, nodes ...*Node) (*Plan, error) {
 	p := &Plan{
 		nodeByID:      make(map[int]*Node),
 		nodeByName:    make(map[string]*Node),
@@ -108,7 +121,7 @@ func CreateRetryPlan(ctx context.Context, dag *ir.DAG, nodes ...*Node) (*Plan, e
 	}
 
 	// Setup retry state
-	if err := p.setupRetry(ctx, steps); err != nil {
+	if err := p.setupRetry(ctx, steps, opts); err != nil {
 		return nil, err
 	}
 
@@ -454,9 +467,11 @@ func (p *Plan) isCyclic() bool {
 	return processedCount != len(p.nodes)
 }
 
-// setupRetry resets the state of failed/aborted nodes and their dependents.
-func (p *Plan) setupRetry(ctx context.Context, steps map[string]ir.Step) error {
-	// Identify nodes that need to be retried (failed or aborted)
+// setupRetry resets retryable nodes and their dependents. Checkpoint resumes
+// preserve partially succeeded nodes so completed manual gates stay complete.
+func (p *Plan) setupRetry(ctx context.Context, steps map[string]ir.Step, opts RetryPlanOptions) error {
+	// Identify nodes that need to be retried, including partial nodes for an
+	// explicit retry but excluding them for a checkpoint resume.
 	toRetry := make(map[int]bool)
 	nodeStatus := make(map[int]ir.NodeStatus)
 
@@ -477,6 +492,7 @@ func (p *Plan) setupRetry(ctx context.Context, steps map[string]ir.Step) error {
 		for _, u := range frontier {
 			shouldRetry := toRetry[u] ||
 				nodeStatus[u] == ir.NodeFailed ||
+				(nodeStatus[u] == ir.NodePartiallySucceeded && !opts.Resume) ||
 				nodeStatus[u] == ir.NodeRetrying ||
 				nodeStatus[u] == ir.NodeAborted ||
 				nodeStatus[u] == ir.NodeRejected

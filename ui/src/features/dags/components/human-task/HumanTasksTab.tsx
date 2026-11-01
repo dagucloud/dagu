@@ -39,6 +39,13 @@ type FormData = Record<string, unknown>;
 interface HumanTasksTabProps {
   dagRun: DAGRunDetails;
   onChanged: () => void;
+  /** Shows only the task of this step, without the run-level resume alert. */
+  stepName?: string;
+  /**
+   * The host is a padded panel: the cards have no frame, and a line apart
+   * from the next one.
+   */
+  bare?: boolean;
 }
 
 function errorMessage(error: unknown, fallback: string): string {
@@ -86,12 +93,14 @@ function HumanTaskCard({
   dagRun,
   canExecute,
   runWaiting,
+  bare,
   onChanged,
 }: {
   node: HumanTaskNode;
   dagRun: DAGRunDetails;
   canExecute: boolean;
   runWaiting: boolean;
+  bare?: boolean;
   onChanged: () => void;
 }) {
   const client = useClient();
@@ -215,7 +224,13 @@ function HumanTaskCard({
   );
 
   return (
-    <div className="space-y-4 rounded-lg border border-border bg-surface p-4">
+    <div
+      className={
+        bare
+          ? 'space-y-4 border-b border-border pb-4 last:border-b-0 last:pb-0'
+          : 'space-y-4 rounded-lg border border-border bg-surface p-4'
+      }
+    >
       <div className="space-y-1">
         <div className="flex items-center gap-2">
           <span className="text-sm font-semibold">{node.step.name}</span>
@@ -260,7 +275,9 @@ function HumanTaskCard({
           ) : (
             <div className="rounded-lg border border-dashed border-border bg-muted/20 p-6 text-sm text-muted-foreground">
               <I18nText
-                text={'Referenced artifacts are not available for this DAG run yet.'}
+                text={
+                  'Referenced artifacts are not available for this DAG run yet.'
+                }
               />
             </div>
           )}
@@ -414,21 +431,33 @@ function HumanTaskCard({
 
       {!canExecute && (
         <p className="text-xs text-muted-foreground">
-          <I18nText text={"Execute permission is required to complete this task."} />
+          <I18nText
+            text={'Execute permission is required to complete this task.'}
+          />
         </p>
       )}
     </div>
   );
 }
 
-export function HumanTasksTab({ dagRun, onChanged }: HumanTasksTabProps) {
+export function HumanTasksTab({
+  dagRun,
+  onChanged,
+  stepName,
+  bare,
+}: HumanTasksTabProps) {
   const client = useClient();
   const remoteNode = useRemoteNode();
   const canExecute = useCanExecuteForWorkspace(dagRun.workspace);
   const [resuming, setResuming] = React.useState(false);
   const [resumeError, setResumeError] = React.useState<string | null>(null);
-  const { isWaiting, waitingHumanTaskNodes: waitingTasks } =
-    getManualActionState(dagRun);
+  const { isWaiting, waitingHumanTaskNodes } = getManualActionState(dagRun);
+  const waitingTasks =
+    stepName === undefined
+      ? waitingHumanTaskNodes
+      : waitingHumanTaskNodes.filter((node) => node.step.name === stepName);
+  const resumePending =
+    stepName === undefined && !!dagRun.humanTaskResumePending;
 
   const resume = async () => {
     if (resuming) return;
@@ -459,22 +488,26 @@ export function HumanTasksTab({ dagRun, onChanged }: HumanTasksTabProps) {
     }
   };
 
-  if (waitingTasks.length === 0 && !dagRun.humanTaskResumePending) {
+  if (waitingTasks.length === 0 && !resumePending) {
     return (
       <div className="py-8 text-center text-sm text-muted-foreground">
-        <I18nText text={"No human tasks are waiting."} />
+        <I18nText text={'No human tasks are waiting.'} />
       </div>
     );
   }
 
   return (
     <div className="space-y-4">
-      {dagRun.humanTaskResumePending && (
+      {resumePending && (
         <Alert variant="warning">
           <AlertTriangle className="h-4 w-4" />
           <AlertDescription className="flex flex-wrap items-center justify-between gap-3">
             <span>
-              <I18nText text={"Task input is safely stored, but the DAG-run still needs to be queued for resume."} />
+              <I18nText
+                text={
+                  'Task input is safely stored, but the DAG-run still needs to be queued for resume.'
+                }
+              />
             </span>
             <Button
               type="button"
@@ -484,7 +517,11 @@ export function HumanTasksTab({ dagRun, onChanged }: HumanTasksTabProps) {
               onClick={() => void resume()}
             >
               <RefreshCcw className="h-4 w-4" />
-              {resuming ? <I18nText text={"Queueing…"} /> : <I18nText text={"Retry queue"} />}
+              {resuming ? (
+                <I18nText text={'Queueing…'} />
+              ) : (
+                <I18nText text={'Retry queue'} />
+              )}
             </Button>
           </AlertDescription>
         </Alert>
@@ -501,7 +538,11 @@ export function HumanTasksTab({ dagRun, onChanged }: HumanTasksTabProps) {
         <Alert variant="info">
           <Info className="h-4 w-4" />
           <AlertDescription>
-            <I18nText text={"This DAG-run is queued or running. Open tasks become editable once it is waiting."} />
+            <I18nText
+              text={
+                'This DAG-run is queued or running. Open tasks become editable once it is waiting.'
+              }
+            />
           </AlertDescription>
         </Alert>
       )}
@@ -513,6 +554,7 @@ export function HumanTasksTab({ dagRun, onChanged }: HumanTasksTabProps) {
           dagRun={dagRun}
           canExecute={canExecute}
           runWaiting={isWaiting}
+          bare={bare}
           onChanged={onChanged}
         />
       ))}

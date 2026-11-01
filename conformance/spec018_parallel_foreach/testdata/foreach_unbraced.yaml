@@ -1,0 +1,25 @@
+type: graph
+working_dir: .
+steps:
+  - id: each
+    foreach:
+      items:
+        - value: $SECRET
+      steps:
+        - id: write
+          env:
+            SECRET: synthetic-secret
+          action: file.write
+          with:
+            path: foreach-unbraced-body.txt
+            content: $foreach.item.value
+      collect:
+        literal: $foreach.item.value
+        quoted: ${foreach.item["value"]}
+    output: RESULTS
+  - id: consume
+    depends: each
+    action: file.write
+    with:
+      path: foreach-unbraced-results.txt
+      content: ${RESULTS}

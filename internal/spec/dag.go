@@ -164,6 +164,8 @@ type dag struct {
 	Resources *resourcesConfig `yaml:"resources,omitempty"`
 	// Webhook contains DAG-level webhook trigger behavior configuration.
 	Webhook *webhookConfig `yaml:"webhook,omitempty"`
+	// Watch names the folder whose arriving files each start a run.
+	Watch *watchConfig `yaml:"watch,omitempty"`
 	// RegistryAuths maps registry hostnames to authentication configs.
 	// Can be either a JSON string or a map of registry to auth config.
 	RegistryAuths any `yaml:"registry_auths,omitempty"`
@@ -363,6 +365,16 @@ type webhookConfig struct {
 	ForwardHeaders []string `yaml:"forward_headers,omitempty"`
 }
 
+// watchConfig names a folder whose arriving files each start a run.
+type watchConfig struct {
+	// Path is the folder watched.
+	Path string `yaml:"path,omitempty"`
+	// Pattern is the glob a file's name must match, such as *.pdf.
+	Pattern string `yaml:"pattern,omitempty"`
+	// Interval is how often the folder is read, such as 30s; 10s by default.
+	Interval string `yaml:"interval,omitempty"`
+}
+
 // ssh defines the SSH configuration for the DAG.
 type ssh struct {
 	// User is the SSH user.
@@ -551,6 +563,7 @@ var metadataParamsEnvStage = transformStage{
 
 var metadataScheduleStage = transformStage{
 	dagField("schedule", buildSchedule, func(out *ir.DAG, v []ir.Schedule) { out.Schedule = v }),
+	dagField("watch", buildWatchConfig, func(out *ir.DAG, v *ir.WatchConfig) { out.Watch = v }),
 	dagField("stop_schedule", buildStopSchedule, func(out *ir.DAG, v []ir.Schedule) { out.StopSchedule = v }),
 	dagField("restart_schedule", buildRestartSchedule, func(out *ir.DAG, v []ir.Schedule) { out.RestartSchedule = v }),
 }
@@ -808,6 +821,8 @@ func (s *dagBuildState) resolveWorkerSelector() {
 	s.result.WorkerSelector = resolved
 }
 
+// collectWarnings sets the DAG's build warnings: deprecated settings,
+// schedule notes, and what step executors report about their configuration.
 func (s *dagBuildState) collectWarnings() {
 	s.result.BuildWarnings = nil
 
@@ -818,6 +833,12 @@ func (s *dagBuildState) collectWarnings() {
 				"Use a global queue with 'queue:' field for concurrency control.",
 			s.result.MaxActiveRuns,
 		))
+	}
+
+	if base := s.ctx.baseDAG; base != nil && (len(base.ParamDefs) > 0 || len(base.Params) > 0 || len(base.ParamSchema) > 0) {
+		s.result.BuildWarnings = append(s.result.BuildWarnings,
+			"params in the base config are not supported. "+
+				"Declare params in each DAG that uses them, or use consts in the base config for shared fixed values.")
 	}
 
 	for _, sched := range s.result.Schedule {
@@ -831,14 +852,16 @@ func (s *dagBuildState) collectWarnings() {
 	}
 	if !s.ctx.opts.Has(buildFlagOnlyMetadata) {
 		s.result.BuildWarnings = append(s.result.BuildWarnings, harnessWorkingDirWarnings(s.result)...)
+		s.result.BuildWarnings = append(s.result.BuildWarnings, executorConfigWarnings(s.result)...)
 	}
 }
 
+// harnessWorkingDirWarnings reports harness steps that leave the agent's
+// workspace to an implicit working directory.
 func harnessWorkingDirWarnings(dag *ir.DAG) []string {
 	var warnings []string
-	var visit func(ir.Step, string)
-	visit = func(step ir.Step, path string) {
-		if step.ExecutorConfig.Type == "harness" {
+	walkSteps(dag, func(step ir.Step, path string) {
+		if step.ExecutorConfig.Type == "harness" && !harnessRunsRemotely(step.ExecutorConfig.Config, dag.Harnesses) {
 			container := step.Container
 			if container == nil {
 				container = dag.Container
@@ -855,14 +878,57 @@ func harnessWorkingDirWarnings(dag *ir.DAG) []string {
 				warnings = append(warnings, fmt.Sprintf("DAG %q: harness step %q %s", dag.Name, path, message))
 			}
 		}
+	})
+	return warnings
+}
+
+// harnessRunsRemotely reports whether every provider attempt of a harness step
+// connects to a remote ACP agent, which has no local workspace.
+func harnessRunsRemotely(config map[string]any, defs ir.HarnessDefinitions) bool {
+	attempts := []map[string]any{config}
+	switch fallback := config["fallback"].(type) {
+	case []map[string]any:
+		attempts = append(attempts, fallback...)
+	case []any:
+		for _, item := range fallback {
+			attempt, _ := item.(map[string]any)
+			attempts = append(attempts, attempt)
+		}
+	}
+	for _, attempt := range attempts {
+		if def := defs[harnessProviderName(attempt)]; def == nil || !def.IsRemote() {
+			return false
+		}
+	}
+	return true
+}
+
+// executorConfigWarnings returns the warnings each step's executor reports
+// about its configuration.
+func executorConfigWarnings(dag *ir.DAG) []string {
+	var warnings []string
+	walkSteps(dag, func(step ir.Step, path string) {
+		for _, message := range registry.StepConfigWarnings(step) {
+			warnings = append(warnings, fmt.Sprintf("DAG %q: step %q: %s", dag.Name, path, message))
+		}
+	})
+	return warnings
+}
+
+// walkSteps calls visit for every step of dag, including foreach bodies and
+// handlers, with the step's path in the DAG.
+func walkSteps(dag *ir.DAG, visit func(step ir.Step, path string)) {
+	var walk func(ir.Step, string)
+	walk = func(step ir.Step, path string) {
+		visit(step, path)
 		if step.Foreach != nil {
 			for _, child := range step.Foreach.Steps {
-				visit(child, path+".foreach.steps."+child.Name)
+				walk(child, path+".foreach.steps."+child.Name)
 			}
 		}
 	}
 	for _, step := range dag.Steps {
-		visit(step, "steps."+step.Name)
+		walk(step, "steps."+step.Name)
 	}
 	for _, handler := range []struct {
 		name string
@@ -876,10 +942,9 @@ func harnessWorkingDirWarnings(dag *ir.DAG) []string {
 		{"wait", dag.HandlerOn.Wait},
 	} {
 		if handler.step != nil {
-			visit(*handler.step, "handler_on."+handler.name)
+			walk(*handler.step, "handler_on."+handler.name)
 		}
 	}
-	return warnings
 }
 
 func (s *dagBuildState) buildActionGraph() {
@@ -998,6 +1063,7 @@ func composeBuildDAGContext(base, current *ir.DAG, currentSpec *dag) (*ir.DAG, e
 	if err := merge(effective, current); err != nil {
 		return nil, err
 	}
+	effective.Params = mergeInheritedParams(base.Params, current.Params)
 	applyHistoryRetentionOverride(effective, currentSpec.HistRetentionDays != nil, currentSpec.HistRetentionRuns != nil)
 	// Built-in defaults must not replace inherited values, while explicit
 	// false and empty values must be able to disable inherited behavior.
@@ -1018,6 +1084,45 @@ func composeBuildDAGContext(base, current *ir.DAG, currentSpec *dag) (*ir.DAG, e
 	}
 
 	return effective, nil
+}
+
+// mergeInheritedParams lists the inherited params before the DAG's own. A DAG
+// value of an inherited param takes the inherited entry's place, so each name
+// is listed once, in a stable order, with the value used at runtime.
+func mergeInheritedParams(inherited, own []string) []string {
+	if len(inherited) == 0 {
+		return own
+	}
+	if len(own) == 0 {
+		return inherited
+	}
+	ownValues := make(map[string]string, len(own))
+	for _, param := range own {
+		if name, _, ok := strings.Cut(param, "="); ok {
+			ownValues[name] = param
+		}
+	}
+	merged := make([]string, 0, len(inherited)+len(own))
+	placed := make(map[string]struct{}, len(ownValues))
+	for _, param := range inherited {
+		if name, _, ok := strings.Cut(param, "="); ok {
+			if value, overridden := ownValues[name]; overridden {
+				merged = append(merged, value)
+				placed[name] = struct{}{}
+				continue
+			}
+		}
+		merged = append(merged, param)
+	}
+	for _, param := range own {
+		if name, _, ok := strings.Cut(param, "="); ok {
+			if _, done := placed[name]; done {
+				continue
+			}
+		}
+		merged = append(merged, param)
+	}
+	return merged
 }
 
 func applyHistoryRetentionOverride(effective *ir.DAG, authoredDays, authoredRuns bool) {
@@ -1717,6 +1822,37 @@ func buildResources(_ buildContext, d *dag) (*ir.Resources, error) {
 		return nil, nil
 	}
 	return &ir.Resources{Limits: limits}, nil
+}
+
+// buildWatchConfig checks a watch block: a folder, a name pattern that
+// filepath.Match takes, and an interval of at least a second.
+func buildWatchConfig(_ buildContext, d *dag) (*ir.WatchConfig, error) {
+	if d.Watch == nil {
+		return nil, nil
+	}
+	path := strings.TrimSpace(d.Watch.Path)
+	if path == "" {
+		return nil, ir.NewValidationError("watch.path", d.Watch.Path, fmt.Errorf("the folder to watch is required"))
+	}
+	pattern := strings.TrimSpace(d.Watch.Pattern)
+	if _, err := filepath.Match(pattern, ""); err != nil {
+		return nil, ir.NewValidationError("watch.pattern", d.Watch.Pattern, err)
+	}
+	if pattern == "*" {
+		pattern = ""
+	}
+	interval := ir.DefaultWatchInterval
+	if raw := strings.TrimSpace(d.Watch.Interval); raw != "" {
+		parsed, err := time.ParseDuration(raw)
+		if err != nil {
+			return nil, ir.NewValidationError("watch.interval", d.Watch.Interval, fmt.Errorf("interval must be a duration such as 30s"))
+		}
+		if parsed < time.Second {
+			return nil, ir.NewValidationError("watch.interval", d.Watch.Interval, fmt.Errorf("interval must be at least 1s"))
+		}
+		interval = parsed
+	}
+	return &ir.WatchConfig{Path: path, Pattern: pattern, Interval: interval}, nil
 }
 
 func buildWebhookConfig(_ buildContext, d *dag) (*ir.WebhookConfig, error) {
@@ -2709,6 +2845,14 @@ func buildLLM(_ buildContext, d *dag) (*ir.LLMConfig, error) {
 	if err := validateAgentLLMLimits(cfg, canonicalDAGType(d.Type) == ir.TypeAgent); err != nil {
 		return nil, err
 	}
+	if err := validateProviderOrder(cfg, models); err != nil {
+		return nil, err
+	}
+	// The files a model reads belong with the prompt that asks about them.
+	if !cfg.Files.IsZero() {
+		return nil, ir.NewValidationError("llm.files", cfg.Files.Value(),
+			fmt.Errorf("files is not valid in a DAG-level llm block; set it on a chat.completion step, under with"))
+	}
 
 	thinking, err := buildThinkingConfig(cfg.Thinking)
 	if err != nil {
@@ -2730,6 +2874,7 @@ func buildLLM(_ buildContext, d *dag) (*ir.LLMConfig, error) {
 		Tools:       cfg.Tools,
 		WebSearch:   buildWebSearchConfig(cfg.WebSearch),
 
+		ProviderOrder:         cfg.ProviderOrder,
 		MaxToolIterations:     cfg.MaxToolIterations,
 		MaxContextTokens:      cfg.MaxContextTokens,
 		ObservationMaxBytes:   cfg.ObservationMaxBytes,
@@ -2802,6 +2947,7 @@ func parseHarnessDefinitions(raw map[string]any) (ir.HarnessDefinitions, error) 
 	return defs, nil
 }
 
+// parseHarnessDefinition validates a named CLI or ACP harness and applies CLI defaults.
 func parseHarnessDefinition(name string, raw map[string]any) (*ir.HarnessDefinition, error) {
 	def := &ir.HarnessDefinition{
 		PromptMode:     ir.HarnessPromptModeArg,
@@ -2821,6 +2967,40 @@ func parseHarnessDefinition(name string, raw map[string]any) (*ir.HarnessDefinit
 				)
 			}
 			def.Binary = strings.TrimSpace(binary)
+
+		case "transport", "url", "cwd", "ca_file":
+			text, ok := value.(string)
+			if !ok || strings.TrimSpace(text) == "" {
+				return nil, ir.NewValidationError(fmt.Sprintf("harnesses.%s.%s", name, key), value, fmt.Errorf("%s must be a non-empty string", key))
+			}
+			switch key {
+			case "transport":
+				def.Transport = ir.HarnessTransport(text)
+			case "url":
+				def.URL = text
+			case "cwd":
+				def.Cwd = text
+			case "ca_file":
+				def.CAFile = text
+			}
+		case "bearer_subprotocol":
+			enabled, ok := value.(bool)
+			if !ok {
+				return nil, ir.NewValidationError(fmt.Sprintf("harnesses.%s.%s", name, key), value, fmt.Errorf("bearer_subprotocol must be a boolean"))
+			}
+			def.BearerSubprotocol = enabled
+		case "headers":
+			headers, err := harnessStringMap(value)
+			if err != nil {
+				return nil, ir.NewValidationError(fmt.Sprintf("harnesses.%s.headers", name), value, fmt.Errorf("headers must map names to strings"))
+			}
+			def.Headers = headers
+		case "protocol":
+			protocol, ok := value.(string)
+			if !ok || (ir.HarnessProtocol(protocol) != ir.HarnessProtocolCLI && ir.HarnessProtocol(protocol) != ir.HarnessProtocolACP) {
+				return nil, ir.NewValidationError(fmt.Sprintf("harnesses.%s.protocol", name), value, fmt.Errorf("protocol must be cli or acp"))
+			}
+			def.Protocol = ir.HarnessProtocol(protocol)
 		case "prefix_args":
 			prefixArgs, err := harnessStringSlice(value)
 			if err != nil {
@@ -2882,12 +3062,36 @@ func parseHarnessDefinition(name string, raw map[string]any) (*ir.HarnessDefinit
 		}
 	}
 
-	if def.Binary == "" {
-		return nil, ir.NewValidationError(
-			fmt.Sprintf("harnesses.%s.binary", name),
-			raw["binary"],
-			fmt.Errorf("binary is required"),
-		)
+	if def.IsRemote() {
+		for _, key := range []string{"binary", "prefix_args", "option_flags", "flag_style"} {
+			if _, exists := raw[key]; exists {
+				return nil, ir.NewValidationError(fmt.Sprintf("harnesses.%s.%s", name, key), raw[key], fmt.Errorf("%s is not supported with remote transport", key))
+			}
+		}
+	} else {
+		for _, key := range []string{"url", "headers", "cwd", "ca_file"} {
+			if _, exists := raw[key]; exists {
+				return nil, ir.NewValidationError(fmt.Sprintf("harnesses.%s.%s", name, key), raw[key], fmt.Errorf("%s requires a remote transport", key))
+			}
+		}
+	}
+
+	if _, exists := raw["bearer_subprotocol"]; exists && def.Transport != ir.HarnessTransportWebSocket {
+		return nil, ir.NewValidationError(fmt.Sprintf("harnesses.%s.bearer_subprotocol", name), raw["bearer_subprotocol"], fmt.Errorf("bearer_subprotocol requires transport: websocket"))
+	}
+	if !def.IsRemote() && def.Binary == "" {
+		return nil, ir.NewValidationError(fmt.Sprintf("harnesses.%s.binary", name), raw["binary"], fmt.Errorf("binary is required"))
+	}
+	if err := def.ValidateConnection(); err != nil {
+		return nil, ir.NewValidationError(fmt.Sprintf("harnesses.%s", name), nil, err)
+	}
+
+	if def.Protocol == ir.HarnessProtocolACP {
+		for _, key := range []string{"prompt_mode", "prompt_flag", "prompt_position"} {
+			if _, exists := raw[key]; exists {
+				return nil, ir.NewValidationError(fmt.Sprintf("harnesses.%s.%s", name, key), raw[key], fmt.Errorf("ACP sends prompts over the protocol; %s is not supported", key))
+			}
+		}
 	}
 
 	switch def.PromptMode {
@@ -3082,7 +3286,11 @@ func buildToolRegistry(registry *toolRegistry) (*ir.ToolRegistry, error) {
 		typ = "standard"
 	}
 	if name == "" {
-		name = "standard"
+		if typ == "local" {
+			name = "local"
+		} else {
+			name = "standard"
+		}
 	}
 
 	switch typ {
@@ -3117,6 +3325,16 @@ func buildToolRegistry(registry *toolRegistry) (*ir.ToolRegistry, error) {
 			RepoName:  repoName,
 			Ref:       ref,
 			Path:      path,
+		}, nil
+	case "local":
+		path := strings.TrimSpace(registry.Path)
+		if err := ir.ValidateWorkerAbsPath(path); err != nil {
+			return nil, fmt.Errorf("registry.path: %w", err)
+		}
+		return &ir.ToolRegistry{
+			Name: name,
+			Type: typ,
+			Path: path,
 		}, nil
 	default:
 		return nil, fmt.Errorf("unsupported tools registry type %q", typ)

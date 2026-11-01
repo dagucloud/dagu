@@ -95,7 +95,11 @@ type opResult struct {
 }
 
 func init() {
-	executor.RegisterExecutor(executorType, newExecutor, validateStep, registry.ExecutorCapabilities{Command: true})
+	executor.RegisterExecutor(executorType, newExecutor, validateStep, registry.ExecutorCapabilities{
+		Command:     true,
+		DryRunCheck: dryRunCheck,
+		PathInputs:  []string{"path", "source", "destination"},
+	})
 }
 
 func newExecutor(ctx context.Context, step ir.Step) (executor.Executor, error) {
@@ -727,6 +731,10 @@ func (e *executorImpl) ensureDir(path string, mode os.FileMode) error {
 }
 
 func (e *executorImpl) resolvePath(raw string) (string, error) {
+	return resolveFilePath(e.workDir, raw)
+}
+
+func resolveFilePath(workDir, raw string) (string, error) {
 	raw = strings.TrimSpace(raw)
 	if raw == "" {
 		return "", fmt.Errorf("%w: path must not be empty", errConfig)
@@ -738,7 +746,6 @@ func (e *executorImpl) resolvePath(raw string) (string, error) {
 		}
 		return resolved, nil
 	}
-	workDir := e.workDir
 	if strings.TrimSpace(workDir) == "" {
 		var err error
 		workDir, err = os.Getwd()

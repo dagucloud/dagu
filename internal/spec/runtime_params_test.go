@@ -370,6 +370,7 @@ func TestResolveLegacyRuntimePairs_InternalOverridesLastWriteWins(t *testing.T) 
 
 	pairs, err := resolveLegacyRuntimePairs(
 		nil,
+		nil,
 		`WEBHOOK_PAYLOAD=first`,
 		[]string{`WEBHOOK_PAYLOAD=second`},
 	)
@@ -384,6 +385,7 @@ func TestResolveLegacyRuntimePairs_WebhookHeadersInternalOverridesLastWriteWins(
 
 	pairs, err := resolveLegacyRuntimePairs(
 		nil,
+		nil,
 		`WEBHOOK_HEADERS=first`,
 		[]string{`WEBHOOK_HEADERS=second`},
 	)
@@ -393,28 +395,30 @@ func TestResolveLegacyRuntimePairs_WebhookHeadersInternalOverridesLastWriteWins(
 	}, pairs)
 }
 
-func TestSplitInternalRuntimeOverridePairs_DeclaredWebhookPayloadStaysUserParam(t *testing.T) {
+func TestSplitPassThroughOverridePairs_DeclaredWebhookPayloadStaysUserParam(t *testing.T) {
 	t.Parallel()
 
-	userPairs, internalPairs := splitInternalRuntimeOverridePairs(
+	userPairs, passThroughPairs := splitPassThroughOverridePairs(
 		[]paramPair{{Name: "WEBHOOK_PAYLOAD", Value: "42"}},
 		map[string]struct{}{"WEBHOOK_PAYLOAD": {}},
+		nil,
 	)
 
 	assert.Equal(t, []paramPair{{Name: "WEBHOOK_PAYLOAD", Value: "42"}}, userPairs)
-	assert.Empty(t, internalPairs)
+	assert.Empty(t, passThroughPairs)
 }
 
-func TestSplitInternalRuntimeOverridePairs_DeclaredWebhookHeadersStaysUserParam(t *testing.T) {
+func TestSplitPassThroughOverridePairs_DeclaredWebhookHeadersStaysUserParam(t *testing.T) {
 	t.Parallel()
 
-	userPairs, internalPairs := splitInternalRuntimeOverridePairs(
+	userPairs, passThroughPairs := splitPassThroughOverridePairs(
 		[]paramPair{{Name: "WEBHOOK_HEADERS", Value: "42"}},
 		map[string]struct{}{"WEBHOOK_HEADERS": {}},
+		nil,
 	)
 
 	assert.Equal(t, []paramPair{{Name: "WEBHOOK_HEADERS", Value: "42"}}, userPairs)
-	assert.Empty(t, internalPairs)
+	assert.Empty(t, passThroughPairs)
 }
 
 func TestResolveRuntimeParams_RejectsUnknownNamedParam_LegacyNamed(t *testing.T) {
@@ -580,6 +584,237 @@ params:
 		`WEBHOOK_PAYLOAD={"event":"push"}`,
 	}, resolved.Params)
 	assert.JSONEq(t, `{"idea":"ship","WEBHOOK_PAYLOAD":"{\"event\":\"push\"}"}`, resolved.ParamsJSON)
+}
+
+// A value the schema does not type is decoded only to validate it, so the run,
+// a rebuild from its saved params, and the start form all keep the text the
+// caller supplied.
+func TestLoad_ExternalSchemaKeepsUntypedValueText(t *testing.T) {
+	t.Parallel()
+
+	dir := t.TempDir()
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "params.schema.json"), []byte(`{
+  "type": "object",
+  "properties": {"BLOCKLIST_FN": {"type": "string", "default": "et_block.netset"}},
+  "additionalProperties": true
+}`), 0o600))
+	dagPath := filepath.Join(dir, "untyped-text.yaml")
+	require.NoError(t, os.WriteFile(dagPath, []byte(`
+name: untyped-text
+params:
+  schema: params.schema.json
+  values:
+    VERSION: "1.10"
+    RATIOS: "[1.10, 2.50]"
+`), 0o600))
+
+	dag, err := Load(context.Background(), dagPath, WithParams("CUSTOMER_ID=12345678901234567"))
+	require.NoError(t, err)
+	want := []string{
+		"BLOCKLIST_FN=et_block.netset",
+		"CUSTOMER_ID=12345678901234567",
+		"RATIOS=[1.10, 2.50]",
+		"VERSION=1.10",
+	}
+	assert.Equal(t, want, dag.Params)
+
+	rebuilt, err := ResolveRuntimeParams(context.Background(), dag, dag.Params, ResolveRuntimeParamsOptions{})
+	require.NoError(t, err)
+	assert.Equal(t, want, rebuilt.Params)
+
+	defaults := map[string]any{}
+	for _, def := range dag.ParamDefs {
+		defaults[def.Name] = def.Default
+	}
+	assert.Equal(t, "1.10", defaults["VERSION"])
+	assert.Equal(t, "[1.10, 2.50]", defaults["RATIOS"])
+}
+
+// Defaults the schema fills into an untyped object value reach the run without
+// changing the numbers the caller wrote.
+func TestLoad_ExternalSchemaFillsDefaultsIntoUntypedValue(t *testing.T) {
+	t.Parallel()
+
+	dir := t.TempDir()
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "params.schema.json"), []byte(`{
+  "type": "object",
+  "properties": {
+    "CONFIG": {
+      "type": "object",
+      "properties": {"retries": {"type": "integer", "default": 2}}
+    }
+  }
+}`), 0o600))
+	dagPath := filepath.Join(dir, "untyped-defaults.yaml")
+	require.NoError(t, os.WriteFile(dagPath, []byte(`
+name: untyped-defaults
+params:
+  schema: params.schema.json
+  values:
+    CONFIG: '{"ratio": 1.10, "id": 12345678901234567}'
+`), 0o600))
+
+	dag, err := Load(context.Background(), dagPath)
+	require.NoError(t, err)
+	assert.Equal(t, []string{`CONFIG={"id":12345678901234567,"ratio":1.10,"retries":2}`}, dag.Params)
+
+	resolved, err := ResolveRuntimeParams(context.Background(), dag, []string{`CONFIG={"ratio": 0.50}`}, ResolveRuntimeParamsOptions{})
+	require.NoError(t, err)
+	assert.Equal(t, []string{`CONFIG={"ratio":0.50,"retries":2}`}, resolved.Params)
+}
+
+// The run receives untyped numbers as written, so validation must compare them
+// at that exact value rather than at a rounded float.
+func TestResolveRuntimeParams_ExternalSchemaValidatesUntypedNumbersExactly(t *testing.T) {
+	t.Parallel()
+
+	dir := t.TempDir()
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "params.schema.json"), []byte(`{
+  "type": "object",
+  "properties": {
+    "LIMIT": {"maximum": 9007199254740992},
+    "CONFIG": {
+      "type": "object",
+      "properties": {"id": {"type": "integer", "maximum": 9007199254740992}}
+    }
+  }
+}`), 0o600))
+	dagPath := filepath.Join(dir, "untyped-bounds.yaml")
+	require.NoError(t, os.WriteFile(dagPath, []byte(`
+name: untyped-bounds
+params:
+  schema: params.schema.json
+`), 0o600))
+	dag, err := Load(context.Background(), dagPath, WithoutEval())
+	require.NoError(t, err)
+
+	for _, override := range []string{"LIMIT=9007199254740993", `CONFIG={"id": 9007199254740993}`} {
+		_, err := ResolveRuntimeParams(context.Background(), dag, []string{override}, ResolveRuntimeParamsOptions{})
+		require.ErrorContains(t, err, "maximum", override)
+	}
+
+	resolved, err := ResolveRuntimeParams(context.Background(), dag, []string{"LIMIT=9007199254740992", `CONFIG={"id": 9007199254740992}`}, ResolveRuntimeParamsOptions{})
+	require.NoError(t, err)
+	assert.Equal(t, []string{`CONFIG={"id": 9007199254740992}`, "LIMIT=9007199254740992"}, resolved.Params)
+}
+
+// Runtime overrides of an inline schema are validated the same way, so their
+// untyped values keep the supplied text too.
+func TestResolveRuntimeParams_InlineSchemaKeepsUntypedValueText(t *testing.T) {
+	t.Parallel()
+
+	dag, err := LoadYAML(context.Background(), []byte(`
+name: inline-untyped-text
+params:
+  type: object
+  additionalProperties: true
+  properties:
+    CONFIG:
+      type: object
+      properties:
+        retries:
+          type: integer
+          default: 2
+steps:
+  - run: echo ok
+`))
+	require.NoError(t, err)
+
+	resolved, err := ResolveRuntimeParams(context.Background(), dag, []string{"VERSION=1.10", `CONFIG={"ratio": 1.10}`}, ResolveRuntimeParamsOptions{})
+	require.NoError(t, err)
+	assert.Equal(t, []string{`CONFIG={"ratio":1.10,"retries":2}`, "VERSION=1.10"}, resolved.Params)
+}
+
+// Scheduled, queued, and retried runs rebuild a DAG from the params its run
+// saved, which include the ones the base config declares. The rebuild must
+// accept them whichever way the DAG declares its own params, keep the saved
+// values, and list each name once in the order of the first build.
+func TestResolveRuntimeParams_BaseConfigParams(t *testing.T) {
+	t.Parallel()
+
+	baseConfig := []byte(`
+params:
+  - name: DAY_OF_WEEK
+    type: integer
+    default: 3
+  - name: BLOCKLIST_FN
+    default: base.netset
+`)
+	schema := []byte(`{
+  "type": "object",
+  "properties": {
+    "BLOCKLIST_FN": {"type": "string", "default": "et_block.netset"},
+    "IPSET": {"type": "string", "default": "et_block"}
+  },
+  "additionalProperties": false
+}`)
+
+	tests := []struct {
+		name   string
+		params string
+	}{
+		{
+			name: "InlineDefinition",
+			params: `
+  - name: BLOCKLIST_FN
+    default: et_block.netset
+  - name: IPSET
+    default: et_block`,
+		},
+		{
+			name: "LegacyNamed",
+			params: `
+  - BLOCKLIST_FN: et_block.netset
+  - IPSET: et_block`,
+		},
+		{
+			name: "InlineSchema",
+			params: `
+  type: object
+  additionalProperties: false
+  properties:
+    BLOCKLIST_FN:
+      type: string
+      default: et_block.netset
+    IPSET:
+      type: string
+      default: et_block`,
+		},
+		{
+			name: "ExternalSchema",
+			params: `
+  schema: params.schema.json`,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			ctx := context.Background()
+			dir := t.TempDir()
+			require.NoError(t, os.WriteFile(filepath.Join(dir, "params.schema.json"), schema, 0o600))
+			dagPath := filepath.Join(dir, "refresh.yaml")
+			require.NoError(t, os.WriteFile(dagPath, []byte("params:"+tt.params+"\nsteps:\n  - run: echo ok\n"), 0o600))
+
+			dag, err := Load(ctx, dagPath, WithBaseConfigContent(baseConfig))
+			require.NoError(t, err)
+			assert.Equal(t, []string{"DAY_OF_WEEK=3", "BLOCKLIST_FN=et_block.netset", "IPSET=et_block"}, dag.Params)
+
+			saved := []string{"DAY_OF_WEEK=5", "BLOCKLIST_FN=saved.netset", "IPSET=et_block"}
+			resolved, err := ResolveRuntimeParams(ctx, dag, saved, ResolveRuntimeParamsOptions{})
+			require.NoError(t, err)
+			assert.Equal(t, saved, resolved.Params)
+
+			rebuilt, err := RebuildFromYAML(ctx, resolved)
+			require.NoError(t, err)
+			assert.Equal(t, saved, rebuilt.Params)
+
+			_, err = ResolveRuntimeParams(ctx, dag, []string{"TYPO=1"}, ResolveRuntimeParamsOptions{})
+			require.Error(t, err)
+			assert.Contains(t, err.Error(), "TYPO")
+		})
+	}
 }
 
 func TestToFloat64_RejectsUnsafeIntegerPrecision(t *testing.T) {

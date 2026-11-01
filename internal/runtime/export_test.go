@@ -26,6 +26,16 @@ func CheckDryRunStep(ctx context.Context, step ir.Step) error {
 	return checkDryRunStep(ctx, step)
 }
 
+// DryRunChecksFor exposes dryRunChecksFor for testing.
+func DryRunChecksFor(step string, err error) []DryRunCheck {
+	return dryRunChecksFor(step, err)
+}
+
+// SortDryRunChecks exposes sortDryRunChecks for testing.
+func SortDryRunChecks(stepOrder []string, checks []DryRunCheck) {
+	sortDryRunChecks(stepOrder, checks)
+}
+
 // StepSupportsChatMessages exposes stepSupportsChatMessages for testing.
 func StepSupportsChatMessages(step ir.Step) bool {
 	return stepSupportsChatMessages(step)

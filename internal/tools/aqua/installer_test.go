@@ -7,6 +7,7 @@ import (
 	"log/slog"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 
@@ -18,6 +19,20 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
+
+func TestInstallRejectsForeignRegistryPath(t *testing.T) {
+	t.Parallel()
+	path := `C:\dagu\registry.yaml`
+	if runtime.GOOS == "windows" {
+		path = "/etc/dagu/registry.yaml"
+	}
+	_, err := New().Install(t.Context(), &ir.ToolConfig{
+		Registry: &ir.ToolRegistry{Type: "local", Path: path},
+		Packages: []ir.ToolPackage{{Package: "example/tool", Version: "v1.0.0"}},
+	}, tools.InstallOptions{ToolsDir: t.TempDir()})
+	require.ErrorContains(t, err, "registry.path")
+	require.ErrorContains(t, err, "not absolute for worker "+runtime.GOOS+"/"+runtime.GOARCH)
+}
 
 func TestInferPackageCommandsUsesRegistryFiles(t *testing.T) {
 	t.Parallel()
@@ -245,4 +260,19 @@ func testCacheLayout(dir string) tools.CacheLayout {
 		ChecksumFile: filepath.Join(dir, "env", "aqua-checksums.json"),
 		ManifestFile: filepath.Join(dir, "env", "manifest.json"),
 	}
+}
+
+func TestAquaParamDisablesPolicyAndKeepsChecksumEnforcement(t *testing.T) {
+	t.Parallel()
+
+	param := aquaParam(testCacheLayout("/tmp/dagu-aqua-param"), "/work")
+
+	// Aqua's implicit default policy rejects every registry the DAG declares
+	// beyond the standard one, so installs from custom registries would fail.
+	assert.True(t, param.DisablePolicy)
+	// Artifact integrity must not rely on the policy layer.
+	assert.True(t, param.Checksum)
+	assert.True(t, param.RequireChecksum)
+	assert.True(t, param.EnforceChecksum)
+	assert.True(t, param.EnforceRequireChecksum)
 }

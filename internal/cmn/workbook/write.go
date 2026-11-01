@@ -56,6 +56,9 @@ type WriteOptions struct {
 	// become real dates, number strings become numbers, and string keeps
 	// ISO-looking text as text.
 	Types map[string]ColumnType
+	// Output, when set, receives the result while the workbook at path is
+	// left as it was.
+	Output string
 	// InPlace saves directly instead of through a temporary file.
 	InPlace bool
 	DryRun  bool
@@ -86,7 +89,7 @@ func Write(ctx context.Context, path string, table Table, opts WriteOptions) (*W
 	}
 	return withLock(ctx, path, opts.Lock, func() (*WriteResult, error) {
 		return writeOnce(ctx, path, table, opts)
-	})
+	}, opts.Output)
 }
 
 // Append is Write with WriteAppend.
@@ -107,6 +110,13 @@ func writeOnce(ctx context.Context, path string, table Table, opts WriteOptions)
 	}
 	if warning != "" {
 		warn(warning)
+	}
+	if opts.Output != "" {
+		// Only append reaches here: validation refuses output for xlsx.write.
+		if err := checkOutput(path, opts.Output, "append to", warn); err != nil {
+			return nil, err
+		}
+		result.Path = opts.Output
 	}
 	w, created, err := openOrCreate(path, opts.Password, opts.Sheet)
 	if err != nil {
@@ -254,7 +264,10 @@ func writeOnce(ctx context.Context, path string, table Table, opts WriteOptions)
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
-	if err := ensureParentDir(path); err != nil {
+	if opts.Output != "" {
+		w.path, w.base = opts.Output, Base(opts.Output)
+	}
+	if err := ensureParentDir(w.path); err != nil {
 		return nil, err
 	}
 	if err := w.save(opts.InPlace); err != nil {

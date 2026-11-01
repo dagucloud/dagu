@@ -4,148 +4,72 @@
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { RefreshButton } from '@/components/ui/refresh-button';
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from '@/components/ui/select';
-import { Filter, GanttChart } from 'lucide-react';
+import { ToggleButton, ToggleGroup } from '@/components/ui/toggle-group';
+import { Activity, Search } from 'lucide-react';
+import { cn } from '@/lib/utils';
 import React from 'react';
 import { Link } from 'react-router-dom';
-import {
-  PathsDagsGetParametersQueryOrder,
-  PathsDagsGetParametersQuerySort,
-  Status,
-} from '../api/v1/schema';
 import { AppBarContext } from '../contexts/AppBarContext';
-import { CreateDAGModal } from '../features/dags/components/common';
 import { useConfig } from '../contexts/ConfigContext';
-import { useSearchState } from '../contexts/SearchStateContext';
-import { DAGRunDetailsModal } from '../features/dag-runs/components/dag-run-details';
-import { usePaginatedDAGRuns } from '../features/dag-runs/hooks/dagRunPagination';
-import { useClient } from '../hooks/api';
-import DashboardTimeChart from '../features/dashboard/components/DashboardTimechart';
-import { optionalPositiveInt } from '../hooks/queryUtils';
-import PathsCard from '../features/system-status/components/PathsCard';
-import dayjs from '../lib/dayjs';
+import { ActivityLanes } from '../features/activity/components/ActivityLanes';
+import { GettingStartedChecklist } from '../features/activity/components/GettingStartedChecklist';
 import {
-  workspaceSelectionKey,
-  workspaceSelectionQuery,
-} from '../lib/workspace';
+  ActivityCounts,
+  InProgress,
+  NeedsAttention,
+  UpNext,
+} from '../features/activity/components/ActivityPanels';
+import {
+  type ActivityWindow,
+  useDAGRunActivity,
+} from '../features/activity/hooks/useDAGRunActivity';
+import { useGettingStarted } from '../features/activity/hooks/useGettingStarted';
+import {
+  attentionItems,
+  fitRange,
+  inProgressRuns,
+  systemAlerts,
+  type TimeRange,
+  withEarlierActiveRuns,
+} from '../features/activity/lib/activityModel';
+import {
+  DAG_SAMPLE_SIZE,
+  isExampleDAGName,
+} from '../features/activity/lib/gettingStarted';
+import { CreateDAGButton } from '../features/dags/components/common';
+import PathsCard from '../features/system-status/components/PathsCard';
+import { useQuery } from '../hooks/api';
+import { useClock } from '../hooks/useClock';
+import { useSchedulerPause } from '../hooks/useSchedulerPause';
+import dayjs from '../lib/dayjs';
+import { workspaceSelectionQuery } from '../lib/workspace';
 import { I18nText } from '@/i18n/I18nText';
 import { I18nTemplate } from '@/i18n/I18nTemplate';
-import { I18nProps } from '@/i18n/I18nProps';
 import { useI18n } from '@/i18n/I18nProvider';
 
-type Metrics = Record<Status, number>;
+/** How often the "now" line and attention timings move forward. */
+const NOW_TICK_MS = 30_000;
 
-const TRACKED_STATUSES = [
-  Status.Success,
-  Status.Failed,
-  Status.Running,
-  Status.Aborted,
-  Status.Queued,
-  Status.NotStarted,
-  Status.PartialSuccess,
-  Status.Waiting,
-  Status.Rejected,
-] as const;
-
-const DASHBOARD_VISIBLE_STATUSES = TRACKED_STATUSES.filter(
-  (status) => status !== Status.Queued
-);
-
-function createEmptyMetrics(): Metrics {
-  const metrics: Partial<Metrics> = {};
-  for (const status of TRACKED_STATUSES) {
-    metrics[status] = 0;
-  }
-  return metrics as Metrics;
-}
+type LaneScale = 'fit' | 'window';
 
 function getDayBounds(
   date: dayjs.Dayjs,
   tzOffsetInSec: number | undefined
 ): { startOfDay: dayjs.Dayjs; endOfDay: dayjs.Dayjs } {
+  // The picked date is a day in the server's time zone, not the browser's.
   const adjusted =
-    tzOffsetInSec !== undefined ? date.utcOffset(tzOffsetInSec / 60) : date;
+    tzOffsetInSec !== undefined
+      ? date.utcOffset(tzOffsetInSec / 60, true)
+      : date;
   return {
     startOfDay: adjusted.startOf('day'),
     endOfDay: adjusted.endOf('day'),
   };
 }
 
-function compareDAGNames(left: string, right: string): number {
-  return left.localeCompare(right);
+function useNowSeconds(): number {
+  return useClock(NOW_TICK_MS, (now) => Math.floor(now / 1000));
 }
-
-async function fetchAllDashboardDAGNames(
-  client: ReturnType<typeof useClient>,
-  remoteNode: string,
-  workspaceQuery: ReturnType<typeof workspaceSelectionQuery>,
-  signal: AbortSignal
-): Promise<{ names: string[]; totalCount: number }> {
-  const names = new Set<string>();
-  let totalCount: number | undefined;
-  let page = 1;
-
-  for (;;) {
-    const response = await client.GET('/dags', {
-      params: {
-        query: {
-          remoteNode,
-          page,
-          perPage: 100,
-          sort: PathsDagsGetParametersQuerySort.name,
-          order: PathsDagsGetParametersQueryOrder.asc,
-          ...workspaceQuery,
-        },
-      },
-      signal,
-    });
-
-    if (response.error) {
-      const message =
-        response.error &&
-        typeof response.error === 'object' &&
-        'message' in response.error
-          ? String(response.error.message)
-          : 'Failed to load DAG definitions';
-      throw new Error(message);
-    }
-
-    const data = response.data;
-    // A failed response with an unparsable body yields neither data nor
-    // error; treating it as "zero DAGs" would show first-run guidance to
-    // users whose requests merely failed.
-    if (!data) {
-      throw new Error('Empty response for DAG definitions');
-    }
-    totalCount ??= data?.pagination?.totalRecords;
-    for (const dag of data?.dags ?? []) {
-      if (dag.dag.name) {
-        names.add(dag.dag.name);
-      }
-    }
-
-    const totalPages = data?.pagination?.totalPages ?? page;
-    if (page >= totalPages) {
-      break;
-    }
-    page += 1;
-  }
-
-  const sortedNames = Array.from(names).sort(compareDAGNames);
-  return { names: sortedNames, totalCount: totalCount ?? sortedNames.length };
-}
-
-type DAGInventory = {
-  status: 'loading' | 'loaded' | 'error';
-  names: string[];
-  totalCount: number;
-};
 
 function GettingStartedPanel(): React.ReactElement {
   return (
@@ -160,7 +84,7 @@ function GettingStartedPanel(): React.ReactElement {
           }
         />
       </p>
-      <CreateDAGModal />
+      <CreateDAGButton />
       <div className="flex flex-wrap items-center justify-center gap-4 text-sm">
         <a
           href="https://docs.dagu.sh"
@@ -184,19 +108,26 @@ function GettingStartedPanel(): React.ReactElement {
 }
 
 function NoRunsNotice({
-  dateLabel,
+  live,
   hasExampleDAGs,
 }: {
-  dateLabel: string;
+  live: boolean;
   hasExampleDAGs: boolean;
 }): React.ReactElement {
   return (
-    <div className="flex h-full flex-col items-center justify-center gap-3 p-8 text-center">
-      <GanttChart className="h-12 w-12 text-muted-foreground/40" />
-      <h2 className="text-xl font-semibold text-foreground">
-        <I18nText text="No runs on {date}" values={{ date: dateLabel }} />
+    <div className="flex flex-col items-center justify-center gap-3 rounded-lg border border-border p-10 text-center">
+      <Activity
+        className="h-8 w-8 text-muted-foreground/50"
+        aria-hidden="true"
+      />
+      <h2 className="text-base font-medium text-foreground">
+        {live ? (
+          <I18nText text={'No runs in the last 24 hours'} />
+        ) : (
+          <I18nText text={'No runs in this range'} />
+        )}
       </h2>
-      <p className="text-base text-muted-foreground">
+      <p className="text-sm text-muted-foreground">
         <I18nTemplate
           text={
             hasExampleDAGs
@@ -216,548 +147,414 @@ function NoRunsNotice({
   );
 }
 
-function Dashboard(): React.ReactElement | null {
-  const { locale } = useI18n();
+function UnavailableNotice({
+  onRetry,
+}: {
+  onRetry: () => void;
+}): React.ReactElement {
+  return (
+    <div className="flex flex-col items-center gap-3 rounded-lg border border-border p-10 text-center">
+      <h2 className="text-base font-medium text-foreground">
+        <I18nText text={'Activity is not available from this node'} />
+      </h2>
+      <p className="max-w-md text-sm text-muted-foreground">
+        <I18nText
+          text={
+            'The node may run an older Dagu version. Its runs are still listed on the Executions page.'
+          }
+        />
+      </p>
+      <div className="flex gap-2">
+        <Button variant="outline" onClick={onRetry}>
+          <I18nText text={'Try again'} />
+        </Button>
+        <Button asChild variant="outline">
+          <Link to="/dag-runs">
+            <I18nText text={'Open Executions'} />
+          </Link>
+        </Button>
+      </div>
+    </div>
+  );
+}
+
+/** Overview of recent runs: what needs attention, what runs, what is next. */
+function Dashboard(): React.ReactElement {
+  const { ts } = useI18n();
   const appBarContext = React.useContext(AppBarContext);
-  const client = useClient();
   const config = useConfig();
-  const searchState = useSearchState();
   const remoteNode = appBarContext.selectedRemoteNode || 'local';
-  const workspaceSelection = appBarContext.workspaceSelection;
   const workspaceQuery = React.useMemo(
-    () => workspaceSelectionQuery(workspaceSelection),
-    [workspaceSelection]
+    () => workspaceSelectionQuery(appBarContext.workspaceSelection),
+    [appBarContext.workspaceSelection]
   );
-  const workspaceKey = workspaceSelectionKey(workspaceSelection);
-  const searchStateScope = React.useMemo(
-    () =>
-      JSON.stringify({
-        remoteNode,
-        workspace: workspaceKey,
-      }),
-    [remoteNode, workspaceKey]
-  );
-
-  const [modalDAGRun, setModalDAGRun] = React.useState<{
-    name: string;
-    dagRunId: string;
-  } | null>(null);
-  const autoLoadSentinelRef = React.useRef<HTMLDivElement>(null);
-  const [autoLoadRequested, setAutoLoadRequested] = React.useState(false);
-  const [dagInventory, setDAGInventory] = React.useState<DAGInventory>({
-    status: 'loading',
-    names: [],
-    totalCount: 0,
+  const tzOffset = config.tzOffsetInSec ?? 0;
+  const [activityWindow, setActivityWindow] = React.useState<ActivityWindow>({
+    kind: 'live',
   });
-  const [inventoryRetryNonce, setInventoryRetryNonce] = React.useState(0);
-  const lastWindowScrollYRef = React.useRef(0);
+  const [filter, setFilter] = React.useState('');
+  const [scale, setScale] = React.useState<LaneScale>('fit');
+  const nowSeconds = useNowSeconds();
+  const live = activityWindow.kind === 'live';
 
-  type DashboardFilters = {
-    selectedDAGRun: string;
-    dateRange: {
-      startDate: number;
-      endDate: number | undefined;
-    };
-  };
+  React.useEffect(() => {
+    appBarContext.setTitle('Activity');
+  }, [appBarContext]);
 
-  const areFiltersEqual = (a: DashboardFilters, b: DashboardFilters) =>
-    a.selectedDAGRun === b.selectedDAGRun &&
-    a.dateRange.startDate === b.dateRange.startDate &&
-    (a.dateRange.endDate ?? null) === (b.dateRange.endDate ?? null);
+  const {
+    activity,
+    runs,
+    isLoading,
+    unavailable,
+    refresh,
+    hasMore,
+    loadMore,
+    isLoadingMore,
+    loadMoreError,
+    paused,
+    resume,
+  } = useDAGRunActivity(activityWindow, workspaceQuery, remoteNode);
+  // Shares the pause banner's request, so it costs nothing extra.
+  const { schedulerRunning } = useSchedulerPause();
+  const gettingStarted = useGettingStarted();
 
-  const getDefaultDateRange = React.useCallback(() => {
-    const { startOfDay } = getDayBounds(dayjs(), config.tzOffsetInSec);
+  const { filteredActivity, filteredRuns } = React.useMemo(() => {
+    const query = filter.trim().toLowerCase();
+    if (!activity || !query) {
+      return { filteredActivity: activity, filteredRuns: runs };
+    }
+    const matches = (name: string) => name.toLowerCase().includes(query);
     return {
-      startDate: startOfDay.unix(),
-      endDate: undefined,
+      filteredActivity: {
+        ...activity,
+        attention: activity.attention.filter((run) => matches(run.name)),
+        active: activity.active.filter((run) => matches(run.name)),
+        upcoming: activity.upcoming.filter((item) => matches(item.name)),
+        // A shared queue is named after none of its workflows, so it also
+        // stays while it holds a matching run.
+        queues: activity.queues.filter(
+          (queue) =>
+            matches(queue.name) ||
+            activity.active.some(
+              (run) => run.queue === queue.name && matches(run.name)
+            )
+        ),
+      },
+      filteredRuns: runs.filter((run) => matches(run.name)),
     };
-  }, [config.tzOffsetInSec]);
+  }, [activity, runs, filter]);
 
-  const defaultFilters = React.useMemo<DashboardFilters>(
-    () => ({
-      selectedDAGRun: 'all',
-      dateRange: getDefaultDateRange(),
-    }),
-    [getDefaultDateRange]
+  // The lanes also draw runs still going from before the window, which the
+  // window's run list leaves out, so the empty states count them too.
+  const laneRuns = React.useMemo(
+    () =>
+      activity
+        ? withEarlierActiveRuns(runs, activity.active, activity.from)
+        : runs,
+    [activity, runs]
+  );
+  const filteredLaneRuns = React.useMemo(
+    () =>
+      filteredActivity
+        ? withEarlierActiveRuns(
+            filteredRuns,
+            filteredActivity.active,
+            filteredActivity.from
+          )
+        : filteredRuns,
+    [filteredActivity, filteredRuns]
   );
 
-  const [selectedDAGRun, setSelectedDAGRun] = React.useState<string>(
-    defaultFilters.selectedDAGRun
-  );
-  const [dateRange, setDateRange] = React.useState<{
-    startDate: number;
-    endDate: number | undefined;
-  }>(defaultFilters.dateRange);
-
-  const currentFilters = React.useMemo<DashboardFilters>(
-    () => ({
-      selectedDAGRun,
-      dateRange,
-    }),
-    [selectedDAGRun, dateRange]
-  );
-
-  const currentFiltersRef = React.useRef(currentFilters);
-  React.useEffect(() => {
-    currentFiltersRef.current = currentFilters;
-  }, [currentFilters]);
-
-  const lastPersistedFiltersRef = React.useRef<DashboardFilters | null>(null);
-
-  React.useEffect(() => {
-    const stored = searchState.readState<DashboardFilters>(
-      'dashboard',
-      searchStateScope
-    );
-    const base = defaultFilters;
-    const next = stored
+  // Telling "no workflows" from "no runs" costs one small request, sent only
+  // when the window is empty. A few names are enough to spot the examples.
+  // A live window also keeps the page for what its side panels list, such as
+  // scheduled runs or a full disk, which can explain why nothing ran. A fixed
+  // window shows only runs.
+  const isEmpty =
+    !!activity &&
+    laneRuns.length === 0 &&
+    (!live ||
+      (activity.active.length === 0 &&
+        activity.attention.length === 0 &&
+        activity.queues.length === 0 &&
+        activity.upcoming.length === 0 &&
+        activity.diskUsedPercent === undefined));
+  const { data: dagList } = useQuery(
+    '/dags',
+    isEmpty
       ? {
-          selectedDAGRun: stored.selectedDAGRun || base.selectedDAGRun,
-          dateRange: {
-            startDate: stored.dateRange?.startDate ?? base.dateRange.startDate,
-            endDate:
-              stored.dateRange?.endDate === undefined
-                ? base.dateRange.endDate
-                : stored.dateRange.endDate,
+          params: {
+            query: {
+              perPage: DAG_SAMPLE_SIZE,
+              remoteNode,
+              ...workspaceQuery,
+            },
           },
         }
-      : base;
+      : null,
+    { revalidateOnFocus: false }
+  );
+  const hasNoWorkflows = isEmpty && dagList?.pagination?.totalRecords === 0;
+  const hasExampleDAGs = !!dagList?.dags.some((dag) =>
+    isExampleDAGName(dag.dag.name)
+  );
 
-    const current = currentFiltersRef.current;
-    if (current && areFiltersEqual(current, next)) {
-      if (!stored) {
-        searchState.writeState('dashboard', searchStateScope, next);
-      }
-      lastPersistedFiltersRef.current = next;
-      return;
-    }
+  let windowRange: TimeRange | null = null;
+  let range: TimeRange | null = null;
+  if (filteredActivity) {
+    windowRange = { from: filteredActivity.from, to: filteredActivity.to };
+    range =
+      scale === 'fit' && live
+        ? fitRange(windowRange, filteredRuns)
+        : windowRange;
+  }
 
-    setSelectedDAGRun(next.selectedDAGRun);
-    setDateRange(next.dateRange);
-    lastPersistedFiltersRef.current = next;
-    searchState.writeState('dashboard', searchStateScope, next);
-  }, [defaultFilters, searchState, searchStateScope]);
-
-  React.useEffect(() => {
-    const persisted = lastPersistedFiltersRef.current;
-    if (persisted && areFiltersEqual(persisted, currentFilters)) {
-      return;
-    }
-    lastPersistedFiltersRef.current = currentFilters;
-    searchState.writeState('dashboard', searchStateScope, currentFilters);
-  }, [currentFilters, searchState, searchStateScope]);
-
-  const handleDateChange = (startTimestamp: number, endTimestamp: number) => {
-    setDateRange({
-      startDate: startTimestamp,
-      endDate: endTimestamp,
+  const selectDay = (value: string) => {
+    if (!value) return;
+    const date = dayjs(value);
+    if (!date.isValid()) return;
+    const { startOfDay, endOfDay } = getDayBounds(date, config.tzOffsetInSec);
+    setActivityWindow({
+      kind: 'fixed',
+      from: startOfDay.unix(),
+      to: endOfDay.unix(),
     });
   };
 
-  const selectedDAGName = selectedDAGRun !== 'all' ? selectedDAGRun : undefined;
-  const dashboardPageLimit = React.useMemo(
-    () => optionalPositiveInt(config.maxDashboardPageLimit),
-    [config.maxDashboardPageLimit]
-  );
-  const dagRunsQuery = React.useMemo(
-    () => ({
-      remoteNode,
-      fromDate: dateRange.startDate,
-      toDate: dateRange.endDate,
-      name: selectedDAGName,
-      status: DASHBOARD_VISIBLE_STATUSES,
-      ...workspaceQuery,
-      ...(dashboardPageLimit !== undefined
-        ? { limit: dashboardPageLimit }
-        : {}),
-    }),
-    [
-      dashboardPageLimit,
-      dateRange.endDate,
-      dateRange.startDate,
-      remoteNode,
-      selectedDAGName,
-      workspaceQuery,
-    ]
-  );
+  const dayValue =
+    activityWindow.kind === 'fixed'
+      ? dayjs
+          .unix(activityWindow.from)
+          .utcOffset(tzOffset / 60)
+          .format('YYYY-MM-DD')
+      : '';
 
-  const {
-    dagRuns: dagRunsList,
-    error,
-    isInitialLoading: isLoading,
-    isLoadingMore,
-    hasMore,
-    loadMore,
-    refresh,
-  } = usePaginatedDAGRuns({
-    query: dagRunsQuery,
-    liveEnabled: true,
-    fallbackIntervalMs: 5000,
-    resetOnSSEInvalidate: true,
-  });
-
-  const handleRefreshAll = async () => {
-    await refresh();
-  };
-
-  const uniqueDAGRunNames = React.useMemo(() => {
-    const names = new Set(dagInventory.names);
-
-    for (const dagRun of dagRunsList) {
-      if (dagRun.name) {
-        names.add(dagRun.name);
-      }
-    }
-    if (selectedDAGRun !== 'all') {
-      names.add(selectedDAGRun);
-    }
-
-    return Array.from(names).sort(compareDAGNames);
-  }, [dagInventory.names, dagRunsList, selectedDAGRun]);
-
-  const handleDAGRunChange = (value: string) => {
-    setSelectedDAGRun(value);
-  };
-
-  const selectedTimelineDate = React.useMemo(
-    () => ({
-      startTimestamp: dateRange.startDate,
-      endTimestamp: dateRange.endDate,
-    }),
-    [dateRange.endDate, dateRange.startDate]
-  );
-
-  React.useEffect(() => {
-    if (appBarContext) {
-      appBarContext.setTitle('Timeline');
-    }
-  }, [appBarContext]);
-
-  React.useEffect(() => {
-    const controller = new AbortController();
-    setDAGInventory({ status: 'loading', names: [], totalCount: 0 });
-
-    void fetchAllDashboardDAGNames(
-      client,
-      remoteNode,
-      workspaceQuery,
-      controller.signal
-    )
-      .then(({ names, totalCount }) => {
-        if (!controller.signal.aborted) {
-          setDAGInventory({ status: 'loaded', names, totalCount });
-        }
-      })
-      .catch(() => {
-        if (!controller.signal.aborted) {
-          setDAGInventory({ status: 'error', names: [], totalCount: 0 });
-        }
-      });
-
-    return () => controller.abort();
-  }, [client, remoteNode, workspaceQuery, inventoryRetryNonce]);
-
-  React.useEffect(() => {
-    lastWindowScrollYRef.current = window.scrollY;
-
-    const requestAutoLoad = () => {
-      const currentScrollY = window.scrollY;
-      const isScrollingDown = currentScrollY > lastWindowScrollYRef.current;
-      lastWindowScrollYRef.current = currentScrollY;
-
-      if (!isScrollingDown) {
-        return;
-      }
-
-      const documentHeight = Math.max(
-        document.documentElement.scrollHeight,
-        document.body.scrollHeight
-      );
-      const viewportBottom = currentScrollY + window.innerHeight;
-      const distanceToBottom = documentHeight - viewportBottom;
-
-      if (distanceToBottom > 200) {
-        return;
-      }
-
-      setAutoLoadRequested(true);
-    };
-
-    window.addEventListener('scroll', requestAutoLoad, { passive: true });
-
-    return () => {
-      window.removeEventListener('scroll', requestAutoLoad);
-    };
-  }, []);
-
-  React.useEffect(() => {
-    const el = autoLoadSentinelRef.current;
-    if (
-      !autoLoadRequested ||
-      !el ||
-      !hasMore ||
-      isLoadingMore ||
-      typeof IntersectionObserver === 'undefined'
-    ) {
-      return;
-    }
-
-    const observer = new IntersectionObserver(
-      ([entry]) => {
-        if (entry?.isIntersecting) {
-          setAutoLoadRequested(false);
-          void loadMore();
-        }
-      },
-      { threshold: 0.1 }
+  let body: React.ReactNode;
+  if (unavailable) {
+    body = <UnavailableNotice onRetry={() => void refresh()} />;
+  } else if (isLoading || !filteredActivity || !windowRange || !range) {
+    body = (
+      <div
+        role="status"
+        aria-label={ts('Loading...')}
+        className="h-40 animate-pulse rounded-lg bg-muted/50"
+      />
     );
-
-    observer.observe(el);
-    return () => observer.disconnect();
-  }, [autoLoadRequested, hasMore, isLoadingMore, loadMore]);
-
-  if (error) {
-    const errorMessage = error.message || 'Unknown error loading dashboard';
-    return (
-      <div className="p-4 text-error">
-        <I18nText text={'Error:'} /> {errorMessage}
-      </div>
+  } else if (isEmpty && gettingStarted.status !== 'hidden') {
+    // The checklist already says what to do first; this only reports the
+    // window, and holds back the empty panels until the checklist settles.
+    body = (
+      <p className="text-sm text-muted-foreground">
+        {live ? (
+          <I18nText text={'No runs in the last 24 hours'} />
+        ) : (
+          <I18nText text={'No runs in this range'} />
+        )}
+      </p>
+    );
+  } else if (hasNoWorkflows) {
+    body = <GettingStartedPanel />;
+  } else if (isEmpty) {
+    body = <NoRunsNotice live={live} hasExampleDAGs={hasExampleDAGs} />;
+  } else {
+    body = (
+      <>
+        <ActivityCounts
+          runs={filteredRuns}
+          window={windowRange}
+          hasMore={hasMore}
+        />
+        <div
+          className={cn(
+            'grid min-w-0 gap-6',
+            live && 'xl:grid-cols-[minmax(0,1fr)_18rem]'
+          )}
+        >
+          <div className="flex min-w-0 flex-col gap-6">
+            {live && (
+              <NeedsAttention
+                alerts={
+                  activity ? systemAlerts(activity, schedulerRunning) : []
+                }
+                items={attentionItems(
+                  filteredActivity,
+                  filteredRuns,
+                  nowSeconds
+                )}
+                remoteNode={remoteNode}
+                onChanged={() => void refresh()}
+              />
+            )}
+            <section className="flex min-w-0 flex-col gap-2">
+              <div className="flex items-center justify-between gap-2">
+                <h2 className="text-sm font-medium text-foreground">
+                  <I18nText text={'Runs over time'} />
+                </h2>
+                {live && (
+                  <ToggleGroup aria-label={ts('Time range')} className="p-0.5">
+                    <ToggleButton
+                      value="fit"
+                      groupValue={scale}
+                      onClick={() => setScale('fit')}
+                      className="h-7 px-2.5"
+                    >
+                      <I18nText text={'Fit'} />
+                    </ToggleButton>
+                    <ToggleButton
+                      value="window"
+                      groupValue={scale}
+                      onClick={() => setScale('window')}
+                      className="h-7 px-2.5"
+                    >
+                      <I18nText text={'24h'} />
+                    </ToggleButton>
+                  </ToggleGroup>
+                )}
+              </div>
+              {laneRuns.length === 0 ? (
+                <p className="text-sm text-muted-foreground">
+                  {live ? (
+                    <I18nText text={'No runs in the last 24 hours'} />
+                  ) : (
+                    <I18nText text={'No runs in this range'} />
+                  )}
+                </p>
+              ) : filteredLaneRuns.length === 0 ? (
+                <p className="text-sm text-muted-foreground">
+                  <I18nText text={'No workflows match the filter.'} />
+                </p>
+              ) : (
+                <div className="rounded-lg border border-border bg-card px-3">
+                  <ActivityLanes
+                    runs={filteredLaneRuns}
+                    active={filteredActivity.active}
+                    window={windowRange}
+                    hasMore={hasMore}
+                    range={range}
+                    nowSeconds={nowSeconds}
+                    remoteNode={remoteNode}
+                    tzOffsetSeconds={tzOffset}
+                    onZoom={(zoomed) =>
+                      setActivityWindow({ kind: 'fixed', ...zoomed })
+                    }
+                  />
+                </div>
+              )}
+              <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-muted-foreground">
+                <span>
+                  {hasMore ? (
+                    <I18nText
+                      text={
+                        'Showing the latest {count} runs. Drag across a lane to zoom in, or click a mark for one run.'
+                      }
+                      values={{ count: runs.length }}
+                    />
+                  ) : (
+                    <I18nText
+                      text={
+                        'Drag across a lane to zoom in, or click a mark for one run.'
+                      }
+                    />
+                  )}
+                </span>
+                {hasMore && (
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => void loadMore()}
+                    disabled={isLoadingMore}
+                  >
+                    {isLoadingMore ? (
+                      <I18nText text={'Loading more runs...'} />
+                    ) : loadMoreError ? (
+                      <I18nText text={'Retry loading more'} />
+                    ) : (
+                      <I18nText text={'Load more'} />
+                    )}
+                  </Button>
+                )}
+                {loadMoreError && !isLoadingMore && (
+                  <span role="alert" className="text-error">
+                    {loadMoreError}
+                  </span>
+                )}
+              </div>
+            </section>
+          </div>
+          {live && (
+            <div className="flex flex-col gap-6">
+              <InProgress
+                runs={inProgressRuns(filteredActivity)}
+                queues={filteredActivity.queues}
+                remoteNode={remoteNode}
+                nowSeconds={nowSeconds}
+              />
+              <UpNext
+                upcoming={filteredActivity.upcoming}
+                remoteNode={remoteNode}
+                tzOffsetSeconds={tzOffset}
+              />
+            </div>
+          )}
+        </div>
+      </>
     );
   }
-
-  const metrics = createEmptyMetrics();
-  const totalDAGRuns = dagRunsList.length;
-
-  for (const dagRun of dagRunsList) {
-    if (dagRun && dagRun.status in metrics) {
-      metrics[dagRun.status as Status] += 1;
-    }
-  }
-
-  const hasFailures = metrics[Status.Failed] > 0;
-  const hasRunning = metrics[Status.Running] > 0;
-
-  const showGettingStarted =
-    dagInventory.status === 'loaded' && dagInventory.totalCount === 0;
-  // With the inventory pending or failed, "no runs" cannot be distinguished
-  // from "request failed", so first-run guidance stays off.
-  const showNoRunsNotice =
-    dagInventory.status === 'loaded' &&
-    !showGettingStarted &&
-    !isLoading &&
-    totalDAGRuns === 0;
-  const showInventoryError =
-    dagInventory.status === 'error' && !isLoading && totalDAGRuns === 0;
-  const hasExampleDAGs = dagInventory.names.some((name) =>
-    name.startsWith('example-')
-  );
-  // Show placeholders instead of zeros while the first page is loading.
-  const stat = (value: number) => (isLoading ? '-' : value);
 
   return (
-    <div className="flex flex-col max-w-7xl h-full overflow-hidden">
-      {/* Main Content Area */}
-      <div className="flex-1 flex flex-col min-h-0 gap-3 p-1">
-        {/* Toolbar - Top */}
-        <div className="flex flex-wrap items-center gap-2 flex-shrink-0">
-          <Select
-            value={selectedDAGRun}
-            onValueChange={handleDAGRunChange}
-            disabled={isLoading}
-          >
-            <SelectTrigger className="h-9 w-[140px]">
-              <Filter className="h-4 w-4 mr-1.5 text-muted-foreground" />
-              <I18nProps>
-                <SelectValue
-                  placeholder={isLoading ? 'Loading...' : 'All DAGs'}
-                />
-              </I18nProps>
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="all">
-                <I18nText text={'All DAGs'} />
-              </SelectItem>
-              {uniqueDAGRunNames.map((name) => (
-                <SelectItem key={name} value={name}>
-                  {name}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-
-          <Input
-            type="date"
-            value={dayjs.unix(dateRange.startDate).format('YYYY-MM-DD')}
-            onChange={(e) => {
-              const newDate = e.target.value;
-              if (!newDate) return;
-              const date = dayjs(newDate);
-              if (!date.isValid()) return;
-              const { startOfDay, endOfDay } = getDayBounds(
-                date,
-                config.tzOffsetInSec
-              );
-              handleDateChange(startOfDay.unix(), endOfDay.unix());
-            }}
-            className="h-9 w-[150px]"
+    <div className="flex h-full min-h-0 flex-col gap-4 overflow-auto p-1">
+      {gettingStarted.status === 'visible' && (
+        <GettingStartedChecklist
+          steps={gettingStarted.steps}
+          onDismiss={gettingStarted.dismiss}
+        />
+      )}
+      <div className="flex flex-wrap items-center gap-2">
+        <div className="relative">
+          <Search
+            className="pointer-events-none absolute left-2.5 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground"
+            aria-hidden="true"
           />
+          <Input
+            value={filter}
+            onChange={(event) => setFilter(event.target.value)}
+            placeholder={ts('Filter workflows...')}
+            aria-label={ts('Filter workflows')}
+            className="h-9 w-56 pl-8"
+          />
+        </div>
+        <Input
+          type="date"
+          aria-label={ts('Date')}
+          value={dayValue}
+          onChange={(event) => selectDay(event.target.value)}
+          className="h-9 w-[150px]"
+        />
+        {live && !paused ? (
+          <span className="inline-flex items-center gap-1.5 text-xs text-muted-foreground">
+            <Activity className="h-3.5 w-3.5 text-success" aria-hidden="true" />
+            <I18nText text={'Live, last 24 hours'} />
+          </span>
+        ) : (
           <Button
             variant="outline"
             onClick={() => {
-              const { startOfDay, endOfDay } = getDayBounds(
-                dayjs(),
-                config.tzOffsetInSec
-              );
-              handleDateChange(startOfDay.unix(), endOfDay.unix());
+              resume();
+              setActivityWindow({ kind: 'live' });
             }}
           >
-            <I18nText text={'Today'} />
+            <I18nText text={'Back to live'} />
           </Button>
-
-          <div className="flex-1" />
-
-          <PathsCard />
-          <RefreshButton onRefresh={handleRefreshAll} />
-        </div>
-
-        {showGettingStarted ? (
-          <GettingStartedPanel />
-        ) : (
-          <>
-            {/* Stats Row */}
-            <div className="flex flex-wrap items-baseline gap-x-4 gap-y-1 sm:gap-x-6 text-sm text-muted-foreground flex-shrink-0">
-              <div className="flex items-baseline gap-1">
-                <span className="text-lg sm:text-xl font-light tabular-nums text-foreground">
-                  {stat(totalDAGRuns)}
-                  {hasMore ? '+' : ''}
-                </span>
-                <span className="text-xs">
-                  <I18nText text={'recent runs'} />
-                </span>
-              </div>
-              <div className="flex items-baseline gap-1">
-                <span className="text-lg sm:text-xl font-light tabular-nums text-foreground">
-                  {stat(metrics[Status.Success])}
-                </span>
-                <span className="text-xs">
-                  <I18nText text={'ok'} />
-                </span>
-              </div>
-              <div className="flex items-baseline gap-1">
-                <span
-                  className={`text-lg sm:text-xl font-light tabular-nums ${hasFailures ? 'text-foreground' : 'text-muted-foreground/50'}`}
-                >
-                  {stat(metrics[Status.Failed])}
-                </span>
-                <span className="text-xs">
-                  <I18nText text={'failed'} />
-                </span>
-              </div>
-              <div className="flex items-baseline gap-1">
-                <span className="text-lg sm:text-xl font-light tabular-nums text-foreground">
-                  {stat(metrics[Status.Aborted])}
-                </span>
-                <span className="text-xs">
-                  <I18nText text={'aborted'} />
-                </span>
-              </div>
-              {hasRunning && (
-                <div className="flex items-baseline gap-1">
-                  <span className="text-lg sm:text-xl font-light tabular-nums text-foreground">
-                    {metrics[Status.Running]}
-                  </span>
-                  <span className="text-xs">
-                    <I18nText text={'active'} />
-                  </span>
-                </div>
-              )}
-              {metrics[Status.Waiting] > 0 && (
-                <div className="flex items-baseline gap-1">
-                  <span className="text-lg sm:text-xl font-light tabular-nums text-foreground">
-                    {metrics[Status.Waiting]}
-                  </span>
-                  <span className="text-xs">
-                    <I18nText text={'waiting'} />
-                  </span>
-                </div>
-              )}
-              {metrics[Status.Rejected] > 0 && (
-                <div className="flex items-baseline gap-1">
-                  <span className="text-lg sm:text-xl font-light tabular-nums text-foreground">
-                    {metrics[Status.Rejected]}
-                  </span>
-                  <span className="text-xs">
-                    <I18nText text={'rejected'} />
-                  </span>
-                </div>
-              )}
-            </div>
-
-            {/* Timeline Visualization - Hero */}
-            <div className="flex-1 min-h-[250px] rounded-xl border border-border bg-surface overflow-hidden">
-              {showNoRunsNotice ? (
-                <NoRunsNotice
-                  dateLabel={new Intl.DateTimeFormat(locale, {
-                    year: 'numeric',
-                    month: 'short',
-                    day: 'numeric',
-                  }).format(dayjs.unix(dateRange.startDate).toDate())}
-                  hasExampleDAGs={hasExampleDAGs}
-                />
-              ) : showInventoryError ? (
-                <div className="flex h-full flex-col items-center justify-center gap-3 p-8 text-center">
-                  <p className="text-base font-medium text-foreground">
-                    <I18nText text={'Failed to load the workflow list.'} />
-                  </p>
-                  <Button
-                    variant="outline"
-                    onClick={() => setInventoryRetryNonce((n) => n + 1)}
-                  >
-                    <I18nText text={'Retry'} />
-                  </Button>
-                </div>
-              ) : (
-                <DashboardTimeChart
-                  data={dagRunsList}
-                  selectedDate={selectedTimelineDate}
-                />
-              )}
-            </div>
-            {hasMore && (
-              <div className="flex flex-col items-center justify-center gap-2 flex-shrink-0">
-                <Button
-                  variant="outline"
-                  onClick={() => void loadMore()}
-                  disabled={isLoadingMore}
-                >
-                  {isLoadingMore ? (
-                    <I18nText text={'Loading...'} />
-                  ) : (
-                    <I18nText text={'Load older runs'} />
-                  )}
-                </Button>
-                <div
-                  ref={autoLoadSentinelRef}
-                  className="h-1 w-full shrink-0"
-                />
-              </div>
-            )}
-          </>
         )}
-      </div>
-
-      {/* DAG Run Details Modal */}
-      {modalDAGRun && (
-        <DAGRunDetailsModal
-          name={modalDAGRun.name}
-          dagRunId={modalDAGRun.dagRunId}
-          isOpen={!!modalDAGRun}
-          onClose={() => {
-            setModalDAGRun(null);
-            window.history.pushState({}, '', window.location.pathname);
+        <div className="flex-1" />
+        <PathsCard />
+        <RefreshButton
+          onRefresh={async () => {
+            await refresh();
           }}
         />
-      )}
+      </div>
+      {body}
     </div>
   );
 }

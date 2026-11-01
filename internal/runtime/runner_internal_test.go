@@ -13,6 +13,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/dagucloud/dagu/v2/internal/cmn/config"
 	"github.com/dagucloud/dagu/v2/internal/cmn/runenv"
 	cmnvalue "github.com/dagucloud/dagu/v2/internal/cmn/value"
 
@@ -735,7 +736,11 @@ echo complete > "${outputs.artifact}"
 		WorkingDirExplicit: true,
 		Shell:              "sh",
 	}
-	ctx := NewContext(context.Background(), dag, "run-1", filepath.Join(workingDir, "dag.log"))
+	// touch comes from the host PATH, which steps only see through BaseEnv.
+	ctx := config.WithConfig(context.Background(), &config.Config{
+		Core: config.Core{BaseEnv: config.NewBaseEnv([]string{"PATH=" + os.Getenv("PATH")})},
+	})
+	ctx = NewContext(ctx, dag, "run-1", filepath.Join(workingDir, "dag.log"))
 
 	require.NoError(t, runner.Run(ctx, plan, nil))
 	content, err := os.ReadFile(outputPath)
@@ -951,4 +956,42 @@ func TestResolveHumanTaskArtifacts(t *testing.T) {
 
 		require.ErrorContains(t, err, "must be relative")
 	})
+}
+
+// A dependent can start while the finish of its dependency is being recorded:
+// the status of the dependency is final before its finish time is set. The
+// start of the dependent then moves to that finish.
+func TestRunner_ClampDependentStarts(t *testing.T) {
+	base := time.Date(2026, 1, 2, 3, 4, 5, 0, time.UTC)
+	finished := base.Add(50 * time.Millisecond)
+
+	dep := NewNode(ir.Step{Name: "dep"}, NodeState{Status: ir.NodeSucceeded, StartedAt: base, FinishedAt: finished})
+	early := NewNode(ir.Step{Name: "early", Depends: []string{"dep"}}, NodeState{
+		Status:     ir.NodeSucceeded,
+		StartedAt:  base.Add(30 * time.Millisecond),
+		FinishedAt: base.Add(40 * time.Millisecond),
+	})
+	late := NewNode(ir.Step{Name: "late", Depends: []string{"dep"}}, NodeState{
+		Status:    ir.NodeRunning,
+		StartedAt: base.Add(80 * time.Millisecond),
+	})
+	// A dependent that kept the times of an earlier run, as in a step retry
+	// without its downstream steps.
+	kept := NewNode(ir.Step{Name: "kept", Depends: []string{"dep"}}, NodeState{
+		Status:     ir.NodeSucceeded,
+		StartedAt:  base.Add(-time.Hour),
+		FinishedAt: base.Add(-59 * time.Minute),
+	})
+	plan, err := NewPlanFromNodes(dep, early, late, kept)
+	require.NoError(t, err)
+
+	New(&Config{}).clampDependentStarts(plan, plan.GetNodeByName("dep"))
+
+	state := plan.GetNodeByName("early").State()
+	assert.True(t, state.StartedAt.Equal(finished), "start %s", state.StartedAt)
+	assert.False(t, state.FinishedAt.Before(state.StartedAt), "finish before start")
+	assert.True(t, plan.GetNodeByName("late").State().StartedAt.Equal(base.Add(80*time.Millisecond)))
+	keptState := plan.GetNodeByName("kept").State()
+	assert.True(t, keptState.StartedAt.Equal(base.Add(-time.Hour)), "start %s", keptState.StartedAt)
+	assert.True(t, keptState.FinishedAt.Equal(base.Add(-59*time.Minute)), "finish %s", keptState.FinishedAt)
 }

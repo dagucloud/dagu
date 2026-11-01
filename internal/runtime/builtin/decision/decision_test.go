@@ -92,6 +92,43 @@ func TestEvaluate(t *testing.T) {
 	}
 }
 
+type usageRecords struct {
+	mu      sync.Mutex
+	records []llm.UsageRecord
+}
+
+func (r *usageRecords) RecordLLMUsage(record llm.UsageRecord) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.records = append(r.records, record)
+}
+
+// A decision call reports the tokens and cost its response names, even when
+// the answer then fails validation, since the call is billed either way.
+func TestDecisionRecordsUsage(t *testing.T) {
+	t.Parallel()
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = w.Write([]byte(`{"model":"jev-test","usage":{"input_tokens":100,"output_tokens":25,"cost":0.0000042}}`))
+	}))
+	defer server.Close()
+	raw := testConfig(t)
+	raw["base_url"] = server.URL + "/api/alpha/"
+	scope := value.NewEnvScope(nil, false).WithEntry("OPENROUTER_API_KEY", "test-key", value.EnvSourceSecret)
+	records := &usageRecords{}
+	ctx := llm.WithUsageSink(runtime.WithEnv(t.Context(), runtime.Env{Scope: scope}), records)
+	exec, err := newExecutor(ctx, ir.Step{ExecutorConfig: ir.ExecutorConfig{Config: raw}})
+	require.NoError(t, err)
+	defer exec.(*decisionExecutor).Close()
+	exec.SetStdout(io.Discard)
+
+	require.ErrorContains(t, exec.Run(ctx), "missing answers")
+	cost := 0.0000042
+	assert.Equal(t, []llm.UsageRecord{{Provider: "openrouter", Model: "jev-test", Usage: llm.Usage{
+		PromptTokens: 100, CompletionTokens: 25, TotalTokens: 125, Cost: &cost,
+	}}}, records.records)
+}
+
 func TestConfig(t *testing.T) {
 	t.Parallel()
 	for _, tc := range []struct {

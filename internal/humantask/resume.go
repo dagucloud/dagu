@@ -63,7 +63,7 @@ func (s *Service) enqueueResume(ctx context.Context, target *target, result Resu
 		s.QueueStore,
 		target.dag,
 		target.status,
-		queue.EnqueueRetryOptions{},
+		queue.EnqueueRetryOptions{Resume: true},
 	)
 	if err != nil {
 		var latest *ir.DAGRunStatus
@@ -234,15 +234,15 @@ func countWaitingNodes(nodes []*ir.Node) int {
 }
 
 // resumeReady reports whether a resumed attempt can make progress: either no
-// manual step is waiting, or a completed human task unblocked a step in a run
-// that has nothing for the resume to re-run.
+// manual step is waiting, or a completed human task unblocked a step and no
+// node would be re-run by the resume.
 func resumeReady(nodes []*ir.Node) bool {
 	return !hasWaitingNodes(nodes) || (!hasRetryableNode(nodes) && hasUnblockedNode(nodes))
 }
 
-// hasRetryableNode reports whether a node has a status that every resume
-// re-runs (see runtime Plan.setupRetry). Such runs resume only once no manual
-// step is waiting, so those steps run again once rather than at each resume.
+// hasRetryableNode reports whether a node status suppresses intermediate
+// checkpoint progress. Partially succeeded nodes are preserved by checkpoint
+// resumes and therefore do not suppress an unblocked branch.
 func hasRetryableNode(nodes []*ir.Node) bool {
 	for _, node := range nodes {
 		if node == nil {
@@ -252,7 +252,7 @@ func hasRetryableNode(nodes []*ir.Node) bool {
 		case ir.NodeFailed, ir.NodeRetrying, ir.NodeAborted, ir.NodeRejected:
 			return true
 		case ir.NodeNotStarted, ir.NodeRunning, ir.NodeSucceeded, ir.NodeSkipped,
-			ir.NodePartiallySucceeded, ir.NodeWaiting:
+			ir.NodeWaiting, ir.NodePartiallySucceeded:
 		}
 	}
 	return false
@@ -389,10 +389,7 @@ func PushBackPending(status *ir.DAGRunStatus) bool {
 }
 
 // UnblockedNodeReady reports whether a manual action unblocked a step that a
-// resumed attempt can run while other manual steps keep waiting: a
-// not-started node has every dependency satisfied, and no retryable node
-// would be re-run by the resume (see resumeReady). Approval, push-back, and
-// agent-session resumes use it to continue independent branches.
+// resumed attempt can run while other manual steps keep waiting.
 func UnblockedNodeReady(status *ir.DAGRunStatus) bool {
 	if status == nil {
 		return false

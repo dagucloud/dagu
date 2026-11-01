@@ -33,3 +33,17 @@ Element.prototype.scrollIntoView = () => {};
 Element.prototype.hasPointerCapture = () => false;
 Element.prototype.setPointerCapture = () => {};
 Element.prototype.releasePointerCapture = () => {};
+
+// jsdom has no canvas: its getContext logs "not implemented" and returns null.
+// A test that draws installs its own context with `vi.spyOn`.
+HTMLCanvasElement.prototype.getContext = () => null;
+
+// The app page defines getConfig(). Modules such as hooks/api read it when they
+// are imported, so a test that imports one without mocking it needs a default.
+if (typeof (globalThis as { getConfig?: unknown }).getConfig === 'undefined') {
+  Object.defineProperty(globalThis, 'getConfig', {
+    configurable: true,
+    writable: true,
+    value: () => ({ apiURL: '/api/v1', basePath: '', version: 'test' }),
+  });
+}

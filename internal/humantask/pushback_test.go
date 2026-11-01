@@ -399,6 +399,16 @@ func TestPushBackResumeGate(t *testing.T) {
 			},
 		},
 		{
+			name: "partially succeeded step elsewhere while another task waits",
+			mutate: func(_ *testing.T, f *serviceFixture) {
+				f.status.Nodes = append(f.status.Nodes,
+					waitingHumanTaskNode("Other"),
+					stepNode("lint", ir.NodePartiallySucceeded, "setup"),
+				)
+			},
+			queued: true,
+		},
+		{
 			name: "rewind target with build inputs while another task waits",
 			mutate: func(t *testing.T, f *serviceFixture) {
 				f.status.Nodes = append(f.status.Nodes, waitingHumanTaskNode("Other"))
@@ -409,6 +419,13 @@ func TestPushBackResumeGate(t *testing.T) {
 			name: "failed step elsewhere and nothing else waits",
 			mutate: func(_ *testing.T, f *serviceFixture) {
 				f.status.Nodes = append(f.status.Nodes, stepNode("lint", ir.NodeFailed, "setup"))
+			},
+			queued: true,
+		},
+		{
+			name: "partially succeeded step elsewhere and nothing else waits",
+			mutate: func(_ *testing.T, f *serviceFixture) {
+				f.status.Nodes = append(f.status.Nodes, stepNode("lint", ir.NodePartiallySucceeded, "setup"))
 			},
 			queued: true,
 		},

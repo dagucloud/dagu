@@ -6,8 +6,9 @@ import { useCanWrite, useCanWriteForWorkspace } from '@/contexts/AuthContext';
 import { ViewEditorDialog } from '@/features/views/ViewEditorDialog';
 import { ViewPanel } from '@/features/views/ViewPanel';
 import { View, useViews } from '@/hooks/useViews';
-import { Clock3, Gauge, LayoutGrid, Pencil, Plus } from 'lucide-react';
+import { Activity, Gauge, LayoutGrid, Pencil, Plus } from 'lucide-react';
 import React from 'react';
+import { useScrollFade } from '@/hooks/useScrollFade';
 import Dashboard from '..';
 import CockpitPage from '../cockpit';
 import { I18nProps } from '@/i18n/I18nProps';
@@ -70,6 +71,7 @@ export default function OverviewPage({
   );
   const [editorOpen, setEditorOpen] = React.useState(false);
   const [editingView, setEditingView] = React.useState<View | null>(null);
+  const [tabRowRef, tabRowFade] = useScrollFade<HTMLDivElement>('x');
 
   React.useEffect(() => {
     if (initialTab) {
@@ -139,10 +141,18 @@ export default function OverviewPage({
 
   return (
     <div className="flex h-full min-h-0 flex-col">
+      <h1 className="sr-only">
+        <I18nText text={'Overview'} />
+      </h1>
+      <div
+        ref={tabRowRef}
+        style={tabRowFade}
+        className="mb-3 flex shrink-0 items-center overflow-x-auto border-b border-border"
+      >
       <I18nProps><Tabs
         role="tablist"
         aria-label="Overview views"
-        className="mb-3 shrink-0 overflow-x-auto"
+        className="shrink-0 border-b-0"
       >
         <Tab
           id={tabElementId('timeline')}
@@ -153,8 +163,8 @@ export default function OverviewPage({
           onClick={() => setActiveTab('timeline')}
           className="cursor-pointer gap-2"
         >
-          <Clock3 className="h-4 w-4" />
-          <I18nText text={"Timeline"} />
+          <Activity className="h-4 w-4" />
+          <I18nText text={"Activity"} />
         </Tab>
         <Tab
           id={tabElementId('cockpit')}
@@ -186,18 +196,19 @@ export default function OverviewPage({
             </Tab>
           );
         })}
+      </Tabs></I18nProps>
         {canWrite && (
           <I18nProps><button
             type="button"
             onClick={openCreate}
             aria-label="Create view"
-            className="inline-flex h-12 cursor-pointer items-center gap-1 px-3 text-sm font-medium text-text-secondary hover:text-foreground"
+            className="inline-flex h-11 shrink-0 cursor-pointer items-center gap-1 px-3 text-sm font-medium text-muted-foreground hover:text-foreground"
           >
             <Plus className="h-4 w-4" />
-            <I18nText text={"New"} />
+            <I18nText text={"New view"} />
           </button></I18nProps>
         )}
-      </Tabs></I18nProps>
+      </div>
 
       <div
         id="overview-panel"

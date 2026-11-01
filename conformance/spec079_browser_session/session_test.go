@@ -74,6 +74,22 @@ function apply() {
 </script>
 </body></html>`
 
+// statementsPage sends the file its labeled file input gets to the server
+// and says which arrived.
+const statementsPage = `<!doctype html><html><head><title>Statements</title></head><body>
+<h1>Statements</h1>
+<label>Statement <input id="statement" type="file"></label>
+<p id="status">No statement yet</p>
+<script>
+document.getElementById('statement').addEventListener('change', async (event) => {
+  const form = new FormData();
+  form.append('file', event.target.files[0]);
+  const response = await fetch('/statements', {method: 'POST', body: form});
+  document.getElementById('status').textContent = await response.text();
+});
+</script>
+</body></html>`
+
 // browserCommandTimeout bounds a command that starts or drives a browser.
 const browserCommandTimeout = 2 * time.Minute
 
@@ -156,6 +172,8 @@ func (m *scriptedModel) serve(w http.ResponseWriter, r *http.Request) {
 
 	var kind, answer string
 	switch {
+	case strings.Contains(schema, `"elements"`):
+		kind, answer = "observe", `{"elements":[]}`
 	case strings.Contains(schema, "elementId"):
 		kind, answer = kindAct, actAnswer(instruction, page)
 	case strings.Contains(schema, `"completed"`):
@@ -206,17 +224,55 @@ func actAnswer(instruction, page string) string {
 	return `{"action":null,"twoStep":false}`
 }
 
-// startPortal serves a portal whose orders need a signed-in session.
-func startPortal(t *testing.T) string {
+// statements keeps the names and contents of the files the portal's
+// statements page sent.
+type statements struct {
+	mu       sync.Mutex
+	received []string
+}
+
+func (s *statements) all() []string {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return slices.Clone(s.received)
+}
+
+// startPortal serves a portal whose orders need a signed-in session, and a
+// statements page whose uploads it keeps.
+func startPortal(t *testing.T) (string, *statements) {
 	t.Helper()
+	kept := &statements{}
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
+		case "/statements":
+			if r.Method != http.MethodPost {
+				w.Header().Set("Content-Type", "text/html")
+				_, _ = io.WriteString(w, statementsPage)
+				return
+			}
+			file, header, err := r.FormFile("file")
+			if err != nil {
+				http.Error(w, err.Error(), http.StatusBadRequest)
+				return
+			}
+			content, _ := io.ReadAll(file)
+			_ = file.Close()
+			kept.mu.Lock()
+			kept.received = append(kept.received, header.Filename+": "+string(content))
+			kept.mu.Unlock()
+			_, _ = io.WriteString(w, "Received "+header.Filename)
 		case "/session":
 			if r.ParseForm() != nil || r.PostForm.Get("password") != password {
 				http.Error(w, "wrong password", http.StatusUnauthorized)
 				return
 			}
 			http.SetCookie(w, &http.Cookie{Name: "sid", Value: "signed-in", Path: "/"})
+		case "/guarded":
+			// Cloudflare marks every answer that is one of its checks.
+			w.Header().Set("Content-Type", "text/html")
+			w.Header().Set("Cf-Mitigated", "challenge")
+			w.WriteHeader(http.StatusForbidden)
+			_, _ = io.WriteString(w, `<title>Just a moment...</title><p>Checking your browser</p>`)
 		case "/orders":
 			if cookie, err := r.Cookie("sid"); err != nil || cookie.Value != "signed-in" {
 				http.Redirect(w, r, "/login", http.StatusFound)
@@ -230,7 +286,7 @@ func startPortal(t *testing.T) string {
 		}
 	}))
 	t.Cleanup(server.Close)
-	return server.URL
+	return server.URL, kept
 }
 
 // requireChrome skips when no Chrome is installed, except in CI, where the
@@ -271,11 +327,12 @@ func requireChrome(t *testing.T) {
 // sessionEnv runs dagu commands that share one Dagu home, as one person's
 // commands would.
 type sessionEnv struct {
-	t      *testing.T
-	dagu   *harness.Runner
-	model  *scriptedModel
-	env    []string
-	portal string
+	t          *testing.T
+	dagu       *harness.Runner
+	model      *scriptedModel
+	env        []string
+	portal     string
+	statements *statements
 }
 
 func newSessionEnv(t *testing.T) *sessionEnv {
@@ -284,7 +341,7 @@ func newSessionEnv(t *testing.T) *sessionEnv {
 	browserSlot <- struct{}{}
 	t.Cleanup(func() { <-browserSlot })
 	model, modelURL := startModel(t)
-	portal := startPortal(t)
+	portal, kept := startPortal(t)
 	// The harness sets CI, where the browser runtime turns off the sandbox,
 	// so the tests turn it off explicitly instead of being refused.
 	env := []string{
@@ -295,7 +352,7 @@ func newSessionEnv(t *testing.T) *sessionEnv {
 		// Chrome on Windows needs the real profile folders to start.
 		env = append(env, "USERPROFILE="+os.Getenv("USERPROFILE"), "APPDATA="+os.Getenv("APPDATA"))
 	}
-	return &sessionEnv{t: t, dagu: harness.NewRunner(t).WithCommandTimeout(browserCommandTimeout), model: model, env: env, portal: portal}
+	return &sessionEnv{t: t, dagu: harness.NewRunner(t).WithCommandTimeout(browserCommandTimeout), model: model, env: env, portal: portal, statements: kept}
 }
 
 // session runs dagu browser session with args, reading stdin.
@@ -388,13 +445,64 @@ func TestSessionWorkAndExport(t *testing.T) {
 	s.session("", "close", id).ExpectExitCode(0)
 	listed := s.session("", "list")
 	listed.ExpectExitCode(0)
-	assert.JSONEq(t, `{"sessions": []}`, listed.Stdout())
+	assert.JSONEq(t, `{"sessions": [], "capabilities": ["trusted_cas", "write_gate"]}`, listed.Stdout())
 
 	acts := s.model.count(kindAct)
 	s.dagu.RunWithEnv(s.env, "start", "orders.yaml").ExpectExitCode(0)
 	s.dagu.ExpectFileContains("orders.out", "A-101", "A-102")
 	assert.Equal(t, acts, s.model.count(kindAct), "the first run replays every act the session recorded")
 	assert.Zero(t, s.model.leaks, "the password never reached the model")
+}
+
+// An upload into a file input the outline shows by its ID runs without the
+// model, and the exported step's first run replays it.
+func TestSessionUploadAndExport(t *testing.T) {
+	t.Parallel()
+
+	s := newSessionEnv(t)
+	statement := filepath.Join(t.TempDir(), "statement.pdf")
+	require.NoError(t, os.WriteFile(statement, []byte("statement for March"), 0o600))
+	opened := s.session("", append([]string{"open", s.portal + "/statements"}, modelFlags...)...)
+	opened.ExpectExitCode(0)
+	var session struct {
+		ID      string `json:"id"`
+		Outline string `json:"outline"`
+	}
+	require.NoError(t, json.Unmarshal([]byte(opened.Stdout()), &session), opened.Stdout())
+	t.Cleanup(func() { s.session("", "close", session.ID, "--force") })
+	input := regexp.MustCompile(`\[(\d+-\d+)\] file input "Statement"`).FindStringSubmatch(session.Outline)
+	require.NotNil(t, input, session.Outline)
+
+	upload, err := json.Marshal(map[string]any{"upload": map[string]any{"into": input[1], "files": statement}})
+	require.NoError(t, err)
+	uploaded := s.session(string(upload), "do", session.ID)
+	uploaded.ExpectExitCode(0)
+	result := printed(t, uploaded)
+	assert.Equal(t, `the "Statement" file input`, result["into"])
+	assert.Equal(t, true, result["recorded"])
+	s.session(`{"expect": {"text": "Received statement.pdf", "within": "10s"}}`, "do", session.ID).ExpectExitCode(0)
+
+	exported := s.session("", "export", session.ID, "--dag", "statements", "--step", "attach")
+	exported.ExpectExitCode(0)
+	var export struct {
+		Step       map[string]any `json:"step"`
+		Recordings int            `json:"recordings"`
+		Warnings   []string       `json:"warnings"`
+	}
+	// The export is JSON, which escapes the separators of a Windows path.
+	quoted, err := json.Marshal(statement)
+	require.NoError(t, err)
+	replaced := strings.NewReplacer(s.portal, "${SHOP_URL}", strings.Trim(string(quoted), `"`), "${STATEMENT}").Replace(exported.Stdout())
+	require.NoError(t, json.Unmarshal([]byte(replaced), &export))
+	assert.Equal(t, 1, export.Recordings)
+	assert.Equal(t, fixtureStep(t, "statements.yaml", "attach"), export.Step)
+	require.Len(t, export.Warnings, 1)
+	assert.Contains(t, export.Warnings[0], "uploads ${STATEMENT}, the files the session was given")
+	s.session("", "close", session.ID).ExpectExitCode(0)
+
+	s.dagu.RunWithEnv(append(s.env, "STATEMENT="+statement), "start", "statements.yaml").ExpectExitCode(0)
+	assert.Equal(t, []string{"statement.pdf: statement for March", "statement.pdf: statement for March"}, s.statements.all())
+	assert.Zero(t, s.model.count(kindAct)+s.model.count(kindExtract)+s.model.count("observe"), "nothing asked the model")
 }
 
 // fixtureStep reads the step with id from a fixture, as JSON values.
@@ -440,7 +548,9 @@ func TestSessionEndsWhenIdle(t *testing.T) {
 	t.Parallel()
 
 	s := newSessionEnv(t)
-	id := s.open("--idle-timeout", "3s")
+	// The timeout starts at open, so it has to outlast the do that follows,
+	// which on a loaded runner takes seconds to start and reach the browser.
+	id := s.open("--idle-timeout", "15s")
 	s.session(`{"expect": {"text": "Order portal"}}`, "do", id).ExpectExitCode(0)
 
 	require.Eventually(t, func() bool {
@@ -451,6 +561,29 @@ func TestSessionEndsWhenIdle(t *testing.T) {
 	ended.ExpectNonZeroExitCode()
 	assert.Equal(t, "session_ended", errorCode(t, ended))
 	s.session("", "export", id, "--dag", "orders", "--step", "check", "--dry-run").ExpectExitCode(0)
+}
+
+// A page a site answered with a bot check is reported by every command that
+// finds the browser on it, including one that reattached after it loaded.
+func TestSessionReportsBotCheck(t *testing.T) {
+	t.Parallel()
+
+	s := newSessionEnv(t)
+	result := s.session("", "open", s.portal+"/guarded")
+	result.ExpectExitCode(0)
+	opened := printed(t, result)
+	id, _ := opened["id"].(string)
+	t.Cleanup(func() {
+		s.dagu.RunWithStdin(s.env, strings.NewReader(""), "browser", "session", "close", id, "--force")
+	})
+	refused, _ := opened["refused"].(map[string]any)
+	assert.Equal(t, "cloudflare", refused["bot_check"], result.Stdout())
+	assert.EqualValues(t, http.StatusForbidden, refused["status"])
+
+	described := s.session("", "describe", id)
+	described.ExpectExitCode(0)
+	refused, _ = printed(t, described)["refused"].(map[string]any)
+	assert.Equal(t, "cloudflare", refused["bot_check"], described.Stdout())
 }
 
 // A session opened without a model refuses the operations that ask one and

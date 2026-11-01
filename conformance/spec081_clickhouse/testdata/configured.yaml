@@ -1,0 +1,33 @@
+steps:
+  - id: rollup
+    action: clickhouse.query
+    with:
+      url: ${CLICKHOUSE_URL}
+      user: etl
+      password: ${CLICKHOUSE_PASSWORD}
+      database: analytics
+      query: |
+        INSERT INTO daily SELECT * FROM raw WHERE day = {day:Date};
+        SELECT count() AS n FROM daily
+      params:
+        day: "2024-01-02"
+      settings:
+        max_execution_time: 30
+      output_format: csv
+      headers: true
+      timeout: 120
+  - id: from_file
+    depends: [rollup]
+    action: clickhouse.query
+    with:
+      url: https://clickhouse.example.invalid:8443
+      file: sql/load.sql
+      tls_skip_verify: true
+      tls_ca: certs/ca.pem
+  - id: from_reference
+    depends: [from_file]
+    action: clickhouse.query
+    with:
+      url: http://localhost:8123
+      file: ${SQL_FILE}
+      timeout: ${QUERY_TIMEOUT}

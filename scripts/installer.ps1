@@ -1322,6 +1322,10 @@ function Show-Summary {
     elseif ($Service -eq "yes") {
         Write-Host ("First-time setup".PadRight(20) + "$ServiceUrl/setup")
     }
+    if ($Service -eq "yes") {
+        Write-Host ("Workflows".PadRight(20) + (Join-Path $DaguHome "dags"))
+        Write-Host ("Free monitoring".PadRight(20) + "$ServiceUrl/license#monitoring")
+    }
 }
 
 Show-Banner

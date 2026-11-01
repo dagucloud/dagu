@@ -59,7 +59,7 @@ export function BatchDeleteDialog({
       <DialogContent className="sm:max-w-md">
         <DialogHeader>
           <DialogTitle className="text-base">
-            <I18nText text={'Delete Selected Items'} />
+            <I18nText text={'Delete selected items'} />
           </DialogTitle>
           <DialogDescription className="text-xs">
             {ts(

@@ -33,6 +33,18 @@ func ReadFile(path string) ([]byte, error) {
 	return data, err
 }
 
+// Open opens a file for reading, retrying transient Windows sharing
+// violations while another process releases it.
+func Open(path string) (*os.File, error) {
+	var file *os.File
+	err := retryWindowsFileOp(func() error {
+		opened, err := os.Open(path) //nolint:gosec // caller controls internal path
+		file = opened
+		return err
+	})
+	return file, err
+}
+
 // ReadFileWithRetry retries transient Windows sharing violations while reading
 // files that may be momentarily held by another process.
 //

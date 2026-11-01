@@ -17,7 +17,7 @@ import (
 
 const staleLocalRunError = "process terminated unexpectedly - stale local process detected"
 
-// RepairStaleLocalRun marks an active local run as failed after liveness checks
+// RepairStaleLocalRun marks a running local run as failed after liveness checks
 // have confirmed the local proc file is stale or missing.
 func RepairStaleLocalRun(
 	ctx context.Context,
@@ -28,7 +28,10 @@ func RepairStaleLocalRun(
 	if err != nil {
 		return nil, false, fmt.Errorf("read full status: %w", err)
 	}
-	if !fullStatus.Status.IsActive() {
+	// The run may have moved on since the liveness checks. A run that waits
+	// for input or sits in a queue has no process by design, so it is not
+	// stale.
+	if fullStatus.Status != ir.Running {
 		return fullStatus, false, nil
 	}
 	if fullStatus.WorkerID != "" && fullStatus.WorkerID != "local" {

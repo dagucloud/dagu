@@ -291,9 +291,17 @@ func remoteRunStart(ctx *Context, args []string) error {
 	if len(selection.steps) > 0 {
 		steps = &selection.steps
 	}
+	var outputsFromRuns *map[string]string
+	if len(selection.outputFrom) > 0 {
+		outputsFromRuns = &selection.outputFrom
+	}
 	var outputs *map[string]map[string]string
 	if len(selection.outputs) > 0 {
 		outputs = &selection.outputs
+	}
+	workerSelector, err := remoteWorkerSelector(ctx)
+	if err != nil {
+		return err
 	}
 	resp, err := ctx.Remote.startDAG(ctx, dag.FileName, api.ExecuteDAGJSONBody{
 		DagName:          stringPtrOrNil(nameOverride),
@@ -303,7 +311,9 @@ func remoteRunStart(ctx *Context, args []string) error {
 		NoReuse:          &noReuse,
 		Steps:            steps,
 		OutputsFromRunId: stringPtrOrNil(selection.outputsFrom),
+		OutputsFromRuns:  outputsFromRuns,
 		Outputs:          outputs,
+		WorkerSelector:   workerSelector,
 	})
 	if err != nil {
 		return err
@@ -340,13 +350,18 @@ func remoteRunEnqueue(ctx *Context, args []string) error {
 	if err != nil {
 		return err
 	}
+	workerSelector, err := remoteWorkerSelector(ctx)
+	if err != nil {
+		return err
+	}
 	resp, err := ctx.Remote.enqueueDAG(ctx, dag.FileName, api.EnqueueDAGDAGRunJSONBody{
-		DagName:  stringPtrOrNil(nameOverride),
-		DagRunId: stringPtrOrNil(runID),
-		Params:   stringPtrOrNil(params),
-		Queue:    stringPtrOrNil(queueOverride),
-		Labels:   labels,
-		NoReuse:  &noReuse,
+		DagName:        stringPtrOrNil(nameOverride),
+		DagRunId:       stringPtrOrNil(runID),
+		Params:         stringPtrOrNil(params),
+		Queue:          stringPtrOrNil(queueOverride),
+		Labels:         labels,
+		NoReuse:        &noReuse,
+		WorkerSelector: workerSelector,
 	})
 	if err != nil {
 		return err

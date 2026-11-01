@@ -9,7 +9,9 @@ import {
   waitFor,
 } from '@testing-library/react';
 import React from 'react';
+import { MemoryRouter, Route, Routes } from 'react-router-dom';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { ProtectedRoute } from '@/components/ProtectedRoute';
 import type { Config } from '@/contexts/ConfigContext';
 import { ConfigContext } from '@/contexts/ConfigContext';
 import { useAuth } from '@/contexts/AuthContext';
@@ -21,7 +23,8 @@ const navigateMock = vi.fn();
 const setupMock = vi.fn();
 const completeSetupMock = vi.fn();
 
-vi.mock('react-router-dom', () => ({
+vi.mock('react-router-dom', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('react-router-dom')>()),
   useNavigate: () => navigateMock,
 }));
 
@@ -52,6 +55,9 @@ const config: Config = {
   gitSyncEnabled: false,
   updateAvailable: false,
   latestVersion: '',
+  upgradeCommand: '',
+  restartRequired: false,
+  restartCommand: '',
   permissions: {
     writeDags: true,
     runDags: true,
@@ -82,16 +88,43 @@ const config: Config = {
   },
 };
 
-function renderPage() {
+// Renders the setup page, reached from entry. Protected pages send visitors
+// there until an admin account exists.
+function renderPage(entry = '/setup') {
   return render(
     <UserPreferencesProvider>
       <I18nProvider>
-        <ConfigContext.Provider value={config}>
-          <SetupPage />
-        </ConfigContext.Provider>
+        <MemoryRouter initialEntries={[entry]}>
+          <ConfigContext.Provider value={config}>
+            <Routes>
+              <Route path="/setup" element={<SetupPage />} />
+              <Route
+                path="*"
+                element={
+                  <ProtectedRoute>
+                    <p>Requested page</p>
+                  </ProtectedRoute>
+                }
+              />
+            </Routes>
+          </ConfigContext.Provider>
+        </MemoryRouter>
       </I18nProvider>
     </UserPreferencesProvider>
   );
+}
+
+function createAdmin() {
+  fireEvent.change(screen.getByLabelText('Username'), {
+    target: { value: 'admin-user' },
+  });
+  fireEvent.change(screen.getByLabelText('Password'), {
+    target: { value: 'password123' },
+  });
+  fireEvent.change(screen.getByLabelText('Confirm Password'), {
+    target: { value: 'password123' },
+  });
+  fireEvent.click(screen.getByRole('button', { name: 'Create account' }));
 }
 
 beforeEach(() => {
@@ -127,17 +160,7 @@ describe('SetupPage', () => {
   it('completes onboarding after creating the admin account', async () => {
     renderPage();
 
-    fireEvent.change(screen.getByLabelText('Username'), {
-      target: { value: 'admin-user' },
-    });
-    fireEvent.change(screen.getByLabelText('Password'), {
-      target: { value: 'password123' },
-    });
-    fireEvent.change(screen.getByLabelText('Confirm Password'), {
-      target: { value: 'password123' },
-    });
-
-    fireEvent.click(screen.getByRole('button', { name: 'Create account' }));
+    createAdmin();
 
     await waitFor(() => {
       expect(setupMock).toHaveBeenCalledWith('admin-user', 'password123');
@@ -148,6 +171,20 @@ describe('SetupPage', () => {
       user: { id: '1', username: 'admin-user', role: 'admin' },
     });
     expect(navigateMock).toHaveBeenCalledWith('/', { replace: true });
+  });
+
+  // Links such as the startup banner's point at a section of a page.
+  it('returns to the requested page after creating the admin account', async () => {
+    renderPage('/license?remoteNode=local#monitoring');
+
+    createAdmin();
+
+    await waitFor(() =>
+      expect(navigateMock).toHaveBeenCalledWith(
+        '/license?remoteNode=local#monitoring',
+        { replace: true }
+      )
+    );
   });
 
   it('uses the saved Japanese locale', () => {

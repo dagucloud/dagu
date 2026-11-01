@@ -17,6 +17,7 @@ type Definition struct {
 	CheckUpdates       *bool        `mapstructure:"check_updates"`
 	TLS                *TLSDef      `mapstructure:"tls"`
 	CORSAllowedOrigins []string     `mapstructure:"cors_allowed_origins"`
+	AllowedHosts       []string     `mapstructure:"allowed_hosts"`
 	IPAccess           *IPAccessDef `mapstructure:"ip_access"`
 
 	// Core settings
@@ -111,7 +112,32 @@ type OpenCodeDef struct {
 
 // BrowserDef configures the browsers that browser steps start on this host.
 type BrowserDef struct {
-	Sandbox *bool `mapstructure:"sandbox"`
+	Sandbox                 *bool                         `mapstructure:"sandbox"`
+	MaxOpen                 *int                          `mapstructure:"max_open"`
+	ClientCertificates      []BrowserClientCertificateDef `mapstructure:"client_certificates"`
+	TrustedCAs              []BrowserTrustedCADef         `mapstructure:"trusted_cas"`
+	GuardClientCertificates *bool                         `mapstructure:"guard_client_certificates"`
+	WriteGate               string                        `mapstructure:"write_gate"`
+	WritePolicy             string                        `mapstructure:"write_policy"`
+}
+
+// BrowserClientCertificateDef is a TLS client certificate that browsers on
+// this host present to the hosts it names.
+type BrowserClientCertificateDef struct {
+	Hosts          []string `mapstructure:"hosts"`
+	PFXFile        string   `mapstructure:"pfx_file"`
+	CertFile       string   `mapstructure:"cert_file"`
+	KeyFile        string   `mapstructure:"key_file"`
+	CAFile         string   `mapstructure:"ca_file"`
+	Passphrase     string   `mapstructure:"passphrase"`
+	PassphraseFile string   `mapstructure:"passphrase_file"`
+}
+
+// BrowserTrustedCADef is a server certificate authority that browsers on
+// this host trust for the hosts it names.
+type BrowserTrustedCADef struct {
+	Hosts  []string `mapstructure:"hosts"`
+	CAFile string   `mapstructure:"ca_file"`
 }
 
 // DAGDiscoveryDef configures DAG definition discovery.
@@ -379,6 +405,9 @@ type CoordinatorDef struct {
 	Advertise  string `mapstructure:"advertise"` // Auto-detected if empty
 	Port       int    `mapstructure:"port"`
 	HealthPort int    `mapstructure:"health_port"`
+	// WorkerWaitTimeout is a duration string such as "2m". Default: 2m; "0"
+	// refuses a dispatch with no healthy matching worker at once.
+	WorkerWaitTimeout string `mapstructure:"worker_wait_timeout"`
 }
 
 // WorkerDef configures the worker.
@@ -423,6 +452,7 @@ type SchedulerDef struct {
 	HeartbeatInterval       string `mapstructure:"heartbeat_interval"`        // Deprecated: use proc.heartbeat_interval
 	StaleThreshold          string `mapstructure:"stale_threshold"`           // Deprecated: use proc.stale_threshold
 	FailureThreshold        int    `mapstructure:"failure_threshold"`         // Default: 3
+	WakeHold                string `mapstructure:"wake_hold"`                 // Default: 0, no hold after the host wakes
 }
 
 // QueueConfigDef configures global queue settings.
@@ -568,4 +598,8 @@ type LicenseDef struct {
 // CloudDef configures what a licensed server shares with Dagu Console.
 type CloudDef struct {
 	Report string `mapstructure:"report"` // off, health, or runs; unset reports nothing
+	// RemoteAccess is off, viewer, operator, or developer; unset is chosen in the UI.
+	RemoteAccess string `mapstructure:"remote_access"`
+	// RemoteApprovals is unset to choose in the UI.
+	RemoteApprovals *bool `mapstructure:"remote_approvals"`
 }

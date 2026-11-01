@@ -161,7 +161,7 @@ function RunProgressModal({
           </div>
           {dagRun?.status && (
             <StatusChip status={dagRun.status} size="sm">
-              {ts(dagRun.statusLabel)}
+              {dagRun.statusLabel}
             </StatusChip>
           )}
         </div>

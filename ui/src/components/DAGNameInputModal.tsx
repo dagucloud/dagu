@@ -11,12 +11,10 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Pencil, Plus, X } from 'lucide-react';
 import { useCallback, useEffect, useState } from 'react';
-import {
-  validateDAGName,
-  DAG_NAME_PATTERN_STRING,
-} from '../lib/dag-validation';
+import { DAG_NAME_MAX_LEN, validateDAGName } from '../lib/dag-validation';
 import { I18nText } from '@/i18n/I18nText';
 import { I18nProps } from '@/i18n/I18nProps';
+import { useI18n } from '@/i18n/I18nProvider';
 
 export interface DAGNameInputModalProps {
   /** Whether the modal is open */
@@ -48,6 +46,7 @@ export function DAGNameInputModal({
   isLoading = false,
   externalError = null,
 }: DAGNameInputModalProps) {
+  const { ts } = useI18n();
   const [name, setName] = useState(initialValue);
   const [validationError, setValidationError] = useState<string | null>(null);
 
@@ -108,18 +107,18 @@ export function DAGNameInputModal({
     switch (mode) {
       case 'create':
         return {
-          title: 'Create New DAG',
+          title: 'Create workflow',
           description:
-            'Enter a name for your new DAG. Only letters, numbers, underscores, dots, and hyphens are allowed.',
+            'Enter a name for your new workflow. Only letters, numbers, underscores, dots, and hyphens are allowed.',
           submitText: 'Create',
           loadingText: 'Creating...',
           placeholder: 'my_new_dag',
         };
       case 'rename':
         return {
-          title: 'Rename DAG',
+          title: 'Rename workflow',
           description:
-            'Enter a new name for your DAG. Only letters, numbers, underscores, dots, and hyphens are allowed.',
+            'Enter a new name for your workflow. Only letters, numbers, underscores, dots, and hyphens are allowed.',
           submitText: 'Rename',
           loadingText: 'Renaming...',
           placeholder: 'my_renamed_dag',
@@ -130,7 +129,9 @@ export function DAGNameInputModal({
   };
 
   const modalContent = getModalContent();
-  const currentError = externalError || validationError;
+  const currentError =
+    externalError ||
+    (validationError && ts(validationError, { max: DAG_NAME_MAX_LEN }));
 
   return (
     <Dialog open={isOpen} onOpenChange={(open) => !open && onClose()}>
@@ -143,14 +144,11 @@ export function DAGNameInputModal({
             <DialogDescription>
               <I18nText text={modalContent.description} />
             </DialogDescription>
-            <div className="mt-1 font-mono text-xs bg-muted p-1 rounded text-muted-foreground">
-              <I18nText text={'Pattern:'} /> {DAG_NAME_PATTERN_STRING}
-            </div>
           </DialogHeader>
           <div className="grid gap-4 py-4">
             <div className="grid grid-cols-4 items-center gap-4">
               <Label htmlFor="dag-name" className="text-right">
-                <I18nText text={'DAG Name'} />
+                <I18nText text={'Workflow name'} />
               </Label>
               <I18nProps>
                 <Input
@@ -159,7 +157,6 @@ export function DAGNameInputModal({
                   onChange={handleNameChange}
                   className="col-span-3"
                   placeholder={modalContent.placeholder}
-                  pattern={DAG_NAME_PATTERN_STRING}
                   autoFocus
                   disabled={isLoading}
                 />
@@ -181,7 +178,7 @@ export function DAGNameInputModal({
               <X className="h-4 w-4" />
               <I18nText text={'Cancel'} />
             </Button>
-            <Button type="submit" disabled={isLoading}>
+            <Button type="submit" variant="primary" disabled={isLoading}>
               {mode === 'create' ? (
                 <Plus className="h-4 w-4" />
               ) : (

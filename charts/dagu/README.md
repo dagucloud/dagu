@@ -256,6 +256,20 @@ config:
 
 Set `config.corsAllowedOrigins: ["*"]` only when any website should be allowed to call the API. Wildcard CORS does not allow credentials and is especially risky with `auth.mode: none`.
 
+### Allowed Host Names
+
+Where no credential is needed (every request with `auth.mode: none`, and first-admin setup), Dagu answers to IP addresses, single-label names, names under the special-use domains `localhost`, `local` (including `svc.cluster.local`), `internal`, `test`, `example`, `invalid`, `alt`, `home.arpa`, and `service.arpa`, the `config.publicUrl` host, and listed names. It also answers to its own hostname (in Kubernetes, the pod's single-label name) and to a connected Tailscale tunnel's name. This blocks DNS-rebinding pages, which need a name that public DNS answers for. The chart adds `ingress.host` when the chart ingress is enabled. List any other name Dagu is reached under:
+
+```yaml
+config:
+  allowedHosts:
+    - dagu.example.com
+    - .corp.example.com # the domain and its subdomains
+    - .lan # a private domain no standard reserves
+```
+
+`["*"]` accepts every host name and turns the check off for those requests, so any website can then reach a Dagu with `auth.mode: none`, or a fresh install's setup, through DNS rebinding. Use it only when Dagu is not reachable from users' browsers.
+
 ### IP Access Allowlist
 
 Restrict every UI and API HTTP route to specific client addresses or networks:

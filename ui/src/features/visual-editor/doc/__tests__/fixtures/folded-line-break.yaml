@@ -1,0 +1,8 @@
+working_dir: .
+env:
+  - COMMAND_TEXT: |-
+      printf 'line-break-ran\n' > line-break-ran.txt
+      printf 'second\n' >> line-break-ran.txt
+steps:
+  - id: line_break
+    run: ${env.COMMAND_TEXT}

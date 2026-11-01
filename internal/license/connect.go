@@ -36,8 +36,9 @@ const (
 
 const (
 	connectPollInterval = 3 * time.Second
-	// connectTTL matches how long Dagu Console keeps an approval.
-	connectTTL = 15 * time.Minute
+	// connectTTL is how long a request waits for approval: long enough for
+	// an owner to sign up, verify an email, or choose a plan first.
+	connectTTL = time.Hour
 	// connectCodeLength is how much of the code both sides display.
 	connectCodeLength = 8
 
@@ -54,8 +55,8 @@ var (
 	// connected license on restart.
 	ErrManagedExternally = errors.New("the license is set by DAGU_LICENSE, DAGU_LICENSE_KEY, or license.key; remove it to connect from Dagu Console")
 	// ErrAlreadyLicensed is returned when connecting a server that already
-	// has a usable license.
-	ErrAlreadyLicensed = errors.New("this server already has an active license; disconnect it first")
+	// has a usable license, free or paid.
+	ErrAlreadyLicensed = errors.New("this server already has a license; disconnect it first")
 	// ErrNoCheckIn is returned when refreshing a license that does not check
 	// in with Dagu Console.
 	ErrNoCheckIn = errors.New("this license does not check in with Dagu Console")
@@ -134,7 +135,7 @@ func (m *Manager) Connect() (ConnectStatus, error) {
 	}
 	code := connectionCode(secret)
 	expiresAt := time.Now().Add(m.connectTTL)
-	query := url.Values{"code": {code}, "name": {m.serverName}, "server_id": {serverID}}
+	query := url.Values{"code": {code}, "name": {m.serverName}, "server_id": {serverID}, "version": {config.Version}}
 
 	ctx, cancel := context.WithDeadline(context.Background(), expiresAt)
 	s := &connectSession{
@@ -201,7 +202,7 @@ func (m *Manager) checkConnectable() error {
 	if m.licenseConfigured() {
 		return ErrManagedExternally
 	}
-	if HasActiveLicense(m.state) {
+	if HasLicense(m.state) {
 		return ErrAlreadyLicensed
 	}
 	return nil
@@ -294,7 +295,7 @@ func (m *Manager) completeConnect(ctx context.Context, s *connectSession, resp *
 		Via:             ConnectedViaConsole,
 		CheckedInAt:     time.Now(),
 	}
-	if current := m.state.Claims(); current != nil && HasActiveLicense(m.state) {
+	if current := m.state.Claims(); current != nil && HasLicense(m.state) {
 		granted, err := VerifyToken(m.pubKey, resp.Token)
 		if err != nil {
 			return err

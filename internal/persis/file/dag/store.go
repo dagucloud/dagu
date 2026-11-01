@@ -15,7 +15,9 @@ import (
 	"sort"
 	"strings"
 	"sync"
+	"time"
 
+	"github.com/dagucloud/dagu/v2/internal/cmn/dirlock"
 	"github.com/dagucloud/dagu/v2/internal/cmn/fileutil"
 	"github.com/dagucloud/dagu/v2/internal/cmn/logger"
 	"github.com/dagucloud/dagu/v2/internal/cmn/logger/tag"
@@ -28,6 +30,13 @@ import (
 )
 
 var _ persis.DAGDefinitionStore = (*Store)(nil)
+
+// The lock that orders the writes of a DAG file.
+const (
+	specLockDirName        = "spec-locks"
+	specLockStaleThreshold = 30 * time.Second
+	specLockRetryInterval  = 50 * time.Millisecond
+)
 
 // Option configures filesystem DAG definition storage.
 type Option func(*Options)
@@ -148,6 +157,7 @@ func NewStore(baseDir string, opts ...Option) *Store {
 	return &Store{
 		baseDir:                baseDir,
 		indexPath:              resolveIndexPath(baseDir, options.indexDir),
+		changeMarker:           NewChangeMarker(ChangeMarkerPath(options.indexDir, baseDir)),
 		flagsBaseDir:           options.FlagsBaseDir,
 		legacyFlagsBaseDir:     options.legacyFlagsBaseDir,
 		fileCache:              options.FileCache,
@@ -163,9 +173,10 @@ func NewStore(baseDir string, opts ...Option) *Store {
 
 // Store persists DAG definitions in local files.
 type Store struct {
-	baseDir                string // Base directory for DAG storage
-	indexPath              string // DAG definition index file
-	flagsBaseDir           string // Base directory for flag store
+	baseDir                string        // Base directory for DAG storage
+	indexPath              string        // DAG definition index file
+	changeMarker           *ChangeMarker // Signals DAG definition changes to other hosts
+	flagsBaseDir           string        // Base directory for flag store
 	legacyFlagsBaseDir     string
 	fileCache              *fileutil.Cache[*ir.DAG] // Optional cache for DAG objects
 	searchPaths            []string                 // Additional search paths for DAG files
@@ -302,7 +313,8 @@ func describeWorkspaceBaseConfigState(dir string) string {
 
 	states := make([]string, 0, len(entries))
 	for _, entry := range entries {
-		if !entry.IsDir() {
+		// Workspace base configs are also read through symlinked directories.
+		if !entry.IsDir() && (!fileutil.IsSymlinkDirEntry(entry) || !fileutil.IsDir(filepath.Join(dir, entry.Name()))) {
 			continue
 		}
 
@@ -370,6 +382,64 @@ func (store *Store) Update(ctx context.Context, name string, yamlSpec []byte) er
 	if resolved.ExternalSymlink {
 		return fmt.Errorf("%w: external DAG file symlink", persis.ErrDAGReadOnly)
 	}
+	switch unlock, err := store.lockSpec(ctx, name, resolved); {
+	case err == nil:
+		defer unlock()
+	case ctx.Err() != nil:
+		return err
+	default:
+		// A lock directory that cannot hold the lock fails every conditional
+		// write as well, so no write can race with this one.
+		logger.Warn(ctx, "Writing DAG file without the spec lock", tag.Name(name), tag.Error(err))
+	}
+	return store.write(ctx, resolved, yamlSpec)
+}
+
+// UpdateIfMatch replaces the DAG file when it still has the SHA-256
+// expectedSHA256. The check and the write hold the lock of the file that
+// Update takes too, so no other write lands between them.
+func (store *Store) UpdateIfMatch(ctx context.Context, name, expectedSHA256 string, yamlSpec []byte) error {
+	resolved, err := store.locateDAG(ctx, name)
+	if err != nil {
+		return fmt.Errorf("failed to locate DAG %s: %w", name, err)
+	}
+	if resolved.ExternalSymlink {
+		return fmt.Errorf("%w: external DAG file symlink", persis.ErrDAGReadOnly)
+	}
+	unlock, err := store.lockSpec(ctx, name, resolved)
+	if err != nil {
+		return err
+	}
+	defer unlock()
+
+	current, err := fileutil.ReadFile(resolved.ResolvedPath)
+	if err != nil {
+		return err
+	}
+	sum := sha256.Sum256(current)
+	if actual := hex.EncodeToString(sum[:]); actual != expectedSHA256 {
+		return fmt.Errorf("%w: DAG %s has sha256 %s", persis.ErrConflict, name, actual)
+	}
+	return store.write(ctx, resolved, yamlSpec)
+}
+
+// lockSpec takes the lock that orders the writes of a located DAG file. The
+// lock lives in the directory of the index, which every process that shares
+// the store uses. The returned function releases it.
+func (store *Store) lockSpec(ctx context.Context, name string, resolved ResolvedFile) (func(), error) {
+	key := sha256.Sum256([]byte(resolved.ResolvedPath))
+	lock := dirlock.New(filepath.Join(filepath.Dir(store.indexPath), specLockDirName, hex.EncodeToString(key[:8])), &dirlock.LockOptions{
+		StaleThreshold: specLockStaleThreshold,
+		RetryInterval:  specLockRetryInterval,
+	})
+	if err := lock.Lock(ctx); err != nil {
+		return nil, fmt.Errorf("failed to lock DAG %s: %w", name, err)
+	}
+	return func() { _ = lock.Unlock() }, nil
+}
+
+// write replaces a located DAG file and announces the change.
+func (store *Store) write(ctx context.Context, resolved ResolvedFile, yamlSpec []byte) error {
 	if err := fileutil.WriteFileAtomic(resolved.ResolvedPath, yamlSpec, defaultPerm); err != nil {
 		return err
 	}
@@ -377,11 +447,12 @@ func (store *Store) Update(ctx context.Context, name string, yamlSpec []byte) er
 		store.fileCache.Invalidate(store.metadataCacheKey(resolved, store.refreshBaseConfigState()))
 	}
 	store.invalidateIndex()
+	store.changeMarker.Bump(ctx)
 	return nil
 }
 
 // Create creates a new DAG with the given name and specification.
-func (store *Store) Create(_ context.Context, name string, spec []byte) error {
+func (store *Store) Create(ctx context.Context, name string, spec []byte) error {
 	if err := store.ensureDirExist(); err != nil {
 		return fmt.Errorf("failed to create DAGs directory %s: %w", store.baseDir, err)
 	}
@@ -393,6 +464,7 @@ func (store *Store) Create(_ context.Context, name string, spec []byte) error {
 		return fmt.Errorf("failed to write DAG %s: %w", name, err)
 	}
 	store.invalidateIndex()
+	store.changeMarker.Bump(ctx)
 	return nil
 }
 
@@ -415,6 +487,7 @@ func (store *Store) Delete(ctx context.Context, name string) error {
 		store.fileCache.Invalidate(store.metadataCacheKey(resolved, store.refreshBaseConfigState()))
 	}
 	store.invalidateIndex()
+	store.changeMarker.Bump(ctx)
 	return nil
 }
 
@@ -530,6 +603,7 @@ func (store *Store) Rename(ctx context.Context, oldID, newID string) error {
 		return err
 	}
 	store.invalidateIndex()
+	store.changeMarker.Bump(ctx)
 	return nil
 }
 
@@ -719,6 +793,8 @@ func (store *Store) createExampleDAGs() error {
 			// Continue creating other examples even if one fails
 		}
 	}
+
+	store.changeMarker.Bump(context.Background())
 
 	// Create marker file to indicate examples were created
 	markerFile := filepath.Join(store.baseDir, ".examples-created")

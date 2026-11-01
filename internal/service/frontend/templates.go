@@ -115,10 +115,22 @@ type SetupRequiredChecker interface {
 	IsSetupRequired(ctx context.Context) bool
 }
 
-// UpdateChecker provides dynamic update availability for template rendering.
+// UpdateChecker provides dynamic update status for template rendering.
 // Called on every HTML page render so the banner reflects the latest cached check.
 type UpdateChecker interface {
-	GetUpdateInfo() (updateAvailable bool, latestVersion string)
+	UpdateStatus() UpdateStatus
+}
+
+// UpdateStatus describes how the running server relates to the latest release.
+type UpdateStatus struct {
+	UpdateAvailable bool
+	LatestVersion   string
+	// UpgradeCommand updates this installation; empty when no single command applies.
+	UpgradeCommand string
+	// RestartRequired reports that a different binary was installed since the server started.
+	RestartRequired bool
+	// RestartCommand restarts the installer-managed service; empty when none is found.
+	RestartCommand string
 }
 
 type funcsConfig struct {
@@ -238,19 +250,11 @@ func defaultFunctions(cfg *funcsConfig) template.FuncMap {
 			}
 			return boolStr(cfg.SetupRequiredChecker.IsSetupRequired(context.Background()))
 		},
-		"updateAvailable": func() string {
+		"updateStatus": func() UpdateStatus {
 			if cfg.UpdateChecker == nil {
-				return "false"
+				return UpdateStatus{}
 			}
-			available, _ := cfg.UpdateChecker.GetUpdateInfo()
-			return boolStr(available)
-		},
-		"latestVersion": func() string {
-			if cfg.UpdateChecker == nil {
-				return ""
-			}
-			_, version := cfg.UpdateChecker.GetUpdateInfo()
-			return version
+			return cfg.UpdateChecker.UpdateStatus()
 		},
 
 		// License functions

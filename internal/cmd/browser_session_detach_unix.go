@@ -8,7 +8,8 @@ package cmd
 import (
 	"os/exec"
 	"path/filepath"
-	"syscall"
+
+	"github.com/dagucloud/dagu/v2/internal/cmn/cmdutil"
 )
 
 // startDetached starts the command in its own session, so the caller's
@@ -18,7 +19,7 @@ import (
 func startDetached(command string, args []string) error {
 	cmd := exec.Command(command, args...) //nolint:gosec // starting this executable's own watchdog is the purpose
 	cmd.Dir = filepath.Dir(command)
-	cmd.SysProcAttr = &syscall.SysProcAttr{Setsid: true}
+	cmd.SysProcAttr = cmdutil.DetachAttr(true)
 	if err := cmd.Start(); err != nil {
 		return err
 	}

@@ -137,22 +137,68 @@ func TestDefaultFunctionsExposeLicensedTrustedProxyLogin(t *testing.T) {
 	assert.Equal(t, "false", enabled())
 }
 
-func TestBaseTemplateEscapesProxyButtonLabelForJavaScript(t *testing.T) {
-	t.Parallel()
+type stubUpdateChecker struct {
+	status UpdateStatus
+}
 
-	const label = `</script><script>alert("injected")</script>`
-	tmpl, err := template.New("base").Funcs(defaultFunctions(&funcsConfig{
-		ProxyEnabled:     true,
-		ProxyButtonLabel: label,
-	})).ParseFS(assetsFS, "templates/base.gohtml")
+func (s stubUpdateChecker) UpdateStatus() UpdateStatus {
+	return s.status
+}
+
+func renderBaseTemplate(t *testing.T, cfg *funcsConfig) string {
+	t.Helper()
+
+	tmpl, err := template.New("base").Funcs(defaultFunctions(cfg)).ParseFS(assetsFS, "templates/base.gohtml")
 	require.NoError(t, err)
 	tmpl, err = tmpl.Parse(`{{define "content"}}{{end}}`)
 	require.NoError(t, err)
 
 	var output bytes.Buffer
 	require.NoError(t, tmpl.ExecuteTemplate(&output, "base", nil))
-	assert.NotContains(t, output.String(), label)
-	assert.NotContains(t, output.String(), `</script><script>alert`)
+	return output.String()
+}
+
+func TestBaseTemplateEscapesProxyButtonLabelForJavaScript(t *testing.T) {
+	t.Parallel()
+
+	const label = `</script><script>alert("injected")</script>`
+	output := renderBaseTemplate(t, &funcsConfig{
+		ProxyEnabled:     true,
+		ProxyButtonLabel: label,
+	})
+	assert.NotContains(t, output, label)
+	assert.NotContains(t, output, `</script><script>alert`)
+}
+
+func TestBaseTemplateRendersUpdateStatus(t *testing.T) {
+	t.Parallel()
+
+	output := renderBaseTemplate(t, &funcsConfig{
+		UpdateChecker: stubUpdateChecker{status: UpdateStatus{
+			UpdateAvailable: true,
+			LatestVersion:   "v2.1.0",
+			UpgradeCommand:  "brew upgrade dagu",
+			RestartRequired: true,
+			RestartCommand:  `</script><script>alert("injected")</script>`,
+		}},
+	})
+
+	assert.Contains(t, output, `updateAvailable: "true" === "true"`)
+	assert.Contains(t, output, `latestVersion: "v2.1.0"`)
+	assert.Contains(t, output, `upgradeCommand: "brew upgrade dagu"`)
+	assert.Contains(t, output, `restartRequired: "true" === "true"`)
+	assert.NotContains(t, output, `</script><script>alert`)
+}
+
+func TestBaseTemplateRendersUpdateStatusWithoutChecker(t *testing.T) {
+	t.Parallel()
+
+	output := renderBaseTemplate(t, &funcsConfig{})
+
+	assert.Contains(t, output, `updateAvailable: "false" === "true"`)
+	assert.Contains(t, output, `upgradeCommand: ""`)
+	assert.Contains(t, output, `restartRequired: "false" === "true"`)
+	assert.Contains(t, output, `restartCommand: ""`)
 }
 
 func TestDefaultFunctionsExposeLicenseGraceEndsAt(t *testing.T) {

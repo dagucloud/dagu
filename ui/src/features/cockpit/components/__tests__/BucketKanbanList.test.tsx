@@ -4,6 +4,7 @@
 import { cleanup, render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import React from 'react';
+import { MemoryRouter } from 'react-router-dom';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import dayjs from '@/lib/dayjs';
 import type { KanbanFilters } from '../../hooks/useDateKanbanData';
@@ -14,17 +15,13 @@ type CapturedProps = {
   toStr: string;
   isLive: boolean;
   filters?: KanbanFilters;
+  onCardClick: (run: unknown, event?: { ctrlKey?: boolean }) => void;
 };
 const sectionProps: CapturedProps[] = [];
 
 vi.mock('@/contexts/ConfigContext', () => ({
   useConfig: () => ({ tzOffsetInSec: 0 }),
 }));
-
-vi.mock(
-  '@/features/dag-runs/components/dag-run-details/DAGRunDetailsModal',
-  () => ({ default: () => null })
-);
 
 vi.mock('../ArtifactListModal', () => ({
   ArtifactListModal: () => null,
@@ -47,16 +44,19 @@ beforeEach(() => {
 
 afterEach(() => {
   cleanup();
+  vi.restoreAllMocks();
 });
 
 describe('BucketKanbanList', () => {
   it('renders one N-day bucket initially and forwards filters', () => {
     render(
-      <BucketKanbanList
-        intervalDays={3}
-        filters={{ workspace: 'prod' }}
-        resetKey="v1"
-      />
+      <MemoryRouter>
+        <BucketKanbanList
+          intervalDays={3}
+          filters={{ workspace: 'prod' }}
+          resetKey="v1"
+        />
+      </MemoryRouter>
     );
 
     expect(screen.getAllByTestId('bucket')).toHaveLength(1);
@@ -69,7 +69,11 @@ describe('BucketKanbanList', () => {
 
   it('loads an older bucket on demand, stepped by the interval', async () => {
     const user = userEvent.setup();
-    render(<BucketKanbanList intervalDays={3} filters={{}} resetKey="v1" />);
+    render(
+      <MemoryRouter>
+        <BucketKanbanList intervalDays={3} filters={{}} resetKey="v1" />
+      </MemoryRouter>
+    );
 
     expect(screen.getAllByTestId('bucket')).toHaveLength(1);
     const firstTo = sectionProps[0]!.toStr;
@@ -81,5 +85,25 @@ describe('BucketKanbanList', () => {
     // The next bucket ends one interval (3 days) before the first bucket.
     expect(dayjs(firstTo).diff(dayjs(older.toStr), 'day')).toBe(3);
     expect(older.isLive).toBe(false);
+  });
+
+  it('opens a Ctrl-clicked card in a new tab', () => {
+    const openMock = vi.spyOn(window, 'open').mockImplementation(() => null);
+    render(
+      <MemoryRouter>
+        <BucketKanbanList intervalDays={3} filters={{}} resetKey="v1" />
+      </MemoryRouter>
+    );
+
+    sectionProps[0]!.onCardClick(
+      { name: 'etl', dagRunId: 'run-1' },
+      { ctrlKey: true }
+    );
+
+    expect(openMock).toHaveBeenCalledWith(
+      '/dags/etl?remoteNode=local&run=run-1',
+      '_blank',
+      'noopener'
+    );
   });
 });

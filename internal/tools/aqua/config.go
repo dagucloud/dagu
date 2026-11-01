@@ -166,6 +166,16 @@ func renderRegistry(registry *ir.ToolRegistry) (registryEntry, error) {
 			Type: typ,
 			Ref:  ref,
 		}, nil
+	case "local":
+		path := strings.TrimSpace(registry.Path)
+		if err := ir.ValidateWorkerAbsPath(path); err != nil {
+			return registryEntry{}, fmt.Errorf("registry.path: %w", err)
+		}
+		return registryEntry{
+			Name: emptyDefault(strings.TrimSpace(registry.Name), "local"),
+			Type: typ,
+			Path: path,
+		}, nil
 	case "github_content":
 		if ref == "" {
 			return registryEntry{}, fmt.Errorf("registry.ref is required")

@@ -24,12 +24,19 @@ import (
 
 	authmodel "github.com/dagucloud/dagu/v2/internal/auth"
 	"github.com/dagucloud/dagu/v2/internal/cmn/config"
+	"github.com/dagucloud/dagu/v2/internal/cmn/crypto"
 	"github.com/dagucloud/dagu/v2/internal/cmn/fileutil"
 	"github.com/dagucloud/dagu/v2/internal/eventstore"
+	"github.com/dagucloud/dagu/v2/internal/persis"
+	persisfile "github.com/dagucloud/dagu/v2/internal/persis/file"
+	fileeventstore "github.com/dagucloud/dagu/v2/internal/persis/file/eventstore"
+	filemonitor "github.com/dagucloud/dagu/v2/internal/persis/file/monitor"
 	authservice "github.com/dagucloud/dagu/v2/internal/service/auth"
+	"github.com/dagucloud/dagu/v2/internal/service/chatbridge"
 	apiv1 "github.com/dagucloud/dagu/v2/internal/service/frontend/api/v1"
 	frontendauth "github.com/dagucloud/dagu/v2/internal/service/frontend/auth"
 	"github.com/dagucloud/dagu/v2/internal/service/frontend/sse"
+	"github.com/dagucloud/dagu/v2/internal/upgrade"
 )
 
 // testContext returns a context that is cancelled when the test ends,
@@ -583,37 +590,51 @@ func TestServerAuthRoutesUseEvaluatedBasePathAndKeepProxyHeadersScoped(t *testin
 }
 
 func TestServerIPAccessProtectsAllRoutes(t *testing.T) {
+	cfg := newServeConfig()
+	cfg.Server.IPAccess = config.IPAccessConfig{AllowedIPs: []string{"192.0.2.10"}}
+	baseURL, client := startServeTestServer(t, cfg, func(srv *Server) {
+		srv.RegisterRoutes(func(_ context.Context, router chi.Router, _ string) {
+			router.Get("/extension", func(w http.ResponseWriter, _ *http.Request) {
+				w.WriteHeader(http.StatusNoContent)
+			})
+		})
+	})
+	for _, requestPath := range []string{"/api/v1/health", "/extension"} {
+		resp, err := client.Get(baseURL + requestPath)
+		require.NoError(t, err)
+		assert.Equal(t, http.StatusForbidden, resp.StatusCode)
+		require.NoError(t, resp.Body.Close())
+	}
+}
+
+// A DNS-rebinding page reaches the server under the attacker's domain. Without
+// authentication, the host check must reject it before any route runs.
+func TestServerRejectsRebindingHostWithoutAuth(t *testing.T) {
+	baseURL, client := startServeTestServer(t, newServeConfig(), nil)
+
+	req, err := http.NewRequest(http.MethodGet, baseURL+"/api/v1/health", nil)
+	require.NoError(t, err)
+	req.Host = "rebind.example.com"
+	resp, err := client.Do(req)
+	require.NoError(t, err)
+	assert.Equal(t, http.StatusBadRequest, resp.StatusCode)
+	require.NoError(t, resp.Body.Close())
+}
+
+// startServeTestServer serves cfg on an IPv4 loopback listener until the test
+// ends and returns its base URL with a client that closes every connection.
+func startServeTestServer(t *testing.T, cfg *config.Config, configure func(*Server)) (string, *http.Client) {
+	t.Helper()
 	ctx, cancel := context.WithCancel(context.Background())
 	t.Cleanup(cancel)
 	listener, err := net.Listen("tcp", "127.0.0.1:0")
 	require.NoError(t, err)
 
-	cfg := &config.Config{
-		DefaultExecMode: config.ExecutionModeLocal,
-		Server: config.Server{
-			APIBasePath: "/api/v1",
-			Auth:        config.Auth{Mode: config.AuthModeNone},
-			AccessLog:   config.AccessLogNone,
-			IPAccess: config.IPAccessConfig{
-				AllowedIPs: []string{"192.0.2.10"},
-			},
-			Terminal: config.TerminalConfig{MaxSessions: 5},
-			SSE: config.SSEConfig{
-				MaxTopicsPerConnection: 20,
-				MaxClients:             100,
-				HeartbeatInterval:      time.Hour,
-			},
-		},
-		UI:       config.UI{MaxDashboardPageLimit: 100},
-		Webhooks: config.WebhooksConfig{MaxPayloadSize: config.DefaultWebhookMaxPayloadSize},
-	}
 	srv, err := NewServer(ServerConfig{Context: ctx, Config: cfg}, WithListener(listener))
 	require.NoError(t, err)
-	srv.RegisterRoutes(func(_ context.Context, router chi.Router, _ string) {
-		router.Get("/extension", func(w http.ResponseWriter, _ *http.Request) {
-			w.WriteHeader(http.StatusNoContent)
-		})
-	})
+	if configure != nil {
+		configure(srv)
+	}
 	serveDone := make(chan error, 1)
 	go func() {
 		serveDone <- srv.Serve(ctx)
@@ -629,7 +650,7 @@ func TestServerIPAccessProtectsAllRoutes(t *testing.T) {
 	})
 
 	// Close each connection with its response so server cleanup does not wait
-	// on an unrelated idle connection from this routing-policy test.
+	// on an unrelated idle connection.
 	client := &http.Client{
 		Transport: &http.Transport{DisableKeepAlives: true},
 		Timeout:   5 * time.Second,
@@ -647,12 +668,234 @@ func TestServerIPAccessProtectsAllRoutes(t *testing.T) {
 		}
 		return resp.Body.Close() == nil
 	}, 10*time.Second, 20*time.Millisecond, "server never started serving")
-	for _, requestPath := range []string{"/api/v1/health", "/extension"} {
-		resp, err := client.Get(baseURL + requestPath)
-		require.NoError(t, err)
-		assert.Equal(t, http.StatusForbidden, resp.StatusCode)
-		require.NoError(t, resp.Body.Close())
+	return baseURL, client
+}
+
+// newServeConfig returns the smallest configuration Serve runs with on the
+// IPv4 loopback address.
+func newServeConfig() *config.Config {
+	return &config.Config{
+		DefaultExecMode: config.ExecutionModeLocal,
+		Server: config.Server{
+			Host:        "127.0.0.1",
+			APIBasePath: "/api/v1",
+			Auth:        config.Auth{Mode: config.AuthModeNone},
+			AccessLog:   config.AccessLogNone,
+			Terminal:    config.TerminalConfig{MaxSessions: 5},
+			SSE: config.SSEConfig{
+				MaxTopicsPerConnection: 20,
+				MaxClients:             100,
+				HeartbeatInterval:      time.Hour,
+			},
+		},
+		UI:       config.UI{MaxDashboardPageLimit: 100},
+		Webhooks: config.WebhooksConfig{MaxPayloadSize: config.DefaultWebhookMaxPayloadSize},
 	}
+}
+
+// serveError runs Serve and returns its error. The test fails when Serve
+// keeps running instead.
+func serveError(t *testing.T, cfg *config.Config, opts ...ServerOption) error {
+	t.Helper()
+	ctx := testContext(t)
+	srv, err := NewServer(ServerConfig{Context: ctx, Config: cfg}, opts...)
+	require.NoError(t, err)
+	done := make(chan error, 1)
+	go func() {
+		done <- srv.Serve(ctx)
+	}()
+	select {
+	case err := <-done:
+		return err
+	case <-time.After(5 * time.Second):
+		t.Fatal("Serve kept running without serving")
+		return nil
+	}
+}
+
+func TestServeListenFailure(t *testing.T) {
+	t.Run("PortInUse", func(t *testing.T) {
+		held, err := net.Listen("tcp", "127.0.0.1:0")
+		require.NoError(t, err)
+		t.Cleanup(func() { _ = held.Close() })
+
+		cfg := newServeConfig()
+		cfg.Server.Port = held.Addr().(*net.TCPAddr).Port
+
+		var opErr *net.OpError
+		require.ErrorAs(t, serveError(t, cfg), &opErr)
+		assert.Equal(t, "listen", opErr.Op)
+	})
+	t.Run("MissingTLSCert", func(t *testing.T) {
+		listener, err := net.Listen("tcp", "127.0.0.1:0")
+		require.NoError(t, err)
+		t.Cleanup(func() { _ = listener.Close() })
+
+		dir := t.TempDir()
+		cfg := newServeConfig()
+		cfg.Server.TLS = &config.TLSConfig{
+			CertFile: filepath.Join(dir, "cert.pem"),
+			KeyFile:  filepath.Join(dir, "key.pem"),
+		}
+
+		require.ErrorContains(t, serveError(t, cfg, WithListener(listener)), "load TLS certificate")
+	})
+}
+
+// standbyLease grants the bootstrap lock but never the delivery lock, so a
+// started monitor stays idle until its context ends.
+type standbyLease struct{}
+
+func (standbyLease) TryLock() error { return nil }
+
+func (standbyLease) Lock(ctx context.Context) error {
+	<-ctx.Done()
+	return ctx.Err()
+}
+
+func (standbyLease) Unlock() error                   { return nil }
+func (standbyLease) Heartbeat(context.Context) error { return nil }
+func (standbyLease) IsHeldByMe() bool                { return false }
+func (standbyLease) Location() string                { return "standby" }
+
+// newNotificationStores returns file-backed stores that give the server a
+// DAG-run notification monitor built with newLease.
+func newNotificationStores(t *testing.T, newLease func() chatbridge.Lease) Stores {
+	t.Helper()
+	dataDir := t.TempDir()
+	events, err := fileeventstore.New(filepath.Join(dataDir, "events"))
+	require.NoError(t, err)
+	key, err := crypto.ResolveKey(dataDir)
+	require.NoError(t, err)
+	encryptor, err := crypto.NewEncryptor(key)
+	require.NoError(t, err)
+	backend := persisfile.NewBackend(config.PathsConfig{DataDir: dataDir})
+	notifications, err := persisfile.NewNotificationStore(backend.Collection(persis.CollectionNotifications), encryptor)
+	require.NoError(t, err)
+	return Stores{
+		Event:                eventstore.New(events),
+		Notification:         notifications,
+		NotificationState:    filemonitor.NewStateStore(filepath.Join(dataDir, "notifications", "monitor-state.json")),
+		NewNotificationLease: newLease,
+	}
+}
+
+// Start-all disables the server's monitors because its scheduler runs the
+// same ones; a monitor exists exactly when Serve requests its lease.
+func TestServeWithoutNotificationMonitors(t *testing.T) {
+	tests := []struct {
+		name       string
+		opts       []ServerOption
+		wantLeases int64
+	}{
+		{name: "Default", wantLeases: 1},
+		{name: "Disabled", opts: []ServerOption{WithoutNotificationMonitors()}, wantLeases: 0},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			var leases atomic.Int64
+			stores := newNotificationStores(t, func() chatbridge.Lease {
+				leases.Add(1)
+				return standbyLease{}
+			})
+			listener, err := net.Listen("tcp", "127.0.0.1:0")
+			require.NoError(t, err)
+			ready := make(chan struct{})
+			opts := append([]ServerOption{
+				WithListener(listener),
+				WithOnReady(func(string) { close(ready) }),
+			}, tt.opts...)
+
+			ctx, cancel := context.WithCancel(context.Background())
+			srv, err := NewServer(ServerConfig{Context: ctx, Config: newServeConfig(), Stores: stores}, opts...)
+			require.NoError(t, err)
+			serveDone := make(chan error, 1)
+			go func() {
+				serveDone <- srv.Serve(ctx)
+			}()
+			t.Cleanup(func() {
+				cancel()
+				<-serveDone
+			})
+
+			select {
+			case <-ready:
+			case err := <-serveDone:
+				t.Fatalf("Serve returned before it was ready: %v", err)
+			case <-time.After(5 * time.Second):
+				t.Fatal("server never became ready")
+			}
+			assert.Equal(t, tt.wantLeases, leases.Load())
+		})
+	}
+}
+
+func TestLocalURL(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name     string
+		addr     net.Addr
+		useTLS   bool
+		basePath string
+		want     string
+	}{
+		{name: "IPv4Unspecified", addr: &net.TCPAddr{IP: net.IPv4zero, Port: 8080}, want: "http://localhost:8080"},
+		{name: "IPv6Unspecified", addr: &net.TCPAddr{IP: net.IPv6unspecified, Port: 8080}, want: "http://localhost:8080"},
+		{name: "IPv6Loopback", addr: &net.TCPAddr{IP: net.IPv6loopback, Port: 8080}, want: "http://[::1]:8080"},
+		{name: "TLSWithBasePath", addr: &net.TCPAddr{IP: net.IPv4(127, 0, 0, 1), Port: 8443}, useTLS: true, basePath: "/dagu", want: "https://127.0.0.1:8443/dagu"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			assert.Equal(t, tt.want, localURL(tt.addr, tt.useTLS, tt.basePath))
+		})
+	}
+}
+
+type staticUpgradeCacheStore struct {
+	cache *upgrade.UpgradeCheckCache
+}
+
+func (s staticUpgradeCacheStore) Load() (*upgrade.UpgradeCheckCache, error) {
+	return s.cache, nil
+}
+
+func (s staticUpgradeCacheStore) Save(*upgrade.UpgradeCheckCache) error {
+	return nil
+}
+
+func TestUpdateCheckerStatus(t *testing.T) {
+	t.Parallel()
+
+	wantCommand := upgrade.DetectInstallMethod().UpgradeCommand()
+
+	t.Run("cached release", func(t *testing.T) {
+		t.Parallel()
+
+		checker := newUpdateChecker(context.Background(), staticUpgradeCacheStore{cache: &upgrade.UpgradeCheckCache{
+			LastCheck:       time.Now(),
+			LatestVersion:   "v9.9.9",
+			UpdateAvailable: true,
+		}})
+
+		status := checker.UpdateStatus()
+		assert.True(t, status.UpdateAvailable)
+		assert.Equal(t, "v9.9.9", status.LatestVersion)
+		assert.Equal(t, wantCommand, status.UpgradeCommand)
+		assert.False(t, status.RestartRequired)
+	})
+
+	// Restart detection is local, so it stays on when update checks are disabled.
+	t.Run("update checks disabled", func(t *testing.T) {
+		t.Parallel()
+
+		status := newUpdateChecker(context.Background(), nil).UpdateStatus()
+		assert.False(t, status.UpdateAvailable)
+		assert.Empty(t, status.LatestVersion)
+		assert.Equal(t, wantCommand, status.UpgradeCommand)
+		assert.False(t, status.RestartRequired)
+	})
 }
 
 func TestEvaluateConfiguredBasePathKeepsRedirectsLocal(t *testing.T) {

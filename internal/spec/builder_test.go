@@ -1171,6 +1171,36 @@ steps:
 			wantCondition:   "echo done",
 			wantExpected:    "done",
 		},
+		{
+			name: "RepeatPolicyWhileNoCondition",
+			yaml: `
+steps:
+  - name: "while-no-condition"
+    run: "echo test"
+    repeat_policy:
+      repeat: "while"
+      interval_sec: 10
+`,
+			wantMode:        ir.RepeatModeWhile,
+			wantInterval:    10 * time.Second,
+			wantNoCondition: true,
+		},
+		{
+			name: "RepeatPolicyUntilNoCondition",
+			yaml: `
+steps:
+  - name: "until-no-condition"
+    run: "echo test"
+    repeat_policy:
+      repeat: "until"
+      interval_sec: 10
+      limit: 3
+`,
+			wantMode:        ir.RepeatModeUntil,
+			wantInterval:    10 * time.Second,
+			wantLimit:       3,
+			wantNoCondition: true,
+		},
 	}
 
 	for _, tt := range repeatPolicyTests {
@@ -1219,30 +1249,6 @@ steps:
       interval_sec: 10
 `,
 			errContains: "invalid value for repeat: 'invalid'",
-		},
-		{
-			name: "RepeatPolicyWhileNoCondition",
-			yaml: `
-steps:
-  - name: "while-no-condition"
-    run: "echo test"
-    repeat_policy:
-      repeat: "while"
-      interval_sec: 10
-`,
-			errContains: "repeat mode 'while' requires either 'condition' or 'exit_code' to be specified",
-		},
-		{
-			name: "RepeatPolicyUntilNoCondition",
-			yaml: `
-steps:
-  - name: "until-no-condition"
-    run: "echo test"
-    repeat_policy:
-      repeat: "until"
-      interval_sec: 10
-`,
-			errContains: "repeat mode 'until' requires either 'condition' or 'exit_code' to be specified",
 		},
 		{
 			name: "RepeatPolicyInvalidType",

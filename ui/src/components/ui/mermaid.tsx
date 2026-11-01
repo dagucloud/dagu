@@ -34,6 +34,12 @@ function isDarkMode(): boolean {
   return document.documentElement.classList.contains('dark');
 }
 
+// Diagrams use the interface font so labels match the surrounding text.
+function appFontFamily(): string {
+  if (typeof document === 'undefined') return 'Arial';
+  return getComputedStyle(document.body).fontFamily || 'Arial';
+}
+
 // Initialize Mermaid with theme-aware colors
 function initializeMermaid(): void {
   const dark = isDarkMode();
@@ -83,7 +89,7 @@ function initializeMermaid(): void {
       sectionFontSize: 14,
       numberSectionStyles: 2,
     },
-    fontFamily: 'Arial',
+    fontFamily: appFontFamily(),
     logLevel: 4, // ERROR
   });
 }

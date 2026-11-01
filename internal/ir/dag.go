@@ -5,9 +5,11 @@ package ir
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"maps"
 	"path/filepath"
+	"slices"
 	"strings"
 	"time"
 
@@ -237,6 +239,8 @@ type DAG struct {
 	Resources *Resources `json:"resources,omitempty"`
 	// Webhook contains DAG-level webhook trigger behavior configuration.
 	Webhook *WebhookConfig `json:"webhook,omitempty"`
+	// Watch names the folder whose arriving files each start a run.
+	Watch *WatchConfig `json:"watch,omitempty"`
 	// RegistryAuths maps registry hostnames to authentication configs.
 	// Optional: If not specified, falls back to DOCKER_AUTH_CONFIG or docker config.
 	// Credentials are evaluated at runtime. Excluded from JSON: may contain passwords.
@@ -305,6 +309,16 @@ type WebhookConfig struct {
 	// ForwardHeaders is the allowlist of request headers to expose to
 	// webhook-triggered DAG runs via the WEBHOOK_HEADERS runtime variable.
 	ForwardHeaders []string `json:"forwardHeaders,omitempty"`
+}
+
+// WatchConfig names a folder whose arriving files each start a run.
+type WatchConfig struct {
+	// Path is the folder watched; a leading ~ is the home directory.
+	Path string `json:"path"`
+	// Pattern is the glob a file's name must match; empty matches every file.
+	Pattern string `json:"pattern,omitempty"`
+	// Interval is how often the folder is read.
+	Interval time.Duration `json:"interval"`
 }
 
 // ArtifactsConfig controls DAG run artifact storage.
@@ -396,6 +410,10 @@ func (d *DAG) Clone() *DAG {
 		webhookCopy.ForwardHeaders = append([]string(nil), d.Webhook.ForwardHeaders...)
 		clone.Webhook = &webhookCopy
 	}
+	if d.Watch != nil {
+		watchCopy := *d.Watch
+		clone.Watch = &watchCopy
+	}
 	if d.Harness != nil {
 		clone.Harness = cloneHarnessConfig(d.Harness)
 	}
@@ -418,6 +436,55 @@ func (d *DAG) HasApprovalSteps() bool {
 		}
 	}
 	return false
+}
+
+// ErrWorkerSelectorApproval is returned when a worker selector is set on a DAG
+// with approval steps, which must run locally.
+var ErrWorkerSelectorApproval = errors.New("DAG with approval steps cannot be dispatched to workers")
+
+// ValidateWorkerSelector checks a selector given for one run: every key must
+// be a valid label key and every value a non-empty valid label value.
+func ValidateWorkerSelector(selector map[string]string) error {
+	var errs []error
+	for _, key := range slices.Sorted(maps.Keys(selector)) {
+		value := selector[key]
+		if strings.TrimSpace(value) == "" {
+			errs = append(errs, fmt.Errorf("worker selector %q: value cannot be empty", key))
+			continue
+		}
+		if err := ValidateLabel(Label{Key: key, Value: value}); err != nil {
+			errs = append(errs, fmt.Errorf("worker selector %q: %w", key, err))
+		}
+	}
+	return errors.Join(errs...)
+}
+
+// ApplyWorkerSelector replaces the DAG's worker selector for one run, also
+// clearing worker_selector: local, under the same rule as the YAML key: a DAG
+// with approval steps keeps running locally.
+func (d *DAG) ApplyWorkerSelector(selector map[string]string) error {
+	if len(selector) == 0 {
+		return nil
+	}
+	if err := ValidateWorkerSelector(selector); err != nil {
+		return err
+	}
+	if d.HasApprovalSteps() {
+		return NewValidationError("worker_selector", selector, ErrWorkerSelectorApproval)
+	}
+	d.WorkerSelector = maps.Clone(selector)
+	d.ForceLocal = false
+	return nil
+}
+
+// FormatWorkerSelector renders a selector as {key: value, ...} with sorted
+// keys, for messages that name the workers a run is waiting for.
+func FormatWorkerSelector(selector map[string]string) string {
+	parts := make([]string, 0, len(selector))
+	for _, key := range slices.Sorted(maps.Keys(selector)) {
+		parts = append(parts, key+": "+selector[key])
+	}
+	return "{" + strings.Join(parts, ", ") + "}"
 }
 
 // HasHumanTaskSteps reports whether the DAG declares a human task. An agent

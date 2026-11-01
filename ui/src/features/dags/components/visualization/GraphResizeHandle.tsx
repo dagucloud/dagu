@@ -168,7 +168,7 @@ export function GraphResizeHandle({
         aria-orientation="horizontal"
         aria-valuemin={GRAPH_MIN_HEIGHT}
         aria-valuemax={maxGraphHeight()}
-        aria-valuenow={height}
+        aria-valuenow={height ?? GRAPH_DEFAULT_HEIGHT}
         tabIndex={0}
         title="Resize graph"
         className="flex w-full cursor-row-resize touch-none select-none items-center justify-center py-2 outline-none transition-colors hover:bg-muted/50 focus-visible:bg-muted/50"

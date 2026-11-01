@@ -34,6 +34,9 @@ function makeConfig(overrides: Partial<Config> = {}): Config {
     gitSyncEnabled: false,
     updateAvailable: false,
     latestVersion: '',
+    upgradeCommand: '',
+    restartRequired: false,
+    restartCommand: '',
     permissions: {
       writeDags: true,
       runDags: true,
@@ -170,6 +173,12 @@ describe('LicenseBanner', () => {
       view.unmount();
       renderBanner({ ...paid, expiry });
       expect(screen.queryByRole('status')).not.toBeInTheDocument();
+    });
+
+    it('stays quiet for a free license', () => {
+      renderBanner({ ...paid, plan: 'free', expiry: '2026-10-02T00:00:00Z' });
+      expect(screen.queryByRole('status')).not.toBeInTheDocument();
+      expect(screen.queryByRole('alert')).not.toBeInTheDocument();
     });
 
     it('asks non-admins to contact their administrator', () => {

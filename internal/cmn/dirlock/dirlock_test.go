@@ -6,10 +6,14 @@ package dirlock
 import (
 	"context"
 	"errors"
+	"math/rand/v2"
 	"os"
 	"path/filepath"
 	"runtime"
+	"strconv"
 	"sync"
+	"sync/atomic"
+	"syscall"
 	"testing"
 	"time"
 
@@ -643,4 +647,641 @@ func TestEdgeCases(t *testing.T) {
 		require.NoError(t, err)
 		require.Nil(t, info)
 	})
+}
+
+// staleLockKinds builds the stale lock layouts a contender may find: one left
+// by a crashed holder, an empty directory, and the legacy owner-file layout.
+// mayAllBackOff marks layouts where contenders racing at the same moment can
+// all back off: each one that removes an empty stale directory may remove
+// another's new lock directory before its owner file lands. The next attempt
+// then finds the lock free.
+var staleLockKinds = []struct {
+	name          string
+	create        func(t *testing.T, dir string)
+	mayAllBackOff bool
+}{
+	{
+		name: "AbandonedHolder",
+		create: func(t *testing.T, dir string) {
+			t.Helper()
+			require.NoError(t, New(dir, nil).TryLock())
+			backdateLock(t, dir)
+		},
+	},
+	{
+		name: "EmptyDir",
+		create: func(t *testing.T, dir string) {
+			t.Helper()
+			require.NoError(t, os.Mkdir(filepath.Join(dir, LockDirectoryName), 0o700))
+			backdateLock(t, dir)
+		},
+		mayAllBackOff: true,
+	},
+	{
+		name: "LegacyOwnerFile",
+		create: func(t *testing.T, dir string) {
+			t.Helper()
+			lockPath := filepath.Join(dir, LockDirectoryName)
+			require.NoError(t, os.Mkdir(lockPath, 0o700))
+			require.NoError(t, os.WriteFile(filepath.Join(lockPath, "owner"), []byte("legacy"), 0o600))
+			backdateLock(t, dir)
+		},
+	},
+}
+
+// junkOnlyStaleLock has no owner or claim file. Contenders that claim it at the
+// same moment may all back off, so it is left out of the many-contender test.
+var junkOnlyStaleLock = struct {
+	name          string
+	create        func(t *testing.T, dir string)
+	mayAllBackOff bool
+}{
+	name: "JunkOnly",
+	create: func(t *testing.T, dir string) {
+		t.Helper()
+		lockPath := filepath.Join(dir, LockDirectoryName)
+		require.NoError(t, os.MkdirAll(filepath.Join(lockPath, "unexpected"), 0o700))
+		backdateLock(t, dir)
+	},
+	mayAllBackOff: true,
+}
+
+// A single contender takes over every stale layout and leaves no temporary
+// lock directories behind.
+func TestStaleTakeover_SingleContender(t *testing.T) {
+	for _, tt := range append(staleLockKinds, junkOnlyStaleLock) {
+		t.Run(tt.name, func(t *testing.T) {
+			dir := t.TempDir()
+			tt.create(t, dir)
+
+			lock := New(dir, nil)
+			require.NoError(t, lock.TryLock())
+			require.True(t, lock.IsHeldByMe())
+			require.NoError(t, lock.Unlock())
+
+			entries, err := os.ReadDir(dir)
+			require.NoError(t, err)
+			require.Empty(t, entries)
+		})
+	}
+}
+
+func backdateLock(t *testing.T, dir string) {
+	t.Helper()
+	past := time.Now().Add(-time.Minute)
+	require.NoError(t, os.Chtimes(filepath.Join(dir, LockDirectoryName), past, past))
+}
+
+// Two contenders observe the same stale lock. The first replaces it before the
+// second claims it; the second must not take over the fresh lock.
+func TestStaleTakeover_InterleavedContenders(t *testing.T) {
+	for _, tt := range append(staleLockKinds, junkOnlyStaleLock) {
+		t.Run(tt.name, func(t *testing.T) {
+			dir := t.TempDir()
+			tt.create(t, dir)
+
+			first := New(dir, nil)
+			second := New(dir, nil).(*dirLock)
+			var firstErr error
+			second.beforeStaleClaim = func() {
+				firstErr = first.TryLock()
+			}
+
+			secondErr := second.TryLock()
+
+			require.NoError(t, firstErr)
+			require.ErrorIs(t, secondErr, ErrLockConflict)
+			require.True(t, first.IsHeldByMe())
+			require.False(t, second.IsHeldByMe())
+			require.NoError(t, first.Heartbeat(context.Background()))
+			require.NoError(t, first.Unlock())
+		})
+	}
+}
+
+// Many contenders race on one stale lock with random delays between observing
+// it and claiming it. Exactly one may win, or none where all may back off.
+func TestStaleTakeover_ManyContenders(t *testing.T) {
+	const contenders = 16
+	const rounds = 20
+
+	for _, tt := range staleLockKinds {
+		t.Run(tt.name, func(t *testing.T) {
+			for range rounds {
+				dir := t.TempDir()
+				tt.create(t, dir)
+
+				locks := make([]*dirLock, contenders)
+				for i := range locks {
+					locks[i] = New(dir, nil).(*dirLock)
+					locks[i].beforeStaleClaim = func() {
+						time.Sleep(time.Duration(rand.IntN(2000)) * time.Microsecond)
+					}
+				}
+
+				var wg sync.WaitGroup
+				var winners atomic.Int32
+				errs := make([]error, contenders)
+				start := make(chan struct{})
+				for i, lock := range locks {
+					wg.Go(func() {
+						<-start
+						errs[i] = lock.TryLock()
+						if errs[i] == nil {
+							winners.Add(1)
+						}
+					})
+				}
+				close(start)
+				wg.Wait()
+
+				for _, err := range errs {
+					if err != nil {
+						require.ErrorIs(t, err, ErrLockConflict)
+					}
+				}
+				if tt.mayAllBackOff {
+					require.LessOrEqual(t, winners.Load(), int32(1))
+				} else {
+					require.Equal(t, int32(1), winners.Load())
+				}
+				held := 0
+				for _, lock := range locks {
+					if lock.IsHeldByMe() {
+						held++
+						require.NoError(t, lock.Unlock())
+					}
+				}
+				require.Equal(t, int(winners.Load()), held)
+				if winners.Load() == 0 {
+					next := New(dir, nil)
+					require.NoError(t, next.TryLock())
+					require.NoError(t, next.Unlock())
+				}
+			}
+		})
+	}
+}
+
+// A contender stalls after claiming a lock instance for removal. Meanwhile the
+// claimed instance looks stale again, another contender takes it over and
+// creates a new lock. The stalled contender must not touch the new lock: it
+// must not even move it off the live lock name, because a third contender
+// could take the free name. Freezing the target directory's mtime detects
+// any rename on the live lock name.
+func TestStaleTakeover_StalledClaimer(t *testing.T) {
+	tests := []struct {
+		name    string
+		setup   func(t *testing.T, dir string, stalled *dirLock)
+		act     func(stalled *dirLock) error
+		wantErr error
+	}{
+		{
+			name: "TryLock",
+			setup: func(t *testing.T, dir string, _ *dirLock) {
+				staleLockKinds[0].create(t, dir)
+			},
+			act:     func(stalled *dirLock) error { return stalled.TryLock() },
+			wantErr: ErrLockConflict,
+		},
+		{
+			name: "Unlock",
+			setup: func(t *testing.T, _ string, stalled *dirLock) {
+				require.NoError(t, stalled.TryLock())
+			},
+			act:     func(stalled *dirLock) error { return stalled.Unlock() },
+			wantErr: ErrLockNotHeld,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			dir := t.TempDir()
+			stalled := New(dir, nil).(*dirLock)
+			tt.setup(t, dir, stalled)
+
+			takeover := New(dir, nil)
+			frozen := time.Now().Add(-time.Hour).Truncate(time.Second)
+			var takeoverErr error
+			stalled.afterClaim = func() {
+				backdateLock(t, dir)
+				takeoverErr = takeover.TryLock()
+				require.NoError(t, os.Chtimes(dir, frozen, frozen))
+			}
+
+			err := tt.act(stalled)
+
+			require.NoError(t, takeoverErr)
+			require.ErrorIs(t, err, tt.wantErr)
+			info, statErr := os.Stat(dir)
+			require.NoError(t, statErr)
+			require.True(t, info.ModTime().Equal(frozen), "live lock name was renamed by the stalled contender")
+			require.True(t, takeover.IsHeldByMe())
+			require.False(t, stalled.IsHeldByMe())
+			require.NoError(t, takeover.Unlock())
+		})
+	}
+}
+
+// A holder whose stale lock was taken over must not release the new lock,
+// whichever ownership check it runs first.
+func TestUnlock_AfterStaleTakeover(t *testing.T) {
+	tests := []struct {
+		name       string
+		before     func(t *testing.T, old DirLock)
+		wantUnlock error
+	}{
+		{
+			name:       "UnlockOnly",
+			before:     func(*testing.T, DirLock) {},
+			wantUnlock: ErrLockNotHeld,
+		},
+		{
+			name: "HeartbeatFirst",
+			before: func(t *testing.T, old DirLock) {
+				require.ErrorIs(t, old.Heartbeat(context.Background()), ErrLockNotHeld)
+			},
+		},
+		{
+			name: "IsHeldByMeFirst",
+			before: func(t *testing.T, old DirLock) {
+				require.False(t, old.IsHeldByMe())
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			dir := t.TempDir()
+			old := New(dir, nil)
+			require.NoError(t, old.TryLock())
+			backdateLock(t, dir)
+			current := New(dir, nil)
+			require.NoError(t, current.TryLock())
+
+			tt.before(t, old)
+			err := old.Unlock()
+			if tt.wantUnlock == nil {
+				require.NoError(t, err)
+			} else {
+				require.ErrorIs(t, err, tt.wantUnlock)
+			}
+
+			require.True(t, current.IsHeldByMe())
+			require.NoError(t, current.Heartbeat(context.Background()))
+			require.NoError(t, current.Unlock())
+			require.NoDirExists(t, filepath.Join(dir, LockDirectoryName))
+		})
+	}
+}
+
+// Errors from claim renames that mean another process moved or removed the
+// lock directory first. macOS reports EINVAL in that case.
+func TestIsLostClaimError(t *testing.T) {
+	tests := []struct {
+		name string
+		err  error
+		want bool
+	}{
+		{name: "Nil", err: nil, want: false},
+		{name: "NotExist", err: &os.LinkError{Op: "rename", Err: syscall.ENOENT}, want: true},
+		{name: "InvalidArgument", err: &os.LinkError{Op: "rename", Err: syscall.EINVAL}, want: true},
+		{name: "Permission", err: &os.LinkError{Op: "rename", Err: syscall.EACCES}, want: false},
+		{name: "Other", err: errors.New("boom"), want: false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			require.Equal(t, tt.want, isLostClaimError(tt.err))
+		})
+	}
+}
+
+// Taking over a stale lock also removes temporary lock directories left by
+// crashed processes, and only those.
+func TestStaleTakeover_CleansAbandonedTempDirs(t *testing.T) {
+	tests := []struct {
+		name     string
+		entry    string
+		old      bool
+		wantKept bool
+	}{
+		{name: "OldReleasing", entry: releasedLockDirectoryPrefix + "1.x", old: true, wantKept: false},
+		{name: "FreshReleasing", entry: releasedLockDirectoryPrefix + "1.x", old: false, wantKept: true},
+		{name: "OldUnrelated", entry: "data", old: true, wantKept: true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			dir := t.TempDir()
+			path := filepath.Join(dir, tt.entry)
+			require.NoError(t, os.MkdirAll(filepath.Join(path, "sub"), 0o700))
+			require.NoError(t, os.WriteFile(filepath.Join(path, "sub", "file"), []byte("x"), 0o600))
+			if tt.old {
+				past := time.Now().Add(-time.Hour)
+				require.NoError(t, os.Chtimes(path, past, past))
+			}
+			staleLockKinds[0].create(t, dir)
+
+			lock := New(dir, nil)
+			require.NoError(t, lock.TryLock())
+			defer func() { require.NoError(t, lock.Unlock()) }()
+
+			if tt.wantKept {
+				require.DirExists(t, path)
+			} else {
+				require.NoDirExists(t, path)
+			}
+		})
+	}
+}
+
+// A takeover sweeps directories left by earlier releases, which may take a
+// while. The sweep must not eat into the new lock's lease: right after TryLock
+// returns, the lock must not look stale to other contenders.
+func TestStaleTakeover_SlowSweep(t *testing.T) {
+	const threshold = 200 * time.Millisecond
+	dir := t.TempDir()
+	require.NoError(t, New(dir, nil).TryLock())
+	backdateLock(t, dir)
+
+	first := New(dir, &LockOptions{StaleThreshold: threshold}).(*dirLock)
+	first.beforeSweep = func() { time.Sleep(2 * threshold) }
+	require.NoError(t, first.TryLock())
+
+	second := New(dir, &LockOptions{StaleThreshold: threshold})
+	require.ErrorIs(t, second.TryLock(), ErrLockConflict)
+	require.True(t, first.IsHeldByMe())
+	require.NoError(t, first.Unlock())
+}
+
+// When the owner file cannot be written, the new lock directory must not be
+// left behind: once the cause is fixed, the next attempt acquires the lock
+// without waiting for it to go stale.
+func TestCreateLock_OwnerWriteFails(t *testing.T) {
+	if runtime.GOOS == "windows" || os.Geteuid() == 0 {
+		t.Skip("directory permissions do not deny file creation here")
+	}
+	dir := t.TempDir()
+	lockPath := filepath.Join(dir, LockDirectoryName)
+	lock := New(dir, nil).(*dirLock)
+	lock.beforeOwnerWrite = func() {
+		require.NoError(t, os.Chmod(lockPath, 0o500))
+	}
+
+	require.ErrorIs(t, lock.TryLock(), os.ErrPermission)
+	require.False(t, lock.IsHeldByMe())
+	_ = os.Chmod(lockPath, 0o700)
+
+	next := New(dir, nil)
+	require.NoError(t, next.TryLock())
+	require.NoError(t, next.Unlock())
+}
+
+// The lock directory is empty until its owner file is written, so stale-lock
+// recovery may remove it, and another contender may create or claim the
+// directory at that path in the meantime. The creator must back off and leave
+// the other contender's files alone.
+func TestCreateLock_Contested(t *testing.T) {
+	const otherOwner = ownerFilePrefix + "other"
+	const otherClaim = claimedFilePrefix + "other"
+	tests := []struct {
+		name    string
+		contend func(t *testing.T, lockPath string)
+		want    []string // entries left at the lock path; nil means no directory
+	}{
+		{
+			name: "Removed",
+			contend: func(t *testing.T, lockPath string) {
+				require.NoError(t, os.Remove(lockPath))
+			},
+		},
+		{
+			name: "Replaced",
+			contend: func(t *testing.T, lockPath string) {
+				require.NoError(t, os.Remove(lockPath))
+				require.NoError(t, os.Mkdir(lockPath, 0o700))
+				require.NoError(t, os.WriteFile(filepath.Join(lockPath, otherOwner), nil, 0o600))
+			},
+			want: []string{otherOwner},
+		},
+		{
+			name: "Claimed",
+			contend: func(t *testing.T, lockPath string) {
+				require.NoError(t, os.WriteFile(filepath.Join(lockPath, otherClaim), nil, 0o600))
+			},
+			want: []string{otherClaim},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			dir := t.TempDir()
+			lockPath := filepath.Join(dir, LockDirectoryName)
+			lock := New(dir, nil).(*dirLock)
+			lock.beforeOwnerWrite = func() { tt.contend(t, lockPath) }
+
+			require.ErrorIs(t, lock.TryLock(), ErrLockConflict)
+			require.False(t, lock.IsHeldByMe())
+			if tt.want == nil {
+				require.NoDirExists(t, lockPath)
+				return
+			}
+			entries, err := os.ReadDir(lockPath)
+			require.NoError(t, err)
+			var names []string
+			for _, e := range entries {
+				names = append(names, e.Name())
+			}
+			require.Equal(t, tt.want, names)
+		})
+	}
+}
+
+// Releases before the per-instance owner file create the lock directory empty
+// and write "owner" into it afterwards. Creating a new lock must stay exclusive
+// against that, or both versions hold the lock at once. Old and new binaries
+// share locks between an in-place upgrade and the next restart.
+func TestTryLock_LegacyContenders(t *testing.T) {
+	const contenders = 6 // per version
+	const increments = 60
+	const retryInterval = 100 * time.Microsecond
+
+	dir := t.TempDir()
+	counter := filepath.Join(dir, "counter")
+	increment := func() {
+		data, _ := os.ReadFile(counter)
+		n, _ := strconv.Atoi(string(data))
+		time.Sleep(time.Duration(rand.IntN(300)) * time.Microsecond)
+		_ = os.WriteFile(counter, []byte(strconv.Itoa(n+1)), 0o600)
+	}
+	acquire := func(tryLock func() bool) {
+		for !tryLock() {
+			time.Sleep(retryInterval)
+		}
+	}
+
+	var wg sync.WaitGroup
+	for range contenders {
+		wg.Go(func() {
+			legacy := legacyLock{lockPath: filepath.Join(dir, LockDirectoryName), token: newUniqueID()}
+			for range increments {
+				acquire(legacy.tryLock)
+				increment()
+				legacy.unlock()
+			}
+		})
+		wg.Go(func() {
+			lock := New(dir, nil)
+			for range increments {
+				acquire(func() bool { return lock.TryLock() == nil })
+				increment()
+				_ = lock.Unlock()
+			}
+		})
+	}
+	wg.Wait()
+
+	data, err := os.ReadFile(counter)
+	require.NoError(t, err)
+	require.Equal(t, strconv.Itoa(2*contenders*increments), string(data))
+}
+
+// legacyLock acquires and releases a fresh lock the way releases before the
+// per-instance owner file did.
+type legacyLock struct {
+	lockPath string
+	token    string
+}
+
+func (l legacyLock) tryLock() bool {
+	if _, err := os.Stat(l.lockPath); !os.IsNotExist(err) {
+		return false
+	}
+	if err := os.Mkdir(l.lockPath, 0o700); err != nil {
+		return false
+	}
+	if err := os.WriteFile(filepath.Join(l.lockPath, lockOwnerFileName), []byte(l.token), 0o600); err != nil {
+		_ = removeLockDir(l.lockPath)
+		return false
+	}
+	return true
+}
+
+func (l legacyLock) unlock() {
+	data, err := os.ReadFile(filepath.Join(l.lockPath, lockOwnerFileName))
+	if err != nil || string(data) != l.token {
+		return
+	}
+	_ = removeLockDir(l.lockPath)
+}
+
+// A read-only entry inside the lock directory must not keep the lock name
+// occupied. Releasing a lock, by its holder or by a stale takeover, deletes it
+// and frees the name for the next contender.
+func TestRelease_ReadOnlyEntry(t *testing.T) {
+	tests := []struct {
+		name    string
+		release func(t *testing.T, dir string)
+	}{
+		{
+			name: "Unlock",
+			release: func(t *testing.T, dir string) {
+				holder := New(dir, nil)
+				require.NoError(t, holder.TryLock())
+				addReadOnlyEntry(t, dir)
+				require.NoError(t, holder.Unlock())
+			},
+		},
+		{
+			name: "StaleTakeover",
+			release: func(t *testing.T, dir string) {
+				require.NoError(t, New(dir, nil).TryLock())
+				addReadOnlyEntry(t, dir)
+				backdateLock(t, dir)
+				takeover := New(dir, nil)
+				require.NoError(t, takeover.TryLock())
+				require.NoError(t, takeover.Unlock())
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			dir := t.TempDir()
+			tt.release(t, dir)
+
+			next := New(dir, nil)
+			require.NoError(t, next.TryLock())
+			require.NoError(t, next.Unlock())
+		})
+	}
+}
+
+// addReadOnlyEntry puts a read-only directory with a file inside the lock
+// directory, so the file cannot be deleted until the directory is writable.
+func addReadOnlyEntry(t *testing.T, dir string) {
+	t.Helper()
+	readOnly := filepath.Join(dir, LockDirectoryName, "read-only")
+	require.NoError(t, os.Mkdir(readOnly, 0o700))
+	require.NoError(t, os.WriteFile(filepath.Join(readOnly, "file"), nil, 0o600))
+	require.NoError(t, os.Chmod(readOnly, 0o500))
+	restoreAccessOnCleanup(t, dir)
+}
+
+// restoreAccessOnCleanup gives the owner access back to every directory under
+// dir at cleanup, wherever a test's restricted directories ended up, so the
+// temporary directory can be removed.
+func restoreAccessOnCleanup(t *testing.T, dir string) {
+	t.Helper()
+	t.Cleanup(func() {
+		_ = os.Chmod(filepath.Join(dir, LockDirectoryName), 0o700)
+		_ = filepath.WalkDir(dir, func(path string, d os.DirEntry, err error) error {
+			if err == nil && d.IsDir() {
+				_ = os.Chmod(path, 0o700)
+			}
+			return nil
+		})
+	})
+}
+
+// A stale lock directory this user owns may have lost permissions, for example
+// through a restore that did not keep modes. Taking it over must still work,
+// as it does when older releases move the directory aside.
+func TestStaleTakeover_RestrictedLockDir(t *testing.T) {
+	for _, mode := range []os.FileMode{0o000, 0o300, 0o500} {
+		t.Run(strconv.FormatUint(uint64(mode), 8), func(t *testing.T) {
+			dir := t.TempDir()
+			require.NoError(t, New(dir, nil).TryLock())
+			lockPath := filepath.Join(dir, LockDirectoryName)
+			require.NoError(t, os.Chmod(lockPath, mode))
+			restoreAccessOnCleanup(t, dir)
+			backdateLock(t, dir)
+
+			lock := New(dir, nil)
+			require.NoError(t, lock.TryLock())
+			require.NoError(t, lock.Unlock())
+		})
+	}
+}
+
+// A held lock whose directory lost owner access must still be released at
+// once, as older releases do by moving the directory aside, rather than block
+// the next holder until the lock goes stale.
+func TestUnlock_RestrictedLockDir(t *testing.T) {
+	for _, mode := range []os.FileMode{0o000, 0o300, 0o500} {
+		t.Run(strconv.FormatUint(uint64(mode), 8), func(t *testing.T) {
+			dir := t.TempDir()
+			holder := New(dir, nil)
+			require.NoError(t, holder.TryLock())
+			require.NoError(t, os.Chmod(filepath.Join(dir, LockDirectoryName), mode))
+			restoreAccessOnCleanup(t, dir)
+
+			require.NoError(t, holder.Unlock())
+
+			next := New(dir, nil)
+			require.NoError(t, next.TryLock())
+			require.NoError(t, next.Unlock())
+		})
+	}
 }

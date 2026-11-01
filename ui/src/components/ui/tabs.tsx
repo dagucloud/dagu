@@ -34,13 +34,13 @@ function Tab({
   ...props
 }: Omit<TabProps, 'value'>) {
   const classes = cn(
-    'inline-flex items-center justify-center whitespace-nowrap h-12 px-4 text-sm font-medium relative',
-    'transition-all duration-150 ease-in-out focus-visible:outline-none',
+    'inline-flex items-center justify-center gap-1.5 whitespace-nowrap h-11 px-3 text-sm font-medium relative',
+    'transition-colors duration-150 ease-in-out focus-visible:outline-none',
     'disabled:pointer-events-none disabled:opacity-50',
     'border-b-2',
     isActive
-      ? 'text-foreground border-primary [&_svg]:text-primary'
-      : 'text-text-secondary hover:text-foreground hover:bg-muted border-transparent',
+      ? 'text-foreground border-foreground'
+      : 'text-muted-foreground hover:text-foreground border-transparent',
     className
   );
 

@@ -328,6 +328,37 @@ export function useCanManageWebhooks(): boolean {
   return roleAtLeast(user.role, UserRole.developer);
 }
 
+/**
+ * Reports whether this server delivers to local command channels. They run
+ * shell commands on the server, so they need DAGs to be writable and runnable.
+ */
+export function useCommandChannelsEnabled(): boolean {
+  const { permissions } = useConfig();
+  return permissions.writeDags && permissions.runDags;
+}
+
+/**
+ * Reports whether the current user may add, change, or test local command
+ * channels on this server.
+ */
+export function useCanManageCommandChannels(): boolean {
+  const isAdmin = useIsAdmin();
+  const enabled = useCommandChannelsEnabled();
+  return isAdmin && enabled;
+}
+
+/**
+ * Reports whether the current user may manage notification channels and
+ * rules, which takes a server-wide developer role whatever the workspace
+ * grants.
+ */
+export function useCanManageNotifications(): boolean {
+  const { user } = useAuth();
+  const config = useConfig();
+  if (config.authMode !== 'builtin') return config.permissions.writeDags;
+  return roleAtLeast(user?.role ?? null, UserRole.developer);
+}
+
 export function useCanViewAuditLogs(): boolean {
   const { user } = useAuth();
   const config = useConfig();

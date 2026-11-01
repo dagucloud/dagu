@@ -109,6 +109,8 @@ func TestForeachValidation(t *testing.T) {
 
 	validCases := []string{
 		"foreach_success_collect.yaml",
+		"foreach_unbraced.yaml",
+		"foreach_missing_collect.yaml",
 		"foreach_string_items.yaml",
 		"foreach_zero_items.yaml",
 	}
@@ -143,6 +145,63 @@ func TestForeachRuntime(t *testing.T) {
 			`"key":"two"`,
 			`"markdown":"https://example.com/one"`,
 			`"markdown":"https://example.com/two"`,
+			`"link":"https://example.com/one"`,
+			`"link":"https://example.com/two"`,
+			`"bare_link":"https://example.com/one"`,
+			`"bare_link":"https://example.com/two"`,
+			`"limit":"1000000"`,
+		)
+	})
+
+	t.Run("unbraced references and inserted values stay literal", func(t *testing.T) {
+		t.Parallel()
+
+		dagu := harness.NewRunner(t)
+		result := dagu.Run("start", "foreach_unbraced.yaml")
+		result.ExpectExitCode(0)
+		dagu.ExpectFileContent("foreach-unbraced-body.txt", "$foreach.item.value")
+		dagu.ExpectFileContains(
+			"foreach-unbraced-results.txt",
+			`"literal":"$foreach.item.value"`,
+			`"quoted":"$SECRET"`,
+		)
+	})
+
+	t.Run("an item field without the foreach namespace fails its item", func(t *testing.T) {
+		t.Parallel()
+
+		dagu := harness.NewRunner(t)
+		result := dagu.Run("start", "foreach_unqualified_item_field.yaml")
+		result.ExpectNonZeroExitCode()
+		result.ExpectStderrContains("${item.wallet} does not reference the foreach item; use ${foreach.item.wallet}")
+		dagu.ExpectNoFile("foreach-unqualified-item-field.txt")
+	})
+
+	t.Run("an unqualified item field reads a dotenv value of the same name", func(t *testing.T) {
+		t.Parallel()
+
+		dagu := harness.NewRunner(t)
+		dagu.WriteFile(".env", `item={"wallet":"from-dotenv"}`+"\n")
+		result := dagu.Run("start", "foreach_unqualified_item_field.yaml")
+		result.ExpectExitCode(0)
+		dagu.ExpectFileContent("foreach-unqualified-item-field.txt", "from-dotenv")
+	})
+
+	t.Run("a missing quoted collect field fails its item", func(t *testing.T) {
+		t.Parallel()
+
+		dagu := harness.NewRunner(t)
+		result := dagu.Run("start", "foreach_missing_collect.yaml")
+		result.ExpectExitCode(0)
+		dagu.ExpectFileContent("foreach-body-two.txt", "body-ok")
+		dagu.ExpectFileContains(
+			"foreach-missing-results.txt",
+			`"total":2`,
+			`"succeeded":1`,
+			`"failed":1`,
+			`"key":"two","status":"failed"`,
+			"foreach.collect.value resolved with unresolved reference",
+			`"outputs":[{"value":"present"}]`,
 		)
 	})
 

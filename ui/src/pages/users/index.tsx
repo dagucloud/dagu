@@ -236,10 +236,10 @@ export default function UsersPage() {
   };
 
   return (
-    <div className="flex flex-col gap-4 max-w-7xl">
+    <div className="flex flex-col gap-4">
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-lg font-semibold">
+          <h1 className="text-2xl font-semibold tracking-[-0.01em]">
             <I18nText text={'Users'} />
           </h1>
           <p className="text-sm text-muted-foreground">
@@ -250,10 +250,11 @@ export default function UsersPage() {
           <Button
             onClick={() => setShowCreateModal(true)}
             size="sm"
+            variant="primary"
             className="h-8"
           >
             <UserPlus className="h-4 w-4 mr-1.5" />
-            <I18nText text={'Add User'} />
+            <I18nText text={'Add user'} />
           </Button>
         )}
       </div>
@@ -266,7 +267,7 @@ export default function UsersPage() {
 
       {!hasRbac && (
         <div className="space-y-2">
-          <LicenseFeaturePrompt feature="rbac" />
+          <LicenseFeaturePrompt feature="rbac" inline />
           <p className="text-xs text-muted-foreground">
             <I18nText text="Password reset remains available to administrators." />
           </p>
@@ -295,7 +296,11 @@ export default function UsersPage() {
               <TableHead className="w-[150px]">
                 <I18nText text={'Updated'} />
               </TableHead>
-              <TableHead className="w-[80px]"></TableHead>
+              <TableHead className="w-[80px]">
+                <span className="sr-only">
+                  <I18nText text={'Actions'} />
+                </span>
+              </TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
@@ -389,7 +394,7 @@ export default function UsersPage() {
                             onClick={() => setResetPasswordUser(user)}
                           >
                             <Key className="h-4 w-4 mr-2" />
-                            <I18nText text={'Reset Password'} />
+                            <I18nText text={'Reset password'} />
                           </DropdownMenuItem>
                         )}
                         {hasRbac && isAdmin && user.id !== currentUser?.id && (
@@ -462,7 +467,7 @@ export default function UsersPage() {
       {/* Delete Confirmation */}
       <I18nProps>
         <ConfirmModal
-          title="Delete User"
+          title="Delete user"
           buttonText="Delete"
           visible={!!deletingUser}
           dismissModal={() => setDeletingUser(null)}

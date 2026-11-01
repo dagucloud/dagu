@@ -29,7 +29,7 @@ function getInitialTab(columns: readonly ViewColumn[]): ViewColumn {
 
 interface Props {
   columns: KanbanColumns;
-  onCardClick: (run: DAGRunSummary) => void;
+  onCardClick: (run: DAGRunSummary, event?: React.MouseEvent) => void;
   onArtifactsClick: (run: DAGRunSummary) => void;
   visibleColumns?: readonly ViewColumn[];
 }
@@ -119,7 +119,7 @@ export function MobileKanbanBoard({
               >
                 <I18nText text={VIEW_COLUMN_LABELS[key]} />
                 {(count > 0 || columns[key].hasMore) && (
-                  <span className="ml-1 text-muted-foreground/60">
+                  <span className="ml-1 text-muted-foreground">
                     {countLabel}
                   </span>
                 )}

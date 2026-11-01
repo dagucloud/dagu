@@ -74,6 +74,7 @@ var builtinStepTypeNames = map[string]struct{}{
 	"archive":       {},
 	"browser":       {},
 	"chat":          {},
+	"clickhouse":    {},
 	"command":       {},
 	"computer":      {},
 	"container":     {},

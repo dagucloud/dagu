@@ -177,7 +177,7 @@ function CustomDateTimeInput({
         placeholder="YYYY-MM-DD HH:mm:ss"
         className={cn(
           className,
-          'w-44 font-mono text-foreground placeholder:text-muted-foreground/60 pt-1'
+          'w-44 font-mono text-foreground placeholder:text-muted-foreground pt-1'
         )}
       /></I18nProps>
       <I18nProps><button

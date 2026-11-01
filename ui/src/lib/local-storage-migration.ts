@@ -17,10 +17,13 @@ export function readMigratedLocalStorage(
   }
 }
 
-export function writeLocalStorage(key: string, value: string): void {
+/** Stores value under key and reports whether the browser kept it. */
+export function writeLocalStorage(key: string, value: string): boolean {
   try {
     localStorage.setItem(key, value);
+    return true;
   } catch {
     // Storage can be unavailable in privacy-restricted browser contexts.
+    return false;
   }
 }

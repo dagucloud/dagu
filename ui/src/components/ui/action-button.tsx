@@ -1,6 +1,7 @@
+import type { VariantProps } from 'class-variance-authority';
 import React, { ReactElement, forwardRef } from 'react';
 
-import { Button } from '@/components/ui/button';
+import { Button, buttonVariants } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
 
 interface ActionButtonProps
@@ -8,15 +9,19 @@ interface ActionButtonProps
   children: React.ReactNode;
   label?: boolean;
   icon: ReactElement;
+  variant?: VariantProps<typeof buttonVariants>['variant'];
 }
 
 const ActionButton = forwardRef<HTMLButtonElement, ActionButtonProps>(
-  ({ label, children, icon, className, disabled, onClick, ...props }, ref) => {
+  (
+    { label, children, icon, className, disabled, onClick, variant, ...props },
+    ref
+  ) => {
     return label ? (
       <Button
         ref={ref}
         size="sm"
-        variant="secondary"
+        variant={variant ?? 'default'}
         disabled={disabled}
         onClick={onClick}
         className={cn('font-semibold', className)}
@@ -29,7 +34,7 @@ const ActionButton = forwardRef<HTMLButtonElement, ActionButtonProps>(
       <Button
         ref={ref}
         size="icon-sm"
-        variant="secondary"
+        variant={variant ?? 'ghost'}
         disabled={disabled}
         onClick={onClick}
         className={className}

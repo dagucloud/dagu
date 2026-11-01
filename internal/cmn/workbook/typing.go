@@ -4,6 +4,7 @@
 package workbook
 
 import (
+	"encoding/json"
 	"fmt"
 	"math"
 	"strconv"
@@ -40,6 +41,43 @@ func ParseColumnType(s string) (ColumnType, error) {
 	default:
 		return "", fmt.Errorf("unknown column type %q: use string, number, integer, boolean, date, or datetime", s)
 	}
+}
+
+// ParseTypes reads the column types a command line pins: a JSON object such
+// as {"Amount": "number"}, or comma-separated name:type pairs such as
+// "Amount:number,Due:date", split at each pair's last colon so a name may
+// hold one.
+func ParseTypes(text string) (map[string]ColumnType, error) {
+	trimmed := strings.TrimSpace(text)
+	if trimmed == "" {
+		return nil, nil
+	}
+	raw := map[string]string{}
+	if strings.HasPrefix(trimmed, "{") {
+		if err := json.Unmarshal([]byte(trimmed), &raw); err != nil {
+			return nil, fmt.Errorf("types must be a JSON object of column names to types: %w", err)
+		}
+	} else {
+		for pair := range strings.SplitSeq(trimmed, ",") {
+			i := strings.LastIndex(pair, ":")
+			if i < 0 {
+				return nil, fmt.Errorf("types: %q must be name:type", strings.TrimSpace(pair))
+			}
+			raw[strings.TrimSpace(pair[:i])] = pair[i+1:]
+		}
+	}
+	types := make(map[string]ColumnType, len(raw))
+	for name, value := range raw {
+		if name == "" {
+			return nil, fmt.Errorf("types: a column name is empty")
+		}
+		t, err := ParseColumnType(value)
+		if err != nil {
+			return nil, fmt.Errorf("types.%s: %w", name, err)
+		}
+		types[name] = t
+	}
+	return types, nil
 }
 
 // FormulaMode selects what a formula cell yields.

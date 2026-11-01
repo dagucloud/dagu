@@ -170,7 +170,7 @@ describe('ForeachItemsSection', () => {
 
     fireEvent.click(screen.getByRole('button', { name: 'Item 1' }));
     const body = screen.getByText('body').closest('div')!.parentElement!;
-    expect(body).toHaveTextContent('failed');
+    expect(body).toHaveTextContent('Failed');
 
     fireEvent.click(within(body).getByRole('button', { name: 'stderr' }));
     expect(screen.getByText('real cause for b')).toBeVisible();

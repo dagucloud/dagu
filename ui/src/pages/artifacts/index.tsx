@@ -52,6 +52,7 @@ import { I18nProps } from '@/i18n/I18nProps';
 import { I18nText } from '@/i18n/I18nText';
 import { useI18n } from '@/i18n/I18nProvider';
 import { AppBarContext } from '../../contexts/AppBarContext';
+import { buildDAGPageURL } from '../../features/dag-runs/lib/dagRunUrls';
 import { useCanWriteForWorkspace } from '../../contexts/AuthContext';
 import { useConfig } from '../../contexts/ConfigContext';
 import { useSearchState } from '../../contexts/SearchStateContext';
@@ -1010,11 +1011,11 @@ function Artifacts() {
           {artifactViewError}
         </p>
       )}
-      <div className="mb-3 space-y-3 rounded-lg border border-border bg-card/50 p-3">
+      <div className="mb-4 space-y-2">
         <div className="flex flex-wrap items-center gap-2">
           <I18nProps>
             <Input
-              placeholder="Filter by DAG name..."
+              placeholder="Filter by workflow name..."
               value={searchText}
               onChange={(e) => setSearchText(e.target.value)}
               onKeyDown={handleInputKeyPress}
@@ -1141,7 +1142,7 @@ function Artifacts() {
             <p className="mt-1 max-w-md text-center">
               <I18nText
                 text={
-                  'No DAG-runs in the selected time range produced artifact files. Adjust the date range or filters.'
+                  'No runs in the selected time range produced artifact files. Adjust the date range or filters.'
                 }
               />
             </p>
@@ -1156,7 +1157,9 @@ function Artifacts() {
                   <I18nText text={'Artifacts'} />
                 </p>
                 <p className="text-xs text-muted-foreground">
-                  {ts('{count} files', { count: fileCount })}
+                  {ts(fileCount === 1 ? '{count} file' : '{count} files', {
+                    count: fileCount,
+                  })}
                   {items.some((item) => item.filesTruncated) ? (
                     <span className="ml-1">
                       <I18nText
@@ -1195,14 +1198,21 @@ function Artifacts() {
                           </span>
                           <span className="shrink-0 text-[11px] text-muted-foreground">
                             {item.files.length > 0
-                              ? ts('{count} files', {
-                                  count: item.files.length,
-                                })
+                              ? ts(
+                                  item.files.length === 1
+                                    ? '{count} file'
+                                    : '{count} files',
+                                  { count: item.files.length }
+                                )
                               : '—'}
                           </span>
                         </div>
                         <Link
-                          to={`/dag-runs/${item.name}/${item.dagRunId}`}
+                          to={buildDAGPageURL({
+                            fileName: item.name,
+                            remoteNode,
+                            run: item.dagRunId,
+                          })}
                           tabIndex={-1}
                           className="mr-1 shrink-0 rounded-md p-1.5 text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
                           title="Open DAG run"
@@ -1242,7 +1252,11 @@ function Artifacts() {
               {focusedRun && (
                 <Link
                   className="inline-flex items-center gap-1 rounded text-xs text-primary focus-visible:ring-2 focus-visible:ring-ring"
-                  to={`/dag-runs/${focusedRun.name}/${focusedRun.dagRunId}`}
+                  to={buildDAGPageURL({
+                    fileName: focusedRun.name,
+                    remoteNode,
+                    run: focusedRun.dagRunId,
+                  })}
                 >
                   <LinkIcon className="h-3 w-3" />
                   <I18nText text="Open DAG run" />

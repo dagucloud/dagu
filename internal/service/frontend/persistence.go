@@ -12,6 +12,7 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/incident"
 	"github.com/dagucloud/dagu/v2/internal/notification"
 	"github.com/dagucloud/dagu/v2/internal/profile"
+	"github.com/dagucloud/dagu/v2/internal/publicwebhook"
 	"github.com/dagucloud/dagu/v2/internal/remotenode"
 	"github.com/dagucloud/dagu/v2/internal/secret"
 	authservice "github.com/dagucloud/dagu/v2/internal/service/auth"
@@ -46,4 +47,5 @@ type Stores struct {
 	Audit                audit.Store
 	Event                *eventstore.Service
 	View                 view.Store
+	PublicWebhooks       publicwebhook.Store
 }

@@ -46,6 +46,14 @@ func validClaims() *LicenseClaims {
 	}
 }
 
+// freeClaims returns claims for the free plan, expiring in 24h. They claim
+// every feature so that tests show the plan, not the claim, turns them off.
+func freeClaims() *LicenseClaims {
+	claims := validClaims()
+	claims.Plan = PlanFree
+	return claims
+}
+
 // expiredInGraceClaims returns claims that expired 1 day ago (within 14-day grace period).
 func expiredInGraceClaims() *LicenseClaims {
 	return &LicenseClaims{

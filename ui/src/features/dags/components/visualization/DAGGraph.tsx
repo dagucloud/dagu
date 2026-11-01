@@ -96,18 +96,19 @@ function DAGGraph({
         <div className="self-center sm:self-auto"></div>
       </div>
 
-      <BorderedBox className="pt-4 px-4 pb-0 flex flex-col items-stretch overflow-hidden">
-        {sub === '0' && (
-          <GraphInteractionsHint
-            className="mb-2"
-            inspect={hasStepInspector}
-            openSubRun
-            updateStatus={config.permissions.runDags && !!onRightClickStep}
-          />
-        )}
-        <div ref={graphBoxRef} className="overflow-x-auto -mx-4 px-4">
+      <BorderedBox className="flex flex-col items-stretch gap-0 overflow-hidden p-0">
+        <div ref={graphBoxRef} className="overflow-x-auto">
           {sub === '0' ? (
             <Graph
+              toolbarStart={
+                <GraphInteractionsHint
+                  inspect={hasStepInspector}
+                  openSubRun
+                  updateStatus={
+                    config.permissions.runDags && !!onRightClickStep
+                  }
+                />
+              }
               steps={dagRun.nodes}
               name={dagRun.name}
               type="status"
@@ -122,7 +123,9 @@ function DAGGraph({
               height={graphHeight}
             />
           ) : (
-            <TimelineChart status={dagRun} onOpenSubRun={onOpenSubRun} />
+            <div className="px-4 pt-4">
+              <TimelineChart status={dagRun} onOpenSubRun={onOpenSubRun} />
+            </div>
           )}
         </div>
         {sub === '0' && <GraphResizeHandle {...graphResizeHandleProps} />}

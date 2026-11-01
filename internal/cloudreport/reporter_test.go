@@ -19,6 +19,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/dagucloud/dagu/v2/internal/cloudaccess"
 	"github.com/dagucloud/dagu/v2/internal/cmn/config"
 	"github.com/dagucloud/dagu/v2/internal/cmn/logger"
 	"github.com/dagucloud/dagu/v2/internal/license"
@@ -60,6 +61,8 @@ func TestReportPayload(t *testing.T) {
 		"license_id": "lic-1",
 		"server_id": "srv-1",
 		"heartbeat_secret": "hb-secret",
+		"level": "runs",
+		"sent_at": "2026-10-10T09:30:30Z",
 		"health": {
 			"version": %q,
 			"os": %q,
@@ -71,6 +74,32 @@ func TestReportPayload(t *testing.T) {
 			]
 		}
 	}`, config.Version, runtime.GOOS, runtime.GOARCH), report.body)
+}
+
+// stubRemoteAccess lets calls from Dagu Cloud operate and decide waiting
+// steps.
+type stubRemoteAccess struct{}
+
+func (stubRemoteAccess) Status(context.Context) (cloudaccess.Status, error) {
+	return cloudaccess.Status{Level: config.RemoteAccessOperator, Approvals: true}, nil
+}
+
+func TestReportCarriesRemoteAccess(t *testing.T) {
+	t.Parallel()
+
+	console := newFakeConsole(t)
+	r := newReporter(console.credentials, nil, fixedLevel(config.ReportHealth))
+	r.remote = stubRemoteAccess{}
+	clock := startReporter(t.Context(), t, r, noJitter)
+
+	clock.wait()
+	clock.elapse()
+	var body struct {
+		Health map[string]any `json:"health"`
+	}
+	require.NoError(t, json.Unmarshal([]byte(console.next(t).body), &body))
+	assert.Equal(t, "operator", body.Health["remote_access"])
+	assert.Equal(t, true, body.Health["remote_approvals"])
 }
 
 func TestReportWithoutServices(t *testing.T) {
@@ -126,6 +155,32 @@ func TestReportNextInterval(t *testing.T) {
 	}
 }
 
+// A report that Dagu Console answers with license_refresh, as when the
+// workspace started a trial, checks in for the license at once; within
+// refreshEvery, further answers ask for nothing more.
+func TestReportRefreshesTheLicenseWhenAsked(t *testing.T) {
+	t.Parallel()
+
+	refresh := `{"next_report_seconds": 60, "license_refresh": true}`
+	console := newFakeConsole(t,
+		consoleResponse{status: http.StatusOK, body: refresh},
+		consoleResponse{status: http.StatusOK, body: refresh},
+		consoleResponse{status: http.StatusOK, body: `{"next_report_seconds": 60}`})
+	r := newReporter(console.credentials, nil, fixedLevel(config.ReportRuns))
+	var refreshed atomic.Int32
+	r.refresh = func(context.Context) error {
+		refreshed.Add(1)
+		return errors.New("console unreachable")
+	}
+	clock := startReporter(t.Context(), t, r, noJitter)
+
+	clock.wait()
+	clock.next()
+	assert.Equal(t, int32(1), refreshed.Load())
+	clock.next()
+	assert.Equal(t, int32(1), refreshed.Load(), "a failed refresh is not retried within refreshEvery")
+}
+
 func TestReportJitter(t *testing.T) {
 	t.Parallel()
 
@@ -152,26 +207,68 @@ func TestReportJitter(t *testing.T) {
 	}
 }
 
+// A server that is to report but has no license yet checks again within
+// seconds, so that its first report follows an approval in Dagu Console
+// closely. One that reports nothing keeps its interval.
 func TestReportWithoutCredentials(t *testing.T) {
 	t.Parallel()
 
-	console := newFakeConsole(t)
-	var activated atomic.Bool
-	credentials := func() (license.CloudCredentials, bool) {
-		if !activated.Load() {
-			return license.CloudCredentials{}, false
+	t.Run("reporting", func(t *testing.T) {
+		t.Parallel()
+
+		console := newFakeConsole(t)
+		var activated atomic.Bool
+		credentials := func() (license.CloudCredentials, bool) {
+			if !activated.Load() {
+				return license.CloudCredentials{}, false
+			}
+			return console.credentials()
 		}
-		return console.credentials()
-	}
-	clock := startReporter(t.Context(), t, newReporter(credentials, nil, fixedLevel(config.ReportRuns)), noJitter)
+		clock := startReporter(t.Context(), t, newReporter(credentials, nil, fixedLevel(config.ReportRuns)), noJitter)
 
-	clock.wait()
-	assert.Equal(t, time.Minute, clock.next())
-	assert.Empty(t, console.reports, "nothing is sent without credentials")
+		clock.wait()
+		assert.Equal(t, 5*time.Second, clock.next())
+		assert.Empty(t, console.reports, "nothing is sent without credentials")
 
-	activated.Store(true)
-	clock.elapse()
-	assert.Equal(t, "srv-1", decodeReport(t, console.next(t)).ServerID)
+		activated.Store(true)
+		clock.elapse()
+		assert.Equal(t, "srv-1", decodeReport(t, console.next(t)).ServerID)
+	})
+
+	// Choosing a level while connecting ends a long wait, so that the first
+	// report follows the console's approval within seconds.
+	t.Run("turned on while waiting", func(t *testing.T) {
+		t.Parallel()
+
+		console := newFakeConsole(t)
+		var activated atomic.Bool
+		credentials := func() (license.CloudCredentials, bool) {
+			if !activated.Load() {
+				return license.CloudCredentials{}, false
+			}
+			return console.credentials()
+		}
+		monitoring := NewMonitoring("", &memoryStore{})
+		clock := startReporter(t.Context(), t, newReporter(credentials, nil, monitoring), noJitter)
+
+		assert.Equal(t, maxStartDelay/2, clock.wait())
+		require.NoError(t, monitoring.SetLevel(t.Context(), config.ReportRuns))
+		assert.Equal(t, 5*time.Second, clock.wait(), "the start delay ends once reporting is on")
+
+		activated.Store(true)
+		clock.elapse()
+		assert.Equal(t, "srv-1", decodeReport(t, console.next(t)).ServerID)
+	})
+
+	t.Run("off", func(t *testing.T) {
+		t.Parallel()
+
+		noCredentials := func() (license.CloudCredentials, bool) { return license.CloudCredentials{}, false }
+		clock := startReporter(t.Context(), t, newReporter(noCredentials, nil, NewMonitoring("", &memoryStore{})), noJitter)
+
+		clock.wait()
+		assert.Equal(t, time.Minute, clock.next())
+	})
 }
 
 func TestReportTooManyRequests(t *testing.T) {
@@ -305,7 +402,26 @@ func noJitter() float64 { return 0.5 }
 
 // fixedLevel is monitoring whose level configuration fixes.
 func fixedLevel(level config.ReportLevel) *Monitoring {
-	return NewMonitoring(level, nil)
+	return NewMonitoring(level, &memoryStore{})
+}
+
+// memoryStore is a StateStore that keeps the state in memory.
+type memoryStore struct {
+	mu   sync.Mutex
+	data []byte
+}
+
+func (s *memoryStore) Load(context.Context) ([]byte, bool, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.data, s.data != nil, nil
+}
+
+func (s *memoryStore) Save(_ context.Context, data []byte) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.data = data
+	return nil
 }
 
 // startReporter runs r with fixed randomness and a clock the test controls.
@@ -336,6 +452,7 @@ func startReporterSpawning(
 	clock := &fakeClock{t: t, waits: make(chan time.Duration, 16), fire: make(chan time.Time), at: start}
 	r.after = clock.after
 	r.random = random
+	r.now = clock.now
 	r.startedAt = testStartedAt
 	if r.events != nil {
 		r.events.now = clock.now

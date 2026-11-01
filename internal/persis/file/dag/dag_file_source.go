@@ -36,6 +36,11 @@ type dagFileSource struct {
 type dagFileSnapshot struct {
 	dag    *ir.DAG
 	exists bool
+	// stamp is taken before the file is read, so a write that lands during the
+	// load is still seen as a change by the next full refresh.
+	stamp dagFileStamp
+	// statAt is when stamp was taken, in Unix nanoseconds.
+	statAt int64
 }
 
 // newDAGFileSource creates the production DAG file source for a watched directory.
@@ -69,9 +74,14 @@ func (s *dagFileSource) snapshot(ctx context.Context, fileName string) (dagFileS
 	wait := dagFileSnapshotInitialWait
 
 	for attempt := 0; ; attempt++ {
+		statAt := time.Now().UnixNano()
+		var stamp dagFileStamp
+		if info, err := os.Stat(filePath); err == nil {
+			stamp = dagFileStamp{size: info.Size(), modTime: info.ModTime().UnixNano()}
+		}
 		dag, err := s.load(ctx, filePath)
 		if err == nil {
-			return dagFileSnapshot{dag: dag, exists: true}, nil
+			return dagFileSnapshot{dag: dag, exists: true, stamp: stamp, statAt: statAt}, nil
 		}
 
 		if errors.Is(err, ErrExternalSymlinkDisabled) || !errors.Is(err, os.ErrNotExist) {

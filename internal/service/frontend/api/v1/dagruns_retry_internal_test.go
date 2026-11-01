@@ -5,6 +5,7 @@ package api
 
 import (
 	"context"
+	"errors"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -18,10 +19,12 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/dagrun"
 	"github.com/dagucloud/dagu/v2/internal/dispatch"
 	"github.com/dagucloud/dagu/v2/internal/ir"
+	"github.com/dagucloud/dagu/v2/internal/launcher"
 	"github.com/dagucloud/dagu/v2/internal/persis"
 	"github.com/dagucloud/dagu/v2/internal/service/coordinator"
 	"github.com/dagucloud/dagu/v2/internal/spec"
 	"github.com/dagucloud/dagu/v2/internal/testutil"
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
@@ -64,6 +67,151 @@ func TestResumeManagedAttemptTargetsOwningWorker(t *testing.T) {
 	require.Equal(t, dispatch.DispatchOperationRetry, task.Operation)
 	require.Equal(t, "worker-1", task.TargetWorkerID)
 	require.Same(t, status, task.PreviousStatus)
+}
+
+func TestResumeSubDAGRunDispatchesCheckpointWithRoot(t *testing.T) {
+	fixture := newStoredChildResumeFixture(t)
+	recorder := &retryCoordinatorRecorder{}
+	a := &API{
+		dagRunRepository: fixture.repository,
+		config:           &config.Config{},
+		coordinatorCli:   recorder,
+		defaultExecMode:  config.ExecutionModeLocal,
+	}
+
+	require.NoError(t, a.resumeSubDAGRun(t.Context(), fixture.root, fixture.childID))
+	require.Len(t, recorder.dispatched, 1)
+	task := recorder.dispatched[0]
+	assert.Equal(t, fixture.childID, task.DAGRunID)
+	require.NotNil(t, task.PreviousStatus)
+	assert.Equal(t, ir.Queued, task.PreviousStatus.Status)
+	assert.True(t, task.PreviousStatus.Resume)
+	assert.Equal(t, fixture.root, task.PreviousStatus.Root)
+	assert.Equal(t, fixture.root, task.PreviousStatus.Parent)
+
+	latest, err := fixture.childAttempt.ReadStatusUncached(t.Context())
+	require.NoError(t, err)
+	assert.Equal(t, ir.Queued, latest.Status)
+	assert.True(t, latest.Resume)
+}
+
+func TestResumeSubDAGRunDispatchFailureRollsBackChild(t *testing.T) {
+	fixture := newStoredChildResumeFixture(t)
+	dispatchErr := errors.New("coordinator unavailable")
+	recorder := &retryCoordinatorRecorder{dispatchErr: dispatchErr}
+	a := &API{
+		dagRunRepository: fixture.repository,
+		config:           &config.Config{},
+		coordinatorCli:   recorder,
+		defaultExecMode:  config.ExecutionModeLocal,
+	}
+
+	err := a.resumeSubDAGRun(t.Context(), fixture.root, fixture.childID)
+	require.ErrorIs(t, err, dispatchErr)
+	latest, readErr := fixture.childAttempt.ReadStatusUncached(t.Context())
+	require.NoError(t, readErr)
+	assert.Equal(t, ir.Waiting, latest.Status)
+	assert.False(t, latest.Resume)
+}
+
+func TestResumeSubDAGRunLaunchFailureRollsBackChild(t *testing.T) {
+	fixture := newStoredChildResumeFixture(t)
+	cfg := &config.Config{Paths: config.PathsConfig{Executable: filepath.Join(t.TempDir(), "missing-dagu")}}
+	a := &API{
+		dagRunRepository: fixture.repository,
+		config:           cfg,
+		subCmdBuilder:    launcher.NewSubCmdBuilder(cfg),
+	}
+
+	require.Error(t, a.resumeSubDAGRun(t.Context(), fixture.root, fixture.childID))
+	latest, err := fixture.childAttempt.ReadStatusUncached(t.Context())
+	require.NoError(t, err)
+	assert.Equal(t, ir.Waiting, latest.Status)
+	assert.False(t, latest.Resume)
+}
+
+func TestResumeSubDAGRunActiveChild(t *testing.T) {
+	for _, statusCode := range []ir.Status{ir.Running, ir.Queued} {
+		t.Run(statusCode.String(), func(t *testing.T) {
+			root := ir.NewDAGRunRef("root", "root-run")
+			status := &ir.DAGRunStatus{
+				Root: root, Parent: root, Name: "child", DAGRunID: "child-run", AttemptID: "attempt", Status: statusCode,
+			}
+			attempt := &manualStepAttempt{dag: &ir.DAG{Name: "child"}, statuses: []*ir.DAGRunStatus{status}}
+			backend := &manualCASStore{status: status, attempt: attempt}
+			repository := persis.NewDAGRunRepository(backend, nil, persis.DAGRunRepositoryOptions{})
+			a := &API{dagRunRepository: repository}
+
+			err := a.resumeSubDAGRun(t.Context(), root, status.DAGRunID)
+			if statusCode == ir.Running {
+				require.ErrorContains(t, err, "not waiting for resume")
+			} else {
+				require.NoError(t, err)
+			}
+			assert.Equal(t, statusCode, backend.status.Status)
+		})
+	}
+}
+
+func TestReferencedAttemptReturnsDetachedStorageRoot(t *testing.T) {
+	root := ir.NewDAGRunRef("root", "root-run")
+	child := ir.NewDAGRunRef("child", "child-run")
+	attempt := &manualStepAttempt{dag: &ir.DAG{Name: child.Name}}
+	backend := &detachedAttemptStore{attempt: attempt}
+	repository := persis.NewDAGRunRepository(backend, nil, persis.DAGRunRepositoryOptions{})
+	a := &API{dagRunRepository: repository}
+
+	got, storageRoot, err := a.getReferencedAttemptWithRoot(t.Context(), root, child.ID, child.Name)
+	require.NoError(t, err)
+	assert.NotNil(t, got)
+	assert.Equal(t, child, storageRoot)
+}
+
+type storedChildResumeFixture struct {
+	repository   *persis.DAGRunRepository
+	root         ir.DAGRunRef
+	childID      string
+	childAttempt dagrun.Attempt
+}
+
+func newStoredChildResumeFixture(t *testing.T) storedChildResumeFixture {
+	t.Helper()
+	ctx := t.Context()
+	root := ir.NewDAGRunRef("root_resume", "root-run")
+	rootDAG := &ir.DAG{Name: root.Name}
+	childDAG := &ir.DAG{Name: "child_resume", WorkerSelector: map[string]string{"region": "apac"}}
+	repository := testutil.NewFileDAGRunRepository(filepath.Join(t.TempDir(), "dag-runs"), persis.DAGRunRepositoryOptions{LatestStatusToday: true})
+	rootAttempt, err := repository.CreateAttempt(ctx, rootDAG, time.Now(), root.ID, persis.DAGRunCreateAttemptOptions{})
+	require.NoError(t, err)
+	rootStatus := ir.DAGRunStatus{Root: root, Name: root.Name, DAGRunID: root.ID, AttemptID: rootAttempt.ID(), Status: ir.Running}
+	require.NoError(t, rootAttempt.Open(ctx))
+	require.NoError(t, rootAttempt.Write(ctx, rootStatus))
+	require.NoError(t, rootAttempt.Close(ctx))
+
+	childID := "child-run"
+	childAttempt, err := repository.CreateAttempt(ctx, childDAG, time.Now(), childID, persis.DAGRunCreateAttemptOptions{RootDAGRun: root})
+	require.NoError(t, err)
+	childStatus := ir.DAGRunStatus{
+		Root: root, Parent: root, Name: childDAG.Name, DAGRunID: childID, AttemptID: childAttempt.ID(), Status: ir.Waiting,
+		FinishedAt: time.Now().Format(time.RFC3339),
+	}
+	require.NoError(t, childAttempt.Open(ctx))
+	require.NoError(t, childAttempt.Write(ctx, childStatus))
+	require.NoError(t, childAttempt.Close(ctx))
+	return storedChildResumeFixture{repository: repository, root: root, childID: childID, childAttempt: childAttempt}
+}
+
+type detachedAttemptStore struct {
+	testutil.DAGRunStoreStub
+	attempt dagrun.Attempt
+}
+
+func (s *detachedAttemptStore) FindSubAttempt(context.Context, ir.DAGRunRef, string) (dagrun.Attempt, error) {
+	return nil, dagrun.ErrDAGRunIDNotFound
+}
+
+func (s *detachedAttemptStore) FindAttempt(context.Context, ir.DAGRunRef) (dagrun.Attempt, error) {
+	return s.attempt, nil
 }
 
 func TestRetryDAGRun_DispatchesRetryToCoordinator(t *testing.T) {

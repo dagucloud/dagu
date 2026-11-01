@@ -6,6 +6,7 @@
 package desktop
 
 import (
+	"cmp"
 	"errors"
 	"fmt"
 	"image"
@@ -234,6 +235,12 @@ func Check() Diagnostics {
 		diag.Problems = append(diag.Problems, Problem{Code: problemServiceSession, Message: "the process runs in session 0, which has no desktop; run the worker in a logged-in user session instead of as a service"})
 		return diag
 	}
+	// A disconnected session also shows the Winlogon desktop and keeps its
+	// last display size, so it must be named before those checks run.
+	if problem, ok := sessionProblem(); ok {
+		diag.Problems = append(diag.Problems, problem)
+		return diag
+	}
 	if problem, ok := inputDesktopProblem(); ok {
 		diag.Problems = append(diag.Problems, problem)
 	}
@@ -332,6 +339,11 @@ type windowsBackend struct {
 // Capture fails while another desktop has the input, since the user's
 // desktop then captures without error but shows nothing current.
 func (windowsBackend) Capture() (*image.RGBA, error) {
+	// A session whose client has gone keeps serving its last picture; the
+	// next read of the screen names that instead of acting on a stale image.
+	if problem, ok := sessionProblem(); ok {
+		return nil, errors.New(problem.Message)
+	}
 	if problem, ok := inputDesktopProblem(); ok {
 		return nil, errors.New(problem.Message)
 	}
@@ -413,15 +425,21 @@ func (windowsBackend) Button(button Button, down bool, _ int) error {
 }
 
 func (windowsBackend) Wheel(dx, dy int) error {
+	return sendInput(wheelInputs(dx, dy)...)
+}
+
+// wheelInputs sends a notch per event, as a mouse wheel does, since some
+// applications scroll one notch per wheel message whatever its delta says.
+func wheelInputs(dx, dy int) []input {
 	var events []input
-	if dy != 0 {
-		// Positive wheel data scrolls up, away from the user.
-		events = append(events, mouseEvent(mouseWheel, wheelData(-dy)))
+	// Positive wheel data scrolls up, away from the user.
+	for range abs(dy) {
+		events = append(events, mouseEvent(mouseWheel, wheelData(-cmp.Compare(dy, 0))))
 	}
-	if dx != 0 {
-		events = append(events, mouseEvent(mouseHWheel, wheelData(dx)))
+	for range abs(dx) {
+		events = append(events, mouseEvent(mouseHWheel, wheelData(cmp.Compare(dx, 0))))
 	}
-	return sendInput(events...)
+	return events
 }
 
 func wheelData(notches int) uint32 {

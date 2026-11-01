@@ -5,15 +5,23 @@ import { Check } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import { useConfig, type LicenseStatus } from '@/contexts/ConfigContext';
 import { useI18n } from '@/i18n/I18nProvider';
-import { hasLicensedFeature, licensedFeatures } from '@/lib/license';
+import { cn } from '@/lib/utils';
+import {
+  hasLicensedFeature,
+  isFreeLicense,
+  licensedFeatures,
+} from '@/lib/license';
 
 /**
  * Lists the licensed features, whether this server's license includes each,
- * and where to open or set up the included ones.
+ * and where to open or set up the included ones. On the free plan, which
+ * includes none, each names the plans that do.
  */
 export function FeatureList({ license }: { license: LicenseStatus }) {
   const { ts } = useI18n();
   const config = useConfig();
+  const free = isFreeLicense(license);
+  const statusWidth = free ? 'sm:w-40' : 'sm:w-24';
   return (
     <section
       id="features"
@@ -46,14 +54,22 @@ export function FeatureList({ license }: { license: LicenseStatus }) {
               </div>
               <div className="flex items-center gap-4 text-xs sm:contents">
                 <span
-                  className={
+                  className={cn(
                     included
-                      ? 'inline-flex items-center gap-1 text-success sm:w-24 sm:shrink-0'
-                      : 'text-muted-foreground sm:w-24 sm:shrink-0'
-                  }
+                      ? 'inline-flex items-center gap-1 text-success'
+                      : 'text-muted-foreground',
+                    statusWidth,
+                    'sm:shrink-0'
+                  )}
                 >
                   {included && <Check className="h-3 w-3" aria-hidden="true" />}
-                  {ts(included ? 'Included' : 'Not included')}
+                  {ts(
+                    included
+                      ? 'Included'
+                      : free
+                        ? 'Included in Team and Pro'
+                        : 'Not included'
+                  )}
                 </span>
                 <span className="sm:w-20 sm:shrink-0 sm:text-right">
                   {included &&

@@ -165,6 +165,7 @@ func runUpgrade(ctx *Context, _ []string) error {
 		if result.BackupPath != "" {
 			fmt.Printf("Backup created: %s\n", result.BackupPath)
 		}
+		fmt.Printf("\n%s", upgrade.FormatRestartHint(upgrade.RestartCommand()))
 	}
 
 	return nil

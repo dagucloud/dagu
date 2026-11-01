@@ -54,6 +54,14 @@ func (c condition) judged() bool {
 	return c.Statement != ""
 }
 
+// via is how the condition is decided.
+func (c condition) via() string {
+	if c.judged() {
+		return agentstep.ViaModel
+	}
+	return agentstep.ViaExact
+}
+
 func (c condition) validate() error {
 	set := 0
 	for _, value := range []string{c.Statement, c.Text, c.Selector, c.URL} {

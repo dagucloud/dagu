@@ -13,7 +13,7 @@ type DAGRunSummary = components['schemas']['DAGRunSummary'];
 
 interface Props {
   columns: KanbanColumns;
-  onCardClick: (run: DAGRunSummary) => void;
+  onCardClick: (run: DAGRunSummary, event?: React.MouseEvent) => void;
   onArtifactsClick: (run: DAGRunSummary) => void;
   visibleColumns?: readonly ViewColumn[];
 }
@@ -42,7 +42,7 @@ export function KanbanBoard({
   }
 
   return (
-    <div className="flex gap-3 min-h-0 overflow-x-auto p-1 max-h-[50vh] [&>section]:min-w-[260px] [&>section]:max-w-[420px]">
+    <div className="flex gap-3 min-h-0 overflow-x-auto p-1 max-h-[50vh] [&>section]:min-w-[180px] [&>section]:max-w-[420px]">
       {columnOrder.map((column) => (
         <KanbanColumn
           key={column}

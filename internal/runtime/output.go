@@ -312,7 +312,7 @@ func (oc *OutputCoordinator) closeResources() error {
 		oc.StderrRedirectFile,
 	} {
 		if f != nil {
-			if err := f.Sync(); err != nil {
+			if err := syncRegularFile(f); err != nil {
 				lastErr = err
 			}
 			_ = f.Close()
@@ -325,6 +325,15 @@ func (oc *OutputCoordinator) closeResources() error {
 		}
 	}
 	return lastErr
+}
+
+// syncRegularFile syncs f when it is a regular file. A pipe, terminal or
+// device such as /dev/null has nothing to persist, and fsync on it fails.
+func syncRegularFile(f *os.File) error {
+	if info, err := f.Stat(); err == nil && !info.Mode().IsRegular() {
+		return nil
+	}
+	return f.Sync()
 }
 
 func (oc *OutputCoordinator) setupStdoutRedirect(ctx context.Context, data NodeData) error {

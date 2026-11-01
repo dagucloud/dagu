@@ -11,6 +11,7 @@ import (
 	api "github.com/dagucloud/dagu/v2/api/v1"
 	"github.com/dagucloud/dagu/v2/internal/audit"
 	"github.com/dagucloud/dagu/v2/internal/auth"
+	"github.com/dagucloud/dagu/v2/internal/cmn/config"
 	authservice "github.com/dagucloud/dagu/v2/internal/service/auth"
 	"github.com/stretchr/testify/require"
 )
@@ -92,4 +93,21 @@ func TestWorkspaceFilterForContextMCPDefaultGrantKeepsDefaultWorkspace(t *testin
 	require.True(t, filter.Enabled)
 	require.Equal(t, []string{"default"}, filter.Workspaces)
 	require.True(t, filter.IncludeUnlabelled)
+}
+
+// A server without users of its own lets every caller do anything, except a
+// user Dagu Cloud vouches for, whom its role still limits.
+func TestCloudUserRoleAppliesWithoutLocalUsers(t *testing.T) {
+	a := &API{config: &config.Config{Server: config.Server{Permissions: map[config.Permission]bool{config.PermissionWriteDAGs: true}}}}
+	cloud := func(role auth.Role) context.Context {
+		return auth.WithUser(context.Background(), &auth.User{ID: "cloud:user-1", Role: role, AuthProvider: auth.AuthProviderCloud})
+	}
+	require.NoError(t, a.requireExecuteForWorkspace(context.Background(), ""))
+	require.NoError(t, a.requireDAGWrite(context.Background()))
+
+	require.ErrorIs(t, a.requireExecuteForWorkspace(cloud(auth.RoleViewer), ""), errInsufficientPermissions)
+	require.NoError(t, a.requireExecuteForWorkspace(cloud(auth.RoleOperator), ""))
+	require.ErrorIs(t, a.requireDAGWrite(cloud(auth.RoleOperator)), errInsufficientPermissions)
+	require.NoError(t, a.requireDAGWrite(cloud(auth.RoleDeveloper)))
+	require.ErrorIs(t, a.requireManagerOrAbove(cloud(auth.RoleDeveloper)), errInsufficientPermissions)
 }

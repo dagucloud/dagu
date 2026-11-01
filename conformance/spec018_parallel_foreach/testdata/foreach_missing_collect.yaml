@@ -1,0 +1,25 @@
+type: graph
+working_dir: .
+steps:
+  - id: each
+    foreach:
+      items:
+        - slug: one
+          value: present
+        - slug: two
+      key: ${foreach.item.slug}
+      steps:
+        - id: write
+          action: file.write
+          with:
+            path: foreach-body-${foreach.item.slug}.txt
+            content: body-ok
+      collect:
+        value: ${foreach.item["value"]}
+    output: RESULTS
+  - id: consume
+    depends: each
+    action: file.write
+    with:
+      path: foreach-missing-results.txt
+      content: ${RESULTS}

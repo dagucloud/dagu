@@ -69,7 +69,7 @@ func ReportValueReferenceNotices(dag *ir.DAG, sink cmnvalue.ValueReferenceNotice
 		}
 		foreachItemScopeField := isForeachItemScopeFieldPath(field.noticeFieldPath())
 		if !foreachItemScopeField {
-			stepOutputNotices.report(field.noticeFieldPath(), field.Value, field.OwnerStepName, field.OwnerStepID, sink)
+			stepOutputNotices.report(field.noticeFieldPath(), field.Value, field.Field, field.OwnerStepName, field.OwnerStepID, sink)
 		}
 		fieldRuntimeScope := runtimeScope
 		fieldRuntimeScope.BuiltinContext = noticeBuiltinContext(dag.Name, field.OwnerStepName, field.OwnerStepID)
@@ -221,7 +221,8 @@ func reportEnvValueReferenceNotices(
 	for i, entry := range env {
 		key, value, _ := strings.Cut(entry, "=")
 		fieldPath := fmt.Sprintf("%s[%d]", path, i)
-		stepOutputNotices.report(fieldPath, value, ownerStepName, ownerStepID, sink)
+		field := fieldForPath(fieldPath)
+		stepOutputNotices.report(fieldPath, value, field, ownerStepName, ownerStepID, sink)
 		fieldSink := valueReferenceNoticeFieldSink{
 			sink:                         sink,
 			fieldPath:                    fieldPath,
@@ -236,11 +237,11 @@ func reportEnvValueReferenceNotices(
 			cmnvalue.WithValueReferenceNotices(fieldSink),
 			cmnvalue.WithoutCommandSubstitution(),
 		)
-		resolved, err := resolver.String(context.Background(), value, fieldForPath(fieldPath))
+		resolved, err := resolver.String(context.Background(), value, field)
 		if err != nil {
 			resolved = value
 		}
-		cmnvalue.ReportUnresolvedEnvExpansionNotices(value, fieldPath, scope, fieldSink)
+		cmnvalue.ReportUnresolvedEnvExpansionNotices(value, field, scope, fieldSink)
 		if cmnvalue.ValidEnvName(key) {
 			scope = scope.WithEntry(key, resolved, source)
 		}
@@ -371,6 +372,7 @@ func publishesRuntimeOnlyOutputs(step ir.Step) bool {
 func (c *stepOutputNoticeContext) report(
 	fieldPath string,
 	value string,
+	field cmnvalue.Field,
 	ownerStepName string,
 	ownerStepID string,
 	sink cmnvalue.ValueReferenceNoticeSink,
@@ -378,7 +380,7 @@ func (c *stepOutputNoticeContext) report(
 	if c == nil || sink == nil {
 		return
 	}
-	for _, ref := range cmnvalue.StepOutputReferences(value) {
+	for _, ref := range field.StepOutputReferences(value) {
 		reason, ok := c.reason(fieldPath, ownerStepName, ownerStepID, ref)
 		if !ok {
 			continue

@@ -48,8 +48,8 @@ func TestMain(m *testing.M) {
 	registry.RegisterExecutorCapabilities("jq", registry.ExecutorCapabilities{Command: true, Script: true})
 	registry.RegisterExecutorCapabilities("js", registry.ExecutorCapabilities{Script: true})
 	registry.RegisterExecutorCapabilities("http", registry.ExecutorCapabilities{Command: true, Script: true})
-	// SQL executors: support query command and script execution
-	for _, t := range []string{"postgres", "sqlite"} {
+	// SQL and ClickHouse executors: support query command and script execution
+	for _, t := range []string{"postgres", "sqlite", "clickhouse"} {
 		registry.RegisterExecutorCapabilities(t, registry.ExecutorCapabilities{Command: true, Script: true})
 	}
 	// kubernetes: supports a single command only
@@ -60,8 +60,10 @@ func TestMain(m *testing.M) {
 	registry.RegisterExecutorCapabilities("archive", registry.ExecutorCapabilities{Command: true})
 	// artifact: supports command only
 	registry.RegisterExecutorCapabilities("artifact", registry.ExecutorCapabilities{Command: true})
-	// file: supports command only
-	registry.RegisterExecutorCapabilities("file", registry.ExecutorCapabilities{Command: true})
+	// file: supports command only and takes path inputs
+	registry.RegisterExecutorCapabilities("file", registry.ExecutorCapabilities{
+		Command: true, PathInputs: []string{"path", "source", "destination"},
+	})
 	// data: supports operation commands only
 	registry.RegisterExecutorCapabilities("data", registry.ExecutorCapabilities{Command: true})
 	// wait: supports command only
@@ -86,8 +88,6 @@ func TestMain(m *testing.M) {
 	registry.RegisterExecutorCapabilities("chat", registry.ExecutorCapabilities{LLM: true, Messages: true})
 	// llm_tool: uses an llm config without chat messages
 	registry.RegisterExecutorCapabilities("llm_tool", registry.ExecutorCapabilities{LLM: true})
-	// browser: uses an llm config without chat messages
-	registry.RegisterExecutorCapabilities(ir.ExecutorTypeBrowser, registry.ExecutorCapabilities{LLM: true})
 	// computer: uses an llm config without chat messages
 	registry.RegisterExecutorCapabilities(ir.ExecutorTypeComputer, registry.ExecutorCapabilities{LLM: true})
 
@@ -931,7 +931,18 @@ func TestBuildStepRepeatPolicy(t *testing.T) {
 			repeatPolicy: &repeatPolicy{
 				Repeat: types.RepeatModeFromString("while"),
 			},
-			wantErr: true,
+			expected: ir.RepeatPolicy{
+				RepeatMode: ir.RepeatModeWhile,
+			},
+		},
+		{
+			name: "UntilWithoutConditionOrExitCode",
+			repeatPolicy: &repeatPolicy{
+				Repeat: types.RepeatModeFromString("until"),
+			},
+			expected: ir.RepeatPolicy{
+				RepeatMode: ir.RepeatModeUntil,
+			},
 		},
 		{
 			name: "NumericExpected",
@@ -3791,6 +3802,16 @@ func TestBuildThinkingConfig(t *testing.T) {
 		{
 			name:    "ValidHighEffort",
 			cfg:     &thinkingConfig{Enabled: true, Effort: "high"},
+			wantErr: false,
+		},
+		{
+			name:    "ValidNoneEffort",
+			cfg:     &thinkingConfig{Enabled: true, Effort: "none"},
+			wantErr: false,
+		},
+		{
+			name:    "ValidMaxEffort",
+			cfg:     &thinkingConfig{Enabled: true, Effort: "max"},
 			wantErr: false,
 		},
 		{

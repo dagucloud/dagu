@@ -18,7 +18,7 @@ interface Props {
    * back to the global AppBar workspace selection (Cockpit behavior).
    */
   filters?: KanbanFilters;
-  onCardClick: (run: DAGRunSummary) => void;
+  onCardClick: (run: DAGRunSummary, event?: React.MouseEvent) => void;
   onArtifactsClick: (run: DAGRunSummary) => void;
 }
 

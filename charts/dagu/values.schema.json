@@ -218,6 +218,14 @@
             "minLength": 1
           }
         },
+        "allowedHosts": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
         "ipAccess": {
           "type": "object",
           "additionalProperties": false,
@@ -254,7 +262,7 @@
           }
         }
       },
-      "required": ["publicUrl", "corsAllowedOrigins", "ipAccess", "envPassthrough", "envPassthroughPrefixes"]
+      "required": ["publicUrl", "corsAllowedOrigins", "allowedHosts", "ipAccess", "envPassthrough", "envPassthroughPrefixes"]
     },
     "persistence": {
       "type": "object",

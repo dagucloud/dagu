@@ -696,6 +696,66 @@ func TestCreateAttemptForTaskCarriesDAGLabels(t *testing.T) {
 	assert.Equal(t, "ops", *dag.BaseConfigWorkspace)
 }
 
+// A task dispatched with its own selector is persisted with it, so a retry or
+// a queued re-dispatch of the attempt routes the way the run was routed.
+func TestCreateAttemptForTaskAppliesWorkerSelector(t *testing.T) {
+	registerCommandExecutorCapsForCoordinatorTest()
+
+	definition := "name: routed\nworker_selector: local\nsteps:\n  - name: step1\n    run: echo hello"
+
+	t.Run("RootRun", func(t *testing.T) {
+		h := NewHandler(HandlerConfig{DAGRunRepository: newMockDAGRunStore().repository})
+		task := &coordinatorv1.Task{
+			DagRunId:       "run-routed",
+			Target:         "routed",
+			Definition:     definition,
+			WorkerSelector: map[string]string{"zone": "b"},
+		}
+		prepared, err := h.createAttemptForTask(context.Background(), task)
+		require.NoError(t, err)
+		require.NotNil(t, prepared)
+
+		dag, err := prepared.attempt.ReadDAG(context.Background())
+		require.NoError(t, err)
+		assert.Equal(t, map[string]string{"zone": "b"}, dag.WorkerSelector)
+		assert.False(t, dag.ForceLocal)
+	})
+
+	t.Run("SubRun", func(t *testing.T) {
+		h := NewHandler(HandlerConfig{DAGRunRepository: newMockDAGRunStore().repository})
+		task := &coordinatorv1.Task{
+			RootDagRunName:   "parent",
+			RootDagRunId:     "run-parent",
+			ParentDagRunName: "parent",
+			ParentDagRunId:   "run-parent",
+			DagRunId:         "run-child",
+			Target:           "routed",
+			Definition:       definition,
+			WorkerSelector:   map[string]string{"zone": "b"},
+		}
+		prepared, err := h.createSubAttemptForTask(context.Background(), task)
+		require.NoError(t, err)
+		require.NotNil(t, prepared)
+
+		dag, err := prepared.attempt.ReadDAG(context.Background())
+		require.NoError(t, err)
+		assert.Equal(t, map[string]string{"zone": "b"}, dag.WorkerSelector)
+		assert.False(t, dag.ForceLocal)
+	})
+
+	t.Run("NoSelectorKeepsTheDefinition", func(t *testing.T) {
+		h := NewHandler(HandlerConfig{DAGRunRepository: newMockDAGRunStore().repository})
+		task := &coordinatorv1.Task{DagRunId: "run-plain", Target: "routed", Definition: definition}
+		prepared, err := h.createAttemptForTask(context.Background(), task)
+		require.NoError(t, err)
+
+		dag, err := prepared.attempt.ReadDAG(context.Background())
+		require.NoError(t, err)
+		assert.Empty(t, dag.WorkerSelector)
+		assert.True(t, dag.ForceLocal)
+	})
+}
+
 // Fresh starts have no previous status from which to copy the queue identity.
 // A run that is already queued keeps its queue, which may be an enqueue-time
 // override absent from the YAML.
@@ -1165,6 +1225,18 @@ func TestHandler_Poll(t *testing.T) {
 		require.NoError(t, err)
 		require.Equal(t, "2026-03-13T10:00:00Z", status.ScheduleTime)
 		require.Equal(t, "alice", status.TriggerActor)
+	})
+
+	t.Run("WriteInitialStatusRecordsModelUsage", func(t *testing.T) {
+		t.Parallel()
+
+		h := NewHandler(HandlerConfig{})
+		attempt := &mockAttempt{}
+		require.NoError(t, h.writeInitialStatus(context.Background(), attempt, &coordinatorv1.Task{DagRunId: "run-123"}, "test-dag", ir.DAGRunRef{}, nil))
+
+		status, err := attempt.ReadStatus(context.Background())
+		require.NoError(t, err)
+		require.True(t, status.ModelUsageRecorded, "a dispatched run that has not started yet has used no model")
 	})
 
 	t.Run("DispatchFailsWhenAttemptPreparationFails", func(t *testing.T) {
@@ -1664,6 +1736,18 @@ func (s *failingDispatchTaskStore) CountOutstandingByQueue(context.Context, stri
 
 func (s *failingDispatchTaskStore) HasOutstandingAttempt(context.Context, string, time.Duration) (bool, error) {
 	return false, nil
+}
+
+func (s *failingDispatchTaskStore) ListExpiredHeld(context.Context, time.Time) ([]*dispatch.DispatchTask, error) {
+	return nil, nil
+}
+
+func (s *failingDispatchTaskStore) ListStalePending(context.Context, time.Time) ([]*dispatch.DispatchTask, error) {
+	return nil, nil
+}
+
+func (s *failingDispatchTaskStore) DeletePending(context.Context, string) error {
+	return nil
 }
 
 func TestHandler_Heartbeat(t *testing.T) {
@@ -6437,4 +6521,18 @@ func TestHandler_GetOrOpenSubAttempt(t *testing.T) {
 		_, err := h.getOrOpenSubAttempt(ctx, rootRef, "non-existent")
 		assert.Error(t, err)
 	})
+}
+
+// A status written before timestamps carried milliseconds names the same
+// instant in another form. An older worker that reports a stored time drops
+// its milliseconds.
+func TestSameTimestamp(t *testing.T) {
+	t.Parallel()
+
+	assert.True(t, sameTimestamp("2026-05-19T01:02:03Z", "2026-05-19T01:02:03.000Z"))
+	assert.True(t, sameTimestamp("2026-05-19T01:02:03Z", "2026-05-19T01:02:03.456Z"))
+	assert.True(t, sameTimestamp("", ""))
+	assert.False(t, sameTimestamp("2026-05-19T01:02:03Z", "2026-05-19T01:02:04.000Z"))
+	assert.False(t, sameTimestamp("2026-05-19T01:02:03.123Z", "2026-05-19T01:02:03.456Z"))
+	assert.False(t, sameTimestamp("", "2026-05-19T01:02:03.000Z"))
 }

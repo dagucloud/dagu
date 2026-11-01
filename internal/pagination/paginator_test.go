@@ -4,6 +4,7 @@
 package pagination
 
 import (
+	"math"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -23,6 +24,9 @@ func TestPaginator(t *testing.T) {
 		{name: "SecondPage", page: 2, perPage: 10, wantLimit: 10, wantOffset: 10},
 		{name: "NegativePage", page: -1, perPage: 20, wantLimit: 20},
 		{name: "Maximum", page: 1, perPage: 300, wantLimit: maxPerPage},
+		{name: "NegativePerPage", page: 2, perPage: -1, wantLimit: defaultPerPage, wantOffset: defaultPerPage},
+		{name: "OverflowingOffset", page: math.MaxInt/2 + 2, perPage: 2, wantLimit: 2, wantOffset: math.MaxInt},
+		{name: "UnlimitedSecondPage", page: 2, perPage: math.MaxInt, wantLimit: math.MaxInt, wantOffset: math.MaxInt},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -47,6 +51,11 @@ func TestPaginatedResult(t *testing.T) {
 	require.True(t, result.HasPrevPage)
 	require.Equal(t, 3, result.NextPage)
 	require.Equal(t, 1, result.PrevPage)
+
+	lastPage := NewPaginatedResult[int](nil, 8, NewPaginator(math.MaxInt, 3))
+	require.Empty(t, lastPage.Items)
+	require.Equal(t, 3, lastPage.NextPage)
+	require.False(t, lastPage.HasNextPage)
 
 	empty := NewPaginatedResult[int](nil, 0, Paginator{})
 	require.Empty(t, empty.Items)

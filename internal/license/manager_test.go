@@ -31,6 +31,7 @@ type mockCloudServerConfig struct {
 	heartbeatHandler http.HandlerFunc
 	connectHandler   http.HandlerFunc
 	releaseHandler   http.HandlerFunc
+	renameHandler    http.HandlerFunc
 }
 
 // newMockCloudServer starts an httptest.Server that dispatches to the given
@@ -49,6 +50,9 @@ func newMockCloudServer(t *testing.T, cfg mockCloudServerConfig) *httptest.Serve
 	}
 	if cfg.releaseHandler != nil {
 		mux.HandleFunc("/api/v1/licenses/release", cfg.releaseHandler)
+	}
+	if cfg.renameHandler != nil {
+		mux.HandleFunc("/api/v1/licenses/rename", cfg.renameHandler)
 	}
 	srv := httptest.NewServer(mux)
 	t.Cleanup(srv.Close)
@@ -1655,4 +1659,39 @@ func TestManager_Deactivate(t *testing.T) {
 		require.NoError(t, err)
 		assert.True(t, m.Checker().IsCommunity())
 	})
+}
+
+// A process without the license manager reads the saved activation's
+// credentials, and has none until there is a verifiable one.
+func TestStoredCloudCredentials(t *testing.T) {
+	t.Parallel()
+	pub, priv := testKeyPair(t)
+	claims := validClaims()
+	claims.ID = "lic-1"
+	store := &mockActivationStore{}
+	creds := StoredCloudCredentials(store, pub, "https://console.example/")
+
+	_, ok := creds()
+	assert.False(t, ok, "no activation yet")
+
+	store.data = &ActivationData{Token: signToken(t, priv, claims), HeartbeatSecret: "hb-secret", ServerID: "srv-1"}
+	got, ok := creds()
+	require.True(t, ok)
+	assert.Equal(t, CloudCredentials{
+		CloudURL:        "https://console.example",
+		LicenseID:       "lic-1",
+		ServerID:        "srv-1",
+		HeartbeatSecret: "hb-secret",
+	}, got)
+
+	_, otherPriv := testKeyPair(t)
+	store.data = &ActivationData{Token: signToken(t, otherPriv, claims), HeartbeatSecret: "hb-secret", ServerID: "srv-1"}
+	_, ok = creds()
+	assert.False(t, ok, "a token another key signed")
+
+	got, ok = StoredCloudCredentials(&mockActivationStore{data: &ActivationData{
+		Token: signToken(t, priv, claims), HeartbeatSecret: "hb-secret", ServerID: "srv-1",
+	}}, pub, "")()
+	require.True(t, ok)
+	assert.Equal(t, defaultCloudURL, got.CloudURL)
 }

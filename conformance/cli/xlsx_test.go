@@ -4,6 +4,7 @@
 package cli_test
 
 import (
+	"bytes"
 	"encoding/json"
 	"path/filepath"
 	"strings"
@@ -76,6 +77,51 @@ func TestXlsxInspectAndReadCommands(t *testing.T) {
 	missing := dagu.Run("xlsx", "read", "missing.xlsx")
 	missing.ExpectNonZeroExitCode()
 	missing.ExpectStderrContains("missing.xlsx: workbook not found")
+}
+
+func TestXlsxStdin(t *testing.T) {
+	t.Parallel()
+
+	f := excelize.NewFile()
+	require.NoError(t, f.SetSheetName("Sheet1", "Orders"))
+	require.NoError(t, f.SetCellValue("Orders", "A1", "Invoice No"))
+	require.NoError(t, f.SetCellValue("Orders", "B1", "Amount"))
+	require.NoError(t, f.SetCellValue("Orders", "A2", "INV-1"))
+	require.NoError(t, f.SetCellValue("Orders", "B2", 10))
+	var input bytes.Buffer
+	require.NoError(t, f.Write(&input))
+	require.NoError(t, f.Close())
+
+	dagu := harness.NewRunner(t)
+	inspect := dagu.RunWithStdin(nil, bytes.NewReader(input.Bytes()), "xlsx", "inspect", "-", "--format", "json")
+	inspect.ExpectExitCode(0)
+	var info struct {
+		Path   string `json:"path"`
+		Sheets []struct {
+			Name     string `json:"name"`
+			RowCount int    `json:"row_count"`
+		} `json:"sheets"`
+	}
+	require.NoError(t, json.Unmarshal([]byte(inspect.Stdout()), &info), inspect.Stdout())
+	require.Equal(t, "-", info.Path)
+	require.Len(t, info.Sheets, 1)
+	require.Equal(t, "Orders", info.Sheets[0].Name)
+	require.Equal(t, 1, info.Sheets[0].RowCount)
+
+	read := dagu.RunWithStdin(nil, bytes.NewReader(input.Bytes()), "xlsx", "read", "-", "--format", "json")
+	read.ExpectExitCode(0)
+	var result struct {
+		Rows  []map[string]any `json:"rows"`
+		Range string           `json:"range"`
+	}
+	require.NoError(t, json.Unmarshal([]byte(read.Stdout()), &result), read.Stdout())
+	require.Equal(t, "Orders!A1:B2", result.Range)
+	require.Equal(t, "INV-1", result.Rows[0]["Invoice No"])
+	require.Equal(t, float64(10), result.Rows[0]["Amount"])
+
+	bad := dagu.RunWithStdin(nil, bytes.NewReader([]byte("broken")), "xlsx", "read", "-")
+	bad.ExpectNonZeroExitCode()
+	bad.ExpectStderrContains("-: not a valid .xlsx workbook")
 }
 
 func TestXlsxReadCommandFlags(t *testing.T) {

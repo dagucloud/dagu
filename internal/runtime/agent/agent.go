@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"log/slog"
 	"maps"
 	"net/http"
@@ -225,6 +226,9 @@ type Agent struct {
 	// When nil, logs are written to local filesystem.
 	logWriterFactory runctx.LogWriterFactory
 
+	// schedulerLogWriter is the caller's writer for a sub-DAG run's scheduler log.
+	schedulerLogWriter io.Writer
+
 	// scheduleTime is the RFC 3339 timestamp of when this run was scheduled.
 	// Set by the scheduler for cron-triggered runs; empty for manual runs.
 	scheduleTime string
@@ -354,6 +358,10 @@ type Options struct {
 	// LogWriterFactory is used to create log writers for step output.
 	// When nil, logs are written to local filesystem.
 	LogWriterFactory runctx.LogWriterFactory
+	// SchedulerLogWriter receives a sub-DAG run's scheduler log when the
+	// caller already writes and finalizes the run's log file. When nil, a
+	// sub-DAG run opens its own writer through LogWriterFactory.
+	SchedulerLogWriter io.Writer
 	// QueuedRun indicates this execution is from a queued item.
 	// When true, the agent will find the existing dag-run (created by enqueue)
 	// instead of creating a new one. This is used for distributed execution
@@ -466,6 +474,7 @@ func New(
 		statusPusher:             opts.StatusPusher,
 		subWorkflowRunnerFactory: opts.SubWorkflowRunnerFactory,
 		logWriterFactory:         opts.LogWriterFactory,
+		schedulerLogWriter:       opts.SchedulerLogWriter,
 		queuedRun:                opts.QueuedRun,
 		attemptID:                opts.AttemptID,
 		triggerType:              opts.TriggerType,
@@ -726,6 +735,12 @@ func (a *Agent) Run(ctx context.Context) (runErr error) {
 		return err
 	}
 
+	payload, err := webhookPayload(a.dag.Params, a.dag.ParamsJSON)
+	if err != nil {
+		return err
+	}
+	defer payload.cleanup()
+
 	contextOpts := []runtime.ContextOption{
 		runtime.WithDAGLoader(dagLoader),
 		runtime.WithRunStateStore(a.runStateStore),
@@ -738,7 +753,7 @@ func (a *Agent) Run(ctx context.Context) (runErr error) {
 		runtime.WithTriggerType(a.triggerType),
 		runtime.WithTriggerActor(a.triggerActor),
 		runtime.WithRunStartedAt(contextTimeString(a.plan.StartAt())),
-		runtime.WithParams(a.dag.Params),
+		runtime.WithParams(payload.params),
 		runtime.WithRuntimeProfileValues(
 			profileValues.defaultEnvs,
 			profileValues.defaultSecrets,
@@ -754,6 +769,12 @@ func (a *Agent) Run(ctx context.Context) (runErr error) {
 	}
 	if len(a.extraEnvs) > 0 {
 		contextOpts = append(contextOpts, runtime.WithEnvVars(a.extraEnvs...))
+	}
+	if payload.fileEnv != "" {
+		contextOpts = append(contextOpts, runtime.WithEnvVars(payload.fileEnv))
+	}
+	if payload.paramsJSON != nil {
+		contextOpts = append(contextOpts, runtime.WithParamsJSON(*payload.paramsJSON))
 	}
 	if len(a.inheritedEnvs) > 0 {
 		contextOpts = append(contextOpts, runtime.WithInheritedEnvs(a.inheritedEnvs))
@@ -1285,6 +1306,9 @@ func (a *Agent) Run(ctx context.Context) (runErr error) {
 		lastErr = errors.Join(lastErr, snapshotErr)
 	}
 
+	// The errors added since Status masked it are masked too.
+	a.maskStatusSecrets(&finishedStatus)
+
 	// Terminal status releases remote execution, so notification delivery must finish first.
 	if err := a.reporter.send(ctx, a.dag, finishedStatus, lastErr); err != nil {
 		logger.Error(ctx, "Mail notification failed", tag.Error(err))
@@ -1494,6 +1518,20 @@ func (a *Agent) buildOutputs(ctx context.Context, finalStatus ir.Status) *ir.DAG
 	}
 }
 
+// DryRunChecks returns the problems a dry run recorded, in run order.
+// It is empty when the run recorded none.
+func (a *Agent) DryRunChecks() []runtime.DryRunCheck {
+	a.lock.RLock()
+	runner := a.runner
+	plan := a.plan
+	a.lock.RUnlock()
+
+	if runner == nil {
+		return nil
+	}
+	return runner.DryRunChecks(plan)
+}
+
 func (a *Agent) PrintSummary(ctx context.Context) {
 	// Always print tree-structured summary after execution
 	status := a.Status(ctx)
@@ -1548,6 +1586,9 @@ func (a *Agent) Status(ctx context.Context) ir.DAGRunStatus {
 				ir.WithQueuedAt(source.QueuedAt),
 				ir.WithCreatedAt(source.CreatedAt),
 				ir.WithAgentSessions(source.AgentSessions),
+				ir.WithEphemeral(source.Ephemeral),
+				ir.WithSkipHandlers(source.SkipHandlers),
+				ir.WithReusedInputs(source.ReusedInputs),
 			)
 			if source.ScheduleTime != "" {
 				statusOpts = append(statusOpts, ir.WithScheduleTime(source.ScheduleTime))
@@ -1611,6 +1652,9 @@ func (a *Agent) Status(ctx context.Context) ir.DAGRunStatus {
 			ir.WithQueuedAt(source.QueuedAt),
 			ir.WithCreatedAt(source.CreatedAt),
 			ir.WithAgentSessions(source.AgentSessions),
+			ir.WithEphemeral(source.Ephemeral),
+			ir.WithSkipHandlers(source.SkipHandlers),
+			ir.WithReusedInputs(source.ReusedInputs),
 		)
 		if source.ScheduleTime != "" {
 			opts = append(opts, ir.WithScheduleTime(source.ScheduleTime))
@@ -1942,8 +1986,14 @@ func (a *Agent) newRunner(attempt runstate.Attempt) *runtime.Runner {
 		autoRetryLimit = a.dag.RetryPolicy.Limit
 	}
 
+	attemptDir := ""
+	if d, ok := attempt.(interface{ AttemptDir() string }); ok && !a.dry {
+		attemptDir = d.AttemptDir()
+	}
+
 	cfg := &runtime.Config{
 		LogDir:               runnerLogDir,
+		AttemptDir:           attemptDir,
 		MaxActiveSteps:       a.dag.MaxActiveSteps,
 		Timeout:              a.dag.Timeout,
 		Delay:                a.dag.Delay,
@@ -1961,6 +2011,7 @@ func (a *Agent) newRunner(attempt runstate.Attempt) *runtime.Runner {
 		DAGRunAutoRetryCount: a.currentAutoRetryCount(),
 		DAGRunAutoRetryLimit: autoRetryLimit,
 		DAGRunIsRoot:         a.parentDAGRun.Zero(),
+		SkipHandlers:         a.retryTarget != nil && a.retryTarget.SkipHandlers,
 	}
 	return runtime.New(cfg)
 }
@@ -1979,6 +2030,10 @@ func (a *Agent) createSubWorkflowRunner(ctx context.Context) (runtimeexec.SubWor
 func (a *Agent) withSubDAGRunSchedulerLogWriter(ctx context.Context) (context.Context, func(), bool) {
 	if !a.isSubDAGRun.Load() || a.logFile == "" {
 		return ctx, func() {}, false
+	}
+	if a.schedulerLogWriter != nil {
+		ctx = logger.WithLogger(ctx, logger.NewLogger(logger.WithRunWriter(a.schedulerLogWriter)))
+		return ctx, func() {}, true
 	}
 	streamer, ok := a.logWriterFactory.(runtime.SchedulerLogStreamer)
 	if !ok || streamer == nil {
@@ -2124,7 +2179,7 @@ func (a *Agent) buildEnvScopeForSecrets() *cmnvalue.EnvScope {
 
 // buildSecretBaseDirs returns base directories for file-based secret resolution.
 func (a *Agent) buildSecretBaseDirs(envScope *cmnvalue.EnvScope) []string {
-	baseDirs := []string{envScope.Expand(a.dag.WorkingDir)}
+	baseDirs := []string{envScope.ExpandPath(a.dag.WorkingDir)}
 	if a.dag.Location != "" {
 		baseDirs = append(baseDirs, filepath.Dir(a.dag.Location))
 	}
@@ -2254,7 +2309,7 @@ func (a *Agent) evaluateWorkingDir(ctx context.Context) error {
 	// Use runtime context's EnvScope for consistent variable expansion
 	rCtx := runtime.GetDAGContext(ctx)
 	if rCtx.EnvScope != nil {
-		a.evaluatedWorkingDir = rCtx.EnvScope.Expand(a.dag.WorkingDir)
+		a.evaluatedWorkingDir = rCtx.EnvScope.ExpandPath(a.dag.WorkingDir)
 	} else {
 		// Fallback to OS expansion if no scope available
 		a.evaluatedWorkingDir = os.ExpandEnv(a.dag.WorkingDir)
@@ -2522,7 +2577,9 @@ func (a *Agent) setupStepRetryPlan(nodes []*runtime.Node) (*runtime.Plan, error)
 
 // setupDefaultRetryPlan sets up the plan for the default retry behavior (all failed/canceled nodes and downstreams).
 func (a *Agent) setupDefaultRetryPlan(ctx context.Context, nodes []*runtime.Node) (*runtime.Plan, error) {
-	plan, err := runtime.CreateRetryPlan(ctx, a.dag, nodes...)
+	plan, err := runtime.CreateRetryPlanWithOptions(ctx, a.dag, runtime.RetryPlanOptions{
+		Resume: a.retryTarget != nil && a.retryTarget.Status == ir.Queued && a.retryTarget.Resume,
+	}, nodes...)
 	if err != nil {
 		return nil, err
 	}

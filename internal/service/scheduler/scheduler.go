@@ -35,6 +35,7 @@ import (
 	persisfile "github.com/dagucloud/dagu/v2/internal/persis/file"
 	"github.com/dagucloud/dagu/v2/internal/proc"
 	"github.com/dagucloud/dagu/v2/internal/profile"
+	"github.com/dagucloud/dagu/v2/internal/publicwebhook"
 	queuedomain "github.com/dagucloud/dagu/v2/internal/queue"
 	"github.com/dagucloud/dagu/v2/internal/runtime"
 	"github.com/dagucloud/dagu/v2/internal/schedulerstate"
@@ -78,6 +79,7 @@ type Scheduler struct {
 	healthServer        *HealthServer // Health check server for monitoring
 	serviceRegistry     serviceregistry.ServiceRegistry
 	disableHealthServer bool            // Disable health server when running from start-all
+	disableSignals      bool            // Leave OS signals to start-all
 	zombieDetector      *ZombieDetector // Zombie DAG run detector
 	instanceID          string          // Unique instance identifier for service registry
 	queueProcessor      *QueueProcessor // Processor for queued DAG runs
@@ -89,10 +91,13 @@ type Scheduler struct {
 	lifecycleMu         sync.Mutex
 	startupCancel       context.CancelFunc
 	lockHeld            atomic.Bool
-	clock               Clock // Clock function for getting current time
+	clock               Clock    // Clock function for getting current time
+	wakeHold            wakeHold // The hold on the ticks after the host wakes (wake_hold.go)
 	eventCollector      func(context.Context)
 	notificationMonitor *chatbridge.NotificationMonitor
 	incidentMonitor     *chatbridge.NotificationMonitor
+	publicWebhooks      *publicwebhook.Service
+	folderWatcher       *folderWatcher // Starts runs for files arriving in watched folders
 }
 
 type schedulerHooks struct {
@@ -126,6 +131,14 @@ type Dependencies struct {
 	IncidentState        chatbridge.StateStore
 	NewIncidentLease     func() chatbridge.Lease
 	LicenseManager       *license.Manager
+	// Webhooks, PublicWebhookStore, and CloudCredentials enable public
+	// webhook URLs; the feature is off unless all are set.
+	Webhooks           publicwebhook.Webhooks
+	PublicWebhookStore publicwebhook.Store
+	CloudCredentials   func() (license.CloudCredentials, bool)
+	// WatchStore remembers the files watched folders held across restarts;
+	// nil remembers them for the process only.
+	WatchStore schedulerstate.WatchStore
 }
 
 type startupState struct {
@@ -167,6 +180,8 @@ func New(cfg *config.Config, deps Dependencies) (*Scheduler, error) {
 		scheduler.notificationMonitor = newNotificationMonitor(cfg, deps)
 		scheduler.incidentMonitor = newIncidentMonitor(cfg, deps)
 	}
+	scheduler.publicWebhooks = newPublicWebhooks(cfg, deps, scheduler)
+	scheduler.folderWatcher.cfg.Store = deps.WatchStore
 	scheduler.queueProcessor.dagRunLeaseStore = deps.DAGRunLeaseStore
 	scheduler.queueProcessor.dispatchTaskStore = deps.DispatchTaskStore
 	scheduler.queueProcessor.dispatchAdmissionStore = dispatchAdmissionStoreFromTaskStore(deps.DispatchTaskStore)
@@ -337,7 +352,7 @@ func newScheduler(
 	}
 	retryScanner.processes = procRepository
 
-	return &Scheduler{
+	s := &Scheduler{
 		quit:             make(chan any),
 		entryReader:      er,
 		dagRepository:    dagRepository,
@@ -353,7 +368,15 @@ func newScheduler(
 		retryScanner:     retryScanner,
 		planner:          planner,
 		clock:            defaultClock,
-	}, nil
+		wakeHold:         newWakeHold(cfg.Scheduler.WakeHold, pauseStore),
+	}
+	s.folderWatcher = newFolderWatcher(folderWatcherConfig{
+		Entries:     er.Entries,
+		IsSuspended: isSuspended,
+		Enqueue:     s.enqueueFileRun,
+		Clock:       func() time.Time { return s.clock() },
+	})
+	return s, nil
 }
 
 // SetClock sets a custom clock function for testing purposes.
@@ -393,6 +416,12 @@ func (s *Scheduler) SetDispatchFunc(fn DispatchFunc) {
 // DisableHealthServer disables the health check server (used when running from start-all)
 func (s *Scheduler) DisableHealthServer() {
 	s.disableHealthServer = true
+}
+
+// DisableSignalHandling leaves OS signals to the hosting process, which stops
+// the scheduler through its context and Stop instead.
+func (s *Scheduler) DisableSignalHandling() {
+	s.disableSignals = true
 }
 
 // SetOpenCodeHost enables the process-owned managed OpenCode service.
@@ -635,8 +664,10 @@ func (s *Scheduler) Start(ctx context.Context) error {
 	s.queueProcessor.Start(ctx, notifyCh)
 	state.queueProcessorStarted = true
 
-	signal.Notify(sig, syscall.SIGHUP, syscall.SIGINT, syscall.SIGTERM, syscall.SIGQUIT)
-	defer signal.Stop(sig)
+	if !s.disableSignals {
+		signal.Notify(sig, syscall.SIGHUP, syscall.SIGINT, syscall.SIGTERM, syscall.SIGQUIT)
+		defer signal.Stop(sig)
+	}
 
 	if err := s.entryReader.Init(ctx); err != nil {
 		logger.Error(ctx, "Failed to initialize entry reader", tag.Error(err))
@@ -676,8 +707,19 @@ func (s *Scheduler) Start(ctx context.Context) error {
 	})
 
 	wg.Go(func() {
+		s.startPublicWebhooks(ctx)
+	})
+
+	wg.Go(func() {
+		s.folderWatcher.Start(ctx)
+	})
+
+	wg.Go(func() {
 		s.entryReader.Start(ctx)
 	})
+
+	// A hold a previous process left behind would pause this one for nobody.
+	s.wakeHold.clearStale(ctx)
 
 	logger.Info(ctx, "Scheduler started")
 	cleanupOnFailure = false
@@ -765,6 +807,13 @@ func (s *Scheduler) startIncidentMonitor(ctx context.Context) {
 	s.incidentMonitor.Run(ctx)
 }
 
+func (s *Scheduler) startPublicWebhooks(ctx context.Context) {
+	if s.publicWebhooks == nil {
+		return
+	}
+	s.publicWebhooks.Run(ctx)
+}
+
 func (s *Scheduler) startHeartbeat(ctx context.Context) {
 	ticker := time.NewTicker(time.Second * 7)
 	defer ticker.Stop()
@@ -832,7 +881,15 @@ func (s *Scheduler) cronLoop(ctx context.Context, sig chan os.Signal) {
 			timer.Reset(tickTime.Sub(now))
 			continue
 		}
-		tickTime = s.runTickSafely(ctx, tickTime)
+		switch outcome, wait, since := s.wakeHold.check(ctx, tickTime, now); outcome {
+		case tickLater:
+			timer.Reset(wait)
+			continue
+		case tickHeld:
+			tickTime = s.runHeldTicks(ctx, since)
+		case tickNow:
+			tickTime = s.runTickSafely(ctx, tickTime)
+		}
 		tickTime = s.NextTick(tickTime)
 		timer.Reset(tickTime.Sub(s.clock()))
 	}
@@ -886,6 +943,33 @@ func (s *Scheduler) runTick(ctx context.Context, tickTime time.Time) {
 	}
 	s.planner.Advance(tickTime)
 	s.planner.Flush(ctx)
+}
+
+// runHeldTicks runs the ticks a wake hold kept back, from the minute the
+// host woke in through the minute under way, each run dispatched before the
+// next tick so that tick sees it. What the host slept through is recovered
+// first, as a late tick recovers it. It returns the last tick run.
+func (s *Scheduler) runHeldTicks(ctx context.Context, since time.Time) (processed time.Time) {
+	processed = since.Truncate(time.Minute)
+	defer func() {
+		if r := recover(); r != nil {
+			logger.Error(ctx, "Scheduler tick panicked",
+				slog.Time("tick_time", processed),
+				tag.Error(panicToError(r)),
+			)
+		}
+	}()
+	s.planner.resume(ctx, processed)
+	last := s.clock().Truncate(time.Minute)
+	for tick := processed; !tick.After(last); tick = tick.Add(time.Minute) {
+		processed = tick
+		for _, run := range s.planner.Plan(ctx, tick) {
+			s.dispatchPlannedRun(ctx, run)
+		}
+		s.planner.Advance(tick)
+		s.planner.Flush(ctx)
+	}
+	return processed
 }
 
 // NextTick returns the next tick time for the scheduler.
@@ -963,6 +1047,35 @@ func (s *Scheduler) stopCron(ctx context.Context) {
 // Catchup runs are dispatched synchronously (enqueue is fast file I/O and
 // we need the result to decide whether to advance the watermark).
 // Non-catchup runs are dispatched in a goroutine (process spawn can be slow).
+// enqueueFileRun queues the run of a file that arrived in a watched folder.
+func (s *Scheduler) enqueueFileRun(ctx context.Context, entry DAGEntry, runID, params string) error {
+	profileName, err := s.dagExecutor.defaultProfileName(ctx, entry.DefinitionID, entry.DAG)
+	if err != nil {
+		return fmt.Errorf("failed to resolve DAG profile: %w", err)
+	}
+	return enqueueTriggeredRun(
+		ctx,
+		s.dagRunRepository,
+		s.queueStore,
+		s.config.Paths.LogDir,
+		s.config.Paths.ArtifactDir,
+		s.config.Paths.BaseConfig,
+		workspace.BaseConfigDir(s.config.Paths.DAGsDir),
+		entry.DefinitionID,
+		entry.DAG,
+		runID,
+		params,
+		profileName,
+		s.clock(),
+		ir.TriggerTypeFile,
+		errInvalidFileRun,
+	)
+}
+
+// errInvalidFileRun says a watched DAG, or the file's params, cannot start a
+// run.
+var errInvalidFileRun = errors.New("the file cannot start a run")
+
 func (s *Scheduler) dispatchRun(ctx context.Context, run PlannedRun) {
 	if run.TriggerType == ir.TriggerTypeCatchUp {
 		s.dispatchPlannedRun(ctx, run)

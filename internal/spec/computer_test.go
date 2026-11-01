@@ -81,6 +81,7 @@ steps:
               properties:
                 title:
                   type: string
+        - outline: window
 `))
 	require.NoError(t, err)
 	step := dag.Steps[0]
@@ -91,7 +92,8 @@ steps:
 	assert.Equal(t, "openai", step.LLM.Provider, "with.llm sets the step model")
 	assert.Equal(t, []ir.StepOutputDeclaration{
 		{Name: "title", Type: ir.StepDeclaredOutputTypeString, Source: ir.StepDeclaredOutputSourceCapture},
-	}, step.Outputs)
+		{Name: "window", Type: ir.StepDeclaredOutputTypeString, Source: ir.StepDeclaredOutputSourceCapture},
+	}, step.Outputs, "an outline publishes its text under its name")
 }
 
 func TestComputerActionErrors(t *testing.T) {

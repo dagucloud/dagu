@@ -39,13 +39,18 @@ import (
 )
 
 type Service struct {
-	store                   notificationmodel.Store
-	dagRepository           *persis.DAGRepository
-	http                    *http.Client
-	logger                  *slog.Logger
-	retry                   DeliveryRetryConfig
-	reusableChannelsEnabled func() bool
-	publicURL               func() string
+	store                      notificationmodel.Store
+	dagRepository              *persis.DAGRepository
+	http                       *http.Client
+	logger                     *slog.Logger
+	retry                      DeliveryRetryConfig
+	reusableChannelsEnabled    func() bool
+	publicURL                  func() string
+	notificationCommandTimeout time.Duration
+	notificationLogLimit       int
+	commandChannelsEnabled     bool
+	commandBaseEnv             []string
+	commandLogs                LogOpener
 }
 
 type TestResult struct {
@@ -110,6 +115,29 @@ func WithPublicURLResolver(resolver func() string) Option {
 	return func(s *Service) {
 		s.SetPublicURLResolver(resolver)
 	}
+}
+
+// LogOpener opens a run's log file for reading. It refuses files that are not
+// regular files, since opening a pipe or device can block.
+type LogOpener interface {
+	OpenLog(ctx context.Context, path string) (io.ReadCloser, error)
+}
+
+// WithCommandChannels enables delivery to command channels. Each command
+// starts from baseEnv plus the run values, and its execution log is read
+// through logs. Without this option, command channels fail delivery.
+func WithCommandChannels(baseEnv []string, logs LogOpener) Option {
+	return func(s *Service) {
+		s.commandChannelsEnabled = true
+		s.commandBaseEnv = slices.Clone(baseEnv)
+		s.commandLogs = logs
+	}
+}
+
+// CommandChannelsEnabled reports whether this service delivers to command
+// channels.
+func (s *Service) CommandChannelsEnabled() bool {
+	return s.commandChannelsEnabled
 }
 
 func (s *Service) SetPublicURLResolver(resolver func() string) {
@@ -540,9 +568,22 @@ func (s *Service) dagDestinationsForEvent(ctx context.Context, setting *notifica
 	return destinations
 }
 
-func (s *Service) FlushNotificationBatch(ctx context.Context, destination string, batch chatbridge.NotificationBatch, _ bool) bool {
+func (s *Service) FlushNotificationBatch(ctx context.Context, destination string, batch chatbridge.NotificationBatch, allowLLM bool) bool {
+	return s.FlushNotificationBatchWithProgress(ctx, destination, batch, allowLLM, func(chatbridge.NotificationEvent) {})
+}
+
+// FlushNotificationBatchWithProgress delivers batch to destination. For a
+// command channel, each event is passed to delivered once its command
+// succeeds, so a later failure does not repeat it.
+func (s *Service) FlushNotificationBatchWithProgress(
+	ctx context.Context,
+	destination string,
+	batch chatbridge.NotificationBatch,
+	_ bool,
+	delivered func(chatbridge.NotificationEvent),
+) bool {
 	if route := parseRouteDestinationID(destination); route.OK {
-		return s.flushRouteNotificationBatch(ctx, destination, route.Scope, route.Workspace, route.RouteID, batch)
+		return s.flushRouteNotificationBatch(ctx, destination, route.Scope, route.Workspace, route.RouteID, batch, delivered)
 	}
 	parsed := parseDestinationID(destination)
 	if !parsed.OK {
@@ -583,7 +624,7 @@ func (s *Service) FlushNotificationBatch(ctx context.Context, destination string
 			return true
 		}
 		target := channel.ToTarget()
-		if err := s.deliverTarget(ctx, target, events); err != nil {
+		if err := s.deliverChannelEvents(ctx, target, events, delivered); err != nil {
 			s.logger.Warn("Failed to deliver DAG notification",
 				slog.String("destination", destination),
 				slog.String("provider", string(target.Type)),
@@ -631,6 +672,7 @@ func (s *Service) flushRouteNotificationBatch(
 	workspace string,
 	routeID string,
 	batch chatbridge.NotificationBatch,
+	delivered func(chatbridge.NotificationEvent),
 ) bool {
 	if !s.reusableChannelsAllowed() {
 		return true
@@ -669,7 +711,7 @@ func (s *Service) flushRouteNotificationBatch(
 		return true
 	}
 	target := channel.ToTarget()
-	if err := s.deliverTarget(ctx, target, events); err != nil {
+	if err := s.deliverChannelEvents(ctx, target, events, delivered); err != nil {
 		s.logger.Warn("Failed to deliver notification route",
 			slog.String("destination", destination),
 			slog.String("provider", string(target.Type)),
@@ -703,7 +745,27 @@ func (s *Service) SendChannelTest(ctx context.Context, channelID string) ([]Test
 	}}, event), nil
 }
 
-func (s *Service) SendTest(ctx context.Context, dagName, targetID string, eventType eventstore.EventType) ([]TestResult, error) {
+// ErrCommandTestDenied is returned by SendTest, before anything is sent, when
+// DenyCommandChannels is set and the test would run a command channel.
+var ErrCommandTestDenied = errors.New("test send would run a command channel")
+
+// TestOption configures SendTest.
+type TestOption func(*testOptions)
+
+type testOptions struct {
+	denyCommand bool
+}
+
+// DenyCommandChannels refuses a test send that would run a command channel.
+func DenyCommandChannels() TestOption {
+	return func(o *testOptions) { o.denyCommand = true }
+}
+
+func (s *Service) SendTest(ctx context.Context, dagName, targetID string, eventType eventstore.EventType, opts ...TestOption) ([]TestResult, error) {
+	var options testOptions
+	for _, opt := range opts {
+		opt(&options)
+	}
 	if eventType == "" {
 		eventType = eventstore.TypeDAGRunFailed
 	}
@@ -727,6 +789,11 @@ func (s *Service) SendTest(ctx context.Context, dagName, targetID string, eventT
 			return nil, notificationmodel.ErrTargetNotFound
 		}
 		return []TestResult{}, nil
+	}
+	if options.denyCommand && slices.ContainsFunc(targets, func(target resolvedTarget) bool {
+		return target.Target.Type == notificationmodel.ProviderCommand
+	}) {
+		return nil, ErrCommandTestDenied
 	}
 
 	return s.deliverTestTargets(ctx, targets, event), nil
@@ -944,9 +1011,32 @@ func (s *Service) deliverTarget(ctx context.Context, target notificationmodel.Ta
 		return s.withRetry(ctx, func() error { return s.sendTelegram(ctx, target, events) })
 	case notificationmodel.ProviderTeams:
 		return s.withRetry(ctx, func() error { return s.sendTeams(ctx, target, events) })
+	case notificationmodel.ProviderCommand:
+		return s.sendCommand(ctx, target, events)
 	default:
 		return notificationmodel.ErrUnsupportedTarget
 	}
+}
+
+// deliverChannelEvents delivers events to a channel target. A command runs once
+// per event and can take most of the flush deadline, so each event is passed
+// to delivered as its command succeeds.
+func (s *Service) deliverChannelEvents(
+	ctx context.Context,
+	target notificationmodel.Target,
+	events []chatbridge.NotificationEvent,
+	delivered func(chatbridge.NotificationEvent),
+) error {
+	if target.Type != notificationmodel.ProviderCommand {
+		return s.deliverTarget(ctx, target, events)
+	}
+	for _, event := range events {
+		if err := s.deliverTarget(ctx, target, []chatbridge.NotificationEvent{event}); err != nil {
+			return err
+		}
+		delivered(event)
+	}
+	return nil
 }
 
 func (s *Service) listSettings(ctx context.Context) ([]*notificationmodel.Settings, error) {
@@ -2039,3 +2129,4 @@ func webhookPayloadForEvents(events []chatbridge.NotificationEvent, publicURL st
 var _ chatbridge.NotificationTransport = (*Service)(nil)
 var _ chatbridge.NotificationBatchDeliveryPolicyTransport = (*Service)(nil)
 var _ chatbridge.NotificationRoutingTransport = (*Service)(nil)
+var _ chatbridge.NotificationProgressTransport = (*Service)(nil)

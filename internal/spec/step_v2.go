@@ -54,6 +54,7 @@ var builtinActionNormalizers = map[string]actionNormalizer{
 	"browser.extract":     normalizeBrowserExtractAction,
 	"browser.run":         normalizeBrowserRunAction,
 	"chat.completion":     normalizeChatAction,
+	"clickhouse.query":    normalizeClickHouseQueryAction,
 	"computer.extract":    normalizeComputerExtractAction,
 	"computer.run":        normalizeComputerRunAction,
 	"container.run":       optionalCommandAction("container", "command"),
@@ -603,6 +604,23 @@ func normalizeCommandAction(normalized map[string]any, executorType string, with
 func commandAction(executorType, field string) actionNormalizer {
 	return func(normalized map[string]any, with map[string]any) error {
 		return normalizeCommandAction(normalized, executorType, with, field)
+	}
+}
+
+// normalizeClickHouseQueryAction takes the SQL from with.query, which becomes
+// the step command, or from with.file, which the executor reads.
+func normalizeClickHouseQueryAction(normalized map[string]any, with map[string]any) error {
+	_, hasQuery := with["query"]
+	_, hasFile := with["file"]
+	switch {
+	case hasQuery && hasFile:
+		return ir.NewValidationError("with", nil, fmt.Errorf("with.query and with.file are mutually exclusive"))
+	case hasFile:
+		return finishAction(normalized, "clickhouse", with)
+	case hasQuery:
+		return normalizeCommandAction(normalized, "clickhouse", with, "query")
+	default:
+		return ir.NewValidationError("with", nil, fmt.Errorf("with.query or with.file is required"))
 	}
 }
 

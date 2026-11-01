@@ -20,6 +20,7 @@ import (
 	persisfile "github.com/dagucloud/dagu/v2/internal/persis/file"
 	fileeventstore "github.com/dagucloud/dagu/v2/internal/persis/file/eventstore"
 	filemonitor "github.com/dagucloud/dagu/v2/internal/persis/file/monitor"
+	"github.com/dagucloud/dagu/v2/internal/persis/store"
 	"github.com/dagucloud/dagu/v2/internal/service/chatbridge"
 	"github.com/dagucloud/dagu/v2/internal/service/scheduler"
 )
@@ -118,4 +119,27 @@ func newMonitorLease(stateFile string) func() chatbridge.Lease {
 			},
 		})
 	}
+}
+
+// NewPublicWebhookStores creates the stores public webhook URLs need: the
+// webhook store, which decrypts their tokens and sender secrets, and the
+// store of the relay's status and each URL's deliveries.
+func NewPublicWebhookStores(cfg *config.Config, backend persis.Backend) (*store.WebhookStore, *store.PublicWebhookStore, error) {
+	key, err := crypto.ResolveKey(cfg.Paths.DataDir)
+	if err != nil {
+		return nil, nil, fmt.Errorf("failed to resolve encryption key: %w", err)
+	}
+	encryptor, err := crypto.NewEncryptor(key)
+	if err != nil {
+		return nil, nil, fmt.Errorf("failed to create encryptor: %w", err)
+	}
+	webhooks, err := store.NewWebhookStore(
+		backend.Collection(persis.CollectionWebhooks),
+		backend.Collection(persis.CollectionWebhookDAGClaims),
+		encryptor,
+	)
+	if err != nil {
+		return nil, nil, fmt.Errorf("failed to create webhook store: %w", err)
+	}
+	return webhooks, store.NewPublicWebhookStore(backend.Collection(persis.CollectionPublicWebhooks)), nil
 }

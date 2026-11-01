@@ -7,7 +7,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"maps"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -441,8 +440,13 @@ func assembleLoadedDAGs(dags []*ir.DAG, emptyErr error) (*ir.DAG, error) {
 	if err := attachLocalDAGs(mainDAG, dags[1:]); err != nil {
 		return nil, err
 	}
+	// Warnings about the shared base config are identical in every document.
 	for _, localDAG := range dags[1:] {
-		mainDAG.BuildWarnings = append(mainDAG.BuildWarnings, localDAG.BuildWarnings...)
+		for _, warning := range localDAG.BuildWarnings {
+			if !slices.Contains(mainDAG.BuildWarnings, warning) {
+				mainDAG.BuildWarnings = append(mainDAG.BuildWarnings, warning)
+			}
+		}
 	}
 
 	return mainDAG, nil
@@ -1144,20 +1148,7 @@ func (*mergeTransformer) Transformer(
 				return nil
 			}
 
-			cloneDef := func(def *ir.HarnessDefinition) *ir.HarnessDefinition {
-				if def == nil {
-					return nil
-				}
-				return &ir.HarnessDefinition{
-					Binary:         def.Binary,
-					PrefixArgs:     append([]string(nil), def.PrefixArgs...),
-					PromptMode:     def.PromptMode,
-					PromptFlag:     def.PromptFlag,
-					PromptPosition: def.PromptPosition,
-					FlagStyle:      def.FlagStyle,
-					OptionFlags:    maps.Clone(def.OptionFlags),
-				}
-			}
+			cloneDef := ir.CloneHarnessDefinition
 
 			cloneDefs := func(defs ir.HarnessDefinitions) ir.HarnessDefinitions {
 				if defs == nil {

@@ -1,7 +1,7 @@
 import { AppBarContext } from '@/contexts/AppBarContext';
 import { TOKEN_KEY, useAuth, useIsAdmin } from '@/contexts/AuthContext';
 import { useConfig } from '@/contexts/ConfigContext';
-import { useUserPreferences } from '@/contexts/UserPreference';
+import { useResolvedTheme } from '@/contexts/UserPreference';
 import { FitAddon } from '@xterm/addon-fit';
 import { WebLinksAddon } from '@xterm/addon-web-links';
 import { Terminal } from '@xterm/xterm';
@@ -13,6 +13,9 @@ import {
   stringToBase64,
 } from './encoding';
 import { I18nText } from '@/i18n/I18nText';
+import { I18nTemplate } from '@/i18n/I18nTemplate';
+import { EmptyState } from '@/components/PageStates';
+import { Lock, SquareTerminal } from 'lucide-react';
 
 type MessageType = 'input' | 'output' | 'resize' | 'close' | 'error';
 type ConnectionStatus = 'connecting' | 'connected' | 'disconnected' | 'error';
@@ -69,8 +72,7 @@ export default function TerminalPage() {
     useState<ConnectionStatus>('disconnected');
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
-  const { preferences } = useUserPreferences();
-  const theme = preferences.theme || 'dark';
+  const theme = useResolvedTheme();
 
   // Set page title on mount
   useEffect(() => {
@@ -103,11 +105,11 @@ export default function TerminalPage() {
       fontSize: 14,
       fontFamily: 'Menlo, Monaco, "Courier New", monospace',
       theme: {
-        background: theme === 'dark' ? '#08090e' : '#fbfaf6',
-        foreground: theme === 'dark' ? '#dddcd4' : '#14161b',
-        cursor: theme === 'dark' ? '#dddcd4' : '#14161b',
-        cursorAccent: theme === 'dark' ? '#08090e' : '#fbfaf6',
-        selectionBackground: theme === 'dark' ? '#2a2452' : '#d9d3f5',
+        background: theme === 'dark' ? '#0e0e11' : '#ffffff',
+        foreground: theme === 'dark' ? '#ededf0' : '#111114',
+        cursor: theme === 'dark' ? '#ededf0' : '#111114',
+        cursorAccent: theme === 'dark' ? '#0e0e11' : '#ffffff',
+        selectionBackground: theme === 'dark' ? '#2f2a5a' : '#dedafa',
       },
       allowProposedApi: true,
     });
@@ -246,33 +248,37 @@ export default function TerminalPage() {
 
   if (!isAdmin) {
     return (
-      <div className="flex items-center justify-center h-64">
-        <p className="text-muted-foreground">
+      <EmptyState
+        headingLevel={1}
+        icon={<Lock />}
+        title={
           <I18nText text={'You do not have permission to access this page.'} />
-        </p>
-      </div>
+        }
+      />
     );
   }
 
   if (!config.terminalEnabled) {
     return (
-      <div className="flex items-center justify-center h-64">
-        <p className="text-muted-foreground">
-          <I18nText
-            text={
-              'Terminal is not enabled. Set DAGU_TERMINAL_ENABLED=true to enable.'
-            }
+      <EmptyState
+        headingLevel={1}
+        icon={<SquareTerminal />}
+        title={<I18nText text={'Terminal is turned off'} />}
+        description={
+          <I18nTemplate
+            text="Set {setting} on the server to enable it."
+            values={{ setting: <code>DAGU_TERMINAL_ENABLED=true</code> }}
           />
-        </p>
-      </div>
+        }
+      />
     );
   }
 
   return (
-    <div className="flex flex-col h-full max-w-7xl">
+    <div className="flex flex-col h-full">
       <div className="flex items-center justify-between mb-2">
         <div>
-          <h1 className="text-lg font-semibold">
+          <h1 className="text-2xl font-semibold tracking-[-0.01em]">
             <I18nText text={'Terminal'} />
           </h1>
           <p className="text-sm text-muted-foreground">

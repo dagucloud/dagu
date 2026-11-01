@@ -302,7 +302,7 @@ func CheckWritePermission(targetPath string) error {
 	tempFile, err := os.CreateTemp(dir, ".dagu-permission-check-*")
 	if err != nil {
 		if os.IsPermission(err) {
-			return fmt.Errorf("permission denied: cannot write to %s (try running with sudo)", dir)
+			return fmt.Errorf("permission denied: cannot write to %s (%s)", dir, permissionHint(runtime.GOOS))
 		}
 		return fmt.Errorf("cannot write to directory %s: %w", dir, err)
 	}
@@ -310,6 +310,15 @@ func CheckWritePermission(targetPath string) error {
 	_ = tempFile.Close()
 	_ = os.Remove(name)
 	return nil
+}
+
+// permissionHint suggests how to rerun the upgrade with write access to the
+// install directory.
+func permissionHint(goos string) string {
+	if goos == "windows" {
+		return "try running as Administrator"
+	}
+	return "try running with sudo"
 }
 
 // VerifyBinary runs the installed binary with "version" argument to verify it works.

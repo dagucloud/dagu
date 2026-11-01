@@ -34,6 +34,7 @@ type SourceContext struct {
 	SubjectType               string
 	SubjectID                 string
 	SubjectName               string
+	CloudWorkspace            string
 	MCPTool                   string
 	MCPAction                 string
 }

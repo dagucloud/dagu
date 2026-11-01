@@ -6,6 +6,7 @@ import { Badge } from '@/components/ui/badge';
 import BorderedBox from '@/components/ui/bordered-box';
 import { getLogMessageFromConfig } from '@/lib/executor-utils';
 import { getHarnessStepSummary } from '@/lib/harness-step';
+import { SYNTAX_CLASS } from '@/lib/syntax-colors';
 import React from 'react';
 import { LogStepMessage } from '../dag-details/LogStepMessage';
 import { I18nText } from '@/i18n/I18nText';
@@ -115,7 +116,7 @@ function StepField({
 }) {
   return (
     <section className="space-y-2">
-      <div className="text-xs font-medium uppercase text-muted-foreground">
+      <div className="text-xs font-medium text-muted-foreground">
         <I18nText text={label} />
       </div>
       {renderStepFieldValue(name, value)}
@@ -198,7 +199,7 @@ function ExecutorConfigField({ value }: { value: Record<string, unknown> }) {
   return (
     <div className="space-y-3 rounded-md border border-border bg-background p-3">
       <div className="min-w-0">
-        <div className="mb-1 text-[11px] font-medium uppercase text-muted-foreground">
+        <div className="mb-1 text-[11px] font-medium text-muted-foreground">
           <I18nText text={'Type'} />
         </div>
         <Badge variant="outline">
@@ -206,7 +207,7 @@ function ExecutorConfigField({ value }: { value: Record<string, unknown> }) {
         </Badge>
       </div>
       <div className="min-w-0">
-        <div className="mb-1 text-[11px] font-medium uppercase text-muted-foreground">
+        <div className="mb-1 text-[11px] font-medium text-muted-foreground">
           <I18nText text={'Message'} />
         </div>
         <LogStepMessage message={logMessage} />
@@ -230,7 +231,7 @@ function ObjectFieldCard({ value }: { value: unknown }) {
     <div className="space-y-2 rounded-md border border-border bg-background p-3">
       {entries.map(([key, item]) => (
         <div key={key} className="min-w-0">
-          <div className="mb-1 text-[11px] font-medium uppercase text-muted-foreground">
+          <div className="mb-1 text-[11px] font-medium text-muted-foreground">
             {STEP_FIELD_LABELS[key] || toTitleLabel(key)}
           </div>
           {renderNestedFieldValue(key, item)}
@@ -293,17 +294,17 @@ function ShellCodeBlock({ value }: { value: string }) {
   const lines = value.split('\n');
 
   return (
-    <BorderedBox className="overflow-x-auto bg-muted/30 p-0 dark:border-slate-700 dark:bg-slate-950">
-      <pre className="m-0 min-w-max text-xs leading-5 text-foreground selection:bg-primary/20 dark:text-slate-100 dark:selection:bg-violet-500/40 dark:selection:text-white">
+    <BorderedBox className="overflow-x-auto bg-muted/30 p-0">
+      <pre className="m-0 min-w-max text-xs leading-5 text-foreground selection:bg-primary/20 dark:selection:bg-primary/40">
         {lines.map((line, index) => (
           <div
             key={`${index}-${line}`}
-            className="grid grid-cols-[3rem_minmax(0,1fr)] border-b border-border/70 last:border-b-0 dark:border-slate-800"
+            className="grid grid-cols-[3rem_minmax(0,1fr)] border-b border-border/70 last:border-b-0"
           >
-            <span className="select-none bg-muted px-2 py-0.5 text-right text-muted-foreground dark:bg-slate-900 dark:text-slate-500">
+            <span className="select-none bg-muted px-2 py-0.5 text-right text-muted-foreground">
               {index + 1}
             </span>
-            <code className="whitespace-pre px-3 py-0.5 font-mono text-foreground selection:bg-primary/20 dark:text-slate-100 dark:selection:bg-violet-500/40 dark:selection:text-white">
+            <code className="whitespace-pre px-3 py-0.5 font-mono text-foreground selection:bg-primary/20 dark:selection:bg-primary/40">
               {line ? highlightShellLine(line) : '\u00a0'}
             </code>
           </div>
@@ -339,10 +340,7 @@ function highlightShellLine(line: string): React.ReactNode[] {
   return splitShellSegments(line).flatMap((segment, segmentIndex) => {
     if (segment.type === 'comment') {
       return (
-        <span
-          key={`${segmentIndex}-comment`}
-          className="text-muted-foreground dark:text-slate-500"
-        >
+        <span key={`${segmentIndex}-comment`} className={SYNTAX_CLASS.comment}>
           {segment.text}
         </span>
       );
@@ -350,10 +348,7 @@ function highlightShellLine(line: string): React.ReactNode[] {
 
     if (segment.type === 'string') {
       return (
-        <span
-          key={`${segmentIndex}-string`}
-          className="text-emerald-700 dark:text-emerald-300"
-        >
+        <span key={`${segmentIndex}-string`} className={SYNTAX_CLASS.string}>
           {segment.text}
         </span>
       );
@@ -445,13 +440,12 @@ function highlightShellPlainSegment(
 }
 
 function getShellTokenClassName(token: string): string {
-  if (token.startsWith('$')) return 'text-violet-700 dark:text-violet-300';
-  if (SHELL_KEYWORDS.has(token))
-    return 'font-medium text-purple-700 dark:text-purple-300';
-  if (/^--?/.test(token)) return 'text-amber-700 dark:text-amber-300';
-  if (/^[|&;()<>]/.test(token)) return 'text-orange-700 dark:text-orange-300';
-  if (/^\d+$/.test(token)) return 'text-amber-700 dark:text-amber-300';
-  return 'text-foreground dark:text-slate-100';
+  if (token.startsWith('$')) return SYNTAX_CLASS.variable;
+  if (SHELL_KEYWORDS.has(token)) return `font-medium ${SYNTAX_CLASS.keyword}`;
+  if (/^--?/.test(token)) return SYNTAX_CLASS.key;
+  if (/^[|&;()<>]/.test(token)) return SYNTAX_CLASS.punct;
+  if (/^\d+$/.test(token)) return SYNTAX_CLASS.number;
+  return SYNTAX_CLASS.plain;
 }
 
 function hasMeaningfulValue(value: unknown): boolean {

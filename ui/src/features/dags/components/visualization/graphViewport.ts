@@ -30,7 +30,7 @@ export const GRAPH_DEFAULT_HEIGHT = 380;
 export const GRAPH_MIN_HEIGHT = 200;
 
 /** Content-sized graphs grow to this share of the window height. */
-const AUTO_MAX_HEIGHT_RATIO = 0.6;
+const AUTO_MAX_HEIGHT_RATIO = 0.45;
 /** Room for a horizontal scrollbar under a drawing wider than its viewport. */
 const SCROLLBAR_ALLOWANCE_PX = 16;
 

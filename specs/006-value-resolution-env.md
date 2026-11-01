@@ -150,6 +150,13 @@ Rules:
   environment only if Dagu already imported that value into the run environment
   scope through an explicit source such as inherited base environment, root
   `env`, dotenv, runtime profile, or secret exposure.
+- Dagu configuration variables that carry a credential, such as
+  `DAGU_AUTH_BASIC_PASSWORD`, `DAGU_SECRETS_VAULT_TOKEN`, or
+  `DAGU_ENCRYPTION_KEY`, are never inherited into a run environment scope and
+  are never read through host process environment fallback. They reach neither
+  a step's process environment nor an expanded value. Dagu's own child
+  processes still receive them, and other `DAGU_` variables are inherited as
+  before.
 
 - Environment names are matched exactly during Dagu value resolution.
 - When Dagu builds a process environment on a platform where environment names are case-insensitive, duplicate names that differ only by case collapse according to the platform rule, and the higher-precedence Dagu source wins.
@@ -174,6 +181,20 @@ omits `name` and uses `id`, the effective runtime name is that `id`.
 
 `DAG_RUN_STATUS`, when present for a handler or status-aware surface, is an
 initial current-step Dagu-managed value for that surface.
+
+`TRACEPARENT` and `TRACESTATE`, when present for an executable step, are
+initial current-step Dagu-managed values. They carry the trace context of the
+step span defined by [Spec 017](017-built-in-run-context.md#trace-context-projection).
+They differ from the other initial current-step names in these ways:
+
+- They are not protected and not secret-reserved. They are standard names that
+  workflows and tools also set.
+- They replace a value of the same name from the root run environment scope.
+- A step-local source that sets either name shadows both names. Dagu then adds
+  neither name, so a step-local `TRACEPARENT` is never paired with the trace
+  state of the step span. When only one name is step-local, Dagu replaces a
+  root-scope value of the other name with an empty value, because the two
+  names form one trace context.
 
 Execution-attempt Dagu-managed environment names include:
 

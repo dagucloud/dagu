@@ -484,17 +484,25 @@ func TestDetectInstallMethod(t *testing.T) {
 		InstallMethodGoInstall: true,
 		InstallMethodHomebrew:  true,
 		InstallMethodSnap:      true,
-		InstallMethodDocker:    true,
+		InstallMethodContainer: true,
 		InstallMethodUnknown:   true,
 	}
 	if !validMethods[method] {
 		t.Errorf("DetectInstallMethod() returned unknown method: %v", method)
 	}
 
-	knownStrings := []string{"binary", "go install", "homebrew", "snap", "docker", "unknown"}
+	knownStrings := []string{"binary", "go install", "homebrew", "snap", "container", "unknown"}
 	if !slices.Contains(knownStrings, method.String()) {
 		t.Errorf("DetectInstallMethod().String() returned unexpected value: %q", method.String())
 	}
+}
+
+// Kubernetes runtimes such as containerd and CRI-O do not create /.dockerenv.
+func TestDetectInstallMethodInKubernetes(t *testing.T) {
+	t.Setenv("SNAP", "")
+	t.Setenv("KUBERNETES_SERVICE_HOST", "10.96.0.1")
+
+	require.Equal(t, InstallMethodContainer, DetectInstallMethod())
 }
 
 func TestInstallMethodString(t *testing.T) {
@@ -506,7 +514,7 @@ func TestInstallMethodString(t *testing.T) {
 		{InstallMethodBinary, "binary"},
 		{InstallMethodHomebrew, "homebrew"},
 		{InstallMethodSnap, "snap"},
-		{InstallMethodDocker, "docker"},
+		{InstallMethodContainer, "container"},
 		{InstallMethodGoInstall, "go install"},
 		{InstallMethod(99), "unknown"},
 	}
@@ -517,6 +525,27 @@ func TestInstallMethodString(t *testing.T) {
 			if got != tt.want {
 				t.Errorf("InstallMethod(%d).String() = %q, want %q", tt.method, got, tt.want)
 			}
+		})
+	}
+}
+
+func TestInstallMethodUpgradeCommand(t *testing.T) {
+	tests := []struct {
+		method InstallMethod
+		want   string
+	}{
+		{InstallMethodUnknown, "dagu upgrade"},
+		{InstallMethodBinary, "dagu upgrade"},
+		{InstallMethodHomebrew, "brew upgrade dagu"},
+		{InstallMethodSnap, "snap refresh dagu"},
+		{InstallMethodGoInstall, "go install github.com/dagucloud/dagu/v2/cmd@latest"},
+		// Updating a container means pulling an image and recreating it.
+		{InstallMethodContainer, ""},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.method.String(), func(t *testing.T) {
+			require.Equal(t, tt.want, tt.method.UpgradeCommand())
 		})
 	}
 }
@@ -798,6 +827,12 @@ func TestCheckWritePermission(t *testing.T) {
 			t.Error("CheckWritePermission() should error for non-existent directory")
 		}
 	})
+}
+
+func TestPermissionHint(t *testing.T) {
+	require.Equal(t, "try running as Administrator", permissionHint("windows"))
+	require.Equal(t, "try running with sudo", permissionHint("linux"))
+	require.Equal(t, "try running with sudo", permissionHint("darwin"))
 }
 
 func TestFindBinary(t *testing.T) {

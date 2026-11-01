@@ -71,8 +71,14 @@ func shimMatchesTarget(shimPath, targetPath string) (bool, error) {
 }
 
 func createShimFile(shimPath, targetPath, platform string) error {
-	if err := os.Link(targetPath, shimPath); err == nil {
-		return nil
+	// link(2) does not follow symlinks on Linux, so hard-linking a symlinked
+	// target (e.g. node's npm -> ../lib/node_modules/npm/bin/npm-cli.js) would
+	// copy the relative link into the bin dir, where it dangles. It would also
+	// detach the executable from its package layout, which tools like npm rely on.
+	if !isSymlink(targetPath) {
+		if err := os.Link(targetPath, shimPath); err == nil {
+			return nil
+		}
 	}
 	if !isWindowsPlatform(platform) {
 		if err := os.Symlink(targetPath, shimPath); err == nil {
@@ -80,6 +86,11 @@ func createShimFile(shimPath, targetPath, platform string) error {
 		}
 	}
 	return copyExecutable(targetPath, shimPath)
+}
+
+func isSymlink(path string) bool {
+	info, err := os.Lstat(path)
+	return err == nil && info.Mode()&os.ModeSymlink != 0
 }
 
 func replaceShimFile(src, dst, platform string) error {

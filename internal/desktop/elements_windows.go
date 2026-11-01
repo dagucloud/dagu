@@ -43,6 +43,7 @@ var elementProperties = []int32{
 	uiaAutomationIdProperty, uiaClassNameProperty, uiaLabeledByProperty, uiaIsPasswordProperty,
 	uiaNativeWindowHandleProperty, uiaIsOffscreenProperty, uiaFrameworkIdProperty,
 	uiaValueValueProperty, uiaLegacyIAccessibleValueProperty, uiaToggleToggleStateProperty,
+	uiaIsEnabledProperty,
 }
 
 // toggle state values a checkbox or radio button reports.
@@ -519,7 +520,7 @@ type topWindow struct {
 func (w *uiaWorker) frontWindow() (*topWindow, error) {
 	hwnd := windows.GetForegroundWindow()
 	if hwnd == 0 {
-		return nil, errors.New("no window is in front")
+		return nil, ErrNoWindow
 	}
 	el, err := w.auto.elementFromHandle(uintptr(hwnd), w.cacheElement)
 	if err != nil {
@@ -541,9 +542,13 @@ func (w *uiaWorker) asWindow(el *element) (*topWindow, error) {
 		return nil, err
 	}
 	window.Window = window.Name
-	hwnd, _ := el.cachedInt(uiaNativeWindowHandleProperty)
-	window.App = appName(windows.HWND(hwnd)) //nolint:gosec // A window handle fits in 32 bits.
+	native, _ := el.cachedInt(uiaNativeWindowHandleProperty)
+	hwnd := windows.HWND(native) //nolint:gosec // A window handle fits in 32 bits.
+	window.App = appName(hwnd)
 	className, _ := el.cachedClassName()
+	if holdsOwner(hwnd) {
+		window.Role = RoleDialog
+	}
 	return &topWindow{el: el, window: window, className: className}, nil
 }
 
@@ -741,6 +746,9 @@ func (w *uiaWorker) convert(el *element, topLevel bool) (Element, error) {
 		return Element{}, err
 	}
 	found := Element{Role: roleOf(controlType, topLevel), Name: name, ID: id, Bounds: bounds}
+	if enabled, err := el.cachedIsEnabled(); err == nil {
+		found.Disabled = !enabled
+	}
 	if password, err := el.cachedIsPassword(); err == nil && !password {
 		found.Value = w.value(el)
 	}

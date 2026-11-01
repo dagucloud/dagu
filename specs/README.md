@@ -67,7 +67,7 @@ It must not be treated as product behavior until implementation catches up.
 | [062: dbt Action](062-dbt.md) | Partially implemented |
 | [063: Schedule Descriptors](063-schedule.md) | Implemented |
 | [064: Dry-Run Step Checks](064-dry-run-step-checks.md) | Implemented |
-| [067: Harness Executor](067-harness.md) | Partially implemented |
+| [067: Harness Executor (CLI and ACP)](067-harness.md) | Partially implemented |
 | [068: State Executor](068-state.md) | Implemented |
 | [069: Secrets Providers](069-secrets-providers.md) | Partially implemented |
 | [070: Runtime Profiles](070-runtime-profiles.md) | Partially implemented |
@@ -80,6 +80,8 @@ It must not be treated as product behavior until implementation catches up.
 | [077: XLSX Actions](077-xlsx.md) | Implemented |
 | [078: JS Run Action](078-js-run.md) | Implemented |
 | [079: Browser Sessions](079-browser-session.md) | Implemented for local commands |
+| [081: ClickHouse Action](081-clickhouse.md) | Partially implemented |
+| [083: Continuous Runs](083-continuous-runs.md) | Partially implemented |
 
 **Writing guidelines:**
 

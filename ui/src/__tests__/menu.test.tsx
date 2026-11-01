@@ -1,7 +1,13 @@
 // Copyright (C) 2026 Yota Hamada
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-import { cleanup, fireEvent, render, screen } from '@testing-library/react';
+import {
+  cleanup,
+  fireEvent,
+  render,
+  screen,
+  within,
+} from '@testing-library/react';
 import React from 'react';
 import { MemoryRouter } from 'react-router-dom';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
@@ -25,6 +31,9 @@ const useHasFeatureMock = vi.fn();
 const useViewsMock = vi.fn();
 
 vi.mock('@/components/LicenseBadge', () => ({ LicenseBadge: () => null }));
+vi.mock('@/components/WorkspaceDeprecationNotice', () => ({
+  WorkspaceDeprecationNotice: () => null,
+}));
 
 vi.mock('@/contexts/AuthContext', () => ({
   useAuth: () => useAuthMock(),
@@ -76,6 +85,9 @@ const config: Config = {
   gitSyncEnabled: true,
   updateAvailable: false,
   latestVersion: '',
+  upgradeCommand: '',
+  restartRequired: false,
+  restartCommand: '',
   permissions: {
     writeDags: true,
     runDags: true,
@@ -110,7 +122,8 @@ function renderMenu(
   initialEntry = '/cockpit',
   configOverride: Partial<Config> = {},
   appBarOverride: Partial<React.ContextType<typeof AppBarContext>> = {},
-  isOpen = true
+  isOpen = true,
+  hideHeader = false
 ): void {
   render(
     <UserPreferencesProvider>
@@ -134,7 +147,7 @@ function renderMenu(
                 ...appBarOverride,
               }}
             >
-              <MainListItems isOpen={isOpen} />
+              <MainListItems isOpen={isOpen} hideHeader={hideHeader} />
             </AppBarContext.Provider>
           </ConfigContext.Provider>
         </MemoryRouter>
@@ -162,6 +175,16 @@ beforeEach(() => {
 });
 
 describe('sidebar menu', () => {
+  // The mobile drawer has its own title and close button.
+  it('leaves the title and collapse toggle to a container that has its own', () => {
+    renderMenu('/cockpit', {}, {}, true, true);
+
+    expect(
+      screen.queryByRole('button', { name: 'Collapse sidebar' })
+    ).not.toBeInTheDocument();
+    expect(screen.getByRole('navigation', { name: 'Primary' })).toBeVisible();
+  });
+
   it('localizes shell controls without English wrappers', () => {
     localStorage.setItem(
       'user_preferences',
@@ -179,28 +202,19 @@ describe('sidebar menu', () => {
     expect(
       screen.getByRole('button', { name: '收起侧边栏' })
     ).toBeInTheDocument();
-    expect(screen.getByRole('link', { name: '集成' })).toHaveAttribute(
+    expect(screen.getByRole('link', { name: 'Webhook' })).toHaveAttribute(
       'href',
-      '/integrations'
+      '/webhooks'
     );
-    expect(screen.getByRole('button', { name: '集成' })).toHaveAttribute(
-      'aria-expanded',
-      'false'
-    );
-    expect(
-      screen.queryByRole('button', { name: /Toggle .* section/ })
-    ).not.toBeInTheDocument();
     expect(screen.getByRole('link', { name: '配置与密钥' })).toHaveAttribute(
       'href',
       '/profiles'
     );
-    expect(screen.getByRole('link', { name: '系统管理' })).toHaveAttribute(
-      'href',
-      '/administration'
+    expect(screen.getByRole('group', { name: '系统管理' })).toBeInTheDocument();
+    expect(screen.getByRole('combobox', { name: '主题' })).toHaveAttribute(
+      'title',
+      '跟随系统'
     );
-    expect(
-      screen.getByRole('button', { name: '深色模式' })
-    ).toBeInTheDocument();
   });
 
   it('keeps the compact language selector within its trigger', () => {
@@ -213,16 +227,16 @@ describe('sidebar menu', () => {
     expect(languageSelector.className).toContain('[&>svg:last-child]:hidden');
   });
 
-  it('styles the sidebar language selector', () => {
+  it('keeps theme and language as icon controls beside the user menu', () => {
     renderMenu('/cockpit');
 
-    const languageSelector = screen.getByRole('combobox', {
-      name: 'Language',
-    });
-    expect(languageSelector).toHaveClass('justify-start');
-    expect(languageSelector.className).toContain('[&>svg:last-child]:ml-auto');
-    expect(languageSelector.querySelector('svg')).toHaveClass(
-      'text-sidebar-foreground'
+    expect(screen.getByRole('combobox', { name: 'Language' })).toHaveClass(
+      'h-7',
+      'w-7'
+    );
+    expect(screen.getByRole('combobox', { name: 'Theme' })).toHaveAttribute(
+      'title',
+      'System'
     );
   });
 
@@ -249,117 +263,63 @@ describe('sidebar menu', () => {
     ).toHaveTextContent('worker-a');
   });
 
-  it('renders top-level operational sections as collapsed accordions', () => {
+  it('opens search from the sidebar with a keyboard shortcut hint', () => {
     renderMenu();
 
-    expect(screen.getByRole('link', { name: 'Overview' })).toHaveAttribute(
-      'href',
-      '/'
+    expect(screen.getByRole('button', { name: 'Search...' })).toHaveAttribute(
+      'aria-keyshortcuts',
+      'Meta+K Control+K'
     );
-    expect(screen.getByRole('link', { name: 'Overview' })).toHaveAttribute(
-      'aria-current',
-      'page'
-    );
-    expect(
-      screen.queryByRole('button', { name: 'Overview' })
-    ).not.toBeInTheDocument();
-    expect(
-      screen.queryByRole('link', { name: 'Timeline' })
-    ).not.toBeInTheDocument();
-    expect(
-      screen.queryByRole('link', { name: 'Cockpit' })
-    ).not.toBeInTheDocument();
-    expect(screen.getByRole('link', { name: 'Workflows' })).toHaveAttribute(
-      'href',
-      '/dags'
-    );
-    expect(screen.getByRole('button', { name: 'Workflows' })).toHaveAttribute(
-      'aria-expanded',
-      'false'
-    );
-    expect(
-      screen.queryByRole('link', { name: 'Definitions' })
-    ).not.toBeInTheDocument();
-    expect(
-      screen.getByRole('link', { name: 'Workflows' }).querySelector('svg')
-    ).not.toBeNull();
-    expect(screen.getByRole('link', { name: 'Executions' })).toHaveAttribute(
-      'href',
-      '/dag-runs'
-    );
-    expect(screen.getByRole('button', { name: 'Executions' })).toHaveAttribute(
-      'aria-expanded',
-      'false'
-    );
-    expect(screen.getByRole('link', { name: 'Monitor' })).toHaveAttribute(
-      'href',
-      '/system-status'
-    );
-    expect(screen.getByRole('button', { name: 'Monitor' })).toHaveAttribute(
-      'aria-expanded',
-      'false'
-    );
-    expect(screen.getByRole('link', { name: 'Notifications' })).toHaveAttribute(
-      'href',
-      '/notifications'
-    );
-    expect(
-      screen.getByRole('button', { name: 'Notifications' })
-    ).toHaveAttribute('aria-expanded', 'false');
-    expect(
-      screen.queryByRole('link', { name: 'Rules' })
-    ).not.toBeInTheDocument();
-    expect(
-      screen.queryByRole('link', { name: 'Channels' })
-    ).not.toBeInTheDocument();
-    expect(screen.getByRole('link', { name: 'Integrations' })).toHaveAttribute(
-      'href',
-      '/integrations'
-    );
-    expect(
-      screen.getByRole('button', { name: 'Integrations' })
-    ).toHaveAttribute('aria-expanded', 'false');
-    expect(
-      screen.getByRole('link', { name: 'Profiles & Secrets' })
-    ).toHaveAttribute('href', '/profiles');
-    expect(
-      screen.getByRole('link', { name: 'Administration' })
-    ).toHaveAttribute('href', '/administration');
-    expect(
-      screen.getByRole('button', { name: 'Administration' })
-    ).toHaveAttribute('aria-expanded', 'false');
-
-    expect(
-      screen.queryByRole('link', { name: 'API Reference' })
-    ).not.toBeInTheDocument();
-    expect(
-      screen.queryByRole('link', { name: 'Dashboard' })
-    ).not.toBeInTheDocument();
   });
 
-  it('expands the workflows section', () => {
+  // Every page is one click away: no accordion groups hide destinations.
+  it('lists every page as a direct link in its section', () => {
     renderMenu();
 
-    fireEvent.click(screen.getByRole('link', { name: 'Workflows' }));
-    expect(screen.getByRole('button', { name: 'Workflows' })).toHaveAttribute(
-      'aria-expanded',
-      'false'
-    );
-    fireEvent.click(screen.getByRole('button', { name: 'Workflows' }));
-    expect(screen.getByRole('button', { name: 'Workflows' })).toHaveAttribute(
-      'aria-expanded',
-      'true'
-    );
-    expect(screen.queryByRole('link', { name: 'Definitions' })).toBeNull();
-    const submenuItems = [
-      screen.getByRole('link', { name: 'Search' }),
-      screen.getByRole('link', { name: 'Base Config' }),
-      screen.getByRole('link', { name: 'Git Sync' }),
-    ];
-    for (const item of submenuItems) {
-      expect(item).toBeVisible();
-      expect(item.querySelector('svg')).toBeNull();
-    }
+    const expectLinks = (
+      container: HTMLElement,
+      links: [name: string, href: string][]
+    ) => {
+      for (const [name, href] of links) {
+        expect(within(container).getByRole('link', { name })).toHaveAttribute(
+          'href',
+          href
+        );
+      }
+    };
+
+    expectLinks(document.body, [
+      ['Overview', '/'],
+      ['Workflows', '/dags'],
+      ['Executions', '/dag-runs'],
+      ['Queues', '/queues'],
+      ['Artifacts', '/artifacts'],
+      ['Wiki', '/wiki'],
+    ]);
+    expectLinks(screen.getByRole('group', { name: 'Monitor' }), [
+      ['System Status', '/system-status'],
+      ['Events', '/event-logs'],
+      ['Audit Logs', '/audit-logs'],
+      ['Notifications', '/notifications'],
+      ['Incidents', '/incidents'],
+      ['External Monitoring', '/license#monitoring'],
+    ]);
+    expectLinks(screen.getByRole('group', { name: 'Configure' }), [
+      ['Profiles & Secrets', '/profiles'],
+      ['Base Config', '/base-config'],
+      ['Webhooks', '/webhooks'],
+      ['Git Sync', '/git-sync'],
+      ['API Reference', '/api-docs'],
+    ]);
+    expectLinks(screen.getByRole('group', { name: 'Administration' }), [
+      ['Users', '/users'],
+      ['API Keys', '/api-keys'],
+      ['Remote Nodes', '/remote-nodes'],
+      ['Terminal', '/terminal'],
+    ]);
+    expect(
+      screen.queryByRole('button', { name: 'Workflows' })
+    ).not.toBeInTheDocument();
   });
 
   it('shows Git Sync to all-workspace viewers', () => {
@@ -373,7 +333,6 @@ describe('sidebar menu', () => {
     });
 
     renderMenu('/git-sync');
-    fireEvent.click(screen.getByRole('button', { name: 'Workflows' }));
 
     expect(screen.getByRole('link', { name: 'Git Sync' })).toBeVisible();
   });
@@ -382,91 +341,26 @@ describe('sidebar menu', () => {
     useCanAccessGitSyncMock.mockReturnValue(false);
 
     renderMenu('/git-sync');
-    fireEvent.click(screen.getByRole('button', { name: 'Workflows' }));
 
     expect(
       screen.queryByRole('link', { name: 'Git Sync' })
     ).not.toBeInTheDocument();
   });
 
-  it('expands the executions section', () => {
+  it('omits the Administration section for non-admins', () => {
+    useIsAdminMock.mockReturnValue(false);
+
     renderMenu();
 
-    fireEvent.click(screen.getByRole('button', { name: 'Executions' }));
-    expect(screen.queryByRole('link', { name: 'Runs' })).toBeNull();
-    const queueLink = screen.getByRole('link', { name: 'Queues' });
-    expect(queueLink).toBeVisible();
-    expect(queueLink.querySelector('svg')).toBeNull();
-    const artifactsLink = screen.getByRole('link', { name: 'Artifacts' });
-    expect(artifactsLink).toBeVisible();
-    expect(artifactsLink.querySelector('svg')).toBeNull();
-  });
-
-  it('expands the monitor section', () => {
-    renderMenu();
-
-    fireEvent.click(screen.getByRole('button', { name: 'Monitor' }));
     expect(
-      screen.queryByRole('link', { name: 'System Status' })
+      screen.queryByRole('group', { name: 'Administration' })
     ).not.toBeInTheDocument();
-    const submenuItems = [
-      screen.getByRole('link', { name: 'Events' }),
-      screen.getByRole('link', { name: 'Audit Logs' }),
-    ];
-    for (const item of submenuItems) {
-      expect(item).toBeVisible();
-      expect(item.querySelector('svg')).toBeNull();
-    }
-  });
-
-  it('expands the notifications section', () => {
-    renderMenu();
-
-    fireEvent.click(screen.getByRole('button', { name: 'Notifications' }));
-    const notificationSubmenuItems = [
-      screen.getByRole('link', { name: 'Rules' }),
-      screen.getByRole('link', { name: 'Channels' }),
-    ];
-    for (const item of notificationSubmenuItems) {
-      expect(item).toBeVisible();
-      expect(item.querySelector('svg')).toBeNull();
-    }
-    const [rulesLink, channelsLink] = notificationSubmenuItems;
-    expect(rulesLink).toBeDefined();
-    expect(channelsLink).toBeDefined();
     expect(
-      rulesLink!.compareDocumentPosition(channelsLink!) &
-        Node.DOCUMENT_POSITION_FOLLOWING
-    ).toBeTruthy();
-  });
-
-  it('expands integration and administration nested sections', () => {
-    renderMenu();
-
-    fireEvent.click(screen.getByRole('button', { name: 'Integrations' }));
-    const integrationSubmenuItems = [
-      screen.getByRole('link', { name: 'Webhooks' }),
-      screen.getByRole('link', { name: 'API Reference' }),
-    ];
-    for (const item of integrationSubmenuItems) {
-      expect(item).toBeVisible();
-      expect(item.querySelector('svg')).toBeNull();
-    }
-    fireEvent.click(screen.getByRole('button', { name: 'Administration' }));
-    const accessSection = screen.getByRole('button', {
-      name: 'Access',
-    });
-    const infrastructureSection = screen.getByRole('button', {
-      name: 'Infrastructure',
-    });
-    expect(accessSection).toBeVisible();
+      screen.queryByRole('link', { name: 'Remote Nodes' })
+    ).not.toBeInTheDocument();
     expect(
-      accessSection.querySelector('svg:not(.lucide-chevron-down)')
-    ).toBeNull();
-    expect(infrastructureSection).toBeVisible();
-    expect(
-      infrastructureSection.querySelector('svg:not(.lucide-chevron-down)')
-    ).toBeNull();
+      screen.queryByRole('link', { name: 'External Monitoring' })
+    ).not.toBeInTheDocument();
   });
 
   it('renders pinned views as standalone sidebar links', () => {
@@ -755,8 +649,8 @@ describe('sidebar menu', () => {
     );
     expect(artifactViewLink).toHaveAttribute('aria-current', 'page');
     expect(artifactViewLink.querySelector('svg')).toHaveClass('lucide-star');
-    const executionsLink = screen.getByRole('link', { name: 'Executions' });
-    expect(executionsLink).not.toHaveAttribute('aria-current');
+    const artifactsLink = screen.getByRole('link', { name: 'Artifacts' });
+    expect(artifactsLink).not.toHaveAttribute('aria-current');
   });
 
   it('keeps Workflows selected when the active view is not starred', () => {
@@ -814,69 +708,24 @@ describe('sidebar menu', () => {
   });
 
   it.each([
-    ['/dag-runs', 'executions'],
-    ['/artifacts', 'executions'],
-    ['/system-status', 'monitor'],
-    ['/notifications', 'notifications'],
-    ['/integrations', 'integrations'],
-    ['/administration', 'administration'],
-  ])('marks %s as the active section entry', (path, label) => {
+    ['/dag-runs', 'Executions'],
+    ['/dags/example', 'Workflows'],
+    ['/queues', 'Queues'],
+    ['/artifacts', 'Artifacts'],
+    ['/system-status', 'System Status'],
+    ['/event-logs', 'Events'],
+    ['/notification-rules', 'Notifications'],
+    ['/notification-channels', 'Notifications'],
+    ['/incident-policies', 'Incidents'],
+    ['/webhooks', 'Webhooks'],
+    ['/users', 'Users'],
+  ])('marks %s as the active entry', (path, label) => {
     renderMenu(path);
 
-    expect(
-      screen.getByRole('link', { name: new RegExp(label, 'i') })
-    ).toHaveAttribute('aria-current', 'page');
-  });
-
-  it.each([
-    ['/notification-rules', 'Rules'],
-    ['/notification-channels', 'Channels'],
-  ])('marks %s as the active notification item', (path, label) => {
-    renderMenu(path);
-
-    expect(screen.queryByRole('link', { name: label })).not.toBeInTheDocument();
-    expect(screen.getByRole('link', { name: 'Notifications' })).toHaveAttribute(
+    expect(screen.getByRole('link', { name: label })).toHaveAttribute(
       'aria-current',
       'page'
     );
-  });
-
-  it.each([
-    ['/git-sync', 'workflows'],
-    ['/queues', 'executions'],
-    ['/artifacts', 'executions'],
-    ['/event-logs', 'monitor'],
-    ['/notification-channels', 'notifications'],
-    ['/webhooks', 'integrations'],
-    ['/users', 'administration'],
-  ])('does not auto-expand %s inside %s', (path, label) => {
-    renderMenu(path);
-
-    expect(
-      screen.getByRole('button', {
-        name: new RegExp(`^${label}$`, 'i'),
-      })
-    ).toHaveAttribute('aria-expanded', 'false');
-  });
-
-  it('does not auto-expand Administration nested groups when opened', () => {
-    localStorage.setItem('navgroup_expanded_administration-access', 'true');
-    localStorage.setItem(
-      'navgroup_expanded_administration-infrastructure',
-      'true'
-    );
-
-    renderMenu('/administration');
-
-    fireEvent.click(screen.getByRole('button', { name: /^administration$/i }));
-
-    expect(screen.getByRole('button', { name: /^access$/i })).toHaveAttribute(
-      'aria-expanded',
-      'false'
-    );
-    expect(
-      screen.getByRole('button', { name: /^infrastructure$/i })
-    ).toHaveAttribute('aria-expanded', 'false');
   });
 
   it('does not append Pro labels to unavailable sidebar features', () => {
@@ -884,14 +733,10 @@ describe('sidebar menu', () => {
 
     renderMenu();
 
-    fireEvent.click(screen.getByRole('button', { name: 'Monitor' }));
     expect(screen.getByRole('link', { name: 'Audit Logs' })).toBeVisible();
     expect(
       screen.queryByRole('link', { name: 'Audit Logs (Pro)' })
     ).not.toBeInTheDocument();
-
-    fireEvent.click(screen.getByRole('button', { name: 'Administration' }));
-    fireEvent.click(screen.getByRole('button', { name: 'Access' }));
     expect(screen.getByRole('link', { name: 'Users' })).toBeVisible();
     expect(
       screen.queryByRole('link', { name: 'Users (Pro)' })

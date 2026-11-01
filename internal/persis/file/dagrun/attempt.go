@@ -38,6 +38,10 @@ var (
 	ErrContextCanceled   = errors.New("operation canceled by context")
 )
 
+// statusFileMaxSize is the size above which the status file of a run that is
+// still open is replaced with a file that holds only the last record.
+const statusFileMaxSize = 1 << 20
+
 // DAGDefinition is the name of the file where the DAG definition is stored.
 const DAGDefinition = "dag.json"
 
@@ -61,7 +65,9 @@ type Attempt struct {
 	mu        sync.RWMutex                      // Mutex for thread safety
 	cache     *fileutil.Cache[*ir.DAGRunStatus] // Optional cache for read operations
 	isClosing atomic.Bool                       // Flag to prevent writes during Close/Compact
-	dag       *ir.DAG                           // DAG associated with the status file
+	// appended counts the records written since the file was opened or compacted.
+	appended int
+	dag      *ir.DAG // DAG associated with the status file
 
 	// artifactRoot is the configured global artifact directory, where this
 	// attempt records its run in the artifact index. Empty disables indexing.
@@ -102,6 +108,11 @@ func NewAttempt(file string, cache *fileutil.Cache[*ir.DAGRunStatus], opts ...At
 		}
 	}
 	return att, nil
+}
+
+// Dir returns the directory of the attempt.
+func (att *Attempt) Dir() string {
+	return filepath.Dir(att.file)
 }
 
 // Exists returns true if the status file exists.
@@ -211,12 +222,23 @@ func (att *Attempt) Write(ctx context.Context, status ir.DAGRunStatus) error {
 	if att.writer == nil {
 		return fmt.Errorf("status file not open: %w", ErrStatusFileNotOpen)
 	}
+	if !att.writer.IsOpen() {
+		if err := att.writer.Open(); err != nil {
+			return fmt.Errorf("%w: reopen status file: %w", ErrWriteFailed, err)
+		}
+	}
+	if err := att.writer.reopenIfReplaced(); err != nil {
+		return fmt.Errorf("%w: reopen status file: %w", ErrWriteFailed, err)
+	}
 
 	ir.NormalizeDAGRunConditions(&status)
 
 	if writeErr := att.writer.Write(ctx, status); writeErr != nil {
 		return fmt.Errorf("%w: %w", ErrWriteFailed, writeErr)
 	}
+
+	att.appended++
+	att.compactIfLargeLocked(ctx, &status)
 
 	// Invalidate cache after successful write
 	if att.cache != nil {
@@ -239,6 +261,25 @@ func (att *Attempt) Write(ctx context.Context, status ir.DAGRunStatus) error {
 	}
 
 	return nil
+}
+
+// compactIfLargeLocked replaces the status file with a file that holds only
+// the given record, the last one written, when the file is larger than
+// statusFileMaxSize. A run that repeats a step without end appends records for
+// years. At least two records must follow a compaction, so that a record that
+// is itself larger than the limit does not make each write compact.
+// Must be called with the write lock held.
+func (att *Attempt) compactIfLargeLocked(ctx context.Context, last *ir.DAGRunStatus) {
+	if att.appended < 2 {
+		return
+	}
+	info, err := os.Stat(att.file)
+	if err != nil || info.Size() <= statusFileMaxSize {
+		return
+	}
+	if err := att.compactStatusLocked(ctx, last); err != nil {
+		logger.Warn(ctx, "Failed to compact status file", tag.Error(err))
+	}
 }
 
 // updateArtifactIndex records a finished run in the artifact index.
@@ -324,7 +365,13 @@ func (att *Attempt) Compact(ctx context.Context) error {
 }
 
 // compactLocked performs actual compaction with the lock already held
-func (att *Attempt) compactLocked(ctx context.Context) (retErr error) {
+func (att *Attempt) compactLocked(ctx context.Context) error {
+	return att.compactStatusLocked(ctx, nil)
+}
+
+// compactStatusLocked replaces the file with one record. The record is last
+// when it is not nil; otherwise it is the last valid record that the file holds.
+func (att *Attempt) compactStatusLocked(ctx context.Context, last *ir.DAGRunStatus) (retErr error) {
 	reopenWriter := att.writer
 	if reopenWriter != nil {
 		att.writer = nil
@@ -333,6 +380,9 @@ func (att *Attempt) compactLocked(ctx context.Context) (retErr error) {
 			return fmt.Errorf("failed to close writer before compaction: %w", err)
 		}
 		defer func() {
+			// The writer stays set even when it cannot open, so that the next
+			// Write opens it again.
+			att.writer = reopenWriter
 			if err := reopenWriter.Open(); err != nil {
 				reopenErr := fmt.Errorf("failed to reopen writer after compaction: %w", err)
 				if retErr != nil {
@@ -340,18 +390,20 @@ func (att *Attempt) compactLocked(ctx context.Context) (retErr error) {
 					return
 				}
 				retErr = reopenErr
-				return
 			}
-			att.writer = reopenWriter
 		}()
 	}
 
-	status, shouldCompact, err := att.statusForCompactionLocked(ctx)
-	if err == io.EOF {
-		return nil // Empty file, nothing to compact
-	}
-	if err != nil {
-		return fmt.Errorf("%w: %s: %v", ErrCompactFailed, att.file, err)
+	status, shouldCompact := last, true
+	if last == nil {
+		var err error
+		status, shouldCompact, err = att.statusForCompactionLocked(ctx)
+		if err == io.EOF {
+			return nil // Empty file, nothing to compact
+		}
+		if err != nil {
+			return fmt.Errorf("%w: %s: %v", ErrCompactFailed, att.file, err)
+		}
 	}
 	if !shouldCompact {
 		return nil
@@ -406,7 +458,13 @@ func (att *Attempt) compactLocked(ctx context.Context) (retErr error) {
 		att.cache.Invalidate(att.file)
 	}
 
+	att.appended = 0
 	success = true
+	// A running attempt keeps appending to the new file, whose directory
+	// entry must therefore survive a crash.
+	if err := fileutil.SyncDir(filepath.Dir(att.file)); err != nil {
+		return fmt.Errorf("failed to sync status directory: %w", err)
+	}
 	return nil
 }
 
@@ -523,35 +581,34 @@ func parseStatusFileWithContext(ctx context.Context, file string) (*ir.DAGRunSta
 	defer func() {
 		_ = f.Close()
 	}()
-
-	var (
-		offset int64
-		result *ir.DAGRunStatus
-	)
-
-	// Read append-only file from the beginning and find the last status
-	for {
-		if err := ctx.Err(); err != nil {
-			return nil, fmt.Errorf("%w: %w", ErrReadFailed, err)
-		}
-		line, nextOffset, err := readLineFrom(f, offset)
-		if err == io.EOF {
-			if result == nil {
-				return nil, err
-			}
-			return result, nil
-		} else if err != nil {
-			return nil, fmt.Errorf("%w: %w", ErrReadFailed, err)
-		}
-
-		offset = nextOffset
-		if len(line) > 0 {
-			status, err := ir.StatusFromJSON(string(line))
-			if err == nil {
-				result = status
-			}
-		}
+	info, err := f.Stat()
+	if err != nil {
+		return nil, fmt.Errorf("%w: %w", ErrReadFailed, err)
 	}
+
+	// The file is append-only, so the latest status is its last valid line.
+	// Reading from the end decodes only that line, however many snapshots
+	// came before it.
+	var result *ir.DAGRunStatus
+	err = fileutil.ReadLinesBackward(ctx, f, info.Size(), func(line []byte, terminated bool) (bool, error) {
+		// A line without its newline is still being written.
+		if !terminated || len(line) == 0 {
+			return false, nil
+		}
+		status, err := ir.StatusFromJSON(string(line))
+		if err != nil {
+			return false, nil
+		}
+		result = status
+		return true, nil
+	})
+	if err != nil {
+		return nil, fmt.Errorf("%w: %w", ErrReadFailed, err)
+	}
+	if result == nil {
+		return nil, io.EOF
+	}
+	return result, nil
 }
 
 func openStatusFileWithRetry(path string) (*os.File, error) {

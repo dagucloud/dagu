@@ -233,6 +233,9 @@ func TestStopHandlerBudgets(t *testing.T) {
 	}
 }
 
+// A second stop shares the first stop's cleanup deadline. Both calls return
+// once that deadline forces termination; a restarted deadline would hold them
+// until about five seconds. Process teardown time is not part of the bound.
 func TestStopConcurrentDeadline(t *testing.T) {
 	th := test.Setup(t)
 	ready := filepath.Join(t.TempDir(), "ready")
@@ -258,9 +261,10 @@ steps:
 	go func() { defer close(firstStop); dagAgent.Signal(th.Context, os.Interrupt) }()
 	time.Sleep(2 * time.Second)
 	go func() { defer close(secondStop); dagAgent.Signal(th.Context, os.Interrupt) }()
-	waitForCancel(t, done, time.Until(started.Add(4*time.Second)))
-	waitForCancel(t, firstStop, time.Second)
-	waitForCancel(t, secondStop, time.Second)
+	deadline := started.Add(4 * time.Second)
+	waitForCancel(t, firstStop, time.Until(deadline))
+	waitForCancel(t, secondStop, time.Until(deadline))
+	waitForCancel(t, done, agentRunCompletionTimeout())
 	dag.AssertLatestStatus(t, ir.Aborted)
 }
 
