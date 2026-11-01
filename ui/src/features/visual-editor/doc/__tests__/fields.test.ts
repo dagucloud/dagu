@@ -419,6 +419,17 @@ describe('opReplaceStepYaml', () => {
       'unknownStep'
     );
   });
+
+  // The server reads integers exactly, beyond the float precision.
+  it('keeps an integer beyond the float precision', () => {
+    const input = 'steps:\n  - name: a\n    run: echo a\n';
+    expect(
+      textOf(
+        input,
+        replace(input, 'steps[0]', 'name: a\ntimeout_sec: 9007199254740993\n')
+      )
+    ).toBe('steps:\n  - name: a\n    timeout_sec: 9007199254740993\n');
+  });
 });
 
 describe('opRenameStep', () => {

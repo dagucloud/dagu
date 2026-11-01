@@ -264,7 +264,7 @@ export function opReplaceStepYaml(
   // eslint-disable-next-line @typescript-eslint/no-unused-vars
   _options: ApplyEditOptions = {}
 ): EditResult {
-  const parsed = parseDocumentAsServer(op.yaml);
+  const parsed = parseDocumentAsServer(op.yaml, { intAsBigInt: true });
   const error = parsed.errors[0];
   if (error) {
     const first = error.message.split('\n')[0] ?? error.message;
