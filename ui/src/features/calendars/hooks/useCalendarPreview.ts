@@ -44,12 +44,13 @@ export function useCalendarPreview({
   const [failed, setFailed] = useState(false);
   const [attempt, setAttempt] = useState(0);
   const requestSeqRef = useRef(0);
-  const previewedSpecRef = useRef<string | null>(null);
+  // The content last sent or about to be sent, which later edits differ from.
+  const requestedSpecRef = useRef<string | null>(null);
 
   useEffect(() => {
     setPreview(null);
     setFailed(false);
-    previewedSpecRef.current = null;
+    requestedSpecRef.current = null;
   }, [name, remoteNode]);
 
   useEffect(() => {
@@ -59,7 +60,9 @@ export function useCalendarPreview({
     }
     const seq = ++requestSeqRef.current;
     const edited =
-      previewedSpecRef.current !== null && previewedSpecRef.current !== spec;
+      requestedSpecRef.current !== null && requestedSpecRef.current !== spec;
+    requestedSpecRef.current = spec;
+    setFailed(false);
     setIsPreviewing(true);
     const timer = window.setTimeout(
       async () => {
@@ -76,7 +79,6 @@ export function useCalendarPreview({
           return;
         }
         if (data) {
-          previewedSpecRef.current = spec;
           setPreview(data);
         }
         setFailed(!data);

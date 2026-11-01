@@ -91,4 +91,37 @@ describe('useCalendarPreview', () => {
     await waitFor(() => expect(result.current.preview).toEqual(preview));
     expect(result.current.failed).toBe(false);
   });
+
+  it('waits for a pause in typing while the first preview loads', async () => {
+    post.mockReturnValue(new Promise(() => undefined));
+    const { rerender } = renderHook(
+      (props: { spec: string }) =>
+        useCalendarPreview({
+          name: 'ops',
+          remoteNode: 'local',
+          spec: props.spec,
+          baseline: null,
+          year: 2027,
+        }),
+      { initialProps: { spec: 'holidays: []\n' } }
+    );
+    await waitFor(() => expect(post).toHaveBeenCalledTimes(1));
+
+    rerender({ spec: 'holidays: [2027-01-1' });
+    await act(() => new Promise((resolve) => setTimeout(resolve, 50)));
+
+    expect(post).toHaveBeenCalledTimes(1);
+  });
+
+  it('clears a failure while it tries again', async () => {
+    post.mockRejectedValueOnce(new Error('offline'));
+    const { result } = render('holidays: []\n');
+    await waitFor(() => expect(result.current.failed).toBe(true));
+
+    post.mockReturnValue(new Promise(() => undefined));
+    act(() => result.current.retry());
+
+    expect(result.current.failed).toBe(false);
+    expect(result.current.isPreviewing).toBe(true);
+  });
 });
