@@ -142,8 +142,9 @@ export default defineConfig([
   },
   {
     // A flat config block replaces the rule options, so the shared pattern
-    // is repeated here.
-    files: ['src/features/workflow-workspace/**'],
+    // is repeated here. The peek of the lists shares the limits of the
+    // workspace: it shows the canvas, never Mermaid.
+    files: ['src/features/workflow-workspace/**', 'src/features/peek/**'],
     rules: {
       'no-restricted-imports': [
         'error',
@@ -174,6 +175,7 @@ export default defineConfig([
     // Tests mock the clipboard and write the banned text as probe input.
     files: [
       'src/features/workflow-workspace/**',
+      'src/features/peek/**',
       'src/features/visual-editor/**',
       'src/features/dags/components/dag-editor/**',
     ],

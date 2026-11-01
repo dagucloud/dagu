@@ -6,6 +6,7 @@ import userEvent from '@testing-library/user-event';
 import React from 'react';
 import { MemoryRouter } from 'react-router-dom';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { PeekContext } from '@/features/peek/PeekContext';
 import dayjs from '@/lib/dayjs';
 import type { KanbanFilters } from '../../hooks/useDateKanbanData';
 import { BucketKanbanList } from '../BucketKanbanList';
@@ -105,5 +106,20 @@ describe('BucketKanbanList', () => {
       '_blank',
       'noopener'
     );
+  });
+
+  it('shows a clicked card in the peek', () => {
+    const peek = { open: vi.fn(), isOpen: false };
+    render(
+      <MemoryRouter>
+        <PeekContext.Provider value={peek}>
+          <BucketKanbanList intervalDays={3} filters={{}} resetKey="v1" />
+        </PeekContext.Provider>
+      </MemoryRouter>
+    );
+
+    sectionProps[0]!.onCardClick({ name: 'etl', dagRunId: 'run-1' });
+
+    expect(peek.open).toHaveBeenCalledWith({ dag: 'etl', run: 'run-1' });
   });
 });

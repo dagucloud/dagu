@@ -36,6 +36,8 @@ import {
 } from '../../features/views/viewScope';
 import { buildDAGPageURL } from '../../features/dag-runs/lib/dagRunUrls';
 import { setDAGPinned } from '../../features/dags/lib/dagPins';
+import { PeekHost } from '../../features/peek/PeekHost';
+import { withoutPeek } from '../../features/peek/peekParams';
 import { useClient, useQuery } from '../../hooks/api';
 import { useDAGsListSSE } from '../../hooks/useDAGsListSSE';
 import {
@@ -494,8 +496,9 @@ function DAGsContent() {
     };
 
     if (scopeChanged) {
+      // A peek of the previous scope does not carry over.
       const nextSearch = buildWorkflowFilterSearch(
-        params.toString(),
+        withoutPeek(params.toString()),
         next,
         nextActiveViewId ?? ALL_WORKFLOWS_VIEW_PARAM
       );
@@ -1192,7 +1195,11 @@ function DAGsContent() {
 }
 
 function DAGs() {
-  return <DAGsContent />;
+  return (
+    <PeekHost>
+      <DAGsContent />
+    </PeekHost>
+  );
 }
 
 export default DAGs;

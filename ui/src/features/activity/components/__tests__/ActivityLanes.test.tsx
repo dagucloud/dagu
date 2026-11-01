@@ -5,6 +5,7 @@ import { fireEvent, render, screen, within } from '@testing-library/react';
 import { MemoryRouter, Route, Routes, useLocation } from 'react-router-dom';
 import { describe, expect, it, vi } from 'vitest';
 import { Status } from '@/api/v1/schema';
+import { PeekContext, type PeekController } from '@/features/peek/PeekContext';
 import { formatDurationMs } from '@/lib/formatDuration';
 import type { ActivityRun } from '../../lib/activityModel';
 import { ActivityLanes } from '../ActivityLanes';
@@ -80,7 +81,13 @@ function stubLaneWidth(lane: HTMLElement, width: number) {
 function renderLanes({
   laneRuns = runs,
   hasMore = false,
-}: { laneRuns?: ActivityRun[]; hasMore?: boolean } = {}) {
+  peek = null,
+}: {
+  laneRuns?: ActivityRun[];
+  hasMore?: boolean;
+  /** A peek host above the lanes. */
+  peek?: PeekController | null;
+} = {}) {
   return render(
     <MemoryRouter initialEntries={['/']}>
       <Routes>
@@ -101,7 +108,12 @@ function renderLanes({
         />
         <Route path="*" element={<LocationProbe />} />
       </Routes>
-    </MemoryRouter>
+    </MemoryRouter>,
+    {
+      wrapper: ({ children }) => (
+        <PeekContext.Provider value={peek}>{children}</PeekContext.Provider>
+      ),
+    }
   );
 }
 
@@ -136,6 +148,19 @@ describe('ActivityLanes', () => {
     fireEvent.keyDown(lane, { key: 'Enter' });
 
     expectRunPage('report', 'report-2');
+  });
+
+  it('shows the run in the peek under a peek host', () => {
+    const peek = { open: vi.fn(), isOpen: false };
+    renderLanes({ peek });
+    const lane = screen.getByRole('group', { name: /^report:/ });
+
+    lane.focus();
+    fireEvent.keyDown(lane, { key: 'ArrowRight' });
+    fireEvent.keyDown(lane, { key: 'Enter' });
+
+    expect(peek.open).toHaveBeenCalledWith({ dag: 'report', run: 'report-2' });
+    expect(screen.getByRole('group', { name: /^report:/ })).toBeVisible();
   });
 
   it('opens a long run from anywhere along its bar', () => {

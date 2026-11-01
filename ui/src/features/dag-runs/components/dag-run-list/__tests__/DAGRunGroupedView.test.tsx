@@ -6,6 +6,7 @@ import React from 'react';
 import { MemoryRouter, useLocation } from 'react-router-dom';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { Status, StatusLabel, TriggerType } from '@/api/v1/schema';
+import { PeekContext } from '@/features/peek/PeekContext';
 import DAGRunGroupedView from '../DAGRunGroupedView';
 
 vi.mock('../StepDetailsTooltip', () => ({
@@ -185,6 +186,69 @@ describe('DAGRunGroupedView', () => {
 
     expect(screen.getByTestId('location')).toHaveTextContent(
       '/dags/artifact-dag?remoteNode=local&run=run-1&dock=artifacts'
+    );
+  });
+
+  // One group of one run, expanded, under a peek host.
+  const renderExpandedUnderPeek = () => {
+    const peek = { open: vi.fn(), isOpen: false };
+    renderView(
+      <PeekContext.Provider value={peek}>
+        <DAGRunGroupedView
+          dagRuns={[
+            {
+              dagRunId: 'run-1',
+              name: 'grouped-dag',
+              status: Status.Failed,
+              statusLabel: StatusLabel.failed,
+              artifactsAvailable: false,
+              autoRetryCount: 0,
+              triggerType: TriggerType.manual,
+              queuedAt: '2026-03-13T10:00:00Z',
+              startedAt: '2026-03-13T10:01:00Z',
+              finishedAt: '2026-03-13T10:02:00Z',
+            },
+          ]}
+        />
+      </PeekContext.Provider>
+    );
+    fireEvent.click(screen.getByText('grouped-dag'));
+    const runLink = screen.getByRole('link', { name: 'run-1' });
+    const row = runLink.closest<HTMLElement>('div[class*="cursor-pointer"]')!;
+    return { peek, runLink, row };
+  };
+
+  it('shows the peek of an expanded run under a peek host', () => {
+    const { peek, row } = renderExpandedUnderPeek();
+
+    fireEvent.click(row);
+
+    expect(peek.open).toHaveBeenCalledWith({
+      dag: 'grouped-dag',
+      run: 'run-1',
+    });
+    expect(screen.getByTestId('location')).toHaveTextContent(/^\/dag-runs$/);
+  });
+
+  // Enter on the focused row shows its peek; the run ID link keeps its own
+  // Enter and click, which open the run on its workflow page.
+  it('shows the peek of a focused run row on Enter', () => {
+    const { peek, runLink, row } = renderExpandedUnderPeek();
+
+    row.focus();
+    expect(row).toHaveFocus();
+    fireEvent.keyDown(row, { key: 'Enter' });
+    fireEvent.keyDown(runLink, { key: 'Enter' });
+    expect(peek.open).toHaveBeenCalledTimes(1);
+    expect(peek.open).toHaveBeenCalledWith({
+      dag: 'grouped-dag',
+      run: 'run-1',
+    });
+
+    fireEvent.click(runLink);
+    expect(peek.open).toHaveBeenCalledTimes(1);
+    expect(screen.getByTestId('location')).toHaveTextContent(
+      '/dags/grouped-dag?remoteNode=local&run=run-1'
     );
   });
 });

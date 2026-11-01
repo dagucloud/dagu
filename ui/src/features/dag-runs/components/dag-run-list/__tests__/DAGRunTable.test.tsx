@@ -8,6 +8,7 @@ import { describe, expect, it, vi } from 'vitest';
 import { Status, StatusLabel, TriggerType } from '@/api/v1/schema';
 import { Input } from '@/components/ui/input';
 import { Config, ConfigContext } from '@/contexts/ConfigContext';
+import { PeekContext, type PeekController } from '@/features/peek/PeekContext';
 import DAGRunTable from '../DAGRunTable';
 
 vi.mock('../StepDetailsTooltip', () => ({
@@ -433,5 +434,54 @@ describe('DAGRunTable', () => {
 
     expect(screen.getByTestId('location')).toHaveTextContent('/dag-runs');
     expect(screen.getByTestId('location')).not.toHaveTextContent('/dags/');
+  });
+
+  describe('under a peek host', () => {
+    function renderUnderPeek(peek: PeekController) {
+      render(
+        <MemoryRouter initialEntries={['/dag-runs']}>
+          <ConfigContext.Provider value={config}>
+            <PeekContext.Provider value={peek}>
+              <DAGRunTable
+                dagRuns={[queuedRun, { ...queuedRun, dagRunId: 'run-2' }]}
+              />
+            </PeekContext.Provider>
+            <LocationProbe />
+          </ConfigContext.Provider>
+        </MemoryRouter>
+      );
+    }
+
+    it('shows the peek of a run when its row is clicked', () => {
+      const peek = { open: vi.fn(), isOpen: false };
+      renderUnderPeek(peek);
+
+      fireEvent.click(screen.getAllByText('run-1')[0]!.closest('tr')!);
+
+      expect(peek.open).toHaveBeenCalledWith({ dag: 'alpha', run: 'run-1' });
+      expect(screen.getByTestId('location')).toHaveTextContent(/^\/dag-runs$/);
+    });
+
+    it('shows the peek of the highlighted run with Enter', () => {
+      const peek = { open: vi.fn(), isOpen: false };
+      renderUnderPeek(peek);
+
+      fireEvent.keyDown(window, { key: 'ArrowDown' });
+      fireEvent.keyDown(window, { key: 'Enter' });
+
+      expect(peek.open).toHaveBeenCalledWith({ dag: 'alpha', run: 'run-2' });
+    });
+
+    // The keys of the open peek bubble up to the window.
+    it('leaves the keys to an open peek', () => {
+      const peek = { open: vi.fn(), isOpen: true };
+      renderUnderPeek(peek);
+
+      fireEvent.keyDown(window, { key: 'ArrowDown' });
+      fireEvent.keyDown(window, { key: 'Enter' });
+
+      expect(peek.open).not.toHaveBeenCalled();
+      expect(screen.getByTestId('location')).toHaveTextContent(/^\/dag-runs$/);
+    });
   });
 });
