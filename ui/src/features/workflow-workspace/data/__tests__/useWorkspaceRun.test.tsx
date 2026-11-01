@@ -5,6 +5,7 @@ import { act, waitFor } from '@testing-library/react';
 import { useSearchParams } from 'react-router-dom';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { NodeStatus, Status } from '@/api/v1/schema';
+import { useRunHistory } from '../useRunHistory';
 import { useWorkspaceRun } from '../useWorkspaceRun';
 import {
   connectedSSE,
@@ -247,6 +248,127 @@ describe('useWorkspaceRun, pinned', () => {
     expect(interval({ dagRunDetails: run('run-0', [], Status.Running) })).toBe(
       0
     );
+  });
+
+  it('shows the listed details of a picked run until its query answers', async () => {
+    server.history = {
+      dagRuns: [run('run-0', [node('a', NodeStatus.Failed)], Status.Failed)],
+      gridData: [],
+    };
+    const serveAll = serve(server);
+    let answer: (value: unknown) => void = () => {};
+    h.GET.mockImplementation((path: string, init?: never) =>
+      path === RUN_PATH
+        ? new Promise((resolve) => {
+            answer = resolve;
+          })
+        : serveAll(path, init)
+    );
+    const view = renderWorkspace(() => ({
+      listed: useRunHistory({ enabled: true }).runs.length,
+      run: useWorkspaceRun(),
+    }));
+    await waitFor(() => expect(view.result.current?.value.listed).toBe(1));
+
+    act(() => view.result.current.value.run.select('run-0'));
+    await waitFor(() =>
+      expect(view.result.current.value.run.ref?.runId).toBe('run-0')
+    );
+    expect(view.result.current.value.run.details?.dagRunId).toBe('run-0');
+    expect(view.result.current.value.run.overlay.a?.status).toBe(
+      NodeStatus.Failed
+    );
+
+    act(() =>
+      answer({
+        data: {
+          dagRunDetails: run('run-0', [node('a', NodeStatus.Success)]),
+        },
+      })
+    );
+    await waitFor(() =>
+      expect(view.result.current.value.run.overlay.a?.status).toBe(
+        NodeStatus.Success
+      )
+    );
+  });
+
+  // The list can load after the run was picked, as with a link to it.
+  it('shows the details of a list that loads after the pick', async () => {
+    const serveAll = serve(server);
+    let answerList: (value: unknown) => void = () => {};
+    h.GET.mockImplementation((path: string, init?: never) => {
+      if (path === RUN_PATH) return new Promise(() => {});
+      if (path === '/dags/{fileName}/dag-runs') {
+        return new Promise((resolve) => {
+          answerList = resolve;
+        });
+      }
+      return serveAll(path, init);
+    });
+    const view = renderWorkspace(
+      () => ({
+        listed: useRunHistory({ enabled: true }).runs.length,
+        run: useWorkspaceRun(),
+      }),
+      { url: '/dags/demo?run=run-0' }
+    );
+    await waitFor(() =>
+      expect(view.result.current?.value.run.ref?.runId).toBe('run-0')
+    );
+    expect(view.result.current.value.run.details).toBeNull();
+
+    act(() =>
+      answerList({
+        data: {
+          dagRuns: [
+            run('run-0', [node('a', NodeStatus.Failed)], Status.Failed),
+          ],
+          gridData: [],
+        },
+      })
+    );
+    await waitFor(() =>
+      expect(view.result.current.value.run.details?.dagRunId).toBe('run-0')
+    );
+  });
+
+  // The list can be stale: a failed read of the run shows no details.
+  it('shows no listed details after the read of the run fails', async () => {
+    server.history = {
+      dagRuns: [run('run-0', [node('a', NodeStatus.Running)], Status.Running)],
+      gridData: [],
+    };
+    const serveAll = serve(server);
+    let answerRun: (value: unknown) => void = () => {};
+    h.GET.mockImplementation((path: string, init?: never) =>
+      path === RUN_PATH
+        ? new Promise((resolve) => {
+            answerRun = resolve;
+          })
+        : serveAll(path, init)
+    );
+    const view = renderWorkspace(
+      () => ({
+        listed: useRunHistory({ enabled: true }).runs.length,
+        run: useWorkspaceRun(),
+      }),
+      { url: '/dags/demo?run=run-0' }
+    );
+    await waitFor(() =>
+      expect(view.result.current?.value.run.details?.dagRunId).toBe('run-0')
+    );
+
+    act(() =>
+      answerRun({
+        error: { code: 'internal', message: 'boom' },
+        response: { status: 500 },
+      })
+    );
+    await waitFor(() =>
+      expect(view.result.current.value.run.details).toBeNull()
+    );
+    expect(view.result.current.value.run.ref?.runId).toBe('run-0');
   });
 
   // The SSE connects before the first read: SWR armed no timer then, and the

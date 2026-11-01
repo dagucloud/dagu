@@ -185,13 +185,19 @@ export function useRunHistory({
     void mutate();
   }, [events, includeEphemeral, mutate]);
 
+  // Registered again with each committed list: a render that React drops
+  // must not show its runs.
+  const runs = data?.dagRuns ?? NO_RUNS;
   useEffect(() => {
     if (!active) return;
-    return registerHistory(() => mutate());
-  }, [active, mutate, registerHistory]);
+    return registerHistory(
+      () => mutate(),
+      () => runs
+    );
+  }, [active, mutate, registerHistory, runs]);
 
   return {
-    runs: data?.dagRuns ?? NO_RUNS,
+    runs,
     gridData: data?.gridData ?? NO_GRID,
     isLoading: active && isLoading,
   };
