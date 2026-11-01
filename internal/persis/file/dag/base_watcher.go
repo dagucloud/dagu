@@ -49,12 +49,11 @@ func (er *entryReaderImpl) withBaseWatchDirs(dirs []string) ([]string, error) {
 		dirs = append(dirs, dir)
 	}
 	if er.calendarsDir != "" {
-		// An event here makes the reader compare calendar file state.
-		dir, err := existingWatchDir(er.calendarsDir)
-		if err != nil {
-			return nil, err
+		// An event here makes the reader compare calendar file state. The
+		// calendars are optional, so an unusable path drops only this watch.
+		if dir, err := existingWatchDir(er.calendarsDir); err == nil {
+			dirs = append(dirs, dir)
 		}
-		dirs = append(dirs, dir)
 	}
 	if er.workspaceBaseConfigDir == "" {
 		return er.withBaseTargetDirs(dirs, basePaths), nil
