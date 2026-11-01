@@ -268,6 +268,40 @@ describe('CalendarPage', () => {
     expect(screen.getByRole('button', { name: 'Revert' })).toBeDisabled();
   });
 
+  // Coming back to the same node and calendar is a new visit: a save sent
+  // on the earlier visit must not replace the saved copy of a later save.
+  it('ignores a save from an earlier visit of the same calendar', async () => {
+    let finishFirstSave: (response: unknown) => void = () => {};
+    mocks.put
+      .mockReturnValueOnce(
+        new Promise((resolve) => {
+          finishFirstSave = resolve;
+        })
+      )
+      .mockResolvedValueOnce({ data: { errors: [], warnings: [] } });
+    const { selectNode } = renderPage(calendar());
+
+    fireEvent.change(await screen.findByLabelText('Calendar file'), {
+      target: { value: 'holidays: [2027-01-11]\n' },
+    });
+    fireEvent.click(screen.getByRole('button', { name: 'Save' }));
+    act(() => selectNode('staging'));
+    act(() => selectNode('local'));
+    fireEvent.change(await screen.findByLabelText('Calendar file'), {
+      target: { value: 'holidays: [2027-01-12]\n' },
+    });
+    fireEvent.click(screen.getByRole('button', { name: 'Save' }));
+    await waitFor(() => expect(mocks.put).toHaveBeenCalledTimes(2));
+    await act(async () =>
+      finishFirstSave({ data: { errors: [], warnings: [] } })
+    );
+
+    expect(screen.getByLabelText('Calendar file')).toHaveValue(
+      'holidays: [2027-01-12]\n'
+    );
+    expect(screen.getByRole('button', { name: 'Revert' })).toBeDisabled();
+  });
+
   it('reports a save the server refused', async () => {
     mocks.put.mockResolvedValue({
       data: {

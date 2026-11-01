@@ -73,12 +73,13 @@ function CalendarPage(): React.ReactNode {
   const [year, setYear] = useState(() => dayjs().year());
   const [isDeleting, setIsDeleting] = useState(false);
   const saveRef = useRef<(() => Promise<void>) | null>(null);
-  // The node and calendar shown now. A request that finishes after the user
-  // moved on must not change what the page shows.
   const editorKey = `${remoteNode}:${name}`;
-  const editorKeyRef = useRef(editorKey);
+  // Advances on each visit of a node and calendar, and on each save. A
+  // response sent under an earlier generation must not change what the page
+  // shows: the user moved on, or a later save superseded it.
+  const generationRef = useRef(0);
   useEffect(() => {
-    editorKeyRef.current = editorKey;
+    generationRef.current += 1;
   }, [editorKey]);
 
   useEffect(() => {
@@ -132,6 +133,7 @@ function CalendarPage(): React.ReactNode {
     if (!editable || value === null || !editor.hasUnsavedChanges) {
       return;
     }
+    const generation = ++generationRef.current;
     editor.beginSave(value);
     // A request that throws, as on a lost connection, fails like one that
     // returns an error.
@@ -141,7 +143,7 @@ function CalendarPage(): React.ReactNode {
         body: { spec: value },
       })
       .catch(() => null);
-    if (editorKeyRef.current !== editorKey) {
+    if (generationRef.current !== generation) {
       return;
     }
     const result = response?.data;
@@ -167,7 +169,6 @@ function CalendarPage(): React.ReactNode {
     client,
     editable,
     editor,
-    editorKey,
     mutate,
     name,
     remoteNode,
@@ -195,13 +196,14 @@ function CalendarPage(): React.ReactNode {
   }, [editable]);
 
   async function handleDelete(): Promise<void> {
+    const generation = generationRef.current;
     const response = await client
       .DELETE('/calendars/{name}', {
         params: { path: { name }, query: { remoteNode } },
       })
       .catch(() => null);
     setIsDeleting(false);
-    if (editorKeyRef.current !== editorKey) {
+    if (generationRef.current !== generation) {
       return;
     }
     if (!response || response.error) {
