@@ -35,6 +35,7 @@ import type { DockController } from '../../dock/DockContext';
 import type { StepPanelProps } from '../../step/StepPanel';
 import type { StepRunActions } from '../../step/useStepRunActions';
 import { useWorkspaceUrl } from '../../state/workspaceUrl';
+import { YAML_PANEL_OPEN_KEY } from '../useYamlPanelMemory';
 import { WorkspaceCanvas } from '../WorkspaceCanvas';
 import {
   useWorkspaceEditor,
@@ -470,6 +471,7 @@ beforeEach(() => {
 
 afterEach(() => {
   vi.clearAllMocks();
+  localStorage.clear();
 });
 
 describe('WorkspaceCanvas', () => {
@@ -1241,6 +1243,50 @@ describe('WorkspaceCanvas', () => {
     it('waits for the editor to load', () => {
       renderCanvas('/dags/example.yaml?yaml=1');
       expect(location()).toHaveTextContent('/dags/example.yaml?yaml=1');
+    });
+  });
+
+  describe('remembered YAML panel', () => {
+    function yamlEditor() {
+      const toggleYaml = vi.fn((open?: boolean) => {
+        if (open) host.props?.ndv?.onStateChange('docked');
+      });
+      // The links to a step or a panel open their views through the editor.
+      host.handle = {
+        toggleYaml,
+        revealStep: vi.fn(),
+        openWorkflowPanel: vi.fn(),
+      } as unknown as WorkspaceEditorHandle;
+      return toggleYaml;
+    }
+
+    it('opens the YAML panel when it was open last', () => {
+      localStorage.setItem(YAML_PANEL_OPEN_KEY, 'true');
+      const toggleYaml = yamlEditor();
+      renderCanvas('/dags/example.yaml?run=r1');
+      expect(toggleYaml).toHaveBeenCalledTimes(1);
+      expect(location()).toHaveTextContent(
+        '/dags/example.yaml?run=r1&ndv=docked'
+      );
+    });
+
+    it.each([
+      ['it was closed last', 'false', '/dags/example.yaml'],
+      ['a link opens a step', 'true', '/dags/example.yaml?step=extract'],
+      ['a link opens a panel', 'true', '/dags/example.yaml?panel=workflow'],
+    ])('keeps it shut when %s', (_case, stored, url) => {
+      localStorage.setItem(YAML_PANEL_OPEN_KEY, stored);
+      const toggleYaml = yamlEditor();
+      renderCanvas(url);
+      expect(toggleYaml).not.toHaveBeenCalled();
+    });
+
+    it('stores whether the panel is open', () => {
+      renderCanvas('/dags/example.yaml');
+      act(() => props().ndv?.onStateChange('docked'));
+      expect(localStorage.getItem(YAML_PANEL_OPEN_KEY)).toBe('true');
+      act(() => props().ndv?.onStateChange(null));
+      expect(localStorage.getItem(YAML_PANEL_OPEN_KEY)).toBe('false');
     });
   });
 

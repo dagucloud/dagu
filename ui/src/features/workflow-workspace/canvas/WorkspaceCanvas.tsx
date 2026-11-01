@@ -57,6 +57,7 @@ import { useRightPanelClearance } from './useRightPanelClearance';
 import { runStepGates, useStepCommandHost } from './useStepCommandHost';
 import { useStepPanel } from './useStepPanel';
 import { useDeepLinkReveal, useStepViewKeys } from './useStepViewHost';
+import { useYamlPanelMemory } from './useYamlPanelMemory';
 import {
   useWorkspaceEditor,
   useWorkspaceEditorBinding,
@@ -347,6 +348,23 @@ export function WorkspaceCanvas({
     handle.toggleYaml(true);
     setUrl({ ndv: 'docked' }, { replace: true });
   }, [handle, wantsYaml, setUrl]);
+
+  // The YAML panel shows as the user left it, unless a link opens a view.
+  const openYamlPanel = useMemo(
+    () => (handle ? () => handle.toggleYaml(true) : null),
+    [handle]
+  );
+  useYamlPanelMemory({
+    fileName,
+    ndv: url.ndv,
+    restorable:
+      url.ndv === null &&
+      url.step === null &&
+      url.panel === null &&
+      !snapshot &&
+      !wantsYaml,
+    openPanel: openYamlPanel,
+  });
 
   // A link with ?panel opens the Workflow panel or a launcher panel once
   // the editor has loaded; the name leaves the URL, ?wtab stays.
