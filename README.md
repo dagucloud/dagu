@@ -1028,7 +1028,7 @@ The auth, remote node, Git sync and Vault secrets can also be read from files, s
 
 ### Git Sync
 
-Git Sync copies Git-tracked supporting files into the DAGs directory. Workflow and Wiki files retain their existing handling, and calendar files in the repository's `calendars/` folder sync with `paths.calendars_dir`; supporting file IDs include their extension and preserve the executable bit. On Windows, Git Sync retains the repository mode when publishing because local execute-bit changes cannot be detected.
+Git Sync copies Git-tracked supporting files into the DAGs directory. Workflow and Wiki files retain their existing handling, and each `calendars/<name>.yaml` file syncs with `paths.calendars_dir` as a calendar, including one synced as a DAG before (deeper paths and other extensions keep their handling); supporting file IDs include their extension and preserve the executable bit. On Windows, Git Sync retains the repository mode when publishing because local execute-bit changes cannot be detected.
 
 | Variable | Default | Description |
 |----------|---------|-------------|
