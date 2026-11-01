@@ -233,6 +233,7 @@ type VisualProps = {
   toolbarTrail?: React.ReactNode;
   workflowPanel?: React.ReactNode;
   canvasOverlay?: React.ReactNode;
+  harnesses?: string[];
 };
 const visual = vi.hoisted(() => ({ props: null as VisualProps | null }));
 
@@ -1247,6 +1248,17 @@ describe('DAGSpec visual view', () => {
     await settle();
 
     expect(screen.getByTestId('diff-edited')).toHaveTextContent('# typed');
+  });
+
+  it('gives the visual editor the harnesses of the document', async () => {
+    mocks.useQuery.mockReturnValue(
+      specData({
+        spec: 'harnesses:\n  team-agent:\n    binary: team-agent\nsteps:\n  - action: harness.run\n    with:\n      prompt: Write tests\n',
+      })
+    );
+    await renderSpec();
+
+    expect(visual.props?.harnesses).toEqual(['team-agent']);
   });
 
   // An agent DAG is edited on the same canvas as every other DAG.

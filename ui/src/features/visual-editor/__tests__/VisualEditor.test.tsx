@@ -483,6 +483,24 @@ describe.skipIf(realSchema === null)('VisualEditor', () => {
     }
   });
 
+  it('suggests the harnesses that the host gives as providers', () => {
+    renderEditorWithBar({
+      initial: `steps:
+  - name: agent
+    action: harness.run
+    with:
+      prompt: Write tests
+`,
+      harnesses: ['team-agent'],
+    });
+    openForm('ve-canvas-node-steps[0]');
+    const inspector = within(screen.getByTestId('ve-inspector'));
+    fireEvent.focus(inspector.getByRole('combobox', { name: 'provider' }));
+    expect(
+      inspector.getByRole('option', { name: 'team-agent' })
+    ).toBeInTheDocument();
+  });
+
   it('inserts an upstream output into the focused field', () => {
     vi.useFakeTimers();
     try {

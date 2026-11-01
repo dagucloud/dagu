@@ -10,6 +10,7 @@ import (
 	"runtime"
 	"testing"
 
+	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/google/jsonschema-go/jsonschema"
 	"github.com/stretchr/testify/require"
 	"gopkg.in/yaml.v3"
@@ -2443,6 +2444,22 @@ steps:
 `,
 			wantErr: "steps",
 		},
+		{
+			name: "AcceptCustomAndInterpolatedProviders",
+			spec: `
+harnesses:
+  team-agent:
+    binary: team-agent
+
+steps:
+  - action: harness.run
+    with:
+      prompt: Write tests
+      provider: ${HARNESS_PROVIDER}
+      fallback:
+        - provider: team-agent
+`,
+		},
 	}
 
 	for _, tt := range tests {
@@ -2459,6 +2476,25 @@ steps:
 			require.Contains(t, err.Error(), tt.wantErr)
 		})
 	}
+}
+
+// The editors suggest the built-in providers from the schema, so its list
+// must name the providers that the runtime knows.
+func TestDAGSchemaHarnessProvidersMatchRuntime(t *testing.T) {
+	t.Parallel()
+
+	var doc struct {
+		Definitions struct {
+			HarnessProvider struct {
+				AnyOf []struct {
+					Enum []string `json:"enum"`
+				} `json:"anyOf"`
+			} `json:"harnessProvider"`
+		} `json:"definitions"`
+	}
+	require.NoError(t, json.Unmarshal(DAGSchemaJSON, &doc))
+	require.NotEmpty(t, doc.Definitions.HarnessProvider.AnyOf)
+	require.Equal(t, ir.BuiltinCLIHarnessProviderNames(), doc.Definitions.HarnessProvider.AnyOf[0].Enum)
 }
 
 func TestDAGSchemaRepoCopyMatchesEmbeddedSchema(t *testing.T) {

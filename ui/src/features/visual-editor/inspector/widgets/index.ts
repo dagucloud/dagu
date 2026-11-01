@@ -15,14 +15,18 @@ import {
   ReferenceTextWidget,
 } from './ReferenceTextWidget';
 import { StringOrMapField } from './StringOrMap';
-import { FreeValueField, ValueOrReferenceField } from './ValueOrReference';
+import {
+  FreeValueField,
+  SuggestedTextField,
+  ValueOrReferenceField,
+} from './ValueOrReference';
 
 export { KeyValueEditor, KeyValueField } from './KeyValueWidget';
 export type { KeyValueEditorProps } from './KeyValueWidget';
 export { RouteTable, parseTargets } from './RouteTable';
 export type { RouteTableProps } from './RouteTable';
 export { buildUiSchema, isStringMap } from './uiSchema';
-export { scalarUnionKind } from './ValueOrReference';
+export { scalarUnionKind, suggestedValues } from './ValueOrReference';
 
 /** rjsf `formContext` of the parameters form. */
 export interface InspectorFormContext {
@@ -42,6 +46,7 @@ export const inspectorFields: RegistryFieldsType = {
   ValueOrReference: ValueOrReferenceField,
   FreeValue: FreeValueField,
   StringOrMap: StringOrMapField,
+  SuggestedText: SuggestedTextField,
 };
 
 /** Templates merged over `schemaFormTemplates`: nested objects collapse. */

@@ -23,6 +23,7 @@ import {
 } from 'react';
 import ConfirmDialog from '@/components/ui/confirm-dialog';
 import { IconButton } from '@/components/ui/icon-button';
+import { withLocalHarnesses } from '@/features/dags/components/dag-editor/customActionSchema';
 import { NoticeLine } from '@/features/dags/components/dag-editor/NoticeLine';
 import { useSchema } from '@/contexts/SchemaContext';
 import { useI18n } from '@/i18n/I18nProvider';
@@ -149,6 +150,8 @@ export interface VisualEditorProps extends EditorHostProps {
   canvasOverlay?: ReactNode;
   /** Inherited and local custom actions, for the palette and the forms. */
   customActions: EditorCustomActionHint[];
+  /** Custom harnesses of the document, which the provider fields suggest. */
+  harnesses?: string[];
   /** The YAML editor beside the canvas; edits go through it while it shows. */
   yamlEditorRef?: RefObject<CodeEditorLike | null>;
   yamlVisible?: boolean;
@@ -239,6 +242,7 @@ const STRIPED_CANVAS =
 
 const HANDLER_PREFIX = 'handler_on.';
 const NO_AGENT_RUN: AgentRunInfo = { iterations: 0, calls: {}, tasks: {} };
+const NO_HARNESSES: string[] = [];
 
 // Host mode: below WIDE the drawers cover the canvas; below NARROW the
 // toolbar becomes a 'Tools' sheet.
@@ -336,6 +340,7 @@ export function VisualEditor(props: VisualEditorProps): ReactElement {
     savedText,
     canvasOverlay,
     customActions,
+    harnesses = NO_HARNESSES,
     yamlEditorRef,
     yamlVisible = false,
     onYamlVisibleChange,
@@ -387,6 +392,10 @@ export function VisualEditor(props: VisualEditorProps): ReactElement {
   const catalog = useMemo(
     () => buildActionCatalog(schema ?? {}, customActions),
     [schema, customActions]
+  );
+  const formSchema = useMemo(
+    () => withLocalHarnesses(schema ?? {}, harnesses),
+    [schema, harnesses]
   );
   // 'latest' is the newest run at the last read; RunBar can choose another
   // one. A host that gives the run makes the editor read no run itself.
@@ -1093,7 +1102,7 @@ export function VisualEditor(props: VisualEditorProps): ReactElement {
             model={model}
             step={selected}
             serverStep={serverStep}
-            schema={schema ?? {}}
+            schema={formSchema}
             catalog={catalog}
             customActions={customActions}
             candidates={candidates}

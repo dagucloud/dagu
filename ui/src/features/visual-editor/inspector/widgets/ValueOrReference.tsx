@@ -3,6 +3,7 @@
 
 import type { FieldProps, RJSFSchema } from '@rjsf/utils';
 import { useState, type ReactElement } from 'react';
+import { AutocompleteInput } from '@/components/ui/autocomplete-input';
 import { Input } from '@/components/ui/input';
 import { Switch } from '@/components/ui/switch';
 import { ReferenceInput } from '@/features/visual-editor/references';
@@ -37,6 +38,32 @@ export function scalarUnionKind(schema: RJSFSchema): ScalarKind | null {
     return null;
   }
   return (others.includes('boolean') ? 'boolean' : others[0]) as ScalarKind;
+}
+
+/**
+ * Values that the listed branches of an `anyOf` of strings suggest, such as
+ * `anyOf: [{type: string, enum: [claude, codex]}, {type: string}]`. Gives
+ * null unless another branch takes any string. A listed value of a `oneOf`
+ * would match that branch too, which `oneOf` rejects.
+ */
+export function suggestedValues(schema: RJSFSchema): string[] | null {
+  const branches = (schema.anyOf ?? []) as RJSFSchema[];
+  if (
+    branches.length === 0 ||
+    !branches.every((branch) => branch.type === 'string')
+  ) {
+    return null;
+  }
+  const listed = branches.filter((branch) => Array.isArray(branch.enum));
+  if (listed.length === 0 || listed.length === branches.length) {
+    return null;
+  }
+  const values = listed.flatMap((branch) =>
+    (branch.enum ?? []).filter(
+      (value): value is string => typeof value === 'string'
+    )
+  );
+  return [...new Set(values)];
 }
 
 function FieldLabel({
@@ -215,6 +242,45 @@ export function FreeValueField(props: FieldProps): ReactElement {
           </p>
         </>
       )}
+    </div>
+  );
+}
+
+/**
+ * rjsf field for a string that suggests the listed values of its union (see
+ * `suggestedValues`) and takes any other text, such as a provider name that
+ * is built-in or custom.
+ */
+export function SuggestedTextField(props: FieldProps): ReactElement {
+  const {
+    formData,
+    onChange,
+    fieldPathId,
+    disabled,
+    readonly,
+    schema,
+    name,
+    required,
+  } = props;
+  const label = schema.title ?? name;
+  return (
+    <div className="space-y-1">
+      <FieldLabel
+        label={label}
+        required={required}
+        description={schema.description}
+      />
+      <AutocompleteInput
+        id={fieldPathId.$id}
+        aria-label={label}
+        value={typeof formData === 'string' ? formData : ''}
+        suggestions={suggestedValues(schema) ?? []}
+        disabled={Boolean(disabled || readonly)}
+        className="h-7 px-2 text-xs"
+        onValueChange={(text) =>
+          onChange(text === '' ? undefined : text, fieldPathId.path)
+        }
+      />
     </div>
   );
 }
