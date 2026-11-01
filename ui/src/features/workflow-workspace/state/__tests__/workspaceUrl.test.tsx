@@ -4,6 +4,7 @@
 import { act, render } from '@testing-library/react';
 import { useEffect } from 'react';
 import {
+  BrowserRouter,
   MemoryRouter,
   Route,
   Routes,
@@ -700,6 +701,33 @@ describe('useWorkspaceUrl with several writers', () => {
       stale({ step: 's' });
     });
     expect(last().url).toBe('/dags/x/log?step=s');
+  });
+
+  // A Back before the router renders a write can land on the location that
+  // the write started from: the router then commits no new location.
+  it('drops a pending URL that a Back undid before it rendered', async () => {
+    window.history.replaceState(null, '', '/dags/x');
+    const a: Writer = {};
+    const b: Writer = {};
+    const view = render(
+      <BrowserRouter>
+        <Two a={a} b={b} />
+      </BrowserRouter>
+    );
+    await act(async () => {
+      const popped = new Promise((resolve) =>
+        window.addEventListener('popstate', resolve, { once: true })
+      );
+      a.set!({ run: 'r1' });
+      window.history.back();
+      await popped;
+    });
+    expect(window.location.search).toBe('');
+    act(() => {
+      b.set!({ ndv: 'docked' });
+    });
+    expect(window.location.search).toBe('?ndv=docked');
+    view.unmount();
   });
 
   it('does not leak a pending URL between routers', () => {

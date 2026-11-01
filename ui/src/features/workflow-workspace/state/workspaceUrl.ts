@@ -327,9 +327,17 @@ export function useWorkspaceUrl(): [
     }
   }, [store, location.key, location.search, state]);
 
+  // A Back or Forward replaces a write that the router has not rendered
+  // yet. Landing on the location that the write started from, it commits no
+  // new location, so the commit above cannot drop the write.
   useEffect(() => {
     store.writers += 1;
+    const dropPending = () => {
+      store.pending = null;
+    };
+    window.addEventListener('popstate', dropPending);
     return () => {
+      window.removeEventListener('popstate', dropPending);
       store.writers -= 1;
       if (store.writers === 0) {
         store.pending = null;
