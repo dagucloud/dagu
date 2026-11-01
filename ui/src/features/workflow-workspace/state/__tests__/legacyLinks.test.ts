@@ -160,7 +160,7 @@ const ROWS: Row[] = [
     expected: {
       kind: 'redirect',
       path: '/dags/flow.yaml',
-      query: { run: 'X' },
+      query: { run: 'X', dock: 'history' },
     },
   },
   {
@@ -409,7 +409,7 @@ describe('legacyToWorkspaceUrl', () => {
       )
     ).toEqual({
       kind: 'redirect',
-      to: '/dags/flow.yaml?run=X&remoteNode=edge&workspace=ops',
+      to: '/dags/flow.yaml?run=X&dock=history&remoteNode=edge&workspace=ops',
     });
     expect(
       legacyToWorkspaceUrl(FILE, 'history', new URLSearchParams(carry), {

@@ -167,9 +167,12 @@ export function resolveLegacyLink(
   }
   if (tab === 'history') {
     const query = carried(search);
-    // R7: dagRunId wins over idx.
+    // R7: dagRunId wins over idx; the run opens on the History tab, as R9.
     if (dagRunId !== null) {
-      const runQuery = new URLSearchParams([['run', dagRunId]]);
+      const runQuery = new URLSearchParams([
+        ['run', dagRunId],
+        ['dock', 'history'],
+      ]);
       for (const [key, value] of query) runQuery.append(key, value);
       return redirect(join(dagPath(fileName), runQuery));
     }
