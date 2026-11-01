@@ -136,6 +136,7 @@ describe('useSSE', () => {
 
   afterEach(() => {
     sseManager.disposeAll();
+    vi.restoreAllMocks();
     vi.useRealTimers();
     vi.unstubAllGlobals();
   });
@@ -191,6 +192,28 @@ describe('useSSE', () => {
 
     first.unmount();
     second.unmount();
+  });
+
+  // The paused context is read whether or not the hook is enabled, so the
+  // order of the hooks of a component does not change when it turns on.
+  it('keeps the order of the hooks when it turns on and off', () => {
+    vi.spyOn(sseManager, 'subscribe').mockReturnValue(() => {});
+    const error = vi.spyOn(console, 'error').mockImplementation(() => {});
+    let enabled = false;
+    const view = renderHook(
+      () => useSSE('/events/dags/test.yaml', enabled, 'local'),
+      { wrapper }
+    );
+    enabled = true;
+    view.rerender();
+    enabled = false;
+    view.rerender();
+    expect(
+      error.mock.calls.some((call) =>
+        String(call[0]).includes('order of Hooks')
+      )
+    ).toBe(false);
+    view.unmount();
   });
 
   // A hidden part of the page holds no subscription: the server reads a

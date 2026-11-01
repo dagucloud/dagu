@@ -61,7 +61,8 @@ export function useSSE<T>(
 ): SSEState<T> {
   const config = useConfig();
   const remoteNode = useRemoteNode(remoteNodeOverride);
-  const active = enabled && !useContext(SSEPausedContext);
+  const paused = useContext(SSEPausedContext);
+  const active = enabled && !paused;
 
   const [state, setState] = useState<SSEState<T>>(INITIAL_STATE as SSEState<T>);
 
