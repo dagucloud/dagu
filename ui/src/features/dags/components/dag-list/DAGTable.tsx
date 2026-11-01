@@ -78,8 +78,7 @@ import {
 } from '@/components/ui/select';
 import { Switch } from '@/components/ui/switch';
 import { AppBarContext } from '../../../../contexts/AppBarContext';
-import { useRemoteNode } from '../../../../contexts/RemoteNodeContext';
-import { buildDAGPageURL } from '../../../dag-runs/lib/dagRunUrls';
+import { PeekLink } from '@/features/peek/PeekLink';
 import { usePeekOrOpen } from '@/features/peek/usePeekOrOpen';
 import {
   isRunSortField,
@@ -101,7 +100,10 @@ import { useI18n } from '@/i18n/I18nProvider';
 // Set higher than table's comfortable minimum width (~700px for all columns)
 const CARD_VIEW_THRESHOLD = 700;
 
-/** The name of a workflow: a real link, so a middle click or a Ctrl click opens a new tab. */
+/**
+ * The name of a workflow. A plain click shows its peek, like a click on the
+ * row; it is a real link, so a middle click or a Ctrl click opens a new tab.
+ */
 function DAGNameLink({
   fileName,
   children,
@@ -109,15 +111,14 @@ function DAGNameLink({
   fileName: string;
   children: React.ReactNode;
 }) {
-  const remoteNode = useRemoteNode();
   return (
-    <Link
-      to={buildDAGPageURL({ fileName, remoteNode })}
+    <PeekLink
+      peek={{ dag: fileName }}
       className="block truncate text-sm font-medium text-foreground hover:underline"
       onClick={(event) => event.stopPropagation()}
     >
       {children}
-    </Link>
+    </PeekLink>
   );
 }
 
@@ -136,8 +137,6 @@ function onOwnEnter(open: (event: React.KeyboardEvent) => void) {
 // Reusable DAG Card component for mobile and narrow panel views
 interface DAGCardProps {
   dag: components['schemas']['DAGFile'];
-  /** The workflow page that the name link opens. */
-  href: string;
   onOpen: (event: React.MouseEvent | React.KeyboardEvent) => void;
   onLabelClick: (label: string) => void;
   refreshFn: () => void;
@@ -202,7 +201,6 @@ function DeleteDAGButton({
 
 function DAGCard({
   dag,
-  href,
   onOpen,
   onLabelClick,
   refreshFn,
@@ -248,13 +246,13 @@ function DAGCard({
               />
             </div>
           )}
-          <Link
-            to={href}
+          <PeekLink
+            peek={{ dag: fileName }}
             className="font-medium text-xs truncate flex-1 min-w-0 hover:underline"
             onClick={(event) => event.stopPropagation()}
           >
             {title}
-          </Link>
+          </PeekLink>
         </div>
         <div className="flex flex-shrink-0 items-center gap-1">
           <PinToggle
@@ -1131,11 +1129,7 @@ function DAGTable({
   // Status and LastRun sorts are disabled when the list total exceeds the
   // server cap, because the server would sort by name instead.
   const runSortDisabled = (resultCount ?? 0) > maxRunSortDAGs;
-  const remoteNode = useRemoteNode();
   const peekOrOpen = usePeekOrOpen();
-  // The name links open the workflow page; a click on a row shows its peek.
-  const dagURL = (fileName: string) =>
-    buildDAGPageURL({ fileName, remoteNode });
   const columns = useMemo(
     () =>
       canDeleteDAGs
@@ -1949,7 +1943,6 @@ function DAGTable({
                             <DAGCard
                               key={subRow.id}
                               dag={dagRow.dag}
-                              href={dagURL(dagRow.dag.fileName)}
                               onOpen={(e) =>
                                 peekOrOpen({ dag: dagRow.dag.fileName }, e)
                               }
@@ -1995,7 +1988,6 @@ function DAGTable({
                 <React.Fragment key={row.id}>
                   <DAGCard
                     dag={dagRow.dag}
-                    href={dagURL(dagRow.dag.fileName)}
                     onOpen={(e) => peekOrOpen({ dag: dagRow.dag.fileName }, e)}
                     onLabelClick={handleLabelClick}
                     refreshFn={refreshFn}

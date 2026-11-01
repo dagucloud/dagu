@@ -816,18 +816,29 @@ describe('DAGTable', () => {
       expect(peek.open).toHaveBeenCalledWith({ dag: 'alpha.yaml' });
     });
 
-    it('keeps the name link on the workflow page', () => {
-      const peek = peekHost();
-      renderTable('', { peek, dags: [workflow({ name: 'alpha' })] });
+    it.each([
+      { view: 'row', panelWidth: null, list: () => screen.getByRole('table') },
+      {
+        view: 'card',
+        panelWidth: 600,
+        list: () => screen.getByTestId('workflow-card-view'),
+      },
+    ])(
+      'shows the peek when the name of a $view is clicked',
+      ({ panelWidth, list }) => {
+        const peek = peekHost();
+        renderTable('', {
+          peek,
+          panelWidth,
+          dags: [workflow({ name: 'alpha' })],
+        });
 
-      fireEvent.click(
-        within(screen.getByRole('table')).getByRole('link', { name: 'alpha' })
-      );
+        fireEvent.click(within(list()).getByRole('link', { name: 'alpha' }));
 
-      expect(peek.open).not.toHaveBeenCalled();
-      expect(screen.getByTestId('location')).toHaveTextContent(
-        '/dags/alpha.yaml?remoteNode=local'
-      );
-    });
+        expect(peek.open).toHaveBeenCalledTimes(1);
+        expect(peek.open).toHaveBeenCalledWith({ dag: 'alpha.yaml' });
+        expect(screen.getByTestId('location')).toHaveTextContent(/^\/dags$/);
+      }
+    );
   });
 });
