@@ -365,6 +365,32 @@ describe('FreezeWhenHidden', () => {
     await advance(1500);
     expect(fetcher.mock.calls.length).toBeGreaterThan(hiddenCalls);
   });
+
+  // A run can end and write its last log while the body is hidden; once it
+  // shows, its queries are read again even when nothing polls them.
+  it('reads the queries below it once when it shows again', async () => {
+    let version = 1;
+    const fetcher = vi.fn(async () => `v${version}`);
+    function Reader() {
+      const { data } = useSWR('log', fetcher, { revalidateOnFocus: false });
+      return <span>{data ?? ''}</span>;
+    }
+    const tree = (hidden: boolean) => (
+      <SWRConfig value={{ provider: () => new Map(), dedupingInterval: 0 }}>
+        <FreezeWhenHidden hidden={hidden}>
+          <Reader />
+        </FreezeWhenHidden>
+      </SWRConfig>
+    );
+
+    const { rerender } = render(tree(false));
+    expect(await screen.findByText('v1')).toBeInTheDocument();
+    rerender(tree(true));
+    version = 2;
+    rerender(tree(false));
+    expect(await screen.findByText('v2')).toBeInTheDocument();
+    expect(fetcher).toHaveBeenCalledTimes(2);
+  });
 });
 
 describe('RunStepList render cost', () => {
