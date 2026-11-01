@@ -54,8 +54,12 @@ describe('toDockTab', () => {
 describe('dockTabsFor', () => {
   it.each<[string, RunViewFacts | null, DockTab[]]>([
     ['never run', null, ['log']],
-    ['finished run', BASE, ['log', 'timeline', 'outputs']],
-    ['not started', { ...BASE, status: Status.NotStarted }, ['log', 'outputs']],
+    ['finished run', BASE, ['log', 'timeline', 'history', 'outputs']],
+    [
+      'not started',
+      { ...BASE, status: Status.NotStarted },
+      ['log', 'history', 'outputs'],
+    ],
     [
       'human tasks and approvals share one Actions tab',
       {
@@ -65,7 +69,7 @@ describe('dockTabsFor', () => {
         humanTasksWaiting: 1,
         waitingApprovals: 2,
       },
-      ['log', 'actions', 'timeline', 'outputs'],
+      ['log', 'actions', 'timeline', 'history', 'outputs'],
     ],
     [
       'every view',
@@ -82,6 +86,7 @@ describe('dockTabsFor', () => {
         'agent',
         'actions',
         'timeline',
+        'history',
         'outputs',
         'artifacts',
         'tasks',
@@ -92,6 +97,13 @@ describe('dockTabsFor', () => {
     expect(dockTabsFor(facts)).toEqual(tabs);
   });
 
+  // History reads the run list, not the selected run: a pick that loads
+  // another run keeps it in the strip, so its body stays mounted.
+  it('keeps History while the selected run loads', () => {
+    expect(dockTabsFor(null, { loading: true })).toEqual(['log', 'history']);
+    expect(dockTabsFor(null, { loading: false })).toEqual(['log']);
+  });
+
   // parity:run-approval-resume-alert
   // The Actions tab holds Retry resume, also without a waiting action.
   it('shows Actions for a failed approval resume', () => {
@@ -100,6 +112,7 @@ describe('dockTabsFor', () => {
       'log',
       'actions',
       'timeline',
+      'history',
       'outputs',
     ]);
     expect(
@@ -126,6 +139,7 @@ describe('dockTabsFor agent run', () => {
       'log',
       'agent',
       'timeline',
+      'history',
       'outputs',
     ]);
     expect(
@@ -233,6 +247,7 @@ describe('dockTabsFor continuous run', () => {
       'log',
       'continuous',
       'timeline',
+      'history',
       'outputs',
     ]);
     expect(dockTabsFor({ ...BASE, hasContinuous: false })).not.toContain(

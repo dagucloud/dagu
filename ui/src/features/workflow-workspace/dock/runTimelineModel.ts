@@ -6,6 +6,7 @@ import {
   reusedTimeMs,
   type ProvenanceRun,
 } from '@/features/visual-editor/run/inputProvenance';
+import { formatElapsed } from '@/lib/dagRunTiming';
 import dayjs from '@/lib/dayjs';
 import { HATCH_PATTERN } from '@/lib/hatchPattern';
 import { statusTone, type StatusTone } from '@/lib/statusPalette';
@@ -68,6 +69,14 @@ export const EXTENT_LABEL_SHARE = 0.9;
  * which stays as it is.
  */
 export const TEST_RUN_HATCH = HATCH_PATTERN;
+
+/**
+ * The layers of the cached part of a bar or an extent: the page colour at
+ * half opacity over the status colour (the same colour, paler), and the hatch
+ * of the test runs over it.
+ */
+export const CACHED_WASH =
+  'color-mix(in srgb, var(--background) 55%, transparent)';
 
 /** True for a test run: the server lists it only when asked and drops it soon. */
 export function isTestRun(run: Pick<ApiDAGRunDetails, 'ephemeral'>): boolean {
@@ -143,6 +152,14 @@ function time(value: string | undefined): number | null {
   if (!value || value === '-') return null;
   const ms = Date.parse(value);
   return Number.isFinite(ms) ? ms : null;
+}
+
+/** The text of a duration in ms: "0", or the shared elapsed text. */
+export function elapsedMsText(ms: number): string {
+  if (ms <= 0) return '0';
+  return (
+    formatElapsed('1970-01-01T00:00:00Z', new Date(ms).toISOString()) ?? '0'
+  );
 }
 
 /**

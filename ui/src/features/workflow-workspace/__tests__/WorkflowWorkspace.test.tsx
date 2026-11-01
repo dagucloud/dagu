@@ -286,8 +286,8 @@ describe('WorkflowWorkspace', () => {
   });
 
   // The page passes the index of a /history?idx=n or /executions?idx=n link.
-  // The workspace resolves it on the run of that history column and replaces
-  // the URL.
+  // The workspace resolves it on the run of that history column, opens the
+  // History tab, as the old page showed that grid, and replaces the URL.
   it.each(['history', 'executions'])(
     'resolves a legacy %s index at the root',
     async (tab) => {
@@ -306,7 +306,7 @@ describe('WorkflowWorkspace', () => {
       renderAt(`/dags/x/${tab}?idx=0&remoteNode=edge`, undefined, 0);
       await waitFor(() =>
         expect(screen.getByTestId('location')).toHaveTextContent(
-          '/dags/x?run=older-run&dock=timeline&remoteNode=edge'
+          '/dags/x?run=older-run&dock=history&remoteNode=edge'
         )
       );
       expect(screen.getByTestId('location')).toHaveAttribute(

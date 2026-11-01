@@ -61,6 +61,7 @@ import {
 import {
   axisClock,
   barHeights,
+  CACHED_WASH,
   barTone,
   BAR_MAX_PX,
   BAR_PX,
@@ -70,6 +71,7 @@ import {
   DEFAULT_WIDTH_PX,
   durationAxis,
   durationParts,
+  elapsedMsText,
   HISTORY_LIMIT,
   fillBackground,
   isTestRun,
@@ -89,14 +91,6 @@ import {
 } from './runTimelineModel';
 
 export { RUN_COUNT_KEY, SHOW_TESTS_KEY };
-
-/**
- * The layers of the cached part of a bar or an extent: the page colour at
- * half opacity over the status colour (the same colour, paler), and the hatch
- * of the test runs over it.
- */
-export const CACHED_WASH =
-  'color-mix(in srgb, var(--background) 55%, transparent)';
 
 // The plot starts below this room; the extents and the axis take the rows
 // under the plot.
@@ -151,14 +145,6 @@ function useRunNow(
   return fixed ?? second * 1000;
 }
 
-/** The text of a duration on the duration axis: "0" or the shared elapsed text. */
-function axisDurationText(ms: number): string {
-  if (ms <= 0) return '0';
-  return (
-    formatElapsed('1970-01-01T00:00:00Z', new Date(ms).toISOString()) ?? '0'
-  );
-}
-
 /** The duration of a run as text, or null when the run has none. */
 function durationText(run: ApiDAGRunDetails, now: number): string | null {
   if (runDurationMs(run, now) === null) return null;
@@ -174,7 +160,7 @@ function shownDurationText(
   parts: DurationParts | null,
   now: number
 ): string | null {
-  if (parts && parts.cached > 0) return axisDurationText(parts.total);
+  if (parts && parts.cached > 0) return elapsedMsText(parts.total);
   return durationText(run, now);
 }
 
@@ -237,9 +223,9 @@ function BarTooltip({
       {parts && parts.cached > 0 ? (
         <div data-testid="ww-run-timeline-tooltip-total">
           {ts('Total {total} = own {own} + cached {cached}', {
-            total: axisDurationText(parts.total),
-            own: axisDurationText(parts.own),
-            cached: axisDurationText(parts.cached),
+            total: elapsedMsText(parts.total),
+            own: elapsedMsText(parts.own),
+            cached: elapsedMsText(parts.cached),
           })}
         </div>
       ) : (
@@ -675,7 +661,7 @@ const YAxisTicks = memo(function YAxisTicks({
           style={{ top: BASELINE - tick.y - 6.5 }}
           className="absolute right-1.5 whitespace-nowrap"
         >
-          {axisDurationText(tick.v)}
+          {elapsedMsText(tick.v)}
         </span>
       ))}
     </>

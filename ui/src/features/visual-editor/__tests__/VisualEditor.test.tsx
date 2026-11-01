@@ -1019,18 +1019,22 @@ describe.skipIf(realSchema === null)('VisualEditor', () => {
         onYamlVisibleChange: vi.fn(),
         yamlEditorRef: { current: editor as never },
       });
-      const ring = (key: string) =>
-        screen.getByTestId(`ve-canvas-node-${key}`).className;
-      expect(ring('steps[1]')).not.toContain('shadow-primary');
+      // The light is a class of its own; the spotlight of a host is a
+      // variant class that only data-spotlit turns on.
+      const lit = (key: string) =>
+        screen
+          .getByTestId(`ve-canvas-node-${key}`)
+          .classList.contains('shadow-primary/30');
+      expect(lit('steps[1]')).toBe(false);
 
       const transformLine =
         parseDagDoc(yamlArraySteps).steps[1]!.range.startLine;
       act(() => moveCursor(transformLine));
-      expect(ring('steps[1]')).toContain('shadow-primary');
-      expect(ring('steps[0]')).not.toContain('shadow-primary');
+      expect(lit('steps[1]')).toBe(true);
+      expect(lit('steps[0]')).toBe(false);
 
       act(() => moveCursor(1));
-      expect(ring('steps[1]')).not.toContain('shadow-primary');
+      expect(lit('steps[1]')).toBe(false);
     });
     // In the whole file, the cursor in the block of a step is a selection of
     // that step, with the callbacks of the host; the panel stays the file.
@@ -1085,8 +1089,13 @@ describe.skipIf(realSchema === null)('VisualEditor', () => {
           yamlEditorRef: { current: editor as never },
         });
         const steps = parseDagDoc(yamlArraySteps).steps;
+        // The spotlight of a host is a variant that only data-spotlit turns on.
         const ring = (key: string) =>
-          screen.getByTestId(`ve-canvas-node-${key}`).className;
+          screen
+            .getByTestId(`ve-canvas-node-${key}`)
+            .className.split(/\s+/)
+            .filter((t) => !t.startsWith('group-data-[spotlit]/node:'))
+            .join(' ');
 
         act(() => state.move(steps[1]!.range.startLine + 1));
         expect(ring('steps[1]')).toContain('ring-primary');

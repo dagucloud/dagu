@@ -488,6 +488,8 @@ export interface VisualEditorState {
 export interface CanvasViewHandle {
   fitView(): void;
   revealStep(key: StepKey): void; // pan only when the node is not in the central zone of the free area; zoom kept
+  /** Lights the node of the step, or no node with null. The view does not move. */
+  highlightStep(key: StepKey | null): void;
   zoomTo(level: number): void; // 1 = 100 %
   getZoom(): number;
 }
@@ -495,6 +497,11 @@ export interface VisualEditorHandle {
   fitView(): void;
   /** Select and pan to the step. Returns false when no node has this server name. NDV opening follows openNdvOn. */
   revealStep(serverStepName: string): boolean;
+  /**
+   * Lights the node of the step without a selection, a pan or a render of
+   * the canvas; null, or a name that no node has, lights none.
+   */
+  highlightStep(serverStepName: string | null): void;
   /** Opens AddStepPanel. No-op when !editable or frozen. Default target: after the selection, else at the end. */
   addStep(target?: PaletteTarget): void;
   openWorkflowPanel(open?: boolean): void; // toggles when open is undefined

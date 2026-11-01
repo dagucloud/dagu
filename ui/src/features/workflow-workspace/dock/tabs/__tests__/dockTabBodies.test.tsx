@@ -1,8 +1,8 @@
 // Copyright (C) 2026 Yota Hamada
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-import { act, fireEvent, render, screen } from '@testing-library/react';
-import type { ReactNode } from 'react';
+import { act, fireEvent, render, screen, within } from '@testing-library/react';
+import { useEffect, type ReactNode } from 'react';
 import { MemoryRouter, Route, Routes, useLocation } from 'react-router-dom';
 import { SWRConfig } from 'swr';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -14,7 +14,15 @@ import {
 } from '@/api/v1/schema';
 import { UserPreferencesProvider } from '@/contexts/UserPreference';
 import { useBoundedDAGRunDetails } from '@/features/dag-runs/hooks/useBoundedDAGRunDetails';
-import type { ApiDAGDetails, ApiDAGRunDetails } from '../../../contracts';
+import {
+  useWorkspaceEditorBinding,
+  WorkspaceEditorProvider,
+} from '../../../canvas/WorkspaceEditorContext';
+import type {
+  ApiDAGDetails,
+  ApiDAGRunDetails,
+  WorkspaceEditorHandle,
+} from '../../../contracts';
 import { useWorkspaceRun } from '../../../data';
 import {
   connectedSSE,
@@ -164,7 +172,15 @@ function renderAt(ui: ReactNode, url: string) {
 }
 
 /** One registered body, as LogsDock mounts it, with a run picker. */
-function Body({ tab, step }: { tab: DockTab; step?: string }) {
+function Body({
+  tab,
+  step,
+  selectTab,
+}: {
+  tab: DockTab;
+  step?: string;
+  selectTab?: (tab: DockTab) => void;
+}) {
   const workspaceRun = useWorkspaceRun();
   const Tab = dockTabBodies[tab]!;
   return (
@@ -177,6 +193,7 @@ function Body({ tab, step }: { tab: DockTab; step?: string }) {
         fileName={FILE_NAME}
         dag={server.dag.dag as ApiDAGDetails}
         step={step}
+        selectTab={selectTab}
       />
     </>
   );
@@ -303,6 +320,7 @@ describe('dock tab bodies', () => {
         'artifacts',
         'chat',
         'continuous',
+        'history',
         'log',
         'outputs',
         'tasks',
@@ -875,6 +893,205 @@ describe('dock tab bodies', () => {
         foreach: { item: '2', bodyStep: 'fetch' },
         subRun: { dagName: 'child-dag', subDAGRunId: 'c-1' },
       });
+    });
+  });
+
+  // The steps by run without a step, the runs of the step with one. The
+  // runs are the history list of the run timeline.
+  describe('History', () => {
+    const newer = run('run-1', [node('a'), node('b')], Status.Success, {
+      startedAt: '2026-01-15T02:05:00Z',
+    });
+    const older = run('run-2', [node('a', NodeStatus.Failed)], Status.Failed, {
+      startedAt: '2026-01-15T02:01:00Z',
+      rootDAGRunName: 'demo',
+      rootDAGRunId: 'run-2',
+    });
+    const query = () => new URLSearchParams(location.search);
+
+    beforeEach(() => {
+      setLatest(newer, {
+        steps: [{ name: 'a' }, { name: 'b', depends: ['a'] }],
+      });
+      server.runs['run-2'] = older;
+      server.history = { dagRuns: [newer, older], gridData: [] };
+    });
+
+    it('shows the steps by run without a step', async () => {
+      await renderBody('history');
+      const grid = await screen.findByRole('grid', { name: 'Steps by run' });
+      expect(
+        within(grid)
+          .getAllByRole('rowheader')
+          .map((header) => header.textContent)
+      ).toEqual(['a', 'b']);
+      expect(screen.getByTestId('ww-history-cell-a-run-2')).toHaveAttribute(
+        'data-status',
+        String(NodeStatus.Failed)
+      );
+      expect(screen.getByTestId('ww-history-cell-b-run-2')).toHaveAttribute(
+        'data-state',
+        'absent'
+      );
+    });
+
+    it('selects the run and the step of a cell', async () => {
+      await renderBody('history');
+      fireEvent.click(await screen.findByTestId('ww-history-cell-a-run-2'));
+      await vi.waitFor(() => {
+        expect(query().get('run')).toBe('run-2');
+        expect(query().get('step')).toBe('a');
+      });
+    });
+
+    it('shows the runs of the step in a step view', async () => {
+      await renderBody('history', `/dags/${FILE_NAME}`, 'a');
+      const section = await screen.findByRole('region', {
+        name: 'History of a',
+      });
+      expect(
+        within(section).getByTestId('ww-step-history-summary')
+      ).toHaveTextContent('50% succeeded');
+      expect(screen.queryByRole('grid')).toBeNull();
+    });
+
+    // A running step counts up: its bar reads the time so far, and that time
+    // grows with the clock.
+    it('counts up the time of a running step', async () => {
+      vi.useFakeTimers({ toFake: ['Date', 'setInterval', 'clearInterval'] });
+      try {
+        vi.setSystemTime(new Date('2026-01-15T02:05:10Z'));
+        const running = run(
+          'run-1',
+          [
+            node('a', NodeStatus.Running, {
+              startedAt: '2026-01-15T02:05:00Z',
+              finishedAt: '-',
+            }),
+          ],
+          Status.Running,
+          { startedAt: '2026-01-15T02:05:00Z' }
+        );
+        setLatest(running, { steps: [{ name: 'a' }] });
+        server.history = { dagRuns: [running, older], gridData: [] };
+        await renderBody('history', `/dags/${FILE_NAME}`, 'a');
+        const bar = await screen.findByTestId('ww-step-history-bar-run-1');
+        expect(bar).toHaveAccessibleName(/, 10s$/);
+
+        act(() => {
+          vi.advanceTimersByTime(5_000);
+        });
+
+        expect(bar).toHaveAccessibleName(/, 15s$/);
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+
+    it('selects the run of a bar and keeps the step', async () => {
+      await renderBody('history', `/dags/${FILE_NAME}`, 'a');
+      fireEvent.click(await screen.findByTestId('ww-step-history-bar-run-2'));
+      await vi.waitFor(() => {
+        expect(query().get('run')).toBe('run-2');
+        expect(query().get('step')).toBe('a');
+      });
+    });
+
+    it('opens the log of the step in a run on the Log tab', async () => {
+      const selectTab = vi.fn();
+      renderAt(
+        <Body tab="history" step="a" selectTab={selectTab} />,
+        `/dags/${FILE_NAME}`
+      );
+      fireEvent.click(
+        await screen.findByRole('button', { name: 'Open the log of run run-2' })
+      );
+      expect(selectTab).toHaveBeenCalledWith('log');
+      await vi.waitFor(() => {
+        expect(query().get('run')).toBe('run-2');
+        expect(query().get('step')).toBe('a');
+      });
+    });
+
+    // The canvas lights the node of the row under the pointer, and the
+    // light ends when the pointer leaves or the grid goes.
+    it('spotlights the step of the row under the pointer on the canvas', async () => {
+      const highlightStep = vi.fn();
+      const handle = { highlightStep } as unknown as WorkspaceEditorHandle;
+      function BindHandle() {
+        const { editorHandleRef } = useWorkspaceEditorBinding();
+        useEffect(() => editorHandleRef(handle), [editorHandleRef]);
+        return null;
+      }
+      const view = renderAt(
+        <WorkspaceEditorProvider>
+          <BindHandle />
+          <Body tab="history" />
+        </WorkspaceEditorProvider>,
+        `/dags/${FILE_NAME}`
+      );
+      const cell = await screen.findByTestId('ww-history-cell-b-run-1');
+
+      fireEvent.pointerEnter(cell.closest('[role="row"]')!);
+      expect(highlightStep).toHaveBeenLastCalledWith('b');
+      fireEvent.pointerLeave(screen.getByRole('grid'));
+      expect(highlightStep).toHaveBeenLastCalledWith(null);
+
+      fireEvent.pointerEnter(cell.closest('[role="row"]')!);
+      expect(highlightStep).toHaveBeenLastCalledWith('b');
+      view.unmount();
+      expect(highlightStep).toHaveBeenLastCalledWith(null);
+    });
+
+    // A pick loads another run: while its read is pending, the strip keeps
+    // History and its body keeps its state.
+    it('keeps the body mounted while the picked run loads', async () => {
+      const reply = serve(server);
+      let release = () => {};
+      const pinned = new Promise<void>((resolve) => {
+        release = resolve;
+      });
+      const readsRun2 = ([path, init]: Parameters<typeof reply>) =>
+        path === '/dag-runs/{name}/{dagRunId}' &&
+        init?.params?.path?.dagRunId === 'run-2';
+      h.GET.mockImplementation(async (...args: Parameters<typeof reply>) => {
+        if (readsRun2(args)) await pinned;
+        return reply(...args);
+      });
+      const historyKept = () => {
+        expect(screen.getByRole('tab', { name: 'History' })).toHaveAttribute(
+          'aria-selected',
+          'true'
+        );
+        expect(
+          screen.getByRole('button', { name: 'Failures only' })
+        ).toHaveAttribute('aria-pressed', 'true');
+      };
+
+      renderDock(`/dags/${FILE_NAME}?dock=history&step=a`);
+      fireEvent.click(
+        await screen.findByRole('button', { name: 'Failures only' })
+      );
+      fireEvent.click(screen.getByTestId('ww-step-history-bar-run-2'));
+
+      await vi.waitFor(() => expect(query().get('run')).toBe('run-2'));
+      await vi.waitFor(() =>
+        expect(
+          h.GET.mock.calls.some((call) =>
+            readsRun2(call as Parameters<typeof reply>)
+          )
+        ).toBe(true)
+      );
+      historyKept();
+
+      await act(async () => release());
+      await vi.waitFor(() =>
+        expect(screen.getByTestId('ww-step-history-bar-run-2')).toHaveAttribute(
+          'aria-selected',
+          'true'
+        )
+      );
+      historyKept();
     });
   });
 

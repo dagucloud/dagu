@@ -545,7 +545,7 @@ describe('DAGDetails page', () => {
 
       await waitFor(() => {
         expect(screen.getByTestId('location')).toHaveTextContent(
-          /^\/dags\/release-notes\?run=run-7$/
+          /^\/dags\/release-notes\?run=run-7&dock=history$/
         );
       });
       expect(lastWorkspaceProps()?.tab).toBeUndefined();

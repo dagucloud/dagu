@@ -20,6 +20,7 @@ import {
   cachedMsOf,
   durationParts,
   EDGE_PAD_PX,
+  elapsedMsText,
   fillBackground,
   isTestRun,
   layoutLabels,
@@ -166,6 +167,15 @@ describe('durationAxis', () => {
 
   it('reserves a gutter of 40px', () => {
     expect(Y_AXIS_PX).toBe(40);
+  });
+});
+
+describe('elapsedMsText', () => {
+  it('writes a duration as the elapsed text, and none as 0', () => {
+    expect(elapsedMsText(0)).toBe('0');
+    expect(elapsedMsText(-5)).toBe('0');
+    expect(elapsedMsText(850)).toBe('850ms');
+    expect(elapsedMsText(125_000)).toBe('2m 5s');
   });
 });
 

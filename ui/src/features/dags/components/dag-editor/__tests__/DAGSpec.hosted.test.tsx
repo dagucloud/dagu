@@ -213,6 +213,7 @@ function fakeVisualHandle(): VisualEditorHandle {
   return {
     fitView: vi.fn(),
     revealStep: vi.fn(() => true),
+    highlightStep: vi.fn(),
     addStep: vi.fn(),
     openWorkflowPanel: vi.fn(),
     openLauncher: vi.fn(),
@@ -591,6 +592,7 @@ describe('DAGSpec editor handle', () => {
 
     handle().fitView();
     expect(handle().revealStep('extract')).toBe(true);
+    handle().highlightStep('extract');
     handle().addStep({ mode: 'first' });
     handle().openWorkflowPanel(true);
     handle().openLauncher('cron');
@@ -606,6 +608,7 @@ describe('DAGSpec editor handle', () => {
     expect(ve.fitView).toHaveBeenCalledOnce();
     expect(ve.toggleYaml).toHaveBeenCalledWith(true);
     expect(ve.revealStep).toHaveBeenCalledWith('extract');
+    expect(ve.highlightStep).toHaveBeenCalledWith('extract');
     expect(ve.addStep).toHaveBeenCalledWith({ mode: 'first' });
     expect(ve.openWorkflowPanel).toHaveBeenCalledWith(true);
     expect(ve.openLauncher).toHaveBeenCalledWith('cron');
@@ -617,11 +620,35 @@ describe('DAGSpec editor handle', () => {
     expect(ve.redo).toHaveBeenCalledOnce();
   });
 
+  // A host can light a step while the lazy visual editor mounts: the editor
+  // lights the step of the last request when it binds, and none after null.
+  it.each([
+    ['the last step', ['load', 'extract'], 'extract'],
+    ['no step', ['extract', null], null],
+  ] as const)(
+    'lights %s that a host asked for before the editor bound',
+    async (_, requests, lit) => {
+      visual.handle = null;
+      const { ref, handle, rerender } = await renderWithHandle();
+      for (const name of requests) handle().highlightStep(name);
+
+      const ve = fakeVisualHandle();
+      visual.handle = ve;
+      // A changed prop renders the memoized DAGSpec, and the editor binds.
+      rerender(tree({ editorHandleRef: ref, keyboardActive: false }));
+      await settle();
+
+      if (lit === null) expect(ve.highlightStep).not.toHaveBeenCalled();
+      else expect(ve.highlightStep).toHaveBeenCalledExactlyOnceWith(lit);
+    }
+  );
+
   it('returns empty results without a visual editor handle', async () => {
     visual.handle = null;
     const { handle } = await renderWithHandle();
 
     expect(() => handle().fitView()).not.toThrow();
+    expect(() => handle().highlightStep('extract')).not.toThrow();
     expect(handle().revealStep('extract')).toBe(false);
     expect(handle().openForm('extract')).toBe(false);
     expect(handle().openYaml('extract')).toBe(false);

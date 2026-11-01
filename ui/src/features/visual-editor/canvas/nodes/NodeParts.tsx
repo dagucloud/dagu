@@ -72,11 +72,20 @@ export const CARD_OUTLINE =
   'border-[1.5px] border-muted-foreground/60 dark:border dark:border-muted-foreground/40';
 
 /**
+ * The light of the cursor of the YAML, and the same light while a host
+ * spotlights the node (`data-spotlit` on its box, see VisualCanvas).
+ */
+const HIGHLIGHT = 'ring-2 ring-primary/50 shadow-lg shadow-primary/30';
+const SPOTLIT =
+  'group-data-[spotlit]/node:ring-2 group-data-[spotlit]/node:ring-primary/50 group-data-[spotlit]/node:shadow-lg group-data-[spotlit]/node:shadow-primary/30';
+
+/**
  * State classes of a node card: the selection ring wins over the light of the
- * cursor of the YAML, and that wins over the colour of the run status, which
- * is the border of the card itself. The card of a previous step that the run
- * reused (see `reusedOutline`) has none of these: its dashed outline is its
- * only line.
+ * cursor of the YAML or of a host, and that wins over the colour of the run
+ * status, which is the border of the card itself. The card of a previous step
+ * that the run reused (see `reusedOutline`) has no selection ring and no
+ * border colour: its dashed outline is its only line, except while the cursor
+ * of the YAML or a host lights it.
  */
 export function cardStateClass(
   node: Pick<CanvasNode, 'run' | 'reuseOutline'>,
@@ -84,18 +93,14 @@ export function cardStateClass(
   highlighted?: boolean
 ): string | undefined {
   if (node.reuseOutline && node.run) {
-    // The dashed outline is the one line of a reused card: no ring and no
-    // border colour, at rest, on hover or selected (its dashes turn violet).
-    return highlighted && !selected
-      ? 'ring-2 ring-primary/50 shadow-lg shadow-primary/30'
-      : undefined;
+    // The dashed outline is the one line of a reused card at rest, on hover
+    // or selected (its dashes turn violet); only the light adds a ring.
+    if (selected) return undefined;
+    return highlighted ? HIGHLIGHT : SPOTLIT;
   }
   const border = node.run ? statusBorderClass(node.run.status) : undefined;
   if (selected) return cn('ring-2 ring-primary', border);
-  if (highlighted) {
-    return cn('ring-2 ring-primary/50 shadow-lg shadow-primary/30', border);
-  }
-  return border;
+  return cn(highlighted ? HIGHLIGHT : SPOTLIT, border);
 }
 
 /**

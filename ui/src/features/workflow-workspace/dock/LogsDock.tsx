@@ -410,9 +410,15 @@ export function LogsDock({
                     run={run}
                     fileName={fileName}
                     dag={dag}
-                    // Only the output is about the step: the other tabs read the
-                    // URL, and the run tabs have no step scope in this panel.
-                    step={shown === 'outputs' ? (step ?? undefined) : undefined}
+                    // Only the output and the history are about the step: the
+                    // other tabs read the URL, and the run tabs have no step
+                    // scope in this panel.
+                    step={
+                      shown === 'outputs' || shown === 'history'
+                        ? (step ?? undefined)
+                        : undefined
+                    }
+                    selectTab={selectTab}
                   />
                 )}
               </RunTabsPane>

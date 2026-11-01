@@ -579,7 +579,11 @@ describe('StepNode issues and run', () => {
         expect(tokens).toContain('hover:border-transparent');
         expect(tokens).toContain('focus-within:border-transparent');
         expect(tokens).not.toContain('border-muted-foreground/60');
-        expect(tokens.some((t) => t.includes('ring'))).toBe(false);
+        // The spotlight of a host is a variant that only data-spotlit turns on.
+        const own = tokens.filter(
+          (t) => !t.startsWith('group-data-[spotlit]/node:')
+        );
+        expect(own.some((t) => t.includes('ring'))).toBe(false);
         expect(
           view.getByTestId('ve-node-reuse-outline').querySelector('rect')
         ).toHaveAttribute('stroke-dasharray', '6 4');

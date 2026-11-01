@@ -1308,6 +1308,10 @@ export function VisualEditor(props: VisualEditorProps): ReactElement {
         revealSoon(key);
         return true;
       },
+      highlightStep: (name) =>
+        canvasView.current?.highlightStep(
+          name === null ? null : live.current.keyOf(name)
+        ),
       addStep: (target) => {
         if (live.current.canEdit)
           live.current.openAdd(target ?? { mode: 'after' });

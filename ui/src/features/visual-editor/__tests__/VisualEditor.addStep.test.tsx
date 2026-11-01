@@ -70,6 +70,7 @@ vi.mock('../canvas', async (importOriginal) => {
           view.revealStep(key);
           inner.current?.revealStep(key);
         },
+        highlightStep: (key) => inner.current?.highlightStep(key),
         zoomTo: (level) => inner.current?.zoomTo(level),
         getZoom: () => inner.current?.getZoom() ?? 1,
       }),

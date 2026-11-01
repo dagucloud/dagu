@@ -797,7 +797,7 @@ describe('LogsDock Esc', () => {
 });
 
 describe('dockTabBodies', () => {
-  it('registers no body for the Steps and Spec tabs', async () => {
+  it('registers a body for History and none for the Steps and Spec tabs', async () => {
     const real = await vi.importActual<typeof import('../tabs')>('../tabs');
     expect(Object.keys(real.dockTabBodies).sort()).toEqual(
       [
@@ -806,6 +806,7 @@ describe('dockTabBodies', () => {
         'artifacts',
         'chat',
         'continuous',
+        'history',
         'log',
         'outputs',
         'tasks',

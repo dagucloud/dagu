@@ -1232,6 +1232,9 @@ function DAGSpec({
   const pendingPanelRef = React.useRef<
     ((visual: VisualEditorHandle) => void) | null
   >(null);
+  // The last step that the host lights before then is lit when the editor
+  // binds; a null request drops it.
+  const pendingHighlightRef = React.useRef<string | null>(null);
   const setVisualHandle = React.useCallback(
     (handle: VisualEditorHandle | null) => {
       visualHandleRef.current = handle;
@@ -1239,6 +1242,11 @@ function DAGSpec({
         const open = pendingPanelRef.current;
         pendingPanelRef.current = null;
         open(handle);
+      }
+      if (handle && pendingHighlightRef.current !== null) {
+        const name = pendingHighlightRef.current;
+        pendingHighlightRef.current = null;
+        handle.highlightStep(name);
       }
       if (typeof handleRef === 'function') {
         handleRef(handle);
@@ -1385,6 +1393,11 @@ function DAGSpec({
       },
       fitView: () => visual()?.fitView(),
       revealStep: (name) => visual()?.revealStep(name) ?? false,
+      highlightStep: (name) => {
+        const v = visual();
+        if (v) v.highlightStep(name);
+        else pendingHighlightRef.current = name;
+      },
       addStep: (target) => visual()?.addStep(target),
       openWorkflowPanel: (open) => {
         const run = (v: VisualEditorHandle) => v.openWorkflowPanel(open);

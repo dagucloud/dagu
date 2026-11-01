@@ -68,10 +68,14 @@ export function defaultDockTab(opts: {
 /**
  * Returns the dock tabs for the facts of the selected run, in strip order and
  * without duplicates. 'log' comes first for every run. A workflow that never
- * ran (facts null) has only 'log'.
+ * ran (facts null) has only 'log'. While the selected run loads (`loading`)
+ * History stays: it reads the run list, and a pick in it loads another run.
  */
-export function dockTabsFor(facts: DockFacts | null): DockTab[] {
-  if (!facts) return ['log'];
+export function dockTabsFor(
+  facts: DockFacts | null,
+  opts: { loading?: boolean } = {}
+): DockTab[] {
+  if (!facts) return opts.loading ? ['log', 'history'] : ['log'];
   const runTabs = visibleRunTabs(facts);
   // The Agent tab holds the timeline of an agent DAG run, which has no
   // agent session on its nodes.
@@ -92,6 +96,8 @@ export function dockTabsFor(facts: DockFacts | null): DockTab[] {
     const tab = toDockTab(runTab);
     if (tab && !tabs.includes(tab)) tabs.push(tab);
   }
+  // History sits before Outputs: it is about the runs, not one run.
+  tabs.splice(tabs.indexOf('outputs'), 0, 'history');
   // Continuous follows the Log tab: the step log is its raw record.
   if (facts.hasContinuous)
     tabs.splice(tabs.indexOf('log') + 1, 0, 'continuous');

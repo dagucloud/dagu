@@ -101,7 +101,7 @@ function withCarry(target: string): string {
 type Zone =
   | 'editor'
   | 'dock'
-  | 'timeline'
+  | 'history'
   | 'overview'
   | 'webhook'
   | 'notifications'
@@ -117,17 +117,17 @@ async function expectZone(page: Page, zone: Zone): Promise<void> {
     await expect(page.getByTestId('ww-pane')).toBeVisible({ timeout: 30_000 });
     return;
   }
-  if (zone === 'dock' || zone === 'timeline') {
+  if (zone === 'dock' || zone === 'history') {
     await expect(page.getByTestId('ww-dock')).toHaveAttribute(
       'data-state',
       'open',
       { timeout: 30_000 }
     );
-    if (zone === 'timeline') {
+    if (zone === 'history') {
       await expect(
         page
           .getByTestId('ww-dock')
-          .getByRole('tab', { name: 'Timeline', exact: true })
+          .getByRole('tab', { name: 'History', exact: true })
       ).toHaveAttribute('aria-selected', 'true');
     }
     return;
@@ -211,7 +211,7 @@ test.describe('workspace deep links', () => {
     test.setTimeout(180_000);
     const dag = await inlineDAG(labelledSpec('tab-paths'));
     const { fileName } = dag;
-    // The timeline tab of the Run panel needs a run.
+    // The History tab of the Run panel needs a run.
     await runToEnd(request, await adminToken(request), dag);
     const base = `/dags/${encodeURIComponent(fileName)}`;
     const rows: {
@@ -239,13 +239,13 @@ test.describe('workspace deep links', () => {
         query: { wtab: 'wiki', panel: null },
         zone: 'wiki',
       },
-      // The History grid is the timeline of the Run panel.
+      // The History grid is the History tab of the Run panel.
       {
         rule: 'R9',
         from: '/history',
         to: '',
-        query: { dock: 'timeline' },
-        zone: 'timeline',
+        query: { dock: 'history' },
+        zone: 'history',
       },
       // The runtime profile of the old settings path is in the Overview tab.
       {
@@ -398,7 +398,7 @@ test.describe('workspace deep links to runs', () => {
     test.setTimeout(240_000);
     const token = await adminToken(request);
     const dag = await inlineDAG(labelledSpec('run-links'));
-    // Oldest first. The timeline of the Run panel shows the runs in this
+    // Oldest first. The History grid of the Run panel shows the runs in this
     // order, so ?idx=2 names the third run.
     const runs: string[] = [];
     for (let i = 0; i < 4; i++) {
@@ -409,8 +409,10 @@ test.describe('workspace deep links to runs', () => {
       remoteNode: 'local',
       workspace: WORKSPACE,
     };
-    // The bar of a run on the timeline of the Run panel; ?run opens the panel.
-    const row = (runId: string) => page.getByTestId(`ww-run-bar-${runId}`);
+    // The cell of the step in the column of a run on the History grid; ?run
+    // selects the column.
+    const cell = (runId: string) =>
+      page.getByTestId(`ww-history-cell-hello-${runId}`);
 
     await test.step('R1 /status?dagRunId', async () => {
       await gotoWorkspace(
@@ -475,12 +477,13 @@ test.describe('workspace deep links to runs', () => {
       );
       await expectAt(page, base, {
         run: runs[0],
+        dock: 'history',
         idx: null,
         dagRunId: null,
         ...carried,
       });
-      await expectZone(page, 'dock');
-      await expect(row(runs[0])).toHaveAttribute('aria-selected', 'true', {
+      await expectZone(page, 'history');
+      await expect(cell(runs[0])).toHaveAttribute('aria-selected', 'true', {
         timeout: 30_000,
       });
     });
@@ -489,13 +492,14 @@ test.describe('workspace deep links to runs', () => {
       await gotoWorkspace(page, withCarry(`${base}/history?idx=2`));
       await expectAt(page, base, {
         run: runs[2],
+        dock: 'history',
         idx: null,
         ...carried,
       });
-      // The redirect waits for the run history and opens the Run panel with
-      // ?dock; the run is selected on its timeline.
-      await expectZone(page, 'dock');
-      await expect(row(runs[2])).toHaveAttribute('aria-selected', 'true', {
+      // The redirect waits for the run history and opens the Run panel on
+      // its History tab; the run is selected on the grid.
+      await expectZone(page, 'history');
+      await expect(cell(runs[2])).toHaveAttribute('aria-selected', 'true', {
         timeout: 30_000,
       });
     });

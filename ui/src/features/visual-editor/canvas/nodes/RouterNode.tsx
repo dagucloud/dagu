@@ -38,8 +38,10 @@ function outlineClass(
   if (highlighted) {
     return 'stroke-primary/60';
   }
-  // The light theme draws a 1.5 px darker outline, as the cards do.
-  const width = '[stroke-width:1.5px] dark:[stroke-width:1px]';
+  // The light theme draws a 1.5 px darker outline, as the cards do. A host
+  // that spotlights the node (data-spotlit) gives it the light of the cursor.
+  const width =
+    '[stroke-width:1.5px] dark:[stroke-width:1px] group-data-[spotlit]/node:stroke-primary/60 group-data-[spotlit]/node:[stroke-width:2px]';
   return node.run
     ? `${statusStrokeClass(node.run.status)} ${width}`
     : `stroke-muted-foreground/60 dark:stroke-muted-foreground/50 ${width}`;

@@ -3,6 +3,7 @@
 
 import type { ApiDAGDetails, ApiDAGRunDetails } from '../../contracts';
 import type { WorkspaceRunValue } from '../../data';
+import type { DockTab } from '../../state/workspaceUrl';
 
 export interface DockTabBodyProps {
   run: WorkspaceRunValue;
@@ -13,6 +14,12 @@ export interface DockTabBodyProps {
    * says. Without it the URL and the auto-open choose.
    */
   step?: string;
+  /**
+   * Selects another tab of the host strip. Undefined when the host is a step
+   * view that does not follow the selected run (`followsRun` false in
+   * StepRunTabs): a run that the body selects would not show in its tabs.
+   */
+  selectTab?(tab: DockTab): void;
 }
 
 /** Props of a run tab body after the frame has checked that details exist. */

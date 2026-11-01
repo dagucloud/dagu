@@ -782,6 +782,28 @@ describe('VisualCanvas', () => {
       );
     });
 
+    // The History tab of the Run panel lights the node of the step under the
+    // pointer. The view stays where it is.
+    it('spotlights one node at a time and clears it', () => {
+      const { view } = renderWithView();
+      const before = viewport();
+      const spotlit = () =>
+        graph.nodes
+          .map((n) => n.key)
+          .filter((key) => nodeWrapper(key).hasAttribute('data-spotlit'));
+
+      act(() => view.highlightStep('steps[1]'));
+      expect(spotlit()).toEqual(['steps[1]']);
+      act(() => view.highlightStep('steps[2]'));
+      expect(spotlit()).toEqual(['steps[2]']);
+      act(() => view.highlightStep('no-such-step'));
+      expect(spotlit()).toEqual([]);
+      act(() => view.highlightStep('steps[0]'));
+      act(() => view.highlightStep(null));
+      expect(spotlit()).toEqual([]);
+      expect(viewport()).toEqual(before);
+    });
+
     // A reveal from outside the canvas (the Runs dock, a chip, a link) moves
     // the view only when the card is not in the central zone.
     it('does not pan to reveal a step in the central zone', () => {

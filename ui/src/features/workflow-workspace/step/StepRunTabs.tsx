@@ -40,17 +40,22 @@ const ID_PREFIX = 'ww-step-output';
 
 /** The tabs of a step that no run holds: the log has nothing, the output is declared. */
 const NO_RUN_TABS: DockTab[] = ['log', 'outputs'];
+/** The tabs while the run loads: History reads the run list, not the run. */
+const LOADING_TABS: DockTab[] = ['log', 'history', 'outputs'];
 
 /**
  * The tabs of the right pane. With a run, the tabs of the Run panel for the
  * run as the step sees it (stepDockTabs), so that the strip is the one of
- * Executions and every tab is about this step.
+ * Executions and every tab is about this step. History stays while the run
+ * loads, so that a pick in it keeps the tab.
  */
 export function stepRunTabs(
   details: ApiDAGRunDetails | null,
-  step: string
+  step: string,
+  loading = false
 ): DockTab[] {
-  return details ? stepDockTabs(details, step) : NO_RUN_TABS;
+  if (details) return stepDockTabs(details, step);
+  return loading ? LOADING_TABS : NO_RUN_TABS;
 }
 
 /** The Run panel value of a run that a step view follows. */
@@ -127,7 +132,9 @@ export function defaultStepTab(
 export function StepRunTabs(props: StepRunTabsProps) {
   const data = useWorkspaceData('StepRunTabs');
   if (props.runId !== null && props.runId === data.run.ref?.runId) {
-    return <StepRunTabsView {...props} run={data.run} context={data} />;
+    return (
+      <StepRunTabsView {...props} run={data.run} context={data} followsRun />
+    );
   }
   return <FollowedStepRunTabs {...props} />;
 }
@@ -164,6 +171,11 @@ interface StepRunTabsViewProps extends StepRunTabsProps {
   /** The workspace data with `run` in it. */
   context: WorkspaceDataValue | null;
   ownSubRuns?: boolean;
+  /**
+   * The view shows the run of ?run: a run that the History selects shows
+   * here, so the History may open another tab of this strip.
+   */
+  followsRun?: boolean;
 }
 
 function StepRunTabsView({
@@ -173,6 +185,7 @@ function StepRunTabsView({
   run,
   context,
   ownSubRuns = false,
+  followsRun = false,
 }: StepRunTabsViewProps) {
   const { ts } = useI18n();
   const data = useWorkspaceData('StepRunTabs');
@@ -190,7 +203,11 @@ function StepRunTabsView({
         : null,
     [details, step]
   );
-  const tabs = useMemo(() => stepRunTabs(details, step), [details, step]);
+  const loading = runId !== null && details === null;
+  const tabs = useMemo(
+    () => stepRunTabs(details, step, loading),
+    [details, step, loading]
+  );
   const badges = useMemo(() => dockTabBadges(facts), [facts]);
   const [chosen, setChosen] = useState<DockTab | null>(null);
   const preferred: DockTab = chosen ?? defaultStepTab(details, node, tabs);
@@ -214,6 +231,7 @@ function StepRunTabsView({
           fileName={data.fileName}
           dag={dag}
           step={step}
+          selectTab={followsRun ? setChosen : undefined}
         />
       </WorkspaceDataContext.Provider>
     );

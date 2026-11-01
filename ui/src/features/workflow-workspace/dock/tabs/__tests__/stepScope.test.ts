@@ -90,15 +90,21 @@ describe('scopeDetailsToStep', () => {
 });
 
 describe('stepDockTabs', () => {
-  it('gives a plain step Log and Outputs, without the Timeline', () => {
-    expect(stepDockTabs(full, 'plain')).toEqual(['log', 'outputs']);
+  it('gives a plain step Log, History and Outputs, without the Timeline', () => {
+    expect(stepDockTabs(full, 'plain')).toEqual(['log', 'history', 'outputs']);
   });
 
   it('adds Chat for a chat step and Agent with Chat for an agent step', () => {
-    expect(stepDockTabs(full, 'chat step')).toEqual(['log', 'outputs', 'chat']);
+    expect(stepDockTabs(full, 'chat step')).toEqual([
+      'log',
+      'history',
+      'outputs',
+      'chat',
+    ]);
     expect(stepDockTabs(full, 'agent step')).toEqual([
       'log',
       'agent',
+      'history',
       'outputs',
       'chat',
     ]);
@@ -124,8 +130,8 @@ describe('stepDockTabs', () => {
     }
   });
 
-  it('gives Log and Outputs for a step that the run does not have', () => {
-    expect(stepDockTabs(full, 'ghost')).toEqual(['log', 'outputs']);
+  it('gives Log, History and Outputs for a step that the run does not have', () => {
+    expect(stepDockTabs(full, 'ghost')).toEqual(['log', 'history', 'outputs']);
   });
 });
 

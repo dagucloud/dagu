@@ -62,13 +62,13 @@ describe('useLegacyRedirect', () => {
       'a history run link (R7)',
       '/dags/flow.yaml/history?dagRunId=X&remoteNode=edge',
       'history',
-      '/dags/flow.yaml?run=X&remoteNode=edge',
+      '/dags/flow.yaml?run=X&dock=history&remoteNode=edge',
     ],
     [
       'a history link (R9)',
       '/dags/flow.yaml/history',
       'history',
-      '/dags/flow.yaml?dock=timeline',
+      '/dags/flow.yaml?dock=history',
     ],
   ])('stays pending on %s and navigates once', (_, entry, tab, to) => {
     const { result, rerender } = renderRedirect(entry, {

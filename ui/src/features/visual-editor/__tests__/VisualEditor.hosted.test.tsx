@@ -103,6 +103,7 @@ vi.mock('../canvas/useCanvasDirection', async (importOriginal) => {
 // The real canvas, with its view handle watched.
 const view = vi.hoisted(() => ({
   revealStep: vi.fn(),
+  highlightStep: vi.fn(),
   fitView: vi.fn(),
   // The props of the last canvas render.
   canvas: null as VisualCanvasProps | null,
@@ -122,6 +123,10 @@ vi.mock('../canvas', async (importOriginal) => {
         revealStep: (key) => {
           view.revealStep(key);
           inner.current?.revealStep(key);
+        },
+        highlightStep: (key) => {
+          view.highlightStep(key);
+          inner.current?.highlightStep(key);
         },
         zoomTo: (level) => inner.current?.zoomTo(level),
         getZoom: () => inner.current?.getZoom() ?? 1,
@@ -256,6 +261,7 @@ afterEach(() => {
   api.queries = [];
   api.post = () => undefined;
   view.revealStep.mockClear();
+  view.highlightStep.mockClear();
   view.fitView.mockClear();
   vi.mocked(useRunOverlay).mockClear();
   vi.mocked(copyStepsYaml).mockClear();
@@ -1003,6 +1009,23 @@ describe.skipIf(realSchema === null)('VisualEditor in a host', () => {
       expect(isSelected('steps[2]')).toBe(true);
       expect(view.revealStep).toHaveBeenCalledWith('steps[2]');
       expect(onSelectedStepNameChange).toHaveBeenLastCalledWith('publish');
+    });
+
+    // The History tab of the Run panel names the server step; the canvas
+    // lights its node and the selection stays.
+    it('spotlights the node of a server step name without selecting it', () => {
+      const onSelectedStepNameChange = vi.fn();
+      const { handle } = renderWithHandle({ onSelectedStepNameChange });
+
+      act(() => handle().highlightStep('publish'));
+      expect(view.highlightStep).toHaveBeenLastCalledWith('steps[2]');
+      act(() => handle().highlightStep('nope'));
+      expect(view.highlightStep).toHaveBeenLastCalledWith(null);
+      act(() => handle().highlightStep(null));
+      expect(view.highlightStep).toHaveBeenLastCalledWith(null);
+      expect(isSelected('steps[2]')).toBe(false);
+      expect(onSelectedStepNameChange).not.toHaveBeenCalled();
+      expect(view.revealStep).not.toHaveBeenCalled();
     });
 
     it('opens the list of steps only when the user may edit', () => {

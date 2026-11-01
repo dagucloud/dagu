@@ -279,7 +279,8 @@ export function DockProvider({ children }: { children: ReactNode }) {
     () => (details ? dockFacts(details, { artifactEnabled }) : null),
     [details, artifactEnabled]
   );
-  const tabs = useMemo(() => dockTabsFor(facts), [facts]);
+  const loading = run.hasRun && !details;
+  const tabs = useMemo(() => dockTabsFor(facts, { loading }), [facts, loading]);
   const badges = useMemo(() => dockTabBadges(facts), [facts]);
 
   const runId = run.ref?.runId ?? null;

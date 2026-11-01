@@ -200,9 +200,14 @@ describe('VisualEditor launchers', () => {
       onYamlVisibleChange,
       onSelectedStepNameChange,
     });
-    expect(screen.getByTestId('ve-canvas-node-steps[1]').className).toContain(
-      'ring-primary'
-    );
+    // The spotlight of a host is a variant that only data-spotlit turns on.
+    const ring = () =>
+      screen
+        .getByTestId('ve-canvas-node-steps[1]')
+        .className.split(/\s+/)
+        .filter((t) => !t.startsWith('group-data-[spotlit]/node:'))
+        .join(' ');
+    expect(ring()).toContain('ring-primary');
 
     fireEvent.click(
       within(screen.getByTestId('ve-launcher-cron')).getByRole('button')
@@ -211,9 +216,7 @@ describe('VisualEditor launchers', () => {
     expect(onYamlVisibleChange).toHaveBeenLastCalledWith(false);
     expect(onSelectedStepNameChange).toHaveBeenLastCalledWith(null);
     expect(screen.getByTestId('ve-launcher-panel-cron')).toBeInTheDocument();
-    expect(
-      screen.getByTestId('ve-canvas-node-steps[1]').className
-    ).not.toContain('ring-primary');
+    expect(ring()).not.toContain('ring-primary');
   });
 
   // A launcher panel and a step take turns: a click on a step closes the
