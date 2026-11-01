@@ -3,6 +3,7 @@
 
 import { act, render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
+import { useSyncExternalStore } from 'react';
 import { MemoryRouter } from 'react-router-dom';
 import useSWR, { SWRConfig } from 'swr';
 import { afterEach, describe, expect, it, vi } from 'vitest';
@@ -390,6 +391,47 @@ describe('FreezeWhenHidden', () => {
     rerender(tree(false));
     expect(await screen.findByText('v2')).toBeInTheDocument();
     expect(fetcher).toHaveBeenCalledTimes(2);
+  });
+
+  // A frozen subtree still renders for a URL change: a query swapped in
+  // while it is hidden, as the run log that a cleared step shows, reads once
+  // and must be read again when the subtree shows.
+  it('reads a query that mounted while hidden once more when it shows', async () => {
+    let version = 1;
+    const fetcher = vi.fn(async (key: string) => `${key}:v${version}`);
+    let current = 'step-log';
+    const listeners = new Set<() => void>();
+    const setKey = (key: string) => {
+      current = key;
+      listeners.forEach((listener) => listener());
+    };
+    function Reader() {
+      const key = useSyncExternalStore(
+        (listener) => {
+          listeners.add(listener);
+          return () => listeners.delete(listener);
+        },
+        () => current
+      );
+      const { data } = useSWR(key, fetcher, { revalidateOnFocus: false });
+      return <span>{data ?? ''}</span>;
+    }
+    const tree = (hidden: boolean) => (
+      <SWRConfig value={{ provider: () => new Map(), dedupingInterval: 0 }}>
+        <FreezeWhenHidden hidden={hidden}>
+          <Reader />
+        </FreezeWhenHidden>
+      </SWRConfig>
+    );
+
+    const { rerender } = render(tree(false));
+    expect(await screen.findByText('step-log:v1')).toBeInTheDocument();
+    rerender(tree(true));
+    act(() => setKey('run-log'));
+    expect(await screen.findByText('run-log:v1')).toBeInTheDocument();
+    version = 2;
+    rerender(tree(false));
+    expect(await screen.findByText('run-log:v2')).toBeInTheDocument();
   });
 
   // A query that mounts as the subtree shows, as the log of another run,

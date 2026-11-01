@@ -29,24 +29,36 @@ const HiddenContext = createContext(false);
 const noPolling: Middleware = (useSWRNext) => (key, fetcher, config) =>
   useSWRNext(key, fetcher, { ...config, refreshInterval: 0 });
 
-/** Counts the hooks below that read each key, while they are mounted. */
-function useMountedKey(mounted: Map<string, number>, key: Key) {
+/** The queries of a subtree, and the ones it holds or mounts while hidden. */
+interface QueryTracker {
+  /** The hooks that read each key, while they are mounted. */
+  mounted: Map<string, number>;
+  /** The keys that can have missed a change while the subtree was hidden. */
+  missed: Set<string>;
+  /** Whether the subtree renders hidden: set during its render. */
+  hidden: boolean;
+}
+
+function useTrackedKey(tracker: QueryTracker, key: Key) {
   const id = unstable_serialize(key);
   useEffect(() => {
     if (!id) return;
-    mounted.set(id, (mounted.get(id) ?? 0) + 1);
+    tracker.mounted.set(id, (tracker.mounted.get(id) ?? 0) + 1);
+    // A query that mounts while hidden, as one that a URL change swaps in,
+    // reads once and then misses the rest.
+    if (tracker.hidden) tracker.missed.add(id);
     return () => {
-      const left = (mounted.get(id) ?? 1) - 1;
-      if (left > 0) mounted.set(id, left);
-      else mounted.delete(id);
+      const left = (tracker.mounted.get(id) ?? 1) - 1;
+      if (left > 0) tracker.mounted.set(id, left);
+      else tracker.mounted.delete(id);
     };
-  }, [mounted, id]);
+  }, [tracker, id]);
 }
 
-function trackMounted(mounted: Map<string, number>): Middleware {
+function trackQueries(tracker: QueryTracker): Middleware {
   return (useSWRNext) =>
     function useTrackedSWR(key, fetcher, config) {
-      useMountedKey(mounted, key);
+      useTrackedKey(tracker, key);
       return useSWRNext(key, fetcher, config);
     };
 }
@@ -81,30 +93,35 @@ export function FreezeWhenHidden({
   const shown = useRef({ data, children });
   if (!hidden) shown.current = { data, children };
 
-  const [mounted] = useState(() => new Map<string, number>());
+  const [tracker] = useState<QueryTracker>(() => ({
+    mounted: new Map(),
+    missed: new Set(),
+    hidden,
+  }));
+  // Set before the children render: the effects of a query that mounts as
+  // the subtree shows run before this component's, and see it shown.
+  tracker.hidden = hidden;
   // Stable values: a new one would render every SWR hook below again.
   const swr = useMemo(() => {
-    const track = trackMounted(mounted);
+    const track = trackQueries(tracker);
     return { shown: { use: [track] }, hidden: { use: [track, noPolling] } };
-  }, [mounted]);
+  }, [tracker]);
 
-  // The queries mounted when the subtree hid are the ones that can have
-  // missed a change. A query that mounts as it shows makes its own first
-  // read, so it is not read again. The effects of the children run first:
-  // on show, `mounted` already drops the queries that went away.
+  // The queries held when the subtree hid, and those mounted while it was
+  // hidden, can have missed a change: each still mounted is read once when
+  // it shows. A query that mounts as it shows makes its own first read.
   const { mutate } = useSWRConfig();
-  const missed = useRef<string[] | null>(null);
   useEffect(() => {
     if (hidden) {
-      missed.current = [...mounted.keys()];
+      for (const id of tracker.mounted.keys()) tracker.missed.add(id);
       return;
     }
-    const ids = missed.current ?? [];
-    missed.current = null;
+    const ids = [...tracker.missed];
+    tracker.missed.clear();
     for (const id of ids) {
-      if (mounted.has(id)) void mutate(id);
+      if (tracker.mounted.has(id)) void mutate(id);
     }
-  }, [hidden, mounted, mutate]);
+  }, [hidden, tracker, mutate]);
 
   return (
     <HiddenContext.Provider value={hidden}>
