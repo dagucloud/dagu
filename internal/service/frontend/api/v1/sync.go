@@ -837,6 +837,8 @@ func toAPISyncItemKind(kind gitsync.SyncItemKind) api.SyncItemKind {
 		return api.SyncItemKindDocAsset
 	case gitsync.SyncItemKindWikiPage:
 		return api.SyncItemKindDoc
+	case gitsync.SyncItemKindCalendar:
+		return api.SyncItemKindCalendar
 	case gitsync.SyncItemKindDAG:
 	}
 	return api.SyncItemKindDag

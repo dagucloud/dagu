@@ -940,31 +940,41 @@ func TestToAPISyncItems_IncludesPath(t *testing.T) {
 			Kind:       gitsync.SyncItemKindFile,
 			ModifiedAt: &now,
 		},
+		"calendars/jp": {
+			Status:        gitsync.StatusSynced,
+			Kind:          gitsync.SyncItemKindCalendar,
+			FileExtension: ".yaml",
+			ModifiedAt:    &now,
+		},
 	}
 
 	apiItems := toAPISyncItems(states)
-	require.Len(t, apiItems, 5)
+	require.Len(t, apiItems, 6)
 
 	assert.Equal(t, "alpha", apiItems[0].ItemId)
 	assert.Equal(t, "alpha.yml", apiItems[0].FilePath)
 	assert.Equal(t, "alpha.yml", apiItems[0].DisplayName)
 
+	assert.Equal(t, "calendars/jp", apiItems[1].ItemId)
+	assert.Equal(t, "calendars/jp.yaml", apiItems[1].FilePath)
+	assert.Equal(t, apigen.SyncItemKindCalendar, apiItems[1].Kind)
+
 	// Asset IDs already carry their extension; the path passes through.
-	assert.Equal(t, "docs/.attachments/guides/deploy/logo.png", apiItems[1].ItemId)
-	assert.Equal(t, "docs/.attachments/guides/deploy/logo.png", apiItems[1].FilePath)
-	assert.Equal(t, apigen.SyncItemKindDocAsset, apiItems[1].Kind)
+	assert.Equal(t, "docs/.attachments/guides/deploy/logo.png", apiItems[2].ItemId)
+	assert.Equal(t, "docs/.attachments/guides/deploy/logo.png", apiItems[2].FilePath)
+	assert.Equal(t, apigen.SyncItemKindDocAsset, apiItems[2].Kind)
 
-	assert.Equal(t, "docs/operations/deploy", apiItems[2].ItemId)
-	assert.Equal(t, "docs/operations/deploy.MD", apiItems[2].FilePath)
-	assert.Equal(t, apigen.SyncItemKindDoc, apiItems[2].Kind)
+	assert.Equal(t, "docs/operations/deploy", apiItems[3].ItemId)
+	assert.Equal(t, "docs/operations/deploy.MD", apiItems[3].FilePath)
+	assert.Equal(t, apigen.SyncItemKindDoc, apiItems[3].Kind)
 
-	assert.Equal(t, "reports/monthly", apiItems[3].ItemId)
-	assert.Equal(t, "reports/monthly.yaml", apiItems[3].FilePath)
-	assert.Equal(t, apigen.SyncItemKindDag, apiItems[3].Kind)
+	assert.Equal(t, "reports/monthly", apiItems[4].ItemId)
+	assert.Equal(t, "reports/monthly.yaml", apiItems[4].FilePath)
+	assert.Equal(t, apigen.SyncItemKindDag, apiItems[4].Kind)
 
-	assert.Equal(t, "scripts/run.sh", apiItems[4].ItemId)
-	assert.Equal(t, "scripts/run.sh", apiItems[4].FilePath)
-	assert.Equal(t, apigen.SyncItemKindFile, apiItems[4].Kind)
+	assert.Equal(t, "scripts/run.sh", apiItems[5].ItemId)
+	assert.Equal(t, "scripts/run.sh", apiItems[5].FilePath)
+	assert.Equal(t, apigen.SyncItemKindFile, apiItems[5].Kind)
 }
 
 func TestGetSyncItemDiffPreservesBinarySizeAvailability(t *testing.T) {
