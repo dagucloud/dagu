@@ -76,6 +76,12 @@ func tierSnapshot(t *testing.T, dir string) map[string]string {
 	return all
 }
 
+func readAggFile(path string) ([]agg, error) {
+	var out []agg
+	err := scanAggs(path, -1<<62, 1<<62, func(a agg) { out = append(out, a) })
+	return out, err
+}
+
 func sumAggs(t *testing.T, dir string, tier Tier) (n, f uint64) {
 	t.Helper()
 	st := newStore(dir)

@@ -501,7 +501,7 @@ describe('ContinuousPanel', () => {
     };
     renderPanel(true);
     expect(h.calls.find((c) => c.path === AVAIL)!.config?.refreshInterval).toBe(
-      10_000
+      60_000
     );
     expect(lastSamples()).toMatchObject({
       window: { preset: '24h' },
