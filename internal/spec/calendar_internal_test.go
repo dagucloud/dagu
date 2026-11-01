@@ -79,3 +79,16 @@ func TestCalendarSourceRechecksContent(t *testing.T) {
 	_, ok = cal.Holiday(holiday)
 	assert.True(t, ok)
 }
+
+// The expiry warning starts CalendarExpiryWarningDays before the through
+// date, that day included.
+func TestCalendarExpiryWarningStartsOnItsFirstDay(t *testing.T) {
+	t.Parallel()
+
+	today := ir.DateOf(time.Date(2027, 3, 1, 0, 0, 0, 0, time.UTC))
+	cal := &ir.Calendar{Name: "jp", Through: today.AddDays(CalendarExpiryWarningDays)}
+	assert.NotEmpty(t, calendarExpiryWarning(cal, today))
+
+	cal.Through = today.AddDays(CalendarExpiryWarningDays + 1)
+	assert.Empty(t, calendarExpiryWarning(cal, today))
+}

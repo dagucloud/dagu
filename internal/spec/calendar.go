@@ -553,7 +553,7 @@ func calendarExpiryWarning(cal *ir.Calendar, today ir.CivilDate) string {
 	case cal.Through.Before(today):
 		return fmt.Sprintf("calendar %q lists holidays through %s; later dates count its weekdays alone, so add the next period's holidays",
 			cal.Name, cal.Through)
-	case cal.Through.Before(today.AddDays(CalendarExpiryWarningDays)):
+	case !today.AddDays(CalendarExpiryWarningDays).Before(cal.Through):
 		return fmt.Sprintf("calendar %q lists holidays through %s; add the next period's holidays before then",
 			cal.Name, cal.Through)
 	default:
