@@ -483,12 +483,9 @@ describe.skipIf(realSchema === null)('VisualEditor', () => {
     }
   });
 
-  it('suggests the harnesses of the document as providers', () => {
+  it('suggests the harnesses that the host gives as providers', () => {
     renderEditorWithBar({
-      initial: `harnesses:
-  team-agent:
-    binary: team-agent
-steps:
+      initial: `steps:
   - name: agent
     action: harness.run
     with:

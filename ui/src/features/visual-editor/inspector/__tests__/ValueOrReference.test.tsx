@@ -206,6 +206,7 @@ describe.skipIf(realSchema === null)('the providers of harness.run', () => {
     expect(screen.getByRole('option', { name: 'claude' })).toBeInTheDocument();
     fireEvent.focus(fallback!);
     expect(fallback).toHaveAttribute('aria-expanded', 'true');
+    expect(fallback).toHaveValue('codex');
     const listbox = document.getElementById(
       fallback!.getAttribute('aria-controls')!
     )!;
