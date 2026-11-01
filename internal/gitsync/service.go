@@ -728,11 +728,10 @@ func (s *serviceImpl) reconcileAfterPull(state *State, repoFileSet map[string]st
 func (s *serviceImpl) scanLocalItems(state *State) error {
 	extensions := map[string]bool{dagYAMLExtension: true, dagYMLExtension: true}
 
+	// A DAGs directory that does not exist yet holds no DAGs, but the
+	// calendars live elsewhere and are still listed.
 	entries, err := os.ReadDir(s.dagsDir)
-	if err != nil {
-		if os.IsNotExist(err) {
-			return nil // DAGs directory doesn't exist yet
-		}
+	if err != nil && !os.IsNotExist(err) {
 		return err
 	}
 

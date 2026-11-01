@@ -316,6 +316,31 @@ func TestScanLocalCalendars(t *testing.T) {
 	assert.Equal(t, ".yaml", item.FileExtension)
 }
 
+// Calendars live outside the DAGs directory, so they are listed even before
+// that directory exists.
+func TestScanLocalCalendarsWithoutDAGsDir(t *testing.T) {
+	t.Parallel()
+
+	tempDir := t.TempDir()
+	calendarsPath := filepath.Join(tempDir, "calendars")
+	require.NoError(t, os.MkdirAll(calendarsPath, 0755))
+	require.NoError(t, os.WriteFile(filepath.Join(calendarsPath, "jp.yaml"), []byte("holidays: []\n"), 0600))
+
+	dagsDir := filepath.Join(tempDir, "dags")
+	s := &serviceImpl{
+		dagsDir:      dagsDir,
+		wikiDir:      filepath.Join(dagsDir, "wiki"),
+		repoWikiDir:  wikiDir,
+		calendarsDir: calendarsPath,
+		cfg:          &Config{},
+	}
+	state := &State{Items: make(map[string]*SyncItemState)}
+	require.NoError(t, s.scanLocalItems(state))
+
+	require.Contains(t, state.Items, "calendars/jp")
+	assert.Equal(t, StatusUntracked, state.Items["calendars/jp"].Status)
+}
+
 func TestIsValidAssetItemID(t *testing.T) {
 	t.Parallel()
 
