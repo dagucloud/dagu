@@ -72,6 +72,7 @@ function CalendarPage(): React.ReactNode {
   const canWrite = useCanWriteCalendars();
   const [year, setYear] = useState(() => dayjs().year());
   const [isDeleting, setIsDeleting] = useState(false);
+  const [deleteRequested, setDeleteRequested] = useState(false);
   const saveRef = useRef<(() => Promise<void>) | null>(null);
   const editorKey = `${remoteNode}:${name}`;
   // Advances on each visit of a node and calendar, and on each save. A
@@ -84,6 +85,9 @@ function CalendarPage(): React.ReactNode {
   // Saving waits out a pending delete, whose response would otherwise be
   // superseded by the save.
   const deletePendingRef = useRef(false);
+  // The generation of the save in flight. A visit runs one save at a time,
+  // so the server keeps the content saved last.
+  const savingGenerationRef = useRef<number | null>(null);
 
   useEffect(() => {
     appBarContext.setTitle('Calendars');
@@ -137,12 +141,14 @@ function CalendarPage(): React.ReactNode {
       !editable ||
       value === null ||
       !editor.hasUnsavedChanges ||
-      deletePendingRef.current
+      deletePendingRef.current ||
+      savingGenerationRef.current === generationRef.current
     ) {
       return;
     }
     const generation = ++generationRef.current;
     editor.beginSave(value);
+    savingGenerationRef.current = generation;
     // A request that throws, as on a lost connection, fails like one that
     // returns an error.
     const response = await client
@@ -151,6 +157,9 @@ function CalendarPage(): React.ReactNode {
         body: { spec: value },
       })
       .catch(() => null);
+    if (savingGenerationRef.current === generation) {
+      savingGenerationRef.current = null;
+    }
     if (generationRef.current !== generation) {
       return;
     }
@@ -204,14 +213,19 @@ function CalendarPage(): React.ReactNode {
   }, [editable]);
 
   async function handleDelete(): Promise<void> {
+    if (deletePendingRef.current) {
+      return;
+    }
     const generation = generationRef.current;
     deletePendingRef.current = true;
+    setDeleteRequested(true);
     const response = await client
       .DELETE('/calendars/{name}', {
         params: { path: { name }, query: { remoteNode } },
       })
       .catch(() => null);
     deletePendingRef.current = false;
+    setDeleteRequested(false);
     setIsDeleting(false);
     if (generationRef.current !== generation) {
       return;
@@ -458,6 +472,7 @@ function CalendarPage(): React.ReactNode {
           title="Delete calendar"
           buttonText="Delete"
           visible={isDeleting}
+          submitDisabled={deleteRequested}
           dismissModal={() => setIsDeleting(false)}
           onSubmit={() => void handleDelete()}
         >

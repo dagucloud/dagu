@@ -115,6 +115,7 @@ function lastCalendarQueryNode(): unknown {
 
 describe('CalendarPage', () => {
   beforeEach(() => {
+    useQueryMock.mockClear();
     mocks.put.mockReset();
     mocks.del.mockReset();
     mocks.showError.mockReset();
@@ -331,6 +332,46 @@ describe('CalendarPage', () => {
 
     expect(mocks.put).not.toHaveBeenCalled();
     expect(await screen.findByText('Calendar list')).toBeInTheDocument();
+  });
+
+  it('sends one save while it runs', async () => {
+    let finishSave: (response: unknown) => void = () => {};
+    mocks.put.mockReturnValue(
+      new Promise((resolve) => {
+        finishSave = resolve;
+      })
+    );
+    renderPage(calendar());
+
+    fireEvent.change(await screen.findByLabelText('Calendar file'), {
+      target: { value: 'holidays: [2027-01-11]\n' },
+    });
+    fireEvent.click(screen.getByRole('button', { name: 'Save' }));
+    fireEvent.keyDown(document, { key: 's', metaKey: true });
+    await act(async () => finishSave({ data: { errors: [], warnings: [] } }));
+
+    expect(mocks.put).toHaveBeenCalledTimes(1);
+  });
+
+  it('sends one delete while it runs', async () => {
+    let finishDelete: (response: unknown) => void = () => {};
+    mocks.del.mockReturnValue(
+      new Promise((resolve) => {
+        finishDelete = resolve;
+      })
+    );
+    renderPage(calendar());
+
+    fireEvent.click(await screen.findByRole('button', { name: 'Delete' }));
+    const confirm = within(screen.getByRole('dialog')).getByRole('button', {
+      name: 'Delete',
+    });
+    fireEvent.click(confirm);
+    fireEvent.click(confirm);
+    await act(async () => finishDelete({ data: {} }));
+
+    expect(mocks.del).toHaveBeenCalledTimes(1);
+    expect(mocks.showError).not.toHaveBeenCalled();
   });
 
   it('reports a save the server refused', async () => {
