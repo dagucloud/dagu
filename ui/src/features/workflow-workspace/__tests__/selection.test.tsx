@@ -86,7 +86,8 @@ vi.mock('../step/StepRunView', () => ({
     <div data-testid="step-run-view" data-step={target.step} />
   ),
 }));
-vi.mock('../step/useStepRunActions', () => ({
+vi.mock('../step/useStepRunActions', async (importOriginal) => ({
+  ...(await importOriginal<object>()),
   useStepRunActions: () => ({
     can: () => ({ retry: false, setStatus: false, runStep: false }),
     openSubRun: vi.fn(),
@@ -289,6 +290,7 @@ beforeEach(() => {
   host.handle = {
     revealStep: vi.fn(() => true),
     openForm: vi.fn(() => true),
+    getDag: () => undefined,
   };
 });
 
@@ -458,5 +460,62 @@ describe('workspace selection', () => {
     act(() => props().ndv?.onStateChange(null));
     expect(nav.location).toBe('/dags/f?step=fetch');
     expect(props().chrome?.escapeToHost).toBeFalsy();
+  });
+});
+
+// The real step panel beside the real Run panel: each keeps its own state.
+describe('step panel', () => {
+  const stepPanel = () =>
+    screen.queryByRole('complementary', { name: /^Details of / });
+
+  it('opens on a click with the Details tab, and leaves the Run panel shut', () => {
+    localStorage.removeItem(DOCK_OPEN_KEY);
+    renderWorkspace('/dags/f');
+    loadSpec();
+    act(() => {
+      props().onSelectedStepNameChange?.('fetch');
+      props().onStepClick?.('fetch');
+    });
+
+    const panel = screen.getByRole('complementary', {
+      name: 'Details of fetch',
+    });
+    expect(within(panel).getByRole('tab', { name: 'Details' })).toHaveAttribute(
+      'aria-selected',
+      'true'
+    );
+    expect(dock()).toHaveAttribute('data-state', 'collapsed');
+
+    // Another click switches it; a click on the pane closes it.
+    act(() => {
+      props().onSelectedStepNameChange?.('store');
+      props().onStepClick?.('store');
+    });
+    expect(stepPanel()).toHaveAccessibleName('Details of store');
+    act(() => props().onSelectedStepNameChange?.(null));
+    expect(stepPanel()).toBeNull();
+  });
+
+  it('does not open for a pick in the Run panel', () => {
+    renderWorkspace('/dags/f');
+    loadSpec();
+    fireEvent.click(
+      within(stepRow('fetch')).getByRole('button', { name: 'fetch' })
+    );
+    expect(nav.location).toBe('/dags/f?step=fetch&dock=log');
+    expect(stepPanel()).toBeNull();
+  });
+
+  it('follows a pick in the Run panel while it is open', () => {
+    renderWorkspace('/dags/f');
+    loadSpec();
+    act(() => {
+      props().onSelectedStepNameChange?.('fetch');
+      props().onStepClick?.('fetch');
+    });
+    fireEvent.click(
+      within(stepRow('store')).getByRole('button', { name: 'store' })
+    );
+    expect(stepPanel()).toHaveAccessibleName('Details of store');
   });
 });

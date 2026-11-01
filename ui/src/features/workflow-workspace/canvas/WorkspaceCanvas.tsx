@@ -43,6 +43,7 @@ import { WorkflowTabsPanel } from '../panel/WorkflowTabsPanel';
 import { useSettingsLeaveGuard } from '../settings/useSettingsLeaveGuard';
 import { useWorkspaceNotices } from '../notices/useWorkspaceNotices';
 import { useWorkspaceUrl } from '../state/workspaceUrl';
+import { StepPanel } from '../step/StepPanel';
 import { StepRunTabs } from '../step/StepRunTabs';
 import { useReuseSource } from '../step/useReuseSource';
 import { useStepRunActions } from '../step/useStepRunActions';
@@ -51,8 +52,10 @@ import { useDock } from '../dock/DockContext';
 import { useDockYield } from './useDockYield';
 import { useTestRunNotice } from './useTestRunNotice';
 import { useEscInStepYaml } from './useEscInStepYaml';
+import { useOpenStepDetails } from './useOpenStepDetails';
 import { useRightPanelClearance } from './useRightPanelClearance';
 import { runStepGates, useStepCommandHost } from './useStepCommandHost';
+import { useStepPanel } from './useStepPanel';
 import { useDeepLinkReveal, useStepViewKeys } from './useStepViewHost';
 import {
   useWorkspaceEditor,
@@ -63,7 +66,8 @@ const CHROME: DAGSpecHostProps['chrome'] = {
   hideRunBar: true,
   compactNotices: true,
 };
-// While the node details view is open, Escape on the canvas closes it.
+// While the node details view or the step panel is open, Escape on the
+// canvas closes it.
 const CHROME_NDV_OPEN: DAGSpecHostProps['chrome'] = {
   ...CHROME,
   escapeToHost: true,
@@ -373,6 +377,18 @@ export function WorkspaceCanvas({
     [fileName, workspaceName]
   );
 
+  // A click on a step opens its panel over the canvas; another right panel,
+  // the node view or the snapshot takes its place.
+  const stepPanel = useStepPanel({
+    zoneRef,
+    step: url.step,
+    covered: url.ndv !== null || activePanel !== null || snapshot,
+    linked: url.step !== null && url.ndv === null && url.dock === null,
+    active: paneActive,
+  });
+  const panelStep = stepPanel.shown ? url.step : null;
+  const openStepDetails = useOpenStepDetails();
+
   // Esc closes the node details view when no dialog or menu is above it.
   // With no panel or node view open, it clears the selected step and ?step.
   const ndvOpen = url.ndv !== null || activePanel === 'ndv';
@@ -381,7 +397,7 @@ export function WorkspaceCanvas({
     active: paneActive,
     hasStep: url.step !== null,
     viewOpen: ndvOpen,
-    panelOpen: activePanel !== null,
+    panelOpen: activePanel !== null || stepPanel.shown,
     closeView: () => setUrl({ ndv: null }, { replace: true }),
     clearStep: () => setUrl({ step: null, ndv: null }, { replace: true }),
   });
@@ -493,6 +509,7 @@ export function WorkspaceCanvas({
                   onRunStarted={onRunStarted}
                   selectedStepName={url.step}
                   onSelectedStepNameChange={onSelectedStepNameChange}
+                  onStepClick={stepPanel.show}
                   ndv={ndv}
                   openNdvOn="open"
                   renderStepOutput={renderStepOutput}
@@ -500,7 +517,7 @@ export function WorkspaceCanvas({
                   stepCommandGates={stepCommandGates}
                   followedRuns={actions.followed}
                   inputRun={inputRun}
-                  chrome={ndvOpen ? CHROME_NDV_OPEN : CHROME}
+                  chrome={ndvOpen || stepPanel.shown ? CHROME_NDV_OPEN : CHROME}
                   notices={notices}
                   editorHandleRef={editorHandleRef}
                   onEditorStateChange={onEditorStateChange}
@@ -512,6 +529,15 @@ export function WorkspaceCanvas({
           </CanvasToolbarHostContext.Provider>
         </PanelPlacementProvider>
       </CanvasOverlayInsetContext.Provider>
+      {panelStep !== null && (
+        <StepPanel
+          step={panelStep}
+          onClose={stepPanel.close}
+          onStepCommand={onStepCommand}
+          gates={stepCommandGates}
+          onOpenStep={() => openStepDetails(panelStep)}
+        />
+      )}
       {snapshot && <RunSnapshotCanvas />}
       {actions.dialogs}
     </div>

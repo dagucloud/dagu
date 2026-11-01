@@ -32,6 +32,7 @@ import type {
   WorkspaceRunValue,
 } from '../../contracts';
 import type { DockController } from '../../dock/DockContext';
+import type { StepPanelProps } from '../../step/StepPanel';
 import type { StepRunActions } from '../../step/useStepRunActions';
 import { useWorkspaceUrl } from '../../state/workspaceUrl';
 import { WorkspaceCanvas } from '../WorkspaceCanvas';
@@ -114,6 +115,20 @@ vi.mock('../../dock/DockContext', () => ({
 }));
 vi.mock('../../notices/useWorkspaceNotices', () => ({
   useWorkspaceNotices: () => [],
+}));
+// The panel has its own tests: a stand-in that gives its props.
+const panel = vi.hoisted(() => ({ props: null as StepPanelProps | null }));
+vi.mock('../../step/StepPanel', () => ({
+  StepPanel: function StandInPanel(p: StepPanelProps) {
+    panel.props = p;
+    return (
+      <aside data-testid="step-panel" data-step={p.step} data-step-panel="">
+        <button type="button" onClick={p.onClose}>
+          close panel
+        </button>
+      </aside>
+    );
+  },
 }));
 // The snapshot has its own tests: a stand-in with the Back button.
 vi.mock('../../executions/RunSnapshotCanvas', () => ({
@@ -418,6 +433,7 @@ let dock: DockController;
 
 beforeEach(() => {
   host.props = null;
+  panel.props = null;
   host.real = false;
   host.handle = null;
   api.queries = [];
@@ -694,11 +710,14 @@ describe('WorkspaceCanvas', () => {
         expect(location()).toHaveAttribute('data-navigation', 'REPLACE');
       });
 
+      // The link opens the step panel: the first Esc closes it.
       it('clears it when the focus is in the canvas zone', () => {
         renderCanvas('/dags/example.yaml?step=extract');
-        fireEvent.keyDown(screen.getByTestId('dag-spec-stand-in'), {
-          key: 'Escape',
-        });
+        const canvas = screen.getByTestId('dag-spec-stand-in');
+        fireEvent.keyDown(canvas, { key: 'Escape' });
+        expect(screen.queryByTestId('step-panel')).toBeNull();
+        expect(location()).toHaveTextContent('step=extract');
+        fireEvent.keyDown(canvas, { key: 'Escape' });
         expect(location()).toHaveTextContent('/dags/example.yaml');
         expect(location()).not.toHaveTextContent('step=');
       });
@@ -810,6 +829,112 @@ describe('WorkspaceCanvas', () => {
       act(() => props().ndv?.onStateChange(null));
       expect(location()).toHaveTextContent('/dags/example.yaml?step=extract');
       expect(props().ndv?.state).toBeNull();
+    });
+  });
+
+  describe('step panel', () => {
+    function clickStep(name: string) {
+      act(() => {
+        props().onSelectedStepNameChange?.(name);
+        props().onStepClick?.(name);
+      });
+    }
+    const shownPanel = () => screen.queryByTestId('step-panel');
+
+    it('opens on a click on a step and follows the selection, with no dock', () => {
+      renderCanvas();
+      clickStep('extract');
+      expect(shownPanel()).toHaveAttribute('data-step', 'extract');
+      expect(screen.getByTestId('ww-canvas')).toContainElement(shownPanel());
+
+      // Another step, by a click or a selection from elsewhere.
+      act(() => props().onSelectedStepNameChange?.('load'));
+      expect(shownPanel()).toHaveAttribute('data-step', 'load');
+      expect(dock.openStep).not.toHaveBeenCalled();
+      expect(dock.toggle).not.toHaveBeenCalled();
+    });
+
+    it('does not open on a selection without a click', () => {
+      renderCanvas();
+      act(() => props().onSelectedStepNameChange?.('extract'));
+      expect(location()).toHaveTextContent('step=extract');
+      expect(shownPanel()).toBeNull();
+    });
+
+    // Closing leaves the step selected; Esc then clears it, as before.
+    it('closes on its button and on Esc, and keeps the step', () => {
+      renderCanvas();
+      clickStep('extract');
+      expect(props().chrome?.escapeToHost).toBe(true);
+      fireEvent.click(screen.getByRole('button', { name: 'close panel' }));
+      expect(shownPanel()).toBeNull();
+      expect(location()).toHaveTextContent('step=extract');
+      expect(props().chrome?.escapeToHost).toBeFalsy();
+
+      clickStep('extract');
+      fireEvent.keyDown(document.body, { key: 'Escape' });
+      expect(shownPanel()).toBeNull();
+      expect(location()).toHaveTextContent('step=extract');
+      fireEvent.keyDown(document.body, { key: 'Escape' });
+      expect(location()).not.toHaveTextContent('step=');
+    });
+
+    it('leaves Esc to a text field', () => {
+      renderCanvas();
+      clickStep('extract');
+      const input = document.createElement('input');
+      screen.getByTestId('ww-canvas').appendChild(input);
+      fireEvent.keyDown(input, { key: 'Escape' });
+      input.remove();
+      expect(shownPanel()).toHaveAttribute('data-step', 'extract');
+    });
+
+    it('closes for good when the step clears or the node view opens', () => {
+      renderCanvas();
+      clickStep('extract');
+      act(() => props().onSelectedStepNameChange?.(null));
+      expect(shownPanel()).toBeNull();
+      act(() => props().onSelectedStepNameChange?.('extract'));
+      expect(shownPanel()).toBeNull();
+
+      clickStep('extract');
+      act(() => props().ndv?.onStateChange('expanded'));
+      expect(shownPanel()).toBeNull();
+      act(() => props().ndv?.onStateChange(null));
+      expect(location()).toHaveTextContent('step=extract');
+      expect(shownPanel()).toBeNull();
+    });
+
+    it('opens from a link to a step, not from a link to the Run panel or the node view', () => {
+      const first = renderCanvas('/dags/example.yaml?step=extract');
+      expect(shownPanel()).toHaveAttribute('data-step', 'extract');
+      first.unmount();
+
+      const second = renderCanvas('/dags/example.yaml?step=extract&dock=log');
+      expect(shownPanel()).toBeNull();
+      second.unmount();
+
+      renderCanvas('/dags/example.yaml?step=extract&ndv=expanded');
+      expect(shownPanel()).toBeNull();
+    });
+
+    // The panel takes the path of the node menu: the gates and the dialogs
+    // of the step actions.
+    it('sends its commands through the step actions and opens the node view', () => {
+      renderCanvas();
+      clickStep('a');
+      const given = panel.props!;
+      expect(given.gates.canRetry('a')).toBe(true);
+      expect(given.gates.canSetStatus('a')).toBe(false);
+
+      act(() => given.onStepCommand({ kind: 'retryStep', step: 'a' }));
+      expect(actions.retryStep).toHaveBeenCalledWith('a');
+      act(() => given.onStepCommand({ kind: 'setStatus', step: 'a' }));
+      expect(actions.setStatus).not.toHaveBeenCalled();
+
+      act(() => given.onOpenStep());
+      expect(location()).toHaveTextContent('step=a&ndv=expanded');
+      expect(shownPanel()).toBeNull();
     });
   });
 
