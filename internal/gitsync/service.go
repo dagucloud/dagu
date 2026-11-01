@@ -3199,9 +3199,9 @@ func (s *serviceImpl) itemBaseDir(kind SyncItemKind) string {
 		return s.localWikiDir()
 	case SyncItemKindCalendar:
 		return s.calendarsDir
-	default:
-		return s.dagsDir
+	case SyncItemKindDAG, SyncItemKindFile:
 	}
+	return s.dagsDir
 }
 
 func (s *serviceImpl) localBaseDir(itemID string) string {

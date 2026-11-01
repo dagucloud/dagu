@@ -780,7 +780,7 @@ func syncItemFilePath(itemID string, kind gitsync.SyncItemKind, fileExtension st
 			return itemID + fileExtension
 		}
 		return itemID + ".md"
-	case gitsync.SyncItemKindDAG:
+	case gitsync.SyncItemKindDAG, gitsync.SyncItemKindCalendar:
 	}
 	if strings.EqualFold(fileExtension, ".yml") {
 		return itemID + ".yml"
