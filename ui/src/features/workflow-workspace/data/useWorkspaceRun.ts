@@ -107,7 +107,10 @@ export function useSelectedRun({
   const fallback = sseFallbackOptions(runSSE);
   const fallbackInterval = fallback.refreshInterval;
   // A test run writes no events, so its stream never reports a change: the
-  // run is read again while it is active, whatever the stream.
+  // run is read again while it is active, whatever the stream. SWR reads the
+  // interval only when its timer starts or fires, so the function changes
+  // when the run turns into an active test run: a timer that stopped starts.
+  const [readsTestRun, setReadsTestRun] = useState(false);
   const pinnedInterval = useCallback(
     (latest?: { dagRunDetails?: ApiDAGRunDetails }) => {
       const run = latest?.dagRunDetails;
@@ -115,7 +118,7 @@ export function useSelectedRun({
         ? TEST_RUN_READ_MS
         : fallbackInterval;
     },
-    [fallbackInterval]
+    [fallbackInterval, readsTestRun]
   );
   const {
     data: pinnedData,
@@ -139,6 +142,8 @@ export function useSelectedRun({
   const pinnedServer = pinnedEnabled
     ? (pinnedData?.dagRunDetails ?? null)
     : null;
+  const activeTestRun = !!pinnedServer?.ephemeral && isRunActive(pinnedServer);
+  if (activeTestRun !== readsTestRun) setReadsTestRun(activeTestRun);
   const missing =
     pinnedEnabled &&
     ((pinnedError != null && isNotFoundQueryError(pinnedError)) ||

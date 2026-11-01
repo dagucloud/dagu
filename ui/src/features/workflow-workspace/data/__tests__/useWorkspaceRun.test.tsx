@@ -249,6 +249,36 @@ describe('useWorkspaceRun, pinned', () => {
     );
   });
 
+  // The SSE connects before the first read: SWR armed no timer then, and the
+  // run that turns out to be an active test run must still be read again.
+  it('sees a test run end when the SSE was up before the first read', async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    try {
+      const testRun = (status: Status) => ({
+        ...run('run-0', [node('a', NodeStatus.Running)], status),
+        ephemeral: true,
+      });
+      server.runs['run-0'] = testRun(Status.Running);
+      h.runSSE.mockReturnValue(connectedSSE);
+      const view = renderWorkspace(() => useWorkspaceRun(), {
+        url: '/dags/demo?run=run-0',
+      });
+      await waitFor(() =>
+        expect(view.result.current?.value.details?.status).toBe(Status.Running)
+      );
+
+      server.runs['run-0'] = testRun(Status.Success);
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(5000);
+      });
+      await waitFor(() =>
+        expect(view.result.current.value.details?.status).toBe(Status.Success)
+      );
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it('keeps an SSE event of another run out of the pinned cache', async () => {
     server.runs['run-0'] = run('run-0', [node('a', NodeStatus.Success)]);
     const view = renderWorkspace(() => useWorkspaceRun(), {
