@@ -61,7 +61,7 @@ export const syncKindLabels: Record<
 };
 
 export const syncKindBadgeClass: Partial<Record<SyncKind, string>> = {
-  calendar: 'bg-amber-500/10 text-amber-600 dark:text-amber-400',
+  calendar: 'bg-muted text-foreground',
   doc: 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400',
   'doc-asset': 'bg-sky-500/10 text-sky-600 dark:text-sky-400',
   file: 'bg-violet-500/10 text-violet-600 dark:text-violet-400',
