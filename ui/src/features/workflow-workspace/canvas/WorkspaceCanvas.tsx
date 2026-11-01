@@ -512,7 +512,7 @@ export function WorkspaceCanvas({
                   onRunStarted={onRunStarted}
                   selectedStepName={url.step}
                   onSelectedStepNameChange={onSelectedStepNameChange}
-                  onStepClick={stepPanel.show}
+                  onStepClick={(_step, at) => stepPanel.show(at)}
                   ndv={ndv}
                   openNdvOn="open"
                   renderStepOutput={renderStepOutput}
@@ -535,6 +535,7 @@ export function WorkspaceCanvas({
       {panelStep !== null && (
         <StepPanel
           step={panelStep}
+          openedAt={stepPanel.openedAt}
           onClose={stepPanel.close}
           onStepCommand={onStepCommand}
           gates={stepCommandGates}

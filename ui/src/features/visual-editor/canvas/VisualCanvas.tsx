@@ -1340,7 +1340,10 @@ function CanvasView({
                 if (launcher) onLauncher?.(launcher);
                 else if (!isGhostKey(key)) {
                   selectStep(key);
-                  if (isCardClick(event)) onStepClick?.(key);
+                  if (isCardClick(event)) {
+                    const { clientX, clientY } = event;
+                    onStepClick?.(key, { clientX, clientY });
+                  }
                 }
               }}
               onNodeDoubleClick={(id) => {

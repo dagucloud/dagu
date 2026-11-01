@@ -833,10 +833,11 @@ describe('WorkspaceCanvas', () => {
   });
 
   describe('step panel', () => {
+    const AT = { clientX: 700, clientY: 120 };
     function clickStep(name: string) {
       act(() => {
         props().onSelectedStepNameChange?.(name);
-        props().onStepClick?.(name);
+        props().onStepClick?.(name, AT);
       });
     }
     const shownPanel = () => screen.queryByTestId('step-panel');
@@ -846,6 +847,8 @@ describe('WorkspaceCanvas', () => {
       clickStep('extract');
       expect(shownPanel()).toHaveAttribute('data-step', 'extract');
       expect(screen.getByTestId('ww-canvas')).toContainElement(shownPanel());
+      // The panel knows where the click was, to let a double click through.
+      expect(panel.props?.openedAt).toEqual(AT);
 
       // Another step, by a click or a selection from elsewhere.
       act(() => props().onSelectedStepNameChange?.('load'));

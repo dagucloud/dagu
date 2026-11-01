@@ -1,9 +1,9 @@
 // Copyright (C) 2026 Yota Hamada
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-import { fireEvent, render, screen, within } from '@testing-library/react';
+import { act, fireEvent, render, screen, within } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
-import { describe, expect, it, vi } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { NodeStatus, NodeStatusLabel, Status } from '@/api/v1/schema';
 import type { StepCommandGates } from '@/features/visual-editor/contracts';
 import type {
@@ -96,11 +96,13 @@ function setup({
   step = 'build',
   allow = true,
   loadingId,
+  openedAt,
 }: {
   details: ApiDAGRunDetails | null;
   step?: string;
   allow?: boolean;
   loadingId?: string;
+  openedAt?: { clientX: number; clientY: number };
 }) {
   const onClose = vi.fn();
   const onStepCommand = vi.fn();
@@ -118,6 +120,7 @@ function setup({
       >
         <StepPanel
           step={name}
+          openedAt={openedAt}
           onClose={onClose}
           onStepCommand={onStepCommand}
           gates={gates(allow)}
@@ -160,6 +163,11 @@ function failedBuild(): ApiDAGRunDetails {
 }
 
 describe('StepPanel', () => {
+  afterEach(() => {
+    vi.useRealTimers();
+    vi.restoreAllMocks();
+  });
+
   it('is a landmark named by its step, with the workflow name and a close button', () => {
     const { onClose } = setup({ details: failedBuild() });
     const panel = screen.getByRole('complementary', {
@@ -252,6 +260,44 @@ describe('StepPanel', () => {
     expect(screen.getByTestId('ww-step-panel-details')).toHaveTextContent(
       'Loading run...'
     );
+  });
+
+  describe('a double click on a step under it', () => {
+    // The panel sits over the right of a 1000px wide zone.
+    function placePanel() {
+      vi.spyOn(HTMLElement.prototype, 'getBoundingClientRect').mockReturnValue(
+        new DOMRect(600, 0, 400, 800)
+      );
+    }
+    const panel = () => screen.getByTestId('ww-step-panel');
+
+    it('reaches the step when the panel opens over the click', () => {
+      vi.useFakeTimers();
+      placePanel();
+      setup({
+        details: failedBuild(),
+        openedAt: { clientX: 700, clientY: 100 },
+      });
+      expect(panel()).toHaveClass('pointer-events-none');
+
+      act(() => vi.advanceTimersByTime(500));
+      expect(panel()).not.toHaveClass('pointer-events-none');
+    });
+
+    it('leaves the panel usable at once when it opens beside the click', () => {
+      placePanel();
+      setup({
+        details: failedBuild(),
+        openedAt: { clientX: 300, clientY: 100 },
+      });
+      expect(panel()).not.toHaveClass('pointer-events-none');
+    });
+
+    it('leaves the panel usable at once when a link opens it', () => {
+      placePanel();
+      setup({ details: failedBuild() });
+      expect(panel()).not.toHaveClass('pointer-events-none');
+    });
   });
 
   it('follows the selected run', () => {

@@ -342,8 +342,15 @@ describe.skipIf(realSchema === null)('VisualEditor in a host', () => {
       const onStepClick = vi.fn();
       renderEditor({ initial: yamlArraySteps, openNdvOn: 'open', onStepClick });
 
-      fireEvent.click(nodeCard('steps[2]'), { detail: 1 });
-      expect(onStepClick).toHaveBeenLastCalledWith('publish');
+      fireEvent.click(nodeCard('steps[2]'), {
+        detail: 1,
+        clientX: 40,
+        clientY: 20,
+      });
+      expect(onStepClick).toHaveBeenLastCalledWith('publish', {
+        clientX: 40,
+        clientY: 20,
+      });
       // A click on the selected step is a click again.
       fireEvent.click(nodeCard('steps[2]'), { detail: 1 });
       expect(onStepClick).toHaveBeenCalledTimes(2);

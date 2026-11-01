@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 import { CircleDot, Maximize2, RotateCcw, X } from 'lucide-react';
-import { useEffect, useState, type ReactNode } from 'react';
+import { useLayoutEffect, useRef, useState, type ReactNode } from 'react';
 import type { components } from '@/api/v1/schema';
 import { Button } from '@/components/ui/button';
 import { IconButton } from '@/components/ui/icon-button';
@@ -27,15 +27,19 @@ import { StepRunTabs } from './StepRunTabs';
 type ApiStep = components['schemas']['Step'];
 
 /**
- * The time of a double click. The panel lets the pointer through for this
- * long after it opens, so that a double click on a step that it opens over
- * still reaches the step and opens its node view.
+ * The time of a double click. A panel that opens over the point of its click
+ * lets the pointer through for this long, so that the second click still
+ * reaches the step and opens its node view.
  */
 const DOUBLE_CLICK_MS = 500;
+
+type ClickPoint = Pick<MouseEvent, 'clientX' | 'clientY'>;
 
 export interface StepPanelProps {
   /** Server name of the step. */
   step: string;
+  /** The client point of the click that opened the panel; none for a link. */
+  openedAt?: ClickPoint | null;
   onClose(): void;
   /** The step commands of the canvas host: the path of the node menu. */
   onStepCommand(cmd: StepCommand): void;
@@ -53,6 +57,7 @@ export interface StepPanelProps {
  */
 export function StepPanel({
   step,
+  openedAt = null,
   onClose,
   onStepCommand,
   gates,
@@ -67,14 +72,24 @@ export function StepPanel({
   const definition =
     node?.step ?? stepDefinitionOf(handle?.getDag() ?? dagData.dag, step);
 
-  const [armed, setArmed] = useState(false);
-  useEffect(() => {
-    const timer = window.setTimeout(() => setArmed(true), DOUBLE_CLICK_MS);
+  const ref = useRef<HTMLElement>(null);
+  const [passThrough, setPassThrough] = useState(openedAt !== null);
+  useLayoutEffect(() => {
+    const box = ref.current?.getBoundingClientRect();
+    if (!openedAt || !box || !contains(box, openedAt)) {
+      setPassThrough(false);
+      return;
+    }
+    const timer = window.setTimeout(
+      () => setPassThrough(false),
+      DOUBLE_CLICK_MS
+    );
     return () => window.clearTimeout(timer);
-  }, []);
+  }, [openedAt]);
 
   return (
     <aside
+      ref={ref}
       aria-label={ts('Details of {step}', { step })}
       data-testid="ww-step-panel"
       data-step-panel=""
@@ -82,7 +97,7 @@ export function StepPanel({
       className={cn(
         'absolute bottom-0 right-0 top-(--ww-toolbar-row,0px) flex w-[clamp(380px,40%,640px)] max-w-full flex-col border-l border-t border-border bg-card shadow-lg shadow-foreground/10 max-md:w-full',
         Z.ndv,
-        !armed && 'pointer-events-none'
+        passThrough && 'pointer-events-none'
       )}
     >
       <header className="flex h-10 shrink-0 items-center gap-2 border-b border-border px-3">
@@ -135,6 +150,15 @@ export function StepPanel({
         />
       </div>
     </aside>
+  );
+}
+
+function contains(box: DOMRect, at: ClickPoint): boolean {
+  return (
+    at.clientX >= box.left &&
+    at.clientX <= box.right &&
+    at.clientY >= box.top &&
+    at.clientY <= box.bottom
   );
 }
 

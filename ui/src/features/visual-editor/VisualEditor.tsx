@@ -1669,9 +1669,9 @@ export function VisualEditor(props: VisualEditorProps): ReactElement {
               launchers={launcherHost ? launcherData?.states : undefined}
               activeLauncher={launcherOpen}
               onLauncher={openLauncher}
-              onStepClick={(key) => {
+              onStepClick={(key, at) => {
                 const name = serverNameOf(key);
-                if (name !== null) onStepClick?.(name);
+                if (name !== null) onStepClick?.(name, at);
               }}
             />
           </AgentRunContext.Provider>

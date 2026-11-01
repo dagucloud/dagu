@@ -467,15 +467,18 @@ describe('workspace selection', () => {
 describe('step panel', () => {
   const stepPanel = () =>
     screen.queryByRole('complementary', { name: /^Details of / });
+  function clickStep(name: string) {
+    act(() => {
+      props().onSelectedStepNameChange?.(name);
+      props().onStepClick?.(name, { clientX: 0, clientY: 0 });
+    });
+  }
 
   it('opens on a click with the Details tab, and leaves the Run panel shut', () => {
     localStorage.removeItem(DOCK_OPEN_KEY);
     renderWorkspace('/dags/f');
     loadSpec();
-    act(() => {
-      props().onSelectedStepNameChange?.('fetch');
-      props().onStepClick?.('fetch');
-    });
+    clickStep('fetch');
 
     const panel = screen.getByRole('complementary', {
       name: 'Details of fetch',
@@ -487,10 +490,7 @@ describe('step panel', () => {
     expect(dock()).toHaveAttribute('data-state', 'collapsed');
 
     // Another click switches it; a click on the pane closes it.
-    act(() => {
-      props().onSelectedStepNameChange?.('store');
-      props().onStepClick?.('store');
-    });
+    clickStep('store');
     expect(stepPanel()).toHaveAccessibleName('Details of store');
     act(() => props().onSelectedStepNameChange?.(null));
     expect(stepPanel()).toBeNull();
@@ -509,10 +509,7 @@ describe('step panel', () => {
   it('follows a pick in the Run panel while it is open', () => {
     renderWorkspace('/dags/f');
     loadSpec();
-    act(() => {
-      props().onSelectedStepNameChange?.('fetch');
-      props().onStepClick?.('fetch');
-    });
+    clickStep('fetch');
     fireEvent.click(
       within(stepRow('store')).getByRole('button', { name: 'store' })
     );

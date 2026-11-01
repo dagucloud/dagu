@@ -14,11 +14,15 @@ import { escFree } from './escFree';
 const STEP_PANEL_SELECTOR = '[data-step-panel]';
 const CANVAS_SELECTOR = '[data-testid="ve-canvas"]';
 
+type ClickPoint = Pick<MouseEvent, 'clientX' | 'clientY'>;
+
 export interface StepPanelState {
   /** The panel shows: it is open, a step is selected and nothing covers it. */
   shown: boolean;
-  /** Opens the panel, for a click on a step of the canvas. */
-  show(): void;
+  /** The client point of the click that opened the panel; null for a link. */
+  openedAt: ClickPoint | null;
+  /** Opens the panel, for a click on a step of the canvas at `at`. */
+  show(at: ClickPoint): void;
   /** Closes the panel; the step stays selected. */
   close(): void;
 }
@@ -55,6 +59,7 @@ export function useStepPanel({
   active: boolean;
 }): StepPanelState {
   const [open, setOpen] = useState(linked);
+  const [openedAt, setOpenedAt] = useState<ClickPoint | null>(null);
 
   // What comes over the panel takes its place, and a cleared step leaves it
   // nothing to show: a later selection does not bring it back. A click while
@@ -67,7 +72,10 @@ export function useStepPanel({
     if (comesOver || step === null) setOpen(false);
   }, [covered, step]);
 
-  const show = useCallback(() => setOpen(true), []);
+  const show = useCallback((at: ClickPoint) => {
+    setOpen(true);
+    setOpenedAt(at);
+  }, []);
   const close = useCallback(() => {
     const zone = zoneRef.current;
     const focus = document.activeElement;
@@ -94,5 +102,5 @@ export function useStepPanel({
     return () => document.removeEventListener('keydown', onKeyDown);
   }, [active, shown, zoneRef, close]);
 
-  return { shown, show, close };
+  return { shown, openedAt, show, close };
 }
