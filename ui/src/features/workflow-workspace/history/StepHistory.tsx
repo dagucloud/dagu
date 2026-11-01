@@ -81,10 +81,12 @@ function Summary({ summary }: { summary: StepHistorySummary }) {
     >
       <span
         className="font-medium text-foreground"
-        title={ts('{succeeded} of {count} finished runs succeeded', {
-          succeeded: summary.succeeded,
-          count: summary.counted,
-        })}
+        title={ts(
+          summary.counted === 1
+            ? '{succeeded} of {count} finished run succeeded'
+            : '{succeeded} of {count} finished runs succeeded',
+          { succeeded: summary.succeeded, count: summary.counted }
+        )}
       >
         {ts('{percent}% succeeded', { percent })}
       </span>

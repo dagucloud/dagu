@@ -74,6 +74,15 @@ describe('StepHistory', () => {
     ).toBeInTheDocument();
   });
 
+  it('names one finished run in the singular', () => {
+    renderHistory({ entries: stepHistory([RUNS[0]!], 'a', NOW) });
+    expect(
+      within(screen.getByTestId('ww-step-history-summary')).getByTitle(
+        '1 of 1 finished run succeeded'
+      )
+    ).toBeInTheDocument();
+  });
+
   it('says so when no run of the step has finished', () => {
     renderHistory({ entries: stepHistory([RUNS[1]!], 'a', NOW) });
     expect(screen.getByTestId('ww-step-history-summary')).toHaveTextContent(

@@ -11,6 +11,8 @@ export default defineMessages({
     'Runs of {step}': 'Runs of {step}',
     'Steps by run': 'Steps by run',
     '{percent}% succeeded': '{percent}% succeeded',
+    '{succeeded} of {count} finished run succeeded':
+      '{succeeded} of {count} finished run succeeded',
     '{succeeded} of {count} finished runs succeeded':
       '{succeeded} of {count} finished runs succeeded',
     'usually {duration}': 'usually {duration}',
@@ -32,6 +34,8 @@ export default defineMessages({
     'Runs of {step}': '{step} 的运行记录',
     'Steps by run': '各次运行的步骤',
     '{percent}% succeeded': '成功率 {percent}%',
+    '{succeeded} of {count} finished run succeeded':
+      '{count} 次已结束的运行中有 {succeeded} 次成功',
     '{succeeded} of {count} finished runs succeeded':
       '{count} 次已结束的运行中有 {succeeded} 次成功',
     'usually {duration}': '通常 {duration}',
@@ -53,6 +57,8 @@ export default defineMessages({
     'Runs of {step}': '{step} の実行履歴',
     'Steps by run': '実行ごとのステップ',
     '{percent}% succeeded': '成功率 {percent}%',
+    '{succeeded} of {count} finished run succeeded':
+      '終了した {count} 回の実行のうち {succeeded} 回成功',
     '{succeeded} of {count} finished runs succeeded':
       '終了した {count} 回の実行のうち {succeeded} 回成功',
     'usually {duration}': '通常 {duration}',
