@@ -104,7 +104,9 @@ const maxQueryLength = 4096
 // SetSSEHeaders sets the standard headers required for SSE responses.
 func SetSSEHeaders(w http.ResponseWriter) {
 	w.Header().Set("Content-Type", "text/event-stream")
-	w.Header().Set("Cache-Control", "no-cache")
+	// no-transform keeps a compressing proxy, such as a development server,
+	// from holding events back in its buffer.
+	w.Header().Set("Cache-Control", "no-cache, no-transform")
 	w.Header().Set("Connection", "keep-alive")
 	w.Header().Set("X-Accel-Buffering", "no")
 }
