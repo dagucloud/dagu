@@ -75,8 +75,6 @@ test.describe('Business calendars', () => {
     expect((await saved).ok()).toBeTruthy();
     await expect(saveButton).toBeDisabled();
 
-    // Once a DAG schedules on it, the calendar lists the DAG and cannot be
-    // deleted.
     const dagName = uniqueName('e2e-cal-dag');
     const fileName = await writeLocalDAG(
       dagName,

@@ -37,6 +37,7 @@ function renderPage() {
 
 describe('CalendarsPage', () => {
   beforeEach(() => {
+    useQueryMock.mockReset();
     canWriteMock.mockReturnValue(true);
     useQueryMock.mockReturnValue({
       data: {
@@ -71,6 +72,12 @@ describe('CalendarsPage', () => {
 
   it('shows what needs attention and how many DAGs each calendar serves', () => {
     renderPage();
+
+    expect(useQueryMock).toHaveBeenCalledWith(
+      '/calendars',
+      { params: { query: { remoteNode: 'local', includeUsage: true } } },
+      expect.anything()
+    );
 
     const broken = screen.getByRole('row', { name: /broken/ });
     expect(within(broken).getByText('Invalid')).toBeInTheDocument();

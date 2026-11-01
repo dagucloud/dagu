@@ -40,4 +40,20 @@ describe('CalendarYearView', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Retry' }));
     expect(onRetry).toHaveBeenCalled();
   });
+
+  it('shows the year it names as loading', () => {
+    render(
+      <CalendarYearView
+        preview={preview2027}
+        year={2028}
+        failed={false}
+        onRetry={vi.fn()}
+        onYearChange={vi.fn()}
+        locale="en"
+      />
+    );
+
+    expect(screen.queryByRole('group', { name: 'January' })).toBeNull();
+    expect(screen.getByText('Loading 2028...')).toBeInTheDocument();
+  });
 });
