@@ -254,6 +254,27 @@ export function stepGrid(
   };
 }
 
+/**
+ * True when a step of the runs is running or retrying, or with `step` that
+ * step: its entry counts up to the time it is built.
+ */
+export function hasRunningStep(
+  runs: readonly ApiDAGRunDetails[],
+  step?: string
+): boolean {
+  return runs.some((run) => {
+    const { nodes } = indexOf(run);
+    if (step !== undefined) {
+      const node = nodes.get(step);
+      return node !== undefined && ACTIVE.has(node.status);
+    }
+    for (const node of nodes.values()) {
+      if (ACTIVE.has(node.status)) return true;
+    }
+    return false;
+  });
+}
+
 /** True for a run where the step ran and failed or was rejected. */
 export function isFailedEntry(entry: StepRunEntry): boolean {
   return (

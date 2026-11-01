@@ -2,17 +2,24 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 import { useCallback, useEffect, useMemo, useRef } from 'react';
+import { useClock } from '@/hooks/useClock';
 import { useI18n } from '@/i18n/I18nProvider';
 import { isContinuousStep } from '@/lib/runDisplayStatus';
 import { useWorkspaceEditor } from '../canvas/WorkspaceEditorContext';
 import { useVisibleRuns } from '../data/useVisibleRuns';
 import { useDockCommands } from '../dock/DockContext';
+import { useDockHidden } from '../dock/FreezeWhenHidden';
 import { RunTabEmpty } from '../dock/tabs/runTabBodies';
 import type { DockTabBodyProps } from '../dock/tabs/types';
 import { useWorkspaceUrl } from '../state/workspaceUrl';
 import { StepHistory } from './StepHistory';
 import { StepsGrid } from './StepsGrid';
-import { stepGrid, stepHistory, withLiveRun } from './stepHistoryModel';
+import {
+  hasRunningStep,
+  stepGrid,
+  stepHistory,
+  withLiveRun,
+} from './stepHistoryModel';
 
 /**
  * The History tab: the steps grid in the run view, the history of the step
@@ -60,13 +67,25 @@ export function HistoryBody({ run, dag, step, selectTab }: DockTabBodyProps) {
     return () => handleRef.current?.highlightStep(null);
   }, [gridShown]);
 
+  // A running step counts up to now: while one is shown and the dock shows,
+  // the entries are built again each second.
+  const hidden = useDockHidden();
+  const ticking = useMemo(
+    () => !hidden && hasRunningStep(runs, step),
+    [hidden, runs, step]
+  );
+  const second = useClock(ticking ? 1000 : null, (now) =>
+    ticking ? Math.floor(now / 1000) : null
+  );
+  const now = second === null ? null : second * 1000;
   const grid = useMemo(
-    () => (step === undefined ? stepGrid(dag, runs, Date.now()) : null),
-    [dag, runs, step]
+    () => (step === undefined ? stepGrid(dag, runs, now ?? Date.now()) : null),
+    [dag, runs, step, now]
   );
   const entries = useMemo(
-    () => (step === undefined ? null : stepHistory(runs, step, Date.now())),
-    [runs, step]
+    () =>
+      step === undefined ? null : stepHistory(runs, step, now ?? Date.now()),
+    [runs, step, now]
   );
 
   // A step name opens the history of that step and keeps this tab.

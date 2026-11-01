@@ -6,6 +6,7 @@ import { NodeStatus, ReusedInputVia, Status } from '@/api/v1/schema';
 import type { ApiDAGDetails, ApiDAGRunDetails } from '../../contracts';
 import { node, run } from '../../data/__tests__/fixtures';
 import {
+  hasRunningStep,
   isFailedEntry,
   stepGrid,
   stepHistory,
@@ -255,6 +256,20 @@ describe('summarizeStepHistory', () => {
       usualMs: null,
       failingSince: null,
     });
+  });
+});
+
+describe('hasRunningStep', () => {
+  const runs = [
+    runAt('r1', 1, [node('a', NodeStatus.Failed)], Status.Failed),
+    runAt('r2', 2, [node('a'), node('b', NodeStatus.Retrying)], Status.Running),
+  ];
+
+  it('is true while a step of the runs, or the named one, runs', () => {
+    expect(hasRunningStep(runs)).toBe(true);
+    expect(hasRunningStep(runs, 'b')).toBe(true);
+    expect(hasRunningStep(runs, 'a')).toBe(false);
+    expect(hasRunningStep(runs.slice(0, 1))).toBe(false);
   });
 });
 

@@ -947,6 +947,39 @@ describe('dock tab bodies', () => {
       expect(screen.queryByRole('grid')).toBeNull();
     });
 
+    // A running step counts up: its bar reads the time so far, and that time
+    // grows with the clock.
+    it('counts up the time of a running step', async () => {
+      vi.useFakeTimers({ toFake: ['Date', 'setInterval', 'clearInterval'] });
+      try {
+        vi.setSystemTime(new Date('2026-01-15T02:05:10Z'));
+        const running = run(
+          'run-1',
+          [
+            node('a', NodeStatus.Running, {
+              startedAt: '2026-01-15T02:05:00Z',
+              finishedAt: '-',
+            }),
+          ],
+          Status.Running,
+          { startedAt: '2026-01-15T02:05:00Z' }
+        );
+        setLatest(running, { steps: [{ name: 'a' }] });
+        server.history = { dagRuns: [running, older], gridData: [] };
+        await renderBody('history', `/dags/${FILE_NAME}`, 'a');
+        const bar = await screen.findByTestId('ww-step-history-bar-run-1');
+        expect(bar).toHaveAccessibleName(/, 10s$/);
+
+        act(() => {
+          vi.advanceTimersByTime(5_000);
+        });
+
+        expect(bar).toHaveAccessibleName(/, 15s$/);
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+
     it('selects the run of a bar and keeps the step', async () => {
       await renderBody('history', `/dags/${FILE_NAME}`, 'a');
       fireEvent.click(await screen.findByTestId('ww-step-history-bar-run-2'));
