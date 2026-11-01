@@ -8,6 +8,7 @@ import { AppBarContext } from '@/contexts/AppBarContext';
 import { useCanWriteForWorkspace } from '@/contexts/AuthContext';
 import { ViewEditorDialog } from '@/features/views/ViewEditorDialog';
 import { ViewPanel } from '@/features/views/ViewPanel';
+import { PeekHost } from '@/features/peek/PeekHost';
 import { useViews } from '@/hooks/useViews';
 import { I18nText } from '@/i18n/I18nText';
 import { useI18n } from '@/i18n/I18nProvider';
@@ -77,7 +78,9 @@ export default function ViewPage(): React.ReactElement | null {
         )}
       </div>
       <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
-        <ViewPanel view={view} />
+        <PeekHost>
+          <ViewPanel view={view} />
+        </PeekHost>
       </div>
       <ViewEditorDialog
         open={editorOpen}

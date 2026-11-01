@@ -28,12 +28,16 @@ export interface DetailsCanvasProps {
   workflowPanel?: ReactNode;
   /** A step was picked: the caller shows its details. Null clears it. */
   onSelectStep(stepName: string | null): void;
+  /** A step was opened with Enter or a double click, after its selection. */
+  onOpenStep?(stepName: string): void;
   /** Run state of each step, by step name. The nodes show it. */
   overlay?: RunOverlay;
   /** Controlled selection, by step name. Given, the canvas keeps no selection of its own. */
   selectedStepName?: string;
   /** Classes for the frame of the canvas. */
   className?: string;
+  /** Margin around the graph when it fits; the canvas default otherwise. */
+  fitPadding?: number;
 }
 
 function withOverlay(graph: CanvasGraph, overlay?: RunOverlay): CanvasGraph {
@@ -59,9 +63,11 @@ export function DetailsCanvas({
   toolbarTrail,
   workflowPanel,
   onSelectStep,
+  onOpenStep,
   overlay,
   selectedStepName,
   className,
+  fitPadding,
 }: DetailsCanvasProps): ReactElement {
   const { ts } = useI18n();
   const graph = useMemo(
@@ -128,9 +134,13 @@ export function DetailsCanvas({
         onSelect={select}
         onEdit={() => {}}
         onCommand={(command) => {
-          if (command.kind === 'openInspector') select(command.step);
+          if (command.kind !== 'openInspector') return;
+          select(command.step);
+          const node = graph.nodes.find((item) => item.key === command.step);
+          if (node) onOpenStep?.(node.label);
         }}
         onDirectionChange={setDirection}
+        fitPadding={fitPadding}
         toolbarEnd={end}
         exportName={dag.name}
       />

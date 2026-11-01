@@ -3,7 +3,9 @@
 
 import { act, render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
+import { useSyncExternalStore } from 'react';
 import { MemoryRouter } from 'react-router-dom';
+import useSWR, { SWRConfig } from 'swr';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { NodeStatus, Status } from '@/api/v1/schema';
 import type { ApiDAGDetails, ApiDAGRunDetails } from '../../contracts';
@@ -274,6 +276,40 @@ describe('FreezeWhenHidden', () => {
     return null;
   }
 
+  // One cache for the whole test, so that a rerender keeps the cache of the
+  // hooks whatever SWR does with a new provider.
+  function swrValue() {
+    const cache = new Map();
+    return { provider: () => cache, dedupingInterval: 0 };
+  }
+
+  /** A value that changes below a frozen subtree, as the URL does. */
+  function urlValue<T>(initial: T) {
+    let current = initial;
+    const listeners = new Set<() => void>();
+    return {
+      set(next: T) {
+        current = next;
+        listeners.forEach((listener) => listener());
+      },
+      useValue(): T {
+        return useSyncExternalStore(
+          (listener) => {
+            listeners.add(listener);
+            return () => listeners.delete(listener);
+          },
+          () => current
+        );
+      },
+    };
+  }
+
+  /** Lets the reads that the last render started finish. */
+  const settle = () =>
+    act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 50));
+    });
+
   function Host({
     hidden,
     data,
@@ -328,6 +364,193 @@ describe('FreezeWhenHidden', () => {
     expect(seen).toBe('a');
     rerender(tree(false, dataB));
     expect(seen).toBe('b');
+  });
+
+  // A frozen body keeps the props of a run that was active: the polls of its
+  // hooks stop while it is hidden, whatever interval the hook asks for.
+  it('stops the SWR polls below it while hidden', async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    const fetcher = vi.fn(async () => 'ok');
+    const swr = swrValue();
+    function Poller() {
+      useSWR('poll', fetcher, { refreshInterval: 1000 });
+      return null;
+    }
+    const tree = (hidden: boolean) => (
+      <SWRConfig value={swr}>
+        <FreezeWhenHidden hidden={hidden}>
+          <Poller />
+        </FreezeWhenHidden>
+      </SWRConfig>
+    );
+    const advance = (ms: number) =>
+      act(async () => {
+        await vi.advanceTimersByTimeAsync(ms);
+      });
+
+    const { rerender } = render(tree(false));
+    await advance(1500);
+    expect(fetcher.mock.calls.length).toBeGreaterThan(1);
+
+    rerender(tree(true));
+    const hiddenCalls = fetcher.mock.calls.length;
+    await advance(5000);
+    expect(fetcher).toHaveBeenCalledTimes(hiddenCalls);
+
+    rerender(tree(false));
+    await advance(1500);
+    expect(fetcher.mock.calls.length).toBeGreaterThan(hiddenCalls);
+  });
+
+  // A run can end and write its last log while the body is hidden; once it
+  // shows, its queries are read again even when nothing polls them.
+  it('reads the queries below it once when it shows again', async () => {
+    let version = 1;
+    const fetcher = vi.fn(async () => `v${version}`);
+    const swr = swrValue();
+    function Reader() {
+      const { data } = useSWR('log', fetcher, { revalidateOnFocus: false });
+      return <span>{data ?? ''}</span>;
+    }
+    const tree = (hidden: boolean) => (
+      <SWRConfig value={swr}>
+        <FreezeWhenHidden hidden={hidden}>
+          <Reader />
+        </FreezeWhenHidden>
+      </SWRConfig>
+    );
+
+    const { rerender } = render(tree(false));
+    expect(await screen.findByText('v1')).toBeInTheDocument();
+    rerender(tree(true));
+    version = 2;
+    rerender(tree(false));
+    expect(await screen.findByText('v2')).toBeInTheDocument();
+    expect(fetcher).toHaveBeenCalledTimes(2);
+  });
+
+  // A frozen subtree still renders for a URL change: a query swapped in
+  // while it is hidden, as the run log that a cleared step shows, reads once
+  // and must be read again when the subtree shows.
+  it('reads a query that mounted while hidden once more when it shows', async () => {
+    let version = 1;
+    const fetcher = vi.fn(async (key: string) => `${key}:v${version}`);
+    const swr = swrValue();
+    const url = urlValue('step-log');
+    function Reader() {
+      const key = url.useValue();
+      const { data } = useSWR(key, fetcher, { revalidateOnFocus: false });
+      return <span>{data ?? ''}</span>;
+    }
+    const tree = (hidden: boolean) => (
+      <SWRConfig value={swr}>
+        <FreezeWhenHidden hidden={hidden}>
+          <Reader />
+        </FreezeWhenHidden>
+      </SWRConfig>
+    );
+
+    const { rerender } = render(tree(false));
+    expect(await screen.findByText('step-log:v1')).toBeInTheDocument();
+    rerender(tree(true));
+    act(() => url.set('run-log'));
+    expect(await screen.findByText('run-log:v1')).toBeInTheDocument();
+    version = 2;
+    rerender(tree(false));
+    expect(await screen.findByText('run-log:v2')).toBeInTheDocument();
+  });
+
+  // A query that mounts as the subtree shows, as the log of another run,
+  // makes its own first read and is not read a second time.
+  it('reads a query that mounts as it shows only once', async () => {
+    const fetcher = vi.fn(async (key: string) => key);
+    const swr = swrValue();
+    function Reader({ runKey }: { runKey: string }) {
+      const { data } = useSWR(runKey, fetcher, { revalidateOnFocus: false });
+      return <span>{data ?? ''}</span>;
+    }
+    const tree = (hidden: boolean, runKey: string) => (
+      <SWRConfig value={swr}>
+        <FreezeWhenHidden hidden={hidden}>
+          <Reader runKey={runKey} />
+        </FreezeWhenHidden>
+      </SWRConfig>
+    );
+
+    const { rerender } = render(tree(false, 'log-1'));
+    expect(await screen.findByText('log-1')).toBeInTheDocument();
+    rerender(tree(true, 'log-1'));
+    rerender(tree(false, 'log-2'));
+    expect(await screen.findByText('log-2')).toBeInTheDocument();
+    await settle();
+    expect(fetcher.mock.calls.filter(([key]) => key === 'log-2')).toHaveLength(
+      1
+    );
+    expect(fetcher.mock.calls.filter(([key]) => key === 'log-1')).toHaveLength(
+      1
+    );
+  });
+
+  // A reader that replaces the held one with the same key as the subtree
+  // shows makes its own first read: the held reader is gone, so there is
+  // nothing to catch up.
+  it('reads a query once for a reader that replaces the held one', async () => {
+    const fetcher = vi.fn(async () => 'log');
+    const swr = swrValue();
+    function Reader() {
+      const { data } = useSWR('log', fetcher, { revalidateOnFocus: false });
+      return <span>{data ?? ''}</span>;
+    }
+    const tree = (hidden: boolean, reader: string) => (
+      <SWRConfig value={swr}>
+        <FreezeWhenHidden hidden={hidden}>
+          <Reader key={reader} />
+        </FreezeWhenHidden>
+      </SWRConfig>
+    );
+
+    const { rerender } = render(tree(false, 'held'));
+    expect(await screen.findByText('log')).toBeInTheDocument();
+    rerender(tree(true, 'held'));
+    rerender(tree(false, 'replacement'));
+    await settle();
+    expect(fetcher).toHaveBeenCalledTimes(2);
+  });
+
+  // A reader that a URL change removes while hidden leaves nothing to catch
+  // up, also when a new reader of its key mounts as the subtree shows.
+  it('forgets a query whose reader left while hidden', async () => {
+    const fetcher = vi.fn(async () => 'log');
+    const swr = swrValue();
+    const url = urlValue(true);
+    function Reader() {
+      const { data } = useSWR('log', fetcher, { revalidateOnFocus: false });
+      return <span>{data ?? ''}</span>;
+    }
+    function Readers({ added }: { added: boolean }) {
+      const kept = url.useValue();
+      return (
+        <>
+          {kept && <Reader />}
+          {added && <Reader />}
+        </>
+      );
+    }
+    const tree = (hidden: boolean, added: boolean) => (
+      <SWRConfig value={swr}>
+        <FreezeWhenHidden hidden={hidden}>
+          <Readers added={added} />
+        </FreezeWhenHidden>
+      </SWRConfig>
+    );
+
+    const { rerender } = render(tree(false, false));
+    expect(await screen.findByText('log')).toBeInTheDocument();
+    rerender(tree(true, false));
+    act(() => url.set(false));
+    rerender(tree(false, true));
+    await settle();
+    expect(fetcher).toHaveBeenCalledTimes(2);
   });
 });
 

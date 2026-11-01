@@ -11,13 +11,16 @@ import {
   type RunDisplayStatus,
 } from '@/lib/runDisplayStatus';
 
-/** How often a running run of a list reads its steps again, in ms. */
-const RUNNING_REFRESH_MS = 10_000;
+/**
+ * How often a running run of a list reads its steps again, in ms. A
+ * continuous run never ends, so a page of them polls for as long as it is open.
+ */
+const RUNNING_REFRESH_MS = 60_000;
 
 /**
  * The status that a list prints for a run. The summary of a run has no steps,
  * so a running run reads its details (once, cached for each run, and again
- * every 10 s while it runs when it has a continuous step, the only kind that
+ * every minute while it runs when it has a continuous step, the only kind that
  * can be Healthy): runDisplayStatus then decides, with the failed steps in
  * view. Until the details are there, and for every run that is not running,
  * the API status stands.

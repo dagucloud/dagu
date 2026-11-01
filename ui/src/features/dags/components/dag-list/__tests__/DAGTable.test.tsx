@@ -16,6 +16,7 @@ import { PanelWidthContext } from '@/components/SplitLayout';
 import { AppBarContext } from '@/contexts/AppBarContext';
 import { ConfigContext } from '@/contexts/ConfigContext';
 import { UserPreferencesProvider } from '@/contexts/UserPreference';
+import { PeekContext, type PeekController } from '@/features/peek/PeekContext';
 import { I18nProvider } from '@/i18n/I18nProvider';
 import { WorkspaceKind } from '@/lib/workspace';
 import DAGTable from '../DAGTable';
@@ -77,6 +78,8 @@ function renderTable(
     onDeleteDAGs?: React.ComponentProps<typeof DAGTable>['onDeleteDAGs'];
     onRenameDAG?: (fileName: string, newFileName: string) => Promise<void>;
     canPinDAG?: React.ComponentProps<typeof DAGTable>['canPinDAG'];
+    /** A peek host above the table. */
+    peek?: PeekController;
     resultCount?: number;
   } = {}
 ) {
@@ -159,7 +162,15 @@ function renderTable(
         </AppBarContext.Provider>
       </ConfigContext.Provider>
     </MemoryRouter>,
-    { wrapper: I18nWrapper }
+    {
+      wrapper: ({ children }) => (
+        <I18nWrapper>
+          <PeekContext.Provider value={options.peek ?? null}>
+            {children}
+          </PeekContext.Provider>
+        </I18nWrapper>
+      ),
+    }
   );
   return {
     ...result,
@@ -722,5 +733,101 @@ describe('DAGTable', () => {
     expect(screen.getByTestId('location')).toHaveTextContent('/dags');
     expect(screen.getByTestId('location')).not.toHaveTextContent('alpha');
     openMock.mockRestore();
+  });
+
+  describe('under a peek host', () => {
+    const peekHost = () => ({ open: vi.fn(), isOpen: false });
+
+    it('shows the peek of a workflow when its row is clicked', () => {
+      const peek = peekHost();
+      renderTable('', {
+        peek,
+        dags: [workflow({ name: 'alpha' }), workflow({ name: 'reports' })],
+      });
+      const table = screen.getByRole('table');
+
+      fireEvent.click(
+        within(table).getByRole('link', { name: 'reports' }).closest('tr')!
+      );
+
+      expect(peek.open).toHaveBeenCalledWith({ dag: 'reports.yaml' });
+      expect(screen.getByTestId('location')).toHaveTextContent(/^\/dags$/);
+    });
+
+    it('shows the peek of a workflow when its card is clicked', () => {
+      const peek = peekHost();
+      renderTable('', {
+        peek,
+        panelWidth: 600,
+        dags: [workflow({ name: 'alpha' })],
+      });
+      const cards = screen.getByTestId('workflow-card-view');
+
+      fireEvent.click(
+        within(cards)
+          .getByRole('link', { name: 'alpha' })
+          .closest('.card-obsidian')!
+      );
+
+      expect(peek.open).toHaveBeenCalledWith({ dag: 'alpha.yaml' });
+    });
+
+    // Enter on a focused row or card shows its peek; Enter on a control
+    // inside it stays with that control.
+    it('shows the peek of a focused row on Enter', () => {
+      const peek = peekHost();
+      renderTable('', {
+        peek,
+        dags: [workflow({ name: 'alpha' }), workflow({ name: 'reports' })],
+      });
+      const link = within(screen.getByRole('table')).getByRole('link', {
+        name: 'reports',
+      });
+      const row = link.closest('tr')!;
+
+      row.focus();
+      expect(row).toHaveFocus();
+      fireEvent.keyDown(row, { key: 'Enter' });
+      fireEvent.keyDown(link, { key: 'Enter' });
+
+      expect(peek.open).toHaveBeenCalledTimes(1);
+      expect(peek.open).toHaveBeenCalledWith({ dag: 'reports.yaml' });
+    });
+
+    it('shows the peek of a focused card on Enter', () => {
+      const peek = peekHost();
+      renderTable('', {
+        peek,
+        panelWidth: 600,
+        dags: [workflow({ name: 'alpha' })],
+      });
+      const link = within(screen.getByTestId('workflow-card-view')).getByRole(
+        'link',
+        { name: 'alpha' }
+      );
+      const card = link.closest<HTMLElement>('.card-obsidian')!;
+
+      card.focus();
+      expect(card).toHaveFocus();
+      fireEvent.keyDown(card, { key: 'Enter' });
+      fireEvent.keyDown(link, { key: 'Enter' });
+
+      expect(peek.open).toHaveBeenCalledTimes(1);
+      expect(peek.open).toHaveBeenCalledWith({ dag: 'alpha.yaml' });
+    });
+
+    it('keeps the name link on the workflow page', () => {
+      const peek = peekHost();
+      renderTable('', { peek, dags: [workflow({ name: 'alpha' })] });
+
+      fireEvent.click(
+        within(screen.getByRole('table')).getByRole('link', { name: 'alpha' })
+      );
+
+      expect(peek.open).not.toHaveBeenCalled();
+      expect(screen.getByTestId('location')).toHaveTextContent(
+        '/dags/alpha.yaml?remoteNode=local'
+      );
+    });
   });
 });

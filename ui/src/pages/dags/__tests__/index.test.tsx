@@ -257,6 +257,15 @@ vi.mock('@/features/dags/components/dag-list/DAGListHeader', () => ({
   default: () => null,
 }));
 
+vi.mock('@/features/peek/WorkflowPeek', async () => {
+  const { DialogTitle } = await import('@/components/ui/dialog');
+  return {
+    WorkflowPeek: ({ target }: { target: { dag: string } }) => (
+      <DialogTitle>{target.dag}</DialogTitle>
+    ),
+  };
+});
+
 vi.mock('@/hooks/api', () => ({
   useQuery: vi.fn(),
   useClient: () => ({
@@ -1140,6 +1149,33 @@ describe('DagsPage', () => {
     expect(renameErrorMock).toHaveBeenCalledWith(
       expect.objectContaining({ message: 'name already exists' })
     );
+  });
+
+  it('shows the peek of a ?peek link over the list', () => {
+    renderPage(vi.fn(), '/dags?view=all&peek=demo.yaml');
+
+    expect(screen.getByRole('dialog', { name: 'demo.yaml' })).toBeVisible();
+    expect(screen.getByTestId('location-path')).toHaveTextContent(/^\/dags$/);
+  });
+
+  it('drops the peek when the workspace scope changes', () => {
+    const { rerender } = renderPage(vi.fn(), '/dags?view=all&peek=demo.yaml');
+
+    rerender(
+      <MemoryRouter initialEntries={['/dags?view=all&peek=demo.yaml']}>
+        <LocationProbe />
+        <DagsPageHarness
+          setTitle={vi.fn()}
+          workspaceSelection={{
+            kind: WorkspaceKind.workspace,
+            workspace: 'ops',
+          }}
+        />
+      </MemoryRouter>
+    );
+
+    expect(screen.getByTestId('location-search')).not.toHaveTextContent('peek');
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
   });
 
   // Links from before the workflow page replaced the side panel.

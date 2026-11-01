@@ -326,26 +326,30 @@ func (r *reader) Availability(ctx context.Context, nowT time.Time) (Availability
 	if err != nil {
 		return Availability{}, err
 	}
-	sum := func(t Tier, lo, hi int64, sinks ...func(a *agg)) error {
+	sum := func(t Tier, lo, hi int64, sinks ...func(a aggCount)) error {
 		for _, f := range r.st.listRange(t, lo, hi) {
 			if err := ctx.Err(); err != nil {
 				return err
 			}
-			err := scanAggs(f.path, lo, hi, func(a agg) {
-				for _, s := range sinks {
-					s(&a)
-				}
-			})
+			counts, err := readAggCounts(f.path)
 			if err != nil {
 				return err
+			}
+			for _, a := range counts {
+				if a.t < lo || a.t >= hi {
+					continue
+				}
+				for _, s := range sinks {
+					s(a)
+				}
 			}
 		}
 		return nil
 	}
-	into := func(c *count, from int64) func(a *agg) {
-		return func(a *agg) {
-			if a.T >= from {
-				c.add(count{a.N, a.F})
+	into := func(c *count, from int64) func(a aggCount) {
+		return func(a aggCount) {
+			if a.t >= from {
+				c.add(count{a.n, a.f})
 			}
 		}
 	}
@@ -428,19 +432,18 @@ func (v *view) streak() (uint64, time.Time, error) {
 			if err := v.ctx.Err(); err != nil {
 				return 0, time.Time{}, err
 			}
-			aggs, err := readAggFile(file.path)
+			counts, err := readAggCounts(file.path)
 			if err != nil {
 				return 0, time.Time{}, err
 			}
-			for j := len(aggs) - 1; j >= 0; j-- {
-				a := &aggs[j]
-				if a.T >= oldest {
+			for _, a := range slices.Backward(counts) {
+				if a.t >= oldest {
 					continue
 				}
-				if a.F > 0 {
-					return streak, time.Unix(a.T, 0).UTC(), nil
+				if a.f > 0 {
+					return streak, time.Unix(a.t, 0).UTC(), nil
 				}
-				streak += a.N
+				streak += a.n
 			}
 		}
 		if len(files) > 0 {

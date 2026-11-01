@@ -8,7 +8,9 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"slices"
 	"testing"
+	"testing/synctest"
 	"time"
 
 	"github.com/stretchr/testify/require"
@@ -167,6 +169,98 @@ func TestAvailability(t *testing.T) {
 	}
 	require.Equal(t, streak, av.Streak)
 	require.EqualValues(t, len(fx.all), av.TotalCount)
+}
+
+// A changed aggregate file is read again, so a rewritten closed day counts at
+// once.
+func TestAvailabilityAfterAggregateChange(t *testing.T) {
+	fx := newFixture(t)
+	ctx := context.Background()
+	before, err := fx.reader().Availability(ctx, fx.now)
+	require.NoError(t, err)
+
+	threeDaysAgo := fx.now.Unix() - 3*86400
+	file := newStore(fx.dir).listRange(TierMinute, threeDaysAgo, threeDaysAgo+1)[0]
+	aggs, err := readAggFile(file.path)
+	require.NoError(t, err)
+	var buf []byte
+	for _, a := range aggs[1:] {
+		buf = a.appendJSON(buf)
+	}
+	require.NoError(t, writeFile(file.path, buf))
+
+	after, err := fx.reader().Availability(ctx, fx.now)
+	require.NoError(t, err)
+	require.Equal(t, Window7d, after.Windows[1].Window)
+	require.Equal(t, before.Windows[1].Count-aggs[0].N, after.Windows[1].Count)
+}
+
+// A rewrite by the store counts at once, even when the file keeps its size and
+// modification time.
+func TestAvailabilityAfterStoreRewrite(t *testing.T) {
+	fx := newFixture(t)
+	ctx := context.Background()
+	before, err := fx.reader().Availability(ctx, fx.now)
+	require.NoError(t, err)
+
+	path, aggs, i := oneMoreFailure(t, fx)
+	rewriteSameStat(t, path, func() error { return newStore(fx.dir).putAgg(TierMinute, &aggs[i]) })
+
+	after, err := fx.reader().Availability(ctx, fx.now)
+	require.NoError(t, err)
+	require.Equal(t, before.Windows[1].Failures+1, after.Windows[1].Failures)
+}
+
+// A rewrite by another process that keeps the size and modification time of
+// the file counts once the cached counts expire.
+func TestAvailabilityAfterUnseenRewrite(t *testing.T) {
+	fx := newFixture(t)
+	synctest.Test(t, func(t *testing.T) {
+		ctx := context.Background()
+		before, err := fx.reader().Availability(ctx, fx.now)
+		require.NoError(t, err)
+
+		path, aggs, _ := oneMoreFailure(t, fx)
+		var buf []byte
+		for _, a := range aggs {
+			buf = a.appendJSON(buf)
+		}
+		rewriteSameStat(t, path, func() error { return writeFile(path, buf) })
+		time.Sleep(aggCountTTL + time.Second)
+
+		after, err := fx.reader().Availability(ctx, fx.now)
+		require.NoError(t, err)
+		require.Equal(t, before.Windows[1].Failures+1, after.Windows[1].Failures)
+	})
+}
+
+// oneMoreFailure returns a closed minute file of the 7 days window and its
+// aggregates, the aggregate i with one more failure. The line of that
+// aggregate keeps its length.
+func oneMoreFailure(t *testing.T, fx *fixture) (path string, aggs []agg, i int) {
+	t.Helper()
+	threeDaysAgo := fx.now.Unix() - 3*86400
+	file := newStore(fx.dir).listRange(TierMinute, threeDaysAgo, threeDaysAgo+1)[0]
+	aggs, err := readAggFile(file.path)
+	require.NoError(t, err)
+	i = slices.IndexFunc(aggs, func(a agg) bool { return a.F == 0 })
+	require.GreaterOrEqual(t, i, 0)
+	aggs[i].F = 1
+	return file.path, aggs, i
+}
+
+// rewriteSameStat runs a rewrite of a file of the same size, then gives the
+// file back its modification time, as a coarse clock can leave it.
+func rewriteSameStat(t *testing.T, path string, rewrite func() error) {
+	t.Helper()
+	old, err := os.Stat(path)
+	require.NoError(t, err)
+	require.NoError(t, rewrite())
+	require.NoError(t, os.Chtimes(path, old.ModTime(), old.ModTime()))
+	cur, err := os.Stat(path)
+	require.NoError(t, err)
+	require.Equal(t, old.Size(), cur.Size())
+	require.Equal(t, old.ModTime(), cur.ModTime())
 }
 
 // The 24 hours window starts 24 hours before now, to the second, and the

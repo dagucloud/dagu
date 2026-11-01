@@ -6,6 +6,7 @@ package sse
 import (
 	"context"
 	"net/http/httptest"
+	"slices"
 	"strconv"
 	"sync"
 	"sync/atomic"
@@ -121,6 +122,142 @@ func TestDAGRunInvalidatorRefreshesListsOnlyForLifecycleEvents(t *testing.T) {
 					return listRefreshes.Load() != 0 || activityRefreshes.Load() != 0
 				}, 200*time.Millisecond, 20*time.Millisecond)
 			}
+		})
+	}
+}
+
+// A run event names the DAG file without its extension, while a page opened
+// as /dags/<name>.yaml subscribes with the extension. Both forms of the name
+// must be woken; another DAG must not be.
+func TestDAGRunInvalidatorWakesDAGFileTopics(t *testing.T) {
+	mux := NewMultiplexer(StreamConfig{}, nil)
+	t.Cleanup(mux.Shutdown)
+
+	var counts sync.Map
+	count := func(key string) int64 {
+		counter, ok := counts.Load(key)
+		if !ok {
+			return 0
+		}
+		return counter.(*atomic.Int64).Load()
+	}
+	for _, topicType := range []TopicType{TopicTypeDAG, TopicTypeDAGHistory} {
+		mux.RegisterFetcher(topicType, func(_ context.Context, identifier string) (any, error) {
+			counter, _ := counts.LoadOrStore(string(topicType)+":"+identifier, &atomic.Int64{})
+			counter.(*atomic.Int64).Add(1)
+			return nil, nil
+		})
+		mux.SetRefreshMode(topicType, TopicRefreshModeOnDemand)
+	}
+
+	woken := []string{"dag:test", "dag:test.yaml", "daghistory:test.yaml", "daghistory:test.YML"}
+	other := []string{"dag:other.yaml", "daghistory:other"}
+	result, err := mux.createSession(context.Background(), httptest.NewRecorder(), append(woken, other...), 0)
+	require.NoError(t, err)
+	require.NotNil(t, result.session)
+	defer mux.removeSession(result.session)
+
+	event := eventstore.NewDAGRunEvent(
+		eventstore.Source{Service: eventstore.SourceServiceServer},
+		eventstore.TypeDAGRunSucceeded,
+		&ir.DAGRunStatus{
+			Name:      "test",
+			DAGRunID:  "run-1",
+			AttemptID: "attempt-1",
+			Status:    ir.Succeeded,
+		},
+		map[string]any{eventstore.DAGFileNameDataKey: "test"},
+	)
+	wakeTopicsForDAGRunEvents(mux, []*eventstore.Event{event})
+
+	require.Eventually(t, func() bool {
+		for _, key := range woken {
+			if count(key) != 1 {
+				return false
+			}
+		}
+		return true
+	}, time.Second, 10*time.Millisecond)
+	require.Never(t, func() bool {
+		for _, key := range other {
+			if count(key) != 0 {
+				return true
+			}
+		}
+		return false
+	}, 200*time.Millisecond, 20*time.Millisecond)
+}
+
+// An API write names a DAG file as its request did, with or without a YAML
+// extension; it wakes the topics of the file in either form. A file named
+// only by its extension is a DAG file too.
+func TestWakeTopicMatchesDAGFileForms(t *testing.T) {
+	tests := []struct {
+		name   string
+		wake   string
+		topics []string
+		woken  []string
+	}{
+		{
+			name:   "WithExtension",
+			wake:   "test.yaml",
+			topics: []string{"test", "test.yaml", "other"},
+			woken:  []string{"test", "test.yaml"},
+		},
+		{
+			name:   "ExtensionOnly",
+			wake:   ".yaml",
+			topics: []string{".yaml", ".yml", "yaml", "other"},
+			woken:  []string{".yaml", ".yml"},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			mux := NewMultiplexer(StreamConfig{}, nil)
+			t.Cleanup(mux.Shutdown)
+
+			var counts sync.Map
+			count := func(key string) int64 {
+				counter, ok := counts.Load(key)
+				if !ok {
+					return 0
+				}
+				return counter.(*atomic.Int64).Load()
+			}
+			mux.RegisterFetcher(TopicTypeDAG, func(_ context.Context, identifier string) (any, error) {
+				counter, _ := counts.LoadOrStore(identifier, &atomic.Int64{})
+				counter.(*atomic.Int64).Add(1)
+				return nil, nil
+			})
+			mux.SetRefreshMode(TopicTypeDAG, TopicRefreshModeOnDemand)
+
+			keys := make([]string, 0, len(tt.topics))
+			for _, topic := range tt.topics {
+				keys = append(keys, "dag:"+topic)
+			}
+			result, err := mux.createSession(context.Background(), httptest.NewRecorder(), keys, 0)
+			require.NoError(t, err)
+			require.NotNil(t, result.session)
+			defer mux.removeSession(result.session)
+
+			mux.WakeTopic(TopicTypeDAG, tt.wake)
+
+			require.Eventually(t, func() bool {
+				for _, topic := range tt.woken {
+					if count(topic) != 1 {
+						return false
+					}
+				}
+				return true
+			}, time.Second, 10*time.Millisecond)
+			require.Never(t, func() bool {
+				for _, topic := range tt.topics {
+					if !slices.Contains(tt.woken, topic) && count(topic) != 0 {
+						return true
+					}
+				}
+				return false
+			}, 200*time.Millisecond, 20*time.Millisecond)
 		})
 	}
 }

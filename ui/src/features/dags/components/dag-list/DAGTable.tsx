@@ -80,7 +80,7 @@ import { Switch } from '@/components/ui/switch';
 import { AppBarContext } from '../../../../contexts/AppBarContext';
 import { useRemoteNode } from '../../../../contexts/RemoteNodeContext';
 import { buildDAGPageURL } from '../../../dag-runs/lib/dagRunUrls';
-import { useOpenPage } from '../../../dag-runs/lib/useOpenPage';
+import { usePeekOrOpen } from '@/features/peek/usePeekOrOpen';
 import {
   isRunSortField,
   maxRunSortDAGs,
@@ -121,12 +121,24 @@ function DAGNameLink({
   );
 }
 
+/**
+ * A key handler that opens on Enter pressed on the element itself. Enter on a
+ * link or a control inside it stays with that control.
+ */
+function onOwnEnter(open: (event: React.KeyboardEvent) => void) {
+  return (event: React.KeyboardEvent) => {
+    if (event.key !== 'Enter' || event.target !== event.currentTarget) return;
+    event.preventDefault();
+    open(event);
+  };
+}
+
 // Reusable DAG Card component for mobile and narrow panel views
 interface DAGCardProps {
   dag: components['schemas']['DAGFile'];
-  /** The workflow page: the name link and a click on the card open it. */
+  /** The workflow page that the name link opens. */
   href: string;
-  onOpen: (event: React.MouseEvent) => void;
+  onOpen: (event: React.MouseEvent | React.KeyboardEvent) => void;
   onLabelClick: (label: string) => void;
   refreshFn: () => void;
   canDeleteDAGs: boolean;
@@ -213,10 +225,13 @@ function DAGCard({
   const description = dag.dag.description;
   const hasSchedule = (dag.dag.schedule ?? []).length > 0;
 
+  // The outline marks the focus: the shadow of card-obsidian hides a ring.
   return (
     <div
-      className={`card-obsidian p-2.5 cursor-pointer hover:bg-white/[0.05] transition-colors duration-300 ${status === Status.Running ? 'animate-running-row' : ''} ${className}`}
+      tabIndex={0}
+      className={`card-obsidian p-2.5 cursor-pointer hover:bg-white/[0.05] transition-colors duration-300 focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-ring ${status === Status.Running ? 'animate-running-row' : ''} ${className}`}
       onClick={onOpen}
+      onKeyDown={onOwnEnter(onOpen)}
     >
       {/* Header: Name + Status */}
       <div className="flex justify-between items-start gap-2 mb-1.5">
@@ -1117,8 +1132,8 @@ function DAGTable({
   // server cap, because the server would sort by name instead.
   const runSortDisabled = (resultCount ?? 0) > maxRunSortDAGs;
   const remoteNode = useRemoteNode();
-  const openPage = useOpenPage();
-  // A row opens the workflow page.
+  const peekOrOpen = usePeekOrOpen();
+  // The name links open the workflow page; a click on a row shows its peek.
   const dagURL = (fileName: string) =>
     buildDAGPageURL({ fileName, remoteNode });
   const columns = useMemo(
@@ -1819,16 +1834,27 @@ function DAGTable({
                       row.original?.kind === ItemKind.Group
                         ? 'bg-muted/50 font-semibold cursor-pointer hover:bg-muted/70'
                         : 'cursor-pointer hover:bg-muted/50'
-                    } ${isDAGRow && 'dag' in row.original && (row.original as DAGRow).dag.latestDAGRun?.status === Status.Running ? 'animate-running-row' : ''} ${isDAGRow ? 'group/row' : ''} ${endsPinnedSection ? 'border-b-2' : ''}`}
+                    } ${isDAGRow && 'dag' in row.original && (row.original as DAGRow).dag.latestDAGRun?.status === Status.Running ? 'animate-running-row' : ''} ${isDAGRow ? 'group/row focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring' : ''} ${endsPinnedSection ? 'border-b-2' : ''}`}
+                    tabIndex={isDAGRow ? 0 : undefined}
+                    onKeyDown={
+                      isDAGRow && 'dag' in row.original
+                        ? onOwnEnter((e) =>
+                            peekOrOpen(
+                              { dag: (row.original as DAGRow).dag.fileName },
+                              e
+                            )
+                          )
+                        : undefined
+                    }
                     onClick={(e) => {
                       // Handle group row clicks - toggle expanded state
                       if ((row.original as Data)?.kind === ItemKind.Group) {
                         row.toggleExpanded();
                       }
-                      // Handle DAG row clicks - open the workflow page, or a new tab with Cmd/Ctrl
+                      // Handle DAG row clicks - show the peek, or a new tab with Cmd/Ctrl
                       else if (isDAGRow && 'dag' in row.original) {
                         const dagRow = row.original as DAGRow;
-                        openPage(dagURL(dagRow.dag.fileName), e);
+                        peekOrOpen({ dag: dagRow.dag.fileName }, e);
                       }
                     }}
                   >
@@ -1925,7 +1951,7 @@ function DAGTable({
                               dag={dagRow.dag}
                               href={dagURL(dagRow.dag.fileName)}
                               onOpen={(e) =>
-                                openPage(dagURL(dagRow.dag.fileName), e)
+                                peekOrOpen({ dag: dagRow.dag.fileName }, e)
                               }
                               onLabelClick={handleLabelClick}
                               refreshFn={refreshFn}
@@ -1970,7 +1996,7 @@ function DAGTable({
                   <DAGCard
                     dag={dagRow.dag}
                     href={dagURL(dagRow.dag.fileName)}
-                    onOpen={(e) => openPage(dagURL(dagRow.dag.fileName), e)}
+                    onOpen={(e) => peekOrOpen({ dag: dagRow.dag.fileName }, e)}
                     onLabelClick={handleLabelClick}
                     refreshFn={refreshFn}
                     canDeleteDAGs={canDeleteDAGs}

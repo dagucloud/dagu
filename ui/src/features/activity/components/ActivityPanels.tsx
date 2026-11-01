@@ -15,10 +15,8 @@ import StatusChip from '@/components/ui/status-chip';
 import Ticker from '@/components/ui/ticker';
 import { useCanAccessSystemStatus } from '@/contexts/AuthContext';
 import { DAGRunActions } from '@/features/dag-runs/components/common';
-import {
-  buildDAGPageURL,
-  buildDAGRunPageURL,
-} from '@/features/dag-runs/lib/dagRunUrls';
+import { PeekLink } from '@/features/peek/PeekLink';
+import { peekPageURL } from '@/features/peek/peekParams';
 import { I18nText } from '@/i18n/I18nText';
 import { useI18n } from '@/i18n/I18nProvider';
 import dayjs from '@/lib/dayjs';
@@ -113,24 +111,28 @@ function RunLink({
   remoteNode,
   children,
   className,
+  direct = false,
 }: {
   name: string;
   run: ActivityRun;
   remoteNode: string;
   children: React.ReactNode;
   className?: string;
+  /** Opens the full page, where a waiting run can be acted on. */
+  direct?: boolean;
 }): React.ReactElement {
+  const target = { dag: name, run: run.dagRunId };
+  if (direct) {
+    return (
+      <Link to={peekPageURL(target, remoteNode)} className={className}>
+        {children}
+      </Link>
+    );
+  }
   return (
-    <Link
-      to={buildDAGRunPageURL({
-        rootDAGRunName: name,
-        rootDAGRunId: run.dagRunId,
-        remoteNode,
-      })}
-      className={className}
-    >
+    <PeekLink peek={target} remoteNode={remoteNode} className={className}>
       {children}
-    </Link>
+    </PeekLink>
   );
 }
 
@@ -307,6 +309,7 @@ export function NeedsAttention({
                     name={item.name}
                     run={item.run}
                     remoteNode={remoteNode}
+                    direct={item.kind === 'waiting'}
                     className="inline-flex h-7 items-center gap-1 rounded-md px-2 text-xs font-medium text-muted-foreground hover:bg-muted hover:text-foreground"
                   >
                     {item.kind === 'waiting' ? ts('Review') : ts('Open')}
@@ -479,12 +482,13 @@ export function UpNext({
         <ul className="flex flex-col gap-1">
           {upcoming.map((item) => (
             <li key={item.fileName} className="flex items-center gap-2 text-sm">
-              <Link
-                to={buildDAGPageURL({ fileName: item.fileName, remoteNode })}
+              <PeekLink
+                peek={{ dag: item.fileName }}
+                remoteNode={remoteNode}
                 className="min-w-0 flex-1 truncate text-foreground hover:underline"
               >
                 {item.name}
-              </Link>
+              </PeekLink>
               <span className="shrink-0 text-xs text-muted-foreground tabular-nums">
                 {dayjs
                   .unix(item.nextRun)

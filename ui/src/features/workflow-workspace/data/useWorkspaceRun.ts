@@ -32,6 +32,9 @@ import type {
   WorkspaceRunValue,
 } from './types';
 
+/** How often a selected test run is read while it is active. */
+const TEST_RUN_READ_MS = 2000;
+
 /** The selected run of the workspace. Needs WorkspaceDataProvider. */
 export function useWorkspaceRun(): WorkspaceRunValue {
   return useWorkspaceData('useWorkspaceRun').run;
@@ -101,6 +104,22 @@ export function useSelectedRun({
     pinnedEnabled,
     remoteNode
   );
+  const fallback = sseFallbackOptions(runSSE);
+  const fallbackInterval = fallback.refreshInterval;
+  // A test run writes no events, so its stream never reports a change: the
+  // run is read again while it is active, whatever the stream. SWR reads the
+  // interval only when its timer starts or fires, so the function changes
+  // when the run turns into an active test run: a timer that stopped starts.
+  const [readsTestRun, setReadsTestRun] = useState(false);
+  const pinnedInterval = useCallback(
+    (latest?: { dagRunDetails?: ApiDAGRunDetails }) => {
+      const run = latest?.dagRunDetails;
+      return run?.ephemeral && isRunActive(run)
+        ? TEST_RUN_READ_MS
+        : fallbackInterval;
+    },
+    [fallbackInterval, readsTestRun]
+  );
   const {
     data: pinnedData,
     error: pinnedError,
@@ -113,7 +132,7 @@ export function useSelectedRun({
         query: { remoteNode },
       },
     }),
-    sseFallbackOptions(runSSE)
+    { ...fallback, refreshInterval: pinnedInterval }
   );
   // An event of the previous run must not land in the cache of the new one.
   useSSECacheSync(runSSE, mutatePinnedQuery, (event) =>
@@ -123,6 +142,8 @@ export function useSelectedRun({
   const pinnedServer = pinnedEnabled
     ? (pinnedData?.dagRunDetails ?? null)
     : null;
+  const activeTestRun = !!pinnedServer?.ephemeral && isRunActive(pinnedServer);
+  if (activeTestRun !== readsTestRun) setReadsTestRun(activeTestRun);
   const missing =
     pinnedEnabled &&
     ((pinnedError != null && isNotFoundQueryError(pinnedError)) ||
