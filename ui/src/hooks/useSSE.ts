@@ -3,8 +3,14 @@
 
 import { useConfig } from '../contexts/ConfigContext';
 import { useRemoteNode } from '../contexts/RemoteNodeContext';
-import { useEffect, useRef, useState } from 'react';
+import { createContext, useContext, useEffect, useRef, useState } from 'react';
 import { sseManager } from './SSEManager';
+
+/**
+ * True below a part of the page that nobody sees: the SSE hooks there hold
+ * no subscription until it shows again.
+ */
+export const SSEPausedContext = createContext(false);
 
 export interface SSEState<T> {
   data: T | null;
@@ -55,6 +61,8 @@ export function useSSE<T>(
 ): SSEState<T> {
   const config = useConfig();
   const remoteNode = useRemoteNode(remoteNodeOverride);
+  const paused = useContext(SSEPausedContext);
+  const active = enabled && !paused;
 
   const [state, setState] = useState<SSEState<T>>(INITIAL_STATE as SSEState<T>);
 
@@ -62,7 +70,7 @@ export function useSSE<T>(
   // This prevents stale data from the old connection being returned in the first
   // render after a change — critical because consumers use isConnected to gate
   // SWR polling, and stale isConnected=true blocks SWR fetches.
-  const connectionKey = `${endpoint}|${remoteNode}|${config.apiURL}|${enabled}`;
+  const connectionKey = `${endpoint}|${remoteNode}|${config.apiURL}|${active}`;
   const prevConnectionKeyRef = useRef(connectionKey);
   if (prevConnectionKeyRef.current !== connectionKey) {
     prevConnectionKeyRef.current = connectionKey;
@@ -70,7 +78,7 @@ export function useSSE<T>(
   }
 
   useEffect(() => {
-    if (!enabled) {
+    if (!active) {
       setState((prev) => ({
         ...prev,
         isConnected: false,
@@ -108,7 +116,7 @@ export function useSSE<T>(
     }
 
     return () => unsubscribe?.();
-  }, [endpoint, remoteNode, config.apiURL, enabled]);
+  }, [endpoint, remoteNode, config.apiURL, active]);
 
   return state;
 }

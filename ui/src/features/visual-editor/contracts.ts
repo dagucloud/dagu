@@ -374,6 +374,11 @@ export interface VisualCanvasProps {
   activeLauncher?: LauncherId | null;
   /** The user opens a launcher node. */
   onLauncher?(id: LauncherId): void;
+  /**
+   * Margin around the graph when it fits, as a share of the graph's size on
+   * each side. A small preview that leaves no room for editing uses less.
+   */
+  fitPadding?: number;
 }
 
 /* Host seams of the visual editor. Absent props keep the classic behaviour. */

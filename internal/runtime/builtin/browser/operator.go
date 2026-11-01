@@ -362,7 +362,8 @@ func (o *operator) act(ctx context.Context, index int, spec actSpec, timeout tim
 	}
 	detail := describeActions(outcome.Actions)
 	if len(outcome.Actions) == 0 {
-		// An act counted done because it loaded a new document says so.
+		// An act counted done without its actions, because it loaded a new
+		// document or closed its window, says so.
 		detail = outcome.Message
 	}
 	return opResult{

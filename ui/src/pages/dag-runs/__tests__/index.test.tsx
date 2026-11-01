@@ -124,12 +124,35 @@ const dagRunTableProps = vi.hoisted(() => ({
   current: {} as { isLoading?: boolean },
 }));
 
-vi.mock('@/features/dag-runs/components/dag-run-list/DAGRunTable', () => ({
-  default: (props: { isLoading?: boolean }) => {
-    dagRunTableProps.current = props;
-    return <div>Run Table</div>;
-  },
-}));
+vi.mock('@/features/dag-runs/components/dag-run-list/DAGRunTable', async () => {
+  const { usePeekOrOpen } = await import('@/features/peek/usePeekOrOpen');
+  return {
+    default: function RunTable(props: { isLoading?: boolean }) {
+      dagRunTableProps.current = props;
+      const peekOrOpen = usePeekOrOpen();
+      return (
+        <>
+          <div>Run Table</div>
+          <button
+            type="button"
+            onClick={() => peekOrOpen({ dag: 'alpha', run: 'run-1' })}
+          >
+            Peek alpha
+          </button>
+        </>
+      );
+    },
+  };
+});
+
+vi.mock('@/features/peek/WorkflowPeek', async () => {
+  const { DialogTitle } = await import('@/components/ui/dialog');
+  return {
+    WorkflowPeek: ({ target }: { target: { dag: string } }) => (
+      <DialogTitle>{target.dag}</DialogTitle>
+    ),
+  };
+});
 
 const config = {
   tzOffsetInSec: undefined,
@@ -368,6 +391,24 @@ describe('DAGRuns page', () => {
   });
 
   // Links from before the run page replaced the side panel.
+  // The filters are read from the URL, which the peek writes its keys to.
+  it('keeps a typed filter while a peek opens and closes', async () => {
+    renderPage();
+    const input = screen.getByPlaceholderText('Filter by workflow name...');
+    fireEvent.change(input, { target: { value: 'typed' } });
+
+    fireEvent.click(screen.getByRole('button', { name: 'Peek alpha' }));
+    const peek = screen.getByRole('dialog', { name: 'alpha' });
+    expect(locationSearchParams().get('peekRun')).toBe('run-1');
+    fireEvent.keyDown(peek, { key: 'Escape' });
+
+    await waitFor(() => {
+      expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+    });
+    expect(locationSearchParams().has('peek')).toBe(false);
+    expect(input).toHaveValue('typed');
+  });
+
   it('opens the run of a legacy ?selectedRunName link on its workflow page', () => {
     renderPage(
       vi.fn(),

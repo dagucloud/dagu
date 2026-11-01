@@ -157,16 +157,20 @@ function TimelineBody({ details }: RunTabProps) {
   );
 }
 
+/** How long after its end a run may still write its outputs. */
+const OUTPUTS_SETTLE_MS = 15_000;
+
 /**
- * True while the run is active and for 15 s after it ended. The shared clock
- * ticks inside that window only, so the value turns false when it closes.
+ * True for 15 s after the run ended, never while it is active: a run writes
+ * its outputs at its end. The shared clock ticks inside that window only, so
+ * the value turns false when it closes.
  */
 function useEndedRecently(details: RunTabProps['details']): boolean {
   const active = isRunActive(details);
   const finished = Date.parse(details.finishedAt ?? '');
   const recent = (now: number) =>
-    active || (Number.isFinite(finished) && now - finished < 15_000);
-  return useClock(active || !recent(Date.now()) ? null : 1000, recent);
+    !active && Number.isFinite(finished) && now - finished < OUTPUTS_SETTLE_MS;
+  return useClock(recent(Date.now()) ? 1000 : null, recent);
 }
 
 /**

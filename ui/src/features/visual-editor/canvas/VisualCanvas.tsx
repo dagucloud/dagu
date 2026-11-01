@@ -122,6 +122,8 @@ import { useCanvasLayout } from './useCanvasLayout';
 // and 24 px from the sides, so no node sits under an overlay. The bottom
 // keeps the overview and the list toggle clear.
 const FIT_INSET = { top: 72, right: 24, left: 24, bottom: 48 };
+// The margin of a fit, as a share of the graph on each side.
+const FIT_PADDING = 0.2;
 // The toolbar stacked on two rows (a small free width) needs more room.
 const STACKED_TOP = 112;
 // A toolbar in the row of the zone floats over the top 40 px of the canvas: a
@@ -252,6 +254,7 @@ function CanvasView({
   launchers = NO_LAUNCHERS,
   activeLauncher = null,
   onLauncher,
+  fitPadding = FIT_PADDING,
 }: VisualCanvasProps): ReactElement {
   const { ts } = useI18n();
   const wrapperRef = useRef<HTMLDivElement>(null);
@@ -294,7 +297,7 @@ function CanvasView({
     direction === 'LR' && !agent ? ('left' as const) : ('top' as const);
   const overviewOptions = useMemo(
     () => ({
-      padding: 0.2,
+      padding: fitPadding,
       maxZoom: 1.25,
       inset: fitInset,
       readableFrom,
@@ -307,7 +310,7 @@ function CanvasView({
           ? { readableZoom: OVERVIEW_READABLE_ZOOM, overview: true }
           : {}),
     }),
-    [fitInset, agent, large, readableFrom]
+    [fitInset, agent, large, readableFrom, fitPadding]
   );
   const fitOptions = useMemo(
     () => ({

@@ -150,10 +150,13 @@ type openCodeV2Message struct {
 		ID         string `json:"id"`
 		ProviderID string `json:"providerID"`
 	} `json:"model"`
-	Content []map[string]any `json:"content"`
-	Tokens  map[string]any   `json:"tokens"`
-	Cost    *float64         `json:"cost"`
-	Error   *struct {
+	Content  []map[string]any `json:"content"`
+	Snapshot struct {
+		Files []string `json:"files"`
+	} `json:"snapshot"`
+	Tokens map[string]any `json:"tokens"`
+	Cost   *float64       `json:"cost"`
+	Error  *struct {
 		Type    string `json:"type"`
 		Message string `json:"message"`
 	} `json:"error"`
@@ -176,11 +179,8 @@ func (c *openCodeClient) messagesV2(ctx context.Context, sessionID string) ([]op
 		}
 		err = func() error {
 			defer resp.Body.Close()
-			if resp.StatusCode == http.StatusNotFound {
-				return errManagedSessionUnavailable
-			}
 			if resp.StatusCode != http.StatusOK {
-				return fmt.Errorf("OpenCode message history returned %s", resp.Status)
+				return c.apiError(resp, http.MethodGet, "/session/"+url.PathEscape(sessionID)+"/message")
 			}
 			return json.NewDecoder(resp.Body).Decode(&page)
 		}()
@@ -244,6 +244,9 @@ func normalizeV2Messages(messages []openCodeV2Message) []openCodeMessage {
 				part["cost"] = *message.Cost
 			}
 			add(part)
+		}
+		if message.Type == "assistant" && len(message.Snapshot.Files) > 0 {
+			add(map[string]any{"id": message.ID + ":patch", "type": "patch", "files": message.Snapshot.Files})
 		}
 		result = append(result, normalized)
 	}

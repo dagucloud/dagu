@@ -17,8 +17,6 @@ export interface RunOverlayWithAgent extends RunOverlayResult {
   agent?: AgentRunInfo;
 }
 
-const LATEST_POLL_MS = 3000;
-
 const NO_RUN: RunOverlayWithAgent = {
   overlay: {},
   runId: null,
@@ -27,7 +25,9 @@ const NO_RUN: RunOverlayWithAgent = {
 
 /**
  * Step states of one run. `runId` may be 'latest'; the result carries the
- * resolved run ID. A null `runId` makes no request.
+ * resolved run ID. 'latest' resolves at each read of the query, which polls
+ * only as the fallback of SSE: with SSE up, a newer run shows at the next
+ * read (a remount or a revalidation). A null `runId` makes no request.
  */
 export function useRunOverlay({
   dagName,
@@ -49,16 +49,6 @@ export function useRunOverlay({
     remoteNode
   );
 
-  // 'latest' keeps polling so that a newer run replaces the one shown.
-  const fallback = sseFallbackOptions(sse);
-  const options =
-    runId === 'latest'
-      ? {
-          ...fallback,
-          refreshInterval: fallback.refreshInterval || LATEST_POLL_MS,
-        }
-      : fallback;
-
   const { data, isLoading } = useQuery(
     '/dag-runs/{name}/{dagRunId}',
     enabled
@@ -69,7 +59,7 @@ export function useRunOverlay({
           },
         }
       : null,
-    options
+    sseFallbackOptions(sse)
   );
 
   const queried = enabled ? data?.dagRunDetails : undefined;

@@ -6,6 +6,7 @@ import React from 'react';
 import { MemoryRouter, useLocation } from 'react-router-dom';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { type Config, ConfigContext } from '@/contexts/ConfigContext';
+import { PeekContext } from '@/features/peek/PeekContext';
 import { DateKanbanList } from '../DateKanbanList';
 import { useInfiniteKanban } from '../../hooks/useInfiniteKanban';
 
@@ -155,5 +156,34 @@ describe('DateKanbanList', () => {
       'noopener'
     );
     expect(screen.getByTestId('location')).toHaveTextContent('/cockpit');
+  });
+
+  it('shows a card in the peek, set to open its Artifacts tab', () => {
+    const peek = { open: vi.fn(), isOpen: false };
+    useInfiniteKanbanMock.mockReturnValue({
+      loadedDates: ['2026-03-21'],
+      todayStr: '2026-03-21',
+      hasMore: false,
+      loadNextDate: vi.fn(),
+    });
+
+    render(
+      <MemoryRouter initialEntries={['/cockpit']}>
+        <PeekContext.Provider value={peek}>
+          <DateKanbanList selectedWorkspace="ops" />
+        </PeekContext.Provider>
+        <LocationProbe />
+      </MemoryRouter>
+    );
+    fireEvent.click(
+      screen.getByRole('button', { name: 'Open run 2026-03-21' })
+    );
+
+    expect(peek.open).toHaveBeenCalledWith({
+      dag: 'artifact-dag',
+      run: 'run-with-artifacts',
+      dock: 'artifacts',
+    });
+    expect(screen.getByTestId('location')).toHaveTextContent(/^\/cockpit$/);
   });
 });

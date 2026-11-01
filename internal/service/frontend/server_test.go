@@ -93,6 +93,12 @@ func TestRegisterDedicatedSSEFetchersUsesEventStoreInvalidationForRunTopics(t *t
 			identifier: "test/run-1/sub-1",
 		},
 		{
+			name:       "dag details",
+			topicType:  sse.TopicTypeDAG,
+			topic:      "dag:test.yaml",
+			identifier: "test.yaml",
+		},
+		{
 			name:       "dag history",
 			topicType:  sse.TopicTypeDAGHistory,
 			topic:      "daghistory:test.yaml",
@@ -341,7 +347,7 @@ steps:
 }
 
 // TestSchedulerStateWake verifies durable scheduler projection changes refresh
-// DAG-list SSE while checkpoint-only writes stay silent.
+// DAG-list and DAG details SSE while checkpoint-only writes stay silent.
 func TestSchedulerStateWake(t *testing.T) {
 	t.Parallel()
 
@@ -372,10 +378,15 @@ func TestSchedulerStateWake(t *testing.T) {
 		}
 	})
 
-	var fetches atomic.Int64
+	var listFetches, dagFetches atomic.Int64
 	srv.sseMultiplexer.RegisterFetcher(sse.TopicTypeDAGsList, func(context.Context, string) (any, error) {
 		return map[string]any{
-			"fetches": fetches.Add(1),
+			"fetches": listFetches.Add(1),
+		}, nil
+	})
+	srv.sseMultiplexer.RegisterFetcher(sse.TopicTypeDAG, func(context.Context, string) (any, error) {
+		return map[string]any{
+			"fetches": dagFetches.Add(1),
 		}, nil
 	})
 
@@ -388,14 +399,15 @@ func TestSchedulerStateWake(t *testing.T) {
 		defer close(done)
 		req := httptest.NewRequest(
 			http.MethodGet,
-			"/api/v1/events/stream?topic="+url.QueryEscape("dagslist:page=1&perPage=100"),
+			"/api/v1/events/stream?topic="+url.QueryEscape("dagslist:page=1&perPage=100")+
+				"&topic="+url.QueryEscape("dag:test.yaml"),
 			nil,
 		).WithContext(ctx)
 		handler.HandleStream(httptest.NewRecorder(), req)
 	}()
 
 	require.Eventually(t, func() bool {
-		return fetches.Load() == 1
+		return listFetches.Load() == 1 && dagFetches.Load() == 1
 	}, time.Second, 10*time.Millisecond)
 
 	require.NoError(t, fileutil.WriteFileAtomic(
@@ -404,7 +416,7 @@ func TestSchedulerStateWake(t *testing.T) {
 		0600,
 	))
 	require.Never(t, func() bool {
-		return fetches.Load() > 1
+		return listFetches.Load() > 1 || dagFetches.Load() > 1
 	}, 500*time.Millisecond, 20*time.Millisecond)
 
 	require.NoError(t, fileutil.WriteFileAtomic(
@@ -413,7 +425,7 @@ func TestSchedulerStateWake(t *testing.T) {
 		0600,
 	))
 	require.Eventually(t, func() bool {
-		return fetches.Load() == 2
+		return listFetches.Load() == 2 && dagFetches.Load() == 2
 	}, 3*time.Second, 20*time.Millisecond)
 
 	cancel()

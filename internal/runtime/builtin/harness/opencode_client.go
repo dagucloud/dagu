@@ -152,12 +152,8 @@ func (c *openCodeClient) json(ctx context.Context, method, path string, body, ta
 		return err
 	}
 	defer resp.Body.Close()
-	if resp.StatusCode == http.StatusNotFound && strings.HasPrefix(path, "/session/") &&
-		(!c.host.IsV2() || (!strings.Contains(path, "/permission/") && !strings.Contains(path, "/form/"))) {
-		return errManagedSessionUnavailable
-	}
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		return fmt.Errorf("OpenCode API %s %s returned %s", method, path, resp.Status)
+		return c.apiError(resp, method, path)
 	}
 	if target == nil || resp.StatusCode == http.StatusNoContent {
 		return nil
@@ -178,6 +174,36 @@ func (c *openCodeClient) json(ctx context.Context, method, path string, body, ta
 		return nil
 	}
 	return json.NewDecoder(resp.Body).Decode(target)
+}
+
+func (c *openCodeClient) apiError(resp *http.Response, method, path string) error {
+	if resp.StatusCode != http.StatusNotFound || !strings.HasPrefix(path, "/session/") {
+		return fmt.Errorf("OpenCode API %s %s returned %s", method, path, resp.Status)
+	}
+	if !c.host.IsV2() {
+		return errManagedSessionUnavailable
+	}
+	// V2 session routes can also return missing command, model, or form errors.
+	var failure struct {
+		Tag string `json:"_tag"`
+	}
+	data, err := io.ReadAll(io.LimitReader(resp.Body, (1<<20)+1))
+	if err != nil {
+		return fmt.Errorf("OpenCode API %s %s returned %s with an unreadable error response: %w", method, path, resp.Status, err)
+	}
+	if len(data) > 1<<20 {
+		return fmt.Errorf("OpenCode API %s %s returned %s with an oversized error response", method, path, resp.Status)
+	}
+	if err := json.Unmarshal(data, &failure); err != nil {
+		return fmt.Errorf("OpenCode API %s %s returned %s with an invalid error response: %w", method, path, resp.Status, err)
+	}
+	switch failure.Tag {
+	case "SessionNotFoundError":
+		return errManagedSessionUnavailable
+	case "":
+		return fmt.Errorf("OpenCode API %s %s returned %s", method, path, resp.Status)
+	}
+	return fmt.Errorf("OpenCode API %s %s returned %s (%s): %w", method, path, resp.Status, failure.Tag, errManagedNotFound)
 }
 
 func (c *openCodeClient) postNoContent(ctx context.Context, path string, body any) error {

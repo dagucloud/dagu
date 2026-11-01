@@ -736,6 +736,17 @@ describe('VisualCanvas', () => {
       expect(viewport()).toEqual(first);
     });
 
+    // A preview without editing tools fits a graph with a smaller margin.
+    it('fits closer with a smaller fit padding', () => {
+      const wide = renderWithView();
+      const padded = viewport().zoom;
+      wide.unmount();
+
+      renderWithView({ fitPadding: 0 });
+
+      expect(viewport().zoom).toBeGreaterThan(padded);
+    });
+
     it('fits the view again', () => {
       const { view } = renderWithView();
       const fitted = viewport();

@@ -26,6 +26,15 @@ vi.mock('@/features/views/ViewPanel', () => ({
   ),
 }));
 
+vi.mock('@/features/peek/WorkflowPeek', async () => {
+  const { DialogTitle } = await import('@/components/ui/dialog');
+  return {
+    WorkflowPeek: ({ target }: { target: { dag: string } }) => (
+      <DialogTitle>{target.dag}</DialogTitle>
+    ),
+  };
+});
+
 const useViewsMock = vi.mocked(useViews);
 
 function mockViews(views: Array<{ id: string; name: string }>) {
@@ -68,6 +77,12 @@ describe('ViewPage', () => {
     expect(screen.getByRole('heading', { name: 'My View' })).toBeInTheDocument();
     expect(screen.getByText('View panel: My View')).toBeInTheDocument();
     expect(screen.queryByRole('tab')).not.toBeInTheDocument();
+  });
+
+  it('shows the peek of a ?peek link over the board', () => {
+    renderAt('v1?peek=etl&peekRun=run-1');
+
+    expect(screen.getByRole('dialog', { name: 'etl' })).toBeInTheDocument();
   });
 
   it('explains when the view is missing', () => {

@@ -388,8 +388,8 @@ export function VisualEditor(props: VisualEditorProps): ReactElement {
     () => buildActionCatalog(schema ?? {}, customActions),
     [schema, customActions]
   );
-  // 'latest' follows the newest run; RunBar can choose another one. A host
-  // that gives the run makes the editor read no run itself.
+  // 'latest' is the newest run at the last read; RunBar can choose another
+  // one. A host that gives the run makes the editor read no run itself.
   const [runId, setRunId] = useState<string | null>('latest');
   const hosted = runSource !== undefined;
   const ownRun = useRunOverlay({ dagName, runId: hosted ? null : runId });

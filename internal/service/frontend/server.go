@@ -86,6 +86,10 @@ const (
 	// when no run event wakes it, such as when a queued run records why it
 	// cannot start or the data disk fills.
 	dagRunActivityMaxInterval = 30 * time.Second
+	// dagDetailsMaxInterval bounds how stale a DAG details topic gets when no
+	// wake reaches it, such as when its next run time passes or a DAG file
+	// outside the watched directories changes.
+	dagDetailsMaxInterval = 30 * time.Second
 )
 
 var wikiSSETopicTypes = [...]sse.TopicType{
@@ -1450,6 +1454,7 @@ func (srv *Server) wakeMultiplexedTopicsForAppEvent(event sse.AppEvent) {
 		srv.sseMultiplexer.WakeTopicType(sse.TopicTypeDAGHistory)
 	case sse.AppEventTypeScheduler:
 		srv.sseMultiplexer.WakeTopicType(sse.TopicTypeDAGsList)
+		srv.sseMultiplexer.WakeTopicType(sse.TopicTypeDAG)
 	case sse.AppEventTypeQueue:
 		srv.sseMultiplexer.WakeTopicType(sse.TopicTypeQueues)
 		if event.QueueName != "" {
@@ -1573,6 +1578,10 @@ func (srv *Server) registerDedicatedSSEFetchers(registrar *sse.Multiplexer) {
 		if appStreamAvailable {
 			registrar.SetRefreshMode(sse.TopicTypeDAGsList, sse.TopicRefreshModeOnDemand)
 			registrar.SetPublishOnWake(sse.TopicTypeDAGsList, true)
+			// DAG details also need file wakes: definition, base config,
+			// suspension, and scheduler state changes.
+			registrar.SetRefreshMode(sse.TopicTypeDAG, sse.TopicRefreshModeOnDemand)
+			registrar.SetMaxInterval(sse.TopicTypeDAG, dagDetailsMaxInterval)
 		}
 		registrar.SetPublishOnWake(sse.TopicTypeDAGRuns, true)
 		registrar.SetPublishOnWake(sse.TopicTypeQueues, true)

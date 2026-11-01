@@ -389,6 +389,14 @@ describe('dock tab bodies', () => {
     });
   });
 
+  // A run writes its outputs when it ends: a running run, which may never end,
+  // is not polled for them.
+  it('does not poll the outputs of a running run', async () => {
+    setLatest(run('run-1', [node('a', NodeStatus.Running)], Status.Running));
+    await renderBody('outputs');
+    expect(propsOf('outputs').pollWhileEmpty).toBe(false);
+  });
+
   // A run that ended with no outputs may still write them for a moment; the
   // list stops asking once that moment is over, with no other render.
   it('stops polling the outputs 15 s after the run ended', async () => {
