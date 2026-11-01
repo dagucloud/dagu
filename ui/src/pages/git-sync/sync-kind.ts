@@ -3,9 +3,15 @@
 
 import { SyncItemKind } from '@/api/v1/schema';
 
-export type SyncKind = 'dag' | 'doc' | 'doc-asset' | 'file';
+export type SyncKind = 'dag' | 'calendar' | 'doc' | 'doc-asset' | 'file';
 
-export const syncKindFilters: SyncKind[] = ['dag', 'doc', 'doc-asset', 'file'];
+export const syncKindFilters: SyncKind[] = [
+  'dag',
+  'calendar',
+  'doc',
+  'doc-asset',
+  'file',
+];
 
 export const syncKindLabels: Record<
   SyncKind,
@@ -23,6 +29,13 @@ export const syncKindLabels: Record<
     selectionSingular: 'DAG',
     selectionPlural: 'DAGs',
     badge: 'dag',
+  },
+  calendar: {
+    singular: 'calendar',
+    plural: 'Calendars',
+    selectionSingular: 'calendar',
+    selectionPlural: 'calendars',
+    badge: 'calendar',
   },
   doc: {
     singular: 'Wiki page',
@@ -48,6 +61,7 @@ export const syncKindLabels: Record<
 };
 
 export const syncKindBadgeClass: Partial<Record<SyncKind, string>> = {
+  calendar: 'bg-amber-500/10 text-amber-600 dark:text-amber-400',
   doc: 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400',
   'doc-asset': 'bg-sky-500/10 text-sky-600 dark:text-sky-400',
   file: 'bg-violet-500/10 text-violet-600 dark:text-violet-400',
@@ -56,6 +70,7 @@ export const syncKindBadgeClass: Partial<Record<SyncKind, string>> = {
 export function createSyncKindCounts(): Record<SyncKind, number> {
   return {
     dag: 0,
+    calendar: 0,
     doc: 0,
     'doc-asset': 0,
     file: 0,
@@ -71,6 +86,8 @@ export function parseSyncKind(value: string | null): SyncKind {
 
 export function normalizeSyncItemKind(kind: SyncItemKind): SyncKind {
   switch (kind) {
+    case SyncItemKind.calendar:
+      return 'calendar';
     case SyncItemKind.doc:
       return 'doc';
     case SyncItemKind.doc_asset:
