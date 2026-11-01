@@ -82,7 +82,8 @@ export function entryLabel(
 }
 
 // A cross and a slash in the page colour over the fill: a failed and an
-// aborted step differ from a success by their shape, not only the colour.
+// aborted step differ from a success by their shape, not only the colour,
+// and so does a reused step that failed in its source run.
 const CROSS =
   'linear-gradient(45deg, transparent 42%, var(--background) 42% 58%, transparent 58%), linear-gradient(-45deg, transparent 42%, var(--background) 42% 58%, transparent 58%)';
 const SLASH =
@@ -101,7 +102,9 @@ export function entryFill(
 ): { className?: string; style: CSSProperties } {
   const tone = entryTone(entry);
   const layers: string[] = [];
-  if (marked && isFailedEntry(entry)) layers.push(CROSS);
+  if (marked && (isFailedEntry(entry) || entry.reuseOutcome === 'failed')) {
+    layers.push(CROSS);
+  }
   if (marked && entry.status === NodeStatus.Aborted) layers.push(SLASH);
   if (entry.state === 'reused') layers.push(REUSED_LAYERS);
   else if (entry.testRun) layers.push(HATCH_PATTERN);
