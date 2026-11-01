@@ -65,8 +65,9 @@ func ListCalendars(dir string) ([]CalendarSummary, error) {
 }
 
 // CalendarSource loads the calendar files of one directory. It keeps each
-// parsed calendar until its file, or a file it includes, changes size or
-// modification time, so DAGs that share a calendar parse it once. A file
+// parsed calendar until its file, or a file it includes, changes identity,
+// size or modification time, or until Invalidate, so DAGs that share a
+// calendar parse it once. A file
 // that cannot be read is retried on every call. The calendars it returns
 // are shared and must not be modified.
 type CalendarSource struct {
@@ -128,6 +129,15 @@ func NewCalendarSource(dir string) *CalendarSource {
 // Dir returns the directory of the calendar files.
 func (s *CalendarSource) Dir() string {
 	return s.dir
+}
+
+// Invalidate drops every cached calendar, so the next lookups read the files
+// again. Lookups notice files that change identity, size or modification
+// time; Invalidate covers a rewrite that keeps all three.
+func (s *CalendarSource) Invalidate() {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	clear(s.entries)
 }
 
 // Calendar returns the named calendar: a built-in one, or the calendar file

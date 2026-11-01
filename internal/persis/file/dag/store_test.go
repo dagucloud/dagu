@@ -2779,6 +2779,13 @@ var sameStampSwaps = []sameStampSwap{
 			require.NoError(t, os.Rename(writeStampedFile(t, filepath.Join(calendars, "jp.tmp"), after), path))
 		}
 	}},
+	{name: "in-place rewrite", prepare: func(t *testing.T, before, after string) (string, func()) {
+		calendars := t.TempDir()
+		path := writeStampedFile(t, filepath.Join(calendars, "jp.yaml"), before)
+		// Writing over the file keeps its identity, as a copy that preserves
+		// times does.
+		return calendars, func() { writeStampedFile(t, path, after) }
+	}},
 	{name: "directory symlink", prepare: func(t *testing.T, before, after string) (string, func()) {
 		if runtime.GOOS == "windows" {
 			t.Skip("Windows cannot rename a directory symlink over another")

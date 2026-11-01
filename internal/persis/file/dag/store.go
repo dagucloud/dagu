@@ -301,6 +301,9 @@ func (store *Store) refreshCalendarsState() {
 	if state != store.calendarsState {
 		store.invalidateIndex()
 		store.calendarsState = state
+		// The state follows content, which a cached calendar misses when a
+		// rewrite keeps the file's identity, size and modification time.
+		store.calendars.Invalidate()
 	}
 }
 
