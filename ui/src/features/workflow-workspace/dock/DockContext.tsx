@@ -65,6 +65,12 @@ export interface DockController {
    */
   autoStep?: StepRunTarget | null;
   /**
+   * Drops the step that the auto-open chose, so that the selected run shows
+   * its run view. Optional so that a test double of the dock may leave it
+   * out.
+   */
+  dropAutoStep?(): void;
+  /**
    * Records a run that the user started in this tab. The auto-open rules open
    * the panel when such a run fails. Optional so that a test double of the
    * dock may leave it out.
@@ -178,6 +184,7 @@ export type DockCommands = Pick<
   | 'openRunLog'
   | 'yieldToView'
   | 'noteUserRun'
+  | 'dropAutoStep'
 >;
 
 const DockContext = createContext<DockController | null>(null);
@@ -196,6 +203,7 @@ const NO_DOCK: DockController = {
   openRunLog() {},
   yieldToView() {},
   autoStep: null,
+  dropAutoStep() {},
   noteUserRun() {},
 };
 
@@ -359,6 +367,7 @@ export function DockProvider({ children }: { children: ReactNode }) {
     [show]
   );
   const openRunLog = useCallback(() => show('log', NO_STEP), [show]);
+  const dropAutoStep = useCallback(() => setAuto(null), []);
 
   const yieldToView = useCallback(
     (on: boolean, opts?: { restore?: boolean }) => {
@@ -405,8 +414,18 @@ export function DockProvider({ children }: { children: ReactNode }) {
       openRunLog,
       yieldToView,
       noteUserRun,
+      dropAutoStep,
     }),
-    [setTab, toggle, maximize, openStep, openRunLog, yieldToView, noteUserRun]
+    [
+      setTab,
+      toggle,
+      maximize,
+      openStep,
+      openRunLog,
+      yieldToView,
+      noteUserRun,
+      dropAutoStep,
+    ]
   );
 
   const value = useMemo<DockController>(

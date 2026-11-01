@@ -308,6 +308,15 @@ describe('DockProvider', () => {
     expect(localStorage.getItem(DOCK_HEIGHT_KEY)).toBeNull();
   });
 
+  // A run header of the History grid asks for the run view of its run.
+  it('drops the step that the auto-open chose', () => {
+    const probe = renderDock();
+    act(() => probe.frame.showAuto('log', { step: 'b', stream: 'stderr' }));
+    expect(probe.dock.autoStep).toEqual({ step: 'b', stream: 'stderr' });
+    act(() => probe.commands.dropAutoStep!());
+    expect(probe.dock.autoStep).toBeNull();
+  });
+
   it('keeps a taller dock, with or without a step', () => {
     localStorage.setItem(DOCK_HEIGHT_KEY, '400');
     const probe = renderDock();
