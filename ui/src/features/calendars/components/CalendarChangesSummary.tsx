@@ -1,7 +1,7 @@
 // Copyright (C) 2026 Yota Hamada
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-import type { components } from '@/api/v1/schema';
+import { CalendarWeekday, type components } from '@/api/v1/schema';
 import { Button } from '@/components/ui/button';
 import { useI18n } from '@/i18n/I18nProvider';
 import { I18nText } from '@/i18n/I18nText';
@@ -10,6 +10,17 @@ import { calendarDayStatusLabel, formatCalendarDate } from './calendarDays';
 
 type CalendarChanges = components['schemas']['CalendarChanges'];
 type CalendarDateChange = components['schemas']['CalendarDateChange'];
+
+// Monday first, as 2024-01-01 is a Monday.
+const WEEKDAY_ORDER = [
+  CalendarWeekday.MON,
+  CalendarWeekday.TUE,
+  CalendarWeekday.WED,
+  CalendarWeekday.THU,
+  CalendarWeekday.FRI,
+  CalendarWeekday.SAT,
+  CalendarWeekday.SUN,
+];
 
 type Props = {
   changes: CalendarChanges;
@@ -30,9 +41,15 @@ export function CalendarChangesSummary({
 }: Props): React.ReactElement | null {
   const { ts } = useI18n();
   const [expanded, setExpanded] = useState(false);
+  const weekdayFormat = new Intl.DateTimeFormat(locale, {
+    weekday: 'short',
+    timeZone: 'UTC',
+  });
+  const weekdayName = (day: CalendarWeekday) =>
+    weekdayFormat.format(Date.UTC(2024, 0, 1 + WEEKDAY_ORDER.indexOf(day)));
   const weekdays = [
-    ...changes.weekdaysAdded.map((day) => `+${day}`),
-    ...changes.weekdaysRemoved.map((day) => `-${day}`),
+    ...changes.weekdaysAdded.map((day) => `+${weekdayName(day)}`),
+    ...changes.weekdaysRemoved.map((day) => `-${weekdayName(day)}`),
   ];
   if (changes.dates.length === 0 && weekdays.length === 0) {
     return null;
