@@ -120,11 +120,11 @@ vi.mock('../WorkflowPanel', () => ({ WorkflowPanel: () => null }));
 vi.mock('@/features/visual-editor/DetailsCanvas', () => ({
   default: (props: {
     toolbarEnd?: React.ReactNode;
-    toolbarLead?: React.ReactNode;
+    toolbarStart?: React.ReactNode;
     toolbarTrail?: React.ReactNode;
   }) => (
     <div data-testid="details-canvas">
-      {props.toolbarLead}
+      {props.toolbarStart}
       {props.toolbarEnd}
       {props.toolbarTrail}
     </div>
@@ -170,7 +170,7 @@ type VisualProps = {
     dag?: { steps?: { name: string }[] };
     referenceScope?: { steps: { name: string }[] };
   };
-  toolbarLead?: React.ReactNode;
+  toolbarStart?: React.ReactNode;
   toolbarTrail?: React.ReactNode;
   canvasOverlay?: React.ReactNode;
   onNotice?(notice: EditorNotice | null): void;
@@ -201,7 +201,7 @@ vi.mock('@/features/visual-editor', () => ({
     );
     return (
       <div data-testid="visual-editor-mock">
-        {props.toolbarLead}
+        {props.toolbarStart}
         {props.toolbarTrail}
         {props.canvasOverlay}
       </div>
@@ -458,9 +458,7 @@ describe('DAGSpec compact notices: issues', () => {
       ] as React.ComponentProps<typeof DAGSpec>['localDags'],
     });
 
-    fireEvent.change(screen.getByRole('combobox', { name: 'Document' }), {
-      target: { value: 'child' },
-    });
+    fireEvent.click(screen.getByRole('tab', { name: 'child' }));
     await settle();
 
     const panel = openIssues(screen.getByTestId('details-canvas'));
@@ -477,9 +475,7 @@ describe('DAGSpec compact notices: issues', () => {
       ] as React.ComponentProps<typeof DAGSpec>['localDags'],
     });
 
-    fireEvent.change(screen.getByRole('combobox', { name: 'Document' }), {
-      target: { value: 'broken' },
-    });
+    fireEvent.click(screen.getByRole('tab', { name: 'broken' }));
     await settle();
 
     expect(screen.queryByTestId('details-canvas')).not.toBeInTheDocument();

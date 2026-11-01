@@ -630,19 +630,21 @@ describe.skipIf(realSchema === null)('VisualEditor', () => {
   it('puts the run, history and workflow controls on the canvas', () => {
     renderEditor({
       initial: yamlArraySteps,
-      toolbarLead: <button type="button">Lead</button>,
+      toolbarStart: <button type="button">Start</button>,
       toolbarTrail: <button type="button">Trail</button>,
       workflowPanel: <p>About the workflow</p>,
       onYamlVisibleChange: () => {},
     });
 
     const toolbar = within(screen.getByTestId('ve-toolbar'));
-    for (const name of ['Lead', 'Trail', 'Undo', 'Redo', 'Run', 'Workflow']) {
+    for (const name of ['Trail', 'Undo', 'Redo', 'Run', 'Workflow']) {
       expect(toolbar.getByRole('button', { name })).toBeInTheDocument();
     }
     expect(toolbar.getByRole('button', { name: 'YAML' })).toBeInTheDocument();
-    expect(screen.getByTestId('ve-canvas')).toContainElement(
-      screen.getByTestId('ve-toolbar')
+    const canvas = screen.getByTestId('ve-canvas');
+    expect(canvas).toContainElement(screen.getByTestId('ve-toolbar'));
+    expect(canvas).toContainElement(
+      screen.getByRole('button', { name: 'Start' })
     );
   });
 

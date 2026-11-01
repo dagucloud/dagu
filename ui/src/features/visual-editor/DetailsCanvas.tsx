@@ -20,8 +20,8 @@ export interface DetailsCanvasProps {
   dag: ApiDAGDetails;
   /** Controls at the top right of the canvas. */
   toolbarEnd?: ReactNode;
-  /** Controls before the others, as the editor puts the document selector. */
-  toolbarLead?: ReactNode;
+  /** Controls before the canvas controls, such as the tabs of a file. */
+  toolbarStart?: ReactNode;
   /** Controls after the Workflow button, as the editor puts its actions. */
   toolbarTrail?: ReactNode;
   /** What the Workflow panel shows; the panel has no button without it. */
@@ -59,7 +59,7 @@ function withOverlay(graph: CanvasGraph, overlay?: RunOverlay): CanvasGraph {
 export function DetailsCanvas({
   dag,
   toolbarEnd,
-  toolbarLead,
+  toolbarStart,
   toolbarTrail,
   workflowPanel,
   onSelectStep,
@@ -92,7 +92,6 @@ export function DetailsCanvas({
 
   const end = (
     <>
-      {toolbarLead}
       {toolbarEnd}
       {workflowPanel && (
         <Button
@@ -142,6 +141,7 @@ export function DetailsCanvas({
         onDirectionChange={setDirection}
         fitPadding={fitPadding}
         toolbarEnd={end}
+        toolbarStart={toolbarStart}
         exportName={dag.name}
       />
       {workflowPanel && (

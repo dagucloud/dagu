@@ -170,8 +170,8 @@ export interface VisualEditorProps extends EditorHostProps {
   onYamlModeChange?(mode: 'file' | 'step'): void;
   /** What the YAML shows when the editor mounts with it visible. Default 'step'. */
   initialYamlMode?: 'file' | 'step';
-  /** Controls before the run controls in the toolbar of the canvas. */
-  toolbarLead?: ReactNode;
+  /** Controls before the canvas controls; see VisualCanvasProps.toolbarStart. */
+  toolbarStart?: ReactNode;
   /**
    * Restores the text of the last save; the 'Revert to the last save' button
    * shows only with it, and is on only while the text is dirty. The host asks
@@ -347,7 +347,7 @@ export function VisualEditor(props: VisualEditorProps): ReactElement {
     onYamlIntent,
     onYamlModeChange,
     initialYamlMode = 'step',
-    toolbarLead,
+    toolbarStart,
     toolbarTrail,
     onRevertToSave,
     workflowPanel,
@@ -1443,7 +1443,6 @@ export function VisualEditor(props: VisualEditorProps): ReactElement {
   const yamlShown = yamlVisible && !(inDrawer && formOpen);
   const toolbarEnd = (
     <>
-      {toolbarLead}
       {!chrome?.hideRunBar && (
         <RunBar
           dagName={dagName}
@@ -1653,6 +1652,7 @@ export function VisualEditor(props: VisualEditorProps): ReactElement {
               onCommand={handleCommand}
               onDirectionChange={setDirection}
               toolbarEnd={compactTools ? undefined : toolbarEnd}
+              toolbarStart={toolbarStart}
               exportName={dagName}
               viewRef={canvasView}
               hideFrozenNotice={compactNotices}

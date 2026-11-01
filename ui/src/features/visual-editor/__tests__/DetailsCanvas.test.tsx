@@ -66,10 +66,9 @@ describe('DetailsCanvas', () => {
     );
   });
 
-  // The controls keep the order of the editor toolbar: lead, Workflow, trail.
-  it('puts the lead before the Workflow button and the trail after it', () => {
+  // The controls keep the order of the editor toolbar: Workflow, then trail.
+  it('puts the trail after the Workflow button', () => {
     renderCanvas({
-      toolbarLead: <button type="button">Lead</button>,
       toolbarTrail: <button type="button">Trail</button>,
       workflowPanel: <p>Panel</p>,
     });
@@ -78,8 +77,18 @@ describe('DetailsCanvas', () => {
       .getAllByRole('button')
       .map((button) => button.getAttribute('aria-label') ?? button.textContent);
     const at = (text: string) => labels.findIndex((l) => l?.includes(text));
-    expect(at('Lead')).toBeLessThan(at('Workflow'));
     expect(at('Workflow')).toBeLessThan(at('Trail'));
+  });
+
+  // The start controls, such as the tabs of a file, lead the canvas controls.
+  it('puts the start controls before the canvas controls', () => {
+    renderCanvas({ toolbarStart: <button type="button">Start</button> });
+
+    const start = screen.getByRole('button', { name: 'Start' });
+    expect(
+      start.compareDocumentPosition(screen.getByLabelText('Top to bottom')) &
+        Node.DOCUMENT_POSITION_FOLLOWING
+    ).toBeTruthy();
   });
 
   it('starts top to bottom and switches the direction', () => {

@@ -180,12 +180,12 @@ vi.mock('@/features/visual-editor/DetailsCanvas', () => ({
   default: (props: {
     dag: { name: string; steps?: { name: string }[] };
     toolbarEnd?: React.ReactNode;
-    toolbarLead?: React.ReactNode;
+    toolbarStart?: React.ReactNode;
     toolbarTrail?: React.ReactNode;
     onSelectStep(name: string | null): void;
   }) => (
     <div data-testid="details-canvas">
-      {props.toolbarLead}
+      {props.toolbarStart}
       {props.toolbarEnd}
       {props.toolbarTrail}
       <span>{props.dag.steps?.map((step) => step.name).join(',')}</span>
@@ -229,7 +229,7 @@ type VisualProps = {
   yamlVisible?: boolean;
   onYamlVisibleChange?(visible: boolean): void;
   onFormVisibleChange?(visible: boolean): void;
-  toolbarLead?: React.ReactNode;
+  toolbarStart?: React.ReactNode;
   toolbarTrail?: React.ReactNode;
   workflowPanel?: React.ReactNode;
   canvasOverlay?: React.ReactNode;
@@ -242,7 +242,7 @@ vi.mock('@/features/visual-editor', () => ({
     visual.props = props;
     return (
       <div data-testid="visual-editor-mock">
-        {props.toolbarLead}
+        {props.toolbarStart}
         {props.toolbarTrail}
         {props.canvasOverlay}
         {props.workflowPanel}
@@ -1301,50 +1301,46 @@ describe('DAGSpec visual view', () => {
       },
     ];
 
-    it('offers the parent and the sub-DAGs in one selector', async () => {
+    it('offers the parent and the sub-DAGs as tabs', async () => {
       await renderSpec({ localDags });
 
-      const selector = screen.getByRole('combobox', { name: 'Document' });
-      expect(
-        within(selector)
-          .getAllByRole('option')
-          .map((o) => o.textContent)
-      ).toEqual(['example (Parent)', 'child']);
+      const tabs = within(
+        screen.getByRole('tablist', { name: 'Document' })
+      ).getAllByRole('tab');
+      expect(tabs.map((tab) => tab.textContent)).toEqual(['example', 'child']);
+      expect(tabs[0]).toHaveAttribute('aria-selected', 'true');
       expect(screen.getByTestId('visual-editor-mock')).toBeInTheDocument();
     });
 
     it('shows a sub-DAG as a read-only canvas, with its step details', async () => {
       await renderSpec({ localDags });
 
-      fireEvent.change(screen.getByRole('combobox', { name: 'Document' }), {
-        target: { value: 'child' },
-      });
+      fireEvent.click(screen.getByRole('tab', { name: 'child' }));
       await settle();
 
       expect(
         screen.queryByTestId('visual-editor-mock')
       ).not.toBeInTheDocument();
       expect(screen.getByTestId('details-canvas')).toHaveTextContent('load');
-      // The same selector and the YAML button stay in the canvas toolbar.
-      expect(
-        screen.getByRole('combobox', { name: 'Document' })
-      ).toBeInTheDocument();
+      // The same tabs and the YAML button stay in the canvas toolbar.
+      expect(screen.getByRole('tab', { name: 'child' })).toHaveAttribute(
+        'aria-selected',
+        'true'
+      );
       fireEvent.click(screen.getByText('Pick load'));
       expect(screen.getByTestId('step-drawer')).toHaveTextContent('load');
     });
 
-    // The controls do not jump when a sub-DAG is picked: the selector first,
+    // The controls do not jump when a sub-DAG is picked: the tabs first,
     // the actions last, as for the parent.
     it('keeps the toolbar order of the parent in a sub-DAG', async () => {
       await renderSpec({ localDags });
-      fireEvent.change(screen.getByRole('combobox', { name: 'Document' }), {
-        target: { value: 'child' },
-      });
+      fireEvent.click(screen.getByRole('tab', { name: 'child' }));
       await settle();
 
       const toolbar = within(screen.getByTestId('details-canvas'));
       const order = [
-        toolbar.getByRole('combobox', { name: 'Document' }),
+        toolbar.getByRole('tablist', { name: 'Document' }),
         toolbar.getByRole('button', { name: 'YAML' }),
         toolbar.getByRole('button', { name: 'Save' }),
       ];
@@ -1359,9 +1355,7 @@ describe('DAGSpec visual view', () => {
     // The YAML of the drawer is the whole file: its edits need Save here.
     it('keeps Save in the toolbar of a sub-DAG, and Copy in the YAML panel', async () => {
       await renderSpec({ localDags });
-      fireEvent.change(screen.getByRole('combobox', { name: 'Document' }), {
-        target: { value: 'child' },
-      });
+      fireEvent.click(screen.getByRole('tab', { name: 'child' }));
       await settle();
       const toolbar = screen.getByTestId('details-canvas');
 
@@ -1387,9 +1381,7 @@ describe('DAGSpec visual view', () => {
       ['removed', []],
     ])('falls back to the parent when the sub-DAG is %s', async (_, next) => {
       const view = await renderSpec({ localDags });
-      fireEvent.change(screen.getByRole('combobox', { name: 'Document' }), {
-        target: { value: 'child' },
-      });
+      fireEvent.click(screen.getByRole('tab', { name: 'child' }));
       await settle();
 
       view.rerender(specTree({ localDags: next }));
@@ -1406,9 +1398,7 @@ describe('DAGSpec visual view', () => {
       fireEvent.click(screen.getByText('Open form'));
       expect(screen.getByLabelText('DAG spec')).not.toBeVisible();
 
-      fireEvent.change(screen.getByRole('combobox', { name: 'Document' }), {
-        target: { value: 'child' },
-      });
+      fireEvent.click(screen.getByRole('tab', { name: 'child' }));
       await settle();
 
       expect(screen.getByLabelText('DAG spec')).toBeVisible();
@@ -1417,11 +1407,11 @@ describe('DAGSpec visual view', () => {
       ).toBeInTheDocument();
     });
 
-    it('shows no selector for a file with one document', async () => {
+    it('shows no tabs for a file with one document', async () => {
       await renderSpec();
 
       expect(
-        screen.queryByRole('combobox', { name: 'Document' })
+        screen.queryByRole('tablist', { name: 'Document' })
       ).not.toBeInTheDocument();
     });
   });

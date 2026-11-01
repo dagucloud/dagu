@@ -60,7 +60,7 @@ import {
   toInheritedLegacyDefinitionHints,
 } from './customActionSchema';
 import type { QuickFixSource } from './quickFixProvider';
-import { DocumentSwitcher } from './DocumentSwitcher';
+import { DocumentTabs } from './DocumentTabs';
 import { buildIssueMarkers } from './issueMarkers';
 import { issueRows } from './issueRows';
 import { IssuesPopover } from './IssuesPopover';
@@ -1611,15 +1611,12 @@ function DAGSpec({
   // A file with several documents shows one at a time. The parent is the
   // one that the editor edits; a sub-DAG shows read-only, as its YAML is part
   // of the same text.
-  const documentSelector = hasLocalDags ? (
-    <DocumentSwitcher
+  const documentTabs = hasLocalDags ? (
+    <DocumentTabs
       value={activeTab}
       onChange={switchDocument}
       documents={[
-        {
-          value: 'parent',
-          label: `${data?.dag?.name ?? ''} ${ts('(Parent)')}`,
-        },
+        { value: 'parent', label: data?.dag?.name ?? '', parent: true },
         ...(localDags ?? []).map(
           (localDag: components['schemas']['LocalDag']) => ({
             value: localDag.name,
@@ -2071,7 +2068,7 @@ function DAGSpec({
                           onYamlIntent={preloadDAGEditor}
                           onYamlModeChange={setYamlKind}
                           initialYamlMode={yamlKind}
-                          toolbarLead={documentSelector}
+                          toolbarStart={documentTabs}
                           toolbarTrail={specActions}
                           onRevertToSave={editable ? requestDiscard : undefined}
                           yamlToolbarRoot={yamlToolbarRoot}
@@ -2130,7 +2127,7 @@ function DAGSpec({
                         workflowPanel={<WorkflowPanel dag={preview.dag} />}
                         // The order of the parent: selector, Workflow, YAML,
                         // then the actions.
-                        toolbarLead={documentSelector}
+                        toolbarStart={documentTabs}
                         toolbarTrail={
                           <>
                             <Button

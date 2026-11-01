@@ -132,7 +132,7 @@ type VisualProps = Record<string, unknown> & {
   onTextChange(text: string): void;
   yamlVisible?: boolean;
   onYamlVisibleChange?(visible: boolean): void;
-  toolbarLead?: React.ReactNode;
+  toolbarStart?: React.ReactNode;
   toolbarTrail?: React.ReactNode;
   onStateChange?(state: VisualEditorState): void;
   handleRef?: React.Ref<VisualEditorHandle>;
@@ -153,7 +153,7 @@ vi.mock('@/features/visual-editor', () => ({
     );
     return (
       <div data-testid="visual-editor-mock">
-        {props.toolbarLead}
+        {props.toolbarStart}
         {props.toolbarTrail}
         <button
           type="button"
@@ -378,9 +378,7 @@ describe('DAGSpec host props', () => {
     });
     expect(drawer.panelId).toBeUndefined();
 
-    fireEvent.change(screen.getByRole('combobox', { name: 'Document' }), {
-      target: { value: 'child' },
-    });
+    fireEvent.click(screen.getByRole('tab', { name: 'child' }));
     await settle();
     expect(drawer.panelId).toBe('subdag-step');
   });

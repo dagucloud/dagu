@@ -341,6 +341,11 @@ export interface VisualCanvasProps {
   onDirectionChange?(direction: CanvasDirection): void;
   /** Controls at the top right of the canvas, such as run, undo and save. */
   toolbarEnd?: ReactNode;
+  /**
+   * Controls at the top left, before the canvas controls, such as the tabs
+   * of the workflows of a file. They bring their own chrome.
+   */
+  toolbarStart?: ReactNode;
   /** File name, without extension, for the exported image. */
   exportName?: string;
   /** The step that the cursor of the YAML is in: the canvas lights it. */

@@ -756,7 +756,7 @@ describe.skipIf(realSchema === null)('VisualEditor in a host', () => {
       renderEditor({
         initial: yamlArraySteps,
         onStepCommand,
-        toolbarLead: <CommandProbe cmd={cmd} />,
+        toolbarStart: <CommandProbe cmd={cmd} />,
       });
 
       fireEvent.click(screen.getByRole('button', { name: 'Probe' }));
@@ -811,7 +811,7 @@ describe.skipIf(realSchema === null)('VisualEditor in a host', () => {
       const { update } = renderEditor({
         initial: yamlArraySteps,
         stepCommandGates: gates,
-        toolbarLead: <GateProbe />,
+        toolbarStart: <GateProbe />,
       });
       expect(seen.gates).toBeUndefined();
 
@@ -819,7 +819,7 @@ describe.skipIf(realSchema === null)('VisualEditor in a host', () => {
         initial: yamlArraySteps,
         stepCommandGates: gates,
         onStepCommand: () => undefined,
-        toolbarLead: <GateProbe />,
+        toolbarStart: <GateProbe />,
       });
       expect(seen.gates).toBe(gates);
     });

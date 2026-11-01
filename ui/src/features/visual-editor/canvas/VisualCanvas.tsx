@@ -262,6 +262,7 @@ function CanvasView({
   onCommand,
   onDirectionChange,
   toolbarEnd,
+  toolbarStart,
   exportName = 'workflow',
   highlighted = null,
   onAddStep,
@@ -1397,9 +1398,12 @@ function CanvasView({
                         toolbar for a click on the pane. */}
                     <div
                       data-flow-overlay=""
-                      className={cn('shrink-0', TOOLBAR_GROUP_CLASS)}
+                      className="flex min-w-0 shrink-0 items-center gap-2"
                     >
-                      {leftToolbar}
+                      {toolbarStart}
+                      <div className={cn('shrink-0', TOOLBAR_GROUP_CLASS)}>
+                        {leftToolbar}
+                      </div>
                     </div>
                     <div
                       data-flow-overlay=""
@@ -1415,7 +1419,13 @@ function CanvasView({
                 )
               ) : (
                 <>
-                  <Panel position="top-left">{leftToolbar}</Panel>
+                  <Panel
+                    position="top-left"
+                    className="flex items-center gap-2"
+                  >
+                    {toolbarStart}
+                    {leftToolbar}
+                  </Panel>
                   <Panel
                     position="top-right"
                     className={cn(stackedBar && 'top-[3.25rem]')}
