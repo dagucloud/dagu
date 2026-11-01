@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 import { createContext, useContext } from 'react';
-import type { DAGPageData, WorkspaceRunValue } from './types';
+import type { ApiDAGRunDetails, DAGPageData, WorkspaceRunValue } from './types';
 
 export interface WorkspaceDataValue {
   fileName: string;
@@ -11,8 +11,14 @@ export interface WorkspaceDataValue {
   remoteNode: string;
   run: WorkspaceRunValue;
   refresh(): Promise<void>;
-  /** Registers the mutator of a mounted, enabled history query. Returns the unregister function. */
-  registerHistory(mutate: () => Promise<unknown>): () => void;
+  /**
+   * Registers the mutator of a mounted, enabled history query, and a reader
+   * of the runs that it lists. Returns the unregister function.
+   */
+  registerHistory(
+    mutate: () => Promise<unknown>,
+    runs?: () => readonly ApiDAGRunDetails[]
+  ): () => void;
 }
 
 export const WorkspaceDataContext = createContext<WorkspaceDataValue | null>(

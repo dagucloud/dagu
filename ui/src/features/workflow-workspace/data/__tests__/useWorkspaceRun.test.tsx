@@ -5,6 +5,7 @@ import { act, waitFor } from '@testing-library/react';
 import { useSearchParams } from 'react-router-dom';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { NodeStatus, Status } from '@/api/v1/schema';
+import { useRunHistory } from '../useRunHistory';
 import { useWorkspaceRun } from '../useWorkspaceRun';
 import {
   connectedSSE,
@@ -228,6 +229,51 @@ describe('useWorkspaceRun, pinned', () => {
 
   // A test run writes no events: with the SSE up, its stream never reports
   // that it ended, so the run is read again while it is active.
+  // A run picked from a history list shows the details of the list while
+  // its own query is out: the page does not go blank in between.
+  it('shows the listed details of a picked run until its query answers', async () => {
+    server.history = {
+      dagRuns: [run('run-0', [node('a', NodeStatus.Failed)], Status.Failed)],
+      gridData: [],
+    };
+    const serveAll = serve(server);
+    let answer: (value: unknown) => void = () => {};
+    h.GET.mockImplementation((path: string, init?: never) =>
+      path === RUN_PATH
+        ? new Promise((resolve) => {
+            answer = resolve;
+          })
+        : serveAll(path, init)
+    );
+    const view = renderWorkspace(() => ({
+      listed: useRunHistory({ enabled: true }).runs.length,
+      run: useWorkspaceRun(),
+    }));
+    await waitFor(() => expect(view.result.current?.value.listed).toBe(1));
+
+    act(() => view.result.current.value.run.select('run-0'));
+    await waitFor(() =>
+      expect(view.result.current.value.run.ref?.runId).toBe('run-0')
+    );
+    expect(view.result.current.value.run.details?.dagRunId).toBe('run-0');
+    expect(view.result.current.value.run.overlay.a?.status).toBe(
+      NodeStatus.Failed
+    );
+
+    act(() =>
+      answer({
+        data: {
+          dagRunDetails: run('run-0', [node('a', NodeStatus.Success)]),
+        },
+      })
+    );
+    await waitFor(() =>
+      expect(view.result.current.value.run.overlay.a?.status).toBe(
+        NodeStatus.Success
+      )
+    );
+  });
+
   it('reads an active test run again with the SSE up', async () => {
     const testRun = (status: Status) => ({
       ...run('run-0', [node('a', NodeStatus.Running)], status),

@@ -65,9 +65,12 @@ export interface SelectedRun {
 export function useSelectedRun({
   dagData,
   remoteNode,
+  listedRun,
 }: {
   dagData: DAGPageData;
   remoteNode: string;
+  /** The details of a run that a mounted history list holds, or null. */
+  listedRun?: (runId: string) => ApiDAGRunDetails | null;
 }): SelectedRun {
   const [searchParams, setSearchParams] = useSearchParams();
   const runParam = searchParams.get(RUN_PARAM) || null;
@@ -194,7 +197,11 @@ export function useSelectedRun({
     serverDetails = pinnedServer;
   } else if (heldLatest.current?.dagRunId === pinnedRunId) {
     serverDetails = heldLatest.current;
-  } else serverDetails = null;
+  } else {
+    // A run picked from a history list shows the details that the list has
+    // until its own query answers, so the page does not blink.
+    serverDetails = listedRun?.(pinnedRunId) ?? null;
+  }
 
   // The run of the link was shown once: a later 404 means that it was
   // removed (dequeued, deleted), which is no bad link.
