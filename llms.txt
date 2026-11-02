@@ -59,7 +59,7 @@ Load only the reference file that matches the task.
 - `params:` values arrive as strings. The `params:` field supports JSON schema-like types and validation, check for schema to see how to specify types and validation rules.
 - Single-line `run:` values are command-form entries. Array-form `run:` entries run one by one. Multi-line `run:` values are scripts. Dagu does not split pipes, redirects, `&&`, or `;` into separate commands; those stay with the selected shell.
 - Do not assume `bash` for `run:` steps. If a script depends on a specific interpreter, add a shebang such as `#!/bin/sh` or `#!/usr/bin/env bash` only after checking that shell exists on the target host or container. Otherwise keep the script portable or set `with.shell:` explicitly.
-- `parallel:` currently requires `action: dag.run` to a child DAG.
+- `parallel:` currently requires `action: dag.run` or `action: dag.enqueue` to a child DAG.
 - Sub-DAGs do not inherit parent env vars; pass what you need via `params:`.
 - For arbitrary text inside shell steps, prefer `printenv VAR_NAME` or `action: template.render` over Dagu interpolation such as `${env.VAR_NAME}`.
 - `harness.run` supports built-in provider adapters (`aider`, `amp`, `claude`, `cline`, `codex`, `copilot`, `cursor`, `deepseek`, `droid`, `gemini`, `goose`, `kilo`, `kiro`, `opencode`, `pi`, `qwen`) and custom top-level `harnesses:` entries. Built-in OpenCode uses managed sessions on long-lived Dagu hosts by default; containers and unsupported options use the CLI path. It can use top-level `container:` or step-level `container:`.

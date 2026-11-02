@@ -535,7 +535,8 @@ Rules:
 Rules:
 
 - Body steps inherit the DAG's step `defaults` as top-level steps do. A field
-  set on a body step overrides the inherited default.
+  set on a body step overrides the inherited default, except `env` and
+  `preconditions`, which add to the inherited entries.
 
 - Body step ids must be unique inside the body.
 
