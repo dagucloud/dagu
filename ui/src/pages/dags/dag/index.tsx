@@ -208,7 +208,11 @@ function DAGDetails() {
     (isNotFoundQueryError(dagError) ||
       (!!dagData?.dag &&
         dagData.dag.name !== fileName.replace(/\.ya?ml$/, '')));
-  const { data: linkedRun, error: linkedRunError } = useQuery(
+  const {
+    data: linkedRun,
+    error: linkedRunError,
+    mutate: mutateLinkedRun,
+  } = useQuery(
     '/dag-runs/{name}/{dagRunId}',
     whenEnabled(lookUpRunFile, {
       params: {
@@ -257,7 +261,10 @@ function DAGDetails() {
     query.set('workspace', dagWorkspaceName);
     return `${location.pathname}?${query.toString()}`;
   }, [dagWorkspaceName, location.pathname, location.search]);
+  // A link to a run opens it in any workspace, as the run page did: the
+  // links of notifications and incidents name no workspace.
   const dagMatchesWorkspace =
+    !!linkedRunId ||
     workspaceSelection.kind === WorkspaceKind.all ||
     (workspaceSelection.kind === WorkspaceKind.default &&
       !dagHasWorkspaceLabel) ||
@@ -422,7 +429,29 @@ function DAGDetails() {
             ) : (
               !dagData?.dag &&
               (dagError && !resolvingRunFile ? (
-                isNotFoundQueryError(dagError) ? (
+                isNotFoundQueryError(dagError) &&
+                lookUpRunFile &&
+                isNotFoundQueryError(linkedRunError) ? (
+                  // Neither the workflow nor the run of the link exists.
+                  <NotFoundState
+                    title={ts('Run not found')}
+                    description={ts('This run may have been deleted.')}
+                    action={{
+                      to: buildUrl(
+                        `/dag-runs?name=${encodeURIComponent(fileName)}`
+                      ),
+                      label: ts('Open Executions'),
+                    }}
+                  />
+                ) : isNotFoundQueryError(dagError) &&
+                  lookUpRunFile &&
+                  linkedRunError ? (
+                  <LoadErrorState
+                    title={ts("Couldn't load this run")}
+                    error={linkedRunError}
+                    onRetry={() => void mutateLinkedRun()}
+                  />
+                ) : isNotFoundQueryError(dagError) ? (
                   <NotFoundState
                     title={ts('Workflow not found')}
                     description={

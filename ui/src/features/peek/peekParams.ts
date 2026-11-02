@@ -20,6 +20,11 @@ export interface PeekTarget {
   dock?: string;
 }
 
+/** True when both targets name the same workflow and the same run. */
+export function samePeekTarget(a: PeekTarget, b: PeekTarget): boolean {
+  return a.dag === b.dag && (a.run ?? null) === (b.run ?? null);
+}
+
 /** The query keys of a peek. A list page keeps them out of its own state. */
 export const PEEK_KEYS = ['peek', 'peekRun', 'peekDock'] as const;
 

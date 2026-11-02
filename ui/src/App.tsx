@@ -59,6 +59,7 @@ import {
   OverlayResizeHandle,
   useOverlayWidth,
 } from '@/features/peek/OverlayResizeHandle';
+import { useOpenPage } from '@/features/dag-runs/lib/useOpenPage';
 import { overlayStepOfKey } from '@/features/peek/overlayKeys';
 import {
   useWorkflowOverlay,
@@ -411,6 +412,8 @@ function LazyRoutes({
 function WorkflowOverlayHost(): React.ReactElement | null {
   const overlay = useWorkflowOverlay();
   const { ts } = useI18n();
+  const location = useLocation();
+  const openPage = useOpenPage();
   const panelRef = React.useRef<HTMLElement>(null);
   const overlayWidth = useOverlayWidth();
   const isOpen = overlay?.isOpen ?? false;
@@ -486,7 +489,15 @@ function WorkflowOverlayHost(): React.ReactElement | null {
             icon={Maximize2}
             size="sm"
             label={ts('Open workflow')}
-            onClick={overlay.expand}
+            description={ts('Cmd/Ctrl+Click for new tab')}
+            onClick={(event) => {
+              // The URL is the workflow page: a new tab opens it alone.
+              if (event.metaKey || event.ctrlKey) {
+                openPage(`${location.pathname}${location.search}`, event);
+                return;
+              }
+              overlay.expand();
+            }}
           />
           <IconButton
             icon={X}

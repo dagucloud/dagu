@@ -1,12 +1,12 @@
 import React from 'react';
-import { Link } from 'react-router-dom';
 import { ChevronDown, ChevronRight, Clock, AlertCircle } from 'lucide-react';
 import type { components } from '../../../api/v1/schema';
 import RelativeTime from '@/components/ui/relative-time';
 import { cn } from '../../../lib/utils';
 import WorkerHealth from './WorkerHealth';
 import { useRemoteNode } from '../../../contexts/RemoteNodeContext';
-import { buildRunningTaskURL } from '../../dag-runs/lib/dagRunUrls';
+import { PeekLink } from '@/features/peek/PeekLink';
+import { runningTaskRoot } from '../../dag-runs/lib/dagRunUrls';
 import { I18nText } from '@/i18n/I18nText';
 
 type Worker = components['schemas']['Worker'];
@@ -222,9 +222,11 @@ function TaskRow({ task }: { task: RunningTask }) {
   const isNestedTask =
     task.rootDagRunName && task.rootDagRunName !== task.dagName;
 
+  const root = runningTaskRoot(task);
   return (
-    <Link
-      to={buildRunningTaskURL(task, remoteNode)}
+    <PeekLink
+      peek={{ dag: root.name, run: root.dagRunId }}
+      remoteNode={remoteNode}
       className="flex items-center gap-3 p-1.5 rounded bg-background/50 cursor-pointer hover:bg-background/80 transition-colors"
     >
       <Clock className="h-3 w-3 text-muted-foreground flex-shrink-0" />
@@ -254,7 +256,7 @@ function TaskRow({ task }: { task: RunningTask }) {
       <div className="text-xs text-muted-foreground whitespace-nowrap">
         {duration}
       </div>
-    </Link>
+    </PeekLink>
   );
 }
 

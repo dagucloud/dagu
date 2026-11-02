@@ -4,6 +4,7 @@ import type { components } from '../../api/v1/schema';
 import { Input } from '@/components/ui/input';
 import { RefreshButton } from '@/components/ui/refresh-button';
 import { AppBarContext } from '../../contexts/AppBarContext';
+import { PeekHost } from '@/features/peek/PeekHost';
 import WorkerList from '../../features/workers/components/WorkerList';
 import WorkerMetrics from '../../features/workers/components/WorkerMetrics';
 import { useQuery } from '../../hooks/api';
@@ -201,4 +202,13 @@ function Workers() {
   );
 }
 
-export default Workers;
+/** The workers page; a running task opens its run over the page. */
+function WorkersPage() {
+  return (
+    <PeekHost>
+      <Workers />
+    </PeekHost>
+  );
+}
+
+export default WorkersPage;

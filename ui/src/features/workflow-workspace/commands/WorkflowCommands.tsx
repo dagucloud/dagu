@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 import {
+  CalendarClock,
   CircleStop,
   Crosshair,
   FileCode,
@@ -17,6 +18,7 @@ import {
   Save,
   ScrollText,
   Undo2,
+  Webhook,
   X,
 } from 'lucide-react';
 import { useMemo, type ReactNode } from 'react';
@@ -28,6 +30,7 @@ import { useI18n } from '@/i18n/I18nProvider';
 import { useWorkspaceEditor } from '../canvas/WorkspaceEditorContext';
 import type { ApiDAGDetails, WorkspaceEditorHandle } from '../contracts';
 import { useWorkspaceRefresh, useWorkspaceRun } from '../data';
+import { useWorkspacePermissions } from '../data/useWorkspacePermissions';
 import { useDockCommands, useDockFrame } from '../dock/DockContext';
 import { DOCK_TAB_LABELS } from '../dock/DockTabStrip';
 import { dockTabBodies } from '../dock/tabs';
@@ -70,6 +73,7 @@ export function WorkflowCommands({
   const refresh = useWorkspaceRefresh();
   const dock = useDockCommands();
   const frame = useDockFrame();
+  const { canManageWebhooks } = useWorkspacePermissions();
 
   const commands = useMemo<PaletteCommand[]>(() => {
     const list: PaletteCommand[] = [];
@@ -190,6 +194,27 @@ export function WorkflowCommands({
       });
     }
 
+    // The panels of the schedule and of the webhook open from the URL, also
+    // for a graph that draws no launcher. They open in the editor of the
+    // current definition, after the guard of an unsaved settings draft.
+    const openLauncher = (panel: 'cron' | 'webhook') => () =>
+      guard(() => setUrl({ panel, def: null }));
+    list.push({
+      id: 'launcher:cron',
+      label: ts('Open {tab}', { tab: ts('Schedule') }),
+      keywords: ['cron'],
+      icon: <CalendarClock />,
+      run: openLauncher('cron'),
+    });
+    if (canManageWebhooks) {
+      list.push({
+        id: 'launcher:webhook',
+        label: ts('Open {tab}', { tab: ts('Webhook') }),
+        icon: <Webhook />,
+        run: openLauncher('webhook'),
+      });
+    }
+
     if (run.hasRun) {
       list.push({
         id: 'follow-latest',
@@ -228,6 +253,7 @@ export function WorkflowCommands({
     }
     return list;
   }, [
+    canManageWebhooks,
     dag.steps,
     dock,
     frame.tabs,

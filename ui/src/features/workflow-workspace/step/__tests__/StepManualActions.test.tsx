@@ -55,6 +55,8 @@ type Details = components['schemas']['DAGRunDetails'];
 const api = vi.hoisted(() => ({
   post: vi.fn(),
   messages: [] as string[],
+  /** Reads the sub run again. */
+  rereadSubRun: vi.fn(),
 }));
 const perms = vi.hoisted(() => ({ value: {} as WorkspacePermissions }));
 
@@ -65,8 +67,10 @@ vi.mock('@/hooks/api', () => ({
     init: { params: { path: Record<string, string> } } | null
   ) => {
     let data: unknown;
+    let mutate = () => Promise.resolve(undefined);
     if (init && path.endsWith('/sub-dag-runs/{subDAGRunId}')) {
       data = { dagRunDetails: subRun() };
+      mutate = api.rereadSubRun;
     } else if (init && path.endsWith('/messages')) {
       const step = init.params.path.stepName ?? '';
       api.messages.push(step);
@@ -85,7 +89,7 @@ vi.mock('@/hooks/api', () => ({
       error: undefined,
       isLoading: false,
       isValidating: false,
-      mutate: () => Promise.resolve(undefined),
+      mutate,
     };
   },
 }));
@@ -225,7 +229,7 @@ function waitingRun(): Details {
   } as Details;
 }
 
-/** A sub run of run-1 with its own approval gate and waiting agent. */
+/** A sub run of run-1 with its own approval gate, human task and waiting agent. */
 function subRun(): Details {
   const root = waitingRun();
   return {
@@ -234,7 +238,9 @@ function subRun(): Details {
     dagRunId: 'sub-1',
     nodes: [
       gate('gate-c'),
-      ...root.nodes.filter((n) => n.step.name === 'coder'),
+      ...root.nodes.filter(
+        (n) => n.step.name === 'coder' || n.step.name === 'review'
+      ),
     ],
   };
 }
@@ -318,6 +324,7 @@ beforeAll(() => {
 });
 
 beforeEach(() => {
+  api.rereadSubRun.mockReset().mockResolvedValue(undefined);
   api.post.mockReset().mockResolvedValue({ error: undefined });
   api.messages = [];
   refresh.mockReset().mockResolvedValue(undefined);
@@ -539,6 +546,24 @@ describe('StepManualActions', () => {
         }
       )
     );
+    // A finished sub run is not polled: the approval reads it again.
+    await waitFor(() => expect(api.rereadSubRun).toHaveBeenCalled());
+  });
+
+  // The server completes the human tasks of a root run only: the card of a
+  // sub run would send the task to the wrong run.
+  it('offers no task card for a human task of a sub run', () => {
+    renderFacts({
+      step: 'review',
+      subRun: { dagName: 'child', subDAGRunId: 'sub-1' },
+    });
+
+    expect(screen.getByTestId('ww-step-sub-run-task')).toHaveTextContent(
+      'A human task of a sub-run cannot be completed here.'
+    );
+    expect(
+      screen.queryByRole('button', { name: /complete/i })
+    ).not.toBeInTheDocument();
   });
 
   it.each(['build', 'busy', 'ask'])(

@@ -27,6 +27,8 @@ interface ApprovalTabProps {
    * from the next one.
    */
   bare?: boolean;
+  /** Called after an approval or a push back reached the server. */
+  onChanged?: () => void;
 }
 
 function ApprovalCard({
@@ -119,6 +121,7 @@ export function ApprovalTab({
   dagName,
   stepName,
   bare,
+  onChanged,
 }: ApprovalTabProps) {
   const client = useClient();
   const remoteNode = useRemoteNode();
@@ -160,6 +163,7 @@ export function ApprovalTab({
       body: { inputs: Object.keys(inputs).length > 0 ? inputs : undefined },
     });
     if (error) throw new Error(error.message || 'Failed to approve step');
+    onChanged?.();
   };
 
   const handlePushBack = async (inputs: Record<string, string>) => {
@@ -175,6 +179,7 @@ export function ApprovalTab({
       body: { inputs: Object.keys(inputs).length > 0 ? inputs : undefined },
     });
     if (error) throw new Error(error.message || 'Failed to retry step');
+    onChanged?.();
   };
 
   if (waitingNodes.length === 0) {

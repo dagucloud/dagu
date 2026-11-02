@@ -4,6 +4,7 @@
 import { render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import type { ReactElement } from 'react';
+import { MemoryRouter, Route, Routes, useLocation } from 'react-router-dom';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   DAGRunConditionStatus,
@@ -30,6 +31,7 @@ const h = vi.hoisted(() => ({
   select: vi.fn(),
   linkSelect: vi.fn(),
   outputs: {} as Record<string, { data?: StepOutputs }>,
+  copyText: vi.fn(),
 }));
 
 vi.mock('../../data', () => ({ useWorkspaceRun: () => h.state.run }));
@@ -47,6 +49,15 @@ vi.mock('@/features/visual-editor/api/useStepOutputs', () => ({
 vi.mock('@/contexts/RemoteNodeContext', () => ({
   useRemoteNode: () => 'local',
 }));
+vi.mock('@/contexts/ConfigContext', () => ({
+  useConfig: () => ({ basePath: '' }),
+}));
+vi.mock('@/lib/clipboard', () => ({ copyText: h.copyText }));
+
+function Location() {
+  const location = useLocation();
+  return <output data-testid="location">{location.search}</output>;
+}
 
 function makeRun(
   details: ApiDAGRunDetails,
@@ -86,7 +97,21 @@ function renderButton(
   wrap: (el: ReactElement) => ReactElement = (el) => el
 ) {
   h.state.run = makeRun(ui, over);
-  return render(wrap(<RunDetailsButton details={ui} />));
+  return render(
+    <MemoryRouter initialEntries={['/dags/etl']}>
+      <Routes>
+        <Route
+          path="/dags/:fileName"
+          element={
+            <>
+              {wrap(<RunDetailsButton details={ui} />)}
+              <Location />
+            </>
+          }
+        />
+      </Routes>
+    </MemoryRouter>
+  );
 }
 
 async function open() {
@@ -95,6 +120,7 @@ async function open() {
 }
 
 beforeEach(() => {
+  h.copyText.mockReset().mockResolvedValue(true);
   h.setTab.mockClear();
   h.select.mockClear();
   h.linkSelect.mockClear();
@@ -450,5 +476,28 @@ describe('RunDetailsPopover', () => {
         'Run details'
       );
     });
+  });
+
+  // The definition of a run that the bar shows when it differs, and a link
+  // that opens the run itself.
+  it('shows the definition of the run and copies a link to it', async () => {
+    renderButton(details());
+    const dialog = await open();
+
+    await userEvent.click(
+      within(dialog).getByRole('button', { name: 'Copy link to this run' })
+    );
+    // The run link names the DAG of the run and its node, for anyone.
+    expect(h.copyText).toHaveBeenCalledWith(
+      `${window.location.origin}/dags/${details().name}?remoteNode=local&run=run-42`
+    );
+
+    await userEvent.click(
+      within(dialog).getByRole('button', {
+        name: 'Show the definition of this run',
+      })
+    );
+    expect(screen.getByTestId('location')).toHaveTextContent('def=run');
+    expect(screen.queryByRole('dialog')).toBeNull();
   });
 });

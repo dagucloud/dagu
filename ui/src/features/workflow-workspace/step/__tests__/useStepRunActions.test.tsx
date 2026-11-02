@@ -37,7 +37,11 @@ import type {
   WorkspaceRunValue,
 } from '../../data/types';
 import type { ReuseSourceState } from '../useReuseSource';
-import { useStepRunActions, type StepRunActions } from '../useStepRunActions';
+import {
+  useStepRunActions,
+  type StepRunActions,
+  type StepRunActionsOptions,
+} from '../useStepRunActions';
 
 type Node = components['schemas']['Node'];
 type Details = components['schemas']['DAGRunDetails'];
@@ -285,9 +289,11 @@ function LocationProbe() {
 }
 
 let probeStay = false;
+/** The sub-run that the actions address, when a test gives one. */
+let probeSubRun: Pick<StepRunActionsOptions, 'holder' | 'onChanged'> = {};
 
 function Probe() {
-  actions = useStepRunActions({ stay: probeStay });
+  actions = useStepRunActions({ stay: probeStay, ...probeSubRun });
   return <>{actions.dialogs}</>;
 }
 
@@ -358,6 +364,7 @@ beforeEach(() => {
   testRunNoted.mockClear();
   dagSteps = undefined;
   probeStay = false;
+  probeSubRun = {};
   navigations = [];
 });
 
@@ -962,6 +969,84 @@ describe('useStepRunActions dialogs', () => {
 
     expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
     expect(container).toBeEmptyDOMElement();
+  });
+});
+
+// The actions of a step of a child run address the child run through the
+// root run, as the sub-run endpoints need.
+describe('useStepRunActions on a sub-run', () => {
+  const subRun = {
+    name: 'child',
+    dagRunId: 'c-1',
+    rootDAGRunName: 'example',
+    rootDAGRunId: 'run-1',
+    status: Status.Failed,
+    statusLabel: StatusLabel.failed,
+    autoRetryCount: 0,
+    nodes: [
+      node('load', {
+        status: NodeStatus.Failed,
+        statusLabel: NodeStatusLabel.failed,
+      }),
+    ],
+  } as Details;
+
+  it('sets the status of a sub-run step and reads both runs again', async () => {
+    const onChanged = vi.fn();
+    probeSubRun = { holder: subRun, onChanged };
+    const run = runValue(details());
+    renderActions(run);
+
+    act(() => actions.setStatus('load'));
+    fireEvent.click(screen.getByRole('button', { name: /Success/ }));
+
+    await waitFor(() => expect(run.refresh).toHaveBeenCalledTimes(1));
+    expect(api.patch).toHaveBeenCalledWith(
+      '/dag-runs/{name}/{dagRunId}/sub-dag-runs/{subDAGRunId}/steps/{stepName}/status',
+      {
+        params: {
+          path: {
+            name: 'example',
+            dagRunId: 'run-1',
+            stepName: 'load',
+            subDAGRunId: 'c-1',
+          },
+          query: { remoteNode: 'edge' },
+        },
+        body: { status: NodeStatus.Success },
+      }
+    );
+    expect(onChanged).toHaveBeenCalledTimes(1);
+    expect(run.applyNodeStatus).not.toHaveBeenCalled();
+  });
+
+  it('retries a sub-run step through the root run', async () => {
+    const onChanged = vi.fn();
+    probeSubRun = { holder: subRun, onChanged };
+    renderActions(runValue(details()));
+
+    act(() => actions.retryStep('load'));
+    fireEvent.click(screen.getByRole('button', { name: 'Retry' }));
+
+    await waitFor(() => expect(onChanged).toHaveBeenCalled());
+    expect(api.post).toHaveBeenCalledWith(
+      '/dag-runs/{name}/{dagRunId}/retry',
+      expect.objectContaining({
+        body: { dagRunId: 'run-1', stepName: 'load', subDAGRunId: 'c-1' },
+      })
+    );
+  });
+
+  it('keeps a sub-run step from running and from the steps of the root', () => {
+    probeSubRun = { holder: subRun };
+    renderActions(runValue(details()));
+
+    expect(actions.can('load')).toMatchObject({
+      retry: true,
+      setStatus: true,
+      runStep: false,
+    });
+    expect(actions.can('build').retry).toBe(false);
   });
 });
 

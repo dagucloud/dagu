@@ -274,6 +274,49 @@ describe('DAGDetails page', () => {
       expect(claimHideBreadcrumb).not.toHaveBeenCalled();
     });
 
+    it('offers a retry when the run of a link cannot be read', () => {
+      useQueryMock.mockImplementation(
+        (path) =>
+          ({
+            data: undefined,
+            error:
+              path === '/dag-runs/{name}/{dagRunId}'
+                ? { code: 'internal_error', message: 'timeout' }
+                : { code: 'not_found', message: 'not found' },
+            mutate: vi.fn(),
+          }) as never
+      );
+
+      renderPage('/dags/missing-flow?run=r1');
+
+      expect(
+        screen.getByRole('heading', { name: "Couldn't load this run" })
+      ).toBeVisible();
+      expect(screen.getByRole('button', { name: 'Try again' })).toBeVisible();
+      expect(screen.queryByText('Run not found')).toBeNull();
+    });
+
+    it('explains when neither the workflow nor the run of a link exists', () => {
+      useQueryMock.mockImplementation(
+        () =>
+          ({
+            data: undefined,
+            error: { code: 'not_found', message: 'not found' },
+            mutate: vi.fn(),
+          }) as never
+      );
+
+      renderPage('/dags/missing-flow?run=r1');
+
+      expect(
+        screen.getByRole('heading', { name: 'Run not found' })
+      ).toBeVisible();
+      expect(
+        screen.getByRole('link', { name: 'Open Executions' })
+      ).toHaveAttribute('href', '/dag-runs?name=missing-flow');
+      expect(workspaceMock).not.toHaveBeenCalled();
+    });
+
     // A run link names the workflow by the DAG name of the run. A DAG whose
     // name is not the name of its file is found through the run.
     it('opens a run link of a DAG named apart from its file on that file', async () => {
@@ -447,8 +490,46 @@ describe('DAGDetails page', () => {
       expect(claimHideBreadcrumb).not.toHaveBeenCalled();
     });
 
-    // A run link opens in the app bar scope, which may not hold the workflow.
     it('offers the workspace of a workflow outside the selected one', () => {
+      useQueryMock.mockImplementation(
+        (path) =>
+          ({
+            data:
+              path === '/dags/{fileName}'
+                ? {
+                    ...dagData,
+                    dag: { ...dagData.dag, labels: ['workspace=team-b'] },
+                  }
+                : undefined,
+            mutate: vi.fn(),
+          }) as never
+      );
+
+      renderPage('/dags/release-notes?remoteNode=local', {
+        ...(appBarValue as object),
+        workspaceSelection: {
+          kind: WorkspaceKind.workspace,
+          workspace: 'team-a',
+        },
+      } as never);
+
+      expect(
+        screen.getByText('This workflow is not in the selected workspace.')
+      ).toBeVisible();
+      const own = screen.getByRole('link', {
+        name: 'Show in workspace team-b',
+      });
+      const href = new URL(own.getAttribute('href') ?? '', 'http://x');
+      expect(href.pathname).toBe('/dags/release-notes');
+      expect(Object.fromEntries(href.searchParams)).toEqual({
+        remoteNode: 'local',
+        workspace: 'team-b',
+      });
+    });
+
+    // The links of notifications and incidents name a run and no workspace;
+    // the run opens whatever workspace the app bar selects.
+    it('opens a run link of a workflow outside the selected workspace', () => {
       useQueryMock.mockImplementation(
         (path) =>
           ({
@@ -472,18 +553,9 @@ describe('DAGDetails page', () => {
       } as never);
 
       expect(
-        screen.getByText('This workflow is not in the selected workspace.')
-      ).toBeVisible();
-      const own = screen.getByRole('link', {
-        name: 'Show in workspace team-b',
-      });
-      const href = new URL(own.getAttribute('href') ?? '', 'http://x');
-      expect(href.pathname).toBe('/dags/release-notes');
-      expect(Object.fromEntries(href.searchParams)).toEqual({
-        remoteNode: 'local',
-        run: 'r1',
-        workspace: 'team-b',
-      });
+        screen.queryByText('This workflow is not in the selected workspace.')
+      ).not.toBeInTheDocument();
+      expect(workspaceMock).toHaveBeenCalled();
     });
 
     // ?workspace names the workspace over the selection of the app bar. The

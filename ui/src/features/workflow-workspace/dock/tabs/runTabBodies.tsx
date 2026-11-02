@@ -50,6 +50,7 @@ import { ContinuousPanel } from '../../continuous/ContinuousPanel';
 import { pickContinuousNode } from '../../continuous/continuousNode';
 import { useWorkspaceUrl } from '../../state/workspaceUrl';
 import { StepForeach, isForeachStep } from '../../step/StepForeach';
+import { LogPageLink, runLogPageURL } from '../../step/StepLogPane';
 import { StepManualActions } from '../../step/StepManualActions';
 import { StepDeclared } from '../../step/StepDeclared';
 import { StepOutputRows } from '../../step/StepOutputRows';
@@ -119,11 +120,18 @@ function runTab(
 }
 
 /**
- * Child rows open on the sub-run stack of the workspace. With Ctrl or Cmd
- * they open the run page in a new tab. TimelineChart reads the opener from
- * the context, so this view puts a modifier-aware opener in front of it.
+ * The timeline of a run. Child rows open on the sub-run stack of the
+ * workspace; with Ctrl or Cmd they open the run page in a new tab.
+ * TimelineChart reads the opener from the context, so this view puts a
+ * modifier-aware opener in front of it.
  */
-function TimelineBody({ details }: RunTabProps) {
+export function RunTimelineWithOpener({
+  details,
+  className,
+}: {
+  details: RunTabProps['details'];
+  className?: string;
+}) {
   const openOnStack = useOpenSubRun();
   const remoteNode = useRemoteNode();
   const newTab = useRef(false);
@@ -149,12 +157,16 @@ function TimelineBody({ details }: RunTabProps) {
     [details, openOnStack, remoteNode]
   );
   return (
-    <div className={SCROLL} onClickCapture={note} onKeyDownCapture={note}>
+    <div className={className} onClickCapture={note} onKeyDownCapture={note}>
       <SubRunOpenProvider value={openOnStack ? open : null}>
         <TimelineChart status={details} />
       </SubRunOpenProvider>
     </div>
   );
+}
+
+function TimelineBody({ details }: RunTabProps) {
+  return <RunTimelineWithOpener details={details} className={SCROLL} />;
 }
 
 /** How long after its end a run may still write its outputs. */
@@ -343,7 +355,12 @@ function ActionsBody({ run, details, step }: RunTabProps) {
         <HumanTasksTab dagRun={details} onChanged={run.refresh} bare />
       )}
       {waitingApprovalNodes.length > 0 && (
-        <ApprovalTab dagRun={details} dagName={details.name} bare />
+        <ApprovalTab
+          dagRun={details}
+          dagName={details.name}
+          bare
+          onChanged={() => void run.refresh()}
+        />
       )}
     </div>
   );
@@ -486,8 +503,9 @@ function ContinuousBody({ details, step }: RunTabProps) {
  * failed step opens on stderr, where the text of the failure is. Without a
  * step, the scheduler log of the run.
  */
-function LogBody({ run, details, step }: RunTabProps) {
+function LogBody({ run, details, step, fileName }: RunTabProps) {
   const { ts } = useI18n();
+  const remoteNode = useRemoteNode();
   const [url, setUrl] = useWorkspaceUrl();
   const { autoStep, openStep } = useDock();
   // A host that shows one step names it, and the URL does not choose.
@@ -577,7 +595,11 @@ function LogBody({ run, details, step }: RunTabProps) {
           name={details.name}
           dagRunId={details.dagRunId}
           dagRun={details}
-          pageView={false}
+          toolbarExtra={
+            <LogPageLink
+              to={runLogPageURL({ fileName, holder: details, remoteNode })}
+            />
+          }
           // The reused steps ran before the run: the log puts their lines
           // before its own, or after them when the newest line is at the top.
           cachedLines={

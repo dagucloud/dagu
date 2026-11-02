@@ -843,6 +843,7 @@ function DAGStatus({
               <ApprovalTab
                 dagRun={displayDAGRun}
                 dagName={displayDAGRun.name}
+                onChanged={dagContext.refresh}
               />
             )}
           </section>
@@ -1028,7 +1029,11 @@ function DAGStatus({
         {/* Approval Tab Content */}
         {activeTab === 'approval' && hasWaitingApprovals && (
           <div className={scrollPaneClassName}>
-            <ApprovalTab dagRun={displayDAGRun} dagName={displayDAGRun.name} />
+            <ApprovalTab
+              dagRun={displayDAGRun}
+              dagName={displayDAGRun.name}
+              onChanged={dagContext.refresh}
+            />
           </div>
         )}
 

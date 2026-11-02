@@ -429,8 +429,24 @@ describe('WorkspaceRunHosts', () => {
           init?: { params?: { path?: Record<string, string> } }
         ) => {
           if (path !== SUB_RUN) return base(path, init);
-          return init?.params?.path?.subDAGRunId === 'c-1'
-            ? { data: { dagRunDetails: { ...run('c-1'), name: 'child-dag' } } }
+          // c-1 is a child of the run; g-1 is a child of c-1.
+          const levels: Record<string, Record<string, unknown>> = {
+            'c-1': {
+              ...run('c-1'),
+              name: 'child-dag',
+              parentDAGRunId: 'run-2',
+            },
+            'g-1': { ...run('g-1'), name: 'grand-dag', parentDAGRunId: 'c-1' },
+            // o-1 is a child of a run that cannot be read.
+            'o-1': {
+              ...run('o-1'),
+              name: 'orphan-dag',
+              parentDAGRunId: 'gone',
+            },
+          };
+          const found = levels[init?.params?.path?.subDAGRunId ?? ''];
+          return found
+            ? { data: { dagRunDetails: found } }
             : {
                 error: { code: 'not_found', message: 'not found' },
                 response: { status: 404 },
@@ -460,6 +476,24 @@ describe('WorkspaceRunHosts', () => {
       expect(lastURL()).toContain('run=run-2');
       expect(lastURL()).not.toMatch(/subRun|step/);
       expect(h.navigate.mock.lastCall?.[1]).toMatchObject({ replace: true });
+    });
+
+    // The breadcrumb leads back through every level, as when drilling in.
+    it('opens a nested sub-run under the runs above it', async () => {
+      renderHosts(null, `/dags/${FILE_NAME}?run=run-2&subRun=g-1`);
+
+      const content = await screen.findByTestId('child-content');
+      expect(content).toHaveAttribute('data-run', 'g-1');
+      expect(crumbs()).toEqual(['demo', 'child-dag', 'grand-dag']);
+    });
+
+    // A missing level would put the run under one that is not its parent.
+    it('opens a nested sub-run alone when a level above cannot be read', async () => {
+      renderHosts(null, `/dags/${FILE_NAME}?run=run-2&subRun=o-1`);
+
+      const content = await screen.findByTestId('child-content');
+      expect(content).toHaveAttribute('data-run', 'o-1');
+      expect(crumbs()).toEqual(['demo', 'orphan-dag']);
     });
 
     it('drops the link of a sub-run that the run does not have', async () => {

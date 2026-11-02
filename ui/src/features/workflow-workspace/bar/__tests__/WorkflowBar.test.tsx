@@ -70,6 +70,7 @@ vi.mock('../RunActionsCluster', () => ({
   RunActionsCluster: slotStub('run-actions'),
 }));
 vi.mock('../RunSplitButton', () => ({ RunSplitButton: slotStub('run-split') }));
+vi.mock('../BarMoreMenu', () => ({ BarMoreMenu: slotStub('more') }));
 vi.mock('../WorkflowEditButtons', () => ({
   WorkflowDeleteButton: slotStub('edit'),
 }));
@@ -201,6 +202,7 @@ describe('WorkflowBar', () => {
       screen.getByTestId('run-split'),
       screen.getByRole('button', { name: 'Refresh' }),
       screen.getByTestId('edit'),
+      screen.getByTestId('more'),
     ];
     for (let i = 1; i < order.length; i++) {
       expect(
@@ -262,11 +264,9 @@ describe('WorkflowBar', () => {
 
   // The '...' menu is gone: Rename and Delete are buttons of the bar, and
   // no entry of the bar leads to the run page.
-  it('has no menu and no run page entry', () => {
+  it('has no run page entry', () => {
     withRun();
     renderBar('/dags/etl');
-    expect(screen.queryByTestId('ww-workflow-menu')).toBeNull();
-    expect(screen.queryByRole('button', { name: 'More actions' })).toBeNull();
     expect(screen.queryByText('Open run page')).toBeNull();
     expect(screen.queryByText('Open in editor')).toBeNull();
     expect(screen.queryByRole('link', { name: /run page/i })).toBeNull();

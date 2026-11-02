@@ -17,21 +17,77 @@ import {
   type SubRunStackEntry,
 } from '@/features/dags/components/common/SubRunStackModal';
 import { RootDAGRunContext } from '@/features/dags/contexts/RootDAGRunContext';
-import { useQuery } from '@/hooks/api';
+import { useClient, useQuery } from '@/hooks/api';
 import { whenEnabled } from '@/hooks/queryUtils';
 import { WorkspaceDataContext } from '../data/context';
-import type { WorkspaceRunValue } from '../data/types';
+import type { RunRef, WorkspaceRunValue } from '../data/types';
 import { useWorkspaceUrl } from '../state/workspaceUrl';
 import { SubRunView } from './SubRunView';
 
 const noop = () => undefined;
 
+/** The levels above a linked sub-run that the stack reads at most. */
+const MAX_LINKED_DEPTH = 16;
+
+type Client = ReturnType<typeof useClient>;
+type DAGRunDetails = components['schemas']['DAGRunDetails'];
+
+/**
+ * The runs between the root run and a sub-run of it, from the top, read
+ * through the parent of each level; null when a level cannot be read or
+ * the chain is deeper than the stack reads. A partial chain would put a
+ * run under a level that is not its parent.
+ */
+async function parentsOf(
+  client: Client,
+  root: RunRef,
+  child: DAGRunDetails,
+  remoteNode: string
+): Promise<SubRunStackEntry[] | null> {
+  const entries: SubRunStackEntry[] = [];
+  let parentId = child.parentDAGRunId;
+  for (let level = 0; level < MAX_LINKED_DEPTH; level++) {
+    if (!parentId || parentId === root.runId) return entries;
+    let parent: DAGRunDetails | undefined;
+    try {
+      const { data } = await client.GET(
+        '/dag-runs/{name}/{dagRunId}/sub-dag-runs/{subDAGRunId}',
+        {
+          params: {
+            path: {
+              name: root.name,
+              dagRunId: root.runId,
+              subDAGRunId: parentId,
+            },
+            query: { remoteNode },
+          },
+        }
+      );
+      parent = data?.dagRunDetails;
+    } catch {
+      return null;
+    }
+    if (!parent) return null;
+    entries.unshift({ name: parent.name, dagRunId: parent.dagRunId });
+    parentId = parent.parentDAGRunId;
+  }
+  return null;
+}
+
 // A child run shows in the form of the workflow page; each run starts with
 // its own picked step.
 const renderSubRun = (
   run: components['schemas']['DAGRunDetails'],
-  entry: SubRunStackEntry
-) => <SubRunView key={run.dagRunId} run={run} initialStep={entry.step} />;
+  entry: SubRunStackEntry,
+  refresh: () => Promise<void>
+) => (
+  <SubRunView
+    key={run.dagRunId}
+    run={run}
+    initialStep={entry.step}
+    onChanged={() => void refresh()}
+  />
+);
 
 /**
  * Hosts the sub-run stack and the RootDAGRunContext of the selected run for
@@ -93,8 +149,8 @@ function RunHosts({
 
 /**
  * A link names a sub-run of the run with ?subRun, and one of its steps with
- * ?step. Once the run has loaded, the sub-run opens on the stack and the
- * link leaves the URL.
+ * ?step. Once the run has loaded, the sub-run opens on the stack under the
+ * runs between it and the root run, and the link leaves the URL.
  */
 function useLinkedSubRun(
   run: WorkspaceRunValue,
@@ -102,6 +158,7 @@ function useLinkedSubRun(
 ) {
   const [url, setUrl] = useWorkspaceUrl();
   const remoteNode = useRemoteNode();
+  const client = useClient();
   const linked = url.subRun;
   const ref =
     run.details && run.details.dagRunId === run.ref?.runId ? run.ref : null;
@@ -124,15 +181,27 @@ function useLinkedSubRun(
   const settled = !!child || !!error || run.notFound;
   useEffect(() => {
     if (!linked || !settled) return;
-    if (child) {
-      show([
-        {
-          name: child.name,
-          dagRunId: child.dagRunId,
-          step: linked.step ?? undefined,
-        },
-      ]);
-    }
-    setUrl({ subRun: null }, { replace: true });
-  }, [child, linked, setUrl, settled, show]);
+    let cancelled = false;
+    void (async () => {
+      // Without the whole chain the run opens alone, as the first level.
+      const parents =
+        (child && ref ? await parentsOf(client, ref, child, remoteNode) : []) ??
+        [];
+      if (cancelled) return;
+      if (child) {
+        show([
+          ...parents,
+          {
+            name: child.name,
+            dagRunId: child.dagRunId,
+            step: linked.step ?? undefined,
+          },
+        ]);
+      }
+      setUrl({ subRun: null }, { replace: true });
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [child, client, linked, ref, remoteNode, setUrl, settled, show]);
 }

@@ -67,6 +67,8 @@ export interface StepFactsProps {
   holder: ApiDAGRunDetails | null;
   node: ApiNode | undefined;
   onOpenLogs?(t: StepRunTarget): void;
+  /** Called after a step action changed the sub-run of the target. */
+  onRunChanged?(): void;
   /**
    * 'details' is the Details tab of the step panel. It leaves out what the
    * panel shows around it: the status, the repeat policy, the log and run
@@ -521,12 +523,15 @@ export function StepFacts({
   holder,
   node,
   onOpenLogs,
+  onRunChanged,
   variant = 'full',
 }: StepFactsProps) {
   const { ts } = useI18n();
   const { fileName } = useWorkspaceData('StepFacts');
   const remoteNode = useRemoteNode();
-  const actions = useStepRunActions();
+  const actions = useStepRunActions(
+    target.subRun ? { holder, onChanged: onRunChanged } : undefined
+  );
 
   if (!holder) {
     return (
@@ -543,8 +548,7 @@ export function StepFacts({
     );
   }
 
-  // Step actions address the selected run only.
-  const gates = target.subRun ? null : actions.can(node.step.name);
+  const gates = actions.can(node.step.name);
   const logHref = (stream: 'stdout' | 'stderr') =>
     stepLogPageURL({
       fileName,
@@ -566,10 +570,10 @@ export function StepFacts({
     else actions.openLogs(t);
   };
   const full = variant === 'full';
-  const canSetStatus = !!gates?.setStatus;
+  const canSetStatus = gates.setStatus;
   // Run step is the 'Execute step' button of the node view header: one run
   // action there, none here.
-  const hasActions = full && !!gates && (gates.retry || gates.setStatus);
+  const hasActions = full && (gates.retry || gates.setStatus);
 
   return (
     <div className="space-y-3 text-sm" data-testid="ww-step-facts">

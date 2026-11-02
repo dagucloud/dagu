@@ -86,6 +86,8 @@ type Props = {
     | ((mode: 'activity' | 'raw') => React.ReactNode);
   /** Offers the Page View switch (default true). Without it only the tail shows. */
   pageView?: boolean;
+  /** Controls of the host at the end of the toolbar, such as a link to the log page. */
+  toolbarExtra?: React.ReactNode;
 };
 
 /**
@@ -98,6 +100,7 @@ function ExecutionLog({
   dagRun,
   cachedLines,
   pageView = true,
+  toolbarExtra,
 }: Props) {
   const { ts } = useI18n();
   const remoteNode = useRemoteNode();
@@ -620,6 +623,7 @@ function ExecutionLog({
                 <FileArchive className="h-4 w-4" />
               </Button>
             </I18nProps>
+            {toolbarExtra}
 
             {/* Live mode toggle - only visible when DAG is running */}
             {isRunning && (

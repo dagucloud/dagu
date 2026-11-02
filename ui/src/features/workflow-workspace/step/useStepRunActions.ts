@@ -6,11 +6,12 @@ import {
   Fragment,
   useCallback,
   useEffect,
+  useMemo,
   useState,
   type ReactNode,
 } from 'react';
 import { useNavigate } from 'react-router-dom';
-import type { components, NodeStatus } from '@/api/v1/schema';
+import { Status, type components, type NodeStatus } from '@/api/v1/schema';
 import { useErrorModal } from '@/components/ui/error-modal';
 import { useRemoteNode } from '@/contexts/RemoteNodeContext';
 import { buildDAGRunPageURL } from '@/features/dag-runs/lib/dagRunUrls';
@@ -166,14 +167,27 @@ export function renderParallelPicker(
   });
 }
 
+export interface StepRunActionsOptions {
+  /** Keeps the runs of a step whose view is open on the page: `followed`. */
+  stay?: boolean;
+  /**
+   * A sub-run of the selected run: the gates, the dialogs and the actions
+   * address its steps in place of the steps of the selected run.
+   */
+  holder?: ApiDAGRunDetails | null;
+  /** Called after an action changed the steps of `holder`. */
+  onChanged?(): void;
+}
+
 /**
- * The run actions on one step of the selected run, with their gates and
- * the dialogs that they open. Render `dialogs` where the hook is called.
+ * The run actions on one step of the selected run, or of a sub-run of it,
+ * with their gates and the dialogs that they open. Render `dialogs` where
+ * the hook is called.
  */
 export function useStepRunActions(
-  opts: { stay?: boolean } = {}
+  opts: StepRunActionsOptions = {}
 ): StepRunActions {
-  const { stay = false } = opts;
+  const { stay = false, onChanged } = opts;
   const { ts } = useI18n();
   const { fileName, dagData, run, refresh } =
     useWorkspaceData('useStepRunActions');
@@ -196,7 +210,22 @@ export function useStepRunActions(
     holder: ApiDAGRunDetails;
   } | null>(null);
 
-  const details = run.details;
+  const subRun = opts.holder && isSubDAGRun(opts.holder) ? opts.holder : null;
+  const details = subRun ?? run.details;
+  const nodeByStep = useMemo(
+    () =>
+      subRun
+        ? new Map(subRun.nodes.map((node) => [node.step.name, node]))
+        : run.nodeByStep,
+    [run.nodeByStep, subRun]
+  );
+  // A sub-run cannot retry a step while its root run runs.
+  const rootRunning = !!subRun && run.details?.status === Status.Running;
+  const { refresh: refreshRun } = run;
+  const refreshHolder = useCallback(async () => {
+    onChanged?.();
+    await refreshRun();
+  }, [onChanged, refreshRun]);
   const { handle } = editor;
   // The buffer is read when the confirmation opens: no edit can happen
   // while the dialog is open.
@@ -216,15 +245,16 @@ export function useStepRunActions(
     (node: ApiNode) =>
       canRetryStep(details, node, {
         runDags: permissions.canRunDags,
-        rootRunning: false,
+        rootRunning,
       }),
-    [details, permissions.canRunDags]
+    [details, permissions.canRunDags, rootRunning]
   );
 
   const can = useCallback(
     (step: string): StepRunGates => {
-      const node = run.nodeByStep.get(step);
-      const runStep = permissions.canExecute;
+      const node = nodeByStep.get(step);
+      // A step runs from the file of the page: never a step of a sub-run.
+      const runStep = !subRun && permissions.canExecute;
       if (!node) {
         return { retry: false, setStatus: false, runStep, subRuns: false };
       }
@@ -245,7 +275,7 @@ export function useStepRunActions(
         ...(reason ? { reason } : {}),
       };
     },
-    [details, permissions, retryGateOf, run.nodeByStep]
+    [details, nodeByStep, permissions, retryGateOf, subRun]
   );
 
   const retryStep = useCallback(
@@ -340,7 +370,7 @@ export function useStepRunActions(
 
   const openSubRun = useCallback(
     (step: string, e?: { newTab?: boolean }) => {
-      const node = run.nodeByStep.get(step);
+      const node = nodeByStep.get(step);
       const children = allSubRunsOf(node);
       if (!node || !details || children.length === 0) return;
       if (children.length > 1) {
@@ -349,7 +379,7 @@ export function useStepRunActions(
       }
       openSubRunEntry({ node, index: 0, holder: details, newTab: e?.newTab });
     },
-    [details, openSubRunEntry, run.nodeByStep]
+    [details, nodeByStep, openSubRunEntry]
   );
 
   const openLogs = useCallback((t: StepRunTarget) => dock.openStep(t), [dock]);
@@ -388,11 +418,15 @@ export function useStepRunActions(
         );
         return;
       }
-      run.applyNodeStatus(step.name, status);
       setStatusStep(null);
+      if (subRun) {
+        await refreshHolder();
+        return;
+      }
+      run.applyNodeStatus(step.name, status);
       await run.refresh();
     },
-    [client, details, remoteNode, run, showError, ts]
+    [client, details, refreshHolder, remoteNode, run, showError, subRun, ts]
   );
 
   // The step view of the step is open: its columns can follow the run.
@@ -496,9 +530,9 @@ export function useStepRunActions(
   );
 
   const statusNode =
-    statusStep !== null ? run.nodeByStep.get(statusStep) : undefined;
+    statusStep !== null ? nodeByStep.get(statusStep) : undefined;
   const retryNode =
-    retryStepName !== null ? run.nodeByStep.get(retryStepName) : undefined;
+    retryStepName !== null ? nodeByStep.get(retryStepName) : undefined;
   const dialogs = createElement(
     Fragment,
     null,
@@ -519,7 +553,7 @@ export function useStepRunActions(
           dagRun: details,
           stepName: retryNode.step.name,
           disabled: retryGateOf(retryNode).disabled,
-          onRetried: () => void run.refresh(),
+          onRetried: () => void refreshHolder(),
         })
       : null,
     confirm === null

@@ -79,7 +79,13 @@ import {
 import { Switch } from '@/components/ui/switch';
 import { AppBarContext } from '../../../../contexts/AppBarContext';
 import { PeekLink } from '@/features/peek/PeekLink';
-import { usePeekOrOpen, usePeekSequence } from '@/features/peek/usePeekOrOpen';
+import {
+  PEEK_SHOWN_ROW,
+  usePeekOrOpen,
+  usePeekSequence,
+  usePeekShown,
+  useRevealShownRow,
+} from '@/features/peek/usePeekOrOpen';
 import {
   isRunSortField,
   maxRunSortDAGs,
@@ -149,6 +155,8 @@ interface DAGCardProps {
   canPin: boolean;
   isPinPending: boolean;
   onTogglePin: (dag: components['schemas']['DAGFile']) => void;
+  /** The overlay shows the workflow, or showed it last. */
+  isShown?: boolean;
   className?: string;
 }
 
@@ -199,6 +207,13 @@ function DeleteDAGButton({
   );
 }
 
+/**
+ * The mark of the card that the overlay shows: PEEK_SHOWN_ROW with a tint.
+ * card-obsidian is plain CSS, which wins over the utility layer, so the
+ * mark needs !important; the class stays literal for the Tailwind scan.
+ */
+const SHOWN_CARD = 'shadow-[inset_3px_0_0_0_var(--primary)]! bg-muted/20!';
+
 function DAGCard({
   dag,
   onOpen,
@@ -213,6 +228,7 @@ function DAGCard({
   canPin,
   isPinPending,
   onTogglePin,
+  isShown = false,
   className = '',
 }: DAGCardProps) {
   const fileName = dag.fileName;
@@ -227,7 +243,8 @@ function DAGCard({
   return (
     <div
       tabIndex={0}
-      className={`card-obsidian p-2.5 cursor-pointer hover:bg-white/[0.05] transition-colors duration-300 focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-ring ${status === Status.Running ? 'animate-running-row' : ''} ${className}`}
+      data-peek-shown={isShown || undefined}
+      className={`card-obsidian p-2.5 cursor-pointer hover:bg-white/[0.05] transition-colors duration-300 focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-ring ${status === Status.Running ? 'animate-running-row' : ''} ${isShown ? SHOWN_CARD : ''} ${className}`}
       onClick={onOpen}
       onKeyDown={onOwnEnter(onOpen)}
     >
@@ -1130,6 +1147,8 @@ function DAGTable({
   // server cap, because the server would sort by name instead.
   const runSortDisabled = (resultCount ?? 0) > maxRunSortDAGs;
   const peekOrOpen = usePeekOrOpen();
+  const isShown = usePeekShown();
+  useRevealShownRow();
   const columns = useMemo(
     () =>
       canDeleteDAGs
@@ -1826,13 +1845,18 @@ function DAGTable({
                   isDAGRow &&
                   'dag' in row.original &&
                   deleteSelection.has((row.original as DAGRow).dag.fileName);
+                const rowShown =
+                  isDAGRow &&
+                  'dag' in row.original &&
+                  isShown({ dag: (row.original as DAGRow).dag.fileName });
                 // Type guard to ensure we only access dag property when it exists
 
                 return (
                   <TableRow
                     key={row.id}
                     data-state={isDeleteSelected ? 'selected' : undefined}
-                    className={`text-[0.8125rem] ${
+                    data-peek-shown={rowShown || undefined}
+                    className={`text-[0.8125rem] ${rowShown ? PEEK_SHOWN_ROW : ''} ${
                       row.original?.kind === ItemKind.Group
                         ? 'bg-muted/50 font-semibold cursor-pointer hover:bg-muted/70'
                         : 'cursor-pointer hover:bg-muted/50'
@@ -1969,6 +1993,7 @@ function DAGTable({
                                 dagRow.dag.fileName
                               )}
                               onTogglePin={(dag) => void togglePin(dag)}
+                              isShown={isShown({ dag: dagRow.dag.fileName })}
                               className="ml-2"
                             />
                           );
@@ -2008,6 +2033,7 @@ function DAGTable({
                     canPin={canPinDAG(dagRow.dag)}
                     isPinPending={pendingPins.has(dagRow.dag.fileName)}
                     onTogglePin={(dag) => void togglePin(dag)}
+                    isShown={isShown({ dag: dagRow.dag.fileName })}
                   />
                   {endsPinnedSection && (
                     <div className="border-t-2 border-border" />

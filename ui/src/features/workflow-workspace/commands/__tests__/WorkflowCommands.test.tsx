@@ -30,6 +30,7 @@ const h = vi.hoisted(() => ({
   refresh: vi.fn(async () => undefined),
   dock: {} as Record<string, unknown>,
   frame: { tabs: [] as DockTab[] },
+  perms: { canManageWebhooks: true },
 }));
 
 vi.mock('@/components/command-palette/CommandPaletteProvider', () => ({
@@ -54,6 +55,9 @@ vi.mock('../../dock/DockContext', () => ({
   useDock: () => h.dock,
   useDockCommands: () => h.dock,
   useDockFrame: () => h.frame,
+}));
+vi.mock('../../data/useWorkspacePermissions', () => ({
+  useWorkspacePermissions: () => h.perms,
 }));
 vi.mock('../../dock/tabs', () => ({
   dockTabBodies: { timeline: () => null, log: () => null },
@@ -181,6 +185,7 @@ beforeEach(() => {
     setTab: vi.fn(),
   };
   h.frame = { tabs: ['log', 'timeline', 'outputs'] };
+  h.perms = { canManageWebhooks: true };
 });
 
 afterEach(() => {
@@ -412,6 +417,24 @@ describe('WorkflowCommands', () => {
     expect(must('refresh').shortcut).toBe('R');
     act(() => must('refresh').run());
     expect(h.refresh).toHaveBeenCalledTimes(1);
+  });
+
+  // A graph without a start step draws no launcher: the palette opens
+  // their panels for every workflow.
+  it('opens the schedule and the webhook panels', () => {
+    // The run definition hides the editor: the panels open in the current one.
+    renderAt('/dags/x?def=run');
+    act(() => must('launcher:cron').run());
+    expect(screen.getByTestId('location')).toHaveTextContent('panel=cron');
+    expect(screen.getByTestId('location')).not.toHaveTextContent('def=run');
+    act(() => must('launcher:webhook').run());
+    expect(screen.getByTestId('location')).toHaveTextContent('panel=webhook');
+  });
+
+  it('offers no webhook panel without the right to manage webhooks', () => {
+    h.perms = { canManageWebhooks: false };
+    renderAt();
+    expect(commands().map((c) => c.id)).not.toContain('launcher:webhook');
   });
 
   // D8: the leave-the-page command is removed.

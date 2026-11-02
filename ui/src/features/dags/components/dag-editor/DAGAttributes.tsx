@@ -3,10 +3,17 @@
  *
  * @module features/dags/components/dag-editor
  */
-import { CheckSquare, Settings, Tag, Variable } from 'lucide-react';
+import { Calendar, CheckSquare, Settings, Tag, Variable } from 'lucide-react';
 import { components } from '../../../../api/v1/schema';
 import { Badge } from '@/components/ui/badge';
+import { RelativeTime } from '@/components/ui/relative-time';
 import { useI18n } from '@/i18n/I18nProvider';
+import {
+  formatFireTime,
+  getScheduleKey,
+  getScheduleLabel,
+  parseNextRun,
+} from '@/lib/dagSchedule';
 import { envVariableNames, visibleLabels } from './workflowLabels';
 import { I18nText } from '@/i18n/I18nText';
 
@@ -19,17 +26,70 @@ type Props = {
 };
 
 /**
- * DAGAttributes displays the configuration of a DAG, such as its parameters
- * and run limits. The schedule is a launcher of the canvas.
+ * The next run in the zone of its schedule, as the server writes it, with
+ * its offset, and how soon it comes.
+ */
+function NextRun({ time, locale }: { time: string; locale: string }) {
+  const lang = locale === 'zh-CN' ? 'zh-cn' : locale;
+  const shown = formatFireTime(time, 'YYYY-MM-DD HH:mm:ss Z', lang);
+  return (
+    <>
+      {shown} (<RelativeTime timestamp={time} absolute={shown} />)
+    </>
+  );
+}
+
+/**
+ * DAGAttributes displays the configuration of a DAG, such as its schedule
+ * with its next run, its parameters and its run limits. The canvas also
+ * draws the schedule as a launcher, but not for a graph without a start
+ * step, such as an agent DAG.
  */
 function DAGAttributes({ dag }: Props) {
-  const { ts } = useI18n();
+  const { ts, locale } = useI18n();
   const labels = visibleLabels(dag);
   const envNames = envVariableNames(dag.env);
+  const nextRun = parseNextRun(dag.nextRun);
 
   return (
     <div>
       <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+        {/* Schedule */}
+        {!!dag.schedule?.length && (
+          <div className="space-y-1 md:col-span-2">
+            <div className="flex items-center gap-2 text-sm font-medium text-muted-foreground mb-2">
+              <Calendar className="h-4 w-4" />
+              <span>{ts('Schedule')}</span>
+            </div>
+            <div className="flex flex-wrap gap-2">
+              {dag.schedule.map((schedule, index) => (
+                <Badge
+                  key={getScheduleKey(schedule, index)}
+                  variant="outline"
+                  title={
+                    schedule.kind === 'at'
+                      ? schedule.at || undefined
+                      : schedule.expression || undefined
+                  }
+                  className="h-auto max-w-full justify-start whitespace-normal break-words bg-primary/10 px-2.5 py-1 text-primary border-primary/30 normal-case tracking-normal"
+                >
+                  {getScheduleLabel(schedule)}
+                </Badge>
+              ))}
+            </div>
+            <div className="text-sm text-muted-foreground">
+              <span className="font-medium text-foreground">
+                {ts('Next run:')}
+              </span>{' '}
+              {nextRun && dag.nextRun ? (
+                <NextRun time={dag.nextRun} locale={locale} />
+              ) : (
+                ts('No upcoming run')
+              )}
+            </div>
+          </div>
+        )}
+
         {/* Parameters */}
         {dag.params && dag.params.length > 0 && (
           <div className="space-y-1">

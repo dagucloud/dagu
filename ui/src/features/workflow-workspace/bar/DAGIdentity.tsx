@@ -2,6 +2,8 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 import { Link2 } from 'lucide-react';
+import { useCallback } from 'react';
+import { useSWRConfig } from 'swr';
 import { CopyButton } from '@/components/ui/copy-button';
 import DAGPinButton from '@/features/dags/components/dag-details/DAGPinButton';
 import { useI18n } from '@/i18n/I18nProvider';
@@ -26,6 +28,19 @@ const infoButton = cn(
 );
 
 /**
+ * Reads the workflow again after its pin changed, and the workflow list,
+ * which may be below the page in the overlay and shows the pins too.
+ */
+export function usePinChanged(): () => void {
+  const refresh = useWorkspaceRefresh();
+  const { mutate } = useSWRConfig();
+  return useCallback(() => {
+    void refresh().catch(() => undefined);
+    void mutate((key) => Array.isArray(key) && key[1] === '/dags');
+  }, [mutate, refresh]);
+}
+
+/**
  * Pin, name, Rename, copy name, copy link and description of the workflow. The
  * Rename button sits next to the name; the copy
  * and description buttons need a bar of 672px (@2xl): in a narrower bar they
@@ -38,7 +53,7 @@ export function DAGIdentity({
   pinned,
 }: DAGIdentityProps) {
   const { ts } = useI18n();
-  const refresh = useWorkspaceRefresh();
+  const onPinChanged = usePinChanged();
   const dirty = useWorkspaceEditor().state?.dirty ?? false;
   const name = dag.name;
   const description = dag.description?.trim();
@@ -56,7 +71,7 @@ export function DAGIdentity({
             name={name}
             pinned={pinned}
             workspace={workspaceName ?? ''}
-            onChanged={() => void refresh().catch(() => undefined)}
+            onChanged={onPinChanged}
           />
         </div>
       )}

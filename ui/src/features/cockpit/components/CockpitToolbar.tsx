@@ -1,7 +1,6 @@
 import React, { useContext } from 'react';
 import { AppBarContext } from '@/contexts/AppBarContext';
-import { buildDAGPageURL } from '@/features/dag-runs/lib/dagRunUrls';
-import { useOpenPage } from '@/features/dag-runs/lib/useOpenPage';
+import { usePeekOrOpen } from '@/features/peek/usePeekOrOpen';
 import { TemplateSelector } from './TemplateSelector';
 
 interface Props {
@@ -15,20 +14,15 @@ export function CockpitToolbar({
 }: Props): React.ReactElement {
   const appBarContext = useContext(AppBarContext);
   const remoteNode = appBarContext.selectedRemoteNode || 'local';
-  const openPage = useOpenPage();
+  const peekOrOpen = usePeekOrOpen(remoteNode);
 
-  // A template opens on its workflow page, in the selected workspace.
+  // A template opens on its workflow page over the cockpit. The templates
+  // listed are those of the selected workspace, whose label their runs keep.
   const openTemplate = (fileName: string) => {
     if (!fileName) {
       return;
     }
-    openPage(
-      buildDAGPageURL({
-        fileName,
-        remoteNode,
-        workspace: selectedWorkspace || undefined,
-      })
-    );
+    peekOrOpen({ dag: fileName });
   };
 
   return (

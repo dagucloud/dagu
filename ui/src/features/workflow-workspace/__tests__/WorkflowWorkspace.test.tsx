@@ -63,6 +63,19 @@ vi.mock('@/contexts/ConfigContext', () => ({
 vi.mock('@/contexts/AuthContext', () => ({
   useCanWriteForWorkspace: () => true,
 }));
+// The command palette reads the permissions of the workspace.
+vi.mock('../data/useWorkspacePermissions', () => ({
+  useWorkspacePermissions: () => ({
+    canWrite: true,
+    canRunDags: true,
+    canExecute: true,
+    canExecuteForWorkspace: true,
+    isAdmin: false,
+    canManageProfiles: false,
+    canManageWebhooks: false,
+    canManageNotifications: false,
+  }),
+}));
 
 // The editor slot reads the contexts that the workspace gives to its body.
 vi.mock('../canvas/WorkspaceCanvas', () => ({
@@ -576,12 +589,18 @@ describe('WorkflowWorkspace contexts', () => {
 
 // parity:api-dag-management
 describe('WorkflowWorkspace DAG management', () => {
-  it('offers the pin, Rename and Delete in the bar, with no menu', async () => {
+  // A window under md or a bar under 672px hides some controls of the bar:
+  // only then a menu holds them.
+  it('offers the pin, Rename and Delete in the bar, a menu only when narrow', async () => {
     renderAt('/dags/x');
     expect(
       screen.getByRole('button', { name: 'Pin workflow x' })
     ).toBeInTheDocument();
-    expect(screen.queryByRole('button', { name: 'More actions' })).toBeNull();
+    expect(
+      screen
+        .getByRole('button', { name: 'More actions' })
+        .closest('[data-testid="ww-bar-more"]')
+    ).toHaveClass('md:@2xl:hidden');
     const user = userEvent.setup();
     await user.click(screen.getByRole('button', { name: 'Rename' }));
     expect(

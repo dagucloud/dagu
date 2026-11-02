@@ -212,21 +212,34 @@ type RunningTaskLike = {
   parentDagRunId?: string;
 };
 
-/** The URL of the run of a worker task. A child task opens its root run, or its parent when the root is not known. */
+/**
+ * The run that a worker task opens: the task itself, or for a child task its
+ * root run, or its parent when the root is not known.
+ */
+export function runningTaskRoot(task: RunningTaskLike): {
+  name: string;
+  dagRunId: string;
+} {
+  const isChild = Boolean(task.parentDagRunName && task.parentDagRunId);
+  return {
+    name:
+      (isChild ? task.rootDagRunName || task.parentDagRunName : undefined) ||
+      task.dagName,
+    dagRunId:
+      (isChild ? task.rootDagRunId || task.parentDagRunId : undefined) ||
+      task.dagRunId,
+  };
+}
+
+/** The URL of the run of a worker task, the run of runningTaskRoot. */
 export function buildRunningTaskURL(
   task: RunningTaskLike,
   remoteNode: string
 ): string {
-  const isChild = Boolean(task.parentDagRunName && task.parentDagRunId);
-  const rootName =
-    (isChild ? task.rootDagRunName || task.parentDagRunName : undefined) ||
-    task.dagName;
-  const rootId =
-    (isChild ? task.rootDagRunId || task.parentDagRunId : undefined) ||
-    task.dagRunId;
+  const root = runningTaskRoot(task);
   return buildDAGRunPageURL({
-    rootDAGRunName: rootName,
-    rootDAGRunId: rootId,
+    rootDAGRunName: root.name,
+    rootDAGRunId: root.dagRunId,
     remoteNode,
   });
 }
