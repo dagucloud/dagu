@@ -14,6 +14,7 @@ import {
 import {
   lazy,
   Suspense,
+  useContext,
   useId,
   useMemo,
   useState,
@@ -24,6 +25,7 @@ import { IconButton } from '@/components/ui/icon-button';
 import StatusChip from '@/components/ui/status-chip';
 import { StatusDot } from '@/components/ui/status-dot';
 import { TabStrip, tabStripTabId } from '@/components/ui/tab-strip';
+import { useRemoteNode } from '@/contexts/RemoteNodeContext';
 import { RunMetaLine } from '@/features/dag-runs/components/common/RunMetaLine';
 import {
   RunError,
@@ -38,7 +40,13 @@ import { buildRunOverlay } from '@/features/visual-editor/run/runOverlay';
 import { useI18n } from '@/i18n/I18nProvider';
 import { cn } from '@/lib/utils';
 import type { ApiNode } from '../contracts';
+import { WorkspaceDataContext } from '../data/context';
 import { StepFacts } from '../step/StepFacts';
+import {
+  LogPageLink,
+  runLogPageURL,
+  stepLogPageURL,
+} from '../step/StepLogPane';
 import { StepManualActions } from '../step/StepManualActions';
 import type { StepRunTarget } from '../step/StepRunView';
 import {
@@ -159,6 +167,11 @@ export function SubRunView({
   );
 }
 
+/** The workflow file of the page, which the log pages of a child run name. */
+function usePageFile(run: DAGRunDetails): string {
+  return useContext(WorkspaceDataContext)?.fileName ?? run.name;
+}
+
 type ActivityTab = 'timeline' | 'log' | 'artifacts' | 'definition';
 
 /**
@@ -169,6 +182,8 @@ type ActivityTab = 'timeline' | 'log' | 'artifacts' | 'definition';
  */
 function SubRunActivity({ run }: { run: DAGRunDetails }): ReactElement {
   const { ts } = useI18n();
+  const fileName = usePageFile(run);
+  const remoteNode = useRemoteNode();
   const idPrefix = useId();
   const [tab, setTab] = useState<ActivityTab>('timeline');
   const [open, setOpen] = useState(true);
@@ -221,6 +236,11 @@ function SubRunActivity({ run }: { run: DAGRunDetails }): ReactElement {
                 name={run.name}
                 dagRunId={run.dagRunId}
                 dagRun={run}
+                toolbarExtra={
+                  <LogPageLink
+                    to={runLogPageURL({ fileName, holder: run, remoteNode })}
+                  />
+                }
               />
             </div>
           )}
@@ -263,6 +283,8 @@ function RunStepPane({
 }): ReactElement {
   const { ts } = useI18n();
   const step = node.step.name;
+  const fileName = usePageFile(run);
+  const remoteNode = useRemoteNode();
   const idPrefix = useId();
   const [tab, setTab] = useState<PaneTab>(
     node.status === NodeStatus.Waiting ? 'details' : 'log'
@@ -336,6 +358,17 @@ function RunStepPane({
             dagRun={run}
             node={node}
             stream={stream}
+            toolbarExtra={
+              <LogPageLink
+                to={stepLogPageURL({
+                  fileName,
+                  holder: run,
+                  remoteNode,
+                  step,
+                  stream,
+                })}
+              />
+            }
           />
         )}
       </div>

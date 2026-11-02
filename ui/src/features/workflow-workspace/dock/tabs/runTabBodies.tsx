@@ -50,6 +50,7 @@ import { ContinuousPanel } from '../../continuous/ContinuousPanel';
 import { pickContinuousNode } from '../../continuous/continuousNode';
 import { useWorkspaceUrl } from '../../state/workspaceUrl';
 import { StepForeach, isForeachStep } from '../../step/StepForeach';
+import { LogPageLink, runLogPageURL } from '../../step/StepLogPane';
 import { StepManualActions } from '../../step/StepManualActions';
 import { StepDeclared } from '../../step/StepDeclared';
 import { StepOutputRows } from '../../step/StepOutputRows';
@@ -486,8 +487,9 @@ function ContinuousBody({ details, step }: RunTabProps) {
  * failed step opens on stderr, where the text of the failure is. Without a
  * step, the scheduler log of the run.
  */
-function LogBody({ run, details, step }: RunTabProps) {
+function LogBody({ run, details, step, fileName }: RunTabProps) {
   const { ts } = useI18n();
+  const remoteNode = useRemoteNode();
   const [url, setUrl] = useWorkspaceUrl();
   const { autoStep, openStep } = useDock();
   // A host that shows one step names it, and the URL does not choose.
@@ -577,7 +579,11 @@ function LogBody({ run, details, step }: RunTabProps) {
           name={details.name}
           dagRunId={details.dagRunId}
           dagRun={details}
-          pageView={false}
+          toolbarExtra={
+            <LogPageLink
+              to={runLogPageURL({ fileName, holder: details, remoteNode })}
+            />
+          }
           // The reused steps ran before the run: the log puts their lines
           // before its own, or after them when the newest line is at the top.
           cachedLines={
