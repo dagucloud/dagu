@@ -1274,6 +1274,12 @@ describe('WorkspaceCanvas', () => {
       ['it was closed last', 'false', '/dags/example.yaml'],
       ['a link opens a step', 'true', '/dags/example.yaml?step=extract'],
       ['a link opens a panel', 'true', '/dags/example.yaml?panel=workflow'],
+      // Opening it would rewrite the URL and drop the path that redirects.
+      [
+        'a legacy link has yet to redirect',
+        'true',
+        '/dags/example.yaml/history?idx=2',
+      ],
     ])('keeps it shut when %s', (_case, stored, url) => {
       localStorage.setItem(YAML_PANEL_OPEN_KEY, stored);
       const toggleYaml = yamlEditor();

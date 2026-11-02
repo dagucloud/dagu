@@ -3,7 +3,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { subscribeClock } from '@/hooks/useClock';
-import { useNavigate, useSearchParams } from 'react-router-dom';
+import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import {
   useActiveRightPanel,
   useCloseRightPanel,
@@ -360,6 +360,10 @@ export function WorkspaceCanvas({
   );
 
   // The YAML panel shows as the user left it, unless a link opens a view.
+  // A legacy link, such as /history?idx, has a path that redirects once the
+  // run history loads; opening the panel first would rewrite the URL without
+  // it.
+  const { tab: legacyTab } = useParams<{ tab?: string }>();
   const openYamlPanel = useMemo(
     () => (handle ? () => handle.toggleYaml(true) : null),
     [handle]
@@ -371,6 +375,7 @@ export function WorkspaceCanvas({
       url.ndv === null &&
       url.step === null &&
       url.panel === null &&
+      legacyTab === undefined &&
       !snapshot &&
       !wantsYaml,
     openPanel: openYamlPanel,
