@@ -40,15 +40,20 @@ export interface StepRunViewProps {
 
 const ACTIVE_SUB_RUN_REFRESH_MS = 2000;
 
-/** The run that holds the target step, and the step's node in it. */
+/**
+ * The run that holds the target step, the step's node in it, and, for a sub
+ * run, a way to read it again after an action on it: a finished sub run is
+ * not polled.
+ */
 function useTargetRun(target: StepRunTarget): {
   holder: ApiDAGRunDetails | null;
   node: ApiNode | undefined;
+  reread?: () => void;
 } {
   const { run } = useWorkspaceData('StepRunView');
   const remoteNode = useRemoteNode();
   const subDAGRunId = target.subRun?.subDAGRunId;
-  const { data } = useQuery(
+  const { data, mutate } = useQuery(
     '/dag-runs/{name}/{dagRunId}/sub-dag-runs/{subDAGRunId}',
     whenEnabled(!!subDAGRunId && !!run.ref, {
       params: {
@@ -70,6 +75,7 @@ function useTargetRun(target: StepRunTarget): {
     return {
       holder: details,
       node: findRunNode(details ?? undefined, target.step),
+      reread: () => void mutate(),
     };
   }
   return { holder: run.details, node: run.nodeByStep.get(target.step) };
@@ -103,7 +109,7 @@ function StepChat({
  */
 export function StepRunView({ target, variant, onOpenLogs }: StepRunViewProps) {
   const { ts } = useI18n();
-  const { holder, node } = useTargetRun(target);
+  const { holder, node, reread } = useTargetRun(target);
   return (
     <div
       role={variant === 'facts' ? 'region' : undefined}
@@ -127,11 +133,13 @@ export function StepRunView({ target, variant, onOpenLogs }: StepRunViewProps) {
             holder={holder}
             node={node}
             onOpenLogs={onOpenLogs}
+            onRunChanged={reread}
           />
           <StepManualActions
             holder={holder}
             node={node}
             inSubRun={!!target.subRun}
+            onChanged={reread}
           />
           <StepChat holder={holder} node={node} />
         </div>
