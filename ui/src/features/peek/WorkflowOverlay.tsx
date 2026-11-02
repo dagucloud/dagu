@@ -13,7 +13,7 @@ import {
 } from 'react';
 import { useLocation, useNavigate, type Location } from 'react-router-dom';
 import { useRemoteNode } from '@/contexts/RemoteNodeContext';
-import { peekPageURL, type PeekTarget } from './peekParams';
+import { peekPageURL, samePeekTarget, type PeekTarget } from './peekParams';
 
 /** A workflow page, at /dags/:fileName with any tab. The list is /dags/. */
 const WORKFLOW_PATH = /^\/dags\/[^/]+/;
@@ -42,10 +42,11 @@ export interface WorkflowOverlay {
   step(delta: -1 | 1): void;
   /** The row that the overlay shows; null while it is closed. */
   target: PeekTarget | null;
-}
-
-function sameTarget(a: PeekTarget, b: PeekTarget): boolean {
-  return a.dag === b.dag && (a.run ?? null) === (b.run ?? null);
+  /**
+   * The row that the overlay shows, or showed last before it closed: the
+   * list marks it. Null before the overlay first opens.
+   */
+  shown: PeekTarget | null;
 }
 
 const WorkflowOverlayContext = createContext<WorkflowOverlay | null>(null);
@@ -90,7 +91,15 @@ export function WorkflowOverlayProvider({
   const navigate = useNavigate();
   const remoteNode = useRemoteNode();
   const [opened, setOpened] = useState<Opened | null>(null);
+  const [lastShown, setLastShown] = useState<PeekTarget | null>(null);
   const onWorkflow = WORKFLOW_PATH.test(location.pathname);
+  const openedTarget = opened?.target ?? null;
+  if (
+    openedTarget &&
+    (!lastShown || !samePeekTarget(lastShown, openedTarget))
+  ) {
+    setLastShown(openedTarget);
+  }
   // Another page than the one below ends the overlay. The page below itself
   // keeps it, so that Forward shows the workflow over it again.
   if (opened && location.key !== opened.background.key) {
@@ -130,7 +139,7 @@ export function WorkflowOverlayProvider({
       const current = openedRef.current;
       if (!current) return;
       const rows = sequenceRef.current;
-      const at = rows.findIndex((row) => sameTarget(row, current.target));
+      const at = rows.findIndex((row) => samePeekTarget(row, current.target));
       const next = at === -1 ? undefined : rows[at + delta];
       if (!next) return;
       setOpened({ ...current, target: next });
@@ -155,7 +164,7 @@ export function WorkflowOverlayProvider({
   const isOpen = opened !== null && (onWorkflow || opened.pending);
   const at =
     isOpen && opened
-      ? sequence.findIndex((row) => sameTarget(row, opened.target))
+      ? sequence.findIndex((row) => samePeekTarget(row, opened.target))
       : -1;
   const value = useMemo<WorkflowOverlay>(
     () => ({
@@ -168,8 +177,20 @@ export function WorkflowOverlayProvider({
       canStep: (delta) => at !== -1 && sequence[at + delta] !== undefined,
       step,
       target: isOpen && opened ? opened.target : null,
+      shown: isOpen && opened ? opened.target : lastShown,
     }),
-    [isOpen, opened, open, close, expand, setSequence, at, sequence, step]
+    [
+      isOpen,
+      opened,
+      open,
+      close,
+      expand,
+      setSequence,
+      at,
+      sequence,
+      step,
+      lastShown,
+    ]
   );
   return (
     <WorkflowOverlayContext.Provider value={value}>

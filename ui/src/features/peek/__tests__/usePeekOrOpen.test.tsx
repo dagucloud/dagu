@@ -9,7 +9,7 @@ import { type Config, ConfigContext } from '@/contexts/ConfigContext';
 import { PeekHost } from '../PeekHost';
 import { PeekLink } from '../PeekLink';
 import type { PeekTarget } from '../peekParams';
-import { usePeekOrOpen } from '../usePeekOrOpen';
+import { usePeekOrOpen, usePeekSequence, usePeekShown } from '../usePeekOrOpen';
 import {
   useWorkflowOverlay,
   WorkflowOverlayProvider,
@@ -25,17 +25,32 @@ function LocationProbe() {
       <output data-testid="overlay">
         {below ? `over ${below.pathname}${below.search}` : 'none'}
       </output>
+      <output data-testid="can-step">{String(!!overlay?.canStep(1))}</output>
+      <button type="button" onClick={() => overlay?.close()}>
+        Close overlay
+      </button>
     </>
   );
 }
 
+/** A row of a list; aria-current marks the row that the overlay shows. */
 function Row({ target }: { target: PeekTarget }) {
   const peekOrOpen = usePeekOrOpen();
+  const isShown = usePeekShown();
   return (
-    <div role="row" onClick={(event) => peekOrOpen(target, event)}>
+    <div
+      role="row"
+      aria-current={isShown(target) || undefined}
+      onClick={(event) => peekOrOpen(target, event)}
+    >
       {target.dag}
     </div>
   );
+}
+
+function Sequence({ targets }: { targets: PeekTarget[] }) {
+  usePeekSequence(targets);
+  return null;
 }
 
 function renderList(children: ReactNode, { host = true } = {}) {
@@ -102,6 +117,55 @@ describe('usePeekOrOpen', () => {
 
     expect(location()).toBe('/dags/etl?remoteNode=local');
     expect(overlay()).toBe('none');
+  });
+
+  // The list shows where the arrow keys of the overlay ended, after it
+  // closed too.
+  it('marks the row that the overlay shows, and keeps it after close', () => {
+    renderList(
+      <>
+        <Row target={{ dag: 'alpha' }} />
+        <Row target={{ dag: 'beta' }} />
+      </>
+    );
+    const row = (name: string) => screen.getByRole('row', { name });
+
+    fireEvent.click(row('beta'));
+    expect(row('beta')).toHaveAttribute('aria-current', 'true');
+    expect(row('alpha')).not.toHaveAttribute('aria-current');
+
+    fireEvent.click(screen.getByRole('button', { name: 'Close overlay' }));
+    expect(overlay()).toBe('none');
+    expect(row('beta')).toHaveAttribute('aria-current', 'true');
+  });
+
+  // The rows of a page that is gone do not drive the arrow keys of an
+  // overlay that another page opens.
+  it('forgets the rows of a list that unmounts', () => {
+    const rows = [{ dag: 'alpha' }, { dag: 'beta' }];
+    const view = renderList(
+      <>
+        <Sequence targets={rows} />
+        <Row target={{ dag: 'alpha' }} />
+      </>
+    );
+    view.rerender(
+      <MemoryRouter initialEntries={['/dags?view=all']}>
+        <ConfigContext.Provider value={{ basePath: '/dagu' } as Config}>
+          <WorkflowOverlayProvider>
+            <PeekHost>
+              <Row target={{ dag: 'alpha' }} />
+            </PeekHost>
+            <LocationProbe />
+          </WorkflowOverlayProvider>
+        </ConfigContext.Provider>
+      </MemoryRouter>
+    );
+
+    fireEvent.click(screen.getByRole('row', { name: 'alpha' }));
+
+    expect(overlay()).toBe('over /dags?view=all');
+    expect(screen.getByTestId('can-step')).toHaveTextContent('false');
   });
 
   it('opens the full page of a name that no peek can read', () => {
