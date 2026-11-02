@@ -509,9 +509,11 @@
         }
 
         function updateIdentityFromInput(args) {
-          // Dagu Cloud's tools name the server that the run is on.
+          // Dagu Cloud's tools name the server that the run is on; a call
+          // that names none keeps no server from an earlier call.
           const server = text(args?.server);
           if (server) runIdentity.server = server;
+          else delete runIdentity.server;
           updateIdentity(args);
           if (!runIdentity.runUri && runIdentity.name && runIdentity.dagRunId) {
             runIdentity.runUri = `dagu://runs/${encodeURIComponent(runIdentity.name)}/${encodeURIComponent(runIdentity.dagRunId)}`;
