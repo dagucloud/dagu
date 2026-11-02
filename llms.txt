@@ -656,7 +656,7 @@ Values must be JSON-serializable. Dagu normalizes state values before storing th
 
 ## parallel
 
-`parallel:` currently works only with `action: dag.run`.
+`parallel:` currently works only with `action: dag.run` or `action: dag.enqueue`.
 
 ```yaml
 steps:
