@@ -197,11 +197,10 @@ export function SubRunStackModal({
   const backdropZ = raised ? 'z-[66]' : 'z-40';
   const panelZ = raised ? 'z-[68]' : 'z-50';
   const depth = stack.length;
-  const shownLevels = Math.min(depth - 1, MAX_VISIBLE_EDGES);
-  const hiddenLevels = depth - 1 - shownLevels;
-  // A stack over the whole window has no room for edges: the breadcrumb
-  // goes back.
-  const edges = expanded ? 0 : shownLevels;
+  // A stack over the whole window has no room for edges: its breadcrumb
+  // lists every level, as the way back to each.
+  const edges = expanded ? 0 : Math.min(depth - 1, MAX_VISIBLE_EDGES);
+  const hiddenLevels = expanded ? 0 : depth - 1 - edges;
 
   return (
     <>

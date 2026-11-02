@@ -23,7 +23,11 @@ import {
 import { RefreshButton } from '@/components/ui/refresh-button';
 import { AppBarContext } from '@/contexts/AppBarContext';
 import { PeekHost } from '@/features/peek/PeekHost';
-import { usePeekOrOpen, usePeekSequence } from '@/features/peek/usePeekOrOpen';
+import {
+  usePeekOrOpen,
+  usePeekSequence,
+  useRevealShownRow,
+} from '@/features/peek/usePeekOrOpen';
 import { formatQueuedCount } from '@/features/queues/components/QueueCard';
 import QueueRunsTable from '@/features/queues/components/QueueRunsTable';
 import {
@@ -198,6 +202,7 @@ function QueueDetailsPage() {
     },
     [peekOrOpen]
   );
+  useRevealShownRow();
   usePeekSequence(
     [...(queue?.running ?? []), ...queuedItems].map((dagRun) => ({
       dag: dagRun.name,

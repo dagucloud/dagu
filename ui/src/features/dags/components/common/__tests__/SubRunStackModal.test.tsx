@@ -71,6 +71,23 @@ describe('SubRunStackModal', () => {
     );
   });
 
+  // Over the whole window the stack has no edges: each level stays in the
+  // breadcrumb as the way back to it.
+  it('lists every level in the breadcrumb over the whole window', () => {
+    localStorage.setItem(SUB_RUN_STACK_EXPANDED_KEY, '1');
+    mockRun(undefined);
+    const stack = ['a', 'b', 'c', 'd', 'e'].map((name) => ({
+      name,
+      dagRunId: `${name}-run`,
+    }));
+    const view = render(<SubRunStackModal {...stackProps} stack={stack} />);
+
+    for (const name of ['a', 'b', 'c', 'd']) {
+      expect(view.getByRole('button', { name })).toBeInTheDocument();
+    }
+    expect(view.queryByText(/more/)).toBeNull();
+  });
+
   it('shows the step that its level names', async () => {
     mockRun({ name: 'child', dagRunId: 'child-run' });
     render(
