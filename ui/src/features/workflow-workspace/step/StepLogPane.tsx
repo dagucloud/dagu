@@ -1,13 +1,18 @@
 // Copyright (C) 2026 Yota Hamada
 // SPDX-License-Identifier: GPL-3.0-or-later
 
+import { ExternalLink } from 'lucide-react';
 import { Stream } from '@/api/v1/schema';
+import { Button } from '@/components/ui/button';
+import { useConfig } from '@/contexts/ConfigContext';
+import { useRemoteNode } from '@/contexts/RemoteNodeContext';
 import { buildDAGPageURL } from '@/features/dag-runs/lib/dagRunUrls';
 import ForeachBodyStepLog from '@/features/dags/components/dag-execution/ForeachBodyStepLog';
 import StepLog from '@/features/dags/components/dag-execution/StepLog';
 import { isSubDAGRun } from '@/features/dags/hooks/useStepLogQuery';
 import { useI18n } from '@/i18n/I18nProvider';
 import type { ApiDAGRunDetails, ApiNode } from '../contracts';
+import { useWorkspaceData } from '../data/context';
 import { useWorkspaceUrl } from '../state/workspaceUrl';
 import type { StepRunTarget } from './StepRunView';
 
@@ -50,10 +55,57 @@ export function stepLogPageURL({
   });
 }
 
-/** The step log of the dock: StepLog, or ForeachBodyStepLog for a foreach body step. */
+/** The full-page scheduler log of a run: /dags/:f/dagRun-log, or the sub-run form. */
+export function runLogPageURL({
+  fileName,
+  holder,
+  remoteNode,
+}: {
+  /** Workflow file used when the run names no source file. */
+  fileName: string;
+  holder: ApiDAGRunDetails;
+  remoteNode: string;
+}): string {
+  const sub = isSubDAGRun(holder);
+  return buildDAGPageURL({
+    fileName: holder.sourceFileName || fileName,
+    remoteNode,
+    tab: 'dagRun-log',
+    rootDAGRunId: sub ? holder.rootDAGRunId : holder.dagRunId,
+    rootDAGRunName: sub ? holder.rootDAGRunName : undefined,
+    subDAGRunId: sub ? holder.dagRunId : undefined,
+  });
+}
+
+/** A toolbar button of a log that opens its full page in a new tab. */
+export function LogPageLink({ to }: { to: string }) {
+  const { ts } = useI18n();
+  const { basePath } = useConfig();
+  return (
+    <Button asChild size="icon-sm" variant="outline">
+      <a
+        href={`${basePath || ''}${to}`}
+        target="_blank"
+        rel="noopener noreferrer"
+        title={ts('Open in new tab')}
+        aria-label={ts('Open in new tab')}
+      >
+        <ExternalLink className="h-4 w-4" aria-hidden="true" />
+      </a>
+    </Button>
+  );
+}
+
+/**
+ * The step log of the dock: StepLog, or ForeachBodyStepLog for a foreach
+ * body step. The log of a step, not of a foreach body step, opens on its
+ * own page in a new tab.
+ */
 export function StepLogPane({ target, holder, node }: StepLogPaneProps) {
   const { ts } = useI18n();
   const [, setUrl] = useWorkspaceUrl();
+  const { fileName } = useWorkspaceData('StepLogPane');
+  const remoteNode = useRemoteNode();
   const stream = toStream(target.stream);
 
   if (!holder) {
@@ -79,7 +131,6 @@ export function StepLogPane({ target, holder, node }: StepLogPaneProps) {
             bodyStepName={foreach.bodyStep}
             foreach={{ stepName: target.step, item: foreach.item }}
             stream={stream}
-            pageView={false}
           />
         ) : (
           <StepLog
@@ -89,7 +140,17 @@ export function StepLogPane({ target, holder, node }: StepLogPaneProps) {
             dagRun={holder}
             stream={stream}
             node={node}
-            pageView={false}
+            toolbarExtra={
+              <LogPageLink
+                to={stepLogPageURL({
+                  fileName,
+                  holder,
+                  remoteNode,
+                  step: target.step,
+                  stream,
+                })}
+              />
+            }
             onStreamShown={(next) => {
               setUrl(
                 { stream: next === Stream.stderr ? 'stderr' : 'stdout' },

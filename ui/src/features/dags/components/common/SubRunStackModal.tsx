@@ -4,12 +4,13 @@
 import { components } from '@/api/v1/schema';
 import { Button } from '@/components/ui/button';
 import { useIsRaisedLayer } from '@/components/ui/dialog';
+import { IconButton } from '@/components/ui/icon-button';
 import LoadingIndicator from '@/components/ui/loading-indicator';
 import { useRemoteNode } from '@/contexts/RemoteNodeContext';
 import { useBoundedDAGRunDetails } from '@/features/dag-runs/hooks/useBoundedDAGRunDetails';
 import { shouldIgnoreKeyboardShortcuts } from '@/lib/keyboard-shortcuts';
 import { cn } from '@/lib/utils';
-import { ChevronRight, Loader2, X } from 'lucide-react';
+import { ChevronRight, Loader2, Maximize2, Minimize2, X } from 'lucide-react';
 import React from 'react';
 import { I18nText } from '@/i18n/I18nText';
 import { I18nProps } from '@/i18n/I18nProps';
@@ -60,6 +61,25 @@ const MAX_VISIBLE_EDGES = 3;
 const EDGE_WIDTH = 12;
 /** Slide duration in ms. Kept short so drilling in never feels like waiting. */
 const SLIDE_MS = 90;
+/** Remembers that the stack covers the whole window. */
+export const SUB_RUN_STACK_EXPANDED_KEY = 'dagu.subRunStack.expanded';
+
+function readExpanded(): boolean {
+  try {
+    return localStorage.getItem(SUB_RUN_STACK_EXPANDED_KEY) === '1';
+  } catch {
+    return false;
+  }
+}
+
+function writeExpanded(expanded: boolean): void {
+  try {
+    if (expanded) localStorage.setItem(SUB_RUN_STACK_EXPANDED_KEY, '1');
+    else localStorage.removeItem(SUB_RUN_STACK_EXPANDED_KEY);
+  } catch {
+    // Storage may be unavailable; the choice then lasts for this stack.
+  }
+}
 
 type SubRunStackModalProps = {
   /** Root DAG-run that owns every child on the stack. */
@@ -71,11 +91,12 @@ type SubRunStackModalProps = {
   onChange: (next: SubRunStackEntry[]) => void;
   /**
    * Renders the run on top of the stack. Without it, the run shows in the
-   * run details view.
+   * run details view. `refresh` reads the run again, after an action on it.
    */
   renderRun?: (
     run: components['schemas']['DAGRunDetails'],
-    entry: SubRunStackEntry
+    entry: SubRunStackEntry,
+    refresh: () => Promise<void>
   ) => React.ReactNode;
 };
 
@@ -123,6 +144,11 @@ export function SubRunStackModal({
   const shown = fresh ?? previousRef.current;
 
   const raised = useIsRaisedLayer();
+  const [expanded, setExpanded] = React.useState(readExpanded);
+  const toggleExpanded = () => {
+    writeExpanded(!expanded);
+    setExpanded(!expanded);
+  };
   const [isVisible, setIsVisible] = React.useState(false);
   React.useEffect(() => {
     const frame = requestAnimationFrame(() => setIsVisible(true));
@@ -171,8 +197,11 @@ export function SubRunStackModal({
   const backdropZ = raised ? 'z-[66]' : 'z-40';
   const panelZ = raised ? 'z-[68]' : 'z-50';
   const depth = stack.length;
-  const edges = Math.min(depth - 1, MAX_VISIBLE_EDGES);
-  const hiddenLevels = depth - 1 - edges;
+  const shownLevels = Math.min(depth - 1, MAX_VISIBLE_EDGES);
+  const hiddenLevels = depth - 1 - shownLevels;
+  // A stack over the whole window has no room for edges: the breadcrumb
+  // goes back.
+  const edges = expanded ? 0 : shownLevels;
 
   return (
     <>
@@ -219,7 +248,8 @@ export function SubRunStackModal({
         aria-label={top.name}
         data-state="open"
         className={cn(
-          'bg-background fixed top-0 right-0 bottom-0 flex h-screen w-full flex-col border-l border-indigo-500/30 transition-transform ease-out md:w-3/4',
+          'bg-background fixed top-0 right-0 bottom-0 flex h-screen w-full flex-col border-l border-indigo-500/30 transition-transform ease-out',
+          !expanded && 'md:w-3/4',
           panelZ,
           !isVisible && 'translate-x-full'
         )}
@@ -272,6 +302,12 @@ export function SubRunStackModal({
           <span className="text-muted-foreground bg-muted rounded px-1.5 py-0.5 text-xs tabular-nums">
             {depth}
           </span>
+          <IconButton
+            icon={expanded ? Minimize2 : Maximize2}
+            size="sm"
+            label={ts(expanded ? 'Restore dialog' : 'Maximize dialog')}
+            onClick={toggleExpanded}
+          />
           <I18nProps>
             <Button
               variant="outline"
@@ -289,7 +325,7 @@ export function SubRunStackModal({
           <SubRunOpenProvider value={push}>
             <React.Suspense fallback={<LoadingIndicator />}>
               {shown && top && renderRun ? (
-                renderRun(shown, top)
+                renderRun(shown, top, refresh)
               ) : shown ? (
                 <DAGRunDetailsContent
                   name={top.name}

@@ -18,7 +18,13 @@ import {
 } from '../../hooks/useBulkDAGRunSelection';
 import { StepDetailsTooltip } from './StepDetailsTooltip';
 import { DAGRunArtifactsButton } from './DAGRunArtifactsButton';
-import { usePeekOrOpen, usePeekSequence } from '@/features/peek/usePeekOrOpen';
+import {
+  PEEK_SHOWN_ROW,
+  usePeekOrOpen,
+  usePeekSequence,
+  usePeekShown,
+  useRevealShownRow,
+} from '@/features/peek/usePeekOrOpen';
 import { I18nText } from '@/i18n/I18nText';
 import { useI18n } from '@/i18n/I18nProvider';
 
@@ -42,6 +48,8 @@ function DAGRunGroupedView({
 }: DAGRunGroupedViewProps) {
   const { ts } = useI18n();
   const peekOrOpen = usePeekOrOpen();
+  const isShown = usePeekShown();
+  useRevealShownRow();
   const [expandedGroups, setExpandedGroups] = useState<Set<string>>(new Set());
 
   // Group DAG runs by name
@@ -318,7 +326,11 @@ function DAGRunGroupedView({
                       <div
                         key={dagRun.dagRunId}
                         tabIndex={0}
-                        className={`px-3 py-2 pl-11 hover:bg-muted/20 cursor-pointer transition-colors text-xs focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring ${isBulkSelected(dagRun) ? 'bg-muted/30' : ''}`}
+                        data-peek-shown={
+                          isShown({ dag: dagRun.name, run: dagRun.dagRunId }) ||
+                          undefined
+                        }
+                        className={`px-3 py-2 pl-11 hover:bg-muted/20 cursor-pointer transition-colors text-xs focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring ${isBulkSelected(dagRun) ? 'bg-muted/30' : ''} ${isShown({ dag: dagRun.name, run: dagRun.dagRunId }) ? `${PEEK_SHOWN_ROW} bg-muted/20` : ''}`}
                         onClick={(e) =>
                           peekOrOpen(
                             { dag: dagRun.name, run: dagRun.dagRunId },

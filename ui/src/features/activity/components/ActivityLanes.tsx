@@ -4,7 +4,12 @@
 import React from 'react';
 import { Link } from 'react-router-dom';
 import { Status } from '@/api/v1/schema';
-import { usePeekOrOpen } from '@/features/peek/usePeekOrOpen';
+import {
+  usePeekOrOpen,
+  usePeekSequence,
+  usePeekShown,
+  useRevealShownRow,
+} from '@/features/peek/usePeekOrOpen';
 import { formatDurationMs } from '@/lib/formatDuration';
 import dayjs from '@/lib/dayjs';
 import { runStatusText } from '@/lib/status-utils';
@@ -206,6 +211,19 @@ export function ActivityLanes({
           runEnd(run, nowSeconds) >= range.from
       )
       .sort((left, right) => (left.startedAt ?? 0) - (right.startedAt ?? 0));
+
+  // The peek steps through the runs of the lanes, lane by lane, oldest
+  // first; the run that it shows is marked in its lane.
+  usePeekSequence(
+    lanes.flatMap((workflow) =>
+      sortedRuns(workflow).map((run) => ({
+        dag: workflow.name,
+        run: run.dagRunId,
+      }))
+    )
+  );
+  const isShown = usePeekShown();
+  useRevealShownRow();
 
   const handlePointerMove = (
     workflow: ActivityLane,
@@ -436,14 +454,21 @@ export function ActivityLanes({
                 {visibleRuns.map((run) => {
                   const { left, right } = barSpan(run, range, nowSeconds);
                   const { minWidth, inset } = markSize(run);
+                  const shown = isShown({
+                    dag: workflow.name,
+                    run: run.dagRunId,
+                  });
                   return (
                     <span
                       key={run.dagRunId}
                       aria-hidden="true"
+                      data-peek-shown={shown || undefined}
                       className={cn(
                         // The card-coloured ring leaves a gap between
                         // back-to-back runs.
                         'absolute rounded-sm ring-1 ring-card',
+                        shown &&
+                          'ring-2 ring-primary ring-offset-1 ring-offset-background',
                         focused === run &&
                           'ring-2 ring-ring ring-offset-1 ring-offset-background'
                       )}

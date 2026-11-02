@@ -92,6 +92,8 @@ type Props = {
   onStreamShown?: (stream: Stream) => void;
   /** Offers the Page View switch (default true). Without it only the tail shows. */
   pageView?: boolean;
+  /** Controls of the host at the end of the toolbar, such as a link to the log page. */
+  toolbarExtra?: React.ReactNode;
 };
 
 type ContentProps = Props & {
@@ -164,6 +166,7 @@ function StepLogContent({
   onSettled,
   onStreamChange,
   pageView = true,
+  toolbarExtra,
 }: ContentProps) {
   const { ts } = useI18n();
   const remoteNode = useRemoteNode();
@@ -850,6 +853,7 @@ function StepLogContent({
                 <Download className="h-4 w-4" />
               </Button>
             </I18nProps>
+            {toolbarExtra}
 
             {controlledFollowTail ? (
               <span role="status" className="text-xs text-muted-foreground">

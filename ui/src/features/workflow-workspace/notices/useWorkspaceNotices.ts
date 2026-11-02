@@ -5,12 +5,15 @@ import { useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Status } from '@/api/v1/schema';
 import { useMonitoringOfferState } from '@/components/MonitoringOffer';
+import { useOpenSubRun } from '@/features/dags/components/common/SubRunStackModal';
 import { useI18n } from '@/i18n/I18nProvider';
 import type { WorkspaceNotice } from '../contracts';
 import { useWorkspaceRun } from '../data';
 import { useWorkspaceData } from '../data/context';
-import { isNewerRun } from '../data/runFacts';
+import { firstWaitingCallStep, isNewerRun } from '../data/runFacts';
+import { useSubRuns } from '../data/useSubRuns';
 import { useDockCommands } from '../dock/DockContext';
+import { allSubRunsOf } from '../step/useStepRunActions';
 
 /** The highest priority shows first. DAGSpec ranks its own notices around these. */
 export const RUN_NOTICE_PRIORITY = {
@@ -18,6 +21,7 @@ export const RUN_NOTICE_PRIORITY = {
   'approval-resume': 50,
   'agent-waiting': 45,
   'actions-waiting': 40,
+  'sub-run-waiting': 35,
   'newer-run-active': 30,
   'monitoring-offer': 10,
 } as const;
@@ -61,6 +65,7 @@ export function useWorkspaceNotices(): WorkspaceNotice[] {
   const offerVisible = runsOnSchedule && offer.visible;
   const { setTab } = dock;
   const { dismiss: dismissOffer } = offer;
+  const waitingSubRun = useWaitingSubRun();
 
   return useMemo(() => {
     const notices: WorkspaceNotice[] = [];
@@ -116,6 +121,17 @@ export function useWorkspaceNotices(): WorkspaceNotice[] {
         priority: RUN_NOTICE_PRIORITY['actions-waiting'],
       });
     }
+    if (waitingSubRun) {
+      notices.push({
+        id: 'sub-run-waiting',
+        tone: 'info',
+        message: ts('Sub-run {name} is waiting for an action.', {
+          name: waitingSubRun.name,
+        }),
+        action: { label: ts('Open sub-run'), run: waitingSubRun.open },
+        priority: RUN_NOTICE_PRIORITY['sub-run-waiting'],
+      });
+    }
     if (newerRunActive) {
       notices.push({
         id: 'newer-run-active',
@@ -151,7 +167,35 @@ export function useWorkspaceNotices(): WorkspaceNotice[] {
     resumePending,
     agentWaiting,
     actionCount,
+    waitingSubRun,
     newerRunActive,
     offerVisible,
   ]);
+}
+
+/**
+ * The child run that keeps the selected run waiting, with its opener on the
+ * sub-run stack; null when no call step waits. Of the children of the step,
+ * the one that waits opens, else the first.
+ */
+function useWaitingSubRun(): { name: string; open(): void } | null {
+  const run = useWorkspaceRun();
+  const openOnStack = useOpenSubRun();
+  const node = firstWaitingCallStep(run.details);
+  const { subRuns } = useSubRuns(node ? run.ref : null);
+  return useMemo(() => {
+    if (!node || !openOnStack) return null;
+    const children = allSubRunsOf(node);
+    const ids = new Set(children.map((child) => child.dagRunId));
+    const child =
+      subRuns.find(
+        (sub) => ids.has(sub.dagRunId) && sub.status === Status.Waiting
+      ) ?? children[0];
+    if (!child) return null;
+    const name = child.dagName || node.step.call || node.step.name;
+    return {
+      name,
+      open: () => openOnStack({ name, dagRunId: child.dagRunId }),
+    };
+  }, [node, openOnStack, subRuns]);
 }

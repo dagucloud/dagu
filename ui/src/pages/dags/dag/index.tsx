@@ -257,7 +257,10 @@ function DAGDetails() {
     query.set('workspace', dagWorkspaceName);
     return `${location.pathname}?${query.toString()}`;
   }, [dagWorkspaceName, location.pathname, location.search]);
+  // A link to a run opens it in any workspace, as the run page did: the
+  // links of notifications and incidents name no workspace.
   const dagMatchesWorkspace =
+    !!linkedRunId ||
     workspaceSelection.kind === WorkspaceKind.all ||
     (workspaceSelection.kind === WorkspaceKind.default &&
       !dagHasWorkspaceLabel) ||
@@ -422,7 +425,21 @@ function DAGDetails() {
             ) : (
               !dagData?.dag &&
               (dagError && !resolvingRunFile ? (
-                isNotFoundQueryError(dagError) ? (
+                isNotFoundQueryError(dagError) &&
+                lookUpRunFile &&
+                linkedRunError ? (
+                  // Neither the workflow nor the run of the link exists.
+                  <NotFoundState
+                    title={ts('Run not found')}
+                    description={ts('This run may have been deleted.')}
+                    action={{
+                      to: buildUrl(
+                        `/dag-runs?name=${encodeURIComponent(fileName)}`
+                      ),
+                      label: ts('Open Executions'),
+                    }}
+                  />
+                ) : isNotFoundQueryError(dagError) ? (
                   <NotFoundState
                     title={ts('Workflow not found')}
                     description={

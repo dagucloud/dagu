@@ -12,6 +12,8 @@ export interface PeekController {
   isOpen: boolean;
   /** Sets the targets of the rows of the list, which the peek steps through. */
   setSequence?(targets: readonly PeekTarget[]): void;
+  /** The row that the peek shows, or showed last: the list marks it. */
+  shown?: PeekTarget | null;
 }
 
 /** Null without a PeekHost above: the rows then open the full page. */

@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 import { Link2 } from 'lucide-react';
+import { useSWRConfig } from 'swr';
 import { CopyButton } from '@/components/ui/copy-button';
 import DAGPinButton from '@/features/dags/components/dag-details/DAGPinButton';
 import { useI18n } from '@/i18n/I18nProvider';
@@ -39,6 +40,13 @@ export function DAGIdentity({
 }: DAGIdentityProps) {
   const { ts } = useI18n();
   const refresh = useWorkspaceRefresh();
+  const { mutate } = useSWRConfig();
+  // The workflow list, which may be below the page in the overlay, shows
+  // the pins too.
+  const onPinChanged = () => {
+    void refresh().catch(() => undefined);
+    void mutate((key) => Array.isArray(key) && key[1] === '/dags');
+  };
   const dirty = useWorkspaceEditor().state?.dirty ?? false;
   const name = dag.name;
   const description = dag.description?.trim();
@@ -56,7 +64,7 @@ export function DAGIdentity({
             name={name}
             pinned={pinned}
             workspace={workspaceName ?? ''}
-            onChanged={() => void refresh().catch(() => undefined)}
+            onChanged={onPinChanged}
           />
         </div>
       )}

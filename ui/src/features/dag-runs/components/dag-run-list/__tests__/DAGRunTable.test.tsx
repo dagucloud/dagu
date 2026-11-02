@@ -472,6 +472,21 @@ describe('DAGRunTable', () => {
       expect(peek.open).toHaveBeenCalledWith({ dag: 'alpha', run: 'run-2' });
     });
 
+    // After the arrow keys of the peek moved to run-2 and it closed, Enter
+    // in the list goes on from run-2.
+    it('moves its highlight to the run that the peek showed', () => {
+      const peek = {
+        open: vi.fn(),
+        isOpen: false,
+        shown: { dag: 'alpha', run: 'run-2' },
+      };
+      renderUnderPeek(peek);
+
+      fireEvent.keyDown(window, { key: 'Enter' });
+
+      expect(peek.open).toHaveBeenCalledWith({ dag: 'alpha', run: 'run-2' });
+    });
+
     // The keys of the open peek bubble up to the window.
     it('leaves the keys to an open peek', () => {
       const peek = { open: vi.fn(), isOpen: true };

@@ -21,7 +21,11 @@ type QueueDAGRun = components['schemas']['DAGRunSummary'];
 
 interface QueueRunsTableProps {
   items: QueueDAGRun[];
-  onDAGRunClick: (dagRun: QueueDAGRun) => void;
+  /** A Ctrl or Cmd click or Enter gives its modifiers: a new tab. */
+  onDAGRunClick: (
+    dagRun: QueueDAGRun,
+    event?: { ctrlKey?: boolean; metaKey?: boolean }
+  ) => void;
   selectable?: boolean;
   disableSelection?: boolean;
   headerCheckboxState?: boolean | 'indeterminate';
@@ -149,11 +153,11 @@ function QueueRunsTable({
             return (
               <tr
                 key={dagRun.dagRunId}
-                onClick={() => onDAGRunClick(dagRun)}
+                onClick={(event) => onDAGRunClick(dagRun, event)}
                 onKeyDown={(event) => {
                   if (event.key === 'Enter' || event.key === ' ') {
                     event.preventDefault();
-                    onDAGRunClick(dagRun);
+                    onDAGRunClick(dagRun, event);
                   }
                 }}
                 role="button"

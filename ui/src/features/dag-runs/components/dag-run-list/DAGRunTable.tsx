@@ -28,6 +28,8 @@ import {
   usePeekIsOpen,
   usePeekOrOpen,
   usePeekSequence,
+  usePeekShown,
+  useRevealShownRow,
 } from '@/features/peek/usePeekOrOpen';
 import { StepDetailsTooltip } from './StepDetailsTooltip';
 import { DAGRunArtifactsButton } from './DAGRunArtifactsButton';
@@ -77,6 +79,24 @@ function DAGRunTable({
   const [isSmallScreen, setIsSmallScreen] = useState(false);
   const [selectedIndex, setSelectedIndex] = useState<number>(-1);
   const tableRef = useRef<HTMLDivElement>(null);
+  // The highlight follows the run that the overlay shows, so the list shows
+  // where its arrow keys ended, and the keys of the list go on from there.
+  const isShown = usePeekShown();
+  const shownIndex = dagRuns.findIndex((dagRun) =>
+    isShown({ dag: dagRun.name, run: dagRun.dagRunId })
+  );
+  const [followedIndex, setFollowedIndex] = useState(-1);
+  if (followedIndex !== shownIndex) {
+    setFollowedIndex(shownIndex);
+    if (shownIndex !== -1) setSelectedIndex(shownIndex);
+  }
+  useRevealShownRow();
+  const rowMark = (index: number) =>
+    index === shownIndex
+      ? 'border-l-primary'
+      : selectedIndex === index
+        ? 'border-l-border'
+        : 'border-l-transparent';
 
   // Check screen size on mount and when window resizes
   useEffect(() => {
@@ -286,7 +306,8 @@ function DAGRunTable({
         {dagRuns.map((dagRun, index) => (
           <div
             key={dagRun.dagRunId}
-            className={`p-3 rounded-lg border border-l-4 min-h-[80px] flex flex-col bg-card border-border ${selectedIndex === index ? 'border-l-border' : 'border-l-transparent'} ${isBulkSelected(dagRun) ? 'bg-muted/30' : ''} ${dagRun.status === Status.Running ? 'animate-running-row' : ''} cursor-pointer`}
+            data-peek-shown={index === shownIndex || undefined}
+            className={`p-3 rounded-lg border border-l-4 min-h-[80px] flex flex-col bg-card border-border ${rowMark(index)} ${isBulkSelected(dagRun) ? 'bg-muted/30' : ''} ${dagRun.status === Status.Running ? 'animate-running-row' : ''} cursor-pointer`}
             onClick={(e) => openRun(dagRun, e)}
           >
             {/* Header with name and status */}
@@ -507,11 +528,10 @@ function DAGRunTable({
           {dagRuns.map((dagRun, index) => (
             <TableRow
               key={dagRun.dagRunId}
-              className={`cursor-pointer hover:bg-muted/50 border-l-4 ${
-                selectedIndex === index
-                  ? 'border-l-border'
-                  : 'border-l-transparent'
-              } ${isBulkSelected(dagRun) ? 'bg-muted/30' : ''} ${dagRun.status === Status.Running ? 'animate-running-row' : ''}`}
+              data-peek-shown={index === shownIndex || undefined}
+              className={`cursor-pointer hover:bg-muted/50 border-l-4 ${rowMark(
+                index
+              )} ${isBulkSelected(dagRun) ? 'bg-muted/30' : ''} ${dagRun.status === Status.Running ? 'animate-running-row' : ''}`}
               style={{ fontSize: '0.8125rem' }}
               onClick={(e) => {
                 setSelectedIndex(index);
