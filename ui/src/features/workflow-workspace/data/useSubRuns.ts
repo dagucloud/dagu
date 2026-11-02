@@ -14,11 +14,14 @@ const ACTIVE_POLL_MS = 3000;
 
 /**
  * The sub runs of a run. Path and query are the ones of TimelineChart, so
- * both share one SWR key. A null ref makes no request.
+ * both share one SWR key. A null ref makes no request. `pollMs` reads the
+ * list again at that interval whatever the state of the run, for a reader
+ * that follows the sub runs of a waiting run.
  */
 export function useSubRuns(
   ref: RunRef | null,
-  parentSubDAGRunId?: string
+  parentSubDAGRunId?: string,
+  pollMs?: number
 ): { subRuns: ApiSubRunDetail[]; isLoading: boolean } {
   const remoteNode = useRemoteNode();
   // Poll like TimelineChart: only while the selected run is running or queued.
@@ -36,7 +39,7 @@ export function useSubRuns(
         query: { remoteNode, parentSubDAGRunId },
       },
     }),
-    { refreshInterval: polls ? ACTIVE_POLL_MS : 0 }
+    { refreshInterval: pollMs ?? (polls ? ACTIVE_POLL_MS : 0) }
   );
   return {
     subRuns: data?.subRuns ?? NO_SUB_RUNS,

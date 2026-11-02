@@ -173,29 +173,41 @@ export function useWorkspaceNotices(): WorkspaceNotice[] {
   ]);
 }
 
+/** How often the sub runs of a waiting fan-out are read again. */
+const WAITING_FAN_OUT_POLL_MS = 10_000;
+
 /**
  * The child run that keeps the selected run waiting, with its opener on the
- * sub-run stack; null when no call step waits. Of the children of the step,
- * the one that waits opens, else the first.
+ * sub-run stack; null when no call step waits. A step with one child opens
+ * it. Of the children of a fan-out, the one that the server reports waiting
+ * opens; until the list of sub runs says which, there is no notice.
  */
 function useWaitingSubRun(): { name: string; open(): void } | null {
   const run = useWorkspaceRun();
   const openOnStack = useOpenSubRun();
   const node = firstWaitingCallStep(run.details);
-  const { subRuns } = useSubRuns(node ? run.ref : null);
+  const children = useMemo(() => allSubRunsOf(node ?? undefined), [node]);
+  const fanOut = children.length > 1;
+  // The list does not poll a waiting run by itself, and another child may
+  // be the one that waits next.
+  const { subRuns } = useSubRuns(
+    node && fanOut ? run.ref : null,
+    undefined,
+    WAITING_FAN_OUT_POLL_MS
+  );
   return useMemo(() => {
     if (!node || !openOnStack) return null;
-    const children = allSubRunsOf(node);
     const ids = new Set(children.map((child) => child.dagRunId));
-    const child =
-      subRuns.find(
-        (sub) => ids.has(sub.dagRunId) && sub.status === Status.Waiting
-      ) ?? children[0];
+    const child = fanOut
+      ? subRuns.find(
+          (sub) => ids.has(sub.dagRunId) && sub.status === Status.Waiting
+        )
+      : children[0];
     if (!child) return null;
     const name = child.dagName || node.step.call || node.step.name;
     return {
       name,
       open: () => openOnStack({ name, dagRunId: child.dagRunId }),
     };
-  }, [node, openOnStack, subRuns]);
+  }, [children, fanOut, node, openOnStack, subRuns]);
 }

@@ -488,6 +488,34 @@ describe('useWorkspaceNotices', () => {
       });
     });
 
+    // A loading or failed list would name no child: guessing could open a
+    // sibling that finished.
+    it('waits for the list to tell which child of a fan-out waits', () => {
+      const { result } = renderNotices({
+        details: { status: Status.Waiting, nodes: [fanOut] },
+        openSubRun: vi.fn(),
+      });
+      expect(ids(result.current)).not.toContain('sub-run-waiting');
+    });
+
+    it('opens the one child of a step without the list', () => {
+      const openSubRun = vi.fn();
+      const call = {
+        ...fanOut,
+        subRuns: [{ dagRunId: 'c-1', dagName: 'child', params: '' }],
+      } as unknown as components['schemas']['Node'];
+      const { result } = renderNotices({
+        details: { status: Status.Waiting, nodes: [call] },
+        openSubRun,
+      });
+
+      find(result.current, 'sub-run-waiting').action?.run();
+      expect(openSubRun).toHaveBeenCalledWith({
+        name: 'child',
+        dagRunId: 'c-1',
+      });
+    });
+
     it('stays hidden while no call step waits', () => {
       const { result } = renderNotices({
         details: {
