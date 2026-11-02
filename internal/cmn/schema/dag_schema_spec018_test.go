@@ -177,6 +177,40 @@ steps:
 	}
 }
 
+func TestDAGSchemaSpec018DefaultMaxConcurrent(t *testing.T) {
+	t.Parallel()
+
+	resolved := mustResolveDAGSchema(t)
+
+	tests := []struct {
+		name    string
+		value   string
+		wantErr bool
+	}{
+		{name: "accepts lower bound", value: "1"},
+		{name: "accepts upper bound", value: "1000"},
+		{name: "rejects zero", value: "0", wantErr: true},
+		{name: "rejects above limit", value: "1001", wantErr: true},
+		{name: "rejects fraction", value: "1.5", wantErr: true},
+		{name: "rejects variable", value: `"${MC}"`, wantErr: true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			doc := mustParseYAMLDocument(t, "defaults:\n  max_concurrent: "+tt.value+"\nsteps:\n  - run: echo ok\n")
+			err := resolved.Validate(doc)
+			if !tt.wantErr {
+				require.NoError(t, err)
+				return
+			}
+			require.Error(t, err)
+			require.Contains(t, err.Error(), "max_concurrent")
+		})
+	}
+}
+
 func mustResolveDAGSchema(t *testing.T) *jsonschema.Resolved {
 	t.Helper()
 

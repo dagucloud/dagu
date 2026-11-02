@@ -2776,7 +2776,10 @@ var sameStampSwaps = []sameStampSwap{
 		calendars := t.TempDir()
 		path := writeStampedFile(t, filepath.Join(calendars, "jp.yaml"), before)
 		return calendars, func() {
-			require.NoError(t, os.Rename(writeStampedFile(t, filepath.Join(calendars, "jp.tmp"), after), path))
+			// Windows denies replacing a file another process has open, as a
+			// calendar watcher does while it hashes the calendars, so the
+			// rename retries as a deployment there must.
+			require.NoError(t, fileutil.Rename(writeStampedFile(t, filepath.Join(calendars, "jp.tmp"), after), path))
 		}
 	}},
 	{name: "in-place rewrite", prepare: func(t *testing.T, before, after string) (string, func()) {

@@ -149,6 +149,10 @@ catchup_window: "6h"
 #
 #   # Send error_mail when this step fails.
 #   mail_on_error: true
+#
+#   # Concurrency limit (1-1000) for parallel and foreach steps that omit
+#   # max_concurrent. Built-in default: 10.
+#   max_concurrent: 10
 
 # -- Custom Actions --
 # Define reusable actions that expand into builtin-backed steps at load time.
