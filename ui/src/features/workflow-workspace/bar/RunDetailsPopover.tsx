@@ -1,7 +1,7 @@
 // Copyright (C) 2026 Yota Hamada
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-import { ChevronDown } from 'lucide-react';
+import { ChevronDown, FileCode, Link2 } from 'lucide-react';
 import {
   useCallback,
   useEffect,
@@ -12,6 +12,7 @@ import {
 } from 'react';
 import { createPortal } from 'react-dom';
 import { Button } from '@/components/ui/button';
+import { CopyButton } from '@/components/ui/copy-button';
 import {
   Tooltip,
   TooltipContent,
@@ -22,7 +23,9 @@ import { runDisplayStatus } from '@/lib/runDisplayStatus';
 import { cn, FOCUS_RING } from '@/lib/utils';
 import type { ApiDAGRunDetails } from '../contracts';
 import { useWorkspaceRun } from '../data';
+import { useWorkspaceData } from '../data/context';
 import { useDockCommands } from '../dock/DockContext';
+import { useWorkspaceUrl } from '../state/workspaceUrl';
 import { Z } from '../zLayers';
 import {
   ConditionsSection,
@@ -32,6 +35,7 @@ import {
   RunStatusSection,
   TestRunNote,
 } from './RunDetailsParts';
+import { useWorkflowShare } from './useWorkflowShare';
 
 const PANEL_WIDTH = 384;
 const MARGIN = 8;
@@ -39,6 +43,8 @@ const MARGIN = 8;
 /**
  * The content of the run details, in order: status, progress, test run note,
  * reused inputs, conditions, parameters. Each part shows only when it applies.
+ * A last row shows the definition that the run used on the canvas and copies
+ * a link to the run.
  */
 export function RunDetailsContent({
   details,
@@ -48,8 +54,13 @@ export function RunDetailsContent({
   /** Called after an action that leaves the popover: Show log, Show run. */
   onClose?: () => void;
 }) {
+  const { ts } = useI18n();
   const run = useWorkspaceRun();
   const dock = useDockCommands();
+  const { fileName } = useWorkspaceData('RunDetailsContent');
+  const { getRunLink } = useWorkflowShare(fileName);
+  const [url, setUrl] = useWorkspaceUrl();
+  const showingRunDef = url.def === 'run';
   const display = runDisplayStatus(details);
   // A run that never ends has no progress to show: its steps never all end.
   const showProgress = run.isActive && !display.healthy;
@@ -77,6 +88,33 @@ export function RunDetailsContent({
           <ParamsSection details={details} />
         </div>
       )}
+      <div className="flex items-center gap-1 border-t border-border pt-2">
+        <Button
+          type="button"
+          variant="ghost"
+          size="xs"
+          aria-pressed={showingRunDef}
+          onClick={() => {
+            setUrl({ def: showingRunDef ? null : 'run' });
+            onClose?.();
+          }}
+        >
+          <FileCode aria-hidden="true" />
+          {ts(
+            showingRunDef
+              ? 'Back to the current definition'
+              : 'Show the definition of this run'
+          )}
+        </Button>
+        <CopyButton
+          size="sm"
+          icon={Link2}
+          className="ml-auto"
+          text={() => getRunLink(details.dagRunId)}
+          label={ts('Copy link to this run')}
+          copiedLabel={ts('Link copied')}
+        />
+      </div>
     </div>
   );
 }
