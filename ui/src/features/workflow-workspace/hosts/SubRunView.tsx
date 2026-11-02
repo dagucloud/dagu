@@ -35,12 +35,12 @@ import {
 import ArtifactsTab from '@/features/dags/components/artifacts/ArtifactsTab';
 import ExecutionLog from '@/features/dags/components/dag-execution/ExecutionLog';
 import StepLog from '@/features/dags/components/dag-execution/StepLog';
-import TimelineChart from '@/features/dags/components/visualization/TimelineChart';
 import { buildRunOverlay } from '@/features/visual-editor/run/runOverlay';
 import { useI18n } from '@/i18n/I18nProvider';
 import { cn } from '@/lib/utils';
 import type { ApiNode } from '../contracts';
 import { WorkspaceDataContext } from '../data/context';
+import { RunTimelineWithOpener } from '../dock/tabs/runTabBodies';
 import { StepFacts } from '../step/StepFacts';
 import {
   LogPageLink,
@@ -184,6 +184,10 @@ function SubRunActivity({ run }: { run: DAGRunDetails }): ReactElement {
   const { ts } = useI18n();
   const fileName = usePageFile(run);
   const remoteNode = useRemoteNode();
+  // As the Artifacts tab of the page: a child run that kept no artifacts
+  // reads as empty, not as storage turned off.
+  const artifactsEnabled =
+    !!useContext(WorkspaceDataContext)?.dagData.dag?.artifacts?.enabled;
   const idPrefix = useId();
   const [tab, setTab] = useState<ActivityTab>('timeline');
   const [open, setOpen] = useState(true);
@@ -226,9 +230,7 @@ function SubRunActivity({ run }: { run: DAGRunDetails }): ReactElement {
           className="min-h-0 flex-1 overflow-auto"
         >
           {tab === 'timeline' && (
-            <div className="p-2">
-              <TimelineChart status={run} />
-            </div>
+            <RunTimelineWithOpener details={run} className="p-2" />
           )}
           {tab === 'log' && (
             <div className="h-full min-h-0 p-2">
@@ -245,7 +247,12 @@ function SubRunActivity({ run }: { run: DAGRunDetails }): ReactElement {
             </div>
           )}
           {tab === 'artifacts' && (
-            <ArtifactsTab dagRun={run} className="h-full min-h-0" fillHeight />
+            <ArtifactsTab
+              dagRun={run}
+              artifactEnabled={artifactsEnabled}
+              className="h-full min-h-0"
+              fillHeight
+            />
           )}
           {tab === 'definition' && (
             <Suspense fallback={null}>
@@ -348,7 +355,12 @@ function RunStepPane({
               onOpenLogs={openLogs}
               onRunChanged={onChanged}
             />
-            <StepManualActions holder={run} node={node} inSubRun />
+            <StepManualActions
+              holder={run}
+              node={node}
+              inSubRun
+              onChanged={onChanged}
+            />
           </div>
         ) : (
           <StepLog
@@ -358,6 +370,7 @@ function RunStepPane({
             dagRun={run}
             node={node}
             stream={stream}
+            onStreamShown={setStream}
             toolbarExtra={
               <LogPageLink
                 to={stepLogPageURL({

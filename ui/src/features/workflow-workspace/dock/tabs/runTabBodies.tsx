@@ -120,11 +120,18 @@ function runTab(
 }
 
 /**
- * Child rows open on the sub-run stack of the workspace. With Ctrl or Cmd
- * they open the run page in a new tab. TimelineChart reads the opener from
- * the context, so this view puts a modifier-aware opener in front of it.
+ * The timeline of a run. Child rows open on the sub-run stack of the
+ * workspace; with Ctrl or Cmd they open the run page in a new tab.
+ * TimelineChart reads the opener from the context, so this view puts a
+ * modifier-aware opener in front of it.
  */
-function TimelineBody({ details }: RunTabProps) {
+export function RunTimelineWithOpener({
+  details,
+  className,
+}: {
+  details: RunTabProps['details'];
+  className?: string;
+}) {
   const openOnStack = useOpenSubRun();
   const remoteNode = useRemoteNode();
   const newTab = useRef(false);
@@ -150,12 +157,16 @@ function TimelineBody({ details }: RunTabProps) {
     [details, openOnStack, remoteNode]
   );
   return (
-    <div className={SCROLL} onClickCapture={note} onKeyDownCapture={note}>
+    <div className={className} onClickCapture={note} onKeyDownCapture={note}>
       <SubRunOpenProvider value={openOnStack ? open : null}>
         <TimelineChart status={details} />
       </SubRunOpenProvider>
     </div>
   );
+}
+
+function TimelineBody({ details }: RunTabProps) {
+  return <RunTimelineWithOpener details={details} className={SCROLL} />;
 }
 
 /** How long after its end a run may still write its outputs. */
