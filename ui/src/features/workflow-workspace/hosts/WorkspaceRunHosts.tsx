@@ -30,8 +30,16 @@ const noop = () => undefined;
 // its own picked step.
 const renderSubRun = (
   run: components['schemas']['DAGRunDetails'],
-  entry: SubRunStackEntry
-) => <SubRunView key={run.dagRunId} run={run} initialStep={entry.step} />;
+  entry: SubRunStackEntry,
+  refresh: () => Promise<void>
+) => (
+  <SubRunView
+    key={run.dagRunId}
+    run={run}
+    initialStep={entry.step}
+    onChanged={() => void refresh()}
+  />
+);
 
 /**
  * Hosts the sub-run stack and the RootDAGRunContext of the selected run for

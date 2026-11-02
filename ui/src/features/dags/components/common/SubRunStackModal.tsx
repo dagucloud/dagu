@@ -71,11 +71,12 @@ type SubRunStackModalProps = {
   onChange: (next: SubRunStackEntry[]) => void;
   /**
    * Renders the run on top of the stack. Without it, the run shows in the
-   * run details view.
+   * run details view. `refresh` reads the run again, after an action on it.
    */
   renderRun?: (
     run: components['schemas']['DAGRunDetails'],
-    entry: SubRunStackEntry
+    entry: SubRunStackEntry,
+    refresh: () => Promise<void>
   ) => React.ReactNode;
 };
 
@@ -289,7 +290,7 @@ export function SubRunStackModal({
           <SubRunOpenProvider value={push}>
             <React.Suspense fallback={<LoadingIndicator />}>
               {shown && top && renderRun ? (
-                renderRun(shown, top)
+                renderRun(shown, top, refresh)
               ) : shown ? (
                 <DAGRunDetailsContent
                   name={top.name}

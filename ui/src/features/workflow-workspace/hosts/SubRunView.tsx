@@ -1,12 +1,20 @@
 // Copyright (C) 2026 Yota Hamada
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-import { X } from 'lucide-react';
-import { lazy, Suspense, useMemo, useState, type ReactElement } from 'react';
-import type { components } from '@/api/v1/schema';
+import { Info, ScrollText, X } from 'lucide-react';
+import {
+  lazy,
+  Suspense,
+  useId,
+  useMemo,
+  useState,
+  type ReactElement,
+} from 'react';
+import { NodeStatus, Stream, type components } from '@/api/v1/schema';
 import { IconButton } from '@/components/ui/icon-button';
 import StatusChip from '@/components/ui/status-chip';
 import { StatusDot } from '@/components/ui/status-dot';
+import { TabStrip, tabStripTabId } from '@/components/ui/tab-strip';
 import { RunMetaLine } from '@/features/dag-runs/components/common/RunMetaLine';
 import {
   RunError,
@@ -18,6 +26,9 @@ import { buildRunOverlay } from '@/features/visual-editor/run/runOverlay';
 import { useI18n } from '@/i18n/I18nProvider';
 import { cn } from '@/lib/utils';
 import type { ApiNode } from '../contracts';
+import { StepFacts } from '../step/StepFacts';
+import { StepManualActions } from '../step/StepManualActions';
+import type { StepRunTarget } from '../step/StepRunView';
 import {
   allSubRunsOf,
   renderParallelPicker,
@@ -50,21 +61,30 @@ function dagOfRun(run: DAGRunDetails): DAGDetails {
 
 /**
  * A child run on the sub-run stack, in the form of the workflow page: the
- * facts of the run, its graph with the state of each step, and the log of
- * the picked step. Opening a step that has child runs (a double click or
+ * facts of the run, its graph with the state of each step, and the facts,
+ * actions and log of the picked step. Opening a step that has child runs (a double click or
  * Enter) opens them on the same stack.
  */
 export function SubRunView({
   run,
   initialStep,
+  onChanged,
 }: {
   run: DAGRunDetails;
   /** A step to show when the run opens. */
   initialStep?: string;
+  /** Called after a step action changed the run: the host reads it again. */
+  onChanged?(): void;
 }): ReactElement {
   const dag = useMemo(() => dagOfRun(run), [run]);
   const overlay = useMemo(() => buildRunOverlay(run), [run]);
-  const [picked, setPicked] = useState<string | null>(initialStep ?? null);
+  // A run that waits for a person opens on the step that waits.
+  const [picked, setPicked] = useState<string | null>(
+    () =>
+      initialStep ??
+      run.nodes.find((node) => node.status === NodeStatus.Waiting)?.step.name ??
+      null
+  );
   const [picker, setPicker] = useState<ApiNode | null>(null);
   const openSubRun = useSubRunOpener();
   const nodeOf = (step: string) =>
@@ -105,9 +125,12 @@ export function SubRunView({
         </Suspense>
         {picked !== null && pickedNode && (
           <RunStepPane
+            // Each step opens on its own tab and stream.
+            key={picked}
             run={run}
             node={pickedNode}
             onClose={() => setPicked(null)}
+            onChanged={onChanged}
           />
         )}
       </div>
@@ -120,18 +143,39 @@ export function SubRunView({
   );
 }
 
-/** The state and the log of one step of the run, over the right of the graph. */
+type PaneTab = 'details' | 'log';
+
+/**
+ * One step of the run, over the right of the graph: its facts and actions
+ * (retry, status, approval) in Details, its output in Log. A step that waits
+ * for a person opens on Details, any other on Log.
+ */
 function RunStepPane({
   run,
   node,
   onClose,
+  onChanged,
 }: {
   run: DAGRunDetails;
   node: ApiNode;
   onClose(): void;
+  onChanged?(): void;
 }): ReactElement {
   const { ts } = useI18n();
   const step = node.step.name;
+  const idPrefix = useId();
+  const [tab, setTab] = useState<PaneTab>(
+    node.status === NodeStatus.Waiting ? 'details' : 'log'
+  );
+  const [stream, setStream] = useState<Stream>(Stream.stdout);
+  const target = useMemo<StepRunTarget>(
+    () => ({ step, subRun: { dagName: run.name, subDAGRunId: run.dagRunId } }),
+    [run.dagRunId, run.name, step]
+  );
+  const openLogs = (t: StepRunTarget) => {
+    setStream(t.stream === 'stderr' ? Stream.stderr : Stream.stdout);
+    setTab('log');
+  };
   return (
     <aside
       aria-label={ts('Details of {step}', { step })}
@@ -157,16 +201,43 @@ function RunStepPane({
         </div>
         <IconButton icon={X} size="sm" label={ts('Close')} onClick={onClose} />
       </header>
-      <div className="min-h-0 flex-1 overflow-auto">
-        <StepLog
-          // The viewer keeps the stream and the page of one step only.
-          key={step}
-          dagName={run.name}
-          dagRunId={run.dagRunId}
-          stepName={step}
-          dagRun={run}
-          node={node}
-        />
+      <TabStrip
+        label={ts('Step')}
+        idPrefix={idPrefix}
+        className="shrink-0 border-b border-border px-2"
+        tabs={[
+          { id: 'details', label: ts('Details'), icon: Info },
+          { id: 'log', label: ts('Log'), icon: ScrollText },
+        ]}
+        value={tab}
+        onChange={(id) => setTab(id as PaneTab)}
+      />
+      <div
+        role="tabpanel"
+        aria-labelledby={tabStripTabId(idPrefix, tab)}
+        className="min-h-0 flex-1 overflow-auto"
+      >
+        {tab === 'details' ? (
+          <div className="space-y-3 p-3">
+            <StepFacts
+              target={target}
+              holder={run}
+              node={node}
+              onOpenLogs={openLogs}
+              onRunChanged={onChanged}
+            />
+            <StepManualActions holder={run} node={node} inSubRun />
+          </div>
+        ) : (
+          <StepLog
+            dagName={run.name}
+            dagRunId={run.dagRunId}
+            stepName={step}
+            dagRun={run}
+            node={node}
+            stream={stream}
+          />
+        )}
       </div>
     </aside>
   );
