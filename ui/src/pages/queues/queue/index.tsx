@@ -22,8 +22,8 @@ import {
 } from '@/components/ui/dialog';
 import { RefreshButton } from '@/components/ui/refresh-button';
 import { AppBarContext } from '@/contexts/AppBarContext';
-import { buildDAGPageURL } from '@/features/dag-runs/lib/dagRunUrls';
-import { useOpenPage } from '@/features/dag-runs/lib/useOpenPage';
+import { PeekHost } from '@/features/peek/PeekHost';
+import { usePeekOrOpen, usePeekSequence } from '@/features/peek/usePeekOrOpen';
 import { formatQueuedCount } from '@/features/queues/components/QueueCard';
 import QueueRunsTable from '@/features/queues/components/QueueRunsTable';
 import {
@@ -97,7 +97,7 @@ function QueueDetailsPage() {
   const queueName = React.useMemo(() => decodeQueueName(name), [name]);
   const appBarContext = React.useContext(AppBarContext);
   const remoteNode = appBarContext.selectedRemoteNode || 'local';
-  const openPage = useOpenPage();
+  const peekOrOpen = usePeekOrOpen(remoteNode);
   const sentinelRef = React.useRef<HTMLDivElement>(null);
 
   React.useEffect(() => {
@@ -188,17 +188,21 @@ function QueueDetailsPage() {
     await Promise.all([mutate(), reload()]);
   }, [mutate, reload]);
 
+  // A run opens over the queue; the overlay steps through the queued runs.
   const handleDAGRunClick = React.useCallback(
-    (dagRun: components['schemas']['DAGRunSummary']) => {
-      openPage(
-        buildDAGPageURL({
-          fileName: dagRun.name,
-          remoteNode,
-          run: dagRun.dagRunId,
-        })
-      );
+    (
+      dagRun: components['schemas']['DAGRunSummary'],
+      event?: { ctrlKey?: boolean; metaKey?: boolean }
+    ) => {
+      peekOrOpen({ dag: dagRun.name, run: dagRun.dagRunId }, event);
     },
-    [openPage, remoteNode]
+    [peekOrOpen]
+  );
+  usePeekSequence(
+    [...(queue?.running ?? []), ...queuedItems].map((dagRun) => ({
+      dag: dagRun.name,
+      run: dagRun.dagRunId,
+    }))
   );
 
   const headerCheckboxState =
@@ -750,4 +754,12 @@ function QueueDetailsPage() {
   );
 }
 
-export default QueueDetailsPage;
+function QueueDetails() {
+  return (
+    <PeekHost>
+      <QueueDetailsPage />
+    </PeekHost>
+  );
+}
+
+export default QueueDetails;
