@@ -1057,7 +1057,21 @@ func (s *dagBuildState) buildActionGraph() {
 		return
 	}
 
-	if handlerOn, err := buildHandlers(s.ctx, s.spec, s.result); err != nil {
+	// Handlers and steps share the defaults, so an invalid defaults block is
+	// reported once rather than under each of them.
+	if defs, err := buildStepDefaults(s.ctx, s.spec); err != nil {
+		s.errs = append(s.errs, err)
+	} else {
+		s.buildHandlersAndSteps(defs)
+	}
+
+	if err := injectAgentStep(s.result); err != nil {
+		s.errs = append(s.errs, err)
+	}
+}
+
+func (s *dagBuildState) buildHandlersAndSteps(defs *defaults) {
+	if handlerOn, err := buildHandlers(s.ctx, s.spec, s.result, defs); err != nil {
 		s.errs = append(s.errs, ir.NewValidationError("handlers", nil, err))
 	} else {
 		composed, err := composeHandlerOn(s.result.HandlerOn, handlerOn)
@@ -1068,14 +1082,10 @@ func (s *dagBuildState) buildActionGraph() {
 		}
 	}
 
-	if steps, err := buildSteps(s.ctx, s.spec, s.result); err != nil {
+	if steps, err := buildSteps(s.ctx, s.spec, s.result, defs); err != nil {
 		s.errs = append(s.errs, ir.NewValidationError("steps", nil, err))
 	} else {
 		s.result.Steps = composeSteps(s.result.Steps, steps)
-	}
-
-	if err := injectAgentStep(s.result); err != nil {
-		s.errs = append(s.errs, err)
 	}
 }
 
@@ -3652,15 +3662,20 @@ func cloneStepPointer(step *ir.Step) *ir.Step {
 	return &cloned
 }
 
-func buildHandlers(ctx buildContext, d *dag, result *ir.DAG) (ir.HandlerOn, error) {
-	buildCtx := stepBuildContext{buildContext: ctx, dag: result}
-	var handlerOn ir.HandlerOn
-
+// buildStepDefaults merges the DAG's step defaults over those inherited from
+// base config.
+func buildStepDefaults(ctx buildContext, d *dag) (*defaults, error) {
 	localDefs, err := decodeDefaults(d.Defaults)
 	if err != nil {
-		return handlerOn, err
+		return nil, err
 	}
-	defs := mergeDefaults(ctx.baseDefaults, localDefs, d.defaultsRaw)
+	return mergeDefaults(ctx.baseDefaults, localDefs, d.defaultsRaw), nil
+}
+
+func buildHandlers(ctx buildContext, d *dag, result *ir.DAG, defs *defaults) (ir.HandlerOn, error) {
+	buildCtx := stepBuildContext{buildContext: ctx, dag: result}
+	var handlerOn ir.HandlerOn
+	var err error
 
 	// buildHandler is a helper that builds a single handler step.
 	buildHandler := func(s *step, name ir.HandlerType) (*ir.Step, error) {
@@ -3791,15 +3806,9 @@ func buildOTel(_ buildContext, d *dag) (*ir.OTelConfig, error) {
 	}
 }
 
-func buildSteps(ctx buildContext, d *dag, result *ir.DAG) ([]ir.Step, error) {
+func buildSteps(ctx buildContext, d *dag, result *ir.DAG, defs *defaults) ([]ir.Step, error) {
 	buildCtx := stepBuildContext{buildContext: ctx, dag: result}
 	names := make(map[string]struct{})
-
-	localDefs, err := decodeDefaults(d.Defaults)
-	if err != nil {
-		return nil, err
-	}
-	defs := mergeDefaults(ctx.baseDefaults, localDefs, d.defaultsRaw)
 
 	switch v := d.Steps.(type) {
 	case nil:

@@ -9,6 +9,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"strings"
 	"testing"
 	"time"
 
@@ -3505,6 +3506,23 @@ steps:
 		_, err := spec.Load(context.Background(), testDAG)
 		require.Error(t, err)
 		require.Contains(t, err.Error(), "defaults")
+	})
+
+	t.Run("InvalidDefaultsReportedOnce", func(t *testing.T) {
+		t.Parallel()
+
+		_, err := spec.LoadYAML(context.Background(), []byte(`
+defaults:
+  unknown_field: value
+handler_on:
+  exit:
+    run: echo exit
+steps:
+  - run: echo ok
+`), spec.SkipSchemaValidation())
+		require.Error(t, err)
+		require.Equal(t, 1, strings.Count(err.Error(), "invalid keys: unknown_field"), err.Error())
+		require.NotContains(t, err.Error(), "field 'handlers'")
 	})
 
 	t.Run("ContinueOnDefault", func(t *testing.T) {
