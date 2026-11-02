@@ -225,7 +225,7 @@ function waitingRun(): Details {
   } as Details;
 }
 
-/** A sub run of run-1 with its own approval gate and waiting agent. */
+/** A sub run of run-1 with its own approval gate, human task and waiting agent. */
 function subRun(): Details {
   const root = waitingRun();
   return {
@@ -234,7 +234,9 @@ function subRun(): Details {
     dagRunId: 'sub-1',
     nodes: [
       gate('gate-c'),
-      ...root.nodes.filter((n) => n.step.name === 'coder'),
+      ...root.nodes.filter(
+        (n) => n.step.name === 'coder' || n.step.name === 'review'
+      ),
     ],
   };
 }
@@ -539,6 +541,22 @@ describe('StepManualActions', () => {
         }
       )
     );
+  });
+
+  // The server completes the human tasks of a root run only: the card of a
+  // sub run would send the task to the wrong run.
+  it('offers no task card for a human task of a sub run', () => {
+    renderFacts({
+      step: 'review',
+      subRun: { dagName: 'child', subDAGRunId: 'sub-1' },
+    });
+
+    expect(screen.getByTestId('ww-step-sub-run-task')).toHaveTextContent(
+      'A human task of a sub-run cannot be completed here.'
+    );
+    expect(
+      screen.queryByRole('button', { name: /complete/i })
+    ).not.toBeInTheDocument();
   });
 
   it.each(['build', 'busy', 'ask'])(

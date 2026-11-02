@@ -7,6 +7,7 @@ import { Button } from '@/components/ui/button';
 import { getManualActionState } from '@/features/dag-runs/lib/manualActionState';
 import { ApprovalTab } from '@/features/dags/components/approval/ApprovalTab';
 import { HumanTasksTab } from '@/features/dags/components/human-task/HumanTasksTab';
+import { isSubDAGRun } from '@/features/dags/hooks/useStepLogQuery';
 import { useI18n } from '@/i18n/I18nProvider';
 import type { ApiDAGRunDetails, ApiNode } from '../contracts';
 import { useWorkspaceData } from '../data/context';
@@ -18,6 +19,8 @@ export interface StepManualActionsProps {
   node: ApiNode | undefined;
   /** The step belongs to a sub run, which the dock Agent tab does not show. */
   inSubRun?: boolean;
+  /** Called after an approval or a task changed the run of the step. */
+  onChanged?(): void;
 }
 
 /**
@@ -45,10 +48,15 @@ export function StepManualActions({
   holder,
   node,
   inSubRun = false,
+  onChanged,
 }: StepManualActionsProps) {
   const { ts } = useI18n();
   const dock = useDockCommands();
   const { refresh } = useWorkspaceData('StepManualActions');
+  const changed = () => {
+    onChanged?.();
+    void refresh();
+  };
   if (!holder || !node) return null;
 
   const name = node.step.name;
@@ -69,16 +77,30 @@ export function StepManualActions({
         {ts('Action required')}
       </div>
       {approval && (
-        <ApprovalTab dagRun={holder} dagName={holder.name} stepName={name} />
-      )}
-      {humanTask && (
-        <HumanTasksTab
-          key={`${holder.name}:${holder.dagRunId}`}
+        <ApprovalTab
           dagRun={holder}
-          onChanged={() => void refresh()}
+          dagName={holder.name}
           stepName={name}
+          onChanged={changed}
         />
       )}
+      {/* The server completes the human tasks of a root run only. */}
+      {humanTask &&
+        (isSubDAGRun(holder) ? (
+          <p
+            className="text-sm text-muted-foreground"
+            data-testid="ww-step-sub-run-task"
+          >
+            {ts('A human task of a sub-run cannot be completed here.')}
+          </p>
+        ) : (
+          <HumanTasksTab
+            key={`${holder.name}:${holder.dagRunId}`}
+            dagRun={holder}
+            onChanged={changed}
+            stepName={name}
+          />
+        ))}
       {agent && (
         <div
           className="flex flex-wrap items-center justify-between gap-2 rounded-md border border-warning/40 bg-warning/5 p-3"
