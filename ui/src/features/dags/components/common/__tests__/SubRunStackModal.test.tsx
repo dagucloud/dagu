@@ -82,7 +82,7 @@ describe('SubRunStackModal', () => {
     }));
     const view = render(<SubRunStackModal {...stackProps} stack={stack} />);
 
-    for (const name of ['a', 'b', 'c', 'd']) {
+    for (const name of ['a', 'b', 'c', 'd', 'e']) {
       expect(view.getByRole('button', { name })).toBeInTheDocument();
     }
     expect(view.queryByText(/more/)).toBeNull();

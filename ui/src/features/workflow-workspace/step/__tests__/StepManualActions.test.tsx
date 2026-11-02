@@ -55,6 +55,8 @@ type Details = components['schemas']['DAGRunDetails'];
 const api = vi.hoisted(() => ({
   post: vi.fn(),
   messages: [] as string[],
+  /** Reads the sub run again. */
+  rereadSubRun: vi.fn(),
 }));
 const perms = vi.hoisted(() => ({ value: {} as WorkspacePermissions }));
 
@@ -65,8 +67,10 @@ vi.mock('@/hooks/api', () => ({
     init: { params: { path: Record<string, string> } } | null
   ) => {
     let data: unknown;
+    let mutate = () => Promise.resolve(undefined);
     if (init && path.endsWith('/sub-dag-runs/{subDAGRunId}')) {
       data = { dagRunDetails: subRun() };
+      mutate = api.rereadSubRun;
     } else if (init && path.endsWith('/messages')) {
       const step = init.params.path.stepName ?? '';
       api.messages.push(step);
@@ -85,7 +89,7 @@ vi.mock('@/hooks/api', () => ({
       error: undefined,
       isLoading: false,
       isValidating: false,
-      mutate: () => Promise.resolve(undefined),
+      mutate,
     };
   },
 }));
@@ -320,6 +324,7 @@ beforeAll(() => {
 });
 
 beforeEach(() => {
+  api.rereadSubRun.mockReset().mockResolvedValue(undefined);
   api.post.mockReset().mockResolvedValue({ error: undefined });
   api.messages = [];
   refresh.mockReset().mockResolvedValue(undefined);
@@ -541,6 +546,8 @@ describe('StepManualActions', () => {
         }
       )
     );
+    // A finished sub run is not polled: the approval reads it again.
+    await waitFor(() => expect(api.rereadSubRun).toHaveBeenCalled());
   });
 
   // The server completes the human tasks of a root run only: the card of a
