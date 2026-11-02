@@ -643,6 +643,11 @@ test.describe('workspace node details view', () => {
     const yamlButton = zone
       .getByTestId('ve-toolbar')
       .getByRole('button', { name: 'YAML', exact: true });
+    // The page remembers the panel that the editor left open, so the run
+    // definition opens with it; the toolbar closes it and opens it again.
+    await expect(yamlButton).toHaveAttribute('aria-pressed', 'true');
+    await yamlButton.click();
+    await expect.poll(() => query(page, 'ndv')).toBeNull();
     await expect(yamlButton).toHaveAttribute('aria-pressed', 'false');
     await yamlButton.focus();
     await yamlButton.click();

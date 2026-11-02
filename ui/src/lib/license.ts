@@ -209,6 +209,20 @@ export function licenseDaysLeft(
   return Math.max(0, Math.ceil(dayjs(expiry).diff(dayjs(now), 'day', true)));
 }
 
+/**
+ * The base URL of the Dagu Console the license checks in with, or the public
+ * console when the license names none.
+ */
+export function consoleBaseURL(license: LicenseStatus): string {
+  try {
+    // consoleUrl is the console's servers page, under its base URL.
+    const url = new URL(license.consoleUrl ?? '');
+    return url.origin + url.pathname.replace(/\/servers$/, '');
+  } catch {
+    return LICENSE_CONSOLE_URL;
+  }
+}
+
 export function licenseLink(
   action: 'plans' | 'manage',
   content: string

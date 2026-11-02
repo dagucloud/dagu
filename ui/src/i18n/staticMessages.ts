@@ -2980,6 +2980,12 @@ const baseEnglish = {
   'Connecting…': 'Connecting…',
   'Agent activity': 'Agent activity',
   'No calls from Dagu Cloud yet.': 'No calls from Dagu Cloud yet.',
+  'MCP URL': 'MCP URL',
+  'Copy MCP URL': 'Copy MCP URL',
+  'MCP URL copied': 'MCP URL copied',
+  'Add the MCP URL to Claude, ChatGPT, or another AI app as a connector, then sign in to Dagu Cloud. Workspace owners choose what connected apps may do.':
+    'Add the MCP URL to Claude, ChatGPT, or another AI app as a connector, then sign in to Dagu Cloud. Workspace owners choose what connected apps may do.',
+  'Open AI apps': 'Open AI apps',
   'Choose remote access': 'Choose remote access',
   'The highest role a Dagu Cloud user gets on this server. Dagu Cloud may grant less, never more.':
     'The highest role a Dagu Cloud user gets on this server. Dagu Cloud may grant less, never more.',
@@ -5987,6 +5993,12 @@ const baseChinese = {
   'Connecting…': '正在连接…',
   'Agent activity': '智能体活动',
   'No calls from Dagu Cloud yet.': '尚无来自 Dagu Cloud 的调用。',
+  'MCP URL': 'MCP URL',
+  'Copy MCP URL': '复制 MCP URL',
+  'MCP URL copied': '已复制 MCP URL',
+  'Add the MCP URL to Claude, ChatGPT, or another AI app as a connector, then sign in to Dagu Cloud. Workspace owners choose what connected apps may do.':
+    '在 Claude、ChatGPT 或其他 AI 应用中将此 MCP URL 添加为连接器，然后登录 Dagu Cloud。工作区所有者决定已连接的应用可以做什么。',
+  'Open AI apps': '打开 AI 应用',
   'Choose remote access': '选择远程访问',
   'The highest role a Dagu Cloud user gets on this server. Dagu Cloud may grant less, never more.':
     'Dagu Cloud 用户在此服务器上获得的最高角色。Dagu Cloud 可以授予更低的角色，但绝不会更高。',
@@ -9100,6 +9112,12 @@ const baseJapanese = {
   'Agent activity': 'エージェントのアクティビティ',
   'No calls from Dagu Cloud yet.':
     'Dagu Cloud からの呼び出しはまだありません。',
+  'MCP URL': 'MCP URL',
+  'Copy MCP URL': 'MCP URL をコピー',
+  'MCP URL copied': 'MCP URL をコピーしました',
+  'Add the MCP URL to Claude, ChatGPT, or another AI app as a connector, then sign in to Dagu Cloud. Workspace owners choose what connected apps may do.':
+    'Claude、ChatGPT などの AI アプリにこの MCP URL をコネクタとして追加し、Dagu Cloud にサインインします。接続したアプリに何を許可するかはワークスペースのオーナーが決めます。',
+  'Open AI apps': 'AI アプリを開く',
   'Choose remote access': 'リモートアクセスを選択',
   'The highest role a Dagu Cloud user gets on this server. Dagu Cloud may grant less, never more.':
     'Dagu Cloud のユーザーがこのサーバーで得る最も高いロールです。Dagu Cloud はこれより低いロールを付与することはあっても、高いロールは付与しません。',

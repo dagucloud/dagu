@@ -2,9 +2,10 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 import { useEffect, useId, useState, type ReactNode } from 'react';
-import { AlertTriangle, Info, Loader2 } from 'lucide-react';
+import { AlertTriangle, ExternalLink, Info, Loader2 } from 'lucide-react';
 import { LicenseRemoteAccessLevel } from '@/api/v1/schema';
 import { Button } from '@/components/ui/button';
+import { CopyButton } from '@/components/ui/copy-button';
 import {
   Dialog,
   DialogContent,
@@ -59,12 +60,13 @@ function Row({ label, children }: { label: string; children: ReactNode }) {
 
 /**
  * Shows how far AI apps connected to Dagu Cloud may go on this server, whether
- * their calls reach it, and what they did lately, and lets an administrator
- * change it unless the configuration fixes it.
+ * their calls reach it, how to connect one, and what they did lately, and lets
+ * an administrator change it unless the configuration fixes it.
  */
 export function RemoteAccessSection({
   remoteAccess,
   remoteNode,
+  consoleURL,
   showActivity,
   loadError,
   onRetry,
@@ -72,6 +74,8 @@ export function RemoteAccessSection({
 }: {
   remoteAccess?: LicenseRemoteAccess;
   remoteNode: string;
+  /** The base URL of the Dagu Console whose MCP endpoint AI apps use. */
+  consoleURL: string;
   /** Lists recent calls, which audit logs record. */
   showActivity: boolean;
   loadError: boolean;
@@ -88,6 +92,7 @@ export function RemoteAccessSection({
   const on =
     remoteAccess !== undefined &&
     remoteAccess.level !== LicenseRemoteAccessLevel.off;
+  const mcpURL = `${consoleURL}/mcp`;
 
   async function change(next: {
     level?: LicenseRemoteAccessLevel;
@@ -207,7 +212,38 @@ export function RemoteAccessSection({
                   <ConnectionState remoteAccess={remoteAccess} />
                 </Row>
               )}
+              {on && (
+                <Row label={ts('MCP URL')}>
+                  <span className="flex min-w-0 items-center gap-1">
+                    <code className="min-w-0 whitespace-normal break-words font-mono text-xs">
+                      {mcpURL}
+                    </code>
+                    <CopyButton
+                      size="sm"
+                      text={mcpURL}
+                      label={ts('Copy MCP URL')}
+                      copiedLabel={ts('MCP URL copied')}
+                    />
+                  </span>
+                </Row>
+              )}
             </dl>
+            {on && (
+              <p className="flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-muted-foreground">
+                {ts(
+                  'Add the MCP URL to Claude, ChatGPT, or another AI app as a connector, then sign in to Dagu Cloud. Workspace owners choose what connected apps may do.'
+                )}
+                <a
+                  href={`${consoleURL}/ai-apps`}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="inline-flex items-center gap-1 text-foreground underline underline-offset-2"
+                >
+                  <ExternalLink className="h-3 w-3" aria-hidden="true" />
+                  {ts('Open AI apps')}
+                </a>
+              </p>
+            )}
             {(remoteAccess.levelConfigured ||
               remoteAccess.approvalsConfigured) && (
               <p className="text-sm text-muted-foreground flex items-start gap-2">
