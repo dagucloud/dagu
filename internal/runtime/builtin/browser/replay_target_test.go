@@ -261,8 +261,10 @@ func TestReplayTargetColumnOwnTable(t *testing.T) {
 	t.Parallel()
 
 	snap := gridPage("item code", "quantity")
-	snap.Tree = strings.Replace(snap.Tree, "  [0-2] table\n", "  [o-1] table\n    [o-2] row\n      [o-3] columnheader: Other\n      [o-4] columnheader: Total\n  [0-2] table\n", 1)
-	snap.Tree = strings.NewReplacer("columnheader: Line", "cell: Line", "columnheader: item code", "cell: item code", "columnheader: quantity", "cell: quantity").Replace(snap.Tree)
+	snap.Tree = replaced(t, snap.Tree, "  [0-2] table\n", "  [o-1] table\n    [o-2] row\n      [o-3] columnheader: Other\n      [o-4] columnheader: Total\n  [0-2] table\n")
+	for _, header := range []string{"Line", "item code", "quantity"} {
+		snap.Tree = replaced(t, snap.Tree, "columnheader: "+header, "cell: "+header)
+	}
 	actions := []recordedAction{{Selector: "xpath=/html[1]/body[1]/table[1]/tr[2]/td[2]/input[1]", Method: "fill"}}
 	identifyOn(snap, actions, nil)
 
@@ -284,7 +286,7 @@ func TestReplayTargetColumnCornerCell(t *testing.T) {
 
 	page := func(headers ...string) pageSnapshot {
 		snap := gridPage(headers...)
-		snap.Tree = strings.Replace(snap.Tree, "columnheader: Line", "rowheader: Line", 1)
+		snap.Tree = replaced(t, snap.Tree, "columnheader: Line", "rowheader: Line")
 		return snap
 	}
 	actions := []recordedAction{{Selector: "xpath=/html[1]/body[1]/table[1]/tr[2]/td[2]/input[1]", Method: "fill"}}
@@ -292,4 +294,12 @@ func TestReplayTargetColumnCornerCell(t *testing.T) {
 
 	assert.Equal(t, "item code", actions[0].Target.Column)
 	assert.False(t, stillTargets(actions[0], page("quantity", "item code"), nil))
+}
+
+// replaced returns tree with the first old replaced by new, failing the
+// test when tree has no old, so a page it builds on cannot drift unnoticed.
+func replaced(t *testing.T, tree, old, new string) string {
+	t.Helper()
+	require.Contains(t, tree, old)
+	return strings.Replace(tree, old, new, 1)
 }
