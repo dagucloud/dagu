@@ -119,8 +119,6 @@ describe('usePeekOrOpen', () => {
     expect(overlay()).toBe('none');
   });
 
-  // The list shows where the arrow keys of the overlay ended, after it
-  // closed too.
   it('marks the row that the overlay shows, and keeps it after close', () => {
     renderList(
       <>

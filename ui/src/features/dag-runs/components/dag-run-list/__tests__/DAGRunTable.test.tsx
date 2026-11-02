@@ -482,6 +482,9 @@ describe('DAGRunTable', () => {
       };
       renderUnderPeek(peek);
 
+      expect(screen.getAllByText('run-2')[0]!.closest('tr')).toHaveAttribute(
+        'data-peek-shown'
+      );
       fireEvent.keyDown(window, { key: 'Enter' });
 
       expect(peek.open).toHaveBeenCalledWith({ dag: 'alpha', run: 'run-2' });

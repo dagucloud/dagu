@@ -92,6 +92,12 @@ export function WorkflowOverlayProvider({
   const remoteNode = useRemoteNode();
   const [opened, setOpened] = useState<Opened | null>(null);
   const [lastShown, setLastShown] = useState<PeekTarget | null>(null);
+  // A target names no node: the row of another node is not the one shown.
+  const [shownNode, setShownNode] = useState(remoteNode);
+  if (shownNode !== remoteNode) {
+    setShownNode(remoteNode);
+    setLastShown(null);
+  }
   const onWorkflow = WORKFLOW_PATH.test(location.pathname);
   const openedTarget = opened?.target ?? null;
   if (

@@ -10,6 +10,7 @@ import {
   runtimeConditionLabel,
   RuntimeCondition,
 } from '@/features/dag-runs/components/common/runtimeConditions';
+import { PEEK_SHOWN_ROW, usePeekShown } from '@/features/peek/usePeekOrOpen';
 import dayjs from '@/lib/dayjs';
 import { cn } from '@/lib/utils';
 import StatusChip from '@/components/ui/status-chip';
@@ -21,7 +22,7 @@ type QueueDAGRun = components['schemas']['DAGRunSummary'];
 
 interface QueueRunsTableProps {
   items: QueueDAGRun[];
-  /** A Ctrl or Cmd click or Enter gives its modifiers: a new tab. */
+  /** Gets the event, whose Ctrl or Cmd key asks for a new tab. */
   onDAGRunClick: (
     dagRun: QueueDAGRun,
     event?: { ctrlKey?: boolean; metaKey?: boolean }
@@ -91,6 +92,7 @@ function QueueRunsTable({
 }: QueueRunsTableProps) {
   const { ts } = useI18n();
   const config = useConfig();
+  const isShown = usePeekShown();
 
   const formatDateTime = React.useCallback(
     (datetime: string | undefined): string => {
@@ -145,6 +147,7 @@ function QueueRunsTable({
         <tbody className="divide-y divide-border/50">
           {items.map((dagRun) => {
             const selected = selectable && Boolean(isSelected?.(dagRun));
+            const shown = isShown({ dag: dagRun.name, run: dagRun.dagRunId });
             const queuedConditionSummary =
               dagRun.status === Status.Queued
                 ? getQueuedConditionSummary(dagRun.conditions)
@@ -162,9 +165,11 @@ function QueueRunsTable({
                 }}
                 role="button"
                 tabIndex={0}
+                data-peek-shown={shown || undefined}
                 className={cn(
                   'cursor-pointer transition-colors focus:bg-muted/50 focus:outline-none hover:bg-muted/30',
-                  selected && 'bg-muted/20'
+                  selected && 'bg-muted/20',
+                  shown && PEEK_SHOWN_ROW
                 )}
               >
                 {selectable && (

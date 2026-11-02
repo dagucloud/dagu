@@ -25,6 +25,7 @@ import {
   getDAGRunSelectionKey,
 } from '../../hooks/useBulkDAGRunSelection';
 import {
+  PEEK_SHOWN_ROW,
   usePeekIsOpen,
   usePeekOrOpen,
   usePeekSequence,
@@ -92,11 +93,9 @@ function DAGRunTable({
   }
   useRevealShownRow();
   const rowMark = (index: number) =>
-    index === shownIndex
-      ? 'border-l-primary'
-      : selectedIndex === index
-        ? 'border-l-border'
-        : 'border-l-transparent';
+    `${selectedIndex === index ? 'border-l-border' : 'border-l-transparent'} ${
+      index === shownIndex ? PEEK_SHOWN_ROW : ''
+    }`;
 
   // Check screen size on mount and when window resizes
   useEffect(() => {

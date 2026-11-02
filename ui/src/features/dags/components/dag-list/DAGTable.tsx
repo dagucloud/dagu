@@ -207,6 +207,12 @@ function DeleteDAGButton({
   );
 }
 
+/**
+ * The mark of the card that the overlay shows. card-obsidian is plain CSS,
+ * which wins over the utility layer: the mark needs !important.
+ */
+const SHOWN_CARD = 'shadow-[inset_3px_0_0_0_var(--primary)]! bg-white/[0.04]!';
+
 function DAGCard({
   dag,
   onOpen,
@@ -237,7 +243,7 @@ function DAGCard({
     <div
       tabIndex={0}
       data-peek-shown={isShown || undefined}
-      className={`card-obsidian p-2.5 cursor-pointer hover:bg-white/[0.05] transition-colors duration-300 focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-ring ${status === Status.Running ? 'animate-running-row' : ''} ${isShown ? `${PEEK_SHOWN_ROW} bg-white/[0.04]` : ''} ${className}`}
+      className={`card-obsidian p-2.5 cursor-pointer hover:bg-white/[0.05] transition-colors duration-300 focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-ring ${status === Status.Running ? 'animate-running-row' : ''} ${isShown ? SHOWN_CARD : ''} ${className}`}
       onClick={onOpen}
       onKeyDown={onOwnEnter(onOpen)}
     >

@@ -103,15 +103,20 @@ export function usePeekShown(): (target: PeekTarget) => boolean {
 /**
  * Scrolls the row that the peek shows into view each time the peek moves
  * to another row, so that the arrow keys of the peek never leave it out of
- * sight. Call it once in a list whose rows carry data-peek-shown.
+ * sight. A list that mounts keeps its scroll. Call it once in a list whose
+ * rows carry data-peek-shown; of the rows, the one on screen scrolls, as a
+ * list may render a table and cards of which one layout is hidden.
  */
 export function useRevealShownRow(): void {
   const shown = useContext(PeekContext)?.shown ?? null;
   const key = shown ? `${shown.dag}\n${shown.run ?? ''}` : null;
+  const revealedKey = useRef(key);
   useEffect(() => {
-    if (key === null) return;
-    document
-      .querySelector('[data-peek-shown]')
-      ?.scrollIntoView?.({ block: 'nearest' });
+    if (key === null || key === revealedKey.current) return;
+    revealedKey.current = key;
+    const rendered = Array.from(
+      document.querySelectorAll('[data-peek-shown]')
+    ).find((row) => row.getClientRects().length > 0);
+    rendered?.scrollIntoView?.({ block: 'nearest' });
   }, [key]);
 }
