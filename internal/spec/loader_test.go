@@ -3508,6 +3508,35 @@ steps:
 		require.Contains(t, err.Error(), "defaults")
 	})
 
+	t.Run("ForeachBodyStepsInheritDefaults", func(t *testing.T) {
+		t.Parallel()
+
+		dag, err := spec.LoadYAML(context.Background(), []byte(`
+defaults:
+  timeout_sec: 300
+  env:
+    - DEFAULT_VAR: default_value
+steps:
+  - id: each
+    foreach:
+      items: [a]
+      steps:
+        - id: inherits
+          run: echo inherits
+        - id: overrides
+          run: echo overrides
+          timeout_sec: 60
+`))
+		require.NoError(t, err)
+		require.Len(t, dag.Steps, 1)
+		require.NotNil(t, dag.Steps[0].Foreach)
+		body := dag.Steps[0].Foreach.Steps
+		require.Len(t, body, 2)
+		require.Equal(t, 300*time.Second, body[0].Timeout)
+		require.Contains(t, body[0].Env, "DEFAULT_VAR=default_value")
+		require.Equal(t, 60*time.Second, body[1].Timeout)
+	})
+
 	t.Run("InvalidDefaultsReportedOnce", func(t *testing.T) {
 		t.Parallel()
 
@@ -3560,9 +3589,10 @@ steps:
 	})
 }
 
-// TestDefaultMaxConcurrent covers the limit that parallel and foreach steps
-// inherit when defaults.max_concurrent is layered across the global base, the
-// workspace base, and the DAG.
+// TestDefaultMaxConcurrent covers the limit that parallel and foreach steps,
+// including those nested in a foreach body, inherit when
+// defaults.max_concurrent is layered across the global base, the workspace
+// base, and the DAG.
 func TestDefaultMaxConcurrent(t *testing.T) {
 	t.Parallel()
 
@@ -3587,7 +3617,15 @@ steps:
     foreach:
       items: [a]
       steps:
-        - run: echo item
+        - id: nested_parallel
+          action: dag.run
+          with: {dag: child}
+          parallel: [x]
+        - id: nested_each
+          foreach:
+            items: [x]
+            steps:
+              - run: echo item
   - id: explicit_parallel
     action: dag.run
     with: {dag: child}
@@ -3654,6 +3692,14 @@ steps:
 			}
 			require.NotNil(t, byID["each"].Foreach)
 			assert.Equal(t, tt.want, byID["each"].Foreach.MaxConcurrent)
+			body := make(map[string]ir.Step, len(byID["each"].Foreach.Steps))
+			for _, step := range byID["each"].Foreach.Steps {
+				body[step.ID] = step
+			}
+			require.NotNil(t, body["nested_parallel"].Parallel)
+			assert.Equal(t, tt.want, body["nested_parallel"].Parallel.MaxConcurrent)
+			require.NotNil(t, body["nested_each"].Foreach)
+			assert.Equal(t, tt.want, body["nested_each"].Foreach.MaxConcurrent)
 			assert.Equal(t, 3, byID["explicit_parallel"].Parallel.MaxConcurrent)
 			assert.Equal(t, 4, byID["explicit_foreach"].Foreach.MaxConcurrent)
 			// The default sets a limit; it never turns a step into a fan-out.

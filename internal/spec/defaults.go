@@ -52,6 +52,15 @@ func decodeDefaults(raw any) (*defaults, error) {
 	return d, nil
 }
 
+// maxConcurrent returns the limit for a parallel or foreach step that omits
+// max_concurrent. A nil receiver yields the built-in default.
+func (d *defaults) maxConcurrent() int {
+	if d != nil && d.MaxConcurrent > 0 {
+		return d.MaxConcurrent
+	}
+	return ir.DefaultMaxConcurrent
+}
+
 // validateDefaultMaxConcurrent checks defaults.max_concurrent against the
 // step-level rules, which reject fractional values the decoder would truncate.
 func validateDefaultMaxConcurrent(raw any) error {
@@ -113,9 +122,9 @@ func applyDefaults(s *step, d *defaults, raw map[string]any) {
 	if shouldApply("continue_on", s.ContinueOn.IsZero()) && !d.ContinueOn.IsZero() {
 		s.ContinueOn = d.ContinueOn
 	}
-	// Recorded rather than applied: the default never adds parallel or foreach
-	// to a step, and an explicit max_concurrent on either still wins.
-	s.defaultMaxConcurrent = d.MaxConcurrent
+	// Kept for the fields built from it later: the max_concurrent fallback,
+	// which never adds parallel or foreach to a step, and foreach body steps.
+	s.stepDefaults = d
 
 	// Additive fields: prepend defaults before step values
 	if !d.Env.IsZero() {

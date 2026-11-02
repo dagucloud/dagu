@@ -91,8 +91,9 @@ An item run is one represented child DAG run or enqueue request created by
   `defaults.max_concurrent`, or `10` when no default is configured.
 
 - `defaults.max_concurrent` follows the same integer rules. It applies to
-  `parallel` and `foreach` steps that receive step defaults, in every item
-  source form, and never adds `parallel` or `foreach` to a step.
+  every `parallel` and `foreach` step, including steps inside a `foreach`
+  body, in every item source form, and never adds `parallel` or `foreach` to a
+  step.
 
 - The nearest `defaults.max_concurrent` wins: the DAG, then the workspace base
   configuration, then the global base configuration. Setting other `defaults`
@@ -532,6 +533,9 @@ Rules:
 `foreach.steps` defines steps scoped to one item body.
 
 Rules:
+
+- Body steps inherit the DAG's step `defaults` as top-level steps do. A field
+  set on a body step overrides the inherited default.
 
 - Body step ids must be unique inside the body.
 

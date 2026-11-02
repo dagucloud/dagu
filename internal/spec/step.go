@@ -153,8 +153,8 @@ type step struct {
 	parsedOutputCached bool
 	outputsSet         bool
 	inputsSet          bool
-	// defaultMaxConcurrent is the inherited defaults.max_concurrent, or zero.
-	defaultMaxConcurrent int
+	// stepDefaults holds the defaults applied to the step, or nil.
+	stepDefaults *defaults
 }
 
 type execSpec struct {
@@ -2341,7 +2341,7 @@ func buildStepParallel(_ stepBuildContext, s *step, result *ir.Step) error {
 	}
 
 	result.Parallel = &ir.ParallelConfig{
-		MaxConcurrent: s.maxConcurrentDefault(),
+		MaxConcurrent: s.stepDefaults.maxConcurrent(),
 	}
 
 	switch v := s.Parallel.(type) {
@@ -2416,7 +2416,7 @@ func buildStepForeach(ctx stepBuildContext, s *step, result *ir.Step) error {
 		return err
 	}
 
-	cfg, err := parseForeachConfig(ctx, s.Foreach, s.maxConcurrentDefault())
+	cfg, err := parseForeachConfig(ctx, s.Foreach, s.stepDefaults)
 	if err != nil {
 		return err
 	}
@@ -2446,7 +2446,9 @@ func validateForeachExecutionTarget(s *step) error {
 	return nil
 }
 
-func parseForeachConfig(ctx stepBuildContext, raw any, defaultMaxConcurrent int) (*ir.ForeachConfig, error) {
+// parseForeachConfig parses a foreach field; defs are the step defaults the
+// foreach step and its body steps inherit.
+func parseForeachConfig(ctx stepBuildContext, raw any, defs *defaults) (*ir.ForeachConfig, error) {
 	obj, ok := raw.(map[string]any)
 	if !ok {
 		return nil, ir.NewValidationError("foreach", raw,
@@ -2455,7 +2457,7 @@ func parseForeachConfig(ctx stepBuildContext, raw any, defaultMaxConcurrent int)
 
 	cfg := &ir.ForeachConfig{
 		As:            "item",
-		MaxConcurrent: defaultMaxConcurrent,
+		MaxConcurrent: defs.maxConcurrent(),
 	}
 
 	for key, value := range obj {
@@ -2492,7 +2494,7 @@ func parseForeachConfig(ctx stepBuildContext, raw any, defaultMaxConcurrent int)
 			}
 			cfg.MaxConcurrent = maxConcurrent
 		case "steps":
-			steps, err := parseForeachSteps(ctx, value)
+			steps, err := parseForeachSteps(ctx, value, defs)
 			if err != nil {
 				return nil, err
 			}
@@ -2562,16 +2564,7 @@ func parseMaxConcurrent(field string, value any) (int, error) {
 	return maxConcurrent, nil
 }
 
-// maxConcurrentDefault returns the limit a parallel or foreach step uses when
-// it omits max_concurrent.
-func (s *step) maxConcurrentDefault() int {
-	if s.defaultMaxConcurrent > 0 {
-		return s.defaultMaxConcurrent
-	}
-	return ir.DefaultMaxConcurrent
-}
-
-func parseForeachSteps(ctx stepBuildContext, value any) ([]ir.Step, error) {
+func parseForeachSteps(ctx stepBuildContext, value any, defs *defaults) ([]ir.Step, error) {
 	rawSteps, ok := value.([]any)
 	if !ok {
 		return nil, ir.NewValidationError("foreach.steps", value,
@@ -2590,7 +2583,7 @@ func parseForeachSteps(ctx stepBuildContext, value any) ([]ir.Step, error) {
 			return nil, ir.NewValidationError("foreach.steps", rawStep,
 				fmt.Errorf("foreach.steps[%d] must be an object, got %T", idx, rawStep))
 		}
-		builtStep, err := buildStepFromRaw(ctx, idx, stepMap, names, nil)
+		builtStep, err := buildStepFromRaw(ctx, idx, stepMap, names, defs)
 		if err != nil {
 			return nil, ir.NewValidationError("foreach.steps", rawStep, err)
 		}
