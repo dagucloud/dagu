@@ -13,6 +13,7 @@ import { isSubDAGRun } from '@/features/dags/hooks/useStepLogQuery';
 import { useI18n } from '@/i18n/I18nProvider';
 import type { ApiDAGRunDetails, ApiNode } from '../contracts';
 import { useWorkspaceData } from '../data/context';
+import { withCarry } from '../popout/PopoutBar';
 import { useWorkspaceUrl } from '../state/workspaceUrl';
 import type { StepRunTarget } from './StepRunView';
 
@@ -77,16 +78,20 @@ export function runLogPageURL({
   });
 }
 
-/** A toolbar button of a log that opens its full page in a new tab. */
+/**
+ * A toolbar button of a log that opens its full page in a new tab, in the
+ * workspace that the page shows.
+ */
 export function LogPageLink({ to }: { to: string }) {
   const { ts } = useI18n();
   const { basePath } = useConfig();
+  const [url] = useWorkspaceUrl();
   // A server at the root has the base path '/': the link starts with the path.
   const prefix = basePath === '/' ? '' : (basePath ?? '');
   return (
     <Button asChild size="icon-sm" variant="outline">
       <a
-        href={`${prefix}${to}`}
+        href={`${prefix}${withCarry(to, url.carry)}`}
         target="_blank"
         rel="noopener noreferrer"
         title={ts('Open in new tab')}

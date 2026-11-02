@@ -71,7 +71,7 @@ function DAGAttributes({ dag }: Props) {
                       ? schedule.at || undefined
                       : schedule.expression || undefined
                   }
-                  className="max-w-full justify-start bg-primary/10 px-2.5 py-1 text-primary border-primary/30 whitespace-nowrap normal-case tracking-normal"
+                  className="h-auto max-w-full justify-start whitespace-normal break-words bg-primary/10 px-2.5 py-1 text-primary border-primary/30 normal-case tracking-normal"
                 >
                   {getScheduleLabel(schedule)}
                 </Badge>
