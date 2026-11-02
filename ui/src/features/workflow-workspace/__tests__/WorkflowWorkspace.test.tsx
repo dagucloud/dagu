@@ -63,6 +63,19 @@ vi.mock('@/contexts/ConfigContext', () => ({
 vi.mock('@/contexts/AuthContext', () => ({
   useCanWriteForWorkspace: () => true,
 }));
+// The command palette reads the permissions of the workspace.
+vi.mock('../data/useWorkspacePermissions', () => ({
+  useWorkspacePermissions: () => ({
+    canWrite: true,
+    canRunDags: true,
+    canExecute: true,
+    canExecuteForWorkspace: true,
+    isAdmin: false,
+    canManageProfiles: false,
+    canManageWebhooks: false,
+    canManageNotifications: false,
+  }),
+}));
 
 // The editor slot reads the contexts that the workspace gives to its body.
 vi.mock('../canvas/WorkspaceCanvas', () => ({

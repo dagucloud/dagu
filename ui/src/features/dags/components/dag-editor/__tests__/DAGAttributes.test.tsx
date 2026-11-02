@@ -12,8 +12,9 @@ afterEach(() => {
 });
 
 describe('DAGAttributes', () => {
-  // The schedule is a launcher of the canvas, not part of the overview.
-  it('shows no schedule block', () => {
+  // A graph without a start step, such as an agent DAG, draws no launcher:
+  // the overview is where its schedule shows.
+  it('shows the schedule and its next run', () => {
     render(
       <DAGAttributes
         dag={{
@@ -24,9 +25,18 @@ describe('DAGAttributes', () => {
       />
     );
 
+    expect(screen.getByText('Schedule')).toBeInTheDocument();
+    expect(screen.getByText('0 12 * * *')).toBeInTheDocument();
+    expect(screen.getByText('Next run:').parentElement).toHaveTextContent(
+      /2026-04-03/
+    );
+  });
+
+  it('shows no schedule block without a schedule', () => {
+    render(<DAGAttributes dag={{ name: 'manual-dag' }} />);
+
     expect(screen.queryByText('Schedule')).toBeNull();
     expect(screen.queryByText('Next run:')).toBeNull();
-    expect(screen.queryByText('0 12 * * *')).toBeNull();
   });
 
   it('labels the concurrency limit as steps, not runs', () => {
