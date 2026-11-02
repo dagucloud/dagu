@@ -509,6 +509,9 @@
         }
 
         function updateIdentityFromInput(args) {
+          // Dagu Cloud's tools name the server that the run is on.
+          const server = text(args?.server);
+          if (server) runIdentity.server = server;
           updateIdentity(args);
           if (!runIdentity.runUri && runIdentity.name && runIdentity.dagRunId) {
             runIdentity.runUri = `dagu://runs/${encodeURIComponent(runIdentity.name)}/${encodeURIComponent(runIdentity.dagRunId)}`;
@@ -516,6 +519,41 @@
           if (!runIdentity.logsUri && runIdentity.runUri) {
             runIdentity.logsUri = `${runIdentity.runUri}/logs`;
           }
+        }
+
+        // Dagu Cloud answers with the server's result inside, and names the
+        // server that later calls go to.
+        function serverResult(structured) {
+          const server = text(structured?.server?.serverRef);
+          if (!server || !structured?.result || typeof structured.result !== "object") return structured;
+          runIdentity.server = server;
+          return structured.result;
+        }
+
+        function withServer(args) {
+          return runIdentity.server ? { ...args, server: runIdentity.server } : args;
+        }
+
+        // How a dagu:// URI is read: with dagu_read where a server must be
+        // named or the host reads no resources, otherwise with resources/read.
+        function readPath() {
+          if (hostCapabilities?.serverTools && (runIdentity.server || !hostCapabilities?.serverResources)) {
+            return "tool";
+          }
+          if (hostCapabilities?.serverResources && !runIdentity.server) return "resource";
+          return null;
+        }
+
+        async function readData(uri) {
+          if (readPath() === "tool") {
+            const result = await request("tools/call", {
+              name: "dagu_read",
+              arguments: withServer({ uri }),
+            });
+            if (result?.isError) throw new Error(contentText(result));
+            return serverResult(result?.structuredContent)?.data;
+          }
+          return resourceJSON(await request("resources/read", { uri }));
         }
 
         function stepLogResourceURI(stepName) {
@@ -526,10 +564,10 @@
         function setControls(run) {
           const label = text(run?.statusLabel).toLowerCase();
           const canCallTools = Boolean(hostCapabilities?.serverTools);
-          const canReadStepLogs = Boolean(canCallTools || hostCapabilities?.serverResources);
+          const canReadStepLogs = Boolean(canCallTools || readPath());
           elements.actions.classList.toggle("hidden", !runIdentity.runUri && !runIdentity.name);
-          elements.refresh.disabled = busy || !runIdentity.runUri || !hostCapabilities?.serverResources;
-          elements.logs.disabled = busy || !runIdentity.logsUri || !hostCapabilities?.serverResources;
+          elements.refresh.disabled = busy || !runIdentity.runUri || !readPath();
+          elements.logs.disabled = busy || !runIdentity.logsUri || !readPath();
           elements.stop.disabled = busy || !canCallTools;
           elements.retry.disabled = busy || !canCallTools;
           elements.stop.classList.toggle(
@@ -554,7 +592,12 @@
           const name = text(run?.name || runIdentity.name, "Dagu run");
           const id = text(run?.dagRunId || runIdentity.dagRunId);
           const label = text(run?.statusLabel, "Unknown");
-          const nodes = Array.isArray(run?.nodes) ? run.nodes : [];
+          // A resource read gives the run's nodes; dagu_read gives its steps.
+          const nodes = Array.isArray(run?.nodes)
+            ? run.nodes
+            : Array.isArray(run?.steps)
+              ? run.steps.map((step) => ({ step: { name: step?.name }, statusLabel: step?.statusLabel }))
+              : [];
 
           elements.runName.textContent = name;
           elements.runID.textContent = id;
@@ -592,7 +635,7 @@
               logs.type = "button";
               logs.className = "step-log";
               logs.textContent = "Logs";
-              logs.disabled = busy || !(hostCapabilities?.serverTools || hostCapabilities?.serverResources);
+              logs.disabled = busy || !(hostCapabilities?.serverTools || readPath());
               logs.addEventListener("click", () => loadStepLogs(rawStepName));
               row.append(logs);
             }
@@ -684,7 +727,8 @@
         async function loadRunResource(uri = runIdentity.runUri) {
           if (!uri) return;
           const previousRunURI = runIdentity.runUri;
-          runIdentity = {};
+          const { server } = runIdentity;
+          runIdentity = server ? { server } : {};
           updateResourceURI(uri);
           if (previousRunURI && previousRunURI !== runIdentity.runUri) {
             latestRun = null;
@@ -697,8 +741,7 @@
           }
           setBusy(true);
           try {
-            const result = await request("resources/read", { uri: runIdentity.runUri });
-            const data = resourceJSON(result);
+            const data = await readData(runIdentity.runUri);
             renderRun(data?.dagRunDetails || data);
           } catch (error) {
             setMessage(error instanceof Error ? error.message : String(error), true);
@@ -711,10 +754,7 @@
           if (!runIdentity.logsUri) return;
           setBusy(true);
           try {
-            const result = await request("resources/read", {
-              uri: runIdentity.logsUri,
-            });
-            renderLogs(resourceJSON(result));
+            renderLogs(await readData(runIdentity.logsUri));
           } catch (error) {
             setMessage(error instanceof Error ? error.message : String(error), true);
           } finally {
@@ -730,16 +770,16 @@
             if (hostCapabilities?.serverTools) {
               const result = await request("tools/call", {
                 name: "dagu_read",
-                arguments: {
+                arguments: withServer({
                   target: "step_log",
                   name: runIdentity.name,
                   dagRunId: runIdentity.dagRunId,
                   stepName,
-                },
+                }),
               });
               if (result?.isError) throw new Error(contentText(result));
-              data = result?.structuredContent?.data;
-            } else if (hostCapabilities?.serverResources) {
+              data = serverResult(result?.structuredContent)?.data;
+            } else if (readPath() === "resource") {
               data = resourceJSON(
                 await request("resources/read", {
                   uri: stepLogResourceURI(stepName),
@@ -762,15 +802,15 @@
           try {
             const result = await request("tools/call", {
               name: "dagu_execute",
-              arguments: {
+              arguments: withServer({
                 action,
                 targetType: "run",
                 name: runIdentity.name,
                 dagRunId: runIdentity.dagRunId,
-              },
+              }),
             });
             if (result?.isError) throw new Error(contentText(result));
-            if (hostCapabilities?.serverResources) {
+            if (readPath()) {
               await loadRunResource();
             } else {
               setMessage(contentText(result));
@@ -796,7 +836,7 @@
             return;
           }
 
-          const output = result?.structuredContent || {};
+          const output = serverResult(result?.structuredContent) || {};
           updateIdentity(output);
           if (output?.target === "runs") {
             renderRunList(output?.data?.items);
@@ -810,7 +850,7 @@
               statusLabel: "Logs",
             });
             renderLogs(output?.data);
-            if (hostCapabilities?.serverResources && runIdentity.runUri) {
+            if (readPath() && runIdentity.runUri) {
               await loadRunResource();
             }
             return;
@@ -822,7 +862,7 @@
               statusLabel: "Step log",
             });
             renderLogs(output?.data, `${text(output?.stepName, "Step")} log`, stepLogText);
-            if (hostCapabilities?.serverResources && runIdentity.runUri) {
+            if (readPath() && runIdentity.runUri) {
               await loadRunResource();
             }
             return;
@@ -830,9 +870,6 @@
           if (output?.target === "run") {
             updateIdentity(output?.data);
             renderRun(output?.data);
-            if (hostCapabilities?.serverResources && runIdentity.runUri) {
-              await loadRunResource();
-            }
             return;
           }
           if (output?.dagRunId || output?.runUri) {
@@ -841,7 +878,7 @@
               dagRunId: output.dagRunId,
               statusLabel: `${text(output.action, "Execute")} requested`,
             });
-            if (hostCapabilities?.serverResources && runIdentity.runUri) {
+            if (readPath() && runIdentity.runUri) {
               await loadRunResource();
             }
             return;
