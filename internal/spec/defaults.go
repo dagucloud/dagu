@@ -68,12 +68,27 @@ func validateDefaultMaxConcurrent(raw any) error {
 	if !ok {
 		return nil
 	}
-	value, ok := rawMap["max_concurrent"]
-	if !ok {
-		return nil
+	for key, value := range rawMap {
+		if !strings.EqualFold(key, "max_concurrent") {
+			continue
+		}
+		if _, err := parseMaxConcurrent("defaults.max_concurrent", value); err != nil {
+			return err
+		}
 	}
-	_, err := parseMaxConcurrent("defaults.max_concurrent", value)
-	return err
+	return nil
+}
+
+// hasRawKey reports whether raw sets key. Keys match case-insensitively, the
+// way the decoder matches them to fields, so a value written in another case
+// still counts as set.
+func hasRawKey(raw map[string]any, key string) bool {
+	for k := range raw {
+		if strings.EqualFold(k, key) {
+			return true
+		}
+	}
+	return false
 }
 
 // applyDefaults merges default values into a step. Override fields are set only
@@ -95,8 +110,7 @@ func applyDefaults(s *step, d *defaults, raw map[string]any) {
 	// When raw is nil, falls back to checking the step field's zero value.
 	shouldApply := func(key string, isZero bool) bool {
 		if raw != nil {
-			_, ok := raw[key]
-			return !ok
+			return !hasRawKey(raw, key)
 		}
 		return isZero
 	}
@@ -151,8 +165,7 @@ func mergeDefaults(base, override *defaults, overrideRaw map[string]any) *defaul
 
 	shouldOverride := func(key string, hasValue bool) bool {
 		if overrideRaw != nil {
-			_, ok := overrideRaw[key]
-			return ok
+			return hasRawKey(overrideRaw, key)
 		}
 		return hasValue
 	}

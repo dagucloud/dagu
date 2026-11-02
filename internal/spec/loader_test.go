@@ -3537,6 +3537,42 @@ steps:
 		require.Equal(t, 60*time.Second, body[1].Timeout)
 	})
 
+	// The decoder matches keys case-insensitively, so precedence must treat
+	// a key written in another case as set.
+	t.Run("KeyCaseFollowsDecoder", func(t *testing.T) {
+		t.Parallel()
+
+		base := createTempYAMLFile(t, `
+defaults:
+  timeout_sec: 300
+  max_concurrent: 50
+`)
+		child := createTempYAMLFile(t, `
+defaults:
+  MAX_CONCURRENT: 20
+steps:
+  - id: own_timeout
+    run: echo own
+    TIMEOUT_SEC: 5
+  - id: fanout
+    action: dag.run
+    with: {dag: child}
+    parallel: [a]
+
+---
+
+name: child
+steps:
+  - run: echo child
+`)
+		dag, err := spec.Load(context.Background(), child, spec.WithBaseConfig(base))
+		require.NoError(t, err)
+		require.Len(t, dag.Steps, 2)
+		require.Equal(t, 5*time.Second, dag.Steps[0].Timeout)
+		require.NotNil(t, dag.Steps[1].Parallel)
+		require.Equal(t, 20, dag.Steps[1].Parallel.MaxConcurrent)
+	})
+
 	t.Run("InvalidDefaultsReportedOnce", func(t *testing.T) {
 		t.Parallel()
 
@@ -3714,6 +3750,7 @@ func TestDefaultMaxConcurrentValidation(t *testing.T) {
 
 	tests := []struct {
 		name     string
+		key      string
 		value    string
 		wantPart string
 	}{
@@ -3721,10 +3758,15 @@ func TestDefaultMaxConcurrentValidation(t *testing.T) {
 		{name: "AboveLimit", value: "1001", wantPart: "1 through 1000"},
 		{name: "Fraction", value: "1.5", wantPart: "must be an integer"},
 		{name: "Variable", value: `"${MC}"`, wantPart: "must be an integer"},
+		{name: "UpperCaseKey", key: "MAX_CONCURRENT", value: "1.5", wantPart: "must be an integer"},
 	}
 
 	for _, tt := range tests {
-		defaults := "defaults:\n  max_concurrent: " + tt.value + "\n"
+		key := tt.key
+		if key == "" {
+			key = "max_concurrent"
+		}
+		defaults := "defaults:\n  " + key + ": " + tt.value + "\n"
 		for _, source := range []string{"DAG", "Base"} {
 			t.Run(tt.name+"/"+source, func(t *testing.T) {
 				t.Parallel()
