@@ -208,7 +208,11 @@ function DAGDetails() {
     (isNotFoundQueryError(dagError) ||
       (!!dagData?.dag &&
         dagData.dag.name !== fileName.replace(/\.ya?ml$/, '')));
-  const { data: linkedRun, error: linkedRunError } = useQuery(
+  const {
+    data: linkedRun,
+    error: linkedRunError,
+    mutate: mutateLinkedRun,
+  } = useQuery(
     '/dag-runs/{name}/{dagRunId}',
     whenEnabled(lookUpRunFile, {
       params: {
@@ -427,7 +431,7 @@ function DAGDetails() {
               (dagError && !resolvingRunFile ? (
                 isNotFoundQueryError(dagError) &&
                 lookUpRunFile &&
-                linkedRunError ? (
+                isNotFoundQueryError(linkedRunError) ? (
                   // Neither the workflow nor the run of the link exists.
                   <NotFoundState
                     title={ts('Run not found')}
@@ -438,6 +442,14 @@ function DAGDetails() {
                       ),
                       label: ts('Open Executions'),
                     }}
+                  />
+                ) : isNotFoundQueryError(dagError) &&
+                  lookUpRunFile &&
+                  linkedRunError ? (
+                  <LoadErrorState
+                    title={ts("Couldn't load this run")}
+                    error={linkedRunError}
+                    onRetry={() => void mutateLinkedRun()}
                   />
                 ) : isNotFoundQueryError(dagError) ? (
                   <NotFoundState

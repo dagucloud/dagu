@@ -274,6 +274,27 @@ describe('DAGDetails page', () => {
       expect(claimHideBreadcrumb).not.toHaveBeenCalled();
     });
 
+    it('offers a retry when the run of a link cannot be read', () => {
+      useQueryMock.mockImplementation(
+        (path) =>
+          ({
+            data: undefined,
+            error:
+              path === '/dag-runs/{name}/{dagRunId}'
+                ? { code: 'internal_error', message: 'timeout' }
+                : { code: 'not_found', message: 'not found' },
+            mutate: vi.fn(),
+          }) as never
+      );
+
+      renderPage('/dags/missing-flow?run=r1');
+
+      expect(
+        screen.getByRole('heading', { name: "Couldn't load this run" })
+      ).toBeVisible();
+      expect(screen.queryByText('Run not found')).toBeNull();
+    });
+
     it('explains when neither the workflow nor the run of a link exists', () => {
       useQueryMock.mockImplementation(
         () =>
