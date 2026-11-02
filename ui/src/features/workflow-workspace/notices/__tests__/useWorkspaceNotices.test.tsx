@@ -5,11 +5,12 @@ import { act, renderHook, screen } from '@testing-library/react';
 import type { ReactNode } from 'react';
 import { MemoryRouter, useLocation } from 'react-router-dom';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { Status } from '@/api/v1/schema';
+import { NodeStatus, Status, type components } from '@/api/v1/schema';
 import { AppBarContext } from '@/contexts/AppBarContext';
 import { useIsAdmin } from '@/contexts/AuthContext';
 import type { LicenseStatus } from '@/contexts/ConfigContext';
 import { LicenseContext } from '@/contexts/LicenseContext';
+import { SubRunOpenProvider } from '@/features/dags/components/common/SubRunStackModal';
 import type {
   ApiDAGRunDetails,
   DAGPageData,
@@ -29,6 +30,14 @@ const ws = vi.hoisted(() => ({ dock: null as unknown }));
 vi.mock('../../dock/DockContext', () => ({
   useDock: () => ws.dock,
   useDockCommands: () => ws.dock,
+}));
+
+// The sub-run list of the run, as the server reports it.
+const subRunList = vi.hoisted(() => ({
+  value: [] as Array<{ dagRunId: string; dagName?: string; status: number }>,
+}));
+vi.mock('../../data/useSubRuns', () => ({
+  useSubRuns: () => ({ subRuns: subRunList.value, isLoading: false }),
 }));
 
 const useIsAdminMock = vi.mocked(useIsAdmin);
@@ -54,6 +63,8 @@ interface Setup {
   schedule?: boolean;
   suspended?: boolean;
   license?: { license?: LicenseStatus; error?: unknown };
+  /** The opener of the sub-run stack of the workspace. */
+  openSubRun?: (entry: { name: string; dagRunId: string }) => void;
 }
 
 function makeRun(setup: Setup): WorkspaceRunValue {
@@ -138,8 +149,10 @@ function renderNotices(setup: Setup = {}) {
       <AppBarContext.Provider value={{ selectedRemoteNode: 'local' } as never}>
         <LicenseContext.Provider value={{ ...license, mutate: vi.fn() }}>
           <WorkspaceDataContext.Provider value={value}>
-            <LocationProbe />
-            {children}
+            <SubRunOpenProvider value={setup.openSubRun ?? null}>
+              <LocationProbe />
+              {children}
+            </SubRunOpenProvider>
           </WorkspaceDataContext.Provider>
         </LicenseContext.Provider>
       </AppBarContext.Provider>
@@ -159,6 +172,7 @@ function find(notices: WorkspaceNotice[], id: string): WorkspaceNotice {
 }
 
 beforeEach(() => {
+  subRunList.value = [];
   localStorage.clear();
   useIsAdminMock.mockReturnValue(true);
   dock = makeDock();
@@ -439,6 +453,50 @@ describe('useWorkspaceNotices', () => {
     ])('stays hidden for %s', (_, license) => {
       const { result } = renderNotices({ schedule: true, license });
       expect(ids(result.current)).not.toContain('monitoring-offer');
+    });
+  });
+
+  // The runtime shows a call step as waiting while its child run waits for
+  // a person; the actions are in the child run.
+  describe('sub-run-waiting', () => {
+    const fanOut = {
+      step: { name: 'fan', call: 'worker' },
+      status: NodeStatus.Waiting,
+      subRuns: [
+        { dagRunId: 'w-1', dagName: 'worker', params: '' },
+        { dagRunId: 'w-2', dagName: 'worker', params: '' },
+      ],
+    } as unknown as components['schemas']['Node'];
+
+    it('opens the child run that waits on the stack', () => {
+      subRunList.value = [
+        { dagRunId: 'w-1', dagName: 'worker', status: Status.Success },
+        { dagRunId: 'w-2', dagName: 'worker', status: Status.Waiting },
+      ];
+      const openSubRun = vi.fn();
+      const { result } = renderNotices({
+        details: { status: Status.Waiting, nodes: [fanOut] },
+        openSubRun,
+      });
+
+      const notice = find(result.current, 'sub-run-waiting');
+      expect(notice.message).toBe('Sub-run worker is waiting for an action.');
+      notice.action?.run();
+      expect(openSubRun).toHaveBeenCalledWith({
+        name: 'worker',
+        dagRunId: 'w-2',
+      });
+    });
+
+    it('stays hidden while no call step waits', () => {
+      const { result } = renderNotices({
+        details: {
+          status: Status.Success,
+          nodes: [{ ...fanOut, status: NodeStatus.Success }],
+        },
+        openSubRun: vi.fn(),
+      });
+      expect(ids(result.current)).not.toContain('sub-run-waiting');
     });
   });
 

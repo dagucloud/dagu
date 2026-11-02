@@ -99,6 +99,24 @@ export function waitingCounts(details: ApiDAGRunDetails | null): WaitingCounts {
   };
 }
 
+/**
+ * The first step that waits for a run that it called: the runtime shows a
+ * call step as waiting while its child run waits for a person. A step with
+ * its own approval or human task is not one.
+ */
+export function firstWaitingCallStep(
+  details: ApiDAGRunDetails | null
+): ApiNode | null {
+  const node = details?.nodes?.find(
+    (n) =>
+      n.status === NodeStatus.Waiting &&
+      !n.step.approval &&
+      !n.step.humanTask &&
+      (n.subRuns?.length ?? 0) + (n.subRunsRepeated?.length ?? 0) > 0
+  );
+  return node ?? null;
+}
+
 /** The first step node that failed or was rejected. */
 export function firstFailedStep(
   details: ApiDAGRunDetails | null

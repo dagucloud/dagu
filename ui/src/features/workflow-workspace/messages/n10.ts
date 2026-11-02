@@ -14,6 +14,8 @@ export default defineMessages({
     'Open agent': 'Open agent',
     'A newer run is active': 'A newer run is active',
     'Follow latest': 'Follow latest',
+    'Sub-run {name} is waiting for an action.':
+      'Sub-run {name} is waiting for an action.',
   },
   'zh-CN': {
     'The run in the link was not found. The latest run is shown.':
@@ -25,6 +27,7 @@ export default defineMessages({
     'Open agent': '打开代理',
     'A newer run is active': '有较新的运行正在进行',
     'Follow latest': '跟随最新',
+    'Sub-run {name} is waiting for an action.': '子运行 {name} 正在等待操作。',
   },
   ja: {
     'The run in the link was not found. The latest run is shown.':
@@ -37,5 +40,7 @@ export default defineMessages({
     'Open agent': 'エージェントを開く',
     'A newer run is active': '新しい実行が進行中です',
     'Follow latest': '最新に追従',
+    'Sub-run {name} is waiting for an action.':
+      'サブ実行 {name} がアクションを待っています。',
   },
 });
