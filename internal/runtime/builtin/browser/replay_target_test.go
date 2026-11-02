@@ -276,3 +276,20 @@ func TestUnusedVariablesCountsColumn(t *testing.T) {
 	actions := []recordedAction{{Target: &recordedTarget{Role: "textbox", Column: "%column%"}}}
 	assert.Empty(t, unusedVariables("Fill the %column% field", actions))
 }
+
+// A header row that starts with a row-header corner cell still names the
+// columns, so swapped columns do not match.
+func TestReplayTargetColumnCornerCell(t *testing.T) {
+	t.Parallel()
+
+	page := func(headers ...string) pageSnapshot {
+		snap := gridPage(headers...)
+		snap.Tree = strings.Replace(snap.Tree, "columnheader: Line", "rowheader: Line", 1)
+		return snap
+	}
+	actions := []recordedAction{{Selector: "xpath=/html[1]/body[1]/table[1]/tr[2]/td[2]/input[1]", Method: "fill"}}
+	identifyOn(page("item code", "quantity"), actions, nil)
+
+	assert.Equal(t, "item code", actions[0].Target.Column)
+	assert.False(t, stillTargets(actions[0], page("quantity", "item code"), nil))
+}

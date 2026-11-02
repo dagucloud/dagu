@@ -367,13 +367,20 @@ func cellsOf(row *outlineNode) []string {
 	return cells
 }
 
+// allHeaders reports whether row is a header row: its cells are all
+// headers, at least one of a column, such as a row-header corner cell
+// followed by the column headers.
 func allHeaders(row *outlineNode) bool {
+	columns := false
 	for _, cell := range row.children {
-		if slices.Contains(cellRoles, cell.role) && cell.role != "columnheader" {
+		switch {
+		case cell.role == "columnheader":
+			columns = true
+		case slices.Contains(cellRoles, cell.role) && cell.role != "rowheader":
 			return false
 		}
 	}
-	return true
+	return columns
 }
 
 // textOf joins the text a person reads in n, leaving out what was typed
