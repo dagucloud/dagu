@@ -52,13 +52,14 @@ func recordAct(instruction string, actions []recordedAction, values map[string]s
 
 // unusedVariables returns the variables an act's instruction names that its
 // actions never use: no argument holds the variable's placeholder, nor does
-// the name or the text around an element a replay finds it by.
+// the name, the column header or the text around an element a replay finds
+// it by.
 func unusedVariables(instruction string, actions []recordedAction) []string {
 	var texts []string
 	for _, action := range actions {
 		texts = append(texts, action.Arguments...)
 		if action.Target != nil {
-			texts = append(texts, action.Target.Name)
+			texts = append(texts, action.Target.Name, action.Target.Column)
 			for _, name := range action.Target.ContextVariables {
 				texts = append(texts, "%"+name+"%")
 			}
