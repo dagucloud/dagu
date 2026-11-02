@@ -154,6 +154,9 @@ const fileInputRole = "input, file"
 
 var cellRoles = []string{"cell", "gridcell", "columnheader", "rowheader"}
 
+// tableRoles are the roles of the tables that hold rows of cells.
+var tableRoles = []string{"table", "grid", "treegrid"}
+
 // droppedRoles carry nothing a reader of the outline needs.
 var droppedRoles = []string{"ListMarker", "LineBreak", "InlineTextBox", "none", "presentation"}
 
@@ -181,7 +184,7 @@ func (b outlineBuilder) build(n *outlineNode) []*outlineEntry {
 		return []*outlineEntry{{line: "heading: " + clip(n.name, outlineTextRunes), shape: "heading"}}
 	case slices.Contains(messageRoles, n.role):
 		return []*outlineEntry{{line: n.role + ": " + clip(textOf(n), outlineTextRunes), shape: n.role}}
-	case n.role == "table" || n.role == "grid" || n.role == "treegrid":
+	case slices.Contains(tableRoles, n.role):
 		return b.table(n)
 	case n.role == "row":
 		return b.row(n)

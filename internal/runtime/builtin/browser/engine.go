@@ -273,6 +273,9 @@ type recordedTarget struct {
 	// ContextVariables names the variables whose placeholders the text
 	// Context digests held, which a replay finds the element by.
 	ContextVariables []string `json:"context_variables,omitempty"`
+	// Column is the header of the table column the element was in, which a
+	// row's text cannot tell when columns of unlabeled inputs swap places.
+	Column string `json:"column,omitempty"`
 }
 
 type actOutcome struct {
