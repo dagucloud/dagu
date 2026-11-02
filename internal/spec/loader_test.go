@@ -3542,6 +3542,146 @@ steps:
 	})
 }
 
+// TestDefaultMaxConcurrent covers the limit that parallel and foreach steps
+// inherit when defaults.max_concurrent is layered across the global base, the
+// workspace base, and the DAG.
+func TestDefaultMaxConcurrent(t *testing.T) {
+	t.Parallel()
+
+	const steps = `
+steps:
+  - id: plain
+    run: echo plain
+  - id: variable
+    action: dag.run
+    with: {dag: child}
+    parallel: ${ITEMS}
+  - id: array
+    action: dag.run
+    with: {dag: child}
+    parallel: [a, b]
+  - id: object
+    action: dag.run
+    with: {dag: child}
+    parallel:
+      items: [a]
+  - id: each
+    foreach:
+      items: [a]
+      steps:
+        - run: echo item
+  - id: explicit_parallel
+    action: dag.run
+    with: {dag: child}
+    parallel:
+      items: [a]
+      max_concurrent: 3
+  - id: explicit_foreach
+    foreach:
+      items: [a]
+      max_concurrent: 4
+      steps:
+        - run: echo item
+
+---
+
+name: child
+steps:
+  - run: echo child
+`
+	const (
+		globalDefault    = "defaults:\n  max_concurrent: 50\n"
+		workspaceDefault = "defaults:\n  max_concurrent: 30\n"
+	)
+
+	tests := []struct {
+		name          string
+		globalBase    string
+		workspaceBase string
+		dagDefaults   string
+		want          int
+	}{
+		{name: "BuiltIn", want: ir.DefaultMaxConcurrent},
+		{name: "GlobalBase", globalBase: globalDefault, want: 50},
+		{name: "WorkspaceBase", globalBase: globalDefault, workspaceBase: workspaceDefault, want: 30},
+		{name: "DAG", globalBase: globalDefault, workspaceBase: workspaceDefault, dagDefaults: "defaults:\n  max_concurrent: 20\n", want: 20},
+		{name: "UnrelatedDAGDefaults", globalBase: globalDefault, dagDefaults: "defaults:\n  continue_on: failed\n", want: 50},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			root := t.TempDir()
+			globalBase := filepath.Join(root, "base.yaml")
+			require.NoError(t, os.WriteFile(globalBase, []byte(tt.globalBase), 0600))
+			workspaceDir := filepath.Join(root, "workspaces")
+			require.NoError(t, os.MkdirAll(filepath.Join(workspaceDir, "ops"), 0750))
+			require.NoError(t, os.WriteFile(filepath.Join(workspaceDir, "ops", "base.yaml"), []byte(tt.workspaceBase), 0600))
+			path := createTempYAMLFile(t, "labels: [workspace=ops]\n"+tt.dagDefaults+steps)
+
+			dag, err := spec.Load(context.Background(), path,
+				spec.WithBaseConfig(globalBase),
+				spec.WithWorkspaceBaseConfigDir(workspaceDir),
+			)
+			require.NoError(t, err)
+
+			byID := make(map[string]ir.Step, len(dag.Steps))
+			for _, step := range dag.Steps {
+				byID[step.ID] = step
+			}
+			for _, id := range []string{"variable", "array", "object"} {
+				require.NotNil(t, byID[id].Parallel, id)
+				assert.Equal(t, tt.want, byID[id].Parallel.MaxConcurrent, id)
+			}
+			require.NotNil(t, byID["each"].Foreach)
+			assert.Equal(t, tt.want, byID["each"].Foreach.MaxConcurrent)
+			assert.Equal(t, 3, byID["explicit_parallel"].Parallel.MaxConcurrent)
+			assert.Equal(t, 4, byID["explicit_foreach"].Foreach.MaxConcurrent)
+			// The default sets a limit; it never turns a step into a fan-out.
+			assert.Nil(t, byID["plain"].Parallel)
+			assert.Nil(t, byID["plain"].Foreach)
+		})
+	}
+}
+
+func TestDefaultMaxConcurrentValidation(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name     string
+		value    string
+		wantPart string
+	}{
+		{name: "Zero", value: "0", wantPart: "1 through 1000"},
+		{name: "AboveLimit", value: "1001", wantPart: "1 through 1000"},
+		{name: "Fraction", value: "1.5", wantPart: "must be an integer"},
+		{name: "Variable", value: `"${MC}"`, wantPart: "must be an integer"},
+	}
+
+	for _, tt := range tests {
+		defaults := "defaults:\n  max_concurrent: " + tt.value + "\n"
+		for _, source := range []string{"DAG", "Base"} {
+			t.Run(tt.name+"/"+source, func(t *testing.T) {
+				t.Parallel()
+
+				doc := "steps:\n  - run: echo ok\n"
+				opts := []spec.LoadOption{spec.SkipSchemaValidation()}
+				if source == "DAG" {
+					doc = defaults + doc
+				} else {
+					opts = append(opts, spec.WithBaseConfigContent([]byte(defaults)))
+				}
+
+				_, err := spec.LoadYAML(context.Background(), []byte(doc), opts...)
+				require.Error(t, err)
+				assert.Contains(t, err.Error(), "defaults.max_concurrent")
+				assert.Contains(t, err.Error(), tt.wantPart)
+			})
+		}
+	}
+}
+
 func TestMetadataBaseSkipsRuntimeFields(t *testing.T) {
 	t.Parallel()
 	base := createTempYAMLFile(t, `

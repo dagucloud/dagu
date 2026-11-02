@@ -22,6 +22,9 @@ type defaults struct {
 	SignalOnStop  *string               `yaml:"signal_on_stop,omitempty"`
 	Env           types.EnvValue        `yaml:"env,omitempty"`
 	Preconditions any                   `yaml:"preconditions,omitempty"`
+	// MaxConcurrent is the concurrency limit for parallel and foreach steps
+	// that omit max_concurrent. Zero means no default is configured.
+	MaxConcurrent int `yaml:"max_concurrent,omitempty"`
 }
 
 // decodeDefaults decodes a raw value (from YAML) into a typed *defaults struct.
@@ -29,6 +32,9 @@ type defaults struct {
 func decodeDefaults(raw any) (*defaults, error) {
 	if raw == nil {
 		return nil, nil
+	}
+	if err := validateDefaultMaxConcurrent(raw); err != nil {
+		return nil, err
 	}
 	d := new(defaults)
 	decoder, err := mapstructure.NewDecoder(&mapstructure.DecoderConfig{
@@ -44,6 +50,21 @@ func decodeDefaults(raw any) (*defaults, error) {
 		return nil, ir.NewValidationError("defaults", raw, withLegacyKeyHint(err))
 	}
 	return d, nil
+}
+
+// validateDefaultMaxConcurrent checks defaults.max_concurrent against the
+// step-level rules, which reject fractional values the decoder would truncate.
+func validateDefaultMaxConcurrent(raw any) error {
+	rawMap, ok := raw.(map[string]any)
+	if !ok {
+		return nil
+	}
+	value, ok := rawMap["max_concurrent"]
+	if !ok {
+		return nil
+	}
+	_, err := parseMaxConcurrent("defaults.max_concurrent", value)
+	return err
 }
 
 // applyDefaults merges default values into a step. Override fields are set only
@@ -92,6 +113,9 @@ func applyDefaults(s *step, d *defaults, raw map[string]any) {
 	if shouldApply("continue_on", s.ContinueOn.IsZero()) && !d.ContinueOn.IsZero() {
 		s.ContinueOn = d.ContinueOn
 	}
+	// Recorded rather than applied: the default never adds parallel or foreach
+	// to a step, and an explicit max_concurrent on either still wins.
+	s.defaultMaxConcurrent = d.MaxConcurrent
 
 	// Additive fields: prepend defaults before step values
 	if !d.Env.IsZero() {
@@ -141,6 +165,9 @@ func mergeDefaults(base, override *defaults, overrideRaw map[string]any) *defaul
 	}
 	if shouldOverride("signal_on_stop", override.SignalOnStop != nil) {
 		merged.SignalOnStop = override.SignalOnStop
+	}
+	if shouldOverride("max_concurrent", override.MaxConcurrent != 0) {
+		merged.MaxConcurrent = override.MaxConcurrent
 	}
 	if shouldOverride("env", !override.Env.IsZero()) {
 		if len(override.Env.Entries()) == 0 {

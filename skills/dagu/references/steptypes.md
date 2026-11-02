@@ -455,6 +455,13 @@ steps:
 
 Each child invocation receives the current item as `ITEM`.
 
+`max_concurrent` defaults to 10. Set `defaults.max_concurrent` in a DAG or base config to change it for every `parallel` and `foreach` step that omits `max_concurrent`:
+
+```yaml
+defaults:
+  max_concurrent: 50
+```
+
 A completed `parallel` step publishes a JSON array of each successful child run's outputs on its step outputs channel, so a later step in the same DAG can read `${fan_out.outputs}` or `${fan_out.outputs[0].NAME}`. Entries follow `parallel.items` order with failed children removed, so index `N` is the Nth successful child rather than the Nth item, and a successful child that published nothing contributes an empty object. An entry merges the child's output variables with its declared outputs, so values published through `outputs:`, `stdout.outputs` or `outputs.write` are included. The array does not merge into the run's collected outputs or into a parent run's `${step.outputs}`.
 
 ## ssh.run / sftp.upload / sftp.download

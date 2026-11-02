@@ -18,6 +18,7 @@ func TestParallelValidation(t *testing.T) {
 
 	validCases := []string{
 		"parallel_flat_mapping_valid.yaml",
+		"defaults_max_concurrent_valid.yaml",
 	}
 	for _, file := range validCases {
 		t.Run(file, func(t *testing.T) {
@@ -46,6 +47,14 @@ func TestParallelValidation(t *testing.T) {
 		{
 			file:        "parallel_max_concurrent_too_high.yaml",
 			stderrParts: []string{"parallel.max_concurrent", "1000"},
+		},
+		{
+			file:        "defaults_max_concurrent_float.yaml",
+			stderrParts: []string{"defaults.max_concurrent", "integer"},
+		},
+		{
+			file:        "defaults_max_concurrent_too_high.yaml",
+			stderrParts: []string{"defaults.max_concurrent", "1000"},
 		},
 		{
 			file:        "parallel_nested_mapping_item.yaml",

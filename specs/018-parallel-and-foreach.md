@@ -87,7 +87,16 @@ An item run is one represented child DAG run or enqueue request created by
 
 - `max_concurrent` must be an integer from `1` through `1000`.
 
-- When `max_concurrent` is omitted, Dagu uses `10`.
+- When `max_concurrent` is omitted, Dagu uses the inherited
+  `defaults.max_concurrent`, or `10` when no default is configured.
+
+- `defaults.max_concurrent` follows the same integer rules. It applies to
+  `parallel` and `foreach` steps that receive step defaults, in every item
+  source form, and never adds `parallel` or `foreach` to a step.
+
+- The nearest `defaults.max_concurrent` wins: the DAG, then the workspace base
+  configuration, then the global base configuration. Setting other `defaults`
+  fields does not reset an inherited `max_concurrent`.
 
 - `max_concurrent` does not limit normal top-level graph scheduling outside the
   owning expansion step.
