@@ -2,11 +2,14 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 import { fireEvent, render } from '@testing-library/react';
-import { describe, expect, it, vi } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { DialogLayerProvider } from '@/components/ui/dialog';
 import { useBoundedDAGRunDetails } from '@/features/dag-runs/hooks/useBoundedDAGRunDetails';
 import { dispatchHandledEscape } from '@/test/keyboard';
-import { SubRunStackModal } from '../SubRunStackModal';
+import {
+  SUB_RUN_STACK_EXPANDED_KEY,
+  SubRunStackModal,
+} from '../SubRunStackModal';
 import DAGRunDetailsContent from '@/features/dag-runs/components/dag-run-details/DAGRunDetailsContent';
 import { escFree } from '@/features/workflow-workspace/canvas/escFree';
 
@@ -35,6 +38,23 @@ const stackProps = {
 };
 
 describe('SubRunStackModal', () => {
+  afterEach(() => localStorage.clear());
+
+  // The choice of the whole window stays for the next stack.
+  it('covers the whole window from its toggle and keeps the choice', () => {
+    mockRun(undefined);
+    const stack = [{ name: 'child', dagRunId: 'child-run' }];
+    const first = render(<SubRunStackModal {...stackProps} stack={stack} />);
+
+    fireEvent.click(first.getByRole('button', { name: 'Maximize dialog' }));
+    expect(localStorage.getItem(SUB_RUN_STACK_EXPANDED_KEY)).toBe('1');
+    first.unmount();
+
+    const next = render(<SubRunStackModal {...stackProps} stack={stack} />);
+    fireEvent.click(next.getByRole('button', { name: 'Restore dialog' }));
+    expect(localStorage.getItem(SUB_RUN_STACK_EXPANDED_KEY)).toBeNull();
+  });
+
   // The workspace layers under the drawer leave Escape to it.
   it('is an open dialog named after its run', () => {
     mockRun(undefined);

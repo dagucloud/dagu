@@ -53,6 +53,35 @@ vi.mock('../../step/StepFacts', () => ({
     </div>
   ),
 }));
+// The record of the run: each view shows the run that it gets.
+vi.mock('@/features/dags/components/visualization/TimelineChart', () => ({
+  default: ({ status }: { status: { dagRunId: string } }) => (
+    <div data-testid="activity">timeline of {status.dagRunId}</div>
+  ),
+}));
+vi.mock('@/features/dags/components/dag-execution/ExecutionLog', () => ({
+  default: ({ dagRunId }: { dagRunId: string }) => (
+    <div data-testid="activity">log of {dagRunId}</div>
+  ),
+}));
+vi.mock('@/features/dags/components/artifacts/ArtifactsTab', () => ({
+  default: ({ dagRun }: { dagRun: { dagRunId: string } }) => (
+    <div data-testid="activity">artifacts of {dagRun.dagRunId}</div>
+  ),
+}));
+vi.mock('@/features/dags/components/dag-editor/DAGSpecReadOnly', () => ({
+  default: ({
+    dagRunId,
+    subDAGRunId,
+  }: {
+    dagRunId: string;
+    subDAGRunId: string;
+  }) => (
+    <div data-testid="activity">
+      definition of {subDAGRunId} under {dagRunId}
+    </div>
+  ),
+}));
 vi.mock('../../step/StepManualActions', () => ({
   StepManualActions: ({ inSubRun }: { inSubRun?: boolean }) => (
     <div data-testid="step-manual-actions" data-sub-run={String(inSubRun)} />
@@ -185,6 +214,26 @@ describe('SubRunView', () => {
       'data-stream',
       'stderr'
     );
+  });
+
+  it('shows the record of the run in its activity', async () => {
+    renderView();
+
+    expect(screen.getByTestId('activity')).toHaveTextContent('timeline of c-1');
+    fireEvent.click(screen.getByRole('tab', { name: 'Run log' }));
+    expect(screen.getByTestId('activity')).toHaveTextContent('log of c-1');
+    fireEvent.click(screen.getByRole('tab', { name: 'Artifacts' }));
+    expect(screen.getByTestId('activity')).toHaveTextContent(
+      'artifacts of c-1'
+    );
+    // The definition of a sub-run is read through its root run.
+    fireEvent.click(screen.getByRole('tab', { name: 'Definition' }));
+    expect(await screen.findByTestId('activity')).toHaveTextContent(
+      'definition of c-1 under run-1'
+    );
+
+    fireEvent.click(screen.getByRole('button', { name: 'Hide activity' }));
+    expect(screen.queryByTestId('activity')).not.toBeInTheDocument();
   });
 
   // A child run of the child run opens on the same stack.

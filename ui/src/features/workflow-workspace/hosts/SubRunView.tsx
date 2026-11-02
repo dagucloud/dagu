@@ -1,7 +1,16 @@
 // Copyright (C) 2026 Yota Hamada
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-import { Info, ScrollText, X } from 'lucide-react';
+import {
+  Archive,
+  ChevronDown,
+  ChevronUp,
+  FileCode,
+  GanttChart,
+  Info,
+  ScrollText,
+  X,
+} from 'lucide-react';
 import {
   lazy,
   Suspense,
@@ -21,7 +30,10 @@ import {
   RunNodeProgress,
   RunStatusMessage,
 } from '@/features/dags/components/common/RunSummaryBlocks';
+import ArtifactsTab from '@/features/dags/components/artifacts/ArtifactsTab';
+import ExecutionLog from '@/features/dags/components/dag-execution/ExecutionLog';
 import StepLog from '@/features/dags/components/dag-execution/StepLog';
+import TimelineChart from '@/features/dags/components/visualization/TimelineChart';
 import { buildRunOverlay } from '@/features/visual-editor/run/runOverlay';
 import { useI18n } from '@/i18n/I18nProvider';
 import { cn } from '@/lib/utils';
@@ -38,6 +50,9 @@ import { Z } from '../zLayers';
 
 const DetailsCanvas = lazy(
   () => import('@/features/visual-editor/DetailsCanvas')
+);
+const DAGSpecReadOnly = lazy(
+  () => import('@/features/dags/components/dag-editor/DAGSpecReadOnly')
 );
 
 type DAGRunDetails = components['schemas']['DAGRunDetails'];
@@ -113,7 +128,7 @@ export function SubRunView({
         <RunNodeProgress nodes={run.nodes} />
         <RunError error={run.error} />
       </section>
-      <div className="relative min-h-[360px] flex-1">
+      <div className="relative min-h-[240px] flex-1">
         <Suspense fallback={<div className="h-full rounded-md bg-muted/30" />}>
           <DetailsCanvas
             dag={dag}
@@ -134,12 +149,97 @@ export function SubRunView({
           />
         )}
       </div>
+      <SubRunActivity run={run} />
       {renderParallelPicker(
         picker ? { node: picker, holder: run } : null,
         () => setPicker(null),
         openSubRun
       )}
     </div>
+  );
+}
+
+type ActivityTab = 'timeline' | 'log' | 'artifacts' | 'definition';
+
+/**
+ * The record of the run under its graph, as the Activity panel of the
+ * workflow page: the timeline of its steps, its run log, its artifacts and
+ * the definition that it ran. A child row of the timeline opens on the
+ * same stack. The panel folds to its tab row.
+ */
+function SubRunActivity({ run }: { run: DAGRunDetails }): ReactElement {
+  const { ts } = useI18n();
+  const idPrefix = useId();
+  const [tab, setTab] = useState<ActivityTab>('timeline');
+  const [open, setOpen] = useState(true);
+  return (
+    <section
+      aria-label={ts('Activity')}
+      className={cn(
+        'flex shrink-0 flex-col rounded-md border border-border bg-card',
+        open && 'h-[40%] min-h-[200px]'
+      )}
+    >
+      <div className="flex shrink-0 items-center gap-1 border-b border-border pr-1">
+        <TabStrip
+          label={ts('Activity')}
+          idPrefix={idPrefix}
+          className="min-w-0 flex-1 px-2"
+          tabs={[
+            { id: 'timeline', label: ts('Timeline'), icon: GanttChart },
+            { id: 'log', label: ts('Run log'), icon: ScrollText },
+            { id: 'artifacts', label: ts('Artifacts'), icon: Archive },
+            { id: 'definition', label: ts('Definition'), icon: FileCode },
+          ]}
+          value={tab}
+          onChange={(id) => {
+            setTab(id as ActivityTab);
+            setOpen(true);
+          }}
+        />
+        <IconButton
+          icon={open ? ChevronDown : ChevronUp}
+          size="sm"
+          label={ts(open ? 'Hide activity' : 'Show activity')}
+          onClick={() => setOpen(!open)}
+        />
+      </div>
+      {open && (
+        <div
+          role="tabpanel"
+          aria-labelledby={tabStripTabId(idPrefix, tab)}
+          className="min-h-0 flex-1 overflow-auto"
+        >
+          {tab === 'timeline' && (
+            <div className="p-2">
+              <TimelineChart status={run} />
+            </div>
+          )}
+          {tab === 'log' && (
+            <div className="h-full min-h-0 p-2">
+              <ExecutionLog
+                name={run.name}
+                dagRunId={run.dagRunId}
+                dagRun={run}
+              />
+            </div>
+          )}
+          {tab === 'artifacts' && (
+            <ArtifactsTab dagRun={run} className="h-full min-h-0" fillHeight />
+          )}
+          {tab === 'definition' && (
+            <Suspense fallback={null}>
+              <DAGSpecReadOnly
+                dagName={run.rootDAGRunName || run.name}
+                dagRunId={run.rootDAGRunId || run.dagRunId}
+                subDAGRunId={run.dagRunId}
+                className="p-2"
+              />
+            </Suspense>
+          )}
+        </div>
+      )}
+    </section>
   );
 }
 
