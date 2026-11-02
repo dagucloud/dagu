@@ -109,7 +109,7 @@ export function RunDetailsContent({
           size="sm"
           icon={Link2}
           className="ml-auto"
-          text={() => getRunLink(details.dagRunId)}
+          text={() => getRunLink(details)}
           label={ts('Copy link to this run')}
           copiedLabel={ts('Link copied')}
         />

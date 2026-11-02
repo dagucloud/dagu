@@ -10,6 +10,9 @@ import { useWorkspaceUrl } from '../state/workspaceUrl';
 /**
  * The links to the workflow, for the copy-link buttons: getPageLink names the
  * workflow only, with no run and no step; getRunLink names one run of it.
+ * A run link names the run by its DAG name, as the run links of the server
+ * do, and always names its node: it opens the same run for anyone, also
+ * after the file is renamed.
  */
 export function useWorkflowShare(fileName: string) {
   const config = useConfig();
@@ -21,14 +24,14 @@ export function useWorkflowShare(fileName: string) {
   const scopedWorkspace = sanitizeWorkspaceName(url.carry.workspace ?? '');
 
   const getRunLink = useCallback(
-    (runId?: string) => {
+    (run?: { name: string; dagRunId: string }) => {
       const basePrefix = config.basePath === '/' ? '' : (config.basePath ?? '');
       const query = new URLSearchParams();
-      if (scopedRemote) query.set('remoteNode', remoteNode);
+      if (scopedRemote || run) query.set('remoteNode', remoteNode);
       if (scopedWorkspace) query.set('workspace', scopedWorkspace);
-      if (runId) query.set('run', runId);
+      if (run) query.set('run', run.dagRunId);
       const search = query.toString();
-      const path = `/dags/${encodeURIComponent(fileName)}`;
+      const path = `/dags/${encodeURIComponent(run?.name ?? fileName)}`;
       return `${window.location.origin}${basePrefix}${path}${search ? `?${search}` : ''}`;
     },
     [config.basePath, fileName, remoteNode, scopedRemote, scopedWorkspace]

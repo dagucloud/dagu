@@ -487,8 +487,9 @@ describe('RunDetailsPopover', () => {
     await userEvent.click(
       within(dialog).getByRole('button', { name: 'Copy link to this run' })
     );
+    // The run link names the DAG of the run and its node, for anyone.
     expect(h.copyText).toHaveBeenCalledWith(
-      `${window.location.origin}/dags/etl.yaml?run=run-42`
+      `${window.location.origin}/dags/${details().name}?remoteNode=local&run=run-42`
     );
 
     await userEvent.click(
