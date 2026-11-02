@@ -302,10 +302,12 @@ export function SubRunStackModal({
           <span className="text-muted-foreground bg-muted rounded px-1.5 py-0.5 text-xs tabular-nums">
             {depth}
           </span>
+          {/* Below md the panel covers the window already. */}
           <IconButton
             icon={expanded ? Minimize2 : Maximize2}
             size="sm"
             label={ts(expanded ? 'Restore dialog' : 'Maximize dialog')}
+            className="hidden md:inline-flex"
             onClick={toggleExpanded}
           />
           <I18nProps>

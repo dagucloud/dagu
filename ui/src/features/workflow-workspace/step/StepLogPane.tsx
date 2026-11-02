@@ -81,10 +81,12 @@ export function runLogPageURL({
 export function LogPageLink({ to }: { to: string }) {
   const { ts } = useI18n();
   const { basePath } = useConfig();
+  // A server at the root has the base path '/': the link starts with the path.
+  const prefix = basePath === '/' ? '' : (basePath ?? '');
   return (
     <Button asChild size="icon-sm" variant="outline">
       <a
-        href={`${basePath || ''}${to}`}
+        href={`${prefix}${to}`}
         target="_blank"
         rel="noopener noreferrer"
         title={ts('Open in new tab')}
