@@ -553,7 +553,9 @@
               arguments: withServer({ uri }),
             });
             if (result?.isError) throw new Error(contentText(result));
-            return serverResult(result?.structuredContent)?.data;
+            const data = serverResult(result?.structuredContent)?.data;
+            if (data === undefined || data === null) throw new Error("The read did not return data.");
+            return data;
           }
           return resourceJSON(await request("resources/read", { uri }));
         }

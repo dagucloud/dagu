@@ -79,6 +79,7 @@ function openInspector(
       ),
     status: () => document.getElementById('run-status')?.textContent,
     log: () => document.getElementById('log-output')?.textContent,
+    message: () => document.getElementById('message')?.textContent,
     clickStepLog: (name: string) =>
       Array.from(document.querySelectorAll('#steps .step'))
         .find((row) => row.querySelector('.step-name')?.textContent === name)
@@ -372,5 +373,26 @@ describe('run inspector', () => {
     expect(inspector.calls().map((call) => call.params)).toEqual([
       { name: 'dagu_read', arguments: { uri: runURI } },
     ]);
+  });
+
+  it('says so when a read returns no data', async () => {
+    const inspector = openInspector({ serverTools: {} }, () => ({
+      content: [{ type: 'text', text: 'Dagu read completed.' }],
+    }));
+    await waitForInit(inspector);
+    inspector.notify('ui/notifications/tool-result', {
+      structuredContent: {
+        target: 'run',
+        uri: runURI,
+        data: normalizedRun('failed'),
+      },
+    });
+    await vi.waitFor(() => expect(inspector.status()).toBe('failed'));
+
+    inspector.click('refresh');
+    await vi.waitFor(() =>
+      expect(inspector.message()).toBe('The read did not return data.')
+    );
+    expect(inspector.steps()).toEqual(['extract', 'load']);
   });
 });
