@@ -215,7 +215,7 @@ export function RemoteAccessSection({
               {on && (
                 <Row label={ts('MCP URL')}>
                   <span className="flex min-w-0 items-center gap-1">
-                    <code className="min-w-0 truncate font-mono text-xs">
+                    <code className="min-w-0 whitespace-normal break-words font-mono text-xs">
                       {mcpURL}
                     </code>
                     <CopyButton
