@@ -1500,7 +1500,11 @@ describe('LicensePage', () => {
 
     // Serves an online license with audit logs, the given remote access,
     // which PUT changes the way the server does, and the given audit entries.
-    function serveRemoteAccess(initial: LicenseRemoteAccess, entries = []) {
+    function serveRemoteAccess(
+      initial: LicenseRemoteAccess,
+      entries = [],
+      license = online
+    ) {
       let access = initial;
       const get = vi.fn((path: string) =>
         Promise.resolve({
@@ -1511,7 +1515,7 @@ describe('LicensePage', () => {
                 ? unchosen
                 : path === '/audit'
                   ? { entries, total: entries.length }
-                  : makeConfig(online).license,
+                  : makeConfig(license).license,
         })
       );
       const put = vi.fn(
@@ -1530,7 +1534,7 @@ describe('LicensePage', () => {
         POST: vi.fn(),
         PUT: put,
       } as never);
-      renderPage(online);
+      renderPage(license);
       return { get, put };
     }
 
@@ -1606,6 +1610,27 @@ describe('LicensePage', () => {
         body: { approvals: true },
       });
       await waitFor(() => expect(approvals).toBeChecked());
+    });
+
+    it('shows how to connect an AI app through the console', async () => {
+      serveRemoteAccess(
+        { ...remoteOff, level: LicenseRemoteAccessLevel.viewer },
+        [],
+        {
+          ...online,
+          consoleUrl: 'https://console.example.com/servers?server=srv-123',
+        }
+      );
+      const card = await findRemoteAccessCard();
+      expect(
+        await within(card).findByText('https://console.example.com/mcp')
+      ).toBeVisible();
+      expect(
+        within(card).getByRole('button', { name: 'Copy MCP URL' })
+      ).toBeVisible();
+      expect(
+        within(card).getByRole('link', { name: 'Open AI apps' })
+      ).toHaveAttribute('href', 'https://console.example.com/ai-apps');
     });
 
     it('says why Dagu Cloud refused the connection', async () => {

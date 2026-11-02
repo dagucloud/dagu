@@ -25,6 +25,7 @@ import {
 } from '@/api/v1/schema';
 import { useI18n } from '@/i18n/I18nProvider';
 import {
+  consoleOrigin,
   hasLicense,
   isFreeLicense,
   isLicenseManagedByEnv,
@@ -387,6 +388,7 @@ export default function LicensePage() {
         <RemoteAccessSection
           remoteAccess={remoteAccess.remoteAccess}
           remoteNode={remoteNode}
+          consoleOrigin={consoleOrigin(license)}
           showActivity={license.features.includes('audit')}
           loadError={Boolean(remoteAccess.error)}
           onRetry={() => void remoteAccess.refresh()}
