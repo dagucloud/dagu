@@ -437,6 +437,12 @@ describe('WorkspaceRunHosts', () => {
               parentDAGRunId: 'run-2',
             },
             'g-1': { ...run('g-1'), name: 'grand-dag', parentDAGRunId: 'c-1' },
+            // o-1 is a child of a run that cannot be read.
+            'o-1': {
+              ...run('o-1'),
+              name: 'orphan-dag',
+              parentDAGRunId: 'gone',
+            },
           };
           const found = levels[init?.params?.path?.subDAGRunId ?? ''];
           return found
@@ -479,6 +485,15 @@ describe('WorkspaceRunHosts', () => {
       const content = await screen.findByTestId('child-content');
       expect(content).toHaveAttribute('data-run', 'g-1');
       expect(crumbs()).toEqual(['demo', 'child-dag', 'grand-dag']);
+    });
+
+    // A missing level would put the run under one that is not its parent.
+    it('opens a nested sub-run alone when a level above cannot be read', async () => {
+      renderHosts(null, `/dags/${FILE_NAME}?run=run-2&subRun=o-1`);
+
+      const content = await screen.findByTestId('child-content');
+      expect(content).toHaveAttribute('data-run', 'o-1');
+      expect(crumbs()).toEqual(['demo', 'orphan-dag']);
     });
 
     it('drops the link of a sub-run that the run does not have', async () => {

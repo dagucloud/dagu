@@ -27,48 +27,51 @@ import { SubRunView } from './SubRunView';
 const noop = () => undefined;
 
 /** The levels above a linked sub-run that the stack reads at most. */
-const MAX_LINKED_DEPTH = 8;
+const MAX_LINKED_DEPTH = 16;
 
 type Client = ReturnType<typeof useClient>;
 type DAGRunDetails = components['schemas']['DAGRunDetails'];
 
 /**
  * The runs between the root run and a sub-run of it, from the top, read
- * through the parent of each level. A level that cannot be read ends the
- * list there.
+ * through the parent of each level; null when a level cannot be read or
+ * the chain is deeper than the stack reads. A partial chain would put a
+ * run under a level that is not its parent.
  */
 async function parentsOf(
   client: Client,
   root: RunRef,
   child: DAGRunDetails,
   remoteNode: string
-): Promise<SubRunStackEntry[]> {
+): Promise<SubRunStackEntry[] | null> {
   const entries: SubRunStackEntry[] = [];
   let parentId = child.parentDAGRunId;
-  for (
-    let level = 0;
-    level < MAX_LINKED_DEPTH && parentId && parentId !== root.runId;
-    level++
-  ) {
-    const { data } = await client.GET(
-      '/dag-runs/{name}/{dagRunId}/sub-dag-runs/{subDAGRunId}',
-      {
-        params: {
-          path: {
-            name: root.name,
-            dagRunId: root.runId,
-            subDAGRunId: parentId,
+  for (let level = 0; level < MAX_LINKED_DEPTH; level++) {
+    if (!parentId || parentId === root.runId) return entries;
+    let parent: DAGRunDetails | undefined;
+    try {
+      const { data } = await client.GET(
+        '/dag-runs/{name}/{dagRunId}/sub-dag-runs/{subDAGRunId}',
+        {
+          params: {
+            path: {
+              name: root.name,
+              dagRunId: root.runId,
+              subDAGRunId: parentId,
+            },
+            query: { remoteNode },
           },
-          query: { remoteNode },
-        },
-      }
-    );
-    const parent = data?.dagRunDetails;
-    if (!parent) break;
+        }
+      );
+      parent = data?.dagRunDetails;
+    } catch {
+      return null;
+    }
+    if (!parent) return null;
     entries.unshift({ name: parent.name, dagRunId: parent.dagRunId });
     parentId = parent.parentDAGRunId;
   }
-  return entries;
+  return null;
 }
 
 // A child run shows in the form of the workflow page; each run starts with
@@ -180,8 +183,10 @@ function useLinkedSubRun(
     if (!linked || !settled) return;
     let cancelled = false;
     void (async () => {
+      // Without the whole chain the run opens alone, as the first level.
       const parents =
-        child && ref ? await parentsOf(client, ref, child, remoteNode) : [];
+        (child && ref ? await parentsOf(client, ref, child, remoteNode) : []) ??
+        [];
       if (cancelled) return;
       if (child) {
         show([
