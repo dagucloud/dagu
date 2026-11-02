@@ -2564,6 +2564,7 @@ func parseMaxConcurrent(field string, value any) (int, error) {
 	return maxConcurrent, nil
 }
 
+// parseForeachSteps builds the body steps of a foreach with defs applied.
 func parseForeachSteps(ctx stepBuildContext, value any, defs *defaults) ([]ir.Step, error) {
 	rawSteps, ok := value.([]any)
 	if !ok {

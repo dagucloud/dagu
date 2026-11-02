@@ -1052,6 +1052,7 @@ func walkSteps(dag *ir.DAG, visit func(step ir.Step, path string)) {
 	}
 }
 
+// buildActionGraph builds the handlers and steps of the DAG.
 func (s *dagBuildState) buildActionGraph() {
 	if s.ctx.opts.Has(buildFlagOnlyMetadata) {
 		return
@@ -1070,6 +1071,8 @@ func (s *dagBuildState) buildActionGraph() {
 	}
 }
 
+// buildHandlersAndSteps builds handlers and steps with defs applied and
+// composes them with those inherited from base config.
 func (s *dagBuildState) buildHandlersAndSteps(defs *defaults) {
 	if handlerOn, err := buildHandlers(s.ctx, s.spec, s.result, defs); err != nil {
 		s.errs = append(s.errs, ir.NewValidationError("handlers", nil, err))
@@ -3672,6 +3675,7 @@ func buildStepDefaults(ctx buildContext, d *dag) (*defaults, error) {
 	return mergeDefaults(ctx.baseDefaults, localDefs, d.defaultsRaw), nil
 }
 
+// buildHandlers builds the handler_on steps of d with defs applied.
 func buildHandlers(ctx buildContext, d *dag, result *ir.DAG, defs *defaults) (ir.HandlerOn, error) {
 	buildCtx := stepBuildContext{buildContext: ctx, dag: result}
 	var handlerOn ir.HandlerOn
@@ -3806,6 +3810,7 @@ func buildOTel(_ buildContext, d *dag) (*ir.OTelConfig, error) {
 	}
 }
 
+// buildSteps builds the steps of d, in array or map syntax, with defs applied.
 func buildSteps(ctx buildContext, d *dag, result *ir.DAG, defs *defaults) ([]ir.Step, error) {
 	buildCtx := stepBuildContext{buildContext: ctx, dag: result}
 	names := make(map[string]struct{})

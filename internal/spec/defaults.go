@@ -153,6 +153,10 @@ func applyDefaults(s *step, d *defaults, raw map[string]any) {
 	}
 }
 
+// mergeDefaults layers override on top of base. A field replaces the base
+// value when overrideRaw sets its key, even to a zero value. Env and
+// preconditions append to the base values instead, and an empty value clears
+// them. Without overrideRaw, only non-zero override fields apply.
 func mergeDefaults(base, override *defaults, overrideRaw map[string]any) *defaults {
 	if base == nil {
 		return override
