@@ -29,6 +29,7 @@ import { useWorkspaceEditor } from '../canvas/WorkspaceEditorContext';
 import type { BarSlotProps } from '../contracts';
 import { useWorkspaceRefresh } from '../data';
 import { useWorkspacePermissions } from '../data/useWorkspacePermissions';
+import { useSettingsLeaveGuard } from '../settings/useSettingsLeaveGuard';
 import { useWorkspaceUrl } from '../state/workspaceUrl';
 import { Z } from '../zLayers';
 import { usePinChanged } from './DAGIdentity';
@@ -80,6 +81,7 @@ function MoreMenuItems({
   const { canWrite: canPin, canManageWebhooks } = useWorkspacePermissions();
   const { handle } = useWorkspaceEditor();
   const [, setUrl] = useWorkspaceUrl();
+  const { guard } = useSettingsLeaveGuard();
   const refresh = useWorkspaceRefresh();
   const onPinChanged = usePinChanged();
   const { getPageLink } = useWorkflowShare(fileName);
@@ -143,7 +145,7 @@ function MoreMenuItems({
       {canManageWebhooks && (
         <DropdownMenuItem
           className="gap-2"
-          onSelect={() => setUrl({ panel: 'webhook' })}
+          onSelect={() => guard(() => setUrl({ panel: 'webhook', def: null }))}
         >
           <Webhook aria-hidden="true" className={menuIcon} />
           {ts('Open {tab}', { tab: ts('Webhook') })}

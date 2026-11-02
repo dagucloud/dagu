@@ -422,9 +422,11 @@ describe('WorkflowCommands', () => {
   // A graph without a start step draws no launcher: the palette opens
   // their panels for every workflow.
   it('opens the schedule and the webhook panels', () => {
-    renderAt();
+    // The run definition hides the editor: the panels open in the current one.
+    renderAt('/dags/x?def=run');
     act(() => must('launcher:cron').run());
     expect(screen.getByTestId('location')).toHaveTextContent('panel=cron');
+    expect(screen.getByTestId('location')).not.toHaveTextContent('def=run');
     act(() => must('launcher:webhook').run());
     expect(screen.getByTestId('location')).toHaveTextContent('panel=webhook');
   });

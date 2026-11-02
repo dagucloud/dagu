@@ -195,20 +195,23 @@ export function WorkflowCommands({
     }
 
     // The panels of the schedule and of the webhook open from the URL, also
-    // for a graph that draws no launcher.
+    // for a graph that draws no launcher. They open in the editor of the
+    // current definition, after the guard of an unsaved settings draft.
+    const openLauncher = (panel: 'cron' | 'webhook') => () =>
+      guard(() => setUrl({ panel, def: null }));
     list.push({
       id: 'launcher:cron',
       label: ts('Open {tab}', { tab: ts('Schedule') }),
       keywords: ['cron'],
       icon: <CalendarClock />,
-      run: () => setUrl({ panel: 'cron' }),
+      run: openLauncher('cron'),
     });
     if (canManageWebhooks) {
       list.push({
         id: 'launcher:webhook',
         label: ts('Open {tab}', { tab: ts('Webhook') }),
         icon: <Webhook />,
-        run: () => setUrl({ panel: 'webhook' }),
+        run: openLauncher('webhook'),
       });
     }
 
