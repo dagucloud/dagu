@@ -437,6 +437,12 @@
             }
           ],
           "description": "Default preconditions for all steps (additive with step-level preconditions)"
+        },
+        "max_concurrent": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 1000,
+          "description": "Default max_concurrent for parallel and foreach steps that omit it (built-in default: 10, maximum: 1000). Does not add parallel or foreach to a step."
         }
       },
       "description": "Default values for step configuration fields. Steps inherit these defaults and can override them individually. Most fields use full replacement when overridden; env and preconditions are additive."
@@ -2170,7 +2176,7 @@
                   "minimum": 1,
                   "maximum": 1000,
                   "default": 10,
-                  "description": "Maximum number of concurrent executions (default: 10, maximum: 1000)"
+                  "description": "Maximum number of concurrent executions (default: defaults.max_concurrent or 10, maximum: 1000)"
                 }
               },
               "required": ["items"],
@@ -2219,7 +2225,7 @@
               "minimum": 1,
               "maximum": 1000,
               "default": 10,
-              "description": "Maximum number of foreach item bodies running concurrently"
+              "description": "Maximum number of foreach item bodies running concurrently (default: defaults.max_concurrent or 10, maximum: 1000)"
             },
             "steps": {
               "type": "array",

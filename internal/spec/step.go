@@ -153,6 +153,8 @@ type step struct {
 	parsedOutputCached bool
 	outputsSet         bool
 	inputsSet          bool
+	// stepDefaults holds the defaults applied to the step, or nil.
+	stepDefaults *defaults
 }
 
 type execSpec struct {
@@ -2339,7 +2341,7 @@ func buildStepParallel(_ stepBuildContext, s *step, result *ir.Step) error {
 	}
 
 	result.Parallel = &ir.ParallelConfig{
-		MaxConcurrent: ir.DefaultMaxConcurrent,
+		MaxConcurrent: s.stepDefaults.maxConcurrent(),
 	}
 
 	switch v := s.Parallel.(type) {
@@ -2414,7 +2416,7 @@ func buildStepForeach(ctx stepBuildContext, s *step, result *ir.Step) error {
 		return err
 	}
 
-	cfg, err := parseForeachConfig(ctx, s.Foreach)
+	cfg, err := parseForeachConfig(ctx, s.Foreach, s.stepDefaults)
 	if err != nil {
 		return err
 	}
@@ -2444,7 +2446,9 @@ func validateForeachExecutionTarget(s *step) error {
 	return nil
 }
 
-func parseForeachConfig(ctx stepBuildContext, raw any) (*ir.ForeachConfig, error) {
+// parseForeachConfig parses a foreach field; defs are the step defaults the
+// foreach step and its body steps inherit.
+func parseForeachConfig(ctx stepBuildContext, raw any, defs *defaults) (*ir.ForeachConfig, error) {
 	obj, ok := raw.(map[string]any)
 	if !ok {
 		return nil, ir.NewValidationError("foreach", raw,
@@ -2453,7 +2457,7 @@ func parseForeachConfig(ctx stepBuildContext, raw any) (*ir.ForeachConfig, error
 
 	cfg := &ir.ForeachConfig{
 		As:            "item",
-		MaxConcurrent: ir.DefaultMaxConcurrent,
+		MaxConcurrent: defs.maxConcurrent(),
 	}
 
 	for key, value := range obj {
@@ -2484,13 +2488,13 @@ func parseForeachConfig(ctx stepBuildContext, raw any) (*ir.ForeachConfig, error
 			}
 			cfg.Key = keyExpr
 		case "max_concurrent":
-			maxConcurrent, err := parseForeachMaxConcurrent(value)
+			maxConcurrent, err := parseMaxConcurrent("foreach.max_concurrent", value)
 			if err != nil {
 				return nil, err
 			}
 			cfg.MaxConcurrent = maxConcurrent
 		case "steps":
-			steps, err := parseForeachSteps(ctx, value)
+			steps, err := parseForeachSteps(ctx, value, defs)
 			if err != nil {
 				return nil, err
 			}
@@ -2531,35 +2535,37 @@ func parseForeachItems(value any, cfg *ir.ForeachConfig) error {
 	return nil
 }
 
-func parseForeachMaxConcurrent(value any) (int, error) {
+// parseMaxConcurrent parses a max_concurrent value reported under field.
+func parseMaxConcurrent(field string, value any) (int, error) {
 	var maxConcurrent int
 	switch mc := value.(type) {
 	case int:
 		maxConcurrent = mc
 	case int64:
 		if mc > math.MaxInt || mc < math.MinInt {
-			return 0, ir.NewValidationError("foreach.max_concurrent", mc,
+			return 0, ir.NewValidationError(field, mc,
 				fmt.Errorf("value %d exceeds integer range", mc))
 		}
 		maxConcurrent = int(mc)
 	case uint64:
 		if mc > math.MaxInt {
-			return 0, ir.NewValidationError("foreach.max_concurrent", mc,
+			return 0, ir.NewValidationError(field, mc,
 				fmt.Errorf("value %d exceeds maximum int", mc))
 		}
 		maxConcurrent = int(mc)
 	default:
-		return 0, ir.NewValidationError("foreach.max_concurrent", value,
-			fmt.Errorf("foreach.max_concurrent must be an integer, got %T", value))
+		return 0, ir.NewValidationError(field, value,
+			fmt.Errorf("%s must be an integer, got %T", field, value))
 	}
 	if maxConcurrent < 1 || maxConcurrent > ir.MaxExpansionConcurrency {
-		return 0, ir.NewValidationError("foreach.max_concurrent", value,
+		return 0, ir.NewValidationError(field, value,
 			fmt.Errorf("max_concurrent must be an integer from 1 through %d", ir.MaxExpansionConcurrency))
 	}
 	return maxConcurrent, nil
 }
 
-func parseForeachSteps(ctx stepBuildContext, value any) ([]ir.Step, error) {
+// parseForeachSteps builds the body steps of a foreach with defs applied.
+func parseForeachSteps(ctx stepBuildContext, value any, defs *defaults) ([]ir.Step, error) {
 	rawSteps, ok := value.([]any)
 	if !ok {
 		return nil, ir.NewValidationError("foreach.steps", value,
@@ -2578,7 +2584,7 @@ func parseForeachSteps(ctx stepBuildContext, value any) ([]ir.Step, error) {
 			return nil, ir.NewValidationError("foreach.steps", rawStep,
 				fmt.Errorf("foreach.steps[%d] must be an object, got %T", idx, rawStep))
 		}
-		builtStep, err := buildStepFromRaw(ctx, idx, stepMap, names, nil)
+		builtStep, err := buildStepFromRaw(ctx, idx, stepMap, names, defs)
 		if err != nil {
 			return nil, ir.NewValidationError("foreach.steps", rawStep, err)
 		}

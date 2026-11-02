@@ -2389,7 +2389,7 @@ func TestBuildSteps(t *testing.T) {
 		t.Parallel()
 		d := &dag{Steps: nil}
 		result := &ir.DAG{}
-		steps, err := buildSteps(testBuildContext(), d, result)
+		steps, err := buildSteps(testBuildContext(), d, result, nil)
 		require.NoError(t, err)
 		assert.Nil(t, steps)
 	})
@@ -2403,7 +2403,7 @@ func TestBuildSteps(t *testing.T) {
 			},
 		}
 		result := &ir.DAG{}
-		steps, err := buildSteps(testBuildContext(), d, result)
+		steps, err := buildSteps(testBuildContext(), d, result, nil)
 		require.NoError(t, err)
 		assert.Len(t, steps, 2)
 		assert.Equal(t, "step1", steps[0].Name)
@@ -2419,7 +2419,7 @@ func TestBuildSteps(t *testing.T) {
 			},
 		}
 		result := &ir.DAG{}
-		steps, err := buildSteps(testBuildContext(), d, result)
+		steps, err := buildSteps(testBuildContext(), d, result, nil)
 		require.NoError(t, err)
 		assert.Len(t, steps, 2)
 	})
@@ -2435,7 +2435,7 @@ func TestBuildSteps(t *testing.T) {
 			},
 		}
 		result := &ir.DAG{}
-		steps, err := buildSteps(testBuildContext(), d, result)
+		steps, err := buildSteps(testBuildContext(), d, result, nil)
 		require.NoError(t, err)
 		assert.Len(t, steps, 2)
 	})
@@ -2448,7 +2448,7 @@ func TestBuildSteps(t *testing.T) {
 			},
 		}
 		result := &ir.DAG{}
-		_, err := buildSteps(testBuildContext(), d, result)
+		_, err := buildSteps(testBuildContext(), d, result, nil)
 		require.Error(t, err)
 	})
 
@@ -2460,7 +2460,7 @@ func TestBuildSteps(t *testing.T) {
 			},
 		}
 		result := &ir.DAG{}
-		_, err := buildSteps(testBuildContext(), d, result)
+		_, err := buildSteps(testBuildContext(), d, result, nil)
 		require.Error(t, err)
 	})
 }
@@ -2840,7 +2840,7 @@ func TestBuildHandlers(t *testing.T) {
 			},
 		}
 		result := &ir.DAG{}
-		handlerOn, err := buildHandlers(testBuildContext(), d, result)
+		handlerOn, err := buildHandlers(testBuildContext(), d, result, nil)
 		require.NoError(t, err)
 		require.NotNil(t, handlerOn.Init)
 		require.Len(t, handlerOn.Init.Commands, 1)
@@ -2866,7 +2866,7 @@ func TestBuildHandlers(t *testing.T) {
 		t.Parallel()
 		d := &dag{}
 		result := &ir.DAG{}
-		handlerOn, err := buildHandlers(testBuildContext(), d, result)
+		handlerOn, err := buildHandlers(testBuildContext(), d, result, nil)
 		require.NoError(t, err)
 		assert.Nil(t, handlerOn.Init)
 		assert.Nil(t, handlerOn.Exit)
@@ -2884,7 +2884,7 @@ func TestBuildHandlers(t *testing.T) {
 			},
 		}
 		result := &ir.DAG{}
-		_, err := buildHandlers(testBuildContext(), d, result)
+		_, err := buildHandlers(testBuildContext(), d, result, nil)
 		require.Error(t, err)
 	})
 
@@ -2896,7 +2896,7 @@ func TestBuildHandlers(t *testing.T) {
 			},
 		}
 		result := &ir.DAG{}
-		_, err := buildHandlers(testBuildContext(), d, result)
+		_, err := buildHandlers(testBuildContext(), d, result, nil)
 		require.Error(t, err)
 	})
 
@@ -2908,7 +2908,7 @@ func TestBuildHandlers(t *testing.T) {
 			},
 		}
 		result := &ir.DAG{}
-		_, err := buildHandlers(testBuildContext(), d, result)
+		_, err := buildHandlers(testBuildContext(), d, result, nil)
 		require.Error(t, err)
 	})
 
@@ -2920,7 +2920,7 @@ func TestBuildHandlers(t *testing.T) {
 			},
 		}
 		result := &ir.DAG{}
-		_, err := buildHandlers(testBuildContext(), d, result)
+		_, err := buildHandlers(testBuildContext(), d, result, nil)
 		require.Error(t, err)
 	})
 
@@ -2932,7 +2932,7 @@ func TestBuildHandlers(t *testing.T) {
 			},
 		}
 		result := &ir.DAG{}
-		_, err := buildHandlers(testBuildContext(), d, result)
+		_, err := buildHandlers(testBuildContext(), d, result, nil)
 		require.Error(t, err)
 	})
 
@@ -2944,7 +2944,7 @@ func TestBuildHandlers(t *testing.T) {
 			},
 		}
 		result := &ir.DAG{}
-		handlerOn, err := buildHandlers(testBuildContext(), d, result)
+		handlerOn, err := buildHandlers(testBuildContext(), d, result, nil)
 		require.NoError(t, err)
 		require.NotNil(t, handlerOn.Wait)
 		require.Len(t, handlerOn.Wait.Commands, 1)
@@ -2960,7 +2960,7 @@ func TestBuildHandlers(t *testing.T) {
 			},
 		}
 		result := &ir.DAG{}
-		_, err := buildHandlers(testBuildContext(), d, result)
+		_, err := buildHandlers(testBuildContext(), d, result, nil)
 		require.Error(t, err)
 	})
 }

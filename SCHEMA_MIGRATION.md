@@ -253,7 +253,7 @@ steps:
         - account_id: acct_2
 ```
 
-`parallel:` currently requires `action: dag.run`.
+`parallel:` currently requires `action: dag.run` or `action: dag.enqueue`.
 
 ## Router
 
