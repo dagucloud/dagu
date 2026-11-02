@@ -78,6 +78,12 @@ function openInspector(
         (step) => step.textContent
       ),
     status: () => document.getElementById('run-status')?.textContent,
+    log: () => document.getElementById('log-output')?.textContent,
+    clickStepLog: (name: string) =>
+      Array.from(document.querySelectorAll('#steps .step'))
+        .find((row) => row.querySelector('.step-name')?.textContent === name)
+        ?.querySelector<HTMLButtonElement>('.step-log')
+        ?.click(),
     click: (id: string) =>
       (document.getElementById(id) as HTMLButtonElement).click(),
     button: (id: string) => document.getElementById(id) as HTMLButtonElement,
@@ -172,6 +178,132 @@ describe('run inspector', () => {
       },
       { name: 'dagu_read', arguments: { uri: runURI, server: 't1/42' } },
     ]);
+  });
+
+  it('sends the server with step logs, Logs, and Stop', async () => {
+    const inspector = openInspector(
+      { serverTools: {}, serverResources: {} },
+      (method, params) => {
+        const args = params?.arguments as Record<string, unknown>;
+        if (params?.name === 'dagu_execute') {
+          return {
+            structuredContent: fromCloud({ dagName: 'etl', dagRunId: 'r1' }),
+          };
+        }
+        if (args?.target === 'step_log') {
+          return {
+            structuredContent: fromCloud({
+              target: 'step_log',
+              stepName: 'load',
+              data: { stdoutContent: 'loaded 3 rows' },
+            }),
+          };
+        }
+        if (args?.uri === `${runURI}/logs`) {
+          return {
+            structuredContent: fromCloud({
+              target: 'run_logs',
+              data: { schedulerLog: { content: 'scheduler says hi' } },
+            }),
+          };
+        }
+        if (args?.uri === runURI) {
+          return {
+            structuredContent: fromCloud({
+              target: 'run',
+              data: normalizedRun('aborted'),
+            }),
+          };
+        }
+        throw new Error(`unexpected ${method}`);
+      }
+    );
+    await waitForInit(inspector);
+    inspector.notify('ui/notifications/tool-result', {
+      structuredContent: fromCloud({
+        target: 'run',
+        uri: runURI,
+        data: normalizedRun('running'),
+      }),
+    });
+    await vi.waitFor(() => expect(inspector.status()).toBe('running'));
+
+    inspector.clickStepLog('load');
+    await vi.waitFor(() => expect(inspector.log()).toBe('loaded 3 rows'));
+    inspector.click('logs');
+    await vi.waitFor(() => expect(inspector.log()).toBe('scheduler says hi'));
+    inspector.click('stop');
+    await vi.waitFor(() => expect(inspector.status()).toBe('aborted'));
+
+    const server = 't1/42';
+    expect(inspector.calls().map((call) => call.params)).toEqual([
+      {
+        name: 'dagu_read',
+        arguments: {
+          target: 'step_log',
+          name: 'etl',
+          dagRunId: 'r1',
+          stepName: 'load',
+          server,
+        },
+      },
+      { name: 'dagu_read', arguments: { uri: `${runURI}/logs`, server } },
+      {
+        name: 'dagu_execute',
+        arguments: {
+          action: 'stop',
+          targetType: 'run',
+          name: 'etl',
+          dagRunId: 'r1',
+          server,
+        },
+      },
+      { name: 'dagu_read', arguments: { uri: runURI, server } },
+    ]);
+  });
+
+  it('keeps no server from a call that named one', async () => {
+    const inspector = openInspector(
+      { serverTools: {}, serverResources: {} },
+      () => ({
+        contents: [
+          {
+            uri: runURI,
+            text: JSON.stringify({ dagRunDetails: normalizedRun('failed') }),
+          },
+        ],
+      })
+    );
+    await waitForInit(inspector);
+    inspector.notify('ui/notifications/tool-input', {
+      arguments: { target: 'run', server: 'prod', name: 'etl', dagRunId: 'r1' },
+    });
+    inspector.notify('ui/notifications/tool-result', {
+      structuredContent: fromCloud({
+        target: 'run',
+        uri: runURI,
+        data: normalizedRun('failed'),
+      }),
+    });
+    await vi.waitFor(() => expect(inspector.status()).toBe('failed'));
+
+    // A later call on the server's own MCP names no server.
+    inspector.notify('ui/notifications/tool-input', {
+      arguments: { target: 'run', name: 'etl', dagRunId: 'r1' },
+    });
+    inspector.notify('ui/notifications/tool-result', {
+      structuredContent: {
+        target: 'run',
+        uri: runURI,
+        data: normalizedRun('failed'),
+      },
+    });
+    inspector.click('refresh');
+    await vi.waitFor(() => expect(inspector.calls()).toHaveLength(1));
+    expect(inspector.calls()[0]).toMatchObject({
+      method: 'resources/read',
+      params: { uri: runURI },
+    });
   });
 
   it('reads the server resources of its own MCP', async () => {
