@@ -27,8 +27,10 @@ describe('DAGAttributes', () => {
 
     expect(screen.getByText('Schedule')).toBeInTheDocument();
     expect(screen.getByText('0 12 * * *')).toBeInTheDocument();
+    // The time shows in the zone that the server wrote it in, whatever the
+    // zone of the browser.
     expect(screen.getByText('Next run:').parentElement).toHaveTextContent(
-      /2026-04-03/
+      '2026-04-03 12:00:00'
     );
   });
 

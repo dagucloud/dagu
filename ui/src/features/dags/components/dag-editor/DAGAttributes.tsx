@@ -8,8 +8,8 @@ import { components } from '../../../../api/v1/schema';
 import { Badge } from '@/components/ui/badge';
 import { RelativeTime } from '@/components/ui/relative-time';
 import { useI18n } from '@/i18n/I18nProvider';
-import dayjs from '@/lib/dayjs';
 import {
+  formatFireTime,
   getScheduleKey,
   getScheduleLabel,
   parseNextRun,
@@ -26,13 +26,27 @@ type Props = {
 };
 
 /**
+ * The next run in the zone of its schedule, as the server writes it, and how
+ * soon it comes.
+ */
+function NextRun({ time, locale }: { time: string; locale: string }) {
+  const lang = locale === 'zh-CN' ? 'zh-cn' : locale;
+  const shown = formatFireTime(time, 'YYYY-MM-DD HH:mm:ss', lang);
+  return (
+    <>
+      {shown} (<RelativeTime timestamp={time} absolute={shown} />)
+    </>
+  );
+}
+
+/**
  * DAGAttributes displays the configuration of a DAG, such as its schedule
  * with its next run, its parameters and its run limits. The canvas also
  * draws the schedule as a launcher, but not for a graph without a start
  * step, such as an agent DAG.
  */
 function DAGAttributes({ dag }: Props) {
-  const { ts } = useI18n();
+  const { ts, locale } = useI18n();
   const labels = visibleLabels(dag);
   const envNames = envVariableNames(dag.env);
   const nextRun = parseNextRun(dag.nextRun);
@@ -67,11 +81,8 @@ function DAGAttributes({ dag }: Props) {
               <span className="font-medium text-foreground">
                 {ts('Next run:')}
               </span>{' '}
-              {nextRun ? (
-                <>
-                  {dayjs(nextRun).format('YYYY-MM-DD HH:mm:ss')} (
-                  <RelativeTime timestamp={dag.nextRun} />)
-                </>
+              {nextRun && dag.nextRun ? (
+                <NextRun time={dag.nextRun} locale={locale} />
               ) : (
                 ts('No upcoming run')
               )}

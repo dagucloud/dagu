@@ -93,7 +93,6 @@ export function RunDetailsContent({
           type="button"
           variant="ghost"
           size="xs"
-          aria-pressed={showingRunDef}
           onClick={() => {
             setUrl({ def: showingRunDef ? null : 'run' });
             onClose?.();

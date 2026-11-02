@@ -86,9 +86,16 @@ beforeEach(() => {
 // A bar under 672px hides the copy buttons, the labels and the description,
 // and a window under md the pin, Refresh and the webhook: the menu has them.
 describe('BarMoreMenu', () => {
-  it('shows only in a bar under 672px', () => {
+  it('shows in a bar under 672px or a window under md', () => {
     renderMenu();
-    expect(screen.getByTestId('ww-bar-more')).toHaveClass('@2xl:hidden');
+    expect(screen.getByTestId('ww-bar-more')).toHaveClass('md:@2xl:hidden');
+  });
+
+  // The workflow page is the run page: the menu leaves it out too.
+  it('has no run page entry', async () => {
+    renderMenu();
+    await openMenu();
+    expect(screen.queryByText('Open run page')).toBeNull();
   });
 
   it('copies the name and the link of the workflow', async () => {

@@ -18,6 +18,7 @@ import {
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
 import { useErrorModal } from '@/components/ui/error-modal';
+import { useSimpleToast } from '@/components/ui/simple-toast';
 import { useRemoteNode } from '@/contexts/RemoteNodeContext';
 import { setDAGPinned } from '@/features/dags/lib/dagPins';
 import { useClient } from '@/hooks/api';
@@ -36,14 +37,17 @@ import { useWorkflowShare } from './useWorkflowShare';
 const menuIcon = 'size-4 shrink-0';
 
 /**
- * The controls that a bar under 672px hides, in one menu: the copy of the
- * name and of the link, the pin, Refresh, the Workflow panel with the labels
- * and the description, and the webhook. A wider bar shows none of it.
+ * The controls that a narrow bar hides, in one menu: the copy of the name
+ * and of the link, the pin, Refresh, the Workflow panel with the labels and
+ * the description, and the webhook. A bar of 672px in a window of md or
+ * more shows them all and has no menu.
  */
 export function BarMoreMenu(props: BarSlotProps & { pinned?: boolean }) {
   const { ts } = useI18n();
   return (
-    <div data-testid="ww-bar-more" className="flex shrink-0 @2xl:hidden">
+    // The pin, Refresh and the webhook hide below md, the copy buttons and
+    // the labels in a bar under 672px: the menu shows while either does.
+    <div data-testid="ww-bar-more" className="flex shrink-0 md:@2xl:hidden">
       <DropdownMenu>
         <DropdownMenuTrigger asChild>
           <Button
@@ -79,7 +83,16 @@ function MoreMenuItems({
   const refresh = useWorkspaceRefresh();
   const onPinChanged = usePinChanged();
   const { getPageLink } = useWorkflowShare(fileName);
+  const { showToast } = useSimpleToast();
   const name = dag.name;
+
+  // The menu closes on the choice: a toast tells what the copy did.
+  const copy = async (text: string, done: string) => {
+    const ok = await copyText(text);
+    showToast(ts(ok ? done : 'Copy failed'), {
+      variant: ok ? 'success' : 'error',
+    });
+  };
 
   const togglePin = async () => {
     try {
@@ -95,13 +108,16 @@ function MoreMenuItems({
 
   return (
     <>
-      <DropdownMenuItem className="gap-2" onSelect={() => void copyText(name)}>
+      <DropdownMenuItem
+        className="gap-2"
+        onSelect={() => void copy(name, 'Name copied')}
+      >
         <Copy aria-hidden="true" className={menuIcon} />
         {ts('Copy name')}
       </DropdownMenuItem>
       <DropdownMenuItem
         className="gap-2"
-        onSelect={() => void copyText(getPageLink())}
+        onSelect={() => void copy(getPageLink(), 'Link copied')}
       >
         <Link2 aria-hidden="true" className={menuIcon} />
         {ts('Copy link to this workflow')}

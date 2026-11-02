@@ -600,7 +600,7 @@ describe('WorkflowWorkspace DAG management', () => {
       screen
         .getByRole('button', { name: 'More actions' })
         .closest('[data-testid="ww-bar-more"]')
-    ).toHaveClass('@2xl:hidden');
+    ).toHaveClass('md:@2xl:hidden');
     const user = userEvent.setup();
     await user.click(screen.getByRole('button', { name: 'Rename' }));
     expect(
