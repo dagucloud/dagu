@@ -14,6 +14,7 @@ import { cn } from '@/lib/utils';
 import type { BarSlotProps, DAGPageData } from '../contracts';
 import { useWorkspaceRefresh, useWorkspaceRun } from '../data';
 import { useDockCommands } from '../dock/DockContext';
+import { BarMoreMenu } from './BarMoreMenu';
 import { DAGIdentity } from './DAGIdentity';
 import { LabelChips } from './LabelChips';
 import { RunActionsCluster } from './RunActionsCluster';
@@ -207,6 +208,7 @@ export function WorkflowBar({
           />
         </div>
         <WorkflowDeleteButton {...slot} />
+        <BarMoreMenu {...slot} pinned={dagData.pinned} />
       </div>
     </div>
   );

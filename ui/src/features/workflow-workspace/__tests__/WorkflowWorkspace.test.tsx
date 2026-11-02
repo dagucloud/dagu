@@ -589,12 +589,18 @@ describe('WorkflowWorkspace contexts', () => {
 
 // parity:api-dag-management
 describe('WorkflowWorkspace DAG management', () => {
-  it('offers the pin, Rename and Delete in the bar, with no menu', async () => {
+  // A bar under 672px hides the controls of the identity: only there a
+  // menu holds them.
+  it('offers the pin, Rename and Delete in the bar, a menu only when narrow', async () => {
     renderAt('/dags/x');
     expect(
       screen.getByRole('button', { name: 'Pin workflow x' })
     ).toBeInTheDocument();
-    expect(screen.queryByRole('button', { name: 'More actions' })).toBeNull();
+    expect(
+      screen
+        .getByRole('button', { name: 'More actions' })
+        .closest('[data-testid="ww-bar-more"]')
+    ).toHaveClass('@2xl:hidden');
     const user = userEvent.setup();
     await user.click(screen.getByRole('button', { name: 'Rename' }));
     expect(
