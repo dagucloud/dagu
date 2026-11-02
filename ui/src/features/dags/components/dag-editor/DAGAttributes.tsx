@@ -26,12 +26,12 @@ type Props = {
 };
 
 /**
- * The next run in the zone of its schedule, as the server writes it, and how
- * soon it comes.
+ * The next run in the zone of its schedule, as the server writes it, with
+ * its offset, and how soon it comes.
  */
 function NextRun({ time, locale }: { time: string; locale: string }) {
   const lang = locale === 'zh-CN' ? 'zh-cn' : locale;
-  const shown = formatFireTime(time, 'YYYY-MM-DD HH:mm:ss', lang);
+  const shown = formatFireTime(time, 'YYYY-MM-DD HH:mm:ss Z', lang);
   return (
     <>
       {shown} (<RelativeTime timestamp={time} absolute={shown} />)

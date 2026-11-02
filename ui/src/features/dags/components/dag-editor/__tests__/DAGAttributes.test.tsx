@@ -27,10 +27,26 @@ describe('DAGAttributes', () => {
 
     expect(screen.getByText('Schedule')).toBeInTheDocument();
     expect(screen.getByText('0 12 * * *')).toBeInTheDocument();
-    // The time shows in the zone that the server wrote it in, whatever the
-    // zone of the browser.
     expect(screen.getByText('Next run:').parentElement).toHaveTextContent(
-      '2026-04-03 12:00:00'
+      '2026-04-03 12:00:00 +00:00'
+    );
+  });
+
+  // The server writes the next run in the zone of the schedule: it shows
+  // there, with its offset, whatever the zone of the browser.
+  it('shows the next run in the zone of its schedule', () => {
+    render(
+      <DAGAttributes
+        dag={{
+          name: 'tokyo',
+          schedule: [{ expression: '0 21 * * *', kind: ScheduleKind.cron }],
+          nextRun: '2026-04-03T21:00:00+09:00',
+        }}
+      />
+    );
+
+    expect(screen.getByText('Next run:').parentElement).toHaveTextContent(
+      '2026-04-03 21:00:00 +09:00'
     );
   });
 

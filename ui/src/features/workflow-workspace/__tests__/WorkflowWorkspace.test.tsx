@@ -589,8 +589,8 @@ describe('WorkflowWorkspace contexts', () => {
 
 // parity:api-dag-management
 describe('WorkflowWorkspace DAG management', () => {
-  // A bar under 672px hides the controls of the identity: only there a
-  // menu holds them.
+  // A window under md or a bar under 672px hides some controls of the bar:
+  // only then a menu holds them.
   it('offers the pin, Rename and Delete in the bar, a menu only when narrow', async () => {
     renderAt('/dags/x');
     expect(

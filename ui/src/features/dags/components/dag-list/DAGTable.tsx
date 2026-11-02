@@ -208,10 +208,11 @@ function DeleteDAGButton({
 }
 
 /**
- * The mark of the card that the overlay shows. card-obsidian is plain CSS,
- * which wins over the utility layer: the mark needs !important.
+ * The mark of the card that the overlay shows: PEEK_SHOWN_ROW with a tint.
+ * card-obsidian is plain CSS, which wins over the utility layer, so the
+ * mark needs !important; the class stays literal for the Tailwind scan.
  */
-const SHOWN_CARD = 'shadow-[inset_3px_0_0_0_var(--primary)]! bg-white/[0.04]!';
+const SHOWN_CARD = 'shadow-[inset_3px_0_0_0_var(--primary)]! bg-muted/20!';
 
 function DAGCard({
   dag,

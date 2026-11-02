@@ -355,7 +355,12 @@ function ActionsBody({ run, details, step }: RunTabProps) {
         <HumanTasksTab dagRun={details} onChanged={run.refresh} bare />
       )}
       {waitingApprovalNodes.length > 0 && (
-        <ApprovalTab dagRun={details} dagName={details.name} bare />
+        <ApprovalTab
+          dagRun={details}
+          dagName={details.name}
+          bare
+          onChanged={() => void run.refresh()}
+        />
       )}
     </div>
   );

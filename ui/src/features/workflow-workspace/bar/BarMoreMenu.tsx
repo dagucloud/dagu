@@ -86,12 +86,12 @@ function MoreMenuItems({
   const { showToast } = useSimpleToast();
   const name = dag.name;
 
-  // The menu closes on the choice: a toast tells what the copy did.
-  const copy = async (text: string, done: string) => {
-    const ok = await copyText(text);
-    showToast(ts(ok ? done : 'Copy failed'), {
-      variant: ok ? 'success' : 'error',
-    });
+  // The menu closes on the choice: a copy that fails says so. A success
+  // shows nothing, as everywhere in the app.
+  const copy = async (text: string) => {
+    if (!(await copyText(text))) {
+      showToast(ts('Copy failed'), { variant: 'error' });
+    }
   };
 
   const togglePin = async () => {
@@ -108,16 +108,13 @@ function MoreMenuItems({
 
   return (
     <>
-      <DropdownMenuItem
-        className="gap-2"
-        onSelect={() => void copy(name, 'Name copied')}
-      >
+      <DropdownMenuItem className="gap-2" onSelect={() => void copy(name)}>
         <Copy aria-hidden="true" className={menuIcon} />
         {ts('Copy name')}
       </DropdownMenuItem>
       <DropdownMenuItem
         className="gap-2"
-        onSelect={() => void copy(getPageLink(), 'Link copied')}
+        onSelect={() => void copy(getPageLink())}
       >
         <Link2 aria-hidden="true" className={menuIcon} />
         {ts('Copy link to this workflow')}

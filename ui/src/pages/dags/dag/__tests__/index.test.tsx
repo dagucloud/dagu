@@ -292,6 +292,7 @@ describe('DAGDetails page', () => {
       expect(
         screen.getByRole('heading', { name: "Couldn't load this run" })
       ).toBeVisible();
+      expect(screen.getByRole('button', { name: 'Try again' })).toBeVisible();
       expect(screen.queryByText('Run not found')).toBeNull();
     });
 
