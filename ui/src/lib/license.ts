@@ -210,12 +210,14 @@ export function licenseDaysLeft(
 }
 
 /**
- * The origin of the Dagu Console the license checks in with, or the public
+ * The base URL of the Dagu Console the license checks in with, or the public
  * console when the license names none.
  */
-export function consoleOrigin(license: LicenseStatus): string {
+export function consoleBaseURL(license: LicenseStatus): string {
   try {
-    return new URL(license.consoleUrl ?? '').origin;
+    // consoleUrl is the console's servers page, under its base URL.
+    const url = new URL(license.consoleUrl ?? '');
+    return url.origin + url.pathname.replace(/\/servers$/, '');
   } catch {
     return LICENSE_CONSOLE_URL;
   }

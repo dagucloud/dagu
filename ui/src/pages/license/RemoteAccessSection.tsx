@@ -66,7 +66,7 @@ function Row({ label, children }: { label: string; children: ReactNode }) {
 export function RemoteAccessSection({
   remoteAccess,
   remoteNode,
-  consoleOrigin,
+  consoleURL,
   showActivity,
   loadError,
   onRetry,
@@ -74,8 +74,8 @@ export function RemoteAccessSection({
 }: {
   remoteAccess?: LicenseRemoteAccess;
   remoteNode: string;
-  /** The Dagu Console that serves the MCP endpoint AI apps connect to. */
-  consoleOrigin: string;
+  /** The base URL of the Dagu Console whose MCP endpoint AI apps use. */
+  consoleURL: string;
   /** Lists recent calls, which audit logs record. */
   showActivity: boolean;
   loadError: boolean;
@@ -92,7 +92,7 @@ export function RemoteAccessSection({
   const on =
     remoteAccess !== undefined &&
     remoteAccess.level !== LicenseRemoteAccessLevel.off;
-  const mcpURL = `${consoleOrigin}/mcp`;
+  const mcpURL = `${consoleURL}/mcp`;
 
   async function change(next: {
     level?: LicenseRemoteAccessLevel;
@@ -234,7 +234,7 @@ export function RemoteAccessSection({
                   'Add the MCP URL to Claude, ChatGPT, or another AI app as a connector, then sign in to Dagu Cloud. Workspace owners choose what connected apps may do.'
                 )}
                 <a
-                  href={`${consoleOrigin}/ai-apps`}
+                  href={`${consoleURL}/ai-apps`}
                   target="_blank"
                   rel="noopener noreferrer"
                   className="inline-flex items-center gap-1 text-foreground underline underline-offset-2"

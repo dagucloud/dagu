@@ -4,6 +4,7 @@
 import { describe, expect, it } from 'vitest';
 import type { LicenseStatus } from '@/contexts/ConfigContext';
 import {
+  consoleBaseURL,
   hasActiveLicense,
   hasLicense,
   hasLicensedFeature,
@@ -84,5 +85,18 @@ describe('free license', () => {
       licenseStatus({ ...free, warningCode: 'MACHINE_LIMIT_EXCEEDED' }, now)
         .tone
     ).toBe('warning');
+  });
+});
+
+describe('console base URL', () => {
+  it.each([
+    ['https://console.dagu.sh/servers?server=srv-1', 'https://console.dagu.sh'],
+    [
+      'https://example.com/dagu-console/servers?server=srv-1',
+      'https://example.com/dagu-console',
+    ],
+    [undefined, 'https://console.dagu.sh'],
+  ])('reads %s as %s', (consoleUrl, base) => {
+    expect(consoleBaseURL({ ...team, consoleUrl })).toBe(base);
   });
 });
