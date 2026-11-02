@@ -254,3 +254,25 @@ func TestReplayTargetColumn(t *testing.T) {
 	assert.True(t, stillTargets(actions[0], gridPage("item code", "quantity"), nil))
 	assert.False(t, stillTargets(actions[0], gridPage("quantity", "item code"), nil))
 }
+
+// A table without a header row gives its inputs no column, even when
+// another table on the page has one.
+func TestReplayTargetColumnOwnTable(t *testing.T) {
+	t.Parallel()
+
+	snap := gridPage("item code", "quantity")
+	snap.Tree = strings.Replace(snap.Tree, "  [0-2] table\n", "  [o-1] table\n    [o-2] row\n      [o-3] columnheader: Other\n      [o-4] columnheader: Total\n  [0-2] table\n", 1)
+	snap.Tree = strings.NewReplacer("columnheader: Line", "cell: Line", "columnheader: item code", "cell: item code", "columnheader: quantity", "cell: quantity").Replace(snap.Tree)
+	actions := []recordedAction{{Selector: "xpath=/html[1]/body[1]/table[1]/tr[2]/td[2]/input[1]", Method: "fill"}}
+	identifyOn(snap, actions, nil)
+
+	assert.Empty(t, actions[0].Target.Column)
+}
+
+// A variable that only a column header holds is still used by the recording.
+func TestUnusedVariablesCountsColumn(t *testing.T) {
+	t.Parallel()
+
+	actions := []recordedAction{{Target: &recordedTarget{Role: "textbox", Column: "%column%"}}}
+	assert.Empty(t, unusedVariables("Fill the %column% field", actions))
+}

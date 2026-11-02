@@ -132,6 +132,9 @@ func (t pageTarget) column(variables map[string]string) string {
 			}
 		}
 		for _, table := range slices.Backward(t.path[:i-1]) {
+			if !slices.Contains(tableRoles, table.role) {
+				continue
+			}
 			for _, candidate := range descendants(table, "row") {
 				if headers := cellsOf(candidate); len(headers) > 0 && allHeaders(candidate) {
 					if index < len(headers) {
@@ -140,6 +143,7 @@ func (t pageTarget) column(variables map[string]string) string {
 					return ""
 				}
 			}
+			return ""
 		}
 		return ""
 	}
