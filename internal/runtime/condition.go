@@ -11,6 +11,8 @@ import (
 	"strings"
 
 	"github.com/dagucloud/dagu/v2/internal/cmn/cmdutil"
+	"github.com/dagucloud/dagu/v2/internal/cmn/logger"
+	"github.com/dagucloud/dagu/v2/internal/cmn/logger/tag"
 	"github.com/dagucloud/dagu/v2/internal/cmn/stringutil"
 	cmnvalue "github.com/dagucloud/dagu/v2/internal/cmn/value"
 	"github.com/dagucloud/dagu/v2/internal/ir"
@@ -46,6 +48,7 @@ func EvaluateConditions(ctx context.Context, shell []string, conditions []*ir.Co
 			if evalErr == nil && !errors.Is(err, ErrConditionNotMet) {
 				evalErr = err
 			}
+			logConditionFailure(ctx, conditions[i], err)
 		}
 	}
 
@@ -77,6 +80,24 @@ func EvaluateConditions(ctx context.Context, shell []string, conditions []*ir.Co
 	}
 
 	return results, err
+}
+
+// logConditionFailure logs a failed condition under the field it was authored
+// in, so the run log names each failing condition. Checks cut short by abort or
+// timeout are not logged, as the interruption decides the outcome.
+func logConditionFailure(ctx context.Context, c *ir.Condition, err error) {
+	if ctx.Err() != nil {
+		return
+	}
+	field := tag.String("condition", c.Condition)
+	if c.Eval != "" {
+		field = tag.String("eval", c.Eval)
+	}
+	msg := "Condition failed to evaluate"
+	if errors.Is(err, ErrConditionNotMet) {
+		msg = "Condition was not met"
+	}
+	logger.Info(ctx, msg, field, tag.Error(err))
 }
 
 func conditionResults(conditions []*ir.Condition) []ir.ConditionResult {

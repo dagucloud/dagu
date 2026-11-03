@@ -4,7 +4,9 @@
 package runtime_test
 
 import (
+	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
 	"os"
 	"path/filepath"
@@ -12,6 +14,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/dagucloud/dagu/v2/internal/cmn/logger"
 	cmnvalue "github.com/dagucloud/dagu/v2/internal/cmn/value"
 	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/runtime"
@@ -386,6 +389,47 @@ func TestEvalConditions_SiblingErrorWording(t *testing.T) {
 	require.ErrorIs(t, err, runtime.ErrConditionNotMet)
 	require.Equal(t, runtime.ErrMsgOtherConditionNotMet, results[0].Error)
 	require.NotEmpty(t, results[1].Error)
+}
+
+// Every failing condition is logged under its authored field, so the run log
+// shows which conditions stopped the owner, not only the deciding error.
+func TestEvalConditions_LogsFailedConditions(t *testing.T) {
+	var logs bytes.Buffer
+	ctx := logger.WithLogger(newTestContext(), logger.NewLogger(
+		logger.WithWriter(&logs), logger.WithFormat("json"), logger.WithQuiet(),
+	))
+
+	_, err := runtime.EvaluateConditions(ctx, nil, []*ir.Condition{
+		{Condition: "ready", Expected: "waiting"},
+		{Condition: "ok", Expected: "ok"},
+		{Eval: "abc", Expected: "num:>=0.8"},
+	})
+	require.Error(t, err)
+
+	type entry struct {
+		Msg       string `json:"msg"`
+		Condition string `json:"condition"`
+		Eval      string `json:"eval"`
+		Err       string `json:"err"`
+	}
+	// The bare test context also logs unrelated environment warnings.
+	var entries []entry
+	decoder := json.NewDecoder(&logs)
+	for decoder.More() {
+		var e entry
+		require.NoError(t, decoder.Decode(&e))
+		if e.Condition != "" || e.Eval != "" {
+			entries = append(entries, e)
+		}
+	}
+
+	require.Len(t, entries, 2)
+	require.Equal(t, "Condition was not met", entries[0].Msg)
+	require.Equal(t, "ready", entries[0].Condition)
+	require.Contains(t, entries[0].Err, `expected "waiting", got "ready"`)
+	require.Equal(t, "Condition failed to evaluate", entries[1].Msg)
+	require.Equal(t, "abc", entries[1].Eval)
+	require.Contains(t, entries[1].Err, "num:>=0.8")
 }
 
 func TestEvalConditions_ValueMatchEvalRunsCommandSubstitution(t *testing.T) {
