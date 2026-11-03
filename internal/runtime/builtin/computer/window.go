@@ -4,9 +4,12 @@
 package computer
 
 import (
+	"bytes"
 	"context"
 	"fmt"
 	"image"
+	"image/draw"
+	"image/png"
 	"os"
 	"strings"
 	"time"
@@ -99,6 +102,30 @@ func (v view) targetPrint(img *image.RGBA, at image.Point) desktop.Fingerprint {
 	return desktop.FingerprintAround(v.region(img), at, targetRadius(v.rect))
 }
 
+// targetArea is the square around a display position, inside the view.
+func (v view) targetArea(img *image.RGBA, at image.Point) *image.RGBA {
+	r := targetRadius(v.rect)
+	return desktop.Crop(v.region(img), image.Rect(at.X-r, at.Y-r, at.X+r, at.Y+r))
+}
+
+// targetStill reports whether the square around a display position shows the
+// recorded picture, but for a few pixels. A recording that cannot be read
+// shows nothing to trust, so it is not still.
+func (v view) targetStill(img *image.RGBA, at image.Point, recorded []byte) bool {
+	decoded, err := png.Decode(bytes.NewReader(recorded))
+	if err != nil {
+		return false
+	}
+	before := image.NewRGBA(decoded.Bounds())
+	draw.Draw(before, before.Bounds(), decoded, decoded.Bounds().Min, draw.Src)
+	now := v.targetArea(img, at)
+	if before.Bounds().Size() != now.Bounds().Size() {
+		return false
+	}
+	size := now.Bounds().Size()
+	return desktop.ChangedPixels(before, now) <= max(targetStillPixels, size.X*size.Y/targetStillShare)
+}
+
 // relative moves an action from display pixels to the view's own.
 func (v view) relative(action computeruse.Action) computeruse.Action {
 	if v.window == nil {
@@ -122,6 +149,9 @@ func (v view) place(rec recordedAction, seen *image.RGBA) recordedAction {
 	if at, ok := target(rec.Action); ok {
 		fingerprint := v.targetPrint(seen, at)
 		rec.Target = &fingerprint
+		if pixels, err := desktop.EncodePNG(v.targetArea(seen, at)); err == nil {
+			rec.TargetPixels = pixels
+		}
 	}
 	rec.Action = v.relative(rec.Action)
 	return rec
