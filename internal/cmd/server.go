@@ -357,7 +357,7 @@ func cloudReportQueues(ctx *Context) cloudreport.Queues {
 		Runs:   ctx.Persistence.DAGRunRepository,
 		Capacity: func(name string) int {
 			// A DAG's own queue runs one at a time; a global queue as
-			// configured.
+			// configured, at least one.
 			if q := ctx.Config.FindQueueConfig(name); q != nil {
 				return q.MaxActiveRuns
 			}

@@ -79,6 +79,7 @@ func TestQueuesListWhatWaitsAndRuns(t *testing.T) {
 		Leases: fakeLeases{
 			{DAGRun: ir.NewDAGRunRef("report", "b0"), QueueName: "batch", LastHeartbeatAt: now.UnixMilli()},
 			{DAGRun: ir.NewDAGRunRef("etl", "e0"), QueueName: "etl", LastHeartbeatAt: now.Add(-time.Hour).UnixMilli()},
+			{DAGRun: ir.NewDAGRunRef("busy", "u1"), QueueName: "busy", LastHeartbeatAt: now.UnixMilli()},
 		},
 		Runs: runs,
 		Capacity: func(name string) int {
@@ -105,8 +106,22 @@ func TestQueuesListWhatWaitsAndRuns(t *testing.T) {
 		{Name: "batch", Queued: 1, Running: 1, MaxActive: 2, NextQueuedAt: "set"},
 		{Name: "busy", Queued: 1, Running: 1, MaxActive: 1, NextQueuedAt: "set"},
 		{Name: "idle", Running: 1, MaxActive: 1},
-	}, queues, "a stale lease counts no run")
+	}, queues, "a stale lease counts no run, and a run on the server counts once")
 	assert.ElementsMatch(t, []string{"e1", "b1"}, runs.opened, "only queues with room are asked why they wait")
+}
+
+// A queue configured to run none at once runs one, as the scheduler runs
+// it.
+func TestQueuesRunAtLeastOneAtOnce(t *testing.T) {
+	t.Parallel()
+	s := newTestQueueStore(t)
+	enqueue(t, s, "batch", "report", "b1")
+
+	queues, _, ok := Queues{Store: s, Capacity: func(string) int { return 0 }}.read(context.Background(), time.Now())
+
+	require.True(t, ok)
+	require.Len(t, queues, 1)
+	assert.Equal(t, 1, queues[0].MaxActive)
 }
 
 // A queue whose next run has not waited long is not asked why.

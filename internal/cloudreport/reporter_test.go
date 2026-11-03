@@ -104,15 +104,20 @@ func TestReportCarriesRemoteAccess(t *testing.T) {
 	assert.Equal(t, true, body.Health["remote_approvals"])
 }
 
-// fakeQueueStore sums up one queue, and counts how often it was read.
+// fakeQueueStore sums up its queues, and counts how often it was read.
 type fakeQueueStore struct {
-	reads int
+	queues []queue.Summary
+	reads  int
 }
 
 func (s *fakeQueueStore) Summaries(context.Context) ([]queue.Summary, error) {
 	s.reads++
-	return []queue.Summary{{Name: "etl", Queued: 3, NextQueuedAt: testClockStart.Add(-time.Minute)}}, nil
+	return s.queues, nil
 }
+
+// etlQueue is a queue whose next run was queued a minute before the clock
+// starts.
+var etlQueue = queue.Summary{Name: "etl", Queued: 3, NextQueuedAt: testClockStart.Add(-time.Minute)}
 
 func (s *fakeQueueStore) ListCursor(context.Context, string, string, int) (pagination.CursorResult[queue.QueuedItemData], error) {
 	return pagination.CursorResult[queue.QueuedItemData]{}, nil
@@ -129,7 +134,7 @@ func TestReportCarriesQueuesAtRuns(t *testing.T) {
 		t.Run(string(tc.level), func(t *testing.T) {
 			t.Parallel()
 			console := newFakeConsole(t)
-			queues := &fakeQueueStore{}
+			queues := &fakeQueueStore{queues: []queue.Summary{etlQueue}}
 			r := newReporter(console.credentials, nil, fixedLevel(tc.level))
 			r.queues = Queues{Store: queues}
 			clock := startReporter(t.Context(), t, r, noJitter)
@@ -152,18 +157,26 @@ func TestReportCarriesQueuesAtRuns(t *testing.T) {
 	}
 }
 
-// Reports sent within a minute of a read of the queues reuse it.
+// Reports sent within a minute of a read of the queues reuse it; a later
+// read leaves what an earlier report was given as it was. A read that
+// finds no busy queue is sent as an empty list.
 func TestReportReadsQueuesAtMostEveryMinute(t *testing.T) {
 	t.Parallel()
-	queues := &fakeQueueStore{}
+	queues := &fakeQueueStore{queues: []queue.Summary{etlQueue}}
 	r := newReporter(nil, nil, fixedLevel(config.ReportRuns))
 	r.queues = Queues{Store: queues}
 
-	r.readQueues(t.Context(), testClockStart)
+	_, first := r.readQueues(t.Context(), testClockStart)
 	r.readQueues(t.Context(), testClockStart.Add(queuesEvery/2))
 	assert.Equal(t, 1, queues.reads)
-	r.readQueues(t.Context(), testClockStart.Add(queuesEvery))
+	queues.queues = nil
+	listed, _ := r.readQueues(t.Context(), testClockStart.Add(queuesEvery))
 	assert.Equal(t, 2, queues.reads)
+	assert.Equal(t, 1, *first)
+
+	body, err := json.Marshal(health{Queues: listed, QueuesTotal: new(0)})
+	require.NoError(t, err)
+	assert.Contains(t, string(body), `"queues":[]`)
 }
 
 func TestReportWithoutServices(t *testing.T) {

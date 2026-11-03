@@ -47,7 +47,8 @@ type Queues struct {
 	Leases LeaseLister
 	// Runs opens a queued run's attempt, to read why it cannot start.
 	Runs RunFinder
-	// Capacity is how many runs of the queue may run at once.
+	// Capacity is how many runs of the queue may run at once; a queue runs
+	// at least one, as the scheduler does.
 	Capacity func(queue string) int
 }
 
@@ -144,9 +145,11 @@ func (q Queues) read(ctx context.Context, now time.Time) ([]queueHealth, int, bo
 }
 
 // running counts the runs in progress on the server's processes and on
-// distributed workers, by queue. What cannot be read counts none.
+// distributed workers, by queue, each run once. What cannot be read counts
+// none.
 func (q Queues) running(ctx context.Context, now time.Time) map[string]int {
 	counts := make(map[string]int)
+	local := make(map[string]struct{})
 	if q.Procs != nil {
 		alive, err := q.Procs.ListAllAlive(ctx)
 		if err != nil {
@@ -154,6 +157,9 @@ func (q Queues) running(ctx context.Context, now time.Time) map[string]int {
 		}
 		for name, runs := range alive {
 			counts[name] += len(runs)
+			for _, run := range runs {
+				local[run.ID] = struct{}{}
+			}
 		}
 	}
 	if q.Leases != nil {
@@ -162,7 +168,7 @@ func (q Queues) running(ctx context.Context, now time.Time) map[string]int {
 			logger.Debug(ctx, "Failed to read the distributed runs for the server report", tag.Error(err))
 		}
 		for _, lease := range leases {
-			if lease.IsFresh(now, dagrun.DefaultStaleLeaseThreshold) {
+			if _, counted := local[lease.DAGRun.ID]; !counted && lease.IsFresh(now, dagrun.DefaultStaleLeaseThreshold) {
 				counts[cmp.Or(lease.QueueName, lease.DAGRun.Name)]++
 			}
 		}
@@ -232,7 +238,7 @@ func (q Queues) capacity(name string) int {
 	if q.Capacity == nil {
 		return 1
 	}
-	return q.Capacity(name)
+	return max(q.Capacity(name), 1)
 }
 
 // compareBlocked orders a queue whose next run cannot start first.

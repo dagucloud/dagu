@@ -606,7 +606,7 @@ type health struct {
 	// Queues are the queues that hold queued or running runs, up to
 	// maxQueues, and QueuesTotal counts them all; both are left out below
 	// runs, and while the queues cannot be read.
-	Queues      []queueHealth `json:"queues,omitempty"`
+	Queues      []queueHealth `json:"queues,omitzero"`
 	QueuesTotal *int          `json:"queues_total,omitempty"`
 	// RemoteAccess is the highest role calls from Dagu Cloud get, and
 	// RemoteApprovals whether they may decide waiting steps. Both are left
@@ -723,7 +723,10 @@ func (r *Reporter) readQueues(ctx context.Context, now time.Time) ([]queueHealth
 		}
 		r.queueRead = queueRead{queues: queues, total: total, at: now}
 	}
-	return r.queueRead.queues, &r.queueRead.total
+	// The total is copied, so the report sent keeps its own as the next
+	// read replaces this one.
+	total := r.queueRead.total
+	return r.queueRead.queues, &total
 }
 
 // services counts the schedulers holding the scheduler lock and the
