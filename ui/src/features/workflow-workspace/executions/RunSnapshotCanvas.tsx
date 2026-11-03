@@ -36,9 +36,7 @@ import { CanvasOverlayInsetContext } from '@/features/visual-editor/canvas/overl
 import type { CodeEditorLike } from '@/features/visual-editor/useEditSession';
 import type { VisualEditorValidation } from '@/features/visual-editor/VisualEditor';
 import type {
-  ApiStep,
   EditorHostProps,
-  HandlerEvent,
   RunSource,
   StepCommand,
   StepCommandGates,
@@ -61,6 +59,7 @@ import {
 } from '../state/workspaceUrl';
 import { StepRunTabs } from '../step/StepRunTabs';
 import { useStepRunActions } from '../step/useStepRunActions';
+import { runDagDetails } from './runDagDetails';
 import { useRunReferenceScope } from './useRunReferenceScope';
 import { useRunSpec, type RunSpec } from './useRunSpec';
 
@@ -79,41 +78,6 @@ const CHROME_NDV_OPEN: EditorHostProps['chrome'] = {
 };
 const NO_ACTIONS: never[] = [];
 const ignoreText = () => undefined;
-
-// The step that stands for the agent in the runs of an agent DAG.
-const AGENT_RUN_STEP = '__agent__';
-
-const RUN_HANDLERS: readonly [keyof ApiDAGRunDetails, HandlerEvent][] = [
-  ['onInit', 'init'],
-  ['onWait', 'wait'],
-  ['onSuccess', 'success'],
-  ['onFailure', 'failure'],
-  ['onAbort', 'abort'],
-  ['onExit', 'exit'],
-];
-
-/**
- * The DAG as the run saw it, for the names of the steps: the canvas then
- * gives unnamed steps the names of the run.
- */
-export function runDagDetails(
-  details: ApiDAGRunDetails,
-  dagName: string
-): ApiDAGDetails {
-  const handlerOn: Partial<Record<HandlerEvent, ApiStep>> = {};
-  for (const [field, event] of RUN_HANDLERS) {
-    const node = details[field] as { step: ApiStep } | undefined;
-    if (node) handlerOn[event] = node.step;
-  }
-  return {
-    name: details.name || dagName,
-    steps: (details.nodes ?? [])
-      .map((node) => node.step)
-      .filter((step) => step.name !== AGENT_RUN_STEP),
-    handlerOn,
-    tasks: details.agentTasks,
-  } as ApiDAGDetails;
-}
 
 export interface RunSnapshotCanvasProps {
   /** Defaults to the workspace file. */
