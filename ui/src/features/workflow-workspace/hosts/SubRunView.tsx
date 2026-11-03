@@ -49,11 +49,8 @@ import {
 } from '../step/StepLogPane';
 import { StepManualActions } from '../step/StepManualActions';
 import type { StepRunTarget } from '../step/StepRunView';
-import {
-  allSubRunsOf,
-  renderParallelPicker,
-  useSubRunOpener,
-} from '../step/useStepRunActions';
+import { StepSubRunStrip } from '../step/StepSubRunStrip';
+import { allSubRunsOf, useStepSubRunsOpener } from '../step/useStepRunActions';
 import { Z } from '../zLayers';
 
 const DetailsCanvas = lazy(
@@ -108,16 +105,13 @@ export function SubRunView({
       run.nodes.find((node) => node.status === NodeStatus.Waiting)?.step.name ??
       null
   );
-  const [picker, setPicker] = useState<ApiNode | null>(null);
-  const openSubRun = useSubRunOpener();
+  const subRuns = useStepSubRunsOpener();
   const nodeOf = (step: string) =>
     run.nodes.find((node) => node.step.name === step);
 
   const openStep = (step: string) => {
     const node = nodeOf(step);
-    const children = allSubRunsOf(node).length;
-    if (node && children === 1) openSubRun({ node, index: 0, holder: run });
-    else if (node && children > 1) setPicker(node);
+    if (node && allSubRunsOf(node).length > 0) subRuns.open(node, run);
     else setPicked(step);
   };
 
@@ -158,11 +152,7 @@ export function SubRunView({
         )}
       </div>
       <SubRunActivity run={run} />
-      {renderParallelPicker(
-        picker ? { node: picker, holder: run } : null,
-        () => setPicker(null),
-        openSubRun
-      )}
+      {subRuns.picker}
     </div>
   );
 }
@@ -363,26 +353,31 @@ function RunStepPane({
             />
           </div>
         ) : (
-          <StepLog
-            dagName={run.name}
-            dagRunId={run.dagRunId}
-            stepName={step}
-            dagRun={run}
-            node={node}
-            stream={stream}
-            onStreamShown={setStream}
-            toolbarExtra={
-              <LogPageLink
-                to={stepLogPageURL({
-                  fileName,
-                  holder: run,
-                  remoteNode,
-                  step,
-                  stream,
-                })}
+          <div className="flex h-full min-h-0 flex-col">
+            <StepSubRunStrip node={node} holder={run} />
+            <div className="min-h-0 flex-1">
+              <StepLog
+                dagName={run.name}
+                dagRunId={run.dagRunId}
+                stepName={step}
+                dagRun={run}
+                node={node}
+                stream={stream}
+                onStreamShown={setStream}
+                toolbarExtra={
+                  <LogPageLink
+                    to={stepLogPageURL({
+                      fileName,
+                      holder: run,
+                      remoteNode,
+                      step,
+                      stream,
+                    })}
+                  />
+                }
               />
-            }
-          />
+            </div>
+          </div>
         )}
       </div>
     </aside>

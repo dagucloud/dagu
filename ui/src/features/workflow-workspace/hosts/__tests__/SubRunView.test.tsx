@@ -249,4 +249,22 @@ describe('SubRunView', () => {
       dagRunId: 'g-1',
     });
   });
+
+  // The log of a step that ran sub-runs holds their summary (#3488).
+  it('opens the sub-run of a step from its log', async () => {
+    const push = renderView();
+
+    fireEvent.click(
+      await screen.findByRole('button', { name: 'call-grandchild' })
+    );
+    expect(screen.getByTestId('ww-step-sub-runs')).toHaveTextContent(
+      'This step ran grandchild as a sub-run.'
+    );
+    fireEvent.click(screen.getByRole('button', { name: 'Open sub-run' }));
+
+    expect(push).toHaveBeenCalledWith({
+      name: 'grandchild',
+      dagRunId: 'g-1',
+    });
+  });
 });
