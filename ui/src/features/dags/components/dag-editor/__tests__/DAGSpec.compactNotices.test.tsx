@@ -928,3 +928,68 @@ describe('DAGSpec compact notices: draft recovery', () => {
     ).not.toBeInTheDocument();
   });
 });
+
+// The tab of a child workflow shows its definition, not a run: each step of
+// the shown run that ran the child leads to its sub-runs (#3488).
+describe('DAGSpec compact notices: sub-runs of a child workflow', () => {
+  const twoDocs =
+    'steps:\n  - name: fan\n    call: child\n---\nname: child\nsteps:\n  - name: load\n    run: echo\n';
+  type Props = React.ComponentProps<typeof DAGSpec>;
+
+  async function renderWithRun(onStepCommand = vi.fn()) {
+    mocks.useQuery.mockReturnValue(specData({ spec: twoDocs }));
+    await renderSpec({
+      localDags: [
+        {
+          name: 'child',
+          dag: { name: 'child', steps: [{ name: 'load' }] },
+          errors: [],
+        },
+      ] as Props['localDags'],
+      runSource: {
+        runId: 'r1',
+        details: {
+          name: 'example',
+          dagRunId: 'r1',
+          nodes: [
+            {
+              step: { name: 'fan', call: 'child' },
+              subRuns: [
+                { dagRunId: 'c1', dagName: 'child' },
+                { dagRunId: 'c2', dagName: 'child' },
+              ],
+            },
+            { step: { name: 'other', call: 'child' } },
+          ],
+        } as unknown as NonNullable<Props['runSource']>['details'],
+      },
+      onStepCommand,
+      stepCommandGates: {
+        canRunStep: false,
+        canRetry: () => false,
+        canSetStatus: () => false,
+        hasSubRuns: (step) => step === 'fan',
+      },
+    });
+    return onStepCommand;
+  }
+
+  it('leads to the sub-runs of the child in the shown run', async () => {
+    const onStepCommand = await renderWithRun();
+    expect(screen.queryByText(/ran this workflow/)).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('tab', { name: 'child' }));
+    await settle();
+
+    expect(
+      screen.getByText(
+        'Step fan of the selected run ran this workflow 2 times.'
+      )
+    ).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'Choose sub-run' }));
+    expect(onStepCommand).toHaveBeenCalledWith({
+      kind: 'openSubRun',
+      step: 'fan',
+    });
+  });
+});
