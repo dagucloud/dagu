@@ -14,7 +14,6 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/dagrun"
 	"github.com/dagucloud/dagu/v2/internal/dispatch"
 	"github.com/dagucloud/dagu/v2/internal/ir"
-	"github.com/dagucloud/dagu/v2/internal/pagination"
 	"github.com/dagucloud/dagu/v2/internal/queue"
 )
 
@@ -39,7 +38,7 @@ const (
 // tells. A report whose read of the queues or of the runs in progress
 // fails leaves the queues out, rather than send counts that are short.
 type Queues struct {
-	// Store sums up the queues that hold queued runs, and lists a queue's
+	// Store sums up the queues that hold queued runs, and reads a queue's
 	// next run in line.
 	Store QueueStore
 	// Procs lists the runs in progress on the server's own processes, by
@@ -53,11 +52,11 @@ type Queues struct {
 	Capacity func(queue string) int
 }
 
-// QueueStore sums up the queues that hold queued runs and lists a queue's
-// queued runs in the order they start.
+// QueueStore sums up the queues that hold queued runs and reads a queued
+// run by its item ID.
 type QueueStore interface {
 	queue.Summarizer
-	ListCursor(ctx context.Context, name, cursor string, limit int) (pagination.CursorResult[queue.QueuedItemData], error)
+	GetByItemID(ctx context.Context, name, itemID string) (queue.QueuedItemData, error)
 }
 
 // ProcLister lists the runs in progress on the server's own processes, by
@@ -86,6 +85,10 @@ type queueHealth struct {
 	MaxActive     int    `json:"max_active"`
 	NextQueuedAt  string `json:"next_queued_at,omitempty"`
 	BlockedReason string `json:"blocked_reason,omitempty"`
+
+	// next is the next run in line, by its item ID and when it was queued.
+	next   string
+	nextAt time.Time
 }
 
 // queueRead is one read of the queues, when it was made, and what it asked
@@ -98,13 +101,13 @@ type queueRead struct {
 }
 
 // reasonChecks are, by queue, why its next run waited when a read last
-// asked, when it asked, and that run, by when it was queued.
+// asked, when it asked, and that run's item ID.
 type reasonChecks map[string]reasonCheck
 
 type reasonCheck struct {
 	reason string
 	at     time.Time
-	next   time.Time
+	next   string
 }
 
 // read lists the queues that hold queued or running runs as of now, up to
@@ -122,7 +125,6 @@ func (q Queues) read(ctx context.Context, now time.Time, checks reasonChecks) (q
 		return queueRead{}, false
 	}
 	byName := make(map[string]*queueHealth, len(summaries)+len(running))
-	next := make(map[string]time.Time, len(summaries))
 	add := func(name string) *queueHealth {
 		h, ok := byName[name]
 		if !ok {
@@ -133,9 +135,9 @@ func (q Queues) read(ctx context.Context, now time.Time, checks reasonChecks) (q
 	}
 	for _, s := range summaries {
 		h := add(s.Name)
-		h.Queued = s.Queued
+		h.Queued, h.next, h.nextAt = s.Queued, s.Next, s.NextQueuedAt
 		if !s.NextQueuedAt.IsZero() {
-			next[s.Name], h.NextQueuedAt = s.NextQueuedAt, formatTime(s.NextQueuedAt)
+			h.NextQueuedAt = formatTime(s.NextQueuedAt)
 		}
 	}
 	for name, n := range running {
@@ -148,11 +150,11 @@ func (q Queues) read(ctx context.Context, now time.Time, checks reasonChecks) (q
 			queues = append(queues, *h)
 		}
 	}
-	checks = q.explain(ctx, queues, next, now, checks)
+	checks = q.explain(ctx, queues, now, checks)
 	slices.SortFunc(queues, func(a, b queueHealth) int {
 		return cmp.Or(
 			cmp.Compare(queueRank(a), queueRank(b)),
-			compareWaiting(next[a.Name], next[b.Name]),
+			compareWaiting(a.nextAt, b.nextAt),
 			cmp.Compare(a.Name, b.Name),
 		)
 	})
@@ -204,8 +206,7 @@ func (q Queues) running(ctx context.Context, now time.Time) (map[string]int, boo
 // others keep the answer an earlier read got of the same next run. A queue
 // whose next run changed counts as not asked. It returns what it and
 // earlier reads asked of the queues still waiting.
-func (q Queues) explain(ctx context.Context, queues []queueHealth, next map[string]time.Time, now time.Time,
-	prev reasonChecks) reasonChecks {
+func (q Queues) explain(ctx context.Context, queues []queueHealth, now time.Time, prev reasonChecks) reasonChecks {
 	checks := make(reasonChecks)
 	if q.Runs == nil {
 		return checks
@@ -213,33 +214,28 @@ func (q Queues) explain(ctx context.Context, queues []queueHealth, next map[stri
 	var waiting []*queueHealth
 	for i := range queues {
 		h := &queues[i]
-		at, ok := next[h.Name]
-		if ok && h.Queued > 0 && h.Running < h.MaxActive && now.Sub(at) >= reasonAfter {
+		if h.next != "" && h.Running < h.MaxActive && now.Sub(h.nextAt) >= reasonAfter {
 			waiting = append(waiting, h)
 		}
 	}
-	asked := func(name string) (reasonCheck, bool) {
-		c, ok := prev[name]
-		return c, ok && c.next.Equal(next[name])
+	asked := func(h *queueHealth) (reasonCheck, bool) {
+		c, ok := prev[h.Name]
+		return c, ok && c.next == h.next
 	}
-	askedAt := func(name string) time.Time {
-		if c, ok := asked(name); ok {
+	askedAt := func(h *queueHealth) time.Time {
+		if c, ok := asked(h); ok {
 			return c.at
 		}
 		return time.Time{}
 	}
 	slices.SortFunc(waiting, func(a, b *queueHealth) int {
-		return cmp.Or(
-			askedAt(a.Name).Compare(askedAt(b.Name)),
-			next[a.Name].Compare(next[b.Name]),
-			cmp.Compare(a.Name, b.Name),
-		)
+		return cmp.Or(askedAt(a).Compare(askedAt(b)), a.nextAt.Compare(b.nextAt), cmp.Compare(a.Name, b.Name))
 	})
 	for i, h := range waiting {
 		if i < maxQueueReasons {
-			h.BlockedReason = q.blockedReason(ctx, h.Name)
-			checks[h.Name] = reasonCheck{reason: h.BlockedReason, at: now, next: next[h.Name]}
-		} else if c, ok := asked(h.Name); ok {
+			h.BlockedReason = q.blockedReason(ctx, h)
+			checks[h.Name] = reasonCheck{reason: h.BlockedReason, at: now, next: h.next}
+		} else if c, ok := asked(h); ok {
 			h.BlockedReason = c.reason
 			checks[h.Name] = c
 		}
@@ -249,20 +245,22 @@ func (q Queues) explain(ctx context.Context, queues []queueHealth, next map[stri
 
 // blockedReason is why the queue's next run cannot start for want of a
 // worker, or "" when its status says nothing of it or cannot be read.
-func (q Queues) blockedReason(ctx context.Context, name string) string {
-	reason, err := q.readBlockedReason(ctx, name)
+func (q Queues) blockedReason(ctx context.Context, h *queueHealth) string {
+	reason, err := q.readBlockedReason(ctx, h)
 	if err != nil {
-		logger.Debug(ctx, "Failed to read why a queue's next run waits for the server report", tag.Queue(name), tag.Error(err))
+		logger.Debug(ctx, "Failed to read why a queue's next run waits for the server report", tag.Queue(h.Name), tag.Error(err))
 	}
 	return reason
 }
 
-func (q Queues) readBlockedReason(ctx context.Context, name string) (string, error) {
-	page, err := q.Store.ListCursor(ctx, name, "", 1)
-	if err != nil || len(page.Items) == 0 {
+// readBlockedReason reads the queue's next run as summed up, so the answer
+// is about the run its check names.
+func (q Queues) readBlockedReason(ctx context.Context, h *queueHealth) (string, error) {
+	item, err := q.Store.GetByItemID(ctx, h.Name, h.next)
+	if err != nil {
 		return "", err
 	}
-	ref, err := page.Items[0].Data()
+	ref, err := item.Data()
 	if err != nil || ref == nil {
 		return "", err
 	}

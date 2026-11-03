@@ -303,7 +303,7 @@ func (s *QueueStore) Summaries(ctx context.Context) ([]queue.Summary, error) {
 	summaries := make([]queue.Summary, 0, len(counts))
 	for _, name := range slices.Sorted(maps.Keys(counts)) {
 		_, queuedAt := queueItemMetadata(next[name], time.Time{})
-		summaries = append(summaries, queue.Summary{Name: name, Queued: counts[name], NextQueuedAt: queuedAt})
+		summaries = append(summaries, queue.Summary{Name: name, Queued: counts[name], Next: next[name], NextQueuedAt: queuedAt})
 	}
 	return summaries, nil
 }

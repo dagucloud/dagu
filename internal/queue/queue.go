@@ -46,11 +46,12 @@ type QueueStore interface {
 	QueueWatcher(ctx context.Context) QueueWatcher
 }
 
-// Summary is one queue that holds queued items: how many wait, and when the
-// next of them in line was queued.
+// Summary is one queue that holds queued items: how many wait, and the
+// next of them in line, by its item ID and when it was queued.
 type Summary struct {
 	Name         string
 	Queued       int
+	Next         string
 	NextQueuedAt time.Time
 }
 

@@ -23,7 +23,6 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/cmn/config"
 	"github.com/dagucloud/dagu/v2/internal/cmn/logger"
 	"github.com/dagucloud/dagu/v2/internal/license"
-	"github.com/dagucloud/dagu/v2/internal/pagination"
 	"github.com/dagucloud/dagu/v2/internal/queue"
 	"github.com/dagucloud/dagu/v2/internal/serviceregistry"
 	"github.com/stretchr/testify/assert"
@@ -119,8 +118,8 @@ func (s *fakeQueueStore) Summaries(context.Context) ([]queue.Summary, error) {
 // starts.
 var etlQueue = queue.Summary{Name: "etl", Queued: 3, NextQueuedAt: testClockStart.Add(-time.Minute)}
 
-func (s *fakeQueueStore) ListCursor(context.Context, string, string, int) (pagination.CursorResult[queue.QueuedItemData], error) {
-	return pagination.CursorResult[queue.QueuedItemData]{}, nil
+func (s *fakeQueueStore) GetByItemID(context.Context, string, string) (queue.QueuedItemData, error) {
+	return nil, queue.ErrQueueItemNotFound
 }
 
 // Reports at runs carry the queues; reports at health carry none.

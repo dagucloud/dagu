@@ -7,6 +7,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -113,11 +114,12 @@ func TestQueuesListWhatWaitsAndRuns(t *testing.T) {
 	assert.Equal(t, 5, read.total)
 	queues := read.queues
 	// When the next runs were queued depends on the clock; only whether a
-	// queue says so is compared.
+	// queue says so is compared, and only what a report sends.
 	for i := range queues {
 		if queues[i].NextQueuedAt != "" {
 			queues[i].NextQueuedAt = "set"
 		}
+		queues[i].next, queues[i].nextAt = "", time.Time{}
 	}
 	assert.Equal(t, []queueHealth{
 		{Name: "etl", Queued: 2, MaxActive: 1, NextQueuedAt: "set", BlockedReason: ir.DAGRunReasonNoMatchingWorker},
@@ -221,18 +223,21 @@ func TestQueuesAskOfWaitingQueuesInTurn(t *testing.T) {
 func TestQueuesAskOfTiedQueuesByName(t *testing.T) {
 	t.Parallel()
 	s := newTestQueueStore(t)
-	queued := time.Now()
-	next := make(map[string]time.Time)
-	var queues []queueHealth
 	for i := range maxQueueReasons + 1 {
 		name := fmt.Sprintf("q%02d", maxQueueReasons-i)
 		enqueue(t, s, name, name, "r"+name)
-		next[name] = queued
-		queues = append(queues, queueHealth{Name: name, Queued: 1, MaxActive: 1})
+	}
+	summaries, err := s.Summaries(context.Background())
+	require.NoError(t, err)
+	queued := time.Now()
+	// Listed in reverse name order, so only explain puts them in name order.
+	var queues []queueHealth
+	for _, summary := range slices.Backward(summaries) {
+		queues = append(queues, queueHealth{Name: summary.Name, Queued: 1, MaxActive: 1, next: summary.Next, nextAt: queued})
 	}
 	runs := &fakeRuns{statuses: map[string]*ir.DAGRunStatus{}}
 
-	Queues{Store: s, Runs: runs}.explain(context.Background(), queues, next, queued.Add(reasonAfter), nil)
+	Queues{Store: s, Runs: runs}.explain(context.Background(), queues, queued.Add(reasonAfter), nil)
 
 	require.Len(t, runs.opened, maxQueueReasons)
 	assert.Equal(t, "rq00", runs.opened[0])

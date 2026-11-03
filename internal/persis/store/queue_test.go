@@ -115,6 +115,9 @@ func TestQueueStore_Summaries(t *testing.T) {
 	assert.Equal(t, 2, summaries[0].Queued)
 	assert.False(t, summaries[0].NextQueuedAt.Before(beforeHigh), "the high-priority item is next")
 	assert.False(t, summaries[0].NextQueuedAt.After(afterHigh))
+	next, err := s.GetByItemID(ctx, "main", summaries[0].Next)
+	require.NoError(t, err)
+	assert.Equal(t, queueRef("dag-high", "run-high"), requireQueuedRef(t, next))
 	assert.Equal(t, "other", summaries[1].Name)
 	assert.Equal(t, 1, summaries[1].Queued)
 
