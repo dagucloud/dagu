@@ -78,7 +78,8 @@ func TestQueuesListWhatWaitsAndRuns(t *testing.T) {
 		Store: s,
 		Procs: fakeProcs{"busy": {ir.NewDAGRunRef("busy", "u1")}, "idle": {ir.NewDAGRunRef("idle", "i1")}},
 		Leases: fakeLeases{
-			{DAGRun: ir.NewDAGRunRef("report", "b0"), QueueName: "batch", LastHeartbeatAt: now.UnixMilli()},
+			{DAGRun: ir.NewDAGRunRef("report", "b0"), AttemptKey: "b0-a1", QueueName: "batch", LastHeartbeatAt: now.UnixMilli()},
+			{DAGRun: ir.NewDAGRunRef("report", "b0"), AttemptKey: "b0-a2", QueueName: "batch", LastHeartbeatAt: now.UnixMilli()},
 			{DAGRun: ir.NewDAGRunRef("etl", "e0"), QueueName: "etl", LastHeartbeatAt: now.Add(-time.Hour).UnixMilli()},
 			{DAGRun: ir.NewDAGRunRef("busy", "u1"), QueueName: "busy", LastHeartbeatAt: now.UnixMilli()},
 			{DAGRun: ir.NewDAGRunRef("other", "i1"), QueueName: "other", LastHeartbeatAt: now.UnixMilli()},
@@ -109,7 +110,8 @@ func TestQueuesListWhatWaitsAndRuns(t *testing.T) {
 		{Name: "busy", Queued: 1, Running: 1, MaxActive: 1, NextQueuedAt: "set"},
 		{Name: "idle", Running: 1, MaxActive: 1},
 		{Name: "other", Running: 1, MaxActive: 1},
-	}, queues, "a stale lease counts no run; a run on the server counts once, and another DAG's run of the same ID counts")
+	}, queues, "a stale lease counts no run; a run counts once, on the server or across its attempts' leases, "+
+		"and another DAG's run of the same ID counts")
 	assert.ElementsMatch(t, []string{"e1", "b1"}, runs.opened, "only queues with room are asked why they wait")
 }
 

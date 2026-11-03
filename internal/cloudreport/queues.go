@@ -148,7 +148,7 @@ func (q Queues) read(ctx context.Context, now time.Time) ([]queueHealth, int, bo
 // none.
 func (q Queues) running(ctx context.Context, now time.Time) map[string]int {
 	counts := make(map[string]int)
-	local := make(map[ir.DAGRunRef]struct{})
+	counted := make(map[ir.DAGRunRef]struct{})
 	if q.Procs != nil {
 		alive, err := q.Procs.ListAllAlive(ctx)
 		if err != nil {
@@ -157,7 +157,7 @@ func (q Queues) running(ctx context.Context, now time.Time) map[string]int {
 		for name, runs := range alive {
 			counts[name] += len(runs)
 			for _, run := range runs {
-				local[run] = struct{}{}
+				counted[run] = struct{}{}
 			}
 		}
 	}
@@ -166,10 +166,13 @@ func (q Queues) running(ctx context.Context, now time.Time) map[string]int {
 		if err != nil {
 			logger.Debug(ctx, "Failed to read the distributed runs for the server report", tag.Error(err))
 		}
+		// Leases are kept per attempt, so a run can hold more than one.
 		for _, lease := range leases {
-			if _, counted := local[lease.DAGRun]; !counted && lease.IsFresh(now, dagrun.DefaultStaleLeaseThreshold) {
-				counts[cmp.Or(lease.QueueName, lease.DAGRun.Name)]++
+			if _, seen := counted[lease.DAGRun]; seen || !lease.IsFresh(now, dagrun.DefaultStaleLeaseThreshold) {
+				continue
 			}
+			counted[lease.DAGRun] = struct{}{}
+			counts[cmp.Or(lease.QueueName, lease.DAGRun.Name)]++
 		}
 	}
 	return counts
