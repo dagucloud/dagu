@@ -110,7 +110,7 @@ jobs:
         shell: bash
         run: |
           app_version="$(awk -F': ' '$1=="appVersion"{gsub(/"/,"",$2); print $2; exit}' charts/dagu/Chart.yaml)"
-          latest="$(git tag --list 'v*' --sort=-v:refname | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+$' | sed -n 1p)"
+          latest="$(git tag --list 'v*' --sort=-v:refname | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+$' | sed -n 1p || true)"
           if [[ -z "${latest}" ]]; then
             echo "::error::No Dagu release tag found"
             exit 1
