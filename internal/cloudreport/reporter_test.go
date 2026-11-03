@@ -23,6 +23,7 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/cmn/config"
 	"github.com/dagucloud/dagu/v2/internal/cmn/logger"
 	"github.com/dagucloud/dagu/v2/internal/license"
+	"github.com/dagucloud/dagu/v2/internal/queue"
 	"github.com/dagucloud/dagu/v2/internal/serviceregistry"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -100,6 +101,100 @@ func TestReportCarriesRemoteAccess(t *testing.T) {
 	require.NoError(t, json.Unmarshal([]byte(console.next(t).body), &body))
 	assert.Equal(t, "operator", body.Health["remote_access"])
 	assert.Equal(t, true, body.Health["remote_approvals"])
+}
+
+// fakeQueueStore sums up its queues, and counts how often it was read.
+type fakeQueueStore struct {
+	queues []queue.Summary
+	reads  int
+}
+
+func (s *fakeQueueStore) Summaries(context.Context) ([]queue.Summary, error) {
+	s.reads++
+	return s.queues, nil
+}
+
+// etlQueue is a queue whose next run was queued a minute before the clock
+// starts.
+var etlQueue = queue.Summary{Name: "etl", Queued: 3, NextQueuedAt: testClockStart.Add(-time.Minute)}
+
+func (s *fakeQueueStore) GetByItemID(context.Context, string, string) (queue.QueuedItemData, error) {
+	return nil, queue.ErrQueueItemNotFound
+}
+
+// Reports at runs carry the queues; reports at health carry none.
+func TestReportCarriesQueuesAtRuns(t *testing.T) {
+	t.Parallel()
+
+	for _, tc := range []struct {
+		level config.ReportLevel
+		want  bool
+	}{{config.ReportRuns, true}, {config.ReportHealth, false}} {
+		t.Run(string(tc.level), func(t *testing.T) {
+			t.Parallel()
+			console := newFakeConsole(t)
+			queues := &fakeQueueStore{queues: []queue.Summary{etlQueue}}
+			r := newReporter(console.credentials, nil, fixedLevel(tc.level))
+			r.queues = Queues{Store: queues}
+			clock := startReporter(t.Context(), t, r, noJitter)
+
+			clock.wait()
+			clock.elapse()
+			var body struct {
+				Health map[string]any `json:"health"`
+			}
+			require.NoError(t, json.Unmarshal([]byte(console.next(t).body), &body))
+			if !tc.want {
+				assert.NotContains(t, body.Health, "queues")
+				assert.Zero(t, queues.reads)
+				return
+			}
+			assert.Equal(t, []any{map[string]any{"name": "etl", "queued": float64(3), "running": float64(0),
+				"max_active": float64(1), "next_queued_at": "2026-10-10T09:29:00Z"}}, body.Health["queues"])
+			assert.Equal(t, float64(1), body.Health["queues_total"])
+		})
+	}
+}
+
+// A report whose runs in progress cannot be read leaves the queues out,
+// rather than send counts that are short.
+func TestReportLeavesQueuesOutWhenRunsInProgressAreUnread(t *testing.T) {
+	t.Parallel()
+	console := newFakeConsole(t)
+	r := newReporter(console.credentials, nil, fixedLevel(config.ReportRuns))
+	r.queues = Queues{Store: &fakeQueueStore{queues: []queue.Summary{etlQueue}}, Procs: failingProcs{}}
+	clock := startReporter(t.Context(), t, r, noJitter)
+
+	clock.wait()
+	clock.elapse()
+	var body struct {
+		Health map[string]any `json:"health"`
+	}
+	require.NoError(t, json.Unmarshal([]byte(console.next(t).body), &body))
+	assert.NotContains(t, body.Health, "queues")
+	assert.NotContains(t, body.Health, "queues_total")
+}
+
+// Reports sent within a minute of a read of the queues reuse it; a later
+// read leaves what an earlier report was given as it was. A read that
+// finds no busy queue is sent as an empty list.
+func TestReportReadsQueuesAtMostEveryMinute(t *testing.T) {
+	t.Parallel()
+	queues := &fakeQueueStore{queues: []queue.Summary{etlQueue}}
+	r := newReporter(nil, nil, fixedLevel(config.ReportRuns))
+	r.queues = Queues{Store: queues}
+
+	_, first := r.readQueues(t.Context(), testClockStart)
+	r.readQueues(t.Context(), testClockStart.Add(queuesEvery/2))
+	assert.Equal(t, 1, queues.reads)
+	queues.queues = nil
+	listed, _ := r.readQueues(t.Context(), testClockStart.Add(queuesEvery))
+	assert.Equal(t, 2, queues.reads)
+	assert.Equal(t, 1, *first)
+
+	body, err := json.Marshal(health{Queues: listed, QueuesTotal: new(0)})
+	require.NoError(t, err)
+	assert.Contains(t, string(body), `"queues":[]`)
 }
 
 func TestReportWithoutServices(t *testing.T) {

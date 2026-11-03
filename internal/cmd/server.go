@@ -338,7 +338,32 @@ func startCloudReport(ctx *Context, monitoring *cloudreport.Monitoring, access *
 		remote = access
 	}
 	scheduler := cloudreport.Scheduler{State: ctx.Persistence.SchedulerStateStore, Pause: ctx.Persistence.SchedulerPauseStore}
-	return cloudreport.Start(ctx, ctx.LicenseManager.CloudCredentials, ctx.Persistence.ServiceRegistry, cloudReportEvents(ctx), scheduler, monitoring, remote, ctx.LicenseManager.Refresh)
+	return cloudreport.Start(ctx, ctx.LicenseManager.CloudCredentials, ctx.Persistence.ServiceRegistry, cloudReportEvents(ctx), scheduler,
+		cloudReportQueues(ctx), monitoring, remote, ctx.LicenseManager.Refresh)
+}
+
+// cloudReportQueues reads the server's queues for reports: what waits and
+// runs in each, on the server and on distributed workers, and how many may
+// run at once. A queue store that cannot sum up its queues leaves them out.
+func cloudReportQueues(ctx *Context) cloudreport.Queues {
+	store, ok := ctx.Persistence.QueueStore.(cloudreport.QueueStore)
+	if !ok {
+		return cloudreport.Queues{}
+	}
+	return cloudreport.Queues{
+		Store:  store,
+		Procs:  ctx.Persistence.ProcRepository,
+		Leases: ctx.Persistence.DAGRunLeaseStore,
+		Runs:   ctx.Persistence.DAGRunRepository,
+		Capacity: func(name string) int {
+			// A DAG's own queue runs one at a time; a global queue as
+			// configured.
+			if q := ctx.Config.FindQueueConfig(name); q != nil {
+				return q.MaxActiveRuns
+			}
+			return 1
+		},
+	}
 }
 
 // newCloudAccess returns what takes calls from Dagu Cloud while remote access

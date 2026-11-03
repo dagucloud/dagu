@@ -67,6 +67,7 @@ type Reporter struct {
 	// events is nil when reports carry no runs.
 	events    *eventFeed
 	scheduler Scheduler
+	queues    Queues
 	// remote is nil when reports leave remote access out.
 	remote RemoteAccess
 	// refresh checks in for the license now; nil leaves a license change to
@@ -107,6 +108,9 @@ type Reporter struct {
 	// Console's request, and refreshWarned records that it failed.
 	refreshedAt   time.Time
 	refreshWarned bool
+	// queueRead is the last read of the queues, which reports reuse for
+	// queuesEvery.
+	queueRead queueRead
 }
 
 // Start reports in the background until Stop is called or ctx is done.
@@ -116,8 +120,9 @@ type Reporter struct {
 // time: health at health, with the scheduler's last tick and pause from
 // scheduler and, unless remote is nil, how far calls from Dagu Cloud may go,
 // and also, at runs, the finished and in-progress DAG runs that
-// events configures and the scheduled DAGs with what came of their latest
-// slots. Schedules are sent by the process that reports the events. Choosing
+// events configures, the scheduled DAGs with what came of their latest
+// slots, and the queues that queues reads. Schedules are sent by the
+// process that reports the events. Choosing
 // off stops a report in flight. Finished runs are sent even while Dagu
 // Console pauses storing them; monitoring shows until when.
 //
@@ -137,6 +142,7 @@ func Start(
 	registry serviceregistry.ServiceRegistry,
 	events Events,
 	scheduler Scheduler,
+	queues Queues,
 	monitoring *Monitoring,
 	remote RemoteAccess,
 	refresh func(context.Context) error,
@@ -144,6 +150,7 @@ func Start(
 	r := newReporter(credentials, registry, monitoring)
 	r.events = newEventFeed(events)
 	r.scheduler = scheduler
+	r.queues = queues
 	r.remote = remote
 	r.refresh = refresh
 	r.start(ctx)
@@ -596,6 +603,11 @@ type health struct {
 	StartedAt string           `json:"started_at"`
 	Services  []service        `json:"services,omitempty"`
 	Scheduler *schedulerHealth `json:"scheduler,omitempty"`
+	// Queues are the queues that hold queued or running runs, up to
+	// maxQueues, and QueuesTotal counts them all; both are left out below
+	// runs, and while the queues or the runs in progress cannot be read.
+	Queues      []queueHealth `json:"queues,omitzero"`
+	QueuesTotal *int          `json:"queues_total,omitempty"`
 	// RemoteAccess is the highest role calls from Dagu Cloud get, and
 	// RemoteApprovals whether they may decide waiting steps. Both are left
 	// out while unknown.
@@ -662,6 +674,9 @@ func (r *Reporter) send(ctx context.Context, creds license.CloudCredentials, lev
 			schedules, total := schedulesOf(state, now)
 			report.Schedules, report.SchedulesTotal = schedules, &total
 		}
+		if level.ReportsRuns() {
+			report.Health.Queues, report.Health.QueuesTotal = r.readQueues(ctx, now)
+		}
 	}
 	body, err := json.Marshal(report)
 	if err != nil {
@@ -693,6 +708,25 @@ func (r *Reporter) send(ctx context.Context, creds license.CloudCredentials, lev
 		retryAfter: resp.Header.Get("Retry-After"),
 		body:       data,
 	}, nil
+}
+
+// readQueues reads the queues for a report, at most every queuesEvery, and
+// returns nil while they cannot be read or are not reported.
+func (r *Reporter) readQueues(ctx context.Context, now time.Time) ([]queueHealth, *int) {
+	if r.queues.Store == nil {
+		return nil, nil
+	}
+	if r.queueRead.at.IsZero() || now.Sub(r.queueRead.at) >= queuesEvery {
+		read, ok := r.queues.read(ctx, now, r.queueRead.checks)
+		if !ok {
+			return nil, nil
+		}
+		r.queueRead = read
+	}
+	// The total is copied, so the report sent keeps its own as the next
+	// read replaces this one.
+	total := r.queueRead.total
+	return r.queueRead.queues, &total
 }
 
 // services counts the schedulers holding the scheduler lock and the

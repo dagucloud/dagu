@@ -34,7 +34,7 @@ const choices: { level: ReportingLevel; title: string; sends: string }[] = [
     level: LicenseMonitoringLevel.runs,
     title: 'Health and run status',
     sends:
-      "Sends the health fields, plus the status of each top-level DAG run that finishes, with its failed step names (up to 50) and how it was triggered, and the list of runs queued, running, or waiting. Each run is sent as its DAG name, run ID, attempt ID, status, trigger, and queued, started, and finished times. Also each scheduled DAG's next run, and whether its latest scheduled run started. No parameters, logs, or outputs.",
+      "Sends the health fields, plus the status of each top-level DAG run that finishes, with its failed step names (up to 50) and how it was triggered, and the list of runs queued, running, or waiting. Each run is sent as its DAG name, run ID, attempt ID, status, trigger, and queued, started, and finished times. Also each scheduled DAG's next run, and whether its latest scheduled run started, and each queue holding runs: its name, how many runs are waiting and how many are running, how many may run at once, when the next run was queued, and why it cannot start when it waits for a worker. No parameters, logs, or outputs.",
   },
   {
     level: LicenseMonitoringLevel.errors,
