@@ -633,8 +633,20 @@ detect_os_arch() {
     esac
 }
 
+# The configuration directory of the GitHub Copilot CLI.
+copilot_home_dir() {
+    local xdg_dir="${XDG_CONFIG_HOME:-${HOME}}/.copilot"
+    if [[ -n "${COPILOT_HOME:-}" ]]; then
+        printf '%s' "${COPILOT_HOME}"
+    elif [[ -f "${xdg_dir}/config.json" ]]; then
+        printf '%s' "${xdg_dir}"
+    else
+        printf '%s' "${HOME}/.copilot"
+    fi
+}
+
 detect_skill_targets() {
-    local home_dir agents_home codex_home
+    local home_dir agents_home codex_home copilot_home
     home_dir="${HOME}"
     agents_home="${AGENTS_HOME:-${home_dir}/.agents}"
     codex_home="${CODEX_HOME:-${home_dir}/.codex}"
@@ -653,8 +665,9 @@ detect_skill_targets() {
     if [[ -f "${home_dir}/.gemini/GEMINI.md" ]]; then
         SKILL_TARGET_DIRS+=("${home_dir}/.gemini/skills")
     fi
-    if [[ -f "${XDG_CONFIG_HOME:-${home_dir}}/.copilot/config.json" || -f "${home_dir}/.copilot/config.json" ]]; then
-        SKILL_TARGET_DIRS+=("${home_dir}/.copilot/skills")
+    copilot_home="$(copilot_home_dir)"
+    if [[ -f "${copilot_home}/config.json" ]]; then
+        SKILL_TARGET_DIRS+=("${copilot_home}/skills")
     fi
     SKILL_DETECTED_COUNT=${#SKILL_TARGET_DIRS[@]}
 }
@@ -1156,14 +1169,16 @@ discover_mac_uninstall() {
 }
 
 discover_skill_removals() {
-    local agents_home codex_home xdg_copilot home_copilot custom_dir
+    local agents_home codex_home copilot_skill xdg_copilot home_copilot custom_dir
     if [[ -d "${HOME}/.claude/skills/dagu" ]]; then
         add_uninstall_skill_dir "${HOME}/.claude/skills/dagu"
     fi
-    agents_home="${AGENTS_HOME:-${HOME}/.agents}"
-    if [[ -d "${agents_home}/skills/dagu" ]]; then
-        add_uninstall_skill_dir "${agents_home}/skills/dagu"
-    fi
+    # npx skills --global writes to ~/.agents whatever AGENTS_HOME says.
+    for agents_home in "${AGENTS_HOME:-${HOME}/.agents}" "${HOME}/.agents"; do
+        if [[ -d "${agents_home}/skills/dagu" ]]; then
+            add_uninstall_skill_dir "${agents_home}/skills/dagu"
+        fi
+    done
     codex_home="${CODEX_HOME:-${HOME}/.codex}"
     if [[ -d "${codex_home}/skills/dagu" ]]; then
         add_uninstall_skill_dir "${codex_home}/skills/dagu"
@@ -1174,8 +1189,9 @@ discover_skill_removals() {
     if [[ -d "${HOME}/.gemini/skills/dagu" ]]; then
         add_uninstall_skill_dir "${HOME}/.gemini/skills/dagu"
     fi
-    if [[ -d "${HOME}/.copilot/skills/dagu" ]]; then
-        add_uninstall_skill_dir "${HOME}/.copilot/skills/dagu"
+    copilot_skill="$(copilot_home_dir)/skills/dagu"
+    if [[ -d "${copilot_skill}" ]]; then
+        add_uninstall_skill_dir "${copilot_skill}"
     fi
     xdg_copilot="${XDG_CONFIG_HOME:-${HOME}}/.copilot/copilot-instructions.md"
     home_copilot="${HOME}/.copilot/copilot-instructions.md"
@@ -2106,7 +2122,7 @@ install_skill() {
         for target_dir in "${SKILL_TARGET_DIRS[@]:-}"; do
             [[ -n "$target_dir" ]] || continue
             if ! gh skill install dagucloud/dagu dagu --dir "$target_dir" --force </dev/null; then
-                ui_warn "Failed to install the Dagu AI skill into ${target_dir}. Install manually with: gh skill install dagucloud/dagu dagu --dir ${target_dir}"
+                ui_warn "Failed to install the Dagu AI skill into ${target_dir}. Install manually with: gh skill install dagucloud/dagu dagu --dir \"${target_dir}\" --force"
             fi
         done
         return 0

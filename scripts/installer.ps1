@@ -402,6 +402,15 @@ function Resolve-Defaults {
     }
 }
 
+# The configuration directory of the GitHub Copilot CLI.
+function Get-CopilotHome {
+    $userHome = [Environment]::GetFolderPath("UserProfile")
+    $xdg = if ($env:XDG_CONFIG_HOME) { $env:XDG_CONFIG_HOME } else { $userHome }
+    if ($env:COPILOT_HOME) { return $env:COPILOT_HOME }
+    if (Test-Path (Join-Path $xdg ".copilot\config.json")) { return Join-Path $xdg ".copilot" }
+    return Join-Path $userHome ".copilot"
+}
+
 function Detect-SkillTargets {
     if ($ServiceOnly) {
         return
@@ -415,8 +424,8 @@ function Detect-SkillTargets {
     elseif (Test-Path $codexHome) { $dirs += Join-Path $codexHome "skills" }
     if (Test-Path (Join-Path $userHome ".config\opencode")) { $dirs += Join-Path $userHome ".config\opencode\skills" }
     if (Test-Path (Join-Path $userHome ".gemini\GEMINI.md")) { $dirs += Join-Path $userHome ".gemini\skills" }
-    $xdg = if ($env:XDG_CONFIG_HOME) { $env:XDG_CONFIG_HOME } else { $userHome }
-    if ((Test-Path (Join-Path $xdg ".copilot\config.json")) -or (Test-Path (Join-Path $userHome ".copilot\config.json"))) { $dirs += Join-Path $userHome ".copilot\skills" }
+    $copilotHome = Get-CopilotHome
+    if (Test-Path (Join-Path $copilotHome "config.json")) { $dirs += Join-Path $copilotHome "skills" }
     $Script:SkillTargetDirs = $dirs
     $Script:DetectedSkillTargets = $dirs.Count
 }
@@ -459,10 +468,12 @@ function Discover-SkillRemovals {
     $codexSkill = Join-Path $codexHome "skills\dagu"
     $openCodeSkill = Join-Path $userHome ".config\opencode\skills\dagu"
     $geminiSkill = Join-Path $userHome ".gemini\skills\dagu"
-    $copilotSkill = Join-Path $userHome ".copilot\skills\dagu"
+    $copilotSkill = Join-Path (Get-CopilotHome) "skills\dagu"
+    # npx skills --global writes to ~/.agents whatever AGENTS_HOME says.
+    $npxAgentsSkill = Join-Path $userHome ".agents\skills\dagu"
     $xdgCopilot = Join-Path $xdg ".copilot\copilot-instructions.md"
     $homeCopilot = Join-Path $userHome ".copilot\copilot-instructions.md"
-    foreach ($dir in @($claudeSkill, $agentsSkill, $codexSkill, $openCodeSkill, $geminiSkill, $copilotSkill)) {
+    foreach ($dir in @($claudeSkill, $agentsSkill, $npxAgentsSkill, $codexSkill, $openCodeSkill, $geminiSkill, $copilotSkill)) {
         if (Test-Path $dir) {
             Add-UniqueItem ([ref]$Script:UninstallSkillDirs) $dir
         }
@@ -1290,7 +1301,7 @@ function Install-AISkill {
         foreach ($dir in $Script:SkillTargetDirs) {
             & gh skill install dagucloud/dagu dagu --dir $dir --force
             if ($LASTEXITCODE -ne 0) {
-                Write-WarnMessage "Failed to install the Dagu AI skill into $dir. Install manually with: gh skill install dagucloud/dagu dagu --dir `"$dir`""
+                Write-WarnMessage "Failed to install the Dagu AI skill into $dir. Install manually with: gh skill install dagucloud/dagu dagu --dir `"$dir`" --force"
             }
         }
     }
