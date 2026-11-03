@@ -58,16 +58,17 @@ func enqueue(t *testing.T, s *store.QueueStore, queueName, dagName, runID string
 }
 
 // A read lists each queue that holds queued or running runs, with the runs
-// in progress on the server and on distributed workers, and how many may
-// run at once. A queue whose next run cannot start for want of a worker
-// comes first, then the longest waits, then queues with nothing queued.
+// in progress on the server and on distributed workers, each counted once,
+// and how many may run at once. A queue whose next run waits for a worker
+// comes first, then queues with room, then full ones, then queues with
+// nothing queued.
 func TestQueuesListWhatWaitsAndRuns(t *testing.T) {
 	t.Parallel()
 	s := newTestQueueStore(t)
 	enqueue(t, s, "etl", "etl", "e1")
 	enqueue(t, s, "etl", "etl", "e2")
-	enqueue(t, s, "batch", "report", "b1")
 	enqueue(t, s, "busy", "busy", "u2")
+	enqueue(t, s, "batch", "report", "b1")
 	now := time.Now().Add(2 * time.Minute)
 	runs := &fakeRuns{statuses: map[string]*ir.DAGRunStatus{
 		"e1": {Conditions: ir.NoMatchingWorkerConditions(now)},
@@ -80,6 +81,7 @@ func TestQueuesListWhatWaitsAndRuns(t *testing.T) {
 			{DAGRun: ir.NewDAGRunRef("report", "b0"), QueueName: "batch", LastHeartbeatAt: now.UnixMilli()},
 			{DAGRun: ir.NewDAGRunRef("etl", "e0"), QueueName: "etl", LastHeartbeatAt: now.Add(-time.Hour).UnixMilli()},
 			{DAGRun: ir.NewDAGRunRef("busy", "u1"), QueueName: "busy", LastHeartbeatAt: now.UnixMilli()},
+			{DAGRun: ir.NewDAGRunRef("other", "i1"), QueueName: "other", LastHeartbeatAt: now.UnixMilli()},
 		},
 		Runs: runs,
 		Capacity: func(name string) int {
@@ -93,7 +95,7 @@ func TestQueuesListWhatWaitsAndRuns(t *testing.T) {
 	queues, total, ok := q.read(context.Background(), now)
 
 	require.True(t, ok)
-	assert.Equal(t, 4, total)
+	assert.Equal(t, 5, total)
 	// When the next runs were queued depends on the clock; only whether a
 	// queue says so is compared.
 	for i := range queues {
@@ -106,7 +108,8 @@ func TestQueuesListWhatWaitsAndRuns(t *testing.T) {
 		{Name: "batch", Queued: 1, Running: 1, MaxActive: 2, NextQueuedAt: "set"},
 		{Name: "busy", Queued: 1, Running: 1, MaxActive: 1, NextQueuedAt: "set"},
 		{Name: "idle", Running: 1, MaxActive: 1},
-	}, queues, "a stale lease counts no run, and a run on the server counts once")
+		{Name: "other", Running: 1, MaxActive: 1},
+	}, queues, "a stale lease counts no run; a run on the server counts once, and another DAG's run of the same ID counts")
 	assert.ElementsMatch(t, []string{"e1", "b1"}, runs.opened, "only queues with room are asked why they wait")
 }
 

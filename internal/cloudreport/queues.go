@@ -94,10 +94,9 @@ type queueRead struct {
 	at     time.Time
 }
 
-// read lists the queues that hold queued or running runs as of now: those
-// whose next run cannot start first, then those whose next run has waited
-// longest, up to maxQueues, and counts them all. It returns false when the
-// queues cannot be read.
+// read lists the queues that hold queued or running runs as of now, up to
+// maxQueues, in the order queueRank gives, and counts them all. It returns
+// false when the queues cannot be read.
 func (q Queues) read(ctx context.Context, now time.Time) ([]queueHealth, int, bool) {
 	summaries, err := q.Store.Summaries(ctx)
 	if err != nil {
@@ -135,7 +134,7 @@ func (q Queues) read(ctx context.Context, now time.Time) ([]queueHealth, int, bo
 	q.explain(ctx, queues, next, now)
 	slices.SortFunc(queues, func(a, b queueHealth) int {
 		return cmp.Or(
-			compareBlocked(a, b),
+			cmp.Compare(queueRank(a), queueRank(b)),
 			compareWaiting(next[a.Name], next[b.Name]),
 			cmp.Compare(a.Name, b.Name),
 		)
@@ -149,7 +148,7 @@ func (q Queues) read(ctx context.Context, now time.Time) ([]queueHealth, int, bo
 // none.
 func (q Queues) running(ctx context.Context, now time.Time) map[string]int {
 	counts := make(map[string]int)
-	local := make(map[string]struct{})
+	local := make(map[ir.DAGRunRef]struct{})
 	if q.Procs != nil {
 		alive, err := q.Procs.ListAllAlive(ctx)
 		if err != nil {
@@ -158,7 +157,7 @@ func (q Queues) running(ctx context.Context, now time.Time) map[string]int {
 		for name, runs := range alive {
 			counts[name] += len(runs)
 			for _, run := range runs {
-				local[run.ID] = struct{}{}
+				local[run] = struct{}{}
 			}
 		}
 	}
@@ -168,7 +167,7 @@ func (q Queues) running(ctx context.Context, now time.Time) map[string]int {
 			logger.Debug(ctx, "Failed to read the distributed runs for the server report", tag.Error(err))
 		}
 		for _, lease := range leases {
-			if _, counted := local[lease.DAGRun.ID]; !counted && lease.IsFresh(now, dagrun.DefaultStaleLeaseThreshold) {
+			if _, counted := local[lease.DAGRun]; !counted && lease.IsFresh(now, dagrun.DefaultStaleLeaseThreshold) {
 				counts[cmp.Or(lease.QueueName, lease.DAGRun.Name)]++
 			}
 		}
@@ -200,23 +199,31 @@ func (q Queues) explain(ctx context.Context, queues []queueHealth, next map[stri
 // blockedReason is why the queue's next run cannot start for want of a
 // worker, or "" when its status says nothing of it or cannot be read.
 func (q Queues) blockedReason(ctx context.Context, name string) string {
+	reason, err := q.readBlockedReason(ctx, name)
+	if err != nil {
+		logger.Debug(ctx, "Failed to read why a queue's next run waits for the server report", tag.Queue(name), tag.Error(err))
+	}
+	return reason
+}
+
+func (q Queues) readBlockedReason(ctx context.Context, name string) (string, error) {
 	page, err := q.Store.ListCursor(ctx, name, "", 1)
 	if err != nil || len(page.Items) == 0 {
-		return ""
+		return "", err
 	}
 	ref, err := page.Items[0].Data()
 	if err != nil || ref == nil {
-		return ""
+		return "", err
 	}
 	attempt, err := q.Runs.FindAttempt(ctx, *ref)
 	if err != nil {
-		return ""
+		return "", err
 	}
 	status, err := attempt.ReadStatus(ctx)
 	if err != nil || status == nil {
-		return ""
+		return "", err
 	}
-	return workerBlockReason(status.Conditions)
+	return workerBlockReason(status.Conditions), nil
 }
 
 // workerBlockReason is the reason a run's conditions give for why it cannot
@@ -241,15 +248,20 @@ func (q Queues) capacity(name string) int {
 	return max(q.Capacity(name), 1)
 }
 
-// compareBlocked orders a queue whose next run cannot start first.
-func compareBlocked(a, b queueHealth) int {
+// queueRank orders the queues a report lists: those whose next run waits
+// for a worker first, then those with room whose next run has not started,
+// then those whose runs fill them, then those with nothing queued. A full
+// queue's next run waits for its own runs, so it is busy, not stuck.
+func queueRank(h queueHealth) int {
 	switch {
-	case a.BlockedReason != "" && b.BlockedReason == "":
-		return -1
-	case a.BlockedReason == "" && b.BlockedReason != "":
+	case h.BlockedReason != "":
+		return 0
+	case h.Queued > 0 && h.Running < h.MaxActive:
 		return 1
+	case h.Queued > 0:
+		return 2
 	}
-	return 0
+	return 3
 }
 
 // compareWaiting orders the earlier queued first, and one with nothing
