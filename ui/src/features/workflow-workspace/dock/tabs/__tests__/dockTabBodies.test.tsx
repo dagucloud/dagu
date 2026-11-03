@@ -52,6 +52,8 @@ const h = vi.hoisted(() => ({
     createDecorationsCollection: vi.fn(() => ({ clear: vi.fn() })),
     revealLinesInCenter: vi.fn(),
   },
+  // While set, the diff view suspends, as when its chunk still loads.
+  diffLoading: null as Promise<void> | null,
 }));
 
 vi.mock('@/hooks/api', async () => {
@@ -122,9 +124,15 @@ vi.mock('@/features/dags/components/chat-history/ChatHistoryTab', async () => ({
 vi.mock('@/features/dags/components/agent/TaskChecklistTab', async () => ({
   TaskChecklistTab: (await import('./leafStubs')).leaf('tasks'),
 }));
-vi.mock('@/features/visual-editor/run/TextDiffView', async () => ({
-  TextDiffView: (await import('./leafStubs')).leaf('diff'),
-}));
+vi.mock('@/features/visual-editor/run/TextDiffView', async () => {
+  const Diff = (await import('./leafStubs')).leaf('diff');
+  return {
+    TextDiffView: (props: Record<string, unknown>) => {
+      if (h.diffLoading) throw h.diffLoading;
+      return <Diff {...props} />;
+    },
+  };
+});
 // The YAML leaf hands its host the editor, as the Monaco editor does on mount.
 vi.mock(
   '@/features/dags/components/dag-editor/YamlFilePanel',
@@ -1394,6 +1402,7 @@ describe('Definition', () => {
   beforeEach(() => {
     h.editor.createDecorationsCollection.mockClear();
     h.editor.revealLinesInCenter.mockClear();
+    h.diffLoading = null;
   });
 
   /**
@@ -1427,9 +1436,12 @@ describe('Definition', () => {
     serveSpecs(RUN_YAML, RUN_YAML);
     await renderBody('definition');
 
-    expect(
-      await screen.findByText('Same as the saved definition')
-    ).toBeInTheDocument();
+    // The status line is announced when the comparison arrives.
+    await vi.waitFor(() =>
+      expect(screen.getByRole('status')).toHaveTextContent(
+        'Same as the saved definition'
+      )
+    );
     expect(propsOf('yaml')).toMatchObject({ text: RUN_YAML, readOnly: true });
     expect(propsOf('yaml').changeBaseline).toBeUndefined();
     expect(
@@ -1458,6 +1470,27 @@ describe('Definition', () => {
       originalTitle: 'This run',
       modifiedTitle: 'Saved version',
     });
+    expect(screen.queryByTestId('leaf-yaml')).not.toBeInTheDocument();
+  });
+
+  it('keeps the YAML on screen while the diff view loads', async () => {
+    serveSpecs(RUN_YAML, RUN_YAML.replace('echo b', 'echo c'));
+    await renderBody('definition');
+    await screen.findByText('Changed since this run');
+    let loaded = () => {};
+    h.diffLoading = new Promise<void>((resolve) => {
+      loaded = () => {
+        h.diffLoading = null;
+        resolve();
+      };
+    });
+
+    fireEvent.click(screen.getByRole('button', { name: 'Changes' }));
+
+    expect(screen.getByTestId('leaf-yaml')).toBeInTheDocument();
+    expect(screen.queryByText('Loading...')).not.toBeInTheDocument();
+    await act(async () => loaded());
+    expect(await screen.findByTestId('leaf-diff')).toBeInTheDocument();
     expect(screen.queryByTestId('leaf-yaml')).not.toBeInTheDocument();
   });
 

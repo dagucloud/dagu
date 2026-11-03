@@ -4,6 +4,7 @@
 import type { editor as MonacoEditor } from 'monaco-editor';
 import {
   lazy,
+  startTransition,
   Suspense,
   useEffect,
   useMemo,
@@ -121,15 +122,13 @@ function RunDefinition({
     content = <RunTabEmpty>{ts('Loading...')}</RunTabEmpty>;
   } else if (shownView === 'changes' && saved !== undefined) {
     content = (
-      <Suspense fallback={null}>
-        <TextDiffView
-          original={runText}
-          modified={saved}
-          originalTitle={ts('This run')}
-          modifiedTitle={ts('Saved version')}
-          split={split}
-        />
-      </Suspense>
+      <TextDiffView
+        original={runText}
+        modified={saved}
+        originalTitle={ts('This run')}
+        modifiedTitle={ts('Saved version')}
+        split={split}
+      />
     );
   } else {
     content = (
@@ -145,10 +144,15 @@ function RunDefinition({
     );
   }
 
+  // A transition keeps the shown view on screen while the next one loads.
+  const selectView = (next: DefinitionView) =>
+    startTransition(() => setView(next));
+
   return (
     <div className="flex h-full min-h-0 flex-col">
-      <div className="flex h-8 shrink-0 items-center gap-2 border-b border-border px-2 text-xs">
-        <div className="min-w-0 flex-1 truncate">
+      {/* In a narrow pane the actions wrap onto a second row. */}
+      <div className="flex min-h-8 shrink-0 flex-wrap items-center gap-x-2 gap-y-1 border-b border-border px-2 py-1 text-xs">
+        <div role="status" className="min-w-0 flex-1 basis-40 truncate">
           {runText !== null && <DefinitionStatus comparison={comparison} />}
         </div>
         {shownView === 'changes' && (
@@ -159,7 +163,7 @@ function RunDefinition({
             <ToggleButton
               value="yaml"
               groupValue={shownView}
-              onClick={() => setView('yaml')}
+              onClick={() => selectView('yaml')}
               className={cn('h-6 px-2', FOCUS_RING)}
             >
               {ts('YAML')}
@@ -167,7 +171,7 @@ function RunDefinition({
             <ToggleButton
               value="changes"
               groupValue={shownView}
-              onClick={() => setView('changes')}
+              onClick={() => selectView('changes')}
               className={cn('h-6 px-2', FOCUS_RING)}
             >
               {ts('Changes')}
@@ -183,7 +187,11 @@ function RunDefinition({
           {ts(onCanvas ? 'Back to the current definition' : 'Open on canvas')}
         </Button>
       </div>
-      <div className="flex min-h-0 flex-1 flex-col">{content}</div>
+      <div className="flex min-h-0 flex-1 flex-col">
+        <Suspense fallback={<RunTabEmpty>{ts('Loading...')}</RunTabEmpty>}>
+          {content}
+        </Suspense>
+      </div>
     </div>
   );
 }
