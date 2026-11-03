@@ -806,6 +806,7 @@ describe('dockTabBodies', () => {
         'artifacts',
         'chat',
         'continuous',
+        'definition',
         'history',
         'log',
         'outputs',

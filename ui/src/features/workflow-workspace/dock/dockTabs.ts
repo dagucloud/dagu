@@ -41,14 +41,14 @@ export function dockFacts(
 /**
  * The dock tab that shows a run view, or null when the Run panel has none.
  * The status view is the Log tab (the steps are the left navigation), and
- * the spec is not a tab. Human tasks and approvals share Actions.
+ * the spec is the Definition tab. Human tasks and approvals share Actions.
  */
 export function toDockTab(t: RunViewTab): DockTab | null {
   switch (t) {
     case 'status':
       return 'log';
     case 'spec':
-      return null;
+      return 'definition';
     case 'human-tasks':
     case 'approval':
       return 'actions';

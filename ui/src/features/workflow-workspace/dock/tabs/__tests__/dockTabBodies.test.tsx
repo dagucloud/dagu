@@ -47,6 +47,11 @@ const h = vi.hoisted(() => ({
   GET: vi.fn(),
   refreshDag: vi.fn(async () => undefined),
   requestStart: vi.fn(),
+  // The Monaco editor of the Definition tab.
+  editor: {
+    createDecorationsCollection: vi.fn(() => ({ clear: vi.fn() })),
+    revealLinesInCenter: vi.fn(),
+  },
 }));
 
 vi.mock('@/hooks/api', async () => {
@@ -117,6 +122,26 @@ vi.mock('@/features/dags/components/chat-history/ChatHistoryTab', async () => ({
 vi.mock('@/features/dags/components/agent/TaskChecklistTab', async () => ({
   TaskChecklistTab: (await import('./leafStubs')).leaf('tasks'),
 }));
+vi.mock('@/features/visual-editor/run/TextDiffView', async () => ({
+  TextDiffView: (await import('./leafStubs')).leaf('diff'),
+}));
+// The YAML leaf hands its host the editor, as the Monaco editor does on mount.
+vi.mock(
+  '@/features/dags/components/dag-editor/YamlFilePanel',
+  async (importOriginal) => {
+    const Yaml = (await import('./leafStubs')).leaf('yaml');
+    return {
+      ...(await importOriginal<
+        typeof import('@/features/dags/components/dag-editor/YamlFilePanel')
+      >()),
+      YamlFileBody: (props: { onEditorMount?(editor: unknown): void }) => {
+        const mount = props.onEditorMount;
+        useEffect(() => mount?.(h.editor), [mount]);
+        return <Yaml {...props} />;
+      },
+    };
+  }
+);
 vi.mock('../../../step/StepRunView', async () => ({
   StepRunView: (await import('./leafStubs')).leaf('stepRun'),
 }));
@@ -317,6 +342,7 @@ describe('dock tab bodies', () => {
         'artifacts',
         'chat',
         'continuous',
+        'definition',
         'history',
         'log',
         'outputs',
@@ -1350,5 +1376,114 @@ describe('dock tab visibility', () => {
     expect(h.GET.mock.calls.map((call) => call[0])).not.toContain(
       '/dag-runs/{name}/{dagRunId}'
     );
+  });
+});
+
+describe('Definition', () => {
+  const RUN_SPEC = '/dag-runs/{name}/{dagRunId}/spec';
+  const SAVED_SPEC = '/dags/{fileName}/spec';
+  const RUN_YAML = [
+    'steps:',
+    '  - name: a',
+    '    command: echo a',
+    '  - name: b',
+    '    command: echo b',
+    '',
+  ].join('\n');
+
+  beforeEach(() => {
+    h.editor.createDecorationsCollection.mockClear();
+    h.editor.revealLinesInCenter.mockClear();
+  });
+
+  /** Answers the definition of the run (null: none stored) and the saved one. */
+  function serveSpecs(runYaml: string | null, savedYaml: string) {
+    const base = serve(server);
+    h.GET.mockImplementation(async (path: string, init?: never) => {
+      if (path === RUN_SPEC) {
+        return runYaml === null
+          ? {
+              error: { code: 'not_found', message: 'not found' },
+              response: { status: 404 },
+            }
+          : { data: { spec: runYaml } };
+      }
+      if (path === SAVED_SPEC) return { data: { spec: savedYaml } };
+      return base(path, init);
+    });
+  }
+
+  it('shows the YAML of the run, the same as the saved one', async () => {
+    serveSpecs(RUN_YAML, RUN_YAML);
+    await renderBody('definition');
+
+    expect(
+      await screen.findByText('Same as the saved definition')
+    ).toBeInTheDocument();
+    expect(propsOf('yaml')).toMatchObject({ text: RUN_YAML, readOnly: true });
+    expect(propsOf('yaml').changeBaseline).toBeUndefined();
+    expect(
+      screen.queryByRole('button', { name: 'Changes' })
+    ).not.toBeInTheDocument();
+  });
+
+  it('compares a changed definition with the saved one', async () => {
+    const saved = RUN_YAML.replace('echo b', 'echo c');
+    serveSpecs(RUN_YAML, saved);
+    await renderBody('definition');
+
+    expect(
+      await screen.findByText('Changed since this run')
+    ).toBeInTheDocument();
+    expect(screen.getByText('1 added, 1 removed')).toBeInTheDocument();
+    // The gutter of the YAML marks the lines that differ from the saved file.
+    expect(propsOf('yaml').changeBaseline).toBe(saved);
+
+    fireEvent.click(screen.getByRole('button', { name: 'Changes' }));
+
+    await screen.findByTestId('leaf-diff');
+    expect(propsOf('diff')).toMatchObject({
+      original: RUN_YAML,
+      modified: saved,
+      originalTitle: 'This run',
+      modifiedTitle: 'Saved version',
+    });
+    expect(screen.queryByTestId('leaf-yaml')).not.toBeInTheDocument();
+  });
+
+  // The saved definition must not pass for the one that the run used.
+  it('shows no YAML for a run without a stored definition', async () => {
+    serveSpecs(null, RUN_YAML);
+    await renderBody('definition');
+
+    expect(
+      await screen.findByText('This run has no stored definition.')
+    ).toBeInTheDocument();
+    expect(screen.queryByTestId('leaf-yaml')).not.toBeInTheDocument();
+  });
+
+  it('lights the lines of the step that the Run panel shows', async () => {
+    serveSpecs(RUN_YAML, RUN_YAML);
+    await renderBody('definition', `/dags/${FILE_NAME}?step=b`);
+
+    await vi.waitFor(() =>
+      expect(h.editor.revealLinesInCenter).toHaveBeenCalled()
+    );
+    // Step b is the entry from line 4.
+    expect(h.editor.revealLinesInCenter.mock.lastCall?.[0]).toBe(4);
+  });
+
+  it('opens the definition of the run on the canvas', async () => {
+    serveSpecs(RUN_YAML, RUN_YAML);
+    await renderBody('definition');
+
+    fireEvent.click(
+      await screen.findByRole('button', { name: 'Open on canvas' })
+    );
+
+    expect(new URLSearchParams(location.search).get('def')).toBe('run');
+    expect(
+      screen.getByRole('button', { name: 'Back to the current definition' })
+    ).toHaveAttribute('aria-pressed', 'true');
   });
 });
