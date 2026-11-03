@@ -8,6 +8,7 @@ import {
   HISTORY_LIMIT,
   isTestRun,
   parseStoredCount,
+  parseStoredCustomRange,
   parseStoredHiddenTypes,
   parseStoredMode,
   parseStoredRange,
@@ -35,8 +36,14 @@ export const RUN_COUNT_KEY = 'dagu.workspace.runTimelineCount';
 export const SHOW_TESTS_KEY = 'dagu.workspace.runTimelineTests';
 /** How the timeline picks its runs: "count" (the default) or "range". */
 export const RUN_MODE_KEY = 'dagu.workspace.runTimelineMode';
-/** The time range, as JSON: a preset, or a custom range with its ends. */
+/** The last preset of the time range, as JSON. */
 export const RUN_RANGE_KEY = 'dagu.workspace.runTimelineRange';
+/**
+ * The custom range, as JSON with its ends, in the storage of the browser
+ * tab: its fixed ends would hide the newer runs of every workflow in a
+ * later visit. While it is set, it is the range.
+ */
+export const CUSTOM_RANGE_KEY = 'dagu.workspace.runTimelineCustomRange';
 /** Whether the timeline counts the cached time: "1" (the default) or "0". */
 export const SHOW_CACHED_KEY = 'dagu.workspace.runTimelineCached';
 /** The trigger types that the timeline hides, as a JSON list. */
@@ -74,17 +81,26 @@ const STORAGE_KEYS = [
   HIDDEN_TYPES_KEY,
 ] as const;
 
-function readKey(key: string): string | null {
+const browserStorage = () => window.localStorage;
+const tabStorage = () => window.sessionStorage;
+
+function readKey(key: string, storage = browserStorage): string | null {
   try {
-    return window.localStorage.getItem(key);
+    return storage().getItem(key);
   } catch {
     return null;
   }
 }
 
-function writeKey(key: string, value: string): void {
+// A null value removes the key.
+function writeKey(
+  key: string,
+  value: string | null,
+  storage = browserStorage
+): void {
   try {
-    window.localStorage.setItem(key, value);
+    if (value === null) storage().removeItem(key);
+    else storage().setItem(key, value);
   } catch {
     // Storage is blocked: the choice lasts while a view of it is mounted.
   }
@@ -100,7 +116,10 @@ let signature = '';
 
 function snapshot(): RunViewSettings {
   if (listeners.size > 0 && current) return current;
-  const raws = STORAGE_KEYS.map(readKey);
+  const raws = [
+    ...STORAGE_KEYS.map((key) => readKey(key)),
+    readKey(CUSTOM_RANGE_KEY, tabStorage),
+  ];
   const sign = raws
     .map((raw) => (raw === null ? '\u0000' : `1${raw}`))
     .join('\u0001');
@@ -110,7 +129,7 @@ function snapshot(): RunViewSettings {
     count: parseStoredCount(raws[0]!),
     showTests: parseStoredShowTests(raws[1]!),
     mode: parseStoredMode(raws[2]!),
-    range: parseStoredRange(raws[3]!),
+    range: parseStoredCustomRange(raws[6]!) ?? parseStoredRange(raws[3]!),
     showCached: parseStoredShowCached(raws[4]!),
     hiddenTypes: parseStoredHiddenTypes(raws[5]!),
   };
@@ -127,7 +146,13 @@ function update(patch: Partial<RunViewSettings>): void {
   }
   if (patch.mode !== undefined) writeKey(RUN_MODE_KEY, patch.mode);
   if (patch.range !== undefined) {
-    writeKey(RUN_RANGE_KEY, JSON.stringify(patch.range));
+    const custom = patch.range.preset === 'custom';
+    writeKey(
+      CUSTOM_RANGE_KEY,
+      custom ? JSON.stringify(patch.range) : null,
+      tabStorage
+    );
+    if (!custom) writeKey(RUN_RANGE_KEY, JSON.stringify(patch.range));
   }
   if (patch.showCached !== undefined) {
     writeKey(SHOW_CACHED_KEY, patch.showCached ? '1' : '0');

@@ -1,7 +1,13 @@
 // Copyright (C) 2026 Yota Hamada
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-import { CalendarRange, FlaskConical, History, ListFilter } from 'lucide-react';
+import {
+  CalendarRange,
+  ChevronDown,
+  FlaskConical,
+  History,
+  ListFilter,
+} from 'lucide-react';
 import {
   memo,
   useEffect,
@@ -17,6 +23,8 @@ import {
   DropdownMenuCheckboxItem,
   DropdownMenuContent,
   DropdownMenuLabel,
+  DropdownMenuRadioGroup,
+  DropdownMenuRadioItem,
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
@@ -37,6 +45,8 @@ const PANEL_WIDTH = 248;
 const MARGIN = 8;
 /** The value of the option that stands for the custom range. */
 const CUSTOM_VALUE = 'range:custom';
+const MENU_LABEL = 'px-2 py-1 text-[11px] text-muted-foreground';
+const MENU_ITEM = 'py-1 text-xs';
 
 const toInput = (ms: number) => dayjs(ms).format(INPUT_FORMAT);
 /** The time of a datetime-local text, in local time; null when it is not complete. */
@@ -233,8 +243,16 @@ export const RunTimelineControls = memo(function RunTimelineControls({
   // A state, not a ref object: the panel opens in the render that adds the button.
   const [anchor, setAnchor] = useState<HTMLElement | null>(null);
   const custom = range?.preset === 'custom' ? range : null;
-  const shownCounts = counts.includes(count) ? counts : [...counts, count];
+  // In a time range the count is the number of runs in it, not a choice.
+  const shownCounts =
+    range || counts.includes(count) ? counts : [...counts, count];
   const value = range ? `range:${range.preset}` : String(count);
+  const shownPreset = RANGE_PRESETS.find((p) => p.id === range?.preset);
+  const valueLabel = shownPreset
+    ? ts(shownPreset.label)
+    : range
+      ? ts('Custom range')
+      : ts('Last {n} runs', { n: count });
 
   const onSelect = (next: string) => {
     if (next.startsWith('range:')) {
@@ -361,39 +379,66 @@ export const RunTimelineControls = memo(function RunTimelineControls({
       ) : (
         <span className="size-6 shrink-0" aria-hidden="true" />
       )}
-      <select
-        data-testid="ww-run-timeline-count"
-        aria-label={ts('Number of runs shown')}
-        value={value}
-        onChange={(event) => onSelect(event.target.value)}
-        className="h-6 w-[8.75rem] shrink-0 rounded-md border border-input bg-background px-1.5 text-[11px] text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-      >
-        {onRangeChange ? (
-          <>
-            <optgroup label={ts('Newest runs')}>
-              {shownCounts.map((n) => (
-                <option key={n} value={n}>
-                  {ts('Last {n} runs', { n })}
-                </option>
-              ))}
-            </optgroup>
-            <optgroup label={ts('Time range')}>
-              {RANGE_PRESETS.map((preset) => (
-                <option key={preset.id} value={`range:${preset.id}`}>
-                  {ts(preset.label)}
-                </option>
-              ))}
-              <option value={CUSTOM_VALUE}>{ts('Custom range')}</option>
-            </optgroup>
-          </>
-        ) : (
-          shownCounts.map((n) => (
-            <option key={n} value={n}>
-              {ts('Last {n} runs', { n })}
-            </option>
-          ))
-        )}
-      </select>
+      {/* A menu, not a select: a choice of the shown item still reports, so
+          Custom range opens its panel again. */}
+      <DropdownMenu>
+        <DropdownMenuTrigger asChild>
+          <button
+            type="button"
+            data-testid="ww-run-timeline-count"
+            data-value={value}
+            className="inline-flex h-6 w-[8.75rem] shrink-0 items-center justify-between gap-1 rounded-md border border-input bg-background px-1.5 text-[11px] text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+          >
+            <span className="sr-only">{ts('Number of runs shown')}</span>{' '}
+            <span className="min-w-0 truncate">{valueLabel}</span>
+            <ChevronDown
+              aria-hidden="true"
+              className="size-3 shrink-0 text-muted-foreground"
+            />
+          </button>
+        </DropdownMenuTrigger>
+        <DropdownMenuContent align="end" className="min-w-[8.75rem]">
+          <DropdownMenuRadioGroup value={value} onValueChange={onSelect}>
+            {onRangeChange && (
+              <DropdownMenuLabel className={MENU_LABEL}>
+                {ts('Newest runs')}
+              </DropdownMenuLabel>
+            )}
+            {shownCounts.map((n) => (
+              <DropdownMenuRadioItem
+                key={n}
+                value={String(n)}
+                className={MENU_ITEM}
+              >
+                {ts('Last {n} runs', { n })}
+              </DropdownMenuRadioItem>
+            ))}
+            {onRangeChange && (
+              <>
+                <DropdownMenuSeparator />
+                <DropdownMenuLabel className={MENU_LABEL}>
+                  {ts('Time range')}
+                </DropdownMenuLabel>
+                {RANGE_PRESETS.map((preset) => (
+                  <DropdownMenuRadioItem
+                    key={preset.id}
+                    value={`range:${preset.id}`}
+                    className={MENU_ITEM}
+                  >
+                    {ts(preset.label)}
+                  </DropdownMenuRadioItem>
+                ))}
+                <DropdownMenuRadioItem
+                  value={CUSTOM_VALUE}
+                  className={MENU_ITEM}
+                >
+                  {ts('Custom range')}
+                </DropdownMenuRadioItem>
+              </>
+            )}
+          </DropdownMenuRadioGroup>
+        </DropdownMenuContent>
+      </DropdownMenu>
       {custom && onRangeChange && panelOpen && (
         <CustomRangePanel
           range={custom}

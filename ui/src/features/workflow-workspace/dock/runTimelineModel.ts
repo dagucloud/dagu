@@ -422,33 +422,43 @@ export type RunRange =
 /** The range that the timeline starts with. */
 export const RANGE_DEFAULT: RunRange = { preset: '24h' };
 
-/** The stored range; the default for a text that is not a valid range. */
+/** The stored preset of the time range; the default for any other text. */
 export function parseStoredRange(raw: string | null): RunRange {
   if (raw === null) return RANGE_DEFAULT;
+  try {
+    const preset = (JSON.parse(raw) as { preset?: unknown } | null)?.preset;
+    if (RANGE_PRESETS.some((p) => p.id === preset)) {
+      return { preset: preset as RangePresetId };
+    }
+  } catch {
+    // Not JSON: the default applies.
+  }
+  return RANGE_DEFAULT;
+}
+
+/** The stored custom range; null for a text that is not a valid one. */
+export function parseStoredCustomRange(raw: string | null): RunRange | null {
+  if (raw === null) return null;
   try {
     const value = JSON.parse(raw) as {
       preset?: unknown;
       from?: unknown;
       to?: unknown;
     } | null;
-    const preset = value?.preset;
-    if (RANGE_PRESETS.some((p) => p.id === preset)) {
-      return { preset: preset as RangePresetId };
-    }
     if (
-      preset === 'custom' &&
-      typeof value?.from === 'number' &&
+      value?.preset === 'custom' &&
+      typeof value.from === 'number' &&
       typeof value.to === 'number' &&
       Number.isFinite(value.from) &&
       Number.isFinite(value.to) &&
       value.from <= value.to
     ) {
-      return { preset, from: value.from, to: value.to };
+      return { preset: 'custom', from: value.from, to: value.to };
     }
   } catch {
-    // Not JSON: the default applies.
+    // Not JSON: no custom range.
   }
-  return RANGE_DEFAULT;
+  return null;
 }
 
 /** The ends of a range at `now`, in ms. A preset ends now. */
