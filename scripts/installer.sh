@@ -116,7 +116,7 @@ Options:
   --service-scope <scope>    Service scope: user or system
   --host <host>              Host address for the Dagu web UI
   --port <port>              Port for the Dagu web UI
-  --skills-dir <path>        Deprecated; use gh skill install dagucloud/dagu dagu instead
+  --skills-dir <path>        Deprecated; use gh skill install dagucloud/dagu dagu --scope user instead
   --admin-username <name>    Initial admin username for builtin auth bootstrap
   --admin-password <pass>    Initial admin password for builtin auth bootstrap
   --open-browser <yes|no>    Open the Dagu URL after successful setup
@@ -635,14 +635,7 @@ detect_os_arch() {
 
 # The configuration directory of the GitHub Copilot CLI.
 copilot_home_dir() {
-    local xdg_dir="${XDG_CONFIG_HOME:-${HOME}}/.copilot"
-    if [[ -n "${COPILOT_HOME:-}" ]]; then
-        printf '%s' "${COPILOT_HOME}"
-    elif [[ -f "${xdg_dir}/config.json" ]]; then
-        printf '%s' "${xdg_dir}"
-    else
-        printf '%s' "${HOME}/.copilot"
-    fi
+    printf '%s' "${COPILOT_HOME:-${HOME}/.copilot}"
 }
 
 detect_skill_targets() {
@@ -2112,7 +2105,7 @@ install_skill() {
         for custom_dir in "${EXPLICIT_SKILL_DIRS[@]}"; do
             ui_warn "--skills-dir is no longer supported by the Dagu installer: ${custom_dir}"
         done
-        ui_warn "Install the skill with: gh skill install dagucloud/dagu dagu"
+        ui_warn "Install the skill with: gh skill install dagucloud/dagu dagu --scope user"
         return 0
     fi
     # Both installers default to the project in the current directory, and
@@ -2128,12 +2121,12 @@ install_skill() {
         return 0
     fi
     if command -v npx >/dev/null 2>&1; then
-        if ! npx skills add https://github.com/dagucloud/dagu --skill dagu --global --yes </dev/null; then
+        if ! npx --yes skills add https://github.com/dagucloud/dagu --skill dagu --global --yes </dev/null; then
             ui_warn "Failed to install the Dagu AI skill. Install manually with: npx skills add https://github.com/dagucloud/dagu --skill dagu --global"
         fi
         return 0
     fi
-    ui_warn "No shared skills installer was found. Install manually with: gh skill install dagucloud/dagu dagu"
+    ui_warn "No shared skills installer was found. Install manually with: gh skill install dagucloud/dagu dagu --scope user"
 }
 
 open_browser_if_requested() {

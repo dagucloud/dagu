@@ -404,11 +404,8 @@ function Resolve-Defaults {
 
 # The configuration directory of the GitHub Copilot CLI.
 function Get-CopilotHome {
-    $userHome = [Environment]::GetFolderPath("UserProfile")
-    $xdg = if ($env:XDG_CONFIG_HOME) { $env:XDG_CONFIG_HOME } else { $userHome }
     if ($env:COPILOT_HOME) { return $env:COPILOT_HOME }
-    if (Test-Path (Join-Path $xdg ".copilot\config.json")) { return Join-Path $xdg ".copilot" }
-    return Join-Path $userHome ".copilot"
+    return Join-Path ([Environment]::GetFolderPath("UserProfile")) ".copilot"
 }
 
 function Detect-SkillTargets {
@@ -1293,7 +1290,7 @@ function Install-AISkill {
         foreach ($dir in $SkillsDir) {
             Write-WarnMessage "--SkillsDir is no longer supported by the Dagu installer: $dir"
         }
-        Write-WarnMessage "Install the skill with: gh skill install dagucloud/dagu dagu"
+        Write-WarnMessage "Install the skill with: gh skill install dagucloud/dagu dagu --scope user"
     }
     elseif ($SkillMode -eq "auto" -and (Get-Command gh -ErrorAction SilentlyContinue)) {
         # gh and npx skills default to the project in the current directory:
@@ -1306,13 +1303,13 @@ function Install-AISkill {
         }
     }
     elseif ($SkillMode -eq "auto" -and (Get-Command npx -ErrorAction SilentlyContinue)) {
-        & npx skills add https://github.com/dagucloud/dagu --skill dagu --global --yes
+        & npx --yes skills add https://github.com/dagucloud/dagu --skill dagu --global --yes
         if ($LASTEXITCODE -ne 0) {
             Write-WarnMessage "Failed to install the Dagu AI skill. Install manually with: npx skills add https://github.com/dagucloud/dagu --skill dagu --global"
         }
     }
     else {
-        Write-WarnMessage "No shared skills installer was found. Install manually with: gh skill install dagucloud/dagu dagu"
+        Write-WarnMessage "No shared skills installer was found. Install manually with: gh skill install dagucloud/dagu dagu --scope user"
     }
 }
 
