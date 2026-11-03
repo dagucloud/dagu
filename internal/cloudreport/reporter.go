@@ -605,7 +605,7 @@ type health struct {
 	Scheduler *schedulerHealth `json:"scheduler,omitempty"`
 	// Queues are the queues that hold queued or running runs, up to
 	// maxQueues, and QueuesTotal counts them all; both are left out below
-	// runs, and while the queues cannot be read.
+	// runs, and while the queues or the runs in progress cannot be read.
 	Queues      []queueHealth `json:"queues,omitzero"`
 	QueuesTotal *int          `json:"queues_total,omitempty"`
 	// RemoteAccess is the highest role calls from Dagu Cloud get, and

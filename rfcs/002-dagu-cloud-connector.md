@@ -322,7 +322,8 @@ first, then queues with room whose next run has not started, then queues
 whose runs fill them, then queues with nothing queued, each with the longest
 wait first, at most 256; `health.queues_total` counts them all. A queue whose
 name is longer than 128 bytes is left out.
-Both are left out at `health` and when the queues cannot be read. A read
+Both are left out at `health`, and when the queues or the runs in progress
+cannot be read, rather than sent with counts that are short. A read
 serves reports for a minute.
 
 `active` lists the runs in progress, with `status` `queued`, `running`, or

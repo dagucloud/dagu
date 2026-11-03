@@ -5,6 +5,7 @@ package cloudreport
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strings"
 	"testing"
@@ -31,6 +32,19 @@ func (p fakeProcs) ListAllAlive(context.Context) (map[string][]ir.DAGRunRef, err
 type fakeLeases []dispatch.DAGRunLease
 
 func (l fakeLeases) ListAll(context.Context) ([]dispatch.DAGRunLease, error) { return l, nil }
+
+// failingProcs and failingLeases cannot be read.
+type failingProcs struct{}
+
+func (failingProcs) ListAllAlive(context.Context) (map[string][]ir.DAGRunRef, error) {
+	return nil, errors.New("proc files unreadable")
+}
+
+type failingLeases struct{}
+
+func (failingLeases) ListAll(context.Context) ([]dispatch.DAGRunLease, error) {
+	return nil, errors.New("leases unreadable")
+}
 
 // fakeRuns reads runs' statuses by run ID, and records which it opened.
 type fakeRuns struct {
@@ -127,6 +141,24 @@ func TestQueuesRunAtLeastOneAtOnce(t *testing.T) {
 	require.True(t, ok)
 	require.Len(t, queues, 1)
 	assert.Equal(t, 1, queues[0].MaxActive)
+}
+
+// A read whose runs in progress cannot be read fails, rather than send
+// counts that are short.
+func TestQueuesFailWhenTheRunsInProgressCannotBeRead(t *testing.T) {
+	t.Parallel()
+	s := newTestQueueStore(t)
+	enqueue(t, s, "etl", "etl", "e1")
+
+	for name, q := range map[string]Queues{
+		"processes": {Store: s, Procs: failingProcs{}},
+		"leases":    {Store: s, Leases: failingLeases{}},
+	} {
+		t.Run(name, func(t *testing.T) {
+			_, _, ok := q.read(context.Background(), time.Now())
+			assert.False(t, ok)
+		})
+	}
 }
 
 // A queue whose next run has not waited long is not asked why.

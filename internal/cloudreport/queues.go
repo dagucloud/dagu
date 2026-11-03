@@ -36,7 +36,8 @@ const (
 
 // Queues is what reports read of the server's queues. A nil Store leaves
 // queues out of reports; a nil Procs, Leases, or Runs leaves out what it
-// tells.
+// tells. A report whose read of the queues or of the runs in progress
+// fails leaves the queues out, rather than send counts that are short.
 type Queues struct {
 	// Store sums up the queues that hold queued runs, and lists a queue's
 	// next run in line.
@@ -103,7 +104,10 @@ func (q Queues) read(ctx context.Context, now time.Time) ([]queueHealth, int, bo
 		logger.Debug(ctx, "Failed to read the queues for the server report", tag.Error(err))
 		return nil, 0, false
 	}
-	running := q.running(ctx, now)
+	running, ok := q.running(ctx, now)
+	if !ok {
+		return nil, 0, false
+	}
 	byName := make(map[string]*queueHealth, len(summaries)+len(running))
 	next := make(map[string]time.Time, len(summaries))
 	add := func(name string) *queueHealth {
@@ -144,15 +148,16 @@ func (q Queues) read(ctx context.Context, now time.Time) ([]queueHealth, int, bo
 }
 
 // running counts the runs in progress on the server's processes and on
-// distributed workers, by queue, each run once. What cannot be read counts
-// none.
-func (q Queues) running(ctx context.Context, now time.Time) map[string]int {
+// distributed workers, by queue, each run once. It returns false when
+// either cannot be read.
+func (q Queues) running(ctx context.Context, now time.Time) (map[string]int, bool) {
 	counts := make(map[string]int)
 	counted := make(map[ir.DAGRunRef]struct{})
 	if q.Procs != nil {
 		alive, err := q.Procs.ListAllAlive(ctx)
 		if err != nil {
 			logger.Debug(ctx, "Failed to read the runs in progress for the server report", tag.Error(err))
+			return nil, false
 		}
 		for name, runs := range alive {
 			counts[name] += len(runs)
@@ -165,6 +170,7 @@ func (q Queues) running(ctx context.Context, now time.Time) map[string]int {
 		leases, err := q.Leases.ListAll(ctx)
 		if err != nil {
 			logger.Debug(ctx, "Failed to read the distributed runs for the server report", tag.Error(err))
+			return nil, false
 		}
 		// Leases are kept per attempt, so a run can hold more than one.
 		for _, lease := range leases {
@@ -175,7 +181,7 @@ func (q Queues) running(ctx context.Context, now time.Time) map[string]int {
 			counts[cmp.Or(lease.QueueName, lease.DAGRun.Name)]++
 		}
 	}
-	return counts
+	return counts, true
 }
 
 // explain says why the next run cannot start, of each queue with room
