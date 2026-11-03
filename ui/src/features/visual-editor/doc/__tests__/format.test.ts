@@ -725,6 +725,23 @@ describe('formatStepRange', () => {
     expect(formatStepRange(text, parseDagDoc(text).steps[0]!)).toBeNull();
   });
 
+  // The range of a step ends at its last character that is not a space, so
+  // the spaces and lines of spaces that end a block scalar lie after it.
+  it('keeps the spaces and line ends that end a block scalar', () => {
+    const head = 'name: demo\n\nsteps:\n  - run: echo\n    name: a\n    env:\n';
+    for (const text of [
+      `${head}      K: |+\n        x\n\n  - name: b\n`,
+      `${head}      K: |\n        x\n        \t\n`,
+      `${head}      K: |+\n        \t\n\n  - name: b\n`,
+      `${head}      K: |\n            x\n             \n\n  - name: b\n`,
+      'name: demo\n\nsteps:\n  - output: R\n    name: a\n    run: |\n      exit 1 \n',
+    ]) {
+      const out = formatStep(text, 0);
+      expect(parse(out), text).toEqual(parse(text));
+      expect(out, text).toBe(formatYaml(text));
+    }
+  });
+
   it('returns null when an alias would come before its anchor', () => {
     const text =
       'name: demo\n\nsteps:\n  - name: a\n    run: echo\n    stderr: &log /tmp/a.log\n    stdout: *log\n';

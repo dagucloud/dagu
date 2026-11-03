@@ -728,6 +728,46 @@ function inFlowCollection(text: string, offset: number): boolean {
   return inside;
 }
 
+/** The blank text after a step: see `blankTail`. */
+interface BlankTail {
+  /** Offset after the last blank line, before its line end. */
+  end: number;
+  /** The number of blank lines. */
+  lines: number;
+  /** True when a line end follows `end`. */
+  closed: boolean;
+}
+
+/**
+ * The blank text after offset `to`: the spaces up to the line end, then each
+ * line of only spaces and tabs before the next line with text. It can end a
+ * block scalar, whose range does not hold its last spaces and blank lines.
+ * After a comment, the blank text is empty.
+ */
+function blankTail(text: string, to: number): BlankTail {
+  const lineEnd = (start: number) => {
+    const next = text.indexOf('\n', start);
+    return next < 0 ? text.length : next;
+  };
+  const bare = (start: number, stop: number) =>
+    text.slice(start, stop).replace(/\r$/, '');
+  let stop = lineEnd(to);
+  if (/\S/.test(bare(to, stop))) return { end: to, lines: 0, closed: false };
+  let end = to + bare(to, stop).length;
+  let lines = 0;
+  while (stop < text.length) {
+    const start = stop + 1;
+    const next = lineEnd(start);
+    const line = bare(start, next);
+    // The text after the last line end is no line.
+    if (/\S/.test(line) || (next === text.length && line === '')) break;
+    end = start + line.length;
+    lines++;
+    stop = next;
+  }
+  return { end, lines, closed: end < text.length };
+}
+
 /** What `formatStepRange` reads of a step. */
 export type StepSpan = Pick<StepView, 'form' | 'range' | 'handler' | 'broken'>;
 
@@ -735,7 +775,8 @@ export type StepSpan = Pick<StepView, 'form' | 'range' | 'handler' | 'broken'>;
  * The edit that puts one step in canonical form, or null when the step is
  * already canonical, is broken, does not parse, or sits in a flow
  * collection, where the block style cannot go. The edit lies inside
- * `step.range`: the rest of the text stays byte for byte. The step gets the
+ * `step.range` and the blank text after it, up to the next line with text:
+ * the rest of the text stays byte for byte. The step gets the
  * rules of `formatYaml` (key order, block style, no blank line, comments
  * kept, strings folded at FORMAT_LINE_WIDTH), keeps its indentation and uses
  * the line ends of the text. The step is printed under wrapper keys that give
@@ -747,7 +788,8 @@ export function formatStepRange(text: string, step: StepSpan): TextEdit | null {
   if (step.broken !== undefined) return null;
   const { from, to } = step.range;
   if (inFlowCollection(text, from)) return null;
-  const original = text.slice(from, to);
+  const tail = blankTail(text, to);
+  const original = text.slice(from, tail.end);
   const column = from - (text.lastIndexOf('\n', from - 1) + 1);
   // A step of the map form, and a handler, comes with its key.
   const keyed = step.form === 'mapEntry' || step.handler !== undefined;
@@ -762,16 +804,8 @@ export function formatStepRange(text: string, step: StepSpan): TextEdit | null {
   const own = ' '.repeat(column);
   const inner = ' '.repeat(canon);
   const head = keyed ? inner : `${' '.repeat(2 * levels)}- `;
-  // The blank lines after the range are content of a block scalar that
-  // keeps its line ends (`|+`) at the end of the step.
-  const rest = toLf(text.slice(to)).split('\n').slice(1);
-  const filled = rest.findIndex((line) => line.trim() !== '');
-  const blank = filled < 0 ? rest : rest.slice(0, filled);
   const source: string[] = [];
-  for (const [index, line] of [
-    ...toLf(original).split('\n'),
-    ...blank,
-  ].entries()) {
+  for (const [index, line] of toLf(original).split('\n').entries()) {
     if (index === 0) {
       source.push(head + line);
     } else if (line.trim() === '') {
@@ -785,7 +819,9 @@ export function formatStepRange(text: string, step: StepSpan): TextEdit | null {
       source.push(line);
     }
   }
-  const docs = readDocuments([...wrapper, ...source].join('\n'), {
+  // The line end after the blank lines ends a block scalar that keeps it.
+  const end = tail.closed ? '\n' : '';
+  const docs = readDocuments([...wrapper, ...source].join('\n') + end, {
     ...EXACT_INTS,
     customTags: FOLDING_TAGS as never,
   });
@@ -807,7 +843,8 @@ export function formatStepRange(text: string, step: StepSpan): TextEdit | null {
   }
   let printed: string[];
   try {
-    const body = doc.toString(PRINT_OPTIONS).replace(/\n+$/, '');
+    // The lines after the last line end are the kept lines of a block.
+    const body = doc.toString(PRINT_OPTIONS).replace(/\n$/, '');
     printed = trimLines(body).slice(levels);
   } catch {
     // The key order can put an alias before its anchor.
@@ -824,6 +861,12 @@ export function formatStepRange(text: string, step: StepSpan): TextEdit | null {
     } else {
       return null;
     }
+  }
+  // A printed step ends with a line without text only in a block that keeps
+  // its line ends, where a blank line after it would be content. Otherwise
+  // the blank lines after the step stay.
+  if (/\S/.test(lines[lines.length - 1] ?? '')) {
+    lines.push(...Array<string>(tail.lines).fill(''));
   }
   const edit = minimalEdit(
     original,
