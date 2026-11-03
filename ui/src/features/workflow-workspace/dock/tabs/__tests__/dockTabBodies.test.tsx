@@ -1486,6 +1486,8 @@ describe('Definition', () => {
     });
 
     fireEvent.click(screen.getByRole('button', { name: 'Changes' }));
+    // An urgent update while the viewer loads renders the shown view again.
+    fireEvent.click(screen.getByRole('button', { name: 'Open on canvas' }));
 
     expect(screen.getByTestId('leaf-yaml')).toBeInTheDocument();
     expect(screen.queryByText('Loading...')).not.toBeInTheDocument();
