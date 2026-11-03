@@ -511,6 +511,34 @@ describe.skipIf(realSchema === null)('RunSnapshotCanvas', () => {
     expect(h.actions.can).toHaveBeenCalledWith('transform');
   });
 
+  // As in the editor canvas: opening a step that ran sub-runs opens them.
+  it('opens the sub-runs of a step that the user opens', async () => {
+    renderCanvas();
+    await findNode('steps[0]');
+    const { onOpenCall } = lastEditor();
+
+    h.actions.can.mockReturnValue({
+      retry: false,
+      setStatus: false,
+      runStep: true,
+      subRuns: true,
+    });
+    expect(onOpenCall!('fetch')).toBe(true);
+    expect(h.actions.openSubRun).toHaveBeenCalledWith('fetch', {
+      newTab: undefined,
+    });
+
+    h.actions.can.mockReturnValue({
+      retry: false,
+      setStatus: false,
+      runStep: true,
+      subRuns: false,
+    });
+    h.actions.openSubRun.mockClear();
+    expect(onOpenCall!('transform')).toBe(false);
+    expect(h.actions.openSubRun).not.toHaveBeenCalled();
+  });
+
   it('shows the saved definition with a notice when the run has none', async () => {
     h.runSpec = null;
     h.savedSpec = yamlArraySteps;

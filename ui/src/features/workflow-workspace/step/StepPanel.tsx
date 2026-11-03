@@ -1,7 +1,7 @@
 // Copyright (C) 2026 Yota Hamada
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-import { CircleDot, Maximize2, RotateCcw, X } from 'lucide-react';
+import { CircleDot, GitBranch, Maximize2, RotateCcw, X } from 'lucide-react';
 import { useLayoutEffect, useRef, useState, type ReactNode } from 'react';
 import type { components } from '@/api/v1/schema';
 import { Button } from '@/components/ui/button';
@@ -164,8 +164,8 @@ function contains(box: DOMRect, at: ClickPoint): boolean {
 
 /**
  * The run actions of the step. Like the node menu, a handler has no Retry
- * step and no Change status, and each command meets its gate again in the
- * host.
+ * step and no Change status, a step with sub-runs opens them, and each
+ * command meets its gate again in the host.
  */
 function StepPanelActions({
   step,
@@ -206,6 +206,23 @@ function StepPanelActions({
         >
           <CircleDot aria-hidden="true" />
           {ts('Change status')}
+        </Button>
+      )}
+      {gates.hasSubRuns(step) && (
+        <Button
+          type="button"
+          variant="outline"
+          size="xs"
+          onClick={(event) =>
+            onStepCommand({
+              kind: 'openSubRun',
+              step,
+              newTab: event.metaKey || event.ctrlKey,
+            })
+          }
+        >
+          <GitBranch aria-hidden="true" />
+          {ts('Open sub-run')}
         </Button>
       )}
       <Button type="button" variant="outline" size="xs" onClick={onOpenStep}>

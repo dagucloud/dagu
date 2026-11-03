@@ -87,7 +87,7 @@ function gates(allow: boolean): StepCommandGates {
     canRunStep: true,
     canRetry: () => allow,
     canSetStatus: () => allow,
-    hasSubRuns: () => false,
+    hasSubRuns: () => allow,
   };
 }
 
@@ -180,7 +180,7 @@ describe('StepPanel', () => {
     expect(onClose).toHaveBeenCalledTimes(1);
   });
 
-  it('sends Retry step and Change status through the host commands', () => {
+  it('sends Retry step, Change status and Open sub-run through the host commands', () => {
     const { onStepCommand, onOpenStep } = setup({ details: failedBuild() });
 
     fireEvent.click(screen.getByRole('button', { name: 'Retry step' }));
@@ -193,6 +193,12 @@ describe('StepPanel', () => {
       kind: 'setStatus',
       step: 'build',
     });
+    fireEvent.click(screen.getByRole('button', { name: 'Open sub-run' }));
+    expect(onStepCommand).toHaveBeenLastCalledWith({
+      kind: 'openSubRun',
+      step: 'build',
+      newTab: false,
+    });
     fireEvent.click(screen.getByRole('button', { name: 'Open step' }));
     expect(onOpenStep).toHaveBeenCalledTimes(1);
   });
@@ -201,6 +207,7 @@ describe('StepPanel', () => {
     setup({ details: failedBuild(), allow: false });
     expect(screen.queryByRole('button', { name: 'Retry step' })).toBeNull();
     expect(screen.queryByRole('button', { name: 'Change status' })).toBeNull();
+    expect(screen.queryByRole('button', { name: 'Open sub-run' })).toBeNull();
     expect(screen.getByRole('button', { name: 'Open step' })).toBeVisible();
   });
 
