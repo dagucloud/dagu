@@ -1244,9 +1244,12 @@ export function RunTimelineView({
     );
   }
 
+  // In a time range the runs are those of the range, not the history that
+  // the server sent: only the fixed counts are offered.
+  const inRange = range !== null;
   const options = useMemo(
-    () => counts ?? countOptions(allRuns.length),
-    [counts, allRuns.length]
+    () => counts ?? countOptions(inRange ? 0 : allRuns.length),
+    [counts, inRange, allRuns.length]
   );
 
   const controls = (

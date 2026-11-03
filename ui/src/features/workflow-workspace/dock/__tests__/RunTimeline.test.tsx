@@ -1034,6 +1034,26 @@ describe('RunTimelineView', () => {
       renderView({ runs: many, selectedId: 'm44', count: 30 });
       expect(runsItems()).toContain('Last 45 runs');
     });
+
+    // The runs of a time range are no history to count (#3487).
+    it('offers only the fixed counts in a time range', () => {
+      const many = Array.from({ length: 45 }, (_, i) =>
+        make(`m${i}`, Status.Success, 1)
+      );
+      renderView({
+        runs: many,
+        selectedId: 'm44',
+        count: many.length,
+        range: { preset: '7d' },
+        onRangeChange: vi.fn(),
+      });
+      expect(runsItems().filter((label) => label.endsWith('runs'))).toEqual([
+        'Last 5 runs',
+        'Last 10 runs',
+        'Last 20 runs',
+        'Last 30 runs',
+      ]);
+    });
   });
 
   describe('loading and empty states', () => {
