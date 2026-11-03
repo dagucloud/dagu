@@ -200,10 +200,10 @@ func (q Queues) running(ctx context.Context, now time.Time) (map[string]int, boo
 // explain says why the next run cannot start, of each queue with room
 // whose next run waited reasonAfter. It asks of at most maxQueueReasons of
 // them, those an earlier read asked of longest ago first, then the longest
-// waits, so with more of them each is asked in turn; the others keep the
-// answer an earlier read got of the same next run. A queue whose next run
-// changed counts as not asked. It returns what it and earlier reads asked
-// of the queues still waiting.
+// waits, then by name, so with more of them each is asked in turn; the
+// others keep the answer an earlier read got of the same next run. A queue
+// whose next run changed counts as not asked. It returns what it and
+// earlier reads asked of the queues still waiting.
 func (q Queues) explain(ctx context.Context, queues []queueHealth, next map[string]time.Time, now time.Time,
 	prev reasonChecks) reasonChecks {
 	checks := make(reasonChecks)
@@ -229,7 +229,11 @@ func (q Queues) explain(ctx context.Context, queues []queueHealth, next map[stri
 		return time.Time{}
 	}
 	slices.SortFunc(waiting, func(a, b *queueHealth) int {
-		return cmp.Or(askedAt(a.Name).Compare(askedAt(b.Name)), next[a.Name].Compare(next[b.Name]))
+		return cmp.Or(
+			askedAt(a.Name).Compare(askedAt(b.Name)),
+			next[a.Name].Compare(next[b.Name]),
+			cmp.Compare(a.Name, b.Name),
+		)
 	})
 	for i, h := range waiting {
 		if i < maxQueueReasons {

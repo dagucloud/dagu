@@ -192,7 +192,7 @@ func TestQueuesAskOfWaitingQueuesInTurn(t *testing.T) {
 	first, ok := q.read(context.Background(), start, nil)
 	require.True(t, ok)
 	assert.Len(t, runs.opened, maxQueueReasons)
-	assert.Empty(t, blocked(first), "the last queue waited least, so it is not asked first")
+	assert.Empty(t, blocked(first), "the last queue waited least, or ties last by name, so it is not asked first")
 
 	second, ok := q.read(context.Background(), start.Add(time.Minute), first.checks)
 	require.True(t, ok)
@@ -214,6 +214,29 @@ func TestQueuesAskOfWaitingQueuesInTurn(t *testing.T) {
 	require.True(t, ok)
 	assert.Empty(t, blocked(fourth), "a new next run does not keep the answer about the last one")
 	assert.Equal(t, "r"+last+"-next", runs.opened[len(runs.opened)-maxQueueReasons], "and is asked first")
+}
+
+// Waiting queues whose next runs were queued at the same moment, as a
+// coarse clock makes them, are asked in the order of their names.
+func TestQueuesAskOfTiedQueuesByName(t *testing.T) {
+	t.Parallel()
+	s := newTestQueueStore(t)
+	queued := time.Now()
+	next := make(map[string]time.Time)
+	var queues []queueHealth
+	for i := range maxQueueReasons + 1 {
+		name := fmt.Sprintf("q%02d", maxQueueReasons-i)
+		enqueue(t, s, name, name, "r"+name)
+		next[name] = queued
+		queues = append(queues, queueHealth{Name: name, Queued: 1, MaxActive: 1})
+	}
+	runs := &fakeRuns{statuses: map[string]*ir.DAGRunStatus{}}
+
+	Queues{Store: s, Runs: runs}.explain(context.Background(), queues, next, queued.Add(reasonAfter), nil)
+
+	require.Len(t, runs.opened, maxQueueReasons)
+	assert.Equal(t, "rq00", runs.opened[0])
+	assert.NotContains(t, runs.opened, fmt.Sprintf("rq%02d", maxQueueReasons))
 }
 
 // A queue whose next run has not waited long is not asked why.
