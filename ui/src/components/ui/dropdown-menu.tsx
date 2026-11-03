@@ -66,8 +66,18 @@ const DropdownMenuContent = React.forwardRef<
   const setContentRef = React.useCallback(
     (node: HTMLDivElement | null) => {
       contentRef.current = node;
-      if (typeof ref === 'function') ref(node);
-      else if (ref) ref.current = node;
+      if (typeof ref !== 'function') {
+        if (ref) ref.current = node;
+        return;
+      }
+      // A callback ref may return its cleanup, which React then calls in
+      // place of a call with null. ForwardedRef does not type that return.
+      const cleanup = (ref as React.RefCallback<HTMLDivElement>)(node);
+      if (typeof cleanup !== 'function') return;
+      return () => {
+        contentRef.current = null;
+        cleanup();
+      };
     },
     [ref]
   );

@@ -58,4 +58,33 @@ describe('DropdownMenuContent', () => {
     await tick();
     expect(trigger).toHaveAttribute('data-state', 'open');
   });
+
+  // React may attach a ref again while the content mounts: each attach has
+  // its cleanup, and none is left once the content leaves.
+  it('runs the cleanup of a callback ref when the content leaves', async () => {
+    let live = 0;
+    // Stable, as the ref of a caller is.
+    const ref = (node: HTMLDivElement | null) => {
+      if (!node) return;
+      live += 1;
+      return () => {
+        live -= 1;
+      };
+    };
+    render(
+      <DropdownMenu>
+        <DropdownMenuTrigger>Runs</DropdownMenuTrigger>
+        <DropdownMenuContent ref={ref}>
+          <DropdownMenuItem>Last 5 runs</DropdownMenuItem>
+        </DropdownMenuContent>
+      </DropdownMenu>
+    );
+
+    press(screen.getByRole('button', { name: 'Runs' }));
+    await tick();
+    expect(live).toBe(1);
+    fireEvent.click(screen.getByRole('menuitem', { name: 'Last 5 runs' }));
+    expect(screen.queryByRole('menu')).toBeNull();
+    expect(live).toBe(0);
+  });
 });
