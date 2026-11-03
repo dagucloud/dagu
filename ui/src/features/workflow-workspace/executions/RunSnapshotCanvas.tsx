@@ -249,6 +249,12 @@ function RunCanvasBody({
     stepCommandGates.canRunStep && step !== null
       ? () => onRunStep(step)
       : undefined;
+  // Opening a step that ran sub-runs opens them, as in the editor canvas.
+  const openCall = (name: string) => {
+    if (!stepCommandGates.hasSubRuns(name)) return false;
+    onStepCommand({ kind: 'openSubRun', step: name });
+    return true;
+  };
 
   return (
     // The graph zone of the run view: the step view sits inside this box
@@ -288,6 +294,7 @@ function RunCanvasBody({
                 openNdvOn="open"
                 renderStepOutput={renderStepOutput}
                 onStepCommand={onStepCommand}
+                onOpenCall={openCall}
                 stepCommandGates={stepCommandGates}
                 chrome={ndvState !== null ? CHROME_NDV_OPEN : CHROME}
                 yamlVisible={ndvState !== null}

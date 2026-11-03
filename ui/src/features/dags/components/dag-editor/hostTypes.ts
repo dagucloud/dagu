@@ -79,7 +79,14 @@ export interface WorkspaceNotice {
     | string;
   tone: 'info' | 'warning' | 'error';
   message: ReactNode;
-  action?: { label: ReactNode; run(): void };
+  /**
+   * The button of the notice. `run` gets the modifier keys of the click,
+   * for an action that opens a new tab on Cmd/Ctrl-click.
+   */
+  action?: {
+    label: ReactNode;
+    run(click?: { metaKey: boolean; ctrlKey: boolean }): void;
+  };
   dismissible?: boolean;
   /** Called when the user dismisses a dismissible notice. */
   dismiss?(): void;

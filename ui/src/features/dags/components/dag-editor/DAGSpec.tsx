@@ -188,6 +188,8 @@ const NOTICE_PRIORITY = {
   frozen: 1_000_000,
   editRefused: 900_000,
 } as const;
+/** The sub-runs of a child workflow rank under the run notices of the host. */
+const CHILD_RUNS_NOTICE_PRIORITY = 25;
 
 /** The lines that differ between two texts, after the common start and end. */
 function changedLineCount(before: string, after: string): number {
@@ -1888,6 +1890,45 @@ function DAGSpec({
       });
     }
     noticeItems.push(...(notices ?? []));
+    // The tab of a child workflow shows its definition, not a run: each step
+    // of the shown run that ran the child leads to its sub-runs.
+    if (activeTab !== 'parent' && onStepCommand) {
+      for (const node of runSource?.details?.nodes ?? []) {
+        const step = node.step.name;
+        const count =
+          (node.subRuns?.length ?? 0) + (node.subRunsRepeated?.length ?? 0);
+        if (
+          node.step.call !== activeTab ||
+          count === 0 ||
+          !stepCommandGates?.hasSubRuns(step)
+        ) {
+          continue;
+        }
+        noticeItems.push({
+          id: `child-runs:${step}`,
+          tone: 'info',
+          message:
+            count === 1
+              ? ts('Step {step} of the selected run ran this workflow.', {
+                  step,
+                })
+              : ts(
+                  'Step {step} of the selected run ran this workflow {count} times.',
+                  { step, count }
+                ),
+          action: {
+            label: count === 1 ? ts('Open sub-run') : ts('Choose sub-run'),
+            run: (click) =>
+              onStepCommand({
+                kind: 'openSubRun',
+                step,
+                newTab: !!click && (click.metaKey || click.ctrlKey),
+              }),
+          },
+          priority: CHILD_RUNS_NOTICE_PRIORITY,
+        });
+      }
+    }
   }
 
   const issueCount = liveValidation?.errors.length ?? 0;
@@ -2230,6 +2271,16 @@ function DAGSpec({
                         onStepCommand={ignoreStepCommand}
                         stepCommandGates={NO_RUN_GATES}
                         onOpenCall={(step) => openCall(step, false)}
+                        canvasOverlay={
+                          compactNotices && noticeItems.length > 0 ? (
+                            <div className="flex min-w-0 max-w-full flex-col items-center gap-1">
+                              <NoticeLine
+                                className="pointer-events-auto max-w-full rounded-md bg-card shadow-md"
+                                notices={noticeItems}
+                              />
+                            </div>
+                          ) : undefined
+                        }
                       />
                     </React.Suspense>
                   ) : preview.dag ? (

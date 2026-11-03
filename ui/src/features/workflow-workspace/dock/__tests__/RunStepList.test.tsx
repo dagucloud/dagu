@@ -53,6 +53,7 @@ function renderList(
   props: Partial<RunStepListProps> = {}
 ) {
   const onSelect = vi.fn();
+  const onOpenSubRun = vi.fn();
   const view = render(
     <RunStepList
       dag={dagOf(['a', 'b'])}
@@ -60,11 +61,12 @@ function renderList(
       handlers={runHandlers(details)}
       selected={null}
       onSelect={onSelect}
+      onOpenSubRun={onOpenSubRun}
       {...props}
     />,
     { wrapper: MemoryRouter }
   );
-  return { ...view, onSelect };
+  return { ...view, onSelect, onOpenSubRun };
 }
 
 function rowOf(name: string): HTMLElement {
@@ -221,8 +223,9 @@ describe('RunStepList', () => {
   });
 
   // parity:steps-name-description
-  it('shows the sub-DAG icon with its tooltip and the sub-run count', async () => {
-    renderList(
+  // The badge opens the sub-runs; the row only selects the step (#3488).
+  it('opens the sub-runs of a step from its sub-run badge', async () => {
+    const { onSelect, onOpenSubRun } = renderList(
       run('run-1', [
         node('fan', NodeStatus.Success, {
           step: { call: 'child' },
@@ -233,17 +236,27 @@ describe('RunStepList', () => {
       ])
     );
 
-    const icon = within(rowOf('fan')).getByTestId('run-step-subdag');
-    expect(icon).toHaveTextContent('2');
-    expect(within(icon).getByTitle('2 sub-runs')).toBeInTheDocument();
+    // Two sub-runs: the badge says so, and a click lets the user choose.
+    const badge = within(rowOf('fan')).getByRole('button', {
+      name: 'Choose one of 2 sub-runs of child',
+    });
+    expect(badge).toHaveTextContent('2');
     expect(
       within(rowOf('plain')).queryByTestId('run-step-subdag')
     ).not.toBeInTheDocument();
 
-    await userEvent.hover(icon);
+    await userEvent.hover(badge);
     expect(await screen.findByRole('tooltip')).toHaveTextContent(
-      'Sub DAG Run: child'
+      'Choose one of 2 sub-runs of child'
     );
+
+    fireEvent.click(badge);
+    expect(onOpenSubRun).toHaveBeenLastCalledWith('fan', { newTab: false });
+    expect(onSelect).not.toHaveBeenCalled();
+    fireEvent.click(badge, { metaKey: true });
+    expect(onOpenSubRun).toHaveBeenLastCalledWith('fan', { newTab: true });
+    fireEvent.click(badge, { ctrlKey: true });
+    expect(onOpenSubRun).toHaveBeenLastCalledWith('fan', { newTab: true });
   });
 
   // parity:steps-retry-count-badge parity:run-step-repeat-badge
@@ -415,6 +428,7 @@ describe('RunStepList', () => {
         handlers={[]}
         selected="b"
         onSelect={() => {}}
+        onOpenSubRun={() => {}}
       />
     );
 

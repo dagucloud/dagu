@@ -90,6 +90,7 @@ import cr1 from './cr1';
 import sh1 from './sh1';
 import sp1 from './sp1';
 import gp1 from './gp1';
+import sr1 from './sr1';
 
 export const workspaceModules = {
   q2,
@@ -179,6 +180,7 @@ export const workspaceModules = {
   sh1,
   sp1,
   gp1,
+  sr1,
 } as const;
 
 export const workspaceMessages = {
@@ -270,6 +272,7 @@ export const workspaceMessages = {
     ...sh1.en,
     ...sp1.en,
     ...gp1.en,
+    ...sr1.en,
   },
   'zh-CN': {
     ...q2['zh-CN'],
@@ -359,6 +362,7 @@ export const workspaceMessages = {
     ...sh1['zh-CN'],
     ...sp1['zh-CN'],
     ...gp1['zh-CN'],
+    ...sr1['zh-CN'],
   },
   ja: {
     ...q2.ja,
@@ -448,5 +452,6 @@ export const workspaceMessages = {
     ...sh1.ja,
     ...sp1.ja,
     ...gp1.ja,
+    ...sr1.ja,
   },
 } as const;

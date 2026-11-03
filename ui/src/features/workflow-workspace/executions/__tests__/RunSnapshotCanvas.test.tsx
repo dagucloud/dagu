@@ -511,6 +511,37 @@ describe.skipIf(realSchema === null)('RunSnapshotCanvas', () => {
     expect(h.actions.can).toHaveBeenCalledWith('transform');
   });
 
+  // As in the editor canvas: a double click on a step that ran sub-runs
+  // opens them, and on any other step its step view.
+  it('opens the sub-runs of a step on a double click', async () => {
+    h.actions.can.mockImplementation((step: string) => ({
+      retry: false,
+      setStatus: false,
+      runStep: true,
+      subRuns: step === 'fetch',
+    }));
+    renderCanvas();
+    const fetchNode = await findNode('steps[0]');
+
+    act(() => {
+      fireEvent.doubleClick(fetchNode);
+    });
+    expect(h.actions.openSubRun).toHaveBeenCalledWith('fetch', {
+      newTab: undefined,
+    });
+    // No step view opens.
+    expect(screen.getByTestId('loc').dataset.url).not.toContain('ndv=');
+
+    act(() => {
+      fireEvent.doubleClick(screen.getByTestId('ve-canvas-node-steps[1]'));
+    });
+    expect(await screen.findByTestId('ndv')).toHaveAttribute(
+      'data-state',
+      'expanded'
+    );
+    expect(h.actions.openSubRun).toHaveBeenCalledTimes(1);
+  });
+
   it('shows the saved definition with a notice when the run has none', async () => {
     h.runSpec = null;
     h.savedSpec = yamlArraySteps;

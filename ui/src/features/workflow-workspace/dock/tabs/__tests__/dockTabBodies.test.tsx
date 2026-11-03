@@ -842,6 +842,26 @@ describe('dock tab bodies', () => {
       expect(screen.getByTestId('leaf-executionLog')).toBeInTheDocument();
     });
 
+    // The log of a step that ran sub-runs holds their summary: a line over
+    // it opens the runs themselves (#3488).
+    it('opens the sub-run of a step from its log', async () => {
+      setLatest(run('run-1', [fanOut, node('b')], Status.Success));
+      await renderBody('log', `/dags/${FILE_NAME}?step=fan-out`);
+      expect(screen.getByTestId('ww-step-sub-runs')).toHaveTextContent(
+        'This step ran child-dag as a sub-run.'
+      );
+      fireEvent.click(screen.getByRole('button', { name: 'Open sub-run' }));
+      expect(await screen.findByTestId('child-content')).toHaveAttribute(
+        'data-run',
+        'c-1'
+      );
+    });
+
+    it('has no sub-run line for a step without sub-runs', async () => {
+      await renderBody('log', `/dags/${FILE_NAME}?step=a`);
+      expect(screen.queryByTestId('ww-step-sub-runs')).toBeNull();
+    });
+
     it('points a foreach step to its items', async () => {
       setLatest(
         run('run-1', [

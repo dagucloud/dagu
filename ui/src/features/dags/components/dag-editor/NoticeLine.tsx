@@ -184,7 +184,7 @@ function NoticeView({
           variant="outline"
           size="xs"
           className="h-6"
-          onClick={notice.action.run}
+          onClick={(event) => notice.action?.run(event)}
         >
           {notice.action.label}
         </Button>

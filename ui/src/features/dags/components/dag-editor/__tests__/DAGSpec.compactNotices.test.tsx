@@ -928,3 +928,99 @@ describe('DAGSpec compact notices: draft recovery', () => {
     ).not.toBeInTheDocument();
   });
 });
+
+// The tab of a child workflow shows its definition, not a run: each step of
+// the shown run that ran the child leads to its sub-runs (#3488).
+describe('DAGSpec compact notices: sub-runs of a child workflow', () => {
+  const twoDocs =
+    'steps:\n  - name: fan\n    call: child\n---\nname: child\nsteps:\n  - name: load\n    run: echo\n';
+  type Props = React.ComponentProps<typeof DAGSpec>;
+  type RunDetails = NonNullable<Props['runSource']>['details'];
+
+  /** Renders the file with a run of `nodes`, then opens the child tab. */
+  async function openChildTab(nodes: unknown[]) {
+    const onStepCommand = vi.fn();
+    mocks.useQuery.mockReturnValue(specData({ spec: twoDocs }));
+    await renderSpec({
+      localDags: [
+        {
+          name: 'child',
+          dag: { name: 'child', steps: [{ name: 'load' }] },
+          errors: [],
+        },
+      ] as Props['localDags'],
+      runSource: {
+        runId: 'r1',
+        details: {
+          name: 'example',
+          dagRunId: 'r1',
+          nodes,
+        } as unknown as RunDetails,
+      },
+      onStepCommand,
+      stepCommandGates: {
+        canRunStep: false,
+        canRetry: () => false,
+        canSetStatus: () => false,
+        hasSubRuns: (step) => step !== 'other',
+      },
+    });
+    // The parent tab shows the run itself: no notice there.
+    expect(screen.queryByText(/ran this workflow/)).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole('tab', { name: 'child' }));
+    await settle();
+    return onStepCommand;
+  }
+
+  it('leads to the sub-runs of the child in the shown run', async () => {
+    const onStepCommand = await openChildTab([
+      {
+        step: { name: 'fan', call: 'child' },
+        subRuns: [
+          { dagRunId: 'c1', dagName: 'child' },
+          { dagRunId: 'c2', dagName: 'child' },
+        ],
+      },
+      // A step that did not run the child has no notice.
+      { step: { name: 'other', call: 'child' } },
+    ]);
+
+    expect(
+      screen.getByText(
+        'Step fan of the selected run ran this workflow 2 times.'
+      )
+    ).toBeInTheDocument();
+    const choose = screen.getByRole('button', { name: 'Choose sub-run' });
+    fireEvent.click(choose);
+    expect(onStepCommand).toHaveBeenLastCalledWith({
+      kind: 'openSubRun',
+      step: 'fan',
+      newTab: false,
+    });
+    fireEvent.click(choose, { ctrlKey: true });
+    expect(onStepCommand).toHaveBeenLastCalledWith({
+      kind: 'openSubRun',
+      step: 'fan',
+      newTab: true,
+    });
+  });
+
+  it('counts the repeated sub-runs of a step', async () => {
+    const onStepCommand = await openChildTab([
+      {
+        step: { name: 'loop', call: 'child' },
+        subRunsRepeated: [{ dagRunId: 'r-1', dagName: 'child' }],
+      },
+    ]);
+
+    expect(
+      screen.getByText('Step loop of the selected run ran this workflow.')
+    ).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'Open sub-run' }));
+    expect(onStepCommand).toHaveBeenLastCalledWith({
+      kind: 'openSubRun',
+      step: 'loop',
+      newTab: false,
+    });
+  });
+});

@@ -55,6 +55,7 @@ import { StepManualActions } from '../../step/StepManualActions';
 import { StepDeclared } from '../../step/StepDeclared';
 import { StepOutputRows } from '../../step/StepOutputRows';
 import { StepRunView, type StepRunTarget } from '../../step/StepRunView';
+import { StepSubRunStrip } from '../../step/StepSubRunStrip';
 import { AgentRunSummary } from './AgentRunSummary';
 import { logTargetFromUrl } from './logTarget';
 import { scopeDetailsToStep } from './stepScope';
@@ -538,6 +539,9 @@ function LogBody({ run, details, step, fileName }: RunTabProps) {
         {/* The error is the one of a step of this run, not of a sub run. */}
         {!target.subRun && (
           <StepFailureBanner step={target.step} className="shrink-0" />
+        )}
+        {!target.subRun && !target.foreach && (
+          <StepSubRunStrip node={node} holder={details} />
         )}
         {foreachItems &&
           (step ? (

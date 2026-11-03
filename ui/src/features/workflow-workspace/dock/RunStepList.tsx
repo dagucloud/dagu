@@ -61,6 +61,8 @@ export interface RunStepListProps {
   /** Server step name of the selected row; null selects the summary row. */
   selected: string | null;
   onSelect(step: string | null): void;
+  /** Opens the sub-runs of a step; a new tab on a modifier click. */
+  onOpenSubRun(step: string, opts: { newTab: boolean }): void;
 }
 
 /** Step and handler names of the saved definition. */
@@ -227,6 +229,7 @@ interface StepRowProps {
   outside: boolean;
   rowRef(name: string, el: HTMLLIElement | null): void;
   onSelect(name: string): void;
+  onOpenSubRun(name: string, opts: { newTab: boolean }): void;
 }
 
 /** The node is compared by content: a new copy of the same step is no change. */
@@ -246,12 +249,21 @@ const StepRow = memo(function StepRow({
   outside,
   rowRef,
   onSelect,
+  onOpenSubRun,
 }: StepRowProps) {
   const { ts } = useI18n();
   const step = node.step;
   const subRuns = [...(node.subRuns ?? []), ...(node.subRunsRepeated ?? [])];
   const subDagName = step.call || subRuns[0]?.dagName;
   const hasSubRuns = !!subDagName && subRuns.length > 0;
+  // One sub-run opens at once; several open a picker.
+  const subRunLabel =
+    subRuns.length === 1
+      ? ts('Open sub-run: {name}', { name: subDagName ?? '' })
+      : ts('Choose one of {count} sub-runs of {name}', {
+          count: subRuns.length,
+          name: subDagName ?? '',
+        });
   const repeat = useMemo(
     () => readRepeatPolicy(step.repeatPolicy),
     [step.repeatPolicy]
@@ -295,24 +307,27 @@ const StepRow = memo(function StepRow({
           {hasSubRuns && (
             <Tooltip>
               <TooltipTrigger asChild>
-                <span
-                  tabIndex={0}
+                <button
+                  type="button"
                   data-testid="run-step-subdag"
-                  className="inline-flex shrink-0 items-center gap-0.5 rounded-sm text-primary focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+                  aria-label={subRunLabel}
+                  // The row selects the step; the badge opens its runs.
+                  onClick={(event) => {
+                    event.stopPropagation();
+                    onOpenSubRun(step.name, {
+                      newTab: event.metaKey || event.ctrlKey,
+                    });
+                  }}
+                  className="inline-flex shrink-0 items-center gap-0.5 rounded-sm text-primary hover:bg-primary/10 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
                 >
                   <GitBranch className="h-3.5 w-3.5" aria-hidden="true" />
-                  <span
-                    className="text-[10px] tabular-nums"
-                    title={ts('{count} sub-runs', { count: subRuns.length })}
-                  >
+                  <span className="text-[10px] tabular-nums">
                     {subRuns.length}
                   </span>
-                </span>
+                </button>
               </TooltipTrigger>
               <TooltipContent>
-                <span className="text-xs">
-                  {ts('Sub DAG Run:')} {subDagName}
-                </span>
+                <span className="text-xs">{subRunLabel}</span>
               </TooltipContent>
             </Tooltip>
           )}
@@ -362,6 +377,7 @@ export function RunStepList({
   handlers,
   selected,
   onSelect,
+  onOpenSubRun,
 }: RunStepListProps) {
   const { ts } = useI18n();
   const known = useMemo(() => definitionNames(dag), [dag]);
@@ -386,6 +402,13 @@ export function RunStepList({
   onSelectRef.current = onSelect;
   const selectRow = useCallback(
     (name: string) => onSelectRef.current(name),
+    []
+  );
+  const onOpenSubRunRef = useRef(onOpenSubRun);
+  onOpenSubRunRef.current = onOpenSubRun;
+  const openSubRunOfRow = useCallback(
+    (name: string, opts: { newTab: boolean }) =>
+      onOpenSubRunRef.current(name, opts),
     []
   );
 
@@ -474,6 +497,7 @@ export function RunStepList({
           outside={outside(node)}
           rowRef={rowRef}
           onSelect={selectRow}
+          onOpenSubRun={openSubRunOfRow}
         />
       ))}
       {handlers.length > 0 && (
@@ -493,6 +517,7 @@ export function RunStepList({
               outside={outside(node)}
               rowRef={rowRef}
               onSelect={selectRow}
+              onOpenSubRun={openSubRunOfRow}
             />
           ))}
         </>
