@@ -1563,6 +1563,7 @@ func isReady(ctx context.Context, plan *Plan, node *Node) bool {
 func (r *Runner) runEventHandler(ctx context.Context, plan *Plan, node *Node, extraEnvs map[string]string) error {
 	defer node.Finish()
 
+	ctx = logger.WithValues(ctx, tag.Step(node.Name()))
 	var err error
 	ctx, err = r.setupEnvironEventHandler(ctx, plan, node, extraEnvs)
 	if err != nil {
@@ -1571,7 +1572,7 @@ func (r *Runner) runEventHandler(ctx context.Context, plan *Plan, node *Node, ex
 	}
 
 	if r.dry {
-		r.noteDryRunStep(logger.WithValues(ctx, tag.Step(node.Name())), node)
+		r.noteDryRunStep(ctx, node)
 		node.SetStatus(ir.NodeSucceeded)
 		return nil
 	}

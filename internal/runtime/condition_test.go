@@ -4,14 +4,18 @@
 package runtime_test
 
 import (
+	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
+	"io"
 	"os"
 	"path/filepath"
 	goruntime "runtime"
 	"testing"
 	"time"
 
+	"github.com/dagucloud/dagu/v2/internal/cmn/logger"
 	cmnvalue "github.com/dagucloud/dagu/v2/internal/cmn/value"
 	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/runtime"
@@ -26,6 +30,38 @@ func newTestContext() context.Context {
 func evalConditions(ctx context.Context, shell []string, conditions []*ir.Condition) error {
 	_, err := runtime.EvaluateConditions(ctx, shell, conditions)
 	return err
+}
+
+// withLogCapture returns ctx with a logger writing JSON entries to w.
+func withLogCapture(ctx context.Context, w io.Writer) context.Context {
+	return logger.WithLogger(ctx, logger.NewLogger(
+		logger.WithWriter(w), logger.WithFormat("json"), logger.WithQuiet(),
+	))
+}
+
+// conditionLog is a logged condition failure.
+type conditionLog struct {
+	Msg       string `json:"msg"`
+	Step      string `json:"step"`
+	Condition string `json:"condition"`
+	Eval      string `json:"eval"`
+	Err       string `json:"err"`
+}
+
+// conditionLogs decodes the logged condition failures from JSON log output,
+// skipping unrelated entries.
+func conditionLogs(t *testing.T, r io.Reader) []conditionLog {
+	t.Helper()
+	var logs []conditionLog
+	decoder := json.NewDecoder(r)
+	for decoder.More() {
+		var entry conditionLog
+		require.NoError(t, decoder.Decode(&entry))
+		if entry.Msg == "Condition was not met" || entry.Msg == "Condition failed to evaluate" {
+			logs = append(logs, entry)
+		}
+	}
+	return logs
 }
 
 func TestEvalConditions(t *testing.T) {
@@ -386,6 +422,69 @@ func TestEvalConditions_SiblingErrorWording(t *testing.T) {
 	require.ErrorIs(t, err, runtime.ErrConditionNotMet)
 	require.Equal(t, runtime.ErrMsgOtherConditionNotMet, results[0].Error)
 	require.NotEmpty(t, results[1].Error)
+}
+
+// Every failing condition is logged under its authored field, so the run log
+// shows which conditions stopped the owner, not only the deciding error.
+func TestEvalConditions_LogsFailedConditions(t *testing.T) {
+	var logs bytes.Buffer
+	ctx := withLogCapture(newTestContext(), &logs)
+
+	_, err := runtime.EvaluateConditions(ctx, nil, []*ir.Condition{
+		{Condition: "ready", Expected: "waiting"},
+		{Condition: "ok", Expected: "ok"},
+		{Eval: "abc", Expected: "num:>=0.8"},
+	})
+	require.Error(t, err)
+
+	entries := conditionLogs(t, &logs)
+	require.Len(t, entries, 2)
+	require.Equal(t, "Condition was not met", entries[0].Msg)
+	require.Equal(t, "ready", entries[0].Condition)
+	require.Contains(t, entries[0].Err, `expected "waiting", got "ready"`)
+	require.Equal(t, "Condition failed to evaluate", entries[1].Msg)
+	require.Equal(t, "abc", entries[1].Eval)
+	require.Contains(t, entries[1].Err, "num:>=0.8")
+}
+
+// A check whose context has ended is reported as interrupted, not as failed
+// conditions, so no condition failure is logged for it.
+func TestEvalConditions_InterruptedCheckLogsNoFailures(t *testing.T) {
+	ctx, cancel := context.WithCancel(newTestContext())
+	cancel()
+	var logs bytes.Buffer
+	ctx = withLogCapture(ctx, &logs)
+
+	err := evalConditions(ctx, nil, []*ir.Condition{{Condition: "ready", Expected: "waiting"}})
+	require.ErrorIs(t, err, context.Canceled)
+	require.Empty(t, conditionLogs(t, &logs))
+}
+
+// Condition errors quote resolved values and reach the run log and status, so
+// the run's secrets are masked in them. The secret holds a quote to cover the
+// escaped form that quoting produces.
+func TestEvalConditions_MasksSecrets(t *testing.T) {
+	const secret = `s3cr"et`
+	ctx := runtime.NewContext(context.Background(), &ir.DAG{}, "test-run", "test.log",
+		runtime.WithSecrets([]string{"TOKEN=" + secret}))
+	ctx = runtime.WithEnv(ctx, runtime.NewEnv(ctx, ir.Step{}))
+	var logs bytes.Buffer
+	ctx = withLogCapture(ctx, &logs)
+
+	notMet := &ir.Condition{Condition: "${TOKEN}", Expected: "nope"}
+	results, err := runtime.EvaluateConditions(ctx, nil, []*ir.Condition{notMet})
+	require.ErrorIs(t, err, runtime.ErrConditionNotMet)
+	require.Contains(t, results[0].Error, `expected "nope"`)
+	require.NotContains(t, results[0].Error, "s3cr")
+	require.NotContains(t, err.Error(), "s3cr")
+
+	notNumber := &ir.Condition{Condition: "${TOKEN}", Expected: "num:>=1"}
+	results, err = runtime.EvaluateConditions(ctx, nil, []*ir.Condition{notNumber})
+	require.Error(t, err)
+	require.NotContains(t, results[0].Error, "s3cr")
+	require.NotContains(t, err.Error(), "s3cr")
+
+	require.NotContains(t, logs.String(), "s3cr")
 }
 
 func TestEvalConditions_ValueMatchEvalRunsCommandSubstitution(t *testing.T) {

@@ -2027,6 +2027,52 @@ steps:
 	require.NotContains(t, string(statusJSON), secretValue)
 }
 
+// A precondition that compares a secret quotes the resolved value in its
+// error, while stored run status keeps only the mask.
+func TestAgent_PreconditionSecretMasking(t *testing.T) {
+	t.Parallel()
+
+	cases := []struct {
+		name string
+		yaml string
+	}{
+		{"DAG", `preconditions:
+  - condition: "${API_TOKEN}"
+    expected: "nope"
+steps:
+  - run: echo gated
+`},
+		{"Step", `steps:
+  - name: gated
+    preconditions:
+      - condition: "${API_TOKEN}"
+        expected: "nope"
+    run: echo gated
+`},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			th := test.Setup(t)
+
+			secretValue := "precondition-secret-8c1d"
+			secretFile := th.TempFile(t, "secret.txt", []byte(secretValue))
+			dag := th.DAG(t, `secrets:
+  - name: API_TOKEN
+    provider: file
+    key: `+secretFile+"\n"+tc.yaml)
+			require.NoError(t, dag.Agent().Run(th.Context))
+
+			latest, err := th.DAGRunMgr.GetLatestStatus(th.Context, dag.DAG)
+			require.NoError(t, err)
+			statusJSON, err := json.Marshal(latest)
+			require.NoError(t, err)
+			require.Contains(t, string(statusJSON), `expected \"nope\"`)
+			require.NotContains(t, string(statusJSON), secretValue)
+		})
+	}
+}
+
 func TestAgent_RegistryRefSecretResolution(t *testing.T) {
 	t.Parallel()
 	th := test.Setup(t)

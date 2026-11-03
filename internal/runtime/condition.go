@@ -8,9 +8,13 @@ import (
 	"errors"
 	"fmt"
 	"os/exec"
+	"strconv"
 	"strings"
 
 	"github.com/dagucloud/dagu/v2/internal/cmn/cmdutil"
+	"github.com/dagucloud/dagu/v2/internal/cmn/logger"
+	"github.com/dagucloud/dagu/v2/internal/cmn/logger/tag"
+	"github.com/dagucloud/dagu/v2/internal/cmn/masking"
 	"github.com/dagucloud/dagu/v2/internal/cmn/stringutil"
 	cmnvalue "github.com/dagucloud/dagu/v2/internal/cmn/value"
 	"github.com/dagucloud/dagu/v2/internal/ir"
@@ -46,6 +50,7 @@ func EvaluateConditions(ctx context.Context, shell []string, conditions []*ir.Co
 			if evalErr == nil && !errors.Is(err, ErrConditionNotMet) {
 				evalErr = err
 			}
+			logConditionFailure(ctx, conditions[i], err)
 		}
 	}
 
@@ -79,6 +84,24 @@ func EvaluateConditions(ctx context.Context, shell []string, conditions []*ir.Co
 	return results, err
 }
 
+// logConditionFailure logs a failed condition under the field it was authored
+// in, so the run log names each failing condition. Checks cut short by abort or
+// timeout are not logged, as the interruption decides the outcome.
+func logConditionFailure(ctx context.Context, c *ir.Condition, err error) {
+	if ctx.Err() != nil {
+		return
+	}
+	field := tag.String("condition", c.Condition)
+	if c.Eval != "" {
+		field = tag.String("eval", c.Eval)
+	}
+	msg := "Condition failed to evaluate"
+	if errors.Is(err, ErrConditionNotMet) {
+		msg = "Condition was not met"
+	}
+	logger.Info(ctx, msg, field, tag.Error(err))
+}
+
 func conditionResults(conditions []*ir.Condition) []ir.ConditionResult {
 	if len(conditions) == 0 {
 		return nil
@@ -95,8 +118,13 @@ func conditionResults(conditions []*ir.Condition) []ir.ConditionResult {
 // EvalCondition evaluates the condition and returns the actual value.
 // It returns an error if the evaluation failed or the condition is invalid.
 // If c.Negate is true, the result is inverted: the condition passes when it
-// would normally fail, and vice versa.
+// would normally fail, and vice versa. The run's secrets are masked in the
+// returned error.
 func EvalCondition(ctx context.Context, shell []string, c *ir.Condition) error {
+	return maskConditionError(ctx, evalCondition(ctx, shell, c))
+}
+
+func evalCondition(ctx context.Context, shell []string, c *ir.Condition) error {
 	var err error
 	switch {
 	case len(c.ExpectedPatterns()) > 0 && (c.Condition != "" || c.Eval != ""):
@@ -122,6 +150,42 @@ func EvalCondition(ctx context.Context, shell []string, c *ir.Condition) error {
 	}
 
 	return err
+}
+
+// maskedConditionError is a condition error whose message has the run's
+// secrets masked. The original error stays reachable for errors.Is.
+type maskedConditionError struct {
+	msg string
+	err error
+}
+
+func (e *maskedConditionError) Error() string { return e.msg }
+
+func (e *maskedConditionError) Unwrap() error { return e.err }
+
+// maskConditionError masks the run's secrets in err, as condition errors quote
+// resolved values and are logged and persisted with the run. Values are quoted
+// with %q, so the escaped form of each secret is masked too.
+func maskConditionError(ctx context.Context, err error) error {
+	if err == nil {
+		return nil
+	}
+	rCtx, ok := LookupDAGContext(ctx)
+	if !ok {
+		return err
+	}
+	var secrets []string
+	for name, value := range rCtx.EnvScope.AllSecrets() {
+		secrets = append(secrets, name+"="+value)
+		if quoted := strconv.Quote(value); quoted[1:len(quoted)-1] != value {
+			secrets = append(secrets, name+"="+quoted[1:len(quoted)-1])
+		}
+	}
+	msg := masking.NewMasker(masking.SourcedEnvVars{Secrets: secrets}).MaskString(err.Error())
+	if msg == err.Error() {
+		return err
+	}
+	return &maskedConditionError{msg: msg, err: err}
 }
 
 // matchCondition evaluates the condition and checks if it matches any of the
