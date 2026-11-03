@@ -60,13 +60,46 @@ DropdownMenuSubContent.displayName =
 const DropdownMenuContent = React.forwardRef<
   React.ComponentRef<typeof DropdownMenuPrimitive.Content>,
   React.ComponentPropsWithoutRef<typeof DropdownMenuPrimitive.Content>
->(({ className, sideOffset = 4, ...props }, ref) => {
+>(({ className, sideOffset = 4, onPointerDownOutside, ...props }, ref) => {
   const raised = useRaisedLayerClass();
+  const contentRef = React.useRef<HTMLDivElement | null>(null);
+  const setContentRef = React.useCallback(
+    (node: HTMLDivElement | null) => {
+      contentRef.current = node;
+      if (typeof ref !== 'function') {
+        if (ref) ref.current = node;
+        return;
+      }
+      // A callback ref may return its cleanup, which React then calls in
+      // place of a call with null. ForwardedRef does not type that return.
+      const cleanup = (ref as React.RefCallback<HTMLDivElement>)(node);
+      if (typeof cleanup !== 'function') return;
+      return () => {
+        contentRef.current = null;
+        cleanup();
+      };
+    },
+    [ref]
+  );
   return (
     <DropdownMenuPrimitive.Portal>
       <DropdownMenuPrimitive.Content
-        ref={ref}
+        ref={setContentRef}
         sideOffset={sideOffset}
+        onPointerDownOutside={(event) => {
+          onPointerDownOutside?.(event);
+          // A press on the trigger of the menu toggles it. A press during
+          // the closing animation opens it again: the closing content must
+          // not take the same press as an outside one and close it at once.
+          // The content is labelled by its trigger.
+          const content = contentRef.current;
+          const triggerId = content?.getAttribute('aria-labelledby');
+          const trigger =
+            triggerId && content?.ownerDocument.getElementById(triggerId);
+          if (trigger && trigger.contains(event.target as Node)) {
+            event.preventDefault();
+          }
+        }}
         className={cn(
           'z-50 min-w-[8rem] overflow-hidden rounded-lg border bg-popover p-1 text-popover-foreground shadow-lg',
           'data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0 data-[state=closed]:zoom-out-95 data-[state=open]:zoom-in-95 data-[side=bottom]:slide-in-from-top-2 data-[side=left]:slide-in-from-right-2 data-[side=right]:slide-in-from-left-2 data-[side=top]:slide-in-from-bottom-2',

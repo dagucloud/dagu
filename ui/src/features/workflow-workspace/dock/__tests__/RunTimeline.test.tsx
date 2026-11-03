@@ -24,6 +24,7 @@ import {
   type RunTimelineViewProps,
 } from '../RunTimeline';
 import {
+  CUSTOM_RANGE_KEY,
   RUN_MODE_KEY,
   RUN_RANGE_KEY,
   SHOW_CACHED_KEY,
@@ -127,6 +128,26 @@ function renderView(props: Partial<RunTimelineViewProps> = {}) {
 const bars = () =>
   within(screen.getByRole('listbox', { name: 'Runs' })).getAllByRole('option');
 const bar = (id: string) => screen.getByTestId(`ww-run-bar-${id}`);
+/** The run selector: a menu button that holds its choice in data-value. */
+const runsButton = () => screen.getByTestId('ww-run-timeline-count');
+const runsValue = () => runsButton().getAttribute('data-value');
+/** The labels of the items of the run selector; the menu closes again. */
+function runsItems(): string[] {
+  fireEvent.keyDown(runsButton(), { key: 'Enter' });
+  // The checked item also holds its dot.
+  const labels = screen
+    .getAllByRole('menuitemradio')
+    .map((item) => (item.textContent ?? '').replace('●', ''));
+  fireEvent.keyDown(screen.getByRole('menu'), { key: 'Escape' });
+  return labels;
+}
+/** Picks the item of the run selector with this label. */
+function chooseRuns(label: string) {
+  fireEvent.keyDown(runsButton(), { key: 'Enter' });
+  fireEvent.click(
+    screen.getByRole('menuitemradio', { name: new RegExp(`${label}$`) })
+  );
+}
 const fill = (id: string) => within(bar(id)).getByTestId('ww-run-bar-fill');
 /** The pixel of the left edge of the visible bar of a run. */
 const barLeft = (id: string) =>
@@ -969,15 +990,11 @@ describe('RunTimelineView', () => {
 
     it('offers 5, 10, 20 and 30 runs, and shows the chosen one', () => {
       renderView({ count: 10 });
-      const select = screen.getByRole('combobox', {
-        name: 'Number of runs shown',
-      });
-      expect(select).toHaveValue('10');
-      expect(
-        within(select)
-          .getAllByRole('option')
-          .map((o) => o.textContent)
-      ).toEqual([
+      expect(runsButton()).toHaveAccessibleName(
+        'Number of runs shown Last 10 runs'
+      );
+      expect(runsValue()).toBe('10');
+      expect(runsItems()).toEqual([
         'Last 5 runs',
         'Last 10 runs',
         'Last 20 runs',
@@ -987,9 +1004,7 @@ describe('RunTimelineView', () => {
 
     it('reports the count that the user chooses', () => {
       const { onCountChange } = renderView();
-      fireEvent.change(screen.getByRole('combobox'), {
-        target: { value: '5' },
-      });
+      chooseRuns('Last 5 runs');
       expect(onCountChange).toHaveBeenCalledWith(5);
     });
 
@@ -1017,11 +1032,27 @@ describe('RunTimelineView', () => {
         make(`m${i}`, Status.Success, 1)
       );
       renderView({ runs: many, selectedId: 'm44', count: 30 });
-      expect(
-        within(screen.getByRole('combobox'))
-          .getAllByRole('option')
-          .map((o) => o.textContent)
-      ).toContain('Last 45 runs');
+      expect(runsItems()).toContain('Last 45 runs');
+    });
+
+    // The runs of a time range are no history to count (#3487).
+    it('offers only the fixed counts in a time range', () => {
+      const many = Array.from({ length: 45 }, (_, i) =>
+        make(`m${i}`, Status.Success, 1)
+      );
+      renderView({
+        runs: many,
+        selectedId: 'm44',
+        count: many.length,
+        range: { preset: '7d' },
+        onRangeChange: vi.fn(),
+      });
+      expect(runsItems().filter((label) => label.endsWith('runs'))).toEqual([
+        'Last 5 runs',
+        'Last 10 runs',
+        'Last 20 runs',
+        'Last 30 runs',
+      ]);
     });
   });
 
@@ -1060,6 +1091,7 @@ describe('RunTimelineView', () => {
 describe('RunTimeline', () => {
   beforeEach(() => {
     window.localStorage.clear();
+    window.sessionStorage.clear();
   });
 
   function renderTimeline(url = '/dags/demo/executions') {
@@ -1134,19 +1166,19 @@ describe('RunTimeline', () => {
       </MemoryRouter>
     );
     expect(bars()).toHaveLength(30);
-    expect(screen.getByRole('combobox')).toHaveValue('30');
+    expect(runsValue()).toBe('30');
   });
 
   it('keeps the chosen count in the browser', () => {
     h.selection = 'latest';
     renderTimeline();
-    fireEvent.change(screen.getByRole('combobox'), { target: { value: '5' } });
+    chooseRuns('Last 5 runs');
     expect(window.localStorage.getItem(RUN_COUNT_KEY)).toBe('5');
     expect(bars()).toHaveLength(5);
     // A new mount reads it back.
     cleanup();
     renderTimeline();
-    expect(screen.getByRole('combobox')).toHaveValue('5');
+    expect(runsValue()).toBe('5');
     expect(bars()).toHaveLength(5);
   });
 
@@ -1154,7 +1186,7 @@ describe('RunTimeline', () => {
     window.localStorage.setItem(RUN_COUNT_KEY, '7');
     h.selection = 'latest';
     renderTimeline();
-    expect(screen.getByRole('combobox')).toHaveValue('30');
+    expect(runsValue()).toBe('30');
   });
 
   it('still works when the storage throws', () => {
@@ -1170,9 +1202,9 @@ describe('RunTimeline', () => {
         throw new Error('blocked');
       });
     renderTimeline();
-    fireEvent.change(screen.getByRole('combobox'), { target: { value: '10' } });
+    chooseRuns('Last 10 runs');
     expect(bars()).toHaveLength(6);
-    expect(screen.getByRole('combobox')).toHaveValue('10');
+    expect(runsValue()).toBe('10');
     get.mockRestore();
     set.mockRestore();
   });
@@ -1286,6 +1318,7 @@ describe('test runs in the timeline', () => {
 
   beforeEach(() => {
     window.localStorage.clear();
+    window.sessionStorage.clear();
     h.historyArgs = [];
   });
 
@@ -1471,9 +1504,7 @@ describe('test runs in the timeline', () => {
 
     it('counts the test runs in the number of runs shown', () => {
       renderTimeline([TEST, ...[...RUNS].reverse()]);
-      fireEvent.change(screen.getByRole('combobox'), {
-        target: { value: '5' },
-      });
+      chooseRuns('Last 5 runs');
       expect(bars()).toHaveLength(5);
       // The newest of the five is the test run.
       expect(bars().map((b) => b.getAttribute('data-run-id'))).toContain('t1');
@@ -1552,6 +1583,7 @@ describe('cached time in the timeline', () => {
 
   beforeEach(() => {
     window.localStorage.clear();
+    window.sessionStorage.clear();
   });
   afterEach(() => {
     vi.unstubAllGlobals();
@@ -1664,6 +1696,7 @@ describe('time range in the timeline', () => {
 
   beforeEach(() => {
     window.localStorage.clear();
+    window.sessionStorage.clear();
     h.selection = 'latest';
     h.latestRunId = 'd2';
     h.historyArgs = [];
@@ -1683,26 +1716,21 @@ describe('time range in the timeline', () => {
       </MemoryRouter>
     );
   }
-  const choose = (value: string) =>
-    fireEvent.change(screen.getByRole('combobox'), { target: { value } });
+  const ALL_ITEMS = [
+    'Last 5 runs',
+    'Last 10 runs',
+    'Last 20 runs',
+    'Last 30 runs',
+    'Last hour',
+    'Last 6 hours',
+    'Last 24 hours',
+    'Last 7 days',
+    'Custom range',
+  ];
 
   it('offers the presets and a custom range next to the counts', () => {
     renderTimeline();
-    expect(
-      within(screen.getByRole('combobox'))
-        .getAllByRole('option')
-        .map((o) => o.textContent)
-    ).toEqual([
-      'Last 5 runs',
-      'Last 10 runs',
-      'Last 20 runs',
-      'Last 30 runs',
-      'Last hour',
-      'Last 6 hours',
-      'Last 24 hours',
-      'Last 7 days',
-      'Custom range',
-    ]);
+    expect(runsItems()).toEqual(ALL_ITEMS);
   });
 
   it('shows the runs whose extent overlaps the range, and remembers the range', () => {
@@ -1710,24 +1738,27 @@ describe('time range in the timeline', () => {
     expect(bars()).toHaveLength(3);
     // The clock is at 2026-03-02 12:00; the runs are at 10:00 of the 27th, the 1st
     // and the 2nd.
-    choose('range:7d');
+    chooseRuns('Last 7 days');
     expect(bars()).toHaveLength(3);
     expect(window.localStorage.getItem(RUN_MODE_KEY)).toBe('range');
     expect(window.localStorage.getItem(RUN_RANGE_KEY)).toBe('{"preset":"7d"}');
-    expect(screen.getByRole('combobox')).toHaveValue('range:7d');
-    choose('range:24h');
+    expect(runsValue()).toBe('range:7d');
+    // The number of runs in the range is no count to choose (#3487).
+    expect(runsItems()).toEqual(ALL_ITEMS);
+    chooseRuns('Last 24 hours');
     expect(bars().map((o) => o.getAttribute('data-run-id'))).toEqual(['d2']);
-    choose('range:1h');
+    chooseRuns('Last hour');
     expect(screen.getByTestId('ww-run-timeline-empty')).toBeVisible();
-    choose('10');
+    expect(runsItems()).toEqual(ALL_ITEMS);
+    chooseRuns('Last 10 runs');
     expect(window.localStorage.getItem(RUN_MODE_KEY)).toBe('count');
     expect(bars()).toHaveLength(3);
   });
 
   it('says that no run is in the range', () => {
     window.localStorage.setItem(RUN_MODE_KEY, 'range');
-    window.localStorage.setItem(
-      RUN_RANGE_KEY,
+    window.sessionStorage.setItem(
+      CUSTOM_RANGE_KEY,
       JSON.stringify({ preset: 'custom', from: 1000, to: 2000 })
     );
     renderTimeline();
@@ -1738,20 +1769,45 @@ describe('time range in the timeline', () => {
 
   it('opens two datetime boxes for a custom range and refuses a start after the end', () => {
     renderTimeline();
-    choose('range:custom');
+    chooseRuns('Custom range');
     const from = screen.getByTestId('ww-run-timeline-range-from');
     const to = screen.getByTestId('ww-run-timeline-range-to');
     fireEvent.change(from, { target: { value: '2026-02-26T00:00' } });
     fireEvent.change(to, { target: { value: '2026-03-02T00:00' } });
-    const stored = JSON.parse(window.localStorage.getItem(RUN_RANGE_KEY)!);
+    const stored = JSON.parse(window.sessionStorage.getItem(CUSTOM_RANGE_KEY)!);
     expect(stored).toMatchObject({ preset: 'custom' });
     expect(stored.from).toBe(new Date('2026-02-26T00:00').getTime());
     // A start after the end is not applied.
     fireEvent.change(from, { target: { value: '2026-03-05T00:00' } });
     expect(screen.getByTestId('ww-run-timeline-range-error')).toBeVisible();
-    expect(JSON.parse(window.localStorage.getItem(RUN_RANGE_KEY)!)).toEqual(
-      stored
-    );
+    expect(
+      JSON.parse(window.sessionStorage.getItem(CUSTOM_RANGE_KEY)!)
+    ).toEqual(stored);
+  });
+
+  // A select reports no pick of its shown option: the menu does (#3487).
+  it('opens the custom range again when it is picked again', () => {
+    renderTimeline();
+    chooseRuns('Custom range');
+    expect(screen.getByTestId('ww-run-timeline-range-panel')).toBeVisible();
+    fireEvent.keyDown(document.body, { key: 'Escape' });
+    expect(screen.queryByTestId('ww-run-timeline-range-panel')).toBeNull();
+    chooseRuns('Custom range');
+    expect(screen.getByTestId('ww-run-timeline-range-panel')).toBeVisible();
+  });
+
+  // Its fixed ends would hide the newer runs of every workflow later on.
+  it('keeps a custom range for the browser tab only', () => {
+    renderTimeline();
+    chooseRuns('Last 7 days');
+    chooseRuns('Custom range');
+    expect(runsValue()).toBe('range:custom');
+    expect(window.localStorage.getItem(RUN_RANGE_KEY)).toBe('{"preset":"7d"}');
+    // A new tab starts from the last preset.
+    cleanup();
+    window.sessionStorage.clear();
+    renderTimeline();
+    expect(runsValue()).toBe('range:7d');
   });
 
   it('keeps the slots of the header row whatever the state', () => {
@@ -1759,9 +1815,9 @@ describe('time range in the timeline', () => {
     const row = screen.getByTestId('ww-run-timeline-controls');
     const slots = () => Array.from(row.children).length;
     const before = slots();
-    choose('range:custom');
+    chooseRuns('Custom range');
     expect(slots()).toBe(before);
-    choose('5');
+    chooseRuns('Last 5 runs');
     expect(slots()).toBe(before);
   });
 

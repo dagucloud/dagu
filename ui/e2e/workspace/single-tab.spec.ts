@@ -162,6 +162,15 @@ async function timelineRuns(page: Page): Promise<string[]> {
 }
 
 /** Opens the workflow page and waits for the first step of the canvas. */
+/** Picks an item of the run selector of the timeline, by its label. */
+async function chooseRuns(page: Page, label: string): Promise<void> {
+  await page.getByTestId('ww-run-timeline-count').click();
+  // The checked item also holds its dot.
+  await page
+    .getByRole('menuitemradio', { name: new RegExp(`${label}$`) })
+    .click();
+}
+
 async function openWorkflow(
   page: Page,
   gotoWorkspace: (page: Page, target: string) => Promise<void>,
@@ -655,9 +664,9 @@ steps:
     expect(await gutterWidth()).toBe(40);
 
     // The count control limits the bars to the newest runs.
-    await page.getByTestId('ww-run-timeline-count').selectOption('5');
+    await chooseRuns(page, 'Last 5 runs');
     await expect.poll(() => timelineRuns(page)).toHaveLength(5);
-    await page.getByTestId('ww-run-timeline-count').selectOption('30');
+    await chooseRuns(page, 'Last 30 runs');
     await expect.poll(() => timelineRuns(page)).toHaveLength(12);
   });
 
@@ -1099,28 +1108,26 @@ steps:
     await expect(bar(reuse).getByTestId('ww-run-bar-cached')).toBeVisible();
 
     // The time range: the last hour holds both runs, and the browser keeps it.
-    const select = page.getByTestId('ww-run-timeline-count');
     const slots = () =>
       page
         .getByTestId('ww-run-timeline-controls')
         .evaluate((row) => row.getBoundingClientRect().height);
     const before = await slots();
-    await select.selectOption('range:1h');
+    await chooseRuns(page, 'Last hour');
     await expect.poll(() => timelineRuns(page)).toEqual([full, reuse]);
     await page.reload();
     await expect(page.getByTestId('workflow-workspace')).toBeVisible({
       timeout: 30_000,
     });
     await openDock(page);
-    await expect(page.getByTestId('ww-run-timeline-count')).toHaveValue(
+    await expect(page.getByTestId('ww-run-timeline-count')).toHaveAttribute(
+      'data-value',
       'range:1h',
       { timeout: 30_000 }
     );
     expect(await slots()).toBe(before);
     // A custom range in the past holds no run, and says so.
-    await page
-      .getByTestId('ww-run-timeline-count')
-      .selectOption('range:custom');
+    await chooseRuns(page, 'Custom range');
     await page
       .getByTestId('ww-run-timeline-range-from')
       .fill('2001-01-01T00:00');
@@ -1132,7 +1139,7 @@ steps:
       .getByTestId('ww-run-timeline-range-from')
       .fill('2001-01-03T00:00');
     await expect(page.getByTestId('ww-run-timeline-range-error')).toBeVisible();
-    await page.getByTestId('ww-run-timeline-count').selectOption('30');
+    await chooseRuns(page, 'Last 30 runs');
     await expect.poll(() => timelineRuns(page)).toEqual([full, reuse]);
   });
 });

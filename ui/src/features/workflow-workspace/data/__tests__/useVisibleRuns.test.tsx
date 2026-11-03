@@ -6,6 +6,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { Status } from '@/api/v1/schema';
 import type { ApiDAGRunDetails } from '../types';
 import {
+  CUSTOM_RANGE_KEY,
   RUN_MODE_KEY,
   RUN_RANGE_KEY,
   SHOW_TESTS_KEY,
@@ -61,6 +62,7 @@ const HISTORY = [N2, T1, N1];
 
 beforeEach(() => {
   window.localStorage.clear();
+  window.sessionStorage.clear();
   h.history = { runs: HISTORY, isLoading: false };
   h.args = [];
   h.selection = 'latest';
@@ -184,8 +186,8 @@ describe('useVisibleRuns', () => {
 
   it('cuts a custom range at its end', () => {
     window.localStorage.setItem(RUN_MODE_KEY, 'range');
-    window.localStorage.setItem(
-      RUN_RANGE_KEY,
+    window.sessionStorage.setItem(
+      CUSTOM_RANGE_KEY,
       JSON.stringify({
         preset: 'custom',
         from: Date.parse('2026-03-02T08:30:00Z'),
@@ -194,6 +196,23 @@ describe('useVisibleRuns', () => {
     );
     const { result } = renderHook(() => useVisibleRuns({ enabled: true }));
     expect(ids(result.current.runs)).toEqual(['n1', 't1']);
+  });
+
+  // Its fixed ends would hide the newer runs of every workflow later on: it
+  // stays in the tab, and the browser keeps the last preset.
+  it('keeps a custom range in the tab, and a preset in the browser', () => {
+    const view = renderHook(() => useRunViewSettings());
+    const custom = { preset: 'custom' as const, from: 1, to: 2 };
+    act(() => view.result.current[1].setRange({ preset: '7d' }));
+    act(() => view.result.current[1].setRange(custom));
+    expect(view.result.current[0].range).toEqual(custom);
+    expect(window.sessionStorage.getItem(CUSTOM_RANGE_KEY)).toBe(
+      JSON.stringify(custom)
+    );
+    expect(window.localStorage.getItem(RUN_RANGE_KEY)).toBe('{"preset":"7d"}');
+    act(() => view.result.current[1].setRange({ preset: '1h' }));
+    expect(window.sessionStorage.getItem(CUSTOM_RANGE_KEY)).toBeNull();
+    expect(view.result.current[0].range).toEqual({ preset: '1h' });
   });
 
   // A running run lasts until now, not until the page opened.

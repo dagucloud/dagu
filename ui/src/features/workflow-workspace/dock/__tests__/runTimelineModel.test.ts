@@ -27,6 +27,7 @@ import {
   longRunMedianMs,
   MIN_SPAN_MS,
   parseStoredCount,
+  parseStoredCustomRange,
   parseStoredMode,
   parseStoredRange,
   parseStoredShowCached,
@@ -959,20 +960,29 @@ describe('the time range', () => {
     expect(parseStoredMode('count')).toBe('count');
     expect(parseStoredMode(null)).toBe('count');
     expect(parseStoredRange('{"preset":"6h"}')).toEqual({ preset: '6h' });
-    expect(parseStoredRange('{"preset":"custom","from":10,"to":20}')).toEqual({
-      preset: 'custom',
-      from: 10,
-      to: 20,
-    });
-    // Not valid: the default applies.
+    // Not a preset: the default applies. A custom range is not kept there.
     for (const raw of [
       null,
       'x',
       '{"preset":"2h"}',
+      '{"preset":"custom","from":10,"to":20}',
+    ]) {
+      expect(parseStoredRange(raw)).toEqual({ preset: '24h' });
+    }
+  });
+
+  it('reads the stored custom range', () => {
+    expect(
+      parseStoredCustomRange('{"preset":"custom","from":10,"to":20}')
+    ).toEqual({ preset: 'custom', from: 10, to: 20 });
+    for (const raw of [
+      null,
+      'x',
+      '{"preset":"6h"}',
       '{"preset":"custom","from":20,"to":10}',
       '{"preset":"custom","from":"a","to":1}',
     ]) {
-      expect(parseStoredRange(raw)).toEqual({ preset: '24h' });
+      expect(parseStoredCustomRange(raw)).toBeNull();
     }
   });
 
