@@ -23,6 +23,8 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/cmn/config"
 	"github.com/dagucloud/dagu/v2/internal/cmn/logger"
 	"github.com/dagucloud/dagu/v2/internal/license"
+	"github.com/dagucloud/dagu/v2/internal/pagination"
+	"github.com/dagucloud/dagu/v2/internal/queue"
 	"github.com/dagucloud/dagu/v2/internal/serviceregistry"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -100,6 +102,68 @@ func TestReportCarriesRemoteAccess(t *testing.T) {
 	require.NoError(t, json.Unmarshal([]byte(console.next(t).body), &body))
 	assert.Equal(t, "operator", body.Health["remote_access"])
 	assert.Equal(t, true, body.Health["remote_approvals"])
+}
+
+// fakeQueueStore sums up one queue, and counts how often it was read.
+type fakeQueueStore struct {
+	reads int
+}
+
+func (s *fakeQueueStore) Summaries(context.Context) ([]queue.Summary, error) {
+	s.reads++
+	return []queue.Summary{{Name: "etl", Queued: 3, NextQueuedAt: testClockStart.Add(-time.Minute)}}, nil
+}
+
+func (s *fakeQueueStore) ListCursor(context.Context, string, string, int) (pagination.CursorResult[queue.QueuedItemData], error) {
+	return pagination.CursorResult[queue.QueuedItemData]{}, nil
+}
+
+// Reports at runs carry the queues; reports at health carry none.
+func TestReportCarriesQueuesAtRuns(t *testing.T) {
+	t.Parallel()
+
+	for _, tc := range []struct {
+		level config.ReportLevel
+		want  bool
+	}{{config.ReportRuns, true}, {config.ReportHealth, false}} {
+		t.Run(string(tc.level), func(t *testing.T) {
+			t.Parallel()
+			console := newFakeConsole(t)
+			queues := &fakeQueueStore{}
+			r := newReporter(console.credentials, nil, fixedLevel(tc.level))
+			r.queues = Queues{Store: queues}
+			clock := startReporter(t.Context(), t, r, noJitter)
+
+			clock.wait()
+			clock.elapse()
+			var body struct {
+				Health map[string]any `json:"health"`
+			}
+			require.NoError(t, json.Unmarshal([]byte(console.next(t).body), &body))
+			if !tc.want {
+				assert.NotContains(t, body.Health, "queues")
+				assert.Zero(t, queues.reads)
+				return
+			}
+			assert.Equal(t, []any{map[string]any{"name": "etl", "queued": float64(3), "running": float64(0),
+				"max_active": float64(1), "next_queued_at": "2026-10-10T09:29:00Z"}}, body.Health["queues"])
+			assert.Equal(t, float64(1), body.Health["queues_total"])
+		})
+	}
+}
+
+// Reports sent within a minute of a read of the queues reuse it.
+func TestReportReadsQueuesAtMostEveryMinute(t *testing.T) {
+	t.Parallel()
+	queues := &fakeQueueStore{}
+	r := newReporter(nil, nil, fixedLevel(config.ReportRuns))
+	r.queues = Queues{Store: queues}
+
+	r.readQueues(t.Context(), testClockStart)
+	r.readQueues(t.Context(), testClockStart.Add(queuesEvery/2))
+	assert.Equal(t, 1, queues.reads)
+	r.readQueues(t.Context(), testClockStart.Add(queuesEvery))
+	assert.Equal(t, 2, queues.reads)
 }
 
 func TestReportWithoutServices(t *testing.T) {
