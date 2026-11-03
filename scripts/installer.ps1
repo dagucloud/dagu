@@ -81,6 +81,8 @@ $Script:DaguExe = $null
 $Script:DaguHome = $null
 $Script:ServiceUrl = $null
 $Script:DetectedSkillTargets = 0
+# The user-level skills directory of each detected AI tool.
+$Script:SkillTargetDirs = @()
 $Script:RebootElevated = $false
 $Script:SkillMode = ""
 $Script:UninstallInstallPaths = @()
@@ -405,17 +407,18 @@ function Detect-SkillTargets {
         return
     }
     $userHome = [Environment]::GetFolderPath("UserProfile")
-    $count = 0
+    $dirs = @()
     $agentsHome = if ($env:AGENTS_HOME) { $env:AGENTS_HOME } else { Join-Path $userHome ".agents" }
     $codexHome = if ($env:CODEX_HOME) { $env:CODEX_HOME } else { Join-Path $userHome ".codex" }
-    if (Test-Path (Join-Path $userHome ".claude\.claude.json")) { $count++ }
-    if (Test-Path $agentsHome) { $count++ }
-    elseif (Test-Path $codexHome) { $count++ }
-    if (Test-Path (Join-Path $userHome ".config\opencode")) { $count++ }
-    if (Test-Path (Join-Path $userHome ".gemini\GEMINI.md")) { $count++ }
+    if (Test-Path (Join-Path $userHome ".claude\.claude.json")) { $dirs += Join-Path $userHome ".claude\skills" }
+    if (Test-Path $agentsHome) { $dirs += Join-Path $agentsHome "skills" }
+    elseif (Test-Path $codexHome) { $dirs += Join-Path $codexHome "skills" }
+    if (Test-Path (Join-Path $userHome ".config\opencode")) { $dirs += Join-Path $userHome ".config\opencode\skills" }
+    if (Test-Path (Join-Path $userHome ".gemini\GEMINI.md")) { $dirs += Join-Path $userHome ".gemini\skills" }
     $xdg = if ($env:XDG_CONFIG_HOME) { $env:XDG_CONFIG_HOME } else { $userHome }
-    if ((Test-Path (Join-Path $xdg ".copilot\config.json")) -or (Test-Path (Join-Path $userHome ".copilot\config.json"))) { $count++ }
-    $Script:DetectedSkillTargets = $count
+    if ((Test-Path (Join-Path $xdg ".copilot\config.json")) -or (Test-Path (Join-Path $userHome ".copilot\config.json"))) { $dirs += Join-Path $userHome ".copilot\skills" }
+    $Script:SkillTargetDirs = $dirs
+    $Script:DetectedSkillTargets = $dirs.Count
 }
 
 function Get-ServiceWrapperPath {
@@ -456,9 +459,10 @@ function Discover-SkillRemovals {
     $codexSkill = Join-Path $codexHome "skills\dagu"
     $openCodeSkill = Join-Path $userHome ".config\opencode\skills\dagu"
     $geminiSkill = Join-Path $userHome ".gemini\skills\dagu"
+    $copilotSkill = Join-Path $userHome ".copilot\skills\dagu"
     $xdgCopilot = Join-Path $xdg ".copilot\copilot-instructions.md"
     $homeCopilot = Join-Path $userHome ".copilot\copilot-instructions.md"
-    foreach ($dir in @($claudeSkill, $agentsSkill, $codexSkill, $openCodeSkill, $geminiSkill)) {
+    foreach ($dir in @($claudeSkill, $agentsSkill, $codexSkill, $openCodeSkill, $geminiSkill, $copilotSkill)) {
         if (Test-Path $dir) {
             Add-UniqueItem ([ref]$Script:UninstallSkillDirs) $dir
         }
@@ -1281,15 +1285,19 @@ function Install-AISkill {
         Write-WarnMessage "Install the skill with: gh skill install dagucloud/dagu dagu"
     }
     elseif ($SkillMode -eq "auto" -and (Get-Command gh -ErrorAction SilentlyContinue)) {
-        & gh skill install dagucloud/dagu dagu
-        if ($LASTEXITCODE -ne 0) {
-            Write-WarnMessage "Failed to install the Dagu AI skill. Install manually with: gh skill install dagucloud/dagu dagu"
+        # gh and npx skills default to the project in the current directory:
+        # name the user-level target.
+        foreach ($dir in $Script:SkillTargetDirs) {
+            & gh skill install dagucloud/dagu dagu --dir $dir --force
+            if ($LASTEXITCODE -ne 0) {
+                Write-WarnMessage "Failed to install the Dagu AI skill into $dir. Install manually with: gh skill install dagucloud/dagu dagu --dir `"$dir`""
+            }
         }
     }
     elseif ($SkillMode -eq "auto" -and (Get-Command npx -ErrorAction SilentlyContinue)) {
-        & npx skills add https://github.com/dagucloud/dagu --skill dagu
+        & npx skills add https://github.com/dagucloud/dagu --skill dagu --global --yes
         if ($LASTEXITCODE -ne 0) {
-            Write-WarnMessage "Failed to install the Dagu AI skill. Install manually with: npx skills add https://github.com/dagucloud/dagu --skill dagu"
+            Write-WarnMessage "Failed to install the Dagu AI skill. Install manually with: npx skills add https://github.com/dagucloud/dagu --skill dagu --global"
         }
     }
     else {

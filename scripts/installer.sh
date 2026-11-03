@@ -88,6 +88,8 @@ INSTALL_PATH=""
 SERVICE_URL=""
 SERVICE_PATH=""
 SKILL_DETECTED_COUNT=0
+# The user-level skills directory of each detected AI tool.
+declare -a SKILL_TARGET_DIRS=()
 SCRUB_BACKUP_FILE=""
 declare -a UNINSTALL_INSTALL_PATHS=()
 declare -a UNINSTALL_DAGU_HOMES=()
@@ -632,26 +634,29 @@ detect_os_arch() {
 }
 
 detect_skill_targets() {
-    local home_dir codex_dir
+    local home_dir agents_home codex_home
     home_dir="${HOME}"
-    SKILL_DETECTED_COUNT=0
+    agents_home="${AGENTS_HOME:-${home_dir}/.agents}"
+    codex_home="${CODEX_HOME:-${home_dir}/.codex}"
+    SKILL_TARGET_DIRS=()
     if [[ -f "${home_dir}/.claude/.claude.json" ]]; then
-        SKILL_DETECTED_COUNT=$((SKILL_DETECTED_COUNT + 1))
+        SKILL_TARGET_DIRS+=("${home_dir}/.claude/skills")
     fi
-    if [[ -d "${AGENTS_HOME:-${home_dir}/.agents}" ]]; then
-        SKILL_DETECTED_COUNT=$((SKILL_DETECTED_COUNT + 1))
-    elif [[ -d "${CODEX_HOME:-${home_dir}/.codex}" ]]; then
-        SKILL_DETECTED_COUNT=$((SKILL_DETECTED_COUNT + 1))
+    if [[ -d "${agents_home}" ]]; then
+        SKILL_TARGET_DIRS+=("${agents_home}/skills")
+    elif [[ -d "${codex_home}" ]]; then
+        SKILL_TARGET_DIRS+=("${codex_home}/skills")
     fi
     if [[ -d "${home_dir}/.config/opencode" ]]; then
-        SKILL_DETECTED_COUNT=$((SKILL_DETECTED_COUNT + 1))
+        SKILL_TARGET_DIRS+=("${home_dir}/.config/opencode/skills")
     fi
     if [[ -f "${home_dir}/.gemini/GEMINI.md" ]]; then
-        SKILL_DETECTED_COUNT=$((SKILL_DETECTED_COUNT + 1))
+        SKILL_TARGET_DIRS+=("${home_dir}/.gemini/skills")
     fi
     if [[ -f "${XDG_CONFIG_HOME:-${home_dir}}/.copilot/config.json" || -f "${home_dir}/.copilot/config.json" ]]; then
-        SKILL_DETECTED_COUNT=$((SKILL_DETECTED_COUNT + 1))
+        SKILL_TARGET_DIRS+=("${home_dir}/.copilot/skills")
     fi
+    SKILL_DETECTED_COUNT=${#SKILL_TARGET_DIRS[@]}
 }
 
 default_install_dir() {
@@ -856,6 +861,8 @@ join_with_comma() {
     done
 }
 
+# The ${a[@]+"${a[@]}"} form expands an empty array: bash 3.2, the macOS
+# default, treats a plain "${a[@]}" of one as unbound under set -u.
 strip_matching_install_paths() {
     local target="$1"
     local filtered=()
@@ -865,7 +872,7 @@ strip_matching_install_paths() {
             filtered+=("$path")
         fi
     done
-    UNINSTALL_INSTALL_PATHS=("${filtered[@]}")
+    UNINSTALL_INSTALL_PATHS=(${filtered[@]+"${filtered[@]}"})
 }
 
 strip_matching_service_scopes() {
@@ -877,7 +884,7 @@ strip_matching_service_scopes() {
             filtered+=("$scope")
         fi
     done
-    UNINSTALL_SERVICE_SCOPES=("${filtered[@]}")
+    UNINSTALL_SERVICE_SCOPES=(${filtered[@]+"${filtered[@]}"})
 }
 
 choose_operation_mode() {
@@ -1167,6 +1174,9 @@ discover_skill_removals() {
     if [[ -d "${HOME}/.gemini/skills/dagu" ]]; then
         add_uninstall_skill_dir "${HOME}/.gemini/skills/dagu"
     fi
+    if [[ -d "${HOME}/.copilot/skills/dagu" ]]; then
+        add_uninstall_skill_dir "${HOME}/.copilot/skills/dagu"
+    fi
     xdg_copilot="${XDG_CONFIG_HOME:-${HOME}}/.copilot/copilot-instructions.md"
     home_copilot="${HOME}/.copilot/copilot-instructions.md"
     if [[ -f "${xdg_copilot}" ]]; then
@@ -1289,7 +1299,7 @@ show_uninstall_plan() {
     ui_kv "Data directory" "${data_action}: $( [[ ${#UNINSTALL_DAGU_HOMES[@]} -gt 0 ]] && join_with_comma "${UNINSTALL_DAGU_HOMES[@]}" || printf 'none detected' )"
     ui_kv "PATH cleanup" "$( [[ ${#UNINSTALL_PATH_PROFILES[@]} -gt 0 ]] && join_with_comma "${UNINSTALL_PATH_PROFILES[@]}" || printf 'none detected' )"
     if [[ "$REMOVE_SKILL" == "1" ]]; then
-        ui_kv "AI skill removal" "$( [[ ${#UNINSTALL_SKILL_DIRS[@]} -gt 0 || ${#UNINSTALL_COPILOT_FILES[@]} -gt 0 ]] && join_with_comma "${UNINSTALL_SKILL_DIRS[@]}" "${UNINSTALL_COPILOT_FILES[@]}" || printf 'requested, but nothing detected' )"
+        ui_kv "AI skill removal" "$( [[ ${#UNINSTALL_SKILL_DIRS[@]} -gt 0 || ${#UNINSTALL_COPILOT_FILES[@]} -gt 0 ]] && join_with_comma ${UNINSTALL_SKILL_DIRS[@]+"${UNINSTALL_SKILL_DIRS[@]}"} ${UNINSTALL_COPILOT_FILES[@]+"${UNINSTALL_COPILOT_FILES[@]}"} || printf 'requested, but nothing detected' )"
     else
         ui_kv "AI skill removal" "keep"
     fi
@@ -2074,7 +2084,7 @@ verify_bootstrap_flow() {
 }
 
 install_skill() {
-    local custom_dir
+    local custom_dir target_dir
     if [[ ${#EXPLICIT_SKILL_DIRS[@]} -eq 0 && "${SKILL_MODE:-skip}" != "auto" ]]; then
         return 0
     fi
@@ -2089,15 +2099,21 @@ install_skill() {
         ui_warn "Install the skill with: gh skill install dagucloud/dagu dagu"
         return 0
     fi
+    # Both installers default to the project in the current directory, and
+    # stdin may be this script piped into bash: name the user-level target
+    # and keep them off stdin.
     if command -v gh >/dev/null 2>&1; then
-        if ! gh skill install dagucloud/dagu dagu; then
-            ui_warn "Failed to install the Dagu AI skill. Install manually with: gh skill install dagucloud/dagu dagu"
-        fi
+        for target_dir in "${SKILL_TARGET_DIRS[@]:-}"; do
+            [[ -n "$target_dir" ]] || continue
+            if ! gh skill install dagucloud/dagu dagu --dir "$target_dir" --force </dev/null; then
+                ui_warn "Failed to install the Dagu AI skill into ${target_dir}. Install manually with: gh skill install dagucloud/dagu dagu --dir ${target_dir}"
+            fi
+        done
         return 0
     fi
     if command -v npx >/dev/null 2>&1; then
-        if ! npx skills add https://github.com/dagucloud/dagu --skill dagu; then
-            ui_warn "Failed to install the Dagu AI skill. Install manually with: npx skills add https://github.com/dagucloud/dagu --skill dagu"
+        if ! npx skills add https://github.com/dagucloud/dagu --skill dagu --global --yes </dev/null; then
+            ui_warn "Failed to install the Dagu AI skill. Install manually with: npx skills add https://github.com/dagucloud/dagu --skill dagu --global"
         fi
         return 0
     fi
