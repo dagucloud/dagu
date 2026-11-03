@@ -12,6 +12,8 @@ export default defineMessages({
     Changes: 'Changes',
     'This run': 'This run',
     'Open on canvas': 'Open on canvas',
+    'Failed to load the saved definition':
+      'Failed to load the saved definition',
   },
   'zh-CN': {
     'Same as the saved definition': '与已保存的定义相同',
@@ -20,6 +22,7 @@ export default defineMessages({
     Changes: '更改',
     'This run': '此次运行',
     'Open on canvas': '在画布上打开',
+    'Failed to load the saved definition': '加载已保存的定义失败',
   },
   ja: {
     'Same as the saved definition': '保存済みの定義と同じ',
@@ -29,5 +32,7 @@ export default defineMessages({
     Changes: '変更',
     'This run': 'この実行',
     'Open on canvas': 'キャンバスで開く',
+    'Failed to load the saved definition':
+      '保存済みの定義を読み込めませんでした',
   },
 });

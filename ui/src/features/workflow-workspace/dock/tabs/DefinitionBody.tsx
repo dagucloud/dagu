@@ -19,12 +19,16 @@ import {
   resolveStepNames,
 } from '@/features/visual-editor/doc';
 import { DiffLayoutToggle } from '@/features/visual-editor/run/DiffLayoutToggle';
-import { lineDiffStats } from '@/features/visual-editor/run/lineDiffStats';
+import {
+  lineDiffStats,
+  type LineDiffStats,
+} from '@/features/visual-editor/run/lineDiffStats';
 import { specTextDiffers } from '@/features/visual-editor/run/runSpecDiff';
 import { ACTIVE_BLOCK_CLASS } from '@/features/visual-editor/useYamlEditorSync';
 import { useQuery } from '@/hooks/api';
 import { whenEnabled } from '@/hooks/queryUtils';
 import { useI18n } from '@/i18n/I18nProvider';
+import { getQueryErrorMessage } from '@/lib/queryErrors';
 import { readableToneText } from '@/lib/statusPalette';
 import { cn, FOCUS_RING } from '@/lib/utils';
 import type { ApiDAGRunDetails } from '../../contracts';
@@ -90,22 +94,8 @@ function RunDefinition({
   // Without a stored definition useRunSpec gives the saved one: the tab
   // never shows it as the definition of the run.
   const runText = spec.missing ? null : spec.text;
-  const savedQuery = useQuery(
-    '/dags/{fileName}/spec',
-    whenEnabled(runText !== null, {
-      params: { path: { fileName }, query: { remoteNode } },
-    })
-  );
-  const saved = savedQuery.data?.spec;
-  const changed =
-    runText !== null && saved !== undefined && specTextDiffers(runText, saved);
-  const stats = useMemo(
-    () =>
-      changed && runText !== null && saved !== undefined
-        ? lineDiffStats(runText, saved)
-        : null,
-    [changed, runText, saved]
-  );
+  const comparison = useSavedComparison(runText, fileName);
+  const { saved, changed } = comparison;
 
   const [view, setView] = useState<DefinitionView>('yaml');
   const [split, setSplit] = useState(true);
@@ -115,29 +105,6 @@ function RunDefinition({
 
   const onCanvas = url.def === 'run';
   const modelUri = `inmemory://dagu/${encodeURIComponent(remoteNode)}/dag-runs/${encodeURIComponent(runRef.name)}/${encodeURIComponent(runRef.runId)}/definition.yaml`;
-
-  let status: ReactNode = null;
-  if (runText !== null && saved !== undefined) {
-    status = changed ? (
-      <>
-        <span className={cn('font-medium', readableToneText('warning'))}>
-          {ts('Changed since this run')}
-        </span>
-        {stats && (
-          <span className="ml-2 text-muted-foreground">
-            {ts('{added} added, {removed} removed', {
-              added: stats.added,
-              removed: stats.removed,
-            })}
-          </span>
-        )}
-      </>
-    ) : (
-      <span className="text-muted-foreground">
-        {ts('Same as the saved definition')}
-      </span>
-    );
-  }
 
   let content: ReactNode;
   if (spec.missing) {
@@ -181,7 +148,9 @@ function RunDefinition({
   return (
     <div className="flex h-full min-h-0 flex-col">
       <div className="flex h-8 shrink-0 items-center gap-2 border-b border-border px-2 text-xs">
-        <div className="min-w-0 flex-1 truncate">{status}</div>
+        <div className="min-w-0 flex-1 truncate">
+          {runText !== null && <DefinitionStatus comparison={comparison} />}
+        </div>
         {shownView === 'changes' && (
           <DiffLayoutToggle split={split} onSplitChange={setSplit} />
         )}
@@ -209,7 +178,6 @@ function RunDefinition({
           type="button"
           variant="ghost"
           size="xs"
-          aria-pressed={onCanvas}
           onClick={() => setUrl({ def: onCanvas ? null : 'run' })}
         >
           {ts(onCanvas ? 'Back to the current definition' : 'Open on canvas')}
@@ -217,6 +185,83 @@ function RunDefinition({
       </div>
       <div className="flex min-h-0 flex-1 flex-col">{content}</div>
     </div>
+  );
+}
+
+interface SavedComparison {
+  /** The saved definition; undefined until it loads or when the read fails. */
+  saved: string | undefined;
+  /** The message of a failed read of the saved definition, '' when it has none. */
+  error: string | null;
+  /** The run used a definition other than the saved one. */
+  changed: boolean;
+  /** The lines that changed since the run; null when nothing changed. */
+  stats: LineDiffStats | null;
+}
+
+/** Compares the definition of a run with the saved one. A null text makes no request. */
+function useSavedComparison(
+  runText: string | null,
+  fileName: string
+): SavedComparison {
+  const remoteNode = useRemoteNode();
+  const query = useQuery(
+    '/dags/{fileName}/spec',
+    whenEnabled(runText !== null, {
+      params: { path: { fileName }, query: { remoteNode } },
+    })
+  );
+  const saved = query.data?.spec;
+  const changed =
+    runText !== null && saved !== undefined && specTextDiffers(runText, saved);
+  const stats = useMemo(
+    () =>
+      changed && runText !== null && saved !== undefined
+        ? lineDiffStats(runText, saved)
+        : null,
+    [changed, runText, saved]
+  );
+  return {
+    saved,
+    error: query.error == null ? null : getQueryErrorMessage(query.error, ''),
+    changed,
+    stats,
+  };
+}
+
+/** Says whether the run used the saved definition, once that is known. */
+function DefinitionStatus({ comparison }: { comparison: SavedComparison }) {
+  const { ts } = useI18n();
+  const { saved, error, changed, stats } = comparison;
+  if (saved === undefined) {
+    // Without the saved definition there is nothing to compare: say why.
+    return error === null ? null : (
+      <span className="text-destructive" title={error || undefined}>
+        {ts('Failed to load the saved definition')}
+      </span>
+    );
+  }
+  if (!changed) {
+    return (
+      <span className="text-muted-foreground">
+        {ts('Same as the saved definition')}
+      </span>
+    );
+  }
+  return (
+    <>
+      <span className={cn('font-medium', readableToneText('warning'))}>
+        {ts('Changed since this run')}
+      </span>
+      {stats && (
+        <span className="ml-2 text-muted-foreground">
+          {ts('{added} added, {removed} removed', {
+            added: stats.added,
+            removed: stats.removed,
+          })}
+        </span>
+      )}
+    </>
   );
 }
 

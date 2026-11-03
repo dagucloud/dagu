@@ -1396,8 +1396,11 @@ describe('Definition', () => {
     h.editor.revealLinesInCenter.mockClear();
   });
 
-  /** Answers the definition of the run (null: none stored) and the saved one. */
-  function serveSpecs(runYaml: string | null, savedYaml: string) {
+  /**
+   * Answers the definition of the run (null: none stored) and the saved one
+   * (null: the read fails).
+   */
+  function serveSpecs(runYaml: string | null, savedYaml: string | null) {
     const base = serve(server);
     h.GET.mockImplementation(async (path: string, init?: never) => {
       if (path === RUN_SPEC) {
@@ -1408,7 +1411,14 @@ describe('Definition', () => {
             }
           : { data: { spec: runYaml } };
       }
-      if (path === SAVED_SPEC) return { data: { spec: savedYaml } };
+      if (path === SAVED_SPEC) {
+        return savedYaml === null
+          ? {
+              error: { code: 'internal', message: 'disk error' },
+              response: { status: 500 },
+            }
+          : { data: { spec: savedYaml } };
+      }
       return base(path, init);
     });
   }
@@ -1469,8 +1479,26 @@ describe('Definition', () => {
     await vi.waitFor(() =>
       expect(h.editor.revealLinesInCenter).toHaveBeenCalled()
     );
-    // Step b is the entry from line 4.
+    // Step b is the entry from line 4: it is lit and scrolled into view.
     expect(h.editor.revealLinesInCenter.mock.lastCall?.[0]).toBe(4);
+    expect(h.editor.createDecorationsCollection).toHaveBeenLastCalledWith([
+      expect.objectContaining({
+        range: expect.objectContaining({ startLineNumber: 4 }),
+        options: expect.objectContaining({ isWholeLine: true }),
+      }),
+    ]);
+  });
+
+  // The run YAML stays; only the comparison is unavailable.
+  it('says when the saved definition cannot be read', async () => {
+    serveSpecs(RUN_YAML, null);
+    await renderBody('definition');
+
+    expect(
+      await screen.findByText('Failed to load the saved definition')
+    ).toBeInTheDocument();
+    expect(propsOf('yaml')).toMatchObject({ text: RUN_YAML });
+    expect(propsOf('yaml').changeBaseline).toBeUndefined();
   });
 
   it('opens the definition of the run on the canvas', async () => {
@@ -1482,8 +1510,9 @@ describe('Definition', () => {
     );
 
     expect(new URLSearchParams(location.search).get('def')).toBe('run');
-    expect(
+    fireEvent.click(
       screen.getByRole('button', { name: 'Back to the current definition' })
-    ).toHaveAttribute('aria-pressed', 'true');
+    );
+    expect(new URLSearchParams(location.search).get('def')).toBeNull();
   });
 });
