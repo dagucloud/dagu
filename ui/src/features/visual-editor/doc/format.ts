@@ -528,7 +528,7 @@ function stringifyFolded(
     );
   if (ctx.implicitKey) return run(FORMAT_LINE_WIDTH);
   if (typeof node.value === 'string' && node.value.includes('\n')) {
-    return run(0);
+    return withEmptyLines(run(0), ctx.indent);
   }
   const start = ctx.indentAtStart;
   // A value of a map starts after the key; an item of a list after its dash.
@@ -557,6 +557,21 @@ function stringifyFolded(
     text = next;
   }
   return text;
+}
+
+/**
+ * A printed block scalar whose lines of no more spaces than its indentation
+ * are empty. Such a line holds no content, and the library indents the first
+ * line of a value that starts with a line end.
+ */
+function withEmptyLines(text: string, indent: string): string {
+  if (!/^[|>]/.test(text)) return text;
+  return text
+    .split('\n')
+    .map((line) =>
+      line.length <= indent.length && /^ *$/.test(line) ? '' : line
+    )
+    .join('\n');
 }
 
 /** The tags with `stringifyFolded` in place of the default stringifier of a string. */

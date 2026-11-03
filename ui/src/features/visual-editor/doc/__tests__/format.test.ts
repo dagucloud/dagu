@@ -493,6 +493,8 @@ describe('formatYaml folds long lines', () => {
       'steps:\n  - name: a\n    run: |-\n      echo one \n      echo two\n',
       'steps:\n  - name: a\n    run: |\n      echo one\n        \n      echo two\t\n',
       'steps:\n  - name: a\n    description: >-\n      one two \n\n      three\n',
+      // The empty first line gets no spaces.
+      'steps:\n  - name: a\n    run: |\n\n      echo one \n',
     ]) {
       expect(formatYaml(block)).toBe(block);
     }
