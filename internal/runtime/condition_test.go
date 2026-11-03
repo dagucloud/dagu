@@ -31,6 +31,14 @@ func evalConditions(ctx context.Context, shell []string, conditions []*ir.Condit
 	return err
 }
 
+// withLogCapture returns ctx with a logger writing JSON entries to the buffer.
+func withLogCapture(ctx context.Context) (context.Context, *bytes.Buffer) {
+	logs := &bytes.Buffer{}
+	return logger.WithLogger(ctx, logger.NewLogger(
+		logger.WithWriter(logs), logger.WithFormat("json"), logger.WithQuiet(),
+	)), logs
+}
+
 func TestEvalConditions(t *testing.T) {
 	tests := []struct {
 		name                string
@@ -394,10 +402,7 @@ func TestEvalConditions_SiblingErrorWording(t *testing.T) {
 // Every failing condition is logged under its authored field, so the run log
 // shows which conditions stopped the owner, not only the deciding error.
 func TestEvalConditions_LogsFailedConditions(t *testing.T) {
-	var logs bytes.Buffer
-	ctx := logger.WithLogger(newTestContext(), logger.NewLogger(
-		logger.WithWriter(&logs), logger.WithFormat("json"), logger.WithQuiet(),
-	))
+	ctx, logs := withLogCapture(newTestContext())
 
 	_, err := runtime.EvaluateConditions(ctx, nil, []*ir.Condition{
 		{Condition: "ready", Expected: "waiting"},
@@ -414,7 +419,7 @@ func TestEvalConditions_LogsFailedConditions(t *testing.T) {
 	}
 	// The bare test context also logs unrelated environment warnings.
 	var entries []entry
-	decoder := json.NewDecoder(&logs)
+	decoder := json.NewDecoder(logs)
 	for decoder.More() {
 		var e entry
 		require.NoError(t, decoder.Decode(&e))
@@ -430,6 +435,32 @@ func TestEvalConditions_LogsFailedConditions(t *testing.T) {
 	require.Equal(t, "Condition failed to evaluate", entries[1].Msg)
 	require.Equal(t, "abc", entries[1].Eval)
 	require.Contains(t, entries[1].Err, "num:>=0.8")
+}
+
+// Condition errors quote resolved values and reach the run log and status, so
+// the run's secrets are masked in them. The secret holds a quote to cover the
+// escaped form that quoting produces.
+func TestEvalConditions_MasksSecrets(t *testing.T) {
+	const secret = `s3cr"et`
+	ctx := runtime.NewContext(context.Background(), &ir.DAG{}, "test-run", "test.log",
+		runtime.WithSecrets([]string{"TOKEN=" + secret}))
+	ctx = runtime.WithEnv(ctx, runtime.NewEnv(ctx, ir.Step{}))
+	ctx, logs := withLogCapture(ctx)
+
+	notMet := &ir.Condition{Condition: "${TOKEN}", Expected: "nope"}
+	results, err := runtime.EvaluateConditions(ctx, nil, []*ir.Condition{notMet})
+	require.ErrorIs(t, err, runtime.ErrConditionNotMet)
+	require.Contains(t, results[0].Error, `expected "nope"`)
+	require.NotContains(t, results[0].Error, "s3cr")
+	require.NotContains(t, err.Error(), "s3cr")
+
+	notNumber := &ir.Condition{Condition: "${TOKEN}", Expected: "num:>=1"}
+	results, err = runtime.EvaluateConditions(ctx, nil, []*ir.Condition{notNumber})
+	require.Error(t, err)
+	require.NotContains(t, results[0].Error, "s3cr")
+	require.NotContains(t, err.Error(), "s3cr")
+
+	require.NotContains(t, logs.String(), "s3cr")
 }
 
 func TestEvalConditions_ValueMatchEvalRunsCommandSubstitution(t *testing.T) {
