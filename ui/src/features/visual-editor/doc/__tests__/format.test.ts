@@ -489,9 +489,38 @@ describe('formatYaml folds long lines', () => {
   it('keeps the trailing space of a line of a multi-line string', () => {
     const text = 'steps:\n  - name: a\n    run: "echo one \\n echo two  \\n"\n';
     expect(parse(formatYaml(text))).toEqual(parse(text));
-    const block =
-      'steps:\n  - name: a\n    run: |-\n      echo one \n      echo two\n';
-    expect(parse(formatYaml(block))).toEqual(parse(block));
+    for (const block of [
+      'steps:\n  - name: a\n    run: |-\n      echo one \n      echo two\n',
+      'steps:\n  - name: a\n    run: |\n      echo one\n        \n      echo two\t\n',
+      'steps:\n  - name: a\n    description: >-\n      one two \n\n      three\n',
+    ]) {
+      expect(formatYaml(block)).toBe(block);
+    }
+  });
+
+  it('keeps a block scalar with a trailing space in block style', () => {
+    const text = [
+      'steps:',
+      '  - name: test',
+      '    output: RESULT',
+      '    run: |  ',
+      '      if [ -z "${RESTORE_SIZE}" ]; then',
+      '        exit 1 ',
+      '      fi',
+      '',
+    ].join('\n');
+    expect(formatYaml(text)).toBe(
+      [
+        'steps:',
+        '  - name: test',
+        '    run: |',
+        '      if [ -z "${RESTORE_SIZE}" ]; then',
+        '        exit 1 ',
+        '      fi',
+        '    output: RESULT',
+        '',
+      ].join('\n')
+    );
   });
 
   it('keeps a literal block of a command as written', () => {
@@ -666,8 +695,16 @@ describe('formatStepRange', () => {
   it('keeps a line of spaces inside a block scalar', () => {
     const text =
       'name: demo\n\nsteps:\n  - name: a\n    run: |\n      echo a\n        \n      echo b\n';
+    expect(formatStepRange(text, parseDagDoc(text).steps[0]!)).toBeNull();
+  });
+
+  it('keeps a block scalar with a trailing space in block style', () => {
+    const text =
+      'name: demo\n\nsteps:\n  - run: |\n      exit 1 \n    name: a\n';
     const out = formatStep(text, 0);
-    expect(parse(out)).toEqual(parse(text));
+    expect(out).toBe(
+      'name: demo\n\nsteps:\n  - name: a\n    run: |\n      exit 1 \n'
+    );
     expect(out).toBe(formatYaml(text));
   });
 

@@ -9,7 +9,16 @@
  * comments stay in the result of `formatYaml` and count in `isSameYaml`.
  */
 
-import { isMap, isNode, isPair, isScalar, isSeq, visit } from 'yaml';
+import {
+  Scalar,
+  isMap,
+  isNode,
+  isPair,
+  isScalar,
+  isSeq,
+  parseDocument,
+  visit,
+} from 'yaml';
 import { stringifyString } from 'yaml/util';
 import type { StepView, TextEdit } from '../contracts';
 import type {
@@ -519,9 +528,6 @@ function stringifyFolded(
     );
   if (ctx.implicitKey) return run(FORMAT_LINE_WIDTH);
   if (typeof node.value === 'string' && node.value.includes('\n')) {
-    // The formatter drops the trailing spaces of each line, and a block or
-    // quoted scalar with a real line end would lose them as content.
-    if (/[ \t]$/m.test(node.value)) return JSON.stringify(node.value);
     return run(0);
   }
   const start = ctx.indentAtStart;
@@ -595,11 +601,39 @@ function formatDocument(doc: Document): string {
   normalise(doc.contents, null);
   spaceDag(doc.contents);
   cleanComment(doc);
-  const text = doc.toString(PRINT_OPTIONS);
-  return text
-    .split('\n')
-    .map((line) => line.replace(/[ \t]+$/, ''))
-    .join('\n');
+  return trimLines(doc.toString(PRINT_OPTIONS)).join('\n');
+}
+
+/**
+ * The lines of a printed document without their trailing spaces. A content
+ * line of a block scalar keeps them: they are part of its value.
+ */
+function trimLines(text: string): string[] {
+  const lines = text.split('\n');
+  if (!lines.some((line) => /[ \t]$/.test(line))) return lines;
+  const blocks = blockScalarRanges(text);
+  let block = 0;
+  let start = 0;
+  return lines.map((line) => {
+    while (block < blocks.length && blocks[block]![1] <= start) block++;
+    const range = blocks[block];
+    const content = range !== undefined && range[0] < start;
+    start += line.length + 1;
+    return content ? line : line.replace(/[ \t]+$/, '');
+  });
+}
+
+/** The ranges of the block scalars of a text of one document, in text order. */
+function blockScalarRanges(text: string): Array<[number, number]> {
+  const ranges: Array<[number, number]> = [];
+  visit(parseDocument(text), {
+    Scalar(_, node) {
+      const block =
+        node.type === Scalar.BLOCK_LITERAL || node.type === Scalar.BLOCK_FOLDED;
+      if (block && node.range) ranges.push([node.range[0], node.range[1]]);
+    },
+  });
+  return ranges;
 }
 
 /**
@@ -755,24 +789,20 @@ export function formatStepRange(text: string, step: StepSpan): TextEdit | null {
   }
   let printed: string[];
   try {
-    printed = doc
-      .toString(PRINT_OPTIONS)
-      .replace(/\n+$/, '')
-      .split('\n')
-      .slice(levels);
+    const body = doc.toString(PRINT_OPTIONS).replace(/\n+$/, '');
+    printed = trimLines(body).slice(levels);
   } catch {
     // The key order can put an alias before its anchor.
     return null;
   }
   const lines: string[] = [];
   for (const [index, line] of printed.entries()) {
-    const bare = line.replace(/[ \t]+$/, '');
     if (index === 0) {
-      lines.push(bare.slice(canon));
-    } else if (bare === '') {
+      lines.push(line.slice(canon));
+    } else if (line === '') {
       lines.push('');
-    } else if (bare.startsWith(inner)) {
-      lines.push(own + bare.slice(canon));
+    } else if (line.startsWith(inner)) {
+      lines.push(own + line.slice(canon));
     } else {
       return null;
     }
