@@ -104,6 +104,22 @@ jobs:
             exit 1
           fi
 
+      # The templates follow main and the default image is Chart.appVersion,
+      # so an older appVersion renders settings its image does not know.
+      - name: Require the latest Dagu release as appVersion
+        shell: bash
+        run: |
+          app_version="$(awk -F': ' '$1=="appVersion"{gsub(/"/,"",$2); print $2; exit}' charts/dagu/Chart.yaml)"
+          latest="$(git tag --list 'v*' --sort=-v:refname | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+$' | sed -n 1p || true)"
+          if [[ -z "${latest}" ]]; then
+            echo "::error::No Dagu release tag found"
+            exit 1
+          fi
+          if [[ "${app_version}" != "${latest#v}" ]]; then
+            echo "::error::charts/dagu/Chart.yaml appVersion is ${app_version}; set it to the latest Dagu release, ${latest#v}"
+            exit 1
+          fi
+
       - name: Set up Helm
         uses: azure/setup-helm@9bc31f4ebc9c6b171d7bfbaa5d006ae7abdb4310 # v5.0.1
         with:
