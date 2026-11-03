@@ -107,10 +107,11 @@ func TestQueuesListWhatWaitsAndRuns(t *testing.T) {
 		},
 	}
 
-	queues, total, ok := q.read(context.Background(), now)
+	read, ok := q.read(context.Background(), now, nil)
 
 	require.True(t, ok)
-	assert.Equal(t, 5, total)
+	assert.Equal(t, 5, read.total)
+	queues := read.queues
 	// When the next runs were queued depends on the clock; only whether a
 	// queue says so is compared.
 	for i := range queues {
@@ -136,11 +137,11 @@ func TestQueuesRunAtLeastOneAtOnce(t *testing.T) {
 	s := newTestQueueStore(t)
 	enqueue(t, s, "batch", "report", "b1")
 
-	queues, _, ok := Queues{Store: s, Capacity: func(string) int { return 0 }}.read(context.Background(), time.Now())
+	read, ok := Queues{Store: s, Capacity: func(string) int { return 0 }}.read(context.Background(), time.Now(), nil)
 
 	require.True(t, ok)
-	require.Len(t, queues, 1)
-	assert.Equal(t, 1, queues[0].MaxActive)
+	require.Len(t, read.queues, 1)
+	assert.Equal(t, 1, read.queues[0].MaxActive)
 }
 
 // A read whose runs in progress cannot be read fails, rather than send
@@ -155,10 +156,52 @@ func TestQueuesFailWhenTheRunsInProgressCannotBeRead(t *testing.T) {
 		"leases":    {Store: s, Leases: failingLeases{}},
 	} {
 		t.Run(name, func(t *testing.T) {
-			_, _, ok := q.read(context.Background(), time.Now())
+			_, ok := q.read(context.Background(), time.Now(), nil)
 			assert.False(t, ok)
 		})
 	}
+}
+
+// With more waiting queues than one read asks of, each read asks of those
+// asked longest ago, so a queue past the first maxQueueReasons is asked in
+// turn, and keeps its answer while others are asked.
+func TestQueuesAskOfWaitingQueuesInTurn(t *testing.T) {
+	t.Parallel()
+	s := newTestQueueStore(t)
+	statuses := make(map[string]*ir.DAGRunStatus)
+	for i := range maxQueueReasons + 2 {
+		name := fmt.Sprintf("q%02d", i)
+		enqueue(t, s, name, name, "r"+name)
+		statuses["r"+name] = &ir.DAGRunStatus{}
+	}
+	last := fmt.Sprintf("q%02d", maxQueueReasons+1)
+	statuses["r"+last] = &ir.DAGRunStatus{Conditions: ir.NoMatchingWorkerConditions(time.Now())}
+	runs := &fakeRuns{statuses: statuses}
+	q := Queues{Store: s, Runs: runs}
+	start := time.Now().Add(reasonAfter)
+	blocked := func(read queueRead) string {
+		for _, h := range read.queues {
+			if h.BlockedReason != "" {
+				return h.Name
+			}
+		}
+		return ""
+	}
+
+	first, ok := q.read(context.Background(), start, nil)
+	require.True(t, ok)
+	assert.Len(t, runs.opened, maxQueueReasons)
+	assert.Empty(t, blocked(first), "the last queue waited least, so it is not asked first")
+
+	second, ok := q.read(context.Background(), start.Add(time.Minute), first.checks)
+	require.True(t, ok)
+	assert.Len(t, runs.opened, 2*maxQueueReasons)
+	assert.Equal(t, last, blocked(second))
+	assert.Equal(t, last, second.queues[0].Name, "a queue waiting for a worker comes first")
+
+	third, ok := q.read(context.Background(), start.Add(2*time.Minute), second.checks)
+	require.True(t, ok)
+	assert.Equal(t, last, blocked(third), "it keeps its answer while others are asked")
 }
 
 // A queue whose next run has not waited long is not asked why.
@@ -168,10 +211,10 @@ func TestQueuesAskWhyOnlyAfterAWait(t *testing.T) {
 	enqueue(t, s, "etl", "etl", "e1")
 	runs := &fakeRuns{}
 
-	queues, _, ok := Queues{Store: s, Runs: runs}.read(context.Background(), time.Now().Add(reasonAfter/2))
+	read, ok := Queues{Store: s, Runs: runs}.read(context.Background(), time.Now().Add(reasonAfter/2), nil)
 
 	require.True(t, ok)
-	require.Len(t, queues, 1)
+	require.Len(t, read.queues, 1)
 	assert.Empty(t, runs.opened)
 }
 
@@ -186,10 +229,10 @@ func TestQueuesListAtMostTheLimit(t *testing.T) {
 	}
 	enqueue(t, s, strings.Repeat("x", maxQueueNameLen+1), "long", "r-long")
 
-	queues, total, ok := Queues{Store: s}.read(context.Background(), time.Now())
+	read, ok := Queues{Store: s}.read(context.Background(), time.Now(), nil)
 
 	require.True(t, ok)
-	assert.Len(t, queues, maxQueues)
-	assert.Equal(t, maxQueues+1, total)
-	assert.Equal(t, "q000", queues[0].Name, "the longest wait first")
+	assert.Len(t, read.queues, maxQueues)
+	assert.Equal(t, maxQueues+1, read.total)
+	assert.Equal(t, "q000", read.queues[0].Name, "the longest wait first")
 }

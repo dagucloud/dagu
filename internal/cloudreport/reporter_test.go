@@ -157,6 +157,25 @@ func TestReportCarriesQueuesAtRuns(t *testing.T) {
 	}
 }
 
+// A report whose runs in progress cannot be read leaves the queues out,
+// rather than send counts that are short.
+func TestReportLeavesQueuesOutWhenRunsInProgressAreUnread(t *testing.T) {
+	t.Parallel()
+	console := newFakeConsole(t)
+	r := newReporter(console.credentials, nil, fixedLevel(config.ReportRuns))
+	r.queues = Queues{Store: &fakeQueueStore{queues: []queue.Summary{etlQueue}}, Procs: failingProcs{}}
+	clock := startReporter(t.Context(), t, r, noJitter)
+
+	clock.wait()
+	clock.elapse()
+	var body struct {
+		Health map[string]any `json:"health"`
+	}
+	require.NoError(t, json.Unmarshal([]byte(console.next(t).body), &body))
+	assert.NotContains(t, body.Health, "queues")
+	assert.NotContains(t, body.Health, "queues_total")
+}
+
 // Reports sent within a minute of a read of the queues reuse it; a later
 // read leaves what an earlier report was given as it was. A read that
 // finds no busy queue is sent as an empty list.

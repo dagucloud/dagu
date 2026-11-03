@@ -88,25 +88,37 @@ type queueHealth struct {
 	BlockedReason string `json:"blocked_reason,omitempty"`
 }
 
-// queueRead is one read of the queues, and when it was made.
+// queueRead is one read of the queues, when it was made, and what it asked
+// of why queues' next runs wait.
 type queueRead struct {
 	queues []queueHealth
 	total  int
 	at     time.Time
+	checks reasonChecks
+}
+
+// reasonChecks are, by queue, why its next run waited when a read last
+// asked, and when it asked.
+type reasonChecks map[string]reasonCheck
+
+type reasonCheck struct {
+	reason string
+	at     time.Time
 }
 
 // read lists the queues that hold queued or running runs as of now, up to
-// maxQueues, in the order queueRank gives, and counts them all. It returns
-// false when the queues cannot be read.
-func (q Queues) read(ctx context.Context, now time.Time) ([]queueHealth, int, bool) {
+// maxQueues, in the order queueRank gives, and counts them all. checks are
+// what earlier reads asked of why queues' next runs wait. It returns false
+// when the queues cannot be read.
+func (q Queues) read(ctx context.Context, now time.Time, checks reasonChecks) (queueRead, bool) {
 	summaries, err := q.Store.Summaries(ctx)
 	if err != nil {
 		logger.Debug(ctx, "Failed to read the queues for the server report", tag.Error(err))
-		return nil, 0, false
+		return queueRead{}, false
 	}
 	running, ok := q.running(ctx, now)
 	if !ok {
-		return nil, 0, false
+		return queueRead{}, false
 	}
 	byName := make(map[string]*queueHealth, len(summaries)+len(running))
 	next := make(map[string]time.Time, len(summaries))
@@ -135,7 +147,7 @@ func (q Queues) read(ctx context.Context, now time.Time) ([]queueHealth, int, bo
 			queues = append(queues, *h)
 		}
 	}
-	q.explain(ctx, queues, next, now)
+	checks = q.explain(ctx, queues, next, now, checks)
 	slices.SortFunc(queues, func(a, b queueHealth) int {
 		return cmp.Or(
 			cmp.Compare(queueRank(a), queueRank(b)),
@@ -144,7 +156,7 @@ func (q Queues) read(ctx context.Context, now time.Time) ([]queueHealth, int, bo
 		)
 	})
 	total := len(queues)
-	return queues[:min(total, maxQueues)], total, true
+	return queueRead{queues: queues[:min(total, maxQueues)], total: total, at: now, checks: checks}, true
 }
 
 // running counts the runs in progress on the server's processes and on
@@ -185,11 +197,16 @@ func (q Queues) running(ctx context.Context, now time.Time) (map[string]int, boo
 }
 
 // explain says why the next run cannot start, of each queue with room
-// whose next run waited reasonAfter, the longest waits first, up to
-// maxQueueReasons.
-func (q Queues) explain(ctx context.Context, queues []queueHealth, next map[string]time.Time, now time.Time) {
+// whose next run waited reasonAfter. It asks of at most maxQueueReasons of
+// them, those an earlier read asked of longest ago first, then the longest
+// waits, so with more of them each is asked in turn; the others keep the
+// answer an earlier read got. It returns what it and earlier reads asked of
+// the queues still waiting.
+func (q Queues) explain(ctx context.Context, queues []queueHealth, next map[string]time.Time, now time.Time,
+	prev reasonChecks) reasonChecks {
+	checks := make(reasonChecks)
 	if q.Runs == nil {
-		return
+		return checks
 	}
 	var waiting []*queueHealth
 	for i := range queues {
@@ -199,10 +216,19 @@ func (q Queues) explain(ctx context.Context, queues []queueHealth, next map[stri
 			waiting = append(waiting, h)
 		}
 	}
-	slices.SortFunc(waiting, func(a, b *queueHealth) int { return next[a.Name].Compare(next[b.Name]) })
-	for _, h := range waiting[:min(len(waiting), maxQueueReasons)] {
-		h.BlockedReason = q.blockedReason(ctx, h.Name)
+	slices.SortFunc(waiting, func(a, b *queueHealth) int {
+		return cmp.Or(prev[a.Name].at.Compare(prev[b.Name].at), next[a.Name].Compare(next[b.Name]))
+	})
+	for i, h := range waiting {
+		if i < maxQueueReasons {
+			h.BlockedReason = q.blockedReason(ctx, h.Name)
+			checks[h.Name] = reasonCheck{reason: h.BlockedReason, at: now}
+		} else if c, ok := prev[h.Name]; ok {
+			h.BlockedReason = c.reason
+			checks[h.Name] = c
+		}
 	}
+	return checks
 }
 
 // blockedReason is why the queue's next run cannot start for want of a

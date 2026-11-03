@@ -717,11 +717,11 @@ func (r *Reporter) readQueues(ctx context.Context, now time.Time) ([]queueHealth
 		return nil, nil
 	}
 	if r.queueRead.at.IsZero() || now.Sub(r.queueRead.at) >= queuesEvery {
-		queues, total, ok := r.queues.read(ctx, now)
+		read, ok := r.queues.read(ctx, now, r.queueRead.checks)
 		if !ok {
 			return nil, nil
 		}
-		r.queueRead = queueRead{queues: queues, total: total, at: now}
+		r.queueRead = read
 	}
 	// The total is copied, so the report sent keeps its own as the next
 	// read replaces this one.
