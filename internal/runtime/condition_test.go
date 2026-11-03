@@ -447,6 +447,19 @@ func TestEvalConditions_LogsFailedConditions(t *testing.T) {
 	require.Contains(t, entries[1].Err, "num:>=0.8")
 }
 
+// A check whose context has ended is reported as interrupted, not as failed
+// conditions, so no condition failure is logged for it.
+func TestEvalConditions_InterruptedCheckLogsNoFailures(t *testing.T) {
+	ctx, cancel := context.WithCancel(newTestContext())
+	cancel()
+	var logs bytes.Buffer
+	ctx = withLogCapture(ctx, &logs)
+
+	err := evalConditions(ctx, nil, []*ir.Condition{{Condition: "ready", Expected: "waiting"}})
+	require.ErrorIs(t, err, context.Canceled)
+	require.Empty(t, conditionLogs(t, &logs))
+}
+
 // Condition errors quote resolved values and reach the run log and status, so
 // the run's secrets are masked in them. The secret holds a quote to cover the
 // escaped form that quoting produces.
