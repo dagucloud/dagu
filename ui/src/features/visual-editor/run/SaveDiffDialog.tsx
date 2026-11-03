@@ -2,8 +2,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 import { Spinner } from '@/components/ui/spinner';
-import { useCallback, useMemo, useState, type ReactElement } from 'react';
-import ReactDiffViewer, { DiffMethod } from 'react-diff-viewer-continued';
+import { useMemo, useState, type ReactElement } from 'react';
 import { Button } from '@/components/ui/button';
 import {
   Dialog,
@@ -12,11 +11,11 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog';
-import { useResolvedTheme } from '@/contexts/UserPreference';
 import { useI18n } from '@/i18n/I18nProvider';
 import { I18nText } from '@/i18n/I18nText';
-import { diffViewerStyles } from './diffStyles';
-import { firstChange, lineDiffStats } from './lineDiffStats';
+import { lineDiffStats } from './lineDiffStats';
+import { DiffLayoutToggle } from './DiffLayoutToggle';
+import { TextDiffView } from './TextDiffView';
 
 export interface SaveDiffDialogProps {
   open: boolean;
@@ -29,27 +28,12 @@ export interface SaveDiffDialogProps {
 
 export function SaveDiffDialog(p: SaveDiffDialogProps): ReactElement {
   const { ts } = useI18n();
-  const isDark = useResolvedTheme() === 'dark';
   const stats = useMemo(
     () => (p.open ? lineDiffStats(p.original, p.edited) : null),
     [p.open, p.original, p.edited]
   );
   const [split, setSplit] = useState(true);
   const unchanged = p.original === p.edited;
-  // A change far down a long file shows without a scroll: the view starts
-  // a few lines above the first changed line.
-  const change = useMemo(
-    () => (p.open ? firstChange(p.original, p.edited) : null),
-    [p.open, p.original, p.edited]
-  );
-  const scrollToChange = useCallback(
-    (el: HTMLDivElement | null) => {
-      if (!el || !change || change.lines === 0) return;
-      const lineHeight = el.scrollHeight / (change.lines + 1);
-      el.scrollTop = Math.max(0, (change.line - 3) * lineHeight);
-    },
-    [change]
-  );
 
   return (
     <Dialog
@@ -77,46 +61,17 @@ export function SaveDiffDialog(p: SaveDiffDialogProps): ReactElement {
               </span>
             )}
             {!unchanged && (
-              <div className="flex gap-1">
-                <Button
-                  variant={split ? 'secondary' : 'ghost'}
-                  size="xs"
-                  aria-pressed={split}
-                  onClick={() => setSplit(true)}
-                >
-                  <I18nText text={'Split'} />
-                </Button>
-                <Button
-                  variant={split ? 'ghost' : 'secondary'}
-                  size="xs"
-                  aria-pressed={!split}
-                  onClick={() => setSplit(false)}
-                >
-                  <I18nText text={'Unified'} />
-                </Button>
-              </div>
+              <DiffLayoutToggle split={split} onSplitChange={setSplit} />
             )}
           </div>
         </DialogHeader>
-        <div ref={scrollToChange} className="min-h-0 flex-1 overflow-auto">
-          {unchanged ? (
-            <div className="p-3 text-sm text-muted-foreground">
-              <I18nText text={'No changes'} />
-            </div>
-          ) : (
-            <ReactDiffViewer
-              oldValue={p.original}
-              newValue={p.edited}
-              splitView={split}
-              leftTitle={ts('Saved version')}
-              rightTitle={ts('Your changes')}
-              useDarkTheme={isDark}
-              compareMethod={DiffMethod.LINES}
-              showDiffOnly={false}
-              styles={diffViewerStyles}
-            />
-          )}
-        </div>
+        <TextDiffView
+          original={p.original}
+          modified={p.edited}
+          originalTitle={ts('Saved version')}
+          modifiedTitle={ts('Your changes')}
+          split={split}
+        />
         <DialogFooter className="border-t border-border/40 p-3">
           <Button
             variant="ghost"
