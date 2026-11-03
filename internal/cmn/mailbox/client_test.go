@@ -6,7 +6,9 @@ package mailbox
 import (
 	"bufio"
 	"context"
+	"crypto/sha256"
 	"crypto/tls"
+	"encoding/hex"
 	"net"
 	"net/http"
 	"net/http/httptest"
@@ -33,7 +35,12 @@ func startStallingServer(t *testing.T, stalled string) (host, port string) {
 // succeeds.
 func startScriptedServer(t *testing.T, replies map[string]string) (host, port string) {
 	t.Helper()
-	listener, err := tls.Listen("tcp", "127.0.0.1:0", mailtest.ServerTLSConfig(t))
+	return startScriptedServerTLS(t, mailtest.ServerTLSConfig(t), replies)
+}
+
+func startScriptedServerTLS(t *testing.T, config *tls.Config, replies map[string]string) (host, port string) {
+	t.Helper()
+	listener, err := tls.Listen("tcp", "127.0.0.1:0", config)
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = listener.Close() })
 	go func() {
@@ -69,6 +76,28 @@ func startScriptedServer(t *testing.T, replies map[string]string) (host, port st
 	host, port, err = net.SplitHostPort(listener.Addr().String())
 	require.NoError(t, err)
 	return host, port
+}
+
+// A pinned certificate is accepted without chain verification; any other
+// certificate fails the handshake.
+func TestDialWithPinnedCertificate(t *testing.T) {
+	config := mailtest.ServerTLSConfig(t)
+	sum := sha256.Sum256(config.Certificates[0].Certificate[0])
+	dial := func(pin string) (*Client, error) {
+		host, port := startScriptedServerTLS(t, config, nil)
+		return Dial(context.Background(), Account{
+			Server:   Server{Host: host, Port: port, Security: SecurityTLS, TLSCertSHA256: pin},
+			Username: "user",
+			Password: "password",
+		})
+	}
+
+	_, err := dial(strings.Repeat("00", 32))
+	require.ErrorContains(t, err, "does not match tls_cert_sha256")
+
+	client, err := dial(hex.EncodeToString(sum[:]))
+	require.NoError(t, err)
+	require.NoError(t, client.Close())
 }
 
 func dialScripted(t *testing.T, replies map[string]string) *Client {

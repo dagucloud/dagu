@@ -40,7 +40,7 @@ case-insensitively; other base entries remain.
 | Field | Required | Meaning |
 | --- | --- | --- |
 | `provider` | No | `google`, `microsoft`, or `imap` (default). Sets the default servers; a `google` account with `oauth` uses the Gmail API instead ([Gmail API accounts](#gmail-api-accounts)). |
-| `imap` | For an `imap` account | `host`, `port`, `security` (`tls` or `starttls`), and `skip_tls_verify`. Overrides the provider default. |
+| `imap` | For an `imap` account | `host`, `port`, `security` (`tls` or `starttls`), and `skip_tls_verify`, `tls_cert_sha256`. Overrides the provider default. |
 | `smtp` | For `mail.send` through an `imap` account | Same fields as `imap`. |
 | `username` | No | Login name for password authentication and the user in `XOAUTH2`. Defaults to the address. |
 | `password` | Exactly one of `password` or `oauth` | Password or app password. |
@@ -65,7 +65,10 @@ secrets or profile secrets are masked as [Spec 069](069-secrets-providers.md) an
 Every connection uses TLS. `tls` connects with TLS; `starttls` upgrades the
 connection and fails when the server does not offer STARTTLS. The server
 certificate is verified unless the server block sets `skip_tls_verify: true`,
-which accepts any certificate, such as a self-signed one.
+which accepts any certificate, such as a self-signed one. Alternatively,
+`tls_cert_sha256` pins the server's leaf certificate by the SHA-256 hash of its
+DER bytes (64 hex characters, any case, colons allowed). The chain is not
+verified, and the connection fails when the certificate's hash differs.
 
 ### Authentication
 

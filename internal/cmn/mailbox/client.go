@@ -17,6 +17,8 @@ import (
 	"github.com/emersion/go-imap/v2"
 	"github.com/emersion/go-imap/v2/imapclient"
 	"golang.org/x/oauth2"
+
+	"github.com/dagucloud/dagu/v2/internal/cmn/mailer"
 )
 
 // Security modes of Server.
@@ -49,6 +51,9 @@ type Server struct {
 	Port          string
 	Security      string
 	SkipTLSVerify bool
+	// TLSCertSHA256 accepts only the server certificate with this SHA-256
+	// hash, without chain verification.
+	TLSCertSHA256 string
 }
 
 // Client is an authenticated IMAP connection.
@@ -74,6 +79,9 @@ func dial(ctx context.Context, account Account, idle time.Duration) (*Client, er
 		MinVersion: tls.VersionTLS12,
 		// Operators opt in per server, for self-signed certificates.
 		InsecureSkipVerify: server.SkipTLSVerify, //nolint:gosec
+	}
+	if err := mailer.ApplyCertPin(tlsConfig, server.TLSCertSHA256); err != nil {
+		return nil, err
 	}
 	if server.Security != SecurityTLS && server.Security != SecurityStartTLS {
 		return nil, fmt.Errorf("unsupported IMAP security %q", server.Security)

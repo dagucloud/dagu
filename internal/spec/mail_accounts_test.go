@@ -7,6 +7,7 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/dagucloud/dagu/v2/internal/cmn/mailer/oauthconfig"
@@ -185,6 +186,36 @@ steps:
 	require.NoError(t, err)
 	assert.Equal(t, &ir.MailServer{Host: "imap.example.com", Port: "993", Security: "${IMAP_SECURITY}"},
 		dag.MailAccounts["ops@example.com"].IMAP)
+}
+
+// The pin is stored in lowercase hex; colons and upper case are accepted.
+func TestMailAccountsTLSCertSHA256(t *testing.T) {
+	t.Parallel()
+
+	const pin = "3f2a3f2a3f2a3f2a3f2a3f2a3f2a3f2a3f2a3f2a3f2a3f2a3f2a3f2a3f2a3f2a"
+	dag, err := spec.LoadYAML(context.Background(), []byte(`
+mail_accounts:
+  ops@example.com:
+    imap: {host: imap.example.com, tls_cert_sha256: "`+strings.ToUpper(pin)+`"}
+    smtp: {host: smtp.example.com, tls_cert_sha256: "`+strings.TrimSuffix(strings.Repeat("3F:2A:", 16), ":")+`"}
+    password: p
+steps:
+  - run: "true"
+`))
+	require.NoError(t, err)
+	account := dag.MailAccounts["ops@example.com"]
+	assert.Equal(t, pin, account.IMAP.TLSCertSHA256)
+	assert.Equal(t, pin, account.SMTP.TLSCertSHA256)
+
+	_, err = spec.LoadYAML(context.Background(), []byte(`
+mail_accounts:
+  ops@example.com:
+    imap: {host: imap.example.com, tls_cert_sha256: abc123}
+    password: p
+steps:
+  - run: "true"
+`))
+	require.ErrorContains(t, err, "imap.tls_cert_sha256 must be a SHA-256 fingerprint of 64 hex characters")
 }
 
 func TestMailAccountsKeyErrors(t *testing.T) {

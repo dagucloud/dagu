@@ -9,6 +9,7 @@ import (
 	"slices"
 	"strings"
 
+	"github.com/dagucloud/dagu/v2/internal/cmn/mailer"
 	"github.com/dagucloud/dagu/v2/internal/cmn/mailer/oauthconfig"
 	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/go-viper/mapstructure/v2"
@@ -29,11 +30,12 @@ type mailServerConfig struct {
 	Port          string `yaml:"port"`
 	Security      string `yaml:"security"`
 	SkipTLSVerify bool   `yaml:"skip_tls_verify"`
+	TLSCertSHA256 string `yaml:"tls_cert_sha256"`
 }
 
 var (
 	mailAccountKeys = []string{"provider", "imap", "smtp", "username", "password", "oauth"}
-	mailServerKeys  = []string{"host", "port", "security", "skip_tls_verify"}
+	mailServerKeys  = []string{"host", "port", "security", "skip_tls_verify", "tls_cert_sha256"}
 	mailOAuthKeys   = []string{"provider", "tenant_id", "client_id", "client_secret", "service_account_json", "refresh_token", "scopes"}
 	// gmailUnusedKeys configure IMAP and SMTP, which a Gmail API account never uses.
 	gmailUnusedKeys = []string{"imap", "smtp", "username"}
@@ -209,6 +211,14 @@ func buildMailServer(protocol string, preset ir.MailServer, block *mailServerCon
 		server.Port = mailDefaultPorts[protocol][server.Security]
 	}
 	server.SkipTLSVerify = block.SkipTLSVerify
+	server.TLSCertSHA256 = ""
+	if pin := strings.TrimSpace(block.TLSCertSHA256); pin != "" {
+		normalized, err := mailer.NormalizeCertSHA256(pin)
+		if err != nil {
+			return nil, fmt.Errorf("%s.tls_cert_sha256 %w", protocol, err)
+		}
+		server.TLSCertSHA256 = normalized
+	}
 	return &server, nil
 }
 

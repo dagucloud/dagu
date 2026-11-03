@@ -4331,6 +4331,10 @@
         "skip_tls_verify": {
           "type": "boolean",
           "description": "Accept any server certificate, such as a self-signed one."
+        },
+        "tls_cert_sha256": {
+          "type": "string",
+          "description": "SHA-256 fingerprint of the server's leaf certificate, as 64 hex characters (colons allowed). Chain verification is skipped and the connection fails unless the certificate matches."
         }
       }
     },
