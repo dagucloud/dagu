@@ -256,6 +256,14 @@ const StepRow = memo(function StepRow({
   const subRuns = [...(node.subRuns ?? []), ...(node.subRunsRepeated ?? [])];
   const subDagName = step.call || subRuns[0]?.dagName;
   const hasSubRuns = !!subDagName && subRuns.length > 0;
+  // One sub-run opens at once; several open a picker.
+  const subRunLabel =
+    subRuns.length === 1
+      ? ts('Open sub-run: {name}', { name: subDagName ?? '' })
+      : ts('Choose one of {count} sub-runs of {name}', {
+          count: subRuns.length,
+          name: subDagName ?? '',
+        });
   const repeat = useMemo(
     () => readRepeatPolicy(step.repeatPolicy),
     [step.repeatPolicy]
@@ -302,7 +310,7 @@ const StepRow = memo(function StepRow({
                 <button
                   type="button"
                   data-testid="run-step-subdag"
-                  aria-label={`${ts('Open sub-run')}: ${subDagName}`}
+                  aria-label={subRunLabel}
                   // The row selects the step; the badge opens its runs.
                   onClick={(event) => {
                     event.stopPropagation();
@@ -319,9 +327,7 @@ const StepRow = memo(function StepRow({
                 </button>
               </TooltipTrigger>
               <TooltipContent>
-                <span className="text-xs">
-                  {ts('Open sub-run')}: {subDagName}
-                </span>
+                <span className="text-xs">{subRunLabel}</span>
               </TooltipContent>
             </Tooltip>
           )}

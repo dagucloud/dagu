@@ -177,7 +177,9 @@ describe('RunStepsNav sub-runs', () => {
 
   it('lets the user choose one of several sub-runs', () => {
     fireEvent.click(
-      within(row('fan')).getByRole('button', { name: 'Open sub-run: worker' })
+      within(row('fan')).getByRole('button', {
+        name: 'Choose one of 2 sub-runs of worker',
+      })
     );
     expect(screen.getByText('2 sub DAG-runs')).toBeVisible();
     fireEvent.click(screen.getByText('N=2'));

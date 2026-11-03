@@ -236,8 +236,9 @@ describe('RunStepList', () => {
       ])
     );
 
+    // Two sub-runs: the badge says so, and a click lets the user choose.
     const badge = within(rowOf('fan')).getByRole('button', {
-      name: 'Open sub-run: child',
+      name: 'Choose one of 2 sub-runs of child',
     });
     expect(badge).toHaveTextContent('2');
     expect(
@@ -246,13 +247,15 @@ describe('RunStepList', () => {
 
     await userEvent.hover(badge);
     expect(await screen.findByRole('tooltip')).toHaveTextContent(
-      'Open sub-run: child'
+      'Choose one of 2 sub-runs of child'
     );
 
     fireEvent.click(badge);
     expect(onOpenSubRun).toHaveBeenLastCalledWith('fan', { newTab: false });
     expect(onSelect).not.toHaveBeenCalled();
     fireEvent.click(badge, { metaKey: true });
+    expect(onOpenSubRun).toHaveBeenLastCalledWith('fan', { newTab: true });
+    fireEvent.click(badge, { ctrlKey: true });
     expect(onOpenSubRun).toHaveBeenLastCalledWith('fan', { newTab: true });
   });
 
