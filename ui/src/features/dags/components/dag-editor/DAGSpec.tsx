@@ -1918,7 +1918,12 @@ function DAGSpec({
                 ),
           action: {
             label: count === 1 ? ts('Open sub-run') : ts('Choose sub-run'),
-            run: () => onStepCommand({ kind: 'openSubRun', step }),
+            run: (click) =>
+              onStepCommand({
+                kind: 'openSubRun',
+                step,
+                newTab: !!click && (click.metaKey || click.ctrlKey),
+              }),
           },
           priority: CHILD_RUNS_NOTICE_PRIORITY,
         });
