@@ -510,8 +510,8 @@ type StringifyArgs = Parameters<typeof stringifyString>;
  * FORMAT_LINE_WIDTH. The library does not count the indentation of a key,
  * and it keeps a text that is shorter than the width of its continuation
  * lines on one line, even when the key makes the first line too long. This
- * function corrects both: it narrows the width until the text folds. A string
- * with a line end does not fold.
+ * function corrects both: it narrows the width until the text folds. A block
+ * scalar and a string with a line end do not fold.
  */
 function stringifyFolded(
   node: StringifyArgs[0],
@@ -527,7 +527,9 @@ function stringifyFolded(
       onChompKeep
     );
   if (ctx.implicitKey) return run(FORMAT_LINE_WIDTH);
-  if (typeof node.value === 'string' && node.value.includes('\n')) {
+  const block =
+    node.type === Scalar.BLOCK_LITERAL || node.type === Scalar.BLOCK_FOLDED;
+  if (block || (typeof node.value === 'string' && node.value.includes('\n'))) {
     const printed = run(0);
     if (/^[|>]/.test(printed)) return withEmptyLines(printed, ctx.indent);
     // A quoted string can end a line with an escaped space, which the trim

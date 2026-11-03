@@ -539,6 +539,15 @@ describe('formatYaml folds long lines', () => {
     expect(formatYaml(text)).toBe(text);
   });
 
+  // A line that starts with a space or a tab keeps its line ends in a
+  // folded block: folding it would change the value.
+  it('keeps a folded block as written', () => {
+    for (const line of [long, `\t${long}`]) {
+      const text = `steps:\n  - name: a\n    run: >-\n      ${line}\n`;
+      expect(formatYaml(text)).toBe(text);
+    }
+  });
+
   it('writes a long flow sequence and a flow map in block style', () => {
     const names = Array.from({ length: 12 }, (_, i) => `dependency_${i}`);
     const text =
