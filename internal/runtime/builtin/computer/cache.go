@@ -29,11 +29,16 @@ const (
 	// around an action's position; larger screens compare a wider area.
 	minTargetRadius     = 32
 	targetRadiusDivisor = 40
-	// A target area is the same when no more than one pixel in
-	// targetStillShare changed, or targetStillPixels in a small area: enough
-	// for a blinking caret, too few for a label with other text.
-	targetStillShare  = 100
-	targetStillPixels = 48
+	// A target area is kept as digests of targetCell-pixel squares, and is
+	// the same when no more than targetStillCells differ: a blinking caret
+	// 20 pixels tall touches at most two columns of six squares, and a label
+	// with other text changes more.
+	targetCell       = 4
+	targetStillCells = 12
+	// targetSalt and targetDigest are the bytes of a recording's salt and of
+	// the digest kept for each square.
+	targetSalt   = 8
+	targetDigest = 4
 )
 
 // recordingVersion is the format of the recordings written now. Version 3
@@ -141,9 +146,11 @@ type recordedAction struct {
 	// Target fingerprints the area the action lands on. A recording made
 	// before TargetPixels existed has only this, and still replays on it.
 	Target *desktop.Fingerprint `json:"target,omitempty"`
-	// TargetPixels is that area as a PNG, which a replay compares pixel by
-	// pixel: the fingerprint cannot tell one label from another.
-	TargetPixels []byte `json:"target_pixels,omitempty"`
+	// TargetCells is that area as salted digests of its small squares, which
+	// a replay compares square by square: the fingerprint cannot tell one
+	// label from another. The digests cannot be turned back into the pixels,
+	// which may show text that is not to be stored.
+	TargetCells []byte `json:"target_cells,omitempty"`
 	// Element is the element the action landed on or typed into, when the
 	// host could read it.
 	Element *recordedElement `json:"element,omitempty"`
@@ -428,8 +435,8 @@ func matches(current *image.RGBA, v view, turn recordedTurn) bool {
 			continue
 		}
 		at, _ := target(v.absolute(recorded.Action))
-		if recorded.TargetPixels != nil {
-			if !v.targetStill(current, at, recorded.TargetPixels) {
+		if recorded.TargetCells != nil {
+			if !v.targetStill(current, at, recorded.TargetCells) {
 				return false
 			}
 			continue

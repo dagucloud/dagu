@@ -6,10 +6,10 @@ package computer
 import (
 	"bytes"
 	"context"
+	"crypto/rand"
+	"crypto/sha256"
 	"fmt"
 	"image"
-	"image/draw"
-	"image/png"
 	"os"
 	"strings"
 	"time"
@@ -102,28 +102,61 @@ func (v view) targetPrint(img *image.RGBA, at image.Point) desktop.Fingerprint {
 	return desktop.FingerprintAround(v.region(img), at, targetRadius(v.rect))
 }
 
-// targetArea is the square around a display position, inside the view.
-func (v view) targetArea(img *image.RGBA, at image.Point) *image.RGBA {
-	r := targetRadius(v.rect)
-	return desktop.Crop(v.region(img), image.Rect(at.X-r, at.Y-r, at.X+r, at.Y+r))
+// targetCells digests the square around a display position in small squares
+// of targetCell pixels, laid out from the square's corner, behind a salt of
+// targetSalt bytes. It is as wide as the view was when recorded, and leaves
+// out the last windowSizeTolerance pixels of a window, so that a window a
+// pixel or two off in size, which findWindow accepts, digests the same. A
+// square outside what is compared digests to zeros.
+func (v view) targetCells(img *image.RGBA, at image.Point, salt []byte) []byte {
+	width, height := v.rect.Dx(), v.rect.Dy()
+	bounds := v.rect
+	if v.window != nil {
+		width, height = v.window.Width, v.window.Height
+		bounds = image.Rect(v.rect.Min.X, v.rect.Min.Y, v.rect.Min.X+width-windowSizeTolerance, v.rect.Min.Y+height-windowSizeTolerance)
+	}
+	bounds = bounds.Intersect(img.Bounds())
+	radius := targetRadius(image.Rect(0, 0, width, height))
+	squares := (2*radius + targetCell - 1) / targetCell
+	cells := append([]byte(nil), salt...)
+	for row := range squares {
+		for col := range squares {
+			x, y := at.X-radius+col*targetCell, at.Y-radius+row*targetCell
+			square := image.Rect(x, y, x+targetCell, y+targetCell).Intersect(bounds)
+			digest := make([]byte, targetDigest)
+			if !square.Empty() {
+				hash := sha256.New()
+				hash.Write(salt)
+				for line := square.Min.Y; line < square.Max.Y; line++ {
+					from := img.PixOffset(square.Min.X, line)
+					hash.Write(img.Pix[from : from+square.Dx()*4])
+				}
+				copy(digest, hash.Sum(nil))
+			}
+			cells = append(cells, digest...)
+		}
+	}
+	return cells
 }
 
 // targetStill reports whether the square around a display position shows the
-// recorded picture, but for a few pixels. A recording that cannot be read
-// shows nothing to trust, so it is not still.
+// recorded picture, but for a few squares. Cells that cannot be read show
+// nothing to trust, so they are not still.
 func (v view) targetStill(img *image.RGBA, at image.Point, recorded []byte) bool {
-	decoded, err := png.Decode(bytes.NewReader(recorded))
-	if err != nil {
+	if len(recorded) < targetSalt {
 		return false
 	}
-	before := image.NewRGBA(decoded.Bounds())
-	draw.Draw(before, before.Bounds(), decoded, decoded.Bounds().Min, draw.Src)
-	now := v.targetArea(img, at)
-	if before.Bounds().Size() != now.Bounds().Size() {
+	now := v.targetCells(img, at, recorded[:targetSalt])
+	if len(now) != len(recorded) {
 		return false
 	}
-	size := now.Bounds().Size()
-	return desktop.ChangedPixels(before, now) <= max(targetStillPixels, size.X*size.Y/targetStillShare)
+	changed := 0
+	for i := targetSalt; i < len(now); i += targetDigest {
+		if !bytes.Equal(now[i:i+targetDigest], recorded[i:i+targetDigest]) {
+			changed++
+		}
+	}
+	return changed <= targetStillCells
 }
 
 // relative moves an action from display pixels to the view's own.
@@ -149,9 +182,9 @@ func (v view) place(rec recordedAction, seen *image.RGBA) recordedAction {
 	if at, ok := target(rec.Action); ok {
 		fingerprint := v.targetPrint(seen, at)
 		rec.Target = &fingerprint
-		if pixels, err := desktop.EncodePNG(v.targetArea(seen, at)); err == nil {
-			rec.TargetPixels = pixels
-		}
+		salt := make([]byte, targetSalt)
+		_, _ = rand.Read(salt) // never fails; it panics before it returns an error
+		rec.TargetCells = v.targetCells(seen, at, salt)
 	}
 	rec.Action = v.relative(rec.Action)
 	return rec
