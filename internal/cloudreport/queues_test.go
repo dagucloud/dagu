@@ -164,7 +164,8 @@ func TestQueuesFailWhenTheRunsInProgressCannotBeRead(t *testing.T) {
 
 // With more waiting queues than one read asks of, each read asks of those
 // asked longest ago, so a queue past the first maxQueueReasons is asked in
-// turn, and keeps its answer while others are asked.
+// turn, and keeps its answer while others are asked, until its next run
+// changes.
 func TestQueuesAskOfWaitingQueuesInTurn(t *testing.T) {
 	t.Parallel()
 	s := newTestQueueStore(t)
@@ -202,6 +203,17 @@ func TestQueuesAskOfWaitingQueuesInTurn(t *testing.T) {
 	third, ok := q.read(context.Background(), start.Add(2*time.Minute), second.checks)
 	require.True(t, ok)
 	assert.Equal(t, last, blocked(third), "it keeps its answer while others are asked")
+
+	items, err := s.List(context.Background(), last)
+	require.NoError(t, err)
+	_, err = s.DeleteByItemIDs(context.Background(), last, []string{items[0].ID()})
+	require.NoError(t, err)
+	enqueue(t, s, last, last, "r"+last+"-next")
+	statuses["r"+last+"-next"] = &ir.DAGRunStatus{}
+	fourth, ok := q.read(context.Background(), start.Add(3*time.Minute), third.checks)
+	require.True(t, ok)
+	assert.Empty(t, blocked(fourth), "a new next run does not keep the answer about the last one")
+	assert.Equal(t, "r"+last+"-next", runs.opened[len(runs.opened)-maxQueueReasons], "and is asked first")
 }
 
 // A queue whose next run has not waited long is not asked why.

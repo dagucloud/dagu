@@ -98,12 +98,13 @@ type queueRead struct {
 }
 
 // reasonChecks are, by queue, why its next run waited when a read last
-// asked, and when it asked.
+// asked, when it asked, and that run, by when it was queued.
 type reasonChecks map[string]reasonCheck
 
 type reasonCheck struct {
 	reason string
 	at     time.Time
+	next   time.Time
 }
 
 // read lists the queues that hold queued or running runs as of now, up to
@@ -200,8 +201,9 @@ func (q Queues) running(ctx context.Context, now time.Time) (map[string]int, boo
 // whose next run waited reasonAfter. It asks of at most maxQueueReasons of
 // them, those an earlier read asked of longest ago first, then the longest
 // waits, so with more of them each is asked in turn; the others keep the
-// answer an earlier read got. It returns what it and earlier reads asked of
-// the queues still waiting.
+// answer an earlier read got of the same next run. A queue whose next run
+// changed counts as not asked. It returns what it and earlier reads asked
+// of the queues still waiting.
 func (q Queues) explain(ctx context.Context, queues []queueHealth, next map[string]time.Time, now time.Time,
 	prev reasonChecks) reasonChecks {
 	checks := make(reasonChecks)
@@ -216,14 +218,24 @@ func (q Queues) explain(ctx context.Context, queues []queueHealth, next map[stri
 			waiting = append(waiting, h)
 		}
 	}
+	asked := func(name string) (reasonCheck, bool) {
+		c, ok := prev[name]
+		return c, ok && c.next.Equal(next[name])
+	}
+	askedAt := func(name string) time.Time {
+		if c, ok := asked(name); ok {
+			return c.at
+		}
+		return time.Time{}
+	}
 	slices.SortFunc(waiting, func(a, b *queueHealth) int {
-		return cmp.Or(prev[a.Name].at.Compare(prev[b.Name].at), next[a.Name].Compare(next[b.Name]))
+		return cmp.Or(askedAt(a.Name).Compare(askedAt(b.Name)), next[a.Name].Compare(next[b.Name]))
 	})
 	for i, h := range waiting {
 		if i < maxQueueReasons {
 			h.BlockedReason = q.blockedReason(ctx, h.Name)
-			checks[h.Name] = reasonCheck{reason: h.BlockedReason, at: now}
-		} else if c, ok := prev[h.Name]; ok {
+			checks[h.Name] = reasonCheck{reason: h.BlockedReason, at: now, next: next[h.Name]}
+		} else if c, ok := asked(h.Name); ok {
 			h.BlockedReason = c.reason
 			checks[h.Name] = c
 		}

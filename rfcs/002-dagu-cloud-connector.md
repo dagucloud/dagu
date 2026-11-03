@@ -318,8 +318,8 @@ global queue's configured maximum, at least 1, or 1 for a DAG's own queue;
 is; and `blocked_reason`, `NoMatchingWorker`, `NoAvailableWorker`, or
 `WorkerDispatchUnavailable`, given only for a queue with room whose next run
 has waited a minute. A read asks of at most 50 such queues, those asked
-longest ago first, and the others keep the answer an earlier read got, so
-each is asked in turn. Queues with a `blocked_reason` come
+longest ago first, and the others keep the answer an earlier read got while
+the same run is next, so each is asked in turn. Queues with a `blocked_reason` come
 first, then queues with room whose next run has not started, then queues
 whose runs fill them, then queues with nothing queued, each with the longest
 wait first, at most 256; `health.queues_total` counts them all. A queue whose
