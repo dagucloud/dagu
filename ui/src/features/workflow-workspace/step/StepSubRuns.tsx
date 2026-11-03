@@ -14,8 +14,8 @@ import { useWorkspaceRun } from '../data/useWorkspaceRun';
 import { RunStatusDot } from '../executions/RunStatusDot';
 import {
   allSubRunsOf,
-  renderParallelPicker,
   subDagNameOf,
+  useStepSubRunsOpener,
   useSubRunOpener,
 } from './useStepRunActions';
 
@@ -62,10 +62,7 @@ export function StepSubRuns({
   const { subRuns } = useSubRuns(several ? run.ref : null, parentSubDAGRunId);
   const [expanded, setExpanded] = useState(false);
   const [filter, setFilter] = useState<StatusFilter>('all');
-  const [picker, setPicker] = useState<{
-    node: ApiNode;
-    holder: ApiDAGRunDetails;
-  } | null>(null);
+  const opener = useStepSubRunsOpener();
   const subDagName = subDagNameOf(node);
 
   // The statuses come from the sub-run list; only the children of this step count.
@@ -183,7 +180,7 @@ export function StepSubRuns({
         <button
           type="button"
           className="inline-flex items-center gap-1 rounded border border-border bg-background px-1.5 py-0.5 text-xs font-medium hover:bg-muted"
-          onClick={() => setPicker({ node, holder })}
+          onClick={() => opener.open(node, holder)}
         >
           <Layers className="h-3 w-3" aria-hidden="true" />
           {ts('Choose a sub DAG run')}
@@ -261,7 +258,7 @@ export function StepSubRuns({
           )}
         </div>
       )}
-      {renderParallelPicker(picker, () => setPicker(null), open)}
+      {opener.picker}
     </div>
   );
 }
