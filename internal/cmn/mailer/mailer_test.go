@@ -949,6 +949,7 @@ type smtpRecordingServer struct {
 	listener           net.Listener
 	leafDER            []byte
 	advertiseSTARTTLS  bool
+	upgradeTLS         *tls.Config // when set, STARTTLS really upgrades the connection
 	mailFromResponse   string
 	rcptToResponse     string
 	startTLSResponse   string
@@ -1041,6 +1042,14 @@ func (s *smtpRecordingServer) handleConnection(conn net.Conn) {
 			s.mu.Lock()
 			s.startTLSCount++
 			s.mu.Unlock()
+			if s.upgradeTLS != nil {
+				_, _ = writer.WriteString("220 Ready to start TLS\r\n")
+				_ = writer.Flush()
+				conn = tls.Server(conn, s.upgradeTLS)
+				reader = bufio.NewReader(conn)
+				writer = bufio.NewWriter(conn)
+				continue
+			}
 			_, _ = writer.WriteString(s.startTLSResponse)
 		case strings.HasPrefix(line, "MAIL FROM:"):
 			_, _ = writer.WriteString(s.mailFromResponse)
@@ -1481,6 +1490,35 @@ func TestSendWithPinnedCertificate(t *testing.T) {
 	require.ErrorContains(t, send("zz"), "tls_cert_sha256 must be a SHA-256 fingerprint")
 
 	require.NoError(t, send(strings.ToUpper(hex.EncodeToString(sum[:]))))
+	assert.Equal(t, []string{"to@example.com"}, server.RecordedRecipients())
+}
+
+// The pin also applies to the certificate the server presents after STARTTLS.
+func TestSendWithPinnedCertificateAfterSTARTTLS(t *testing.T) {
+	t.Parallel()
+
+	server, err := newSMTPRecordingServer()
+	require.NoError(t, err)
+	cert := newTestTLSCertificate(t)
+	server.advertiseSTARTTLS = true
+	server.upgradeTLS = &tls.Config{Certificates: []tls.Certificate{cert}, MinVersion: tls.VersionTLS12}
+	t.Cleanup(func() { _ = server.Close() })
+	go server.Serve()
+	host, port, err := net.SplitHostPort(server.Address())
+	require.NoError(t, err)
+	sum := sha256.Sum256(cert.Certificate[0])
+	send := func(pin string) error {
+		client := New(Config{
+			Host: host, Port: port, Username: "sender@example.com", Password: "secret",
+			Security: SecurityStartTLS, TLSCertSHA256: pin,
+		})
+		return client.Send(context.Background(), "sender@example.com", []string{"to@example.com"}, "Subject", "Body", nil)
+	}
+
+	require.ErrorContains(t, send(strings.Repeat("00", 32)), "does not match tls_cert_sha256")
+	assert.Empty(t, server.RecordedRecipients())
+
+	require.NoError(t, send(hex.EncodeToString(sum[:])))
 	assert.Equal(t, []string{"to@example.com"}, server.RecordedRecipients())
 }
 

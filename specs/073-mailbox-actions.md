@@ -68,7 +68,9 @@ certificate is verified unless the server block sets `skip_tls_verify: true`,
 which accepts any certificate, such as a self-signed one. Alternatively,
 `tls_cert_sha256` pins the server's leaf certificate by the SHA-256 hash of its
 DER bytes (64 hex characters, any case, colons allowed). The chain is not
-verified, and the connection fails when the certificate's hash differs.
+verified, and the connection fails when the certificate's hash differs. When a
+server block sets both, `tls_cert_sha256` takes precedence over
+`skip_tls_verify`: only the pinned certificate is accepted.
 
 ### Authentication
 
@@ -259,6 +261,9 @@ fail the step when it starts, before connecting:
   `mail account "<address>": imap is not used by a google account with oauth, which uses the Gmail API`
   (naming the field).
 - `security` other than `tls` or `starttls`.
+- A `tls_cert_sha256` that is not 64 hex characters (colons allowed):
+  `mail account "<address>": imap.tls_cert_sha256 must be a SHA-256 fingerprint of 64 hex characters`
+  (or `smtp.` for the SMTP block).
 - `security` given as a value reference without `port`:
   `mail account "<address>": imap.port is required when imap.security is a value reference`
   (or `smtp.` for the SMTP block).
