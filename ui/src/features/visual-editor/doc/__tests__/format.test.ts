@@ -487,8 +487,17 @@ describe('formatYaml folds long lines', () => {
   });
 
   it('keeps the trailing space of a line of a multi-line string', () => {
-    const text = 'steps:\n  - name: a\n    run: "echo one \\n echo two  \\n"\n';
-    expect(parse(formatYaml(text))).toEqual(parse(text));
+    const long = 'alpha beta gamma delta epsilon zeta eta theta iota kappa';
+    for (const text of [
+      'steps:\n  - name: a\n    run: "echo one \\n echo two  \\n"\n',
+      `steps:\n  - name: a\n    run: "${long} \\nnext line"\n`,
+      // A block that ends in a line of spaces prints as a quoted string.
+      `steps:\n  - name: a\n    run: |-\n      ${long} \n        \n`,
+    ]) {
+      const out = formatYaml(text);
+      expect(parse(out)).toEqual(parse(text));
+      expect(formatYaml(out)).toBe(out);
+    }
     for (const block of [
       'steps:\n  - name: a\n    run: |-\n      echo one \n      echo two\n',
       'steps:\n  - name: a\n    run: |\n      echo one\n        \n      echo two\t\n',

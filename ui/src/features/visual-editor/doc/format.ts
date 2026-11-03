@@ -528,7 +528,11 @@ function stringifyFolded(
     );
   if (ctx.implicitKey) return run(FORMAT_LINE_WIDTH);
   if (typeof node.value === 'string' && node.value.includes('\n')) {
-    return withEmptyLines(run(0), ctx.indent);
+    const printed = run(0);
+    if (/^[|>]/.test(printed)) return withEmptyLines(printed, ctx.indent);
+    // A quoted string can end a line with an escaped space, which the trim
+    // of the printed lines would cut: on one line, it keeps its value.
+    return /[ \t]$/m.test(printed) ? JSON.stringify(node.value) : printed;
   }
   const start = ctx.indentAtStart;
   // A value of a map starts after the key; an item of a list after its dash.
@@ -565,7 +569,6 @@ function stringifyFolded(
  * line of a value that starts with a line end.
  */
 function withEmptyLines(text: string, indent: string): string {
-  if (!/^[|>]/.test(text)) return text;
   return text
     .split('\n')
     .map((line) =>
