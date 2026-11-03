@@ -609,6 +609,7 @@ const PRINT_OPTIONS = {
   minContentWidth: FORMAT_MIN_CONTENT_WIDTH,
 };
 
+/** The text of one document in the canonical form of `formatYaml`. */
 function formatDocument(doc: Document): string {
   // The text puts its own `---` between the documents.
   if (doc.directives) {
