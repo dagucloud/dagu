@@ -1454,18 +1454,25 @@ func TestApplyCertPin(t *testing.T) {
 	cfg := &tls.Config{}
 	require.NoError(t, ApplyCertPin(cfg, ""))
 	assert.False(t, cfg.InsecureSkipVerify)
-	assert.Nil(t, cfg.VerifyPeerCertificate)
+	assert.Nil(t, cfg.VerifyConnection)
 	require.ErrorContains(t, ApplyCertPin(cfg, "nope"), "tls_cert_sha256 must be")
 
 	leaf := []byte("leaf certificate")
 	sum := sha256.Sum256(leaf)
 	require.NoError(t, ApplyCertPin(cfg, hex.EncodeToString(sum[:])))
 	assert.True(t, cfg.InsecureSkipVerify)
-	assert.NoError(t, cfg.VerifyPeerCertificate([][]byte{leaf, []byte("intermediate")}, nil))
-	assert.ErrorContains(t, cfg.VerifyPeerCertificate([][]byte{[]byte("other")}, nil), "does not match")
+	peers := func(raws ...[]byte) tls.ConnectionState {
+		state := tls.ConnectionState{}
+		for _, raw := range raws {
+			state.PeerCertificates = append(state.PeerCertificates, &x509.Certificate{Raw: raw})
+		}
+		return state
+	}
+	assert.NoError(t, cfg.VerifyConnection(peers(leaf, []byte("intermediate"))))
+	assert.ErrorContains(t, cfg.VerifyConnection(peers([]byte("other"))), "does not match")
 	// Only the leaf counts: a matching certificate further down the chain is not enough.
-	assert.ErrorContains(t, cfg.VerifyPeerCertificate([][]byte{[]byte("other"), leaf}, nil), "does not match")
-	assert.ErrorContains(t, cfg.VerifyPeerCertificate(nil, nil), "no certificate")
+	assert.ErrorContains(t, cfg.VerifyConnection(peers([]byte("other"), leaf)), "does not match")
+	assert.ErrorContains(t, cfg.VerifyConnection(peers()), "no certificate")
 }
 
 // A pinned certificate is accepted without chain verification; any other

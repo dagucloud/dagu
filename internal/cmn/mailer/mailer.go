@@ -9,7 +9,6 @@ import (
 	"crypto/rand"
 	"crypto/sha256"
 	"crypto/tls"
-	"crypto/x509"
 	"encoding/base64"
 	"encoding/hex"
 	"errors"
@@ -705,7 +704,9 @@ func NormalizeCertSHA256(fingerprint string) (string, error) {
 
 // ApplyCertPin makes cfg accept only the leaf certificate whose SHA-256 hash is
 // fingerprint. It skips chain verification and checks the hash instead, so it
-// replaces any InsecureSkipVerify setting. An empty fingerprint leaves cfg as is.
+// replaces any InsecureSkipVerify setting. The check is in VerifyConnection,
+// which also runs when a session is resumed (VerifyPeerCertificate does not).
+// An empty fingerprint leaves cfg as is.
 func ApplyCertPin(cfg *tls.Config, fingerprint string) error {
 	if fingerprint == "" {
 		return nil
@@ -714,12 +715,12 @@ func ApplyCertPin(cfg *tls.Config, fingerprint string) error {
 	if err != nil {
 		return fmt.Errorf("tls_cert_sha256 %w", err)
 	}
-	cfg.InsecureSkipVerify = true //nolint:gosec // the pinned hash is checked in VerifyPeerCertificate
-	cfg.VerifyPeerCertificate = func(rawCerts [][]byte, _ [][]*x509.Certificate) error {
-		if len(rawCerts) == 0 {
+	cfg.InsecureSkipVerify = true //nolint:gosec // the pinned hash is checked in VerifyConnection
+	cfg.VerifyConnection = func(state tls.ConnectionState) error {
+		if len(state.PeerCertificates) == 0 {
 			return errors.New("server presented no certificate")
 		}
-		sum := sha256.Sum256(rawCerts[0])
+		sum := sha256.Sum256(state.PeerCertificates[0].Raw)
 		if got := hex.EncodeToString(sum[:]); got != want {
 			return fmt.Errorf("server certificate SHA-256 %s does not match tls_cert_sha256", got)
 		}

@@ -59,7 +59,7 @@ func startScriptedServerTLS(
 		if err != nil {
 			return
 		}
-		var conn net.Conn = accepted
+		conn := accepted
 		defer func() { _ = conn.Close() }()
 		reader := bufio.NewReader(conn)
 		_, _ = conn.Write([]byte("* OK [CAPABILITY IMAP4rev1 MOVE UIDPLUS] ready\r\n"))
