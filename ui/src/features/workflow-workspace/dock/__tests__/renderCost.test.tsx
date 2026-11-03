@@ -569,6 +569,7 @@ describe('RunStepList render cost', () => {
           handlers={[]}
           selected={selected}
           onSelect={vi.fn()}
+          onOpenSubRun={vi.fn()}
         />
       </MemoryRouter>
     );

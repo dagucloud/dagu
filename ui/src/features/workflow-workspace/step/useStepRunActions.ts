@@ -167,6 +167,42 @@ export function renderParallelPicker(
   });
 }
 
+type PickerTarget = { node: ApiNode; holder: ApiDAGRunDetails };
+
+export interface StepSubRunsOpener {
+  /**
+   * Opens the child runs of a step of `holder`: one opens at once, several
+   * open a picker. A new tab applies to one child.
+   */
+  open(
+    node: ApiNode,
+    holder: ApiDAGRunDetails,
+    opts?: { newTab?: boolean }
+  ): void;
+  /** The picker of the child runs; render it where the hook is called. */
+  picker: ReactNode;
+}
+
+/** Opens the child runs of a step, with useSubRunOpener and the picker. */
+export function useStepSubRunsOpener(): StepSubRunsOpener {
+  const openEntry = useSubRunOpener();
+  const [target, setTarget] = useState<PickerTarget | null>(null);
+  const open = useCallback(
+    (node: ApiNode, holder: ApiDAGRunDetails, opts?: { newTab?: boolean }) => {
+      const count = allSubRunsOf(node).length;
+      if (count > 1) setTarget({ node, holder });
+      else if (count === 1) {
+        openEntry({ node, index: 0, holder, newTab: opts?.newTab });
+      }
+    },
+    [openEntry]
+  );
+  return {
+    open,
+    picker: renderParallelPicker(target, () => setTarget(null), openEntry),
+  };
+}
+
 export interface StepRunActionsOptions {
   /** Keeps the runs of a step whose view is open on the page: `followed`. */
   stay?: boolean;
@@ -198,17 +234,13 @@ export function useStepRunActions(
   const client = useClient();
   const remoteNode = useRemoteNode();
   const { showError } = useErrorModal();
-  const openSubRunEntry = useSubRunOpener();
+  const subRuns = useStepSubRunsOpener();
 
   const [statusStep, setStatusStep] = useState<string | null>(null);
   const [retryStepName, setRetryStepName] = useState<string | null>(null);
   const [confirm, setConfirm] = useState<RunConfirm | null>(null);
   const [followed, setFollowed] = useState<readonly FollowedStepRun[]>(NONE);
   const clearFollowed = useCallback(() => setFollowed(NONE), []);
-  const [picker, setPicker] = useState<{
-    node: ApiNode;
-    holder: ApiDAGRunDetails;
-  } | null>(null);
 
   const subRun = opts.holder && isSubDAGRun(opts.holder) ? opts.holder : null;
   const details = subRun ?? run.details;
@@ -368,18 +400,13 @@ export function useStepRunActions(
     [can, runDefinition]
   );
 
+  const { open: openStepSubRuns } = subRuns;
   const openSubRun = useCallback(
     (step: string, e?: { newTab?: boolean }) => {
       const node = nodeByStep.get(step);
-      const children = allSubRunsOf(node);
-      if (!node || !details || children.length === 0) return;
-      if (children.length > 1) {
-        setPicker({ node, holder: details });
-        return;
-      }
-      openSubRunEntry({ node, index: 0, holder: details, newTab: e?.newTab });
+      if (node && details) openStepSubRuns(node, details, e);
     },
-    [details, nodeByStep, openSubRunEntry]
+    [details, nodeByStep, openStepSubRuns]
   );
 
   const openLogs = useCallback((t: StepRunTarget) => dock.openStep(t), [dock]);
@@ -614,7 +641,7 @@ export function useStepRunActions(
                 : null
             ),
           }),
-    renderParallelPicker(picker, () => setPicker(null), openSubRunEntry)
+    subRuns.picker
   );
 
   return {

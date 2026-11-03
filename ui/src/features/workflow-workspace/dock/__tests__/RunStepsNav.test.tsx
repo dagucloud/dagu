@@ -11,6 +11,7 @@ import {
 import { MemoryRouter } from 'react-router-dom';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { NodeStatus, Status } from '@/api/v1/schema';
+import { SubRunOpenProvider } from '@/features/dags/components/common/SubRunStackModal';
 import { node, run } from '../../data/__tests__/fixtures';
 import { nodesByStep, NO_WAITING } from '../../data/runFacts';
 import type { ApiDAGRunDetails, WorkspaceRunValue } from '../../data/types';
@@ -30,6 +31,10 @@ vi.mock('../../data', () => ({ useWorkspaceRun: () => h.run }));
 vi.mock('../DockContext', () => ({
   useDock: () => h.dock,
   useDockCommands: () => h.dock,
+}));
+// The picker of several sub-runs reads their statuses.
+vi.mock('@/hooks/api', () => ({
+  useQuery: () => ({ data: undefined, isLoading: false, mutate: vi.fn() }),
 }));
 vi.mock('../../canvas/WorkspaceEditorContext', () => ({
   useWorkspaceEditor: () => ({ handle: { revealStep: h.revealStep } }),
@@ -125,5 +130,60 @@ describe('RunStepsNav', () => {
     cleanup();
     renderNav();
     expect(screen.getByText('Loading run...')).toBeInTheDocument();
+  });
+});
+
+// The sub-run badge of a row opens the runs of the step (#3488).
+describe('RunStepsNav sub-runs', () => {
+  const openOnStack = vi.fn();
+
+  beforeEach(() => {
+    openOnStack.mockReset();
+    h.run = makeRun(
+      run(
+        'r1',
+        [
+          node('one', NodeStatus.Success, {
+            step: { call: 'child' },
+            subRuns: [{ dagRunId: 'c1', dagName: 'child' }],
+          }),
+          node('fan', NodeStatus.Success, {
+            step: { call: 'worker' },
+            subRuns: [
+              { dagRunId: 'w1', dagName: 'worker', params: 'N=1' },
+              { dagRunId: 'w2', dagName: 'worker', params: 'N=2' },
+            ],
+          }),
+        ],
+        Status.Success
+      )
+    );
+    render(
+      <MemoryRouter>
+        <SubRunOpenProvider value={openOnStack}>
+          <RunStepsNav dag={{ name: 'demo' } as never} />
+        </SubRunOpenProvider>
+      </MemoryRouter>
+    );
+  });
+
+  it('opens the one sub-run of a step on the stack', () => {
+    fireEvent.click(
+      within(row('one')).getByRole('button', { name: 'Open sub-run: child' })
+    );
+    expect(openOnStack).toHaveBeenCalledWith({ name: 'child', dagRunId: 'c1' });
+    expect(h.dock.openStep).not.toHaveBeenCalled();
+  });
+
+  it('lets the user choose one of several sub-runs', () => {
+    fireEvent.click(
+      within(row('fan')).getByRole('button', { name: 'Open sub-run: worker' })
+    );
+    expect(screen.getByText('2 sub DAG-runs')).toBeVisible();
+    fireEvent.click(screen.getByText('N=2'));
+    expect(openOnStack).toHaveBeenCalledWith({
+      name: 'worker',
+      dagRunId: 'w2',
+    });
   });
 });

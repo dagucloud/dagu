@@ -5,6 +5,7 @@ import { useI18n } from '@/i18n/I18nProvider';
 import { useWorkspaceEditor } from '../canvas/WorkspaceEditorContext';
 import type { ApiDAGDetails } from '../contracts';
 import { useWorkspaceRun } from '../data';
+import { useStepSubRunsOpener } from '../step/useStepRunActions';
 import { useDockCommands } from './DockContext';
 import { RunStepList } from './RunStepList';
 import { useDockStep } from './useDockStep';
@@ -13,7 +14,8 @@ import { useDockStep } from './useDockStep';
  * The steps of the selected run, as the vertical navigation on the left of
  * the Run panel. ?step is the selection, shared with the canvas. Without
  * ?step, the step that the auto-open chose is selected. A pick selects the
- * step on the canvas and opens its log; the summary row clears ?step.
+ * step on the canvas and opens its log; the summary row clears ?step. The
+ * sub-run badge of a step opens its sub-runs.
  */
 export function RunStepsNav({ dag }: { dag: ApiDAGDetails }) {
   const { ts } = useI18n();
@@ -21,6 +23,7 @@ export function RunStepsNav({ dag }: { dag: ApiDAGDetails }) {
   const { handle } = useWorkspaceEditor();
   const { openRunLog, openStep } = useDockCommands();
   const selected = useDockStep();
+  const subRuns = useStepSubRunsOpener();
 
   if (!run.hasRun) return null;
   const details = run.details;
@@ -41,13 +44,24 @@ export function RunStepsNav({ dag }: { dag: ApiDAGDetails }) {
     handle?.revealStep(step);
   };
 
+  const openSubRun = (step: string, opts: { newTab: boolean }) => {
+    const node =
+      run.nodeByStep.get(step) ??
+      run.handlers.find((handler) => handler.node.step.name === step)?.node;
+    if (node) subRuns.open(node, details, opts);
+  };
+
   return (
-    <RunStepList
-      dag={dag}
-      details={details}
-      handlers={run.handlers}
-      selected={selected}
-      onSelect={select}
-    />
+    <>
+      <RunStepList
+        dag={dag}
+        details={details}
+        handlers={run.handlers}
+        selected={selected}
+        onSelect={select}
+        onOpenSubRun={openSubRun}
+      />
+      {subRuns.picker}
+    </>
   );
 }
