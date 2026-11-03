@@ -4,6 +4,7 @@
 package runtime_test
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -2522,6 +2523,32 @@ func TestRunner_Metrics(t *testing.T) {
 	result.assertNodeStatus(t, "2", ir.NodeFailed)
 	result.assertNodeStatus(t, "3", ir.NodeSkipped)
 	result.assertNodeStatus(t, "4", ir.NodeSucceeded)
+}
+
+// A failing step or handler precondition is logged with the step it gates, so
+// the run log shows which condition skipped which step.
+func TestRunner_LogsFailedPreconditionStep(t *testing.T) {
+	notMet := func() stepOption {
+		return withPrecondition(&ir.Condition{Condition: "ready", Expected: "waiting"})
+	}
+	r := setupRunner(t, withOnExit(newStep("onExit", withCommand("exit 0"), notMet())))
+	plan := r.newPlan(t, newStep("gated", withCommand("exit 0"), notMet()))
+
+	logPath := filepath.Join(t.TempDir(), "run.log")
+	logFile, err := os.Create(logPath)
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = logFile.Close() })
+	plan.Context = withLogCapture(plan.Context, logFile)
+
+	plan.assertRun(t, ir.Succeeded)
+
+	logs, err := os.ReadFile(logPath)
+	require.NoError(t, err)
+	var steps []string
+	for _, entry := range conditionLogs(t, bytes.NewReader(logs)) {
+		steps = append(steps, entry.Step)
+	}
+	require.ElementsMatch(t, []string{"gated", "onExit"}, steps)
 }
 
 func TestRunner_DAGPreconditions(t *testing.T) {

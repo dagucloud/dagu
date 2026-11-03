@@ -8,6 +8,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"io"
 	"os"
 	"path/filepath"
 	goruntime "runtime"
@@ -31,12 +32,36 @@ func evalConditions(ctx context.Context, shell []string, conditions []*ir.Condit
 	return err
 }
 
-// withLogCapture returns ctx with a logger writing JSON entries to the buffer.
-func withLogCapture(ctx context.Context) (context.Context, *bytes.Buffer) {
-	logs := &bytes.Buffer{}
+// withLogCapture returns ctx with a logger writing JSON entries to w.
+func withLogCapture(ctx context.Context, w io.Writer) context.Context {
 	return logger.WithLogger(ctx, logger.NewLogger(
-		logger.WithWriter(logs), logger.WithFormat("json"), logger.WithQuiet(),
-	)), logs
+		logger.WithWriter(w), logger.WithFormat("json"), logger.WithQuiet(),
+	))
+}
+
+// conditionLog is a logged condition failure.
+type conditionLog struct {
+	Msg       string `json:"msg"`
+	Step      string `json:"step"`
+	Condition string `json:"condition"`
+	Eval      string `json:"eval"`
+	Err       string `json:"err"`
+}
+
+// conditionLogs decodes the logged condition failures from JSON log output,
+// skipping unrelated entries.
+func conditionLogs(t *testing.T, r io.Reader) []conditionLog {
+	t.Helper()
+	var logs []conditionLog
+	decoder := json.NewDecoder(r)
+	for decoder.More() {
+		var entry conditionLog
+		require.NoError(t, decoder.Decode(&entry))
+		if entry.Msg == "Condition was not met" || entry.Msg == "Condition failed to evaluate" {
+			logs = append(logs, entry)
+		}
+	}
+	return logs
 }
 
 func TestEvalConditions(t *testing.T) {
@@ -402,7 +427,8 @@ func TestEvalConditions_SiblingErrorWording(t *testing.T) {
 // Every failing condition is logged under its authored field, so the run log
 // shows which conditions stopped the owner, not only the deciding error.
 func TestEvalConditions_LogsFailedConditions(t *testing.T) {
-	ctx, logs := withLogCapture(newTestContext())
+	var logs bytes.Buffer
+	ctx := withLogCapture(newTestContext(), &logs)
 
 	_, err := runtime.EvaluateConditions(ctx, nil, []*ir.Condition{
 		{Condition: "ready", Expected: "waiting"},
@@ -411,23 +437,7 @@ func TestEvalConditions_LogsFailedConditions(t *testing.T) {
 	})
 	require.Error(t, err)
 
-	type entry struct {
-		Msg       string `json:"msg"`
-		Condition string `json:"condition"`
-		Eval      string `json:"eval"`
-		Err       string `json:"err"`
-	}
-	// The bare test context also logs unrelated environment warnings.
-	var entries []entry
-	decoder := json.NewDecoder(logs)
-	for decoder.More() {
-		var e entry
-		require.NoError(t, decoder.Decode(&e))
-		if e.Condition != "" || e.Eval != "" {
-			entries = append(entries, e)
-		}
-	}
-
+	entries := conditionLogs(t, &logs)
 	require.Len(t, entries, 2)
 	require.Equal(t, "Condition was not met", entries[0].Msg)
 	require.Equal(t, "ready", entries[0].Condition)
@@ -445,7 +455,8 @@ func TestEvalConditions_MasksSecrets(t *testing.T) {
 	ctx := runtime.NewContext(context.Background(), &ir.DAG{}, "test-run", "test.log",
 		runtime.WithSecrets([]string{"TOKEN=" + secret}))
 	ctx = runtime.WithEnv(ctx, runtime.NewEnv(ctx, ir.Step{}))
-	ctx, logs := withLogCapture(ctx)
+	var logs bytes.Buffer
+	ctx = withLogCapture(ctx, &logs)
 
 	notMet := &ir.Condition{Condition: "${TOKEN}", Expected: "nope"}
 	results, err := runtime.EvaluateConditions(ctx, nil, []*ir.Condition{notMet})
