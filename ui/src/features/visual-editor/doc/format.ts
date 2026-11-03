@@ -9,7 +9,16 @@
  * comments stay in the result of `formatYaml` and count in `isSameYaml`.
  */
 
-import { isMap, isNode, isPair, isScalar, isSeq, visit } from 'yaml';
+import {
+  Scalar,
+  isMap,
+  isNode,
+  isPair,
+  isScalar,
+  isSeq,
+  parseDocument,
+  visit,
+} from 'yaml';
 import { stringifyString } from 'yaml/util';
 import type { StepView, TextEdit } from '../contracts';
 import type {
@@ -501,8 +510,8 @@ type StringifyArgs = Parameters<typeof stringifyString>;
  * FORMAT_LINE_WIDTH. The library does not count the indentation of a key,
  * and it keeps a text that is shorter than the width of its continuation
  * lines on one line, even when the key makes the first line too long. This
- * function corrects both: it narrows the width until the text folds. A string
- * with a line end does not fold.
+ * function corrects both: it narrows the width until the text folds. A block
+ * scalar and a string with a line end do not fold.
  */
 function stringifyFolded(
   node: StringifyArgs[0],
@@ -518,11 +527,14 @@ function stringifyFolded(
       onChompKeep
     );
   if (ctx.implicitKey) return run(FORMAT_LINE_WIDTH);
-  if (typeof node.value === 'string' && node.value.includes('\n')) {
-    // The formatter drops the trailing spaces of each line, and a block or
-    // quoted scalar with a real line end would lose them as content.
-    if (/[ \t]$/m.test(node.value)) return JSON.stringify(node.value);
-    return run(0);
+  const block =
+    node.type === Scalar.BLOCK_LITERAL || node.type === Scalar.BLOCK_FOLDED;
+  if (block || (typeof node.value === 'string' && node.value.includes('\n'))) {
+    const printed = run(0);
+    if (/^[|>]/.test(printed)) return withEmptyLines(printed, ctx.indent);
+    // A quoted string can end a line with an escaped space, which the trim
+    // of the printed lines would cut: on one line, it keeps its value.
+    return /[ \t]$/m.test(printed) ? JSON.stringify(node.value) : printed;
   }
   const start = ctx.indentAtStart;
   // A value of a map starts after the key; an item of a list after its dash.
@@ -551,6 +563,20 @@ function stringifyFolded(
     text = next;
   }
   return text;
+}
+
+/**
+ * A printed block scalar whose lines of no more spaces than its indentation
+ * are empty. Such a line holds no content, and the library indents the first
+ * line of a value that starts with a line end.
+ */
+function withEmptyLines(text: string, indent: string): string {
+  return text
+    .split('\n')
+    .map((line) =>
+      line.length <= indent.length && /^ *$/.test(line) ? '' : line
+    )
+    .join('\n');
 }
 
 /** The tags with `stringifyFolded` in place of the default stringifier of a string. */
@@ -583,6 +609,7 @@ const PRINT_OPTIONS = {
   minContentWidth: FORMAT_MIN_CONTENT_WIDTH,
 };
 
+/** The text of one document in the canonical form of `formatYaml`. */
 function formatDocument(doc: Document): string {
   // The text puts its own `---` between the documents.
   if (doc.directives) {
@@ -595,11 +622,39 @@ function formatDocument(doc: Document): string {
   normalise(doc.contents, null);
   spaceDag(doc.contents);
   cleanComment(doc);
-  const text = doc.toString(PRINT_OPTIONS);
-  return text
-    .split('\n')
-    .map((line) => line.replace(/[ \t]+$/, ''))
-    .join('\n');
+  return trimLines(doc.toString(PRINT_OPTIONS)).join('\n');
+}
+
+/**
+ * The lines of a printed document without their trailing spaces. A content
+ * line of a block scalar keeps them: they are part of its value.
+ */
+function trimLines(text: string): string[] {
+  const lines = text.split('\n');
+  if (!lines.some((line) => /[ \t]$/.test(line))) return lines;
+  const blocks = blockScalarRanges(text);
+  let block = 0;
+  let start = 0;
+  return lines.map((line) => {
+    while (block < blocks.length && blocks[block]![1] <= start) block++;
+    const range = blocks[block];
+    const content = range !== undefined && range[0] < start;
+    start += line.length + 1;
+    return content ? line : line.replace(/[ \t]+$/, '');
+  });
+}
+
+/** The ranges of the block scalars of a text of one document, in text order. */
+function blockScalarRanges(text: string): Array<[number, number]> {
+  const ranges: Array<[number, number]> = [];
+  visit(parseDocument(text), {
+    Scalar(_, node) {
+      const block =
+        node.type === Scalar.BLOCK_LITERAL || node.type === Scalar.BLOCK_FOLDED;
+      if (block && node.range) ranges.push([node.range[0], node.range[1]]);
+    },
+  });
+  return ranges;
 }
 
 /**
@@ -676,6 +731,46 @@ function inFlowCollection(text: string, offset: number): boolean {
   return inside;
 }
 
+/** The blank text after a step: see `blankTail`. */
+interface BlankTail {
+  /** Offset after the last blank line, before its line end. */
+  end: number;
+  /** The number of blank lines. */
+  lines: number;
+  /** True when a line end follows `end`. */
+  closed: boolean;
+}
+
+/**
+ * The blank text after offset `to`: the spaces up to the line end, then each
+ * line of only spaces and tabs before the next line with text. It can end a
+ * block scalar, whose range does not hold its last spaces and blank lines.
+ * After a comment, the blank text is empty.
+ */
+function blankTail(text: string, to: number): BlankTail {
+  const lineEnd = (start: number) => {
+    const next = text.indexOf('\n', start);
+    return next < 0 ? text.length : next;
+  };
+  const bare = (start: number, stop: number) =>
+    text.slice(start, stop).replace(/\r$/, '');
+  let stop = lineEnd(to);
+  if (/\S/.test(bare(to, stop))) return { end: to, lines: 0, closed: false };
+  let end = to + bare(to, stop).length;
+  let lines = 0;
+  while (stop < text.length) {
+    const start = stop + 1;
+    const next = lineEnd(start);
+    const line = bare(start, next);
+    // The text after the last line end is no line.
+    if (/\S/.test(line) || (next === text.length && line === '')) break;
+    end = start + line.length;
+    lines++;
+    stop = next;
+  }
+  return { end, lines, closed: end < text.length };
+}
+
 /** What `formatStepRange` reads of a step. */
 export type StepSpan = Pick<StepView, 'form' | 'range' | 'handler' | 'broken'>;
 
@@ -683,7 +778,8 @@ export type StepSpan = Pick<StepView, 'form' | 'range' | 'handler' | 'broken'>;
  * The edit that puts one step in canonical form, or null when the step is
  * already canonical, is broken, does not parse, or sits in a flow
  * collection, where the block style cannot go. The edit lies inside
- * `step.range`: the rest of the text stays byte for byte. The step gets the
+ * `step.range` and the blank text after it, up to the next line with text:
+ * the rest of the text stays byte for byte. The step gets the
  * rules of `formatYaml` (key order, block style, no blank line, comments
  * kept, strings folded at FORMAT_LINE_WIDTH), keeps its indentation and uses
  * the line ends of the text. The step is printed under wrapper keys that give
@@ -695,7 +791,8 @@ export function formatStepRange(text: string, step: StepSpan): TextEdit | null {
   if (step.broken !== undefined) return null;
   const { from, to } = step.range;
   if (inFlowCollection(text, from)) return null;
-  const original = text.slice(from, to);
+  const tail = blankTail(text, to);
+  const original = text.slice(from, tail.end);
   const column = from - (text.lastIndexOf('\n', from - 1) + 1);
   // A step of the map form, and a handler, comes with its key.
   const keyed = step.form === 'mapEntry' || step.handler !== undefined;
@@ -710,16 +807,8 @@ export function formatStepRange(text: string, step: StepSpan): TextEdit | null {
   const own = ' '.repeat(column);
   const inner = ' '.repeat(canon);
   const head = keyed ? inner : `${' '.repeat(2 * levels)}- `;
-  // The blank lines after the range are content of a block scalar that
-  // keeps its line ends (`|+`) at the end of the step.
-  const rest = toLf(text.slice(to)).split('\n').slice(1);
-  const filled = rest.findIndex((line) => line.trim() !== '');
-  const blank = filled < 0 ? rest : rest.slice(0, filled);
   const source: string[] = [];
-  for (const [index, line] of [
-    ...toLf(original).split('\n'),
-    ...blank,
-  ].entries()) {
+  for (const [index, line] of toLf(original).split('\n').entries()) {
     if (index === 0) {
       source.push(head + line);
     } else if (line.trim() === '') {
@@ -733,7 +822,9 @@ export function formatStepRange(text: string, step: StepSpan): TextEdit | null {
       source.push(line);
     }
   }
-  const docs = readDocuments([...wrapper, ...source].join('\n'), {
+  // The line end after the blank lines ends a block scalar that keeps it.
+  const end = tail.closed ? '\n' : '';
+  const docs = readDocuments([...wrapper, ...source].join('\n') + end, {
     ...EXACT_INTS,
     customTags: FOLDING_TAGS as never,
   });
@@ -755,27 +846,30 @@ export function formatStepRange(text: string, step: StepSpan): TextEdit | null {
   }
   let printed: string[];
   try {
-    printed = doc
-      .toString(PRINT_OPTIONS)
-      .replace(/\n+$/, '')
-      .split('\n')
-      .slice(levels);
+    // The lines after the last line end are the kept lines of a block.
+    const body = doc.toString(PRINT_OPTIONS).replace(/\n$/, '');
+    printed = trimLines(body).slice(levels);
   } catch {
     // The key order can put an alias before its anchor.
     return null;
   }
   const lines: string[] = [];
   for (const [index, line] of printed.entries()) {
-    const bare = line.replace(/[ \t]+$/, '');
     if (index === 0) {
-      lines.push(bare.slice(canon));
-    } else if (bare === '') {
+      lines.push(line.slice(canon));
+    } else if (line === '') {
       lines.push('');
-    } else if (bare.startsWith(inner)) {
-      lines.push(own + bare.slice(canon));
+    } else if (line.startsWith(inner)) {
+      lines.push(own + line.slice(canon));
     } else {
       return null;
     }
+  }
+  // A printed step ends with a line without text only in a block that keeps
+  // its line ends, where a blank line after it would be content. Otherwise
+  // the blank lines after the step stay.
+  if (/\S/.test(lines[lines.length - 1] ?? '')) {
+    lines.push(...Array<string>(tail.lines).fill(''));
   }
   const edit = minimalEdit(
     original,

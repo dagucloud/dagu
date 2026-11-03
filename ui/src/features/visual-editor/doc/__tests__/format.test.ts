@@ -487,16 +487,65 @@ describe('formatYaml folds long lines', () => {
   });
 
   it('keeps the trailing space of a line of a multi-line string', () => {
-    const text = 'steps:\n  - name: a\n    run: "echo one \\n echo two  \\n"\n';
-    expect(parse(formatYaml(text))).toEqual(parse(text));
-    const block =
-      'steps:\n  - name: a\n    run: |-\n      echo one \n      echo two\n';
-    expect(parse(formatYaml(block))).toEqual(parse(block));
+    const long = 'alpha beta gamma delta epsilon zeta eta theta iota kappa';
+    for (const text of [
+      'steps:\n  - name: a\n    run: "echo one \\n echo two  \\n"\n',
+      `steps:\n  - name: a\n    run: "${long} \\nnext line"\n`,
+      // A block that ends in a line of spaces prints as a quoted string.
+      `steps:\n  - name: a\n    run: |-\n      ${long} \n        \n`,
+    ]) {
+      const out = formatYaml(text);
+      expect(parse(out)).toEqual(parse(text));
+      expect(formatYaml(out)).toBe(out);
+    }
+    for (const block of [
+      'steps:\n  - name: a\n    run: |-\n      echo one \n      echo two\n',
+      'steps:\n  - name: a\n    run: |\n      echo one\n        \n      echo two\t\n',
+      'steps:\n  - name: a\n    description: >-\n      one two \n\n      three\n',
+      // The empty first line gets no spaces.
+      'steps:\n  - name: a\n    run: |\n\n      echo one \n',
+    ]) {
+      expect(formatYaml(block)).toBe(block);
+    }
+  });
+
+  it('keeps a block scalar with a trailing space in block style', () => {
+    const text = [
+      'steps:',
+      '  - name: test',
+      '    output: RESULT',
+      '    run: |  ',
+      '      if [ -z "${RESTORE_SIZE}" ]; then',
+      '        exit 1 ',
+      '      fi',
+      '',
+    ].join('\n');
+    expect(formatYaml(text)).toBe(
+      [
+        'steps:',
+        '  - name: test',
+        '    run: |',
+        '      if [ -z "${RESTORE_SIZE}" ]; then',
+        '        exit 1 ',
+        '      fi',
+        '    output: RESULT',
+        '',
+      ].join('\n')
+    );
   });
 
   it('keeps a literal block of a command as written', () => {
     const text = `steps:\n  - name: a\n    run: |\n      echo one\n      echo ${long} ${long}\n`;
     expect(formatYaml(text)).toBe(text);
+  });
+
+  // A line that starts with a space or a tab keeps its line ends in a
+  // folded block: folding it would change the value.
+  it('keeps a folded block as written', () => {
+    for (const line of [long, `\t${long}`]) {
+      const text = `steps:\n  - name: a\n    run: >-\n      ${line}\n`;
+      expect(formatYaml(text)).toBe(text);
+    }
   });
 
   it('writes a long flow sequence and a flow map in block style', () => {
@@ -666,8 +715,16 @@ describe('formatStepRange', () => {
   it('keeps a line of spaces inside a block scalar', () => {
     const text =
       'name: demo\n\nsteps:\n  - name: a\n    run: |\n      echo a\n        \n      echo b\n';
+    expect(formatStepRange(text, parseDagDoc(text).steps[0]!)).toBeNull();
+  });
+
+  it('keeps a block scalar with a trailing space in block style', () => {
+    const text =
+      'name: demo\n\nsteps:\n  - run: |\n      exit 1 \n    name: a\n';
     const out = formatStep(text, 0);
-    expect(parse(out)).toEqual(parse(text));
+    expect(out).toBe(
+      'name: demo\n\nsteps:\n  - name: a\n    run: |\n      exit 1 \n'
+    );
     expect(out).toBe(formatYaml(text));
   });
 
@@ -675,6 +732,23 @@ describe('formatStepRange', () => {
     const text =
       'name: demo\n\nsteps:\n  - name: a\n    run: |+\n      echo a\n\n\n  - name: b\n    run: echo b\n';
     expect(formatStepRange(text, parseDagDoc(text).steps[0]!)).toBeNull();
+  });
+
+  // The range of a step ends at its last character that is not a space, so
+  // the spaces and lines of spaces that end a block scalar lie after it.
+  it('keeps the spaces and line ends that end a block scalar', () => {
+    const head = 'name: demo\n\nsteps:\n  - run: echo\n    name: a\n    env:\n';
+    for (const text of [
+      `${head}      K: |+\n        x\n\n  - name: b\n`,
+      `${head}      K: |\n        x\n        \t\n`,
+      `${head}      K: |+\n        \t\n\n  - name: b\n`,
+      `${head}      K: |\n            x\n             \n\n  - name: b\n`,
+      'name: demo\n\nsteps:\n  - output: R\n    name: a\n    run: |\n      exit 1 \n',
+    ]) {
+      const out = formatStep(text, 0);
+      expect(parse(out), text).toEqual(parse(text));
+      expect(out, text).toBe(formatYaml(text));
+    }
   });
 
   it('returns null when an alias would come before its anchor', () => {
