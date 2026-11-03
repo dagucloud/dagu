@@ -511,32 +511,35 @@ describe.skipIf(realSchema === null)('RunSnapshotCanvas', () => {
     expect(h.actions.can).toHaveBeenCalledWith('transform');
   });
 
-  // As in the editor canvas: opening a step that ran sub-runs opens them.
-  it('opens the sub-runs of a step that the user opens', async () => {
-    renderCanvas();
-    await findNode('steps[0]');
-    const { onOpenCall } = lastEditor();
-
-    h.actions.can.mockReturnValue({
+  // As in the editor canvas: a double click on a step that ran sub-runs
+  // opens them, and on any other step its step view.
+  it('opens the sub-runs of a step on a double click', async () => {
+    h.actions.can.mockImplementation((step: string) => ({
       retry: false,
       setStatus: false,
       runStep: true,
-      subRuns: true,
+      subRuns: step === 'fetch',
+    }));
+    renderCanvas();
+    const fetchNode = await findNode('steps[0]');
+
+    act(() => {
+      fireEvent.doubleClick(fetchNode);
     });
-    expect(onOpenCall!('fetch')).toBe(true);
     expect(h.actions.openSubRun).toHaveBeenCalledWith('fetch', {
       newTab: undefined,
     });
+    // No step view opens.
+    expect(screen.getByTestId('loc').dataset.url).not.toContain('ndv=');
 
-    h.actions.can.mockReturnValue({
-      retry: false,
-      setStatus: false,
-      runStep: true,
-      subRuns: false,
+    act(() => {
+      fireEvent.doubleClick(screen.getByTestId('ve-canvas-node-steps[1]'));
     });
-    h.actions.openSubRun.mockClear();
-    expect(onOpenCall!('transform')).toBe(false);
-    expect(h.actions.openSubRun).not.toHaveBeenCalled();
+    expect(await screen.findByTestId('ndv')).toHaveAttribute(
+      'data-state',
+      'expanded'
+    );
+    expect(h.actions.openSubRun).toHaveBeenCalledTimes(1);
   });
 
   it('shows the saved definition with a notice when the run has none', async () => {

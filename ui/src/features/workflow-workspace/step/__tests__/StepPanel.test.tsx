@@ -193,12 +193,21 @@ describe('StepPanel', () => {
       kind: 'setStatus',
       step: 'build',
     });
-    fireEvent.click(screen.getByRole('button', { name: 'Open sub-run' }));
+    const openSubRun = screen.getByRole('button', { name: 'Open sub-run' });
+    fireEvent.click(openSubRun);
     expect(onStepCommand).toHaveBeenLastCalledWith({
       kind: 'openSubRun',
       step: 'build',
       newTab: false,
     });
+    for (const modifier of [{ metaKey: true }, { ctrlKey: true }]) {
+      fireEvent.click(openSubRun, modifier);
+      expect(onStepCommand).toHaveBeenLastCalledWith({
+        kind: 'openSubRun',
+        step: 'build',
+        newTab: true,
+      });
+    }
     fireEvent.click(screen.getByRole('button', { name: 'Open step' }));
     expect(onOpenStep).toHaveBeenCalledTimes(1);
   });
