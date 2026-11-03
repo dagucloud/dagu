@@ -12,7 +12,8 @@ on:
 
 env:
   VERSION: ${{ github.event.release.tag_name || inputs.version }}
-  NODE_VERSION: "22"
+  # Trusted publishing (OIDC) needs npm 11.5.1 or later, which Node 24 bundles.
+  NODE_VERSION: "24"
 
 permissions:
   contents: read
@@ -183,7 +184,6 @@ jobs:
       - name: Publish to NPM
         env:
           PACKAGE_NAME: ${{ matrix.package }}
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
         run: |
           cd "npm/${PACKAGE_NAME}"
           set -o pipefail
@@ -302,8 +302,6 @@ jobs:
             fi
             exit 1
           fi
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
 
   # Verify the published packages
   verify-packages:
