@@ -73,9 +73,6 @@ const (
 	swpNoZOrder     = 0x0004
 	swpNoActivate   = 0x0010
 	dwmExtendedRect = 9
-	// dwmCloaked asks whether the window manager hides a window that is
-	// visible, as it does one on another virtual desktop.
-	dwmCloaked = 14
 	// pwRenderFullContent makes PrintWindow render what the window manager
 	// composes, GPU-drawn content included.
 	pwRenderFullContent = 0x2
@@ -257,7 +254,7 @@ func (windowsBackend) CaptureApps(apps []string) (Capture, error) {
 	var shown []WindowID
 	for _, w := range visibleWindows() {
 		hwnd := uintptr(w.Handle) //nolint:gosec // a window handle round-trips through uintptr for Win32
-		if !appIn(w.App, apps) || flag(procIsIconic, hwnd) || flag(procIsHungAppWindow, hwnd) || cloaked(hwnd) {
+		if !appIn(w.App, apps) || flag(procIsIconic, hwnd) || flag(procIsHungAppWindow, hwnd) {
 			continue
 		}
 		if stretched(hwnd) {
@@ -314,11 +311,4 @@ func stretched(hwnd uintptr) bool {
 		return false
 	}
 	return own != 0 && uint32(own) != dpiX //nolint:gosec // a DPI fits 32 bits
-}
-
-// cloaked reports a visible window the window manager does not show.
-func cloaked(hwnd uintptr) bool {
-	var value uint32
-	hr, _, _ := procDwmGetWindowAttribute.Call(hwnd, dwmCloaked, uintptr(unsafe.Pointer(&value)), unsafe.Sizeof(value)) //nolint:gosec // Win32 takes the buffer address as uintptr
-	return hr == 0 && value != 0
 }
