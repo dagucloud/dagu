@@ -57,8 +57,9 @@ type WriteOptions struct {
 	// ISO-looking text as text.
 	Types map[string]ColumnType
 	// Formats names an explicit number format per column, such as
-	// {Total: "#,##0"}. A named format wins over the kind-based one and
-	// applies even to a column whose kind has no format of its own.
+	// {Total: "#,##0"}. It applies to every cell written to the column
+	// under either style, and wins over the number format the column's kind
+	// or the cell above would give.
 	Formats map[string]string
 	// Output, when set, receives the result while the workbook at path is
 	// left as it was.
@@ -197,6 +198,25 @@ func writeOnce(ctx context.Context, path string, table Table, opts WriteOptions)
 			}
 		}
 	}
+	// named is the style of each column with a named format: the style its
+	// cells would otherwise get, with that number format. A fresh table
+	// sheet takes its named formats in styleTable instead.
+	named := make([]int, len(table.Columns))
+	if !fresh || opts.Style != StyleTable {
+		for c, name := range table.Columns {
+			format, ok := opts.Formats[name]
+			if !ok {
+				continue
+			}
+			base := 0
+			if !fresh {
+				base = bases[c]
+			}
+			if named[c], err = w.numFmtStyle(base, &excelize.Style{CustomNumFmt: &format}); err != nil {
+				return nil, w.sheetError(sheet, fmt.Sprintf("formats.%s: %v", name, err))
+			}
+		}
+	}
 	// An append below existing rows never writes a header; an append that
 	// starts an empty sheet writes one so the first run creates a table.
 	writeHeader := opts.Header
@@ -239,7 +259,13 @@ func writeOnce(ctx context.Context, path string, table Table, opts WriteOptions)
 			if err := w.setCell(sheet, cols[c], r, v); err != nil {
 				return nil, err
 			}
-			if !fresh {
+			switch {
+			case named[c] != 0:
+				cell := cellName(cols[c], r)
+				if err := w.f.SetCellStyle(sheet, cell, cell, named[c]); err != nil {
+					return nil, w.cellError(sheet, cols[c], r, err.Error())
+				}
+			case !fresh:
 				w.styleWrittenCell(sheet, cols[c], r, bases[c], v, opts.Types[table.Columns[c]])
 			}
 			cells++
@@ -750,10 +776,12 @@ func isNarrow(r rune) bool {
 	return r >= 0xFF61 && r <= 0xFF9F // half-width katakana
 }
 
-// datedKey identifies a style derived from a base style for a date kind.
-type datedKey struct {
-	base int
-	kind ColumnType
+// numFmtKey identifies a style derived from a base style with another
+// number format.
+type numFmtKey struct {
+	base   int
+	numFmt int
+	custom string
 }
 
 // styleAt returns the style of a cell, or zero for a plain cell or a row
@@ -789,30 +817,42 @@ func (w *file) styleWrittenCell(sheet string, col, row, base int, value any, pin
 	}
 }
 
-// datedStyle returns a style like base with the number format of kind,
-// made once per base and kind for the life of the open workbook. Zero
-// means no style could be made.
+// datedStyle returns a style like base with the number format of kind.
+// Zero means no style could be made.
 func (w *file) datedStyle(base int, kind ColumnType) int {
-	key := datedKey{base: base, kind: kind}
-	if id, ok := w.dated[key]; ok {
-		return id
+	style := kindStyle(kind)
+	if style == nil {
+		return 0
 	}
-	id := 0
-	if style := kindStyle(kind); style != nil {
-		if base != 0 {
-			if existing, err := w.f.GetStyle(base); err == nil && existing != nil {
-				existing.NumFmt = style.NumFmt
-				existing.CustomNumFmt = style.CustomNumFmt
-				style = existing
-			}
-		}
-		if made, err := w.f.NewStyle(style); err == nil {
-			id = made
-		}
-	}
-	if w.dated == nil {
-		w.dated = map[datedKey]int{}
-	}
-	w.dated[key] = id
+	id, _ := w.numFmtStyle(base, style)
 	return id
+}
+
+// numFmtStyle returns a style like base with the number format of numFmt,
+// made once per base and format for the life of the open workbook.
+func (w *file) numFmtStyle(base int, numFmt *excelize.Style) (int, error) {
+	key := numFmtKey{base: base, numFmt: numFmt.NumFmt}
+	if numFmt.CustomNumFmt != nil {
+		key.custom = *numFmt.CustomNumFmt
+	}
+	if id, ok := w.numFmts[key]; ok {
+		return id, nil
+	}
+	style := numFmt
+	if base != 0 {
+		if existing, err := w.f.GetStyle(base); err == nil && existing != nil {
+			existing.NumFmt = numFmt.NumFmt
+			existing.CustomNumFmt = numFmt.CustomNumFmt
+			style = existing
+		}
+	}
+	id, err := w.f.NewStyle(style)
+	if err != nil {
+		return 0, err
+	}
+	if w.numFmts == nil {
+		w.numFmts = map[numFmtKey]int{}
+	}
+	w.numFmts[key] = id
+	return id, nil
 }

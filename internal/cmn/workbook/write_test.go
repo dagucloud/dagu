@@ -216,24 +216,59 @@ func TestWriteNumberFormats(t *testing.T) {
 	}
 }
 
-// TestWriteColumnFormats covers an explicit per-column number format: it
-// wins over the kind-based one and applies even to a column whose kind has
-// no format of its own (here an integer column that defaults to General).
+// TestWriteColumnFormats covers an explicit per-column number format under
+// either style: it applies to an integer column, whose kind has no format of
+// its own, and wins over the kind-based format of a fractional column.
 func TestWriteColumnFormats(t *testing.T) {
 	t.Parallel()
-	path := filepath.Join(t.TempDir(), "out.xlsx")
-	_, err := Write(context.Background(), path, Table{Columns: []string{"Total"}, Rows: [][]any{{int64(17500)}}},
+	for _, style := range []StyleMode{StyleTable, StyleNone} {
+		t.Run(string(style), func(t *testing.T) {
+			t.Parallel()
+			path := filepath.Join(t.TempDir(), "out.xlsx")
+			table := Table{Columns: []string{"Total", "Rate"}, Rows: [][]any{{int64(17500), 0.125}}}
+			_, err := Write(context.Background(), path, table, WriteOptions{
+				Header: true, Style: style, Formats: map[string]string{"Total": "#,##0", "Rate": "0.0%"},
+			})
+			require.NoError(t, err)
+			f, err := excelize.OpenFile(path)
+			require.NoError(t, err)
+			defer func() { _ = f.Close() }()
+			for cell, want := range map[string]string{"A2": "17,500", "B2": "12.5%"} {
+				shown, err := f.GetCellValue("Sheet1", cell)
+				require.NoError(t, err)
+				assert.Equal(t, want, shown, cell)
+			}
+		})
+	}
+}
+
+// TestAppendColumnFormats covers a named format on rows appended below
+// existing ones: it replaces the number format the cell above passes down
+// and keeps the rest of that cell's style.
+func TestAppendColumnFormats(t *testing.T) {
+	t.Parallel()
+	f := excelize.NewFile()
+	setRow(t, f, "Sheet1", "A1", "Total")
+	bordered, err := f.NewStyle(&excelize.Style{Border: []excelize.Border{{Type: "left", Color: "000000", Style: 1}}})
+	require.NoError(t, err)
+	require.NoError(t, f.SetCellInt("Sheet1", "A2", 100))
+	require.NoError(t, f.SetCellStyle("Sheet1", "A2", "A2", bordered))
+	path := saveBook(t, f, "totals.xlsx")
+
+	_, err = Append(context.Background(), path, Table{Columns: []string{"Total"}, Rows: [][]any{{int64(17500)}}},
 		WriteOptions{Header: true, Formats: map[string]string{"Total": "#,##0"}})
 	require.NoError(t, err)
-	f, err := excelize.OpenFile(path)
+	g, err := excelize.OpenFile(path)
 	require.NoError(t, err)
-	defer func() { _ = f.Close() }()
-	builtin, custom := cellNumFmt(t, f, "Sheet1", "A2")
-	assert.Equal(t, 0, builtin)
-	assert.Equal(t, "#,##0", custom)
-	shown, err := f.GetCellValue("Sheet1", "A2")
+	defer func() { _ = g.Close() }()
+	shown, err := g.GetCellValue("Sheet1", "A3")
 	require.NoError(t, err)
 	assert.Equal(t, "17,500", shown)
+	id, err := g.GetCellStyle("Sheet1", "A3")
+	require.NoError(t, err)
+	style, err := g.GetStyle(id)
+	require.NoError(t, err)
+	assert.Len(t, style.Border, 1, "the border of the cell above survives")
 }
 
 // TestAppendKeepsFractionDigits covers a fraction appended below a column of
