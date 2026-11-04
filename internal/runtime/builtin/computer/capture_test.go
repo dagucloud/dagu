@@ -138,6 +138,44 @@ func TestAClickBringsACoveredWindowForward(t *testing.T) {
 	assert.Empty(t, session.observations[1].Results[0].Error)
 }
 
+// A covered spot whose window does not come forward is not clicked, and
+// the model is told what covers it.
+func TestAClickOnAWindowThatStaysCoveredFails(t *testing.T) {
+	t.Parallel()
+
+	run := appRun(t)
+	run.backend.windowAt = func(int, int) desktop.WindowID { return terminalBeside }
+	session := &scriptedSession{turns: []*computeruse.Turn{actions(clickAt(300, 100)), done("Stopped")}}
+	run.sessions = []*scriptedSession{session}
+	require.NoError(t, run.execute(launchAndAct, nil).err)
+
+	assert.Empty(t, run.backend.inputs(), "nothing reached the cover")
+	assert.Contains(t, session.observations[1].Results[0].Error, "a window of Terminal lies over that spot")
+}
+
+// A window of the app that opened since the capture, such as a menu an
+// earlier action of the round opened, takes a click the capture does not
+// cover.
+func TestAClickReachesAWindowTheAppOpenedSince(t *testing.T) {
+	t.Parallel()
+
+	run := appRun(t)
+	menu := desktop.WindowID{Handle: 12, App: "report", Bounds: image.Rect(150, 400, 300, 500)}
+	run.backend.windowAt = func(x, y int) desktop.WindowID {
+		if image.Pt(x, y).In(menu.Bounds) {
+			return menu
+		}
+		return reportWindow
+	}
+	// 100,350 on the window's picture is 200,450 on the display, below the
+	// window, where the menu the first click opened lies.
+	session := &scriptedSession{turns: []*computeruse.Turn{actions(clickAt(50, 60), clickAt(100, 350)), done("Opened")}}
+	run.sessions = []*scriptedSession{session}
+	require.NoError(t, run.execute(launchAndAct, nil).err)
+
+	assert.Equal(t, []string{"move 150,160", "left down #1", "move 200,450", "left down #1"}, run.backend.inputs())
+}
+
 // A click outside the app's windows aims at nothing the model saw, so it
 // is refused and reaches no other window.
 func TestAClickOutsideTheCapturedWindowsIsRefused(t *testing.T) {
