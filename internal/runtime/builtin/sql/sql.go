@@ -22,6 +22,8 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/cmn/logger"
 	"github.com/dagucloud/dagu/v2/internal/cmn/logger/tag"
 	"github.com/dagucloud/dagu/v2/internal/ir"
+	"github.com/dagucloud/dagu/v2/internal/runtime"
+	"github.com/dagucloud/dagu/v2/internal/runtime/builtin/internal/workpath"
 	"github.com/dagucloud/dagu/v2/internal/runtime/executor"
 )
 
@@ -72,6 +74,14 @@ func newSQLExecutor(ctx context.Context, step ir.Step, driverName string) (execu
 	if err != nil {
 		return nil, fmt.Errorf("failed to parse sql config: %w", err)
 	}
+	workDir := runtime.GetEnv(ctx).WorkingDir
+	cfg.OutputFile = workpath.Resolve(workDir, cfg.OutputFile)
+	if cfg.Import != nil {
+		cfg.Import.InputFile = workpath.Resolve(workDir, cfg.Import.InputFile)
+	}
+	if driverName == "sqlite" {
+		cfg.DSN = resolveSQLiteDSN(workDir, cfg.DSN)
+	}
 
 	var connMgr *ConnectionManager
 	var poolManager *GlobalPoolManager
@@ -110,6 +120,25 @@ func newSQLExecutor(ctx context.Context, step ir.Step, driverName string) (execu
 		stdout:        os.Stdout,
 		stderr:        os.Stderr,
 	}, nil
+}
+
+// resolveSQLiteDSN resolves a relative database file in a SQLite DSN, such as
+// data.db or file:./data.db?mode=ro, under workDir. In-memory databases and
+// absolute paths are returned unchanged.
+func resolveSQLiteDSN(workDir, dsn string) string {
+	if strings.Contains(dsn, ":memory:") || strings.Contains(dsn, "mode=memory") {
+		return dsn
+	}
+	prefix, rest := "", dsn
+	if after, ok := strings.CutPrefix(dsn, "file:"); ok {
+		prefix, rest = "file:", after
+	}
+	path, query, hasQuery := strings.Cut(rest, "?")
+	path = workpath.Resolve(workDir, path)
+	if hasQuery {
+		return prefix + path + "?" + query
+	}
+	return prefix + path
 }
 
 // newPostgresExecutor creates a new PostgreSQL executor.

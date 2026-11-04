@@ -5,12 +5,15 @@ package intg_test
 
 import (
 	"fmt"
+	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 
 	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/test"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 // TestSQLExecutor_SQLite_BasicQuery tests basic SQLite query execution.
@@ -451,4 +454,48 @@ steps:
 	dag.AssertOutputs(t, map[string]any{
 		"COUNTER_VALUE": test.Contains(`"value":2`),
 	})
+}
+
+// Relative SQLite database, import, and streaming output paths name files
+// under the DAG working directory, not the Dagu process directory.
+func TestSQLExecutor_SQLite_RelativePathsUseWorkingDir(t *testing.T) {
+	t.Parallel()
+	th := test.Setup(t)
+	workDir := t.TempDir()
+	require.NoError(t, os.WriteFile(filepath.Join(workDir, "users.csv"), []byte("id,name\n1,Alice\n"), 0o600))
+
+	dag := th.DAG(t, fmt.Sprintf(`
+type: graph
+working_dir: "%s"
+steps:
+  - id: init_db
+    action: sqlite.query
+    with:
+      dsn: "file:./app.db"
+      query: CREATE TABLE users (id INTEGER PRIMARY KEY, name TEXT NOT NULL)
+  - id: load
+    action: sqlite.import
+    depends: [init_db]
+    with:
+      dsn: "file:./app.db"
+      import:
+        input_file: users.csv
+        table: users
+        has_header: true
+  - id: export
+    action: sqlite.query
+    depends: [load]
+    with:
+      dsn: "file:./app.db"
+      query: SELECT name FROM users
+      streaming: true
+      output_file: out/users.jsonl
+`, filepath.ToSlash(workDir)))
+
+	dag.Agent().RunSuccess(t)
+	dag.AssertLatestStatus(t, ir.Succeeded)
+	require.FileExists(t, filepath.Join(workDir, "app.db"))
+	exported, err := os.ReadFile(filepath.Join(workDir, "out", "users.jsonl"))
+	require.NoError(t, err)
+	assert.Contains(t, string(exported), "Alice")
 }

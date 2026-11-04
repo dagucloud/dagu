@@ -24,6 +24,9 @@ Workflow authors can query local data and import a small file without a server.
 - `sqlite.import` reads the CSV file in `with.import.input_file` into the table
   in `with.import.table`. A later action using the same file DSN sees imported
   rows.
+- A relative database file in `with.dsn`, such as `file:./data.db`, a relative
+  `with.import.input_file`, and a relative `with.output_file` name files under
+  the step working directory.
 
 ## Errors
 
