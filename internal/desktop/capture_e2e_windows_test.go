@@ -20,9 +20,10 @@ import (
 )
 
 // colorWindow starts the one-color fixture window with a shell, titled
-// title at rect, and waits for it to show. A topmost window stays above
-// every window that is not.
-func colorWindow(t *testing.T, driver *Driver, shell, title, colorName string, rect image.Rectangle, topMost bool) WindowID {
+// title at rect, and waits until the screen shows its color, want, at its
+// centre: a window is listed before the screen shows what it draws. A
+// topmost window stays above every window that is not.
+func colorWindow(t *testing.T, driver *Driver, shell, title, colorName string, want color.RGBA, rect image.Rectangle, topMost bool) WindowID {
 	t.Helper()
 	args := []string{"-NoProfile", "-ExecutionPolicy", "Bypass", "-File", filepath.Join("testdata", "color.ps1"),
 		"-Title", title, "-Color", colorName,
@@ -40,6 +41,16 @@ func colorWindow(t *testing.T, driver *Driver, shell, title, colorName string, r
 		found = driver.Windows()[i]
 		return true
 	}, 30*time.Second, 200*time.Millisecond, "the window %q never showed", title)
+	at := centre(found.Bounds)
+	var seen color.RGBA
+	require.Eventually(t, func() bool {
+		screen, err := driver.Screenshot()
+		if err != nil {
+			return false
+		}
+		seen = screen.RGBAAt(at.X, at.Y)
+		return isColor(seen, want)
+	}, 10*time.Second, 100*time.Millisecond, "the screen never showed %q: %v at %v", title, seen, at)
 	return found
 }
 
@@ -55,13 +66,13 @@ func TestWindowsCaptureCoveredWindow(t *testing.T) {
 	driver := e2eDesktop(t)
 	magenta, lime := color.RGBA{R: 255, B: 255, A: 255}, color.RGBA{G: 255, A: 255}
 
-	target := colorWindow(t, driver, "powershell.exe", "Dagu capture target", "Magenta", image.Rect(200, 200, 700, 500), false)
-	// The cover runs in PowerShell 7, another application than the target's.
-	cover := colorWindow(t, driver, "pwsh.exe", "Dagu capture cover", "Lime", image.Rect(150, 150, 750, 550), true)
+	target := colorWindow(t, driver, "powershell.exe", "Dagu capture target", "Magenta", magenta, image.Rect(200, 200, 700, 500), false)
+	// The cover runs in PowerShell 7, another application than the target's,
+	// and the screen shows it over the target's centre once it is drawn.
+	cover := colorWindow(t, driver, "pwsh.exe", "Dagu capture cover", "Lime", lime, image.Rect(150, 150, 750, 550), true)
 	require.NotEqual(t, target.App, cover.App)
 	at := centre(target.Bounds)
-	require.Eventually(t, func() bool { return driver.WindowAt(at).Handle == cover.Handle }, 10*time.Second, 100*time.Millisecond,
-		"the cover never lay over the target")
+	require.Equal(t, cover.Handle, driver.WindowAt(at).Handle, "the cover lies over the target")
 	screen, err := driver.Screenshot()
 	require.NoError(t, err)
 	require.True(t, isColor(screen.RGBAAt(at.X, at.Y), lime), "the screen shows the cover: %v", screen.RGBAAt(at.X, at.Y))
