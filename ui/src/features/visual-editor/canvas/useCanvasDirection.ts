@@ -1,11 +1,19 @@
 // Copyright (C) 2026 Yota Hamada
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-import { useSyncExternalStore } from 'react';
+import { useCallback, useSyncExternalStore } from 'react';
 import type { CanvasDirection } from '../contracts';
 
-/** Storage key of the direction that all canvases share. */
+/**
+ * Storage key of the default direction: the one of a canvas whose workflow
+ * has no direction of its own.
+ */
 export const CANVAS_DIRECTION_KEY = 'dagu.canvas.direction';
+
+/** Storage key of the direction that the user chose for one workflow. */
+export function canvasDirectionKey(scope: string): string {
+  return `${CANVAS_DIRECTION_KEY}:${scope}`;
+}
 
 /** Cookie of the direction of the Mermaid graph: 'LR' or 'TD'. */
 const FLOWCHART_COOKIE = 'flowchart';
@@ -14,28 +22,33 @@ const DEFAULT_DIRECTION: CanvasDirection = 'TB';
 
 const listeners = new Set<() => void>();
 
-// The value of the last change when the storage refused it, so that the
-// canvases still agree while the page lives.
-let unsaved: CanvasDirection | null = null;
+// The value of the last change of each key when the storage refused it, so
+// that the canvases still agree while the page lives.
+const unsaved = new Map<string, CanvasDirection>();
 
 function asDirection(value: unknown): CanvasDirection | null {
   return value === 'LR' || value === 'TB' ? value : null;
 }
 
-function readStored(): CanvasDirection | null {
+function readStored(key: string): CanvasDirection | null {
+  const kept = unsaved.get(key);
+  if (kept) {
+    // A refused write can leave an older stored value: the last change wins.
+    return kept;
+  }
   try {
-    return asDirection(window.localStorage.getItem(CANVAS_DIRECTION_KEY));
+    return asDirection(window.localStorage.getItem(key));
   } catch {
     return null;
   }
 }
 
-function writeStored(direction: CanvasDirection): boolean {
+function writeStored(key: string, direction: CanvasDirection): void {
   try {
-    window.localStorage.setItem(CANVAS_DIRECTION_KEY, direction);
-    return true;
+    window.localStorage.setItem(key, direction);
+    unsaved.delete(key);
   } catch {
-    return false;
+    unsaved.set(key, direction);
   }
 }
 
@@ -65,26 +78,32 @@ function cookieDirection(): CanvasDirection | null {
   return null;
 }
 
-function currentDirection(): CanvasDirection {
-  // A refused write can leave an older stored value: the last change wins.
-  if (unsaved) {
-    return unsaved;
-  }
-  const stored = readStored();
+function defaultDirection(): CanvasDirection {
+  const stored = readStored(CANVAS_DIRECTION_KEY);
   if (stored) {
     return stored;
   }
   const seeded = cookieDirection();
   if (seeded) {
     // Seed once: the stored value wins over later changes of the cookie.
-    writeStored(seeded);
+    writeStored(CANVAS_DIRECTION_KEY, seeded);
     return seeded;
   }
   return DEFAULT_DIRECTION;
 }
 
-function setDirection(direction: CanvasDirection) {
-  unsaved = writeStored(direction) ? null : direction;
+function currentDirection(scope: string | undefined): CanvasDirection {
+  return (
+    (scope === undefined ? null : readStored(canvasDirectionKey(scope))) ??
+    defaultDirection()
+  );
+}
+
+function setDirection(scope: string | undefined, direction: CanvasDirection) {
+  writeStored(
+    scope === undefined ? CANVAS_DIRECTION_KEY : canvasDirectionKey(scope),
+    direction
+  );
   for (const listener of listeners) {
     listener();
   }
@@ -98,20 +117,25 @@ function subscribe(listener: () => void): () => void {
 }
 
 /**
- * The direction of the canvas layout, shared by all canvases. It reads
- * localStorage[CANVAS_DIRECTION_KEY]. When the key is absent, it seeds the
- * key one time from the cookie 'flowchart' of the Mermaid graph ('LR' gives
- * 'LR', 'TD' gives 'TB'). The default is 'TB'. A change writes the key and
- * updates every canvas. Storage errors are ignored.
+ * The direction of the canvas layout of a workflow (`scope`). A change for
+ * one workflow does not turn the others: it writes the key of the workflow.
+ * A workflow without a direction of its own, and a canvas without a scope,
+ * read the default: localStorage[CANVAS_DIRECTION_KEY], which is seeded one
+ * time from the cookie 'flowchart' of the Mermaid graph ('LR' gives 'LR',
+ * 'TD' gives 'TB'), else 'TB'. A change updates every canvas of the same
+ * scope. Storage errors are ignored.
  */
-export function useCanvasDirection(): [
-  CanvasDirection,
-  (direction: CanvasDirection) => void,
-] {
+export function useCanvasDirection(
+  scope?: string
+): [CanvasDirection, (direction: CanvasDirection) => void] {
   const direction = useSyncExternalStore(
     subscribe,
-    currentDirection,
+    () => currentDirection(scope),
     () => DEFAULT_DIRECTION
   );
-  return [direction, setDirection];
+  const set = useCallback(
+    (next: CanvasDirection) => setDirection(scope, next),
+    [scope]
+  );
+  return [direction, set];
 }

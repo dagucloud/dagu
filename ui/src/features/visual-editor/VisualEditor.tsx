@@ -595,7 +595,7 @@ export function VisualEditor(props: VisualEditorProps): ReactElement {
       current !== null && current !== selected ? null : current
     );
   }, [selected]);
-  const [direction, setDirection] = useCanvasDirection();
+  const [direction, setDirection] = useCanvasDirection(fileName);
   const [notice, setNotice] = useState<EditNotice | null>(null);
   // Where the step that the user is adding goes; the list of steps shows in
   // the side drawer while this is set.

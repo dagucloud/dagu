@@ -2293,6 +2293,7 @@ function DAGSpec({
                     <React.Suspense fallback={null}>
                       <DetailsCanvas
                         dag={preview.dag}
+                        directionScope={fileName}
                         onOpenStep={(step) => void openCall(step, false)}
                         workflowPanel={<WorkflowPanel dag={preview.dag} />}
                         // The order of the parent: selector, Workflow, YAML,
