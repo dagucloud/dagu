@@ -385,14 +385,13 @@ func TestToDAGRunDetailsOmitsProfileNameWhenEmpty(t *testing.T) {
 	assert.Nil(t, details.ProfileName)
 }
 
-func TestToDAGDetailsIncludesParamDefLabels(t *testing.T) {
+func TestToDAGDetailsIncludesParamDefDescriptions(t *testing.T) {
 	details := toDAGDetails(&ir.DAG{
 		Name: "described-params",
 		ParamDefs: []ir.ParamDef{
 			{
 				Name:        "notes",
 				Type:        ir.ParamDefTypeString,
-				Title:       "Operator notes",
 				Description: "Free-form operator notes",
 			},
 		},
@@ -401,11 +400,8 @@ func TestToDAGDetailsIncludesParamDefLabels(t *testing.T) {
 	require.NotNil(t, details)
 	require.NotNil(t, details.ParamDefs)
 	require.Len(t, *details.ParamDefs, 1)
-	def := (*details.ParamDefs)[0]
-	require.NotNil(t, def.Title)
-	assert.Equal(t, "Operator notes", *def.Title)
-	require.NotNil(t, def.Description)
-	assert.Equal(t, "Free-form operator notes", *def.Description)
+	require.NotNil(t, (*details.ParamDefs)[0].Description)
+	assert.Equal(t, "Free-form operator notes", *(*details.ParamDefs)[0].Description)
 }
 
 func TestToDAGDetailsIncludesQueue(t *testing.T) {
