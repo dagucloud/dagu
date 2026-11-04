@@ -15,6 +15,7 @@ import { SWRConfig, mutate as globalMutate } from 'swr';
 
 import { LicenseFeaturePrompt } from '@/components/LicenseFeaturePrompt';
 import { hasActiveLicense, type LicensedFeature } from '@/lib/license';
+import { preloadedLazy } from '@/lib/preloadedLazy';
 
 import { ProtectedRoute } from './components/ProtectedRoute';
 import { QueryFeedback } from './components/QueryFeedback';
@@ -80,9 +81,10 @@ const CalendarPage = React.lazy(() => import('./pages/calendars/calendar'));
 const DAGRuns = React.lazy(() => import('./pages/dag-runs'));
 const DAGs = React.lazy(() => import('./pages/dags'));
 // The workflow page opens from most pages: its code preloads while the
-// browser is idle (see preloadWhenIdle).
-const loadWorkflowPage = () => import('./pages/dags/dag');
-const DAGDetails = React.lazy(loadWorkflowPage);
+// browser is idle (see preloadWhenIdle), and once loaded it renders at once.
+const workflowPage = preloadedLazy(() => import('./pages/dags/dag'));
+const loadWorkflowPage = workflowPage.preload;
+const DAGDetails = workflowPage.Component;
 const WikiPage = React.lazy(() => import('./pages/wiki'));
 const EventLogsPage = React.lazy(() => import('./pages/event-logs'));
 const GitSyncPage = React.lazy(() => import('./pages/git-sync'));
