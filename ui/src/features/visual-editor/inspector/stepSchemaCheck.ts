@@ -76,6 +76,13 @@ function lightStepSchema(
 
 const DEFINITION_REF = '#/definitions/';
 
+/** True for an own key: a name such as `constructor` is no inherited member. */
+function hasOwn(object: object | undefined, key: string): boolean {
+  return (
+    object !== undefined && Object.prototype.hasOwnProperty.call(object, key)
+  );
+}
+
 /**
  * The definitions that a schema refers to, directly or through other
  * definitions. The validator walks every definition that it gets, and the
@@ -98,8 +105,10 @@ function referencedDefinitions(
     if (typeof ref === 'string' && ref.startsWith(DEFINITION_REF)) {
       // A reference may point inside a definition.
       const name = ref.slice(DEFINITION_REF.length).split('/')[0]!;
-      const definition = schema.definitions?.[name];
-      if (definition && !(name in definitions)) {
+      const definition = hasOwn(schema.definitions, name)
+        ? schema.definitions?.[name]
+        : undefined;
+      if (definition && !hasOwn(definitions, name)) {
         definitions[name] = definition;
         pending.push(definition);
       }

@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 import { describe, expect, it } from 'vitest';
+import type { JSONSchema } from '../../contracts';
 import { checkStepSchema, checkStepSchemaErrors } from '../stepSchemaCheck';
 import { schemaSample } from './fixtures';
 import { realSchema } from './realSchema';
@@ -159,6 +160,28 @@ describe('checkStepSchemaErrors', () => {
       );
     }
   );
+
+  // `constructor` is a member of Object.prototype, and a definition name.
+  it('checks a rule that refers to a definition named constructor', () => {
+    const schema = {
+      type: 'object',
+      definitions: {
+        constructor: { type: 'string' },
+        step: {
+          type: 'object',
+          properties: {
+            name: { type: 'string' },
+            note: { $ref: '#/definitions/constructor' },
+          },
+        },
+      },
+    } as JSONSchema;
+    expect(
+      checkStepSchemaErrors(schema, { name: 'a', note: 3 })
+    ).toContainEqual(
+      expect.objectContaining({ instancePath: '/note', keyword: 'type' })
+    );
+  });
 
   it('gives none for a valid step and for a value that is no step', () => {
     expect(
