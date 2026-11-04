@@ -519,9 +519,12 @@ function stringifyFolded(
     );
   if (ctx.implicitKey) return run(FORMAT_LINE_WIDTH);
   if (typeof node.value === 'string' && node.value.includes('\n')) {
-    // The formatter drops the trailing spaces of each line, and a block or
-    // quoted scalar with a real line end would lose them as content.
-    if (/[ \t]$/m.test(node.value)) return JSON.stringify(node.value);
+    // A multi-line value keeps its lines: a run script such as an `if` statement
+    // stays on several readable lines. The trailing spaces of each line are
+    // content and survive the formatter's trailing-space cleanup, so the value
+    // round-trips. The library emits the value with whatever block or quote
+    // style it was parsed with, which keeps the editor's edits minimal and the
+    // formatter idempotent.
     return run(0);
   }
   const start = ctx.indentAtStart;
@@ -596,10 +599,33 @@ function formatDocument(doc: Document): string {
   spaceDag(doc.contents);
   cleanComment(doc);
   const text = doc.toString(PRINT_OPTIONS);
-  return text
-    .split('\n')
-    .map((line) => line.replace(/[ \t]+$/, ''))
-    .join('\n');
+  return stripTrailingSpaces(text);
+}
+
+/**
+ * The text with the trailing spaces of every line dropped, except the lines of
+ * a block scalar (`|` or `>`), whose trailing spaces are content. A block
+ * scalar keeps its indentation, and the trailing spaces of its lines survive
+ * the schema round-trip, so a multi-line `run` script stays readable.
+ */
+export function stripTrailingSpaces(text: string): string {
+  const lines = text.split('\n');
+  let blockIndent = -1;
+  const out: string[] = [];
+  for (const line of lines) {
+    const indent = line.length - line.trimStart().length;
+    const blank = line.trim() === '';
+    // A less-indented line than the block leaves the block.
+    if (!blank && blockIndent >= 0 && indent < blockIndent) blockIndent = -1;
+    if (!blank && blockIndent < 0 && /[|>]([1-9][0-9]*)?[+-]?\s*$/.test(line)) {
+      // The block scalar header: its own trailing spaces are not content.
+      blockIndent = indent + 2;
+      out.push(line.replace(/[ \t]+$/, ''));
+      continue;
+    }
+    out.push(blockIndent >= 0 ? line : line.replace(/[ \t]+$/, ''));
+  }
+  return out.join('\n');
 }
 
 /**
@@ -755,8 +781,7 @@ export function formatStepRange(text: string, step: StepSpan): TextEdit | null {
   }
   let printed: string[];
   try {
-    printed = doc
-      .toString(PRINT_OPTIONS)
+    printed = stripTrailingSpaces(doc.toString(PRINT_OPTIONS))
       .replace(/\n+$/, '')
       .split('\n')
       .slice(levels);
@@ -766,7 +791,7 @@ export function formatStepRange(text: string, step: StepSpan): TextEdit | null {
   }
   const lines: string[] = [];
   for (const [index, line] of printed.entries()) {
-    const bare = line.replace(/[ \t]+$/, '');
+    const bare = line;
     if (index === 0) {
       lines.push(bare.slice(canon));
     } else if (bare === '') {

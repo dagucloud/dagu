@@ -275,6 +275,25 @@ describe('formatYaml', () => {
     expect(parse(formatYaml(text))).toEqual(parse(text));
   });
 
+  it('does not collapse a multi-line run script to one line (#3496)', () => {
+    const text =
+      'steps:\n' +
+      '  - name: test\n' +
+      '    output: RESULT\n' +
+      '    run: |\n' +
+      '      if [ -z "${RESTORE_SIZE}" ]; then\n' +
+      '        exit 1 \n' +
+      '      fi\n';
+    const out = formatYaml(text);
+    // The script stays a multi-line block scalar, not a one-line quoted string.
+    expect(out).not.toContain('\\n');
+    expect(out).toContain('      if [ -z "${RESTORE_SIZE}" ]; then');
+    expect(out).toContain('        exit 1 ');
+    expect(out).toContain('      fi');
+    // The value is unchanged by the formatting.
+    expect(parse(out)).toEqual(parse(text));
+  });
+
   it('keeps an integer beyond the float precision', () => {
     const text = 'env:\n  CHANNEL: 1234567890123456789\n';
     expect(formatYaml(text)).toBe(text);
