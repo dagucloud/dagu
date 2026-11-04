@@ -39,7 +39,7 @@ import { useCanvasActions } from '../context';
 import { DASHED } from '../edges/dash';
 import { Position } from '../engine';
 import { actionIcon } from '../icons';
-import { statusBorderClass } from '../statusStyle';
+import { statusCardClass } from '../statusStyle';
 import {
   COMPACT_CAPTION_HEIGHT,
   COMPACT_CAPTION_WIDTH,
@@ -81,8 +81,9 @@ const SPOTLIT =
 
 /**
  * State classes of a node card: the selection ring wins over the light of the
- * cursor of the YAML or of a host, and that wins over the colour of the run
- * status, which is the border of the card itself. The card of a previous step
+ * cursor of the YAML or of a host, and that wins over the run status: the
+ * colour of the border and of its ring, and the tint of the card (see
+ * statusCardClass). The card of a previous step
  * that the run reused (see `reusedOutline`) has no selection ring and no
  * border colour: its dashed outline is its only line, except while the cursor
  * of the YAML or a host lights it.
@@ -98,9 +99,11 @@ export function cardStateClass(
     if (selected) return undefined;
     return highlighted ? HIGHLIGHT : SPOTLIT;
   }
-  const border = node.run ? statusBorderClass(node.run.status) : undefined;
-  if (selected) return cn('ring-2 ring-primary', border);
-  return cn(highlighted ? HIGHLIGHT : SPOTLIT, border);
+  const status = node.run ? statusCardClass(node.run.status) : undefined;
+  // The rings of the selection and of the light come after the ring of the
+  // status, so that they win over it.
+  if (selected) return cn(status, 'ring-2 ring-primary');
+  return cn(status, highlighted ? HIGHLIGHT : SPOTLIT);
 }
 
 /**
@@ -154,8 +157,8 @@ export function ReusedOutline({
           selected
             ? 'stroke-primary'
             : tone === 'success'
-              ? 'stroke-success'
-              : 'stroke-destructive'
+              ? 'stroke-[var(--graph-success)]'
+              : 'stroke-[var(--graph-error)]'
         }
       />
     </svg>

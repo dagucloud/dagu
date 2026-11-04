@@ -1576,7 +1576,7 @@ ${goals}
         // The last status of a tool colours its card.
         expect(
           screen.getByTestId('ve-canvas-node-steps[1]').className
-        ).toContain('border-destructive');
+        ).toContain('border-[var(--graph-error)]');
       });
 
       it('shows the calls of an agent run that has no task', () => {

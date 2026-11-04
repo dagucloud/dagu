@@ -7,10 +7,19 @@ import { useCanvasAffordances } from '../affordances';
 import { useCanvasActions } from '../context';
 import { EdgeLabelRenderer, useEdgeHover, type EdgeProps } from '../engine';
 import { clamp } from '../engine/geometry';
-import { statusStrokeClass, edgeTintStatus } from '../statusStyle';
+import {
+  statusDashArray,
+  statusStrokeClass,
+  edgeTintStatus,
+} from '../statusStyle';
 import type { CanvasFlowEdge } from '../types';
 import { EdgeButtons } from './EdgeButtons';
 import { useEdgeCurve } from './useEdgeCurve';
+
+// An edge that a run tints is thicker than a plain one, so that the path of
+// the run reads at any zoom.
+const PLAIN_WIDTH = 1.5;
+const RUN_WIDTH = 2;
 
 const INTERACTION_WIDTH = 20;
 const LABEL_GAP = 14;
@@ -115,7 +124,9 @@ function DependencyEdgeComponent({
                 style={{
                   stroke:
                     tint === undefined ? 'var(--muted-foreground)' : undefined,
-                  strokeWidth: 1.5,
+                  strokeWidth: tint === undefined ? PLAIN_WIDTH : RUN_WIDTH,
+                  strokeDasharray:
+                    tint === undefined ? undefined : statusDashArray(tint),
                   pointerEvents: 'none',
                 }}
               />
@@ -172,7 +183,15 @@ function DependencyEdgeComponent({
                 : status === undefined
                   ? 'var(--muted-foreground)'
                   : undefined,
-              strokeWidth: selected ? 2.5 : 1.5,
+              strokeWidth: selected
+                ? 2.5
+                : status === undefined
+                  ? PLAIN_WIDTH
+                  : RUN_WIDTH,
+              strokeDasharray:
+                selected || status === undefined
+                  ? undefined
+                  : statusDashArray(status),
             }}
           />
           <path
