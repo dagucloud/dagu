@@ -3,7 +3,10 @@
 
 package value
 
-import "strings"
+import (
+	"slices"
+	"strings"
+)
 
 // shellContext is the quoting context of a byte in a POSIX shell command.
 type shellContext int
@@ -182,8 +185,8 @@ func shellContextAt(input string, idx int) shellContext {
 // parameter expansion keeps the context around it; a substitution starts a
 // new, unquoted one.
 func contextOf(stack []shellFrame) shellContext {
-	for i := len(stack) - 1; i >= 0; i-- {
-		switch stack[i] {
+	for _, frame := range slices.Backward(stack) {
+		switch frame {
 		case frameSingle, frameANSIC:
 			return shellSingleQuoted
 		case frameDouble:
