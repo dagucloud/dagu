@@ -400,6 +400,14 @@ export function widestMove(delta: number, radius: number): number {
   return (3 * (delta * MAX_PULL) ** 2) / (2 * radius);
 }
 
+/**
+ * The shortest run along the flow, in px, in which a smooth S moves `cross`
+ * px to the side with no bend under `radius`: the inverse of widestMove.
+ */
+export function runFor(cross: number, radius: number): number {
+  return Math.sqrt((2 * Math.abs(cross) * radius) / 3) / MAX_PULL;
+}
+
 /** A point that the curve crosses; `back` means against the flow. */
 export interface Waypoint extends XY {
   heading?: 'back';

@@ -3,8 +3,19 @@
 
 import { describe, expect, it } from 'vitest';
 import type { CanvasDirection, CanvasGraph, CanvasNode } from '../../contracts';
-import { insideBox, routedCurve, type Obstacle } from '../edgeRouting';
-import { Position, sampleCurve } from '../engine/geometry';
+import {
+  CORNER_RADIUS,
+  insideBox,
+  routedCurve,
+  type Obstacle,
+} from '../edgeRouting';
+import {
+  HANDLE_RADIUS,
+  Position,
+  runFor,
+  sampleCurve,
+  widestMove,
+} from '../engine/geometry';
 import { layoutRoutes, nodeSize, routePorts } from '../layout';
 
 // An edge never crosses a card that it does not link: the layout gives each
@@ -281,6 +292,52 @@ describe('edges around the cards', () => {
     expect(straight.some((p) => insideBox(p, blocker, MARGIN))).toBe(true);
     const around = sampleCurve(routedCurve(options, [blocker]), 4);
     expect(around.some((p) => insideBox(p, blocker, MARGIN))).toBe(false);
+  });
+});
+
+// The far edges of a fan of 24 steps from one step were too tight for a
+// curve in the gap between the ranks, and took a loop round the row.
+describe('edges of a wide fan', () => {
+  const targets = Array.from({ length: 24 }, (_, i) => `t${i}`);
+  const graph = graphOf(
+    ['s', ...targets, 'm'],
+    [...targets.map((t) => `s>${t}`), ...targets.map((t) => `${t}>m`)]
+  );
+
+  it.each(['TB', 'LR'] as const)(
+    'leaves room for a curve on every edge in %s',
+    (direction) => {
+      const { positions } = layoutRoutes(graph, direction);
+      const box = (key: string) => {
+        const found = graph.nodes.find((n) => n.key === key)!;
+        const { width, height } = nodeSize(found);
+        return { ...positions[key]!, width, height };
+      };
+      const along = direction === 'TB' ? 'y' : 'x';
+      const across = direction === 'TB' ? 'x' : 'y';
+      const length = direction === 'TB' ? 'height' : 'width';
+      const breadth = direction === 'TB' ? 'width' : 'height';
+      for (const edge of graph.edges) {
+        const from = box(edge.source);
+        const to = box(edge.target);
+        // The curve ends on the dot of the target handle.
+        const delta = to[along] - (from[along] + from[length]) - HANDLE_RADIUS;
+        const cross = Math.abs(
+          to[across] + to[breadth] / 2 - (from[across] + from[breadth] / 2)
+        );
+        expect(cross, edge.id).toBeLessThanOrEqual(
+          widestMove(delta, CORNER_RADIUS) + 1
+        );
+      }
+    }
+  );
+
+  it('inverts the widest move of a curve', () => {
+    for (const cross of [10, 500, 3128]) {
+      expect(
+        widestMove(runFor(cross, CORNER_RADIUS), CORNER_RADIUS)
+      ).toBeCloseTo(cross, 6);
+    }
   });
 });
 

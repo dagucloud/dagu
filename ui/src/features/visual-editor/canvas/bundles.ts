@@ -2,10 +2,12 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 import type { NodeStatus } from '@/api/v1/schema';
+import { CORNER_RADIUS } from './edgeRouting';
 import {
   curveSegments,
   HANDLE_RADIUS,
   Position,
+  runFor,
   type CurveSegment,
   type Waypoint,
 } from './engine/geometry';
@@ -248,6 +250,33 @@ export function bundleGapExtra(
       MAX_EXTRA_GAP,
       Math.max(extra[bundle.rank] ?? 0, Math.ceil(need))
     );
+  }
+  return extra.map((value) => Math.max(0, value));
+}
+
+/**
+ * Extra room in px that each gap between ranks needs, so that an edge from
+ * a rank to the next one can make its sideways move as a curve. Without it,
+ * the far edges of a wide fan-out or fan-in take a loop around the row.
+ * Index `r` is the gap that follows rank `r`.
+ */
+export function spreadGapExtra(
+  edges: readonly { source: string; target: string }[],
+  rank: (key: string) => number | undefined,
+  cross: (key: string) => number,
+  rankSep: number,
+  ranks: number
+): number[] {
+  const extra = new Array<number>(ranks).fill(0);
+  for (const edge of edges) {
+    const from = rank(edge.source);
+    if (from === undefined || rank(edge.target) !== from + 1) {
+      continue;
+    }
+    // The edge ends on the dot of the target handle.
+    const run = runFor(cross(edge.target) - cross(edge.source), CORNER_RADIUS);
+    const need = Math.ceil(run + HANDLE_RADIUS - rankSep);
+    extra[from] = Math.min(MAX_EXTRA_GAP, Math.max(extra[from] ?? 0, need));
   }
   return extra.map((value) => Math.max(0, value));
 }
