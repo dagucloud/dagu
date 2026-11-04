@@ -73,7 +73,8 @@ func TestSubCmdBuilderParentEnvKeepsConfiguredHome(t *testing.T) {
 	builder := launcher.NewSubCmdBuilder(&config.Config{
 		Paths: config.PathsConfig{Executable: "/path/to/dagu"},
 		Core: config.Core{
-			BaseEnv: config.NewBaseEnv([]string{"PATH=/usr/bin", "DAGU_HOME=/home/from-flag"}),
+			// The last entry wins, as in an environment.
+			BaseEnv: config.NewBaseEnv([]string{"PATH=/usr/bin", "DAGU_HOME=/home/from-parent", "DAGU_HOME=/home/from-flag"}),
 		},
 	})
 	dag := &ir.DAG{Name: "test-dag", Location: "/tmp/test.yaml"}
