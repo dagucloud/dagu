@@ -103,8 +103,12 @@ function referencedDefinitions(
     visited.add(node);
     const ref = (node as { $ref?: unknown }).$ref;
     if (typeof ref === 'string' && ref.startsWith(DEFINITION_REF)) {
-      // A reference may point inside a definition.
-      const name = ref.slice(DEFINITION_REF.length).split('/')[0]!;
+      // A reference may point inside a definition, and escapes its name.
+      const name = ref
+        .slice(DEFINITION_REF.length)
+        .split('/')[0]!
+        .replace(/~1/g, '/')
+        .replace(/~0/g, '~');
       const definition = hasOwn(schema.definitions, name)
         ? schema.definitions?.[name]
         : undefined;

@@ -183,6 +183,28 @@ describe('checkStepSchemaErrors', () => {
     );
   });
 
+  // A reference escapes `/` as `~1` in a definition name.
+  it('checks a rule that refers to a definition with an escaped name', () => {
+    const schema = {
+      type: 'object',
+      definitions: {
+        'a/b': { type: 'string' },
+        step: {
+          type: 'object',
+          properties: {
+            name: { type: 'string' },
+            note: { $ref: '#/definitions/a~1b' },
+          },
+        },
+      },
+    } as JSONSchema;
+    expect(
+      checkStepSchemaErrors(schema, { name: 'a', note: 3 })
+    ).toContainEqual(
+      expect.objectContaining({ instancePath: '/note', keyword: 'type' })
+    );
+  });
+
   it('gives none for a valid step and for a value that is no step', () => {
     expect(
       checkStepSchemaErrors(schemaSample, { name: 'a', run: 'x' })
