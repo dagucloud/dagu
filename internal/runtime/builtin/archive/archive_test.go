@@ -15,6 +15,7 @@ import (
 	"testing"
 
 	"github.com/dagucloud/dagu/v2/internal/ir"
+	"github.com/dagucloud/dagu/v2/internal/runtime"
 	"github.com/mholt/archives"
 )
 
@@ -204,5 +205,51 @@ func makeZip(t *testing.T, path string, files map[string]string) {
 	}
 	if err := zw.Close(); err != nil {
 		t.Fatalf("close zip writer: %v", err)
+	}
+}
+
+// Relative source and destination paths name files under the step working
+// directory, not the Dagu process directory.
+func TestArchiveRelativePathsUseWorkingDir(t *testing.T) {
+	workDir := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(workDir, "data"), 0o755); err != nil {
+		t.Fatalf("mkdir data: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(workDir, "data", "a.txt"), []byte("alpha"), 0o644); err != nil {
+		t.Fatalf("write a.txt: %v", err)
+	}
+
+	run := func(op string, cfg map[string]any) {
+		t.Helper()
+		step := ir.Step{
+			Name:           op,
+			Commands:       []ir.CommandEntry{{Command: op}},
+			ExecutorConfig: ir.ExecutorConfig{Type: executorType, Config: cfg},
+		}
+		dag := &ir.DAG{Name: "archive-test", WorkingDir: workDir, WorkingDirExplicit: true}
+		ctx := runtime.NewContext(context.Background(), dag, "run-1", "")
+		ctx = runtime.WithEnv(ctx, runtime.NewEnv(ctx, step))
+		exec, err := newExecutor(ctx, step)
+		if err != nil {
+			t.Fatalf("newExecutor(%s): %v", op, err)
+		}
+		exec.SetStdout(io.Discard)
+		if err := exec.Run(ctx); err != nil {
+			t.Fatalf("%s Run: %v", op, err)
+		}
+	}
+
+	run(opCreate, map[string]any{"source": "data", "destination": "out/data.tar.gz"})
+	if _, err := os.Stat(filepath.Join(workDir, "out", "data.tar.gz")); err != nil {
+		t.Fatalf("archive not created under the working directory: %v", err)
+	}
+
+	run(opExtract, map[string]any{"source": "out/data.tar.gz", "destination": "restored"})
+	got, err := os.ReadFile(filepath.Join(workDir, "restored", "data", "a.txt"))
+	if err != nil {
+		t.Fatalf("extracted file not under the working directory: %v", err)
+	}
+	if string(got) != "alpha" {
+		t.Fatalf("extracted content = %q, want %q", got, "alpha")
 	}
 }

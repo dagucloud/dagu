@@ -16,6 +16,8 @@ import (
 
 	"github.com/dagucloud/dagu/v2/internal/executor/registry"
 	"github.com/dagucloud/dagu/v2/internal/ir"
+	runtimepkg "github.com/dagucloud/dagu/v2/internal/runtime"
+	"github.com/dagucloud/dagu/v2/internal/runtime/builtin/internal/workpath"
 	"github.com/dagucloud/dagu/v2/internal/runtime/executor"
 )
 
@@ -95,6 +97,12 @@ func newExecutor(ctx context.Context, step ir.Step) (executor.Executor, error) {
 	if err := validateConfig(op, &cfg); err != nil {
 		return nil, err
 	}
+	if op == opExtract && cfg.Destination == "" {
+		cfg.Destination = "."
+	}
+	workDir := runtimepkg.GetEnv(ctx).WorkingDir
+	cfg.Source = workpath.Resolve(workDir, cfg.Source)
+	cfg.Destination = workpath.Resolve(workDir, cfg.Destination)
 
 	rCtx, cancel := context.WithCancel(ctx)
 

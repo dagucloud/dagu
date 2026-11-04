@@ -58,6 +58,10 @@ Workflow authors create, extract, and inspect common archive formats
 
 ## Behavior
 
+A relative `with.source` or `with.destination` names a path under the step
+working directory. `archive.extract` without `with.destination` extracts into
+the step working directory.
+
 ### Format selection
 
 For `archive.create`, an explicit `with.format` always wins, even if it
