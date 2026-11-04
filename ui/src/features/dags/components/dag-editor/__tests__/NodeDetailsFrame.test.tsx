@@ -1330,6 +1330,11 @@ function openFromNode() {
 
 // parity:run-step-drawer-resize
 describe('NodeDetailsFrame focus and width', () => {
+  // A window wide enough that the cap of a narrow window does not apply.
+  beforeEach(() => {
+    vi.spyOn(window, 'innerWidth', 'get').mockReturnValue(1400);
+  });
+
   it('stays beside the page when docked', () => {
     render(<FocusHarness />);
     const node = openFromNode();
@@ -1447,6 +1452,7 @@ describe('NodeDetailsFrame focus and width', () => {
   });
 
   it('maximizes to the width of its zone and restores the stored width', () => {
+    localStorage.setItem('dagu.stepDetailsDrawer.width', '700');
     render(<FocusHarness />);
     openFromNode();
     fireEvent.click(header().getByRole('button', { name: 'Maximize panel' }));
@@ -1458,17 +1464,33 @@ describe('NodeDetailsFrame focus and width', () => {
     expect(screen.queryByRole('separator')).toBeNull();
 
     fireEvent.click(header().getByRole('button', { name: 'Restore panel' }));
-    expect(frame().style.width).toBe('560px');
+    expect(frame().style.width).toBe('700px');
     expect(
       screen.getByRole('separator', { name: 'Resize step details' })
-    ).toHaveAttribute('aria-valuenow', '560');
-    expect(localStorage.getItem('dagu.stepDetailsDrawer.width')).toBeNull();
+    ).toHaveAttribute('aria-valuenow', '700');
+    expect(localStorage.getItem('dagu.stepDetailsDrawer.width')).toBe('700');
 
     // The node view of a step fills its zone already: no toggle.
     setNdv('expanded');
     expect(
       header().queryByRole('button', { name: 'Maximize panel' })
     ).toBeNull();
+  });
+
+  // As in an editor that keeps its panel maximized: the panel that opens
+  // again shows as the user left it.
+  it('opens again maximized after a close', () => {
+    render(<FocusHarness />);
+    openFromNode();
+    fireEvent.click(header().getByRole('button', { name: 'Maximize panel' }));
+    fireEvent.click(header().getByRole('button', { name: 'Close' }));
+    expect(frame()).toHaveAttribute('hidden');
+
+    openFromNode();
+    expect(frame().style.width).toBe('100%');
+    expect(
+      header().getByRole('button', { name: 'Restore panel' })
+    ).toBeInTheDocument();
   });
 
   // The canvas beside the panel and the other right panels read one width:

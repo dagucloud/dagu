@@ -147,9 +147,9 @@ export function useDrawerWidth(): number {
  */
 function usePanelRoom(
   handle: React.RefObject<HTMLElement | null>,
-  shown: boolean
+  shown: boolean,
+  viewport: number
 ): number {
-  const viewport = useViewportWidth();
   const [room, setRoom] = React.useState<number | null>(null);
   React.useLayoutEffect(() => {
     const holder = shown ? handle.current?.parentElement?.offsetParent : null;
@@ -171,33 +171,42 @@ function usePanelRoom(
  * The resize handle on the left edge of the right panel that holds it, as
  * its child. A drag, the arrow keys, Home and End set the width of every
  * right panel; the layout beside the panels follows during a drag. The panel
- * may take all of its zone but a strip that keeps the canvas in reach.
+ * may take all of its zone but a strip that keeps the canvas in reach, and
+ * beside the page it keeps the cap of a narrow window (see panelWidth).
  */
 export function PanelResizeHandle({
   shown,
+  modal = false,
 }: {
   /** True while the panel is shown, so that the size of its zone is known. */
   shown: boolean;
+  /** A modal panel covers the page: the cap beside the page does not apply. */
+  modal?: boolean;
 }) {
   const { ts } = useI18n();
   const handleRef = React.useRef<HTMLDivElement>(null);
-  const room = usePanelRoom(handleRef, shown);
-  const maxWidth = panelMaxWidthIn(room);
-  const width = Math.min(useDrawerWidth(), maxWidth);
+  const viewport = useViewportWidth();
+  const room = usePanelRoom(handleRef, shown, viewport);
+  const cap = modal ? undefined : viewport;
+  const maxWidth = panelMaxWidthIn(room, cap);
+  const minWidth = Math.min(PANEL_MIN_WIDTH, maxWidth);
+  const width = clampPanelWidth(useDrawerWidth(), room, cap);
+  const clamp = (next: number) => clampPanelWidth(next, room, cap);
 
   const onMouseDown = (event: React.MouseEvent<HTMLDivElement>) => {
     event.preventDefault();
     const startX = event.clientX;
-    // The shown width, which a narrow window can make less than the stored one.
     const startWidth =
       handleRef.current?.parentElement?.getBoundingClientRect().width || width;
-    let latest = width;
+    // A click without a drag keeps the stored width, which the zone may
+    // show narrower than it is.
+    let latest: number | null = null;
     const onMove = (move: MouseEvent) => {
-      latest = clampPanelWidth(startWidth + startX - move.clientX, room);
+      latest = clamp(startWidth + startX - move.clientX);
       setLiveDrawerWidth(latest);
     };
     const onUp = () => {
-      storeDrawerWidth(latest);
+      if (latest !== null) storeDrawerWidth(latest);
       document.removeEventListener('mousemove', onMove);
       document.removeEventListener('mouseup', onUp);
     };
@@ -209,13 +218,13 @@ export function PanelResizeHandle({
     const targets: Record<string, number> = {
       ArrowLeft: width + DRAWER_WIDTH_STEP,
       ArrowRight: width - DRAWER_WIDTH_STEP,
-      Home: PANEL_MIN_WIDTH,
+      Home: minWidth,
       End: maxWidth,
     };
     const next = targets[event.key];
     if (next === undefined) return;
     event.preventDefault();
-    storeDrawerWidth(clampPanelWidth(next, room));
+    storeDrawerWidth(clamp(next));
   };
 
   return (
@@ -224,7 +233,7 @@ export function PanelResizeHandle({
       role="separator"
       aria-label={ts('Resize step details')}
       aria-orientation="vertical"
-      aria-valuemin={PANEL_MIN_WIDTH}
+      aria-valuemin={minWidth}
       aria-valuemax={maxWidth}
       aria-valuenow={width}
       tabIndex={0}
@@ -460,7 +469,7 @@ export function StepSideDrawer({
           : panelWidth(drawerWidth, viewport),
       }}
     >
-      <PanelResizeHandle shown={isOpen} />
+      <PanelResizeHandle shown={isOpen} modal={modal} />
       {header}
       {children}
     </aside>

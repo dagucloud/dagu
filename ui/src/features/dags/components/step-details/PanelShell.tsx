@@ -88,16 +88,28 @@ export const PANEL_MIN_WIDTH = 420;
  */
 const PANEL_ZONE_MARGIN = 240;
 
-/** The widest that the resize handle makes a panel in a zone of `room` px. */
-export function panelMaxWidthIn(room: number): number {
+/**
+ * The widest that the resize handle makes a panel in a zone of `room` px:
+ * all of the zone but PANEL_ZONE_MARGIN. Given a viewport below
+ * PANEL_CAP_VIEWPORT, it is the cap of a panel beside the page instead
+ * (see panelWidth). A modal panel gives no viewport.
+ */
+export function panelMaxWidthIn(room: number, viewport?: number): number {
+  if (viewport !== undefined && viewport < PANEL_CAP_VIEWPORT) {
+    return Math.round(Math.max(PANEL_CAP_RATIO * room, PANEL_CAP_FLOOR));
+  }
   return Math.max(PANEL_MIN_WIDTH, Math.round(room) - PANEL_ZONE_MARGIN);
 }
 
-/** A width that the resize handle allows in a zone of `room` px. */
-export function clampPanelWidth(width: number, room: number): number {
-  return Math.round(
-    Math.min(Math.max(width, PANEL_MIN_WIDTH), panelMaxWidthIn(room))
-  );
+/** A width that the resize handle allows, with the bounds of panelMaxWidthIn. */
+export function clampPanelWidth(
+  width: number,
+  room: number,
+  viewport?: number
+): number {
+  const max = panelMaxWidthIn(room, viewport);
+  const min = Math.min(PANEL_MIN_WIDTH, max);
+  return Math.round(Math.min(Math.max(width, min), max));
 }
 
 /** The cap of panelMaxWidthIn in CSS, against the containing block. */
@@ -139,13 +151,7 @@ export function effectivePanelWidth(
   zoneWidth: number,
   viewport = currentViewport()
 ): number {
-  const limit = Math.min(width, viewport);
-  if (viewport >= PANEL_CAP_VIEWPORT) {
-    return Math.min(limit, panelMaxWidthIn(zoneWidth));
-  }
-  return Math.round(
-    Math.min(limit, Math.max(PANEL_CAP_RATIO * zoneWidth, PANEL_CAP_FLOOR))
-  );
+  return Math.min(width, viewport, panelMaxWidthIn(zoneWidth, viewport));
 }
 
 /** The viewport width that tracks resizes, for the cap of panelWidth. */

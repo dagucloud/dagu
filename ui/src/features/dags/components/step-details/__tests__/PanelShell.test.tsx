@@ -113,6 +113,19 @@ describe('right-side panel shell', () => {
     expect(effectivePanelWidth(960, 860, 1200)).toBe(620);
   });
 
+  // The resize handle of a panel beside the page stops where panelWidth
+  // caps the panel; a modal panel gives no viewport and has no such cap.
+  it('bounds the resize handle as panelWidth caps the panel', () => {
+    expect(panelMaxWidthIn(1600, 1600)).toBe(1360);
+    expect(panelMaxWidthIn(1000, 1050)).toBe(450);
+    expect(panelMaxWidthIn(784, 1024)).toBe(360);
+    expect(panelMaxWidthIn(784)).toBe(544);
+    expect(clampPanelWidth(900, 1000, 1050)).toBe(450);
+    // A cap under the narrowest width is the one width left.
+    expect(clampPanelWidth(100, 784, 1024)).toBe(360);
+    expect(clampPanelWidth(900, 784, 1024)).toBe(360);
+  });
+
   it('starts under the bar of the host and ends at the bottom of the window', () => {
     const tokensOfShell = tokens(PANEL_SHELL_CLASS);
     expect(tokensOfShell).toEqual(
