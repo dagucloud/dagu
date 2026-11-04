@@ -51,6 +51,7 @@ func newMailboxAccount(address string, account *ir.MailAccount) (mailboxAccount,
 			Port:          account.IMAP.Port,
 			Security:      account.IMAP.Security,
 			SkipTLSVerify: account.IMAP.SkipTLSVerify,
+			TLSCertSHA256: account.IMAP.TLSCertSHA256,
 		}
 	}
 	return resolved, nil
@@ -88,6 +89,7 @@ func smtpConfig(address string, account *ir.MailAccount) (mailer.Config, error) 
 		Token:         token,
 		Security:      account.SMTP.Security,
 		SkipTLSVerify: account.SMTP.SkipTLSVerify,
+		TLSCertSHA256: account.SMTP.TLSCertSHA256,
 	}, nil
 }
 

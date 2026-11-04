@@ -7,6 +7,7 @@ import (
 	"bytes"
 	"context"
 	"crypto/rand"
+	"crypto/sha256"
 	"crypto/tls"
 	"encoding/base64"
 	"encoding/hex"
@@ -42,6 +43,7 @@ type Client struct {
 	token         func(context.Context) (*oauth2.Token, error)
 	security      string
 	skipTLSVerify bool
+	tlsCertSHA256 string
 	// requireAttachments makes every listed attachment mandatory.
 	requireAttachments bool
 }
@@ -66,6 +68,9 @@ type Config struct {
 	Security string
 	// SkipTLSVerify accepts any server certificate.
 	SkipTLSVerify bool
+	// TLSCertSHA256 accepts only the server certificate with this SHA-256
+	// hash, without chain verification.
+	TLSCertSHA256 string
 	// RequireAttachments fails a send whose listed attachment cannot be read,
 	// and attaches empty files as they are. Without it, such files are skipped,
 	// which suits optional attachments such as step logs.
@@ -81,6 +86,7 @@ func New(cfg Config) *Client {
 		token:              cfg.Token,
 		security:           cfg.Security,
 		skipTLSVerify:      cfg.SkipTLSVerify,
+		tlsCertSHA256:      cfg.TLSCertSHA256,
 		requireAttachments: cfg.RequireAttachments,
 	}
 }
@@ -182,7 +188,11 @@ func (m *Client) send(ctx context.Context, msg Message, useAuth bool) error {
 	address := net.JoinHostPort(m.host, m.port)
 	var conn net.Conn
 	if m.security == SecurityTLS {
-		conn, err = (&tls.Dialer{NetDialer: dialer, Config: m.tlsConfig()}).DialContext(ctx, "tcp", address)
+		var cfg *tls.Config
+		if cfg, err = m.tlsConfig(); err != nil {
+			return err
+		}
+		conn, err = (&tls.Dialer{NetDialer: dialer, Config: cfg}).DialContext(ctx, "tcp", address)
 	} else {
 		conn, err = dialer.DialContext(ctx, "tcp", address)
 	}
@@ -276,7 +286,11 @@ func (m *Client) prepareSession(ctx context.Context, c *smtp.Client) error {
 
 	if m.security != SecurityTLS {
 		if ok, _ := c.Extension("STARTTLS"); ok {
-			if err := c.StartTLS(m.tlsConfig()); err != nil {
+			cfg, err := m.tlsConfig()
+			if err != nil {
+				return err
+			}
+			if err := c.StartTLS(cfg); err != nil {
 				return fmt.Errorf("STARTTLS failed: %w", err)
 			}
 		} else if m.security == SecurityStartTLS {
@@ -292,13 +306,17 @@ func (m *Client) prepareSession(ctx context.Context, c *smtp.Client) error {
 	return nil
 }
 
-func (m *Client) tlsConfig() *tls.Config {
-	return &tls.Config{
+func (m *Client) tlsConfig() (*tls.Config, error) {
+	cfg := &tls.Config{
 		ServerName: m.host,
 		MinVersion: tls.VersionTLS12,
 		// Operators opt in per server, for self-signed certificates.
 		InsecureSkipVerify: m.skipTLSVerify, //nolint:gosec
 	}
+	if err := ApplyCertPin(cfg, m.tlsCertSHA256); err != nil {
+		return nil, err
+	}
+	return cfg, nil
 }
 
 // authenticate tries LOGIN auth first, then falls back to PLAIN auth.
@@ -671,4 +689,42 @@ func readFile(fileName string) (data []byte, err error) {
 	}
 
 	return data, nil
+}
+
+// NormalizeCertSHA256 returns the lowercase hex form of a SHA-256 certificate
+// fingerprint. It accepts upper or lower case, and colons between bytes as
+// `openssl x509 -fingerprint` prints them.
+func NormalizeCertSHA256(fingerprint string) (string, error) {
+	raw, err := hex.DecodeString(strings.ReplaceAll(strings.TrimSpace(fingerprint), ":", ""))
+	if err != nil || len(raw) != sha256.Size {
+		return "", errors.New("must be a SHA-256 fingerprint of 64 hex characters")
+	}
+	return hex.EncodeToString(raw), nil
+}
+
+// ApplyCertPin makes cfg accept only the leaf certificate whose SHA-256 hash is
+// fingerprint. It skips chain verification and checks the hash instead, so it
+// replaces any InsecureSkipVerify setting. The check is in VerifyConnection,
+// which also runs when a session is resumed (VerifyPeerCertificate does not).
+// An empty fingerprint leaves cfg as is.
+func ApplyCertPin(cfg *tls.Config, fingerprint string) error {
+	if fingerprint == "" {
+		return nil
+	}
+	want, err := NormalizeCertSHA256(fingerprint)
+	if err != nil {
+		return fmt.Errorf("tls_cert_sha256 %w", err)
+	}
+	cfg.InsecureSkipVerify = true //nolint:gosec // the pinned hash is checked in VerifyConnection
+	cfg.VerifyConnection = func(state tls.ConnectionState) error {
+		if len(state.PeerCertificates) == 0 {
+			return errors.New("server presented no certificate")
+		}
+		sum := sha256.Sum256(state.PeerCertificates[0].Raw)
+		if got := hex.EncodeToString(sum[:]); got != want {
+			return fmt.Errorf("server certificate SHA-256 %s does not match tls_cert_sha256", got)
+		}
+		return nil
+	}
+	return nil
 }

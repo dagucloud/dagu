@@ -65,6 +65,8 @@ type MailServer struct {
 	Port          string
 	Security      string
 	SkipTLSVerify bool
+	// TLSCertSHA256 pins the leaf certificate, as normalized lowercase hex.
+	TLSCertSHA256 string
 }
 
 // Clone returns a deep copy of the accounts.

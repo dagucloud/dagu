@@ -9,10 +9,12 @@ import (
 	"context"
 	"crypto/rand"
 	"crypto/rsa"
+	"crypto/sha256"
 	"crypto/tls"
 	"crypto/x509"
 	"crypto/x509/pkix"
 	"encoding/base64"
+	"encoding/hex"
 	"encoding/pem"
 	"errors"
 	"fmt"
@@ -945,7 +947,9 @@ func TestSendWithRecipientsAddsCcHeaderAndOmitsBccHeader(t *testing.T) {
 
 type smtpRecordingServer struct {
 	listener           net.Listener
+	leafDER            []byte
 	advertiseSTARTTLS  bool
+	upgradeTLS         *tls.Config // when set, STARTTLS really upgrades the connection
 	mailFromResponse   string
 	rcptToResponse     string
 	startTLSResponse   string
@@ -1038,6 +1042,14 @@ func (s *smtpRecordingServer) handleConnection(conn net.Conn) {
 			s.mu.Lock()
 			s.startTLSCount++
 			s.mu.Unlock()
+			if s.upgradeTLS != nil {
+				_, _ = writer.WriteString("220 Ready to start TLS\r\n")
+				_ = writer.Flush()
+				conn = tls.Server(conn, s.upgradeTLS)
+				reader = bufio.NewReader(conn)
+				writer = bufio.NewWriter(conn)
+				continue
+			}
 			_, _ = writer.WriteString(s.startTLSResponse)
 		case strings.HasPrefix(line, "MAIL FROM:"):
 			_, _ = writer.WriteString(s.mailFromResponse)
@@ -1382,8 +1394,10 @@ func newTLSRecordingServer(t *testing.T) *smtpRecordingServer {
 	t.Helper()
 	server, err := newSMTPRecordingServer()
 	require.NoError(t, err)
+	cert := newTestTLSCertificate(t)
+	server.leafDER = cert.Certificate[0]
 	server.listener = tls.NewListener(server.listener, &tls.Config{
-		Certificates: []tls.Certificate{newTestTLSCertificate(t)},
+		Certificates: []tls.Certificate{cert},
 		MinVersion:   tls.VersionTLS12,
 	})
 	t.Cleanup(func() { _ = server.Close() })
@@ -1421,6 +1435,98 @@ func TestSendWithImplicitTLSVerifiesCertificate(t *testing.T) {
 	var certErr *tls.CertificateVerificationError
 	require.ErrorAs(t, err, &certErr)
 	assert.Empty(t, server.RecordedRecipients())
+}
+
+func TestApplyCertPin(t *testing.T) {
+	t.Parallel()
+
+	want := strings.Repeat("ab", 32)
+	for _, in := range []string{want, strings.ToUpper(want), " " + want + " ", strings.TrimSuffix(strings.Repeat("AB:", 32), ":")} {
+		got, err := NormalizeCertSHA256(in)
+		require.NoError(t, err, in)
+		assert.Equal(t, want, got)
+	}
+	for _, in := range []string{"", "abc", strings.Repeat("ab", 31), strings.Repeat("ab", 33), strings.Repeat("zz", 32)} {
+		_, err := NormalizeCertSHA256(in)
+		assert.Error(t, err, in)
+	}
+
+	cfg := &tls.Config{}
+	require.NoError(t, ApplyCertPin(cfg, ""))
+	assert.False(t, cfg.InsecureSkipVerify)
+	assert.Nil(t, cfg.VerifyConnection)
+	require.ErrorContains(t, ApplyCertPin(cfg, "nope"), "tls_cert_sha256 must be")
+
+	leaf := []byte("leaf certificate")
+	sum := sha256.Sum256(leaf)
+	require.NoError(t, ApplyCertPin(cfg, hex.EncodeToString(sum[:])))
+	assert.True(t, cfg.InsecureSkipVerify)
+	peers := func(raws ...[]byte) tls.ConnectionState {
+		state := tls.ConnectionState{}
+		for _, raw := range raws {
+			state.PeerCertificates = append(state.PeerCertificates, &x509.Certificate{Raw: raw})
+		}
+		return state
+	}
+	assert.NoError(t, cfg.VerifyConnection(peers(leaf, []byte("intermediate"))))
+	assert.ErrorContains(t, cfg.VerifyConnection(peers([]byte("other"))), "does not match")
+	// Only the leaf counts: a matching certificate further down the chain is not enough.
+	assert.ErrorContains(t, cfg.VerifyConnection(peers([]byte("other"), leaf)), "does not match")
+	assert.ErrorContains(t, cfg.VerifyConnection(peers()), "no certificate")
+}
+
+// A pinned certificate is accepted without chain verification; any other
+// certificate fails the handshake before the server sees a message.
+func TestSendWithPinnedCertificate(t *testing.T) {
+	t.Parallel()
+
+	server := newTLSRecordingServer(t)
+	host, port, err := net.SplitHostPort(server.Address())
+	require.NoError(t, err)
+	sum := sha256.Sum256(server.leafDER)
+	send := func(pin string) error {
+		client := New(Config{
+			Host: host, Port: port, Username: "sender@example.com", Password: "secret",
+			Security: SecurityTLS, TLSCertSHA256: pin,
+		})
+		return client.Send(context.Background(), "sender@example.com", []string{"to@example.com"}, "Subject", "Body", nil)
+	}
+
+	require.ErrorContains(t, send(strings.Repeat("00", 32)), "does not match tls_cert_sha256")
+	assert.Empty(t, server.RecordedRecipients())
+	require.ErrorContains(t, send("zz"), "tls_cert_sha256 must be a SHA-256 fingerprint")
+
+	require.NoError(t, send(strings.ToUpper(hex.EncodeToString(sum[:]))))
+	assert.Equal(t, []string{"to@example.com"}, server.RecordedRecipients())
+}
+
+// The pin also applies to the certificate the server presents after STARTTLS.
+func TestSendWithPinnedCertificateAfterSTARTTLS(t *testing.T) {
+	t.Parallel()
+
+	server, err := newSMTPRecordingServer()
+	require.NoError(t, err)
+	cert := newTestTLSCertificate(t)
+	server.advertiseSTARTTLS = true
+	server.upgradeTLS = &tls.Config{Certificates: []tls.Certificate{cert}, MinVersion: tls.VersionTLS12}
+	t.Cleanup(func() { _ = server.Close() })
+	go server.Serve()
+	host, port, err := net.SplitHostPort(server.Address())
+	require.NoError(t, err)
+	sum := sha256.Sum256(cert.Certificate[0])
+	send := func(pin string) error {
+		client := New(Config{
+			Host: host, Port: port, Username: "sender@example.com", Password: "secret",
+			Security: SecurityStartTLS, TLSCertSHA256: pin,
+		})
+		return client.Send(context.Background(), "sender@example.com", []string{"to@example.com"}, "Subject", "Body", nil)
+	}
+
+	require.ErrorContains(t, send(strings.Repeat("00", 32)), "does not match tls_cert_sha256")
+	assert.Empty(t, server.RecordedRecipients())
+
+	require.NoError(t, send(hex.EncodeToString(sum[:])))
+	assert.Equal(t, []string{"to@example.com"}, server.RecordedRecipients())
 }
 
 func TestSendWithRequiredSTARTTLSRefusesPlainServer(t *testing.T) {
