@@ -69,4 +69,18 @@ describe('StepDetails', () => {
       expect(screen.queryByText(type)).toBeNull();
     }
   );
+
+  // Settings of the executor are not in the Calls field: they stay.
+  it('keeps the executor of a call step that has settings', () => {
+    const step = {
+      name: 'call_a',
+      call: 'child-a',
+      executorConfig: { type: 'dag', config: { worker: 'gpu' } },
+    } as unknown as components['schemas']['Step'];
+
+    render(<StepDetails step={step} />);
+
+    expect(screen.getByText('Calls')).toBeInTheDocument();
+    expect(screen.getByText(/gpu/)).toBeInTheDocument();
+  });
 });

@@ -113,15 +113,17 @@ const CALL_EXECUTOR_TYPES: ReadonlySet<unknown> = new Set([
 ]);
 
 /**
- * The executor of a step that calls a workflow: its internal type says
- * nothing that the Calls field does not, in words the UI never uses.
+ * The executor of a step that calls a workflow, with no settings: its
+ * internal type says nothing that the Calls field does not, in words the UI
+ * never uses. An executor with settings stays, for them.
  */
 function isCallExecutor(step: Step, key: string, value: unknown): boolean {
   return (
     key === 'executorConfig' &&
     Boolean(step.call) &&
     isPlainObject(value) &&
-    CALL_EXECUTOR_TYPES.has(value.type)
+    CALL_EXECUTOR_TYPES.has(value.type) &&
+    (!isPlainObject(value.config) || Object.keys(value.config).length === 0)
   );
 }
 
