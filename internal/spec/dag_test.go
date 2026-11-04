@@ -3934,6 +3934,48 @@ func TestRouterSharedTarget(t *testing.T) {
 	assert.Equal(t, []*ir.Condition{{Condition: "${MODE}", Expected: "x"}}, steps["repeated"].Preconditions)
 }
 
+// A route names its target by id or by name, as depends does. Either way the
+// built route lists the step name, and both forms share one precondition.
+func TestRouterTargetByID(t *testing.T) {
+	t.Parallel()
+
+	built, err := (&dag{
+		Type: "graph",
+		Steps: []any{
+			map[string]any{
+				"id":    "pick",
+				"name":  "Pick route",
+				"type":  "router",
+				"value": "${MODE}",
+				"routes": map[string]any{
+					"a":     []string{"route_a"},
+					"b":     []string{"route_b"},
+					"re:^b": []string{"Route B"},
+				},
+			},
+			map[string]any{"id": "route_a", "name": "Route A", "command": "echo A"},
+			map[string]any{"id": "route_b", "name": "Route B", "command": "echo B"},
+		},
+	}).build(testBuildContext())
+	require.NoError(t, err)
+
+	steps := make(map[string]ir.Step, len(built.Steps))
+	for _, step := range built.Steps {
+		steps[step.Name] = step
+	}
+	assert.Equal(t, []ir.RouteEntry{
+		{Pattern: "a", Targets: []string{"Route A"}},
+		{Pattern: "b", Targets: []string{"Route B"}},
+		{Pattern: "re:^b", Targets: []string{"Route B"}},
+	}, steps["Pick route"].Router.Routes)
+	assert.Equal(t, []*ir.Condition{{Condition: "${MODE}", Expected: "a"}}, steps["Route A"].Preconditions)
+	assert.Equal(t, []string{"Pick route"}, steps["Route A"].Depends)
+	assert.Equal(t, []*ir.Condition{
+		{Condition: "${MODE}", ExpectedAny: []string{"b", "re:^b"}},
+	}, steps["Route B"].Preconditions)
+	assert.Equal(t, []string{"Pick route"}, steps["Route B"].Depends)
+}
+
 func TestRouterNumericRoutePattern(t *testing.T) {
 	t.Parallel()
 

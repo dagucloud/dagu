@@ -1,0 +1,16 @@
+working_dir: .
+steps:
+  - name: pick
+    action: router.route
+    stdout: route.txt
+    with:
+      value: "a"
+      routes:
+        a: [branch_a]
+        b: [branch_b]
+  - id: branch_a
+    name: Branch A
+    run: echo ran-a > a.out
+  - id: branch_b
+    name: Branch B
+    run: echo ran-b > b.out
