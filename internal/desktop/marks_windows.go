@@ -31,6 +31,7 @@ var (
 	procUpdateLayeredWindow      = user32.NewProc("UpdateLayeredWindow")
 	procSetWindowDisplayAffinity = user32.NewProc("SetWindowDisplayAffinity")
 	procGetDpiForWindow          = user32.NewProc("GetDpiForWindow")
+	procPostThreadMessageW       = user32.NewProc("PostThreadMessageW")
 
 	procCreateDIBSection      = gdi32.NewProc("CreateDIBSection")
 	procCreateFontW           = gdi32.NewProc("CreateFontW")
@@ -72,9 +73,15 @@ const (
 	acSrcOver  = 0
 	acSrcAlpha = 1
 
-	// wmMark asks a mark's thread for the command waiting for it.
-	wmMark  = 0x8000 + 1
-	wmClose = 0x0010
+	// wmMark asks a mark's thread for the command waiting for it, and
+	// wmQuit ends its message loop.
+	wmMark = 0x8000 + 1
+	wmQuit = 0x0012
+
+	// excludeFromCaptureBuild is Windows 10 version 2004. An older Windows
+	// takes WDA_EXCLUDEFROMCAPTURE for WDA_MONITOR, which captures the
+	// window as a black box rather than leaving it out.
+	excludeFromCaptureBuild = 19041
 
 	bkTransparent      = 1
 	fwSemibold         = 600
@@ -160,6 +167,7 @@ func ServeMarks(io.Reader, io.Writer) error {
 // made it serves until it closes, as Windows requires.
 type windowSurface struct {
 	hwnd     uintptr
+	thread   uint32
 	commands chan markCommand
 }
 
@@ -199,7 +207,7 @@ func (s *windowSurface) serve(exclude bool, ready chan<- error) {
 		return
 	}
 	defer painter.close()
-	s.hwnd = hwnd
+	s.hwnd, s.thread = hwnd, windows.GetCurrentThreadId()
 	ready <- nil
 	var msg winMsg
 	for {
@@ -249,11 +257,12 @@ func (s *windowSurface) draw(m Mark) error { return s.send(markCommand{mark: &m}
 
 func (s *windowSurface) clear() error { return s.send(markCommand{}) }
 
-// close ends the window's thread; a thread that does not answer has its
-// window closed for it.
+// close ends the window's thread. One that does not take the command, as
+// when an earlier one is still waiting, is told to quit its message loop,
+// which ends the thread and so its window.
 func (s *windowSurface) close() error {
 	if err := s.send(markCommand{quit: true}); err != nil {
-		_, _, _ = procPostMessageW.Call(s.hwnd, wmClose, 0, 0)
+		_, _, _ = procPostThreadMessageW.Call(uintptr(s.thread), wmQuit, 0, 0)
 		return err
 	}
 	return nil
@@ -261,6 +270,9 @@ func (s *windowSurface) close() error {
 
 // createMarkWindow makes a mark's window, hidden until it shows a mark.
 func createMarkWindow(exclude bool) (uintptr, error) {
+	if build := windows.RtlGetVersion().BuildNumber; exclude && build < excludeFromCaptureBuild {
+		return 0, fmt.Errorf("Windows build %d cannot leave marks out of screen captures; that takes build %d, Windows 10 version 2004", build, excludeFromCaptureBuild)
+	}
 	class, instance, err := registerMarkClass()
 	if err != nil {
 		return 0, err
