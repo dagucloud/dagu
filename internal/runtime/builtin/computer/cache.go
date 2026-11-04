@@ -64,6 +64,9 @@ type recording struct {
 	// FinalWindow is the window the act ended on, which Final fingerprints
 	// alone; Final covers the whole display when it is nil.
 	FinalWindow *recordedWindow `json:"final_window,omitempty"`
+	// FinalCapture is the kind of capture Final fingerprints; see
+	// recordedTurn.Capture.
+	FinalCapture string `json:"final_capture,omitempty"`
 	// App is the application of the front window when the act ended: the
 	// process image name without its extension, which a replay by elements
 	// matches instead of the title, since a title often shows the
@@ -122,9 +125,13 @@ type columnBinding struct {
 // are relative to its top left; without one, Screen covers the whole
 // display and positions are display pixels.
 type recordedTurn struct {
-	Screen  desktop.Fingerprint `json:"screen"`
-	Window  *recordedWindow     `json:"window,omitempty"`
-	Actions []recordedAction    `json:"actions"`
+	Screen desktop.Fingerprint `json:"screen"`
+	Window *recordedWindow     `json:"window,omitempty"`
+	// Capture is the kind of capture Screen fingerprints, captureScreen or
+	// captureWindows. A recording made before captures of windows has none
+	// and was made on the whole screen.
+	Capture string           `json:"capture,omitempty"`
+	Actions []recordedAction `json:"actions"`
 	// Confirmed marks a turn the model provider asked a person to confirm.
 	Confirmed bool `json:"confirmed,omitempty"`
 }
@@ -147,6 +154,15 @@ type recordedAction struct {
 	// centre, where the pointer may not reach what the element's pattern
 	// did.
 	Invoked bool `json:"invoked,omitempty"`
+}
+
+// kindOf is the kind of capture a recording notes, which is the whole
+// screen when it notes none.
+func kindOf(capture string) string {
+	if capture == "" {
+		return captureScreen
+	}
+	return capture
 }
 
 // recordAction records an action in display pixels; its turn's view later
@@ -280,7 +296,7 @@ func (r *run) replay(ctx context.Context, index int, entry recording, budget int
 			return outcome, err
 		}
 		if !found {
-			outcome.reason = turnDiffers(turn, i, total)
+			outcome.reason = r.turnDiffers(turn, i, total)
 			return outcome, nil
 		}
 		for j, recorded := range turn.Actions {
@@ -299,7 +315,7 @@ func (r *run) replay(ctx context.Context, index int, entry recording, budget int
 						return outcome, err
 					}
 					if v, found = r.turnView(current, entry, turn); !found {
-						outcome.reason = turnDiffers(turn, i, total)
+						outcome.reason = r.turnDiffers(turn, i, total)
 						return outcome, nil
 					}
 				}
@@ -307,7 +323,11 @@ func (r *run) replay(ctx context.Context, index int, entry recording, budget int
 			action := v.absolute(recorded.Action)
 			logAction(r.timeline, index, "replay by pixels: "+describeAction(action))
 			outcome.actions++
-			if result := r.runAction(ctx, action, identity, nil, computeruse.ImageLimit{}); result.Failed() {
+			result := r.reachAction(ctx, index, action)
+			if !result.Failed() {
+				result = r.runAction(ctx, action, identity, nil, computeruse.ImageLimit{})
+			}
+			if result.Failed() {
 				outcome.reason = fmt.Sprintf("%s failed at turn %d of %d: %s", describeAction(action), i+1, total, result.Error)
 				return outcome, ctx.Err()
 			}
@@ -331,6 +351,7 @@ func (r *run) replay(ctx context.Context, index int, entry recording, budget int
 		return outcome, err
 	}
 	v, found := r.finalView(final, entry)
+	found = found && r.shown.kind() == kindOf(entry.FinalCapture)
 	outcome.complete = found && v.fingerprint(final).Distance(entry.Final) <= replayScreenDistance
 	if !outcome.complete {
 		outcome.reason = "the screen after the last turn differs from the recording"
@@ -339,7 +360,10 @@ func (r *run) replay(ctx context.Context, index int, entry recording, budget int
 }
 
 // turnDiffers is why a recorded turn's screen, or its window, is not found.
-func turnDiffers(turn recordedTurn, i, total int) string {
+func (r *run) turnDiffers(turn recordedTurn, i, total int) string {
+	if kind := kindOf(turn.Capture); kind != r.shown.kind() {
+		return fmt.Sprintf("turn %d of %d was recorded on %s, and this run captures %s", i+1, total, describeCapture(kind), describeCapture(r.shown.kind()))
+	}
 	if turn.Window != nil {
 		return fmt.Sprintf("the window of %s differs from the recording at turn %d of %d", turn.Window.App, i+1, total)
 	}
@@ -371,7 +395,14 @@ func (r *run) awaitScreen(ctx context.Context, index int, entry recording, turn 
 		if err != nil {
 			return view{}, false, err
 		}
-		if v, ok := r.turnView(current, entry, turn); ok && matches(current, v, turn) {
+		// A capture of windows shows them as no capture of the whole screen
+		// does, so a turn recorded on the whole screen is recorded again.
+		// A turn recorded on windows waits for them to show.
+		kind := r.shown.kind()
+		if kind == captureWindows && kindOf(turn.Capture) != kind {
+			return view{}, false, nil
+		}
+		if v, ok := r.turnView(current, entry, turn); ok && kind == kindOf(turn.Capture) && matches(current, v, turn) {
 			return v, true, nil
 		}
 		if !time.Now().Before(deadline) {

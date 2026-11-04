@@ -67,6 +67,27 @@ func (r *run) offLimitsMessage(w desktop.WindowID) string {
 	return fmt.Sprintf("that is a window of %s, which was open before this step and is not an app it works in; work in %s", w.App, strings.Join(r.workApps, ", "))
 }
 
+// lookApps names the applications whose windows a look captures: those
+// the step works in, and the one in front when the step may operate its
+// window, such as a browser a link opened. It is empty until the step
+// works in an application, when a look captures the whole screen.
+func (r *run) lookApps() []string {
+	if len(r.workApps) == 0 {
+		return nil
+	}
+	apps := slices.Clone(r.workApps)
+	add := func(app string) {
+		if app != "" && !slices.ContainsFunc(apps, func(a string) bool { return strings.EqualFold(a, app) }) {
+			apps = append(apps, app)
+		}
+	}
+	add(r.workApp)
+	if front := r.driver.FocusedWindow(); front.Known() && !r.offLimits(front) {
+		add(front.App)
+	}
+	return apps
+}
+
 // homeApp is the application to bring back to the front: the one the step
 // last worked in, when it is one the step works in, or else the one it began
 // to work in last.

@@ -74,6 +74,8 @@ func TestReplayComparesOnlyTheWindow(t *testing.T) {
 	assert.Equal(t, &computeruse.Point{X: 50, Y: 60}, entry.Turns[0].Actions[0].Action.Point, "relative to the window")
 	assert.Equal(t, entry.Turns[0].Window, entry.FinalWindow)
 
+	// A later run replays it, which works in no app yet either.
+	run.runID = "run-2"
 	run.backend.script(desk(9, reportWindow.Bounds))
 	replayed := run.execute(steps, nil)
 	require.NoError(t, replayed.err, "no session is left, so a model call would fail")
@@ -91,6 +93,7 @@ func TestReplayFollowsAMovedWindow(t *testing.T) {
 	run.sessions = []*scriptedSession{{turns: []*computeruse.Turn{actions(clickAt(150, 160)), done("Opened")}}}
 	require.NoError(t, run.execute(steps, nil).err)
 
+	run.runID = "run-2"
 	run.placeWindow(reportWindow.Bounds.Add(image.Pt(120, 80)))
 	run.backend.events = nil
 	replayed := run.execute(steps, nil)
@@ -109,6 +112,7 @@ func TestReplayMissesAResizedWindow(t *testing.T) {
 	run.sessions = []*scriptedSession{{turns: []*computeruse.Turn{actions(clickAt(150, 160)), done("Opened")}}}
 	require.NoError(t, run.execute(steps, nil).err)
 
+	run.runID = "run-2"
 	run.placeWindow(image.Rect(100, 100, 500, 350))
 	run.sessions = []*scriptedSession{{turns: []*computeruse.Turn{actions(clickAt(150, 160)), done("Opened")}}}
 	healed := run.execute(steps, nil)

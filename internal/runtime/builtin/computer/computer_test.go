@@ -1597,6 +1597,9 @@ func TestHandlerThatMovesTheWindowBetweenPixelClicks(t *testing.T) {
 		}
 	}
 	run.backend.events = nil
+	// The replay captures the whole screen, as the recording was made on,
+	// though the run's earlier step worked in the report app.
+	run.backend.captureErr = errors.New("the windows cannot be drawn")
 	steps := `{"ai": "never", "input": "direct", "maximize": false, "handle": ` + confirmHandler("") + `, "do": [{"act": "Click the report twice"}]}`
 	require.NoError(t, run.execute(steps, nil).err)
 	assert.Equal(t, []string{"move 150,160", "left down #1", "invoke はい", "move 320,280", "left down #1"}, run.backend.inputs())

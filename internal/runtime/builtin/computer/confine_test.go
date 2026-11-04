@@ -4,6 +4,7 @@
 package computer
 
 import (
+	"errors"
 	"image"
 	"testing"
 
@@ -22,12 +23,15 @@ var (
 
 // confinedRun is a run whose screen holds the expense window and, right of
 // it, the person's terminal, both open before the step; a click at x 300 or
-// more lands on under, the terminal unless a test says otherwise.
+// more lands on under, the terminal unless a test says otherwise. Its
+// windows cannot be captured, so the model sees the whole screen, the
+// terminal included.
 func confinedRun(t *testing.T, under desktop.WindowID) *testRun {
 	t.Helper()
 	run := newTestRun(t)
 	run.elements = newFakeElements()
 	run.backend.windows = []desktop.WindowID{expenseApp, terminal}
+	run.backend.captureErr = errors.New("the windows cannot be drawn")
 	run.backend.windowAt = func(x, _ int) desktop.WindowID {
 		if x >= 300 {
 			return under

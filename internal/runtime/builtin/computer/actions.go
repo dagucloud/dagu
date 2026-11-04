@@ -35,6 +35,13 @@ func (r *run) performOne(ctx context.Context, index int, action computeruse.Acti
 	var element *recordedElement
 	var before *bool
 	if replayable {
+		// The window the model saw comes forward first, so the element read
+		// is the one the action lands on.
+		if result := r.reachAction(ctx, index, display); result.Failed() {
+			result.CallID = action.CallID
+			logAction(r.timeline, index, "  failed: "+result.Error)
+			return result, nil
+		}
 		element, before = r.elementOf(display)
 	}
 	field, typing := r.typedField(action)
