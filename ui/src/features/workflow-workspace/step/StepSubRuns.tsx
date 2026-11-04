@@ -223,7 +223,7 @@ export function StepSubRuns({
         <div className="ml-4 space-y-1 border-l border-border pl-3">
           {shown.length === 0 ? (
             <div className="py-2 italic">
-              {ts('No sub DAG runs match the selected filter')}
+              {ts('No sub-runs match the selected filter')}
             </div>
           ) : (
             <ul className="space-y-1">
