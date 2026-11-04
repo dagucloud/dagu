@@ -251,6 +251,12 @@ function renderAt(path: string, config = makeConfig()): void {
 }
 
 beforeEach(() => {
+  // jsdom has no matchMedia; the workflow overlay reads reduced motion.
+  vi.stubGlobal('matchMedia', () => ({
+    matches: false,
+    addEventListener: () => undefined,
+    removeEventListener: () => undefined,
+  }));
   localStorage.clear();
   sessionStorage.clear();
   clientGetMock.mockReset();
