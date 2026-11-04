@@ -129,15 +129,18 @@ func TestWindowsDesktopNamesTheAppInAFrame(t *testing.T) {
 		_ = app.Wait()
 	})
 	pid := uint32(app.Process.Pid)
+	// Listing reads the frame's title, which a window of this process gives
+	// only on its own thread, so the wait polls here rather than on a
+	// goroutine of its own.
 	var shown WindowID
-	require.Eventually(t, func() bool {
+	for deadline := time.Now().Add(30 * time.Second); ; time.Sleep(200 * time.Millisecond) {
 		all := driver.Windows()
-		i := slices.IndexFunc(all, func(w WindowID) bool { return w.PID == pid && w.Title == appTitle })
-		if i >= 0 {
+		if i := slices.IndexFunc(all, func(w WindowID) bool { return w.PID == pid && w.Title == appTitle }); i >= 0 {
 			shown = all[i]
+			break
 		}
-		return i >= 0
-	}, 30*time.Second, 200*time.Millisecond, "the app's window did not open")
+		require.True(t, time.Now().Before(deadline), "the app's window did not open")
+	}
 	before, ok := listed(driver.Windows(), frame)
 	require.True(t, ok)
 	require.NotEqual(t, pid, before.PID, "an empty frame is its owner's")
