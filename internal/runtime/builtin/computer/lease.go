@@ -104,14 +104,20 @@ func tryLock(ctx context.Context, dir string) (*desktopLease, bool) {
 }
 
 // appLockName names an application's lock, as applications compare,
-// ignoring case, with every character a file name may not hold replaced.
+// ignoring case, with every character a file name may not hold replaced. A
+// name of dots alone is prefixed, since it would name a directory above the
+// lock once joined to it.
 func appLockName(app string) string {
-	return strings.Map(func(r rune) rune {
+	name := strings.Map(func(r rune) rune {
 		if unicode.IsLetter(r) || unicode.IsDigit(r) || r == '.' || r == '-' {
 			return unicode.ToLower(r)
 		}
 		return '_'
 	}, app)
+	if strings.Trim(name, ".") == "" {
+		return "_" + name
+	}
+	return name
 }
 
 // lastInput returns when the previous holder of the desktop last sent input,
