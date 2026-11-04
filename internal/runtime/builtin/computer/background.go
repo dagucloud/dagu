@@ -28,15 +28,17 @@ func (r *run) reach(ctx context.Context, app, title string) error {
 	if r.lease != nil {
 		return nil
 	}
-	var target *desktop.WindowID
-	if app != "" {
-		target = r.recordedWindow(app, title)
-	}
-	if target == nil || target.Minimized {
+	if app == "" {
 		return r.takeDesktop(ctx, app)
 	}
+	// The window is chosen once the step holds app, which another step may
+	// have changed meanwhile.
 	if err := r.takeApp(ctx, app); err != nil {
 		return err
+	}
+	target := r.recordedWindow(app, title)
+	if target == nil || target.Minimized {
+		return r.takeDesktop(ctx, app)
 	}
 	own := r.dialogOver(*target, app, title)
 	r.own = &own
