@@ -211,24 +211,29 @@ func TestTypingNothingIntoAFieldByIdDeletesItsText(t *testing.T) {
 
 // Typing into a field by id as keys fails when the field, its text selected
 // first, does not come to show just the typed text, as typed or as it
-// formats it: one that cuts the text short, or one that keeps old text the
-// selection missed. The save after a failed typing does not run.
+// formats it with separators or symbols: one that cuts the text short,
+// keeps old text the selection missed, or drops a sign or a decimal point.
+// The save after a failed typing does not run.
 func TestTypingIntoAFieldByIdChecksTheValue(t *testing.T) {
 	t.Parallel()
 
 	for _, tc := range []struct {
 		name  string
+		typed string
 		shows string
 		err   string
 	}{
-		{"the field formats the text", "1,200", ""},
-		{"the field cuts the text short", "120", `the field shows "120", not the text typed into it`},
-		{"the field keeps old text", "12,0001200", `the field shows "12,0001200", not the text typed into it`},
+		{"the field formats the text", "1200", "¥1,200", ""},
+		{"the field formats a negative amount", "-1200", "−1,200", ""},
+		{"the field cuts the text short", "1200", "120", `the field shows "120", not the text typed into it`},
+		{"the field keeps old text", "1200", "12,0001200", `the field shows "12,0001200", not the text typed into it`},
+		{"the field drops the sign", "-1200", "1200", `the field shows "1200", not the text typed into it`},
+		{"the field drops the decimal point", "12.00", "1200", `the field shows "1200", not the text typed into it`},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 			run, session := elementTurnRun(t, actions(
-				computeruse.Action{CallID: "t", Kind: computeruse.KindType, ElementID: "e1", Text: "1200"},
+				computeruse.Action{CallID: "t", Kind: computeruse.KindType, ElementID: "e1", Text: tc.typed},
 				computeruse.Action{CallID: "s", Kind: computeruse.KindClick, ElementID: "e2"},
 			), done("Entered"))
 			run.elements.withoutPattern("amountBox")

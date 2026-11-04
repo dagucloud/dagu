@@ -76,12 +76,27 @@ func showsTyped(value, typed string) bool {
 }
 
 // showsReplaced reports whether a field's value is the text that replaced
-// what it held, as typed or as the field formats it. Unlike showsTyped, it
-// does not take a value that only holds the text, such as the text after
-// old text a selection did not cover.
+// what it held, as typed or as the field formats it with separators or
+// symbols. Unlike showsTyped, it does not take a value that only holds the
+// text, such as the text after old text a selection did not cover, and it
+// keeps signs and decimal points, so neither 1200 nor 12.00 is -1200.
 func showsReplaced(value, typed string) bool {
 	value, typed = desktop.NormalizeText(value), desktop.NormalizeText(typed)
-	return value == typed || lettersAndDigits(value) == lettersAndDigits(typed)
+	return value == typed || significant(value) == significant(typed)
+}
+
+// significant keeps what changes the meaning of a value: its letters,
+// digits, minus signs, written as hyphens, and decimal points.
+func significant(s string) string {
+	return strings.Map(func(r rune) rune {
+		switch {
+		case r == '−':
+			return '-'
+		case unicode.IsLetter(r) || unicode.IsDigit(r) || r == '-' || r == '.':
+			return r
+		}
+		return -1
+	}, s)
 }
 
 func lettersAndDigits(s string) string {
