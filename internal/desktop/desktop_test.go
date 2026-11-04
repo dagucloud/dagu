@@ -10,6 +10,7 @@ import (
 	"image"
 	"image/color"
 	"math"
+	"strings"
 	"testing"
 	"time"
 
@@ -373,4 +374,43 @@ func TestDriverMarksEachAction(t *testing.T) {
 
 	require.NoError(t, driver.Close())
 	assert.True(t, marks.closed)
+}
+
+// Typing into an element the step focused is marked on the element, until
+// input that may move the focus; a drag is marked from end to end.
+func TestDriverMarksTheFocusedElement(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	backend := &recordingBackend{focus: desktop.WindowID{Handle: 1, Bounds: image.Rect(0, 0, 640, 480)}}
+	driver := desktop.New(backend)
+	driver.ShowMarks(&recordedMarks{backend: backend, colors: map[color.RGBA]bool{}}, "post")
+
+	driver.MarkFocus(image.Rect(200, 100, 400, 124))
+	require.NoError(t, driver.Type(ctx, "12,000"))
+	require.NoError(t, driver.Type(ctx, "円"))
+	require.NoError(t, driver.PressKeys(ctx, []desktop.Key{desktop.KeyTab}, 1))
+	require.NoError(t, driver.Type(ctx, "next"))
+	driver.MarkFocus(image.Rect(200, 140, 400, 164))
+	require.NoError(t, driver.Type(ctx, "a\nb"))
+	require.NoError(t, driver.Type(ctx, "c"))
+	require.NoError(t, driver.Drag(ctx, []image.Point{{X: 30, Y: 30}, {X: 200, Y: 100}}, nil))
+
+	var marked []string
+	for _, event := range backend.events {
+		if strings.HasPrefix(event, "mark ") {
+			marked = append(marked, event)
+		}
+	}
+	assert.Equal(t, []string{
+		"mark post · focus (200,100)-(400,124)",
+		"mark post · type (200,100)-(400,124)",
+		"mark post · type (200,100)-(400,124)",
+		"mark post · press tab (200,100)-(400,124)",
+		"mark post · type (0,0)-(640,480)",
+		"mark post · focus (200,140)-(400,164)",
+		"mark post · type (200,140)-(400,164)",
+		"mark post · type (0,0)-(640,480)",
+		"mark post · drag (6,6)-(224,124)",
+	}, marked)
 }

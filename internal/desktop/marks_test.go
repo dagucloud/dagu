@@ -75,6 +75,7 @@ func TestMarksLinger(t *testing.T) {
 
 	s := &fakeSurface{}
 	marks := newMarks(s)
+	marks.linger = time.Hour
 	require.NoError(t, marks.Show(Mark{Label: "post · click"}))
 	require.NoError(t, marks.Show(Mark{Label: "post · type"}))
 	marks.lapse(1)

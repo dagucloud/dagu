@@ -45,6 +45,24 @@ func TestMarksShowWhereTheStepActs(t *testing.T) {
 	assert.Equal(t, "post · press (190,180)-(280,208)", run.marks.marked()[0], "the mark covers the button")
 }
 
+// Typing into a field a replay focused is marked on the field, not the
+// whole window.
+func TestMarksTypingIntoAFocusedField(t *testing.T) {
+	t.Parallel()
+
+	const steps = `{"do": [{"act": "Enter the amount"}]}`
+	run := markedRun(t)
+	run.focusOn("amountBox")
+	run.sessions = []*scriptedSession{{turns: []*computeruse.Turn{actions(clickAt(290, 152), typing("000")), done("Entered")}}}
+	require.NoError(t, run.execute(steps, nil).err)
+
+	run.backend.events = nil
+	run.marks.shown = nil
+	require.NoError(t, run.execute(`{"input": "direct", "do": [{"act": "Enter the amount"}]}`, nil).err)
+	assert.Equal(t, []string{"mark post · focus", "focus amountBox", "mark post · focus", "focus amountBox", "mark post · type", "type 000"}, run.backend.inputs())
+	assert.Equal(t, "post · type (190,140)-(390,164)", run.marks.marked()[2], "the typing is marked on the field")
+}
+
 // with.marks turns marks off on the console, and on in a remote session,
 // which shows none unless it is set.
 func TestMarksSetting(t *testing.T) {

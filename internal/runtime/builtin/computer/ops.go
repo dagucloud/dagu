@@ -762,7 +762,7 @@ func (r *run) elementsReader() (desktop.Elements, error) {
 		}
 		return nil, fmt.Errorf("open the elements: %w", err)
 	}
-	r.elements = newSteadyElements(markedElements{Elements: els, mark: r.driver.Mark}, r.driver.Windows, r.driver.InputSentAt, func() context.Context { return r.operation })
+	r.elements = newSteadyElements(markedElements{Elements: els, driver: r.driver}, r.driver.Windows, r.driver.InputSentAt, func() context.Context { return r.operation })
 	return r.elements, nil
 }
 

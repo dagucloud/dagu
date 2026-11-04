@@ -6,7 +6,6 @@ package computer
 import (
 	"cmp"
 	"fmt"
-	"image"
 
 	"github.com/dagucloud/dagu/v2/internal/desktop"
 )
@@ -43,15 +42,15 @@ func (r *run) showMarks() {
 // pattern itself, which moves no pointer a person could follow.
 type markedElements struct {
 	desktop.Elements
-	mark func(target image.Rectangle, action string)
+	driver *desktop.Driver
 }
 
 func (m markedElements) Focus(target desktop.Element) error {
-	m.mark(target.Bounds, "focus")
+	m.driver.MarkFocus(target.Bounds)
 	return m.Elements.Focus(target)
 }
 
 func (m markedElements) Apply(target desktop.Element, pattern desktop.Pattern, value string) error {
-	m.mark(target.Bounds, cmp.Or(patternMarks[pattern], string(pattern)))
+	m.driver.Mark(target.Bounds, cmp.Or(patternMarks[pattern], string(pattern)))
 	return m.Elements.Apply(target, pattern, value)
 }

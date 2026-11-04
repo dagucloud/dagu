@@ -57,9 +57,10 @@ func RegisterMarksHelper() {
 // person to notice it and short enough not to outlast its action by much.
 const markLinger = 2 * time.Second
 
-// Size of a mark, in display pixels at the system's base resolution:
-// pointMarkSize is the side of the square marking a point, markBorder the
-// width of the frame, and markPadding the space around the label's text.
+// Size of a mark: pointMarkSize is the side, in display pixels, of the
+// square marking a point; markBorder, the width of the frame, and
+// markPadding, the space around the label's text, are pixels at the
+// system's base resolution, which each system scales to its display.
 const (
 	pointMarkSize = 48
 	markBorder    = 3
@@ -196,10 +197,10 @@ func (m *lingeringMarks) Close() error {
 }
 
 // ShowMarks has the driver show marks, labelled with name, of where each
-// later action lands, just before it acts: the point of a pointer action,
-// and the window with the keyboard focus for keys and typing. The driver
-// closes the marks when it closes. A mark that fails to show never fails
-// the action.
+// later action lands, just before it acts: the points of a pointer action,
+// and for keys and typing the element MarkFocus marked last, or else the
+// window with the keyboard focus. The driver closes the marks when it
+// closes. A mark that fails to show never fails the action.
 func (d *Driver) ShowMarks(marks Marks, name string) {
 	d.marks, d.markName = marks, name
 }
@@ -207,34 +208,70 @@ func (d *Driver) ShowMarks(marks Marks, name string) {
 // Mark shows, when the driver shows marks, that an action is about to act
 // on target, such as an element performing a pattern itself.
 func (d *Driver) Mark(target image.Rectangle, action string) {
+	d.focusMark = image.Rectangle{}
+	d.show(target, action)
+}
+
+// MarkFocus shows, as Mark does, that an element is about to take the
+// keyboard focus. The typing that follows is marked on the element too,
+// until a pointer action, another mark, a key press, or a typed line
+// break, any of which may move the focus.
+func (d *Driver) MarkFocus(target image.Rectangle) {
+	d.show(target, "focus")
+	d.focusMark = target
+}
+
+func (d *Driver) show(target image.Rectangle, action string) {
 	if d.marks == nil || target.Empty() {
 		return
 	}
 	_ = d.marks.Show(Mark{Target: target, Label: markLabel(d.markName, action), Color: markColor(d.markName)})
 }
 
-// markAt marks a pointer action at a position, or at the pointer when at
-// is nil.
-func (d *Driver) markAt(at *image.Point, action string) {
+// markAt marks a pointer action at positions, around all of them, or at
+// the pointer when there are none.
+func (d *Driver) markAt(action string, at ...image.Point) {
 	if d.marks == nil {
 		return
 	}
-	if at == nil {
+	if len(at) == 0 {
 		x, y, err := d.backend.Position()
 		if err != nil {
 			return
 		}
-		at = &image.Point{X: x, Y: y}
+		at = []image.Point{{X: x, Y: y}}
 	}
-	d.Mark(pointMark(*at), action)
+	target := pointMark(at[0])
+	for _, p := range at[1:] {
+		target = target.Union(pointMark(p))
+	}
+	d.Mark(target, action)
 }
 
-// markFocus marks keys or typing on the window with the keyboard focus.
-func (d *Driver) markFocus(action string) {
+// markKeys marks keys or typing on the element MarkFocus marked last, or
+// else on the window with the keyboard focus. keep keeps the element for
+// the input after, which this input leaves focused.
+func (d *Driver) markKeys(action string, keep bool) {
 	if d.marks == nil {
 		return
 	}
-	d.Mark(d.backend.FocusedWindow().Bounds, action)
+	target := d.focusMark
+	if target.Empty() {
+		target = d.backend.FocusedWindow().Bounds
+	}
+	d.show(target, action)
+	if !keep {
+		d.focusMark = image.Rectangle{}
+	}
+}
+
+// pointsAt is the position at, or none when it is nil, which marks the
+// pointer.
+func pointsAt(at *image.Point) []image.Point {
+	if at == nil {
+		return nil
+	}
+	return []image.Point{*at}
 }
 
 // clickAction names a click by its button and count.
