@@ -20,8 +20,8 @@ export default defineMessages({
     'List the files in an archive.': 'List the files in an archive.',
     'List the artifacts of the run.': 'List the artifacts of the run.',
     'Read an artifact of the run.': 'Read an artifact of the run.',
-    'Save a file as an artifact of the run.':
-      'Save a file as an artifact of the run.',
+    'Write content to an artifact of the run.':
+      'Write content to an artifact of the run.',
     'Copy a file or folder.': 'Copy a file or folder.',
     'Delete a file or folder.': 'Delete a file or folder.',
     'List the files in a folder.': 'List the files in a folder.',
@@ -33,8 +33,8 @@ export default defineMessages({
     'Write content to a file.': 'Write content to a file.',
     'Delete a key of the workflow state.':
       'Delete a key of the workflow state.',
-    'Tell whether a value changed since the last run.':
-      'Tell whether a value changed since the last run.',
+    'Tell whether a value changed since the last run, and store it.':
+      'Tell whether a value changed since the last run, and store it.',
     'Read a key of the workflow state.': 'Read a key of the workflow state.',
     'List the keys of the workflow state.':
       'List the keys of the workflow state.',
@@ -85,7 +85,7 @@ export default defineMessages({
     'List the files in an archive.': '列出归档中的文件。',
     'List the artifacts of the run.': '列出此次运行的工件。',
     'Read an artifact of the run.': '读取此次运行的工件。',
-    'Save a file as an artifact of the run.': '将文件保存为此次运行的工件。',
+    'Write content to an artifact of the run.': '将内容写入此次运行的工件。',
     'Copy a file or folder.': '复制文件或文件夹。',
     'Delete a file or folder.': '删除文件或文件夹。',
     'List the files in a folder.': '列出文件夹中的文件。',
@@ -95,8 +95,8 @@ export default defineMessages({
     'Read the size, type and times of a file.': '读取文件的大小、类型和时间。',
     'Write content to a file.': '将内容写入文件。',
     'Delete a key of the workflow state.': '删除工作流状态中的键。',
-    'Tell whether a value changed since the last run.':
-      '判断某个值自上次运行以来是否变化。',
+    'Tell whether a value changed since the last run, and store it.':
+      '判断某个值自上次运行以来是否变化，并保存该值。',
     'Read a key of the workflow state.': '读取工作流状态中的键。',
     'List the keys of the workflow state.': '列出工作流状态中的键。',
     'Store a value in the workflow state.': '在工作流状态中保存一个值。',
@@ -141,8 +141,8 @@ export default defineMessages({
     'List the artifacts of the run.':
       '実行のアーティファクトを一覧表示します。',
     'Read an artifact of the run.': '実行のアーティファクトを読み取ります。',
-    'Save a file as an artifact of the run.':
-      'ファイルを実行のアーティファクトとして保存します。',
+    'Write content to an artifact of the run.':
+      '実行のアーティファクトに内容を書き込みます。',
     'Copy a file or folder.': 'ファイルまたはフォルダーをコピーします。',
     'Delete a file or folder.': 'ファイルまたはフォルダーを削除します。',
     'List the files in a folder.': 'フォルダー内のファイルを一覧表示します。',
@@ -155,8 +155,8 @@ export default defineMessages({
     'Write content to a file.': 'ファイルに内容を書き込みます。',
     'Delete a key of the workflow state.':
       'ワークフローの状態のキーを削除します。',
-    'Tell whether a value changed since the last run.':
-      '前回の実行から値が変わったかどうかを判定します。',
+    'Tell whether a value changed since the last run, and store it.':
+      '前回の実行から値が変わったかどうかを判定し、値を保存します。',
     'Read a key of the workflow state.':
       'ワークフローの状態のキーを読み取ります。',
     'List the keys of the workflow state.':

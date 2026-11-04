@@ -97,7 +97,7 @@ const GROUP_BLURBS: ReadonlyMap<string, string> = new Map(
     'archive.list': 'List the files in an archive.',
     'artifact.list': 'List the artifacts of the run.',
     'artifact.read': 'Read an artifact of the run.',
-    'artifact.write': 'Save a file as an artifact of the run.',
+    'artifact.write': 'Write content to an artifact of the run.',
     'file.copy': 'Copy a file or folder.',
     'file.delete': 'Delete a file or folder.',
     'file.list': 'List the files in a folder.',
@@ -107,7 +107,8 @@ const GROUP_BLURBS: ReadonlyMap<string, string> = new Map(
     'file.stat': 'Read the size, type and times of a file.',
     'file.write': 'Write content to a file.',
     'state.delete': 'Delete a key of the workflow state.',
-    'state.diff': 'Tell whether a value changed since the last run.',
+    'state.diff':
+      'Tell whether a value changed since the last run, and store it.',
     'state.get': 'Read a key of the workflow state.',
     'state.list': 'List the keys of the workflow state.',
     'state.set': 'Store a value in the workflow state.',
