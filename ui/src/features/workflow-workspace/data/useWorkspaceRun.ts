@@ -75,7 +75,7 @@ export function useSelectedRun({
   listedRun?: (runId: string) => ApiDAGRunDetails | null;
 }): SelectedRun {
   const [searchParams] = useSearchParams();
-  const [, setUrl] = useWorkspaceUrl();
+  const [, , , setParams] = useWorkspaceUrl();
   const runParam = searchParams.get(RUN_PARAM) || null;
   // A legacy history link (?idx) names its run itself, a little later.
   const legacyIdx = searchParams.has('idx');
@@ -156,12 +156,13 @@ export function useSelectedRun({
       (pinnedServer != null && pinnedServer.dagRunId !== runParam));
 
   // Through the URL writer of the workspace, which builds on a write of the
-  // same tick that the router has yet to render, such as ?ndv.
+  // same tick that the router has yet to render, such as ?ndv. The path and
+  // the other keys stay: a legacy link redirects once its run is known.
   const writeRun = useCallback(
     (runId: string | null, replace?: boolean, state?: unknown) => {
-      setUrl({ run: runId }, { replace: !!replace, state });
+      setParams({ [RUN_PARAM]: runId }, { replace: !!replace, state });
     },
-    [setUrl]
+    [setParams]
   );
 
   // The run that the page fell back to after a 404. Its ?run is no new

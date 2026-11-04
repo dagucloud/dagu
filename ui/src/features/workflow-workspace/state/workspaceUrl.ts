@@ -268,6 +268,17 @@ export type SetWorkspaceUrl = (
  * rendered yet. For event handlers that run between a write and its render.
  */
 export type ReadWorkspaceUrl = () => WorkspaceUrlState;
+/**
+ * Sets or removes query keys, a null value removing its key, and keeps the
+ * path and every other key as they are: a link that the page has yet to
+ * redirect, such as /history?dagRunId, keeps what the redirect reads. It
+ * builds on a write that the router has not rendered yet, as SetWorkspaceUrl
+ * does.
+ */
+export type SetWorkspaceParams = (
+  params: Record<string, string | null>,
+  opts?: { replace?: boolean; state?: unknown }
+) => void;
 
 interface UrlSnapshot {
   /** Key of the router location that the snapshot starts from. */
@@ -306,6 +317,7 @@ export function useWorkspaceUrl(): [
   WorkspaceUrlState,
   SetWorkspaceUrl,
   ReadWorkspaceUrl,
+  SetWorkspaceParams,
 ] {
   const { fileName = '', tab } = useParams<{
     fileName: string;
@@ -408,5 +420,28 @@ export function useWorkspaceUrl(): [
     [fileName, latest, location, navigate, store]
   );
 
-  return [state, setUrl, readUrl];
+  const setParams = useCallback<SetWorkspaceParams>(
+    (params, opts) => {
+      const base = latest();
+      const query = new URLSearchParams(base.search);
+      for (const [key, value] of Object.entries(params)) {
+        if (value === null) query.delete(key);
+        else query.set(key, value);
+      }
+      const search = query.toString() ? `?${query.toString()}` : '';
+      if (search === base.search) return;
+      store.pending = {
+        key: base.key,
+        state: parseWorkspaceUrl(tab, query),
+        search,
+      };
+      navigate(`${location.pathname}${search}`, {
+        replace: !!opts?.replace,
+        ...(opts?.state !== undefined ? { state: opts.state } : {}),
+      });
+    },
+    [latest, location.pathname, navigate, store, tab]
+  );
+
+  return [state, setUrl, readUrl, setParams];
 }

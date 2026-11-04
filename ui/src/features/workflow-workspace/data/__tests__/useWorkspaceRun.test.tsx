@@ -86,12 +86,10 @@ describe('useWorkspaceRun, latest', () => {
   // parity:overview-live-updates parity:shell-sse-dag parity:chg-run-url-latest
   it('shows the latest run of the DAG cache and names it in the URL', async () => {
     const view = renderWorkspace(() => useWorkspaceRun(), {
-      url: '/dags/demo?dock=timeline',
+      url: '/dags/demo?dock=steps',
     });
     await waitFor(() =>
-      expect(view.result.current.location.search).toBe(
-        '?run=run-1&dock=timeline'
-      )
+      expect(view.result.current.location.search).toBe('?dock=steps&run=run-1')
     );
     // The redirect replaces the entry: Back does not return to a URL without ?run.
     expect(view.result.current.navigationType).toBe('REPLACE');
@@ -178,13 +176,13 @@ describe('useWorkspaceRun, latest', () => {
   it('adds no ?run for a workflow that never ran, and waits for a legacy ?idx', async () => {
     server.dag = dagPage(zeroRun());
     const empty = renderWorkspace(() => useWorkspaceRun(), {
-      url: '/dags/demo?dock=timeline',
+      url: '/dags/demo?dock=steps',
     });
     await waitFor(() => expect(empty.result.current?.value).toBeDefined());
     await act(async () => {
       await new Promise((resolve) => setTimeout(resolve, 20));
     });
-    expect(empty.result.current.location.search).toBe('?dock=timeline');
+    expect(empty.result.current.location.search).toBe('?dock=steps');
     empty.unmount();
 
     server.dag = dagPage(run('run-1'));
@@ -453,14 +451,12 @@ describe('useWorkspaceRun, pinned', () => {
   // parity:shell-run-fallback-latest
   it('falls back to latest on a 404 and keeps notFound until select', async () => {
     const view = renderWorkspace(() => useWorkspaceRun(), {
-      url: '/dags/demo?run=gone&dock=timeline',
+      url: '/dags/demo?run=gone&dock=steps',
     });
     server.runs['run-1'] = run('run-1', [node('a', NodeStatus.Running)]);
     await waitFor(() => expect(view.result.current?.value.notFound).toBe(true));
     await waitFor(() =>
-      expect(view.result.current.location.search).toBe(
-        '?run=run-1&dock=timeline'
-      )
+      expect(view.result.current.location.search).toBe('?run=run-1&dock=steps')
     );
     expect(view.result.current.navigationType).toBe('REPLACE');
     const value = view.result.current.value;
@@ -478,9 +474,7 @@ describe('useWorkspaceRun, pinned', () => {
 
     act(() => view.result.current.value.select('latest'));
     expect(view.result.current.value.notFound).toBe(false);
-    expect(view.result.current.location.search).toBe(
-      '?run=run-3&dock=timeline'
-    );
+    expect(view.result.current.location.search).toBe('?run=run-3&dock=steps');
   });
 
   // The API names an older active run as the latest: a newer pinned run is
@@ -546,7 +540,7 @@ describe('useWorkspaceRun, pinned', () => {
   it('falls back without a notice when the shown run vanishes', async () => {
     server.runs.q2 = run('q2', [], Status.Queued);
     const view = renderWorkspace(() => useWorkspaceRun(), {
-      url: '/dags/demo?run=q2&dock=timeline',
+      url: '/dags/demo?run=q2&dock=steps',
     });
     await waitFor(() =>
       expect(view.result.current?.value.details?.dagRunId).toBe('q2')
@@ -556,9 +550,7 @@ describe('useWorkspaceRun, pinned', () => {
       await view.result.current.value.refresh();
     });
     await waitFor(() =>
-      expect(view.result.current.location.search).toBe(
-        '?run=run-1&dock=timeline'
-      )
+      expect(view.result.current.location.search).toBe('?run=run-1&dock=steps')
     );
     expect(view.result.current.value.selection).toBe('latest');
     expect(view.result.current.value.notFound).toBe(false);
@@ -606,7 +598,7 @@ describe('useWorkspaceRun, select', () => {
     server.runs['run-5'] = run('run-5');
     server.runs['run-6'] = run('run-6');
     const view = renderWorkspace(() => useWorkspaceRun(), {
-      url: '/dags/demo?dock=timeline&step=a',
+      url: '/dags/demo?dock=steps&step=a',
     });
     await waitFor(() =>
       expect(view.result.current.location.search).toContain('run=run-1')
@@ -615,7 +607,7 @@ describe('useWorkspaceRun, select', () => {
     act(() => view.result.current.value.select('run-5'));
     let params = new URLSearchParams(view.result.current.location.search);
     expect(params.get('run')).toBe('run-5');
-    expect(params.get('dock')).toBe('timeline');
+    expect(params.get('dock')).toBe('steps');
     expect(params.get('step')).toBe('a');
     expect(view.result.current.navigationType).toBe('PUSH');
     await waitFor(() =>
@@ -630,7 +622,7 @@ describe('useWorkspaceRun, select', () => {
     act(() => view.result.current.value.select('latest'));
     params = new URLSearchParams(view.result.current.location.search);
     expect(params.get('run')).toBe('run-1');
-    expect(params.get('dock')).toBe('timeline');
+    expect(params.get('dock')).toBe('steps');
     expect(params.get('step')).toBe('a');
     expect(view.result.current.navigationType).toBe('PUSH');
     expect(view.result.current.value.selection).toBe('latest');
