@@ -495,7 +495,7 @@ export function VisualEditor(props: VisualEditorProps): ReactElement {
       if (
         edited?.key === key &&
         (edited.fresh ||
-          model.steps.find((s) => s.key === key)?.explicitName === edited.name)
+          runtimeName(model.steps.find((s) => s.key === key)) === edited.name)
       ) {
         return edited.name;
       }
@@ -507,7 +507,9 @@ export function VisualEditor(props: VisualEditorProps): ReactElement {
       const step =
         model.steps.find((s) => s.key === key) ??
         model.handlers.find((s) => s.key === key);
-      return step?.explicitName ?? knownNames.current.get(key) ?? null;
+      return (
+        step?.explicitName ?? knownNames.current.get(key) ?? step?.id ?? null
+      );
     },
     [names, model]
   );
@@ -740,9 +742,11 @@ export function VisualEditor(props: VisualEditorProps): ReactElement {
       if (result.ok) {
         setNotice(null);
         if (result.select) {
-          const written = parseDagDocLenient(result.text).steps.find(
-            (step) => step.key === result.select
-          )?.explicitName;
+          const written = runtimeName(
+            parseDagDocLenient(result.text).steps.find(
+              (step) => step.key === result.select
+            )
+          );
           editedName.current =
             written === undefined
               ? null
@@ -1877,3 +1881,10 @@ function actionIdOf(step: StepView | undefined): string | undefined {
 }
 
 export default VisualEditor;
+
+/** The name that a step runs under: its name, else its id. */
+function runtimeName(
+  step: { explicitName?: string; id?: string } | undefined
+): string | undefined {
+  return step?.explicitName ?? step?.id;
+}

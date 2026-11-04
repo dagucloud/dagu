@@ -216,6 +216,26 @@ describe.skipIf(realSchema === null)('VisualEditor add-step glue', () => {
       expect(view.revealStep).toHaveBeenCalledWith('steps[3]');
     });
 
+    // A step with an id and no name runs under its id: the host gets the
+    // id, before the server has checked the new text.
+    it('tells the host the id of a new step that has no name', () => {
+      const onSelectedStepNameChange = vi.fn();
+      renderEditor({
+        initial: yamlArraySteps.replace(/- name: /g, '- id: '),
+        onSelectedStepNameChange,
+      });
+      fireEvent.keyDown(screen.getByTestId('ve-canvas'), { key: 'n' });
+
+      addAction('http.request');
+
+      const added = parseDagDoc(state.text).steps.find(
+        (s) => s.id === 'http_request'
+      );
+      expect(added).toBeDefined();
+      expect(added?.explicitName).toBeUndefined();
+      expect(onSelectedStepNameChange).toHaveBeenLastCalledWith('http_request');
+    });
+
     it('adds with Shift+Enter, stays open and aims after the new step', () => {
       const onSelectedStepNameChange = vi.fn();
       renderEditor({ onSelectedStepNameChange });
@@ -305,6 +325,7 @@ describe.skipIf(realSchema === null)('VisualEditor add-step glue', () => {
         .routes;
       expect(routes['re:.*']).toEqual(['other', 'cmd_4']);
       const added = parseDagDoc(state.text).steps.find((s) => s.id === 'cmd_4');
+      expect(added).toBeDefined();
       expect(added?.explicitName).toBeUndefined();
     });
   });
