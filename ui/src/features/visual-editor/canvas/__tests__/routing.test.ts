@@ -6,16 +6,11 @@ import type { CanvasDirection, CanvasGraph, CanvasNode } from '../../contracts';
 import {
   CORNER_RADIUS,
   insideBox,
+  routeAround,
   routedCurve,
   type Obstacle,
 } from '../edgeRouting';
-import {
-  HANDLE_RADIUS,
-  Position,
-  runFor,
-  sampleCurve,
-  widestMove,
-} from '../engine/geometry';
+import { Position, runFor, sampleCurve, widestMove } from '../engine/geometry';
 import { layoutRoutes, nodeSize, routePorts } from '../layout';
 
 // An edge never crosses a card that it does not link: the layout gives each
@@ -313,21 +308,20 @@ describe('edges of a wide fan', () => {
         const { width, height } = nodeSize(found);
         return { ...positions[key]!, width, height };
       };
-      const along = direction === 'TB' ? 'y' : 'x';
-      const across = direction === 'TB' ? 'x' : 'y';
-      const length = direction === 'TB' ? 'height' : 'width';
-      const breadth = direction === 'TB' ? 'width' : 'height';
+      const lr = direction === 'LR';
       for (const edge of graph.edges) {
         const from = box(edge.source);
         const to = box(edge.target);
-        // The curve ends on the dot of the target handle.
-        const delta = to[along] - (from[along] + from[length]) - HANDLE_RADIUS;
-        const cross = Math.abs(
-          to[across] + to[breadth] / 2 - (from[across] + from[breadth] / 2)
-        );
-        expect(cross, edge.id).toBeLessThanOrEqual(
-          widestMove(delta, CORNER_RADIUS) + 1
-        );
+        const options = {
+          sourceX: lr ? from.x + from.width : from.x + from.width / 2,
+          sourceY: lr ? from.y + from.height / 2 : from.y + from.height,
+          sourcePosition: lr ? Position.Right : Position.Bottom,
+          targetX: lr ? to.x : to.x + to.width / 2,
+          targetY: lr ? to.y + to.height / 2 : to.y,
+          targetPosition: lr ? Position.Left : Position.Top,
+        };
+        // No waypoint: the edge is a plain curve, with no loop round the row.
+        expect(routeAround(options, []), edge.id).toEqual([]);
       }
     }
   );
