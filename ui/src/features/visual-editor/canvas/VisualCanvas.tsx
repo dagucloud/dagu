@@ -667,18 +667,11 @@ function CanvasView({
       setViewport(view);
     }
   };
-  const autoFit = useAutoFit(
-    wrapperRef,
-    () => {
-      fitView(fitOptions);
-      // A resize that fits the graph again keeps the selected step in view.
-      keepSelectedInView();
-    },
-    undefined,
-    // A dock that opens changes the height only: the graph stays in place and
-    // moves only when it would hide the selected step.
-    keepSelectedInView
-  );
+  const autoFit = useAutoFit(wrapperRef, () => {
+    fitView(fitOptions);
+    // A resize that fits the graph again keeps the selected step in view.
+    keepSelectedInView();
+  });
   const {
     onUserMove: stopAutoFit,
     onHostMove,

@@ -31,14 +31,19 @@ afterEach(() => {
   vi.unstubAllGlobals();
 });
 
-function setup() {
+function setup(element: HTMLDivElement = document.createElement('div')) {
   const fit = vi.fn();
-  const onHeightChange = vi.fn();
-  const ref = { current: document.createElement('div') };
-  const { result } = renderHook(() =>
-    useAutoFit(ref, fit, undefined, onHeightChange)
-  );
-  return { fit, onHeightChange, result };
+  const ref = { current: element };
+  const { result } = renderHook(() => useAutoFit(ref, fit));
+  return { fit, result };
+}
+
+/** An element with a layout: jsdom gives every element a size of 0. */
+function laidOut(width: number, height: number): HTMLDivElement {
+  const element = document.createElement('div');
+  Object.defineProperty(element, 'clientWidth', { value: width });
+  Object.defineProperty(element, 'clientHeight', { value: height });
+  return element;
 }
 
 describe('useAutoFit', () => {
@@ -66,26 +71,33 @@ describe('useAutoFit', () => {
     expect(AUTO_FIT_DELAY_MS).toBe(150);
   });
 
-  // A dock that opens or closes changes the height only: the graph stays.
-  it('does not fit again after a height-only change', () => {
-    const { fit, onHeightChange, result } = setup();
+  // A dock that opens under the canvas takes its height: a graph that kept
+  // its place was cut by the dock while the space above it stayed empty.
+  it('fits again after a height-only change, until the user moves', () => {
+    const { fit, result } = setup();
     notify(800, 420);
     notify(800, 300);
-    act(() => vi.advanceTimersByTime(AUTO_FIT_DELAY_MS * 4));
-    expect(fit).not.toHaveBeenCalled();
-    expect(onHeightChange).toHaveBeenCalledTimes(1);
-
-    // A width change afterwards fits again, as before.
-    notify(700, 300);
     act(() => vi.advanceTimersByTime(AUTO_FIT_DELAY_MS));
     expect(fit).toHaveBeenCalledTimes(1);
-    expect(onHeightChange).toHaveBeenCalledTimes(1);
 
-    // A user move stops the height callback too.
     result.current.onUserMove();
-    notify(700, 200);
+    notify(800, 200);
     act(() => vi.advanceTimersByTime(AUTO_FIT_DELAY_MS));
-    expect(onHeightChange).toHaveBeenCalledTimes(1);
+    expect(fit).toHaveBeenCalledTimes(1);
+  });
+
+  // The flow fits the size that it measures at its first layout. A panel
+  // restored from memory can change it before the observer first reports.
+  it('fits again when the first report differs from the size at mount', () => {
+    const { fit } = setup(laidOut(1000, 600));
+    act(() => vi.advanceTimersByTime(AUTO_FIT_DELAY_MS));
+    expect(fit).toHaveBeenCalledTimes(1);
+  });
+
+  it('does not fit again when the first report is the size at mount', () => {
+    const { fit } = setup(laidOut(800, 600));
+    act(() => vi.advanceTimersByTime(AUTO_FIT_DELAY_MS));
+    expect(fit).not.toHaveBeenCalled();
   });
 
   // parity:canvas-auto-fit
