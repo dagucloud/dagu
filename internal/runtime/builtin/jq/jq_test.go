@@ -14,6 +14,7 @@ import (
 	"testing"
 
 	"github.com/dagucloud/dagu/v2/internal/ir"
+	"github.com/dagucloud/dagu/v2/internal/runtime"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -889,5 +890,41 @@ func TestJQErrors(t *testing.T) {
 				assert.Equal(t, tc.wantStdout, stdout.String())
 			})
 		}
+	}
+}
+
+// A relative with.input, or a relative file:// path in the data, names a file
+// under the step working directory, not the Dagu process directory.
+func TestJQExecutor_RelativeInputUsesWorkingDir(t *testing.T) {
+	t.Parallel()
+
+	workDir := t.TempDir()
+	require.NoError(t, os.WriteFile(filepath.Join(workDir, "in.json"), []byte(`{"name":"dagu"}`), 0o600))
+
+	for name, step := range map[string]ir.Step{
+		"input": {
+			Commands:       []ir.CommandEntry{{CmdWithArgs: ".name"}},
+			ExecutorConfig: ir.ExecutorConfig{Type: "jq", Config: map[string]any{"input": "in.json", "raw": true}},
+		},
+		"file data": {
+			Commands:       []ir.CommandEntry{{CmdWithArgs: ".name"}},
+			Script:         "file://in.json",
+			ExecutorConfig: ir.ExecutorConfig{Type: "jq", Config: map[string]any{"raw": true}},
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+			dag := &ir.DAG{Name: "jq-test", WorkingDir: workDir, WorkingDirExplicit: true}
+			ctx := runtime.NewContext(context.Background(), dag, "run-1", "")
+			ctx = runtime.WithEnv(ctx, runtime.NewEnv(ctx, step))
+
+			executor, err := newJQ(ctx, step)
+			require.NoError(t, err)
+			var stdout bytes.Buffer
+			executor.SetStdout(&stdout)
+			executor.SetStderr(&bytes.Buffer{})
+			require.NoError(t, executor.Run(ctx))
+			assert.Equal(t, "dagu\n", stdout.String())
+		})
 	}
 }
