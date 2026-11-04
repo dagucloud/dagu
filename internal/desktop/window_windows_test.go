@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"runtime"
 	"slices"
 	"testing"
@@ -44,8 +45,10 @@ const (
 	// gaParent asks GetAncestor for a window's parent.
 	gaParent = 1
 	// framedAppEnv makes a run of the test binary the second process of
-	// TestWindowsDesktopNamesTheAppInAFrame.
-	framedAppEnv = "DAGU_DESKTOP_FRAMED_APP"
+	// TestWindowsDesktopNamesTheAppInAFrame, and framedAppImage is the name
+	// that copy of the binary runs under.
+	framedAppEnv   = "DAGU_DESKTOP_FRAMED_APP"
+	framedAppImage = "dagu-framed-app"
 )
 
 // wndClassEx is WNDCLASSEXW.
@@ -132,7 +135,16 @@ func TestWindowsDesktopNamesTheAppInAFrame(t *testing.T) {
 	require.True(t, ok)
 	require.Equal(t, uint32(os.Getpid()), before.PID, "an empty frame is its owner's")
 
-	app := exec.Command(os.Args[0], "-test.run=^TestFramedAppHelper$")
+	// The second process runs a copy of the test binary under a name of its
+	// own, so its application differs from the frame owner's.
+	dir, err := os.MkdirTemp("", "dagu-frame-")
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = os.RemoveAll(dir) })
+	helper := filepath.Join(dir, framedAppImage+".exe")
+	binary, err := os.ReadFile(os.Args[0])
+	require.NoError(t, err)
+	require.NoError(t, os.WriteFile(helper, binary, 0o700))
+	app := exec.Command(helper, "-test.run=^TestFramedAppHelper$")
 	app.Env = append(os.Environ(), framedAppEnv+"=1")
 	out, err := app.StdoutPipe()
 	require.NoError(t, err)
@@ -163,6 +175,7 @@ func TestWindowsDesktopNamesTheAppInAFrame(t *testing.T) {
 	framed, ok := listed(driver.Windows(), frame)
 	require.True(t, ok, "the frame is listed")
 	assert.Equal(t, uint32(app.Process.Pid), framed.PID, "the frame is the window of the app inside it")
+	assert.Equal(t, framedAppImage, framed.App)
 }
 
 // TestFramedAppHelper is not a test of its own: run by
