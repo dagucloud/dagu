@@ -2951,15 +2951,63 @@ steps: [{run: "true"}]
 llm: {provider: openai, model: gpt-4o, tools: [calculator], max_tool_iterations: 5}
 steps: [{run: "true"}]
 `, true},
+		{"DAG-level Redis TLS", `
+redis: {host: localhost, tls: true}
+steps: [{action: redis.ping}]
+`, true},
 		{"DAG-level Redis TLS file", `
 redis: {host: localhost, tls: true, tls_ca: /etc/ssl/ca.pem}
 steps: [{action: redis.ping}]
 `, false},
+		{"step worker_selector labels", `
+steps:
+  - action: dag.run
+    with: {dag: child}
+    worker_selector: {gpu: "true"}
+`, true},
 		{"step worker_selector local", `
 steps:
   - action: dag.run
     with: {dag: child}
     worker_selector: local
+`, false},
+		{"SMTP OAuth blank extra credential", `
+smtp:
+  username: alerts@example.com
+  oauth: {provider: microsoft, tenant_id: t, client_id: c, client_secret: s, refresh_token: ""}
+steps: [{run: "true"}]
+`, true},
+		{"SMTP OAuth Google service account", `
+smtp:
+  username: alerts@example.com
+  oauth: {provider: google_service_account, service_account_json: "{}"}
+steps: [{run: "true"}]
+`, true},
+		{"SMTP OAuth Google service account with client ID", `
+smtp:
+  username: alerts@example.com
+  oauth: {provider: google_service_account, service_account_json: "{}", client_id: c}
+steps: [{run: "true"}]
+`, false},
+		{"SMTP OAuth Google refresh token", `
+smtp:
+  username: alerts@example.com
+  oauth: {provider: google_refresh, client_id: c, client_secret: s, refresh_token: r}
+steps: [{run: "true"}]
+`, true},
+		{"SMTP OAuth Google refresh without token", `
+smtp:
+  username: alerts@example.com
+  oauth: {provider: google_refresh, client_id: c, client_secret: s}
+steps: [{run: "true"}]
+`, false},
+		{"no tool rounds", `
+llm: {provider: openai, model: gpt-4o, max_tool_iterations: 0}
+steps: [{run: "true"}]
+`, true},
+		{"negative tool rounds", `
+llm: {provider: openai, model: gpt-4o, max_tool_iterations: -1}
+steps: [{run: "true"}]
 `, false},
 		{"SMTP OAuth missing tenant", `
 smtp:

@@ -4396,7 +4396,12 @@
               "client_id": { "pattern": "\\S" },
               "client_secret": { "pattern": "\\S" }
             },
-            "not": { "anyOf": [{ "required": ["service_account_json"] }, { "required": ["refresh_token"] }] }
+            "not": {
+              "anyOf": [
+                { "required": ["service_account_json"], "properties": { "service_account_json": { "pattern": "\\S" } } },
+                { "required": ["refresh_token"], "properties": { "refresh_token": { "pattern": "\\S" } } }
+              ]
+            }
           }
         },
         {
@@ -4404,7 +4409,14 @@
           "then": {
             "required": ["service_account_json"],
             "properties": { "service_account_json": { "pattern": "\\S" } },
-            "not": { "anyOf": [{ "required": ["tenant_id"] }, { "required": ["client_id"] }, { "required": ["client_secret"] }, { "required": ["refresh_token"] }] }
+            "not": {
+              "anyOf": [
+                { "required": ["tenant_id"], "properties": { "tenant_id": { "pattern": "\\S" } } },
+                { "required": ["client_id"], "properties": { "client_id": { "pattern": "\\S" } } },
+                { "required": ["client_secret"], "properties": { "client_secret": { "pattern": "\\S" } } },
+                { "required": ["refresh_token"], "properties": { "refresh_token": { "pattern": "\\S" } } }
+              ]
+            }
           }
         },
         {
@@ -4416,7 +4428,12 @@
               "client_secret": { "pattern": "\\S" },
               "refresh_token": { "pattern": "\\S" }
             },
-            "not": { "anyOf": [{ "required": ["tenant_id"] }, { "required": ["service_account_json"] }] }
+            "not": {
+              "anyOf": [
+                { "required": ["tenant_id"], "properties": { "tenant_id": { "pattern": "\\S" } } },
+                { "required": ["service_account_json"], "properties": { "service_account_json": { "pattern": "\\S" } } }
+              ]
+            }
           }
         }
       ],
@@ -6856,9 +6873,9 @@
         },
         "max_tool_iterations": {
           "type": "integer",
-          "minimum": 1,
+          "minimum": 0,
           "default": 10,
-          "description": "Maximum tool-calling rounds for a chat.completion step."
+          "description": "Maximum tool-calling rounds for a chat.completion step, where 0 runs no tool rounds. In an agent DAG root, the maximum agent turns, where 0 uses the default of 50."
         },
         "observation_keep_recent": {
           "type": "integer",
