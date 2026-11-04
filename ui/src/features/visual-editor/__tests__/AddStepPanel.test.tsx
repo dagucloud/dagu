@@ -120,6 +120,20 @@ describe('AddStepPanel', () => {
     ).toBeInTheDocument();
   });
 
+  // A custom action may have any name, also one of an object property.
+  it('describes an action named like an object property by its own text', () => {
+    setup({
+      catalog: [
+        entry('constructor', 'Builder', 'custom', 'Build a thing.'),
+        entry('toString', 'Printer', 'custom'),
+      ],
+    });
+    const builder = screen.getByRole('option', { name: /Builder/ });
+    expect(within(builder).getByText('Build a thing.')).toBeInTheDocument();
+    const printer = screen.getByRole('option', { name: /Printer/ });
+    expect(within(printer).getAllByText('toString')).toHaveLength(2);
+  });
+
   // axe nested-interactive and duplicate option names.
   it('lists an action once and holds no control in an option', () => {
     setup();
