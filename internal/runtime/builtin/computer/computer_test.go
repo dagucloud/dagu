@@ -2086,6 +2086,24 @@ func TestRecordsElementsBesidePixels(t *testing.T) {
 	assert.Equal(t, "saveButton", entry.Landmarks[0].Selector.ID, "the element touched last comes first")
 }
 
+// A step that cannot read the installation key says so, and records its
+// click by fingerprint alone, as recordings made before the cells existed.
+// It sets the key's variable, so it does not run in parallel.
+func TestRecordsFingerprintsAloneWithoutTheInstallationKey(t *testing.T) {
+	t.Setenv("DAGU_ENCRYPTION_KEY", "")
+	run := newTestRun(t)
+	// A file where the key's directory belongs keeps the key from being made.
+	require.NoError(t, os.WriteFile(filepath.Join(run.dataDir, "auth"), nil, 0o600))
+	run.sessions = []*scriptedSession{{turns: []*computeruse.Turn{actions(clickAt(10, 20)), done("Clicked")}}}
+	execution := run.execute(`{"do": [{"act": "Click the button"}]}`, nil)
+	require.NoError(t, execution.err)
+
+	assert.Contains(t, execution.stderr.String(), "warning: read the installation key")
+	click := lookupRecording(t, run, "Click the button").Turns[0].Actions[0]
+	assert.NotNil(t, click.Target)
+	assert.Empty(t, click.TargetCells)
+}
+
 // A replay finds its elements where they are now, so a moved window and
 // changed pixels still replay, by element.
 func TestReplaysByElementWhenPixelsChanged(t *testing.T) {

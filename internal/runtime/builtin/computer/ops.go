@@ -187,12 +187,14 @@ func newRun(ctx context.Context, e *computerExecutor) (*run, error) {
 		r.variables = map[string]string{}
 	}
 	r.cache = openReplayCache(computerDir, dagName, stepKey)
+	r.timeline = &agentstep.Timeline{Log: e.stderr, Masker: masker, Total: len(e.cfg.Do), Update: e.updateSession, Provider: providerName}
 	// Without the installation key, the step records and replays on
 	// fingerprints alone.
-	if installKey, err := crypto.ResolveKey(dataDir); err == nil {
+	if installKey, err := crypto.ResolveKey(dataDir); err != nil {
+		_, _ = fmt.Fprintf(r.timeline.Log, "warning: read the installation key, so click targets are compared by fingerprint alone: %s\n", r.masker.MaskString(err.Error()))
+	} else {
 		r.targetKey = newTargetKey(installKey)
 	}
-	r.timeline = &agentstep.Timeline{Log: e.stderr, Masker: masker, Total: len(e.cfg.Do), Update: e.updateSession, Provider: providerName}
 	return r, nil
 }
 
