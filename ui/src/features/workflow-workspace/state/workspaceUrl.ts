@@ -260,7 +260,8 @@ function sameValue(a: unknown, b: unknown): boolean {
 export type WorkspaceUrlPatch = Partial<WorkspaceUrlState>;
 export type SetWorkspaceUrl = (
   patch: WorkspaceUrlPatch,
-  opts?: { replace?: boolean }
+  /** `state` is the history state of the new entry, such as RUN_REDIRECT_STATE. */
+  opts?: { replace?: boolean; state?: unknown }
 ) => void;
 /**
  * Reads the URL state of the last write, also one that the router has not
@@ -397,7 +398,11 @@ export function useWorkspaceUrl(): [
         nextState.run === base.state.run;
       navigate(next, {
         replace: !push,
-        ...(keepRedirect ? { state: location.state } : {}),
+        ...(opts?.state !== undefined
+          ? { state: opts.state }
+          : keepRedirect
+            ? { state: location.state }
+            : {}),
       });
     },
     [fileName, latest, location, navigate, store]

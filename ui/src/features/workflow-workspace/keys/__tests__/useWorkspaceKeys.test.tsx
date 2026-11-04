@@ -340,21 +340,21 @@ describe('useWorkspaceKeys', () => {
     dock.openStep.mockClear();
     const view = renderKeys({ url: `/dags/${FILE_NAME}?step=build` });
     await waitFor(() =>
-      expect(view.result.current?.location.search).toBe('?step=build&run=run-2')
+      expect(view.result.current?.location.search).toBe('?run=run-2&step=build')
     );
 
     expect(fireEvent.keyDown(document.body, { key: 'l' })).toBe(false);
     expect(dock.openStep).toHaveBeenCalledWith('build');
     expect(fireEvent.keyDown(document.body, { key: '[' })).toBe(false);
     await waitFor(() =>
-      expect(view.result.current.location.search).toBe('?step=build&run=run-1')
+      expect(view.result.current.location.search).toBe('?run=run-1&step=build')
     );
     expect(historyCalls()).toBe(1);
     expect(fireEvent.keyDown(document.body, { key: 'L', shiftKey: true })).toBe(
       false
     );
     await waitFor(() =>
-      expect(view.result.current.location.search).toBe('?step=build&run=run-2')
+      expect(view.result.current.location.search).toBe('?run=run-2&step=build')
     );
   });
 
