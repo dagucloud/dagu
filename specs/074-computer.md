@@ -106,10 +106,10 @@ replayed action other than an element performing a pattern itself, a
 model-read `extract`, a statement check, a `screenshot`, and the capture of
 a screenshot the step's `screenshots` policy takes. Focusing an element,
 which on Windows brings its window forward, bringing a window forward, and
-restoring a minimized one count as input too, and so does a pattern the
-system performs by bringing the element's window forward: Windows does so
-for every pattern of a Win32 or Windows Forms control, or of a control of a
-framework it does not name. A step that finds the
+restoring a minimized one count as input too, and so does every element
+pattern on Windows, where UI Automation brings the element's window forward
+to perform one: it focuses a Win32 or Windows Forms control first, and
+Chromium takes the foreground to set a field's value. A step that finds the
 desktop in use waits for it and logs that it is waiting; the waiting event
 on the timeline is named `desktop`. A failing step captures the screen
 only when no other step holds the desktop. A step paused by `ask` does not
