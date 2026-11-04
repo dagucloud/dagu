@@ -1425,6 +1425,32 @@ describe('DAGSpec visual view', () => {
       ).toBeInTheDocument();
     });
 
+    // A sub-DAG tab shows one document of the file: its revert puts back
+    // that document only, and leaves a change of the parent that the tab
+    // does not show.
+    it('reverts only the document of a sub-DAG', async () => {
+      const child = 'name: child\nsteps:\n  - name: load\n    run: echo load\n';
+      const twoDocs = `${savedSpec}---\n${child}`;
+      mocks.useQuery.mockReturnValue(specData({ spec: twoDocs }));
+      await renderSpec({ localDags });
+      const editor = screen.getByLabelText('DAG spec');
+      const parentEdit = twoDocs.replace('echo hello', 'echo bye');
+      fireEvent.change(editor, { target: { value: parentEdit } });
+      fireEvent.click(screen.getByRole('tab', { name: 'child' }));
+      await settle();
+
+      // Only the parent changed: the sub-DAG has nothing to revert.
+      expect(visual.props?.revertable).toBe(false);
+
+      fireEvent.change(editor, {
+        target: { value: parentEdit.replace('echo load', 'echo unload') },
+      });
+      expect(visual.props?.revertable).toBe(true);
+      act(() => visual.props?.onRevertToSave?.());
+
+      expect(screen.getByLabelText('DAG spec')).toHaveValue(parentEdit);
+    });
+
     it('shows no tabs for a file with one document', async () => {
       await renderSpec();
 

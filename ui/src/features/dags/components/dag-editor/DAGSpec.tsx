@@ -1215,16 +1215,42 @@ function DAGSpec({
   );
   // More than a line of edits is not thrown away without a question.
   const [discardOpen, setDiscardOpen] = React.useState(false);
-  const discardLines = discardOpen
-    ? changedLineCount(serverSpec ?? '', currentValue ?? '')
-    : 0;
+  // The revert of a sub-DAG puts back its own document only: a change of
+  // another document, which its tab does not show, stays.
+  const [discardChild, setDiscardChild] = React.useState(false);
+  const childText = childSpan
+    ? fileText.slice(childSpan.from, childSpan.to)
+    : undefined;
+  const childChanged =
+    childText !== undefined &&
+    savedChildText !== undefined &&
+    !isSameYaml(childText, savedChildText);
+  const discardLines = !discardOpen
+    ? 0
+    : discardChild
+      ? changedLineCount(savedChildText ?? '', childText ?? '')
+      : changedLineCount(serverSpec ?? '', currentValue ?? '');
   const requestDiscard = React.useCallback(() => {
     if (changedLineCount(serverSpec ?? '', currentValue ?? '') > 1) {
+      setDiscardChild(false);
       setDiscardOpen(true);
     } else {
       discardChanges();
     }
   }, [currentValue, discardChanges, serverSpec]);
+  const revertChild = React.useCallback(() => {
+    if (!childSpan || savedChildText === undefined) return;
+    setCurrentValue(replaceSpan(fileText, childSpan, savedChildText));
+  }, [childSpan, fileText, savedChildText, setCurrentValue]);
+  const requestChildRevert = React.useCallback(() => {
+    if (!childChanged) return;
+    if (changedLineCount(savedChildText ?? '', childText ?? '') > 1) {
+      setDiscardChild(true);
+      setDiscardOpen(true);
+    } else {
+      revertChild();
+    }
+  }, [childChanged, childText, revertChild, savedChildText]);
   const requestSave = React.useCallback(async () => {
     if (savingBlocked) {
       setIssuesRequest((count) => count + 1);
@@ -2083,7 +2109,11 @@ function DAGSpec({
                 dismissModal={() => setDiscardOpen(false)}
                 onSubmit={() => {
                   setDiscardOpen(false);
-                  discardChanges();
+                  if (discardChild) {
+                    revertChild();
+                  } else {
+                    discardChanges();
+                  }
                 }}
               >
                 <p>
@@ -2263,8 +2293,10 @@ function DAGSpec({
                         savedText={savedChildText}
                         toolbarStart={documentTabs}
                         toolbarTrail={childTrail}
-                        // The child is part of the file that a revert reloads.
-                        onRevertToSave={editable ? requestDiscard : undefined}
+                        onRevertToSave={
+                          editable ? requestChildRevert : undefined
+                        }
+                        revertable={childChanged}
                         customActions={visualCustomActions}
                         workflowPanel={
                           preview.dag ? (

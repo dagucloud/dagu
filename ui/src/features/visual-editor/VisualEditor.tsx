@@ -182,6 +182,11 @@ export interface VisualEditorProps extends EditorHostProps {
    * for a confirmation when needed.
    */
   onRevertToSave?(): void;
+  /**
+   * Whether the revert has a change to put back, when it is not `isDirty`:
+   * the editor of one document of a file reverts that document only.
+   */
+  revertable?: boolean;
   /** Controls after the editor controls, such as save. */
   toolbarTrail?: ReactNode;
   /** What the Workflow panel shows; the panel has no button without it. */
@@ -373,6 +378,7 @@ export function VisualEditor(props: VisualEditorProps): ReactElement {
     toolbarStart,
     toolbarTrail,
     onRevertToSave,
+    revertable,
     workflowPanel,
     workflowPanelBare = false,
     launcherHost,
@@ -1507,7 +1513,9 @@ export function VisualEditor(props: VisualEditorProps): ReactElement {
             <IconButton
               label={ts('Revert to the last save')}
               icon={ArrowLeftToLine}
-              disabledReason={isDirty ? undefined : ts('Nothing to revert')}
+              disabledReason={
+                (revertable ?? isDirty) ? undefined : ts('Nothing to revert')
+              }
               onClick={onRevertToSave}
             />
           ) : null}
