@@ -3,6 +3,7 @@
 
 import {
   Copy,
+  FileCode,
   Link2,
   MoreHorizontal,
   PanelRight,
@@ -150,6 +151,14 @@ function MoreMenuItems({
       >
         <PanelRight aria-hidden="true" className={menuIcon} />
         {ts('Workflow panel')}
+      </DropdownMenuItem>
+      <DropdownMenuItem
+        className="gap-2"
+        disabled={!handle}
+        onSelect={() => handle?.toggleYaml(true)}
+      >
+        <FileCode aria-hidden="true" className={menuIcon} />
+        {ts('Open {tab}', { tab: ts('YAML') })}
       </DropdownMenuItem>
       {canManageWebhooks && (
         <DropdownMenuItem
