@@ -381,6 +381,16 @@ row found; use header: false to append rows by position`.
 
 ### Updating rows
 
+`key_field` optionally names the input field carrying the worksheet `key`.
+It defaults to `key`. For example, after reading `{注文番号: order_id}`,
+use `key: 注文番号` and `key_field: order_id` to match the original column.
+The input key alias is excluded from inferred `set` columns. An explicit
+`set` can still refer to it as a source field. Missing-row appends write its
+value into the worksheet key column. The existing `_row` consistency check
+still compares the selected row's worksheet key with that input value.
+A supplied `key_field` must not be blank or used with `key: _row`; an omitted
+input key field fails before saving, including when `_row` is present.
+
 `xlsx.update_rows` takes `rows` (objects, each with the `key` column and
 optionally `_row`), `key` (a column name, or `_row` to address rows by
 number alone), and `set`:

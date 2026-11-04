@@ -359,3 +359,20 @@ func TestXlsxValidation(t *testing.T) {
 		})
 	}
 }
+
+func TestXlsxUpdateRowsKeyAliasForeach(t *testing.T) {
+	t.Parallel()
+	dagu := harness.NewRunner(t)
+	dagu.Run("start", "update_rows_key_alias_foreach.yaml").ExpectExitCode(0)
+	var out struct {
+		Rows []map[string]any `json:"rows"`
+	}
+	readJSON(t, dagu, "out.json", &out)
+	require.Len(t, out.Rows, 2)
+	require.Equal(t, "INV-1", out.Rows[0]["注文番号"])
+	require.Equal(t, "INV-2", out.Rows[1]["注文番号"])
+	for _, row := range out.Rows {
+		require.Equal(t, "処理済み", row["状態"])
+		require.NotContains(t, row, "order_id")
+	}
+}
