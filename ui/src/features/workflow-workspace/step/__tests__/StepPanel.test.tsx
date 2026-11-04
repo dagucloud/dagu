@@ -107,7 +107,12 @@ function setup({
   const onClose = vi.fn();
   const onStepCommand = vi.fn();
   const onOpenStep = vi.fn();
-  const panel = (value: ApiDAGRunDetails | null, name = step) => (
+  type ClickPoint = { clientX: number; clientY: number };
+  const panel = (
+    value: ApiDAGRunDetails | null,
+    name = step,
+    at: ClickPoint | undefined = openedAt
+  ) => (
     <MemoryRouter>
       <WorkspaceDataContext.Provider
         value={
@@ -120,7 +125,7 @@ function setup({
       >
         <StepPanel
           step={name}
-          openedAt={openedAt}
+          openedAt={at}
           onClose={onClose}
           onStepCommand={onStepCommand}
           gates={gates(allow)}
@@ -130,7 +135,7 @@ function setup({
     </MemoryRouter>
   );
   // The run and the step that the panel shows now: each helper changes one.
-  let shown = { details, step };
+  let shown = { details, step, openedAt };
   const view = render(panel(details));
   return {
     onClose,
@@ -138,11 +143,12 @@ function setup({
     onOpenStep,
     rerun: (next: ApiDAGRunDetails | null) => {
       shown = { ...shown, details: next };
-      view.rerender(panel(shown.details, shown.step));
+      view.rerender(panel(shown.details, shown.step, shown.openedAt));
     },
-    showStep: (name: string) => {
-      shown = { ...shown, step: name };
-      view.rerender(panel(shown.details, shown.step));
+    /** Shows another step, opened by a click at `at` when given. */
+    showStep: (name: string, at?: ClickPoint) => {
+      shown = { ...shown, step: name, openedAt: at ?? shown.openedAt };
+      view.rerender(panel(shown.details, shown.step, shown.openedAt));
     },
   };
 }
@@ -327,6 +333,23 @@ describe('StepPanel', () => {
       expect(panel()).not.toHaveAttribute('data-panel-shell');
 
       act(() => vi.advanceTimersByTime(500));
+      expect(panel()).toHaveAttribute('data-panel-shell', 'right');
+    });
+
+    // A click on another step during the wait starts a double click there.
+    it('waits again for a double click on the next step', () => {
+      vi.useFakeTimers();
+      placePanel();
+      const { showStep } = setup({
+        details: failedBuild(),
+        openedAt: { clientX: 300, clientY: 100 },
+      });
+      act(() => vi.advanceTimersByTime(300));
+      showStep('fetch', { clientX: 320, clientY: 200 });
+
+      act(() => vi.advanceTimersByTime(300));
+      expect(panel()).not.toHaveAttribute('data-panel-shell');
+      act(() => vi.advanceTimersByTime(200));
       expect(panel()).toHaveAttribute('data-panel-shell', 'right');
     });
 

@@ -83,7 +83,8 @@ export function StepPanel({
   const ref = useRef<HTMLElement>(null);
   const [passThrough, setPassThrough] = useState(openedAt !== null);
   // The mark that makes the canvas fit beside the panel. A fit at once
-  // would move the step from under the second click of a double click.
+  // would move the step from under the second click of a double click; a
+  // click on another step during the wait starts the wait again.
   const [besideCanvas, setBesideCanvas] = useState(openedAt === null);
   useEffect(() => {
     if (besideCanvas) return;
@@ -92,7 +93,7 @@ export function StepPanel({
       DOUBLE_CLICK_MS
     );
     return () => window.clearTimeout(timer);
-  }, [besideCanvas]);
+  }, [besideCanvas, openedAt]);
   useLayoutEffect(() => {
     const box = ref.current?.getBoundingClientRect();
     if (!openedAt || !box || !contains(box, openedAt)) {
