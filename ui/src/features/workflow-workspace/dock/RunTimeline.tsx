@@ -928,12 +928,14 @@ export function RunTimelineView({
     return new Set(focused ? [focused.id, ...focused.overlaps] : []);
   }, [layout.extents, focusId]);
   // Narrow tracks draw the extent of the selected run only, in the top lane.
-  // The extents show how runs overlap. A lone extent, of the one run that
-  // started, overlaps nothing: its run has its bar, and the extent under the
-  // baseline read as a time below zero.
+  // The extents show how runs overlap. A lone extent of a run in the window
+  // overlaps nothing: its run has its bar, and the extent under the baseline
+  // read as a time below zero. A lone extent of an older run stays: it has
+  // no bar.
   const extents = useMemo(
     () =>
-      layout.extents.length < 2
+      layout.extents.length < 2 &&
+      layout.extents.every((extent) => extent.index >= 0)
         ? []
         : narrow
           ? layout.extents

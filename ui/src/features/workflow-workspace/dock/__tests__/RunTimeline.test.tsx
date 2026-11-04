@@ -684,6 +684,25 @@ describe('RunTimelineView', () => {
       expect(screen.queryByTestId('ww-run-bar-old')).toBeNull();
     });
 
+    // An older run that lasts into a window of queued runs has the only
+    // extent, and no bar: the extent shows it.
+    it('keeps the lone extent of an older run', () => {
+      const queued = (id: string, at: string) =>
+        run(id, [], Status.Queued, { startedAt: '', queuedAt: at });
+      const all = [
+        span('old', local(6, 0, 1), local(6, 1, 1), Status.Waiting),
+        queued('q1', local(10)),
+        queued('q2', local(11)),
+      ];
+      renderView({
+        runs: all,
+        count: 2,
+        selectedId: 'q2',
+        now: new Date(2026, 2, 2, 12, 0).getTime(),
+      });
+      expect(extent('old')).toHaveAttribute('data-clipped', 'true');
+    });
+
     // An older run that waits lasts into the view: the axis follows the
     // clock for it, even when the runs of the window are all finished.
     it('follows the clock for an older run that waits', () => {
