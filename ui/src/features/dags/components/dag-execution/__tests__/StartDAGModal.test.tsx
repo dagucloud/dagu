@@ -367,6 +367,34 @@ describe('StartDAGModal', () => {
     ).toBeTruthy();
   });
 
+  it('labels a typed boolean switch', () => {
+    render(
+      <StartDAGModal
+        visible={true}
+        dismissModal={vi.fn()}
+        onSubmit={vi.fn()}
+        dag={
+          {
+            name: 'typed-dag',
+            paramDefs: [
+              {
+                name: 'dry_run',
+                title: 'Dry run',
+                type: 'boolean',
+                default: false,
+                required: false,
+              },
+            ],
+          } as never
+        }
+      />
+    );
+
+    expect(
+      screen.getByRole('switch', { name: 'Dry run dry_run' })
+    ).toBeInTheDocument();
+  });
+
   it('submits typed param fields as a JSON array payload', async () => {
     const onSubmit = vi.fn().mockResolvedValue(undefined);
 

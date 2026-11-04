@@ -168,6 +168,8 @@ function SchemaCheckboxWidget<
 
 /**
  * Renders small fixed-choice schema fields as accessible radio groups.
+ * The labelledBy option names the group by an element id, since a radio
+ * group cannot take a label through htmlFor.
  */
 function SchemaRadioWidget<
   T = any,
@@ -255,6 +257,11 @@ function SchemaRadioWidget<
           );
         }}
         aria-describedby={ariaDescribedByIds(id)}
+        aria-labelledby={
+          typeof options.labelledBy === 'string'
+            ? options.labelledBy
+            : undefined
+        }
         orientation={inline ? 'horizontal' : 'vertical'}
         className={cn('flex flex-wrap', !inline && 'flex-col', className)}
       >

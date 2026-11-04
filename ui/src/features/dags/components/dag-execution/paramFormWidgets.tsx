@@ -2,11 +2,13 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 import type { RegistryWidgetsType, WidgetProps } from '@rjsf/utils';
+import type { ComponentType } from 'react';
 import {
   ariaDescribedByIds,
   descriptionId,
   getTemplate,
   schemaRequiresTrueValue,
+  titleId,
 } from '@rjsf/utils';
 
 import { Checkbox } from '@/components/ui/checkbox';
@@ -96,8 +98,22 @@ function ParamCheckboxWidget({
   );
 }
 
+const SchemaRadioWidget =
+  schemaFormWidgets.RadioWidget as ComponentType<WidgetProps>;
+
+/** Names a start parameter's radio group by the field label. */
+function ParamRadioWidget(props: WidgetProps) {
+  return (
+    <SchemaRadioWidget
+      {...props}
+      options={{ ...props.options, labelledBy: titleId(props.id) }}
+    />
+  );
+}
+
 /** Widgets for schema-backed start parameter forms. */
 export const paramFormWidgets: RegistryWidgetsType = {
   ...schemaFormWidgets,
   CheckboxWidget: ParamCheckboxWidget,
+  RadioWidget: ParamRadioWidget,
 };

@@ -1,7 +1,7 @@
 // Copyright (C) 2026 Yota Hamada
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-import { render, screen } from '@testing-library/react';
+import { fireEvent, render, screen } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
 import StartDAGModal from '../StartDAGModal';
 
@@ -47,6 +47,31 @@ describe('StartDAGModal schema parameters', () => {
       description.compareDocumentPosition(input) &
         Node.DOCUMENT_POSITION_FOLLOWING
     ).toBeTruthy();
+  });
+
+  it('names a radio group by its label', () => {
+    renderSchemaParams({
+      region: {
+        type: 'string',
+        title: 'AWS region',
+        enum: ['us-east-1', 'us-west-2'],
+      },
+    });
+
+    expect(
+      screen.getByRole('radiogroup', { name: 'AWS region region' })
+    ).toBeInTheDocument();
+  });
+
+  it('lets a double-click select the name for copying', () => {
+    renderSchemaParams({
+      region: { type: 'string', title: 'AWS region' },
+    });
+
+    // A cancelled mousedown with detail > 1 blocks the word selection.
+    expect(fireEvent.mouseDown(screen.getByText('region'), { detail: 2 })).toBe(
+      true
+    );
   });
 
   it('labels a titled boolean by its title, name, then description', () => {

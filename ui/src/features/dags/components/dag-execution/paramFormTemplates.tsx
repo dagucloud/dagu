@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 import type { FieldTemplateProps, TemplatesType } from '@rjsf/utils';
-import { getTemplate, getUiOptions } from '@rjsf/utils';
+import { getTemplate, getUiOptions, titleId } from '@rjsf/utils';
 
 import { cn } from '@/lib/utils';
 import { ParamLabel } from './ParamLabel';
@@ -74,6 +74,7 @@ function ParamFieldTemplate({
       <div className="flex flex-col gap-2">
         {showLabel && (
           <ParamLabel
+            id={titleId(id)}
             htmlFor={id}
             name={typeof name === 'string' ? name : undefined}
             label={label}
