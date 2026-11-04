@@ -6,6 +6,7 @@ package resource
 import (
 	"context"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/dagucloud/dagu/v2/internal/cmn/config"
@@ -24,6 +25,35 @@ type Service struct {
 	cancel context.CancelFunc
 	done   chan struct{}
 	mu     sync.Mutex
+	latest atomic.Pointer[Sample]
+}
+
+// Sample is one reading of the resources of the machine the process runs
+// on. A part whose reading failed is nil, and CPUs is zero when unknown.
+type Sample struct {
+	At time.Time
+	// CPUs counts the logical CPUs.
+	CPUs int
+	// CPUPercent is how busy all CPUs were, from 0 to 100.
+	CPUPercent *float64
+	Memory     *Usage
+	// Disk is the disk that holds the data directory.
+	Disk *Usage
+	Load *LoadAverage
+}
+
+// Usage is how much of a memory or a disk is in use.
+type Usage struct {
+	UsedPercent float64
+	UsedBytes   uint64
+	TotalBytes  uint64
+}
+
+// LoadAverage is the system load averaged over 1, 5, and 15 minutes.
+type LoadAverage struct {
+	Load1  float64
+	Load5  float64
+	Load15 float64
 }
 
 const defaultMonitoringInterval = 10 * time.Second
@@ -84,6 +114,15 @@ func (s *Service) GetHistory(duration time.Duration) *ResourceHistory {
 	return s.store.GetHistory(duration)
 }
 
+// Latest returns the latest sample, and false before one is taken.
+func (s *Service) Latest() (Sample, bool) {
+	sample := s.latest.Load()
+	if sample == nil {
+		return Sample{}, false
+	}
+	return *sample, true
+}
+
 // DiskUsedPercent returns how full the data directory's disk was at the
 // latest sample, and false before a sample succeeds.
 func (s *Service) DiskUsedPercent() (float64, bool) {
@@ -112,12 +151,17 @@ func (s *Service) loop(ctx context.Context) {
 func (s *Service) collect(ctx context.Context) {
 	var cpuVal, memVal, diskVal, loadVal float64
 	var memTotal, memUsed, diskTotal, diskUsed uint64
+	sample := Sample{At: time.Now()}
 
 	// CPU Usage
 	if cpuPercent, err := cpu.PercentWithContext(ctx, 100*time.Millisecond, false); err != nil {
 		logger.Error(ctx, "Failed to get CPU usage", tag.Error(err))
 	} else if len(cpuPercent) > 0 {
 		cpuVal = cpuPercent[0]
+		sample.CPUPercent = &cpuVal
+	}
+	if cpus, err := cpu.CountsWithContext(ctx, true); err == nil {
+		sample.CPUs = cpus
 	}
 
 	// Memory Usage
@@ -127,6 +171,7 @@ func (s *Service) collect(ctx context.Context) {
 		memVal = memStat.UsedPercent
 		memTotal = memStat.Total
 		memUsed = memStat.Used
+		sample.Memory = &Usage{UsedPercent: memVal, UsedBytes: memUsed, TotalBytes: memTotal}
 	}
 
 	// Disk Usage (for data directory)
@@ -136,6 +181,7 @@ func (s *Service) collect(ctx context.Context) {
 		diskVal = diskStat.UsedPercent
 		diskTotal = diskStat.Total
 		diskUsed = diskStat.Used
+		sample.Disk = &Usage{UsedPercent: diskVal, UsedBytes: diskUsed, TotalBytes: diskTotal}
 	}
 
 	// Load Average
@@ -143,7 +189,9 @@ func (s *Service) collect(ctx context.Context) {
 		logger.Error(ctx, "Failed to get load average", tag.Error(err))
 	} else {
 		loadVal = loadStat.Load1
+		sample.Load = &LoadAverage{Load1: loadStat.Load1, Load5: loadStat.Load5, Load15: loadStat.Load15}
 	}
 
 	s.store.Add(cpuVal, memVal, diskVal, loadVal, memTotal, memUsed, diskTotal, diskUsed)
+	s.latest.Store(&sample)
 }

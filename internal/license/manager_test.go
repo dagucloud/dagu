@@ -708,33 +708,11 @@ func TestManager_ServerName(t *testing.T) {
 func TestManager_CloudCredentials(t *testing.T) {
 	// Subtests use t.Setenv so the parent must not call t.Parallel.
 
-	t.Run("online activation", func(t *testing.T) {
-		pub, priv := testKeyPair(t)
-		claims := validClaims()
-		claims.ID = "lic-1"
-		token := signToken(t, priv, claims)
-		srv := newMockCloudServer(t, mockCloudServerConfig{
-			activateHandler:  activateHandlerFn(token, "hb-secret"),
-			heartbeatHandler: heartbeatHandlerFn(token),
+	for plan, free := range map[string]bool{"pro": false, PlanFree: true} {
+		t.Run("online activation on "+plan, func(t *testing.T) {
+			testOnlineCloudCredentials(t, plan, free)
 		})
-		dir := t.TempDir()
-		m := NewManager(ManagerConfig{LicenseDir: dir, CloudURL: srv.URL + "/"}, pub, nil, slog.Default())
-		t.Cleanup(func() { stopWithTimeout(t, m, 5*time.Second) })
-
-		_, err := m.ActivateWithKey(context.Background(), "key")
-		require.NoError(t, err)
-		serverID, err := GetOrCreateServerID(dir)
-		require.NoError(t, err)
-
-		creds, ok := m.CloudCredentials()
-		require.True(t, ok)
-		assert.Equal(t, CloudCredentials{
-			CloudURL:        srv.URL,
-			LicenseID:       "lic-1",
-			ServerID:        serverID,
-			HeartbeatSecret: "hb-secret",
-		}, creds)
-	})
+	}
 
 	offline := map[string]func(t *testing.T, licenseDir, token string){
 		"inline JWT": func(t *testing.T, _, token string) {
@@ -769,6 +747,39 @@ func TestManager_CloudCredentials(t *testing.T) {
 		_, ok := m.CloudCredentials()
 		assert.False(t, ok)
 	})
+}
+
+// testOnlineCloudCredentials activates a license of the plan online and
+// checks the credentials reports carry, free set on free monitoring.
+func testOnlineCloudCredentials(t *testing.T, plan string, free bool) {
+	t.Helper()
+	pub, priv := testKeyPair(t)
+	claims := validClaims()
+	claims.ID = "lic-1"
+	claims.Plan = plan
+	token := signToken(t, priv, claims)
+	srv := newMockCloudServer(t, mockCloudServerConfig{
+		activateHandler:  activateHandlerFn(token, "hb-secret"),
+		heartbeatHandler: heartbeatHandlerFn(token),
+	})
+	dir := t.TempDir()
+	m := NewManager(ManagerConfig{LicenseDir: dir, CloudURL: srv.URL + "/"}, pub, nil, slog.Default())
+	t.Cleanup(func() { stopWithTimeout(t, m, 5*time.Second) })
+
+	_, err := m.ActivateWithKey(context.Background(), "key")
+	require.NoError(t, err)
+	serverID, err := GetOrCreateServerID(dir)
+	require.NoError(t, err)
+
+	creds, ok := m.CloudCredentials()
+	require.True(t, ok)
+	assert.Equal(t, CloudCredentials{
+		CloudURL:        srv.URL,
+		LicenseID:       "lic-1",
+		ServerID:        serverID,
+		HeartbeatSecret: "hb-secret",
+		Free:            free,
+	}, creds)
 }
 
 func TestManager_ActivateWithKey(t *testing.T) {

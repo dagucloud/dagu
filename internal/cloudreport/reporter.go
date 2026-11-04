@@ -25,6 +25,7 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/cmn/logger"
 	"github.com/dagucloud/dagu/v2/internal/cmn/logger/tag"
 	"github.com/dagucloud/dagu/v2/internal/license"
+	"github.com/dagucloud/dagu/v2/internal/service/resource"
 	"github.com/dagucloud/dagu/v2/internal/serviceregistry"
 )
 
@@ -70,6 +71,8 @@ type Reporter struct {
 	queues    Queues
 	// remote is nil when reports leave remote access out.
 	remote RemoteAccess
+	// resources is nil when reports leave the machine's resources out.
+	resources Resources
 	// refresh checks in for the license now; nil leaves a license change to
 	// the license manager's own check-ins.
 	refresh   func(context.Context) error
@@ -118,8 +121,9 @@ type Reporter struct {
 // returns false. Services are counted in registry; a nil registry leaves them
 // out of reports. Each report sends what the level in monitoring allows at the
 // time: health at health, with the scheduler's last tick and pause from
-// scheduler and, unless remote is nil, how far calls from Dagu Cloud may go,
-// and also, at runs, the finished and in-progress DAG runs that
+// scheduler, unless remote is nil, how far calls from Dagu Cloud may go, and,
+// unless resources is nil or the license is on free monitoring, whose Dagu
+// Console keeps none of it, how busy the machine is; and also, at runs, the finished and in-progress DAG runs that
 // events configures, the scheduled DAGs with what came of their latest
 // slots, and the queues that queues reads. Schedules are sent by the
 // process that reports the events. Choosing
@@ -145,6 +149,7 @@ func Start(
 	queues Queues,
 	monitoring *Monitoring,
 	remote RemoteAccess,
+	resources Resources,
 	refresh func(context.Context) error,
 ) *Reporter {
 	r := newReporter(credentials, registry, monitoring)
@@ -152,6 +157,7 @@ func Start(
 	r.scheduler = scheduler
 	r.queues = queues
 	r.remote = remote
+	r.resources = resources
 	r.refresh = refresh
 	r.start(ctx)
 	return r
@@ -160,6 +166,12 @@ func Start(
 // RemoteAccess reads how far calls from Dagu Cloud may go on the server.
 type RemoteAccess interface {
 	Status(ctx context.Context) (cloudaccess.Status, error)
+}
+
+// Resources reads the latest sample of the resources of the machine the
+// server runs on.
+type Resources interface {
+	Latest() (resource.Sample, bool)
 }
 
 // Stop ends reporting and waits for a report in flight to finish.
@@ -613,6 +625,49 @@ type health struct {
 	// out while unknown.
 	RemoteAccess    config.RemoteAccessLevel `json:"remote_access,omitempty"`
 	RemoteApprovals *bool                    `json:"remote_approvals,omitempty"`
+	// Resources is the latest sample of the machine's resources, left out
+	// before one is taken.
+	Resources *resources `json:"resources,omitempty"`
+}
+
+// resources is a sample of the machine's resources. A part whose reading
+// failed is left out.
+type resources struct {
+	CPUs       int          `json:"cpus,omitempty"`
+	CPUPercent *float64     `json:"cpu_percent,omitempty"`
+	Load       *loadAverage `json:"load,omitempty"`
+	Memory     *usage       `json:"memory,omitempty"`
+	Disk       *usage       `json:"disk,omitempty"`
+}
+
+type loadAverage struct {
+	Load1  float64 `json:"load1"`
+	Load5  float64 `json:"load5"`
+	Load15 float64 `json:"load15"`
+}
+
+type usage struct {
+	UsedPercent float64 `json:"used_percent"`
+	UsedBytes   uint64  `json:"used_bytes"`
+	TotalBytes  uint64  `json:"total_bytes"`
+}
+
+// resourcesOf is the report's form of sample.
+func resourcesOf(sample resource.Sample) *resources {
+	r := &resources{CPUs: sample.CPUs, CPUPercent: sample.CPUPercent}
+	if l := sample.Load; l != nil {
+		r.Load = &loadAverage{Load1: l.Load1, Load5: l.Load5, Load15: l.Load15}
+	}
+	r.Memory = usageOf(sample.Memory)
+	r.Disk = usageOf(sample.Disk)
+	return r
+}
+
+func usageOf(u *resource.Usage) *usage {
+	if u == nil {
+		return nil
+	}
+	return &usage{UsedPercent: u.UsedPercent, UsedBytes: u.UsedBytes, TotalBytes: u.TotalBytes}
 }
 
 type service struct {
@@ -667,6 +722,11 @@ func (r *Reporter) send(ctx context.Context, creds license.CloudCredentials, lev
 		if r.remote != nil {
 			if status, err := r.remote.Status(ctx); err == nil {
 				report.Health.RemoteAccess, report.Health.RemoteApprovals = status.Level, &status.Approvals
+			}
+		}
+		if r.resources != nil && !creds.Free {
+			if sample, ok := r.resources.Latest(); ok {
+				report.Health.Resources = resourcesOf(sample)
 			}
 		}
 		r.events.fill(&report)
