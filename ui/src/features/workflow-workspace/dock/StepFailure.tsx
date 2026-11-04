@@ -9,6 +9,7 @@ import { toneClasses } from '@/lib/statusPalette';
 import { cn } from '@/lib/utils';
 import { useWorkspaceRun } from '../data';
 import { useWorkspaceUrl } from '../state/workspaceUrl';
+import type { StepRunTarget } from '../step/StepRunView';
 import { useDockCommands } from './DockContext';
 
 /**
@@ -37,9 +38,12 @@ export function stepFailureReason(
  */
 export function StepFailureBanner({
   step,
+  stream,
   className,
 }: {
   step: string;
+  /** The stream that the log below shows: no way to stderr from stderr. */
+  stream?: StepRunTarget['stream'];
   className?: string;
 }) {
   const { ts } = useI18n();
@@ -70,16 +74,18 @@ export function StepFailureBanner({
       >
         {reason}
       </p>
-      <Button
-        type="button"
-        variant="outline"
-        size="xs"
-        className="shrink-0"
-        onClick={() => dock.openStep({ step, stream: 'stderr' })}
-      >
-        <ScrollText aria-hidden="true" />
-        {ts('View stderr')}
-      </Button>
+      {stream !== 'stderr' && (
+        <Button
+          type="button"
+          variant="outline"
+          size="xs"
+          className="shrink-0"
+          onClick={() => dock.openStep({ step, stream: 'stderr' })}
+        >
+          <ScrollText aria-hidden="true" />
+          {ts('View stderr')}
+        </Button>
+      )}
       <Button
         type="button"
         variant="outline"

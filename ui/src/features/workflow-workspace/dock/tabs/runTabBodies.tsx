@@ -540,7 +540,11 @@ function LogBody({ run, details, step, fileName }: RunTabProps) {
       <div className="flex h-full min-h-0 flex-col">
         {/* The error is the one of a step of this run, not of a sub run. */}
         {!target.subRun && (
-          <StepFailureBanner step={target.step} className="shrink-0" />
+          <StepFailureBanner
+            step={target.step}
+            stream={target.stream}
+            className="shrink-0"
+          />
         )}
         {!target.subRun && !target.foreach && (
           <StepSubRunStrip node={node} holder={details} />
