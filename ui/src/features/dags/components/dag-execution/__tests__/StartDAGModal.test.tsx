@@ -332,6 +332,41 @@ describe('StartDAGModal', () => {
     expect(screen.getByLabelText(/region/i)).toBeInTheDocument();
   });
 
+  it('labels a typed field by its title and keeps its name visible', () => {
+    render(
+      <StartDAGModal
+        visible={true}
+        dismissModal={vi.fn()}
+        onSubmit={vi.fn()}
+        dag={
+          {
+            name: 'typed-dag',
+            paramDefs: [
+              {
+                name: 'region',
+                title: 'AWS region',
+                description: 'Region the instances are launched in.',
+                type: 'string',
+                required: true,
+              },
+            ],
+          } as never
+        }
+      />
+    );
+
+    const input = screen.getByLabelText('AWS region *');
+    expect(screen.getByText('region')).toBeInTheDocument();
+    // The description is read before the value is entered.
+    const description = screen.getByText(
+      'Region the instances are launched in.'
+    );
+    expect(
+      description.compareDocumentPosition(input) &
+        Node.DOCUMENT_POSITION_FOLLOWING
+    ).toBeTruthy();
+  });
+
   it('submits typed param fields as a JSON array payload', async () => {
     const onSubmit = vi.fn().mockResolvedValue(undefined);
 

@@ -56,8 +56,9 @@ import {
   buildParamSchemaUiSchema,
   stringifyParamSchemaFormData,
 } from './paramSchemaForm';
-import { schemaFormTemplates } from './schemaFormTemplates';
-import { schemaFormWidgets } from './schemaFormWidgets';
+import { ParamNameTag } from './ParamNameTag';
+import { paramFormTemplates } from './paramFormTemplates';
+import { paramFormWidgets } from './schemaFormWidgets';
 import { autoGrowTextarea } from './textareaAutoGrow';
 import { I18nText } from '@/i18n/I18nText';
 import { I18nProps } from '@/i18n/I18nProps';
@@ -72,6 +73,7 @@ type SchemaFormData = Record<string, unknown>;
 type ParamField = {
   key: string;
   name?: string;
+  title?: string;
   type: ParamDefType;
   value: string;
   hasValue: boolean;
@@ -128,6 +130,7 @@ function createParamFields(paramDefs: ParamDef[] = []): ParamField[] {
     return {
       key: def.name ?? `__pos_${index}`,
       name: def.name,
+      title: def.title,
       type: def.type,
       value: hasDefault ? scalarToString(def.default as ScalarValue) : '',
       hasValue: hasDefault,
@@ -899,8 +902,8 @@ function StartDAGModal({
                       validator={validator}
                       formData={schemaFormData}
                       uiSchema={schemaFormUiSchema}
-                      templates={schemaFormTemplates}
-                      widgets={schemaFormWidgets}
+                      templates={paramFormTemplates}
+                      widgets={paramFormWidgets}
                       disabled={paramsReadOnly || submitting}
                       readonly={paramsReadOnly}
                       noHtml5Validate
@@ -922,7 +925,8 @@ function StartDAGModal({
                   {!loading && dag && useTypedFields && (
                     <>
                       {typedFields.map((field, index) => {
-                        const label = field.name || `Parameter ${index + 1}`;
+                        const label =
+                          field.title || field.name || `Parameter ${index + 1}`;
                         const error = fieldErrors[field.key];
                         const disableField = paramsReadOnly || submitting;
                         const showUnsetButton =
@@ -933,10 +937,13 @@ function StartDAGModal({
                         return (
                           <div key={field.key} className="space-y-2">
                             <div className="flex items-center justify-between gap-3">
-                              <Label htmlFor={`param-${field.key}`}>
-                                {label}
-                                {field.required ? ' *' : ''}
-                              </Label>
+                              <div className="flex min-w-0 items-baseline gap-2">
+                                <Label htmlFor={`param-${field.key}`}>
+                                  {label}
+                                  {field.required ? ' *' : ''}
+                                </Label>
+                                <ParamNameTag name={field.name} label={label} />
+                              </div>
                               {showUnsetButton && (
                                 <Button
                                   type="button"
@@ -956,6 +963,12 @@ function StartDAGModal({
                               )}
                             </div>
 
+                            {field.description && (
+                              <p className="text-xs text-muted-foreground">
+                                {field.description}
+                              </p>
+                            )}
+
                             {renderTypedField({
                               field,
                               disabled: disableField,
@@ -963,11 +976,6 @@ function StartDAGModal({
                                 handleTypedFieldChange(field.key, patch),
                             })}
 
-                            {field.description && (
-                              <p className="text-xs text-muted-foreground">
-                                {field.description}
-                              </p>
-                            )}
                             {error && (
                               <p className="text-xs text-destructive">
                                 {error}

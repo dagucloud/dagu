@@ -28,6 +28,7 @@ import React from 'react';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Label } from '@/components/ui/label';
 import { cn } from '@/lib/utils';
+import { ParamNameTag } from './ParamNameTag';
 import { autoGrowTextarea } from './textareaAutoGrow';
 
 /**
@@ -87,14 +88,17 @@ function SchemaTextareaWidget<
 
 /**
  * Renders boolean schema fields with the local checkbox component styling.
+ * With showName, a label that differs from the field name also shows the name.
  */
 function SchemaCheckboxWidget<
   T = any,
   S extends StrictRJSFSchema = RJSFSchema,
   F extends FormContextType = any,
->(props: WidgetProps<T, S, F>) {
+>(props: WidgetProps<T, S, F> & { showName?: boolean }) {
   const {
     id,
+    name,
+    showName,
     htmlName,
     value,
     disabled,
@@ -159,6 +163,7 @@ function SchemaCheckboxWidget<
         <Label className="leading-tight" htmlFor={id}>
           {labelValue(label, hideLabel || !label)}
         </Label>
+        {showName && !hideLabel && <ParamNameTag name={name} label={label} />}
       </div>
     </div>
   );
@@ -308,4 +313,12 @@ export const schemaFormWidgets: RegistryWidgetsType = {
   RadioWidget: SchemaRadioWidget,
   SelectWidget: SchemaSelectWidget,
   TextareaWidget: SchemaTextareaWidget,
+};
+
+/** Widgets for start parameter forms; a titled boolean also shows its name. */
+export const paramFormWidgets: RegistryWidgetsType = {
+  ...schemaFormWidgets,
+  CheckboxWidget: (props: WidgetProps) => (
+    <SchemaCheckboxWidget {...props} showName />
+  ),
 };
