@@ -6873,9 +6873,8 @@
         },
         "max_tool_iterations": {
           "type": "integer",
-          "minimum": 0,
-          "default": 10,
-          "description": "Maximum tool-calling rounds for a chat.completion step, where 0 runs no tool rounds. In an agent DAG root, the maximum agent turns, where 0 uses the default of 50."
+          "minimum": 1,
+          "description": "Maximum tool-calling rounds for a chat.completion step, 10 by default. In an agent DAG root, the maximum agent turns, 50 by default."
         },
         "observation_keep_recent": {
           "type": "integer",

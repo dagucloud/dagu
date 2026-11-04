@@ -3001,12 +3001,12 @@ smtp:
   oauth: {provider: google_refresh, client_id: c, client_secret: s}
 steps: [{run: "true"}]
 `, false},
-		{"no tool rounds", `
-llm: {provider: openai, model: gpt-4o, max_tool_iterations: 0}
+		{"one tool round", `
+llm: {provider: openai, model: gpt-4o, max_tool_iterations: 1}
 steps: [{run: "true"}]
 `, true},
-		{"negative tool rounds", `
-llm: {provider: openai, model: gpt-4o, max_tool_iterations: -1}
+		{"no tool rounds", `
+llm: {provider: openai, model: gpt-4o, max_tool_iterations: 0}
 steps: [{run: "true"}]
 `, false},
 		{"SMTP OAuth missing tenant", `
