@@ -304,12 +304,12 @@ func TestWindowsDirectInput(t *testing.T) {
 	expectStatus("同意: True")
 }
 
-// A reader of one window reads and drives it while another application's
-// window has the foreground, and leaves the foreground where it is: it
-// finds the window's elements, sets a field's value, and reads a table. A
-// Windows Forms button, which Windows invokes by focusing it, is refused
-// rather than brought forward, and a window that is gone reads as no
-// window.
+// A reader of one window reads it while another application's window has
+// the foreground, and leaves the foreground where it is: it finds the
+// window's elements, outlines it, and reads a table. Windows performs every
+// pattern of a Windows Forms control by focusing it, so the reader refuses
+// them rather than bring the window forward. A window that is gone reads as
+// no window.
 func TestWindowsElementsInWindowBehindAnother(t *testing.T) {
 	driver := e2eDesktop(t)
 	els := e2eElements(t)
@@ -358,12 +358,8 @@ func TestWindowsElementsInWindowBehindAnother(t *testing.T) {
 	amount, err := in.Find(Selector{Role: RoleTextField, ID: "amountBox"})
 	require.NoError(t, err)
 	require.Len(t, amount, 1)
-	require.NoError(t, in.Apply(amount[0], PatternSetValue, "3400"))
-	amount, err = in.Find(Selector{Role: RoleTextField, ID: "amountBox"})
-	require.NoError(t, err)
-	require.Len(t, amount, 1)
-	assert.Equal(t, "3400", amount[0].Value)
-	assert.Equal(t, inFront, foreground(), "setting a value leaves the foreground where it was")
+	assert.ErrorIs(t, in.Apply(amount[0], PatternSetValue, "3400"), ErrForeground)
+	assert.Equal(t, inFront, foreground(), "a refused value leaves the foreground where it was")
 
 	outline, err := in.Outline(window, 0)
 	require.NoError(t, err)
@@ -381,6 +377,59 @@ func TestWindowsElementsInWindowBehindAnother(t *testing.T) {
 	gone.PID++
 	_, err = els.InWindow(gone).FrontWindow()
 	assert.ErrorIs(t, err, ErrNoWindow, "a handle that names another process's window is a window that closed")
+}
+
+// webPage is a page whose button names the page, and the window, after it
+// is pressed, and whose field takes a value.
+const webPage = `data:text/html,<title>Dagu web test</title><input id="amount" aria-label="amount"><button id="save" onclick="document.title='Dagu web saved'">Save</button>`
+
+// A reader of one window drives a web page in a browser window while
+// another application's window has the foreground, and leaves the
+// foreground where it is: the page's elements perform their patterns.
+func TestWindowsElementsInWindowDriveAPageBehindAnother(t *testing.T) {
+	driver := e2eDesktop(t)
+	els := e2eElements(t)
+	edge := filepath.Join(os.Getenv("ProgramFiles(x86)"), "Microsoft", "Edge", "Application", "msedge.exe")
+	if _, err := exec.LookPath(edge); err != nil {
+		t.Skip("Microsoft Edge is not installed")
+	}
+	for _, image := range []string{"msedge.exe", "notepad.exe"} {
+		if alreadyRunning(t, image) {
+			t.Skipf("%s is already running; its windows would be left behind", image)
+		}
+	}
+	// Edge hands the page to a browser process of its own, which outlives
+	// the one started.
+	t.Cleanup(func() { _ = exec.Command("taskkill", "/F", "/IM", "msedge.exe").Run() })
+	startApp(t, edge, "--new-window", "--no-first-run", webPage)
+	page := listedWindow(t, driver, func(w WindowID) bool { return strings.HasPrefix(w.Title, "Dagu web test") })
+	startApp(t, "notepad.exe")
+	other := listedWindow(t, driver, func(w WindowID) bool { return strings.EqualFold(w.App, "notepad") })
+	require.Eventually(t, func() bool {
+		_ = driver.Raise(other)
+		return driver.FocusedWindow().Handle == other.Handle
+	}, 15*time.Second, 500*time.Millisecond, "notepad did not take the foreground")
+
+	in := els.InWindow(page)
+	var save, amount []Element
+	require.Eventually(t, func() bool {
+		var err error
+		save, err = in.Find(Selector{Role: RoleButton, Name: "Save"})
+		if err != nil || len(save) != 1 {
+			return false
+		}
+		amount, err = in.Find(Selector{Role: RoleTextField, Name: "amount"})
+		return err == nil && len(amount) == 1
+	}, 15*time.Second, 500*time.Millisecond, "the page's elements: %+v %+v", save, amount)
+
+	require.NoError(t, in.Apply(amount[0], PatternSetValue, "3400"))
+	assert.Eventually(t, func() bool {
+		found, err := in.Find(Selector{Role: RoleTextField, Name: "amount"})
+		return err == nil && len(found) == 1 && found[0].Value == "3400"
+	}, 3*time.Second, 100*time.Millisecond, "the field holds the value")
+	require.NoError(t, in.Apply(save[0], PatternInvoke, ""))
+	listedWindow(t, driver, func(w WindowID) bool { return strings.HasPrefix(w.Title, "Dagu web saved") })
+	assert.Equal(t, other.Handle, driver.FocusedWindow().Handle, "the page's patterns leave the foreground with notepad")
 }
 
 // listedWindow waits until Driver.Windows lists a window that matches.

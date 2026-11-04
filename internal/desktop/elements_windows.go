@@ -314,7 +314,7 @@ func (e *uiaElements) Apply(target Element, pattern Pattern, value string) error
 		if enabled, err := el.currentIsEnabled(); err == nil && !enabled {
 			return ErrDisabled
 		}
-		if e.scope != nil && takesForeground(el, pattern) {
+		if e.scope != nil && takesForeground(el) {
 			return ErrForeground
 		}
 		err = perform(el, pattern, value)
@@ -328,15 +328,12 @@ func (e *uiaElements) Apply(target Element, pattern Pattern, value string) error
 	})
 }
 
-// takesForeground reports a pattern Windows performs by bringing the
-// element's window forward: its own UI Automation proxies, which serve Win32
-// and Windows Forms controls and controls of no framework it names, focus a
-// control, taking the foreground, to invoke, toggle, select, or expand it.
-// They set a value without.
-func takesForeground(el *element, pattern Pattern) bool {
-	if pattern == PatternSetValue {
-		return false
-	}
+// takesForeground reports an element whose patterns Windows performs by
+// bringing its window forward: its own UI Automation proxies, which serve
+// Win32 and Windows Forms controls and controls of no framework it names,
+// focus the control, taking the foreground, to invoke, toggle, select, or
+// expand it or set its value.
+func takesForeground(el *element) bool {
 	framework, _ := el.cachedText(uiaFrameworkIdProperty)
 	switch framework {
 	case "", "Win32", "WinForm":
