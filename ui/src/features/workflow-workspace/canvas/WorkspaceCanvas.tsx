@@ -419,10 +419,11 @@ export function WorkspaceCanvas({
   });
   const panelStep = stepPanel.shown ? url.step : null;
   const openStepDetails = useOpenStepDetails();
-  // The step panel is a right panel too, without a claim of its own.
+  // The step panel is a right panel too, without a claim of its own. Each
+  // click on a step can hold off its mark, so each one watches again.
   const clearance = useRightPanelClearance(
     zoneRef,
-    activePanel ?? (stepPanel.shown ? 'step' : null)
+    activePanel ?? (stepPanel.shown ? (stepPanel.openedAt ?? 'step') : null)
   );
   const inset = useMemo(
     () => ({ right: clearance.overlap }),

@@ -33,6 +33,8 @@ import type {
 } from '../../contracts';
 import type { DockController } from '../../dock/DockContext';
 import type { StepPanelProps } from '../../step/StepPanel';
+import { useCanvasOverlayInset } from '@/features/visual-editor/canvas/overlayInset';
+import { PANEL_WATCH_MS } from '../useRightPanelClearance';
 import type { StepRunActions } from '../../step/useStepRunActions';
 import { useWorkspaceUrl } from '../../state/workspaceUrl';
 import { YAML_PANEL_OPEN_KEY } from '../useYamlPanelMemory';
@@ -51,6 +53,8 @@ const host = vi.hoisted(() => ({
   real: false,
   /** What the stand-in gives to editorHandleRef; null gives nothing. */
   handle: null as unknown,
+  /** The overlay inset that the stand-in reads. */
+  insetRight: 0,
 }));
 
 // Captures the props; the stand-in gives the handle as DAGSpec does once loaded.
@@ -62,6 +66,7 @@ vi.mock(
         typeof import('@/features/dags/components/dag-editor/DAGSpec')
       >();
     function StandIn(props: SpecProps) {
+      host.insetRight = useCanvasOverlayInset().right;
       useImperativeHandle(
         host.handle ? props.editorHandleRef : undefined,
         () => host.handle as WorkspaceEditorHandle,
@@ -857,6 +862,41 @@ describe('WorkspaceCanvas', () => {
       expect(shownPanel()).toHaveAttribute('data-step', 'load');
       expect(dock.openStep).not.toHaveBeenCalled();
       expect(dock.toggle).not.toHaveBeenCalled();
+    });
+
+    // Each click on a step can hold off the mark of the panel: the zone is
+    // watched again for it after each click, not only after the first one.
+    it('makes room beside a panel that takes its mark after many clicks', async () => {
+      vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
+      try {
+        renderCanvas();
+        const click = (name: string, x: number) =>
+          act(() => {
+            props().onSelectedStepNameChange?.(name);
+            props().onStepClick?.(name, { clientX: x, clientY: 120 });
+          });
+        click('extract', 700);
+        act(() => vi.advanceTimersByTime(PANEL_WATCH_MS - 500));
+        click('load', 710);
+        act(() => vi.advanceTimersByTime(PANEL_WATCH_MS - 500));
+
+        const aside = shownPanel()!;
+        vi.spyOn(
+          screen.getByTestId('ww-canvas'),
+          'getBoundingClientRect'
+        ).mockReturnValue(new DOMRect(0, 0, 1000, 800));
+        vi.spyOn(aside, 'getBoundingClientRect').mockReturnValue(
+          new DOMRect(600, 0, 400, 800)
+        );
+        await act(async () => {
+          aside.setAttribute('data-panel-shell', 'right');
+          await new Promise((done) => requestAnimationFrame(() => done(null)));
+          await new Promise((done) => requestAnimationFrame(() => done(null)));
+        });
+        expect(host.insetRight).toBe(400);
+      } finally {
+        vi.useRealTimers();
+      }
     });
 
     it('does not open on a selection without a click', () => {
