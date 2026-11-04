@@ -68,9 +68,9 @@ function StartFeedback({
  * The Start icon button and a caret menu with the unsaved draft. The primary
  * button is the only DAGActions of the workspace, start only: it keeps the
  * unsaved guard and the Start dialog, which runs the saved definition. The
- * caret has its slot whenever the user may run a draft: it is disabled, not
- * removed, while the editor equals the saved file, so that Start keeps its
- * place when the draft becomes dirty.
+ * caret has its slot whenever the user may run a draft, so that Start keeps
+ * its place when the draft becomes dirty. While the editor equals the saved
+ * file, its menu says that there is no draft to run.
  */
 export function RunSplitButton(props: BarSlotProps) {
   const { canRunDags, canExecute } = useWorkspacePermissions();
@@ -169,7 +169,6 @@ function SplitButton({
           <DropdownMenuTrigger asChild>
             <Button
               size={canRunDags ? 'icon-sm' : 'sm'}
-              disabled={!dirty}
               aria-label={ts('More run options')}
               title={ts('More run options')}
             >
@@ -189,12 +188,19 @@ function SplitButton({
           </DropdownMenuTrigger>
           <DropdownMenuContent align="end" className={cn(Z.menu, 'w-64')}>
             <DropdownMenuItem
-              disabled={busy}
+              disabled={busy || !dirty}
               onSelect={runDraft}
               className="gap-2"
             >
               <FilePen aria-hidden="true" className="size-4 shrink-0" />
-              {ts('Run unsaved draft')}
+              <span className="flex min-w-0 flex-col">
+                {ts('Run unsaved draft')}
+                {!dirty && (
+                  <span className="text-xs text-muted-foreground">
+                    {ts('No unsaved changes')}
+                  </span>
+                )}
+              </span>
             </DropdownMenuItem>
           </DropdownMenuContent>
         </DropdownMenu>

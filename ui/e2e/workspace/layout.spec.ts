@@ -216,7 +216,7 @@ test.describe('workspace layout', () => {
       name: 'More run options',
       exact: true,
     });
-    await expect(caret).toBeDisabled();
+    await expect(caret).toBeVisible();
     const clean = await box(start);
 
     const firstNode = page
