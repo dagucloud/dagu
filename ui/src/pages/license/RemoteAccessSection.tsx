@@ -43,6 +43,16 @@ const choices: { level: OnLevel; allows: string }[] = [
   },
 ];
 
+/** What MCP calls may do at each level, shown beside the level in effect. */
+const levelSummaries: Record<LicenseRemoteAccessLevel, string> = {
+  [LicenseRemoteAccessLevel.off]: 'MCP calls are refused.',
+  [LicenseRemoteAccessLevel.viewer]: 'MCP calls read DAGs, runs, and logs.',
+  [LicenseRemoteAccessLevel.operator]:
+    'MCP calls read DAGs, runs, and logs, and start, retry, and stop runs.',
+  [LicenseRemoteAccessLevel.developer]:
+    'MCP calls also change DAG definitions, so they can run any command on this machine.',
+};
+
 /** How many recent calls the section lists. */
 const ACTIVITY_ROWS = 8;
 
@@ -59,7 +69,7 @@ function Row({ label, children }: { label: string; children: ReactNode }) {
 }
 
 /**
- * Shows how far AI apps connected to Dagu Cloud may go on this server, whether
+ * Shows how far MCP calls through Dagu Cloud may go on this server, whether
  * their calls reach it, how to connect one, and what they did lately, and lets
  * an administrator change it unless the configuration fixes it.
  */
@@ -125,7 +135,7 @@ export function RemoteAccessSection({
         </h2>
         <p className="text-xs text-muted-foreground">
           {ts(
-            'AI apps connected to Dagu Cloud, such as Claude and ChatGPT, can work on this server through the connection it opens to Dagu Cloud. No port is opened. Each user gets the lower of this role and the one Dagu Cloud grants them.'
+            'Serves the MCP tools of this server through the Dagu Cloud MCP endpoint. The server connects out to Dagu Cloud, so no inbound port is opened.'
           )}
         </p>
       </div>
@@ -145,7 +155,13 @@ export function RemoteAccessSection({
             <dl className="grid grid-cols-[7.5rem_minmax(0,1fr)] items-center gap-x-4 gap-y-1.5 text-sm">
               <Row label={ts('Access')}>
                 <span className="flex flex-wrap items-center justify-between gap-2">
-                  {ts(remoteAccessLevelLabels[remoteAccess.level])}
+                  <span className="min-w-0">
+                    {ts(remoteAccessLevelLabels[remoteAccess.level])}
+                    <span className="text-muted-foreground">
+                      {' · '}
+                      {ts(levelSummaries[remoteAccess.level])}
+                    </span>
+                  </span>
                   {remoteAccess.levelConfigured ? (
                     <span className="text-xs text-muted-foreground">
                       {ts('Set in configuration')}
@@ -183,11 +199,11 @@ export function RemoteAccessSection({
                   )}
                 </span>
               </Row>
-              <Row label={ts('Approvals')}>
+              <Row label={ts('Human tasks')}>
                 <span className="flex flex-wrap items-center justify-between gap-2">
                   <span className="text-muted-foreground">
                     {ts(
-                      'Approve, reject, or push back steps waiting for a person'
+                      'Let MCP calls complete human tasks. Needs Operator or Developer access.'
                     )}
                   </span>
                   {remoteAccess.approvalsConfigured ? (
@@ -199,7 +215,7 @@ export function RemoteAccessSection({
                     <Switch
                       checked={remoteAccess.approvals}
                       disabled={saving}
-                      aria-label={ts('Approvals')}
+                      aria-label={ts('Human tasks')}
                       onCheckedChange={(approvals) =>
                         void change({ approvals })
                       }
@@ -231,7 +247,7 @@ export function RemoteAccessSection({
             {on && (
               <p className="flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-muted-foreground">
                 {ts(
-                  'Add the MCP URL to Claude, ChatGPT, or another AI app as a connector, then sign in to Dagu Cloud. Workspace owners choose what connected apps may do.'
+                  'Add this URL to your MCP client as a remote MCP server, then sign in to Dagu Cloud. Workspace owners choose what each client may do.'
                 )}
                 <a
                   href={`${consoleURL}/ai-apps`}
@@ -240,7 +256,7 @@ export function RemoteAccessSection({
                   className="inline-flex items-center gap-1 text-foreground underline underline-offset-2"
                 >
                   <ExternalLink className="h-3 w-3" aria-hidden="true" />
-                  {ts('Open AI apps')}
+                  {ts('Manage MCP clients')}
                 </a>
               </p>
             )}

@@ -1593,7 +1593,7 @@ describe('LicensePage', () => {
       );
     });
 
-    it('lets approvals be turned on and shows the connection', async () => {
+    it('lets human tasks be turned on and shows the connection', async () => {
       const { put } = serveRemoteAccess({
         ...remoteOff,
         level: LicenseRemoteAccessLevel.operator,
@@ -1602,7 +1602,9 @@ describe('LicensePage', () => {
       const card = await findRemoteAccessCard();
       expect(await within(card).findByText('Connected')).toBeVisible();
 
-      const approvals = within(card).getByRole('switch', { name: 'Approvals' });
+      const approvals = within(card).getByRole('switch', {
+        name: 'Human tasks',
+      });
       expect(approvals).not.toBeChecked();
       await userEvent.click(approvals);
       expect(put).toHaveBeenCalledWith('/license/remote-access', {
@@ -1629,7 +1631,7 @@ describe('LicensePage', () => {
         within(card).getByRole('button', { name: 'Copy MCP URL' })
       ).toBeVisible();
       expect(
-        within(card).getByRole('link', { name: 'Open AI apps' })
+        within(card).getByRole('link', { name: 'Manage MCP clients' })
       ).toHaveAttribute('href', 'https://console.example.com/ai-apps');
     });
 

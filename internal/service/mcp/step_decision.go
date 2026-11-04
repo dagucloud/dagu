@@ -46,7 +46,7 @@ func (svc *Service) allowRemoteDecision(ctx context.Context, input executeInput)
 		return &frontendapi.Error{
 			HTTPStatus: http.StatusForbidden,
 			Code:       daguapi.ErrorCodeForbidden,
-			Message:    "Remote approvals are off on this server. A Dagu administrator turns them on under Plan & features.",
+			Message:    "Completing human tasks from Dagu Cloud is off on this server. A Dagu administrator turns it on in Settings.",
 		}
 	}
 	if input.AttemptID == "" {

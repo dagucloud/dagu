@@ -64,7 +64,7 @@ func (c *calls) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 	if status.Level == config.RemoteAccessOff {
 		refuse(w, http.StatusForbidden, errorRemoteAccessOff,
-			"Remote access is off on this server. A Dagu administrator turns it on under Plan & features.")
+			"Remote access is off on this server. A Dagu administrator turns it on in Settings.")
 		return
 	}
 	creds, ok := c.credentials()
