@@ -5,8 +5,11 @@ package redis
 
 import (
 	"context"
+	"path/filepath"
 	"testing"
 
+	"github.com/dagucloud/dagu/v2/internal/ir"
+	"github.com/dagucloud/dagu/v2/internal/runtime"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -294,4 +297,31 @@ func TestPoolManagerContextFunctions(t *testing.T) {
 	// With pool manager
 	ctx = WithRedisPoolManager(ctx, pm)
 	assert.Equal(t, pm, GetRedisPoolManager(ctx))
+}
+
+// Relative script and TLS file paths name files under the step working
+// directory, not the Dagu process directory.
+func TestParseConfig_RelativePathsUseWorkingDir(t *testing.T) {
+	t.Parallel()
+
+	workDir := t.TempDir()
+	step := ir.Step{Name: "redis-step"}
+	dag := &ir.DAG{Name: "redis-test", WorkingDir: workDir, WorkingDirExplicit: true}
+	ctx := runtime.NewContext(context.Background(), dag, "run-1", "")
+	ctx = runtime.WithEnv(ctx, runtime.NewEnv(ctx, step))
+
+	cfg, err := ParseConfig(ctx, map[string]any{
+		"host":        "localhost",
+		"command":     "EVAL",
+		"script_file": "scripts/count.lua",
+		"tls":         true,
+		"tls_ca":      "certs/ca.pem",
+		"tls_cert":    "certs/client.pem",
+		"tls_key":     "certs/client.key",
+	})
+	require.NoError(t, err)
+	assert.Equal(t, filepath.Join(workDir, "scripts", "count.lua"), cfg.ScriptFile)
+	assert.Equal(t, filepath.Join(workDir, "certs", "ca.pem"), cfg.TLSCA)
+	assert.Equal(t, filepath.Join(workDir, "certs", "client.pem"), cfg.TLSCert)
+	assert.Equal(t, filepath.Join(workDir, "certs", "client.key"), cfg.TLSKey)
 }

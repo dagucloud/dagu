@@ -26,6 +26,9 @@ must agree with that action name. Configured `redis.set` and `redis.get`
 actions with DAG-level connection settings pass `dagu validate` without
 contacting Redis.
 
+A relative `with.script_file`, `with.tls_ca`, `with.tls_cert`, or
+`with.tls_key` names a file under the step working directory.
+
 ## Errors
 
 `dagu validate` rejects a conflicting `with.command` and an unrecognized
