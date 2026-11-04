@@ -621,7 +621,9 @@ that shows nothing before, as a password field always does, is not checked.
 The focus is recorded as a click on the field, so a replay by pixels puts
 the caret there before the keys. Each records its element like any other,
 so the next run replays it by element, and a value set through the element
-is set the same way again.
+is set the same way again, or, when the field no longer takes it so, typed
+over the field's selected text; a replay by pixels cannot find the field
+for such a value and misses.
 
 A round goes to the model with no screenshot when the front window's
 elements are read in full, the list holds at most 80 of them, and at least

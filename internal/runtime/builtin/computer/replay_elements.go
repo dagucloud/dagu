@@ -794,6 +794,11 @@ func (r *run) replayByElement(ctx context.Context, index, position, total int, t
 				if err := els.Focus(found); err != nil {
 					return fmt.Sprintf("%s could not take the focus at turn %d of %d: %v", rec.Element.describe(), position+1, total, err), nil
 				}
+				if rec.Invoked && action.Kind == computeruse.KindType {
+					if reason := r.selectForReplacement(ctx, rec, action, position, total); reason != "" {
+						return reason, ctx.Err()
+					}
+				}
 			default:
 				at = rec.Element.point(found)
 				if action.Point != nil {
@@ -819,6 +824,24 @@ func (r *run) replayByElement(ctx context.Context, index, position, total int, t
 		}
 	}
 	return "", nil
+}
+
+// selectForReplacement selects the text of the field a recorded value goes
+// into, when the act set the value through the field and the field now
+// takes it only as keys, so the keys replace the text as the value did,
+// and deletes the selection for an empty value, which no key types. It
+// says why it could not.
+func (r *run) selectForReplacement(ctx context.Context, rec recordedAction, action computeruse.Action, position, total int) string {
+	chords := []string{r.selectAllChord()}
+	if r.substitute(action.Text) == "" {
+		chords = append(chords, string(desktop.KeyBackspace))
+	}
+	for _, chord := range chords {
+		if err := r.pressKeys(ctx, chord); err != nil {
+			return fmt.Sprintf("%s could not have its text replaced at turn %d of %d: %v", rec.Element.describe(), position+1, total, err)
+		}
+	}
+	return ""
 }
 
 // confirmChecked waits, for a click that leaves its checkbox in a state,

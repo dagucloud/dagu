@@ -291,3 +291,44 @@ func TestAPixelReplayClicksTheFieldTypedIntoById(t *testing.T) {
 	require.NoError(t, run.execute(`{"ai": "never", "idle": "0", "do": [{"act": "`+instruction+`"}]}`, nil).err)
 	assert.Equal(t, []string{"move 290,152", "left down #1", "key ctrl", "key a", "type 1200"}, run.backend.inputs())
 }
+
+// A replay of a value the act set through a field selects the field's text
+// before typing the value, when the field no longer takes it through the
+// element, so the keys replace the text as the value did. A replay by
+// pixels, which cannot find the field, misses rather than typing it blind.
+func TestAReplayOfAValueSetThroughAFieldReplacesItsText(t *testing.T) {
+	t.Parallel()
+
+	const instruction = "金額を入れる"
+	recorded := func(t *testing.T) *testRun {
+		t.Helper()
+		run := elementRun(t)
+		run.elements.elements[2].Name = "金額"
+		run.sessions = []*scriptedSession{{turns: []*computeruse.Turn{
+			actions(computeruse.Action{CallID: "t", Kind: computeruse.KindType, ElementID: "e1", Text: "1200"}),
+			done("Entered"),
+		}}}
+		require.NoError(t, run.execute(`{"idle": "0", "do": [{"act": "`+instruction+`"}]}`, nil).err)
+		require.Equal(t, []string{"set amountBox=1200"}, run.backend.inputs())
+		run.backend.events = nil
+		return run
+	}
+	const replay = `{"ai": "never", "idle": "0", "do": [{"act": "` + instruction + `"}]}`
+
+	t.Run("by element", func(t *testing.T) {
+		t.Parallel()
+		run := recorded(t)
+		run.elements.withoutPattern("amountBox")
+		require.NoError(t, run.execute(replay, nil).err)
+		assert.Equal(t, []string{"focus amountBox", "key ctrl", "key a", "type 1200"}, run.backend.inputs())
+	})
+	t.Run("by pixels", func(t *testing.T) {
+		t.Parallel()
+		run := recorded(t)
+		run.elements = nil
+		err := run.execute(replay, nil).err
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "set a field's value through its element, which a replay by pixels cannot do")
+		assert.Empty(t, run.backend.inputs())
+	})
+}
