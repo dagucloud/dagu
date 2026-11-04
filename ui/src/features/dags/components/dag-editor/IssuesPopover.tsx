@@ -5,7 +5,7 @@
  * The issues button of the canvas toolbar: a triangle and the count of the
  * issues. It shows only while the document has errors, and it takes the place
  * of the Save button. Its popover lists the validation warnings, the
- * validation errors and the value-reference notices of the shown document.
+ * validation errors and the value-reference defects of the shown document.
  *
  * @module features/dags/components/dag-editor
  */
@@ -24,6 +24,7 @@ import {
 import { useI18n } from '@/i18n/I18nProvider';
 import { cn } from '@/lib/utils';
 import { ValueReferenceNoticesButton } from '../value-reference-notices';
+import { isDefect } from '../value-reference-notices/ValueReferenceNoticesButton';
 
 type ValidationIssue = components['schemas']['ValidationIssue'];
 type ValueReferenceNotice = components['schemas']['ValueReferenceNotice'];
@@ -145,8 +146,13 @@ export function IssuesPopover({
     () => issueRows({ warnings, errors, issues }),
     [warnings, errors, issues]
   );
-  const count =
-    rows.warnings.length + rows.errors.length + valueReferences.length;
+  // A runtime-only notice names a value that a run supplies: it is no issue
+  // of the spec, and only the details dialog lists it.
+  const defects = React.useMemo(
+    () => valueReferences.filter(isDefect),
+    [valueReferences]
+  );
+  const count = rows.warnings.length + rows.errors.length + defects.length;
   // Warnings alone show no button: the toolbar counts them on Save.
   const shownCount = rows.errors.length > 0 ? count : 0;
 
@@ -329,7 +335,7 @@ export function IssuesPopover({
             />
             <IssueGroup
               title={ts('Value references')}
-              rows={valueReferences.map((notice) => ({
+              rows={defects.map((notice) => ({
                 message: notice.message,
                 // A notice is about a reference in a value: its row shows
                 // the step only.
@@ -338,17 +344,20 @@ export function IssuesPopover({
               onReveal={reveal}
               canReveal={canReveal}
             >
-              {/* The dialog opens over the page: the popover closes first. */}
-              <div className="px-2 pt-1" onClickCapture={close}>
-                <ValueReferenceNoticesButton
-                  notices={valueReferences}
-                  label="Details"
-                  description={ts(
-                    'Value-reference notices produced while loading this spec.'
-                  )}
-                  variant="outline"
-                />
-              </div>
+              {/* The dialog opens over the page: the popover closes first.
+                  It lists the runtime-only notices too, apart. */}
+              {valueReferences.length > 0 && (
+                <div className="px-2 pt-1" onClickCapture={close}>
+                  <ValueReferenceNoticesButton
+                    notices={valueReferences}
+                    label="Details"
+                    description={ts(
+                      'Value-reference notices produced while loading this spec.'
+                    )}
+                    variant="outline"
+                  />
+                </div>
+              )}
             </IssueGroup>
           </AnchoredPopover>
         </>
@@ -377,7 +386,9 @@ function IssueGroup({
 }) {
   const { ts } = useI18n();
   const headingId = React.useId();
-  if (rows.length === 0) {
+  // A group with no rows shows only for its children, such as a details
+  // button, and its heading names no problem.
+  if (rows.length === 0 && !children) {
     return null;
   }
   return (
@@ -386,7 +397,11 @@ function IssueGroup({
         id={headingId}
         className={cn(
           'px-2 py-1 text-xs font-semibold',
-          tone === 'error' ? 'text-destructive' : 'text-warning'
+          rows.length === 0
+            ? 'text-muted-foreground'
+            : tone === 'error'
+              ? 'text-destructive'
+              : 'text-warning'
         )}
       >
         {title} ({rows.length})

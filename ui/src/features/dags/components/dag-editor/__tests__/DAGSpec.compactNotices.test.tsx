@@ -14,6 +14,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   ValidationIssueSeverity,
   ValidationIssueSource,
+  ValueReferenceNoticeClass,
+  ValueReferenceNoticeReason,
 } from '@/api/v1/schema';
 import { AppBarContext } from '@/contexts/AppBarContext';
 import { UserPreferencesProvider } from '@/contexts/UserPreference';
@@ -427,7 +429,13 @@ describe('DAGSpec compact notices: issues', () => {
     mocks.useQuery.mockReturnValue(
       specData({
         errors: ['An error'],
-        valueReferenceNotices: [{ message: 'Unknown step id fetch' }],
+        valueReferenceNotices: [
+          {
+            message: 'Unknown step id fetch',
+            reason: ValueReferenceNoticeReason.unknown_step_id,
+            class: ValueReferenceNoticeClass.defect,
+          },
+        ],
       })
     );
     await renderSpec();
