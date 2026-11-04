@@ -3,7 +3,6 @@
 
 import {
   Activity,
-  AlertTriangle,
   Bell,
   BookOpen,
   ClipboardList,
@@ -76,7 +75,6 @@ export function useNavigationSections(): {
     config.authMode !== 'builtin'
       ? config.permissions.writeDags
       : roleAtLeast(user?.role ?? null, UserRole.developer);
-  const canManageIncidents = canManageNotifications;
   const canAccessSystemStatus = useCanAccessSystemStatus();
   const canAccessGitSync = useCanAccessGitSync();
   const canManageWebhooks = useCanManageWebhooks();
@@ -143,16 +141,6 @@ export function useNavigationSections(): {
             '/notifications',
             '/notification-rules',
             '/notification-channels',
-          ],
-        },
-        canManageIncidents && {
-          to: '/incidents',
-          text: t('navigation.incidents'),
-          icon: <AlertTriangle size={16} />,
-          activePaths: [
-            '/incidents',
-            '/incident-providers',
-            '/incident-policies',
           ],
         },
         isAdmin && {

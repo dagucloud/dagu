@@ -301,7 +301,6 @@ describe('sidebar menu', () => {
       ['Events', '/event-logs'],
       ['Audit Logs', '/audit-logs'],
       ['Notifications', '/notifications'],
-      ['Incidents', '/incidents'],
       ['External Monitoring', '/settings#monitoring'],
     ]);
     expectLinks(screen.getByRole('group', { name: 'Configure' }), [
@@ -716,7 +715,6 @@ describe('sidebar menu', () => {
     ['/event-logs', 'Events'],
     ['/notification-rules', 'Notifications'],
     ['/notification-channels', 'Notifications'],
-    ['/incident-policies', 'Incidents'],
     ['/webhooks', 'Webhooks'],
     ['/users', 'Users'],
   ])('marks %s as the active entry', (path, label) => {
