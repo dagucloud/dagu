@@ -1,12 +1,13 @@
 // Copyright (C) 2026 Yota Hamada
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-import { Check, RotateCcw } from 'lucide-react';
+import { Ban, Check, RotateCcw } from 'lucide-react';
 import React, { useState } from 'react';
 
 import { Button } from '@/components/ui/button';
 import { useRemoteNode } from '@/contexts/RemoteNodeContext';
 import { getManualActionState } from '@/features/dag-runs/lib/manualActionState';
+import { RejectDAGRunDialog } from '@/features/dag-runs/components/common/RejectDAGRunDialog';
 import { useClient } from '@/hooks/api';
 import { components, Stream } from '../../../../api/v1/schema';
 import { InlineLogViewer } from '../common/InlineLogViewer';
@@ -42,7 +43,7 @@ function ApprovalCard({
   dagRun: DAGRunDetails;
   dagName: string;
   bare?: boolean;
-  onAction: (node: NodeData, action: 'approve' | 'retry') => void;
+  onAction: (node: NodeData, action: 'approve' | 'retry' | 'reject') => void;
 }) {
   const step = node.step;
   const prompt = step.approval?.prompt || step.description;
@@ -72,6 +73,15 @@ function ApprovalCard({
           )}
         </div>
         <div className="flex shrink-0 gap-2">
+          <Button
+            size="sm"
+            variant="outline"
+            className="text-destructive hover:text-destructive"
+            onClick={() => onAction(node, 'reject')}
+          >
+            <Ban className="h-4 w-4" />
+            <I18nText text={'Reject'} />
+          </Button>
           {step.approval && (
             <Button
               size="sm"
@@ -130,6 +140,7 @@ export function ApprovalTab({
     node: NodeData;
     action: 'approve' | 'retry';
   } | null>(null);
+  const [rejectStep, setRejectStep] = useState<string | null>(null);
 
   const { waitingApprovalNodes } = getManualActionState(dagRun);
   const waitingNodes =
@@ -199,9 +210,25 @@ export function ApprovalTab({
           dagRun={dagRun}
           dagName={dagName}
           bare={bare}
-          onAction={(n, action) => setReviewState({ node: n, action })}
+          onAction={(n, action) =>
+            action === 'reject'
+              ? setRejectStep(n.step.name)
+              : setReviewState({ node: n, action })
+          }
         />
       ))}
+
+      <RejectDAGRunDialog
+        open={rejectStep !== null}
+        onOpenChange={(open) => {
+          if (!open) setRejectStep(null);
+        }}
+        dagName={getPathParams('').name}
+        dagRunId={getPathParams('').dagRunId}
+        subDAGRunId={isSubRun ? dagRun.dagRunId : undefined}
+        stepName={rejectStep ?? ''}
+        onSettled={() => onChanged?.()}
+      />
 
       {reviewState && (
         <StepReviewModal

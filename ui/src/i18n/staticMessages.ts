@@ -1500,6 +1500,7 @@ const baseEnglish = {
   'Latest run': 'Latest run',
   'No run': 'No run',
   'Run unsaved draft': 'Run unsaved draft',
+  'No unsaved changes': 'No unsaved changes',
   'Starting run': 'Starting run',
   'The saved definition differs from the editor. Save first, or run the unsaved draft.':
     'The saved definition differs from the editor. Save first, or run the unsaved draft.',
@@ -1606,6 +1607,11 @@ const baseEnglish = {
   required: 'required',
   'Reschedule request accepted': 'Reschedule request accepted',
   'Reschedule selected': 'Reschedule selected',
+  'Edit the definition and choose the steps to run':
+    'Edit the definition and choose the steps to run',
+  'Edit and retry': 'Edit and retry',
+  'A checked step reuses its previous output; the others run again.':
+    'A checked step reuses its previous output; the others run again.',
   'Reschedule as a new run': 'Reschedule as a new run',
   Reset: 'Reset',
   'Reset changes': 'Reset changes',
@@ -1621,6 +1627,7 @@ const baseEnglish = {
   'Resize step details': 'Resize step details',
   'Maximize panel': 'Maximize panel',
   'Restore panel': 'Restore panel',
+  'Resize sub-run view': 'Resize sub-run view',
   'Resize workflow view': 'Resize workflow view',
   'Cmd/Ctrl+Click for new tab': 'Cmd/Ctrl+Click for new tab',
   'Resolved during a run (': 'Resolved during a run (',
@@ -2913,6 +2920,11 @@ const baseEnglish = {
   'no matching worker': 'no matching worker',
   'no worker available': 'no worker available',
   'worker unreachable': 'worker unreachable',
+  'A sub-run of this step is waiting for an action.':
+    'A sub-run of this step is waiting for an action.',
+  'A sub-run of {step} is waiting for an action.':
+    'A sub-run of {step} is waiting for an action.',
+  '{count} more sub-runs are waiting': '{count} more sub-runs are waiting',
   'Action required': 'Action required',
   'An agent is waiting for an answer.': 'An agent is waiting for an answer.',
   'Queue wait': 'Queue wait',
@@ -4562,6 +4574,7 @@ const baseChinese = {
   'Latest run': '最新运行',
   'No run': '无运行',
   'Run unsaved draft': '运行未保存的草稿',
+  'No unsaved changes': '没有未保存的更改',
   'Starting run': '正在启动运行',
   'The saved definition differs from the editor. Save first, or run the unsaved draft.':
     '已保存的定义与编辑器中的内容不同。请先保存，或运行未保存的草稿。',
@@ -4666,6 +4679,11 @@ const baseChinese = {
   required: '必填',
   'Reschedule request accepted': '已接受重新调度请求',
   'Reschedule selected': '重新调度所选',
+  'Edit the definition and choose the steps to run':
+    '编辑定义并选择要运行的步骤',
+  'Edit and retry': '编辑并重试',
+  'A checked step reuses its previous output; the others run again.':
+    '勾选的步骤复用之前的输出；其他步骤重新运行。',
   'Reschedule as a new run': '作为新运行重新调度',
   Reset: '重置',
   'Reset changes': '重置更改',
@@ -4681,6 +4699,7 @@ const baseChinese = {
   'Resize step details': '调整步骤详情大小',
   'Maximize panel': '最大化面板',
   'Restore panel': '还原面板',
+  'Resize sub-run view': '调整子运行视图大小',
   'Resize workflow view': '调整工作流视图大小',
   'Cmd/Ctrl+Click for new tab': 'Cmd/Ctrl+点击在新标签页打开',
   'Resolved during a run (': '在运行期间已解析 (',
@@ -5930,6 +5949,11 @@ const baseChinese = {
   'no matching worker': '无匹配的工作节点',
   'no worker available': '无可用工作节点',
   'worker unreachable': '无法交给工作节点',
+  'A sub-run of this step is waiting for an action.':
+    '此步骤的子运行正在等待处理。',
+  'A sub-run of {step} is waiting for an action.':
+    '{step} 的子运行正在等待处理。',
+  '{count} more sub-runs are waiting': '还有 {count} 个子运行正在等待',
   'Action required': '需要处理',
   'An agent is waiting for an answer.': '有代理正在等待回答。',
   'Queue wait': '排队等待',
@@ -7620,6 +7644,7 @@ const baseJapanese = {
   'Latest run': '最新の実行',
   'No run': '実行なし',
   'Run unsaved draft': '未保存の下書きを実行',
+  'No unsaved changes': '未保存の変更はありません',
   'Starting run': '実行を開始しています',
   'The saved definition differs from the editor. Save first, or run the unsaved draft.':
     '保存済みの定義はエディターの内容と異なります。先に保存するか、未保存の下書きを実行してください。',
@@ -7728,6 +7753,11 @@ const baseJapanese = {
   required: '必須',
   'Reschedule request accepted': 'スケジュール変更のリクエストが承認されました',
   'Reschedule selected': '選択項目を再スケジュール',
+  'Edit the definition and choose the steps to run':
+    '定義を編集して実行するステップを選ぶ',
+  'Edit and retry': '編集して再試行',
+  'A checked step reuses its previous output; the others run again.':
+    'チェックしたステップは前回の出力を再利用し、他は再実行します。',
   'Reschedule as a new run': '新しい実行として再スケジュール',
   Reset: 'リセット',
   'Reset changes': '変更をリセット',
@@ -7743,6 +7773,7 @@ const baseJapanese = {
   'Resize step details': 'ステップ詳細のサイズを変更',
   'Maximize panel': 'パネルを最大化',
   'Restore panel': 'パネルを元のサイズに戻す',
+  'Resize sub-run view': 'サブ実行ビューのサイズを変更',
   'Resize workflow view': 'ワークフロービューのサイズを変更',
   'Cmd/Ctrl+Click for new tab': 'Cmd/Ctrl+クリックで新しいタブを開く',
   'Resolved during a run (': '実行中に解決されました (',
@@ -9046,6 +9077,12 @@ const baseJapanese = {
   'no matching worker': '一致するワーカーなし',
   'no worker available': '利用できるワーカーなし',
   'worker unreachable': 'ワーカーに渡せません',
+  'A sub-run of this step is waiting for an action.':
+    'このステップのサブ実行が対応を待っています。',
+  'A sub-run of {step} is waiting for an action.':
+    '{step} のサブ実行が対応を待っています。',
+  '{count} more sub-runs are waiting':
+    'ほかに {count} 件のサブ実行が待っています',
   'Action required': '対応が必要',
   'An agent is waiting for an answer.': 'エージェントが回答を待っています。',
   'Queue wait': 'キュー待ち',

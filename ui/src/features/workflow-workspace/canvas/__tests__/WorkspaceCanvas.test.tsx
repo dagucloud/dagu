@@ -711,15 +711,27 @@ describe('WorkspaceCanvas', () => {
       expect(props().selectedStepName).toBe('load');
     });
 
-    it('removes ?step and ?ndv when the selection clears', () => {
+    // A step view needs a step; the YAML panel shows the whole file then,
+    // as after a switch to another document of the file.
+    it('removes ?step and the step view when the selection clears', () => {
       renderCanvas(
-        '/dags/example.yaml?run=r1&step=extract&ndv=docked&dock=log'
+        '/dags/example.yaml?run=r1&step=extract&ndv=expanded&dock=log'
       );
       act(() => props().onSelectedStepNameChange?.(null));
       expect(location()).toHaveTextContent(
         '/dags/example.yaml?run=r1&dock=log'
       );
       expect(location()).toHaveAttribute('data-navigation', 'REPLACE');
+    });
+
+    it('keeps the YAML panel when the selection clears', () => {
+      renderCanvas(
+        '/dags/example.yaml?run=r1&step=extract&ndv=docked&dock=log'
+      );
+      act(() => props().onSelectedStepNameChange?.(null));
+      expect(location()).toHaveTextContent(
+        '/dags/example.yaml?run=r1&ndv=docked&dock=log'
+      );
     });
 
     describe('Esc on the canvas', () => {

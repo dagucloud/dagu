@@ -428,7 +428,8 @@ function DAGStatus({
         pushOntoOpenStack(entry);
         return;
       }
-      setChildRunStack([entry]);
+      // Pushes in one event open a path of runs.
+      setChildRunStack((stack) => [...stack, entry]);
     },
     [pushOntoOpenStack]
   );

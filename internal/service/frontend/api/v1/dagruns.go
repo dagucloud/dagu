@@ -1557,10 +1557,10 @@ func (a *API) ApproveSubDAGRunStep(ctx context.Context, request api.ApproveSubDA
 		}, nil
 	}
 
-	// Child runs resume directly only after every manual step is resolved.
+	// Child runs resume only after every manual step is resolved.
 	shouldResume := !hasWaitingSteps(updated.Nodes)
 	if shouldResume {
-		if err := a.resumeSubDAGRun(ctx, rootRef, request.SubDAGRunId); err != nil {
+		if err := a.resumeResolvedSubDAGRun(ctx, rootRef, mutationRef, request.SubDAGRunId, request.StepName); err != nil {
 			logger.Error(ctx, "Failed to resume sub DAG", tag.Error(err))
 			shouldResume = false
 		} else {
@@ -1875,6 +1875,13 @@ func (a *API) RejectSubDAGRunStep(ctx context.Context, request api.RejectSubDAGR
 		tag.SubRunID(request.SubDAGRunId),
 		slog.String("step", request.StepName),
 	)
+	// Ancestors waiting on the rejected run take its result instead of
+	// waiting on a run that does not continue.
+	if mutationRef == rootRef {
+		if _, err := a.resumeSubDAGRunAncestors(ctx, rootRef, request.SubDAGRunId, request.StepName, dagrun.RetryLeafReuse); err != nil {
+			logger.Error(ctx, "Failed to resume ancestors of rejected sub DAG", tag.Error(err))
+		}
+	}
 
 	a.logStepRejection(ctx, request.Name, request.DagRunId, request.SubDAGRunId, request.StepName, reason)
 
@@ -4087,7 +4094,7 @@ func (a *API) resumeWaitingDAGRun(ctx context.Context, ref ir.DAGRunRef, status 
 	if err != nil || admission == nil {
 		return err
 	}
-	if err := a.resumeManagedAttempt(ctx, dag, admission.Status, ref.ID, admission); err != nil {
+	if err := a.resumeManagedAttempt(ctx, dag, admission.Status, ref.ID, admission, dagrun.RetryPath{}); err != nil {
 		if rollbackErr := admission.Rollback(ctx); rollbackErr != nil && !errors.Is(rollbackErr, queue.ErrRetryStaleLatest) {
 			return errors.Join(err, rollbackErr)
 		}
@@ -4127,7 +4134,7 @@ func (a *API) resumeSubDAGRun(ctx context.Context, rootRef ir.DAGRunRef, subDAGR
 	if err != nil || admission == nil {
 		return err
 	}
-	if err := a.resumeManagedAttempt(ctx, dag, admission.Status, subDAGRunID, admission); err != nil {
+	if err := a.resumeManagedAttempt(ctx, dag, admission.Status, subDAGRunID, admission, dagrun.RetryPath{}); err != nil {
 		if rollbackErr := admission.Rollback(ctx); rollbackErr != nil && !errors.Is(rollbackErr, queue.ErrRetryStaleLatest) {
 			return errors.Join(err, rollbackErr)
 		}
@@ -4136,7 +4143,170 @@ func (a *API) resumeSubDAGRun(ctx context.Context, rootRef ir.DAGRunRef, subDAGR
 	return nil
 }
 
-func (a *API) resumeManagedAttempt(ctx context.Context, dag *ir.DAG, status *ir.DAGRunStatus, runID string, admission *queue.RetryAdmission) error {
+// resumeResolvedSubDAGRun resumes a sub-run whose manual steps are all
+// resolved. Ancestors that wait on it resume with it; otherwise the sub-run
+// resumes alone.
+func (a *API) resumeResolvedSubDAGRun(ctx context.Context, rootRef, mutationRef ir.DAGRunRef, subDAGRunID, stepName string) error {
+	if mutationRef == rootRef {
+		resumed, err := a.resumeSubDAGRunAncestors(ctx, rootRef, subDAGRunID, stepName, dagrun.RetryLeafResume)
+		if err != nil || resumed {
+			return err
+		}
+	}
+	return a.resumeSubDAGRun(ctx, rootRef, subDAGRunID)
+}
+
+// resumeSubDAGRunAncestors continues a waiting root run through the call steps
+// that wait on subDAGRunID, so every ancestor takes the sub-run's outcome. leaf
+// selects whether the sub-run resumes from its checkpoint or reports its
+// persisted result. stepName names any step of the sub-run. It returns false,
+// with nothing changed, when the root does not wait on the sub-run that way.
+func (a *API) resumeSubDAGRunAncestors(
+	ctx context.Context,
+	rootRef ir.DAGRunRef,
+	subDAGRunID, stepName string,
+	leaf dagrun.RetryLeaf,
+) (bool, error) {
+	ctx, cancel := context.WithTimeout(a.withEventContext(context.WithoutCancel(ctx)), manualResumeTimeout)
+	defer cancel()
+
+	resolved, subStatus, err := a.dagRunRepository.ResolveRetryPath(ctx, rootRef, subDAGRunID, stepName)
+	if errors.Is(err, dagrun.ErrInvalidRetryPath) || errors.Is(err, dagrun.ErrRepeatingStepTarget) {
+		return false, nil
+	}
+	if err != nil {
+		return false, fmt.Errorf("resolve sub DAG-run path: %w", err)
+	}
+	path := dagrun.RetryPath{Hops: resolved.Hops, Leaf: leaf}
+
+	rootAttempt, err := a.dagRunRepository.FindAttempt(ctx, rootRef)
+	if err != nil {
+		return false, fmt.Errorf("find root attempt: %w", err)
+	}
+	rootStatus, err := rootAttempt.ReadStatus(ctx)
+	if err != nil {
+		return false, fmt.Errorf("read root status: %w", err)
+	}
+	// The root's closing write would otherwise overwrite the admitted retry.
+	rootStatus, err = a.waitForManualStepMutationReady(ctx, rootAttempt, rootStatus)
+	if err != nil {
+		return false, fmt.Errorf("wait for root DAG-run to settle: %w", err)
+	}
+	waiting, err := a.waitsAlongRetryPath(ctx, rootRef, rootStatus, path)
+	if err != nil || !waiting {
+		return false, err
+	}
+	if humantask.ValidateRetry(rootStatus, path.RootStep()) != nil {
+		return false, nil
+	}
+	rootDAG, err := rootAttempt.ReadDAG(ctx)
+	if err != nil {
+		return false, fmt.Errorf("read root DAG: %w", err)
+	}
+
+	var admission pathResumeAdmission
+	if leaf == dagrun.RetryLeafResume {
+		admission.sub, err = a.admitSubDAGRunResume(ctx, rootRef, subStatus)
+		if err != nil || admission.sub == nil {
+			return false, err
+		}
+	}
+	rootOpts := queue.EnqueueRetryOptions{Processes: a.procRepository, Resume: true}
+	if actor := triggerActorFromContext(ctx); actor != "" {
+		rootOpts.TriggerActor = &actor
+	}
+	admission.root, err = queue.PrepareRetry(ctx, a.dagRunRepository, rootDAG, rootStatus, rootOpts)
+	if err == nil && admission.root != nil {
+		err = a.resumeManagedAttempt(ctx, rootDAG, admission.root.Status, rootRef.ID, admission, path)
+		if err == nil {
+			return true, nil
+		}
+	}
+	if rollbackErr := admission.Rollback(ctx); rollbackErr != nil && !errors.Is(rollbackErr, queue.ErrRetryStaleLatest) {
+		return false, errors.Join(err, rollbackErr)
+	}
+	if err == nil || errors.Is(err, queue.ErrRetryStaleLatest) {
+		// The root left its waiting checkpoint after it was read.
+		return false, nil
+	}
+	return false, err
+}
+
+// admitSubDAGRunResume admits status as a resume checkpoint, so the sub-run
+// keeps its completed partial work when its caller continues it, as a direct
+// resume of the sub-run does.
+func (a *API) admitSubDAGRunResume(ctx context.Context, rootRef ir.DAGRunRef, status *ir.DAGRunStatus) (*queue.RetryAdmission, error) {
+	attempt, err := a.dagRunRepository.FindSubAttempt(ctx, rootRef, status.DAGRunID)
+	if err != nil {
+		return nil, fmt.Errorf("find sub-attempt: %w", err)
+	}
+	dag, err := attempt.ReadDAG(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("read sub-DAG: %w", err)
+	}
+	return queue.PrepareRetry(ctx, a.dagRunRepository, dag, status, queue.EnqueueRetryOptions{
+		Processes: a.procRepository, Resume: true, RootDAGRun: rootRef,
+	})
+}
+
+// waitsAlongRetryPath reports whether every run on path above its last child
+// run waits, each through the call step that path names.
+func (a *API) waitsAlongRetryPath(ctx context.Context, rootRef ir.DAGRunRef, rootStatus *ir.DAGRunStatus, path dagrun.RetryPath) (bool, error) {
+	parent := rootStatus
+	for i, hop := range path.Hops {
+		if parent == nil || parent.Status != ir.Waiting {
+			return false, nil
+		}
+		node, err := parent.NodeByName(hop.Step)
+		if err != nil || node.Status != ir.NodeWaiting {
+			return false, nil
+		}
+		if i == len(path.Hops)-1 {
+			break
+		}
+		attempt, err := a.dagRunRepository.FindSubAttempt(ctx, rootRef, hop.RunID)
+		if err != nil {
+			return false, fmt.Errorf("find sub DAG-run %s: %w", hop.RunID, err)
+		}
+		if parent, err = attempt.ReadStatus(ctx); err != nil {
+			return false, fmt.Errorf("read sub DAG-run %s: %w", hop.RunID, err)
+		}
+	}
+	return true, nil
+}
+
+// pathResumeAdmission holds the root checkpoint of a resume along a retry path
+// and the sub-run checkpoint that the root retry continues, if any.
+type pathResumeAdmission struct {
+	root *queue.RetryAdmission
+	sub  *queue.RetryAdmission
+}
+
+// Rollback restores the sub-run only after the root, since a root retry that
+// claimed its run owns the sub-run checkpoint.
+func (p pathResumeAdmission) Rollback(ctx context.Context) error {
+	if p.root != nil {
+		if err := p.root.Rollback(ctx); err != nil {
+			return err
+		}
+	}
+	if p.sub == nil {
+		return nil
+	}
+	return p.sub.Rollback(ctx)
+}
+
+// retryAdmission is an accepted checkpoint that a launched retry claims, and
+// that is restored when the retry exits without claiming it.
+type retryAdmission interface {
+	Rollback(ctx context.Context) error
+}
+
+// resumeManagedAttempt launches the retry that continues status. A path with
+// hops retries path.RootStep along path instead of running the default retry
+// plan.
+func (a *API) resumeManagedAttempt(ctx context.Context, dag *ir.DAG, status *ir.DAGRunStatus, runID string, admission retryAdmission, path dagrun.RetryPath) error {
+	step := path.RootStep()
 	if dispatch.ShouldDispatchToCoordinator(dag, a.coordinatorCli != nil, a.defaultExecMode) {
 		var err error
 		dag, err = a.refreshBaseSMTP(ctx, dag, status)
@@ -4148,11 +4318,14 @@ func (a *API) resumeManagedAttempt(ctx context.Context, dag *ir.DAG, status *ir.
 			executor.WithPreviousStatus(status),
 			executor.WithBaseConfig(executor.ResolveBaseConfig(dag.BaseConfigData, a.config.Paths.BaseConfig), dag.BaseConfigWorkspace),
 		}
-		if workerID := ir.RetryAgentOwnerWorkerID(status, false); workerID != "" {
+		if workerID := ir.RetryAgentOwnerWorkerID(status, step != ""); workerID != "" {
 			options = append(options, executor.WithTargetWorkerID(workerID))
 		}
 		if dag.SourceFile != "" {
 			options = append(options, executor.WithSourceFile(dag.SourceFile))
+		}
+		if step != "" {
+			options = append(options, executor.WithStep(step), executor.WithRetryPath(path))
 		}
 		if status.ProfileName != "" {
 			options = append(options, executor.WithProfileName(status.ProfileName))
@@ -4183,7 +4356,10 @@ func (a *API) resumeManagedAttempt(ctx context.Context, dag *ir.DAG, status *ir.
 	if err != nil {
 		return fmt.Errorf("prepare DAG retry env: %w", err)
 	}
-	opts := launcher.RetryOptions{DAGRunID: runID, TriggerActor: status.TriggerActor, QueueDispatch: admission != nil}
+	opts := launcher.RetryOptions{
+		DAGRunID: runID, Step: step, RetryPath: path,
+		TriggerActor: status.TriggerActor, QueueDispatch: admission != nil,
+	}
 	if !status.Root.Zero() && status.Root.ID != runID {
 		opts.Root = status.Root
 	}

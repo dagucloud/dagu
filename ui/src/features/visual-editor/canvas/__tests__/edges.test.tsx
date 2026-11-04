@@ -509,16 +509,16 @@ describe('DependencyEdge', () => {
 
   // parity:run-graph-render
   it.each([
-    [NodeStatus.Success, 'stroke-success'],
-    [NodeStatus.Running, 'stroke-[var(--status-running)]'],
-    [NodeStatus.Retrying, 'stroke-warning'],
-    [NodeStatus.Waiting, 'stroke-warning'],
-    [NodeStatus.PartialSuccess, 'stroke-warning'],
-    [NodeStatus.Failed, 'stroke-destructive'],
-    [NodeStatus.Rejected, 'stroke-destructive'],
-    [NodeStatus.Aborted, 'stroke-[var(--status-aborted)]'],
-    [NodeStatus.NotStarted, 'stroke-[var(--status-neutral)]'],
-    [NodeStatus.Skipped, 'stroke-[var(--status-neutral)]'],
+    [NodeStatus.Success, 'stroke-[var(--graph-success)]'],
+    [NodeStatus.Running, 'stroke-[var(--graph-running)]'],
+    [NodeStatus.Retrying, 'stroke-[var(--graph-warning)]'],
+    [NodeStatus.Waiting, 'stroke-[var(--graph-warning)]'],
+    [NodeStatus.PartialSuccess, 'stroke-[var(--graph-warning)]'],
+    [NodeStatus.Failed, 'stroke-[var(--graph-error)]'],
+    [NodeStatus.Rejected, 'stroke-[var(--graph-error)]'],
+    [NodeStatus.Aborted, 'stroke-[var(--graph-aborted)]'],
+    [NodeStatus.NotStarted, 'stroke-[var(--graph-neutral)]'],
+    [NodeStatus.Skipped, 'stroke-[var(--graph-neutral)]'],
   ])('strokes with the source status %s as %s', (status, token) => {
     // The target ran: an edge into a step that is not in the run has no tint.
     const { container } = renderEdge(
@@ -545,8 +545,8 @@ describe('DependencyEdge', () => {
         />
       );
       const path = edgePath(container);
-      expect(path).toHaveClass('stroke-[var(--status-neutral)]');
-      expect(path).not.toHaveClass('stroke-success');
+      expect(path).toHaveClass('stroke-[var(--graph-neutral)]');
+      expect(path).not.toHaveClass('stroke-[var(--graph-success)]');
     }
   );
 
@@ -559,7 +559,7 @@ describe('DependencyEdge', () => {
         )}
       />
     );
-    expect(edgePath(container)).toHaveClass('stroke-success');
+    expect(edgePath(container)).toHaveClass('stroke-[var(--graph-success)]');
   });
 
   it('keeps the selection colour over the status', () => {
@@ -573,7 +573,7 @@ describe('DependencyEdge', () => {
       />
     );
     const path = edgePath(container);
-    expect(path).not.toHaveClass('stroke-destructive');
+    expect(path).not.toHaveClass('stroke-[var(--graph-error)]');
     expect(path.style.stroke).toBe('var(--primary)');
   });
 

@@ -15,6 +15,11 @@ import React from 'react';
 import { I18nText } from '@/i18n/I18nText';
 import { I18nProps } from '@/i18n/I18nProps';
 import { useI18n } from '@/i18n/I18nProvider';
+import {
+  OverlayResizeHandle,
+  SUB_RUN_WIDTH_KEY,
+  useOverlayWidth,
+} from '@/features/peek/OverlayResizeHandle';
 
 // Loaded lazily: the content renders DAGStatus, which is what opens this modal.
 // A static import would close that cycle at module load.
@@ -170,12 +175,19 @@ export function SubRunStackModal({
     [onChange, stack]
   );
 
+  // Pushes in one event build on each other, so that a path of runs opens
+  // at once.
+  const pushedRef = React.useRef(stack);
+  React.useLayoutEffect(() => {
+    pushedRef.current = stack;
+  }, [stack]);
   const push = React.useCallback(
     (entry: SubRunStackEntry) => {
       previousRef.current = null;
-      onChange([...stack, entry]);
+      pushedRef.current = [...pushedRef.current, entry];
+      onChange(pushedRef.current);
     },
-    [onChange, stack]
+    [onChange]
   );
 
   React.useEffect(() => {
@@ -191,12 +203,18 @@ export function SubRunStackModal({
     return () => window.removeEventListener('keydown', onKeyDown);
   }, [top, stack.length, popTo]);
 
+  // The width that the user gave the panel, kept across visits; three
+  // quarters of the window by default. The edges of the levels below follow it.
+  const panelWidth = useOverlayWidth(SUB_RUN_WIDTH_KEY);
+  const panelRef = React.useRef<HTMLDivElement>(null);
+
   if (!top) return null;
 
   // In the workspace the drawer sits above the node view (z-[60]) and below dialogs (z-[80]).
   const backdropZ = raised ? 'z-[66]' : 'z-40';
   const panelZ = raised ? 'z-[68]' : 'z-50';
   const depth = stack.length;
+  const panelSize = panelWidth.width === null ? '75%' : `${panelWidth.width}px`;
   // A stack over the whole window has no room for edges: its breadcrumb
   // lists every level, as the way back to each.
   const edges = expanded ? 0 : Math.min(depth - 1, MAX_VISIBLE_EDGES);
@@ -227,7 +245,7 @@ export function SubRunStackModal({
               !isVisible && 'translate-x-full opacity-0'
             )}
             style={{
-              right: `calc(75% - ${(i + 1) * EDGE_WIDTH}px)`,
+              right: `calc(${panelSize} - ${(i + 1) * EDGE_WIDTH}px)`,
               transitionDuration: `${SLIDE_MS}ms`,
             }}
             aria-label={ts('Back one level')}
@@ -246,14 +264,28 @@ export function SubRunStackModal({
         aria-modal="true"
         aria-label={top.name}
         data-state="open"
+        ref={panelRef}
         className={cn(
           'bg-background fixed top-0 right-0 bottom-0 flex h-screen w-full flex-col border-l border-indigo-500/30 transition-transform ease-out',
-          !expanded && 'md:w-3/4',
+          !expanded && 'md:w-(--sub-run-width)',
           panelZ,
           !isVisible && 'translate-x-full'
         )}
-        style={{ transitionDuration: `${SLIDE_MS}ms` }}
+        style={
+          {
+            transitionDuration: `${SLIDE_MS}ms`,
+            '--sub-run-width': panelSize,
+          } as React.CSSProperties
+        }
       >
+        {!expanded && (
+          <OverlayResizeHandle
+            width={() => panelRef.current?.getBoundingClientRect().width ?? 0}
+            onResize={panelWidth.set}
+            onReset={panelWidth.reset}
+            label={ts('Resize sub-run view')}
+          />
+        )}
         <div className="border-border flex items-center gap-2 border-b px-3 py-2">
           <nav className="flex min-w-0 flex-1 flex-wrap items-center gap-x-1 text-xs">
             <button

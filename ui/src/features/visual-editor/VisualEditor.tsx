@@ -10,6 +10,7 @@ import {
 } from 'lucide-react';
 import { createPortal } from 'react-dom';
 import {
+  startTransition,
   useCallback,
   useEffect,
   useImperativeHandle,
@@ -176,6 +177,8 @@ export interface VisualEditorProps extends EditorHostProps {
   initialYamlMode?: 'file' | 'step';
   /** The Workflow panel shows when the editor mounts, with a workflowPanel. */
   initialWorkflowOpen?: boolean;
+  /** Called when the Workflow panel opens or closes. */
+  onWorkflowOpenChange?(open: boolean): void;
   /** Controls before the canvas controls; see VisualCanvasProps.toolbarStart. */
   toolbarStart?: ReactNode;
   /**
@@ -378,6 +381,7 @@ export function VisualEditor(props: VisualEditorProps): ReactElement {
     onYamlModeChange,
     initialYamlMode = 'step',
     initialWorkflowOpen = false,
+    onWorkflowOpenChange,
     toolbarStart,
     toolbarTrail,
     onRevertToSave,
@@ -590,6 +594,11 @@ export function VisualEditor(props: VisualEditorProps): ReactElement {
   // A click on a step shows its YAML; its form opens from the small button at
   // its declaration in the YAML, or from the Open button of the step.
   const [workflowOpen, setWorkflowOpen] = useState(initialWorkflowOpen);
+  const onWorkflowOpenChangeRef = useRef(onWorkflowOpenChange);
+  onWorkflowOpenChangeRef.current = onWorkflowOpenChange;
+  useEffect(() => {
+    onWorkflowOpenChangeRef.current?.(workflowOpen);
+  }, [workflowOpen]);
   // The launcher whose panel is open, and what the host side of the launchers
   // reads from the server. Only a host that gives `launcherHost` has them.
   const [launcherOpen, setLauncherOpen] = useState<LauncherId | null>(null);
@@ -659,15 +668,21 @@ export function VisualEditor(props: VisualEditorProps): ReactElement {
     if (!canEdit) setAddTarget(null);
   }, [canEdit]);
 
+  // A host that keeps the selection and the view in the URL writes them
+  // through the router, which renders in a transition. The step view opens
+  // in the same transition, so that it shows with its step and its columns
+  // from its first frame.
   const showYamlFor = useCallback(
     (key: StepKey) => {
-      select(key);
-      setYamlMode('step');
-      setFormOpen(false);
-      setWorkflowOpen(false);
-      setLauncherOpen(null);
-      setAddTarget(null);
-      onYamlVisibleChange?.(true);
+      startTransition(() => {
+        select(key);
+        setYamlMode('step');
+        setFormOpen(false);
+        setWorkflowOpen(false);
+        setLauncherOpen(null);
+        setAddTarget(null);
+        onYamlVisibleChange?.(true);
+      });
     },
     [onYamlVisibleChange, setFormOpen, select]
   );
@@ -687,13 +702,15 @@ export function VisualEditor(props: VisualEditorProps): ReactElement {
         showYamlFor(key);
         return;
       }
-      select(key);
-      setYamlMode('step');
-      setFormOpen(true);
-      setWorkflowOpen(false);
-      setLauncherOpen(null);
-      setAddTarget(null);
-      onYamlVisibleChange?.(inDrawer);
+      startTransition(() => {
+        select(key);
+        setYamlMode('step');
+        setFormOpen(true);
+        setWorkflowOpen(false);
+        setLauncherOpen(null);
+        setAddTarget(null);
+        onYamlVisibleChange?.(inDrawer);
+      });
     },
     [hasForm, showYamlFor, onYamlVisibleChange, inDrawer, setFormOpen, select]
   );

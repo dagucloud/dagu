@@ -18,11 +18,24 @@ var (
 	ErrRepeatingStepTarget = errors.New("child DAG runs of a repeating step cannot be retried individually")
 )
 
-// RetryPath identifies a step in a persisted child DAG run.
+// RetryPath identifies a step in a persisted child DAG run. A path with a Leaf
+// instead of a Step targets the last child run itself.
 type RetryPath struct {
 	Hops []RetryHop `json:"hops"`
 	Step string     `json:"step"`
+	Leaf RetryLeaf  `json:"leaf,omitempty"`
 }
+
+// RetryLeaf selects how the last child run on a path is entered when the path
+// names no step in it.
+type RetryLeaf string
+
+const (
+	// RetryLeafResume continues the child run from its persisted checkpoint.
+	RetryLeafResume RetryLeaf = "resume"
+	// RetryLeafReuse reports the child run's persisted result without running it.
+	RetryLeafReuse RetryLeaf = "reuse"
+)
 
 // RetryHop identifies one parent-to-child invocation.
 type RetryHop struct {
@@ -54,7 +67,8 @@ func (p RetryPath) Advance() RetryPath {
 	return p
 }
 
-// NextStep returns the step that the selected child run must retry.
+// NextStep returns the step that the selected child run must retry. It is
+// empty when the path ends at the selected child run.
 func (p RetryPath) NextStep() string {
 	if len(p.Hops) > 1 {
 		return p.Hops[1].Step
@@ -62,13 +76,35 @@ func (p RetryPath) NextStep() string {
 	return p.Step
 }
 
+// NextLeaf returns how the selected child run is entered when the path ends at
+// that run. It is empty when the path continues to a step or another hop.
+func (p RetryPath) NextLeaf() RetryLeaf {
+	if len(p.Hops) == 1 {
+		return p.Leaf
+	}
+	return ""
+}
+
 // Encode serializes the path for internal transport.
 func (p RetryPath) Encode() string {
-	if len(p.Hops) == 0 || p.Step == "" {
+	if len(p.Hops) == 0 || !p.hasTarget() {
 		return ""
 	}
 	data, _ := json.Marshal(p)
 	return string(data)
+}
+
+// hasTarget reports whether the path ends at exactly one of a step or a known
+// leaf.
+func (p RetryPath) hasTarget() bool {
+	switch p.Leaf {
+	case "":
+		return p.Step != ""
+	case RetryLeafResume, RetryLeafReuse:
+		return p.Step == ""
+	default:
+		return false
+	}
 }
 
 // ParseRetryPath parses an internal retry path.
@@ -80,7 +116,7 @@ func ParseRetryPath(value string) (RetryPath, error) {
 	if err := json.Unmarshal([]byte(value), &path); err != nil {
 		return RetryPath{}, fmt.Errorf("parse retry path: %w", err)
 	}
-	if len(path.Hops) == 0 || path.Step == "" {
+	if len(path.Hops) == 0 || !path.hasTarget() {
 		return RetryPath{}, fmt.Errorf("parse retry path: path is incomplete")
 	}
 	for _, hop := range path.Hops {

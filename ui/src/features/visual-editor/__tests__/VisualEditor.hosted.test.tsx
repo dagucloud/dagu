@@ -4,7 +4,9 @@
 import { act, fireEvent, render, screen, within } from '@testing-library/react';
 import {
   createRef,
+  startTransition,
   useImperativeHandle,
+  useLayoutEffect,
   useRef,
   useState,
   type ReactNode,
@@ -379,6 +381,37 @@ describe.skipIf(realSchema === null)('VisualEditor in a host', () => {
       fireEvent.click(control, { detail: 1 });
       expect(isSelected('steps[2]')).toBe(true);
       expect(onStepClick).not.toHaveBeenCalled();
+    });
+
+    // The workspace keeps the selection in the URL, which the router writes
+    // in a transition, and the view in a state of its own: the view of a
+    // step never shows without its step.
+    it('opens the view of a step with the selection of a host', () => {
+      const shown: string[] = [];
+      function TransitionHost() {
+        const [name, setName] = useState<string | null>(null);
+        const [visible, setVisible] = useState(false);
+        useLayoutEffect(() => {
+          shown.push(`${visible}:${name}`);
+        });
+        return (
+          <Harness
+            initial={yamlArraySteps}
+            selectedStepName={name}
+            onSelectedStepNameChange={(next) =>
+              startTransition(() => setName(next))
+            }
+            yamlVisible={visible}
+            onYamlVisibleChange={setVisible}
+          />
+        );
+      }
+      render(wrap(<TransitionHost />));
+
+      fireEvent.doubleClick(nodeCard('steps[1]'));
+
+      expect(shown).not.toContain('true:null');
+      expect(last(shown)).toBe('true:transform');
     });
 
     it('pans to a step that the host selects', () => {

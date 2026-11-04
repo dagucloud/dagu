@@ -306,6 +306,9 @@ function DAGSpec({
   const { setHasUnsavedChanges } = useUnsavedChanges();
 
   const [activeTab, setActiveTab] = React.useState('parent');
+  // The Workflow panel stays open across the documents of the file: each
+  // document has its own editor, which opens with it.
+  const [workflowOpen, setWorkflowOpen] = React.useState(initialWorkflowOpen);
   const [selectedSpecStepName, setSelectedSpecStepName] = React.useState<
     string | null
   >(null);
@@ -1839,7 +1842,8 @@ function DAGSpec({
     const field = relativeFieldPath(issue.stepPath ?? '', issue.fieldPath);
     if (!fileShown && issue.stepName && field && hostMode) {
       if (editorHandle.openForm(issue.stepName)) {
-        inspectorView.setFocusPath(field);
+        // The form opens in a transition: the field to focus goes with it.
+        React.startTransition(() => inspectorView.setFocusPath(field));
         return;
       }
     }
@@ -1880,7 +1884,7 @@ function DAGSpec({
       onRevealStep={(step, field) => {
         // A row that names a field opens the form of the step on it.
         if (hostMode && field && editorHandle.openForm(step)) {
-          inspectorView.setFocusPath(field);
+          React.startTransition(() => inspectorView.setFocusPath(field));
           return;
         }
         visualHandleRef.current?.revealStep(step);
@@ -2227,7 +2231,8 @@ function DAGSpec({
                           onYamlIntent={preloadDAGEditor}
                           onYamlModeChange={setYamlKind}
                           initialYamlMode={yamlKind}
-                          initialWorkflowOpen={initialWorkflowOpen}
+                          initialWorkflowOpen={workflowOpen}
+                          onWorkflowOpenChange={setWorkflowOpen}
                           toolbarStart={documentTabs}
                           toolbarTrail={specActions}
                           onRevertToSave={editable ? requestDiscard : undefined}
@@ -2285,6 +2290,8 @@ function DAGSpec({
                     <React.Suspense fallback={null}>
                       <VisualEditor
                         key={`child:${activeTab}`}
+                        initialWorkflowOpen={workflowOpen}
+                        onWorkflowOpenChange={setWorkflowOpen}
                         fileName={fileName}
                         dagName={activeTab}
                         text={fileText.slice(childSpan.from, childSpan.to)}

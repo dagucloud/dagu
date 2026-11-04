@@ -301,6 +301,28 @@ describe('StepNode', () => {
       'ring-primary'
     );
   });
+
+  // The ring of the selection wins over the ring of the run status.
+  it('marks a selected step of the run with the primary ring', () => {
+    const node = makeNode({
+      run: {
+        status: NodeStatus.Failed,
+        statusLabel: 'failed',
+        retryCount: 0,
+        doneCount: 0,
+      },
+    });
+    const { getByTestId } = renderIn(
+      <StepNode {...nodeProps(node, { selected: true })} />
+    );
+    const card = getByTestId('ve-canvas-node-steps[0]');
+    expect(card).toHaveClass(
+      'ring-2',
+      'ring-primary',
+      'border-[var(--graph-error)]'
+    );
+    expect(card).not.toHaveClass('ring-[var(--graph-error)]');
+  });
 });
 
 describe('StepNode issues and run', () => {
@@ -413,10 +435,12 @@ describe('StepNode issues and run', () => {
     const { getByTestId, getByText, getByLabelText } = renderIn(
       <StepNode {...nodeProps(node)} />
     );
-    // The colour of the status is the border of the card, not a ring around it.
+    // The colour of the status is the border of the card, doubled by a ring,
+    // over a tint of the card: it reads at any zoom.
     const failedCard = getByTestId('ve-canvas-node-steps[0]');
-    expect(failedCard).toHaveClass('border-destructive');
-    expect(failedCard.className).not.toContain('ring-destructive');
+    expect(failedCard).toHaveClass('border-[var(--graph-error)]', 'ring-1');
+    expect(failedCard).toHaveClass('ring-[var(--graph-error)]');
+    expect(failedCard.className).toContain('var(--graph-error)_10%');
     expect(getByTestId('status-dot').className).toContain('--status-error');
     expect(getByText('2m 5s')).toBeInTheDocument();
     expect(getByLabelText('Retried 3×')).toHaveTextContent('3');
@@ -546,7 +570,7 @@ describe('StepNode issues and run', () => {
           .getByTestId('ve-node-reuse-outline')
           .querySelector('rect');
         expect(rect).toHaveAttribute('stroke-dasharray', '6 4');
-        expect(rect).toHaveClass('stroke-success');
+        expect(rect).toHaveClass('stroke-[var(--graph-success)]');
         expect(card.getAttribute('title')).toBe(
           'Reused from run r0abcdef: succeeded'
         );
@@ -562,7 +586,7 @@ describe('StepNode issues and run', () => {
           .getByTestId('ve-node-reuse-outline')
           .querySelector('rect');
         expect(rect).toHaveAttribute('stroke-dasharray', '6 4');
-        expect(rect).toHaveClass('stroke-destructive');
+        expect(rect).toHaveClass('stroke-[var(--graph-error)]');
         expect(card.getAttribute('title')).toBe(
           'Reused from run r0abcdef: failed'
         );
@@ -593,7 +617,7 @@ describe('StepNode issues and run', () => {
         const plain = renderIn(<StepNode {...nodeProps(skipped())} />);
         expect(
           plain.getByTestId('ve-canvas-node-steps[0]').className
-        ).toContain('border-[var(--status-neutral)]');
+        ).toContain('border-[var(--graph-neutral)]');
         expect(plain.queryByTestId('ve-node-reuse-outline')).toBeNull();
         plain.unmount();
 
@@ -609,7 +633,7 @@ describe('StepNode issues and run', () => {
         expect(rects).toHaveLength(1);
         expect(rects[0]).toHaveAttribute('stroke-dasharray', '6 4');
         expect(rects[0]).toHaveClass('stroke-primary');
-        expect(rects[0]).not.toHaveClass('stroke-success');
+        expect(rects[0]).not.toHaveClass('stroke-[var(--graph-success)]');
       });
 
       // A step after the executed step is skipped and gave nothing: the
@@ -675,14 +699,14 @@ describe('StepNode issues and run', () => {
         );
         expect(
           green.getByTestId('ve-node-reuse-outline').querySelector('rect')
-        ).toHaveClass('stroke-success');
+        ).toHaveClass('stroke-[var(--graph-success)]');
         green.unmount();
         const red = renderIn(<StepNode {...nodeProps(failed())} />, compact);
         const card = red.getByTestId('ve-canvas-node-steps[0]');
         expect(card).toHaveClass('h-14', 'w-14');
         expect(
           red.getByTestId('ve-node-reuse-outline').querySelector('rect')
-        ).toHaveClass('stroke-destructive');
+        ).toHaveClass('stroke-[var(--graph-error)]');
         // The tooltip of a compact card keeps its name and adds the source.
         expect(card.getAttribute('title')).toBe(
           'fetch\ncurl -sSf https://example.com\nReused from run r0abcdef: failed'
@@ -1153,8 +1177,8 @@ describe('StepNode issues and run', () => {
     );
     const cls = getByTestId('ve-canvas-node-steps[0]').className;
     expect(cls).toContain('ring-primary');
-    expect(cls).toContain('border-success');
-    expect(cls).not.toContain('ring-success');
+    expect(cls).toContain('border-[var(--graph-success)]');
+    expect(cls).not.toContain('ring-[var(--graph-success)]');
   });
 });
 
@@ -1987,7 +2011,7 @@ describe('ToolNode', () => {
       />
     );
     expect(getByTestId('ve-canvas-node-steps[0]')).toHaveClass(
-      'border-destructive'
+      'border-[var(--graph-error)]'
     );
   });
 

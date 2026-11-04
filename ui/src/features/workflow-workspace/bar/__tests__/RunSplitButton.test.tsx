@@ -372,13 +372,17 @@ describe('RunSplitButton', () => {
   // 'Run now' did what Start does once its dialog is confirmed, so the menu
   // keeps only the choice that Start lacks: the unsaved draft. The caret keeps
   // its slot while there is no draft, so that Start does not move when the
-  // draft becomes dirty: it is disabled, not removed.
-  it('keeps the caret slot while the editor is clean, disabled', () => {
+  // draft becomes dirty; its menu says why the draft cannot run.
+  it('says that a clean editor has no draft to run', async () => {
     setup({ editor: { dirty: false, buffer: 'steps: []\n' } });
 
-    const caret = screen.getByRole('button', { name: 'More run options' });
-    expect(caret).toBeDisabled();
-    expect(screen.queryByRole('menuitem', { name: 'Run now' })).toBeNull();
+    const menu = await openMenu();
+    const item = within(menu).getByRole('menuitem', {
+      name: /Run unsaved draft/,
+    });
+    expect(item).toHaveAttribute('aria-disabled', 'true');
+    expect(item).toHaveTextContent('No unsaved changes');
+    expect(within(menu).queryByRole('menuitem', { name: 'Run now' })).toBeNull();
   });
 
   // Start is the first child and the caret the second, clean and dirty: the

@@ -137,6 +137,8 @@ type VisualProps = Record<string, unknown> & {
   toolbarTrail?: React.ReactNode;
   onStateChange?(state: VisualEditorState): void;
   handleRef?: React.Ref<VisualEditorHandle>;
+  initialWorkflowOpen?: boolean;
+  onWorkflowOpenChange?(open: boolean): void;
 };
 const visual = vi.hoisted(() => ({
   props: null as VisualProps | null,
@@ -432,6 +434,23 @@ describe('a child workflow of the file', () => {
         '  - command: echo child\n# visual\n'
       )
     );
+  });
+
+  // Each document has its own editor: the Workflow panel opens with the
+  // editor of the next one.
+  it('keeps the Workflow panel open across the documents', async () => {
+    await renderSpec({ localDags });
+    act(() => visual.props?.onWorkflowOpenChange?.(true));
+
+    fireEvent.click(screen.getByRole('tab', { name: 'child' }));
+    await settle();
+    expect(visual.props?.initialWorkflowOpen).toBe(true);
+
+    act(() => visual.props?.onWorkflowOpenChange?.(false));
+    // The first tab is the parent document.
+    fireEvent.click(screen.getAllByRole('tab')[0]!);
+    await settle();
+    expect(visual.props?.initialWorkflowOpen).toBe(false);
   });
 
   it('clears the step of the parent that the host shows', async () => {

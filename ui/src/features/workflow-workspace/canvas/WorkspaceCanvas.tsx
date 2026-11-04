@@ -304,7 +304,7 @@ export function WorkspaceCanvas({
   const { guard, setSecretVisible } = useSettingsLeaveGuard();
   // The runs of the step view start and show without leaving the editor.
   const actions = useStepRunActions({ stay: true });
-  const [url, setUrl] = useWorkspaceUrl();
+  const [url, setUrl, readUrl] = useWorkspaceUrl();
   const { editorHandleRef, onEditorStateChange } = useWorkspaceEditorBinding();
   const { handle, state: editorState } = useWorkspaceEditor();
   const runSource = useCanvasRunSource(
@@ -342,13 +342,23 @@ export function WorkspaceCanvas({
     [setUrl]
   );
 
+  // A step view needs a step: it closes with the selection. The YAML panel
+  // stays, and shows the whole file.
   const onSelectedStepNameChange = useCallback(
     (name: string | null) => {
-      setUrl(name === null ? { step: null, ndv: null } : { step: name }, {
-        replace: true,
-      });
+      if (name !== null) {
+        setUrl({ step: name }, { replace: true });
+        return;
+      }
+      const stepView = readUrl().ndv === 'expanded';
+      setUrl(
+        { step: null, ...(stepView ? { ndv: null } : {}) },
+        {
+          replace: true,
+        }
+      );
     },
-    [setUrl]
+    [readUrl, setUrl]
   );
 
   // The YAML panel shows as the user left it, unless a link opens a view.
