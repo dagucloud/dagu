@@ -24,6 +24,7 @@ import {
 import type { ApiDAGRunDetails, WorkspaceRunValue } from '../../data/types';
 import {
   DOCK_FAILURE_HEIGHT,
+  maxDockHeight,
   DOCK_HEIGHT_KEY,
   DOCK_OPEN_KEY,
   defaultDockHeight,
@@ -157,6 +158,34 @@ beforeEach(() => {
 
 afterEach(() => {
   vi.restoreAllMocks();
+});
+
+// On a phone the panel is a sheet over the whole page: it opened at load
+// because the user left it open on a desktop, and hid the canvas.
+describe('DockProvider on a narrow window', () => {
+  function narrow(matches: boolean) {
+    vi.spyOn(window, 'matchMedia').mockImplementation(
+      (query: string) =>
+        ({
+          matches,
+          media: query,
+          addEventListener: vi.fn(),
+          removeEventListener: vi.fn(),
+        }) as unknown as MediaQueryList
+    );
+  }
+
+  it('does not open from the stored state', () => {
+    window.matchMedia ??= (() => ({}) as MediaQueryList) as typeof matchMedia;
+    narrow(false);
+    expect(renderDock().dock.open).toBe(false);
+  });
+
+  it('opens from the stored state on a wide window', () => {
+    window.matchMedia ??= (() => ({}) as MediaQueryList) as typeof matchMedia;
+    narrow(true);
+    expect(renderDock().dock.open).toBe(true);
+  });
 });
 
 describe('DockProvider commands', () => {
@@ -299,13 +328,22 @@ describe('DockProvider', () => {
     expect(renderDock('/dags/demo?dock=spec').dock.tab).toBe('timeline');
   });
 
-  // A failed step needs room for the banner, the log toolbar and a log.
+  // A failed step needs room for the run chart, the banner, the log toolbar
+  // and a log: at 320 px, the log had three lines under the chart.
   it('opens a failed step with room for its banner and log, unstored', () => {
+    vi.spyOn(window, 'innerHeight', 'get').mockReturnValue(1000);
     const probe = renderDock();
     act(() => probe.frame.showAuto('log', { step: 'b', stream: 'stderr' }));
     expect(probe.dock.open).toBe(true);
     expect(probe.dock.height).toBe(DOCK_FAILURE_HEIGHT);
     expect(localStorage.getItem(DOCK_HEIGHT_KEY)).toBeNull();
+  });
+
+  it('leaves the canvas its room when the window is short', () => {
+    vi.spyOn(window, 'innerHeight', 'get').mockReturnValue(768);
+    const probe = renderDock();
+    act(() => probe.frame.showAuto('log', { step: 'b', stream: 'stderr' }));
+    expect(probe.dock.height).toBe(maxDockHeight());
   });
 
   // A run header of the History grid asks for the run view of its run.
@@ -318,13 +356,14 @@ describe('DockProvider', () => {
   });
 
   it('keeps a taller dock, with or without a step', () => {
-    localStorage.setItem(DOCK_HEIGHT_KEY, '400');
+    vi.spyOn(window, 'innerHeight', 'get').mockReturnValue(1000);
+    localStorage.setItem(DOCK_HEIGHT_KEY, '520');
     const probe = renderDock();
     act(() => probe.frame.showAuto('log', { step: 'b' }));
-    expect(probe.dock.height).toBe(400);
+    expect(probe.dock.height).toBe(520);
     const other = renderDock();
     act(() => other.frame.showAuto('agent', null));
-    expect(other.dock.height).toBe(400);
+    expect(other.dock.height).toBe(520);
   });
 
   it('writes ?dock with replace for a user tab choice only', () => {

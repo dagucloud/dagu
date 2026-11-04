@@ -29,6 +29,7 @@ import {
   maxDockHeight,
   useDock,
   useDockFrame,
+  DOCK_SHEET_BELOW_PX,
 } from './DockContext';
 import { DockHeaderToolsContext } from './DockHeaderTools';
 import { FreezeWhenHidden } from './FreezeWhenHidden';
@@ -93,7 +94,7 @@ export function LogsDock({
   const [url] = useWorkspaceUrl();
   const activePanel = useActiveRightPanel();
   const openStepDetails = useOpenStepDetails();
-  const narrow = !useMinWidth(768);
+  const narrow = !useMinWidth(DOCK_SHEET_BELOW_PX);
   const sheet = narrow && dock.open;
   useDockAutoOpen();
 

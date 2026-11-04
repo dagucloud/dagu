@@ -94,6 +94,8 @@ export interface DockFrame {
 }
 
 export const DOCK_BAR_HEIGHT = 32;
+/** Below this window width the Run panel is a sheet that covers the page. */
+export const DOCK_SHEET_BELOW_PX = 768;
 // The Run panel opens at about 40% of the window, and never under the floor
 // that holds the bar, the timeline and a few steps.
 export const DOCK_DEFAULT_RATIO = 0.4;
@@ -108,9 +110,10 @@ export const DOCK_OPEN_KEY = 'dagu.workspace.dockOpen.v2';
 // the main zone (MAIN_ZONE_FLOOR_CLASS).
 const CANVAS_RESERVE = 360;
 
-// A failed step shows its banner, the log toolbar and a log: the auto-open
-// gives it this much, unless the dock is already taller. Not stored.
-export const DOCK_FAILURE_HEIGHT = 320;
+// A failed step shows the run chart (about 130 px), the tabs, its banner,
+// the log toolbar and about ten lines of its log: the auto-open gives it
+// this much, unless the dock is already taller. Not stored.
+export const DOCK_FAILURE_HEIGHT = 480;
 
 export function maxDockHeight(): number {
   return Math.max(DOCK_MIN_HEIGHT, window.innerHeight - CANVAS_RESERVE);
@@ -127,6 +130,18 @@ export function clampDockHeight(value: number): number {
   return Math.round(
     Math.min(maxDockHeight(), Math.max(DOCK_MIN_HEIGHT, value))
   );
+}
+
+/**
+ * The open state that the user left. It is a choice for a wide window: on a
+ * narrow one the panel is a sheet over the whole page, which opens only when
+ * asked for.
+ */
+function storedOpen(): boolean {
+  const wide =
+    window.matchMedia?.(`(min-width: ${DOCK_SHEET_BELOW_PX}px)`).matches ??
+    true;
+  return wide && readStored(DOCK_OPEN_KEY) === 'true';
 }
 
 function readStored(key: string): string | null {
@@ -231,7 +246,7 @@ export function DockProvider({ children }: { children: ReactNode }) {
   // no request to open the panel: a reload or a Back to it keeps it closed.
   const runLinked = url.run !== null && !isRunRedirect(location.state);
   const [openState, setOpenState] = useState(
-    () => url.dock !== null || runLinked || readStored(DOCK_OPEN_KEY) === 'true'
+    () => url.dock !== null || runLinked || storedOpen()
   );
   const [startedRuns, setStartedRuns] = useState<ReadonlySet<string>>(
     () => new Set()

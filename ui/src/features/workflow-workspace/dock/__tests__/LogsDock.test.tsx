@@ -512,7 +512,9 @@ describe('LogsDock tab strip', () => {
   it.each([900, 500])('keeps every tab in the strip at %ipx', async (width) => {
     mockWidth(width);
     const user = userEvent.setup();
-    renderDock(busy);
+    // A link opens the panel at every width; the stored state does not on a
+    // narrow window.
+    renderDock(busy, '/dags/demo?dock=log');
     expect(screen.queryByRole('button', { name: /More/ })).toBeNull();
     expect(screen.queryByRole('combobox')).toBeNull();
     const strip = screen.getByRole('tablist');
