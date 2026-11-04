@@ -75,7 +75,7 @@ type processRepository interface {
 	ListAlive(ctx context.Context, groupName string) ([]ir.DAGRunRef, error)
 	IsRunAlive(ctx context.Context, groupName string, dagRun ir.DAGRunRef) (bool, error)
 	IsAttemptAlive(ctx context.Context, groupName string, dagRun ir.DAGRunRef, attemptID string) (bool, error)
-	LatestFreshEntryByDAGName(ctx context.Context, groupName, dagName string) (*proc.ProcEntry, error)
+	FreshEntriesByDAGName(ctx context.Context, groupName, dagName string) ([]proc.ProcEntry, error)
 }
 
 // Stop stops running DAG-runs and can cancel an explicit failed DAG-run that is
@@ -438,23 +438,33 @@ func (m *Manager) resolveRunningStatus(
 // GetLatestStatus retrieves the latest status of a DAG.
 // If the DAG is running, it attempts to get the current status from the socket.
 // If that fails and the local proc is dead, it repairs the stale run before returning it.
+// An ephemeral run is never the latest, as it reaches no history.
 func (m *Manager) GetLatestStatus(ctx context.Context, dag *ir.DAG) (ir.DAGRunStatus, error) {
 	if m.dagRunRepository == nil {
 		return ir.InitialStatus(dag), nil
 	}
 
 	if m.procRepository != nil {
-		if entry, err := m.procRepository.LatestFreshEntryByDAGName(ctx, dag.ProcGroup(), dag.Name); err == nil && entry != nil {
-			attempt, findErr := m.findAttemptForProcEntry(ctx, *entry)
-			if findErr == nil {
-				st, readErr := attempt.ReadStatus(ctx)
-				if readErr == nil && st.AttemptID == entry.Meta.AttemptID {
-					st = m.resolveRunningStatus(ctx, dag, attempt, st, entry.IsRoot())
-					return *st, nil
-				}
-			}
-		} else if err != nil {
+		entries, err := m.procRepository.FreshEntriesByDAGName(ctx, dag.ProcGroup(), dag.Name)
+		if err != nil {
 			logger.Debug(ctx, "Failed to resolve freshest proc entry for latest status", tag.Error(err))
+		}
+		for _, entry := range entries {
+			attempt, findErr := m.findAttemptForProcEntry(ctx, entry)
+			if findErr != nil {
+				break
+			}
+			st, readErr := attempt.ReadStatus(ctx)
+			if readErr != nil || st.AttemptID != entry.Meta.AttemptID {
+				break
+			}
+			if st.Ephemeral {
+				// An ephemeral run reaches no history; the next fresh run
+				// may stand for the DAG.
+				continue
+			}
+			st = m.resolveRunningStatus(ctx, dag, attempt, st, entry.IsRoot())
+			return *st, nil
 		}
 	}
 

@@ -114,6 +114,11 @@ type Reporter struct {
 	// queueRead is the last read of the queues, which reports reuse for
 	// queuesEvery.
 	queueRead queueRead
+	// cpuFrom is when the newest CPU sample the last accepted report
+	// averaged was taken, so the next one averages the samples after it;
+	// cpuBuilt is that time for the report in flight.
+	cpuFrom  time.Time
+	cpuBuilt time.Time
 }
 
 // Start reports in the background until Stop is called or ctx is done.
@@ -168,10 +173,13 @@ type RemoteAccess interface {
 	Status(ctx context.Context) (cloudaccess.Status, error)
 }
 
-// Resources reads the latest sample of the resources of the machine the
-// server runs on.
+// Resources reads how busy the machine the server runs on is, or its
+// container when that has limits.
 type Resources interface {
-	Latest() (resource.Sample, bool)
+	// Since returns the latest sample with CPU use averaged, and its peak
+	// taken, over the samples after since, with when the newest of them was
+	// taken as CPUThrough; false before a sample.
+	Since(since time.Time) (resource.Sample, bool)
 }
 
 // Stop ends reporting and waits for a report in flight to finish.
@@ -416,6 +424,7 @@ func (r *Reporter) report(ctx context.Context) time.Duration {
 
 	default:
 		r.backoff = 0
+		r.cpuFrom = r.cpuBuilt
 		var accepted acceptance
 		// A body that is not JSON asks for nothing.
 		_ = json.Unmarshal(res.body, &accepted)
@@ -625,19 +634,22 @@ type health struct {
 	// out while unknown.
 	RemoteAccess    config.RemoteAccessLevel `json:"remote_access,omitempty"`
 	RemoteApprovals *bool                    `json:"remote_approvals,omitempty"`
-	// Resources is the latest sample of the machine's resources, left out
-	// before one is taken.
+	// Resources is the latest sample of the machine's resources, with CPU
+	// use since the last accepted report, left out before one is taken.
 	Resources *resources `json:"resources,omitempty"`
 }
 
-// resources is a sample of the machine's resources. A part whose reading
-// failed is left out.
+// resources is a sample of the machine's resources, or its container's when
+// that has limits. A part whose reading failed is left out.
 type resources struct {
-	CPUs       int          `json:"cpus,omitempty"`
-	CPUPercent *float64     `json:"cpu_percent,omitempty"`
-	Load       *loadAverage `json:"load,omitempty"`
-	Memory     *usage       `json:"memory,omitempty"`
-	Disk       *usage       `json:"disk,omitempty"`
+	CPUs           int          `json:"cpus,omitempty"`
+	CPULimit       float64      `json:"cpu_limit,omitempty"`
+	CPUPercent     *float64     `json:"cpu_percent,omitempty"`
+	CPUPeakPercent *float64     `json:"cpu_peak_percent,omitempty"`
+	Load           *loadAverage `json:"load,omitempty"`
+	Memory         *usage       `json:"memory,omitempty"`
+	Disk           *usage       `json:"disk,omitempty"`
+	LogDisk        *usage       `json:"log_disk,omitempty"`
 }
 
 type loadAverage struct {
@@ -647,19 +659,21 @@ type loadAverage struct {
 }
 
 type usage struct {
-	UsedPercent float64 `json:"used_percent"`
-	UsedBytes   uint64  `json:"used_bytes"`
-	TotalBytes  uint64  `json:"total_bytes"`
+	UsedPercent       float64  `json:"used_percent"`
+	UsedBytes         uint64   `json:"used_bytes"`
+	TotalBytes        uint64   `json:"total_bytes"`
+	Limited           bool     `json:"limited,omitempty"`
+	InodesUsedPercent *float64 `json:"inodes_used_percent,omitempty"`
 }
 
 // resourcesOf is the report's form of sample.
 func resourcesOf(sample resource.Sample) *resources {
-	r := &resources{CPUs: sample.CPUs, CPUPercent: sample.CPUPercent}
+	r := &resources{CPUs: sample.CPUs, CPULimit: sample.CPULimit, CPUPercent: sample.CPUPercent,
+		CPUPeakPercent: sample.CPUPeak}
 	if l := sample.Load; l != nil {
 		r.Load = &loadAverage{Load1: l.Load1, Load5: l.Load5, Load15: l.Load15}
 	}
-	r.Memory = usageOf(sample.Memory)
-	r.Disk = usageOf(sample.Disk)
+	r.Memory, r.Disk, r.LogDisk = usageOf(sample.Memory), usageOf(sample.Disk), usageOf(sample.LogDisk)
 	return r
 }
 
@@ -667,7 +681,8 @@ func usageOf(u *resource.Usage) *usage {
 	if u == nil {
 		return nil
 	}
-	return &usage{UsedPercent: u.UsedPercent, UsedBytes: u.UsedBytes, TotalBytes: u.TotalBytes}
+	return &usage{UsedPercent: u.UsedPercent, UsedBytes: u.UsedBytes, TotalBytes: u.TotalBytes, Limited: u.Limited,
+		InodesUsedPercent: u.InodesUsedPercent}
 }
 
 type service struct {
@@ -724,9 +739,15 @@ func (r *Reporter) send(ctx context.Context, creds license.CloudCredentials, lev
 				report.Health.RemoteAccess, report.Health.RemoteApprovals = status.Level, &status.Approvals
 			}
 		}
+		// A report that carries no CPU samples leaves the window where it
+		// was, whatever an earlier attempt built.
+		r.cpuBuilt = r.cpuFrom
 		if r.resources != nil && !creds.Free {
-			if sample, ok := r.resources.Latest(); ok {
+			if sample, ok := r.resources.Since(r.cpuFrom); ok {
 				report.Health.Resources = resourcesOf(sample)
+				if !sample.CPUThrough.IsZero() {
+					r.cpuBuilt = sample.CPUThrough
+				}
 			}
 		}
 		r.events.fill(&report)

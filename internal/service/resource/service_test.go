@@ -5,6 +5,7 @@ package resource
 
 import (
 	"context"
+	"runtime"
 	"testing"
 	"time"
 
@@ -114,6 +115,95 @@ func TestService_Latest(t *testing.T) {
 	assert.InDelta(t, 50, sample.Disk.UsedPercent, 50)
 	require.NotNil(t, sample.Memory)
 	assert.Positive(t, sample.Memory.TotalBytes)
+}
+
+// Since averages the CPU use of the samples after a time and takes their
+// peak; with none after it, the latest sample's own CPU use stands.
+func TestService_Since(t *testing.T) {
+	t.Parallel()
+
+	svc := NewService(&config.Config{Monitoring: config.MonitoringConfig{Retention: time.Hour, Interval: time.Second}})
+	_, ok := svc.Since(time.Time{})
+	assert.False(t, ok, "no sample yet")
+
+	start := time.Date(2026, 11, 5, 9, 0, 0, 0, time.UTC)
+	for i, percent := range []float64{90, 10, 30, 50} {
+		svc.recordCPU(start.Add(time.Duration(i)*time.Minute), percent)
+	}
+	latest := 50.0
+	svc.latest.Store(&Sample{At: start.Add(3 * time.Minute), CPUPercent: &latest})
+
+	sample, ok := svc.Since(start)
+	require.True(t, ok)
+	assert.InDelta(t, 30, *sample.CPUPercent, 0.001, "the three samples after the start")
+	assert.InDelta(t, 50, *sample.CPUPeak, 0.001)
+	assert.Equal(t, start.Add(3*time.Minute), sample.CPUThrough, "the newest sample averaged")
+
+	sample, ok = svc.Since(start.Add(time.Hour))
+	require.True(t, ok)
+	assert.InDelta(t, 50, *sample.CPUPercent, 0.001)
+	assert.Nil(t, sample.CPUPeak)
+}
+
+// In a container with a CPU quota, CPU use is the cgroup's CPU time since
+// the sample before, of the quota.
+func TestService_ContainerCPU(t *testing.T) {
+	t.Parallel()
+
+	svc := NewService(&config.Config{Monitoring: config.MonitoringConfig{Retention: time.Hour, Interval: time.Second}})
+	start := time.Date(2026, 11, 5, 9, 0, 0, 0, time.UTC)
+	quota := func(used time.Duration) cgroupUsage { return cgroupUsage{CPULimit: 2, CPUTime: used} }
+
+	_, ok := svc.cpuPercent(t.Context(), start, quota(time.Second), true)
+	assert.False(t, ok, "nothing to compare the first sample with")
+	percent, ok := svc.cpuPercent(t.Context(), start.Add(10*time.Second), quota(11*time.Second), true)
+	require.True(t, ok)
+	assert.InDelta(t, 50, percent, 0.001, "10s of CPU over 10s of 2 CPUs")
+
+	_, ok = svc.cpuPercent(t.Context(), start.Add(20*time.Second), quota(0), true)
+	assert.False(t, ok, "an unread CPU time is no use, not the machine's")
+}
+
+// A container's memory limit below the machine's memory stands for the
+// machine's, with the memory counted toward it.
+func TestService_ContainerMemory(t *testing.T) {
+	t.Parallel()
+
+	cfg := &config.Config{
+		Monitoring: config.MonitoringConfig{Retention: time.Hour, Interval: time.Hour},
+		Paths:      config.PathsConfig{DataDir: t.TempDir()},
+	}
+	svc := NewService(cfg)
+	svc.cgroup = cgroup{root: fakeRoot(t, map[string]string{
+		"proc/self/cgroup":                 "0::/\n",
+		"sys/fs/cgroup/cgroup.controllers": "memory\n",
+		"sys/fs/cgroup/memory.max":         "1048576\n",
+		"sys/fs/cgroup/memory.current":     "524288\n",
+	})}
+
+	svc.collect(t.Context())
+
+	sample, ok := svc.Latest()
+	require.True(t, ok)
+	require.NotNil(t, sample.Memory)
+	assert.Equal(t, Usage{UsedPercent: 50, UsedBytes: 524288, TotalBytes: 1048576, Limited: true}, *sample.Memory)
+	require.NotNil(t, sample.Disk)
+	if runtime.GOOS != "windows" {
+		assert.NotNil(t, sample.Disk.InodesUsedPercent, "inodes of the data directory's disk")
+	}
+	assert.Nil(t, sample.LogDisk, "no log directory on another disk")
+
+	// Under a limit whose usage cannot be read, memory is left out rather
+	// than taken from the machine.
+	svc.cgroup = cgroup{root: fakeRoot(t, map[string]string{
+		"proc/self/cgroup":                 "0::/\n",
+		"sys/fs/cgroup/cgroup.controllers": "memory\n",
+		"sys/fs/cgroup/memory.max":         "1048576\n",
+	})}
+	svc.collect(t.Context())
+	sample, ok = svc.Latest()
+	require.True(t, ok)
+	assert.Nil(t, sample.Memory)
 }
 
 func TestService_GetHistoryWithoutStart(t *testing.T) {

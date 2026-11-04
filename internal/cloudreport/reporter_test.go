@@ -13,6 +13,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"runtime"
+	"slices"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -104,49 +105,73 @@ func TestReportCarriesRemoteAccess(t *testing.T) {
 	assert.Equal(t, true, body.Health["remote_approvals"])
 }
 
-// stubResources serves sample, or no sample when sampled is false.
+// stubResources serves sample, or no sample when sampled is false, and
+// records the times it was asked to average CPU use since.
 type stubResources struct {
 	sample  resource.Sample
 	sampled bool
+
+	mu    sync.Mutex
+	since []time.Time
 }
 
-func (s stubResources) Latest() (resource.Sample, bool) { return s.sample, s.sampled }
+func (s *stubResources) Since(since time.Time) (resource.Sample, bool) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.since = append(s.since, since)
+	return s.sample, s.sampled
+}
+
+func (s *stubResources) asked() []time.Time {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return slices.Clone(s.since)
+}
 
 func TestReportCarriesResources(t *testing.T) {
 	t.Parallel()
 
-	cpu := 12.5
+	cpu, peak, inodes := 12.5, 80.0, 3.0
 	full := resource.Sample{
 		At:         testClockStart,
 		CPUs:       8,
+		CPULimit:   1.5,
 		CPUPercent: &cpu,
-		Memory:     &resource.Usage{UsedPercent: 50, UsedBytes: 8 << 30, TotalBytes: 16 << 30},
-		Disk:       &resource.Usage{UsedPercent: 91.5, UsedBytes: 915_000_000_000, TotalBytes: 1_000_000_000_000},
-		Load:       &resource.LoadAverage{Load1: 1.5, Load5: 1.25, Load15: 0.75},
+		CPUPeak:    &peak,
+		Memory:     &resource.Usage{UsedPercent: 50, UsedBytes: 256 << 20, TotalBytes: 512 << 20, Limited: true},
+		Disk: &resource.Usage{UsedPercent: 91.5, UsedBytes: 915_000_000_000, TotalBytes: 1_000_000_000_000,
+			InodesUsedPercent: &inodes},
+		LogDisk: &resource.Usage{UsedPercent: 20, UsedBytes: 20, TotalBytes: 100},
+		Load:    &resource.LoadAverage{Load1: 1.5, Load5: 1.25, Load15: 0.75},
 	}
 	// A sample whose CPU and load readings failed.
 	partial := resource.Sample{At: testClockStart, Disk: full.Disk}
 
 	for _, tc := range []struct {
 		name      string
-		resources stubResources
+		resources *stubResources
 		// free puts the server on free monitoring, whose Dagu Console keeps
 		// none of the machine's figures.
 		free bool
 		want string
 	}{
-		{"full", stubResources{full, true}, false, `{
+		{"full", &stubResources{sample: full, sampled: true}, false, `{
 			"cpus": 8,
+			"cpu_limit": 1.5,
 			"cpu_percent": 12.5,
+			"cpu_peak_percent": 80,
 			"load": {"load1": 1.5, "load5": 1.25, "load15": 0.75},
-			"memory": {"used_percent": 50, "used_bytes": 8589934592, "total_bytes": 17179869184},
-			"disk": {"used_percent": 91.5, "used_bytes": 915000000000, "total_bytes": 1000000000000}
+			"memory": {"used_percent": 50, "used_bytes": 268435456, "total_bytes": 536870912, "limited": true},
+			"disk": {"used_percent": 91.5, "used_bytes": 915000000000, "total_bytes": 1000000000000,
+				"inodes_used_percent": 3},
+			"log_disk": {"used_percent": 20, "used_bytes": 20, "total_bytes": 100}
 		}`},
-		{"partial", stubResources{partial, true}, false, `{
-			"disk": {"used_percent": 91.5, "used_bytes": 915000000000, "total_bytes": 1000000000000}
+		{"partial", &stubResources{sample: partial, sampled: true}, false, `{
+			"disk": {"used_percent": 91.5, "used_bytes": 915000000000, "total_bytes": 1000000000000,
+				"inodes_used_percent": 3}
 		}`},
-		{"not sampled yet", stubResources{}, false, ""},
-		{"free monitoring", stubResources{full, true}, true, ""},
+		{"not sampled yet", &stubResources{}, false, ""},
+		{"free monitoring", &stubResources{sample: full, sampled: true}, true, ""},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
@@ -176,6 +201,61 @@ func TestReportCarriesResources(t *testing.T) {
 			assert.JSONEq(t, tc.want, string(got))
 		})
 	}
+}
+
+// Each report averages the CPU samples after the newest one the last
+// accepted report averaged, so no sample is left out or counted twice.
+func TestReportAveragesCPUSinceTheLastAcceptedReport(t *testing.T) {
+	t.Parallel()
+
+	console := newFakeConsole(t)
+	through := testClockStart.Add(-time.Second)
+	stub := &stubResources{sample: resource.Sample{At: testClockStart, CPUThrough: through}, sampled: true}
+	r := newReporter(console.credentials, nil, fixedLevel(config.ReportHealth))
+	r.resources = stub
+	clock := startReporter(t.Context(), t, r, noJitter)
+
+	clock.wait()
+	clock.elapse()
+	console.next(t)
+	clock.wait()
+	clock.elapse()
+	console.next(t)
+
+	assert.Equal(t, []time.Time{{}, through}, stub.asked())
+}
+
+// A report that failed after it built a CPU window does not move the window
+// when the next one, accepted, carries no CPU samples, as on a license that
+// turned free meanwhile; the paid report after averages from the start.
+func TestReportWithoutCPUKeepsTheWindow(t *testing.T) {
+	t.Parallel()
+
+	console := newFakeConsole(t, consoleResponse{status: http.StatusInternalServerError})
+	stub := &stubResources{sample: resource.Sample{At: testClockStart, CPUThrough: testClockStart}, sampled: true}
+	var free atomic.Bool
+	credentials := func() (license.CloudCredentials, bool) {
+		creds, ok := console.credentials()
+		creds.Free = free.Load()
+		return creds, ok
+	}
+	r := newReporter(credentials, nil, fixedLevel(config.ReportHealth))
+	r.resources = stub
+	clock := startReporter(t.Context(), t, r, noJitter)
+
+	clock.wait()
+	clock.elapse()
+	console.next(t) // refused
+	free.Store(true)
+	clock.wait()
+	clock.elapse()
+	console.next(t) // accepted, without CPU samples
+	free.Store(false)
+	clock.wait()
+	clock.elapse()
+	console.next(t)
+
+	assert.Equal(t, []time.Time{{}, {}}, stub.asked(), "the paid reports average from the start")
 }
 
 // fakeQueueStore sums up its queues, and counts how often it was read.
