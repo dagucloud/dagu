@@ -543,8 +543,8 @@ describe.skipIf(realSchema === null)(
 
     // parity:test-ve-inspector
     // The template fills the required parameters with valid values, so the
-    // step starts in its name.
-    // The steps of the file have ids: a new step has an id and no name.
+    // step starts in its identity field. The steps of the file have ids: a
+    // new step has an id and no name, and starts in its id.
     it('starts a new step with valid parameters in its id', () => {
       const handle = renderHost();
       act(() => void handle().openForm('fetch'));
