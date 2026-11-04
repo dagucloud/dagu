@@ -295,6 +295,18 @@ describe('referenceNameFor', () => {
     });
   });
 
+  // An empty id is a mistake of one step, not the convention of the file.
+  it('writes the server name as a name where the only id is empty', () => {
+    const text = 'steps:\n  - name: a\n    id: ""\n    run: a\n  - run: b\n';
+    const options: ApplyEditOptions = {
+      names: { byKey: { 'steps[1]': 'cmd_2' }, byName: { cmd_2: 'steps[1]' } },
+    };
+    expect(reference(text, 'steps[1]', options).result).toMatchObject({
+      ok: true,
+      text: 'steps:\n  - name: a\n    id: ""\n    run: a\n  - name: cmd_2\n    run: b\n',
+    });
+  });
+
   it('fills an empty name key', () => {
     const text = 'steps:\n  - name: ""\n    run: a\n';
     const options: ApplyEditOptions = {

@@ -157,9 +157,9 @@ export type ReferenceName =
   | { ok: true; name: string }
   | { ok: false; code: EditErrorCode; message: string };
 
-/** True when a step of the document has an id. */
+/** True when a step of the document has a non-empty id. */
 export function usesIds(doc: Document): boolean {
-  return indexSteps(doc).steps.some((step) => idOf(step) !== undefined);
+  return indexSteps(doc).steps.some((step) => !!idOf(step));
 }
 
 /**
