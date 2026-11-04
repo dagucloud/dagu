@@ -859,7 +859,17 @@ export function RunTimelineView({
     () => timelineWindow(allRuns, selectedId, count),
     [allRuns, selectedId, count]
   );
-  const live = runs.some((run) => isLiveRunStatus(run.status));
+  // The older runs that the window leaves out: those that last into the
+  // view get an extent clipped at the left edge.
+  const older = useMemo(() => {
+    const first = runs[0];
+    const at = first
+      ? allRuns.findIndex((run) => run.dagRunId === first.dagRunId)
+      : -1;
+    return at > 0 ? allRuns.slice(0, at) : [];
+  }, [allRuns, runs]);
+  // An older run that runs or waits lasts into the view: it moves the axis.
+  const live = [...runs, ...older].some((run) => isLiveRunStatus(run.status));
   // A null host is a hidden view (the dock is closed): nobody sees the time.
   const tick = live && nowProp === undefined && controlsHost !== null;
   // The layout reads the clock in steps of at most one pixel of the axis
@@ -875,15 +885,6 @@ export function RunTimelineView({
         : mountedAt
   );
   const fixedNow = nowProp;
-  // The older runs that the window leaves out: those that last into the
-  // view get an extent clipped at the left edge.
-  const older = useMemo(() => {
-    const first = runs[0];
-    const at = first
-      ? allRuns.findIndex((run) => run.dagRunId === first.dagRunId)
-      : -1;
-    return at > 0 ? allRuns.slice(0, at) : [];
-  }, [allRuns, runs]);
   // The cached time counts only when the toggle is on: off, every run
   // shows its own time alone.
   const counted = hasCachedTime && showCached;

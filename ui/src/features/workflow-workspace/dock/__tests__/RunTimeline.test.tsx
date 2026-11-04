@@ -684,6 +684,30 @@ describe('RunTimelineView', () => {
       expect(screen.queryByTestId('ww-run-bar-old')).toBeNull();
     });
 
+    // An older run that waits lasts into the view: the axis follows the
+    // clock for it, even when the runs of the window are all finished.
+    it('follows the clock for an older run that waits', () => {
+      vi.useFakeTimers({ toFake: ['setInterval', 'clearInterval', 'Date'] });
+      vi.setSystemTime(new Date(2026, 2, 2, 12, 0));
+      try {
+        const all = [
+          span('old', local(6, 0, 1), local(6, 1, 1), Status.Waiting),
+          span('n1', local(8), local(9)),
+          span('n2', local(10), local(11)),
+        ];
+        renderView({ runs: all, count: 2, selectedId: 'n2', now: undefined });
+        const left = () => Number.parseFloat(extent('n2').style.left);
+        const before = left();
+
+        act(() => {
+          vi.advanceTimersByTime(60 * 60 * 1000);
+        });
+        expect(left()).toBeLessThan(before);
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+
     // The extent of the selected run is drawn like its vertical bar: full
     // opacity, a primary outline, a lane high, a mark at each end. The runs
     // that overlap it keep the thin outline and the others fade.
