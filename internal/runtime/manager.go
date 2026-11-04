@@ -438,6 +438,7 @@ func (m *Manager) resolveRunningStatus(
 // GetLatestStatus retrieves the latest status of a DAG.
 // If the DAG is running, it attempts to get the current status from the socket.
 // If that fails and the local proc is dead, it repairs the stale run before returning it.
+// An ephemeral run is never the latest, as it reaches no history.
 func (m *Manager) GetLatestStatus(ctx context.Context, dag *ir.DAG) (ir.DAGRunStatus, error) {
 	if m.dagRunRepository == nil {
 		return ir.InitialStatus(dag), nil
@@ -448,7 +449,7 @@ func (m *Manager) GetLatestStatus(ctx context.Context, dag *ir.DAG) (ir.DAGRunSt
 			attempt, findErr := m.findAttemptForProcEntry(ctx, *entry)
 			if findErr == nil {
 				st, readErr := attempt.ReadStatus(ctx)
-				if readErr == nil && st.AttemptID == entry.Meta.AttemptID {
+				if readErr == nil && st.AttemptID == entry.Meta.AttemptID && !st.Ephemeral {
 					st = m.resolveRunningStatus(ctx, dag, attempt, st, entry.IsRoot())
 					return *st, nil
 				}
