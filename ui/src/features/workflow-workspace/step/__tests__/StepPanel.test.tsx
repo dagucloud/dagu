@@ -314,6 +314,27 @@ describe('StepPanel', () => {
       setup({ details: failedBuild() });
       expect(panel()).not.toHaveClass('pointer-events-none');
     });
+
+    // The canvas fits beside a right panel. Beside the step panel it waits
+    // for the second click, which a fit at once would move the step from.
+    it('makes room on the canvas once a double click is over', () => {
+      vi.useFakeTimers();
+      placePanel();
+      setup({
+        details: failedBuild(),
+        openedAt: { clientX: 300, clientY: 100 },
+      });
+      expect(panel()).not.toHaveAttribute('data-panel-shell');
+
+      act(() => vi.advanceTimersByTime(500));
+      expect(panel()).toHaveAttribute('data-panel-shell', 'right');
+    });
+
+    it('makes room on the canvas at once when a link opens it', () => {
+      placePanel();
+      setup({ details: failedBuild() });
+      expect(panel()).toHaveAttribute('data-panel-shell', 'right');
+    });
   });
 
   it('follows the selected run', () => {

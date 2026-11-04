@@ -135,7 +135,13 @@ export function useRightPanelClearance(
       }
     });
     const timer = setTimeout(stop, PANEL_WATCH_MS);
-    watcher.observe(zone, { childList: true, subtree: true });
+    // A panel can take its mark after it mounts, as the step panel does.
+    watcher.observe(zone, {
+      childList: true,
+      subtree: true,
+      attributes: true,
+      attributeFilter: ['data-panel-shell'],
+    });
     return stop;
   }, [trigger, measure, schedule, zoneRef]);
 
