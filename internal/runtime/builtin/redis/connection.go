@@ -32,18 +32,11 @@ func createClientWithRetry(ctx context.Context, cfg *Config) (redis.UniversalCli
 			return nil, fmt.Errorf("context cancelled before connection: %w", ctx.Err())
 		}
 
+		// Building the client reads only configuration and local files such
+		// as TLS certificates, so a failure here is not transient.
 		client, lastErr = createClient(cfg)
 		if lastErr != nil {
-			if attempt < maxConnRetries {
-				select {
-				case <-ctx.Done():
-					return nil, fmt.Errorf("context cancelled during connection retry: %w", ctx.Err())
-				case <-time.After(retryDelay):
-					retryDelay = min(retryDelay*2, maxRetryDelay)
-					continue
-				}
-			}
-			return nil, fmt.Errorf("failed to create client after %d attempts: %w", attempt, lastErr)
+			return nil, fmt.Errorf("failed to create client: %w", lastErr)
 		}
 
 		// Verify connection with ping

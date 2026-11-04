@@ -7,6 +7,7 @@ import (
 	"context"
 	"path/filepath"
 	"testing"
+	"time"
 
 	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/runtime"
@@ -324,4 +325,23 @@ func TestParseConfig_RelativePathsUseWorkingDir(t *testing.T) {
 	assert.Equal(t, filepath.Join(workDir, "certs", "ca.pem"), cfg.TLSCA)
 	assert.Equal(t, filepath.Join(workDir, "certs", "client.pem"), cfg.TLSCert)
 	assert.Equal(t, filepath.Join(workDir, "certs", "client.key"), cfg.TLSKey)
+}
+
+// A client that cannot be built, here because the CA file is missing, fails at
+// once: no connection was attempted, so retrying cannot help.
+func TestCreateClientWithRetry_ConfigErrorFailsAtOnce(t *testing.T) {
+	t.Parallel()
+
+	cfg, err := ParseConfig(context.Background(), map[string]any{
+		"host":    "localhost",
+		"command": "PING",
+		"tls":     true,
+		"tls_ca":  filepath.Join(t.TempDir(), "missing-ca.pem"),
+	})
+	require.NoError(t, err)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	_, err = createClientWithRetry(ctx, cfg)
+	require.ErrorContains(t, err, "failed to read CA certificate")
 }
