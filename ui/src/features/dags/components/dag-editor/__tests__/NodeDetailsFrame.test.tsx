@@ -28,7 +28,10 @@ import DAGSpec, { type DAGSpecHostProps } from '../DAGSpec';
 import '@/features/visual-editor/doc/clientIssues';
 import type { VisualEditorState } from '../hostTypes';
 import {
-  clampDockedWidth,
+  StepSideDrawer,
+  useDrawerWidth,
+} from '@/features/dags/components/step-details/StepSideDrawer';
+import {
   NodeDetailsFrame,
   ndvLayout,
   stepNeighbours,
@@ -377,6 +380,8 @@ const run = {
 
 beforeEach(() => {
   localStorage.clear();
+  // The last mode of the step view (form or YAML) lives in the session.
+  sessionStorage.clear();
   schemaState.schema = null;
   auth.canWrite = true;
   monaco.real = false;
@@ -1325,6 +1330,11 @@ function openFromNode() {
 
 // parity:run-step-drawer-resize
 describe('NodeDetailsFrame focus and width', () => {
+  // A window wide enough that the cap of a narrow window does not apply.
+  beforeEach(() => {
+    vi.spyOn(window, 'innerWidth', 'get').mockReturnValue(1400);
+  });
+
   it('stays beside the page when docked', () => {
     render(<FocusHarness />);
     const node = openFromNode();
@@ -1418,10 +1428,105 @@ describe('NodeDetailsFrame focus and width', () => {
     expect(screen.queryByRole('separator')).toBeNull();
   });
 
-  it('keeps the width inside its bounds and the viewport', () => {
-    expect(clampDockedWidth(100, 1600)).toBe(420);
-    expect(clampDockedWidth(2000, 1600)).toBe(960);
-    expect(clampDockedWidth(900, 800)).toBe(800);
-    expect(clampDockedWidth(900, 300)).toBe(420);
+  // A 4K window: the panel takes all but a strip of the canvas, far past
+  // the old cap of 960px, so that long lines of YAML fit.
+  it('grows to all but a strip of its zone on a wide window', () => {
+    vi.spyOn(window, 'innerWidth', 'get').mockReturnValue(3840);
+    render(<FocusHarness />);
+    openFromNode();
+    const edge = screen.getByRole('separator', {
+      name: 'Resize step details',
+    });
+    expect(edge).toHaveAttribute('aria-valuemax', '3600');
+
+    // From the edge of a 560px panel to the left end of the window.
+    fireEvent.mouseDown(edge, { clientX: 3280 });
+    fireEvent.mouseMove(document, { clientX: 0 });
+    fireEvent.mouseUp(document);
+    expect(frame().style.width).toBe('3600px');
+    expect(localStorage.getItem('dagu.stepDetailsDrawer.width')).toBe('3600');
+
+    fireEvent.keyDown(edge, { key: 'Home' });
+    fireEvent.keyDown(edge, { key: 'End' });
+    expect(edge).toHaveAttribute('aria-valuenow', '3600');
+  });
+
+  it('maximizes to the width of its zone and restores the stored width', () => {
+    localStorage.setItem('dagu.stepDetailsDrawer.width', '700');
+    render(<FocusHarness />);
+    openFromNode();
+    fireEvent.click(header().getByRole('button', { name: 'Maximize panel' }));
+    expect(frame().style.width).toBe('100%');
+    // It stays a panel beside the page, not the node view of a step.
+    expect(frame()).toHaveAttribute('data-state', 'docked');
+    expect(frame()).not.toHaveAttribute('role', 'dialog');
+    // A maximized panel has no edge to drag.
+    expect(screen.queryByRole('separator')).toBeNull();
+
+    fireEvent.click(header().getByRole('button', { name: 'Restore panel' }));
+    expect(frame().style.width).toBe('700px');
+    expect(
+      screen.getByRole('separator', { name: 'Resize step details' })
+    ).toHaveAttribute('aria-valuenow', '700');
+    expect(localStorage.getItem('dagu.stepDetailsDrawer.width')).toBe('700');
+
+    // The node view of a step fills its zone already: no toggle.
+    setNdv('expanded');
+    expect(
+      header().queryByRole('button', { name: 'Maximize panel' })
+    ).toBeNull();
+  });
+
+  // As in an editor that keeps its panel maximized: the panel that opens
+  // again shows as the user left it.
+  it('opens again maximized after a close', () => {
+    render(<FocusHarness />);
+    openFromNode();
+    fireEvent.click(header().getByRole('button', { name: 'Maximize panel' }));
+    fireEvent.click(header().getByRole('button', { name: 'Close' }));
+    expect(frame()).toHaveAttribute('hidden');
+
+    openFromNode();
+    expect(frame().style.width).toBe('100%');
+    expect(
+      header().getByRole('button', { name: 'Restore panel' })
+    ).toBeInTheDocument();
+  });
+
+  // The canvas beside the panel and the other right panels read one width:
+  // they follow the edge while it moves, not only once it is dropped.
+  it('shares its width with the layout and the other panels live', () => {
+    function WidthProbe() {
+      return <output data-testid="width-probe">{useDrawerWidth()}</output>;
+    }
+    render(
+      <>
+        <FocusHarness />
+        <StepSideDrawer
+          isOpen
+          onClose={vi.fn()}
+          hasContent
+          modal={false}
+          label="Workflow"
+        >
+          <p>Workflow</p>
+        </StepSideDrawer>
+        <WidthProbe />
+      </>
+    );
+    openFromNode();
+    const probe = screen.getByTestId('width-probe');
+    const drawerEdge = within(screen.getByTestId('step-side-drawer')).getByRole(
+      'separator'
+    );
+    const edge = within(frame()).getByRole('separator');
+
+    fireEvent.mouseDown(edge, { clientX: 500 });
+    fireEvent.mouseMove(document, { clientX: 300 });
+    expect(probe).toHaveTextContent('760');
+    expect(drawerEdge).toHaveAttribute('aria-valuenow', '760');
+    fireEvent.mouseUp(document);
+    expect(probe).toHaveTextContent('760');
+    expect(drawerEdge).toHaveAttribute('aria-valuenow', '760');
   });
 });

@@ -290,6 +290,9 @@ function CanvasView({
   // A panel over the canvas covers its right: the free part is what shows.
   const overlayRight = useCanvasOverlayInset().right;
   const freeWidth = canvasWidth - overlayRight;
+  // A panel that covers the whole canvas, such as a maximized one, leaves
+  // nothing for the canvas controls to act on.
+  const canvasCovered = canvasWidth > 0 && freeWidth <= 0;
   // Cards without text: only their icon, so that a graph is denser.
   const [showDetails, setShowDetails] = useCanvasDetails();
   const compact = !showDetails;
@@ -1403,7 +1406,10 @@ function CanvasView({
                       className="flex min-w-0 shrink-0 items-center gap-2"
                     >
                       {toolbarStart}
-                      <div className={cn('shrink-0', TOOLBAR_GROUP_CLASS)}>
+                      <div
+                        hidden={canvasCovered}
+                        className={cn('shrink-0', TOOLBAR_GROUP_CLASS)}
+                      >
                         {leftToolbar}
                       </div>
                     </div>

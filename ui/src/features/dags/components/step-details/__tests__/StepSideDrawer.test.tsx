@@ -345,10 +345,18 @@ describe('StepSideDrawer box', () => {
 });
 
 describe('StepSideDrawer resize keys', () => {
-  function renderDrawer() {
+  // A window wide enough that the cap of a narrow window does not apply.
+  beforeEach(() => {
+    vi.spyOn(window, 'innerWidth', 'get').mockReturnValue(1400);
+  });
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  function renderDrawer(modal = false) {
     vi.useFakeTimers();
     render(
-      <StepSideDrawer isOpen onClose={vi.fn()} hasContent modal={false}>
+      <StepSideDrawer isOpen onClose={vi.fn()} hasContent modal={modal}>
         <p>Body</p>
       </StepSideDrawer>
     );
@@ -383,9 +391,84 @@ describe('StepSideDrawer resize keys', () => {
     expect(handle).toHaveAttribute('aria-valuenow', '420');
     expect(localStorage.getItem(WIDTH_KEY)).toBe('420');
 
+    // End leaves 240px of the 1400px window.
     fireEvent.keyDown(handle, { key: 'End' });
-    expect(handle).toHaveAttribute('aria-valuenow', '960');
-    expect(localStorage.getItem(WIDTH_KEY)).toBe('960');
-    expect(getStoredDrawerWidth()).toBe(960);
+    expect(handle).toHaveAttribute('aria-valuemax', '1160');
+    expect(handle).toHaveAttribute('aria-valuenow', '1160');
+    expect(localStorage.getItem(WIDTH_KEY)).toBe('1160');
+    expect(getStoredDrawerWidth()).toBe(1160);
+  });
+
+  // Below 1100px a panel beside the page shows at most 45% of its zone: the
+  // handle reports and stores no more. A modal drawer has no such cap.
+  it('keeps the cap of a narrow window beside the page', () => {
+    vi.spyOn(window, 'innerWidth', 'get').mockReturnValue(1024);
+    const handle = renderDrawer();
+    expect(handle).toHaveAttribute('aria-valuemax', '461');
+    expect(handle).toHaveAttribute('aria-valuenow', '461');
+
+    fireEvent.keyDown(handle, { key: 'End' });
+    expect(localStorage.getItem(WIDTH_KEY)).toBe('461');
+    fireEvent.keyDown(handle, { key: 'Home' });
+    expect(handle).toHaveAttribute('aria-valuenow', '420');
+  });
+
+  it('lets a modal drawer take all of a narrow window but a strip', () => {
+    vi.spyOn(window, 'innerWidth', 'get').mockReturnValue(1024);
+    const handle = renderDrawer(true);
+    fireEvent.keyDown(handle, { key: 'End' });
+    expect(handle).toHaveAttribute('aria-valuenow', '784');
+    expect(localStorage.getItem(WIDTH_KEY)).toBe('784');
+  });
+
+  // A 4K window keeps a stored width far past the old cap of 960px. jsdom
+  // drops a CSS min() width: the e2e layout test checks the box.
+  it('keeps a wide stored width on a wide window', () => {
+    vi.spyOn(window, 'innerWidth', 'get').mockReturnValue(3840);
+    localStorage.setItem(WIDTH_KEY, '3000');
+    const handle = renderDrawer();
+    expect(handle).toHaveAttribute('aria-valuemax', '3600');
+    expect(handle).toHaveAttribute('aria-valuenow', '3000');
+    fireEvent.keyDown(handle, { key: 'ArrowLeft' });
+    expect(localStorage.getItem(WIDTH_KEY)).toBe('3040');
+  });
+
+  // A window narrower than the stored width shows less of it; a click on
+  // the handle does not store that smaller width.
+  it('keeps the stored width on a click without a drag', () => {
+    localStorage.setItem(WIDTH_KEY, '3000');
+    const handle = renderDrawer();
+    expect(handle).toHaveAttribute('aria-valuenow', '1160');
+
+    fireEvent.mouseDown(handle, { clientX: 240 });
+    fireEvent.mouseUp(document);
+    expect(localStorage.getItem(WIDTH_KEY)).toBe('3000');
+
+    fireEvent.mouseDown(handle, { clientX: 240 });
+    fireEvent.mouseMove(document, { clientX: 300 });
+    fireEvent.mouseUp(document);
+    expect(localStorage.getItem(WIDTH_KEY)).toBe('1100');
+  });
+
+  // A browser that refuses the storage keeps the new width for the page.
+  it('resizes when the width cannot be stored', () => {
+    const setItem = vi
+      .spyOn(Storage.prototype, 'setItem')
+      .mockImplementation(() => {
+        throw new Error('denied');
+      });
+    const handle = renderDrawer();
+
+    fireEvent.keyDown(handle, { key: 'ArrowLeft' });
+    expect(handle).toHaveAttribute('aria-valuenow', '600');
+    fireEvent.keyDown(handle, { key: 'Home' });
+    expect(handle).toHaveAttribute('aria-valuenow', '420');
+
+    // Once the storage takes a width again, it is kept for the next visit
+    // and the width of the page goes.
+    setItem.mockRestore();
+    fireEvent.keyDown(handle, { key: 'End' });
+    expect(localStorage.getItem(WIDTH_KEY)).toBe('1160');
+    expect(handle).toHaveAttribute('aria-valuenow', '1160');
   });
 });
