@@ -59,8 +59,22 @@ import {
 import { I18nText } from '@/i18n/I18nText';
 import { useI18n } from '@/i18n/I18nProvider';
 
-/** Width in px of the column of step names: the plot starts after it. */
-const LABEL_COLUMN_PX = 130;
+/** Bounds in px of the column of step names: the plot starts after it. */
+const LABEL_COLUMN_MIN_PX = 130;
+const LABEL_COLUMN_MAX_PX = 280;
+/** The part of a wide chart that the names take. */
+const LABEL_COLUMN_SHARE = 0.22;
+
+/** The width of the column of step names in a chart of `frameWidth` px. */
+function labelColumnPx(frameWidth: number | null): number {
+  if (frameWidth === null) return LABEL_COLUMN_MIN_PX;
+  return Math.round(
+    Math.min(
+      LABEL_COLUMN_MAX_PX,
+      Math.max(LABEL_COLUMN_MIN_PX, frameWidth * LABEL_COLUMN_SHARE)
+    )
+  );
+}
 
 /**
  * The left part of the axis, before the start of the run: faint diagonal
@@ -410,7 +424,9 @@ function TimelineChart({ status, onOpenSubRun, visible = true }: Props) {
   const frameRef = useRef<HTMLDivElement>(null);
   const frameWidth = useElementWidth(frameRef);
   const axisWidth =
-    frameWidth === null ? null : Math.max(frameWidth - LABEL_COLUMN_PX, 1);
+    frameWidth === null
+      ? null
+      : Math.max(frameWidth - labelColumnPx(frameWidth), 1);
 
   // An open step has no end time: its bar ends at now. The run data does not
   // change while the step runs, so the chart follows the clock itself.
@@ -472,7 +488,8 @@ function TimelineChart({ status, onOpenSubRun, visible = true }: Props) {
   }
 
   const totalRange = timelineEnd - timelineStart;
-  const plotArea = { left: `${LABEL_COLUMN_PX}px` };
+  const labelColumn = labelColumnPx(frameWidth);
+  const plotArea = { left: `${labelColumn}px` };
   // The reused steps stand before the start of the run: the part of the axis
   // on the left of that start is the cached time.
   const runStartMs = items.find((item) => item.ghost)?.ghost?.runStartMs;
@@ -590,8 +607,13 @@ function TimelineChart({ status, onOpenSubRun, visible = true }: Props) {
             >
               {/* Step name label */}
               <div
-                className="absolute z-10 text-xs font-medium text-foreground truncate max-w-[120px]"
-                style={{ left: item.depth === 0 ? '0.5rem' : '1.5rem' }}
+                className="absolute z-10 text-xs font-medium text-foreground truncate"
+                title={item.label}
+                style={{
+                  left: item.depth === 0 ? '0.5rem' : '1.5rem',
+                  // The name ends before the plot starts.
+                  maxWidth: labelColumn - (item.depth === 0 ? 18 : 34),
+                }}
               >
                 {item.label}
               </div>
