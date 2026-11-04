@@ -8,6 +8,7 @@ import {
   type JSONSchema,
 } from '@/lib/schema-utils';
 import { describe, expect, it } from 'vitest';
+import { realSchema } from '@/features/visual-editor/inspector/__tests__/realSchema';
 import {
   buildAugmentedDAGSchema,
   extractLocalCustomDefinitionHints,
@@ -865,3 +866,84 @@ steps:
     ).toEqual(examples);
   });
 });
+
+// The dereferenced base shares one object for each use of a definition. A
+// build keeps that sharing for speed: its result must be the one of a build
+// on a copy that shares nothing, and the base must stay as it was.
+describe.skipIf(realSchema === null)(
+  'buildAugmentedDAGSchema on the repository schema',
+  () => {
+    const base = realSchema!;
+    const unshared = () => JSON.parse(JSON.stringify(base)) as JSONSchema;
+    const notify = {
+      name: 'notify',
+      description: 'Send a note.',
+      inputSchema: {
+        type: 'object',
+        properties: { channel: { type: 'string' } },
+      },
+    };
+    const greet = {
+      name: 'greet',
+      targetType: 'command',
+      inputSchema: {
+        type: 'object',
+        properties: { count: { type: 'integer' } },
+      },
+    };
+    type Inputs =
+      Parameters<typeof buildAugmentedDAGSchema> extends [
+        unknown,
+        ...infer Rest,
+      ]
+        ? Rest
+        : never;
+    const cases: Array<[string, Inputs]> = [
+      ['no hints', [[], [], [], []]],
+      ['harnesses and calendars', [[], [], ['my-harness'], ['nightly']]],
+      ['custom actions and legacy types', [[greet], [notify], [], []]],
+    ];
+
+    it.each(cases)(
+      'builds the schema of a copy that shares nothing, with %s',
+      (_, inputs) => {
+        expect(JSON.stringify(buildAugmentedDAGSchema(base, ...inputs))).toBe(
+          JSON.stringify(buildAugmentedDAGSchema(unshared(), ...inputs))
+        );
+      }
+    );
+
+    it('leaves the base schema as it was', () => {
+      const before = JSON.stringify(base);
+      for (const [, inputs] of cases) buildAugmentedDAGSchema(base, ...inputs);
+      expect(JSON.stringify(base)).toBe(before);
+    });
+
+    it('marks the properties of the step rules as not suggested, with no hints', () => {
+      const step = buildAugmentedDAGSchema(base, [], [], [], []).definitions
+        ?.step as JSONSchema;
+      const rules = (step.allOf ?? []).filter(
+        (rule) => (rule.if as JSONSchema | undefined)?.properties
+      );
+      expect(rules.length).toBeGreaterThan(0);
+      for (const rule of rules) {
+        for (const property of Object.values(
+          (rule.if as JSONSchema).properties ?? {}
+        )) {
+          expect(property).toMatchObject({ doNotSuggest: true });
+        }
+      }
+    });
+
+    // The editor and the issue checks keep their caches by schema object.
+    it('gives the same schema for the same inputs, and a new one for new inputs', () => {
+      const first = buildAugmentedDAGSchema(base, [], [], [], ['nightly']);
+      expect(buildAugmentedDAGSchema(base, [], [], [], ['nightly'])).toBe(
+        first
+      );
+      expect(buildAugmentedDAGSchema(base, [], [], [], ['weekly'])).not.toBe(
+        first
+      );
+    });
+  }
+);
