@@ -1,7 +1,7 @@
 // Copyright (C) 2026 Yota Hamada
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-import { fireEvent, render, screen } from '@testing-library/react';
+import { act, fireEvent, render, screen } from '@testing-library/react';
 import React from 'react';
 import { MemoryRouter, useLocation } from 'react-router-dom';
 import { describe, expect, it, vi } from 'vitest';
@@ -119,7 +119,8 @@ describe('DAGRunTable', () => {
   });
 
   // A run that waits for an approval has the finish time of its pause: the
-  // list showed 0s for a run that had waited 7 minutes.
+  // list showed 0s for a run that had waited 7 minutes. Its data does not
+  // change while it waits, so the duration follows the clock.
   it('counts the duration of a waiting run up to now', () => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date('2026-03-13T10:08:00Z'));
@@ -143,6 +144,11 @@ describe('DAGRunTable', () => {
       );
       expect(screen.getAllByText('7m 0s').length).toBeGreaterThan(0);
       expect(screen.queryByText('0s')).toBeNull();
+
+      act(() => {
+        vi.advanceTimersByTime(2000);
+      });
+      expect(screen.getAllByText('7m 2s').length).toBeGreaterThan(0);
     } finally {
       vi.useRealTimers();
     }
