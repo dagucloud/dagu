@@ -144,7 +144,7 @@ type step struct {
 	// Router configuration (type: router)
 	// Value is the expression to evaluate for routing
 	Value string `yaml:"value,omitempty"`
-	// Routes maps patterns to target step names
+	// Routes maps patterns to target step ids or names
 	Routes map[string][]string `yaml:"routes,omitempty"`
 
 	// parsedOutput caches parsed output configuration during a single step build.

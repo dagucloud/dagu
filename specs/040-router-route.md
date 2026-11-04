@@ -51,8 +51,9 @@ without hand-writing a matching `precondition` on every candidate step.
 `with.value` (required) is the expression to evaluate, using the same value
 resolution as any other step field.
 
-`with.routes` (required) is a map from pattern to a list of target step
-names: `{pattern: [step1, step2, ...]}`. Each pattern is matched against the
+`with.routes` (required) is a map from pattern to a list of target steps:
+`{pattern: [step1, step2, ...]}`. Each target names a step by its `id` or its
+`name`; both forms name the same step. Each pattern is matched against the
 resolved value the same way a step `precondition`'s `expected` matches its
 `condition` -- an exact string, a `re:`-prefixed regular expression, or a
 `num:`-prefixed numeric comparison. A numeric route's threshold may be a single
@@ -97,9 +98,9 @@ The first line is the literal text `Router evaluating:` followed by a
 space and the resolved value verbatim (no quoting), then a newline. Each
 route prints two leading spaces, its literal pattern text, `->` surrounded by spaces, then its
 targets as a Go string-slice literal (`[target1 target2]`, brackets,
-space-separated, no quotes or commas), each on its own line. Exact-pattern
-routes are printed before
-`re:`-pattern routes, and a `re:.*` catch-all route, if present, is always
+space-separated, no quotes or commas), each on its own line. Each target is
+printed as its step name, including a target the route names by `id`.
+Exact-pattern routes are printed before `re:`-pattern routes, and a `re:.*` catch-all route, if present, is always
 printed last. This output does not affect which targets run; it only
 reports the routing decision that the injected preconditions already make.
 

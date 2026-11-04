@@ -4020,14 +4020,18 @@ func validateNoRouterForChainType(dag *ir.DAG, step *ir.Step) error {
 }
 
 // transformRouterSteps processes router-type steps and injects preconditions
-// into their target steps. Each target gets one precondition per router, met
-// when any route listing that target matches. It modifies the steps slice in
-// place.
+// into their target steps. A route names its target by step name or id, and
+// each target is rewritten to the step name. Each target gets one precondition
+// per router, met when any route listing that target matches. It modifies the
+// steps slice in place.
 func transformRouterSteps(steps []ir.Step) error {
-	// Build step index for lookup (using pointers to modify in place)
+	// Index steps by name and id; pointers let targets be modified in place.
 	stepIndex := make(map[string]*ir.Step)
 	for i := range steps {
 		stepIndex[steps[i].Name] = &steps[i]
+		if steps[i].ID != "" {
+			stepIndex[steps[i].ID] = &steps[i]
+		}
 	}
 
 	for i := range steps {
@@ -4042,11 +4046,14 @@ func transformRouterSteps(steps []ir.Step) error {
 		var targetNames []string
 		patterns := make(map[string][]string)
 		for _, route := range router.Routes {
-			for _, targetName := range route.Targets {
-				if _, ok := stepIndex[targetName]; !ok {
-					return ir.NewValidationError("routes", targetName,
-						fmt.Errorf("router %q references non-existent step %q", routerName, targetName))
+			for j, ref := range route.Targets {
+				target, ok := stepIndex[ref]
+				if !ok {
+					return ir.NewValidationError("routes", ref,
+						fmt.Errorf("router %q references non-existent step %q", routerName, ref))
 				}
+				targetName := target.Name
+				route.Targets[j] = targetName
 				if _, seen := patterns[targetName]; !seen {
 					targetNames = append(targetNames, targetName)
 				}
