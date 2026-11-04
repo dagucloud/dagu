@@ -695,6 +695,22 @@ describe('LogsDock below 768px', () => {
     expect(dockSection()).toHaveAttribute('data-state', 'collapsed');
   });
 
+  // The sheet covers 75vh: the notifications go above it, not over its log.
+  it('keeps the notifications above the sheet', () => {
+    mockWidth(500);
+    renderDock(finished);
+    fireEvent.click(toggleButton());
+    vi.spyOn(dockSection(), 'getBoundingClientRect').mockReturnValue(
+      new DOMRect(0, window.innerHeight - 600, 500, 600)
+    );
+    fireEvent(window, new Event('resize'));
+    expect(
+      getNotificationRoot().style.getPropertyValue(
+        '--notification-bottom-inset'
+      )
+    ).toBe('600px');
+  });
+
   // A touch drag can end with no click event; the next tap must still act.
   it('closes on a tap after a drag that had no click', () => {
     mockWidth(500);

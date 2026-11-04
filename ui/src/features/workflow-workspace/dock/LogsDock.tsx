@@ -150,9 +150,9 @@ export function LogsDock({
   // The focus goes to the sheet itself, not to Close: a focused button opens
   // its tooltip, and the tooltip would take the first Esc.
   const sheetRef = useRef<HTMLElement>(null);
-  // An open panel along the bottom keeps the notifications above it. A sheet
-  // or a maximized panel fills the page: they stay in the corner.
-  useLiftNotifications(sheetRef, dock.open && !sheet && !dock.maximized);
+  // An open panel or sheet keeps the notifications above it. A maximized one
+  // fills the page: they stay in the corner.
+  useLiftNotifications(sheetRef, dock.open && !dock.maximized);
   const opener = useRef<HTMLElement | null>(null);
   const wasSheet = useRef(sheet);
   useLayoutEffect(() => {
