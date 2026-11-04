@@ -39,6 +39,11 @@ export interface StepManualActionsProps {
   node: ApiNode | undefined;
   /** The step belongs to a sub run, which the dock Agent tab does not show. */
   inSubRun?: boolean;
+  /**
+   * Shows the agent sessions of `holder`, where a waiting agent is answered:
+   * a host of a sub run gives it, the dock Agent tab is the default.
+   */
+  onOpenAgent?(): void;
   /** Called after an approval or a task changed the run of the step. */
   onChanged?(): void;
   /**
@@ -85,6 +90,7 @@ export function StepManualActions({
   node,
   inSubRun = false,
   onChanged,
+  onOpenAgent,
   trail = [],
 }: StepManualActionsProps) {
   const { ts } = useI18n();
@@ -102,7 +108,8 @@ export function StepManualActions({
     getManualActionState(holder);
   const approval = waitingApprovalNodes.some((n) => n.step.name === name);
   const humanTask = waitingHumanTaskNodes.some((n) => n.step.name === name);
-  const agent = !inSubRun && isAgentAwaitingAnswer(node);
+  const agent =
+    (!inSubRun || onOpenAgent !== undefined) && isAgentAwaitingAnswer(node);
   const below = !approval && !humanTask && waitsInSubRun(node);
   if (!approval && !humanTask && !agent && !below) return null;
   const nested = trail.length > 0;
@@ -155,7 +162,9 @@ export function StepManualActions({
             type="button"
             size="sm"
             variant="outline"
-            onClick={() => dock.setTab('agent', { user: true })}
+            onClick={() =>
+              onOpenAgent ? onOpenAgent() : dock.setTab('agent', { user: true })
+            }
           >
             {ts('Answer in the Agent tab')}
             <ArrowRight className="h-3.5 w-3.5" aria-hidden="true" />
