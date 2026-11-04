@@ -63,6 +63,26 @@ func TestMatchesRefusesATargetWithOtherText(t *testing.T) {
 	assert.False(t, matches(relabelled, v, turn))
 }
 
+// A dark bar across the target, two squares wide and as tall as the area,
+// moves the fingerprint past its limit. The squares alone would take it for
+// a caret, so the fingerprint is what refuses it.
+func TestMatchesKeepsTheFingerprintCheck(t *testing.T) {
+	t.Parallel()
+
+	at := image.Pt(400, 300)
+	v, turn := targetTurn(t, labelled(1), at)
+	barred := labelled(1)
+	for y := 268; y < 332; y++ {
+		for x := 384; x < 392; x++ {
+			barred.Set(x, y, color.RGBA{A: 255})
+		}
+	}
+
+	assert.Greater(t, v.targetPrint(barred, at).Distance(*turn.Actions[0].Target), replayTargetDistance,
+		"the fingerprint refuses the bar")
+	assert.False(t, matches(barred, v, turn))
+}
+
 // upscaled draws an image at an integer display scale, as a display with
 // more pixels per point captures the same screen.
 func upscaled(img *image.RGBA, scale int) *image.RGBA {

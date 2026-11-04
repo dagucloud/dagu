@@ -143,8 +143,8 @@ type recordedTurn struct {
 // keeps its %name% placeholders, so secrets are never stored.
 type recordedAction struct {
 	Action computeruse.Action `json:"action"`
-	// Target fingerprints the area the action lands on. A recording made
-	// before TargetPixels existed has only this, and still replays on it.
+	// Target fingerprints the area the action lands on, which a replay always
+	// checks. A recording made before TargetCells existed has only this.
 	Target *desktop.Fingerprint `json:"target,omitempty"`
 	// TargetCells is that area as salted digests of its small squares, which
 	// a replay compares square by square: the fingerprint cannot tell one
@@ -435,13 +435,10 @@ func matches(current *image.RGBA, v view, turn recordedTurn) bool {
 			continue
 		}
 		at, _ := target(v.absolute(recorded.Action))
-		if recorded.TargetCells != nil {
-			if !v.targetStill(current, at, recorded.TargetCells) {
-				return false
-			}
-			continue
-		}
 		if v.targetPrint(current, at).Distance(*recorded.Target) > replayTargetDistance {
+			return false
+		}
+		if recorded.TargetCells != nil && !v.targetStill(current, at, recorded.TargetCells) {
 			return false
 		}
 	}
