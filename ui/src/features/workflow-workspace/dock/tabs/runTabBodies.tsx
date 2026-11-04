@@ -52,7 +52,11 @@ import { pickContinuousNode } from '../../continuous/continuousNode';
 import { useWorkspaceUrl } from '../../state/workspaceUrl';
 import { StepForeach, isForeachStep } from '../../step/StepForeach';
 import { LogPageLink, runLogPageURL } from '../../step/StepLogPane';
-import { StepManualActions } from '../../step/StepManualActions';
+import {
+  StepManualActions,
+  SubRunWaitingNotice,
+  WaitingSubRuns,
+} from '../../step/StepManualActions';
 import { StepDeclared } from '../../step/StepDeclared';
 import { StepOutputRows } from '../../step/StepOutputRows';
 import { StepRunView, type StepRunTarget } from '../../step/StepRunView';
@@ -324,15 +328,21 @@ function ArtifactsBody({ details, dag, step }: RunTabProps) {
 /** Human tasks and approval gates of the run, as one tab. */
 function ActionsBody({ run, details, step }: RunTabProps) {
   const { ts } = useI18n();
-  const { hasHumanTaskWork, waitingApprovalNodes, waitingHumanTaskNodes } =
-    getManualActionState(details);
+  const {
+    hasHumanTaskWork,
+    waitingApprovalNodes,
+    waitingHumanTaskNodes,
+    waitingSubRunNodes,
+  } = getManualActionState(details);
   if (step) {
     // A host that shows one step: the cards of this step only. An agent that
     // waits is answered in the Agent tab of the same strip, so the link of
     // StepManualActions to the dock is off (inSubRun).
-    const waits = [...waitingApprovalNodes, ...waitingHumanTaskNodes].some(
-      (n) => n.step.name === step
-    );
+    const waits = [
+      ...waitingApprovalNodes,
+      ...waitingHumanTaskNodes,
+      ...waitingSubRunNodes,
+    ].some((n) => n.step.name === step);
     const resumePending =
       details.status === Status.Waiting && details.approvalResumePending;
     if (!waits && !resumePending) {
@@ -365,6 +375,16 @@ function ActionsBody({ run, details, step }: RunTabProps) {
           onChanged={() => void run.refresh()}
         />
       )}
+      {/* The actions that wait in the runs that the steps called. */}
+      {waitingSubRunNodes.map((node) => (
+        <WaitingSubRuns
+          key={node.step.name}
+          holder={details}
+          node={node}
+          onChanged={() => void run.refresh()}
+          fallback={<SubRunWaitingNotice holder={details} node={node} named />}
+        />
+      ))}
     </div>
   );
 }

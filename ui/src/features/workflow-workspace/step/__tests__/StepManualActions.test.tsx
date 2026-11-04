@@ -57,6 +57,10 @@ const api = vi.hoisted(() => ({
   messages: [] as string[],
   /** Reads the sub run again. */
   rereadSubRun: vi.fn(),
+  /** Sub runs by ID, for a test that nests them; the others read subRun(). */
+  subRuns: {} as Record<string, unknown>,
+  /** The sub runs that a run called, by the ID of a parent sub run ('' for the root). */
+  subRunLists: {} as Record<string, unknown[]>,
 }));
 const perms = vi.hoisted(() => ({ value: {} as WorkspacePermissions }));
 
@@ -69,8 +73,13 @@ vi.mock('@/hooks/api', () => ({
     let data: unknown;
     let mutate = () => Promise.resolve(undefined);
     if (init && path.endsWith('/sub-dag-runs/{subDAGRunId}')) {
-      data = { dagRunDetails: subRun() };
+      const id = init.params.path.subDAGRunId ?? '';
+      data = { dagRunDetails: api.subRuns[id] ?? subRun() };
       mutate = api.rereadSubRun;
+    } else if (init && path.endsWith('/sub-dag-runs')) {
+      const query = (init.params as { query?: { parentSubDAGRunId?: string } })
+        .query;
+      data = { subRuns: api.subRunLists[query?.parentSubDAGRunId ?? ''] ?? [] };
     } else if (init && path.endsWith('/messages')) {
       const step = init.params.path.stepName ?? '';
       api.messages.push(step);
@@ -325,6 +334,8 @@ beforeAll(() => {
 
 beforeEach(() => {
   api.rereadSubRun.mockReset().mockResolvedValue(undefined);
+  api.subRuns = {};
+  api.subRunLists = {};
   api.post.mockReset().mockResolvedValue({ error: undefined });
   api.messages = [];
   refresh.mockReset().mockResolvedValue(undefined);
@@ -504,6 +515,122 @@ describe('StepManualActions', () => {
       expect(new URLSearchParams(where.search).get('dock')).toBe('agent');
     }
   );
+
+  // A step that calls a workflow waits while its sub-run waits for a
+  // person: the action is in the sub-run, which the step leads to.
+  it('leads a step whose sub-run waits to that sub-run', () => {
+    const run = waitingRun();
+    run.nodes.push(
+      node('notify', {
+        ...waiting,
+        step: { name: 'notify', call: 'notify' },
+        subRuns: [{ dagRunId: 'sub-1', params: '' }],
+      }) as (typeof run.nodes)[number]
+    );
+    renderFacts({ step: 'notify' }, run);
+
+    const notice = screen.getByTestId('ww-step-sub-run-waiting');
+    expect(notice).toHaveTextContent(
+      'A sub-run of this step is waiting for an action.'
+    );
+    expect(
+      within(notice).getByRole('button', { name: 'Open sub-run' })
+    ).toBeInTheDocument();
+  });
+
+  // The runtime shows a call step as waiting while a run below it waits for
+  // a person: the approval two calls down is taken from the step itself.
+  it('approves a step that waits two runs below the step', async () => {
+    const run = waitingRun();
+    run.nodes.push(
+      node('report', {
+        ...waiting,
+        step: { name: 'report', call: 'report' },
+        subRuns: [{ dagRunId: 'sub-r', dagName: 'report' }],
+      }) as (typeof run.nodes)[number]
+    );
+    const listed = (dagRunId: string, dagName: string) => ({
+      dagRunId,
+      dagName,
+      status: Status.Waiting,
+      statusLabel: StatusLabel.waiting,
+      startedAt: '',
+    });
+    api.subRunLists[''] = [listed('sub-r', 'report')];
+    api.subRunLists['sub-r'] = [listed('sub-n', 'notify')];
+    api.subRuns['sub-r'] = {
+      ...waitingRun(),
+      name: 'report',
+      dagRunId: 'sub-r',
+      nodes: [
+        node('notify', {
+          ...waiting,
+          step: { name: 'notify', call: 'notify' },
+          subRuns: [{ dagRunId: 'sub-n', dagName: 'notify' }],
+        }),
+      ],
+    };
+    api.subRuns['sub-n'] = {
+      ...waitingRun(),
+      name: 'notify',
+      dagRunId: 'sub-n',
+      nodes: [gate('send')],
+    };
+    renderFacts({ step: 'report' }, run);
+
+    const nested = screen.getByRole('region', { name: 'report › notify' });
+    fireEvent.click(within(nested).getByRole('button', { name: 'Approve' }));
+    const dialog = await screen.findByRole('dialog');
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Approve' }));
+
+    await waitFor(() =>
+      expect(api.post).toHaveBeenCalledWith(
+        '/dag-runs/{name}/{dagRunId}/sub-dag-runs/{subDAGRunId}/steps/{stepName}/approve',
+        {
+          params: {
+            path: {
+              name: 'example',
+              dagRunId: 'run-1',
+              stepName: 'send',
+              subDAGRunId: 'sub-n',
+            },
+            query: { remoteNode: 'edge' },
+          },
+          body: { inputs: undefined },
+        }
+      )
+    );
+  });
+
+  it('rejects a step of a sub run through the sub run endpoint', async () => {
+    renderFacts({
+      step: 'gate-c',
+      subRun: { dagName: 'child', subDAGRunId: 'sub-1' },
+    });
+
+    const card = screen.getByTestId('ww-step-manual-actions');
+    fireEvent.click(within(card).getByRole('button', { name: 'Reject' }));
+    const dialog = await screen.findByRole('dialog');
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Reject' }));
+
+    await waitFor(() =>
+      expect(api.post).toHaveBeenCalledWith(
+        '/dag-runs/{name}/{dagRunId}/sub-dag-runs/{subDAGRunId}/steps/{stepName}/reject',
+        {
+          params: {
+            path: {
+              name: 'example',
+              dagRunId: 'run-1',
+              subDAGRunId: 'sub-1',
+              stepName: 'gate-c',
+            },
+            query: { remoteNode: 'edge' },
+          },
+          body: { reason: undefined },
+        }
+      )
+    );
+  });
 
   // The dock Agent tab shows the selected root run only.
   it('does not link an agent step of a sub run to the dock Agent tab', () => {

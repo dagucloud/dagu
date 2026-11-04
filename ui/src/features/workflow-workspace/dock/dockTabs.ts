@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 import { Status } from '@/api/v1/schema';
+import { getManualActionState } from '@/features/dag-runs/lib/manualActionState';
 import {
   fallbackRunTab,
   runViewFacts,
@@ -20,6 +21,8 @@ export interface DockFacts extends RunViewFacts {
   isAgentRun?: boolean;
   /** The run has a continuous step: a step that repeats without a limit. */
   hasContinuous?: boolean;
+  /** Steps that wait while a run that they called waits for a person. */
+  subRunsWaiting?: number;
 }
 
 /** The facts of a run for the dock tabs. */
@@ -35,6 +38,7 @@ export function dockFacts(
       (details.agentEvents ?? []).length > 0 ||
       (details.agentTasks ?? []).length > 0,
     hasContinuous: (details.nodes ?? []).some((n) => n.continuous === true),
+    subRunsWaiting: getManualActionState(details).waitingSubRunNodes.length,
   };
 }
 
@@ -82,9 +86,10 @@ export function dockTabsFor(
   if (facts.isAgentRun && !runTabs.includes('agent')) {
     runTabs.splice(1, 0, 'agent');
   }
-  // Actions holds the Retry resume of a failed approval resume.
+  // Actions holds the Retry resume of a failed approval resume, and the
+  // actions that wait in the runs that the steps called.
   if (
-    facts.approvalResumePending &&
+    (facts.approvalResumePending || (facts.subRunsWaiting ?? 0) > 0) &&
     !runTabs.includes('human-tasks') &&
     !runTabs.includes('approval')
   ) {
@@ -106,12 +111,15 @@ export function dockTabsFor(
 
 /** Waiting counts shown on the Agent and Actions tabs. Zero counts are left out. */
 export function dockTabBadges(
-  facts: RunViewFacts | null
+  facts: DockFacts | null
 ): Partial<Record<DockTab, number>> {
   const badges: Partial<Record<DockTab, number>> = {};
   if (!facts) return badges;
   if (facts.agentWaiting > 0) badges.agent = facts.agentWaiting;
-  const actions = facts.waitingApprovals + facts.humanTasksWaiting;
+  const actions =
+    facts.waitingApprovals +
+    facts.humanTasksWaiting +
+    (facts.subRunsWaiting ?? 0);
   if (actions > 0) badges.actions = actions;
   return badges;
 }
