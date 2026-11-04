@@ -28,9 +28,9 @@ import { shortRunId } from '@/lib/shortRunId';
 import { Archive, History } from 'lucide-react';
 import { formatStepSpan } from '@/lib/formatStepSpan';
 import {
-  isActiveNodeStatus,
   nodeStatusText,
   runStatusText,
+  isLiveNodeStatus,
 } from '@/lib/status-utils';
 import React, {
   forwardRef,
@@ -241,7 +241,7 @@ function isActiveTimelineStatus(row: TimelineRow): boolean {
   if (row.statusSource === 'dagrun') {
     return row.status === Status.Running || row.status === Status.Queued;
   }
-  return isActiveNodeStatus(row.status as NodeStatus);
+  return isLiveNodeStatus(row.status as NodeStatus);
 }
 
 type TimelineBarProps = {

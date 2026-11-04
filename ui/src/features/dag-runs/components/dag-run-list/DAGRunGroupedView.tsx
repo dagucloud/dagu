@@ -27,6 +27,7 @@ import {
 } from '@/features/peek/usePeekOrOpen';
 import { I18nText } from '@/i18n/I18nText';
 import { useI18n } from '@/i18n/I18nProvider';
+import { isLiveRunStatus } from '@/lib/status-utils';
 
 interface DAGRunGroupedViewProps {
   dagRuns: components['schemas']['DAGRunSummary'][];
@@ -98,7 +99,9 @@ function DAGRunGroupedView({
       return '-';
     }
 
-    if (status === Status.Running && !finishedAt) {
+    // A run that runs or waits for a person counts up to now: a waiting
+    // run has the finish time of its pause.
+    if (isLiveRunStatus(status)) {
       const start = dayjs(startedAt);
       const now = dayjs();
       const durationMs = now.diff(start);

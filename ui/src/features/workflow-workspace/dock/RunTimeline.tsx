@@ -33,7 +33,7 @@ import {
   runDisplayStatus,
   summaryDisplayStatus,
 } from '@/lib/runDisplayStatus';
-import { runStatusText } from '@/lib/status-utils';
+import { runStatusText, isLiveRunStatus } from '@/lib/status-utils';
 import { toneClasses } from '@/lib/statusPalette';
 import { cn } from '@/lib/utils';
 import { useRunStart } from '../bar/RunStartContext';
@@ -139,7 +139,7 @@ function useRunNow(
   fixed: number | undefined
 ): number {
   const second = useClock(
-    fixed === undefined && tick && run.status === Status.Running ? 1000 : null,
+    fixed === undefined && tick && isLiveRunStatus(run.status) ? 1000 : null,
     (now) => Math.floor(now / 1000)
   );
   return fixed ?? second * 1000;
@@ -857,7 +857,7 @@ export function RunTimelineView({
     () => timelineWindow(allRuns, selectedId, count),
     [allRuns, selectedId, count]
   );
-  const live = runs.some((run) => run.status === Status.Running);
+  const live = runs.some((run) => isLiveRunStatus(run.status));
   // A null host is a hidden view (the dock is closed): nobody sees the time.
   const tick = live && nowProp === undefined && controlsHost !== null;
   // The layout reads the clock in steps of at most one pixel of the axis

@@ -203,6 +203,20 @@ describe('runDurationMs', () => {
     ).toBe(60_000);
   });
 
+  // A run that waits for a person has the finish time of its pause.
+  it('counts a waiting run up to now', () => {
+    expect(
+      runDurationMs(
+        {
+          status: Status.Waiting,
+          startedAt: '2026-03-01T10:09:00Z',
+          finishedAt: '2026-03-01T10:09:00.370Z',
+        },
+        NOW
+      )
+    ).toBe(60_000);
+  });
+
   it('is null without a start, without a finish for a finished run, and for a negative span', () => {
     expect(runDurationMs({ status: Status.Queued }, NOW)).toBeNull();
     expect(

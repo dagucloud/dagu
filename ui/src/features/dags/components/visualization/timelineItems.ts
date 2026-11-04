@@ -9,6 +9,7 @@ import {
 import dayjs from '@/lib/dayjs';
 import { isWholeSecondSpan } from '@/lib/formatStepSpan';
 import { components, NodeStatus, Status } from '../../../../api/v1/schema';
+import { isLiveNodeStatus } from '@/lib/status-utils';
 
 type DAGRunDetails = components['schemas']['DAGRunDetails'];
 type Node = components['schemas']['Node'];
@@ -316,7 +317,10 @@ function buildStepRow(
   }
 
   const startMs = dayjs(node.startedAt).valueOf();
-  const endMs = parseEndMs(node.finishedAt, nowMs);
+  // A step that waits for a person has the finish time of its pause.
+  const endMs = isLiveNodeStatus(node.status)
+    ? nowMs
+    : parseEndMs(node.finishedAt, nowMs);
   const normalized = normalizeTiming(startMs, endMs);
 
   if (!normalized) {

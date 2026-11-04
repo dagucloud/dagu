@@ -20,6 +20,7 @@ import {
   spanOverlaps,
   type RunSpan,
 } from './runExtents';
+import { isLiveRunStatus } from '@/lib/status-utils';
 
 /** The numbers of runs that the user can choose; the server sends 30 at the most. */
 export const TIMELINE_COUNTS: readonly number[] = [5, 10, 20, 30];
@@ -175,7 +176,8 @@ export function runDurationMs(
   const start = time(run.startedAt);
   if (start === null) return null;
   const finish = time(run.finishedAt);
-  const end = finish ?? (run.status === Status.Running ? now : null);
+  // A run that waits for a person has the finish time of its pause.
+  const end = isLiveRunStatus(run.status) ? now : finish;
   if (end === null || end < start) return null;
   return end - start;
 }
@@ -1000,7 +1002,7 @@ export function timelineLayout(
     if (span) t1 = Math.max(t1, span.end);
   }
   const running =
-    runs.some((run) => run.status === Status.Running) ||
+    runs.some((run) => isLiveRunStatus(run.status)) ||
     reaching.some((span) => span.running);
   if (running) t1 = Math.max(t1, now);
   if (range) t1 = range.to;

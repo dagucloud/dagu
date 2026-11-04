@@ -118,6 +118,36 @@ describe('DAGRunTable', () => {
     expect(screen.getByText('No runs found')).toBeInTheDocument();
   });
 
+  // A run that waits for an approval has the finish time of its pause: the
+  // list showed 0s for a run that had waited 7 minutes.
+  it('counts the duration of a waiting run up to now', () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-03-13T10:08:00Z'));
+    try {
+      render(
+        <MemoryRouter>
+          <ConfigContext.Provider value={config}>
+            <DAGRunTable
+              dagRuns={[
+                {
+                  ...queuedRun,
+                  status: Status.Waiting,
+                  statusLabel: StatusLabel.waiting,
+                  startedAt: '2026-03-13T10:01:00Z',
+                  finishedAt: '2026-03-13T10:01:00.370Z',
+                },
+              ]}
+            />
+          </ConfigContext.Provider>
+        </MemoryRouter>
+      );
+      expect(screen.getAllByText('7m 0s').length).toBeGreaterThan(0);
+      expect(screen.queryByText('0s')).toBeNull();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it('shows the scheduled at column and value when schedule time exists', () => {
     render(
       <MemoryRouter>

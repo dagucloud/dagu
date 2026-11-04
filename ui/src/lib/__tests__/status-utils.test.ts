@@ -5,6 +5,8 @@ import {
   getStatusClass,
   getStatusColors,
   isActiveNodeStatus,
+  isLiveNodeStatus,
+  isLiveRunStatus,
   nodeStatusText,
   runStatusText,
   statusLabelText,
@@ -18,6 +20,16 @@ describe('status-utils', () => {
       bgClass: 'bg-[var(--status-warning)]',
       animation: 'animate-pulse',
     });
+  });
+
+  // The time of a run or a step that waits for a person still counts.
+  it('counts the time of a running or a waiting run and step', () => {
+    expect(isLiveRunStatus(Status.Running)).toBe(true);
+    expect(isLiveRunStatus(Status.Waiting)).toBe(true);
+    expect(isLiveRunStatus(Status.Success)).toBe(false);
+    expect(isLiveNodeStatus(NodeStatus.Waiting)).toBe(true);
+    expect(isLiveNodeStatus(NodeStatus.Retrying)).toBe(true);
+    expect(isLiveNodeStatus(NodeStatus.Success)).toBe(false);
   });
 
   it('exposes a distinct retrying icon', () => {

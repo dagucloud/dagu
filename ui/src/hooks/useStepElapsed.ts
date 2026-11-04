@@ -5,7 +5,7 @@ import { NodeStatus } from '@/api/v1/schema';
 import { useClock } from '@/hooks/useClock';
 import { useI18n } from '@/i18n/I18nProvider';
 import { formatStepSpan } from '@/lib/formatStepSpan';
-import { isActiveNodeStatus } from '@/lib/status-utils';
+import { isLiveNodeStatus } from '@/lib/status-utils';
 
 /**
  * Width of the duration slot: the longest form of formatElapsed ("59m 59s",
@@ -34,7 +34,7 @@ export function useStepElapsed(
   visible = true
 ): string | null {
   const { ts } = useI18n();
-  const active = node ? isActiveNodeStatus(node.status) : false;
+  const active = node ? isLiveNodeStatus(node.status) : false;
   const startedAt = node?.startedAt;
   const finishedAt = node?.finishedAt;
   const skipped = node?.status === NodeStatus.Skipped;

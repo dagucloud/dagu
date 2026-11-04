@@ -97,6 +97,24 @@ function subRunDetail(
 }
 
 describe('timelineItems', () => {
+  // A step that waits for an approval has the finish time of its pause: its
+  // bar was drawn as a finished step of a few ms.
+  it('runs the bar of a waiting step up to now', () => {
+    const rows = buildTimelineRows({
+      dagRun: dagRun({
+        status: Status.Waiting,
+        nodes: [node({ status: NodeStatus.Waiting })],
+      }),
+      subRunDetails: [],
+      nowMs,
+    });
+
+    expect(rows[0]).toMatchObject({
+      startMs: Date.parse('2026-01-01T00:00:00Z'),
+      endMs: nowMs,
+    });
+  });
+
   it('builds parent-only rows when there are no eligible child rows', () => {
     const rows = buildTimelineRows({
       dagRun: dagRun(),
