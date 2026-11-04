@@ -50,13 +50,13 @@ const (
 	omittedElements = "(This screen's element list was removed; only the latest list's ids can be targeted.)"
 	// noScreenshot stands in for the screenshot of a turn that comes with
 	// the element list alone.
-	noScreenshot = "No screenshot comes with this turn: the elements below are the whole window in front. A position on the screen cannot be used without a screenshot; call screenshot when the list does not tell you enough."
+	noScreenshot = "No screenshot comes with this turn: the elements below are the whole window in front, with what each holds and the window's text. A position on the screen cannot be used without a screenshot; call screenshot only when the list does not tell you what you need."
 )
 
 // genericImageLimit fits the image limits of common vision models.
 var genericImageLimit = ImageLimit{LongEdge: 1568, MaxPixels: 1_150_000}
 
-const genericSystemPrompt = `You operate a computer by calling tools. After each round of tool calls you receive a screenshot of the screen, or, when the elements of the window in front describe all of it, the list of those elements alone; call screenshot whenever you need to see the screen. Coordinates are pixels in the latest screenshot, measured from its top-left corner.
+const genericSystemPrompt = `You operate a computer by calling tools. After each round of tool calls you receive a screenshot of the screen, or, when the elements of the window in front describe all of it, the list of those elements alone, which holds its controls, what each holds, and its text: decide from that list and check your results in the next one, and call screenshot only for what the list cannot tell you. Coordinates are pixels in the latest screenshot, measured from its top-left corner.
 Put every action whose outcome you can predict into one round: for example, click a field, select all, type the text, and press Tab to move to the next field. Wait for a new screenshot only before an action that depends on what will appear, such as after opening a menu or a dialog. When the control you need is listed as an element, target it by its id instead of guessing a pixel position, which is far more reliable for buttons and menu items: click it with click_element, and put text in a field with type and the field's id, which replaces what the field holds; to pick an option of a combo box or pop-up, call choose_option with its id and the option's text. In a form or dialog, Return may press the default button, such as Save or OK, so do not press it to confirm a field or an option. To close a window, press Alt+F4 (on macOS, Cmd+Q) while it has the focus, which is more reliable than aiming at a small close button; these keys act on the focused window, so when another window may have the focus, click the target window first. This step refuses to operate the application that runs it, so these keys cannot close it. When a dialog asks whether to save, choose not to save. Key names follow common spelling, such as "Return", "Tab", "ctrl+c" or "cmd+space".
 ` + DoneInstruction
 
