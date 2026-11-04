@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 import { useCallback, useSyncExternalStore } from 'react';
+import { useRemoteNode } from '@/contexts/RemoteNodeContext';
 import type { CanvasDirection } from '../contracts';
 
 /**
@@ -10,9 +11,15 @@ import type { CanvasDirection } from '../contracts';
  */
 export const CANVAS_DIRECTION_KEY = 'dagu.canvas.direction';
 
-/** Storage key of the direction that the user chose for one workflow. */
-export function canvasDirectionKey(scope: string): string {
-  return `${CANVAS_DIRECTION_KEY}:${scope}`;
+/**
+ * Storage key of the direction that the user chose for one workflow. Two
+ * remote nodes can each have a workflow of the same name.
+ */
+export function canvasDirectionKey(
+  scope: string,
+  remoteNode = 'local'
+): string {
+  return `${CANVAS_DIRECTION_KEY}:${remoteNode}:${scope}`;
 }
 
 /** Cookie of the direction of the Mermaid graph: 'LR' or 'TD'. */
@@ -92,18 +99,13 @@ function defaultDirection(): CanvasDirection {
   return DEFAULT_DIRECTION;
 }
 
-function currentDirection(scope: string | undefined): CanvasDirection {
-  return (
-    (scope === undefined ? null : readStored(canvasDirectionKey(scope))) ??
-    defaultDirection()
-  );
+/** The direction of a workflow key, or of the default without one. */
+function currentDirection(key: string | undefined): CanvasDirection {
+  return (key === undefined ? null : readStored(key)) ?? defaultDirection();
 }
 
-function setDirection(scope: string | undefined, direction: CanvasDirection) {
-  writeStored(
-    scope === undefined ? CANVAS_DIRECTION_KEY : canvasDirectionKey(scope),
-    direction
-  );
+function setDirection(key: string | undefined, direction: CanvasDirection) {
+  writeStored(key ?? CANVAS_DIRECTION_KEY, direction);
   for (const listener of listeners) {
     listener();
   }
@@ -117,8 +119,9 @@ function subscribe(listener: () => void): () => void {
 }
 
 /**
- * The direction of the canvas layout of a workflow (`scope`). A change for
- * one workflow does not turn the others: it writes the key of the workflow.
+ * The direction of the canvas layout of a workflow (`scope`) of the remote
+ * node in view. A change for one workflow does not turn the others: it
+ * writes the key of the workflow.
  * A workflow without a direction of its own, and a canvas without a scope,
  * read the default: localStorage[CANVAS_DIRECTION_KEY], which is seeded one
  * time from the cookie 'flowchart' of the Mermaid graph ('LR' gives 'LR',
@@ -128,14 +131,17 @@ function subscribe(listener: () => void): () => void {
 export function useCanvasDirection(
   scope?: string
 ): [CanvasDirection, (direction: CanvasDirection) => void] {
+  const remoteNode = useRemoteNode();
+  const key =
+    scope === undefined ? undefined : canvasDirectionKey(scope, remoteNode);
   const direction = useSyncExternalStore(
     subscribe,
-    () => currentDirection(scope),
+    () => currentDirection(key),
     () => DEFAULT_DIRECTION
   );
   const set = useCallback(
-    (next: CanvasDirection) => setDirection(scope, next),
-    [scope]
+    (next: CanvasDirection) => setDirection(key, next),
+    [key]
   );
   return [direction, set];
 }

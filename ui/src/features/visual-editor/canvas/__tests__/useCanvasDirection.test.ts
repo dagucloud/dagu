@@ -2,7 +2,9 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 import { act, renderHook } from '@testing-library/react';
+import { createElement, type ReactNode } from 'react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { RemoteNodeProvider } from '@/contexts/RemoteNodeContext';
 import {
   CANVAS_DIRECTION_KEY,
   canvasDirectionKey,
@@ -162,5 +164,22 @@ describe('useCanvasDirection of a workflow', () => {
     const b = renderHook(() => useCanvasDirection('etl-daily'));
     act(() => a.result.current[1]('LR'));
     expect(b.result.current[0]).toBe('LR');
+  });
+
+  // Two remote nodes can each have a workflow of the same file name.
+  it('keeps the workflows of one name on two remote nodes apart', () => {
+    const on =
+      (remoteNode: string) =>
+      ({ children }: { children: ReactNode }) =>
+        createElement(RemoteNodeProvider, { remoteNode, children });
+    const a = renderHook(() => useCanvasDirection('etl.yaml'), {
+      wrapper: on('edge-a'),
+    });
+    const b = renderHook(() => useCanvasDirection('etl.yaml'), {
+      wrapper: on('edge-b'),
+    });
+    act(() => a.result.current[1]('LR'));
+    expect(a.result.current[0]).toBe('LR');
+    expect(b.result.current[0]).toBe('TB');
   });
 });
