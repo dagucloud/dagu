@@ -29,6 +29,11 @@ import type {
   VisualEditorState,
 } from '../contracts';
 import { useCanvasActions } from '../canvas/context';
+import {
+  CanvasOverlayInsetContext,
+  useCanvasOverlayInset,
+  type CanvasOverlayInset,
+} from '../canvas/overlayInset';
 import { useCanvasDirection } from '../canvas/useCanvasDirection';
 import {
   copyStepsYaml,
@@ -107,12 +112,15 @@ const view = vi.hoisted(() => ({
   fitView: vi.fn(),
   // The props of the last canvas render.
   canvas: null as VisualCanvasProps | null,
+  // The overlay inset that the last canvas render read.
+  inset: null as CanvasOverlayInset | null,
 }));
 vi.mock('../canvas', async (importOriginal) => {
   const actual = await importOriginal<typeof import('../canvas')>();
   function WatchedCanvas(props: VisualCanvasProps) {
     const inner = useRef<CanvasViewHandle>(null);
     view.canvas = props;
+    view.inset = useCanvasOverlayInset();
     useImperativeHandle(
       props.viewRef,
       () => ({
@@ -1752,6 +1760,19 @@ describe.skipIf(realSchema === null)('VisualEditor seams of the NDV', () => {
         roots.remove();
       }
     });
+  });
+
+  // A host whose own overlay covers the top of the canvas keeps that room
+  // when the editor shows no notice of its own.
+  it('keeps the top inset of the host', () => {
+    render(
+      wrap(
+        <CanvasOverlayInsetContext.Provider value={{ right: 0, top: 120 }}>
+          <Harness initial={yamlHttpJq} />
+        </CanvasOverlayInsetContext.Provider>
+      )
+    );
+    expect(view.inset?.top).toBe(120);
   });
 
   // The validation of a draft can give a DAG without the step: the columns

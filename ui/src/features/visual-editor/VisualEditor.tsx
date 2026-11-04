@@ -1404,7 +1404,10 @@ export function VisualEditor(props: VisualEditorProps): ReactElement {
   const overlayBottom = useBoxBottom(overlayBox);
   const parentInset = useCanvasOverlayInset();
   const canvasInset = useMemo(
-    () => ({ ...parentInset, top: overlayBottom }),
+    () => ({
+      ...parentInset,
+      top: Math.max(parentInset.top ?? 0, overlayBottom),
+    }),
     [parentInset, overlayBottom]
   );
   const band = useViewportBand(!!chrome);
