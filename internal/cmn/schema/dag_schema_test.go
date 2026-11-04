@@ -4,6 +4,7 @@
 package schema
 
 import (
+	"context"
 	"encoding/json"
 	"os"
 	"path/filepath"
@@ -11,6 +12,9 @@ import (
 	"testing"
 
 	"github.com/dagucloud/dagu/v2/internal/ir"
+	// Registers the built-in actions the parser checks steps against.
+	_ "github.com/dagucloud/dagu/v2/internal/runtime/builtin"
+	"github.com/dagucloud/dagu/v2/internal/spec"
 	"github.com/google/jsonschema-go/jsonschema"
 	"github.com/stretchr/testify/require"
 	"gopkg.in/yaml.v3"
@@ -2905,6 +2909,157 @@ func TestDAGSchemaLocalRegistry(t *testing.T) {
 			} else {
 				require.Error(t, err)
 			}
+		})
+	}
+}
+
+// The schema must accept every field the DAG parser accepts and reject fields
+// the parser rejects, so editors and MCP previews agree with `dagu validate`.
+// Each sample runs through both the schema and the parser.
+func TestDAGSchemaAgreesWithParser(t *testing.T) {
+	t.Parallel()
+
+	const digest = "sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
+	resolved := mustResolveDAGSchema(t)
+	tests := []struct {
+		name   string
+		source string
+		valid  bool
+	}{
+		{"wait mail", `
+mail_on: {wait: true}
+wait_mail: {from: dagu@example.com, to: ops@example.com}
+steps: [{run: "true"}]
+`, true},
+		{"SMTP OAuth", `
+smtp:
+  username: alerts@example.com
+  oauth: {provider: microsoft, tenant_id: t, client_id: c, client_secret: s}
+steps: [{run: "true"}]
+`, true},
+		{"tool digest", `
+tools:
+  packages:
+    - {package: jqlang/jq, version: jq-1.7.1, digest: ` + digest + `}
+steps: [{run: "true"}]
+`, true},
+		{"tool shorthand digest", `
+tools: [jqlang/jq@jq-1.7.1#` + digest + `]
+steps: [{run: "true"}]
+`, true},
+		{"DAG LLM tools", `
+llm: {provider: openai, model: gpt-4o, tools: [calculator], max_tool_iterations: 5}
+steps: [{run: "true"}]
+`, true},
+		{"DAG-level Redis TLS", `
+redis: {host: localhost, tls: true}
+steps: [{action: redis.ping}]
+`, true},
+		{"DAG-level Redis TLS file", `
+redis: {host: localhost, tls: true, tls_ca: /etc/ssl/ca.pem}
+steps: [{action: redis.ping}]
+`, false},
+		{"step worker_selector labels", `
+steps:
+  - action: dag.run
+    with: {dag: child}
+    worker_selector: {gpu: "true"}
+`, true},
+		{"step worker_selector local", `
+steps:
+  - action: dag.run
+    with: {dag: child}
+    worker_selector: local
+`, false},
+		{"SMTP OAuth blank extra credential", `
+smtp:
+  username: alerts@example.com
+  oauth: {provider: microsoft, tenant_id: t, client_id: c, client_secret: s, refresh_token: ""}
+steps: [{run: "true"}]
+`, true},
+		{"SMTP OAuth Google service account", `
+smtp:
+  username: alerts@example.com
+  oauth: {provider: google_service_account, service_account_json: "{}"}
+steps: [{run: "true"}]
+`, true},
+		{"SMTP OAuth Google service account with client ID", `
+smtp:
+  username: alerts@example.com
+  oauth: {provider: google_service_account, service_account_json: "{}", client_id: c}
+steps: [{run: "true"}]
+`, false},
+		{"SMTP OAuth Google refresh token", `
+smtp:
+  username: alerts@example.com
+  oauth: {provider: google_refresh, client_id: c, client_secret: s, refresh_token: r}
+steps: [{run: "true"}]
+`, true},
+		{"SMTP OAuth Google refresh without token", `
+smtp:
+  username: alerts@example.com
+  oauth: {provider: google_refresh, client_id: c, client_secret: s}
+steps: [{run: "true"}]
+`, false},
+		{"one tool round", `
+llm: {provider: openai, model: gpt-4o, max_tool_iterations: 1}
+steps: [{run: "true"}]
+`, true},
+		{"no tool rounds", `
+llm: {provider: openai, model: gpt-4o, max_tool_iterations: 0}
+steps: [{run: "true"}]
+`, false},
+		{"SMTP OAuth missing tenant", `
+smtp:
+  username: alerts@example.com
+  oauth: {provider: microsoft, client_id: c, client_secret: s}
+steps: [{run: "true"}]
+`, false},
+		{"SMTP OAuth blank secret", `
+smtp:
+  username: alerts@example.com
+  oauth: {provider: microsoft, tenant_id: t, client_id: c, client_secret: "  "}
+steps: [{run: "true"}]
+`, false},
+		{"SMTP OAuth without username", `
+smtp:
+  oauth: {provider: microsoft, tenant_id: t, client_id: c, client_secret: s}
+steps: [{run: "true"}]
+`, false},
+		{"SMTP OAuth with password", `
+smtp:
+  username: alerts@example.com
+  password: p
+  oauth: {provider: microsoft, tenant_id: t, client_id: c, client_secret: s}
+steps: [{run: "true"}]
+`, false},
+		{"malformed tool digest", `
+tools:
+  packages:
+    - {package: jqlang/jq, version: jq-1.7.1, digest: md5:abc}
+steps: [{run: "true"}]
+`, false},
+		{"malformed shorthand digest", `
+tools: [jqlang/jq@jq-1.7.1#md5:abc]
+steps: [{run: "true"}]
+`, false},
+		{"latest shorthand with digest", `
+tools: [jqlang/jq@latest#` + digest + `]
+steps: [{run: "true"}]
+`, false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			schemaErr := resolved.Validate(mustParseYAMLDocument(t, tt.source))
+			_, parserErr := spec.LoadYAML(context.Background(), []byte(tt.source))
+			if tt.valid {
+				require.NoError(t, schemaErr, "schema")
+				require.NoError(t, parserErr, "parser")
+				return
+			}
+			require.Error(t, schemaErr, "schema")
+			require.Error(t, parserErr, "parser")
 		})
 	}
 }
