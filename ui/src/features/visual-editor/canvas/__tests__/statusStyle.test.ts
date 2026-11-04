@@ -76,9 +76,11 @@ describe('edgeTintStatus', () => {
     expect(edgeTintStatus(NodeStatus.Failed, NodeStatus.Running)).toBe(
       NodeStatus.Failed
     );
-    expect(edgeTintStatus(NodeStatus.Success, undefined)).toBe(
-      NodeStatus.Success
-    );
+  });
+
+  // A step added after the run has no status: its edge is not part of the run.
+  it('has no tint into a step that is not in the run', () => {
+    expect(edgeTintStatus(NodeStatus.Success, undefined)).toBeUndefined();
   });
 
   it('is neutral into a skipped or not started target', () => {

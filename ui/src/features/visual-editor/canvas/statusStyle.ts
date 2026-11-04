@@ -53,13 +53,14 @@ export function statusStrokeClass(status: NodeStatus): string {
 /**
  * The run status that tints an edge: the one of its source step, except for
  * an edge into a target that was skipped or did not start, which stays
- * neutral. Undefined without a run.
+ * neutral. Undefined without a run, and into a step that is not in the run,
+ * such as one added since.
  */
 export function edgeTintStatus(
   source: NodeStatus | undefined,
   target: NodeStatus | undefined
 ): NodeStatus | undefined {
-  if (source === undefined) return undefined;
+  if (source === undefined || target === undefined) return undefined;
   if (target === NodeStatus.Skipped || target === NodeStatus.NotStarted) {
     return NodeStatus.Skipped;
   }

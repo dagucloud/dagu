@@ -13,7 +13,8 @@ import { stepDefinitionOf } from './stepDefinition';
  * What the definition of a step declares for the steps after it: the output
  * variable and the named outputs. It needs no run. The link selects the last
  * run in the same tab (a push of `?run=<id>`), else the run of the host when
- * the last run is not known. It shows only when the workspace has a run id.
+ * the last run is not known. It shows only when the workspace has a run id,
+ * and not for a step that is missing from the last run.
  */
 export function StepDeclared({
   step,
@@ -40,7 +41,13 @@ export function StepDeclared({
       kind: out.type,
     });
   }
-  const runId = run.latestRef?.runId ?? run.ref?.runId ?? null;
+  const latestRunId = run.latestRef?.runId ?? null;
+  const shownRunId = run.ref?.runId ?? null;
+  // A step that is not in the last run, such as one added since, never ran:
+  // there is no run of it to open.
+  const neverRan =
+    node === undefined && (latestRunId === null || latestRunId === shownRunId);
+  const runId = neverRan ? null : (latestRunId ?? shownRunId);
   if (rows.length === 0 && runId === null) return null;
 
   const runUrl =
