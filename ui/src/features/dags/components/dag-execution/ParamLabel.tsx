@@ -3,7 +3,6 @@
 
 import type { ReactNode } from 'react';
 
-import { Label } from '@/components/ui/label';
 import { cn } from '@/lib/utils';
 
 /**
@@ -11,7 +10,8 @@ import { cn } from '@/lib/utils';
  * name is shown beside it and joins the control's accessible name, so the
  * identifier used in commands and references stays visible and parameters
  * that share a title stay distinguishable. A long name moves to its own
- * line instead of squeezing the label.
+ * line instead of squeezing the label. The label text stays selectable so
+ * a name can be copied.
  */
 export function ParamLabel({
   id,
@@ -29,11 +29,12 @@ export function ParamLabel({
   children: ReactNode;
 }) {
   return (
-    <Label
+    <label
       id={id}
       htmlFor={htmlFor}
       className={cn(
-        'min-w-0 flex-wrap items-baseline gap-x-2 gap-y-1',
+        'flex min-w-0 flex-wrap items-baseline gap-x-2 gap-y-1 text-sm leading-normal font-medium text-foreground',
+        'peer-disabled:cursor-not-allowed peer-disabled:opacity-50',
         className
       )}
     >
@@ -41,16 +42,11 @@ export function ParamLabel({
       {name && name !== label && (
         <>
           {' '}
-          {/* Radix Label cancels double-click mousedown, which would block
-              selecting the name for copying. */}
-          <code
-            onMouseDown={(event) => event.stopPropagation()}
-            className="min-w-0 whitespace-normal break-words font-mono text-xs font-normal text-muted-foreground select-text"
-          >
+          <code className="min-w-0 whitespace-normal break-words font-mono text-xs font-normal text-muted-foreground">
             {name}
           </code>
         </>
       )}
-    </Label>
+    </label>
   );
 }

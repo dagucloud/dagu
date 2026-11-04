@@ -63,15 +63,18 @@ describe('StartDAGModal schema parameters', () => {
     ).toBeInTheDocument();
   });
 
-  it('lets a double-click select the name for copying', () => {
+  it('lets a double-click select a param name for copying', () => {
     renderSchemaParams({
       region: { type: 'string', title: 'AWS region' },
+      notes: { type: 'string' },
     });
 
     // A cancelled mousedown with detail > 1 blocks the word selection.
-    expect(fireEvent.mouseDown(screen.getByText('region'), { detail: 2 })).toBe(
-      true
-    );
+    for (const name of ['region', 'notes']) {
+      expect(fireEvent.mouseDown(screen.getByText(name), { detail: 2 })).toBe(
+        true
+      );
+    }
   });
 
   it('labels a titled boolean by its title, name, then description', () => {
