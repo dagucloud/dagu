@@ -8866,7 +8866,7 @@
         },
         "formats": {
           "type": "object",
-          "additionalProperties": { "type": "string", "minLength": 1 },
+          "additionalProperties": { "type": "string", "pattern": "\\S" },
           "description": "xlsx.write and xlsx.append: an explicit number format per column, such as {Total: \"#,##0\", Rate: \"0.0%\"}. It applies to every cell written to the column, on a new sheet or below existing rows, and wins over the format the column's values or the cell above would give."
         },
         "atomic": {
