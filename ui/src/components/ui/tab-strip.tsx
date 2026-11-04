@@ -43,7 +43,7 @@ export interface TabStripProps {
   tabs: ReadonlyArray<TabStripTab>;
   value: string;
   onChange(id: string): void;
-  /** Icon-only tabs, whatever the width. */
+  /** Icon-only tabs, whatever the width; the selected one keeps its name. */
   compact?: boolean;
   /** Prefix of the DOM ids of the tabs. Defaults to a generated one. */
   idPrefix?: string;
@@ -60,8 +60,9 @@ const KEY_STEP: Record<string, 1 | -1> = { ArrowRight: 1, ArrowLeft: -1 };
 /**
  * The one tab row of the workspace: a 32 px row of 24 px tabs. The names
  * collapse into icons, with a tooltip and an aria-label, when `compact` is
- * set or when the row is too narrow for them; if the icons do not fit
- * either, the row scrolls horizontally. There is no overflow menu. Only the
+ * set or when the row is too narrow for them; the selected tab keeps its
+ * name, so the row still says what shows. If the icons do not fit either,
+ * the row scrolls horizontally. There is no overflow menu. Only the
  * selected tab is a tab stop; the arrow keys, Home and End select and focus
  * a tab.
  */
@@ -156,7 +157,7 @@ export function TabStrip({
       {tabs.map((tab) => {
         const Icon = tab.icon;
         const active = tab.id === value;
-        const hideLabel = iconOnly && !!Icon;
+        const hideLabel = iconOnly && !!Icon && !active;
         const button = (
           <button
             key={tab.id}
