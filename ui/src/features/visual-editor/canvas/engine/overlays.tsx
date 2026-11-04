@@ -631,7 +631,11 @@ export function MiniMap({
   const store = useFlowStore();
   const viewport = useViewportThrottled(MINIMAP_FRAME_MS);
   const { size } = store;
-  const dragging = useRef(false);
+  // The layout of the overview at the press of a drag. It holds until the
+  // release: the overview spans the view too, so a layout that followed the
+  // view would map one point of the overview to another place of the graph
+  // at each move, and the view would run away from the pointer.
+  const dragLayout = useRef<MinimapLayout | null>(null);
   const wheelStep = useRef(createWheelStepper());
   const [moving, setMoving] = useState(false);
   const [hovered, setHovered] = useState(false);
@@ -728,7 +732,7 @@ export function MiniMap({
     store.nodes().flatMap((node, index) => (node.selected ? [index] : []))
   );
   const view = visibleRect(viewport, size);
-  const layout = minimapLayout(rects, view);
+  const layout = dragLayout.current ?? minimapLayout(rects, view);
   if (hidden || !layout || size.width === 0) {
     return null;
   }
@@ -761,7 +765,7 @@ export function MiniMap({
   // A cancelled gesture, such as a system gesture on a touch screen, ends the
   // drag as a release does.
   const stopDragging = () => {
-    dragging.current = false;
+    dragLayout.current = null;
   };
 
   const visible = moving || hovered || resting;
@@ -785,12 +789,12 @@ export function MiniMap({
         style={{ width: pixelWidth, height: pixelHeight }}
         className="relative cursor-pointer rounded-md border bg-card/90 shadow-sm"
         onPointerDown={(event) => {
-          dragging.current = true;
+          dragLayout.current = layout;
           event.currentTarget.setPointerCapture?.(event.pointerId);
           centerOn(event);
         }}
         onPointerMove={(event) => {
-          if (dragging.current) {
+          if (dragLayout.current) {
             centerOn(event);
           }
         }}
