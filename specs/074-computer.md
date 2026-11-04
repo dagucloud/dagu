@@ -6,9 +6,9 @@ Partially implemented.
 
 Conformance covers validation, the secret check, the unsupported-platform
 error, and, on an interactive Windows desktop, a run that finds a test window
-in screenshots, clicks it and types into it through a scripted model, and
-the elements command's outline and selector matching on a window with named
-controls. Model loops, replay, exact conditions, human input, and the
+in screenshots, clicks it and types into it through a scripted model, a run
+that fills and saves a form from its element list alone, and the elements
+command's outline and selector matching on a window with named controls. Model loops, replay, exact conditions, human input, and the
 desktop lease are covered by executor tests.
 
 ## Scope
@@ -173,7 +173,9 @@ An `act` shows the model a screenshot scaled to what the model accepts and
 performs the pointer and keyboard actions it answers with, in order, mapping
 positions back to display pixels. After each round of actions the step waits
 for the screen to stop changing and sends the new screenshot with the results.
-An action that fails skips the rest of the round and is reported to the model.
+In generic mode a round may instead go with the window's elements alone (see
+Elements). An action that fails skips the rest of the round and is reported
+to the model.
 
 The act ends when the model reports the task done. A report made in the
 same turn as actions is not taken yet: the actions run, the model is shown
@@ -599,10 +601,31 @@ so a selector a person types matches what a form shows without reproducing
 its spelling; ids are compared as written.
 
 In generic mode the model is also offered the front window's actionable
-elements by id beside the screenshot and may click one with `click_element`,
-which the step resolves to the element's centre, more reliable than aiming
-at a pixel for a small control. The click records its element like any other,
-so the next run replays it by element.
+elements by id beside the screenshot, each with the tools that take it:
+`click_element` for any control, `type` for a text field, and
+`choose_option` for a combo box or pop-up. An action of another kind aimed at
+an element fails before anything reaches the desktop, and a disabled control
+is listed without an id. A click is carried out through the element itself
+where it can be, and at the element's centre otherwise, more reliable than
+aiming at a pixel for a small control. `type` with a field's id puts the text
+in place of what the field holds: the step sets the field's value through
+the element and keeps it when the field reads back the same text; otherwise
+the field is emptied when it took the value, takes the keyboard focus, and
+gets the text as keys. Each records its element like any other, so the next
+run replays it by element, and a value set through the element is set the
+same way again.
+
+A round goes to the model with no screenshot when the front window's
+elements are read in full, the list holds at most 80 of them, and at least
+one takes an action. Such a list also has the window's text and its controls
+without a name, in tree order, and names the group, list, or tab an element
+sits in when another listed element has the same role and name. The model
+asks to see the screen with `screenshot`, and the next round comes with one;
+an action it aims at a position on the screen in a round without one fails,
+and the next round comes with a screenshot too. A window with no elements,
+one read only in part or with more than the list holds, and a model's
+request keep the screenshot. Statements an `expect` or a `when` judges, and
+an `extract`, always read a screenshot.
 
 An element is an accessible element of a window: its `role`, `name`, the
 `id` the application gives it, its `value`, the `label` it is linked to,
