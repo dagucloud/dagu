@@ -426,3 +426,39 @@ func TestStepHoldsItsAppAfterAHandlerChecksAnother(t *testing.T) {
 	require.NoError(t, execution.err)
 	assert.ErrorIs(t, heldByAnother, dirlock.ErrLockConflict, "the step held expense while its button performed the pattern")
 }
+
+// A step holding the desktop that needs an app another step holds lets the
+// desktop go while it waits for the app, so the two steps never wait for
+// each other, and holds both once the app is free.
+func TestStepLetsTheDesktopGoWhileItWaitsForAnApp(t *testing.T) {
+	t.Parallel()
+
+	lockDir := filepath.Join(t.TempDir(), desktopLockName)
+	quiet := &agentstep.Timeline{Log: io.Discard, Masker: agentstep.NewMasker(nil, nil), Update: func(func(*ir.AgentSession)) {}}
+	other, err := acquireApp(t.Context(), lockDir, "ledger", quiet)
+	require.NoError(t, err)
+	waiting := make(chan struct{})
+	var once sync.Once
+	timeline := &agentstep.Timeline{Log: io.Discard, Masker: agentstep.NewMasker(nil, nil), Update: func(update func(*ir.AgentSession)) {
+		session := &ir.AgentSession{}
+		update(session)
+		if slices.Contains(waitReasons(session), waitReasonApp) {
+			once.Do(func() { close(waiting) })
+		}
+	}}
+	r := &run{driver: desktop.New(newFakeBackend(800, 600)), lockDir: lockDir, timeline: timeline}
+	require.NoError(t, r.takeDesktop(t.Context(), "expense"))
+	done := make(chan error, 1)
+	go func() { done <- r.takeDesktop(t.Context(), "ledger") }()
+
+	await(t, waiting, "the wait for ledger")
+	free, ok := tryLock(t.Context(), lockDir)
+	require.True(t, ok, "the step let the desktop go while it waited")
+	free.release()
+	other.release()
+	require.NoError(t, <-done)
+	assert.True(t, r.holdsApp("ledger"))
+	assert.NotNil(t, r.lease)
+	r.releaseDesktop()
+	r.app.release()
+}

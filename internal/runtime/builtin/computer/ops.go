@@ -875,9 +875,12 @@ func (r *run) capture(ctx context.Context, label string) (string, error) {
 		return "", agentstep.ErrNoArtifactStorage
 	}
 	// A screenshot shows whatever is in front, so the step holds the
-	// desktop while it takes one.
-	if err := r.takeDesktop(ctx, r.homeApp()); err != nil {
-		return "", err
+	// desktop while it takes one, and one that holds it already waits for
+	// no application.
+	if r.lease == nil {
+		if err := r.takeDesktop(ctx, r.homeApp()); err != nil {
+			return "", err
+		}
 	}
 	full, err := r.settle(ctx)
 	if err != nil {

@@ -109,8 +109,8 @@ func tryLock(ctx context.Context, dir string) (*desktopLease, bool) {
 // lock once joined to it.
 func appLockName(app string) string {
 	name := strings.Map(func(r rune) rune {
-		if unicode.IsLetter(r) || unicode.IsDigit(r) || r == '.' || r == '-' {
-			return unicode.ToLower(r)
+		if r = foldRune(r); unicode.IsLetter(r) || unicode.IsDigit(r) || r == '.' || r == '-' {
+			return r
 		}
 		return '_'
 	}, app)
@@ -118,6 +118,16 @@ func appLockName(app string) string {
 		return "_" + name
 	}
 	return name
+}
+
+// foldRune maps a rune to the least of the runes strings.EqualFold takes for
+// it, so application names that compare equal name one lock.
+func foldRune(r rune) rune {
+	least := r
+	for f := unicode.SimpleFold(r); f != r; f = unicode.SimpleFold(f) {
+		least = min(least, f)
+	}
+	return least
 }
 
 // lastInput returns when the previous holder of the desktop last sent input,
@@ -185,10 +195,16 @@ func (l *desktopLease) release() {
 // based on until the input is sent, which a step does only while it holds
 // the desktop. app, the application the step works in meanwhile, is taken
 // first, so a step never waits for an application while it holds the
-// desktop. Neither wait counts toward the operation's time.
+// desktop: one that holds it and needs app another step holds lets the
+// desktop go, waits for app, and takes the desktop again, unless a button
+// it pressed is still down. Its callers call it before the look their
+// input is based on. Neither wait counts toward the operation's time.
 func (r *run) takeDesktop(ctx context.Context, app string) error {
 	if r.lease != nil {
-		return r.takeApp(ctx, app)
+		if err := r.takeApp(ctx, app); err != nil || r.holdsApp(app) || r.driver.Holding() {
+			return err
+		}
+		r.releaseDesktop()
 	}
 	if err := r.takeApp(ctx, app); err != nil {
 		return err
@@ -225,12 +241,17 @@ func (r *run) releaseDesktop() {
 	r.lease = nil
 }
 
+// holdsApp reports whether the step holds app, or app names none.
+func (r *run) holdsApp(app string) bool {
+	return app == "" || (r.app != nil && strings.EqualFold(r.appName, app))
+}
+
 // takeApp makes the step hold app, the one it works in now, letting go of
 // the one it held before, so a step holds one application at a time. A
 // step holding the desktop waits for nothing, so it takes app only when no
 // other step holds it, and keeps the one it holds otherwise.
 func (r *run) takeApp(ctx context.Context, app string) error {
-	if app == "" || (r.app != nil && strings.EqualFold(r.appName, app)) {
+	if r.holdsApp(app) {
 		return nil
 	}
 	if r.lease != nil {

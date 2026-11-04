@@ -132,8 +132,12 @@ windows. A step holds the application it works in from its first operation
 there until the step ends or works in another; a step that finds the
 application in use waits and logs a waiting event named `app`. A step takes
 the application before the desktop and never waits for one while holding
-the desktop: holding it, the step takes another application it moves into
-only when no other step holds that application.
+the desktop: before a look its next input is based on, a step that holds
+the desktop and needs an application another step holds lets the desktop
+go, waits for the application, and takes the desktop again, unless a button
+it pressed is still down. An `act` the model drives holds the desktop
+across its turns, so an application its actions move into is taken at the
+step's next operation.
 
 ### Conditions
 

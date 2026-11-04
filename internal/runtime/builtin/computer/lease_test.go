@@ -11,7 +11,7 @@ import (
 )
 
 // Every application's lock lies in the directory of application locks,
-// whatever the application is named, and applications that differ only in
+// whatever the application is named, and names that compare equal ignoring
 // case share one.
 func TestAppLockNames(t *testing.T) {
 	t.Parallel()
@@ -22,4 +22,5 @@ func TestAppLockNames(t *testing.T) {
 		assert.Equal(t, apps, filepath.Dir(lock), "%q", app)
 	}
 	assert.Equal(t, appLockName("Excel"), appLockName("EXCEL"))
+	assert.Equal(t, appLockName("stop"), appLockName("ſtop"), "names strings.EqualFold takes for one name one lock")
 }
