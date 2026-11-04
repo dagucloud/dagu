@@ -187,8 +187,8 @@ func signedArg(n int32) uintptr {
 	return uintptr(int64(n)) //nolint:gosec // Win32 reads the bits as a signed index
 }
 
-// windowID names a window by its handle, title, process, application, and
-// frame.
+// windowID names a window by its handle, title, process, application,
+// frame, and whether it is minimized.
 func windowID(hwnd windows.HWND) WindowID {
 	if hwnd == 0 {
 		return WindowID{}
@@ -197,7 +197,8 @@ func windowID(hwnd windows.HWND) WindowID {
 	_, _ = windows.GetWindowThreadProcessId(hwnd, &pid)
 	title := make([]uint16, 256)
 	n, _, _ := procGetWindowTextW.Call(uintptr(hwnd), uintptr(unsafe.Pointer(&title[0])), uintptr(len(title))) //nolint:gosec // Win32 takes the buffer address as uintptr
-	return WindowID{Handle: uint64(hwnd), Title: windows.UTF16ToString(title[:n]), PID: pid, App: appName(hwnd), Bounds: windowBounds(hwnd)}
+	iconic, _, _ := procIsIconic.Call(uintptr(hwnd))
+	return WindowID{Handle: uint64(hwnd), Title: windows.UTF16ToString(title[:n]), PID: pid, App: appName(hwnd), Bounds: windowBounds(hwnd), Minimized: iconic != 0}
 }
 
 // windowBounds is a window's visible frame in display pixels. The window

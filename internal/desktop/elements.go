@@ -175,6 +175,14 @@ type Elements interface {
 	// header, or an unreadable cell is an error. It may take longer than
 	// one read, so it is bounded by ctx.
 	Rows(ctx context.Context, container Selector, columns []string, max int) ([][]string, error)
+	// InWindow returns a reader of one top-level window, such as one
+	// Driver.Windows lists, wherever it is among the others and whether or
+	// not another window covers it. Its FrontWindow, Find, Outline, and
+	// Rows read that window as this reader reads the window in front, and
+	// its Focus and Apply find their element in it; its At and Focused read
+	// the desktop as this reader does. A window that has closed reads as
+	// ErrNoWindow. Closing the reader it returns does nothing.
+	InWindow(w WindowID) Elements
 	Close() error
 }
 

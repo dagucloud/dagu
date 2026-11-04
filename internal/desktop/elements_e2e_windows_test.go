@@ -6,6 +6,7 @@
 package desktop
 
 import (
+	"fmt"
 	"image"
 	"os"
 	"os/exec"
@@ -301,6 +302,91 @@ func TestWindowsDirectInput(t *testing.T) {
 	assert.Equal(t, RoleWindow, front.Role)
 	require.NoError(t, els.Apply(byID["agreeBox"], PatternToggle, ""))
 	expectStatus("同意: True")
+}
+
+// A reader of one window reads and drives it while another application's
+// window has the foreground, and leaves the foreground where it is: it
+// finds the window's elements, has them perform their patterns, reads a
+// table, and a window that is gone reads as no window.
+func TestWindowsElementsInWindowBehindAnother(t *testing.T) {
+	driver := e2eDesktop(t)
+	els := e2eElements(t)
+	elementsWindow(t, driver, els)
+	ctx := t.Context()
+
+	own := listedWindow(t, driver, func(w WindowID) bool { return w.Title == elementsWindowTitle })
+	if alreadyRunning(t, "notepad.exe") {
+		t.Skip("notepad is already running; its windows would be left behind")
+	}
+	startApp(t, "notepad.exe")
+	other := listedWindow(t, driver, func(w WindowID) bool { return strings.EqualFold(w.App, "notepad") })
+	require.Eventually(t, func() bool {
+		_ = driver.Raise(other)
+		return driver.FocusedWindow().Handle == other.Handle
+	}, 15*time.Second, 500*time.Millisecond, "notepad did not take the foreground")
+
+	in := els.InWindow(own)
+	window, err := in.FrontWindow()
+	require.NoError(t, err)
+	assert.Equal(t, elementsWindowTitle, window.Name)
+	front, err := els.FrontWindow()
+	require.NoError(t, err)
+	assert.Equal(t, "notepad", front.App, "the reader of the window in front still reads notepad")
+
+	status := func() string {
+		labels, err := in.Find(Selector{Role: RoleText, ID: "statusLabel"})
+		if err != nil || len(labels) != 1 {
+			return fmt.Sprint(labels, err)
+		}
+		return labels[0].Name
+	}
+	save, err := in.Find(Selector{Role: RoleButton, ID: "saveButton"})
+	require.NoError(t, err)
+	require.Len(t, save, 1)
+	require.NoError(t, in.Apply(save[0], PatternInvoke, ""))
+	assert.Eventually(t, func() bool { return status() == "保存しました" }, 3*time.Second, 100*time.Millisecond, "status reads %q", status())
+
+	amount, err := in.Find(Selector{Role: RoleTextField, ID: "amountBox"})
+	require.NoError(t, err)
+	require.Len(t, amount, 1)
+	require.NoError(t, in.Apply(amount[0], PatternSetValue, "3400"))
+	amount, err = in.Find(Selector{Role: RoleTextField, ID: "amountBox"})
+	require.NoError(t, err)
+	require.Len(t, amount, 1)
+	assert.Equal(t, "3400", amount[0].Value)
+
+	outline, err := in.Outline(window, 0)
+	require.NoError(t, err)
+	assert.NotEmpty(t, outline)
+	rows, err := in.Rows(ctx, Selector{Role: RoleList, ID: "linesList"}, []string{"品目"}, 100)
+	require.NoError(t, err)
+	assert.Equal(t, [][]string{{"りんご"}, {"みかん"}}, rows)
+
+	assert.Equal(t, other.Handle, driver.FocusedWindow().Handle, "patterns leave the foreground with notepad")
+	assert.NoError(t, in.Close(), "closing a window's reader leaves the reader it came from open")
+	_, err = els.FrontWindow()
+	assert.NoError(t, err)
+
+	gone := own
+	gone.PID++
+	_, err = els.InWindow(gone).FrontWindow()
+	assert.ErrorIs(t, err, ErrNoWindow, "a handle that names another process's window is a window that closed")
+}
+
+// listedWindow waits until Driver.Windows lists a window that matches.
+func listedWindow(t *testing.T, driver *Driver, matches func(WindowID) bool) WindowID {
+	t.Helper()
+	var found WindowID
+	require.Eventually(t, func() bool {
+		for _, w := range driver.Windows() {
+			if matches(w) {
+				found = w
+				return true
+			}
+		}
+		return false
+	}, 30*time.Second, 200*time.Millisecond, "no such window is listed: %+v", driver.Windows())
+	return found
 }
 
 // A table in Details view is read row by row, each cell under the column

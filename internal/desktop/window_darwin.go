@@ -421,9 +421,15 @@ func zoomable(window uintptr) bool {
 }
 
 // axWindow finds the Accessibility window of an application that the
-// window server lists as w: by its frame, else by its title. The caller
-// releases a non-zero window.
+// window server lists as w; see axWindowOf.
 func (b *darwinBackend) axWindow(app uintptr, w WindowID) uintptr {
+	return axWindowOf(app, w, b.display)
+}
+
+// axWindowOf finds the Accessibility window of an application that the
+// window server lists as w, on display d: by its frame, else by its title.
+// The caller releases a non-zero window.
+func axWindowOf(app uintptr, w WindowID, d display) uintptr {
 	windows := axCopy(app, "AXWindows")
 	if windows == 0 {
 		return 0
@@ -431,7 +437,7 @@ func (b *darwinBackend) axWindow(app uintptr, w WindowID) uintptr {
 	defer cfRelease(windows)
 	var byTitle uintptr
 	for _, window := range cfArray(windows) {
-		if frame, ok := axFrame(window); ok && nearRect(b.toPixelRect(frame), w.Bounds, int(math.Ceil(frameTolerance*b.display.scale))) {
+		if frame, ok := axFrame(window); ok && nearRect(d.pixelRect(frame), w.Bounds, int(math.Ceil(frameTolerance*d.scale))) {
 			cfRetain(window)
 			return window
 		}

@@ -90,12 +90,15 @@ func roleOf(controlType int32, topLevel bool) string {
 
 // uiaElements reads elements through UI Automation. Every call runs on
 // one thread that owns the COM apartment and every COM pointer; callers
-// receive plain values.
+// receive plain values. A reader InWindow returns shares the thread.
 type uiaElements struct {
 	requests  chan request
 	quit      chan struct{}
 	done      chan struct{}
 	closeOnce sync.Once
+	// scope is the window a reader InWindow returned reads in place of the
+	// one in front.
+	scope *WindowID
 }
 
 type request struct {
@@ -196,7 +199,15 @@ func (e *uiaElements) run(what string, fn func(*uiaWorker) error) error {
 	return err
 }
 
+// InWindow reads one top-level window through the same automation thread.
+func (e *uiaElements) InWindow(w WindowID) Elements {
+	return &uiaElements{requests: e.requests, quit: e.quit, done: e.done, scope: &w}
+}
+
 func (e *uiaElements) Close() error {
+	if e.scope != nil {
+		return nil
+	}
 	e.closeOnce.Do(func() { close(e.quit) })
 	select {
 	case <-e.done:
@@ -230,7 +241,7 @@ func (e *uiaElements) Focused() (Element, error) {
 
 func (e *uiaElements) FrontWindow() (Element, error) {
 	return call(e, "front window", func(w *uiaWorker) (Element, error) {
-		top, err := w.frontWindow()
+		top, err := w.top(e.scope)
 		if err != nil {
 			return Element{}, err
 		}
@@ -241,7 +252,7 @@ func (e *uiaElements) FrontWindow() (Element, error) {
 
 func (e *uiaElements) Find(sel Selector) ([]Element, error) {
 	return call(e, "find", func(w *uiaWorker) ([]Element, error) {
-		top, err := w.frontWindow()
+		top, err := w.top(e.scope)
 		if err != nil {
 			return nil, err
 		}
@@ -257,7 +268,7 @@ func (e *uiaElements) Find(sel Selector) ([]Element, error) {
 
 func (e *uiaElements) Outline(window Element, limit int) ([]Element, error) {
 	return call(e, "outline", func(w *uiaWorker) ([]Element, error) {
-		top, err := w.resolveWindow(window)
+		top, err := w.resolveWindow(window, e.scope)
 		if err != nil {
 			return nil, err
 		}
@@ -274,7 +285,7 @@ func (e *uiaElements) Outline(window Element, limit int) ([]Element, error) {
 // Focus finds the element again and gives it the keyboard focus.
 func (e *uiaElements) Focus(target Element) error {
 	return e.run("focus", func(w *uiaWorker) error {
-		el, err := w.locate(target)
+		el, err := w.locate(target, e.scope)
 		if err != nil {
 			return err
 		}
@@ -295,7 +306,7 @@ func (e *uiaElements) Apply(target Element, pattern Pattern, value string) error
 	default:
 	}
 	return actAlone(string(pattern), func(w *uiaWorker) error {
-		el, err := w.locate(target)
+		el, err := w.locate(target, e.scope)
 		if err != nil {
 			return err
 		}
@@ -385,9 +396,11 @@ func readAlone[T any](ctx context.Context, what string, fn func(*uiaWorker) (T, 
 }
 
 // locate finds an element again, under its centre first and then by its
-// path in the front window, and returns it live. The caller releases it.
-func (w *uiaWorker) locate(target Element) (*element, error) {
-	if !target.Bounds.Empty() {
+// path in the front window, and returns it live. In a window a reader is
+// scoped to it goes by the path alone, since another window may cover the
+// centre. The caller releases it.
+func (w *uiaWorker) locate(target Element, scope *WindowID) (*element, error) {
+	if scope == nil && !target.Bounds.Empty() {
 		centre := target.Bounds.Min.Add(target.Bounds.Size().Div(2))
 		if el, err := w.auto.elementFromPoint(centre.X, centre.Y, w.cacheElement); err == nil {
 			found, err := w.convert(el, false)
@@ -400,7 +413,7 @@ func (w *uiaWorker) locate(target Element) (*element, error) {
 	if len(target.Path) == 0 {
 		return nil, fmt.Errorf("%w: the element is not where it was", ErrNotFound)
 	}
-	top, err := w.frontWindow()
+	top, err := w.top(scope)
 	if err != nil {
 		return nil, err
 	}
@@ -516,9 +529,18 @@ type topWindow struct {
 	className string
 }
 
-// frontWindow reads the window in front.
-func (w *uiaWorker) frontWindow() (*topWindow, error) {
+// top reads the window in front, or the window scope names. A handle
+// that now names another process's window, as a closed window's handle
+// reused, is a window that closed.
+func (w *uiaWorker) top(scope *WindowID) (*topWindow, error) {
 	hwnd := windows.GetForegroundWindow()
+	if scope != nil {
+		hwnd = windows.HWND(scope.Handle) //nolint:gosec // a window handle round-trips through uintptr for Win32
+		var pid uint32
+		if _, err := windows.GetWindowThreadProcessId(hwnd, &pid); err != nil || pid != scope.PID {
+			hwnd = 0
+		}
+	}
 	if hwnd == 0 {
 		return nil, ErrNoWindow
 	}
@@ -561,13 +583,14 @@ type placement struct {
 }
 
 // resolveWindow finds the window an element describes: the one in front,
-// or the top-level window under the element's centre.
-func (w *uiaWorker) resolveWindow(window Element) (*topWindow, error) {
-	front, err := w.frontWindow()
+// or the top-level window under the element's centre. A reader scoped to a
+// window reads that one.
+func (w *uiaWorker) resolveWindow(window Element, scope *WindowID) (*topWindow, error) {
+	front, err := w.top(scope)
 	if err != nil {
 		return nil, err
 	}
-	if window.Name == "" || window.Name == front.window.Name {
+	if scope != nil || window.Name == "" || window.Name == front.window.Name {
 		return front, nil
 	}
 	front.el.release()

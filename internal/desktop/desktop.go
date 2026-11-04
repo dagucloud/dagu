@@ -187,6 +187,9 @@ type WindowID struct {
 	// Bounds is the window's frame in display pixels, empty where the
 	// system does not say.
 	Bounds image.Rectangle
+	// Minimized marks a window the system lists while it shows nothing on
+	// the screen, which only bringing it forward shows again.
+	Minimized bool
 }
 
 // Known reports a window the system named.
