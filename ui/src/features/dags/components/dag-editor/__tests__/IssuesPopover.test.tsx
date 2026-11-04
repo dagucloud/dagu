@@ -204,15 +204,13 @@ describe('IssuesPopover', () => {
     const group = within(panel).getByRole('region', {
       name: 'Value references (1)',
     });
-    expect(group).not.toHaveTextContent('context.paths.work_dir');
-    fireEvent.click(within(group).getByRole('button', { name: /Details/ }));
-    const dialog = screen.getByRole('dialog', {
-      name: 'Value Reference Notices',
-    });
-    expect(dialog).toHaveTextContent('${steps.fetch.stdout}');
+    expect(group).toHaveTextContent('Step id fetch does not exist');
+    expect(panel).not.toHaveTextContent('context.paths.work_dir');
   });
 
-  it('shows no value-reference group for runtime-only notices', () => {
+  // With only runtime-only notices, the group lists none and keeps the
+  // details dialog in reach, which opens on them.
+  it('keeps the details of runtime-only notices in reach', () => {
     render(
       <IssuesPopover
         warnings={[]}
@@ -225,9 +223,15 @@ describe('IssuesPopover', () => {
     expect(
       screen.getByRole('button', { name: 'Issues (1)' })
     ).toBeInTheDocument();
-    expect(
-      within(panel).queryByRole('region', { name: /Value references/ })
-    ).toBeNull();
+    expect(panel).not.toHaveTextContent('context.paths.work_dir');
+    const group = within(panel).getByRole('region', {
+      name: 'Value references (0)',
+    });
+    fireEvent.click(within(group).getByRole('button', { name: /Details/ }));
+    const dialog = screen.getByRole('dialog', {
+      name: 'Value Reference Notices',
+    });
+    expect(dialog).toHaveTextContent('context.paths.work_dir');
   });
 
   it('announces the changes of the count politely', () => {

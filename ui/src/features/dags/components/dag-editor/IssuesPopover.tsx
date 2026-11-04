@@ -344,17 +344,20 @@ export function IssuesPopover({
               onReveal={reveal}
               canReveal={canReveal}
             >
-              {/* The dialog opens over the page: the popover closes first. */}
-              <div className="px-2 pt-1" onClickCapture={close}>
-                <ValueReferenceNoticesButton
-                  notices={valueReferences}
-                  label="Details"
-                  description={ts(
-                    'Value-reference notices produced while loading this spec.'
-                  )}
-                  variant="outline"
-                />
-              </div>
+              {/* The dialog opens over the page: the popover closes first.
+                  It lists the runtime-only notices too, apart. */}
+              {valueReferences.length > 0 && (
+                <div className="px-2 pt-1" onClickCapture={close}>
+                  <ValueReferenceNoticesButton
+                    notices={valueReferences}
+                    label="Details"
+                    description={ts(
+                      'Value-reference notices produced while loading this spec.'
+                    )}
+                    variant="outline"
+                  />
+                </div>
+              )}
             </IssueGroup>
           </AnchoredPopover>
         </>
@@ -383,7 +386,9 @@ function IssueGroup({
 }) {
   const { ts } = useI18n();
   const headingId = React.useId();
-  if (rows.length === 0) {
+  // A group with no rows shows only for its children, such as a details
+  // button, and its heading names no problem.
+  if (rows.length === 0 && !children) {
     return null;
   }
   return (
@@ -392,7 +397,11 @@ function IssueGroup({
         id={headingId}
         className={cn(
           'px-2 py-1 text-xs font-semibold',
-          tone === 'error' ? 'text-destructive' : 'text-warning'
+          rows.length === 0
+            ? 'text-muted-foreground'
+            : tone === 'error'
+              ? 'text-destructive'
+              : 'text-warning'
         )}
       >
         {title} ({rows.length})
