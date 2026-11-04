@@ -430,13 +430,20 @@ func (b *darwinBackend) Capture() (*image.RGBA, error) {
 	if problem, ok := sessionProblem(); ok {
 		return nil, errors.New(problem.Message)
 	}
+	return screencapture("-m")
+}
+
+// screencapture runs the screencapture tool silently with args that say
+// what to capture, and decodes the picture it takes.
+func screencapture(args ...string) (*image.RGBA, error) {
 	dir, err := os.MkdirTemp("", "dagu-screen-")
 	if err != nil {
 		return nil, err
 	}
 	defer func() { _ = os.RemoveAll(dir) }()
 	path := filepath.Join(dir, "screen.png")
-	if out, err := exec.Command(screencapturePath, "-x", "-m", "-t", "png", path).CombinedOutput(); err != nil { //nolint:gosec // fixed tool and a private temporary path
+	args = append(append([]string{"-x"}, args...), "-t", "png", path)
+	if out, err := exec.Command(screencapturePath, args...).CombinedOutput(); err != nil { //nolint:gosec // fixed tool and a private temporary path
 		return nil, fmt.Errorf("screencapture: %w: %s", err, out)
 	}
 	file, err := os.Open(path) //nolint:gosec // private temporary path

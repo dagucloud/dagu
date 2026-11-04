@@ -15,3 +15,7 @@ func (windowsBackend) Raise(WindowID) error         { return nil }
 func (windowsBackend) Maximize(WindowID) (bool, error) {
 	return false, nil
 }
+
+func (windowsBackend) CaptureApps([]string) (Capture, error) {
+	return Capture{}, ErrNoWindows
+}

@@ -339,18 +339,37 @@ type windowsBackend struct {
 // Capture fails while another desktop has the input, since the user's
 // desktop then captures without error but shows nothing current.
 func (windowsBackend) Capture() (*image.RGBA, error) {
-	// A session whose client has gone keeps serving its last picture; the
-	// next read of the screen names that instead of acting on a stale image.
-	if problem, ok := sessionProblem(); ok {
-		return nil, errors.New(problem.Message)
-	}
-	if problem, ok := inputDesktopProblem(); ok {
-		return nil, errors.New(problem.Message)
+	if err := capturable(); err != nil {
+		return nil, err
 	}
 	width, height := screenSize()
 	if width <= 0 || height <= 0 {
 		return nil, errors.New("screen size is unavailable")
 	}
+	return paintBitmap(width, height, func(memory, screen uintptr) error {
+		if ok, _, err := procBitBlt.Call(memory, 0, 0, uintptr(width), uintptr(height), screen, 0, 0, srcCopy|captureBlt); ok == 0 {
+			return fmt.Errorf("BitBlt: %w", err)
+		}
+		return nil
+	})
+}
+
+// capturable reports why the screen shows nothing current to capture.
+func capturable() error {
+	// A session whose client has gone keeps serving its last picture; the
+	// next read of the screen names that instead of acting on a stale image.
+	if problem, ok := sessionProblem(); ok {
+		return errors.New(problem.Message)
+	}
+	if problem, ok := inputDesktopProblem(); ok {
+		return errors.New(problem.Message)
+	}
+	return nil
+}
+
+// paintBitmap reads the picture paint draws into a memory device context
+// of a size, compatible with the screen's, which paint also gets.
+func paintBitmap(width, height int, paint func(memory, screen uintptr) error) (*image.RGBA, error) {
 	screen, _, err := procGetDC.Call(0)
 	if screen == 0 {
 		return nil, fmt.Errorf("GetDC: %w", err)
@@ -368,11 +387,11 @@ func (windowsBackend) Capture() (*image.RGBA, error) {
 	defer func() { _, _, _ = procDeleteObject.Call(bitmap) }()
 
 	previous, _, _ := procSelectObject.Call(memory, bitmap)
-	ok, _, err := procBitBlt.Call(memory, 0, 0, uintptr(width), uintptr(height), screen, 0, 0, srcCopy|captureBlt)
+	err = paint(memory, screen)
 	// GetDIBits needs the bitmap deselected.
 	_, _, _ = procSelectObject.Call(memory, previous)
-	if ok == 0 {
-		return nil, fmt.Errorf("BitBlt: %w", err)
+	if err != nil {
+		return nil, err
 	}
 
 	info := bitmapInfo{
