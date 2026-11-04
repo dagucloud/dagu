@@ -3,6 +3,7 @@
 
 import { Status } from '@/api/v1/schema';
 import { useClock } from '@/hooks/useClock';
+import { isUnsetTime } from '@/lib/dagRunTiming';
 import dayjs from '@/lib/dayjs';
 
 interface RunTimes {
@@ -16,7 +17,7 @@ interface RunTimes {
  * each second while the run runs with no finish, or waits for a person.
  */
 export function RunListDuration(run: RunTimes) {
-  const live = !!run.startedAt && countsToNow(run);
+  const live = !isUnsetTime(run.startedAt) && countsToNow(run);
   return (
     <>{useClock(live ? 1000 : null, (now) => runListDuration(run, now))}</>
   );
@@ -25,19 +26,20 @@ export function RunListDuration(run: RunTimes) {
 /** A running run with no finish, and a waiting run, count up to now: a waiting run has the finish time of its pause. */
 function countsToNow({ finishedAt, status }: RunTimes): boolean {
   return (
-    status === Status.Waiting || (status === Status.Running && !finishedAt)
+    status === Status.Waiting ||
+    (status === Status.Running && isUnsetTime(finishedAt))
   );
 }
 
 function runListDuration(run: RunTimes, now: number): string {
-  if (!run.startedAt) {
+  if (isUnsetTime(run.startedAt)) {
     return '-';
   }
   const start = dayjs(run.startedAt);
   if (countsToNow(run)) {
     return formatDuration(dayjs(now).diff(start));
   }
-  if (run.finishedAt) {
+  if (!isUnsetTime(run.finishedAt)) {
     return formatDuration(dayjs(run.finishedAt).diff(start));
   }
   return '-';

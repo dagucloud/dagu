@@ -154,6 +154,45 @@ describe('DAGRunTable', () => {
     }
   });
 
+  // The API reports an unset time as "-".
+  it('counts the duration of a running run whose finish is "-"', () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-03-13T10:01:30Z'));
+    // The live status dot asks for the reduced motion setting.
+    vi.stubGlobal(
+      'matchMedia',
+      vi.fn(() => ({
+        matches: false,
+        addEventListener: vi.fn(),
+        removeEventListener: vi.fn(),
+      }))
+    );
+    try {
+      render(
+        <MemoryRouter>
+          <ConfigContext.Provider value={config}>
+            <DAGRunTable
+              dagRuns={[
+                {
+                  ...queuedRun,
+                  status: Status.Running,
+                  statusLabel: StatusLabel.running,
+                  startedAt: '2026-03-13T10:01:00Z',
+                  finishedAt: '-',
+                },
+              ]}
+            />
+          </ConfigContext.Provider>
+        </MemoryRouter>
+      );
+      expect(screen.getAllByText('30s').length).toBeGreaterThan(0);
+      expect(screen.queryByText(/NaN/)).toBeNull();
+    } finally {
+      vi.useRealTimers();
+      vi.unstubAllGlobals();
+    }
+  });
+
   it('shows the scheduled at column and value when schedule time exists', () => {
     render(
       <MemoryRouter>
