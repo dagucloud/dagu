@@ -6,7 +6,6 @@ import { ExternalLink, Loader2 } from 'lucide-react';
 import {
   LicenseConnectStatusState,
   LicenseMonitoringLevel,
-  LicenseRemoteAccessLevel,
 } from '@/api/v1/schema';
 import {
   neverSent,
@@ -22,7 +21,11 @@ import { useI18n } from '@/i18n/I18nProvider';
 import dayjs from '@/lib/dayjs';
 import { monitoringLevelLabels, remoteAccessLevelLabels } from '@/lib/license';
 import { LicenseCallout } from './LicenseAlerts';
-import { RemoteAccessChoices, type OnLevel } from './RemoteAccessSection';
+import {
+  DEFAULT_REMOTE_ACCESS_LEVEL,
+  RemoteAccessChoices,
+  type OnLevel,
+} from './RemoteAccessSection';
 import type { useLicenseConnect } from './useLicenseConnect';
 
 function Countdown({ expiresAt }: { expiresAt?: string }) {
@@ -85,7 +88,7 @@ export function ConnectSection({
   const [trial, setTrial] = useState(trialRequested);
   const [mcp, setMCP] = useState(false);
   const [mcpLevel, setMCPLevel] = useState<OnLevel>(
-    LicenseRemoteAccessLevel.operator
+    DEFAULT_REMOTE_ACCESS_LEVEL
   );
   useEffect(() => {
     if (trialRequested) setTrial(true);

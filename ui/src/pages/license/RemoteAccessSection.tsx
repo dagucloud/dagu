@@ -56,6 +56,13 @@ const levelSummaries: Record<LicenseRemoteAccessLevel, string> = {
     'MCP calls also change DAG definitions, so they can run any command on this machine.',
 };
 
+/**
+ * The level offered first. MCP clients are mostly used to manage workflows,
+ * which takes changing DAG definitions.
+ */
+export const DEFAULT_REMOTE_ACCESS_LEVEL: OnLevel =
+  LicenseRemoteAccessLevel.developer;
+
 /** How many recent calls the section lists. */
 const ACTIVITY_ROWS = 8;
 
@@ -492,7 +499,7 @@ function RemoteAccessDialog({
 }) {
   const { ts } = useI18n();
   const [selected, setSelected] = useState<OnLevel>(
-    LicenseRemoteAccessLevel.viewer
+    DEFAULT_REMOTE_ACCESS_LEVEL
   );
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -500,7 +507,7 @@ function RemoteAccessDialog({
 
   useEffect(() => {
     if (!open) return;
-    setSelected(on ? (level as OnLevel) : LicenseRemoteAccessLevel.viewer);
+    setSelected(on ? (level as OnLevel) : DEFAULT_REMOTE_ACCESS_LEVEL);
     setError(null);
   }, [open, level, on]);
 

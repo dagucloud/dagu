@@ -713,7 +713,8 @@ describe('LicensePage', () => {
     });
 
     // Remote access needs a plan or a trial, so choosing MCP clients chooses
-    // the trial too, and the request carries the chosen level.
+    // the trial too. Developer is offered first, and the request carries the
+    // level chosen.
     it('connects with remote access for MCP clients', async () => {
       vi.spyOn(window, 'open').mockReturnValue(null);
       const get = vi.fn((path: string) =>
@@ -746,8 +747,11 @@ describe('LicensePage', () => {
           name: /Also try paid features/,
         })
       ).toBeChecked();
-      await userEvent.click(
+      expect(
         within(offer()).getByRole('radio', { name: 'Developer' })
+      ).toBeChecked();
+      await userEvent.click(
+        within(offer()).getByRole('radio', { name: 'Operator' })
       );
       await userEvent.click(
         within(offer()).getByRole('button', { name: 'Connect and start trial' })
@@ -755,7 +759,7 @@ describe('LicensePage', () => {
 
       expect(post).toHaveBeenCalledWith('/license/connect', {
         params: { query: { remoteNode: 'local' } },
-        body: { report: 'errors', remoteAccess: 'developer' },
+        body: { report: 'errors', remoteAccess: 'operator' },
       });
     });
 
@@ -1631,7 +1635,7 @@ describe('LicensePage', () => {
         name: 'Choose remote access',
       });
       expect(
-        within(dialog).getByRole('radio', { name: 'Viewer' })
+        within(dialog).getByRole('radio', { name: 'Developer' })
       ).toBeChecked();
       const operator = within(dialog).getByRole('radio', { name: 'Operator' });
       expect(operator).toHaveAccessibleDescription(
@@ -1660,13 +1664,13 @@ describe('LicensePage', () => {
       const dialog = await screen.findByRole('dialog', {
         name: 'Choose remote access',
       });
-      expect(within(dialog).queryByRole('alert')).not.toBeInTheDocument();
-      await userEvent.click(
-        within(dialog).getByRole('radio', { name: 'Developer' })
-      );
       expect(within(dialog).getByRole('alert')).toHaveTextContent(
         'run any command on this machine, as the user Dagu runs as'
       );
+      await userEvent.click(
+        within(dialog).getByRole('radio', { name: 'Viewer' })
+      );
+      expect(within(dialog).queryByRole('alert')).not.toBeInTheDocument();
     });
 
     it('lets human tasks be turned on and shows the connection', async () => {
