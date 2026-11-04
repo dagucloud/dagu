@@ -11,13 +11,15 @@ import (
 // configSchema covers every mail operation: send, search, and organize. Fields
 // that take booleans or numbers also accept value references.
 var configSchema = &jsonschema.Schema{
-	Type: "object",
+	Type:                 "object",
+	AdditionalProperties: &jsonschema.Schema{Not: &jsonschema.Schema{}},
 	Properties: map[string]*jsonschema.Schema{
 		"mailbox": {Type: "string", Description: "Address of a mail account from mail_accounts"},
 		"from":    {Type: "string", Description: "Sender email address (send), or a sender substring to match (search)"},
 		"to":      {Description: "Recipient email address(es) - string or array of strings"},
 		"subject": {Type: "string", Description: "Email subject line (send), or a subject substring to match (search)"},
 		"message": {Type: "string", Description: "Email body content"},
+		"in_reply_to": {Description: "Email ID, email object, or a list of them to reply to (requires mailbox)"},
 		"attachments": {
 			Type:        "array",
 			Items:       &jsonschema.Schema{Type: "string"},
