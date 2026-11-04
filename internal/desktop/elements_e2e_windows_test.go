@@ -405,10 +405,6 @@ func TestWindowsElementsInWindowDriveAPageBehindAnother(t *testing.T) {
 	page := listedWindow(t, driver, func(w WindowID) bool { return strings.HasPrefix(w.Title, "Dagu web test") })
 	startApp(t, "notepad.exe")
 	other := listedWindow(t, driver, func(w WindowID) bool { return strings.EqualFold(w.App, "notepad") })
-	require.Eventually(t, func() bool {
-		_ = driver.Raise(other)
-		return driver.FocusedWindow().Handle == other.Handle
-	}, 15*time.Second, 500*time.Millisecond, "notepad did not take the foreground")
 
 	in := els.InWindow(page)
 	var save, amount []Element
@@ -421,15 +417,27 @@ func TestWindowsElementsInWindowDriveAPageBehindAnother(t *testing.T) {
 		amount, err = in.Find(Selector{Role: RoleTextField, Name: "amount"})
 		return err == nil && len(amount) == 1
 	}, 15*time.Second, 500*time.Millisecond, "the page's elements: %+v %+v", save, amount)
+	// Notepad takes the foreground once the page is up, so a browser that
+	// raises its window while it starts is not taken for a pattern's doing.
+	require.Eventually(t, func() bool {
+		_ = driver.Raise(other)
+		return driver.FocusedWindow().Handle == other.Handle
+	}, 15*time.Second, 500*time.Millisecond, "notepad did not take the foreground")
+	foreground := func() string {
+		w := driver.FocusedWindow()
+		return fmt.Sprintf("%s %q %#x", w.App, w.Title, w.Handle)
+	}
+	inFront := foreground()
 
 	require.NoError(t, in.Apply(amount[0], PatternSetValue, "3400"))
 	assert.Eventually(t, func() bool {
 		found, err := in.Find(Selector{Role: RoleTextField, Name: "amount"})
 		return err == nil && len(found) == 1 && found[0].Value == "3400"
 	}, 3*time.Second, 100*time.Millisecond, "the field holds the value")
+	assert.Equal(t, inFront, foreground(), "setting the page's field leaves the foreground where it was")
 	require.NoError(t, in.Apply(save[0], PatternInvoke, ""))
 	listedWindow(t, driver, func(w WindowID) bool { return strings.HasPrefix(w.Title, "Dagu web saved") })
-	assert.Equal(t, other.Handle, driver.FocusedWindow().Handle, "the page's patterns leave the foreground with notepad")
+	assert.Equal(t, inFront, foreground(), "pressing the page's button leaves the foreground where it was")
 }
 
 // listedWindow waits until Driver.Windows lists a window that matches.
