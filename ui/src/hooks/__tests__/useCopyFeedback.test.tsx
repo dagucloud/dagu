@@ -34,6 +34,35 @@ describe('useCopyFeedback', () => {
     expect(result.current.copied).toBe(false);
   });
 
+  it('clears copied at once on reset', async () => {
+    vi.useFakeTimers();
+    copyTextMock.mockResolvedValue(true);
+    const { result } = renderHook(() => useCopyFeedback());
+
+    await act(async () => {
+      await result.current.copy('hello');
+    });
+    act(() => {
+      result.current.reset();
+    });
+    expect(result.current.copied).toBe(false);
+    expect(vi.getTimerCount()).toBe(0);
+  });
+
+  // A reset timer that outlives the component would fire after teardown.
+  it('leaves no reset pending after unmount', async () => {
+    vi.useFakeTimers();
+    copyTextMock.mockResolvedValue(true);
+    const { result, unmount } = renderHook(() => useCopyFeedback());
+
+    await act(async () => {
+      await result.current.copy('hello');
+    });
+    expect(vi.getTimerCount()).toBe(1);
+    unmount();
+    expect(vi.getTimerCount()).toBe(0);
+  });
+
   it('stays unset when the clipboard write fails', async () => {
     copyTextMock.mockResolvedValue(false);
     const { result } = renderHook(() => useCopyFeedback());

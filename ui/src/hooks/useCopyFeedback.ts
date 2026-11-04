@@ -6,8 +6,9 @@ import { copyText } from '@/lib/clipboard';
 
 /**
  * Copies text to the clipboard and exposes a transient `copied` flag for
- * button feedback. The flag resets after `resetMs` milliseconds. `onCopied`
- * runs each time the text reached the clipboard.
+ * button feedback. The flag resets after `resetMs` milliseconds, or at once on
+ * `reset`, and no reset is left pending after unmount. `onCopied` runs each
+ * time the text reached the clipboard.
  */
 export function useCopyFeedback(
   resetMs = 2000,
@@ -15,6 +16,7 @@ export function useCopyFeedback(
 ): {
   copied: boolean;
   copy: (text: string) => Promise<void>;
+  reset: () => void;
 } {
   const [copied, setCopied] = useState(false);
   const resetRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -37,6 +39,14 @@ export function useCopyFeedback(
     [resetMs]
   );
 
+  const reset = useCallback(() => {
+    if (resetRef.current) {
+      clearTimeout(resetRef.current);
+      resetRef.current = null;
+    }
+    setCopied(false);
+  }, []);
+
   useEffect(
     () => () => {
       if (resetRef.current) {
@@ -46,5 +56,5 @@ export function useCopyFeedback(
     []
   );
 
-  return { copied, copy };
+  return { copied, copy, reset };
 }
