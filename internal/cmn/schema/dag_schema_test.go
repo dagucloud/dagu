@@ -2908,3 +2908,81 @@ func TestDAGSchemaLocalRegistry(t *testing.T) {
 		})
 	}
 }
+
+// The schema must accept every field the DAG parser accepts and reject fields
+// the parser rejects, so editors and MCP previews agree with `dagu validate`.
+func TestDAGSchemaAgreesWithParser(t *testing.T) {
+	t.Parallel()
+
+	const digest = "sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
+	resolved := mustResolveDAGSchema(t)
+	accepted := map[string]string{
+		"wait mail": `
+mail_on: {wait: true}
+wait_mail: {from: dagu@example.com, to: ops@example.com}
+steps: [{run: "true"}]
+`,
+		"SMTP OAuth": `
+smtp:
+  username: alerts@example.com
+  oauth: {provider: microsoft, tenant_id: t, client_id: c, client_secret: s}
+steps: [{run: "true"}]
+`,
+		"tool digest": `
+tools:
+  packages:
+    - {package: jqlang/jq, version: jq-1.7.1, digest: ` + digest + `}
+steps: [{run: "true"}]
+`,
+		"tool shorthand digest": `
+tools: [jqlang/jq@jq-1.7.1#` + digest + `]
+steps: [{run: "true"}]
+`,
+		"DAG LLM tools": `
+llm: {provider: openai, model: gpt-4o, tools: [calculator], max_tool_iterations: 5}
+steps: [{run: "true"}]
+`,
+	}
+	for name, source := range accepted {
+		t.Run("accepts "+name, func(t *testing.T) {
+			t.Parallel()
+			require.NoError(t, resolved.Validate(mustParseYAMLDocument(t, source)))
+		})
+	}
+
+	rejected := map[string]string{
+		"DAG-level Redis TLS file": `
+redis: {host: localhost, tls: true, tls_ca: /etc/ssl/ca.pem}
+steps: [{action: redis.ping}]
+`,
+		"step worker_selector local": `
+steps:
+  - action: dag.run
+    with: {dag: child}
+    worker_selector: local
+`,
+		"SMTP OAuth missing tenant": `
+smtp:
+  username: alerts@example.com
+  oauth: {provider: microsoft, client_id: c, client_secret: s}
+steps: [{run: "true"}]
+`,
+		"SMTP OAuth without username": `
+smtp:
+  oauth: {provider: microsoft, tenant_id: t, client_id: c, client_secret: s}
+steps: [{run: "true"}]
+`,
+		"malformed tool digest": `
+tools:
+  packages:
+    - {package: jqlang/jq, version: jq-1.7.1, digest: md5:abc}
+steps: [{run: "true"}]
+`,
+	}
+	for name, source := range rejected {
+		t.Run("rejects "+name, func(t *testing.T) {
+			t.Parallel()
+			require.Error(t, resolved.Validate(mustParseYAMLDocument(t, source)))
+		})
+	}
+}

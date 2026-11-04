@@ -329,7 +329,7 @@
           "description": "Shorthand list of aqua packages, for example tools: ['jqlang/jq@jq-1.7.1']."
         }
       ],
-      "description": "DAG-level CLI tool dependencies installed on the worker before any step runs. Can be an object for advanced options or shorthand package refs like jqlang/jq@jq-1.7.1. Provider defaults to aqua, and registry defaults to Dagu's pinned standard registry commit."
+      "description": "DAG-level CLI tool dependencies installed on the worker before any step runs. Can be an object for advanced options or shorthand package refs like jqlang/jq@jq-1.7.1. Provider defaults to aqua, and registry defaults to the latest release of the standard aqua registry."
     },
     "defaults": {
       "type": "object",
@@ -539,8 +539,12 @@
         "password": {
           "type": "string",
           "description": "SMTP authentication password"
+        },
+        "oauth": {
+          "$ref": "#/definitions/smtpOAuth"
         }
       },
+      "dependencies": { "oauth": ["username"] },
       "description": "SMTP server configuration for sending email notifications."
     },
     "mail_accounts": {
@@ -560,9 +564,13 @@
         "success": {
           "type": "boolean",
           "description": "Send email notification when DAG succeeds"
+        },
+        "wait": {
+          "type": "boolean",
+          "description": "Send email notification when the DAG run starts waiting, such as for an approval or a human task. Uses wait_mail."
         }
       },
-      "description": "Configuration for sending email notifications on DAG success or failure."
+      "description": "Configuration for sending email notifications on DAG success, failure, or wait."
     },
     "error_mail": {
       "$ref": "#/definitions/mailConfig",
@@ -571,6 +579,10 @@
     "info_mail": {
       "$ref": "#/definitions/mailConfig",
       "description": "Email configuration for informational notifications."
+    },
+    "wait_mail": {
+      "$ref": "#/definitions/mailConfig",
+      "description": "Email configuration for notifications sent when the DAG run starts waiting. Sent when mail_on.wait is true."
     },
     "timeout_sec": {
       "examples": [3600],
@@ -865,7 +877,8 @@
           "$ref": "#/definitions/redisConnectionConfig"
         }
       ],
-      "description": "Default Redis configuration for all Redis actions in the DAG. Steps with action: redis.<operation> inherit this configuration if they don't specify their own connection settings."
+      "propertyNames": { "not": { "enum": ["tls_ca", "tls_cert", "tls_key"] } },
+      "description": "Default Redis configuration for all Redis actions in the DAG. Steps with action: redis.<operation> inherit this configuration if they don't specify their own connection settings. TLS client files (tls_ca, tls_cert, tls_key) are set on the step's with block."
     },
     "kubernetes": {
       "$ref": "#/definitions/kubernetesDefaultsConfig",
@@ -1495,7 +1508,7 @@
         },
         "registry": {
           "$ref": "#/definitions/toolRegistry",
-          "description": "Optional aqua registry override. Omit this to use Dagu's pinned standard aqua registry."
+          "description": "Optional aqua registry override. Omit this to use the latest release of the standard aqua registry."
         },
         "packages": {
           "type": "array",
@@ -1533,7 +1546,7 @@
         "ref": {
           "type": "string",
           "minLength": 1,
-          "description": "Registry tag or commit hash. Prefer a commit hash for immutability. Optional for the standard registry; Dagu uses its pinned default commit when omitted. Required for github_content registries."
+          "description": "Registry tag or commit hash. Prefer a commit hash for immutability. Optional for the standard registry; when omitted, Dagu resolves the latest release, cached for 24 hours. Required for github_content registries."
         },
         "path": {
           "type": "string",
@@ -1588,7 +1601,7 @@
       "not": {
         "pattern": "@[Ll][Aa][Tt][Ee][Ss][Tt]$"
       },
-      "description": "Aqua package shorthand in package@version form, for example jqlang/jq@jq-1.7.1. Prefer immutable commit hashes where aqua supports them."
+      "description": "Aqua package shorthand in package@version form, for example jqlang/jq@jq-1.7.1, optionally followed by #sha256:<64 hex> to pin the artifact. Prefer immutable commit hashes where aqua supports them."
     },
     "toolPackageObject": {
       "type": "object",
@@ -1624,6 +1637,11 @@
         "registry": {
           "type": "string",
           "description": "Optional registry name for this package. Defaults to the configured registry."
+        },
+        "digest": {
+          "type": "string",
+          "pattern": "^[Ss][Hh][Aa]256:[0-9A-Fa-f]{64}$",
+          "description": "SHA-256 of the downloaded artifact as sha256:<64 hex>. The run fails when the installed artifact does not match."
         }
       }
     },
@@ -2249,25 +2267,15 @@
           "description": "Inline item-body iteration. The body steps run once for each item and may publish collected outputs."
         },
         "worker_selector": {
-          "oneOf": [
-            {
-              "type": "object",
-              "additionalProperties": {
-                "oneOf": [
-                  { "type": "string" },
-                  { "type": "number" },
-                  { "type": "boolean" }
-                ]
-              },
-              "description": "Key-value pairs specifying worker label requirements. Values can be strings, numbers, or booleans (non-string values are coerced to strings). For example: {\"gpu\": true, \"memory\": \"64G\"} requires a worker with gpu=true and memory=64G labels."
-            },
-            {
-              "type": "string",
-              "enum": ["local"],
-              "description": "Set to \"local\" to force this step to run locally even when the server default execution mode is distributed."
-            }
-          ],
-          "description": "Worker selection for this step. Use a map of label key-value pairs to target specific workers, or the string \"local\" to force local execution. Map keys and values support variable substitution (e.g. ${VAR}) resolved from the runtime environment; parallel sub-DAG children can reference the item via ${ITEM}. The string form \"local\" is literal."
+          "type": "object",
+          "additionalProperties": {
+            "oneOf": [
+              { "type": "string" },
+              { "type": "number" },
+              { "type": "boolean" }
+            ]
+          },
+          "description": "Worker labels for a sub-DAG step. Values can be strings, numbers, or booleans (non-string values are coerced to strings). For example: {\"gpu\": true, \"memory\": \"64G\"} requires a worker with gpu=true and memory=64G labels. Use a map of label key-value pairs to target specific workers. Map keys and values support variable substitution (e.g. ${VAR}) resolved from the runtime environment; parallel sub-DAG children can reference the item via ${ITEM}."
         },
         "env": {
           "oneOf": [
@@ -4338,6 +4346,62 @@
           "description": "SHA-256 fingerprint of the server's leaf certificate, as 64 hex characters (colons allowed). Chain verification is skipped and the connection fails unless the certificate matches."
         }
       }
+    },
+    "smtpOAuth": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["provider"],
+      "properties": {
+        "provider": {
+          "type": "string",
+          "enum": ["microsoft", "google_service_account", "google_refresh"],
+          "description": "OAuth provider. Sets the default SMTP host and port when smtp.host is omitted."
+        },
+        "tenant_id": {
+          "type": "string",
+          "description": "Microsoft Entra tenant. Required for microsoft."
+        },
+        "client_id": {
+          "type": "string",
+          "description": "OAuth client ID. Required for microsoft and google_refresh."
+        },
+        "client_secret": {
+          "type": "string",
+          "description": "OAuth client secret. Required for microsoft and google_refresh."
+        },
+        "service_account_json": {
+          "type": "string",
+          "description": "Google service account key JSON. Required for google_service_account."
+        },
+        "refresh_token": {
+          "type": "string",
+          "description": "Refresh token. Required for google_refresh."
+        }
+      },
+      "allOf": [
+        {
+          "if": { "properties": { "provider": { "const": "microsoft" } } },
+          "then": {
+            "required": ["tenant_id", "client_id", "client_secret"],
+            "not": { "anyOf": [{ "required": ["service_account_json"] }, { "required": ["refresh_token"] }] }
+          }
+        },
+        {
+          "if": { "properties": { "provider": { "const": "google_service_account" } } },
+          "then": {
+            "required": ["service_account_json"],
+            "not": { "anyOf": [{ "required": ["tenant_id"] }, { "required": ["client_id"] }, { "required": ["client_secret"] }, { "required": ["refresh_token"] }] }
+          }
+        },
+        {
+          "if": { "properties": { "provider": { "const": "google_refresh" } } },
+          "then": {
+            "required": ["client_id", "client_secret", "refresh_token"],
+            "not": { "anyOf": [{ "required": ["tenant_id"] }, { "required": ["service_account_json"] }] }
+          }
+        }
+      ],
+      "description": "OAuth 2.0 credentials for SMTP. smtp.username names the mailbox to authenticate as."
     },
     "mailAccountOAuth": {
       "type": "object",
@@ -6765,6 +6829,17 @@
           "minimum": 0,
           "default": 524288,
           "description": "Maximum UTF-8 byte size of one agent-facing tool observation. Only valid in an agent DAG's root llm configuration. Set to zero to disable the limit. The full step output remains stored on the step."
+        },
+        "tools": {
+          "type": "array",
+          "items": { "type": "string", "minLength": 1 },
+          "description": "Names of DAGs that chat.completion steps may call as tools."
+        },
+        "max_tool_iterations": {
+          "type": "integer",
+          "minimum": 1,
+          "default": 10,
+          "description": "Maximum tool-calling rounds for a chat.completion step."
         },
         "observation_keep_recent": {
           "type": "integer",
