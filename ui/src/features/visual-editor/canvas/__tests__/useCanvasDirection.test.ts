@@ -182,4 +182,10 @@ describe('useCanvasDirection of a workflow', () => {
     expect(a.result.current[0]).toBe('LR');
     expect(b.result.current[0]).toBe('TB');
   });
+
+  it('keeps names with a colon apart', () => {
+    expect(canvasDirectionKey('b:c', 'a')).not.toBe(
+      canvasDirectionKey('c', 'a:b')
+    );
+  });
 });

@@ -19,7 +19,8 @@ export function canvasDirectionKey(
   scope: string,
   remoteNode = 'local'
 ): string {
-  return `${CANVAS_DIRECTION_KEY}:${remoteNode}:${scope}`;
+  // Each part is encoded: a ":" in a name cannot join two keys.
+  return `${CANVAS_DIRECTION_KEY}:${encodeURIComponent(remoteNode)}:${encodeURIComponent(scope)}`;
 }
 
 /** Cookie of the direction of the Mermaid graph: 'LR' or 'TD'. */
