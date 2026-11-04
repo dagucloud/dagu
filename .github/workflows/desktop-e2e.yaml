@@ -1,8 +1,9 @@
 name: Desktop E2E
 
 # Operates the interactive desktop of a hosted Windows runner: the desktop
-# driver moves the pointer and types, and a computer step types into a test
-# window through a scripted model that reads the screenshots.
+# driver moves the pointer, types, and captures windows others cover, and a
+# computer step types into a test window through a scripted model that
+# reads the screenshots.
 on:
   pull_request:
     types:
@@ -67,7 +68,7 @@ jobs:
 
       - name: Test the desktop driver
         shell: bash
-        run: go test -count=1 -v -run 'TestWindowsDesktop|TestInputMatchesWin32Layout|TestWindowsElements|TestWindowsDirectInput|TestWindowsTableRead|TestWindowsElementTimings|TestVariantLayout|TestPointArg|TestRoleOf|TestOpenElementsCloses|TestPatternConstants|TestBstrAlloc|TestPatternAsWithoutPattern' ./internal/desktop/
+        run: go test -count=1 -v -run 'TestWindowsDesktop|TestWindowsCapture|TestInputMatchesWin32Layout|TestWindowsElements|TestWindowsDirectInput|TestWindowsTableRead|TestWindowsElementTimings|TestVariantLayout|TestPointArg|TestRoleOf|TestOpenElementsCloses|TestPatternConstants|TestBstrAlloc|TestPatternAsWithoutPattern' ./internal/desktop/
 
       - name: List the elements of the window in front
         shell: bash
