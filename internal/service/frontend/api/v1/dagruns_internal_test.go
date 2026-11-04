@@ -144,7 +144,7 @@ func (stopDAGRunProcRepository) IsAttemptAlive(context.Context, string, ir.DAGRu
 	return false, nil
 }
 
-func (stopDAGRunProcRepository) LatestFreshEntryByDAGName(context.Context, string, string) (*proc.ProcEntry, error) {
+func (stopDAGRunProcRepository) FreshEntriesByDAGName(context.Context, string, string) ([]proc.ProcEntry, error) {
 	return nil, nil
 }
 

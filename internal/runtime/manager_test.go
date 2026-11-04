@@ -1227,6 +1227,6 @@ func (r *managerProcessRepository) IsAttemptAlive(_ context.Context, group strin
 	return r.attemptAlive, nil
 }
 
-func (*managerProcessRepository) LatestFreshEntryByDAGName(context.Context, string, string) (*procctrl.ProcEntry, error) {
+func (*managerProcessRepository) FreshEntriesByDAGName(context.Context, string, string) ([]procctrl.ProcEntry, error) {
 	return nil, nil
 }
