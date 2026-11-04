@@ -306,6 +306,9 @@ function DAGSpec({
   const { setHasUnsavedChanges } = useUnsavedChanges();
 
   const [activeTab, setActiveTab] = React.useState('parent');
+  // The Workflow panel stays open across the documents of the file: each
+  // document has its own editor, which opens with it.
+  const [workflowOpen, setWorkflowOpen] = React.useState(initialWorkflowOpen);
   const [selectedSpecStepName, setSelectedSpecStepName] = React.useState<
     string | null
   >(null);
@@ -2227,7 +2230,8 @@ function DAGSpec({
                           onYamlIntent={preloadDAGEditor}
                           onYamlModeChange={setYamlKind}
                           initialYamlMode={yamlKind}
-                          initialWorkflowOpen={initialWorkflowOpen}
+                          initialWorkflowOpen={workflowOpen}
+                          onWorkflowOpenChange={setWorkflowOpen}
                           toolbarStart={documentTabs}
                           toolbarTrail={specActions}
                           onRevertToSave={editable ? requestDiscard : undefined}
@@ -2285,6 +2289,8 @@ function DAGSpec({
                     <React.Suspense fallback={null}>
                       <VisualEditor
                         key={`child:${activeTab}`}
+                        initialWorkflowOpen={workflowOpen}
+                        onWorkflowOpenChange={setWorkflowOpen}
                         fileName={fileName}
                         dagName={activeTab}
                         text={fileText.slice(childSpan.from, childSpan.to)}
