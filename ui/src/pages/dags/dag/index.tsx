@@ -203,8 +203,9 @@ function DAGDetails() {
   );
   useSSECacheSync(dagSSE, mutateDag);
   // The editor waits for the spec of the file: asked for now, it comes with
-  // the details instead of after them. The editor keeps it fresh.
-  useDAGSpecQuery(fileName, remoteNode, SPEC_PREFETCH_OPTIONS);
+  // the details instead of after them. The editor keeps it fresh. A log page
+  // has no editor.
+  useDAGSpecQuery(fileName, remoteNode, SPEC_PREFETCH_OPTIONS, !popout);
   const dagTitle = dagData?.dag?.name || fileName;
   useEffect(() => {
     setTitle(dagTitle);
