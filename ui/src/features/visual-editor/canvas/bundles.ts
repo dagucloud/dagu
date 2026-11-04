@@ -260,10 +260,11 @@ export function bundleGapExtra(
  * the far edges of a wide fan-out or fan-in take a loop around the row.
  * Index `r` is the gap that follows rank `r`.
  */
-export function spreadGapExtra(
-  edges: readonly { source: string; target: string }[],
+export function spreadGapExtra<E extends { source: string; target: string }>(
+  edges: readonly E[],
   rank: (key: string) => number | undefined,
-  cross: (key: string) => number,
+  /** The sideways move of an edge, from the handle it leaves to the one it enters. */
+  move: (edge: E) => number,
   rankSep: number,
   ranks: number
 ): number[] {
@@ -274,7 +275,7 @@ export function spreadGapExtra(
       continue;
     }
     // The edge ends on the dot of the target handle.
-    const run = runFor(cross(edge.target) - cross(edge.source), CORNER_RADIUS);
+    const run = runFor(move(edge), CORNER_RADIUS);
     const need = Math.ceil(run + HANDLE_RADIUS - rankSep);
     extra[from] = Math.min(MAX_EXTRA_GAP, Math.max(extra[from] ?? 0, need));
   }

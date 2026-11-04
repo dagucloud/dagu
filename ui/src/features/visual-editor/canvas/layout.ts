@@ -364,7 +364,33 @@ function layoutComponent(
   };
   const ranks =
     Math.max(0, ...Object.values(first.bands).map((band) => band.rank)) + 1;
-  const spread = spreadGapExtra(edges, rank, cross, rankSep, ranks);
+  // A route leaves from its port on the edge of the router, not its middle.
+  const leave = (edge: (typeof edges)[number]) => {
+    const router = byKey.get(edge.source);
+    const at = first.positions[edge.source];
+    const box = size.get(edge.source);
+    const routes = router?.routes;
+    if (
+      edge.kind === 'route' &&
+      routes &&
+      edge.label !== undefined &&
+      at &&
+      box
+    ) {
+      const port = routePorts(routes.length, box.width, direction)[
+        routes.indexOf(edge.label)
+      ];
+      if (port) return horizontal ? at.y + port.y : at.x + port.x;
+    }
+    return cross(edge.source);
+  };
+  const spread = spreadGapExtra(
+    edges,
+    rank,
+    (edge) => cross(edge.target) - leave(edge),
+    rankSep,
+    ranks
+  );
   const extra =
     bundles.length > 0
       ? bundleGapExtra(bundles, cross, rankSep, ranks).map((value, index) =>

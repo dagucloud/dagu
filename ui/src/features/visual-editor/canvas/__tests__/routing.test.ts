@@ -326,6 +326,49 @@ describe('edges of a wide fan', () => {
     }
   );
 
+  // A route leaves from its port on the edge of the diamond, not from the
+  // middle of the router. Routes listed against the order of their targets
+  // move the farthest sideways.
+  it.each(['TB', 'LR'] as const)(
+    'leaves room for a curve on every route of a router in %s',
+    (direction) => {
+      const count = 12;
+      const patterns = Array.from({ length: count }, (_, i) => `p${i}`);
+      const targets = patterns.map((_, i) => `t${i}`);
+      const router = graphOf(
+        [`r=${patterns.join('|')}`, ...targets],
+        patterns.map((p, i) => `r>t${count - 1 - i}@${p}`)
+      );
+      const { positions, waypoints } = layoutRoutes(router, direction);
+      const lr = direction === 'LR';
+      const size = nodeSize(router.nodes[0]!);
+      const ports = routePorts(count, size.width, direction);
+      const at = positions.r!;
+      for (const edge of router.edges) {
+        const port = ports[patterns.indexOf(edge.label!)]!;
+        // The edge leaves the port, then crosses its waypoints.
+        const points = [
+          { x: at.x + port.x, y: at.y + port.y },
+          ...(waypoints[edge.id] ?? []),
+        ];
+        const start = points[points.length - 1]!;
+        const target = router.nodes.find((n) => n.key === edge.target)!;
+        const to = positions[edge.target]!;
+        const box = nodeSize(target);
+        const options = {
+          sourceX: start.x,
+          sourceY: start.y,
+          sourcePosition: lr ? Position.Right : Position.Bottom,
+          targetX: lr ? to.x : to.x + box.width / 2,
+          targetY: lr ? to.y + box.height / 2 : to.y,
+          targetPosition: lr ? Position.Left : Position.Top,
+        };
+        // The last piece of the edge is a plain curve, with no loop.
+        expect(routeAround(options, []), edge.id).toEqual([]);
+      }
+    }
+  );
+
   it('inverts the widest move of a curve', () => {
     for (const cross of [10, 500, 3128]) {
       expect(
