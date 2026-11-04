@@ -736,6 +736,26 @@ describe('VisualCanvas', () => {
       expect(viewport()).toEqual(first);
     });
 
+    // The launchers arrive after the first layout and push the steps right:
+    // the view fits the graph with them, as it does for a new step.
+    it('fits again when the launchers arrive', () => {
+      const { props, rerender } = renderWithView();
+      const first = viewport();
+      rerender(
+        <UserPreferencesProvider>
+          <VisualCanvas
+            {...props}
+            launchers={launcherStates({
+              scheduleCount: 0,
+              webhookCount: 0,
+              webhooksAvailable: false,
+            })}
+          />
+        </UserPreferencesProvider>
+      );
+      expect(viewport()).not.toEqual(first);
+    });
+
     // A preview without editing tools fits a graph with a smaller margin.
     it('fits closer with a smaller fit padding', () => {
       const wide = renderWithView();

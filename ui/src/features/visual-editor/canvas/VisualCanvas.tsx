@@ -824,7 +824,13 @@ function CanvasView({
   // step), when the direction changes and when a panel covers or frees the
   // right of the canvas; a view that the user panned stays, but a new
   // direction is a new layout.
-  const nodeSet = graph.nodes.map((node) => node.key).join('\u0000');
+  // The launchers count: they arrive after the first layout and push the
+  // steps aside. The ghost of the Add step list does not: a hover must not
+  // move the view.
+  const nodeSet = [
+    ...launchers.map((launcher) => `launcher:${launcher.id}`),
+    ...graph.nodes.map((node) => node.key),
+  ].join('\u0000');
   const lastLayout = useRef({ nodeSet, direction, overlayRight, compact });
   // The view that the user chose in each layout (details or compact), so that
   // a switch and the switch back leave the view where it was. It is dropped
@@ -857,7 +863,12 @@ function CanvasView({
         fitView(fitOptions);
       }
     } else if (last.overlayRight !== overlayRight) {
-      refit();
+      // A view that the user moved stays, but not over the selected step.
+      if (userMoved()) {
+        keepSelectedInView();
+      } else {
+        refit();
+      }
     }
   }, [
     nodeSet,
