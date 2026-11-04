@@ -438,21 +438,26 @@ func TestUpdateRowsAddedColumnUnderMergedHeader(t *testing.T) {
 	assert.Equal(t, before, fileHash(t, path))
 }
 
-// TestUpdateRowsEmptyRows covers a run with nothing pending: an empty rows
-// list succeeds and leaves the workbook as it was, without saving it, even
-// when set names a column the sheet lacks or set is left to default. An
-// output still receives its copy.
-func TestUpdateRowsEmptyRows(t *testing.T) {
+// TestUpdateRowsWithNothingToWrite covers runs that change no cell: an
+// empty rows list (with set naming an existing or a missing column, or
+// with set left to default), rows that are all skipped, and rows whose
+// values are already there. Each succeeds without saving the workbook,
+// and an output still receives its copy.
+func TestUpdateRowsWithNothingToWrite(t *testing.T) {
 	t.Parallel()
 	for _, tc := range []struct {
-		name   string
-		set    map[string]any
-		output bool
+		name    string
+		rows    []Row
+		set     map[string]any
+		missing MissingMode
+		output  bool
 	}{
-		{name: "ExistingColumn", set: map[string]any{"Status": "status"}},
-		{name: "NewColumn", set: map[string]any{"Result": "result"}},
-		{name: "DefaultSet"},
-		{name: "Output", set: map[string]any{"Status": "status"}, output: true},
+		{name: "EmptyExistingColumn", set: map[string]any{"Status": "status"}},
+		{name: "EmptyNewColumn", set: map[string]any{"Result": "result"}},
+		{name: "EmptyDefaultSet"},
+		{name: "EmptyWithOutput", set: map[string]any{"Status": "status"}, output: true},
+		{name: "AllSkipped", rows: []Row{{"Invoice No": "INV-9", "Result": "x"}}, set: map[string]any{"Result": "Result"}, missing: MissingSkip},
+		{name: "Unchanged", rows: []Row{{"Invoice No": "INV-2", "Status": "Done"}}},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
@@ -460,7 +465,7 @@ func TestUpdateRowsEmptyRows(t *testing.T) {
 			before := fileHash(t, path)
 			info, err := os.Stat(path)
 			require.NoError(t, err)
-			opts := UpdateOptions{Key: "Invoice No"}
+			opts := UpdateOptions{Key: "Invoice No", Rows: tc.rows, Missing: tc.missing}
 			if tc.set != nil {
 				set, err := ParseSet(tc.set)
 				require.NoError(t, err)
@@ -472,6 +477,7 @@ func TestUpdateRowsEmptyRows(t *testing.T) {
 			result, err := UpdateRows(context.Background(), path, opts)
 			require.NoError(t, err)
 			assert.Zero(t, result.Changes.RowsUpdated)
+			assert.Zero(t, result.Changes.RowsAppended)
 			assert.Zero(t, result.Changes.CellsChanged)
 			assert.Zero(t, result.Changes.ColumnsAdded)
 			// A save replaces the file through a rename, so a saved workbook

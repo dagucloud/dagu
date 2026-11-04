@@ -294,8 +294,10 @@ func updateOnce(ctx context.Context, path string, opts UpdateOptions) (*WriteRes
 	plan.reg.R2 = lastRow
 	result.Changes.Range = region{Sheet: plan.sheet, C1: plan.reg.C1, R1: plan.layout.dataStart, C2: plan.reg.C2, R2: max(lastRow, plan.layout.dataStart)}.String()
 	w.forget(plan.sheet)
-	// With no rows there is nothing to save; an output still gets its copy.
-	if opts.DryRun || (len(opts.Rows) == 0 && opts.Output == "") {
+	// A run that changed no cell leaves the workbook file as it is; an
+	// output still gets its copy.
+	unchanged := result.Changes.CellsChanged == 0 && result.Changes.ColumnsAdded == 0
+	if opts.DryRun || (unchanged && opts.Output == "") {
 		return result, nil
 	}
 	if opts.Output != "" {
