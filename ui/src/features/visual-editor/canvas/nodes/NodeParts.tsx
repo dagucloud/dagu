@@ -348,7 +348,9 @@ export function RunStatus({
 /**
  * Duration and retry count of the run of a node. The duration is the text of
  * the run list (useStepElapsed): it counts up each second while the step
- * runs, in a slot of fixed width so that the card keeps its size.
+ * runs, in a slot of fixed width so that the card keeps its size. A skipped
+ * step did not run: it says Skipped in that slot, as the run list does, so
+ * that it reads apart from a step that did not start.
  */
 export function RunMeta({ run }: Pick<CanvasNode, 'run'>) {
   const { ts } = useI18n();
@@ -360,6 +362,7 @@ export function RunMeta({ run }: Pick<CanvasNode, 'run'>) {
   // '0ms' for it. A step that the run reused shows the time that it took in
   // its source run.
   const original = run.reused ? reusedDurationMs(run.reused) : null;
+  const skipped = run.status === NodeStatus.Skipped && !run.reused;
   const duration =
     run.status === NodeStatus.NotStarted
       ? null
@@ -371,13 +374,18 @@ export function RunMeta({ run }: Pick<CanvasNode, 'run'>) {
               new Date(original).toISOString(),
               { belowSecond: ts('<1s') }
             )));
-  if (!duration && run.retryCount <= 0) {
+  if (!duration && !skipped && run.retryCount <= 0) {
     return null;
   }
   return (
     <span className="flex shrink-0 items-center gap-1.5 text-[10px] text-muted-foreground">
       {run.retryCount > 0 && <RetryCount count={run.retryCount} />}
-      {duration && (
+      {skipped && (
+        <span data-testid="ve-node-skipped" className="whitespace-nowrap">
+          {ts('Skipped')}
+        </span>
+      )}
+      {!skipped && duration && (
         <span
           data-testid="ve-node-duration"
           data-reused={elapsed === null && original !== null ? '' : undefined}

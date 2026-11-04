@@ -1080,6 +1080,26 @@ describe('StepNode issues and run', () => {
     expect(getByTestId('ve-canvas-node-steps[0]')).not.toHaveAttribute('title');
   });
 
+  // Skipped and Not started share the neutral card: the word tells them apart.
+  it('says Skipped on a skipped step only', () => {
+    const at = (status: NodeStatus) => {
+      const view = renderIn(
+        <StepNode
+          {...nodeProps(
+            makeNode({
+              run: { status, statusLabel: '', retryCount: 0, doneCount: 0 },
+            })
+          )}
+        />
+      );
+      const text = view.queryByTestId('ve-node-skipped')?.textContent ?? null;
+      view.unmount();
+      return text;
+    };
+    expect(at(NodeStatus.Skipped)).toBe('Skipped');
+    expect(at(NodeStatus.NotStarted)).toBeNull();
+  });
+
   it('shows no duration for a step without an end', () => {
     const node = makeNode({
       run: {
