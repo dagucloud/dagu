@@ -130,6 +130,8 @@ const STACKED_TOP = 112;
 // A toolbar in the row of the zone floats over the top 40 px of the canvas: a
 // fit keeps its content 8 px below it.
 const HOSTED_TOP = 48;
+// Room in px between a notice that covers the top of the canvas and a fit.
+const OVERLAY_GAP = 8;
 // A graph is not shrunk below this zoom by the automatic fit: it shows the
 // start of the graph at a readable size, and the Fit button gives the
 // overview.
@@ -288,7 +290,7 @@ function CanvasView({
   // The columns of the tool grid follow the width of the canvas.
   const canvasWidth = useFlowStore().size.width;
   // A panel over the canvas covers its right: the free part is what shows.
-  const overlayRight = useCanvasOverlayInset().right;
+  const { right: overlayRight, top: overlayTop = 0 } = useCanvasOverlayInset();
   const freeWidth = canvasWidth - overlayRight;
   // A panel that covers the whole canvas, such as a maximized one, leaves
   // nothing for the canvas controls to act on.
@@ -313,9 +315,13 @@ function CanvasView({
       ...FIT_INSET,
       left: FIT_INSET.left + (large && minimapShown ? MINIMAP_RESERVE : 0),
       right: FIT_INSET.right + overlayRight,
-      top: hosted ? HOSTED_TOP : stackedBar ? STACKED_TOP : FIT_INSET.top,
+      // A notice under the toolbars covers the top too.
+      top: Math.max(
+        hosted ? HOSTED_TOP : stackedBar ? STACKED_TOP : FIT_INSET.top,
+        overlayTop > 0 ? overlayTop + OVERLAY_GAP : 0
+      ),
     }),
-    [overlayRight, stackedBar, hosted, large, minimapShown]
+    [overlayRight, overlayTop, stackedBar, hosted, large, minimapShown]
   );
   // The automatic fit opens a large graph at a readable zoom. The Fit button
   // shows all of a small graph, and stops at a readable zoom for a large one.
@@ -831,7 +837,13 @@ function CanvasView({
     ...launchers.map((launcher) => `launcher:${launcher.id}`),
     ...graph.nodes.map((node) => node.key),
   ].join('\u0000');
-  const lastLayout = useRef({ nodeSet, direction, overlayRight, compact });
+  const lastLayout = useRef({
+    nodeSet,
+    direction,
+    overlayRight,
+    overlayTop,
+    compact,
+  });
   // The view that the user chose in each layout (details or compact), so that
   // a switch and the switch back leave the view where it was. It is dropped
   // when the steps or the direction change: the stored view would not fit.
@@ -840,7 +852,13 @@ function CanvasView({
   );
   useEffect(() => {
     const last = lastLayout.current;
-    lastLayout.current = { nodeSet, direction, overlayRight, compact };
+    lastLayout.current = {
+      nodeSet,
+      direction,
+      overlayRight,
+      overlayTop,
+      compact,
+    };
     if (last.direction !== direction) {
       layoutViews.current = {};
       resume();
@@ -862,7 +880,10 @@ function CanvasView({
         resume();
         fitView(fitOptions);
       }
-    } else if (last.overlayRight !== overlayRight) {
+    } else if (
+      last.overlayRight !== overlayRight ||
+      last.overlayTop !== overlayTop
+    ) {
       // A view that the user moved stays, but not over the selected step.
       if (userMoved()) {
         keepSelectedInView();
@@ -874,6 +895,7 @@ function CanvasView({
     nodeSet,
     direction,
     overlayRight,
+    overlayTop,
     compact,
     resume,
     refit,

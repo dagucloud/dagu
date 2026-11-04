@@ -1130,6 +1130,33 @@ describe('VisualCanvas', () => {
         row.remove();
       });
 
+      // A line of notices under the toolbars covered the top of the graph.
+      it('fits the graph under a notice that covers the top', () => {
+        sizes.width = 1000;
+        sizes.height = 600;
+        render(
+          <UserPreferencesProvider>
+            <CanvasOverlayInsetContext.Provider value={{ right: 0, top: 200 }}>
+              <VisualCanvas
+                graph={graph}
+                direction="TB"
+                selected={null}
+                frozen={false}
+                readOnly={false}
+                catalog={catalogSample}
+                onSelect={vi.fn()}
+                onEdit={vi.fn()}
+                onCommand={vi.fn()}
+              />
+            </CanvasOverlayInsetContext.Provider>
+          </UserPreferencesProvider>
+        );
+        const rects = graph.nodes.map((n) => nodeScreenRect(n.key));
+        expect(Math.min(...rects.map((r) => r.top))).toBeGreaterThanOrEqual(
+          200
+        );
+      });
+
       // The fit keeps its content clear of the panel.
       it('fits the graph in the part that the panel leaves free', () => {
         sizes.width = 1000;

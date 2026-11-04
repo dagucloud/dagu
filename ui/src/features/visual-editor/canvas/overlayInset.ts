@@ -7,6 +7,11 @@ import { createContext, useContext } from 'react';
 export interface CanvasOverlayInset {
   /** Width of a panel that covers the right of the canvas. */
   right: number;
+  /**
+   * Height from the top of the canvas that a host covers under the
+   * toolbars, such as a line of notices. 0 or absent: none.
+   */
+  top?: number;
 }
 
 const NONE: CanvasOverlayInset = { right: 0 };
