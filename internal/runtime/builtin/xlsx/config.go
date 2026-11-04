@@ -254,6 +254,11 @@ func validateConfig(operation string, cfg *config) error {
 			cfg.types[column] = t
 		}
 	}
+	for column, format := range cfg.Formats {
+		if strings.TrimSpace(format) == "" {
+			return fmt.Errorf("%w: formats.%s must not be empty", errConfig, column)
+		}
+	}
 	if err := workbook.ValidateWhere(cfg.Where); err != nil {
 		return fmt.Errorf("%w: where: %v", errConfig, err)
 	}
@@ -787,7 +792,7 @@ var configSchema = &jsonschema.Schema{
 		"style": {Type: "string", Enum: []any{"table", "none"},
 			Description: "How a new sheet looks: table (default) has a bold frozen header, fitted widths, and number formats by column; none writes bare cells."},
 		"formats": {Type: "object", AdditionalProperties: &jsonschema.Schema{Type: "string"},
-			Description: "xlsx.write and xlsx.append: an explicit number format per column, such as {Total: \"#,##0\", Rate: \"0.0%\"}. A named format wins over the kind-based one and applies even to a column whose kind has no format of its own."},
+			Description: "xlsx.write and xlsx.append: an explicit number format per column, such as {Total: \"#,##0\", Rate: \"0.0%\"}. It applies to every cell written to the column, on a new sheet or below existing rows, and wins over the format the column's values or the cell above would give."},
 		"atomic":  boolOrRef("Save through a temporary file renamed over the workbook. Defaults to true."),
 		"dry_run": boolOrRef("Compute and report the changes without saving the workbook."),
 		"wait_for_unlock": {Type: "string", Description: "How long to retry a workbook that another program holds open, such as 5m. " +
