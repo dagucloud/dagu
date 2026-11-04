@@ -4,6 +4,9 @@
 
 Partially implemented.
 
+Integration tests cover relative `with.script_file` and `with.tls_ca` paths
+resolved from the step working directory.
+
 ## Scope
 
 This spec covers Redis action configuration acceptance, command agreement,

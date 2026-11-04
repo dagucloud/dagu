@@ -4,6 +4,9 @@
 
 Partially implemented.
 
+Conformance covers relative `with.input` and `file://` paths resolved from the
+step working directory.
+
 ## Scope
 
 This spec covers `jq.filter` input selection, named arguments, scalar output,

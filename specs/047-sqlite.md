@@ -4,8 +4,9 @@
 
 Partially implemented.
 
-Conformance covers a parameterized query, CSV import followed by a query, and
-required fields. Locking, connection lifetime, transaction behavior, import
+Conformance covers a parameterized query, CSV import followed by a query,
+relative DSN, import, and output paths resolved from the step working
+directory, and required fields. Locking, connection lifetime, transaction behavior, import
 formats, and output permutations belong in SQL executor tests.
 
 ## Scope
@@ -26,7 +27,8 @@ Workflow authors can query local data and import a small file without a server.
   rows.
 - A relative database file in `with.dsn`, such as `file:./data.db`, a relative
   `with.import.input_file`, and a relative `with.output_file` name files under
-  the step working directory.
+  the step working directory. A relative plain DSN fails when the working
+  directory contains `?`, which would end the database name.
 
 ## Errors
 

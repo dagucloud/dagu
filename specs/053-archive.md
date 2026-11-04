@@ -5,7 +5,9 @@
 Partially implemented.
 
 Conformance covers one small ZIP create/list/extract workflow, create dry-run
-output suppression, and representative invalid configurations. Executor tests
+output suppression, relative paths resolved from the step working directory
+(including extraction with no destination), and representative invalid
+configurations. Executor tests
 own format matrices, filtering, permissions, malformed archives, and path
 safety edge cases.
 
