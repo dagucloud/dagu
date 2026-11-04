@@ -108,8 +108,8 @@ a screenshot the step's `screenshots` policy takes. Focusing an element,
 which on Windows brings its window forward, bringing a window forward, and
 restoring a minimized one count as input too, and so does a pattern the
 system performs by bringing the element's window forward: Windows does so
-to invoke, toggle, select, or expand a Win32 or Windows Forms control, or
-one of a framework it does not name, though not to set a value. A step that finds the
+for every pattern of a Win32 or Windows Forms control, or of a control of a
+framework it does not name. A step that finds the
 desktop in use waits for it and logs that it is waiting; the waiting event
 on the timeline is named `desktop`. A failing step captures the screen
 only when no other step holds the desktop. A step paused by `ask` does not
