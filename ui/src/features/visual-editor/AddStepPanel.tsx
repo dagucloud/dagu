@@ -151,12 +151,17 @@ function sectionTitle(section: Section, ts: (key: string) => string): string {
 }
 
 /** The entry with the line of its group blurb in front of its catalog text. */
-function withShownLine(entry: ActionCatalogEntry): ActionCatalogEntry {
+function withShownLine(
+  entry: ActionCatalogEntry,
+  translate?: (text: string) => string
+): ActionCatalogEntry {
   const line = GROUP_BLURBS.get(entry.name);
   return line
     ? {
         ...entry,
-        description: [line, entry.description].filter(Boolean).join('\n'),
+        description: [translate?.(line), line, entry.description]
+          .filter(Boolean)
+          .join('\n'),
       }
     : entry;
 }
@@ -193,12 +198,15 @@ export function buildSections(
   options: {
     favourites?: string[];
     aliases?: AliasMap;
+    /** Translates a line that the panel shows, for the search. */
+    translate?: (text: string) => string;
   } = {}
 ): Section[] {
   if (query.trim() !== '') {
-    // The search reads the line that the panel shows for an action too.
+    // The search reads the line that the panel shows for an action too, in
+    // the language of the user and in English.
     const searched = new Map(
-      catalog.map((entry) => [withShownLine(entry), entry])
+      catalog.map((entry) => [withShownLine(entry, options.translate), entry])
     );
     const ranked = rankCatalog(
       [...searched.keys()],
@@ -276,8 +284,12 @@ export function AddStepPanel({
   );
   const sections = useMemo(
     () =>
-      buildSections(catalog, query, recent, titles, { favourites, aliases }),
-    [catalog, query, recent, titles, favourites, aliases]
+      buildSections(catalog, query, recent, titles, {
+        favourites,
+        aliases,
+        translate: ts,
+      }),
+    [catalog, query, recent, titles, favourites, aliases, ts]
   );
   // The list is by position: a row is its place, not its action.
   const rows = useMemo(
@@ -338,6 +350,7 @@ export function AddStepPanel({
     const place = buildSections(catalog, query, recent, titles, {
       favourites: next,
       aliases,
+      translate: ts,
     })
       .flatMap((section) => section.entries)
       .findIndex((entry) => entry.name === name);

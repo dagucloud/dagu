@@ -87,6 +87,20 @@ describe('buildSections', () => {
     ]);
   });
 
+  // The line shows in the language of the user: the search reads it there.
+  it('finds an action by the translated line that the panel shows', () => {
+    const translate = (text: string) =>
+      text === 'Pack files into an archive.'
+        ? 'ファイルをアーカイブにまとめます。'
+        : text;
+    const sections = buildSections(catalog, 'まとめ', [], TITLES, {
+      translate,
+    });
+    expect(sections.flatMap((s) => s.entries.map((e) => e.name))).toEqual([
+      'archive.create',
+    ]);
+  });
+
   it('shows no recent section while the user searches', () => {
     const sections = buildSections(catalog, 'json', ['run'], TITLES);
     expect(sections.map((s) => s.id)).toEqual(['jq']);
