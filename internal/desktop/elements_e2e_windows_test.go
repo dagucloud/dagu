@@ -379,14 +379,14 @@ func TestWindowsElementsInWindowBehindAnother(t *testing.T) {
 	assert.ErrorIs(t, err, ErrNoWindow, "a handle that names another process's window is a window that closed")
 }
 
-// webPage is a page whose button names the page, and the window, after it
-// is pressed, and whose field takes a value.
-const webPage = `data:text/html,<title>Dagu web test</title><input id="amount" aria-label="amount"><button id="save" onclick="document.title='Dagu web saved'">Save</button>`
+// webPage is a page with a field and a button that renames the page.
+const webPage = `data:text/html,<title>Dagu web test</title><input id="amount" aria-label="amount" value="1200"><button id="save" onclick="document.title='Dagu web saved'">Save</button>`
 
-// A reader of one window drives a web page in a browser window while
-// another application's window has the foreground, and leaves the
-// foreground where it is: the page's elements perform their patterns.
-func TestWindowsElementsInWindowDriveAPageBehindAnother(t *testing.T) {
+// A reader of one window reads a web page in a browser window while another
+// application's window has the foreground, and leaves the foreground where
+// it is. Chromium takes the foreground to set a field's value, so the
+// reader refuses the page's patterns as it does every other.
+func TestWindowsElementsInWindowReadsAPageBehindAnother(t *testing.T) {
 	driver := e2eDesktop(t)
 	els := e2eElements(t)
 	edge := filepath.Join(os.Getenv("ProgramFiles(x86)"), "Microsoft", "Edge", "Application", "msedge.exe")
@@ -429,15 +429,10 @@ func TestWindowsElementsInWindowDriveAPageBehindAnother(t *testing.T) {
 	}
 	inFront := foreground()
 
-	require.NoError(t, in.Apply(amount[0], PatternSetValue, "3400"))
-	assert.Eventually(t, func() bool {
-		found, err := in.Find(Selector{Role: RoleTextField, Name: "amount"})
-		return err == nil && len(found) == 1 && found[0].Value == "3400"
-	}, 3*time.Second, 100*time.Millisecond, "the field holds the value")
-	assert.Equal(t, inFront, foreground(), "setting the page's field leaves the foreground where it was")
-	require.NoError(t, in.Apply(save[0], PatternInvoke, ""))
-	listedWindow(t, driver, func(w WindowID) bool { return strings.HasPrefix(w.Title, "Dagu web saved") })
-	assert.Equal(t, inFront, foreground(), "pressing the page's button leaves the foreground where it was")
+	assert.Equal(t, "1200", amount[0].Value)
+	assert.ErrorIs(t, in.Apply(amount[0], PatternSetValue, "3400"), ErrForeground)
+	assert.ErrorIs(t, in.Apply(save[0], PatternInvoke, ""), ErrForeground)
+	assert.Equal(t, inFront, foreground(), "reading the page leaves the foreground where it was")
 }
 
 // listedWindow waits until Driver.Windows lists a window that matches.

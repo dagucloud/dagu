@@ -305,6 +305,13 @@ func (e *uiaElements) Apply(target Element, pattern Pattern, value string) error
 		return errElementsClosed
 	default:
 	}
+	// UI Automation brings an element's window forward to perform a
+	// pattern: Windows' own proxies, which serve Win32 and Windows Forms
+	// controls, focus the control first, and Chromium takes the foreground
+	// to set a field's value.
+	if e.scope != nil {
+		return ErrForeground
+	}
 	return actAlone(string(pattern), func(w *uiaWorker) error {
 		el, err := w.locate(target, e.scope)
 		if err != nil {
@@ -313,9 +320,6 @@ func (e *uiaElements) Apply(target Element, pattern Pattern, value string) error
 		defer el.release()
 		if enabled, err := el.currentIsEnabled(); err == nil && !enabled {
 			return ErrDisabled
-		}
-		if e.scope != nil && takesForeground(el) {
-			return ErrForeground
 		}
 		err = perform(el, pattern, value)
 		switch {
@@ -326,20 +330,6 @@ func (e *uiaElements) Apply(target Element, pattern Pattern, value string) error
 		}
 		return err
 	})
-}
-
-// takesForeground reports an element whose patterns Windows performs by
-// bringing its window forward: its own UI Automation proxies, which serve
-// Win32 and Windows Forms controls and controls of no framework it names,
-// focus the control, taking the foreground, to invoke, toggle, select, or
-// expand it or set its value.
-func takesForeground(el *element) bool {
-	framework, _ := el.cachedText(uiaFrameworkIdProperty)
-	switch framework {
-	case "", "Win32", "WinForm":
-		return true
-	}
-	return false
 }
 
 // actAlone runs fn on a locked thread that lives for the call, with an

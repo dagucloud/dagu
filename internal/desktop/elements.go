@@ -36,7 +36,8 @@ var ErrRefused = errors.New("the element refused before acting")
 
 // ErrForeground reports a pattern the system performs by bringing the
 // element's window forward, which a reader of one window, InWindow's,
-// refuses before it acts. The reader of the window in front performs it.
+// refuses before it acts, as it does every pattern on Windows. The reader
+// of the window in front performs it.
 var ErrForeground error = refusal("the element brings its window forward to perform the pattern")
 
 // refusal is an error an element gives before it acts: it reads as its own
