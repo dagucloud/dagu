@@ -80,6 +80,42 @@ func TestService_Lifecycle(t *testing.T) {
 	require.NoError(t, err)
 }
 
+// Latest has no sample before the service starts, and then the latest one,
+// with the disk of the data directory and the memory read.
+func TestService_Latest(t *testing.T) {
+	t.Parallel()
+
+	cfg := &config.Config{
+		Monitoring: config.MonitoringConfig{
+			Retention: time.Hour,
+			Interval:  time.Hour,
+		},
+		Paths: config.PathsConfig{
+			DataDir: t.TempDir(),
+		},
+	}
+	svc := NewService(cfg)
+
+	_, ok := svc.Latest()
+	assert.False(t, ok)
+
+	before := time.Now()
+	require.NoError(t, svc.Start(t.Context()))
+	t.Cleanup(func() { _ = svc.Stop(context.Background()) })
+
+	var sample Sample
+	require.Eventually(t, func() bool {
+		sample, ok = svc.Latest()
+		return ok
+	}, 5*time.Second, 10*time.Millisecond)
+	assert.False(t, sample.At.Before(before))
+	require.NotNil(t, sample.Disk)
+	assert.Positive(t, sample.Disk.TotalBytes)
+	assert.InDelta(t, 50, sample.Disk.UsedPercent, 50)
+	require.NotNil(t, sample.Memory)
+	assert.Positive(t, sample.Memory.TotalBytes)
+}
+
 func TestService_GetHistoryWithoutStart(t *testing.T) {
 	t.Parallel()
 
