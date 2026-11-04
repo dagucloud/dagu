@@ -314,12 +314,14 @@ describe('MiniMap', () => {
   }
 
   // parity:canvas-minimap
+  // The pans keep the whole graph in view: a graph that runs out of it keeps
+  // its overview on.
   it('shows while the view moves and fades out 1 s after the last move', () => {
     renderOverlays();
     expect(minimap().dataset.state).toBe('hidden');
     expect(panel()).toHaveClass('opacity-0', 'pointer-events-none');
 
-    moveView({ x: -10, y: 0, zoom: 1 });
+    moveView({ x: 10, y: 0, zoom: 1 });
     expect(minimap().dataset.state).toBe('visible');
     expect(panel()).toHaveClass('opacity-100');
     expect(panel()).not.toHaveClass('pointer-events-none');
@@ -328,7 +330,7 @@ describe('MiniMap', () => {
     expect(minimap().dataset.state).toBe('visible');
 
     // A new move starts the delay again.
-    moveView({ x: -20, y: 0, zoom: 1 });
+    moveView({ x: 20, y: 0, zoom: 1 });
     act(() => vi.advanceTimersByTime(MINIMAP_HIDE_DELAY_MS - 100));
     expect(minimap().dataset.state).toBe('visible');
 
@@ -408,16 +410,16 @@ describe('MiniMap', () => {
   // A fit after a panel opened is not a move of the user.
   it('stays hidden when a fit or a reveal moves the view', () => {
     renderOverlays();
-    moveView({ x: -10, y: 0, zoom: 1 }, false);
+    moveView({ x: 10, y: 0, zoom: 1 }, false);
     expect(minimap().dataset.state).toBe('hidden');
   });
 
   // A fit during the delay must not leave the overview on for good.
   it('fades out after a move of the user even when a fit follows', () => {
     renderOverlays();
-    moveView({ x: -10, y: 0, zoom: 1 });
+    moveView({ x: 10, y: 0, zoom: 1 });
     act(() => vi.advanceTimersByTime(MINIMAP_HIDE_DELAY_MS / 2));
-    moveView({ x: -50, y: 0, zoom: 1.5 }, false);
+    moveView({ x: 50, y: 0, zoom: 1.5 }, false);
     expect(minimap().dataset.state).toBe('visible');
     act(() => vi.advanceTimersByTime(MINIMAP_HIDE_DELAY_MS));
     expect(minimap().dataset.state).toBe('hidden');
@@ -533,9 +535,11 @@ describe('MiniMap', () => {
       }
     });
 
-    it('is off at rest when it is not persistent', () => {
+    // A long workflow showed a few steps and no sign of the others.
+    it('stays on at rest while the graph runs out of the view', () => {
       renderColumn();
-      expect(minimap().dataset.state).toBe('hidden');
+      expect(minimap().dataset.state).toBe('visible');
+      expect(panel()).toHaveClass('opacity-60');
     });
   });
 
@@ -573,20 +577,26 @@ describe('MiniMap', () => {
   // parity:canvas-minimap
   // A zoom at the limit or a fit with the same result sets an equal view.
   it('fades out when an equal view is set during the delay', () => {
-    renderOverlays();
-    moveView({ x: -10, y: 0, zoom: 2 });
-    act(() => vi.advanceTimersByTime(MINIMAP_HIDE_DELAY_MS / 2));
-    fireEvent.click(screen.getByLabelText('Zoom in'));
-    expect(viewport).toEqual({ x: -10, y: 0, zoom: 2 });
+    // One node, which stays in view at the largest zoom.
+    shownNodes = [nodes[0]!];
+    try {
+      renderOverlays();
+      moveView({ x: 10, y: 0, zoom: 2 });
+      act(() => vi.advanceTimersByTime(MINIMAP_HIDE_DELAY_MS / 2));
+      fireEvent.click(screen.getByLabelText('Zoom in'));
+      expect(viewport).toEqual({ x: 10, y: 0, zoom: 2 });
 
-    act(() => vi.advanceTimersByTime(MINIMAP_HIDE_DELAY_MS / 2));
-    expect(minimap().dataset.state).toBe('hidden');
+      act(() => vi.advanceTimersByTime(MINIMAP_HIDE_DELAY_MS / 2));
+      expect(minimap().dataset.state).toBe('hidden');
+    } finally {
+      shownNodes = nodes;
+    }
   });
 
   // parity:canvas-minimap
   it('stays while the pointer is on it', () => {
     renderOverlays();
-    moveView({ x: -10, y: 0, zoom: 1 });
+    moveView({ x: 10, y: 0, zoom: 1 });
     fireEvent.pointerEnter(minimap());
     act(() => vi.advanceTimersByTime(MINIMAP_HIDE_DELAY_MS * 3));
     expect(minimap().dataset.state).toBe('visible');

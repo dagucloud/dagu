@@ -732,9 +732,13 @@ export function MiniMap({
   if (hidden || !layout || size.width === 0) {
     return null;
   }
-  if (hideWhenFitted && rects.every((rect) => within(rect, view))) {
+  const fitted = rects.every((rect) => within(rect, view));
+  if (hideWhenFitted && fitted) {
     return null;
   }
+  // A graph that runs out of the view keeps its overview on at rest too: it
+  // tells that there is more to see, and where.
+  const resting = persistent || !fitted;
   const { pixelWidth, pixelHeight, box } = layout;
 
   const centerOn = (event: ReactPointerEvent<HTMLDivElement>) => {
@@ -760,14 +764,14 @@ export function MiniMap({
     dragging.current = false;
   };
 
-  const visible = moving || hovered || persistent;
+  const visible = moving || hovered || resting;
   return (
     <Panel
       position="bottom-left"
       className={cn(
         'hidden motion-safe:transition-opacity motion-safe:duration-300 md:block',
         visible ? 'opacity-100' : 'pointer-events-none opacity-0',
-        persistent && !moving && !hovered && 'opacity-60'
+        resting && !moving && !hovered && 'opacity-60'
       )}
     >
       <div
