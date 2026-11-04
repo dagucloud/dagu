@@ -272,7 +272,8 @@ func resolveQuotedReference(ctx context.Context, r *resolver, ref string) (strin
 	if name, path, ok := strings.Cut(ref, "."); ok {
 		return r.resolveReference(ctx, name, "."+path)
 	}
-	return r.resolve(ref)
+	// A bare name follows the same shell-deferral rule as an unquoted one.
+	return r.resolveForReplace(ref)
 }
 
 func (t template) resolveVariables(r *resolver) string {

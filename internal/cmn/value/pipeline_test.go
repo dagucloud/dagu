@@ -141,6 +141,31 @@ func TestShellCommandField_QuotedRefStyleFollowsShell(t *testing.T) {
 	}
 }
 
+// A POSIX shell owns unqualified ${NAME} in run text even inside double
+// quotes, so Dagu must not splice DAG env or secret values into the command;
+// the shell reads them from the process environment instead.
+func TestShellCommandField_DefersQuotedShellVars(t *testing.T) {
+	scope := NewEnvScope(nil, false).
+		WithEntries(map[string]string{"FOO": "bar"}, EnvSourceDAGEnv).
+		WithEntries(map[string]string{"TOKEN": "s3cret"}, EnvSourceSecret)
+	ctx := WithEnvScope(context.Background(), scope)
+	resolver := NewResolver(StaticScope{}, RuntimeScope{})
+
+	for _, shell := range []string{"sh", "bash"} {
+		t.Run(shell, func(t *testing.T) {
+			field := ShellCommandField("run", CommandContext{
+				Target:          CommandTargetLocal,
+				Shell:           []string{shell},
+				ShellConfigured: true,
+			})
+			const command = `FOO=local; printf '%s %s\n' "${FOO}" "${TOKEN}"`
+			got, err := resolver.String(ctx, command, field)
+			require.NoError(t, err)
+			assert.Equal(t, command, got)
+		})
+	}
+}
+
 // A PowerShell double-quoted span interprets the backtick and $, and ends at
 // a raw newline, so a resolved value carrying any of them must be escaped
 // rather than spliced in.
