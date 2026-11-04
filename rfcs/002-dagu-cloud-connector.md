@@ -152,7 +152,7 @@ were lost from.
 
 | Level | Fields | When |
 | --- | --- | --- |
-| `health` | Dagu version, OS, architecture, process start time, service counts (schedulers holding the scheduler lock, and registered coordinators), the scheduler's last tick and whether it is paused, the remote access level and whether remote approvals are on, and the latest sample of the machine's resources: logical CPUs, CPU use, load averages, memory use, and the use of the disk that holds the data directory | Every report |
+| `health` | Dagu version, OS, architecture, process start time, service counts (schedulers holding the scheduler lock, and registered coordinators), the scheduler's last tick and whether it is paused, the remote access level and whether remote approvals are on, and, on a paid plan or trial, the latest sample of the machine's resources: logical CPUs, CPU use, load averages, memory use, and the use of the disk that holds the data directory | Every report |
 | `runs` | The `health` fields, plus the status of each top-level DAG run that finishes, with its failed step names (up to 50) and how it was triggered, and the list of runs queued, running, or waiting. Each run is sent as its DAG name, run ID, attempt ID, status, trigger, and queued, started, and finished times. Also each scheduled DAG: its name, its next run, and its latest start-schedule slot that came due with what the scheduler did with it (dispatched, skipped as running, queued, done, succeeded, or overlapping, failed, planned, or missed while no scheduler ran). Also each queue that holds queued or running runs: its name, how many runs are waiting and how many are running, on the server and on distributed workers, how many may run at once, when the next run in line was queued, and why it cannot start when it waits for a worker | Each finished run once, at most 500 and 512 KiB of them per report; the runs in progress with every report, at most 200 of them and a count of all; within 5 seconds of a failed, aborted, or rejected run or a change to the runs in progress. The scheduled DAGs with every report from the process that reports the runs, those whose slot did not run first, at most 500 and 128 KiB of them and a count of all. The queues with every report, read at most once a minute, those whose next run waits for a worker first, then those with room whose next run has not started, then full ones, then those with nothing queued, at most 256 of them and a count of all |
 | `errors` | The `runs` fields, plus why each finished run failed: the error messages of its failed steps and handlers, at most 5, or the run's own error when no step has one. Each is sent without terminal escapes, at most 2048 bytes from its end. A command step's error ends with the last 1 KiB of its stderr; the values of workflow secrets are masked in it as in logs | With the finished run it belongs to |
 
@@ -306,7 +306,8 @@ counts the logical CPUs; `load` holds the load averages over 1, 5, and 15
 minutes; `memory` and `disk` give the percent used, as the operating system
 reports it, and the bytes used and in total, `disk` for the disk that holds
 the data directory. A part whose reading failed is left out, and
-`resources` is left out until the first sample.
+`resources` is left out until the first sample, and on free monitoring,
+whose Dagu Cloud keeps none of it.
 
 `finished` holds top-level runs that succeeded, partially succeeded, failed,
 were aborted, or were rejected, oldest first. `workflow` is the DAG name.

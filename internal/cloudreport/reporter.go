@@ -122,7 +122,8 @@ type Reporter struct {
 // out of reports. Each report sends what the level in monitoring allows at the
 // time: health at health, with the scheduler's last tick and pause from
 // scheduler, unless remote is nil, how far calls from Dagu Cloud may go, and,
-// unless resources is nil, how busy the machine is; and also, at runs, the finished and in-progress DAG runs that
+// unless resources is nil or the license is on free monitoring, whose Dagu
+// Console keeps none of it, how busy the machine is; and also, at runs, the finished and in-progress DAG runs that
 // events configures, the scheduled DAGs with what came of their latest
 // slots, and the queues that queues reads. Schedules are sent by the
 // process that reports the events. Choosing
@@ -723,7 +724,7 @@ func (r *Reporter) send(ctx context.Context, creds license.CloudCredentials, lev
 				report.Health.RemoteAccess, report.Health.RemoteApprovals = status.Level, &status.Approvals
 			}
 		}
-		if r.resources != nil {
+		if r.resources != nil && !creds.Free {
 			if sample, ok := r.resources.Latest(); ok {
 				report.Health.Resources = resourcesOf(sample)
 			}

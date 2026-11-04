@@ -130,25 +130,34 @@ func TestReportCarriesResources(t *testing.T) {
 	for _, tc := range []struct {
 		name      string
 		resources stubResources
-		want      string
+		// free puts the server on free monitoring, whose Dagu Console keeps
+		// none of the machine's figures.
+		free bool
+		want string
 	}{
-		{"full", stubResources{full, true}, `{
+		{"full", stubResources{full, true}, false, `{
 			"cpus": 8,
 			"cpu_percent": 12.5,
 			"load": {"load1": 1.5, "load5": 1.25, "load15": 0.75},
 			"memory": {"used_percent": 50, "used_bytes": 8589934592, "total_bytes": 17179869184},
 			"disk": {"used_percent": 91.5, "used_bytes": 915000000000, "total_bytes": 1000000000000}
 		}`},
-		{"partial", stubResources{partial, true}, `{
+		{"partial", stubResources{partial, true}, false, `{
 			"disk": {"used_percent": 91.5, "used_bytes": 915000000000, "total_bytes": 1000000000000}
 		}`},
-		{"not sampled yet", stubResources{}, ""},
+		{"not sampled yet", stubResources{}, false, ""},
+		{"free monitoring", stubResources{full, true}, true, ""},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 
 			console := newFakeConsole(t)
-			r := newReporter(console.credentials, nil, fixedLevel(config.ReportHealth))
+			credentials := func() (license.CloudCredentials, bool) {
+				creds, ok := console.credentials()
+				creds.Free = tc.free
+				return creds, ok
+			}
+			r := newReporter(credentials, nil, fixedLevel(config.ReportHealth))
 			r.resources = tc.resources
 			clock := startReporter(t.Context(), t, r, noJitter)
 
@@ -160,7 +169,7 @@ func TestReportCarriesResources(t *testing.T) {
 			require.NoError(t, json.Unmarshal([]byte(console.next(t).body), &body))
 			got, ok := body.Health["resources"]
 			if tc.want == "" {
-				assert.False(t, ok, "resources sent before a sample: %s", got)
+				assert.False(t, ok, "resources sent: %s", got)
 				return
 			}
 			require.True(t, ok)
