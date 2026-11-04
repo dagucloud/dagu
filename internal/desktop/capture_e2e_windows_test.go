@@ -34,11 +34,12 @@ func colorWindow(t *testing.T, driver *Driver, shell, title, colorName string, w
 	startApp(t, shell, args...)
 	var found WindowID
 	require.Eventually(t, func() bool {
-		i := slices.IndexFunc(driver.Windows(), func(w WindowID) bool { return w.Title == title })
+		listed := driver.Windows()
+		i := slices.IndexFunc(listed, func(w WindowID) bool { return w.Title == title })
 		if i < 0 {
 			return false
 		}
-		found = driver.Windows()[i]
+		found = listed[i]
 		return true
 	}, 30*time.Second, 200*time.Millisecond, "the window %q never showed", title)
 	at := centre(found.Bounds)
