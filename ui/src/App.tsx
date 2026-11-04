@@ -66,6 +66,7 @@ import {
 } from '@/features/peek/OverlayResizeHandle';
 import { useOpenPage } from '@/features/dag-runs/lib/useOpenPage';
 import { overlayStepOfKey } from '@/features/peek/overlayKeys';
+import { peekPageURL, type PeekTarget } from '@/features/peek/peekParams';
 import {
   useWorkflowOverlay,
   WorkflowOverlayProvider,
@@ -422,15 +423,22 @@ function LazyRoutes({
  * the workflow page reads, so that the page mounts on their answers.
  */
 function OverlayLoading({
-  fileName,
+  target,
 }: {
-  fileName: string;
+  target: PeekTarget | null;
 }): React.ReactElement {
   const remoteNode = useRemoteNode();
+  const fileName = target?.dag ?? '';
   const enabled = fileName !== '';
   useDAGDetailsQuery(fileName, remoteNode, PREFETCH_OPTIONS, enabled);
   useDAGSpecQuery(fileName, remoteNode, PREFETCH_OPTIONS, enabled);
-  return <WorkspaceLoading fileName={fileName} />;
+  // The frame of the page that the URL is about to name.
+  return (
+    <WorkspaceLoading
+      fileName={fileName}
+      url={target ? peekPageURL(target, remoteNode) : undefined}
+    />
+  );
 }
 
 /** Keeps the title of the tab as the page below set it. */
@@ -592,9 +600,7 @@ function WorkflowOverlayHost(): React.ReactElement | null {
                     {/* From the click until the URL names the workflow. */}
                     <Route
                       path="*"
-                      element={
-                        <OverlayLoading fileName={overlay.target?.dag ?? ''} />
-                      }
+                      element={<OverlayLoading target={overlay.target} />}
                     />
                   </Routes>
                 </React.Suspense>

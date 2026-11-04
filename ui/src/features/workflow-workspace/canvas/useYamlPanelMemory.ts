@@ -8,7 +8,8 @@ import type { WorkspaceUrlState } from '../state/workspaceUrl';
 /** Storage key of the YAML panel of the workflow page: 'true' while it is open. */
 export const YAML_PANEL_OPEN_KEY = 'dagu.workspace.yamlPanelOpen';
 
-function wasOpen(): boolean {
+/** True when the YAML panel was open when the user left the last workflow. */
+export function yamlPanelWasOpen(): boolean {
   try {
     return window.localStorage.getItem(YAML_PANEL_OPEN_KEY) === 'true';
   } catch {
@@ -46,7 +47,7 @@ export function useYamlPanelMemory({
   } | null>(null);
   let restoring = decided?.fileName === fileName && decided.open;
   if (decided?.fileName !== fileName) {
-    restoring = restorable && wasOpen();
+    restoring = restorable && yamlPanelWasOpen();
     setDecided({ fileName, open: restoring });
   } else if (restoring && ndv !== null) {
     // The URL has the state now: a later close is the choice of the user.

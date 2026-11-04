@@ -137,7 +137,7 @@ export function clampDockHeight(value: number): number {
  * narrow one the panel is a sheet over the whole page, which opens only when
  * asked for.
  */
-function storedOpen(): boolean {
+export function storedDockOpen(): boolean {
   const wide =
     window.matchMedia?.(`(min-width: ${DOCK_SHEET_BELOW_PX}px)`).matches ??
     true;
@@ -153,7 +153,8 @@ function readStored(key: string): string | null {
   }
 }
 
-function readHeight(): number {
+/** The open height of the Run panel that the user left, or the default. */
+export function storedDockHeight(): number {
   const stored = readStored(DOCK_HEIGHT_KEY);
   const value = stored === null ? NaN : Number(stored);
   return Number.isFinite(value) ? clampDockHeight(value) : defaultDockHeight();
@@ -246,7 +247,7 @@ export function DockProvider({ children }: { children: ReactNode }) {
   // no request to open the panel: a reload or a Back to it keeps it closed.
   const runLinked = url.run !== null && !isRunRedirect(location.state);
   const [openState, setOpenState] = useState(
-    () => url.dock !== null || runLinked || storedOpen()
+    () => url.dock !== null || runLinked || storedDockOpen()
   );
   const [startedRuns, setStartedRuns] = useState<ReadonlySet<string>>(
     () => new Set()
@@ -275,7 +276,7 @@ export function DockProvider({ children }: { children: ReactNode }) {
     },
     [setYielded]
   );
-  const [height, setHeight] = useState(readHeight);
+  const [height, setHeight] = useState(storedDockHeight);
   const [maximizedState, setMaximized] = useState(false);
   const maximized = maximizedState && yielded === null;
   const [chosenTab, setChosenTab] = useState<DockTab | null>(url.dock);

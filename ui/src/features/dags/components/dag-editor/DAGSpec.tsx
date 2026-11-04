@@ -1622,7 +1622,7 @@ function DAGSpec({
 
   // Show loading indicator while fetching data
   if (isLoading) {
-    return <LoadingIndicator fill />;
+    return <LoadingIndicator fill delayed />;
   }
 
   const warnings = localHasUnsavedChanges
