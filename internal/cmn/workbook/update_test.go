@@ -439,34 +439,52 @@ func TestUpdateRowsAddedColumnUnderMergedHeader(t *testing.T) {
 }
 
 // TestUpdateRowsEmptyRows covers a run with nothing pending: an empty rows
-// list succeeds and leaves the workbook as it was, even when set names a
-// column the sheet lacks or set is left to default.
+// list succeeds and leaves the workbook as it was, without saving it, even
+// when set names a column the sheet lacks or set is left to default. An
+// output still receives its copy.
 func TestUpdateRowsEmptyRows(t *testing.T) {
 	t.Parallel()
 	for _, tc := range []struct {
-		name string
-		set  map[string]any
+		name   string
+		set    map[string]any
+		output bool
 	}{
-		{"ExistingColumn", map[string]any{"Status": "status"}},
-		{"NewColumn", map[string]any{"Result": "result"}},
-		{"DefaultSet", nil},
+		{name: "ExistingColumn", set: map[string]any{"Status": "status"}},
+		{name: "NewColumn", set: map[string]any{"Result": "result"}},
+		{name: "DefaultSet"},
+		{name: "Output", set: map[string]any{"Status": "status"}, output: true},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 			path := ordersBook(t)
 			before := fileHash(t, path)
+			info, err := os.Stat(path)
+			require.NoError(t, err)
 			opts := UpdateOptions{Key: "Invoice No"}
 			if tc.set != nil {
 				set, err := ParseSet(tc.set)
 				require.NoError(t, err)
 				opts.Set = set
 			}
+			if tc.output {
+				opts.Output = filepath.Join(filepath.Dir(path), "updated.xlsx")
+			}
 			result, err := UpdateRows(context.Background(), path, opts)
 			require.NoError(t, err)
 			assert.Zero(t, result.Changes.RowsUpdated)
 			assert.Zero(t, result.Changes.CellsChanged)
 			assert.Zero(t, result.Changes.ColumnsAdded)
+			// A save replaces the file through a rename, so a saved workbook
+			// is no longer the same file even when its bytes match.
+			now, err := os.Stat(path)
+			require.NoError(t, err)
+			assert.True(t, os.SameFile(info, now), "the workbook is not saved")
 			assert.Equal(t, before, fileHash(t, path))
+			if tc.output {
+				back, err := Read(context.Background(), opts.Output, ReadOptions{})
+				require.NoError(t, err)
+				assert.Equal(t, 3, back.Count)
+			}
 		})
 	}
 }
