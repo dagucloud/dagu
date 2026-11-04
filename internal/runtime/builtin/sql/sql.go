@@ -10,6 +10,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"net/url"
 	"os"
 	"path/filepath"
 	"strings"
@@ -80,7 +81,9 @@ func newSQLExecutor(ctx context.Context, step ir.Step, driverName string) (execu
 		cfg.Import.InputFile = workpath.Resolve(workDir, cfg.Import.InputFile)
 	}
 	if driverName == "sqlite" {
-		cfg.DSN = resolveSQLiteDSN(workDir, cfg.DSN)
+		if cfg.DSN, err = resolveSQLiteDSN(workDir, cfg.DSN); err != nil {
+			return nil, fmt.Errorf("failed to parse sql config: %w", err)
+		}
 	}
 
 	var connMgr *ConnectionManager
@@ -123,22 +126,46 @@ func newSQLExecutor(ctx context.Context, step ir.Step, driverName string) (execu
 }
 
 // resolveSQLiteDSN resolves a relative database file in a SQLite DSN, such as
-// data.db or file:./data.db?mode=ro, under workDir. In-memory databases and
-// absolute paths are returned unchanged.
-func resolveSQLiteDSN(workDir, dsn string) string {
-	if strings.Contains(dsn, ":memory:") || strings.Contains(dsn, "mode=memory") {
-		return dsn
-	}
-	prefix, rest := "", dsn
+// data.db or file:./data.db?mode=ro, under workDir. In-memory databases,
+// absolute paths, and query parameters are kept as written.
+func resolveSQLiteDSN(workDir, dsn string) (string, error) {
+	isURI, rest := false, dsn
 	if after, ok := strings.CutPrefix(dsn, "file:"); ok {
-		prefix, rest = "file:", after
+		isURI, rest = true, after
 	}
-	path, query, hasQuery := strings.Cut(rest, "?")
-	path = workpath.Resolve(workDir, path)
+	// The driver, like SQLite, ends the database name at the first '?'.
+	name, query, hasQuery := strings.Cut(rest, "?")
+	if workDir == "" || name == "" || name == ":memory:" || isSQLiteMemoryMode(query) ||
+		filepath.IsAbs(name) || (isURI && strings.HasPrefix(name, "/")) {
+		return dsn, nil
+	}
+
+	var resolved string
+	if isURI {
+		// SQLite decodes %XX in a file: URI and ends the path at '?' or '#',
+		// so the working directory is escaped; the authored name keeps its
+		// own escapes.
+		resolved = "file:" + sqliteURIPathEscaper.Replace(filepath.ToSlash(workDir)) + "/" + strings.TrimPrefix(name, "./")
+	} else {
+		if strings.Contains(workDir, "?") {
+			return "", fmt.Errorf("cannot resolve relative dsn %q: working directory %q contains '?'; use an absolute file: URI", dsn, workDir)
+		}
+		resolved = filepath.Join(workDir, name)
+	}
 	if hasQuery {
-		return prefix + path + "?" + query
+		resolved += "?" + query
 	}
-	return prefix + path
+	return resolved, nil
+}
+
+// sqliteURIPathEscaper escapes the characters that change the meaning of a
+// path in a SQLite file: URI.
+var sqliteURIPathEscaper = strings.NewReplacer("%", "%25", "?", "%3F", "#", "%23")
+
+// isSQLiteMemoryMode reports whether a DSN query selects an in-memory database.
+func isSQLiteMemoryMode(query string) bool {
+	values, err := url.ParseQuery(query)
+	return err == nil && values.Get("mode") == "memory"
 }
 
 // newPostgresExecutor creates a new PostgreSQL executor.

@@ -8,6 +8,7 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
+	"net/url"
 	"strings"
 	"sync"
 
@@ -193,6 +194,10 @@ func extractDBPath(dsn string) string {
 		// Remove query parameters
 		if idx := strings.Index(path, "?"); idx >= 0 {
 			path = path[:idx]
+		}
+		// SQLite decodes %XX escapes in a file: URI path.
+		if decoded, err := url.PathUnescape(path); err == nil {
+			path = decoded
 		}
 		return path
 	}

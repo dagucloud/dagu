@@ -267,6 +267,11 @@ func TestExtractDBPath(t *testing.T) {
 			dsn:  "file:/var/data/test.db",
 			want: "/var/data/test.db",
 		},
+		{
+			name: "file URI with escapes",
+			dsn:  "file:/srv/a%3Fb%23c/test%20db.db?mode=rwc",
+			want: "/srv/a?b#c/test db.db",
+		},
 	}
 
 	for _, tt := range tests {
