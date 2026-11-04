@@ -14,6 +14,7 @@ import (
 	"time"
 
 	cmnconfig "github.com/dagucloud/dagu/v2/internal/cmn/config"
+	"github.com/dagucloud/dagu/v2/internal/cmn/crypto"
 	"github.com/dagucloud/dagu/v2/internal/cmn/masking"
 	"github.com/dagucloud/dagu/v2/internal/cmn/runenv"
 	"github.com/dagucloud/dagu/v2/internal/cmn/stringutil"
@@ -76,6 +77,9 @@ type run struct {
 	artifacts   *agentstep.ArtifactStore
 	timeline    *agentstep.Timeline
 	driver      *desktop.Driver
+	// targetKey keys the target cells the step records and replays, nil
+	// when the installation key cannot be read; see targetKey.
+	targetKey *targetKey
 	// elements reads the front window for exact checks and for recording
 	// and replaying by element, opened on first use. elementsErr remembers
 	// a host that cannot read them, which records pixels alone.
@@ -183,6 +187,11 @@ func newRun(ctx context.Context, e *computerExecutor) (*run, error) {
 		r.variables = map[string]string{}
 	}
 	r.cache = openReplayCache(computerDir, dagName, stepKey)
+	// Without the installation key, the step records and replays on
+	// fingerprints alone.
+	if installKey, err := crypto.ResolveKey(dataDir); err == nil {
+		r.targetKey = newTargetKey(installKey)
+	}
 	r.timeline = &agentstep.Timeline{Log: e.stderr, Masker: masker, Total: len(e.cfg.Do), Update: e.updateSession, Provider: providerName}
 	return r, nil
 }

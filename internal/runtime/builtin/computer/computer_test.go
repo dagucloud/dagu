@@ -2073,6 +2073,7 @@ func TestRecordsElementsBesidePixels(t *testing.T) {
 	assert.Equal(t, []desktop.PathStep{{Role: desktop.RoleTextField, Index: 0}}, field.Element.Path)
 	assert.Equal(t, "経費精算 - 請求書 1042", field.Element.Window)
 	assert.NotNil(t, field.Target, "the pixels are kept too")
+	assert.NotEmpty(t, field.TargetCells, "as cells under the installation key")
 	typed := entry.Turns[1].Actions[0]
 	require.NotNil(t, typed.Element, "typing records the focused element")
 	assert.Equal(t, "amountBox", typed.Element.Selector.ID)

@@ -6,7 +6,7 @@ package computer
 import (
 	"bytes"
 	"context"
-	"crypto/rand"
+	"crypto/hmac"
 	"crypto/sha256"
 	"fmt"
 	"image"
@@ -102,28 +102,51 @@ func (v view) targetPrint(img *image.RGBA, at image.Point) desktop.Fingerprint {
 	return desktop.FingerprintAround(v.region(img), at, targetRadius(v.rect))
 }
 
+// targetKey keys the digests a recording keeps of the area an action lands
+// on. It is derived from the installation's encryption key, which the
+// recording does not hold.
+type targetKey struct {
+	// id leads the cells made under the key, so cells made under another
+	// are known as such rather than taken for a changed screen.
+	id  []byte
+	mac []byte
+}
+
+// targetKeyPurpose sets the target key apart from other keys derived from
+// the same installation key.
+const targetKeyPurpose = "computer target cells"
+
+// newTargetKey derives the target key from an installation key.
+func newTargetKey(installKey string) *targetKey {
+	derive := hmac.New(sha256.New, []byte(installKey))
+	derive.Write([]byte(targetKeyPurpose))
+	mac := derive.Sum(nil)
+	id := sha256.Sum256(mac)
+	return &targetKey{id: id[:targetKeyID], mac: mac}
+}
+
 // targetCells digests the square around a display position in small squares
-// of targetCell pixels, laid out from the square's corner, behind a salt of
-// targetSalt bytes. It is as wide as the view was when recorded, and leaves
-// out the last windowSizeTolerance pixels of a window, so that a window a
-// pixel or two off in size, which findWindow accepts, digests the same. A
-// square outside what is compared digests to zeros.
-func (v view) targetCells(img *image.RGBA, at image.Point, salt []byte) []byte {
+// of targetCell pixels, laid out from the square's corner, under key and
+// after its id. It is as wide as the view was when recorded, and leaves out
+// the last windowSizeTolerance pixels of a window, so that a window a pixel
+// or two off in size, which findWindow accepts, digests the same. A square
+// outside what is compared digests to zeros.
+func (v view) targetCells(img *image.RGBA, at image.Point, key *targetKey) []byte {
 	bounds := v.rect
 	if v.window != nil {
 		bounds = image.Rect(v.rect.Min.X, v.rect.Min.Y, v.rect.Min.X+v.window.Width-windowSizeTolerance, v.rect.Min.Y+v.window.Height-windowSizeTolerance)
 	}
 	bounds = bounds.Intersect(img.Bounds())
 	radius, squares := v.targetSide()
-	cells := append([]byte(nil), salt...)
+	cells := append([]byte(nil), key.id...)
+	hash := hmac.New(sha256.New, key.mac)
 	for row := range squares {
 		for col := range squares {
 			x, y := at.X-radius+col*targetCell, at.Y-radius+row*targetCell
 			square := image.Rect(x, y, x+targetCell, y+targetCell).Intersect(bounds)
 			digest := make([]byte, targetDigest)
 			if !square.Empty() {
-				hash := sha256.New()
-				hash.Write(salt)
+				hash.Reset()
 				for line := square.Min.Y; line < square.Max.Y; line++ {
 					from := img.PixOffset(square.Min.X, line)
 					hash.Write(img.Pix[from : from+square.Dx()*4])
@@ -147,28 +170,29 @@ func (v view) targetSide() (radius, squares int) {
 	return radius, (2*radius + targetCell - 1) / targetCell
 }
 
-// targetStill reports whether the square around a display position shows the
-// recorded picture, but for a caret: the squares that differ lie within
-// caretColumns neighbouring columns. Cells that cannot be read show nothing
-// to trust, so they are not still.
-func (v view) targetStill(img *image.RGBA, at image.Point, recorded []byte) bool {
-	if len(recorded) < targetSalt {
+// targetChanged reports whether the square around a display position shows
+// other than the recorded cells, beyond a caret: the squares that differ lie
+// outside caretColumns neighbouring columns. Cells that cannot be compared,
+// such as cells made under another key or none at all, show no change, and
+// the fingerprint alone decides.
+func (v view) targetChanged(img *image.RGBA, at image.Point, recorded []byte, key *targetKey) bool {
+	if key == nil || len(recorded) < targetKeyID || !bytes.Equal(recorded[:targetKeyID], key.id) {
 		return false
 	}
-	now := v.targetCells(img, at, recorded[:targetSalt])
+	now := v.targetCells(img, at, key)
 	if len(now) != len(recorded) {
 		return false
 	}
 	_, squares := v.targetSide()
 	first, last := squares, -1
-	for i := targetSalt; i < len(now); i += targetDigest {
+	for i := targetKeyID; i < len(now); i += targetDigest {
 		if bytes.Equal(now[i:i+targetDigest], recorded[i:i+targetDigest]) {
 			continue
 		}
-		column := (i - targetSalt) / targetDigest % squares
+		column := (i - targetKeyID) / targetDigest % squares
 		first, last = min(first, column), max(last, column)
 	}
-	return last-first < caretColumns
+	return last-first >= caretColumns
 }
 
 // relative moves an action from display pixels to the view's own.
@@ -189,14 +213,15 @@ func (v view) absolute(action computeruse.Action) computeruse.Action {
 
 // place records an action the model ran in display pixels within the view:
 // relative to the view, with the area it lands on fingerprinted on the
-// screen the model chose it on.
-func (v view) place(rec recordedAction, seen *image.RGBA) recordedAction {
+// screen the model chose it on, and kept as cells under key when there is
+// one.
+func (v view) place(rec recordedAction, seen *image.RGBA, key *targetKey) recordedAction {
 	if at, ok := target(rec.Action); ok {
 		fingerprint := v.targetPrint(seen, at)
 		rec.Target = &fingerprint
-		salt := make([]byte, targetSalt)
-		_, _ = rand.Read(salt) // never fails; it panics before it returns an error
-		rec.TargetCells = v.targetCells(seen, at, salt)
+		if key != nil {
+			rec.TargetCells = v.targetCells(seen, at, key)
+		}
 	}
 	rec.Action = v.relative(rec.Action)
 	return rec

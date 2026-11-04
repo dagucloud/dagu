@@ -839,18 +839,20 @@ func (l *actLoop) unchanged(ctx context.Context, turn *computeruse.Turn) (bool, 
 	}
 	// Only the window the actions land on is compared, so a change
 	// elsewhere, such as a clock or a notification, does not send the turn
-	// back to the model.
+	// back to the model. The areas the actions land on are compared by
+	// fingerprint alone: compared square by square, content that changes on
+	// its own there, such as a counter, would hold back every turn.
 	v := l.view(turn.Actions)
 	chosen := recordedTurn{Screen: v.fingerprint(l.seen.full)}
 	for _, action := range turn.Actions {
 		if display, ok := l.r.toDisplay(action, l.seen); ok {
-			chosen.Actions = append(chosen.Actions, v.place(recordAction(display, nil), l.seen.full))
+			chosen.Actions = append(chosen.Actions, v.place(recordAction(display, nil), l.seen.full, nil))
 		}
 	}
 	if current.Bounds() != l.seen.full.Bounds() {
 		return false, nil
 	}
-	return matches(current, v, chosen), nil
+	return matches(current, v, chosen, nil), nil
 }
 
 // view is where a turn's actions are compared and recorded: the application
@@ -1107,7 +1109,7 @@ func (l *actLoop) apply(ctx context.Context, turn *computeruse.Turn) []computeru
 	}
 	if len(recorded) > 0 {
 		for i := range recorded {
-			recorded[i] = v.place(recorded[i], l.seen.full)
+			recorded[i] = v.place(recorded[i], l.seen.full, l.r.targetKey)
 		}
 		l.outcome.recording.Turns = append(l.outcome.recording.Turns, recordedTurn{
 			Screen:    v.fingerprint(l.seen.full),

@@ -35,9 +35,9 @@ const (
 	// display scale, and a label with other text is wider.
 	targetCell   = 4
 	caretColumns = 2
-	// targetSalt and targetDigest are the bytes of a recording's salt and of
-	// the digest kept for each square.
-	targetSalt   = 8
+	// targetKeyID and targetDigest are the bytes of the key id that leads a
+	// recording's cells and of the digest kept for each square.
+	targetKeyID  = 4
 	targetDigest = 4
 )
 
@@ -146,10 +146,11 @@ type recordedAction struct {
 	// Target fingerprints the area the action lands on, which a replay always
 	// checks. A recording made before TargetCells existed has only this.
 	Target *desktop.Fingerprint `json:"target,omitempty"`
-	// TargetCells is that area as salted digests of its small squares, which
-	// a replay compares square by square: the fingerprint cannot tell one
-	// label from another. The digests cannot be turned back into the pixels,
-	// which may show text that is not to be stored.
+	// TargetCells is that area as digests of its small squares, which a
+	// replay compares square by square: the fingerprint cannot tell one
+	// label from another. The digests are keyed with a key kept outside the
+	// recording, so the recording alone tests no guess of what the area
+	// showed, such as a secret typed there.
 	TargetCells []byte `json:"target_cells,omitempty"`
 	// Element is the element the action landed on or typed into, when the
 	// host could read it.
@@ -387,7 +388,7 @@ func (r *run) awaitScreen(ctx context.Context, index int, entry recording, turn 
 		if err != nil {
 			return view{}, false, err
 		}
-		if v, ok := r.turnView(current, entry, turn); ok && matches(current, v, turn) {
+		if v, ok := r.turnView(current, entry, turn); ok && matches(current, v, turn, r.targetKey) {
 			return v, true, nil
 		}
 		if !time.Now().Before(deadline) {
@@ -426,7 +427,9 @@ func (r *run) placedView(current *image.RGBA, rec recordedWindow) (view, bool) {
 
 // matches reports whether a screen looks like the one a recorded turn was
 // chosen on, within the turn's view, overall and where each action lands.
-func matches(current *image.RGBA, v view, turn recordedTurn) bool {
+// Where an action keeps cells made under key, its area is also compared
+// square by square.
+func matches(current *image.RGBA, v view, turn recordedTurn, key *targetKey) bool {
 	if v.fingerprint(current).Distance(turn.Screen) > replayScreenDistance {
 		return false
 	}
@@ -438,7 +441,7 @@ func matches(current *image.RGBA, v view, turn recordedTurn) bool {
 		if v.targetPrint(current, at).Distance(*recorded.Target) > replayTargetDistance {
 			return false
 		}
-		if recorded.TargetCells != nil && !v.targetStill(current, at, recorded.TargetCells) {
+		if v.targetChanged(current, at, recorded.TargetCells, key) {
 			return false
 		}
 	}
