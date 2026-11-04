@@ -813,7 +813,8 @@ function DAGSpec({
   const lensSteps = React.useMemo(
     () =>
       textModel.steps.flatMap((step) => {
-        const name = textNames.byKey[step.key] ?? step.explicitName;
+        // A step with no name runs under its id.
+        const name = textNames.byKey[step.key] ?? step.explicitName ?? step.id;
         return name ? [{ line: step.range.startLine, name }] : [];
       }),
     [textModel, textNames]
@@ -1544,7 +1545,9 @@ function DAGSpec({
     const key = textNames.byName[ndvStepName];
     return (
       [...textModel.steps, ...textModel.handlers].find((step) =>
-        key !== undefined ? step.key === key : step.explicitName === ndvStepName
+        key !== undefined
+          ? step.key === key
+          : (step.explicitName ?? step.id) === ndvStepName
       ) ?? null
     );
   }, [yamlKind, ndvStepName, textNames, textModel]);
