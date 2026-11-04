@@ -451,7 +451,7 @@ export function opAddStep(
           : -1;
       steps.items.splice(indexAfter(at), 0, pair);
     }
-    addRouteTarget(doc, steps, entry, name, taken, writesDepends);
+    addRouteTarget(doc, steps, entry, name, taken, writesDepends, asId);
     if (between && writesDepends) {
       rewireDepends(doc, between.to, referencesOf(between.from, options), name);
     }
@@ -473,7 +473,9 @@ function addRouteTarget(
   entry: YAMLMap,
   name: string,
   taken: Iterable<string>,
-  writesDepends: boolean
+  writesDepends: boolean,
+  /** The router has an id and no name: so does its target. */
+  asId: boolean
 ): void {
   if (textOf(entry.get('action', true)) !== 'router.route') return;
   const withMap = entry.get('with', true);
@@ -485,9 +487,9 @@ function addRouteTarget(
   routes.set('ok', targets);
   const next = newEntry(
     doc,
-    target,
+    asId ? null : target,
     isMap(steps),
-    { run: 'echo "TODO"' },
+    asId ? { id: target, run: 'echo "TODO"' } : { run: 'echo "TODO"' },
     writesDepends ? [name] : []
   );
   if (isSeq(steps)) {
