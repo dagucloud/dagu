@@ -6,6 +6,7 @@ import type { components } from '@/api/v1/schema';
 import { useI18n } from '@/i18n/I18nProvider';
 import type { ApiNode } from '../contracts';
 import { useWorkspaceData } from '../data/context';
+import { nodesByStep } from '../data/runFacts';
 import { buildWorkspaceUrl, useWorkspaceUrl } from '../state/workspaceUrl';
 import { stepDefinitionOf } from './stepDefinition';
 
@@ -47,11 +48,11 @@ export function StepDeclared({
   // last run is not known; not in a run without the step, such as a step
   // added after it or removed before it. The page has the details of the
   // last run: without its nodes, the step counts as in it.
-  const latestNodes = dagData.latestDAGRun?.nodes;
+  const latest = dagData.latestDAGRun;
   const inLatest =
     latestRunId === shownRunId
       ? node !== undefined
-      : (latestNodes?.some((n) => n.step.name === step) ?? true);
+      : !latest?.nodes || nodesByStep(latest).has(step);
   const runId =
     latestRunId === null
       ? node === undefined

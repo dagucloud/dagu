@@ -34,8 +34,8 @@ function renderDeclared(
   latestRunId: string | null = runId,
   /** Null: the step has no node in the shown run. */
   node: ApiNode | null = runId ? ranNode(step) : null,
-  /** The steps of the last run, when the page has its details. */
-  latestSteps?: string[]
+  /** The steps and the exit handler of the last run, when the page has its details. */
+  latest?: { steps: string[]; onExit?: string }
 ) {
   const run = {
     ref: runId ? { name: 'example', runId } : null,
@@ -51,11 +51,12 @@ function renderDeclared(
           dagData: {
             dag,
             latestDAGRun:
-              latestRunId && latestSteps
+              latestRunId && latest
                 ? {
                     dagRunId: latestRunId,
                     status: Status.Success,
-                    nodes: latestSteps.map(ranNode),
+                    nodes: latest.steps.map(ranNode),
+                    onExit: latest.onExit ? ranNode(latest.onExit) : undefined,
                   }
                 : undefined,
           } as unknown as DAGPageData,
@@ -134,7 +135,9 @@ describe('StepDeclared', () => {
 
   // An older run may lack a step that the last run has.
   it('links the last run from an older run that lacks the step', () => {
-    renderDeclared('plain', 'old-run', undefined, 'run-7', null, ['plain']);
+    renderDeclared('plain', 'old-run', undefined, 'run-7', null, {
+      steps: ['plain'],
+    });
     expect(
       screen.getByRole('link', { name: 'Open last run' }).getAttribute('href')
     ).toContain('run=run-7');
@@ -142,9 +145,20 @@ describe('StepDeclared', () => {
 
   // A step removed since an older run is not in the last run.
   it('does not link a last run that lacks the step of an older run', () => {
-    renderDeclared('plain', 'old-run', undefined, 'run-7', ranNode('plain'), [
-      'fetch',
-    ]);
+    renderDeclared('plain', 'old-run', undefined, 'run-7', ranNode('plain'), {
+      steps: ['fetch'],
+    });
     expect(screen.queryByRole('link')).toBeNull();
+  });
+
+  // A handler of the last run is not among its steps.
+  it('links the last run that has the handler of an older run', () => {
+    renderDeclared('plain', 'old-run', undefined, 'run-7', ranNode('plain'), {
+      steps: ['fetch'],
+      onExit: 'plain',
+    });
+    expect(
+      screen.getByRole('link', { name: 'Open last run' }).getAttribute('href')
+    ).toContain('run=run-7');
   });
 });
