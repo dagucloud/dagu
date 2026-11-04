@@ -37,7 +37,7 @@ export function ParamLabel({
         className
       )}
     >
-      <span>{children}</span>
+      <span className="min-w-0 whitespace-normal break-words">{children}</span>
       {name && name !== label && (
         <>
           {' '}

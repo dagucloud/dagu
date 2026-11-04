@@ -928,6 +928,12 @@ function StartDAGModal({
                         const label =
                           field.title || field.name || `Parameter ${index + 1}`;
                         const error = fieldErrors[field.key];
+                        const descriptionId = `param-${field.key}-description`;
+                        const errorId = `param-${field.key}-error`;
+                        const describedBy =
+                          [field.description && descriptionId, error && errorId]
+                            .filter(Boolean)
+                            .join(' ') || undefined;
                         const disableField = paramsReadOnly || submitting;
                         const showUnsetButton =
                           !field.required &&
@@ -965,7 +971,10 @@ function StartDAGModal({
                             </div>
 
                             {field.description && (
-                              <p className="text-xs text-muted-foreground">
+                              <p
+                                id={descriptionId}
+                                className="text-xs text-muted-foreground"
+                              >
                                 {field.description}
                               </p>
                             )}
@@ -973,12 +982,16 @@ function StartDAGModal({
                             {renderTypedField({
                               field,
                               disabled: disableField,
+                              describedBy,
                               onChange: (patch) =>
                                 handleTypedFieldChange(field.key, patch),
                             })}
 
                             {error && (
-                              <p className="text-xs text-destructive">
+                              <p
+                                id={errorId}
+                                className="text-xs text-destructive"
+                              >
                                 {error}
                               </p>
                             )}
@@ -1085,10 +1098,12 @@ function StartDAGModal({
 function renderTypedField({
   field,
   disabled,
+  describedBy,
   onChange,
 }: {
   field: ParamField;
   disabled: boolean;
+  describedBy?: string;
   onChange: (patch: Partial<ParamField>) => void;
 }) {
   const controlClass = 'w-full';
@@ -1107,7 +1122,11 @@ function renderTypedField({
           onChange({ value, hasValue: true });
         }}
       >
-        <SelectTrigger id={`param-${field.key}`} className={controlClass}>
+        <SelectTrigger
+          id={`param-${field.key}`}
+          aria-describedby={describedBy}
+          className={controlClass}
+        >
           <SelectValue placeholder={placeholder} />
         </SelectTrigger>
         <SelectContent>
@@ -1136,6 +1155,7 @@ function renderTypedField({
         <I18nProps>
           <Input
             id={`param-${field.key}`}
+            aria-describedby={describedBy}
             type="number"
             className={controlClass}
             min={field.minimum}
@@ -1168,7 +1188,11 @@ function renderTypedField({
               onChange({ value, hasValue: true });
             }}
           >
-            <SelectTrigger id={`param-${field.key}`} className={controlClass}>
+            <SelectTrigger
+              id={`param-${field.key}`}
+              aria-describedby={describedBy}
+              className={controlClass}
+            >
               <I18nProps>
                 <SelectValue placeholder="Not set" />
               </I18nProps>
@@ -1191,6 +1215,7 @@ function renderTypedField({
         <div className="flex items-center gap-3 rounded-md border border-border px-3 py-2">
           <Switch
             id={`param-${field.key}`}
+            aria-describedby={describedBy}
             checked={field.value === 'true'}
             disabled={disabled}
             onCheckedChange={(checked) =>
@@ -1213,6 +1238,7 @@ function renderTypedField({
         <I18nProps>
           <Textarea
             id={`param-${field.key}`}
+            aria-describedby={describedBy}
             className={`${controlClass} h-7 min-h-7 py-1`}
             rows={1}
             ref={(element) => {

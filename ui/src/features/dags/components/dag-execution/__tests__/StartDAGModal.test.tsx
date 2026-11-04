@@ -365,6 +365,9 @@ describe('StartDAGModal', () => {
       description.compareDocumentPosition(input) &
         Node.DOCUMENT_POSITION_FOLLOWING
     ).toBeTruthy();
+    expect(input).toHaveAccessibleDescription(
+      'Region the instances are launched in.'
+    );
   });
 
   it('labels a typed boolean switch', () => {
