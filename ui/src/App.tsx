@@ -359,17 +359,15 @@ function RouteFallback(): React.ReactElement {
 const IDLE_PRELOAD_TIMEOUT_MS = 5000;
 
 /**
- * Loads the code of the workflow page and of its canvas once the browser is
- * idle, so that opening a workflow does not wait for it. Returns a cancel
+ * Loads the code of the workflow page, its canvas included, once the browser
+ * is idle, so that opening a workflow does not wait for it. Returns a cancel
  * function.
  */
 function preloadWhenIdle(): () => void {
   const preload = () => {
-    void loadWorkflowPage()
-      .then((page) => page.preloadWorkflowCanvas())
-      .catch(() => {
-        // A failed preload is retried by the page when it opens.
-      });
+    void loadWorkflowPage().catch(() => {
+      // A failed preload is retried by the page when it opens.
+    });
   };
   if (typeof window.requestIdleCallback === 'function') {
     const id = window.requestIdleCallback(preload, {

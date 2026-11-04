@@ -1634,6 +1634,15 @@ describe('DAGSpec draft recovery', () => {
   });
 });
 
+// A lazy editor renders nothing at first, and React holds the reveal of a
+// boundary that showed its fallback for up to 300 ms.
+describe('DAGSpec first render', () => {
+  it('shows the visual editor in its first render', () => {
+    render(specTree());
+    expect(screen.getByTestId('visual-editor-mock')).toBeInTheDocument();
+  });
+});
+
 // A schema that changes is compiled again by the checks of the steps, at
 // about 90 ms: the editor builds its schema once, with the calendars.
 describe('DAGSpec editor schema', () => {

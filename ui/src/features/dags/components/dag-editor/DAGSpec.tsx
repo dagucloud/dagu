@@ -98,6 +98,9 @@ import { preloadDAGEditor } from './loadDAGEditor';
 import { ReadOnlyMarker, YamlFileBody, YamlFilePanel } from './YamlFilePanel';
 import { useYamlSection } from './useYamlSection';
 import { WorkflowPanel } from './WorkflowPanel';
+// Not lazy: the canvas is what the page shows first, and a lazy editor adds
+// a blank render that React holds for up to 300 ms.
+import VisualEditor from '@/features/visual-editor';
 import type {
   CodeEditorLike,
   VisualEditorValidation,
@@ -134,8 +137,6 @@ export type {
   WorkspaceNotice,
 } from './hostTypes';
 
-// The visual editor and its canvas library load only when the view opens.
-const VisualEditor = React.lazy(() => import('@/features/visual-editor'));
 const DetailsCanvas = React.lazy(
   () => import('@/features/visual-editor/DetailsCanvas')
 );
