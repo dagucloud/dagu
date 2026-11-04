@@ -8,7 +8,6 @@ import (
 	"image"
 	"image/draw"
 	"slices"
-	"strings"
 	"time"
 
 	"github.com/dagucloud/dagu/v2/internal/cmn/imagefit"
@@ -25,17 +24,6 @@ type Capture struct {
 	// Windows are the windows Image shows, the front of the Z-order first.
 	Windows []WindowID
 }
-
-// appIn reports whether app is one of apps, compared ignoring case.
-func appIn(app string, apps []string) bool {
-	return app != "" && slices.ContainsFunc(apps, func(a string) bool { return strings.EqualFold(a, app) })
-}
-
-// windowCaptureWait bounds how long a capture waits for one window's
-// picture, so a window whose application stops answering cannot hold the
-// step. Windows reports such an application hung after about as long, and
-// later captures leave its windows out.
-const windowCaptureWait = 5 * time.Second
 
 // errWindowTimeout reports a window whose picture did not come in time.
 var errWindowTimeout = errors.New("the window did not draw in time")
