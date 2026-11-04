@@ -132,7 +132,8 @@ windows. A step holds the application it works in from its first operation
 there until the step ends or works in another; a step that finds the
 application in use waits and logs a waiting event named `app`. A step takes
 the application before the desktop and never waits for one while holding
-the desktop.
+the desktop: holding it, the step takes another application it moves into
+only when no other step holds that application.
 
 ### Conditions
 

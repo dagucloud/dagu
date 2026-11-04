@@ -7,11 +7,13 @@ import (
 	"fmt"
 	"image"
 	"io"
+	"path/filepath"
 	"slices"
 	"sync"
 	"testing"
 	"time"
 
+	"github.com/dagucloud/dagu/v2/internal/cmn/dirlock"
 	"github.com/dagucloud/dagu/v2/internal/desktop"
 	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/llm/computeruse"
@@ -290,8 +292,11 @@ func TestMovingTheForegroundTakesTheDesktop(t *testing.T) {
 			name:   "launch",
 			steps:  `{"ai": "never", "idle": "0", "do": [{"launch": "C:\\Apps\\expense.exe"}]}`,
 			window: form,
-			effect: func(run *testRun) any { return len(run.launches) },
-			want:   1,
+			// The launch is logged as the desktop's input, so the wait shows
+			// that nothing launched while another step held the desktop.
+			prepare: func(run *testRun) { run.onLaunch = func() { run.backend.record("launch") } },
+			effect:  func(run *testRun) any { return run.backend.inputs() },
+			want:    []string{"launch"},
 		},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
@@ -364,4 +369,60 @@ func TestStepsOfOneAppTakeTurns(t *testing.T) {
 	require.NoError(t, execution.err)
 	assert.Equal(t, []string{"first saveButton", "first paymentSaveButton", "second saveButton", "second paymentSaveButton"}, applied)
 	assert.Equal(t, []string{waitReasonApp}, waitReasons(execution.exec.GetAgentSession()))
+}
+
+// A pattern a step performs without the desktop hides nothing of a person's
+// input: the step's next click still waits until they stop.
+func TestPersonInputBeforeAPatternHoldsTheNextClick(t *testing.T) {
+	t.Parallel()
+
+	run := elementRun(t)
+	run.backend.windows = []desktop.WindowID{{Handle: 2, Title: expenseWindow().Name, PID: 20, App: "expense"}}
+	run.backend.personKeepsUsing(3)
+	execution := run.execute(`{"ai": "never", "idle": "100ms", "do": [
+		{"act": {"instruction": "Save the invoice", "input": "direct", "recorded": {"windows": [{"click": {"app": "expense", "role": "button", "id": "saveButton"}}]}}},
+		{"act": {"instruction": "Save the payment", "recorded": {"windows": [{"click": {"app": "expense", "role": "button", "id": "paymentSaveButton"}}]}}}]}`, nil)
+	require.NoError(t, execution.err)
+	assert.Equal(t, []string{waitReasonPerson}, waitReasons(execution.exec.GetAgentSession()))
+	assert.Equal(t, []string{"invoke saveButton", "move 255,384", "left down #1"}, run.backend.inputs())
+}
+
+// A handler's check that names no app reads the window the step works in
+// while it looks for an element in the background, so the step neither
+// takes the desktop nor brings a window forward for it.
+func TestHandlerCheckReadsTheStepsWindowInTheBackground(t *testing.T) {
+	t.Parallel()
+
+	run, form := inBackground(t, "expense")
+	run.backend.personKeepsUsing(1000)
+	execution := run.execute(`{"ai": "never", "input": "direct", "idle": "100ms",
+		"handle": [{"when": {"text": "すでに入力中"}, "recorded": {"windows": [{"click": {"role": "button", "name": "はい"}}]}}],
+		"do": [{"act": {"instruction": "Save the invoice", "recorded": {"windows": [{"click": {"app": "expense", "role": "button", "id": "saveButton"}}]}}}]}`, nil)
+	require.NoError(t, execution.err)
+	assert.Empty(t, waitReasons(execution.exec.GetAgentSession()))
+	assert.Equal(t, []string{"invoke saveButton"}, run.backend.inputs())
+	assert.Empty(t, run.backend.raisedWindows())
+	assert.Zero(t, run.elements.reads, "the window in front is never read")
+	assert.Positive(t, form.reads)
+}
+
+// A handler's check of another app takes that app for a moment; the step
+// holds its own app again before an element of it performs a pattern.
+func TestStepHoldsItsAppAfterAHandlerChecksAnother(t *testing.T) {
+	t.Parallel()
+
+	run, form := inBackground(t, "expense")
+	appLock := filepath.Join(run.desktopLock, appLocksDir, appLockName("expense"))
+	var heldByAnother error
+	form.onApply = func(desktop.Element, desktop.Pattern, string) {
+		lock := dirlock.New(appLock, nil)
+		if heldByAnother = lock.TryLock(); heldByAnother == nil {
+			_ = lock.Unlock()
+		}
+	}
+	execution := run.execute(`{"ai": "never", "input": "direct",
+		"handle": [{"when": {"element": {"app": "notes", "role": "button", "name": "閉じる"}}, "recorded": {"windows": [{"click": {"app": "notes", "role": "button", "name": "閉じる"}}]}}],
+		"do": [{"act": {"instruction": "Save the invoice", "recorded": {"windows": [{"click": {"app": "expense", "role": "button", "id": "saveButton"}}]}}}]}`, nil)
+	require.NoError(t, execution.err)
+	assert.ErrorIs(t, heldByAnother, dirlock.ErrLockConflict, "the step held expense while its button performed the pattern")
 }

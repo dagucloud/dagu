@@ -90,6 +90,19 @@ func acquireLock(ctx context.Context, dir string, onWait func()) (*desktopLease,
 	return &desktopLease{dir: dir, lock: lock, stop: stop}, nil
 }
 
+// tryLock takes the lock in dir unless another holder has it, waiting for
+// nothing.
+func tryLock(ctx context.Context, dir string) (*desktopLease, bool) {
+	if err := os.MkdirAll(dir, desktopDirMode); err != nil {
+		return nil, false
+	}
+	lock := dirlock.New(dir, nil)
+	if lock.TryLock() != nil {
+		return nil, false
+	}
+	return &desktopLease{dir: dir, lock: lock, stop: agentstep.KeepLockAlive(ctx, lock)}, true
+}
+
 // appLockName names an application's lock, as applications compare,
 // ignoring case, with every character a file name may not hold replaced.
 func appLockName(app string) string {
@@ -169,7 +182,7 @@ func (l *desktopLease) release() {
 // desktop. Neither wait counts toward the operation's time.
 func (r *run) takeDesktop(ctx context.Context, app string) error {
 	if r.lease != nil {
-		return nil
+		return r.takeApp(ctx, app)
 	}
 	if err := r.takeApp(ctx, app); err != nil {
 		return err
@@ -188,19 +201,11 @@ func (r *run) takeDesktop(ctx context.Context, app string) error {
 
 // tryDesktop takes the desktop unless another step holds it, waiting for
 // nothing, and reports whether the step holds it.
-func (r *run) tryDesktop() bool {
-	if r.lease != nil {
-		return true
+func (r *run) tryDesktop(ctx context.Context) bool {
+	if r.lease == nil {
+		r.lease, _ = tryLock(ctx, r.lockDir)
 	}
-	if err := os.MkdirAll(r.lockDir, desktopDirMode); err != nil {
-		return false
-	}
-	lock := dirlock.New(r.lockDir, nil)
-	if lock.TryLock() != nil {
-		return false
-	}
-	r.lease = &desktopLease{dir: r.lockDir, lock: lock, stop: func() {}}
-	return true
+	return r.lease != nil
 }
 
 // releaseDesktop lets other steps use the desktop, noting when this step
@@ -216,10 +221,17 @@ func (r *run) releaseDesktop() {
 
 // takeApp makes the step hold app, the one it works in now, letting go of
 // the one it held before, so a step holds one application at a time. A
-// step holding the desktop keeps the application it holds until it lets
-// the desktop go, since it waits for nothing while it holds the desktop.
+// step holding the desktop waits for nothing, so it takes app only when no
+// other step holds it, and keeps the one it holds otherwise.
 func (r *run) takeApp(ctx context.Context, app string) error {
-	if app == "" || r.lease != nil || (r.app != nil && strings.EqualFold(r.appName, app)) {
+	if app == "" || (r.app != nil && strings.EqualFold(r.appName, app)) {
+		return nil
+	}
+	if r.lease != nil {
+		if lease, ok := tryLock(ctx, filepath.Join(r.lockDir, appLocksDir, appLockName(app))); ok {
+			r.app.release()
+			r.app, r.appName = lease, app
+		}
 		return nil
 	}
 	r.app.release()

@@ -1696,9 +1696,9 @@ func TestPatternInputIsTheSteps(t *testing.T) {
 	assert.NotContains(t, strings.Join(lifecycleMessages(replayed.exec.GetAgentSession()), "\n"), "Waiting until nobody")
 }
 
-// A pattern that may have acted counts as the step's input; one refused
-// before it acted does not, so a person's input just before it still holds
-// the step back.
+// A pattern a step holding the desktop applies counts as the step's input
+// when it may have acted; one refused before it acted does not, so a
+// person's input just before it still holds the step back.
 func TestApplyPatternCountsOnlyInputItMayHaveSent(t *testing.T) {
 	t.Parallel()
 
@@ -1721,7 +1721,7 @@ func TestApplyPatternCountsOnlyInputItMayHaveSent(t *testing.T) {
 		}
 		save, err := els.Find(desktop.Selector{Role: desktop.RoleButton, ID: "saveButton"})
 		require.NoError(t, err)
-		r := &run{driver: desktop.New(newFakeBackend(800, 600))}
+		r := &run{driver: desktop.New(newFakeBackend(800, 600)), lease: &desktopLease{}}
 		_ = r.applyPattern(els, save[0], desktop.PatternInvoke, "")
 		assert.Equal(t, tc.counts, !r.driver.InputSentAt().IsZero(), tc.name)
 	}

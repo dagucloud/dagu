@@ -730,13 +730,17 @@ func (r *run) evaluate(ctx context.Context, c condition) (bool, string, error) {
 }
 
 // reachCheck makes the window an exact check reads the one the step reads:
-// a window of the application its selector names or the step works in,
-// preferring one with the title it names.
+// a window of the application its selector names or the step works in, or
+// else the one it reads now, as a handler's check does while the step looks
+// for an element, preferring one with the title it names.
 func (r *run) reachCheck(ctx context.Context, c condition) error {
 	if _, err := r.elementsReader(); err != nil {
 		return err
 	}
 	app, title := r.homeApp(), c.Window
+	if app == "" && r.own != nil {
+		app = r.own.App
+	}
 	if c.Element != nil {
 		app, title = cmp.Or(c.Element.App, app), c.Element.Window
 	}
@@ -926,7 +930,7 @@ func (r *run) fail(ctx context.Context, index int, kind string, cause error) err
 	// the screen while another step holds the desktop, which a failure does
 	// not wait for.
 	_, refused := errors.AsType[refusedWindow](cause)
-	if !refused && r.cfg.screenshotPolicy() != screenshotsNever && r.artifacts.Enabled() && r.driver != nil && r.tryDesktop() {
+	if !refused && r.cfg.screenshotPolicy() != screenshotsNever && r.artifacts.Enabled() && r.driver != nil && r.tryDesktop(ctx) {
 		if rel, err := r.capture(context.WithoutCancel(ctx), failureShotLabel); err == nil {
 			files = append(files, rel)
 		}
