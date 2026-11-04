@@ -268,7 +268,8 @@ func TestAppendColumnFormats(t *testing.T) {
 	require.NoError(t, err)
 	style, err := g.GetStyle(id)
 	require.NoError(t, err)
-	assert.Len(t, style.Border, 1, "the border of the cell above survives")
+	require.Len(t, style.Border, 1)
+	assert.Equal(t, excelize.Border{Type: "left", Color: "000000", Style: 1}, style.Border[0], "the border of the cell above survives")
 }
 
 // TestAppendKeepsFractionDigits covers a fraction appended below a column of
