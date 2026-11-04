@@ -150,6 +150,17 @@ function sectionTitle(section: Section, ts: (key: string) => string): string {
   return key ? ts(key) : section.title;
 }
 
+/** The entry with the line of its group blurb in front of its catalog text. */
+function withShownLine(entry: ActionCatalogEntry): ActionCatalogEntry {
+  const line = GROUP_BLURBS.get(entry.name);
+  return line
+    ? {
+        ...entry,
+        description: [line, entry.description].filter(Boolean).join('\n'),
+      }
+    : entry;
+}
+
 interface Section {
   id: string;
   title: string;
@@ -185,7 +196,15 @@ export function buildSections(
   } = {}
 ): Section[] {
   if (query.trim() !== '') {
-    const ranked = rankCatalog(catalog, query, options.aliases);
+    // The search reads the line that the panel shows for an action too.
+    const searched = new Map(
+      catalog.map((entry) => [withShownLine(entry), entry])
+    );
+    const ranked = rankCatalog(
+      [...searched.keys()],
+      query,
+      options.aliases
+    ).map((entry) => searched.get(entry) ?? entry);
     return [
       ...groupRanked(ranked).map((group) => ({
         id: group.namespace,

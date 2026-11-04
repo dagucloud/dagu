@@ -78,6 +78,15 @@ describe('buildSections', () => {
     ]);
   });
 
+  // The search finds an action by the line that the panel shows for it:
+  // "into" is only in "Pack files into an archive."
+  it('finds an action by the line that the panel shows', () => {
+    const sections = buildSections(catalog, 'into', [], TITLES);
+    expect(sections.flatMap((s) => s.entries.map((e) => e.name))).toEqual([
+      'archive.create',
+    ]);
+  });
+
   it('shows no recent section while the user searches', () => {
     const sections = buildSections(catalog, 'json', ['run'], TITLES);
     expect(sections.map((s) => s.id)).toEqual(['jq']);
