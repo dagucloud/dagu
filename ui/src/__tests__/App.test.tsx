@@ -478,6 +478,28 @@ describe('App license routing', () => {
     expect(window.location.hash).toBe('#secret-refs');
   });
 
+  it('redirects the old license route to Settings, keeping its query and hash', async () => {
+    renderAt('/license?trial=1#monitoring');
+
+    expect(
+      await screen.findByRole('heading', { name: 'License' })
+    ).toBeVisible();
+    expect(window.location.pathname).toBe('/settings');
+    expect(window.location.search).toBe('?trial=1');
+    expect(window.location.hash).toBe('#monitoring');
+  });
+
+  it('opens remote nodes as a section of Settings', async () => {
+    renderAt('/remote-nodes');
+
+    expect(
+      await screen.findByRole('heading', { name: 'Remote Nodes' })
+    ).toBeVisible();
+    expect(screen.getByRole('heading', { name: 'Settings' })).toBeVisible();
+    expect(window.location.pathname).toBe('/settings');
+    expect(window.location.hash).toBe('#remote-nodes');
+  });
+
   it('offers a reload when a lazy route chunk fails to load', async () => {
     overviewImportError.current = true;
     const consoleError = vi

@@ -45,10 +45,11 @@ const restartNotes: Record<string, string> = {
   file: 'The license file is loaded again when Dagu restarts. Remove it to stop using the license.',
 };
 
-export default function LicensePage() {
+/** The server's plan, Dagu Console connection, monitoring, and remote access. */
+export default function LicenseSection() {
   const { license, loading, error: statusError, now } = useLicenseState();
   const { mutate } = useContext(LicenseContext)!;
-  const { setTitle, selectedRemoteNode } = useContext(AppBarContext);
+  const { selectedRemoteNode } = useContext(AppBarContext);
   const remoteNode = selectedRemoteNode || 'local';
   const client = useClient();
   const { ts } = useI18n();
@@ -90,10 +91,6 @@ export default function LicensePage() {
   const [choosingLevel, setChoosingLevel] = useState(false);
   // Set while a Dagu Console page opened from here may change the plan.
   const consoleOpened = useRef(false);
-
-  useEffect(() => {
-    setTitle(ts('Plan & features'));
-  }, [setTitle, ts]);
 
   // Each visit to #activate, even a repeated one, opens the key form, which
   // takes focus, in view. A visit to #monitoring waits for its section, which
@@ -275,12 +272,15 @@ export default function LicensePage() {
   const busy = Boolean(pendingAction);
 
   return (
-    <div className="flex flex-col gap-4 max-w-4xl">
+    <section
+      aria-labelledby="plan-heading"
+      className="flex flex-col gap-4 max-w-4xl"
+    >
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div className="min-w-0">
-          <h1 className="text-2xl font-semibold tracking-[-0.01em]">
+          <h2 id="plan-heading" className="text-lg font-semibold">
             {ts('Plan & features')}
-          </h1>
+          </h2>
           <p className="text-sm text-muted-foreground">
             {ts(
               'License, Dagu Console connection, monitoring, and remote access for this server.'
@@ -568,6 +568,6 @@ export default function LicensePage() {
           )}
         </p>
       </ConfirmModal>
-    </div>
+    </section>
   );
 }

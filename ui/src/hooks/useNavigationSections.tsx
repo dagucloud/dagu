@@ -19,7 +19,7 @@ import {
   Package,
   Radar,
   ScrollText,
-  Server,
+  Settings,
   SlidersHorizontal,
   SquareTerminal,
   Users,
@@ -156,7 +156,7 @@ export function useNavigationSections(): {
           ],
         },
         isAdmin && {
-          to: '/license#monitoring',
+          to: '/settings#monitoring',
           text: t('navigation.externalMonitoring'),
           icon: <Radar size={16} />,
         },
@@ -214,9 +214,9 @@ export function useNavigationSections(): {
           icon: <KeyRound size={16} />,
         },
         {
-          to: '/remote-nodes',
-          text: t('navigation.remoteNodes'),
-          icon: <Server size={16} />,
+          to: '/settings',
+          text: t('navigation.settings'),
+          icon: <Settings size={16} />,
         },
         config.terminalEnabled && {
           to: '/terminal',

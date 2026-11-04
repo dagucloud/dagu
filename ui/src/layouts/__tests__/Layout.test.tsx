@@ -327,13 +327,13 @@ describe('Layout', () => {
     ).toBeInTheDocument();
   });
 
-  it('leaves license and monitoring notices to the license page', () => {
+  it('leaves license and monitoring notices to the Settings page', () => {
     const { unmount } = renderLayout('/home');
     expect(screen.getByTestId('license-banner')).toBeInTheDocument();
     expect(screen.getByTestId('monitoring-notice')).toBeInTheDocument();
     unmount();
 
-    renderLayout('/license');
+    renderLayout('/settings');
     expect(screen.queryByTestId('license-banner')).not.toBeInTheDocument();
     expect(screen.queryByTestId('monitoring-notice')).not.toBeInTheDocument();
   });

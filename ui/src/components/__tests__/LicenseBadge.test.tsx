@@ -160,7 +160,7 @@ describe('license presentation', () => {
   it('provides keyboard-accessible details and a direct management link', async () => {
     renderLicense({ expiry: '2027-01-01T00:00:00Z' });
     const link = screen.getByRole('link', { name: 'Plan & features' });
-    expect(link).toHaveAttribute('href', '/license');
+    expect(link).toHaveAttribute('href', '/settings');
     expect(link).toHaveTextContent(/^Team plan$/);
     await userEvent.tab();
     const tooltip = await screen.findByRole('tooltip');
@@ -191,7 +191,7 @@ describe('license presentation', () => {
     const view = renderLicense({ community: true, valid: false });
     expect(
       screen.getByRole('link', { name: 'Start free trial' })
-    ).toHaveAttribute('href', '/license?trial=1#monitoring');
+    ).toHaveAttribute('href', '/settings?trial=1#monitoring');
     expect(screen.getByRole('link', { name: 'View plans' })).toHaveAttribute(
       'href',
       expect.stringContaining('content=audit')

@@ -175,7 +175,7 @@ export function LicenseBadge({
     <Tooltip>
       <TooltipTrigger asChild>
         <Link
-          to="/license"
+          to="/settings"
           onClick={onNavigate}
           aria-label={ts('Plan & features')}
           className={className}

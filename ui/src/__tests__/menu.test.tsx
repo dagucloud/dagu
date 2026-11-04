@@ -302,7 +302,7 @@ describe('sidebar menu', () => {
       ['Audit Logs', '/audit-logs'],
       ['Notifications', '/notifications'],
       ['Incidents', '/incidents'],
-      ['External Monitoring', '/license#monitoring'],
+      ['External Monitoring', '/settings#monitoring'],
     ]);
     expectLinks(screen.getByRole('group', { name: 'Configure' }), [
       ['Profiles & Secrets', '/profiles'],
@@ -314,7 +314,7 @@ describe('sidebar menu', () => {
     expectLinks(screen.getByRole('group', { name: 'Administration' }), [
       ['Users', '/users'],
       ['API Keys', '/api-keys'],
-      ['Remote Nodes', '/remote-nodes'],
+      ['Settings', '/settings'],
       ['Terminal', '/terminal'],
     ]);
     expect(

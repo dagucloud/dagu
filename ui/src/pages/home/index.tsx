@@ -222,7 +222,7 @@ export default function HomePage(): React.ReactElement {
               description: t('home.administrationDescription'),
             },
             {
-              to: '/remote-nodes',
+              to: '/settings#remote-nodes',
               label: t('navigation.remoteNodes'),
               description: t('home.remoteNodesDescription'),
             },
@@ -236,7 +236,7 @@ export default function HomePage(): React.ReactElement {
                 ]
               : []),
             {
-              to: '/license',
+              to: '/settings',
               label: t('navigation.license'),
               description: t('home.licenseDescription'),
             },

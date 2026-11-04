@@ -104,7 +104,6 @@ const IncidentProvidersPage = React.lazy(
 );
 const IncidentsPage = React.lazy(() => import('./pages/incidents'));
 const IntegrationsPage = React.lazy(() => import('./pages/integrations'));
-const LicensePage = React.lazy(() => import('./pages/license'));
 const NotFoundPage = React.lazy(() => import('./pages/not-found'));
 const NotificationChannelsPage = React.lazy(
   () => import('./pages/notification-channels')
@@ -119,9 +118,9 @@ const ProfilesPage = React.lazy(() => import('./pages/profiles'));
 const Queues = React.lazy(() => import('./pages/queues'));
 const QueueDetailsPage = React.lazy(() => import('./pages/queues/queue'));
 const Search = React.lazy(() => import('./pages/search'));
+const SettingsPage = React.lazy(() => import('./pages/settings'));
 const SystemStatus = React.lazy(() => import('./pages/system-status'));
 const TerminalPage = React.lazy(() => import('./pages/terminal'));
-const RemoteNodesPage = React.lazy(() => import('./pages/remote-nodes'));
 const UsersPage = React.lazy(() => import('./pages/users'));
 const WebhooksPage = React.lazy(() => import('./pages/webhooks'));
 
@@ -173,6 +172,16 @@ function LegacyWikiRouteRedirect() {
   return (
     <Navigate to={`/wiki${suffix}${location.search}${location.hash}`} replace />
   );
+}
+
+/**
+ * Sends a page that became a section of Settings there, keeping the query
+ * and, unless the section is named, the hash.
+ */
+function SettingsRedirect({ section }: { section?: string }) {
+  const location = useLocation();
+  const hash = section ? `#${section}` : location.hash;
+  return <Navigate to={`/settings${location.search}${hash}`} replace />;
 }
 
 function isWorkspaceSensitiveTargetPath(path: unknown): boolean {
@@ -1103,9 +1112,7 @@ function AppInner({ config: initialConfig }: Props): React.ReactElement {
                                         <Route
                                           path="/remote-nodes"
                                           element={
-                                            <AdminElement>
-                                              <RemoteNodesPage />
-                                            </AdminElement>
+                                            <SettingsRedirect section="remote-nodes" />
                                           }
                                         />
                                         <Route
@@ -1168,14 +1175,18 @@ function AppInner({ config: initialConfig }: Props): React.ReactElement {
                                           }
                                         />
                                         <Route
-                                          path="/license"
+                                          path="/settings"
                                           element={
                                             <AdminElement>
-                                              <LicensePage
+                                              <SettingsPage
                                                 key={selectedRemoteNode}
                                               />
                                             </AdminElement>
                                           }
+                                        />
+                                        <Route
+                                          path="/license"
+                                          element={<SettingsRedirect />}
                                         />
                                         <Route
                                           path="/git-sync"

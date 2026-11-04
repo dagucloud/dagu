@@ -148,7 +148,7 @@ export function useWorkspaceNotices(): WorkspaceNotice[] {
         message: ts('Get an email if this server stops'),
         action: {
           label: ts('Set up for free'),
-          run: () => navigate('/license#monitoring'),
+          run: () => navigate('/settings#monitoring'),
         },
         dismissible: true,
         dismiss: dismissOffer,
