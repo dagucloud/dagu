@@ -294,7 +294,8 @@ func TestAPixelReplayClicksTheFieldTypedIntoById(t *testing.T) {
 
 // A replay of a value the act set through a field selects the field's text
 // before typing the value, when the field no longer takes it through the
-// element, so the keys replace the text as the value did. It misses when
+// element or does not read it back, so the keys replace the text as the
+// value did. It misses when
 // the field does not come to show the value, or loses the focus before its
 // text is selected, so neither keys nor a save after them land elsewhere.
 // A replay by pixels, which cannot find the field, misses rather than
@@ -324,8 +325,23 @@ func TestAReplayOfAValueSetThroughAFieldReplacesItsText(t *testing.T) {
 		inputs []string
 		err    string
 	}{
-		{name: "the field takes the keys", inputs: []string{"focus amountBox", "key ctrl", "key a", "type 1200"}},
+		{name: "the field takes the keys", setup: func(run *testRun) { run.elements.withoutPattern("amountBox") },
+			inputs: []string{"focus amountBox", "key ctrl", "key a", "type 1200"}},
+		{name: "the field reformats the value set", setup: func(run *testRun) {
+			run.elements.onApply = func(e desktop.Element, _ desktop.Pattern, value string) {
+				run.backend.recordAccessibility(fmt.Sprintf("set %s=%s", focusedID(e), value))
+				if value != "" {
+					run.elements.setValue("amountBox", "1,200")
+				}
+			}
+			run.backend.onType = func(text string) {
+				run.elements.mu.Lock()
+				run.elements.focused.Value = text
+				run.elements.mu.Unlock()
+			}
+		}, inputs: []string{"set amountBox=1200", "set amountBox=", "focus amountBox", "key ctrl", "key a", "type 1200"}},
 		{name: "the field cuts the keys short", setup: func(run *testRun) {
+			run.elements.withoutPattern("amountBox")
 			run.backend.onType = func(text string) {
 				run.elements.mu.Lock()
 				run.elements.focused.Value = text[:len(text)-1]
@@ -333,6 +349,7 @@ func TestAReplayOfAValueSetThroughAFieldReplacesItsText(t *testing.T) {
 			}
 		}, inputs: []string{"focus amountBox", "key ctrl", "key a", "type 1200"}, err: `shows "120" at turn 1 of 1, not the value replayed into it`},
 		{name: "the focus moves away", setup: func(run *testRun) {
+			run.elements.withoutPattern("amountBox")
 			run.elements.onFocus = func(e desktop.Element) {
 				run.backend.recordAccessibility("focus " + focusedID(e))
 				run.elements.mu.Lock()
@@ -348,10 +365,7 @@ func TestAReplayOfAValueSetThroughAFieldReplacesItsText(t *testing.T) {
 		t.Run("by element: "+tc.name, func(t *testing.T) {
 			t.Parallel()
 			run := recorded(t)
-			run.elements.withoutPattern("amountBox")
-			if tc.setup != nil {
-				tc.setup(run)
-			}
+			tc.setup(run)
 			err := run.execute(replay, nil).err
 			if tc.err == "" {
 				require.NoError(t, err)

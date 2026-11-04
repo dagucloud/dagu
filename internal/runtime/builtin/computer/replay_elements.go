@@ -687,6 +687,22 @@ func (r *run) direct(ctx context.Context, index, position, total int, els deskto
 		err := r.applyPattern(els, found, pattern, value)
 		switch {
 		case err == nil:
+			// A value is set only once the field reads it back, as the act
+			// proved it; otherwise the field is emptied and gets it as keys,
+			// which are checked in turn.
+			if pattern == desktop.PatternSetValue {
+				read, err := r.readBack(ctx, els, *rec.Element, value)
+				if err != nil {
+					return false, "", err
+				}
+				if read == nil {
+					logAction(r.timeline, index, rec.Element.describe()+" does not read back the value set; typing it instead")
+					if err := r.applyPattern(els, found, desktop.PatternSetValue, ""); err != nil {
+						return false, fmt.Sprintf("%s does not read back the value set at turn %d of %d and could not be emptied: %v", rec.Element.describe(), position+1, total, err), nil
+					}
+					return false, "", nil
+				}
+			}
 			logAction(r.timeline, index, "replay by element: "+describeDirect(pattern, rec))
 			return true, "", nil
 		case errors.Is(err, desktop.ErrNoPattern):

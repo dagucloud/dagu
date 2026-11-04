@@ -255,9 +255,20 @@ func (l *actLoop) setField(ctx context.Context, els desktop.Elements, e desktop.
 	case err != nil:
 		return nil, err
 	}
+	if found, err := l.r.readBack(ctx, els, field, text); err != nil || found != nil {
+		return found, err
+	}
+	logAction(l.r.timeline, l.index, describeElement(e)+" does not read back the value set; typing it instead")
+	return nil, l.r.applyPattern(els, e, desktop.PatternSetValue, "")
+}
+
+// readBack waits up to typedSettle for a field to read back the text set
+// through it and returns the field as it then reads, or nil when it does
+// not, as a field that hides or reformats what it is given does.
+func (r *run) readBack(ctx context.Context, els desktop.Elements, field recordedElement, text string) (*desktop.Element, error) {
 	want := desktop.NormalizeText(text)
 	for deadline := time.Now().Add(typedSettle); ; {
-		found, reason, err := l.r.lookRecorded(els, field)
+		found, reason, err := r.lookRecorded(els, field)
 		if err != nil {
 			return nil, err
 		}
@@ -265,12 +276,10 @@ func (l *actLoop) setField(ctx context.Context, els desktop.Elements, e desktop.
 			return &found, nil
 		}
 		if !time.Now().Before(deadline) {
-			break
+			return nil, nil
 		}
 		if err := sleep(ctx, typedPoll); err != nil {
 			return nil, err
 		}
 	}
-	logAction(l.r.timeline, l.index, describeElement(e)+" does not read back the value set; typing it instead")
-	return nil, l.r.applyPattern(els, e, desktop.PatternSetValue, "")
 }
