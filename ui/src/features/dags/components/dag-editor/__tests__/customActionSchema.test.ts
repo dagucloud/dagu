@@ -914,9 +914,11 @@ describe.skipIf(realSchema === null)(
     );
 
     it('leaves the base schema as it was', () => {
-      const before = JSON.stringify(base);
-      for (const [, inputs] of cases) buildAugmentedDAGSchema(base, ...inputs);
-      expect(JSON.stringify(base)).toBe(before);
+      // A copy with its shared objects and no built schemas: each call builds.
+      const fresh = structuredClone(base);
+      const before = JSON.stringify(fresh);
+      for (const [, inputs] of cases) buildAugmentedDAGSchema(fresh, ...inputs);
+      expect(JSON.stringify(fresh)).toBe(before);
     });
 
     it('marks the properties of the step rules as not suggested, with no hints', () => {
