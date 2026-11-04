@@ -22,6 +22,10 @@ import { QueryFeedback } from './components/QueryFeedback';
 import { ErrorModalProvider } from '@/components/ui/error-modal';
 import { ToastProvider } from '@/components/ui/simple-toast';
 import { WorkspaceLoading } from '@/features/workflow-workspace/WorkspaceLoading';
+import { useDAGDetailsQuery } from '@/features/dags/hooks/useDAGDetailsQuery';
+import { useDAGSpecQuery } from '@/features/dags/components/dag-editor/useDAGSpecQuery';
+import { useRemoteNode } from '@/contexts/RemoteNodeContext';
+import { PREFETCH_OPTIONS } from '@/hooks/queryUtils';
 import RunProgressStack from '@/features/dags/components/dag-execution/RunProgressStack';
 import LegacyRunRedirect from './pages/dag-runs/LegacyRunRedirect';
 import { AppBarContext } from './contexts/AppBarContext';
@@ -410,6 +414,23 @@ function LazyRoutes({
   );
 }
 
+/**
+ * The overlay from the click until the URL names the workflow. It asks for
+ * the details and the spec of the workflow meanwhile, with the keys that
+ * the workflow page reads, so that the page mounts on their answers.
+ */
+function OverlayLoading({
+  fileName,
+}: {
+  fileName: string;
+}): React.ReactElement {
+  const remoteNode = useRemoteNode();
+  const enabled = fileName !== '';
+  useDAGDetailsQuery(fileName, remoteNode, PREFETCH_OPTIONS, enabled);
+  useDAGSpecQuery(fileName, remoteNode, PREFETCH_OPTIONS, enabled);
+  return <WorkspaceLoading fileName={fileName} />;
+}
+
 /** Keeps the title of the tab as the page below set it. */
 function keepTitle(): void {
   return;
@@ -541,9 +562,7 @@ function WorkflowOverlayHost(): React.ReactElement | null {
                     <Route
                       path="*"
                       element={
-                        <WorkspaceLoading
-                          fileName={overlay.target?.dag ?? ''}
-                        />
+                        <OverlayLoading fileName={overlay.target?.dag ?? ''} />
                       }
                     />
                   </Routes>

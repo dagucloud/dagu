@@ -343,6 +343,27 @@ describe('App workflow overlay', () => {
     expect(pageRenders.titles).toBe(before);
   });
 
+  // The page asks for the same keys when it mounts, and finds them asked.
+  it('asks for the workflow at the click', async () => {
+    await renderWorkflows();
+
+    await userEvent.click(screen.getByRole('button', { name: 'Open etl' }));
+
+    const params = {
+      params: { query: { remoteNode: 'local' }, path: { fileName: 'etl' } },
+    };
+    expect(useQueryMock).toHaveBeenCalledWith(
+      '/dags/{fileName}',
+      params,
+      expect.anything()
+    );
+    expect(useQueryMock).toHaveBeenCalledWith(
+      '/dags/{fileName}/spec',
+      params,
+      expect.anything()
+    );
+  });
+
   it('does not render the page below for a change of the overlay', async () => {
     await renderWorkflows();
     const before = pageRenders.dags;

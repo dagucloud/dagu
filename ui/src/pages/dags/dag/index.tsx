@@ -31,7 +31,7 @@ import { DAGContext } from '../../../features/dags/contexts/DAGContext';
 import { useQuery } from '../../../hooks/api';
 import { useDAGRunSSE } from '../../../hooks/useDAGRunSSE';
 import { useDAGSSE } from '../../../hooks/useDAGSSE';
-import { whenEnabled } from '../../../hooks/queryUtils';
+import { PREFETCH_OPTIONS, whenEnabled } from '../../../hooks/queryUtils';
 import {
   sseFallbackOptions,
   useSSECacheSync,
@@ -51,17 +51,11 @@ import { LoadErrorState, NotFoundState } from '@/components/PageStates';
 import { isNotFoundQueryError } from '@/lib/queryErrors';
 import { WorkflowWorkspace } from '@/features/workflow-workspace';
 import { useDAGSpecQuery } from '@/features/dags/components/dag-editor/useDAGSpecQuery';
+import { useDAGDetailsQuery } from '@/features/dags/hooks/useDAGDetailsQuery';
 import { LogPopoutPage } from '@/features/workflow-workspace/popout/LogPopoutPage';
 import { useLegacyRedirect } from '@/features/workflow-workspace/state/useLegacyRedirect';
 import { useBoundedDAGRunDetails } from '@/features/dag-runs/hooks/useBoundedDAGRunDetails';
 import LoadingIndicator from '@/components/ui/loading-indicator';
-
-// The first answer only: the editor owns the refreshes of the spec.
-const SPEC_PREFETCH_OPTIONS = {
-  revalidateIfStale: false,
-  revalidateOnFocus: false,
-  revalidateOnReconnect: false,
-} as const;
 
 // The run view of a workflow file that is gone reaches Mermaid, which the
 // page keeps out of its static imports.
@@ -191,21 +185,12 @@ function DAGDetails() {
     data: dagData,
     error: dagError,
     mutate: mutateDag,
-  } = useQuery(
-    '/dags/{fileName}',
-    {
-      params: {
-        query: scopedQuery,
-        path: { fileName },
-      },
-    },
-    sseFallbackOptions(dagSSE)
-  );
+  } = useDAGDetailsQuery(fileName, remoteNode, sseFallbackOptions(dagSSE));
   useSSECacheSync(dagSSE, mutateDag);
   // The editor waits for the spec of the file: asked for now, it comes with
   // the details instead of after them. The editor keeps it fresh. A log page
   // has no editor.
-  useDAGSpecQuery(fileName, remoteNode, SPEC_PREFETCH_OPTIONS, !popout);
+  useDAGSpecQuery(fileName, remoteNode, PREFETCH_OPTIONS, !popout);
   const dagTitle = dagData?.dag?.name || fileName;
   useEffect(() => {
     setTitle(dagTitle);
