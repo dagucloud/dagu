@@ -401,9 +401,10 @@ function TimelineChart({ status, onOpenSubRun, visible = true }: Props) {
       },
     }),
     {
+      // A waiting run can have children that still run or change.
       refreshInterval:
         shouldFetchSubRuns &&
-        (status.status === Status.Running || status.status === Status.Queued)
+        (isLiveRunStatus(status.status) || status.status === Status.Queued)
           ? 3000
           : 0,
     }

@@ -172,6 +172,27 @@ describe('TimelineChart', () => {
     });
   });
 
+  // A run that waits for a person can have children that still change.
+  it('keeps the children of a waiting run fresh', () => {
+    const options: unknown[] = [];
+    useQueryMock.mockImplementation((_path, _init, config) => {
+      options.push(config);
+      return { data: { subRuns: [] }, mutate: vi.fn() } as never;
+    });
+
+    renderChart(
+      dagRun({
+        status: Status.Waiting,
+        statusLabel: StatusLabel.waiting,
+        nodes: [parallelNode('parallel-call', [subRun('child-1')])],
+      })
+    );
+
+    expect(options[options.length - 1]).toMatchObject({
+      refreshInterval: 3000,
+    });
+  });
+
   it('does not render child rows for non-parallel sub-DAG calls', () => {
     useQueryMock.mockReturnValue({
       data: { subRuns: [subRunDetail('child-run-1')] },
