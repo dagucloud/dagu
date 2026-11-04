@@ -1623,8 +1623,7 @@ func closeBrowser(ctx context.Context, pid int, startedAt int64, closeRuntime fu
 // it could not end, among them processes that were exiting as it walked the
 // tree. The runtime reports that status although the browser exited.
 func withoutExitStatus(err error) error {
-	var exitErr *exec.ExitError
-	if !errors.As(err, &exitErr) {
+	if _, ok := errors.AsType[*exec.ExitError](err); !ok {
 		return err
 	}
 	joined, ok := err.(interface{ Unwrap() []error })
