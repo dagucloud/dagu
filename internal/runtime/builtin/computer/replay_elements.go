@@ -736,6 +736,9 @@ func (r *run) replayByElement(ctx context.Context, index, position, total int, t
 			}
 		}
 		action := rec.Action
+		// replacing is the field whose selected text a replayed value types
+		// over, read back once the keys are sent.
+		var replacing *desktop.Element
 		if rec.Element == nil {
 			logAction(r.timeline, index, "replay "+describeAction(action))
 		} else {
@@ -795,9 +798,10 @@ func (r *run) replayByElement(ctx context.Context, index, position, total int, t
 					return fmt.Sprintf("%s could not take the focus at turn %d of %d: %v", rec.Element.describe(), position+1, total, err), nil
 				}
 				if rec.Invoked && action.Kind == computeruse.KindType {
-					if reason := r.selectForReplacement(ctx, rec, action, position, total); reason != "" {
+					if reason := r.selectForReplacement(ctx, rec, found, action, position, total); reason != "" {
 						return reason, ctx.Err()
 					}
+					replacing = &found
 				}
 			default:
 				at = rec.Element.point(found)
@@ -818,6 +822,11 @@ func (r *run) replayByElement(ctx context.Context, index, position, total int, t
 		if result := r.runAction(ctx, action, identity, nil, computeruse.ImageLimit{}); result.Failed() {
 			return fmt.Sprintf("%s failed at turn %d of %d: %s", describeAction(action), position+1, total, result.Error), ctx.Err()
 		}
+		if replacing != nil {
+			if field, wrong := r.notReplaced(ctx, *replacing, r.substitute(action.Text)); wrong {
+				return fmt.Sprintf("%s shows %q at turn %d of %d, not the value replayed into it", rec.Element.describe(), r.modelValue(field, ""), position+1, total), ctx.Err()
+			}
+		}
 		outcome.carried = append(outcome.carried, rec)
 		if reason, err := r.confirmChecked(ctx, els, rec, position, total, findWithin); err != nil || reason != "" {
 			return reason, err
@@ -829,16 +838,22 @@ func (r *run) replayByElement(ctx context.Context, index, position, total int, t
 // selectForReplacement selects the text of the field a recorded value goes
 // into, when the act set the value through the field and the field now
 // takes it only as keys, so the keys replace the text as the value did,
-// and deletes the selection for an empty value, which no key types. It
-// says why it could not.
-func (r *run) selectForReplacement(ctx context.Context, rec recordedAction, action computeruse.Action, position, total int) string {
+// and deletes the selection for an empty value, which no key types. The
+// keys go as any replayed key does, never to a window the step does not
+// operate, and not at all once the focus is known to have left the field.
+// It says why it could not.
+func (r *run) selectForReplacement(ctx context.Context, rec recordedAction, field desktop.Element, action computeruse.Action, position, total int) string {
+	if focused, err := r.focusedElement(); err == nil && !slices.Equal(focused.Path, field.Path) {
+		return fmt.Sprintf("%s lost the focus at turn %d of %d before its text was replaced", rec.Element.describe(), position+1, total)
+	}
 	chords := []string{r.selectAllChord()}
 	if r.substitute(action.Text) == "" {
 		chords = append(chords, string(desktop.KeyBackspace))
 	}
 	for _, chord := range chords {
-		if err := r.pressKeys(ctx, chord); err != nil {
-			return fmt.Sprintf("%s could not have its text replaced at turn %d of %d: %v", rec.Element.describe(), position+1, total, err)
+		keys := computeruse.Action{Kind: computeruse.KindKey, Keys: computeruse.SplitKeys(chord)}
+		if result := r.runAction(ctx, keys, identity, nil, computeruse.ImageLimit{}); result.Failed() {
+			return fmt.Sprintf("%s could not have its text replaced at turn %d of %d: %s", rec.Element.describe(), position+1, total, result.Error)
 		}
 	}
 	return ""

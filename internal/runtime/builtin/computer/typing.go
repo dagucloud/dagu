@@ -212,26 +212,33 @@ func (l *actLoop) reportEmptied(ctx context.Context, callID string, e desktop.El
 }
 
 // confirmReplaced fails a typing whose field, its text selected first, does
-// not come to show just the typed text, as typed or as the field formats
-// it, within typedSettle, as when the field cuts the text short or keeps
-// old text the selection missed, so the rest of the turn, such as a save,
-// does not run on the wrong value. A field the
-// step cannot read, one that shows nothing before and after, as a password
-// field does, and text holding a key the window acts on say nothing.
+// not come to show just the typed text, so the rest of the turn, such as a
+// save, does not run on the wrong value.
 func (l *actLoop) confirmReplaced(ctx context.Context, result *computeruse.Result, e desktop.Element, text string) {
+	if field, wrong := l.r.notReplaced(ctx, e, text); wrong {
+		name := l.r.masker.MaskString(cmp.Or(e.Name, e.Label, "the field"))
+		result.Output = ""
+		result.Error = fmt.Sprintf("%s shows %q, not the text typed into it", name, l.r.modelValue(field, ""))
+	}
+}
+
+// notReplaced waits up to typedSettle for the field e, its text selected
+// and typed over, to show just the typed text, as typed or as the field
+// formats it, and reports the field as it shows otherwise, as when the
+// field cuts the text short or keeps old text. A field the step cannot
+// read, one that shows nothing before and after, as a password field does,
+// and text holding a key the window acts on are taken as replaced.
+func (r *run) notReplaced(ctx context.Context, e desktop.Element, text string) (desktop.Element, bool) {
 	if strings.ContainsAny(text, "\r\n\t") {
-		return
+		return desktop.Element{}, false
 	}
 	for deadline := time.Now().Add(typedSettle); ; {
-		field, err := l.r.focusedElement()
+		field, err := r.focusedElement()
 		if err != nil || !slices.Equal(field.Path, e.Path) || field.Value == "" && e.Value == "" || showsReplaced(field.Value, text) {
-			return
+			return desktop.Element{}, false
 		}
 		if !time.Now().Before(deadline) || sleep(ctx, typedPoll) != nil {
-			name := l.r.masker.MaskString(cmp.Or(e.Name, e.Label, "the field"))
-			result.Output = ""
-			result.Error = fmt.Sprintf("%s shows %q, not the text typed into it", name, l.r.modelValue(field, ""))
-			return
+			return field, true
 		}
 	}
 }
