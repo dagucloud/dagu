@@ -169,10 +169,12 @@ func TestShellCommandField_DefersQuotedShellVars(t *testing.T) {
 }
 
 // Inside a shell single-quoted span the shell never expands "${NAME}", so
-// Dagu resolves it and re-quotes the value, which keeps a JSON body valid.
+// Dagu resolves it and re-quotes the value, which keeps a JSON body valid. An
+// apostrophe in the value is rendered as '\” so it cannot end the span.
 func TestShellCommandField_ResolvesQuotedRefsInSingleQuotes(t *testing.T) {
 	scope := NewEnvScope(nil, false).
-		WithEntries(map[string]string{"NAME": `a"b`}, EnvSourceDAGEnv)
+		WithEntries(map[string]string{"NAME": `a"b`, "NOTE": "it's; rm -rf ~"}, EnvSourceDAGEnv).
+		WithEntries(map[string]string{"TOKEN": "s3cret"}, EnvSourceSecret)
 	ctx := WithEnvScope(context.Background(), scope)
 	resolver := NewResolver(StaticScope{}, RuntimeScope{})
 	field := ShellCommandField("run", CommandContext{
@@ -181,9 +183,41 @@ func TestShellCommandField_ResolvesQuotedRefsInSingleQuotes(t *testing.T) {
 		ShellConfigured: true,
 	})
 
-	got, err := resolver.String(ctx, `curl -d '{"name":"${NAME}"}' "${NAME}"`, field)
-	require.NoError(t, err)
-	assert.Equal(t, `curl -d '{"name":"a\"b"}' "${NAME}"`, got)
+	tests := []struct {
+		name    string
+		command string
+		want    string
+	}{
+		{
+			name:    "JSON body",
+			command: `curl -d '{"name":"${NAME}"}' "${NAME}"`,
+			want:    `curl -d '{"name":"a\"b"}' "${NAME}"`,
+		},
+		{
+			name:    "apostrophe in the value",
+			command: `curl -d '{"note":"${NOTE}"}'`,
+			want:    `curl -d '{"note":"it'\''s; rm -rf ~"}'`,
+		},
+		{
+			name:    "span right after an expansion",
+			command: `curl -d ${PREFIX}'{"name":"${NAME}"}'`,
+			want:    `curl -d ${PREFIX}'{"name":"a\"b"}'`,
+		},
+		{
+			// The apostrophes sit inside double quotes, so they open no
+			// single-quoted span and the secret stays with the shell.
+			name:    "apostrophes inside double quotes",
+			command: `echo "it's " "${TOKEN}" "don't"`,
+			want:    `echo "it's " "${TOKEN}" "don't"`,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got, err := resolver.String(ctx, tt.command, field)
+			require.NoError(t, err)
+			assert.Equal(t, tt.want, got)
+		})
+	}
 }
 
 // A PowerShell double-quoted span interprets the backtick and $, and ends at

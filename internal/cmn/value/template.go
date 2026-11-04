@@ -208,9 +208,16 @@ func (t template) resolveQuotedReferences(ctx context.Context, r *resolver, styl
 
 		match := t.source[loc[0]:loc[1]]
 		ref := match[3 : len(match)-2]
-		singleQuoted := isSingleQuotedVar(t.source, loc[0], loc[1])
+		singleQuoted, _ := shellQuoteState(t.source, loc[0])
 		if value, ok := resolveQuotedReference(ctx, r, ref, singleQuoted); ok {
-			b.WriteString(quoteQuotedRefValue(value, style))
+			rendered := quoteQuotedRefValue(value, style)
+			if singleQuoted && r.deferShellVars {
+				// The value lands inside the shell's single-quoted span, so
+				// each apostrophe closes the span, adds a literal ', and
+				// reopens it.
+				rendered = strings.ReplaceAll(rendered, "'", `'\''`)
+			}
+			b.WriteString(rendered)
 			continue
 		}
 		b.WriteString(match)
@@ -336,7 +343,7 @@ func (t template) resolveVariables(r *resolver) string {
 			continue
 		}
 		resolveName := r.resolveForReplace
-		if isDoubleQuotedVar(t.source, loc[0]) {
+		if _, doubleQuoted := shellQuoteState(t.source, loc[0]); doubleQuoted {
 			resolveName = r.resolveQuotedName
 		}
 		if value, found := resolveName(key); found {
@@ -392,28 +399,26 @@ func isSingleQuotedVar(input string, start, end int) bool {
 	return false
 }
 
-// isDoubleQuotedVar reports whether the reference at start lies inside a shell
-// double-quoted span. Quotes inside single quotes and backslash-escaped
-// characters do not open or close a span.
-func isDoubleQuotedVar(input string, start int) bool {
-	inSingle, inDouble := false, false
-	for i := 0; i < start; i++ {
-		switch input[i] {
-		case '\\':
-			if !inSingle {
-				i++
+// shellQuoteState reports whether the byte at idx lies inside a single- or
+// double-quoted span of a POSIX shell command. A backslash escapes the next
+// byte outside single quotes, and quotes of one kind are literal inside the
+// other.
+func shellQuoteState(input string, idx int) (inSingle, inDouble bool) {
+	for i := 0; i < idx; i++ {
+		switch c := input[i]; {
+		case inSingle:
+			if c == '\'' {
+				inSingle = false
 			}
-		case '\'':
-			if !inDouble {
-				inSingle = !inSingle
-			}
-		case '"':
-			if !inSingle {
-				inDouble = !inDouble
-			}
+		case c == '\\':
+			i++
+		case c == '\'' && !inDouble:
+			inSingle = true
+		case c == '"':
+			inDouble = !inDouble
 		}
 	}
-	return inDouble
+	return inSingle, inDouble
 }
 
 func singleQuoteCanOpen(input string, idx int) bool {

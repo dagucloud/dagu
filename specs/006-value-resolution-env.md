@@ -498,9 +498,11 @@ process.
 
 - Single-quoted `$NAME` and `${NAME}` are preserved during Dagu environment expansion.
 
-- Exception: in `steps[].run`, a bare reference written as `"${NAME}"` inside a single-quoted span, such as a JSON body in `'{"key":"${NAME}"}'`, is resolved by Dagu and its value is re-quoted, because the shell never expands it there.
+- Exception: in `steps[].run`, a bare reference written as `"${NAME}"` inside a single-quoted span, such as a JSON body in `'{"key":"${NAME}"}'`, is resolved by Dagu and its value is re-quoted, because the shell never expands it there. For POSIX and Nix shells, an apostrophe in the value is written as `'\''`, so the value cannot end the span.
 
-- Outside single quotes, a POSIX shell owns `"${NAME}"` in `steps[].run` like an unquoted reference. Dagu inlines a safe home-relative value such as `~/data` only where the reference is unquoted, so the shell can expand the `~`, and never inlines a secret.
+- Quote spans follow shell rules: an apostrophe inside double quotes or after a backslash opens no single-quoted span.
+
+- Outside single quotes, POSIX and Nix shells own `"${NAME}"` in `steps[].run` like an unquoted reference. Dagu inlines a safe home-relative value such as `~/data` only where the reference is unquoted, so the shell can expand the `~`, and never inlines a secret.
 
 - "Single-quoted" means the reference starts inside a single-quoted span in the field text after YAML parsing.
 
