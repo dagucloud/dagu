@@ -14,7 +14,12 @@ vi.mock('@/hooks/useLicense', () => ({
   useLicenseState: () => licenseState,
 }));
 vi.mock('@/pages/license', () => ({
-  default: () => <h2>Plan & features</h2>,
+  default: ({ children }: { children?: React.ReactNode }) => (
+    <>
+      <h2>Plan & features</h2>
+      {children}
+    </>
+  ),
 }));
 vi.mock('@/pages/remote-nodes', () => ({
   default: () => <h2 id="remote-nodes">Remote Nodes</h2>,

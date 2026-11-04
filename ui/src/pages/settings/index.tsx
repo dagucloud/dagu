@@ -31,10 +31,11 @@ export default function SettingsPage(): React.ReactElement {
   }, [hash, locationKey, loading]);
 
   return (
-    <div className="flex flex-col gap-10 pb-8">
+    <div className="flex w-full max-w-5xl flex-col gap-10 pb-8">
       <Title>{t('navigation.settings')}</Title>
-      <LicenseSection />
-      <RemoteNodesSection />
+      <LicenseSection>
+        <RemoteNodesSection />
+      </LicenseSection>
     </div>
   );
 }

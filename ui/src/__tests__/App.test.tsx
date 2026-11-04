@@ -126,7 +126,14 @@ vi.mock('../pages/incidents', () => ({
 vi.mock('../pages/integrations', () => ({
   default: () => <h1>Integrations</h1>,
 }));
-vi.mock('../pages/license', () => ({ default: () => <h1>License</h1> }));
+vi.mock('../pages/license', () => ({
+  default: ({ children }: { children?: React.ReactNode }) => (
+    <>
+      <h1>License</h1>
+      {children}
+    </>
+  ),
+}));
 vi.mock('../pages/login', () => ({ default: () => <h1>Login</h1> }));
 vi.mock('../pages/notification-channels', () => ({
   default: () => <h1>Notification Channels</h1>,
