@@ -542,7 +542,9 @@ function LogBody({ run, details, step, fileName }: RunTabProps) {
         {!target.subRun && (
           <StepFailureBanner
             step={target.step}
-            stream={target.stream}
+            // The log of a foreach item is the log of a body step, not the
+            // stderr of the step that the banner describes.
+            stream={target.foreach ? undefined : target.stream}
             className="shrink-0"
           />
         )}

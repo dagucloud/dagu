@@ -886,6 +886,33 @@ describe('dock tab bodies', () => {
       ).toBeInTheDocument();
     });
 
+    // The log of a foreach item is the log of a body step: the stderr of
+    // the failed foreach step is another log, which the banner still offers.
+    it('offers the stderr of a failed foreach step over a body step log', async () => {
+      setLatest(
+        run(
+          'run-1',
+          [
+            node('fan-out', NodeStatus.Failed, {
+              error: 'exit status 1',
+              step: { executorConfig: { type: 'foreach' } },
+            }),
+          ],
+          Status.Failed
+        )
+      );
+      await renderBody(
+        'log',
+        `/dags/${FILE_NAME}?step=fan-out&item=2&body=fetch&stream=stderr`
+      );
+
+      expect(
+        within(screen.getByTestId('ww-step-failure')).getByRole('button', {
+          name: 'View stderr',
+        })
+      ).toBeInTheDocument();
+    });
+
     // A step of a sub run is not the step of this run with the same name.
     it('shows no error banner for a step of a sub run', async () => {
       setLatest(
