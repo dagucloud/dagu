@@ -717,6 +717,44 @@ func (b *fakeBackend) focusOn(window desktop.WindowID) {
 
 func (b *fakeBackend) Close() error { return nil }
 
+// fakeMarks records the marks a step shows. onShow, when set, runs as one
+// shows, so a test can place it among the step's input.
+type fakeMarks struct {
+	mu     sync.Mutex
+	shown  []desktop.Mark
+	closed bool
+	onShow func(desktop.Mark)
+}
+
+func (m *fakeMarks) Show(mark desktop.Mark) error {
+	m.mu.Lock()
+	m.shown = append(m.shown, mark)
+	onShow := m.onShow
+	m.mu.Unlock()
+	if onShow != nil {
+		onShow(mark)
+	}
+	return nil
+}
+
+func (m *fakeMarks) Close() error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.closed = true
+	return nil
+}
+
+// marked lists each mark shown as its label and target.
+func (m *fakeMarks) marked() []string {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	out := make([]string, len(m.shown))
+	for i, mark := range m.shown {
+		out[i] = fmt.Sprintf("%s %v", mark.Label, mark.Target)
+	}
+	return out
+}
+
 // scriptedSession answers each observation with the next scripted turn and
 // records the observations.
 type scriptedSession struct {
@@ -889,6 +927,10 @@ type testRun struct {
 	// remote runs the step as if in a remote desktop session rather than
 	// at the console, where it does not wait for a person by default.
 	remote bool
+	// marks records the marks the step shows, and marksErr fails opening
+	// them when set.
+	marks    *fakeMarks
+	marksErr error
 }
 
 func newTestRun(t *testing.T) *testRun {
@@ -902,6 +944,7 @@ func newTestRun(t *testing.T) *testRun {
 		backend:     newFakeBackend(400, 200),
 		vision:      &visionModel{},
 		llm:         &ir.LLMConfig{Provider: "openai", Model: "test-model"},
+		marks:       &fakeMarks{},
 	}
 }
 
@@ -966,6 +1009,12 @@ func (r *testRun) execute(withJSON string, session *ir.AgentSession) *stepExecut
 		}
 		r.elements.mu.Unlock()
 		return r.elements, nil
+	}
+	execution.exec.openMarks = func() (desktop.Marks, error) {
+		if r.marksErr != nil {
+			return nil, r.marksErr
+		}
+		return r.marks, nil
 	}
 	execution.exec.protectedApps = r.protectApps
 	execution.exec.protectedTitles = r.protectTitles

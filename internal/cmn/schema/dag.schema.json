@@ -8271,6 +8271,10 @@
           "default": true,
           "description": "Maximize the front window before each operation looks at the screen, so the app is operated at one size every run and recordings replay. A dialog, a window of fixed size, and a window already maximized are left as they are. Set false to keep windows at their size."
         },
+        "marks": {
+          "type": "boolean",
+          "description": "Show a person at the desktop where each action lands, just before it acts: a frame around the element a step presses or sets, the point it clicks, or the window it types into, labelled with the step's name and the action. A mark takes no focus or input, lets clicks through, and is left out of every screenshot the step takes. Defaults to true on the console and false in a remote session. Set false to show none."
+        },
         "refuse": {
           "type": "array",
           "items": { "type": "string", "minLength": 1 },
