@@ -114,9 +114,9 @@ type Reporter struct {
 	// queueRead is the last read of the queues, which reports reuse for
 	// queuesEvery.
 	queueRead queueRead
-	// cpuFrom is when the last report Dagu Console accepted was built, so
-	// the next one averages CPU use since then; cpuBuilt is when the report
-	// in flight was built.
+	// cpuFrom is when the newest CPU sample the last accepted report
+	// averaged was taken, so the next one averages the samples after it;
+	// cpuBuilt is that time for the report in flight.
 	cpuFrom  time.Time
 	cpuBuilt time.Time
 }
@@ -177,7 +177,8 @@ type RemoteAccess interface {
 // container when that has limits.
 type Resources interface {
 	// Since returns the latest sample with CPU use averaged, and its peak
-	// taken, over the samples after since, and false before a sample.
+	// taken, over the samples after since, with when the newest of them was
+	// taken as CPUThrough; false before a sample.
 	Since(since time.Time) (resource.Sample, bool)
 }
 
@@ -739,9 +740,12 @@ func (r *Reporter) send(ctx context.Context, creds license.CloudCredentials, lev
 			}
 		}
 		if r.resources != nil && !creds.Free {
-			r.cpuBuilt = now
+			r.cpuBuilt = r.cpuFrom
 			if sample, ok := r.resources.Since(r.cpuFrom); ok {
 				report.Health.Resources = resourcesOf(sample)
+				if !sample.CPUThrough.IsZero() {
+					r.cpuBuilt = sample.CPUThrough
+				}
 			}
 		}
 		r.events.fill(&report)

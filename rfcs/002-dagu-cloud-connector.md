@@ -307,9 +307,10 @@ container, its memory and CPU use are the cgroup's, against those limits.
 - `cpus` counts the machine's logical CPUs, and `cpu_limit` the CPUs the
   cgroup may use, left out without a quota.
 - `cpu_percent` is how busy the CPUs were, from 0 to 100 of `cpu_limit` when
-  there is one, averaged over the samples taken since the last report Dagu
-  Cloud accepted was built, and `cpu_peak_percent` the highest of them. Each
-  sample measures the time since the one before.
+  there is one, averaged over the samples taken after the newest one the
+  last accepted report averaged, and `cpu_peak_percent` the highest of them,
+  so each sample counts once. Each sample measures the time since the one
+  before.
 - `load` holds the load averages over 1, 5, and 15 minutes.
 - `memory`, `disk`, and `log_disk` give the percent used, the bytes used, and
   the bytes in all. `memory.limited` is `true` when they are the cgroup's: the

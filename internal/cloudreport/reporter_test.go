@@ -203,29 +203,26 @@ func TestReportCarriesResources(t *testing.T) {
 	}
 }
 
-// Each report averages CPU use since the last report Dagu Console accepted
-// was built, so no sample is left out or counted twice.
+// Each report averages the CPU samples after the newest one the last
+// accepted report averaged, so no sample is left out or counted twice.
 func TestReportAveragesCPUSinceTheLastAcceptedReport(t *testing.T) {
 	t.Parallel()
 
 	console := newFakeConsole(t)
-	stub := &stubResources{sample: resource.Sample{At: testClockStart}, sampled: true}
+	through := testClockStart.Add(-time.Second)
+	stub := &stubResources{sample: resource.Sample{At: testClockStart, CPUThrough: through}, sampled: true}
 	r := newReporter(console.credentials, nil, fixedLevel(config.ReportHealth))
 	r.resources = stub
 	clock := startReporter(t.Context(), t, r, noJitter)
 
 	clock.wait()
 	clock.elapse()
-	first := console.next(t)
+	console.next(t)
 	clock.wait()
 	clock.elapse()
 	console.next(t)
 
-	var sent struct {
-		SentAt time.Time `json:"sent_at"`
-	}
-	require.NoError(t, json.Unmarshal([]byte(first.body), &sent))
-	assert.Equal(t, []time.Time{{}, sent.SentAt}, stub.asked())
+	assert.Equal(t, []time.Time{{}, through}, stub.asked())
 }
 
 // fakeQueueStore sums up its queues, and counts how often it was read.

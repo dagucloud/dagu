@@ -137,6 +137,7 @@ func TestService_Since(t *testing.T) {
 	require.True(t, ok)
 	assert.InDelta(t, 30, *sample.CPUPercent, 0.001, "the three samples after the start")
 	assert.InDelta(t, 50, *sample.CPUPeak, 0.001)
+	assert.Equal(t, start.Add(3*time.Minute), sample.CPUThrough, "the newest sample averaged")
 
 	sample, ok = svc.Since(start.Add(time.Hour))
 	require.True(t, ok)
@@ -158,6 +159,9 @@ func TestService_ContainerCPU(t *testing.T) {
 	percent, ok := svc.cpuPercent(t.Context(), start.Add(10*time.Second), quota(11*time.Second), true)
 	require.True(t, ok)
 	assert.InDelta(t, 50, percent, 0.001, "10s of CPU over 10s of 2 CPUs")
+
+	_, ok = svc.cpuPercent(t.Context(), start.Add(20*time.Second), quota(0), true)
+	assert.False(t, ok, "an unread CPU time is no use, not the machine's")
 }
 
 // A container's memory limit below the machine's memory stands for the
@@ -188,6 +192,18 @@ func TestService_ContainerMemory(t *testing.T) {
 		assert.NotNil(t, sample.Disk.InodesUsedPercent, "inodes of the data directory's disk")
 	}
 	assert.Nil(t, sample.LogDisk, "no log directory on another disk")
+
+	// Under a limit whose usage cannot be read, memory is left out rather
+	// than taken from the machine.
+	svc.cgroup = cgroup{root: fakeRoot(t, map[string]string{
+		"proc/self/cgroup":                 "0::/\n",
+		"sys/fs/cgroup/cgroup.controllers": "memory\n",
+		"sys/fs/cgroup/memory.max":         "1048576\n",
+	})}
+	svc.collect(t.Context())
+	sample, ok = svc.Latest()
+	require.True(t, ok)
+	assert.Nil(t, sample.Memory)
 }
 
 func TestService_GetHistoryWithoutStart(t *testing.T) {

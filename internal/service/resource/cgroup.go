@@ -27,9 +27,11 @@ type cgroup struct {
 // zero means none is set.
 type cgroupUsage struct {
 	// MemoryLimit is the memory limit in bytes, and MemoryUsed the memory
-	// in use without the inactive file cache the kernel can reclaim.
-	MemoryLimit uint64
-	MemoryUsed  uint64
+	// in use without the inactive file cache the kernel can reclaim;
+	// MemoryUnread is set when the limit was read but the usage was not.
+	MemoryLimit  uint64
+	MemoryUsed   uint64
+	MemoryUnread bool
 	// CPULimit is the CPU quota in CPUs, and CPUTime the CPU time the
 	// cgroup has used since it started.
 	CPULimit float64
@@ -80,7 +82,8 @@ func (c cgroup) readV2(path string) (cgroupUsage, bool) {
 	var u cgroupUsage
 	if limit, ok := c.limit(dir, "memory.max"); ok {
 		u.MemoryLimit = limit
-		u.MemoryUsed = c.workingSet(dir, "memory.current", "inactive_file")
+		u.MemoryUsed, ok = c.workingSet(dir, "memory.current", "inactive_file")
+		u.MemoryUnread = !ok
 	}
 	if fields := c.fields(dir, "cpu.max"); len(fields) == 2 {
 		u.CPULimit = quota(fields[0], fields[1])
@@ -97,7 +100,8 @@ func (c cgroup) readV1(paths map[string]string) (cgroupUsage, bool) {
 		dir := c.dir("sys/fs/cgroup/memory", path, "memory.limit_in_bytes")
 		if limit, ok := c.limit(dir, "memory.limit_in_bytes"); ok {
 			u.MemoryLimit = limit
-			u.MemoryUsed = c.workingSet(dir, "memory.usage_in_bytes", "total_inactive_file")
+			u.MemoryUsed, ok = c.workingSet(dir, "memory.usage_in_bytes", "total_inactive_file")
+			u.MemoryUnread = !ok
 		}
 	}
 	if path, ok := paths["cpu"]; ok {
@@ -150,20 +154,21 @@ func (c cgroup) limit(dir, name string) (uint64, bool) {
 }
 
 // workingSet is the memory in use without the inactive file cache, as the
-// kernel counts toward the limit before it reclaims.
-func (c cgroup) workingSet(dir, usageFile, inactiveKey string) uint64 {
+// kernel counts toward the limit before it reclaims, and false when the
+// usage cannot be read.
+func (c cgroup) workingSet(dir, usageFile, inactiveKey string) (uint64, bool) {
 	fields := c.fields(dir, usageFile)
 	if len(fields) != 1 {
-		return 0
+		return 0, false
 	}
 	used, err := strconv.ParseUint(fields[0], 10, 64)
 	if err != nil {
-		return 0
+		return 0, false
 	}
 	if inactive, ok := c.stat(dir, "memory.stat", inactiveKey); ok && inactive < used {
 		used -= inactive
 	}
-	return used
+	return used, true
 }
 
 // stat reads one key of a flat keyed file such as memory.stat.

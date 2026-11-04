@@ -49,9 +49,11 @@ type Sample struct {
 	CPULimit float64
 	// CPUPercent is how busy the CPUs were since the sample before, from 0
 	// to 100, of CPULimit when there is one. In a sample from Since, it is
-	// the average over the samples since then, and CPUPeak their highest.
+	// the average over the samples since then, CPUPeak their highest, and
+	// CPUThrough when the newest of them was taken.
 	CPUPercent *float64
 	CPUPeak    *float64
+	CPUThrough time.Time
 	Memory     *Usage
 	// Disk is the disk that holds the data directory, and LogDisk the one
 	// that holds the log directory when that is another disk.
@@ -166,8 +168,10 @@ func (s *Service) Latest() (Sample, bool) {
 }
 
 // Since returns the latest sample with its CPU use averaged over the samples
-// taken after since, and the highest of them as CPUPeak; the latest
-// sample's own when none was. It reports false before a sample is taken.
+// taken after since, the highest of them as CPUPeak, and when the newest of
+// them was taken as CPUThrough, from which the next window starts; the
+// latest sample's own CPU use when none was. It reports false before a
+// sample is taken.
 func (s *Service) Since(since time.Time) (Sample, bool) {
 	sample, ok := s.Latest()
 	if !ok {
@@ -176,18 +180,20 @@ func (s *Service) Since(since time.Time) (Sample, bool) {
 	s.cpuMu.Lock()
 	defer s.cpuMu.Unlock()
 	var sum, peak float64
+	var through time.Time
 	n := 0
 	s.cpuHistory.ForEach(func(p *cpuPoint) bool {
 		if p.at.After(since) {
 			sum += p.percent
 			peak = max(peak, p.percent)
+			through = p.at
 			n++
 		}
 		return true
 	})
 	if n > 0 {
 		average := sum / float64(n)
-		sample.CPUPercent, sample.CPUPeak = &average, &peak
+		sample.CPUPercent, sample.CPUPeak, sample.CPUThrough = &average, &peak, through
 	}
 	return sample, true
 }
@@ -244,13 +250,20 @@ func (s *Service) collect(ctx context.Context) {
 	if memStat, err := mem.VirtualMemoryWithContext(ctx); err != nil {
 		logger.Error(ctx, "Failed to get memory usage", tag.Error(err))
 	} else {
-		usage := Usage{UsedPercent: memStat.UsedPercent, UsedBytes: memStat.Used, TotalBytes: memStat.Total}
+		usage := &Usage{UsedPercent: memStat.UsedPercent, UsedBytes: memStat.Used, TotalBytes: memStat.Total}
 		if limited && limits.MemoryLimit > 0 && limits.MemoryLimit < memStat.Total {
-			usage = Usage{UsedPercent: percentOf(limits.MemoryUsed, limits.MemoryLimit), UsedBytes: limits.MemoryUsed,
-				TotalBytes: limits.MemoryLimit, Limited: true}
+			// Under a limit the machine's memory says nothing, so memory
+			// whose usage cannot be read is left out.
+			usage = nil
+			if !limits.MemoryUnread {
+				usage = &Usage{UsedPercent: percentOf(limits.MemoryUsed, limits.MemoryLimit), UsedBytes: limits.MemoryUsed,
+					TotalBytes: limits.MemoryLimit, Limited: true}
+			}
 		}
-		memVal, memTotal, memUsed = usage.UsedPercent, usage.TotalBytes, usage.UsedBytes
-		sample.Memory = &usage
+		if usage != nil {
+			memVal, memTotal, memUsed = usage.UsedPercent, usage.TotalBytes, usage.UsedBytes
+			sample.Memory = usage
+		}
 	}
 
 	dataDir := s.config.Paths.DataDir
@@ -282,13 +295,14 @@ func (s *Service) collect(ctx context.Context) {
 
 // cpuPercent returns how busy the CPUs were since the previous sample: of
 // the container's CPU quota when it has one, else of all the machine's
-// CPUs. A container's first sample has nothing to compare with.
+// CPUs. A container's first sample has nothing to compare with, and one
+// whose CPU time cannot be read has no CPU use, not the machine's.
 func (s *Service) cpuPercent(ctx context.Context, now time.Time, limits cgroupUsage, limited bool) (float64, bool) {
-	if limited && limits.CPULimit > 0 && limits.CPUTime > 0 {
+	if limited && limits.CPULimit > 0 {
 		prev := s.prevCPU
 		s.prevCPU = cpuTime{at: now, used: limits.CPUTime}
 		elapsed := now.Sub(prev.at)
-		if prev.at.IsZero() || elapsed <= 0 || limits.CPUTime < prev.used {
+		if limits.CPUTime == 0 || prev.at.IsZero() || prev.used == 0 || elapsed <= 0 || limits.CPUTime < prev.used {
 			return 0, false
 		}
 		busy := float64(limits.CPUTime-prev.used) / (float64(elapsed) * limits.CPULimit) * 100

@@ -72,6 +72,16 @@ func TestCgroupReadsLimitsAndUsage(t *testing.T) {
 			},
 			want: cgroupUsage{MemoryLimit: 268435456, MemoryUsed: 100000000, CPULimit: 2, CPUTime: 3 * time.Second},
 		},
+		{
+			// A limit whose usage cannot be read is no reading of 0.
+			name: "v2 with unreadable usage",
+			files: map[string]string{
+				"proc/self/cgroup":                 "0::/\n",
+				"sys/fs/cgroup/cgroup.controllers": "memory\n",
+				"sys/fs/cgroup/memory.max":         "536870912\n",
+			},
+			want: cgroupUsage{MemoryLimit: 536870912, MemoryUnread: true},
+		},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
