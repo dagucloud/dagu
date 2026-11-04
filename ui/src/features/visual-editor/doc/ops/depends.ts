@@ -4,6 +4,7 @@
 import { Pair, Scalar, YAMLSeq, isMap, isNode, isScalar, isSeq } from 'yaml';
 import type { Document, YAMLMap } from 'yaml';
 import type { ApplyEditOptions, EditErrorCode } from '../../contracts';
+import { validateStepId } from '../names';
 import { explicitNameOf, idOf, indexSteps } from '../stepIndex';
 import type { IndexedStep } from '../stepIndex';
 
@@ -156,14 +157,20 @@ export type ReferenceName =
   | { ok: true; name: string }
   | { ok: false; code: EditErrorCode; message: string };
 
+/** True when a step of the document has an id. */
+export function usesIds(doc: Document): boolean {
+  return indexSteps(doc).steps.some((step) => idOf(step) !== undefined);
+}
+
 /**
  * Returns the text that `depends` uses to name a step: the explicit name, else
- * the id. A step with neither gets `name: <server name>` as its first key,
- * when `options.names` knows the server name; else the result is `invalidName`.
- * A shorthand, parallel-group or handler entry gives `unsupportedForm`.
+ * the id. A step with neither gets its server name as its first key, when
+ * `options.names` knows it: as `id` where the steps have ids, else as
+ * `name`. Without the server name the result is `invalidName`. A shorthand,
+ * parallel-group or handler entry gives `unsupportedForm`.
  */
 export function referenceNameFor(
-  _doc: Document,
+  doc: Document,
   step: IndexedStep,
   options: ApplyEditOptions
 ): ReferenceName {
@@ -195,8 +202,10 @@ export function referenceNameFor(
       message: `Step ${step.key} has no name or id and its server name is unknown. Give it a name first.`,
     };
   }
-  const at = pairIndex(entry, 'name');
+  // An id keeps the runtime name: a step without a name runs under its id.
+  const key = usesIds(doc) && validateStepId(server) === null ? 'id' : 'name';
+  const at = pairIndex(entry, key);
   if (at >= 0) (entry.items[at] as Pair).value = new Scalar(server);
-  else entry.items.unshift(new Pair(new Scalar('name'), new Scalar(server)));
+  else entry.items.unshift(new Pair(new Scalar(key), new Scalar(server)));
   return { ok: true, name: server };
 }

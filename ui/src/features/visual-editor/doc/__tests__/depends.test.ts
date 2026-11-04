@@ -269,7 +269,9 @@ describe('referenceNameFor', () => {
     expect(result).toMatchObject({ ok: false, code: 'noop' });
   });
 
-  it('writes the server name as first key', () => {
+  // Where the steps have ids, the server name goes in as an id: a step
+  // without a name runs under its id, so the runtime name stays.
+  it('writes the server name as first key, an id where the steps have ids', () => {
     const text = 'steps:\n  - run: a\n    id: first\n  - run: b\n';
     const options: ApplyEditOptions = {
       names: { byKey: { 'steps[1]': 'cmd_2' }, byName: { cmd_2: 'steps[1]' } },
@@ -278,7 +280,18 @@ describe('referenceNameFor', () => {
     expect(name).toBe('cmd_2');
     expect(result).toMatchObject({
       ok: true,
-      text: 'steps:\n  - run: a\n    id: first\n  - name: cmd_2\n    run: b\n',
+      text: 'steps:\n  - run: a\n    id: first\n  - id: cmd_2\n    run: b\n',
+    });
+  });
+
+  it('writes the server name as a name where no step has an id', () => {
+    const text = 'steps:\n  - name: a\n    run: a\n  - run: b\n';
+    const options: ApplyEditOptions = {
+      names: { byKey: { 'steps[1]': 'cmd_2' }, byName: { cmd_2: 'steps[1]' } },
+    };
+    expect(reference(text, 'steps[1]', options).result).toMatchObject({
+      ok: true,
+      text: 'steps:\n  - name: a\n    run: a\n  - name: cmd_2\n    run: b\n',
     });
   });
 

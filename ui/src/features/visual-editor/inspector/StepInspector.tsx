@@ -106,13 +106,16 @@ function requiredToTop(box: HTMLElement): boolean {
 }
 
 /** The field that a new step starts in: an empty required parameter, else the name. */
-function newStepBox(root: HTMLElement): HTMLElement | null {
+function newStepBox(
+  root: HTMLElement,
+  naming: 'id' | 'name'
+): HTMLElement | null {
   const empty = Array.from(
     root.querySelectorAll<HTMLElement>(`${PARAMETER_BOX}[data-empty="true"]`)
   );
   return (
     empty.find(requiredToTop) ??
-    root.querySelector<HTMLElement>('[data-field-path="name"]')
+    root.querySelector<HTMLElement>(`[data-field-path="${naming}"]`)
   );
 }
 
@@ -141,6 +144,8 @@ interface Reveal {
   sections: SectionId[];
   path: string | null;
   seq: number;
+  /** The field that names a new step: its id when it has no name. */
+  naming?: 'id' | 'name';
 }
 
 function findStep(props: StepInspectorProps): StepView | undefined {
@@ -217,6 +222,10 @@ export function StepInspector(props: StepInspectorProps): ReactElement {
       sections: ['general', 'parameters'],
       path: null,
       seq: (last?.seq ?? 0) + 1,
+      naming:
+        step.explicitName === undefined && step.id !== undefined
+          ? 'id'
+          : 'name',
     }));
   }, [memory, props.model, step, split, view]);
 
@@ -224,7 +233,9 @@ export function StepInspector(props: StepInspectorProps): ReactElement {
     const root = rootRef.current;
     if (!reveal || !root) return;
     const box =
-      reveal.path === null ? newStepBox(root) : fieldBox(root, reveal.path);
+      reveal.path === null
+        ? newStepBox(root, reveal.naming ?? 'name')
+        : fieldBox(root, reveal.path);
     if (box) focusBox(box);
   }, [reveal]);
   const revealKey = (section: SectionId) =>
