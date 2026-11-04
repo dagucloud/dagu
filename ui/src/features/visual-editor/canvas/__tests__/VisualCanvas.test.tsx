@@ -728,10 +728,9 @@ describe('VisualCanvas', () => {
       expect(view.getZoom()).toBe(1);
     });
 
-    it('fits on a step of the ladder, and the same each time', () => {
+    it('fits the same each time', () => {
       const { view } = renderWithView();
       const first = viewport();
-      expect([0.05, 0.1, 0.25, 0.5, 0.75, 1, 1.25]).toContain(first.zoom);
       act(() => view.zoomTo(3));
       act(() => view.fitView());
       expect(viewport()).toEqual(first);

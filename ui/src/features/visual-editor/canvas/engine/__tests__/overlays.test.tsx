@@ -188,9 +188,8 @@ describe('Controls', () => {
   it('fits the view with the fit button', () => {
     renderOverlays({ fitOptions: { padding: 0.1, maxZoom: 2 } });
     fireEvent.click(screen.getByLabelText('Fit view'));
-    // The nodes span 540 x 64: 1000 / (540 * 1.2) = 1.54 fits, and the
-    // largest step under it is 150 %.
-    expect(viewport.zoom).toBe(1.5);
+    // The nodes span 540 x 64: 1000 / (540 * 1.2) = 1.54 fits.
+    expect(viewport.zoom).toBeCloseTo(1000 / (540 * 1.2), 5);
   });
 });
 
