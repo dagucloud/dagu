@@ -41,6 +41,7 @@ import { dockTabBodies } from './tabs';
 import { STEP_TAB_LABELS, stepViewTabs } from './tabs/stepScope';
 import { useDockAutoOpen } from './useDockAutoOpen';
 import { useDockStep } from './useDockStep';
+import { useLiftNotifications } from './useLiftNotifications';
 
 const KEYBOARD_STEP_PX = 40;
 // A drag on the sheet handle longer than this closes or maximizes the sheet.
@@ -149,6 +150,9 @@ export function LogsDock({
   // The focus goes to the sheet itself, not to Close: a focused button opens
   // its tooltip, and the tooltip would take the first Esc.
   const sheetRef = useRef<HTMLElement>(null);
+  // An open panel along the bottom keeps the notifications above it. A sheet
+  // or a maximized panel fills the page: they stay in the corner.
+  useLiftNotifications(sheetRef, dock.open && !sheet && !dock.maximized);
   const opener = useRef<HTMLElement | null>(null);
   const wasSheet = useRef(sheet);
   useLayoutEffect(() => {

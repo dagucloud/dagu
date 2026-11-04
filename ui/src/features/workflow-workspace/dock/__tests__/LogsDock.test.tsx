@@ -15,6 +15,7 @@ import {
 } from 'react-router-dom';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { NodeStatus, Status } from '@/api/v1/schema';
+import { getNotificationRoot } from '@/components/ui/notification-root';
 import {
   RightPanelProvider,
   useRightPanelClaim,
@@ -444,6 +445,33 @@ describe('LogsDock resize', () => {
     fireEvent.pointerUp(separator, { pointerId: 1, clientY: 440 });
     expect(separator).toHaveAttribute('aria-valuenow', String(base + 60));
     expect(localStorage.getItem(DOCK_HEIGHT_KEY)).toBe(String(base + 60));
+  });
+
+  // The toasts and the run progress cards sit in the corner of the screen:
+  // over the open panel, they hid the bars of its timeline.
+  it('keeps the notifications above the open panel', () => {
+    renderDock(finished);
+    const inset = () =>
+      getNotificationRoot().style.getPropertyValue(
+        '--notification-bottom-inset'
+      );
+    expect(inset()).toBe('');
+
+    fireEvent.click(toggleButton());
+    vi.spyOn(dockSection(), 'getBoundingClientRect').mockReturnValue(
+      new DOMRect(0, window.innerHeight - 320, 1000, 320)
+    );
+    fireEvent(window, new Event('resize'));
+    expect(inset()).toBe('320px');
+
+    // A maximized panel fills the page: the notifications go back.
+    fireEvent.click(screen.getByRole('button', { name: 'Maximize' }));
+    expect(inset()).toBe('');
+    fireEvent.click(screen.getByRole('button', { name: 'Restore' }));
+    expect(inset()).toBe('320px');
+
+    fireEvent.click(toggleButton());
+    expect(inset()).toBe('');
   });
 
   it('has no separator while maximized', () => {
