@@ -46,10 +46,6 @@ var (
 // it that the app's process owns.
 const frameClass = "ApplicationFrameWindow"
 
-// maxFrameChildren bounds the children of a frame looked through for the
-// app's window; a frame holds its title bars, an input sink, and the app.
-const maxFrameChildren = 16
-
 const (
 	// gaRoot asks GetAncestor for the top-level window.
 	gaRoot = 2
@@ -221,16 +217,17 @@ func windowProcess(hwnd windows.HWND) uint32 {
 		return owner
 	}
 	var child uintptr
-	for range maxFrameChildren {
+	for {
+		// FindWindowExW answers the first child, or the one after the child
+		// it is given, and none past the last.
 		if child, _, _ = procFindWindowExW.Call(uintptr(hwnd), child, 0, 0); child == 0 {
-			break
+			return owner
 		}
 		var pid uint32
 		if _, err := windows.GetWindowThreadProcessId(windows.HWND(child), &pid); err == nil && pid != owner {
 			return pid
 		}
 	}
-	return owner
 }
 
 // className returns the class of a window, or "" when it cannot be read.
