@@ -7,6 +7,8 @@ package desktop
 
 import (
 	"errors"
+	"fmt"
+	"os"
 	"os/exec"
 	"runtime"
 	"slices"
@@ -25,6 +27,8 @@ var (
 	procDefWindowProcW   = user32.NewProc("DefWindowProcW")
 	procDestroyWindow    = user32.NewProc("DestroyWindow")
 	procSetParent        = user32.NewProc("SetParent")
+	procGetMessageW      = user32.NewProc("GetMessageW")
+	procDispatchMessageW = user32.NewProc("DispatchMessageW")
 )
 
 const (
@@ -39,6 +43,9 @@ const (
 	errorClassAlreadyExists = windows.Errno(1410)
 	// gaParent asks GetAncestor for a window's parent.
 	gaParent = 1
+	// framedAppEnv makes a run of the test binary the second process of
+	// TestWindowsDesktopNamesTheAppInAFrame.
+	framedAppEnv = "DAGU_DESKTOP_FRAMED_APP"
 )
 
 // wndClassEx is WNDCLASSEXW.
@@ -119,41 +126,63 @@ func TestWindowsDesktopLeavesOutCloakedWindows(t *testing.T) {
 func TestWindowsDesktopNamesTheAppInAFrame(t *testing.T) {
 	driver := e2eDesktop(t)
 	runtime.LockOSThread()
-	const appTitle = "Dagu framed app"
 	// The class ApplicationFrameHost gives the frames it shows.
 	frame := showTestWindow(t, "ApplicationFrameWindow", "Dagu frame test")
+	before, ok := listed(driver.Windows(), frame)
+	require.True(t, ok)
+	require.Equal(t, uint32(os.Getpid()), before.PID, "an empty frame is its owner's")
 
-	app := exec.Command("powershell.exe", "-NoProfile", "-Command",
-		"Add-Type -AssemblyName System.Windows.Forms; $f = New-Object System.Windows.Forms.Form; $f.Text = '"+appTitle+"'; [void]$f.ShowDialog()")
+	app := exec.Command(os.Args[0], "-test.run=^TestFramedAppHelper$")
+	app.Env = append(os.Environ(), framedAppEnv+"=1")
+	out, err := app.StdoutPipe()
+	require.NoError(t, err)
 	require.NoError(t, app.Start())
 	t.Cleanup(func() {
 		_ = app.Process.Kill()
 		_ = app.Wait()
 	})
-	pid := uint32(app.Process.Pid)
-	// Listing reads the frame's title, which a window of this process gives
-	// only on its own thread, so the wait polls here rather than on a
-	// goroutine of its own.
-	var shown WindowID
-	for deadline := time.Now().Add(30 * time.Second); ; time.Sleep(200 * time.Millisecond) {
-		all := driver.Windows()
-		if i := slices.IndexFunc(all, func(w WindowID) bool { return w.PID == pid && w.Title == appTitle }); i >= 0 {
-			shown = all[i]
-			break
-		}
-		require.True(t, time.Now().Before(deadline), "the app's window did not open")
+	shown := make(chan uintptr, 1)
+	go func() {
+		var hwnd uintptr
+		_, _ = fmt.Fscan(out, &hwnd)
+		shown <- hwnd
+	}()
+	var child uintptr
+	select {
+	case child = <-shown:
+	case <-time.After(30 * time.Second):
+		require.Fail(t, "the second process showed no window")
 	}
-	before, ok := listed(driver.Windows(), frame)
-	require.True(t, ok)
-	require.NotEqual(t, pid, before.PID, "an empty frame is its owner's")
+	require.NotZero(t, child, "the second process showed no window")
 
 	// SetParent answers the old parent, which for a top-level window may be
 	// none, so the new one is read back.
-	_, _, err := procSetParent.Call(uintptr(shown.Handle), uintptr(frame))
-	parent, _, _ := procGetAncestor.Call(uintptr(shown.Handle), gaParent)
+	_, _, err = procSetParent.Call(child, uintptr(frame))
+	parent, _, _ := procGetAncestor.Call(child, gaParent)
 	require.Equal(t, uintptr(frame), parent, "SetParent: %v", err)
 	framed, ok := listed(driver.Windows(), frame)
 	require.True(t, ok, "the frame is listed")
-	assert.Equal(t, pid, framed.PID, "the frame is the window of the app inside it")
-	assert.Equal(t, "powershell", framed.App)
+	assert.Equal(t, uint32(app.Process.Pid), framed.PID, "the frame is the window of the app inside it")
+}
+
+// TestFramedAppHelper is not a test of its own: run by
+// TestWindowsDesktopNamesTheAppInAFrame as a second process, it shows a
+// window, prints the window's handle, and answers messages until it ends.
+func TestFramedAppHelper(t *testing.T) {
+	if os.Getenv(framedAppEnv) != "1" {
+		t.Skip("run as a second process by TestWindowsDesktopNamesTheAppInAFrame")
+	}
+	runtime.LockOSThread()
+	// Per-monitor aware, as the test process is, so the frame and the window
+	// it holds share one DPI awareness.
+	makeDPIAware()
+	hwnd := showTestWindow(t, testWindowClass, "Dagu framed app")
+	fmt.Println(uintptr(hwnd))
+	var message [48]byte // MSG on 64-bit Windows
+	for {
+		if got, _, _ := procGetMessageW.Call(uintptr(unsafe.Pointer(&message[0])), 0, 0, 0); int32(got) <= 0 {
+			return
+		}
+		_, _, _ = procDispatchMessageW.Call(uintptr(unsafe.Pointer(&message[0])))
+	}
 }
