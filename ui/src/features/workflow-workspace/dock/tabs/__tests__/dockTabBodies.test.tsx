@@ -404,6 +404,63 @@ describe('dock tab bodies', () => {
       expect(await screen.findByTestId('child-content')).toBeInTheDocument();
       expect(open).toHaveBeenCalledTimes(2);
     });
+
+    // The bar of a running step follows the clock while the dock shows. A
+    // collapsed dock stops it, and the bar catches up when the dock shows
+    // again.
+    it('moves the bar of a running step only while the dock shows', async () => {
+      vi.useFakeTimers({ toFake: ['Date', 'setInterval', 'clearInterval'] });
+      try {
+        vi.setSystemTime(new Date('2026-01-15T02:00:11Z'));
+        setLatest(
+          run(
+            'run-1',
+            [
+              node('a', NodeStatus.Success, {
+                finishedAt: '2026-01-15T02:00:10Z',
+              }),
+              node('b', NodeStatus.Running, {
+                step: { depends: ['a'] },
+                startedAt: '2026-01-15T02:00:10Z',
+                finishedAt: '-',
+              }),
+            ],
+            Status.Running,
+            { startedAt: '2026-01-15T02:00:00Z', finishedAt: '-' }
+          )
+        );
+        renderDock(`/dags/${FILE_NAME}?dock=timeline`);
+        const width = async () =>
+          parseFloat(
+            (await screen.findByTestId('timeline-bar-step:b')).style.width
+          );
+        const toggle = () =>
+          fireEvent.click(
+            within(screen.getByTestId('ww-dock')).getByRole('button', {
+              name: 'Activity',
+            })
+          );
+        const first = await width();
+
+        act(() => {
+          vi.advanceTimersByTime(10_000);
+        });
+        const shown = await width();
+        expect(shown).toBeGreaterThan(first);
+
+        toggle();
+        const collapsed = await width();
+        act(() => {
+          vi.advanceTimersByTime(10_000);
+        });
+        expect(await width()).toBe(collapsed);
+
+        toggle();
+        expect(await width()).toBeGreaterThan(collapsed);
+      } finally {
+        vi.useRealTimers();
+      }
+    });
   });
 
   // parity:outputs-tab parity:run-tab-outputs
