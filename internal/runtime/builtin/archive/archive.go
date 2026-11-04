@@ -64,9 +64,11 @@ type executorImpl struct {
 	ctx      context.Context
 	exitCode int
 
-	cfg       Config
-	operation string
-	stepName  string
+	cfg        Config
+	sourcePath string // cfg.Source under the step working directory
+	destPath   string // cfg.Destination under the step working directory
+	operation  string
+	stepName   string
 }
 
 func newExecutor(ctx context.Context, step ir.Step) (executor.Executor, error) {
@@ -97,23 +99,26 @@ func newExecutor(ctx context.Context, step ir.Step) (executor.Executor, error) {
 	if err := validateConfig(op, &cfg); err != nil {
 		return nil, err
 	}
-	if op == opExtract && cfg.Destination == "" {
-		cfg.Destination = "."
-	}
+	// Filesystem access uses paths under the step working directory. cfg keeps
+	// the paths as written for outputs and for the archive's root entry name.
 	workDir := runtimepkg.GetEnv(ctx).WorkingDir
-	cfg.Source = workpath.Resolve(workDir, cfg.Source)
-	cfg.Destination = workpath.Resolve(workDir, cfg.Destination)
+	destination := cfg.Destination
+	if op == opExtract && destination == "" {
+		destination = "."
+	}
 
 	rCtx, cancel := context.WithCancel(ctx)
 
 	return &executorImpl{
-		stdout:    os.Stdout,
-		stderr:    os.Stderr,
-		cancel:    cancel,
-		ctx:       rCtx,
-		cfg:       cfg,
-		operation: op,
-		stepName:  step.Name,
+		stdout:     os.Stdout,
+		stderr:     os.Stderr,
+		cancel:     cancel,
+		ctx:        rCtx,
+		cfg:        cfg,
+		sourcePath: workpath.Resolve(workDir, cfg.Source),
+		destPath:   workpath.Resolve(workDir, destination),
+		operation:  op,
+		stepName:   step.Name,
 	}, nil
 }
 
