@@ -14,6 +14,7 @@ import { useWorkspaceRun } from '../data/useWorkspaceRun';
 import { useWorkspaceUrl } from '../state/workspaceUrl';
 import { useCopyRunSpecToEditor } from './useCopyRunSpecToEditor';
 import { useShowRun } from './useShowRun';
+import { cn } from '@/lib/utils';
 
 /**
  * Flat icons for the selected run, past or active: stop, cancel auto-retry,
@@ -71,7 +72,12 @@ export function RunActionsCluster({ fileName, dag }: BarSlotProps) {
       {canWrite && (canRunDags || showCopy) && (
         <span
           data-testid="ww-run-copy-slot"
-          className="inline-flex size-7 shrink-0 items-center justify-center"
+          // The empty slot keeps the bar still on a wide window; a phone
+          // needs the room for the name.
+          className={cn(
+            'inline-flex size-7 shrink-0 items-center justify-center',
+            !showCopy && 'max-md:hidden'
+          )}
         >
           {showCopy && (
             <IconButton

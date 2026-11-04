@@ -212,14 +212,29 @@ async function expectNameInTitle(page: Page, where: string): Promise<void> {
 /**
  * Rename is a pencil right after the workflow name; Delete is an icon button
  * at the end of the bar, on the row of Refresh. Both keep a name and stay in
- * the bar, and the keyboard reaches them.
+ * the bar, and the keyboard reaches them. Below md, Delete is in the More
+ * menu: the name needs the room.
  */
-async function checkEditButtons(page: Page, where: string): Promise<void> {
+async function checkEditButtons(
+  page: Page,
+  where: string,
+  narrow: boolean
+): Promise<void> {
   const bar = page.getByTestId('ww-bar');
   // The names are translated: the test ids find the buttons in every language.
   const rename = bar.getByTestId('ww-bar-rename');
   const remove = bar.getByTestId('ww-bar-delete');
   await expect(rename, `Rename (${where})`).toBeVisible();
+  if (narrow) {
+    await expect(remove, `Delete in the menu (${where})`).toBeHidden();
+    await expect(
+      bar.getByTestId('ww-bar-more'),
+      `More (${where})`
+    ).toBeVisible();
+    await rename.focus();
+    await expect(rename, `Rename focus (${where})`).toBeFocused();
+    return;
+  }
   await expect(remove, `Delete (${where})`).toBeVisible();
   const [barBox, renameBox, removeBox] = await Promise.all([
     bar.boundingBox(),
@@ -383,7 +398,7 @@ test.describe('workspace theme and layout', () => {
               await expectNameInTitle(page, where);
             }
 
-            await checkEditButtons(page, where);
+            await checkEditButtons(page, where, viewport.width < 768);
           }
         }
       });

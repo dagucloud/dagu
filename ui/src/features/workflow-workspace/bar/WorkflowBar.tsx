@@ -207,7 +207,10 @@ export function WorkflowBar({
             )}
           />
         </div>
-        <WorkflowDeleteButton {...slot} />
+        {/* Below md, Delete is in the More menu: the name needs the room. */}
+        <div className="flex max-md:hidden">
+          <WorkflowDeleteButton {...slot} />
+        </div>
         <BarMoreMenu {...slot} pinned={dagData.pinned} />
       </div>
     </div>
