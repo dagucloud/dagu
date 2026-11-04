@@ -135,22 +135,23 @@ func resolveSQLiteDSN(workDir, dsn string) (string, error) {
 	}
 	// The driver, like SQLite, ends the database name at the first '?'.
 	name, query, hasQuery := strings.Cut(rest, "?")
-	if workDir == "" || name == "" || name == ":memory:" || isSQLiteMemoryMode(query) ||
-		filepath.IsAbs(name) || (isURI && strings.HasPrefix(name, "/")) {
+	if name == ":memory:" || isSQLiteMemoryMode(query) {
+		return dsn, nil
+	}
+	resolved := workpath.Resolve(workDir, name)
+	if resolved == name {
+		// Absolute, rooted, or empty names, or no working directory.
 		return dsn, nil
 	}
 
-	var resolved string
 	if isURI {
 		// SQLite decodes %XX in a file: URI and ends the path at '?' or '#',
 		// so the working directory is escaped; the authored name keeps its
 		// own escapes.
 		resolved = "file:" + sqliteURIPathEscaper.Replace(filepath.ToSlash(workDir)) + "/" + strings.TrimPrefix(name, "./")
-	} else {
-		if strings.Contains(workDir, "?") {
-			return "", fmt.Errorf("cannot resolve relative dsn %q: working directory %q contains '?'; use an absolute file: URI", dsn, workDir)
-		}
-		resolved = filepath.Join(workDir, name)
+	} else if strings.Contains(workDir, "?") {
+		// The driver would end the plain name at this '?'.
+		return "", fmt.Errorf("cannot resolve relative dsn %q: working directory %q contains '?'; use an absolute file: URI", dsn, workDir)
 	}
 	if hasQuery {
 		resolved += "?" + query

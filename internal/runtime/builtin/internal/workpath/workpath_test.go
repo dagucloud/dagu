@@ -24,6 +24,8 @@ func TestResolve(t *testing.T) {
 		{"relative", workDir, filepath.Join("in", "data.json"), filepath.Join(workDir, "in", "data.json")},
 		{"dot relative", workDir, "./data.json", filepath.Join(workDir, "data.json")},
 		{"absolute", workDir, absolute, absolute},
+		// On Windows a leading separator is rooted at the current drive.
+		{"rooted", workDir, "/data/in.json", "/data/in.json"},
 		{"empty path", workDir, "", ""},
 		{"no working directory", "", "data.json", "data.json"},
 	}
