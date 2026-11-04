@@ -301,7 +301,6 @@ describe('sidebar menu', () => {
       ['Events', '/event-logs'],
       ['Audit Logs', '/audit-logs'],
       ['Notifications', '/notifications'],
-      ['External Monitoring', '/settings#monitoring'],
     ]);
     expectLinks(screen.getByRole('group', { name: 'Configure' }), [
       ['Profiles & Secrets', '/profiles'],
@@ -356,9 +355,6 @@ describe('sidebar menu', () => {
     ).not.toBeInTheDocument();
     expect(
       screen.queryByRole('link', { name: 'Remote Nodes' })
-    ).not.toBeInTheDocument();
-    expect(
-      screen.queryByRole('link', { name: 'External Monitoring' })
     ).not.toBeInTheDocument();
   });
 
