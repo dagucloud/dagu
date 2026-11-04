@@ -11,6 +11,7 @@ import App from '../App';
 import { useLicense } from '@/hooks/useLicense';
 import { useWorkflowOverlay } from '@/features/peek/WorkflowOverlay';
 import userEvent from '@testing-library/user-event';
+import { useLocation } from 'react-router-dom';
 
 const {
   clientMock,
@@ -23,8 +24,8 @@ const {
   return {
     clientGetMock,
     overviewImportError: { current: false },
-    // The runs of the title effect of the workflow list.
-    pageRenders: { titles: 0 },
+    // The renders of the workflow list, and the runs of its title effect.
+    pageRenders: { dags: 0, titles: 0 },
     useQueryMock: vi.fn(),
     clientMock: {
       GET: clientGetMock,
@@ -61,6 +62,9 @@ vi.mock('../layouts/Layout', () => ({
           Select remote
         </button>
         <button onClick={() => overlay?.open({ dag: 'etl' })}>Open etl</button>
+        <button onClick={() => overlay?.setSequence([{ dag: 'etl' }])}>
+          List rows
+        </button>
         {children}
       </main>
     );
@@ -85,6 +89,8 @@ vi.mock('../pages/dag-runs/dag-run', () => ({
 // The workflow list sets its title as the pages do, and reads its location.
 vi.mock('../pages/dags', () => ({
   default: function DAGsPage() {
+    pageRenders.dags++;
+    useLocation();
     const appBar = React.useContext(AppBarContext);
     React.useEffect(() => {
       pageRenders.titles++;
@@ -335,6 +341,15 @@ describe('App workflow overlay', () => {
     ).toBeInTheDocument();
     expect(document.title).toBe('Workflows - Dagu');
     expect(pageRenders.titles).toBe(before);
+  });
+
+  it('does not render the page below for a change of the overlay', async () => {
+    await renderWorkflows();
+    const before = pageRenders.dags;
+
+    await userEvent.click(screen.getByRole('button', { name: 'List rows' }));
+
+    expect(pageRenders.dags).toBe(before);
   });
 });
 

@@ -392,11 +392,18 @@ function LazyRoutes({
   // would mount the page again and lose its state.
   const overlay = useWorkflowOverlay();
   const location = useLocation();
+  const shown = overlay?.background ?? location;
+  // The page below renders again only for its own location: a change of the
+  // overlay over it would render the whole page for nothing.
+  const routes = React.useMemo(
+    () => <Routes location={shown}>{children}</Routes>,
+    [shown, children]
+  );
   return (
     <LazyRouteErrorBoundary>
       <React.Suspense fallback={<RouteFallback />}>
         <div className="contents" inert={overlay?.isOpen || undefined}>
-          <Routes location={overlay?.background ?? location}>{children}</Routes>
+          {routes}
         </div>
       </React.Suspense>
     </LazyRouteErrorBoundary>
