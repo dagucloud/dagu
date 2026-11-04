@@ -84,6 +84,55 @@ const POPULAR_BLURBS: Record<string, string> = {
   'log.write': 'Write a message to the log.',
 };
 
+/**
+ * A line for each action whose catalog text describes its whole group or its
+ * configuration rather than what the action does. It wins over that text.
+ */
+const GROUP_BLURBS: Record<string, string> = {
+  'archive.create': 'Pack files into an archive.',
+  'archive.extract': 'Unpack an archive into a folder.',
+  'archive.list': 'List the files in an archive.',
+  'artifact.list': 'List the artifacts of the run.',
+  'artifact.read': 'Read an artifact of the run.',
+  'artifact.write': 'Save a file as an artifact of the run.',
+  'file.copy': 'Copy a file or folder.',
+  'file.delete': 'Delete a file or folder.',
+  'file.list': 'List the files in a folder.',
+  'file.mkdir': 'Create a folder.',
+  'file.move': 'Move or rename a file or folder.',
+  'file.read': 'Read the content of a file.',
+  'file.stat': 'Read the size, type and times of a file.',
+  'file.write': 'Write content to a file.',
+  'state.delete': 'Delete a key of the workflow state.',
+  'state.diff': 'Tell whether a value changed since the last run.',
+  'state.get': 'Read a key of the workflow state.',
+  'state.list': 'List the keys of the workflow state.',
+  'state.set': 'Store a value in the workflow state.',
+  'wait.duration': 'Wait for a length of time.',
+  'wait.file': 'Wait until a file exists, or is gone.',
+  'wait.http': 'Wait until a URL answers with the expected status.',
+  'wait.until': 'Wait until a time of day or a date.',
+  'postgres.query': 'Run a SQL query on PostgreSQL.',
+  'postgres.import': 'Import a data file into a PostgreSQL table.',
+  'sqlite.query': 'Run a SQL query on SQLite.',
+  'sqlite.import': 'Import a data file into a SQLite table.',
+  'container.run': 'Run a command in a container.',
+  'docker.run': 'Run a command in a Docker container.',
+  'k8s.run': 'Run a command as a Kubernetes job.',
+  'kubernetes.run': 'Run a command as a Kubernetes job.',
+  'redis.get': 'Read a key from Redis.',
+  'redis.set': 'Store a value in Redis.',
+  's3.delete': 'Delete objects from S3.',
+  's3.download': 'Download objects from S3.',
+  's3.list': 'List the objects in an S3 bucket.',
+  's3.upload': 'Upload files to S3.',
+  'sftp.download': 'Download files over SFTP.',
+  'sftp.upload': 'Upload files over SFTP.',
+  'mail.send': 'Send an email.',
+  'human.task': 'Ask a person to review or fill in a form.',
+  'outputs.write': 'Publish values as outputs of the run.',
+};
+
 interface Section {
   id: string;
   title: string;
@@ -209,6 +258,8 @@ export function AddStepPanel({
   const shell = catalog.find((entry) => entry.name === 'run');
   // One line for every row, so that the heights of the rows agree.
   const describe = (entry: ActionCatalogEntry): string => {
+    const own = GROUP_BLURBS[entry.name];
+    if (own) return ts(own);
     const text = entry.description?.trim();
     if (text && text !== entry.name) return text;
     const blurb = POPULAR_BLURBS[entry.name];

@@ -102,6 +102,24 @@ describe('AddStepPanel', () => {
     expect(screen.getAllByRole('option')).toHaveLength(5);
   });
 
+  // Actions of one group share a catalog text that names the whole group.
+  it('tells the actions of one group apart', () => {
+    setup({
+      catalog: [
+        entry('archive.create', 'Create', 'archive', 'Archive operations.'),
+        entry('archive.list', 'List', 'archive', 'Archive operations.'),
+      ],
+    });
+    const create = screen.getByRole('option', { name: /Create/ });
+    expect(
+      within(create).getByText('Pack files into an archive.')
+    ).toBeInTheDocument();
+    const list = screen.getByRole('option', { name: /List/ });
+    expect(
+      within(list).getByText('List the files in an archive.')
+    ).toBeInTheDocument();
+  });
+
   // axe nested-interactive and duplicate option names.
   it('lists an action once and holds no control in an option', () => {
     setup();
