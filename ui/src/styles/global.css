@@ -138,7 +138,7 @@
     --success-foreground: #ffffff;
     --success-muted: color-mix(in srgb, var(--success) 10%, transparent);
     --warning: #9a5d0b;
-    --warning-foreground: #111827;
+    --warning-foreground: #ffffff;
     --warning-muted: color-mix(in srgb, var(--warning) 10%, transparent);
     --info: #5d4fe0;
     --info-foreground: #ffffff;
