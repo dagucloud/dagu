@@ -85,8 +85,9 @@ another run's outputs.
 
 Provider-specific behavior covered here:
 
-- `env`: resolves `key` from the DAG's own env scope first, then the real OS
-  environment. An unset variable fails with
+- `env`: resolves `key` from the DAG's own env scope and the run's runtime
+  profile entries first (see [Spec 070](070-runtime-profiles.md)), then the
+  real OS environment. An unset variable fails with
   `environment variable "<key>" is not set`.
 - `file`: resolves `key` as a file path. A relative path is resolved against
   the DAG file's own directory. A missing file fails with

@@ -2314,6 +2314,72 @@ steps:
 	require.Contains(t, string(statusJSON), "*******")
 }
 
+// The env secret provider reads runtime profile entries, both inherited
+// defaults and the selected profile, as steps do.
+func TestAgent_EnvSecretReadsRuntimeProfile(t *testing.T) {
+	t.Parallel()
+	th := test.Setup(t)
+
+	backend := testutil.NewMemoryBackend()
+	enc, err := crypto.NewEncryptor("test-key")
+	require.NoError(t, err)
+	secretStore, err := store.NewSecretStore(backend.Collection("secrets"), enc)
+	require.NoError(t, err)
+	profileStore, err := store.NewProfileStore(backend.Collection("profiles"))
+	require.NoError(t, err)
+
+	now := time.Now().UTC()
+	globalRef := profilepkg.GlobalInheritedRef()
+	globalDefaults, err := profilepkg.NewInherited(globalRef, profilepkg.InheritedCreateInput{
+		CreatedBy: "alice",
+	}, now)
+	require.NoError(t, err)
+	token, err := secretpkg.New(secretpkg.CreateInput{
+		Ref:          globalRef.SecretRef("TEST_KEY"),
+		ProviderType: secretpkg.ProviderDaguManaged,
+		CreatedBy:    "alice",
+	}, now)
+	require.NoError(t, err)
+	require.NoError(t, secretStore.Create(context.Background(), token, &secretpkg.WriteValueInput{
+		Value:     "global-secret",
+		CreatedBy: "alice",
+		CreatedAt: now,
+	}))
+	require.NoError(t, globalDefaults.SetSecret("TEST_KEY", token.ID, "alice", now))
+	require.NoError(t, profileStore.Create(context.Background(), globalDefaults))
+
+	selected, err := profilepkg.New(profilepkg.CreateInput{
+		Name:      "prod",
+		CreatedBy: "alice",
+	}, now)
+	require.NoError(t, err)
+	require.NoError(t, selected.SetVariable("REGION", "eu", "alice", now))
+	require.NoError(t, profileStore.Create(context.Background(), selected))
+
+	dag := th.DAG(t, `
+secrets:
+  - name: TOKEN
+    provider: env
+    key: TEST_KEY
+  - name: SECRET_REGION
+    provider: env
+    key: REGION
+steps:
+  - name: step1
+    run: test "$TOKEN|$SECRET_REGION" = "global-secret|eu" && echo ok
+    output: RESPONSE`)
+
+	dagAgent := dag.Agent(test.WithAgentOptions(agent.Options{
+		ProfileStore: profileStore,
+		SecretStore:  secretStore,
+		ProfileName:  "prod",
+	}))
+	dagAgent.RunSuccess(t)
+
+	outputs := dag.ReadOutputs(t)
+	require.Equal(t, "ok", outputs["response"])
+}
+
 func TestAgent_SubDAGRunVisibleWhileRunning(t *testing.T) {
 	t.Parallel()
 

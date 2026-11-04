@@ -57,6 +57,10 @@ profile overrides the DAG's own `env:` field. Global and workspace defaults
 are managed only through the HTTP API (`/profiles/_global/...` and
 `/profiles/_workspaces/{name}/...`); no CLI command reaches them.
 
+A DAG `secrets:` entry with the `env` provider resolves its `key` against
+layers 1 through 6 in the same order, so it can read any profile variable or
+secret.
+
 A webhook-triggered run authenticated with the webhook's default token
 selects a profile with the `X-Dagu-Profile` request header, restricted to
 the profiles an admin allow-listed for that webhook
