@@ -4,6 +4,7 @@
 import { memo, type ComponentType } from 'react';
 import { HistoryBody } from '../../history/HistoryBody';
 import type { DockTab } from '../../state/workspaceUrl';
+import { DefinitionBody } from './DefinitionBody';
 import {
   ActionsTab,
   AgentTab,
@@ -40,4 +41,6 @@ export const dockTabBodies: Partial<
   tasks: memo(TasksTab),
   chat: memo(ChatTab),
   continuous: memo(ContinuousTab),
+  // Mounts again for each run, like the run tabs.
+  definition: memo(DefinitionBody),
 };

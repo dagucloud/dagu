@@ -6,6 +6,7 @@ import {
   Archive,
   Bot,
   ClipboardCheck,
+  FileCode,
   GanttChart,
   History,
   ListChecks,
@@ -30,6 +31,7 @@ export const DOCK_TAB_LABELS: Record<DockTab, string> = {
   tasks: 'Tasks',
   chat: 'Chat',
   continuous: 'Continuous',
+  definition: 'Definition',
 };
 
 const DOCK_TAB_ICONS: Record<DockTab, LucideIcon> = {
@@ -43,6 +45,7 @@ const DOCK_TAB_ICONS: Record<DockTab, LucideIcon> = {
   tasks: ListChecks,
   chat: MessageSquare,
   continuous: Activity,
+  definition: FileCode,
 };
 
 export const DOCK_ID_PREFIX = 'ww-dock';

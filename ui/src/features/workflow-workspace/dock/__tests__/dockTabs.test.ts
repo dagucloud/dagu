@@ -43,9 +43,8 @@ describe('toDockTab', () => {
     expect(toDockTab(runTab)).toBe(dockTab);
   });
 
-  // The run spec is no tab of the Run panel: the header opens it.
-  it('maps spec to no tab', () => {
-    expect(toDockTab('spec')).toBeNull();
+  it('maps spec to the Definition tab', () => {
+    expect(toDockTab('spec')).toBe('definition');
   });
 });
 
@@ -54,11 +53,15 @@ describe('toDockTab', () => {
 describe('dockTabsFor', () => {
   it.each<[string, RunViewFacts | null, DockTab[]]>([
     ['never run', null, ['log']],
-    ['finished run', BASE, ['log', 'timeline', 'history', 'outputs']],
+    [
+      'finished run',
+      BASE,
+      ['log', 'timeline', 'history', 'outputs', 'definition'],
+    ],
     [
       'not started',
       { ...BASE, status: Status.NotStarted },
-      ['log', 'history', 'outputs'],
+      ['log', 'history', 'outputs', 'definition'],
     ],
     [
       'human tasks and approvals share one Actions tab',
@@ -69,7 +72,7 @@ describe('dockTabsFor', () => {
         humanTasksWaiting: 1,
         waitingApprovals: 2,
       },
-      ['log', 'actions', 'timeline', 'history', 'outputs'],
+      ['log', 'actions', 'timeline', 'history', 'outputs', 'definition'],
     ],
     [
       'every view',
@@ -91,6 +94,7 @@ describe('dockTabsFor', () => {
         'artifacts',
         'tasks',
         'chat',
+        'definition',
       ],
     ],
   ])('%s', (_name, facts, tabs) => {
@@ -114,6 +118,7 @@ describe('dockTabsFor', () => {
       'timeline',
       'history',
       'outputs',
+      'definition',
     ]);
     expect(
       dockTabsFor({
@@ -141,6 +146,7 @@ describe('dockTabsFor agent run', () => {
       'timeline',
       'history',
       'outputs',
+      'definition',
     ]);
     expect(
       dockTabsFor({
@@ -249,6 +255,7 @@ describe('dockTabsFor continuous run', () => {
       'timeline',
       'history',
       'outputs',
+      'definition',
     ]);
     expect(dockTabsFor({ ...BASE, hasContinuous: false })).not.toContain(
       'continuous'

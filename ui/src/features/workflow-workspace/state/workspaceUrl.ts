@@ -36,6 +36,7 @@ export type DockTab =
   | 'chat'
   | 'tasks'
   | 'continuous'
+  | 'definition'
   | 'log';
 export type LogStream = 'stdout' | 'stderr';
 
@@ -87,6 +88,7 @@ export const DOCK_TABS: readonly DockTab[] = [
   'chat',
   'tasks',
   'continuous',
+  'definition',
   'log',
 ];
 

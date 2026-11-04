@@ -68,7 +68,8 @@ export function scopeDetailsToStep(
  * The tabs of the OUTPUT column for one step of a run: the tabs of the Run
  * panel for the scoped run (scopeDetailsToStep) without the Timeline
  * (stepViewTabs). A tab that has nothing for the step is not in the list, so
- * no tab shows empty or shows another step.
+ * no tab shows empty or shows another step. The Definition tab is not in the
+ * list either: the YAML of the definition is beside the column.
  */
 export function stepDockTabs(
   details: ApiDAGRunDetails,
@@ -77,5 +78,5 @@ export function stepDockTabs(
   const scoped = scopeDetailsToStep(details, step);
   return stepViewTabs(
     dockTabsFor(dockFacts(scoped, { artifactEnabled: false }))
-  );
+  ).filter((tab) => tab !== 'definition');
 }
