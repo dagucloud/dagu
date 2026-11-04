@@ -458,12 +458,15 @@ function MiniMapCanvas({
   rects,
   selected,
   layout,
+  held,
   size,
   visible,
 }: {
   rects: readonly Rect[];
   selected: ReadonlySet<number>;
   layout: MinimapLayout;
+  /** The layout of a drag in progress, which every frame of the drag keeps. */
+  held: { readonly current: MinimapLayout | null };
   size: { width: number; height: number };
   visible: boolean;
 }): ReactElement {
@@ -502,7 +505,8 @@ function MiniMapCanvas({
     // the node layer and the view rectangle always agree. The size of the
     // overview is the one of the last draw of the component.
     const view = visibleRect(viewports.get(), current.size);
-    const layout = minimapLayout(current.rects, view) ?? current.layout;
+    const layout =
+      held.current ?? minimapLayout(current.rects, view) ?? current.layout;
     const width = current.layout.pixelWidth - 2 * MINIMAP_BORDER;
     const height = current.layout.pixelHeight - 2 * MINIMAP_BORDER;
     const ratio = window.devicePixelRatio || 1;
@@ -743,13 +747,14 @@ export function MiniMap({
   // A graph that runs out of the view keeps its overview on at rest too: it
   // tells that there is more to see, and where.
   const resting = persistent || !fitted;
-  const { pixelWidth, pixelHeight, box } = layout;
+  const { pixelWidth, pixelHeight } = layout;
 
   const centerOn = (event: ReactPointerEvent<HTMLDivElement>) => {
     const rect = event.currentTarget.getBoundingClientRect();
     if (rect.width === 0) {
       return;
     }
+    const { box } = dragLayout.current ?? layout;
     const fx = box.x + ((event.clientX - rect.left) / rect.width) * box.width;
     const fy = box.y + ((event.clientY - rect.top) / rect.height) * box.height;
     const current = store.getViewport();
@@ -789,7 +794,12 @@ export function MiniMap({
         style={{ width: pixelWidth, height: pixelHeight }}
         className="relative cursor-pointer rounded-md border bg-card/90 shadow-sm"
         onPointerDown={(event) => {
-          dragLayout.current = layout;
+          // The layout of the view at the press, not of the last render.
+          dragLayout.current =
+            minimapLayout(
+              store.nodeRects(),
+              visibleRect(store.getViewport(), size)
+            ) ?? layout;
           event.currentTarget.setPointerCapture?.(event.pointerId);
           centerOn(event);
         }}
@@ -808,6 +818,7 @@ export function MiniMap({
           rects={rects}
           selected={selectedRects}
           layout={layout}
+          held={dragLayout}
           size={size}
           visible={visible}
         />

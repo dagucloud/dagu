@@ -169,7 +169,8 @@ function DAGStatus({
   const navigate = useNavigate();
   const { showError } = useErrorModal();
   const [modal, setModal] = useState(false);
-  const [internalActiveTab, setInternalActiveTab] = useState<StatusTab>(initialTab);
+  const [internalActiveTab, setInternalActiveTab] =
+    useState<StatusTab>(initialTab);
   const activeTab = controlledActiveTab ?? internalActiveTab;
   const isTabControlled = controlledActiveTab !== undefined;
   // Follows a tab change from the URL, such as navigating to another run.
@@ -428,7 +429,8 @@ function DAGStatus({
         pushOntoOpenStack(entry);
         return;
       }
-      setChildRunStack([entry]);
+      // Pushes in one event open a path of runs.
+      setChildRunStack((stack) => [...stack, entry]);
     },
     [pushOntoOpenStack]
   );
@@ -619,180 +621,180 @@ function DAGStatus({
       >
         {/* Status Detail Tabs */}
         {!summary && (
-        <div
-          className={cn(
-            'w-full min-w-0 max-w-full overflow-hidden',
-            fillHeight && 'shrink-0'
-          )}
-        >
-          <div className="flex w-full min-w-0 flex-wrap items-center gap-2">
-            <div
-              ref={tabRowRef}
-              style={tabRowFade}
-              className="min-w-0 flex-1 overflow-x-auto"
-            >
-              <Tabs className="min-w-max whitespace-nowrap">
-                <I18nProps>
-                  <Tab
-                    aria-label="Status"
-                    isActive={activeTab === 'status'}
-                    onClick={() => selectTab('status')}
-                    className="flex cursor-pointer items-center gap-2 px-3 sm:px-4"
-                  >
-                    <ActivitySquare className="h-4 w-4" />
-                    <span>
-                      <I18nText text={'Status'} />
-                    </span>
-                  </Tab>
-                </I18nProps>
-                {hasAgentSessions && (
+          <div
+            className={cn(
+              'w-full min-w-0 max-w-full overflow-hidden',
+              fillHeight && 'shrink-0'
+            )}
+          >
+            <div className="flex w-full min-w-0 flex-wrap items-center gap-2">
+              <div
+                ref={tabRowRef}
+                style={tabRowFade}
+                className="min-w-0 flex-1 overflow-x-auto"
+              >
+                <Tabs className="min-w-max whitespace-nowrap">
                   <I18nProps>
                     <Tab
-                      aria-label="Agent"
-                      isActive={activeTab === 'agent'}
-                      onClick={() => selectTab('agent')}
+                      aria-label="Status"
+                      isActive={activeTab === 'status'}
+                      onClick={() => selectTab('status')}
                       className="flex cursor-pointer items-center gap-2 px-3 sm:px-4"
                     >
-                      <Bot className="h-4 w-4" />
+                      <ActivitySquare className="h-4 w-4" />
                       <span>
-                        <I18nText text={'Agent'} />
+                        <I18nText text={'Status'} />
                       </span>
-                      {waitingAgentCount > 0 && (
-                        <span className="rounded-full bg-warning/15 px-1.5 py-0.5 text-xs font-medium text-warning">
-                          {waitingAgentCount}
+                    </Tab>
+                  </I18nProps>
+                  {hasAgentSessions && (
+                    <I18nProps>
+                      <Tab
+                        aria-label="Agent"
+                        isActive={activeTab === 'agent'}
+                        onClick={() => selectTab('agent')}
+                        className="flex cursor-pointer items-center gap-2 px-3 sm:px-4"
+                      >
+                        <Bot className="h-4 w-4" />
+                        <span>
+                          <I18nText text={'Agent'} />
                         </span>
-                      )}
-                    </Tab>
-                  </I18nProps>
-                )}
-                {hasHumanTaskWork && (
-                  <I18nProps>
-                    <Tab
-                      aria-label="Human tasks"
-                      isActive={activeTab === 'human-tasks'}
-                      onClick={() => selectTab('human-tasks')}
-                      className="flex cursor-pointer items-center gap-2 px-3 sm:px-4"
-                    >
-                      <ClipboardCheck className="h-4 w-4" />
-                      <span>
-                        <I18nText text={'Human tasks'} />
-                      </span>
-                      {waitingHumanTaskCount > 0 && (
-                        <span className="rounded-full bg-warning/15 px-1.5 py-0.5 text-xs font-medium text-warning">
-                          {waitingHumanTaskCount}
+                        {waitingAgentCount > 0 && (
+                          <span className="rounded-full bg-warning/15 px-1.5 py-0.5 text-xs font-medium text-warning">
+                            {waitingAgentCount}
+                          </span>
+                        )}
+                      </Tab>
+                    </I18nProps>
+                  )}
+                  {hasHumanTaskWork && (
+                    <I18nProps>
+                      <Tab
+                        aria-label="Human tasks"
+                        isActive={activeTab === 'human-tasks'}
+                        onClick={() => selectTab('human-tasks')}
+                        className="flex cursor-pointer items-center gap-2 px-3 sm:px-4"
+                      >
+                        <ClipboardCheck className="h-4 w-4" />
+                        <span>
+                          <I18nText text={'Human tasks'} />
                         </span>
-                      )}
-                    </Tab>
-                  </I18nProps>
-                )}
-                {hasWaitingApprovals && (
+                        {waitingHumanTaskCount > 0 && (
+                          <span className="rounded-full bg-warning/15 px-1.5 py-0.5 text-xs font-medium text-warning">
+                            {waitingHumanTaskCount}
+                          </span>
+                        )}
+                      </Tab>
+                    </I18nProps>
+                  )}
+                  {hasWaitingApprovals && (
+                    <I18nProps>
+                      <Tab
+                        aria-label="Approval"
+                        isActive={activeTab === 'approval'}
+                        onClick={() => selectTab('approval')}
+                        className="flex cursor-pointer items-center gap-2 px-3 sm:px-4"
+                      >
+                        <ShieldCheck className="h-4 w-4" />
+                        <span>
+                          <I18nText text={'Approval'} />
+                        </span>
+                        <span className="rounded-full bg-warning/15 px-1.5 py-0.5 text-xs font-medium text-warning">
+                          {waitingApprovalCount}
+                        </span>
+                      </Tab>
+                    </I18nProps>
+                  )}
+                  {showTimeline && (
+                    <I18nProps>
+                      <Tab
+                        aria-label="Timeline"
+                        isActive={activeTab === 'timeline'}
+                        onClick={() => selectTab('timeline')}
+                        className="flex cursor-pointer items-center gap-2 px-3 sm:px-4"
+                      >
+                        <GanttChart className="h-4 w-4" />
+                        <span>
+                          <I18nText text={'Timeline'} />
+                        </span>
+                      </Tab>
+                    </I18nProps>
+                  )}
                   <I18nProps>
                     <Tab
-                      aria-label="Approval"
-                      isActive={activeTab === 'approval'}
-                      onClick={() => selectTab('approval')}
+                      aria-label="Outputs"
+                      isActive={activeTab === 'outputs'}
+                      onClick={() => selectTab('outputs')}
                       className="flex cursor-pointer items-center gap-2 px-3 sm:px-4"
                     >
-                      <ShieldCheck className="h-4 w-4" />
+                      <Package className="h-4 w-4" />
                       <span>
-                        <I18nText text={'Approval'} />
-                      </span>
-                      <span className="rounded-full bg-warning/15 px-1.5 py-0.5 text-xs font-medium text-warning">
-                        {waitingApprovalCount}
+                        <I18nText text={'Outputs'} />
                       </span>
                     </Tab>
                   </I18nProps>
-                )}
-                {showTimeline && (
+                  {hasArtifacts && (
+                    <I18nProps>
+                      <Tab
+                        aria-label="Artifacts"
+                        isActive={activeTab === 'artifacts'}
+                        onClick={() => selectTab('artifacts')}
+                        className="flex cursor-pointer items-center gap-2 px-3 sm:px-4"
+                      >
+                        <Archive className="h-4 w-4" />
+                        <span>
+                          <I18nText text={'Artifacts'} />
+                        </span>
+                      </Tab>
+                    </I18nProps>
+                  )}
+                  {hasAgentTasks && (
+                    <I18nProps>
+                      <Tab
+                        aria-label="Tasks"
+                        isActive={activeTab === 'tasks'}
+                        onClick={() => selectTab('tasks')}
+                        className="flex cursor-pointer items-center gap-2 px-3 sm:px-4"
+                      >
+                        <ListChecks className="h-4 w-4" />
+                        <span>
+                          <I18nText text={'Tasks'} />
+                        </span>
+                      </Tab>
+                    </I18nProps>
+                  )}
+                  {hasChatSteps && (
+                    <I18nProps>
+                      <Tab
+                        aria-label="Chat"
+                        isActive={activeTab === 'chat'}
+                        onClick={() => selectTab('chat')}
+                        className="flex cursor-pointer items-center gap-2 px-3 sm:px-4"
+                      >
+                        <MessageSquare className="h-4 w-4" />
+                        <span>
+                          <I18nText text={'Chat'} />
+                        </span>
+                      </Tab>
+                    </I18nProps>
+                  )}
                   <I18nProps>
                     <Tab
-                      aria-label="Timeline"
-                      isActive={activeTab === 'timeline'}
-                      onClick={() => selectTab('timeline')}
+                      aria-label="Spec"
+                      isActive={activeTab === 'spec'}
+                      onClick={() => selectTab('spec')}
                       className="flex cursor-pointer items-center gap-2 px-3 sm:px-4"
                     >
-                      <GanttChart className="h-4 w-4" />
+                      <FileCode className="h-4 w-4" />
                       <span>
-                        <I18nText text={'Timeline'} />
+                        <I18nText text={'Spec'} />
                       </span>
                     </Tab>
                   </I18nProps>
-                )}
-                <I18nProps>
-                  <Tab
-                    aria-label="Outputs"
-                    isActive={activeTab === 'outputs'}
-                    onClick={() => selectTab('outputs')}
-                    className="flex cursor-pointer items-center gap-2 px-3 sm:px-4"
-                  >
-                    <Package className="h-4 w-4" />
-                    <span>
-                      <I18nText text={'Outputs'} />
-                    </span>
-                  </Tab>
-                </I18nProps>
-                {hasArtifacts && (
-                  <I18nProps>
-                    <Tab
-                      aria-label="Artifacts"
-                      isActive={activeTab === 'artifacts'}
-                      onClick={() => selectTab('artifacts')}
-                      className="flex cursor-pointer items-center gap-2 px-3 sm:px-4"
-                    >
-                      <Archive className="h-4 w-4" />
-                      <span>
-                        <I18nText text={'Artifacts'} />
-                      </span>
-                    </Tab>
-                  </I18nProps>
-                )}
-                {hasAgentTasks && (
-                  <I18nProps>
-                    <Tab
-                      aria-label="Tasks"
-                      isActive={activeTab === 'tasks'}
-                      onClick={() => selectTab('tasks')}
-                      className="flex cursor-pointer items-center gap-2 px-3 sm:px-4"
-                    >
-                      <ListChecks className="h-4 w-4" />
-                      <span>
-                        <I18nText text={'Tasks'} />
-                      </span>
-                    </Tab>
-                  </I18nProps>
-                )}
-                {hasChatSteps && (
-                  <I18nProps>
-                    <Tab
-                      aria-label="Chat"
-                      isActive={activeTab === 'chat'}
-                      onClick={() => selectTab('chat')}
-                      className="flex cursor-pointer items-center gap-2 px-3 sm:px-4"
-                    >
-                      <MessageSquare className="h-4 w-4" />
-                      <span>
-                        <I18nText text={'Chat'} />
-                      </span>
-                    </Tab>
-                  </I18nProps>
-                )}
-                <I18nProps>
-                  <Tab
-                    aria-label="Spec"
-                    isActive={activeTab === 'spec'}
-                    onClick={() => selectTab('spec')}
-                    className="flex cursor-pointer items-center gap-2 px-3 sm:px-4"
-                  >
-                    <FileCode className="h-4 w-4" />
-                    <span>
-                      <I18nText text={'Spec'} />
-                    </span>
-                  </Tab>
-                </I18nProps>
-              </Tabs>
+                </Tabs>
+              </div>
             </div>
           </div>
-        </div>
         )}
 
         {displayDAGRun.status === Status.Waiting &&

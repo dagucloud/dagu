@@ -119,7 +119,7 @@ export function OverlayResizeHandle({
       aria-orientation="vertical"
       aria-valuenow={Math.round(width())}
       tabIndex={0}
-      title={ts('Resize workflow view')}
+      title={label ?? ts('Resize workflow view')}
       className="group absolute inset-y-0 left-0 z-20 hidden w-3 -translate-x-1.5 cursor-col-resize touch-none outline-none md:block"
       onPointerDown={onPointerDown}
       onPointerMove={onPointerMove}

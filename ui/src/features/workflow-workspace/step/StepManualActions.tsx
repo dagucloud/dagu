@@ -307,7 +307,12 @@ export function WaitingSubRuns({
     },
     { refreshInterval: WAITING_REFRESH_MS }
   );
-  if (trail.length >= MAX_WAITING_DEPTH) return fallback;
+  // Deeper than the lookup goes, the step leads to its sub-runs.
+  if (trail.length >= MAX_WAITING_DEPTH) {
+    return (
+      fallback ?? <SubRunWaitingNotice holder={holder} node={node} named />
+    );
+  }
   const ids = new Set(allSubRunsOf(node).map((run) => run.dagRunId));
   const waiting = (data?.subRuns ?? []).filter(
     (run) => ids.has(run.dagRunId) && run.status === Status.Waiting

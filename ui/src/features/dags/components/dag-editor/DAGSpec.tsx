@@ -1842,7 +1842,8 @@ function DAGSpec({
     const field = relativeFieldPath(issue.stepPath ?? '', issue.fieldPath);
     if (!fileShown && issue.stepName && field && hostMode) {
       if (editorHandle.openForm(issue.stepName)) {
-        inspectorView.setFocusPath(field);
+        // The form opens in a transition: the field to focus goes with it.
+        React.startTransition(() => inspectorView.setFocusPath(field));
         return;
       }
     }
@@ -1883,7 +1884,7 @@ function DAGSpec({
       onRevealStep={(step, field) => {
         // A row that names a field opens the form of the step on it.
         if (hostMode && field && editorHandle.openForm(step)) {
-          inspectorView.setFocusPath(field);
+          React.startTransition(() => inspectorView.setFocusPath(field));
           return;
         }
         visualHandleRef.current?.revealStep(step);
