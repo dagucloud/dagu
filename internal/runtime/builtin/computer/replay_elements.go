@@ -856,21 +856,26 @@ func (r *run) replayByElement(ctx context.Context, index, position, total int, t
 // takes it only as keys, so the keys replace the text as the value did,
 // and deletes the selection for an empty value, which no key types. The
 // keys go as any replayed key does, never to a window the step does not
-// operate, and not at all once the focus is known to have left the field.
-// It says why it could not.
+// operate, and none goes, nor the value after them, once the focus is known
+// to have left the field. It says why it could not.
 func (r *run) selectForReplacement(ctx context.Context, rec recordedAction, field desktop.Element, action computeruse.Action, position, total int) string {
-	if focused, err := r.focusedElement(); err == nil && !slices.Equal(focused.Path, field.Path) {
-		return fmt.Sprintf("%s lost the focus at turn %d of %d before its text was replaced", rec.Element.describe(), position+1, total)
-	}
+	lost := fmt.Sprintf("%s lost the focus at turn %d of %d before its text was replaced", rec.Element.describe(), position+1, total)
 	chords := []string{r.selectAllChord()}
 	if r.substitute(action.Text) == "" {
 		chords = append(chords, string(desktop.KeyBackspace))
 	}
 	for _, chord := range chords {
+		if r.focusLeft(field) {
+			return lost
+		}
 		keys := computeruse.Action{Kind: computeruse.KindKey, Keys: computeruse.SplitKeys(chord)}
 		if result := r.runAction(ctx, keys, identity, nil, computeruse.ImageLimit{}); result.Failed() {
 			return fmt.Sprintf("%s could not have its text replaced at turn %d of %d: %s", rec.Element.describe(), position+1, total, result.Error)
 		}
+	}
+	// The value is typed next, into the field only.
+	if r.focusLeft(field) {
+		return lost
 	}
 	return ""
 }

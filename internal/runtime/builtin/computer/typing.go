@@ -163,7 +163,19 @@ func (l *actLoop) typeElement(ctx context.Context, els desktop.Elements, action 
 		// Typing nothing over the selection would leave it in the field.
 		chords = append(chords, string(desktop.KeyBackspace))
 	}
+	// Each key goes only while the field keeps the focus, so none lands in
+	// a control the focus moved to.
+	lostFocus := func() bool {
+		if !l.r.focusLeft(e) {
+			return false
+		}
+		result.Error = l.r.masker.MaskString(cmp.Or(e.Name, e.Label, "the field")) + " lost the focus before its text was replaced"
+		return true
+	}
 	for _, chord := range chords {
+		if lostFocus() {
+			return nil, result
+		}
 		keys := computeruse.Action{CallID: action.CallID, Kind: computeruse.KindKey, Keys: computeruse.SplitKeys(chord)}
 		pressed, rec := l.r.performOne(ctx, l.index, keys, l.seen, l.limit)
 		if pressed.Failed() {
@@ -173,6 +185,9 @@ func (l *actLoop) typeElement(ctx context.Context, els desktop.Elements, action 
 	}
 	if text == "" {
 		return recs, l.reportEmptied(ctx, action.CallID, e)
+	}
+	if lostFocus() {
+		return nil, result
 	}
 	typing := action
 	typing.ElementID = ""
@@ -220,6 +235,13 @@ func (l *actLoop) confirmReplaced(ctx context.Context, result *computeruse.Resul
 		result.Output = ""
 		result.Error = fmt.Sprintf("%s shows %q, not the text typed into it", name, l.r.modelValue(field, ""))
 	}
+}
+
+// focusLeft reports whether the keyboard focus is known to be on another
+// element than field; a focus the step cannot read is not.
+func (r *run) focusLeft(field desktop.Element) bool {
+	focused, err := r.focusedElement()
+	return err == nil && !slices.Equal(focused.Path, field.Path)
 }
 
 // notReplaced waits up to typedSettle for the field e, its text selected

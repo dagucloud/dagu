@@ -262,6 +262,29 @@ func TestTypingIntoAFieldByIdChecksTheValue(t *testing.T) {
 	}
 }
 
+// Typing into a field by id as keys sends no key once the focus is known to
+// have left the field, so none lands in the control it moved to.
+func TestTypingIntoAFieldByIdStopsWhenTheFocusMoves(t *testing.T) {
+	t.Parallel()
+
+	run, session := elementTurnRun(t, actions(computeruse.Action{CallID: "t", Kind: computeruse.KindType, ElementID: "e1", Text: "1200"}), done("Entered"))
+	run.elements.withoutPattern("amountBox")
+	run.elements.onFocus = func(e desktop.Element) {
+		run.backend.recordAccessibility("focus " + focusedID(e))
+		run.elements.mu.Lock()
+		for _, other := range run.elements.elements {
+			if other.ID == "saveButton" {
+				run.elements.focused = other
+			}
+		}
+		run.elements.mu.Unlock()
+	}
+	require.NoError(t, run.execute(`{"idle": "0", "do": [{"act": "金額を入れる"}]}`, nil).err)
+	assert.Equal(t, []string{"focus amountBox"}, run.backend.inputs())
+	require.Len(t, session.observations, 2)
+	assert.Equal(t, "the field lost the focus before its text was replaced", session.observations[1].Results[0].Error)
+}
+
 // A replay by pixels, which reads no elements, clicks the field the act
 // typed into by id before it selects the field's text, so the keys go into
 // that field rather than whichever one has the focus.
