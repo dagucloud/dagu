@@ -263,7 +263,13 @@ function SchemaRadioWidget<
             : undefined
         }
         orientation={inline ? 'horizontal' : 'vertical'}
-        className={cn('flex flex-wrap', !inline && 'flex-col', className)}
+        // The rows keep their padding for the highlight of the choice, and
+        // the group gives it back, so the radios line up with the label.
+        className={cn(
+          '-mx-2 flex flex-wrap gap-0.5',
+          !inline && 'flex-col',
+          className
+        )}
       >
         {Array.isArray(enumOptions) &&
           enumOptions.map((option, index) => {

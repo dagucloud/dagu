@@ -122,6 +122,7 @@ export function StepManualActions({
           dagName={holder.name}
           stepName={name}
           onChanged={changed}
+          bare
         />
       )}
       {/* The server completes the human tasks of a root run only. */}
@@ -139,6 +140,7 @@ export function StepManualActions({
             dagRun={holder}
             onChanged={changed}
             stepName={name}
+            bare
           />
         ))}
       {below && !nested && <SubRunWaitingNotice holder={holder} node={node} />}
