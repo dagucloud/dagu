@@ -148,7 +148,9 @@ function useRunNow(
 /** The duration of a run as text, or null when the run has none. */
 function durationText(run: ApiDAGRunDetails, now: number): string | null {
   if (runDurationMs(run, now) === null) return null;
-  return formatElapsed(run.startedAt, run.finishedAt, { live: true, now });
+  // A waiting run has the finish time of its pause, which is not its end.
+  const finishedAt = run.status === Status.Waiting ? undefined : run.finishedAt;
+  return formatElapsed(run.startedAt, finishedAt, { live: true, now });
 }
 
 /**
@@ -925,8 +927,9 @@ export function RunTimelineView({
     return new Set(focused ? [focused.id, ...focused.overlaps] : []);
   }, [layout.extents, focusId]);
   // Narrow tracks draw the extent of the selected run only, in the top lane.
-  // The extents show how runs overlap: a single run has its bar, and its
-  // extent under the baseline read as a time below zero.
+  // The extents show how runs overlap. A lone extent, of the one run that
+  // started, overlaps nothing: its run has its bar, and the extent under the
+  // baseline read as a time below zero.
   const extents = useMemo(
     () =>
       layout.extents.length < 2

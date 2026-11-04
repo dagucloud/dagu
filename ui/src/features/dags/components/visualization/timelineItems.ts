@@ -9,7 +9,6 @@ import {
 import dayjs from '@/lib/dayjs';
 import { isWholeSecondSpan } from '@/lib/formatStepSpan';
 import { components, NodeStatus, Status } from '../../../../api/v1/schema';
-import { isLiveNodeStatus } from '@/lib/status-utils';
 
 type DAGRunDetails = components['schemas']['DAGRunDetails'];
 type Node = components['schemas']['Node'];
@@ -318,9 +317,10 @@ function buildStepRow(
 
   const startMs = dayjs(node.startedAt).valueOf();
   // A step that waits for a person has the finish time of its pause.
-  const endMs = isLiveNodeStatus(node.status)
-    ? nowMs
-    : parseEndMs(node.finishedAt, nowMs);
+  const endMs =
+    node.status === NodeStatus.Waiting
+      ? nowMs
+      : parseEndMs(node.finishedAt, nowMs);
   const normalized = normalizeTiming(startMs, endMs);
 
   if (!normalized) {
@@ -359,7 +359,11 @@ function buildSubDAGRow({
   nowMs: number;
 }): TimelineRow | null {
   const startMs = dayjs(detail.startedAt).valueOf();
-  const endMs = parseEndMs(detail.finishedAt, nowMs);
+  // A sub-run that waits for a person has the finish time of its pause.
+  const endMs =
+    detail.status === Status.Waiting
+      ? nowMs
+      : parseEndMs(detail.finishedAt, nowMs);
   const normalized = normalizeTiming(startMs, endMs);
 
   if (!normalized) {

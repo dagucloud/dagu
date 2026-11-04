@@ -177,7 +177,10 @@ export function runDurationMs(
   if (start === null) return null;
   const finish = time(run.finishedAt);
   // A run that waits for a person has the finish time of its pause.
-  const end = isLiveRunStatus(run.status) ? now : finish;
+  const end =
+    run.status === Status.Waiting
+      ? now
+      : (finish ?? (run.status === Status.Running ? now : null));
   if (end === null || end < start) return null;
   return end - start;
 }

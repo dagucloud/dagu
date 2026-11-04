@@ -31,6 +31,7 @@ import {
   nodeStatusText,
   runStatusText,
   isLiveNodeStatus,
+  isLiveRunStatus,
 } from '@/lib/status-utils';
 import React, {
   forwardRef,
@@ -100,12 +101,6 @@ type Props = {
    */
   visible?: boolean;
 };
-
-/** The run statuses under which a step can be open: running or waiting. */
-const LIVE_RUN_STATUSES: ReadonlySet<Status> = new Set([
-  Status.Running,
-  Status.Waiting,
-]);
 
 function getStatusLabel(row: TimelineRow): string {
   if (row.statusSource === 'dagrun') {
@@ -253,7 +248,9 @@ function ghostLabel(row: TimelineRow, ts: ReturnType<typeof useI18n>['ts']) {
 
 function isActiveTimelineStatus(row: TimelineRow): boolean {
   if (row.statusSource === 'dagrun') {
-    return row.status === Status.Running || row.status === Status.Queued;
+    return (
+      isLiveRunStatus(row.status as Status) || row.status === Status.Queued
+    );
   }
   return isLiveNodeStatus(row.status as NodeStatus);
 }
@@ -430,7 +427,7 @@ function TimelineChart({ status, onOpenSubRun, visible = true }: Props) {
 
   // An open step has no end time: its bar ends at now. The run data does not
   // change while the step runs, so the chart follows the clock itself.
-  const ticking = visible && LIVE_RUN_STATUSES.has(status.status);
+  const ticking = visible && isLiveRunStatus(status.status);
   const second = useClock(ticking ? 1000 : null, (now) =>
     Math.floor(now / 1000)
   );

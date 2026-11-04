@@ -348,6 +348,20 @@ describe('RunMetaLine', () => {
       ]);
     });
 
+    // A run that waits for an approval has the finish time of its pause.
+    it('lists no finish for a run that waits', async () => {
+      render(
+        <RunMetaLine
+          dagRun={{ ...run, status: Status.Waiting, queuedAt: undefined }}
+          showTimes
+        />
+      );
+
+      expect(rowsOf(await openTimesByFocus())).toEqual([
+        ['Started', absoluteOf(run.startedAt)],
+      ]);
+    });
+
     it('puts the times on the queue time until the run starts', async () => {
       render(
         <RunMetaLine

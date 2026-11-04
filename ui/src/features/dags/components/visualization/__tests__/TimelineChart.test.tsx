@@ -708,6 +708,43 @@ describe('TimelineChart', () => {
     ).not.toBeInTheDocument();
   });
 
+  // A sub-run that waits for an approval has the finish time of its pause:
+  // its duration counts up to now.
+  it('counts the duration of a waiting child up to now', async () => {
+    vi.useFakeTimers({ toFake: ['Date'] });
+    vi.setSystemTime(Date.parse('2026-01-01T00:02:01Z'));
+    try {
+      useQueryMock.mockReturnValue({
+        data: {
+          subRuns: [
+            subRunDetail('waiting-run', {
+              status: Status.Waiting,
+              statusLabel: StatusLabel.waiting,
+            }),
+          ],
+        },
+        mutate: vi.fn(),
+      });
+
+      renderChart(
+        dagRun({
+          status: Status.Waiting,
+          statusLabel: StatusLabel.waiting,
+          nodes: [parallelNode('parallel-call', [subRun('waiting-run')])],
+        })
+      );
+
+      await userEvent.hover(
+        screen.getByTestId('timeline-bar-subdag:parallel-call:waiting-run')
+      );
+
+      expect(await screen.findAllByText('2m 0s')).not.toHaveLength(0);
+      expect(screen.queryByText('4s')).not.toBeInTheDocument();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   // The first and last tick labels were cut by the edges of the chart.
   it('anchors the first axis label at the left edge and the last at the right', () => {
     const { container } = renderChart(

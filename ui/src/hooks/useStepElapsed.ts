@@ -22,11 +22,11 @@ export interface StepElapsedSource {
 }
 
 /**
- * The duration of the step, ticking every second while it runs: the one text
- * that the canvas card, the run list and the facts show for one node. Null
- * for a skipped step, for one that has no start time and for no step. Only a
- * running step starts a timer. A step of 0 ms between whole seconds reads
- * "<1s" (formatStepSpan).
+ * The duration of the step, ticking every second while it runs or waits for
+ * a person: the one text that the canvas card, the run list and the facts
+ * show for one node. Null for a skipped step, for one that has no start time
+ * and for no step. Only a running or waiting step starts a timer. A step of
+ * 0 ms between whole seconds reads "<1s" (formatStepSpan).
  */
 export function useStepElapsed(
   node: StepElapsedSource | null | undefined,
@@ -36,10 +36,12 @@ export function useStepElapsed(
   const { ts } = useI18n();
   const active = node ? isLiveNodeStatus(node.status) : false;
   const startedAt = node?.startedAt;
-  const finishedAt = node?.finishedAt;
+  // A waiting step has the finish time of its pause, which is not its end.
+  const finishedAt =
+    node?.status === NodeStatus.Waiting ? undefined : node?.finishedAt;
   const skipped = node?.status === NodeStatus.Skipped;
   const belowSecond = ts('<1s');
-  // Only a running step reads the shared clock; the text is the snapshot, so
+  // Only a live step reads the shared clock; the text is the snapshot, so
   // the component renders when the text changes.
   return useClock(active && startedAt && visible ? 1000 : null, (now) =>
     !node || skipped

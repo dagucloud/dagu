@@ -917,6 +917,29 @@ describe('StepNode issues and run', () => {
       expect(hook.result.current).toBe('13s');
     });
 
+    // A step that waits for an approval has the finish time of its pause.
+    it('counts the duration of a waiting step up to now', () => {
+      vi.useFakeTimers({ toFake: ['setInterval', 'clearInterval', 'Date'] });
+      vi.setSystemTime(new Date('2026-01-01T00:07:00Z'));
+      const run = {
+        status: NodeStatus.Waiting,
+        statusLabel: 'waiting',
+        startedAt: '2026-01-01T00:00:00Z',
+        finishedAt: '2026-01-01T00:00:00.112Z',
+        retryCount: 0,
+        doneCount: 0,
+      };
+      const { getByTestId } = renderIn(
+        <StepNode {...nodeProps(makeNode({ run }))} />
+      );
+      expect(getByTestId('ve-node-duration')).toHaveTextContent('7m 0s');
+
+      act(() => {
+        vi.advanceTimersByTime(2000);
+      });
+      expect(getByTestId('ve-node-duration')).toHaveTextContent('7m 2s');
+    });
+
     it('keeps the slot for a finished step', () => {
       const node = makeNode({
         run: {

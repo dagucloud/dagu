@@ -62,6 +62,7 @@ export function runSpan(
 ): RunSpan | null {
   const ownStart = time(run.startedAt);
   if (ownStart === null) return null;
+  // A run that waits for a person has the finish time of its pause.
   const running =
     run.status === Status.Waiting ||
     (run.status === Status.Running && !time(run.finishedAt));

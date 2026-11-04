@@ -268,6 +268,16 @@ describe('RunTimelineView', () => {
     expect(screen.getByRole('listbox', { name: 'Runs' })).toBeInTheDocument();
   });
 
+  // A run that waits for an approval has the finish time of its pause.
+  it('counts the duration of a waiting run up to now', () => {
+    const waiting = make('r7', Status.Waiting, 0.37, {
+      startedAt: '2026-03-02T11:53:00Z',
+      finishedAt: '2026-03-02T11:53:00.370Z',
+    });
+    renderView({ runs: [...RUNS, waiting], selectedId: 'r7' });
+    expect(bar('r7')).toHaveAccessibleName(/^Run r7, Waiting, 7m 0s/);
+  });
+
   it('selects a run with a click', () => {
     const { onSelect } = renderView();
     fireEvent.click(bar('r2'));

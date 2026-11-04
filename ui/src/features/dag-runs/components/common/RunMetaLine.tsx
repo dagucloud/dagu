@@ -13,7 +13,7 @@ import {
 } from 'lucide-react';
 import React, { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
-import { components } from '@/api/v1/schema';
+import { components, Status } from '@/api/v1/schema';
 import { CopyButton } from '@/components/ui/copy-button';
 import RelativeTime from '@/components/ui/relative-time';
 import Ticker from '@/components/ui/ticker';
@@ -244,7 +244,11 @@ function RunTimes({
       ['Scheduled', dagRun.scheduleTime],
       ['Queued', dagRun.queuedAt],
       ['Started', dagRun.startedAt],
-      ['Finished', dagRun.finishedAt],
+      // A waiting run has the finish time of its pause, not of its end.
+      [
+        'Finished',
+        dagRun.status === Status.Waiting ? undefined : dagRun.finishedAt,
+      ],
     ] as const
   ).flatMap(([label, value]) => {
     const time = formatAbsoluteTime(value);

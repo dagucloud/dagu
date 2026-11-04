@@ -35,7 +35,6 @@ import {
 import { StepDetailsTooltip } from './StepDetailsTooltip';
 import { DAGRunArtifactsButton } from './DAGRunArtifactsButton';
 import { I18nText } from '@/i18n/I18nText';
-import { isLiveRunStatus } from '@/lib/status-utils';
 
 interface DAGRunTableProps {
   dagRuns: components['schemas']['DAGRunSummary'][];
@@ -210,9 +209,12 @@ function DAGRunTable({
       return '-';
     }
 
-    // A run that runs or waits for a person counts up to now: a waiting
-    // run has the finish time of its pause.
-    if (isLiveRunStatus(status)) {
+    // A running run with no finish, and a waiting run, count up to now: a
+    // waiting run has the finish time of its pause.
+    if (
+      status === Status.Waiting ||
+      (status === Status.Running && !finishedAt)
+    ) {
       const start = dayjs(startedAt);
       const now = dayjs();
       const durationMs = now.diff(start);
