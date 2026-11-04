@@ -2544,6 +2544,10 @@ steps:
 		status.AttemptID = attempt.ID()
 		status.Status = statuses[i]
 		status.StartedAt = now.Format(time.RFC3339)
+		// A local Running run with no live process is repaired once its
+		// startup grace passes, which a slow runner can reach before the
+		// list call. A remote worker's status stands as written.
+		status.WorkerID = "worker-1"
 		require.NoError(t, attempt.Open(helper.Context))
 		require.NoError(t, attempt.Write(helper.Context, status))
 		require.NoError(t, attempt.Close(helper.Context))
