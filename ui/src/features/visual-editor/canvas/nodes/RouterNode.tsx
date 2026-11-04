@@ -20,7 +20,7 @@ import {
   HANDLE_CLASS,
   IssueBadges,
   NodeToolbar,
-  RunDot,
+  RunStatus,
   compactTitle,
   failureTitle,
   handlePosition,
@@ -148,7 +148,7 @@ function RouterNodeComponent({
               issues={node.issues}
               issueMessages={node.issueMessages}
             />
-            <RunDot run={node.run} dotOnly={compact} />
+            <RunStatus run={node.run} noBadge={compact} />
           </div>
           {!compact && (node.routeValue ?? node.subtitle) && (
             <span

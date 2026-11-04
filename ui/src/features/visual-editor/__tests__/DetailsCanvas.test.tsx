@@ -183,10 +183,10 @@ describe('DetailsCanvas with a host overlay and selection', () => {
       String(NodeStatus.Skipped)
     );
     expect(
-      within(screen.getByTestId('ve-canvas-node-say')).getByRole('img', {
-        name: 'Reuse previous output',
-      })
-    ).toHaveAttribute('title', 'Reuse previous output');
+      within(screen.getByTestId('ve-canvas-node-say')).getByTestId(
+        've-canvas-node-status'
+      )
+    ).toHaveTextContent('Reuse previous output');
     expect(status('shout')).toHaveAttribute(
       'data-status',
       String(NodeStatus.NotStarted)

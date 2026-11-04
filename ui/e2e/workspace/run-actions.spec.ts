@@ -1359,8 +1359,7 @@ steps:
           `from run ${runB.slice(0, 8)}`
         );
         await expect(card.getByTestId('ve-node-reuse-outline')).toHaveCount(1);
-        await expect(card.getByTestId('status-dot')).toHaveAttribute(
-          'aria-label',
+        await expect(card.getByTestId('ve-canvas-node-status')).toHaveText(
           'Reused'
         );
       }

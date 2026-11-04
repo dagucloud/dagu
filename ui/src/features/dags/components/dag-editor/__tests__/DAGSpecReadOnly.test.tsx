@@ -245,16 +245,12 @@ describe('DAGSpecReadOnly with the canvas preview', () => {
       'data-status',
       String(NodeStatus.Success)
     );
-    expect(
-      runState('extract')?.querySelector('[data-testid="status-dot"]')
-    ).toHaveAttribute('title', 'Reuse previous output');
+    expect(runState('extract')).toHaveTextContent('Reuse previous output');
     expect(runState('load')).toHaveAttribute(
       'data-status',
       String(NodeStatus.NotStarted)
     );
-    expect(
-      runState('load')?.querySelector('[data-testid="status-dot"]')
-    ).toHaveAttribute('title', 'Run again');
+    expect(runState('load')).toHaveTextContent('Run again');
     expect(screen.queryByTestId('preview-graph')).not.toBeInTheDocument();
     expect(graphGate.imports).toBe(0);
   });
