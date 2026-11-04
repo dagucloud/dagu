@@ -898,14 +898,19 @@ func (n *subtreeNode) children() []treeNode {
 	return out
 }
 
-// appName returns the image name of the process that owns a window,
+// appName returns the image name of the process whose window hwnd shows,
 // without its extension, or "" when it cannot be read.
 func appName(hwnd windows.HWND) string {
 	if hwnd == 0 {
 		return ""
 	}
-	var pid uint32
-	if _, err := windows.GetWindowThreadProcessId(hwnd, &pid); err != nil || pid == 0 {
+	return imageName(windowProcess(hwnd))
+}
+
+// imageName returns the image name of a process without its extension, or
+// "" when it cannot be read.
+func imageName(pid uint32) string {
+	if pid == 0 {
 		return ""
 	}
 	process, err := windows.OpenProcess(windows.PROCESS_QUERY_LIMITED_INFORMATION, false, pid)

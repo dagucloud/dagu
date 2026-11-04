@@ -35,10 +35,20 @@ var (
 	procMonitorFromPoint    = user32.NewProc("MonitorFromPoint")
 	procGetWindow           = user32.NewProc("GetWindow")
 	procIsWindowEnabled     = user32.NewProc("IsWindowEnabled")
+	procFindWindowExW       = user32.NewProc("FindWindowExW")
 
 	dwmapi                    = windows.NewLazySystemDLL("dwmapi.dll")
 	procDwmGetWindowAttribute = dwmapi.NewProc("DwmGetWindowAttribute")
 )
+
+// frameClass is the class of the frame a Store app is shown in. The frame
+// belongs to ApplicationFrameHost, and the app's own window is a child of
+// it that the app's process owns.
+const frameClass = "ApplicationFrameWindow"
+
+// maxFrameChildren bounds the children of a frame looked through for the
+// app's window; a frame holds its title bars, an input sink, and the app.
+const maxFrameChildren = 16
 
 const (
 	// gaRoot asks GetAncestor for the top-level window.
@@ -193,11 +203,44 @@ func windowID(hwnd windows.HWND) WindowID {
 	if hwnd == 0 {
 		return WindowID{}
 	}
-	var pid uint32
-	_, _ = windows.GetWindowThreadProcessId(hwnd, &pid)
+	pid := windowProcess(hwnd)
 	title := make([]uint16, 256)
 	n, _, _ := procGetWindowTextW.Call(uintptr(hwnd), uintptr(unsafe.Pointer(&title[0])), uintptr(len(title))) //nolint:gosec // Win32 takes the buffer address as uintptr
-	return WindowID{Handle: uint64(hwnd), Title: windows.UTF16ToString(title[:n]), PID: pid, App: appName(hwnd), Bounds: windowBounds(hwnd)}
+	return WindowID{Handle: uint64(hwnd), Title: windows.UTF16ToString(title[:n]), PID: pid, App: imageName(pid), Bounds: windowBounds(hwnd)}
+}
+
+// windowProcess returns the process whose window hwnd shows: the one that
+// owns it, or for a Store app's frame, the app in it. A frame that holds no
+// window of another process is its owner's.
+func windowProcess(hwnd windows.HWND) uint32 {
+	var owner uint32
+	if _, err := windows.GetWindowThreadProcessId(hwnd, &owner); err != nil {
+		return 0
+	}
+	if className(hwnd) != frameClass {
+		return owner
+	}
+	var child uintptr
+	for range maxFrameChildren {
+		if child, _, _ = procFindWindowExW.Call(uintptr(hwnd), child, 0, 0); child == 0 {
+			break
+		}
+		var pid uint32
+		if _, err := windows.GetWindowThreadProcessId(windows.HWND(child), &pid); err == nil && pid != owner {
+			return pid
+		}
+	}
+	return owner
+}
+
+// className returns the class of a window, or "" when it cannot be read.
+func className(hwnd windows.HWND) string {
+	var buf [256]uint16
+	n, err := windows.GetClassName(hwnd, &buf[0], int32(len(buf)))
+	if err != nil {
+		return ""
+	}
+	return windows.UTF16ToString(buf[:n])
 }
 
 // cloaked reports a window the window manager keeps off the screen while
