@@ -11,6 +11,8 @@ import {
   ChevronLeft,
   ChevronRight,
   FileCode,
+  Maximize2,
+  Minimize2,
   Play,
   Wand2,
   X,
@@ -341,6 +343,10 @@ export function NodeDetailsFrame({
 
   const expanded = state === 'expanded' && layout !== 'sheet';
   const docked = layout !== 'sheet' && !expanded;
+  // A maximized panel takes the whole width of its zone until it is
+  // restored; the stored width stays for the next restore.
+  const [maximized, setMaximized] = React.useState(false);
+  const fillsZone = docked && maximized;
 
   // The element that had focus when the frame opened, such as the canvas
   // node or the dock row, gets it back when the frame closes. The work is
@@ -540,13 +546,15 @@ export function NodeDetailsFrame({
           docked && panelDockGeometry(inZone ? 'zone' : 'window')
         )}
         style={
-          docked
-            ? { width: `${width}px`, maxWidth: panelMaxWidth(viewport) }
-            : undefined
+          fillsZone
+            ? { width: '100%' }
+            : docked
+              ? { width: `${width}px`, maxWidth: panelMaxWidth(viewport) }
+              : undefined
         }
       >
         {/* The docked frame takes a new width from its left edge. */}
-        {docked && <PanelResizeHandle shown={open} />}
+        {docked && !fillsZone && <PanelResizeHandle shown={open} />}
         <header
           data-panel-header
           className={cn(PANEL_HEADER_CLASS, '@container')}
@@ -586,6 +594,13 @@ export function NodeDetailsFrame({
             </div>
             <div className="flex shrink-0 items-center gap-0.5">
               {fileScope && !formMode && yamlTools}
+              {docked && (
+                <IconButton
+                  label={ts(maximized ? 'Restore panel' : 'Maximize panel')}
+                  icon={maximized ? Minimize2 : Maximize2}
+                  onClick={() => setMaximized((value) => !value)}
+                />
+              )}
               {!fileScope && (
                 <>
                   <IconButton

@@ -1446,6 +1446,31 @@ describe('NodeDetailsFrame focus and width', () => {
     expect(edge).toHaveAttribute('aria-valuenow', '3600');
   });
 
+  it('maximizes to the width of its zone and restores the stored width', () => {
+    render(<FocusHarness />);
+    openFromNode();
+    fireEvent.click(header().getByRole('button', { name: 'Maximize panel' }));
+    expect(frame().style.width).toBe('100%');
+    // It stays a panel beside the page, not the node view of a step.
+    expect(frame()).toHaveAttribute('data-state', 'docked');
+    expect(frame()).not.toHaveAttribute('role', 'dialog');
+    // A maximized panel has no edge to drag.
+    expect(screen.queryByRole('separator')).toBeNull();
+
+    fireEvent.click(header().getByRole('button', { name: 'Restore panel' }));
+    expect(frame().style.width).toBe('560px');
+    expect(
+      screen.getByRole('separator', { name: 'Resize step details' })
+    ).toHaveAttribute('aria-valuenow', '560');
+    expect(localStorage.getItem('dagu.stepDetailsDrawer.width')).toBeNull();
+
+    // The node view of a step fills its zone already: no toggle.
+    setNdv('expanded');
+    expect(
+      header().queryByRole('button', { name: 'Maximize panel' })
+    ).toBeNull();
+  });
+
   // The canvas beside the panel and the other right panels read one width:
   // they follow the edge while it moves, not only once it is dropped.
   it('shares its width with the layout and the other panels live', () => {

@@ -16,6 +16,7 @@ import {
 import { launcherStates } from '../../launchers/model';
 import { useCanvasActions, type CanvasActions } from '../context';
 import { CanvasOverlayInsetContext } from '../overlayInset';
+import { CanvasToolbarHostContext } from '../toolbarHost';
 import { buildCanvasGraph } from '../graph';
 import { CANVAS_DETAILS_KEY } from '../useCanvasDetails';
 import { agentColumns } from '../layout';
@@ -1061,6 +1062,53 @@ describe('VisualCanvas', () => {
         );
         // The overview needs room: not drawn in a strip of 400 px.
         expect(screen.queryByTestId('flow-minimap')).toBeNull();
+      });
+
+      // A maximized panel covers the whole canvas: the controls of the
+      // canvas go, and the controls of the host stay in the row.
+      it('hides the canvas controls while a panel covers the whole canvas', () => {
+        sizes.width = 1000;
+        const row = document.createElement('div');
+        document.body.appendChild(row);
+        const view = (covered: number) => (
+          <UserPreferencesProvider>
+            <CanvasToolbarHostContext.Provider value={row}>
+              <CanvasOverlayInsetContext.Provider value={{ right: covered }}>
+                <VisualCanvas
+                  graph={graph}
+                  direction="LR"
+                  selected={null}
+                  frozen={false}
+                  readOnly={false}
+                  catalog={catalogSample}
+                  onSelect={vi.fn()}
+                  onEdit={vi.fn()}
+                  onCommand={vi.fn()}
+                  toolbarStart={<button type="button">Document</button>}
+                />
+              </CanvasOverlayInsetContext.Provider>
+            </CanvasToolbarHostContext.Provider>
+          </UserPreferencesProvider>
+        );
+        const { rerender, unmount } = render(view(760));
+        expect(
+          within(row).getByRole('button', { name: 'Zoom in' })
+        ).toBeInTheDocument();
+
+        rerender(view(1000));
+        expect(
+          within(row).queryByRole('button', { name: 'Zoom in' })
+        ).toBeNull();
+        expect(
+          within(row).getByRole('button', { name: 'Document' })
+        ).toBeInTheDocument();
+
+        rerender(view(760));
+        expect(
+          within(row).getByRole('button', { name: 'Zoom in' })
+        ).toBeInTheDocument();
+        unmount();
+        row.remove();
       });
 
       // The fit keeps its content clear of the panel.
