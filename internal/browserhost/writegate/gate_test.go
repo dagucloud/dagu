@@ -177,12 +177,35 @@ func profileDir(t *testing.T) string {
 // startups on a loaded CI host can together outlast the wait for DevTools.
 var startupSlot = make(chan struct{}, 1)
 
+// browserSlots bounds how many tests drive a browser at once. Every running
+// browser competes for the host's CPU, and on a small CI host enough of them
+// together slow a gate's startup past its deadline.
+var browserSlots = make(chan struct{}, 2)
+
+// slotHolders records the tests that hold a browser slot, so a test that
+// starts another browser after closing its first does not wait on itself.
+var slotHolders sync.Map
+
+// holdBrowserSlot takes a browser slot for the test until it ends.
+func holdBrowserSlot(t *testing.T) {
+	t.Helper()
+	if _, held := slotHolders.LoadOrStore(t, struct{}{}); held {
+		return
+	}
+	browserSlots <- struct{}{}
+	t.Cleanup(func() {
+		<-browserSlots
+		slotHolders.Delete(t)
+	})
+}
+
 // startBrowserOn starts the browser on the profile directory. The browser
 // chooses its DevTools port and writes it to the profile, so no other
 // process can take the port between choosing and listening.
 func startBrowserOn(t *testing.T, profile string) *browser {
 	t.Helper()
 	path := chrometest.Require(t)
+	holdBrowserSlot(t)
 	startupSlot <- struct{}{}
 	defer func() { <-startupSlot }()
 	activePort := filepath.Join(profile, "DevToolsActivePort")
@@ -259,12 +282,16 @@ func guardIn(t *testing.T, b *browser, mode string, policy writegate.Policy, sec
 		}, func(r writegate.Ready) { readyCh <- r })
 	}()
 	t.Cleanup(cancel)
+	// The gate bounds its own startup, waiting up to 30 seconds for the
+	// browser to apply its socket rule, and reports why it failed. This
+	// longer wait only guards against a hang, so the gate's own error is
+	// what a slow start shows.
 	select {
 	case r := <-readyCh:
 		return fmt.Sprintf("http://127.0.0.1:%d/%s", r.Port, token), cancel, done
 	case err := <-done:
 		t.Fatalf("the gate did not start: %v", err)
-	case <-time.After(30 * time.Second):
+	case <-time.After(2 * time.Minute):
 		t.Fatal("the gate did not start in time")
 	}
 	return "", cancel, done
