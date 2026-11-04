@@ -174,16 +174,22 @@ func TestTypingNothingIntoAFieldByIdDeletesItsText(t *testing.T) {
 	for _, tc := range []struct {
 		name    string
 		deletes bool
+		hidden  bool
 		output  string
 		err     string
 	}{
 		{name: "the field empties", deletes: true, output: "the field is now empty"},
 		{name: "the field keeps its text", err: `the text of the field was not deleted; it still shows "12,000"`},
+		// A password field shows nothing whether or not it holds text.
+		{name: "the field shows nothing", hidden: true},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 			run, session := elementTurnRun(t, actions(computeruse.Action{CallID: "t", Kind: computeruse.KindType, ElementID: "e1"}), done("Cleared"))
 			run.elements.withoutPattern("amountBox")
+			if tc.hidden {
+				run.elements.setValue("amountBox", "")
+			}
 			if tc.deletes {
 				run.backend.onKey = func(key desktop.Key) {
 					if key == desktop.KeyBackspace {
@@ -201,6 +207,30 @@ func TestTypingNothingIntoAFieldByIdDeletesItsText(t *testing.T) {
 			assert.Equal(t, tc.err, result.Error)
 		})
 	}
+}
+
+// Typing into a field by id as keys fails when the field, its text selected
+// first, does not come to show the typed text, as one that cuts it short
+// does, so the save after it does not run on the wrong value.
+func TestTypingIntoAFieldByIdFailsOnAnotherValue(t *testing.T) {
+	t.Parallel()
+
+	run, session := elementTurnRun(t, actions(
+		computeruse.Action{CallID: "t", Kind: computeruse.KindType, ElementID: "e1", Text: "1200"},
+		computeruse.Action{CallID: "s", Kind: computeruse.KindClick, ElementID: "e2"},
+	), done("Entered"))
+	run.elements.withoutPattern("amountBox")
+	run.backend.onType = func(text string) {
+		run.elements.mu.Lock()
+		run.elements.focused.Value = text[:len(text)-1]
+		run.elements.mu.Unlock()
+	}
+	require.NoError(t, run.execute(`{"idle": "0", "do": [{"act": "金額を入れて保存する"}]}`, nil).err)
+	require.Len(t, session.observations, 2)
+	results := session.observations[1].Results
+	assert.Equal(t, `the field shows "120", not the text typed into it`, results[0].Error)
+	assert.True(t, results[1].Skipped, "the save after it does not run")
+	assert.NotContains(t, run.backend.inputs(), "invoke saveButton")
 }
 
 // A replay by pixels, which reads no elements, clicks the field the act

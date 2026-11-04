@@ -1221,34 +1221,33 @@ func (l *actLoop) apply(ctx context.Context, turn *computeruse.Turn) []computeru
 				l.r.noteWorkApp(app)
 				continue
 			}
-			var invoked bool
-			var invokedRecs []recordedAction
-			var invokedResult computeruse.Result
 			if action.Kind == computeruse.KindType {
-				invoked, invokedRecs, invokedResult = l.typeElement(ctx, els, action, e)
-			} else {
-				invoked, rec, invokedResult = l.invokeElement(ctx, els, action, e)
-				invokedRecs = appendRecorded(nil, rec)
+				typedRecs, typed := l.typeElement(ctx, els, action, e)
+				results[i] = typed
+				if typed.Failed() {
+					logAction(l.r.timeline, l.index, "  failed: "+typed.Error)
+					failed = true
+					continue
+				}
+				recorded = append(recorded, typedRecs...)
+				l.r.noteWorkApp(app)
+				continue
 			}
-			if invoked {
-				results[i] = invokedResult
+			if invoked, invokedRec, invokedResult := l.invokeElement(ctx, els, action, e); invoked {
+				results[i], rec = invokedResult, invokedRec
 				if invokedResult.Failed() {
 					logAction(l.r.timeline, l.index, "  failed: "+invokedResult.Error)
 					failed = true
 					continue
 				}
-				recorded = append(recorded, invokedRecs...)
+				recorded = appendRecorded(recorded, rec)
 				l.r.noteWorkApp(app)
 				continue
 			}
 			// No pattern, or a host without elements: click the element's
-			// position on the screen instead, or type into the field, which
-			// now has the keyboard focus.
-			recorded = append(recorded, invokedRecs...)
-			if action.Kind != computeruse.KindType {
-				point := l.seen.toModel(elementCentre(e))
-				action.Point = &point
-			}
+			// position on the screen instead.
+			point := l.seen.toModel(elementCentre(e))
+			action.Point = &point
 			action.ElementID = ""
 		}
 		results[i], rec = l.r.performOne(ctx, l.index, action, l.seen, l.limit)

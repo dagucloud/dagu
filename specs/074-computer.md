@@ -612,8 +612,11 @@ in place of what the field holds: the step sets the field's value through
 the element and keeps it when the field reads back the same text; otherwise
 the field is emptied when it took the value, takes the keyboard focus, has
 its text selected with ctrl+a (cmd+a on macOS), and gets the text as keys,
-or, for empty text, Backspace, which fails the action while the field still
-shows text. The focus is recorded as a click on the field, so a replay by
+which fail the action unless the field comes to show the text, as typed or
+as it formats it, or, for empty text, Backspace, which fails the action
+while the field still shows text. A field that shows nothing before, as a
+password field always does, is not checked. The focus is recorded as a
+click on the field, so a replay by
 pixels puts the caret there before the keys. Each records its element like
 any other, so the next run replays it by element, and a value set through
 the element is set the same way again.

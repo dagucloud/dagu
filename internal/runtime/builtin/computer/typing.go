@@ -88,18 +88,17 @@ func lettersAndDigits(s string) string {
 // in place of what the field holds: through the element itself when the
 // field takes the value and reads back the same text, so no key has to
 // reach the window. Otherwise the field takes the keyboard focus with all
-// its text selected, and done is false, so the caller types the text over
-// it as keys; empty text deletes the selection instead, and done is true.
-// recs are the actions a replay repeats, in order.
-func (l *actLoop) typeElement(ctx context.Context, els desktop.Elements, action computeruse.Action, e desktop.Element) (done bool, recs []recordedAction, result computeruse.Result) {
+// its text selected and gets the text as keys over it, or, for empty text,
+// a deletion of it. recs are the actions a replay repeats, in order.
+func (l *actLoop) typeElement(ctx context.Context, els desktop.Elements, action computeruse.Action, e desktop.Element) (recs []recordedAction, result computeruse.Result) {
 	result = computeruse.Result{CallID: action.CallID}
 	if els == nil {
 		result.Error = "this host cannot read the field to type into; click it, then type"
-		return true, nil, result
+		return nil, result
 	}
 	if own, owned := l.r.elementOffLimits(e); owned {
 		result.Error = l.r.offLimitsMessage(own)
-		return true, nil, result
+		return nil, result
 	}
 	text := l.r.substitute(action.Text)
 	field := l.r.recordElement(e, nil, l.r.driver.WindowAt(elementCentre(e)).App)
@@ -109,7 +108,7 @@ func (l *actLoop) typeElement(ctx context.Context, els desktop.Elements, action 
 		set, err := l.setField(ctx, els, e, *field, text)
 		if err != nil {
 			result.Error = l.r.masker.MaskString(err.Error())
-			return true, nil, result
+			return nil, result
 		}
 		if set != nil {
 			l.touched = true
@@ -118,12 +117,12 @@ func (l *actLoop) typeElement(ctx context.Context, els desktop.Elements, action 
 			field.SetsValue = true
 			recorded := recordAction(computeruse.Action{Kind: computeruse.KindType, Text: l.r.placeholder(action.Text)}, field)
 			recorded.Invoked = true
-			return true, []recordedAction{recorded}, result
+			return []recordedAction{recorded}, result
 		}
 	}
 	if err := els.Focus(e); err != nil {
 		result.Error = l.r.masker.MaskString(err.Error())
-		return true, nil, result
+		return nil, result
 	}
 	l.touched = true
 	logAction(l.r.timeline, l.index, "focus "+describeElement(e))
@@ -140,21 +139,33 @@ func (l *actLoop) typeElement(ctx context.Context, els desktop.Elements, action 
 		keys := computeruse.Action{CallID: action.CallID, Kind: computeruse.KindKey, Keys: computeruse.SplitKeys(chord)}
 		pressed, rec := l.r.performOne(ctx, l.index, keys, l.seen, l.limit)
 		if pressed.Failed() {
-			return true, nil, pressed
+			return nil, pressed
 		}
 		recs = appendRecorded(recs, rec)
 	}
 	if text == "" {
-		return true, recs, l.reportEmptied(ctx, action.CallID, e)
+		return recs, l.reportEmptied(ctx, action.CallID, e)
 	}
-	return false, recs, computeruse.Result{}
+	typing := action
+	typing.ElementID = ""
+	typed, rec := l.r.performOne(ctx, l.index, typing, l.seen, l.limit)
+	if typed.Failed() {
+		return nil, typed
+	}
+	l.confirmReplaced(ctx, &typed, e, text)
+	return appendRecorded(recs, rec), typed
 }
 
 // reportEmptied tells the model whether the field the step deleted the
 // text of shows nothing now, giving an app that updates the value a moment
-// after the keys typedSettle; a field the step cannot read says nothing.
+// after the keys typedSettle. A field the step cannot read says nothing, and
+// so does one that showed nothing before, as a password field always does,
+// since nothing it shows would tell its text was deleted.
 func (l *actLoop) reportEmptied(ctx context.Context, callID string, e desktop.Element) computeruse.Result {
 	result := computeruse.Result{CallID: callID}
+	if e.Value == "" {
+		return result
+	}
 	name := l.r.masker.MaskString(cmp.Or(e.Name, e.Label, "the field"))
 	for deadline := time.Now().Add(typedSettle); ; {
 		field, err := l.r.focusedElement()
@@ -168,6 +179,30 @@ func (l *actLoop) reportEmptied(ctx context.Context, callID string, e desktop.El
 		if !time.Now().Before(deadline) || sleep(ctx, typedPoll) != nil {
 			result.Error = fmt.Sprintf("the text of %s was not deleted; it still shows %q", name, l.r.modelValue(field, ""))
 			return result
+		}
+	}
+}
+
+// confirmReplaced fails a typing whose field, its text selected first, does
+// not come to show the typed text, as typed or as the field formats it,
+// within typedSettle, as when the field cuts the text short, so the rest of
+// the turn, such as a save, does not run on the wrong value. A field the
+// step cannot read, one that shows nothing before and after, as a password
+// field does, and text holding a key the window acts on say nothing.
+func (l *actLoop) confirmReplaced(ctx context.Context, result *computeruse.Result, e desktop.Element, text string) {
+	if strings.ContainsAny(text, "\r\n\t") {
+		return
+	}
+	for deadline := time.Now().Add(typedSettle); ; {
+		field, err := l.r.focusedElement()
+		if err != nil || !slices.Equal(field.Path, e.Path) || field.Value == "" && e.Value == "" || showsTyped(field.Value, text) {
+			return
+		}
+		if !time.Now().Before(deadline) || sleep(ctx, typedPoll) != nil {
+			name := l.r.masker.MaskString(cmp.Or(e.Name, e.Label, "the field"))
+			result.Output = ""
+			result.Error = fmt.Sprintf("%s shows %q, not the text typed into it", name, l.r.modelValue(field, ""))
+			return
 		}
 	}
 }
