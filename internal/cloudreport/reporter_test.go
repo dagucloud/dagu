@@ -24,6 +24,7 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/cmn/logger"
 	"github.com/dagucloud/dagu/v2/internal/license"
 	"github.com/dagucloud/dagu/v2/internal/queue"
+	"github.com/dagucloud/dagu/v2/internal/service/resource"
 	"github.com/dagucloud/dagu/v2/internal/serviceregistry"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -101,6 +102,71 @@ func TestReportCarriesRemoteAccess(t *testing.T) {
 	require.NoError(t, json.Unmarshal([]byte(console.next(t).body), &body))
 	assert.Equal(t, "operator", body.Health["remote_access"])
 	assert.Equal(t, true, body.Health["remote_approvals"])
+}
+
+// stubResources serves sample, or no sample when sampled is false.
+type stubResources struct {
+	sample  resource.Sample
+	sampled bool
+}
+
+func (s stubResources) Latest() (resource.Sample, bool) { return s.sample, s.sampled }
+
+func TestReportCarriesResources(t *testing.T) {
+	t.Parallel()
+
+	cpu := 12.5
+	full := resource.Sample{
+		At:         testClockStart,
+		CPUs:       8,
+		CPUPercent: &cpu,
+		Memory:     &resource.Usage{UsedPercent: 50, UsedBytes: 8 << 30, TotalBytes: 16 << 30},
+		Disk:       &resource.Usage{UsedPercent: 91.5, UsedBytes: 915_000_000_000, TotalBytes: 1_000_000_000_000},
+		Load:       &resource.LoadAverage{Load1: 1.5, Load5: 1.25, Load15: 0.75},
+	}
+	// A sample whose CPU and load readings failed.
+	partial := resource.Sample{At: testClockStart, Disk: full.Disk}
+
+	for _, tc := range []struct {
+		name      string
+		resources stubResources
+		want      string
+	}{
+		{"full", stubResources{full, true}, `{
+			"cpus": 8,
+			"cpu_percent": 12.5,
+			"load": {"load1": 1.5, "load5": 1.25, "load15": 0.75},
+			"memory": {"used_percent": 50, "used_bytes": 8589934592, "total_bytes": 17179869184},
+			"disk": {"used_percent": 91.5, "used_bytes": 915000000000, "total_bytes": 1000000000000}
+		}`},
+		{"partial", stubResources{partial, true}, `{
+			"disk": {"used_percent": 91.5, "used_bytes": 915000000000, "total_bytes": 1000000000000}
+		}`},
+		{"not sampled yet", stubResources{}, ""},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			console := newFakeConsole(t)
+			r := newReporter(console.credentials, nil, fixedLevel(config.ReportHealth))
+			r.resources = tc.resources
+			clock := startReporter(t.Context(), t, r, noJitter)
+
+			clock.wait()
+			clock.elapse()
+			var body struct {
+				Health map[string]json.RawMessage `json:"health"`
+			}
+			require.NoError(t, json.Unmarshal([]byte(console.next(t).body), &body))
+			got, ok := body.Health["resources"]
+			if tc.want == "" {
+				assert.False(t, ok, "resources sent before a sample: %s", got)
+				return
+			}
+			require.True(t, ok)
+			assert.JSONEq(t, tc.want, string(got))
+		})
+	}
 }
 
 // fakeQueueStore sums up its queues, and counts how often it was read.

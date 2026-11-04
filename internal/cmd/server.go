@@ -207,7 +207,7 @@ func runServer(ctx *Context, _ []string, serverOpts ...frontend.ServerOption) er
 		}
 	}
 
-	cloudReporter = startCloudReport(serviceCtx, cloudMonitoring, cloudAccess)
+	cloudReporter = startCloudReport(serviceCtx, cloudMonitoring, cloudAccess, resourceService)
 	stopCloudAccess = startCloudAccess(serviceCtx, cloudAccess, server)
 
 	err = server.Serve(serviceCtx)
@@ -326,10 +326,10 @@ func cloudReportSettingsFile(cfg *config.Config) string {
 
 // startCloudReport reports to Dagu Console at the level monitoring sets while
 // the server holds an online license, with how far access lets calls from
-// Dagu Cloud go. When cloud.report is off, it only tells Dagu Console that the
-// server no longer reports, if it reported before. It returns nil when
-// monitoring is nil.
-func startCloudReport(ctx *Context, monitoring *cloudreport.Monitoring, access *cloudaccess.Service) *cloudreport.Reporter {
+// Dagu Cloud go and how busy the machine is, as resources samples it. When
+// cloud.report is off, it only tells Dagu Console that the server no longer
+// reports, if it reported before. It returns nil when monitoring is nil.
+func startCloudReport(ctx *Context, monitoring *cloudreport.Monitoring, access *cloudaccess.Service, resources *resource.Service) *cloudreport.Reporter {
 	if monitoring == nil {
 		return nil
 	}
@@ -337,9 +337,13 @@ func startCloudReport(ctx *Context, monitoring *cloudreport.Monitoring, access *
 	if access != nil {
 		remote = access
 	}
+	var sampled cloudreport.Resources
+	if resources != nil {
+		sampled = resources
+	}
 	scheduler := cloudreport.Scheduler{State: ctx.Persistence.SchedulerStateStore, Pause: ctx.Persistence.SchedulerPauseStore}
 	return cloudreport.Start(ctx, ctx.LicenseManager.CloudCredentials, ctx.Persistence.ServiceRegistry, cloudReportEvents(ctx), scheduler,
-		cloudReportQueues(ctx), monitoring, remote, ctx.LicenseManager.Refresh)
+		cloudReportQueues(ctx), monitoring, remote, sampled, ctx.LicenseManager.Refresh)
 }
 
 // cloudReportQueues reads the server's queues for reports: what waits and
