@@ -396,6 +396,7 @@ function DAGSpec({
     cancelSave,
     markAsSaved,
     discardChanges,
+    savedContent,
   } = useContentEditor({
     key: `${fileName}:${remoteNode}`,
     serverContent: serverSpec,
@@ -623,11 +624,14 @@ function DAGSpec({
       activeTab === 'parent' ? null : childDocumentSpan(fileText, activeTab),
     [activeTab, fileText]
   );
+  // The text of the last save: a save marks it before the server content
+  // comes back, so a document just saved has nothing to revert.
+  const savedText = savedContent ?? serverSpec;
   const savedChildText = React.useMemo(() => {
-    if (activeTab === 'parent' || serverSpec == null) return undefined;
-    const span = childDocumentSpan(serverSpec, activeTab);
-    return span ? serverSpec.slice(span.from, span.to) : undefined;
-  }, [activeTab, serverSpec]);
+    if (activeTab === 'parent' || savedText == null) return undefined;
+    const span = childDocumentSpan(savedText, activeTab);
+    return span ? savedText.slice(span.from, span.to) : undefined;
+  }, [activeTab, savedText]);
 
   // Read by the `${...}` completion of the YAML editor at each request.
   const referenceSource = React.useRef({

@@ -1452,6 +1452,27 @@ describe('DAGSpec visual view', () => {
       expect(screen.getByLabelText('DAG spec')).toHaveValue(parentEdit);
     });
 
+    // A save marks its text as saved before the server sends it back: a
+    // sub-DAG just saved has nothing to revert.
+    it('has nothing to revert in a sub-DAG just saved', async () => {
+      const child = 'name: child\nsteps:\n  - name: load\n    run: echo load\n';
+      const twoDocs = `${savedSpec}---\n${child}`;
+      mocks.useQuery.mockReturnValue(specData({ spec: twoDocs }));
+      await renderSpec({ localDags });
+      fireEvent.change(screen.getByLabelText('DAG spec'), {
+        target: { value: twoDocs.replace('echo load', 'echo unload') },
+      });
+      fireEvent.click(screen.getByRole('tab', { name: 'child' }));
+      await settle();
+      expect(visual.props?.revertable).toBe(true);
+
+      await clickSave();
+      await settle();
+
+      expect(mocks.put).toHaveBeenCalledOnce();
+      expect(visual.props?.revertable).toBe(false);
+    });
+
     it('shows no tabs for a file with one document', async () => {
       await renderSpec();
 
