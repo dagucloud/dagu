@@ -1336,7 +1336,25 @@ func repointSymlink(t *testing.T, link, target string) {
 	t.Helper()
 	staged := link + ".staged"
 	require.NoError(t, os.Symlink(target, staged))
-	require.NoError(t, os.Rename(staged, link))
+	require.NoError(t, renameOverWatchedFile(staged, link))
+}
+
+// renameOverWatchedFile renames staged over path while a reader may have
+// path open. On Windows a rename over a file is refused with access denied
+// while any handle to it is open, even one that only reads its attributes,
+// which is what the reader's poll holds for a moment each time it checks
+// where the link points. Tools that swap files on Windows retry the rename,
+// as cmd/go's robustio does, and so does this. Elsewhere a rename replaces
+// an open file at once.
+func renameOverWatchedFile(staged, path string) error {
+	deadline := time.Now().Add(5 * time.Second)
+	for {
+		err := os.Rename(staged, path)
+		if err == nil || runtime.GOOS != "windows" || !errors.Is(err, os.ErrPermission) || time.Now().After(deadline) {
+			return err
+		}
+		time.Sleep(time.Millisecond)
+	}
 }
 
 // The calendars directory is optional, so a calendars path that is not a
