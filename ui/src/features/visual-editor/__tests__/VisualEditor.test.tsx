@@ -801,22 +801,29 @@ describe.skipIf(realSchema === null)('VisualEditor', () => {
     expect(screen.getByText('About the workflow')).toBeInTheDocument();
   });
 
-  it('closes the workflow panel when the YAML opens', () => {
+  // The YAML takes the place of the panel once it shows: the right of the
+  // canvas never stands empty between the two, and the graph stays.
+  it('closes the workflow panel when the YAML shows', () => {
     const onYamlVisibleChange = vi.fn();
-    renderEditor({
+    const props = {
       initial: yamlArraySteps,
       workflowPanel: <p>About the workflow</p>,
       onYamlVisibleChange,
-    });
-    fireEvent.click(screen.getByRole('button', { name: 'Workflow' }));
+    };
+    const { rerender } = renderEditor(props);
+    const workflow = () => screen.getByRole('button', { name: 'Workflow' });
+    fireEvent.click(workflow());
 
     fireEvent.click(screen.getByRole('button', { name: 'YAML' }));
-
     expect(onYamlVisibleChange).toHaveBeenCalledWith(true, 'panel');
-    expect(screen.getByRole('button', { name: 'Workflow' })).toHaveAttribute(
-      'aria-pressed',
-      'false'
+    expect(workflow()).toHaveAttribute('aria-pressed', 'true');
+
+    rerender(
+      <UserPreferencesProvider>
+        <Harness {...props} yamlVisible />
+      </UserPreferencesProvider>
     );
+    expect(workflow()).toHaveAttribute('aria-pressed', 'false');
   });
 
   describe('the YAML of a step', () => {

@@ -590,6 +590,17 @@ export function VisualEditor(props: VisualEditorProps): ReactElement {
   // The launcher whose panel is open, and what the host side of the launchers
   // reads from the server. Only a host that gives `launcherHost` has them.
   const [launcherOpen, setLauncherOpen] = useState<LauncherId | null>(null);
+  // The YAML takes the place of the Workflow and launcher panels when it
+  // shows, not before: the right of the canvas never stands empty between
+  // two panels, and the graph does not move for the switch.
+  const [yamlShownBefore, setYamlShownBefore] = useState(yamlVisible);
+  if (yamlVisible !== yamlShownBefore) {
+    setYamlShownBefore(yamlVisible);
+    if (yamlVisible) {
+      setWorkflowOpen(false);
+      setLauncherOpen(null);
+    }
+  }
   const [launcherData, setLauncherData] = useState<LauncherData | null>(null);
   const schedule = useMemo(
     () => (launcherHost ? readSchedule(text) : null),
@@ -1293,10 +1304,7 @@ export function VisualEditor(props: VisualEditorProps): ReactElement {
     setAddTarget(null);
     setFormOpen(false);
     setYamlMode('file');
-    if (next) {
-      setWorkflowOpen(false);
-      setLauncherOpen(null);
-    }
+    // The Workflow and launcher panels close once the YAML shows.
     if (next) onYamlVisibleChange(true, 'panel');
     else onYamlVisibleChange(false);
   };
