@@ -45,10 +45,18 @@ const restartNotes: Record<string, string> = {
   file: 'The license file is loaded again when Dagu restarts. Remove it to stop using the license.',
 };
 
-export default function LicensePage() {
+/**
+ * The server's plan, Dagu Console connection, monitoring, and remote access,
+ * followed by children and then the danger zone, which closes the page.
+ */
+export default function LicenseSection({
+  children,
+}: {
+  children?: React.ReactNode;
+}) {
   const { license, loading, error: statusError, now } = useLicenseState();
   const { mutate } = useContext(LicenseContext)!;
-  const { setTitle, selectedRemoteNode } = useContext(AppBarContext);
+  const { selectedRemoteNode } = useContext(AppBarContext);
   const remoteNode = selectedRemoteNode || 'local';
   const client = useClient();
   const { ts } = useI18n();
@@ -84,23 +92,23 @@ export default function LicensePage() {
   });
   const { refresh: refreshMonitoring } = monitoring;
   const remoteAccess = useLicenseRemoteAccess(remoteNode, {
-    enabled: online,
+    enabled: online || offersConnect,
     refreshInterval: online ? REMOTE_ACCESS_REFRESH_MS : 0,
   });
   const [choosingLevel, setChoosingLevel] = useState(false);
   // Set while a Dagu Console page opened from here may change the plan.
   const consoleOpened = useRef(false);
 
-  useEffect(() => {
-    setTitle(ts('Plan & features'));
-  }, [setTitle, ts]);
-
   // Each visit to #activate, even a repeated one, opens the key form, which
   // takes focus, in view. A visit to #monitoring waits for its section, which
-  // appears once the license status is known.
+  // appears once the license status is known. Leaving both forgets the last
+  // visit, since history can return to its entry while this page stays.
   const handledVisit = useRef<string | null>(null);
   useEffect(() => {
-    if (hash !== '#activate' && hash !== '#monitoring') return;
+    if (hash !== '#activate' && hash !== '#monitoring') {
+      handledVisit.current = null;
+      return;
+    }
     const target = document.getElementById(hash.slice(1));
     if (!target || handledVisit.current === locationKey) return;
     handledVisit.current = locationKey;
@@ -275,21 +283,33 @@ export default function LicensePage() {
   const busy = Boolean(pendingAction);
 
   return (
-    <div className="flex flex-col gap-4 max-w-4xl">
-      <div className="flex flex-wrap items-start justify-between gap-3">
-        <div className="min-w-0">
-          <h1 className="text-2xl font-semibold tracking-[-0.01em]">
-            {ts('Plan & features')}
-          </h1>
-          <p className="text-sm text-muted-foreground">
-            {ts(
-              'License, Dagu Console connection, monitoring, and remote access for this server.'
-            )}
-          </p>
-        </div>
-        {known && !license.community && (
-          <div className="flex flex-wrap items-center gap-2">
-            {free && (
+    <>
+      <section aria-labelledby="plan-heading" className="flex flex-col gap-4">
+        <div className="flex flex-wrap items-start justify-between gap-3">
+          <div className="min-w-0">
+            <h2 id="plan-heading" className="text-lg font-semibold">
+              {ts('Plan & features')}
+            </h2>
+            <p className="text-sm text-muted-foreground">
+              {ts(
+                'License, Dagu Console connection, monitoring, and remote access for this server.'
+              )}
+            </p>
+          </div>
+          {known && !license.community && (
+            <div className="flex flex-wrap items-center gap-2">
+              {free && (
+                <Button asChild size="sm" variant="outline">
+                  <a
+                    href={consoleHref}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    onClick={() => (consoleOpened.current = true)}
+                  >
+                    {ts('Start free trial')}
+                  </a>
+                </Button>
+              )}
               <Button asChild size="sm" variant="outline">
                 <a
                   href={consoleHref}
@@ -297,189 +317,182 @@ export default function LicensePage() {
                   rel="noopener noreferrer"
                   onClick={() => (consoleOpened.current = true)}
                 >
-                  {ts('Start free trial')}
+                  <ExternalLink className="h-3.5 w-3.5" />
+                  {ts('Manage in Dagu Console')}
                 </a>
               </Button>
-            )}
-            <Button asChild size="sm" variant="outline">
-              <a
-                href={consoleHref}
-                target="_blank"
-                rel="noopener noreferrer"
-                onClick={() => (consoleOpened.current = true)}
-              >
-                <ExternalLink className="h-3.5 w-3.5" />
-                {ts('Manage in Dagu Console')}
-              </a>
-            </Button>
-          </div>
-        )}
-      </div>
-
-      {notice &&
-        (notice.releaseFailed ? (
-          <LicenseCallout
-            tone="warning"
-            title={ts('Disconnected')}
-            action={
-              <CalloutLink href={licenseLink('manage', 'plan-page')}>
-                {ts('Open Dagu Console')}
-              </CalloutLink>
-            }
-          >
-            {notice.text}
-          </LicenseCallout>
-        ) : (
-          <p role="status" className="text-sm text-muted-foreground">
-            {notice.text}
-          </p>
-        ))}
-      {statusError ? (
-        <LicenseCallout
-          tone="warning"
-          title={ts('License status unavailable')}
-          action={
-            <Button size="sm" variant="outline" onClick={() => void mutate()}>
-              {ts('Retry')}
-            </Button>
-          }
-        />
-      ) : (
-        known && (
-          <LicenseAlerts
-            license={license}
-            now={now}
-            consoleHref={consoleHref}
-          />
-        )
-      )}
-      {offersConnect && (
-        <ConnectSection
-          connect={connect}
-          monitoring={monitoring.monitoring}
-          disabled={busy}
-          trialRequested={trialRequested}
-        />
-      )}
-
-      {loading && (
-        <p role="status" className="text-sm text-muted-foreground">
-          {ts('Checking license…')}
-        </p>
-      )}
-      {known && (
-        <LicenseOverview
-          license={license}
-          remoteNode={remoteNode}
-          busy={busy}
-        />
-      )}
-      {online && (
-        <MonitoringSection
-          monitoring={monitoring.monitoring}
-          now={now}
-          loadError={Boolean(monitoring.error)}
-          onRetry={() => void monitoring.refresh()}
-          onChoose={() => setChoosingLevel(true)}
-          onTurnOff={() => monitoring.setLevel(LicenseMonitoringLevel.off)}
-        />
-      )}
-      {online && (
-        <RemoteAccessSection
-          remoteAccess={remoteAccess.remoteAccess}
-          remoteNode={remoteNode}
-          consoleURL={consoleBaseURL(license)}
-          showActivity={license.features.includes('audit')}
-          loadError={Boolean(remoteAccess.error)}
-          onRetry={() => void remoteAccess.refresh()}
-          onChange={remoteAccess.update}
-        />
-      )}
-      {known && <FeatureList license={license} />}
-
-      <section
-        id="activate"
-        className="card-obsidian p-4 space-y-3 scroll-mt-4"
-      >
-        <div className="flex flex-wrap items-center justify-between gap-2">
-          <div className="min-w-0 flex-1 space-y-1">
-            <h2 className="text-sm font-medium">{ts('License key')}</h2>
-            <p className="text-xs text-muted-foreground">
-              {ts('Enter a server key or license key from Dagu Console.')}
-            </p>
-          </div>
-          {!keyOpen && (
-            <Button
-              size="sm"
-              variant="outline"
-              aria-expanded={false}
-              aria-controls="license-key-form"
-              onClick={() => setKeyOpen(true)}
-            >
-              {ts(
-                license.community
-                  ? 'Use a license key'
-                  : 'Use a different license key'
-              )}
-            </Button>
+            </div>
           )}
         </div>
-        {keyOpen && (
-          <form
-            id="license-key-form"
-            onSubmit={handleActivate}
-            className="flex flex-wrap gap-2"
-          >
-            <Input
-              type="password"
-              autoComplete="off"
-              autoFocus
-              value={key}
-              onChange={(e) => setKey(e.target.value)}
-              placeholder="DAGU-XXXX-XXXX-XXXX-XXXX"
-              className="font-mono text-sm h-8 min-w-0 flex-1 basis-60"
-              aria-label={ts('License key')}
-              disabled={busy}
+
+        {notice &&
+          (notice.releaseFailed ? (
+            <LicenseCallout
+              tone="warning"
+              title={ts('Disconnected')}
+              action={
+                <CalloutLink href={licenseLink('manage', 'plan-page')}>
+                  {ts('Open Dagu Console')}
+                </CalloutLink>
+              }
+            >
+              {notice.text}
+            </LicenseCallout>
+          ) : (
+            <p role="status" className="text-sm text-muted-foreground">
+              {notice.text}
+            </p>
+          ))}
+        {statusError ? (
+          <LicenseCallout
+            tone="warning"
+            title={ts('License status unavailable')}
+            action={
+              <Button size="sm" variant="outline" onClick={() => void mutate()}>
+                {ts('Retry')}
+              </Button>
+            }
+          />
+        ) : (
+          known && (
+            <LicenseAlerts
+              license={license}
+              now={now}
+              consoleHref={consoleHref}
             />
-            <div className="flex gap-2">
-              <Button
-                type="submit"
-                size="sm"
-                variant="primary"
-                className="h-8"
-                disabled={busy || !key.trim()}
-              >
-                {ts(
-                  pendingAction === 'activate' ? 'Activating...' : 'Activate'
-                )}
-              </Button>
-              <Button
-                type="button"
-                size="sm"
-                variant="ghost"
-                className="h-8"
-                disabled={busy}
-                onClick={() => {
-                  setKeyOpen(false);
-                  setKey('');
-                  setActivateError(null);
-                }}
-              >
-                {ts('Cancel')}
-              </Button>
-            </div>
-          </form>
+          )
         )}
-        {activateError && (
-          <p role="alert" className="text-sm text-destructive">
-            {activateError}
+        {offersConnect && (
+          <ConnectSection
+            connect={connect}
+            monitoring={monitoring.monitoring}
+            remoteAccess={remoteAccess.remoteAccess}
+            disabled={busy}
+            trialRequested={trialRequested}
+          />
+        )}
+
+        {loading && (
+          <p role="status" className="text-sm text-muted-foreground">
+            {ts('Checking license…')}
           </p>
         )}
+        {known && (
+          <LicenseOverview
+            license={license}
+            remoteNode={remoteNode}
+            busy={busy}
+          />
+        )}
+        {online && (
+          <MonitoringSection
+            monitoring={monitoring.monitoring}
+            now={now}
+            loadError={Boolean(monitoring.error)}
+            onRetry={() => void monitoring.refresh()}
+            onChoose={() => setChoosingLevel(true)}
+            onTurnOff={() => monitoring.setLevel(LicenseMonitoringLevel.off)}
+          />
+        )}
+        {online && (
+          <RemoteAccessSection
+            remoteAccess={remoteAccess.remoteAccess}
+            remoteNode={remoteNode}
+            consoleURL={consoleBaseURL(license)}
+            showActivity={license.features.includes('audit')}
+            loadError={Boolean(remoteAccess.error)}
+            onRetry={() => void remoteAccess.refresh()}
+            onChange={remoteAccess.update}
+          />
+        )}
+        {known && <FeatureList license={license} />}
+
+        <section
+          id="activate"
+          className="card-obsidian p-4 space-y-3 scroll-mt-4"
+        >
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <div className="min-w-0 flex-1 space-y-1">
+              <h2 className="text-sm font-medium">{ts('License key')}</h2>
+              <p className="text-xs text-muted-foreground">
+                {ts('Enter a server key or license key from Dagu Console.')}
+              </p>
+            </div>
+            {!keyOpen && (
+              <Button
+                size="sm"
+                variant="outline"
+                aria-expanded={false}
+                aria-controls="license-key-form"
+                onClick={() => setKeyOpen(true)}
+              >
+                {ts(
+                  license.community
+                    ? 'Use a license key'
+                    : 'Use a different license key'
+                )}
+              </Button>
+            )}
+          </div>
+          {keyOpen && (
+            <form
+              id="license-key-form"
+              onSubmit={handleActivate}
+              className="flex flex-wrap gap-2"
+            >
+              <Input
+                type="password"
+                autoComplete="off"
+                autoFocus
+                value={key}
+                onChange={(e) => setKey(e.target.value)}
+                placeholder="DAGU-XXXX-XXXX-XXXX-XXXX"
+                className="font-mono text-sm h-8 min-w-0 flex-1 basis-60"
+                aria-label={ts('License key')}
+                disabled={busy}
+              />
+              <div className="flex gap-2">
+                <Button
+                  type="submit"
+                  size="sm"
+                  variant="primary"
+                  className="h-8"
+                  disabled={busy || !key.trim()}
+                >
+                  {ts(
+                    pendingAction === 'activate' ? 'Activating...' : 'Activate'
+                  )}
+                </Button>
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="ghost"
+                  className="h-8"
+                  disabled={busy}
+                  onClick={() => {
+                    setKeyOpen(false);
+                    setKey('');
+                    setActivateError(null);
+                  }}
+                >
+                  {ts('Cancel')}
+                </Button>
+              </div>
+            </form>
+          )}
+          {activateError && (
+            <p role="alert" className="text-sm text-destructive">
+              {activateError}
+            </p>
+          )}
+        </section>
       </section>
+
+      {children}
 
       {known && !license.community && (
         <section
-          className="rounded-md border border-destructive/30 p-4 space-y-3"
+          className="rounded-lg border border-destructive/30 bg-card p-4 shadow-sm space-y-3 dark:shadow-none"
           aria-labelledby="license-danger-zone"
         >
           <h2 id="license-danger-zone" className="text-sm font-medium">
@@ -568,6 +581,6 @@ export default function LicensePage() {
           )}
         </p>
       </ConfirmModal>
-    </div>
+    </>
   );
 }

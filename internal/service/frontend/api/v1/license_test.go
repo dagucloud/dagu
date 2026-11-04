@@ -1035,6 +1035,61 @@ func TestLicenseMonitoring_Audit(t *testing.T) {
 	assert.Equal(t, "off", details["previous_level"])
 }
 
+// Choosing remote access when connecting sets the level MCP calls get once
+// the license is installed, unless configuration sets it. Uses t.Setenv
+// because a license set in the environment blocks connecting.
+func TestLicenseConnect_RemoteAccess(t *testing.T) {
+	t.Setenv("DAGU_LICENSE", "")
+	t.Setenv("DAGU_LICENSE_KEY", "")
+
+	connectServer := func(t *testing.T, cloud config.CloudConfig) test.Server {
+		t.Helper()
+		manager, _ := newCloudLicenseManager(t, pendingConsole())
+		return test.SetupServer(t, test.WithServerOptions(
+			frontend.WithLicenseManager(manager),
+			frontend.WithAPIOption(apiv1.WithCloudAccess(newRemoteAccess(t, cloud))),
+		))
+	}
+	levelOf := func(t *testing.T, server test.Server) api.LicenseRemoteAccessLevel {
+		t.Helper()
+		var access api.LicenseRemoteAccess
+		server.Client().Get("/api/v1/license/remote-access").ExpectStatus(http.StatusOK).Send(t).Unmarshal(t, &access)
+		return access.Level
+	}
+
+	t.Run("chosen level", func(t *testing.T) {
+		server := connectServer(t, config.CloudConfig{})
+
+		var started api.LicenseConnectStatus
+		server.Client().Post("/api/v1/license/connect", map[string]string{"remoteAccess": "operator"}).
+			ExpectStatus(http.StatusOK).Send(t).Unmarshal(t, &started)
+
+		assert.Equal(t, api.LicenseConnectStatusStatePending, started.State)
+		assert.Equal(t, api.LicenseRemoteAccessLevelOperator, levelOf(t, server))
+	})
+
+	t.Run("configured level wins", func(t *testing.T) {
+		server := connectServer(t, config.CloudConfig{RemoteAccess: config.RemoteAccessViewer})
+
+		server.Client().Post("/api/v1/license/connect", map[string]string{"remoteAccess": "developer"}).
+			ExpectStatus(http.StatusOK).Send(t)
+
+		assert.Equal(t, api.LicenseRemoteAccessLevelViewer, levelOf(t, server))
+	})
+
+	t.Run("unknown level", func(t *testing.T) {
+		server := connectServer(t, config.CloudConfig{})
+
+		server.Client().Post("/api/v1/license/connect", map[string]string{"remoteAccess": "admin"}).
+			ExpectStatus(http.StatusBadRequest).Send(t)
+
+		var current api.LicenseConnectStatus
+		server.Client().Get("/api/v1/license/connect").ExpectStatus(http.StatusOK).Send(t).Unmarshal(t, &current)
+		assert.Equal(t, api.LicenseConnectStatusStateIdle, current.State)
+		assert.Equal(t, api.LicenseRemoteAccessLevelOff, levelOf(t, server))
+	})
+}
+
 func newRemoteAccess(t *testing.T, cloud config.CloudConfig) *cloudaccess.Service {
 	t.Helper()
 	return cloudaccess.New(cloudaccess.Config{

@@ -2792,7 +2792,14 @@ const baseEnglish = {
   'Monitoring only': 'Monitoring only',
   Free: 'Free',
   'Included in Team and Pro': 'Included in Team and Pro',
-  'Monitor this server for free': 'Monitor this server for free',
+  'Connect to Dagu Cloud': 'Connect to Dagu Cloud',
+  'Use this server from MCP clients': 'Use this server from MCP clients',
+  'MCP clients reach this server through the Dagu Cloud MCP endpoint, up to the role chosen here. Needs a paid plan or a trial.':
+    'MCP clients reach this server through the Dagu Cloud MCP endpoint, up to the role chosen here. Needs a paid plan or a trial.',
+  'cloud.remote_access in the server configuration sets this. Change it there and restart Dagu.':
+    'cloud.remote_access in the server configuration sets this. Change it there and restart Dagu.',
+  'Remote access needs a paid plan or a trial. Without one, Dagu Cloud refuses MCP calls.':
+    'Remote access needs a paid plan or a trial. Without one, Dagu Cloud refuses MCP calls.',
   "Dagu Console shows this server's runs, failures, and trends, and emails you when a workflow fails or the server stops reporting.":
     "Dagu Console shows this server's runs, failures, and trends, and emails you when a workflow fails or the server stops reporting.",
   "Dagu Console shows this server's health and emails you when the server stops reporting.":
@@ -2979,13 +2986,20 @@ const baseEnglish = {
   'Add a notification channel': 'Add a notification channel',
   'Could not change remote access.': 'Could not change remote access.',
   'Remote access': 'Remote access',
-  'AI apps connected to Dagu Cloud, such as Claude and ChatGPT, can work on this server through the connection it opens to Dagu Cloud. No port is opened. Each user gets the lower of this role and the one Dagu Cloud grants them.':
-    'AI apps connected to Dagu Cloud, such as Claude and ChatGPT, can work on this server through the connection it opens to Dagu Cloud. No port is opened. Each user gets the lower of this role and the one Dagu Cloud grants them.',
+  'Serves the MCP tools of this server through the Dagu Cloud MCP endpoint. The server connects out to Dagu Cloud, so no inbound port is opened.':
+    'Serves the MCP tools of this server through the Dagu Cloud MCP endpoint. The server connects out to Dagu Cloud, so no inbound port is opened.',
+  'MCP calls are refused.': 'MCP calls are refused.',
+  'MCP calls read DAGs, runs, and logs.':
+    'MCP calls read DAGs, runs, and logs.',
+  'MCP calls read DAGs, runs, and logs, and start, retry, and stop runs.':
+    'MCP calls read DAGs, runs, and logs, and start, retry, and stop runs.',
+  'MCP calls also change DAG definitions, so they can run any command on this machine.':
+    'MCP calls also change DAG definitions, so they can run any command on this machine.',
   'Remote access status unavailable': 'Remote access status unavailable',
   Access: 'Access',
   Approvals: 'Approvals',
-  'Approve, reject, or push back steps waiting for a person':
-    'Approve, reject, or push back steps waiting for a person',
+  'Let MCP calls complete human tasks. Needs Operator or Developer access.':
+    'Let MCP calls complete human tasks. Needs Operator or Developer access.',
   On: 'On',
   'cloud.remote_access and cloud.remote_approvals in the server configuration set these. Change them there and restart Dagu.':
     'cloud.remote_access and cloud.remote_approvals in the server configuration set these. Change them there and restart Dagu.',
@@ -2996,9 +3010,9 @@ const baseEnglish = {
   'MCP URL': 'MCP URL',
   'Copy MCP URL': 'Copy MCP URL',
   'MCP URL copied': 'MCP URL copied',
-  'Add the MCP URL to Claude, ChatGPT, or another AI app as a connector, then sign in to Dagu Cloud. Workspace owners choose what connected apps may do.':
-    'Add the MCP URL to Claude, ChatGPT, or another AI app as a connector, then sign in to Dagu Cloud. Workspace owners choose what connected apps may do.',
-  'Open AI apps': 'Open AI apps',
+  'Add this URL to your MCP client as a remote MCP server, then sign in to Dagu Cloud. Workspace owners choose what each client may do.':
+    'Add this URL to your MCP client as a remote MCP server, then sign in to Dagu Cloud. Workspace owners choose what each client may do.',
+  'Manage MCP clients': 'Manage MCP clients',
   'Choose remote access': 'Choose remote access',
   'The highest role a Dagu Cloud user gets on this server. Dagu Cloud may grant less, never more.':
     'The highest role a Dagu Cloud user gets on this server. Dagu Cloud may grant less, never more.',
@@ -5824,7 +5838,14 @@ const baseChinese = {
   'Monitoring only': '仅监控',
   Free: '免费',
   'Included in Team and Pro': '包含在 Team 和 Pro 中',
-  'Monitor this server for free': '免费监控此服务器',
+  'Connect to Dagu Cloud': '连接到 Dagu Cloud',
+  'Use this server from MCP clients': '从 MCP 客户端使用此服务器',
+  'MCP clients reach this server through the Dagu Cloud MCP endpoint, up to the role chosen here. Needs a paid plan or a trial.':
+    'MCP 客户端通过 Dagu Cloud MCP 端点访问此服务器，权限不超过此处选择的角色。需要付费套餐或试用。',
+  'cloud.remote_access in the server configuration sets this. Change it there and restart Dagu.':
+    '服务器配置中的 cloud.remote_access 设置了此项。请在配置中更改并重启 Dagu。',
+  'Remote access needs a paid plan or a trial. Without one, Dagu Cloud refuses MCP calls.':
+    '远程访问需要付费套餐或试用。否则 Dagu Cloud 会拒绝 MCP 调用。',
   "Dagu Console shows this server's runs, failures, and trends, and emails you when a workflow fails or the server stops reporting.":
     'Dagu Console 会显示此服务器的运行、失败和趋势，并在工作流失败或服务器停止报告时向你发送电子邮件。',
   "Dagu Console shows this server's health and emails you when the server stops reporting.":
@@ -6005,13 +6026,19 @@ const baseChinese = {
   'Add a notification channel': '添加通知频道',
   'Could not change remote access.': '无法更改远程访问。',
   'Remote access': '远程访问',
-  'AI apps connected to Dagu Cloud, such as Claude and ChatGPT, can work on this server through the connection it opens to Dagu Cloud. No port is opened. Each user gets the lower of this role and the one Dagu Cloud grants them.':
-    '连接到 Dagu Cloud 的 AI 应用（例如 Claude 和 ChatGPT）可以通过此服务器打开的到 Dagu Cloud 的连接在此服务器上工作。不会打开任何端口。每个用户获得此角色与 Dagu Cloud 授予其的角色中较低的那个。',
+  'Serves the MCP tools of this server through the Dagu Cloud MCP endpoint. The server connects out to Dagu Cloud, so no inbound port is opened.':
+    '通过 Dagu Cloud MCP 端点提供此服务器的 MCP 工具。服务器主动连接 Dagu Cloud，不开放入站端口。',
+  'MCP calls are refused.': 'MCP 调用会被拒绝。',
+  'MCP calls read DAGs, runs, and logs.': 'MCP 调用可读取 DAG、运行和日志。',
+  'MCP calls read DAGs, runs, and logs, and start, retry, and stop runs.':
+    'MCP 调用可读取 DAG、运行和日志，并可启动、重试和停止运行。',
+  'MCP calls also change DAG definitions, so they can run any command on this machine.':
+    'MCP 调用还可更改 DAG 定义，因此可以在此机器上运行任意命令。',
   'Remote access status unavailable': '远程访问状态不可用',
   Access: '访问',
   Approvals: '审批',
-  'Approve, reject, or push back steps waiting for a person':
-    '批准、拒绝或退回等待人工处理的步骤',
+  'Let MCP calls complete human tasks. Needs Operator or Developer access.':
+    '允许 MCP 调用完成人工任务。需要“操作员”或“开发者”访问权限。',
   On: '开启',
   'cloud.remote_access and cloud.remote_approvals in the server configuration set these. Change them there and restart Dagu.':
     '服务器配置中的 cloud.remote_access 和 cloud.remote_approvals 设置了这些选项。请在配置中更改并重启 Dagu。',
@@ -6022,9 +6049,9 @@ const baseChinese = {
   'MCP URL': 'MCP URL',
   'Copy MCP URL': '复制 MCP URL',
   'MCP URL copied': '已复制 MCP URL',
-  'Add the MCP URL to Claude, ChatGPT, or another AI app as a connector, then sign in to Dagu Cloud. Workspace owners choose what connected apps may do.':
-    '在 Claude、ChatGPT 或其他 AI 应用中将此 MCP URL 添加为连接器，然后登录 Dagu Cloud。工作区所有者决定已连接的应用可以做什么。',
-  'Open AI apps': '打开 AI 应用',
+  'Add this URL to your MCP client as a remote MCP server, then sign in to Dagu Cloud. Workspace owners choose what each client may do.':
+    '将此 URL 作为远程 MCP 服务器添加到你的 MCP 客户端，然后登录 Dagu Cloud。工作区所有者决定每个客户端可以执行的操作。',
+  'Manage MCP clients': '管理 MCP 客户端',
   'Choose remote access': '选择远程访问',
   'The highest role a Dagu Cloud user gets on this server. Dagu Cloud may grant less, never more.':
     'Dagu Cloud 用户在此服务器上获得的最高角色。Dagu Cloud 可以授予更低的角色，但绝不会更高。',
@@ -8948,7 +8975,14 @@ const baseJapanese = {
   'Monitoring only': '監視のみ',
   Free: '無料',
   'Included in Team and Pro': 'Team と Pro で利用可能',
-  'Monitor this server for free': 'このサーバーを無料で監視',
+  'Connect to Dagu Cloud': 'Dagu Cloud に接続',
+  'Use this server from MCP clients': 'MCP クライアントからこのサーバーを使う',
+  'MCP clients reach this server through the Dagu Cloud MCP endpoint, up to the role chosen here. Needs a paid plan or a trial.':
+    'MCP クライアントは Dagu Cloud の MCP エンドポイント経由で、ここで選んだロールまでこのサーバーを操作できます。有料プランまたはトライアルが必要です。',
+  'cloud.remote_access in the server configuration sets this. Change it there and restart Dagu.':
+    'サーバー設定の cloud.remote_access がこれを指定しています。設定を変更して Dagu を再起動してください。',
+  'Remote access needs a paid plan or a trial. Without one, Dagu Cloud refuses MCP calls.':
+    'リモートアクセスには有料プランまたはトライアルが必要です。ないと Dagu Cloud は MCP 呼び出しを拒否します。',
   "Dagu Console shows this server's runs, failures, and trends, and emails you when a workflow fails or the server stops reporting.":
     'Dagu Console にこのサーバーの実行、失敗、傾向が表示され、ワークフローが失敗したときやサーバーからの報告が止まったときにメールが届きます。',
   "Dagu Console shows this server's health and emails you when the server stops reporting.":
@@ -9137,13 +9171,19 @@ const baseJapanese = {
   'Add a notification channel': '通知チャネルを追加',
   'Could not change remote access.': 'リモートアクセスを変更できませんでした。',
   'Remote access': 'リモートアクセス',
-  'AI apps connected to Dagu Cloud, such as Claude and ChatGPT, can work on this server through the connection it opens to Dagu Cloud. No port is opened. Each user gets the lower of this role and the one Dagu Cloud grants them.':
-    'Claude や ChatGPT など、Dagu Cloud に接続した AI アプリは、このサーバーが Dagu Cloud へ開く接続を通じてこのサーバーで作業できます。ポートは開きません。各ユーザーには、このロールと Dagu Cloud が付与するロールのうち低い方が適用されます。',
+  'Serves the MCP tools of this server through the Dagu Cloud MCP endpoint. The server connects out to Dagu Cloud, so no inbound port is opened.':
+    'このサーバーの MCP ツールを Dagu Cloud の MCP エンドポイント経由で提供します。サーバーから Dagu Cloud へ接続するため、受信ポートは開きません。',
+  'MCP calls are refused.': 'MCP 呼び出しは拒否されます。',
+  'MCP calls read DAGs, runs, and logs.': 'MCP 呼び出しは DAG、実行、ログを読み取れます。',
+  'MCP calls read DAGs, runs, and logs, and start, retry, and stop runs.':
+    'MCP 呼び出しは DAG、実行、ログを読み取り、実行の開始、再試行、停止ができます。',
+  'MCP calls also change DAG definitions, so they can run any command on this machine.':
+    'MCP 呼び出しは DAG 定義も変更できるため、このマシンで任意のコマンドを実行できます。',
   'Remote access status unavailable': 'リモートアクセスの状態を取得できません',
   Access: 'アクセス',
   Approvals: '承認',
-  'Approve, reject, or push back steps waiting for a person':
-    '人の対応を待つステップを承認、却下、差し戻しする',
+  'Let MCP calls complete human tasks. Needs Operator or Developer access.':
+    'MCP 呼び出しで人間タスクを完了できるようにします。オペレーターまたは開発者のアクセスが必要です。',
   On: 'オン',
   'cloud.remote_access and cloud.remote_approvals in the server configuration set these. Change them there and restart Dagu.':
     'サーバー設定の cloud.remote_access と cloud.remote_approvals がこれらを指定しています。設定を変更して Dagu を再起動してください。',
@@ -9155,9 +9195,9 @@ const baseJapanese = {
   'MCP URL': 'MCP URL',
   'Copy MCP URL': 'MCP URL をコピー',
   'MCP URL copied': 'MCP URL をコピーしました',
-  'Add the MCP URL to Claude, ChatGPT, or another AI app as a connector, then sign in to Dagu Cloud. Workspace owners choose what connected apps may do.':
-    'Claude、ChatGPT などの AI アプリにこの MCP URL をコネクタとして追加し、Dagu Cloud にサインインします。接続したアプリに何を許可するかはワークスペースのオーナーが決めます。',
-  'Open AI apps': 'AI アプリを開く',
+  'Add this URL to your MCP client as a remote MCP server, then sign in to Dagu Cloud. Workspace owners choose what each client may do.':
+    'この URL をリモート MCP サーバーとして MCP クライアントに追加し、Dagu Cloud にサインインしてください。各クライアントに許可する操作はワークスペースのオーナーが決めます。',
+  'Manage MCP clients': 'MCP クライアントを管理',
   'Choose remote access': 'リモートアクセスを選択',
   'The highest role a Dagu Cloud user gets on this server. Dagu Cloud may grant less, never more.':
     'Dagu Cloud のユーザーがこのサーバーで得る最も高いロールです。Dagu Cloud はこれより低いロールを付与することはあっても、高いロールは付与しません。',

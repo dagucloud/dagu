@@ -3,7 +3,6 @@
 
 import {
   Activity,
-  AlertTriangle,
   Bell,
   BookOpen,
   ClipboardList,
@@ -17,9 +16,8 @@ import {
   Layers,
   Network,
   Package,
-  Radar,
   ScrollText,
-  Server,
+  Settings,
   SlidersHorizontal,
   SquareTerminal,
   Users,
@@ -76,7 +74,6 @@ export function useNavigationSections(): {
     config.authMode !== 'builtin'
       ? config.permissions.writeDags
       : roleAtLeast(user?.role ?? null, UserRole.developer);
-  const canManageIncidents = canManageNotifications;
   const canAccessSystemStatus = useCanAccessSystemStatus();
   const canAccessGitSync = useCanAccessGitSync();
   const canManageWebhooks = useCanManageWebhooks();
@@ -145,21 +142,6 @@ export function useNavigationSections(): {
             '/notification-channels',
           ],
         },
-        canManageIncidents && {
-          to: '/incidents',
-          text: t('navigation.incidents'),
-          icon: <AlertTriangle size={16} />,
-          activePaths: [
-            '/incidents',
-            '/incident-providers',
-            '/incident-policies',
-          ],
-        },
-        isAdmin && {
-          to: '/license#monitoring',
-          text: t('navigation.externalMonitoring'),
-          icon: <Radar size={16} />,
-        },
       ],
     },
     {
@@ -214,9 +196,9 @@ export function useNavigationSections(): {
           icon: <KeyRound size={16} />,
         },
         {
-          to: '/remote-nodes',
-          text: t('navigation.remoteNodes'),
-          icon: <Server size={16} />,
+          to: '/settings',
+          text: t('navigation.settings'),
+          icon: <Settings size={16} />,
         },
         config.terminalEnabled && {
           to: '/terminal',

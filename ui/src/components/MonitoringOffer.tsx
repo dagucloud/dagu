@@ -79,7 +79,7 @@ export function MonitoringOffer({ className }: { className?: string }) {
             </p>
           </div>
           <Button asChild size="sm" variant="primary">
-            <Link to="/license#monitoring">{ts('Set up for free')}</Link>
+            <Link to="/settings#monitoring">{ts('Set up for free')}</Link>
           </Button>
         </div>
         <button

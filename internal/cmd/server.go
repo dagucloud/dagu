@@ -382,17 +382,24 @@ func newCloudAccess(ctx *Context) *cloudaccess.Service {
 		logger.Warn(ctx, "Remote access is unavailable: the license public key could not be loaded", tag.Error(err))
 		return nil
 	}
-	settingsFile := filepath.Join(ctx.Config.Paths.DataDir, "cloud", "access-settings.json")
 	name := ctx.Config.License.ServerName
 	if name == "" {
 		name, _ = os.Hostname()
 	}
 	return cloudaccess.New(cloudaccess.Config{
 		Credentials: ctx.LicenseManager.CloudCredentials,
-		Settings:    cloudaccess.NewSettings(ctx.Config.Cloud, filemonitor.NewStateStore(settingsFile)),
+		Settings:    newCloudAccessSettings(ctx.Config),
 		Key:         key,
 		Hello:       cloudrelay.Hello{Name: name, Version: config.Version},
 	})
+}
+
+// newCloudAccessSettings returns how far calls from Dagu Cloud may go: as
+// cloud.remote_access and cloud.remote_approvals fix it, or else as an
+// administrator chose.
+func newCloudAccessSettings(cfg *config.Config) *cloudaccess.Settings {
+	settingsFile := filepath.Join(cfg.Paths.DataDir, "cloud", "access-settings.json")
+	return cloudaccess.NewSettings(cfg.Cloud, filemonitor.NewStateStore(settingsFile))
 }
 
 // startCloudAccess takes calls from Dagu Cloud through server's MCP tools

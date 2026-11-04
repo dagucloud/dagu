@@ -47,7 +47,7 @@ describe('AdministrationPage', () => {
     );
     expect(screen.getByRole('link', { name: /remote nodes/i })).toHaveAttribute(
       'href',
-      '/remote-nodes'
+      '/settings#remote-nodes'
     );
     expect(screen.getByText('Manage accounts and roles.')).toBeVisible();
     expect(

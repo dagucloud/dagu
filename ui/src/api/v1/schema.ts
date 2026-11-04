@@ -3545,7 +3545,7 @@ export interface paths {
         put?: never;
         /**
          * Connect this server to Dagu Console
-         * @description Starts a request for a license from Dagu Console, or returns the pending one. Open connectUrl to approve it; the license is installed once a workspace owner approves. A report level, when given, chooses what this server reports to Dagu Console, starting once the license is installed, unless cloud.report in the configuration sets it. Admin only.
+         * @description Starts a request for a license from Dagu Console, or returns the pending one. Open connectUrl to approve it; the license is installed once a workspace owner approves. A report level, when given, chooses what this server reports to Dagu Console, starting once the license is installed, unless cloud.report in the configuration sets it. A remote access level, when given, chooses the highest role MCP calls through Dagu Cloud get once the license is installed, unless cloud.remote_access in the configuration sets it. Admin only.
          */
         post: operations["startLicenseConnect"];
         /**
@@ -19890,6 +19890,7 @@ export interface operations {
             content: {
                 "application/json": {
                     report?: components["schemas"]["LicenseMonitoringLevel"];
+                    remoteAccess?: components["schemas"]["LicenseRemoteAccessLevel"];
                 };
             };
         };
@@ -19903,7 +19904,7 @@ export interface operations {
                     "application/json": components["schemas"]["LicenseConnectStatus"];
                 };
             };
-            /** @description Unknown report level */
+            /** @description Unknown report or remote access level */
             400: {
                 headers: {
                     [name: string]: unknown;

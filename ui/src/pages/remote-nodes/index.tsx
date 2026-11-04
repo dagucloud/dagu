@@ -39,7 +39,8 @@ import { useI18n } from '@/i18n/I18nProvider';
 type RemoteNodeResponse = components['schemas']['RemoteNodeResponse'];
 type TestResult = { success: boolean; message?: string; error?: string };
 
-export default function RemoteNodesPage() {
+/** The remote Dagu instances this server connects to. */
+export default function RemoteNodesSection() {
   const { ts } = useI18n();
   const config = useConfig();
   const appBarContext = useContext(AppBarContext);
@@ -59,10 +60,6 @@ export default function RemoteNodesPage() {
   const [testResults, setTestResults] = useState<Map<string, TestResult>>(
     new Map()
   );
-
-  useEffect(() => {
-    appBarContext.setTitle('Remote Nodes');
-  }, [appBarContext]);
 
   const fetchRemoteNodes = useCallback(async () => {
     try {
@@ -203,12 +200,16 @@ export default function RemoteNodesPage() {
     node.source === RemoteNodeResponseSource.store;
 
   return (
-    <div className="flex flex-col gap-4">
+    <section
+      id="remote-nodes"
+      aria-labelledby="remote-nodes-heading"
+      className="flex scroll-mt-4 flex-col gap-4"
+    >
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-2xl font-semibold tracking-[-0.01em]">
+          <h2 id="remote-nodes-heading" className="text-lg font-semibold">
             <I18nText text={'Remote Nodes'} />
-          </h1>
+          </h2>
           <p className="text-sm text-muted-foreground">
             <I18nText text={'Manage connections to remote Dagu instances'} />
           </p>
@@ -434,6 +435,6 @@ export default function RemoteNodesPage() {
           </p>
         </ConfirmModal>
       </I18nProps>
-    </div>
+    </section>
   );
 }
