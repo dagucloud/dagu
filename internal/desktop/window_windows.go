@@ -76,7 +76,7 @@ var (
 	enumOut *[]WindowID
 
 	enumWindowsCallback = syscall.NewCallback(func(hwnd uintptr, _ uintptr) uintptr {
-		if visible, _, _ := procIsWindowVisible.Call(hwnd); visible == 0 {
+		if visible, _, _ := procIsWindowVisible.Call(hwnd); visible == 0 || cloaked(windows.HWND(hwnd)) {
 			return 1 // keep enumerating
 		}
 		*enumOut = append(*enumOut, windowID(windows.HWND(hwnd)))
@@ -92,7 +92,7 @@ func (windowsBackend) ReachableWindows() []WindowID {
 	return visibleWindows()
 }
 
-// visibleWindows lists the visible top-level windows, titled or not.
+// visibleWindows lists the top-level windows on the screen, titled or not.
 func visibleWindows() []WindowID {
 	// EnumWindows visits top-level windows front of the Z-order first, so
 	// the slice keeps that order.
@@ -198,6 +198,15 @@ func windowID(hwnd windows.HWND) WindowID {
 	title := make([]uint16, 256)
 	n, _, _ := procGetWindowTextW.Call(uintptr(hwnd), uintptr(unsafe.Pointer(&title[0])), uintptr(len(title))) //nolint:gosec // Win32 takes the buffer address as uintptr
 	return WindowID{Handle: uint64(hwnd), Title: windows.UTF16ToString(title[:n]), PID: pid, App: appName(hwnd), Bounds: windowBounds(hwnd)}
+}
+
+// cloaked reports a window the window manager keeps off the screen while
+// Win32 still calls it visible, such as a closed Store app's frame or a
+// window on another virtual desktop.
+func cloaked(hwnd windows.HWND) bool {
+	var state uint32
+	err := windows.DwmGetWindowAttribute(hwnd, windows.DWMWA_CLOAKED, unsafe.Pointer(&state), uint32(unsafe.Sizeof(state))) //nolint:gosec // DWM writes the state into the address it is given
+	return err == nil && state != 0
 }
 
 // windowBounds is a window's visible frame in display pixels. The window
