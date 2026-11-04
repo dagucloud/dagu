@@ -122,7 +122,14 @@ export function LogsDock({
   );
   const [mounted, setMounted] = useState(dock.open);
   const [stepsOpen, setStepsOpen] = useState(false);
-  const closeSteps = useCallback(() => setStepsOpen(false), []);
+  const pickerRef = useRef<HTMLButtonElement>(null);
+  // The list over the tabs closes on a pick or on Esc, and gives the focus
+  // back to the row that opened it.
+  const closeSteps = useCallback(() => {
+    if (!stepsOpen) return;
+    setStepsOpen(false);
+    pickerRef.current?.focus();
+  }, [stepsOpen]);
   if (dock.open && !mounted) setMounted(true);
 
   const drag = useRef<Drag | null>(null);
@@ -399,9 +406,18 @@ export function LogsDock({
             not render for the events of a run while nobody sees them. */}
           <FreezeWhenHidden hidden={!dock.open}>
             {mounted && <RunTimeline />}
-            <div className="relative flex min-h-0 flex-1 @max-[600px]:flex-col">
+            <div
+              className="relative flex min-h-0 flex-1 @max-[600px]:flex-col"
+              onKeyDown={(event) => {
+                // Esc closes the list before the sheet.
+                if (event.key !== 'Escape' || !stepsOpen) return;
+                event.preventDefault();
+                closeSteps();
+              }}
+            >
               {mounted && (
                 <RunStepPicker
+                  ref={pickerRef}
                   open={stepsOpen}
                   controls={STEPS_NAV_ID}
                   onToggle={() => setStepsOpen((open) => !open)}

@@ -286,7 +286,9 @@ const StepRow = memo(function StepRow({
         <div className="flex min-w-0 items-center gap-1.5">
           <button
             type="button"
-            className="min-w-0 truncate text-left text-xs font-medium leading-4 text-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+            // Wrapped, not cut: names with one prefix differ at the end, and a
+            // touch has no tooltip.
+            className="min-w-0 whitespace-normal break-words text-left text-xs font-medium leading-4 text-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
           >
             {step.name}
           </button>
