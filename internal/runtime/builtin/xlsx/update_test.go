@@ -46,6 +46,30 @@ func TestUpdateRowsWritesBack(t *testing.T) {
 	assert.Equal(t, "yes", back.Rows[1]["Checked"])
 }
 
+// TestUpdateRowsEmptyQueue covers a scheduled run with nothing pending: the
+// rows output arrives as the JSON text of an empty list, and the step
+// succeeds without adding the set column the sheet lacks.
+func TestUpdateRowsEmptyQueue(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	path := writeBook(t, dir, "orders.xlsx", []any{"Invoice No", "Status"}, []any{"INV-1", ""})
+	tw, err := newTestWriter(t, dir, opUpdateRows, map[string]any{
+		"path": "orders.xlsx",
+		"key":  "_row",
+		"rows": "[]",
+		"set":  map[string]any{"Status": "status", "Result": "result"},
+	})
+	require.NoError(t, err)
+	require.NoError(t, tw.exec.Run(context.Background()))
+
+	changes := tw.exec.GetOutputs()["changes"].(workbook.Changes)
+	assert.Zero(t, changes.RowsUpdated)
+	assert.Zero(t, changes.ColumnsAdded)
+	back, err := workbook.Read(context.Background(), path, workbook.ReadOptions{})
+	require.NoError(t, err)
+	assert.Equal(t, []string{"Invoice No", "Status"}, back.Headers)
+}
+
 func TestUpdateRowsShapeCheckFailsTheStep(t *testing.T) {
 	t.Parallel()
 	dir := t.TempDir()
