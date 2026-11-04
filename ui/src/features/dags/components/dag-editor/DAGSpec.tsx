@@ -97,7 +97,11 @@ import { useStepViewForm } from './stepViewMode';
 import { preloadDAGEditor } from './loadDAGEditor';
 import { ReadOnlyMarker, YamlFileBody, YamlFilePanel } from './YamlFilePanel';
 import { useYamlSection } from './useYamlSection';
+import { useDAGSpecQuery } from './useDAGSpecQuery';
 import { WorkflowPanel } from './WorkflowPanel';
+// Not lazy: the canvas is what the page shows first, and a lazy editor adds
+// a blank render that React holds for up to 300 ms.
+import VisualEditor from '@/features/visual-editor';
 import type {
   CodeEditorLike,
   VisualEditorValidation,
@@ -134,8 +138,6 @@ export type {
   WorkspaceNotice,
 } from './hostTypes';
 
-// The visual editor and its canvas library load only when the view opens.
-const VisualEditor = React.lazy(() => import('@/features/visual-editor'));
 const DetailsCanvas = React.lazy(
   () => import('@/features/visual-editor/DetailsCanvas')
 );
@@ -346,23 +348,19 @@ function DAGSpec({
     data,
     isLoading,
     mutate: mutateSpec,
-  } = useQuery(
-    '/dags/{fileName}/spec',
-    {
-      params: {
-        query: {
-          remoteNode,
-        },
-        path: {
-          fileName: fileName,
-        },
-      },
-    },
+  } = useDAGSpecQuery(
+    fileName,
+    remoteNode,
     sseFallbackOptions(poll ? FEED_DOWN : FEED_UP)
   );
-  const { data: calendarsData } = useQuery('/calendars', {
-    params: { query: { remoteNode } },
-  });
+  const { data: calendarsData, error: calendarsError } = useQuery(
+    '/calendars',
+    { params: { query: { remoteNode } } }
+  );
+  // The editor schema waits for the calendars: a second schema would be
+  // compiled again by the checks of the steps.
+  const calendarsSettled =
+    calendarsData !== undefined || calendarsError !== undefined;
   const calendarNames = React.useMemo(
     () =>
       (calendarsData?.calendars ?? [])
@@ -749,7 +747,7 @@ function DAGSpec({
   }, [lastGoodLocalHarnesses, parsedLocalDefinitions]);
 
   const editorSchema = React.useMemo(() => {
-    if (!baseSchema) {
+    if (!baseSchema || !calendarsSettled) {
       return null;
     }
     return buildAugmentedDAGSchema(
@@ -764,6 +762,7 @@ function DAGSpec({
     );
   }, [
     baseSchema,
+    calendarsSettled,
     calendarNames,
     effectiveLocalActions,
     effectiveLocalHarnesses,

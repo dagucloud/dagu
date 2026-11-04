@@ -31,7 +31,7 @@ import { DAGContext } from '../../../features/dags/contexts/DAGContext';
 import { useQuery } from '../../../hooks/api';
 import { useDAGRunSSE } from '../../../hooks/useDAGRunSSE';
 import { useDAGSSE } from '../../../hooks/useDAGSSE';
-import { whenEnabled } from '../../../hooks/queryUtils';
+import { PREFETCH_OPTIONS, whenEnabled } from '../../../hooks/queryUtils';
 import {
   sseFallbackOptions,
   useSSECacheSync,
@@ -50,6 +50,8 @@ import { useI18n } from '@/i18n/I18nProvider';
 import { LoadErrorState, NotFoundState } from '@/components/PageStates';
 import { isNotFoundQueryError } from '@/lib/queryErrors';
 import { WorkflowWorkspace } from '@/features/workflow-workspace';
+import { useDAGSpecQuery } from '@/features/dags/components/dag-editor/useDAGSpecQuery';
+import { useDAGDetailsQuery } from '@/features/dags/hooks/useDAGDetailsQuery';
 import { LogPopoutPage } from '@/features/workflow-workspace/popout/LogPopoutPage';
 import { useLegacyRedirect } from '@/features/workflow-workspace/state/useLegacyRedirect';
 import { useBoundedDAGRunDetails } from '@/features/dag-runs/hooks/useBoundedDAGRunDetails';
@@ -183,17 +185,12 @@ function DAGDetails() {
     data: dagData,
     error: dagError,
     mutate: mutateDag,
-  } = useQuery(
-    '/dags/{fileName}',
-    {
-      params: {
-        query: scopedQuery,
-        path: { fileName },
-      },
-    },
-    sseFallbackOptions(dagSSE)
-  );
+  } = useDAGDetailsQuery(fileName, remoteNode, sseFallbackOptions(dagSSE));
   useSSECacheSync(dagSSE, mutateDag);
+  // The editor waits for the spec of the file: asked for now, it comes with
+  // the details instead of after them. The editor keeps it fresh. A log page
+  // has no editor.
+  useDAGSpecQuery(fileName, remoteNode, PREFETCH_OPTIONS, !popout);
   const dagTitle = dagData?.dag?.name || fileName;
   useEffect(() => {
     setTitle(dagTitle);
@@ -546,14 +543,6 @@ function DAGDetails() {
       </RemoteNodeProvider>
     </UnsavedChangesProvider>
   );
-}
-
-/**
- * Loads the canvas editor that the page shows. A call from this chunk loads
- * the same chunk as the page's own import, so a preload is not wasted.
- */
-export function preloadWorkflowCanvas(): Promise<unknown> {
-  return import('@/features/visual-editor');
 }
 
 export default DAGDetails;

@@ -78,6 +78,10 @@ const useQueryMock = useQuery as unknown as {
   mockImplementation: (fn: (path: string) => unknown) => void;
 };
 
+/** The arguments of each call of the query hook: the path, then the init. */
+const queryCalls = () =>
+  (useQuery as unknown as { mock: { calls: unknown[][] } }).mock.calls;
+
 const appBarValue = {
   selectedRemoteNode: 'local',
   setTitle: vi.fn(),
@@ -160,6 +164,42 @@ describe('DAGDetails page', () => {
         mutate: vi.fn(),
       } as never;
     });
+  });
+
+  // The editor reads the spec of the file. The page asks for it with the
+  // details, so that the two requests go out together.
+  it('asks for the spec of the file with the details', () => {
+    useQueryMock.mockImplementation(
+      () => ({ data: undefined, mutate: vi.fn() }) as never
+    );
+    renderPage('/dags/release-notes?remoteNode=edge');
+    const asked = (path: string) =>
+      queryCalls().some(([called, init]) => called === path && init !== null);
+    expect(asked('/dags/{fileName}')).toBe(true);
+    expect(useQueryMock).toHaveBeenCalledWith(
+      '/dags/{fileName}/spec',
+      {
+        params: {
+          query: { remoteNode: 'edge' },
+          path: { fileName: 'release-notes' },
+        },
+      },
+      expect.anything()
+    );
+    expect(WorkflowWorkspace).not.toHaveBeenCalled();
+  });
+
+  // A log page shows no editor: it has no use for the spec.
+  it('does not ask for the spec on a log page', () => {
+    useQueryMock.mockImplementation(
+      () => ({ data: undefined, mutate: vi.fn() }) as never
+    );
+    renderPage('/dags/release-notes/log');
+    expect(
+      queryCalls().some(
+        ([path, init]) => path === '/dags/{fileName}/spec' && init !== null
+      )
+    ).toBe(false);
   });
 
   // The workspace is the only body of the page, with the states, scope and

@@ -15,12 +15,17 @@ import { SWRConfig, mutate as globalMutate } from 'swr';
 
 import { LicenseFeaturePrompt } from '@/components/LicenseFeaturePrompt';
 import { hasActiveLicense, type LicensedFeature } from '@/lib/license';
+import { preloadedLazy } from '@/lib/preloadedLazy';
 
 import { ProtectedRoute } from './components/ProtectedRoute';
 import { QueryFeedback } from './components/QueryFeedback';
 import { ErrorModalProvider } from '@/components/ui/error-modal';
 import { ToastProvider } from '@/components/ui/simple-toast';
 import { WorkspaceLoading } from '@/features/workflow-workspace/WorkspaceLoading';
+import { useDAGDetailsQuery } from '@/features/dags/hooks/useDAGDetailsQuery';
+import { useDAGSpecQuery } from '@/features/dags/components/dag-editor/useDAGSpecQuery';
+import { useRemoteNode } from '@/contexts/RemoteNodeContext';
+import { PREFETCH_OPTIONS } from '@/hooks/queryUtils';
 import RunProgressStack from '@/features/dags/components/dag-execution/RunProgressStack';
 import LegacyRunRedirect from './pages/dag-runs/LegacyRunRedirect';
 import { AppBarContext } from './contexts/AppBarContext';
@@ -80,9 +85,10 @@ const CalendarPage = React.lazy(() => import('./pages/calendars/calendar'));
 const DAGRuns = React.lazy(() => import('./pages/dag-runs'));
 const DAGs = React.lazy(() => import('./pages/dags'));
 // The workflow page opens from most pages: its code preloads while the
-// browser is idle (see preloadWhenIdle).
-const loadWorkflowPage = () => import('./pages/dags/dag');
-const DAGDetails = React.lazy(loadWorkflowPage);
+// browser is idle (see preloadWhenIdle), and once loaded it renders at once.
+const workflowPage = preloadedLazy(() => import('./pages/dags/dag'));
+const loadWorkflowPage = workflowPage.preload;
+const DAGDetails = workflowPage.Component;
 const WikiPage = React.lazy(() => import('./pages/wiki'));
 const EventLogsPage = React.lazy(() => import('./pages/event-logs'));
 const GitSyncPage = React.lazy(() => import('./pages/git-sync'));
@@ -359,17 +365,15 @@ function RouteFallback(): React.ReactElement {
 const IDLE_PRELOAD_TIMEOUT_MS = 5000;
 
 /**
- * Loads the code of the workflow page and of its canvas once the browser is
- * idle, so that opening a workflow does not wait for it. Returns a cancel
+ * Loads the code of the workflow page, its canvas included, once the browser
+ * is idle, so that opening a workflow does not wait for it. Returns a cancel
  * function.
  */
 function preloadWhenIdle(): () => void {
   const preload = () => {
-    void loadWorkflowPage()
-      .then((page) => page.preloadWorkflowCanvas())
-      .catch(() => {
-        // A failed preload is retried by the page when it opens.
-      });
+    void loadWorkflowPage().catch(() => {
+      // A failed preload is retried by the page when it opens.
+    });
   };
   if (typeof window.requestIdleCallback === 'function') {
     const id = window.requestIdleCallback(preload, {
@@ -392,15 +396,44 @@ function LazyRoutes({
   // would mount the page again and lose its state.
   const overlay = useWorkflowOverlay();
   const location = useLocation();
+  const shown = overlay?.background ?? location;
+  // The page below renders again only for its own location: a change of the
+  // overlay over it would render the whole page for nothing.
+  const routes = React.useMemo(
+    () => <Routes location={shown}>{children}</Routes>,
+    [shown, children]
+  );
   return (
     <LazyRouteErrorBoundary>
       <React.Suspense fallback={<RouteFallback />}>
         <div className="contents" inert={overlay?.isOpen || undefined}>
-          <Routes location={overlay?.background ?? location}>{children}</Routes>
+          {routes}
         </div>
       </React.Suspense>
     </LazyRouteErrorBoundary>
   );
+}
+
+/**
+ * The overlay from the click until the URL names the workflow. It asks for
+ * the details and the spec of the workflow meanwhile, with the keys that
+ * the workflow page reads, so that the page mounts on their answers.
+ */
+function OverlayLoading({
+  fileName,
+}: {
+  fileName: string;
+}): React.ReactElement {
+  const remoteNode = useRemoteNode();
+  const enabled = fileName !== '';
+  useDAGDetailsQuery(fileName, remoteNode, PREFETCH_OPTIONS, enabled);
+  useDAGSpecQuery(fileName, remoteNode, PREFETCH_OPTIONS, enabled);
+  return <WorkspaceLoading fileName={fileName} />;
+}
+
+/** Keeps the title of the tab as the page below set it. */
+function keepTitle(): void {
+  return;
 }
 
 /**
@@ -412,6 +445,13 @@ function LazyRoutes({
 function WorkflowOverlayHost(): React.ReactElement | null {
   const overlay = useWorkflowOverlay();
   const { ts } = useI18n();
+  // The page below keeps the title of the tab: a title from the workflow
+  // page made that page set its own again, and both rendered each time.
+  const appBar = React.useContext(AppBarContext);
+  const overlayAppBar = React.useMemo(
+    () => ({ ...appBar, setTitle: keepTitle }),
+    [appBar]
+  );
   const location = useLocation();
   const openPage = useOpenPage();
   const panelRef = React.useRef<HTMLElement>(null);
@@ -507,24 +547,29 @@ function WorkflowOverlayHost(): React.ReactElement | null {
           />
         </div>
         <div className="relative flex min-h-0 flex-1 flex-col overflow-hidden md:rounded-b-xl">
-          {/* The frame of the page below stays as it is. */}
-          <LayoutChromeContext.Provider value={null}>
-            <LazyRouteErrorBoundary>
-              <React.Suspense fallback={<RouteFallback />}>
-                <Routes>
-                  <Route path="/dags/:fileName/:tab" element={<DAGDetails />} />
-                  <Route path="/dags/:fileName/" element={<DAGDetails />} />
-                  {/* From the click until the URL names the workflow. */}
-                  <Route
-                    path="*"
-                    element={
-                      <WorkspaceLoading fileName={overlay.target?.dag ?? ''} />
-                    }
-                  />
-                </Routes>
-              </React.Suspense>
-            </LazyRouteErrorBoundary>
-          </LayoutChromeContext.Provider>
+          {/* The frame and the title of the page below stay as they are. */}
+          <AppBarContext.Provider value={overlayAppBar}>
+            <LayoutChromeContext.Provider value={null}>
+              <LazyRouteErrorBoundary>
+                <React.Suspense fallback={<RouteFallback />}>
+                  <Routes>
+                    <Route
+                      path="/dags/:fileName/:tab"
+                      element={<DAGDetails />}
+                    />
+                    <Route path="/dags/:fileName/" element={<DAGDetails />} />
+                    {/* From the click until the URL names the workflow. */}
+                    <Route
+                      path="*"
+                      element={
+                        <OverlayLoading fileName={overlay.target?.dag ?? ''} />
+                      }
+                    />
+                  </Routes>
+                </React.Suspense>
+              </LazyRouteErrorBoundary>
+            </LayoutChromeContext.Provider>
+          </AppBarContext.Provider>
         </div>
       </section>
     </div>,
