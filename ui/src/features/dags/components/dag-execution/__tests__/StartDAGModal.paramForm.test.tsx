@@ -1,7 +1,7 @@
 // Copyright (C) 2026 Yota Hamada
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-import { fireEvent, render, screen } from '@testing-library/react';
+import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
 import StartDAGModal from '../StartDAGModal';
 
@@ -11,7 +11,10 @@ vi.mock('@/contexts/AuthContext', () => ({
   useIsAdmin: () => true,
 }));
 
-function renderSchemaParams(properties: Record<string, unknown>) {
+function renderSchemaParams(
+  properties: Record<string, unknown>,
+  required: string[] = []
+) {
   render(
     <StartDAGModal
       visible={true}
@@ -20,7 +23,7 @@ function renderSchemaParams(properties: Record<string, unknown>) {
       dag={
         {
           name: 'schema-dag',
-          paramSchema: { type: 'object', properties },
+          paramSchema: { type: 'object', properties, required },
         } as never
       }
     />
@@ -96,6 +99,20 @@ describe('StartDAGModal schema parameters', () => {
     ).toBeTruthy();
     expect(checkbox).toHaveAccessibleDescription(
       'Log the actions without launching anything.'
+    );
+  });
+
+  it('marks a boolean that fails validation invalid', async () => {
+    renderSchemaParams({ confirm: { type: 'boolean', title: 'Confirm' } }, [
+      'confirm',
+    ]);
+
+    fireEvent.click(screen.getByRole('button', { name: 'Start' }));
+
+    await waitFor(() =>
+      expect(
+        screen.getByRole('checkbox', { name: 'Confirm confirm' })
+      ).toHaveAttribute('aria-invalid', 'true')
     );
   });
 });

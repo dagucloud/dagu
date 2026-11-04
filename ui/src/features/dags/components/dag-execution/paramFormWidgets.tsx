@@ -41,6 +41,7 @@ function ParamCheckboxWidget({
   registry,
   uiSchema,
   className,
+  rawErrors = [],
 }: WidgetProps) {
   const DescriptionFieldTemplate = getTemplate(
     'DescriptionFieldTemplate',
@@ -66,6 +67,7 @@ function ParamCheckboxWidget({
         disabled={disabled || readonly}
         autoFocus={autofocus}
         aria-describedby={ariaDescribedByIds(id)}
+        aria-invalid={rawErrors.length > 0 || undefined}
         onCheckedChange={(checked) => onChange(Boolean(checked))}
         onBlur={() => onBlur(id, value)}
         onFocus={() => onFocus(id, value)}
