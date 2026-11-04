@@ -383,9 +383,31 @@ describe('StepSideDrawer resize keys', () => {
     expect(handle).toHaveAttribute('aria-valuenow', '420');
     expect(localStorage.getItem(WIDTH_KEY)).toBe('420');
 
+    // The window of jsdom is 1024px wide: End leaves 240px of it.
     fireEvent.keyDown(handle, { key: 'End' });
-    expect(handle).toHaveAttribute('aria-valuenow', '960');
-    expect(localStorage.getItem(WIDTH_KEY)).toBe('960');
-    expect(getStoredDrawerWidth()).toBe(960);
+    expect(handle).toHaveAttribute('aria-valuemax', '784');
+    expect(handle).toHaveAttribute('aria-valuenow', '784');
+    expect(localStorage.getItem(WIDTH_KEY)).toBe('784');
+    expect(getStoredDrawerWidth()).toBe(784);
+  });
+
+  // A browser that refuses the storage keeps the new width for the page.
+  it('resizes when the width cannot be stored', () => {
+    vi.spyOn(Storage.prototype, 'setItem').mockImplementation(() => {
+      throw new Error('denied');
+    });
+    const handle = renderDrawer();
+
+    fireEvent.keyDown(handle, { key: 'ArrowLeft' });
+    expect(handle).toHaveAttribute('aria-valuenow', '600');
+    fireEvent.keyDown(handle, { key: 'Home' });
+    expect(handle).toHaveAttribute('aria-valuenow', '420');
+
+    // Once the storage takes a width again, it is kept for the next visit
+    // and the width of the page goes.
+    vi.restoreAllMocks();
+    fireEvent.keyDown(handle, { key: 'End' });
+    expect(localStorage.getItem(WIDTH_KEY)).toBe('784');
+    expect(handle).toHaveAttribute('aria-valuenow', '784');
   });
 });

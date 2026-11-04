@@ -12,8 +12,10 @@ import {
   PANEL_ZONE_SHELL_CLASS,
   PanelHeader,
   PanelPlacementProvider,
+  clampPanelWidth,
   effectivePanelWidth,
   panelMaxWidth,
+  panelMaxWidthIn,
   panelWidth,
 } from '../PanelShell';
 import { StepSideDrawer } from '../StepSideDrawer';
@@ -76,16 +78,17 @@ describe('right-side panel shell', () => {
     }
     expect(header.workflow).toBe(PANEL_HEADER_CLASS);
     expect(header.add).toBe(PANEL_HEADER_CLASS);
-    // The width rule is one function: the stored width, never over the window.
-    expect(panelWidth(560, 1400)).toBe('min(100vw, 560px)');
+    // The width rule is one function: the stored width, never over the
+    // window nor over all but a strip of the zone.
+    expect(panelWidth(560, 1400)).toBe(
+      'min(100vw, 560px, max(100% - 240px, 420px))'
+    );
   });
 
   // Below 1100px a panel takes at most 45% of its zone, never under 360px.
   it('caps the width at 45% of the zone below 1100px', () => {
     expect(panelWidth(560, 1099)).toBe('min(100vw, 560px, max(45%, 360px))');
-    expect(panelWidth(560, 1100)).toBe('min(100vw, 560px)');
     expect(panelMaxWidth(1024)).toBe('max(45%, 360px)');
-    expect(panelMaxWidth(1100)).toBeUndefined();
     // A zone of 784px at 1024px: 45% is 353px, the floor gives 360px.
     expect(effectivePanelWidth(560, 784, 1024)).toBe(360);
     // A zone of 1000px at 1050px: 45% is 450px.
@@ -94,7 +97,20 @@ describe('right-side panel shell', () => {
     expect(effectivePanelWidth(420, 1000, 1050)).toBe(420);
     // From 1100px the stored width applies, never over the window.
     expect(effectivePanelWidth(560, 860, 1100)).toBe(560);
-    expect(effectivePanelWidth(960, 860, 900 + 300)).toBe(960);
+  });
+
+  // From 1100px a panel may take its whole zone but a strip of 240px, so
+  // that a wide screen shows long lines; the canvas and the edge stay.
+  it('leaves a strip of the zone free from 1100px', () => {
+    expect(panelMaxWidth(1100)).toBe('max(100% - 240px, 420px)');
+    expect(panelMaxWidthIn(3600)).toBe(3360);
+    expect(panelMaxWidthIn(500)).toBe(420);
+    expect(clampPanelWidth(100, 1600)).toBe(420);
+    expect(clampPanelWidth(5000, 1600)).toBe(1360);
+    expect(clampPanelWidth(900.4, 1600)).toBe(900);
+    // A 4K window with the sidebar: a zone of 3600px.
+    expect(effectivePanelWidth(5000, 3600, 3840)).toBe(3360);
+    expect(effectivePanelWidth(960, 860, 1200)).toBe(620);
   });
 
   it('starts under the bar of the host and ends at the bottom of the window', () => {

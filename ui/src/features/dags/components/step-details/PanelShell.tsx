@@ -79,28 +79,53 @@ export const PANEL_CAP_RATIO = 0.45;
 /** A capped panel keeps this width, so that its form stays usable. */
 export const PANEL_CAP_FLOOR = 360;
 
+/** The narrowest width that the resize handle gives a panel. */
+export const PANEL_MIN_WIDTH = 420;
+/**
+ * The width of its zone that a resized panel leaves uncovered, so that the
+ * canvas and the resize handle stay in reach. The rest of the zone is the
+ * panel's to take, however wide the screen.
+ */
+const PANEL_ZONE_MARGIN = 240;
+
+/** The widest that the resize handle makes a panel in a zone of `room` px. */
+export function panelMaxWidthIn(room: number): number {
+  return Math.max(PANEL_MIN_WIDTH, Math.round(room) - PANEL_ZONE_MARGIN);
+}
+
+/** A width that the resize handle allows in a zone of `room` px. */
+export function clampPanelWidth(width: number, room: number): number {
+  return Math.round(
+    Math.min(Math.max(width, PANEL_MIN_WIDTH), panelMaxWidthIn(room))
+  );
+}
+
+/** The cap of panelMaxWidthIn in CSS, against the containing block. */
+const ZONE_CAP = `max(100% - ${PANEL_ZONE_MARGIN}px, ${PANEL_MIN_WIDTH}px)`;
+
 function currentViewport(): number {
   return typeof window === 'undefined' ? Infinity : window.innerWidth;
 }
 
 /**
- * The CSS width of a panel: the stored width, never wider than the window.
- * Below PANEL_CAP_VIEWPORT it is also capped at PANEL_CAP_RATIO of the zone
- * (the nearest positioned ancestor), with PANEL_CAP_FLOOR as its minimum.
+ * The CSS width of a panel: the stored width, never wider than the window
+ * nor than panelMaxWidthIn its zone (the nearest positioned ancestor).
+ * Below PANEL_CAP_VIEWPORT it is capped at PANEL_CAP_RATIO of the zone
+ * instead, with PANEL_CAP_FLOOR as its minimum.
  */
 export function panelWidth(
   width: number,
   viewport = currentViewport()
 ): string {
-  if (viewport >= PANEL_CAP_VIEWPORT) return `min(100vw, ${width}px)`;
+  if (viewport >= PANEL_CAP_VIEWPORT) {
+    return `min(100vw, ${width}px, ${ZONE_CAP})`;
+  }
   return `min(100vw, ${width}px, max(${PANEL_CAP_RATIO * 100}%, ${PANEL_CAP_FLOOR}px))`;
 }
 
-/** The max-width of a panel that sets its own width; undefined when no cap applies. */
-export function panelMaxWidth(
-  viewport = currentViewport()
-): string | undefined {
-  if (viewport >= PANEL_CAP_VIEWPORT) return undefined;
+/** The max-width of a panel that sets its own width, as panelWidth caps it. */
+export function panelMaxWidth(viewport = currentViewport()): string {
+  if (viewport >= PANEL_CAP_VIEWPORT) return ZONE_CAP;
   return `max(${PANEL_CAP_RATIO * 100}%, ${PANEL_CAP_FLOOR}px)`;
 }
 
@@ -115,7 +140,9 @@ export function effectivePanelWidth(
   viewport = currentViewport()
 ): number {
   const limit = Math.min(width, viewport);
-  if (viewport >= PANEL_CAP_VIEWPORT) return limit;
+  if (viewport >= PANEL_CAP_VIEWPORT) {
+    return Math.min(limit, panelMaxWidthIn(zoneWidth));
+  }
   return Math.round(
     Math.min(limit, Math.max(PANEL_CAP_RATIO * zoneWidth, PANEL_CAP_FLOOR))
   );

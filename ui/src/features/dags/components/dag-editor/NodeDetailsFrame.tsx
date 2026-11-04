@@ -32,7 +32,10 @@ import {
   usePanelPlacement,
   useViewportWidth,
 } from '@/features/dags/components/step-details/PanelShell';
-import { getStoredDrawerWidth } from '@/features/dags/components/step-details/StepSideDrawer';
+import {
+  PanelResizeHandle,
+  useDrawerWidth,
+} from '@/features/dags/components/step-details/StepSideDrawer';
 import { actionIcon } from '@/features/visual-editor/canvas/icons';
 import type { QuickFix } from '@/features/visual-editor/doc/quickFixes';
 import { buildRunOverlay } from '@/features/visual-editor/run/runOverlay';
@@ -172,28 +175,8 @@ function isHandlerName(dag: ApiDAGDetails | undefined, name: string | null) {
 
 export { stepNeighbours };
 
-/** The bounds and the key of the width of the side drawer, as StepSideDrawer has them. */
-const DRAWER_WIDTH_STORAGE_KEY = 'dagu.stepDetailsDrawer.width';
-const MIN_DOCKED_WIDTH = 420;
-const MAX_DOCKED_WIDTH = 960;
-const WIDTH_STEP = 40;
-
 /** Prefix of the DOM ids of the step tabs, for the panels they label. */
 const TAB_ID_PREFIX = 'ndv';
-
-/** A docked width inside the bounds and the viewport. */
-export function clampDockedWidth(width: number, viewport: number): number {
-  const max = Math.max(MIN_DOCKED_WIDTH, Math.min(MAX_DOCKED_WIDTH, viewport));
-  return Math.round(Math.min(Math.max(width, MIN_DOCKED_WIDTH), max));
-}
-
-function storeDockedWidth(width: number): void {
-  try {
-    window.localStorage.setItem(DRAWER_WIDTH_STORAGE_KEY, String(width));
-  } catch {
-    // The width is only kept for the next visit.
-  }
-}
 
 /** Open layers that take Escape themselves: menus, dialogs and editor widgets. */
 const ESCAPE_OWNERS = [
@@ -314,7 +297,7 @@ export function NodeDetailsFrame({
   const inZone = usePanelPlacement() === 'zone';
   useRightPanelClaim('ndv', open, onClose);
   const sectionRef = React.useRef<HTMLElement>(null);
-  const [width, setWidth] = React.useState(getStoredDrawerWidth);
+  const width = useDrawerWidth();
 
   const viewport = useViewportWidth();
   const wide = useMediaQuery(NDV_WIDE_QUERY);
@@ -430,40 +413,6 @@ export function NodeDetailsFrame({
     }
   };
 
-  // The docked frame takes a new width from its left edge.
-  const resizeTo = (next: number, store: boolean) => {
-    const clamped = clampDockedWidth(next, window.innerWidth);
-    setWidth(clamped);
-    if (store) storeDockedWidth(clamped);
-    return clamped;
-  };
-  const onResizeMouseDown = (event: React.MouseEvent<HTMLDivElement>) => {
-    event.preventDefault();
-    const startX = event.clientX;
-    const startWidth = width;
-    let latest = startWidth;
-    const onMove = (move: MouseEvent) => {
-      latest = resizeTo(startWidth + startX - move.clientX, false);
-    };
-    const onUp = () => {
-      storeDockedWidth(latest);
-      document.removeEventListener('mousemove', onMove);
-      document.removeEventListener('mouseup', onUp);
-    };
-    document.addEventListener('mousemove', onMove);
-    document.addEventListener('mouseup', onUp);
-  };
-  const onResizeKeyDown = (event: React.KeyboardEvent<HTMLDivElement>) => {
-    const next = {
-      ArrowLeft: width + WIDTH_STEP,
-      ArrowRight: width - WIDTH_STEP,
-      Home: MIN_DOCKED_WIDTH,
-      End: MAX_DOCKED_WIDTH,
-    }[event.key];
-    if (next === undefined) return;
-    event.preventDefault();
-    resizeTo(next, true);
-  };
   const shows = {
     input:
       hasStep &&
@@ -596,23 +545,8 @@ export function NodeDetailsFrame({
             : undefined
         }
       >
-        {docked && (
-          <div
-            role="separator"
-            aria-label={ts('Resize step details')}
-            aria-orientation="vertical"
-            aria-valuemin={MIN_DOCKED_WIDTH}
-            aria-valuemax={MAX_DOCKED_WIDTH}
-            aria-valuenow={width}
-            tabIndex={0}
-            title={ts('Resize step details')}
-            className="group absolute left-0 top-0 z-20 h-full w-3 -translate-x-1.5 cursor-col-resize touch-none outline-none"
-            onMouseDown={onResizeMouseDown}
-            onKeyDown={onResizeKeyDown}
-          >
-            <div className="mx-auto h-full w-px bg-transparent transition-colors group-hover:bg-primary/60 group-focus:bg-primary" />
-          </div>
-        )}
+        {/* The docked frame takes a new width from its left edge. */}
+        {docked && <PanelResizeHandle shown={open} />}
         <header
           data-panel-header
           className={cn(PANEL_HEADER_CLASS, '@container')}
