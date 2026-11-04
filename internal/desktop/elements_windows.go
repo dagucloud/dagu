@@ -314,6 +314,9 @@ func (e *uiaElements) Apply(target Element, pattern Pattern, value string) error
 		if enabled, err := el.currentIsEnabled(); err == nil && !enabled {
 			return ErrDisabled
 		}
+		if e.scope != nil && takesForeground(el, pattern) {
+			return ErrForeground
+		}
 		err = perform(el, pattern, value)
 		switch {
 		case errors.Is(err, hrElementNotEnabled):
@@ -323,6 +326,23 @@ func (e *uiaElements) Apply(target Element, pattern Pattern, value string) error
 		}
 		return err
 	})
+}
+
+// takesForeground reports a pattern Windows performs by bringing the
+// element's window forward: its own UI Automation proxies, which serve Win32
+// and Windows Forms controls and controls of no framework it names, focus a
+// control, taking the foreground, to invoke, toggle, select, or expand it.
+// They set a value without.
+func takesForeground(el *element, pattern Pattern) bool {
+	if pattern == PatternSetValue {
+		return false
+	}
+	framework, _ := el.cachedText(uiaFrameworkIdProperty)
+	switch framework {
+	case "", "Win32", "WinForm":
+		return true
+	}
+	return false
 }
 
 // actAlone runs fn on a locked thread that lives for the call, with an

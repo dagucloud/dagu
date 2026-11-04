@@ -306,8 +306,10 @@ func TestWindowsDirectInput(t *testing.T) {
 
 // A reader of one window reads and drives it while another application's
 // window has the foreground, and leaves the foreground where it is: it
-// finds the window's elements, has them perform their patterns, reads a
-// table, and a window that is gone reads as no window.
+// finds the window's elements, sets a field's value, and reads a table. A
+// Windows Forms button, which Windows invokes by focusing it, is refused
+// rather than brought forward, and a window that is gone reads as no
+// window.
 func TestWindowsElementsInWindowBehindAnother(t *testing.T) {
 	driver := e2eDesktop(t)
 	els := e2eElements(t)
@@ -349,9 +351,9 @@ func TestWindowsElementsInWindowBehindAnother(t *testing.T) {
 	require.NoError(t, err)
 	require.Len(t, save, 1)
 	assert.Equal(t, inFront, foreground(), "reads leave the foreground where it was")
-	require.NoError(t, in.Apply(save[0], PatternInvoke, ""))
-	assert.Eventually(t, func() bool { return status() == "保存しました" }, 3*time.Second, 100*time.Millisecond, "status reads %q", status())
-	assert.Equal(t, inFront, foreground(), "an invoke leaves the foreground where it was")
+	assert.ErrorIs(t, in.Apply(save[0], PatternInvoke, ""), ErrForeground)
+	assert.Equal(t, "待機中", status(), "the refused button was not pressed")
+	assert.Equal(t, inFront, foreground(), "a refused invoke leaves the foreground where it was")
 
 	amount, err := in.Find(Selector{Role: RoleTextField, ID: "amountBox"})
 	require.NoError(t, err)

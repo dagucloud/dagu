@@ -34,6 +34,11 @@ var ErrDisabled = errors.New("the element is disabled")
 // read-only field asked for a value, so nothing reached the application.
 var ErrRefused = errors.New("the element refused before acting")
 
+// ErrForeground reports a pattern the system performs by bringing the
+// element's window forward, which a reader of one window, InWindow's,
+// refuses before it acts. The reader of the window in front performs it.
+var ErrForeground error = refusal("the element brings its window forward to perform the pattern")
+
 // refusal is an error an element gives before it acts: it reads as its own
 // message and matches ErrRefused.
 type refusal string
@@ -180,8 +185,10 @@ type Elements interface {
 	// not another window covers it. Its FrontWindow, Find, Outline, and
 	// Rows read that window as this reader reads the window in front, and
 	// its Focus and Apply find their element in it; its At and Focused read
-	// the desktop as this reader does. A window that has closed reads as
-	// ErrNoWindow. Closing the reader it returns does nothing.
+	// the desktop as this reader does. Its Apply refuses with ErrForeground
+	// a pattern the system performs by bringing the window forward. A window
+	// that has closed reads as ErrNoWindow. Closing the reader it returns
+	// does nothing.
 	InWindow(w WindowID) Elements
 	Close() error
 }
