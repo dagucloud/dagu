@@ -2135,14 +2135,14 @@ func profileEntries(resolved *profilepkg.Resolved) []ir.RuntimeProfileEntry {
 
 // resolveSecrets resolves all secrets defined in the DAG and returns them as
 // environment variable strings in "NAME=value" format.
-func (a *Agent) resolveSecrets(ctx context.Context) ([]string, error) {
+func (a *Agent) resolveSecrets(ctx context.Context, profileValues resolvedProfileValues) ([]string, error) {
 	if len(a.dag.Secrets) == 0 {
 		return nil, nil
 	}
 
 	logger.Info(ctx, "Resolving secrets", tag.Count(len(a.dag.Secrets)))
 
-	envScope := a.buildEnvScopeForSecrets()
+	envScope := a.buildEnvScopeForSecrets(profileValues)
 	secretCtx := cmnvalue.WithEnvScope(ctx, envScope)
 
 	baseDirs := a.buildSecretBaseDirs(envScope)
@@ -2162,17 +2162,12 @@ func (a *Agent) resolveSecrets(ctx context.Context) ([]string, error) {
 	return resolvedSecrets, nil
 }
 
-// buildEnvScopeForSecrets creates an EnvScope with DAG env vars for secret resolution.
-func (a *Agent) buildEnvScopeForSecrets() *cmnvalue.EnvScope {
+// buildEnvScopeForSecrets creates the EnvScope secrets resolve against: DAG
+// env vars and runtime profile entries, in run environment precedence.
+func (a *Agent) buildEnvScopeForSecrets(profileValues resolvedProfileValues) *cmnvalue.EnvScope {
 	envScope := cmnvalue.NewEnvScope(nil, true)
-	dagEnvs := make(map[string]string)
-	for _, env := range a.dag.Env {
-		if key, value, found := strings.Cut(env, "="); found {
-			dagEnvs[key] = value
-		}
-	}
-	if len(dagEnvs) > 0 {
-		envScope = envScope.WithEntries(dagEnvs, cmnvalue.EnvSourceDAGEnv)
+	if envs := runtimeConfigVars(a.dag.Env, profileValues, nil); len(envs) > 0 {
+		envScope = envScope.WithEntries(envs, cmnvalue.EnvSourceDAGEnv)
 	}
 	return envScope
 }

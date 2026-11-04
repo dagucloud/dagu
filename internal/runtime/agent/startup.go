@@ -58,14 +58,16 @@ func (a *Agent) resolveStartup(ctx context.Context) (startupResolution, error) {
 		if ctx.Err() != nil {
 			return
 		}
-		result.secrets, result.secretErr = snapshot.resolveSecrets(ctx)
-		if ctx.Err() != nil {
-			return
-		}
 		result.profileValues, result.profileErr = snapshot.resolveProfile(ctx)
 		result.profileName = snapshot.profileName
 		result.profileResolvedAt = snapshot.profileResolvedAt
 		result.profileEntries = snapshot.profileEntries
+		// Secrets read profile entries. After a profile failure they are
+		// skipped, so the profile error is the one reported.
+		if result.profileErr != nil || ctx.Err() != nil {
+			return
+		}
+		result.secrets, result.secretErr = snapshot.resolveSecrets(ctx, result.profileValues)
 	}()
 	select {
 	case result := <-resolved:
