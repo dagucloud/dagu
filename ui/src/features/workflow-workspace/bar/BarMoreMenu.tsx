@@ -163,6 +163,7 @@ function MoreMenuItems({
       {onDelete && (
         // Below md the bar has no room for the Delete button.
         <DropdownMenuItem
+          data-testid="ww-bar-more-delete"
           className="gap-2 text-destructive focus:text-destructive md:hidden"
           onSelect={onDelete}
         >

@@ -227,10 +227,15 @@ async function checkEditButtons(
   await expect(rename, `Rename (${where})`).toBeVisible();
   if (narrow) {
     await expect(remove, `Delete in the menu (${where})`).toBeHidden();
-    await expect(
-      bar.getByTestId('ww-bar-more'),
-      `More (${where})`
-    ).toBeVisible();
+    const more = bar.getByTestId('ww-bar-more');
+    await expect(more, `More (${where})`).toBeVisible();
+    // Delete in the More menu opens its dialog; Escape leaves the workflow.
+    await more.click();
+    await page.getByTestId('ww-bar-more-delete').click();
+    const dialog = page.getByRole('dialog');
+    await expect(dialog, `Delete dialog (${where})`).toBeVisible();
+    await page.keyboard.press('Escape');
+    await expect(dialog, `Delete dialog closed (${where})`).toBeHidden();
     await rename.focus();
     await expect(rename, `Rename focus (${where})`).toBeFocused();
     return;
