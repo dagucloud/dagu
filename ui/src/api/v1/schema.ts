@@ -6350,6 +6350,8 @@ export interface components {
         ParamDef: {
             /** @description Parameter name. Omitted for positional parameters. */
             name?: string;
+            /** @description Human-readable label for forms. The name remains the parameter identifier. */
+            title?: string;
             /**
              * @description Parameter type
              * @enum {string}

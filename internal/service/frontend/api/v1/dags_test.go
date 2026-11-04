@@ -188,6 +188,34 @@ func TestDAGWritesAllowedWhenGitSyncDisabled(t *testing.T) {
 	server.Client().Delete("/api/v1/dags/test_dag_gitsync_disabled").ExpectStatus(http.StatusNoContent).Send(t)
 }
 
+// Start forms label a titled param by its title and keep its name visible,
+// so the details response carries both.
+func TestDAGDetailsParamTitle(t *testing.T) {
+	server := test.SetupServer(t)
+	definition := `params:
+  - name: region
+    title: AWS region
+    description: Region the instances are launched in.
+steps:
+  - command: echo ${region}
+`
+	server.Client().Post("/api/v1/dags", api.CreateNewDAGJSONRequestBody{
+		Name: "param_title", Spec: &definition,
+	}).ExpectStatus(http.StatusCreated).Send(t)
+
+	var details api.GetDAGDetails200JSONResponse
+	server.Client().Get("/api/v1/dags/param_title").ExpectStatus(http.StatusOK).Send(t).Unmarshal(t, &details)
+	require.NotNil(t, details.Dag)
+	require.NotNil(t, details.Dag.ParamDefs)
+	require.Len(t, *details.Dag.ParamDefs, 1)
+	def := (*details.Dag.ParamDefs)[0]
+	assert.Equal(t, "region", *def.Name)
+	require.NotNil(t, def.Title)
+	assert.Equal(t, "AWS region", *def.Title)
+	require.NotNil(t, def.Description)
+	assert.Equal(t, "Region the instances are launched in.", *def.Description)
+}
+
 func TestDAGSpecWarnings(t *testing.T) {
 	server := test.SetupServer(t)
 	for _, tc := range []struct {
@@ -2516,6 +2544,10 @@ steps:
 		status.AttemptID = attempt.ID()
 		status.Status = statuses[i]
 		status.StartedAt = now.Format(time.RFC3339)
+		// A local Running run with no live process is repaired once its
+		// startup grace passes, which a slow runner can reach before the
+		// list call. A remote worker's status stands as written.
+		status.WorkerID = "worker-1"
 		require.NoError(t, attempt.Open(helper.Context))
 		require.NoError(t, attempt.Write(helper.Context, status))
 		require.NoError(t, attempt.Close(helper.Context))

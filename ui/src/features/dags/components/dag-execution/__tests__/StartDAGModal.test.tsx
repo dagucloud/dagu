@@ -332,6 +332,94 @@ describe('StartDAGModal', () => {
     expect(screen.getByLabelText(/region/i)).toBeInTheDocument();
   });
 
+  it('labels a typed field by its title and keeps its name visible', () => {
+    render(
+      <StartDAGModal
+        visible={true}
+        dismissModal={vi.fn()}
+        onSubmit={vi.fn()}
+        dag={
+          {
+            name: 'typed-dag',
+            paramDefs: [
+              {
+                name: 'region',
+                title: 'AWS region',
+                description: 'Region the instances are launched in.',
+                type: 'string',
+                required: true,
+              },
+            ],
+          } as never
+        }
+      />
+    );
+
+    // The name joins the accessible name, so params sharing a title differ.
+    const input = screen.getByRole('textbox', { name: 'AWS region * region' });
+    // The description is read before the value is entered.
+    const description = screen.getByText(
+      'Region the instances are launched in.'
+    );
+    expect(
+      description.compareDocumentPosition(input) &
+        Node.DOCUMENT_POSITION_FOLLOWING
+    ).toBeTruthy();
+    expect(input).toHaveAccessibleDescription(
+      'Region the instances are launched in.'
+    );
+  });
+
+  it('marks a typed field invalid and describes its error', async () => {
+    render(
+      <StartDAGModal
+        visible={true}
+        dismissModal={vi.fn()}
+        onSubmit={vi.fn()}
+        dag={
+          {
+            name: 'typed-dag',
+            paramDefs: [{ name: 'region', type: 'string', required: true }],
+          } as never
+        }
+      />
+    );
+
+    fireEvent.click(screen.getByRole('button', { name: 'Start' }));
+
+    const input = screen.getByRole('textbox', { name: 'region *' });
+    await waitFor(() => expect(input).toHaveAttribute('aria-invalid', 'true'));
+    expect(input).toHaveAccessibleDescription('Required');
+  });
+
+  it('labels a typed boolean switch', () => {
+    render(
+      <StartDAGModal
+        visible={true}
+        dismissModal={vi.fn()}
+        onSubmit={vi.fn()}
+        dag={
+          {
+            name: 'typed-dag',
+            paramDefs: [
+              {
+                name: 'dry_run',
+                title: 'Dry run',
+                type: 'boolean',
+                default: false,
+                required: false,
+              },
+            ],
+          } as never
+        }
+      />
+    );
+
+    expect(
+      screen.getByRole('switch', { name: 'Dry run dry_run' })
+    ).toBeInTheDocument();
+  });
+
   it('submits typed param fields as a JSON array payload', async () => {
     const onSubmit = vi.fn().mockResolvedValue(undefined);
 

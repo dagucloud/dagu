@@ -667,7 +667,7 @@
           "$ref": "#/definitions/dagParamExternalSchema"
         }
       ],
-      "description": "Default parameters that can be overridden when triggering the DAG. Supports five formats: 1) String format: space-separated positional parameters (e.g., 'arg1 arg2') accessible as $1, $2. 2) Array/Object format: named parameters as key-value pairs accessible as ${KEY}. 3) Inline rich definitions in array form, where each definition is an object with a required 'name' field plus optional fields such as type, default, enum, minimum, maximum, min_length, max_length, pattern, description, and required. 4) Top-level inline JSON Schema format using `type: object` plus `properties`. 5) Schema validation format: object with 'schema' (JSON Schema path/URL, inline object, or boolean schema) and optional 'values' (parameter values) for runtime validation and defaults."
+      "description": "Default parameters that can be overridden when triggering the DAG. Supports five formats: 1) String format: space-separated positional parameters (e.g., 'arg1 arg2') accessible as $1, $2. 2) Array/Object format: named parameters as key-value pairs accessible as ${KEY}. 3) Inline rich definitions in array form, where each definition is an object with a required 'name' field plus optional fields such as type, default, enum, minimum, maximum, min_length, max_length, pattern, title, description, and required. 4) Top-level inline JSON Schema format using `type: object` plus `properties`. 5) Schema validation format: object with 'schema' (JSON Schema path/URL, inline object, or boolean schema) and optional 'values' (parameter values) for runtime validation and defaults."
     },
     "container": {
       "$ref": "#/definitions/container",
@@ -1173,6 +1173,10 @@
         },
         "eval": {
           "type": "string"
+        },
+        "title": {
+          "type": "string",
+          "description": "Human-readable label shown in forms instead of the name. The name remains the identifier used in commands and references."
         },
         "description": {
           "type": "string"

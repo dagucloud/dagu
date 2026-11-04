@@ -56,8 +56,9 @@ import {
   buildParamSchemaUiSchema,
   stringifyParamSchemaFormData,
 } from './paramSchemaForm';
-import { schemaFormTemplates } from './schemaFormTemplates';
-import { schemaFormWidgets } from './schemaFormWidgets';
+import { ParamLabel } from './ParamLabel';
+import { paramFormTemplates } from './paramFormTemplates';
+import { paramFormWidgets } from './paramFormWidgets';
 import { autoGrowTextarea } from './textareaAutoGrow';
 import { I18nText } from '@/i18n/I18nText';
 import { I18nProps } from '@/i18n/I18nProps';
@@ -72,6 +73,7 @@ type SchemaFormData = Record<string, unknown>;
 type ParamField = {
   key: string;
   name?: string;
+  title?: string;
   type: ParamDefType;
   value: string;
   hasValue: boolean;
@@ -128,6 +130,7 @@ function createParamFields(paramDefs: ParamDef[] = []): ParamField[] {
     return {
       key: def.name ?? `__pos_${index}`,
       name: def.name,
+      title: def.title,
       type: def.type,
       value: hasDefault ? scalarToString(def.default as ScalarValue) : '',
       hasValue: hasDefault,
@@ -899,8 +902,8 @@ function StartDAGModal({
                       validator={validator}
                       formData={schemaFormData}
                       uiSchema={schemaFormUiSchema}
-                      templates={schemaFormTemplates}
-                      widgets={schemaFormWidgets}
+                      templates={paramFormTemplates}
+                      widgets={paramFormWidgets}
                       disabled={paramsReadOnly || submitting}
                       readonly={paramsReadOnly}
                       noHtml5Validate
@@ -922,8 +925,15 @@ function StartDAGModal({
                   {!loading && dag && useTypedFields && (
                     <>
                       {typedFields.map((field, index) => {
-                        const label = field.name || `Parameter ${index + 1}`;
+                        const label =
+                          field.title || field.name || `Parameter ${index + 1}`;
                         const error = fieldErrors[field.key];
+                        const descriptionId = `param-${field.key}-description`;
+                        const errorId = `param-${field.key}-error`;
+                        const describedBy =
+                          [field.description && descriptionId, error && errorId]
+                            .filter(Boolean)
+                            .join(' ') || undefined;
                         const disableField = paramsReadOnly || submitting;
                         const showUnsetButton =
                           !field.required &&
@@ -933,10 +943,14 @@ function StartDAGModal({
                         return (
                           <div key={field.key} className="space-y-2">
                             <div className="flex items-center justify-between gap-3">
-                              <Label htmlFor={`param-${field.key}`}>
+                              <ParamLabel
+                                htmlFor={`param-${field.key}`}
+                                name={field.name}
+                                label={label}
+                              >
                                 {label}
                                 {field.required ? ' *' : ''}
-                              </Label>
+                              </ParamLabel>
                               {showUnsetButton && (
                                 <Button
                                   type="button"
@@ -956,20 +970,29 @@ function StartDAGModal({
                               )}
                             </div>
 
+                            {field.description && (
+                              <p
+                                id={descriptionId}
+                                className="text-xs text-muted-foreground"
+                              >
+                                {field.description}
+                              </p>
+                            )}
+
                             {renderTypedField({
                               field,
                               disabled: disableField,
+                              describedBy,
+                              invalid: !!error,
                               onChange: (patch) =>
                                 handleTypedFieldChange(field.key, patch),
                             })}
 
-                            {field.description && (
-                              <p className="text-xs text-muted-foreground">
-                                {field.description}
-                              </p>
-                            )}
                             {error && (
-                              <p className="text-xs text-destructive">
+                              <p
+                                id={errorId}
+                                className="text-xs text-destructive"
+                              >
                                 {error}
                               </p>
                             )}
@@ -1076,10 +1099,14 @@ function StartDAGModal({
 function renderTypedField({
   field,
   disabled,
+  describedBy,
+  invalid,
   onChange,
 }: {
   field: ParamField;
   disabled: boolean;
+  describedBy?: string;
+  invalid: boolean;
   onChange: (patch: Partial<ParamField>) => void;
 }) {
   const controlClass = 'w-full';
@@ -1098,7 +1125,12 @@ function renderTypedField({
           onChange({ value, hasValue: true });
         }}
       >
-        <SelectTrigger id={`param-${field.key}`} className={controlClass}>
+        <SelectTrigger
+          id={`param-${field.key}`}
+          aria-describedby={describedBy}
+          aria-invalid={invalid || undefined}
+          className={controlClass}
+        >
           <SelectValue placeholder={placeholder} />
         </SelectTrigger>
         <SelectContent>
@@ -1127,6 +1159,8 @@ function renderTypedField({
         <I18nProps>
           <Input
             id={`param-${field.key}`}
+            aria-describedby={describedBy}
+            aria-invalid={invalid || undefined}
             type="number"
             className={controlClass}
             min={field.minimum}
@@ -1159,7 +1193,12 @@ function renderTypedField({
               onChange({ value, hasValue: true });
             }}
           >
-            <SelectTrigger id={`param-${field.key}`} className={controlClass}>
+            <SelectTrigger
+              id={`param-${field.key}`}
+              aria-describedby={describedBy}
+              aria-invalid={invalid || undefined}
+              className={controlClass}
+            >
               <I18nProps>
                 <SelectValue placeholder="Not set" />
               </I18nProps>
@@ -1181,6 +1220,9 @@ function renderTypedField({
       return (
         <div className="flex items-center gap-3 rounded-md border border-border px-3 py-2">
           <Switch
+            id={`param-${field.key}`}
+            aria-describedby={describedBy}
+            aria-invalid={invalid || undefined}
             checked={field.value === 'true'}
             disabled={disabled}
             onCheckedChange={(checked) =>
@@ -1203,6 +1245,8 @@ function renderTypedField({
         <I18nProps>
           <Textarea
             id={`param-${field.key}`}
+            aria-describedby={describedBy}
+            aria-invalid={invalid || undefined}
             className={`${controlClass} h-7 min-h-7 py-1`}
             rows={1}
             ref={(element) => {

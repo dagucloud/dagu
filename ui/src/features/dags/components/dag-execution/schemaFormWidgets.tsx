@@ -85,6 +85,13 @@ function SchemaTextareaWidget<
   );
 }
 
+/** Checkbox styling shared by the schema form checkbox widgets. */
+export const schemaCheckboxClassName = cn(
+  'border-input bg-card shadow-sm',
+  'focus-visible:ring-2 focus-visible:ring-ring/50 focus-visible:ring-offset-1 focus-visible:ring-offset-background',
+  'data-[state=checked]:border-primary data-[state=checked]:bg-primary-fill data-[state=checked]:text-primary-foreground'
+);
+
 /**
  * Renders boolean schema fields with the local checkbox component styling.
  */
@@ -149,12 +156,7 @@ function SchemaCheckboxWidget<
           onCheckedChange={(checked) => onChange(Boolean(checked))}
           onBlur={() => onBlur(id, value)}
           onFocus={() => onFocus(id, value)}
-          className={cn(
-            'border-input bg-card shadow-sm',
-            'focus-visible:ring-2 focus-visible:ring-ring/50 focus-visible:ring-offset-1 focus-visible:ring-offset-background',
-            'data-[state=checked]:border-primary data-[state=checked]:bg-primary-fill data-[state=checked]:text-primary-foreground',
-            className
-          )}
+          className={cn(schemaCheckboxClassName, className)}
         />
         <Label className="leading-tight" htmlFor={id}>
           {labelValue(label, hideLabel || !label)}
@@ -166,6 +168,8 @@ function SchemaCheckboxWidget<
 
 /**
  * Renders small fixed-choice schema fields as accessible radio groups.
+ * The labelledBy option names the group by an element id, since a radio
+ * group cannot take a label through htmlFor.
  */
 function SchemaRadioWidget<
   T = any,
@@ -253,6 +257,11 @@ function SchemaRadioWidget<
           );
         }}
         aria-describedby={ariaDescribedByIds(id)}
+        aria-labelledby={
+          typeof options.labelledBy === 'string'
+            ? options.labelledBy
+            : undefined
+        }
         orientation={inline ? 'horizontal' : 'vertical'}
         className={cn('flex flex-wrap', !inline && 'flex-col', className)}
       >

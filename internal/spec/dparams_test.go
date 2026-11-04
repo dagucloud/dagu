@@ -5,6 +5,7 @@ package spec
 
 import (
 	"context"
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -144,6 +145,35 @@ params:
 	assert.Empty(t, dag.DefaultParams)
 }
 
+// A title labels the parameter in start forms while the name stays the
+// identifier, so both the definition and the rendered schema carry it.
+func TestInlineParamDefs_Title(t *testing.T) {
+	t.Parallel()
+
+	yaml := []byte(`
+name: titled-inline-param
+params:
+  - name: region
+    title: AWS region
+    description: Region the instances are launched in.
+    enum: [us-east-1, us-west-2]
+`)
+
+	dag, err := LoadYAML(context.Background(), yaml, WithoutEval())
+	require.NoError(t, err)
+	require.Len(t, dag.ParamDefs, 1)
+	assert.Equal(t, "region", dag.ParamDefs[0].Name)
+	assert.Equal(t, "AWS region", dag.ParamDefs[0].Title)
+
+	var schema struct {
+		Properties map[string]struct {
+			Title string `json:"title"`
+		} `json:"properties"`
+	}
+	require.NoError(t, json.Unmarshal(dag.ParamSchema, &schema))
+	assert.Equal(t, "AWS region", schema.Properties["region"].Title)
+}
+
 func TestInlineParamDefs_RejectDuplicateNames(t *testing.T) {
 	t.Parallel()
 
@@ -178,19 +208,25 @@ params:
 	assert.Contains(t, err.Error(), `default does not match pattern`)
 }
 
-func TestInlineParamDefs_RejectNonStringDescription(t *testing.T) {
+func TestInlineParamDefs_RejectNonStringText(t *testing.T) {
 	t.Parallel()
 
-	yaml := []byte(`
-name: invalid-inline-description
+	for _, field := range []string{"title", "description"} {
+		t.Run(field, func(t *testing.T) {
+			t.Parallel()
+
+			yaml := []byte(`
+name: invalid-inline-text
 params:
   - name: notes
-    description: 123
+    ` + field + `: 123
 `)
 
-	_, err := LoadYAML(context.Background(), yaml, WithoutEval())
-	require.Error(t, err)
-	assert.Contains(t, err.Error(), `description must be a string`)
+			_, err := LoadYAML(context.Background(), yaml, WithoutEval())
+			require.Error(t, err)
+			assert.Contains(t, err.Error(), field+` must be a string`)
+		})
+	}
 }
 
 func TestInlineParamDefs_EvalResolvesDuringNormalBuild(t *testing.T) {

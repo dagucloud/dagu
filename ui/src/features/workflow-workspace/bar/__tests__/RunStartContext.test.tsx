@@ -12,7 +12,7 @@ import {
 import userEvent from '@testing-library/user-event';
 import { useEffect, useState, type ReactNode } from 'react';
 import { MemoryRouter } from 'react-router-dom';
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import { Status, StatusLabel } from '@/api/v1/schema';
 import {
   UnsavedChangesProvider,
@@ -162,6 +162,13 @@ function serveDag(extra: Record<string, unknown> = {}) {
       : { data: {} }
   );
 }
+
+// DAGActions loads the Start dialog lazily. Loading its module once up front
+// keeps the first dialog wait from racing a cold import of the dialog's
+// module graph, which a busy runner can stretch past the query timeout.
+beforeAll(async () => {
+  await import('@/features/dags/components/dag-execution/StartDAGModal');
+});
 
 beforeEach(() => {
   vi.clearAllMocks();
