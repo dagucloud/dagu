@@ -106,16 +106,22 @@ export function StepDetails({ step }: { step: Step }) {
   );
 }
 
+/** The internal executor types of a step that calls a workflow. */
+const CALL_EXECUTOR_TYPES: ReadonlySet<unknown> = new Set([
+  'dag',
+  'subworkflow',
+]);
+
 /**
- * The executor of a step that calls a workflow: its internal type `dag`
- * says nothing that the Calls field does not, in words the UI never uses.
+ * The executor of a step that calls a workflow: its internal type says
+ * nothing that the Calls field does not, in words the UI never uses.
  */
 function isCallExecutor(step: Step, key: string, value: unknown): boolean {
   return (
     key === 'executorConfig' &&
     Boolean(step.call) &&
     isPlainObject(value) &&
-    value.type === 'dag'
+    CALL_EXECUTOR_TYPES.has(value.type)
   );
 }
 

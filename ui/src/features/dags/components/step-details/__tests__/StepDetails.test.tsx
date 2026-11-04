@@ -49,21 +49,24 @@ describe('StepDetails', () => {
     ).toBeInTheDocument();
   });
 
-  // The internal executor type of a call step is `dag`, a word the UI does
-  // not use: the workflow it calls says it all.
-  it('shows the workflow that a call step calls, without its executor', () => {
-    const step = {
-      name: 'call_a',
-      call: 'child-a',
-      executorConfig: { type: 'dag', config: {} },
-    } as components['schemas']['Step'];
+  // The internal executor type of a call step is `dag`, or `subworkflow` in
+  // older files, words the UI does not use: the workflow it calls says it all.
+  it.each(['dag', 'subworkflow'])(
+    'shows the workflow that a call step calls, without its %s executor',
+    (type) => {
+      const step = {
+        name: 'call_a',
+        call: 'child-a',
+        executorConfig: { type, config: {} },
+      } as components['schemas']['Step'];
 
-    render(<StepDetails step={step} />);
+      render(<StepDetails step={step} />);
 
-    expect(screen.getByText('Calls')).toBeInTheDocument();
-    expect(screen.getByText('child-a')).toBeInTheDocument();
-    expect(screen.queryByText('Sub DAG')).toBeNull();
-    expect(screen.queryByText('Executor')).toBeNull();
-    expect(screen.queryByText('dag')).toBeNull();
-  });
+      expect(screen.getByText('Calls')).toBeInTheDocument();
+      expect(screen.getByText('child-a')).toBeInTheDocument();
+      expect(screen.queryByText('Sub DAG')).toBeNull();
+      expect(screen.queryByText('Executor')).toBeNull();
+      expect(screen.queryByText(type)).toBeNull();
+    }
+  );
 });
