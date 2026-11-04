@@ -225,6 +225,39 @@ func TestReportAveragesCPUSinceTheLastAcceptedReport(t *testing.T) {
 	assert.Equal(t, []time.Time{{}, through}, stub.asked())
 }
 
+// A report that failed after it built a CPU window does not move the window
+// when the next one, accepted, carries no CPU samples, as on a license that
+// turned free meanwhile; the paid report after averages from the start.
+func TestReportWithoutCPUKeepsTheWindow(t *testing.T) {
+	t.Parallel()
+
+	console := newFakeConsole(t, consoleResponse{status: http.StatusInternalServerError})
+	stub := &stubResources{sample: resource.Sample{At: testClockStart, CPUThrough: testClockStart}, sampled: true}
+	var free atomic.Bool
+	credentials := func() (license.CloudCredentials, bool) {
+		creds, ok := console.credentials()
+		creds.Free = free.Load()
+		return creds, ok
+	}
+	r := newReporter(credentials, nil, fixedLevel(config.ReportHealth))
+	r.resources = stub
+	clock := startReporter(t.Context(), t, r, noJitter)
+
+	clock.wait()
+	clock.elapse()
+	console.next(t) // refused
+	free.Store(true)
+	clock.wait()
+	clock.elapse()
+	console.next(t) // accepted, without CPU samples
+	free.Store(false)
+	clock.wait()
+	clock.elapse()
+	console.next(t)
+
+	assert.Equal(t, []time.Time{{}, {}}, stub.asked(), "the paid reports average from the start")
+}
+
 // fakeQueueStore sums up its queues, and counts how often it was read.
 type fakeQueueStore struct {
 	queues []queue.Summary

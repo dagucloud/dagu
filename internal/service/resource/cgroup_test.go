@@ -73,6 +73,19 @@ func TestCgroupReadsLimitsAndUsage(t *testing.T) {
 			want: cgroupUsage{MemoryLimit: 268435456, MemoryUsed: 100000000, CPULimit: 2, CPUTime: 3 * time.Second},
 		},
 		{
+			// A cgroup may enable the cpu controller without memory, so
+			// each controller's files are found on their own.
+			name: "v2 with only a CPU quota under a path",
+			files: map[string]string{
+				"proc/self/cgroup":                 "0::/app\n",
+				"sys/fs/cgroup/cgroup.controllers": "cpu memory\n",
+				"sys/fs/cgroup/app/cpu.max":        "50000 100000\n",
+				"sys/fs/cgroup/app/cpu.stat":       "usage_usec 1000000\n",
+				"sys/fs/cgroup/cpu.stat":           "usage_usec 9000000\n",
+			},
+			want: cgroupUsage{CPULimit: 0.5, CPUTime: time.Second},
+		},
+		{
 			// A limit whose usage cannot be read is no reading of 0.
 			name: "v2 with unreadable usage",
 			files: map[string]string{

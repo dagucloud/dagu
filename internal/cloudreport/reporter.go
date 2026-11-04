@@ -739,8 +739,10 @@ func (r *Reporter) send(ctx context.Context, creds license.CloudCredentials, lev
 				report.Health.RemoteAccess, report.Health.RemoteApprovals = status.Level, &status.Approvals
 			}
 		}
+		// A report that carries no CPU samples leaves the window where it
+		// was, whatever an earlier attempt built.
+		r.cpuBuilt = r.cpuFrom
 		if r.resources != nil && !creds.Free {
-			r.cpuBuilt = r.cpuFrom
 			if sample, ok := r.resources.Since(r.cpuFrom); ok {
 				report.Health.Resources = resourcesOf(sample)
 				if !sample.CPUThrough.IsZero() {

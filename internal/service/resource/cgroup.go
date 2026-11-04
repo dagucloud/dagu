@@ -77,18 +77,21 @@ func (c cgroup) ownPaths() (map[string]string, error) {
 	return paths, scanner.Err()
 }
 
+// readV2 reads memory and CPU each from the directory that has its
+// controller's files, since a cgroup may enable one without the other.
 func (c cgroup) readV2(path string) (cgroupUsage, bool) {
-	dir := c.dir("sys/fs/cgroup", path, "memory.max")
 	var u cgroupUsage
-	if limit, ok := c.limit(dir, "memory.max"); ok {
+	memory := c.dir("sys/fs/cgroup", path, "memory.max")
+	if limit, ok := c.limit(memory, "memory.max"); ok {
 		u.MemoryLimit = limit
-		u.MemoryUsed, ok = c.workingSet(dir, "memory.current", "inactive_file")
+		u.MemoryUsed, ok = c.workingSet(memory, "memory.current", "inactive_file")
 		u.MemoryUnread = !ok
 	}
-	if fields := c.fields(dir, "cpu.max"); len(fields) == 2 {
+	cpu := c.dir("sys/fs/cgroup", path, "cpu.max")
+	if fields := c.fields(cpu, "cpu.max"); len(fields) == 2 {
 		u.CPULimit = quota(fields[0], fields[1])
 	}
-	if usec, ok := c.stat(dir, "cpu.stat", "usage_usec"); ok {
+	if usec, ok := c.stat(cpu, "cpu.stat", "usage_usec"); ok {
 		u.CPUTime = time.Duration(usec) * time.Microsecond //nolint:gosec // CPU microseconds fit an int64 for millennia
 	}
 	return u, u.MemoryLimit > 0 || u.CPULimit > 0
