@@ -30,7 +30,7 @@ var positionPrefix = regexp.MustCompile(`^\[(\d+):(\d+)\]`)
 
 // buildValidationIssues converts the results of one spec load into structured issues.
 // An error issue keeps the text of the matching errors entry. The order is: load errors,
-// build errors, warnings, notices.
+// build errors, warnings, defect notices. A runtime-only notice is no issue of the spec.
 func buildValidationIssues(loadErr error, dag *ir.DAG, notices []cmnvalue.ValueReferenceNotice) []api.ValidationIssue {
 	issues := []api.ValidationIssue{}
 	scope := newIssueScope(dag)
@@ -57,6 +57,11 @@ func buildValidationIssues(loadErr error, dag *ir.DAG, notices []cmnvalue.ValueR
 		}
 	}
 	for _, n := range notices {
+		// The value of a runtime-only reference exists only during a run, so it
+		// is not a validation warning (Spec 003).
+		if n.Class == cmnvalue.NoticeClassRuntimeOnly {
+			continue
+		}
 		issue := api.ValidationIssue{
 			Severity: api.ValidationIssueSeverityNotice,
 			Source:   api.ValidationIssueSourceValueReference,

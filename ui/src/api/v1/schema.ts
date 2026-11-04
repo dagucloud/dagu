@@ -9838,7 +9838,7 @@ export interface operations {
                         errors: string[];
                         /** @description Non-fatal spec warnings; these do not affect valid */
                         warnings?: string[];
-                        /** @description Structured errors, warnings and notices of the spec, with step and location data when known */
+                        /** @description Structured errors, warnings and defect value-reference notices of the spec, with step and location data when known. Runtime-only notices are listed only in valueReferenceNotices. */
                         issues: components["schemas"]["ValidationIssue"][];
                         /** @description Passive value-reference notices produced while loading this spec. These notices are not persisted. */
                         valueReferenceNotices: components["schemas"]["ValueReferenceNotice"][];

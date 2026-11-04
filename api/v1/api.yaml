@@ -982,7 +982,7 @@ paths:
                       type: string
                   issues:
                     type: array
-                    description: "Structured errors, warnings and notices of the spec, with step and location data when known"
+                    description: "Structured errors, warnings and defect value-reference notices of the spec, with step and location data when known. Runtime-only notices are listed only in valueReferenceNotices."
                     x-go-type-skip-optional-pointer: true
                     items:
                       $ref: "#/components/schemas/ValidationIssue"
