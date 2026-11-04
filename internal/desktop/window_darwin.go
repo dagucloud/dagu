@@ -20,10 +20,11 @@ import (
 
 const appKitPath = "/System/Library/Frameworks/AppKit.framework/AppKit"
 
-// Options of CGWindowListCopyWindowInfo: windows on the screen, without
-// the desktop's own.
+// Options of CGWindowListCopyWindowInfo: windows on the screen, one window
+// alone, and without the desktop's own.
 const (
 	windowListOnScreenOnly        = 1 << 0
+	windowListIncludingWindow     = 1 << 3
 	windowListExcludeDesktopItems = 1 << 4
 )
 
@@ -98,6 +99,24 @@ func (b *darwinBackend) listWindows() []windowInfo {
 		})
 	}
 	return out
+}
+
+// windowOpen reports whether the window server still lists w's window as
+// one of w's process.
+func windowOpen(w WindowID) bool {
+	list := cgWindowListCopyWindowInfo(windowListIncludingWindow, uint32(w.Handle)) //nolint:gosec // window numbers fit 32 bits
+	if list == 0 {
+		return false
+	}
+	defer cfRelease(list)
+	for _, dict := range cfArray(list) {
+		number, _ := cfInt(cfDictionaryGetValue(dict, cgWindowNumberKey))
+		pid, _ := cfInt(cfDictionaryGetValue(dict, cgWindowOwnerPIDKey))
+		if uint64(number) == w.Handle && uint32(pid) == w.PID { //nolint:gosec // window numbers and process ids are positive
+			return true
+		}
+	}
+	return false
 }
 
 // toPixelRect converts a frame in global points to display pixels.

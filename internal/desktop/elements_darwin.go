@@ -365,9 +365,14 @@ func (e *axElements) frontWindow() (axWindow, error) {
 }
 
 // top returns the window in front, or the window the reader is scoped to.
+// A scoped window that closed is not taken for another window of its
+// process that now has its frame.
 func (e *axElements) top() (axWindow, error) {
 	if e.scope == nil {
 		return e.frontWindow()
+	}
+	if !windowOpen(*e.scope) {
+		return axWindow{}, ErrNoWindow
 	}
 	pid := int32(e.scope.PID) //nolint:gosec // process ids fit 32 bits
 	app := axUIElementCreateApplication(pid)

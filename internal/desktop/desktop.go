@@ -439,6 +439,9 @@ func (d *Driver) ReleaseButton(button Button) error {
 	return nil
 }
 
+// Holding reports whether a button PressButton pressed is still down.
+func (d *Driver) Holding() bool { return len(d.held) > 0 }
+
 // ReleaseHeld releases, at the pointer, every button PressButton pressed
 // and nothing has released since. A button whose release fails stays
 // pressed for the next ReleaseHeld.
