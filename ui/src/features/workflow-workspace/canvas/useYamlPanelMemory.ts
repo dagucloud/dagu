@@ -1,7 +1,7 @@
 // Copyright (C) 2026 Yota Hamada
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-import { useEffect, useRef } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { writeLocalStorage } from '@/lib/local-storage-migration';
 import type { WorkspaceUrlState } from '../state/workspaceUrl';
 
@@ -18,32 +18,46 @@ function wasOpen(): boolean {
 }
 
 /**
- * Keeps the YAML panel of the workflow page as the user left it. A workflow
- * whose URL opens no other view shows the panel, once the editor can open
- * it, when the panel was open last. Each later change is stored: the panel
- * is open, or no view shows.
+ * Keeps the YAML panel of the workflow page as the user left it, and gives
+ * the state of ?ndv to show. A workflow whose URL opens no other view shows
+ * the panel, from its first render, when the panel was open last; `restore`
+ * then writes it into the URL. Each later change is stored: the panel is
+ * open, or no view shows.
  */
 export function useYamlPanelMemory({
   fileName,
   ndv,
   restorable,
-  openPanel,
+  restore,
 }: {
   fileName: string;
   /** ?ndv: the YAML panel ('docked'), the node view of a step, or none. */
   ndv: WorkspaceUrlState['ndv'];
   /** False when the URL opens another view, such as a step or a panel. */
   restorable: boolean;
-  /** Opens the YAML panel; null until the editor has loaded. */
-  openPanel: (() => void) | null;
-}): void {
-  // The workflow that the stored state was applied to.
-  const appliedTo = useRef<string | null>(null);
+  /** Writes ?ndv=docked. */
+  restore: () => void;
+}): WorkspaceUrlState['ndv'] {
+  // Decided in the first render of each workflow, so that the editor lays
+  // out its graph with the panel: a panel that opened later shrank the graph.
+  const [decided, setDecided] = useState<{
+    fileName: string;
+    open: boolean;
+  } | null>(null);
+  let restoring = decided?.fileName === fileName && decided.open;
+  if (decided?.fileName !== fileName) {
+    restoring = restorable && wasOpen();
+    setDecided({ fileName, open: restoring });
+  } else if (restoring && ndv !== null) {
+    // The URL has the state now: a later close is the choice of the user.
+    setDecided({ fileName, open: false });
+  }
+  const pending = restoring && ndv === null;
+  const restoreRef = useRef(restore);
+  restoreRef.current = restore;
   useEffect(() => {
-    if (openPanel === null || appliedTo.current === fileName) return;
-    appliedTo.current = fileName;
-    if (restorable && wasOpen()) openPanel();
-  }, [fileName, openPanel, restorable]);
+    if (pending) restoreRef.current();
+  }, [pending]);
 
   const seen = useRef({ fileName, ndv });
   useEffect(() => {
@@ -54,4 +68,6 @@ export function useYamlPanelMemory({
     if (ndv === 'docked') writeLocalStorage(YAML_PANEL_OPEN_KEY, 'true');
     else if (ndv === null) writeLocalStorage(YAML_PANEL_OPEN_KEY, 'false');
   }, [fileName, ndv]);
+
+  return pending ? 'docked' : ndv;
 }

@@ -55,6 +55,8 @@ const host = vi.hoisted(() => ({
   handle: null as unknown,
   /** The overlay inset that the stand-in reads. */
   insetRight: 0,
+  /** The ndv state of each DAGSpec render, in order. */
+  ndvStates: [] as (string | null | undefined)[],
 }));
 
 // Captures the props; the stand-in gives the handle as DAGSpec does once loaded.
@@ -81,6 +83,7 @@ vi.mock(
     }
     function CapturingDAGSpec(props: SpecProps) {
       host.props = props;
+      host.ndvStates.push(props.ndv?.state);
       return host.real ? <actual.default {...props} /> : <StandIn {...props} />;
     }
     return { default: CapturingDAGSpec };
@@ -1288,26 +1291,36 @@ describe('WorkspaceCanvas', () => {
 
   describe('remembered YAML panel', () => {
     function yamlEditor() {
-      const toggleYaml = vi.fn((open?: boolean) => {
-        if (open) host.props?.ndv?.onStateChange('docked');
-      });
+      host.ndvStates = [];
       // The links to a step or a panel open their views through the editor.
       host.handle = {
-        toggleYaml,
+        toggleYaml: vi.fn(),
         revealStep: vi.fn(),
         openWorkflowPanel: vi.fn(),
       } as unknown as WorkspaceEditorHandle;
-      return toggleYaml;
     }
 
-    it('opens the YAML panel when it was open last', () => {
+    // The editor lays out the graph with the panel from its first render: a
+    // panel that opened later shrank the graph that had just shown.
+    it('opens the YAML panel when it was open last, from the first render', () => {
       localStorage.setItem(YAML_PANEL_OPEN_KEY, 'true');
-      const toggleYaml = yamlEditor();
+      yamlEditor();
       renderCanvas('/dags/example.yaml?run=r1');
-      expect(toggleYaml).toHaveBeenCalledTimes(1);
+      expect(host.ndvStates[0]).toBe('docked');
+      expect(host.ndvStates).not.toContain(null);
       expect(location()).toHaveTextContent(
         '/dags/example.yaml?run=r1&ndv=docked'
       );
+      expect(location()).toHaveAttribute('data-navigation', 'REPLACE');
+    });
+
+    it('keeps the panel shut once the user closes it', () => {
+      localStorage.setItem(YAML_PANEL_OPEN_KEY, 'true');
+      yamlEditor();
+      renderCanvas('/dags/example.yaml');
+      act(() => props().ndv?.onStateChange(null));
+      expect(props().ndv?.state).toBeNull();
+      expect(location()).not.toHaveTextContent('ndv=');
     });
 
     it.each([
@@ -1322,9 +1335,10 @@ describe('WorkspaceCanvas', () => {
       ],
     ])('keeps it shut when %s', (_case, stored, url) => {
       localStorage.setItem(YAML_PANEL_OPEN_KEY, stored);
-      const toggleYaml = yamlEditor();
+      yamlEditor();
       renderCanvas(url);
-      expect(toggleYaml).not.toHaveBeenCalled();
+      expect(host.ndvStates).not.toContain('docked');
+      expect(location()).not.toHaveTextContent('ndv=docked');
     });
 
     it('stores whether the panel is open', () => {

@@ -319,7 +319,29 @@ export function WorkspaceCanvas({
     [setUrl]
   );
 
-  const ndvState = url.ndv;
+  // The YAML panel shows as the user left it, unless a link opens a view.
+  // A legacy link, such as /history?idx, has a path that redirects once the
+  // run history loads; opening the panel first would rewrite the URL without
+  // it.
+  const [searchParams] = useSearchParams();
+  const wantsYaml = searchParams.has('yaml');
+  const { tab: legacyTab } = useParams<{ tab?: string }>();
+  const restoreYamlPanel = useCallback(
+    () => setUrl({ ndv: 'docked' }, { replace: true }),
+    [setUrl]
+  );
+  const ndvState = useYamlPanelMemory({
+    fileName,
+    ndv: url.ndv,
+    restorable:
+      url.ndv === null &&
+      url.step === null &&
+      url.panel === null &&
+      legacyTab === undefined &&
+      !snapshot &&
+      !wantsYaml,
+    restore: restoreYamlPanel,
+  });
   const ndv = useMemo<DAGSpecHostProps['ndv']>(
     () => ({
       state: ndvState,
@@ -338,8 +360,6 @@ export function WorkspaceCanvas({
 
   // A legacy /spec link (?yaml=1) opens the YAML once the editor has loaded.
   // One URL write swaps ?yaml for ?ndv=docked: setUrl drops ?yaml.
-  const [searchParams] = useSearchParams();
-  const wantsYaml = searchParams.has('yaml');
   useEffect(() => {
     if (!handle || !wantsYaml) return;
     handle.toggleYaml(true);
@@ -353,28 +373,6 @@ export function WorkspaceCanvas({
     (name: string) => navigate(buildDAGPageURL({ fileName: name, remoteNode })),
     [navigate, remoteNode]
   );
-
-  // The YAML panel shows as the user left it, unless a link opens a view.
-  // A legacy link, such as /history?idx, has a path that redirects once the
-  // run history loads; opening the panel first would rewrite the URL without
-  // it.
-  const { tab: legacyTab } = useParams<{ tab?: string }>();
-  const openYamlPanel = useMemo(
-    () => (handle ? () => handle.toggleYaml(true) : null),
-    [handle]
-  );
-  useYamlPanelMemory({
-    fileName,
-    ndv: url.ndv,
-    restorable:
-      url.ndv === null &&
-      url.step === null &&
-      url.panel === null &&
-      legacyTab === undefined &&
-      !snapshot &&
-      !wantsYaml,
-    openPanel: openYamlPanel,
-  });
 
   // A link with ?panel opens the Workflow panel or a launcher panel once
   // the editor has loaded; the name leaves the URL, ?wtab stays.
