@@ -149,10 +149,10 @@ test('shows activation, benefits, and deactivation on desktop and mobile', async
   ).toBeVisible();
   await expect(
     page.getByRole('link', { name: 'Start free trial' })
-  ).toHaveAttribute('href', '/license?trial=1#monitoring');
+  ).toHaveAttribute('href', '/settings?trial=1#monitoring');
   await expect(
     page.getByRole('link', { name: 'Activate a key' })
-  ).toHaveAttribute('href', '/license#activate');
+  ).toHaveAttribute('href', '/settings#activate');
 });
 
 test('connects a community server with the trial through Dagu Console', async ({
@@ -393,7 +393,9 @@ test('shows a license that needs attention in the sidebar and on the page', asyn
   });
 
   await sidebar.getByRole('button', { name: 'Collapse sidebar' }).click();
-  const icon = sidebar.locator('a[href="/license"]').filter({ hasText: /^$/ });
+  const icon = sidebar
+    .getByRole('link', { name: 'Plan & features', exact: true })
+    .filter({ hasText: /^$/ });
   await expect(icon).toHaveCount(1);
   await icon.focus();
   await expect(page.getByRole('tooltip')).toContainText(
