@@ -74,6 +74,43 @@ function lightStepSchema(
   return light;
 }
 
+const DEFINITION_REF = '#/definitions/';
+
+/**
+ * The definitions that a schema refers to, directly or through other
+ * definitions. The validator walks every definition that it gets, and the
+ * dereferenced DAG schema keeps few references: its recursive rules.
+ */
+function referencedDefinitions(
+  schema: JSONSchema,
+  root: JSONSchema
+): Record<string, JSONSchema> {
+  const definitions: Record<string, JSONSchema> = {};
+  const visited = new WeakSet<object>();
+  const pending: unknown[] = [root];
+  while (pending.length > 0) {
+    const node = pending.pop();
+    if (typeof node !== 'object' || node === null || visited.has(node)) {
+      continue;
+    }
+    visited.add(node);
+    const ref = (node as { $ref?: unknown }).$ref;
+    if (typeof ref === 'string' && ref.startsWith(DEFINITION_REF)) {
+      // A reference may point inside a definition.
+      const name = ref.slice(DEFINITION_REF.length).split('/')[0]!;
+      const definition = schema.definitions?.[name];
+      if (definition && !(name in definitions)) {
+        definitions[name] = definition;
+        pending.push(definition);
+      }
+    }
+    for (const child of Object.values(node)) {
+      pending.push(child);
+    }
+  }
+  return definitions;
+}
+
 function compileStepCheck(
   schema: JSONSchema,
   value: Record<string, unknown>
@@ -94,7 +131,10 @@ function compileStepCheck(
   const light = lightStepSchema(schema, keys, action);
   if (ajv && light) {
     try {
-      check = ajv.compile({ ...light, definitions: schema.definitions });
+      check = ajv.compile({
+        ...light,
+        definitions: referencedDefinitions(schema, light),
+      });
     } catch {
       check = null;
     }

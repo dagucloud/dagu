@@ -129,6 +129,37 @@ describe('checkStepSchemaErrors', () => {
     );
   });
 
+  // The dereferenced DAG schema keeps its recursive rules as references.
+  it.skipIf(!realSchema)(
+    'checks a value under a recursive rule',
+    { timeout: 30000 },
+    () => {
+      const errors = checkStepSchemaErrors(realSchema!, {
+        name: 'a',
+        action: 'computer.run',
+        with: {
+          handle: [
+            {
+              when: {
+                element: {
+                  role: 'button',
+                  name: 'OK',
+                  in: { role: 'nope', name: 'Dialog' },
+                },
+              },
+            },
+          ],
+        },
+      });
+      expect(errors).toContainEqual(
+        expect.objectContaining({
+          instancePath: '/with/handle/0/when/element/in/role',
+          keyword: 'enum',
+        })
+      );
+    }
+  );
+
   it('gives none for a valid step and for a value that is no step', () => {
     expect(
       checkStepSchemaErrors(schemaSample, { name: 'a', run: 'x' })
