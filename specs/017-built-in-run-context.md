@@ -212,11 +212,16 @@ Rules:
 | --- | --- | --- |
 | `context.step.id` | Current executable step only, when that step has an id | Stable value-reference alias from Spec 009. |
 | `context.step.name` | Current step or handler only | Runtime step identity for the current step or handler. |
+| `context.step.repeat_index` | Repeated step only, during a repeat_policy execution | Zero-based repeat index of the current execution: 0 on the first execution, 1 on the first repeat, and so on. |
 
 Rules:
 
 - `context.step.name` is the runtime step identity defined by Spec 009.
 - `context.step.id` is missing when the current executable step has no authored `id`.
+- `context.step.repeat_index` is present only while a step with `repeat_policy`
+  is executing. It tracks how many executions have already completed: 0 on the
+  first execution, 1 on the first repeat. It is the runtime counterpart of
+  `${foreach.index}` but is unrelated to `foreach` iteration.
 - Handler scopes have `context.step.name` but do not have `context.step.id` unless a
   handler-owning spec defines an id for handlers.
 
@@ -327,6 +332,7 @@ Step and handler projection:
 | --- | --- | --- |
 | `PWD` | Current process working directory | Current step only. |
 | `DAG_RUN_STEP_NAME` | `context.step.name` | Current step or handler only. |
+| `DAG_RUN_STEP_REPEAT_INDEX` | `context.step.repeat_index` | Repeated step only. |
 | `DAG_RUN_STEP_STDOUT_FILE` | `context.paths.step_stdout_file` | Current executable step after stream files are assigned. |
 | `DAG_RUN_STEP_STDERR_FILE` | `context.paths.step_stderr_file` | Current executable step after stream files are assigned. |
 | `DAGU_OUTPUT_FILE` | `context.paths.step_output_file` | Current step attempt after output publication is prepared. |

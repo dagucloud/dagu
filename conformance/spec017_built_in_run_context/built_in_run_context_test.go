@@ -232,3 +232,12 @@ func TestStepTraceContextDisabled(t *testing.T) {
 	result.ExpectExitCode(0)
 	dagu.ExpectFileContent("trace-context.txt", "traceparent=UNSET\ntracestate=UNSET\n")
 }
+
+func TestRuntimeRepeatIndex(t *testing.T) {
+	t.Parallel()
+
+	dagu := harness.NewRunner(t)
+	result := dagu.Run("start", "repeat_index.yaml")
+	result.ExpectExitCode(0)
+	dagu.ExpectFileContent("repeat-index.txt", "0\n1\n2\n")
+}

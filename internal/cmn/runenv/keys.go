@@ -20,6 +20,10 @@ const (
 	// EnvKeyDAGRunStepName holds the name of the currently executing step.
 	EnvKeyDAGRunStepName = "DAG_RUN_STEP_NAME"
 
+	// EnvKeyDAGRunStepRepeatIndex holds the zero-based repeat index of the
+	// currently executing step (0 on the first execution, 1 on the first repeat).
+	EnvKeyDAGRunStepRepeatIndex = "DAG_RUN_STEP_REPEAT_INDEX"
+
 	// EnvKeyDAGRunStepStdoutFile holds the path to the stdout log file for the current step.
 	EnvKeyDAGRunStepStdoutFile = "DAG_RUN_STEP_STDOUT_FILE"
 
@@ -98,6 +102,7 @@ var reservedRunEnvNames = []string{
 	EnvKeyDAGRunID,
 	EnvKeyDAGRunLogFile,
 	EnvKeyDAGRunStepName,
+	EnvKeyDAGRunStepRepeatIndex,
 	EnvKeyDAGRunStepStdoutFile,
 	EnvKeyDAGRunStepStderrFile,
 	EnvKeyDAGRunStatus,

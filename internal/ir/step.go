@@ -130,6 +130,11 @@ type Step struct {
 	Approval *ApprovalConfig `json:"approval,omitempty"`
 	// HumanTask configures a processless step completed by a local operator.
 	HumanTask *HumanTaskConfig `json:"humanTask,omitempty"`
+
+	// RepeatIndex is the zero-based index of the current execution of a repeated
+	// step: 0 on the first execution, 1 on the first repeat, and so on. The
+	// runtime derives it from the node's done count, so it is not authored.
+	RepeatIndex int `json:"-"`
 }
 
 const (

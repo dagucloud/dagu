@@ -670,6 +670,17 @@ func (r *Runner) runNodeExecution(ctx context.Context, plan *Plan, node *Node, p
 ExecRepeat: // repeat execution
 	for !r.isCanceled() {
 		logger.Debug(ctx, "Executing node loop")
+
+		// Refresh the zero-based repeat index for this execution. setupVariables
+		// set it before the loop, but repeats reuse the same env, so update it
+		// from the node's current done count before each execution.
+		if cur, ok := LookupEnv(ctx); ok {
+			ri := node.State().DoneCount
+			cur.Step.RepeatIndex = ri
+			cur.Scope = cur.Scope.WithEntry(runenv.EnvKeyDAGRunStepRepeatIndex, strconv.Itoa(ri), cmnvalue.EnvSourceStepEnv)
+			ctx = WithEnv(ctx, cur)
+		}
+
 		attemptCtx, nextStagingPath, attemptErr := prepareBuildAttempt(ctx, node, buildSession, declaredStep)
 		stagingPath = nextStagingPath
 		if attemptErr != nil {
@@ -1093,6 +1104,13 @@ func (r *Runner) setupVariables(ctx context.Context, plan *Plan, node *Node) (co
 		return ctx, err
 	}
 	node.SetWorkingDir(env.WorkingDir)
+
+	// Expose the zero-based repeat index of the current execution (0 on the
+	// first execution, 1 on the first repeat). The runner refreshes it before
+	// every repeat, since the env built here is reused across the repeat loop.
+	idx := node.State().DoneCount
+	env.Step.RepeatIndex = idx
+	env.Scope = env.Scope.WithEntry(runenv.EnvKeyDAGRunStepRepeatIndex, strconv.Itoa(idx), cmnvalue.EnvSourceStepEnv)
 
 	// Load output variables and approval inputs from predecessor nodes.
 	for _, predNode := range planPredecessorNodes(plan, node) {

@@ -1,0 +1,9 @@
+name: builtin_repeat_index
+working_dir: .
+steps:
+  - id: record
+    run: printf '%s\n' "${context.step.repeat_index}" >> repeat-index.txt
+    repeat_policy:
+      repeat: while
+      limit: 3
+      interval_sec: 0

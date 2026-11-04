@@ -205,6 +205,19 @@ func readRepeatCounterValue(t *testing.T, counterFile string) int {
 	return value
 }
 
+// appendRepeatIndexScript writes the current repeat index (0 on the first
+// execution, 1 on the first repeat) followed by a newline to indexFile on each
+// execution, so a test can assert the sequence a repeated step observes.
+func appendRepeatIndexScript(indexFile string) string {
+	if windowsShellTest() {
+		return fmt.Sprintf(
+			"Add-Content -LiteralPath %s -Value $env:DAG_RUN_STEP_REPEAT_INDEX",
+			test.PowerShellQuote(indexFile),
+		)
+	}
+	return fmt.Sprintf("printf '%%s\\n' \"$DAG_RUN_STEP_REPEAT_INDEX\" >> %s", test.PosixQuote(indexFile))
+}
+
 func repeatCounterEqualsCommand(counterFile, expected string) string {
 	if windowsShellTest() {
 		return fmt.Sprintf(
@@ -1810,6 +1823,41 @@ func TestRunner(t *testing.T) {
 		result.assertNodeStatus(t, "1", ir.NodeSucceeded)
 		node := result.nodeByName(t, "1")
 		assert.GreaterOrEqual(t, node.State().DoneCount, 2)
+	})
+
+	t.Run("RepeatIndexExposedAsZeroBasedAcrossRepeats", func(t *testing.T) {
+		r := setupRunner(t)
+		// Each execution appends the current repeat index to the file. A repeated
+		// step limited to three executions must see 0, 1, 2 in execution order.
+		indexFile := filepath.Join(os.TempDir(), fmt.Sprintf("repeat_index_%s", uuid.Must(uuid.NewV7()).String()))
+		if err := os.Remove(indexFile); err != nil && !os.IsNotExist(err) {
+			require.NoError(t, err)
+		}
+		defer func() {
+			if err := os.Remove(indexFile); err != nil && !os.IsNotExist(err) {
+				require.NoError(t, err)
+			}
+		}()
+		plan := r.newPlan(t,
+			newStep("1",
+				withScript(appendRepeatIndexScript(indexFile)),
+				func(step *ir.Step) {
+					step.RepeatPolicy.RepeatMode = ir.RepeatModeWhile
+					step.RepeatPolicy.Limit = 3
+					step.RepeatPolicy.Interval = 20 * time.Millisecond
+				},
+			),
+		)
+		result := plan.assertRun(t, ir.Succeeded)
+		result.assertNodeStatus(t, "1", ir.NodeSucceeded)
+		node := result.nodeByName(t, "1")
+		assert.Equal(t, 3, node.State().DoneCount)
+		data, err := os.ReadFile(indexFile)
+		require.NoError(t, err)
+		// Each repeat wrote its zero-based index on its own line; tolerate the
+		// platform line ending that Add-Content adds on Windows.
+		normalized := strings.ReplaceAll(strings.ReplaceAll(string(data), "\r\n", "\n"), "\r", "\n")
+		assert.Equal(t, "0\n1\n2\n", normalized)
 	})
 
 	t.Run("RepeatPolicyRepeatsUntilFileConditionMatchesExpected", func(t *testing.T) {
