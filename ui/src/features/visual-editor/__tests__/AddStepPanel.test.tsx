@@ -136,8 +136,9 @@ describe('AddStepPanel', () => {
     expect(within(printer).getAllByText('toString')).toHaveLength(2);
   });
 
-  // The namespace `dag` reads as "workflow", in the language of the user.
-  it('translates the title of the workflow section', () => {
+  // The namespace `dag` reads as "workflow", in the language of the user,
+  // and so do the lines that the panel writes for the actions.
+  it('translates the title of the workflow section and the action lines', () => {
     localStorage.setItem('user_preferences', JSON.stringify({ locale: 'ja' }));
     try {
       render(
@@ -157,6 +158,13 @@ describe('AddStepPanel', () => {
         target: { value: 'dag.run' },
       });
       expect(screen.getByText('ワークフロー')).toBeInTheDocument();
+      // The line of an action of a group is translated too.
+      fireEvent.change(screen.getByRole('combobox'), {
+        target: { value: 'archive.create' },
+      });
+      expect(
+        screen.getByText('ファイルをアーカイブにまとめます。')
+      ).toBeInTheDocument();
     } finally {
       localStorage.clear();
     }
