@@ -96,7 +96,10 @@ jobs:
 
           base_sha=""
           if [[ "${GITHUB_EVENT_NAME}" == "pull_request" ]]; then
-            base_sha="${{ github.event.pull_request.base.sha }}"
+            # The PR merge commit's first parent is the base branch it was
+            # merged into. pull_request.base.sha can predate that tip, which
+            # would count base branch commits as PR changes.
+            base_sha="$(git rev-parse "${GITHUB_SHA}^1")"
           elif [[ "${GITHUB_EVENT_NAME}" == "push" ]]; then
             base_sha="${{ github.event.before }}"
           fi
