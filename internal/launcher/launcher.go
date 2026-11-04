@@ -90,6 +90,9 @@ type SubCmdBuilder struct {
 	executable string
 	configFile string
 	baseEnv    config.BaseEnv
+	// homeEnv is the DAGU_HOME entry of the base environment, if any. A
+	// --dagu-home flag sets it there and not in the process environment.
+	homeEnv string
 }
 
 // NewSubCmdBuilder returns a new SubCmdBuilder initialized from cfg.
@@ -100,7 +103,22 @@ func NewSubCmdBuilder(cfg *config.Config) *SubCmdBuilder {
 		executable: cfg.Paths.Executable,
 		configFile: cfg.Paths.ConfigFileUsed,
 		baseEnv:    cfg.Core.BaseEnv,
+		homeEnv:    envEntry(cfg.Core.BaseEnv.AsSlice(), daguHomeEnvKey),
 	}
+}
+
+const daguHomeEnvKey = "DAGU_HOME"
+
+// envEntry returns the last KEY=value entry of env for key, or "".
+func envEntry(env []string, key string) string {
+	prefix := key + "="
+	entry := ""
+	for _, e := range env {
+		if strings.HasPrefix(e, prefix) {
+			entry = e
+		}
+	}
+	return entry
 }
 
 func (b *SubCmdBuilder) filteredEnv(extra ...string) []string {
@@ -113,8 +131,16 @@ func (b *SubCmdBuilder) filteredEnv(extra ...string) []string {
 	return env
 }
 
+// parentEnv is the process environment for commands that run a DAG, with
+// the DAGU_HOME of the configuration so that the child uses the same home.
 func (b *SubCmdBuilder) parentEnv(extra ...string) []string {
 	env := filterExecutionEnv(os.Environ())
+	if b.homeEnv != "" {
+		env = slices.DeleteFunc(env, func(e string) bool {
+			return strings.HasPrefix(e, daguHomeEnvKey+"=")
+		})
+		env = append(env, b.homeEnv)
+	}
 	env = append(env, extra...)
 	return env
 }

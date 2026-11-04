@@ -65,6 +65,37 @@ func TestSubCmdBuilderStartInheritsParentEnv(t *testing.T) {
 	assert.True(t, spec.RuntimeResolved)
 }
 
+// A --dagu-home flag sets DAGU_HOME in the base environment only. The
+// commands that inherit the parent environment must still run in that home.
+func TestSubCmdBuilderParentEnvKeepsConfiguredHome(t *testing.T) {
+	t.Setenv("DAGU_HOME", "/home/from-parent")
+
+	builder := launcher.NewSubCmdBuilder(&config.Config{
+		Paths: config.PathsConfig{Executable: "/path/to/dagu"},
+		Core: config.Core{
+			BaseEnv: config.NewBaseEnv([]string{"PATH=/usr/bin", "DAGU_HOME=/home/from-flag"}),
+		},
+	})
+	dag := &ir.DAG{Name: "test-dag", Location: "/tmp/test.yaml"}
+
+	specs := map[string]launcher.CmdSpec{
+		"start":   builder.Start(dag, launcher.StartOptions{}),
+		"restart": builder.Restart(dag, launcher.RestartOptions{}),
+		"retry":   builder.Retry(dag, launcher.RetryOptions{DAGRunID: "run-1"}),
+	}
+	for name, spec := range specs {
+		// Compare only the DAGU_HOME entries: a failure must not print the
+		// whole environment of the test process.
+		var homes []string
+		for _, entry := range spec.Env {
+			if strings.HasPrefix(entry, "DAGU_HOME=") {
+				homes = append(homes, entry)
+			}
+		}
+		assert.Equal(t, []string{"DAGU_HOME=/home/from-flag"}, homes, name)
+	}
+}
+
 func TestSubCmdBuilderFilteredCommandsUseBaseEnv(t *testing.T) {
 	t.Setenv("SUBCMD_PARENT_ENV", "from-parent")
 
