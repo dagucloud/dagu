@@ -19,6 +19,7 @@ import {
 } from '@/components/ui/tooltip';
 import { useRemoteNode } from '@/contexts/RemoteNodeContext';
 import { useQuery } from '@/hooks/api';
+import { useClock } from '@/hooks/useClock';
 import { useElementWidth } from '@/hooks/useElementWidth';
 import { whenEnabled } from '@/hooks/queryUtils';
 import dayjs from '@/lib/dayjs';
@@ -79,7 +80,18 @@ type Props = {
    * SubRunOpenProvider context when rendered inside DAG status.
    */
   onOpenSubRun?: (entry: SubRunStackEntry) => void;
+  /**
+   * False while nobody sees the chart: the bars of a running run stop
+   * following the time. Default true.
+   */
+  visible?: boolean;
 };
+
+/** The run statuses under which a step can be open: running or waiting. */
+const LIVE_RUN_STATUSES: ReadonlySet<Status> = new Set([
+  Status.Running,
+  Status.Waiting,
+]);
 
 function getStatusLabel(row: TimelineRow): string {
   if (row.statusSource === 'dagrun') {
@@ -349,7 +361,7 @@ function spanFormat(item: { startMs: number; endMs: number }): string {
     : 'YYYY-MM-DD HH:mm:ss';
 }
 
-function TimelineChart({ status, onOpenSubRun }: Props) {
+function TimelineChart({ status, onOpenSubRun, visible = true }: Props) {
   const { ts } = useI18n();
   const remoteNode = useRemoteNode();
   const openSubRunFromContext = useOpenSubRun();
@@ -400,11 +412,19 @@ function TimelineChart({ status, onOpenSubRun }: Props) {
   const axisWidth =
     frameWidth === null ? null : Math.max(frameWidth - LABEL_COLUMN_PX, 1);
 
+  // An open step has no end time: its bar ends at now. The run data does not
+  // change while the step runs, so the chart follows the clock itself.
+  const ticking = visible && LIVE_RUN_STATUSES.has(status.status);
+  const second = useClock(ticking ? 1000 : null, (now) =>
+    Math.floor(now / 1000)
+  );
+  const nowMs = second * 1000;
+
   const { items, timelineStart, timelineEnd, timeMarkers } = useMemo(() => {
     const realRows = buildTimelineRows({
       dagRun: status,
       subRunDetails: subRunsData?.subRuns || [],
-      nowMs: Date.now(),
+      nowMs,
     });
 
     if (realRows.length === 0) {
@@ -438,7 +458,7 @@ function TimelineChart({ status, onOpenSubRun }: Props) {
       timelineEnd: end,
       timeMarkers: markers,
     };
-  }, [status, subRunsData?.subRuns, axisWidth]);
+  }, [status, subRunsData?.subRuns, axisWidth, nowMs]);
 
   // Don't render if there are no items
   if (items.length === 0) {

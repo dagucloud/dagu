@@ -44,6 +44,7 @@ import { Button } from '@/components/ui/button';
 import { PanelMessage } from '@/components/ui/panel-message';
 import { useDock } from '../DockContext';
 import { CachedLogs, cachedSteps } from '../CachedLogs';
+import { useDockHidden } from '../FreezeWhenHidden';
 import { StepFailureBanner } from '../StepFailure';
 import { useDockStep } from '../useDockStep';
 import { ContinuousPanel } from '../../continuous/ContinuousPanel';
@@ -135,6 +136,7 @@ export function RunTimelineWithOpener({
 }) {
   const openOnStack = useOpenSubRun();
   const remoteNode = useRemoteNode();
+  const hidden = useDockHidden();
   const newTab = useRef(false);
   const note = (event: MouseEvent | KeyboardEvent) => {
     newTab.current = event.ctrlKey || event.metaKey;
@@ -160,7 +162,7 @@ export function RunTimelineWithOpener({
   return (
     <div className={className} onClickCapture={note} onKeyDownCapture={note}>
       <SubRunOpenProvider value={openOnStack ? open : null}>
-        <TimelineChart status={details} />
+        <TimelineChart status={details} visible={!hidden} />
       </SubRunOpenProvider>
     </div>
   );

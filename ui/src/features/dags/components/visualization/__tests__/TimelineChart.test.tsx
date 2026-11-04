@@ -1,10 +1,10 @@
 // Copyright (C) 2026 Yota Hamada
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-import { render, screen, within } from '@testing-library/react';
+import { act, render, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import React from 'react';
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   components,
   NodeStatus,
@@ -132,13 +132,18 @@ function renderChart(
   options: {
     appBarOverride?: Partial<typeof appBarValue>;
     onOpenSubRun?: (entry: { name: string; dagRunId: string }) => void;
+    visible?: boolean;
   } = {}
 ) {
   return render(
     <AppBarContext.Provider
       value={{ ...appBarValue, ...options.appBarOverride }}
     >
-      <TimelineChart status={status} onOpenSubRun={options.onOpenSubRun} />
+      <TimelineChart
+        status={status}
+        onOpenSubRun={options.onOpenSubRun}
+        visible={options.visible}
+      />
     </AppBarContext.Provider>
   );
 }
@@ -872,6 +877,60 @@ describe('TimelineChart', () => {
       expect(await screen.findAllByText('<1s')).not.toHaveLength(0);
       expect(screen.queryByText(/Shown after/)).not.toBeInTheDocument();
     });
+  });
+});
+
+// A running step has no end time in its data: its bar ends at now. The run
+// data does not change while the step runs, so the same details object stays
+// rendered and only the clock can move the bar.
+describe('TimelineChart running step', () => {
+  const liveRun = () =>
+    dagRun({
+      status: Status.Running,
+      statusLabel: StatusLabel.running,
+      finishedAt: '',
+      nodes: [
+        node({ step: { name: 'done' } }),
+        node({
+          step: { name: 'live', depends: ['done'] },
+          status: NodeStatus.Running,
+          statusLabel: NodeStatusLabel.running,
+          startedAt: '2026-01-01T00:00:10Z',
+          finishedAt: '',
+        }),
+      ],
+    });
+  const liveWidth = () =>
+    parseFloat(screen.getByTestId('timeline-bar-step:live').style.width);
+
+  beforeEach(() => {
+    vi.useFakeTimers();
+    vi.setSystemTime(Date.parse('2026-01-01T00:00:11Z'));
+  });
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it('widens the bar of a running step as time passes', () => {
+    renderChart(liveRun());
+    const before = liveWidth();
+
+    act(() => {
+      vi.advanceTimersByTime(30_000);
+    });
+
+    expect(liveWidth()).toBeGreaterThan(before);
+  });
+
+  it('keeps the bar still while the chart is not visible', () => {
+    renderChart(liveRun(), { visible: false });
+    const before = liveWidth();
+
+    act(() => {
+      vi.advanceTimersByTime(30_000);
+    });
+
+    expect(liveWidth()).toBe(before);
   });
 });
 
