@@ -268,6 +268,16 @@ describe('RunTimelineView', () => {
     expect(screen.getByRole('listbox', { name: 'Runs' })).toBeInTheDocument();
   });
 
+  // A run that waits for an approval has the finish time of its pause.
+  it('counts the duration of a waiting run up to now', () => {
+    const waiting = make('r7', Status.Waiting, 0.37, {
+      startedAt: '2026-03-02T11:53:00Z',
+      finishedAt: '2026-03-02T11:53:00.370Z',
+    });
+    renderView({ runs: [...RUNS, waiting], selectedId: 'r7' });
+    expect(bar('r7')).toHaveAccessibleName(/^Run r7, Waiting, 7m 0s/);
+  });
+
   it('selects a run with a click', () => {
     const { onSelect } = renderView();
     fireEvent.click(bar('r2'));
@@ -610,7 +620,9 @@ describe('RunTimelineView', () => {
         ],
         selectedId: 'r',
       });
-      await user.hover(extent('r'));
+      // A single run draws its bar and no extent.
+      expect(screen.queryByTestId('ww-run-extent-r')).toBeNull();
+      await user.hover(bar('r'));
       const tooltip = (
         await screen.findAllByTestId('ww-run-timeline-tooltip')
       )[0]!;
@@ -670,6 +682,49 @@ describe('RunTimelineView', () => {
       expect(tooltip).toHaveTextContent('Started before this view');
       // It has no bar of its own.
       expect(screen.queryByTestId('ww-run-bar-old')).toBeNull();
+    });
+
+    // An older run that lasts into a window of queued runs has the only
+    // extent, and no bar: the extent shows it.
+    it('keeps the lone extent of an older run', () => {
+      const queued = (id: string, at: string) =>
+        run(id, [], Status.Queued, { startedAt: '', queuedAt: at });
+      const all = [
+        span('old', local(6, 0, 1), local(6, 1, 1), Status.Waiting),
+        queued('q1', local(10)),
+        queued('q2', local(11)),
+      ];
+      renderView({
+        runs: all,
+        count: 2,
+        selectedId: 'q2',
+        now: new Date(2026, 2, 2, 12, 0).getTime(),
+      });
+      expect(extent('old')).toHaveAttribute('data-clipped', 'true');
+    });
+
+    // An older run that waits lasts into the view: the axis follows the
+    // clock for it, even when the runs of the window are all finished.
+    it('follows the clock for an older run that waits', () => {
+      vi.useFakeTimers({ toFake: ['setInterval', 'clearInterval', 'Date'] });
+      vi.setSystemTime(new Date(2026, 2, 2, 12, 0));
+      try {
+        const all = [
+          span('old', local(6, 0, 1), local(6, 1, 1), Status.Waiting),
+          span('n1', local(8), local(9)),
+          span('n2', local(10), local(11)),
+        ];
+        renderView({ runs: all, count: 2, selectedId: 'n2', now: undefined });
+        const left = () => Number.parseFloat(extent('n2').style.left);
+        const before = left();
+
+        act(() => {
+          vi.advanceTimersByTime(60 * 60 * 1000);
+        });
+        expect(left()).toBeLessThan(before);
+      } finally {
+        vi.useRealTimers();
+      }
     });
 
     // The extent of the selected run is drawn like its vertical bar: full

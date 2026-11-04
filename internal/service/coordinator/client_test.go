@@ -852,6 +852,11 @@ func TestClientGetWorkers_PartialFailureStillReturnsWorkers(t *testing.T) {
 	assert.ErrorContains(t, err, "coordinator unavailable")
 }
 
+// stateMutationTestTimeout bounds the one call of a state mutation. The mock
+// coordinators fail at once, so the bound only has to cover a slow first
+// connection: a short one ended the call before it reached any coordinator.
+const stateMutationTestTimeout = 5 * time.Second
+
 func TestClientStateMutationDoesNotRetryAfterRPCError(t *testing.T) {
 	t.Parallel()
 
@@ -859,7 +864,7 @@ func TestClientStateMutationDoesNotRetryAfterRPCError(t *testing.T) {
 		t.Parallel()
 
 		config := coordinator.DefaultConfig()
-		config.RequestTimeout = 100 * time.Millisecond
+		config.RequestTimeout = stateMutationTestTimeout
 
 		var firstCalls atomic.Int32
 		firstCoord := &mockCoordinatorService{
@@ -893,7 +898,7 @@ func TestClientStateMutationDoesNotRetryAfterRPCError(t *testing.T) {
 		stateClient, ok := coordinator.New(monitor, config).(coordinator.StateClient)
 		require.True(t, ok)
 
-		ctx, cancel := context.WithTimeout(context.Background(), 500*time.Millisecond)
+		ctx, cancel := context.WithTimeout(context.Background(), 2*stateMutationTestTimeout)
 		defer cancel()
 
 		_, err := stateClient.PutState(ctx, &coordinatorv1.PutStateRequest{
@@ -908,7 +913,7 @@ func TestClientStateMutationDoesNotRetryAfterRPCError(t *testing.T) {
 		t.Parallel()
 
 		config := coordinator.DefaultConfig()
-		config.RequestTimeout = 100 * time.Millisecond
+		config.RequestTimeout = stateMutationTestTimeout
 
 		var firstCalls atomic.Int32
 		firstCoord := &mockCoordinatorService{
@@ -942,7 +947,7 @@ func TestClientStateMutationDoesNotRetryAfterRPCError(t *testing.T) {
 		stateClient, ok := coordinator.New(monitor, config).(coordinator.StateClient)
 		require.True(t, ok)
 
-		ctx, cancel := context.WithTimeout(context.Background(), 500*time.Millisecond)
+		ctx, cancel := context.WithTimeout(context.Background(), 2*stateMutationTestTimeout)
 		defer cancel()
 
 		_, err := stateClient.DeleteState(ctx, &coordinatorv1.DeleteStateRequest{

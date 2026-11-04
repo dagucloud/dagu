@@ -4,7 +4,6 @@
 const ACRONYMS: Record<string, string> = {
   api: 'API',
   csv: 'CSV',
-  dag: 'DAG',
   http: 'HTTP',
   js: 'JS',
   json: 'JSON',
@@ -17,6 +16,22 @@ const ACRONYMS: Record<string, string> = {
   url: 'URL',
   xlsx: 'XLSX',
 };
+
+/** Words of action names that the UI shows as the product calls them. */
+const DISPLAY_WORDS: Record<string, string> = {
+  dag: 'workflow',
+};
+
+function displayWord(word: string): string {
+  return Object.prototype.hasOwnProperty.call(DISPLAY_WORDS, word)
+    ? DISPLAY_WORDS[word]!
+    : word;
+}
+
+/** Title of the namespace of a group of actions: `dag` gives "workflow". */
+export function namespaceTitle(namespace: string): string {
+  return displayWord(namespace.toLowerCase());
+}
 
 /** Namespace of an action: the text before the first dot. */
 export function actionNamespace(name: string): string {
@@ -33,7 +48,7 @@ export function actionTitle(name: string): string {
   const words = name.split(/[._-]+/).filter(Boolean);
   return words
     .map((word, index) => {
-      const lower = word.toLowerCase();
+      const lower = displayWord(word.toLowerCase());
       // Only an own key is an acronym: `constructor` is a word too.
       if (Object.prototype.hasOwnProperty.call(ACRONYMS, lower)) {
         return ACRONYMS[lower]!;

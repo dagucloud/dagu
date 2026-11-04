@@ -506,15 +506,19 @@ steps:
 	run.waitCh = waitCh
 	go func() { waitCh <- run.command.Wait() }()
 	t.Cleanup(func() {
-		releaseHoldFile(t, run.release)
+		// Teardown runs first and never stops early. A failed assertion ends
+		// a cleanup function, and the supervisor, the runner and the probe,
+		// which ignores TERM until the release file appears, would outlive
+		// the test once the temporary directories are gone.
+		_ = os.WriteFile(run.release, []byte("release"), 0o600)
 		_ = th.DAGRunMgr.Stop(th.Context, run.dag.DAG, "")
-		if status, err := th.DAGRunMgr.GetLatestStatus(th.Context, run.dag.DAG); err == nil && status.Status.IsActive() {
-			run.dag.AssertLatestStatus(t, ir.Aborted)
-		}
 		if !run.exited {
 			terminateTestCommand(run.command, waitCh)
 		}
 		run.waitForProbeExit()
+		if status, err := th.DAGRunMgr.GetLatestStatus(th.Context, run.dag.DAG); err == nil && status.Status.IsActive() {
+			run.dag.AssertLatestStatus(t, ir.Aborted)
+		}
 	})
 	require.Eventually(t, func() bool {
 		return strings.Contains(run.output(), startupLog)

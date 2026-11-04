@@ -316,7 +316,11 @@ function buildStepRow(
   }
 
   const startMs = dayjs(node.startedAt).valueOf();
-  const endMs = parseEndMs(node.finishedAt, nowMs);
+  // A step that waits for a person has the finish time of its pause.
+  const endMs =
+    node.status === NodeStatus.Waiting
+      ? nowMs
+      : parseEndMs(node.finishedAt, nowMs);
   const normalized = normalizeTiming(startMs, endMs);
 
   if (!normalized) {
@@ -355,7 +359,11 @@ function buildSubDAGRow({
   nowMs: number;
 }): TimelineRow | null {
   const startMs = dayjs(detail.startedAt).valueOf();
-  const endMs = parseEndMs(detail.finishedAt, nowMs);
+  // A sub-run that waits for a person has the finish time of its pause.
+  const endMs =
+    detail.status === Status.Waiting
+      ? nowMs
+      : parseEndMs(detail.finishedAt, nowMs);
   const normalized = normalizeTiming(startMs, endMs);
 
   if (!normalized) {
@@ -405,12 +413,15 @@ function normalizeTiming(
 /** Axis tick: position in percent of the chart width and its time label. */
 export type TimeMarker = { position: number; label: string };
 
-/** Width of one character of an axis label: text-xs in the mono face. */
-const AXIS_CHAR_PX = 7.2;
+/**
+ * Width of one character of an axis label: text-xs in the mono face, with
+ * room for the wider faces of the theme.
+ */
+const AXIS_CHAR_PX = 7.8;
 /** Room between the chart edge and the first or the last label. */
 const AXIS_EDGE_PX = 8;
 /** Room that two labels keep between them. */
-const AXIS_GAP_PX = 8;
+const AXIS_GAP_PX = 16;
 
 /**
  * The text of an axis tick. A span of a day or more names the date, so that

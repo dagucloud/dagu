@@ -35,6 +35,7 @@ import {
 import { StepDetailsTooltip } from './StepDetailsTooltip';
 import { DAGRunArtifactsButton } from './DAGRunArtifactsButton';
 import { I18nText } from '@/i18n/I18nText';
+import { RunListDuration } from './RunListDuration';
 
 interface DAGRunTableProps {
   dagRuns: components['schemas']['DAGRunSummary'][];
@@ -196,59 +197,6 @@ function DAGRunTable({
     const formattedMinutes = minutes.toString().padStart(2, '0');
 
     return `${sign}${formattedHours}:${formattedMinutes}`;
-  };
-
-  // Calculate duration between start and finish times
-  const calculateDuration = (
-    startedAt: string,
-    finishedAt: string | null,
-    status: number
-  ): string => {
-    // If DAG-run hasn't started yet, return dash
-    if (!startedAt) {
-      return '-';
-    }
-
-    // Only calculate duration dynamically for running DAGs
-    if (status === Status.Running && !finishedAt) {
-      // If DAG-run is still running, calculate duration from start until now
-      const start = dayjs(startedAt);
-      const now = dayjs();
-      const durationMs = now.diff(start);
-      return formatDuration(durationMs);
-    }
-
-    // For finished DAGs, use the static duration
-    if (finishedAt) {
-      const start = dayjs(startedAt);
-      const end = dayjs(finishedAt);
-      const durationMs = end.diff(start);
-      return formatDuration(durationMs);
-    }
-
-    // For non-running DAGs without a finish time, return dash
-    return '-';
-  };
-
-  // Format duration in a human-readable format
-  const formatDuration = (durationMs: number): string => {
-    const seconds = Math.floor(durationMs / 1000);
-
-    if (seconds < 60) {
-      return `${seconds}s`;
-    }
-
-    const minutes = Math.floor(seconds / 60);
-    const remainingSeconds = seconds % 60;
-
-    if (minutes < 60) {
-      return `${minutes}m ${remainingSeconds}s`;
-    }
-
-    const hours = Math.floor(minutes / 60);
-    const remainingMinutes = minutes % 60;
-
-    return `${hours}h ${remainingMinutes}m ${remainingSeconds}s`;
   };
 
   const timezoneInfo = getTimezoneInfo();
@@ -420,11 +368,11 @@ function DAGRunTable({
                   <I18nText text={'Duration:'} />{' '}
                 </span>
                 <span className="flex items-center gap-1">
-                  {calculateDuration(
-                    dagRun.startedAt,
-                    dagRun.finishedAt,
-                    dagRun.status
-                  )}
+                  <RunListDuration
+                    startedAt={dagRun.startedAt}
+                    finishedAt={dagRun.finishedAt}
+                    status={dagRun.status}
+                  />
                 </span>
               </div>
               {dagRun.workerId && (
@@ -647,11 +595,11 @@ function DAGRunTable({
               </TableCell>
               <TableCell className="py-1 px-2 text-left">
                 <div className="flex items-center gap-1">
-                  {calculateDuration(
-                    dagRun.startedAt,
-                    dagRun.finishedAt,
-                    dagRun.status
-                  )}
+                  <RunListDuration
+                    startedAt={dagRun.startedAt}
+                    finishedAt={dagRun.finishedAt}
+                    status={dagRun.status}
+                  />
                 </div>
               </TableCell>
               <TableCell className="py-1 px-2 text-muted-foreground">

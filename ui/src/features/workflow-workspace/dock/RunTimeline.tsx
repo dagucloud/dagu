@@ -33,7 +33,7 @@ import {
   runDisplayStatus,
   summaryDisplayStatus,
 } from '@/lib/runDisplayStatus';
-import { runStatusText } from '@/lib/status-utils';
+import { runStatusText, isLiveRunStatus } from '@/lib/status-utils';
 import { toneClasses } from '@/lib/statusPalette';
 import { cn } from '@/lib/utils';
 import { useRunStart } from '../bar/RunStartContext';
@@ -139,7 +139,7 @@ function useRunNow(
   fixed: number | undefined
 ): number {
   const second = useClock(
-    fixed === undefined && tick && run.status === Status.Running ? 1000 : null,
+    fixed === undefined && tick && isLiveRunStatus(run.status) ? 1000 : null,
     (now) => Math.floor(now / 1000)
   );
   return fixed ?? second * 1000;
@@ -148,7 +148,9 @@ function useRunNow(
 /** The duration of a run as text, or null when the run has none. */
 function durationText(run: ApiDAGRunDetails, now: number): string | null {
   if (runDurationMs(run, now) === null) return null;
-  return formatElapsed(run.startedAt, run.finishedAt, { live: true, now });
+  // A waiting run has the finish time of its pause, which is not its end.
+  const finishedAt = run.status === Status.Waiting ? undefined : run.finishedAt;
+  return formatElapsed(run.startedAt, finishedAt, { live: true, now });
 }
 
 /**
@@ -857,7 +859,17 @@ export function RunTimelineView({
     () => timelineWindow(allRuns, selectedId, count),
     [allRuns, selectedId, count]
   );
-  const live = runs.some((run) => run.status === Status.Running);
+  // The older runs that the window leaves out: those that last into the
+  // view get an extent clipped at the left edge.
+  const older = useMemo(() => {
+    const first = runs[0];
+    const at = first
+      ? allRuns.findIndex((run) => run.dagRunId === first.dagRunId)
+      : -1;
+    return at > 0 ? allRuns.slice(0, at) : [];
+  }, [allRuns, runs]);
+  // An older run that runs or waits lasts into the view: it moves the axis.
+  const live = [...runs, ...older].some((run) => isLiveRunStatus(run.status));
   // A null host is a hidden view (the dock is closed): nobody sees the time.
   const tick = live && nowProp === undefined && controlsHost !== null;
   // The layout reads the clock in steps of at most one pixel of the axis
@@ -873,15 +885,6 @@ export function RunTimelineView({
         : mountedAt
   );
   const fixedNow = nowProp;
-  // The older runs that the window leaves out: those that last into the
-  // view get an extent clipped at the left edge.
-  const older = useMemo(() => {
-    const first = runs[0];
-    const at = first
-      ? allRuns.findIndex((run) => run.dagRunId === first.dagRunId)
-      : -1;
-    return at > 0 ? allRuns.slice(0, at) : [];
-  }, [allRuns, runs]);
   // The cached time counts only when the toggle is on: off, every run
   // shows its own time alone.
   const counted = hasCachedTime && showCached;
@@ -925,13 +928,20 @@ export function RunTimelineView({
     return new Set(focused ? [focused.id, ...focused.overlaps] : []);
   }, [layout.extents, focusId]);
   // Narrow tracks draw the extent of the selected run only, in the top lane.
+  // The extents show how runs overlap. A lone extent of a run in the window
+  // overlaps nothing: its run has its bar, and the extent under the baseline
+  // read as a time below zero. A lone extent of an older run stays: it has
+  // no bar.
   const extents = useMemo(
     () =>
-      narrow
-        ? layout.extents
-            .filter((e) => e.id === selectedId)
-            .map((e) => ({ ...e, lane: 0, overflow: false }))
-        : layout.extents,
+      layout.extents.length < 2 &&
+      layout.extents.every((extent) => extent.index >= 0)
+        ? []
+        : narrow
+          ? layout.extents
+              .filter((e) => e.id === selectedId)
+              .map((e) => ({ ...e, lane: 0, overflow: false }))
+          : layout.extents,
     [layout.extents, narrow, selectedId]
   );
   const runOf = (extent: TimelineExtent) =>

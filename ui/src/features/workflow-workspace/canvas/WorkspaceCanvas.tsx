@@ -302,11 +302,6 @@ export function WorkspaceCanvas({
   const zoneRef = useRef<HTMLDivElement>(null);
   // The row of the canvas toolbars: the editor renders them in it.
   const [toolbarRow, setToolbarRow] = useState<HTMLDivElement | null>(null);
-  const clearance = useRightPanelClearance(zoneRef, activePanel);
-  const inset = useMemo(
-    () => ({ right: clearance.overlap }),
-    [clearance.overlap]
-  );
 
   // A run that the bar starts becomes the selected run. The node view and
   // the step stay as they are.
@@ -424,6 +419,16 @@ export function WorkspaceCanvas({
   });
   const panelStep = stepPanel.shown ? url.step : null;
   const openStepDetails = useOpenStepDetails();
+  // The step panel is a right panel too, without a claim of its own. Each
+  // click on a step can hold off its mark, so each one watches again.
+  const clearance = useRightPanelClearance(
+    zoneRef,
+    activePanel ?? (stepPanel.shown ? (stepPanel.openedAt ?? 'step') : null)
+  );
+  const inset = useMemo(
+    () => ({ right: clearance.overlap }),
+    [clearance.overlap]
+  );
 
   // Esc closes the node details view when no dialog or menu is above it.
   // With no panel or node view open, it clears the selected step and ?step.

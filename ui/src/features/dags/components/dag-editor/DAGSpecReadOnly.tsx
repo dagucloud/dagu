@@ -815,6 +815,7 @@ function DAGSpecReadOnly({
                     {previewEngine === 'canvas' ? (
                       <DetailsCanvas
                         dag={previewDag}
+                        directionScope={sourceFileName}
                         overlay={previewOverlay}
                         selectedStepName={selectedPreviewNode?.step.name ?? ''}
                         onSelectStep={selectPreviewStep}

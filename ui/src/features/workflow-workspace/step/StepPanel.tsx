@@ -2,7 +2,13 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 import { CircleDot, GitBranch, Maximize2, RotateCcw, X } from 'lucide-react';
-import { useLayoutEffect, useRef, useState, type ReactNode } from 'react';
+import {
+  useEffect,
+  useLayoutEffect,
+  useRef,
+  useState,
+  type ReactNode,
+} from 'react';
 import type { components } from '@/api/v1/schema';
 import { Button } from '@/components/ui/button';
 import { IconButton } from '@/components/ui/icon-button';
@@ -49,8 +55,10 @@ export interface StepPanelProps {
 }
 
 /**
- * The panel of one step over the right of the canvas. It does not move the
- * graph and does not take the focus. It shows the step in the selected run:
+ * The panel of one step over the right of the canvas. It does not take the
+ * focus. Once a double click on the step that opened it is over, the canvas
+ * fits the graph in the room that it leaves. It shows the step in the
+ * selected run:
  * the facts line, Retry step and Change status (with the confirmations of
  * the node menu), Open step, then a Details tab (the run facts and the
  * definition) before the tabs of the Run panel for the step.
@@ -74,6 +82,18 @@ export function StepPanel({
 
   const ref = useRef<HTMLElement>(null);
   const [passThrough, setPassThrough] = useState(openedAt !== null);
+  // The mark that makes the canvas fit beside the panel. A fit at once
+  // would move the step from under the second click of a double click; a
+  // click on another step during the wait starts the wait again.
+  const [besideCanvas, setBesideCanvas] = useState(openedAt === null);
+  useEffect(() => {
+    if (besideCanvas) return;
+    const timer = window.setTimeout(
+      () => setBesideCanvas(true),
+      DOUBLE_CLICK_MS
+    );
+    return () => window.clearTimeout(timer);
+  }, [besideCanvas, openedAt]);
   useLayoutEffect(() => {
     const box = ref.current?.getBoundingClientRect();
     if (!openedAt || !box || !contains(box, openedAt)) {
@@ -93,6 +113,7 @@ export function StepPanel({
       aria-label={ts('Details of {step}', { step })}
       data-testid="ww-step-panel"
       data-step-panel=""
+      data-panel-shell={besideCanvas ? 'right' : undefined}
       data-step={step}
       className={cn(
         'absolute bottom-0 right-0 top-(--ww-toolbar-row,0px) flex w-[clamp(380px,40%,640px)] max-w-full flex-col border-l border-t border-border bg-card shadow-lg shadow-foreground/10 max-md:w-full',

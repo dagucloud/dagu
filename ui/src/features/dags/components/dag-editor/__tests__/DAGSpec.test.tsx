@@ -226,6 +226,7 @@ type VisualProps = {
   editable: boolean;
   isDirty: boolean;
   onRevertToSave?(): void;
+  revertable?: boolean;
   yamlVisible?: boolean;
   onYamlVisibleChange?(visible: boolean): void;
   onFormVisibleChange?(visible: boolean): void;
@@ -1352,6 +1353,24 @@ describe('DAGSpec visual view', () => {
       });
     });
 
+    // The parent shows YAML as an icon that it presses while the panel is
+    // open: a sub-DAG had a text button instead.
+    it('gives a sub-DAG the YAML icon of the parent', async () => {
+      await renderSpec({ localDags });
+      fireEvent.click(screen.getByRole('tab', { name: 'child' }));
+      await settle();
+
+      const yaml = within(screen.getByTestId('details-canvas')).getByRole(
+        'button',
+        { name: 'YAML' }
+      );
+      // An icon: the name is its label, not a text.
+      expect(yaml.textContent?.trim()).toBe('');
+      expect(yaml).toHaveAttribute('aria-pressed', 'false');
+      fireEvent.click(yaml);
+      expect(yaml).toHaveAttribute('aria-pressed', 'true');
+    });
+
     // The YAML of the drawer is the whole file: its edits need Save here.
     it('keeps Save in the toolbar of a sub-DAG, and Copy in the YAML panel', async () => {
       await renderSpec({ localDags });
@@ -1405,6 +1424,53 @@ describe('DAGSpec visual view', () => {
       expect(
         screen.getByRole('button', { name: 'Format YAML' })
       ).toBeInTheDocument();
+    });
+
+    // A sub-DAG tab shows one document of the file: its revert puts back
+    // that document only, and leaves a change of the parent that the tab
+    // does not show.
+    it('reverts only the document of a sub-DAG', async () => {
+      const child = 'name: child\nsteps:\n  - name: load\n    run: echo load\n';
+      const twoDocs = `${savedSpec}---\n${child}`;
+      mocks.useQuery.mockReturnValue(specData({ spec: twoDocs }));
+      await renderSpec({ localDags });
+      const editor = screen.getByLabelText('DAG spec');
+      const parentEdit = twoDocs.replace('echo hello', 'echo bye');
+      fireEvent.change(editor, { target: { value: parentEdit } });
+      fireEvent.click(screen.getByRole('tab', { name: 'child' }));
+      await settle();
+
+      // Only the parent changed: the sub-DAG has nothing to revert.
+      expect(visual.props?.revertable).toBe(false);
+
+      fireEvent.change(editor, {
+        target: { value: parentEdit.replace('echo load', 'echo unload') },
+      });
+      expect(visual.props?.revertable).toBe(true);
+      act(() => visual.props?.onRevertToSave?.());
+
+      expect(screen.getByLabelText('DAG spec')).toHaveValue(parentEdit);
+    });
+
+    // A save marks its text as saved before the server sends it back: a
+    // sub-DAG just saved has nothing to revert.
+    it('has nothing to revert in a sub-DAG just saved', async () => {
+      const child = 'name: child\nsteps:\n  - name: load\n    run: echo load\n';
+      const twoDocs = `${savedSpec}---\n${child}`;
+      mocks.useQuery.mockReturnValue(specData({ spec: twoDocs }));
+      await renderSpec({ localDags });
+      fireEvent.change(screen.getByLabelText('DAG spec'), {
+        target: { value: twoDocs.replace('echo load', 'echo unload') },
+      });
+      fireEvent.click(screen.getByRole('tab', { name: 'child' }));
+      await settle();
+      expect(visual.props?.revertable).toBe(true);
+
+      await clickSave();
+      await settle();
+
+      expect(mocks.put).toHaveBeenCalledOnce();
+      expect(visual.props?.revertable).toBe(false);
     });
 
     it('shows no tabs for a file with one document', async () => {

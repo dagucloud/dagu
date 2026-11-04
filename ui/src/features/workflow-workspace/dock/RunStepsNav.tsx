@@ -29,7 +29,7 @@ export function RunStepsNav({ dag }: { dag: ApiDAGDetails }) {
   const details = run.details;
   if (!details) {
     return (
-      <p className="p-3 text-xs text-muted-foreground @max-[900px]:sr-only">
+      <p className="p-3 text-xs text-muted-foreground @max-[600px]:sr-only">
         {ts('Loading run...')}
       </p>
     );

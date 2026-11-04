@@ -96,7 +96,7 @@ function CalendarsPage(): React.ReactElement {
                 <I18nText text={'Status'} />
               </TableHead>
               <TableHead className="w-[80px] text-right">
-                <I18nText text={'DAGs'} />
+                <I18nText text={'Workflows'} />
               </TableHead>
             </TableRow>
           </TableHeader>

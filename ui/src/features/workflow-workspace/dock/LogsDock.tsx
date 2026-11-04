@@ -29,6 +29,7 @@ import {
   maxDockHeight,
   useDock,
   useDockFrame,
+  DOCK_SHEET_BELOW_PX,
 } from './DockContext';
 import { DockHeaderToolsContext } from './DockHeaderTools';
 import { FreezeWhenHidden } from './FreezeWhenHidden';
@@ -40,6 +41,7 @@ import { dockTabBodies } from './tabs';
 import { STEP_TAB_LABELS, stepViewTabs } from './tabs/stepScope';
 import { useDockAutoOpen } from './useDockAutoOpen';
 import { useDockStep } from './useDockStep';
+import { useLiftNotifications } from './useLiftNotifications';
 
 const KEYBOARD_STEP_PX = 40;
 // A drag on the sheet handle longer than this closes or maximizes the sheet.
@@ -93,7 +95,7 @@ export function LogsDock({
   const [url] = useWorkspaceUrl();
   const activePanel = useActiveRightPanel();
   const openStepDetails = useOpenStepDetails();
-  const narrow = !useMinWidth(768);
+  const narrow = !useMinWidth(DOCK_SHEET_BELOW_PX);
   const sheet = narrow && dock.open;
   useDockAutoOpen();
 
@@ -148,6 +150,9 @@ export function LogsDock({
   // The focus goes to the sheet itself, not to Close: a focused button opens
   // its tooltip, and the tooltip would take the first Esc.
   const sheetRef = useRef<HTMLElement>(null);
+  // An open panel or sheet keeps the notifications above it. A maximized one
+  // fills the page: they stay in the corner.
+  useLiftNotifications(sheetRef, dock.open && !dock.maximized);
   const opener = useRef<HTMLElement | null>(null);
   const wasSheet = useRef(sheet);
   useLayoutEffect(() => {
@@ -392,7 +397,7 @@ export function LogsDock({
                 <nav
                   aria-label={ts('Steps')}
                   data-testid="ww-run-steps-nav"
-                  className="w-60 shrink-0 overflow-y-auto border-r border-border @max-[900px]:w-11"
+                  className="w-60 shrink-0 overflow-y-auto border-r border-border @max-[900px]:w-44 @max-[600px]:w-11"
                 >
                   <RunStepsNav dag={dag} />
                 </nav>

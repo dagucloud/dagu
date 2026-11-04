@@ -29,6 +29,7 @@ import { useI18n } from '@/i18n/I18nProvider';
 import { formatAbsoluteTime, formatElapsed } from '@/lib/dagRunTiming';
 import dayjs from '@/lib/dayjs';
 import { cn } from '@/lib/utils';
+import { isLiveRunStatus } from '@/lib/status-utils';
 
 type RunFields = Pick<
   components['schemas']['DAGRunDetails'],
@@ -132,7 +133,7 @@ function durationMinCh(text: string): number | undefined {
 
 /** The duration as text, live while the run runs. */
 function useDurationText(dagRun: RunFields): string | null {
-  const running = dagRun.status === Status.Running;
+  const running = isLiveRunStatus(dagRun.status);
   const started = !!parseTime(dagRun.startedAt);
   // The text is the snapshot of the shared clock: a render when it changes.
   return useClock(running ? 1000 : null, (now) =>
@@ -211,7 +212,7 @@ function parseTime(value?: string): dayjs.Dayjs | undefined {
 }
 
 function RunDuration({ dagRun }: { dagRun: RunFields }) {
-  if (dagRun.status !== Status.Running) {
+  if (!isLiveRunStatus(dagRun.status)) {
     return (
       <>
         {formatElapsed(dagRun.startedAt, dagRun.finishedAt, { live: true }) ??
@@ -243,7 +244,11 @@ function RunTimes({
       ['Scheduled', dagRun.scheduleTime],
       ['Queued', dagRun.queuedAt],
       ['Started', dagRun.startedAt],
-      ['Finished', dagRun.finishedAt],
+      // A waiting run has the finish time of its pause, not of its end.
+      [
+        'Finished',
+        dagRun.status === Status.Waiting ? undefined : dagRun.finishedAt,
+      ],
     ] as const
   ).flatMap(([label, value]) => {
     const time = formatAbsoluteTime(value);

@@ -15,6 +15,7 @@ const mocks = vi.hoisted(() => ({
   refresh: vi.fn(),
   put: vi.fn(),
   openWorkflowPanel: vi.fn(),
+  openDelete: vi.fn(),
 }));
 
 vi.mock('@/contexts/ConfigContext', () => ({
@@ -34,6 +35,13 @@ vi.mock('../../canvas/WorkspaceEditorContext', () => ({
   }),
 }));
 vi.mock('../../data', () => ({ useWorkspaceRefresh: () => mocks.refresh }));
+vi.mock('@/features/dags/components/dag-editor/DAGEditButtons', () => ({
+  useDAGEditActions: () => ({
+    canWrite: mocks.canWrite,
+    openDelete: mocks.openDelete,
+    dialogs: null,
+  }),
+}));
 vi.mock('../../data/useWorkspacePermissions', () => ({
   useWorkspacePermissions: () => ({
     canWrite: mocks.canWrite,
@@ -81,6 +89,7 @@ beforeEach(() => {
   mocks.refresh.mockReset().mockResolvedValue(undefined);
   mocks.put.mockReset().mockResolvedValue({});
   mocks.openWorkflowPanel.mockReset();
+  mocks.openDelete.mockReset();
 });
 
 // A bar under 672px hides the copy buttons, the labels and the description,
@@ -140,11 +149,24 @@ describe('BarMoreMenu', () => {
     expect(screen.getByTestId('location')).toHaveTextContent('panel=webhook');
   });
 
+  // A phone bar has no room for the Delete button: the name took 3 chars.
+  it('offers Delete below md', async () => {
+    renderMenu();
+    await openMenu();
+    const item = screen.getByRole('menuitem', { name: 'Delete workflow' });
+    expect(item).toHaveClass('md:hidden');
+    await userEvent.click(item);
+    expect(mocks.openDelete).toHaveBeenCalledTimes(1);
+  });
+
   it('leaves out what the user may not do', async () => {
     mocks.canWrite = false;
     mocks.canManageWebhooks = false;
     renderMenu(false);
     await openMenu();
+    expect(
+      screen.queryByRole('menuitem', { name: 'Delete workflow' })
+    ).not.toBeInTheDocument();
     expect(
       screen.queryByRole('menuitem', { name: 'Pin workflow' })
     ).not.toBeInTheDocument();

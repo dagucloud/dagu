@@ -29,6 +29,12 @@ interface UseContentEditorResult {
   markAsSaved: (savedContent: string) => void;
   /** Revert editor to the last known server content, discarding all local edits. */
   discardChanges: () => void;
+  /**
+   * The last known server content: the text of the last save as soon as it
+   * is marked saved, before the server content comes back. null before the
+   * first load.
+   */
+  savedContent: string | null;
 }
 
 function strictlyEqual(a: string, b: string): boolean {
@@ -212,5 +218,6 @@ export function useContentEditor({
     cancelSave,
     markAsSaved,
     discardChanges,
+    savedContent: lastServerContent,
   };
 }

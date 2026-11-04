@@ -1080,14 +1080,14 @@ describe('useStepRunActions sub-runs and logs', () => {
     const { openOnStack } = renderActions(runValue(details()));
 
     act(() => actions.openSubRun('fan'));
-    expect(screen.getByText('2 sub DAG-runs')).toBeVisible();
+    expect(screen.getByText('2 sub-runs')).toBeVisible();
     fireEvent.click(screen.getByText('N=2'));
 
     expect(openOnStack).toHaveBeenCalledWith({
       name: 'worker',
       dagRunId: 'w-2',
     });
-    expect(screen.queryByText('2 sub DAG-runs')).not.toBeInTheDocument();
+    expect(screen.queryByText('2 sub-runs')).not.toBeInTheDocument();
   });
 
   it('opens a step log in the dock', () => {

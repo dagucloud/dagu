@@ -153,8 +153,10 @@ vi.mock('@/features/visual-editor', async () => {
       visual.formVisible = props.formVisible;
       const [selected, setSelected] = React.useState<string | null>(null);
       const model = React.useMemo(() => parseDagDoc(props.text), [props.text]);
+      // A step with no name runs under its id, as in the real editor.
       const keyOf = (name: string) =>
-        model.steps.find((step) => step.explicitName === name)?.key ?? null;
+        model.steps.find((step) => (step.explicitName ?? step.id) === name)
+          ?.key ?? null;
       const live = React.useRef({ props, keyOf });
       live.current = { props, keyOf };
       React.useImperativeHandle(
@@ -474,6 +476,26 @@ describe.skipIf(realSchema === null)('DAGSpec ndv segments', () => {
     expect(visual.editorProps?.quickFixSource?.getPlan()).toMatchObject({
       model: { text: savedSpec },
     });
+  });
+
+  // A step with an id and no name is known by its id: the tools of its YAML
+  // act on it before the server has named it.
+  it('gives the YAML of a step with no name the tools of that step', async () => {
+    mocks.useQuery.mockReturnValue({
+      ...specData(),
+      data: {
+        ...specData().data,
+        spec: savedSpec.replace(/- name: /g, '- id: '),
+        dag: { name: 'example', steps: [] },
+      },
+    });
+    await renderSpec();
+    act(() => void editor.handle?.openYaml('transform'));
+    expect(frame()).toBeVisible();
+    expect(within(frame()).getByTestId('step-yaml-format')).not.toHaveAttribute(
+      'title',
+      'Select a step first'
+    );
   });
 
   // A step view that stays open after a reload shows the mode of the last

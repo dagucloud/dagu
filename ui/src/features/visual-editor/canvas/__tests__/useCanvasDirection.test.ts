@@ -2,9 +2,12 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 import { act, renderHook } from '@testing-library/react';
+import { createElement, type ReactNode } from 'react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { RemoteNodeProvider } from '@/contexts/RemoteNodeContext';
 import {
   CANVAS_DIRECTION_KEY,
+  canvasDirectionKey,
   useCanvasDirection,
 } from '../useCanvasDirection';
 
@@ -131,5 +134,58 @@ describe('useCanvasDirection', () => {
     vi.restoreAllMocks();
     act(() => result.current[1]('TB'));
     expect(result.current[0]).toBe('TB');
+  });
+});
+
+// Turning one wide workflow left to right turned every workflow, a phone
+// included: a direction belongs to its workflow.
+describe('useCanvasDirection of a workflow', () => {
+  it('turns its workflow and leaves the others on the default', () => {
+    const wide = renderHook(() => useCanvasDirection('fanout-wide'));
+    const other = renderHook(() => useCanvasDirection('etl-daily'));
+    act(() => wide.result.current[1]('LR'));
+    expect(wide.result.current[0]).toBe('LR');
+    expect(other.result.current[0]).toBe('TB');
+    expect(localStorage.getItem(canvasDirectionKey('fanout-wide'))).toBe('LR');
+    expect(localStorage.getItem(CANVAS_DIRECTION_KEY)).toBeNull();
+  });
+
+  it('reads the default until the workflow has a direction of its own', () => {
+    localStorage.setItem(CANVAS_DIRECTION_KEY, 'LR');
+    const { result } = renderHook(() => useCanvasDirection('etl-daily'));
+    expect(result.current[0]).toBe('LR');
+    act(() => result.current[1]('TB'));
+    expect(result.current[0]).toBe('TB');
+    expect(localStorage.getItem(CANVAS_DIRECTION_KEY)).toBe('LR');
+  });
+
+  it('gives the same value to every canvas of the workflow', () => {
+    const a = renderHook(() => useCanvasDirection('etl-daily'));
+    const b = renderHook(() => useCanvasDirection('etl-daily'));
+    act(() => a.result.current[1]('LR'));
+    expect(b.result.current[0]).toBe('LR');
+  });
+
+  // Two remote nodes can each have a workflow of the same file name.
+  it('keeps the workflows of one name on two remote nodes apart', () => {
+    const on =
+      (remoteNode: string) =>
+      ({ children }: { children: ReactNode }) =>
+        createElement(RemoteNodeProvider, { remoteNode, children });
+    const a = renderHook(() => useCanvasDirection('etl.yaml'), {
+      wrapper: on('edge-a'),
+    });
+    const b = renderHook(() => useCanvasDirection('etl.yaml'), {
+      wrapper: on('edge-b'),
+    });
+    act(() => a.result.current[1]('LR'));
+    expect(a.result.current[0]).toBe('LR');
+    expect(b.result.current[0]).toBe('TB');
+  });
+
+  it('keeps names with a colon apart', () => {
+    expect(canvasDirectionKey('b:c', 'a')).not.toBe(
+      canvasDirectionKey('c', 'a:b')
+    );
   });
 });

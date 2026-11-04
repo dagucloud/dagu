@@ -3,6 +3,8 @@
 
 import { fireEvent, render, screen, within } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { UserPreferencesProvider } from '@/contexts/UserPreference';
+import { I18nProvider } from '@/i18n/I18nProvider';
 import { AddStepPanel, buildSections } from '../AddStepPanel';
 import type { ActionCatalogEntry } from '../contracts';
 
@@ -76,6 +78,29 @@ describe('buildSections', () => {
     ]);
   });
 
+  // The search finds an action by the line that the panel shows for it:
+  // "into" is only in "Pack files into an archive."
+  it('finds an action by the line that the panel shows', () => {
+    const sections = buildSections(catalog, 'into', [], TITLES);
+    expect(sections.flatMap((s) => s.entries.map((e) => e.name))).toEqual([
+      'archive.create',
+    ]);
+  });
+
+  // The line shows in the language of the user: the search reads it there.
+  it('finds an action by the translated line that the panel shows', () => {
+    const translate = (text: string) =>
+      text === 'Pack files into an archive.'
+        ? 'ファイルをアーカイブにまとめます。'
+        : text;
+    const sections = buildSections(catalog, 'まとめ', [], TITLES, {
+      translate,
+    });
+    expect(sections.flatMap((s) => s.entries.map((e) => e.name))).toEqual([
+      'archive.create',
+    ]);
+  });
+
   it('shows no recent section while the user searches', () => {
     const sections = buildSections(catalog, 'json', ['run'], TITLES);
     expect(sections.map((s) => s.id)).toEqual(['jq']);
@@ -100,6 +125,72 @@ describe('AddStepPanel', () => {
     expect(within(option!).getByText('Call a URL.')).toBeInTheDocument();
     expect(within(option!).getByText('http.request')).toBeInTheDocument();
     expect(screen.getAllByRole('option')).toHaveLength(5);
+  });
+
+  // Actions of one group share a catalog text that names the whole group.
+  it('tells the actions of one group apart', () => {
+    setup({
+      catalog: [
+        entry('archive.create', 'Create', 'archive', 'Archive operations.'),
+        entry('archive.list', 'List', 'archive', 'Archive operations.'),
+      ],
+    });
+    const create = screen.getByRole('option', { name: /Create/ });
+    expect(
+      within(create).getByText('Pack files into an archive.')
+    ).toBeInTheDocument();
+    const list = screen.getByRole('option', { name: /List/ });
+    expect(
+      within(list).getByText('List the files in an archive.')
+    ).toBeInTheDocument();
+  });
+
+  // A custom action may have any name, also one of an object property.
+  it('describes an action named like an object property by its own text', () => {
+    setup({
+      catalog: [
+        entry('constructor', 'Builder', 'custom', 'Build a thing.'),
+        entry('toString', 'Printer', 'custom'),
+      ],
+    });
+    const builder = screen.getByRole('option', { name: /Builder/ });
+    expect(within(builder).getByText('Build a thing.')).toBeInTheDocument();
+    const printer = screen.getByRole('option', { name: /Printer/ });
+    expect(within(printer).getAllByText('toString')).toHaveLength(2);
+  });
+
+  // The namespace `dag` reads as "workflow", in the language of the user,
+  // and so do the lines that the panel writes for the actions.
+  it('translates the title of the workflow section and the action lines', () => {
+    localStorage.setItem('user_preferences', JSON.stringify({ locale: 'ja' }));
+    try {
+      render(
+        <UserPreferencesProvider>
+          <I18nProvider>
+            <AddStepPanel
+              catalog={catalog}
+              targetLabel="After fetch"
+              recent={[]}
+              onPick={vi.fn()}
+              onClose={vi.fn()}
+            />
+          </I18nProvider>
+        </UserPreferencesProvider>
+      );
+      fireEvent.change(screen.getByRole('combobox'), {
+        target: { value: 'dag.run' },
+      });
+      expect(screen.getByText('ワークフロー')).toBeInTheDocument();
+      // The line of an action of a group is translated too.
+      fireEvent.change(screen.getByRole('combobox'), {
+        target: { value: 'archive.create' },
+      });
+      expect(
+        screen.getByText('ファイルをアーカイブにまとめます。')
+      ).toBeInTheDocument();
+    } finally {
+      localStorage.clear();
+    }
   });
 
   // axe nested-interactive and duplicate option names.

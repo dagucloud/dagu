@@ -6,7 +6,6 @@ import { ChevronDown, ChevronRight } from 'lucide-react';
 import { useMemo, useState } from 'react';
 import { PeekLink } from '@/features/peek/PeekLink';
 import { components, Status } from '../../../../api/v1/schema';
-import dayjs from '../../../../lib/dayjs';
 import { getDAGRunScheduleSortValue } from '../../../../lib/dagRunTiming';
 import RelativeTime from '@/components/ui/relative-time';
 import StatusChip from '@/components/ui/status-chip';
@@ -26,6 +25,7 @@ import {
   useRevealShownRow,
 } from '@/features/peek/usePeekOrOpen';
 import { I18nText } from '@/i18n/I18nText';
+import { RunListDuration } from './RunListDuration';
 import { useI18n } from '@/i18n/I18nProvider';
 
 interface DAGRunGroupedViewProps {
@@ -86,53 +86,6 @@ function DAGRunGroupedView({
       }
       return next;
     });
-  };
-
-  // Calculate duration between start and finish times
-  const calculateDuration = (
-    startedAt: string,
-    finishedAt: string | null,
-    status: number
-  ): string => {
-    if (!startedAt) {
-      return '-';
-    }
-
-    if (status === Status.Running && !finishedAt) {
-      const start = dayjs(startedAt);
-      const now = dayjs();
-      const durationMs = now.diff(start);
-      return formatDuration(durationMs);
-    }
-
-    if (finishedAt) {
-      const start = dayjs(startedAt);
-      const end = dayjs(finishedAt);
-      const durationMs = end.diff(start);
-      return formatDuration(durationMs);
-    }
-
-    return '-';
-  };
-
-  const formatDuration = (durationMs: number): string => {
-    const seconds = Math.floor(durationMs / 1000);
-
-    if (seconds < 60) {
-      return `${seconds}s`;
-    }
-
-    const minutes = Math.floor(seconds / 60);
-    const remainingSeconds = seconds % 60;
-
-    if (minutes < 60) {
-      return `${minutes}m ${remainingSeconds}s`;
-    }
-
-    const hours = Math.floor(minutes / 60);
-    const remainingMinutes = minutes % 60;
-
-    return `${hours}h ${remainingMinutes}m ${remainingSeconds}s`;
   };
 
   // Get the most recent run for each group for summary display
@@ -413,11 +366,11 @@ function DAGRunGroupedView({
                                   <span className="text-muted-foreground">
                                     <I18nText text={'Duration:'} />{' '}
                                   </span>
-                                  {calculateDuration(
-                                    dagRun.startedAt,
-                                    dagRun.finishedAt,
-                                    dagRun.status
-                                  )}
+                                  <RunListDuration
+                                    startedAt={dagRun.startedAt}
+                                    finishedAt={dagRun.finishedAt}
+                                    status={dagRun.status}
+                                  />
                                   {dagRun.status === Status.Running &&
                                     dagRun.startedAt && (
                                       <span className="inline-block w-1.5 h-1.5 rounded-full bg-success animate-pulse" />

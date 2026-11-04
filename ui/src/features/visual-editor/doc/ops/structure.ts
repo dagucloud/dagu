@@ -42,6 +42,7 @@ import {
   detectDependsStyle,
   readDepends,
   referenceNameFor,
+  usesIds,
   writeDepends,
 } from './depends';
 import { outputReferenceIds } from './references';
@@ -223,15 +224,16 @@ function cycleError(step: StepKey, upstream: StepKey): Failure {
   );
 }
 
+/** `name` null: the entry has no name key, as a step that its id names. */
 function newEntry(
   doc: Document,
-  name: string,
+  name: string | null,
   mapForm: boolean,
   step: NewStep,
   depends: string[]
 ): YAMLMap {
   const entry = new YAMLMap();
-  if (!mapForm)
+  if (!mapForm && name !== null)
     entry.items.push(new Pair(new Scalar('name'), new Scalar(name)));
   if (step.id !== undefined) {
     entry.items.push(new Pair(new Scalar('id'), new Scalar(step.id)));
@@ -394,12 +396,28 @@ export function opAddStep(
 
     const steps = ensureSteps(doc);
     if ('ok' in steps) return steps;
+    // A step that the user did not name follows the file: an id where the
+    // steps have ids, which flag a step without one.
+    const asId =
+      op.step.name === undefined &&
+      op.step.id === undefined &&
+      usesIds(doc) &&
+      validateStepId(name) === null;
     // The server needs an explicit id on a human task.
-    const written: NewStep =
-      op.step.action === 'human.task' && op.step.id === undefined
-        ? { ...op.step, id: uniqueStepName('approval', [...taken, name]) }
+    const humanTask =
+      op.step.action === 'human.task' && op.step.id === undefined;
+    const written: NewStep = humanTask
+      ? { ...op.step, id: uniqueStepName('approval', [...taken, name]) }
+      : asId
+        ? { ...op.step, id: name }
         : op.step;
-    const entry = newEntry(doc, name, isMap(steps), written, depends);
+    const entry = newEntry(
+      doc,
+      asId && !humanTask ? null : name,
+      isMap(steps),
+      written,
+      depends
+    );
     const spaced = usesBlankLines(steps);
     const atStart = !!op.atStart && !afterStep && steps.items.length > 0;
     const indexAfter = (at: number) =>
@@ -433,11 +451,13 @@ export function opAddStep(
           : -1;
       steps.items.splice(indexAfter(at), 0, pair);
     }
-    addRouteTarget(doc, steps, entry, name, taken, writesDepends);
+    addRouteTarget(doc, steps, entry, name, taken, writesDepends, asId);
     if (between && writesDepends) {
       rewireDepends(doc, between.to, referencesOf(between.from, options), name);
     }
-    const added = indexSteps(doc).steps.find((s) => explicitNameOf(s) === name);
+    const added = indexSteps(doc).steps.find(
+      (s) => explicitNameOf(s) === name || idOf(s) === name
+    );
     return added ? { ok: true, select: added.key } : { ok: true };
   });
 }
@@ -453,7 +473,9 @@ function addRouteTarget(
   entry: YAMLMap,
   name: string,
   taken: Iterable<string>,
-  writesDepends: boolean
+  writesDepends: boolean,
+  /** The router has an id and no name: so does its target. */
+  asId: boolean
 ): void {
   if (textOf(entry.get('action', true)) !== 'router.route') return;
   const withMap = entry.get('with', true);
@@ -465,9 +487,9 @@ function addRouteTarget(
   routes.set('ok', targets);
   const next = newEntry(
     doc,
-    target,
+    asId ? null : target,
     isMap(steps),
-    { run: 'echo "TODO"' },
+    asId ? { id: target, run: 'echo "TODO"' } : { run: 'echo "TODO"' },
     writesDepends ? [name] : []
   );
   if (isSeq(steps)) {

@@ -355,10 +355,13 @@ steps:
     );
   });
 
-  it('avoids the id of another step when it names the step', () => {
+  // The steps of the file have ids, which flag a step without one: the new
+  // step gets an id, which no other step has.
+  it('gives a new step an id that no other step has, as the file does', () => {
     const text = 'steps:\n  - name: a\n    id: cmd_2\n    run: a\n';
     const result = done(add(text, { step: { run: 'b' } }), text);
-    expect(result.text).toBe(`${text}  - name: cmd_3\n    run: b\n`);
+    expect(result.text).toBe(`${text}  - id: cmd_3\n    run: b\n`);
+    expect(result.select).toBe('steps[1]');
   });
 
   it('avoids the server name of an unnamed step', () => {

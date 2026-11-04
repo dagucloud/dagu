@@ -11,6 +11,7 @@ import { isLauncherKey } from '../launchers/model';
 import {
   bundleGapExtra,
   detectBundles,
+  spreadGapExtra,
   MIN_BRANCH,
   reformBundle,
   trunkCross,
@@ -342,35 +343,62 @@ function layoutComponent(
     nodeSep: compact ? COMPACT_NODE_SEP : NODE_SEP,
     rankSep,
   };
-  let result = layeredRoutes(input);
-  // The edges that share a trunk. A gap between two ranks that holds a trunk
-  // grows when the curves that merge into it need room for a smooth bend:
-  // the ranks, the orders and the cross positions do not change.
-  const bundles = detectBundles(
-    edges.map(candidateOf),
-    (key) => result.bands[key]?.rank
-  );
-  if (bundles.length > 0) {
-    const horizontal = direction === 'LR';
-    const size = new Map(nodes.map((node) => [node.key, node]));
-    const cross = (key: string) => {
-      const at = result.positions[key];
-      const node = size.get(key);
-      return !at || !node
-        ? 0
-        : horizontal
-          ? at.y + node.height / 2
-          : at.x + node.width / 2;
-    };
-    const extra = bundleGapExtra(
-      bundles,
-      cross,
-      rankSep,
-      Math.max(...Object.values(result.bands).map((band) => band.rank)) + 1
-    );
-    if (extra.some((value) => value > 0)) {
-      result = layeredRoutes({ ...input, gapExtra: extra });
+  const first = layeredRoutes(input);
+  let result = first;
+  // A gap between two ranks grows when its curves need room for a smooth
+  // bend: the curves that merge into a trunk (the edges that share one), and
+  // the far edges of a wide fan. The ranks, the orders and the cross
+  // positions do not change.
+  const rank = (key: string) => first.bands[key]?.rank;
+  const bundles = detectBundles(edges.map(candidateOf), rank);
+  const horizontal = direction === 'LR';
+  const size = new Map(nodes.map((node) => [node.key, node]));
+  const cross = (key: string) => {
+    const at = first.positions[key];
+    const node = size.get(key);
+    return !at || !node
+      ? 0
+      : horizontal
+        ? at.y + node.height / 2
+        : at.x + node.width / 2;
+  };
+  const ranks =
+    Math.max(0, ...Object.values(first.bands).map((band) => band.rank)) + 1;
+  // A route leaves from its port on the edge of the router, not its middle.
+  const leave = (edge: (typeof edges)[number]) => {
+    const router = byKey.get(edge.source);
+    const at = first.positions[edge.source];
+    const box = size.get(edge.source);
+    const routes = router?.routes;
+    if (
+      edge.kind === 'route' &&
+      routes &&
+      edge.label !== undefined &&
+      at &&
+      box
+    ) {
+      const port = routePorts(routes.length, box.width, direction)[
+        routes.indexOf(edge.label)
+      ];
+      if (port) return horizontal ? at.y + port.y : at.x + port.x;
     }
+    return cross(edge.source);
+  };
+  const spread = spreadGapExtra(
+    edges,
+    rank,
+    (edge) => cross(edge.target) - leave(edge),
+    rankSep,
+    ranks
+  );
+  const extra =
+    bundles.length > 0
+      ? bundleGapExtra(bundles, cross, rankSep, ranks).map((value, index) =>
+          Math.max(value, spread[index] ?? 0)
+        )
+      : spread;
+  if (extra.some((value) => value > 0)) {
+    result = layeredRoutes({ ...input, gapExtra: extra });
   }
   const { positions: placed, routes, bands } = result;
 

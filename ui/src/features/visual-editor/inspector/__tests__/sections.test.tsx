@@ -543,8 +543,9 @@ describe.skipIf(realSchema === null)(
 
     // parity:test-ve-inspector
     // The template fills the required parameters with valid values, so the
-    // step starts in its name.
-    it('starts a new step with valid parameters in its name', () => {
+    // step starts in its identity field. The steps of the file have ids: a
+    // new step has an id and no name, and starts in its id.
+    it('starts a new step with valid parameters in its id', () => {
       const handle = renderHost();
       act(() => void handle().openForm('fetch'));
       expect(
@@ -560,11 +561,11 @@ describe.skipIf(realSchema === null)(
       const url = frameBody().querySelector('[data-field-path="with.url"]');
       expect(url?.querySelector('input')).toHaveValue('https://example.com');
       expect(
-        frameBody().querySelector('[data-field-path="name"]')
+        frameBody().querySelector('[data-field-path="id"]')
       ).toContainElement(document.activeElement as HTMLElement);
     });
 
-    it('starts a new step without required parameters in its name', () => {
+    it('starts a new step without required parameters in its id', () => {
       const handle = renderHost();
       act(() => void handle().openForm('fetch'));
       act(() => handle().addStep());
@@ -572,7 +573,7 @@ describe.skipIf(realSchema === null)(
 
       expect(document.activeElement).toHaveValue('cmd_3');
       expect(
-        frameBody().querySelector('[data-field-path="name"]')
+        frameBody().querySelector('[data-field-path="id"]')
       ).toContainElement(document.activeElement as HTMLElement);
     });
 

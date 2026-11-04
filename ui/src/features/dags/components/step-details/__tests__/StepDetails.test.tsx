@@ -48,4 +48,39 @@ describe('StepDetails', () => {
       screen.getByLabelText('Log message: Deploying ${ENVIRONMENT}')
     ).toBeInTheDocument();
   });
+
+  // The internal executor type of a call step is `dag`, or `subworkflow` in
+  // older files, words the UI does not use: the workflow it calls says it all.
+  it.each(['dag', 'subworkflow'])(
+    'shows the workflow that a call step calls, without its %s executor',
+    (type) => {
+      const step = {
+        name: 'call_a',
+        call: 'child-a',
+        executorConfig: { type, config: {} },
+      } as components['schemas']['Step'];
+
+      render(<StepDetails step={step} />);
+
+      expect(screen.getByText('Calls')).toBeInTheDocument();
+      expect(screen.getByText('child-a')).toBeInTheDocument();
+      expect(screen.queryByText('Sub DAG')).toBeNull();
+      expect(screen.queryByText('Executor')).toBeNull();
+      expect(screen.queryByText(type)).toBeNull();
+    }
+  );
+
+  // Settings of the executor are not in the Calls field: they stay.
+  it('keeps the executor of a call step that has settings', () => {
+    const step = {
+      name: 'call_a',
+      call: 'child-a',
+      executorConfig: { type: 'dag', config: { worker: 'gpu' } },
+    } as unknown as components['schemas']['Step'];
+
+    render(<StepDetails step={step} />);
+
+    expect(screen.getByText('Calls')).toBeInTheDocument();
+    expect(screen.getByText(/gpu/)).toBeInTheDocument();
+  });
 });

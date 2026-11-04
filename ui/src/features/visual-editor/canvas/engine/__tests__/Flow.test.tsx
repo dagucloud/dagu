@@ -463,14 +463,13 @@ describe('Flow', () => {
 
     it('fits the nodes once, when the canvas has a size', () => {
       renderFlow({ fitOptions: { padding: 0.1, maxZoom: 2 } });
-      // The nodes span 540 x 64: 1000 / (540 * 1.2) = 1.54 fits, and the
-      // largest step that fits is 150 %.
+      // The nodes span 540 x 64: 1000 / (540 * 1.2) = 1.54 fits.
       const match =
         /translate\(([\d.]+)px, ([\d.]+)px\) scale\(([\d.]+)\)/.exec(
           layerTransform()
         );
       expect(match).not.toBeNull();
-      expect(Number(match![3])).toBe(1.5);
+      expect(Number(match![3])).toBeCloseTo(1000 / (540 * 1.2), 5);
     });
 
     it('keeps a readable zoom for a tall content and shows its top', () => {

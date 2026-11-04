@@ -25,25 +25,30 @@ export interface AutoFit {
   moved(): boolean;
 }
 
+/** The size of a laid out element, rounded; null before it has a layout. */
+function measure(
+  element: HTMLElement
+): { width: number; height: number } | null {
+  const width = element.clientWidth;
+  const height = element.clientHeight;
+  return width > 0 && height > 0 ? { width, height } : null;
+}
+
 /**
- * Fits the view again when the element of `ref` changes width, for example
- * when the inspector opens beside the canvas. A change of height alone does
- * not fit again: `onHeightChange` runs instead, so that the host can keep one
- * step in view without a new fit. It stops after the user pans or zooms, so that it never
- * moves a view that the user chose.
+ * Fits the view again when the element of `ref` changes size: an inspector
+ * that opens beside the canvas, a dock that opens under it, a window that
+ * resizes. It stops after the user pans or zooms, so that it never moves a
+ * view that the user chose.
  */
 export function useAutoFit(
   ref: RefObject<HTMLElement | null>,
   fit: () => void,
-  delayMs: number = AUTO_FIT_DELAY_MS,
-  onHeightChange?: () => void
+  delayMs: number = AUTO_FIT_DELAY_MS
 ): AutoFit {
   const userMoved = useRef(false);
   const hostMoved = useRef(false);
   const fitRef = useRef(fit);
   fitRef.current = fit;
-  const heightRef = useRef(onHeightChange);
-  heightRef.current = onHeightChange;
 
   useEffect(() => {
     const element = ref.current;
@@ -51,35 +56,26 @@ export function useAutoFit(
       return;
     }
     let timer: ReturnType<typeof setTimeout> | undefined;
-    let size: { width: number; height: number } | null = null;
-    let pendingFit = false;
+    // The size that the flow fitted at its first layout. A size that changes
+    // before the first report, such as a panel restored from memory, fits
+    // again too.
+    let size = measure(element);
     const observer = new ResizeObserver(([entry]) => {
       if (!entry) {
         return;
       }
-      const { width, height } = entry.contentRect;
-      // The first report is the initial size, which the flow already fits.
-      // A change of height alone does not fit again: a dock that opens or
-      // closes must not move the graph.
-      const widthChanged = size !== null && size.width !== width;
-      const heightChanged = size !== null && size.height !== height;
+      const width = Math.round(entry.contentRect.width);
+      const height = Math.round(entry.contentRect.height);
+      const changed =
+        size !== null && (size.width !== width || size.height !== height);
       size = { width, height };
-      if (!widthChanged && !heightChanged) {
+      if (!changed) {
         return;
       }
-      // A width change in the pending window makes the whole change a fit.
-      pendingFit = pendingFit || widthChanged;
       clearTimeout(timer);
       timer = setTimeout(() => {
-        const refit = pendingFit;
-        pendingFit = false;
-        if (userMoved.current || hostMoved.current) {
-          return;
-        }
-        if (refit) {
+        if (!userMoved.current && !hostMoved.current) {
           fitRef.current();
-        } else {
-          heightRef.current?.();
         }
       }, delayMs);
     });

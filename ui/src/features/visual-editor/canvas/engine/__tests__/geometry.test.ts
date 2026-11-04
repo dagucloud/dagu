@@ -38,9 +38,8 @@ describe('fitViewport', () => {
     const view = fitViewport({ x: 0, y: 0, width: 400, height: 100 }, size, {
       padding: 0.25,
     });
-    // 400 * 1.5 = 600 wide in 1000 px, 100 * 1.5 = 150 high in 500 px: the
-    // fit is 1.67, and the largest step of the ladder under it is 150 %.
-    expect(view.zoom).toBe(1.5);
+    // 400 * 1.5 = 600 wide in 1000 px, 100 * 1.5 = 150 high in 500 px.
+    expect(view.zoom).toBeCloseTo(1000 / 600, 5);
     expect(view.x + 200 * view.zoom).toBeCloseTo(500);
     expect(view.y + 50 * view.zoom).toBeCloseTo(250);
   });

@@ -28,9 +28,10 @@ import { shortRunId } from '@/lib/shortRunId';
 import { Archive, History } from 'lucide-react';
 import { formatStepSpan } from '@/lib/formatStepSpan';
 import {
-  isActiveNodeStatus,
   nodeStatusText,
   runStatusText,
+  isLiveNodeStatus,
+  isLiveRunStatus,
 } from '@/lib/status-utils';
 import React, {
   forwardRef,
@@ -59,8 +60,22 @@ import {
 import { I18nText } from '@/i18n/I18nText';
 import { useI18n } from '@/i18n/I18nProvider';
 
-/** Width in px of the column of step names: the plot starts after it. */
-const LABEL_COLUMN_PX = 130;
+/** Bounds in px of the column of step names: the plot starts after it. */
+const LABEL_COLUMN_MIN_PX = 130;
+const LABEL_COLUMN_MAX_PX = 280;
+/** The part of a wide chart that the names take. */
+const LABEL_COLUMN_SHARE = 0.22;
+
+/** The width of the column of step names in a chart of `frameWidth` px. */
+function labelColumnPx(frameWidth: number | null): number {
+  if (frameWidth === null) return LABEL_COLUMN_MIN_PX;
+  return Math.round(
+    Math.min(
+      LABEL_COLUMN_MAX_PX,
+      Math.max(LABEL_COLUMN_MIN_PX, frameWidth * LABEL_COLUMN_SHARE)
+    )
+  );
+}
 
 /**
  * The left part of the axis, before the start of the run: faint diagonal
@@ -86,12 +101,6 @@ type Props = {
    */
   visible?: boolean;
 };
-
-/** The run statuses under which a step can be open: running or waiting. */
-const LIVE_RUN_STATUSES: ReadonlySet<Status> = new Set([
-  Status.Running,
-  Status.Waiting,
-]);
 
 function getStatusLabel(row: TimelineRow): string {
   if (row.statusSource === 'dagrun') {
@@ -239,9 +248,11 @@ function ghostLabel(row: TimelineRow, ts: ReturnType<typeof useI18n>['ts']) {
 
 function isActiveTimelineStatus(row: TimelineRow): boolean {
   if (row.statusSource === 'dagrun') {
-    return row.status === Status.Running || row.status === Status.Queued;
+    return (
+      isLiveRunStatus(row.status as Status) || row.status === Status.Queued
+    );
   }
-  return isActiveNodeStatus(row.status as NodeStatus);
+  return isLiveNodeStatus(row.status as NodeStatus);
 }
 
 type TimelineBarProps = {
@@ -390,9 +401,10 @@ function TimelineChart({ status, onOpenSubRun, visible = true }: Props) {
       },
     }),
     {
+      // A waiting run can have children that still run or change.
       refreshInterval:
         shouldFetchSubRuns &&
-        (status.status === Status.Running || status.status === Status.Queued)
+        (isLiveRunStatus(status.status) || status.status === Status.Queued)
           ? 3000
           : 0,
     }
@@ -410,11 +422,13 @@ function TimelineChart({ status, onOpenSubRun, visible = true }: Props) {
   const frameRef = useRef<HTMLDivElement>(null);
   const frameWidth = useElementWidth(frameRef);
   const axisWidth =
-    frameWidth === null ? null : Math.max(frameWidth - LABEL_COLUMN_PX, 1);
+    frameWidth === null
+      ? null
+      : Math.max(frameWidth - labelColumnPx(frameWidth), 1);
 
   // An open step has no end time: its bar ends at now. The run data does not
   // change while the step runs, so the chart follows the clock itself.
-  const ticking = visible && LIVE_RUN_STATUSES.has(status.status);
+  const ticking = visible && isLiveRunStatus(status.status);
   const second = useClock(ticking ? 1000 : null, (now) =>
     Math.floor(now / 1000)
   );
@@ -472,7 +486,8 @@ function TimelineChart({ status, onOpenSubRun, visible = true }: Props) {
   }
 
   const totalRange = timelineEnd - timelineStart;
-  const plotArea = { left: `${LABEL_COLUMN_PX}px` };
+  const labelColumn = labelColumnPx(frameWidth);
+  const plotArea = { left: `${labelColumn}px` };
   // The reused steps stand before the start of the run: the part of the axis
   // on the left of that start is the cached time.
   const runStartMs = items.find((item) => item.ghost)?.ghost?.runStartMs;
@@ -590,8 +605,13 @@ function TimelineChart({ status, onOpenSubRun, visible = true }: Props) {
             >
               {/* Step name label */}
               <div
-                className="absolute z-10 text-xs font-medium text-foreground truncate max-w-[120px]"
-                style={{ left: item.depth === 0 ? '0.5rem' : '1.5rem' }}
+                className="absolute z-10 text-xs font-medium text-foreground truncate"
+                title={item.label}
+                style={{
+                  left: item.depth === 0 ? '0.5rem' : '1.5rem',
+                  // The name ends before the plot starts.
+                  maxWidth: labelColumn - (item.depth === 0 ? 18 : 34),
+                }}
               >
                 {item.label}
               </div>

@@ -4,7 +4,8 @@
 import { render, screen } from '@testing-library/react';
 import { MemoryRouter, Route, Routes } from 'react-router-dom';
 import { describe, expect, it, vi } from 'vitest';
-import { Status } from '@/api/v1/schema';
+import { NodeStatus, Status } from '@/api/v1/schema';
+import type { ApiNode } from '../../contracts';
 import { WorkspaceDataContext } from '../../data/context';
 import type { DAGPageData, WorkspaceRunValue } from '../../data/types';
 import { StepDeclared } from '../StepDeclared';
@@ -22,11 +23,19 @@ const dag = {
   ],
 };
 
+/** The node of a step in the shown run. */
+const ranNode = (step: string) =>
+  ({ step: { name: step }, status: NodeStatus.Success }) as ApiNode;
+
 function renderDeclared(
   step: string,
   runId: string | null,
   path = '/dags/example.yaml?remoteNode=edge',
-  latestRunId: string | null = runId
+  latestRunId: string | null = runId,
+  /** Null: the step has no node in the shown run. */
+  node: ApiNode | null = runId ? ranNode(step) : null,
+  /** The steps and the exit handler of the last run, when the page has its details. */
+  latest?: { steps: string[]; onExit?: string }
 ) {
   const run = {
     ref: runId ? { name: 'example', runId } : null,
@@ -39,7 +48,18 @@ function renderDeclared(
       <WorkspaceDataContext.Provider
         value={{
           fileName: 'example.yaml',
-          dagData: { dag } as unknown as DAGPageData,
+          dagData: {
+            dag,
+            latestDAGRun:
+              latestRunId && latest
+                ? {
+                    dagRunId: latestRunId,
+                    status: Status.Success,
+                    nodes: latest.steps.map(ranNode),
+                    onExit: latest.onExit ? ranNode(latest.onExit) : undefined,
+                  }
+                : undefined,
+          } as unknown as DAGPageData,
           workspaceName: null,
           remoteNode: 'edge',
           run,
@@ -50,7 +70,7 @@ function renderDeclared(
         <Routes>
           <Route
             path="/dags/:fileName/:tab?"
-            element={<StepDeclared step={step} node={undefined} />}
+            element={<StepDeclared step={step} node={node ?? undefined} />}
           />
         </Routes>
       </WorkspaceDataContext.Provider>
@@ -101,6 +121,42 @@ describe('StepDeclared', () => {
 
   it('links the run of the host when the last run is not known', () => {
     renderDeclared('plain', 'run-7', undefined, null);
+    expect(
+      screen.getByRole('link', { name: 'Open last run' }).getAttribute('href')
+    ).toContain('run=run-7');
+  });
+
+  // A step added after the last run is not in it: there is no run to open.
+  it('does not link a run for a step that is missing from the last run', () => {
+    renderDeclared('fetch', 'run-7', undefined, 'run-7', null);
+    expect(screen.getByText('${BODY}')).toBeInTheDocument();
+    expect(screen.queryByRole('link')).toBeNull();
+  });
+
+  // An older run may lack a step that the last run has.
+  it('links the last run from an older run that lacks the step', () => {
+    renderDeclared('plain', 'old-run', undefined, 'run-7', null, {
+      steps: ['plain'],
+    });
+    expect(
+      screen.getByRole('link', { name: 'Open last run' }).getAttribute('href')
+    ).toContain('run=run-7');
+  });
+
+  // A step removed since an older run is not in the last run.
+  it('does not link a last run that lacks the step of an older run', () => {
+    renderDeclared('plain', 'old-run', undefined, 'run-7', ranNode('plain'), {
+      steps: ['fetch'],
+    });
+    expect(screen.queryByRole('link')).toBeNull();
+  });
+
+  // A handler of the last run is not among its steps.
+  it('links the last run that has the handler of an older run', () => {
+    renderDeclared('plain', 'old-run', undefined, 'run-7', ranNode('plain'), {
+      steps: ['fetch'],
+      onExit: 'plain',
+    });
     expect(
       screen.getByRole('link', { name: 'Open last run' }).getAttribute('href')
     ).toContain('run=run-7');

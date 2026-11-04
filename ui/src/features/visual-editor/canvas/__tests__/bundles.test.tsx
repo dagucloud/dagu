@@ -624,10 +624,13 @@ describe('withBundles', () => {
     expect(pieces.every(Boolean)).toBe(true);
   });
 
+  // Every step of a run has a status: the targets ran too.
   it('draws the trunk neutral when the statuses differ', () => {
     const edges = flow({
       x: NodeStatus.Success,
       y: NodeStatus.Failed,
+      m: NodeStatus.Running,
+      n: NodeStatus.Running,
     });
     const bundle = find(edges, 'depends:x->m')!;
     expect(bundle.trunkStatus).toBeUndefined();
@@ -640,6 +643,8 @@ describe('withBundles', () => {
     const edges = flow({
       x: NodeStatus.Success,
       y: NodeStatus.Success,
+      m: NodeStatus.Running,
+      n: NodeStatus.Running,
     });
     expect(find(edges, 'depends:x->m')!.trunkStatus).toBe(NodeStatus.Success);
   });

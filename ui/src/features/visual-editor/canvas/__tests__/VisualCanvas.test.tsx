@@ -728,13 +728,36 @@ describe('VisualCanvas', () => {
       expect(view.getZoom()).toBe(1);
     });
 
-    it('fits on a step of the ladder, and the same each time', () => {
+    it('fits the same each time', () => {
       const { view } = renderWithView();
       const first = viewport();
-      expect([0.05, 0.1, 0.25, 0.5, 0.75, 1, 1.25]).toContain(first.zoom);
       act(() => view.zoomTo(3));
       act(() => view.fitView());
       expect(viewport()).toEqual(first);
+    });
+
+    // The launchers arrive after the first layout and push the steps right:
+    // the view fits the graph with them, as it does for a new step.
+    it('fits again when the launchers arrive', () => {
+      const launchers = launcherStates({
+        scheduleCount: 0,
+        webhookCount: 0,
+        webhooksAvailable: false,
+      });
+      // The fit of a graph that has its launchers from the start.
+      const withLaunchers = renderWithView({ launchers });
+      const expected = viewport();
+      withLaunchers.unmount();
+
+      const { props, rerender } = renderWithView();
+      const first = viewport();
+      rerender(
+        <UserPreferencesProvider>
+          <VisualCanvas {...props} launchers={launchers} />
+        </UserPreferencesProvider>
+      );
+      expect(first).not.toEqual(expected);
+      expect(viewport()).toEqual(expected);
     });
 
     // A preview without editing tools fits a graph with a smaller margin.
@@ -848,6 +871,25 @@ describe('VisualCanvas', () => {
         bottom: top + parseFloat(node.style.height) * zoom,
       };
     }
+
+    // A graph that fits only where the names of its steps are under about
+    // 9 px opens on its start at a readable zoom; Fit still shows it all.
+    it('opens a graph that is too long at a readable zoom on its start', () => {
+      sizes.width = 600;
+      sizes.height = 600;
+      const { view } = renderWithView();
+      expect(viewport().zoom).toBeCloseTo(0.75, 5);
+      const rects = graph.nodes.map((n) => nodeScreenRect(n.key));
+      const start = Math.min(...rects.map((r) => r.left));
+      expect(start).toBeGreaterThanOrEqual(0);
+      expect(start).toBeLessThan(80);
+      expect(Math.max(...rects.map((r) => r.right))).toBeGreaterThan(
+        sizes.width
+      );
+
+      act(() => view.fitView());
+      expect(viewport().zoom).toBeLessThan(0.7);
+    });
 
     it('fits a graph below the toolbar, inside the side insets', () => {
       sizes.height = 600;
@@ -1109,6 +1151,33 @@ describe('VisualCanvas', () => {
         ).toBeInTheDocument();
         unmount();
         row.remove();
+      });
+
+      // A line of notices under the toolbars covered the top of the graph.
+      it('fits the graph under a notice that covers the top', () => {
+        sizes.width = 1000;
+        sizes.height = 600;
+        render(
+          <UserPreferencesProvider>
+            <CanvasOverlayInsetContext.Provider value={{ right: 0, top: 200 }}>
+              <VisualCanvas
+                graph={graph}
+                direction="TB"
+                selected={null}
+                frozen={false}
+                readOnly={false}
+                catalog={catalogSample}
+                onSelect={vi.fn()}
+                onEdit={vi.fn()}
+                onCommand={vi.fn()}
+              />
+            </CanvasOverlayInsetContext.Provider>
+          </UserPreferencesProvider>
+        );
+        const rects = graph.nodes.map((n) => nodeScreenRect(n.key));
+        expect(Math.min(...rects.map((r) => r.top))).toBeGreaterThanOrEqual(
+          200
+        );
       });
 
       // The fit keeps its content clear of the panel.

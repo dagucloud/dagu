@@ -38,6 +38,11 @@ export interface DetailsCanvasProps {
   className?: string;
   /** Margin around the graph when it fits; the canvas default otherwise. */
   fitPadding?: number;
+  /**
+   * The workflow whose layout direction the canvas uses: its file, as the
+   * editor keys it. Default: the name of the DAG.
+   */
+  directionScope?: string;
 }
 
 function withOverlay(graph: CanvasGraph, overlay?: RunOverlay): CanvasGraph {
@@ -68,6 +73,7 @@ export function DetailsCanvas({
   selectedStepName,
   className,
   fitPadding,
+  directionScope,
 }: DetailsCanvasProps): ReactElement {
   const { ts } = useI18n();
   const graph = useMemo(
@@ -80,7 +86,9 @@ export function DetailsCanvas({
       ? ownSelected
       : (graph.nodes.find((node) => node.label === selectedStepName)?.key ??
         null);
-  const [direction, setDirection] = useCanvasDirection();
+  const [direction, setDirection] = useCanvasDirection(
+    directionScope ?? dag.name
+  );
   const [workflowOpen, setWorkflowOpen] = useState(false);
 
   const select = (key: StepKey | null) => {

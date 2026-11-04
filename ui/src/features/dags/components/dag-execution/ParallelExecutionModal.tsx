@@ -17,6 +17,7 @@ import { components, StatusLabel } from '../../../../api/v1/schema';
 import { StatusDot } from '../common/StatusDot';
 import { statusLabelText } from '@/lib/status-utils';
 import { I18nText } from '@/i18n/I18nText';
+import { useI18n } from '@/i18n/I18nProvider';
 import { I18nProps } from '@/i18n/I18nProps';
 
 type SubDAGRun = components['schemas']['SubDAGRun'];
@@ -50,6 +51,7 @@ export function ParallelExecutionModal({
   rootDagRunId,
   parentDagRunId,
 }: Props) {
+  const { ts } = useI18n();
   const isMac = navigator.platform.toUpperCase().indexOf('MAC') >= 0;
   const [selectedIndex, setSelectedIndex] = useState<number | null>(null);
   const [statusFilter, setStatusFilter] = useState<StatusFilterValue>('all');
@@ -235,8 +237,11 @@ export function ParallelExecutionModal({
             </DialogTitle>
             <DialogDescription className="text-xs mt-1 font-mono text-muted-foreground">
               {filteredSubRuns.length === subRuns.length
-                ? `${subRuns.length} sub DAG-runs`
-                : `${filteredSubRuns.length} of ${subRuns.length} sub DAG-runs`}
+                ? ts('{count} sub-runs', { count: subRuns.length })
+                : ts('{visible} of {total} sub-runs', {
+                    visible: filteredSubRuns.length,
+                    total: subRuns.length,
+                  })}
             </DialogDescription>
           </DialogHeader>
 
@@ -279,7 +284,7 @@ export function ParallelExecutionModal({
           >
             {filteredSubRuns.length === 0 ? (
               <div className="text-center py-8 text-sm text-muted-foreground">
-                <I18nText text={'No sub DAG-runs match the selected filter'} />
+                <I18nText text={'No sub-runs match the selected filter'} />
               </div>
             ) : (
               filteredSubRuns.map(({ subRun, originalIndex }, displayIndex) => {

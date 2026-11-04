@@ -26,6 +26,7 @@ import { flushSync } from 'react-dom';
 import type { KeyedMutator } from 'swr';
 import type { components, paths } from '../../../../api/v1/schema';
 import { Button } from '@/components/ui/button';
+import { IconButton } from '@/components/ui/icon-button';
 import ConfirmModal from '@/components/ui/confirm-dialog';
 import { DialogLayerProvider } from '@/components/ui/dialog';
 import { Spinner } from '@/components/ui/spinner';
@@ -395,6 +396,7 @@ function DAGSpec({
     cancelSave,
     markAsSaved,
     discardChanges,
+    savedContent,
   } = useContentEditor({
     key: `${fileName}:${remoteNode}`,
     serverContent: serverSpec,
@@ -622,11 +624,14 @@ function DAGSpec({
       activeTab === 'parent' ? null : childDocumentSpan(fileText, activeTab),
     [activeTab, fileText]
   );
+  // The text of the last save: a save marks it before the server content
+  // comes back, so a document just saved has nothing to revert.
+  const savedText = savedContent ?? serverSpec;
   const savedChildText = React.useMemo(() => {
-    if (activeTab === 'parent' || serverSpec == null) return undefined;
-    const span = childDocumentSpan(serverSpec, activeTab);
-    return span ? serverSpec.slice(span.from, span.to) : undefined;
-  }, [activeTab, serverSpec]);
+    if (activeTab === 'parent' || savedText == null) return undefined;
+    const span = childDocumentSpan(savedText, activeTab);
+    return span ? savedText.slice(span.from, span.to) : undefined;
+  }, [activeTab, savedText]);
 
   // Read by the `${...}` completion of the YAML editor at each request.
   const referenceSource = React.useRef({
@@ -812,7 +817,8 @@ function DAGSpec({
   const lensSteps = React.useMemo(
     () =>
       textModel.steps.flatMap((step) => {
-        const name = textNames.byKey[step.key] ?? step.explicitName;
+        // A step with no name runs under its id.
+        const name = textNames.byKey[step.key] ?? step.explicitName ?? step.id;
         return name ? [{ line: step.range.startLine, name }] : [];
       }),
     [textModel, textNames]
@@ -1214,16 +1220,42 @@ function DAGSpec({
   );
   // More than a line of edits is not thrown away without a question.
   const [discardOpen, setDiscardOpen] = React.useState(false);
-  const discardLines = discardOpen
-    ? changedLineCount(serverSpec ?? '', currentValue ?? '')
-    : 0;
+  // The revert of a sub-DAG puts back its own document only: a change of
+  // another document, which its tab does not show, stays.
+  const [discardChild, setDiscardChild] = React.useState(false);
+  const childText = childSpan
+    ? fileText.slice(childSpan.from, childSpan.to)
+    : undefined;
+  const childChanged =
+    childText !== undefined &&
+    savedChildText !== undefined &&
+    !isSameYaml(childText, savedChildText);
+  const discardLines = !discardOpen
+    ? 0
+    : discardChild
+      ? changedLineCount(savedChildText ?? '', childText ?? '')
+      : changedLineCount(serverSpec ?? '', currentValue ?? '');
   const requestDiscard = React.useCallback(() => {
     if (changedLineCount(serverSpec ?? '', currentValue ?? '') > 1) {
+      setDiscardChild(false);
       setDiscardOpen(true);
     } else {
       discardChanges();
     }
   }, [currentValue, discardChanges, serverSpec]);
+  const revertChild = React.useCallback(() => {
+    if (!childSpan || savedChildText === undefined) return;
+    setCurrentValue(replaceSpan(fileText, childSpan, savedChildText));
+  }, [childSpan, fileText, savedChildText, setCurrentValue]);
+  const requestChildRevert = React.useCallback(() => {
+    if (!childChanged) return;
+    if (changedLineCount(savedChildText ?? '', childText ?? '') > 1) {
+      setDiscardChild(true);
+      setDiscardOpen(true);
+    } else {
+      revertChild();
+    }
+  }, [childChanged, childText, revertChild, savedChildText]);
   const requestSave = React.useCallback(async () => {
     if (savingBlocked) {
       setIssuesRequest((count) => count + 1);
@@ -1517,7 +1549,9 @@ function DAGSpec({
     const key = textNames.byName[ndvStepName];
     return (
       [...textModel.steps, ...textModel.handlers].find((step) =>
-        key !== undefined ? step.key === key : step.explicitName === ndvStepName
+        key !== undefined
+          ? step.key === key
+          : (step.explicitName ?? step.id) === ndvStepName
       ) ?? null
     );
   }, [yamlKind, ndvStepName, textNames, textModel]);
@@ -1981,7 +2015,13 @@ function DAGSpec({
                   <I18nProps>
                     <Button
                       id="save-config"
-                      variant="primary"
+                      // Filled only while there is something to save, so that
+                      // a disabled Save does not read as an action.
+                      variant={
+                        localHasUnsavedChanges && !syntaxError
+                          ? 'primary'
+                          : 'outline'
+                      }
                       size="xs"
                       aria-label={ts('Save')}
                       aria-describedby="save-status"
@@ -2024,20 +2064,17 @@ function DAGSpec({
         );
         // The YAML of a child is the whole file, which also has the Save of the
         // parent.
+        // The same YAML button as the one of the parent, in the same place.
         const childTrail = (
           <>
-            <Button
-              type="button"
-              variant="ghost"
-              size="xs"
-              aria-pressed={sectionOpen}
+            <IconButton
+              label={ts('YAML')}
+              icon={FileCode}
+              pressed={sectionOpen}
               onPointerEnter={preloadDAGEditor}
               onFocus={preloadDAGEditor}
               onClick={() => setSectionOpen(!sectionOpen, 'panel')}
-            >
-              <FileCode className="h-3.5 w-3.5" />
-              {ts('YAML')}
-            </Button>
+            />
             {specActions}
           </>
         );
@@ -2079,7 +2116,11 @@ function DAGSpec({
                 dismissModal={() => setDiscardOpen(false)}
                 onSubmit={() => {
                   setDiscardOpen(false);
-                  discardChanges();
+                  if (discardChild) {
+                    revertChild();
+                  } else {
+                    discardChanges();
+                  }
                 }}
               >
                 <p>
@@ -2259,6 +2300,10 @@ function DAGSpec({
                         savedText={savedChildText}
                         toolbarStart={documentTabs}
                         toolbarTrail={childTrail}
+                        onRevertToSave={
+                          editable ? requestChildRevert : undefined
+                        }
+                        revertable={childChanged}
                         customActions={visualCustomActions}
                         workflowPanel={
                           preview.dag ? (
@@ -2287,6 +2332,7 @@ function DAGSpec({
                     <React.Suspense fallback={null}>
                       <DetailsCanvas
                         dag={preview.dag}
+                        directionScope={fileName}
                         onOpenStep={(step) => void openCall(step, false)}
                         workflowPanel={<WorkflowPanel dag={preview.dag} />}
                         // The order of the parent: selector, Workflow, YAML,

@@ -71,6 +71,20 @@ export function isActiveNodeStatus(status?: NodeStatus): boolean {
 }
 
 /**
+ * A run whose time still counts: it runs, or it waits for a person. A
+ * waiting run has a finish time from the moment it paused, which is not its
+ * end.
+ */
+export function isLiveRunStatus(status?: Status): boolean {
+  return status === Status.Running || status === Status.Waiting;
+}
+
+/** A step whose time still counts: it runs, or it waits for a person. */
+export function isLiveNodeStatus(status?: NodeStatus): boolean {
+  return isActiveNodeStatus(status) || status === NodeStatus.Waiting;
+}
+
+/**
  * Get Tailwind CSS utility class for Status or NodeStatus enum.
  * Uses utility classes defined in global.css.
  *
@@ -124,9 +138,7 @@ export function getStatusClass(status?: Status | NodeStatus): string {
  * @param status - The Status or NodeStatus enum value
  * @returns Object with bgClass, textClass, borderClass, and animation
  */
-export function getStatusColors(
-  status?: Status | NodeStatus
-): {
+export function getStatusColors(status?: Status | NodeStatus): {
   bgClass: string;
   textClass: string;
   borderClass: string;

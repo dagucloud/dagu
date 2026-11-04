@@ -3,8 +3,14 @@
 
 import { describe, expect, it } from 'vitest';
 import type { CanvasDirection, CanvasGraph, CanvasNode } from '../../contracts';
-import { insideBox, routedCurve, type Obstacle } from '../edgeRouting';
-import { Position, sampleCurve } from '../engine/geometry';
+import {
+  CORNER_RADIUS,
+  insideBox,
+  routeAround,
+  routedCurve,
+  type Obstacle,
+} from '../edgeRouting';
+import { Position, runFor, sampleCurve, widestMove } from '../engine/geometry';
 import { layoutRoutes, nodeSize, routePorts } from '../layout';
 
 // An edge never crosses a card that it does not link: the layout gives each
@@ -281,6 +287,101 @@ describe('edges around the cards', () => {
     expect(straight.some((p) => insideBox(p, blocker, MARGIN))).toBe(true);
     const around = sampleCurve(routedCurve(options, [blocker]), 4);
     expect(around.some((p) => insideBox(p, blocker, MARGIN))).toBe(false);
+  });
+});
+
+// The far edges of a fan of 24 steps from one step were too tight for a
+// curve in the gap between the ranks, and took a loop round the row.
+describe('edges of a wide fan', () => {
+  const fan = (size: number) => {
+    const targets = Array.from({ length: size }, (_, i) => `t${i}`);
+    return graphOf(
+      ['s', ...targets, 'm'],
+      [...targets.map((t) => `s>${t}`), ...targets.map((t) => `${t}>m`)]
+    );
+  };
+
+  it.each([
+    ['TB', 24],
+    ['LR', 24],
+    ['TB', 100],
+  ] as const)(
+    'leaves room for a curve on every edge in %s, %i steps',
+    (direction, size) => {
+      const graph = fan(size);
+      const { positions } = layoutRoutes(graph, direction);
+      const box = (key: string) => {
+        const found = graph.nodes.find((n) => n.key === key)!;
+        const { width, height } = nodeSize(found);
+        return { ...positions[key]!, width, height };
+      };
+      const lr = direction === 'LR';
+      for (const edge of graph.edges) {
+        const from = box(edge.source);
+        const to = box(edge.target);
+        const options = {
+          sourceX: lr ? from.x + from.width : from.x + from.width / 2,
+          sourceY: lr ? from.y + from.height / 2 : from.y + from.height,
+          sourcePosition: lr ? Position.Right : Position.Bottom,
+          targetX: lr ? to.x : to.x + to.width / 2,
+          targetY: lr ? to.y + to.height / 2 : to.y,
+          targetPosition: lr ? Position.Left : Position.Top,
+        };
+        // No waypoint: the edge is a plain curve, with no loop round the row.
+        expect(routeAround(options, []), edge.id).toEqual([]);
+      }
+    }
+  );
+
+  // A route leaves from its port on the edge of the diamond, not from the
+  // middle of the router. Routes listed against the order of their targets
+  // move the farthest sideways.
+  it.each(['TB', 'LR'] as const)(
+    'leaves room for a curve on every route of a router in %s',
+    (direction) => {
+      const count = 12;
+      const patterns = Array.from({ length: count }, (_, i) => `p${i}`);
+      const targets = patterns.map((_, i) => `t${i}`);
+      const router = graphOf(
+        [`r=${patterns.join('|')}`, ...targets],
+        patterns.map((p, i) => `r>t${count - 1 - i}@${p}`)
+      );
+      const { positions, waypoints } = layoutRoutes(router, direction);
+      const lr = direction === 'LR';
+      const size = nodeSize(router.nodes[0]!);
+      const ports = routePorts(count, size.width, direction);
+      const at = positions.r!;
+      for (const edge of router.edges) {
+        const port = ports[patterns.indexOf(edge.label!)]!;
+        // The edge leaves the port, then crosses its waypoints.
+        const points = [
+          { x: at.x + port.x, y: at.y + port.y },
+          ...(waypoints[edge.id] ?? []),
+        ];
+        const start = points[points.length - 1]!;
+        const target = router.nodes.find((n) => n.key === edge.target)!;
+        const to = positions[edge.target]!;
+        const box = nodeSize(target);
+        const options = {
+          sourceX: start.x,
+          sourceY: start.y,
+          sourcePosition: lr ? Position.Right : Position.Bottom,
+          targetX: lr ? to.x : to.x + box.width / 2,
+          targetY: lr ? to.y + box.height / 2 : to.y,
+          targetPosition: lr ? Position.Left : Position.Top,
+        };
+        // The last piece of the edge is a plain curve, with no loop.
+        expect(routeAround(options, []), edge.id).toEqual([]);
+      }
+    }
+  );
+
+  it('inverts the widest move of a curve', () => {
+    for (const cross of [10, 500, 3128]) {
+      expect(
+        widestMove(runFor(cross, CORNER_RADIUS), CORNER_RADIUS)
+      ).toBeCloseTo(cross, 6);
+    }
   });
 });
 

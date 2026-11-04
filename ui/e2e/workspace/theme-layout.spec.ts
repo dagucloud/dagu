@@ -212,21 +212,39 @@ async function expectNameInTitle(page: Page, where: string): Promise<void> {
 /**
  * Rename is a pencil right after the workflow name; Delete is an icon button
  * at the end of the bar, on the row of Refresh. Both keep a name and stay in
- * the bar, and the keyboard reaches them.
+ * the bar, and the keyboard reaches them. Below md, Delete is in the More
+ * menu: the name needs the room.
  */
-async function checkEditButtons(page: Page, where: string): Promise<void> {
+async function checkEditButtons(
+  page: Page,
+  where: string,
+  narrow: boolean
+): Promise<void> {
   const bar = page.getByTestId('ww-bar');
   // The names are translated: the test ids find the buttons in every language.
   const rename = bar.getByTestId('ww-bar-rename');
   const remove = bar.getByTestId('ww-bar-delete');
   await expect(rename, `Rename (${where})`).toBeVisible();
-  await expect(remove, `Delete (${where})`).toBeVisible();
+  if (narrow) {
+    await expect(remove, `Delete in the menu (${where})`).toBeHidden();
+    const more = bar.getByTestId('ww-bar-more');
+    await expect(more, `More (${where})`).toBeVisible();
+    // Delete in the More menu opens its dialog; Escape leaves the workflow.
+    await more.click();
+    await page.getByTestId('ww-bar-more-delete').click();
+    const dialog = page.getByRole('dialog');
+    await expect(dialog, `Delete dialog (${where})`).toBeVisible();
+    await page.keyboard.press('Escape');
+    await expect(dialog, `Delete dialog closed (${where})`).toBeHidden();
+  } else {
+    await expect(remove, `Delete (${where})`).toBeVisible();
+  }
+  const buttons = narrow ? [rename] : [rename, remove];
   const [barBox, renameBox, removeBox] = await Promise.all([
     bar.boundingBox(),
-    rename.boundingBox(),
-    remove.boundingBox(),
+    ...buttons.map((button) => button.boundingBox()),
   ]);
-  for (const box of [renameBox, removeBox]) {
+  for (const box of narrow ? [renameBox] : [renameBox, removeBox]) {
     expect(box!.y, `button row (${where})`).toBeGreaterThanOrEqual(barBox!.y);
     expect(box!.y + box!.height, `button row (${where})`).toBeLessThanOrEqual(
       barBox!.y + barBox!.height + 0.5
@@ -241,11 +259,12 @@ async function checkEditButtons(page: Page, where: string): Promise<void> {
     -0.5
   );
   expect(gap, `Rename next to the name (${where})`).toBeLessThanOrEqual(12);
+  await rename.focus();
+  await expect(rename, `Rename focus (${where})`).toBeFocused();
+  if (narrow) return;
   expect(removeBox!.x, `Delete after Rename (${where})`).toBeGreaterThan(
     renameBox!.x
   );
-  await rename.focus();
-  await expect(rename, `Rename focus (${where})`).toBeFocused();
   await remove.focus();
   await expect(remove, `Delete focus (${where})`).toBeFocused();
 }
@@ -383,7 +402,7 @@ test.describe('workspace theme and layout', () => {
               await expectNameInTitle(page, where);
             }
 
-            await checkEditButtons(page, where);
+            await checkEditButtons(page, where, viewport.width < 768);
           }
         }
       });

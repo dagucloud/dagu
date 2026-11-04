@@ -46,13 +46,14 @@ import { useDockHidden } from './FreezeWhenHidden';
 import { propsEqual } from './propsEqual';
 import { stepReuse, type StepReuse } from './stepReuse';
 
-// The Run panel narrower than this shows the rows as status dots; the text
-// stays for screen readers and the keyboard. The container query reads the
-// nearest @container: the body of the Run panel.
-const ICONS_ONLY = '@max-[900px]:sr-only';
+// The Run panel narrower than this, a phone, shows the rows as status dots;
+// the text stays for screen readers and the keyboard. A wider panel keeps
+// the names in a narrower list. The container query reads the nearest
+// @container: the body of the Run panel.
+const ICONS_ONLY = '@max-[600px]:sr-only';
 // ICONS_ONLY hides the focus ring of a row's button: the row shows it.
 const ICONS_ONLY_FOCUS =
-  '@max-[900px]:has-[:focus-visible]:ring-1 @max-[900px]:has-[:focus-visible]:ring-inset @max-[900px]:has-[:focus-visible]:ring-ring';
+  '@max-[600px]:has-[:focus-visible]:ring-1 @max-[600px]:has-[:focus-visible]:ring-inset @max-[600px]:has-[:focus-visible]:ring-ring';
 
 export interface RunStepListProps {
   dag: ApiDAGDetails;
@@ -279,7 +280,7 @@ const StepRow = memo(function StepRow({
       title={step.name}
       onClick={() => onSelect(step.name)}
       className={cn(
-        'flex min-h-6 cursor-pointer items-start gap-2 px-3 py-1 text-xs leading-4 [contain:layout_paint] hover:bg-muted/60 @max-[900px]:justify-center @max-[900px]:px-0',
+        'flex min-h-6 cursor-pointer items-start gap-2 px-3 py-1 text-xs leading-4 [contain:layout_paint] hover:bg-muted/60 @max-[600px]:justify-center @max-[600px]:px-0',
         ICONS_ONLY_FOCUS,
         selected && 'bg-primary/10 hover:bg-primary/15'
       )}
@@ -465,7 +466,7 @@ export function RunStepList({
         title={ts('Run summary')}
         onClick={() => onSelect(null)}
         className={cn(
-          'flex min-h-6 cursor-pointer items-center gap-2 px-3 py-1 hover:bg-muted/60 @max-[900px]:justify-center @max-[900px]:px-0',
+          'flex min-h-6 cursor-pointer items-center gap-2 px-3 py-1 hover:bg-muted/60 @max-[600px]:justify-center @max-[600px]:px-0',
           ICONS_ONLY_FOCUS,
           selected === null && 'bg-primary/10 hover:bg-primary/15'
         )}
@@ -504,7 +505,7 @@ export function RunStepList({
         <>
           <li
             role="presentation"
-            className="px-3 pb-0.5 pt-2 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground @max-[900px]:sr-only"
+            className="px-3 pb-0.5 pt-2 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground @max-[600px]:sr-only"
           >
             {ts('Lifecycle handlers')}
           </li>

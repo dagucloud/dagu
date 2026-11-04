@@ -23,8 +23,8 @@ export const MAX_ZOOM = 2;
 
 /**
  * The zoom levels, as fractions: 5, 10, 25, 50, 75, 100, 125, 150, 200, 300
- * and 400 %. A zoom command moves one step on this ladder, and a fit lands
- * on a step, so that the zoom is always a round percentage.
+ * and 400 %. A zoom command moves one step on this ladder. A fit takes the
+ * zoom that shows the content, and the next command goes to a step.
  */
 export const ZOOM_LADDER: readonly number[] = [
   0.05, 0.1, 0.25, 0.5, 0.75, 1, 1.25, 1.5, 2, 3, 4,
@@ -50,21 +50,6 @@ export function zoomSteps({
     (step) => step >= min - ZOOM_EPSILON && step <= max + ZOOM_EPSILON
   );
   return steps.length > 0 ? steps : [clamp(1, min, max)];
-}
-
-/**
- * The largest step that is not above `zoom`. A zoom under the smallest step
- * gives the smallest step.
- */
-export function floorZoom(zoom: number, limits?: ZoomLimits): number {
-  const steps = zoomSteps(limits);
-  let floor = steps[0]!;
-  for (const step of steps) {
-    if (step <= zoom + ZOOM_EPSILON) {
-      floor = step;
-    }
-  }
-  return floor;
 }
 
 /** The step nearest to `zoom`; between two steps, the larger one. */
@@ -167,12 +152,17 @@ export function boundsOf(rects: readonly Rect[]): Rect | null {
 export interface FitOptions {
   /** Free space around the content, as a fraction of the content size. */
   padding?: number;
+  /**
+   * Largest free space in px on the screen on each side of the content. The
+   * padding of a large content stops there instead of growing with it.
+   */
+  maxMargin?: number;
   maxZoom?: number;
   minZoom?: number;
   /**
-   * A fit does not shrink the content below this zoom. When the whole
-   * content would need less, the fit shows its top at the width of the
-   * content, and the rest is reached by panning.
+   * A fit does not shrink the content much below this zoom. When the whole
+   * content would need less than the readable floor, the fit shows its top
+   * at the width of the content, and the rest is reached by panning.
    */
   readableZoom?: number;
   /**
@@ -181,10 +171,13 @@ export interface FitOptions {
    */
   readableFrom?: 'top' | 'left';
   /**
-   * Lowest zoom of the readable fit when the width of the content is below
-   * `readableZoom` too. Default: 70 % of `readableZoom`.
+   * Lowest zoom that shows the whole content. Below it the fit shows a
+   * readable start instead, which keeps this zoom at least when the width of
+   * the content is below `readableZoom` too. Default: 70 % of `readableZoom`.
    */
   readableFloor?: number;
+  /** Largest zoom of the readable start. Default: 100 %. */
+  readableMax?: number;
   /**
    * With `readableZoom`: the fit of a graph that is too long for it uses
    * `readableZoom` itself, an overview of the structure, and not the zoom
@@ -213,19 +206,23 @@ const TOP_MARGIN = 24;
 const READABLE_FLOOR_RATIO = 0.7;
 
 /**
- * The viewport that shows all of `bounds` in a `size` area. The zoom is a
- * step of `ZOOM_LADDER`: the largest one that fits the content.
+ * The viewport that shows all of `bounds` in a `size` area, at the largest
+ * zoom that fits the content. The zoom buttons step through `ZOOM_LADDER`
+ * from there; a fit does not round down to a step, which could halve the
+ * size of the content.
  */
 export function fitViewport(
   bounds: Rect,
   size: { width: number; height: number },
   {
     padding = 0.1,
+    maxMargin,
     maxZoom = MAX_ZOOM,
     minZoom = MIN_ZOOM,
     readableZoom,
     readableFrom = 'top',
     readableFloor,
+    readableMax = 1,
     overview = false,
     inset,
   }: FitOptions = {}
@@ -237,35 +234,39 @@ export function fitViewport(
   };
   const centreX = left + area.width / 2;
   const centreY = top + area.height / 2;
-  const spanX = Math.max(bounds.width, 1) * (1 + 2 * padding);
-  const spanY = Math.max(bounds.height, 1) * (1 + 2 * padding);
-  const limits = { min: minZoom, max: maxZoom };
-  const zoom = clamp(
-    Math.min(area.width / spanX, area.height / spanY),
-    minZoom,
-    maxZoom
-  );
-  if (readableZoom !== undefined && zoom < readableZoom) {
+  // The zoom that fits one axis: the padding, or maxMargin px when that
+  // leaves the content more room.
+  const axisZoom = (length: number, room: number) => {
+    const span = Math.max(length, 1);
+    const shared = room / (span * (1 + 2 * padding));
+    return maxMargin === undefined
+      ? shared
+      : Math.max(shared, (room - 2 * maxMargin) / span);
+  };
+  const zoomX = axisZoom(bounds.width, area.width);
+  const zoomY = axisZoom(bounds.height, area.height);
+  const zoom = clamp(Math.min(zoomX, zoomY), minZoom, maxZoom);
+  const floor =
+    readableZoom === undefined
+      ? undefined
+      : (readableFloor ?? readableZoom * READABLE_FLOOR_RATIO);
+  if (readableZoom !== undefined && floor !== undefined && zoom < floor) {
     // The graph is long on one axis: it opens at a readable zoom on its
     // start, and the rest is reached by panning. A graph that is also wide
-    // keeps a floor, so that the zoom never falls to a stripe that nobody
+    // keeps the floor, so that the zoom never falls to a stripe that nobody
     // can read.
     const cross = Math.min(
-      readableFrom === 'left' ? area.height / spanY : area.width / spanX,
-      1
+      readableFrom === 'left' ? zoomY : zoomX,
+      readableMax
     );
-    const floor = readableFloor ?? readableZoom * READABLE_FLOOR_RATIO;
-    const readable = floorZoom(
-      clamp(
-        overview
-          ? readableZoom
-          : cross >= readableZoom
-            ? cross
-            : Math.max(cross, floor),
-        minZoom,
-        maxZoom
-      ),
-      limits
+    const readable = clamp(
+      overview
+        ? readableZoom
+        : cross >= readableZoom
+          ? cross
+          : Math.max(cross, floor),
+      minZoom,
+      maxZoom
     );
     if (readableFrom === 'left') {
       const wide = bounds.height * readable > area.height;
@@ -288,12 +289,10 @@ export function fitViewport(
       y: (inset?.top ?? TOP_MARGIN) - bounds.y * readable,
     };
   }
-  // The largest step that shows all the content, never under the first step.
-  const step = floorZoom(zoom, limits);
   return {
-    zoom: step,
-    x: centreX - (bounds.x + bounds.width / 2) * step,
-    y: centreY - (bounds.y + bounds.height / 2) * step,
+    zoom,
+    x: centreX - (bounds.x + bounds.width / 2) * zoom,
+    y: centreY - (bounds.y + bounds.height / 2) * zoom,
   };
 }
 
@@ -413,6 +412,14 @@ export function roomFor(cross: number, radius = CURVE_RADIUS): number {
  */
 export function widestMove(delta: number, radius: number): number {
   return (3 * (delta * MAX_PULL) ** 2) / (2 * radius);
+}
+
+/**
+ * The shortest run along the flow, in px, in which a smooth S moves `cross`
+ * px to the side with no bend under `radius`: the inverse of widestMove.
+ */
+export function runFor(cross: number, radius: number): number {
+  return Math.sqrt((2 * Math.abs(cross) * radius) / 3) / MAX_PULL;
 }
 
 /** A point that the curve crosses; `back` means against the flow. */

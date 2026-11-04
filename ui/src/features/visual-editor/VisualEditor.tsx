@@ -34,6 +34,10 @@ import { AgentRunContext } from './canvas/agentRunContext';
 import { CanvasToolbar } from './canvas/CanvasToolbar';
 import { useCanvasToolbarHost } from './canvas/toolbarHost';
 import { ghostLookOf } from './canvas/ghost';
+import {
+  CanvasOverlayInsetContext,
+  useCanvasOverlayInset,
+} from './canvas/overlayInset';
 import { useCanvasDirection } from './canvas/useCanvasDirection';
 import { canvasShortcut, isTextEntryTarget } from './canvas/useCanvasKeymap';
 import type {
@@ -178,6 +182,11 @@ export interface VisualEditorProps extends EditorHostProps {
    * for a confirmation when needed.
    */
   onRevertToSave?(): void;
+  /**
+   * Whether the revert has a change to put back, when it is not `isDirty`:
+   * the editor of one document of a file reverts that document only.
+   */
+  revertable?: boolean;
   /** Controls after the editor controls, such as save. */
   toolbarTrail?: ReactNode;
   /** What the Workflow panel shows; the panel has no button without it. */
@@ -243,6 +252,25 @@ const STRIPED_CANVAS =
 const HANDLER_PREFIX = 'handler_on.';
 const NO_AGENT_RUN: AgentRunInfo = { iterations: 0, calls: {}, tasks: {} };
 const NO_HARNESSES: string[] = [];
+
+/** The bottom edge of a box in its parent, in px; 0 without a box. */
+function useBoxBottom(box: HTMLElement | null): number {
+  const [bottom, setBottom] = useState(0);
+  useEffect(() => {
+    if (!box) {
+      setBottom(0);
+      return;
+    }
+    const read = () =>
+      setBottom(box.offsetHeight > 0 ? box.offsetTop + box.offsetHeight : 0);
+    read();
+    if (typeof ResizeObserver !== 'function') return;
+    const observer = new ResizeObserver(read);
+    observer.observe(box);
+    return () => observer.disconnect();
+  }, [box]);
+  return bottom;
+}
 
 // Host mode: below WIDE the drawers cover the canvas; below NARROW the
 // toolbar becomes a 'Tools' sheet.
@@ -350,6 +378,7 @@ export function VisualEditor(props: VisualEditorProps): ReactElement {
     toolbarStart,
     toolbarTrail,
     onRevertToSave,
+    revertable,
     workflowPanel,
     workflowPanelBare = false,
     launcherHost,
@@ -472,7 +501,7 @@ export function VisualEditor(props: VisualEditorProps): ReactElement {
       if (
         edited?.key === key &&
         (edited.fresh ||
-          model.steps.find((s) => s.key === key)?.explicitName === edited.name)
+          runtimeName(model.steps.find((s) => s.key === key)) === edited.name)
       ) {
         return edited.name;
       }
@@ -484,7 +513,9 @@ export function VisualEditor(props: VisualEditorProps): ReactElement {
       const step =
         model.steps.find((s) => s.key === key) ??
         model.handlers.find((s) => s.key === key);
-      return step?.explicitName ?? knownNames.current.get(key) ?? null;
+      return (
+        step?.explicitName ?? knownNames.current.get(key) ?? step?.id ?? null
+      );
     },
     [names, model]
   );
@@ -492,7 +523,7 @@ export function VisualEditor(props: VisualEditorProps): ReactElement {
     (name: string): StepKey | null =>
       own(names.byName, name) ??
       graph.nodes.find((node) => node.serverName === name)?.key ??
-      model.steps.find((step) => step.explicitName === name)?.key ??
+      model.steps.find((step) => runtimeName(step) === name)?.key ??
       null,
     [names, graph, model]
   );
@@ -595,7 +626,7 @@ export function VisualEditor(props: VisualEditorProps): ReactElement {
       current !== null && current !== selected ? null : current
     );
   }, [selected]);
-  const [direction, setDirection] = useCanvasDirection();
+  const [direction, setDirection] = useCanvasDirection(fileName);
   const [notice, setNotice] = useState<EditNotice | null>(null);
   // Where the step that the user is adding goes; the list of steps shows in
   // the side drawer while this is set.
@@ -717,9 +748,11 @@ export function VisualEditor(props: VisualEditorProps): ReactElement {
       if (result.ok) {
         setNotice(null);
         if (result.select) {
-          const written = parseDagDocLenient(result.text).steps.find(
-            (step) => step.key === result.select
-          )?.explicitName;
+          const written = runtimeName(
+            parseDagDocLenient(result.text).steps.find(
+              (step) => step.key === result.select
+            )
+          );
           editedName.current =
             written === undefined
               ? null
@@ -818,14 +851,16 @@ export function VisualEditor(props: VisualEditorProps): ReactElement {
     const added = parseDagDocLenient(result.text).steps.find(
       (step) => step.key === result.select
     );
-    if (!added?.explicitName) return result;
+    // A route names its target by name or, for a step with only an id, by id.
+    const reference = added?.explicitName ?? added?.id;
+    if (!reference) return result;
     const routed = session.apply({
       kind: 'setRouteTargets',
       step: target.router,
       pattern: target.port,
       targets: [
         ...routeTargetsOf(graph, target.router, target.port),
-        added.explicitName,
+        reference,
       ],
     });
     return routed.ok ? { ...routed, select: result.select } : result;
@@ -1370,6 +1405,17 @@ export function VisualEditor(props: VisualEditorProps): ReactElement {
 
   // A host with compact notices shows the notices of the editor itself.
   const compactNotices = !!chrome?.compactNotices || !!onNotice;
+  // The notices over the top of the canvas: a fit keeps the graph under them.
+  const [overlayBox, setOverlayBox] = useState<HTMLDivElement | null>(null);
+  const overlayBottom = useBoxBottom(overlayBox);
+  const parentInset = useCanvasOverlayInset();
+  const canvasInset = useMemo(
+    () => ({
+      ...parentInset,
+      top: Math.max(parentInset.top ?? 0, overlayBottom),
+    }),
+    [parentInset, overlayBottom]
+  );
   const band = useViewportBand(!!chrome);
   const rootRef = useRef<HTMLDivElement>(null);
   const zoneWidth = useZoneWidth(rootRef);
@@ -1467,7 +1513,9 @@ export function VisualEditor(props: VisualEditorProps): ReactElement {
             <IconButton
               label={ts('Revert to the last save')}
               icon={ArrowLeftToLine}
-              disabledReason={isDirty ? undefined : ts('Nothing to revert')}
+              disabledReason={
+                (revertable ?? isDirty) ? undefined : ts('Nothing to revert')
+              }
               onClick={onRevertToSave}
             />
           ) : null}
@@ -1631,59 +1679,62 @@ export function VisualEditor(props: VisualEditorProps): ReactElement {
           )}
         >
           <AgentRunContext.Provider value={agentRun}>
-            <VisualCanvas
-              graph={graph}
-              direction={direction}
-              selected={selected}
-              frozen={frozen}
-              unparsedLine={unparsedLine}
-              readOnly={readOnly}
-              hideReadOnlyChip={chrome?.hideReadOnlyChip}
-              catalog={catalog}
-              highlighted={shownHighlight}
-              onAddStep={openAdd}
-              ghost={
-                addTarget && canEdit
-                  ? { target: addTarget, look: ghostLook }
-                  : null
-              }
-              onSelect={(key) => {
-                if (key === null) {
-                  setFormOpen(false);
-                  select(null);
-                } else {
-                  pickStep(key);
+            <CanvasOverlayInsetContext.Provider value={canvasInset}>
+              <VisualCanvas
+                graph={graph}
+                direction={direction}
+                selected={selected}
+                frozen={frozen}
+                unparsedLine={unparsedLine}
+                readOnly={readOnly}
+                hideReadOnlyChip={chrome?.hideReadOnlyChip}
+                catalog={catalog}
+                highlighted={shownHighlight}
+                onAddStep={openAdd}
+                ghost={
+                  addTarget && canEdit
+                    ? { target: addTarget, look: ghostLook }
+                    : null
                 }
-              }}
-              onEdit={onEdit}
-              onCommand={handleCommand}
-              onDirectionChange={setDirection}
-              toolbarEnd={compactTools ? undefined : toolbarEnd}
-              toolbarStart={toolbarStart}
-              exportName={dagName}
-              viewRef={canvasView}
-              hideFrozenNotice={compactNotices}
-              stepCommandGates={onStepCommand ? stepCommandGates : undefined}
-              canPaste={copied !== null}
-              escapeToHost={!!chrome?.escapeToHost}
-              onRefused={(code) =>
-                setNotice({
-                  kind: 'edit-refused',
-                  message: editErrorMessage(code, ts) ?? '',
-                  convertible: false,
-                })
-              }
-              launchers={launcherHost ? launcherData?.states : undefined}
-              activeLauncher={launcherOpen}
-              onLauncher={openLauncher}
-              onStepClick={(key, at) => {
-                const name = serverNameOf(key);
-                if (name !== null) onStepClick?.(name, at);
-              }}
-            />
+                onSelect={(key) => {
+                  if (key === null) {
+                    setFormOpen(false);
+                    select(null);
+                  } else {
+                    pickStep(key);
+                  }
+                }}
+                onEdit={onEdit}
+                onCommand={handleCommand}
+                onDirectionChange={setDirection}
+                toolbarEnd={compactTools ? undefined : toolbarEnd}
+                toolbarStart={toolbarStart}
+                exportName={dagName}
+                viewRef={canvasView}
+                hideFrozenNotice={compactNotices}
+                stepCommandGates={onStepCommand ? stepCommandGates : undefined}
+                canPaste={copied !== null}
+                escapeToHost={!!chrome?.escapeToHost}
+                onRefused={(code) =>
+                  setNotice({
+                    kind: 'edit-refused',
+                    message: editErrorMessage(code, ts) ?? '',
+                    convertible: false,
+                  })
+                }
+                launchers={launcherHost ? launcherData?.states : undefined}
+                activeLauncher={launcherOpen}
+                onLauncher={openLauncher}
+                onStepClick={(key, at) => {
+                  const name = serverNameOf(key);
+                  if (name !== null) onStepClick?.(name, at);
+                }}
+              />
+            </CanvasOverlayInsetContext.Provider>
           </AgentRunContext.Provider>
           {canvasOverlay ? (
             <div
+              ref={setOverlayBox}
               data-testid="ve-canvas-overlay"
               className={cn(
                 'pointer-events-none absolute inset-x-2 z-20 flex justify-center',
@@ -1841,3 +1892,10 @@ function actionIdOf(step: StepView | undefined): string | undefined {
 }
 
 export default VisualEditor;
+
+/** The name that a step runs under: its name, else its id. */
+function runtimeName(
+  step: { explicitName?: string; id?: string } | undefined
+): string | undefined {
+  return step?.explicitName ?? step?.id;
+}

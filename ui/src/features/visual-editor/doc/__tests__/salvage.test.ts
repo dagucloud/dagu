@@ -495,6 +495,29 @@ describe.skipIf(realSchema === null)('the steps of the add step panel', () => {
     );
   });
 
+  // In a file whose steps have ids, the router and the step of its route
+  // both get an id and no name.
+  it('gives the router and its target ids where the steps have ids', () => {
+    const base = 'steps:\n  - id: first\n    run: echo hi\n';
+    const entry = entries.find((e) => e.name === 'router.route')!;
+    const result = applyEdit(base, {
+      kind: 'addStep',
+      step: structuredClone(entry.template),
+    });
+    expect(result.ok && result.text).toBe(
+      `${base}  - id: router_route
+    action: router.route
+    with:
+      value: ok
+      routes:
+        ok: [ok]
+  - id: ok
+    depends: [router_route]
+    run: echo "TODO"
+`
+    );
+  });
+
   it('gives an explicit id to a human task', () => {
     const entry = entries.find((e) => e.name === 'human.task')!;
     const add = (text: string) =>

@@ -143,4 +143,39 @@ describe('useRightPanelClearance', () => {
       vi.useRealTimers();
     }
   });
+
+  // The step panel takes its mark once a double click is over.
+  it('finds a panel that takes its mark after it mounts', async () => {
+    vi.useFakeTimers();
+    vi.stubGlobal('ResizeObserver', undefined);
+    vi.stubGlobal('requestAnimationFrame', (run: () => void) =>
+      setTimeout(run, 0)
+    );
+    vi.stubGlobal('cancelAnimationFrame', (id: number) => clearTimeout(id));
+    try {
+      const { rerender } = render(<Probe trigger="none" />);
+      const zone = screen.getByTestId('zone');
+      place(zone, box(0, 800));
+      const panel = document.createElement('div');
+      place(panel, box(400, 800));
+      zone.append(panel);
+      act(() => {
+        rerender(<Probe trigger="step" />);
+      });
+      await act(async () => {
+        vi.advanceTimersByTime(50);
+      });
+      expect(screen.getByTestId('out')).not.toHaveTextContent('400/400');
+
+      await act(async () => {
+        panel.dataset.panelShell = 'right';
+      });
+      await act(async () => {
+        vi.advanceTimersByTime(50);
+      });
+      expect(screen.getByTestId('out')).toHaveTextContent('400/400');
+    } finally {
+      vi.useRealTimers();
+    }
+  });
 });

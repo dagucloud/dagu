@@ -47,7 +47,11 @@ describe('ToastProvider', () => {
     show('info');
     const toast = screen.getByTestId('toast');
     expect(toast.parentElement).toBe(getNotificationRoot());
-    expect(getNotificationRoot()).toHaveClass('fixed', 'bottom-4', 'right-4');
+    expect(getNotificationRoot()).toHaveClass(
+      'fixed',
+      'bottom-[calc(1rem+var(--notification-bottom-inset,0px))]',
+      'right-4'
+    );
     expect(toast).toHaveTextContent('Done');
   });
 

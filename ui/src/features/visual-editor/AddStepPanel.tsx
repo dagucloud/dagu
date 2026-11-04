@@ -26,6 +26,7 @@ import {
   type AliasMap,
 } from './canvas/paletteModel';
 import type { ActionCatalogEntry } from './contracts';
+import { namespaceTitle } from './inspector/actionText';
 import { YamlSnippet } from './YamlSnippet';
 import {
   readFavouriteActions,
@@ -74,14 +75,96 @@ const POPULAR_ACTIONS = [
  * A short line for the popular actions whose catalog text is missing or only
  * repeats the action name.
  */
-const POPULAR_BLURBS: Record<string, string> = {
-  run: 'Run a command in a shell.',
-  'http.request': 'Call a URL and keep the response.',
-  'dag.run': 'Run another workflow as a step.',
-  'router.route': 'Send the run down one branch by a value.',
-  'jq.filter': 'Reshape JSON with a jq expression.',
-  'log.write': 'Write a message to the log.',
-};
+const POPULAR_BLURBS: ReadonlyMap<string, string> = new Map(
+  Object.entries({
+    run: 'Run a command in a shell.',
+    'http.request': 'Call a URL and keep the response.',
+    'dag.run': 'Run another workflow as a step.',
+    'router.route': 'Send the run down one branch by a value.',
+    'jq.filter': 'Reshape JSON with a jq expression.',
+    'log.write': 'Write a message to the log.',
+  })
+);
+
+/**
+ * A line for each action whose catalog text describes its whole group or its
+ * configuration rather than what the action does. It wins over that text.
+ */
+const GROUP_BLURBS: ReadonlyMap<string, string> = new Map(
+  Object.entries({
+    'archive.create': 'Pack files into an archive.',
+    'archive.extract': 'Unpack an archive into a folder.',
+    'archive.list': 'List the files in an archive.',
+    'artifact.list': 'List the artifacts of the run.',
+    'artifact.read': 'Read an artifact of the run.',
+    'artifact.write': 'Write content to an artifact of the run.',
+    'file.copy': 'Copy a file or folder.',
+    'file.delete': 'Delete a file or folder.',
+    'file.list': 'List the files in a folder.',
+    'file.mkdir': 'Create a folder.',
+    'file.move': 'Move or rename a file or folder.',
+    'file.read': 'Read the content of a file.',
+    'file.stat': 'Read the size, type and times of a file.',
+    'file.write': 'Write content to a file.',
+    'state.delete': 'Delete a key of the workflow state.',
+    'state.diff':
+      'Tell whether a value changed since the last run, and store it.',
+    'state.get': 'Read a key of the workflow state.',
+    'state.list': 'List the keys of the workflow state.',
+    'state.set': 'Store a value in the workflow state.',
+    'wait.duration': 'Wait for a length of time.',
+    'wait.file': 'Wait until a file exists, or is gone.',
+    'wait.http': 'Wait until a URL answers with the expected status.',
+    'wait.until': 'Wait until a time of day or a date.',
+    'postgres.query': 'Run a SQL query on PostgreSQL.',
+    'postgres.import': 'Import a data file into a PostgreSQL table.',
+    'sqlite.query': 'Run a SQL query on SQLite.',
+    'sqlite.import': 'Import a data file into a SQLite table.',
+    'container.run': 'Run a command in a container.',
+    'docker.run': 'Run a command in a Docker container.',
+    'k8s.run': 'Run a command as a Kubernetes job.',
+    'kubernetes.run': 'Run a command as a Kubernetes job.',
+    'redis.get': 'Read a key from Redis.',
+    'redis.set': 'Store a value in Redis.',
+    's3.delete': 'Delete objects from S3.',
+    's3.download': 'Download objects from S3.',
+    's3.list': 'List the objects in an S3 bucket.',
+    's3.upload': 'Upload files to S3.',
+    'sftp.download': 'Download files over SFTP.',
+    'sftp.upload': 'Upload files over SFTP.',
+    'mail.send': 'Send an email.',
+    'human.task': 'Ask a person to review or fill in a form.',
+    'outputs.write': 'Publish values as outputs of the run.',
+  })
+);
+
+/** The sections titled with a word of the UI, not a namespace name. */
+const SECTION_TITLES: ReadonlyMap<string, string> = new Map([
+  ['core', 'Core'],
+  ['dag', 'workflow'],
+]);
+
+/** The title that the header of a section shows, translated when it is a word of the UI. */
+function sectionTitle(section: Section, ts: (key: string) => string): string {
+  const key = SECTION_TITLES.get(section.id);
+  return key ? ts(key) : section.title;
+}
+
+/** The entry with the line of its group blurb in front of its catalog text. */
+function withShownLine(
+  entry: ActionCatalogEntry,
+  translate?: (text: string) => string
+): ActionCatalogEntry {
+  const line = GROUP_BLURBS.get(entry.name);
+  return line
+    ? {
+        ...entry,
+        description: [translate?.(line), line, entry.description]
+          .filter(Boolean)
+          .join('\n'),
+      }
+    : entry;
+}
 
 interface Section {
   id: string;
@@ -115,14 +198,25 @@ export function buildSections(
   options: {
     favourites?: string[];
     aliases?: AliasMap;
+    /** Translates a line that the panel shows, for the search. */
+    translate?: (text: string) => string;
   } = {}
 ): Section[] {
   if (query.trim() !== '') {
-    const ranked = rankCatalog(catalog, query, options.aliases);
+    // The search reads the line that the panel shows for an action too, in
+    // the language of the user and in English.
+    const searched = new Map(
+      catalog.map((entry) => [withShownLine(entry, options.translate), entry])
+    );
+    const ranked = rankCatalog(
+      [...searched.keys()],
+      query,
+      options.aliases
+    ).map((entry) => searched.get(entry) ?? entry);
     return [
       ...groupRanked(ranked).map((group) => ({
         id: group.namespace,
-        title: group.namespace,
+        title: namespaceTitle(group.namespace),
         entries: group.entries,
       })),
     ];
@@ -144,7 +238,7 @@ export function buildSections(
   add('recent', titles.recent, entriesNamed(catalog, recent));
   add('popular', titles.popular, entriesNamed(catalog, POPULAR_ACTIONS));
   for (const group of groupCatalog(catalog)) {
-    add(group.namespace, group.namespace, group.entries);
+    add(group.namespace, namespaceTitle(group.namespace), group.entries);
   }
   return sections;
 }
@@ -190,8 +284,12 @@ export function AddStepPanel({
   );
   const sections = useMemo(
     () =>
-      buildSections(catalog, query, recent, titles, { favourites, aliases }),
-    [catalog, query, recent, titles, favourites, aliases]
+      buildSections(catalog, query, recent, titles, {
+        favourites,
+        aliases,
+        translate: ts,
+      }),
+    [catalog, query, recent, titles, favourites, aliases, ts]
   );
   // The list is by position: a row is its place, not its action.
   const rows = useMemo(
@@ -208,9 +306,11 @@ export function AddStepPanel({
   const shell = catalog.find((entry) => entry.name === 'run');
   // One line for every row, so that the heights of the rows agree.
   const describe = (entry: ActionCatalogEntry): string => {
+    const own = GROUP_BLURBS.get(entry.name);
+    if (own) return ts(own);
     const text = entry.description?.trim();
     if (text && text !== entry.name) return text;
-    const blurb = POPULAR_BLURBS[entry.name];
+    const blurb = POPULAR_BLURBS.get(entry.name);
     return blurb ? ts(blurb) : entry.name;
   };
 
@@ -250,6 +350,7 @@ export function AddStepPanel({
     const place = buildSections(catalog, query, recent, titles, {
       favourites: next,
       aliases,
+      translate: ts,
     })
       .flatMap((section) => section.entries)
       .findIndex((entry) => entry.name === name);
@@ -368,9 +469,7 @@ export function AddStepPanel({
                 aria-hidden="true"
                 className="sticky top-0 z-10 flex items-center justify-between bg-card px-4 pb-1 pt-3 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground"
               >
-                <span>
-                  {section.id === 'core' ? ts('Core') : section.title}
-                </span>
+                <span>{sectionTitle(section, ts)}</span>
                 <span className="font-normal">{section.entries.length}</span>
               </div>
               {section.entries.map((entry) => {

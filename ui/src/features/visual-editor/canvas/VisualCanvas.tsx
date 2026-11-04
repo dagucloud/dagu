@@ -123,17 +123,25 @@ import { useCanvasLayout } from './useCanvasLayout';
 // and 24 px from the sides, so no node sits under an overlay. The bottom
 // keeps the overview and the list toggle clear.
 const FIT_INSET = { top: 72, right: 24, left: 24, bottom: 48 };
-// The margin of a fit, as a share of the graph on each side.
+// The margin of a fit, as a share of the graph on each side, and at the most
+// in px on the screen: a large graph does not leave a wide empty band.
 const FIT_PADDING = 0.2;
+const FIT_MAX_MARGIN = 32;
 // The toolbar stacked on two rows (a small free width) needs more room.
 const STACKED_TOP = 112;
 // A toolbar in the row of the zone floats over the top 40 px of the canvas: a
 // fit keeps its content 8 px below it.
 const HOSTED_TOP = 48;
-// A graph is not shrunk below this zoom by the automatic fit: it shows the
-// start of the graph at a readable size, and the Fit button gives the
-// overview.
+// Room in px between a notice that covers the top of the canvas and a fit.
+const OVERLAY_GAP = 8;
+// The zoom of a search match that the canvas shows.
 const READABLE_ZOOM = 0.5;
+// The automatic fit shows the whole graph down to this zoom, where the names
+// of the steps are still about 9 px. A graph that needs less opens on its
+// start at AUTO_FIT_READABLE, with the overview for the rest; the Fit button
+// shows it all.
+const AUTO_FIT_FLOOR = 0.7;
+const AUTO_FIT_READABLE = 0.75;
 // An agent graph is read as a whole: its hub and tool cards keep a larger
 // minimum, and the Fit button stops there too.
 const AGENT_READABLE_ZOOM = 0.75;
@@ -288,7 +296,7 @@ function CanvasView({
   // The columns of the tool grid follow the width of the canvas.
   const canvasWidth = useFlowStore().size.width;
   // A panel over the canvas covers its right: the free part is what shows.
-  const overlayRight = useCanvasOverlayInset().right;
+  const { right: overlayRight, top: overlayTop = 0 } = useCanvasOverlayInset();
   const freeWidth = canvasWidth - overlayRight;
   // A panel that covers the whole canvas, such as a maximized one, leaves
   // nothing for the canvas controls to act on.
@@ -313,9 +321,13 @@ function CanvasView({
       ...FIT_INSET,
       left: FIT_INSET.left + (large && minimapShown ? MINIMAP_RESERVE : 0),
       right: FIT_INSET.right + overlayRight,
-      top: hosted ? HOSTED_TOP : stackedBar ? STACKED_TOP : FIT_INSET.top,
+      // A notice under the toolbars covers the top too.
+      top: Math.max(
+        hosted ? HOSTED_TOP : stackedBar ? STACKED_TOP : FIT_INSET.top,
+        overlayTop > 0 ? overlayTop + OVERLAY_GAP : 0
+      ),
     }),
-    [overlayRight, stackedBar, hosted, large, minimapShown]
+    [overlayRight, overlayTop, stackedBar, hosted, large, minimapShown]
   );
   // The automatic fit opens a large graph at a readable zoom. The Fit button
   // shows all of a small graph, and stops at a readable zoom for a large one.
@@ -324,6 +336,7 @@ function CanvasView({
   const overviewOptions = useMemo(
     () => ({
       padding: fitPadding,
+      maxMargin: FIT_MAX_MARGIN,
       maxZoom: 1.25,
       inset: fitInset,
       readableFrom,
@@ -341,9 +354,11 @@ function CanvasView({
   const fitOptions = useMemo(
     () => ({
       ...overviewOptions,
-      readableZoom: agent ? AGENT_READABLE_ZOOM : READABLE_ZOOM,
+      readableZoom: agent ? AGENT_READABLE_ZOOM : AUTO_FIT_READABLE,
       overview: false,
-      ...(agent ? { readableFloor: AGENT_READABLE_FLOOR } : {}),
+      ...(agent
+        ? { readableFloor: AGENT_READABLE_FLOOR }
+        : { readableFloor: AUTO_FIT_FLOOR, readableMax: AUTO_FIT_READABLE }),
     }),
     [overviewOptions, agent]
   );
@@ -667,18 +682,11 @@ function CanvasView({
       setViewport(view);
     }
   };
-  const autoFit = useAutoFit(
-    wrapperRef,
-    () => {
-      fitView(fitOptions);
-      // A resize that fits the graph again keeps the selected step in view.
-      keepSelectedInView();
-    },
-    undefined,
-    // A dock that opens changes the height only: the graph stays in place and
-    // moves only when it would hide the selected step.
-    keepSelectedInView
-  );
+  const autoFit = useAutoFit(wrapperRef, () => {
+    fitView(fitOptions);
+    // A resize that fits the graph again keeps the selected step in view.
+    keepSelectedInView();
+  });
   const {
     onUserMove: stopAutoFit,
     onHostMove,
@@ -831,8 +839,20 @@ function CanvasView({
   // step), when the direction changes and when a panel covers or frees the
   // right of the canvas; a view that the user panned stays, but a new
   // direction is a new layout.
-  const nodeSet = graph.nodes.map((node) => node.key).join('\u0000');
-  const lastLayout = useRef({ nodeSet, direction, overlayRight, compact });
+  // The launchers count: they arrive after the first layout and push the
+  // steps aside. The ghost of the Add step list does not: a hover must not
+  // move the view.
+  const nodeSet = [
+    ...launchers.map((launcher) => `launcher:${launcher.id}`),
+    ...graph.nodes.map((node) => node.key),
+  ].join('\u0000');
+  const lastLayout = useRef({
+    nodeSet,
+    direction,
+    overlayRight,
+    overlayTop,
+    compact,
+  });
   // The view that the user chose in each layout (details or compact), so that
   // a switch and the switch back leave the view where it was. It is dropped
   // when the steps or the direction change: the stored view would not fit.
@@ -841,7 +861,13 @@ function CanvasView({
   );
   useEffect(() => {
     const last = lastLayout.current;
-    lastLayout.current = { nodeSet, direction, overlayRight, compact };
+    lastLayout.current = {
+      nodeSet,
+      direction,
+      overlayRight,
+      overlayTop,
+      compact,
+    };
     if (last.direction !== direction) {
       layoutViews.current = {};
       resume();
@@ -863,13 +889,22 @@ function CanvasView({
         resume();
         fitView(fitOptions);
       }
-    } else if (last.overlayRight !== overlayRight) {
-      refit();
+    } else if (
+      last.overlayRight !== overlayRight ||
+      last.overlayTop !== overlayTop
+    ) {
+      // A view that the user moved stays, but not over the selected step.
+      if (userMoved()) {
+        keepSelectedInView();
+      } else {
+        refit();
+      }
     }
   }, [
     nodeSet,
     direction,
     overlayRight,
+    overlayTop,
     compact,
     resume,
     refit,

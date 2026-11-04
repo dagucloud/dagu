@@ -861,9 +861,56 @@ describe('dock tab bodies', () => {
       );
       await renderBody('log', `/dags/${FILE_NAME}?step=a&stream=stderr`);
 
-      expect(screen.getByTestId('ww-step-failure')).toHaveTextContent(
-        'exit status 1'
+      const banner = screen.getByTestId('ww-step-failure');
+      expect(banner).toHaveTextContent('exit status 1');
+      // The log below already shows stderr.
+      expect(
+        within(banner).queryByRole('button', { name: 'View stderr' })
+      ).toBeNull();
+    });
+
+    it('offers the stderr of a failed step while its stdout shows', async () => {
+      setLatest(
+        run(
+          'run-1',
+          [node('a', NodeStatus.Failed, { error: 'exit status 1' })],
+          Status.Failed
+        )
       );
+      await renderBody('log', `/dags/${FILE_NAME}?step=a&stream=stdout`);
+
+      expect(
+        within(screen.getByTestId('ww-step-failure')).getByRole('button', {
+          name: 'View stderr',
+        })
+      ).toBeInTheDocument();
+    });
+
+    // The log of a foreach item is the log of a body step: the stderr of
+    // the failed foreach step is another log, which the banner still offers.
+    it('offers the stderr of a failed foreach step over a body step log', async () => {
+      setLatest(
+        run(
+          'run-1',
+          [
+            node('fan-out', NodeStatus.Failed, {
+              error: 'exit status 1',
+              step: { executorConfig: { type: 'foreach' } },
+            }),
+          ],
+          Status.Failed
+        )
+      );
+      await renderBody(
+        'log',
+        `/dags/${FILE_NAME}?step=fan-out&item=2&body=fetch&stream=stderr`
+      );
+
+      expect(
+        within(screen.getByTestId('ww-step-failure')).getByRole('button', {
+          name: 'View stderr',
+        })
+      ).toBeInTheDocument();
     });
 
     // A step of a sub run is not the step of this run with the same name.

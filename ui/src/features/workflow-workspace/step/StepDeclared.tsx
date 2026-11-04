@@ -6,6 +6,7 @@ import type { components } from '@/api/v1/schema';
 import { useI18n } from '@/i18n/I18nProvider';
 import type { ApiNode } from '../contracts';
 import { useWorkspaceData } from '../data/context';
+import { nodesByStep } from '../data/runFacts';
 import { buildWorkspaceUrl, useWorkspaceUrl } from '../state/workspaceUrl';
 import { stepDefinitionOf } from './stepDefinition';
 
@@ -13,7 +14,8 @@ import { stepDefinitionOf } from './stepDefinition';
  * What the definition of a step declares for the steps after it: the output
  * variable and the named outputs. It needs no run. The link selects the last
  * run in the same tab (a push of `?run=<id>`), else the run of the host when
- * the last run is not known. It shows only when the workspace has a run id.
+ * the last run is not known. It shows only when the workspace has a run id,
+ * and not for a step that is missing from the run it would open.
  */
 export function StepDeclared({
   step,
@@ -40,7 +42,25 @@ export function StepDeclared({
       kind: out.type,
     });
   }
-  const runId = run.latestRef?.runId ?? run.ref?.runId ?? null;
+  const latestRunId = run.latestRef?.runId ?? null;
+  const shownRunId = run.ref?.runId ?? null;
+  // The link opens the step in the last run, or in the shown run when the
+  // last run is not known; not in a run without the step, such as a step
+  // added after it or removed before it. The page has the details of the
+  // last run: without its nodes, the step counts as in it.
+  const latest = dagData.latestDAGRun;
+  const inLatest =
+    latestRunId === shownRunId
+      ? node !== undefined
+      : !latest?.nodes || nodesByStep(latest).has(step);
+  const runId =
+    latestRunId === null
+      ? node === undefined
+        ? null
+        : shownRunId
+      : inLatest
+        ? latestRunId
+        : null;
   if (rows.length === 0 && runId === null) return null;
 
   const runUrl =

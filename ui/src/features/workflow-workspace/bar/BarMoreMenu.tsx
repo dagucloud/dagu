@@ -8,6 +8,7 @@ import {
   PanelRight,
   Pin,
   RefreshCw,
+  Trash2,
   Webhook,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
@@ -21,6 +22,7 @@ import { useErrorModal } from '@/components/ui/error-modal';
 import { useSimpleToast } from '@/components/ui/simple-toast';
 import { useRemoteNode } from '@/contexts/RemoteNodeContext';
 import { setDAGPinned } from '@/features/dags/lib/dagPins';
+import { useDAGEditActions } from '@/features/dags/components/dag-editor/DAGEditButtons';
 import { useClient } from '@/hooks/api';
 import { useI18n } from '@/i18n/I18nProvider';
 import { copyText } from '@/lib/clipboard';
@@ -40,11 +42,13 @@ const menuIcon = 'size-4 shrink-0';
 /**
  * The controls that a narrow bar hides, in one menu: the copy of the name
  * and of the link, the pin, Refresh, the Workflow panel with the labels and
- * the description, and the webhook. A bar of 672px in a window of md or
- * more shows them all and has no menu.
+ * the description, the webhook, and Delete below md. A bar of 672px in a
+ * window of md or more shows them all and has no menu.
  */
 export function BarMoreMenu(props: BarSlotProps & { pinned?: boolean }) {
   const { ts } = useI18n();
+  // The menu closes when Delete is chosen: its dialog lives outside it.
+  const edit = useDAGEditActions(props.fileName, props.workspaceName);
   return (
     // The pin, Refresh and the webhook hide below md, the copy buttons and
     // the labels in a bar under 672px: the menu shows while either does.
@@ -61,9 +65,13 @@ export function BarMoreMenu(props: BarSlotProps & { pinned?: boolean }) {
           </Button>
         </DropdownMenuTrigger>
         <DropdownMenuContent align="end" className={cn(Z.menu, 'w-56')}>
-          <MoreMenuItems {...props} />
+          <MoreMenuItems
+            {...props}
+            onDelete={edit.canWrite ? edit.openDelete : undefined}
+          />
         </DropdownMenuContent>
       </DropdownMenu>
+      {edit.canWrite && edit.dialogs}
     </div>
   );
 }
@@ -73,7 +81,8 @@ function MoreMenuItems({
   fileName,
   dag,
   pinned,
-}: BarSlotProps & { pinned?: boolean }) {
+  onDelete,
+}: BarSlotProps & { pinned?: boolean; onDelete?: () => void }) {
   const { ts } = useI18n();
   const client = useClient();
   const remoteNode = useRemoteNode();
@@ -149,6 +158,17 @@ function MoreMenuItems({
         >
           <Webhook aria-hidden="true" className={menuIcon} />
           {ts('Open {tab}', { tab: ts('Webhook') })}
+        </DropdownMenuItem>
+      )}
+      {onDelete && (
+        // Below md the bar has no room for the Delete button.
+        <DropdownMenuItem
+          data-testid="ww-bar-more-delete"
+          className="gap-2 text-destructive md:hidden"
+          onSelect={onDelete}
+        >
+          <Trash2 aria-hidden="true" className={menuIcon} />
+          {ts('Delete workflow')}
         </DropdownMenuItem>
       )}
     </>

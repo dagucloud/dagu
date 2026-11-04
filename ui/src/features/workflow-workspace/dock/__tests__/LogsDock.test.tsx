@@ -15,6 +15,7 @@ import {
 } from 'react-router-dom';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { NodeStatus, Status } from '@/api/v1/schema';
+import { getNotificationRoot } from '@/components/ui/notification-root';
 import {
   RightPanelProvider,
   useRightPanelClaim,
@@ -268,6 +269,9 @@ describe('LogsDock frame', () => {
     expect(nav.nextElementSibling).toContainElement(
       screen.getByRole('tablist')
     );
+    // jsdom runs no container query: the classes are the contract. A medium
+    // panel keeps the names in a narrower list; only a phone shows dots.
+    expect(nav).toHaveClass('w-60', '@max-[900px]:w-44', '@max-[600px]:w-11');
   });
 
   it('is open when the URL has ?dock at load', () => {
@@ -443,6 +447,33 @@ describe('LogsDock resize', () => {
     expect(localStorage.getItem(DOCK_HEIGHT_KEY)).toBe(String(base + 60));
   });
 
+  // The toasts and the run progress cards sit in the corner of the screen:
+  // over the open panel, they hid the bars of its timeline.
+  it('keeps the notifications above the open panel', () => {
+    renderDock(finished);
+    const inset = () =>
+      getNotificationRoot().style.getPropertyValue(
+        '--notification-bottom-inset'
+      );
+    expect(inset()).toBe('');
+
+    fireEvent.click(toggleButton());
+    vi.spyOn(dockSection(), 'getBoundingClientRect').mockReturnValue(
+      new DOMRect(0, window.innerHeight - 320, 1000, 320)
+    );
+    fireEvent(window, new Event('resize'));
+    expect(inset()).toBe('320px');
+
+    // A maximized panel fills the page: the notifications go back.
+    fireEvent.click(screen.getByRole('button', { name: 'Maximize' }));
+    expect(inset()).toBe('');
+    fireEvent.click(screen.getByRole('button', { name: 'Restore' }));
+    expect(inset()).toBe('320px');
+
+    fireEvent.click(toggleButton());
+    expect(inset()).toBe('');
+  });
+
   it('has no separator while maximized', () => {
     renderDock(finished);
     fireEvent.click(toggleButton());
@@ -512,7 +543,9 @@ describe('LogsDock tab strip', () => {
   it.each([900, 500])('keeps every tab in the strip at %ipx', async (width) => {
     mockWidth(width);
     const user = userEvent.setup();
-    renderDock(busy);
+    // A link opens the panel at every width; the stored state does not on a
+    // narrow window.
+    renderDock(busy, '/dags/demo?dock=log');
     expect(screen.queryByRole('button', { name: /More/ })).toBeNull();
     expect(screen.queryByRole('combobox')).toBeNull();
     const strip = screen.getByRole('tablist');
@@ -660,6 +693,22 @@ describe('LogsDock below 768px', () => {
     fireEvent.pointerUp(handle, { pointerId: 2, clientY: 200 });
     fireEvent.click(handle);
     expect(dockSection()).toHaveAttribute('data-state', 'collapsed');
+  });
+
+  // The sheet covers 75vh: the notifications go above it, not over its log.
+  it('keeps the notifications above the sheet', () => {
+    mockWidth(500);
+    renderDock(finished);
+    fireEvent.click(toggleButton());
+    vi.spyOn(dockSection(), 'getBoundingClientRect').mockReturnValue(
+      new DOMRect(0, window.innerHeight - 600, 500, 600)
+    );
+    fireEvent(window, new Event('resize'));
+    expect(
+      getNotificationRoot().style.getPropertyValue(
+        '--notification-bottom-inset'
+      )
+    ).toBe('600px');
   });
 
   // A touch drag can end with no click event; the next tap must still act.

@@ -1,11 +1,17 @@
 // Copyright (C) 2026 Yota Hamada
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-import { render, screen, waitFor } from '@testing-library/react';
+import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { useState } from 'react';
 import { describe, expect, it, vi } from 'vitest';
 import { ConfirmDialog, type ConfirmDialogProps } from '../confirm-dialog';
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from '../dropdown-menu';
 
 function Host(
   props: Partial<
@@ -94,5 +100,43 @@ describe('ConfirmDialog', () => {
       'bg-transparent'
     );
     expect(screen.getByText('Body')).toHaveClass('py-4');
+  });
+
+  // A menu item acts on the keydown of Enter: the dialog that it opens must
+  // not take that same key as the confirmation.
+  it('does not confirm with the Enter that chose it in a menu', async () => {
+    const onSubmit = vi.fn();
+    function MenuHost() {
+      const [open, setOpen] = useState(false);
+      return (
+        <>
+          <DropdownMenu defaultOpen>
+            <DropdownMenuTrigger>More</DropdownMenuTrigger>
+            <DropdownMenuContent>
+              <DropdownMenuItem onSelect={() => setOpen(true)}>
+                Delete
+              </DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
+          <ConfirmDialog
+            title="Sure?"
+            buttonText="Do it"
+            onSubmit={onSubmit}
+            visible={open}
+            dismissModal={() => setOpen(false)}
+          >
+            Body
+          </ConfirmDialog>
+        </>
+      );
+    }
+    render(<MenuHost />);
+
+    fireEvent.keyDown(screen.getByRole('menuitem', { name: 'Delete' }), {
+      key: 'Enter',
+    });
+
+    expect(await screen.findByRole('dialog')).toBeInTheDocument();
+    expect(onSubmit).not.toHaveBeenCalled();
   });
 });

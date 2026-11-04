@@ -70,7 +70,9 @@ function ConfirmDialog({
 
   React.useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent) => {
-      if (!visible || event.key !== 'Enter') {
+      // A handled key is not for the dialog: a menu item that opens it acts
+      // on the keydown of Enter, and the same event reaches this listener.
+      if (!visible || event.defaultPrevented || event.key !== 'Enter') {
         return;
       }
 
