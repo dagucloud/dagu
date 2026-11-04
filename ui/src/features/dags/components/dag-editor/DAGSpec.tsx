@@ -360,9 +360,14 @@ function DAGSpec({
     },
     sseFallbackOptions(poll ? FEED_DOWN : FEED_UP)
   );
-  const { data: calendarsData } = useQuery('/calendars', {
-    params: { query: { remoteNode } },
-  });
+  const { data: calendarsData, error: calendarsError } = useQuery(
+    '/calendars',
+    { params: { query: { remoteNode } } }
+  );
+  // The editor schema waits for the calendars: a second schema would be
+  // compiled again by the checks of the steps.
+  const calendarsSettled =
+    calendarsData !== undefined || calendarsError !== undefined;
   const calendarNames = React.useMemo(
     () =>
       (calendarsData?.calendars ?? [])
@@ -749,7 +754,7 @@ function DAGSpec({
   }, [lastGoodLocalHarnesses, parsedLocalDefinitions]);
 
   const editorSchema = React.useMemo(() => {
-    if (!baseSchema) {
+    if (!baseSchema || !calendarsSettled) {
       return null;
     }
     return buildAugmentedDAGSchema(
@@ -764,6 +769,7 @@ function DAGSpec({
     );
   }, [
     baseSchema,
+    calendarsSettled,
     calendarNames,
     effectiveLocalActions,
     effectiveLocalHarnesses,
