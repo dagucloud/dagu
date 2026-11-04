@@ -7,8 +7,9 @@ import { copyText } from '@/lib/clipboard';
 /**
  * Copies text to the clipboard and exposes a transient `copied` flag for
  * button feedback. The flag resets after `resetMs` milliseconds, or at once on
- * `reset`, and no reset is left pending after unmount. `onCopied` runs each
- * time the text reached the clipboard.
+ * `reset`. A copy still in progress at `reset` or unmount shows no feedback,
+ * and no reset is left pending after unmount. `onCopied` runs each time the
+ * text reached the clipboard.
  */
 export function useCopyFeedback(
   resetMs = 2000,
@@ -20,6 +21,8 @@ export function useCopyFeedback(
 } {
   const [copied, setCopied] = useState(false);
   const resetRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // Advanced by reset and unmount, so a copy that finishes later is ignored.
+  const generationRef = useRef(0);
   const onCopiedRef = useRef(onCopied);
   useEffect(() => {
     onCopiedRef.current = onCopied;
@@ -28,7 +31,9 @@ export function useCopyFeedback(
   const copy = useCallback(
     async (text: string) => {
       if (!text) return;
+      const generation = generationRef.current;
       if (!(await copyText(text))) return;
+      if (generation !== generationRef.current) return;
       setCopied(true);
       if (resetRef.current) {
         clearTimeout(resetRef.current);
@@ -40,6 +45,7 @@ export function useCopyFeedback(
   );
 
   const reset = useCallback(() => {
+    generationRef.current += 1;
     if (resetRef.current) {
       clearTimeout(resetRef.current);
       resetRef.current = null;
@@ -49,6 +55,7 @@ export function useCopyFeedback(
 
   useEffect(
     () => () => {
+      generationRef.current += 1;
       if (resetRef.current) {
         clearTimeout(resetRef.current);
       }
