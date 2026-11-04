@@ -3628,7 +3628,7 @@ func TestCapRequestListsElements(t *testing.T) {
 
 	require.Len(t, session.observations, 2)
 	assert.Equal(t, capNote, session.observations[1].Note)
-	assert.Contains(t, session.observations[1].Elements, computeruse.Element{ID: "e1", Role: desktop.RoleButton, Name: "保存"})
+	assert.Contains(t, session.observations[1].Elements, computeruse.Element{ID: "e1", Role: desktop.RoleButton, Name: "保存", Takes: []computeruse.Kind{computeruse.KindClick}})
 }
 
 // A model that cannot be forced to call a tool may end a task it did with
@@ -4125,7 +4125,7 @@ func TestModelActsOnElementById(t *testing.T) {
 	require.NoError(t, execution.err)
 
 	require.NotEmpty(t, session.observations)
-	assert.Contains(t, session.observations[0].Elements, computeruse.Element{ID: "e1", Role: desktop.RoleButton, Name: "保存"},
+	assert.Contains(t, session.observations[0].Elements, computeruse.Element{ID: "e1", Role: desktop.RoleButton, Name: "保存", Takes: []computeruse.Kind{computeruse.KindClick}},
 		"the observation offers the button as an element")
 	assert.Equal(t, []string{"invoke saveButton"}, run.backend.inputs(), "the button is invoked, not clicked at a pixel")
 }

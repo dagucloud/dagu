@@ -726,9 +726,14 @@ type scriptedSession struct {
 	observations []computeruse.Observation
 	// onNext runs at the start of every request.
 	onNext func()
+	// elementTurns lets the session be sent the element list without a
+	// screenshot, as the generic session may be.
+	elementTurns bool
 }
 
 func (s *scriptedSession) ImageLimit() computeruse.ImageLimit { return s.limit }
+
+func (s *scriptedSession) ElementTurns() bool { return s.elementTurns }
 
 func (s *scriptedSession) Next(_ context.Context, obs computeruse.Observation) (*computeruse.Turn, error) {
 	if s.onNext != nil {

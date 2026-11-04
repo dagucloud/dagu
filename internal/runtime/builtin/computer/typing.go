@@ -83,3 +83,79 @@ func lettersAndDigits(s string) string {
 		return -1
 	}, s)
 }
+
+// typeElement puts the text the model typed into the field it named by id,
+// in place of what the field holds: through the element itself when the
+// field takes the value and reads back the same text, so no key has to
+// reach the window. Otherwise the field takes the keyboard focus and done
+// is false, so the caller types the text as keys.
+func (l *actLoop) typeElement(ctx context.Context, els desktop.Elements, action computeruse.Action, e desktop.Element) (done bool, rec *recordedAction, result computeruse.Result) {
+	result = computeruse.Result{CallID: action.CallID}
+	if els == nil {
+		result.Error = "this host cannot read the field to type into; click it, then type"
+		return true, nil, result
+	}
+	if own, owned := l.r.elementOffLimits(e); owned {
+		result.Error = l.r.offLimitsMessage(own)
+		return true, nil, result
+	}
+	text := l.r.substitute(action.Text)
+	field := l.r.recordElement(e, nil, l.r.driver.WindowAt(elementCentre(e)).App)
+	// A field the step cannot find again cannot be read back, and a line
+	// break or a tab is a key the window acts on, so either is typed.
+	if field != nil && !strings.ContainsAny(text, "\r\n\t") {
+		set, err := l.setField(ctx, els, e, *field, text)
+		if err != nil {
+			result.Error = l.r.masker.MaskString(err.Error())
+			return true, nil, result
+		}
+		if set != nil {
+			l.touched = true
+			logAction(l.r.timeline, l.index, fmt.Sprintf("%s %s to %q", desktop.PatternSetValue, describeElement(e), action.Text))
+			result.Output = fmt.Sprintf("%s now shows %q", cmp.Or(set.Name, set.Label, "the field"), l.r.modelValue(*set, ""))
+			field.SetsValue = true
+			recorded := recordAction(computeruse.Action{Kind: computeruse.KindType, Text: l.r.placeholder(action.Text)}, field)
+			recorded.Invoked = true
+			return true, &recorded, result
+		}
+	}
+	if err := els.Focus(e); err != nil {
+		result.Error = l.r.masker.MaskString(err.Error())
+		return true, nil, result
+	}
+	l.touched = true
+	logAction(l.r.timeline, l.index, "focus "+describeElement(e))
+	return false, nil, computeruse.Result{}
+}
+
+// setField sets a field's value through the element and returns the field
+// as it then reads, or nil when it does not read back the text. A field
+// that refuses the value is left as it was; one that takes it but reads
+// back something else, as a field that hides or reformats what it is
+// given does, is emptied, so the text typed after replaces what it held.
+func (l *actLoop) setField(ctx context.Context, els desktop.Elements, e desktop.Element, field recordedElement, text string) (*desktop.Element, error) {
+	switch err := l.r.applyPattern(els, e, desktop.PatternSetValue, text); {
+	case desktop.Refused(err):
+		return nil, nil
+	case err != nil:
+		return nil, err
+	}
+	want := desktop.NormalizeText(text)
+	for deadline := time.Now().Add(typedSettle); ; {
+		found, reason, err := l.r.lookRecorded(els, field)
+		if err != nil {
+			return nil, err
+		}
+		if reason == "" && desktop.NormalizeText(found.Value) == want {
+			return &found, nil
+		}
+		if !time.Now().Before(deadline) {
+			break
+		}
+		if err := sleep(ctx, typedPoll); err != nil {
+			return nil, err
+		}
+	}
+	logAction(l.r.timeline, l.index, describeElement(e)+" does not read back the value set; typing it instead")
+	return nil, l.r.applyPattern(els, e, desktop.PatternSetValue, "")
+}
