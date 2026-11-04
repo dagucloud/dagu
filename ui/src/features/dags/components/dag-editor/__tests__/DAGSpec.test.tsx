@@ -226,6 +226,7 @@ type VisualProps = {
   editable: boolean;
   isDirty: boolean;
   onRevertToSave?(): void;
+  revertable?: boolean;
   yamlVisible?: boolean;
   onYamlVisibleChange?(visible: boolean): void;
   onFormVisibleChange?(visible: boolean): void;
