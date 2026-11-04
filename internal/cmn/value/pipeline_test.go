@@ -141,6 +141,146 @@ func TestShellCommandField_QuotedRefStyleFollowsShell(t *testing.T) {
 	}
 }
 
+// A POSIX shell owns unqualified ${NAME} in run text even inside double
+// quotes, so Dagu must not splice DAG env or secret values into the command;
+// the shell reads them from the process environment instead.
+func TestShellCommandField_DefersQuotedShellVars(t *testing.T) {
+	scope := NewEnvScope(nil, false).
+		WithEntries(map[string]string{"FOO": "bar", "DATA_DIR": "~/data"}, EnvSourceDAGEnv).
+		WithEntries(map[string]string{"TOKEN": "s3cret"}, EnvSourceSecret)
+	ctx := WithEnvScope(context.Background(), scope)
+	resolver := NewResolver(StaticScope{}, RuntimeScope{})
+
+	for _, shell := range []string{"sh", "bash"} {
+		t.Run(shell, func(t *testing.T) {
+			field := ShellCommandField("run", CommandContext{
+				Target:          CommandTargetLocal,
+				Shell:           []string{shell},
+				ShellConfigured: true,
+			})
+			// The shell does not expand a leading ~ inside double quotes, so
+			// even a home-relative value stays with the shell.
+			const command = `FOO=local; printf '%s %s %s\n' "${FOO}" "${TOKEN}" "${DATA_DIR}"`
+			got, err := resolver.String(ctx, command, field)
+			require.NoError(t, err)
+			assert.Equal(t, command, got)
+		})
+	}
+}
+
+// Inside a shell single-quoted span the shell never expands "${NAME}", so
+// Dagu resolves it and re-quotes the value, which keeps a JSON body valid. An
+// apostrophe in the value is rendered as '\” so it cannot end the span.
+func TestShellCommandField_ResolvesQuotedRefsInSingleQuotes(t *testing.T) {
+	scope := NewEnvScope(nil, false).
+		WithEntries(map[string]string{"NAME": `a"b`, "NOTE": "it's; rm -rf ~", "FOO": "bar"}, EnvSourceDAGEnv).
+		WithEntries(map[string]string{"TOKEN": "s3cret"}, EnvSourceSecret)
+	ctx := WithEnvScope(context.Background(), scope)
+	resolver := NewResolver(StaticScope{}, RuntimeScope{})
+	field := ShellCommandField("run", CommandContext{
+		Target:          CommandTargetLocal,
+		Shell:           []string{"sh"},
+		ShellConfigured: true,
+	})
+
+	tests := []struct {
+		name    string
+		command string
+		want    string
+	}{
+		{
+			name:    "JSON body",
+			command: `curl -d '{"name":"${NAME}"}' "${NAME}"`,
+			want:    `curl -d '{"name":"a\"b"}' "${NAME}"`,
+		},
+		{
+			name:    "apostrophe in the value",
+			command: `curl -d '{"note":"${NOTE}"}'`,
+			want:    `curl -d '{"note":"it'\''s; rm -rf ~"}'`,
+		},
+		{
+			name:    "span right after an expansion",
+			command: `curl -d ${PREFIX}'{"name":"${NAME}"}'`,
+			want:    `curl -d ${PREFIX}'{"name":"a\"b"}'`,
+		},
+		{
+			// The apostrophes sit inside double quotes, so they open no
+			// single-quoted span and the secret stays with the shell.
+			name:    "apostrophes inside double quotes",
+			command: `echo "it's " "${TOKEN}" "don't"`,
+			want:    `echo "it's " "${TOKEN}" "don't"`,
+		},
+		{
+			// Quotes inside a command substitution start a new context and
+			// leave the outer double-quoted span open.
+			name:    "quotes inside a command substitution",
+			command: `echo "$(printf '"')" "${TOKEN}"`,
+			want:    `echo "$(printf '"')" "${TOKEN}"`,
+		},
+		{
+			name:    "quotes inside backquotes",
+			command: "echo \"`printf '\"'`\" \"${TOKEN}\"",
+			want:    "echo \"`printf '\"'`\" \"${TOKEN}\"",
+		},
+		{
+			// Quotes inside a parameter expansion's word belong to it, not to
+			// the outer double-quoted span.
+			name:    "quotes inside a parameter expansion",
+			command: `echo "${X:-"it's"}" "${TOKEN}" "${FOO}"`,
+			want:    `echo "${X:-"it's"}" "${TOKEN}" "${FOO}"`,
+		},
+		{
+			// A ) inside ${...} does not end the command substitution.
+			name:    "parenthesis inside a parameter expansion",
+			command: `echo "$(echo "${X:-)}")" "${FOO}"`,
+			want:    `echo "$(echo "${X:-)}")" "${FOO}"`,
+		},
+		{
+			name:    "apostrophe in a comment",
+			command: "# don't\necho \"${FOO}\"",
+			want:    "# don't\necho \"${FOO}\"",
+		},
+		{
+			name:    "hash inside a word is not a comment",
+			command: `echo a#'{"name":"${NAME}"}'`,
+			want:    `echo a#'{"name":"a\"b"}'`,
+		},
+		{
+			// A here-document body is a template: its quotes are literal, and
+			// a quoted reference in it is filled in JSON-safe.
+			name:    "here-document body",
+			command: "cat <<EOF\n{\"name\":\"${NAME}\", \"note\": \"it's\"}\nEOF\necho \"${FOO}\"",
+			want:    "cat <<EOF\n{\"name\":\"a\\\"b\", \"note\": \"it's\"}\nEOF\necho \"${FOO}\"",
+		},
+		{
+			name:    "quoted here-document delimiter",
+			command: "cat <<-'END'\n\t{\"name\":\"${NAME}\"}\n\tEND\necho \"${FOO}\"",
+			want:    "cat <<-'END'\n\t{\"name\":\"a\\\"b\"}\n\tEND\necho \"${FOO}\"",
+		},
+		{
+			// A secret is never written into the command text, even where
+			// the shell would not expand it.
+			name:    "secret in a single-quoted body",
+			command: `curl -d '{"token":"${TOKEN}"}'`,
+			want:    `curl -d '{"token":"${TOKEN}"}'`,
+		},
+		{
+			// An even run of backslashes leaves the apostrophe unescaped, so
+			// it opens a single-quoted span.
+			name:    "apostrophe after escaped backslashes",
+			command: `echo \\'{"name":"${NAME}"}'`,
+			want:    `echo \\'{"name":"a\"b"}'`,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got, err := resolver.String(ctx, tt.command, field)
+			require.NoError(t, err)
+			assert.Equal(t, tt.want, got)
+		})
+	}
+}
+
 // A PowerShell double-quoted span interprets the backtick and $, and ends at
 // a raw newline, so a resolved value carrying any of them must be escaped
 // rather than spliced in.

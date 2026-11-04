@@ -461,7 +461,8 @@ func TestResolverShellCommandFieldInlinesSafeHomeRelativeScopeVars(t *testing.T)
 	ctx := context.Background()
 	scope := value.NewEnvScope(nil, false).
 		WithEntry("TEST_FILE", "~/.dagu-test-file", value.EnvSourceDAGEnv).
-		WithEntry("UNSAFE_FILE", "~/$(printf unsafe)", value.EnvSourceDAGEnv)
+		WithEntry("UNSAFE_FILE", "~/$(printf unsafe)", value.EnvSourceDAGEnv).
+		WithEntry("KEY_FILE", "~/.ssh/id_deploy", value.EnvSourceSecret)
 	resolver := value.NewResolver(value.StaticScope{}, value.RuntimeScope{Env: scope})
 	command := value.CommandContext{
 		Target:          value.CommandTargetLocal,
@@ -469,10 +470,11 @@ func TestResolverShellCommandFieldInlinesSafeHomeRelativeScopeVars(t *testing.T)
 		ShellConfigured: true,
 	}
 
-	got, err := resolver.String(ctx, "touch $TEST_FILE $UNSAFE_FILE", value.ShellCommandField("steps[0].run", command))
+	// A secret never enters the command text, even in a home-relative shape.
+	got, err := resolver.String(ctx, "touch $TEST_FILE $UNSAFE_FILE $KEY_FILE", value.ShellCommandField("steps[0].run", command))
 
 	require.NoError(t, err)
-	assert.Equal(t, "touch ~/.dagu-test-file $UNSAFE_FILE", got)
+	assert.Equal(t, "touch ~/.dagu-test-file $UNSAFE_FILE $KEY_FILE", got)
 }
 
 func TestResolverPowerShellCommandFieldExpandsDaguScopeVars(t *testing.T) {
