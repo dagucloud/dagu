@@ -28,7 +28,6 @@ import React from 'react';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Label } from '@/components/ui/label';
 import { cn } from '@/lib/utils';
-import { ParamLabelRow } from './ParamLabelRow';
 import { autoGrowTextarea } from './textareaAutoGrow';
 
 /**
@@ -86,19 +85,23 @@ function SchemaTextareaWidget<
   );
 }
 
+/** Checkbox styling shared by the schema form checkbox widgets. */
+export const schemaCheckboxClassName = cn(
+  'border-input bg-card shadow-sm',
+  'focus-visible:ring-2 focus-visible:ring-ring/50 focus-visible:ring-offset-1 focus-visible:ring-offset-background',
+  'data-[state=checked]:border-primary data-[state=checked]:bg-primary-fill data-[state=checked]:text-primary-foreground'
+);
+
 /**
  * Renders boolean schema fields with the local checkbox component styling.
- * With showName, a label that differs from the field name also shows the name.
  */
 function SchemaCheckboxWidget<
   T = any,
   S extends StrictRJSFSchema = RJSFSchema,
   F extends FormContextType = any,
->(props: WidgetProps<T, S, F> & { showName?: boolean }) {
+>(props: WidgetProps<T, S, F>) {
   const {
     id,
-    name,
-    showName,
     htmlName,
     value,
     disabled,
@@ -123,11 +126,6 @@ function SchemaCheckboxWidget<
     options
   );
   const description = options.description || schema.description;
-  const checkboxLabel = (
-    <Label className="leading-tight" htmlFor={id}>
-      {labelValue(label, hideLabel || !label)}
-    </Label>
-  );
 
   return (
     <div
@@ -158,20 +156,11 @@ function SchemaCheckboxWidget<
           onCheckedChange={(checked) => onChange(Boolean(checked))}
           onBlur={() => onBlur(id, value)}
           onFocus={() => onFocus(id, value)}
-          className={cn(
-            'border-input bg-card shadow-sm',
-            'focus-visible:ring-2 focus-visible:ring-ring/50 focus-visible:ring-offset-1 focus-visible:ring-offset-background',
-            'data-[state=checked]:border-primary data-[state=checked]:bg-primary-fill data-[state=checked]:text-primary-foreground',
-            className
-          )}
+          className={cn(schemaCheckboxClassName, className)}
         />
-        {showName && !hideLabel ? (
-          <ParamLabelRow name={name} label={label}>
-            {checkboxLabel}
-          </ParamLabelRow>
-        ) : (
-          checkboxLabel
-        )}
+        <Label className="leading-tight" htmlFor={id}>
+          {labelValue(label, hideLabel || !label)}
+        </Label>
       </div>
     </div>
   );
@@ -321,12 +310,4 @@ export const schemaFormWidgets: RegistryWidgetsType = {
   RadioWidget: SchemaRadioWidget,
   SelectWidget: SchemaSelectWidget,
   TextareaWidget: SchemaTextareaWidget,
-};
-
-/** Widgets for start parameter forms; a titled boolean also shows its name. */
-export const paramFormWidgets: RegistryWidgetsType = {
-  ...schemaFormWidgets,
-  CheckboxWidget: (props: WidgetProps) => (
-    <SchemaCheckboxWidget {...props} showName />
-  ),
 };

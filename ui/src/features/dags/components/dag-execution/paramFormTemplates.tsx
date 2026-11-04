@@ -5,7 +5,7 @@ import type { FieldTemplateProps, TemplatesType } from '@rjsf/utils';
 import { getTemplate, getUiOptions } from '@rjsf/utils';
 
 import { cn } from '@/lib/utils';
-import { ParamLabelRow } from './ParamLabelRow';
+import { ParamLabel } from './ParamLabel';
 import { schemaFormTemplates } from './schemaFormTemplates';
 
 /**
@@ -73,21 +73,15 @@ function ParamFieldTemplate({
     >
       <div className="flex flex-col gap-2">
         {showLabel && (
-          <ParamLabelRow
+          <ParamLabel
+            htmlFor={id}
             name={typeof name === 'string' ? name : undefined}
             label={label}
+            className={cn('leading-none', hasErrors && 'text-destructive')}
           >
-            <label
-              className={cn(
-                'text-sm font-medium leading-none peer-disabled:cursor-not-allowed peer-disabled:opacity-70',
-                hasErrors && 'text-destructive'
-              )}
-              htmlFor={id}
-            >
-              {label}
-              {required ? '*' : null}
-            </label>
-          </ParamLabelRow>
+            {label}
+            {required ? '*' : null}
+          </ParamLabel>
         )}
         {showLabel && rawDescription && (
           <div

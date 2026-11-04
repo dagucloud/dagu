@@ -355,8 +355,8 @@ describe('StartDAGModal', () => {
       />
     );
 
-    const input = screen.getByLabelText('AWS region *');
-    expect(screen.getByText('region')).toBeInTheDocument();
+    // The name joins the accessible name, so params sharing a title differ.
+    const input = screen.getByRole('textbox', { name: 'AWS region * region' });
     // The description is read before the value is entered.
     const description = screen.getByText(
       'Region the instances are launched in.'

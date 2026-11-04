@@ -56,9 +56,9 @@ import {
   buildParamSchemaUiSchema,
   stringifyParamSchemaFormData,
 } from './paramSchemaForm';
-import { ParamLabelRow } from './ParamLabelRow';
+import { ParamLabel } from './ParamLabel';
 import { paramFormTemplates } from './paramFormTemplates';
-import { paramFormWidgets } from './schemaFormWidgets';
+import { paramFormWidgets } from './paramFormWidgets';
 import { autoGrowTextarea } from './textareaAutoGrow';
 import { I18nText } from '@/i18n/I18nText';
 import { I18nProps } from '@/i18n/I18nProps';
@@ -937,12 +937,14 @@ function StartDAGModal({
                         return (
                           <div key={field.key} className="space-y-2">
                             <div className="flex items-center justify-between gap-3">
-                              <ParamLabelRow name={field.name} label={label}>
-                                <Label htmlFor={`param-${field.key}`}>
-                                  {label}
-                                  {field.required ? ' *' : ''}
-                                </Label>
-                              </ParamLabelRow>
+                              <ParamLabel
+                                htmlFor={`param-${field.key}`}
+                                name={field.name}
+                                label={label}
+                              >
+                                {label}
+                                {field.required ? ' *' : ''}
+                              </ParamLabel>
                               {showUnsetButton && (
                                 <Button
                                   type="button"
