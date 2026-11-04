@@ -1796,6 +1796,28 @@ func TestCloseBrowserReportsRuntimeError(t *testing.T) {
 	require.ErrorIs(t, err, closeErr)
 }
 
+// The exit status of a command that ended the browser, such as taskkill on
+// Windows, is dropped from a close error; whatever else the error reports is
+// kept.
+func TestWithoutExitStatus(t *testing.T) {
+	t.Parallel()
+
+	// The test binary exits with a status on a flag it does not know.
+	exitStatus := exec.Command(os.Args[0], "-test.run=^TestSleeperHelper$", "-test.unknown").Run()
+	require.ErrorAs(t, exitStatus, new(*exec.ExitError))
+	other := errors.New("remove profile: access is denied")
+
+	assert.NoError(t, withoutExitStatus(nil))
+	assert.NoError(t, withoutExitStatus(exitStatus))
+	assert.NoError(t, withoutExitStatus(fmt.Errorf("end browser: %w", exitStatus)))
+	assert.Equal(t, other, withoutExitStatus(other))
+
+	err := withoutExitStatus(errors.Join(exitStatus, other))
+	require.ErrorIs(t, err, other)
+	assert.False(t, errors.As(err, new(*exec.ExitError)), "the exit status is dropped: %v", err)
+	assert.Equal(t, other.Error(), err.Error())
+}
+
 // On Linux a browser that exits at launch is often one that cannot use its
 // sandbox, so the error names the seccomp profile that lets it start and the
 // host setting that turns it off.

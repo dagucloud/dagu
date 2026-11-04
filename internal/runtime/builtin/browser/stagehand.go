@@ -13,6 +13,7 @@ import (
 	"net"
 	"net/http"
 	"os"
+	"os/exec"
 	"path/filepath"
 	goruntime "runtime"
 	"slices"
@@ -1575,8 +1576,10 @@ func askToExit(ctx context.Context, cdpURL string) error {
 // which can outlive the browser by minutes; where the tree exiting ends the
 // close, that wait continues in the background once the tree has exited.
 // Once closeRuntime returns, the tree is given time to finish exiting where
-// helpers outlive the browser. Without a trackable process, closing waits
-// for closeRuntime alone.
+// helpers outlive the browser. Once the tree has exited, the exit status of
+// a command closeRuntime ran to end it says nothing more: the processes it
+// could not end have gone. Without a trackable process, closing waits for
+// closeRuntime alone.
 func closeBrowser(ctx context.Context, pid int, startedAt int64, closeRuntime func(context.Context) error) error {
 	var tree *browserProcessTree
 	if pid > 0 {
@@ -1599,7 +1602,11 @@ func closeBrowser(ctx context.Context, pid int, startedAt int64, closeRuntime fu
 			if tree == nil {
 				return err
 			}
-			return errors.Join(err, tree.awaitExit(ctx))
+			exitErr := tree.awaitExit(ctx)
+			if exitErr == nil {
+				err = withoutExitStatus(err)
+			}
+			return errors.Join(err, exitErr)
 		case <-ctx.Done():
 			return ctx.Err()
 		case <-exitChecks:
@@ -1608,6 +1615,27 @@ func closeBrowser(ctx context.Context, pid int, startedAt int64, closeRuntime fu
 			}
 		}
 	}
+}
+
+// withoutExitStatus returns err without the exit statuses of commands in it,
+// or nil when err reports nothing else. On Windows the browser runtime ends
+// a launched browser with taskkill, whose exit status reports the processes
+// it could not end, among them processes that were exiting as it walked the
+// tree. The runtime reports that status although the browser exited.
+func withoutExitStatus(err error) error {
+	var exitErr *exec.ExitError
+	if !errors.As(err, &exitErr) {
+		return err
+	}
+	joined, ok := err.(interface{ Unwrap() []error })
+	if !ok {
+		return nil
+	}
+	var kept []error
+	for _, err := range joined.Unwrap() {
+		kept = append(kept, withoutExitStatus(err))
+	}
+	return errors.Join(kept...)
 }
 
 func (e *stagehandEngine) release(ctx context.Context) error {
