@@ -362,10 +362,13 @@ export function WorkspaceCanvas({
   const ndvState = useYamlPanelMemory({
     fileName,
     ndv: url.ndv,
+    // A link that names a step, a panel or a tab of the Run panel opens that
+    // view instead.
     restorable:
       url.ndv === null &&
       url.step === null &&
       url.panel === null &&
+      url.dock === null &&
       legacyTab === undefined &&
       !snapshot &&
       !wantsYaml,

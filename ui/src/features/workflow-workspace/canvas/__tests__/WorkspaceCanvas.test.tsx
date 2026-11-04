@@ -1345,6 +1345,12 @@ describe('WorkspaceCanvas', () => {
       ['it was closed last', 'false', '/dags/example.yaml'],
       ['a link opens a step', 'true', '/dags/example.yaml?step=extract'],
       ['a link opens a panel', 'true', '/dags/example.yaml?panel=workflow'],
+      // A legacy /history link lands on the History tab of the Run panel.
+      [
+        'a link opens a tab of the Run panel',
+        'true',
+        '/dags/example.yaml?dock=history',
+      ],
       // Opening it would rewrite the URL and drop the path that redirects.
       [
         'a legacy link has yet to redirect',

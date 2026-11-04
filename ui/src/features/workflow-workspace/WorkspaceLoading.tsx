@@ -47,6 +47,7 @@ function panelsAtLoad(
     (url.ndv === null &&
       url.step === null &&
       url.panel === null &&
+      url.dock === null &&
       url.def === null &&
       tab === undefined &&
       !query.has('yaml') &&
