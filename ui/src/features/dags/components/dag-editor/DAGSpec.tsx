@@ -97,6 +97,7 @@ import { useStepViewForm } from './stepViewMode';
 import { preloadDAGEditor } from './loadDAGEditor';
 import { ReadOnlyMarker, YamlFileBody, YamlFilePanel } from './YamlFilePanel';
 import { useYamlSection } from './useYamlSection';
+import { useDAGSpecQuery } from './useDAGSpecQuery';
 import { WorkflowPanel } from './WorkflowPanel';
 // Not lazy: the canvas is what the page shows first, and a lazy editor adds
 // a blank render that React holds for up to 300 ms.
@@ -347,18 +348,9 @@ function DAGSpec({
     data,
     isLoading,
     mutate: mutateSpec,
-  } = useQuery(
-    '/dags/{fileName}/spec',
-    {
-      params: {
-        query: {
-          remoteNode,
-        },
-        path: {
-          fileName: fileName,
-        },
-      },
-    },
+  } = useDAGSpecQuery(
+    fileName,
+    remoteNode,
     sseFallbackOptions(poll ? FEED_DOWN : FEED_UP)
   );
   const { data: calendarsData, error: calendarsError } = useQuery(

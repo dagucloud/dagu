@@ -162,6 +162,26 @@ describe('DAGDetails page', () => {
     });
   });
 
+  // The editor reads the spec of the file. The page asks for it with the
+  // details, so that the two requests go out together.
+  it('asks for the spec of the file while the details load', () => {
+    useQueryMock.mockImplementation(
+      () => ({ data: undefined, mutate: vi.fn() }) as never
+    );
+    renderPage('/dags/release-notes?remoteNode=edge');
+    expect(useQueryMock).toHaveBeenCalledWith(
+      '/dags/{fileName}/spec',
+      {
+        params: {
+          query: { remoteNode: 'edge' },
+          path: { fileName: 'release-notes' },
+        },
+      },
+      expect.anything()
+    );
+    expect(WorkflowWorkspace).not.toHaveBeenCalled();
+  });
+
   // The workspace is the only body of the page, with the states, scope and
   // providers around it. Redirects run before it mounts.
   // parity:page-workspace-mismatch
