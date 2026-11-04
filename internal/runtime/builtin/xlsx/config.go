@@ -44,6 +44,7 @@ type config struct {
 	Format        string            `mapstructure:"format"`
 	Mode          string            `mapstructure:"mode"`
 	Style         string            `mapstructure:"style"`
+	Formats       map[string]string `mapstructure:"formats"`
 	Atomic        bool              `mapstructure:"atomic"`
 	DryRun        bool              `mapstructure:"dry_run"`
 	WaitForUnlock string            `mapstructure:"wait_for_unlock"`
@@ -171,9 +172,9 @@ var fieldsByOperation = map[string][]string{
 	opInfo:       {"path", "password"},
 	opListSheets: {"path", "password"},
 	opWrite: {"path", "password", "sheet", "rows", "input", "format", "encoding", "delimiter", "columns", "header",
-		"mode", "style", "types", "atomic", "dry_run", "wait_for_unlock", "artifact"},
+		"mode", "style", "types", "formats", "atomic", "dry_run", "wait_for_unlock", "artifact"},
 	opAppend: {"path", "password", "sheet", "rows", "input", "format", "encoding", "delimiter", "columns", "header",
-		"types", "output", "atomic", "dry_run", "wait_for_unlock", "artifact"},
+		"types", "formats", "output", "atomic", "dry_run", "wait_for_unlock", "artifact"},
 	opUpdateRows: {"path", "password", "sheet", "header", "rows", "key", "set", "missing", "output", "atomic",
 		"dry_run", "wait_for_unlock", "artifact"},
 	opValidate: {"path", "password", "sheet", "range", "header", "columns", "merged", "skip_hidden", "trim", "formulas",
@@ -251,6 +252,11 @@ func validateConfig(operation string, cfg *config) error {
 				return fmt.Errorf("%w: types.%s: %v", errConfig, column, err)
 			}
 			cfg.types[column] = t
+		}
+	}
+	for column, format := range cfg.Formats {
+		if strings.TrimSpace(format) == "" {
+			return fmt.Errorf("%w: formats.%s must not be empty", errConfig, column)
 		}
 	}
 	if err := workbook.ValidateWhere(cfg.Where); err != nil {
@@ -569,6 +575,7 @@ func (cfg config) writeOptions(output string, log func(string)) workbook.WriteOp
 		Header:   header,
 		Style:    workbook.StyleMode(cfg.Style),
 		Types:    cfg.types,
+		Formats:  cfg.Formats,
 		Output:   output,
 		InPlace:  !cfg.Atomic,
 		DryRun:   cfg.DryRun,
@@ -784,6 +791,8 @@ var configSchema = &jsonschema.Schema{
 			Description: "What xlsx.write does to an existing sheet: replace (default) its contents, or append below its last row."},
 		"style": {Type: "string", Enum: []any{"table", "none"},
 			Description: "How a new sheet looks: table (default) has a bold frozen header, fitted widths, and number formats by column; none writes bare cells."},
+		"formats": {Type: "object", AdditionalProperties: &jsonschema.Schema{Type: "string"},
+			Description: "xlsx.write and xlsx.append: an explicit number format per column, such as {Total: \"#,##0\", Rate: \"0.0%\"}. It applies to every cell written to the column, on a new sheet or below existing rows, and wins over the format the column's values or the cell above would give."},
 		"atomic":  boolOrRef("Save through a temporary file renamed over the workbook. Defaults to true."),
 		"dry_run": boolOrRef("Compute and report the changes without saving the workbook."),
 		"wait_for_unlock": {Type: "string", Description: "How long to retry a workbook that another program holds open, such as 5m. " +

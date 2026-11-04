@@ -21,6 +21,7 @@ func TestXlsxValidationMessages(t *testing.T) {
 		{"validation_bad_on_type_error.yaml", "skip does not equal any of: [fail warn null"},
 		{"validation_bad_mode.yaml", "merge does not equal any of: [replace append]"},
 		{"validation_bad_style.yaml", "fancy does not equal any of: [table none]"},
+		{"validation_blank_format.yaml", "formats.Total must not be empty"},
 		{"validation_bad_missing.yaml", "ignore does not equal any of: [fail skip append]"},
 		{"validation_bad_type.yaml", "money does not equal any of: [string number integer boolean date datetime]"},
 		{"validation_bad_header.yaml", "header must be true, false, a row number, or a list of row numbers"},

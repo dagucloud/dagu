@@ -243,9 +243,10 @@ func updateOnce(ctx context.Context, path string, opts UpdateOptions) (*WriteRes
 		return nil, err
 	}
 
-	// Add missing columns at the right of the header row.
+	// Add missing columns at the right of the header row, only when some
+	// row is written, so an update with nothing to write changes nothing.
 	for i := range plan.set {
-		if !plan.set[i].added {
+		if !plan.set[i].added || len(targets)+len(appends) == 0 {
 			continue
 		}
 		plan.reg.C2++
@@ -293,7 +294,10 @@ func updateOnce(ctx context.Context, path string, opts UpdateOptions) (*WriteRes
 	plan.reg.R2 = lastRow
 	result.Changes.Range = region{Sheet: plan.sheet, C1: plan.reg.C1, R1: plan.layout.dataStart, C2: plan.reg.C2, R2: max(lastRow, plan.layout.dataStart)}.String()
 	w.forget(plan.sheet)
-	if opts.DryRun {
+	// A run that changed no cell leaves the workbook file as it is; an
+	// output still gets its copy.
+	unchanged := result.Changes.CellsChanged == 0 && result.Changes.ColumnsAdded == 0
+	if opts.DryRun || (unchanged && opts.Output == "") {
 		return result, nil
 	}
 	if opts.Output != "" {
@@ -350,12 +354,12 @@ func (w *file) planUpdate(opts UpdateOptions, warn func(string)) (*updatePlan, e
 	set := opts.Set
 	if set == nil {
 		set = defaultSet(opts.Rows, opts.Key)
-		if len(set) == 0 {
+		if len(set) == 0 && len(opts.Rows) > 0 {
 			return nil, w.sheetError(sheet, "rows carry no fields to write; set is empty")
 		}
 	}
 	for column, value := range set {
-		if !value.IsLiteral && !anyRowHas(opts.Rows, value.Field) {
+		if len(opts.Rows) > 0 && !value.IsLiteral && !anyRowHas(opts.Rows, value.Field) {
 			return nil, w.sheetError(sheet, fmt.Sprintf("set.%s: field %q is not in any row", column, value.Field))
 		}
 	}

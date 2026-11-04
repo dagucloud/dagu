@@ -438,6 +438,63 @@ func TestUpdateRowsAddedColumnUnderMergedHeader(t *testing.T) {
 	assert.Equal(t, before, fileHash(t, path))
 }
 
+// TestUpdateRowsWithNothingToWrite covers runs that change no cell: an
+// empty rows list (with set naming an existing or a missing column, or
+// with set left to default), rows that are all skipped, and rows whose
+// values are already there. Each succeeds without saving the workbook,
+// and an output still receives its copy.
+func TestUpdateRowsWithNothingToWrite(t *testing.T) {
+	t.Parallel()
+	for _, tc := range []struct {
+		name    string
+		rows    []Row
+		set     map[string]any
+		missing MissingMode
+		output  bool
+	}{
+		{name: "EmptyExistingColumn", set: map[string]any{"Status": "status"}},
+		{name: "EmptyNewColumn", set: map[string]any{"Result": "result"}},
+		{name: "EmptyDefaultSet"},
+		{name: "EmptyWithOutput", set: map[string]any{"Status": "status"}, output: true},
+		{name: "AllSkipped", rows: []Row{{"Invoice No": "INV-9", "Result": "x"}}, set: map[string]any{"Result": "Result"}, missing: MissingSkip},
+		{name: "Unchanged", rows: []Row{{"Invoice No": "INV-2", "Status": "Done"}}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			path := ordersBook(t)
+			before := fileHash(t, path)
+			info, err := os.Stat(path)
+			require.NoError(t, err)
+			opts := UpdateOptions{Key: "Invoice No", Rows: tc.rows, Missing: tc.missing}
+			if tc.set != nil {
+				set, err := ParseSet(tc.set)
+				require.NoError(t, err)
+				opts.Set = set
+			}
+			if tc.output {
+				opts.Output = filepath.Join(filepath.Dir(path), "updated.xlsx")
+			}
+			result, err := UpdateRows(context.Background(), path, opts)
+			require.NoError(t, err)
+			assert.Zero(t, result.Changes.RowsUpdated)
+			assert.Zero(t, result.Changes.RowsAppended)
+			assert.Zero(t, result.Changes.CellsChanged)
+			assert.Zero(t, result.Changes.ColumnsAdded)
+			// A save replaces the file through a rename, so a saved workbook
+			// is no longer the same file even when its bytes match.
+			now, err := os.Stat(path)
+			require.NoError(t, err)
+			assert.True(t, os.SameFile(info, now), "the workbook is not saved")
+			assert.Equal(t, before, fileHash(t, path))
+			if tc.output {
+				back, err := Read(context.Background(), opts.Output, ReadOptions{})
+				require.NoError(t, err)
+				assert.Equal(t, 3, back.Count)
+			}
+		})
+	}
+}
+
 func TestUpdateRowsOutputLeavesTheWorkbookAlone(t *testing.T) {
 	t.Parallel()
 	path := ordersBook(t)

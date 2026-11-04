@@ -227,6 +227,7 @@ func TestValidation(t *testing.T) {
 		{"bad header", opRead, map[string]any{"path": "a.xlsx", "header": "yes"}, "header must be true, false, a row number"},
 		{"bad columns", opRead, map[string]any{"path": "a.xlsx", "columns": map[string]any{"a": "b"}}, "columns must be a list"},
 		{"bad type", opRead, map[string]any{"path": "a.xlsx", "types": map[string]any{"a": "money"}}, `types.a: unknown column type "money"`},
+		{"empty format", opWrite, map[string]any{"path": "a.xlsx", "rows": "[]", "formats": map[string]any{"Total": ""}}, "formats.Total must not be empty"},
 		{"max_rows zero", opRead, map[string]any{"path": "a.xlsx", "max_rows": 0}, "max_rows must be >= 1"},
 		{"bad where", opRead, map[string]any{"path": "a.xlsx", "where": map[string]any{"a": map[string]any{"like": "x"}}}, `where: a: unknown operator "like"`},
 		{"unsupported op", "pivot", map[string]any{"path": "a.xlsx"}, `unsupported operation "pivot"`},
@@ -351,6 +352,15 @@ func TestConfigSchemaRejectsUnknownKeys(t *testing.T) {
 	require.NoError(t, registry.ValidateExecutorConfig(executorType, map[string]any{"path": "a.xlsx", "max_rows": 10}))
 	require.Error(t, registry.ValidateExecutorConfig(executorType, map[string]any{"path": "a.xlsx", "strip": true}))
 	require.Error(t, registry.ValidateExecutorConfig(executorType, map[string]any{"path": "a.xlsx", "merged": "middle"}))
+}
+
+func TestConfigSchemaAcceptsFormats(t *testing.T) {
+	t.Parallel()
+	require.NoError(t, registry.ValidateExecutorConfig(executorType, map[string]any{
+		"path":    "a.xlsx",
+		"rows":    []any{map[string]any{"Total": 17500}},
+		"formats": map[string]any{"Total": "#,##0"},
+	}))
 }
 
 func TestResolvePath(t *testing.T) {
