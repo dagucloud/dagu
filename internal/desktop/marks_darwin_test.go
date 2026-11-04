@@ -76,6 +76,16 @@ func TestMacMarks(t *testing.T) {
 	assert.True(t, target.In(mark.id.Bounds), "the mark's window %v does not cover %v", mark.id.Bounds, target)
 	assert.Equal(t, focused.Handle, backend.FocusedWindow().Handle, "a mark takes the focus")
 	assert.NotEqual(t, helper, backend.WindowAt(middle.X, middle.Y).PID, "a mark is the window under a point")
+	system := axUIElementCreateSystemWide()
+	require.NotZero(t, system)
+	defer cfRelease(system)
+	point := d.points(middle)
+	var element uintptr
+	require.Equal(t, int32(axErrorSuccess), axUIElementCopyElementAtPosition(system, float32(point.X), float32(point.Y), &element))
+	defer cfRelease(element)
+	var pid int32
+	require.Equal(t, int32(axErrorSuccess), axUIElementGetPid(element, &pid))
+	assert.NotEqual(t, int32(helper), pid, "a mark is the element under a point") //nolint:gosec // process ids fit 32 bits
 
 	shot, err := backend.Capture()
 	require.NoError(t, err)

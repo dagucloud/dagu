@@ -239,25 +239,34 @@ func ServeMarks(in io.Reader, out io.Writer) error {
 		if event != 0 && objc.Send[uint64](event, objc.RegisterName("type")) != eventTypeApplicationDefined {
 			app.Send(objc.RegisterName("sendEvent:"), event)
 		}
+		done, err := answerRequests(messages, window, out)
 		ui.poolPop(pool)
-		for drained := false; !drained; {
-			select {
-			case message, ok := <-messages:
-				if !ok {
-					return nil
-				}
-				reply := markReplyOK
-				if message.err != nil {
-					reply = message.err.Error()
-				} else {
-					window.apply(message.request)
-				}
-				if _, err := fmt.Fprintln(out, reply); err != nil {
-					return err
-				}
-			default:
-				drained = true
+		if done || err != nil {
+			return err
+		}
+	}
+}
+
+// answerRequests acts on every request waiting and answers each, and
+// reports done once the input has ended.
+func answerRequests(messages <-chan helperMessage, window *markWindow, out io.Writer) (bool, error) {
+	for {
+		select {
+		case message, ok := <-messages:
+			if !ok {
+				return true, nil
 			}
+			reply := markReplyOK
+			if message.err != nil {
+				reply = message.err.Error()
+			} else {
+				window.apply(message.request)
+			}
+			if _, err := fmt.Fprintln(out, reply); err != nil {
+				return false, err
+			}
+		default:
+			return false, nil
 		}
 	}
 }
