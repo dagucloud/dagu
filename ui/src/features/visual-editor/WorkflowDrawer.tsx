@@ -32,7 +32,6 @@ export function WorkflowDrawer({
       modal={false}
       label={ts('Workflow')}
       panelId="workflow"
-      closeOnPageEscape
     >
       <div data-testid="ve-workflow" className="flex min-h-0 flex-1 flex-col">
         <PanelHeader

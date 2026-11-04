@@ -174,6 +174,8 @@ export interface VisualEditorProps extends EditorHostProps {
   onYamlModeChange?(mode: 'file' | 'step'): void;
   /** What the YAML shows when the editor mounts with it visible. Default 'step'. */
   initialYamlMode?: 'file' | 'step';
+  /** The Workflow panel shows when the editor mounts, with a workflowPanel. */
+  initialWorkflowOpen?: boolean;
   /** Controls before the canvas controls; see VisualCanvasProps.toolbarStart. */
   toolbarStart?: ReactNode;
   /**
@@ -375,6 +377,7 @@ export function VisualEditor(props: VisualEditorProps): ReactElement {
     onYamlIntent,
     onYamlModeChange,
     initialYamlMode = 'step',
+    initialWorkflowOpen = false,
     toolbarStart,
     toolbarTrail,
     onRevertToSave,
@@ -586,7 +589,7 @@ export function VisualEditor(props: VisualEditorProps): ReactElement {
   // The YAML, the form of a step and the workflow panel share the side drawer.
   // A click on a step shows its YAML; its form opens from the small button at
   // its declaration in the YAML, or from the Open button of the step.
-  const [workflowOpen, setWorkflowOpen] = useState(false);
+  const [workflowOpen, setWorkflowOpen] = useState(initialWorkflowOpen);
   // The launcher whose panel is open, and what the host side of the launchers
   // reads from the server. Only a host that gives `launcherHost` has them.
   const [launcherOpen, setLauncherOpen] = useState<LauncherId | null>(null);

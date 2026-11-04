@@ -4,7 +4,10 @@
 import { render, screen } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
 import { afterEach, describe, expect, it } from 'vitest';
-import { YAML_PANEL_OPEN_KEY } from '../canvas/useYamlPanelMemory';
+import {
+  WORKFLOW_PANEL_OPEN_KEY,
+  YAML_PANEL_OPEN_KEY,
+} from '../canvas/useYamlPanelMemory';
 import { DOCK_HEIGHT_KEY, DOCK_OPEN_KEY } from '../dock/DockContext';
 import { WorkspaceLoading } from '../WorkspaceLoading';
 
@@ -48,6 +51,13 @@ describe('WorkspaceLoading', () => {
     });
     // The Run panel yields to it.
     expect(screen.queryByTestId('ww-loading-dock')).toBeNull();
+  });
+
+  it('shows the Workflow panel that the page restores', () => {
+    localStorage.setItem(WORKFLOW_PANEL_OPEN_KEY, 'true');
+    renderAt('/dags/graph-etl');
+    expect(screen.getByTestId('ww-loading-workflow')).toBeInTheDocument();
+    expect(screen.queryByTestId('ww-loading-yaml')).toBeNull();
   });
 
   it('shows no YAML panel when a link opens a step', () => {

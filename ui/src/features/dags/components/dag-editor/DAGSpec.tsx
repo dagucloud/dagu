@@ -295,6 +295,7 @@ function DAGSpec({
   onNotice,
   launcherHost,
   renderWorkflowPanel,
+  initialWorkflowOpen = false,
 }: Props) {
   const { ts } = useI18n();
   const remoteNode = useRemoteNode();
@@ -2226,6 +2227,7 @@ function DAGSpec({
                           onYamlIntent={preloadDAGEditor}
                           onYamlModeChange={setYamlKind}
                           initialYamlMode={yamlKind}
+                          initialWorkflowOpen={initialWorkflowOpen}
                           toolbarStart={documentTabs}
                           toolbarTrail={specActions}
                           onRevertToSave={editable ? requestDiscard : undefined}

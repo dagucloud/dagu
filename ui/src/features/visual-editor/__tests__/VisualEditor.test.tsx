@@ -826,6 +826,38 @@ describe.skipIf(realSchema === null)('VisualEditor', () => {
     expect(workflow()).toHaveAttribute('aria-pressed', 'false');
   });
 
+  // The page keeps the panel as the user left it: a key does not close it.
+  it('keeps the workflow panel open on Escape', () => {
+    renderEditor({
+      initial: yamlArraySteps,
+      workflowPanel: <p>About the workflow</p>,
+    });
+    fireEvent.click(screen.getByRole('button', { name: 'Workflow' }));
+    // An Esc of the page, with the focus on no control.
+    (document.activeElement as HTMLElement | null)?.blur();
+
+    fireEvent.keyDown(document.body, { key: 'Escape' });
+
+    expect(screen.getByRole('button', { name: 'Workflow' })).toHaveAttribute(
+      'aria-pressed',
+      'true'
+    );
+  });
+
+  it('shows the workflow panel at mount when it opens there', () => {
+    renderEditor({
+      initial: yamlArraySteps,
+      workflowPanel: <p>About the workflow</p>,
+      initialWorkflowOpen: true,
+    });
+
+    expect(screen.getByText('About the workflow')).toBeVisible();
+    expect(screen.getByRole('button', { name: 'Workflow' })).toHaveAttribute(
+      'aria-pressed',
+      'true'
+    );
+  });
+
   describe('the YAML of a step', () => {
     const yamlProps = (root: HTMLElement) => ({
       initial: yamlArraySteps,

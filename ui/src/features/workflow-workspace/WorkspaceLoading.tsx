@@ -12,7 +12,10 @@ import { getStoredDrawerWidth } from '@/features/dags/components/step-details/St
 import { TOOLBAR_ZONE_CLASS } from '@/features/visual-editor/canvas/toolbarHost';
 import { useI18n } from '@/i18n/I18nProvider';
 import { cn } from '@/lib/utils';
-import { yamlPanelWasOpen } from './canvas/useYamlPanelMemory';
+import {
+  workflowPanelWasOpen,
+  yamlPanelWasOpen,
+} from './canvas/useYamlPanelMemory';
 import { storedDockHeight, storedDockOpen } from './dock/DockContext';
 import {
   MAIN_ZONE_CLASS,
@@ -29,44 +32,48 @@ const WORKFLOW_TAB = /^\/dags\/[^/]+\/([^/]+)/;
 
 /**
  * Which panels the page shows at its first render, by the rules of the
- * page: the YAML panel by ?ndv or as the user left it (useYamlPanelMemory),
- * the Run panel by ?dock, a ?run of a link or as the user left it
- * (DockProvider). The Run panel yields to the YAML panel and to the step
- * view.
+ * page: the YAML panel by ?ndv or as the user left it, else the Workflow
+ * panel as the user left it (useYamlPanelMemory), and the Run panel by
+ * ?dock, a ?run of a link or as the user left it (DockProvider). The Run
+ * panel yields to the right panel and to the step view.
  */
 function panelsAtLoad(
   pathname: string,
   search: string,
   routeState: unknown
-): { yaml: boolean; dock: boolean } {
+): { right: 'yaml' | 'workflow' | null; dock: boolean } {
   const tab = WORKFLOW_TAB.exec(pathname)?.[1];
   const query = new URLSearchParams(search);
   const url = parseWorkspaceUrl(tab, query);
-  const yaml =
-    url.ndv === 'docked' ||
-    (url.ndv === null &&
-      url.step === null &&
-      url.panel === null &&
-      url.dock === null &&
-      url.def === null &&
-      tab === undefined &&
-      !query.has('yaml') &&
-      yamlPanelWasOpen());
+  const restorable =
+    url.ndv === null &&
+    url.step === null &&
+    url.panel === null &&
+    url.dock === null &&
+    url.def === null &&
+    tab === undefined &&
+    !query.has('yaml');
+  const right =
+    url.ndv === 'docked' || (restorable && yamlPanelWasOpen())
+      ? 'yaml'
+      : restorable && workflowPanelWasOpen()
+        ? 'workflow'
+        : null;
   const stepView = url.ndv === 'expanded' && url.step !== null;
   const dock =
-    !yaml &&
+    right === null &&
     !stepView &&
     (url.dock !== null ||
       (url.run !== null && !isRunRedirect(routeState)) ||
       storedDockOpen());
-  return { yaml, dock };
+  return { right, dock };
 }
 
 /**
  * What the workflow page shows until its data is there: its frame, with each
  * part in the place and at the size of the page. The bar holds the name of
- * the workflow, the zone the dots of the canvas, and the YAML panel and the
- * Run panel show as the page will show them, so that the page fills the
+ * the workflow, the zone the dots of the canvas, and the right panel and
+ * the Run panel show as the page will show them, so that the page fills the
  * frame in and nothing moves. A load that takes long shows the loader in the
  * free part of the zone. `url` is the address of the page when it is not the
  * current one yet, as for a workflow that opens over a list. It is the
@@ -82,7 +89,7 @@ export function WorkspaceLoading({
   const { ts } = useI18n();
   const location = useLocation();
   const target = url ? new URL(url, window.location.origin) : location;
-  const { yaml, dock } = panelsAtLoad(
+  const { right, dock } = panelsAtLoad(
     target.pathname,
     target.search,
     url ? null : location.state
@@ -113,20 +120,20 @@ export function WorkspaceLoading({
         <div aria-hidden="true" className={CANVAS_DOTS_CLASS} />
         <div
           className="relative flex min-h-0 flex-1"
-          style={yaml ? { marginRight: panelWidth } : undefined}
+          style={right ? { marginRight: panelWidth } : undefined}
         >
           <LoadingIndicator fill delayed />
         </div>
-        {yaml && (
+        {right && (
           <div
             aria-hidden="true"
-            data-testid="ww-loading-yaml"
+            data-testid={`ww-loading-${right}`}
             className={PANEL_ZONE_SHELL_CLASS}
             style={{ width: `${panelWidth}px`, maxWidth: panelMaxWidth() }}
           >
             <div className={PANEL_HEADER_CLASS}>
               <span className="truncate text-base font-semibold text-foreground">
-                {ts('YAML')}
+                {right === 'yaml' ? ts('YAML') : ts('Workflow')}
               </span>
             </div>
           </div>

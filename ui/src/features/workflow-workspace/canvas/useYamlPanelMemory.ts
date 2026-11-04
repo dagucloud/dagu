@@ -3,6 +3,7 @@
 
 import { useEffect, useRef, useState } from 'react';
 import { writeLocalStorage } from '@/lib/local-storage-migration';
+import type { RightPanelId } from '@/contexts/RightPanelContext';
 import type { WorkspaceUrlState } from '../state/workspaceUrl';
 
 /** Storage key of the YAML panel of the workflow page: 'true' while it is open. */
@@ -71,4 +72,72 @@ export function useYamlPanelMemory({
   }, [fileName, ndv]);
 
   return pending ? 'docked' : ndv;
+}
+
+/** Storage key of the Workflow panel of the workflow page: 'true' while it is open. */
+export const WORKFLOW_PANEL_OPEN_KEY = 'dagu.workspace.workflowPanelOpen';
+
+/** True when the Workflow panel was open when the user left the last workflow. */
+export function workflowPanelWasOpen(): boolean {
+  try {
+    return window.localStorage.getItem(WORKFLOW_PANEL_OPEN_KEY) === 'true';
+  } catch {
+    // Storage can be unavailable in privacy-restricted browser contexts.
+    return false;
+  }
+}
+
+/**
+ * Keeps the Workflow panel of the workflow page as the user left it, as
+ * useYamlPanelMemory keeps the YAML panel. `open` tells whether the editor
+ * opens the panel at its first render. `pending` is true until a panel has
+ * taken the right of the zone, so that the Run panel yields to the Workflow
+ * panel before it mounts. Each later open and close of the panel is stored.
+ */
+export function useWorkflowPanelMemory({
+  fileName,
+  activePanel,
+  restorable,
+}: {
+  fileName: string;
+  /** The right panel that shows (useActiveRightPanel). */
+  activePanel: RightPanelId | null;
+  /** False when the URL opens another view, or the YAML panel shows. */
+  restorable: boolean;
+}): { open: boolean; pending: boolean } {
+  const [decided, setDecided] = useState<{
+    fileName: string;
+    open: boolean;
+    shown: boolean;
+  } | null>(null);
+  let current = decided;
+  if (current?.fileName !== fileName) {
+    current = {
+      fileName,
+      open: restorable && workflowPanelWasOpen(),
+      shown: false,
+    };
+    setDecided(current);
+  } else if (current.open && !current.shown && activePanel !== null) {
+    current = { ...current, shown: true };
+    setDecided(current);
+  }
+
+  const seen = useRef({ fileName, activePanel });
+  useEffect(() => {
+    const previous = seen.current;
+    seen.current = { fileName, activePanel };
+    // Another workflow comes with its own panels: no choice of the user.
+    if (previous.fileName !== fileName) return;
+    if (activePanel === 'workflow' && previous.activePanel !== 'workflow') {
+      writeLocalStorage(WORKFLOW_PANEL_OPEN_KEY, 'true');
+    } else if (
+      previous.activePanel === 'workflow' &&
+      activePanel !== 'workflow'
+    ) {
+      writeLocalStorage(WORKFLOW_PANEL_OPEN_KEY, 'false');
+    }
+  }, [fileName, activePanel]);
+
+  return { open: current.open, pending: current.open && !current.shown };
 }

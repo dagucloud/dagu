@@ -66,7 +66,10 @@ import { useRightPanelClearance } from './useRightPanelClearance';
 import { runStepGates, useStepCommandHost } from './useStepCommandHost';
 import { useStepPanel } from './useStepPanel';
 import { useDeepLinkReveal, useStepViewKeys } from './useStepViewHost';
-import { useYamlPanelMemory } from './useYamlPanelMemory';
+import {
+  useWorkflowPanelMemory,
+  useYamlPanelMemory,
+} from './useYamlPanelMemory';
 import {
   useWorkspaceEditor,
   useWorkspaceEditorBinding,
@@ -359,20 +362,28 @@ export function WorkspaceCanvas({
     () => setUrl({ ndv: 'docked' }, { replace: true }),
     [setUrl]
   );
+  // A link that names a step, a panel or a tab of the Run panel opens that
+  // view instead.
+  const restorable =
+    url.ndv === null &&
+    url.step === null &&
+    url.panel === null &&
+    url.dock === null &&
+    legacyTab === undefined &&
+    !snapshot &&
+    !wantsYaml;
   const ndvState = useYamlPanelMemory({
     fileName,
     ndv: url.ndv,
-    // A link that names a step, a panel or a tab of the Run panel opens that
-    // view instead.
-    restorable:
-      url.ndv === null &&
-      url.step === null &&
-      url.panel === null &&
-      url.dock === null &&
-      legacyTab === undefined &&
-      !snapshot &&
-      !wantsYaml,
+    restorable,
     restore: restoreYamlPanel,
+  });
+  // The Workflow panel shows as the user left it too, when the YAML panel
+  // does not.
+  const workflowPanel = useWorkflowPanelMemory({
+    fileName,
+    activePanel,
+    restorable: restorable && ndvState === null,
   });
   const ndv = useMemo<DAGSpecHostProps['ndv']>(
     () => ({
@@ -480,7 +491,10 @@ export function WorkspaceCanvas({
   // comes back when the panel closes. Activity that opens closes the panel.
   // The node view and the YAML panel of the first render yield it at once,
   // before their panel has mounted.
-  useDockYield(paneActive && (activePanel !== null || ndvState !== null));
+  useDockYield(
+    paneActive &&
+      (activePanel !== null || ndvState !== null || workflowPanel.pending)
+  );
   // Esc in the YAML of the step view closes the view too.
   useEscInStepYaml({
     active: paneActive,
@@ -573,7 +587,11 @@ export function WorkspaceCanvas({
               className="flex min-h-0 w-full min-w-0 flex-1 flex-col"
             >
               <PaneActiveContext.Provider value={paneActive}>
-                <MountAfterDockYield waits={paneActive && ndvState !== null}>
+                <MountAfterDockYield
+                  waits={
+                    paneActive && (ndvState !== null || workflowPanel.pending)
+                  }
+                >
                   <DAGSpec
                     fileName={fileName}
                     localDags={dagData.localDags}
@@ -601,6 +619,7 @@ export function WorkspaceCanvas({
                     onEditorStateChange={onEditorStateChange}
                     launcherHost={launcherHost}
                     renderWorkflowPanel={renderWorkflowPanel}
+                    initialWorkflowOpen={workflowPanel.open}
                   />
                 </MountAfterDockYield>
               </PaneActiveContext.Provider>
