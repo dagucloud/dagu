@@ -355,7 +355,7 @@ func (w *file) planUpdate(opts UpdateOptions, warn func(string)) (*updatePlan, e
 		}
 	}
 	for column, value := range set {
-		if !value.IsLiteral && !anyRowHas(opts.Rows, value.Field) {
+		if len(opts.Rows) > 0 && !value.IsLiteral && !anyRowHas(opts.Rows, value.Field) {
 			return nil, w.sheetError(sheet, fmt.Sprintf("set.%s: field %q is not in any row", column, value.Field))
 		}
 	}

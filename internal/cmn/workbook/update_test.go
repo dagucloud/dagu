@@ -438,6 +438,19 @@ func TestUpdateRowsAddedColumnUnderMergedHeader(t *testing.T) {
 	assert.Equal(t, before, fileHash(t, path))
 }
 
+func TestUpdateRowsEmptyRowsSucceeds(t *testing.T) {
+	t.Parallel()
+	path := ordersBook(t)
+	before := fileHash(t, path)
+	set, err := ParseSet(map[string]any{"Status": "status"})
+	require.NoError(t, err)
+	result, err := UpdateRows(context.Background(), path, UpdateOptions{Key: "Invoice No", Rows: nil, Set: set})
+	require.NoError(t, err, "an empty rows list changes nothing and must not fail")
+	assert.Equal(t, 0, result.Changes.RowsUpdated)
+	assert.Equal(t, 0, result.Changes.CellsChanged)
+	assert.Equal(t, before, fileHash(t, path), "no change is written")
+}
+
 func TestUpdateRowsOutputLeavesTheWorkbookAlone(t *testing.T) {
 	t.Parallel()
 	path := ordersBook(t)
