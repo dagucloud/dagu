@@ -23,6 +23,15 @@ const unknownStep: ValueReferenceNotice = {
   class: ValueReferenceNoticeClass.defect,
 };
 
+// A run gives this reference its value: it is no issue of the spec.
+const runPath: ValueReferenceNotice = {
+  message: 'context.paths.work_dir is populated during a DAG run',
+  fieldPath: 'steps[0].run',
+  token: '${context.paths.work_dir}',
+  reason: ValueReferenceNoticeReason.namespace_unavailable,
+  class: ValueReferenceNoticeClass.runtime_only,
+};
+
 const issues: ValidationIssue[] = [
   {
     severity: ValidationIssueSeverity.warning,
@@ -175,6 +184,50 @@ describe('IssuesPopover', () => {
     });
     expect(dialog).toHaveTextContent('Needs a fix');
     expect(dialog).toHaveTextContent('${steps.fetch.stdout}');
+  });
+
+  // Spec 003: a runtime-only notice is not a validation warning. It is
+  // neither counted nor listed; the details dialog keeps it apart.
+  it('counts and lists only the notices that are defects', () => {
+    render(
+      <IssuesPopover
+        warnings={[]}
+        errors={['an error']}
+        valueReferences={[unknownStep, runPath]}
+      />
+    );
+
+    const panel = openPopover();
+    expect(
+      screen.getByRole('button', { name: 'Issues (2)' })
+    ).toBeInTheDocument();
+    const group = within(panel).getByRole('region', {
+      name: 'Value references (1)',
+    });
+    expect(group).not.toHaveTextContent('context.paths.work_dir');
+    fireEvent.click(within(group).getByRole('button', { name: /Details/ }));
+    const dialog = screen.getByRole('dialog', {
+      name: 'Value Reference Notices',
+    });
+    expect(dialog).toHaveTextContent('${steps.fetch.stdout}');
+  });
+
+  it('shows no value-reference group for runtime-only notices', () => {
+    render(
+      <IssuesPopover
+        warnings={[]}
+        errors={['an error']}
+        valueReferences={[runPath]}
+      />
+    );
+
+    const panel = openPopover();
+    expect(
+      screen.getByRole('button', { name: 'Issues (1)' })
+    ).toBeInTheDocument();
+    expect(
+      within(panel).queryByRole('region', { name: /Value references/ })
+    ).toBeNull();
   });
 
   it('announces the changes of the count politely', () => {
