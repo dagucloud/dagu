@@ -138,3 +138,43 @@ func processRunning(t *testing.T, pid uint32) bool {
 	}
 	return event != windows.WAIT_OBJECT_0
 }
+
+// TestProcessRunning_RetainedHandle holds a handle to a process across its
+// termination: the PID stays openable, as it does when a security product or
+// a debugger keeps a handle, and processRunning still reports it as stopped.
+func TestProcessRunning_RetainedHandle(t *testing.T) {
+	cmd := exec.Command("cmd", "/C", "ping", "-n", "30", "127.0.0.1")
+	cmd.SysProcAttr = &syscall.SysProcAttr{HideWindow: true}
+	if err := cmd.Start(); err != nil {
+		t.Fatalf("failed to start test process: %v", err)
+	}
+	pid := uint32(cmd.Process.Pid)
+
+	retained, err := windows.OpenProcess(windows.PROCESS_QUERY_LIMITED_INFORMATION, false, pid)
+	if err != nil {
+		t.Fatalf("OpenProcess failed: %v", err)
+	}
+	defer func() { _ = windows.CloseHandle(retained) }()
+
+	if !processRunning(t, pid) {
+		t.Fatalf("expected process %d to be running before the kill", pid)
+	}
+
+	if err := killProcessTree(pid); err != nil {
+		t.Fatalf("killProcessTree returned error: %v", err)
+	}
+	if err := cmd.Wait(); err == nil {
+		t.Fatal("expected the killed process to report an error from Wait")
+	}
+
+	// The retained handle keeps the kernel object: the PID is still openable.
+	h, err := windows.OpenProcess(windows.PROCESS_QUERY_LIMITED_INFORMATION, false, pid)
+	if err != nil {
+		t.Fatalf("expected the exited process %d to stay openable while a handle is held: %v", pid, err)
+	}
+	_ = windows.CloseHandle(h)
+
+	if processRunning(t, pid) {
+		t.Fatalf("expected processRunning to report the exited process %d as stopped", pid)
+	}
+}
