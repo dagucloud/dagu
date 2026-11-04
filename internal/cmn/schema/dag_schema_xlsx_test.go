@@ -52,6 +52,7 @@ steps:
       mode: replace
       style: table
       types: {Amount: number}
+      formats: {Amount: "#,##0"}
       atomic: true
       dry_run: false
       wait_for_unlock: 5m
@@ -62,6 +63,7 @@ steps:
       path: report.xlsx
       input: rows.csv
       format: csv
+      formats: {Amount: "#,##0"}
   - id: mark
     action: xlsx.update_rows
     with:
@@ -145,6 +147,7 @@ steps:
 		{"header zero", "header: [1, 2]", "header: 0"},
 		{"bad mode", "mode: replace", "mode: upsert"},
 		{"bad style", "style: table", "style: fancy"},
+		{"empty column format", "formats: {Amount: \"#,##0\"}", "formats: {Amount: \"\"}"},
 		{"bad format", "format: csv", "format: xml"},
 		{"rows not a list", "rows: ${steps.read.outputs.rows}", "rows: {a: 1}"},
 		{"bad missing", "missing: skip", "missing: ignore"},
