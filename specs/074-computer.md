@@ -258,6 +258,33 @@ The step says so once, in a `running` lifecycle event. On Windows the
 console session is the one `WTSGetActiveConsoleSessionId` names; elsewhere
 every session counts as the console.
 
+### Marks
+
+While a step runs on the console, a mark shows a person at the desktop
+where each action lands, just before it acts: a frame around the element
+the step has press, toggle, select, open, set its value, or take the
+keyboard focus through the element itself, which moves no pointer; a square
+around the point of a click, drag, scroll, move, or button press; and a
+frame around the window with the keyboard focus for typing and keys. The
+mark is labelled with the step's name and the action, never the text typed,
+in a color chosen by the step's name, so the marks of steps running at the
+same time stay apart. It stays until the step's next mark or for two
+seconds.
+
+A mark takes no focus or input, never moves the pointer, and lets every
+click through to the window under it, which is the one the step reads there.
+It is in no screenshot the step takes, for the model, a replay's comparison,
+or an artifact: Windows leaves its window out of every capture of the screen
+(`WDA_EXCLUDEFROMCAPTURE`, Windows 10 version 2004 and later), and macOS
+shares it with no capture. On macOS a helper process draws the marks, since
+only a process's main thread may draw a window: the step starts the dagu
+binary as `dagu computer marks`, a command left out of the CLI's help. A
+host that cannot draw marks, or cannot leave them out of captures, runs the
+step without them and says so in the step log.
+
+`with.marks: false` shows no marks. A remote session shows none unless
+`with.marks` is `true`, since nobody at the console watches it.
+
 ### Variables and secrets
 
 `with.variables` maps names to values. An `act` instruction references them as
