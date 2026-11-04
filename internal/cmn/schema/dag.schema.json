@@ -544,7 +544,15 @@
           "$ref": "#/definitions/smtpOAuth"
         }
       },
-      "dependencies": { "oauth": ["username"] },
+      "dependencies": {
+        "oauth": {
+          "required": ["username"],
+          "properties": {
+            "username": { "pattern": "\\S" },
+            "password": { "not": { "pattern": "\\S" } }
+          }
+        }
+      },
       "description": "SMTP server configuration for sending email notifications."
     },
     "mail_accounts": {
@@ -1597,9 +1605,9 @@
     },
     "toolPackageRef": {
       "type": "string",
-      "pattern": "^[^\\s@]+@[^\\s@]+$",
+      "pattern": "^[^\\s@#]+@[^\\s@#]+(#[Ss][Hh][Aa]256:[0-9A-Fa-f]{64})?$",
       "not": {
-        "pattern": "@[Ll][Aa][Tt][Ee][Ss][Tt]$"
+        "pattern": "@[Ll][Aa][Tt][Ee][Ss][Tt](#|$)"
       },
       "description": "Aqua package shorthand in package@version form, for example jqlang/jq@jq-1.7.1, optionally followed by #sha256:<64 hex> to pin the artifact. Prefer immutable commit hashes where aqua supports them."
     },
@@ -4383,6 +4391,11 @@
           "if": { "properties": { "provider": { "const": "microsoft" } } },
           "then": {
             "required": ["tenant_id", "client_id", "client_secret"],
+            "properties": {
+              "tenant_id": { "pattern": "\\S" },
+              "client_id": { "pattern": "\\S" },
+              "client_secret": { "pattern": "\\S" }
+            },
             "not": { "anyOf": [{ "required": ["service_account_json"] }, { "required": ["refresh_token"] }] }
           }
         },
@@ -4390,6 +4403,7 @@
           "if": { "properties": { "provider": { "const": "google_service_account" } } },
           "then": {
             "required": ["service_account_json"],
+            "properties": { "service_account_json": { "pattern": "\\S" } },
             "not": { "anyOf": [{ "required": ["tenant_id"] }, { "required": ["client_id"] }, { "required": ["client_secret"] }, { "required": ["refresh_token"] }] }
           }
         },
@@ -4397,6 +4411,11 @@
           "if": { "properties": { "provider": { "const": "google_refresh" } } },
           "then": {
             "required": ["client_id", "client_secret", "refresh_token"],
+            "properties": {
+              "client_id": { "pattern": "\\S" },
+              "client_secret": { "pattern": "\\S" },
+              "refresh_token": { "pattern": "\\S" }
+            },
             "not": { "anyOf": [{ "required": ["tenant_id"] }, { "required": ["service_account_json"] }] }
           }
         }
