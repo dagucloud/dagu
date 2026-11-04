@@ -210,10 +210,10 @@ func TestTypingNothingIntoAFieldByIdDeletesItsText(t *testing.T) {
 }
 
 // Typing into a field by id as keys fails when the field, its text selected
-// first, does not come to show just the typed text, as typed or as it
-// formats it with separators or symbols: one that cuts the text short,
-// keeps old text the selection missed, or drops a sign or a decimal point.
-// The save after a failed typing does not run.
+// first, does not come to show just the typed text, as typed or with the
+// separators and symbols it inserts: one that cuts the text short, keeps
+// old text the selection missed, or drops or adds a character that changes
+// the value. The save after a failed typing does not run.
 func TestTypingIntoAFieldByIdChecksTheValue(t *testing.T) {
 	t.Parallel()
 
@@ -225,10 +225,14 @@ func TestTypingIntoAFieldByIdChecksTheValue(t *testing.T) {
 	}{
 		{"the field formats the text", "1200", "¥1,200", ""},
 		{"the field formats a negative amount", "-1200", "−1,200", ""},
+		{"the field formats a phone number", "5551234567", "(555) 123-4567", ""},
 		{"the field cuts the text short", "1200", "120", `the field shows "120", not the text typed into it`},
 		{"the field keeps old text", "1200", "12,0001200", `the field shows "12,0001200", not the text typed into it`},
 		{"the field drops the sign", "-1200", "1200", `the field shows "1200", not the text typed into it`},
+		{"the field adds a sign", "1200", "-1200", `the field shows "-1200", not the text typed into it`},
 		{"the field drops the decimal point", "12.00", "1200", `the field shows "1200", not the text typed into it`},
+		{"the field adds a decimal point", "1200", "12.00", `the field shows "12.00", not the text typed into it`},
+		{"the field drops a plus", "alice+orders@example.com", "aliceorders@example.com", `the field shows "aliceorders@example.com", not the text typed into it`},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()

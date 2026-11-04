@@ -76,27 +76,32 @@ func showsTyped(value, typed string) bool {
 }
 
 // showsReplaced reports whether a field's value is the text that replaced
-// what it held, as typed or as the field formats it with separators or
-// symbols. Unlike showsTyped, it does not take a value that only holds the
-// text, such as the text after old text a selection did not cover, and it
-// keeps signs and decimal points, so neither 1200 nor 12.00 is -1200.
+// what it held, as typed or with formatting the field inserts: every typed
+// character kept in order, and nothing added but separators and symbols,
+// such as the comma of 1,200 or the parentheses and hyphen of a phone
+// number. A letter, a digit, a decimal point, or a minus sign before the
+// first letter or digit is never taken as formatting, since each changes
+// the value; nor is old text the selection did not cover.
 func showsReplaced(value, typed string) bool {
-	value, typed = desktop.NormalizeText(value), desktop.NormalizeText(typed)
-	return value == typed || significant(value) == significant(typed)
+	want := []rune(hyphenateMinus(desktop.NormalizeText(typed)))
+	begun := false
+	for _, r := range hyphenateMinus(desktop.NormalizeText(value)) {
+		alphanumeric := unicode.IsLetter(r) || unicode.IsDigit(r)
+		if len(want) > 0 && r == want[0] {
+			want = want[1:]
+			begun = begun || alphanumeric
+			continue
+		}
+		if alphanumeric || r == '.' || r == '-' && !begun {
+			return false
+		}
+	}
+	return len(want) == 0
 }
 
-// significant keeps what changes the meaning of a value: its letters,
-// digits, minus signs, written as hyphens, and decimal points.
-func significant(s string) string {
-	return strings.Map(func(r rune) rune {
-		switch {
-		case r == '−':
-			return '-'
-		case unicode.IsLetter(r) || unicode.IsDigit(r) || r == '-' || r == '.':
-			return r
-		}
-		return -1
-	}, s)
+// hyphenateMinus writes the minus sign some fields show as a hyphen.
+func hyphenateMinus(s string) string {
+	return strings.ReplaceAll(s, "−", "-")
 }
 
 func lettersAndDigits(s string) string {
