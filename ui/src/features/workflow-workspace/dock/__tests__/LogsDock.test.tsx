@@ -268,6 +268,9 @@ describe('LogsDock frame', () => {
     expect(nav.nextElementSibling).toContainElement(
       screen.getByRole('tablist')
     );
+    // jsdom runs no container query: the classes are the contract. A medium
+    // panel keeps the names in a narrower list; only a phone shows dots.
+    expect(nav).toHaveClass('w-60', '@max-[900px]:w-44', '@max-[600px]:w-11');
   });
 
   it('is open when the URL has ?dock at load', () => {

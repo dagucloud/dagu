@@ -393,7 +393,7 @@ export function LogsDock({
                 <nav
                   aria-label={ts('Steps')}
                   data-testid="ww-run-steps-nav"
-                  className="w-60 shrink-0 overflow-y-auto border-r border-border @max-[900px]:w-11"
+                  className="w-60 shrink-0 overflow-y-auto border-r border-border @max-[900px]:w-44 @max-[600px]:w-11"
                 >
                   <RunStepsNav dag={dag} />
                 </nav>
