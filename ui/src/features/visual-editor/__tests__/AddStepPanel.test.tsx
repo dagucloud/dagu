@@ -3,6 +3,8 @@
 
 import { fireEvent, render, screen, within } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { UserPreferencesProvider } from '@/contexts/UserPreference';
+import { I18nProvider } from '@/i18n/I18nProvider';
 import { AddStepPanel, buildSections } from '../AddStepPanel';
 import type { ActionCatalogEntry } from '../contracts';
 
@@ -132,6 +134,32 @@ describe('AddStepPanel', () => {
     expect(within(builder).getByText('Build a thing.')).toBeInTheDocument();
     const printer = screen.getByRole('option', { name: /Printer/ });
     expect(within(printer).getAllByText('toString')).toHaveLength(2);
+  });
+
+  // The namespace `dag` reads as "workflow", in the language of the user.
+  it('translates the title of the workflow section', () => {
+    localStorage.setItem('user_preferences', JSON.stringify({ locale: 'ja' }));
+    try {
+      render(
+        <UserPreferencesProvider>
+          <I18nProvider>
+            <AddStepPanel
+              catalog={catalog}
+              targetLabel="After fetch"
+              recent={[]}
+              onPick={vi.fn()}
+              onClose={vi.fn()}
+            />
+          </I18nProvider>
+        </UserPreferencesProvider>
+      );
+      fireEvent.change(screen.getByRole('combobox'), {
+        target: { value: 'dag.run' },
+      });
+      expect(screen.getByText('ワークフロー')).toBeInTheDocument();
+    } finally {
+      localStorage.clear();
+    }
   });
 
   // axe nested-interactive and duplicate option names.

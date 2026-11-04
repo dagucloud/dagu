@@ -137,6 +137,18 @@ const GROUP_BLURBS: ReadonlyMap<string, string> = new Map(
   })
 );
 
+/** The sections titled with a word of the UI, not a namespace name. */
+const SECTION_TITLES: ReadonlyMap<string, string> = new Map([
+  ['core', 'Core'],
+  ['dag', 'workflow'],
+]);
+
+/** The title that the header of a section shows, translated when it is a word of the UI. */
+function sectionTitle(section: Section, ts: (key: string) => string): string {
+  const key = SECTION_TITLES.get(section.id);
+  return key ? ts(key) : section.title;
+}
+
 interface Section {
   id: string;
   title: string;
@@ -424,9 +436,7 @@ export function AddStepPanel({
                 aria-hidden="true"
                 className="sticky top-0 z-10 flex items-center justify-between bg-card px-4 pb-1 pt-3 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground"
               >
-                <span>
-                  {section.id === 'core' ? ts('Core') : section.title}
-                </span>
+                <span>{sectionTitle(section, ts)}</span>
                 <span className="font-normal">{section.entries.length}</span>
               </div>
               {section.entries.map((entry) => {
