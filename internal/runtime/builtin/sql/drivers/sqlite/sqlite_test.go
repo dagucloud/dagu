@@ -272,6 +272,17 @@ func TestExtractDBPath(t *testing.T) {
 			dsn:  "file:/srv/a%3Fb%23c/test%20db.db?mode=rwc",
 			want: "/srv/a?b#c/test db.db",
 		},
+		{
+			name: "file URI with a fragment",
+			dsn:  "file:/var/data/test.db#part",
+			want: "/var/data/test.db",
+		},
+		{
+			// A stray % stays; the valid escapes around it still decode.
+			name: "file URI with a stray percent",
+			dsn:  "file:/srv/a%25b/100%.db",
+			want: "/srv/a%b/100%.db",
+		},
 	}
 
 	for _, tt := range tests {

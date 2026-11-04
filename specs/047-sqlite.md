@@ -27,13 +27,15 @@ Workflow authors can query local data and import a small file without a server.
   rows.
 - A relative database file in `with.dsn`, such as `file:./data.db`, a relative
   `with.import.input_file`, and a relative `with.output_file` name files under
-  the step working directory. A relative plain DSN fails when the working
-  directory contains `?`, which would end the database name.
+  the step working directory.
 
 ## Errors
 
 Missing query or import configuration fails validation. A missing DSN fails
 before execution accesses a database. Diagnostics identify the missing field.
+
+A relative plain DSN whose step working directory contains `?` fails step
+setup with `failed to resolve sqlite dsn`, before any database is opened.
 
 ## Examples
 

@@ -8,7 +8,6 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
-	"net/url"
 	"strings"
 	"sync"
 
@@ -191,21 +190,50 @@ func extractDBPath(dsn string) string {
 	// Handle "file:" prefix
 	if after, ok := strings.CutPrefix(dsn, "file:"); ok {
 		path := after
-		// Remove query parameters
-		if idx := strings.Index(path, "?"); idx >= 0 {
+		// SQLite ends a file: URI path at its query or fragment.
+		if idx := strings.IndexAny(path, "?#"); idx >= 0 {
 			path = path[:idx]
 		}
-		// SQLite decodes %XX escapes in a file: URI path.
-		if decoded, err := url.PathUnescape(path); err == nil {
-			path = decoded
-		}
-		return path
+		return decodeURIPath(path)
 	}
 	// Plain file path
 	if before, _, ok := strings.Cut(dsn, "?"); ok {
 		return before
 	}
 	return dsn
+}
+
+// decodeURIPath decodes each valid %XX escape in a file: URI path and keeps
+// any other % as written, as SQLite does.
+func decodeURIPath(path string) string {
+	if !strings.Contains(path, "%") {
+		return path
+	}
+	var b strings.Builder
+	for i := 0; i < len(path); i++ {
+		if path[i] == '%' && i+2 < len(path) && isHex(path[i+1]) && isHex(path[i+2]) {
+			b.WriteByte(unhex(path[i+1])<<4 | unhex(path[i+2]))
+			i += 2
+			continue
+		}
+		b.WriteByte(path[i])
+	}
+	return b.String()
+}
+
+func isHex(c byte) bool {
+	return (c >= '0' && c <= '9') || (c >= 'a' && c <= 'f') || (c >= 'A' && c <= 'F')
+}
+
+func unhex(c byte) byte {
+	switch {
+	case c >= 'a':
+		return c - 'a' + 10
+	case c >= 'A':
+		return c - 'A' + 10
+	default:
+		return c - '0'
+	}
 }
 
 func init() {

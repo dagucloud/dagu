@@ -82,7 +82,7 @@ func newSQLExecutor(ctx context.Context, step ir.Step, driverName string) (execu
 	}
 	if driverName == "sqlite" {
 		if cfg.DSN, err = resolveSQLiteDSN(workDir, cfg.DSN); err != nil {
-			return nil, fmt.Errorf("failed to parse sql config: %w", err)
+			return nil, fmt.Errorf("failed to resolve sqlite dsn: %w", err)
 		}
 	}
 
@@ -148,7 +148,7 @@ func resolveSQLiteDSN(workDir, dsn string) (string, error) {
 		// SQLite decodes %XX in a file: URI and ends the path at '?' or '#',
 		// so the working directory is escaped; the authored name keeps its
 		// own escapes.
-		resolved = "file:" + sqliteURIPathEscaper.Replace(filepath.ToSlash(workDir)) + "/" + strings.TrimPrefix(name, "./")
+		resolved = "file:" + sqliteURIPath(filepath.ToSlash(workDir)) + "/" + strings.TrimPrefix(name, "./")
 	} else if strings.Contains(workDir, "?") {
 		// The driver would end the plain name at this '?'.
 		return "", fmt.Errorf("cannot resolve relative dsn %q: working directory %q contains '?'; use an absolute file: URI", dsn, workDir)
@@ -162,6 +162,24 @@ func resolveSQLiteDSN(workDir, dsn string) (string, error) {
 // sqliteURIPathEscaper escapes the characters that change the meaning of a
 // path in a SQLite file: URI.
 var sqliteURIPathEscaper = strings.NewReplacer("%", "%25", "?", "%3F", "#", "%23")
+
+// sqliteURIPath writes an absolute slash-separated directory as the path of
+// a SQLite file: URI. A Windows drive path gains a leading slash, as in
+// file:/C:/data, and a UNC path an empty authority, as in
+// file:////server/share, so SQLite reads either as an absolute path.
+func sqliteURIPath(dir string) string {
+	switch {
+	case strings.HasPrefix(dir, "//"):
+		dir = "//" + dir
+	case len(dir) >= 2 && dir[1] == ':' && isASCIILetter(dir[0]):
+		dir = "/" + dir
+	}
+	return sqliteURIPathEscaper.Replace(dir)
+}
+
+func isASCIILetter(c byte) bool {
+	return (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z')
+}
 
 // isSQLiteMemoryMode reports whether a DSN query selects an in-memory database.
 func isSQLiteMemoryMode(query string) bool {

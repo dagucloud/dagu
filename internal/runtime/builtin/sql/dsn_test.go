@@ -16,7 +16,7 @@ func TestResolveSQLiteDSN(t *testing.T) {
 
 	workDir := t.TempDir()
 	dbPath := filepath.Join(workDir, "data.db")
-	uriDir := filepath.ToSlash(workDir)
+	uriDir := sqliteURIPath(filepath.ToSlash(workDir))
 	absolute := filepath.Join(t.TempDir(), "other.db")
 	tests := []struct {
 		name string
@@ -58,4 +58,25 @@ func TestResolveSQLiteDSN_SpecialWorkingDir(t *testing.T) {
 
 	_, err = resolveSQLiteDSN(workDir, "data.db")
 	require.ErrorContains(t, err, "contains '?'")
+}
+
+func TestSQLiteURIPath(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name string
+		dir  string
+		want string
+	}{
+		{"unix", "/srv/work", "/srv/work"},
+		{"windows drive", "C:/Users/dagu/work", "/C:/Users/dagu/work"},
+		{"windows UNC", "//server/share/work", "////server/share/work"},
+		{"special characters", "/srv/a?b#c%d", "/srv/a%3Fb%23c%25d"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			assert.Equal(t, tt.want, sqliteURIPath(tt.dir))
+		})
+	}
 }
