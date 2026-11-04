@@ -236,17 +236,15 @@ async function checkEditButtons(
     await expect(dialog, `Delete dialog (${where})`).toBeVisible();
     await page.keyboard.press('Escape');
     await expect(dialog, `Delete dialog closed (${where})`).toBeHidden();
-    await rename.focus();
-    await expect(rename, `Rename focus (${where})`).toBeFocused();
-    return;
+  } else {
+    await expect(remove, `Delete (${where})`).toBeVisible();
   }
-  await expect(remove, `Delete (${where})`).toBeVisible();
+  const buttons = narrow ? [rename] : [rename, remove];
   const [barBox, renameBox, removeBox] = await Promise.all([
     bar.boundingBox(),
-    rename.boundingBox(),
-    remove.boundingBox(),
+    ...buttons.map((button) => button.boundingBox()),
   ]);
-  for (const box of [renameBox, removeBox]) {
+  for (const box of narrow ? [renameBox] : [renameBox, removeBox]) {
     expect(box!.y, `button row (${where})`).toBeGreaterThanOrEqual(barBox!.y);
     expect(box!.y + box!.height, `button row (${where})`).toBeLessThanOrEqual(
       barBox!.y + barBox!.height + 0.5
@@ -261,11 +259,12 @@ async function checkEditButtons(
     -0.5
   );
   expect(gap, `Rename next to the name (${where})`).toBeLessThanOrEqual(12);
+  await rename.focus();
+  await expect(rename, `Rename focus (${where})`).toBeFocused();
+  if (narrow) return;
   expect(removeBox!.x, `Delete after Rename (${where})`).toBeGreaterThan(
     renameBox!.x
   );
-  await rename.focus();
-  await expect(rename, `Rename focus (${where})`).toBeFocused();
   await remove.focus();
   await expect(remove, `Delete focus (${where})`).toBeFocused();
 }
