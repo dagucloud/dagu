@@ -1,7 +1,7 @@
 import { Clock, Copy, ExternalLink, Globe, Lock } from 'lucide-react';
-import React from 'react';
 import type { components } from '../../../api/v1/schema';
 import { Button } from '@/components/ui/button';
+import { useCopyFeedback } from '@/hooks/useCopyFeedback';
 import { cn } from '../../../lib/utils';
 import { I18nText } from '@/i18n/I18nText';
 import { I18nProps } from '@/i18n/I18nProps';
@@ -15,7 +15,7 @@ interface TunnelStatusCardProps {
 }
 
 function TunnelStatusCard({ data, isLoading, error }: TunnelStatusCardProps) {
-  const [copied, setCopied] = React.useState(false);
+  const { copied, copy } = useCopyFeedback();
 
   const getStatusColor = (status: string | undefined) => {
     switch (status) {
@@ -63,11 +63,9 @@ function TunnelStatusCard({ data, isLoading, error }: TunnelStatusCardProps) {
     return `${minutes}m`;
   };
 
-  const handleCopyUrl = async () => {
+  const handleCopyUrl = () => {
     if (data?.publicUrl) {
-      await navigator.clipboard.writeText(data.publicUrl);
-      setCopied(true);
-      setTimeout(() => setCopied(false), 2000);
+      void copy(data.publicUrl);
     }
   };
 

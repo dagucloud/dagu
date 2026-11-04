@@ -31,6 +31,7 @@ import {
 import { AppBarContext } from '@/contexts/AppBarContext';
 import { TOKEN_KEY, useCanManageWebhooks } from '@/contexts/AuthContext';
 import { useConfig } from '@/contexts/ConfigContext';
+import { useCopyFeedback } from '@/hooks/useCopyFeedback';
 import { useI18n } from '@/i18n/I18nProvider';
 import { I18nProps } from '@/i18n/I18nProps';
 import { I18nText } from '@/i18n/I18nText';
@@ -100,7 +101,7 @@ export default function WebhooksPage() {
     enabled: boolean;
   } | null>(null);
   const [newToken, setNewToken] = useState<string | null>(null);
-  const [copied, setCopied] = useState(false);
+  const { copied, copy, reset: resetCopied } = useCopyFeedback();
 
   // Set page title
   useEffect(() => {
@@ -231,21 +232,16 @@ export default function WebhooksPage() {
     }
   };
 
-  const handleCopyToken = async () => {
-    if (!newToken) return;
-    try {
-      await navigator.clipboard.writeText(newToken);
-      setCopied(true);
-      setTimeout(() => setCopied(false), 2000);
-    } catch {
-      // Clipboard API may be unavailable in some contexts (e.g., HTTP, permissions)
+  const handleCopyToken = () => {
+    if (newToken) {
+      void copy(newToken);
     }
   };
 
   const handleCloseTokenModal = () => {
     setNewToken(null);
     setRegeneratingWebhook(null);
-    setCopied(false);
+    resetCopied();
   };
 
   const navigateToDAG = (dagName: string) => {

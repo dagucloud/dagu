@@ -9,8 +9,9 @@
 import dayjs from '@/lib/dayjs';
 import RelativeTime from '@/components/ui/relative-time';
 import { Check, Copy, SlidersHorizontal, Terminal } from 'lucide-react';
-import React, { useCallback, useState } from 'react';
+import React from 'react';
 import { useClock } from '@/hooks/useClock';
+import { useCopyFeedback } from '@/hooks/useCopyFeedback';
 import { components, Status } from '../../../../api/v1/schema';
 import {
   PreconditionErrors,
@@ -78,7 +79,7 @@ function DAGStatusOverview({
   onViewLog,
   showRunMeta = true,
 }: Props): React.JSX.Element | null {
-  const [copied, setCopied] = useState(false);
+  const { copied, copy } = useCopyFeedback();
 
   const isRunning = status?.status === Status.Running;
 
@@ -87,25 +88,6 @@ function DAGStatusOverview({
     isRunning && status?.startedAt ? 1000 : null,
     () => formatDuration(status?.startedAt, status?.finishedAt)
   );
-
-  const copyRunId = useCallback(async () => {
-    if (!status?.dagRunId) return;
-    try {
-      await navigator.clipboard.writeText(status.dagRunId);
-      setCopied(true);
-      setTimeout(() => setCopied(false), 2000);
-    } catch {
-      // Fallback for older browsers
-      const textArea = document.createElement('textarea');
-      textArea.value = status.dagRunId;
-      document.body.appendChild(textArea);
-      textArea.select();
-      document.execCommand('copy');
-      document.body.removeChild(textArea);
-      setCopied(true);
-      setTimeout(() => setCopied(false), 2000);
-    }
-  }, [status?.dagRunId]);
 
   if (!status) {
     return null;
@@ -225,7 +207,7 @@ function DAGStatusOverview({
             )}
             {status.dagRunId && (
               <button
-                onClick={copyRunId}
+                onClick={() => void copy(status.dagRunId)}
                 className="inline-flex min-w-0 max-w-full cursor-pointer items-center gap-1 font-mono text-muted-foreground transition-colors hover:text-foreground"
                 title={`Click to copy: ${status.dagRunId}`}
               >
