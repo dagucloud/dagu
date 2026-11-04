@@ -87,3 +87,14 @@ func TestJQFailures(t *testing.T) {
 		})
 	}
 }
+
+// A relative with.input and a file:// data path both read from the step
+// working directory, not from the process directory.
+func TestJQRelativeWorkingDir(t *testing.T) {
+	t.Parallel()
+	dagu := harness.NewRunner(t)
+	dagu.WriteFile("work/data.json", `{"city":"Metropolis"}`)
+	dagu.Run("start", "relative_working_dir.yaml").ExpectExitCode(0)
+	dagu.ExpectFileContent("work/input.out", "\"Metropolis\"\n")
+	dagu.ExpectFileContent("work/data.out", "\"Metropolis\"\n")
+}

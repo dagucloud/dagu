@@ -8,6 +8,8 @@ import (
 	"context"
 	"fmt"
 
+	"github.com/dagucloud/dagu/v2/internal/runtime"
+	"github.com/dagucloud/dagu/v2/internal/runtime/builtin/internal/workpath"
 	"github.com/go-viper/mapstructure/v2"
 )
 
@@ -141,8 +143,9 @@ func DefaultConfig() *Config {
 	}
 }
 
-// ParseConfig parses the executor configuration from a map.
-func ParseConfig(_ context.Context, mapCfg map[string]any) (*Config, error) {
+// ParseConfig parses the executor configuration from a map. Relative file
+// paths resolve under the step working directory in ctx.
+func ParseConfig(ctx context.Context, mapCfg map[string]any) (*Config, error) {
 	cfg := DefaultConfig()
 
 	decoder, err := mapstructure.NewDecoder(&mapstructure.DecoderConfig{
@@ -162,6 +165,12 @@ func ParseConfig(_ context.Context, mapCfg map[string]any) (*Config, error) {
 	if err := cfg.validate(); err != nil {
 		return nil, err
 	}
+
+	workDir := runtime.GetEnv(ctx).WorkingDir
+	cfg.ScriptFile = workpath.Resolve(workDir, cfg.ScriptFile)
+	cfg.TLSCA = workpath.Resolve(workDir, cfg.TLSCA)
+	cfg.TLSCert = workpath.Resolve(workDir, cfg.TLSCert)
+	cfg.TLSKey = workpath.Resolve(workDir, cfg.TLSKey)
 
 	return cfg, nil
 }

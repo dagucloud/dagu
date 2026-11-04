@@ -55,3 +55,16 @@ func TestSQLiteConfig(t *testing.T) {
 		})
 	}
 }
+
+// A relative file: DSN, import file, and streaming output file all live under
+// the step working directory, not the process directory.
+func TestSQLiteRelativeWorkingDir(t *testing.T) {
+	t.Parallel()
+	dagu := harness.NewRunner(t)
+	dagu.WriteFile("work/users.csv", "id,name\n1,Alice\n")
+	dagu.Run("start", "relative_working_dir.yaml").ExpectExitCode(0)
+	_, err := os.Stat(dagu.ProjectPath("work/app.db"))
+	require.NoError(t, err)
+	dagu.ExpectFileContains("work/out/users.jsonl", "Alice")
+	dagu.ExpectNoFile("app.db")
+}
