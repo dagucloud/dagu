@@ -122,14 +122,18 @@ func TestEditorIssuesNoticeStep(t *testing.T) {
 	assert.True(t, found)
 }
 
-// A reference that only a run gives a value, such as a run path or an env
-// value from a profile, is no issue of the spec: the editor shows none for
-// it. The notices keep it as runtime-only, and a defect stays an issue.
+// A reference that only a run gives a value, such as a run path, an env
+// value from a profile or a param with no default, is no issue of the spec:
+// the editor shows none for it. The notices keep it as runtime-only, and a
+// defect stays an issue.
 func TestEditorIssuesRuntimeOnlyNotice(t *testing.T) {
 	server := test.SetupServer(t)
-	body := validateIssues(t, server, `steps:
+	body := validateIssues(t, server, `params:
+  - name: SNAPSHOT
+    type: string
+steps:
   - name: a
-    command: echo "${context.paths.work_dir}" "${env.TEST_SECRET}"
+    command: echo "${context.paths.work_dir}" "${env.TEST_SECRET}" "${params.SNAPSHOT}"
   - name: b
     command: echo "${context.paths.artifact_dir}"
 `)
@@ -153,6 +157,7 @@ func TestEditorIssuesRuntimeOnlyNotice(t *testing.T) {
 	assert.Equal(t, map[string]api.ValueReferenceNoticeClass{
 		"${context.paths.work_dir}":     api.ValueReferenceNoticeClassRuntimeOnly,
 		"${env.TEST_SECRET}":            api.ValueReferenceNoticeClassRuntimeOnly,
+		"${params.SNAPSHOT}":            api.ValueReferenceNoticeClassRuntimeOnly,
 		"${context.paths.artifact_dir}": api.ValueReferenceNoticeClassDefect,
 	}, classes)
 }
