@@ -266,7 +266,7 @@ func (windowsBackend) CaptureApps(apps []string) (Capture, error) {
 		shown = append(shown, w)
 	}
 	width, height := screenSize()
-	return compose(image.Rect(0, 0, width, height), shown, printWindow)
+	return compose(image.Rect(0, 0, width, height), shown, windowCaptureWait, printWindow)
 }
 
 // printWindow returns a window's picture of its Bounds.

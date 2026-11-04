@@ -45,7 +45,7 @@ func (b *darwinBackend) CaptureApps(apps []string) (Capture, error) {
 		}
 	}
 	display := image.Rect(0, 0, b.display.pixelWidth, b.display.pixelHeight)
-	return compose(display, windows, func(w WindowID) (*image.RGBA, error) {
+	return compose(display, windows, windowCaptureWait, func(w WindowID) (*image.RGBA, error) {
 		if w.Handle == menuBar {
 			return screencapture("-R", b.pointRect(w.Bounds))
 		}

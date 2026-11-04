@@ -10,6 +10,7 @@ import (
 	"image/draw"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -59,7 +60,7 @@ func TestComposePaintsWindowsInOrder(t *testing.T) {
 	back := WindowID{Handle: 2, Bounds: image.Rect(200, 200, 500, 400)}
 	s := &shooter{shots: map[uint64]*image.RGBA{1: filled(front.Bounds, red), 2: filled(back.Bounds, blue)}}
 
-	got, err := compose(display, []WindowID{front, back}, s.capture)
+	got, err := compose(display, []WindowID{front, back}, time.Second, s.capture)
 	require.NoError(t, err)
 	assert.Equal(t, image.Rect(100, 100, 500, 400), got.Image.Bounds())
 	assert.Equal(t, []WindowID{front, back}, got.Windows)
@@ -79,7 +80,7 @@ func TestComposeLeavesOutHiddenWindows(t *testing.T) {
 	away := WindowID{Handle: 3, Bounds: image.Rect(1100, 0, 1300, 200)}
 	s := &shooter{shots: map[uint64]*image.RGBA{1: filled(front.Bounds, red)}}
 
-	got, err := compose(display, []WindowID{front, inside, away}, s.capture)
+	got, err := compose(display, []WindowID{front, inside, away}, time.Second, s.capture)
 	require.NoError(t, err)
 	assert.Equal(t, []uint64{1}, s.asked)
 	assert.Equal(t, []WindowID{front}, got.Windows)
@@ -97,17 +98,40 @@ func TestComposeLeavesOutFailedWindows(t *testing.T) {
 	window := WindowID{Handle: 2, Bounds: image.Rect(200, 200, 400, 400)}
 	s := &shooter{shots: map[uint64]*image.RGBA{2: filled(window.Bounds, blue)}, failed: map[uint64]bool{1: true}}
 
-	got, err := compose(display, []WindowID{menu, window}, s.capture)
+	got, err := compose(display, []WindowID{menu, window}, time.Second, s.capture)
 	require.NoError(t, err)
 	assert.Equal(t, []WindowID{window}, got.Windows)
 	assert.Equal(t, window.Bounds, got.Image.Bounds())
 
-	_, err = compose(display, []WindowID{menu}, s.capture)
+	_, err = compose(display, []WindowID{menu}, time.Second, s.capture)
 	require.Error(t, err)
 	assert.NotErrorIs(t, err, ErrNoWindows)
 
-	_, err = compose(display, nil, s.capture)
+	_, err = compose(display, nil, time.Second, s.capture)
 	assert.ErrorIs(t, err, ErrNoWindows)
+}
+
+// A window whose picture does not come in time is left out, and the
+// capture does not wait for it.
+func TestComposeLeavesOutAWindowThatDoesNotDraw(t *testing.T) {
+	t.Parallel()
+
+	stuck := WindowID{Handle: 1, Bounds: image.Rect(0, 0, 100, 100)}
+	window := WindowID{Handle: 2, Bounds: image.Rect(200, 200, 400, 400)}
+	release := make(chan struct{})
+	defer close(release)
+	capture := func(w WindowID) (*image.RGBA, error) {
+		if w.Handle == stuck.Handle {
+			<-release
+		}
+		return filled(w.Bounds, blue), nil
+	}
+
+	began := time.Now()
+	got, err := compose(image.Rect(0, 0, 1000, 800), []WindowID{stuck, window}, 50*time.Millisecond, capture)
+	require.NoError(t, err)
+	assert.Less(t, time.Since(began), time.Second)
+	assert.Equal(t, []WindowID{window}, got.Windows)
 }
 
 // A window drawn at another scale, as on a display of another density, is
@@ -118,7 +142,7 @@ func TestComposeFitsAWindowDrawnAtAnotherScale(t *testing.T) {
 	window := WindowID{Handle: 1, Bounds: image.Rect(10, 10, 60, 40)}
 	s := &shooter{shots: map[uint64]*image.RGBA{1: filled(image.Rect(0, 0, 100, 60), green)}}
 
-	got, err := compose(image.Rect(0, 0, 100, 100), []WindowID{window}, s.capture)
+	got, err := compose(image.Rect(0, 0, 100, 100), []WindowID{window}, time.Second, s.capture)
 	require.NoError(t, err)
 	assert.Equal(t, window.Bounds, got.Image.Bounds())
 	assert.Equal(t, green, got.Image.RGBAAt(59, 39))
