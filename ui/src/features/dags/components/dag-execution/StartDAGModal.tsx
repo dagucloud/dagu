@@ -983,6 +983,7 @@ function StartDAGModal({
                               field,
                               disabled: disableField,
                               describedBy,
+                              invalid: !!error,
                               onChange: (patch) =>
                                 handleTypedFieldChange(field.key, patch),
                             })}
@@ -1099,11 +1100,13 @@ function renderTypedField({
   field,
   disabled,
   describedBy,
+  invalid,
   onChange,
 }: {
   field: ParamField;
   disabled: boolean;
   describedBy?: string;
+  invalid: boolean;
   onChange: (patch: Partial<ParamField>) => void;
 }) {
   const controlClass = 'w-full';
@@ -1125,6 +1128,7 @@ function renderTypedField({
         <SelectTrigger
           id={`param-${field.key}`}
           aria-describedby={describedBy}
+          aria-invalid={invalid || undefined}
           className={controlClass}
         >
           <SelectValue placeholder={placeholder} />
@@ -1156,6 +1160,7 @@ function renderTypedField({
           <Input
             id={`param-${field.key}`}
             aria-describedby={describedBy}
+            aria-invalid={invalid || undefined}
             type="number"
             className={controlClass}
             min={field.minimum}
@@ -1191,6 +1196,7 @@ function renderTypedField({
             <SelectTrigger
               id={`param-${field.key}`}
               aria-describedby={describedBy}
+              aria-invalid={invalid || undefined}
               className={controlClass}
             >
               <I18nProps>
@@ -1216,6 +1222,7 @@ function renderTypedField({
           <Switch
             id={`param-${field.key}`}
             aria-describedby={describedBy}
+            aria-invalid={invalid || undefined}
             checked={field.value === 'true'}
             disabled={disabled}
             onCheckedChange={(checked) =>
@@ -1239,6 +1246,7 @@ function renderTypedField({
           <Textarea
             id={`param-${field.key}`}
             aria-describedby={describedBy}
+            aria-invalid={invalid || undefined}
             className={`${controlClass} h-7 min-h-7 py-1`}
             rows={1}
             ref={(element) => {

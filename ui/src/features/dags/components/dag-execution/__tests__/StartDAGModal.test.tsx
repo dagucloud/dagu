@@ -370,6 +370,28 @@ describe('StartDAGModal', () => {
     );
   });
 
+  it('marks a typed field invalid and describes its error', async () => {
+    render(
+      <StartDAGModal
+        visible={true}
+        dismissModal={vi.fn()}
+        onSubmit={vi.fn()}
+        dag={
+          {
+            name: 'typed-dag',
+            paramDefs: [{ name: 'region', type: 'string', required: true }],
+          } as never
+        }
+      />
+    );
+
+    fireEvent.click(screen.getByRole('button', { name: 'Start' }));
+
+    const input = screen.getByRole('textbox', { name: 'region *' });
+    await waitFor(() => expect(input).toHaveAttribute('aria-invalid', 'true'));
+    expect(input).toHaveAccessibleDescription('Required');
+  });
+
   it('labels a typed boolean switch', () => {
     render(
       <StartDAGModal
