@@ -57,6 +57,10 @@ const host = vi.hoisted(() => ({
   insetRight: 0,
   /** The ndv state of each DAGSpec render, in order. */
   ndvStates: [] as (string | null | undefined)[],
+  /** Whether the dock was open at each DAGSpec render, in order. */
+  dockOpen: [] as boolean[],
+  /** Renders the readers of useDock again, as a change of DockProvider does. */
+  dockListeners: new Set<() => void>(),
 }));
 
 // Captures the props; the stand-in gives the handle as DAGSpec does once loaded.
@@ -84,6 +88,7 @@ vi.mock(
     function CapturingDAGSpec(props: SpecProps) {
       host.props = props;
       host.ndvStates.push(props.ndv?.state);
+      host.dockOpen.push(!!(ws.dock as { open?: boolean } | null)?.open);
       return host.real ? <actual.default {...props} /> : <StandIn {...props} />;
     }
     return { default: CapturingDAGSpec };
@@ -118,10 +123,17 @@ vi.mock('../../step/useReuseSource', () => ({
     return reuse.state;
   },
 }));
-vi.mock('../../dock/DockContext', () => ({
-  useDock: () => ws.dock,
-  useDockCommands: () => ws.dock,
-}));
+vi.mock('../../dock/DockContext', async () => {
+  const { useSyncExternalStore } = await import('react');
+  const subscribe = (listener: () => void) => {
+    host.dockListeners.add(listener);
+    return () => host.dockListeners.delete(listener);
+  };
+  return {
+    useDock: () => useSyncExternalStore(subscribe, () => ws.dock),
+    useDockCommands: () => ws.dock,
+  };
+});
 vi.mock('../../notices/useWorkspaceNotices', () => ({
   useWorkspaceNotices: () => [],
 }));
@@ -1415,11 +1427,26 @@ describe('WorkspaceCanvas', () => {
       expect(yieldToView).toHaveBeenLastCalledWith(false);
     });
 
-    it('does not yield for the docked YAML panel', () => {
+    it('yields to the docked YAML panel', () => {
       const yieldToView = vi.fn();
       ws.dock = { ...dock, yieldToView };
       renderCanvas('/dags/example.yaml?step=extract&ndv=docked');
-      expect(yieldToView).not.toHaveBeenCalled();
+      expect(yieldToView).toHaveBeenCalledWith(true, { restore: true });
+    });
+
+    // A graph that fit the zone above the open Activity fit again, and
+    // jumped, when Activity collapsed for the YAML panel.
+    it('mounts the editor once Activity has collapsed for the YAML panel', () => {
+      host.dockOpen = [];
+      const yieldToView = vi.fn((on: boolean) => {
+        ws.dock = { ...(ws.dock as DockController), open: !on };
+        host.dockListeners.forEach((listener) => listener());
+      });
+      ws.dock = { ...dock, open: true, yieldToView };
+      renderCanvas('/dags/example.yaml?ndv=docked');
+      expect(yieldToView).toHaveBeenCalledWith(true, { restore: true });
+      expect(host.dockOpen.length).toBeGreaterThan(0);
+      expect(host.dockOpen).not.toContain(true);
     });
 
     // D10: a click on the canvas selects; it never opens the dock.

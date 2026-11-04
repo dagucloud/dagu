@@ -1,7 +1,14 @@
 // Copyright (C) 2026 Yota Hamada
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type ReactNode,
+} from 'react';
 import { subscribeClock } from '@/hooks/useClock';
 import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import {
@@ -228,6 +235,28 @@ function useInputRun(p: {
 }
 
 /**
+ * Mounts the editor once Activity has made room for a right panel that
+ * shows from the first render, such as the YAML panel that the page
+ * restores: a graph that fit the zone above the open Activity fit again,
+ * and jumped, when Activity collapsed. Once mounted, the editor stays. It
+ * is a component of its own, as the canvas must not render again for the
+ * state of the dock.
+ */
+function MountAfterDockYield({
+  waits,
+  children,
+}: {
+  waits: boolean;
+  children: ReactNode;
+}) {
+  const { open } = useDock();
+  const [mounted, setMounted] = useState(false);
+  const holds = !mounted && waits && open;
+  if (!mounted && !holds) setMounted(true);
+  return holds ? null : children;
+}
+
+/**
  * Closes the right panel when Activity opens. It is a component of its own:
  * the state of the dock changes with each toggle, and the canvas must not
  * render again for it.
@@ -446,7 +475,9 @@ export function WorkspaceCanvas({
   // The right panel (a launcher, the Workflow, the YAML, the node view) and the
   // Activity panel take turns. A panel that opens collapses Activity, which
   // comes back when the panel closes. Activity that opens closes the panel.
-  useDockYield(paneActive && (activePanel !== null || url.ndv === 'expanded'));
+  // The node view and the YAML panel of the first render yield it at once,
+  // before their panel has mounted.
+  useDockYield(paneActive && (activePanel !== null || ndvState !== null));
   // Esc in the YAML of the step view closes the view too.
   useEscInStepYaml({
     active: paneActive,
@@ -539,32 +570,36 @@ export function WorkspaceCanvas({
               className="flex min-h-0 w-full min-w-0 flex-1 flex-col"
             >
               <PaneActiveContext.Provider value={paneActive}>
-                <DAGSpec
-                  fileName={fileName}
-                  localDags={dagData.localDags}
-                  editorHints={dagData.editorHints}
-                  keyboardActive={paneActive}
-                  fillHeight
-                  runSource={runSource}
-                  onRunStarted={onRunStarted}
-                  selectedStepName={url.step}
-                  onSelectedStepNameChange={onSelectedStepNameChange}
-                  onStepClick={(_step, at) => stepPanel.show(at)}
-                  ndv={ndv}
-                  openNdvOn="open"
-                  renderStepOutput={renderStepOutput}
-                  onStepCommand={onStepCommand}
-                  onOpenWorkflow={openWorkflow}
-                  stepCommandGates={stepCommandGates}
-                  followedRuns={actions.followed}
-                  inputRun={inputRun}
-                  chrome={ndvOpen || stepPanel.shown ? CHROME_NDV_OPEN : CHROME}
-                  notices={notices}
-                  editorHandleRef={editorHandleRef}
-                  onEditorStateChange={onEditorStateChange}
-                  launcherHost={launcherHost}
-                  renderWorkflowPanel={renderWorkflowPanel}
-                />
+                <MountAfterDockYield waits={paneActive && ndvState !== null}>
+                  <DAGSpec
+                    fileName={fileName}
+                    localDags={dagData.localDags}
+                    editorHints={dagData.editorHints}
+                    keyboardActive={paneActive}
+                    fillHeight
+                    runSource={runSource}
+                    onRunStarted={onRunStarted}
+                    selectedStepName={url.step}
+                    onSelectedStepNameChange={onSelectedStepNameChange}
+                    onStepClick={(_step, at) => stepPanel.show(at)}
+                    ndv={ndv}
+                    openNdvOn="open"
+                    renderStepOutput={renderStepOutput}
+                    onStepCommand={onStepCommand}
+                    onOpenWorkflow={openWorkflow}
+                    stepCommandGates={stepCommandGates}
+                    followedRuns={actions.followed}
+                    inputRun={inputRun}
+                    chrome={
+                      ndvOpen || stepPanel.shown ? CHROME_NDV_OPEN : CHROME
+                    }
+                    notices={notices}
+                    editorHandleRef={editorHandleRef}
+                    onEditorStateChange={onEditorStateChange}
+                    launcherHost={launcherHost}
+                    renderWorkflowPanel={renderWorkflowPanel}
+                  />
+                </MountAfterDockYield>
               </PaneActiveContext.Provider>
             </div>
           </CanvasToolbarHostContext.Provider>

@@ -1,7 +1,7 @@
 // Copyright (C) 2026 Yota Hamada
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-import { useEffect } from 'react';
+import { useLayoutEffect } from 'react';
 import { useDockCommands } from '../dock/DockContext';
 
 /**
@@ -12,7 +12,9 @@ import { useDockCommands } from '../dock/DockContext';
  */
 export function useDockYield(viewOpen: boolean): void {
   const { yieldToView } = useDockCommands();
-  useEffect(() => {
+  // Before paint: the zone never shows with the panel that the view
+  // collapses.
+  useLayoutEffect(() => {
     if (!viewOpen) return;
     yieldToView?.(true, { restore: true });
     return () => yieldToView?.(false);
