@@ -8273,7 +8273,7 @@
         },
         "marks": {
           "type": "boolean",
-          "description": "Show a person at the desktop where each action lands, just before it acts: a frame around the element a step presses or sets, the point it clicks, or the window it types into, labelled with the step's name and the action. A mark takes no focus or input, lets clicks through, and is left out of every screenshot the step takes. Defaults to true on the console and false in a remote session. Set false to show none."
+          "description": "Show a person at the desktop where each action lands, just before it acts: a frame around the element a step presses or sets, the point it clicks, or the field or window it types into, labelled with the step's name and the action. A mark takes no focus or input, lets clicks through, and is left out of every screenshot the step takes. Defaults to true on the console and false in a remote session. Set false to show none."
         },
         "refuse": {
           "type": "array",

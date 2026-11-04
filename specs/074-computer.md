@@ -264,8 +264,10 @@ While a step runs on the console, a mark shows a person at the desktop
 where each action lands, just before it acts: a frame around the element
 the step has press, toggle, select, open, set its value, or take the
 keyboard focus through the element itself, which moves no pointer; a square
-around the point of a click, drag, scroll, move, or button press; and a
-frame around the window with the keyboard focus for typing and keys. The
+around the point of a click, scroll, move, or button press, and a frame
+from one end of a drag to the other; and for typing and keys, a frame
+around the element the step just focused, until input that may move the
+focus, or else around the window with the keyboard focus. The
 mark is labelled with the step's name and the action, never the text typed,
 in a color chosen by the step's name, so the marks of steps running at the
 same time stay apart. It stays until the step's next mark or for two
