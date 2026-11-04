@@ -2,7 +2,12 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 import { describe, expect, it } from 'vitest';
-import { actionDescription, actionNamespace, actionTitle } from '../actionText';
+import {
+  actionDescription,
+  actionNamespace,
+  actionTitle,
+  namespaceTitle,
+} from '../actionText';
 
 describe('actionNamespace', () => {
   it.each([
@@ -19,7 +24,9 @@ describe('actionTitle', () => {
   it.each([
     ['http.request', 'HTTP request'],
     ['git.worktree.add', 'Git worktree add'],
-    ['dag.run', 'DAG run'],
+    // The product calls a DAG a workflow.
+    ['dag.run', 'Workflow run'],
+    ['dag.enqueue', 'Workflow enqueue'],
     ['xlsx.list_sheets', 'XLSX list sheets'],
     ['k8s.run', 'K8s run'],
     ['ssh.run', 'SSH run'],
@@ -31,6 +38,13 @@ describe('actionTitle', () => {
     ['constructor.run', 'Constructor run'],
   ])('%s gives %s', (name, title) => {
     expect(actionTitle(name)).toBe(title);
+  });
+});
+
+describe('namespaceTitle', () => {
+  it('names the dag namespace as workflows and keeps the others', () => {
+    expect(namespaceTitle('dag')).toBe('workflow');
+    expect(namespaceTitle('git')).toBe('git');
   });
 });
 

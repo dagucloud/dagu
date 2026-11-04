@@ -26,6 +26,7 @@ import {
   type AliasMap,
 } from './canvas/paletteModel';
 import type { ActionCatalogEntry } from './contracts';
+import { namespaceTitle } from './inspector/actionText';
 import { YamlSnippet } from './YamlSnippet';
 import {
   readFavouriteActions,
@@ -122,7 +123,7 @@ export function buildSections(
     return [
       ...groupRanked(ranked).map((group) => ({
         id: group.namespace,
-        title: group.namespace,
+        title: namespaceTitle(group.namespace),
         entries: group.entries,
       })),
     ];
@@ -144,7 +145,7 @@ export function buildSections(
   add('recent', titles.recent, entriesNamed(catalog, recent));
   add('popular', titles.popular, entriesNamed(catalog, POPULAR_ACTIONS));
   for (const group of groupCatalog(catalog)) {
-    add(group.namespace, group.namespace, group.entries);
+    add(group.namespace, namespaceTitle(group.namespace), group.entries);
   }
   return sections;
 }

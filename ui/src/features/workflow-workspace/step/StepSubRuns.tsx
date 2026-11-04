@@ -120,9 +120,7 @@ export function StepSubRuns({
 
   const linkClass =
     'text-left text-xs font-medium text-primary hover:underline focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring rounded-sm';
-  const linkTitle = ts(
-    'Click to view sub DAG run (Cmd/Ctrl+Click to open in new tab)'
-  );
+  const linkTitle = ts('Open the sub-run (Cmd/Ctrl+Click opens a new tab)');
 
   if (!several) {
     const child = children[0]!;
@@ -138,7 +136,9 @@ export function StepSubRuns({
             }
           >
             <GitBranch className="h-3.5 w-3.5" aria-hidden="true" />
-            {ts('View Sub DAG Run:')} {child.dagName || subDagName}
+            {ts('Open sub-run: {name}', {
+              name: child.dagName || subDagName,
+            })}
           </button>
           {child.params && (
             <div className="text-xs text-muted-foreground">
@@ -169,10 +169,10 @@ export function StepSubRuns({
             <ChevronRight className="h-3 w-3" aria-hidden="true" />
           )}
           {shown.length === children.length
-            ? ts('Multiple executions: {count} sub DAG runs', {
+            ? ts('Multiple executions: {count} sub-runs', {
                 count: children.length,
               })
-            : ts('Multiple executions: {visible} of {total} sub DAG runs', {
+            : ts('Multiple executions: {visible} of {total} sub-runs', {
                 visible: shown.length,
                 total: children.length,
               })}
@@ -183,7 +183,7 @@ export function StepSubRuns({
           onClick={() => opener.open(node, holder)}
         >
           <Layers className="h-3 w-3" aria-hidden="true" />
-          {ts('Choose a sub DAG run')}
+          {ts('Choose sub-run')}
         </button>
       </div>
 

@@ -1163,8 +1163,6 @@ const baseEnglish = {
     'No stored revisions yet. Revisions are captured on each save.',
   'No sub DAG runs match the selected filter':
     'No sub DAG runs match the selected filter',
-  'No sub DAG-runs match the selected filter':
-    'No sub DAG-runs match the selected filter',
   'No tasks are defined.': 'No tasks are defined.',
   'No upcoming run': 'No upcoming run',
   'No users found': 'No users found',
@@ -4228,8 +4226,6 @@ const baseChinese = {
     '暂无已保存的修订版本。每次保存时都会记录修订版本。',
   'No sub DAG runs match the selected filter':
     '没有子 DAG 运行匹配所选筛选条件',
-  'No sub DAG-runs match the selected filter':
-    '没有子 DAG 运行匹配所选筛选条件',
   'No tasks are defined.': '未定义任务。',
   'No upcoming run': '暂无即将到来的运行',
   'No users found': '未找到用户',
@@ -7283,8 +7279,6 @@ const baseJapanese = {
   'No stored revisions yet. Revisions are captured on each save.':
     '保存されたリビジョンはまだありません。リビジョンは各保存時に記録されます。',
   'No sub DAG runs match the selected filter':
-    '選択したフィルターに一致するサブ DAG 実行はありません',
-  'No sub DAG-runs match the selected filter':
     '選択したフィルターに一致するサブ DAG 実行はありません',
   'No tasks are defined.': 'タスクが定義されていません。',
   'No upcoming run': '予定された実行はありません',

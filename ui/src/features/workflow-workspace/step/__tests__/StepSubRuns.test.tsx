@@ -196,7 +196,7 @@ describe('StepSubRuns with one child', () => {
     expect(screen.getByText('Parameters:')).toBeVisible();
     expect(screen.getByText('A=1')).toBeVisible();
     fireEvent.click(
-      screen.getByRole('button', { name: /View Sub DAG Run: child/ })
+      screen.getByRole('button', { name: /Open sub-run: child/ })
     );
 
     expect(openOnStack).toHaveBeenCalledWith({
@@ -213,7 +213,7 @@ describe('StepSubRuns with one child', () => {
       const { openOnStack } = renderSubRuns(ONE);
 
       fireEvent.click(
-        screen.getByRole('button', { name: /View Sub DAG Run: child/ }),
+        screen.getByRole('button', { name: /Open sub-run: child/ }),
         modifier
       );
 
@@ -227,7 +227,7 @@ describe('StepSubRuns with one child', () => {
     renderSubRuns(ONE, { openOnStack: null });
 
     fireEvent.click(
-      screen.getByRole('button', { name: /View Sub DAG Run: child/ })
+      screen.getByRole('button', { name: /Open sub-run: child/ })
     );
 
     expect(path).toBe(CHILD_PAGE);
@@ -243,7 +243,7 @@ describe('StepSubRuns with several children', () => {
       undefined,
     ]);
     const toggle = screen.getByRole('button', {
-      name: /Multiple executions: 3 sub DAG runs/,
+      name: /Multiple executions: 3 sub-runs/,
     });
     expect(screen.queryByText(/^#0/)).not.toBeInTheDocument();
     fireEvent.click(toggle);
@@ -268,7 +268,7 @@ describe('StepSubRuns with several children', () => {
 
     expect(
       screen.getByRole('button', {
-        name: /Multiple executions: 1 of 3 sub DAG runs/,
+        name: /Multiple executions: 1 of 3 sub-runs/,
       })
     ).toBeVisible();
     expect(
@@ -287,7 +287,7 @@ describe('StepSubRuns with several children', () => {
 
     fireEvent.click(
       screen.getByRole('button', {
-        name: /Multiple executions: 3 sub DAG runs/,
+        name: /Multiple executions: 3 sub-runs/,
       })
     );
 
@@ -342,17 +342,15 @@ describe('StepSubRuns with several children', () => {
   it('picks a child in ParallelExecutionModal and opens it on the stack', () => {
     const { openOnStack } = renderSubRuns(THREE);
 
-    fireEvent.click(
-      screen.getByRole('button', { name: 'Choose a sub DAG run' })
-    );
-    expect(screen.getByText('3 sub DAG-runs')).toBeVisible();
+    fireEvent.click(screen.getByRole('button', { name: 'Choose sub-run' }));
+    expect(screen.getByText('3 sub-runs')).toBeVisible();
     fireEvent.click(screen.getByText('N=3'));
 
     expect(openOnStack).toHaveBeenCalledWith({
       name: 'worker',
       dagRunId: 'w-3',
     });
-    expect(screen.queryByText('3 sub DAG-runs')).not.toBeInTheDocument();
+    expect(screen.queryByText('3 sub-runs')).not.toBeInTheDocument();
   });
 
   it('reads the children of a nested step under its parent sub run', () => {
@@ -374,7 +372,7 @@ describe('StepSubRuns as a list', () => {
     const items = within(screen.getByRole('list')).getAllByRole('listitem');
     expect(items).toHaveLength(1);
     expect(
-      within(items[0]!).getByRole('button', { name: /View Sub DAG Run: child/ })
+      within(items[0]!).getByRole('button', { name: /Open sub-run: child/ })
     ).toBeVisible();
     expect(within(items[0]!).getByText('A=1')).toBeVisible();
   });

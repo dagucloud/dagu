@@ -240,7 +240,7 @@ describe('StepRunView accessibility', () => {
     expect(facts.getByRole('button', { name: 'Copy value' })).toBeVisible();
     const subRuns = facts.getByRole('region', { name: 'Sub-runs' });
     expect(
-      within(subRuns).getByRole('button', { name: /View Sub DAG Run: child/ })
+      within(subRuns).getByRole('button', { name: /Open sub-run: child/ })
     ).toBeVisible();
     expectNamedButtons(region);
   });

@@ -48,4 +48,22 @@ describe('StepDetails', () => {
       screen.getByLabelText('Log message: Deploying ${ENVIRONMENT}')
     ).toBeInTheDocument();
   });
+
+  // The internal executor type of a call step is `dag`, a word the UI does
+  // not use: the workflow it calls says it all.
+  it('shows the workflow that a call step calls, without its executor', () => {
+    const step = {
+      name: 'call_a',
+      call: 'child-a',
+      executorConfig: { type: 'dag', config: {} },
+    } as components['schemas']['Step'];
+
+    render(<StepDetails step={step} />);
+
+    expect(screen.getByText('Calls')).toBeInTheDocument();
+    expect(screen.getByText('child-a')).toBeInTheDocument();
+    expect(screen.queryByText('Sub DAG')).toBeNull();
+    expect(screen.queryByText('Executor')).toBeNull();
+    expect(screen.queryByText('dag')).toBeNull();
+  });
 });

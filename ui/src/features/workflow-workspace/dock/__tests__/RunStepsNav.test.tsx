@@ -181,7 +181,7 @@ describe('RunStepsNav sub-runs', () => {
         name: 'Choose one of 2 sub-runs of worker',
       })
     );
-    expect(screen.getByText('2 sub DAG-runs')).toBeVisible();
+    expect(screen.getByText('2 sub-runs')).toBeVisible();
     fireEvent.click(screen.getByText('N=2'));
     expect(openOnStack).toHaveBeenCalledWith({
       name: 'worker',

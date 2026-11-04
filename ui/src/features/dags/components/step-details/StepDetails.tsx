@@ -37,7 +37,7 @@ const STEP_FIELD_ORDER = [
 
 const STEP_FIELD_LABELS: Record<string, string> = {
   approval: 'Approval',
-  call: 'Sub DAG',
+  call: 'Calls',
   commands: 'Commands',
   depends: 'Depends On',
   description: 'Description',
@@ -62,6 +62,7 @@ export function StepDetails({ step }: { step: Step }) {
   const fields = React.useMemo(() => {
     const entries = Object.entries(step)
       .filter(([key]) => key !== 'name')
+      .filter(([key, value]) => !isCallExecutor(step, key, value))
       .filter(([, value]) => hasMeaningfulValue(value));
 
     return entries.sort(([left], [right]) => {
@@ -102,6 +103,19 @@ export function StepDetails({ step }: { step: Step }) {
         );
       })}
     </div>
+  );
+}
+
+/**
+ * The executor of a step that calls a workflow: its internal type `dag`
+ * says nothing that the Calls field does not, in words the UI never uses.
+ */
+function isCallExecutor(step: Step, key: string, value: unknown): boolean {
+  return (
+    key === 'executorConfig' &&
+    Boolean(step.call) &&
+    isPlainObject(value) &&
+    value.type === 'dag'
   );
 }
 
