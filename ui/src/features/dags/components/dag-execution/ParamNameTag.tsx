@@ -16,7 +16,10 @@ export function ParamNameTag({
     return null;
   }
   return (
-    <code className="min-w-0 truncate font-mono text-xs text-muted-foreground">
+    <code
+      title={name}
+      className="min-w-0 truncate font-mono text-xs text-muted-foreground"
+    >
       {name}
     </code>
   );
