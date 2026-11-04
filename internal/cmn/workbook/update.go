@@ -243,9 +243,10 @@ func updateOnce(ctx context.Context, path string, opts UpdateOptions) (*WriteRes
 		return nil, err
 	}
 
-	// Add missing columns at the right of the header row.
+	// Add missing columns at the right of the header row, only when some
+	// row is written, so an update with nothing to write changes nothing.
 	for i := range plan.set {
-		if !plan.set[i].added {
+		if !plan.set[i].added || len(targets)+len(appends) == 0 {
 			continue
 		}
 		plan.reg.C2++
@@ -350,7 +351,7 @@ func (w *file) planUpdate(opts UpdateOptions, warn func(string)) (*updatePlan, e
 	set := opts.Set
 	if set == nil {
 		set = defaultSet(opts.Rows, opts.Key)
-		if len(set) == 0 {
+		if len(set) == 0 && len(opts.Rows) > 0 {
 			return nil, w.sheetError(sheet, "rows carry no fields to write; set is empty")
 		}
 	}

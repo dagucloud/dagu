@@ -438,17 +438,37 @@ func TestUpdateRowsAddedColumnUnderMergedHeader(t *testing.T) {
 	assert.Equal(t, before, fileHash(t, path))
 }
 
-func TestUpdateRowsEmptyRowsSucceeds(t *testing.T) {
+// TestUpdateRowsEmptyRows covers a run with nothing pending: an empty rows
+// list succeeds and leaves the workbook as it was, even when set names a
+// column the sheet lacks or set is left to default.
+func TestUpdateRowsEmptyRows(t *testing.T) {
 	t.Parallel()
-	path := ordersBook(t)
-	before := fileHash(t, path)
-	set, err := ParseSet(map[string]any{"Status": "status"})
-	require.NoError(t, err)
-	result, err := UpdateRows(context.Background(), path, UpdateOptions{Key: "Invoice No", Rows: nil, Set: set})
-	require.NoError(t, err, "an empty rows list changes nothing and must not fail")
-	assert.Equal(t, 0, result.Changes.RowsUpdated)
-	assert.Equal(t, 0, result.Changes.CellsChanged)
-	assert.Equal(t, before, fileHash(t, path), "no change is written")
+	for _, tc := range []struct {
+		name string
+		set  map[string]any
+	}{
+		{"ExistingColumn", map[string]any{"Status": "status"}},
+		{"NewColumn", map[string]any{"Result": "result"}},
+		{"DefaultSet", nil},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			path := ordersBook(t)
+			before := fileHash(t, path)
+			opts := UpdateOptions{Key: "Invoice No"}
+			if tc.set != nil {
+				set, err := ParseSet(tc.set)
+				require.NoError(t, err)
+				opts.Set = set
+			}
+			result, err := UpdateRows(context.Background(), path, opts)
+			require.NoError(t, err)
+			assert.Zero(t, result.Changes.RowsUpdated)
+			assert.Zero(t, result.Changes.CellsChanged)
+			assert.Zero(t, result.Changes.ColumnsAdded)
+			assert.Equal(t, before, fileHash(t, path))
+		})
+	}
 }
 
 func TestUpdateRowsOutputLeavesTheWorkbookAlone(t *testing.T) {
