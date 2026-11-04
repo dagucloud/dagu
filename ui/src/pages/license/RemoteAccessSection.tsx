@@ -23,7 +23,10 @@ import { remoteAccessLevelLabels } from '@/lib/license';
 import { cn } from '@/lib/utils';
 
 /** A level at which calls from Dagu Cloud reach this server. */
-type OnLevel = Exclude<LicenseRemoteAccessLevel, LicenseRemoteAccessLevel.off>;
+export type OnLevel = Exclude<
+  LicenseRemoteAccessLevel,
+  LicenseRemoteAccessLevel.off
+>;
 
 /** What each level lets a call do, as the configuration reference words it. */
 const choices: { level: OnLevel; allows: string }[] = [
@@ -398,6 +401,81 @@ function parseDetails(details?: string): {
 }
 
 /**
+ * Lists the levels at which MCP calls through Dagu Cloud may reach this
+ * server, with what each allows, and warns that developer runs any command.
+ */
+export function RemoteAccessChoices({
+  selected,
+  onSelect,
+  disabled,
+  className,
+}: {
+  selected: OnLevel;
+  onSelect: (level: OnLevel) => void;
+  disabled?: boolean;
+  className?: string;
+}) {
+  const { ts } = useI18n();
+  const name = useId();
+  return (
+    <>
+      <fieldset className={cn('space-y-2', className)} disabled={disabled}>
+        <legend className="sr-only">{ts('Remote access')}</legend>
+        {choices.map((choice) => {
+          const id = `${name}-${choice.level}`;
+          return (
+            <label
+              key={choice.level}
+              htmlFor={id}
+              className={cn(
+                'flex cursor-pointer items-start gap-3 rounded-md border p-3',
+                selected === choice.level
+                  ? 'border-primary bg-primary/5'
+                  : 'border-border'
+              )}
+            >
+              <input
+                id={id}
+                type="radio"
+                name={name}
+                value={choice.level}
+                checked={selected === choice.level}
+                onChange={() => onSelect(choice.level)}
+                aria-labelledby={`${id}-title`}
+                aria-describedby={`${id}-allows`}
+                className="mt-1"
+              />
+              <span className="space-y-1">
+                <span id={`${id}-title`} className="block text-sm font-medium">
+                  {ts(remoteAccessLevelLabels[choice.level])}
+                </span>
+                <span
+                  id={`${id}-allows`}
+                  className="block text-sm text-muted-foreground"
+                >
+                  {ts(choice.allows)}
+                </span>
+              </span>
+            </label>
+          );
+        })}
+      </fieldset>
+      {selected === LicenseRemoteAccessLevel.developer && (
+        <p role="alert" className="flex items-start gap-2 text-sm text-warning">
+          <AlertTriangle
+            className="h-4 w-4 shrink-0 mt-0.5"
+            aria-hidden="true"
+          />
+          {ts(
+            'Developer lets the Dagu Cloud users this reaches run any command on this machine, as the user Dagu runs as. Choose it only where you would give them a shell here.'
+          )}
+        </p>
+      )}
+    </>
+  );
+}
+
+/**
  * Asks an administrator how far calls from Dagu Cloud may go, listing what
  * each role allows before any call reaches the server.
  */
@@ -413,7 +491,6 @@ function RemoteAccessDialog({
   onCancel: () => void;
 }) {
   const { ts } = useI18n();
-  const name = useId();
   const [selected, setSelected] = useState<OnLevel>(
     LicenseRemoteAccessLevel.viewer
   );
@@ -459,64 +536,11 @@ function RemoteAccessDialog({
             )}
           </DialogDescription>
         </DialogHeader>
-        <fieldset className="space-y-2" disabled={saving}>
-          <legend className="sr-only">{ts('Remote access')}</legend>
-          {choices.map((choice) => {
-            const id = `${name}-${choice.level}`;
-            return (
-              <label
-                key={choice.level}
-                htmlFor={id}
-                className={cn(
-                  'flex cursor-pointer items-start gap-3 rounded-md border p-3',
-                  selected === choice.level
-                    ? 'border-primary bg-primary/5'
-                    : 'border-border'
-                )}
-              >
-                <input
-                  id={id}
-                  type="radio"
-                  name={name}
-                  value={choice.level}
-                  checked={selected === choice.level}
-                  onChange={() => setSelected(choice.level)}
-                  aria-labelledby={`${id}-title`}
-                  aria-describedby={`${id}-allows`}
-                  className="mt-1"
-                />
-                <span className="space-y-1">
-                  <span
-                    id={`${id}-title`}
-                    className="block text-sm font-medium"
-                  >
-                    {ts(remoteAccessLevelLabels[choice.level])}
-                  </span>
-                  <span
-                    id={`${id}-allows`}
-                    className="block text-sm text-muted-foreground"
-                  >
-                    {ts(choice.allows)}
-                  </span>
-                </span>
-              </label>
-            );
-          })}
-        </fieldset>
-        {selected === LicenseRemoteAccessLevel.developer && (
-          <p
-            role="alert"
-            className="flex items-start gap-2 text-sm text-warning"
-          >
-            <AlertTriangle
-              className="h-4 w-4 shrink-0 mt-0.5"
-              aria-hidden="true"
-            />
-            {ts(
-              'Developer lets the Dagu Cloud users this reaches run any command on this machine, as the user Dagu runs as. Choose it only where you would give them a shell here.'
-            )}
-          </p>
-        )}
+        <RemoteAccessChoices
+          selected={selected}
+          onSelect={setSelected}
+          disabled={saving}
+        />
         <p className="text-sm text-muted-foreground">
           {ts(
             'Calls never reach the terminal, users, API keys, the license, or these settings. Each carries a short-lived assertion that Dagu Cloud signs for that call alone. Turning remote access off closes the connection and ends the calls in flight.'

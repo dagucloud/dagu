@@ -661,9 +661,7 @@ describe('LicensePage', () => {
     });
 
     function offer() {
-      return screen.getByRole('region', {
-        name: 'Monitor this server for free',
-      });
+      return screen.getByRole('region', { name: 'Connect to Dagu Cloud' });
     }
 
     function connectButton() {
@@ -712,6 +710,84 @@ describe('LicensePage', () => {
       ).toBeVisible();
       expect(row('Plan')).toHaveTextContent('Team plan');
       expect(row('Status')).toHaveTextContent('Active');
+    });
+
+    // Remote access needs a plan or a trial, so choosing MCP clients chooses
+    // the trial too, and the request carries the chosen level.
+    it('connects with remote access for MCP clients', async () => {
+      vi.spyOn(window, 'open').mockReturnValue(null);
+      const get = vi.fn((path: string) =>
+        Promise.resolve({
+          data:
+            path === '/license/connect'
+              ? pending
+              : path === '/license/remote-access'
+                ? ({
+                    level: LicenseRemoteAccessLevel.off,
+                    levelConfigured: false,
+                    approvals: false,
+                    approvalsConfigured: false,
+                    connected: false,
+                  } satisfies LicenseRemoteAccess)
+                : community(),
+        })
+      );
+      const post = vi.fn().mockResolvedValue({ data: pending });
+      useClientMock.mockReturnValue({ POST: post, GET: get } as never);
+      renderPage(community());
+
+      await userEvent.click(
+        within(offer()).getByRole('checkbox', {
+          name: /Use this server from MCP clients/,
+        })
+      );
+      expect(
+        within(offer()).getByRole('checkbox', {
+          name: /Also try paid features/,
+        })
+      ).toBeChecked();
+      await userEvent.click(
+        within(offer()).getByRole('radio', { name: 'Developer' })
+      );
+      await userEvent.click(
+        within(offer()).getByRole('button', { name: 'Connect and start trial' })
+      );
+
+      expect(post).toHaveBeenCalledWith('/license/connect', {
+        params: { query: { remoteNode: 'local' } },
+        body: { report: 'errors', remoteAccess: 'developer' },
+      });
+    });
+
+    // A level that configuration sets is shown, not offered.
+    it('shows remote access that configuration sets', async () => {
+      const get = vi.fn((path: string) =>
+        Promise.resolve({
+          data:
+            path === '/license/remote-access'
+              ? ({
+                  level: LicenseRemoteAccessLevel.viewer,
+                  levelConfigured: true,
+                  approvals: false,
+                  approvalsConfigured: false,
+                  connected: false,
+                } satisfies LicenseRemoteAccess)
+              : community(),
+        })
+      );
+      useClientMock.mockReturnValue({ GET: get } as never);
+      renderPage(community());
+
+      expect(
+        await within(offer()).findByText(
+          'cloud.remote_access in the server configuration sets this. Change it there and restart Dagu.'
+        )
+      ).toBeVisible();
+      expect(
+        within(offer()).queryByRole('checkbox', {
+          name: /Use this server from MCP clients/,
+        })
+      ).not.toBeInTheDocument();
     });
 
     // After approval, the server checks in with Dagu Console and can report.
@@ -906,7 +982,7 @@ describe('LicensePage', () => {
       });
       expect(await screen.findByText('ABCD1234')).toBeVisible();
       expect(
-        screen.queryByRole('region', { name: 'Monitor this server for free' })
+        screen.queryByRole('region', { name: 'Connect to Dagu Cloud' })
       ).not.toBeInTheDocument();
     });
 
@@ -1835,7 +1911,7 @@ describe('LicensePage', () => {
         screen.queryByRole('button', { name: 'Connect for free' })
       ).not.toBeInTheDocument();
       expect(
-        screen.queryByRole('region', { name: 'Monitor this server for free' })
+        screen.queryByRole('region', { name: 'Connect to Dagu Cloud' })
       ).not.toBeInTheDocument();
       expect(row('Plan')).toHaveTextContent('Free plan');
       expect(row('Status')).toHaveTextContent('Monitoring only');
@@ -2067,7 +2143,7 @@ describe('LicensePage', () => {
     );
 
     expect(scroll.mock.contexts).toContain(
-      screen.getByRole('region', { name: 'Monitor this server for free' })
+      screen.getByRole('region', { name: 'Connect to Dagu Cloud' })
     );
     scroll.mockRestore();
   });

@@ -5,6 +5,7 @@ package cmd
 
 import (
 	"bytes"
+	"context"
 	"strings"
 	"testing"
 	"time"
@@ -71,6 +72,58 @@ func TestLicenseActivateWithoutKeyNeedsTerminal(t *testing.T) {
 	err := th.RunCommandWithError(t, License(), test.CmdTest{Args: []string{"license", "activate"}})
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "a license key is required when not running in a terminal")
+}
+
+// An unknown --remote-access level fails before anything is activated.
+func TestLicenseActivateUnknownRemoteAccess(t *testing.T) {
+	t.Parallel()
+
+	th := test.SetupCommand(t)
+	err := th.RunCommandWithError(t, License(), test.CmdTest{
+		Args: []string{"license", "activate", "DAGU-KEY", "--remote-access", "admin"},
+	})
+	require.ErrorContains(t, err, "--remote-access must be one of off, viewer, operator, or developer")
+}
+
+// --remote-access saves the level a server reads once licensed, unless
+// cloud.remote_access fixes it; without the flag, remote access stays off.
+func TestSaveRemoteAccessLevel(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name       string
+		configured config.RemoteAccessLevel
+		level      config.RemoteAccessLevel
+		want       config.RemoteAccessLevel
+	}{
+		{name: "Chosen", level: config.RemoteAccessOperator, want: config.RemoteAccessOperator},
+		{name: "Omitted", want: config.RemoteAccessOff},
+		{name: "Configured", configured: config.RemoteAccessViewer, level: config.RemoteAccessDeveloper, want: config.RemoteAccessViewer},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			cfg := &config.Config{
+				Paths: config.PathsConfig{DataDir: t.TempDir()},
+				Cloud: config.CloudConfig{RemoteAccess: tt.configured},
+			}
+			ctx := &Context{Context: context.Background(), Config: cfg}
+
+			require.NoError(t, saveRemoteAccessLevel(ctx, tt.level, "https://console.example.com/servers?server=s1"))
+
+			status, err := newCloudAccessSettings(cfg).Status(ctx)
+			require.NoError(t, err)
+			assert.Equal(t, tt.want, status.Level)
+		})
+	}
+}
+
+func TestMCPURL(t *testing.T) {
+	t.Parallel()
+
+	assert.Equal(t, "https://console.example.com/mcp", mcpURL("https://console.example.com/servers?server=s1"))
+	assert.Equal(t, "https://example.com/console/mcp", mcpURL("https://example.com/console/servers?server=s1"))
+	assert.Empty(t, mcpURL(""))
 }
 
 // What a server connected from the CLI reports comes from --report, else

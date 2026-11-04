@@ -92,7 +92,7 @@ export default function LicenseSection({
   });
   const { refresh: refreshMonitoring } = monitoring;
   const remoteAccess = useLicenseRemoteAccess(remoteNode, {
-    enabled: online,
+    enabled: online || offersConnect,
     refreshInterval: online ? REMOTE_ACCESS_REFRESH_MS : 0,
   });
   const [choosingLevel, setChoosingLevel] = useState(false);
@@ -362,6 +362,7 @@ export default function LicenseSection({
           <ConnectSection
             connect={connect}
             monitoring={monitoring.monitoring}
+            remoteAccess={remoteAccess.remoteAccess}
             disabled={busy}
             trialRequested={trialRequested}
           />

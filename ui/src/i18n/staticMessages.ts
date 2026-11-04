@@ -2785,7 +2785,14 @@ const baseEnglish = {
   'Monitoring only': 'Monitoring only',
   Free: 'Free',
   'Included in Team and Pro': 'Included in Team and Pro',
-  'Monitor this server for free': 'Monitor this server for free',
+  'Connect to Dagu Cloud': 'Connect to Dagu Cloud',
+  'Use this server from MCP clients': 'Use this server from MCP clients',
+  'MCP clients reach this server through the Dagu Cloud MCP endpoint, up to the role chosen here. Needs a paid plan or a trial.':
+    'MCP clients reach this server through the Dagu Cloud MCP endpoint, up to the role chosen here. Needs a paid plan or a trial.',
+  'cloud.remote_access in the server configuration sets this. Change it there and restart Dagu.':
+    'cloud.remote_access in the server configuration sets this. Change it there and restart Dagu.',
+  'Remote access needs a paid plan or a trial. Without one, Dagu Cloud refuses MCP calls.':
+    'Remote access needs a paid plan or a trial. Without one, Dagu Cloud refuses MCP calls.',
   "Dagu Console shows this server's runs, failures, and trends, and emails you when a workflow fails or the server stops reporting.":
     "Dagu Console shows this server's runs, failures, and trends, and emails you when a workflow fails or the server stops reporting.",
   "Dagu Console shows this server's health and emails you when the server stops reporting.":
@@ -5812,7 +5819,14 @@ const baseChinese = {
   'Monitoring only': '仅监控',
   Free: '免费',
   'Included in Team and Pro': '包含在 Team 和 Pro 中',
-  'Monitor this server for free': '免费监控此服务器',
+  'Connect to Dagu Cloud': '连接到 Dagu Cloud',
+  'Use this server from MCP clients': '从 MCP 客户端使用此服务器',
+  'MCP clients reach this server through the Dagu Cloud MCP endpoint, up to the role chosen here. Needs a paid plan or a trial.':
+    'MCP 客户端通过 Dagu Cloud MCP 端点访问此服务器，权限不超过此处选择的角色。需要付费套餐或试用。',
+  'cloud.remote_access in the server configuration sets this. Change it there and restart Dagu.':
+    '服务器配置中的 cloud.remote_access 设置了此项。请在配置中更改并重启 Dagu。',
+  'Remote access needs a paid plan or a trial. Without one, Dagu Cloud refuses MCP calls.':
+    '远程访问需要付费套餐或试用。否则 Dagu Cloud 会拒绝 MCP 调用。',
   "Dagu Console shows this server's runs, failures, and trends, and emails you when a workflow fails or the server stops reporting.":
     'Dagu Console 会显示此服务器的运行、失败和趋势，并在工作流失败或服务器停止报告时向你发送电子邮件。',
   "Dagu Console shows this server's health and emails you when the server stops reporting.":
@@ -8930,7 +8944,14 @@ const baseJapanese = {
   'Monitoring only': '監視のみ',
   Free: '無料',
   'Included in Team and Pro': 'Team と Pro で利用可能',
-  'Monitor this server for free': 'このサーバーを無料で監視',
+  'Connect to Dagu Cloud': 'Dagu Cloud に接続',
+  'Use this server from MCP clients': 'MCP クライアントからこのサーバーを使う',
+  'MCP clients reach this server through the Dagu Cloud MCP endpoint, up to the role chosen here. Needs a paid plan or a trial.':
+    'MCP クライアントは Dagu Cloud の MCP エンドポイント経由で、ここで選んだロールまでこのサーバーを操作できます。有料プランまたはトライアルが必要です。',
+  'cloud.remote_access in the server configuration sets this. Change it there and restart Dagu.':
+    'サーバー設定の cloud.remote_access がこれを指定しています。設定を変更して Dagu を再起動してください。',
+  'Remote access needs a paid plan or a trial. Without one, Dagu Cloud refuses MCP calls.':
+    'リモートアクセスには有料プランまたはトライアルが必要です。ないと Dagu Cloud は MCP 呼び出しを拒否します。',
   "Dagu Console shows this server's runs, failures, and trends, and emails you when a workflow fails or the server stops reporting.":
     'Dagu Console にこのサーバーの実行、失敗、傾向が表示され、ワークフローが失敗したときやサーバーからの報告が止まったときにメールが届きます。',
   "Dagu Console shows this server's health and emails you when the server stops reporting.":
