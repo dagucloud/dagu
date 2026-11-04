@@ -46,11 +46,49 @@ import { LogsDock } from '../LogsDock';
 const mounts = vi.hoisted(() => ({ count: 0 }));
 
 // The timeline and the steps navigation have their own tests.
-vi.mock('../RunTimeline', () => ({
-  RunTimeline: () => <div data-testid="timeline-stub" />,
-}));
+// The timeline stub tells where its controls go: the dock header or its own
+// row.
+vi.mock('../RunTimeline', async () => {
+  const { useContext } = await import('react');
+  const { DockHeaderToolsContext } = await import('../DockHeaderTools');
+  return {
+    RunTimeline: () => (
+      <div
+        data-testid="timeline-stub"
+        data-controls={
+          useContext(DockHeaderToolsContext) === undefined ? 'row' : 'header'
+        }
+      />
+    ),
+  };
+});
 vi.mock('../RunStepsNav', () => ({
-  RunStepsNav: () => <div data-testid="steps-nav-stub" />,
+  RunStepsNav: ({ onPicked }: { onPicked?(): void }) => (
+    <div data-testid="steps-nav-stub">
+      <button type="button" onClick={onPicked}>
+        Pick a step
+      </button>
+    </div>
+  ),
+  RunStepPicker: ({
+    open,
+    onToggle,
+    className,
+  }: {
+    open: boolean;
+    onToggle(): void;
+    className?: string;
+  }) => (
+    <button
+      type="button"
+      data-testid="step-picker-stub"
+      aria-expanded={open}
+      className={className}
+      onClick={onToggle}
+    >
+      Steps
+    </button>
+  ),
 }));
 
 // Stateful bodies, so a test can tell a kept instance from a new one. 'chat'
@@ -270,8 +308,27 @@ describe('LogsDock frame', () => {
       screen.getByRole('tablist')
     );
     // jsdom runs no container query: the classes are the contract. A medium
-    // panel keeps the names in a narrower list; only a phone shows dots.
-    expect(nav).toHaveClass('w-60', '@max-[900px]:w-44', '@max-[600px]:w-11');
+    // panel keeps the names in a narrower list.
+    expect(nav).toHaveClass('w-60', '@max-[900px]:w-44');
+  });
+
+  // A phone has no room for the steps beside the tabs: a row names the
+  // selected step and opens the list over the tabs; a pick closes it.
+  it('opens the steps over the tabs from a row below 600px', () => {
+    renderDock(finished);
+    fireEvent.click(toggleButton());
+    const nav = screen.getByTestId('ww-run-steps-nav');
+    const picker = screen.getByTestId('step-picker-stub');
+    expect(picker).toHaveClass('hidden', '@max-[600px]:flex');
+    expect(nav).toHaveClass('@max-[600px]:absolute', '@max-[600px]:hidden');
+
+    fireEvent.click(picker);
+    expect(picker).toHaveAttribute('aria-expanded', 'true');
+    expect(nav).not.toHaveClass('@max-[600px]:hidden');
+
+    fireEvent.click(screen.getByRole('button', { name: 'Pick a step' }));
+    expect(picker).toHaveAttribute('aria-expanded', 'false');
+    expect(nav).toHaveClass('@max-[600px]:hidden');
   });
 
   it('is open when the URL has ?dock at load', () => {
@@ -681,6 +738,11 @@ describe('LogsDock below 768px', () => {
     expect(screen.queryByRole('separator')).toBeNull();
     expect(dockSection()).toHaveFocus();
     expect(screen.getByRole('button', { name: 'Close' })).toBeInTheDocument();
+    // The bar of the sheet has no room for the controls of the timeline.
+    expect(screen.getByTestId('timeline-stub')).toHaveAttribute(
+      'data-controls',
+      'row'
+    );
     const handle = screen.getByTestId('ww-sheet-grip');
 
     fireEvent.pointerDown(handle, { pointerId: 1, button: 0, clientY: 100 });
