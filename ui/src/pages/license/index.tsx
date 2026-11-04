@@ -101,10 +101,14 @@ export default function LicenseSection({
 
   // Each visit to #activate, even a repeated one, opens the key form, which
   // takes focus, in view. A visit to #monitoring waits for its section, which
-  // appears once the license status is known.
+  // appears once the license status is known. Leaving both forgets the last
+  // visit, since history can return to its entry while this page stays.
   const handledVisit = useRef<string | null>(null);
   useEffect(() => {
-    if (hash !== '#activate' && hash !== '#monitoring') return;
+    if (hash !== '#activate' && hash !== '#monitoring') {
+      handledVisit.current = null;
+      return;
+    }
     const target = document.getElementById(hash.slice(1));
     if (!target || handledVisit.current === locationKey) return;
     handledVisit.current = locationKey;

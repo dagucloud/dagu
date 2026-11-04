@@ -22,10 +22,14 @@ export default function SettingsPage(): React.ReactElement {
   }, [setTitle, t]);
 
   // A visit to #remote-nodes scrolls once the plan above it has its height.
+  // Leaving it forgets the visit, since history can return to its entry.
   const handledVisit = React.useRef<string | null>(null);
   React.useEffect(() => {
-    if (hash !== '#remote-nodes' || loading) return;
-    if (handledVisit.current === locationKey) return;
+    if (hash !== '#remote-nodes') {
+      handledVisit.current = null;
+      return;
+    }
+    if (loading || handledVisit.current === locationKey) return;
     handledVisit.current = locationKey;
     document.getElementById('remote-nodes')?.scrollIntoView({ block: 'start' });
   }, [hash, locationKey, loading]);

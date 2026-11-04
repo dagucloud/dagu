@@ -19,7 +19,7 @@ import {
 import { useClient } from '@/hooks/api';
 import { LicenseProvider } from '@/components/LicenseProvider';
 import { SWRConfig } from 'swr';
-import { Link, MemoryRouter } from 'react-router-dom';
+import { Link, MemoryRouter, useNavigate } from 'react-router-dom';
 import {
   LicenseMonitoringLevel,
   LicenseRemoteAccessLevel,
@@ -2133,7 +2133,7 @@ describe('LicensePage', () => {
     });
   });
 
-  // The sidebar and the monitoring offers link to #monitoring.
+  // The monitoring offers link to #monitoring.
   it('scrolls to free monitoring from a link to #monitoring', () => {
     const scroll = vi.spyOn(Element.prototype, 'scrollIntoView');
 
@@ -2145,6 +2145,40 @@ describe('LicensePage', () => {
     expect(scroll.mock.contexts).toContain(
       screen.getByRole('region', { name: 'Connect to Dagu Cloud' })
     );
+    scroll.mockRestore();
+  });
+
+  // Other sections share the Settings page, so going back through history
+  // to #monitoring returns to an entry this page already scrolled for.
+  it('scrolls to #monitoring again when history returns to it', async () => {
+    const scroll = vi.spyOn(Element.prototype, 'scrollIntoView');
+    function History() {
+      const navigate = useNavigate();
+      return (
+        <>
+          <Link to="/settings#remote-nodes">Remote nodes</Link>
+          <button type="button" onClick={() => navigate(-1)}>
+            Back
+          </button>
+        </>
+      );
+    }
+    renderPage(
+      { valid: false, community: true, plan: '', features: [] },
+      { path: '/settings#monitoring', children: <History /> }
+    );
+    const offerScrolls = () =>
+      scroll.mock.contexts.filter(
+        (element) =>
+          element ===
+          screen.getByRole('region', { name: 'Connect to Dagu Cloud' })
+      ).length;
+    expect(offerScrolls()).toBe(1);
+
+    await userEvent.click(screen.getByRole('link', { name: 'Remote nodes' }));
+    await userEvent.click(screen.getByRole('button', { name: 'Back' }));
+
+    expect(offerScrolls()).toBe(2);
     scroll.mockRestore();
   });
 });

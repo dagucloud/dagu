@@ -2,8 +2,9 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 import { render, screen } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
 import React from 'react';
-import { MemoryRouter } from 'react-router-dom';
+import { Link, MemoryRouter, useNavigate } from 'react-router-dom';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { AppBarContext } from '@/contexts/AppBarContext';
 import SettingsPage from '..';
@@ -36,12 +37,13 @@ afterEach(() => {
   scrollIntoView.mockReset();
 });
 
-function renderPage(path = '/settings') {
+function renderPage(path = '/settings', children?: React.ReactNode) {
   const setTitle = vi.fn();
   const view = render(
     <MemoryRouter initialEntries={[path]}>
       <AppBarContext.Provider value={{ setTitle } as never}>
         <SettingsPage />
+        {children}
       </AppBarContext.Provider>
     </MemoryRouter>
   );
@@ -82,5 +84,28 @@ describe('SettingsPage', () => {
     expect(scrollIntoView.mock.contexts[0]).toBe(
       document.getElementById('remote-nodes')
     );
+  });
+
+  // Going back through history to #remote-nodes returns to an entry the
+  // page already scrolled for, yet the visit is a new one.
+  it('scrolls to remote nodes again when history returns to them', async () => {
+    function History() {
+      const navigate = useNavigate();
+      return (
+        <>
+          <Link to="/settings#monitoring">Monitoring</Link>
+          <button type="button" onClick={() => navigate(-1)}>
+            Back
+          </button>
+        </>
+      );
+    }
+    renderPage('/settings#remote-nodes', <History />);
+    expect(scrollIntoView).toHaveBeenCalledTimes(1);
+
+    await userEvent.click(screen.getByRole('link', { name: 'Monitoring' }));
+    await userEvent.click(screen.getByRole('button', { name: 'Back' }));
+
+    expect(scrollIntoView).toHaveBeenCalledTimes(2);
   });
 });
