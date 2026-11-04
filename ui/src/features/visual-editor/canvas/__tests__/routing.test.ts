@@ -293,15 +293,22 @@ describe('edges around the cards', () => {
 // The far edges of a fan of 24 steps from one step were too tight for a
 // curve in the gap between the ranks, and took a loop round the row.
 describe('edges of a wide fan', () => {
-  const targets = Array.from({ length: 24 }, (_, i) => `t${i}`);
-  const graph = graphOf(
-    ['s', ...targets, 'm'],
-    [...targets.map((t) => `s>${t}`), ...targets.map((t) => `${t}>m`)]
-  );
+  const fan = (size: number) => {
+    const targets = Array.from({ length: size }, (_, i) => `t${i}`);
+    return graphOf(
+      ['s', ...targets, 'm'],
+      [...targets.map((t) => `s>${t}`), ...targets.map((t) => `${t}>m`)]
+    );
+  };
 
-  it.each(['TB', 'LR'] as const)(
-    'leaves room for a curve on every edge in %s',
-    (direction) => {
+  it.each([
+    ['TB', 24],
+    ['LR', 24],
+    ['TB', 100],
+  ] as const)(
+    'leaves room for a curve on every edge in %s, %i steps',
+    (direction, size) => {
+      const graph = fan(size);
       const { positions } = layoutRoutes(graph, direction);
       const box = (key: string) => {
         const found = graph.nodes.find((n) => n.key === key)!;

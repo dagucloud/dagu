@@ -277,7 +277,9 @@ export function spreadGapExtra<E extends { source: string; target: string }>(
     // The edge ends on the dot of the target handle.
     const run = runFor(move(edge), CORNER_RADIUS);
     const need = Math.ceil(run + HANDLE_RADIUS - rankSep);
-    extra[from] = Math.min(MAX_EXTRA_GAP, Math.max(extra[from] ?? 0, need));
+    // No cap, unlike a bundle: the room grows with the square root of the
+    // move, and a fan that needs much of it is far wider than it is deep.
+    extra[from] = Math.max(extra[from] ?? 0, need);
   }
   return extra.map((value) => Math.max(0, value));
 }
