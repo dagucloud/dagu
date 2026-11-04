@@ -403,6 +403,11 @@ function LazyRoutes({
   );
 }
 
+/** Keeps the title of the tab as the page below set it. */
+function keepTitle(): void {
+  return;
+}
+
 /**
  * The workflow page over the page that opened it, as a sheet from the
  * right. The backdrop, the close button and an Esc that the workflow page
@@ -412,6 +417,13 @@ function LazyRoutes({
 function WorkflowOverlayHost(): React.ReactElement | null {
   const overlay = useWorkflowOverlay();
   const { ts } = useI18n();
+  // The page below keeps the title of the tab: a title from the workflow
+  // page made that page set its own again, and both rendered each time.
+  const appBar = React.useContext(AppBarContext);
+  const overlayAppBar = React.useMemo(
+    () => ({ ...appBar, setTitle: keepTitle }),
+    [appBar]
+  );
   const location = useLocation();
   const openPage = useOpenPage();
   const panelRef = React.useRef<HTMLElement>(null);
@@ -507,24 +519,31 @@ function WorkflowOverlayHost(): React.ReactElement | null {
           />
         </div>
         <div className="relative flex min-h-0 flex-1 flex-col overflow-hidden md:rounded-b-xl">
-          {/* The frame of the page below stays as it is. */}
-          <LayoutChromeContext.Provider value={null}>
-            <LazyRouteErrorBoundary>
-              <React.Suspense fallback={<RouteFallback />}>
-                <Routes>
-                  <Route path="/dags/:fileName/:tab" element={<DAGDetails />} />
-                  <Route path="/dags/:fileName/" element={<DAGDetails />} />
-                  {/* From the click until the URL names the workflow. */}
-                  <Route
-                    path="*"
-                    element={
-                      <WorkspaceLoading fileName={overlay.target?.dag ?? ''} />
-                    }
-                  />
-                </Routes>
-              </React.Suspense>
-            </LazyRouteErrorBoundary>
-          </LayoutChromeContext.Provider>
+          {/* The frame and the title of the page below stay as they are. */}
+          <AppBarContext.Provider value={overlayAppBar}>
+            <LayoutChromeContext.Provider value={null}>
+              <LazyRouteErrorBoundary>
+                <React.Suspense fallback={<RouteFallback />}>
+                  <Routes>
+                    <Route
+                      path="/dags/:fileName/:tab"
+                      element={<DAGDetails />}
+                    />
+                    <Route path="/dags/:fileName/" element={<DAGDetails />} />
+                    {/* From the click until the URL names the workflow. */}
+                    <Route
+                      path="*"
+                      element={
+                        <WorkspaceLoading
+                          fileName={overlay.target?.dag ?? ''}
+                        />
+                      }
+                    />
+                  </Routes>
+                </React.Suspense>
+              </LazyRouteErrorBoundary>
+            </LayoutChromeContext.Provider>
+          </AppBarContext.Provider>
         </div>
       </section>
     </div>,
