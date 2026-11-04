@@ -610,7 +610,9 @@ describe('RunTimelineView', () => {
         ],
         selectedId: 'r',
       });
-      await user.hover(extent('r'));
+      // A single run draws its bar and no extent.
+      expect(screen.queryByTestId('ww-run-extent-r')).toBeNull();
+      await user.hover(bar('r'));
       const tooltip = (
         await screen.findAllByTestId('ww-run-timeline-tooltip')
       )[0]!;
