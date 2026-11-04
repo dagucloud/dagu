@@ -334,34 +334,63 @@ func TestWindowsElementsOfMinimizedWindow(t *testing.T) {
 }
 
 // A Chromium window builds the tree of its page once a client first asks
-// for it, and reads thin until then. The reader that met the window before
-// the page's tree was built finds the page's elements once it is.
+// for it, and reads thin until then. The reader that met the page keeps
+// seeing it as it grows: here the page adds its button five seconds after
+// it loads, so the first read comes before the button is there.
 func TestWindowsElementsOfChromiumPage(t *testing.T) {
 	driver := e2eDesktop(t)
 	els := e2eElements(t)
-	edge := filepath.Join(os.Getenv("ProgramFiles(x86)"), "Microsoft", "Edge", "Application", "msedge.exe")
-	if _, err := os.Stat(edge); err != nil {
-		t.Skipf("Edge is not installed: %v", err)
+	edge := edgePath()
+	if edge == "" {
+		t.Skip("Edge is not installed")
 	}
 	dir, err := os.MkdirTemp("", "dagu-chromium-")
 	require.NoError(t, err)
 	// Edge may hold its profile a moment after it ends.
 	t.Cleanup(func() { _ = os.RemoveAll(dir) })
 	page := filepath.Join(dir, "page.html")
-	require.NoError(t, os.WriteFile(page, []byte(`<!doctype html><title>Dagu page test</title><button>Dagu page button</button>`), 0o600))
+	html := `<!doctype html><title>Dagu page test</title><body><script>
+setTimeout(function () {
+  var button = document.createElement('button');
+  button.textContent = 'Dagu page button';
+  document.body.appendChild(button);
+}, 5000);
+</script></body>`
+	require.NoError(t, os.WriteFile(page, []byte(html), 0o600))
 	startApp(t, edge, "--user-data-dir="+filepath.Join(dir, "profile"), "--no-first-run", "--no-default-browser-check", "--new-window", "file:///"+filepath.ToSlash(page))
 	window := frontWindowNamed(t, driver, els, nil, func(w Element) bool { return strings.HasPrefix(w.Name, "Dagu page test") })
 
-	began := time.Now()
+	button := Selector{Role: RoleButton, Name: "Dagu page button"}
 	outline, err := els.Outline(window, 0)
 	require.NoError(t, err)
 	t.Logf("elements: first read of the page's window has %d elements", len(outline))
-	var found []Element
-	require.Eventually(t, func() bool {
-		found, err = els.Find(Selector{Role: RoleButton, Name: "Dagu page button"})
-		return err == nil && len(found) == 1
-	}, 30*time.Second, 250*time.Millisecond, "the page's button: %+v %v", found, err)
-	t.Logf("elements: the page's button was found %s after the first read", time.Since(began))
+	found, err := Match(window, outline, button)
+	require.NoError(t, err)
+	require.Empty(t, found, "the first read comes before the page adds its button")
+	began := time.Now()
+	for deadline := began.Add(30 * time.Second); ; time.Sleep(250 * time.Millisecond) {
+		found, err = els.Find(button)
+		require.NoError(t, err)
+		if len(found) == 1 {
+			break
+		}
+		require.True(t, time.Now().Before(deadline), "the reader never saw the page's button: %+v", found)
+	}
+	t.Logf("elements: the reader saw the page's button %s after its first read", time.Since(began))
+}
+
+// edgePath returns where Edge is installed, or "" when it is not.
+func edgePath() string {
+	for _, programs := range []string{os.Getenv("ProgramFiles(x86)"), os.Getenv("ProgramFiles")} {
+		if programs == "" {
+			continue
+		}
+		path := filepath.Join(programs, "Microsoft", "Edge", "Application", "msedge.exe")
+		if _, err := os.Stat(path); err == nil {
+			return path
+		}
+	}
+	return ""
 }
 
 // A table in Details view is read row by row, each cell under the column
