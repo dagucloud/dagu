@@ -1762,6 +1762,18 @@ describe.skipIf(realSchema === null)('VisualEditor seams of the NDV', () => {
     });
   });
 
+  // A step with an id and no name runs under its id: a host can name it so
+  // before the server has checked the text.
+  it('selects a step with no name by its id', () => {
+    renderEditor({
+      initial:
+        'steps:\n  - id: a\n    run: echo a\n  - id: b\n    run: echo b\n',
+      selectedStepName: 'b',
+      onSelectedStepNameChange: vi.fn(),
+    });
+    expect(view.canvas?.selected).toBe('steps[1]');
+  });
+
   // A host whose own overlay covers the top of the canvas keeps that room
   // when the editor shows no notice of its own.
   it('keeps the top inset of the host', () => {

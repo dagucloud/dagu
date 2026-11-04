@@ -517,7 +517,7 @@ export function VisualEditor(props: VisualEditorProps): ReactElement {
     (name: string): StepKey | null =>
       own(names.byName, name) ??
       graph.nodes.find((node) => node.serverName === name)?.key ??
-      model.steps.find((step) => step.explicitName === name)?.key ??
+      model.steps.find((step) => runtimeName(step) === name)?.key ??
       null,
     [names, graph, model]
   );
