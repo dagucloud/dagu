@@ -841,14 +841,16 @@ export function VisualEditor(props: VisualEditorProps): ReactElement {
     const added = parseDagDocLenient(result.text).steps.find(
       (step) => step.key === result.select
     );
-    if (!added?.explicitName) return result;
+    // A route names its target by name or, for a step with only an id, by id.
+    const reference = added?.explicitName ?? added?.id;
+    if (!reference) return result;
     const routed = session.apply({
       kind: 'setRouteTargets',
       step: target.router,
       pattern: target.port,
       targets: [
         ...routeTargetsOf(graph, target.router, target.port),
-        added.explicitName,
+        reference,
       ],
     });
     return routed.ok ? { ...routed, select: result.select } : result;

@@ -286,6 +286,27 @@ describe.skipIf(realSchema === null)('VisualEditor add-step glue', () => {
       act(() => handle().undo());
       expect(state.text).toBe(yamlRouter);
     });
+
+    // In a file whose steps have ids, the new step has an id and no name:
+    // the route names it by its id.
+    it('routes to the id of a step that has no name', () => {
+      const withIds = yamlRouter
+        .replace('- name: pick', '- id: pick')
+        .replace('- name: server_error', '- id: server_error')
+        .replace('- name: other', '- id: other');
+      const { handle } = renderEditor({ initial: withIds });
+      act(() =>
+        handle().addStep({ mode: 'route', router: 'steps[0]', port: 're:.*' })
+      );
+      addAction('run');
+
+      const pick = parseDagDoc(state.text).steps[0]!;
+      const routes = (pick.value.with as { routes: Record<string, string[]> })
+        .routes;
+      expect(routes['re:.*']).toEqual(['other', 'cmd_4']);
+      const added = parseDagDoc(state.text).steps.find((s) => s.id === 'cmd_4');
+      expect(added?.explicitName).toBeUndefined();
+    });
   });
 
   describe('a read-only or frozen editor', () => {
