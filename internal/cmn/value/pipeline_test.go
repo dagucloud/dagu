@@ -210,6 +210,25 @@ func TestShellCommandField_ResolvesQuotedRefsInSingleQuotes(t *testing.T) {
 			command: `echo "it's " "${TOKEN}" "don't"`,
 			want:    `echo "it's " "${TOKEN}" "don't"`,
 		},
+		{
+			// Quotes inside a command substitution start a new context and
+			// leave the outer double-quoted span open.
+			name:    "quotes inside a command substitution",
+			command: `echo "$(printf '"')" "${TOKEN}"`,
+			want:    `echo "$(printf '"')" "${TOKEN}"`,
+		},
+		{
+			name:    "quotes inside backquotes",
+			command: "echo \"`printf '\"'`\" \"${TOKEN}\"",
+			want:    "echo \"`printf '\"'`\" \"${TOKEN}\"",
+		},
+		{
+			// An even run of backslashes leaves the apostrophe unescaped, so
+			// it opens a single-quoted span.
+			name:    "apostrophe after escaped backslashes",
+			command: `echo \\'{"name":"${NAME}"}'`,
+			want:    `echo \\'{"name":"a\"b"}'`,
+		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

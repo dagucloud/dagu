@@ -401,24 +401,64 @@ func isSingleQuotedVar(input string, start, end int) bool {
 
 // shellQuoteState reports whether the byte at idx lies inside a single- or
 // double-quoted span of a POSIX shell command. A backslash escapes the next
-// byte outside single quotes, and quotes of one kind are literal inside the
-// other.
+// byte outside single quotes, quotes of one kind are literal inside the
+// other, and a $(...) or `...` command substitution starts its own quoting
+// context, so quotes inside it leave the outer span unchanged.
 func shellQuoteState(input string, idx int) (inSingle, inDouble bool) {
+	const (
+		unquoted = iota
+		singleQuoted
+		doubleQuoted
+		substitution // $( ... ): unquoted until its closing parenthesis
+		subshell     // ( ... ) inside a substitution
+		backquoted   // ` ... `
+	)
+	stack := []int{unquoted}
 	for i := 0; i < idx; i++ {
-		switch c := input[i]; {
-		case inSingle:
+		top := stack[len(stack)-1]
+		c := input[i]
+		switch top {
+		case singleQuoted:
 			if c == '\'' {
-				inSingle = false
+				stack = stack[:len(stack)-1]
 			}
+			continue
+		case doubleQuoted:
+			switch {
+			case c == '\\':
+				i++
+			case c == '"':
+				stack = stack[:len(stack)-1]
+			case c == '$' && i+1 < len(input) && input[i+1] == '(':
+				stack = append(stack, substitution)
+				i++
+			case c == '`':
+				stack = append(stack, backquoted)
+			}
+			continue
+		}
+		switch {
 		case c == '\\':
 			i++
-		case c == '\'' && !inDouble:
-			inSingle = true
+		case c == '\'':
+			stack = append(stack, singleQuoted)
 		case c == '"':
-			inDouble = !inDouble
+			stack = append(stack, doubleQuoted)
+		case c == '$' && i+1 < len(input) && input[i+1] == '(':
+			stack = append(stack, substitution)
+			i++
+		case c == '(' && (top == substitution || top == subshell):
+			stack = append(stack, subshell)
+		case c == ')' && (top == substitution || top == subshell):
+			stack = stack[:len(stack)-1]
+		case c == '`' && top == backquoted:
+			stack = stack[:len(stack)-1]
+		case c == '`':
+			stack = append(stack, backquoted)
 		}
 	}
-	return inSingle, inDouble
+	top := stack[len(stack)-1]
+	return top == singleQuoted, top == doubleQuoted
 }
 
 func singleQuoteCanOpen(input string, idx int) bool {
