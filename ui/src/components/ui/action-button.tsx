@@ -30,14 +30,16 @@ const ActionButton = forwardRef<HTMLButtonElement, ActionButtonProps>(
           variant={variant ?? 'outline'}
           disabled={disabled}
           onClick={onClick}
+          // The label shows in a wide container. One least width for the
+          // labels keeps the slot of the action as the action changes.
           className={cn(
-            '@4xl:w-auto @4xl:gap-1.5 @4xl:px-2 @4xl:text-xs @4xl:font-semibold',
+            '@7xl:w-auto @7xl:min-w-[6.5rem] @7xl:gap-1.5 @7xl:px-2 @7xl:text-xs @7xl:font-semibold',
             className
           )}
           {...props}
         >
           <span className="h-4 w-4">{icon}</span>
-          <span className="sr-only @4xl:not-sr-only">{children}</span>
+          <span className="sr-only @7xl:not-sr-only">{children}</span>
         </Button>
       );
     }
