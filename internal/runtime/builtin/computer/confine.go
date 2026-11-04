@@ -76,16 +76,18 @@ func (r *run) lookApps() []string {
 		return nil
 	}
 	apps := slices.Clone(r.workApps)
-	add := func(app string) {
-		if app != "" && !slices.ContainsFunc(apps, func(a string) bool { return strings.EqualFold(a, app) }) {
-			apps = append(apps, app)
-		}
+	if r.workApp != "" && !hasApp(apps, r.workApp) {
+		apps = append(apps, r.workApp)
 	}
-	add(r.workApp)
-	if front := r.driver.FocusedWindow(); front.Known() && !r.offLimits(front) {
-		add(front.App)
+	if front := r.driver.FocusedWindow(); front.Known() && front.App != "" && !r.offLimits(front) && !hasApp(apps, front.App) {
+		apps = append(apps, front.App)
 	}
 	return apps
+}
+
+// hasApp reports whether apps names app, compared ignoring case.
+func hasApp(apps []string, app string) bool {
+	return app != "" && slices.ContainsFunc(apps, func(a string) bool { return strings.EqualFold(a, app) })
 }
 
 // homeApp is the application to bring back to the front: the one the step

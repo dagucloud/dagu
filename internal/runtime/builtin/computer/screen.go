@@ -8,7 +8,6 @@ import (
 	"errors"
 	"fmt"
 	"image"
-	"slices"
 	"strings"
 	"time"
 
@@ -77,7 +76,7 @@ func (c captured) windowAt(at image.Point) (desktop.WindowID, bool) {
 
 // shows reports an application whose windows the capture shows.
 func (c captured) shows(app string) bool {
-	return app != "" && slices.ContainsFunc(c.apps, func(a string) bool { return strings.EqualFold(a, app) })
+	return hasApp(c.apps, app)
 }
 
 // describeCapture names a kind of capture for the step log.
