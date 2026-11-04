@@ -495,6 +495,85 @@ test.describe('workspace layout', () => {
     }).toPass({ timeout: 10_000 });
   });
 
+  // #3507: a long line of YAML needs more than 960px on a wide screen.
+  test('widens the YAML panel past 960px, maximizes it and shares its width', async ({
+    page,
+    fixtureDAG,
+    gotoWorkspace,
+  }) => {
+    await page.addInitScript(() =>
+      window.localStorage.removeItem('dagu.stepDetailsDrawer.width')
+    );
+    await page.setViewportSize({ width: 2560, height: 900 });
+    const { fileName } = await fixtureDAG('visual-params.yaml');
+    await openEditor(page, gotoWorkspace, fileName);
+    const toolbar = page.getByTestId('ve-toolbar');
+    const ndv = page.getByTestId('ndv');
+    const zone = await box(page.getByTestId('ww-canvas'));
+    expect(zone.width - 240).toBeGreaterThan(960);
+
+    await toolbar.getByRole('button', { name: 'YAML', exact: true }).click();
+    await expect(ndv).toHaveAttribute('data-state', 'docked');
+    const edge = ndv.getByRole('separator', { name: 'Resize step details' });
+
+    // End gives the panel all of the zone but a strip of 240px.
+    await edge.focus();
+    await page.keyboard.press('End');
+    await expect(async () => {
+      expect((await box(ndv)).width).toBeCloseTo(zone.width - 240, -1);
+    }).toPass();
+
+    // A drag to 1400px: the canvas ends at the new edge of the panel.
+    const grip = await box(edge);
+    const y = grip.y + grip.height / 2;
+    await page.mouse.move(grip.x + grip.width / 2, y);
+    await page.mouse.down();
+    await page.mouse.move(zone.x + zone.width - 1400, y, { steps: 8 });
+    await page.mouse.up();
+    await expect(async () => {
+      const panel = await box(ndv);
+      expect(panel.width).toBeCloseTo(1400, -1);
+      const frame = await box(canvasFrame(page));
+      expect(Math.abs(frame.x + frame.width - panel.x)).toBeLessThanOrEqual(1);
+    }).toPass();
+
+    // Maximized, the panel fills the zone: the canvas controls go, and Save
+    // stays in the row above the panel.
+    const zoomIn = page
+      .getByTestId('ww-canvas-toolbar')
+      .getByRole('button', { name: 'Zoom in' });
+    await expect(zoomIn).toBeVisible();
+    await ndv
+      .getByRole('button', { name: 'Maximize panel', exact: true })
+      .click();
+    await expect(async () => {
+      const panel = await box(ndv);
+      expect(panel.x).toBeCloseTo(zone.x, -1);
+      expect(panel.width).toBeCloseTo(zone.width, -1);
+    }).toPass();
+    await expect(zoomIn).toBeHidden();
+    await expect(page.locator('#save-config')).toBeVisible();
+    await expect(edge).toHaveCount(0);
+
+    await ndv
+      .getByRole('button', { name: 'Restore panel', exact: true })
+      .click();
+    await expect(async () => {
+      expect((await box(ndv)).width).toBeCloseTo(1400, -1);
+    }).toPass();
+    await expect(zoomIn).toBeVisible();
+
+    // The Workflow panel opens at the width of the YAML panel.
+    await toolbar
+      .getByRole('button', { name: 'Workflow', exact: true })
+      .click();
+    const drawer = page.getByTestId('step-side-drawer');
+    await expect(drawer).toBeVisible();
+    await expect(async () => {
+      expect((await box(drawer)).width).toBeCloseTo(1400, -1);
+    }).toPass();
+  });
+
   test('has no horizontal scroll at 375x812 and keeps the Tools button', async ({
     page,
     request,
