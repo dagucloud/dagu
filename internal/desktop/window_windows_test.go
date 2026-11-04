@@ -25,6 +25,8 @@ var (
 	procDefWindowProcW   = user32.NewProc("DefWindowProcW")
 	procDestroyWindow    = user32.NewProc("DestroyWindow")
 	procSetParent        = user32.NewProc("SetParent")
+
+	procSetThreadDpiHostingBehavior = user32.NewProc("SetThreadDpiHostingBehavior")
 )
 
 const (
@@ -37,6 +39,9 @@ const (
 	// errorClassAlreadyExists is what registering a class a second time,
 	// as a repeated test run does, answers.
 	errorClassAlreadyExists = windows.Errno(1410)
+	// dpiHostingBehaviorMixed lets the windows a thread creates hold child
+	// windows whose DPI awareness differs from theirs.
+	dpiHostingBehaviorMixed = 1
 )
 
 // wndClassEx is WNDCLASSEXW.
@@ -118,6 +123,9 @@ func TestWindowsDesktopNamesTheAppInAFrame(t *testing.T) {
 	driver := e2eDesktop(t)
 	runtime.LockOSThread()
 	const appTitle = "Dagu framed app"
+	// The framed window is the PowerShell form's, whose DPI awareness is not
+	// this process's; without mixed hosting, SetParent refuses it.
+	_, _, _ = procSetThreadDpiHostingBehavior.Call(dpiHostingBehaviorMixed)
 	// The class ApplicationFrameHost gives the frames it shows.
 	frame := showTestWindow(t, "ApplicationFrameWindow", "Dagu frame test")
 
