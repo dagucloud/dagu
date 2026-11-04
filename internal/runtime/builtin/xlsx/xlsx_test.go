@@ -353,6 +353,15 @@ func TestConfigSchemaRejectsUnknownKeys(t *testing.T) {
 	require.Error(t, registry.ValidateExecutorConfig(executorType, map[string]any{"path": "a.xlsx", "merged": "middle"}))
 }
 
+func TestConfigSchemaAcceptsFormats(t *testing.T) {
+	t.Parallel()
+	require.NoError(t, registry.ValidateExecutorConfig(executorType, map[string]any{
+		"path":    "a.xlsx",
+		"rows":    []any{map[string]any{"Total": 17500}},
+		"formats": map[string]any{"Total": "#,##0"},
+	}))
+}
+
 func TestResolvePath(t *testing.T) {
 	t.Parallel()
 	dir := t.TempDir()

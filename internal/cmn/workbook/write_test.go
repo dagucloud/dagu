@@ -216,6 +216,26 @@ func TestWriteNumberFormats(t *testing.T) {
 	}
 }
 
+// TestWriteColumnFormats covers an explicit per-column number format: it
+// wins over the kind-based one and applies even to a column whose kind has
+// no format of its own (here an integer column that defaults to General).
+func TestWriteColumnFormats(t *testing.T) {
+	t.Parallel()
+	path := filepath.Join(t.TempDir(), "out.xlsx")
+	_, err := Write(context.Background(), path, Table{Columns: []string{"Total"}, Rows: [][]any{{int64(17500)}}},
+		WriteOptions{Header: true, Formats: map[string]string{"Total": "#,##0"}})
+	require.NoError(t, err)
+	f, err := excelize.OpenFile(path)
+	require.NoError(t, err)
+	defer func() { _ = f.Close() }()
+	builtin, custom := cellNumFmt(t, f, "Sheet1", "A2")
+	assert.Equal(t, 0, builtin)
+	assert.Equal(t, "#,##0", custom)
+	shown, err := f.GetCellValue("Sheet1", "A2")
+	require.NoError(t, err)
+	assert.Equal(t, "17,500", shown)
+}
+
 // TestAppendKeepsFractionDigits covers a fraction appended below a column of
 // whole numbers: it copies the integer format and still shows its digits.
 func TestAppendKeepsFractionDigits(t *testing.T) {

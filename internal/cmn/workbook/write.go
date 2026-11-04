@@ -56,6 +56,10 @@ type WriteOptions struct {
 	// become real dates, number strings become numbers, and string keeps
 	// ISO-looking text as text.
 	Types map[string]ColumnType
+	// Formats names an explicit number format per column, such as
+	// {Total: "#,##0"}. A named format wins over the kind-based one and
+	// applies even to a column whose kind has no format of its own.
+	Formats map[string]string
 	// Output, when set, receives the result while the workbook at path is
 	// left as it was.
 	Output string
@@ -253,7 +257,7 @@ func writeOnce(ctx context.Context, path string, table Table, opts WriteOptions)
 	result.Changes.CellsChanged = cells
 
 	if fresh && opts.Style == StyleTable && len(table.Columns) > 0 {
-		if err := w.styleTable(sheet, table, kinds, startRow, writeHeader, lastRow); err != nil {
+		if err := w.styleTable(sheet, table, kinds, opts.Formats, startRow, writeHeader, lastRow); err != nil {
 			return nil, err
 		}
 	}
@@ -630,7 +634,7 @@ func (w *file) setCell(sheet string, col, row int, v any) error {
 // styleTable makes a fresh sheet look finished: bold header on a light
 // fill, frozen below the header, widths fitted to content, and number
 // formats by column kind.
-func (w *file) styleTable(sheet string, table Table, kinds []ColumnType, startRow int, header bool, lastRow int) error {
+func (w *file) styleTable(sheet string, table Table, kinds []ColumnType, formats map[string]string, startRow int, header bool, lastRow int) error {
 	if header {
 		id, err := w.f.NewStyle(&excelize.Style{
 			Font:      &excelize.Font{Bold: true},
@@ -668,6 +672,11 @@ func (w *file) styleTable(sheet string, table Table, kinds []ColumnType, startRo
 			continue
 		}
 		style := kindStyle(kinds[c])
+		if format, named := formats[name]; named {
+			// An explicit column format wins over the kind-based one and
+			// applies even to a column whose kind has no format of its own.
+			style = &excelize.Style{CustomNumFmt: &format}
+		}
 		if style == nil {
 			continue
 		}
