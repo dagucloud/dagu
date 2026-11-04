@@ -763,6 +763,52 @@ func TestRunner(t *testing.T) {
 		node := result.nodeByName(t, "1")
 		require.Equal(t, 2, node.State().RetryCount) // 2 retry
 	})
+	t.Run("RetryPolicyFailMarkSuccess", func(t *testing.T) {
+		// A failed exit code that does not match the retry policy's allowed
+		// exit codes stops retrying immediately. It must still honor
+		// continueOn.markSuccess instead of being left failed (#3539).
+		r := setupRunner(t)
+
+		plan := r.newPlan(t,
+			newStep("1",
+				withCommand("false"), // exit code 1
+				withRetryPolicy(2, 0),
+				func(step *ir.Step) { step.RetryPolicy.ExitCodes = []int{42} }, // 1 is not retryable
+				withContinueOn(ir.ContinueOn{Failure: true, MarkSuccess: true}),
+			),
+			successStep("2", "1"),
+		)
+
+		result := plan.assertRun(t, ir.Succeeded)
+
+		// The step is marked success although its retries were not used.
+		result.assertNodeStatus(t, "1", ir.NodeSucceeded)
+		result.assertNodeStatus(t, "2", ir.NodeSucceeded)
+
+		node := result.nodeByName(t, "1")
+		require.Equal(t, 0, node.State().RetryCount) // not retried: exit code not allowed
+	})
+	t.Run("RetryPolicyFailNoMarkSuccess", func(t *testing.T) {
+		// Without markSuccess the same immediate-stop-on-nonretryable-code
+		// failure stays failed.
+		r := setupRunner(t)
+
+		plan := r.newPlan(t,
+			newStep("1",
+				withCommand("false"),
+				withRetryPolicy(2, 0),
+				func(step *ir.Step) { step.RetryPolicy.ExitCodes = []int{42} },
+				withContinueOn(ir.ContinueOn{Failure: true}),
+			),
+		)
+
+		result := plan.assertRun(t, ir.Failed)
+
+		result.assertNodeStatus(t, "1", ir.NodeFailed)
+
+		node := result.nodeByName(t, "1")
+		require.Equal(t, 0, node.State().RetryCount)
+	})
 	t.Run("RetryWithScript", func(t *testing.T) {
 		r := setupRunner(t)
 		tmpDir := t.TempDir()

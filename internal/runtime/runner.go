@@ -1794,10 +1794,10 @@ func (r *Runner) shouldRetryNode(ctx context.Context, node *Node, execErr error)
 	)
 
 	if !shouldRetry {
-		// finish the node with error
-		node.SetStatus(ir.NodeFailed)
-		node.MarkError(execErr)
-		r.setLastError(execErr)
+		// Retries are exhausted. Finalize the node, honoring
+		// continueOn.markSuccess so a step configured to mark success on
+		// failure is not left failed once its retries are used up.
+		r.finalizeFailedNode(ctx, node, execErr)
 		return false
 	}
 
@@ -2004,18 +2004,27 @@ func (r *Runner) handleNodeExecutionError(ctx context.Context, plan *Plan, node 
 
 	default:
 		// node execution error is unexpected and unrecoverable
-		node.SetStatus(ir.NodeFailed)
-		if node.ShouldMarkSuccess(ctx) {
-			// mark as success if the node should be force marked as success
-			// i.e. continueOn.markSuccess is set to true
-			node.SetStatus(ir.NodeSucceeded)
-		} else {
-			node.MarkError(execErr)
-			r.setLastError(execErr)
-		}
+		r.finalizeFailedNode(ctx, node, execErr)
 	}
 
 	return false
+}
+
+// finalizeFailedNode marks a node as failed after execution or retries are
+// exhausted. It honors continueOn.markSuccess: a step configured to mark
+// success on failure is promoted to Succeeded instead of staying Failed. Both
+// the retry-exhausted path and the unrecoverable-error path route through here
+// so the mark_success behavior is identical regardless of how the failure ends.
+func (r *Runner) finalizeFailedNode(ctx context.Context, node *Node, execErr error) {
+	node.SetStatus(ir.NodeFailed)
+	if node.ShouldMarkSuccess(ctx) {
+		// Mark as success if the node should be force marked as success,
+		// i.e. continueOn.markSuccess is set to true.
+		node.SetStatus(ir.NodeSucceeded)
+		return
+	}
+	node.MarkError(execErr)
+	r.setLastError(execErr)
 }
 
 // shouldRepeatNode determines if a node should be repeated based on its repeat policy
