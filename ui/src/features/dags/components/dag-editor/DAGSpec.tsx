@@ -1981,7 +1981,13 @@ function DAGSpec({
                   <I18nProps>
                     <Button
                       id="save-config"
-                      variant="primary"
+                      // Filled only while there is something to save, so that
+                      // a disabled Save does not read as an action.
+                      variant={
+                        localHasUnsavedChanges && !syntaxError
+                          ? 'primary'
+                          : 'outline'
+                      }
                       size="xs"
                       aria-label={ts('Save')}
                       aria-describedby="save-status"

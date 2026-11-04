@@ -502,6 +502,18 @@ describe('DAGSpec compact notices: Save and Issues', () => {
     });
   }
 
+  // A disabled Save filled with the primary colour read as an action.
+  it('fills Save only while there is something to save', async () => {
+    await renderSpec();
+    expect(save()).toBeDisabled();
+    expect(save()?.className).not.toContain('bg-primary-fill');
+    cleanup();
+
+    await dirtySpec([]);
+    expect(save()).toBeEnabled();
+    expect(save()?.className).toContain('bg-primary-fill');
+  });
+
   it('shows Save and no slot while the text has no issue', async () => {
     await renderSpec();
     expect(save()).toBeInTheDocument();
