@@ -251,6 +251,11 @@ func (r *run) drive(ctx context.Context, index int, spec actSpec, spent int, han
 	if len(r.models) == 0 {
 		return actOutcome{}, errors.New("no model is configured")
 	}
+	// The model chooses its actions on a screenshot, so the act holds the
+	// desktop from its first look until it ends.
+	if err := r.takeDesktop(ctx, r.homeApp()); err != nil {
+		return actOutcome{}, err
+	}
 	var errs []error
 	for _, m := range r.models {
 		outcome, touched, err := r.driveModel(ctx, index, spec, m, spent, handoff)

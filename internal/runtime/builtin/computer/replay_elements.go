@@ -388,6 +388,11 @@ func (r *run) resolveElement(ctx context.Context, index int, els desktop.Element
 	deadline := time.Now().Add(findWithin)
 	title := r.substitute(rec.Window)
 	for {
+		// Without the desktop, the element is looked for in its window
+		// wherever that is.
+		if err := r.reach(ctx, cmp.Or(rec.App, r.homeApp()), title); err != nil {
+			return desktop.Element{}, "", err
+		}
 		// A person who used the desktop meanwhile may have left another
 		// window in front; the element is looked for again from when they
 		// stop.
@@ -406,8 +411,9 @@ func (r *run) resolveElement(ctx context.Context, index int, els desktop.Element
 		if handled {
 			deadline = time.Now().Add(findWithin)
 		}
-		// A window that slipped behind another is brought forward rather
-		// than counted a miss, so a replay survives a focus change.
+		// Holding the desktop, a window that slipped behind another is
+		// brought forward rather than counted a miss, so a replay survives a
+		// focus change.
 		r.bringForward(ctx, index, rec.App, title)
 		found, reason, err := r.lookRecorded(els, rec)
 		if err != nil || reason == "" {
@@ -436,8 +442,11 @@ const foregroundSettle = 200 * time.Millisecond
 // application, nor a window a dialog of its application holds, since acting
 // in it would go past a question nobody answered. It is a best effort: the
 // look that follows still checks the front window. title is already
-// substituted.
+// substituted. A step that does not hold the desktop moves no window.
 func (r *run) bringForward(ctx context.Context, index int, app, title string) {
+	if r.lease == nil {
+		return
+	}
 	target := r.recordedWindow(app, title)
 	if target == nil {
 		return
@@ -589,6 +598,28 @@ func directInput(rec recordedAction) (desktop.Pattern, bool) {
 	return "", false
 }
 
+// patternOnly reports a recorded action that replays with no pointer or
+// key input and moves no window or the focus: a wait, or a click or a
+// typing its element performs itself through a pattern, under direct or as
+// the model's click on it did. A click that focuses a text field moves the
+// focus, and choosing an option may press keys.
+func patternOnly(rec recordedAction, direct bool) bool {
+	if rec.Element == nil {
+		return rec.Action.Kind == computeruse.KindWait
+	}
+	_, ok := directInput(rec)
+	return ok && (direct || rec.Invoked)
+}
+
+// recordedApp is the application a recorded action works in: its
+// element's, or the one the step works in.
+func (r *run) recordedApp(rec recordedAction) string {
+	if rec.Element != nil && rec.Element.App != "" {
+		return rec.Element.App
+	}
+	return r.homeApp()
+}
+
 // applyPattern has an element perform a pattern. A pattern can send keys of
 // its own, as choosing an option of Chromium's list box does; they are the
 // step's input, so the desktop is not taken to be in a person's use. A
@@ -719,9 +750,20 @@ func (r *run) direct(ctx context.Context, index, position, total int, els deskto
 
 // replayByElement replays one turn on the elements it recorded, through
 // their own patterns under direct when the action and element allow it.
-// It returns the reason the turn missed, or "" when every action ran.
+// An action an element performs itself runs in the background; any other
+// holds the desktop from the look that finds its element. It returns the
+// reason the turn missed, or "" when every action ran.
 func (r *run) replayByElement(ctx context.Context, index, position, total int, turn recordedTurn, els desktop.Elements, findWithin time.Duration, direct bool, outcome *replayOutcome) (string, error) {
-	for _, rec := range turn.Actions {
+	// onScreen is the action an element could not perform itself, which is
+	// looked for again holding the desktop and sent on the screen.
+	onScreen := -1
+	for i := 0; i < len(turn.Actions); i++ {
+		rec := turn.Actions[i]
+		if !patternOnly(rec, direct) {
+			if err := r.takeDesktop(ctx, r.recordedApp(rec)); err != nil {
+				return "", err
+			}
+		}
 		// Every action waits for a person using the desktop to stop, so a
 		// click or text never lands in their window.
 		if _, err := r.resumeAfterPerson(ctx, index); err != nil {
@@ -774,7 +816,7 @@ func (r *run) replayByElement(ctx context.Context, index, position, total int, t
 					continue
 				}
 			}
-			if direct || rec.Invoked || choosesOption(found) {
+			if (direct || rec.Invoked || choosesOption(found)) && i != onScreen {
 				done, reason, err := r.direct(ctx, index, position, total, els, rec, found, findWithin)
 				if err != nil || reason != "" {
 					return reason, err
@@ -785,6 +827,17 @@ func (r *run) replayByElement(ctx context.Context, index, position, total int, t
 					if reason, err := r.confirmChecked(ctx, els, rec, position, total, findWithin); err != nil || reason != "" {
 						return reason, err
 					}
+					continue
+				}
+				// The element offers no pattern for the action, which is sent
+				// on the screen; without the desktop the step takes it and
+				// looks for the element again where the input will land.
+				if r.lease == nil {
+					if err := r.takeDesktop(ctx, r.recordedApp(rec)); err != nil {
+						return "", err
+					}
+					onScreen = i
+					i--
 					continue
 				}
 			}
@@ -840,6 +893,9 @@ func (r *run) confirmChecked(ctx context.Context, els desktop.Elements, rec reco
 func (r *run) awaitLandmarks(ctx context.Context, index int, els desktop.Elements, entry recording, findWithin time.Duration) (string, error) {
 	deadline := time.Now().Add(findWithin)
 	for {
+		if err := r.reach(ctx, cmp.Or(entry.App, r.homeApp()), r.substitute(entry.Window)); err != nil {
+			return "", err
+		}
 		if resumed, err := r.resumeAfterPerson(ctx, index); err != nil {
 			return "", err
 		} else if resumed {

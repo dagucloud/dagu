@@ -154,6 +154,12 @@ func (o operation) looksAtScreen() bool {
 	return o.Act != nil || o.Extract != nil || (o.Expect != nil && !o.Expect.onValue()) || o.Screenshot != "" || o.Outline != "" || (o.When != nil && !o.When.onValue())
 }
 
+// capturesScreen reports an operation that takes or judges a screenshot of
+// the whole screen, or whose when judges one.
+func (o operation) capturesScreen() bool {
+	return o.Screenshot != "" || (o.Expect != nil && o.Expect.judged()) || (o.When != nil && o.When.judged())
+}
+
 type launchSpec struct {
 	Command string   `json:"command"`
 	Args    []string `json:"args,omitempty"`

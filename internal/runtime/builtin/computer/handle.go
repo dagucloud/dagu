@@ -10,6 +10,8 @@ import (
 	"image"
 	"maps"
 	"slices"
+
+	"github.com/dagucloud/dagu/v2/internal/desktop"
 )
 
 // maxHandled bounds how often one handler runs in a step, so a screen its
@@ -71,6 +73,9 @@ func (r *run) handleScreens(ctx context.Context, index int) (bool, error) {
 	if r.handling || len(r.cfg.Handle) == 0 {
 		return false, nil
 	}
+	// A handler's check and steps choose the windows they read, and the
+	// step then reads the window it read before.
+	defer func(own *desktop.WindowID) { r.own = own }(r.own)
 	for i, h := range r.cfg.Handle {
 		steps := h.Recorded[r.system]
 		if len(steps) == 0 {

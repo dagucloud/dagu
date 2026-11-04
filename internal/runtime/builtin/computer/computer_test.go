@@ -1301,7 +1301,8 @@ func TestRecordedElementIsNotLookedForInADialog(t *testing.T) {
 
 // A dialog of another application holds nothing of the recorded one, even
 // when the recorded window is found by its title alone because its
-// application cannot be read, so that window is raised and the step acts.
+// application cannot be read, so the step acts in that window where it is,
+// behind the dialog.
 func TestDialogOfAnotherApplicationDoesNotHoldAWindowFoundByTitle(t *testing.T) {
 	t.Parallel()
 
@@ -1313,15 +1314,12 @@ func TestDialogOfAnotherApplicationDoesNotHoldAWindowFoundByTitle(t *testing.T) 
 	run.backend.windows = []desktop.WindowID{{Handle: 3, Title: dialog.Name, App: "notifier"}, formWindow}
 	run.backend.focusOn(run.backend.windows[0])
 	run.elements.show(dialog, dialogElements)
-	run.backend.onRaise = func(w desktop.WindowID) {
-		if w.Handle == formWindow.Handle {
-			run.elements.show(form, expenseElements())
-		}
-	}
+	run.openBehind(formWindow.Handle, newFakeElements())
 	steps := `{"ai": "never", "input": "direct", "find_within": "300ms",
 		"do": [{"act": {"instruction": "Save", "recorded": {"windows": [{"click": {"app": "expense", "window": "経費精算*", "role": "button", "id": "saveButton"}}]}}}]}`
 	require.NoError(t, run.execute(steps, nil).err)
 	assert.Equal(t, []string{"invoke saveButton"}, run.backend.inputs())
+	assert.Empty(t, run.backend.raised, "the window is acted on where it is")
 }
 
 // A person who leaves a dialog of the step's application in front holds
@@ -1974,9 +1972,9 @@ func TestPersonDoesNotRunOutACheckOrAnExtract(t *testing.T) {
 	}
 }
 
-// A wait between two looks at the screen ends as soon as a person starts
-// using the desktop, so the next look makes way for them at once; with
-// nobody there it waits its whole time.
+// A wait between two looks at the screen of a step holding the desktop ends
+// as soon as a person starts using it, so the next look makes way for them
+// at once; with nobody there it waits its whole time.
 func TestPollSleepEndsWhenAPersonStarts(t *testing.T) {
 	t.Parallel()
 
@@ -1990,7 +1988,7 @@ func TestPollSleepEndsWhenAPersonStarts(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 			backend := newFakeBackend(800, 600)
-			r := &run{exec: &computerExecutor{}, cfg: config{Idle: "100ms"}, driver: desktop.New(backend)}
+			r := &run{exec: &computerExecutor{}, cfg: config{Idle: "100ms"}, driver: desktop.New(backend), lease: &desktopLease{}}
 			if tc.person {
 				time.AfterFunc(100*time.Millisecond, backend.personUsesAfterEcho)
 			}
