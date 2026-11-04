@@ -13,6 +13,8 @@ import { useI18n } from '@/i18n/I18nProvider';
 
 /** Storage key of the width of the workflow overlay, in pixels. */
 export const OVERLAY_WIDTH_KEY = 'dagu.workflowOverlay.width';
+/** Storage key of the width of the panel of the sub-runs, in pixels. */
+export const SUB_RUN_WIDTH_KEY = 'dagu.subRunPanel.width';
 const MIN_WIDTH = 640;
 /** The overlay leaves at least this much of the page below in sight. */
 const MIN_ROOM_BELOW = 96;
@@ -24,9 +26,9 @@ function clampWidth(width: number): number {
   return Math.round(Math.min(max, Math.max(MIN_WIDTH, width)));
 }
 
-function storedWidth(): number | null {
+function storedWidth(key: string): number | null {
   try {
-    const value = Number(window.localStorage.getItem(OVERLAY_WIDTH_KEY));
+    const value = Number(window.localStorage.getItem(key));
     return Number.isFinite(value) && value > 0 ? clampWidth(value) : null;
   } catch {
     // Storage can be unavailable in privacy-restricted browser contexts.
@@ -35,28 +37,31 @@ function storedWidth(): number | null {
 }
 
 /**
- * The width of the workflow overlay that the user set, kept across visits;
- * null for the default width. `set` keeps it, `reset` drops it.
+ * The width of a panel from the right that the user set, kept across visits
+ * under `key`; null for the default width. `set` keeps it, `reset` drops it.
  */
-export function useOverlayWidth(): {
+export function useOverlayWidth(key: string = OVERLAY_WIDTH_KEY): {
   width: number | null;
   set(width: number, keep: boolean): void;
   reset(): void;
 } {
-  const [width, setWidth] = useState(storedWidth);
-  const set = useCallback((next: number, keep: boolean) => {
-    const value = clampWidth(next);
-    setWidth(value);
-    if (keep) writeLocalStorage(OVERLAY_WIDTH_KEY, String(value));
-  }, []);
+  const [width, setWidth] = useState(() => storedWidth(key));
+  const set = useCallback(
+    (next: number, keep: boolean) => {
+      const value = clampWidth(next);
+      setWidth(value);
+      if (keep) writeLocalStorage(key, String(value));
+    },
+    [key]
+  );
   const reset = useCallback(() => {
     setWidth(null);
     try {
-      window.localStorage.removeItem(OVERLAY_WIDTH_KEY);
+      window.localStorage.removeItem(key);
     } catch {
       // The default applies for this visit only.
     }
-  }, []);
+  }, [key]);
   return { width, set, reset };
 }
 
@@ -69,10 +74,13 @@ export function OverlayResizeHandle({
   width,
   onResize,
   onReset,
+  label,
 }: {
   width: () => number;
   onResize(width: number, keep: boolean): void;
   onReset(): void;
+  /** The name of the edge. Default: Resize workflow view. */
+  label?: string;
 }): ReactElement {
   const { ts } = useI18n();
   const [drag, setDrag] = useState<{
@@ -107,7 +115,7 @@ export function OverlayResizeHandle({
   return (
     <div
       role="separator"
-      aria-label={ts('Resize workflow view')}
+      aria-label={label ?? ts('Resize workflow view')}
       aria-orientation="vertical"
       aria-valuenow={Math.round(width())}
       tabIndex={0}
