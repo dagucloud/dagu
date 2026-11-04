@@ -421,11 +421,77 @@ func (windowsBackend) Button(button Button, down bool, _ int) error {
 	default:
 		return fmt.Errorf("unknown mouse button %q", button)
 	}
+	// A release is not refused, so a press that got through is always ended.
+	if down {
+		if err := checkPointer(); err != nil {
+			return err
+		}
+	}
 	return sendInput(mouseEvent(flags, 0))
 }
 
 func (windowsBackend) Wheel(dx, dy int) error {
+	if err := checkPointer(); err != nil {
+		return err
+	}
 	return sendInput(wheelInputs(dx, dy)...)
+}
+
+// checkPointer refuses pointer input to the window under the cursor, where it lands.
+func checkPointer() error {
+	x, y, err := windowsBackend{}.Position()
+	if err != nil {
+		return err
+	}
+	return checkWindow(windowsBackend{}.WindowAt(x, y))
+}
+
+// processIntegrity returns the integrity level of a process as the RID of its
+// token's mandatory label, such as 0x2000 for Medium and 0x3000 for High.
+// Tests replace it with a fixed source.
+var processIntegrity = readIntegrityLevel
+
+func readIntegrityLevel(pid uint32) (uint32, error) {
+	process, err := windows.OpenProcess(windows.PROCESS_QUERY_LIMITED_INFORMATION, false, pid)
+	if err != nil {
+		return 0, err
+	}
+	defer func() { _ = windows.CloseHandle(process) }()
+	var token windows.Token
+	if err := windows.OpenProcessToken(process, windows.TOKEN_QUERY, &token); err != nil {
+		return 0, err
+	}
+	defer func() { _ = token.Close() }()
+	buf := make([]byte, 128)
+	var needed uint32
+	if err := windows.GetTokenInformation(token, windows.TokenIntegrityLevel, &buf[0], uint32(len(buf)), &needed); err != nil {
+		return 0, err
+	}
+	label := (*windows.Tokenmandatorylabel)(unsafe.Pointer(&buf[0])) //nolint:gosec // the buffer holds a TOKEN_MANDATORY_LABEL
+	sid := label.Label.Sid
+	return sid.SubAuthority(uint32(sid.SubAuthorityCount()) - 1), nil
+}
+
+// checkWindow fails before input reaches a window of a higher integrity level
+// than this process. Windows drops such input while SendInput reports every
+// event accepted, so the check must run before any event is sent. A level that
+// cannot be read is refused too, since the window may be the elevated one.
+func checkWindow(w WindowID) error {
+	if w.PID == 0 {
+		return nil
+	}
+	own, err := processIntegrity(windows.GetCurrentProcessId())
+	if err != nil {
+		return fmt.Errorf("read the integrity level of this process: %w", err)
+	}
+	level, err := processIntegrity(w.PID)
+	if err != nil {
+		return fmt.Errorf("read the integrity level of %s, so input is not sent: %w", w.App, err)
+	}
+	if level <= own {
+		return nil
+	}
+	return fmt.Errorf("%s runs elevated, so Windows drops input sent to it; run it unelevated or run Dagu at the same integrity level", w.App)
 }
 
 // wheelInputs sends a notch per event, as a mouse wheel does, since some
@@ -447,6 +513,12 @@ func wheelData(notches int) uint32 {
 }
 
 func (windowsBackend) Key(key Key, down bool) error {
+	// A release is not refused, so a key that got through is always lifted.
+	if down {
+		if err := checkWindow(windowsBackend{}.FocusedWindow()); err != nil {
+			return err
+		}
+	}
 	flags := pick[uint32](down, 0, keyUp)
 	if named, ok := namedKeys[key]; ok {
 		if named.extended {
@@ -485,6 +557,9 @@ func scanCode(vk uint16) uint16 {
 }
 
 func (windowsBackend) Type(text string) error {
+	if err := checkWindow(windowsBackend{}.FocusedWindow()); err != nil {
+		return err
+	}
 	units := utf16.Encode([]rune(text))
 	events := make([]input, 0, len(units)*2)
 	for _, unit := range units {
@@ -509,15 +584,16 @@ func (b windowsBackend) Close() error {
 	return nil
 }
 
-// sendInput injects events. Windows drops input silently to windows of a
-// higher integrity level, so a partial count is reported as an error.
+// sendInput injects events. A short count means the input desktop is locked
+// or a secure prompt has it. A window of a higher integrity level does not
+// shorten the count; checkWindow refuses that target before this call.
 func sendInput(events ...input) error {
 	if len(events) == 0 {
 		return nil
 	}
 	sent, _, err := procSendInput.Call(uintptr(len(events)), uintptr(unsafe.Pointer(&events[0])), unsafe.Sizeof(events[0])) //nolint:gosec // Win32 takes the INPUT array address as uintptr
 	if int(sent) != len(events) {
-		return fmt.Errorf("SendInput delivered %d of %d events; the target may run elevated or the desktop is locked: %w", sent, len(events), err)
+		return fmt.Errorf("SendInput delivered %d of %d events; the desktop is locked or a secure prompt is shown: %w", sent, len(events), err)
 	}
 	return nil
 }

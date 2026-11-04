@@ -115,3 +115,48 @@ func TestWindowsDesktop(t *testing.T) {
 	require.NoError(t, backend.Key("?", true))
 	require.NoError(t, backend.Key("?", false))
 }
+
+// Input to a window of a higher integrity level is dropped without an error,
+// so the check fails before any event is sent. Equal and lower levels pass.
+func TestCheckWindowIntegrity(t *testing.T) {
+	const own, medium, high = 0x2000, 0x2000, 0x3000
+	self := windows.GetCurrentProcessId()
+	const target = uint32(4242)
+	levels := map[uint32]uint32{self: own, target: high}
+	defer func(orig func(uint32) (uint32, error)) { processIntegrity = orig }(processIntegrity)
+	processIntegrity = func(pid uint32) (uint32, error) { return levels[pid], nil }
+
+	err := checkWindow(WindowID{PID: target, App: "admintool"})
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "admintool runs elevated")
+
+	levels[target] = medium
+	assert.NoError(t, checkWindow(WindowID{PID: target, App: "notepad"}))
+
+	levels[target] = 0x1000
+	assert.NoError(t, checkWindow(WindowID{PID: target, App: "browser"}))
+	assert.NoError(t, checkWindow(WindowID{}))
+}
+
+// A level that cannot be read fails closed: the window may be the elevated one.
+func TestCheckWindowUnreadable(t *testing.T) {
+	defer func(orig func(uint32) (uint32, error)) { processIntegrity = orig }(processIntegrity)
+	processIntegrity = func(pid uint32) (uint32, error) {
+		if pid == 4243 {
+			return 0, windows.ERROR_ACCESS_DENIED
+		}
+		return 0x2000, nil
+	}
+
+	err := checkWindow(WindowID{PID: 4243, App: "locked"})
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "read the integrity level of locked")
+}
+
+// The fake source above replaces readIntegrityLevel, so this reads the real
+// token of the test process.
+func TestReadIntegrityLevel(t *testing.T) {
+	level, err := readIntegrityLevel(windows.GetCurrentProcessId())
+	require.NoError(t, err)
+	assert.Contains(t, []uint32{0x1000, 0x2000, 0x3000, 0x4000}, level)
+}
