@@ -23,12 +23,11 @@ import { Badge } from '@/components/ui/badge';
 import { IconButton } from '@/components/ui/icon-button';
 import { RepeatBadge } from '@/components/ui/repeat-badge';
 import { RetryCount } from '@/components/ui/retry-count';
-import { StatusDot } from '@/components/ui/status-dot';
 import { useI18n } from '@/i18n/I18nProvider';
 import { ELAPSED_SLOT, useStepElapsed } from '@/hooks/useStepElapsed';
 import { formatStepSpan } from '@/lib/formatStepSpan';
 import { shortRunId } from '@/lib/shortRunId';
-import { statusLabelText } from '@/lib/status-utils';
+import { nodeStatusText, statusLabelText } from '@/lib/status-utils';
 import { cn } from '@/lib/utils';
 import type { CanvasDirection, CanvasNode, StepKey } from '../../contracts';
 import { plainIssueMessage } from '../../inspector/issues';
@@ -292,49 +291,45 @@ function hostStatusLabel(run: NonNullable<CanvasNode['run']>) {
 }
 
 /**
- * Status dot of the run of a node. Its name is the translated status, or the
- * text of the host. A step that waits for an approval or an input also gets a
- * Waiting badge.
+ * The status of the run of a node, for assistive technology: the border of
+ * the card shows it. Its text is the translated status, or the text of the
+ * host. A step that waits for an approval or an input also gets a Waiting
+ * badge.
  */
-export function RunDot({
+export function RunStatus({
   run,
   reuseOutline,
-  dotOnly = false,
+  noBadge = false,
 }: Pick<CanvasNode, 'run' | 'reuseOutline'> & {
   /** No Waiting badge: a compact card has no room for it. */
-  dotOnly?: boolean;
+  noBadge?: boolean;
 }) {
   const { ts } = useI18n();
   if (!run) {
     return null;
   }
   // Only a step that an executed step depends on is a step that the source
-  // run could not give: a step after it is skipped and shows a plain dot.
-  const reuse: 'success' | 'failed' | undefined = run.reused
-    ? 'success'
-    : reuseOutline === 'failure' && run.reuseFailed
-      ? 'failed'
-      : undefined;
-  const sourceRunId = run.reused?.runId ?? run.reuseFailed?.runId ?? '';
+  // run could not give: a step after it is skipped and reads as skipped.
+  const reuseFailed =
+    !run.reused && reuseOutline === 'failure' && !!run.reuseFailed;
+  const text = run.reused
+    ? ts('Reused')
+    : (hostStatusLabel(run) ??
+      ts(reuseFailed ? 'Reused, failed' : nodeStatusText(run.status)));
   const waitingLabel = ts('Waiting');
   return (
     <>
       <span
         data-testid="ve-canvas-node-status"
         data-status={run.status}
-        className="inline-flex shrink-0"
+        data-reused={
+          run.reused ? 'success' : reuseFailed ? 'failed' : undefined
+        }
+        className="sr-only"
       >
-        {/* A step that the run reused has the hatched dot of the Activity
-            list: green when its source run gave the outputs, red when not. */}
-        <StatusDot
-          kind="step"
-          status={run.status}
-          label={run.reused ? ts('Reused') : hostStatusLabel(run)}
-          reused={reuse}
-          reusedFrom={reuse ? shortRunId(sourceRunId) : undefined}
-        />
+        {text}
       </span>
-      {!dotOnly && run.status === NodeStatus.Waiting && (
+      {!noBadge && run.status === NodeStatus.Waiting && (
         <Badge
           variant="warning"
           size="sm"
@@ -489,7 +484,7 @@ export function NodeHeader({
           >
             {node.label}
           </span>
-          <RunDot run={node.run} reuseOutline={node.reuseOutline} />
+          <RunStatus run={node.run} reuseOutline={node.reuseOutline} />
         </div>
         <div className="flex min-w-0 items-center gap-1.5">
           {/* The chip of a reused step starts the row: before the subtitle,
@@ -535,11 +530,7 @@ export function NodeCompactBody({
   return (
     <div className={cn('flex min-w-0 items-center justify-center', className)}>
       <NodeIcon node={node} />
-      {node.run && (
-        <span className="absolute left-1 top-1 flex">
-          <RunDot run={node.run} reuseOutline={node.reuseOutline} dotOnly />
-        </span>
-      )}
+      <RunStatus run={node.run} reuseOutline={node.reuseOutline} noBadge />
       {node.repeat && (
         <span className="absolute bottom-0.5 right-0.5 flex">
           <RepeatMarker node={node} compact />

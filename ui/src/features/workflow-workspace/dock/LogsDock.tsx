@@ -34,7 +34,7 @@ import {
 import { DockHeaderToolsContext } from './DockHeaderTools';
 import { FreezeWhenHidden } from './FreezeWhenHidden';
 import { DOCK_PANEL_ID } from './DockTabStrip';
-import { RunStepsNav } from './RunStepsNav';
+import { RunStepPicker, RunStepsNav } from './RunStepsNav';
 import { RunTabsPane } from './RunTabsPane';
 import { RunTimeline } from './RunTimeline';
 import { dockTabBodies } from './tabs';
@@ -46,6 +46,7 @@ import { useLiftNotifications } from './useLiftNotifications';
 const KEYBOARD_STEP_PX = 40;
 // A drag on the sheet handle longer than this closes or maximizes the sheet.
 const SHEET_DRAG_PX = 64;
+const STEPS_NAV_ID = 'ww-run-steps-nav';
 
 /** True when the media query matches. Without matchMedia it is true. */
 function useMinWidth(px: number): boolean {
@@ -75,7 +76,9 @@ interface Drag {
  * bar holds its toggle, named Activity; aria-expanded tells its state.
  * Under it, while it is open: the timeline of the latest runs, then two
  * columns, the steps of the selected run on the left and on the right the
- * tab strip with the body of the active tab. The body mounts at the first
+ * tab strip with the body of the active tab. A panel narrower than 600px
+ * has one column: a row names the selected step and opens the steps over
+ * the tabs. The body mounts at the first
  * open and stays mounted when the panel collapses or maximizes. Below 768px
  * the open panel is a bottom sheet at 75vh; when it closes, the focus goes
  * back to the element that opened it. Esc restores a maximized panel (and
@@ -118,6 +121,8 @@ export function LogsDock({
     [setTab]
   );
   const [mounted, setMounted] = useState(dock.open);
+  const [stepsOpen, setStepsOpen] = useState(false);
+  const closeSteps = useCallback(() => setStepsOpen(false), []);
   if (dock.open && !mounted) setMounted(true);
 
   const drag = useRef<Drag | null>(null);
@@ -213,7 +218,9 @@ export function LogsDock({
   const MaximizeIcon = dock.maximized ? Minimize2 : Maximize2;
 
   return (
-    <DockHeaderToolsContext.Provider value={toolsEl}>
+    // The bar of the sheet has no room for the controls of the timeline:
+    // the timeline draws them in its own row.
+    <DockHeaderToolsContext.Provider value={sheet ? undefined : toolsEl}>
       <section
         ref={sheetRef}
         tabIndex={sheet ? -1 : undefined}
@@ -383,23 +390,37 @@ export function LogsDock({
         </div>
         <div
           hidden={!dock.open}
-          // Contained: a change inside the body does not touch the page.
-          className="flex min-h-0 flex-1 flex-col overflow-hidden [contain:layout_paint]"
+          // Contained: a change inside the body does not touch the page. Its
+          // width decides whether the steps fit beside the tabs (container
+          // query).
+          className="@container flex min-h-0 flex-1 flex-col overflow-hidden [contain:layout_paint]"
         >
           {/* A collapsed panel keeps its last render: its steps and timeline do
             not render for the events of a run while nobody sees them. */}
           <FreezeWhenHidden hidden={!dock.open}>
             {mounted && <RunTimeline />}
-            {/* The zone of the two columns: its width decides whether the steps
-            show as names or as dots (container query). */}
-            <div className="@container flex min-h-0 flex-1">
+            <div className="relative flex min-h-0 flex-1 @max-[600px]:flex-col">
+              {mounted && (
+                <RunStepPicker
+                  open={stepsOpen}
+                  controls={STEPS_NAV_ID}
+                  onToggle={() => setStepsOpen((open) => !open)}
+                  className="hidden @max-[600px]:flex"
+                />
+              )}
               {mounted && (
                 <nav
+                  id={STEPS_NAV_ID}
                   aria-label={ts('Steps')}
                   data-testid="ww-run-steps-nav"
-                  className="w-60 shrink-0 overflow-y-auto border-r border-border @max-[900px]:w-44 @max-[600px]:w-11"
+                  className={cn(
+                    'w-60 shrink-0 overflow-y-auto border-r border-border @max-[900px]:w-44',
+                    // Over the tabs, under the row that opens it.
+                    '@max-[600px]:absolute @max-[600px]:inset-x-0 @max-[600px]:bottom-0 @max-[600px]:top-8 @max-[600px]:z-10 @max-[600px]:w-auto @max-[600px]:border-r-0 @max-[600px]:bg-card',
+                    !stepsOpen && '@max-[600px]:hidden'
+                  )}
                 >
-                  <RunStepsNav dag={dag} />
+                  <RunStepsNav dag={dag} onPicked={closeSteps} />
                 </nav>
               )}
               <RunTabsPane

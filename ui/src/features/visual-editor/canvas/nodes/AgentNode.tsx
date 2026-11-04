@@ -16,7 +16,7 @@ import {
 } from '../types';
 import {
   HANDLE_CLASS,
-  RunDot,
+  RunStatus,
   cardStateClass,
   handlePosition,
 } from './NodeParts';
@@ -152,7 +152,7 @@ function AgentNodeComponent({ data, selected }: NodeProps<StepFlowNode>) {
             {ts('Iterations: {count}', { count: agentRun.iterations })}
           </span>
         )}
-        <RunDot run={node.run} />
+        <RunStatus run={node.run} />
       </div>
       {hub?.systemFirstLine && (
         <p

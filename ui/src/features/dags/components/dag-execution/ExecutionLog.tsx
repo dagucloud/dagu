@@ -516,7 +516,7 @@ function ExecutionLog({
       {/* Controls for log navigation */}
       <div
         data-testid="execution-log-toolbar"
-        className="mb-1 flex shrink-0 flex-col gap-1 rounded bg-muted px-2 py-1"
+        className="@container/logbar mb-1 flex shrink-0 flex-col gap-1 rounded bg-muted px-2 py-1"
       >
         <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
           <ToggleGroup aria-label={ts('Log display')} className="p-0.5">

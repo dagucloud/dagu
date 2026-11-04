@@ -441,7 +441,6 @@ describe('StepNode issues and run', () => {
     expect(failedCard).toHaveClass('border-[var(--graph-error)]', 'ring-1');
     expect(failedCard).toHaveClass('ring-[var(--graph-error)]');
     expect(failedCard.className).toContain('var(--graph-error)_10%');
-    expect(getByTestId('status-dot').className).toContain('--status-error');
     expect(getByText('2m 5s')).toBeInTheDocument();
     expect(getByLabelText('Retried 3×')).toHaveTextContent('3');
   });
@@ -481,12 +480,10 @@ describe('StepNode issues and run', () => {
       expect(card).toHaveClass('h-16', 'w-60', 'border-[1.5px]');
       expect(view.getByTestId('ve-node-reuse-outline')).toBeInTheDocument();
       expect(card).toContainElement(view.getByTestId('ve-node-reused'));
-      // The status stays Skipped, and the dot is the hatched green dot of the
-      // Activity list.
-      const dot = view.getByTestId('status-dot');
-      expect(dot).toHaveAttribute('data-status', String(NodeStatus.Skipped));
-      expect(dot).toHaveAttribute('data-reused', 'success');
-      expect(dot.className).toContain('--status-success');
+      // The status stays Skipped and reads as reused.
+      const status = view.getByTestId('ve-canvas-node-status');
+      expect(status).toHaveAttribute('data-status', String(NodeStatus.Skipped));
+      expect(status).toHaveAttribute('data-reused', 'success');
     });
 
     it.each([
@@ -521,8 +518,7 @@ describe('StepNode issues and run', () => {
       expect(view.getByTestId('input-mark-chip-text')).toHaveTextContent(
         'from run r0abcdef'
       );
-      expect(view.getByTestId('status-dot')).toHaveAttribute(
-        'aria-label',
+      expect(view.getByTestId('ve-canvas-node-status')).toHaveTextContent(
         'Reused'
       );
       view.unmount();
@@ -578,9 +574,10 @@ describe('StepNode issues and run', () => {
 
       it('is dashed and red for a step that the source run could not give', () => {
         const view = renderIn(<StepNode {...nodeProps(failed())} />);
-        const dot = view.getByTestId('status-dot');
-        expect(dot).toHaveAttribute('data-reused', 'failed');
-        expect(dot.className).toContain('--status-error');
+        expect(view.getByTestId('ve-canvas-node-status')).toHaveAttribute(
+          'data-reused',
+          'failed'
+        );
         const card = view.getByTestId('ve-canvas-node-steps[0]');
         const rect = view
           .getByTestId('ve-node-reuse-outline')
@@ -650,9 +647,9 @@ describe('StepNode issues and run', () => {
           },
         });
         const view = renderIn(<StepNode {...nodeProps(node)} />);
-        const dot = view.getByTestId('status-dot');
-        expect(dot).not.toHaveAttribute('data-reused');
-        expect(dot.className).toContain('--status-neutral');
+        expect(view.getByTestId('ve-canvas-node-status')).not.toHaveAttribute(
+          'data-reused'
+        );
         expect(view.queryByTestId('ve-node-reuse-outline')).toBeNull();
       });
 
@@ -899,13 +896,8 @@ describe('StepNode issues and run', () => {
         doneCount: 0,
       },
     });
-    const { queryByLabelText, getByTestId } = renderIn(
-      <StepNode {...nodeProps(node)} />
-    );
+    const { queryByLabelText } = renderIn(<StepNode {...nodeProps(node)} />);
     expect(queryByLabelText(/Retried/)).toBeNull();
-    expect(getByTestId('status-dot').className).toContain(
-      'motion-safe:animate-pulse'
-    );
   });
 
   // The card and the run list show one text for one step at one moment: the
@@ -1044,11 +1036,11 @@ describe('StepNode issues and run', () => {
       'title',
       'exit status 2'
     );
-    // The dot names the status; the reason is the tooltip of the card.
-    expect(getByTestId('status-dot')).toHaveAttribute('title', 'Failed');
+    // The status is named; the reason is the tooltip of the card.
+    expect(getByTestId('ve-canvas-node-status')).toHaveTextContent('Failed');
   });
 
-  it('names the dot by the translated status, or by the text of the host', () => {
+  it('names the status by its translated text, or by the text of the host', () => {
     const named = (statusLabel: string) => {
       const view = renderIn(
         <StepNode
@@ -1064,7 +1056,7 @@ describe('StepNode issues and run', () => {
           )}
         />
       );
-      const name = view.getByTestId('status-dot').getAttribute('title');
+      const name = view.getByTestId('ve-canvas-node-status').textContent;
       view.unmount();
       return name;
     };
@@ -1122,8 +1114,8 @@ describe('StepNode issues and run', () => {
     expect(badge.className).toContain('bg-warning');
     expect(badge.className).not.toContain('amber');
     expect(getByTestId('ve-canvas-node-status').nextElementSibling).toBe(badge);
-    // The dot names the status in its translated text, never the API label.
-    expect(getByTestId('status-dot')).toHaveAccessibleName('Waiting');
+    // The status is named in its translated text, never the API label.
+    expect(getByTestId('ve-canvas-node-status')).toHaveTextContent('Waiting');
   });
 
   it('shows no Waiting badge for other states', () => {

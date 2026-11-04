@@ -12,7 +12,7 @@ import {
   IssueBadges,
   NodeIcon,
   NodeToolbar,
-  RunDot,
+  RunStatus,
   cardStateClass,
 } from './NodeParts';
 
@@ -67,7 +67,7 @@ function ToolNodeComponent({ data, selected }: NodeProps<StepFlowNode>) {
             issues={node.issues}
             issueMessages={node.issueMessages}
           />
-          <RunDot run={node.run} />
+          <RunStatus run={node.run} />
         </div>
         {detail && (
           <span className="truncate text-[11px] text-muted-foreground">

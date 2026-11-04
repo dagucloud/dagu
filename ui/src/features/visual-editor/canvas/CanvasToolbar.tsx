@@ -174,7 +174,9 @@ function CompactToolbar({
           data-testid="ve-tools-sheet"
           aria-describedby={undefined}
           onInteractOutside={keepForLayers}
-          className="absolute inset-x-0 bottom-0 z-20 grid max-h-[75%] gap-3 overflow-y-auto rounded-t-xl border border-border bg-card p-3 shadow-lg"
+          // The bottom padding clears the Activity tab of the collapsed Run
+          // panel, which sticks out over the bottom edge of the canvas.
+          className="absolute inset-x-0 bottom-0 z-20 grid max-h-[75%] gap-3 overflow-y-auto rounded-t-xl border border-border bg-card p-3 pb-11 shadow-lg"
         >
           <DialogPrimitive.Title className="text-sm font-semibold">
             {ts('Canvas tools')}
