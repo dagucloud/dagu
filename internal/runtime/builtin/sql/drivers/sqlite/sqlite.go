@@ -8,6 +8,8 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
+	"path/filepath"
+	"runtime"
 	"strings"
 	"sync"
 
@@ -194,13 +196,34 @@ func extractDBPath(dsn string) string {
 		if idx := strings.IndexAny(path, "?#"); idx >= 0 {
 			path = path[:idx]
 		}
-		return decodeURIPath(path)
+		return uriFilePath(decodeURIPath(path))
 	}
 	// Plain file path
 	if before, _, ok := strings.Cut(dsn, "?"); ok {
 		return before
 	}
 	return dsn
+}
+
+// uriFilePath turns the decoded path of a file: URI into an OS path. It drops
+// an empty or localhost authority, as in file:///data/app.db, and on Windows
+// the slash before a drive letter, as in file:/C:/data/app.db.
+func uriFilePath(path string) string {
+	if rest, ok := strings.CutPrefix(path, "//"); ok {
+		if idx := strings.IndexByte(rest, '/'); idx >= 0 {
+			if authority := rest[:idx]; authority == "" || authority == "localhost" {
+				path = rest[idx:]
+			}
+		}
+	}
+	if runtime.GOOS == "windows" && len(path) >= 3 && path[0] == '/' && path[2] == ':' && isASCIILetter(path[1]) {
+		path = path[1:]
+	}
+	return filepath.FromSlash(path)
+}
+
+func isASCIILetter(c byte) bool {
+	return (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z')
 }
 
 // decodeURIPath decodes each valid %XX escape in a file: URI path and keeps

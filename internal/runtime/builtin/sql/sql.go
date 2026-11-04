@@ -148,7 +148,9 @@ func resolveSQLiteDSN(workDir, dsn string) (string, error) {
 		// SQLite decodes %XX in a file: URI and ends the path at '?' or '#',
 		// so the working directory is escaped; the authored name keeps its
 		// own escapes.
-		resolved = "file:" + sqliteURIPath(filepath.ToSlash(workDir)) + "/" + strings.TrimPrefix(name, "./")
+		// A root directory already ends in a slash; another would read as
+		// the start of a URI authority.
+		resolved = "file:" + strings.TrimSuffix(sqliteURIPath(filepath.ToSlash(workDir)), "/") + "/" + strings.TrimPrefix(name, "./")
 	} else if strings.Contains(workDir, "?") {
 		// The driver would end the plain name at this '?'.
 		return "", fmt.Errorf("cannot resolve relative dsn %q: working directory %q contains '?'; use an absolute file: URI", dsn, workDir)

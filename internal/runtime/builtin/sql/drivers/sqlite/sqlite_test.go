@@ -273,6 +273,16 @@ func TestExtractDBPath(t *testing.T) {
 			want: "/srv/a?b#c/test db.db",
 		},
 		{
+			name: "file URI with an empty authority",
+			dsn:  "file:///var/data/test.db?mode=rwc",
+			want: "/var/data/test.db",
+		},
+		{
+			name: "file URI with localhost",
+			dsn:  "file://localhost/var/data/test.db",
+			want: "/var/data/test.db",
+		},
+		{
 			name: "file URI with a fragment",
 			dsn:  "file:/var/data/test.db#part",
 			want: "/var/data/test.db",
@@ -288,7 +298,8 @@ func TestExtractDBPath(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
-			got := extractDBPath(tt.dsn)
+			// A file: URI path comes back in the OS's separator form.
+			got := filepath.ToSlash(extractDBPath(tt.dsn))
 			assert.Equal(t, tt.want, got)
 		})
 	}

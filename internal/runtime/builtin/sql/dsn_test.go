@@ -60,6 +60,16 @@ func TestResolveSQLiteDSN_SpecialWorkingDir(t *testing.T) {
 	require.ErrorContains(t, err, "contains '?'")
 }
 
+// A root working directory must not produce file://, which SQLite reads as
+// the start of a URI authority.
+func TestResolveSQLiteDSN_RootWorkingDir(t *testing.T) {
+	t.Parallel()
+
+	got, err := resolveSQLiteDSN("/", "file:data.db")
+	require.NoError(t, err)
+	assert.Equal(t, "file:/data.db", got)
+}
+
 func TestSQLiteURIPath(t *testing.T) {
 	t.Parallel()
 
