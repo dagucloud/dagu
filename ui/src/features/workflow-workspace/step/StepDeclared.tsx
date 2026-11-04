@@ -14,7 +14,7 @@ import { stepDefinitionOf } from './stepDefinition';
  * variable and the named outputs. It needs no run. The link selects the last
  * run in the same tab (a push of `?run=<id>`), else the run of the host when
  * the last run is not known. It shows only when the workspace has a run id,
- * and not for a step that is missing from the last run.
+ * and not for a step that is missing from the run it would open.
  */
 export function StepDeclared({
   step,
@@ -43,11 +43,23 @@ export function StepDeclared({
   }
   const latestRunId = run.latestRef?.runId ?? null;
   const shownRunId = run.ref?.runId ?? null;
-  // A step that is not in the last run, such as one added since, never ran:
-  // there is no run of it to open.
-  const neverRan =
-    node === undefined && (latestRunId === null || latestRunId === shownRunId);
-  const runId = neverRan ? null : (latestRunId ?? shownRunId);
+  // The link opens the step in the last run, or in the shown run when the
+  // last run is not known; not in a run without the step, such as a step
+  // added after it or removed before it. The page has the details of the
+  // last run: without its nodes, the step counts as in it.
+  const latestNodes = dagData.latestDAGRun?.nodes;
+  const inLatest =
+    latestRunId === shownRunId
+      ? node !== undefined
+      : (latestNodes?.some((n) => n.step.name === step) ?? true);
+  const runId =
+    latestRunId === null
+      ? node === undefined
+        ? null
+        : shownRunId
+      : inLatest
+        ? latestRunId
+        : null;
   if (rows.length === 0 && runId === null) return null;
 
   const runUrl =

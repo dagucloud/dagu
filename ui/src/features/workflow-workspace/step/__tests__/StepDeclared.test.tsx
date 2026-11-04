@@ -33,7 +33,9 @@ function renderDeclared(
   path = '/dags/example.yaml?remoteNode=edge',
   latestRunId: string | null = runId,
   /** Null: the step has no node in the shown run. */
-  node: ApiNode | null = runId ? ranNode(step) : null
+  node: ApiNode | null = runId ? ranNode(step) : null,
+  /** The steps of the last run, when the page has its details. */
+  latestSteps?: string[]
 ) {
   const run = {
     ref: runId ? { name: 'example', runId } : null,
@@ -46,7 +48,17 @@ function renderDeclared(
       <WorkspaceDataContext.Provider
         value={{
           fileName: 'example.yaml',
-          dagData: { dag } as unknown as DAGPageData,
+          dagData: {
+            dag,
+            latestDAGRun:
+              latestRunId && latestSteps
+                ? {
+                    dagRunId: latestRunId,
+                    status: Status.Success,
+                    nodes: latestSteps.map(ranNode),
+                  }
+                : undefined,
+          } as unknown as DAGPageData,
           workspaceName: null,
           remoteNode: 'edge',
           run,
@@ -122,9 +134,17 @@ describe('StepDeclared', () => {
 
   // An older run may lack a step that the last run has.
   it('links the last run from an older run that lacks the step', () => {
-    renderDeclared('plain', 'old-run', undefined, 'run-7', null);
+    renderDeclared('plain', 'old-run', undefined, 'run-7', null, ['plain']);
     expect(
       screen.getByRole('link', { name: 'Open last run' }).getAttribute('href')
     ).toContain('run=run-7');
+  });
+
+  // A step removed since an older run is not in the last run.
+  it('does not link a last run that lacks the step of an older run', () => {
+    renderDeclared('plain', 'old-run', undefined, 'run-7', ranNode('plain'), [
+      'fetch',
+    ]);
+    expect(screen.queryByRole('link')).toBeNull();
   });
 });
