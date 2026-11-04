@@ -5,7 +5,7 @@ import type { FieldTemplateProps, TemplatesType } from '@rjsf/utils';
 import { getTemplate, getUiOptions } from '@rjsf/utils';
 
 import { cn } from '@/lib/utils';
-import { ParamNameTag } from './ParamNameTag';
+import { ParamLabelRow } from './ParamLabelRow';
 import { schemaFormTemplates } from './schemaFormTemplates';
 
 /**
@@ -73,7 +73,10 @@ function ParamFieldTemplate({
     >
       <div className="flex flex-col gap-2">
         {showLabel && (
-          <div className="flex min-w-0 items-baseline gap-2">
+          <ParamLabelRow
+            name={typeof name === 'string' ? name : undefined}
+            label={label}
+          >
             <label
               className={cn(
                 'text-sm font-medium leading-none peer-disabled:cursor-not-allowed peer-disabled:opacity-70',
@@ -84,11 +87,7 @@ function ParamFieldTemplate({
               {label}
               {required ? '*' : null}
             </label>
-            <ParamNameTag
-              name={typeof name === 'string' ? name : undefined}
-              label={label}
-            />
-          </div>
+          </ParamLabelRow>
         )}
         {showLabel && rawDescription && (
           <div

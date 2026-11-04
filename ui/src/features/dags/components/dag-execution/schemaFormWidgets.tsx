@@ -28,7 +28,7 @@ import React from 'react';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Label } from '@/components/ui/label';
 import { cn } from '@/lib/utils';
-import { ParamNameTag } from './ParamNameTag';
+import { ParamLabelRow } from './ParamLabelRow';
 import { autoGrowTextarea } from './textareaAutoGrow';
 
 /**
@@ -123,6 +123,11 @@ function SchemaCheckboxWidget<
     options
   );
   const description = options.description || schema.description;
+  const checkboxLabel = (
+    <Label className="leading-tight" htmlFor={id}>
+      {labelValue(label, hideLabel || !label)}
+    </Label>
+  );
 
   return (
     <div
@@ -160,10 +165,13 @@ function SchemaCheckboxWidget<
             className
           )}
         />
-        <Label className="leading-tight" htmlFor={id}>
-          {labelValue(label, hideLabel || !label)}
-        </Label>
-        {showName && !hideLabel && <ParamNameTag name={name} label={label} />}
+        {showName && !hideLabel ? (
+          <ParamLabelRow name={name} label={label}>
+            {checkboxLabel}
+          </ParamLabelRow>
+        ) : (
+          checkboxLabel
+        )}
       </div>
     </div>
   );
