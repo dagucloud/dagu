@@ -324,6 +324,11 @@ func TestWindowsElementsInWindowBehindAnother(t *testing.T) {
 		_ = driver.Raise(other)
 		return driver.FocusedWindow().Handle == other.Handle
 	}, 15*time.Second, 500*time.Millisecond, "notepad did not take the foreground")
+	foreground := func() string {
+		w := driver.FocusedWindow()
+		return fmt.Sprintf("%s %q %#x", w.App, w.Title, w.Handle)
+	}
+	inFront := foreground()
 
 	in := els.InWindow(own)
 	window, err := in.FrontWindow()
@@ -343,8 +348,10 @@ func TestWindowsElementsInWindowBehindAnother(t *testing.T) {
 	save, err := in.Find(Selector{Role: RoleButton, ID: "saveButton"})
 	require.NoError(t, err)
 	require.Len(t, save, 1)
+	assert.Equal(t, inFront, foreground(), "reads leave the foreground where it was")
 	require.NoError(t, in.Apply(save[0], PatternInvoke, ""))
 	assert.Eventually(t, func() bool { return status() == "保存しました" }, 3*time.Second, 100*time.Millisecond, "status reads %q", status())
+	assert.Equal(t, inFront, foreground(), "an invoke leaves the foreground where it was")
 
 	amount, err := in.Find(Selector{Role: RoleTextField, ID: "amountBox"})
 	require.NoError(t, err)
@@ -354,6 +361,7 @@ func TestWindowsElementsInWindowBehindAnother(t *testing.T) {
 	require.NoError(t, err)
 	require.Len(t, amount, 1)
 	assert.Equal(t, "3400", amount[0].Value)
+	assert.Equal(t, inFront, foreground(), "setting a value leaves the foreground where it was")
 
 	outline, err := in.Outline(window, 0)
 	require.NoError(t, err)
@@ -362,7 +370,7 @@ func TestWindowsElementsInWindowBehindAnother(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, [][]string{{"りんご"}, {"みかん"}}, rows)
 
-	assert.Equal(t, other.Handle, driver.FocusedWindow().Handle, "patterns leave the foreground with notepad")
+	assert.Equal(t, inFront, foreground(), "reading a table leaves the foreground where it was")
 	assert.NoError(t, in.Close(), "closing a window's reader leaves the reader it came from open")
 	_, err = els.FrontWindow()
 	assert.NoError(t, err)
