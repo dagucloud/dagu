@@ -520,8 +520,14 @@ describe('DependencyEdge', () => {
     [NodeStatus.NotStarted, 'stroke-[var(--status-neutral)]'],
     [NodeStatus.Skipped, 'stroke-[var(--status-neutral)]'],
   ])('strokes with the source status %s as %s', (status, token) => {
+    // The target ran: an edge into a step that is not in the run has no tint.
     const { container } = renderEdge(
-      <DependencyEdge {...edgeProps({}, { sourceStatus: status })} />
+      <DependencyEdge
+        {...edgeProps(
+          {},
+          { sourceStatus: status, targetStatus: NodeStatus.Running }
+        )}
+      />
     );
     const path = edgePath(container);
     expect(path).toHaveClass(token);
