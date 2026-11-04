@@ -123,8 +123,10 @@ import { useCanvasLayout } from './useCanvasLayout';
 // and 24 px from the sides, so no node sits under an overlay. The bottom
 // keeps the overview and the list toggle clear.
 const FIT_INSET = { top: 72, right: 24, left: 24, bottom: 48 };
-// The margin of a fit, as a share of the graph on each side.
+// The margin of a fit, as a share of the graph on each side, and at the most
+// in px on the screen: a large graph does not leave a wide empty band.
 const FIT_PADDING = 0.2;
+const FIT_MAX_MARGIN = 32;
 // The toolbar stacked on two rows (a small free width) needs more room.
 const STACKED_TOP = 112;
 // A toolbar in the row of the zone floats over the top 40 px of the canvas: a
@@ -330,6 +332,7 @@ function CanvasView({
   const overviewOptions = useMemo(
     () => ({
       padding: fitPadding,
+      maxMargin: FIT_MAX_MARGIN,
       maxZoom: 1.25,
       inset: fitInset,
       readableFrom,

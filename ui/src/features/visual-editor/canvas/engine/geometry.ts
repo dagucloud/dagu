@@ -152,6 +152,11 @@ export function boundsOf(rects: readonly Rect[]): Rect | null {
 export interface FitOptions {
   /** Free space around the content, as a fraction of the content size. */
   padding?: number;
+  /**
+   * Largest free space in px on the screen on each side of the content. The
+   * padding of a large content stops there instead of growing with it.
+   */
+  maxMargin?: number;
   maxZoom?: number;
   minZoom?: number;
   /**
@@ -209,6 +214,7 @@ export function fitViewport(
   size: { width: number; height: number },
   {
     padding = 0.1,
+    maxMargin,
     maxZoom = MAX_ZOOM,
     minZoom = MIN_ZOOM,
     readableZoom,
@@ -225,13 +231,18 @@ export function fitViewport(
   };
   const centreX = left + area.width / 2;
   const centreY = top + area.height / 2;
-  const spanX = Math.max(bounds.width, 1) * (1 + 2 * padding);
-  const spanY = Math.max(bounds.height, 1) * (1 + 2 * padding);
-  const zoom = clamp(
-    Math.min(area.width / spanX, area.height / spanY),
-    minZoom,
-    maxZoom
-  );
+  // The zoom that fits one axis: the padding, or maxMargin px when that
+  // leaves the content more room.
+  const axisZoom = (length: number, room: number) => {
+    const span = Math.max(length, 1);
+    const shared = room / (span * (1 + 2 * padding));
+    return maxMargin === undefined
+      ? shared
+      : Math.max(shared, (room - 2 * maxMargin) / span);
+  };
+  const zoomX = axisZoom(bounds.width, area.width);
+  const zoomY = axisZoom(bounds.height, area.height);
+  const zoom = clamp(Math.min(zoomX, zoomY), minZoom, maxZoom);
   const floor =
     readableZoom === undefined
       ? undefined
@@ -241,10 +252,7 @@ export function fitViewport(
     // start, and the rest is reached by panning. A graph that is also wide
     // keeps the floor, so that the zoom never falls to a stripe that nobody
     // can read.
-    const cross = Math.min(
-      readableFrom === 'left' ? area.height / spanY : area.width / spanX,
-      1
-    );
+    const cross = Math.min(readableFrom === 'left' ? zoomY : zoomX, 1);
     const readable = clamp(
       overview
         ? readableZoom

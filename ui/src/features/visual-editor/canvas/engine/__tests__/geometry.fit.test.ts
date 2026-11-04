@@ -199,3 +199,25 @@ describe('fitViewport with an inset', () => {
     );
   });
 });
+
+// A margin that is a share of the graph grows with it: a long graph took
+// 71 % of the width at the most and opened at 38 % with 220 px of empty
+// canvas on each side.
+describe('fitViewport with a largest margin', () => {
+  const long = { x: 0, y: 0, width: 2974, height: 342 };
+  const area = { width: 1562, height: 680 };
+
+  it('keeps no more than maxMargin px on each side of a long graph', () => {
+    const view = fitViewport(long, area, { ...options, maxMargin: 32 });
+    expect(view.zoom).toBeCloseTo((1562 - 64) / 2974, 5);
+    expect(view.x).toBeCloseTo(32, 5);
+  });
+
+  it('keeps the padding where it is the smaller margin', () => {
+    const tiny = { width: 120, height: 90 };
+    const free = { ...options, minZoom: 0.001 };
+    expect(fitViewport(long, tiny, { ...free, maxMargin: 32 })).toEqual(
+      fitViewport(long, tiny, free)
+    );
+  });
+});
