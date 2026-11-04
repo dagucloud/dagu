@@ -248,15 +248,20 @@ describe('VisualEditor launchers', () => {
     expect(onSelectedStepNameChange).toHaveBeenCalledWith(null);
   });
 
+  // The list holds the whole catalog: a role query by name computes the
+  // accessible name of every row, so the rows are read once by their text.
+  // A row reads as its title run into its blurb, as "CronRun on a ...".
   it('lists no launcher in the Add step list', () => {
     const { handle } = renderEditor();
     openAddStep(handle);
-    const list = within(screen.getByTestId('ve-add-step'));
-    expect(list.getAllByRole('option').length).toBeGreaterThan(0);
+    const options = within(screen.getByTestId('ve-add-step')).getAllByRole(
+      'option'
+    );
+    expect(options.length).toBeGreaterThan(0);
+    const texts = options.map((option) => option.textContent ?? '');
     for (const name of ['Manual', 'Cron', 'Webhook']) {
-      expect(
-        list.queryByRole('option', { name: new RegExp(`^${name}\\b`, 'i') })
-      ).toBeNull();
+      const launcher = new RegExp(`^${name}(?![a-z])`);
+      expect(texts.filter((text) => launcher.test(text))).toEqual([]);
     }
     expect(state.text).toBe(yamlArraySteps);
   });
