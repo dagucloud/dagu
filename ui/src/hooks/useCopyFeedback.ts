@@ -7,9 +7,10 @@ import { copyText } from '@/lib/clipboard';
 /**
  * Copies text to the clipboard and exposes a transient `copied` flag for
  * button feedback. The flag resets after `resetMs` milliseconds, or at once on
- * `reset`. A copy still in progress at `reset` or unmount shows no feedback,
- * and no reset is left pending after unmount. `onCopied` runs each time the
- * text reached the clipboard.
+ * `reset`, and no reset is left pending after unmount. `onCopied` runs each
+ * time a copy completes. A copy still in progress at `reset` or unmount shows
+ * no feedback and does not call `onCopied`, so callers never update state for
+ * content that is gone.
  */
 export function useCopyFeedback(
   resetMs = 2000,

@@ -75,7 +75,10 @@ describe('useCopyFeedback', () => {
           finish = resolve;
         })
       );
-      const { result, unmount } = renderHook(() => useCopyFeedback());
+      const onCopied = vi.fn();
+      const { result, unmount } = renderHook(() =>
+        useCopyFeedback(2000, onCopied)
+      );
 
       let pending: Promise<void> = Promise.resolve();
       act(() => {
@@ -95,6 +98,7 @@ describe('useCopyFeedback', () => {
 
       expect(result.current.copied).toBe(false);
       expect(vi.getTimerCount()).toBe(0);
+      expect(onCopied).not.toHaveBeenCalled();
     }
   );
 
