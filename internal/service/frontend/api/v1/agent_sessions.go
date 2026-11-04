@@ -397,7 +397,7 @@ func (a *API) respondAgentInteraction(ctx context.Context, root ir.DAGRunRef, su
 		if subDAGRunID == "" {
 			err = a.resumeWaitingDAGRun(ctx, root, updated)
 		} else {
-			err = a.resumeSubDAGRun(ctx, root, subDAGRunID)
+			err = a.resumeResolvedSubDAGRun(ctx, root, mutationRef, subDAGRunID, stepName)
 		}
 		if err != nil {
 			_ = a.rollbackPushBack(ctx, mutationRef, applied, original)
@@ -459,7 +459,7 @@ func (a *API) restartAgentSession(ctx context.Context, root ir.DAGRunRef, subDAG
 	if subDAGRunID == "" {
 		err = a.resumeWaitingDAGRun(ctx, root, updated)
 	} else {
-		err = a.resumeSubDAGRun(ctx, root, subDAGRunID)
+		err = a.resumeResolvedSubDAGRun(ctx, root, mutationRef, subDAGRunID, stepName)
 	}
 	if err != nil {
 		_ = a.rollbackPushBack(ctx, mutationRef, applied, original)
