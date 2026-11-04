@@ -615,12 +615,13 @@ the keyboard focus, has its text selected with ctrl+a (cmd+a on macOS), and
 gets the text as keys, which fail the action unless the field comes to show
 just the text, as typed or with separators and symbols it inserts, every
 typed character kept in order and no letter, digit, decimal point, or
-leading minus sign added, or, for empty text, Backspace, which fails the
-action while the field still shows text. A field that shows nothing before,
-as a password field always does, is not checked. The focus is recorded as a
-click on the field, so a replay by pixels puts the caret there before the
-keys. Each records its element like any other, so the next run replays it
-by element, and a value set through the element is set the same way again.
+hyphen other than one after a digit added, or, for empty text, Backspace,
+which fails the action while the field still shows text. A field that shows
+nothing before, as a password field always does, is not checked. The focus
+is recorded as a click on the field, so a replay by pixels puts the caret
+there before the keys. Each records its element like any other, so the next
+run replays it by element, and a value set through the element is set the
+same way again.
 
 A round goes to the model with no screenshot when the front window's
 elements are read in full, the list holds at most 80 of them, and at least

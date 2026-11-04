@@ -232,6 +232,7 @@ func TestTypingIntoAFieldByIdChecksTheValue(t *testing.T) {
 		{"the field adds a sign", "1200", "-1200", `the field shows "-1200", not the text typed into it`},
 		{"the field drops the decimal point", "12.00", "1200", `the field shows "1200", not the text typed into it`},
 		{"the field adds a decimal point", "1200", "12.00", `the field shows "12.00", not the text typed into it`},
+		{"the field adds an exponent sign", "1e5", "1e-5", `the field shows "1e-5", not the text typed into it`},
 		{"the field drops a plus", "alice+orders@example.com", "aliceorders@example.com", `the field shows "aliceorders@example.com", not the text typed into it`},
 	} {
 		t.Run(tc.name, func(t *testing.T) {

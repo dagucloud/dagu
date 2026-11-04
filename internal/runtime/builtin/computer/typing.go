@@ -79,20 +79,22 @@ func showsTyped(value, typed string) bool {
 // what it held, as typed or with formatting the field inserts: every typed
 // character kept in order, and nothing added but separators and symbols,
 // such as the comma of 1,200 or the parentheses and hyphen of a phone
-// number. A letter, a digit, a decimal point, or a minus sign before the
-// first letter or digit is never taken as formatting, since each changes
-// the value; nor is old text the selection did not cover.
+// number. A letter, a digit, a decimal point, or a hyphen anywhere but
+// after a digit, where it could be a sign, is never taken as formatting,
+// since each changes the value; nor is old text the selection did not cover.
 func showsReplaced(value, typed string) bool {
 	want := []rune(hyphenateMinus(desktop.NormalizeText(typed)))
-	begun := false
+	afterDigit := false
 	for _, r := range hyphenateMinus(desktop.NormalizeText(value)) {
 		alphanumeric := unicode.IsLetter(r) || unicode.IsDigit(r)
 		if len(want) > 0 && r == want[0] {
 			want = want[1:]
-			begun = begun || alphanumeric
+			if alphanumeric {
+				afterDigit = unicode.IsDigit(r)
+			}
 			continue
 		}
-		if alphanumeric || r == '.' || r == '-' && !begun {
+		if alphanumeric || r == '.' || r == '-' && !afterDigit {
 			return false
 		}
 	}
