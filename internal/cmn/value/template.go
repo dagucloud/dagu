@@ -195,13 +195,28 @@ func (t template) resolveReferences(ctx context.Context, r *resolver) string {
 }
 
 func (t template) resolveQuotedReferences(ctx context.Context, r *resolver, style quotedRefStyle) string {
-	return quotedReferencePattern.ReplaceAllStringFunc(t.source, func(match string) string {
+	matches := quotedReferencePattern.FindAllStringIndex(t.source, -1)
+	if len(matches) == 0 {
+		return t.source
+	}
+
+	var b strings.Builder
+	last := 0
+	for _, loc := range matches {
+		b.WriteString(t.source[last:loc[0]])
+		last = loc[1]
+
+		match := t.source[loc[0]:loc[1]]
 		ref := match[3 : len(match)-2]
-		if value, ok := resolveQuotedReference(ctx, r, ref); ok {
-			return quoteQuotedRefValue(value, style)
+		singleQuoted := isSingleQuotedVar(t.source, loc[0], loc[1])
+		if value, ok := resolveQuotedReference(ctx, r, ref, singleQuoted); ok {
+			b.WriteString(quoteQuotedRefValue(value, style))
+			continue
 		}
-		return match
-	})
+		b.WriteString(match)
+	}
+	b.WriteString(t.source[last:])
+	return b.String()
 }
 
 // quoteQuotedRefValue re-quotes a resolved value for the double-quoted span it
@@ -268,12 +283,17 @@ func referenceParts(match string) (string, string, bool) {
 	return subMatches[3], subMatches[4], subMatches[3] != ""
 }
 
-func resolveQuotedReference(ctx context.Context, r *resolver, ref string) (string, bool) {
+// resolveQuotedReference resolves the reference inside a "${ref}". A bare name
+// inside a shell single-quoted span, such as a JSON body, is resolved by Dagu
+// because the shell never expands it there.
+func resolveQuotedReference(ctx context.Context, r *resolver, ref string, singleQuoted bool) (string, bool) {
 	if name, path, ok := strings.Cut(ref, "."); ok {
 		return r.resolveReference(ctx, name, "."+path)
 	}
-	// A bare name follows the same shell-deferral rule as an unquoted one.
-	return r.resolveForReplace(ref)
+	if singleQuoted {
+		return r.resolve(ref)
+	}
+	return r.resolveQuotedName(ref)
 }
 
 func (t template) resolveVariables(r *resolver) string {
@@ -315,7 +335,11 @@ func (t template) resolveVariables(r *resolver) string {
 			b.WriteString(match)
 			continue
 		}
-		if value, found := r.resolveForReplace(key); found {
+		resolveName := r.resolveForReplace
+		if isDoubleQuotedVar(t.source, loc[0]) {
+			resolveName = r.resolveQuotedName
+		}
+		if value, found := resolveName(key); found {
 			b.WriteString(value)
 			continue
 		}
@@ -366,6 +390,30 @@ func isSingleQuotedVar(input string, start, end int) bool {
 		}
 	}
 	return false
+}
+
+// isDoubleQuotedVar reports whether the reference at start lies inside a shell
+// double-quoted span. Quotes inside single quotes and backslash-escaped
+// characters do not open or close a span.
+func isDoubleQuotedVar(input string, start int) bool {
+	inSingle, inDouble := false, false
+	for i := 0; i < start; i++ {
+		switch input[i] {
+		case '\\':
+			if !inSingle {
+				i++
+			}
+		case '\'':
+			if !inDouble {
+				inSingle = !inSingle
+			}
+		case '"':
+			if !inSingle {
+				inDouble = !inDouble
+			}
+		}
+	}
+	return inDouble
 }
 
 func singleQuoteCanOpen(input string, idx int) bool {

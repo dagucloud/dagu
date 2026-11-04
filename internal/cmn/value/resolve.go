@@ -79,9 +79,24 @@ func (r *resolver) resolveForReplace(name string) (string, bool) {
 		return val, true
 	}
 	if r.deferShellVars && !isNumericVar(name) {
-		if entry, ok := r.lookupScopeNonOSEntry(name); ok && isSafeHomeRelativeShellWord(entry.Value) {
+		// A safe home-relative path is inlined so the shell expands its ~.
+		// A secret is never written into the command text.
+		if entry, ok := r.lookupScopeNonOSEntry(name); ok && entry.Source != EnvSourceSecret && isSafeHomeRelativeShellWord(entry.Value) {
 			return entry.Value, true
 		}
+		return "", false
+	}
+	return r.lookupScopeNonOS(name)
+}
+
+// resolveQuotedName resolves a bare "${NAME}" for the quoted-refs phase. When
+// shell variables are deferred, the shell owns the name; it does not expand a
+// leading ~ inside double quotes, so no value is inlined.
+func (r *resolver) resolveQuotedName(name string) (string, bool) {
+	if val, ok := r.lookupVariable(name); ok {
+		return val, true
+	}
+	if r.deferShellVars && !isNumericVar(name) {
 		return "", false
 	}
 	return r.lookupScopeNonOS(name)

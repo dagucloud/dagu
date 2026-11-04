@@ -146,7 +146,7 @@ func TestShellCommandField_QuotedRefStyleFollowsShell(t *testing.T) {
 // the shell reads them from the process environment instead.
 func TestShellCommandField_DefersQuotedShellVars(t *testing.T) {
 	scope := NewEnvScope(nil, false).
-		WithEntries(map[string]string{"FOO": "bar"}, EnvSourceDAGEnv).
+		WithEntries(map[string]string{"FOO": "bar", "DATA_DIR": "~/data"}, EnvSourceDAGEnv).
 		WithEntries(map[string]string{"TOKEN": "s3cret"}, EnvSourceSecret)
 	ctx := WithEnvScope(context.Background(), scope)
 	resolver := NewResolver(StaticScope{}, RuntimeScope{})
@@ -158,12 +158,32 @@ func TestShellCommandField_DefersQuotedShellVars(t *testing.T) {
 				Shell:           []string{shell},
 				ShellConfigured: true,
 			})
-			const command = `FOO=local; printf '%s %s\n' "${FOO}" "${TOKEN}"`
+			// The shell does not expand a leading ~ inside double quotes, so
+			// even a home-relative value stays with the shell.
+			const command = `FOO=local; printf '%s %s %s\n' "${FOO}" "${TOKEN}" "${DATA_DIR}"`
 			got, err := resolver.String(ctx, command, field)
 			require.NoError(t, err)
 			assert.Equal(t, command, got)
 		})
 	}
+}
+
+// Inside a shell single-quoted span the shell never expands "${NAME}", so
+// Dagu resolves it and re-quotes the value, which keeps a JSON body valid.
+func TestShellCommandField_ResolvesQuotedRefsInSingleQuotes(t *testing.T) {
+	scope := NewEnvScope(nil, false).
+		WithEntries(map[string]string{"NAME": `a"b`}, EnvSourceDAGEnv)
+	ctx := WithEnvScope(context.Background(), scope)
+	resolver := NewResolver(StaticScope{}, RuntimeScope{})
+	field := ShellCommandField("run", CommandContext{
+		Target:          CommandTargetLocal,
+		Shell:           []string{"sh"},
+		ShellConfigured: true,
+	})
+
+	got, err := resolver.String(ctx, `curl -d '{"name":"${NAME}"}' "${NAME}"`, field)
+	require.NoError(t, err)
+	assert.Equal(t, `curl -d '{"name":"a\"b"}' "${NAME}"`, got)
 }
 
 // A PowerShell double-quoted span interprets the backtick and $, and ends at
