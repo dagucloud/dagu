@@ -79,8 +79,10 @@ type fakeBackend struct {
 	released []desktop.Button
 	// captures counts the screenshots taken.
 	captures int
-	// onType runs on every typing, so a test can make it change a field.
+	// onType runs on every typing, and onKey on every key pressed, so a
+	// test can make either change a field.
 	onType func(text string)
+	onKey  func(key desktop.Key)
 	// onPress runs on every left button press, so a test can make a click
 	// change what the elements reader sees.
 	onPress func()
@@ -618,8 +620,15 @@ func brightened(screen *image.RGBA, area image.Rectangle, step uint8) *image.RGB
 }
 
 func (b *fakeBackend) Key(key desktop.Key, down bool) error {
-	if down {
-		b.record("key " + string(key))
+	if !down {
+		return nil
+	}
+	b.record("key " + string(key))
+	b.mu.Lock()
+	onKey := b.onKey
+	b.mu.Unlock()
+	if onKey != nil {
+		onKey(key)
 	}
 	return nil
 }

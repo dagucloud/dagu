@@ -88,9 +88,10 @@ func lettersAndDigits(s string) string {
 // in place of what the field holds: through the element itself when the
 // field takes the value and reads back the same text, so no key has to
 // reach the window. Otherwise the field takes the keyboard focus with all
-// its text selected, recorded in rec, and done is false, so the caller
-// types the text over it as keys.
-func (l *actLoop) typeElement(ctx context.Context, els desktop.Elements, action computeruse.Action, e desktop.Element) (done bool, rec *recordedAction, result computeruse.Result) {
+// its text selected, and done is false, so the caller types the text over
+// it as keys; empty text deletes the selection instead, and done is true.
+// recs are the actions a replay repeats, in order.
+func (l *actLoop) typeElement(ctx context.Context, els desktop.Elements, action computeruse.Action, e desktop.Element) (done bool, recs []recordedAction, result computeruse.Result) {
 	result = computeruse.Result{CallID: action.CallID}
 	if els == nil {
 		result.Error = "this host cannot read the field to type into; click it, then type"
@@ -117,7 +118,7 @@ func (l *actLoop) typeElement(ctx context.Context, els desktop.Elements, action 
 			field.SetsValue = true
 			recorded := recordAction(computeruse.Action{Kind: computeruse.KindType, Text: l.r.placeholder(action.Text)}, field)
 			recorded.Invoked = true
-			return true, &recorded, result
+			return true, []recordedAction{recorded}, result
 		}
 	}
 	if err := els.Focus(e); err != nil {
@@ -126,12 +127,49 @@ func (l *actLoop) typeElement(ctx context.Context, els desktop.Elements, action 
 	}
 	l.touched = true
 	logAction(l.r.timeline, l.index, "focus "+describeElement(e))
-	selectAll := computeruse.Action{CallID: action.CallID, Kind: computeruse.KindKey, Keys: computeruse.SplitKeys(l.r.selectAllChord())}
-	selected, rec := l.r.performOne(ctx, l.index, selectAll, l.seen, l.limit)
-	if selected.Failed() {
-		return true, nil, selected
+	// The focus is recorded as a click on the field, as a click the model
+	// aims at a field is, so a replay by pixels, which reads no elements,
+	// puts the caret in the field before its keys too.
+	recs = []recordedAction{l.recordInvoked(ctx, computeruse.Action{Kind: computeruse.KindClick}, e, nil)}
+	chords := []string{l.r.selectAllChord()}
+	if text == "" {
+		// Typing nothing over the selection would leave it in the field.
+		chords = append(chords, string(desktop.KeyBackspace))
 	}
-	return false, rec, computeruse.Result{}
+	for _, chord := range chords {
+		keys := computeruse.Action{CallID: action.CallID, Kind: computeruse.KindKey, Keys: computeruse.SplitKeys(chord)}
+		pressed, rec := l.r.performOne(ctx, l.index, keys, l.seen, l.limit)
+		if pressed.Failed() {
+			return true, nil, pressed
+		}
+		recs = appendRecorded(recs, rec)
+	}
+	if text == "" {
+		return true, recs, l.reportEmptied(ctx, action.CallID, e)
+	}
+	return false, recs, computeruse.Result{}
+}
+
+// reportEmptied tells the model whether the field the step deleted the
+// text of shows nothing now, giving an app that updates the value a moment
+// after the keys typedSettle; a field the step cannot read says nothing.
+func (l *actLoop) reportEmptied(ctx context.Context, callID string, e desktop.Element) computeruse.Result {
+	result := computeruse.Result{CallID: callID}
+	name := l.r.masker.MaskString(cmp.Or(e.Name, e.Label, "the field"))
+	for deadline := time.Now().Add(typedSettle); ; {
+		field, err := l.r.focusedElement()
+		if err != nil || !slices.Equal(field.Path, e.Path) {
+			return result
+		}
+		if field.Value == "" {
+			result.Output = name + " is now empty"
+			return result
+		}
+		if !time.Now().Before(deadline) || sleep(ctx, typedPoll) != nil {
+			result.Error = fmt.Sprintf("the text of %s was not deleted; it still shows %q", name, l.r.modelValue(field, ""))
+			return result
+		}
+	}
 }
 
 // setField sets a field's value through the element and returns the field

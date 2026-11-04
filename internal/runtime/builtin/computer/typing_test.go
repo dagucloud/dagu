@@ -156,9 +156,79 @@ func TestTypingIntoAFieldByIdFallsBackToKeys(t *testing.T) {
 			require.Len(t, session.observations, 2)
 			assert.False(t, session.observations[1].Results[0].Failed(), session.observations[1].Results[0].Error)
 			pinned := pinOf(t, lookupRecording(t, run, "金額を入れる"))
-			require.NotEmpty(t, pinned.Recorded)
-			assert.JSONEq(t, `{"key": "ctrl+a", "focus": {"app": "expense", "role": "text_field", "id": "amountBox"}}`, marshal(t, pinned.Recorded[0]),
+			require.GreaterOrEqual(t, len(pinned.Recorded), 2)
+			assert.JSONEq(t, `{"click": {"app": "expense", "role": "text_field", "id": "amountBox"}}`, marshal(t, pinned.Recorded[0]),
+				"the replay puts the caret in the field")
+			assert.JSONEq(t, `{"key": "ctrl+a", "focus": {"app": "expense", "role": "text_field", "id": "amountBox"}}`, marshal(t, pinned.Recorded[1]),
 				"the replay selects the field's text before it types")
 		})
 	}
+}
+
+// Typing nothing into a field by id that takes no value through the element
+// deletes the text the field selected, so a save after it does not keep the
+// old value, and fails while the field still shows it.
+func TestTypingNothingIntoAFieldByIdDeletesItsText(t *testing.T) {
+	t.Parallel()
+
+	for _, tc := range []struct {
+		name    string
+		deletes bool
+		output  string
+		err     string
+	}{
+		{name: "the field empties", deletes: true, output: "the field is now empty"},
+		{name: "the field keeps its text", err: `the text of the field was not deleted; it still shows "12,000"`},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			run, session := elementTurnRun(t, actions(computeruse.Action{CallID: "t", Kind: computeruse.KindType, ElementID: "e1"}), done("Cleared"))
+			run.elements.withoutPattern("amountBox")
+			if tc.deletes {
+				run.backend.onKey = func(key desktop.Key) {
+					if key == desktop.KeyBackspace {
+						run.elements.mu.Lock()
+						run.elements.focused.Value = ""
+						run.elements.mu.Unlock()
+					}
+				}
+			}
+			require.NoError(t, run.execute(`{"idle": "0", "do": [{"act": "金額を消す"}]}`, nil).err)
+			assert.Equal(t, []string{"focus amountBox", "key ctrl", "key a", "key backspace"}, run.backend.inputs())
+			require.Len(t, session.observations, 2)
+			result := session.observations[1].Results[0]
+			assert.Equal(t, tc.output, result.Output)
+			assert.Equal(t, tc.err, result.Error)
+		})
+	}
+}
+
+// A replay by pixels, which reads no elements, clicks the field the act
+// typed into by id before it selects the field's text, so the keys go into
+// that field rather than whichever one has the focus.
+func TestAPixelReplayClicksTheFieldTypedIntoById(t *testing.T) {
+	t.Parallel()
+
+	const instruction = "金額を入れる"
+	run := elementRun(t)
+	run.elements.withoutPattern("amountBox")
+	run.elements.elements[2].Name = "金額"
+	// The field takes the typing whether or not the host reads it.
+	elements := run.elements
+	run.backend.onType = func(text string) {
+		elements.mu.Lock()
+		elements.focused.Value = text
+		elements.mu.Unlock()
+	}
+	run.sessions = []*scriptedSession{{turns: []*computeruse.Turn{
+		actions(computeruse.Action{CallID: "t", Kind: computeruse.KindType, ElementID: "e1", Text: "1200"}),
+		done("Entered"),
+	}}}
+	require.NoError(t, run.execute(`{"idle": "0", "do": [{"act": "`+instruction+`"}]}`, nil).err)
+	require.Equal(t, []string{"focus amountBox", "key ctrl", "key a", "type 1200"}, run.backend.inputs())
+
+	run.backend.events = nil
+	run.elements = nil
+	require.NoError(t, run.execute(`{"ai": "never", "idle": "0", "do": [{"act": "`+instruction+`"}]}`, nil).err)
+	assert.Equal(t, []string{"move 290,152", "left down #1", "key ctrl", "key a", "type 1200"}, run.backend.inputs())
 }

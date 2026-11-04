@@ -611,9 +611,12 @@ aiming at a pixel for a small control. `type` with a field's id puts the text
 in place of what the field holds: the step sets the field's value through
 the element and keeps it when the field reads back the same text; otherwise
 the field is emptied when it took the value, takes the keyboard focus, has
-its text selected with ctrl+a (cmd+a on macOS), and gets the text as keys. Each records its element like any other, so the next
-run replays it by element, and a value set through the element is set the
-same way again.
+its text selected with ctrl+a (cmd+a on macOS), and gets the text as keys,
+or, for empty text, Backspace, which fails the action while the field still
+shows text. The focus is recorded as a click on the field, so a replay by
+pixels puts the caret there before the keys. Each records its element like
+any other, so the next run replays it by element, and a value set through
+the element is set the same way again.
 
 A round goes to the model with no screenshot when the front window's
 elements are read in full, the list holds at most 80 of them, and at least
