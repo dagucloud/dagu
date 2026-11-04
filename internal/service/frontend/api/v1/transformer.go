@@ -977,6 +977,9 @@ func toParamDefs(defs []ir.ParamDef) []api.ParamDef {
 				paramDef.Default = &value
 			}
 		}
+		if def.Title != "" {
+			paramDef.Title = ptrOf(def.Title)
+		}
 		if def.Description != "" {
 			paramDef.Description = ptrOf(def.Description)
 		}

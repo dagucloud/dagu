@@ -16179,6 +16179,9 @@ components:
         name:
           type: string
           description: "Parameter name. Omitted for positional parameters."
+        title:
+          type: string
+          description: "Human-readable label for forms. The name remains the parameter identifier."
         type:
           type: string
           description: "Parameter type"

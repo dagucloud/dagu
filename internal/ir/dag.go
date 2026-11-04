@@ -291,9 +291,11 @@ const (
 )
 
 // ParamDef describes a single DAG parameter for API/UI consumers.
-// Name is empty for positional parameters.
+// Name is empty for positional parameters. Title is an optional
+// human-readable label for forms; Name remains the parameter identifier.
 type ParamDef struct {
 	Name        string   `json:"name,omitempty"`
+	Title       string   `json:"title,omitempty"`
 	Type        string   `json:"type,omitempty"`
 	Default     any      `json:"default,omitempty"`
 	Description string   `json:"description,omitempty"`

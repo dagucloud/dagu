@@ -54,6 +54,7 @@ func deriveExternalSchemaParamDefs(root *jsonschema.Schema, defaults map[string]
 		def := ir.ParamDef{
 			Name:        name,
 			Type:        paramType,
+			Title:       property.Title,
 			Description: property.Description,
 			Required:    required[name],
 		}

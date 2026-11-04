@@ -300,6 +300,25 @@ params:
 	assert.Contains(t, err.Error(), "batch_size")
 }
 
+func TestBuildInlineSchemaParamPlan_ParamDefTitle(t *testing.T) {
+	t.Parallel()
+
+	yaml := []byte(`
+name: inline-schema-title
+params:
+  type: object
+  properties:
+    batch_size:
+      type: integer
+      title: Batch size
+`)
+
+	dag, err := LoadYAML(context.Background(), yaml, WithoutEval())
+	require.NoError(t, err)
+	require.Len(t, dag.ParamDefs, 1)
+	assert.Equal(t, "Batch size", dag.ParamDefs[0].Title)
+}
+
 func TestBuildInlineSchemaParamPlan_ExposesRenderableParamSchema(t *testing.T) {
 	t.Parallel()
 
