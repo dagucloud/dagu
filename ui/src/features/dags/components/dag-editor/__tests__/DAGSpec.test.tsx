@@ -1352,6 +1352,24 @@ describe('DAGSpec visual view', () => {
       });
     });
 
+    // The parent shows YAML as an icon that it presses while the panel is
+    // open: a sub-DAG had a text button instead.
+    it('gives a sub-DAG the YAML icon of the parent', async () => {
+      await renderSpec({ localDags });
+      fireEvent.click(screen.getByRole('tab', { name: 'child' }));
+      await settle();
+
+      const yaml = within(screen.getByTestId('details-canvas')).getByRole(
+        'button',
+        { name: 'YAML' }
+      );
+      // An icon: the name is its label, not a text.
+      expect(yaml.textContent?.trim()).toBe('');
+      expect(yaml).toHaveAttribute('aria-pressed', 'false');
+      fireEvent.click(yaml);
+      expect(yaml).toHaveAttribute('aria-pressed', 'true');
+    });
+
     // The YAML of the drawer is the whole file: its edits need Save here.
     it('keeps Save in the toolbar of a sub-DAG, and Copy in the YAML panel', async () => {
       await renderSpec({ localDags });

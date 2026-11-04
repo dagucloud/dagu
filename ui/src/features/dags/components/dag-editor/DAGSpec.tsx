@@ -26,6 +26,7 @@ import { flushSync } from 'react-dom';
 import type { KeyedMutator } from 'swr';
 import type { components, paths } from '../../../../api/v1/schema';
 import { Button } from '@/components/ui/button';
+import { IconButton } from '@/components/ui/icon-button';
 import ConfirmModal from '@/components/ui/confirm-dialog';
 import { DialogLayerProvider } from '@/components/ui/dialog';
 import { Spinner } from '@/components/ui/spinner';
@@ -2030,20 +2031,17 @@ function DAGSpec({
         );
         // The YAML of a child is the whole file, which also has the Save of the
         // parent.
+        // The same YAML button as the one of the parent, in the same place.
         const childTrail = (
           <>
-            <Button
-              type="button"
-              variant="ghost"
-              size="xs"
-              aria-pressed={sectionOpen}
+            <IconButton
+              label={ts('YAML')}
+              icon={FileCode}
+              pressed={sectionOpen}
               onPointerEnter={preloadDAGEditor}
               onFocus={preloadDAGEditor}
               onClick={() => setSectionOpen(!sectionOpen, 'panel')}
-            >
-              <FileCode className="h-3.5 w-3.5" />
-              {ts('YAML')}
-            </Button>
+            />
             {specActions}
           </>
         );
@@ -2265,6 +2263,8 @@ function DAGSpec({
                         savedText={savedChildText}
                         toolbarStart={documentTabs}
                         toolbarTrail={childTrail}
+                        // The child is part of the file that a revert reloads.
+                        onRevertToSave={editable ? requestDiscard : undefined}
                         customActions={visualCustomActions}
                         workflowPanel={
                           preview.dag ? (
