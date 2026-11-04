@@ -134,10 +134,14 @@ const STACKED_TOP = 112;
 const HOSTED_TOP = 48;
 // Room in px between a notice that covers the top of the canvas and a fit.
 const OVERLAY_GAP = 8;
-// A graph is not shrunk below this zoom by the automatic fit: it shows the
-// start of the graph at a readable size, and the Fit button gives the
-// overview.
+// The zoom of a search match that the canvas shows.
 const READABLE_ZOOM = 0.5;
+// The automatic fit shows the whole graph down to this zoom, where the names
+// of the steps are still about 9 px. A graph that needs less opens on its
+// start at AUTO_FIT_READABLE, with the overview for the rest; the Fit button
+// shows it all.
+const AUTO_FIT_FLOOR = 0.7;
+const AUTO_FIT_READABLE = 0.75;
 // An agent graph is read as a whole: its hub and tool cards keep a larger
 // minimum, and the Fit button stops there too.
 const AGENT_READABLE_ZOOM = 0.75;
@@ -350,9 +354,11 @@ function CanvasView({
   const fitOptions = useMemo(
     () => ({
       ...overviewOptions,
-      readableZoom: agent ? AGENT_READABLE_ZOOM : READABLE_ZOOM,
+      readableZoom: agent ? AGENT_READABLE_ZOOM : AUTO_FIT_READABLE,
       overview: false,
-      ...(agent ? { readableFloor: AGENT_READABLE_FLOOR } : {}),
+      ...(agent
+        ? { readableFloor: AGENT_READABLE_FLOOR }
+        : { readableFloor: AUTO_FIT_FLOOR, readableMax: AUTO_FIT_READABLE }),
     }),
     [overviewOptions, agent]
   );

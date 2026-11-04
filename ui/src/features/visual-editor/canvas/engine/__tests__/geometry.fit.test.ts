@@ -221,3 +221,24 @@ describe('fitViewport with a largest margin', () => {
     );
   });
 });
+
+describe('fitViewport with a largest readable zoom', () => {
+  // 2000 x 300 px: the whole fit is far below the floor.
+  const long = { x: 0, y: 0, width: 2000, height: 300 };
+  const readable = {
+    ...options,
+    readableZoom: 0.75,
+    readableFloor: 0.7,
+    readableFrom: 'left' as const,
+  };
+
+  it('opens the start at the largest readable zoom', () => {
+    const view = fitViewport(long, size, { ...readable, readableMax: 0.75 });
+    expect(view.zoom).toBeCloseTo(0.75, 5);
+    expect(view.x).toBe(24);
+  });
+
+  it('opens the start at the fit of the height, up to 100 %, without it', () => {
+    expect(fitViewport(long, size, readable).zoom).toBe(1);
+  });
+});

@@ -872,6 +872,25 @@ describe('VisualCanvas', () => {
       };
     }
 
+    // A graph that fits only where the names of its steps are under about
+    // 9 px opens on its start at a readable zoom; Fit still shows it all.
+    it('opens a graph that is too long at a readable zoom on its start', () => {
+      sizes.width = 600;
+      sizes.height = 600;
+      const { view } = renderWithView();
+      expect(viewport().zoom).toBeCloseTo(0.75, 5);
+      const rects = graph.nodes.map((n) => nodeScreenRect(n.key));
+      const start = Math.min(...rects.map((r) => r.left));
+      expect(start).toBeGreaterThanOrEqual(0);
+      expect(start).toBeLessThan(80);
+      expect(Math.max(...rects.map((r) => r.right))).toBeGreaterThan(
+        sizes.width
+      );
+
+      act(() => view.fitView());
+      expect(viewport().zoom).toBeLessThan(0.7);
+    });
+
     it('fits a graph below the toolbar, inside the side insets', () => {
       sizes.height = 600;
       renderWithView();

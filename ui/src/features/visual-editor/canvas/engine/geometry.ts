@@ -176,6 +176,8 @@ export interface FitOptions {
    * the content is below `readableZoom` too. Default: 70 % of `readableZoom`.
    */
   readableFloor?: number;
+  /** Largest zoom of the readable start. Default: 100 %. */
+  readableMax?: number;
   /**
    * With `readableZoom`: the fit of a graph that is too long for it uses
    * `readableZoom` itself, an overview of the structure, and not the zoom
@@ -220,6 +222,7 @@ export function fitViewport(
     readableZoom,
     readableFrom = 'top',
     readableFloor,
+    readableMax = 1,
     overview = false,
     inset,
   }: FitOptions = {}
@@ -252,7 +255,10 @@ export function fitViewport(
     // start, and the rest is reached by panning. A graph that is also wide
     // keeps the floor, so that the zoom never falls to a stripe that nobody
     // can read.
-    const cross = Math.min(readableFrom === 'left' ? zoomY : zoomX, 1);
+    const cross = Math.min(
+      readableFrom === 'left' ? zoomY : zoomX,
+      readableMax
+    );
     const readable = clamp(
       overview
         ? readableZoom
