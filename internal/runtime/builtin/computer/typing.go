@@ -75,6 +75,15 @@ func showsTyped(value, typed string) bool {
 	return strings.Contains(value, typed) || lettersAndDigits(value) == lettersAndDigits(typed)
 }
 
+// showsReplaced reports whether a field's value is the text that replaced
+// what it held, as typed or as the field formats it. Unlike showsTyped, it
+// does not take a value that only holds the text, such as the text after
+// old text a selection did not cover.
+func showsReplaced(value, typed string) bool {
+	value, typed = desktop.NormalizeText(value), desktop.NormalizeText(typed)
+	return value == typed || lettersAndDigits(value) == lettersAndDigits(typed)
+}
+
 func lettersAndDigits(s string) string {
 	return strings.Map(func(r rune) rune {
 		if unicode.IsLetter(r) || unicode.IsDigit(r) {
@@ -184,9 +193,10 @@ func (l *actLoop) reportEmptied(ctx context.Context, callID string, e desktop.El
 }
 
 // confirmReplaced fails a typing whose field, its text selected first, does
-// not come to show the typed text, as typed or as the field formats it,
-// within typedSettle, as when the field cuts the text short, so the rest of
-// the turn, such as a save, does not run on the wrong value. A field the
+// not come to show just the typed text, as typed or as the field formats
+// it, within typedSettle, as when the field cuts the text short or keeps
+// old text the selection missed, so the rest of the turn, such as a save,
+// does not run on the wrong value. A field the
 // step cannot read, one that shows nothing before and after, as a password
 // field does, and text holding a key the window acts on say nothing.
 func (l *actLoop) confirmReplaced(ctx context.Context, result *computeruse.Result, e desktop.Element, text string) {
@@ -195,7 +205,7 @@ func (l *actLoop) confirmReplaced(ctx context.Context, result *computeruse.Resul
 	}
 	for deadline := time.Now().Add(typedSettle); ; {
 		field, err := l.r.focusedElement()
-		if err != nil || !slices.Equal(field.Path, e.Path) || field.Value == "" && e.Value == "" || showsTyped(field.Value, text) {
+		if err != nil || !slices.Equal(field.Path, e.Path) || field.Value == "" && e.Value == "" || showsReplaced(field.Value, text) {
 			return
 		}
 		if !time.Now().Before(deadline) || sleep(ctx, typedPoll) != nil {
