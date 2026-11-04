@@ -1225,7 +1225,8 @@ func (l *actLoop) apply(ctx context.Context, turn *computeruse.Turn) []computeru
 			if action.Kind == computeruse.KindType {
 				invoke = l.typeElement
 			}
-			if invoked, invokedRec, invokedResult := invoke(ctx, els, action, e); invoked {
+			invoked, invokedRec, invokedResult := invoke(ctx, els, action, e)
+			if invoked {
 				results[i], rec = invokedResult, invokedRec
 				if invokedResult.Failed() {
 					logAction(l.r.timeline, l.index, "  failed: "+invokedResult.Error)
@@ -1239,6 +1240,7 @@ func (l *actLoop) apply(ctx context.Context, turn *computeruse.Turn) []computeru
 			// No pattern, or a host without elements: click the element's
 			// position on the screen instead, or type into the field, which
 			// now has the keyboard focus.
+			recorded = appendRecorded(recorded, invokedRec)
 			if action.Kind != computeruse.KindType {
 				point := l.seen.toModel(elementCentre(e))
 				action.Point = &point

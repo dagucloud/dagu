@@ -87,8 +87,9 @@ func lettersAndDigits(s string) string {
 // typeElement puts the text the model typed into the field it named by id,
 // in place of what the field holds: through the element itself when the
 // field takes the value and reads back the same text, so no key has to
-// reach the window. Otherwise the field takes the keyboard focus and done
-// is false, so the caller types the text as keys.
+// reach the window. Otherwise the field takes the keyboard focus with all
+// its text selected, recorded in rec, and done is false, so the caller
+// types the text over it as keys.
 func (l *actLoop) typeElement(ctx context.Context, els desktop.Elements, action computeruse.Action, e desktop.Element) (done bool, rec *recordedAction, result computeruse.Result) {
 	result = computeruse.Result{CallID: action.CallID}
 	if els == nil {
@@ -125,7 +126,12 @@ func (l *actLoop) typeElement(ctx context.Context, els desktop.Elements, action 
 	}
 	l.touched = true
 	logAction(l.r.timeline, l.index, "focus "+describeElement(e))
-	return false, nil, computeruse.Result{}
+	selectAll := computeruse.Action{CallID: action.CallID, Kind: computeruse.KindKey, Keys: computeruse.SplitKeys(l.r.selectAllChord())}
+	selected, rec := l.r.performOne(ctx, l.index, selectAll, l.seen, l.limit)
+	if selected.Failed() {
+		return true, nil, selected
+	}
+	return false, rec, computeruse.Result{}
 }
 
 // setField sets a field's value through the element and returns the field

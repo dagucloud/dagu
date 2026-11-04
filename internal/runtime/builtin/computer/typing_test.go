@@ -113,10 +113,12 @@ func TestTypingIntoAFieldByIdSetsItsValue(t *testing.T) {
 	assert.Equal(t, []string{"set amountBox=1200", "invoke saveButton"}, run.backend.inputs(), "the replay sets the value as the act did")
 }
 
-// Typing into a field by id types keys into the field, which takes the
-// focus, when the field takes no value through the element, when it reads
-// back something else, as one that reformats what it is given does, which
-// is emptied for the keys, or when the text holds a line break.
+// Typing into a field by id types keys over the field's text, which the
+// field takes the focus with and selects, when the field takes no value
+// through the element, when it reads back something else, as one that
+// reformats what it is given does, which is emptied for the keys, or when
+// the text holds a line break. The act records the selection, so a replay
+// replaces the field's text too.
 func TestTypingIntoAFieldByIdFallsBackToKeys(t *testing.T) {
 	t.Parallel()
 
@@ -127,7 +129,7 @@ func TestTypingIntoAFieldByIdFallsBackToKeys(t *testing.T) {
 		inputs []string
 	}{
 		{"the field takes no value", "1200", func(r *testRun) { r.elements.withoutPattern("amountBox") },
-			[]string{"focus amountBox", "type 1200"}},
+			[]string{"focus amountBox", "key ctrl", "key a", "type 1200"}},
 		{"the field reformats the value", "1200", func(r *testRun) {
 			r.elements.onApply = func(e desktop.Element, _ desktop.Pattern, value string) {
 				r.backend.recordAccessibility(fmt.Sprintf("set %s=%s", focusedID(e), value))
@@ -135,8 +137,8 @@ func TestTypingIntoAFieldByIdFallsBackToKeys(t *testing.T) {
 					r.elements.setValue("amountBox", "1,200")
 				}
 			}
-		}, []string{"set amountBox=1200", "set amountBox=", "focus amountBox", "type 1200"}},
-		{"the text holds a line break", "1200\n", nil, []string{"focus amountBox", "type 1200", "key enter"}},
+		}, []string{"set amountBox=1200", "set amountBox=", "focus amountBox", "key ctrl", "key a", "type 1200"}},
+		{"the text holds a line break", "1200\n", nil, []string{"focus amountBox", "key ctrl", "key a", "type 1200", "key enter"}},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
@@ -153,6 +155,10 @@ func TestTypingIntoAFieldByIdFallsBackToKeys(t *testing.T) {
 			assert.Equal(t, tc.inputs, run.backend.inputs())
 			require.Len(t, session.observations, 2)
 			assert.False(t, session.observations[1].Results[0].Failed(), session.observations[1].Results[0].Error)
+			pinned := pinOf(t, lookupRecording(t, run, "金額を入れる"))
+			require.NotEmpty(t, pinned.Recorded)
+			assert.JSONEq(t, `{"key": "ctrl+a", "focus": {"app": "expense", "role": "text_field", "id": "amountBox"}}`, marshal(t, pinned.Recorded[0]),
+				"the replay selects the field's text before it types")
 		})
 	}
 }

@@ -610,8 +610,8 @@ where it can be, and at the element's centre otherwise, more reliable than
 aiming at a pixel for a small control. `type` with a field's id puts the text
 in place of what the field holds: the step sets the field's value through
 the element and keeps it when the field reads back the same text; otherwise
-the field is emptied when it took the value, takes the keyboard focus, and
-gets the text as keys. Each records its element like any other, so the next
+the field is emptied when it took the value, takes the keyboard focus, has
+its text selected with ctrl+a (cmd+a on macOS), and gets the text as keys. Each records its element like any other, so the next
 run replays it by element, and a value set through the element is set the
 same way again.
 
