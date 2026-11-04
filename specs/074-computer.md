@@ -118,7 +118,7 @@ system stay awake, as far as the operating system allows.
 
 Any other operation runs without the desktop, beside a person and beside
 steps working in other applications, and waits for no person: an element
-performing a pattern, an exact or value check, an `extract` read from its
+performing a pattern on macOS, an exact or value check, an `extract` read from its
 bindings, an `outline`, and a `wait`. It reads a window of the application
 its selector names or the step works in, where that window is, behind
 another application's or covered by one, and never the window in front: a
