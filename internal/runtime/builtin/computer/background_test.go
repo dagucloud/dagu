@@ -246,7 +246,8 @@ func TestNoStepSendsInputWhileAnotherHoldsTheDesktop(t *testing.T) {
 }
 
 // Anything that moves the foreground takes the desktop: focusing a field,
-// which on Windows brings its window forward, restoring a minimized window,
+// which on Windows brings its window forward, a pattern the system
+// performs by bringing the window forward, restoring a minimized window,
 // and a launch, whose window comes forward. Each waits while another step
 // holds the desktop and does nothing meanwhile.
 func TestMovingTheForegroundTakesTheDesktop(t *testing.T) {
@@ -260,6 +261,8 @@ func TestMovingTheForegroundTakesTheDesktop(t *testing.T) {
 		// effect is what the step did, read once it ran.
 		effect func(run *testRun) any
 		want   any
+		// prepare readies the desktop before the step runs.
+		prepare func(run *testRun)
 	}{
 		{
 			name:   "focus a field",
@@ -267,6 +270,14 @@ func TestMovingTheForegroundTakesTheDesktop(t *testing.T) {
 			window: form,
 			effect: func(run *testRun) any { return run.backend.inputs() },
 			want:   []string{"focus amountBox"},
+		},
+		{
+			name:    "a pattern that brings its window forward",
+			steps:   savesIn("expense"),
+			window:  form,
+			prepare: func(run *testRun) { run.elements.bringsForward("saveButton") },
+			effect:  func(run *testRun) any { return run.backend.inputs() },
+			want:    []string{"invoke saveButton"},
 		},
 		{
 			name:   "restore a minimized window",
@@ -287,6 +298,9 @@ func TestMovingTheForegroundTakesTheDesktop(t *testing.T) {
 			t.Parallel()
 			run := elementRun(t)
 			run.backend.windows = []desktop.WindowID{tc.window}
+			if tc.prepare != nil {
+				tc.prepare(run)
+			}
 			holder := holdDesktop(t, run.desktopLock)
 			progress, waiting := waitsFor(waitReasonDesktop)
 			run.onProgress = progress

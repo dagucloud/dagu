@@ -230,6 +230,9 @@ type fakeElements struct {
 	// windows are the readers of windows other than this one, by handle,
 	// which InWindow returns; any other handle reads this window.
 	windows map[uint64]*fakeElements
+	// foreground lists the elements, by id or name, whose patterns bring
+	// their window forward, which a reader of one window refuses.
+	foreground map[string]bool
 }
 
 // InWindow reads the window a test listed under the handle, or this one.
@@ -237,9 +240,34 @@ func (f *fakeElements) InWindow(w desktop.WindowID) desktop.Elements {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	if other, ok := f.windows[w.Handle]; ok {
-		return other
+		return windowElements{other}
 	}
-	return f
+	return windowElements{f}
+}
+
+// windowElements is a fake window read through InWindow.
+type windowElements struct{ *fakeElements }
+
+// Apply refuses a pattern that brings the window forward, as Windows'
+// proxies for Win32 and Windows Forms controls do.
+func (w windowElements) Apply(e desktop.Element, pattern desktop.Pattern, value string) error {
+	w.mu.Lock()
+	refused := w.foreground[focusedID(e)]
+	w.mu.Unlock()
+	if refused {
+		return desktop.ErrForeground
+	}
+	return w.fakeElements.Apply(e, pattern, value)
+}
+
+// bringsForward makes an element's patterns bring its window forward.
+func (f *fakeElements) bringsForward(id string) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if f.foreground == nil {
+		f.foreground = map[string]bool{}
+	}
+	f.foreground[id] = true
 }
 
 // behind lists a window apart from the one in front, read through InWindow

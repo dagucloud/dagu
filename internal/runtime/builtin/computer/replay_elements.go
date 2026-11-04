@@ -676,7 +676,9 @@ func directReason(err error) string {
 // a reason when it could not; neither means the element offers no pattern
 // for the action, which then runs on the screen. An element that is
 // disabled or gone is looked at again within findWithin, as a missing one
-// is, since the application may still be getting ready.
+// is, since the application may still be getting ready. A step that does
+// not hold the desktop gets desktop.ErrForeground for an element whose
+// pattern brings its window forward.
 func (r *run) direct(ctx context.Context, index, position, total int, els desktop.Elements, rec recordedAction, found desktop.Element, findWithin time.Duration) (bool, string, error) {
 	pattern, ok := directInput(rec)
 	if !ok {
@@ -723,6 +725,9 @@ func (r *run) direct(ctx context.Context, index, position, total int, els deskto
 		case errors.Is(err, desktop.ErrNoPattern):
 			logAction(r.timeline, index, fmt.Sprintf("%s offers no %s pattern; using the screen", rec.Element.describe(), pattern))
 			return false, "", nil
+		case errors.Is(err, desktop.ErrForeground):
+			// Only a step without the desktop is refused; its caller takes it.
+			return false, "", err
 		case errors.Is(err, desktop.ErrDisabled) || errors.Is(err, desktop.ErrNotFound):
 			// The element is looked for again until it is there, never
 			// tried again as it was, which may now name another element.
@@ -818,6 +823,15 @@ func (r *run) replayByElement(ctx context.Context, index, position, total int, t
 			}
 			if (direct || rec.Invoked || choosesOption(found)) && i != onScreen {
 				done, reason, err := r.direct(ctx, index, position, total, els, rec, found, findWithin)
+				// An element whose pattern brings its window forward performs it
+				// once the step holds the desktop, from a fresh look.
+				if errors.Is(err, desktop.ErrForeground) {
+					if err := r.takeDesktop(ctx, r.recordedApp(rec)); err != nil {
+						return "", err
+					}
+					i--
+					continue
+				}
 				if err != nil || reason != "" {
 					return reason, err
 				}
