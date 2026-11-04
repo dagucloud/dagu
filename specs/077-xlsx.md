@@ -41,8 +41,8 @@ set up and that unit tests of `internal/cmn/workbook` cover instead:
 `with.password` on an xlsx step (nothing in Dagu writes a protected workbook;
 opening one is covered by `dagu xlsx` and the workbook read target); the styles,
 hyperlinks, merged regions, and tables that `mode: replace` clears,
-`style: table` formatting, style copying, and column widths (not readable
-through `xlsx.read`; that a replace empties the values is covered); the
+`style: table` formatting, `formats`, style copying, and column widths (not
+readable through `xlsx.read`; that a replace empties the values is covered); the
 temporary file of an
 atomic save and symbolic links; a lock file another process holds,
 `wait_for_unlock` timing, and Windows sharing violations; the line a write
@@ -346,7 +346,11 @@ column's kind is its pinned type, or else the kind most of its values have;
 a whole number is an integer however it arrives, so JSON `17500` shows as
 `17500`, and a column mixing integers and decimals is a decimal column. A
 column mixing dates and date-times is formatted as date-time. `style: none`
-writes bare cells.
+writes bare cells. `formats` on `xlsx.write` and `xlsx.append` names a
+number format per column, such as `{Total: "#,##0", Rate: "0.0%"}`: every
+cell written to that column takes it under either style, in place of the
+format of the column's kind or of the cell above; an appended cell keeps
+the rest of the style it copies.
 
 `xlsx.append`, and `mode: append`, write below the last non-empty row with
 no header, and each new cell copies the style of the cell above it, so a date
@@ -397,10 +401,11 @@ as text; `{value: "007", type: string}` pins text, and `type` takes any
 column type. Without `set`, every field other than the key and `_row` goes
 to the column of the same name. A field in `set` that no row carries is an
 error:
-`set.Status: field "state" is not in any row`. A column that is not in the
-header row is added at the right, its header cell copying the style of the
-last header cell; a new header cell inside a merged cell fails as it does
-for an append.
+`set.Status: field "state" is not in any row`. An empty `rows` list, such as
+a scheduled run with nothing pending, succeeds and changes nothing, with or
+without `set`. A column that is not in the header row is added at the right
+when a row is written, its header cell copying the style of the last header
+cell; a new header cell inside a merged cell fails as it does for an append.
 
 Rows are matched by `_row` when present, else by the key column, with keys
 compared as trimmed text so `7` and `"7"` match. A key found at two rows is
@@ -915,7 +920,8 @@ Every one of these is rejected by `dagu validate`:
   `missing: skip` or
   `append` with `key: _row`: `missing: skip needs a key column; with key:
   _row nothing else identifies a row`; `wait_for_unlock` that is not a
-  duration: `wait_for_unlock must be a duration such as 30s or 5m`.
+  duration: `wait_for_unlock must be a duration such as 30s or 5m`; a blank
+  entry in `formats`: `formats.Total must not be empty`.
 - `xlsx.validate` with no rule: `validate requires at least one of
   with.required, with.not_blank, with.unique, with.types, or with.allowed`;
   `max_problems` below 1: `max_problems must be >= 1`; an `allowed` value
