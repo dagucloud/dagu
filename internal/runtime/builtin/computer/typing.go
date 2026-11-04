@@ -112,7 +112,7 @@ func (l *actLoop) typeElement(ctx context.Context, els desktop.Elements, action 
 		if set != nil {
 			l.touched = true
 			logAction(l.r.timeline, l.index, fmt.Sprintf("%s %s to %q", desktop.PatternSetValue, describeElement(e), action.Text))
-			result.Output = fmt.Sprintf("%s now shows %q", cmp.Or(set.Name, set.Label, "the field"), l.r.modelValue(*set, ""))
+			result.Output = fmt.Sprintf("%s now shows %q", l.r.masker.MaskString(cmp.Or(set.Name, set.Label, "the field")), l.r.modelValue(*set, ""))
 			field.SetsValue = true
 			recorded := recordAction(computeruse.Action{Kind: computeruse.KindType, Text: l.r.placeholder(action.Text)}, field)
 			recorded.Invoked = true
