@@ -441,10 +441,13 @@ click at the element's centre may not reach what the pattern did. A click
 the model aims at a combo box lands on it as a person's click does, opening
 one that only offers a list and putting the caret in one that takes typing.
 `direct` has the element act itself through its
-automation pattern, which moves no pointer; on macOS it needs no window in
-front and runs without the desktop, while on Windows, where UI Automation
-brings the window forward to perform a pattern, it holds the desktop (see
-above): a
+automation pattern, which moves no pointer. On macOS such an action needs
+no window in front and runs without the desktop, except focusing a field
+and choosing a list box's option, which may press keys; on Windows, where
+UI Automation brings the window forward to perform a pattern, it holds the
+desktop while the call runs, though a call the application holds past five
+seconds is abandoned and may still finish after the step lets the desktop
+go (see above): a
 plain click on a `button`, `menu_item`, `link`, or a control of role
 `other` invokes it, on a `checkbox` toggles it, on a `radio`, `list_item`,
 `tab`, or `cell` selects it, on a `combo_box` opens it, and on a
