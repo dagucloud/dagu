@@ -114,10 +114,18 @@ func TestWindowsCaptureShowsAComboBoxList(t *testing.T) {
 		}
 	}
 	require.NotNil(t, list, "the list is not among the captured windows: %s", describeWindows(capture.Windows))
-	// A list item is drawn on a light background, which no part of the
-	// black backdrop of the capture is.
-	got := capture.Image.RGBAAt(below.X, below.Y)
-	assert.False(t, isColor(got, color.RGBA{A: 255}), "the capture shows the list: %v", got)
+	// The list's items are drawn on a light background, so most of its
+	// place is not the black the capture shows where no window is.
+	area := list.Bounds.Intersect(capture.Image.Bounds())
+	lit := 0
+	for y := area.Min.Y; y < area.Max.Y; y++ {
+		for x := area.Min.X; x < area.Max.X; x++ {
+			if !isColor(capture.Image.RGBAAt(x, y), color.RGBA{A: 255}) {
+				lit++
+			}
+		}
+	}
+	assert.Greater(t, lit, area.Dx()*area.Dy()/2, "the capture shows the list")
 }
 
 func describeWindows(windows []WindowID) string {
