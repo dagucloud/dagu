@@ -22,6 +22,9 @@ import (
 
 const elementsWindowTitle = "Dagu elements test"
 
+// swShowMinimized minimizes a window and leaves it active.
+const swShowMinimized = 2
+
 // e2eElements opens the elements reader on an interactive desktop.
 func e2eElements(t *testing.T) Elements {
 	t.Helper()
@@ -301,6 +304,64 @@ func TestWindowsDirectInput(t *testing.T) {
 	assert.Equal(t, RoleWindow, front.Role)
 	require.NoError(t, els.Apply(byID["agreeBox"], PatternToggle, ""))
 	expectStatus("同意: True")
+}
+
+// A minimized window shows none of its elements. UI Automation still reports
+// them, not offscreen and with their size, at the place Windows parks the
+// window, so the window in front, when it is minimized, lists none.
+func TestWindowsElementsOfMinimizedWindow(t *testing.T) {
+	driver := e2eDesktop(t)
+	els := e2eElements(t)
+	elementsWindow(t, driver, els)
+	front := driver.FocusedWindow()
+	require.Equal(t, elementsWindowTitle, front.Title)
+
+	_, _, _ = procShowWindow.Call(uintptr(front.Handle), swShowMinimized)
+	require.Eventually(t, func() bool {
+		iconic, _, _ := procIsIconic.Call(uintptr(front.Handle))
+		return iconic != 0
+	}, 3*time.Second, 50*time.Millisecond, "the window did not minimize")
+	window, err := els.FrontWindow()
+	require.NoError(t, err)
+	require.Equal(t, elementsWindowTitle, window.Name, "a window minimized this way keeps the foreground")
+
+	outline, err := els.Outline(window, 0)
+	require.NoError(t, err)
+	assert.Empty(t, outline, "a minimized window shows no element")
+	found, err := els.Find(Selector{Role: RoleButton, ID: "saveButton"})
+	require.NoError(t, err)
+	assert.Empty(t, found, "nothing is found in a minimized window")
+}
+
+// A Chromium window builds the tree of its page once a client first asks
+// for it, and reads thin until then. The reader that met the window before
+// the page's tree was built finds the page's elements once it is.
+func TestWindowsElementsOfChromiumPage(t *testing.T) {
+	driver := e2eDesktop(t)
+	els := e2eElements(t)
+	edge := filepath.Join(os.Getenv("ProgramFiles(x86)"), "Microsoft", "Edge", "Application", "msedge.exe")
+	if _, err := os.Stat(edge); err != nil {
+		t.Skipf("Edge is not installed: %v", err)
+	}
+	dir, err := os.MkdirTemp("", "dagu-chromium-")
+	require.NoError(t, err)
+	// Edge may hold its profile a moment after it ends.
+	t.Cleanup(func() { _ = os.RemoveAll(dir) })
+	page := filepath.Join(dir, "page.html")
+	require.NoError(t, os.WriteFile(page, []byte(`<!doctype html><title>Dagu page test</title><button>Dagu page button</button>`), 0o600))
+	startApp(t, edge, "--user-data-dir="+filepath.Join(dir, "profile"), "--no-first-run", "--no-default-browser-check", "--new-window", "file:///"+filepath.ToSlash(page))
+	window := frontWindowNamed(t, driver, els, nil, func(w Element) bool { return strings.HasPrefix(w.Name, "Dagu page test") })
+
+	began := time.Now()
+	outline, err := els.Outline(window, 0)
+	require.NoError(t, err)
+	t.Logf("elements: first read of the page's window has %d elements", len(outline))
+	var found []Element
+	require.Eventually(t, func() bool {
+		found, err = els.Find(Selector{Role: RoleButton, Name: "Dagu page button"})
+		return err == nil && len(found) == 1
+	}, 30*time.Second, 250*time.Millisecond, "the page's button: %+v %v", found, err)
+	t.Logf("elements: the page's button was found %s after the first read", time.Since(began))
 }
 
 // A table in Details view is read row by row, each cell under the column
