@@ -30,11 +30,11 @@ const (
 	minTargetRadius     = 32
 	targetRadiusDivisor = 40
 	// A target area is kept as digests of targetCell-pixel squares, and is
-	// the same when no more than targetStillCells differ: a blinking caret
-	// 20 pixels tall touches at most two columns of six squares, and a label
-	// with other text changes more.
-	targetCell       = 4
-	targetStillCells = 12
+	// the same when the squares that differ lie within caretColumns
+	// neighbouring columns: a blinking caret is a few pixels wide at any
+	// display scale, and a label with other text is wider.
+	targetCell   = 4
+	caretColumns = 2
 	// targetSalt and targetDigest are the bytes of a recording's salt and of
 	// the digest kept for each square.
 	targetSalt   = 8

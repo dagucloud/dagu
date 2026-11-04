@@ -63,24 +63,46 @@ func TestMatchesRefusesATargetWithOtherText(t *testing.T) {
 	assert.False(t, matches(relabelled, v, turn))
 }
 
-// The same screen, and one where only a caret blinks in the target, replay.
+// upscaled draws an image at an integer display scale, as a display with
+// more pixels per point captures the same screen.
+func upscaled(img *image.RGBA, scale int) *image.RGBA {
+	b := img.Bounds()
+	out := image.NewRGBA(image.Rect(0, 0, b.Dx()*scale, b.Dy()*scale))
+	for y := range out.Bounds().Dy() {
+		for x := range out.Bounds().Dx() {
+			out.SetRGBA(x, y, img.RGBAAt(x/scale, y/scale))
+		}
+	}
+	return out
+}
+
+// The same screen, and one where only a caret blinks in the target, replay
+// at display scale 1 and 2. Each caret lies across the boundary of two
+// squares; at scale 2 it is twice as wide and tall.
 func TestMatchesAcceptsATargetThatOnlyBlinks(t *testing.T) {
 	t.Parallel()
 
-	at := image.Pt(400, 300)
-	seen := labelled(1)
-	v, turn := targetTurn(t, seen, at)
-	assert.True(t, matches(labelled(1), v, turn))
+	for _, tc := range []struct {
+		scale, caretX int
+	}{
+		{scale: 1, caretX: 371},
+		{scale: 2, caretX: 762},
+	} {
+		at := image.Pt(400*tc.scale, 300*tc.scale)
+		v, turn := targetTurn(t, upscaled(labelled(1), tc.scale), at)
+		assert.True(t, matches(upscaled(labelled(1), tc.scale), v, turn), "scale %d", tc.scale)
 
-	caret := labelled(1)
-	for y := 290; y < 310; y++ {
-		caret.Set(370, y, color.RGBA{A: 255})
-		caret.Set(371, y, color.RGBA{A: 255})
+		caret := upscaled(labelled(1), tc.scale)
+		for y := 290 * tc.scale; y < 310*tc.scale; y++ {
+			for x := tc.caretX; x < tc.caretX+2*tc.scale; x++ {
+				caret.Set(x, y, color.RGBA{A: 255})
+			}
+		}
+		// The caret is inside the compared area, so the cells do change.
+		salt := turn.Actions[0].TargetCells[:targetSalt]
+		assert.NotEqual(t, turn.Actions[0].TargetCells, v.targetCells(caret, at, salt), "scale %d", tc.scale)
+		assert.True(t, matches(caret, v, turn), "scale %d", tc.scale)
 	}
-	// The caret is inside the compared area, so the cells do change.
-	salt := turn.Actions[0].TargetCells[:targetSalt]
-	assert.NotEqual(t, turn.Actions[0].TargetCells, v.targetCells(caret, at, salt))
-	assert.True(t, matches(caret, v, turn))
 }
 
 // A recording made before the pixels were kept has only the fingerprint, and

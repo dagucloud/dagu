@@ -109,15 +109,12 @@ func (v view) targetPrint(img *image.RGBA, at image.Point) desktop.Fingerprint {
 // pixel or two off in size, which findWindow accepts, digests the same. A
 // square outside what is compared digests to zeros.
 func (v view) targetCells(img *image.RGBA, at image.Point, salt []byte) []byte {
-	width, height := v.rect.Dx(), v.rect.Dy()
 	bounds := v.rect
 	if v.window != nil {
-		width, height = v.window.Width, v.window.Height
-		bounds = image.Rect(v.rect.Min.X, v.rect.Min.Y, v.rect.Min.X+width-windowSizeTolerance, v.rect.Min.Y+height-windowSizeTolerance)
+		bounds = image.Rect(v.rect.Min.X, v.rect.Min.Y, v.rect.Min.X+v.window.Width-windowSizeTolerance, v.rect.Min.Y+v.window.Height-windowSizeTolerance)
 	}
 	bounds = bounds.Intersect(img.Bounds())
-	radius := targetRadius(image.Rect(0, 0, width, height))
-	squares := (2*radius + targetCell - 1) / targetCell
+	radius, squares := v.targetSide()
 	cells := append([]byte(nil), salt...)
 	for row := range squares {
 		for col := range squares {
@@ -139,9 +136,21 @@ func (v view) targetCells(img *image.RGBA, at image.Point, salt []byte) []byte {
 	return cells
 }
 
+// targetSide is the half-width of the area targetCells digests and how many
+// squares each of its sides has, from the width the view was recorded at.
+func (v view) targetSide() (radius, squares int) {
+	width := v.rect.Dx()
+	if v.window != nil {
+		width = v.window.Width
+	}
+	radius = targetRadius(image.Rect(0, 0, width, 0))
+	return radius, (2*radius + targetCell - 1) / targetCell
+}
+
 // targetStill reports whether the square around a display position shows the
-// recorded picture, but for a few squares. Cells that cannot be read show
-// nothing to trust, so they are not still.
+// recorded picture, but for a caret: the squares that differ lie within
+// caretColumns neighbouring columns. Cells that cannot be read show nothing
+// to trust, so they are not still.
 func (v view) targetStill(img *image.RGBA, at image.Point, recorded []byte) bool {
 	if len(recorded) < targetSalt {
 		return false
@@ -150,13 +159,16 @@ func (v view) targetStill(img *image.RGBA, at image.Point, recorded []byte) bool
 	if len(now) != len(recorded) {
 		return false
 	}
-	changed := 0
+	_, squares := v.targetSide()
+	first, last := squares, -1
 	for i := targetSalt; i < len(now); i += targetDigest {
-		if !bytes.Equal(now[i:i+targetDigest], recorded[i:i+targetDigest]) {
-			changed++
+		if bytes.Equal(now[i:i+targetDigest], recorded[i:i+targetDigest]) {
+			continue
 		}
+		column := (i - targetSalt) / targetDigest % squares
+		first, last = min(first, column), max(last, column)
 	}
-	return changed <= targetStillCells
+	return last-first < caretColumns
 }
 
 // relative moves an action from display pixels to the view's own.
