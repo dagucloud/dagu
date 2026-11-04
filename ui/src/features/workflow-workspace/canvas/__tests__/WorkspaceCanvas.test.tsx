@@ -732,6 +732,12 @@ describe('WorkspaceCanvas', () => {
         expect(location()).not.toHaveTextContent('step=');
       });
 
+      it('keeps the YAML panel open', () => {
+        renderCanvas('/dags/example.yaml?ndv=docked');
+        fireEvent.keyDown(document.body, { key: 'Escape' });
+        expect(location()).toHaveTextContent('/dags/example.yaml?ndv=docked');
+      });
+
       it('first closes the node view, then clears the step', () => {
         renderCanvas('/dags/example.yaml?step=extract&ndv=expanded');
         fireEvent.keyDown(document.body, { key: 'Escape' });

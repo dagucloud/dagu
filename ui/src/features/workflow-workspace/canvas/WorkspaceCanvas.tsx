@@ -428,14 +428,15 @@ export function WorkspaceCanvas({
     [clearance.overlap]
   );
 
-  // Esc closes the node details view when no dialog or menu is above it.
-  // With no panel or node view open, it clears the selected step and ?step.
   const ndvOpen = url.ndv !== null || activePanel === 'ndv';
+  // Esc closes the expanded node view when no dialog or menu is above it.
+  // The YAML panel stays: it is a panel that the page keeps, not a view to
+  // leave. With no panel or node view open, Esc clears the step and ?step.
   useStepViewKeys({
     zoneRef,
     active: paneActive,
     hasStep: url.step !== null,
-    viewOpen: ndvOpen,
+    viewOpen: url.ndv === 'expanded',
     panelOpen: activePanel !== null || stepPanel.shown,
     closeView: () => setUrl({ ndv: null }, { replace: true }),
     clearStep: () => setUrl({ step: null, ndv: null }, { replace: true }),

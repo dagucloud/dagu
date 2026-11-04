@@ -737,9 +737,13 @@ test.describe('workspace node details view', () => {
       .poll(() => page.evaluate(() => navigator.clipboard.readText()))
       .toContain('prepare');
 
-    // Escape closes the panel; the focus goes back to the YAML button.
+    // Escape keeps the panel; Close closes it and the focus goes back to the
+    // YAML button.
     await header.click();
     await page.keyboard.press('Escape');
+    await expect(ndv).toHaveAttribute('data-state', 'docked');
+    expect(query(page, 'ndv')).toBe('docked');
+    await ndv.getByRole('button', { name: 'Close' }).click();
     await expect(ndv).toBeHidden();
     await expect.poll(() => query(page, 'ndv')).toBeNull();
     await expect(yamlButton).toBeFocused();
