@@ -173,7 +173,7 @@ func TestShellCommandField_DefersQuotedShellVars(t *testing.T) {
 // apostrophe in the value is rendered as '\” so it cannot end the span.
 func TestShellCommandField_ResolvesQuotedRefsInSingleQuotes(t *testing.T) {
 	scope := NewEnvScope(nil, false).
-		WithEntries(map[string]string{"NAME": `a"b`, "NOTE": "it's; rm -rf ~"}, EnvSourceDAGEnv).
+		WithEntries(map[string]string{"NAME": `a"b`, "NOTE": "it's; rm -rf ~", "FOO": "bar"}, EnvSourceDAGEnv).
 		WithEntries(map[string]string{"TOKEN": "s3cret"}, EnvSourceSecret)
 	ctx := WithEnvScope(context.Background(), scope)
 	resolver := NewResolver(StaticScope{}, RuntimeScope{})
@@ -221,6 +221,48 @@ func TestShellCommandField_ResolvesQuotedRefsInSingleQuotes(t *testing.T) {
 			name:    "quotes inside backquotes",
 			command: "echo \"`printf '\"'`\" \"${TOKEN}\"",
 			want:    "echo \"`printf '\"'`\" \"${TOKEN}\"",
+		},
+		{
+			// Quotes inside a parameter expansion's word belong to it, not to
+			// the outer double-quoted span.
+			name:    "quotes inside a parameter expansion",
+			command: `echo "${X:-"it's"}" "${TOKEN}" "${FOO}"`,
+			want:    `echo "${X:-"it's"}" "${TOKEN}" "${FOO}"`,
+		},
+		{
+			// A ) inside ${...} does not end the command substitution.
+			name:    "parenthesis inside a parameter expansion",
+			command: `echo "$(echo "${X:-)}")" "${FOO}"`,
+			want:    `echo "$(echo "${X:-)}")" "${FOO}"`,
+		},
+		{
+			name:    "apostrophe in a comment",
+			command: "# don't\necho \"${FOO}\"",
+			want:    "# don't\necho \"${FOO}\"",
+		},
+		{
+			name:    "hash inside a word is not a comment",
+			command: `echo a#'{"name":"${NAME}"}'`,
+			want:    `echo a#'{"name":"a\"b"}'`,
+		},
+		{
+			// A here-document body is a template: its quotes are literal, and
+			// a quoted reference in it is filled in JSON-safe.
+			name:    "here-document body",
+			command: "cat <<EOF\n{\"name\":\"${NAME}\", \"note\": \"it's\"}\nEOF\necho \"${FOO}\"",
+			want:    "cat <<EOF\n{\"name\":\"a\\\"b\", \"note\": \"it's\"}\nEOF\necho \"${FOO}\"",
+		},
+		{
+			name:    "quoted here-document delimiter",
+			command: "cat <<-'END'\n\t{\"name\":\"${NAME}\"}\n\tEND\necho \"${FOO}\"",
+			want:    "cat <<-'END'\n\t{\"name\":\"a\\\"b\"}\n\tEND\necho \"${FOO}\"",
+		},
+		{
+			// A secret is never written into the command text, even where
+			// the shell would not expand it.
+			name:    "secret in a single-quoted body",
+			command: `curl -d '{"token":"${TOKEN}"}'`,
+			want:    `curl -d '{"token":"${TOKEN}"}'`,
 		},
 		{
 			// An even run of backslashes leaves the apostrophe unescaped, so

@@ -89,6 +89,23 @@ func (r *resolver) resolveForReplace(name string) (string, bool) {
 	return r.lookupScopeNonOS(name)
 }
 
+// resolveTemplateName resolves a bare "${NAME}" in a template slot that the
+// shell does not expand. When shell variables are deferred, a secret is still
+// left to the shell, so its value never enters the command text.
+func (r *resolver) resolveTemplateName(name string) (string, bool) {
+	if val, ok := r.lookupVariable(name); ok {
+		return val, true
+	}
+	if !r.deferShellVars || isNumericVar(name) {
+		return r.lookupScopeNonOS(name)
+	}
+	entry, ok := r.lookupScopeNonOSEntry(name)
+	if !ok || entry.Source == EnvSourceSecret {
+		return "", false
+	}
+	return entry.Value, true
+}
+
 // resolveQuotedName resolves a bare "${NAME}" for the quoted-refs phase. When
 // shell variables are deferred, the shell owns the name; it does not expand a
 // leading ~ inside double quotes, so no value is inlined.

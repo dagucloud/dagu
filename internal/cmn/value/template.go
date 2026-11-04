@@ -208,10 +208,13 @@ func (t template) resolveQuotedReferences(ctx context.Context, r *resolver, styl
 
 		match := t.source[loc[0]:loc[1]]
 		ref := match[3 : len(match)-2]
-		singleQuoted, _ := shellQuoteState(t.source, loc[0])
-		if value, ok := resolveQuotedReference(ctx, r, ref, singleQuoted); ok {
+		shellCtx := shellContextAt(t.source, loc[0])
+		// In a single-quoted span or a here-document body the quotes are
+		// literal and the reference is a template slot, not shell syntax.
+		slot := shellCtx == shellSingleQuoted || shellCtx == shellHereDoc
+		if value, ok := resolveQuotedReference(ctx, r, ref, slot); ok {
 			rendered := quoteQuotedRefValue(value, style)
-			if singleQuoted && r.deferShellVars {
+			if shellCtx == shellSingleQuoted && r.deferShellVars {
 				// The value lands inside the shell's single-quoted span, so
 				// each apostrophe closes the span, adds a literal ', and
 				// reopens it.
@@ -291,14 +294,15 @@ func referenceParts(match string) (string, string, bool) {
 }
 
 // resolveQuotedReference resolves the reference inside a "${ref}". A bare name
-// inside a shell single-quoted span, such as a JSON body, is resolved by Dagu
-// because the shell never expands it there.
-func resolveQuotedReference(ctx context.Context, r *resolver, ref string, singleQuoted bool) (string, bool) {
+// in a template slot, such as a JSON body in single quotes or a here-document,
+// is resolved by Dagu, except a secret, which the shell keeps reading from the
+// environment.
+func resolveQuotedReference(ctx context.Context, r *resolver, ref string, slot bool) (string, bool) {
 	if name, path, ok := strings.Cut(ref, "."); ok {
 		return r.resolveReference(ctx, name, "."+path)
 	}
-	if singleQuoted {
-		return r.resolve(ref)
+	if slot {
+		return r.resolveTemplateName(ref)
 	}
 	return r.resolveQuotedName(ref)
 }
@@ -343,7 +347,8 @@ func (t template) resolveVariables(r *resolver) string {
 			continue
 		}
 		resolveName := r.resolveForReplace
-		if _, doubleQuoted := shellQuoteState(t.source, loc[0]); doubleQuoted {
+		if shellContextAt(t.source, loc[0]) != shellUnquoted {
+			// Only an unquoted word gets the shell's ~ expansion.
 			resolveName = r.resolveQuotedName
 		}
 		if value, found := resolveName(key); found {
@@ -397,68 +402,6 @@ func isSingleQuotedVar(input string, start, end int) bool {
 		}
 	}
 	return false
-}
-
-// shellQuoteState reports whether the byte at idx lies inside a single- or
-// double-quoted span of a POSIX shell command. A backslash escapes the next
-// byte outside single quotes, quotes of one kind are literal inside the
-// other, and a $(...) or `...` command substitution starts its own quoting
-// context, so quotes inside it leave the outer span unchanged.
-func shellQuoteState(input string, idx int) (inSingle, inDouble bool) {
-	const (
-		unquoted = iota
-		singleQuoted
-		doubleQuoted
-		substitution // $( ... ): unquoted until its closing parenthesis
-		subshell     // ( ... ) inside a substitution
-		backquoted   // ` ... `
-	)
-	stack := []int{unquoted}
-	for i := 0; i < idx; i++ {
-		top := stack[len(stack)-1]
-		c := input[i]
-		switch top {
-		case singleQuoted:
-			if c == '\'' {
-				stack = stack[:len(stack)-1]
-			}
-			continue
-		case doubleQuoted:
-			switch {
-			case c == '\\':
-				i++
-			case c == '"':
-				stack = stack[:len(stack)-1]
-			case c == '$' && i+1 < len(input) && input[i+1] == '(':
-				stack = append(stack, substitution)
-				i++
-			case c == '`':
-				stack = append(stack, backquoted)
-			}
-			continue
-		}
-		switch {
-		case c == '\\':
-			i++
-		case c == '\'':
-			stack = append(stack, singleQuoted)
-		case c == '"':
-			stack = append(stack, doubleQuoted)
-		case c == '$' && i+1 < len(input) && input[i+1] == '(':
-			stack = append(stack, substitution)
-			i++
-		case c == '(' && (top == substitution || top == subshell):
-			stack = append(stack, subshell)
-		case c == ')' && (top == substitution || top == subshell):
-			stack = stack[:len(stack)-1]
-		case c == '`' && top == backquoted:
-			stack = stack[:len(stack)-1]
-		case c == '`':
-			stack = append(stack, backquoted)
-		}
-	}
-	top := stack[len(stack)-1]
-	return top == singleQuoted, top == doubleQuoted
 }
 
 func singleQuoteCanOpen(input string, idx int) bool {
