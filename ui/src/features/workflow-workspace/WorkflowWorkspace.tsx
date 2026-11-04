@@ -124,8 +124,6 @@ function WorkspaceDAGContext({
       autoOpenStartModal: parent.autoOpenStartModal,
       forceEnqueue: parent.forceEnqueue,
       onEnqueue,
-      // The page selects the run that a start begins (useStartThenShow).
-      showsStartedRun: true,
     }),
     [
       refresh,

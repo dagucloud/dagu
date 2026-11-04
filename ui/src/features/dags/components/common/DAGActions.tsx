@@ -906,7 +906,7 @@ function DAGActions({
                   );
                   const startedRunId =
                     typeof result === 'string' && result ? result : dagRunId;
-                  if (startedRunId && !dagContext.showsStartedRun) {
+                  if (startedRunId) {
                     showRunProgress(startedRunId);
                   }
                   showToast(immediate ? 'DAG run started' : 'DAG run enqueued');

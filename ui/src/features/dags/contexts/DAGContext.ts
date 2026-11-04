@@ -9,11 +9,6 @@ export const DAGContext = React.createContext<{
   fileName: string;
   forceEnqueue?: boolean;
   autoOpenStartModal?: boolean;
-  /**
-   * The host shows the run that a start begins, as the workflow page does:
-   * no progress card for it.
-   */
-  showsStartedRun?: boolean;
   onEnqueue?: (
     params: string,
     dagRunId?: string,

@@ -159,37 +159,6 @@ describe('DAGActions', () => {
     );
     expect(screen.getByLabelText('Location')).toHaveTextContent('/dags');
   });
-  // The workflow page shows the run that a start begins: a progress card
-  // would only cover the Activity panel.
-  it('shows no progress card when the host shows the started run', async () => {
-    const onEnqueue = vi.fn().mockResolvedValue('started-run');
-    render(
-      <MemoryRouter initialEntries={['/dags/example-file']}>
-        <DAGContext.Provider
-          value={{
-            name: 'example',
-            fileName: 'example-file',
-            refresh: vi.fn(),
-            onEnqueue,
-            showsStartedRun: true,
-          }}
-        >
-          <DAGActions
-            fileName="example-file"
-            dag={{ name: 'example' }}
-            displayMode="full"
-          />
-        </DAGContext.Provider>
-      </MemoryRouter>
-    );
-    fireEvent.click(screen.getByRole('button', { name: 'Start' }));
-    fireEvent.click(
-      await screen.findByRole('button', { name: 'Submit start' })
-    );
-    await waitFor(() => expect(onEnqueue).toHaveBeenCalled());
-    expect(runProgress.pushRunProgress).not.toHaveBeenCalled();
-  });
-
   it('shows cancel for failed runs with pending auto retries', () => {
     render(
       <DAGActions
