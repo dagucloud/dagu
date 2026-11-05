@@ -74,3 +74,36 @@ func TestExecuteWithMetricsResultTooLarge(t *testing.T) {
 	assert.Contains(t, metrics.Error, "max_result_size")
 	assert.Empty(t, stdout.String())
 }
+
+// The 10 MiB default applies when max_result_size is unset, and an explicit
+// 0 lifts it rather than falling back to the default.
+func TestMaxResultSizeFromConfig(t *testing.T) {
+	t.Parallel()
+
+	result := strings.Repeat("x", 11<<20)
+	for _, tc := range []struct {
+		name    string
+		config  map[string]any
+		wantErr bool
+	}{
+		{"Default", map[string]any{"command": "PING", "output_format": "raw"}, true},
+		{"Zero", map[string]any{"command": "PING", "output_format": "raw", "max_result_size": 0}, false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			cfg, err := ParseConfig(context.Background(), tc.config)
+			require.NoError(t, err)
+			var stdout bytes.Buffer
+			e := &redisExecutor{cfg: cfg, stdout: &stdout}
+			err = e.writeResult(result)
+			if tc.wantErr {
+				require.Error(t, err)
+				assert.Empty(t, stdout.String())
+				return
+			}
+			require.NoError(t, err)
+			assert.Greater(t, stdout.Len(), len(result))
+		})
+	}
+}

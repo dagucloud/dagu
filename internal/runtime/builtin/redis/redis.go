@@ -260,20 +260,27 @@ func (e *redisExecutor) executeWithMetrics(ctx context.Context, command, key str
 // writeResult writes the result to stdout. A result whose output would
 // exceed max_result_size fails and writes nothing; 0 means no limit.
 func (e *redisExecutor) writeResult(result any) error {
-	var buf bytes.Buffer
-	var out io.Writer = &buf
-	if e.cfg.MaxResultSize > 0 {
-		out = &limitWriter{w: &buf, remaining: e.cfg.MaxResultSize}
+	if e.cfg.MaxResultSize == 0 {
+		return e.formatResult(e.stdout, result)
 	}
-	writer := NewResultWriter(out, e.cfg.OutputFormat, e.cfg.NullValue)
+	var buf bytes.Buffer
+	if err := e.formatResult(&limitWriter{w: &buf, remaining: e.cfg.MaxResultSize}, result); err != nil {
+		return err
+	}
+	if _, err := buf.WriteTo(e.stdout); err != nil {
+		return fmt.Errorf("failed to write result: %w", err)
+	}
+	return nil
+}
+
+// formatResult writes result to w in the configured output format.
+func (e *redisExecutor) formatResult(w io.Writer, result any) error {
+	writer := NewResultWriter(w, e.cfg.OutputFormat, e.cfg.NullValue)
 	if err := writer.Write(result); err != nil {
 		return e.resultError("failed to write result", err)
 	}
 	if err := writer.Flush(); err != nil {
 		return e.resultError("failed to flush result", err)
-	}
-	if _, err := buf.WriteTo(e.stdout); err != nil {
-		return fmt.Errorf("failed to write result: %w", err)
 	}
 	return nil
 }

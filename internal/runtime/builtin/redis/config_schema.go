@@ -123,7 +123,7 @@ var configSchema = &jsonschema.Schema{
 
 		// Execution
 		"timeout":         {Type: "integer", Description: "Command timeout in seconds"},
-		"max_result_size": {Type: "integer", Description: "Largest result output in bytes. A larger result fails the step and writes nothing. 0 means no limit. Default: 10MB."},
+		"max_result_size": {Type: "integer", Minimum: new(float64(0)), Description: "Largest result output in bytes. A larger result fails the step and writes nothing. 0 means no limit. Default: 10MB."},
 	},
 }
 
