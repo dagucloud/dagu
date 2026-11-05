@@ -14,7 +14,6 @@ on:
       - "internal/**"
       - "Makefile"
       - "scripts/ci/**"
-      - "specs/**"
   pull_request:
     # Keep this workflow directly rerunnable from PR-only maintenance commits.
     types:
@@ -32,7 +31,6 @@ on:
       - "internal/**"
       - "Makefile"
       - "scripts/ci/**"
-      - "specs/**"
   workflow_dispatch:
 
 permissions:
