@@ -333,6 +333,8 @@ function DAGsContent() {
   const autoLoadPendingRef = React.useRef(false);
   const loadMoreControllerRef = React.useRef<AbortController | null>(null);
   const paginationGenerationRef = React.useRef(0);
+  // The last page that the list holds; 1 while it holds only the first page.
+  const loadedThroughPageRef = React.useRef(1);
 
   const defaultFilters = React.useMemo<DAGDefinitionsFilters>(
     () => ({
@@ -370,6 +372,7 @@ function DAGsContent() {
     paginationGenerationRef.current += 1;
     loadMoreControllerRef.current?.abort();
     loadMoreControllerRef.current = null;
+    loadedThroughPageRef.current = 1;
     setOlderDAGFiles([]);
     setContinuationPageOverride(undefined);
     setLoadMoreError(null);
@@ -1081,6 +1084,7 @@ function DAGsContent() {
       setOlderDAGFiles((previous) =>
         mergeUniqueDAGFiles(previous, pageData.dags ?? [])
       );
+      loadedThroughPageRef.current = nextPage;
       setContinuationPageOverride(getNextPage(pageData.pagination));
     } catch (caughtError) {
       if (controller.signal.aborted) {
@@ -1100,6 +1104,57 @@ function DAGsContent() {
       }
     }
   }, [client, isLoadingMore, nextPage, queryParams]);
+
+  // The first page is live; the pages after it are read once. When the first
+  // page gains or loses a workflow, as a sort by status or last run does when
+  // runs start and end, a workflow crosses into the next page: those pages
+  // are read again, so that it is neither lost nor shown twice.
+  const headOrder = React.useMemo(
+    () =>
+      [
+        data?.pagination.totalRecords ?? 0,
+        ...(data?.dags ?? []).map((dag) => dag.fileName),
+      ].join('\n'),
+    [data]
+  );
+  React.useEffect(() => {
+    const through = loadedThroughPageRef.current;
+    if (through < 2) {
+      return;
+    }
+    const generation = paginationGenerationRef.current;
+    const controller = new AbortController();
+    const pages = Array.from({ length: through - 1 }, (_, index) => index + 2);
+    void Promise.all(
+      pages.map((page) =>
+        client.GET('/dags', {
+          params: { query: { ...queryParams, page } },
+          signal: controller.signal,
+        })
+      )
+    )
+      .then((responses) => {
+        if (
+          controller.signal.aborted ||
+          generation !== paginationGenerationRef.current ||
+          through !== loadedThroughPageRef.current
+        ) {
+          return;
+        }
+        // A failed read keeps the rows on screen until the next change.
+        if (responses.some((response) => response.error || !response.data)) {
+          return;
+        }
+        setOlderDAGFiles(
+          responses.flatMap((response) => response.data?.dags ?? [])
+        );
+        setContinuationPageOverride(
+          getNextPage(responses[responses.length - 1]?.data?.pagination)
+        );
+      })
+      .catch(() => undefined);
+    return () => controller.abort();
+  }, [client, headOrder, queryParams]);
 
   React.useEffect(() => {
     if (!isLoadingMore) {

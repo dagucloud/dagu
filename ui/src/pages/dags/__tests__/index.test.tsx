@@ -257,15 +257,16 @@ vi.mock('@/features/dags/components/dag-list/DAGListHeader', () => ({
   default: () => null,
 }));
 
-vi.mock('@/hooks/api', () => ({
-  useQuery: vi.fn(),
-  useClient: () => ({
+// The app's client is one object for the whole session; so is this one.
+vi.mock('@/hooks/api', () => {
+  const client = {
     DELETE: clientDeleteMock,
     GET: clientGetMock,
     POST: clientPostMock,
     PUT: clientPutMock,
-  }),
-}));
+  };
+  return { useQuery: vi.fn(), useClient: () => client };
+});
 
 vi.mock('@/hooks/useDAGsListSSE', () => ({
   useDAGsListSSE: () => ({
@@ -1251,5 +1252,69 @@ describe('DagsPage', () => {
         },
       })
     );
+  });
+
+  // The first page is live and the next pages are read once. A workflow that
+  // starts a run moves to the first page under a last run sort and pushes the
+  // last workflow of that page onto the next one, which must then show it.
+  it('keeps every workflow when one crosses into the first page', async () => {
+    const dagFile = (name: string) => ({
+      fileName: `${name}.yaml`,
+      dag: { name },
+      latestDAGRun: {},
+    });
+    const pagination = (currentPage: number) => ({
+      totalRecords: 4,
+      currentPage,
+      totalPages: 2,
+      nextPage: currentPage === 1 ? 2 : 0,
+      prevPage: currentPage - 1,
+    });
+    const pageTwo = (names: string[]) => ({
+      data: { dags: names.map(dagFile), errors: [], pagination: pagination(2) },
+    });
+    dagsPageResponse = {
+      dags: ['a', 'b'].map(dagFile),
+      errors: [],
+      pagination: pagination(1),
+    };
+    clientGetMock
+      .mockResolvedValueOnce(pageTwo(['c', 'd']))
+      .mockResolvedValueOnce(pageTwo(['b', 'c']));
+    const entry = '/dags?sort=lastRun&order=desc';
+    const tree = () => (
+      <MemoryRouter initialEntries={[entry]}>
+        <DagsPageHarness
+          setTitle={vi.fn()}
+          workspaceSelection={{ kind: WorkspaceKind.all }}
+        />
+      </MemoryRouter>
+    );
+    const view = render(tree());
+
+    await act(async () => {
+      fireEvent.click(
+        screen.getByRole('button', { name: 'Load more workflows' })
+      );
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    expect(screen.getByText('d.yaml')).toBeVisible();
+
+    // d starts a run: it leads the first page, and b falls to the second.
+    dagsPageResponse = {
+      dags: ['d', 'a'].map(dagFile),
+      errors: [],
+      pagination: pagination(1),
+    };
+    await act(async () => {
+      view.rerender(tree());
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    for (const name of ['a', 'b', 'c', 'd']) {
+      expect(screen.getByText(`${name}.yaml`)).toBeVisible();
+    }
   });
 });
