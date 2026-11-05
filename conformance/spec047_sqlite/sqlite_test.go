@@ -21,6 +21,7 @@ func TestSQLiteActions(t *testing.T) {
 	}{
 		{"positional_params.yaml", map[string]int{"sum": 5}},
 		{"import_basic.yaml", map[string]int{"n": 3}},
+		{"leading_comment.yaml", map[string]int{"n": 1}},
 	} {
 		t.Run(tc.file, func(t *testing.T) {
 			t.Parallel()
