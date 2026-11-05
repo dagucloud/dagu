@@ -14,6 +14,7 @@ import {
   useNavigate,
   useParams,
 } from 'react-router-dom';
+import { useStandaloneRun } from '../data/context';
 
 /** The old Executions tab is the workspace; /dags/:f/executions redirects (legacyLinks.ts). */
 export type WorkspaceMode = 'workspace' | 'popout';
@@ -327,10 +328,13 @@ export function useWorkspaceUrl(): [
   const navigate = useNavigate();
   const { navigator } = useContext(UNSAFE_NavigationContext);
   const store = storeOf(navigator);
-  const state = useMemo(
-    () => parseWorkspaceUrl(tab, new URLSearchParams(location.search)),
-    [tab, location.search]
-  );
+  // A run without its workflow file has no definition but its own: the page
+  // stays on the definition of the run.
+  const standalone = useStandaloneRun() !== null;
+  const state = useMemo(() => {
+    const parsed = parseWorkspaceUrl(tab, new URLSearchParams(location.search));
+    return standalone ? { ...parsed, def: 'run' as const } : parsed;
+  }, [tab, location.search, standalone]);
 
   // The router has committed a new location: the written URL is no longer
   // pending. A location key can come back (history Back), so a stale entry

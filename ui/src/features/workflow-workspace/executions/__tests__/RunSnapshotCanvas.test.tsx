@@ -158,6 +158,7 @@ vi.mock('../../data/context', () => ({
     fileName: 'demo',
     dagData: { dag: { name: 'demo' } },
   }),
+  useStandaloneRun: () => null,
 }));
 // The Monaco editor of the step YAML: a double that records the scope that
 // the visual editor gives it (hidden areas, line numbers, change bars).

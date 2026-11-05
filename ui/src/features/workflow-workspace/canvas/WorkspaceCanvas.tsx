@@ -48,6 +48,7 @@ import type {
   WorkspaceEditorHandle,
 } from '../contracts';
 import { useWorkspacePermissions, useWorkspaceRun } from '../data';
+import { useStandaloneRun } from '../data/context';
 import { RunSnapshotCanvas } from '../executions/RunSnapshotCanvas';
 import { PaneActiveContext, useModePaneActive } from '../layout/paneActive';
 import { WorkflowTabsPanel } from '../panel/WorkflowTabsPanel';
@@ -285,6 +286,9 @@ export function WorkspaceCanvas({
 }) {
   const permissions = useWorkspacePermissions();
   const run = useWorkspaceRun();
+  // A run without its workflow file shows its own definition only: there is
+  // no file to edit.
+  const standaloneRun = useStandaloneRun();
   const { guard, setSecretVisible } = useSettingsLeaveGuard();
   // The runs of the step view start and show without leaving the editor.
   const actions = useStepRunActions({ stay: true });
@@ -666,44 +670,48 @@ export function WorkspaceCanvas({
                   className="flex min-h-0 w-full min-w-0 flex-1 flex-col"
                 >
                   <PaneActiveContext.Provider value={paneActive}>
-                    <MountAfterDockYield
-                      waits={paneActive && shownNdv === 'expanded'}
-                    >
-                      <DAGSpec
-                        fileName={fileName}
-                        localDags={dagData.localDags}
-                        editorHints={dagData.editorHints}
-                        keyboardActive={paneActive}
-                        fillHeight
-                        runSource={runSource}
-                        onRunStarted={onRunStarted}
-                        selectedStepName={url.step}
-                        onSelectedStepNameChange={onSelectedStepNameChange}
-                        onStepClick={(_step, at) => stepPanel.show(at)}
-                        ndv={ndv}
-                        openNdvOn="open"
-                        renderStepOutput={renderStepOutput}
-                        onStepCommand={onStepCommand}
-                        onOpenWorkflow={openWorkflow}
-                        stepCommandGates={stepCommandGates}
-                        followedRuns={actions.followed}
-                        inputRun={inputRun}
-                        chrome={
-                          ndvOpen || stepPanel.shown ? CHROME_NDV_OPEN : CHROME
-                        }
-                        notices={notices}
-                        editorHandleRef={editorHandleRef}
-                        onEditorStateChange={onEditorStateChange}
-                        launcherHost={launcherHost}
-                        renderWorkflowPanel={renderWorkflowPanel}
-                        initialWorkflowOpen={
-                          columnMode
-                            ? columnTab === 'workflow'
-                            : workflowPanel.open
-                        }
-                        onWorkflowOpenChange={onWorkflowOpenChange}
-                      />
-                    </MountAfterDockYield>
+                    {!standaloneRun && (
+                      <MountAfterDockYield
+                        waits={paneActive && shownNdv === 'expanded'}
+                      >
+                        <DAGSpec
+                          fileName={fileName}
+                          localDags={dagData.localDags}
+                          editorHints={dagData.editorHints}
+                          keyboardActive={paneActive}
+                          fillHeight
+                          runSource={runSource}
+                          onRunStarted={onRunStarted}
+                          selectedStepName={url.step}
+                          onSelectedStepNameChange={onSelectedStepNameChange}
+                          onStepClick={(_step, at) => stepPanel.show(at)}
+                          ndv={ndv}
+                          openNdvOn="open"
+                          renderStepOutput={renderStepOutput}
+                          onStepCommand={onStepCommand}
+                          onOpenWorkflow={openWorkflow}
+                          stepCommandGates={stepCommandGates}
+                          followedRuns={actions.followed}
+                          inputRun={inputRun}
+                          chrome={
+                            ndvOpen || stepPanel.shown
+                              ? CHROME_NDV_OPEN
+                              : CHROME
+                          }
+                          notices={notices}
+                          editorHandleRef={editorHandleRef}
+                          onEditorStateChange={onEditorStateChange}
+                          launcherHost={launcherHost}
+                          renderWorkflowPanel={renderWorkflowPanel}
+                          initialWorkflowOpen={
+                            columnMode
+                              ? columnTab === 'workflow'
+                              : workflowPanel.open
+                          }
+                          onWorkflowOpenChange={onWorkflowOpenChange}
+                        />
+                      </MountAfterDockYield>
+                    )}
                   </PaneActiveContext.Provider>
                 </div>
               </CanvasToolbarHostContext.Provider>

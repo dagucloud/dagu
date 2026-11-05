@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 export { WorkflowWorkspace } from './WorkflowWorkspace';
+export { standalonePageData } from './data/standalonePageData';
 export type {
   ApiDAGDetails,
   ApiDAGRunDetails,

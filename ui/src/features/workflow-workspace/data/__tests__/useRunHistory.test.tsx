@@ -76,6 +76,23 @@ describe('useRunHistory', () => {
     });
   });
 
+  // A run whose workflow file is gone has no history to read: it is the only
+  // run of the page.
+  it('lists only a run without its workflow file and reads no history', async () => {
+    const orphan = run('run-9');
+    const view = renderWorkspace(() => useRunHistory({ enabled: true }), {
+      standaloneRun: orphan,
+    });
+    await waitFor(() => expect(view.result.current?.value).toBeDefined());
+    expect(view.result.current.value).toEqual({
+      runs: [orphan],
+      gridData: [],
+      nextCursor: null,
+      isLoading: false,
+    });
+    expect(historyCalls()).toHaveLength(0);
+  });
+
   it('shares the DAGExecutionHistory key and follows the history SSE', async () => {
     const view = renderWorkspace(() => {
       const history = useRunHistory({ enabled: true });

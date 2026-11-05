@@ -1,15 +1,7 @@
 // Copyright (C) 2026 Yota Hamada
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-import {
-  lazy,
-  Suspense,
-  useCallback,
-  useContext,
-  useEffect,
-  useMemo,
-  useRef,
-} from 'react';
+import { useCallback, useContext, useEffect, useMemo, useRef } from 'react';
 import { cn } from '@/lib/utils';
 import { WorkspaceLoading } from '../../../features/workflow-workspace/WorkspaceLoading';
 import {
@@ -49,23 +41,14 @@ import { I18nTemplate } from '@/i18n/I18nTemplate';
 import { useI18n } from '@/i18n/I18nProvider';
 import { LoadErrorState, NotFoundState } from '@/components/PageStates';
 import { isNotFoundQueryError } from '@/lib/queryErrors';
-import { WorkflowWorkspace } from '@/features/workflow-workspace';
+import {
+  standalonePageData,
+  WorkflowWorkspace,
+} from '@/features/workflow-workspace';
 import { useDAGSpecQuery } from '@/features/dags/components/dag-editor/useDAGSpecQuery';
 import { useDAGDetailsQuery } from '@/features/dags/hooks/useDAGDetailsQuery';
 import { LogPopoutPage } from '@/features/workflow-workspace/popout/LogPopoutPage';
 import { useLegacyRedirect } from '@/features/workflow-workspace/state/useLegacyRedirect';
-import { useBoundedDAGRunDetails } from '@/features/dag-runs/hooks/useBoundedDAGRunDetails';
-import type { RunViewTab } from '@/features/dags/lib/runViewTabs';
-import { getManualActionState } from '@/features/dag-runs/lib/manualActionState';
-import LoadingIndicator from '@/components/ui/loading-indicator';
-
-// The run view of a workflow file that is gone reaches Mermaid, which the
-// page keeps out of its static imports.
-const DAGRunDetailsContent = lazy(() =>
-  import('@/features/dag-runs/components/dag-run-details').then((m) => ({
-    default: m.DAGRunDetailsContent,
-  }))
-);
 
 type Params = {
   fileName: string;
@@ -74,40 +57,6 @@ type Params = {
 };
 
 type DAGRunDetails = components['schemas']['DAGRunDetails'];
-
-/**
- * The run view of the dock tab in a run link, which old run page links name
- * in ?tab and the redirect turns into ?dock.
- */
-const RUN_VIEW_OF_DOCK: ReadonlyMap<string, RunViewTab> = new Map<
-  string,
-  RunViewTab
->([
-  ['timeline', 'timeline'],
-  ['outputs', 'outputs'],
-  ['artifacts', 'artifacts'],
-  ['agent', 'agent'],
-  ['chat', 'chat'],
-  ['tasks', 'tasks'],
-  ['definition', 'spec'],
-]);
-
-/**
- * The run view that a link opens on a run. Actions holds the human tasks and
- * the approvals of the run: it opens the one that waits.
- */
-function runViewOfDock(
-  dock: string | null,
-  run: DAGRunDetails
-): RunViewTab | undefined {
-  if (dock === 'actions') {
-    const { hasHumanTaskWork, waitingApprovalNodes } =
-      getManualActionState(run);
-    if (hasHumanTaskWork) return 'human-tasks';
-    return waitingApprovalNodes.length > 0 ? 'approval' : undefined;
-  }
-  return dock === null ? undefined : RUN_VIEW_OF_DOCK.get(dock);
-}
 
 /**
  * The page of a run link on the file of the run. The URL keeps the DAG name
@@ -122,59 +71,6 @@ function runFileURL(
   if (runName && runName !== file) query.set('dagRunName', runName);
   else query.delete('dagRunName');
   return `/dags/${encodeURIComponent(file)}?${query.toString()}`;
-}
-
-/**
- * A run on its own, for a link that no workspace shows: the run of the link,
- * or its sub-run in ?subRun. It follows the run while the run is active.
- */
-function StandaloneRun({
-  run,
-  subRunId,
-  step,
-  dock,
-  remoteNode,
-}: {
-  run: DAGRunDetails;
-  subRunId: string | null;
-  /** The step of the shown run that the link opens. */
-  step: string | null;
-  /** The dock tab that the link opens, as a tab of the run view. */
-  dock: string | null;
-  remoteNode: string;
-}) {
-  const sub = subRunId && subRunId !== run.dagRunId ? subRunId : null;
-  const live = useBoundedDAGRunDetails({
-    target: sub
-      ? {
-          remoteNode,
-          name: run.name,
-          dagRunId: sub,
-          parentName: run.name,
-          parentDAGRunId: run.dagRunId,
-          subDAGRunId: sub,
-        }
-      : { remoteNode, name: run.name, dagRunId: run.dagRunId },
-    pollIntervalMs: 2000,
-  });
-  const fresh =
-    live.data?.dagRunId === (sub ?? run.dagRunId) ? live.data : null;
-  // A sub-run that cannot load leaves the run of the link.
-  const shown = fresh ?? (sub && !live.error ? null : run);
-  if (!shown) return <LoadingIndicator />;
-  return (
-    <Suspense fallback={null}>
-      <DAGRunDetailsContent
-        name={shown.name}
-        dagRun={shown}
-        dagRunId={shown.dagRunId}
-        refreshFn={() => void live.refresh()}
-        fillHeight
-        initialTab={runViewOfDock(dock, shown)}
-        initialStepName={step ?? undefined}
-      />
-    </Suspense>
-  );
 }
 
 function DAGDetails() {
@@ -460,9 +356,16 @@ function DAGDetails() {
   if (showBody) shownFile.current = fileName;
   const workspaceMismatch =
     !!dagData?.dag && !dagMatchesWorkspace && !redirecting && !ownRun;
-  useFullBleed(showBody);
+  // A run without its workflow file shows in the workspace too, from the
+  // definition that it stored.
+  const standalonePage = useMemo(
+    () => (ownRun ? standalonePageData(ownRun) : null),
+    [ownRun]
+  );
+  const workspaceShown = showBody || standalonePage !== null;
+  useFullBleed(workspaceShown);
   // The workspace bar is the first row of the page.
-  useHideBreadcrumb(showBody);
+  useHideBreadcrumb(workspaceShown);
   // The bar and the loader stand in the place of the workspace until it shows.
   const loadingFrame =
     (!dagData?.dag && !dagError) || (!!dagData?.dag && redirecting);
@@ -478,17 +381,19 @@ function DAGDetails() {
               'flex h-full min-h-0 w-full min-w-0 flex-col',
               // The frame is full bleed from the first paint: the messages
               // keep the padding of a page, the loading frame has none.
-              !showBody && !loadingFrame && 'overflow-auto p-4 md:p-6'
+              !workspaceShown && !loadingFrame && 'overflow-auto p-4 md:p-6'
             )}
           >
             {runFileRedirect && <Navigate replace to={runFileRedirect} />}
-            {ownRun ? (
-              <StandaloneRun
-                run={ownRun}
-                subRunId={searchParams.get('subRun')}
-                step={searchParams.get('step')}
-                dock={searchParams.get('dock')}
-                remoteNode={remoteNode}
+            {ownRun && standalonePage ? (
+              <WorkflowWorkspace
+                fileName={fileName}
+                tab={params.tab}
+                dagData={standalonePage}
+                refreshDag={mutateLinkedRun}
+                workspaceName={null}
+                legacyHistoryIdx={null}
+                standaloneRun={ownRun}
               />
             ) : (
               !dagData?.dag &&

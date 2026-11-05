@@ -13,6 +13,7 @@ import { statusLabelText } from '@/lib/status-utils';
 import { cn } from '@/lib/utils';
 import type { BarSlotProps, DAGPageData } from '../contracts';
 import { useWorkspaceRefresh, useWorkspaceRun } from '../data';
+import { useStandaloneRun } from '../data/context';
 import { useDockCommands } from '../dock/DockContext';
 import { BarMoreMenu } from './BarMoreMenu';
 import { DAGIdentity } from './DAGIdentity';
@@ -152,6 +153,8 @@ export function WorkflowBar({
   const refresh = useWorkspaceRefresh();
   const run = useWorkspaceRun();
   const hasRun = run.hasRun || run.selection !== 'latest';
+  // A run without its workflow file: nothing of the bar acts on the file.
+  const standalone = useStandaloneRun() !== null;
   // A failed read shows in the data it feeds; the button only stops spinning.
   const onRefresh = useCallback(
     () => refresh().catch(() => undefined),
@@ -167,13 +170,15 @@ export function WorkflowBar({
       data-testid="ww-bar"
       className="@container flex h-10 min-w-0 shrink-0 items-center gap-1.5 border-b border-border px-3"
     >
-      <DAGIdentity {...slot} pinned={dagData.pinned} />
+      <DAGIdentity {...slot} pinned={standalone ? undefined : dagData.pinned} />
       <div data-testid="ww-bar-labels" className={LABELS_BAR}>
         <LabelChips {...slot} />
       </div>
-      <div data-testid="ww-bar-trigger" className={TRIGGER_BAR}>
-        <TriggerChip {...slot} />
-      </div>
+      {!standalone && (
+        <div data-testid="ww-bar-trigger" className={TRIGGER_BAR}>
+          <TriggerChip {...slot} />
+        </div>
+      )}
       <div
         data-testid="ww-bar-run"
         className="flex min-w-min shrink items-center gap-1 whitespace-nowrap"
@@ -197,7 +202,7 @@ export function WorkflowBar({
         </div>
       </div>
       <div className="ml-auto flex shrink-0 items-center gap-1">
-        <RunSplitButton {...slot} />
+        {!standalone && <RunSplitButton {...slot} />}
         <div data-testid="ww-bar-refresh" className={SECONDARY}>
           <RefreshButton
             onRefresh={onRefresh}
@@ -207,11 +212,15 @@ export function WorkflowBar({
             )}
           />
         </div>
-        {/* Below md, Delete is in the More menu: the name needs the room. */}
-        <div className="flex max-md:hidden">
-          <WorkflowDeleteButton {...slot} />
-        </div>
-        <BarMoreMenu {...slot} pinned={dagData.pinned} />
+        {!standalone && (
+          <>
+            {/* Below md, Delete is in the More menu: the name needs the room. */}
+            <div className="flex max-md:hidden">
+              <WorkflowDeleteButton {...slot} />
+            </div>
+            <BarMoreMenu {...slot} pinned={dagData.pinned} />
+          </>
+        )}
       </div>
     </div>
   );
