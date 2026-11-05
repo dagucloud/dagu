@@ -85,10 +85,15 @@ retention, `handler_on`, `preconditions`, and any other field.
 
 ### History Retention
 
-A service DAG adds a run to its history each time it is restarted. A service
-DAG that sets neither `hist_retention_runs` nor `hist_retention_days`, in its
-file or in the base configuration, keeps its latest 100 runs, where other DAGs
-keep 30 days of runs.
+A service DAG adds a run to its history each time it is restarted, so days of
+runs do not bound its history:
+
+- a `hist_retention_days` in its file applies
+- a `hist_retention_days` in the base configuration does not apply
+- a `hist_retention_runs` in its file or in the base configuration applies
+
+A service DAG left without a retention keeps its latest 100 runs, where other
+DAGs keep 30 days of runs.
 
 ### Restart Command
 

@@ -1285,6 +1285,11 @@ func composeBuildDAGContext(base, current *ir.DAG, currentSpec *dag) (*ir.DAG, e
 		effective.StopSchedule = nil
 		effective.RestartSchedule = nil
 		effective.RetryPolicy = nil
+		// Days of runs do not bound the history of a DAG that restarts every
+		// few seconds, so only a retention in its own file keeps days.
+		if currentSpec.HistRetentionDays == nil {
+			effective.HistRetentionDays = 0
+		}
 	}
 
 	return effective, nil

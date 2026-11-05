@@ -165,12 +165,16 @@ func TestRestartPolicyHistoryRetention(t *testing.T) {
 		days     int
 		runs     int
 	}{
-		"Default":          {authored: "restart_policy: always\nrestart_wait_sec: 5\n", runs: 100},
-		"RetentionRuns":    {authored: "restart_policy: always\nrestart_wait_sec: 5\nhist_retention_runs: 50\n", runs: 50},
-		"RetentionDays":    {authored: "restart_policy: always\nrestart_wait_sec: 5\nhist_retention_days: 2\n", days: 2},
-		"BaseRetention":    {authored: "restart_policy: always\nrestart_wait_sec: 5\n", base: "hist_retention_runs: 20\n", runs: 20},
-		"NoPolicy":         {authored: "schedule: \"* * * * *\"\n", days: 30},
-		"PolicyNoDisabled": {authored: "restart_policy: \"no\"\n", days: 30},
+		"Default":       {authored: "restart_policy: always\nrestart_wait_sec: 5\n", runs: 100},
+		"RetentionRuns": {authored: "restart_policy: always\nrestart_wait_sec: 5\nhist_retention_runs: 50\n", runs: 50},
+		"RetentionDays": {authored: "restart_policy: always\nrestart_wait_sec: 5\nhist_retention_days: 2\n", days: 2},
+		"BaseRetention": {authored: "restart_policy: always\nrestart_wait_sec: 5\n", base: "hist_retention_runs: 20\n", runs: 20},
+		// The base.yaml written on first run keeps 30 days, which would let a
+		// DAG that restarts every few seconds pile up runs.
+		"BaseRetentionDays": {authored: "restart_policy: always\nrestart_wait_sec: 5\n", base: "hist_retention_days: 30\n", runs: 100},
+		"OwnRetentionDays":  {authored: "restart_policy: always\nrestart_wait_sec: 5\nhist_retention_days: 2\n", base: "hist_retention_days: 30\n", days: 2},
+		"NoPolicy":          {authored: "schedule: \"* * * * *\"\n", days: 30},
+		"PolicyNoDisabled":  {authored: "restart_policy: \"no\"\n", days: 30},
 	} {
 		t.Run(name, func(t *testing.T) {
 			t.Parallel()
