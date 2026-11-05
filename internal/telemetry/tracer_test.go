@@ -5,6 +5,7 @@ package telemetry
 
 import (
 	"context"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -283,4 +284,52 @@ func TestTracerStart(t *testing.T) {
 		assert.False(t, span.SpanContext().IsValid())
 		span.End()
 	})
+}
+
+// Resource values go through the same evaluation as the rest of the otel
+// block, so DAG env and secret values reach them, not only the process env.
+func TestNewTracerResolvesResourceValues(t *testing.T) {
+	t.Setenv("OTEL_TEST_PROCESS_ENV", "from-process")
+
+	bodies := make(chan string, 16)
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		body, _ := io.ReadAll(r.Body)
+		bodies <- string(body)
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer server.Close()
+
+	dag := &ir.DAG{
+		Name: "my-dag",
+		OTel: &ir.OTelConfig{
+			Enabled:  true,
+			Endpoint: server.URL + "/v1/traces",
+			Insecure: true,
+			Timeout:  2 * time.Second,
+			Resource: map[string]any{
+				"deployment.environment": "${DEPLOY_ENV}",
+				"team.token":             "${TEAM_SECRET}",
+				"dag.label":              "run-${DAG_NAME}",
+				"host.label":             "${OTEL_TEST_PROCESS_ENV}",
+			},
+		},
+	}
+	vars := map[string]string{"DEPLOY_ENV": "staging-eu", "TEAM_SECRET": "s3cr3t-value"}
+
+	tracer, err := NewTracer(context.Background(), dag, vars)
+	require.NoError(t, err)
+
+	_, span := tracer.Start(context.Background(), "test-span")
+	span.End()
+	require.NoError(t, tracer.Shutdown(context.Background()))
+
+	select {
+	case body := <-bodies:
+		for _, want := range []string{"staging-eu", "s3cr3t-value", "run-my-dag", "from-process"} {
+			assert.Contains(t, body, want)
+		}
+		assert.NotContains(t, body, "${")
+	default:
+		t.Fatal("the OTLP/HTTP receiver got no request")
+	}
 }

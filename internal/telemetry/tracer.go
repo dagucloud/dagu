@@ -63,12 +63,20 @@ func NewTracer(ctx context.Context, dag *ir.DAG, vars map[string]string) (*Trace
 		return nil, fmt.Errorf("failed to evaluate OTel config: expected ir.OTelConfig, got %T", cfgAny)
 	}
 
+	// Resource values have always seen the process env and ${DAG_NAME}, which
+	// the evaluation above does not provide, so they are evaluated again with
+	// those added. DAG env and secrets from vars win over the process env.
+	cfg.Resource, err = resolveResource(ctx, dag, scope)
+	if err != nil {
+		return nil, fmt.Errorf("failed to evaluate OTel resource: %w", err)
+	}
+
 	exporter, err := createExporter(ctx, &cfg)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create OTel exporter: %w", err)
 	}
 
-	res, err := createResource(dag)
+	res, err := createResource(&cfg)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create OTel resource: %w", err)
 	}
@@ -174,40 +182,56 @@ func createGRPCExporter(ctx context.Context, config *ir.OTelConfig) (sdktrace.Sp
 	return otlptrace.New(ctx, client)
 }
 
-// createResource creates the OpenTelemetry resource for the DAG
-func createResource(dag *ir.DAG) (*resource.Resource, error) {
+// resolveResource evaluates dag.OTel.Resource against scope, plus the process
+// env and DAG_NAME.
+func resolveResource(ctx context.Context, dag *ir.DAG, scope *cmnvalue.EnvScope) (map[string]any, error) {
+	if len(dag.OTel.Resource) == 0 {
+		return nil, nil
+	}
+	processEnv := make(map[string]string)
+	for _, kv := range os.Environ() {
+		if k, v, ok := strings.Cut(kv, "="); ok {
+			processEnv[k] = v
+		}
+	}
+	resScope := cmnvalue.NewEnvScope(nil, false).WithEntries(processEnv, cmnvalue.EnvSourceStepEnv)
+	if scope != nil {
+		resScope = resScope.WithEntries(scope.ToMap(), cmnvalue.EnvSourceStepEnv)
+	}
+	resScope = resScope.WithEntries(map[string]string{"DAG_NAME": dag.Name}, cmnvalue.EnvSourceStepEnv)
+
+	resolver := cmnvalue.NewResolver(cmnvalue.StaticScope{}, cmnvalue.RuntimeScope{Env: resScope})
+	resolved, err := resolver.Object(ctx, dag.OTel.Resource, cmnvalue.HostConfigObjectField("otel"))
+	if err != nil {
+		return nil, err
+	}
+	out, ok := resolved.(map[string]any)
+	if !ok {
+		return nil, fmt.Errorf("expected map[string]any, got %T", resolved)
+	}
+	return out, nil
+}
+
+// createResource creates the OpenTelemetry resource from the evaluated config,
+// so its string values are already resolved.
+func createResource(config *ir.OTelConfig) (*resource.Resource, error) {
 	attrs := []attribute.KeyValue{
 		semconv.ServiceName("dagu"),
 	}
 
 	// Add custom resource attributes from config
-	if dag.OTel != nil && dag.OTel.Resource != nil {
-		// DAG variables for expansion (e.g., ${DAG_NAME})
-		dagVars := map[string]string{
-			"DAG_NAME": dag.Name,
-		}
-
-		for key, val := range dag.OTel.Resource {
-			switch v := val.(type) {
-			case string:
-				// Expand environment variables using os.Expand with DAG vars
-				// Check DAG vars first, then fall back to real environment
-				expanded := os.Expand(v, func(name string) string {
-					if val, ok := dagVars[name]; ok {
-						return val
-					}
-					return os.Getenv(name)
-				})
-				attrs = append(attrs, attribute.String(key, expanded))
-			case int:
-				attrs = append(attrs, attribute.Int(key, v))
-			case int64:
-				attrs = append(attrs, attribute.Int64(key, int64(v)))
-			case float64:
-				attrs = append(attrs, attribute.Float64(key, v))
-			case bool:
-				attrs = append(attrs, attribute.Bool(key, v))
-			}
+	for key, val := range config.Resource {
+		switch v := val.(type) {
+		case string:
+			attrs = append(attrs, attribute.String(key, v))
+		case int:
+			attrs = append(attrs, attribute.Int(key, v))
+		case int64:
+			attrs = append(attrs, attribute.Int64(key, v))
+		case float64:
+			attrs = append(attrs, attribute.Float64(key, v))
+		case bool:
+			attrs = append(attrs, attribute.Bool(key, v))
 		}
 	}
 
