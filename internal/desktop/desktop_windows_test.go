@@ -116,29 +116,43 @@ func TestWindowsDesktop(t *testing.T) {
 	require.NoError(t, backend.Key("?", false))
 }
 
+// Integrity levels as the RID of a token's mandatory label.
+const (
+	lowRID    uint32 = 0x1000
+	mediumRID uint32 = 0x2000
+	highRID   uint32 = 0x3000
+	systemRID uint32 = 0x4000
+)
+
+// stubIntegrity replaces the integrity source until the test ends.
+func stubIntegrity(t *testing.T, levels func(pid uint32) (uint32, error)) {
+	t.Helper()
+	orig := processIntegrity
+	processIntegrity = levels
+	t.Cleanup(func() { processIntegrity = orig })
+}
+
 // Input to a window of a higher integrity level is dropped without an error,
 // so the check fails before any event is sent. Equal and lower levels pass.
 func TestCheckWindowIntegrity(t *testing.T) {
-	const own, medium, high = 0x2000, 0x2000, 0x3000
 	self := windows.GetCurrentProcessId()
 	const target = uint32(4242)
-	levels := map[uint32]uint32{self: own, target: high}
-	defer func(orig func(uint32) (uint32, error)) { processIntegrity = orig }(processIntegrity)
-	processIntegrity = func(pid uint32) (uint32, error) { return levels[pid], nil }
+	levels := map[uint32]uint32{self: mediumRID, target: highRID}
+	stubIntegrity(t, func(pid uint32) (uint32, error) { return levels[pid], nil })
 
 	err := checkWindow(WindowID{PID: target, App: "admintool"})
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "admintool runs elevated")
 
-	levels[target] = medium
+	levels[target] = mediumRID
 	assert.NoError(t, checkWindow(WindowID{PID: target, App: "notepad"}))
 
-	levels[target] = 0x1000
+	levels[target] = lowRID
 	assert.NoError(t, checkWindow(WindowID{PID: target, App: "browser"}))
 	assert.NoError(t, checkWindow(WindowID{}))
 }
 
-func TestWindowLabelFallsBackToTitleThenPID(t *testing.T) {
+func TestWindowLabel(t *testing.T) {
 	assert.Equal(t, "admintool", windowLabel(WindowID{PID: 4242, App: "admintool", Title: "Admin"}))
 	assert.Equal(t, `window "Admin"`, windowLabel(WindowID{PID: 4242, Title: "Admin"}))
 	assert.Equal(t, "process 4242", windowLabel(WindowID{PID: 4242}))
@@ -146,7 +160,6 @@ func TestWindowLabelFallsBackToTitleThenPID(t *testing.T) {
 
 // A level that cannot be read fails closed: the window may be the elevated one.
 func TestCheckWindowUnreadable(t *testing.T) {
-	defer func(orig func(uint32) (uint32, error)) { processIntegrity = orig }(processIntegrity)
 	self := windows.GetCurrentProcessId()
 	for _, tc := range []struct {
 		name    string
@@ -161,12 +174,12 @@ func TestCheckWindowUnreadable(t *testing.T) {
 		{name: "pid fallback", window: WindowID{PID: 4246}, readErr: windows.ERROR_ACCESS_DENIED, want: "process 4246"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			processIntegrity = func(pid uint32) (uint32, error) {
+			stubIntegrity(t, func(pid uint32) (uint32, error) {
 				if pid == self {
-					return 0x2000, nil
+					return mediumRID, nil
 				}
 				return 0, tc.readErr
-			}
+			})
 			err := checkWindow(tc.window)
 			require.Error(t, err)
 			assert.ErrorIs(t, err, tc.readErr)
@@ -178,37 +191,40 @@ func TestCheckWindowUnreadable(t *testing.T) {
 	}
 }
 
-func TestGetCursorPosErrorUsesInputDesktopProblemForAccessDenied(t *testing.T) {
-	called := false
-	err := getCursorPosError(windows.ERROR_ACCESS_DENIED, func() (Problem, bool) {
-		called = true
-		return Problem{Code: problemScreenLocked, Message: "the input desktop is not accessible; a secure prompt may be shown"}, true
+// An access-denied cursor read names the input desktop problem when there is
+// one; any other failure keeps the GetCursorPos context.
+func TestGetCursorPosError(t *testing.T) {
+	t.Run("desktop problem", func(t *testing.T) {
+		err := getCursorPosError(windows.ERROR_ACCESS_DENIED, func() (Problem, bool) {
+			return Problem{Code: problemScreenLocked, Message: "the input desktop is not accessible; a secure prompt may be shown"}, true
+		})
+		require.ErrorIs(t, err, windows.ERROR_ACCESS_DENIED)
+		assert.Contains(t, err.Error(), "secure prompt")
+		assert.NotContains(t, err.Error(), "GetCursorPos")
 	})
-	require.ErrorIs(t, err, windows.ERROR_ACCESS_DENIED)
-	assert.True(t, called)
-	assert.Contains(t, err.Error(), "secure prompt")
-	assert.NotContains(t, err.Error(), "GetCursorPos")
+	t.Run("no desktop problem", func(t *testing.T) {
+		err := getCursorPosError(windows.ERROR_ACCESS_DENIED, func() (Problem, bool) {
+			return Problem{}, false
+		})
+		require.ErrorIs(t, err, windows.ERROR_ACCESS_DENIED)
+		assert.Contains(t, err.Error(), "GetCursorPos")
+	})
+	t.Run("other error", func(t *testing.T) {
+		err := getCursorPosError(windows.ERROR_INVALID_HANDLE, func() (Problem, bool) {
+			t.Fatal("input desktop should only be checked for access denied")
+			return Problem{}, false
+		})
+		require.ErrorIs(t, err, windows.ERROR_INVALID_HANDLE)
+		assert.Contains(t, err.Error(), "GetCursorPos")
+	})
 }
 
-func TestGetCursorPosErrorKeepsGenericErrorWhenNoDesktopProblem(t *testing.T) {
-	err := getCursorPosError(windows.ERROR_ACCESS_DENIED, func() (Problem, bool) {
-		return Problem{}, false
-	})
-	require.ErrorIs(t, err, windows.ERROR_ACCESS_DENIED)
-	assert.Contains(t, err.Error(), "GetCursorPos")
-
-	other := getCursorPosError(windows.ERROR_INVALID_HANDLE, func() (Problem, bool) {
-		t.Fatal("input desktop should only be checked for access denied")
-		return Problem{}, false
-	})
-	require.ErrorIs(t, other, windows.ERROR_INVALID_HANDLE)
-	assert.Contains(t, other.Error(), "GetCursorPos")
-}
-
-// The fake source above replaces readIntegrityLevel, so this reads the real
-// token of the test process.
+// Other tests stub processIntegrity, so this reads the real token of the test
+// process. Levels between the named ones exist, such as Medium Plus, so only
+// the range is checked.
 func TestReadIntegrityLevel(t *testing.T) {
 	level, err := readIntegrityLevel(windows.GetCurrentProcessId())
 	require.NoError(t, err)
-	assert.Contains(t, []uint32{0x1000, 0x2000, 0x3000, 0x4000}, level)
+	assert.GreaterOrEqual(t, level, lowRID)
+	assert.LessOrEqual(t, level, systemRID)
 }
