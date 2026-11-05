@@ -246,12 +246,7 @@ export function DockProvider({ children }: { children: ReactNode }) {
   // no request to open the panel: a reload or a Back to it keeps it closed.
   const runLinked = url.run !== null && !isRunRedirect(location.state);
   // A phone shows one view: a link to the YAML or a step view shows that.
-  const phoneView =
-    url.ndv !== null &&
-    !(
-      window.matchMedia?.(`(min-width: ${DOCK_SHEET_BELOW_PX}px)`).matches ??
-      true
-    );
+  const phoneView = url.ndv !== null && !matchesQuery(WIDE_QUERY, true);
   const [openState, setOpenState] = useState(
     () => !phoneView && (url.dock !== null || runLinked || storedDockOpen())
   );

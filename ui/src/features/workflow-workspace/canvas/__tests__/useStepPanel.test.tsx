@@ -21,7 +21,7 @@ describe('useStepPanel', () => {
   // before the step is in the URL. The panel still opens on that step.
   it('opens on a click whose step comes after the zone is free', () => {
     const view = render({ step: null, covered: true });
-    act(() => view.result.current.show({ x: 1, y: 1 }));
+    act(() => view.result.current.show({ clientX: 1, clientY: 1 }));
     view.rerender({ step: null, covered: false });
     view.rerender({ step: 'extract', covered: false });
     expect(view.result.current.shown).toBe(true);
@@ -29,7 +29,7 @@ describe('useStepPanel', () => {
 
   it('closes when the step is cleared', () => {
     const view = render({ step: 'extract', covered: false });
-    act(() => view.result.current.show({ x: 1, y: 1 }));
+    act(() => view.result.current.show({ clientX: 1, clientY: 1 }));
     expect(view.result.current.shown).toBe(true);
     view.rerender({ step: null, covered: false });
     view.rerender({ step: 'extract', covered: false });
