@@ -29,9 +29,8 @@ func (r refusedWindow) Error() string { return string(r) }
 // from the system's accessibility tree with no model, taking no screenshot
 // of its own (the step's policy still captures its end or failure), so
 // an author learns what an application shows and what a selector or an act
-// can name. It reads only the app the step works in, once known: an app a
-// person brought forward makes way for it, and another app's window in
-// front is never read.
+// can name. It reads only the app the step works in, once known, in that
+// app's window wherever it is, and never another app's window.
 func (r *run) outline(ctx context.Context, index int, name string, timeout time.Duration) error {
 	ctx, cancel := r.operationContext(ctx, timeout)
 	defer cancel()
@@ -39,6 +38,9 @@ func (r *run) outline(ctx context.Context, index int, name string, timeout time.
 	began := time.Now()
 	els, err := r.elementsReader()
 	if err != nil {
+		return err
+	}
+	if err := r.reach(ctx, r.workApp, ""); err != nil {
 		return err
 	}
 	if _, err := r.resumeAfterPerson(ctx, index); err != nil {
@@ -52,7 +54,13 @@ func (r *run) outline(ctx context.Context, index int, name string, timeout time.
 		app := cmp.Or(front.App, "an app the system does not name")
 		return refusedWindow(fmt.Sprintf("a window of %s is in front, not of %s, the app this step works in, and an outline reads only that app's windows", app, r.workApp))
 	}
-	for _, w := range []desktop.WindowID{r.driver.FocusedWindow(), {App: front.App, Title: front.Name}} {
+	// Without the desktop the outline reads the step's own window, wherever
+	// the focus is.
+	reached := []desktop.WindowID{{App: front.App, Title: front.Name}}
+	if r.lease != nil {
+		reached = append([]desktop.WindowID{r.driver.FocusedWindow()}, reached...)
+	}
+	for _, w := range reached {
 		if r.driver.Owned(w) {
 			return refusedWindow(r.ownedMessage(w))
 		}

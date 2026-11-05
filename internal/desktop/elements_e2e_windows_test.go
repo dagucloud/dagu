@@ -6,6 +6,7 @@
 package desktop
 
 import (
+	"fmt"
 	"image"
 	"os"
 	"os/exec"
@@ -304,6 +305,153 @@ func TestWindowsDirectInput(t *testing.T) {
 	assert.Equal(t, RoleWindow, front.Role)
 	require.NoError(t, els.Apply(byID["agreeBox"], PatternToggle, ""))
 	expectStatus("同意: True")
+}
+
+// A reader of one window reads it while another application's window has
+// the foreground, and leaves the foreground where it is: it finds the
+// window's elements, outlines it, and reads a table. Windows performs every
+// pattern of a Windows Forms control by focusing it, so the reader refuses
+// them rather than bring the window forward. A window that is gone reads as
+// no window.
+func TestWindowsElementsInWindowBehindAnother(t *testing.T) {
+	driver := e2eDesktop(t)
+	els := e2eElements(t)
+	elementsWindow(t, driver, els)
+	ctx := t.Context()
+
+	own := listedWindow(t, driver, func(w WindowID) bool { return w.Title == elementsWindowTitle })
+	if alreadyRunning(t, "notepad.exe") {
+		t.Skip("notepad is already running; its windows would be left behind")
+	}
+	startApp(t, "notepad.exe")
+	other := listedWindow(t, driver, func(w WindowID) bool { return strings.EqualFold(w.App, "notepad") })
+	require.Eventually(t, func() bool {
+		_ = driver.Raise(other)
+		return driver.FocusedWindow().Handle == other.Handle
+	}, 15*time.Second, 500*time.Millisecond, "notepad did not take the foreground")
+	foreground := func() string {
+		w := driver.FocusedWindow()
+		return fmt.Sprintf("%s %q %#x", w.App, w.Title, w.Handle)
+	}
+	inFront := foreground()
+
+	in := els.InWindow(own)
+	window, err := in.FrontWindow()
+	require.NoError(t, err)
+	assert.Equal(t, elementsWindowTitle, window.Name)
+	front, err := els.FrontWindow()
+	require.NoError(t, err)
+	assert.Equal(t, "notepad", front.App, "the reader of the window in front still reads notepad")
+
+	status := func() string {
+		labels, err := in.Find(Selector{Role: RoleText, ID: "statusLabel"})
+		if err != nil || len(labels) != 1 {
+			return fmt.Sprint(labels, err)
+		}
+		return labels[0].Name
+	}
+	save, err := in.Find(Selector{Role: RoleButton, ID: "saveButton"})
+	require.NoError(t, err)
+	require.Len(t, save, 1)
+	assert.Equal(t, inFront, foreground(), "reads leave the foreground where it was")
+	assert.ErrorIs(t, in.Apply(save[0], PatternInvoke, ""), ErrForeground)
+	assert.Equal(t, "待機中", status(), "the refused button was not pressed")
+	assert.Equal(t, inFront, foreground(), "a refused invoke leaves the foreground where it was")
+
+	amount, err := in.Find(Selector{Role: RoleTextField, ID: "amountBox"})
+	require.NoError(t, err)
+	require.Len(t, amount, 1)
+	assert.ErrorIs(t, in.Apply(amount[0], PatternSetValue, "3400"), ErrForeground)
+	assert.Equal(t, inFront, foreground(), "a refused value leaves the foreground where it was")
+
+	outline, err := in.Outline(window, 0)
+	require.NoError(t, err)
+	assert.NotEmpty(t, outline)
+	rows, err := in.Rows(ctx, Selector{Role: RoleList, ID: "linesList"}, []string{"品目"}, 100)
+	require.NoError(t, err)
+	assert.Equal(t, [][]string{{"りんご"}, {"みかん"}}, rows)
+
+	assert.Equal(t, inFront, foreground(), "reading a table leaves the foreground where it was")
+	assert.NoError(t, in.Close(), "closing a window's reader leaves the reader it came from open")
+	_, err = els.FrontWindow()
+	assert.NoError(t, err)
+
+	gone := own
+	gone.PID++
+	_, err = els.InWindow(gone).FrontWindow()
+	assert.ErrorIs(t, err, ErrNoWindow, "a handle that names another process's window is a window that closed")
+}
+
+// webPage is a page with a field and a button that renames the page.
+const webPage = `data:text/html,<title>Dagu web test</title><input id="amount" aria-label="amount" value="1200"><button id="save" onclick="document.title='Dagu web saved'">Save</button>`
+
+// A reader of one window reads a web page in a browser window while another
+// application's window has the foreground, and leaves the foreground where
+// it is. Chromium takes the foreground to set a field's value, so the
+// reader refuses the page's patterns as it does every other.
+func TestWindowsElementsInWindowReadsAPageBehindAnother(t *testing.T) {
+	driver := e2eDesktop(t)
+	els := e2eElements(t)
+	edge := filepath.Join(os.Getenv("ProgramFiles(x86)"), "Microsoft", "Edge", "Application", "msedge.exe")
+	if _, err := exec.LookPath(edge); err != nil {
+		t.Skip("Microsoft Edge is not installed")
+	}
+	for _, image := range []string{"msedge.exe", "notepad.exe"} {
+		if alreadyRunning(t, image) {
+			t.Skipf("%s is already running; its windows would be left behind", image)
+		}
+	}
+	// Edge hands the page to a browser process of its own, which outlives
+	// the one started.
+	t.Cleanup(func() { _ = exec.Command("taskkill", "/F", "/IM", "msedge.exe").Run() })
+	startApp(t, edge, "--new-window", "--no-first-run", webPage)
+	page := listedWindow(t, driver, func(w WindowID) bool { return strings.HasPrefix(w.Title, "Dagu web test") })
+	startApp(t, "notepad.exe")
+	other := listedWindow(t, driver, func(w WindowID) bool { return strings.EqualFold(w.App, "notepad") })
+
+	in := els.InWindow(page)
+	var save, amount []Element
+	require.Eventually(t, func() bool {
+		var err error
+		save, err = in.Find(Selector{Role: RoleButton, Name: "Save"})
+		if err != nil || len(save) != 1 {
+			return false
+		}
+		amount, err = in.Find(Selector{Role: RoleTextField, Name: "amount"})
+		return err == nil && len(amount) == 1
+	}, 15*time.Second, 500*time.Millisecond, "the page's elements: %+v %+v", save, amount)
+	// Notepad takes the foreground once the page is up, so a browser that
+	// raises its window while it starts is not taken for a pattern's doing.
+	require.Eventually(t, func() bool {
+		_ = driver.Raise(other)
+		return driver.FocusedWindow().Handle == other.Handle
+	}, 15*time.Second, 500*time.Millisecond, "notepad did not take the foreground")
+	foreground := func() string {
+		w := driver.FocusedWindow()
+		return fmt.Sprintf("%s %q %#x", w.App, w.Title, w.Handle)
+	}
+	inFront := foreground()
+
+	assert.Equal(t, "1200", amount[0].Value)
+	assert.ErrorIs(t, in.Apply(amount[0], PatternSetValue, "3400"), ErrForeground)
+	assert.ErrorIs(t, in.Apply(save[0], PatternInvoke, ""), ErrForeground)
+	assert.Equal(t, inFront, foreground(), "reading the page leaves the foreground where it was")
+}
+
+// listedWindow waits until Driver.Windows lists a window that matches.
+func listedWindow(t *testing.T, driver *Driver, matches func(WindowID) bool) WindowID {
+	t.Helper()
+	var found WindowID
+	require.Eventually(t, func() bool {
+		for _, w := range driver.Windows() {
+			if matches(w) {
+				found = w
+				return true
+			}
+		}
+		return false
+	}, 30*time.Second, 200*time.Millisecond, "no such window is listed: %+v", driver.Windows())
+	return found
 }
 
 // A minimized window shows none of its elements. UI Automation still reports

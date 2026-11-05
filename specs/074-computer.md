@@ -97,12 +97,47 @@ unknown.
 
 Computer DAGs are routed to such hosts with a DAG-level `worker_selector`.
 
-One computer step at a time operates a user's desktop, across every Dagu
-process that user runs on the host, whatever their data directories. A step
-that finds the desktop in use waits for it and logs that it is waiting; the
-waiting event on the timeline is named `desktop`. A step
-paused by `ask` does not hold the desktop. While a step holds the desktop, the
-display and the system stay awake, as far as the operating system allows.
+One computer step at a time holds a user's desktop, across every Dagu
+process that user runs on the host, whatever their data directories, and
+only a step that holds it sends pointer or key input or moves a window or
+the focus. An operation holds the desktop from the look at the screen its
+input is based on until it ends: a `launch`, an `act` the model drives, a
+replayed action other than an element performing a pattern itself, a
+model-read `extract`, a statement check, a `screenshot`, and the capture of
+a screenshot the step's `screenshots` policy takes. Focusing an element,
+which on Windows brings its window forward, bringing a window forward, and
+restoring a minimized one count as input too, and so does every element
+pattern on Windows, where UI Automation brings the element's window forward
+to perform one: it focuses a Win32 or Windows Forms control first, and
+Chromium takes the foreground to set a field's value. A step that finds the
+desktop in use waits for it and logs that it is waiting; the waiting event
+on the timeline is named `desktop`. A failing step captures the screen
+only when no other step holds the desktop. A step paused by `ask` does not
+hold the desktop. While a step holds the desktop, the display and the
+system stay awake, as far as the operating system allows.
+
+Any other operation runs without the desktop, beside a person and beside
+steps working in other applications, and waits for no person: an element
+performing a pattern on macOS, an exact or value check, an `extract` read from its
+bindings, an `outline`, and a `wait`. It reads a window of the application
+its selector names or the step works in, where that window is, behind
+another application's or covered by one, and never the window in front: a
+dialog of the application that holds the window is read in its place. When
+the step works in no application yet, or that application's window is not
+open or is minimized, the operation holds the desktop and reads the window
+in front, as one holding the desktop always does.
+
+Two steps working in one application take turns, since they share its
+windows. A step holds the application it works in from its first operation
+there until the step ends or works in another; a step that finds the
+application in use waits and logs a waiting event named `app`. A step takes
+the application before the desktop and never waits for one while holding
+the desktop: before a look its next input is based on, a step that holds
+the desktop and needs an application another step holds lets the desktop
+go, waits for the application, and takes the desktop again, unless a button
+it pressed is still down. An `act` the model drives holds the desktop
+across its turns, so an application its actions move into is taken at the
+step's next operation.
 
 ### Conditions
 
@@ -113,14 +148,16 @@ A statement is judged by the model against a screenshot. With `within`, a
 false statement is checked again every few seconds until it holds or
 `within` passes.
 
-The other three are exact checks: they read the elements of the window in
-front (see Elements), take no screenshot, and call no model, so they give
-the same answer on every run. `text` holds when the name or value of a
-visible element contains it. `element` holds when the selector matches
-exactly one visible element; several matches are a miss, never a guess.
-`window` holds when the title of the window in front contains it, with `*`
-for any run of characters. A window that exposes no elements is a miss
-while it is in front. An exact `expect` keeps looking every quarter second
+The other three are exact checks: they read the elements of a window of the
+application the selector names or the step works in, preferring one whose
+title the selector's `window` or the `window` check names, or of the window
+in front while the step holds the desktop (see Elements), take no
+screenshot, and call no model, so they give the same answer on every run.
+`text` holds when the name or value of a visible element contains it.
+`element` holds when the selector matches exactly one visible element;
+several matches are a miss, never a guess. `window` holds when the title of
+the window read contains it, with `*` for any run of characters. A window
+that exposes no elements is a miss while it is read. An exact `expect` keeps looking every quarter second
 until it holds, `within` passes, or, without `within`, the operation
 timeout passes; an exact `when` keeps looking for two seconds unless
 `within` says how long. The event of an exact check records `via: exact`.
@@ -243,10 +280,12 @@ menu an earlier action of the round opened, takes the action as it is.
 
 ### Window size
 
-Unless `with.maximize` is `false`, a step maximizes the window in front
-before an operation looks at the screen: before an `act` and each model turn
-of it, each replayed turn and while a pixel turn waits for its screen, and
-before an `extract`, an `expect`, a `when`, and a `screenshot`. An `act` or
+Unless `with.maximize` is `false`, a step holding the desktop maximizes the
+window in front before an operation looks at the screen: before each model
+turn of an `act`, each replayed pixel turn and while it waits for its
+screen, and before a model-read `extract`, a statement `expect` or `when`,
+and a `screenshot`. An operation that runs without the desktop resizes no
+window. An `act` or
 an `extract` may set its own `maximize`. The application is then operated at
 one size every run, so recordings replay, and the model reads larger text.
 On Windows the window is maximized as its maximize button would; on macOS it
@@ -262,10 +301,12 @@ The step log lists each action; the timeline records one event per operation.
 
 ### A person using the desktop
 
-Before it launches an application, replays a recorded turn, or asks the model
-for its first actions, a step waits until nobody has used the desktop's
-pointer or keyboard for `with.idle` (default `5s`), and logs that it is
-waiting in an event named `person`. Input the step itself sent does not count, including input sent by
+Before it launches an application, replays an action by the pointer or
+keys, or asks the model for its first actions, a step waits until nobody has
+used the desktop's pointer or keyboard for `with.idle` (default `5s`), and
+logs that it is waiting in an event named `person`. An operation that runs
+without the desktop sends no input a person's could collide with and waits
+for nobody. Input the step itself sent does not count, including input sent by
 the step that held the desktop before it. When a person uses the desktop
 after the screenshot the model answered, the step waits for the idle period
 again. If the window the actions land on still looks as the model saw it,
@@ -478,7 +519,13 @@ click at the element's centre may not reach what the pattern did. A click
 the model aims at a combo box lands on it as a person's click does, opening
 one that only offers a list and putting the caret in one that takes typing.
 `direct` has the element act itself through its
-automation pattern, which moves no pointer and needs no window in front: a
+automation pattern, which moves no pointer. On macOS such an action needs
+no window in front and runs without the desktop, except focusing a field
+and choosing a list box's option, which may press keys; on Windows, where
+UI Automation brings the window forward to perform a pattern, it holds the
+desktop while the call runs, though a call the application holds past five
+seconds is abandoned and may still finish after the step lets the desktop
+go (see above): a
 plain click on a `button`, `menu_item`, `link`, or a control of role
 `other` invokes it, on a `checkbox` toggles it, on a `radio`, `list_item`,
 `tab`, or `cell` selects it, on a `combo_box` opens it, and on a
@@ -570,7 +617,7 @@ field binds with tables.
 A later run reads each bound element and converts its value to the field's
 type: a string is trimmed and compared folding full-width characters and
 whitespace; a number or integer drops grouping and currency symbols and
-folds full-width digits. The window in front must be the recorded
+folds full-width digits. The window read must be the recorded
 application, as a replay by elements requires; a field whose element is
 missing, ambiguous, or whose value does not convert is a miss. Each read
 waits up to `with.find_within`. `every_run` always reads with the model and
@@ -662,11 +709,12 @@ replay acts on the elements the model's actions landed on and waits for
 them (see Replay cache). A replay identifies the recorded window by its
 **application** — the process image name — not by its title, since a title
 often shows the document's contents and changes every run; it falls back to
-the title only when the application cannot be read. When the recorded
-application is not in front, a replay brings a window of that application
-forward before it looks again, preferring one whose title still matches,
+the title only when the application cannot be read. A replay that holds the
+desktop brings a window of the recorded application forward when it is not
+in front, before it looks again, preferring one whose title still matches,
 never the step's own application, so a window that lost the focus is raised
-rather than counted a miss. Names, labels, window titles, and the text a
+rather than counted a miss; one that runs without the desktop reads such a
+window where it is. Names, labels, window titles, and the text a
 check looks for are compared after folding full-width characters to
 half-width, collapsing whitespace, and dropping a label's trailing colon,
 so a selector a person types matches what a form shows without reproducing

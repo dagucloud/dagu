@@ -124,15 +124,15 @@ func (e *uiaElements) Rows(ctx context.Context, container Selector, columns []st
 	default:
 	}
 	return readAlone(ctx, "rows", func(w *uiaWorker) ([][]string, error) {
-		return w.readRows(ctx, container, columns, maxRows)
+		return w.readRows(ctx, e.scope, container, columns, maxRows)
 	})
 }
 
-// readRows resolves the container in the front window and reads its cells,
-// stopping if ctx ends so an abandoned read does not keep calling the
-// application.
-func (w *uiaWorker) readRows(ctx context.Context, container Selector, columns []string, maxRows int) ([][]string, error) {
-	top, err := w.frontWindow()
+// readRows resolves the container in the front window, or the window scope
+// names, and reads its cells, stopping if ctx ends so an abandoned read does
+// not keep calling the application.
+func (w *uiaWorker) readRows(ctx context.Context, scope *WindowID, container Selector, columns []string, maxRows int) ([][]string, error) {
+	top, err := w.top(scope)
 	if err != nil {
 		return nil, err
 	}

@@ -244,9 +244,10 @@ func (r *run) awaitLaunched(ctx context.Context, index int, spec launchSpec, bef
 // or its application resizes afterwards is left as it is. A window the step
 // never operates, one that cannot be maximized, and one already maximized
 // are left alone. Resizing a window moves what a person may be working on,
-// so it waits for an idle desktop as input does.
+// so it waits for an idle desktop as input does, and a step that does not
+// hold the desktop moves no window.
 func (r *run) fit(ctx context.Context, index int) error {
-	if !r.maximize || r.driver == nil {
+	if !r.maximize || r.driver == nil || r.lease == nil {
 		return nil
 	}
 	if w := r.driver.FocusedWindow(); !r.fits(w) {
@@ -280,8 +281,13 @@ func (r *run) fits(w desktop.WindowID) bool {
 // elementOffLimits reports a window the step never operates that an action
 // on an element would reach: the window under the element's centre, where
 // the elements reader finds the element first, or the window in front,
-// where it looks for the element next.
+// where it looks for the element next. A step that does not hold the
+// desktop finds the element in its own window, which reach chose among the
+// windows it operates, wherever another window stands.
 func (r *run) elementOffLimits(e desktop.Element) (desktop.WindowID, bool) {
+	if r.lease == nil {
+		return desktop.WindowID{}, false
+	}
 	if !e.Bounds.Empty() {
 		if w := r.driver.WindowAt(elementCentre(e)); r.offLimits(w) {
 			return w, true

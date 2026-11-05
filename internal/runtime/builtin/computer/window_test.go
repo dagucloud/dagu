@@ -228,7 +228,7 @@ func TestFitsTheLaunchedApplication(t *testing.T) {
 }
 
 // The app a launch opened is the one the step works in: when a person
-// brings another app forward before the next check, the launched app comes
+// brings another app forward before the next click, the launched app comes
 // back once they stop. Another app that took the front before the launched
 // one is not the step's, and never comes back.
 func TestALaunchedAppComesBackAfterAPerson(t *testing.T) {
@@ -271,7 +271,8 @@ func TestALaunchedAppComesBackAfterAPerson(t *testing.T) {
 					run.elements.arriveAfter(0, expenseElements())
 				}
 			}
-			execution := run.execute(`{"ai": "never", "idle": "100ms", "maximize": false, "do": [{"launch": "C:\\Apps\\expense.exe"}, {"expect": {"text": "保存しました"}, "timeout": "1s"}]}`, nil)
+			execution := run.execute(`{"ai": "never", "idle": "100ms", "maximize": false, "do": [{"launch": "C:\\Apps\\expense.exe"},
+				{"act": {"instruction": "Save", "recorded": {"windows": [{"click": {"role": "button", "id": "saveButton"}}]}}}]}`, nil)
 			var raised []uint64
 			for _, w := range run.backend.raised {
 				raised = append(raised, w.Handle)

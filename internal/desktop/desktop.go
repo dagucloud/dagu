@@ -190,6 +190,9 @@ type WindowID struct {
 	// Bounds is the window's frame in display pixels, empty where the
 	// system does not say.
 	Bounds image.Rectangle
+	// Minimized marks a window the system lists while it shows nothing on
+	// the screen, which only bringing it forward shows again.
+	Minimized bool
 }
 
 // Known reports a window the system named.
@@ -460,6 +463,9 @@ func (d *Driver) ReleaseButton(button Button) error {
 	d.held = slices.DeleteFunc(d.held, func(b Button) bool { return b == button })
 	return nil
 }
+
+// Holding reports whether a button PressButton pressed is still down.
+func (d *Driver) Holding() bool { return len(d.held) > 0 }
 
 // ReleaseHeld releases, at the pointer, every button PressButton pressed
 // and nothing has released since. A button whose release fails stays

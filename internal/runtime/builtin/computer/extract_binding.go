@@ -4,6 +4,7 @@
 package computer
 
 import (
+	"cmp"
 	"context"
 	"errors"
 	"fmt"
@@ -514,6 +515,9 @@ func (r *run) readBinding(ctx context.Context, index int, els desktop.Elements, 
 // does not convert is a miss.
 func (r *run) readTable(ctx context.Context, els desktop.Elements, field fieldBinding, maxRows int) ([]any, string, error) {
 	tbl := field.Table
+	if err := r.reach(ctx, cmp.Or(tbl.App, r.homeApp()), r.substitute(tbl.Window)); err != nil {
+		return nil, "", err
+	}
 	front, err := els.FrontWindow()
 	if errors.Is(err, desktop.ErrNoWindow) {
 		return nil, fmt.Sprintf("table %q cannot be read: %v", field.Name, err), nil

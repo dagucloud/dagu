@@ -270,6 +270,58 @@ type fakeElements struct {
 	tableHeaders []string
 	tableRows    [][]string
 	tableErr     error
+	// windows are the readers of windows other than this one, by handle,
+	// which InWindow returns; any other handle reads this window.
+	windows map[uint64]*fakeElements
+	// foreground lists the elements, by id or name, whose patterns bring
+	// their window forward, which a reader of one window refuses.
+	foreground map[string]bool
+}
+
+// InWindow reads the window a test listed under the handle, or this one.
+func (f *fakeElements) InWindow(w desktop.WindowID) desktop.Elements {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if other, ok := f.windows[w.Handle]; ok {
+		return windowElements{other}
+	}
+	return windowElements{f}
+}
+
+// windowElements is a fake window read through InWindow.
+type windowElements struct{ *fakeElements }
+
+// Apply refuses a pattern that brings the window forward, as Windows'
+// proxies for Win32 and Windows Forms controls do.
+func (w windowElements) Apply(e desktop.Element, pattern desktop.Pattern, value string) error {
+	w.mu.Lock()
+	refused := w.foreground[focusedID(e)]
+	w.mu.Unlock()
+	if refused {
+		return desktop.ErrForeground
+	}
+	return w.fakeElements.Apply(e, pattern, value)
+}
+
+// bringsForward makes an element's patterns bring its window forward.
+func (f *fakeElements) bringsForward(id string) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if f.foreground == nil {
+		f.foreground = map[string]bool{}
+	}
+	f.foreground[id] = true
+}
+
+// behind lists a window apart from the one in front, read through InWindow
+// by its handle.
+func (f *fakeElements) behind(handle uint64, window *fakeElements) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if f.windows == nil {
+		f.windows = map[uint64]*fakeElements{}
+	}
+	f.windows[handle] = window
 }
 
 // Rows returns the scripted table rows, each cell under the column a
@@ -751,6 +803,13 @@ func (b *fakeBackend) Maximize(w desktop.WindowID) (bool, error) {
 	return true, nil
 }
 
+// raisedWindows lists the windows Raise brought forward.
+func (b *fakeBackend) raisedWindows() []desktop.WindowID {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return slices.Clone(b.raised)
+}
+
 // maximizedWindows lists the windows Maximize changed.
 func (b *fakeBackend) maximizedWindows() []desktop.WindowID {
 	b.mu.Lock()
@@ -982,6 +1041,9 @@ type testRun struct {
 	// remote runs the step as if in a remote desktop session rather than
 	// at the console, where it does not wait for a person by default.
 	remote bool
+	// onProgress, when set, sees the step's session whenever it changes, as
+	// a view of a running step does.
+	onProgress func(*ir.AgentSession)
 	// marks records the marks the step shows, and marksErr fails opening
 	// them when set.
 	marks    *fakeMarks
@@ -1050,19 +1112,8 @@ func (r *testRun) execute(withJSON string, session *ir.AgentSession) *stepExecut
 		}
 		r.elements.mu.Lock()
 		r.elements.opens++
-		if r.elements.onFocus == nil {
-			r.elements.onFocus = func(e desktop.Element) { r.backend.recordAccessibility("focus " + focusedID(e)) }
-		}
-		if r.elements.onApply == nil {
-			r.elements.onApply = func(e desktop.Element, pattern desktop.Pattern, value string) {
-				if pattern == desktop.PatternSetValue {
-					r.backend.recordAccessibility(fmt.Sprintf("set %s=%s", focusedID(e), value))
-					return
-				}
-				r.backend.recordAccessibility(string(pattern) + " " + focusedID(e))
-			}
-		}
 		r.elements.mu.Unlock()
+		r.logAccessibility(r.elements)
 		return r.elements, nil
 	}
 	execution.exec.openMarks = func() (desktop.Marks, error) {
@@ -1113,8 +1164,39 @@ func (r *testRun) execute(withJSON string, session *ir.AgentSession) *stepExecut
 	execution.exec.SetStdout(&execution.stdout)
 	execution.exec.SetStderr(&execution.stderr)
 	execution.exec.SetAgentSession(session)
+	if r.onProgress != nil {
+		execution.exec.SetProgressCallback(func() { r.onProgress(execution.exec.GetAgentSession()) })
+	}
 	execution.err = execution.exec.Run(r.context())
 	return execution
+}
+
+// logAccessibility logs what the step does to the elements of a window
+// through Accessibility as the desktop's input log, unless the test watches
+// it itself.
+func (r *testRun) logAccessibility(f *fakeElements) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if f.onFocus == nil {
+		f.onFocus = func(e desktop.Element) { r.backend.recordAccessibility("focus " + focusedID(e)) }
+	}
+	if f.onApply == nil {
+		f.onApply = func(e desktop.Element, pattern desktop.Pattern, value string) {
+			if pattern == desktop.PatternSetValue {
+				r.backend.recordAccessibility(fmt.Sprintf("set %s=%s", focusedID(e), value))
+				return
+			}
+			r.backend.recordAccessibility(string(pattern) + " " + focusedID(e))
+		}
+	}
+}
+
+// openBehind lists window as the window with the handle, behind the one in
+// front, which a step reads in place of the one in front while it does not
+// hold the desktop.
+func (r *testRun) openBehind(handle uint64, window *fakeElements) {
+	r.logAccessibility(window)
+	r.elements.behind(handle, window)
 }
 
 func (r *testRun) context() context.Context {

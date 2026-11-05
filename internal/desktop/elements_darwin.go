@@ -125,12 +125,21 @@ func OpenElements() (Elements, error) {
 		cfRelease(system)
 		return nil, errors.New("create the attribute list")
 	}
-	return &axElements{display: d, system: system, attributes: attributes, web: map[int32]bool{}}, nil
+	return &axElements{axReader: &axReader{display: d, system: system, attributes: attributes, web: map[int32]bool{}}}, nil
 }
 
 // axElements reads elements through the macOS Accessibility API. Requests
-// go to each application in turn, so the reader serializes them.
+// go to each application in turn, so the reader serializes them, with the
+// readers InWindow returns.
 type axElements struct {
+	*axReader
+	// scope is the window a reader InWindow returned reads in place of the
+	// one in front.
+	scope *WindowID
+}
+
+// axReader is what a reader and the readers InWindow returns share.
+type axReader struct {
 	mu         sync.Mutex
 	display    display
 	system     uintptr
@@ -141,7 +150,15 @@ type axElements struct {
 	closed bool
 }
 
+// InWindow reads one window of an application through the same reader.
+func (e *axElements) InWindow(w WindowID) Elements {
+	return &axElements{axReader: e.axReader, scope: &w}
+}
+
 func (e *axElements) Close() error {
+	if e.scope != nil {
+		return nil
+	}
 	e.mu.Lock()
 	defer e.mu.Unlock()
 	if e.closed {
@@ -347,6 +364,32 @@ func (e *axElements) frontWindow() (axWindow, error) {
 	return top, err
 }
 
+// top returns the window in front, or the window the reader is scoped to.
+// A scoped window that closed is not taken for another window of its
+// process that now has its frame.
+func (e *axElements) top() (axWindow, error) {
+	if e.scope == nil {
+		return e.frontWindow()
+	}
+	if !windowOpen(*e.scope) {
+		return axWindow{}, ErrNoWindow
+	}
+	pid := int32(e.scope.PID) //nolint:gosec // process ids fit 32 bits
+	app := axUIElementCreateApplication(pid)
+	if app == 0 {
+		return axWindow{}, ErrNoWindow
+	}
+	defer cfRelease(app)
+	web := e.openWeb(app, pid)
+	window := axWindowOf(app, *e.scope, e.display)
+	if window == 0 {
+		return axWindow{}, ErrNoWindow
+	}
+	top, err := e.asWindow(window, pid)
+	top.web = web
+	return top, err
+}
+
 // asWindow describes a window element; it takes ownership of ref.
 func (e *axElements) asWindow(ref uintptr, pid int32) (axWindow, error) {
 	var pool []uintptr
@@ -394,7 +437,7 @@ func release(refs []uintptr) {
 
 func (e *axElements) FrontWindow() (Element, error) {
 	return with(e, func() (Element, error) {
-		top, err := e.frontWindow()
+		top, err := e.top()
 		if err != nil {
 			return Element{}, err
 		}
@@ -405,7 +448,7 @@ func (e *axElements) FrontWindow() (Element, error) {
 
 func (e *axElements) Find(sel Selector) ([]Element, error) {
 	return with(e, func() ([]Element, error) {
-		top, err := e.frontWindow()
+		top, err := e.top()
 		if err != nil {
 			return nil, err
 		}
@@ -436,13 +479,14 @@ func (e *axElements) Outline(window Element, limit int) ([]Element, error) {
 }
 
 // resolveWindow finds the window an element describes: the one in front,
-// or the window under the element's centre.
+// or the window under the element's centre. A reader scoped to a window
+// reads that one.
 func (e *axElements) resolveWindow(window Element) (axWindow, error) {
-	top, err := e.frontWindow()
+	top, err := e.top()
 	if err != nil {
 		return axWindow{}, err
 	}
-	if window.Name == "" || window.Name == top.window.Name || window.Bounds.Empty() {
+	if e.scope != nil || window.Name == "" || window.Name == top.window.Name || window.Bounds.Empty() {
 		return top, nil
 	}
 	cfRelease(top.ref)
@@ -1158,9 +1202,11 @@ func act(ref uintptr, action string) error {
 }
 
 // locate finds an element again, under its centre first and then by its
-// path in the front window. The caller releases what it returns.
+// path in the front window. In a window the reader is scoped to it goes by
+// the path alone, since another window may cover the centre. The caller
+// releases what it returns.
 func (e *axElements) locate(target Element) (uintptr, error) {
-	if !target.Bounds.Empty() {
+	if e.scope == nil && !target.Bounds.Empty() {
 		centre := target.Bounds.Min.Add(target.Bounds.Size().Div(2))
 		if ref, err := e.elementAt(centre); err == nil {
 			var pool []uintptr
@@ -1178,7 +1224,7 @@ func (e *axElements) locate(target Element) (uintptr, error) {
 	if len(target.Path) == 0 {
 		return 0, fmt.Errorf("%w: the element is not where it was", ErrNotFound)
 	}
-	top, err := e.frontWindow()
+	top, err := e.top()
 	if err != nil {
 		return 0, err
 	}
@@ -1212,7 +1258,7 @@ func (e *axElements) parentRole(ref uintptr) string {
 // read is a miss.
 func (e *axElements) Rows(ctx context.Context, container Selector, columns []string, maxRows int) ([][]string, error) {
 	return with(e, func() ([][]string, error) {
-		top, err := e.frontWindow()
+		top, err := e.top()
 		if err != nil {
 			return nil, err
 		}

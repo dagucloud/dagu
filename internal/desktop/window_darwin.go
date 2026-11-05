@@ -6,6 +6,7 @@
 package desktop
 
 import (
+	"cmp"
 	"errors"
 	"image"
 	"math"
@@ -19,10 +20,11 @@ import (
 
 const appKitPath = "/System/Library/Frameworks/AppKit.framework/AppKit"
 
-// Options of CGWindowListCopyWindowInfo: windows on the screen, without
-// the desktop's own.
+// Options of CGWindowListCopyWindowInfo: windows on the screen, one window
+// alone, and without the desktop's own.
 const (
 	windowListOnScreenOnly        = 1 << 0
+	windowListIncludingWindow     = 1 << 3
 	windowListExcludeDesktopItems = 1 << 4
 )
 
@@ -97,6 +99,24 @@ func (b *darwinBackend) listWindows() []windowInfo {
 		})
 	}
 	return out
+}
+
+// windowOpen reports whether the window server still lists w's window as
+// one of w's process.
+func windowOpen(w WindowID) bool {
+	list := cgWindowListCopyWindowInfo(windowListIncludingWindow, uint32(w.Handle)) //nolint:gosec // window numbers fit 32 bits
+	if list == 0 {
+		return false
+	}
+	defer cfRelease(list)
+	for _, dict := range cfArray(list) {
+		number, _ := cfInt(cfDictionaryGetValue(dict, cgWindowNumberKey))
+		pid, _ := cfInt(cfDictionaryGetValue(dict, cgWindowOwnerPIDKey))
+		if uint64(number) == w.Handle && uint32(pid) == w.PID { //nolint:gosec // window numbers and process ids are positive
+			return true
+		}
+	}
+	return false
 }
 
 // toPixelRect converts a frame in global points to display pixels.
@@ -421,28 +441,42 @@ func zoomable(window uintptr) bool {
 }
 
 // axWindow finds the Accessibility window of an application that the
-// window server lists as w: by its frame, else by its title. The caller
-// releases a non-zero window.
+// window server lists as w; see axWindowOf.
 func (b *darwinBackend) axWindow(app uintptr, w WindowID) uintptr {
+	return axWindowOf(app, w, b.display)
+}
+
+// axWindowOf finds the Accessibility window of an application that the
+// window server lists as w, on display d: by its frame and its title, since
+// maximized windows of one application share a frame, else by its frame
+// alone, else by its title alone. The caller releases a non-zero window.
+func axWindowOf(app uintptr, w WindowID, d display) uintptr {
 	windows := axCopy(app, "AXWindows")
 	if windows == 0 {
 		return 0
 	}
 	defer cfRelease(windows)
-	var byTitle uintptr
+	var byFrame, byTitle uintptr
 	for _, window := range cfArray(windows) {
-		if frame, ok := axFrame(window); ok && nearRect(b.toPixelRect(frame), w.Bounds, int(math.Ceil(frameTolerance*b.display.scale))) {
+		frame, ok := axFrame(window)
+		framed := ok && nearRect(d.pixelRect(frame), w.Bounds, int(math.Ceil(frameTolerance*d.scale)))
+		titled := w.Title != "" && axString(window, "AXTitle") == w.Title
+		if framed && (titled || w.Title == "") {
 			cfRetain(window)
 			return window
 		}
-		if byTitle == 0 && w.Title != "" && axString(window, "AXTitle") == w.Title {
+		if framed && byFrame == 0 {
+			byFrame = window
+		}
+		if titled && byTitle == 0 {
 			byTitle = window
 		}
 	}
-	if byTitle != 0 {
-		cfRetain(byTitle)
+	found := cmp.Or(byFrame, byTitle)
+	if found != 0 {
+		cfRetain(found)
 	}
-	return byTitle
+	return found
 }
 
 // workArea is the main display's frame without the menu bar and the Dock,

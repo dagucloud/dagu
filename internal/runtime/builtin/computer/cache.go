@@ -4,6 +4,7 @@
 package computer
 
 import (
+	"cmp"
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
@@ -269,26 +270,39 @@ func (r *run) replay(ctx context.Context, index int, entry recording, budget int
 			outcome.reason = fmt.Sprintf("turn %d of %d needs a person's confirmation", i+1, total)
 			return outcome, nil
 		}
+		byElement := false
+		if elementTurn(turn) {
+			if els == nil {
+				els, _ = r.elementsIfAvailable()
+			}
+			byElement = els != nil
+		}
+		// A turn replayed by its pixels looks at the screen and clicks it,
+		// holding the desktop.
+		if !byElement {
+			app := r.homeApp()
+			if turn.Window != nil {
+				app = cmp.Or(turn.Window.App, app)
+			}
+			if err := r.takeDesktop(ctx, app); err != nil {
+				return outcome, err
+			}
+		}
 		if _, err := r.resumeAfterPerson(ctx, index); err != nil {
 			return outcome, err
 		}
 		if err := r.fit(ctx, index); err != nil {
 			return outcome, err
 		}
-		if elementTurn(turn) {
-			if els == nil {
-				els, _ = r.elementsIfAvailable()
+		if byElement {
+			outcome.elementTurns++
+			reason, err := r.replayByElement(ctx, index, i, total, turn, els, findWithin, direct, &outcome)
+			if err != nil || reason != "" {
+				outcome.reason = reason
+				return outcome, err
 			}
-			if els != nil {
-				outcome.elementTurns++
-				reason, err := r.replayByElement(ctx, index, i, total, turn, els, findWithin, direct, &outcome)
-				if err != nil || reason != "" {
-					outcome.reason = reason
-					return outcome, err
-				}
-				outcome.turns++
-				continue
-			}
+			outcome.turns++
+			continue
 		}
 		outcome.pixelTurns++
 		v, found, err := r.awaitScreen(ctx, index, entry, turn, findWithin)
@@ -351,6 +365,10 @@ func (r *run) replay(ctx context.Context, index int, entry recording, budget int
 		}
 		outcome.complete, outcome.reason = reason == "", reason
 		return outcome, nil
+	}
+	// The final screen is compared by its pixels, holding the desktop.
+	if err := r.takeDesktop(ctx, r.homeApp()); err != nil {
+		return outcome, err
 	}
 	final, err := r.settleClear(ctx, index)
 	if err != nil {

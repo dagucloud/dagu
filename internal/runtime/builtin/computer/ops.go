@@ -4,6 +4,7 @@
 package computer
 
 import (
+	"cmp"
 	"context"
 	"encoding/json"
 	"errors"
@@ -76,15 +77,24 @@ type run struct {
 	artifacts   *agentstep.ArtifactStore
 	timeline    *agentstep.Timeline
 	driver      *desktop.Driver
-	// elements reads the front window for exact checks and for recording
-	// and replaying by element, opened on first use. elementsErr remembers
-	// a host that cannot read them, which records pixels alone.
+	// elements reads the front window, or the step's own window while it
+	// does not hold the desktop, for exact checks and for recording and
+	// replaying by element, opened on first use. elementsErr remembers a
+	// host that cannot read them, which records pixels alone.
 	elements    desktop.Elements
 	elementsErr error
 	// operation is the context of the operation running now, which the
 	// element reader's waits end with.
 	operation context.Context
-	lease     *desktopLease
+	// lockDir is the desktop lock's directory. lease holds the desktop while
+	// an operation needs it, and app the application appName the step works
+	// in; see takeDesktop and takeApp. own is the window the step reads
+	// while it does not hold the desktop; see reach.
+	lockDir string
+	lease   *desktopLease
+	app     *desktopLease
+	appName string
+	own     *desktop.WindowID
 	// clock is the working-time bound of the operation running, paused
 	// while the step waits for a person.
 	clock *activeContext
@@ -197,8 +207,19 @@ func (r *run) execute(ctx context.Context) error {
 		return r.fail(ctx, -1, "", err)
 	}
 	for i := start; i < len(r.cfg.Do); i++ {
+		// An operation holds the desktop only while it runs, and reads the
+		// step's own window only once it chooses one.
+		r.releaseDesktop()
+		r.own = nil
 		op := r.cfg.Do[i]
 		r.maximize = r.cfg.maximizes(op.maximize())
+		// A screenshot shows whatever is in front, so an operation that
+		// takes or judges one holds the desktop from its start.
+		if op.capturesScreen() {
+			if err := r.takeDesktop(ctx, r.homeApp()); err != nil {
+				return r.fail(ctx, i, op.kind(), err)
+			}
+		}
 		// A when on the step's data is decided before the window is fitted,
 		// so an operation it skips leaves the windows as they are; a when
 		// that reads the screen reads the window as the operation will see
@@ -279,7 +300,7 @@ func (r *run) reportFailure(index int, kind, subject string, cause error, began 
 	})
 }
 
-// start takes the desktop and returns the first operation to run.
+// start opens the desktop and returns the first operation to run.
 func (r *run) start(ctx context.Context) (int, error) {
 	session := r.exec.GetAgentSession()
 	cursor := 0
@@ -317,15 +338,10 @@ func (r *run) start(ctx context.Context) (int, error) {
 	if err := r.awaitUnlock(ctx); err != nil {
 		return 0, err
 	}
-	lockDir := r.exec.desktopLock
-	if lockDir == "" {
-		lockDir = filepath.Join(r.computerDir, desktopLockName)
+	r.lockDir = r.exec.desktopLock
+	if r.lockDir == "" {
+		r.lockDir = filepath.Join(r.computerDir, desktopLockName)
 	}
-	lease, err := acquireDesktop(ctx, lockDir, r.timeline)
-	if err != nil {
-		return 0, err
-	}
-	r.lease = lease
 	driver, err := r.exec.openDesktop()
 	if err != nil {
 		return 0, fmt.Errorf("open the desktop: %w", err)
@@ -333,9 +349,8 @@ func (r *run) start(ctx context.Context) (int, error) {
 	r.driver = driver
 	r.driver.ProtectApps(r.exec.protectedApps...)
 	r.driver.ProtectTitles(r.exec.protectedTitles...)
-	r.driver.AssumeInputSent(r.lease.lastInput())
 	r.showMarks()
-	r.workApp = r.lease.workApp(r.dagRunID)
+	r.workApp = readWorkApp(r.lockDir, r.dagRunID)
 	r.trustWorkApp(r.workApp)
 	r.noteStartingWindows()
 	if cursor > 0 {
@@ -369,7 +384,12 @@ func (r *run) runOperation(ctx context.Context, index int, op operation) error {
 
 func (r *run) launch(ctx context.Context, index int, spec launchSpec, timeout time.Duration) error {
 	began := time.Now()
-	// A new window takes the keyboard focus from a person who is typing.
+	// What a launch opens comes to the front, which a step does only while
+	// it holds the desktop, and a new window takes the keyboard focus from a
+	// person who is typing.
+	if err := r.takeDesktop(ctx, cmp.Or(spec.app(), r.homeApp())); err != nil {
+		return err
+	}
 	if err := r.awaitPerson(ctx); err != nil {
 		return err
 	}
@@ -487,6 +507,14 @@ func (r *run) replayExtract(ctx context.Context, index int, spec extractSpec, ke
 // modelExtract reads an extract with the model and binds each field it read
 // to the element it came from, when the host can read elements.
 func (r *run) modelExtract(ctx context.Context, index int, spec extractSpec, key string, began time.Time, before tokenUsage) error {
+	// The model reads a screenshot, so the extract holds the desktop from
+	// here, and the window is fitted as for any look at the screen.
+	if err := r.takeDesktop(ctx, r.homeApp()); err != nil {
+		return err
+	}
+	if err := r.fit(ctx, index); err != nil {
+		return err
+	}
 	full, err := r.settleClear(ctx, index)
 	if err != nil {
 		return err
@@ -621,6 +649,11 @@ func (r *run) await(ctx context.Context, index int, c condition, window, timeout
 		interval = exactPollInterval
 	}
 	for {
+		if !c.judged() {
+			if err := r.reachCheck(ctx, c); err != nil {
+				return false, "", err
+			}
+		}
 		// A person who used the desktop meanwhile may have left another
 		// window in front; the check looks again from when they stop.
 		if resumed, err := r.resumeAfterPerson(ctx, index); err != nil {
@@ -655,10 +688,14 @@ func (r *run) await(ctx context.Context, index int, c condition, window, timeout
 }
 
 // evaluate reports whether a condition holds now, and why. A statement is
-// judged against a screenshot; an exact check reads the front window's
-// elements and takes no screenshot.
+// judged against a screenshot, holding the desktop; an exact check reads
+// the elements of a window of the application it names or the step works
+// in, or, without one, of the window in front, and takes no screenshot.
 func (r *run) evaluate(ctx context.Context, c condition) (bool, string, error) {
 	if c.judged() {
+		if err := r.takeDesktop(ctx, r.homeApp()); err != nil {
+			return false, "", err
+		}
 		full, err := r.settle(ctx)
 		if err != nil {
 			return false, "", err
@@ -673,6 +710,9 @@ func (r *run) evaluate(ctx context.Context, c condition) (bool, string, error) {
 	if err != nil {
 		return false, "", err
 	}
+	if err := r.reachCheck(ctx, c); err != nil {
+		return false, "", err
+	}
 	// For a moment between one window closing and the next one opening, no
 	// window is in front; the check looks again rather than fail.
 	front, err := els.FrontWindow()
@@ -682,7 +722,7 @@ func (r *run) evaluate(ctx context.Context, c condition) (bool, string, error) {
 	if err != nil {
 		return false, "", err
 	}
-	holds, reason, err := evaluateFront(els, front, c)
+	holds, reason, err := evaluateFront(els, front, c, r.lease == nil)
 	if holds && front.App != "" {
 		r.workApp = front.App
 		r.trustWorkApp(front.App)
@@ -694,9 +734,28 @@ func (r *run) evaluate(ctx context.Context, c condition) (bool, string, error) {
 	return holds, reason, err
 }
 
+// reachCheck makes the window an exact check reads the one the step reads:
+// a window of the application its selector names or the step works in, or
+// else the one it reads now, as a handler's check does while the step looks
+// for an element, preferring one with the title it names.
+func (r *run) reachCheck(ctx context.Context, c condition) error {
+	if _, err := r.elementsReader(); err != nil {
+		return err
+	}
+	app, title := r.homeApp(), c.Window
+	if app == "" && r.own != nil {
+		app = r.own.App
+	}
+	if c.Element != nil {
+		app, title = cmp.Or(c.Element.App, app), c.Element.Window
+	}
+	return r.reach(ctx, app, title)
+}
+
 // evaluateFront reports whether an exact condition holds in the front
-// window, and why.
-func evaluateFront(els desktop.Elements, front desktop.Element, c condition) (bool, string, error) {
+// window, and why. own says the window is the step's own, which a step
+// that does not hold the desktop reads in place of the one in front.
+func evaluateFront(els desktop.Elements, front desktop.Element, c condition, own bool) (bool, string, error) {
 	switch {
 	case c.Text != "":
 		elements, err := els.Outline(front, 0)
@@ -738,7 +797,12 @@ func evaluateFront(els desktop.Elements, front desktop.Element, c condition) (bo
 		}
 		return true, fmt.Sprintf("%s is there", sel), nil
 	default:
-		if desktop.WindowMatches(front.Name, c.Window) {
+		switch matches := desktop.WindowMatches(front.Name, c.Window); {
+		case own && matches:
+			return true, fmt.Sprintf("the window %q is open", front.Name), nil
+		case own:
+			return false, fmt.Sprintf("no window of %s shows %q; %q is open", front.App, c.Window, front.Name), nil
+		case matches:
 			return true, fmt.Sprintf("the window %q is in front", front.Name), nil
 		}
 		return false, fmt.Sprintf("%q is in front, not %q", front.Name, c.Window), nil
@@ -766,7 +830,8 @@ func (r *run) elementsReader() (desktop.Elements, error) {
 		}
 		return nil, fmt.Errorf("open the elements: %w", err)
 	}
-	r.elements = newSteadyElements(markedElements{Elements: els, driver: r.driver}, r.driver.Windows, r.driver.InputSentAt, func() context.Context { return r.operation })
+	routed := &routedElements{Elements: els, own: r.ownRead}
+	r.elements = newSteadyElements(markedElements{Elements: routed, driver: r.driver}, r.settledWindows, r.driver.InputSentAt, func() context.Context { return r.operation })
 	return r.elements, nil
 }
 
@@ -815,6 +880,14 @@ func (r *run) capture(ctx context.Context, label string) (string, error) {
 	if !r.artifacts.Enabled() {
 		return "", agentstep.ErrNoArtifactStorage
 	}
+	// A screenshot shows whatever is in front, so the step holds the
+	// desktop while it takes one, and one that holds it already waits for
+	// no application.
+	if r.lease == nil {
+		if err := r.takeDesktop(ctx, r.homeApp()); err != nil {
+			return "", err
+		}
+	}
 	full, err := r.settle(ctx)
 	if err != nil {
 		return "", err
@@ -862,9 +935,11 @@ func (r *run) fail(ctx context.Context, index int, kind string, cause error) err
 		cause = ctx.Err()
 	}
 	var files []string
-	// A window an outline refused to read is not captured either.
+	// A window an outline refused to read is not captured either, nor is
+	// the screen while another step holds the desktop, which a failure does
+	// not wait for.
 	_, refused := errors.AsType[refusedWindow](cause)
-	if !refused && r.cfg.screenshotPolicy() != screenshotsNever && r.artifacts.Enabled() && r.driver != nil {
+	if !refused && r.cfg.screenshotPolicy() != screenshotsNever && r.artifacts.Enabled() && r.driver != nil && r.tryDesktop(ctx) {
 		if rel, err := r.capture(context.WithoutCancel(ctx), failureShotLabel); err == nil {
 			files = append(files, rel)
 		}
@@ -958,9 +1033,10 @@ func (r *run) guardsPerson() bool {
 // they stop, then brings the application the step was working in back to
 // the front, where they may have left another. It reports whether a person
 // used the desktop, so a caller looking for something on the screen starts
-// its wait again.
+// its wait again. A step that does not hold the desktop sends no input a
+// person's could collide with, so it makes way for nobody.
 func (r *run) resumeAfterPerson(ctx context.Context, index int) (bool, error) {
-	if !r.guardsPerson() {
+	if r.lease == nil || !r.guardsPerson() {
 		return false, nil
 	}
 	if !r.driver.PersonInputSince(r.personSince()) {
@@ -998,8 +1074,9 @@ func (r *run) personSince() time.Time {
 // pollSleep waits between two looks at the screen, ending early when a
 // person starts using the desktop, so the next look makes way for them at
 // once rather than after the wait, which the operation's time would cover.
+// A step that does not hold the desktop makes way for nobody.
 func (r *run) pollSleep(ctx context.Context, d time.Duration) error {
-	if !r.guardsPerson() {
+	if r.lease == nil || !r.guardsPerson() {
 		return sleep(ctx, d)
 	}
 	since := r.personSince()
@@ -1082,20 +1159,23 @@ func (r *run) forgetReplays(ctx context.Context, index int, kind string, cause e
 	}
 }
 
-// shutdown closes the desktop and lets other steps use it.
+// shutdown closes the desktop and lets other steps use it and the
+// application the step worked in.
 func (r *run) shutdown() {
 	if r.elements != nil {
 		_ = r.elements.Close()
 		r.elements = nil
 	}
 	if r.driver != nil {
-		r.lease.recordInput(r.driver.InputSentAt())
-		r.lease.recordWorkApp(r.dagRunID, r.workApp)
+		writeWorkApp(r.lockDir, r.dagRunID, r.workApp)
+		// Closing the driver releases any button still pressed, which is
+		// input, so the step still holds the desktop for it.
 		_ = r.driver.Close()
+		r.releaseDesktop()
 		r.driver = nil
 	}
-	r.lease.release()
-	r.lease = nil
+	r.app.release()
+	r.app = nil
 }
 
 func (r *run) agentUsage() ir.AgentUsage {
