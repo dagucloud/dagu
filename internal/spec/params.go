@@ -285,7 +285,7 @@ func jsonParamText(value any) string {
 	return strings.TrimSuffix(buf.String(), "\n")
 }
 
-func parseStringParams(ctx buildContext, input string) ([]paramPair, error) {
+func parseStringParams(_ buildContext, input string) ([]paramPair, error) {
 	input = strings.TrimSpace(input)
 
 	// Check if input looks like a JSON object or array
