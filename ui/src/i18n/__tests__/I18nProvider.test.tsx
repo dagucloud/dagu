@@ -8,7 +8,7 @@ import {
   screen,
   waitFor,
 } from '@testing-library/react';
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { UserPreferencesProvider } from '@/contexts/UserPreference';
 import { I18nProps } from '../I18nProps';
 import { I18nProvider } from '../I18nProvider';
@@ -46,6 +46,11 @@ describe('I18nProvider', () => {
   beforeEach(() => {
     localStorage.clear();
     document.documentElement.lang = 'en';
+  });
+
+  afterEach(() => {
+    vi.doUnmock('../staticMessages');
+    vi.restoreAllMocks();
   });
 
   it('sets the document language from the saved locale', async () => {
@@ -124,6 +129,33 @@ describe('I18nProvider', () => {
     });
 
     expect(screen.getByText('アクション')).toBeVisible();
+  });
+
+  // A tab left open across a server upgrade asks for a chunk that no longer
+  // exists; the app must stay usable.
+  it('shows English when the catalog fails to load', async () => {
+    localStorage.setItem('user_preferences', JSON.stringify({ locale: 'ja' }));
+    vi.doMock('../staticMessages', () => {
+      throw new Error('chunk not found');
+    });
+    vi.spyOn(console, 'error').mockImplementation(() => {});
+    const { UserPreferencesProvider, I18nProvider, I18nText, ...i18n } =
+      await importFreshI18n();
+
+    await act(async () => {
+      render(
+        <UserPreferencesProvider>
+          <I18nProvider>
+            <span>
+              <I18nText text="Actions" />
+            </span>
+          </I18nProvider>
+        </UserPreferencesProvider>
+      );
+    });
+    await act(() => i18n.loadStaticMessages('ja'));
+
+    expect(screen.getByText('Actions')).toBeVisible();
   });
 
   it('localizes static text and props', () => {

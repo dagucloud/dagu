@@ -17,8 +17,9 @@ export function hasStaticMessages(locale: Locale): boolean {
 }
 
 /**
- * Resolves once translateStatic can translate into the locale. Calls made
- * while a load is pending share its promise.
+ * Resolves once translateStatic can translate into the locale, or once the
+ * load has failed; the source text then stands until the page reloads. Calls
+ * share one load.
  */
 export function loadStaticMessages(locale: Locale): Promise<void> {
   if (hasStaticMessages(locale)) {
@@ -29,8 +30,7 @@ export function loadStaticMessages(locale: Locale): Promise<void> {
       catalogs = module.staticMessages;
     },
     (error: unknown) => {
-      loading = undefined;
-      throw error;
+      console.error('Failed to load the message catalogs:', error);
     }
   );
   return loading;
