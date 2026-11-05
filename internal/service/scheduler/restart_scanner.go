@@ -94,6 +94,17 @@ type RestartScanner struct {
 	// operator is known to have stopped that attempt.
 	stoppedRuns map[string]string
 	backoff     map[string]restartBackoff
+	// waiting maps a DAG name to when its next run becomes due, while it waits
+	// out the wait after its latest run.
+	waiting map[string]restartDue
+}
+
+// restartDue is when the next run of a waiting DAG becomes due.
+type restartDue struct {
+	at time.Time
+	// restartWait is the restart_wait_sec the time follows from; an edited
+	// DAG is read again at once.
+	restartWait time.Duration
 }
 
 // restartBackoff counts the runs of a DAG in a row that failed soon after they
@@ -118,6 +129,7 @@ func NewRestartScanner(cfg RestartScannerConfig) *RestartScanner {
 		lastErrorLog:  make(map[string]time.Time),
 		stoppedRuns:   make(map[string]string),
 		backoff:       make(map[string]restartBackoff),
+		waiting:       make(map[string]restartDue),
 	}
 }
 
@@ -161,6 +173,13 @@ func (s *RestartScanner) scan(ctx context.Context) {
 
 func (s *RestartScanner) process(ctx context.Context, entry DAGEntry, now time.Time) error {
 	dag := entry.DAG
+
+	// Nothing makes a run due before the wait ends: a run started meanwhile
+	// only keeps the DAG busy, which is checked when the wait ends.
+	if due, ok := s.waiting[dag.Name]; ok && due.restartWait == dag.RestartWait && now.Before(due.at) {
+		return nil
+	}
+	delete(s.waiting, dag.Name)
 
 	suspended, err := isSuspendedDAG(ctx, s.cfg.IsSuspended, nil, dag, entry.DefinitionID)
 	if err != nil {
@@ -211,6 +230,9 @@ func (s *RestartScanner) process(ctx context.Context, entry DAGEntry, now time.T
 		}
 	}
 	if !decision.start {
+		if !decision.due.IsZero() {
+			s.waiting[dag.Name] = restartDue{at: decision.due, restartWait: dag.RestartWait}
+		}
 		logNoRestart(ctx, dag, decision.reason)
 		return nil
 	}
@@ -335,6 +357,11 @@ func (s *RestartScanner) forgetOthers(services map[string]struct{}) {
 			delete(s.backoff, name)
 		}
 	}
+	for name := range s.waiting {
+		if _, ok := services[name]; !ok {
+			delete(s.waiting, name)
+		}
+	}
 }
 
 func (s *RestartScanner) logError(ctx context.Context, dagName string, now time.Time, err error) {
@@ -360,6 +387,8 @@ type restartDecision struct {
 	// previousEnd is when the run the new run follows ended. It is zero for the
 	// first run of a DAG and when the end of the previous run is unknown.
 	previousEnd time.Time
+	// due is when the next run becomes due, for a DAG that waits.
+	due time.Time
 }
 
 // decideRestart tells whether the latest run of a DAG is followed by a new run.
@@ -379,8 +408,8 @@ func decideRestart(wait time.Duration, latest *ir.DAGRunStatus, now time.Time) r
 	}
 	// The end is stored to the second, so the run may have ended up to a second
 	// after it.
-	if now.Before(endedAt.Add(time.Second + wait)) {
-		return restartDecision{reason: "waiting"}
+	if due := endedAt.Add(time.Second + wait); now.Before(due) {
+		return restartDecision{reason: "waiting", due: due}
 	}
 	return restartDecision{start: true, reason: "previous_run_ended", previousEnd: endedAt}
 }

@@ -130,6 +130,7 @@ type restartHarness struct {
 	stopped    map[string]bool
 	stopErr    error
 	stopChecks int
+	reads      int
 	existing   map[string]bool
 	failWith   error
 	enqueued   []enqueuedRun
@@ -162,11 +163,19 @@ func newRestartHarness(t *testing.T, dags ...*ir.DAG) *restartHarness {
 	h.scanner = NewRestartScanner(RestartScannerConfig{
 		Entries: func() []DAGEntry { return h.entries },
 		IsSuspended: func(_ context.Context, name string) (bool, error) {
+			h.reads++
 			return h.suspended[name], nil
 		},
-		IsRunning: func(context.Context, *ir.DAG) (bool, error) { return h.running, nil },
-		IsQueued:  func(context.Context, *ir.DAG) (bool, error) { return h.queued, nil },
+		IsRunning: func(context.Context, *ir.DAG) (bool, error) {
+			h.reads++
+			return h.running, nil
+		},
+		IsQueued: func(context.Context, *ir.DAG) (bool, error) {
+			h.reads++
+			return h.queued, nil
+		},
 		GetLatestStatus: func(context.Context, *ir.DAG) (ir.DAGRunStatus, error) {
+			h.reads++
 			return h.latest, h.latestErr
 		},
 		IsStopRequested: func(_ context.Context, _ *ir.DAG, runID string) (bool, error) {
@@ -265,6 +274,39 @@ func TestRestartScanner(t *testing.T) {
 		h.endRun(ir.Succeeded, time.Minute)
 		h.scan()
 		assert.Len(t, h.enqueued, 1)
+	})
+
+	// The next run of a DAG that waits out restart_wait_sec cannot become due
+	// before the wait ends, so the scanner reads no store until then.
+	t.Run("NoReadsWhileWaiting", func(t *testing.T) {
+		t.Parallel()
+		h := newRestartHarness(t, serviceDAG("svc", ir.RestartPolicyAlways))
+		h.endRun(ir.Failed, 0)
+		h.scan()
+		reads := h.reads
+		for range 10 {
+			h.now = h.now.Add(time.Second)
+			h.scan()
+		}
+		assert.Equal(t, reads, h.reads)
+		assert.Empty(t, h.enqueued)
+
+		h.now = h.now.Add(time.Second)
+		h.scan()
+		assert.Len(t, h.enqueued, 1)
+	})
+
+	t.Run("EditedWaitApplies", func(t *testing.T) {
+		t.Parallel()
+		dag := serviceDAG("svc", ir.RestartPolicyAlways)
+		h := newRestartHarness(t, dag)
+		h.endRun(ir.Failed, 0)
+		h.scan()
+
+		dag.RestartWait = 2 * time.Second
+		h.now = h.now.Add(3 * time.Second)
+		h.scan()
+		assert.Len(t, h.enqueued, 1, "a shorter wait applies before the old one ends")
 	})
 
 	// A DAG that keeps failing soon after it starts must not restart every
