@@ -6758,7 +6758,6 @@
         {
           "enum": [
             "openai",
-            "openai-codex",
             "anthropic",
             "gemini",
             "google",

@@ -12,7 +12,6 @@ import (
 	_ "github.com/dagucloud/dagu/v2/internal/llm/providers/gemini"
 	_ "github.com/dagucloud/dagu/v2/internal/llm/providers/local"
 	_ "github.com/dagucloud/dagu/v2/internal/llm/providers/openai"
-	_ "github.com/dagucloud/dagu/v2/internal/llm/providers/openaicodex"
 	_ "github.com/dagucloud/dagu/v2/internal/llm/providers/openrouter"
 	_ "github.com/dagucloud/dagu/v2/internal/llm/providers/zai"
 )
