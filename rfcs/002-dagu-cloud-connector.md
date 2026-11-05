@@ -152,17 +152,16 @@ were lost from.
 
 | Level | Fields | When |
 | --- | --- | --- |
-| `health` | Dagu version, OS, architecture, process start time, service counts (schedulers holding the scheduler lock, and registered coordinators), the scheduler's last tick and whether it is paused, the remote access level and whether remote approvals are on, and, on a paid plan or trial, the latest sample of the machine's resources, or its container's when that has limits: logical CPUs and the CPU limit, average and peak CPU use since the last accepted report, load averages, memory use, and the use of the disks that hold the data and log directories, with their inodes | Every report |
-| `runs` | The `health` fields, plus the status of each top-level DAG run that finishes, with its failed step names (up to 50) and how it was triggered, and the list of runs queued, running, or waiting. Each run is sent as its DAG name, run ID, attempt ID, status, trigger, and queued, started, and finished times. Also each scheduled DAG: its name, its next run, and its latest start-schedule slot that came due with what the scheduler did with it (dispatched, skipped as running, queued, done, succeeded, or overlapping, failed, planned, or missed while no scheduler ran). Also each queue that holds queued or running runs: its name, how many runs are waiting and how many are running, on the server and on distributed workers, how many may run at once, when the next run in line was queued, and why it cannot start when it waits for a worker | Each finished run once, at most 500 and 512 KiB of them per report; the runs in progress with every report, at most 200 of them and a count of all; within 5 seconds of a failed, aborted, or rejected run or a change to the runs in progress. The scheduled DAGs with every report from the process that reports the runs, those whose slot did not run first, at most 500 and 128 KiB of them and a count of all. The queues with every report, read at most once a minute, those whose next run waits for a worker first, then those with room whose next run has not started, then full ones, then those with nothing queued, at most 256 of them and a count of all |
+| `health` | Dagu version, OS, architecture, process start time, service counts (schedulers holding the scheduler lock, and registered coordinators), the scheduler's last tick and whether it is paused, the remote access level and whether remote approvals are on, and, on a paid plan or trial, the latest sample of the machine's resources, or its container's when that has limits: logical CPUs and the CPU limit, average and peak CPU use since the last accepted report, load averages, memory use, and the use of the disks that hold the data and log directories, with their inodes. Also, on a paid plan or trial, how many distributed workers send heartbeats | Every report |
+| `runs` | The `health` fields, plus the status of each top-level DAG run that finishes, with its failed step names (up to 50) and how it was triggered, and the list of runs queued, running, or waiting. Each run is sent as its DAG name, run ID, attempt ID, status, trigger, and queued, started, and finished times. Also each scheduled DAG: its name, its next run, and its latest start-schedule slot that came due with what the scheduler did with it (dispatched, skipped as running, queued, done, succeeded, or overlapping, failed, planned, or missed while no scheduler ran). Also each queue that holds queued or running runs: its name, how many runs are waiting and how many are running, on the server and on distributed workers, how many may run at once, when the next run in line was queued, and why it cannot start when it waits for a worker. Also, on a paid plan or trial, each distributed worker: its ID, host, labels, pollers, last heartbeat, and the latest sample of its machine | Each finished run once, at most 500 and 512 KiB of them per report; the runs in progress with every report, at most 200 of them and a count of all; within 5 seconds of a failed, aborted, or rejected run or a change to the runs in progress. The scheduled DAGs with every report from the process that reports the runs, those whose slot did not run first, at most 500 and 128 KiB of them and a count of all. The queues with every report, read at most once a minute, those whose next run waits for a worker first, then those with room whose next run has not started, then full ones, then those with nothing queued, at most 256 of them and a count of all. The workers with every report, by ID, at most 256 of them |
 | `errors` | The `runs` fields, plus why each finished run failed: the error messages of its failed steps and handlers, at most 5, or the run's own error when no step has one. Each is sent without terminal escapes, at most 2048 bytes from its end. A command step's error ends with the last 1 KiB of its stderr; the values of workflow secrets are masked in it as in logs | With the finished run it belongs to |
 
 A run is reported unless its event has no valid status snapshot, or it names
 a DAG longer than 512 bytes or a run or attempt ID longer than 256 bytes,
 which Dagu Cloud would not keep. Those runs are left out.
 
-**Planned, not sent by any level yet:** worker counts and the list of
-unscheduled DAGs. Each joins the table above, under its level, before
-it is sent.
+**Planned, not sent by any level yet:** the list of unscheduled DAGs. It
+joins the table above, under its level, before it is sent.
 
 **Never sent:** full logs, outputs, parameters, environment, step commands, DAG
 YAML, schedule expressions, and the values of workflow secrets. Error messages are sent only at
@@ -357,6 +356,31 @@ name is longer than 128 bytes is left out.
 Both are left out at `health`, and when the queues or the runs in progress
 cannot be read, rather than sent with counts that are short. A read
 serves reports for a minute.
+
+`health.workers_total` counts the distributed workers whose last heartbeat
+is at most 30 seconds old, and at `runs` and `errors`, `health.workers` lists
+them by ID, at most 256:
+
+```json
+"workers": [{ "id": "gpu-1@4242", "host": "gpu-1", "labels": { "gpu": "true" },
+              "total_pollers": 4, "busy_pollers": 1,
+              "last_heartbeat_at": "2026-10-10T01:01:58Z",
+              "resources": { "cpus": 8, "cpu_percent": 40.5, "cpu_peak_percent": 72,
+                             "memory": { "used_percent": 61.2, "used_bytes": 10514079744,
+                                         "total_bytes": 17179869184 } } }],
+"workers_total": 1
+```
+
+`host` is the machine's name, left out when the worker cannot read it or
+runs an older Dagu. `total_pollers` is how many runs the worker may run
+at once and `busy_pollers` how many it runs. `resources` has the shape of the
+server's own, sampled by the worker, with `cpu_percent` and
+`cpu_peak_percent` taken over the last minute; it is left out until the
+worker samples, and for workers on an older Dagu. Both fields are left out
+on free monitoring, while no coordinator is registered, since only a
+coordinator keeps the heartbeats current, and when the heartbeats cannot be
+read. With a coordinator and no worker, `workers` is empty and
+`workers_total` is 0.
 
 `active` lists the runs in progress, with `status` `queued`, `running`, or
 `waiting` and the same fields up to `started_at`: at most 200, the most

@@ -343,7 +343,7 @@ func startCloudReport(ctx *Context, monitoring *cloudreport.Monitoring, access *
 	}
 	scheduler := cloudreport.Scheduler{State: ctx.Persistence.SchedulerStateStore, Pause: ctx.Persistence.SchedulerPauseStore}
 	return cloudreport.Start(ctx, ctx.LicenseManager.CloudCredentials, ctx.Persistence.ServiceRegistry, cloudReportEvents(ctx), scheduler,
-		cloudReportQueues(ctx), monitoring, remote, sampled, ctx.LicenseManager.Refresh)
+		cloudReportQueues(ctx), cloudReportWorkers(ctx), monitoring, remote, sampled, ctx.LicenseManager.Refresh)
 }
 
 // cloudReportQueues reads the server's queues for reports: what waits and
@@ -368,6 +368,15 @@ func cloudReportQueues(ctx *Context) cloudreport.Queues {
 			return 1
 		},
 	}
+}
+
+// cloudReportWorkers lists the distributed workers for reports from the
+// heartbeats the coordinator keeps; nil leaves workers out.
+func cloudReportWorkers(ctx *Context) cloudreport.Workers {
+	if ctx.Persistence.WorkerHeartbeatStore == nil {
+		return nil
+	}
+	return ctx.Persistence.WorkerHeartbeatStore
 }
 
 // newCloudAccess returns what takes calls from Dagu Cloud while remote access
