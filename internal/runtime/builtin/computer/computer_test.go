@@ -3592,8 +3592,55 @@ func TestCapLeavesActionsThatRemain(t *testing.T) {
 
 	assert.Equal(t, []string{"move 1,1", "left down #1", "move 2,2", "left down #1", "move 3,3", "left down #1"}, run.backend.inputs())
 	notes, reportOnly := session.requests()
-	assert.Equal(t, []string{"", "", capNote, ""}, notes)
+	require.Len(t, notes, 4)
+	assert.NotEqual(t, capNote, notes[2], "an oversized batch with an action left does not claim the budget is spent")
+	assert.Contains(t, notes[2], "1 action")
+	assert.Empty(t, notes[3])
 	assert.Equal(t, []bool{false, false, false, false}, reportOnly)
+}
+
+// A batch larger than the actions left may be followed by a smaller one
+// that uses the rest; only a budget with nothing left asks for the report.
+func TestCapPartialOverrunKeepsBudget(t *testing.T) {
+	t.Parallel()
+
+	run := newTestRun(t)
+	session := &scriptedSession{turns: []*computeruse.Turn{
+		actions(clickAt(1, 1)),
+		actions(clickAt(2, 2), clickAt(3, 3), clickAt(4, 4)),
+		said("I will send one action."),
+		actions(clickAt(5, 5)),
+		actions(clickAt(6, 6)),
+		done("Clicked around"),
+	}}
+	run.sessions = []*scriptedSession{session}
+	execution := run.execute(`{"max_actions": 2, "cache": false, "do": [{"act": "Click around"}]}`, nil)
+	require.NoError(t, execution.err)
+
+	assert.Equal(t, []string{"move 1,1", "left down #1", "move 5,5", "left down #1"}, run.backend.inputs())
+	notes, reportOnly := session.requests()
+	require.Len(t, notes, 6)
+	assert.NotEqual(t, capNote, notes[2], "the overrun left an action, so the model may try a smaller batch")
+	assert.Contains(t, notes[2], "1 action")
+	assert.Equal(t, continueNote, notes[3], "a text answer is reminded to continue, not capped")
+	assert.Empty(t, notes[4], "the smaller batch ran without a cap")
+	assert.Equal(t, capNote, notes[5], "only a spent budget asks the model for its report")
+	assert.Equal(t, []bool{false, false, false, false, false, true}, reportOnly)
+}
+
+// A model that keeps sending oversized batches without ever sending a
+// smaller one does not loop until the act's timeout.
+func TestCapRepeatedOverrunEndsTheAct(t *testing.T) {
+	t.Parallel()
+
+	run := newTestRun(t)
+	run.sessions = []*scriptedSession{{turns: []*computeruse.Turn{
+		actions(clickAt(1, 1)),
+		actions(clickAt(2, 2), clickAt(3, 3), clickAt(4, 4)),
+		actions(clickAt(5, 5), clickAt(6, 6)),
+	}}}
+	execution := run.execute(`{"max_actions": 2, "cache": false, "do": [{"act": "Click around"}]}`, nil)
+	require.ErrorContains(t, execution.err, "kept sending batches larger than the actions left")
 }
 
 // A batch that overruns the actions left counts as an answer with actions,
@@ -3611,7 +3658,11 @@ func TestCapCountsTextAnswersAfresh(t *testing.T) {
 	require.ErrorContains(t, execution.err, "the model stopped without reporting the task done")
 
 	notes, reportOnly := session.requests()
-	assert.Equal(t, []string{"", continueNote, reportNote, capNote, continueNote, reportNote}, notes)
+	require.Len(t, notes, 6)
+	assert.Equal(t, []string{"", continueNote, reportNote}, notes[:3])
+	assert.NotEqual(t, capNote, notes[3], "an oversized batch with an action left does not claim the budget is spent")
+	assert.Contains(t, notes[3], "1 action")
+	assert.Equal(t, []string{continueNote, reportNote}, notes[4:])
 	assert.Equal(t, []bool{false, false, true, false, false, true}, reportOnly)
 }
 
@@ -3628,7 +3679,8 @@ func TestCapRequestListsElements(t *testing.T) {
 	require.NoError(t, execution.err)
 
 	require.Len(t, session.observations, 2)
-	assert.Equal(t, capNote, session.observations[1].Note)
+	assert.NotEqual(t, capNote, session.observations[1].Note, "an oversized batch with an action left does not claim the budget is spent")
+	assert.Contains(t, session.observations[1].Note, "1 action")
 	assert.Contains(t, session.observations[1].Elements, computeruse.Element{ID: "e1", Role: desktop.RoleButton, Name: "保存", Takes: []computeruse.Kind{computeruse.KindClick}})
 }
 

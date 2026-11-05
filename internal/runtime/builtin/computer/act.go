@@ -314,6 +314,9 @@ type actLoop struct {
 	// capped records that the model was told the task has no actions left
 	// and asked for its report.
 	capped bool
+	// overruns counts batches in a row that were larger than the actions
+	// left, so a model that never sends a smaller batch does not loop.
+	overruns int
 	// lastRound is the previous round of actions, for noticing a repeat.
 	lastRound string
 	// tried holds the actions the model took since the screen last changed,
@@ -382,7 +385,29 @@ func (l *actLoop) run(ctx context.Context) error {
 		if err != nil {
 			return err
 		}
+		capacity := l.budget - l.spent - l.outcome.actions
 		if over {
+			// A batch that is larger than the actions left leaves those
+			// actions for a smaller batch. Tell the model the batch did not
+			// run and how many it may still take.
+			if !l.exhausted() {
+				l.overruns++
+				if l.overruns >= 2 {
+					return fmt.Errorf("the model kept sending batches larger than the actions left (max_actions %d)", l.budget)
+				}
+				l.stalled = 0
+				shown, offered, err := l.lookAndOffer(ctx)
+				if err != nil {
+					return err
+				}
+				obs = computeruse.Observation{
+					Screen:   shown,
+					Results:  skippedResults(turn.Actions),
+					Note:     fmt.Sprintf("This batch of %d actions did not run: only %d %s left. Send %s, or report done.", len(turn.Actions), capacity, actionsWord(capacity), batchLimitNote(capacity)),
+					Elements: offered,
+				}
+				continue
+			}
 			// The task has no actions left. The model is told once, with the
 			// screen, and may still report the task done; one that acts
 			// again instead ends the act.
@@ -398,17 +423,17 @@ func (l *actLoop) run(ctx context.Context) error {
 			if err != nil {
 				return err
 			}
-			// Only a budget with nothing left takes the actions away; one
-			// that a batch overran may still fit a smaller one.
 			obs = computeruse.Observation{
 				Screen:     shown,
 				Results:    skippedResults(turn.Actions),
 				Note:       capNote,
-				ReportOnly: l.exhausted(),
+				ReportOnly: true,
 				Elements:   offered,
 			}
 			continue
 		}
+		// The batch fits, so a run of oversized batches is over.
+		l.overruns = 0
 		// Before running the turn's actions, make sure the world still matches
 		// the screen the model chose them on. A person who used the desktop,
 		// or any other change that moved or covered the target between the
@@ -1073,6 +1098,22 @@ func (l *actLoop) admit(turn *computeruse.Turn) (over bool, err error) {
 // exhausted reports whether the task has no action left.
 func (l *actLoop) exhausted() bool {
 	return l.spent+l.outcome.actions >= l.budget
+}
+
+// actionsWord and batchLimitNote keep the batch note grammatical for a
+// single action.
+func actionsWord(n int) string {
+	if n == 1 {
+		return "action is"
+	}
+	return "actions are"
+}
+
+func batchLimitNote(n int) string {
+	if n == 1 {
+		return "one action"
+	}
+	return fmt.Sprintf("a batch of at most %d actions", n)
 }
 
 // onlyScrolls reports a turn that does nothing but scroll.
