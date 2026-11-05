@@ -171,6 +171,42 @@ func TestGitCheckoutSSHUser(t *testing.T) {
 	}
 }
 
+// A branch ref on an existing clone checks out the fetched branch, not the
+// local branch the clone created, which stays at the commit cloned.
+func TestGitCheckoutUpdatesExistingRepositoryToBranch(t *testing.T) {
+	t.Parallel()
+
+	source := t.TempDir()
+	createTestRepository(t, source, "version.txt", "one\n")
+	branch := currentBranch(t, source)
+	workDir := t.TempDir()
+	step := checkoutStep(map[string]any{
+		"repository": source,
+		"ref":        branch,
+		"path":       "repo",
+	})
+
+	first, err := newExecutor(testContext(workDir), step)
+	require.NoError(t, err)
+	require.NoError(t, first.Run(context.Background()))
+	assert.Equal(t, "one\n", readFile(t, filepath.Join(workDir, "repo/version.txt")))
+
+	secondCommit := commitFile(t, source, "version.txt", "two\n")
+	second, err := newExecutor(testContext(workDir), step)
+	require.NoError(t, err)
+
+	var stdout bytes.Buffer
+	second.SetStdout(&stdout)
+	require.NoError(t, second.Run(context.Background()))
+
+	assert.Equal(t, "two\n", readFile(t, filepath.Join(workDir, "repo/version.txt")))
+
+	var result checkoutResult
+	require.NoError(t, json.Unmarshal(stdout.Bytes(), &result))
+	assert.True(t, result.Changed)
+	assert.Equal(t, secondCommit, result.Commit)
+}
+
 func TestGitCheckoutRejectsMixedHTTPSAuth(t *testing.T) {
 	t.Parallel()
 
@@ -235,6 +271,15 @@ func writeTestSSHKey(t *testing.T, path string) {
 	block, err := cryptossh.MarshalPrivateKey(key, "")
 	require.NoError(t, err)
 	require.NoError(t, os.WriteFile(path, pem.EncodeToMemory(block), 0o600))
+}
+
+func currentBranch(t *testing.T, repoPath string) string {
+	t.Helper()
+	repo, err := gogit.PlainOpen(repoPath)
+	require.NoError(t, err)
+	head, err := repo.Head()
+	require.NoError(t, err)
+	return head.Name().Short()
 }
 
 func readFile(t *testing.T, path string) string {

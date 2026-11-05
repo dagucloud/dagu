@@ -380,11 +380,13 @@ func resolveRef(repo *gogit.Repository, ref string) (plumbing.Hash, error) {
 		return hash, nil
 	}
 
+	// A branch name resolves to the fetched remote branch. The local branch a
+	// clone created is never updated by a fetch, so it can be behind. Tags
+	// keep precedence over branches, as in git.
 	revisions := []plumbing.Revision{
-		plumbing.Revision(ref),
-		plumbing.Revision("refs/heads/" + ref),
-		plumbing.Revision("refs/remotes/origin/" + ref),
 		plumbing.Revision("refs/tags/" + ref),
+		plumbing.Revision("refs/remotes/" + remoteName + "/" + ref),
+		plumbing.Revision(ref),
 	}
 	for _, revision := range revisions {
 		hash, err := repo.ResolveRevision(revision)

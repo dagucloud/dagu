@@ -73,7 +73,9 @@ URL.
 ### Ref resolution
 
 `with.ref` may be a branch name, a tag name, or a full commit hash. A full
-hash selects that commit directly. Ambiguous branch/tag names are outside
+hash selects that commit directly. A branch name selects the branch as
+fetched from `origin`, so a later `git.checkout` against an existing target
+picks up new commits on that branch. Ambiguous branch/tag names are outside
 this conformance scope. Omitting `with.ref` checks out the
 repository's default HEAD, re-resolved on every run -- so a later
 `git.checkout` with no `with.ref` against an existing target picks up
