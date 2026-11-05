@@ -1345,7 +1345,9 @@ func (n *Node) ResetForRerun(step ir.Step) {
 	n.cmdEvaluated.Store(false)
 }
 
-func (n *Node) resetForBuildAttempt(step ir.Step) {
+// resetForAttempt restores the declared step so that the next execution
+// resolves its fields against the current context.
+func (n *Node) resetForAttempt(step ir.Step) {
 	n.SetStep(step)
 	n.cmdEvaluated.Store(false)
 }

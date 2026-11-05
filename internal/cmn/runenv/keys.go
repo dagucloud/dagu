@@ -26,6 +26,10 @@ const (
 	// EnvKeyDAGRunStepStderrFile holds the path to the stderr log file for the current step.
 	EnvKeyDAGRunStepStderrFile = "DAG_RUN_STEP_STDERR_FILE"
 
+	// EnvKeyDAGRunStepRepeatIndex holds the zero-based repetition index of the
+	// current execution of a repeating step.
+	EnvKeyDAGRunStepRepeatIndex = "DAG_RUN_STEP_REPEAT_INDEX"
+
 	// EnvKeyDAGUOutputFile holds the file path used for declared step outputs.
 	EnvKeyDAGUOutputFile = "DAGU_OUTPUT_FILE"
 
@@ -100,6 +104,7 @@ var reservedRunEnvNames = []string{
 	EnvKeyDAGRunStepName,
 	EnvKeyDAGRunStepStdoutFile,
 	EnvKeyDAGRunStepStderrFile,
+	EnvKeyDAGRunStepRepeatIndex,
 	EnvKeyDAGRunStatus,
 	EnvKeyDAGWikiDir,
 	EnvKeyDAGDocsDir,

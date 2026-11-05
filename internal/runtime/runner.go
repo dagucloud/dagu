@@ -722,6 +722,14 @@ ExecRepeat: // repeat execution
 				_ = os.Remove(stagingPath)
 				stagingPath = ""
 			}
+			node.resetForAttempt(declaredStep)
+			ctx, err = r.setupRepeatEnv(spanCtx, plan, node, buildSession)
+			if err != nil {
+				r.setLastError(err)
+				node.MarkError(err)
+				node.SetStatus(ir.NodeFailed)
+				return
+			}
 			r.prepareNodeForRepeat(ctx, node, progressCh, cont)
 			continue
 		}
@@ -1093,6 +1101,11 @@ func (r *Runner) setupVariables(ctx context.Context, plan *Plan, node *Node) (co
 		return ctx, err
 	}
 	node.SetWorkingDir(env.WorkingDir)
+	if node.Step().RepeatPolicy.RepeatMode != "" {
+		env.Scope = env.Scope.WithEntry(
+			runenv.EnvKeyDAGRunStepRepeatIndex, strconv.Itoa(node.State().DoneCount), cmnvalue.EnvSourceStepEnv,
+		)
+	}
 
 	// Load output variables and approval inputs from predecessor nodes.
 	for _, predNode := range planPredecessorNodes(plan, node) {
@@ -2124,6 +2137,22 @@ func (r *Runner) evalUntilCondition(ctx context.Context, shell []string, node *N
 	}
 	// Unconditional until: repeat until the step succeeds
 	return execErr != nil, nil
+}
+
+// setupRepeatEnv sets up the environment of the node's next repeat the same
+// way as its first execution, so that every value derived from the repeat
+// index follows it. ctx is the context the first execution started from.
+func (r *Runner) setupRepeatEnv(ctx context.Context, plan *Plan, node *Node, session *build.Session) (context.Context, error) {
+	ctx, err := r.setupVariables(ctx, plan, node)
+	if err != nil {
+		return ctx, err
+	}
+	ctx = withStepTraceContext(ctx)
+	ctx = r.setupNodeExecutionEnv(ctx, node)
+	if session == nil {
+		return ctx, nil
+	}
+	return withBuildPaths(ctx, node, session.InputPaths(), nil, !session.HasPathOutput())
 }
 
 // prepareNodeForRepeat sets up a node for repetition

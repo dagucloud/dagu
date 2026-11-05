@@ -174,10 +174,13 @@ Initial current-step Dagu-managed environment names include:
 
 - `PWD`
 - `DAG_RUN_STEP_NAME`
+- `DAG_RUN_STEP_REPEAT_INDEX`
 
 `PWD` is the resolved working directory for the current step.
 `DAG_RUN_STEP_NAME` is the current step's effective runtime name. When a step
 omits `name` and uses `id`, the effective runtime name is that `id`.
+`DAG_RUN_STEP_REPEAT_INDEX` is present only for steps with `repeat_policy`
+and is defined by [Spec 017](017-built-in-run-context.md).
 
 `DAG_RUN_STATUS`, when present for a handler or status-aware surface, is an
 initial current-step Dagu-managed value for that surface.
@@ -222,6 +225,7 @@ Secret-reserved Dagu-managed environment names include every name starting with
 - `DAG_RUN_ID`
 - `DAG_RUN_LOG_FILE`
 - `DAG_RUN_STEP_NAME`
+- `DAG_RUN_STEP_REPEAT_INDEX`
 - `DAG_RUN_STEP_STDOUT_FILE`
 - `DAG_RUN_STEP_STDERR_FILE`
 - `DAG_RUN_STATUS`
@@ -342,10 +346,10 @@ Rules:
 - Names Dagu manages for a run or a step are rejected. A child run resolves its
   own, and the parent's describe the parent run and the host executing it:
   `DAG_NAME`, `DAG_RUN_ID`, `DAG_RUN_LOG_FILE`, `DAG_RUN_STEP_NAME`,
-  `DAG_RUN_STEP_STDOUT_FILE`, `DAG_RUN_STEP_STDERR_FILE`, `DAG_RUN_STATUS`,
-  `DAG_RUN_WORK_DIR`, `DAG_RUN_ARTIFACTS_DIR`, `DAG_WIKI_DIR`, `DAG_DOCS_DIR`,
-  `DAG_PARAMS_JSON`, `DAGU_PARAMS_JSON`, `DAG_PUSHBACK*`, `PWD`, and the
-  internal retry markers.
+  `DAG_RUN_STEP_REPEAT_INDEX`, `DAG_RUN_STEP_STDOUT_FILE`,
+  `DAG_RUN_STEP_STDERR_FILE`, `DAG_RUN_STATUS`, `DAG_RUN_WORK_DIR`,
+  `DAG_RUN_ARTIFACTS_DIR`, `DAG_WIKI_DIR`, `DAG_DOCS_DIR`, `DAG_PARAMS_JSON`,
+  `DAGU_PARAMS_JSON`, `DAG_PUSHBACK*`, `PWD`, and the internal retry markers.
 - A listed name resolves against the environment scope visible to the calling
   step. Resolution never reads the Dagu process environment directly, so a host
   process value reaches a child only when the operator's base environment policy

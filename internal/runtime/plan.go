@@ -222,16 +222,21 @@ func CreateStepRetryPlanWithOptions(dag *ir.DAG, nodes []*Node, stepName string,
 
 // resetStepRetryNode clears node for another run. It keeps the node's current
 // step, which build planning may have resolved, but takes the human-task
-// template so a reopened task resolves its prompt and artifacts again.
-func resetStepRetryNode(node *Node, template ir.Step, preserveRetryBudget bool) {
+// template so a reopened task resolves its prompt and artifacts again. A retry
+// that resumes a retrying node keeps its retry budget and its execution count,
+// which the repeat index and limit read.
+func resetStepRetryNode(node *Node, template ir.Step, resumeRetry bool) {
 	retryCount := node.GetRetryCount()
+	doneCount := node.GetDoneCount()
 	step := node.Step()
 	step.HumanTask = template.HumanTask
 	clearNodeForRetry(node, step)
 	node.SetRetryCount(retryCount)
-	if !preserveRetryBudget {
-		node.retryPolicy = RetryPolicy{} // manual step retries start with a fresh retry budget
+	if resumeRetry {
+		node.setDoneCount(doneCount)
+		return
 	}
+	node.retryPolicy = RetryPolicy{} // manual step retries start with a fresh retry budget
 }
 
 func (p *Plan) expandStepRetrySelection() {

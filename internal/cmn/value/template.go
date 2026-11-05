@@ -33,6 +33,7 @@ var supportedBuiltinContextBindings = map[string]struct{}{
 	"context.attempt.started_at":            {},
 	"context.step.id":                       {},
 	"context.step.name":                     {},
+	"context.step.repeat_index":             {},
 	"context.trigger.type":                  {},
 	"context.trigger.actor":                 {},
 	"context.paths.log_file":                {},
