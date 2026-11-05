@@ -256,7 +256,8 @@ var importConfigSchema = &jsonschema.Schema{
 
 // JSON Schema for SQL executor configurations
 var postgresConfigSchema = &jsonschema.Schema{
-	Type: "object",
+	Type:                 "object",
+	AdditionalProperties: &jsonschema.Schema{Not: &jsonschema.Schema{}},
 	Properties: map[string]*jsonschema.Schema{
 		"dsn": {Type: "string", Description: "PostgreSQL connection string (DSN)"},
 		"params": {
@@ -282,7 +283,8 @@ var postgresConfigSchema = &jsonschema.Schema{
 }
 
 var sqliteConfigSchema = &jsonschema.Schema{
-	Type: "object",
+	Type:                 "object",
+	AdditionalProperties: &jsonschema.Schema{Not: &jsonschema.Schema{}},
 	Properties: map[string]*jsonschema.Schema{
 		"dsn": {Type: "string", Description: "SQLite connection string (file path or :memory:)"},
 		"params": {
