@@ -109,6 +109,17 @@ header line and one line per row.
 
 A path of "-" reads the workbook from standard input, up to 64 MiB.
 
+--columns, --types, and --where take the values the xlsx.read fields take. A
+name that holds a comma or a colon, such as 担当者: 氏名, goes in a JSON list
+of names and {name: alias} entries (--columns) or a JSON object (--types,
+--where); a value that starts with [ or { is read as JSON. In --columns, a
+name with a colon needs the {name: alias} form.
+
+--where keeps rows: name:value pairs, comma-separated, or a JSON object that
+also allows {"ne": v} and {"in": [a, b]}. --merged is fill (default) or
+first, --trim strips white space from text, and --formulas is cached
+(default), text, or calculate.
+
 --types pins column types as xlsx.read's types does, Japanese forms such as
 １２３,４５６ and 令和8年10月3日 included: name:type pairs, or a JSON object
 when a name holds a comma. A cell that cannot convert fails the read, or
@@ -124,6 +135,8 @@ set.
   dagu xlsx read orders.xlsx --sheet Orders --range A2:F --header false
   dagu xlsx read orders.xlsx --columns "Invoice No,Amount" --format json
   dagu xlsx read orders.xlsx --types "Amount:number,Due:date" --on-type-error keep
+  dagu xlsx read orders.xlsx --where "Status:open,Region:east" --trim
+  dagu xlsx read orders.xlsx --columns '[{"担当者: 氏名": "owner"}, "金額（税込）"]' --where '{"Status": {"in": ["open", "hold"]}}'
   dagu xlsx read orders.xlsx --skip-hidden`,
 		Args:         cobra.ExactArgs(1),
 		SilenceUsage: true,
@@ -132,7 +145,11 @@ set.
 	cmd.Flags().String("sheet", "", "Sheet name; the first sheet by default")
 	cmd.Flags().String("range", "", "Cell range, Sheet!A2:F reference, named range, or table name")
 	cmd.Flags().String("header", "true", "Header: true, false, a row number, or rows such as 3,4")
-	cmd.Flags().String("columns", "", "Columns to keep, comma-separated, with optional name:alias renames")
+	cmd.Flags().String("columns", "", "Columns to keep, comma-separated, with optional name:alias renames, or a JSON list")
+	cmd.Flags().String("merged", "", "Merged cells: fill (default) or first")
+	cmd.Flags().Bool("trim", false, "Trim white space around text")
+	cmd.Flags().String("formulas", "", "Formula cells: cached (default), text, or calculate")
+	cmd.Flags().String("where", "", "Rows to keep: name:value pairs, comma-separated, or a JSON object")
 	cmd.Flags().String("types", "", "Column types to pin: name:type pairs, comma-separated, or a JSON object")
 	cmd.Flags().String("on-type-error", "fail", "What a cell that fails its type does: fail, warn (read as null; also spelled null), or keep")
 	cmd.Flags().Int("max-rows", 0, "Most rows to print (default 5000)")
@@ -239,6 +256,19 @@ func runXlsxRead(cmd *cobra.Command, args []string) error {
 		if opts.Columns, err = workbook.ParseColumns(columns); err != nil {
 			return fmt.Errorf("--columns: %w", err)
 		}
+	}
+	merged, _ := cmd.Flags().GetString("merged")
+	if opts.Merged, err = workbook.ParseMergedMode(merged); err != nil {
+		return fmt.Errorf("--merged: %w", err)
+	}
+	opts.Trim, _ = cmd.Flags().GetBool("trim")
+	formulas, _ := cmd.Flags().GetString("formulas")
+	if opts.Formulas, err = workbook.ParseFormulaMode(formulas); err != nil {
+		return fmt.Errorf("--formulas: %w", err)
+	}
+	where, _ := cmd.Flags().GetString("where")
+	if opts.Where, err = workbook.ParseWhere(where); err != nil {
+		return fmt.Errorf("--where: %w", err)
 	}
 	types, _ := cmd.Flags().GetString("types")
 	if opts.Types, err = workbook.ParseTypes(types); err != nil {

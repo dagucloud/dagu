@@ -403,6 +403,47 @@ func ValidateWhere(where map[string]any) error {
 	return nil
 }
 
+// ParseWhere reads the where a command line gives: a JSON object such as
+// {"Status": {"in": ["open", "hold"]}}, or comma-separated name:value pairs
+// such as "Status:open,Region:east", split at each pair's first colon so a
+// value may hold one. An empty value, as in "Status:", matches empty cells.
+// A name that holds a comma or a colon, and the ne and in forms, need the
+// JSON object. The result is checked as the where field is.
+func ParseWhere(text string) (map[string]any, error) {
+	trimmed := strings.TrimSpace(text)
+	if trimmed == "" {
+		return nil, nil
+	}
+	where := map[string]any{}
+	if strings.HasPrefix(trimmed, "{") {
+		decoded, err := decodeJSON(trimmed)
+		if err != nil {
+			return nil, err
+		}
+		obj, ok := decoded.(map[string]any)
+		if !ok {
+			return nil, fmt.Errorf("where must be a JSON object of column names to values")
+		}
+		where = obj
+	} else {
+		for pair := range strings.SplitSeq(trimmed, ",") {
+			name, value, ok := strings.Cut(pair, ":")
+			name = strings.TrimSpace(name)
+			if !ok || name == "" {
+				return nil, fmt.Errorf("%q must be name:value", strings.TrimSpace(pair))
+			}
+			if _, dup := where[name]; dup {
+				return nil, fmt.Errorf("column %q is given twice", name)
+			}
+			where[name] = strings.TrimSpace(value)
+		}
+	}
+	if err := ValidateWhere(where); err != nil {
+		return nil, err
+	}
+	return where, nil
+}
+
 func parseWhereClause(column string, v any) (whereClause, error) {
 	switch x := v.(type) {
 	case map[string]any:
