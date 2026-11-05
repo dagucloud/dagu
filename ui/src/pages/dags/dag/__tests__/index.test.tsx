@@ -829,6 +829,70 @@ describe('DAGDetails page', () => {
       expect(workspaceMock).not.toHaveBeenCalled();
     });
 
+    // A DAG name may end like a file name: the run link keeps it whole.
+    it('opens a run link of a DAG named with a YAML suffix on its file', async () => {
+      useQueryMock.mockImplementation(((
+        path: string,
+        init: { params: { path: Record<string, string> } } | null
+      ) => {
+        const name = init?.params.path.fileName ?? init?.params.path.name;
+        if (path === '/dags/{fileName}') {
+          return name === 'reports'
+            ? {
+                data: {
+                  ...dagData,
+                  dag: { ...dagData.dag, name: 'report.yaml' },
+                },
+              }
+            : { error: { code: 'not_found', message: 'DAG is not found' } };
+        }
+        if (path === '/dag-runs/{name}/{dagRunId}' && name === 'report.yaml') {
+          return {
+            data: {
+              dagRunDetails: {
+                name: 'report.yaml',
+                dagRunId: 'r1',
+                sourceFileName: 'reports',
+              },
+            },
+          };
+        }
+        return { data: undefined };
+      }) as never);
+
+      renderPage('/dags/report.yaml?run=r1');
+
+      expect(
+        await screen.findByTestId('workflow-workspace')
+      ).toBeInTheDocument();
+      expect(screen.getByTestId('location')).toHaveTextContent(
+        /^\/dags\/reports\?run=r1&dagRunName=report\.yaml$/
+      );
+    });
+
+    // A link can name a step of the run, as the log page does.
+    it('opens the step of the link on a run shown on its own', async () => {
+      useQueryMock.mockImplementation((path) =>
+        path === '/dag-runs/{name}/{dagRunId}'
+          ? ({
+              data: { dagRunDetails: { name: 'etl', dagRunId: 'r1' } },
+              mutate: vi.fn(),
+            } as never)
+          : ({
+              data: undefined,
+              error: { code: 'not_found', message: 'DAG is not found' },
+              mutate: vi.fn(),
+            } as never)
+      );
+
+      renderPage('/dags/etl?run=r1&step=load');
+
+      expect(await screen.findByTestId('run-details')).toBeInTheDocument();
+      expect(vi.mocked(DAGRunDetailsContent).mock.lastCall?.[0]).toMatchObject({
+        initialStepName: 'load',
+      });
+    });
+
     // A run that the workspace selects is a run of its workflow: the lookup
     // of the run file must not remount the workspace, which resets the editor.
     it('keeps the workspace while a selected run is looked up', async () => {

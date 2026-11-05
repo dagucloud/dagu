@@ -95,10 +95,13 @@ function runFileURL(
 function StandaloneRun({
   run,
   subRunId,
+  step,
   remoteNode,
 }: {
   run: DAGRunDetails;
   subRunId: string | null;
+  /** The step of the shown run that the link opens. */
+  step: string | null;
   remoteNode: string;
 }) {
   const sub = subRunId && subRunId !== run.dagRunId ? subRunId : null;
@@ -128,6 +131,7 @@ function StandaloneRun({
         dagRunId={shown.dagRunId}
         refreshFn={() => void live.refresh()}
         fillHeight
+        initialStepName={step ?? undefined}
       />
     </Suspense>
   );
@@ -211,11 +215,13 @@ function DAGDetails() {
   // name. The run gives its file. ?dagRunName names the DAG name of the run
   // when it is not the name of the file, as for a run started with --name.
   const linkedRunId = searchParams.get('run');
-  const linkedRunName = queriedDAGRunName || fileName.replace(/\.ya?ml$/, '');
+  const linkedRunName = queriedDAGRunName || fileName;
   const lookUpRunFile =
     Boolean(linkedRunId) &&
     (isNotFoundQueryError(dagError) ||
-      (!!dagData?.dag && dagData.dag.name !== linkedRunName));
+      (!!dagData?.dag &&
+        dagData.dag.name !==
+          (queriedDAGRunName || fileName.replace(/\.ya?ml$/, ''))));
   const {
     data: linkedRun,
     error: linkedRunError,
@@ -436,6 +442,7 @@ function DAGDetails() {
               <StandaloneRun
                 run={ownRun}
                 subRunId={searchParams.get('subRun')}
+                step={searchParams.get('step')}
                 remoteNode={remoteNode}
               />
             ) : (
