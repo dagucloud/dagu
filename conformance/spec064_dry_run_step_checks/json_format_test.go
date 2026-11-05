@@ -74,3 +74,20 @@ func decodeDryChecks(t *testing.T, stdout string) dryReport {
 	require.NoError(t, json.Unmarshal([]byte(stdout), &report))
 	return report
 }
+
+// A secret that does not resolve fails the real run before any step starts.
+// The dry run warns about it, with no step, and still exits 0.
+func TestDryFormatJSONMissingSecret(t *testing.T) {
+	t.Parallel()
+
+	dagu := harness.NewRunner(t)
+	result := dagu.Run("dry", "--format", "json", "missing_secret.yaml")
+	result.ExpectExitCode(0)
+	result.ExpectStderrContains("Dry run: run may fail on this host")
+
+	report := decodeDryChecks(t, result.Stdout())
+	require.Len(t, report.Checks, 1)
+	require.Equal(t, "", report.Checks[0].Step)
+	require.Equal(t, "secrets", report.Checks[0].Field)
+	require.Contains(t, report.Checks[0].Message, "API_TOKEN")
+}
