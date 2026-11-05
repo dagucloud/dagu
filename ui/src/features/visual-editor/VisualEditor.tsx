@@ -602,6 +602,11 @@ export function VisualEditor(props: VisualEditorProps): ReactElement {
   // The launcher whose panel is open, and what the host side of the launchers
   // reads from the server. Only a host that gives `launcherHost` has them.
   const [launcherOpen, setLauncherOpen] = useState<LauncherId | null>(null);
+  // The panel that a launcher took the place of: it comes back when the
+  // launcher closes.
+  const [launcherReturn, setLauncherReturn] = useState<
+    'yaml' | 'workflow' | null
+  >(null);
   // The YAML takes the place of the Workflow and launcher panels when it
   // shows, not before: the right of the canvas never stands empty between
   // two panels, and the graph does not move for the switch.
@@ -1299,16 +1304,31 @@ export function VisualEditor(props: VisualEditorProps): ReactElement {
     setHighlighted(null);
     setAddTarget(null);
     setFormOpen(false);
+    // A launcher after a launcher keeps the panel of the first one.
+    setLauncherReturn(
+      yamlVisible
+        ? 'yaml'
+        : workflowOpen
+          ? 'workflow'
+          : launcherOpen !== null
+            ? launcherReturn
+            : null
+    );
     setWorkflowOpen(false);
     onYamlVisibleChange?.(false);
     setLauncherOpen(id);
   };
   const closeLauncher = () => {
     const closing = launcherOpen;
+    const back = launcherReturn;
     const done = () => {
       setLauncherOpen(null);
+      setLauncherReturn(null);
       // A webhook made in the panel changes the node.
       if (closing === 'webhook') launcherData?.reloadWebhook();
+      // The panel that the launcher took the place of comes back.
+      if (back === 'workflow') applyWorkflow(true);
+      else if (back === 'yaml') onYamlVisibleChange?.(true, 'panel');
     };
     if (closing === 'webhook' && launcherHost) launcherHost.guard(done);
     else done();

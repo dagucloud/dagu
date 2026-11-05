@@ -219,6 +219,35 @@ describe('VisualEditor launchers', () => {
     expect(ring()).not.toContain('ring-primary');
   });
 
+  // A trigger node opens its panel in the place of the YAML or the Workflow
+  // panel; that panel comes back when the trigger panel closes.
+  it('brings back the YAML panel when the launcher panel closes', () => {
+    const onYamlVisibleChange = vi.fn();
+    renderEditor(yamlArraySteps, {
+      yamlVisible: true,
+      initialYamlMode: 'file',
+      onYamlVisibleChange,
+    });
+    fireEvent.click(
+      within(screen.getByTestId('ve-launcher-cron')).getByRole('button')
+    );
+    expect(onYamlVisibleChange).toHaveBeenLastCalledWith(false);
+    const panel = screen.getByTestId('ve-launcher-panel-cron');
+    fireEvent.click(within(panel).getByRole('button', { name: 'Close' }));
+    expect(onYamlVisibleChange).toHaveBeenLastCalledWith(true, 'panel');
+  });
+
+  it('opens nothing on close when no panel was open before', () => {
+    const onYamlVisibleChange = vi.fn();
+    renderEditor(yamlArraySteps, { onYamlVisibleChange });
+    fireEvent.click(
+      within(screen.getByTestId('ve-launcher-cron')).getByRole('button')
+    );
+    const panel = screen.getByTestId('ve-launcher-panel-cron');
+    fireEvent.click(within(panel).getByRole('button', { name: 'Close' }));
+    expect(onYamlVisibleChange).not.toHaveBeenCalledWith(true, 'panel');
+  });
+
   // A launcher panel and a step take turns: a click on a step closes the
   // panel, and the step is the one that is focused.
   it('closes the launcher panel when a step is clicked', () => {
