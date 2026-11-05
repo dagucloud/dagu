@@ -214,7 +214,7 @@ func schemaRef(root any, ref string) (any, bool) {
 		return nil, false
 	}
 	node := root
-	for _, token := range strings.Split(pointer, "/") {
+	for token := range strings.SplitSeq(pointer, "/") {
 		obj, ok := node.(map[string]any)
 		if !ok {
 			return nil, false
