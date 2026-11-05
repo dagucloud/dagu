@@ -165,6 +165,14 @@ describe('RunStepPicker', () => {
     expect(onToggle).toHaveBeenCalledTimes(1);
   });
 
+  // The status of the run is no status of a step that the run does not have.
+  it('names a step that the run does not have as not in this run', () => {
+    renderPicker('/dags/demo/executions?step=gone');
+    expect(
+      screen.getByRole('button', { name: 'gone, Not in this run' })
+    ).toBeInTheDocument();
+  });
+
   it('names the run summary and the run status when no step is selected', () => {
     renderPicker('/dags/demo/executions');
     expect(

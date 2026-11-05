@@ -195,9 +195,9 @@ export function LogsDock({
   };
 
   const ndvAbove = activePanel === 'ndv';
-  const escState = useRef({ ndvAbove, dock, sheet });
+  const escState = useRef({ ndvAbove, dock, sheet, stepsOpen, closeSteps });
   useEffect(() => {
-    escState.current = { ndvAbove, dock, sheet };
+    escState.current = { ndvAbove, dock, sheet, stepsOpen, closeSteps };
   });
   useEffect(() => {
     const onKeyDown = (event: globalThis.KeyboardEvent) => {
@@ -205,9 +205,15 @@ export function LogsDock({
         ndvAbove: blocked,
         dock: current,
         sheet: isSheet,
+        stepsOpen: listOpen,
+        closeSteps: closeList,
       } = escState.current;
       if (!escFree(event) || blocked) return;
-      if (current.maximized) {
+      // The step list over the tabs is the top layer: it closes first.
+      if (listOpen) {
+        event.preventDefault();
+        closeList();
+      } else if (current.maximized) {
         event.preventDefault();
         current.maximize(false);
       } else if (isSheet) {
@@ -406,15 +412,7 @@ export function LogsDock({
             not render for the events of a run while nobody sees them. */}
           <FreezeWhenHidden hidden={!dock.open}>
             {mounted && <RunTimeline />}
-            <div
-              className="relative flex min-h-0 flex-1 @max-[600px]:flex-col"
-              onKeyDown={(event) => {
-                // Esc closes the list before the sheet.
-                if (event.key !== 'Escape' || !stepsOpen) return;
-                event.preventDefault();
-                closeSteps();
-              }}
-            >
+            <div className="relative flex min-h-0 flex-1 @max-[600px]:flex-col">
               {mounted && (
                 <RunStepPicker
                   ref={pickerRef}

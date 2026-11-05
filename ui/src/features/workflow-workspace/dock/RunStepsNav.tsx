@@ -122,15 +122,18 @@ export function RunStepPicker({
   const reuse = selected === null ? undefined : reuses?.get(selected);
   const healthy = runDisplayStatus(details).healthy;
   // The dots are decorative: the button says the status once, after the name.
+  // A step of the URL that the run does not have has no status of its own.
   const status = node
     ? reuse
       ? reuse.outcome === 'success'
         ? 'Reused, succeeded'
         : 'Reused, failed'
       : nodeStatusText(node.status)
-    : healthy
-      ? 'Healthy'
-      : runStatusText(details.status);
+    : selected !== null
+      ? 'Not in this run'
+      : healthy
+        ? 'Healthy'
+        : runStatusText(details.status);
   return (
     <button
       ref={ref}
@@ -152,7 +155,7 @@ export function RunStepPicker({
           reusedFrom={reuse?.runId ? shortRunId(reuse.runId) : undefined}
           decorative
         />
-      ) : (
+      ) : selected === null ? (
         <StatusDot
           kind="run"
           status={details.status}
@@ -160,7 +163,7 @@ export function RunStepPicker({
           decorative
           className="motion-safe:animate-none"
         />
-      )}
+      ) : null}
       <span className="min-w-0 flex-1 truncate">
         {selected ?? ts('Run summary')}
         <span className="sr-only">, {ts(status)}</span>

@@ -336,14 +336,22 @@ describe('LogsDock frame', () => {
     expect(picker).toHaveFocus();
   });
 
-  // Esc closes the list over the tabs, not the sheet under it.
+  // Esc closes the list over the tabs, not the sheet under it, from any
+  // control of the sheet. An Esc that a layer inside took does nothing.
   it('closes the open steps on Esc and keeps the sheet', () => {
     mockWidth(500);
     renderDock(finished);
     fireEvent.click(toggleButton());
     const picker = screen.getByTestId('step-picker-stub');
     fireEvent.click(picker);
-    fireEvent.keyDown(screen.getByRole('button', { name: 'Pick a step' }), {
+    const pick = screen.getByRole('button', { name: 'Pick a step' });
+    pick.addEventListener('keydown', (event) => event.preventDefault(), {
+      once: true,
+    });
+    fireEvent.keyDown(pick, { key: 'Escape' });
+    expect(picker).toHaveAttribute('aria-expanded', 'true');
+
+    fireEvent.keyDown(screen.getByRole('button', { name: 'Close' }), {
       key: 'Escape',
     });
     expect(picker).toHaveAttribute('aria-expanded', 'false');
