@@ -245,13 +245,16 @@ func (e *redisExecutor) executeWithMetrics(ctx context.Context, command, key str
 		return err
 	}
 
-	metrics.Status = "success"
-
-	if result == nil {
-		return nil
+	if result != nil {
+		if err := e.writeResult(result); err != nil {
+			metrics.Status = "error"
+			metrics.Error = err.Error()
+			return err
+		}
 	}
 
-	return e.writeResult(result)
+	metrics.Status = "success"
+	return nil
 }
 
 // writeResult writes the result to stdout. A result whose output would

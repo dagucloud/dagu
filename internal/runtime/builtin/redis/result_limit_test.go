@@ -5,6 +5,8 @@ package redis
 
 import (
 	"bytes"
+	"context"
+	"encoding/json"
 	"strings"
 	"testing"
 
@@ -48,4 +50,27 @@ func TestWriteResultMaxResultSize(t *testing.T) {
 			assert.Empty(t, stdout.String())
 		})
 	}
+}
+
+// A result over max_result_size is reported as a failed command in the
+// metrics, matching the step's failure.
+func TestExecuteWithMetricsResultTooLarge(t *testing.T) {
+	t.Parallel()
+
+	var stdout, stderr bytes.Buffer
+	e := &redisExecutor{
+		cfg:    &Config{OutputFormat: "json", MaxResultSize: 8},
+		stdout: &stdout,
+		stderr: &stderr,
+	}
+	err := e.executeWithMetrics(context.Background(), "GET", "k", func(context.Context) (any, error) {
+		return strings.Repeat("x", 32), nil
+	})
+	require.Error(t, err)
+
+	var metrics ExecutionMetrics
+	require.NoError(t, json.Unmarshal(stderr.Bytes(), &metrics))
+	assert.Equal(t, "error", metrics.Status)
+	assert.Contains(t, metrics.Error, "max_result_size")
+	assert.Empty(t, stdout.String())
 }
