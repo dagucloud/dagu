@@ -290,6 +290,9 @@ func TestTracerStart(t *testing.T) {
 // block, so DAG env and secret values reach them, not only the process env.
 func TestNewTracerResolvesResourceValues(t *testing.T) {
 	t.Setenv("OTEL_TEST_PROCESS_ENV", "from-process")
+	// Same names as the DAG values below, to check which one wins.
+	t.Setenv("DEPLOY_ENV", "process-deploy-env")
+	t.Setenv("DAG_NAME", "process-dag-name")
 
 	bodies := make(chan string, 16)
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -311,10 +314,11 @@ func TestNewTracerResolvesResourceValues(t *testing.T) {
 				"team.token":             "${TEAM_SECRET}",
 				"dag.label":              "run-${DAG_NAME}",
 				"host.label":             "${OTEL_TEST_PROCESS_ENV}",
+				"unset.label":            "pre${OTEL_TEST_UNSET_VAR}post",
 			},
 		},
 	}
-	vars := map[string]string{"DEPLOY_ENV": "staging-eu", "TEAM_SECRET": "s3cr3t-value"}
+	vars := map[string]string{"DEPLOY_ENV": "staging-eu", "TEAM_SECRET": "s3cr3t-value", "DAG_NAME": "vars-dag-name"}
 
 	tracer, err := NewTracer(context.Background(), dag, vars)
 	require.NoError(t, err)
@@ -325,10 +329,12 @@ func TestNewTracerResolvesResourceValues(t *testing.T) {
 
 	select {
 	case body := <-bodies:
-		for _, want := range []string{"staging-eu", "s3cr3t-value", "run-my-dag", "from-process"} {
+		for _, want := range []string{"staging-eu", "s3cr3t-value", "run-my-dag", "from-process", "prepost"} {
 			assert.Contains(t, body, want)
 		}
-		assert.NotContains(t, body, "${")
+		for _, notWant := range []string{"${", "process-deploy-env", "process-dag-name", "vars-dag-name"} {
+			assert.NotContains(t, body, notWant)
+		}
 	default:
 		t.Fatal("the OTLP/HTTP receiver got no request")
 	}

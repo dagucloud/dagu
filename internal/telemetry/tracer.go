@@ -183,10 +183,22 @@ func createGRPCExporter(ctx context.Context, config *ir.OTelConfig) (sdktrace.Sp
 }
 
 // resolveResource evaluates dag.OTel.Resource against scope, plus the process
-// env and DAG_NAME.
+// env and DAG_NAME. Later sources win: process env, then scope (DAG env and
+// secrets), then DAG_NAME.
 func resolveResource(ctx context.Context, dag *ir.DAG, scope *cmnvalue.EnvScope) (map[string]any, error) {
 	if len(dag.OTel.Resource) == 0 {
 		return nil, nil
+	}
+	// A variable that is set nowhere expands to "", as it always has for
+	// resource values. The evaluator would otherwise keep "${NAME}" as is.
+	unset := make(map[string]string)
+	for _, val := range dag.OTel.Resource {
+		if v, ok := val.(string); ok {
+			os.Expand(v, func(name string) string {
+				unset[name] = ""
+				return ""
+			})
+		}
 	}
 	processEnv := make(map[string]string)
 	for _, kv := range os.Environ() {
@@ -194,7 +206,9 @@ func resolveResource(ctx context.Context, dag *ir.DAG, scope *cmnvalue.EnvScope)
 			processEnv[k] = v
 		}
 	}
-	resScope := cmnvalue.NewEnvScope(nil, false).WithEntries(processEnv, cmnvalue.EnvSourceStepEnv)
+	resScope := cmnvalue.NewEnvScope(nil, false).
+		WithEntries(unset, cmnvalue.EnvSourceStepEnv).
+		WithEntries(processEnv, cmnvalue.EnvSourceStepEnv)
 	if scope != nil {
 		resScope = resScope.WithEntries(scope.ToMap(), cmnvalue.EnvSourceStepEnv)
 	}
