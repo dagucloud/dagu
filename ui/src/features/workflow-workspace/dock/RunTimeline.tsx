@@ -49,7 +49,8 @@ import {
 import { useDock } from './DockContext';
 import { DockHeaderToolsContext } from './DockHeaderTools';
 import { propsEqual } from './propsEqual';
-import { RunTimelineControls } from './RunTimelineControls';
+import { RunPicker } from './RunPicker';
+import { RunTimelineControls, RunViewMenu } from './RunTimelineControls';
 import {
   EXTENT_PX,
   isLongRun,
@@ -1302,8 +1303,12 @@ export function RunTimelineView({
   );
 }
 
-/** The run timeline of the selected workflow: the history, and the selection (?run). */
-export function RunTimeline() {
+/**
+ * The run timeline of the selected workflow: the history, and the selection
+ * (?run). `compact`, on a phone, shows the runs as one menu (RunPicker) in
+ * place of the bars.
+ */
+export function RunTimeline({ compact = false }: { compact?: boolean }) {
   const run = useWorkspaceRun();
   // The test runs are in the history only when the request asks for them; the
   // list is read again while one exists, as no event tells that it is gone.
@@ -1332,6 +1337,31 @@ export function RunTimeline() {
     [selected, continuous]
   );
   const inRange = settings.mode === 'range';
+  const select = (id: string) => run.select(id, { replace: true });
+
+  if (compact) {
+    return (
+      <RunPicker
+        runs={inRange ? visible.pool : visible.pool.slice(-settings.count)}
+        selectedId={visible.selectedId}
+        statusOf={statusTextOf}
+        onSelect={select}
+        trailing={
+          <RunViewMenu
+            hasTestRuns={visible.hasTestRuns}
+            showTests={settings.showTests}
+            onShowTestsChange={actions.setShowTests}
+            hasCachedTime={visible.hasCachedTime}
+            showCached={settings.showCached}
+            onShowCachedChange={actions.setShowCached}
+            triggerTypes={visible.triggerTypes}
+            hiddenTypes={settings.hiddenTypes}
+            onHiddenTypesChange={actions.setHiddenTypes}
+          />
+        }
+      />
+    );
+  }
 
   return (
     <RunTimelineView
@@ -1341,7 +1371,7 @@ export function RunTimeline() {
       // A range shows every run of the pool: the window is as long as it.
       count={inRange ? visible.pool.length : settings.count}
       statusTextOf={statusTextOf}
-      onSelect={(id) => run.select(id, { replace: true })}
+      onSelect={select}
       onCountChange={actions.setCount}
       range={inRange ? settings.range : null}
       rangeBounds={visible.range}
