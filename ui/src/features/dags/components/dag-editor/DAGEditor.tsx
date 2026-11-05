@@ -398,6 +398,10 @@ function DAGEditor({
         height="100%"
         language="yaml"
         path={effectiveModelUri}
+        // A run definition has a model per run. Restoring the view state of
+        // a model seen before makes Monaco cancel a pending word highlight
+        // and leave the rejection unhandled.
+        saveViewState={false}
         theme={isDarkMode ? KILN_DARK : KILN_LIGHT}
         value={value}
         onChange={readOnly ? undefined : onChange}
