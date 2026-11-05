@@ -1219,7 +1219,7 @@ func (h *Handler) markPreparedAttemptDispatchFailed(ctx context.Context, task *c
 	}
 
 	storeCtx := context.WithoutCancel(ctx)
-	runStatus, err := prepared.attempt.ReadStatus(storeCtx)
+	runStatus, err := prepared.attempt.ReadStatusUncached(storeCtx)
 	if err != nil {
 		logger.Warn(ctx, "Failed to read prepared attempt after dispatch handoff failure",
 			tag.RunID(task.DagRunId),
@@ -1288,7 +1288,7 @@ func (h *Handler) markPreparedAttemptHeld(ctx context.Context, task *coordinator
 	held := h.runLocks.lock(dagRunID)
 	defer h.runLocks.unlock(dagRunID, held)
 
-	runStatus, err := prepared.attempt.ReadStatus(ctx)
+	runStatus, err := prepared.attempt.ReadStatusUncached(ctx)
 	if err != nil {
 		return fmt.Errorf("read prepared attempt: %w", err)
 	}
@@ -1362,15 +1362,17 @@ func (h *Handler) failHeldDispatch(ctx context.Context, task *dispatch.DispatchT
 		return
 	case runStatus != nil && runStatus.Status == ir.Queued && runStatus.WorkerID == "" &&
 		(task.AttemptID == "" || runStatus.AttemptID == task.AttemptID):
-		runStatus.Status = ir.Failed
-		runStatus.FinishedAt = stringutil.FormatTime(now)
-		runStatus.Error = heldDispatchFailure(task, h.workerWaitTimeout)
-		if writeErr := h.writeHeldAttemptStatus(storeCtx, task.DAGRunID, attempt, *runStatus); writeErr != nil {
+		// runStatus may be the cached status other readers share.
+		failed := *runStatus
+		failed.Status = ir.Failed
+		failed.FinishedAt = stringutil.FormatTime(now)
+		failed.Error = heldDispatchFailure(task, h.workerWaitTimeout)
+		if writeErr := h.writeHeldAttemptStatus(storeCtx, task.DAGRunID, attempt, failed); writeErr != nil {
 			logger.Warn(ctx, "Failed to fail the run of a held dispatch past its wait",
 				tag.RunID(task.DAGRunID), tag.Error(writeErr))
 			return
 		}
-		h.finalizeAdmissionForStatus(storeCtx, runStatus, attempt.ID())
+		h.finalizeAdmissionForStatus(storeCtx, &failed, attempt.ID())
 		logger.Warn(ctx, "No worker took a held dispatch within its wait; the run failed",
 			tag.RunID(task.DAGRunID),
 			tag.AttemptKey(task.AttemptKey),
@@ -1995,8 +1997,11 @@ func (h *Handler) refreshLeaseForRunningTask(ctx context.Context, workerID strin
 		return
 	}
 
-	runStatus.LeaseAt = observedAt.UnixMilli()
-	if err := attempt.Write(ctx, *runStatus); err != nil {
+	// Every heartbeat reads the status, so the read stays cached and the
+	// change goes to a copy.
+	refreshed := *runStatus
+	refreshed.LeaseAt = observedAt.UnixMilli()
+	if err := attempt.Write(ctx, refreshed); err != nil {
 		logger.Warn(ctx, "Failed to persist heartbeat lease refresh",
 			tag.RunID(task.DagRunId),
 			tag.WorkerID(workerID),
@@ -3710,7 +3715,7 @@ func (h *Handler) markRunFailed(ctx context.Context, dagName, dagRunID, reason s
 		defer h.closeCachedAttemptForRun(ctx, storeCtx, dagRunID, attempt.ID())
 	}
 
-	dagRunStatus, err := attempt.ReadStatus(storeCtx)
+	dagRunStatus, err := attempt.ReadStatusUncached(storeCtx)
 	if err != nil {
 		logger.Error(ctx, "Failed to read status for zombie cleanup",
 			tag.DAG(dagName), tag.RunID(dagRunID), tag.Error(err))
@@ -3869,7 +3874,7 @@ func finalizeNotStartedCancellation(ctx context.Context, attempt dagrun.Attempt)
 		return nil
 	}
 
-	status, err := attempt.ReadStatus(ctx)
+	status, err := attempt.ReadStatusUncached(ctx)
 	if err != nil {
 		return fmt.Errorf("read attempt status: %w", err)
 	}
