@@ -16,6 +16,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"runtime/debug"
+	"slices"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -81,6 +82,9 @@ type Agent struct {
 	// dry indicates if the agent is running in dry-run mode.
 	dry     bool
 	noReuse bool
+	// dryStartupChecks are the problems a dry run found while preparing the
+	// run, before any step.
+	dryStartupChecks []runtime.DryRunCheck
 
 	// retryTarget is the target status to retry the DAG.
 	// It is nil if it's not a retry execution.
@@ -838,6 +842,11 @@ func (a *Agent) Run(ctx context.Context) (runErr error) {
 
 	// Handle dry execution.
 	if a.dry {
+		if dotenvErr != nil {
+			a.noteDryRunStartup(ctx, "dotenv", fmt.Errorf("failed to load dotenv: %w", dotenvErr))
+		}
+		a.noteDryRunStartup(ctx, "profile", profileErr)
+		a.noteDryRunStartup(ctx, "secrets", secretErr)
 		a.lock.Lock()
 		a.startupCancel = nil
 		stopRequested = a.stopRequest != nil || startupCtx.Err() != nil
@@ -1524,12 +1533,27 @@ func (a *Agent) DryRunChecks() []runtime.DryRunCheck {
 	a.lock.RLock()
 	runner := a.runner
 	plan := a.plan
+	checks := slices.Clone(a.dryStartupChecks)
 	a.lock.RUnlock()
 
-	if runner == nil {
-		return nil
+	if runner != nil {
+		checks = append(checks, runner.DryRunChecks(plan)...)
 	}
-	return runner.DryRunChecks(plan)
+	return checks
+}
+
+// noteDryRunStartup warns about a problem preparing the run, such as a secret
+// that does not resolve, which the real run fails on before any step starts.
+// Like a step check it never fails the dry run, since the real run may
+// resolve it on the host where it runs.
+func (a *Agent) noteDryRunStartup(ctx context.Context, field string, err error) {
+	if err == nil {
+		return
+	}
+	logger.Warn(ctx, "Dry run: run may fail on this host", tag.Error(err))
+	a.lock.Lock()
+	a.dryStartupChecks = append(a.dryStartupChecks, runtime.DryRunCheck{Field: field, Message: err.Error()})
+	a.lock.Unlock()
 }
 
 func (a *Agent) PrintSummary(ctx context.Context) {
