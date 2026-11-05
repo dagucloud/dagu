@@ -134,6 +134,20 @@ func TestHandlerBuiltInRunContext(t *testing.T) {
 	)
 }
 
+// A repeating step sees the index of each execution in the reference, in step
+// env, and in the environment variable. A step without repeat_policy has none.
+func TestRepeatIndexBuiltInRunContext(t *testing.T) {
+	t.Parallel()
+
+	dagu := harness.NewRunner(t)
+	result := dagu.Run("start", "repeat_index.yaml")
+	result.ExpectExitCode(0)
+	dagu.ExpectFileContent(
+		"repeat-index.txt",
+		"0|0|0\n1|1|1\n2|2|2\nonce=${context.step.repeat_index}|UNSET\n",
+	)
+}
+
 func TestUnknownContextFieldsStaySilentAtRuntime(t *testing.T) {
 	t.Parallel()
 

@@ -1,0 +1,14 @@
+name: builtin_repeat_index
+working_dir: .
+steps:
+  - id: repeated
+    env:
+      - IDX=${context.step.repeat_index}
+    run: printf '%s|%s|%s\n' '${context.step.repeat_index}' "$IDX" "$DAG_RUN_STEP_REPEAT_INDEX" >> repeat-index.txt
+    repeat_policy:
+      repeat: while
+      interval_sec: 0
+      limit: 3
+  - id: once
+    depends: [repeated]
+    run: printf 'once=%s|%s\n' '${context.step.repeat_index}' "${DAG_RUN_STEP_REPEAT_INDEX:-UNSET}" >> repeat-index.txt

@@ -65,6 +65,7 @@ Run and step metadata:
 | `${context.attempt.started_at}` | Current attempt start time |
 | `${context.step.id}` | Current step ID |
 | `${context.step.name}` | Current step name |
+| `${context.step.repeat_index}` | Zero-based execution index of a step with `repeat_policy`; also `DAG_RUN_STEP_REPEAT_INDEX` |
 | `${context.trigger.type}` | Run trigger type when trigger metadata is available |
 | `${context.trigger.actor}` | Trigger actor when trigger metadata includes one |
 

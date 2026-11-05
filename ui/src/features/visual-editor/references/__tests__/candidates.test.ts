@@ -342,14 +342,15 @@ describe('buildReferenceCandidates context', () => {
 
   it('adds the current step fields when a step owns the field', () => {
     const labels = contextOf('fetch').map((c) => c.label);
-    expect(labels.slice(-5)).toEqual([
+    expect(labels.slice(-6)).toEqual([
       'step.id',
       'step.name',
+      'step.repeat_index',
       'paths.step_stdout_file',
       'paths.step_stderr_file',
       'paths.step_output_file',
     ]);
-    expect(labels).toHaveLength(18);
+    expect(labels).toHaveLength(19);
     expect(contextOf(null).map((c) => c.label)).not.toContain('step.id');
   });
 
@@ -357,7 +358,7 @@ describe('buildReferenceCandidates context', () => {
     const out = buildReferenceCandidates(undefined, null);
     expect(out).toHaveLength(13);
     expect(out.every((c) => c.group === 'context')).toBe(true);
-    expect(buildReferenceCandidates(undefined, 'a')).toHaveLength(18);
+    expect(buildReferenceCandidates(undefined, 'a')).toHaveLength(19);
   });
 
   it('follows the group order', () => {

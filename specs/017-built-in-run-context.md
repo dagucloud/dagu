@@ -105,6 +105,7 @@ ${context.attempt.id}
 ${context.attempt.started_at}
 ${context.step.id}
 ${context.step.name}
+${context.step.repeat_index}
 ${context.trigger.type}
 ${context.trigger.actor}
 ${context.paths.log_file}
@@ -212,6 +213,7 @@ Rules:
 | --- | --- | --- |
 | `context.step.id` | Current executable step only, when that step has an id | Stable value-reference alias from Spec 009. |
 | `context.step.name` | Current step or handler only | Runtime step identity for the current step or handler. |
+| `context.step.repeat_index` | Current step with `repeat_policy` only | Zero-based index of the current execution as a decimal string. |
 
 Rules:
 
@@ -219,6 +221,15 @@ Rules:
 - `context.step.id` is missing when the current executable step has no authored `id`.
 - Handler scopes have `context.step.name` but do not have `context.step.id` unless a
   handler-owning spec defines an id for handlers.
+- `context.step.repeat_index` is `0` for the first execution of a repeating
+  step and increases by one for each repeat. A step retry keeps the index of
+  the execution it retries.
+- Dagu resolves the step again for every repeat, so `run`, `with`, `stdin`,
+  and step `env` see the index of the current execution.
+  `repeat_policy.condition` sees the index of the execution that just
+  finished.
+- `context.step.repeat_index` is missing for steps without `repeat_policy` and
+  for handlers.
 
 `context.trigger` fields:
 
@@ -327,6 +338,7 @@ Step and handler projection:
 | --- | --- | --- |
 | `PWD` | Current process working directory | Current step only. |
 | `DAG_RUN_STEP_NAME` | `context.step.name` | Current step or handler only. |
+| `DAG_RUN_STEP_REPEAT_INDEX` | `context.step.repeat_index` | Current step with `repeat_policy` only. |
 | `DAG_RUN_STEP_STDOUT_FILE` | `context.paths.step_stdout_file` | Current executable step after stream files are assigned. |
 | `DAG_RUN_STEP_STDERR_FILE` | `context.paths.step_stderr_file` | Current executable step after stream files are assigned. |
 | `DAGU_OUTPUT_FILE` | `context.paths.step_output_file` | Current step attempt after output publication is prepared. |
@@ -421,6 +433,7 @@ Availability rules:
   attempt.
 - Step context is available only while evaluating or executing the current step
   or handler.
+- Repeat context is available only for steps with `repeat_policy`.
 - Step stream paths are available only after stdout and stderr files are
   assigned for the current executable step.
 - Step output file path is available only after step output publication is
@@ -488,6 +501,8 @@ Rules:
 - New environment projection variables should prefer the `DAGU_` prefix unless
   an owning spec explicitly extends an existing compatibility family such as
   `DAG_` or `WEBHOOK_`.
+- `DAG_RUN_STEP_REPEAT_INDEX` extends the `DAG_RUN_STEP_` family that already
+  carries the current step's name and stream files.
 
 Frozen structured-reference aliases:
 

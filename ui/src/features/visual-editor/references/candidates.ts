@@ -168,6 +168,7 @@ const CONTEXT_FIELDS = [
 const CONTEXT_STEP_FIELDS = [
   'step.id',
   'step.name',
+  'step.repeat_index',
   'paths.step_stdout_file',
   'paths.step_stderr_file',
   'paths.step_output_file',
