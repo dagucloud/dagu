@@ -155,8 +155,8 @@ func TestCheckWindowUnreadable(t *testing.T) {
 		want    string
 		notWant string
 	}{
-		{name: "access denied names possible elevation", window: WindowID{PID: 4243, App: "locked"}, readErr: windows.ERROR_ACCESS_DENIED, want: "read the integrity level of locked", notWant: "locked runs elevated"},
-		{name: "other errors retain generic context", window: WindowID{PID: 4244, App: "locked"}, readErr: windows.ERROR_INVALID_PARAMETER, want: "read the integrity level of locked", notWant: "may be elevated or protected"},
+		{name: "access denied names possible elevation", window: WindowID{PID: 4243, App: "locked"}, readErr: windows.ERROR_ACCESS_DENIED, want: "read the integrity level of locked, which may run elevated or as another user", notWant: "locked runs elevated"},
+		{name: "other errors retain generic context", window: WindowID{PID: 4244, App: "locked"}, readErr: windows.ERROR_INVALID_PARAMETER, want: "read the integrity level of locked, so input is not sent", notWant: "may run elevated"},
 		{name: "title fallback", window: WindowID{PID: 4245, Title: "Secure Tool"}, readErr: windows.ERROR_ACCESS_DENIED, want: `window "Secure Tool"`},
 		{name: "pid fallback", window: WindowID{PID: 4246}, readErr: windows.ERROR_ACCESS_DENIED, want: "process 4246"},
 	} {
@@ -173,9 +173,6 @@ func TestCheckWindowUnreadable(t *testing.T) {
 			assert.Contains(t, err.Error(), tc.want)
 			if tc.notWant != "" {
 				assert.NotContains(t, err.Error(), tc.notWant)
-			}
-			if tc.readErr == windows.ERROR_ACCESS_DENIED {
-				assert.Contains(t, err.Error(), "the target may be elevated or protected")
 			}
 		})
 	}

@@ -507,7 +507,7 @@ func checkWindow(w WindowID) error {
 	if err != nil {
 		target := windowLabel(w)
 		if errors.Is(err, windows.ERROR_ACCESS_DENIED) {
-			return fmt.Errorf("read the integrity level of %s, so input is not sent: access denied; the target may be elevated or protected: %w", target, err)
+			return fmt.Errorf("read the integrity level of %s, which may run elevated or as another user, so input is not sent: %w", target, err)
 		}
 		return fmt.Errorf("read the integrity level of %s, so input is not sent: %w", target, err)
 	}
