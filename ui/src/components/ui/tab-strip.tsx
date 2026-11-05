@@ -58,7 +58,8 @@ export function tabStripTabId(prefix: string, id: string): string {
 const KEY_STEP: Record<string, 1 | -1> = { ArrowRight: 1, ArrowLeft: -1 };
 
 /**
- * The one tab row of the workspace: a 32 px row of 24 px tabs. The names
+ * The one tab row of the workspace: a 32 px row of 24 px tabs, larger on a
+ * touch screen. The names
  * collapse into icons, with a tooltip and an aria-label, when `compact` is
  * set or when the row is too narrow for them; the selected tab keeps its
  * name, so the row still says what shows. If the icons do not fit either,
@@ -150,7 +151,7 @@ export function TabStrip({
       role="tablist"
       aria-label={label}
       className={cn(
-        'flex h-8 min-w-0 items-center gap-0.5 overflow-x-auto overflow-y-hidden',
+        'flex h-8 min-w-0 items-center gap-0.5 overflow-x-auto overflow-y-hidden pointer-coarse:h-11',
         className
       )}
     >
@@ -181,7 +182,7 @@ export function TabStrip({
             onClick={() => onChange(tab.id)}
             onKeyDown={(event) => onKeyDown(event, tab.id)}
             className={cn(
-              'inline-flex h-6 shrink-0 items-center gap-1 whitespace-nowrap rounded-md px-2 text-xs transition-colors disabled:pointer-events-none disabled:opacity-50',
+              'inline-flex h-6 shrink-0 items-center gap-1 whitespace-nowrap rounded-md px-2 text-xs transition-colors disabled:pointer-events-none disabled:opacity-50 pointer-coarse:h-9 pointer-coarse:px-3',
               FOCUS_RING,
               active
                 ? 'bg-muted font-medium text-foreground'

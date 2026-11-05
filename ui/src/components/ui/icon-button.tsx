@@ -38,14 +38,36 @@ export interface IconButtonProps
   tooltipSide?: React.ComponentProps<typeof TooltipContent>['side'];
 }
 
+// A touch screen gets larger targets; a mouse keeps the dense sizes.
 const SIZE_CLASS = {
-  sm: 'size-6 [&_svg]:size-3.5',
-  md: 'size-7 [&_svg]:size-4',
+  sm: 'size-6 pointer-coarse:size-8 [&_svg]:size-3.5',
+  md: 'size-7 pointer-coarse:size-9 [&_svg]:size-4',
 } as const;
+
+const LabelsContext = React.createContext(false);
+
+/**
+ * Shows the names of the icon buttons inside it next to their icons, where
+ * a tooltip does not work, such as a sheet on a touch screen.
+ */
+export function IconButtonLabels({ children }: { children: React.ReactNode }) {
+  return (
+    <LabelsContext.Provider value={true}>{children}</LabelsContext.Provider>
+  );
+}
+
+/** True inside IconButtonLabels: an icon action there shows its name. */
+export function useIconButtonLabels(): boolean {
+  return React.useContext(LabelsContext);
+}
+
+/** Reads IconButtonLabels where an element renders, for a custom icon action. */
+export const IconButtonLabelsConsumer = LabelsContext.Consumer;
 
 /**
  * An icon-only action. The name is in the tooltip and in aria-label, also
- * while the button is disabled or busy.
+ * while the button is disabled or busy. Inside IconButtonLabels the name
+ * also shows next to the icon.
  */
 export function IconButton({
   label,
@@ -66,6 +88,7 @@ export function IconButton({
   ...buttonProps
 }: IconButtonProps) {
   const insideTooltip = useInsideTooltip();
+  const labeled = useIconButtonLabels();
   const isDisabled = Boolean(disabled || disabledReason);
   const button = (
     <Button
@@ -80,7 +103,9 @@ export function IconButton({
       onClick={busy ? undefined : onClick}
       className={cn(
         'p-0',
-        SIZE_CLASS[size],
+        labeled
+          ? 'h-9 justify-start gap-2 px-2.5 text-sm font-normal [&_svg]:size-4'
+          : SIZE_CLASS[size],
         FOCUS_RING,
         tone === 'destructive' && 'hover:text-destructive',
         pressed && 'bg-muted text-foreground',
@@ -92,6 +117,7 @@ export function IconButton({
       ) : (
         <Icon className={iconClassName} aria-hidden="true" />
       )}
+      {labeled && <span aria-hidden="true">{label}</span>}
     </Button>
   );
 

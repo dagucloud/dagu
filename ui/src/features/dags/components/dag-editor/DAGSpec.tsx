@@ -26,7 +26,10 @@ import { flushSync } from 'react-dom';
 import type { KeyedMutator } from 'swr';
 import type { components, paths } from '../../../../api/v1/schema';
 import { Button } from '@/components/ui/button';
-import { IconButton } from '@/components/ui/icon-button';
+import {
+  IconButton,
+  IconButtonLabelsConsumer,
+} from '@/components/ui/icon-button';
 import ConfirmModal from '@/components/ui/confirm-dialog';
 import { DialogLayerProvider } from '@/components/ui/dialog';
 import { Spinner } from '@/components/ui/spinner';
@@ -99,6 +102,7 @@ import { ReadOnlyMarker, YamlFileBody, YamlFilePanel } from './YamlFilePanel';
 import { useYamlSection } from './useYamlSection';
 import { useDAGSpecQuery } from './useDAGSpecQuery';
 import { WorkflowPanel } from './WorkflowPanel';
+import { PanelSwitchButton } from '@/features/visual-editor/PanelSwitchButton';
 // Not lazy: the canvas is what the page shows first, and a lazy editor adds
 // a blank render that React holds for up to 300 ms.
 import VisualEditor from '@/features/visual-editor';
@@ -2010,59 +2014,73 @@ function DAGSpec({
             {editable && (
               // Save and the issues button share this box: the same place,
               // the same height and the same width, so that nothing moves.
-              <div
-                data-testid="save-slot"
-                className="flex h-7 w-14 items-center justify-start"
-              >
-                {savingBlocked && issuesPopover}
-                {!savingBlocked && (
-                  <I18nProps>
-                    <Button
-                      id="save-config"
-                      // Filled only while there is something to save, so that
-                      // a disabled Save does not read as an action.
-                      variant={
-                        localHasUnsavedChanges && !syntaxError
-                          ? 'primary'
-                          : 'outline'
-                      }
-                      size="xs"
-                      aria-label={ts('Save')}
-                      aria-describedby="save-status"
-                      title={saveButtonTitle}
-                      // Icon only, with one size in every state. The count on
-                      // its corner tells the warnings.
-                      className="relative h-7 w-7 justify-center p-0"
-                      disabled={
-                        isSaving || !localHasUnsavedChanges || syntaxError
-                      }
-                      onClick={async () => {
-                        await requestSave();
-                        props.refresh();
-                      }}
-                    >
-                      <SaveStatusIcon
-                        busy={isSaving || saveState === 'validating'}
-                      />
-                      <span id="save-status" className="sr-only">
-                        {saveStatus}
-                      </span>
-                      {warningCount > 0 && (
-                        <CountBadge
-                          data-testid="save-warning-count"
-                          role="img"
-                          aria-label={ts('Warnings: {count}', {
-                            count: warningCount,
-                          })}
-                          tone="warning"
-                          count={warningCount}
-                          corner
-                        />
-                      )}
-                    </Button>
-                  </I18nProps>
+              // In the tools sheet of a phone the Save button says its name.
+              <IconButtonLabelsConsumer>
+                {(saveLabeled) => (
+                  <div
+                    data-testid="save-slot"
+                    className={cn(
+                      'flex h-7 items-center justify-start',
+                      saveLabeled ? 'w-auto' : 'w-14'
+                    )}
+                  >
+                    {savingBlocked && issuesPopover}
+                    {!savingBlocked && (
+                      <I18nProps>
+                        <Button
+                          id="save-config"
+                          // Filled only while there is something to save, so that
+                          // a disabled Save does not read as an action.
+                          variant={
+                            localHasUnsavedChanges && !syntaxError
+                              ? 'primary'
+                              : 'outline'
+                          }
+                          size="xs"
+                          aria-label={ts('Save')}
+                          aria-describedby="save-status"
+                          title={saveButtonTitle}
+                          // Icon only, with one size in every state. The count on
+                          // its corner tells the warnings.
+                          className={cn(
+                            'relative justify-center p-0',
+                            saveLabeled ? 'h-9 gap-2 px-2.5 text-sm' : 'h-7 w-7'
+                          )}
+                          disabled={
+                            isSaving || !localHasUnsavedChanges || syntaxError
+                          }
+                          onClick={async () => {
+                            await requestSave();
+                            props.refresh();
+                          }}
+                        >
+                          <SaveStatusIcon
+                            busy={isSaving || saveState === 'validating'}
+                          />
+                          {saveLabeled && (
+                            <span aria-hidden="true">{ts('Save')}</span>
+                          )}
+                          <span id="save-status" className="sr-only">
+                            {saveStatus}
+                          </span>
+                          {warningCount > 0 && (
+                            <CountBadge
+                              data-testid="save-warning-count"
+                              role="img"
+                              aria-label={ts('Warnings: {count}', {
+                                count: warningCount,
+                              })}
+                              tone="warning"
+                              count={warningCount}
+                              corner
+                            />
+                          )}
+                        </Button>
+                      </I18nProps>
+                    )}
+                  </div>
                 )}
-              </div>
+              </IconButtonLabelsConsumer>
             )}
           </div>
         );
@@ -2372,6 +2390,14 @@ function DAGSpec({
                     onClose={closeSection}
                     stepName={ndvStepName}
                     title={ndvTitle}
+                    note={
+                      yamlKind === 'file' && preview.dag ? (
+                        <PanelSwitchButton
+                          to="workflow"
+                          onClick={() => editorHandle.openWorkflowPanel(true)}
+                        />
+                      ) : undefined
+                    }
                     dag={shownValidation.dag ?? data.dag}
                     runDetails={runSource?.details}
                     onSelectStep={selectNdvStep}
