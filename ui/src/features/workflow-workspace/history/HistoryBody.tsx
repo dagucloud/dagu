@@ -8,6 +8,7 @@ import { isContinuousStep } from '@/lib/runDisplayStatus';
 import { useWorkspaceEditor } from '../canvas/WorkspaceEditorContext';
 import { useVisibleRuns } from '../data/useVisibleRuns';
 import { useDockCommands } from '../dock/DockContext';
+import { dockTabId } from '../dock/DockTabStrip';
 import { useDockHidden } from '../dock/FreezeWhenHidden';
 import { RunTabEmpty } from '../dock/tabs/runTabBodies';
 import type { DockTabBodyProps } from '../dock/tabs/types';
@@ -28,6 +29,11 @@ import {
  * the selected run; the tab makes no request of its own. A pick pushes ?run,
  * so that Back returns to the run before, and keeps the step.
  */
+const HISTORY_KEYS: Partial<Record<string, 'older' | 'newer'>> = {
+  ArrowLeft: 'older',
+  ArrowRight: 'newer',
+};
+
 export function HistoryBody({ run, dag, step, selectTab }: DockTabBodyProps) {
   const { ts } = useI18n();
   const visible = useVisibleRuns({ enabled: true, pollTestRuns: true });
@@ -97,6 +103,31 @@ export function HistoryBody({ run, dag, step, selectTab }: DockTabBodyProps) {
       step === undefined ? null : stepHistory(runs, step, now ?? Date.now()),
     [runs, step, now]
   );
+
+  // Left and Right on the focused History tab of the Activity panel go to
+  // the older and the newer run, as the arrows of the run chip do: the tab
+  // reads as the history itself. Home and End still move between the tabs.
+  const historyTabId = dockTabId('history');
+  const live = useRef({ visible, step, pick, pickColumn });
+  live.current = { visible, step, pick, pickColumn };
+  useEffect(() => {
+    if (hidden) return;
+    const onKeyDown = (event: globalThis.KeyboardEvent) => {
+      const dir = HISTORY_KEYS[event.key];
+      if (!dir || event.altKey || event.ctrlKey || event.metaKey) return;
+      if ((event.target as Element | null)?.id !== historyTabId) return;
+      // Before the tab strip, which would move to the next tab.
+      event.preventDefault();
+      event.stopImmediatePropagation();
+      const current = live.current;
+      const id = current.visible.adjacentId(dir);
+      if (id === null) return;
+      if (current.step === undefined) current.pickColumn(id);
+      else current.pick(id, current.step);
+    };
+    document.addEventListener('keydown', onKeyDown, true);
+    return () => document.removeEventListener('keydown', onKeyDown, true);
+  }, [hidden, historyTabId]);
 
   // A step name opens the history of that step and keeps this tab.
   const showStep = useCallback(

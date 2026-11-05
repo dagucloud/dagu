@@ -280,6 +280,12 @@ export function StepsGrid({
     gridRef.current
       ?.querySelector<HTMLElement>(`[data-cell="${to.row}:${to.col}"]`)
       ?.focus();
+    // Left and Right go through the history: the run of the column becomes
+    // the selected run, and the grid stays.
+    const runId = runs[to.col]?.dagRunId;
+    if ((event.key === 'ArrowLeft' || event.key === 'ArrowRight') && runId) {
+      if (to.col !== col) onPickRun(runId);
+    }
   };
 
   const onBlur = (event: FocusEvent<HTMLDivElement>) => {

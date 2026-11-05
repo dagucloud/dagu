@@ -195,8 +195,12 @@ describe('StepsGrid', () => {
 
     press('ArrowDown');
     expect(cell('test', 'r2')).toHaveFocus();
+    expect(props.onPickRun).not.toHaveBeenCalled();
+    // Left and Right go through the history: the run of the column is
+    // selected, and the grid stays.
     press('ArrowRight');
     expect(cell('test', 'r3')).toHaveFocus();
+    expect(props.onPickRun).toHaveBeenLastCalledWith('r3');
     press('Home');
     expect(cell('test', 'r1')).toHaveFocus();
     press('ArrowUp');

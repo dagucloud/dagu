@@ -220,6 +220,12 @@ function Chart({
     const options =
       listRef.current?.querySelectorAll<HTMLElement>('[role="option"]');
     options?.[index]?.focus();
+    // Left and Right go through the history: the run becomes the selected
+    // one.
+    const entry = entries[index];
+    if ((event.key === 'ArrowLeft' || event.key === 'ArrowRight') && entry) {
+      if (index !== stop) onPick(entry.runId);
+    }
   };
 
   const usualY = usualMs === null ? null : axis.heightOf(usualMs);
