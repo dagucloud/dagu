@@ -94,7 +94,8 @@ export function PhoneViewNav() {
     <nav
       aria-label={ts('Workflow views')}
       data-testid="ww-phone-nav"
-      className="flex h-12 shrink-0 border-t border-border bg-card pb-[env(safe-area-inset-bottom)]"
+      // 48px for the controls, and the bottom inset of the phone under them.
+      className="flex h-[calc(3rem+env(safe-area-inset-bottom))] shrink-0 border-t border-border bg-card pb-[env(safe-area-inset-bottom)]"
     >
       <ViewButton
         icon={Workflow}

@@ -2409,7 +2409,10 @@ function DAGSpec({
                     stepName={ndvStepName}
                     title={ndvTitle}
                     note={
-                      yamlKind === 'file' && preview.dag ? (
+                      // The Workflow panel is the one of the parent tab.
+                      yamlKind === 'file' &&
+                      preview.dag &&
+                      activeTab === 'parent' ? (
                         <PanelSwitchButton
                           to="workflow"
                           onClick={() => editorHandle.openWorkflowPanel(true)}

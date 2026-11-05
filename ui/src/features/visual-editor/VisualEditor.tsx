@@ -1891,7 +1891,15 @@ export function VisualEditor(props: VisualEditorProps): ReactElement {
           open={workflowOpen}
           onClose={() => toggleWorkflow(false)}
           bare={workflowPanelBare}
-          onShowYaml={onYamlVisibleChange ? () => toggleYaml(true) : undefined}
+          // A draft in a tab of the panel is at risk when the panel goes.
+          onShowYaml={
+            onYamlVisibleChange
+              ? () =>
+                  launcherHost
+                    ? launcherHost.guard(() => toggleYaml(true))
+                    : toggleYaml(true)
+              : undefined
+          }
           onRestore={() => applyWorkflow(true)}
         >
           {workflowPanel}

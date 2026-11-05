@@ -215,11 +215,18 @@ export function StepsGrid({
           col: selectedCol >= 0 ? selectedCol : lastCol,
         };
 
-  // The newest run is in view when the grid opens and when a run comes.
+  // The newest run is in view when the grid opens and when a run comes. A
+  // focused cell stays in view instead: a selection can move the window.
   const newestId = runs[lastCol]?.dagRunId;
   useLayoutEffect(() => {
     const scroller = scrollRef.current;
-    if (scroller) scroller.scrollLeft = scroller.scrollWidth;
+    if (!scroller) return;
+    const active = document.activeElement;
+    if (active instanceof HTMLElement && gridRef.current?.contains(active)) {
+      active.scrollIntoView?.({ block: 'nearest', inline: 'nearest' });
+      return;
+    }
+    scroller.scrollLeft = scroller.scrollWidth;
   }, [newestId]);
 
   // Stable, so that the memoized rows skip a render for another row.

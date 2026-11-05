@@ -155,7 +155,7 @@ describe('TabStrip', () => {
   it('keeps the names on a touch screen when asked to', () => {
     const matchMedia = window.matchMedia;
     window.matchMedia = ((query: string) => ({
-      matches: query === '(pointer: coarse)',
+      matches: query === '(any-pointer: coarse)',
       media: query,
       addEventListener: () => {},
       removeEventListener: () => {},

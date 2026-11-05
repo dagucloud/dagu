@@ -63,6 +63,16 @@ describe('HistoryBody on the focused History tab', () => {
     expect(h.setUrl).toHaveBeenCalledWith({ run: 'r1' });
   });
 
+  // Shift with the arrows still moves between the tabs.
+  it('leaves Shift with the arrows to the tab strip', () => {
+    renderBody();
+    fireEvent.keyDown(screen.getByRole('button', { name: 'History' }), {
+      key: 'ArrowLeft',
+      shiftKey: true,
+    });
+    expect(h.setUrl).not.toHaveBeenCalled();
+  });
+
   it('does nothing at the end of the runs or away from the tab', () => {
     renderBody();
     fireEvent.keyDown(screen.getByRole('button', { name: 'History' }), {

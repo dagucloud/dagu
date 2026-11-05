@@ -73,7 +73,8 @@ const KEY_STEP: Record<string, 1 | -1> = { ArrowRight: 1, ArrowLeft: -1 };
  * selected tab is a tab stop; the arrow keys, Home and End select and focus
  * a tab.
  */
-const COARSE_POINTER = '(pointer: coarse)';
+// Any pointer: a touch screen laptop has a mouse as its primary pointer.
+const COARSE_POINTER = '(any-pointer: coarse)';
 
 function subscribeCoarse(onChange: () => void): () => void {
   const list = window.matchMedia?.(COARSE_POINTER);

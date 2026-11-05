@@ -112,7 +112,8 @@ export function HistoryBody({ run, dag, step, selectTab }: DockTabBodyProps) {
 
   // Left and Right on the focused History tab of the Activity panel go to
   // the older and the newer run, as the arrows of the run chip do: the tab
-  // reads as the history itself. Home and End still move between the tabs.
+  // reads as the history itself. Shift with the arrows, Home and End still
+  // move between the tabs.
   const historyTabId = dockTabId('history');
   const live = useRef({ visible, step, pick, pickColumn });
   // After the commit: the keys act on the history that shows.
@@ -124,6 +125,7 @@ export function HistoryBody({ run, dag, step, selectTab }: DockTabBodyProps) {
     const onKeyDown = (event: globalThis.KeyboardEvent) => {
       const dir = HISTORY_KEYS[event.key];
       if (!dir || event.altKey || event.ctrlKey || event.metaKey) return;
+      if (event.shiftKey) return;
       if ((event.target as Element | null)?.id !== historyTabId) return;
       // Before the tab strip, which would move to the next tab.
       event.preventDefault();

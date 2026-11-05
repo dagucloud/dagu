@@ -104,7 +104,7 @@ export function IconButton({
       className={cn(
         'p-0',
         labeled
-          ? 'h-9 w-full justify-start gap-2 px-2.5 text-sm font-normal [&_svg]:size-4'
+          ? 'h-auto min-h-9 w-full justify-start gap-2 whitespace-normal px-2.5 py-1.5 text-left text-sm font-normal [&_svg]:size-4 [&_svg]:shrink-0'
           : SIZE_CLASS[size],
         FOCUS_RING,
         tone === 'destructive' && 'hover:text-destructive',

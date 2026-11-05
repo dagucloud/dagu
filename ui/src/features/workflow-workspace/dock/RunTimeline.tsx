@@ -50,7 +50,7 @@ import { useDock } from './DockContext';
 import { DockHeaderToolsContext } from './DockHeaderTools';
 import { propsEqual } from './propsEqual';
 import { RunPicker } from './RunPicker';
-import { RunTimelineControls, RunViewMenu } from './RunTimelineControls';
+import { RunTimelineControls } from './RunTimelineControls';
 import {
   EXTENT_PX,
   isLongRun,
@@ -1340,18 +1340,17 @@ export function RunTimeline({ compact = false }: { compact?: boolean }) {
   const select = (id: string) => run.select(id, { replace: true });
 
   if (compact) {
+    // The bars have no room: the runs are a menu, under the controls that
+    // choose them (the View menu, the count or the time range).
     return (
-      <RunPicker
-        runs={
-          inRange
-            ? visible.pool
-            : timelineWindow(visible.pool, visible.selectedId, settings.count)
-        }
-        selectedId={visible.selectedId}
-        statusOf={statusTextOf}
-        onSelect={select}
-        trailing={
-          <RunViewMenu
+      <div className="flex shrink-0 flex-col">
+        <div className="px-3 pt-1">
+          <RunTimelineControls
+            count={settings.count}
+            counts={countOptions(inRange ? 0 : visible.pool.length)}
+            onCountChange={actions.setCount}
+            range={inRange ? settings.range : null}
+            onRangeChange={actions.setRange}
             hasTestRuns={visible.hasTestRuns}
             showTests={settings.showTests}
             onShowTestsChange={actions.setShowTests}
@@ -1362,8 +1361,18 @@ export function RunTimeline({ compact = false }: { compact?: boolean }) {
             hiddenTypes={settings.hiddenTypes}
             onHiddenTypesChange={actions.setHiddenTypes}
           />
-        }
-      />
+        </div>
+        <RunPicker
+          runs={
+            inRange
+              ? visible.pool
+              : timelineWindow(visible.pool, visible.selectedId, settings.count)
+          }
+          selectedId={visible.selectedId}
+          statusOf={statusTextOf}
+          onSelect={select}
+        />
+      </div>
     );
   }
 

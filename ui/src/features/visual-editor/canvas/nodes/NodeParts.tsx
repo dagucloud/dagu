@@ -507,6 +507,9 @@ export function NodeHeader({
           {failure ? (
             <span
               data-testid="ve-node-failure"
+              title={[node.subtitle, node.run?.error?.trim()]
+                .filter(Boolean)
+                .join('\n')}
               className="min-w-0 flex-1 truncate text-xs text-destructive"
             >
               {failure}

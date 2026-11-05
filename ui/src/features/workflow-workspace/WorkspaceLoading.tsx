@@ -145,10 +145,14 @@ export function WorkspaceLoading({
         <div
           aria-hidden="true"
           data-testid="ww-loading-dock"
-          className="relative min-h-8 shrink bg-card max-md:h-auto! max-md:flex-1"
+          className="relative min-h-8 shrink bg-card max-md:flex max-md:h-auto! max-md:flex-1 max-md:flex-col"
           style={{ height: storedDockHeight() }}
         >
           <div className="h-8 border-t border-border max-md:hidden" />
+          {/* On a phone the panel is the view: the loader shows in it. */}
+          <div className="flex min-h-0 flex-1 md:hidden">
+            <LoadingIndicator fill delayed />
+          </div>
         </div>
       )}
       {/* The views bar of a phone (PhoneViewNav). */}

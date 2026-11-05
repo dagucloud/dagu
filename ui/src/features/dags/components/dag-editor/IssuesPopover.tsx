@@ -25,6 +25,7 @@ import { useI18n } from '@/i18n/I18nProvider';
 import { cn } from '@/lib/utils';
 import { ValueReferenceNoticesButton } from '../value-reference-notices';
 import { isDefect } from '../value-reference-notices/ValueReferenceNoticesButton';
+import { useIconButtonLabels } from '@/components/ui/icon-button';
 
 type ValidationIssue = components['schemas']['ValidationIssue'];
 type ValueReferenceNotice = components['schemas']['ValueReferenceNotice'];
@@ -140,6 +141,8 @@ export function IssuesPopover({
 }: IssuesPopoverProps) {
   const { ts } = useI18n();
   const [open, setOpen] = React.useState(false);
+  // In the tools sheet of a phone the button says its name.
+  const labeled = useIconButtonLabels();
   const anchorRef = React.useRef<HTMLButtonElement>(null);
   const panelId = React.useId();
   const rows = React.useMemo(
@@ -280,15 +283,27 @@ export function IssuesPopover({
             data-testid="issues-slot"
             // The height of the Save button, which this one replaces. The
             // toolbar gives both the same box, so that nothing moves. The red
-            // is the one of the trash button: the destructive token.
-            className="h-7 justify-start gap-1 border-destructive px-2 text-destructive hover:bg-destructive/10 hover:text-destructive"
+            // is the one of the trash button: the destructive token. In the
+            // tools sheet of a phone it says its name.
+            className={cn(
+              'justify-start gap-1 border-destructive px-2 text-destructive hover:bg-destructive/10 hover:text-destructive',
+              labeled ? 'h-9 w-full gap-2 px-2.5 text-sm' : 'h-7'
+            )}
             onClick={() => setOpen((open) => !open)}
           >
             <AlertTriangle className="h-3.5 w-3.5" aria-hidden="true" />
+            {labeled && (
+              <span aria-hidden="true">
+                {ts('Issues ({count})', { count: shownCount })}
+              </span>
+            )}
             <span
               aria-hidden="true"
               data-testid="issues-slot-count"
-              className="text-xs font-semibold tabular-nums leading-none"
+              className={cn(
+                'text-xs font-semibold tabular-nums leading-none',
+                labeled && 'sr-only'
+              )}
             >
               {shownCount}
             </span>
