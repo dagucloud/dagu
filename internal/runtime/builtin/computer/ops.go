@@ -330,6 +330,7 @@ func (r *run) start(ctx context.Context) (int, error) {
 	r.driver.ProtectApps(r.exec.protectedApps...)
 	r.driver.ProtectTitles(r.exec.protectedTitles...)
 	r.driver.AssumeInputSent(r.lease.lastInput())
+	r.showMarks()
 	r.workApp = r.lease.workApp(r.dagRunID)
 	r.trustWorkApp(r.workApp)
 	r.noteStartingWindows()
@@ -761,7 +762,7 @@ func (r *run) elementsReader() (desktop.Elements, error) {
 		}
 		return nil, fmt.Errorf("open the elements: %w", err)
 	}
-	r.elements = newSteadyElements(els, r.driver.Windows, r.driver.InputSentAt, func() context.Context { return r.operation })
+	r.elements = newSteadyElements(markedElements{Elements: els, driver: r.driver}, r.driver.Windows, r.driver.InputSentAt, func() context.Context { return r.operation })
 	return r.elements, nil
 }
 
