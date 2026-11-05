@@ -106,10 +106,10 @@ export function RunActionsCluster({ fileName, dag }: BarSlotProps) {
       {canWrite && (canRunDags || showCopy) && (
         <span
           data-testid="ww-run-copy-slot"
-          // The empty slot keeps the bar still on a wide window; a phone
-          // needs the room for the name.
+          // The empty slot keeps the bar still on a wide window: there it has
+          // the room of the named button. A phone needs the room for the name.
           className={cn(
-            'inline-flex h-7 min-w-7 shrink-0 items-center justify-center',
+            'inline-flex size-7 shrink-0 items-center justify-center @7xl:w-[11.5rem] @7xl:justify-start',
             !showCopy && 'max-md:hidden'
           )}
         >
@@ -117,6 +117,7 @@ export function RunActionsCluster({ fileName, dag }: BarSlotProps) {
             // Named on a wide bar, as the run actions are.
             <ActionButton
               label="wide"
+              className="max-w-full"
               icon={<FileClock className="h-4 w-4" />}
               title={ts(
                 'Replaces the editor text with the YAML of this run. Nothing is saved until you save.'
