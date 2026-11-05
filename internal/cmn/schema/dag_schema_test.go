@@ -3009,6 +3009,10 @@ steps: [{run: "true"}]
 llm: {provider: openai, model: gpt-4o, max_tool_iterations: 0}
 steps: [{run: "true"}]
 `, false},
+		{"openai-codex provider", `
+llm: {provider: openai-codex, model: gpt-5}
+steps: [{run: "true"}]
+`, false},
 		{"SMTP OAuth missing tenant", `
 smtp:
   username: alerts@example.com
