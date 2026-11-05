@@ -6,6 +6,7 @@ package cloudreport
 import (
 	"cmp"
 	"context"
+	"encoding/json"
 	"slices"
 	"time"
 
@@ -15,9 +16,15 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/serviceregistry"
 )
 
-// maxWorkers bounds the workers one report lists; workers_total counts them
-// all.
-const maxWorkers = 256
+// Limits on the workers one report lists; workers_total counts them all.
+const (
+	maxWorkers = 256
+	// maxWorkersBytes bounds the encoded workers, whose IDs and labels have
+	// no length limit. With the budgets of finished runs, runs in progress,
+	// schedules, and queues, the report stays under the 1 MiB that Dagu
+	// Console accepts.
+	maxWorkersBytes = 64 << 10
+)
 
 // Workers lists the presence records the coordinator keeps from distributed
 // workers' heartbeats.
@@ -37,7 +44,8 @@ type workerHealth struct {
 }
 
 // readWorkers returns the workers whose last heartbeat is fresh, by ID and at
-// most maxWorkers of them when list is set, and how many there are. Both are
+// most maxWorkers and maxWorkersBytes of them when list is set, and how many
+// there are. Both are
 // nil while the workers are unknown: without a worker store, without a
 // registered coordinator, which keeps the store current, or when either
 // cannot be read.
@@ -60,12 +68,18 @@ func (r *Reporter) readWorkers(ctx context.Context, now time.Time, services []se
 	}
 	slices.SortFunc(live, func(a, b dispatch.WorkerHeartbeatRecord) int { return cmp.Compare(a.WorkerID, b.WorkerID) })
 	workers := make([]workerHealth, 0, min(total, maxWorkers))
+	size := 0
 	for _, rec := range live[:min(total, maxWorkers)] {
 		w := workerHealth{ID: rec.WorkerID, Host: rec.Host, Labels: rec.Labels,
 			LastHeartbeatAt: formatTime(rec.LastHeartbeatTime()), Resources: workerResourcesOf(rec.Machine)}
 		if s := rec.Stats; s != nil {
 			w.TotalPollers, w.BusyPollers = s.TotalPollers, s.BusyPollers
 		}
+		encoded, err := json.Marshal(w)
+		if err != nil || size+len(encoded)+1 > maxWorkersBytes {
+			break
+		}
+		size += len(encoded) + 1
 		workers = append(workers, w)
 	}
 	return workers, &total

@@ -7,7 +7,9 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"slices"
+	"strings"
 	"testing"
 	"time"
 
@@ -69,26 +71,67 @@ func TestReportCarriesWorkers(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 
-			console := newFakeConsole(t)
-			credentials := func() (license.CloudCredentials, bool) {
-				creds, ok := console.credentials()
-				creds.Free = tc.free
-				return creds, ok
-			}
-			r := newReporter(credentials, tc.registry, fixedLevel(tc.level))
-			r.workers = tc.workers
-			clock := startReporter(t.Context(), t, r, noJitter)
-
-			clock.wait()
-			clock.elapse()
-			var body struct {
-				Health map[string]json.RawMessage `json:"health"`
-			}
-			require.NoError(t, json.Unmarshal([]byte(console.next(t).body), &body))
-			assertField(t, body.Health, "workers", tc.wantList)
-			assertField(t, body.Health, "workers_total", tc.wantTotal)
+			health := firstReportHealth(t, tc.level, tc.registry, tc.workers, tc.free)
+			assertField(t, health, "workers", tc.wantList)
+			assertField(t, health, "workers_total", tc.wantTotal)
 		})
 	}
+}
+
+// The worker list stops at maxWorkersBytes however long labels make each
+// worker, so the report stays under what Dagu Console accepts, while
+// workers_total still counts every live worker.
+func TestReportBoundsWorkerBytes(t *testing.T) {
+	t.Parallel()
+
+	sentAt := testClockStart.Add(maxStartDelay / 2)
+	note := strings.Repeat("x", 4<<10)
+	records := make([]dispatch.WorkerHeartbeatRecord, 100)
+	for i := range records {
+		records[i] = dispatch.WorkerHeartbeatRecord{WorkerID: fmt.Sprintf("w-%03d", i),
+			Labels: map[string]string{"note": note}, LastHeartbeatAt: sentAt.UnixMilli()}
+	}
+	coordinator := &fakeRegistry{members: map[serviceregistry.ServiceName][]serviceregistry.HostInfo{
+		serviceregistry.ServiceNameCoordinator: {{ID: "c1"}},
+	}}
+
+	health := firstReportHealth(t, config.ReportRuns, coordinator, &stubWorkers{records: records}, false)
+	assert.JSONEq(t, "100", string(health["workers_total"]))
+	assert.LessOrEqual(t, len(health["workers"]), maxWorkersBytes+1)
+	var workers []workerHealth
+	require.NoError(t, json.Unmarshal(health["workers"], &workers))
+	require.NotEmpty(t, workers)
+	assert.Less(t, len(workers), len(records))
+	assert.Equal(t, "w-000", workers[0].ID)
+}
+
+// firstReportHealth starts a reporter at level and returns the health of the
+// first report it sends.
+func firstReportHealth(
+	t *testing.T,
+	level config.ReportLevel,
+	registry serviceregistry.ServiceRegistry,
+	workers Workers,
+	free bool,
+) map[string]json.RawMessage {
+	t.Helper()
+	console := newFakeConsole(t)
+	credentials := func() (license.CloudCredentials, bool) {
+		creds, ok := console.credentials()
+		creds.Free = free
+		return creds, ok
+	}
+	r := newReporter(credentials, registry, fixedLevel(level))
+	r.workers = workers
+	clock := startReporter(t.Context(), t, r, noJitter)
+
+	clock.wait()
+	clock.elapse()
+	var body struct {
+		Health map[string]json.RawMessage `json:"health"`
+	}
+	require.NoError(t, json.Unmarshal([]byte(console.next(t).body), &body))
+	return body.Health
 }
 
 // assertField checks that fields holds want under key, or no key when want is
