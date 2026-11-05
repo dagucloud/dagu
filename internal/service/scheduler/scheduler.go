@@ -197,6 +197,9 @@ func New(cfg *config.Config, deps Dependencies) (*Scheduler, error) {
 	if deps.LeaseStaleAfter != 0 {
 		scheduler.queueProcessor.leaseStaleThreshold = deps.LeaseStaleAfter
 	}
+	if deps.DAGRunLeaseStore != nil {
+		scheduler.restartScanner.cfg.HasDistributedRun = hasFreshLease(deps.DAGRunLeaseStore, scheduler.queueProcessor.leaseStaleThresholdOrDefault())
+	}
 	return scheduler, nil
 }
 
@@ -906,6 +909,24 @@ func (s *Scheduler) startRetryScanner(ctx context.Context) {
 	}()
 
 	s.retryScanner.Start(scanCtx)
+}
+
+// hasFreshLease reports whether a DAG has a run whose distributed lease is
+// fresh, which is how a run on a worker shows it is alive.
+func hasFreshLease(leases dispatch.DAGRunLeaseStore, staleAfter time.Duration) IsRunningFunc {
+	return func(ctx context.Context, dag *ir.DAG) (bool, error) {
+		all, err := leases.ListAll(ctx)
+		if err != nil {
+			return false, err
+		}
+		now := time.Now().UTC()
+		for _, lease := range all {
+			if lease.DAGRun.Name == dag.Name && lease.IsFresh(now, staleAfter) {
+				return true, nil
+			}
+		}
+		return false, nil
+	}
 }
 
 func (s *Scheduler) startRestartScanner(ctx context.Context) {

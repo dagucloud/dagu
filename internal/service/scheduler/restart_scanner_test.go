@@ -125,6 +125,7 @@ type restartHarness struct {
 	entries    []DAGEntry
 	suspended  map[string]bool
 	running    bool
+	onWorker   bool
 	queued     bool
 	latest     ir.DAGRunStatus
 	latestErr  error
@@ -169,6 +170,10 @@ func newRestartHarness(t *testing.T, dags ...*ir.DAG) *restartHarness {
 		IsRunning: func(context.Context, *ir.DAG) (bool, error) {
 			h.reads++
 			return h.running, nil
+		},
+		HasDistributedRun: func(context.Context, *ir.DAG) (bool, error) {
+			h.reads++
+			return h.onWorker, nil
 		},
 		IsQueued: func(context.Context, *ir.DAG) (bool, error) {
 			h.reads++
@@ -373,8 +378,14 @@ func TestRestartScanner(t *testing.T) {
 		t.Parallel()
 		for name, setup := range map[string]func(*restartHarness){
 			"LiveProcess": func(h *restartHarness) { h.running = true },
-			"QueuedItem":  func(h *restartHarness) { h.queued = true },
-			"ActiveRun":   func(h *restartHarness) { h.endRun(ir.Running, 0) },
+			// A run on a worker leaves no local process, and an older one can
+			// outlive the latest run.
+			"RunOnWorker": func(h *restartHarness) {
+				h.endRun(ir.Succeeded, time.Hour)
+				h.onWorker = true
+			},
+			"QueuedItem": func(h *restartHarness) { h.queued = true },
+			"ActiveRun":  func(h *restartHarness) { h.endRun(ir.Running, 0) },
 		} {
 			t.Run(name, func(t *testing.T) {
 				t.Parallel()

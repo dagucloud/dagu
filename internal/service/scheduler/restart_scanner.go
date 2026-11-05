@@ -86,6 +86,10 @@ type RestartScannerConfig struct {
 	IsSuspended IsSuspendedFunc
 	// IsRunning reports whether a DAG has a live process.
 	IsRunning IsRunningFunc
+	// HasDistributedRun reports whether a DAG has a live run on a distributed
+	// worker, which leaves no local process. It is nil without distributed
+	// execution.
+	HasDistributedRun IsRunningFunc
 	// IsQueued reports whether a DAG has queued items.
 	IsQueued IsQueuedFunc
 	// GetLatestStatus returns the status of the latest run of a DAG, the
@@ -288,15 +292,25 @@ func (s *RestartScanner) process(ctx context.Context, entry DAGEntry, now time.T
 		return nil
 	}
 
-	// A live process or a queued item of another run keeps the DAG busy. Both
-	// cost more than the latest run, so they are read only before a restart. On
-	// error the DAG is assumed busy, so a failing store cannot lead to two runs.
+	// A live process, a live run on a worker or a queued item of another run
+	// keeps the DAG busy: an older run can outlive a newer one. These cost more
+	// than the latest run, so they are read only before a restart. On error the
+	// DAG is assumed busy, so a failing store cannot lead to two runs.
 	if running, err := s.cfg.IsRunning(ctx, dag); err != nil || running {
 		if running {
 			s.checkLater(dag, now)
 			logNoRestart(ctx, dag, "run_alive")
 		}
 		return err
+	}
+	if s.cfg.HasDistributedRun != nil {
+		if running, err := s.cfg.HasDistributedRun(ctx, dag); err != nil || running {
+			if running {
+				s.checkLater(dag, now)
+				logNoRestart(ctx, dag, "run_alive_on_worker")
+			}
+			return err
+		}
 	}
 	if queued, err := s.cfg.IsQueued(ctx, dag); err != nil || queued {
 		if queued {
