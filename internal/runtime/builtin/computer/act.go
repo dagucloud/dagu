@@ -385,7 +385,6 @@ func (l *actLoop) run(ctx context.Context) error {
 		if err != nil {
 			return err
 		}
-		capacity := l.budget - l.spent - l.outcome.actions
 		if over {
 			// A batch that is larger than the actions left leaves those
 			// actions for a smaller batch. Tell the model the batch did not
@@ -396,6 +395,8 @@ func (l *actLoop) run(ctx context.Context) error {
 					return fmt.Errorf("the model kept sending batches larger than the actions left (max_actions %d)", l.budget)
 				}
 				l.stalled = 0
+				capacity := l.budget - l.spent - l.outcome.actions
+				logAction(l.r.timeline, l.index, fmt.Sprintf("the model sent %d actions with %d left; asking for a smaller batch", len(turn.Actions), capacity))
 				// Check the person against the screen the model last saw
 				// before refreshing it: a window switch there would be lost
 				// once l.seen is replaced, and the next fitting batch could
@@ -1106,9 +1107,6 @@ func sendsKeys(action computeruse.Action) bool {
 
 // admit rejects a turn whose actions the step may not run, and reports a
 // turn whose actions would take the task past its budget.
-// admit reports whether the turn's actions would push the task past its
-// action budget. A confirmation that asks a person to approve the next
-// actions is an error unless the step allows it.
 func (l *actLoop) admit(turn *computeruse.Turn) (over bool, err error) {
 	if turn.Confirmation != "" && len(turn.Actions) > 0 && l.r.cfg.OnConfirmation != confirmationAllow {
 		return false, fmt.Errorf("the model provider asks a person to confirm the next actions (%s); add an ask operation before this act and set on_confirmation: allow", turn.Confirmation)
