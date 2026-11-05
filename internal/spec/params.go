@@ -4,9 +4,12 @@
 package spec
 
 import (
+	"bytes"
 	"encoding/json"
 	"fmt"
+	"maps"
 	"regexp"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -233,36 +236,53 @@ var paramRegex = regexp.MustCompile(
 
 // tryParseJSONParams attempts to parse the input as JSON and convert it to paramPairs.
 // Returns an error if the input is not valid JSON.
-func tryParseJSONParams(ctx buildContext, input string) ([]paramPair, error) {
-	// Try parsing as JSON object first
-	var jsonObj map[string]any
-	if err := json.Unmarshal([]byte(input), &jsonObj); err == nil {
-		return parseMapParams(ctx, []any{jsonObj})
+func tryParseJSONParams(input string) ([]paramPair, error) {
+	decoded, ok := decodeJSONNumbers(input)
+	if !ok {
+		return nil, fmt.Errorf("not valid JSON")
 	}
 
-	// Try parsing as JSON array
-	var jsonArr []any
-	if err := json.Unmarshal([]byte(input), &jsonArr); err == nil {
+	switch v := decoded.(type) {
+	case map[string]any:
+		return jsonObjectParams(v), nil
+	case []any:
 		var params []paramPair
-		for _, item := range jsonArr {
-			switch v := item.(type) {
-			case string:
-				params = append(params, paramPair{Name: "", Value: v})
-			case map[string]any:
-				mapParams, err := parseMapParams(ctx, []any{v})
-				if err != nil {
-					return nil, err
-				}
-				params = append(params, mapParams...)
-			default:
-				// Convert other types (numbers, booleans) to string
-				params = append(params, paramPair{Name: "", Value: fmt.Sprintf("%v", v)})
+		for _, item := range v {
+			if obj, ok := item.(map[string]any); ok {
+				params = append(params, jsonObjectParams(obj)...)
+				continue
 			}
+			params = append(params, paramPair{Name: "", Value: jsonParamText(item)})
 		}
 		return params, nil
+	default:
+		return nil, fmt.Errorf("not valid JSON")
 	}
+}
 
-	return nil, fmt.Errorf("not valid JSON")
+// jsonObjectParams returns one named param per member of obj, in name order.
+func jsonObjectParams(obj map[string]any) []paramPair {
+	names := slices.Sorted(maps.Keys(obj))
+	params := make([]paramPair, 0, len(names))
+	for _, name := range names {
+		params = append(params, paramPair{Name: name, Value: jsonParamText(obj[name])})
+	}
+	return params
+}
+
+// jsonParamText returns the param text of a value decoded from JSON: a string
+// as is, and any other value as JSON with its numbers as written.
+func jsonParamText(value any) string {
+	if s, ok := value.(string); ok {
+		return s
+	}
+	var buf bytes.Buffer
+	encoder := json.NewEncoder(&buf)
+	encoder.SetEscapeHTML(false)
+	if err := encoder.Encode(value); err != nil {
+		return fmt.Sprint(value)
+	}
+	return strings.TrimSuffix(buf.String(), "\n")
 }
 
 func parseStringParams(ctx buildContext, input string) ([]paramPair, error) {
@@ -271,7 +291,7 @@ func parseStringParams(ctx buildContext, input string) ([]paramPair, error) {
 	// Check if input looks like a JSON object or array
 	if (strings.HasPrefix(input, "{") && strings.HasSuffix(input, "}")) ||
 		(strings.HasPrefix(input, "[") && strings.HasSuffix(input, "]")) {
-		params, err := tryParseJSONParams(ctx, input)
+		params, err := tryParseJSONParams(input)
 		if err == nil {
 			return params, nil
 		}
