@@ -282,13 +282,17 @@ describe('RunSplitButton', () => {
   });
 
   // The bar has no room for a word: Start is an icon, named for the reader.
-  it('shows Start as an icon button with its name and a tooltip', () => {
+  // Like Retry, Start says its name on a wide bar (container query) and is
+  // an icon below.
+  it('shows Start with its name, as text on a wide bar only', () => {
     setup({ latest: runDetails('run-3', Status.Failed) });
 
     const start = screen.getByRole('button', { name: 'Start' });
     expect(start).toHaveAttribute('aria-label', 'Start');
     expect(start.querySelector('svg')).not.toBeNull();
-    expect(within(start).getByText('Start')).toHaveClass('sr-only');
+    expect(within(start).getByText('Start').closest('.sr-only')).toHaveClass(
+      '@7xl:not-sr-only'
+    );
   });
 
   // The palette commands Run…, Stop and Retry click the bar controls that
@@ -382,7 +386,9 @@ describe('RunSplitButton', () => {
     });
     expect(item).toHaveAttribute('aria-disabled', 'true');
     expect(item).toHaveTextContent('No unsaved changes');
-    expect(within(menu).queryByRole('menuitem', { name: 'Run now' })).toBeNull();
+    expect(
+      within(menu).queryByRole('menuitem', { name: 'Run now' })
+    ).toBeNull();
   });
 
   // Start is the first child and the caret the second, clean and dirty: the

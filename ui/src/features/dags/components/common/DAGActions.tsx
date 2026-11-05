@@ -85,8 +85,9 @@ type Props = {
    */
   markActions?: boolean;
   /**
-   * The Start button shows its icon only, in the primary style, with 'Start'
-   * as its accessible name and its tooltip.
+   * The Start button is a bar button in the primary style: its text shows on
+   * a wide bar, as the text of Retry does, and its icon alone below, with
+   * 'Start' as its accessible name and its tooltip.
    */
   startIconOnly?: boolean;
   /**
@@ -335,7 +336,7 @@ function DAGActions({
           <Tooltip>
             <TooltipTrigger asChild>
               <ActionButton
-                label={displayMode !== 'compact' && !startIconOnly}
+                label={startIconOnly ? 'wide' : displayMode !== 'compact'}
                 variant={
                   displayMode !== 'compact' || startIconOnly
                     ? 'primary'
@@ -358,7 +359,10 @@ function DAGActions({
                 }}
                 className="cursor-pointer"
               >
-                <I18nText text={'Start'} />
+                {/* Hidden with the icon, under the feedback of the host. */}
+                <span className={cn(startIconHidden && 'invisible')}>
+                  <I18nText text={'Start'} />
+                </span>
               </ActionButton>
             </TooltipTrigger>
             <TooltipContent>
