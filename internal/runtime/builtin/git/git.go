@@ -434,7 +434,7 @@ func ensureCloneTarget(path string) error {
 
 func (e *executorImpl) auth() (transport.AuthMethod, error) {
 	if e.cfg.SSHKeyPath != "" {
-		auth, err := newPublicKeysFromFile("git", e.resolvePath(e.cfg.SSHKeyPath), e.cfg.SSHPassphrase)
+		auth, err := newPublicKeysFromFile(e.sshUser(), e.resolvePath(e.cfg.SSHKeyPath), e.cfg.SSHPassphrase)
 		if err != nil {
 			return nil, fmt.Errorf("git checkout: load ssh key: %w", err)
 		}
@@ -451,6 +451,19 @@ func (e *executorImpl) auth() (transport.AuthMethod, error) {
 		return &githttp.BasicAuth{Username: username, Password: e.cfg.Password}, nil
 	}
 	return nil, nil
+}
+
+// sshUser returns the user for SSH key authentication: with.username, then
+// the user in the repository URL, then git.
+func (e *executorImpl) sshUser() string {
+	if e.cfg.Username != "" {
+		return e.cfg.Username
+	}
+	endpoint, err := transport.NewEndpoint(strings.TrimSpace(e.cfg.Repository))
+	if err == nil && endpoint.User != "" {
+		return endpoint.User
+	}
+	return "git"
 }
 
 // TODO: Delete this local key loader after go-git resolves the known_hosts regression.

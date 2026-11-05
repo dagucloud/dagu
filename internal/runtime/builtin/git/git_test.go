@@ -6,7 +6,10 @@ package git
 import (
 	"bytes"
 	"context"
+	"crypto/ed25519"
+	"crypto/rand"
 	"encoding/json"
+	"encoding/pem"
 	"os"
 	"path/filepath"
 	"testing"
@@ -16,8 +19,10 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/runtime"
 	gogit "github.com/go-git/go-git/v5"
 	"github.com/go-git/go-git/v5/plumbing/object"
+	gitssh "github.com/go-git/go-git/v5/plumbing/transport/ssh"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	cryptossh "golang.org/x/crypto/ssh"
 )
 
 func TestGitCheckoutClonesRepositoryToRelativePath(t *testing.T) {
@@ -133,6 +138,39 @@ func TestGitCheckoutUpdatesExistingRepositoryWithoutRef(t *testing.T) {
 	assert.Equal(t, secondCommit, result.Commit)
 }
 
+func TestGitCheckoutSSHUser(t *testing.T) {
+	t.Parallel()
+
+	keyPath := filepath.Join(t.TempDir(), "id_ed25519")
+	writeTestSSHKey(t, keyPath)
+
+	for _, tc := range []struct {
+		name, repository, username, want string
+	}{
+		{"Username", "ssh://other@git.example.com/repo.git", "deploy", "deploy"},
+		{"URLUser", "ssh://deploy@git.example.com/repo.git", "", "deploy"},
+		{"SCPUser", "builder@git.example.com:org/repo.git", "", "builder"},
+		{"Default", "ssh://git.example.com/repo.git", "", "git"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			exec, err := newExecutor(testContext(t.TempDir()), checkoutStep(map[string]any{
+				"repository":   tc.repository,
+				"path":         "repo",
+				"username":     tc.username,
+				"ssh_key_path": keyPath,
+			}))
+			require.NoError(t, err)
+			auth, err := exec.(*executorImpl).auth()
+			require.NoError(t, err)
+			keys, ok := auth.(*gitssh.PublicKeys)
+			require.True(t, ok)
+			assert.Equal(t, tc.want, keys.User)
+		})
+	}
+}
+
 func TestGitCheckoutRejectsMixedHTTPSAuth(t *testing.T) {
 	t.Parallel()
 
@@ -188,6 +226,15 @@ func commitFile(t *testing.T, repoPath, name, content string) string {
 	})
 	require.NoError(t, err)
 	return hash.String()
+}
+
+func writeTestSSHKey(t *testing.T, path string) {
+	t.Helper()
+	_, key, err := ed25519.GenerateKey(rand.Reader)
+	require.NoError(t, err)
+	block, err := cryptossh.MarshalPrivateKey(key, "")
+	require.NoError(t, err)
+	require.NoError(t, os.WriteFile(path, pem.EncodeToMemory(block), 0o600))
 }
 
 func readFile(t *testing.T, path string) string {
