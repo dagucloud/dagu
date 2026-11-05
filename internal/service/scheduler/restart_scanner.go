@@ -11,6 +11,7 @@ import (
 
 	"github.com/dagucloud/dagu/v2/internal/cmn/logger"
 	"github.com/dagucloud/dagu/v2/internal/cmn/logger/tag"
+	"github.com/dagucloud/dagu/v2/internal/eventstore"
 	"github.com/dagucloud/dagu/v2/internal/ir"
 )
 
@@ -28,6 +29,11 @@ import (
 // process killed while it writes its status can leave the run lock of the DAG
 // behind, which delays the restart until the lock is stale.
 //
+// Between checks, DAG-run events tell which DAGs to check: a DAG is checked at
+// the scan after its run ends, when its wait ends, and every
+// restartReconcileInterval, since an event can be lost. Without events, every
+// scan checks every DAG that does not wait.
+//
 // Each run in a row that does not succeed within restartBackoffRunTime of its
 // start doubles the wait before the next run, up to restartBackoffMaxWait.
 //
@@ -36,9 +42,14 @@ import (
 // restartErrorLogInterval.
 
 const (
-	// restartScanInterval is how often service DAGs are checked. It bounds the
-	// delay a restart can add to restart_wait_sec.
+	// restartScanInterval is how often the scanner reads events and checks the
+	// DAGs due for a check. It bounds the delay a restart can add to
+	// restart_wait_sec.
 	restartScanInterval = time.Second
+
+	// restartReconcileInterval is how often a DAG whose run is active, or that
+	// stays stopped, is checked when no event says its run ended.
+	restartReconcileInterval = 30 * time.Second
 
 	// restartErrorLogInterval limits how often a failing DAG is logged, since
 	// the same error would otherwise repeat at every scan.
@@ -60,6 +71,12 @@ var errRestartQueuesDisabled = errors.New("restart_policy starts runs through qu
 
 // StopRequestedFunc reports whether an operator asked to stop a run of a DAG.
 type StopRequestedFunc func(ctx context.Context, dag *ir.DAG, runID string) (bool, error)
+
+// dagRunEventReader reads the DAG-run events recorded after a cursor.
+type dagRunEventReader interface {
+	DAGRunHeadCursor(ctx context.Context) (eventstore.DAGRunCursor, error)
+	ReadDAGRunEvents(ctx context.Context, cursor eventstore.DAGRunCursor) ([]*eventstore.Event, eventstore.DAGRunCursor, error)
+}
 
 // RestartScannerConfig configures a RestartScanner.
 type RestartScannerConfig struct {
@@ -95,22 +112,28 @@ type RestartScannerConfig struct {
 // soon after they started; a scheduler that takes over counts them anew.
 type RestartScanner struct {
 	cfg RestartScannerConfig
+	// events is nil when the event store is disabled.
+	events dagRunEventReader
+	// cursor is where events are read from, once tailing is set.
+	cursor  eventstore.DAGRunCursor
+	tailing bool
 
-	lastErrorLog map[string]time.Time
+	lastErrorLog      map[string]time.Time
+	lastEventErrorLog time.Time
 	// stoppedRuns maps a DAG name to the attempt of its latest run, once an
 	// operator is known to have stopped that attempt.
 	stoppedRuns map[string]string
 	backoff     map[string]restartBackoff
-	// waiting maps a DAG name to when its next run becomes due, while it waits
-	// out the wait after its latest run.
-	waiting map[string]restartDue
+	// nextCheck maps a DAG name to when it is checked again, unless an event
+	// says its run ended first.
+	nextCheck map[string]restartCheck
 }
 
-// restartDue is when the next run of a waiting DAG becomes due.
-type restartDue struct {
+// restartCheck is when a DAG is checked again.
+type restartCheck struct {
 	at time.Time
 	// restartWait is the restart_wait_sec the time follows from; an edited
-	// DAG is read again at once.
+	// DAG is checked at once.
 	restartWait time.Duration
 }
 
@@ -135,7 +158,7 @@ func NewRestartScanner(cfg RestartScannerConfig) *RestartScanner {
 		lastErrorLog: make(map[string]time.Time),
 		stoppedRuns:  make(map[string]string),
 		backoff:      make(map[string]restartBackoff),
-		waiting:      make(map[string]restartDue),
+		nextCheck:    make(map[string]restartCheck),
 	}
 }
 
@@ -161,6 +184,7 @@ func (s *RestartScanner) Start(ctx context.Context) {
 
 func (s *RestartScanner) scan(ctx context.Context) {
 	now := s.cfg.Clock()
+	s.readEvents(ctx, now)
 	services := make(map[string]struct{})
 	for _, entry := range s.cfg.Entries() {
 		if ctx.Err() != nil {
@@ -177,15 +201,55 @@ func (s *RestartScanner) scan(ctx context.Context) {
 	s.forgetOthers(services)
 }
 
+// readEvents makes the DAGs whose run ended due for a check. The first read
+// only takes the head of the event store; the same scan checks every DAG that
+// does not wait, which covers what came before.
+func (s *RestartScanner) readEvents(ctx context.Context, now time.Time) {
+	if s.events == nil {
+		return
+	}
+	if !s.tailing {
+		cursor, err := s.events.DAGRunHeadCursor(ctx)
+		if err != nil {
+			s.logEventError(ctx, now, err)
+			return
+		}
+		s.cursor, s.tailing = cursor, true
+		return
+	}
+	events, cursor, err := s.events.ReadDAGRunEvents(ctx, s.cursor)
+	if err != nil {
+		s.logEventError(ctx, now, err)
+		return
+	}
+	s.cursor = cursor
+	for _, event := range events {
+		if runEnded(event.Status) {
+			delete(s.nextCheck, event.DAGName)
+		}
+	}
+}
+
+// runEnded reports whether a DAG-run event status is one a run ends with.
+// Rewriting a status emits an event of another type, so the status is used.
+func runEnded(status string) bool {
+	switch status {
+	case ir.Succeeded.String(), ir.PartiallySucceeded.String(), ir.Failed.String(),
+		ir.Aborted.String(), ir.Rejected.String():
+		return true
+	}
+	return false
+}
+
 func (s *RestartScanner) process(ctx context.Context, entry DAGEntry, now time.Time) error {
 	dag := entry.DAG
 
-	// Nothing makes a run due before the wait ends: a run started meanwhile
-	// only keeps the DAG busy, which is checked when the wait ends.
-	if due, ok := s.waiting[dag.Name]; ok && due.restartWait == dag.RestartWait && now.Before(due.at) {
+	// Nothing makes a run due before the check: a run started meanwhile only
+	// keeps the DAG busy, and an event wakes the DAG once that run ends.
+	if check, ok := s.nextCheck[dag.Name]; ok && check.restartWait == dag.RestartWait && now.Before(check.at) {
 		return nil
 	}
-	delete(s.waiting, dag.Name)
+	delete(s.nextCheck, dag.Name)
 
 	suspended, err := isSuspendedDAG(ctx, s.cfg.IsSuspended, nil, dag, entry.DefinitionID)
 	if err != nil {
@@ -216,7 +280,9 @@ func (s *RestartScanner) process(ctx context.Context, entry DAGEntry, now time.T
 	}
 	if !decision.start {
 		if !decision.due.IsZero() {
-			s.waiting[dag.Name] = restartDue{at: decision.due, restartWait: dag.RestartWait}
+			s.checkAt(dag, decision.due)
+		} else {
+			s.checkLater(dag, now)
 		}
 		logNoRestart(ctx, dag, decision.reason)
 		return nil
@@ -227,12 +293,14 @@ func (s *RestartScanner) process(ctx context.Context, entry DAGEntry, now time.T
 	// error the DAG is assumed busy, so a failing store cannot lead to two runs.
 	if running, err := s.cfg.IsRunning(ctx, dag); err != nil || running {
 		if running {
+			s.checkLater(dag, now)
 			logNoRestart(ctx, dag, "run_alive")
 		}
 		return err
 	}
 	if queued, err := s.cfg.IsQueued(ctx, dag); err != nil || queued {
 		if queued {
+			s.checkLater(dag, now)
 			logNoRestart(ctx, dag, "run_queued")
 		}
 		return err
@@ -246,7 +314,25 @@ func (s *RestartScanner) process(ctx context.Context, entry DAGEntry, now time.T
 		slog.String("previous_run_id", status.DAGRunID),
 		slog.String("previous_status", status.Status.String()),
 	)
-	return s.cfg.Enqueue(ctx, entry, runID, ir.TriggerTypeRestart, now)
+	if err := s.cfg.Enqueue(ctx, entry, runID, ir.TriggerTypeRestart, now); err != nil {
+		return err
+	}
+	s.checkLater(dag, now)
+	return nil
+}
+
+// checkAt sets when the DAG is checked again.
+func (s *RestartScanner) checkAt(dag *ir.DAG, at time.Time) {
+	s.nextCheck[dag.Name] = restartCheck{at: at, restartWait: dag.RestartWait}
+}
+
+// checkLater leaves a DAG that waits for a run to end until an event says it
+// ended, or until restartReconcileInterval passes. Without events, the next
+// scan checks it.
+func (s *RestartScanner) checkLater(dag *ir.DAG, now time.Time) {
+	if s.tailing {
+		s.checkAt(dag, now.Add(restartReconcileInterval))
+	}
 }
 
 // stoppedByOperator reports whether an operator stopped the run, whatever
@@ -344,9 +430,9 @@ func (s *RestartScanner) forgetOthers(services map[string]struct{}) {
 			delete(s.backoff, name)
 		}
 	}
-	for name := range s.waiting {
+	for name := range s.nextCheck {
 		if _, ok := services[name]; !ok {
-			delete(s.waiting, name)
+			delete(s.nextCheck, name)
 		}
 	}
 }
@@ -360,6 +446,15 @@ func (s *RestartScanner) logError(ctx context.Context, dagName string, now time.
 		tag.DAG(dagName),
 		tag.Error(err),
 	)
+}
+
+// logEventError logs a failed event read at most every restartErrorLogInterval.
+func (s *RestartScanner) logEventError(ctx context.Context, now time.Time, err error) {
+	if !s.lastEventErrorLog.IsZero() && now.Sub(s.lastEventErrorLog) < restartErrorLogInterval {
+		return
+	}
+	s.lastEventErrorLog = now
+	logger.Warn(ctx, "Restart scanner failed to read DAG-run events", tag.Error(err))
 }
 
 func logNoRestart(ctx context.Context, dag *ir.DAG, reason string, attrs ...slog.Attr) {

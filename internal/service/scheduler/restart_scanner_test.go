@@ -16,6 +16,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/dagucloud/dagu/v2/internal/cmn/logger"
+	"github.com/dagucloud/dagu/v2/internal/eventstore"
 	"github.com/dagucloud/dagu/v2/internal/ir"
 )
 
@@ -192,6 +193,33 @@ func newRestartHarness(t *testing.T, dags ...*ir.DAG) *restartHarness {
 		Clock: func() time.Time { return h.now },
 	})
 	return h
+}
+
+// withEvents gives the scanner an event store whose reads return the events
+// added since the previous read.
+func (h *restartHarness) withEvents() *fakeRunEvents {
+	events := &fakeRunEvents{}
+	h.scanner.events = events
+	return events
+}
+
+type fakeRunEvents struct {
+	pending []*eventstore.Event
+	headErr error
+}
+
+func (f *fakeRunEvents) add(dagName string, status ir.Status) {
+	f.pending = append(f.pending, &eventstore.Event{DAGName: dagName, Status: status.String()})
+}
+
+func (f *fakeRunEvents) DAGRunHeadCursor(context.Context) (eventstore.DAGRunCursor, error) {
+	return eventstore.DAGRunCursor{}, f.headErr
+}
+
+func (f *fakeRunEvents) ReadDAGRunEvents(context.Context, eventstore.DAGRunCursor) ([]*eventstore.Event, eventstore.DAGRunCursor, error) {
+	events := f.pending
+	f.pending = nil
+	return events, eventstore.DAGRunCursor{}, nil
 }
 
 func (h *restartHarness) scan() {
@@ -374,6 +402,66 @@ func TestRestartScanner(t *testing.T) {
 		h.scan()
 		assert.Equal(t, 1, h.queueReads)
 		assert.Len(t, h.enqueued, 1)
+	})
+
+	// With events, a DAG whose run is active is read again only once an event
+	// says the run ended.
+	t.Run("EventWakesDAG", func(t *testing.T) {
+		t.Parallel()
+		h := newRestartHarness(t, serviceDAG("svc", ir.RestartPolicyAlways))
+		events := h.withEvents()
+		h.endRun(ir.Running, 0)
+		h.scan()
+		reads := h.reads
+		for range 5 {
+			h.now = h.now.Add(time.Second)
+			events.add("svc", ir.Running)
+			h.scan()
+		}
+		assert.Equal(t, reads, h.reads, "an active run is not read again")
+
+		h.endRun(ir.Failed, 0)
+		events.add("other", ir.Failed)
+		events.add("svc", ir.Failed)
+		h.scan()
+		assert.Greater(t, h.reads, reads, "the end of the run is read")
+		assert.Empty(t, h.enqueued)
+
+		h.now = h.now.Add(11 * time.Second)
+		h.scan()
+		assert.Len(t, h.enqueued, 1)
+	})
+
+	// Events can be lost, so a DAG whose run is active is read again after a
+	// while anyway.
+	t.Run("LostEvent", func(t *testing.T) {
+		t.Parallel()
+		h := newRestartHarness(t, serviceDAG("svc", ir.RestartPolicyAlways))
+		h.withEvents()
+		h.endRun(ir.Running, 0)
+		h.scan()
+		h.endRun(ir.Failed, 0)
+
+		h.now = h.now.Add(restartReconcileInterval - time.Second)
+		h.scan()
+		assert.Empty(t, h.enqueued)
+
+		h.now = h.now.Add(time.Second)
+		h.scan()
+		assert.Len(t, h.enqueued, 1)
+	})
+
+	t.Run("EventsUnavailable", func(t *testing.T) {
+		t.Parallel()
+		h := newRestartHarness(t, serviceDAG("svc", ir.RestartPolicyAlways))
+		h.withEvents().headErr = errors.New("event store unreadable")
+		h.endRun(ir.Running, 0)
+		h.scan()
+		h.endRun(ir.Failed, time.Minute)
+		h.now = h.now.Add(time.Second)
+		h.scan()
+		assert.Len(t, h.enqueued, 1, "every scan checks the DAG")
+		assert.Equal(t, 1, h.logged("failed to read DAG-run events"), "errors are throttled")
 	})
 
 	t.Run("Suspended", func(t *testing.T) {

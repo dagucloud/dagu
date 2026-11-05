@@ -183,6 +183,7 @@ func New(cfg *config.Config, deps Dependencies) (*Scheduler, error) {
 	if deps.EventService != nil {
 		scheduler.notificationMonitor = newNotificationMonitor(cfg, deps)
 		scheduler.incidentMonitor = newIncidentMonitor(cfg, deps)
+		scheduler.restartScanner.events = deps.EventService
 	}
 	scheduler.publicWebhooks = newPublicWebhooks(cfg, deps, scheduler)
 	scheduler.folderWatcher.cfg.Store = deps.WatchStore
