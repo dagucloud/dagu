@@ -792,6 +792,15 @@ describe('LogsDock below 768px', () => {
     expect(handle.toggleYaml).toHaveBeenCalledWith(true);
   });
 
+  // Graph always shows the graph: it closes the YAML through ?ndv, also
+  // when the views bar has not rendered that URL yet.
+  it('goes back to the graph from the YAML', () => {
+    mockWidth(500);
+    renderDock(finished, '/dags/demo?ndv=docked');
+    fireEvent.click(screen.getByRole('button', { name: 'Graph' }));
+    expect(location.current).toBe('/dags/demo');
+  });
+
   // The open panel of a phone: the notifications go above it, not over its
   // log.
   it('keeps the notifications above the sheet', () => {

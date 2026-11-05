@@ -62,16 +62,16 @@ function ViewButton({
 export function PhoneViewNav() {
   const { ts } = useI18n();
   const dock = useDock();
-  const [url, setUrl] = useWorkspaceUrl();
+  const [url, setUrl, readUrl] = useWorkspaceUrl();
   const { handle } = useWorkspaceEditor();
   const closePanel = useCloseRightPanel();
   const yamlOpen = url.ndv === 'docked';
   const view: PhoneView = dock.open ? 'activity' : yamlOpen ? 'yaml' : 'graph';
 
-  // The YAML closes through ?ndv, the state of the panel: the editor may
-  // not have rendered the URL that opened it yet.
+  // The YAML closes through ?ndv, the state of the panel, read from the
+  // live URL: a tap can come before the render of the URL that opened it.
   const closeYaml = () => {
-    if (yamlOpen) setUrl({ ndv: null }, { replace: true });
+    if (readUrl().ndv !== null) setUrl({ ndv: null }, { replace: true });
   };
   const show = (next: PhoneView) => {
     if (next === 'activity') {
@@ -79,14 +79,14 @@ export function PhoneViewNav() {
       dock.toggle();
       return;
     }
-    if (next === view) return;
     if (dock.open) dock.toggle();
     if (next === 'yaml') {
-      handle?.toggleYaml(true);
+      if (readUrl().ndv !== 'docked') handle?.toggleYaml(true);
       return;
     }
+    // Graph always acts: a step panel or the Workflow panel can cover the
+    // graph while it reads as the view.
     closeYaml();
-    // A step panel or the Workflow panel covers the graph too.
     closePanel();
   };
 
