@@ -380,13 +380,16 @@ func resolveRef(repo *gogit.Repository, ref string) (plumbing.Hash, error) {
 		return hash, nil
 	}
 
-	// A branch name resolves to the fetched remote branch. The local branch a
-	// clone created is never updated by a fetch, so it can be behind. Tags
-	// keep precedence over branches, as in git.
-	revisions := []plumbing.Revision{
-		plumbing.Revision("refs/tags/" + ref),
-		plumbing.Revision("refs/remotes/" + remoteName + "/" + ref),
-		plumbing.Revision(ref),
+	revisions := []plumbing.Revision{plumbing.Revision(ref)}
+	if isShortRefName(ref) {
+		// A branch name resolves to the fetched remote branch. The local
+		// branch a clone created is never updated by a fetch, so it can be
+		// behind. Tags keep precedence over branches, as in git.
+		revisions = []plumbing.Revision{
+			plumbing.Revision("refs/tags/" + ref),
+			plumbing.Revision("refs/remotes/" + remoteName + "/" + ref),
+			plumbing.Revision(ref),
+		}
 	}
 	for _, revision := range revisions {
 		hash, err := repo.ResolveRevision(revision)
@@ -395,6 +398,16 @@ func resolveRef(repo *gogit.Repository, ref string) (plumbing.Hash, error) {
 		}
 	}
 	return plumbing.ZeroHash, fmt.Errorf("git checkout: ref %q not found", ref)
+}
+
+// isShortRefName reports whether ref may be the short name of a branch or
+// tag, rather than HEAD, a full ref such as refs/heads/main, or a revision
+// expression such as main~1.
+func isShortRefName(ref string) bool {
+	if ref == "HEAD" || strings.HasSuffix(ref, "_HEAD") || strings.HasPrefix(ref, "refs/") {
+		return false
+	}
+	return !strings.ContainsAny(ref, "~^:?*[\\ ") && !strings.Contains(ref, "@{")
 }
 
 func currentHead(repo *gogit.Repository) (string, error) {

@@ -207,6 +207,42 @@ func TestGitCheckoutUpdatesExistingRepositoryToBranch(t *testing.T) {
 	assert.Equal(t, secondCommit, result.Commit)
 }
 
+// ref HEAD keeps the commit the existing checkout is on, even after a fetch
+// moves the remote default branch.
+func TestGitCheckoutHeadRefKeepsCurrentCommit(t *testing.T) {
+	t.Parallel()
+
+	source := t.TempDir()
+	firstCommit := createTestRepository(t, source, "version.txt", "one\n")
+	workDir := t.TempDir()
+
+	first, err := newExecutor(testContext(workDir), checkoutStep(map[string]any{
+		"repository": source,
+		"ref":        currentBranch(t, source),
+		"path":       "repo",
+	}))
+	require.NoError(t, err)
+	require.NoError(t, first.Run(context.Background()))
+
+	commitFile(t, source, "version.txt", "two\n")
+	second, err := newExecutor(testContext(workDir), checkoutStep(map[string]any{
+		"repository": source,
+		"ref":        "HEAD",
+		"path":       "repo",
+	}))
+	require.NoError(t, err)
+
+	var stdout bytes.Buffer
+	second.SetStdout(&stdout)
+	require.NoError(t, second.Run(context.Background()))
+
+	assert.Equal(t, "one\n", readFile(t, filepath.Join(workDir, "repo/version.txt")))
+	var result checkoutResult
+	require.NoError(t, json.Unmarshal(stdout.Bytes(), &result))
+	assert.False(t, result.Changed)
+	assert.Equal(t, firstCommit, result.Commit)
+}
+
 func TestGitCheckoutRejectsMixedHTTPSAuth(t *testing.T) {
 	t.Parallel()
 
