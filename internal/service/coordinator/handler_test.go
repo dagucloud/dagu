@@ -5,6 +5,7 @@ package coordinator
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -473,7 +474,21 @@ func (m *mockAttempt) ReadStatus(_ context.Context) (*ir.DAGRunStatus, error) {
 	return m.readStatus(m.sharedReads)
 }
 func (m *mockAttempt) ReadStatusUncached(_ context.Context) (*ir.DAGRunStatus, error) {
-	return m.readStatus(false)
+	status, err := m.readStatus(false)
+	if err != nil {
+		return nil, err
+	}
+	// The file store parses the status anew, so nothing is shared with the
+	// stored status, its nodes included.
+	data, err := json.Marshal(status)
+	if err != nil {
+		return nil, err
+	}
+	var parsed ir.DAGRunStatus
+	if err := json.Unmarshal(data, &parsed); err != nil {
+		return nil, err
+	}
+	return &parsed, nil
 }
 func (m *mockAttempt) readStatus(shared bool) (*ir.DAGRunStatus, error) {
 	m.mu.Lock()
