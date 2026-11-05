@@ -1069,7 +1069,18 @@ function DAGSpec({
     ]
   );
   // The node details view claims its own panel.
-  useRightPanelClaim(ndv ? null : 'yaml', sectionOpen, closeSection);
+  // The YAML of the file comes back when a transient panel that covered it,
+  // such as a trigger or Add step, closes.
+  const restoreFileYaml = React.useCallback(
+    () => setSectionOpen(true, 'panel'),
+    [setSectionOpen]
+  );
+  useRightPanelClaim(
+    ndv ? null : 'yaml',
+    sectionOpen,
+    closeSection,
+    restoreFileYaml
+  );
 
   const editorModelUri = React.useMemo(
     () =>
@@ -2392,6 +2403,9 @@ function DAGSpec({
                     state={ndv.state}
                     scope={yamlKind}
                     onClose={closeSection}
+                    onRestore={
+                      yamlKind === 'file' ? restoreFileYaml : undefined
+                    }
                     stepName={ndvStepName}
                     title={ndvTitle}
                     note={

@@ -224,6 +224,8 @@ export interface NodeDetailsFrameProps {
   scope?: NdvScope;
   /** Closes the frame; the host state becomes null. */
   onClose(): void;
+  /** Opens the frame again when a transient panel that covered it closes. */
+  onRestore?(): void;
   /** Server name of the selected step. */
   stepName: string | null;
   /** The name for the title when the draft has renamed the step. */
@@ -270,6 +272,7 @@ export function NodeDetailsFrame({
   state: hostState,
   scope = 'step',
   onClose,
+  onRestore,
   stepName: stepNameProp,
   title,
   dag,
@@ -297,7 +300,7 @@ export function NodeDetailsFrame({
   const state: NdvState = !open ? null : fileScope ? 'docked' : 'expanded';
   const stepName = fileScope ? null : stepNameProp;
   const inZone = usePanelPlacement() === 'zone';
-  useRightPanelClaim('ndv', open, onClose);
+  useRightPanelClaim('ndv', open, onClose, onRestore);
   const sectionRef = React.useRef<HTMLElement>(null);
   const width = useDrawerWidth();
 

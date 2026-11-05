@@ -17,6 +17,7 @@ export function WorkflowDrawer({
   onClose,
   bare = false,
   onShowYaml,
+  onRestore,
   children,
 }: {
   open: boolean;
@@ -25,6 +26,8 @@ export function WorkflowDrawer({
   bare?: boolean;
   /** Swaps the panel for the YAML panel, from the header. */
   onShowYaml?(): void;
+  /** Opens the panel again when a transient panel that covered it closes. */
+  onRestore?(): void;
   children: ReactNode;
 }): ReactElement {
   const { ts } = useI18n();
@@ -36,6 +39,7 @@ export function WorkflowDrawer({
       modal={false}
       label={ts('Workflow')}
       panelId="workflow"
+      onRestore={onRestore}
     >
       <div data-testid="ve-workflow" className="flex min-h-0 flex-1 flex-col">
         <PanelHeader

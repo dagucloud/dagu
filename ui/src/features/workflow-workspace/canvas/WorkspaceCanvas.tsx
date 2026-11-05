@@ -459,6 +459,12 @@ export function WorkspaceCanvas({
   );
 
   const ndvOpen = url.ndv !== null || activePanel === 'ndv';
+  // The editor closes the step view: one that opened over the YAML panel
+  // gives the YAML back (useYamlSection).
+  const closeStepView = () => {
+    if (handle) handle.toggleYaml(false);
+    else setUrl({ ndv: null }, { replace: true });
+  };
   // Esc closes the expanded node view when no dialog or menu is above it.
   // The YAML panel stays: it is a panel that the page keeps, not a view to
   // leave. With no panel or node view open, Esc clears the step and ?step.
@@ -468,7 +474,7 @@ export function WorkspaceCanvas({
     hasStep: url.step !== null,
     viewOpen: url.ndv === 'expanded',
     panelOpen: activePanel !== null || stepPanel.shown,
-    closeView: () => setUrl({ ndv: null }, { replace: true }),
+    closeView: closeStepView,
     clearStep: () => setUrl({ step: null, ndv: null }, { replace: true }),
   });
 
@@ -480,7 +486,7 @@ export function WorkspaceCanvas({
   useEscInStepYaml({
     active: paneActive,
     viewOpen: url.ndv === 'expanded',
-    closeView: () => setUrl({ ndv: null }, { replace: true }),
+    closeView: closeStepView,
   });
 
   // The INPUT column names the run that the step run dialog copies from.
