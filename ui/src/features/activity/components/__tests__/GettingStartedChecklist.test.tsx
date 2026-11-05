@@ -72,7 +72,7 @@ describe('GettingStartedChecklist', () => {
     const alert = within(stepItem('Get alerted when something fails'));
     expect(
       alert.getByRole('link', { name: 'Connect for free' })
-    ).toHaveAttribute('href', '/license#monitoring');
+    ).toHaveAttribute('href', '/settings#monitoring');
     expect(
       alert.getByRole('link', { name: 'Add a notification channel' })
     ).toHaveAttribute('href', '/notification-channels');

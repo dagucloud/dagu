@@ -9149,7 +9149,7 @@ paths:
   /license/connect:
     post:
       summary: "Connect this server to Dagu Console"
-      description: "Starts a request for a license from Dagu Console, or returns the pending one. Open connectUrl to approve it; the license is installed once a workspace owner approves. A report level, when given, chooses what this server reports to Dagu Console, starting once the license is installed, unless cloud.report in the configuration sets it. Admin only."
+      description: "Starts a request for a license from Dagu Console, or returns the pending one. Open connectUrl to approve it; the license is installed once a workspace owner approves. A report level, when given, chooses what this server reports to Dagu Console, starting once the license is installed, unless cloud.report in the configuration sets it. A remote access level, when given, chooses the highest role MCP calls through Dagu Cloud get once the license is installed, unless cloud.remote_access in the configuration sets it. Admin only."
       operationId: "startLicenseConnect"
       tags:
         - "system"
@@ -9164,6 +9164,8 @@ paths:
               properties:
                 report:
                   $ref: "#/components/schemas/LicenseMonitoringLevel"
+                remoteAccess:
+                  $ref: "#/components/schemas/LicenseRemoteAccessLevel"
       responses:
         "200":
           description: "Current connection request"
@@ -9172,7 +9174,7 @@ paths:
               schema:
                 $ref: "#/components/schemas/LicenseConnectStatus"
         "400":
-          description: "Unknown report level"
+          description: "Unknown report or remote access level"
           content:
             application/json:
               schema:

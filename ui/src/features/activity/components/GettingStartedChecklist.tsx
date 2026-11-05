@@ -63,7 +63,7 @@ function StepActions({ step }: { step: GettingStartedStep }) {
         <>
           {step.canConnect && (
             <Button asChild variant="outline">
-              <Link to="/license#monitoring">{ts('Connect for free')}</Link>
+              <Link to="/settings#monitoring">{ts('Connect for free')}</Link>
             </Button>
           )}
           {step.canAddChannel && (

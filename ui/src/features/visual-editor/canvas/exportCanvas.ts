@@ -42,6 +42,17 @@ const CAPTION_CHAR_PX = 6.4;
 const MONO_CHAR_PX = 6.7;
 const SMALL_MONO_CHAR_PX = 6.1;
 
+// The status colours of the graph, the same in both themes (the --graph-*
+// tokens of global.css).
+const GRAPH_STATUS = {
+  success: '#22c55e',
+  failed: '#ef5350',
+  running: '#7c6ef4',
+  warning: '#d9a03c',
+  aborted: '#c084fc',
+  neutral: '#8a8d99',
+};
+
 interface Palette {
   background: string;
   card: string;
@@ -66,12 +77,7 @@ const LIGHT: Palette = {
   muted: '#6b6b76',
   edge: '#80808b',
   edgeMuted: '#b0b0ba',
-  success: '#178a44',
-  failed: '#c8382f',
-  running: '#5d4fe0',
-  warning: '#9a5d0b',
-  aborted: '#9333ea',
-  neutral: '#80808b',
+  ...GRAPH_STATUS,
 };
 
 const DARK: Palette = {
@@ -82,12 +88,7 @@ const DARK: Palette = {
   muted: '#9a9aa6',
   edge: '#8b8b97',
   edgeMuted: '#5a5a66',
-  success: '#22c55e',
-  failed: '#ef5350',
-  running: '#a89ff8',
-  warning: '#d9a03c',
-  aborted: '#c084fc',
-  neutral: '#80808b',
+  ...GRAPH_STATUS,
 };
 
 /** Same grouping as `statusStrokeClass`. */

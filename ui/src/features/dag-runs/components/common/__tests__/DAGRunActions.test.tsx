@@ -550,6 +550,34 @@ describe('DAGRunActions', () => {
     );
   });
 
+  // The edited retry chooses the steps that run again, for a new run.
+  it('leads from the Retry dialog to the edited retry', () => {
+    const onEditRetry = vi.fn();
+    const finished = {
+      ...runningRun,
+      status: Status.Failed,
+      statusLabel: StatusLabel.failed,
+    };
+    render(
+      <DAGRunActions
+        dagRun={finished}
+        name="etl"
+        displayMode="full"
+        onEditRetry={onEditRetry}
+      />
+    );
+
+    fireEvent.click(screen.getByRole('button', { name: 'Retry' }));
+    fireEvent.click(
+      within(screen.getByRole('dialog')).getByRole('button', {
+        name: 'Edit the definition and choose the steps to run',
+      })
+    );
+
+    expect(onEditRetry).toHaveBeenCalledTimes(1);
+    expect(screen.queryByRole('dialog')).toBeNull();
+  });
+
   // parity:run-action-retry
   // parity:run-action-reschedule
   it('retries the run, or reschedules it as a new run', async () => {

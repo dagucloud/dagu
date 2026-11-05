@@ -647,6 +647,21 @@ describe('MiniMap', () => {
       expect(viewport).toEqual(dragged);
     });
 
+    // The overview keeps its scale and place while a drag moves the view: a
+    // point of the overview is one point of the graph for the whole drag, so
+    // that the view follows the pointer and comes back with it.
+    it('maps a point of the overview to one place for the whole drag', () => {
+      renderOverlays();
+      moveView({ x: -200, y: 0, zoom: 1 });
+      pointer(minimap(), 'pointerdown', 100, 75);
+      const pressed = viewport;
+      pointer(minimap(), 'pointermove', 10, 140);
+      act(() => vi.advanceTimersByTime(MINIMAP_FRAME_MS * 2));
+      pointer(minimap(), 'pointermove', 100, 75);
+      expect(viewport).toEqual(pressed);
+      pointer(minimap(), 'pointerup', 100, 75);
+    });
+
     // A touch can end in a cancel, without a release.
     it.each(['pointerCancel', 'lostPointerCapture'] as const)(
       'stops a drag at a %s',

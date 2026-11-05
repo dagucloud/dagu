@@ -228,7 +228,7 @@ func runStartAll(ctx *Context, _ []string) error {
 		return fmt.Errorf("failed to start resource service: %w", err)
 	}
 
-	if cloudReporter := startCloudReport(serviceCtx, cloudMonitoring, cloudAccess); cloudReporter != nil {
+	if cloudReporter := startCloudReport(serviceCtx, cloudMonitoring, cloudAccess, resourceService); cloudReporter != nil {
 		defer cloudReporter.Stop()
 	}
 	defer startCloudAccess(serviceCtx, cloudAccess, server)()

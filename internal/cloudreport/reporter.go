@@ -25,6 +25,7 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/cmn/logger"
 	"github.com/dagucloud/dagu/v2/internal/cmn/logger/tag"
 	"github.com/dagucloud/dagu/v2/internal/license"
+	"github.com/dagucloud/dagu/v2/internal/service/resource"
 	"github.com/dagucloud/dagu/v2/internal/serviceregistry"
 )
 
@@ -70,6 +71,8 @@ type Reporter struct {
 	queues    Queues
 	// remote is nil when reports leave remote access out.
 	remote RemoteAccess
+	// resources is nil when reports leave the machine's resources out.
+	resources Resources
 	// refresh checks in for the license now; nil leaves a license change to
 	// the license manager's own check-ins.
 	refresh   func(context.Context) error
@@ -111,6 +114,11 @@ type Reporter struct {
 	// queueRead is the last read of the queues, which reports reuse for
 	// queuesEvery.
 	queueRead queueRead
+	// cpuFrom is when the newest CPU sample the last accepted report
+	// averaged was taken, so the next one averages the samples after it;
+	// cpuBuilt is that time for the report in flight.
+	cpuFrom  time.Time
+	cpuBuilt time.Time
 }
 
 // Start reports in the background until Stop is called or ctx is done.
@@ -118,8 +126,9 @@ type Reporter struct {
 // returns false. Services are counted in registry; a nil registry leaves them
 // out of reports. Each report sends what the level in monitoring allows at the
 // time: health at health, with the scheduler's last tick and pause from
-// scheduler and, unless remote is nil, how far calls from Dagu Cloud may go,
-// and also, at runs, the finished and in-progress DAG runs that
+// scheduler, unless remote is nil, how far calls from Dagu Cloud may go, and,
+// unless resources is nil or the license is on free monitoring, whose Dagu
+// Console keeps none of it, how busy the machine is; and also, at runs, the finished and in-progress DAG runs that
 // events configures, the scheduled DAGs with what came of their latest
 // slots, and the queues that queues reads. Schedules are sent by the
 // process that reports the events. Choosing
@@ -145,6 +154,7 @@ func Start(
 	queues Queues,
 	monitoring *Monitoring,
 	remote RemoteAccess,
+	resources Resources,
 	refresh func(context.Context) error,
 ) *Reporter {
 	r := newReporter(credentials, registry, monitoring)
@@ -152,6 +162,7 @@ func Start(
 	r.scheduler = scheduler
 	r.queues = queues
 	r.remote = remote
+	r.resources = resources
 	r.refresh = refresh
 	r.start(ctx)
 	return r
@@ -160,6 +171,15 @@ func Start(
 // RemoteAccess reads how far calls from Dagu Cloud may go on the server.
 type RemoteAccess interface {
 	Status(ctx context.Context) (cloudaccess.Status, error)
+}
+
+// Resources reads how busy the machine the server runs on is, or its
+// container when that has limits.
+type Resources interface {
+	// Since returns the latest sample with CPU use averaged, and its peak
+	// taken, over the samples after since, with when the newest of them was
+	// taken as CPUThrough; false before a sample.
+	Since(since time.Time) (resource.Sample, bool)
 }
 
 // Stop ends reporting and waits for a report in flight to finish.
@@ -404,6 +424,7 @@ func (r *Reporter) report(ctx context.Context) time.Duration {
 
 	default:
 		r.backoff = 0
+		r.cpuFrom = r.cpuBuilt
 		var accepted acceptance
 		// A body that is not JSON asks for nothing.
 		_ = json.Unmarshal(res.body, &accepted)
@@ -613,6 +634,55 @@ type health struct {
 	// out while unknown.
 	RemoteAccess    config.RemoteAccessLevel `json:"remote_access,omitempty"`
 	RemoteApprovals *bool                    `json:"remote_approvals,omitempty"`
+	// Resources is the latest sample of the machine's resources, with CPU
+	// use since the last accepted report, left out before one is taken.
+	Resources *resources `json:"resources,omitempty"`
+}
+
+// resources is a sample of the machine's resources, or its container's when
+// that has limits. A part whose reading failed is left out.
+type resources struct {
+	CPUs           int          `json:"cpus,omitempty"`
+	CPULimit       float64      `json:"cpu_limit,omitempty"`
+	CPUPercent     *float64     `json:"cpu_percent,omitempty"`
+	CPUPeakPercent *float64     `json:"cpu_peak_percent,omitempty"`
+	Load           *loadAverage `json:"load,omitempty"`
+	Memory         *usage       `json:"memory,omitempty"`
+	Disk           *usage       `json:"disk,omitempty"`
+	LogDisk        *usage       `json:"log_disk,omitempty"`
+}
+
+type loadAverage struct {
+	Load1  float64 `json:"load1"`
+	Load5  float64 `json:"load5"`
+	Load15 float64 `json:"load15"`
+}
+
+type usage struct {
+	UsedPercent       float64  `json:"used_percent"`
+	UsedBytes         uint64   `json:"used_bytes"`
+	TotalBytes        uint64   `json:"total_bytes"`
+	Limited           bool     `json:"limited,omitempty"`
+	InodesUsedPercent *float64 `json:"inodes_used_percent,omitempty"`
+}
+
+// resourcesOf is the report's form of sample.
+func resourcesOf(sample resource.Sample) *resources {
+	r := &resources{CPUs: sample.CPUs, CPULimit: sample.CPULimit, CPUPercent: sample.CPUPercent,
+		CPUPeakPercent: sample.CPUPeak}
+	if l := sample.Load; l != nil {
+		r.Load = &loadAverage{Load1: l.Load1, Load5: l.Load5, Load15: l.Load15}
+	}
+	r.Memory, r.Disk, r.LogDisk = usageOf(sample.Memory), usageOf(sample.Disk), usageOf(sample.LogDisk)
+	return r
+}
+
+func usageOf(u *resource.Usage) *usage {
+	if u == nil {
+		return nil
+	}
+	return &usage{UsedPercent: u.UsedPercent, UsedBytes: u.UsedBytes, TotalBytes: u.TotalBytes, Limited: u.Limited,
+		InodesUsedPercent: u.InodesUsedPercent}
 }
 
 type service struct {
@@ -667,6 +737,17 @@ func (r *Reporter) send(ctx context.Context, creds license.CloudCredentials, lev
 		if r.remote != nil {
 			if status, err := r.remote.Status(ctx); err == nil {
 				report.Health.RemoteAccess, report.Health.RemoteApprovals = status.Level, &status.Approvals
+			}
+		}
+		// A report that carries no CPU samples leaves the window where it
+		// was, whatever an earlier attempt built.
+		r.cpuBuilt = r.cpuFrom
+		if r.resources != nil && !creds.Free {
+			if sample, ok := r.resources.Since(r.cpuFrom); ok {
+				report.Health.Resources = resourcesOf(sample)
+				if !sample.CPUThrough.IsZero() {
+					r.cpuBuilt = sample.CPUThrough
+				}
 			}
 		}
 		r.events.fill(&report)

@@ -6,6 +6,7 @@ import {
   LicenseConnectStatusState,
   type components,
   type LicenseMonitoringLevel,
+  type LicenseRemoteAccessLevel,
 } from '@/api/v1/schema';
 import { useClient } from '@/hooks/api';
 import { subscribeClock } from '@/hooks/useClock';
@@ -28,7 +29,8 @@ function withTrial(url: string | undefined, trial: boolean) {
  * Drives a request to connect the selected server to Dagu Console: starts it,
  * opens the approval page, and follows it until it is approved, fails, or
  * expires. `start` takes what the server reports once connected, if chosen,
- * and whether to start the trial of paid features; `retry` starts again with
+ * whether to start the trial of paid features, and how far MCP calls through
+ * Dagu Cloud may go once connected, if chosen; `retry` starts again with
  * the same choices. `connectUrl` opens the approval page of the pending
  * request. `failure` says why the last request failed, if it did.
  */
@@ -40,6 +42,9 @@ export function useLicenseConnect(remoteNode: string) {
   const [error, setError] = useState<string | null>(null);
   const [popupBlocked, setPopupBlocked] = useState(false);
   const lastReport = useRef<LicenseMonitoringLevel | undefined>(undefined);
+  const lastRemoteAccess = useRef<LicenseRemoteAccessLevel | undefined>(
+    undefined
+  );
   const [trial, setTrial] = useState(false);
 
   const pending = status?.state === LicenseConnectStatusState.pending;
@@ -63,11 +68,16 @@ export function useLicenseConnect(remoteNode: string) {
   }, [pending, client, remoteNode]);
 
   const start = useCallback(
-    async (report?: LicenseMonitoringLevel, withTrialOffer = false) => {
+    async (
+      report?: LicenseMonitoringLevel,
+      withTrialOffer = false,
+      remoteAccess?: LicenseRemoteAccessLevel
+    ) => {
       // Opened before any await so the browser treats it as a user action.
       const tab = window.open('about:blank', '_blank');
       if (tab) tab.opener = null;
       lastReport.current = report;
+      lastRemoteAccess.current = remoteAccess;
       setTrial(withTrialOffer);
       setStarting(true);
       setError(null);
@@ -77,7 +87,12 @@ export function useLicenseConnect(remoteNode: string) {
           '/license/connect',
           {
             params: { query: { remoteNode } },
-            ...(report && { body: { report } }),
+            ...((report || remoteAccess) && {
+              body: {
+                ...(report && { report }),
+                ...(remoteAccess && { remoteAccess }),
+              },
+            }),
           }
         );
         if (apiError || !data) {
@@ -108,7 +123,7 @@ export function useLicenseConnect(remoteNode: string) {
   );
 
   const retry = useCallback(
-    () => start(lastReport.current, trial),
+    () => start(lastReport.current, trial, lastRemoteAccess.current),
     [start, trial]
   );
 

@@ -7,6 +7,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { NodeStatus, Status } from '@/api/v1/schema';
 import { useRunHistory } from '../useRunHistory';
 import { useWorkspaceRun } from '../useWorkspaceRun';
+import { useWorkspaceUrl } from '../../state/workspaceUrl';
 import {
   connectedSSE,
   dagPage,
@@ -106,6 +107,30 @@ describe('useWorkspaceRun, latest', () => {
       false,
       'local'
     );
+  });
+
+  // Parts of the page write the URL in the same tick, as the YAML panel that
+  // a page restores and the run that it names: each write keeps the others.
+  it('keeps a URL write of the same tick when it selects a run', async () => {
+    server.runs['run-1'] = run(
+      'run-1',
+      [node('a', NodeStatus.Running)],
+      Status.Running
+    );
+    const view = renderWorkspace(
+      () => ({ run: useWorkspaceRun(), setUrl: useWorkspaceUrl()[1] }),
+      { url: '/dags/demo?run=run-1' }
+    );
+    await waitFor(() => expect(view.result.current?.value).toBeDefined());
+
+    act(() => {
+      view.result.current.value.setUrl({ ndv: 'docked' }, { replace: true });
+      view.result.current.value.run.select('run-2');
+    });
+
+    const search = new URLSearchParams(view.result.current.location.search);
+    expect(search.get('ndv')).toBe('docked');
+    expect(search.get('run')).toBe('run-2');
   });
 
   // parity:chg-run-url-latest

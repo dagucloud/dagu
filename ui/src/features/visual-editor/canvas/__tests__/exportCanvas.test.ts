@@ -176,12 +176,12 @@ describe('buildExportSvg', () => {
 
   it('colors the border and dot of a step by its run status', () => {
     const cases: [NodeStatus, string][] = [
-      [NodeStatus.Success, '#178a44'],
-      [NodeStatus.Failed, '#c8382f'],
-      [NodeStatus.Running, '#5d4fe0'],
-      [NodeStatus.Waiting, '#9a5d0b'],
-      [NodeStatus.Aborted, '#9333ea'],
-      [NodeStatus.NotStarted, '#80808b'],
+      [NodeStatus.Success, '#22c55e'],
+      [NodeStatus.Failed, '#ef5350'],
+      [NodeStatus.Running, '#7c6ef4'],
+      [NodeStatus.Waiting, '#d9a03c'],
+      [NodeStatus.Aborted, '#c084fc'],
+      [NodeStatus.NotStarted, '#8a8d99'],
     ];
     for (const [status, color] of cases) {
       const graph = graphOf([node('a', { run: run(status) })]);

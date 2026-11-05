@@ -265,41 +265,6 @@ func TestParseConfig_Invalid(t *testing.T) {
 	}
 }
 
-func TestHashConfig(t *testing.T) {
-	t.Parallel()
-
-	cfg1 := &Config{Host: "localhost", Port: 6379, DB: 0}
-	cfg2 := &Config{Host: "localhost", Port: 6379, DB: 0}
-	cfg3 := &Config{Host: "localhost", Port: 6380, DB: 0}
-
-	hash1 := hashConfig(cfg1)
-	hash2 := hashConfig(cfg2)
-	hash3 := hashConfig(cfg3)
-
-	// Same config should produce same hash
-	assert.Equal(t, hash1, hash2)
-
-	// Different config should produce different hash
-	assert.NotEqual(t, hash1, hash3)
-
-	// Hash should be 16 chars (8 bytes hex encoded)
-	assert.Len(t, hash1, 16)
-}
-
-func TestPoolManagerContextFunctions(t *testing.T) {
-	t.Parallel()
-
-	pm := NewGlobalRedisPoolManager(GlobalPoolConfig{})
-	ctx := context.Background()
-
-	// Without pool manager
-	assert.Nil(t, GetRedisPoolManager(ctx))
-
-	// With pool manager
-	ctx = WithRedisPoolManager(ctx, pm)
-	assert.Equal(t, pm, GetRedisPoolManager(ctx))
-}
-
 // Relative script and TLS file paths name files under the step working
 // directory, not the Dagu process directory.
 func TestParseConfig_RelativePathsUseWorkingDir(t *testing.T) {

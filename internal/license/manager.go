@@ -181,6 +181,8 @@ type CloudCredentials struct {
 	LicenseID       string
 	ServerID        string
 	HeartbeatSecret string
+	// Free is set while the license is on free monitoring.
+	Free bool
 }
 
 // CloudCredentials returns the credentials of the current activation. It
@@ -197,6 +199,7 @@ func (m *Manager) CloudCredentials() (CloudCredentials, bool) {
 		LicenseID:       claims.ID,
 		ServerID:        ad.ServerID,
 		HeartbeatSecret: ad.HeartbeatSecret,
+		Free:            claims.IsFree(),
 	}, true
 }
 
@@ -222,6 +225,7 @@ func StoredCloudCredentials(store ActivationStore, pubKey ed25519.PublicKey, clo
 			LicenseID:       claims.ID,
 			ServerID:        ad.ServerID,
 			HeartbeatSecret: ad.HeartbeatSecret,
+			Free:            claims.IsFree(),
 		}, true
 	}
 }

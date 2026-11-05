@@ -411,9 +411,9 @@ describe('workspace selection', () => {
     expect(props().ndv?.state).toBe('docked');
   });
 
-  // The node view and the Activity panel take turns, so they are never two
-  // layers at once: the Esc closes the menu, then the node view.
-  it('closes the top layer only on each Esc: menu, then NDV', async () => {
+  // Esc closes the top layer only. The YAML panel is no layer to leave: it
+  // stays.
+  it('closes the menu on Esc and keeps the YAML panel', async () => {
     const user = userEvent.setup();
     renderWorkspace('/dags/f?step=fetch&ndv=docked', freshRun(), <Menu />);
     loadSpec();
@@ -425,9 +425,8 @@ describe('workspace selection', () => {
     expect(props().ndv?.state).toBe('docked');
 
     await user.keyboard('{Escape}');
-    expect(props().ndv?.state).toBeNull();
-    expect(nav.location).toBe('/dags/f?step=fetch');
-    expect(nav.type).toBe('REPLACE');
+    expect(props().ndv?.state).toBe('docked');
+    expect(nav.location).toBe('/dags/f?step=fetch&ndv=docked');
   });
 
   it('restores a maximized Activity panel on Esc, then keeps it open', async () => {
@@ -442,12 +441,6 @@ describe('workspace selection', () => {
     expect(dock()).not.toHaveAttribute('data-maximized');
     expect(dock()).toHaveAttribute('data-state', 'open');
     expect(nav.location).toBe('/dags/f?step=fetch');
-  });
-
-  it('collapses the Activity panel while the node view is open', () => {
-    renderWorkspace('/dags/f?step=fetch&ndv=docked', freshRun());
-    loadSpec();
-    expect(dock()).toHaveAttribute('data-state', 'collapsed');
   });
 
   // The canvas keymap must not take Esc ('clear selection') while the NDV

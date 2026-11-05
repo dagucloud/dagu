@@ -65,11 +65,16 @@ export function useStepPanel({
   // nothing to show: a later selection does not bring it back. A click while
   // something covers the zone (a launcher panel that the click closes) keeps
   // the panel open, to show once the zone is free.
+  // A step that is cleared closes it; a click whose step is not in the URL
+  // yet, as when the click also closes a launcher panel, keeps it.
   const wasCovered = useRef(covered);
+  const lastStep = useRef(step);
   useEffect(() => {
     const comesOver = covered && !wasCovered.current;
+    const cleared = step === null && lastStep.current !== null;
     wasCovered.current = covered;
-    if (comesOver || step === null) setOpen(false);
+    lastStep.current = step;
+    if (comesOver || cleared) setOpen(false);
   }, [covered, step]);
 
   const show = useCallback((at: ClickPoint) => {

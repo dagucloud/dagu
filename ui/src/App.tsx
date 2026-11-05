@@ -66,11 +66,14 @@ import {
 } from '@/features/peek/OverlayResizeHandle';
 import { useOpenPage } from '@/features/dag-runs/lib/useOpenPage';
 import { overlayStepOfKey } from '@/features/peek/overlayKeys';
+import { peekPageURL, type PeekTarget } from '@/features/peek/peekParams';
 import {
   useWorkflowOverlay,
   WorkflowOverlayProvider,
 } from '@/features/peek/WorkflowOverlay';
 import { escFree } from '@/features/workflow-workspace/canvas/escFree';
+import { useOverlayExit } from '@/features/peek/useOverlayExit';
+import { cn } from '@/lib/utils';
 import { translateStatic } from '@/i18n/staticMessages';
 import { I18nText } from '@/i18n/I18nText';
 
@@ -101,7 +104,6 @@ const IncidentProvidersPage = React.lazy(
 );
 const IncidentsPage = React.lazy(() => import('./pages/incidents'));
 const IntegrationsPage = React.lazy(() => import('./pages/integrations'));
-const LicensePage = React.lazy(() => import('./pages/license'));
 const NotFoundPage = React.lazy(() => import('./pages/not-found'));
 const NotificationChannelsPage = React.lazy(
   () => import('./pages/notification-channels')
@@ -116,9 +118,9 @@ const ProfilesPage = React.lazy(() => import('./pages/profiles'));
 const Queues = React.lazy(() => import('./pages/queues'));
 const QueueDetailsPage = React.lazy(() => import('./pages/queues/queue'));
 const Search = React.lazy(() => import('./pages/search'));
+const SettingsPage = React.lazy(() => import('./pages/settings'));
 const SystemStatus = React.lazy(() => import('./pages/system-status'));
 const TerminalPage = React.lazy(() => import('./pages/terminal'));
-const RemoteNodesPage = React.lazy(() => import('./pages/remote-nodes'));
 const UsersPage = React.lazy(() => import('./pages/users'));
 const WebhooksPage = React.lazy(() => import('./pages/webhooks'));
 
@@ -170,6 +172,16 @@ function LegacyWikiRouteRedirect() {
   return (
     <Navigate to={`/wiki${suffix}${location.search}${location.hash}`} replace />
   );
+}
+
+/**
+ * Sends a page that became a section of Settings there, keeping the query
+ * and, unless the section is named, the hash.
+ */
+function SettingsRedirect({ section }: { section?: string }) {
+  const location = useLocation();
+  const hash = section ? `#${section}` : location.hash;
+  return <Navigate to={`/settings${location.search}${hash}`} replace />;
 }
 
 function isWorkspaceSensitiveTargetPath(path: unknown): boolean {
@@ -420,15 +432,22 @@ function LazyRoutes({
  * the workflow page reads, so that the page mounts on their answers.
  */
 function OverlayLoading({
-  fileName,
+  target,
 }: {
-  fileName: string;
+  target: PeekTarget | null;
 }): React.ReactElement {
   const remoteNode = useRemoteNode();
+  const fileName = target?.dag ?? '';
   const enabled = fileName !== '';
   useDAGDetailsQuery(fileName, remoteNode, PREFETCH_OPTIONS, enabled);
   useDAGSpecQuery(fileName, remoteNode, PREFETCH_OPTIONS, enabled);
-  return <WorkspaceLoading fileName={fileName} />;
+  // The frame of the page that the URL is about to name.
+  return (
+    <WorkspaceLoading
+      fileName={fileName}
+      url={target ? peekPageURL(target, remoteNode) : undefined}
+    />
+  );
 }
 
 /** Keeps the title of the tab as the page below set it. */
@@ -457,6 +476,23 @@ function WorkflowOverlayHost(): React.ReactElement | null {
   const panelRef = React.useRef<HTMLElement>(null);
   const overlayWidth = useOverlayWidth();
   const isOpen = overlay?.isOpen ?? false;
+  // The workflow page and the page below, as they were while open: the
+  // panel shows that page while it slides out, and slides out only for a
+  // return to the page below.
+  const below = overlay?.background ?? null;
+  const [shown, setShown] = React.useState<{
+    panel: typeof location;
+    below: typeof location;
+  } | null>(null);
+  if (isOpen && below && (shown?.panel !== location || shown.below !== below)) {
+    setShown({ panel: location, below });
+  }
+  const closing = useOverlayExit(
+    isOpen,
+    shown !== null &&
+      location.pathname === shown.below.pathname &&
+      location.search === shown.below.search
+  );
   const close = overlay?.close;
   const step = overlay?.step;
   React.useEffect(() => {
@@ -476,12 +512,21 @@ function WorkflowOverlayHost(): React.ReactElement | null {
     window.addEventListener('keydown', onKeyDown);
     return () => window.removeEventListener('keydown', onKeyDown);
   }, [isOpen, close, step]);
-  if (!overlay?.isOpen) return null;
+  if (!overlay || !shown || (!isOpen && !closing)) return null;
+  // The panel slides in from the right and back out, over a light dim of the
+  // page below. A closing panel takes no input and leaves the a11y tree.
   return createPortal(
-    <div className="fixed inset-0 z-40">
+    <div
+      className={cn('fixed inset-0 z-40', closing && 'pointer-events-none')}
+      aria-hidden={closing || undefined}
+      inert={closing || undefined}
+    >
       <div
         aria-hidden="true"
-        className="absolute inset-0 bg-black/60"
+        className={cn(
+          'absolute inset-0 bg-black/20 transition-opacity duration-200 ease-out starting:opacity-0 motion-reduce:transition-none',
+          closing && 'opacity-0'
+        )}
         onClick={overlay.close}
       />
       {/* A panel inset from the window, so that the dimmed page below shows
@@ -500,7 +545,10 @@ function WorkflowOverlayHost(): React.ReactElement | null {
                 '--overlay-width': `${overlayWidth.width}px`,
               } as React.CSSProperties)
         }
-        className="absolute inset-0 flex min-w-0 flex-col bg-background shadow-2xl md:inset-y-3 md:left-auto md:right-3 md:w-[var(--overlay-width,min(76rem,calc(100vw-18rem)))] md:max-w-[calc(100vw-6rem)] md:rounded-xl md:border md:border-border"
+        className={cn(
+          'absolute inset-0 flex min-w-0 flex-col bg-background shadow-lg transition-[translate,opacity] duration-200 ease-out starting:translate-x-full starting:opacity-0 motion-reduce:transition-none md:inset-y-3 md:left-auto md:right-3 md:w-[var(--overlay-width,min(76rem,calc(100vw-18rem)))] md:max-w-[calc(100vw-6rem)] md:rounded-xl md:border md:border-border',
+          closing && 'translate-x-full opacity-0'
+        )}
       >
         <OverlayResizeHandle
           width={() => panelRef.current?.getBoundingClientRect().width ?? 0}
@@ -552,7 +600,7 @@ function WorkflowOverlayHost(): React.ReactElement | null {
             <LayoutChromeContext.Provider value={null}>
               <LazyRouteErrorBoundary>
                 <React.Suspense fallback={<RouteFallback />}>
-                  <Routes>
+                  <Routes location={isOpen ? location : shown.panel}>
                     <Route
                       path="/dags/:fileName/:tab"
                       element={<DAGDetails />}
@@ -561,9 +609,7 @@ function WorkflowOverlayHost(): React.ReactElement | null {
                     {/* From the click until the URL names the workflow. */}
                     <Route
                       path="*"
-                      element={
-                        <OverlayLoading fileName={overlay.target?.dag ?? ''} />
-                      }
+                      element={<OverlayLoading target={overlay.target} />}
                     />
                   </Routes>
                 </React.Suspense>
@@ -1066,9 +1112,7 @@ function AppInner({ config: initialConfig }: Props): React.ReactElement {
                                         <Route
                                           path="/remote-nodes"
                                           element={
-                                            <AdminElement>
-                                              <RemoteNodesPage />
-                                            </AdminElement>
+                                            <SettingsRedirect section="remote-nodes" />
                                           }
                                         />
                                         <Route
@@ -1131,14 +1175,18 @@ function AppInner({ config: initialConfig }: Props): React.ReactElement {
                                           }
                                         />
                                         <Route
-                                          path="/license"
+                                          path="/settings"
                                           element={
                                             <AdminElement>
-                                              <LicensePage
+                                              <SettingsPage
                                                 key={selectedRemoteNode}
                                               />
                                             </AdminElement>
                                           }
+                                        />
+                                        <Route
+                                          path="/license"
+                                          element={<SettingsRedirect />}
                                         />
                                         <Route
                                           path="/git-sync"

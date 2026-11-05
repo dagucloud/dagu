@@ -2,37 +2,59 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 import { NodeStatus } from '@/api/v1/schema';
-import {
-  statusTone,
-  toneClasses,
-  type StatusTone,
-  type ToneClasses,
-} from '@/lib/statusPalette';
+import { statusTone, type StatusTone } from '@/lib/statusPalette';
 
-type CanvasPart = keyof Pick<ToneClasses, 'ring' | 'stroke'>;
+interface CanvasColor {
+  border: string;
+  ring: string;
+  stroke: string;
+  tint?: string;
+}
 
-// These tones keep their theme utilities: --success, --destructive and
-// --warning hold the same colours as their --status-* tokens in both themes.
-// Literal strings, so that Tailwind finds them.
-const THEME_UTILITIES: Partial<Record<StatusTone, Record<CanvasPart, string>>> =
-  {
-    success: {
-      ring: 'ring-success',
-      stroke: 'stroke-success',
-    },
-    error: {
-      ring: 'ring-destructive',
-      stroke: 'stroke-destructive',
-    },
-    warning: {
-      ring: 'ring-warning',
-      stroke: 'stroke-warning',
-    },
-  };
+// The colours of the graph, from the --graph-* tokens: one bright set in both
+// themes, since a line or a tint reads by its hue. The border repeats under
+// dark: so that it wins over the dark outline of the card. A step that did
+// not run has no tint. Literal strings, so that Tailwind finds them.
+const CANVAS_COLOR: Record<StatusTone, CanvasColor> = {
+  success: {
+    border: 'border-[var(--graph-success)] dark:border-[var(--graph-success)]',
+    ring: 'ring-[var(--graph-success)]',
+    stroke: 'stroke-[var(--graph-success)]',
+    tint: 'bg-[color-mix(in_srgb,var(--graph-success)_10%,var(--card))]',
+  },
+  error: {
+    border: 'border-[var(--graph-error)] dark:border-[var(--graph-error)]',
+    ring: 'ring-[var(--graph-error)]',
+    stroke: 'stroke-[var(--graph-error)]',
+    tint: 'bg-[color-mix(in_srgb,var(--graph-error)_10%,var(--card))]',
+  },
+  running: {
+    border: 'border-[var(--graph-running)] dark:border-[var(--graph-running)]',
+    ring: 'ring-[var(--graph-running)]',
+    stroke: 'stroke-[var(--graph-running)]',
+    tint: 'bg-[color-mix(in_srgb,var(--graph-running)_10%,var(--card))]',
+  },
+  warning: {
+    border: 'border-[var(--graph-warning)] dark:border-[var(--graph-warning)]',
+    ring: 'ring-[var(--graph-warning)]',
+    stroke: 'stroke-[var(--graph-warning)]',
+    tint: 'bg-[color-mix(in_srgb,var(--graph-warning)_10%,var(--card))]',
+  },
+  aborted: {
+    border: 'border-[var(--graph-aborted)] dark:border-[var(--graph-aborted)]',
+    ring: 'ring-[var(--graph-aborted)]',
+    stroke: 'stroke-[var(--graph-aborted)]',
+    tint: 'bg-[color-mix(in_srgb,var(--graph-aborted)_10%,var(--card))]',
+  },
+  neutral: {
+    border: 'border-[var(--graph-neutral)] dark:border-[var(--graph-neutral)]',
+    ring: 'ring-[var(--graph-neutral)]',
+    stroke: 'stroke-[var(--graph-neutral)]',
+  },
+};
 
-function canvasClass(status: NodeStatus, part: CanvasPart): string {
-  const tone = statusTone(status);
-  return THEME_UTILITIES[tone]?.[part] ?? toneClasses(tone)[part];
+function canvasColor(status: NodeStatus): CanvasColor {
+  return CANVAS_COLOR[statusTone(status)];
 }
 
 /**
@@ -41,13 +63,33 @@ function canvasClass(status: NodeStatus, part: CanvasPart): string {
  * of the plain border. The line and the card contour are one.
  */
 export function statusBorderClass(status: NodeStatus): string {
-  const border = canvasClass(status, 'ring').replace(/^ring-/, 'border-');
-  return `${border} dark:${border}`;
+  return canvasColor(status).border;
+}
+
+/**
+ * Classes for the card of a step of the run, so that its status reads at
+ * any zoom: the border in the colour of the status, a ring of the same
+ * colour that doubles the line without moving the box, and a light tint of
+ * the colour over the card. A step that did not run keeps a neutral border
+ * and the plain card.
+ */
+export function statusCardClass(status: NodeStatus): string {
+  const { border, ring, tint } = canvasColor(status);
+  if (!tint) return border;
+  return `${border} ring-1 ${ring} ${tint}`;
+}
+
+/**
+ * The dash of an edge that leaves a step of this status: a failed step dashes
+ * its edges, so that the path of a failure reads apart from a success.
+ */
+export function statusDashArray(status: NodeStatus): string | undefined {
+  return statusTone(status) === 'error' ? '5 4' : undefined;
 }
 
 /** Stroke classes for the outline of a node that is not a card. */
 export function statusStrokeClass(status: NodeStatus): string {
-  return canvasClass(status, 'stroke');
+  return canvasColor(status).stroke;
 }
 
 /**

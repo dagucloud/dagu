@@ -158,7 +158,8 @@ func (a *API) DeactivateLicense(ctx context.Context, _ api.DeactivateLicenseRequ
 
 // StartLicenseConnect starts, or resumes, a request to connect this server to
 // Dagu Console. A report level in the request chooses what this server
-// reports once connected, unless configuration fixes it.
+// reports once connected, and a remote access level how far MCP calls through
+// Dagu Cloud may go once connected, unless configuration fixes either.
 func (a *API) StartLicenseConnect(ctx context.Context, request api.StartLicenseConnectRequestObject) (api.StartLicenseConnectResponseObject, error) {
 	if err := a.requireLicenseManagement(ctx); err != nil {
 		return nil, err
@@ -169,6 +170,13 @@ func (a *API) StartLicenseConnect(ctx context.Context, request api.StartLicenseC
 		if !knownReportLevel(report) {
 			return nil, unknownReportLevelError("report")
 		}
+	}
+	var remoteAccess *config.RemoteAccessLevel
+	if request.Body != nil && request.Body.RemoteAccess != nil {
+		if !request.Body.RemoteAccess.Valid() {
+			return nil, unknownRemoteAccessLevelError("remoteAccess")
+		}
+		remoteAccess = new(config.RemoteAccessLevel(*request.Body.RemoteAccess))
 	}
 
 	status, err := a.licenseManager.Connect()
@@ -182,6 +190,11 @@ func (a *API) StartLicenseConnect(ctx context.Context, request api.StartLicenseC
 	if report != "" && a.cloudReport != nil {
 		// The configured level applies whatever the request chose.
 		if err := a.setReportLevel(ctx, report); err != nil && !errors.Is(err, cloudreport.ErrLevelConfigured) {
+			return nil, internalError(err)
+		}
+	}
+	if remoteAccess != nil && a.cloudAccess != nil {
+		if err := a.chooseRemoteAccessLevel(ctx, *remoteAccess); err != nil {
 			return nil, internalError(err)
 		}
 	}

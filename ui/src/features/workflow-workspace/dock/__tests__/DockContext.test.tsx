@@ -181,10 +181,53 @@ describe('DockProvider on a narrow window', () => {
     expect(renderDock().dock.open).toBe(false);
   });
 
+  // A phone shows one view: a link to the YAML shows the YAML, not the
+  // panel that its run would open.
+  it('stays shut for a run link that also opens the YAML', () => {
+    window.matchMedia ??= (() => ({}) as MediaQueryList) as typeof matchMedia;
+    narrow(false);
+    expect(renderDock('/dags/demo?run=r1&ndv=docked').dock.open).toBe(false);
+  });
+
   it('opens from the stored state on a wide window', () => {
     window.matchMedia ??= (() => ({}) as MediaQueryList) as typeof matchMedia;
     narrow(true);
     expect(renderDock().dock.open).toBe(true);
+  });
+});
+
+// A laptop opens the panel until the user closes it; a smaller window keeps
+// it collapsed until asked.
+describe('DockProvider default by window', () => {
+  function windowOf(width: number) {
+    window.matchMedia ??= (() => ({}) as MediaQueryList) as typeof matchMedia;
+    vi.spyOn(window, 'matchMedia').mockImplementation(
+      (query: string) =>
+        ({
+          matches: width >= Number(/min-width:\s*(\d+)px/.exec(query)?.[1]),
+          media: query,
+          addEventListener: vi.fn(),
+          removeEventListener: vi.fn(),
+        }) as unknown as MediaQueryList
+    );
+  }
+
+  it('opens on a laptop with nothing stored', () => {
+    localStorage.clear();
+    windowOf(1440);
+    expect(renderDock().dock.open).toBe(true);
+  });
+
+  it('keeps a close of the user on a laptop', () => {
+    localStorage.setItem(DOCK_OPEN_KEY, 'false');
+    windowOf(1440);
+    expect(renderDock().dock.open).toBe(false);
+  });
+
+  it('stays collapsed on a tablet with nothing stored', () => {
+    localStorage.clear();
+    windowOf(900);
+    expect(renderDock().dock.open).toBe(false);
   });
 });
 

@@ -152,14 +152,19 @@ func (r *run) focusControl(els desktop.Elements, control desktop.Element) bool {
 // typeOption replaces what the focused control holds with the option, as
 // typing over a selection does.
 func (r *run) typeOption(ctx context.Context, option string) error {
-	selectAll := "ctrl+a"
-	if r.system == systemMacOS {
-		selectAll = "cmd+a"
-	}
-	if err := r.pressKeys(ctx, selectAll); err != nil {
+	if err := r.pressKeys(ctx, r.selectAllChord()); err != nil {
 		return err
 	}
 	return r.driver.Type(ctx, option)
+}
+
+// selectAllChord is the chord that selects all the text of the focused
+// control on the step's system.
+func (r *run) selectAllChord() string {
+	if r.system == systemMacOS {
+		return "cmd+a"
+	}
+	return "ctrl+a"
 }
 
 // walkOptions steps the focused control from its first option down, one

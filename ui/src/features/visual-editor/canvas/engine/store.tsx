@@ -36,17 +36,41 @@ export interface RelativeHandle {
   connectable: boolean;
 }
 
+/** How a view change moves: at once, or gliding from the current view. */
+export interface ViewMotion {
+  /**
+   * Glides for VIEW_GLIDE_MS, for a change that the room of the canvas
+   * asks for. Under reduced motion, or with no answer about it, the view
+   * changes at once. Another change of the view ends the glide.
+   */
+  glide?: boolean;
+}
+
+/** The time of a glide of the view. */
+export const VIEW_GLIDE_MS = 200;
+
 export interface FlowApi {
   /** Shows all the nodes. Does nothing while the canvas has no size. */
-  fitView(options?: FitOptions): void;
+  fitView(options?: FitOptions, motion?: ViewMotion): void;
   zoomIn(): void;
   zoomOut(): void;
-  setViewport(viewport: Viewport): void;
+  setViewport(viewport: Viewport, motion?: ViewMotion): void;
+}
+
+/** True unless the user is known to accept motion. */
+function reducesMotion(): boolean {
+  return (
+    typeof requestAnimationFrame !== 'function' ||
+    (window.matchMedia?.('(prefers-reduced-motion: reduce)').matches ?? true)
+  );
 }
 
 /** What the parts of the flow share: view, size, nodes and handle places. */
 export interface FlowStore extends FlowApi {
-  /** The current view. Read it in an event; `useViewport` draws on change. */
+  /**
+   * The current view, or the end of a glide. Read it in an event;
+   * `useViewport` draws on change.
+   */
   getViewport(): Viewport;
   size: { width: number; height: number };
   setSize(size: { width: number; height: number }): void;
@@ -143,7 +167,7 @@ export function FlowProvider({
     [minZoom, maxZoom]
   );
 
-  const setViewport = useCallback((next: Viewport) => {
+  const drawViewport = useCallback((next: Viewport) => {
     const current = viewportRef.current;
     if (
       current.x === next.x &&
@@ -155,6 +179,44 @@ export function FlowProvider({
     viewportRef.current = next;
     viewportListeners.current.forEach((listener) => listener());
   }, []);
+  // The view that a glide goes to, and the frame of its next step.
+  const glide = useRef<{ target: Viewport; frame: number } | null>(null);
+  const setViewport = useCallback(
+    (next: Viewport, motion?: ViewMotion) => {
+      if (glide.current) {
+        cancelAnimationFrame(glide.current.frame);
+        glide.current = null;
+      }
+      if (!motion?.glide || reducesMotion()) {
+        drawViewport(next);
+        return;
+      }
+      const from = viewportRef.current;
+      const start = performance.now();
+      const step = (now: number) => {
+        const t = Math.min(1, (now - start) / VIEW_GLIDE_MS);
+        const eased = 1 - (1 - t) ** 3;
+        drawViewport({
+          x: from.x + (next.x - from.x) * eased,
+          y: from.y + (next.y - from.y) * eased,
+          zoom: from.zoom + (next.zoom - from.zoom) * eased,
+        });
+        if (t < 1 && glide.current) {
+          glide.current.frame = requestAnimationFrame(step);
+        } else {
+          glide.current = null;
+        }
+      };
+      glide.current = { target: next, frame: requestAnimationFrame(step) };
+    },
+    [drawViewport]
+  );
+  useEffect(
+    () => () => {
+      if (glide.current) cancelAnimationFrame(glide.current.frame);
+    },
+    []
+  );
   const setSize = useCallback((next: { width: number; height: number }) => {
     setSizeState((current) =>
       current.width === next.width && current.height === next.height
@@ -175,7 +237,7 @@ export function FlowProvider({
   );
 
   const fitView = useCallback(
-    (options: FitOptions = {}) => {
+    (options: FitOptions = {}, motion?: ViewMotion) => {
       const bounds = boundsOf(nodeRects());
       const { width, height } = sizeRef.current;
       if (!bounds || width === 0 || height === 0) {
@@ -186,7 +248,8 @@ export function FlowProvider({
           bounds,
           { width, height },
           { minZoom: limits.min, maxZoom: limits.max, ...options }
-        )
+        ),
+        motion
       );
     },
     [nodeRects, setViewport, limits]
@@ -282,7 +345,10 @@ export function FlowProvider({
     return placed;
   }, []);
 
-  const getViewport = useCallback(() => viewportRef.current, []);
+  const getViewport = useCallback(
+    () => glide.current?.target ?? viewportRef.current,
+    []
+  );
   const userMovesRef = useRef(0);
   const userMoves = useCallback(() => userMovesRef.current, []);
   const noteUserMove = useCallback(() => {

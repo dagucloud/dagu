@@ -41,7 +41,7 @@ func (a *API) UpdateLicenseRemoteAccess(ctx context.Context, request api.UpdateL
 	}
 	switch {
 	case body.Level != nil && !body.Level.Valid():
-		return nil, &Error{Code: api.ErrorCodeBadRequest, Message: "level must be one of: off, viewer, operator, developer", HTTPStatus: http.StatusBadRequest}
+		return nil, unknownRemoteAccessLevelError("level")
 	case body.Level != nil && previous.LevelConfigured:
 		return nil, configuredError("cloud.remote_access in the configuration sets the remote access level.")
 	case body.Approvals != nil && previous.ApprovalsConfigured:
@@ -67,6 +67,25 @@ func (a *API) UpdateLicenseRemoteAccess(ctx context.Context, request api.UpdateL
 		return nil, err
 	}
 	return api.UpdateLicenseRemoteAccess200JSONResponse(access), nil
+}
+
+// chooseRemoteAccessLevel records level as the administrator's choice of how
+// far calls from Dagu Cloud may go, unless configuration fixes the level.
+func (a *API) chooseRemoteAccessLevel(ctx context.Context, level config.RemoteAccessLevel) error {
+	previous, err := a.cloudAccess.Status(ctx)
+	if err != nil {
+		return err
+	}
+	if previous.LevelConfigured {
+		return nil
+	}
+	if err := a.cloudAccess.Set(ctx, &level, nil); err != nil {
+		return err
+	}
+	a.logAudit(ctx, audit.CategorySystem, "cloud_remote_access_update", map[string]any{
+		"level": level, "previous_level": previous.Level,
+	})
+	return nil
 }
 
 func (a *API) requireCloudAccess(ctx context.Context) error {
@@ -100,6 +119,14 @@ func (a *API) licenseRemoteAccess(ctx context.Context) (api.LicenseRemoteAccess,
 		access.Error = ptrOf(state.Error)
 	}
 	return access, nil
+}
+
+func unknownRemoteAccessLevelError(field string) error {
+	return &Error{
+		Code:       api.ErrorCodeBadRequest,
+		Message:    field + " must be one of: off, viewer, operator, developer",
+		HTTPStatus: http.StatusBadRequest,
+	}
 }
 
 func configuredError(message string) error {

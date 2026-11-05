@@ -64,13 +64,10 @@ test('shows activation, benefits, and deactivation on desktop and mobile', async
     .getByRole('link', { name: 'Plan & features', exact: true })
     .filter({ hasText: /^(Community|Team plan)$/ });
   await expect(badge).toHaveText('Community');
-  const monitoringLink = sidebar.getByRole('link', {
-    name: 'External Monitoring',
-  });
-  await expect(monitoringLink).toHaveAttribute('href', '/license#monitoring');
-  await monitoringLink.click();
+  await sidebar.getByRole('link', { name: 'Settings' }).click();
+  await expect(page).toHaveURL(/\/settings$/);
   await expect(
-    page.getByRole('region', { name: 'Monitor this server for free' })
+    page.getByRole('region', { name: 'Connect to Dagu Cloud' })
   ).toBeInViewport();
   await badge.click();
   await expect(
@@ -152,10 +149,10 @@ test('shows activation, benefits, and deactivation on desktop and mobile', async
   ).toBeVisible();
   await expect(
     page.getByRole('link', { name: 'Start free trial' })
-  ).toHaveAttribute('href', '/license?trial=1#monitoring');
+  ).toHaveAttribute('href', '/settings?trial=1#monitoring');
   await expect(
     page.getByRole('link', { name: 'Activate a key' })
-  ).toHaveAttribute('href', '/license#activate');
+  ).toHaveAttribute('href', '/settings#activate');
 });
 
 test('connects a community server with the trial through Dagu Console', async ({
@@ -220,7 +217,7 @@ test('connects a community server with the trial through Dagu Console', async ({
   await page.goto('/license');
 
   const offer = page.getByRole('region', {
-    name: 'Monitor this server for free',
+    name: 'Connect to Dagu Cloud',
   });
   await offer
     .getByRole('checkbox', { name: /Also try paid features free for 14 days/ })
@@ -322,7 +319,7 @@ test('starts monitoring when a server connects from the free offer', async ({
   await page.goto('/license#monitoring');
 
   const offer = page.getByRole('region', {
-    name: 'Monitor this server for free',
+    name: 'Connect to Dagu Cloud',
   });
   await expect(
     offer.getByRole('radio', {
@@ -396,7 +393,9 @@ test('shows a license that needs attention in the sidebar and on the page', asyn
   });
 
   await sidebar.getByRole('button', { name: 'Collapse sidebar' }).click();
-  const icon = sidebar.locator('a[href="/license"]').filter({ hasText: /^$/ });
+  const icon = sidebar
+    .getByRole('link', { name: 'Plan & features', exact: true })
+    .filter({ hasText: /^$/ });
   await expect(icon).toHaveCount(1);
   await icon.focus();
   await expect(page.getByRole('tooltip')).toContainText(
@@ -425,9 +424,7 @@ test('gives non-admins status and administrator guidance', async ({ page }) => {
     page.getByRole('link', { name: 'Start free trial' })
   ).toHaveCount(0);
   const sidebar = page.getByTestId('app-sidebar');
-  await expect(
-    sidebar.getByRole('link', { name: 'External Monitoring' })
-  ).toHaveCount(0);
+  await expect(sidebar.getByRole('link', { name: 'Settings' })).toHaveCount(0);
   await sidebar.getByRole('button', { name: 'Plan & features' }).click();
   await expect(page.getByRole('menu')).toContainText('Community');
   await expect(page.getByRole('menu')).toContainText(guidance);

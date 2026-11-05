@@ -61,7 +61,7 @@ func TestResumeManagedAttemptTargetsOwningWorker(t *testing.T) {
 		defaultExecMode: config.ExecutionModeLocal,
 	}
 
-	require.NoError(t, api.resumeManagedAttempt(t.Context(), dag, status, status.DAGRunID, nil))
+	require.NoError(t, api.resumeManagedAttempt(t.Context(), dag, status, status.DAGRunID, nil, dagrun.RetryPath{}))
 	require.Len(t, recorder.dispatched, 1)
 	task := recorder.dispatched[0]
 	require.Equal(t, dispatch.DispatchOperationRetry, task.Operation)
@@ -199,6 +199,107 @@ func newStoredChildResumeFixture(t *testing.T) storedChildResumeFixture {
 	require.NoError(t, childAttempt.Write(ctx, childStatus))
 	require.NoError(t, childAttempt.Close(ctx))
 	return storedChildResumeFixture{repository: repository, root: root, childID: childID, childAttempt: childAttempt}
+}
+
+// A resolved child of a waiting root resumes through a step retry of the
+// root's call step, so a worker continues the child inside the root run.
+func TestResumeResolvedSubDAGRunDispatchesRootPath(t *testing.T) {
+	fixture := newStoredWaitingCallFixture(t)
+	recorder := &retryCoordinatorRecorder{}
+	a := &API{
+		dagRunRepository: fixture.repository,
+		config:           &config.Config{},
+		coordinatorCli:   recorder,
+		defaultExecMode:  config.ExecutionModeLocal,
+	}
+
+	require.NoError(t, a.resumeResolvedSubDAGRun(t.Context(), fixture.root, fixture.root, fixture.childID, "gate"))
+	require.Len(t, recorder.dispatched, 1)
+	task := recorder.dispatched[0]
+	assert.Equal(t, fixture.root.ID, task.DAGRunID)
+	assert.Equal(t, "call-child", task.Step)
+	require.NotNil(t, task.PreviousStatus)
+	assert.Equal(t, ir.Queued, task.PreviousStatus.Status)
+	path, err := dagrun.ParseRetryPath(task.RetryPath)
+	require.NoError(t, err)
+	assert.Equal(t, dagrun.RetryPath{
+		Hops: []dagrun.RetryHop{{Step: "call-child", RunID: fixture.childID}},
+		Leaf: dagrun.RetryLeafResume,
+	}, path)
+
+	child, err := fixture.childAttempt.ReadStatusUncached(t.Context())
+	require.NoError(t, err)
+	assert.Equal(t, ir.Queued, child.Status)
+	assert.True(t, child.Resume)
+}
+
+func TestResumeResolvedSubDAGRunDispatchFailureRollsBackPath(t *testing.T) {
+	fixture := newStoredWaitingCallFixture(t)
+	dispatchErr := errors.New("coordinator unavailable")
+	a := &API{
+		dagRunRepository: fixture.repository,
+		config:           &config.Config{},
+		coordinatorCli:   &retryCoordinatorRecorder{dispatchErr: dispatchErr},
+		defaultExecMode:  config.ExecutionModeLocal,
+	}
+
+	err := a.resumeResolvedSubDAGRun(t.Context(), fixture.root, fixture.root, fixture.childID, "gate")
+	require.ErrorIs(t, err, dispatchErr)
+	root, err := fixture.rootAttempt.ReadStatusUncached(t.Context())
+	require.NoError(t, err)
+	assert.Equal(t, ir.Waiting, root.Status)
+	child, err := fixture.childAttempt.ReadStatusUncached(t.Context())
+	require.NoError(t, err)
+	assert.Equal(t, ir.Waiting, child.Status)
+	assert.False(t, child.Resume)
+}
+
+type storedWaitingCallFixture struct {
+	repository   *persis.DAGRunRepository
+	root         ir.DAGRunRef
+	rootAttempt  dagrun.Attempt
+	childID      string
+	childAttempt dagrun.Attempt
+}
+
+// newStoredWaitingCallFixture stores a root that a worker left waiting on its
+// call-child step, and the child run that step called, whose only gate is
+// already approved.
+func newStoredWaitingCallFixture(t *testing.T) storedWaitingCallFixture {
+	t.Helper()
+	ctx := t.Context()
+	root := ir.NewDAGRunRef("root_waiting_call", "root-run")
+	childID := "child-run"
+	callStep := ir.Step{Name: "call-child", SubDAG: &ir.SubDAG{Name: "child_waiting_call"}}
+	rootDAG := &ir.DAG{Name: root.Name, Steps: []ir.Step{callStep}, WorkerSelector: map[string]string{"region": "apac"}}
+	childDAG := &ir.DAG{Name: callStep.SubDAG.Name}
+	repository := testutil.NewFileDAGRunRepository(filepath.Join(t.TempDir(), "dag-runs"), persis.DAGRunRepositoryOptions{LatestStatusToday: true})
+
+	rootAttempt, err := repository.CreateAttempt(ctx, rootDAG, time.Now(), root.ID, persis.DAGRunCreateAttemptOptions{})
+	require.NoError(t, err)
+	require.NoError(t, rootAttempt.Open(ctx))
+	require.NoError(t, rootAttempt.Write(ctx, ir.DAGRunStatus{
+		Root: root, Name: root.Name, DAGRunID: root.ID, AttemptID: rootAttempt.ID(), Status: ir.Waiting,
+		WorkerID: "worker-1", FinishedAt: time.Now().Format(time.RFC3339),
+		Nodes: []*ir.Node{{
+			Step: callStep, Status: ir.NodeWaiting,
+			SubRuns: []ir.SubDAGRun{{DAGRunID: childID, DAGName: childDAG.Name}},
+		}},
+	}))
+	require.NoError(t, rootAttempt.Close(ctx))
+
+	childAttempt, err := repository.CreateAttempt(ctx, childDAG, time.Now(), childID, persis.DAGRunCreateAttemptOptions{RootDAGRun: root})
+	require.NoError(t, err)
+	require.NoError(t, childAttempt.Open(ctx))
+	require.NoError(t, childAttempt.Write(ctx, ir.DAGRunStatus{
+		Root: root, Parent: root, Name: childDAG.Name, DAGRunID: childID, AttemptID: childAttempt.ID(), Status: ir.Waiting,
+		FinishedAt: time.Now().Format(time.RFC3339),
+		Nodes:      []*ir.Node{{Step: ir.Step{Name: "gate"}, Status: ir.NodeSucceeded}},
+	}))
+	require.NoError(t, childAttempt.Close(ctx))
+	return storedWaitingCallFixture{
+		repository: repository, root: root, rootAttempt: rootAttempt, childID: childID, childAttempt: childAttempt,
+	}
 }
 
 type detachedAttemptStore struct {

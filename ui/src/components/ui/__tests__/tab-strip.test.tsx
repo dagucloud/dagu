@@ -137,7 +137,7 @@ describe('TabStrip', () => {
 
   it('shows only icons in compact mode, with an aria-label and a tooltip', async () => {
     const user = userEvent.setup();
-    render(<Harness compact />);
+    render(<Harness compact initial="d" />);
     const overview = screen.getByRole('tab', { name: 'Overview' });
     expect(overview).toHaveAttribute('aria-label', 'Overview');
     expect(overview).toHaveTextContent('');
@@ -148,6 +148,50 @@ describe('TabStrip', () => {
     // A tab without an icon keeps its label.
     expect(screen.getByRole('tab', { name: 'Plain' })).toHaveTextContent(
       'Plain'
+    );
+  });
+
+  // A touch screen has no tooltip: an opted-in strip keeps the names.
+  it('keeps the names on a touch screen when asked to', () => {
+    const matchMedia = window.matchMedia;
+    window.matchMedia = ((query: string) => ({
+      matches: query === '(any-pointer: coarse)',
+      media: query,
+      addEventListener: () => {},
+      removeEventListener: () => {},
+    })) as unknown as typeof window.matchMedia;
+    try {
+      render(
+        <TabStrip
+          label="Views"
+          tabs={TABS}
+          value="a"
+          compact
+          touchLabels
+          onChange={() => {}}
+        />
+      );
+      expect(screen.getByRole('tab', { name: /Spec/ })).toHaveTextContent(
+        'Spec'
+      );
+    } finally {
+      window.matchMedia = matchMedia;
+    }
+  });
+
+  // An icon alone does not say which view shows.
+  it('keeps the name of the selected tab in compact mode', async () => {
+    const user = userEvent.setup();
+    render(<Harness compact />);
+    expect(screen.getByRole('tab', { name: 'Overview' })).toHaveTextContent(
+      'Overview'
+    );
+    await user.click(screen.getByRole('tab', { name: 'Spec (2)' }));
+    expect(screen.getByRole('tab', { name: 'Overview' })).toHaveTextContent(
+      /^$/
+    );
+    expect(screen.getByRole('tab', { selected: true })).toHaveTextContent(
+      'Spec2'
     );
   });
 });

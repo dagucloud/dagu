@@ -62,6 +62,9 @@ func (a *eventingAttempt) Write(ctx context.Context, status ir.DAGRunStatus) err
 	a.mu.Lock()
 	defer a.mu.Unlock()
 
+	// Every attempt in the ephemeral store is ephemeral, a child run's too,
+	// whatever its writer knows.
+	status.Ephemeral = status.Ephemeral || a.ephemeral
 	if err := a.Attempt.Write(ctx, status); err != nil {
 		return err
 	}

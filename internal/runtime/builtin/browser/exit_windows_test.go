@@ -7,6 +7,7 @@ package browser
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os/exec"
 	"strings"
@@ -77,6 +78,32 @@ func TestCloseBrowserLeavesReusedProcessIDAlone(t *testing.T) {
 	require.NoError(t, err)
 	assert.True(t, procutil.IsAlive(other.Process.Pid), "the process keeps running")
 	assert.True(t, procutil.IsAlive(helperPID), "its child keeps running")
+}
+
+// The browser runtime ends a launched browser with taskkill, whose exit
+// status reports the processes it could not end. Once the browser and its
+// helpers have exited, closing drops that status, the browser having gone as
+// asked, and reports only what else went wrong.
+func TestCloseBrowserDropsExitStatusOfExitedTree(t *testing.T) {
+	t.Parallel()
+
+	browser, helperPID := startSleeperTree(t)
+	startedAt, ok := procutil.StartTime(browser.Process.Pid)
+	require.True(t, ok)
+	exitStatus := exec.Command("cmd", "/c", "exit 255").Run()
+	require.ErrorAs(t, exitStatus, new(*exec.ExitError))
+	profileErr := errors.New("remove profile: access is denied")
+
+	err := closeBrowser(context.Background(), browser.Process.Pid, startedAt, func(context.Context) error {
+		if err := browser.Process.Kill(); err != nil {
+			return err
+		}
+		_ = browser.Wait()
+		return errors.Join(exitStatus, profileErr)
+	})
+	require.ErrorIs(t, err, profileErr)
+	assert.False(t, errors.As(err, new(*exec.ExitError)), "the exit status is dropped: %v", err)
+	assert.False(t, procutil.IsAlive(helperPID), "the helper is ended")
 }
 
 // While the runtime is still closing, a tree that has exited does not end

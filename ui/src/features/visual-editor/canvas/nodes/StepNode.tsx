@@ -127,7 +127,7 @@ function StepNodeComponent({
 
   const reuseNote = reuseTitle(node, ts);
   const cardTitle =
-    [compact ? compactTitle(node) : failureTitle(node.run), reuseNote]
+    [compact ? compactTitle(node, ts) : failureTitle(node.run), reuseNote]
       .filter(Boolean)
       .join('\n') || undefined;
 

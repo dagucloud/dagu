@@ -86,7 +86,7 @@ test('guides a fresh install through its first steps', async ({
   ).toHaveAttribute('href', '/dags/example-06-retry-on-failure');
   await expect(
     checklist.getByRole('link', { name: 'Connect for free' })
-  ).toHaveAttribute('href', '/license#monitoring');
+  ).toHaveAttribute('href', '/settings#monitoring');
   await page.screenshot({
     path: testInfo.outputPath('getting-started-desktop.png'),
     fullPage: true,

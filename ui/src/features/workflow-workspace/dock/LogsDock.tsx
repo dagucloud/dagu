@@ -1,7 +1,7 @@
 // Copyright (C) 2026 Yota Hamada
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-import { ChevronDown, ChevronUp, Maximize2, Minimize2, X } from 'lucide-react';
+import { ChevronDown, ChevronUp, Maximize2, Minimize2 } from 'lucide-react';
 import {
   useCallback,
   useEffect,
@@ -9,11 +9,12 @@ import {
   useMemo,
   useRef,
   useState,
-  useSyncExternalStore,
   type KeyboardEvent,
   type PointerEvent,
 } from 'react';
 import { IconButton } from '@/components/ui/icon-button';
+import { useMediaQuery } from '@/hooks/useMediaQuery';
+import { WIDE_QUERY } from '@/lib/breakpoints';
 import { useActiveRightPanel } from '@/contexts/RightPanelContext';
 import { useI18n } from '@/i18n/I18nProvider';
 import { cn, FOCUS_RING } from '@/lib/utils';
@@ -29,12 +30,12 @@ import {
   maxDockHeight,
   useDock,
   useDockFrame,
-  DOCK_SHEET_BELOW_PX,
 } from './DockContext';
 import { DockHeaderToolsContext } from './DockHeaderTools';
 import { FreezeWhenHidden } from './FreezeWhenHidden';
 import { DOCK_PANEL_ID } from './DockTabStrip';
-import { RunStepsNav } from './RunStepsNav';
+import { PhoneViewNav } from './PhoneViewNav';
+import { RunStepPicker, RunStepsNav } from './RunStepsNav';
 import { RunTabsPane } from './RunTabsPane';
 import { RunTimeline } from './RunTimeline';
 import { dockTabBodies } from './tabs';
@@ -44,25 +45,9 @@ import { useDockStep } from './useDockStep';
 import { useLiftNotifications } from './useLiftNotifications';
 
 const KEYBOARD_STEP_PX = 40;
-// A drag on the sheet handle longer than this closes or maximizes the sheet.
-const SHEET_DRAG_PX = 64;
-
-/** True when the media query matches. Without matchMedia it is true. */
-function useMinWidth(px: number): boolean {
-  const query = `(min-width: ${px}px)`;
-  const subscribe = useCallback(
-    (onChange: () => void) => {
-      const list = window.matchMedia?.(query);
-      list?.addEventListener?.('change', onChange);
-      return () => list?.removeEventListener?.('change', onChange);
-    },
-    [query]
-  );
-  return useSyncExternalStore(
-    subscribe,
-    () => window.matchMedia?.(query).matches ?? true
-  );
-}
+const STEPS_NAV_ID = 'ww-run-steps-nav';
+// The tabs that most runs do not need: they wait in the More menu.
+const RARE_TABS: readonly DockTab[] = ['definition', 'artifacts'];
 
 interface Drag {
   pointerId: number;
@@ -75,11 +60,15 @@ interface Drag {
  * bar holds its toggle, named Activity; aria-expanded tells its state.
  * Under it, while it is open: the timeline of the latest runs, then two
  * columns, the steps of the selected run on the left and on the right the
- * tab strip with the body of the active tab. The body mounts at the first
+ * tab strip with the body of the active tab. A panel narrower than 600px
+ * has one column: a row names the selected step and opens the steps over
+ * the tabs. The body mounts at the first
  * open and stays mounted when the panel collapses or maximizes. Below 768px
- * the open panel is a bottom sheet at 75vh; when it closes, the focus goes
- * back to the element that opened it. Esc restores a maximized panel (and
- * closes the sheet) when no dialog, menu or node details view is above it.
+ * the panel has no bar: the views bar of the phone (PhoneViewNav) is its
+ * bottom, and the open panel takes the place of the graph; when it closes,
+ * the focus goes back to the element that opened it. Esc restores a
+ * maximized panel (and closes the phone view) when no dialog, menu or node
+ * details view is above it.
  */
 export function LogsDock({
   fileName,
@@ -95,8 +84,9 @@ export function LogsDock({
   const [url] = useWorkspaceUrl();
   const activePanel = useActiveRightPanel();
   const openStepDetails = useOpenStepDetails();
-  const narrow = !useMinWidth(DOCK_SHEET_BELOW_PX);
-  const sheet = narrow && dock.open;
+  // Without matchMedia (tests) the window is wide.
+  const narrow = !useMediaQuery(WIDE_QUERY, true);
+  const phoneView = narrow && dock.open;
   useDockAutoOpen();
 
   // A step view has no Timeline and names Outputs "Output" (stepScope.ts).
@@ -118,6 +108,15 @@ export function LogsDock({
     [setTab]
   );
   const [mounted, setMounted] = useState(dock.open);
+  const [stepsOpen, setStepsOpen] = useState(false);
+  const pickerRef = useRef<HTMLButtonElement>(null);
+  // The list over the tabs closes on a pick or on Esc, and gives the focus
+  // back to the row that opened it.
+  const closeSteps = useCallback(() => {
+    if (!stepsOpen) return;
+    setStepsOpen(false);
+    pickerRef.current?.focus();
+  }, [stepsOpen]);
   if (dock.open && !mounted) setMounted(true);
 
   const drag = useRef<Drag | null>(null);
@@ -146,59 +145,52 @@ export function LogsDock({
     frame.resize(next);
   };
 
-  // The sheet takes the focus when it opens and gives it back when it closes.
-  // The focus goes to the sheet itself, not to Close: a focused button opens
-  // its tooltip, and the tooltip would take the first Esc.
-  const sheetRef = useRef<HTMLElement>(null);
-  // An open panel or sheet keeps the notifications above it. A maximized one
+  // The phone view takes the focus when it opens and gives it back when it
+  // closes. The focus goes to the panel itself, not to a button: a focused
+  // button opens its tooltip, and the tooltip would take the first Esc.
+  const sectionRef = useRef<HTMLElement>(null);
+  // An open panel keeps the notifications above it. A maximized one
   // fills the page: they stay in the corner.
-  useLiftNotifications(sheetRef, dock.open && !dock.maximized);
+  useLiftNotifications(sectionRef, dock.open && !dock.maximized);
   const opener = useRef<HTMLElement | null>(null);
-  const wasSheet = useRef(sheet);
+  const wasPhoneView = useRef(phoneView);
   useLayoutEffect(() => {
-    if (wasSheet.current === sheet) return;
-    wasSheet.current = sheet;
-    if (sheet) {
+    if (wasPhoneView.current === phoneView) return;
+    wasPhoneView.current = phoneView;
+    if (phoneView) {
       const focused = document.activeElement;
       opener.current = focused instanceof HTMLElement ? focused : null;
-      sheetRef.current?.focus();
+      sectionRef.current?.focus();
       return;
     }
     const back = opener.current;
     opener.current = null;
     if (back?.isConnected) back.focus();
-  }, [sheet]);
-
-  const sheetDrag = useRef<{ pointerId: number; startY: number } | null>(null);
-  const dragged = useRef(false);
-  const endSheetDrag = (event: PointerEvent<HTMLDivElement>) => {
-    const current = sheetDrag.current;
-    if (current?.pointerId !== event.pointerId) return;
-    sheetDrag.current = null;
-    const moved = event.clientY - current.startY;
-    if (Math.abs(moved) < SHEET_DRAG_PX) return;
-    dragged.current = true;
-    if (moved > 0) dock.toggle();
-    else dock.maximize(true);
-  };
+  }, [phoneView]);
 
   const ndvAbove = activePanel === 'ndv';
-  const escState = useRef({ ndvAbove, dock, sheet });
+  const escState = useRef({ ndvAbove, dock, phoneView, stepsOpen, closeSteps });
   useEffect(() => {
-    escState.current = { ndvAbove, dock, sheet };
+    escState.current = { ndvAbove, dock, phoneView, stepsOpen, closeSteps };
   });
   useEffect(() => {
     const onKeyDown = (event: globalThis.KeyboardEvent) => {
       const {
         ndvAbove: blocked,
         dock: current,
-        sheet: isSheet,
+        phoneView: isPhoneView,
+        stepsOpen: listOpen,
+        closeSteps: closeList,
       } = escState.current;
       if (!escFree(event) || blocked) return;
-      if (current.maximized) {
+      // The step list over the tabs is the top layer: it closes first.
+      if (listOpen) {
+        event.preventDefault();
+        closeList();
+      } else if (current.maximized) {
         event.preventDefault();
         current.maximize(false);
-      } else if (isSheet) {
+      } else if (isPhoneView) {
         event.preventDefault();
         current.toggle();
       }
@@ -208,74 +200,42 @@ export function LogsDock({
   }, []);
 
   const [toolsEl, setToolsEl] = useState<HTMLElement | null>(null);
-  const tabOnly = !dock.open && !sheet;
+  const tabOnly = !dock.open && !narrow;
   const ToggleIcon = dock.open ? ChevronDown : ChevronUp;
   const MaximizeIcon = dock.maximized ? Minimize2 : Maximize2;
 
   return (
-    <DockHeaderToolsContext.Provider value={toolsEl}>
+    // A phone has no bar for the controls of the timeline: the timeline
+    // draws them in its own row.
+    <DockHeaderToolsContext.Provider value={narrow ? undefined : toolsEl}>
       <section
-        ref={sheetRef}
-        tabIndex={sheet ? -1 : undefined}
+        ref={sectionRef}
+        tabIndex={phoneView ? -1 : undefined}
         aria-label={ts('Logs')}
         data-testid="ww-dock"
         data-file-name={fileName}
         data-state={dock.open ? 'open' : 'collapsed'}
         data-maximized={dock.maximized || undefined}
-        data-sheet={sheet || undefined}
+        data-phone-view={phoneView || undefined}
         className={cn(
-          'flex flex-col bg-card outline-none',
+          'relative flex flex-col bg-card outline-none',
           Z.dock,
-          sheet
-            ? 'fixed inset-x-0 bottom-0 rounded-t-lg border-t shadow-lg'
-            : 'relative',
+          // On a phone the open panel takes the place of the graph
+          // (WorkspaceLayout hides it), above the views bar.
+          phoneView && 'min-h-0 flex-1',
           // Collapsed, the panel has no bar: only its tab shows, over the
-          // bottom edge of the zone above.
-          !dock.open && (sheet ? 'h-8 shrink-0' : 'h-0 shrink-0'),
-          dock.open && !dock.maximized && 'shrink-0',
-          dock.maximized && 'min-h-0'
+          // bottom edge of the zone above; on a phone, the views bar.
+          !dock.open && (narrow ? 'shrink-0' : 'h-0 shrink-0'),
+          dock.open && !dock.maximized && !phoneView && 'shrink-0',
+          dock.maximized && !phoneView && 'min-h-0'
         )}
         style={
-          sheet
-            ? { height: dock.maximized ? '100dvh' : '75vh' }
-            : dock.open
-              ? { height: dock.maximized ? '100%' : `${height}px` }
-              : undefined
+          dock.open && !phoneView
+            ? { height: dock.maximized ? '100%' : `${height}px` }
+            : undefined
         }
       >
-        {sheet && (
-          // The grip is for the pointer. The Close button below is the named,
-          // keyboard-reachable control.
-          <div
-            aria-hidden="true"
-            data-testid="ww-sheet-grip"
-            className="flex h-5 w-full shrink-0 touch-none items-center justify-center"
-            onPointerDown={(event) => {
-              if (event.button !== 0) return;
-              // A drag can end with no click: the flag must not skip a tap.
-              dragged.current = false;
-              event.currentTarget.setPointerCapture(event.pointerId);
-              sheetDrag.current = {
-                pointerId: event.pointerId,
-                startY: event.clientY,
-              };
-            }}
-            onPointerUp={endSheetDrag}
-            onPointerCancel={() => {
-              sheetDrag.current = null;
-            }}
-            onClick={() => {
-              if (dragged.current) {
-                dragged.current = false;
-                return;
-              }
-              dock.toggle();
-            }}
-          >
-            <span className="h-1 w-10 rounded-full bg-muted-foreground/40" />
-          </div>
-        )}
-        {dock.open && !dock.maximized && !sheet && (
+        {dock.open && !dock.maximized && !phoneView && (
           <div
             role="separator"
             aria-label={ts('Resize logs')}
@@ -312,7 +272,21 @@ export function LogsDock({
           />
         )}
         <h2 className="sr-only">{ts('Logs')}</h2>
+        {phoneView && url.step && (
+          <div className="flex h-9 shrink-0 items-center justify-end border-b border-border px-2">
+            <button
+              type="button"
+              aria-label={ts('Open {step}', { step: url.step })}
+              title={url.step}
+              onClick={() => url.step && openStepDetails(url.step)}
+              className="inline-flex h-7 shrink-0 items-center rounded-md border px-2.5 text-xs font-medium text-foreground hover:bg-muted/60"
+            >
+              {ts('Open')}
+            </button>
+          </div>
+        )}
         <div
+          hidden={narrow}
           data-testid="ww-dock-bar"
           className={
             tabOnly
@@ -352,17 +326,6 @@ export function LogsDock({
             className="flex min-w-0 flex-1 items-center justify-end self-stretch"
             title={run.hasRun ? run.ref?.runId : undefined}
           />
-          {sheet && url.step && (
-            <button
-              type="button"
-              aria-label={ts('Open {step}', { step: url.step })}
-              title={url.step}
-              onClick={() => url.step && openStepDetails(url.step)}
-              className="inline-flex h-6 shrink-0 items-center rounded-md border px-2 text-xs font-medium text-foreground hover:bg-muted/60"
-            >
-              {ts('Open')}
-            </button>
-          )}
           {dock.open && (
             <IconButton
               size="sm"
@@ -372,34 +335,41 @@ export function LogsDock({
               onClick={() => dock.maximize(!dock.maximized)}
             />
           )}
-          {sheet && (
-            <IconButton
-              size="sm"
-              icon={X}
-              label={ts('Close')}
-              onClick={dock.toggle}
-            />
-          )}
         </div>
         <div
           hidden={!dock.open}
-          // Contained: a change inside the body does not touch the page.
-          className="flex min-h-0 flex-1 flex-col overflow-hidden [contain:layout_paint]"
+          // Contained: a change inside the body does not touch the page. Its
+          // width decides whether the steps fit beside the tabs (container
+          // query).
+          className="@container flex min-h-0 flex-1 flex-col overflow-hidden [contain:layout_paint]"
         >
           {/* A collapsed panel keeps its last render: its steps and timeline do
             not render for the events of a run while nobody sees them. */}
           <FreezeWhenHidden hidden={!dock.open}>
-            {mounted && <RunTimeline />}
-            {/* The zone of the two columns: its width decides whether the steps
-            show as names or as dots (container query). */}
-            <div className="@container flex min-h-0 flex-1">
+            {mounted && <RunTimeline compact={narrow} />}
+            <div className="relative flex min-h-0 flex-1 @max-[600px]:flex-col">
+              {mounted && (
+                <RunStepPicker
+                  ref={pickerRef}
+                  open={stepsOpen}
+                  controls={STEPS_NAV_ID}
+                  onToggle={() => setStepsOpen((open) => !open)}
+                  className="hidden @max-[600px]:flex"
+                />
+              )}
               {mounted && (
                 <nav
+                  id={STEPS_NAV_ID}
                   aria-label={ts('Steps')}
                   data-testid="ww-run-steps-nav"
-                  className="w-60 shrink-0 overflow-y-auto border-r border-border @max-[900px]:w-44 @max-[600px]:w-11"
+                  className={cn(
+                    'w-60 shrink-0 overflow-y-auto border-r border-border @max-[900px]:w-44',
+                    // Over the tabs, under the row that opens it.
+                    '@max-[600px]:absolute @max-[600px]:inset-x-0 @max-[600px]:bottom-0 @max-[600px]:top-8 @max-[600px]:z-10 @max-[600px]:w-auto @max-[600px]:border-r-0 @max-[600px]:bg-card',
+                    !stepsOpen && '@max-[600px]:hidden'
+                  )}
                 >
-                  <RunStepsNav dag={dag} />
+                  <RunStepsNav dag={dag} onPicked={closeSteps} />
                 </nav>
               )}
               <RunTabsPane
@@ -407,6 +377,7 @@ export function LogsDock({
                 active={shown}
                 badges={frame.badges}
                 labels={step === null ? undefined : STEP_TAB_LABELS}
+                overflow={RARE_TABS}
                 onSelect={selectTab}
               >
                 {mounted && Body && (
@@ -430,6 +401,7 @@ export function LogsDock({
             </div>
           </FreezeWhenHidden>
         </div>
+        {narrow && <PhoneViewNav />}
       </section>
     </DockHeaderToolsContext.Provider>
   );

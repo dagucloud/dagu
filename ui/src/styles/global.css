@@ -152,6 +152,16 @@
     --status-warning: #9a5d0b;
     --status-aborted: #9333ea;
 
+    /* The status colours of the graph lines and tints, the same in both
+       themes: a line reads by its hue, where text needs the contrast of the
+       --status-* tokens. */
+    --graph-success: #22c55e;
+    --graph-error: #ef5350;
+    --graph-running: #7c6ef4;
+    --graph-warning: #d9a03c;
+    --graph-aborted: #c084fc;
+    --graph-neutral: #8a8d99;
+
     --border: #e7e7ec;
     --border-strong: #d3d3db;
     --input: #dcdce3;

@@ -614,7 +614,7 @@ function StepLogContent({
       {/* One compact row; it wraps only when the width runs out. */}
       <div
         data-testid="step-log-toolbar"
-        className="mb-1 flex shrink-0 flex-col gap-1 rounded bg-muted px-2 py-1"
+        className="@container/logbar mb-1 flex shrink-0 flex-col gap-1 rounded bg-muted px-2 py-1"
       >
         <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
           {onStreamChange && (
@@ -674,8 +674,10 @@ function StepLogContent({
             />
           )}
 
+          {/* A phone keeps the row for the search: the count and the jump
+              to a line give way. */}
           {showNavigation && (
-            <span className="whitespace-nowrap text-xs text-muted-foreground">
+            <span className="whitespace-nowrap text-xs text-muted-foreground @max-[25rem]/logbar:hidden">
               <I18nText
                 text="Showing {visible} of {total} lines"
                 values={{ visible: lines.length, total: effectiveTotalLines }}
@@ -765,7 +767,7 @@ function StepLogContent({
           {/* Jump to line controls. A jump opens a page: a tail-only log
               has none. */}
           {showNavigation && pageView && (
-            <div className="flex items-center gap-1">
+            <div className="flex items-center gap-1 @max-[25rem]/logbar:hidden">
               <span className="hidden whitespace-nowrap text-xs text-muted-foreground xl:inline">
                 <I18nText text={'Jump to line:'} />
               </span>

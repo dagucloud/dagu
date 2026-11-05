@@ -1359,8 +1359,7 @@ steps:
           `from run ${runB.slice(0, 8)}`
         );
         await expect(card.getByTestId('ve-node-reuse-outline')).toHaveCount(1);
-        await expect(card.getByTestId('status-dot')).toHaveAttribute(
-          'aria-label',
+        await expect(card.getByTestId('ve-canvas-node-status')).toHaveText(
           'Reused'
         );
       }
@@ -1538,7 +1537,7 @@ steps:
       });
       await expect(
         first.getByTestId('ve-node-reuse-outline').locator('rect')
-      ).toHaveClass(/stroke-success/);
+      ).toHaveClass(/stroke-\[var\(--graph-success\)\]/);
       await expect(first).toHaveAttribute(
         'title',
         new RegExp(`Reused from run ${short}: succeeded`)
@@ -1546,7 +1545,7 @@ steps:
       const second = canvasNode(page, 'steps[1]');
       await expect(
         second.getByTestId('ve-node-reuse-outline').locator('rect')
-      ).toHaveClass(/stroke-destructive/);
+      ).toHaveClass(/stroke-\[var\(--graph-error\)\]/);
       await expect(second).toHaveAttribute(
         'title',
         new RegExp(`Reused from run ${short}: failed`)

@@ -282,13 +282,17 @@ describe('RunSplitButton', () => {
   });
 
   // The bar has no room for a word: Start is an icon, named for the reader.
-  it('shows Start as an icon button with its name and a tooltip', () => {
+  // Like Retry, Start says its name on a wide bar (container query) and is
+  // an icon below.
+  it('shows Start with its name, as text on a wide bar only', () => {
     setup({ latest: runDetails('run-3', Status.Failed) });
 
     const start = screen.getByRole('button', { name: 'Start' });
     expect(start).toHaveAttribute('aria-label', 'Start');
     expect(start.querySelector('svg')).not.toBeNull();
-    expect(within(start).getByText('Start')).toHaveClass('sr-only');
+    expect(within(start).getByText('Start').closest('.sr-only')).toHaveClass(
+      '@7xl:not-sr-only'
+    );
   });
 
   // The palette commands Run…, Stop and Retry click the bar controls that
@@ -372,13 +376,19 @@ describe('RunSplitButton', () => {
   // 'Run now' did what Start does once its dialog is confirmed, so the menu
   // keeps only the choice that Start lacks: the unsaved draft. The caret keeps
   // its slot while there is no draft, so that Start does not move when the
-  // draft becomes dirty: it is disabled, not removed.
-  it('keeps the caret slot while the editor is clean, disabled', () => {
+  // draft becomes dirty; its menu says why the draft cannot run.
+  it('says that a clean editor has no draft to run', async () => {
     setup({ editor: { dirty: false, buffer: 'steps: []\n' } });
 
-    const caret = screen.getByRole('button', { name: 'More run options' });
-    expect(caret).toBeDisabled();
-    expect(screen.queryByRole('menuitem', { name: 'Run now' })).toBeNull();
+    const menu = await openMenu();
+    const item = within(menu).getByRole('menuitem', {
+      name: /Run unsaved draft/,
+    });
+    expect(item).toHaveAttribute('aria-disabled', 'true');
+    expect(item).toHaveTextContent('No unsaved changes');
+    expect(
+      within(menu).queryByRole('menuitem', { name: 'Run now' })
+    ).toBeNull();
   });
 
   // Start is the first child and the caret the second, clean and dirty: the

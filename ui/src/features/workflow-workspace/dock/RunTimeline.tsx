@@ -49,6 +49,7 @@ import {
 import { useDock } from './DockContext';
 import { DockHeaderToolsContext } from './DockHeaderTools';
 import { propsEqual } from './propsEqual';
+import { RunPicker } from './RunPicker';
 import { RunTimelineControls } from './RunTimelineControls';
 import {
   EXTENT_PX,
@@ -1302,8 +1303,12 @@ export function RunTimelineView({
   );
 }
 
-/** The run timeline of the selected workflow: the history, and the selection (?run). */
-export function RunTimeline() {
+/**
+ * The run timeline of the selected workflow: the history, and the selection
+ * (?run). `compact`, on a phone, shows the runs as one menu (RunPicker) in
+ * place of the bars.
+ */
+export function RunTimeline({ compact = false }: { compact?: boolean }) {
   const run = useWorkspaceRun();
   // The test runs are in the history only when the request asks for them; the
   // list is read again while one exists, as no event tells that it is gone.
@@ -1332,6 +1337,44 @@ export function RunTimeline() {
     [selected, continuous]
   );
   const inRange = settings.mode === 'range';
+  const select = (id: string) => run.select(id, { replace: true });
+
+  if (compact) {
+    // The bars have no room: the runs are a menu, under the controls that
+    // choose them (the View menu, the count or the time range).
+    return (
+      <div className="flex shrink-0 flex-col">
+        <div className="px-3 pt-1">
+          <RunTimelineControls
+            count={settings.count}
+            counts={countOptions(inRange ? 0 : visible.pool.length)}
+            onCountChange={actions.setCount}
+            range={inRange ? settings.range : null}
+            onRangeChange={actions.setRange}
+            hasTestRuns={visible.hasTestRuns}
+            showTests={settings.showTests}
+            onShowTestsChange={actions.setShowTests}
+            hasCachedTime={visible.hasCachedTime}
+            showCached={settings.showCached}
+            onShowCachedChange={actions.setShowCached}
+            triggerTypes={visible.triggerTypes}
+            hiddenTypes={settings.hiddenTypes}
+            onHiddenTypesChange={actions.setHiddenTypes}
+          />
+        </div>
+        <RunPicker
+          runs={
+            inRange
+              ? visible.pool
+              : timelineWindow(visible.pool, visible.selectedId, settings.count)
+          }
+          selectedId={visible.selectedId}
+          statusOf={statusTextOf}
+          onSelect={select}
+        />
+      </div>
+    );
+  }
 
   return (
     <RunTimelineView
@@ -1341,7 +1384,7 @@ export function RunTimeline() {
       // A range shows every run of the pool: the window is as long as it.
       count={inRange ? visible.pool.length : settings.count}
       statusTextOf={statusTextOf}
-      onSelect={(id) => run.select(id, { replace: true })}
+      onSelect={select}
       onCountChange={actions.setCount}
       range={inRange ? settings.range : null}
       rangeBounds={visible.range}

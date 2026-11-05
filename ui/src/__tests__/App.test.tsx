@@ -126,7 +126,14 @@ vi.mock('../pages/incidents', () => ({
 vi.mock('../pages/integrations', () => ({
   default: () => <h1>Integrations</h1>,
 }));
-vi.mock('../pages/license', () => ({ default: () => <h1>License</h1> }));
+vi.mock('../pages/license', () => ({
+  default: ({ children }: { children?: React.ReactNode }) => (
+    <>
+      <h1>License</h1>
+      {children}
+    </>
+  ),
+}));
 vi.mock('../pages/login', () => ({ default: () => <h1>Login</h1> }));
 vi.mock('../pages/notification-channels', () => ({
   default: () => <h1>Notification Channels</h1>,
@@ -251,6 +258,12 @@ function renderAt(path: string, config = makeConfig()): void {
 }
 
 beforeEach(() => {
+  // jsdom has no matchMedia; the workflow overlay reads reduced motion.
+  vi.stubGlobal('matchMedia', () => ({
+    matches: false,
+    addEventListener: () => undefined,
+    removeEventListener: () => undefined,
+  }));
   localStorage.clear();
   sessionStorage.clear();
   clientGetMock.mockReset();
@@ -470,6 +483,28 @@ describe('App license routing', () => {
     ).toBeVisible();
     expect(window.location.pathname).toBe('/profiles');
     expect(window.location.hash).toBe('#secret-refs');
+  });
+
+  it('redirects the old license route to Settings, keeping its query and hash', async () => {
+    renderAt('/license?trial=1#monitoring');
+
+    expect(
+      await screen.findByRole('heading', { name: 'License' })
+    ).toBeVisible();
+    expect(window.location.pathname).toBe('/settings');
+    expect(window.location.search).toBe('?trial=1');
+    expect(window.location.hash).toBe('#monitoring');
+  });
+
+  it('opens remote nodes as a section of Settings', async () => {
+    renderAt('/remote-nodes');
+
+    expect(
+      await screen.findByRole('heading', { name: 'Remote Nodes' })
+    ).toBeVisible();
+    expect(screen.getByRole('heading', { name: 'Settings' })).toBeVisible();
+    expect(window.location.pathname).toBe('/settings');
+    expect(window.location.hash).toBe('#remote-nodes');
   });
 
   it('offers a reload when a lazy route chunk fails to load', async () => {

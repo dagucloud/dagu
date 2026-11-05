@@ -203,7 +203,7 @@ export default function APIKeysPage() {
               />
             </p>
             {isAdmin && (
-              <Link to="/license" className="mt-2 inline-block underline">
+              <Link to="/settings" className="mt-2 inline-block underline">
                 <I18nText text="Plan & features" />
               </Link>
             )}

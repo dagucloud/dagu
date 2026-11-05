@@ -196,13 +196,14 @@ function RunCanvasBody({
     false
   );
 
-  // Esc closes the step view when no dialog or menu is above it. With no
-  // panel or step view open, it clears the selected step and ?step.
+  // Esc closes the step view when no dialog or menu is above it; the YAML
+  // panel stays, as in the editor. With no panel or step view open, it
+  // clears the selected step and ?step.
   useStepViewKeys({
     zoneRef,
     active: paneActive,
     hasStep: url.step !== null,
-    viewOpen: ndvState !== null,
+    viewOpen: ndvState === 'expanded',
     panelOpen: activePanel !== null,
     closeView: closeNdv,
     clearStep: () => setUrl({ step: null, ndv: null }, { replace: true }),

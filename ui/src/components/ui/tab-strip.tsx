@@ -3,13 +3,13 @@
 
 import type { LucideIcon } from 'lucide-react';
 import {
+  type KeyboardEvent,
+  type ReactElement,
   useCallback,
   useId,
   useLayoutEffect,
   useRef,
   useState,
-  type KeyboardEvent,
-  type ReactElement,
 } from 'react';
 
 import {
@@ -17,6 +17,8 @@ import {
   TooltipContent,
   TooltipTrigger,
 } from '@/components/ui/tooltip';
+import { useMediaQuery } from '@/hooks/useMediaQuery';
+import { COARSE_POINTER_QUERY } from '@/lib/breakpoints';
 import { cn, FOCUS_RING } from '@/lib/utils';
 
 export interface TabStripTab {
@@ -43,8 +45,13 @@ export interface TabStripProps {
   tabs: ReadonlyArray<TabStripTab>;
   value: string;
   onChange(id: string): void;
-  /** Icon-only tabs, whatever the width. */
+  /** Icon-only tabs, whatever the width; the selected one keeps its name. */
   compact?: boolean;
+  /**
+   * On a touch screen the tabs keep their names and the row scrolls: an
+   * icon has no tooltip there.
+   */
+  touchLabels?: boolean;
   /** Prefix of the DOM ids of the tabs. Defaults to a generated one. */
   idPrefix?: string;
   className?: string;
@@ -58,10 +65,12 @@ export function tabStripTabId(prefix: string, id: string): string {
 const KEY_STEP: Record<string, 1 | -1> = { ArrowRight: 1, ArrowLeft: -1 };
 
 /**
- * The one tab row of the workspace: a 32 px row of 24 px tabs. The names
+ * The one tab row of the workspace: a 32 px row of 24 px tabs, larger on a
+ * touch screen. The names
  * collapse into icons, with a tooltip and an aria-label, when `compact` is
- * set or when the row is too narrow for them; if the icons do not fit
- * either, the row scrolls horizontally. There is no overflow menu. Only the
+ * set or when the row is too narrow for them; the selected tab keeps its
+ * name, so the row still says what shows. If the icons do not fit either,
+ * the row scrolls horizontally. There is no overflow menu. Only the
  * selected tab is a tab stop; the arrow keys, Home and End select and focus
  * a tab.
  */
@@ -71,6 +80,7 @@ export function TabStrip({
   value,
   onChange,
   compact = false,
+  touchLabels = false,
   idPrefix,
   className,
 }: TabStripProps): ReactElement {
@@ -80,7 +90,9 @@ export function TabStrip({
   const [squeezed, setSqueezed] = useState(false);
   // The width that the row needs with the names; known once measured.
   const fullWidth = useRef(0);
-  const iconOnly = compact || squeezed;
+  const coarse = useMediaQuery(COARSE_POINTER_QUERY);
+  const keepNames = touchLabels && coarse;
+  const iconOnly = !keepNames && (compact || squeezed);
 
   const measure = useCallback(() => {
     const list = listRef.current;
@@ -149,14 +161,14 @@ export function TabStrip({
       role="tablist"
       aria-label={label}
       className={cn(
-        'flex h-8 min-w-0 items-center gap-0.5 overflow-x-auto overflow-y-hidden',
+        'flex h-8 min-w-0 items-center gap-0.5 overflow-x-auto overflow-y-hidden pointer-coarse:h-11',
         className
       )}
     >
       {tabs.map((tab) => {
         const Icon = tab.icon;
         const active = tab.id === value;
-        const hideLabel = iconOnly && !!Icon;
+        const hideLabel = iconOnly && !!Icon && !active;
         const button = (
           <button
             key={tab.id}
@@ -180,7 +192,7 @@ export function TabStrip({
             onClick={() => onChange(tab.id)}
             onKeyDown={(event) => onKeyDown(event, tab.id)}
             className={cn(
-              'inline-flex h-6 shrink-0 items-center gap-1 whitespace-nowrap rounded-md px-2 text-xs transition-colors disabled:pointer-events-none disabled:opacity-50',
+              'inline-flex h-6 shrink-0 items-center gap-1 whitespace-nowrap rounded-md px-2 text-xs transition-colors disabled:pointer-events-none disabled:opacity-50 pointer-coarse:h-9 pointer-coarse:px-3',
               FOCUS_RING,
               active
                 ? 'bg-muted font-medium text-foreground'

@@ -221,7 +221,7 @@ Connect your Dagu servers to [Dagu Console](https://console.dagu.sh) and see all
   <img src="./assets/images/readme-console-overview.png" width="720" alt="Dagu Console Overview showing two of three servers reporting, failures today, open alerts including a server that stopped reporting, and the 7-day success rate.">
 </div>
 
-- **Opt-in:** a server reports nothing until an administrator turns monitoring on in **Plan & features**, or sets `cloud.report: runs`.
+- **Opt-in:** a server reports nothing until an administrator turns monitoring on in **Settings**, or sets `cloud.report: runs`.
 - **Outbound only:** the server reports over HTTPS every 60 seconds, or every 5 minutes on the free tier. No inbound port and no VPN.
 - **Metadata only:** run status, timing, and failed step names. Logs, outputs, parameters, and secrets are never sent, and the server shows the exact JSON it last sent.
 

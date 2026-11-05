@@ -99,6 +99,10 @@ Exactly one authentication method may be configured: `with.ssh_key_path`
 combined with `with.token` or `with.password`; `with.token` cannot be
 combined with `with.username` or `with.password`.
 
+SSH key authentication uses `with.username` as the SSH user when it is set,
+then the user in `with.repository`, such as `deploy` in
+`ssh://deploy@git.example.com/repo.git`, then `git`.
+
 ## Errors
 
 ### Validation

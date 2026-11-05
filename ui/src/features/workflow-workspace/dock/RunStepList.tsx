@@ -46,15 +46,6 @@ import { useDockHidden } from './FreezeWhenHidden';
 import { propsEqual } from './propsEqual';
 import { stepReuse, type StepReuse } from './stepReuse';
 
-// The Run panel narrower than this, a phone, shows the rows as status dots;
-// the text stays for screen readers and the keyboard. A wider panel keeps
-// the names in a narrower list. The container query reads the nearest
-// @container: the body of the Run panel.
-const ICONS_ONLY = '@max-[600px]:sr-only';
-// ICONS_ONLY hides the focus ring of a row's button: the row shows it.
-const ICONS_ONLY_FOCUS =
-  '@max-[600px]:has-[:focus-visible]:ring-1 @max-[600px]:has-[:focus-visible]:ring-inset @max-[600px]:has-[:focus-visible]:ring-ring';
-
 export interface RunStepListProps {
   dag: ApiDAGDetails;
   details: ApiDAGRunDetails;
@@ -280,8 +271,7 @@ const StepRow = memo(function StepRow({
       title={step.name}
       onClick={() => onSelect(step.name)}
       className={cn(
-        'flex min-h-6 cursor-pointer items-start gap-2 px-3 py-1 text-xs leading-4 [contain:layout_paint] hover:bg-muted/60 @max-[600px]:justify-center @max-[600px]:px-0',
-        ICONS_ONLY_FOCUS,
+        'flex min-h-6 cursor-pointer items-start gap-2 px-3 py-1 text-xs leading-4 [contain:layout_paint] hover:bg-muted/60',
         selected && 'bg-primary/10 hover:bg-primary/15'
       )}
     >
@@ -292,11 +282,13 @@ const StepRow = memo(function StepRow({
         reusedFrom={reuse?.runId ? shortRunId(reuse.runId) : undefined}
         className="mt-1"
       />
-      <div className={cn('min-w-0 flex-1', ICONS_ONLY)}>
+      <div className="min-w-0 flex-1">
         <div className="flex min-w-0 items-center gap-1.5">
           <button
             type="button"
-            className="min-w-0 truncate text-left text-xs font-medium leading-4 text-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+            // Wrapped, not cut: names with one prefix differ at the end, and a
+            // touch has no tooltip.
+            className="min-w-0 whitespace-normal break-words text-left text-xs font-medium leading-4 text-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
           >
             {step.name}
           </button>
@@ -360,7 +352,7 @@ const StepRow = memo(function StepRow({
           </div>
         )}
       </div>
-      <span className={cn('self-start', ICONS_ONLY)}>
+      <span className="self-start">
         <StepTiming node={node} reused={reused} />
       </span>
     </li>
@@ -466,8 +458,7 @@ export function RunStepList({
         title={ts('Run summary')}
         onClick={() => onSelect(null)}
         className={cn(
-          'flex min-h-6 cursor-pointer items-center gap-2 px-3 py-1 hover:bg-muted/60 @max-[600px]:justify-center @max-[600px]:px-0',
-          ICONS_ONLY_FOCUS,
+          'flex min-h-6 cursor-pointer items-center gap-2 px-3 py-1 hover:bg-muted/60',
           selected === null && 'bg-primary/10 hover:bg-primary/15'
         )}
       >
@@ -480,10 +471,7 @@ export function RunStepList({
         />
         <button
           type="button"
-          className={cn(
-            'min-w-0 flex-1 truncate text-left text-xs font-medium leading-4 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring',
-            ICONS_ONLY
-          )}
+          className="min-w-0 flex-1 truncate text-left text-xs font-medium leading-4 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
         >
           {ts('Run summary')}
         </button>
@@ -505,7 +493,7 @@ export function RunStepList({
         <>
           <li
             role="presentation"
-            className="px-3 pb-0.5 pt-2 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground @max-[600px]:sr-only"
+            className="px-3 pb-0.5 pt-2 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground"
           >
             {ts('Lifecycle handlers')}
           </li>

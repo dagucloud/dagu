@@ -220,6 +220,8 @@ test.describe('workspace run header', () => {
   test.beforeEach(async ({ page }) => {
     await page.addInitScript((keys) => {
       for (const key of keys) window.localStorage.removeItem(key);
+      // Collapsed: a laptop would open the Run panel by default.
+      window.localStorage.setItem('dagu.workspace.dockOpen.v2', 'false');
     }, DOCK_KEYS);
     await signIn(page);
   });

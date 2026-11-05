@@ -188,14 +188,12 @@ function Chart({
   const axis = useMemo(() => durationAxis(durations), [durations]);
   const heights = useMemo(() => barHeights(durations, axis), [durations, axis]);
   const selectedIndex = entries.findIndex((e) => e.runId === selectedId);
-  const [focused, setFocused] = useState<number | null>(null);
+  // By run: a selection can move the window of the runs under the focus.
+  const [focusedId, setFocusedId] = useState<string | null>(null);
+  const focused = entries.findIndex((e) => e.runId === focusedId);
   const last = entries.length - 1;
   const stop =
-    focused !== null && focused <= last
-      ? focused
-      : selectedIndex >= 0
-        ? selectedIndex
-        : last;
+    focused >= 0 ? focused : selectedIndex >= 0 ? selectedIndex : last;
 
   const onKeyDown = (event: KeyboardEvent<HTMLDivElement>) => {
     if (event.altKey || event.ctrlKey || event.metaKey || event.shiftKey) {
@@ -216,10 +214,16 @@ function Chart({
     if (to === undefined) return;
     event.preventDefault();
     const index = Math.min(last, Math.max(0, to));
-    setFocused(index);
+    setFocusedId(entries[index]?.runId ?? null);
     const options =
       listRef.current?.querySelectorAll<HTMLElement>('[role="option"]');
     options?.[index]?.focus();
+    // Left and Right go through the history: the run becomes the selected
+    // one.
+    const entry = entries[index];
+    if ((event.key === 'ArrowLeft' || event.key === 'ArrowRight') && entry) {
+      if (index !== stop) onPick(entry.runId);
+    }
   };
 
   const usualY = usualMs === null ? null : axis.heightOf(usualMs);
@@ -266,7 +270,7 @@ function Chart({
               data-state={entry.state}
               data-status={entry.status ?? undefined}
               onClick={() => onPick(entry.runId)}
-              onFocus={() => setFocused(i)}
+              onFocus={() => setFocusedId(entry.runId)}
               style={{ width: SLOT_PX }}
               className={cn(
                 'group relative flex h-full shrink-0 cursor-pointer flex-col items-center justify-end rounded-sm outline-none',

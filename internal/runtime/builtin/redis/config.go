@@ -242,18 +242,3 @@ func (c *Config) validate() error {
 
 	return nil
 }
-
-// poolManagerKey is the context key for the global Redis pool manager.
-type poolManagerKey struct{}
-
-// WithRedisPoolManager returns a context with the global Redis pool manager.
-func WithRedisPoolManager(ctx context.Context, pm *GlobalRedisPoolManager) context.Context {
-	return context.WithValue(ctx, poolManagerKey{}, pm)
-}
-
-// GetRedisPoolManager retrieves the global Redis pool manager from context.
-// Returns nil if not in worker mode or not configured.
-func GetRedisPoolManager(ctx context.Context) *GlobalRedisPoolManager {
-	pm, _ := ctx.Value(poolManagerKey{}).(*GlobalRedisPoolManager)
-	return pm
-}

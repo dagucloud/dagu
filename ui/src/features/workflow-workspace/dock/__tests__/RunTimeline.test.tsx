@@ -32,6 +32,19 @@ import {
 import { EXTENT_PX, LANE_PX } from '../runExtents';
 import { BAR_MAX_PX, BAR_MIN_PX, BAR_PX, Y_AXIS_PX } from '../runTimelineModel';
 
+/** Closes an open menu: the page under a menu is hidden from role queries. */
+async function closeMenu(): Promise<void> {
+  await userEvent.keyboard('{Escape}');
+}
+
+/** Opens the View menu of the timeline, unless open, and finds an item. */
+async function viewItem(testId: string): Promise<HTMLElement> {
+  if (!screen.queryByTestId(testId)) {
+    await userEvent.click(screen.getByTestId('ww-run-timeline-view'));
+  }
+  return screen.findByTestId(testId);
+}
+
 const h = vi.hoisted(() => ({
   select: vi.fn(),
   selection: 'latest' as 'latest' | { runId: string },
@@ -1451,16 +1464,16 @@ describe('test runs in the timeline', () => {
 
   describe('the toggle', () => {
     // A filter with nothing to choose stays, greyed and off.
-    it('is greyed and off when the history holds no test run', () => {
+    it('is greyed and off when the history holds no test run', async () => {
       const onShowTestsChange = vi.fn();
       renderView({ hasTestRuns: false, onShowTestsChange });
-      const toggle = screen.getByTestId('ww-run-timeline-tests');
-      expect(toggle).toBeDisabled();
-      fireEvent.click(toggle);
+      const toggle = await viewItem('ww-run-timeline-tests');
+      expect(toggle).toHaveAttribute('aria-disabled', 'true');
+      await userEvent.click(toggle);
       expect(onShowTestsChange).not.toHaveBeenCalled();
     });
 
-    it('is pressed by default and gives the new state on a click', () => {
+    it('is checked by default and gives the new state on a click', async () => {
       const onShowTestsChange = vi.fn();
       renderView({
         runs: WITH_TEST,
@@ -1468,32 +1481,39 @@ describe('test runs in the timeline', () => {
         showTests: true,
         onShowTestsChange,
       });
-      const toggle = screen.getByTestId('ww-run-timeline-tests');
-      expect(toggle).toHaveAttribute('aria-pressed', 'true');
-      expect(toggle).toHaveAccessibleName('Hide test runs');
-      fireEvent.click(toggle);
+      const toggle = await viewItem('ww-run-timeline-tests');
+      expect(toggle).toHaveAttribute('aria-checked', 'true');
+      expect(toggle).toHaveTextContent('Show test runs');
+      await userEvent.click(toggle);
       expect(onShowTestsChange).toHaveBeenCalledWith(false);
     });
 
-    it('offers to show them again when they are hidden', () => {
+    // The View button is marked while the view hides something.
+    it('marks the View menu when they are hidden', async () => {
       renderView({
         hasTestRuns: true,
         showTests: false,
         onShowTestsChange: vi.fn(),
       });
-      const toggle = screen.getByTestId('ww-run-timeline-tests');
-      expect(toggle).toHaveAttribute('aria-pressed', 'false');
-      expect(toggle).toHaveAccessibleName('Show test runs');
+      expect(screen.getByTestId('ww-run-timeline-view')).toHaveAttribute(
+        'data-filtered',
+        'true'
+      );
+      const toggle = await viewItem('ww-run-timeline-tests');
+      expect(toggle).toHaveAttribute('aria-checked', 'false');
     });
   });
 
   describe('the trigger filter', () => {
-    it('is greyed and off when the history has one trigger type', () => {
+    // With one trigger type there is nothing to choose.
+    it('is not in the menu when the history has one trigger type', async () => {
       renderView({
         triggerTypes: [TriggerType.manual],
         onHiddenTypesChange: vi.fn(),
       });
-      expect(screen.getByTestId('ww-run-timeline-types')).toBeDisabled();
+      await userEvent.click(screen.getByTestId('ww-run-timeline-view'));
+      expect(await screen.findByRole('menu')).toBeInTheDocument();
+      expect(screen.queryByTestId('ww-run-timeline-type-manual')).toBeNull();
     });
 
     it('lists the types, checked unless hidden, and gives the new list on a click', async () => {
@@ -1503,10 +1523,11 @@ describe('test runs in the timeline', () => {
         hiddenTypes: [TriggerType.webhook],
         onHiddenTypesChange,
       });
-      const button = screen.getByTestId('ww-run-timeline-types');
-      expect(button).toHaveAttribute('aria-pressed', 'true');
-      await userEvent.click(button);
-      const manual = await screen.findByTestId('ww-run-timeline-type-manual');
+      expect(screen.getByTestId('ww-run-timeline-view')).toHaveAttribute(
+        'data-filtered',
+        'true'
+      );
+      const manual = await viewItem('ww-run-timeline-type-manual');
       expect(manual).toHaveAttribute('aria-checked', 'true');
       expect(
         screen.getByTestId('ww-run-timeline-type-webhook')
@@ -1568,21 +1589,22 @@ describe('test runs in the timeline', () => {
       );
     });
 
-    it('hides the test runs with the toggle, and keeps the choice in the browser', () => {
+    it('hides the test runs with the toggle, and keeps the choice in the browser', async () => {
       renderTimeline([TEST, ...[...RUNS].reverse()]);
       expect(bars()).toHaveLength(7);
-      fireEvent.click(screen.getByTestId('ww-run-timeline-tests'));
+      await userEvent.click(await viewItem('ww-run-timeline-tests'));
+      await closeMenu();
       expect(bars()).toHaveLength(6);
       expect(screen.queryByTestId('ww-run-bar-t1')).toBeNull();
       expect(window.localStorage.getItem(SHOW_TESTS_KEY)).toBe('0');
       // The toggle stays: the history still holds a test run.
-      expect(screen.getByTestId('ww-run-timeline-tests')).toHaveAttribute(
-        'aria-pressed',
+      expect(await viewItem('ww-run-timeline-tests')).toHaveAttribute(
+        'aria-checked',
         'false'
       );
     });
 
-    it('reads a hidden state from the browser and works when the storage throws', () => {
+    it('reads a hidden state from the browser and works when the storage throws', async () => {
       window.localStorage.setItem(SHOW_TESTS_KEY, '0');
       renderTimeline([TEST, ...[...RUNS].reverse()]);
       expect(bars()).toHaveLength(6);
@@ -1599,15 +1621,19 @@ describe('test runs in the timeline', () => {
         });
       renderTimeline([TEST, ...[...RUNS].reverse()]);
       expect(bars()).toHaveLength(7);
-      fireEvent.click(screen.getByTestId('ww-run-timeline-tests'));
+      await userEvent.click(await viewItem('ww-run-timeline-tests'));
+      await closeMenu();
       expect(bars()).toHaveLength(6);
       get.mockRestore();
       set.mockRestore();
     });
 
-    it('greys the toggle when the history holds no test run', () => {
+    it('greys the toggle when the history holds no test run', async () => {
       renderTimeline([...RUNS].reverse());
-      expect(screen.getByTestId('ww-run-timeline-tests')).toBeDisabled();
+      expect(await viewItem('ww-run-timeline-tests')).toHaveAttribute(
+        'aria-disabled',
+        'true'
+      );
     });
   });
 });
@@ -1706,12 +1732,15 @@ describe('cached time in the timeline', () => {
     expect(tooltip).toHaveTextContent('Total 40s = own 10s + cached 30s');
   });
 
-  it('greys the toggle unless a run has cached time', () => {
+  it('greys the toggle unless a run has cached time', async () => {
     renderView({ runs: PAIR, onShowCachedChange: vi.fn() });
-    expect(screen.getByTestId('ww-run-timeline-cached')).toBeDisabled();
+    expect(await viewItem('ww-run-timeline-cached')).toHaveAttribute(
+      'aria-disabled',
+      'true'
+    );
   });
 
-  it('toggles the cached time', () => {
+  it('toggles the cached time', async () => {
     const onShowCachedChange = vi.fn();
     renderView({
       runs: PAIR,
@@ -1719,13 +1748,13 @@ describe('cached time in the timeline', () => {
       showCached: true,
       onShowCachedChange,
     });
-    const toggle = screen.getByTestId('ww-run-timeline-cached');
-    expect(toggle).toHaveAttribute('aria-pressed', 'true');
-    fireEvent.click(toggle);
+    const toggle = await viewItem('ww-run-timeline-cached');
+    expect(toggle).toHaveAttribute('aria-checked', 'true');
+    await userEvent.click(toggle);
     expect(onShowCachedChange).toHaveBeenCalledWith(false);
   });
 
-  it('keeps the choice in the browser, on by default', () => {
+  it('keeps the choice in the browser, on by default', async () => {
     h.selection = 'latest';
     h.history = { runs: [...PAIR].reverse(), isLoading: false };
     render(
@@ -1733,11 +1762,9 @@ describe('cached time in the timeline', () => {
         <RunTimeline />
       </MemoryRouter>
     );
-    expect(screen.getByTestId('ww-run-timeline-cached')).toHaveAttribute(
-      'aria-pressed',
-      'true'
-    );
-    fireEvent.click(screen.getByTestId('ww-run-timeline-cached'));
+    const toggle = await viewItem('ww-run-timeline-cached');
+    expect(toggle).toHaveAttribute('aria-checked', 'true');
+    await userEvent.click(toggle);
     expect(window.localStorage.getItem(SHOW_CACHED_KEY)).toBe('0');
     expect(screen.queryByTestId('ww-run-bar-cached')).toBeNull();
   });

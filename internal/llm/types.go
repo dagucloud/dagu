@@ -6,7 +6,6 @@
 package llm
 
 import (
-	"context"
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
@@ -193,31 +192,15 @@ type Usage struct {
 	Cost *float64 `json:"cost,omitempty"`
 }
 
-// OAuthCredential contains dynamic bearer-auth details resolved at request time.
-type OAuthCredential struct {
-	AccessToken string
-	AccountID   string
-}
-
-// OAuthCredentialProvider resolves dynamic bearer credentials for providers that
-// cannot safely persist a static API key inside model configuration.
-type OAuthCredentialProvider interface {
-	ResolveCredential(ctx context.Context) (OAuthCredential, error)
-}
-
 // Config contains configuration for an LLM provider.
 type Config struct {
 	// APIKey is the authentication key for the provider.
 	APIKey string
-	// AccountID carries provider-specific account metadata when required.
-	AccountID string
 	// BaseURL is the API endpoint URL. If empty, the provider's default is used.
 	BaseURL string
 	// ProviderOrder names the upstream providers OpenRouter tries first, in
 	// order, such as "azure/eu". Other providers do not read it.
 	ProviderOrder []string
-	// OAuthCredentialProvider resolves dynamic bearer credentials on demand.
-	OAuthCredentialProvider OAuthCredentialProvider
 	// Timeout is the maximum time to wait for a response.
 	// Default is 60 seconds if not specified unless DisableRequestTimeout is true.
 	Timeout time.Duration

@@ -15,7 +15,7 @@ import { SubRunOpenProvider } from '@/features/dags/components/common/SubRunStac
 import { node, run } from '../../data/__tests__/fixtures';
 import { nodesByStep, NO_WAITING } from '../../data/runFacts';
 import type { ApiDAGRunDetails, WorkspaceRunValue } from '../../data/types';
-import { RunStepsNav } from '../RunStepsNav';
+import { RunStepPicker, RunStepsNav } from '../RunStepsNav';
 
 const h = vi.hoisted(() => ({
   run: null as unknown as WorkspaceRunValue,
@@ -112,6 +112,17 @@ describe('RunStepsNav', () => {
     expect(h.revealStep).toHaveBeenCalledWith('a');
   });
 
+  it('reports a pick', () => {
+    const onPicked = vi.fn();
+    render(
+      <MemoryRouter initialEntries={['/dags/demo/executions']}>
+        <RunStepsNav dag={{ name: 'demo' } as never} onPicked={onPicked} />
+      </MemoryRouter>
+    );
+    fireEvent.click(within(row('b')).getByRole('button', { name: 'b' }));
+    expect(onPicked).toHaveBeenCalledTimes(1);
+  });
+
   it('opens the run log from the summary row', () => {
     renderNav('/dags/demo/executions?step=a');
     fireEvent.click(
@@ -130,6 +141,43 @@ describe('RunStepsNav', () => {
     cleanup();
     renderNav();
     expect(screen.getByText('Loading run...')).toBeInTheDocument();
+  });
+});
+
+// A narrow Run panel shows the selected row as one row that opens the list.
+describe('RunStepPicker', () => {
+  function renderPicker(url: string) {
+    const onToggle = vi.fn();
+    render(
+      <MemoryRouter initialEntries={[url]}>
+        <RunStepPicker open={false} controls="steps" onToggle={onToggle} />
+      </MemoryRouter>
+    );
+    return onToggle;
+  }
+
+  it('names the selected step with its status and opens the list', () => {
+    const onToggle = renderPicker('/dags/demo/executions?step=b');
+    const button = screen.getByRole('button', { name: 'b, Failed' });
+    expect(button).toHaveAttribute('aria-expanded', 'false');
+    expect(button).toHaveAttribute('aria-controls', 'steps');
+    fireEvent.click(button);
+    expect(onToggle).toHaveBeenCalledTimes(1);
+  });
+
+  // The status of the run is no status of a step that the run does not have.
+  it('names a step that the run does not have as not in this run', () => {
+    renderPicker('/dags/demo/executions?step=gone');
+    expect(
+      screen.getByRole('button', { name: 'gone, Not in this run' })
+    ).toBeInTheDocument();
+  });
+
+  it('names the run summary and the run status when no step is selected', () => {
+    renderPicker('/dags/demo/executions');
+    expect(
+      screen.getByRole('button', { name: 'Run summary, Failed' })
+    ).toBeInTheDocument();
   });
 });
 

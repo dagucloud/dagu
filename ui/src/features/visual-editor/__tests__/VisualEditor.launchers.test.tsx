@@ -4,6 +4,7 @@
 import { act, fireEvent, render, screen, within } from '@testing-library/react';
 import { createRef, useState, type ReactNode } from 'react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { RightPanelProvider } from '@/contexts/RightPanelContext';
 import { UserPreferencesProvider } from '@/contexts/UserPreference';
 import type { LauncherHost, VisualEditorHandle } from '../contracts';
 import { realSchema } from '../inspector/__tests__/realSchema';
@@ -107,13 +108,20 @@ function Harness({
 
 function renderEditor(
   initial = yamlArraySteps,
-  overrides: Partial<VisualEditorProps> = {}
+  overrides: Partial<VisualEditorProps> = {},
+  { panels = false }: { panels?: boolean } = {}
 ) {
   const handleRef = createRef<VisualEditorHandle>();
-  const node: ReactNode = (
+  const editor = (
     <UserPreferencesProvider>
       <Harness initial={initial} handleRef={handleRef} {...overrides} />
     </UserPreferencesProvider>
+  );
+  // With `panels`, the right panels take turns as on the page.
+  const node: ReactNode = panels ? (
+    <RightPanelProvider>{editor}</RightPanelProvider>
+  ) : (
+    editor
   );
   state.text = initial;
   render(node);
@@ -219,6 +227,63 @@ describe('VisualEditor launchers', () => {
     expect(ring()).not.toContain('ring-primary');
   });
 
+  // A trigger node opens its panel over the page; with no panel under it,
+  // nothing opens when it closes (RightPanelContext restores a covered one).
+  it('opens nothing on close when no panel was open before', () => {
+    const onYamlVisibleChange = vi.fn();
+    renderEditor(yamlArraySteps, { onYamlVisibleChange }, { panels: true });
+    fireEvent.click(
+      within(screen.getByTestId('ve-launcher-cron')).getByRole('button')
+    );
+    const panel = screen.getByTestId('ve-launcher-panel-cron');
+    fireEvent.click(within(panel).getByRole('button', { name: 'Close' }));
+    expect(onYamlVisibleChange).not.toHaveBeenCalledWith(true, 'panel');
+  });
+
+  // A click on the empty canvas ends the focus on a trigger, as on a step.
+  it('closes the launcher panel on a click on the empty canvas', () => {
+    renderEditor();
+    fireEvent.click(
+      within(screen.getByTestId('ve-launcher-cron')).getByRole('button')
+    );
+    expect(screen.getByTestId('ve-launcher-panel-cron')).toBeInTheDocument();
+    fireEvent.click(screen.getByTestId('flow'));
+    expect(screen.queryByTestId('ve-launcher-panel-cron')).toBeNull();
+  });
+
+  // The YAML of the file stays: a trigger shows its part of the file, as a
+  // step shows its block.
+  it('shows the YAML of the trigger while the YAML of the file shows', () => {
+    const onYamlVisibleChange = vi.fn();
+    const onRevealTrigger = vi.fn(() => true);
+    renderEditor(yamlArraySteps, {
+      yamlVisible: true,
+      initialYamlMode: 'file',
+      onYamlVisibleChange,
+      onRevealTrigger,
+    });
+    fireEvent.click(
+      within(screen.getByTestId('ve-launcher-cron')).getByRole('button')
+    );
+    expect(onRevealTrigger).toHaveBeenCalledWith('cron');
+    expect(screen.queryByTestId('ve-launcher-panel-cron')).toBeNull();
+    expect(onYamlVisibleChange).not.toHaveBeenCalledWith(false);
+  });
+
+  // A trigger with no part in the file, such as a webhook, opens its panel.
+  it('opens the panel of a trigger that has no part in the YAML', () => {
+    renderEditor(yamlArraySteps, {
+      yamlVisible: true,
+      initialYamlMode: 'file',
+      onYamlVisibleChange: vi.fn(),
+      onRevealTrigger: () => false,
+    });
+    fireEvent.click(
+      within(screen.getByTestId('ve-launcher-cron')).getByRole('button')
+    );
+    expect(screen.getByTestId('ve-launcher-panel-cron')).toBeInTheDocument();
+  });
+
   // A launcher panel and a step take turns: a click on a step closes the
   // panel, and the step is the one that is focused.
   it('closes the launcher panel when a step is clicked', () => {
@@ -248,15 +313,20 @@ describe('VisualEditor launchers', () => {
     expect(onSelectedStepNameChange).toHaveBeenCalledWith(null);
   });
 
+  // The list holds the whole catalog: a role query by name computes the
+  // accessible name of every row, so the rows are read once by their text.
+  // A row reads as its title run into its blurb, as "CronRun on a ...".
   it('lists no launcher in the Add step list', () => {
     const { handle } = renderEditor();
     openAddStep(handle);
-    const list = within(screen.getByTestId('ve-add-step'));
-    expect(list.getAllByRole('option').length).toBeGreaterThan(0);
+    const options = within(screen.getByTestId('ve-add-step')).getAllByRole(
+      'option'
+    );
+    expect(options.length).toBeGreaterThan(0);
+    const texts = options.map((option) => option.textContent ?? '');
     for (const name of ['Manual', 'Cron', 'Webhook']) {
-      expect(
-        list.queryByRole('option', { name: new RegExp(`^${name}\\b`, 'i') })
-      ).toBeNull();
+      const launcher = new RegExp(`^${name}(?![a-z])`);
+      expect(texts.filter((text) => launcher.test(text))).toEqual([]);
     }
     expect(state.text).toBe(yamlArraySteps);
   });

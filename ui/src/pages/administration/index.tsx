@@ -91,7 +91,7 @@ export default function AdministrationPage(): React.ReactElement {
       title: t('navigation.infrastructure'),
       links: [
         {
-          to: '/remote-nodes',
+          to: '/settings#remote-nodes',
           label: t('navigation.remoteNodes'),
           description: t('home.remoteNodesDescription'),
         },
@@ -105,7 +105,7 @@ export default function AdministrationPage(): React.ReactElement {
             ]
           : []),
         {
-          to: '/license',
+          to: '/settings',
           label: t('navigation.license'),
           description: t('home.licenseDescription'),
         },

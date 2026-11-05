@@ -69,6 +69,101 @@ func TestParallelRetryPathReusesSiblings(t *testing.T) {
 	require.True(t, retryRequests[0].BypassPreconditions)
 }
 
+// A path that ends at a parallel child run continues that run as a plain
+// attempt and reuses its siblings, so waiting siblings keep the step waiting.
+func TestParallelRetryPathResumesLeaf(t *testing.T) {
+	child := &ir.DAG{
+		Name:     "child",
+		YamlData: []byte("name: child\nsteps:\n  - name: gate\n    run: echo child\n"),
+		Steps:    []ir.Step{{Name: "gate"}},
+	}
+	parent := &ir.DAG{Name: "root", LocalDAGs: map[string]*ir.DAG{child.Name: child}}
+	runner := &retryRecorder{}
+	rootRef := ir.NewDAGRunRef(parent.Name, "root-run")
+	ctx := runtime.NewContext(
+		executor.WithSubWorkflowRunner(context.Background(), runner),
+		parent,
+		rootRef.ID,
+		"",
+		runtime.WithRootDAGRun(rootRef),
+		runtime.WithRetryPath(dagrun.RetryPath{
+			Hops: []dagrun.RetryHop{{Step: "parallel-child", RunID: "child-approved"}},
+			Leaf: dagrun.RetryLeafResume,
+		}),
+	)
+	step := ir.Step{
+		Name:           "parallel-child",
+		ExecutorConfig: ir.ExecutorConfig{Type: ir.ExecutorTypeParallel},
+		SubDAG:         &ir.SubDAG{Name: child.Name},
+		Parallel:       &ir.ParallelConfig{MaxConcurrent: 2},
+	}
+
+	impl, err := executor.NewExecutor(ctx, step)
+	require.NoError(t, err)
+	impl.(executor.ParallelExecutor).SetParamsList([]executor.RunParams{
+		{RunID: "child-waiting", DAGName: child.Name, Params: "ITEM=one"},
+		{RunID: "child-approved", DAGName: child.Name, Params: "ITEM=two"},
+	})
+	require.NoError(t, impl.Run(ctx))
+
+	runRequests, retryRequests := runner.requests()
+	require.Empty(t, retryRequests)
+	require.Len(t, runRequests, 2)
+	reused := make(map[string]bool, len(runRequests))
+	for _, req := range runRequests {
+		reused[req.RunID] = req.Reuse
+		require.Empty(t, req.RetryPath.Hops)
+	}
+	require.Equal(t, map[string]bool{"child-waiting": true, "child-approved": false}, reused)
+}
+
+// A path that ends at a called child run either continues that run or takes
+// its persisted result, and never retries a step in it.
+func TestSubDAGRetryPathLeaf(t *testing.T) {
+	for leaf, wantReuse := range map[dagrun.RetryLeaf]bool{
+		dagrun.RetryLeafResume: false,
+		dagrun.RetryLeafReuse:  true,
+	} {
+		t.Run(string(leaf), func(t *testing.T) {
+			child := &ir.DAG{
+				Name:     "child",
+				YamlData: []byte("name: child\nsteps:\n  - name: gate\n    run: echo child\n"),
+				Steps:    []ir.Step{{Name: "gate"}},
+			}
+			parent := &ir.DAG{Name: "root", LocalDAGs: map[string]*ir.DAG{child.Name: child}}
+			runner := &retryRecorder{}
+			rootRef := ir.NewDAGRunRef(parent.Name, "root-run")
+			ctx := runtime.NewContext(
+				executor.WithSubWorkflowRunner(context.Background(), runner),
+				parent,
+				rootRef.ID,
+				"",
+				runtime.WithRootDAGRun(rootRef),
+				runtime.WithRetryPath(dagrun.RetryPath{
+					Hops: []dagrun.RetryHop{{Step: "run-child", RunID: "child-run"}},
+					Leaf: leaf,
+				}),
+			)
+			step := ir.Step{
+				Name:           "run-child",
+				ExecutorConfig: ir.ExecutorConfig{Type: ir.ExecutorTypeDAG},
+				SubDAG:         &ir.SubDAG{Name: child.Name},
+			}
+
+			impl, err := executor.NewExecutor(ctx, step)
+			require.NoError(t, err)
+			impl.(executor.DAGExecutor).SetParams(executor.RunParams{RunID: "child-run", DAGName: child.Name})
+			require.NoError(t, impl.Run(ctx))
+
+			runRequests, retryRequests := runner.requests()
+			require.Empty(t, retryRequests)
+			require.Len(t, runRequests, 1)
+			require.Equal(t, "child-run", runRequests[0].RunID)
+			require.Equal(t, wantReuse, runRequests[0].Reuse)
+		})
+	}
+}
+
 // TestSubDAGRetryPathRejectsUnknownTarget asserts that a retry aimed at a child
 // DAG run the step does not produce fails instead of starting a fresh child run.
 func TestSubDAGRetryPathRejectsUnknownTarget(t *testing.T) {

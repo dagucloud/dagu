@@ -9,43 +9,36 @@ import { describe, expect, it } from 'vitest';
 import {
   edgeTintStatus,
   statusBorderClass,
+  statusCardClass,
+  statusDashArray,
   statusStrokeClass,
 } from '../statusStyle';
 
+// The graph shows a status by the hue of the --graph-* tokens, the same in
+// both themes.
 describe('status classes', () => {
   it.each([
-    [NodeStatus.Success, 'success'],
-    [NodeStatus.Running, '[var(--status-running)]'],
-    [NodeStatus.Retrying, 'warning'],
-    [NodeStatus.Waiting, 'warning'],
-    [NodeStatus.PartialSuccess, 'warning'],
-    [NodeStatus.Failed, 'destructive'],
-    [NodeStatus.Rejected, 'destructive'],
+    [NodeStatus.Success, '--graph-success'],
+    [NodeStatus.Running, '--graph-running'],
+    [NodeStatus.Retrying, '--graph-warning'],
+    [NodeStatus.Waiting, '--graph-warning'],
+    [NodeStatus.PartialSuccess, '--graph-warning'],
+    [NodeStatus.Failed, '--graph-error'],
+    [NodeStatus.Rejected, '--graph-error'],
     // parity:graph-status-colors parity:dup-23
-    [NodeStatus.Aborted, '[var(--status-aborted)]'],
-    [NodeStatus.NotStarted, '[var(--status-neutral)]'],
-    [NodeStatus.Skipped, '[var(--status-neutral)]'],
+    [NodeStatus.Aborted, '--graph-aborted'],
+    [NodeStatus.NotStarted, '--graph-neutral'],
+    [NodeStatus.Skipped, '--graph-neutral'],
   ])('maps status %s to %s', (status, token) => {
-    // The colour is on the border of the card, in both themes.
-    expect(statusBorderClass(status)).toBe(
-      `border-${token} dark:border-${token}`
-    );
+    expect(statusBorderClass(status).split(' ')).toEqual([
+      `border-[var(${token})]`,
+      `dark:border-[var(${token})]`,
+    ]);
+    expect(statusStrokeClass(status)).toBe(`stroke-[var(${token})]`);
   });
 
-  it('gives the stroke of the same colour as the border', () => {
-    for (const status of Object.values(NodeStatus).filter(
-      (v): v is NodeStatus => typeof v === 'number'
-    )) {
-      const colour = statusBorderClass(status)
-        .split(' ')[0]!
-        .replace('border-', '');
-      expect(statusStrokeClass(status)).toBe(`stroke-${colour}`);
-    }
-  });
-
-  // Success, Failed and the warning statuses keep their theme utilities, so
-  // these tokens must hold the colours of the status tokens. parity:dup-23
-  it('keeps the theme utilities on the colours of the status tokens', () => {
+  // One set for both themes: the dark theme does not redefine a token.
+  it('defines each graph token once, with the colour of the graph', () => {
     const css = fs.readFileSync(
       path.resolve(
         path.dirname(fileURLToPath(import.meta.url)),
@@ -57,14 +50,49 @@ describe('status classes', () => {
       [...css.matchAll(new RegExp(`\\s${token}:\\s*([^;]+);`, 'g'))].map(
         (m) => m[1]
       );
-    for (const [theme, status] of [
-      ['--success', '--status-success'],
-      ['--destructive', '--status-error'],
-      ['--warning', '--status-warning'],
-    ] as const) {
-      expect(values(theme)).toHaveLength(2);
-      expect(values(theme)).toEqual(values(status));
+    expect(values('--graph-success')).toEqual(['#22c55e']);
+    expect(values('--graph-error')).toEqual(['#ef5350']);
+    expect(values('--graph-running')).toEqual(['#7c6ef4']);
+    expect(values('--graph-warning')).toEqual(['#d9a03c']);
+    expect(values('--graph-aborted')).toEqual(['#c084fc']);
+    expect(values('--graph-neutral')).toEqual(['#8a8d99']);
+  });
+});
+
+// The status of a step of the run reads at any zoom: a line of two widths
+// and a tint of the card.
+describe('statusCardClass', () => {
+  it.each([
+    [NodeStatus.Success, '--graph-success'],
+    [NodeStatus.Failed, '--graph-error'],
+    [NodeStatus.Running, '--graph-running'],
+    [NodeStatus.Waiting, '--graph-warning'],
+    [NodeStatus.Aborted, '--graph-aborted'],
+  ])('rings and tints the card of status %s', (status, token) => {
+    expect(statusCardClass(status).split(' ')).toEqual(
+      expect.arrayContaining([
+        `border-[var(${token})]`,
+        'ring-1',
+        `ring-[var(${token})]`,
+        `bg-[color-mix(in_srgb,var(${token})_10%,var(--card))]`,
+      ])
+    );
+  });
+
+  it.each([NodeStatus.NotStarted, NodeStatus.Skipped])(
+    'keeps the plain card of a step that did not run (%s)',
+    (status) => {
+      expect(statusCardClass(status)).toBe(statusBorderClass(status));
     }
+  );
+});
+
+describe('statusDashArray', () => {
+  it('dashes the edges of a failed step only', () => {
+    expect(statusDashArray(NodeStatus.Failed)).toBeDefined();
+    expect(statusDashArray(NodeStatus.Rejected)).toBeDefined();
+    expect(statusDashArray(NodeStatus.Success)).toBeUndefined();
+    expect(statusDashArray(NodeStatus.Running)).toBeUndefined();
   });
 });
 
