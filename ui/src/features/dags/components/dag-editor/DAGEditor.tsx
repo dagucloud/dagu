@@ -277,6 +277,10 @@ function DAGEditor({
       registration.dispose();
     };
   }, [isEditorMounted, wantsStepLenses]);
+  const settled = useEditorSettled(
+    isEditorMounted ? editorRef.current : null,
+    (stepLenses?.steps.length ?? 0) > 0
+  );
   const lensKey = stepLenses
     ? `${stepLenses.label}\n${stepLenses.steps.map((step) => `${step.line}:${step.name}`).join('\n')}`
     : '';
@@ -394,7 +398,14 @@ function DAGEditor({
     document.documentElement.classList.contains('dark');
 
   return (
-    <div className={cn('h-full', className)}>
+    <div
+      data-settled={settled}
+      className={cn(
+        'h-full transition-opacity duration-80 ease-out motion-reduce:transition-none',
+        settled ? 'opacity-100' : 'opacity-0',
+        className
+      )}
+    >
       <MonacoEditor
         height="100%"
         language="yaml"
@@ -411,6 +422,48 @@ function DAGEditor({
       />
     </div>
   );
+}
+
+/** The longest wait for an editor to settle before it shows anyway. */
+const SETTLE_TIMEOUT_MS = 1500;
+
+/**
+ * Whether the editor has settled since it mounted: its text coloured and,
+ * when the text has steps, the lenses above them drawn. Each of them repaints
+ * or moves the text, so the editor shows once they are done.
+ */
+function useEditorSettled(
+  codeEditor: monaco.editor.IStandaloneCodeEditor | null,
+  expectLenses: boolean
+): boolean {
+  const [settled, setSettled] = useState(false);
+  const expectLensesRef = useRef(expectLenses);
+  expectLensesRef.current = expectLenses;
+  useEffect(() => {
+    if (settled || !codeEditor) return;
+    const node = codeEditor.getDomNode();
+    const done = () =>
+      !node ||
+      ((codeEditor.getModel()?.getValueLength() === 0 ||
+        node.querySelector('.view-line span[class*="mtk"]:not(.mtk1)') !==
+          null) &&
+        (!expectLensesRef.current ||
+          node.querySelector('.codelens-decoration') !== null));
+    if (done()) {
+      setSettled(true);
+      return;
+    }
+    const observer = new MutationObserver(() => {
+      if (done()) setSettled(true);
+    });
+    observer.observe(node!, { childList: true, subtree: true });
+    const timer = setTimeout(() => setSettled(true), SETTLE_TIMEOUT_MS);
+    return () => {
+      observer.disconnect();
+      clearTimeout(timer);
+    };
+  }, [codeEditor, settled]);
+  return settled;
 }
 
 export default DAGEditor;
