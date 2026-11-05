@@ -77,9 +77,8 @@ type RestartScannerConfig struct {
 	GetLatestStatus GetLatestStatusFunc
 	// IsStopRequested reports whether an operator stopped a run.
 	IsStopRequested StopRequestedFunc
-	// RunExists reports whether a run with the ID already has a record.
-	RunExists RunExistsFunc
-	// Enqueue queues a run. It is nil when queues are disabled.
+	// Enqueue queues a run, unless a run with the ID already exists. It is nil
+	// when queues are disabled.
 	Enqueue EnqueueFunc
 	// Clock returns the current time.
 	Clock Clock
@@ -201,21 +200,6 @@ func (s *RestartScanner) process(ctx context.Context, entry DAGEntry, now time.T
 		return errRestartQueuesDisabled
 	}
 
-	// A live process or a queued item keeps the DAG busy. On error the DAG is
-	// assumed busy, so a failing store cannot lead to two runs.
-	if running, err := s.cfg.IsRunning(ctx, dag); err != nil || running {
-		if running {
-			logNoRestart(ctx, dag, "run_alive")
-		}
-		return err
-	}
-	if queued, err := s.cfg.IsQueued(ctx, dag); err != nil || queued {
-		if queued {
-			logNoRestart(ctx, dag, "run_queued")
-		}
-		return err
-	}
-
 	status, err := s.cfg.GetLatestStatus(ctx, dag)
 	if err != nil {
 		return err
@@ -238,16 +222,23 @@ func (s *RestartScanner) process(ctx context.Context, entry DAGEntry, now time.T
 		return nil
 	}
 
-	runID := GenerateRestartRunID(dag.Name, status.DAGRunID, decision.previousEnd)
-	exists, err := s.cfg.RunExists(ctx, dag, runID)
-	if err != nil {
+	// A live process or a queued item of another run keeps the DAG busy. Both
+	// cost more than the latest run, so they are read only before a restart. On
+	// error the DAG is assumed busy, so a failing store cannot lead to two runs.
+	if running, err := s.cfg.IsRunning(ctx, dag); err != nil || running {
+		if running {
+			logNoRestart(ctx, dag, "run_alive")
+		}
 		return err
 	}
-	if exists {
-		logNoRestart(ctx, dag, "run_exists", tag.RunID(runID))
-		return nil
+	if queued, err := s.cfg.IsQueued(ctx, dag); err != nil || queued {
+		if queued {
+			logNoRestart(ctx, dag, "run_queued")
+		}
+		return err
 	}
 
+	runID := GenerateRestartRunID(dag.Name, status.DAGRunID, decision.previousEnd)
 	logger.Info(ctx, "Restarting DAG",
 		tag.DAG(dag.Name),
 		tag.RunID(runID),

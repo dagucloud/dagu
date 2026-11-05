@@ -131,7 +131,7 @@ type restartHarness struct {
 	stopErr    error
 	stopChecks int
 	reads      int
-	existing   map[string]bool
+	queueReads int
 	failWith   error
 	enqueued   []enqueuedRun
 	scanner    *RestartScanner
@@ -155,7 +155,6 @@ func newRestartHarness(t *testing.T, dags ...*ir.DAG) *restartHarness {
 		now:       time.Date(2026, 10, 13, 12, 0, 0, 0, time.UTC),
 		suspended: map[string]bool{},
 		stopped:   map[string]bool{},
-		existing:  map[string]bool{},
 	}
 	for _, dag := range dags {
 		h.entries = append(h.entries, DAGEntry{DefinitionID: dag.Name, DAG: dag})
@@ -172,6 +171,7 @@ func newRestartHarness(t *testing.T, dags ...*ir.DAG) *restartHarness {
 		},
 		IsQueued: func(context.Context, *ir.DAG) (bool, error) {
 			h.reads++
+			h.queueReads++
 			return h.queued, nil
 		},
 		GetLatestStatus: func(context.Context, *ir.DAG) (ir.DAGRunStatus, error) {
@@ -181,9 +181,6 @@ func newRestartHarness(t *testing.T, dags ...*ir.DAG) *restartHarness {
 		IsStopRequested: func(_ context.Context, _ *ir.DAG, runID string) (bool, error) {
 			h.stopChecks++
 			return h.stopped[runID], h.stopErr
-		},
-		RunExists: func(_ context.Context, _ *ir.DAG, runID string) (bool, error) {
-			return h.existing[runID], nil
 		},
 		Enqueue: func(_ context.Context, entry DAGEntry, runID string, triggerType ir.TriggerType, _ time.Time) error {
 			if h.failWith != nil {
@@ -350,10 +347,6 @@ func TestRestartScanner(t *testing.T) {
 			"LiveProcess": func(h *restartHarness) { h.running = true },
 			"QueuedItem":  func(h *restartHarness) { h.queued = true },
 			"ActiveRun":   func(h *restartHarness) { h.endRun(ir.Running, 0) },
-			"RunExists": func(h *restartHarness) {
-				h.endRun(ir.Failed, time.Minute)
-				h.existing[GenerateRestartRunID("svc", "run-1", h.now.Add(-time.Minute))] = true
-			},
 		} {
 			t.Run(name, func(t *testing.T) {
 				t.Parallel()
@@ -364,6 +357,23 @@ func TestRestartScanner(t *testing.T) {
 				assert.Equal(t, 1, h.logged("Not restarting DAG"))
 			})
 		}
+	})
+
+	// A queue is read item by item, so it is read only for a DAG about to
+	// restart.
+	t.Run("QueueReadOnlyBeforeRestart", func(t *testing.T) {
+		t.Parallel()
+		h := newRestartHarness(t, serviceDAG("svc", ir.RestartPolicyAlways))
+		h.endRun(ir.Running, 0)
+		h.scan()
+		h.endRun(ir.Failed, 0)
+		h.scan()
+		assert.Zero(t, h.queueReads)
+
+		h.now = h.now.Add(11 * time.Second)
+		h.scan()
+		assert.Equal(t, 1, h.queueReads)
+		assert.Len(t, h.enqueued, 1)
 	})
 
 	t.Run("Suspended", func(t *testing.T) {

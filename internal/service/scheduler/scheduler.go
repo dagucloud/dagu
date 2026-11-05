@@ -370,9 +370,8 @@ func newScheduler(
 			}
 			return attempt.IsAborting(ctx)
 		},
-		RunExists: runExists,
-		Enqueue:   enqueueFunc,
-		Clock:     defaultClock,
+		Enqueue: enqueueFunc,
+		Clock:   defaultClock,
 	})
 
 	retryScanner, err := NewRetryScanner(
