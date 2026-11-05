@@ -66,10 +66,11 @@ The following forms must be accepted for declared string parameters:
 
 - A positional string can override the first declared parameter.
 - Named `name=value` assignments supply values by parameter name.
-- A JSON object supplies named values; a JSON array supplies positional values.
-  A JSON string supplies its text. Any other JSON value supplies its JSON text
-  with each number as written, so `98765432109876543` and `1.10` are not
-  rounded.
+- A JSON object supplies named values; a JSON array supplies positional values,
+  except that an object inside the array supplies its members as named values,
+  so `[{"value":1.10}]` sets `value` to `1.10`. A JSON string supplies its
+  text. Any other JSON value supplies its JSON text with each number as
+  written, so `98765432109876543` and `1.10` are not rounded.
 - Double quotes delimit a single string containing whitespace. Whitespace
   inside those quotes is preserved, including leading and trailing spaces.
 - An equals sign inside a double-quoted positional value is literal text,
