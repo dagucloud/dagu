@@ -138,19 +138,74 @@ func TestCheckWindowIntegrity(t *testing.T) {
 	assert.NoError(t, checkWindow(WindowID{}))
 }
 
+func TestWindowLabelFallsBackToTitleThenPID(t *testing.T) {
+	assert.Equal(t, "admintool", windowLabel(WindowID{PID: 4242, App: "admintool", Title: "Admin"}))
+	assert.Equal(t, `window "Admin"`, windowLabel(WindowID{PID: 4242, Title: "Admin"}))
+	assert.Equal(t, "process 4242", windowLabel(WindowID{PID: 4242}))
+}
+
 // A level that cannot be read fails closed: the window may be the elevated one.
 func TestCheckWindowUnreadable(t *testing.T) {
 	defer func(orig func(uint32) (uint32, error)) { processIntegrity = orig }(processIntegrity)
-	processIntegrity = func(pid uint32) (uint32, error) {
-		if pid == 4243 {
-			return 0, windows.ERROR_ACCESS_DENIED
-		}
-		return 0x2000, nil
+	self := windows.GetCurrentProcessId()
+	for _, tc := range []struct {
+		name    string
+		window  WindowID
+		readErr error
+		want    string
+		notWant string
+	}{
+		{name: "access denied names possible elevation", window: WindowID{PID: 4243, App: "locked"}, readErr: windows.ERROR_ACCESS_DENIED, want: "read the integrity level of locked", notWant: "locked runs elevated"},
+		{name: "other errors retain generic context", window: WindowID{PID: 4244, App: "locked"}, readErr: windows.ERROR_INVALID_PARAMETER, want: "read the integrity level of locked", notWant: "may be elevated or protected"},
+		{name: "title fallback", window: WindowID{PID: 4245, Title: "Secure Tool"}, readErr: windows.ERROR_ACCESS_DENIED, want: `window "Secure Tool"`},
+		{name: "pid fallback", window: WindowID{PID: 4246}, readErr: windows.ERROR_ACCESS_DENIED, want: "process 4246"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			processIntegrity = func(pid uint32) (uint32, error) {
+				if pid == self {
+					return 0x2000, nil
+				}
+				return 0, tc.readErr
+			}
+			err := checkWindow(tc.window)
+			require.Error(t, err)
+			assert.ErrorIs(t, err, tc.readErr)
+			assert.Contains(t, err.Error(), tc.want)
+			if tc.notWant != "" {
+				assert.NotContains(t, err.Error(), tc.notWant)
+			}
+			if tc.readErr == windows.ERROR_ACCESS_DENIED {
+				assert.Contains(t, err.Error(), "the target may be elevated or protected")
+			}
+		})
 	}
+}
 
-	err := checkWindow(WindowID{PID: 4243, App: "locked"})
-	require.Error(t, err)
-	assert.Contains(t, err.Error(), "read the integrity level of locked")
+func TestGetCursorPosErrorUsesInputDesktopProblemForAccessDenied(t *testing.T) {
+	called := false
+	err := getCursorPosError(windows.ERROR_ACCESS_DENIED, func() (Problem, bool) {
+		called = true
+		return Problem{Code: problemScreenLocked, Message: "the input desktop is not accessible; a secure prompt may be shown"}, true
+	})
+	require.ErrorIs(t, err, windows.ERROR_ACCESS_DENIED)
+	assert.True(t, called)
+	assert.Contains(t, err.Error(), "secure prompt")
+	assert.NotContains(t, err.Error(), "GetCursorPos")
+}
+
+func TestGetCursorPosErrorKeepsGenericErrorWhenNoDesktopProblem(t *testing.T) {
+	err := getCursorPosError(windows.ERROR_ACCESS_DENIED, func() (Problem, bool) {
+		return Problem{}, false
+	})
+	require.ErrorIs(t, err, windows.ERROR_ACCESS_DENIED)
+	assert.Contains(t, err.Error(), "GetCursorPos")
+
+	other := getCursorPosError(windows.ERROR_INVALID_HANDLE, func() (Problem, bool) {
+		t.Fatal("input desktop should only be checked for access denied")
+		return Problem{}, false
+	})
+	require.ErrorIs(t, other, windows.ERROR_INVALID_HANDLE)
+	assert.Contains(t, other.Error(), "GetCursorPos")
 }
 
 // The fake source above replaces readIntegrityLevel, so this reads the real

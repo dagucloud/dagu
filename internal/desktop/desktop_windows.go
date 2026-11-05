@@ -404,9 +404,18 @@ func (windowsBackend) MoveTo(x, y int) error {
 func (windowsBackend) Position() (int, int, error) {
 	var p point
 	if ok, _, err := procGetCursorPos.Call(uintptr(unsafe.Pointer(&p))); ok == 0 { //nolint:gosec // Win32 takes the POINT address as uintptr
-		return 0, 0, fmt.Errorf("GetCursorPos: %w", err)
+		return 0, 0, getCursorPosError(err, inputDesktopProblem)
 	}
 	return int(p.X), int(p.Y), nil
+}
+
+func getCursorPosError(err error, desktopProblem func() (Problem, bool)) error {
+	if errors.Is(err, windows.ERROR_ACCESS_DENIED) {
+		if problem, ok := desktopProblem(); ok {
+			return fmt.Errorf("%s: %w", problem.Message, err)
+		}
+	}
+	return fmt.Errorf("GetCursorPos: %w", err)
 }
 
 func (windowsBackend) Button(button Button, down bool, _ int) error {
@@ -472,6 +481,16 @@ func readIntegrityLevel(pid uint32) (uint32, error) {
 	return sid.SubAuthority(uint32(sid.SubAuthorityCount()) - 1), nil
 }
 
+func windowLabel(w WindowID) string {
+	if w.App != "" {
+		return w.App
+	}
+	if w.Title != "" {
+		return fmt.Sprintf("window %q", w.Title)
+	}
+	return fmt.Sprintf("process %d", w.PID)
+}
+
 // checkWindow fails before input reaches a window of a higher integrity level
 // than this process. Windows drops such input while SendInput reports every
 // event accepted, so the check must run before any event is sent. A level that
@@ -486,12 +505,16 @@ func checkWindow(w WindowID) error {
 	}
 	level, err := processIntegrity(w.PID)
 	if err != nil {
-		return fmt.Errorf("read the integrity level of %s, so input is not sent: %w", w.App, err)
+		target := windowLabel(w)
+		if errors.Is(err, windows.ERROR_ACCESS_DENIED) {
+			return fmt.Errorf("read the integrity level of %s, so input is not sent: access denied; the target may be elevated or protected: %w", target, err)
+		}
+		return fmt.Errorf("read the integrity level of %s, so input is not sent: %w", target, err)
 	}
 	if level <= own {
 		return nil
 	}
-	return fmt.Errorf("%s runs elevated, so Windows drops input sent to it; run it unelevated or run Dagu at the same integrity level", w.App)
+	return fmt.Errorf("%s runs elevated, so Windows drops input sent to it; run it unelevated or run Dagu at the same integrity level", windowLabel(w))
 }
 
 // wheelInputs sends a notch per event, as a mouse wheel does, since some
