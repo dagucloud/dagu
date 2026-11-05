@@ -83,7 +83,10 @@ function slotStub(testId: string) {
 }
 // The Run panel frame is under test: the timeline and the steps have their own.
 vi.mock('../dock/RunTimeline', () => ({ RunTimeline: () => null }));
-vi.mock('../dock/RunStepsNav', () => ({ RunStepsNav: () => null }));
+vi.mock('../dock/RunStepsNav', () => ({
+  RunStepsNav: () => null,
+  RunStepPicker: () => null,
+}));
 vi.mock('../bar/LabelChips', () => ({ LabelChips: slotStub('labels') }));
 vi.mock('../bar/TriggerChip', () => ({ TriggerChip: slotStub('trigger') }));
 vi.mock('../bar/RunChip', () => ({ RunChip: slotStub('run-chip') }));

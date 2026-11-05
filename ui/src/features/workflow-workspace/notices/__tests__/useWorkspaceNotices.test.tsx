@@ -393,7 +393,7 @@ describe('useWorkspaceNotices', () => {
 
   // parity:overview-monitoring-offer parity:shell-monitoring-offer
   describe('monitoring-offer', () => {
-    it('offers monitoring for a scheduled workflow and links to the license page', () => {
+    it('offers monitoring for a scheduled workflow and links to Settings', () => {
       const { result } = renderNotices({ schedule: true });
       const notice = find(result.current, 'monitoring-offer');
       expect(notice.message).toBe('Get an email if this server stops');
@@ -401,7 +401,7 @@ describe('useWorkspaceNotices', () => {
       expect(notice.dismissible).toBe(true);
       act(() => notice.action?.run());
       expect(screen.getByTestId('location')).toHaveTextContent(
-        '/license#monitoring'
+        '/settings#monitoring'
       );
     });
 

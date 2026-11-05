@@ -1,13 +1,7 @@
 // Copyright (C) 2026 Yota Hamada
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-import {
-  CalendarRange,
-  ChevronDown,
-  FlaskConical,
-  History,
-  ListFilter,
-} from 'lucide-react';
+import { CalendarRange, ChevronDown, SlidersHorizontal } from 'lucide-react';
 import {
   memo,
   useEffect,
@@ -215,11 +209,130 @@ export interface RunTimelineControlsProps {
   onHiddenTypesChange?(types: readonly TriggerType[]): void;
 }
 
+export type RunViewMenuProps = Pick<
+  RunTimelineControlsProps,
+  | 'hasTestRuns'
+  | 'showTests'
+  | 'onShowTestsChange'
+  | 'hasCachedTime'
+  | 'showCached'
+  | 'onShowCachedChange'
+  | 'triggerTypes'
+  | 'hiddenTypes'
+  | 'onHiddenTypesChange'
+>;
+
+/**
+ * What the timeline shows, as one menu named View: the trigger types, the
+ * test runs and the cached time. A choice keeps the menu open, so that
+ * several change in a row. A choice that has nothing to act on is disabled.
+ * The button is marked while the view hides something.
+ */
+export function RunViewMenu({
+  hasTestRuns = false,
+  showTests = true,
+  onShowTestsChange,
+  hasCachedTime = false,
+  showCached = true,
+  onShowCachedChange,
+  triggerTypes = [],
+  hiddenTypes = [],
+  onHiddenTypesChange,
+}: RunViewMenuProps) {
+  const { ts } = useI18n();
+  if (!onHiddenTypesChange && !onShowTestsChange && !onShowCachedChange) {
+    return null;
+  }
+  // With one trigger type there is nothing to choose.
+  const types =
+    onHiddenTypesChange && (triggerTypes.length > 1 || hiddenTypes.length > 0);
+  const filtered = hiddenTypes.length > 0 || !showTests || !showCached;
+  const keepOpen = (event: Event) => event.preventDefault();
+  return (
+    <DropdownMenu>
+      <DropdownMenuTrigger asChild>
+        <button
+          type="button"
+          data-testid="ww-run-timeline-view"
+          data-filtered={filtered || undefined}
+          className={cn(
+            'inline-flex h-6 shrink-0 items-center gap-1 rounded-md px-1.5 text-[11px] font-medium hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring pointer-coarse:h-9 pointer-coarse:px-2.5',
+            filtered ? 'bg-muted text-foreground' : 'text-muted-foreground'
+          )}
+        >
+          <SlidersHorizontal className="size-3.5" aria-hidden="true" />
+          {ts('View')}
+          {filtered && (
+            <span
+              aria-hidden="true"
+              className="size-1.5 rounded-full bg-primary"
+            />
+          )}
+          <ChevronDown className="size-3" aria-hidden="true" />
+        </button>
+      </DropdownMenuTrigger>
+      <DropdownMenuContent align="end" className="min-w-48">
+        {types && (
+          <>
+            <DropdownMenuLabel className={MENU_LABEL}>
+              {ts('Triggered by')}
+            </DropdownMenuLabel>
+            {triggerTypes.map((type) => (
+              <DropdownMenuCheckboxItem
+                key={type}
+                checked={!hiddenTypes.includes(type)}
+                data-testid={`ww-run-timeline-type-${type}`}
+                className={MENU_ITEM}
+                onSelect={keepOpen}
+                onCheckedChange={(on) =>
+                  onHiddenTypesChange(
+                    on
+                      ? hiddenTypes.filter((t) => t !== type)
+                      : [...hiddenTypes, type]
+                  )
+                }
+              >
+                {ts(triggerTypeLabels[type])}
+              </DropdownMenuCheckboxItem>
+            ))}
+            {(onShowTestsChange || onShowCachedChange) && (
+              <DropdownMenuSeparator />
+            )}
+          </>
+        )}
+        {onShowTestsChange && (
+          <DropdownMenuCheckboxItem
+            checked={showTests}
+            disabled={!hasTestRuns && showTests}
+            data-testid="ww-run-timeline-tests"
+            className={MENU_ITEM}
+            onSelect={keepOpen}
+            onCheckedChange={(on) => onShowTestsChange(on)}
+          >
+            {ts('Show test runs')}
+          </DropdownMenuCheckboxItem>
+        )}
+        {onShowCachedChange && (
+          <DropdownMenuCheckboxItem
+            checked={showCached}
+            disabled={!hasCachedTime && showCached}
+            data-testid="ww-run-timeline-cached"
+            className={MENU_ITEM}
+            onSelect={keepOpen}
+            onCheckedChange={(on) => onShowCachedChange(on)}
+          >
+            {ts('Show cached time')}
+          </DropdownMenuCheckboxItem>
+        )}
+      </DropdownMenuContent>
+    </DropdownMenu>
+  );
+}
+
 /**
  * The one header row of the timeline. Its slots keep their place whatever
- * the state: the note, the test runs toggle, the cached time toggle, the
- * custom range button and the select of the runs (the newest ones, or a time
- * range). A toggle that has nothing to act on leaves an empty slot.
+ * the state: the note, the View menu, the custom range button and the select
+ * of the runs (the newest ones, or a time range).
  */
 export const RunTimelineControls = memo(function RunTimelineControls({
   count,
@@ -286,83 +399,17 @@ export const RunTimelineControls = memo(function RunTimelineControls({
       >
         {truncatedNote}
       </p>
-      {onHiddenTypesChange ? (
-        <DropdownMenu>
-          <DropdownMenuTrigger asChild>
-            <IconButton
-              size="sm"
-              icon={ListFilter}
-              label={ts('Filter runs by trigger')}
-              // With one trigger type there is nothing to choose.
-              disabledReason={
-                triggerTypes.length <= 1 && hiddenTypes.length === 0
-                  ? ts('Only one trigger type in these runs')
-                  : undefined
-              }
-              pressed={hiddenTypes.length > 0}
-              data-testid="ww-run-timeline-types"
-            />
-          </DropdownMenuTrigger>
-          <DropdownMenuContent align="end" className="min-w-40">
-            <DropdownMenuLabel>{ts('Triggered by')}</DropdownMenuLabel>
-            <DropdownMenuSeparator />
-            {triggerTypes.map((type) => (
-              <DropdownMenuCheckboxItem
-                key={type}
-                checked={!hiddenTypes.includes(type)}
-                data-testid={`ww-run-timeline-type-${type}`}
-                // The menu stays open: several types are changed in a row.
-                onSelect={(event) => event.preventDefault()}
-                onCheckedChange={(on) =>
-                  onHiddenTypesChange(
-                    on
-                      ? hiddenTypes.filter((t) => t !== type)
-                      : [...hiddenTypes, type]
-                  )
-                }
-              >
-                {ts(triggerTypeLabels[type])}
-              </DropdownMenuCheckboxItem>
-            ))}
-          </DropdownMenuContent>
-        </DropdownMenu>
-      ) : (
-        <span className="size-6 shrink-0" aria-hidden="true" />
-      )}
-      {onShowTestsChange ? (
-        <IconButton
-          size="sm"
-          icon={FlaskConical}
-          label={ts(showTests ? 'Hide test runs' : 'Show test runs')}
-          disabledReason={
-            !hasTestRuns && showTests
-              ? ts('No test run in these runs')
-              : undefined
-          }
-          pressed={showTests}
-          data-testid="ww-run-timeline-tests"
-          onClick={() => onShowTestsChange(!showTests)}
-        />
-      ) : (
-        <span className="size-6 shrink-0" aria-hidden="true" />
-      )}
-      {onShowCachedChange ? (
-        <IconButton
-          size="sm"
-          icon={History}
-          label={ts(showCached ? 'Hide cached time' : 'Show cached time')}
-          disabledReason={
-            !hasCachedTime && showCached
-              ? ts('No cached time in these runs')
-              : undefined
-          }
-          pressed={showCached}
-          data-testid="ww-run-timeline-cached"
-          onClick={() => onShowCachedChange(!showCached)}
-        />
-      ) : (
-        <span className="size-6 shrink-0" aria-hidden="true" />
-      )}
+      <RunViewMenu
+        hasTestRuns={hasTestRuns}
+        showTests={showTests}
+        onShowTestsChange={onShowTestsChange}
+        hasCachedTime={hasCachedTime}
+        showCached={showCached}
+        onShowCachedChange={onShowCachedChange}
+        triggerTypes={triggerTypes}
+        hiddenTypes={hiddenTypes}
+        onHiddenTypesChange={onHiddenTypesChange}
+      />
       {custom && onRangeChange ? (
         <span ref={setAnchor} className="inline-flex shrink-0">
           <IconButton

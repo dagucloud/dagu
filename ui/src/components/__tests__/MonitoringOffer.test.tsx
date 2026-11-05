@@ -70,7 +70,7 @@ describe('MonitoringOffer', () => {
     expect(screen.getByRole('region', { name: heading })).toBeVisible();
     expect(
       screen.getByRole('link', { name: 'Set up for free' })
-    ).toHaveAttribute('href', '/license#monitoring');
+    ).toHaveAttribute('href', '/settings#monitoring');
   });
 
   it.each([

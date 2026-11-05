@@ -54,7 +54,7 @@ export function LicenseActions({
     <div className="flex flex-wrap items-center gap-2">
       <Button asChild size="sm" variant="outline">
         {action === 'trial' && license.community ? (
-          <Link to="/license?trial=1#monitoring">{ts(label)}</Link>
+          <Link to="/settings?trial=1#monitoring">{ts(label)}</Link>
         ) : (
           <a
             href={
@@ -82,7 +82,7 @@ export function LicenseActions({
       )}
       {activationLink && (
         <Button asChild variant="link" size="sm">
-          <Link to="/license#activate">{ts('Activate a key')}</Link>
+          <Link to="/settings#activate">{ts('Activate a key')}</Link>
         </Button>
       )}
     </div>

@@ -18,6 +18,8 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/cmn/fileutil"
 	"github.com/dagucloud/dagu/v2/internal/executor/registry"
 	"github.com/dagucloud/dagu/v2/internal/ir"
+	"github.com/dagucloud/dagu/v2/internal/runtime"
+	"github.com/dagucloud/dagu/v2/internal/runtime/builtin/internal/workpath"
 	"github.com/dagucloud/dagu/v2/internal/runtime/executor"
 	"github.com/go-viper/mapstructure/v2"
 	"github.com/itchyny/gojq"
@@ -50,12 +52,13 @@ func newJQ(ctx context.Context, step ir.Step) (executor.Executor, error) {
 			return nil, err
 		}
 	}
+	workDir := runtime.GetEnv(ctx).WorkingDir
 	var input any
 	switch {
 	case jqCfg.Input != "" && step.Script != "":
 		return nil, fmt.Errorf("jq: config.input and script are mutually exclusive; provide one, not both")
 	case jqCfg.Input != "":
-		inputPath := jqCfg.Input
+		inputPath := workpath.Resolve(workDir, jqCfg.Input)
 		data, err := fileutil.ReadFile(inputPath)
 		if err != nil {
 			return nil, fmt.Errorf("jq: reading input file %q: %w", inputPath, err)
@@ -65,6 +68,7 @@ func newJQ(ctx context.Context, step ir.Step) (executor.Executor, error) {
 		}
 	case step.Script != "":
 		if after, ok := strings.CutPrefix(step.Script, "file://"); ok {
+			after = workpath.Resolve(workDir, after)
 			data, err := fileutil.ReadFile(after)
 			if err != nil {
 				return nil, fmt.Errorf("jq: reading input file %q: %w", after, err)

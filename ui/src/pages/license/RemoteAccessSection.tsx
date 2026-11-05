@@ -23,7 +23,10 @@ import { remoteAccessLevelLabels } from '@/lib/license';
 import { cn } from '@/lib/utils';
 
 /** A level at which calls from Dagu Cloud reach this server. */
-type OnLevel = Exclude<LicenseRemoteAccessLevel, LicenseRemoteAccessLevel.off>;
+export type OnLevel = Exclude<
+  LicenseRemoteAccessLevel,
+  LicenseRemoteAccessLevel.off
+>;
 
 /** What each level lets a call do, as the configuration reference words it. */
 const choices: { level: OnLevel; allows: string }[] = [
@@ -43,6 +46,23 @@ const choices: { level: OnLevel; allows: string }[] = [
   },
 ];
 
+/** What MCP calls may do at each level, shown beside the level in effect. */
+const levelSummaries: Record<LicenseRemoteAccessLevel, string> = {
+  [LicenseRemoteAccessLevel.off]: 'MCP calls are refused.',
+  [LicenseRemoteAccessLevel.viewer]: 'MCP calls read DAGs, runs, and logs.',
+  [LicenseRemoteAccessLevel.operator]:
+    'MCP calls read DAGs, runs, and logs, and start, retry, and stop runs.',
+  [LicenseRemoteAccessLevel.developer]:
+    'MCP calls also change DAG definitions, so they can run any command on this machine.',
+};
+
+/**
+ * The level offered first. MCP clients are mostly used to manage workflows,
+ * which takes changing DAG definitions.
+ */
+export const DEFAULT_REMOTE_ACCESS_LEVEL: OnLevel =
+  LicenseRemoteAccessLevel.developer;
+
 /** How many recent calls the section lists. */
 const ACTIVITY_ROWS = 8;
 
@@ -59,7 +79,7 @@ function Row({ label, children }: { label: string; children: ReactNode }) {
 }
 
 /**
- * Shows how far AI apps connected to Dagu Cloud may go on this server, whether
+ * Shows how far MCP calls through Dagu Cloud may go on this server, whether
  * their calls reach it, how to connect one, and what they did lately, and lets
  * an administrator change it unless the configuration fixes it.
  */
@@ -125,7 +145,7 @@ export function RemoteAccessSection({
         </h2>
         <p className="text-xs text-muted-foreground">
           {ts(
-            'AI apps connected to Dagu Cloud, such as Claude and ChatGPT, can work on this server through the connection it opens to Dagu Cloud. No port is opened. Each user gets the lower of this role and the one Dagu Cloud grants them.'
+            'Serves the MCP tools of this server through the Dagu Cloud MCP endpoint. The server connects out to Dagu Cloud, so no inbound port is opened.'
           )}
         </p>
       </div>
@@ -145,7 +165,13 @@ export function RemoteAccessSection({
             <dl className="grid grid-cols-[7.5rem_minmax(0,1fr)] items-center gap-x-4 gap-y-1.5 text-sm">
               <Row label={ts('Access')}>
                 <span className="flex flex-wrap items-center justify-between gap-2">
-                  {ts(remoteAccessLevelLabels[remoteAccess.level])}
+                  <span className="min-w-0">
+                    {ts(remoteAccessLevelLabels[remoteAccess.level])}
+                    <span className="text-muted-foreground">
+                      {' · '}
+                      {ts(levelSummaries[remoteAccess.level])}
+                    </span>
+                  </span>
                   {remoteAccess.levelConfigured ? (
                     <span className="text-xs text-muted-foreground">
                       {ts('Set in configuration')}
@@ -183,11 +209,11 @@ export function RemoteAccessSection({
                   )}
                 </span>
               </Row>
-              <Row label={ts('Approvals')}>
+              <Row label={ts('Human tasks')}>
                 <span className="flex flex-wrap items-center justify-between gap-2">
                   <span className="text-muted-foreground">
                     {ts(
-                      'Approve, reject, or push back steps waiting for a person'
+                      'Let MCP calls complete human tasks. Needs Operator or Developer access.'
                     )}
                   </span>
                   {remoteAccess.approvalsConfigured ? (
@@ -199,7 +225,7 @@ export function RemoteAccessSection({
                     <Switch
                       checked={remoteAccess.approvals}
                       disabled={saving}
-                      aria-label={ts('Approvals')}
+                      aria-label={ts('Human tasks')}
                       onCheckedChange={(approvals) =>
                         void change({ approvals })
                       }
@@ -231,7 +257,7 @@ export function RemoteAccessSection({
             {on && (
               <p className="flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-muted-foreground">
                 {ts(
-                  'Add the MCP URL to Claude, ChatGPT, or another AI app as a connector, then sign in to Dagu Cloud. Workspace owners choose what connected apps may do.'
+                  'Add this URL to your MCP client as a remote MCP server, then sign in to Dagu Cloud. Workspace owners choose what each client may do.'
                 )}
                 <a
                   href={`${consoleURL}/ai-apps`}
@@ -240,7 +266,7 @@ export function RemoteAccessSection({
                   className="inline-flex items-center gap-1 text-foreground underline underline-offset-2"
                 >
                   <ExternalLink className="h-3 w-3" aria-hidden="true" />
-                  {ts('Open AI apps')}
+                  {ts('Manage MCP clients')}
                 </a>
               </p>
             )}
@@ -382,6 +408,81 @@ function parseDetails(details?: string): {
 }
 
 /**
+ * Lists the levels at which MCP calls through Dagu Cloud may reach this
+ * server, with what each allows, and warns that developer runs any command.
+ */
+export function RemoteAccessChoices({
+  selected,
+  onSelect,
+  disabled,
+  className,
+}: {
+  selected: OnLevel;
+  onSelect: (level: OnLevel) => void;
+  disabled?: boolean;
+  className?: string;
+}) {
+  const { ts } = useI18n();
+  const name = useId();
+  return (
+    <>
+      <fieldset className={cn('space-y-2', className)} disabled={disabled}>
+        <legend className="sr-only">{ts('Remote access')}</legend>
+        {choices.map((choice) => {
+          const id = `${name}-${choice.level}`;
+          return (
+            <label
+              key={choice.level}
+              htmlFor={id}
+              className={cn(
+                'flex cursor-pointer items-start gap-3 rounded-md border p-3',
+                selected === choice.level
+                  ? 'border-primary bg-primary/5'
+                  : 'border-border'
+              )}
+            >
+              <input
+                id={id}
+                type="radio"
+                name={name}
+                value={choice.level}
+                checked={selected === choice.level}
+                onChange={() => onSelect(choice.level)}
+                aria-labelledby={`${id}-title`}
+                aria-describedby={`${id}-allows`}
+                className="mt-1"
+              />
+              <span className="space-y-1">
+                <span id={`${id}-title`} className="block text-sm font-medium">
+                  {ts(remoteAccessLevelLabels[choice.level])}
+                </span>
+                <span
+                  id={`${id}-allows`}
+                  className="block text-sm text-muted-foreground"
+                >
+                  {ts(choice.allows)}
+                </span>
+              </span>
+            </label>
+          );
+        })}
+      </fieldset>
+      {selected === LicenseRemoteAccessLevel.developer && (
+        <p role="alert" className="flex items-start gap-2 text-sm text-warning">
+          <AlertTriangle
+            className="h-4 w-4 shrink-0 mt-0.5"
+            aria-hidden="true"
+          />
+          {ts(
+            'Developer lets the Dagu Cloud users this reaches run any command on this machine, as the user Dagu runs as. Choose it only where you would give them a shell here.'
+          )}
+        </p>
+      )}
+    </>
+  );
+}
+
+/**
  * Asks an administrator how far calls from Dagu Cloud may go, listing what
  * each role allows before any call reaches the server.
  */
@@ -397,9 +498,8 @@ function RemoteAccessDialog({
   onCancel: () => void;
 }) {
   const { ts } = useI18n();
-  const name = useId();
   const [selected, setSelected] = useState<OnLevel>(
-    LicenseRemoteAccessLevel.viewer
+    DEFAULT_REMOTE_ACCESS_LEVEL
   );
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -407,7 +507,7 @@ function RemoteAccessDialog({
 
   useEffect(() => {
     if (!open) return;
-    setSelected(on ? (level as OnLevel) : LicenseRemoteAccessLevel.viewer);
+    setSelected(on ? (level as OnLevel) : DEFAULT_REMOTE_ACCESS_LEVEL);
     setError(null);
   }, [open, level, on]);
 
@@ -443,64 +543,11 @@ function RemoteAccessDialog({
             )}
           </DialogDescription>
         </DialogHeader>
-        <fieldset className="space-y-2" disabled={saving}>
-          <legend className="sr-only">{ts('Remote access')}</legend>
-          {choices.map((choice) => {
-            const id = `${name}-${choice.level}`;
-            return (
-              <label
-                key={choice.level}
-                htmlFor={id}
-                className={cn(
-                  'flex cursor-pointer items-start gap-3 rounded-md border p-3',
-                  selected === choice.level
-                    ? 'border-primary bg-primary/5'
-                    : 'border-border'
-                )}
-              >
-                <input
-                  id={id}
-                  type="radio"
-                  name={name}
-                  value={choice.level}
-                  checked={selected === choice.level}
-                  onChange={() => setSelected(choice.level)}
-                  aria-labelledby={`${id}-title`}
-                  aria-describedby={`${id}-allows`}
-                  className="mt-1"
-                />
-                <span className="space-y-1">
-                  <span
-                    id={`${id}-title`}
-                    className="block text-sm font-medium"
-                  >
-                    {ts(remoteAccessLevelLabels[choice.level])}
-                  </span>
-                  <span
-                    id={`${id}-allows`}
-                    className="block text-sm text-muted-foreground"
-                  >
-                    {ts(choice.allows)}
-                  </span>
-                </span>
-              </label>
-            );
-          })}
-        </fieldset>
-        {selected === LicenseRemoteAccessLevel.developer && (
-          <p
-            role="alert"
-            className="flex items-start gap-2 text-sm text-warning"
-          >
-            <AlertTriangle
-              className="h-4 w-4 shrink-0 mt-0.5"
-              aria-hidden="true"
-            />
-            {ts(
-              'Developer lets the Dagu Cloud users this reaches run any command on this machine, as the user Dagu runs as. Choose it only where you would give them a shell here.'
-            )}
-          </p>
-        )}
+        <RemoteAccessChoices
+          selected={selected}
+          onSelect={setSelected}
+          disabled={saving}
+        />
         <p className="text-sm text-muted-foreground">
           {ts(
             'Calls never reach the terminal, users, API keys, the license, or these settings. Each carries a short-lived assertion that Dagu Cloud signs for that call alone. Turning remote access off closes the connection and ends the calls in flight.'

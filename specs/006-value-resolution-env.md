@@ -498,6 +498,14 @@ process.
 
 - Single-quoted `$NAME` and `${NAME}` are preserved during Dagu environment expansion.
 
+- Exception: in `steps[].run`, a bare reference written as `"${NAME}"` in a template slot is resolved by Dagu and its value is re-quoted, because the shell never expands it there. A template slot is a single-quoted span, such as a JSON body in `'{"key":"${NAME}"}'`, or a here-document body. For POSIX and Nix shells in local runs, an apostrophe in a value resolved into a single-quoted span is written as `'\''`, so the value cannot end the span.
+
+- A secret is never written into the command text of a local POSIX or Nix shell run, even in a template slot; the reference stays for the shell. To pass a secret into a single-quoted body, close the quotes around it: `'{"token":"'"${TOKEN}"'"}'`.
+
+- Quote spans follow POSIX shell rules. An apostrophe inside double quotes, or preceded by an odd number of consecutive backslashes, opens no single-quoted span; after an even number it opens one. A `$(...)` or backquoted command substitution and a `${...}` parameter expansion keep their own quotes, so quotes inside them do not end an outer span. A comment and the body of a here-document open no span.
+
+- Outside template slots, POSIX and Nix shells used for local `steps[].run` commands own `"${NAME}"` like an unquoted reference. Dagu inlines a safe home-relative value such as `~/data` only where the reference is unquoted, so the shell can expand the `~`, and never inlines a secret.
+
 - "Single-quoted" means the reference starts inside a single-quoted span in the field text after YAML parsing.
 
 - YAML single-quoted scalar style does not by itself make an environment reference single-quoted unless the resulting field text contains the quote characters.

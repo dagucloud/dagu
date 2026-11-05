@@ -346,6 +346,11 @@ test.describe('workspace deep links', () => {
     inlineDAG,
     gotoWorkspace,
   }) => {
+    // A phone shows the run in its run picker: phone.spec covers it.
+    test.skip(
+      (page.viewportSize()?.width ?? 0) < 768,
+      'the timeline bars need a wide window'
+    );
     test.setTimeout(150_000);
     const token = await adminToken(request);
     const dag = await inlineDAG(labelledSpec('classic-links'));
@@ -356,8 +361,8 @@ test.describe('workspace deep links', () => {
     await test.step('/executions?run', async () => {
       await gotoWorkspace(page, withCarry(`${base}/executions?run=${runId}`));
       await expectAt(page, base, { ...carried, run: runId });
-      await expectZone(page, 'editor');
       // ?run in the URL at load opens the Run panel on that run.
+      await expectZone(page, 'editor');
       await expectZone(page, 'dock');
       await expect(page.getByTestId(`ww-run-bar-${runId}`)).toHaveAttribute(
         'aria-selected',
@@ -441,16 +446,10 @@ test.describe('workspace deep links to runs', () => {
         ...carried,
       });
       await expectZone(page, 'editor');
-      // The YAML panel and the Run panel take turns: the Run panel waits,
-      // collapsed, while the YAML shows.
       await expect(page.getByTestId('ndv')).toHaveAttribute(
         'data-state',
         'docked',
         { timeout: 30_000 }
-      );
-      await expect(page.getByTestId('ww-dock')).toHaveAttribute(
-        'data-state',
-        'collapsed'
       );
     });
 

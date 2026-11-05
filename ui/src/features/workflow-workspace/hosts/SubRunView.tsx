@@ -3,11 +3,15 @@
 
 import {
   Archive,
+  Bot,
   ChevronDown,
   ChevronUp,
   FileCode,
   GanttChart,
   Info,
+  Link2,
+  ListChecks,
+  MessageSquare,
   ScrollText,
   X,
 } from 'lucide-react';
@@ -21,6 +25,7 @@ import {
   type ReactElement,
 } from 'react';
 import { NodeStatus, Stream, type components } from '@/api/v1/schema';
+import { CopyButton } from '@/components/ui/copy-button';
 import { IconButton } from '@/components/ui/icon-button';
 import StatusChip from '@/components/ui/status-chip';
 import { StatusDot } from '@/components/ui/status-dot';
@@ -32,13 +37,20 @@ import {
   RunNodeProgress,
   RunStatusMessage,
 } from '@/features/dags/components/common/RunSummaryBlocks';
+import { AgentTimeline } from '@/features/dags/components/agent/AgentTimeline';
+import { TaskChecklistTab } from '@/features/dags/components/agent/TaskChecklistTab';
+import { AgentSessionTab } from '@/features/dags/components/agent-session/AgentSessionTab';
 import ArtifactsTab from '@/features/dags/components/artifacts/ArtifactsTab';
+import { ChatHistoryTab } from '@/features/dags/components/chat-history/ChatHistoryTab';
+import { useOpenSubRun } from '@/features/dags/components/common/SubRunStackModal';
 import ExecutionLog from '@/features/dags/components/dag-execution/ExecutionLog';
 import StepLog from '@/features/dags/components/dag-execution/StepLog';
+import { runViewFacts } from '@/features/dags/lib/runViewTabs';
 import { buildRunOverlay } from '@/features/visual-editor/run/runOverlay';
 import { useI18n } from '@/i18n/I18nProvider';
 import { cn } from '@/lib/utils';
 import type { ApiNode } from '../contracts';
+import { useWorkflowShare } from '../bar/useWorkflowShare';
 import { WorkspaceDataContext } from '../data/context';
 import { RunTimelineWithOpener } from '../dock/tabs/runTabBodies';
 import { StepFacts } from '../step/StepFacts';
@@ -116,6 +128,10 @@ export function SubRunView({
   };
 
   const pickedNode = picked === null ? undefined : nodeOf(picked);
+  const [activity, setActivity] = useState<ActivityView>({
+    tab: 'timeline',
+    open: true,
+  });
 
   return (
     <div className="flex h-full min-h-0 flex-col gap-3">
@@ -125,6 +141,7 @@ export function SubRunView({
             {run.statusLabel}
           </StatusChip>
           <RunStatusMessage status={run.status} />
+          <SubRunLink run={run} />
         </div>
         <RunMetaLine dagRun={run} />
         <RunNodeProgress nodes={run.nodes} />
@@ -148,12 +165,45 @@ export function SubRunView({
             node={pickedNode}
             onClose={() => setPicked(null)}
             onChanged={onChanged}
+            onOpenAgent={() => setActivity({ tab: 'agent', open: true })}
           />
         )}
       </div>
-      <SubRunActivity run={run} />
+      <SubRunActivity
+        run={run}
+        view={activity}
+        onViewChange={setActivity}
+        onChanged={onChanged}
+      />
       {subRuns.picker}
     </div>
+  );
+}
+
+/**
+ * Copies the link that opens this run on the sub-run stack of its root run,
+ * as the Copy link of a run in the bar.
+ */
+function SubRunLink({ run }: { run: DAGRunDetails }): ReactElement {
+  const { ts } = useI18n();
+  const { getRunLink } = useWorkflowShare(usePageFile(run));
+  return (
+    <CopyButton
+      size="sm"
+      icon={Link2}
+      className="ml-auto"
+      text={() =>
+        getRunLink(
+          {
+            name: run.rootDAGRunName || run.name,
+            dagRunId: run.rootDAGRunId || run.dagRunId,
+          },
+          run.dagRunId
+        )
+      }
+      label={ts('Copy link to this run')}
+      copiedLabel={ts('Link copied')}
+    />
   );
 }
 
@@ -162,25 +212,69 @@ function usePageFile(run: DAGRunDetails): string {
   return useContext(WorkspaceDataContext)?.fileName ?? run.name;
 }
 
-type ActivityTab = 'timeline' | 'log' | 'artifacts' | 'definition';
+type ActivityTab =
+  | 'timeline'
+  | 'log'
+  | 'agent'
+  | 'chat'
+  | 'tasks'
+  | 'artifacts'
+  | 'definition';
+
+interface ActivityView {
+  tab: ActivityTab;
+  open: boolean;
+}
 
 /**
  * The record of the run under its graph, as the Activity panel of the
- * workflow page: the timeline of its steps, its run log, its artifacts and
- * the definition that it ran. A child row of the timeline opens on the
- * same stack. The panel folds to its tab row.
+ * workflow page: the timeline of its steps, its run log, the agent sessions,
+ * chats and tasks that it has, its artifacts and the definition that it ran.
+ * A child row of the timeline or of the agent timeline opens on the same
+ * stack. The panel folds to its tab row.
  */
-function SubRunActivity({ run }: { run: DAGRunDetails }): ReactElement {
+function SubRunActivity({
+  run,
+  view,
+  onViewChange,
+  onChanged,
+}: {
+  run: DAGRunDetails;
+  view: ActivityView;
+  onViewChange(view: ActivityView): void;
+  onChanged?(): void;
+}): ReactElement {
   const { ts } = useI18n();
   const fileName = usePageFile(run);
   const remoteNode = useRemoteNode();
+  const openOnStack = useOpenSubRun();
   // As the Artifacts tab of the page: a child run that kept no artifacts
   // reads as empty, not as storage turned off.
   const artifactsEnabled =
     !!useContext(WorkspaceDataContext)?.dagData.dag?.artifacts?.enabled;
+  const facts = runViewFacts(run, { artifactEnabled: artifactsEnabled });
+  const events = run.agentEvents ?? [];
   const idPrefix = useId();
-  const [tab, setTab] = useState<ActivityTab>('timeline');
-  const [open, setOpen] = useState(true);
+  const [agentStep, setAgentStep] = useState('');
+  const tabs = [
+    { id: 'timeline', label: ts('Timeline'), icon: GanttChart },
+    { id: 'log', label: ts('Run log'), icon: ScrollText },
+    ...(facts.hasAgentSessions || events.length > 0
+      ? [{ id: 'agent', label: ts('Agent'), icon: Bot }]
+      : []),
+    ...(facts.hasChatSteps
+      ? [{ id: 'chat', label: ts('Chat'), icon: MessageSquare }]
+      : []),
+    ...(facts.hasAgentTasks
+      ? [{ id: 'tasks', label: ts('Tasks'), icon: ListChecks }]
+      : []),
+    { id: 'artifacts', label: ts('Artifacts'), icon: Archive },
+    { id: 'definition', label: ts('Definition'), icon: FileCode },
+  ];
+  // A tab that the run no longer has shows the timeline.
+  const tab = tabs.some((t) => t.id === view.tab) ? view.tab : 'timeline';
+  const open = view.open;
+  const setOpen = (next: boolean) => onViewChange({ tab, open: next });
   return (
     <section
       aria-label={ts('Activity')}
@@ -194,17 +288,11 @@ function SubRunActivity({ run }: { run: DAGRunDetails }): ReactElement {
           label={ts('Activity')}
           idPrefix={idPrefix}
           className="min-w-0 flex-1 px-2"
-          tabs={[
-            { id: 'timeline', label: ts('Timeline'), icon: GanttChart },
-            { id: 'log', label: ts('Run log'), icon: ScrollText },
-            { id: 'artifacts', label: ts('Artifacts'), icon: Archive },
-            { id: 'definition', label: ts('Definition'), icon: FileCode },
-          ]}
+          tabs={tabs}
           value={tab}
-          onChange={(id) => {
-            setTab(id as ActivityTab);
-            setOpen(true);
-          }}
+          onChange={(id) =>
+            onViewChange({ tab: id as ActivityTab, open: true })
+          }
         />
         <IconButton
           icon={open ? ChevronDown : ChevronUp}
@@ -234,6 +322,38 @@ function SubRunActivity({ run }: { run: DAGRunDetails }): ReactElement {
                   />
                 }
               />
+            </div>
+          )}
+          {tab === 'agent' && (
+            <div className="space-y-4 p-2">
+              {events.length > 0 && (
+                <AgentTimeline
+                  events={events}
+                  onOpenChildRun={(event) => {
+                    if (!event.childDagRunId || !openOnStack) return;
+                    openOnStack({
+                      name: event.childDagName || event.name || 'child',
+                      dagRunId: event.childDagRunId,
+                    });
+                  }}
+                />
+              )}
+              <AgentSessionTab
+                dagRun={run}
+                onChanged={() => onChanged?.()}
+                selectedStep={agentStep}
+                onSelectedStepChange={setAgentStep}
+              />
+            </div>
+          )}
+          {tab === 'chat' && (
+            <div className="p-2">
+              <ChatHistoryTab dagRun={run} />
+            </div>
+          )}
+          {tab === 'tasks' && (
+            <div className="p-2">
+              <TaskChecklistTab tasks={run.agentTasks ?? []} />
             </div>
           )}
           {tab === 'artifacts' && (
@@ -272,11 +392,14 @@ function RunStepPane({
   node,
   onClose,
   onChanged,
+  onOpenAgent,
 }: {
   run: DAGRunDetails;
   node: ApiNode;
   onClose(): void;
   onChanged?(): void;
+  /** Shows the agent sessions of the run, where a waiting agent is answered. */
+  onOpenAgent(): void;
 }): ReactElement {
   const { ts } = useI18n();
   const step = node.step.name;
@@ -350,6 +473,7 @@ function RunStepPane({
               node={node}
               inSubRun
               onChanged={onChanged}
+              onOpenAgent={onOpenAgent}
             />
           </div>
         ) : (

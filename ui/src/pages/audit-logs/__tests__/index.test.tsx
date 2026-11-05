@@ -14,6 +14,7 @@ import { AppBarContext } from '@/contexts/AppBarContext';
 import { AuthProvider } from '@/contexts/AuthContext';
 import { ConfigContext, type Config } from '@/contexts/ConfigContext';
 import AuditLogsPage, { getQuickFilterValue } from '..';
+import { AuditEntryDetailsDrawer } from '../AuditEntryDetailsDrawer';
 
 const auditEntry = {
   id: 'audit-001',
@@ -216,6 +217,32 @@ describe('AuditLogsPage', () => {
     expect(navigator.clipboard.writeText).toHaveBeenCalledWith(
       JSON.stringify(auditEntry, null, 2)
     );
+  });
+
+  // The Copied label belongs to the entry that was copied, so it clears when
+  // the drawer shows another entry.
+  it('clears the copied label when the drawer shows another entry', async () => {
+    const config = makeConfig();
+    const renderDrawer = (entry: typeof auditEntry) => (
+      <ConfigContext.Provider value={config}>
+        <AuditEntryDetailsDrawer
+          entry={entry}
+          open
+          onOpenChange={() => undefined}
+        />
+      </ConfigContext.Provider>
+    );
+    const { rerender } = render(renderDrawer(auditEntry));
+
+    fireEvent.click(screen.getByRole('button', { name: 'Copy JSON' }));
+    expect(
+      await screen.findByRole('button', { name: 'Copied' })
+    ).toBeInTheDocument();
+
+    rerender(renderDrawer({ ...auditEntry, id: 'audit-002' }));
+    expect(
+      await screen.findByRole('button', { name: 'Copy JSON' })
+    ).toBeInTheDocument();
   });
 
   it('opens the focused audit row with the keyboard', async () => {

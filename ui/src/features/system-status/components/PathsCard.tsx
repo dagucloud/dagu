@@ -10,6 +10,7 @@ import {
 } from 'lucide-react';
 import React from 'react';
 import { Button } from '@/components/ui/button';
+import { useCopyFeedback } from '@/hooks/useCopyFeedback';
 import {
   Dialog,
   DialogContent,
@@ -27,22 +28,12 @@ interface PathRowProps {
 }
 
 function PathRow({ label, path }: PathRowProps) {
-  const [copied, setCopied] = React.useState(false);
-
-  const handleCopy = async () => {
-    try {
-      await navigator.clipboard.writeText(path);
-      setCopied(true);
-      setTimeout(() => setCopied(false), 1500);
-    } catch {
-      // Clipboard API might not be available
-    }
-  };
+  const { copied, copy } = useCopyFeedback(1500);
 
   return (
     <button
       type="button"
-      onClick={handleCopy}
+      onClick={() => void copy(path)}
       aria-label={`Copy ${label} path`}
       className={cn(
         'w-full flex items-center justify-between gap-3 px-3 py-2 rounded-lg cursor-pointer transition-colors text-left',

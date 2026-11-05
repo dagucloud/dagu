@@ -34,6 +34,13 @@ const h = vi.hoisted(() => ({
   client: { GET: vi.fn(), POST: vi.fn() },
   showToast: vi.fn(),
   showError: vi.fn(),
+  setDockTab: vi.fn(),
+}));
+
+// The commands of the Run panel that the cluster calls.
+vi.mock('../../dock/DockContext', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../../dock/DockContext')>()),
+  useDockCommands: () => ({ setTab: h.setDockTab }),
 }));
 
 vi.mock('@/contexts/ConfigContext', () => ({
@@ -240,7 +247,7 @@ describe('RunActionsCluster', () => {
   it.each<[RunCase, string[]]>([
     ['running', ['Stop']],
     ['queued', ['Dequeue']],
-    ['waiting-approval', ['Reject']],
+    ['waiting-approval', ['Action required', 'Reject']],
     ['failed-auto-retry', ['Cancel', 'Retry']],
     ['failed', ['Retry']],
     ['succeeded', ['Retry']],
@@ -265,6 +272,31 @@ describe('RunActionsCluster', () => {
     setup(details(kind));
     expect(screen.queryByTestId('ww-run-actions')).toBeNull();
     expect(screen.queryAllByRole('button')).toHaveLength(0);
+  });
+
+  // The approvals and the human tasks of the run are in the Actions tab.
+  it('opens the Actions tab of a run that waits for a person', () => {
+    setup(details('waiting-approval'));
+    fireEvent.click(screen.getByRole('button', { name: 'Action required' }));
+    expect(h.setDockTab).toHaveBeenCalledWith('actions', { user: true });
+  });
+
+  // The Actions tab lists the actions of the runs that the steps called too.
+  it('leads a run that waits in a sub-run to the Actions tab', () => {
+    setup({
+      ...details('running'),
+      status: Status.Waiting,
+      statusLabel: StatusLabel.waiting,
+      nodes: [
+        {
+          step: { name: 'notify', call: 'notify' },
+          status: NodeStatus.Waiting,
+          subRuns: [{ dagRunId: 'sub-1', params: '' }],
+        },
+      ],
+    } as unknown as ApiDAGRunDetails);
+    fireEvent.click(screen.getByRole('button', { name: 'Action required' }));
+    expect(h.setDockTab).toHaveBeenCalledWith('actions', { user: true });
   });
 
   it('is absent for a workflow that never ran', () => {

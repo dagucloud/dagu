@@ -1794,10 +1794,8 @@ func (r *Runner) shouldRetryNode(ctx context.Context, node *Node, execErr error)
 	)
 
 	if !shouldRetry {
-		// finish the node with error
-		node.SetStatus(ir.NodeFailed)
-		node.MarkError(execErr)
-		r.setLastError(execErr)
+		// The exit code is not retryable; settle the failure now.
+		r.finalizeFailedNode(ctx, node, execErr)
 		return false
 	}
 
@@ -2004,18 +2002,22 @@ func (r *Runner) handleNodeExecutionError(ctx context.Context, plan *Plan, node 
 
 	default:
 		// node execution error is unexpected and unrecoverable
-		node.SetStatus(ir.NodeFailed)
-		if node.ShouldMarkSuccess(ctx) {
-			// mark as success if the node should be force marked as success
-			// i.e. continueOn.markSuccess is set to true
-			node.SetStatus(ir.NodeSucceeded)
-		} else {
-			node.MarkError(execErr)
-			r.setLastError(execErr)
-		}
+		r.finalizeFailedNode(ctx, node, execErr)
 	}
 
 	return false
+}
+
+// finalizeFailedNode records a failed execution, promoting the node to
+// succeeded when continueOn.markSuccess applies.
+func (r *Runner) finalizeFailedNode(ctx context.Context, node *Node, execErr error) {
+	node.SetStatus(ir.NodeFailed)
+	if node.ShouldMarkSuccess(ctx) {
+		node.SetStatus(ir.NodeSucceeded)
+		return
+	}
+	node.MarkError(execErr)
+	r.setLastError(execErr)
 }
 
 // shouldRepeatNode determines if a node should be repeated based on its repeat policy

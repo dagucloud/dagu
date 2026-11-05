@@ -85,10 +85,11 @@ type Props = {
    */
   markActions?: boolean;
   /**
-   * The Start button shows its icon only, in the primary style, with 'Start'
-   * as its accessible name and its tooltip.
+   * The Start button is a bar button in the primary style: its text shows on
+   * a wide bar, as the text of Retry does, and its icon alone below, with
+   * 'Start' as its accessible name and its tooltip.
    */
-  startIconOnly?: boolean;
+  barStart?: boolean;
   /**
    * The Start button keeps its Play icon in the layout but does not show it.
    * A host that draws a feedback icon over the button sets it.
@@ -107,7 +108,7 @@ function DAGActions({
   displayMode = 'compact',
   only,
   markActions = false,
-  startIconOnly = false,
+  barStart = false,
   startIconHidden = false,
 }: Props) {
   const shows = (action: 'start' | 'stop' | 'retry') =>
@@ -335,18 +336,16 @@ function DAGActions({
           <Tooltip>
             <TooltipTrigger asChild>
               <ActionButton
-                label={displayMode !== 'compact' && !startIconOnly}
+                label={barStart ? 'wide' : displayMode !== 'compact'}
                 variant={
-                  displayMode !== 'compact' || startIconOnly
-                    ? 'primary'
-                    : undefined
+                  displayMode !== 'compact' || barStart ? 'primary' : undefined
                 }
                 icon={
                   <Play
                     className={cn('h-4 w-4', startIconHidden && 'invisible')}
                   />
                 }
-                aria-label={startIconOnly ? ts('Start') : undefined}
+                aria-label={barStart ? ts('Start') : undefined}
                 disabled={!buttonState['enqueue']}
                 data-ww-action={mark('start')}
                 onClick={() => {
@@ -358,7 +357,10 @@ function DAGActions({
                 }}
                 className="cursor-pointer"
               >
-                <I18nText text={'Start'} />
+                {/* Hidden with the icon, under the feedback of the host. */}
+                <span className={cn(startIconHidden && 'invisible')}>
+                  <I18nText text={'Start'} />
+                </span>
               </ActionButton>
             </TooltipTrigger>
             <TooltipContent>

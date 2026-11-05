@@ -5,10 +5,13 @@ package intg_test
 
 import (
 	"fmt"
+	"os"
+	"path/filepath"
 	"testing"
 
 	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/test"
+	"github.com/stretchr/testify/require"
 )
 
 const redisTestImage = "redis:7-alpine"
@@ -280,4 +283,65 @@ steps:
 			}
 		})
 	}
+}
+
+// Relative redis file paths name files under the DAG working directory: the
+// Lua script runs, and the CA file is read from there (its garbage content is
+// what fails, not a missing file).
+func TestRedisRelativeFilesUseWorkingDir(t *testing.T) {
+	t.Parallel()
+
+	t.Run("TLSCAFile", func(t *testing.T) {
+		t.Parallel()
+		workDir := t.TempDir()
+		require.NoError(t, os.MkdirAll(filepath.Join(workDir, "certs"), 0o750))
+		require.NoError(t, os.WriteFile(filepath.Join(workDir, "certs", "ca.pem"), []byte("not a certificate"), 0o600))
+
+		th := test.Setup(t)
+		dag := th.DAG(t, fmt.Sprintf(`
+working_dir: "%s"
+steps:
+  - name: ping
+    action: redis.ping
+    with:
+      host: localhost
+      tls: true
+      tls_ca: certs/ca.pem
+`, filepath.ToSlash(workDir)))
+		dag.Agent().RunCheckErr(t, "failed to parse CA certificate")
+	})
+
+	t.Run("ScriptFile", func(t *testing.T) {
+		requireDockerDaemon(t)
+		requireLinuxContainerRuntime(t)
+		t.Parallel()
+		workDir := t.TempDir()
+		require.NoError(t, os.MkdirAll(filepath.Join(workDir, "scripts"), 0o750))
+		require.NoError(t, os.WriteFile(filepath.Join(workDir, "scripts", "greet.lua"), []byte("return 'hello'"), 0o600))
+
+		// Clear of the ports TestDAGLevelRedis assigns from 16379.
+		const port = 16399
+		th := test.Setup(t)
+		dag := th.DAG(t, fmt.Sprintf(`
+working_dir: "%s"
+container:
+  image: %s
+  startup: entrypoint
+  ports:
+    - "%d:6379"
+
+redis:
+  host: localhost
+  port: %d
+
+steps:
+  - name: greet
+    action: redis.eval
+    with:
+      script_file: scripts/greet.lua
+    output: GREETING
+`, filepath.ToSlash(workDir), redisTestImage, port, port))
+		dag.Agent().RunSuccess(t)
+		dag.AssertOutputs(t, map[string]any{"GREETING": "\"hello\""})
+	})
 }

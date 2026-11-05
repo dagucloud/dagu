@@ -6,6 +6,7 @@ import { useNavigate } from 'react-router-dom';
 import { Status } from '@/api/v1/schema';
 import { useMonitoringOfferState } from '@/components/MonitoringOffer';
 import { useOpenSubRun } from '@/features/dags/components/common/SubRunStackModal';
+import { useIsMobile } from '@/hooks/useIsMobile';
 import { useI18n } from '@/i18n/I18nProvider';
 import type { WorkspaceNotice } from '../contracts';
 import { useWorkspaceRun } from '../data';
@@ -62,7 +63,9 @@ export function useWorkspaceNotices(): WorkspaceNotice[] {
     (selectedRun === null || isNewerRun(latestRef, selectedRun));
   // Scheduled runs happen unattended, which is when alerts matter.
   const runsOnSchedule = !!dagData.dag?.schedule?.length && !dagData.suspended;
-  const offerVisible = runsOnSchedule && offer.visible;
+  // A phone keeps the top of the graph free: the offer stays in Settings.
+  const phone = useIsMobile();
+  const offerVisible = runsOnSchedule && offer.visible && !phone;
   const { setTab } = dock;
   const { dismiss: dismissOffer } = offer;
   const waitingSubRun = useWaitingSubRun();
@@ -148,7 +151,7 @@ export function useWorkspaceNotices(): WorkspaceNotice[] {
         message: ts('Get an email if this server stops'),
         action: {
           label: ts('Set up for free'),
-          run: () => navigate('/license#monitoring'),
+          run: () => navigate('/settings#monitoring'),
         },
         dismissible: true,
         dismiss: dismissOffer,

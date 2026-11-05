@@ -117,6 +117,9 @@ type config struct {
 	// Maximize, true unless set false, maximizes the front window before an
 	// operation looks at the screen.
 	Maximize *bool `json:"maximize,omitempty"`
+	// Marks shows a person at the desktop where each action lands: by
+	// default on the console and not in a remote session.
+	Marks *bool `json:"marks,omitempty"`
 	// Handle lists screens that may come up at any point of the step, each
 	// with the pinned steps that clear it.
 	Handle []handler   `json:"handle,omitempty"`
@@ -1052,6 +1055,7 @@ var configSchema = &jsonschema.Schema{
 		"input":           inputSchema(),
 		"max_rows":        positiveInteger(),
 		"maximize":        {Type: "boolean"},
+		"marks":           {Type: "boolean"},
 		"handle":          {Type: "array", Items: handlerSchema()},
 		"refuse":          {Type: "array", Items: agentstep.NonEmptyString()},
 		"do":              {Type: "array", MinItems: new(1), Items: operationSchema},

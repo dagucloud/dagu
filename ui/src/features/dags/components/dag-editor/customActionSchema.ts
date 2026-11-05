@@ -172,7 +172,13 @@ function augmentHarnessProviderSchema(schema: JSONSchema, harnesses: string[]) {
   }
   const branchCount = definition.anyOf.length;
   const definitionText = JSON.stringify(definition);
+  // The schema shares an object at each of its uses: each is seen once.
+  const seen = new WeakSet<object>();
   const visit = (node: unknown) => {
+    if (typeof node !== 'object' || node === null || seen.has(node)) {
+      return;
+    }
+    seen.add(node);
     if (Array.isArray(node)) {
       node.forEach(visit);
       return;
@@ -214,7 +220,7 @@ export function withLocalHarnesses(
   if (harnesses.length === 0) {
     return schema;
   }
-  const augmented = cloneJson(schema);
+  const augmented = structuredClone(schema);
   augmentHarnessProviderSchema(augmented, harnesses);
   return augmented;
 }
@@ -494,62 +500,36 @@ function suppressConditionalPropertySuggestions(stepSchema: JSONSchema) {
   }
 }
 
-function visitSchemas(
-  node: unknown,
-  visitor: (schema: JSONSchema, path: string[]) => void,
-  path: string[] = []
-) {
-  if (Array.isArray(node)) {
-    for (const [index, item] of node.entries()) {
-      visitSchemas(item, visitor, [...path, String(index)]);
+/**
+ * The step schemas of a schema, each one once: a dereferenced schema shares
+ * one object at every use of a definition.
+ */
+function collectStepSchemas(schema: JSONSchema): JSONSchema[] {
+  const steps: JSONSchema[] = [];
+  const seen = new WeakSet<object>();
+  const visit = (node: unknown) => {
+    if (typeof node !== 'object' || node === null || seen.has(node)) {
+      return;
     }
-    return;
-  }
-
-  if (!isRecord(node)) {
-    return;
-  }
-
-  visitor(node as JSONSchema, path);
-
-  for (const [key, value] of Object.entries(node)) {
-    visitSchemas(value, visitor, [...path, key]);
-  }
-}
-
-function collectStepSchemaPaths(schema: JSONSchema): string[][] {
-  const pathMap = new Map<string, string[]>();
-
-  visitSchemas(schema, (candidate, path) => {
+    seen.add(node);
+    if (Array.isArray(node)) {
+      node.forEach(visit);
+      return;
+    }
+    if (!isRecord(node)) {
+      return;
+    }
+    const candidate = node as JSONSchema;
     if (
       candidate.$ref === '#/definitions/step' ||
       isStepSchemaCandidate(candidate)
     ) {
-      pathMap.set(path.join('/'), path);
+      steps.push(candidate);
     }
-  });
-
-  return Array.from(pathMap.values());
-}
-
-function getNodeAtPath(root: unknown, path: string[]): JSONSchema | null {
-  let current = root;
-  for (const segment of path) {
-    if (Array.isArray(current)) {
-      const index = Number.parseInt(segment, 10);
-      if (Number.isNaN(index)) {
-        return null;
-      }
-      current = current[index];
-      continue;
-    }
-    if (!isRecord(current)) {
-      return null;
-    }
-    current = current[segment];
-  }
-
-  return isRecord(current) ? (current as JSONSchema) : null;
+    Object.values(node).forEach(visit);
+  };
+  visit(schema);
+  return steps;
 }
 
 export function toInheritedLegacyDefinitionHints(
@@ -738,6 +718,15 @@ export function harnessNamesEqual(left: string[], right: string[]): boolean {
   );
 }
 
+/** The schemas built from each base schema, by their inputs, oldest first. */
+const builtSchemas = new WeakMap<JSONSchema, Map<string, JSONSchema>>();
+const BUILT_SCHEMAS_KEPT = 8;
+
+/**
+ * The schema of the editor: the base schema with the legacy definitions, the
+ * custom actions, the harnesses and the calendar names of the document. The
+ * same inputs give the same schema object, which the caller must not change.
+ */
 export function buildAugmentedDAGSchema(
   baseSchema: JSONSchema,
   legacyDefinitions: EditorLegacyDefinitionHint[],
@@ -745,7 +734,47 @@ export function buildAugmentedDAGSchema(
   harnesses: string[] = [],
   calendarNames: string[] = []
 ): JSONSchema {
-  const augmented = cloneJson(baseSchema);
+  const key = JSON.stringify([
+    legacyDefinitions,
+    actions,
+    harnesses,
+    calendarNames,
+  ]);
+  let built = builtSchemas.get(baseSchema);
+  if (!built) {
+    built = new Map();
+    builtSchemas.set(baseSchema, built);
+  }
+  const cached = built.get(key);
+  if (cached) {
+    built.delete(key);
+    built.set(key, cached);
+    return cached;
+  }
+  const schema = buildSchema(
+    baseSchema,
+    legacyDefinitions,
+    actions,
+    harnesses,
+    calendarNames
+  );
+  built.set(key, schema);
+  if (built.size > BUILT_SCHEMAS_KEPT) {
+    built.delete(built.keys().next().value!);
+  }
+  return schema;
+}
+
+function buildSchema(
+  baseSchema: JSONSchema,
+  legacyDefinitions: EditorLegacyDefinitionHint[],
+  actions: EditorCustomActionHint[],
+  harnesses: string[],
+  calendarNames: string[]
+): JSONSchema {
+  // A structured copy keeps the objects that the base shares: a JSON copy
+  // would expand each use of a definition into its own copy.
+  const augmented = structuredClone(baseSchema);
   augmentHarnessProviderSchema(augmented, harnesses);
   const definitions = augmented.definitions;
 
@@ -756,12 +785,10 @@ export function buildAugmentedDAGSchema(
   }
 
   if (legacyDefinitions.length === 0 && actions.length === 0) {
-    for (const path of collectStepSchemaPaths(augmented)) {
-      const schema = getNodeAtPath(augmented, path);
-      if (!schema || !isStepLikeSchema(schema)) {
-        continue;
+    for (const schema of collectStepSchemas(augmented)) {
+      if (isStepLikeSchema(schema)) {
+        suppressConditionalPropertySuggestions(schema);
       }
-      suppressConditionalPropertySuggestions(schema);
     }
 
     return augmented;
@@ -871,9 +898,8 @@ export function buildAugmentedDAGSchema(
       allOf: cloneJson(customActionRules),
     }).allOf ?? customActionRules;
 
-  for (const path of collectStepSchemaPaths(resolved)) {
-    const schema = getNodeAtPath(resolved, path);
-    if (!schema || !isStepLikeSchema(schema)) {
+  for (const schema of collectStepSchemas(resolved)) {
+    if (!isStepLikeSchema(schema)) {
       continue;
     }
     augmentStepSchema(

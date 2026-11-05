@@ -1,7 +1,7 @@
 // Copyright (C) 2026 Yota Hamada
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-import { fireEvent, render, screen } from '@testing-library/react';
+import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
 import { describe, expect, it, vi } from 'vitest';
 import {
@@ -19,6 +19,11 @@ type Node = components['schemas']['Node'];
 
 vi.mock('@/contexts/RemoteNodeContext', () => ({
   useRemoteNode: () => 'local',
+}));
+const copyText = vi.hoisted(() => vi.fn());
+vi.mock('@/lib/clipboard', () => ({ copyText }));
+vi.mock('@/contexts/ConfigContext', () => ({
+  useConfig: () => ({ basePath: '/' }),
 }));
 vi.mock('@/features/dag-runs/components/common/RunMetaLine', () => ({
   RunMetaLine: () => null,
@@ -83,8 +88,23 @@ vi.mock('@/features/dags/components/dag-editor/DAGSpecReadOnly', () => ({
   ),
 }));
 vi.mock('../../step/StepManualActions', () => ({
-  StepManualActions: ({ inSubRun }: { inSubRun?: boolean }) => (
-    <div data-testid="step-manual-actions" data-sub-run={String(inSubRun)} />
+  StepManualActions: ({
+    inSubRun,
+    onOpenAgent,
+  }: {
+    inSubRun?: boolean;
+    onOpenAgent?(): void;
+  }) => (
+    <div data-testid="step-manual-actions" data-sub-run={String(inSubRun)}>
+      <button type="button" onClick={onOpenAgent}>
+        answer the agent
+      </button>
+    </div>
+  ),
+}));
+vi.mock('@/features/dags/components/agent-session/AgentSessionTab', () => ({
+  AgentSessionTab: ({ dagRun }: { dagRun: { dagRunId: string } }) => (
+    <div data-testid="agent-sessions">sessions of {dagRun.dagRunId}</div>
   ),
 }));
 // One button for each step: a click picks it, a double click opens it.
@@ -237,6 +257,56 @@ describe('SubRunView', () => {
   });
 
   // A child run of the child run opens on the same stack.
+  // An agent that waits in a child run is answered in the Agent tab of that
+  // run: the dock shows the root run only.
+  it('answers a waiting agent of the run in its Agent tab', async () => {
+    const withAgent = {
+      ...run,
+      nodes: [
+        ...run.nodes,
+        node('coder', {
+          status: NodeStatus.Running,
+          statusLabel: NodeStatusLabel.running,
+          agentSession: { provider: 'opencode', state: 'waiting' },
+        } as Partial<Node>),
+      ],
+    } as DAGRunDetails;
+    render(
+      <MemoryRouter>
+        <SubRunOpenProvider value={vi.fn()}>
+          <SubRunView run={withAgent} initialStep="coder" />
+        </SubRunOpenProvider>
+      </MemoryRouter>
+    );
+
+    fireEvent.click(await screen.findByRole('tab', { name: 'Details' }));
+    fireEvent.click(screen.getByRole('button', { name: 'answer the agent' }));
+
+    expect(screen.getByRole('tab', { name: 'Agent' })).toHaveAttribute(
+      'aria-selected',
+      'true'
+    );
+    expect(screen.getByTestId('agent-sessions')).toHaveTextContent(
+      'sessions of c-1'
+    );
+  });
+
+  // The link opens the root run with this run on its sub-run stack.
+  it('copies a link to the run on the stack of its root run', async () => {
+    copyText.mockResolvedValue(true);
+    renderView();
+
+    fireEvent.click(
+      await screen.findByRole('button', { name: 'Copy link to this run' })
+    );
+
+    await waitFor(() => expect(copyText).toHaveBeenCalled());
+    const link = new URL(copyText.mock.calls[0]![0] as string);
+    expect(link.pathname).toBe('/dags/demo');
+    expect(link.searchParams.get('run')).toBe('run-1');
+    expect(link.searchParams.get('subRun')).toBe('c-1');
+  });
+
   it('opens the child run of a step on the stack', async () => {
     const push = renderView();
 

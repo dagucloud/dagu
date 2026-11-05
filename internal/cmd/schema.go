@@ -6,6 +6,7 @@ package cmd
 import (
 	"encoding/json"
 	"fmt"
+	"maps"
 	"sort"
 	"strings"
 
@@ -30,7 +31,7 @@ path to drill into nested sections.`,
   dagu schema dag steps            Show step properties
   dagu schema dag steps.container  Show container configuration
   dagu schema config               Show all config root-level fields
-  dagu schema config server        Show server configuration
+  dagu schema config auth          Show authentication configuration
   dagu schema calendar holidays    Show the forms of a calendar holiday`,
 		ValidArgs: []string{"dag", "config", "calendar"},
 		Args:      cobra.RangeArgs(1, 2),
@@ -85,6 +86,7 @@ func navigateSchema(schemaName, path string) (string, error) {
 		if err != nil {
 			return "", err
 		}
+		current = expandSchemaShape(root, current, map[string]bool{})
 	}
 
 	result, err := json.MarshalIndent(current, "", "  ")
@@ -97,7 +99,7 @@ func navigateSchema(schemaName, path string) (string, error) {
 func navigateSchemaPath(root any, parts []string) (any, error) {
 	current := root
 	for _, part := range parts {
-		next, ok := schemaChild(current, part)
+		next, ok := schemaChild(root, current, part, map[string]bool{})
 		if !ok {
 			return nil, fmt.Errorf("path %q not found", strings.Join(parts, "."))
 		}
@@ -106,24 +108,121 @@ func navigateSchemaPath(root any, parts []string) (any, error) {
 	return current, nil
 }
 
-func schemaChild(node any, name string) (any, bool) {
+// schemaUnionKeys name the keywords whose branches each describe a form a
+// value may take.
+var schemaUnionKeys = []string{"oneOf", "anyOf", "allOf"}
+
+// schemaChild finds the schema of the named child of node, looking through
+// references, union branches, and array items. seen holds the references
+// already followed, so a recursive definition is not followed again.
+func schemaChild(root, node any, name string, seen map[string]bool) (any, bool) {
 	obj, ok := node.(map[string]any)
 	if !ok {
 		return nil, false
 	}
 
+	if ref, ok := obj["$ref"].(string); ok {
+		if seen[ref] {
+			return nil, false
+		}
+		seen[ref] = true
+		target, ok := schemaRef(root, ref)
+		if !ok {
+			return nil, false
+		}
+		return schemaChild(root, target, name, seen)
+	}
 	if properties, ok := obj["properties"].(map[string]any); ok {
 		if child, ok := properties[name]; ok {
 			return child, true
 		}
 	}
 	if items, ok := obj["items"]; ok {
-		if child, ok := schemaChild(items, name); ok {
+		if child, ok := schemaChild(root, items, name, seen); ok {
 			return child, true
+		}
+	}
+	for _, key := range schemaUnionKeys {
+		branches, _ := obj[key].([]any)
+		for _, branch := range branches {
+			if child, ok := schemaChild(root, branch, name, seen); ok {
+				return child, true
+			}
 		}
 	}
 	if child, ok := obj[name]; ok {
 		return child, true
 	}
 	return nil, false
+}
+
+// expandSchemaShape replaces the references that define the shape of node,
+// in the node itself, its union branches, its array items, and its map
+// values, with the definitions they name. Field schemas under properties
+// keep their references. expanded holds the definitions already shown, so
+// each is expanded once.
+func expandSchemaShape(root, node any, expanded map[string]bool) any {
+	obj, ok := node.(map[string]any)
+	if !ok {
+		return node
+	}
+
+	if ref, ok := obj["$ref"].(string); ok {
+		if expanded[ref] {
+			return node
+		}
+		target, ok := schemaRef(root, ref)
+		targetObj, isObj := target.(map[string]any)
+		if !ok || !isObj {
+			return node
+		}
+		expanded[ref] = true
+		merged := maps.Clone(targetObj)
+		for key, value := range obj {
+			if key != "$ref" {
+				merged[key] = value
+			}
+		}
+		return expandSchemaShape(root, merged, expanded)
+	}
+
+	out := maps.Clone(obj)
+	for _, key := range schemaUnionKeys {
+		branches, ok := obj[key].([]any)
+		if !ok {
+			continue
+		}
+		expandedBranches := make([]any, len(branches))
+		for i, branch := range branches {
+			expandedBranches[i] = expandSchemaShape(root, branch, expanded)
+		}
+		out[key] = expandedBranches
+	}
+	for _, key := range []string{"items", "additionalProperties"} {
+		if child, ok := obj[key].(map[string]any); ok {
+			out[key] = expandSchemaShape(root, child, expanded)
+		}
+	}
+	return out
+}
+
+// schemaRef resolves a local JSON pointer reference such as
+// "#/definitions/step" against root.
+func schemaRef(root any, ref string) (any, bool) {
+	pointer, ok := strings.CutPrefix(ref, "#/")
+	if !ok {
+		return nil, false
+	}
+	node := root
+	for token := range strings.SplitSeq(pointer, "/") {
+		obj, ok := node.(map[string]any)
+		if !ok {
+			return nil, false
+		}
+		token = strings.ReplaceAll(strings.ReplaceAll(token, "~1", "/"), "~0", "~")
+		if node, ok = obj[token]; !ok {
+			return nil, false
+		}
+	}
+	return node, true
 }

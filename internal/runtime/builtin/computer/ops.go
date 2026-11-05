@@ -345,6 +345,7 @@ func (r *run) start(ctx context.Context) (int, error) {
 	r.driver = driver
 	r.driver.ProtectApps(r.exec.protectedApps...)
 	r.driver.ProtectTitles(r.exec.protectedTitles...)
+	r.showMarks()
 	r.workApp = readWorkApp(r.lockDir, r.dagRunID)
 	r.trustWorkApp(r.workApp)
 	r.noteStartingWindows()
@@ -825,7 +826,8 @@ func (r *run) elementsReader() (desktop.Elements, error) {
 		}
 		return nil, fmt.Errorf("open the elements: %w", err)
 	}
-	r.elements = newSteadyElements(&routedElements{Elements: els, own: r.ownRead}, r.settledWindows, r.driver.InputSentAt, func() context.Context { return r.operation })
+	routed := &routedElements{Elements: els, own: r.ownRead}
+	r.elements = newSteadyElements(markedElements{Elements: routed, driver: r.driver}, r.settledWindows, r.driver.InputSentAt, func() context.Context { return r.operation })
 	return r.elements, nil
 }
 

@@ -34,6 +34,8 @@ import { getDAGRunTerminateActionDetails } from './terminateAction';
 import { I18nText } from '@/i18n/I18nText';
 import { I18nProps } from '@/i18n/I18nProps';
 import { useI18n } from '@/i18n/I18nProvider';
+import { cn } from '@/lib/utils';
+import { Button } from '@/components/ui/button';
 
 /**
  * Props for the DAGRunActions component
@@ -49,8 +51,11 @@ type Props = {
   label?: boolean;
   /** Function to refresh data after actions */
   refresh?: () => void;
-  /** Display mode: 'compact' for icon-only, 'full' for text+icon buttons */
-  displayMode?: 'compact' | 'full';
+  /**
+   * Display mode: 'compact' for icon-only, 'full' for text+icon buttons,
+   * 'bar' for buttons that show their text on a bar wide enough for it.
+   */
+  displayMode?: 'compact' | 'full' | 'bar';
   /** Whether this is a root level dagRun (controls availability of retry/stop actions) */
   isRootLevel?: boolean;
   /**
@@ -76,6 +81,11 @@ type Props = {
   onRescheduled?: (dagRunId: string, dagName: string) => void;
   /** Called after the run was removed from the queue, before refresh. */
   onDequeued?: () => void;
+  /**
+   * Opens the screen that edits the definition of the run and chooses the
+   * steps that run again, for a new run. The Retry dialog links to it.
+   */
+  onEditRetry?: () => void;
 };
 
 /**
@@ -92,6 +102,7 @@ function DAGRunActions({
   markActions = false,
   onRescheduled,
   onDequeued,
+  onEditRetry,
 }: Props) {
   const { ts } = useI18n();
   const remoteNode = useRemoteNode();
@@ -220,10 +231,19 @@ function DAGRunActions({
     return <></>;
   }
 
+  // A bar shows the names of the actions where it has room for them; Stop
+  // and Reject keep the colour of their danger.
+  const buttonLabel =
+    displayMode === 'bar' ? 'wide' : displayMode !== 'compact';
+  const dangerClass = cn(
+    'cursor-pointer',
+    displayMode === 'bar' && 'text-destructive hover:text-destructive'
+  );
+
   return (
     <TooltipProvider delayDuration={300}>
       <div
-        className={`flex items-center ${displayMode === 'compact' ? 'space-x-1' : 'space-x-2'}`}
+        className={`flex items-center ${displayMode === 'full' ? 'space-x-2' : 'space-x-1'}`}
       >
         {/* Stop / Reject Button */}
         {hideUnavailable &&
@@ -233,11 +253,11 @@ function DAGRunActions({
             <TooltipTrigger asChild>
               <span>
                 <ActionButton
-                  label={displayMode !== 'compact'}
+                  label={buttonLabel}
                   icon={<Ban className="h-4 w-4" />}
                   disabled={!buttonState['reject']}
                   onClick={() => setIsRejectModal(true)}
-                  className="cursor-pointer"
+                  className={dangerClass}
                 >
                   <I18nText text={'Reject'} />
                 </ActionButton>
@@ -254,7 +274,7 @@ function DAGRunActions({
             <TooltipTrigger asChild>
               <span>
                 <ActionButton
-                  label={displayMode !== 'compact'}
+                  label={buttonLabel}
                   icon={
                     terminateAction === 'cancel' ? (
                       <X className="h-4 w-4" />
@@ -268,7 +288,7 @@ function DAGRunActions({
                     setStopAllRunning(false);
                     setIsStopModal(true);
                   }}
-                  className="cursor-pointer"
+                  className={dangerClass}
                 >
                   {ts(terminateDetails.buttonText)}
                 </ActionButton>
@@ -288,7 +308,7 @@ function DAGRunActions({
             <TooltipTrigger asChild>
               <span tabIndex={isRootLevel ? undefined : 0}>
                 <ActionButton
-                  label={displayMode !== 'compact'}
+                  label={buttonLabel}
                   icon={<RotateCcw className="h-4 w-4" />}
                   disabled={!buttonState['retry']}
                   data-ww-action={markActions ? 'retry' : undefined}
@@ -319,7 +339,7 @@ function DAGRunActions({
             <TooltipTrigger asChild>
               <span>
                 <ActionButton
-                  label={displayMode !== 'compact'}
+                  label={buttonLabel}
                   icon={<X className="h-4 w-4" />}
                   disabled={!buttonState['dequeue']}
                   onClick={() => setIsDequeueModal(true)}
@@ -599,6 +619,23 @@ function DAGRunActions({
                   <I18nText text={'Reschedule as a new run'} />
                 </Label>
               </div>
+
+              {onEditRetry && (
+                <Button
+                  type="button"
+                  variant="link"
+                  className="h-auto p-0 text-sm"
+                  onClick={() => {
+                    setIsRetryModal(false);
+                    resetRetryModalState();
+                    onEditRetry();
+                  }}
+                >
+                  <I18nText
+                    text={'Edit the definition and choose the steps to run'}
+                  />
+                </Button>
+              )}
 
               {/* Conditional inputs when reschedule is checked */}
               {retryAsNew && (

@@ -23,12 +23,11 @@ import { Badge } from '@/components/ui/badge';
 import { IconButton } from '@/components/ui/icon-button';
 import { RepeatBadge } from '@/components/ui/repeat-badge';
 import { RetryCount } from '@/components/ui/retry-count';
-import { StatusDot } from '@/components/ui/status-dot';
 import { useI18n } from '@/i18n/I18nProvider';
 import { ELAPSED_SLOT, useStepElapsed } from '@/hooks/useStepElapsed';
 import { formatStepSpan } from '@/lib/formatStepSpan';
 import { shortRunId } from '@/lib/shortRunId';
-import { statusLabelText } from '@/lib/status-utils';
+import { nodeStatusText, statusLabelText } from '@/lib/status-utils';
 import { cn } from '@/lib/utils';
 import type { CanvasDirection, CanvasNode, StepKey } from '../../contracts';
 import { plainIssueMessage } from '../../inspector/issues';
@@ -39,7 +38,7 @@ import { useCanvasActions } from '../context';
 import { DASHED } from '../edges/dash';
 import { Position } from '../engine';
 import { actionIcon } from '../icons';
-import { statusBorderClass } from '../statusStyle';
+import { statusCardClass } from '../statusStyle';
 import {
   COMPACT_CAPTION_HEIGHT,
   COMPACT_CAPTION_WIDTH,
@@ -81,8 +80,9 @@ const SPOTLIT =
 
 /**
  * State classes of a node card: the selection ring wins over the light of the
- * cursor of the YAML or of a host, and that wins over the colour of the run
- * status, which is the border of the card itself. The card of a previous step
+ * cursor of the YAML or of a host, and that wins over the run status: the
+ * colour of the border and of its ring, and the tint of the card (see
+ * statusCardClass). The card of a previous step
  * that the run reused (see `reusedOutline`) has no selection ring and no
  * border colour: its dashed outline is its only line, except while the cursor
  * of the YAML or a host lights it.
@@ -98,9 +98,11 @@ export function cardStateClass(
     if (selected) return undefined;
     return highlighted ? HIGHLIGHT : SPOTLIT;
   }
-  const border = node.run ? statusBorderClass(node.run.status) : undefined;
-  if (selected) return cn('ring-2 ring-primary', border);
-  return cn(highlighted ? HIGHLIGHT : SPOTLIT, border);
+  const status = node.run ? statusCardClass(node.run.status) : undefined;
+  // The rings of the selection and of the light come after the ring of the
+  // status, so that they win over it.
+  if (selected) return cn(status, 'ring-2 ring-primary');
+  return cn(status, highlighted ? HIGHLIGHT : SPOTLIT);
 }
 
 /**
@@ -154,8 +156,8 @@ export function ReusedOutline({
           selected
             ? 'stroke-primary'
             : tone === 'success'
-              ? 'stroke-success'
-              : 'stroke-destructive'
+              ? 'stroke-[var(--graph-success)]'
+              : 'stroke-[var(--graph-error)]'
         }
       />
     </svg>
@@ -289,49 +291,55 @@ function hostStatusLabel(run: NonNullable<CanvasNode['run']>) {
 }
 
 /**
- * Status dot of the run of a node. Its name is the translated status, or the
- * text of the host. A step that waits for an approval or an input also gets a
- * Waiting badge.
+ * The status of the run of a node, for assistive technology: the border of
+ * the card shows it. Its text is the translated status, or the text of the
+ * host. A step that waits for an approval or an input also gets a Waiting
+ * badge, and a skipped step says Skipped: its neutral border is the one of a
+ * step that did not start.
  */
-export function RunDot({
+export function RunStatus({
   run,
   reuseOutline,
-  dotOnly = false,
+  noBadge = false,
 }: Pick<CanvasNode, 'run' | 'reuseOutline'> & {
   /** No Waiting badge: a compact card has no room for it. */
-  dotOnly?: boolean;
+  noBadge?: boolean;
 }) {
   const { ts } = useI18n();
   if (!run) {
     return null;
   }
   // Only a step that an executed step depends on is a step that the source
-  // run could not give: a step after it is skipped and shows a plain dot.
-  const reuse: 'success' | 'failed' | undefined = run.reused
-    ? 'success'
-    : reuseOutline === 'failure' && run.reuseFailed
-      ? 'failed'
-      : undefined;
-  const sourceRunId = run.reused?.runId ?? run.reuseFailed?.runId ?? '';
+  // run could not give: a step after it is skipped and reads as skipped.
+  const reuseFailed =
+    !run.reused && reuseOutline === 'failure' && !!run.reuseFailed;
+  const text = run.reused
+    ? ts('Reused')
+    : (hostStatusLabel(run) ??
+      ts(reuseFailed ? 'Reused, failed' : nodeStatusText(run.status)));
   const waitingLabel = ts('Waiting');
   return (
     <>
       <span
         data-testid="ve-canvas-node-status"
         data-status={run.status}
-        className="inline-flex shrink-0"
+        data-reused={
+          run.reused ? 'success' : reuseFailed ? 'failed' : undefined
+        }
+        className="sr-only"
       >
-        {/* A step that the run reused has the hatched dot of the Activity
-            list: green when its source run gave the outputs, red when not. */}
-        <StatusDot
-          kind="step"
-          status={run.status}
-          label={run.reused ? ts('Reused') : hostStatusLabel(run)}
-          reused={reuse}
-          reusedFrom={reuse ? shortRunId(sourceRunId) : undefined}
-        />
+        {text}
       </span>
-      {!dotOnly && run.status === NodeStatus.Waiting && (
+      {!noBadge && isSkipped(run, reuseOutline) && (
+        <span
+          aria-hidden="true"
+          data-testid="ve-node-skipped"
+          className="shrink-0 whitespace-nowrap text-[10px] text-muted-foreground"
+        >
+          {ts('Skipped')}
+        </span>
+      )}
+      {!noBadge && run.status === NodeStatus.Waiting && (
         <Badge
           variant="warning"
           size="sm"
@@ -461,7 +469,8 @@ export function ReusedMarker({
 
 /**
  * Icon, label and subtitle of a node, with run state. The issue badges sit
- * on the top right corner of the card.
+ * on the top right corner of the card. A failed step shows the first line of
+ * its error in place of the subtitle.
  */
 export function NodeHeader({
   node,
@@ -470,6 +479,7 @@ export function NodeHeader({
   node: CanvasNode;
   className?: string;
 }) {
+  const failure = failureTitle(node.run)?.split('\n')[0];
   return (
     <div className={cn('flex min-w-0 items-center gap-2 px-2.5', className)}>
       <IssueBadges
@@ -486,19 +496,33 @@ export function NodeHeader({
           >
             {node.label}
           </span>
-          <RunDot run={node.run} reuseOutline={node.reuseOutline} />
+          <RunStatus run={node.run} reuseOutline={node.reuseOutline} />
         </div>
         <div className="flex min-w-0 items-center gap-1.5">
           {/* The chip of a reused step starts the row: before the subtitle,
               which can shrink to nothing, it leaves no gap on its left. */}
           <ReusedMarker node={node} chip />
-          {node.subtitle && (
+          {/* A failed step says why in place of its command, so the reason
+              reads without a hover. */}
+          {failure ? (
             <span
-              className="min-w-0 flex-1 truncate font-mono text-xs text-muted-foreground"
-              title={node.subtitle}
+              data-testid="ve-node-failure"
+              title={[node.subtitle, node.run?.error?.trim()]
+                .filter(Boolean)
+                .join('\n')}
+              className="min-w-0 flex-1 truncate text-xs text-destructive"
             >
-              {node.subtitle}
+              {failure}
             </span>
+          ) : (
+            node.subtitle && (
+              <span
+                className="min-w-0 flex-1 truncate font-mono text-xs text-muted-foreground"
+                title={node.subtitle}
+              >
+                {node.subtitle}
+              </span>
+            )
           )}
           <RepeatMarker node={node} />
           <RunMeta run={node.run} />
@@ -510,11 +534,35 @@ export function NodeHeader({
 
 /** Tooltip and name of a compact card: the label and the subtitle, or the failure. */
 export function compactTitle(
-  node: Pick<CanvasNode, 'label' | 'subtitle' | 'run'>
+  node: Pick<CanvasNode, 'label' | 'subtitle' | 'run' | 'reuseOutline'>,
+  ts: ReturnType<typeof useI18n>['ts']
 ): string {
-  const text = [node.label, node.subtitle].filter(Boolean).join('\n');
-  const failure = failureTitle(node.run);
-  return failure ? `${text}\n${failure}` : text;
+  return [
+    node.label,
+    node.subtitle,
+    failureTitle(node.run),
+    node.run && isSkipped(node.run, node.reuseOutline)
+      ? ts('Skipped')
+      : undefined,
+  ]
+    .filter(Boolean)
+    .join('\n');
+}
+
+/**
+ * A step that the run skipped, and that reads as no reuse: not reused, and
+ * not the previous step that the source run could not give (its outline
+ * says it).
+ */
+function isSkipped(
+  run: NonNullable<CanvasNode['run']>,
+  reuseOutline: CanvasNode['reuseOutline']
+): boolean {
+  return (
+    run.status === NodeStatus.Skipped &&
+    !run.reused &&
+    !(reuseOutline === 'failure' && run.reuseFailed)
+  );
 }
 
 /**
@@ -532,11 +580,7 @@ export function NodeCompactBody({
   return (
     <div className={cn('flex min-w-0 items-center justify-center', className)}>
       <NodeIcon node={node} />
-      {node.run && (
-        <span className="absolute left-1 top-1 flex">
-          <RunDot run={node.run} reuseOutline={node.reuseOutline} dotOnly />
-        </span>
-      )}
+      <RunStatus run={node.run} reuseOutline={node.reuseOutline} noBadge />
       {node.repeat && (
         <span className="absolute bottom-0.5 right-0.5 flex">
           <RepeatMarker node={node} compact />

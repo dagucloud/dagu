@@ -16,10 +16,16 @@ import { Button } from '@/components/ui/button';
 import { Checkbox } from '@/components/ui/checkbox';
 import { useClock } from '@/hooks/useClock';
 import type { LicenseMonitoring } from '@/hooks/useLicenseMonitoring';
+import type { LicenseRemoteAccess } from '@/hooks/useLicenseRemoteAccess';
 import { useI18n } from '@/i18n/I18nProvider';
 import dayjs from '@/lib/dayjs';
-import { monitoringLevelLabels } from '@/lib/license';
+import { monitoringLevelLabels, remoteAccessLevelLabels } from '@/lib/license';
 import { LicenseCallout } from './LicenseAlerts';
+import {
+  DEFAULT_REMOTE_ACCESS_LEVEL,
+  RemoteAccessChoices,
+  type OnLevel,
+} from './RemoteAccessSection';
 import type { useLicenseConnect } from './useLicenseConnect';
 
 function Countdown({ expiresAt }: { expiresAt?: string }) {
@@ -44,18 +50,22 @@ function Countdown({ expiresAt }: { expiresAt?: string }) {
  * waits for approval, or why the last request failed with a way to retry.
  * Otherwise it offers to connect the server so that Dagu Console monitors it
  * for free, reporting from the moment it connects at the level chosen here,
- * or at the level the configuration sets, and optionally to start the trial
- * of paid features in the same approval.
+ * or at the level the configuration sets, optionally to let MCP clients use
+ * it through Dagu Cloud at a chosen level, which needs a plan or a trial, and
+ * optionally to start the trial of paid features in the same approval.
  */
 export function ConnectSection({
   connect,
   monitoring,
+  remoteAccess,
   disabled,
   trialRequested = false,
 }: {
   connect: ReturnType<typeof useLicenseConnect>;
   /** What the server reports; unknown while loading or unavailable. */
   monitoring?: LicenseMonitoring;
+  /** How far MCP calls may go; unknown while loading or unavailable. */
+  remoteAccess?: LicenseRemoteAccess;
   disabled: boolean;
   /** Whether the trial starts out chosen, as when a page asked for it. */
   trialRequested?: boolean;
@@ -76,6 +86,10 @@ export function ConnectSection({
     LicenseMonitoringLevel.errors
   );
   const [trial, setTrial] = useState(trialRequested);
+  const [mcp, setMCP] = useState(false);
+  const [mcpLevel, setMCPLevel] = useState<OnLevel>(
+    DEFAULT_REMOTE_ACCESS_LEVEL
+  );
   useEffect(() => {
     if (trialRequested) setTrial(true);
   }, [trialRequested]);
@@ -90,6 +104,9 @@ export function ConnectSection({
   }, [chosen]);
   const pending = status?.state === LicenseConnectStatusState.pending;
   const configured = monitoring?.configured ? monitoring.level : undefined;
+  const accessConfigured = remoteAccess?.levelConfigured
+    ? remoteAccess.level
+    : undefined;
 
   if (failure)
     return (
@@ -120,7 +137,7 @@ export function ConnectSection({
       >
         <div className="space-y-1">
           <h2 id="license-free-monitoring" className="text-sm font-medium">
-            {ts('Monitor this server for free')}
+            {ts('Connect to Dagu Cloud')}
           </h2>
           <p className="text-sm">
             {(configured ?? report) === LicenseMonitoringLevel.health
@@ -165,6 +182,53 @@ export function ConnectSection({
             <p className="text-xs text-muted-foreground">{ts(neverSent)}</p>
           </>
         )}
+        {accessConfigured ? (
+          <div className="space-y-1">
+            <p className="flex flex-wrap gap-x-2 text-sm">
+              <span className="text-muted-foreground">
+                {ts('Remote access')}
+              </span>
+              <span>{ts(remoteAccessLevelLabels[accessConfigured])}</span>
+            </p>
+            <p className="text-xs text-muted-foreground">
+              {ts(
+                'cloud.remote_access in the server configuration sets this. Change it there and restart Dagu.'
+              )}
+            </p>
+          </div>
+        ) : (
+          <div className="space-y-2">
+            <label className="flex items-start gap-2 text-sm">
+              <Checkbox
+                className="mt-0.5"
+                checked={mcp}
+                disabled={disabled || starting}
+                onCheckedChange={(checked) => {
+                  setMCP(checked === true);
+                  if (checked === true) setTrial(true);
+                }}
+              />
+              <span className="space-y-0.5">
+                <span className="block">
+                  {ts('Use this server from MCP clients')}
+                </span>
+                <span className="block text-xs text-muted-foreground">
+                  {ts(
+                    'MCP clients reach this server through the Dagu Cloud MCP endpoint, up to the role chosen here. Needs a paid plan or a trial.'
+                  )}
+                </span>
+              </span>
+            </label>
+            {mcp && (
+              <RemoteAccessChoices
+                selected={mcpLevel}
+                onSelect={setMCPLevel}
+                disabled={disabled || starting}
+                className="sm:grid sm:grid-cols-3 sm:gap-2 sm:space-y-0"
+              />
+            )}
+          </div>
+        )}
         <label className="flex items-start gap-2 text-sm">
           <Checkbox
             className="mt-0.5"
@@ -183,12 +247,25 @@ export function ConnectSection({
             </span>
           </span>
         </label>
+        {mcp && !trial && (
+          <p className="text-xs text-warning">
+            {ts(
+              'Remote access needs a paid plan or a trial. Without one, Dagu Cloud refuses MCP calls.'
+            )}
+          </p>
+        )}
         <div className="flex justify-end">
           <Button
             size="sm"
             variant="primary"
             disabled={disabled || starting}
-            onClick={() => void start(configured ? undefined : report, trial)}
+            onClick={() =>
+              void start(
+                configured ? undefined : report,
+                trial,
+                mcp && !accessConfigured ? mcpLevel : undefined
+              )
+            }
           >
             {starting ? (
               <Loader2 className="h-3.5 w-3.5 animate-spin" />

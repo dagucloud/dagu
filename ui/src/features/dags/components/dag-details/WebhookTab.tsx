@@ -50,6 +50,7 @@ import { useClient } from '../../../../hooks/api';
 import dayjs from '../../../../lib/dayjs';
 import ConfirmModal from '@/components/ui/confirm-dialog';
 import { EmptyState } from '@/components/PageStates';
+import { useCopyFeedback } from '@/hooks/useCopyFeedback';
 import WebhookProfileSelectionCard from './WebhookProfileSelectionCard';
 import WebhookProfileTokensCard from './WebhookProfileTokensCard';
 import WebhookPublicURLCard from './WebhookPublicURLCard';
@@ -164,11 +165,11 @@ function WebhookTab({
   }, [secretVisible]);
 
   // Copy states
-  const [copiedUrl, setCopiedUrl] = useState(false);
-  const [copiedSecret, setCopiedSecret] = useState(false);
-  const [copiedCurl, setCopiedCurl] = useState(false);
-  const [copiedHMACShell, setCopiedHMACShell] = useState(false);
-  const [copiedHMACNode, setCopiedHMACNode] = useState(false);
+  const urlCopy = useCopyFeedback(1500);
+  const secretCopy = useCopyFeedback(1500);
+  const curlCopy = useCopyFeedback(1500);
+  const hmacShellCopy = useCopyFeedback(1500);
+  const hmacNodeCopy = useCopyFeedback(1500);
   const [draftAuthMode, setDraftAuthMode] = useState<WebhookAuthMode>(
     WebhookAuthModeValue.token_only
   );
@@ -395,17 +396,6 @@ function WebhookTab({
     setPendingToggleState(null);
   };
 
-  // Copy handler
-  const handleCopy = async (text: string, setCopied: (v: boolean) => void) => {
-    try {
-      await navigator.clipboard.writeText(text);
-      setCopied(true);
-      setTimeout(() => setCopied(false), 1500);
-    } catch {
-      // Clipboard API might not be available
-    }
-  };
-
   const handleEnableHMAC = async (authMode: WebhookHMACAuthMode) => {
     try {
       setIsActioning(true);
@@ -621,11 +611,11 @@ function WebhookTab({
             <Button
               variant="outline"
               size="icon"
-              aria-label={ts(copiedSecret ? 'Copied' : 'Copy')}
-              title={ts(copiedSecret ? 'Copied' : 'Copy')}
-              onClick={() => handleCopy(secretReveal.value, setCopiedSecret)}
+              aria-label={ts(secretCopy.copied ? 'Copied' : 'Copy')}
+              title={ts(secretCopy.copied ? 'Copied' : 'Copy')}
+              onClick={() => void secretCopy.copy(secretReveal.value)}
             >
-              {copiedSecret ? (
+              {secretCopy.copied ? (
                 <Check className="h-4 w-4" />
               ) : (
                 <Copy className="h-4 w-4" />
@@ -721,8 +711,8 @@ function WebhookTab({
                 <I18nText text={'Endpoint'} />
               </span>
               <CopyButton
-                copied={copiedUrl}
-                onCopy={() => handleCopy(webhookUrl, setCopiedUrl)}
+                copied={urlCopy.copied}
+                onCopy={() => void urlCopy.copy(webhookUrl)}
               />
             </div>
             <div className="px-3 py-2 bg-accent rounded-md text-xs font-mono border overflow-x-auto">
@@ -1047,9 +1037,9 @@ function WebhookTab({
                 </span>
                 <I18nProps>
                   <CopyButton
-                    copied={copiedHMACShell}
+                    copied={hmacShellCopy.copied}
                     onCopy={() =>
-                      handleCopy(hmacShellExample, setCopiedHMACShell)
+                      void hmacShellCopy.copy(hmacShellExample)
                     }
                     label="Copy"
                   />
@@ -1067,9 +1057,9 @@ function WebhookTab({
                 </span>
                 <I18nProps>
                   <CopyButton
-                    copied={copiedHMACNode}
+                    copied={hmacNodeCopy.copied}
                     onCopy={() =>
-                      handleCopy(hmacNodeExample, setCopiedHMACNode)
+                      void hmacNodeCopy.copy(hmacNodeExample)
                     }
                     label="Copy"
                   />
@@ -1095,8 +1085,8 @@ function WebhookTab({
             </div>
             <I18nProps>
               <CopyButton
-                copied={copiedCurl}
-                onCopy={() => handleCopy(curlExample, setCopiedCurl)}
+                copied={curlCopy.copied}
+                onCopy={() => void curlCopy.copy(curlExample)}
                 label="Copy"
               />
             </I18nProps>

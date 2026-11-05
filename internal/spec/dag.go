@@ -2972,6 +2972,11 @@ func buildLLM(_ buildContext, d *dag) (*ir.LLMConfig, error) {
 				fmt.Errorf("max_tokens must be at least 1"))
 		}
 	}
+	// Zero would leave a chat step no round in which to call the model.
+	if cfg.MaxToolIterations != nil && *cfg.MaxToolIterations < 1 {
+		return nil, ir.NewValidationError("llm.max_tool_iterations", *cfg.MaxToolIterations,
+			fmt.Errorf("max_tool_iterations must be at least 1"))
+	}
 	if err := validateAgentLLMLimits(cfg, canonicalDAGType(d.Type) == ir.TypeAgent); err != nil {
 		return nil, err
 	}

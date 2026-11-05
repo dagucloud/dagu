@@ -30,6 +30,7 @@ import {
   fallbackDockTab,
 } from './dockTabs';
 import { stepDockTabs } from './tabs/stepScope';
+import { LAPTOP_QUERY, matchesQuery, WIDE_QUERY } from '@/lib/breakpoints';
 
 export interface DockController {
   open: boolean;
@@ -94,8 +95,6 @@ export interface DockFrame {
 }
 
 export const DOCK_BAR_HEIGHT = 32;
-/** Below this window width the Run panel is a sheet that covers the page. */
-export const DOCK_SHEET_BELOW_PX = 768;
 // The Run panel opens at about 40% of the window, and never under the floor
 // that holds the bar, the timeline and a few steps.
 export const DOCK_DEFAULT_RATIO = 0.4;
@@ -134,14 +133,14 @@ export function clampDockHeight(value: number): number {
 
 /**
  * The open state that the user left. It is a choice for a wide window: on a
- * narrow one the panel is a sheet over the whole page, which opens only when
- * asked for.
+ * phone the panel is a view of its own, which opens only when asked for. A
+ * laptop opens it until the user closes it.
  */
-function storedOpen(): boolean {
-  const wide =
-    window.matchMedia?.(`(min-width: ${DOCK_SHEET_BELOW_PX}px)`).matches ??
-    true;
-  return wide && readStored(DOCK_OPEN_KEY) === 'true';
+export function storedDockOpen(): boolean {
+  if (!matchesQuery(WIDE_QUERY, true)) return false;
+  const stored = readStored(DOCK_OPEN_KEY);
+  if (stored !== null) return stored === 'true';
+  return matchesQuery(LAPTOP_QUERY, false);
 }
 
 function readStored(key: string): string | null {
@@ -153,7 +152,8 @@ function readStored(key: string): string | null {
   }
 }
 
-function readHeight(): number {
+/** The open height of the Run panel that the user left, or the default. */
+export function storedDockHeight(): number {
   const stored = readStored(DOCK_HEIGHT_KEY);
   const value = stored === null ? NaN : Number(stored);
   return Number.isFinite(value) ? clampDockHeight(value) : defaultDockHeight();
@@ -245,8 +245,10 @@ export function DockProvider({ children }: { children: ReactNode }) {
   // The ?run that the page adds itself (the redirect to the latest run) is
   // no request to open the panel: a reload or a Back to it keeps it closed.
   const runLinked = url.run !== null && !isRunRedirect(location.state);
+  // A phone shows one view: a link to the YAML or a step view shows that.
+  const phoneView = url.ndv !== null && !matchesQuery(WIDE_QUERY, true);
   const [openState, setOpenState] = useState(
-    () => url.dock !== null || runLinked || storedOpen()
+    () => !phoneView && (url.dock !== null || runLinked || storedDockOpen())
   );
   const [startedRuns, setStartedRuns] = useState<ReadonlySet<string>>(
     () => new Set()
@@ -275,7 +277,7 @@ export function DockProvider({ children }: { children: ReactNode }) {
     },
     [setYielded]
   );
-  const [height, setHeight] = useState(readHeight);
+  const [height, setHeight] = useState(storedDockHeight);
   const [maximizedState, setMaximized] = useState(false);
   const maximized = maximizedState && yielded === null;
   const [chosenTab, setChosenTab] = useState<DockTab | null>(url.dock);

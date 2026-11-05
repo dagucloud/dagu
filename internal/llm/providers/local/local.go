@@ -196,6 +196,12 @@ func (p *Provider) buildRequestBody(req *llm.ChatRequest, stream bool) ([]byte, 
 	// Users needing reasoning with specific models (DeepSeek-R1, etc.) should
 	// configure model-specific parameters through the model's native interface.
 
+	// Ask for token usage in the final stream chunk; OpenAI-compatible servers
+	// (Ollama, vLLM, llama.cpp, ...) only send it when requested.
+	if stream {
+		chatReq.StreamOptions = &streamOptions{IncludeUsage: true}
+	}
+
 	return json.Marshal(chatReq)
 }
 
@@ -302,6 +308,10 @@ type toolCallFunction struct {
 	Arguments string `json:"arguments"`
 }
 
+type streamOptions struct {
+	IncludeUsage bool `json:"include_usage"`
+}
+
 type chatCompletionRequest struct {
 	Model       string    `json:"model"`
 	Messages    []message `json:"messages"`
@@ -312,6 +322,8 @@ type chatCompletionRequest struct {
 	Stream      bool      `json:"stream,omitempty"`
 	Tools       []tool    `json:"tools,omitempty"`
 	ToolChoice  any       `json:"tool_choice,omitempty"`
+
+	StreamOptions *streamOptions `json:"stream_options,omitempty"`
 }
 
 type responseMessage struct {

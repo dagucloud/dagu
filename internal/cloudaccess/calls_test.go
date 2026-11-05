@@ -167,7 +167,7 @@ func TestCallsWhileRemoteAccessIsOff(t *testing.T) {
 	var refusal map[string]string
 	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &refusal))
 	assert.Equal(t, errorRemoteAccessOff, refusal["error"])
-	assert.Contains(t, refusal["message"], "Plan & features")
+	assert.Contains(t, refusal["message"], "Settings")
 }
 
 func TestCallsReachOnlyMCP(t *testing.T) {

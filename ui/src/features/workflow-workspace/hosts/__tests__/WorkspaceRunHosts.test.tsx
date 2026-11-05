@@ -3,7 +3,7 @@
 
 import { fireEvent, render, screen } from '@testing-library/react';
 import { useContext, type ReactNode } from 'react';
-import { MemoryRouter } from 'react-router-dom';
+import { MemoryRouter, Route, Routes } from 'react-router-dom';
 import { SWRConfig } from 'swr';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
@@ -54,10 +54,21 @@ vi.mock('@/contexts/ConfigContext', () => ({
 vi.mock('@/components/ui/error-modal', () => ({
   useErrorModal: () => ({ showError: vi.fn() }),
 }));
-vi.mock('react-router-dom', async (importOriginal) => ({
-  ...(await importOriginal<typeof import('react-router-dom')>()),
-  useNavigate: () => h.navigate,
-}));
+// Each navigation is recorded, and made: the selection of a run is a URL
+// write.
+vi.mock('react-router-dom', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('react-router-dom')>();
+  return {
+    ...actual,
+    useNavigate: () => {
+      const navigate = actual.useNavigate();
+      return (...args: Parameters<typeof navigate>) => {
+        h.navigate(...args);
+        return navigate(...args);
+      };
+    },
+  };
+});
 vi.mock('@/features/dag-runs/hooks/useBoundedDAGRunDetails', () => ({
   useBoundedDAGRunDetails: vi.fn(),
 }));
@@ -173,19 +184,27 @@ function renderHosts(children: ReactNode, url = `/dags/${FILE_NAME}`) {
   const view = render(
     <SWRConfig value={{ provider: () => new Map(), shouldRetryOnError: false }}>
       <MemoryRouter initialEntries={[url]}>
-        <RootDAGRunContext.Provider value={page}>
-          <WorkspaceDataProvider
-            fileName={FILE_NAME}
-            dagData={server.dag}
-            refreshDag={async () => undefined}
-            workspaceName={null}
-          >
-            <WorkspaceRunHosts>
-              <Probe />
-              {children}
-            </WorkspaceRunHosts>
-          </WorkspaceDataProvider>
-        </RootDAGRunContext.Provider>
+        {/* The page route gives the URL writer its :fileName, as in the app. */}
+        <Routes>
+          <Route
+            path="/dags/:fileName/:tab?"
+            element={
+              <RootDAGRunContext.Provider value={page}>
+                <WorkspaceDataProvider
+                  fileName={FILE_NAME}
+                  dagData={server.dag}
+                  refreshDag={async () => undefined}
+                  workspaceName={null}
+                >
+                  <WorkspaceRunHosts>
+                    <Probe />
+                    {children}
+                  </WorkspaceRunHosts>
+                </WorkspaceDataProvider>
+              </RootDAGRunContext.Provider>
+            }
+          />
+        </Routes>
       </MemoryRouter>
     </SWRConfig>
   );

@@ -325,9 +325,10 @@ describe('DAGActions', () => {
       ).not.toBeInTheDocument();
     });
 
-    // The workflow bar shows the icon only: the name stays for the screen
-    // reader, and the dialog opens as with the text button.
-    it('shows the Start icon only on request, with its name', () => {
+    // The workflow bar shows the text on a wide bar only (container query):
+    // the name stays for the screen reader, and the dialog opens as with the
+    // text button.
+    it('shows the Start text on a wide bar only, with its name', () => {
       render(
         <MemoryRouter>
           <DAGActions
@@ -335,7 +336,7 @@ describe('DAGActions', () => {
             dag={{ name: 'example' }}
             displayMode="full"
             only={['start']}
-            startIconOnly
+            barStart
           />
         </MemoryRouter>
       );
@@ -343,7 +344,9 @@ describe('DAGActions', () => {
       const start = screen.getByRole('button', { name: 'Start' });
       expect(start).toHaveAttribute('aria-label', 'Start');
       expect(start.querySelector('svg')).not.toBeNull();
-      expect(within(start).getByText('Start')).toHaveClass('sr-only');
+      expect(within(start).getByText('Start').closest('.sr-only')).toHaveClass(
+        '@7xl:not-sr-only'
+      );
       fireEvent.click(start);
       expect(
         screen.getByRole('button', { name: 'Submit start' })

@@ -207,7 +207,7 @@ func runServer(ctx *Context, _ []string, serverOpts ...frontend.ServerOption) er
 		}
 	}
 
-	cloudReporter = startCloudReport(serviceCtx, cloudMonitoring, cloudAccess)
+	cloudReporter = startCloudReport(serviceCtx, cloudMonitoring, cloudAccess, resourceService)
 	stopCloudAccess = startCloudAccess(serviceCtx, cloudAccess, server)
 
 	err = server.Serve(serviceCtx)
@@ -326,10 +326,10 @@ func cloudReportSettingsFile(cfg *config.Config) string {
 
 // startCloudReport reports to Dagu Console at the level monitoring sets while
 // the server holds an online license, with how far access lets calls from
-// Dagu Cloud go. When cloud.report is off, it only tells Dagu Console that the
-// server no longer reports, if it reported before. It returns nil when
-// monitoring is nil.
-func startCloudReport(ctx *Context, monitoring *cloudreport.Monitoring, access *cloudaccess.Service) *cloudreport.Reporter {
+// Dagu Cloud go and how busy the machine is, as resources samples it. When
+// cloud.report is off, it only tells Dagu Console that the server no longer
+// reports, if it reported before. It returns nil when monitoring is nil.
+func startCloudReport(ctx *Context, monitoring *cloudreport.Monitoring, access *cloudaccess.Service, resources *resource.Service) *cloudreport.Reporter {
 	if monitoring == nil {
 		return nil
 	}
@@ -337,9 +337,13 @@ func startCloudReport(ctx *Context, monitoring *cloudreport.Monitoring, access *
 	if access != nil {
 		remote = access
 	}
+	var sampled cloudreport.Resources
+	if resources != nil {
+		sampled = resources
+	}
 	scheduler := cloudreport.Scheduler{State: ctx.Persistence.SchedulerStateStore, Pause: ctx.Persistence.SchedulerPauseStore}
 	return cloudreport.Start(ctx, ctx.LicenseManager.CloudCredentials, ctx.Persistence.ServiceRegistry, cloudReportEvents(ctx), scheduler,
-		cloudReportQueues(ctx), monitoring, remote, ctx.LicenseManager.Refresh)
+		cloudReportQueues(ctx), monitoring, remote, sampled, ctx.LicenseManager.Refresh)
 }
 
 // cloudReportQueues reads the server's queues for reports: what waits and
@@ -378,17 +382,24 @@ func newCloudAccess(ctx *Context) *cloudaccess.Service {
 		logger.Warn(ctx, "Remote access is unavailable: the license public key could not be loaded", tag.Error(err))
 		return nil
 	}
-	settingsFile := filepath.Join(ctx.Config.Paths.DataDir, "cloud", "access-settings.json")
 	name := ctx.Config.License.ServerName
 	if name == "" {
 		name, _ = os.Hostname()
 	}
 	return cloudaccess.New(cloudaccess.Config{
 		Credentials: ctx.LicenseManager.CloudCredentials,
-		Settings:    cloudaccess.NewSettings(ctx.Config.Cloud, filemonitor.NewStateStore(settingsFile)),
+		Settings:    newCloudAccessSettings(ctx.Config),
 		Key:         key,
 		Hello:       cloudrelay.Hello{Name: name, Version: config.Version},
 	})
+}
+
+// newCloudAccessSettings returns how far calls from Dagu Cloud may go: as
+// cloud.remote_access and cloud.remote_approvals fix it, or else as an
+// administrator chose.
+func newCloudAccessSettings(cfg *config.Config) *cloudaccess.Settings {
+	settingsFile := filepath.Join(cfg.Paths.DataDir, "cloud", "access-settings.json")
+	return cloudaccess.NewSettings(cfg.Cloud, filemonitor.NewStateStore(settingsFile))
 }
 
 // startCloudAccess takes calls from Dagu Cloud through server's MCP tools

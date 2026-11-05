@@ -10,6 +10,7 @@ import {
 } from 'lucide-react';
 import { createPortal } from 'react-dom';
 import {
+  startTransition,
   useCallback,
   useEffect,
   useImperativeHandle,
@@ -172,8 +173,15 @@ export interface VisualEditorProps extends EditorHostProps {
    * Called at mount and at each change.
    */
   onYamlModeChange?(mode: 'file' | 'step'): void;
-  /** What the YAML shows when the editor mounts with it visible. Default 'step'. */
+  /**
+   * What the YAML shows when the editor mounts with it visible, and later
+   * when the host changes it. Default 'step'.
+   */
   initialYamlMode?: 'file' | 'step';
+  /** The Workflow panel shows when the editor mounts, with a workflowPanel. */
+  initialWorkflowOpen?: boolean;
+  /** Called when the Workflow panel opens or closes. */
+  onWorkflowOpenChange?(open: boolean): void;
   /** Controls before the canvas controls; see VisualCanvasProps.toolbarStart. */
   toolbarStart?: ReactNode;
   /**
@@ -375,6 +383,8 @@ export function VisualEditor(props: VisualEditorProps): ReactElement {
     onYamlIntent,
     onYamlModeChange,
     initialYamlMode = 'step',
+    initialWorkflowOpen = false,
+    onWorkflowOpenChange,
     toolbarStart,
     toolbarTrail,
     onRevertToSave,
@@ -382,6 +392,7 @@ export function VisualEditor(props: VisualEditorProps): ReactElement {
     workflowPanel,
     workflowPanelBare = false,
     launcherHost,
+    onRevealTrigger,
     yamlToolbarRoot,
     onYamlStepPathChange,
     drawerBodyRoot,
@@ -586,10 +597,26 @@ export function VisualEditor(props: VisualEditorProps): ReactElement {
   // The YAML, the form of a step and the workflow panel share the side drawer.
   // A click on a step shows its YAML; its form opens from the small button at
   // its declaration in the YAML, or from the Open button of the step.
-  const [workflowOpen, setWorkflowOpen] = useState(false);
+  const [workflowOpen, setWorkflowOpen] = useState(initialWorkflowOpen);
+  const onWorkflowOpenChangeRef = useRef(onWorkflowOpenChange);
+  onWorkflowOpenChangeRef.current = onWorkflowOpenChange;
+  useEffect(() => {
+    onWorkflowOpenChangeRef.current?.(workflowOpen);
+  }, [workflowOpen]);
   // The launcher whose panel is open, and what the host side of the launchers
   // reads from the server. Only a host that gives `launcherHost` has them.
   const [launcherOpen, setLauncherOpen] = useState<LauncherId | null>(null);
+  // The YAML takes the place of the Workflow and launcher panels when it
+  // shows, not before: the right of the canvas never stands empty between
+  // two panels, and the graph does not move for the switch.
+  const [yamlShownBefore, setYamlShownBefore] = useState(yamlVisible);
+  if (yamlVisible !== yamlShownBefore) {
+    setYamlShownBefore(yamlVisible);
+    if (yamlVisible) {
+      setWorkflowOpen(false);
+      setLauncherOpen(null);
+    }
+  }
   const [launcherData, setLauncherData] = useState<LauncherData | null>(null);
   const schedule = useMemo(
     () => (launcherHost ? readSchedule(text) : null),
@@ -611,6 +638,13 @@ export function VisualEditor(props: VisualEditorProps): ReactElement {
   // shows its own YAML or its form ('step'), with the YAML | Form bar. A host
   // that opens the view of a step itself gets the 'step' mode.
   const [yamlMode, setYamlMode] = useState<'file' | 'step'>(initialYamlMode);
+  // The host can change the mode too, as when the YAML of the file comes
+  // back after the view of a step: the editor follows it.
+  const [hostMode, setHostMode] = useState(initialYamlMode);
+  if (initialYamlMode !== hostMode) {
+    setHostMode(initialYamlMode);
+    setYamlMode(initialYamlMode);
+  }
   const reportedMode = useRef<'file' | 'step' | null>(null);
   useEffect(() => {
     if (reportedMode.current === yamlMode) return;
@@ -645,15 +679,21 @@ export function VisualEditor(props: VisualEditorProps): ReactElement {
     if (!canEdit) setAddTarget(null);
   }, [canEdit]);
 
+  // A host that keeps the selection and the view in the URL writes them
+  // through the router, which renders in a transition. The step view opens
+  // in the same transition, so that it shows with its step and its columns
+  // from its first frame.
   const showYamlFor = useCallback(
     (key: StepKey) => {
-      select(key);
-      setYamlMode('step');
-      setFormOpen(false);
-      setWorkflowOpen(false);
-      setLauncherOpen(null);
-      setAddTarget(null);
-      onYamlVisibleChange?.(true);
+      startTransition(() => {
+        select(key);
+        setYamlMode('step');
+        setFormOpen(false);
+        setWorkflowOpen(false);
+        setLauncherOpen(null);
+        setAddTarget(null);
+        onYamlVisibleChange?.(true);
+      });
     },
     [onYamlVisibleChange, setFormOpen, select]
   );
@@ -673,13 +713,15 @@ export function VisualEditor(props: VisualEditorProps): ReactElement {
         showYamlFor(key);
         return;
       }
-      select(key);
-      setYamlMode('step');
-      setFormOpen(true);
-      setWorkflowOpen(false);
-      setLauncherOpen(null);
-      setAddTarget(null);
-      onYamlVisibleChange?.(inDrawer);
+      startTransition(() => {
+        select(key);
+        setYamlMode('step');
+        setFormOpen(true);
+        setWorkflowOpen(false);
+        setLauncherOpen(null);
+        setAddTarget(null);
+        onYamlVisibleChange?.(inDrawer);
+      });
     },
     [hasForm, showYamlFor, onYamlVisibleChange, inDrawer, setFormOpen, select]
   );
@@ -1262,8 +1304,11 @@ export function VisualEditor(props: VisualEditorProps): ReactElement {
     if (id === 'webhook' && launcherData && !launcherData.webhooksAvailable) {
       return;
     }
+    // The YAML of the file stays: the click shows the part of the file
+    // that the trigger stands for, as a click on a step shows its block.
+    if (wholeFileShown && onRevealTrigger?.(id)) return;
     // The click on a launcher ends the focus on a step: the panel of the
-    // launcher takes the place of the file and of the step.
+    // launcher takes the place of the step.
     select(null);
     setHighlighted(null);
     setAddTarget(null);
@@ -1293,10 +1338,7 @@ export function VisualEditor(props: VisualEditorProps): ReactElement {
     setAddTarget(null);
     setFormOpen(false);
     setYamlMode('file');
-    if (next) {
-      setWorkflowOpen(false);
-      setLauncherOpen(null);
-    }
+    // The Workflow and launcher panels close once the YAML shows.
     if (next) onYamlVisibleChange(true, 'panel');
     else onYamlVisibleChange(false);
   };
@@ -1508,7 +1550,11 @@ export function VisualEditor(props: VisualEditorProps): ReactElement {
       )}
       {readOnly ? null : (
         <>
-          <span className="mx-0.5 h-5 w-px bg-border" aria-hidden="true" />
+          <span
+            data-toolbar-divider
+            className="mx-0.5 h-5 w-px bg-border"
+            aria-hidden="true"
+          />
           {onRevertToSave ? (
             <IconButton
               label={ts('Revert to the last save')}
@@ -1533,7 +1579,11 @@ export function VisualEditor(props: VisualEditorProps): ReactElement {
             disabledReason={session.canRedo ? undefined : ts('Nothing to redo')}
             onClick={session.redo}
           />
-          <span className="mx-0.5 h-5 w-px bg-border" aria-hidden="true" />
+          <span
+            data-toolbar-divider
+            className="mx-0.5 h-5 w-px bg-border"
+            aria-hidden="true"
+          />
         </>
       )}
       {workflowPanel && (
@@ -1698,8 +1748,11 @@ export function VisualEditor(props: VisualEditorProps): ReactElement {
                 }
                 onSelect={(key) => {
                   if (key === null) {
+                    // A click on the empty canvas ends the focus on a step
+                    // and on a trigger alike.
                     setFormOpen(false);
                     select(null);
+                    if (launcherOpen !== null) closeLauncher();
                   } else {
                     pickStep(key);
                   }
@@ -1845,6 +1898,16 @@ export function VisualEditor(props: VisualEditorProps): ReactElement {
           open={workflowOpen}
           onClose={() => toggleWorkflow(false)}
           bare={workflowPanelBare}
+          // A draft in a tab of the panel is at risk when the panel goes.
+          onShowYaml={
+            onYamlVisibleChange
+              ? () =>
+                  launcherHost
+                    ? launcherHost.guard(() => toggleYaml(true))
+                    : toggleYaml(true)
+              : undefined
+          }
+          onRestore={() => applyWorkflow(true)}
         >
           {workflowPanel}
         </WorkflowDrawer>

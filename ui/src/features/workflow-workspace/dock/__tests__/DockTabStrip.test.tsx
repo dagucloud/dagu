@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 import { fireEvent, render, screen } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
 import { useState } from 'react';
 import { describe, expect, it } from 'vitest';
 import type { DockTab } from '../../state/workspaceUrl';
@@ -98,7 +99,7 @@ describe('DockTabStrip', () => {
     expect(screen.getByRole('tablist', { name: 'Run' })).toBeInTheDocument();
   });
 
-  it('is a 32 px row with no More button and no select', () => {
+  it('is a 32 px row with no More button and no select by default', () => {
     render(<Harness />);
     expect(screen.getByRole('tablist')).toHaveClass('h-8');
     expect(screen.queryByRole('button', { name: /More/ })).toBeNull();
@@ -122,5 +123,32 @@ describe('dockTabLabel', () => {
   it('names a host tab without a label by its id', () => {
     expect(dockTabLabel('details', {})).toBe('details');
     expect(dockTabLabel('details', { details: 'Details' })).toBe('Details');
+  });
+
+  // Rarely used tabs wait in a More menu; the active one shows in the row.
+  it('puts the overflow tabs in a More menu, unless active', async () => {
+    function Overflow() {
+      const [active, setActive] = useState<DockTab>('log');
+      return (
+        <DockTabStrip
+          tabs={['log', 'outputs', 'artifacts', 'definition']}
+          active={active}
+          badges={{}}
+          onSelect={setActive}
+          overflow={['artifacts', 'definition']}
+        />
+      );
+    }
+    render(<Overflow />);
+    expect(screen.queryByRole('tab', { name: 'Artifacts' })).toBeNull();
+    await userEvent.click(screen.getByRole('button', { name: 'More' }));
+    await userEvent.click(
+      await screen.findByRole('menuitem', { name: 'Artifacts' })
+    );
+    expect(tab('Artifacts')).toHaveAttribute('aria-selected', 'true');
+    await userEvent.click(screen.getByRole('button', { name: 'More' }));
+    expect(
+      (await screen.findAllByRole('menuitem')).map((item) => item.textContent)
+    ).toEqual(['Definition']);
   });
 });

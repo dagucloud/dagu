@@ -152,7 +152,7 @@ were lost from.
 
 | Level | Fields | When |
 | --- | --- | --- |
-| `health` | Dagu version, OS, architecture, process start time, service counts (schedulers holding the scheduler lock, and registered coordinators), the scheduler's last tick and whether it is paused, and the remote access level and whether remote approvals are on | Every report |
+| `health` | Dagu version, OS, architecture, process start time, service counts (schedulers holding the scheduler lock, and registered coordinators), the scheduler's last tick and whether it is paused, the remote access level and whether remote approvals are on, and, on a paid plan or trial, the latest sample of the machine's resources, or its container's when that has limits: logical CPUs and the CPU limit, average and peak CPU use since the last accepted report, load averages, memory use, and the use of the disks that hold the data and log directories, with their inodes | Every report |
 | `runs` | The `health` fields, plus the status of each top-level DAG run that finishes, with its failed step names (up to 50) and how it was triggered, and the list of runs queued, running, or waiting. Each run is sent as its DAG name, run ID, attempt ID, status, trigger, and queued, started, and finished times. Also each scheduled DAG: its name, its next run, and its latest start-schedule slot that came due with what the scheduler did with it (dispatched, skipped as running, queued, done, succeeded, or overlapping, failed, planned, or missed while no scheduler ran). Also each queue that holds queued or running runs: its name, how many runs are waiting and how many are running, on the server and on distributed workers, how many may run at once, when the next run in line was queued, and why it cannot start when it waits for a worker | Each finished run once, at most 500 and 512 KiB of them per report; the runs in progress with every report, at most 200 of them and a count of all; within 5 seconds of a failed, aborted, or rejected run or a change to the runs in progress. The scheduled DAGs with every report from the process that reports the runs, those whose slot did not run first, at most 500 and 128 KiB of them and a count of all. The queues with every report, read at most once a minute, those whose next run waits for a worker first, then those with room whose next run has not started, then full ones, then those with nothing queued, at most 256 of them and a count of all |
 | `errors` | The `runs` fields, plus why each finished run failed: the error messages of its failed steps and handlers, at most 5, or the run's own error when no step has one. Each is sent without terminal escapes, at most 2048 bytes from its end. A command step's error ends with the last 1 KiB of its stderr; the values of workflow secrets are masked in it as in logs | With the finished run it belongs to |
 
@@ -269,7 +269,13 @@ activation's credentials, as the heartbeat is.
               "started_at": "2026-10-09T12:00:00Z",
               "services": [{ "name": "scheduler", "instances": 1 },
                            { "name": "coordinator", "instances": 0 }],
-              "remote_access": "operator", "remote_approvals": false },
+              "remote_access": "operator", "remote_approvals": false,
+              "resources": { "cpus": 8, "cpu_limit": 2, "cpu_percent": 12.5, "cpu_peak_percent": 40.5,
+                             "load": { "load1": 1.5, "load5": 1.2, "load15": 0.9 },
+                             "memory": { "used_percent": 50.0, "used_bytes": 2147483648,
+                                         "total_bytes": 4294967296, "limited": true },
+                             "disk": { "used_percent": 71.2, "used_bytes": 355018190848,
+                                       "total_bytes": 498622693376, "inodes_used_percent": 4.1 } } },
   "finished": [{ "workflow": "etl", "dag_run_id": "…", "attempt_id": "…",
                  "status": "failed", "trigger_type": "scheduler",
                  "queued_at": "2026-10-10T01:00:00Z",
@@ -292,6 +298,30 @@ A scheduler count of zero means no scheduler holds the lock; leaving
 `services` out means the count is unknown. `remote_access` is `off`,
 `viewer`, `operator`, or `developer`; it and `remote_approvals` are left out
 when the server cannot read its remote access settings.
+
+`resources` is the latest sample the server takes of the machine it runs on,
+every `monitoring.interval` (5 seconds by default), as its system status page
+shows it. When the server runs in a Linux cgroup with limits, as in a
+container, its memory and CPU use are the cgroup's, against those limits.
+
+- `cpus` counts the machine's logical CPUs, and `cpu_limit` the CPUs the
+  cgroup may use, left out without a quota.
+- `cpu_percent` is how busy the CPUs were, from 0 to 100 of `cpu_limit` when
+  there is one, averaged over the samples taken after the newest one the
+  last accepted report averaged, and `cpu_peak_percent` the highest of them,
+  so each sample counts once. Each sample measures the time since the one
+  before.
+- `load` holds the load averages over 1, 5, and 15 minutes.
+- `memory`, `disk`, and `log_disk` give the percent used, the bytes used, and
+  the bytes in all. `memory.limited` is `true` when they are the cgroup's: the
+  memory counted toward its limit without the inactive file cache, and the
+  limit. `disk` is the disk that holds the data directory, and `log_disk` the
+  one that holds the log directory, sent only when that is another
+  filesystem. `inodes_used_percent` is how many of a disk's inodes are in use,
+  where the filesystem says.
+
+A part whose reading failed is left out, and `resources` is left out until
+the first sample, and on free monitoring, whose Dagu Cloud keeps none of it.
 
 `finished` holds top-level runs that succeeded, partially succeeded, failed,
 were aborted, or were rejected, oldest first. `workflow` is the DAG name.

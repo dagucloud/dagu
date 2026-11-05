@@ -110,7 +110,8 @@ test.describe('workspace legacy links', () => {
       dock: 'history',
       remoteNode: 'local',
     });
-    await expect(page.getByTestId('ww-pane')).toBeVisible();
+    // On a phone the open Run panel takes the place of the graph pane.
+    await expect(page.getByTestId('workflow-workspace')).toBeVisible();
     const dock = page.getByTestId('ww-dock');
     await expect(dock).toHaveAttribute('data-state', 'open', {
       timeout: 30_000,

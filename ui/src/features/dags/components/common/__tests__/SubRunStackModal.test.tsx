@@ -1,14 +1,16 @@
 // Copyright (C) 2026 Yota Hamada
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-import { fireEvent, render } from '@testing-library/react';
+import { fireEvent, render, screen } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { DialogLayerProvider } from '@/components/ui/dialog';
 import { useBoundedDAGRunDetails } from '@/features/dag-runs/hooks/useBoundedDAGRunDetails';
 import { dispatchHandledEscape } from '@/test/keyboard';
+import { SUB_RUN_WIDTH_KEY } from '@/features/peek/OverlayResizeHandle';
 import {
   SUB_RUN_STACK_EXPANDED_KEY,
   SubRunStackModal,
+  useOpenSubRun,
 } from '../SubRunStackModal';
 import DAGRunDetailsContent from '@/features/dag-runs/components/dag-run-details/DAGRunDetailsContent';
 import { escFree } from '@/features/workflow-workspace/canvas/escFree';
@@ -86,6 +88,63 @@ describe('SubRunStackModal', () => {
       expect(view.getByRole('button', { name })).toBeInTheDocument();
     }
     expect(view.queryByText(/more/)).toBeNull();
+  });
+
+  // The user sizes the panel by its left edge; the width stays for the next
+  // stack.
+  it('opens at the width that the user left, with an edge to resize it', () => {
+    localStorage.setItem(SUB_RUN_WIDTH_KEY, '900');
+    mockRun(undefined);
+    render(
+      <SubRunStackModal
+        {...stackProps}
+        stack={[{ name: 'child', dagRunId: 'child-run' }]}
+      />
+    );
+
+    expect(screen.getByRole('dialog', { name: 'child' })).toHaveStyle({
+      '--sub-run-width': '900px',
+    });
+    expect(
+      screen.getByRole('separator', { name: 'Resize sub-run view' })
+    ).toBeInTheDocument();
+  });
+
+  // A path of runs, as to a step that waits two calls down, opens in one go.
+  it('opens a path of runs at once', () => {
+    mockRun({ name: 'a', dagRunId: 'a-run' });
+    const onChange = vi.fn();
+    function OpenPath() {
+      const open = useOpenSubRun();
+      return (
+        <button
+          type="button"
+          onClick={() => {
+            open?.({ name: 'b', dagRunId: 'b-run' });
+            open?.({ name: 'c', dagRunId: 'c-run', step: 'send' });
+          }}
+        >
+          open path
+        </button>
+      );
+    }
+    const stack = [{ name: 'a', dagRunId: 'a-run' }];
+    render(
+      <SubRunStackModal
+        {...stackProps}
+        stack={stack}
+        onChange={onChange}
+        renderRun={() => <OpenPath />}
+      />
+    );
+
+    fireEvent.click(screen.getByRole('button', { name: 'open path' }));
+
+    expect(onChange).toHaveBeenLastCalledWith([
+      ...stack,
+      { name: 'b', dagRunId: 'b-run' },
+      { name: 'c', dagRunId: 'c-run', step: 'send' },
+    ]);
   });
 
   it('shows the step that its level names', async () => {

@@ -12,7 +12,7 @@ import { whenEnabled } from '@/hooks/queryUtils';
 import { useDAGRunSSE } from '@/hooks/useDAGRunSSE';
 import { sseFallbackOptions, useSSECacheSync } from '@/hooks/useSSECacheSync';
 import { isNotFoundQueryError } from '@/lib/queryErrors';
-import { RUN_REDIRECT_STATE } from '../state/workspaceUrl';
+import { RUN_REDIRECT_STATE, useWorkspaceUrl } from '../state/workspaceUrl';
 import { useWorkspaceData } from './context';
 import { runHandlers } from './handlerMapping';
 import { sameContent } from './sameContent';
@@ -74,7 +74,8 @@ export function useSelectedRun({
   /** The details of a run that a mounted history list holds, or null. */
   listedRun?: (runId: string) => ApiDAGRunDetails | null;
 }): SelectedRun {
-  const [searchParams, setSearchParams] = useSearchParams();
+  const [searchParams] = useSearchParams();
+  const [, , , setParams] = useWorkspaceUrl();
   const runParam = searchParams.get(RUN_PARAM) || null;
   // A legacy history link (?idx) names its run itself, a little later.
   const legacyIdx = searchParams.has('idx');
@@ -154,19 +155,14 @@ export function useSelectedRun({
     ((pinnedError != null && isNotFoundQueryError(pinnedError)) ||
       (pinnedServer != null && pinnedServer.dagRunId !== runParam));
 
+  // Through the URL writer of the workspace, which builds on a write of the
+  // same tick that the router has yet to render, such as ?ndv. The path and
+  // the other keys stay: a legacy link redirects once its run is known.
   const writeRun = useCallback(
     (runId: string | null, replace?: boolean, state?: unknown) => {
-      setSearchParams(
-        (prev) => {
-          const next = new URLSearchParams(prev);
-          if (runId === null) next.delete(RUN_PARAM);
-          else next.set(RUN_PARAM, runId);
-          return next;
-        },
-        { replace: !!replace, ...(state !== undefined ? { state } : {}) }
-      );
+      setParams({ [RUN_PARAM]: runId }, { replace: !!replace, state });
     },
-    [setSearchParams]
+    [setParams]
   );
 
   // The run that the page fell back to after a 404. Its ?run is no new

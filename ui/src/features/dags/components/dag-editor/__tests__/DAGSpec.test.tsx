@@ -66,9 +66,26 @@ vi.mock('../../../../../contexts/RemoteNodeContext', () => ({
   useRemoteNode: () => 'local',
 }));
 
-vi.mock('../../../../../contexts/SchemaContext', () => ({
-  useSchema: () => ({ schema: null }),
+// Null: the editor has no schema. A test sets one to see the builds.
+const schemaMock = vi.hoisted(() => ({
+  schema: null as Record<string, unknown> | null,
+  builds: [] as unknown[][],
 }));
+vi.mock('../../../../../contexts/SchemaContext', () => ({
+  useSchema: () => ({ schema: schemaMock.schema }),
+}));
+vi.mock('../customActionSchema', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../customActionSchema')>();
+  return {
+    ...actual,
+    buildAugmentedDAGSchema: (
+      ...args: Parameters<typeof actual.buildAugmentedDAGSchema>
+    ) => {
+      schemaMock.builds.push(args);
+      return actual.buildAugmentedDAGSchema(...args);
+    },
+  };
+});
 
 vi.mock('../../../../../contexts/UnsavedChangesContext', () => ({
   useUnsavedChanges: () => ({ setHasUnsavedChanges: vi.fn() }),
@@ -405,6 +422,8 @@ beforeEach(() => {
 });
 
 afterEach(() => {
+  schemaMock.schema = null;
+  schemaMock.builds = [];
   vi.useRealTimers();
   vi.clearAllMocks();
   vi.restoreAllMocks();
@@ -1612,6 +1631,51 @@ describe('DAGSpec draft recovery', () => {
         screen.queryByRole('status', { name: 'Unsaved draft' })
       ).not.toBeInTheDocument();
     });
+  });
+});
+
+// A lazy editor renders nothing at first, and React holds the reveal of a
+// boundary that showed its fallback for up to 300 ms.
+describe('DAGSpec first render', () => {
+  it('shows the visual editor in its first render', () => {
+    render(specTree());
+    expect(screen.getByTestId('visual-editor-mock')).toBeInTheDocument();
+  });
+});
+
+// A schema that changes is compiled again by the checks of the steps, at
+// about 90 ms: the editor builds its schema once, with the calendars.
+describe('DAGSpec editor schema', () => {
+  it('builds the schema once, when the calendars have come', async () => {
+    schemaMock.schema = { type: 'object', definitions: {} };
+    // The calendars come later, as a request that answers.
+    const calendars = {
+      value: undefined as unknown,
+      listeners: new Set<() => void>(),
+    };
+    mocks.useQuery.mockImplementation((path: string) => {
+      if (path !== '/calendars') return specData();
+      // The mock runs as the hook that it stands for.
+      const data = React.useSyncExternalStore(
+        (listener) => {
+          calendars.listeners.add(listener);
+          return () => calendars.listeners.delete(listener);
+        },
+        () => calendars.value
+      );
+      return { data, error: undefined, isLoading: false };
+    });
+    await renderSpec();
+    expect(schemaMock.builds).toEqual([]);
+
+    act(() => {
+      calendars.value = { calendars: [{ name: 'nightly' }] };
+      calendars.listeners.forEach((listener) => listener());
+    });
+    await settle();
+
+    expect(schemaMock.builds).toHaveLength(1);
+    expect(schemaMock.builds[0]?.[4]).toEqual(['nightly']);
   });
 });
 

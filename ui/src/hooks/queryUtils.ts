@@ -16,3 +16,13 @@ export function optionalPositiveInt(value: unknown): number | undefined {
 
   return parsed;
 }
+
+/**
+ * The options of a query that asks ahead for a key that another reader
+ * keeps fresh: it takes the first answer and asks again for nothing.
+ */
+export const PREFETCH_OPTIONS = {
+  revalidateIfStale: false,
+  revalidateOnFocus: false,
+  revalidateOnReconnect: false,
+} as const;

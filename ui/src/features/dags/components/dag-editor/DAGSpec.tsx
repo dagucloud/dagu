@@ -26,7 +26,10 @@ import { flushSync } from 'react-dom';
 import type { KeyedMutator } from 'swr';
 import type { components, paths } from '../../../../api/v1/schema';
 import { Button } from '@/components/ui/button';
-import { IconButton } from '@/components/ui/icon-button';
+import {
+  IconButton,
+  IconButtonLabelsConsumer,
+} from '@/components/ui/icon-button';
 import ConfirmModal from '@/components/ui/confirm-dialog';
 import { DialogLayerProvider } from '@/components/ui/dialog';
 import { Spinner } from '@/components/ui/spinner';
@@ -97,7 +100,13 @@ import { useStepViewForm } from './stepViewMode';
 import { preloadDAGEditor } from './loadDAGEditor';
 import { ReadOnlyMarker, YamlFileBody, YamlFilePanel } from './YamlFilePanel';
 import { useYamlSection } from './useYamlSection';
+import { useDAGSpecQuery } from './useDAGSpecQuery';
 import { WorkflowPanel } from './WorkflowPanel';
+import { PanelSwitchButton } from '@/features/visual-editor/PanelSwitchButton';
+import type { LauncherId } from '@/features/visual-editor/launchers/model';
+// Not lazy: the canvas is what the page shows first, and a lazy editor adds
+// a blank render that React holds for up to 300 ms.
+import VisualEditor from '@/features/visual-editor';
 import type {
   CodeEditorLike,
   VisualEditorValidation,
@@ -134,8 +143,6 @@ export type {
   WorkspaceNotice,
 } from './hostTypes';
 
-// The visual editor and its canvas library load only when the view opens.
-const VisualEditor = React.lazy(() => import('@/features/visual-editor'));
 const DetailsCanvas = React.lazy(
   () => import('@/features/visual-editor/DetailsCanvas')
 );
@@ -262,6 +269,13 @@ function draftStepTitle(
  * DAGSpec displays and allows editing of a DAG specification
  * including visualization, attributes, steps, and YAML definition
  */
+/** The key of the file that a trigger stands for; a webhook has none. */
+const TRIGGER_KEYS: Record<LauncherId, string | null> = {
+  manual: 'params',
+  cron: 'schedule',
+  webhook: null,
+};
+
 function DAGSpec({
   fileName,
   localDags,
@@ -293,6 +307,7 @@ function DAGSpec({
   onNotice,
   launcherHost,
   renderWorkflowPanel,
+  initialWorkflowOpen = false,
 }: Props) {
   const { ts } = useI18n();
   const remoteNode = useRemoteNode();
@@ -303,6 +318,9 @@ function DAGSpec({
   const { setHasUnsavedChanges } = useUnsavedChanges();
 
   const [activeTab, setActiveTab] = React.useState('parent');
+  // The Workflow panel stays open across the documents of the file: each
+  // document has its own editor, which opens with it.
+  const [workflowOpen, setWorkflowOpen] = React.useState(initialWorkflowOpen);
   const [selectedSpecStepName, setSelectedSpecStepName] = React.useState<
     string | null
   >(null);
@@ -346,23 +364,19 @@ function DAGSpec({
     data,
     isLoading,
     mutate: mutateSpec,
-  } = useQuery(
-    '/dags/{fileName}/spec',
-    {
-      params: {
-        query: {
-          remoteNode,
-        },
-        path: {
-          fileName: fileName,
-        },
-      },
-    },
+  } = useDAGSpecQuery(
+    fileName,
+    remoteNode,
     sseFallbackOptions(poll ? FEED_DOWN : FEED_UP)
   );
-  const { data: calendarsData } = useQuery('/calendars', {
-    params: { query: { remoteNode } },
-  });
+  const { data: calendarsData, error: calendarsError } = useQuery(
+    '/calendars',
+    { params: { query: { remoteNode } } }
+  );
+  // The editor schema waits for the calendars: a second schema would be
+  // compiled again by the checks of the steps.
+  const calendarsSettled =
+    calendarsData !== undefined || calendarsError !== undefined;
   const calendarNames = React.useMemo(
     () =>
       (calendarsData?.calendars ?? [])
@@ -749,7 +763,7 @@ function DAGSpec({
   }, [lastGoodLocalHarnesses, parsedLocalDefinitions]);
 
   const editorSchema = React.useMemo(() => {
-    if (!baseSchema) {
+    if (!baseSchema || !calendarsSettled) {
       return null;
     }
     return buildAugmentedDAGSchema(
@@ -764,6 +778,7 @@ function DAGSpec({
     );
   }, [
     baseSchema,
+    calendarsSettled,
     calendarNames,
     effectiveLocalActions,
     effectiveLocalHarnesses,
@@ -1062,7 +1077,18 @@ function DAGSpec({
     ]
   );
   // The node details view claims its own panel.
-  useRightPanelClaim(ndv ? null : 'yaml', sectionOpen, closeSection);
+  // The YAML of the file comes back when a transient panel that covered it,
+  // such as a trigger or Add step, closes.
+  const restoreFileYaml = React.useCallback(
+    () => setSectionOpen(true, 'panel'),
+    [setSectionOpen]
+  );
+  useRightPanelClaim(
+    ndv ? null : 'yaml',
+    sectionOpen,
+    closeSection,
+    restoreFileYaml
+  );
 
   const editorModelUri = React.useMemo(
     () =>
@@ -1623,7 +1649,7 @@ function DAGSpec({
 
   // Show loading indicator while fetching data
   if (isLoading) {
-    return <LoadingIndicator fill />;
+    return <LoadingIndicator fill delayed />;
   }
 
   const warnings = localHasUnsavedChanges
@@ -1809,6 +1835,31 @@ function DAGSpec({
     formRootRef: setDrawerBodyRoot,
   };
 
+  // A click on a trigger while the YAML of the file shows: the cursor goes
+  // to the key of the file that the trigger stands for. A webhook lives on
+  // the server and has no key: false, and its panel opens.
+  const revealTrigger = (id: LauncherId): boolean => {
+    const key = TRIGGER_KEYS[id];
+    const editor = yamlEditorRef.current as
+      | (CodeEditorLike & {
+          setSelection?(range: object): void;
+          revealLineInCenter?(line: number): void;
+        })
+      | null;
+    const lines = editor?.getModel()?.getValue().split('\n');
+    if (!key || !editor?.setSelection || !lines) return false;
+    const index = lines.findIndex((line) => line.startsWith(`${key}:`));
+    if (index < 0) return false;
+    editor.setSelection({
+      startLineNumber: index + 1,
+      startColumn: 1,
+      endLineNumber: index + 1,
+      endColumn: lines[index]!.length + 1,
+    });
+    editor.revealLineInCenter?.(index + 1);
+    return true;
+  };
+
   // A row of the Issues popover: the cursor of the YAML goes to the line of
   // the issue, and the step of the issue is selected on the canvas. With no
   // YAML file on screen, a field of a step opens the form of the step on it,
@@ -1839,7 +1890,8 @@ function DAGSpec({
     const field = relativeFieldPath(issue.stepPath ?? '', issue.fieldPath);
     if (!fileShown && issue.stepName && field && hostMode) {
       if (editorHandle.openForm(issue.stepName)) {
-        inspectorView.setFocusPath(field);
+        // The form opens in a transition: the field to focus goes with it.
+        React.startTransition(() => inspectorView.setFocusPath(field));
         return;
       }
     }
@@ -1880,7 +1932,7 @@ function DAGSpec({
       onRevealStep={(step, field) => {
         // A row that names a field opens the form of the step on it.
         if (hostMode && field && editorHandle.openForm(step)) {
-          inspectorView.setFocusPath(field);
+          React.startTransition(() => inspectorView.setFocusPath(field));
           return;
         }
         visualHandleRef.current?.revealStep(step);
@@ -2006,59 +2058,77 @@ function DAGSpec({
             {editable && (
               // Save and the issues button share this box: the same place,
               // the same height and the same width, so that nothing moves.
-              <div
-                data-testid="save-slot"
-                className="flex h-7 w-14 items-center justify-start"
-              >
-                {savingBlocked && issuesPopover}
-                {!savingBlocked && (
-                  <I18nProps>
-                    <Button
-                      id="save-config"
-                      // Filled only while there is something to save, so that
-                      // a disabled Save does not read as an action.
-                      variant={
-                        localHasUnsavedChanges && !syntaxError
-                          ? 'primary'
-                          : 'outline'
-                      }
-                      size="xs"
-                      aria-label={ts('Save')}
-                      aria-describedby="save-status"
-                      title={saveButtonTitle}
-                      // Icon only, with one size in every state. The count on
-                      // its corner tells the warnings.
-                      className="relative h-7 w-7 justify-center p-0"
-                      disabled={
-                        isSaving || !localHasUnsavedChanges || syntaxError
-                      }
-                      onClick={async () => {
-                        await requestSave();
-                        props.refresh();
-                      }}
-                    >
-                      <SaveStatusIcon
-                        busy={isSaving || saveState === 'validating'}
-                      />
-                      <span id="save-status" className="sr-only">
-                        {saveStatus}
-                      </span>
-                      {warningCount > 0 && (
-                        <CountBadge
-                          data-testid="save-warning-count"
-                          role="img"
-                          aria-label={ts('Warnings: {count}', {
-                            count: warningCount,
-                          })}
-                          tone="warning"
-                          count={warningCount}
-                          corner
-                        />
-                      )}
-                    </Button>
-                  </I18nProps>
+              // In the tools sheet of a phone the Save button says its name.
+              <IconButtonLabelsConsumer>
+                {(saveLabeled) => (
+                  <div
+                    data-testid="save-slot"
+                    className={cn(
+                      'flex h-7 items-center justify-start',
+                      saveLabeled ? 'h-9 w-full' : 'w-14'
+                    )}
+                  >
+                    {savingBlocked && issuesPopover}
+                    {!savingBlocked && (
+                      <I18nProps>
+                        <Button
+                          id="save-config"
+                          // Filled only while there is something to save, so that
+                          // a disabled Save does not read as an action.
+                          variant={
+                            localHasUnsavedChanges && !syntaxError
+                              ? 'primary'
+                              : saveLabeled
+                                ? 'ghost'
+                                : 'outline'
+                          }
+                          size="xs"
+                          aria-label={ts('Save')}
+                          aria-describedby="save-status"
+                          title={saveButtonTitle}
+                          // Icon only, with one size in every state. The count on
+                          // its corner tells the warnings.
+                          className={cn(
+                            'relative justify-center p-0',
+                            saveLabeled
+                              ? 'h-9 w-full justify-start gap-2 px-2.5 text-sm font-normal'
+                              : 'h-7 w-7'
+                          )}
+                          disabled={
+                            isSaving || !localHasUnsavedChanges || syntaxError
+                          }
+                          onClick={async () => {
+                            await requestSave();
+                            props.refresh();
+                          }}
+                        >
+                          <SaveStatusIcon
+                            busy={isSaving || saveState === 'validating'}
+                          />
+                          {saveLabeled && (
+                            <span aria-hidden="true">{ts('Save')}</span>
+                          )}
+                          <span id="save-status" className="sr-only">
+                            {saveStatus}
+                          </span>
+                          {warningCount > 0 && (
+                            <CountBadge
+                              data-testid="save-warning-count"
+                              role="img"
+                              aria-label={ts('Warnings: {count}', {
+                                count: warningCount,
+                              })}
+                              tone="warning"
+                              count={warningCount}
+                              corner
+                            />
+                          )}
+                        </Button>
+                      </I18nProps>
+                    )}
+                  </div>
                 )}
-              </div>
+              </IconButtonLabelsConsumer>
             )}
           </div>
         );
@@ -2227,6 +2297,8 @@ function DAGSpec({
                           onYamlIntent={preloadDAGEditor}
                           onYamlModeChange={setYamlKind}
                           initialYamlMode={yamlKind}
+                          initialWorkflowOpen={workflowOpen}
+                          onWorkflowOpenChange={setWorkflowOpen}
                           toolbarStart={documentTabs}
                           toolbarTrail={specActions}
                           onRevertToSave={editable ? requestDiscard : undefined}
@@ -2249,6 +2321,7 @@ function DAGSpec({
                           }
                           workflowPanelBare={!!renderWorkflowPanel}
                           launcherHost={launcherHost}
+                          onRevealTrigger={revealTrigger}
                           runSource={runSource}
                           onRunStarted={onRunStarted}
                           selectedStepName={selectedStepName}
@@ -2284,6 +2357,8 @@ function DAGSpec({
                     <React.Suspense fallback={null}>
                       <VisualEditor
                         key={`child:${activeTab}`}
+                        initialWorkflowOpen={workflowOpen}
+                        onWorkflowOpenChange={setWorkflowOpen}
                         fileName={fileName}
                         dagName={activeTab}
                         text={fileText.slice(childSpan.from, childSpan.to)}
@@ -2362,8 +2437,22 @@ function DAGSpec({
                     state={ndv.state}
                     scope={yamlKind}
                     onClose={closeSection}
+                    onRestore={
+                      yamlKind === 'file' ? restoreFileYaml : undefined
+                    }
                     stepName={ndvStepName}
                     title={ndvTitle}
+                    note={
+                      // The Workflow panel is the one of the parent tab.
+                      yamlKind === 'file' &&
+                      preview.dag &&
+                      activeTab === 'parent' ? (
+                        <PanelSwitchButton
+                          to="workflow"
+                          onClick={() => editorHandle.openWorkflowPanel(true)}
+                        />
+                      ) : undefined
+                    }
                     dag={shownValidation.dag ?? data.dag}
                     runDetails={runSource?.details}
                     onSelectStep={selectNdvStep}

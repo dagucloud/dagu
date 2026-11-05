@@ -13,6 +13,7 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/eventstore"
 	"github.com/dagucloud/dagu/v2/internal/license"
 	"github.com/dagucloud/dagu/v2/internal/persis"
+	"github.com/dagucloud/dagu/v2/internal/service/resource"
 	"github.com/stretchr/testify/require"
 )
 
@@ -128,7 +129,7 @@ func TestStartCloudReport(t *testing.T) {
 	for _, level := range []config.ReportLevel{"", config.ReportOff, config.ReportHealth, config.ReportRuns} {
 		t.Run("level "+string(level), func(t *testing.T) {
 			ctx := newContext(level)
-			reporter := startCloudReport(ctx, newCloudReportMonitoring(ctx), newCloudAccess(ctx))
+			reporter := startCloudReport(ctx, newCloudReportMonitoring(ctx), newCloudAccess(ctx), resource.NewService(ctx.Config))
 			require.NotNil(t, reporter)
 			reporter.Stop()
 		})
@@ -140,7 +141,7 @@ func TestStartCloudReport(t *testing.T) {
 		monitoring := newCloudReportMonitoring(ctx)
 		require.Nil(t, monitoring)
 		require.Nil(t, newCloudAccess(ctx))
-		require.Nil(t, startCloudReport(ctx, monitoring, nil))
+		require.Nil(t, startCloudReport(ctx, monitoring, nil, nil))
 	})
 }
 

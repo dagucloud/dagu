@@ -1,17 +1,12 @@
-import { useState, useEffect } from 'react';
+import { useMediaQuery } from '@/hooks/useMediaQuery';
+import { PHONE_BELOW_PX, WIDE_QUERY } from '@/lib/breakpoints';
 
-const MOBILE_BREAKPOINT = 768;
-
+/** True on a window narrower than a tablet: the layout of a phone. */
 export function useIsMobile(): boolean {
-  const [isMobile, setIsMobile] = useState(() =>
-    typeof window !== 'undefined' && window.innerWidth < MOBILE_BREAKPOINT
+  // Without matchMedia (tests) the width of the window decides.
+  const wide = useMediaQuery(
+    WIDE_QUERY,
+    typeof window === 'undefined' || window.innerWidth >= PHONE_BELOW_PX
   );
-
-  useEffect(() => {
-    const check = () => setIsMobile(window.innerWidth < MOBILE_BREAKPOINT);
-    window.addEventListener('resize', check);
-    return () => window.removeEventListener('resize', check);
-  }, []);
-
-  return isMobile;
+  return !wide;
 }

@@ -1,13 +1,17 @@
 // Copyright (C) 2026 Yota Hamada
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type ReactNode,
+} from 'react';
 import { subscribeClock } from '@/hooks/useClock';
 import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
-import {
-  useActiveRightPanel,
-  useCloseRightPanel,
-} from '@/contexts/RightPanelContext';
+import { useActiveRightPanel } from '@/contexts/RightPanelContext';
 import DAGSpec from '@/features/dags/components/dag-editor/DAGSpec';
 import type { DAGSpecHostProps } from '@/features/dags/components/dag-editor/hostTypes';
 import type {
@@ -59,7 +63,10 @@ import { useRightPanelClearance } from './useRightPanelClearance';
 import { runStepGates, useStepCommandHost } from './useStepCommandHost';
 import { useStepPanel } from './useStepPanel';
 import { useDeepLinkReveal, useStepViewKeys } from './useStepViewHost';
-import { useYamlPanelMemory } from './useYamlPanelMemory';
+import {
+  useWorkflowPanelMemory,
+  useYamlPanelMemory,
+} from './useYamlPanelMemory';
 import {
   useWorkspaceEditor,
   useWorkspaceEditorBinding,
@@ -228,23 +235,25 @@ function useInputRun(p: {
 }
 
 /**
- * Closes the right panel when Activity opens. It is a component of its own:
- * the state of the dock changes with each toggle, and the canvas must not
- * render again for it.
+ * Mounts the editor once Activity has made room for the expanded step view
+ * of the first render, such as a link that opens a step: a graph that fit
+ * the zone above the open Activity fit again, and jumped, when Activity
+ * collapsed. Once mounted, the editor stays. It
+ * is a component of its own, as the canvas must not render again for the
+ * state of the dock.
  */
-function CloseRightPanelOnActivity({ paneActive }: { paneActive: boolean }) {
-  const dock = useDock();
-  const closeRightPanel = useCloseRightPanel();
-  const activePanel = useActiveRightPanel();
-  const panelRef = useRef(activePanel);
-  panelRef.current = activePanel;
-  const dockWasOpen = useRef(dock.open);
-  useEffect(() => {
-    const opened = dock.open && !dockWasOpen.current;
-    dockWasOpen.current = dock.open;
-    if (opened && paneActive && panelRef.current !== null) closeRightPanel();
-  }, [dock.open, paneActive, closeRightPanel]);
-  return null;
+function MountAfterDockYield({
+  waits,
+  children,
+}: {
+  waits: boolean;
+  children: ReactNode;
+}) {
+  const { open } = useDock();
+  const [mounted, setMounted] = useState(false);
+  const holds = !mounted && waits && open;
+  if (!mounted && !holds) setMounted(true);
+  return holds ? null : children;
 }
 
 /**
@@ -272,7 +281,7 @@ export function WorkspaceCanvas({
   const { guard, setSecretVisible } = useSettingsLeaveGuard();
   // The runs of the step view start and show without leaving the editor.
   const actions = useStepRunActions({ stay: true });
-  const [url, setUrl] = useWorkspaceUrl();
+  const [url, setUrl, readUrl] = useWorkspaceUrl();
   const { editorHandleRef, onEditorStateChange } = useWorkspaceEditorBinding();
   const { handle, state: editorState } = useWorkspaceEditor();
   const runSource = useCanvasRunSource(
@@ -310,16 +319,59 @@ export function WorkspaceCanvas({
     [setUrl]
   );
 
+  // A step view needs a step: it closes with the selection. The YAML panel
+  // stays, and shows the whole file.
   const onSelectedStepNameChange = useCallback(
     (name: string | null) => {
-      setUrl(name === null ? { step: null, ndv: null } : { step: name }, {
-        replace: true,
-      });
+      if (name !== null) {
+        setUrl({ step: name }, { replace: true });
+        return;
+      }
+      const stepView = readUrl().ndv === 'expanded';
+      setUrl(
+        { step: null, ...(stepView ? { ndv: null } : {}) },
+        {
+          replace: true,
+        }
+      );
     },
-    [setUrl]
+    [readUrl, setUrl]
   );
 
-  const ndvState = url.ndv;
+  // The YAML panel shows as the user left it, unless a link opens a view.
+  // A legacy link, such as /history?idx, has a path that redirects once the
+  // run history loads; opening the panel first would rewrite the URL without
+  // it.
+  const [searchParams] = useSearchParams();
+  const wantsYaml = searchParams.has('yaml');
+  const { tab: legacyTab } = useParams<{ tab?: string }>();
+  const restoreYamlPanel = useCallback(
+    () => setUrl({ ndv: 'docked' }, { replace: true }),
+    [setUrl]
+  );
+  // A link that names a step, a panel or a tab of the Run panel opens that
+  // view instead.
+  const restorable =
+    url.ndv === null &&
+    url.step === null &&
+    url.panel === null &&
+    url.dock === null &&
+    legacyTab === undefined &&
+    !snapshot &&
+    !wantsYaml;
+  const ndvState = useYamlPanelMemory({
+    fileName,
+    ndv: url.ndv,
+    restorable,
+    restore: restoreYamlPanel,
+  });
+  // The Workflow panel shows as the user left it too, when the YAML panel
+  // does not.
+  const workflowPanel = useWorkflowPanelMemory({
+    fileName,
+    activePanel,
+    restorable: restorable && ndvState === null,
+  });
   const ndv = useMemo<DAGSpecHostProps['ndv']>(
     () => ({
       state: ndvState,
@@ -338,8 +390,6 @@ export function WorkspaceCanvas({
 
   // A legacy /spec link (?yaml=1) opens the YAML once the editor has loaded.
   // One URL write swaps ?yaml for ?ndv=docked: setUrl drops ?yaml.
-  const [searchParams] = useSearchParams();
-  const wantsYaml = searchParams.has('yaml');
   useEffect(() => {
     if (!handle || !wantsYaml) return;
     handle.toggleYaml(true);
@@ -353,28 +403,6 @@ export function WorkspaceCanvas({
     (name: string) => navigate(buildDAGPageURL({ fileName: name, remoteNode })),
     [navigate, remoteNode]
   );
-
-  // The YAML panel shows as the user left it, unless a link opens a view.
-  // A legacy link, such as /history?idx, has a path that redirects once the
-  // run history loads; opening the panel first would rewrite the URL without
-  // it.
-  const { tab: legacyTab } = useParams<{ tab?: string }>();
-  const openYamlPanel = useMemo(
-    () => (handle ? () => handle.toggleYaml(true) : null),
-    [handle]
-  );
-  useYamlPanelMemory({
-    fileName,
-    ndv: url.ndv,
-    restorable:
-      url.ndv === null &&
-      url.step === null &&
-      url.panel === null &&
-      legacyTab === undefined &&
-      !snapshot &&
-      !wantsYaml,
-    openPanel: openYamlPanel,
-  });
 
   // A link with ?panel opens the Workflow panel or a launcher panel once
   // the editor has loaded; the name leaves the URL, ?wtab stays.
@@ -430,29 +458,45 @@ export function WorkspaceCanvas({
     [clearance.overlap]
   );
 
-  // Esc closes the node details view when no dialog or menu is above it.
-  // With no panel or node view open, it clears the selected step and ?step.
   const ndvOpen = url.ndv !== null || activePanel === 'ndv';
+  // A step view that opened over the YAML panel gives the YAML back when Esc
+  // closes it, as its close button does (useYamlSection).
+  const yamlUnderView = useRef(false);
+  const lastNdv = useRef(url.ndv);
+  useEffect(() => {
+    if (url.ndv === 'expanded') {
+      if (lastNdv.current === 'docked') yamlUnderView.current = true;
+    } else {
+      yamlUnderView.current = false;
+    }
+    lastNdv.current = url.ndv;
+  }, [url.ndv]);
+  const closeStepView = () => {
+    if (yamlUnderView.current && handle) handle.toggleYaml(true);
+    else setUrl({ ndv: null }, { replace: true });
+  };
+  // Esc closes the expanded node view when no dialog or menu is above it.
+  // The YAML panel stays: it is a panel that the page keeps, not a view to
+  // leave. With no panel or node view open, Esc clears the step and ?step.
   useStepViewKeys({
     zoneRef,
     active: paneActive,
     hasStep: url.step !== null,
-    viewOpen: ndvOpen,
+    viewOpen: url.ndv === 'expanded',
     panelOpen: activePanel !== null || stepPanel.shown,
-    closeView: () => setUrl({ ndv: null }, { replace: true }),
+    closeView: closeStepView,
     clearStep: () => setUrl({ step: null, ndv: null }, { replace: true }),
   });
 
-  // The step view holds the room of the Run panel while it is expanded.
-  // The right panel (a launcher, the Workflow, the YAML, the node view) and the
-  // Activity panel take turns. A panel that opens collapses Activity, which
-  // comes back when the panel closes. Activity that opens closes the panel.
-  useDockYield(paneActive && (activePanel !== null || url.ndv === 'expanded'));
+  // The expanded step view fills the zone and holds the room of the Run
+  // panel; Activity comes back when it closes. A right panel (a launcher, the
+  // Workflow, the YAML) sits in the zone above Activity: both stay open.
+  useDockYield(paneActive && ndvState === 'expanded');
   // Esc in the YAML of the step view closes the view too.
   useEscInStepYaml({
     active: paneActive,
     viewOpen: url.ndv === 'expanded',
-    closeView: () => setUrl({ ndv: null }, { replace: true }),
+    closeView: closeStepView,
   });
 
   // The INPUT column names the run that the step run dialog copies from.
@@ -518,7 +562,6 @@ export function WorkspaceCanvas({
         TOOLBAR_ZONE_CLASS
       )}
     >
-      <CloseRightPanelOnActivity paneActive={paneActive} />
       <div
         ref={setToolbarRow}
         data-testid="ww-canvas-toolbar"
@@ -540,32 +583,39 @@ export function WorkspaceCanvas({
               className="flex min-h-0 w-full min-w-0 flex-1 flex-col"
             >
               <PaneActiveContext.Provider value={paneActive}>
-                <DAGSpec
-                  fileName={fileName}
-                  localDags={dagData.localDags}
-                  editorHints={dagData.editorHints}
-                  keyboardActive={paneActive}
-                  fillHeight
-                  runSource={runSource}
-                  onRunStarted={onRunStarted}
-                  selectedStepName={url.step}
-                  onSelectedStepNameChange={onSelectedStepNameChange}
-                  onStepClick={(_step, at) => stepPanel.show(at)}
-                  ndv={ndv}
-                  openNdvOn="open"
-                  renderStepOutput={renderStepOutput}
-                  onStepCommand={onStepCommand}
-                  onOpenWorkflow={openWorkflow}
-                  stepCommandGates={stepCommandGates}
-                  followedRuns={actions.followed}
-                  inputRun={inputRun}
-                  chrome={ndvOpen || stepPanel.shown ? CHROME_NDV_OPEN : CHROME}
-                  notices={notices}
-                  editorHandleRef={editorHandleRef}
-                  onEditorStateChange={onEditorStateChange}
-                  launcherHost={launcherHost}
-                  renderWorkflowPanel={renderWorkflowPanel}
-                />
+                <MountAfterDockYield
+                  waits={paneActive && ndvState === 'expanded'}
+                >
+                  <DAGSpec
+                    fileName={fileName}
+                    localDags={dagData.localDags}
+                    editorHints={dagData.editorHints}
+                    keyboardActive={paneActive}
+                    fillHeight
+                    runSource={runSource}
+                    onRunStarted={onRunStarted}
+                    selectedStepName={url.step}
+                    onSelectedStepNameChange={onSelectedStepNameChange}
+                    onStepClick={(_step, at) => stepPanel.show(at)}
+                    ndv={ndv}
+                    openNdvOn="open"
+                    renderStepOutput={renderStepOutput}
+                    onStepCommand={onStepCommand}
+                    onOpenWorkflow={openWorkflow}
+                    stepCommandGates={stepCommandGates}
+                    followedRuns={actions.followed}
+                    inputRun={inputRun}
+                    chrome={
+                      ndvOpen || stepPanel.shown ? CHROME_NDV_OPEN : CHROME
+                    }
+                    notices={notices}
+                    editorHandleRef={editorHandleRef}
+                    onEditorStateChange={onEditorStateChange}
+                    launcherHost={launcherHost}
+                    renderWorkflowPanel={renderWorkflowPanel}
+                    initialWorkflowOpen={workflowPanel.open}
+                  />
+                </MountAfterDockYield>
               </PaneActiveContext.Provider>
             </div>
           </CanvasToolbarHostContext.Provider>

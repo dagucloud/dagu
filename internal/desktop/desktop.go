@@ -215,6 +215,12 @@ type Driver struct {
 	protectedTitles []string
 	// held are the buttons PressButton pressed and nothing released since.
 	held []Button
+	// marks shows a person where each action lands, labelled with
+	// markName, and focusMark is the element keys are marked on; see
+	// ShowMarks.
+	marks     Marks
+	markName  string
+	focusMark image.Rectangle
 }
 
 // New returns a driver for a backend.
@@ -365,9 +371,9 @@ func (d *Driver) WaitForIdle(ctx context.Context, idle, poll time.Duration, onWa
 	return nil
 }
 
-// Close releases the driver, and every button still pressed.
+// Close releases the driver, every button still pressed, and its marks.
 func (d *Driver) Close() error {
-	return errors.Join(d.ReleaseHeld(), d.backend.Close())
+	return errors.Join(d.ReleaseHeld(), d.closeMarks(), d.backend.Close())
 }
 
 // Screenshot captures the primary display.
@@ -392,6 +398,7 @@ func (d *Driver) Move(ctx context.Context, at image.Point) error {
 // MoveHolding moves the pointer while holding modifiers, as when hovering
 // with a key pressed.
 func (d *Driver) MoveHolding(ctx context.Context, at image.Point, modifiers []Key) error {
+	d.markAt("move", at)
 	return d.withKeys(ctx, modifiers, func() error {
 		return d.Move(ctx, at)
 	})
@@ -400,6 +407,7 @@ func (d *Driver) MoveHolding(ctx context.Context, at image.Point, modifiers []Ke
 // Click clicks a button count times at a position, or at the pointer when
 // at is nil, while holding modifiers.
 func (d *Driver) Click(ctx context.Context, at *image.Point, button Button, count int, modifiers []Key) error {
+	d.markAt(clickAction(button, count), pointsAt(at)...)
 	if at != nil {
 		if err := d.Move(ctx, *at); err != nil {
 			return err
@@ -421,6 +429,7 @@ func (d *Driver) Click(ctx context.Context, at *image.Point, button Button, coun
 // PressButton presses a button at the pointer, which stays pressed until
 // ReleaseButton or ReleaseHeld releases it.
 func (d *Driver) PressButton(button Button) error {
+	d.markAt("press " + string(button))
 	if err := d.backend.Button(button, true, 1); err != nil {
 		return err
 	}
@@ -432,6 +441,7 @@ func (d *Driver) PressButton(button Button) error {
 
 // ReleaseButton releases a button at the pointer.
 func (d *Driver) ReleaseButton(button Button) error {
+	d.markAt("release " + string(button))
 	if err := d.backend.Button(button, false, 1); err != nil {
 		return err
 	}
@@ -461,6 +471,7 @@ func (d *Driver) Drag(ctx context.Context, path []image.Point, modifiers []Key) 
 	if len(path) < 2 {
 		return errors.New("a drag needs at least two points")
 	}
+	d.markAt("drag", path...)
 	if err := d.Move(ctx, path[0]); err != nil {
 		return err
 	}
@@ -497,6 +508,7 @@ func (d *Driver) Scroll(ctx context.Context, at *image.Point, dx, dy int, modifi
 	if dx < -maxScrollNotches || dx > maxScrollNotches || dy < -maxScrollNotches || dy > maxScrollNotches {
 		return fmt.Errorf("a scroll moves at most %d notches at a time", maxScrollNotches)
 	}
+	d.markAt("scroll", pointsAt(at)...)
 	if at != nil {
 		if err := d.Move(ctx, *at); err != nil {
 			return err
@@ -512,6 +524,11 @@ func (d *Driver) PressKeys(ctx context.Context, keys []Key, repeat int) error {
 	if len(keys) == 0 {
 		return errors.New("no keys to press")
 	}
+	d.markKeys(keysAction("press", keys), false)
+	return d.pressKeys(ctx, keys, repeat)
+}
+
+func (d *Driver) pressKeys(ctx context.Context, keys []Key, repeat int) error {
 	for range max(repeat, 1) {
 		if err := d.withKeys(ctx, keys[:len(keys)-1], func() error {
 			last := keys[len(keys)-1]
@@ -531,6 +548,7 @@ func (d *Driver) PressKeys(ctx context.Context, keys []Key, repeat int) error {
 
 // HoldKeys holds keys down for a duration.
 func (d *Driver) HoldKeys(ctx context.Context, keys []Key, duration time.Duration) error {
+	d.markKeys(keysAction("hold", keys), false)
 	return d.withKeys(ctx, keys, func() error {
 		return pause(ctx, duration)
 	})
@@ -539,10 +557,11 @@ func (d *Driver) HoldKeys(ctx context.Context, keys []Key, duration time.Duratio
 // Type types text. Line breaks are sent as the Enter key, which
 // applications treat more consistently than a typed newline.
 func (d *Driver) Type(ctx context.Context, text string) error {
+	d.markKeys("type", !strings.ContainsAny(text, "\r\n"))
 	lines := strings.Split(strings.ReplaceAll(text, "\r\n", "\n"), "\n")
 	for i, line := range lines {
 		if i > 0 {
-			if err := d.PressKeys(ctx, []Key{KeyEnter}, 1); err != nil {
+			if err := d.pressKeys(ctx, []Key{KeyEnter}, 1); err != nil {
 				return err
 			}
 		}

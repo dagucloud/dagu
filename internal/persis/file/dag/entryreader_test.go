@@ -504,20 +504,26 @@ func TestBaseWatchLifecycle(t *testing.T) {
 			done := make(chan struct{})
 			go func() { defer close(done); reader.Start(t.Context()) }()
 			t.Cleanup(func() { reader.Stop(); <-done })
-			expect := func(kind persis.DAGChangeType, queue string) {
+			await := func(what string, match func(persis.DAGChangeEvent) bool) {
 				t.Helper()
 				timeout := time.NewTimer(3 * time.Second)
 				defer timeout.Stop()
 				for {
 					select {
 					case event := <-reader.Events():
-						if event.Type == kind && (kind == persis.DAGChangeDeleted || event.DAG.ProcGroup() == queue) {
+						if match(event) {
 							return
 						}
 					case <-timeout.C:
-						t.Fatalf("missing change %v with queue %q", kind, queue)
+						t.Fatalf("missing %s", what)
 					}
 				}
+			}
+			expect := func(kind persis.DAGChangeType, queue string) {
+				t.Helper()
+				await(fmt.Sprintf("change %v with queue %q", kind, queue), func(event persis.DAGChangeEvent) bool {
+					return event.Type == kind && (kind == persis.DAGChangeDeleted || event.DAG.ProcGroup() == queue)
+				})
 			}
 			// On Windows a base file op fails while the reader still holds it
 			// open (Go file handles do not share delete access), and a
@@ -538,8 +544,15 @@ func TestBaseWatchLifecycle(t *testing.T) {
 			expect(persis.DAGChangeUpdated, "pool")
 			write("queue: [")
 			expect(persis.DAGChangeDeleted, "")
+			// The DAG comes back once the base reads again. WriteFile
+			// truncates before it writes, so the reader may first add the DAG
+			// under the empty base, with its own queue, and then update it.
 			write("queue: recovered\n")
-			expect(persis.DAGChangeAdded, "recovered")
+			added := false
+			await("the DAG added back with queue \"recovered\"", func(event persis.DAGChangeEvent) bool {
+				added = added || event.Type == persis.DAGChangeAdded
+				return added && event.Type != persis.DAGChangeDeleted && event.DAG.ProcGroup() == "recovered"
+			})
 			replacement := filepath.Join(filepath.Dir(base), "replacement.tmp")
 			require.NoError(t, os.WriteFile(replacement, []byte("queue: atomic\n"), 0600))
 			retryFileOp(func() error { return os.Rename(replacement, base) })
@@ -1336,7 +1349,25 @@ func repointSymlink(t *testing.T, link, target string) {
 	t.Helper()
 	staged := link + ".staged"
 	require.NoError(t, os.Symlink(target, staged))
-	require.NoError(t, os.Rename(staged, link))
+	require.NoError(t, renameOverWatchedFile(staged, link))
+}
+
+// renameOverWatchedFile renames staged over path while a reader may have
+// path open. On Windows a rename over a file is refused with access denied
+// while any handle to it is open, even one that only reads its attributes,
+// which is what the reader's poll holds for a moment each time it checks
+// where the link points. Tools that swap files on Windows retry the rename,
+// as cmd/go's robustio does, and so does this. Elsewhere a rename replaces
+// an open file at once.
+func renameOverWatchedFile(staged, path string) error {
+	deadline := time.Now().Add(5 * time.Second)
+	for {
+		err := os.Rename(staged, path)
+		if err == nil || runtime.GOOS != "windows" || !errors.Is(err, os.ErrPermission) || time.Now().After(deadline) {
+			return err
+		}
+		time.Sleep(time.Millisecond)
+	}
 }
 
 // The calendars directory is optional, so a calendars path that is not a

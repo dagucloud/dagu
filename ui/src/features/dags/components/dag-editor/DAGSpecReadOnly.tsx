@@ -74,6 +74,11 @@ type DAGSpecReadOnlyProps = {
   className?: string;
   /** What draws the graph of the retry preview. Default: 'mermaid'. */
   previewEngine?: PreviewEngine;
+  /**
+   * Called with the ID of the run that an edited retry created. Without it
+   * the page of the new run opens.
+   */
+  onRetried?(dagRunId: string): void;
 };
 
 type EditRetryPreview = {
@@ -111,7 +116,9 @@ const orderedSelectedSkipSteps = (
   return steps.map((step) => step.name).filter((name) => selected.has(name));
 };
 
-// The canvas marks a reused step Skipped: it does not run in the new run.
+// The canvas marks a reused step as done, in the colour of a success: its
+// output is kept and it does not run in the new run. A step that runs again
+// keeps the plain card.
 const buildPreviewOverlay = (
   steps: components['schemas']['Step'][],
   selectedSkipSteps: string[],
@@ -122,7 +129,7 @@ const buildPreviewOverlay = (
   for (const step of steps) {
     const reuse = selected.has(step.name);
     overlay[step.name] = {
-      status: reuse ? NodeStatus.Skipped : NodeStatus.NotStarted,
+      status: reuse ? NodeStatus.Success : NodeStatus.NotStarted,
       statusLabel: reuse ? labels.reuse : labels.run,
       retryCount: 0,
       doneCount: 0,
@@ -191,6 +198,7 @@ function DAGSpecReadOnly({
   sourceFileName,
   className,
   previewEngine = 'mermaid',
+  onRetried,
 }: DAGSpecReadOnlyProps) {
   const { ts } = useI18n();
   const remoteNode = useRemoteNode();
@@ -394,6 +402,10 @@ function DAGSpecReadOnly({
       }
       setPreviewVisible(false);
       showToast(ts('New DAG run created: {id}', { id: retryData.dagRunId }));
+      if (onRetried) {
+        onRetried(retryData.dagRunId);
+        return;
+      }
       navigate(
         buildDAGRunPageURL({
           rootDAGRunName: dagName,
@@ -419,6 +431,7 @@ function DAGSpecReadOnly({
     dagRunId,
     editorSpec,
     navigate,
+    onRetried,
     remoteNode,
     retryPreview,
     retrySubmitting,
@@ -843,6 +856,13 @@ function DAGSpecReadOnly({
                   <div className="text-sm font-medium">
                     <I18nText text={'Step review'} />
                   </div>
+                  <p className="mt-1 text-xs text-muted-foreground">
+                    <I18nText
+                      text={
+                        'A checked step reuses its previous output; the others run again.'
+                      }
+                    />
+                  </p>
                   {selectedPreviewNode && (
                     <div className="mt-1 font-mono text-xs text-muted-foreground">
                       {selectedPreviewNode.step.name}

@@ -68,7 +68,8 @@ import type { MenuPoint } from './engine/Flow';
 import { boundsOf, clamp, snapZoom, zoomAt } from './engine/geometry';
 import { MINIMAP_RESERVE } from './engine/overlays';
 import type { Viewport } from './engine/types';
-import { useFlowStore } from './engine/store';
+import { useFlowStore, type ViewMotion } from './engine/store';
+
 import { buildExportSvg, downloadPng, downloadSvg } from './exportCanvas';
 import {
   ghostFlowEdges,
@@ -118,6 +119,9 @@ import { canvasShortcut, useCanvasKeymap } from './useCanvasKeymap';
 import { useAutoFit } from './useAutoFit';
 import { useCanvasDetails } from './useCanvasDetails';
 import { useCanvasLayout } from './useCanvasLayout';
+
+// A view change that follows the room of the canvas.
+const GLIDE: ViewMotion = { glide: true };
 
 // The floating toolbar is 56 px high: a fit keeps its content 16 px below it
 // and 24 px from the sides, so no node sits under an overlay. The bottom
@@ -675,17 +679,19 @@ function CanvasView({
       : { zoom: view.zoom, x: view.x + dx, y: view.y + dy };
   }, []);
   // Moves the view only as far as needed to show the selected step.
-  const keepSelectedInView = () => {
+  const keepSelectedInView = (motion?: ViewMotion) => {
     const key = selectedRef.current;
     const view = key ? viewForNode(key, 0, true) : null;
     if (view) {
-      setViewport(view);
+      setViewport(view, motion);
     }
   };
+  // A change of the room of the canvas (a panel, Activity, the window) or of
+  // the graph glides the view to its new place, in one move.
   const autoFit = useAutoFit(wrapperRef, () => {
-    fitView(fitOptions);
+    fitView(fitOptions, GLIDE);
     // A resize that fits the graph again keeps the selected step in view.
-    keepSelectedInView();
+    keepSelectedInView(GLIDE);
   });
   const {
     onUserMove: stopAutoFit,
@@ -895,7 +901,7 @@ function CanvasView({
     ) {
       // A view that the user moved stays, but not over the selected step.
       if (userMoved()) {
-        keepSelectedInView();
+        keepSelectedInView(GLIDE);
       } else {
         refit();
       }

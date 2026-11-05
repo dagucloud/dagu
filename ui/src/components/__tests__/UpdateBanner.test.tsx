@@ -42,6 +42,19 @@ describe('UpdateBanner', () => {
     expect(screen.queryByText('dagu upgrade')).not.toBeInTheDocument();
   });
 
+  // A phone has one line for the banner: the command is for a terminal.
+  it('leaves the command out on a phone', () => {
+    const width = window.innerWidth;
+    window.innerWidth = 390;
+    try {
+      renderBanner({ upgradeCommand: 'brew upgrade dagu' });
+      expect(screen.getByText(/v2\.0\.0 → v2\.1\.0/)).toBeInTheDocument();
+      expect(screen.queryByText('brew upgrade dagu')).not.toBeInTheDocument();
+    } finally {
+      window.innerWidth = width;
+    }
+  });
+
   it('omits the run instruction when no single command updates Dagu', () => {
     renderBanner({ upgradeCommand: '' });
 

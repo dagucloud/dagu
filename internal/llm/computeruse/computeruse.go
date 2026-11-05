@@ -49,7 +49,8 @@ const (
 	// KindScroll scrolls ScrollX and ScrollY wheel notches at Point, or at
 	// the cursor when Point is nil. Positive values scroll right and down.
 	KindScroll Kind = "scroll"
-	// KindType types Text at the keyboard focus.
+	// KindType types Text at the keyboard focus, or puts it in the field
+	// ElementID names in place of what the field holds.
 	KindType Kind = "type"
 	// KindKey presses Keys together Repeat times.
 	KindKey Kind = "key"
@@ -95,8 +96,8 @@ type Action struct {
 	CallID string `json:"call_id,omitempty"`
 	Kind   Kind   `json:"kind"`
 	Point  *Point `json:"point,omitempty"`
-	// ElementID names an element from the observation to act on. The
-	// executor resolves it to a point before the action runs.
+	// ElementID names an element from the observation to act on, which
+	// the executor finds wherever it is when the action runs.
 	ElementID string        `json:"element_id,omitempty"`
 	Path      []Point       `json:"path,omitempty"`
 	Button    string        `json:"button,omitempty"`
@@ -142,7 +143,9 @@ type Screen struct {
 
 // Observation reports the desktop to the model.
 type Observation struct {
-	// Screen is the current screen.
+	// Screen is the current screen. It has no Image for a turn the model
+	// decides from Elements alone, which only a session that reports
+	// ElementTurns is sent.
 	Screen Screen
 	// Results answer the previous turn's actions, one per action, in order.
 	Results []Result
@@ -154,18 +157,22 @@ type Observation struct {
 	// ReportOnly asks the model for its report instead of more actions. A
 	// session that can limit the model's tools offers it only done.
 	ReportOnly bool
-	// Elements are the actionable elements of the front window the model
-	// may target by id, more reliable than aiming at a pixel. Empty when
-	// the desktop exposes no elements.
+	// Elements are the elements of the front window, in reading order. The
+	// model may target the ones with an ID, more reliable than aiming at a
+	// pixel. Empty when the desktop exposes no elements.
 	Elements []Element
 }
 
-// Element is an actionable control the model can target by id, resolved to
-// its position by the executor.
+// Element is an element of the front window. One with an ID is a control
+// the model can target by it, with the kinds of action it Takes; one
+// without is listed to be read, such as a label or a disabled control.
 type Element struct {
 	ID   string
 	Role string
 	Name string
+	// In names the group, list, or tab the element sits in, when the list
+	// holds another element of the same role and name.
+	In string
 	// Value is what the element holds, such as a field's text or the option
 	// a combo box shows, with the values the step types written as their
 	// placeholders.
@@ -174,6 +181,23 @@ type Element struct {
 	// grey "0", which the field does not hold. Empty when the field holds a
 	// value or the desktop does not report one.
 	Hint string
+	// Disabled marks a control that takes no input until its window
+	// enables it.
+	Disabled bool
+	// Takes are the kinds of action the element performs when an action
+	// names its ID: KindClick, KindType, which puts text in a field in
+	// place of what it holds, or KindChoose.
+	Takes []Kind
+}
+
+// ElementTurner is implemented by a session that may be sent an
+// observation without a screenshot.
+type ElementTurner interface {
+	// ElementTurns reports whether the session takes an observation whose
+	// Screen has no Image. Its model then decides from the elements, and
+	// asks to see the screen with a KindScreenshot action, which the next
+	// observation answers with a screenshot.
+	ElementTurns() bool
 }
 
 // Result reports how one action went.

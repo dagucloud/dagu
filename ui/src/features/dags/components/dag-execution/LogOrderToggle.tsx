@@ -1,7 +1,7 @@
 // Copyright (C) 2026 Yota Hamada
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-import { ChevronDown } from 'lucide-react';
+import { ArrowDown } from 'lucide-react';
 import React from 'react';
 import { Button } from '@/components/ui/button';
 import { useUserPreferences } from '@/contexts/UserPreference';
@@ -53,9 +53,10 @@ export function distanceFromLiveEnd(
 
 /**
  * The button that reverses the order of the lines. It names the current
- * order; the chevron points down for old to new (the log reads downward) and
+ * order; the arrow points down for old to new (the log reads downward) and
  * turns up for new to old. The label sits in a slot of fixed width, so the
- * toolbar does not move when the order changes.
+ * toolbar does not move when the order changes. In a toolbar narrower than
+ * 25rem (@container/logbar) only the arrow shows, so the row fits a phone.
  */
 export function LogOrderToggle({
   newestFirst,
@@ -73,12 +74,12 @@ export function LogOrderToggle({
       data-order={newestFirst ? 'newToOld' : 'oldToNew'}
       title={ts('Reverse the order of the lines')}
       onClick={onToggle}
-      className="w-28 shrink-0 justify-between whitespace-nowrap"
+      className="w-28 shrink-0 justify-between whitespace-nowrap @max-[25rem]/logbar:w-auto"
     >
-      <span className="truncate">
+      <span className="truncate @max-[25rem]/logbar:sr-only">
         {newestFirst ? ts('New to old') : ts('Old to new')}
       </span>
-      <ChevronDown
+      <ArrowDown
         aria-hidden="true"
         className={`h-3.5 w-3.5 shrink-0 transition-transform motion-reduce:transition-none ${newestFirst ? 'rotate-180' : ''}`}
       />

@@ -63,6 +63,36 @@ afterEach(() => {
   vi.useRealTimers();
 });
 
+// A panel beside the page swaps at once: one that takes the place of
+// another reads as one pane that changes its content.
+describe('StepSideDrawer beside the page', () => {
+  it('shows and leaves at once, with no fade', () => {
+    function Toggle() {
+      const [open, setOpen] = useState(true);
+      return (
+        <>
+          <button type="button" onClick={() => setOpen((o) => !o)}>
+            Toggle
+          </button>
+          <StepSideDrawer
+            isOpen={open}
+            onClose={() => setOpen(false)}
+            hasContent={open}
+            modal={false}
+            label="Launcher"
+          >
+            <p>Body</p>
+          </StepSideDrawer>
+        </>
+      );
+    }
+    render(<Toggle />);
+    expect(screen.getByTestId('step-side-drawer')).toHaveClass('opacity-100');
+    fireEvent.click(screen.getByRole('button', { name: 'Toggle' }));
+    expect(screen.queryByTestId('step-side-drawer')).toBeNull();
+  });
+});
+
 // parity:drawer-mode-rules
 describe('StepSideDrawer panel claim', () => {
   it('claims its panel id while it is open', () => {
@@ -193,20 +223,32 @@ describe('WorkflowDrawer', () => {
   });
 });
 
-describe('WorkflowDrawer Escape', () => {
+// The Add step and launcher panels close on an Escape of the page.
+describe('StepSideDrawer page Escape', () => {
+  function PageDrawer({ onClose }: { onClose: () => void }) {
+    return (
+      <StepSideDrawer
+        isOpen
+        onClose={onClose}
+        hasContent
+        modal={false}
+        closeOnPageEscape
+      >
+        <p>Nightly sales</p>
+      </StepSideDrawer>
+    );
+  }
+
   // The focus stays on the toolbar button that opened the panel.
   it('closes on Escape while the focus is on the page', () => {
     const onClose = vi.fn();
     render(
       <>
-        <button type="button">Workflow</button>
-        <input aria-label="Other field" />
-        <WorkflowDrawer open onClose={onClose}>
-          <p>Nightly sales</p>
-        </WorkflowDrawer>
+        <button type="button">Add a step</button>
+        <PageDrawer onClose={onClose} />
       </>
     );
-    screen.getByRole('button', { name: 'Workflow' }).focus();
+    screen.getByRole('button', { name: 'Add a step' }).focus();
 
     fireEvent.keyDown(window, { key: 'Escape' });
 
@@ -218,9 +260,7 @@ describe('WorkflowDrawer Escape', () => {
     render(
       <>
         <input aria-label="Other field" />
-        <WorkflowDrawer open onClose={onClose}>
-          <p>Nightly sales</p>
-        </WorkflowDrawer>
+        <PageDrawer onClose={onClose} />
       </>
     );
     screen.getByLabelText('Other field').focus();
@@ -232,14 +272,29 @@ describe('WorkflowDrawer Escape', () => {
 
   it('does not close in a pane that the host hides', () => {
     const onClose = vi.fn();
-    const { container } = render(
+    render(
       <div inert>
+        <PageDrawer onClose={onClose} />
+      </div>
+    );
+
+    fireEvent.keyDown(window, { key: 'Escape' });
+
+    expect(onClose).not.toHaveBeenCalled();
+  });
+
+  // The page keeps the Workflow panel as the user left it.
+  it('keeps the Workflow panel open on an Escape of the page', () => {
+    const onClose = vi.fn();
+    render(
+      <>
+        <button type="button">Workflow</button>
         <WorkflowDrawer open onClose={onClose}>
           <p>Nightly sales</p>
         </WorkflowDrawer>
-      </div>
+      </>
     );
-    expect(container).toBeTruthy();
+    screen.getByRole('button', { name: 'Workflow' }).focus();
 
     fireEvent.keyDown(window, { key: 'Escape' });
 

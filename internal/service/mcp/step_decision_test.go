@@ -304,7 +304,7 @@ func TestRemoteDecisionNeedsApprovalsAndAttempt(t *testing.T) {
 	failed, output := approve(map[string]any{"attemptId": fixture.attemptID})
 	require.True(t, failed)
 	require.Equal(t, executeErrorUnauthorized, output["code"])
-	require.Contains(t, output["message"], "Remote approvals are off")
+	require.Contains(t, output["message"], "Completing human tasks from Dagu Cloud is off")
 
 	approvals = true
 	failed, output = approve(map[string]any{})

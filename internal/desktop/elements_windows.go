@@ -529,11 +529,13 @@ func (w *uiaWorker) release() {
 }
 
 // topWindow is a top-level window: its element with every property
-// cached, which the holder releases, its value, and its class name.
+// cached, which the holder releases, its value, its class name, and its
+// handle.
 type topWindow struct {
 	el        *element
 	window    Element
 	className string
+	hwnd      windows.HWND
 }
 
 // top reads the window in front, or the window scope names. A handle
@@ -578,7 +580,7 @@ func (w *uiaWorker) asWindow(el *element) (*topWindow, error) {
 	if holdsOwner(hwnd) {
 		window.Role = RoleDialog
 	}
-	return &topWindow{el: el, window: window, className: className}, nil
+	return &topWindow{el: el, window: window, className: className, hwnd: hwnd}, nil
 }
 
 // placement is where an element sits: its top-level window, which the
@@ -836,7 +838,8 @@ func (w *uiaWorker) readSubtree(top *topWindow, limit int) (*subtree, error) {
 	if err != nil {
 		return nil, err
 	}
-	tree := &subtree{worker: w, pool: []*element{rootEl}}
+	iconic, _, _ := procIsIconic.Call(uintptr(top.hwnd))
+	tree := &subtree{worker: w, pool: []*element{rootEl}, minimized: iconic != 0}
 	root := &subtreeNode{tree: tree, el: rootEl}
 	tree.elements = outlineTree(root, top.window.Name, limit)
 	if tree.err != nil {
@@ -847,13 +850,16 @@ func (w *uiaWorker) readSubtree(top *topWindow, limit int) (*subtree, error) {
 }
 
 // subtree is one window's cached control tree. Every element it created
-// is released together.
+// is released together. A minimized window shows none of its elements,
+// though they keep their size at the place Windows parks the window and do
+// not report themselves offscreen.
 type subtree struct {
-	worker   *uiaWorker
-	pool     []*element
-	nodes    []*subtreeNode
-	elements []Element
-	err      error
+	worker    *uiaWorker
+	pool      []*element
+	nodes     []*subtreeNode
+	elements  []Element
+	err       error
+	minimized bool
 }
 
 func (t *subtree) release() {
@@ -885,7 +891,7 @@ func (n *subtreeNode) load() {
 	}
 	n.value = found
 	offscreen, _ := n.el.cachedIsOffscreen()
-	n.visibly = !offscreen && !found.Bounds.Empty()
+	n.visibly = !n.tree.minimized && !offscreen && !found.Bounds.Empty()
 }
 
 func (n *subtreeNode) element() Element {

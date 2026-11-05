@@ -7,7 +7,12 @@ import { cn } from '@/lib/utils';
 interface ActionButtonProps
   extends React.ButtonHTMLAttributes<HTMLButtonElement> {
   children: React.ReactNode;
-  label?: boolean;
+  /**
+   * true: the text shows beside the icon; false: the icon only. 'wide': the
+   * text shows on a bar of 896 px or more (the nearest @container), the icon
+   * only below.
+   */
+  label?: boolean | 'wide';
   icon: ReactElement;
   variant?: VariantProps<typeof buttonVariants>['variant'];
 }
@@ -17,6 +22,27 @@ const ActionButton = forwardRef<HTMLButtonElement, ActionButtonProps>(
     { label, children, icon, className, disabled, onClick, variant, ...props },
     ref
   ) => {
+    if (label === 'wide') {
+      return (
+        <Button
+          ref={ref}
+          size="icon-sm"
+          variant={variant ?? 'outline'}
+          disabled={disabled}
+          onClick={onClick}
+          // The label shows in a wide container. One least width for the
+          // labels keeps the slot of the action as the action changes.
+          className={cn(
+            '@7xl:w-auto @7xl:min-w-[6.5rem] @7xl:gap-1.5 @7xl:px-2 @7xl:text-xs @7xl:font-semibold',
+            className
+          )}
+          {...props}
+        >
+          <span className="h-4 w-4">{icon}</span>
+          <span className="sr-only @7xl:not-sr-only">{children}</span>
+        </Button>
+      );
+    }
     return label ? (
       <Button
         ref={ref}

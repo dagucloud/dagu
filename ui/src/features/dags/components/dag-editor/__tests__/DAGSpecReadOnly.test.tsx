@@ -240,20 +240,17 @@ describe('DAGSpecReadOnly with the canvas preview', () => {
     await openCanvasPreview();
 
     expect(screen.getByTestId('ve-canvas-node-extract')).toBeInTheDocument();
+    // A reused step shows as done, apart from the steps that run again.
     expect(runState('extract')).toHaveAttribute(
       'data-status',
-      String(NodeStatus.Skipped)
+      String(NodeStatus.Success)
     );
-    expect(
-      runState('extract')?.querySelector('[data-testid="status-dot"]')
-    ).toHaveAttribute('title', 'Reuse previous output');
+    expect(runState('extract')).toHaveTextContent('Reuse previous output');
     expect(runState('load')).toHaveAttribute(
       'data-status',
       String(NodeStatus.NotStarted)
     );
-    expect(
-      runState('load')?.querySelector('[data-testid="status-dot"]')
-    ).toHaveAttribute('title', 'Run again');
+    expect(runState('load')).toHaveTextContent('Run again');
     expect(screen.queryByTestId('preview-graph')).not.toBeInTheDocument();
     expect(graphGate.imports).toBe(0);
   });
@@ -322,6 +319,19 @@ describe('DAGSpecReadOnly with the canvas preview', () => {
     expect(mocks.navigate).toHaveBeenCalledWith(
       '/dags/example?remoteNode=local&run=run-2'
     );
+  });
+
+  // A host that shows runs itself, as the workflow page does, gets the run.
+  it('hands the new run to a host that shows it', async () => {
+    const onRetried = vi.fn();
+    await openCanvasPreview({ onRetried });
+
+    await userEvent.click(
+      screen.getByRole('button', { name: /create new run/i })
+    );
+
+    await waitFor(() => expect(onRetried).toHaveBeenCalledWith('run-2'));
+    expect(mocks.navigate).not.toHaveBeenCalled();
   });
 
   // The DAG name of the run can differ from the name of its file.
@@ -394,7 +404,7 @@ describe('DAGSpecReadOnly with the canvas preview', () => {
     );
     expect(runState('extract')).toHaveAttribute(
       'data-status',
-      String(NodeStatus.Skipped)
+      String(NodeStatus.Success)
     );
     // The preview dialog hides the editor header from the accessibility tree.
     expect(

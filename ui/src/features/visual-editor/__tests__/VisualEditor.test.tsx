@@ -801,21 +801,60 @@ describe.skipIf(realSchema === null)('VisualEditor', () => {
     expect(screen.getByText('About the workflow')).toBeInTheDocument();
   });
 
-  it('closes the workflow panel when the YAML opens', () => {
+  // The YAML takes the place of the panel once it shows: the right of the
+  // canvas never stands empty between the two, and the graph stays.
+  it('closes the workflow panel when the YAML shows', () => {
     const onYamlVisibleChange = vi.fn();
-    renderEditor({
+    const props = {
       initial: yamlArraySteps,
       workflowPanel: <p>About the workflow</p>,
       onYamlVisibleChange,
-    });
-    fireEvent.click(screen.getByRole('button', { name: 'Workflow' }));
+    };
+    const { rerender } = renderEditor(props);
+    const workflow = () => screen.getByRole('button', { name: 'Workflow' });
+    fireEvent.click(workflow());
 
     fireEvent.click(screen.getByRole('button', { name: 'YAML' }));
-
     expect(onYamlVisibleChange).toHaveBeenCalledWith(true, 'panel');
+    expect(workflow()).toHaveAttribute('aria-pressed', 'true');
+
+    rerender(
+      <UserPreferencesProvider>
+        <Harness {...props} yamlVisible />
+      </UserPreferencesProvider>
+    );
+    expect(workflow()).toHaveAttribute('aria-pressed', 'false');
+  });
+
+  // The page keeps the panel as the user left it: a key does not close it.
+  it('keeps the workflow panel open on Escape', () => {
+    renderEditor({
+      initial: yamlArraySteps,
+      workflowPanel: <p>About the workflow</p>,
+    });
+    fireEvent.click(screen.getByRole('button', { name: 'Workflow' }));
+    // An Esc of the page, with the focus on no control.
+    (document.activeElement as HTMLElement | null)?.blur();
+
+    fireEvent.keyDown(document.body, { key: 'Escape' });
+
     expect(screen.getByRole('button', { name: 'Workflow' })).toHaveAttribute(
       'aria-pressed',
-      'false'
+      'true'
+    );
+  });
+
+  it('shows the workflow panel at mount when it opens there', () => {
+    renderEditor({
+      initial: yamlArraySteps,
+      workflowPanel: <p>About the workflow</p>,
+      initialWorkflowOpen: true,
+    });
+
+    expect(screen.getByText('About the workflow')).toBeVisible();
+    expect(screen.getByRole('button', { name: 'Workflow' })).toHaveAttribute(
+      'aria-pressed',
+      'true'
     );
   });
 
@@ -1537,7 +1576,7 @@ ${goals}
         // The last status of a tool colours its card.
         expect(
           screen.getByTestId('ve-canvas-node-steps[1]').className
-        ).toContain('border-destructive');
+        ).toContain('border-[var(--graph-error)]');
       });
 
       it('shows the calls of an agent run that has no task', () => {

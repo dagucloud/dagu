@@ -5,8 +5,12 @@ package redis
 
 import (
 	"context"
+	"path/filepath"
 	"testing"
+	"time"
 
+	"github.com/dagucloud/dagu/v2/internal/ir"
+	"github.com/dagucloud/dagu/v2/internal/runtime"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -261,37 +265,48 @@ func TestParseConfig_Invalid(t *testing.T) {
 	}
 }
 
-func TestHashConfig(t *testing.T) {
+// Relative script and TLS file paths name files under the step working
+// directory, not the Dagu process directory.
+func TestParseConfig_RelativePathsUseWorkingDir(t *testing.T) {
 	t.Parallel()
 
-	cfg1 := &Config{Host: "localhost", Port: 6379, DB: 0}
-	cfg2 := &Config{Host: "localhost", Port: 6379, DB: 0}
-	cfg3 := &Config{Host: "localhost", Port: 6380, DB: 0}
+	workDir := t.TempDir()
+	step := ir.Step{Name: "redis-step"}
+	dag := &ir.DAG{Name: "redis-test", WorkingDir: workDir, WorkingDirExplicit: true}
+	ctx := runtime.NewContext(context.Background(), dag, "run-1", "")
+	ctx = runtime.WithEnv(ctx, runtime.NewEnv(ctx, step))
 
-	hash1 := hashConfig(cfg1)
-	hash2 := hashConfig(cfg2)
-	hash3 := hashConfig(cfg3)
-
-	// Same config should produce same hash
-	assert.Equal(t, hash1, hash2)
-
-	// Different config should produce different hash
-	assert.NotEqual(t, hash1, hash3)
-
-	// Hash should be 16 chars (8 bytes hex encoded)
-	assert.Len(t, hash1, 16)
+	cfg, err := ParseConfig(ctx, map[string]any{
+		"host":        "localhost",
+		"command":     "EVAL",
+		"script_file": "scripts/count.lua",
+		"tls":         true,
+		"tls_ca":      "certs/ca.pem",
+		"tls_cert":    "certs/client.pem",
+		"tls_key":     "certs/client.key",
+	})
+	require.NoError(t, err)
+	assert.Equal(t, filepath.Join(workDir, "scripts", "count.lua"), cfg.ScriptFile)
+	assert.Equal(t, filepath.Join(workDir, "certs", "ca.pem"), cfg.TLSCA)
+	assert.Equal(t, filepath.Join(workDir, "certs", "client.pem"), cfg.TLSCert)
+	assert.Equal(t, filepath.Join(workDir, "certs", "client.key"), cfg.TLSKey)
 }
 
-func TestPoolManagerContextFunctions(t *testing.T) {
+// A client that cannot be built, here because the CA file is missing, fails at
+// once: no connection was attempted, so retrying cannot help.
+func TestCreateClientWithRetry_ConfigErrorFailsAtOnce(t *testing.T) {
 	t.Parallel()
 
-	pm := NewGlobalRedisPoolManager(GlobalPoolConfig{})
-	ctx := context.Background()
+	cfg, err := ParseConfig(context.Background(), map[string]any{
+		"host":    "localhost",
+		"command": "PING",
+		"tls":     true,
+		"tls_ca":  filepath.Join(t.TempDir(), "missing-ca.pem"),
+	})
+	require.NoError(t, err)
 
-	// Without pool manager
-	assert.Nil(t, GetRedisPoolManager(ctx))
-
-	// With pool manager
-	ctx = WithRedisPoolManager(ctx, pm)
-	assert.Equal(t, pm, GetRedisPoolManager(ctx))
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	_, err = createClientWithRetry(ctx, cfg)
+	require.ErrorContains(t, err, "failed to read CA certificate")
 }

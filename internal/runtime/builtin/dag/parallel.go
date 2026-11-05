@@ -142,8 +142,16 @@ func (e *parallelExecutor) Run(ctx context.Context) error {
 		attempt := scheduledAttempt{runParams: params}
 		if targeted {
 			if params.RunID == hop.RunID {
-				attempt.stepName = path.NextStep()
-				attempt.retryPath = path.Advance()
+				switch path.NextLeaf() {
+				case dagrun.RetryLeafResume:
+					// A plain attempt continues the existing child run from
+					// its checkpoint.
+				case dagrun.RetryLeafReuse:
+					attempt.reuse = true
+				default:
+					attempt.stepName = path.NextStep()
+					attempt.retryPath = path.Advance()
+				}
 				targetFound = true
 			} else {
 				attempt.reuse = true

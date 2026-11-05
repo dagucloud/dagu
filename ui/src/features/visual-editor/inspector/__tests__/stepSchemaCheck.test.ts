@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 import { describe, expect, it } from 'vitest';
+import type { JSONSchema } from '../../contracts';
 import { checkStepSchema, checkStepSchemaErrors } from '../stepSchemaCheck';
 import { schemaSample } from './fixtures';
 import { realSchema } from './realSchema';
@@ -126,6 +127,81 @@ describe('checkStepSchemaErrors', () => {
           property: 'colour',
         }),
       ])
+    );
+  });
+
+  // The dereferenced DAG schema keeps its recursive rules as references.
+  it.skipIf(!realSchema)(
+    'checks a value under a recursive rule',
+    { timeout: 30000 },
+    () => {
+      const errors = checkStepSchemaErrors(realSchema!, {
+        name: 'a',
+        action: 'computer.run',
+        with: {
+          handle: [
+            {
+              when: {
+                element: {
+                  role: 'button',
+                  name: 'OK',
+                  in: { role: 'nope', name: 'Dialog' },
+                },
+              },
+            },
+          ],
+        },
+      });
+      expect(errors).toContainEqual(
+        expect.objectContaining({
+          instancePath: '/with/handle/0/when/element/in/role',
+          keyword: 'enum',
+        })
+      );
+    }
+  );
+
+  // `constructor` is a member of Object.prototype, and a definition name.
+  it('checks a rule that refers to a definition named constructor', () => {
+    const schema = {
+      type: 'object',
+      definitions: {
+        constructor: { type: 'string' },
+        step: {
+          type: 'object',
+          properties: {
+            name: { type: 'string' },
+            note: { $ref: '#/definitions/constructor' },
+          },
+        },
+      },
+    } as JSONSchema;
+    expect(
+      checkStepSchemaErrors(schema, { name: 'a', note: 3 })
+    ).toContainEqual(
+      expect.objectContaining({ instancePath: '/note', keyword: 'type' })
+    );
+  });
+
+  // A reference escapes `/` as `~1` in a definition name.
+  it('checks a rule that refers to a definition with an escaped name', () => {
+    const schema = {
+      type: 'object',
+      definitions: {
+        'a/b': { type: 'string' },
+        step: {
+          type: 'object',
+          properties: {
+            name: { type: 'string' },
+            note: { $ref: '#/definitions/a~1b' },
+          },
+        },
+      },
+    } as JSONSchema;
+    expect(
+      checkStepSchemaErrors(schema, { name: 'a', note: 3 })
+    ).toContainEqual(
+      expect.objectContaining({ instancePath: '/note', keyword: 'type' })
     );
   });
 

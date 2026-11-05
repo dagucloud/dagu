@@ -310,8 +310,8 @@ function Content({ navbarColor, children }: LayoutProps) {
         <main className="flex min-h-0 flex-1 flex-col overflow-hidden">
           {!noBreadcrumb && <ContentNavigation pathname={location.pathname} />}
           <UpdateBanner />
-          {/* The license page states these itself, with their actions. */}
-          {location.pathname !== '/license' && (
+          {/* The Settings page states these itself, with their actions. */}
+          {location.pathname !== '/settings' && (
             <>
               <LicenseBanner />
               <MonitoringNotice />

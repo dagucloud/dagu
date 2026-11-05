@@ -301,8 +301,6 @@ describe('sidebar menu', () => {
       ['Events', '/event-logs'],
       ['Audit Logs', '/audit-logs'],
       ['Notifications', '/notifications'],
-      ['Incidents', '/incidents'],
-      ['External Monitoring', '/license#monitoring'],
     ]);
     expectLinks(screen.getByRole('group', { name: 'Configure' }), [
       ['Profiles & Secrets', '/profiles'],
@@ -314,7 +312,7 @@ describe('sidebar menu', () => {
     expectLinks(screen.getByRole('group', { name: 'Administration' }), [
       ['Users', '/users'],
       ['API Keys', '/api-keys'],
-      ['Remote Nodes', '/remote-nodes'],
+      ['Settings', '/settings'],
       ['Terminal', '/terminal'],
     ]);
     expect(
@@ -357,9 +355,6 @@ describe('sidebar menu', () => {
     ).not.toBeInTheDocument();
     expect(
       screen.queryByRole('link', { name: 'Remote Nodes' })
-    ).not.toBeInTheDocument();
-    expect(
-      screen.queryByRole('link', { name: 'External Monitoring' })
     ).not.toBeInTheDocument();
   });
 
@@ -716,7 +711,6 @@ describe('sidebar menu', () => {
     ['/event-logs', 'Events'],
     ['/notification-rules', 'Notifications'],
     ['/notification-channels', 'Notifications'],
-    ['/incident-policies', 'Incidents'],
     ['/webhooks', 'Webhooks'],
     ['/users', 'Users'],
   ])('marks %s as the active entry', (path, label) => {

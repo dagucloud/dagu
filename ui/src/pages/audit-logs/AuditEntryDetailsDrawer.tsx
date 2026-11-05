@@ -12,6 +12,7 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog';
 import { useConfig } from '@/contexts/ConfigContext';
+import { useCopyFeedback } from '@/hooks/useCopyFeedback';
 import dayjs from '@/lib/dayjs';
 import { cn } from '@/lib/utils';
 import { Check, Copy } from 'lucide-react';
@@ -89,12 +90,12 @@ export function AuditEntryDetailsDrawer({
 }: AuditEntryDetailsDrawerProps) {
   const config = useConfig();
   const [activeTab, setActiveTab] = useState<'details' | 'raw'>('details');
-  const [copied, setCopied] = useState(false);
+  const { copied, copy, reset } = useCopyFeedback(1500);
 
   useEffect(() => {
     setActiveTab('details');
-    setCopied(false);
-  }, [entry?.id]);
+    reset();
+  }, [entry?.id, reset]);
 
   if (!entry) {
     return null;
@@ -108,16 +109,6 @@ export function AuditEntryDetailsDrawer({
       : dayjs(entry.timestamp).format('MMM D, YYYY HH:mm:ss');
   const details = formatDetails(entry.details);
   const rawEntry = JSON.stringify(entry, null, 2);
-
-  const handleCopy = async () => {
-    try {
-      await navigator.clipboard.writeText(rawEntry);
-      setCopied(true);
-      window.setTimeout(() => setCopied(false), 1500);
-    } catch {
-      setCopied(false);
-    }
-  };
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -143,7 +134,7 @@ export function AuditEntryDetailsDrawer({
               type="button"
               variant="outline"
               size="sm"
-              onClick={() => void handleCopy()}
+              onClick={() => void copy(rawEntry)}
               aria-live="polite"
             >
               {copied ? (

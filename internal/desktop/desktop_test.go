@@ -8,7 +8,9 @@ import (
 	"errors"
 	"fmt"
 	"image"
+	"image/color"
 	"math"
+	"strings"
 	"testing"
 	"time"
 
@@ -25,6 +27,8 @@ type recordingBackend struct {
 	failReleases int
 	// personInputAt is the last input the desktop received from a person.
 	personInputAt time.Time
+	// focus is the window with the keyboard focus.
+	focus desktop.WindowID
 }
 
 func (b *recordingBackend) Capture() (*image.RGBA, error) {
@@ -67,7 +71,7 @@ func (b *recordingBackend) Type(text string) error {
 
 func (b *recordingBackend) LastInput() time.Time { return b.personInputAt }
 
-func (b *recordingBackend) FocusedWindow() desktop.WindowID      { return desktop.WindowID{} }
+func (b *recordingBackend) FocusedWindow() desktop.WindowID      { return b.focus }
 func (b *recordingBackend) WindowAt(int, int) desktop.WindowID   { return desktop.WindowID{} }
 func (b *recordingBackend) Windows() []desktop.WindowID          { return nil }
 func (b *recordingBackend) ReachableWindows() []desktop.WindowID { return nil }
@@ -302,4 +306,111 @@ func TestCloseReleasesWhatStaysPressed(t *testing.T) {
 	require.NoError(t, driver.PressButton(desktop.ButtonLeft))
 	require.NoError(t, driver.Close())
 	assert.Equal(t, []string{"left down #1", "left up #1"}, backend.events)
+}
+
+// recordedMarks records the marks a driver shows among its backend's
+// input.
+type recordedMarks struct {
+	backend *recordingBackend
+	colors  map[color.RGBA]bool
+	closed  bool
+}
+
+func (m *recordedMarks) Show(mark desktop.Mark) error {
+	m.backend.events = append(m.backend.events, fmt.Sprintf("mark %s %v", mark.Label, mark.Target))
+	m.colors[mark.Color] = true
+	return nil
+}
+
+func (m *recordedMarks) Close() error {
+	m.closed = true
+	return nil
+}
+
+// A driver showing marks marks each action just before it acts, labelled
+// with the name it was given: the point of a pointer action, or the pointer
+// for one at the pointer, and the focused window for keys and typing, whose
+// text no mark shows. Its marks share one color, and close with it.
+func TestDriverMarksEachAction(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	backend := &recordingBackend{focus: desktop.WindowID{Handle: 1, Bounds: image.Rect(0, 0, 640, 480)}}
+	driver := desktop.New(backend)
+	marks := &recordedMarks{backend: backend, colors: map[color.RGBA]bool{}}
+	driver.ShowMarks(marks, "post")
+
+	at := image.Pt(100, 50)
+	require.NoError(t, driver.Click(ctx, &at, desktop.ButtonLeft, 1, nil))
+	require.NoError(t, driver.Click(ctx, nil, desktop.ButtonRight, 2, nil))
+	require.NoError(t, driver.Type(ctx, "hunter2\nok"))
+	require.NoError(t, driver.PressKeys(ctx, []desktop.Key{desktop.KeyCtrl, "s"}, 1))
+	driver.Mark(image.Rect(10, 10, 90, 30), "press")
+	driver.Mark(image.Rectangle{}, "press")
+
+	assert.Equal(t, []string{
+		"mark post · click (76,26)-(124,74)",
+		"move 100,50",
+		"left down #1",
+		"left up #1",
+		"mark post · right click x2 (-17,-16)-(31,32)",
+		"right down #1",
+		"right up #1",
+		"right down #2",
+		"right up #2",
+		"mark post · type (0,0)-(640,480)",
+		"type hunter2",
+		"key enter down",
+		"key enter up",
+		"type ok",
+		"mark post · press ctrl+s (0,0)-(640,480)",
+		"key ctrl down",
+		"key s down",
+		"key s up",
+		"key ctrl up",
+		"mark post · press (10,10)-(90,30)",
+	}, backend.events, "an empty target shows no mark")
+	assert.Len(t, marks.colors, 1)
+
+	require.NoError(t, driver.Close())
+	assert.True(t, marks.closed)
+}
+
+// Typing into an element the step focused is marked on the element, until
+// input that may move the focus; a drag is marked from end to end.
+func TestDriverMarksTheFocusedElement(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	backend := &recordingBackend{focus: desktop.WindowID{Handle: 1, Bounds: image.Rect(0, 0, 640, 480)}}
+	driver := desktop.New(backend)
+	driver.ShowMarks(&recordedMarks{backend: backend, colors: map[color.RGBA]bool{}}, "post")
+
+	driver.MarkFocus(image.Rect(200, 100, 400, 124))
+	require.NoError(t, driver.Type(ctx, "12,000"))
+	require.NoError(t, driver.Type(ctx, "円"))
+	require.NoError(t, driver.PressKeys(ctx, []desktop.Key{desktop.KeyTab}, 1))
+	require.NoError(t, driver.Type(ctx, "next"))
+	driver.MarkFocus(image.Rect(200, 140, 400, 164))
+	require.NoError(t, driver.Type(ctx, "a\nb"))
+	require.NoError(t, driver.Type(ctx, "c"))
+	require.NoError(t, driver.Drag(ctx, []image.Point{{X: 30, Y: 30}, {X: 200, Y: 100}}, nil))
+
+	var marked []string
+	for _, event := range backend.events {
+		if strings.HasPrefix(event, "mark ") {
+			marked = append(marked, event)
+		}
+	}
+	assert.Equal(t, []string{
+		"mark post · focus (200,100)-(400,124)",
+		"mark post · type (200,100)-(400,124)",
+		"mark post · type (200,100)-(400,124)",
+		"mark post · press tab (200,100)-(400,124)",
+		"mark post · type (0,0)-(640,480)",
+		"mark post · focus (200,140)-(400,164)",
+		"mark post · type (200,140)-(400,164)",
+		"mark post · type (0,0)-(640,480)",
+		"mark post · drag (6,6)-(224,124)",
+	}, marked)
 }

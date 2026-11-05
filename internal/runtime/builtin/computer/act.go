@@ -283,7 +283,8 @@ func (r *run) driveModel(ctx context.Context, index int, spec actSpec, m model, 
 	if err != nil {
 		return actOutcome{}, false, modelFailure{err}
 	}
-	loop := &actLoop{r: r, index: index, session: session, limit: session.ImageLimit(), budget: r.cfg.maxActions(spec), spent: spent}
+	turner, ok := session.(computeruse.ElementTurner)
+	loop := &actLoop{r: r, index: index, session: session, limit: session.ImageLimit(), budget: r.cfg.maxActions(spec), spent: spent, elementTurns: ok && turner.ElementTurns()}
 	err = loop.run(ctx)
 	return loop.outcome, loop.touched, err
 }
@@ -321,15 +322,29 @@ type actLoop struct {
 	tried       map[string]bool
 	stillRounds int
 	stuck       int
+	// elementTurns reports a session that may be sent the element list
+	// without a screenshot. blind marks the turn it was last sent so, and
+	// shotWanted a model that asked to see the screen, which the next
+	// observation then shows it.
+	elementTurns bool
+	blind        bool
+	shotWanted   bool
 }
 
-// maxModelElements bounds how many actionable elements an observation
-// offers the model, so a large tree does not bloat the prompt, and
-// maxModelValue how much of an element's value or hint it shows.
+// maxModelElements bounds how many elements an observation offers the
+// model, so a large tree does not bloat the prompt, and maxModelValue how
+// much of an element's text, value, or hint it shows. maxOfferOutline
+// bounds the elements read to offer; a window that has more is not read
+// completely.
 const (
 	maxModelElements = 80
 	maxModelValue    = 80
+	maxOfferOutline  = 2000
 )
+
+// blindPositionError answers an action aimed at a position on the screen in
+// a turn the model was sent no screenshot for.
+const blindPositionError = "this turn came without a screenshot, so a position on the screen names nothing; the next one comes with a screenshot to aim at, or target an element by its id"
 
 // run loops between the model and the desktop until the model reports the
 // task done.
@@ -340,12 +355,12 @@ func (l *actLoop) run(ctx context.Context) error {
 	// The act works in the application in front when it starts, such as
 	// one the step just launched, until its own actions land in another.
 	l.r.noteWorkApp(l.r.driver.FocusedWindow())
-	offered, err := l.lookAndOffer(ctx)
+	shown, offered, err := l.lookAndOffer(ctx)
 	if err != nil {
 		return err
 	}
 	l.outcome.recording.Width, l.outcome.recording.Height = l.seen.full.Bounds().Dx(), l.seen.full.Bounds().Dy()
-	obs := computeruse.Observation{Screen: l.seen.forModel(), Elements: offered}
+	obs := computeruse.Observation{Screen: shown, Elements: offered}
 	for {
 		turn, err := l.session.Next(ctx, obs)
 		if err != nil {
@@ -357,6 +372,11 @@ func (l *actLoop) run(ctx context.Context) error {
 		l.r.usage.add(turn.Usage)
 		if turn.Text != "" {
 			logAction(l.r.timeline, l.index, "model: "+agentstep.QuoteShort(turn.Text))
+		}
+		// A model that asks to see the screen is shown it next, whether or
+		// not the turn's actions run.
+		if l.elementTurns && slices.ContainsFunc(turn.Actions, isScreenshot) {
+			l.shotWanted = true
 		}
 		over, err := l.admit(turn)
 		if err != nil {
@@ -374,14 +394,14 @@ func (l *actLoop) run(ctx context.Context) error {
 			// action are counted afresh.
 			l.stalled = 0
 			logAction(l.r.timeline, l.index, "the task has used the actions it may take; asking the model to report")
-			offered, err := l.lookAndOffer(ctx)
+			shown, offered, err := l.lookAndOffer(ctx)
 			if err != nil {
 				return err
 			}
 			// Only a budget with nothing left takes the actions away; one
 			// that a batch overran may still fit a smaller one.
 			obs = computeruse.Observation{
-				Screen:     l.seen.forModel(),
+				Screen:     shown,
 				Results:    skippedResults(turn.Actions),
 				Note:       capNote,
 				ReportOnly: l.exhausted(),
@@ -434,7 +454,7 @@ func (l *actLoop) run(ctx context.Context) error {
 		if verify {
 			note = verifyNote
 		}
-		offered, err := l.lookAndOffer(ctx)
+		shown, offered, err := l.lookAndOffer(ctx)
 		if err != nil {
 			return err
 		}
@@ -467,7 +487,7 @@ func (l *actLoop) run(ctx context.Context) error {
 			note = stuckNote
 		}
 		obs = computeruse.Observation{
-			Screen:       l.seen.forModel(),
+			Screen:       shown,
 			Results:      results,
 			Acknowledged: turn.Confirmation != "",
 			Note:         note,
@@ -511,67 +531,167 @@ func (l *actLoop) look(ctx context.Context) (screen, error) {
 
 // lookAndOffer looks at the screen and lists its elements for the model,
 // both from one screen with no screen a handler clears: one that comes up
-// between the two is cleared, and both are taken again.
-func (l *actLoop) lookAndOffer(ctx context.Context) ([]computeruse.Element, error) {
+// between the two is cleared, and both are taken again. It returns the
+// screen the model is shown: none when its session takes the elements
+// alone, the window's are listed in full, some of them take an action,
+// and the model did not ask to see the screen.
+func (l *actLoop) lookAndOffer(ctx context.Context) (computeruse.Screen, []computeruse.Element, error) {
 	for {
 		var err error
 		if l.seen, err = l.look(ctx); err != nil {
-			return nil, err
+			return computeruse.Screen{}, nil, err
 		}
-		offered := l.offerElements()
+		offered, complete := l.offerElements()
 		handled, err := l.r.handleScreens(ctx, l.index)
-		if err != nil || !handled {
-			return offered, err
+		if err != nil {
+			return computeruse.Screen{}, nil, err
 		}
+		if handled {
+			continue
+		}
+		l.blind = l.elementTurns && complete && !l.shotWanted && slices.ContainsFunc(offered, func(e computeruse.Element) bool { return e.ID != "" })
+		l.shotWanted = false
+		if l.blind {
+			return computeruse.Screen{}, offered, nil
+		}
+		return l.seen.forModel(), offered, nil
 	}
 }
 
-// offerElements lists the actionable elements of the front window for the
-// model to target by id, and remembers which element each id names. It is
-// empty when the desktop exposes no elements, so a host without them keeps
-// working by pixels.
-func (l *actLoop) offerElements() []computeruse.Element {
+// offerEntry is an element of the front window and how the model is
+// offered it.
+type offerEntry struct {
+	element desktop.Element
+	offer   computeruse.Element
+	// unnamed marks a control with neither a name nor a label, which only
+	// the text listed around it tells apart.
+	unnamed bool
+}
+
+// offerElements lists the front window's elements for the model, and
+// remembers which element each id names: its controls with a name, each
+// that takes an action with an id. A session that may decide from the list
+// alone is also offered the window's text and its unnamed controls when
+// the list holds the whole window, complete. It is empty when the desktop
+// exposes no elements, so a host without them keeps working by pixels.
+func (l *actLoop) offerElements() (list []computeruse.Element, complete bool) {
 	l.choices = nil
 	// The window in front is another app's the step never operates, so
 	// none of its elements is offered.
 	if l.r.foreign(l.r.driver.FocusedWindow()) {
-		return nil
+		return nil, false
 	}
 	els, err := l.r.elementsIfAvailable()
 	if err != nil {
-		return nil
+		return nil, false
 	}
 	front, err := els.FrontWindow()
 	if err != nil {
-		return nil
+		return nil, false
 	}
-	outline, err := els.Outline(front, 0)
+	outline, err := els.Outline(front, maxOfferOutline)
 	if err != nil {
-		return nil
+		return nil, false
 	}
+	complete = len(outline) < maxOfferOutline
 	// The options of an open menu come first, so a long window does not
 	// leave them out; the rest follow in reading order.
 	slices.SortStableFunc(outline, func(a, b desktop.Element) int {
 		return cmp.Compare(menuRank(a), menuRank(b))
 	})
-	var list []computeruse.Element
-	choices := make(map[string]desktop.Element)
+	var entries []offerEntry
+	named := 0
 	for _, e := range outline {
-		// A field with no name of its own goes by the label beside it, and
-		// either is shown with declared secrets masked.
-		name := strings.TrimSpace(l.r.masker.MaskString(cmp.Or(strings.TrimSpace(e.Name), e.Label)))
-		if !actionableRole(e.Role) || name == "" || e.Bounds.Empty() {
+		if e.Bounds.Empty() {
 			continue
 		}
-		id := fmt.Sprintf("e%d", len(list)+1)
-		list = append(list, computeruse.Element{ID: id, Role: e.Role, Name: name, Value: l.r.modelValue(e, name), Hint: l.r.modelHint(e)})
-		choices[id] = e
-		if len(list) >= maxModelElements {
-			break
+		switch {
+		case actionableRole(e.Role):
+			// A field with no name of its own goes by the label beside it, and
+			// either is shown with declared secrets masked.
+			name := strings.TrimSpace(l.r.masker.MaskString(cmp.Or(strings.TrimSpace(e.Name), e.Label)))
+			if name != "" {
+				if named >= maxModelElements {
+					complete = false
+					continue
+				}
+				named++
+			}
+			entries = append(entries, offerEntry{element: e, unnamed: name == "", offer: computeruse.Element{
+				Role: e.Role, Name: name, Value: l.r.modelValue(e, name), Hint: l.r.modelHint(e), Disabled: e.Disabled, Takes: elementTakes(e),
+			}})
+		case e.Role == desktop.RoleText:
+			if text := shortened(strings.TrimSpace(l.r.masker.MaskString(cmp.Or(strings.TrimSpace(e.Name), e.Value)))); text != "" {
+				entries = append(entries, offerEntry{element: e, offer: computeruse.Element{Role: e.Role, Name: text}})
+			}
 		}
 	}
+	complete = complete && len(entries) <= maxModelElements
+	// A list that leaves part of the window out goes with a screenshot,
+	// which shows the window's text and what its unnamed controls are.
+	if !complete || !l.elementTurns {
+		entries = slices.DeleteFunc(entries, func(o offerEntry) bool { return o.unnamed || o.offer.Role == desktop.RoleText })
+	}
+	l.r.placeAlike(entries)
+	choices := make(map[string]desktop.Element)
+	for _, o := range entries {
+		if len(o.offer.Takes) > 0 {
+			o.offer.ID = fmt.Sprintf("e%d", len(choices)+1)
+			choices[o.offer.ID] = o.element
+		}
+		list = append(list, o.offer)
+	}
 	l.choices = choices
-	return list
+	return list, complete
+}
+
+// placeAlike names the group, list, or tab an entry's element sits in when
+// another entry has the same role and name, such as two 保存 buttons in
+// different groups.
+func (r *run) placeAlike(entries []offerEntry) {
+	key := func(o offerEntry) string { return o.offer.Role + "\x00" + o.offer.Name }
+	count := map[string]int{}
+	for _, o := range entries {
+		count[key(o)]++
+	}
+	for i := range entries {
+		if count[key(entries[i])] < 2 {
+			continue
+		}
+		if in := namedContainer(entries[i].element.Path); in != nil {
+			entries[i].offer.In = shortened(r.masker.MaskString(in.Name))
+		}
+	}
+}
+
+// elementTakes lists the kinds of action an element takes by its id: a
+// click on any control, typing into a text field, and choosing an option
+// of a combo box. A disabled control takes none.
+func elementTakes(e desktop.Element) []computeruse.Kind {
+	switch {
+	case e.Disabled || !actionableRole(e.Role):
+		return nil
+	case e.Role == desktop.RoleTextField:
+		return []computeruse.Kind{computeruse.KindClick, computeruse.KindType}
+	case e.Role == desktop.RoleComboBox:
+		return []computeruse.Kind{computeruse.KindClick, computeruse.KindChoose}
+	}
+	return []computeruse.Kind{computeruse.KindClick}
+}
+
+// isScreenshot reports an action that asks to see the screen.
+func isScreenshot(action computeruse.Action) bool {
+	return action.Kind == computeruse.KindScreenshot
+}
+
+// notTaken says that an element does not take the kind of action the
+// model aimed at it, and what it takes instead.
+func notTaken(action computeruse.Action, e desktop.Element, takes []computeruse.Kind) string {
+	names := make([]string, 0, len(takes))
+	for _, kind := range takes {
+		names = append(names, string(kind))
+	}
+	return fmt.Sprintf("element %s is %s, which takes %s, not %s", action.ElementID, describeElement(e), strings.Join(names, " and "), action.Kind)
 }
 
 // menuRank puts the items of an open menu before every other element.
@@ -1066,6 +1186,21 @@ func (l *actLoop) apply(ctx context.Context, turn *computeruse.Turn) []computeru
 			app = l.r.driver.FocusedWindow()
 		}
 		var rec *recordedAction
+		switch {
+		case l.blind && action.ElementID == "" && (action.Point != nil || len(action.Path) > 0):
+			// The model has not seen the screen since it changed, so the
+			// position may be anything now; it is shown the screen next.
+			logAction(l.r.timeline, l.index, describeAction(action)+": not run, the turn came without a screenshot")
+			results[i] = computeruse.Result{CallID: action.CallID, Error: blindPositionError}
+			l.shotWanted = true
+			failed = true
+			continue
+		case isScreenshot(action) && l.elementTurns:
+			// The next observation comes with the screen.
+			logAction(l.r.timeline, l.index, describeAction(action))
+			results[i] = computeruse.Result{CallID: action.CallID}
+			continue
+		}
 		if action.ElementID != "" {
 			e, ok := l.choices[action.ElementID]
 			if !ok {
@@ -1074,6 +1209,12 @@ func (l *actLoop) apply(ctx context.Context, turn *computeruse.Turn) []computeru
 				continue
 			}
 			logAction(l.r.timeline, l.index, fmt.Sprintf("element %s is %s %q", action.ElementID, e.Role, e.Name))
+			if takes := elementTakes(e); !slices.Contains(takes, action.Kind) {
+				results[i] = computeruse.Result{CallID: action.CallID, Error: l.r.masker.MaskString(notTaken(action, e, takes))}
+				logAction(l.r.timeline, l.index, "  failed: "+results[i].Error)
+				failed = true
+				continue
+			}
 			if action.Kind == computeruse.KindChoose {
 				results[i], rec = l.chooseElement(ctx, els, action, e)
 				if results[i].Failed() {
@@ -1082,6 +1223,18 @@ func (l *actLoop) apply(ctx context.Context, turn *computeruse.Turn) []computeru
 					continue
 				}
 				recorded = appendRecorded(recorded, rec)
+				l.r.noteWorkApp(app)
+				continue
+			}
+			if action.Kind == computeruse.KindType {
+				typedRecs, typed := l.typeElement(ctx, els, action, e)
+				results[i] = typed
+				if typed.Failed() {
+					logAction(l.r.timeline, l.index, "  failed: "+typed.Error)
+					failed = true
+					continue
+				}
+				recorded = append(recorded, typedRecs...)
 				l.r.noteWorkApp(app)
 				continue
 			}

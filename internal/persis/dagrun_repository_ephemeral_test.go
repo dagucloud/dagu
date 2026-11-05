@@ -32,7 +32,13 @@ func newEphemeralTestRepository(t *testing.T, now func() time.Time) *persis.DAGR
 func writeTestRun(t *testing.T, repo *persis.DAGRunRepository, dag *ir.DAG, runID string, status ir.Status, finished time.Time, ephemeral bool) {
 	t.Helper()
 	ctx := context.Background()
-	attempt, err := repo.CreateAttempt(ctx, dag, time.Now(), runID, persis.DAGRunCreateAttemptOptions{Ephemeral: ephemeral})
+	// A run's attempt is created when it starts, so no later than it
+	// finished; a later attempt of the run sorts after it.
+	createdAt := time.Now()
+	if !finished.IsZero() && finished.Before(createdAt) {
+		createdAt = finished
+	}
+	attempt, err := repo.CreateAttempt(ctx, dag, createdAt, runID, persis.DAGRunCreateAttemptOptions{Ephemeral: ephemeral})
 	require.NoError(t, err)
 	opts := []ir.StatusOption{ir.WithAttemptID(attempt.ID()), ir.WithEphemeral(ephemeral)}
 	if !finished.IsZero() {
@@ -88,7 +94,8 @@ func TestEphemeralRunIsReadableButUnlisted(t *testing.T) {
 }
 
 // A retry attempt and a child run of an ephemeral run stay in the ephemeral
-// store, so they stay out of the history too.
+// store, so they stay out of the history too. The child's status says it is
+// ephemeral whatever its writer sets, so no lookup takes it for history.
 func TestEphemeralRunAttemptsFollowTheRoot(t *testing.T) {
 	t.Parallel()
 
@@ -113,8 +120,11 @@ func TestEphemeralRunAttemptsFollowTheRoot(t *testing.T) {
 		ir.WithAttemptID(child.ID()), ir.WithHierarchyRefs(root, root))))
 	require.NoError(t, child.Close(ctx))
 
-	_, err = repo.FindSubAttempt(ctx, root, "child")
+	found, err := repo.FindSubAttempt(ctx, root, "child")
 	require.NoError(t, err)
+	status, err := found.ReadStatus(ctx)
+	require.NoError(t, err)
+	require.True(t, status.Ephemeral)
 	listed, err := repo.ListStatuses(ctx, persis.DAGRunListOptions{AllHistory: true, Unbounded: true})
 	require.NoError(t, err)
 	require.Empty(t, listed)

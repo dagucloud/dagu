@@ -11,7 +11,8 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// Nested navigation returns the selected property from the root schema.
+// Nested navigation follows a path from the root schema into the
+// definitions its properties reference.
 func TestSchemaDrillsIntoNestedPath(t *testing.T) {
 	t.Parallel()
 
@@ -24,9 +25,23 @@ func TestSchemaDrillsIntoNestedPath(t *testing.T) {
 	require.NoError(t, json.Unmarshal([]byte(root.Stdout()), &schema))
 	require.Contains(t, schema.Properties, "steps")
 
-	nested := dagu.Run("schema", "dag", "steps")
+	// A nested path is shown with the references that define its shape
+	// expanded, so the fields of the referenced definition are visible.
+	nested := dagu.Run("schema", "dag", "steps.container")
 	nested.ExpectExitCode(0)
-	require.JSONEq(t, string(schema.Properties["steps"]), nested.Stdout())
+	var container struct {
+		OneOf []struct {
+			Properties map[string]json.RawMessage `json:"properties"`
+		} `json:"oneOf"`
+	}
+	require.NoError(t, json.Unmarshal([]byte(nested.Stdout()), &container))
+	var fields []string
+	for _, branch := range container.OneOf {
+		for name := range branch.Properties {
+			fields = append(fields, name)
+		}
+	}
+	require.Contains(t, fields, "image")
 }
 
 // TestSchemaShowsConfigRootFields asserts on "coordinator", a property that

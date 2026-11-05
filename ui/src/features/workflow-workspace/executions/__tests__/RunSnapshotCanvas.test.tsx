@@ -1100,7 +1100,9 @@ describe.skipIf(realSchema === null)('RunSnapshotCanvas', () => {
       );
     });
 
-    it('closes on Escape and keeps the selected step', async () => {
+    // The panel is no view to leave: Escape keeps it, and its button closes
+    // it.
+    it('stays open on Escape and closes from its button', async () => {
       renderCanvas('/dags/demo?run=run-1&def=run&step=transform');
       await findNode('steps[0]');
       const button = screen.getByRole('button', { name: 'YAML' });
@@ -1110,11 +1112,16 @@ describe.skipIf(realSchema === null)('RunSnapshotCanvas', () => {
       await waitFor(() => expect(ndv).toHaveAttribute('data-state', 'docked'));
 
       fireEvent.keyDown(document.body, { key: 'Escape' });
+      expect(ndv).toHaveAttribute('data-state', 'docked');
+      expect(screen.getByTestId('loc').dataset.url).toBe(
+        '/dags/demo?run=run-1&def=run&step=transform&ndv=docked'
+      );
+
+      fireEvent.click(button);
       await waitFor(() => expect(ndv).toHaveAttribute('data-state', 'closed'));
       expect(screen.getByTestId('loc').dataset.url).toBe(
         '/dags/demo?run=run-1&def=run&step=transform'
       );
-      expect(document.activeElement).toBe(button);
     });
 
     it('gives its room to the other right panels', async () => {

@@ -301,6 +301,28 @@ describe('StepNode', () => {
       'ring-primary'
     );
   });
+
+  // The ring of the selection wins over the ring of the run status.
+  it('marks a selected step of the run with the primary ring', () => {
+    const node = makeNode({
+      run: {
+        status: NodeStatus.Failed,
+        statusLabel: 'failed',
+        retryCount: 0,
+        doneCount: 0,
+      },
+    });
+    const { getByTestId } = renderIn(
+      <StepNode {...nodeProps(node, { selected: true })} />
+    );
+    const card = getByTestId('ve-canvas-node-steps[0]');
+    expect(card).toHaveClass(
+      'ring-2',
+      'ring-primary',
+      'border-[var(--graph-error)]'
+    );
+    expect(card).not.toHaveClass('ring-[var(--graph-error)]');
+  });
 });
 
 describe('StepNode issues and run', () => {
@@ -413,11 +435,12 @@ describe('StepNode issues and run', () => {
     const { getByTestId, getByText, getByLabelText } = renderIn(
       <StepNode {...nodeProps(node)} />
     );
-    // The colour of the status is the border of the card, not a ring around it.
+    // The colour of the status is the border of the card, doubled by a ring,
+    // over a tint of the card: it reads at any zoom.
     const failedCard = getByTestId('ve-canvas-node-steps[0]');
-    expect(failedCard).toHaveClass('border-destructive');
-    expect(failedCard.className).not.toContain('ring-destructive');
-    expect(getByTestId('status-dot').className).toContain('--status-error');
+    expect(failedCard).toHaveClass('border-[var(--graph-error)]', 'ring-1');
+    expect(failedCard).toHaveClass('ring-[var(--graph-error)]');
+    expect(failedCard.className).toContain('var(--graph-error)_10%');
     expect(getByText('2m 5s')).toBeInTheDocument();
     expect(getByLabelText('Retried 3×')).toHaveTextContent('3');
   });
@@ -457,12 +480,10 @@ describe('StepNode issues and run', () => {
       expect(card).toHaveClass('h-16', 'w-60', 'border-[1.5px]');
       expect(view.getByTestId('ve-node-reuse-outline')).toBeInTheDocument();
       expect(card).toContainElement(view.getByTestId('ve-node-reused'));
-      // The status stays Skipped, and the dot is the hatched green dot of the
-      // Activity list.
-      const dot = view.getByTestId('status-dot');
-      expect(dot).toHaveAttribute('data-status', String(NodeStatus.Skipped));
-      expect(dot).toHaveAttribute('data-reused', 'success');
-      expect(dot.className).toContain('--status-success');
+      // The status stays Skipped and reads as reused.
+      const status = view.getByTestId('ve-canvas-node-status');
+      expect(status).toHaveAttribute('data-status', String(NodeStatus.Skipped));
+      expect(status).toHaveAttribute('data-reused', 'success');
     });
 
     it.each([
@@ -497,8 +518,7 @@ describe('StepNode issues and run', () => {
       expect(view.getByTestId('input-mark-chip-text')).toHaveTextContent(
         'from run r0abcdef'
       );
-      expect(view.getByTestId('status-dot')).toHaveAttribute(
-        'aria-label',
+      expect(view.getByTestId('ve-canvas-node-status')).toHaveTextContent(
         'Reused'
       );
       view.unmount();
@@ -546,7 +566,7 @@ describe('StepNode issues and run', () => {
           .getByTestId('ve-node-reuse-outline')
           .querySelector('rect');
         expect(rect).toHaveAttribute('stroke-dasharray', '6 4');
-        expect(rect).toHaveClass('stroke-success');
+        expect(rect).toHaveClass('stroke-[var(--graph-success)]');
         expect(card.getAttribute('title')).toBe(
           'Reused from run r0abcdef: succeeded'
         );
@@ -554,15 +574,16 @@ describe('StepNode issues and run', () => {
 
       it('is dashed and red for a step that the source run could not give', () => {
         const view = renderIn(<StepNode {...nodeProps(failed())} />);
-        const dot = view.getByTestId('status-dot');
-        expect(dot).toHaveAttribute('data-reused', 'failed');
-        expect(dot.className).toContain('--status-error');
+        expect(view.getByTestId('ve-canvas-node-status')).toHaveAttribute(
+          'data-reused',
+          'failed'
+        );
         const card = view.getByTestId('ve-canvas-node-steps[0]');
         const rect = view
           .getByTestId('ve-node-reuse-outline')
           .querySelector('rect');
         expect(rect).toHaveAttribute('stroke-dasharray', '6 4');
-        expect(rect).toHaveClass('stroke-destructive');
+        expect(rect).toHaveClass('stroke-[var(--graph-error)]');
         expect(card.getAttribute('title')).toBe(
           'Reused from run r0abcdef: failed'
         );
@@ -593,7 +614,7 @@ describe('StepNode issues and run', () => {
         const plain = renderIn(<StepNode {...nodeProps(skipped())} />);
         expect(
           plain.getByTestId('ve-canvas-node-steps[0]').className
-        ).toContain('border-[var(--status-neutral)]');
+        ).toContain('border-[var(--graph-neutral)]');
         expect(plain.queryByTestId('ve-node-reuse-outline')).toBeNull();
         plain.unmount();
 
@@ -609,7 +630,7 @@ describe('StepNode issues and run', () => {
         expect(rects).toHaveLength(1);
         expect(rects[0]).toHaveAttribute('stroke-dasharray', '6 4');
         expect(rects[0]).toHaveClass('stroke-primary');
-        expect(rects[0]).not.toHaveClass('stroke-success');
+        expect(rects[0]).not.toHaveClass('stroke-[var(--graph-success)]');
       });
 
       // A step after the executed step is skipped and gave nothing: the
@@ -626,10 +647,14 @@ describe('StepNode issues and run', () => {
           },
         });
         const view = renderIn(<StepNode {...nodeProps(node)} />);
-        const dot = view.getByTestId('status-dot');
-        expect(dot).not.toHaveAttribute('data-reused');
-        expect(dot.className).toContain('--status-neutral');
+        expect(view.getByTestId('ve-canvas-node-status')).not.toHaveAttribute(
+          'data-reused'
+        );
         expect(view.queryByTestId('ve-node-reuse-outline')).toBeNull();
+        // It reads as a plain skipped step.
+        expect(view.getByTestId('ve-node-skipped')).toHaveTextContent(
+          'Skipped'
+        );
       });
 
       it('has no outline on a step that carries outputs but is not a previous step', () => {
@@ -675,14 +700,14 @@ describe('StepNode issues and run', () => {
         );
         expect(
           green.getByTestId('ve-node-reuse-outline').querySelector('rect')
-        ).toHaveClass('stroke-success');
+        ).toHaveClass('stroke-[var(--graph-success)]');
         green.unmount();
         const red = renderIn(<StepNode {...nodeProps(failed())} />, compact);
         const card = red.getByTestId('ve-canvas-node-steps[0]');
         expect(card).toHaveClass('h-14', 'w-14');
         expect(
           red.getByTestId('ve-node-reuse-outline').querySelector('rect')
-        ).toHaveClass('stroke-destructive');
+        ).toHaveClass('stroke-[var(--graph-error)]');
         // The tooltip of a compact card keeps its name and adds the source.
         expect(card.getAttribute('title')).toBe(
           'fetch\ncurl -sSf https://example.com\nReused from run r0abcdef: failed'
@@ -875,13 +900,8 @@ describe('StepNode issues and run', () => {
         doneCount: 0,
       },
     });
-    const { queryByLabelText, getByTestId } = renderIn(
-      <StepNode {...nodeProps(node)} />
-    );
+    const { queryByLabelText } = renderIn(<StepNode {...nodeProps(node)} />);
     expect(queryByLabelText(/Retried/)).toBeNull();
-    expect(getByTestId('status-dot').className).toContain(
-      'motion-safe:animate-pulse'
-    );
   });
 
   // The card and the run list show one text for one step at one moment: the
@@ -1005,6 +1025,26 @@ describe('StepNode issues and run', () => {
     expect(queryByText('3s')).toBeNull();
   });
 
+  // The reason reads without a hover: its first line takes the place of the
+  // command on the card.
+  it('says why a step failed on its card', () => {
+    const node = makeNode({
+      subtitle: 'make build',
+      run: {
+        status: NodeStatus.Failed,
+        statusLabel: 'failed',
+        retryCount: 0,
+        doneCount: 0,
+        error: 'exit status 2\ntrace line',
+      },
+    });
+    const { getByTestId, queryByText } = renderIn(
+      <StepNode {...nodeProps(node)} />
+    );
+    expect(getByTestId('ve-node-failure')).toHaveTextContent(/^exit status 2$/);
+    expect(queryByText('make build')).toBeNull();
+  });
+
   it('gives a failed step its failure reason as a tooltip', () => {
     const node = makeNode({
       run: {
@@ -1020,11 +1060,11 @@ describe('StepNode issues and run', () => {
       'title',
       'exit status 2'
     );
-    // The dot names the status; the reason is the tooltip of the card.
-    expect(getByTestId('status-dot')).toHaveAttribute('title', 'Failed');
+    // The status is named; the reason is the tooltip of the card.
+    expect(getByTestId('ve-canvas-node-status')).toHaveTextContent('Failed');
   });
 
-  it('names the dot by the translated status, or by the text of the host', () => {
+  it('names the status by its translated text, or by the text of the host', () => {
     const named = (statusLabel: string) => {
       const view = renderIn(
         <StepNode
@@ -1040,7 +1080,7 @@ describe('StepNode issues and run', () => {
           )}
         />
       );
-      const name = view.getByTestId('status-dot').getAttribute('title');
+      const name = view.getByTestId('ve-canvas-node-status').textContent;
       view.unmount();
       return name;
     };
@@ -1062,6 +1102,46 @@ describe('StepNode issues and run', () => {
     });
     const { getByTestId } = renderIn(<StepNode {...nodeProps(node)} />);
     expect(getByTestId('ve-canvas-node-steps[0]')).not.toHaveAttribute('title');
+  });
+
+  // Skipped and Not started share the neutral card: the word tells them apart.
+  it('says Skipped on a skipped step only', () => {
+    const at = (status: NodeStatus) => {
+      const view = renderIn(
+        <StepNode
+          {...nodeProps(
+            makeNode({
+              run: { status, statusLabel: '', retryCount: 0, doneCount: 0 },
+            })
+          )}
+        />
+      );
+      const text = view.queryByTestId('ve-node-skipped')?.textContent ?? null;
+      view.unmount();
+      return text;
+    };
+    expect(at(NodeStatus.Skipped)).toBe('Skipped');
+    expect(at(NodeStatus.NotStarted)).toBeNull();
+  });
+
+  // A compact card has no room for the word: its tooltip says it.
+  it('says Skipped in the tooltip of a compact card', () => {
+    const node = makeNode({
+      run: {
+        status: NodeStatus.Skipped,
+        statusLabel: '',
+        retryCount: 0,
+        doneCount: 0,
+      },
+    });
+    const { getByTestId, queryByTestId } = renderIn(
+      <StepNode {...nodeProps(node)} />,
+      makeActions({ compact: true })
+    );
+    expect(queryByTestId('ve-node-skipped')).toBeNull();
+    expect(
+      getByTestId(`ve-canvas-node-${node.key}`).getAttribute('title')
+    ).toContain('Skipped');
   });
 
   it('shows no duration for a step without an end', () => {
@@ -1098,8 +1178,8 @@ describe('StepNode issues and run', () => {
     expect(badge.className).toContain('bg-warning');
     expect(badge.className).not.toContain('amber');
     expect(getByTestId('ve-canvas-node-status').nextElementSibling).toBe(badge);
-    // The dot names the status in its translated text, never the API label.
-    expect(getByTestId('status-dot')).toHaveAccessibleName('Waiting');
+    // The status is named in its translated text, never the API label.
+    expect(getByTestId('ve-canvas-node-status')).toHaveTextContent('Waiting');
   });
 
   it('shows no Waiting badge for other states', () => {
@@ -1153,8 +1233,8 @@ describe('StepNode issues and run', () => {
     );
     const cls = getByTestId('ve-canvas-node-steps[0]').className;
     expect(cls).toContain('ring-primary');
-    expect(cls).toContain('border-success');
-    expect(cls).not.toContain('ring-success');
+    expect(cls).toContain('border-[var(--graph-success)]');
+    expect(cls).not.toContain('ring-[var(--graph-success)]');
   });
 });
 
@@ -1987,7 +2067,7 @@ describe('ToolNode', () => {
       />
     );
     expect(getByTestId('ve-canvas-node-steps[0]')).toHaveClass(
-      'border-destructive'
+      'border-[var(--graph-error)]'
     );
   });
 

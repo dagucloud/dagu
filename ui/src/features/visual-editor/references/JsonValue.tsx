@@ -173,14 +173,16 @@ export function JsonValue({
       data-json={result.isJson}
       className={className}
     >
-      {/* The box holds the value. The Raw and Copy buttons sit on its top right corner; the text has room for them. */}
+      {/* The box holds the value. The Raw and Copy buttons sit on its top
+          right corner; the text has room for them. One line of the text
+          fills the least height of the box, centred on the buttons. */}
       <div
         data-testid="json-value-box"
         className="relative mt-0.5 min-h-8 rounded bg-muted/40"
       >
         <pre
           className={cn(
-            'whitespace-pre-wrap break-words rounded p-1 font-mono text-[11px] leading-4',
+            'whitespace-pre-wrap break-words rounded px-2 py-2 font-mono text-[11px] leading-4',
             result.isJson ? 'pr-16' : 'pr-8',
             expanded ? 'max-h-64 overflow-auto' : 'max-h-24 overflow-hidden'
           )}

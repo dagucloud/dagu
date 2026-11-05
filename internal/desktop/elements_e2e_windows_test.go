@@ -23,6 +23,9 @@ import (
 
 const elementsWindowTitle = "Dagu elements test"
 
+// swShowMinimized minimizes a window and leaves it active.
+const swShowMinimized = 2
+
 // e2eElements opens the elements reader on an interactive desktop.
 func e2eElements(t *testing.T) Elements {
 	t.Helper()
@@ -449,6 +452,93 @@ func listedWindow(t *testing.T, driver *Driver, matches func(WindowID) bool) Win
 		return false
 	}, 30*time.Second, 200*time.Millisecond, "no such window is listed: %+v", driver.Windows())
 	return found
+}
+
+// A minimized window shows none of its elements. UI Automation still reports
+// them, not offscreen and with their size, at the place Windows parks the
+// window, so the window in front, when it is minimized, lists none.
+func TestWindowsElementsOfMinimizedWindow(t *testing.T) {
+	driver := e2eDesktop(t)
+	els := e2eElements(t)
+	elementsWindow(t, driver, els)
+	front := driver.FocusedWindow()
+	require.Equal(t, elementsWindowTitle, front.Title)
+
+	_, _, _ = procShowWindow.Call(uintptr(front.Handle), swShowMinimized)
+	require.Eventually(t, func() bool {
+		iconic, _, _ := procIsIconic.Call(uintptr(front.Handle))
+		return iconic != 0
+	}, 3*time.Second, 50*time.Millisecond, "the window did not minimize")
+	window, err := els.FrontWindow()
+	require.NoError(t, err)
+	require.Equal(t, elementsWindowTitle, window.Name, "a window minimized this way keeps the foreground")
+
+	outline, err := els.Outline(window, 0)
+	require.NoError(t, err)
+	assert.Empty(t, outline, "a minimized window shows no element")
+	found, err := els.Find(Selector{Role: RoleButton, ID: "saveButton"})
+	require.NoError(t, err)
+	assert.Empty(t, found, "nothing is found in a minimized window")
+}
+
+// A Chromium window builds the tree of its page once a client first asks
+// for it, and reads thin until then. The reader that met the page keeps
+// seeing it as it grows: here the page adds its button five seconds after
+// it loads, so the first read comes before the button is there.
+func TestWindowsElementsOfChromiumPage(t *testing.T) {
+	driver := e2eDesktop(t)
+	els := e2eElements(t)
+	edge := edgePath()
+	if edge == "" {
+		t.Skip("Edge is not installed")
+	}
+	dir, err := os.MkdirTemp("", "dagu-chromium-")
+	require.NoError(t, err)
+	// Edge may hold its profile a moment after it ends.
+	t.Cleanup(func() { _ = os.RemoveAll(dir) })
+	page := filepath.Join(dir, "page.html")
+	html := `<!doctype html><title>Dagu page test</title><body><script>
+setTimeout(function () {
+  var button = document.createElement('button');
+  button.textContent = 'Dagu page button';
+  document.body.appendChild(button);
+}, 5000);
+</script></body>`
+	require.NoError(t, os.WriteFile(page, []byte(html), 0o600))
+	startApp(t, edge, "--user-data-dir="+filepath.Join(dir, "profile"), "--no-first-run", "--no-default-browser-check", "--new-window", "file:///"+filepath.ToSlash(page))
+	window := frontWindowNamed(t, driver, els, nil, func(w Element) bool { return strings.HasPrefix(w.Name, "Dagu page test") })
+
+	button := Selector{Role: RoleButton, Name: "Dagu page button"}
+	outline, err := els.Outline(window, 0)
+	require.NoError(t, err)
+	t.Logf("elements: first read of the page's window has %d elements", len(outline))
+	found, err := Match(window, outline, button)
+	require.NoError(t, err)
+	require.Empty(t, found, "the first read comes before the page adds its button")
+	began := time.Now()
+	for deadline := began.Add(30 * time.Second); ; time.Sleep(250 * time.Millisecond) {
+		found, err = els.Find(button)
+		require.NoError(t, err)
+		if len(found) == 1 {
+			break
+		}
+		require.True(t, time.Now().Before(deadline), "the reader never saw the page's button: %+v", found)
+	}
+	t.Logf("elements: the reader saw the page's button %s after its first read", time.Since(began))
+}
+
+// edgePath returns where Edge is installed, or "" when it is not.
+func edgePath() string {
+	for _, programs := range []string{os.Getenv("ProgramFiles(x86)"), os.Getenv("ProgramFiles")} {
+		if programs == "" {
+			continue
+		}
+		path := filepath.Join(programs, "Microsoft", "Edge", "Application", "msedge.exe")
+		if _, err := os.Stat(path); err == nil {
+			return path
+		}
+	}
+	return ""
 }
 
 // A table in Details view is read row by row, each cell under the column

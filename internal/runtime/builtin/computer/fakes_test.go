@@ -79,8 +79,10 @@ type fakeBackend struct {
 	released []desktop.Button
 	// captures counts the screenshots taken.
 	captures int
-	// onType runs on every typing, so a test can make it change a field.
+	// onType runs on every typing, and onKey on every key pressed, so a
+	// test can make either change a field.
 	onType func(text string)
+	onKey  func(key desktop.Key)
 	// onPress runs on every left button press, so a test can make a click
 	// change what the elements reader sees.
 	onPress func()
@@ -670,8 +672,15 @@ func brightened(screen *image.RGBA, area image.Rectangle, step uint8) *image.RGB
 }
 
 func (b *fakeBackend) Key(key desktop.Key, down bool) error {
-	if down {
-		b.record("key " + string(key))
+	if !down {
+		return nil
+	}
+	b.record("key " + string(key))
+	b.mu.Lock()
+	onKey := b.onKey
+	b.mu.Unlock()
+	if onKey != nil {
+		onKey(key)
 	}
 	return nil
 }
@@ -776,6 +785,44 @@ func (b *fakeBackend) focusOn(window desktop.WindowID) {
 
 func (b *fakeBackend) Close() error { return nil }
 
+// fakeMarks records the marks a step shows. onShow, when set, runs as one
+// shows, so a test can place it among the step's input.
+type fakeMarks struct {
+	mu     sync.Mutex
+	shown  []desktop.Mark
+	closed bool
+	onShow func(desktop.Mark)
+}
+
+func (m *fakeMarks) Show(mark desktop.Mark) error {
+	m.mu.Lock()
+	m.shown = append(m.shown, mark)
+	onShow := m.onShow
+	m.mu.Unlock()
+	if onShow != nil {
+		onShow(mark)
+	}
+	return nil
+}
+
+func (m *fakeMarks) Close() error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.closed = true
+	return nil
+}
+
+// marked lists each mark shown as its label and target.
+func (m *fakeMarks) marked() []string {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	out := make([]string, len(m.shown))
+	for i, mark := range m.shown {
+		out[i] = fmt.Sprintf("%s %v", mark.Label, mark.Target)
+	}
+	return out
+}
+
 // scriptedSession answers each observation with the next scripted turn and
 // records the observations.
 type scriptedSession struct {
@@ -785,9 +832,14 @@ type scriptedSession struct {
 	observations []computeruse.Observation
 	// onNext runs at the start of every request.
 	onNext func()
+	// elementTurns lets the session be sent the element list without a
+	// screenshot, as the generic session may be.
+	elementTurns bool
 }
 
 func (s *scriptedSession) ImageLimit() computeruse.ImageLimit { return s.limit }
+
+func (s *scriptedSession) ElementTurns() bool { return s.elementTurns }
 
 func (s *scriptedSession) Next(_ context.Context, obs computeruse.Observation) (*computeruse.Turn, error) {
 	if s.onNext != nil {
@@ -951,6 +1003,10 @@ type testRun struct {
 	// onProgress, when set, sees the step's session whenever it changes, as
 	// a view of a running step does.
 	onProgress func(*ir.AgentSession)
+	// marks records the marks the step shows, and marksErr fails opening
+	// them when set.
+	marks    *fakeMarks
+	marksErr error
 }
 
 func newTestRun(t *testing.T) *testRun {
@@ -964,6 +1020,7 @@ func newTestRun(t *testing.T) *testRun {
 		backend:     newFakeBackend(400, 200),
 		vision:      &visionModel{},
 		llm:         &ir.LLMConfig{Provider: "openai", Model: "test-model"},
+		marks:       &fakeMarks{},
 	}
 }
 
@@ -1017,6 +1074,12 @@ func (r *testRun) execute(withJSON string, session *ir.AgentSession) *stepExecut
 		r.elements.mu.Unlock()
 		r.logAccessibility(r.elements)
 		return r.elements, nil
+	}
+	execution.exec.openMarks = func() (desktop.Marks, error) {
+		if r.marksErr != nil {
+			return nil, r.marksErr
+		}
+		return r.marks, nil
 	}
 	execution.exec.protectedApps = r.protectApps
 	execution.exec.protectedTitles = r.protectTitles

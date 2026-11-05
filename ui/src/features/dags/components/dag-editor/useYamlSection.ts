@@ -41,8 +41,19 @@ export function useYamlSection(host?: YamlSectionHost): YamlSection {
   const hasHost = !!host;
   const stateRef = useRef(host?.state ?? null);
   stateRef.current = host?.state ?? null;
+  // The node view of a step that opened over the YAML panel of the file
+  // gives the YAML back when it closes, as a transient panel does.
+  const yamlUnderViewRef = useRef(false);
   const setSectionOpen = useCallback(
     (open: boolean, source?: 'panel') => {
+      if (!open && hasHost && stateRef.current === 'expanded') {
+        if (yamlUnderViewRef.current) {
+          yamlUnderViewRef.current = false;
+          setYamlKind('file');
+          onStateChange?.('docked');
+          return;
+        }
+      }
       // The same call that opens the section says what it shows.
       if (open) setYamlKind(source === 'panel' ? 'file' : 'step');
       if (!hasHost) {
@@ -67,6 +78,8 @@ export function useYamlSection(host?: YamlSectionHost): YamlSection {
   useEffect(() => {
     const opensStep =
       hostState === 'expanded' && lastStateRef.current !== 'expanded';
+    if (hostState !== 'expanded') yamlUnderViewRef.current = false;
+    else if (lastStateRef.current === 'docked') yamlUnderViewRef.current = true;
     lastStateRef.current = hostState;
     if (hostState === null || !onStateChange) return;
     const wanted = yamlKind === 'file' ? 'docked' : 'expanded';

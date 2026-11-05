@@ -543,6 +543,13 @@ export interface LauncherHost {
 }
 export interface EditorHostProps {
   launcherHost?: LauncherHost;
+  /**
+   * Shows the part of the YAML of the file that a trigger stands for, such
+   * as `schedule:` for Cron, and tells whether the file has one. A click on
+   * a trigger uses it while the YAML of the file shows; a trigger with no
+   * part opens its panel.
+   */
+  onRevealTrigger?(id: LauncherId): boolean;
   /** The workflow panel brings its own body and tabs: the drawer adds none. */
   workflowPanelBare?: boolean;
   runSource?: RunSource;

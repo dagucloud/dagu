@@ -72,6 +72,66 @@ describe('RightPanelContext', () => {
       expect(result.current.addStep.isActive).toBe(true);
     });
 
+    // A transient panel, such as Add step or a trigger, opens over the panel
+    // of the page; that panel comes back when the transient one closes.
+    it('restores the panel that a transient panel covered', () => {
+      const restoreYaml = vi.fn();
+      const { result } = renderHook(
+        () => ({
+          yaml: useRightPanel('yaml', vi.fn(), restoreYaml),
+          addStep: useRightPanel('add-step', vi.fn()),
+          workflow: useRightPanel('workflow', vi.fn()),
+        }),
+        { wrapper: withProvider }
+      );
+      act(() => result.current.yaml.claim());
+      act(() => result.current.addStep.claim());
+      act(() => result.current.addStep.release());
+      expect(restoreYaml).toHaveBeenCalledTimes(1);
+
+      // A panel of the page is a choice: the YAML does not come back.
+      act(() => result.current.yaml.claim());
+      act(() => result.current.workflow.claim());
+      act(() => result.current.workflow.release());
+      expect(restoreYaml).toHaveBeenCalledTimes(1);
+    });
+
+    // Its own host can close the panel of the page in the commit that opens
+    // the transient one: the transient one still covers it.
+    it('restores a panel that closed just before the transient one opened', () => {
+      const restoreWorkflow = vi.fn();
+      const { result } = renderHook(
+        () => ({
+          workflow: useRightPanel('workflow', vi.fn(), restoreWorkflow),
+          launcher: useRightPanel('launcher', vi.fn()),
+        }),
+        { wrapper: withProvider }
+      );
+      act(() => result.current.workflow.claim());
+      act(() => {
+        result.current.workflow.release();
+        result.current.launcher.claim();
+      });
+      act(() => result.current.launcher.release());
+      expect(restoreWorkflow).toHaveBeenCalledTimes(1);
+    });
+
+    it('restores nothing after the page closes the panels', () => {
+      const restoreYaml = vi.fn();
+      const { result } = renderHook(
+        () => ({
+          yaml: useRightPanel('yaml', vi.fn(), restoreYaml),
+          addStep: useRightPanel('add-step', vi.fn()),
+          close: useCloseRightPanel(),
+        }),
+        { wrapper: withProvider }
+      );
+      act(() => result.current.yaml.claim());
+      act(() => result.current.addStep.claim());
+      act(() => result.current.close());
+      expect(restoreYaml).not.toHaveBeenCalled();
+    });
+
     it('ignores a release by an id that is not active', () => {
       const { result } = renderHook(() => usePanels(vi.fn(), vi.fn()), {
         wrapper: withProvider,
