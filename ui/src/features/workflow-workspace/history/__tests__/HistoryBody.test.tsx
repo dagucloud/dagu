@@ -8,15 +8,22 @@ import { HistoryBody } from '../HistoryBody';
 
 const h = vi.hoisted(() => ({
   setUrl: vi.fn(),
+  loadMore: vi.fn(),
   older: 'r1' as string | null,
 }));
 
 vi.mock('../../data/useVisibleRuns', () => ({
-  useVisibleRuns: () => ({
+  useHistoryRuns: () => ({
     runs: [run('r1'), run('r2')],
     isLoading: false,
-    settings: { mode: 'count' },
     selectedId: 'r2',
+    older: {
+      runs: [],
+      hasMore: true,
+      loading: false,
+      failed: false,
+      loadMore: h.loadMore,
+    },
     adjacentId: (dir: 'older' | 'newer') => (dir === 'older' ? h.older : null),
   }),
 }));
@@ -52,6 +59,7 @@ function renderBody() {
 describe('HistoryBody on the focused History tab', () => {
   beforeEach(() => {
     h.setUrl.mockReset();
+    h.loadMore.mockReset();
     h.older = 'r1';
   });
 
@@ -61,6 +69,17 @@ describe('HistoryBody on the focused History tab', () => {
     tab.focus();
     fireEvent.keyDown(tab, { key: 'ArrowLeft' });
     expect(h.setUrl).toHaveBeenCalledWith({ run: 'r1' });
+  });
+
+  // The oldest run that shows is not the oldest one on the server.
+  it('reads older runs with Left on the oldest run', () => {
+    h.older = null;
+    renderBody();
+    fireEvent.keyDown(screen.getByRole('button', { name: 'History' }), {
+      key: 'ArrowLeft',
+    });
+    expect(h.loadMore).toHaveBeenCalledTimes(1);
+    expect(h.setUrl).not.toHaveBeenCalled();
   });
 
   // Shift with the arrows still moves between the tabs.

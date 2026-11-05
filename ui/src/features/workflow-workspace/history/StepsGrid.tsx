@@ -18,12 +18,18 @@ import { runStatusText } from '@/lib/status-utils';
 import { cn } from '@/lib/utils';
 import type { ApiDAGRunDetails } from '../contracts';
 import { sameContent } from '../data/sameContent';
+import type { OlderRuns } from '../data/useOlderRuns';
 import { isTestRun, runTime } from '../dock/runTimelineModel';
 import { entryFill, entryLabel } from './entryLook';
+import { OlderRunsStatus, OlderRunsTrigger } from './OlderRuns';
 import type { StepGrid, StepGridRow, StepRunEntry } from './stepHistoryModel';
 
 // The width of a run column and of the step name column.
 const CELL_CLASS = 'flex h-6 w-4 shrink-0 items-center justify-center';
+// The width of a run column in px, as w-4 of CELL_CLASS draws it.
+const COLUMN_PX = 16;
+// A view this close to the right end follows the newest run.
+const END_SLACK_PX = 2;
 const NAME_CLASS =
   'sticky left-0 z-[1] flex h-6 w-44 shrink-0 items-center gap-1 border-r border-border bg-card px-3';
 const FOCUS_CLASS =
@@ -44,6 +50,8 @@ export interface StepsGridProps {
   onOpenStep(step: string): void;
   /** The step under the pointer or the keyboard focus; null when none. */
   onSpotlight(step: string | null): void;
+  /** The older runs that the grid reads at its left end. */
+  older?: OlderRuns;
 }
 
 /** The mark of one cell: its shape tells the state, its colour the status. */
@@ -179,11 +187,13 @@ const GridRow = memo(function GridRow({
 
 /**
  * The steps of the workflow by run: a row for each step, a column for each
- * run, the newest on the right and scrolled into view. The name column and
- * the run row stay in place while the grid scrolls. A run header selects
- * that run alone. The grid is one tab stop; the arrow keys, Home and End
- * move in it, the run row included, and Enter selects the run and the step
- * of the cell, or the run of a header.
+ * run, the newest on the right and scrolled into view. A view at the right
+ * end follows a new run; a view scrolled back stays on its runs, also while
+ * older runs come in on the left. The grid reads them when its left end
+ * comes into view. The name column and the run row stay in place while the
+ * grid scrolls. A run header selects that run alone. The grid is one tab
+ * stop; the arrow keys, Home and End move in it, the run row included, and
+ * Enter selects the run and the step of the cell, or the run of a header.
  */
 export function StepsGrid({
   grid,
@@ -193,6 +203,7 @@ export function StepsGrid({
   onPickRun,
   onOpenStep,
   onSpotlight,
+  older,
 }: StepsGridProps) {
   const { ts } = useI18n();
   const scrollRef = useRef<HTMLDivElement>(null);
@@ -215,9 +226,13 @@ export function StepsGrid({
           col: selectedCol >= 0 ? selectedCol : lastCol,
         };
 
-  // The newest run is in view when the grid opens and when a run comes. A
-  // focused cell stays in view instead: a selection can move the window.
+  // The run at the left edge of a view scrolled back, and how far into its
+  // column the view starts; null for a view at the right end, which follows
+  // the newest run. A focused cell stays in view instead: a selection can
+  // move the window.
+  const anchor = useRef<{ runId: string; offset: number } | null>(null);
   const newestId = runs[lastCol]?.dagRunId;
+  const oldestId = runs[0]?.dagRunId;
   useLayoutEffect(() => {
     const scroller = scrollRef.current;
     if (!scroller) return;
@@ -226,8 +241,26 @@ export function StepsGrid({
       active.scrollIntoView?.({ block: 'nearest', inline: 'nearest' });
       return;
     }
-    scroller.scrollLeft = scroller.scrollWidth;
-  }, [newestId]);
+    const at = anchor.current;
+    const col = at ? runs.findIndex((run) => run.dagRunId === at.runId) : -1;
+    if (!at) scroller.scrollLeft = scroller.scrollWidth;
+    else if (col >= 0) scroller.scrollLeft = col * COLUMN_PX + at.offset;
+    // Runs come and go at the two ends only.
+  }, [newestId, oldestId]);
+  const onScroll = () => {
+    const scroller = scrollRef.current;
+    if (!scroller) return;
+    const left = scroller.scrollLeft;
+    if (scroller.scrollWidth - scroller.clientWidth - left <= END_SLACK_PX) {
+      anchor.current = null;
+      return;
+    }
+    const col = Math.floor(left / COLUMN_PX);
+    const runId = runs[col]?.dagRunId;
+    anchor.current = runId
+      ? { runId, offset: left - col * COLUMN_PX }
+      : anchor.current;
+  };
 
   // Stable, so that the memoized rows skip a render for another row.
   const live = useRef({ grid, runs, onPick, onPickRun, onSpotlight });
@@ -305,9 +338,18 @@ export function StepsGrid({
     <div
       ref={scrollRef}
       data-testid="ww-steps-grid"
+      onScroll={onScroll}
       // The focused cell scrolls clear of the sticky name column and run row.
-      className="h-full min-h-0 scroll-pl-44 scroll-pt-6 overflow-auto"
+      className="relative h-full min-h-0 scroll-pl-44 scroll-pt-6 overflow-auto"
     >
+      {older && (
+        <OlderRunsTrigger
+          older={older}
+          root={scrollRef}
+          edge="left"
+          className="pointer-events-none absolute left-0 top-0 h-px w-px"
+        />
+      )}
       <div
         ref={gridRef}
         role="grid"
@@ -329,10 +371,11 @@ export function StepsGrid({
             role="columnheader"
             className={cn(
               NAME_CLASS,
-              'text-[11px] font-medium text-muted-foreground'
+              'justify-between text-[11px] font-medium text-muted-foreground'
             )}
           >
             {ts('Step')}
+            {older && <OlderRunsStatus older={older} compact />}
           </div>
           {runs.map((run, col) => {
             const label = [

@@ -71,6 +71,7 @@ describe('useRunHistory', () => {
     expect(view.result.current.value).toEqual({
       runs: [],
       gridData: [],
+      nextCursor: null,
       isLoading: false,
     });
   });

@@ -10,6 +10,7 @@ import {
   RUN_MODE_KEY,
   RUN_RANGE_KEY,
   SHOW_TESTS_KEY,
+  useHistoryRuns,
   useRunViewSettings,
   useVisibleRuns,
 } from '../useVisibleRuns';
@@ -22,6 +23,7 @@ const h = vi.hoisted(() => ({
   latestRunId: 'n2' as string | null,
   ref: null as { runId: string } | null,
   details: null as unknown,
+  older: { runs: [] as unknown[] },
 }));
 
 vi.mock('../useRunHistory', () => ({
@@ -29,6 +31,9 @@ vi.mock('../useRunHistory', () => ({
     h.args.push(args);
     return h.history;
   },
+}));
+vi.mock('../useOlderRuns', () => ({
+  useOlderRuns: () => h.older,
 }));
 vi.mock('../useWorkspaceRun', () => ({
   useWorkspaceRun: () => ({
@@ -69,6 +74,7 @@ beforeEach(() => {
   h.latestRunId = 'n2';
   h.details = null;
   h.ref = null;
+  h.older = { runs: [] };
   vi.useFakeTimers({ toFake: ['Date'] });
   vi.setSystemTime(NOW);
 });
@@ -239,5 +245,49 @@ describe('useVisibleRuns', () => {
   it('reads nothing while disabled', () => {
     renderHook(() => useVisibleRuns({ enabled: false }));
     expect(h.args[0]).toMatchObject({ enabled: false });
+  });
+});
+
+describe('useHistoryRuns', () => {
+  // The count and the range of the timeline draw its chart; the History tab
+  // shows every run that it has read.
+  it('ignores the count and the range of the timeline', () => {
+    window.localStorage.setItem('dagu.workspace.runTimelineCount', '5');
+    h.history = {
+      runs: Array.from({ length: 12 }, (_, i) =>
+        at(`x${11 - i}`, `2026-03-02T${String(11 - i).padStart(2, '0')}:00:00Z`)
+      ),
+      isLoading: false,
+    };
+    h.latestRunId = 'x11';
+    expect(renderHook(() => useHistoryRuns()).result.current.runs).toHaveLength(
+      12
+    );
+    window.localStorage.setItem(RUN_MODE_KEY, 'range');
+    window.localStorage.setItem(
+      RUN_RANGE_KEY,
+      JSON.stringify({ preset: '1h' })
+    );
+    expect(renderHook(() => useHistoryRuns()).result.current.runs).toHaveLength(
+      12
+    );
+  });
+
+  it('adds the older runs read after the history, oldest first', () => {
+    const N0 = at('n0', '2026-03-02T08:00:00Z');
+    // The head moved: n1 is in both the history and the older runs.
+    h.older = { runs: [N1, N0] };
+    const { result } = renderHook(() => useHistoryRuns());
+    expect(ids(result.current.runs)).toEqual(['n0', 'n1', 't1', 'n2']);
+    expect(result.current.selectedId).toBe('n2');
+    h.selection = { runId: 'n1' };
+    const again = renderHook(() => useHistoryRuns());
+    expect(again.result.current.adjacentId('older')).toBe('n0');
+  });
+
+  it('skips the test runs that the timeline hides', () => {
+    window.localStorage.setItem(SHOW_TESTS_KEY, '0');
+    const { result } = renderHook(() => useHistoryRuns());
+    expect(ids(result.current.runs)).toEqual(['n1', 'n2']);
   });
 });

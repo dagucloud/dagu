@@ -18,6 +18,8 @@ export interface RunHistory {
   /** The runs, newest first. With `includeEphemeral`, the test runs too. */
   runs: ApiDAGRunDetails[];
   gridData: DAGGridItem[];
+  /** The cursor of the next page of older runs; null when none remain. */
+  nextCursor: string | null;
   isLoading: boolean;
 }
 
@@ -199,6 +201,7 @@ export function useRunHistory({
   return {
     runs,
     gridData: data?.gridData ?? NO_GRID,
+    nextCursor: data?.nextCursor ?? null,
     isLoading: active && isLoading,
   };
 }

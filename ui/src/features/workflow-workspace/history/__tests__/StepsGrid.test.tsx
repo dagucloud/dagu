@@ -148,6 +148,77 @@ describe('StepsGrid', () => {
     expect(props.onPick).toHaveBeenCalledWith('r2', 'build');
   });
 
+  // Older runs come in on the left: a view scrolled back stays on its runs,
+  // and a view at the right end follows a new run.
+  it('keeps a view scrolled back on its runs as runs come in', () => {
+    const props = renderGrid();
+    const scroller = screen.getByTestId('ww-steps-grid');
+    let width = 600;
+    Object.defineProperty(scroller, 'scrollWidth', { get: () => width });
+    Object.defineProperty(scroller, 'clientWidth', { value: 200 });
+    // The view starts 4px into the column of r2.
+    scroller.scrollLeft = 20;
+    fireEvent.scroll(scroller);
+
+    const older = [runAt('r0', 0, [node('build'), node('test')]), ...RUNS];
+    width += 16;
+    view.rerender(
+      <StepsGrid {...props} grid={stepGrid(DAG, older, NOW)} runs={older} />
+    );
+    expect(scroller.scrollLeft).toBe(36);
+
+    scroller.scrollLeft = width - 200;
+    fireEvent.scroll(scroller);
+    const newer = [...older, runAt('r4', 4, [node('build'), node('test')])];
+    width += 16;
+    view.rerender(
+      <StepsGrid {...props} grid={stepGrid(DAG, newer, NOW)} runs={newer} />
+    );
+    expect(scroller.scrollLeft).toBe(width);
+  });
+
+  // Without IntersectionObserver, as in jsdom, a button reads the next page.
+  it('reads older runs from the run row', () => {
+    const loadMore = vi.fn();
+    renderGrid({
+      older: {
+        runs: [],
+        hasMore: true,
+        loading: false,
+        failed: false,
+        loadMore,
+      },
+    });
+    fireEvent.click(screen.getByRole('button', { name: 'Load older' }));
+    expect(loadMore).toHaveBeenCalledTimes(1);
+  });
+
+  it('tells a read of older runs that runs, and retries one that failed', () => {
+    const loadMore = vi.fn();
+    const older = {
+      runs: [],
+      hasMore: true,
+      loading: true,
+      failed: false,
+      loadMore,
+    };
+    const props = renderGrid({ older });
+    expect(
+      screen.getByRole('status', { name: 'Loading older runs...' })
+    ).toBeInTheDocument();
+
+    view.rerender(
+      <StepsGrid
+        {...props}
+        older={{ ...older, loading: false, failed: true }}
+      />
+    );
+    fireEvent.click(
+      screen.getByRole('button', { name: "Couldn't load older runs. Retry" })
+    );
+    expect(loadMore).toHaveBeenCalledTimes(1);
+  });
+
   it('puts the tab stop on the run row without step rows', () => {
     const empty = [runAt('e1', 1, [])];
     renderGrid({
