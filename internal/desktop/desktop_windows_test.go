@@ -191,6 +191,28 @@ func TestCheckWindowUnreadable(t *testing.T) {
 	}
 }
 
+// A press into a window whose level cannot be read is refused before it is
+// sent, but a release always goes out, so a button or key that got through
+// is never left held down. The point under test must show a window.
+func TestWindowsDesktopPress(t *testing.T) {
+	e2eDesktop(t)
+	self := windows.GetCurrentProcessId()
+	stubIntegrity(t, func(pid uint32) (uint32, error) {
+		if pid == self {
+			return mediumRID, nil
+		}
+		return 0, windows.ERROR_ACCESS_DENIED
+	})
+
+	backend := windowsBackend{}
+	require.NoError(t, backend.MoveTo(20, 30))
+	require.NotZero(t, backend.WindowAt(20, 30).PID, "no window under the pointer to check against")
+	assert.ErrorIs(t, backend.Button(ButtonLeft, true, 1), windows.ERROR_ACCESS_DENIED)
+	assert.ErrorIs(t, backend.Wheel(0, 1), windows.ERROR_ACCESS_DENIED)
+	assert.NoError(t, backend.Button(ButtonLeft, false, 1))
+	assert.NoError(t, backend.Key(KeyShift, false))
+}
+
 // An access-denied cursor read names the input desktop problem when there is
 // one; any other failure keeps the GetCursorPos context.
 func TestGetCursorPosError(t *testing.T) {
