@@ -71,15 +71,18 @@ vi.mock('../RunStepsNav', () => ({
     </div>
   ),
   RunStepPicker: ({
+    ref,
     open,
     onToggle,
     className,
   }: {
+    ref?: React.Ref<HTMLButtonElement>;
     open: boolean;
     onToggle(): void;
     className?: string;
   }) => (
     <button
+      ref={ref}
       type="button"
       data-testid="step-picker-stub"
       aria-expanded={open}
@@ -329,6 +332,31 @@ describe('LogsDock frame', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Pick a step' }));
     expect(picker).toHaveAttribute('aria-expanded', 'false');
     expect(nav).toHaveClass('@max-[600px]:hidden');
+    // The focus goes back to the row that opened the list.
+    expect(picker).toHaveFocus();
+  });
+
+  // Esc closes the list over the tabs, not the sheet under it, from any
+  // control of the sheet. An Esc that a layer inside took does nothing.
+  it('closes the open steps on Esc and keeps the sheet', () => {
+    mockWidth(500);
+    renderDock(finished);
+    fireEvent.click(toggleButton());
+    const picker = screen.getByTestId('step-picker-stub');
+    fireEvent.click(picker);
+    const pick = screen.getByRole('button', { name: 'Pick a step' });
+    pick.addEventListener('keydown', (event) => event.preventDefault(), {
+      once: true,
+    });
+    fireEvent.keyDown(pick, { key: 'Escape' });
+    expect(picker).toHaveAttribute('aria-expanded', 'true');
+
+    fireEvent.keyDown(screen.getByRole('button', { name: 'Close' }), {
+      key: 'Escape',
+    });
+    expect(picker).toHaveAttribute('aria-expanded', 'false');
+    expect(picker).toHaveFocus();
+    expect(dockSection()).toHaveAttribute('data-state', 'open');
   });
 
   it('is open when the URL has ?dock at load', () => {

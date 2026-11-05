@@ -81,11 +81,15 @@ function RouterNodeComponent({
       data-shape="diamond"
       title={
         compact
-          ? compactTitle({
-              label: node.label,
-              subtitle: node.routeValue ?? node.subtitle,
-              run: node.run,
-            })
+          ? compactTitle(
+              {
+                label: node.label,
+                subtitle: node.routeValue ?? node.subtitle,
+                run: node.run,
+                reuseOutline: node.reuseOutline,
+              },
+              ts
+            )
           : failureTitle(node.run)
       }
       role={compact ? 'group' : undefined}
@@ -148,7 +152,11 @@ function RouterNodeComponent({
               issues={node.issues}
               issueMessages={node.issueMessages}
             />
-            <RunStatus run={node.run} noBadge={compact} />
+            <RunStatus
+              run={node.run}
+              reuseOutline={node.reuseOutline}
+              noBadge={compact}
+            />
           </div>
           {!compact && (node.routeValue ?? node.subtitle) && (
             <span

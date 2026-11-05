@@ -159,7 +159,9 @@ describe('TabStrip', () => {
       'Overview'
     );
     await user.click(screen.getByRole('tab', { name: 'Spec (2)' }));
-    expect(screen.getByRole('tab', { name: 'Overview' })).toHaveTextContent('');
+    expect(screen.getByRole('tab', { name: 'Overview' })).toHaveTextContent(
+      /^$/
+    );
     expect(screen.getByRole('tab', { selected: true })).toHaveTextContent(
       'Spec2'
     );

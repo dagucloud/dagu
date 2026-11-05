@@ -156,19 +156,27 @@ describe('RunStepPicker', () => {
     return onToggle;
   }
 
-  it('names the selected step and opens the list', () => {
+  it('names the selected step with its status and opens the list', () => {
     const onToggle = renderPicker('/dags/demo/executions?step=b');
-    const button = screen.getByRole('button', { name: 'b' });
+    const button = screen.getByRole('button', { name: 'b, Failed' });
     expect(button).toHaveAttribute('aria-expanded', 'false');
     expect(button).toHaveAttribute('aria-controls', 'steps');
     fireEvent.click(button);
     expect(onToggle).toHaveBeenCalledTimes(1);
   });
 
-  it('names the run summary when no step is selected', () => {
+  // The status of the run is no status of a step that the run does not have.
+  it('names a step that the run does not have as not in this run', () => {
+    renderPicker('/dags/demo/executions?step=gone');
+    expect(
+      screen.getByRole('button', { name: 'gone, Not in this run' })
+    ).toBeInTheDocument();
+  });
+
+  it('names the run summary and the run status when no step is selected', () => {
     renderPicker('/dags/demo/executions');
     expect(
-      screen.getByRole('button', { name: 'Run summary' })
+      screen.getByRole('button', { name: 'Run summary, Failed' })
     ).toBeInTheDocument();
   });
 });

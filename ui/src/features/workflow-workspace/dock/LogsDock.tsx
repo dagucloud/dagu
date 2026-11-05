@@ -122,7 +122,14 @@ export function LogsDock({
   );
   const [mounted, setMounted] = useState(dock.open);
   const [stepsOpen, setStepsOpen] = useState(false);
-  const closeSteps = useCallback(() => setStepsOpen(false), []);
+  const pickerRef = useRef<HTMLButtonElement>(null);
+  // The list over the tabs closes on a pick or on Esc, and gives the focus
+  // back to the row that opened it.
+  const closeSteps = useCallback(() => {
+    if (!stepsOpen) return;
+    setStepsOpen(false);
+    pickerRef.current?.focus();
+  }, [stepsOpen]);
   if (dock.open && !mounted) setMounted(true);
 
   const drag = useRef<Drag | null>(null);
@@ -188,9 +195,9 @@ export function LogsDock({
   };
 
   const ndvAbove = activePanel === 'ndv';
-  const escState = useRef({ ndvAbove, dock, sheet });
+  const escState = useRef({ ndvAbove, dock, sheet, stepsOpen, closeSteps });
   useEffect(() => {
-    escState.current = { ndvAbove, dock, sheet };
+    escState.current = { ndvAbove, dock, sheet, stepsOpen, closeSteps };
   });
   useEffect(() => {
     const onKeyDown = (event: globalThis.KeyboardEvent) => {
@@ -198,9 +205,15 @@ export function LogsDock({
         ndvAbove: blocked,
         dock: current,
         sheet: isSheet,
+        stepsOpen: listOpen,
+        closeSteps: closeList,
       } = escState.current;
       if (!escFree(event) || blocked) return;
-      if (current.maximized) {
+      // The step list over the tabs is the top layer: it closes first.
+      if (listOpen) {
+        event.preventDefault();
+        closeList();
+      } else if (current.maximized) {
         event.preventDefault();
         current.maximize(false);
       } else if (isSheet) {
@@ -402,6 +415,7 @@ export function LogsDock({
             <div className="relative flex min-h-0 flex-1 @max-[600px]:flex-col">
               {mounted && (
                 <RunStepPicker
+                  ref={pickerRef}
                   open={stepsOpen}
                   controls={STEPS_NAV_ID}
                   onToggle={() => setStepsOpen((open) => !open)}

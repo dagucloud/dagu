@@ -27,7 +27,7 @@ function HandlerNodeComponent({ data, selected }: NodeProps<StepFlowNode>) {
   const card = (
     <div
       data-testid={`ve-canvas-node-${node.key}`}
-      title={compact ? compactTitle(node) : failureTitle(node.run)}
+      title={compact ? compactTitle(node, ts) : failureTitle(node.run)}
       role={compact ? 'group' : undefined}
       aria-label={compact ? node.label : undefined}
       style={compact ? compactCardPlace(direction) : undefined}

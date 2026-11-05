@@ -152,7 +152,7 @@ function AgentNodeComponent({ data, selected }: NodeProps<StepFlowNode>) {
             {ts('Iterations: {count}', { count: agentRun.iterations })}
           </span>
         )}
-        <RunStatus run={node.run} />
+        <RunStatus run={node.run} reuseOutline={node.reuseOutline} />
       </div>
       {hub?.systemFirstLine && (
         <p

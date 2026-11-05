@@ -2,9 +2,12 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 import { ChevronDown } from 'lucide-react';
+import { useMemo, type Ref } from 'react';
 import { StatusDot } from '@/components/ui/status-dot';
 import { useI18n } from '@/i18n/I18nProvider';
 import { runDisplayStatus } from '@/lib/runDisplayStatus';
+import { shortRunId } from '@/lib/shortRunId';
+import { nodeStatusText, runStatusText } from '@/lib/status-utils';
 import { cn, FOCUS_RING } from '@/lib/utils';
 import { useWorkspaceEditor } from '../canvas/WorkspaceEditorContext';
 import type { ApiDAGDetails } from '../contracts';
@@ -12,6 +15,7 @@ import { useWorkspaceRun, type WorkspaceRunValue } from '../data';
 import { useStepSubRunsOpener } from '../step/useStepRunActions';
 import { useDockCommands } from './DockContext';
 import { RunStepList } from './RunStepList';
+import { stepReuse } from './stepReuse';
 import { useDockStep } from './useDockStep';
 
 /**
@@ -89,14 +93,17 @@ function runNode(
 /**
  * The selected row of the step list as one row, for a Run panel too narrow
  * for the list beside the tabs: the status and the name of the selected
- * step, or the run summary. It shows and hides the list (`controls`).
+ * step, or the run summary, with the dot of the list. It shows and hides
+ * the list (`controls`).
  */
 export function RunStepPicker({
+  ref,
   open,
   controls,
   onToggle,
   className,
 }: {
+  ref?: Ref<HTMLButtonElement>;
   open: boolean;
   controls: string;
   onToggle(): void;
@@ -106,10 +113,30 @@ export function RunStepPicker({
   const run = useWorkspaceRun();
   const selected = useDockStep();
   const details = run.details;
+  const reuses = useMemo(
+    () => (details ? stepReuse(details) : null),
+    [details]
+  );
   if (!run.hasRun || !details) return null;
   const node = selected === null ? undefined : runNode(run, selected);
+  const reuse = selected === null ? undefined : reuses?.get(selected);
+  const healthy = runDisplayStatus(details).healthy;
+  // The dots are decorative: the button says the status once, after the name.
+  // A step of the URL that the run does not have has no status of its own.
+  const status = node
+    ? reuse
+      ? reuse.outcome === 'success'
+        ? 'Reused, succeeded'
+        : 'Reused, failed'
+      : nodeStatusText(node.status)
+    : selected !== null
+      ? 'Not in this run'
+      : healthy
+        ? 'Healthy'
+        : runStatusText(details.status);
   return (
     <button
+      ref={ref}
       type="button"
       aria-expanded={open}
       aria-controls={controls}
@@ -121,18 +148,25 @@ export function RunStepPicker({
       )}
     >
       {node ? (
-        <StatusDot kind="step" status={node.status} decorative />
-      ) : (
+        <StatusDot
+          kind="step"
+          status={node.status}
+          reused={reuse?.outcome}
+          reusedFrom={reuse?.runId ? shortRunId(reuse.runId) : undefined}
+          decorative
+        />
+      ) : selected === null ? (
         <StatusDot
           kind="run"
           status={details.status}
-          healthy={runDisplayStatus(details).healthy}
+          healthy={healthy}
           decorative
           className="motion-safe:animate-none"
         />
-      )}
+      ) : null}
       <span className="min-w-0 flex-1 truncate">
         {selected ?? ts('Run summary')}
+        <span className="sr-only">, {ts(status)}</span>
       </span>
       <ChevronDown
         aria-hidden="true"

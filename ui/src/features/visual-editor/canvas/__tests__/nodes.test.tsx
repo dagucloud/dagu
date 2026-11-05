@@ -651,6 +651,10 @@ describe('StepNode issues and run', () => {
           'data-reused'
         );
         expect(view.queryByTestId('ve-node-reuse-outline')).toBeNull();
+        // It reads as a plain skipped step.
+        expect(view.getByTestId('ve-node-skipped')).toHaveTextContent(
+          'Skipped'
+        );
       });
 
       it('has no outline on a step that carries outputs but is not a previous step', () => {
@@ -1078,6 +1082,46 @@ describe('StepNode issues and run', () => {
     });
     const { getByTestId } = renderIn(<StepNode {...nodeProps(node)} />);
     expect(getByTestId('ve-canvas-node-steps[0]')).not.toHaveAttribute('title');
+  });
+
+  // Skipped and Not started share the neutral card: the word tells them apart.
+  it('says Skipped on a skipped step only', () => {
+    const at = (status: NodeStatus) => {
+      const view = renderIn(
+        <StepNode
+          {...nodeProps(
+            makeNode({
+              run: { status, statusLabel: '', retryCount: 0, doneCount: 0 },
+            })
+          )}
+        />
+      );
+      const text = view.queryByTestId('ve-node-skipped')?.textContent ?? null;
+      view.unmount();
+      return text;
+    };
+    expect(at(NodeStatus.Skipped)).toBe('Skipped');
+    expect(at(NodeStatus.NotStarted)).toBeNull();
+  });
+
+  // A compact card has no room for the word: its tooltip says it.
+  it('says Skipped in the tooltip of a compact card', () => {
+    const node = makeNode({
+      run: {
+        status: NodeStatus.Skipped,
+        statusLabel: '',
+        retryCount: 0,
+        doneCount: 0,
+      },
+    });
+    const { getByTestId, queryByTestId } = renderIn(
+      <StepNode {...nodeProps(node)} />,
+      makeActions({ compact: true })
+    );
+    expect(queryByTestId('ve-node-skipped')).toBeNull();
+    expect(
+      getByTestId(`ve-canvas-node-${node.key}`).getAttribute('title')
+    ).toContain('Skipped');
   });
 
   it('shows no duration for a step without an end', () => {
