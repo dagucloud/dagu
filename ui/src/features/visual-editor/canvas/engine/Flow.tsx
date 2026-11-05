@@ -971,7 +971,7 @@ function Layer({
       data-testid="flow-layer"
       data-shown={shown}
       className={cn(
-        'absolute left-0 top-0 z-[1] origin-top-left transition-opacity duration-300 ease-out motion-reduce:transition-none',
+        'absolute left-0 top-0 z-[1] origin-top-left transition-opacity duration-150 ease-out motion-reduce:transition-none',
         shown ? 'opacity-100' : 'opacity-0'
       )}
       style={{
