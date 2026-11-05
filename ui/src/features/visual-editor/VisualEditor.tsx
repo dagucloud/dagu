@@ -392,6 +392,7 @@ export function VisualEditor(props: VisualEditorProps): ReactElement {
     workflowPanel,
     workflowPanelBare = false,
     launcherHost,
+    onRevealTrigger,
     yamlToolbarRoot,
     onYamlStepPathChange,
     drawerBodyRoot,
@@ -1303,8 +1304,14 @@ export function VisualEditor(props: VisualEditorProps): ReactElement {
     if (id === 'webhook' && launcherData && !launcherData.webhooksAvailable) {
       return;
     }
+    // The YAML of the file stays: the click shows the part of the file
+    // that the trigger stands for, as a click on a step shows its block.
+    if (wholeFileShown && onRevealTrigger) {
+      onRevealTrigger(id);
+      return;
+    }
     // The click on a launcher ends the focus on a step: the panel of the
-    // launcher takes the place of the file and of the step.
+    // launcher takes the place of the step.
     select(null);
     setHighlighted(null);
     setAddTarget(null);
@@ -1744,8 +1751,11 @@ export function VisualEditor(props: VisualEditorProps): ReactElement {
                 }
                 onSelect={(key) => {
                   if (key === null) {
+                    // A click on the empty canvas ends the focus on a step
+                    // and on a trigger alike.
                     setFormOpen(false);
                     select(null);
+                    if (launcherOpen !== null) closeLauncher();
                   } else {
                     pickStep(key);
                   }

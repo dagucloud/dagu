@@ -103,6 +103,7 @@ import { useYamlSection } from './useYamlSection';
 import { useDAGSpecQuery } from './useDAGSpecQuery';
 import { WorkflowPanel } from './WorkflowPanel';
 import { PanelSwitchButton } from '@/features/visual-editor/PanelSwitchButton';
+import type { LauncherId } from '@/features/visual-editor/launchers/model';
 // Not lazy: the canvas is what the page shows first, and a lazy editor adds
 // a blank render that React holds for up to 300 ms.
 import VisualEditor from '@/features/visual-editor';
@@ -268,6 +269,13 @@ function draftStepTitle(
  * DAGSpec displays and allows editing of a DAG specification
  * including visualization, attributes, steps, and YAML definition
  */
+/** The key of the file that a trigger stands for; a webhook has none. */
+const TRIGGER_KEYS: Record<LauncherId, string | null> = {
+  manual: 'params',
+  cron: 'schedule',
+  webhook: null,
+};
+
 function DAGSpec({
   fileName,
   localDags,
@@ -1827,6 +1835,30 @@ function DAGSpec({
     formRootRef: setDrawerBodyRoot,
   };
 
+  // A click on a trigger while the YAML of the file shows: the cursor goes
+  // to the key of the file that the trigger stands for. Webhooks live on the
+  // server and have no key: the YAML stays as it is.
+  const revealTrigger = (id: LauncherId) => {
+    const key = TRIGGER_KEYS[id];
+    const editor = yamlEditorRef.current as
+      | (CodeEditorLike & {
+          setSelection?(range: object): void;
+          revealLineInCenter?(line: number): void;
+        })
+      | null;
+    const lines = editor?.getModel()?.getValue().split('\n');
+    if (!key || !editor?.setSelection || !lines) return;
+    const index = lines.findIndex((line) => line.startsWith(`${key}:`));
+    if (index < 0) return;
+    editor.setSelection({
+      startLineNumber: index + 1,
+      startColumn: 1,
+      endLineNumber: index + 1,
+      endColumn: lines[index]!.length + 1,
+    });
+    editor.revealLineInCenter?.(index + 1);
+  };
+
   // A row of the Issues popover: the cursor of the YAML goes to the line of
   // the issue, and the step of the issue is selected on the canvas. With no
   // YAML file on screen, a field of a step opens the form of the step on it,
@@ -2288,6 +2320,7 @@ function DAGSpec({
                           }
                           workflowPanelBare={!!renderWorkflowPanel}
                           launcherHost={launcherHost}
+                          onRevealTrigger={revealTrigger}
                           runSource={runSource}
                           onRunStarted={onRunStarted}
                           selectedStepName={selectedStepName}

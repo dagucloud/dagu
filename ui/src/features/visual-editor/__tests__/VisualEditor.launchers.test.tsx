@@ -240,6 +240,36 @@ describe('VisualEditor launchers', () => {
     expect(onYamlVisibleChange).not.toHaveBeenCalledWith(true, 'panel');
   });
 
+  // A click on the empty canvas ends the focus on a trigger, as on a step.
+  it('closes the launcher panel on a click on the empty canvas', () => {
+    renderEditor();
+    fireEvent.click(
+      within(screen.getByTestId('ve-launcher-cron')).getByRole('button')
+    );
+    expect(screen.getByTestId('ve-launcher-panel-cron')).toBeInTheDocument();
+    fireEvent.click(screen.getByTestId('flow'));
+    expect(screen.queryByTestId('ve-launcher-panel-cron')).toBeNull();
+  });
+
+  // The YAML of the file stays: a trigger shows its part of the file, as a
+  // step shows its block.
+  it('shows the YAML of the trigger while the YAML of the file shows', () => {
+    const onYamlVisibleChange = vi.fn();
+    const onRevealTrigger = vi.fn();
+    renderEditor(yamlArraySteps, {
+      yamlVisible: true,
+      initialYamlMode: 'file',
+      onYamlVisibleChange,
+      onRevealTrigger,
+    });
+    fireEvent.click(
+      within(screen.getByTestId('ve-launcher-cron')).getByRole('button')
+    );
+    expect(onRevealTrigger).toHaveBeenCalledWith('cron');
+    expect(screen.queryByTestId('ve-launcher-panel-cron')).toBeNull();
+    expect(onYamlVisibleChange).not.toHaveBeenCalledWith(false);
+  });
+
   // A launcher panel and a step take turns: a click on a step closes the
   // panel, and the step is the one that is focused.
   it('closes the launcher panel when a step is clicked', () => {

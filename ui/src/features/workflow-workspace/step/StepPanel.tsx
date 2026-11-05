@@ -14,7 +14,13 @@ import { Button } from '@/components/ui/button';
 import { IconButton } from '@/components/ui/icon-button';
 import { PanelMessage } from '@/components/ui/panel-message';
 import { StatusDot } from '@/components/ui/status-dot';
+import {
+  PANEL_HEADER_CLASS,
+  PANEL_ZONE_SHELL_CLASS,
+  panelMaxWidth,
+} from '@/features/dags/components/step-details/PanelShell';
 import { StepDetails } from '@/features/dags/components/step-details/StepDetails';
+import { getStoredDrawerWidth } from '@/features/dags/components/step-details/StepSideDrawer';
 import type {
   StepCommand,
   StepCommandGates,
@@ -115,13 +121,17 @@ export function StepPanel({
       data-step-panel=""
       data-panel-shell={besideCanvas ? 'right' : undefined}
       data-step={step}
+      // The shell, the width and the header of every right panel: a trigger
+      // panel and a step panel take turns as one pane.
       className={cn(
-        'absolute bottom-0 right-0 top-(--ww-toolbar-row,0px) flex w-[clamp(380px,40%,640px)] max-w-full flex-col border-l border-t border-border bg-card shadow-lg shadow-foreground/10 max-md:w-full',
+        PANEL_ZONE_SHELL_CLASS,
+        'max-md:w-full',
         Z.ndv,
         passThrough && 'pointer-events-none'
       )}
+      style={{ width: getStoredDrawerWidth(), maxWidth: panelMaxWidth() }}
     >
-      <header className="flex h-10 shrink-0 items-center gap-2 border-b border-border px-3">
+      <header className={PANEL_HEADER_CLASS}>
         {node && (
           <StatusDot
             kind="step"

@@ -309,16 +309,21 @@ export function StepSideDrawer({
             : null;
       }
       setShouldRender(true);
-      animationFrame = window.requestAnimationFrame(() => {
+      // A panel beside the page swaps in at once: a panel that takes the
+      // place of another reads as one pane that changes its content.
+      if (!modal) {
         setIsVisible(true);
-        // Focus the panel itself so a pointer click does not paint a focus
-        // ring on the close button; Tab still reaches it first. A drawer
-        // beside the page leaves the focus where the user put it.
-        if (modal) drawerRef.current?.focus();
-      });
+      } else {
+        animationFrame = window.requestAnimationFrame(() => {
+          setIsVisible(true);
+          // Focus the panel itself so a pointer click does not paint a
+          // focus ring on the close button; Tab still reaches it first.
+          drawerRef.current?.focus();
+        });
+      }
     } else {
       setIsVisible(false);
-      closeTimer = window.setTimeout(() => {
+      const finish = () => {
         const active = document.activeElement;
         const lost =
           !active ||
@@ -331,7 +336,10 @@ export function StepSideDrawer({
         // content left. Give it back to the control that opened it.
         const opener = lastOutsideRef.current;
         if (!modal && lost && opener?.isConnected) opener.focus();
-      }, 180);
+      };
+      // A modal drawer slides out; a panel beside the page leaves at once.
+      if (modal) closeTimer = window.setTimeout(finish, 180);
+      else finish();
     }
 
     return () => {

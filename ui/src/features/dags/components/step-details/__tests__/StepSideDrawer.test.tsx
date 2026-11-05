@@ -63,6 +63,36 @@ afterEach(() => {
   vi.useRealTimers();
 });
 
+// A panel beside the page swaps at once: one that takes the place of
+// another reads as one pane that changes its content.
+describe('StepSideDrawer beside the page', () => {
+  it('shows and leaves at once, with no fade', () => {
+    function Toggle() {
+      const [open, setOpen] = useState(true);
+      return (
+        <>
+          <button type="button" onClick={() => setOpen((o) => !o)}>
+            Toggle
+          </button>
+          <StepSideDrawer
+            isOpen={open}
+            onClose={() => setOpen(false)}
+            hasContent={open}
+            modal={false}
+            label="Launcher"
+          >
+            <p>Body</p>
+          </StepSideDrawer>
+        </>
+      );
+    }
+    render(<Toggle />);
+    expect(screen.getByTestId('step-side-drawer')).toHaveClass('opacity-100');
+    fireEvent.click(screen.getByRole('button', { name: 'Toggle' }));
+    expect(screen.queryByTestId('step-side-drawer')).toBeNull();
+  });
+});
+
 // parity:drawer-mode-rules
 describe('StepSideDrawer panel claim', () => {
   it('claims its panel id while it is open', () => {
