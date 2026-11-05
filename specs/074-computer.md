@@ -220,11 +220,14 @@ the screen they produced with a note, and the act ends only on a report
 without actions. A round that repeats the previous one and leaves the
 screen as it was is answered with a note saying so. When a round would take
 the act past `max_actions` (`with.max_actions`, default 50), its actions are
-not run and the model is shown the screen with a note asking for its report.
-The act fails when:
+not run. While actions are left, the model is shown the screen with a note
+saying how many, and may send a smaller round. Once none are left, the model
+is shown the screen with a note asking for its report. The act fails when:
 
 - the model reports that the task cannot be done, with its summary;
 - the model twice answers without an action or a report;
+- two rounds would take the act past `max_actions` with no round that fits
+  between them;
 - the model acts again after being told the task has no actions left;
 - the model provider asks a person to confirm the next actions and
   `with.on_confirmation` is `fail` (the default); with `allow` the actions run
