@@ -199,6 +199,8 @@ function mergeUniqueDAGFiles(
   return merged;
 }
 
+const NO_LOADED_PAGES = { through: 1, headOrder: '' };
+
 function getNextPage(
   pagination: components['schemas']['Pagination'] | undefined
 ): number | null {
@@ -333,8 +335,9 @@ function DAGsContent() {
   const autoLoadPendingRef = React.useRef(false);
   const loadMoreControllerRef = React.useRef<AbortController | null>(null);
   const paginationGenerationRef = React.useRef(0);
-  // The last page that the list holds; 1 while it holds only the first page.
-  const loadedThroughPageRef = React.useRef(1);
+  // The last page that the list holds, 1 while it holds only the first one,
+  // and the order of the first page that the pages after it were read with.
+  const [loadedPages, setLoadedPages] = React.useState(NO_LOADED_PAGES);
 
   const defaultFilters = React.useMemo<DAGDefinitionsFilters>(
     () => ({
@@ -372,7 +375,7 @@ function DAGsContent() {
     paginationGenerationRef.current += 1;
     loadMoreControllerRef.current?.abort();
     loadMoreControllerRef.current = null;
-    loadedThroughPageRef.current = 1;
+    setLoadedPages(NO_LOADED_PAGES);
     setOlderDAGFiles([]);
     setContinuationPageOverride(undefined);
     setLoadMoreError(null);
@@ -1029,10 +1032,21 @@ function DAGsContent() {
     };
   }, [data?.dags, olderDAGFiles]);
 
+  // The order of the first page: its workflows and the total.
+  const headOrder = React.useMemo(
+    () =>
+      [
+        data?.pagination.totalRecords ?? 0,
+        ...(data?.dags ?? []).map((dag) => dag.fileName),
+      ].join('\n'),
+    [data]
+  );
+
   const handleLoadMore = React.useCallback(async (): Promise<void> => {
     if (isLoadingMore || !nextPage) {
       return;
     }
+    const readWith = headOrder;
 
     const generation = paginationGenerationRef.current;
     loadMoreControllerRef.current?.abort();
@@ -1084,7 +1098,7 @@ function DAGsContent() {
       setOlderDAGFiles((previous) =>
         mergeUniqueDAGFiles(previous, pageData.dags ?? [])
       );
-      loadedThroughPageRef.current = nextPage;
+      setLoadedPages({ through: nextPage, headOrder: readWith });
       setContinuationPageOverride(getNextPage(pageData.pagination));
     } catch (caughtError) {
       if (controller.signal.aborted) {
@@ -1103,23 +1117,16 @@ function DAGsContent() {
         setIsLoadingMore(false);
       }
     }
-  }, [client, isLoadingMore, nextPage, queryParams]);
+  }, [client, headOrder, isLoadingMore, nextPage, queryParams]);
 
   // The first page is live; the pages after it are read once. When the first
   // page gains or loses a workflow, as a sort by status or last run does when
-  // runs start and end, a workflow crosses into the next page: those pages
-  // are read again, so that it is neither lost nor shown twice.
-  const headOrder = React.useMemo(
-    () =>
-      [
-        data?.pagination.totalRecords ?? 0,
-        ...(data?.dags ?? []).map((dag) => dag.fileName),
-      ].join('\n'),
-    [data]
-  );
+  // runs start and end, a workflow crosses into the next page: the pages
+  // after it are read again, also when they were read while it changed, so
+  // that the workflow is neither lost nor shown twice.
   React.useEffect(() => {
-    const through = loadedThroughPageRef.current;
-    if (through < 2) {
+    const { through, headOrder: readWith } = loadedPages;
+    if (through < 2 || readWith === headOrder) {
       return;
     }
     const generation = paginationGenerationRef.current;
@@ -1136,8 +1143,7 @@ function DAGsContent() {
       .then((responses) => {
         if (
           controller.signal.aborted ||
-          generation !== paginationGenerationRef.current ||
-          through !== loadedThroughPageRef.current
+          generation !== paginationGenerationRef.current
         ) {
           return;
         }
@@ -1151,10 +1157,11 @@ function DAGsContent() {
         setContinuationPageOverride(
           getNextPage(responses[responses.length - 1]?.data?.pagination)
         );
+        setLoadedPages({ through, headOrder });
       })
       .catch(() => undefined);
     return () => controller.abort();
-  }, [client, headOrder, queryParams]);
+  }, [client, headOrder, loadedPages, queryParams]);
 
   React.useEffect(() => {
     if (!isLoadingMore) {

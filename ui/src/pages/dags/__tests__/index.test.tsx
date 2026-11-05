@@ -1257,7 +1257,7 @@ describe('DagsPage', () => {
   // The first page is live and the next pages are read once. A workflow that
   // starts a run moves to the first page under a last run sort and pushes the
   // last workflow of that page onto the next one, which must then show it.
-  it('keeps every workflow when one crosses into the first page', async () => {
+  describe('pages after the first', () => {
     const dagFile = (name: string) => ({
       fileName: `${name}.yaml`,
       dag: { name },
@@ -1270,51 +1270,89 @@ describe('DagsPage', () => {
       nextPage: currentPage === 1 ? 2 : 0,
       prevPage: currentPage - 1,
     });
+    const firstPage = (names: string[]) => ({
+      dags: names.map(dagFile),
+      errors: [],
+      pagination: pagination(1),
+    });
     const pageTwo = (names: string[]) => ({
       data: { dags: names.map(dagFile), errors: [], pagination: pagination(2) },
     });
-    dagsPageResponse = {
-      dags: ['a', 'b'].map(dagFile),
-      errors: [],
-      pagination: pagination(1),
-    };
-    clientGetMock
-      .mockResolvedValueOnce(pageTwo(['c', 'd']))
-      .mockResolvedValueOnce(pageTwo(['b', 'c']));
-    const entry = '/dags?sort=lastRun&order=desc';
     const tree = () => (
-      <MemoryRouter initialEntries={[entry]}>
+      <MemoryRouter initialEntries={['/dags?sort=lastRun&order=desc']}>
         <DagsPageHarness
           setTitle={vi.fn()}
           workspaceSelection={{ kind: WorkspaceKind.all }}
         />
       </MemoryRouter>
     );
-    const view = render(tree());
-
-    await act(async () => {
-      fireEvent.click(
-        screen.getByRole('button', { name: 'Load more workflows' })
-      );
+    const settle = async () => {
       await Promise.resolve();
       await Promise.resolve();
-    });
-    expect(screen.getByText('d.yaml')).toBeVisible();
-
-    // d starts a run: it leads the first page, and b falls to the second.
-    dagsPageResponse = {
-      dags: ['d', 'a'].map(dagFile),
-      errors: [],
-      pagination: pagination(1),
     };
-    await act(async () => {
-      view.rerender(tree());
-      await Promise.resolve();
-      await Promise.resolve();
+    const expectEveryWorkflow = () => {
+      for (const name of ['a', 'b', 'c', 'd']) {
+        expect(screen.getByText(`${name}.yaml`)).toBeVisible();
+      }
+    };
+
+    it('keeps every workflow when one crosses into the first page', async () => {
+      dagsPageResponse = firstPage(['a', 'b']);
+      clientGetMock
+        .mockResolvedValueOnce(pageTwo(['c', 'd']))
+        .mockResolvedValueOnce(pageTwo(['b', 'c']));
+      const view = render(tree());
+
+      await act(async () => {
+        fireEvent.click(
+          screen.getByRole('button', { name: 'Load more workflows' })
+        );
+        await settle();
+      });
+      expect(screen.getByText('d.yaml')).toBeVisible();
+
+      // d starts a run: it leads the first page, and b falls to the second.
+      dagsPageResponse = firstPage(['d', 'a']);
+      await act(async () => {
+        view.rerender(tree());
+        await settle();
+      });
+
+      expectEveryWorkflow();
     });
 
-    for (const name of ['a', 'b', 'c', 'd']) {
-      expect(screen.getByText(`${name}.yaml`)).toBeVisible();
-    }
+    // A next page that was read while the first page changed holds the old
+    // order: it is read again once it arrives.
+    it('reads a page again that arrived after the first page changed', async () => {
+      dagsPageResponse = firstPage(['a', 'b']);
+      let deliver: (response: unknown) => void = () => undefined;
+      clientGetMock
+        .mockImplementationOnce(
+          () =>
+            new Promise((resolve) => {
+              deliver = resolve;
+            })
+        )
+        .mockResolvedValueOnce(pageTwo(['b', 'c']));
+      const view = render(tree());
+
+      await act(async () => {
+        fireEvent.click(
+          screen.getByRole('button', { name: 'Load more workflows' })
+        );
+        await settle();
+      });
+      dagsPageResponse = firstPage(['d', 'a']);
+      await act(async () => {
+        view.rerender(tree());
+        await settle();
+      });
+      await act(async () => {
+        deliver(pageTwo(['c', 'd']));
+        await settle();
+      });
+
+      expectEveryWorkflow();
+    });
   });
 });
