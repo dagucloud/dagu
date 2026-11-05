@@ -71,7 +71,9 @@ describe('IssuesPopover', () => {
   });
 
   // The triangle with the count is the only trigger, and it shows with errors.
-  it('shows no button for warnings only, and no Issues pill', () => {
+  // Warnings alone do not block a save: the button has the colour of a
+  // warning, not the red of an error.
+  it('shows a warning button for warnings only', () => {
     render(
       <IssuesPopover
         warnings={['Step load has no explicit working_dir']}
@@ -79,10 +81,9 @@ describe('IssuesPopover', () => {
         valueReferences={[unknownStep]}
       />
     );
-    expect(
-      screen.queryByRole('button', { name: /Issues/ })
-    ).not.toBeInTheDocument();
-    expect(screen.queryByText(/Issues \(/)).toBeNull();
+    const button = screen.getByRole('button', { name: 'Issues (2)' });
+    expect(button).toHaveClass('text-warning');
+    expect(button).not.toHaveClass('text-destructive');
   });
 
   it('shows the triangle and the count of every issue once there is an error', () => {

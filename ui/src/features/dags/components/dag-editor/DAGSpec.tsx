@@ -72,7 +72,6 @@ import { IssuesPopover } from './IssuesPopover';
 import { DraftRecoveryCard } from './DraftRecoveryCard';
 import { NoticeLine, type NoticeLineItem } from './NoticeLine';
 import { YamlTools } from './YamlTools';
-import { CountBadge } from '@/features/visual-editor/canvas/CountBadge';
 import { attributeIssues } from '@/features/visual-editor/doc/issues';
 import { applyTextEdits } from '@/features/visual-editor/doc/patch';
 import {
@@ -1941,16 +1940,6 @@ function DAGSpec({
   ) : (
     <IssuesPopover warnings={[]} errors={preview.errors ?? []} />
   );
-  // Warnings do not block a save: Save carries their count.
-  const warningCount =
-    compactNotices && activeTab === 'parent'
-      ? issueRows({
-          warnings,
-          errors: [],
-          issues: shownValidation.issues,
-        }).warnings.length
-      : 0;
-
   const noticeItems: NoticeLineItem[] = [];
   if (compactNotices) {
     if (activeTab === 'parent' && visualFrozen) {
@@ -2032,7 +2021,6 @@ function DAGSpec({
   }[saveState];
   const saveButtonTitle = [
     syntaxError ? ts('Fix the YAML syntax error before you save') : saveStatus,
-    warningCount > 0 ? ts('Warnings: {count}', { count: warningCount }) : '',
     ts('Save changes (Ctrl+S / Cmd+S)'),
   ]
     .filter(Boolean)
@@ -2086,8 +2074,8 @@ function DAGSpec({
                           aria-label={ts('Save')}
                           aria-describedby="save-status"
                           title={saveButtonTitle}
-                          // Icon only, with one size in every state. The count on
-                          // its corner tells the warnings.
+                          // Icon only, with one size in every state. The issues
+                          // button beside it tells the warnings.
                           className={cn(
                             'relative justify-center p-0',
                             saveLabeled
@@ -2111,18 +2099,6 @@ function DAGSpec({
                           <span id="save-status" className="sr-only">
                             {saveStatus}
                           </span>
-                          {warningCount > 0 && (
-                            <CountBadge
-                              data-testid="save-warning-count"
-                              role="img"
-                              aria-label={ts('Warnings: {count}', {
-                                count: warningCount,
-                              })}
-                              tone="warning"
-                              count={warningCount}
-                              corner
-                            />
-                          )}
                         </Button>
                       </I18nProps>
                     )}
