@@ -258,6 +258,13 @@ export const MINIMAP_FRAME_MS = 66;
 /** Time after the last pan or zoom before the overview fades out. */
 export const MINIMAP_HIDE_DELAY_MS = 1000;
 
+/**
+ * Time that the view rests before a graph that runs out of it shows the
+ * overview: the view before the first fit, and a glide, leave out part of
+ * a graph that fits in the end.
+ */
+export const MINIMAP_SETTLE_MS = 400;
+
 /** Width in px of the border of the overview box. */
 const MINIMAP_BORDER = 1;
 /** Corner radius in px of a node in the overview. */
@@ -730,6 +737,14 @@ export function MiniMap({
     }
   }, [x, y, zoom, armHide]);
 
+  // The view rests once it has not changed for MINIMAP_SETTLE_MS.
+  const [settled, setSettled] = useState(false);
+  useEffect(() => {
+    setSettled(false);
+    const timer = setTimeout(() => setSettled(true), MINIMAP_SETTLE_MS);
+    return () => clearTimeout(timer);
+  }, [x, y, zoom]);
+
   const rects = store.nodeRects();
   // The selected nodes keep the colour of the selection in the overview.
   const selectedRects = new Set(
@@ -744,9 +759,9 @@ export function MiniMap({
   if (hideWhenFitted && fitted) {
     return null;
   }
-  // A graph that runs out of the view keeps its overview on at rest too: it
+  // A graph that runs out of the resting view keeps its overview on too: it
   // tells that there is more to see, and where.
-  const resting = persistent || !fitted;
+  const resting = persistent || (!fitted && settled);
   const { pixelWidth, pixelHeight } = layout;
 
   const centerOn = (event: ReactPointerEvent<HTMLDivElement>) => {

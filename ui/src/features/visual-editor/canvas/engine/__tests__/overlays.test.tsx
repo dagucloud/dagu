@@ -8,6 +8,7 @@ import { UserPreferencesProvider } from '@/contexts/UserPreference';
 import {
   MINIMAP_FRAME_MS,
   MINIMAP_HIDE_DELAY_MS,
+  MINIMAP_SETTLE_MS,
   Controls,
   MiniMap,
 } from '../overlays';
@@ -414,6 +415,18 @@ describe('MiniMap', () => {
     expect(minimap().dataset.state).toBe('hidden');
   });
 
+  // The view starts before its first fit, and a glide passes through views
+  // that leave out part of the graph: none of them shows the overview.
+  it('shows nothing on the way to a view that fits', () => {
+    renderOverlays();
+    moveView({ x: -2000, y: 0, zoom: 1 }, false);
+    act(() => vi.advanceTimersByTime(MINIMAP_SETTLE_MS / 2));
+    expect(minimap().dataset.state).toBe('hidden');
+    moveView({ x: 0, y: 0, zoom: 1 }, false);
+    act(() => vi.advanceTimersByTime(MINIMAP_SETTLE_MS));
+    expect(minimap().dataset.state).toBe('hidden');
+  });
+
   // A fit during the delay must not leave the overview on for good.
   it('fades out after a move of the user even when a fit follows', () => {
     renderOverlays();
@@ -538,6 +551,7 @@ describe('MiniMap', () => {
     // A long workflow showed a few steps and no sign of the others.
     it('stays on at rest while the graph runs out of the view', () => {
       renderColumn();
+      act(() => vi.advanceTimersByTime(MINIMAP_SETTLE_MS));
       expect(minimap().dataset.state).toBe('visible');
       expect(panel()).toHaveClass('opacity-60');
     });
