@@ -27,17 +27,15 @@ var (
 
 // redisExecutor implements the Executor interface for Redis operations.
 type redisExecutor struct {
-	mu            sync.Mutex
-	step          ir.Step
-	cfg           *Config
-	client        goredis.UniversalClient
-	poolManager   *GlobalRedisPoolManager
-	stdout        io.Writer
-	stderr        io.Writer
-	cancelFunc    context.CancelFunc
-	lockRelease   func() error
-	useGlobalPool bool
-	closed        bool
+	mu          sync.Mutex
+	step        ir.Step
+	cfg         *Config
+	client      goredis.UniversalClient
+	stdout      io.Writer
+	stderr      io.Writer
+	cancelFunc  context.CancelFunc
+	lockRelease func() error
+	closed      bool
 }
 
 // ExecutionMetrics holds metrics from Redis execution.
@@ -58,35 +56,17 @@ func newRedisExecutor(ctx context.Context, step ir.Step) (executor.Executor, err
 		return nil, fmt.Errorf("failed to parse redis config: %w", err)
 	}
 
-	// Check for global pool manager (worker mode)
-	var client goredis.UniversalClient
-	var poolManager *GlobalRedisPoolManager
-	var useGlobalPool bool
-
-	if pm := GetRedisPoolManager(ctx); pm != nil {
-		// Use global pool for worker mode
-		client, err = pm.GetOrCreateClient(ctx, cfg)
-		if err != nil {
-			return nil, fmt.Errorf("failed to get client from global pool: %w", err)
-		}
-		poolManager = pm
-		useGlobalPool = true
-	} else {
-		// Use per-step connection (non-distributed mode)
-		client, err = createClientWithRetry(ctx, cfg)
-		if err != nil {
-			return nil, fmt.Errorf("failed to create redis client: %w", err)
-		}
+	client, err := createClientWithRetry(ctx, cfg)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create redis client: %w", err)
 	}
 
 	return &redisExecutor{
-		step:          step,
-		cfg:           cfg,
-		client:        client,
-		poolManager:   poolManager,
-		useGlobalPool: useGlobalPool,
-		stdout:        os.Stdout,
-		stderr:        os.Stderr,
+		step:   step,
+		cfg:    cfg,
+		client: client,
+		stdout: os.Stdout,
+		stderr: os.Stderr,
 	}, nil
 }
 
@@ -111,10 +91,7 @@ func (e *redisExecutor) Kill(_ os.Signal) error {
 	return nil
 }
 
-// Close releases resources held by the Redis executor.
-// In worker mode (global pool), releases the client back to the pool.
-// In non-worker mode, closes the client.
-// Implements io.Closer.
+// Close releases the lock the step holds and closes its client.
 func (e *redisExecutor) Close() error {
 	e.mu.Lock()
 	defer e.mu.Unlock()
@@ -135,20 +112,8 @@ func (e *redisExecutor) Close() error {
 		return nil
 	}
 
-	var err error
-
-	if e.useGlobalPool && e.poolManager != nil {
-		// Worker mode: release client back to pool
-		e.poolManager.ReleaseClient(e.cfg)
-		// Don't close the client - pool owns it
-	} else {
-		// Non-worker mode: close the client
-		err = e.client.Close()
-	}
-
-	// Clear references to prevent misuse
+	err := e.client.Close()
 	e.client = nil
-	e.poolManager = nil
 	return err
 }
 
