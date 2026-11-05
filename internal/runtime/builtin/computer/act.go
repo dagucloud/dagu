@@ -935,11 +935,6 @@ func (l *actLoop) reconcile(ctx context.Context, turn *computeruse.Turn) (run bo
 	if err != nil {
 		return false, "", err
 	}
-	// The window a person left in front is theirs: the step never maximizes
-	// it, whether or not the turn's actions still run.
-	if front := l.r.driver.FocusedWindow(); person && front.Known() {
-		l.r.fitted[front.Handle] = true
-	}
 	same, err := l.unchanged(ctx, turn)
 	if err != nil {
 		return false, "", err
@@ -971,9 +966,10 @@ func (l *actLoop) returnAfterPerson(ctx context.Context) {
 }
 
 // personUsed waits until nobody has used the desktop for the idle period and
-// reports whether a person used it after the screenshot the model saw. With
-// idle off it neither waits nor reports a person, so the world check alone
-// guards the actions.
+// reports whether a person used it after the screenshot the model saw. The
+// window such a person left in front is theirs, so the step never maximizes
+// it. With idle off it neither waits nor reports a person, so the world check
+// alone guards the actions.
 func (l *actLoop) personUsed(ctx context.Context) (bool, error) {
 	if l.r.cfg.idle() <= 0 {
 		return false, nil
@@ -981,7 +977,13 @@ func (l *actLoop) personUsed(ctx context.Context) (bool, error) {
 	if err := l.r.awaitPerson(ctx); err != nil {
 		return false, err
 	}
-	return l.r.driver.PersonInputSince(l.seen.capturedAt), nil
+	if !l.r.driver.PersonInputSince(l.seen.capturedAt) {
+		return false, nil
+	}
+	if front := l.r.driver.FocusedWindow(); front.Known() {
+		l.r.fitted[front.Handle] = true
+	}
+	return true, nil
 }
 
 // unchanged reports whether the screen still looks like the one the model

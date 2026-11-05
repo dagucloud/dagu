@@ -3699,44 +3699,61 @@ func TestCapFitBatchResetsOverruns(t *testing.T) {
 // When a person switches windows while an oversized batch is held back, the
 // act checks for that input before refreshing the screen, returns to the work
 // application, and does not run the oversized batch against the person's
-// window.
+// window. The window the person left in front keeps its size, even one of
+// the same application.
 func TestCapOverrunHonorsPersonWindowSwitch(t *testing.T) {
 	t.Parallel()
 
 	expense := desktop.WindowID{Handle: 2, Title: "Expense", PID: 7, App: "expense", Bounds: image.Rect(0, 0, 400, 200)}
-	mail := desktop.WindowID{Handle: 1, Title: "Mail", PID: 8, App: "mail", Bounds: image.Rect(0, 0, 400, 200)}
-	run := newTestRun(t)
-	run.backend.windows = []desktop.WindowID{mail, expense}
-	run.backend.focusOn(expense)
-	run.backend.under = expense
-	used := false
-	session := &scriptedSession{
-		turns: []*computeruse.Turn{
-			actions(clickAt(10, 10), clickAt(20, 20), clickAt(30, 30)),
-			actions(clickAt(40, 40)),
-			done("Clicked"),
-		},
-		onNext: func() {
-			if used {
-				return
+	for _, tc := range []struct {
+		name   string
+		person desktop.WindowID
+		raised uint64
+	}{
+		{"another application", desktop.WindowID{Handle: 1, Title: "Mail", PID: 8, App: "mail", Bounds: image.Rect(0, 0, 400, 200)}, expense.Handle},
+		{"another window of the same application", desktop.WindowID{Handle: 3, Title: "Expense 2", PID: 7, App: "expense", Bounds: image.Rect(0, 0, 400, 200)}, 0},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			run := newTestRun(t)
+			run.backend.windows = []desktop.WindowID{tc.person, expense}
+			run.backend.focusOn(expense)
+			run.backend.under = expense
+			used := false
+			session := &scriptedSession{
+				turns: []*computeruse.Turn{
+					actions(clickAt(10, 10), clickAt(20, 20), clickAt(30, 30)),
+					actions(clickAt(40, 40)),
+					done("Clicked"),
+				},
+				onNext: func() {
+					if used {
+						return
+					}
+					used = true
+					// The person switches windows as the oversized batch is held back.
+					run.backend.personUses()
+					run.backend.show(pattern(400, 200, 150))
+					run.backend.focusOn(tc.person)
+					run.backend.under = tc.person
+				},
 			}
-			used = true
-			// The person switches windows as the oversized batch is held back.
-			run.backend.personUses()
-			run.backend.show(pattern(400, 200, 150))
-			run.backend.focusOn(mail)
-			run.backend.under = mail
-		},
-	}
-	run.sessions = []*scriptedSession{session}
-	execution := run.execute(`{"idle": "100ms", "max_actions": 2, "cache": false, "do": [{"act": "Save the expense"}]}`, nil)
-	require.NoError(t, execution.err)
+			run.sessions = []*scriptedSession{session}
+			execution := run.execute(`{"idle": "100ms", "max_actions": 2, "cache": false, "do": [{"act": "Save the expense"}]}`, nil)
+			require.NoError(t, execution.err)
 
-	require.Len(t, session.observations, 3)
-	assert.Contains(t, session.observations[1].Note, "actions are left", "the held-back batch keeps its overage note")
-	require.NotEmpty(t, run.backend.raised)
-	assert.Equal(t, expense.Handle, run.backend.raised[0].Handle, "the work application came back, not the person's window")
-	assert.Equal(t, []string{"move 40,40", "left down #1"}, run.backend.inputs(), "the click chosen after the person stopped lands; the oversized batch did not")
+			require.Len(t, session.observations, 3)
+			assert.Contains(t, session.observations[1].Note, "actions are left", "the held-back batch keeps its overage note")
+			if tc.raised != 0 {
+				require.NotEmpty(t, run.backend.raised)
+				assert.Equal(t, tc.raised, run.backend.raised[0].Handle, "the work application came back, not the person's window")
+			}
+			for _, w := range run.backend.maximizedWindows() {
+				assert.NotEqual(t, tc.person.Handle, w.Handle, "the person's window keeps its size")
+			}
+			assert.Equal(t, []string{"move 40,40", "left down #1"}, run.backend.inputs(), "the click chosen after the person stopped lands; the oversized batch did not")
+		})
+	}
 }
 
 // A batch that overruns the actions left counts as an answer with actions,
