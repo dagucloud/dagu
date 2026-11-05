@@ -173,7 +173,10 @@ export interface VisualEditorProps extends EditorHostProps {
    * Called at mount and at each change.
    */
   onYamlModeChange?(mode: 'file' | 'step'): void;
-  /** What the YAML shows when the editor mounts with it visible. Default 'step'. */
+  /**
+   * What the YAML shows when the editor mounts with it visible, and later
+   * when the host changes it. Default 'step'.
+   */
   initialYamlMode?: 'file' | 'step';
   /** The Workflow panel shows when the editor mounts, with a workflowPanel. */
   initialWorkflowOpen?: boolean;
@@ -634,6 +637,13 @@ export function VisualEditor(props: VisualEditorProps): ReactElement {
   // shows its own YAML or its form ('step'), with the YAML | Form bar. A host
   // that opens the view of a step itself gets the 'step' mode.
   const [yamlMode, setYamlMode] = useState<'file' | 'step'>(initialYamlMode);
+  // The host can change the mode too, as when the YAML of the file comes
+  // back after the view of a step: the editor follows it.
+  const [hostMode, setHostMode] = useState(initialYamlMode);
+  if (initialYamlMode !== hostMode) {
+    setHostMode(initialYamlMode);
+    setYamlMode(initialYamlMode);
+  }
   const reportedMode = useRef<'file' | 'step' | null>(null);
   useEffect(() => {
     if (reportedMode.current === yamlMode) return;

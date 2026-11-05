@@ -459,10 +459,20 @@ export function WorkspaceCanvas({
   );
 
   const ndvOpen = url.ndv !== null || activePanel === 'ndv';
-  // The editor closes the step view: one that opened over the YAML panel
-  // gives the YAML back (useYamlSection).
+  // A step view that opened over the YAML panel gives the YAML back when Esc
+  // closes it, as its close button does (useYamlSection).
+  const yamlUnderView = useRef(false);
+  const lastNdv = useRef(url.ndv);
+  useEffect(() => {
+    if (url.ndv === 'expanded') {
+      if (lastNdv.current === 'docked') yamlUnderView.current = true;
+    } else {
+      yamlUnderView.current = false;
+    }
+    lastNdv.current = url.ndv;
+  }, [url.ndv]);
   const closeStepView = () => {
-    if (handle) handle.toggleYaml(false);
+    if (yamlUnderView.current && handle) handle.toggleYaml(true);
     else setUrl({ ndv: null }, { replace: true });
   };
   // Esc closes the expanded node view when no dialog or menu is above it.
