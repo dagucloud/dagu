@@ -604,6 +604,26 @@ func TestRunner(t *testing.T) {
 		result.assertNodeStatus(t, "1", ir.NodeFailed)
 		result.assertNodeStatus(t, "2", ir.NodeSucceeded)
 	})
+	t.Run("ContinueOnExitCodeSetupFailure", func(t *testing.T) {
+		// A step that fails during setup never runs, so its reset exit
+		// code of 0 must not match continue_on.exit_code.
+		r := setupRunner(t)
+
+		plan := r.newPlan(t,
+			newStep("1",
+				withStdin("${no_such_step.stdout}"),
+				withCommand("true"),
+				withContinueOn(ir.ContinueOn{ExitCode: []int{0, 1}, MarkSuccess: true}),
+			),
+			successStep("2", "1"),
+		)
+
+		result := plan.assertRun(t, ir.Failed)
+
+		result.assertNodeStatus(t, "1", ir.NodeFailed)
+		result.assertNodeStatus(t, "2", ir.NodeAborted)
+		require.ErrorContains(t, result.nodeByName(t, "1").State().Error, "must resolve before execution")
+	})
 	t.Run("ContinueOnOutputStdout", func(t *testing.T) {
 		r := setupRunner(t)
 

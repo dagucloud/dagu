@@ -6,6 +6,7 @@ package runtime
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"maps"
 	"slices"
@@ -614,10 +615,15 @@ func (d *Data) ClearVariable(key string) {
 	d.inner.State.OutputVariables.Delete(key)
 }
 
+// MatchExitCode reports whether the last attempt exited with one of exitCodes.
+// An attempt that failed during setup has no exit code and never matches.
 func (d *Data) MatchExitCode(exitCodes []int) bool {
 	d.mu.RLock()
 	defer d.mu.RUnlock()
 
+	if _, ok := errors.AsType[*stepSetupError](d.inner.State.Error); ok {
+		return false
+	}
 	return slices.Contains(exitCodes, d.inner.State.ExitCode)
 }
 
