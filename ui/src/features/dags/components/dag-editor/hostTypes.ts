@@ -52,7 +52,7 @@ export interface WorkspaceEditorHandle extends VisualEditorHandle {
   save(): void;
   /** Same as the 'Revert to the last save' button, with no confirmation. */
   discard(): void;
-  /** 'Copy to editor': sets the text and marks it dirty. */
+  /** "Revert to this run's YAML": sets the text and marks it dirty. */
   replaceBuffer(text: string): void;
   isDirty(): boolean;
   getBuffer(): string;

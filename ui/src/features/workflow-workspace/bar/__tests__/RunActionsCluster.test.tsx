@@ -223,7 +223,7 @@ function buttonNames(): string[] {
     .map((b) => b.getAttribute('aria-label') ?? b.textContent ?? '');
 }
 
-const COPY = 'Copy to editor';
+const COPY = "Revert to this run's YAML";
 
 beforeEach(() => {
   vi.clearAllMocks();
@@ -510,12 +510,12 @@ describe('RunActionsCluster', () => {
     expect(screen.queryByRole('dialog')).toBeNull();
   });
 
-  describe('Copy to editor', () => {
+  describe("Revert to this run's YAML", () => {
     beforeEach(() => {
       h.runSpec = 'name: etl\nsteps: [a]\n';
     });
 
-    // The icon follows the run actions, with the editor icon.
+    // The icon follows the run actions.
     // parity:test-run-header-meta
     it('shows after the run actions while the run is stale', () => {
       setup(details('failed'));
