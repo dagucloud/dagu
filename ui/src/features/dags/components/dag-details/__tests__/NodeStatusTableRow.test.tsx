@@ -337,6 +337,26 @@ describe('NodeStatusTableRow', () => {
     }
   );
 
+  // `dagu start --name` stores the run under a name that no file has: the
+  // log link opens the file of the run and names the run in it.
+  it('links the log of a run started under another name to its file', () => {
+    renderRow({ ...timedNode, stdout: '/logs/build.out' }, 'desktop', {
+      name: 'nightly-eu',
+      dagRun: { ...dagRun, name: 'nightly-eu', sourceFileName: 'nightly' },
+    });
+
+    const href = screen
+      .getByTitle('View stdout log (Cmd/Ctrl+Click for new tab)')
+      .getAttribute('href');
+    const url = new URL(String(href), 'http://localhost');
+    expect(url.pathname).toBe('/dags/nightly/log');
+    expect(Object.fromEntries(url.searchParams)).toMatchObject({
+      dagRunId: 'run-1',
+      dagRunName: 'nightly-eu',
+      step: 'build',
+    });
+  });
+
   it('shows no retry count for a step that ran once', () => {
     renderRow(timedNode, 'desktop');
 

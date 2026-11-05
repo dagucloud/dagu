@@ -140,6 +140,7 @@ const DAGRunHeader: React.FC<DAGRunHeaderProps> = ({
           remoteNode,
           workspace,
           run: dagRun.dagRunId,
+          runName: dagRun.name,
         })
       : null;
 

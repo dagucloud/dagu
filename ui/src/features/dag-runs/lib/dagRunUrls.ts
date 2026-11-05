@@ -31,6 +31,7 @@ type LegacyDAGPageURLInput = {
   step?: string;
   stream?: string;
   run?: never;
+  runName?: never;
   dock?: never;
   mode?: never;
 };
@@ -41,6 +42,12 @@ type WorkspaceDAGPageURLInput = {
   remoteNode: string;
   workspace?: string;
   run?: string;
+  /**
+   * The DAG name of the run. The URL names it in ?dagRunName when it is not
+   * the name of the file, as for a run started with --name: the workflow page
+   * takes the name of the file for the DAG name of a run otherwise.
+   */
+  runName?: string;
   /** A sub-run of the run to open on the sub-run stack. ?step is then its step. */
   subRun?: string;
   step?: string;
@@ -80,6 +87,7 @@ export function buildDAGRunPageURL({
     remoteNode,
     workspace,
     run: rootDAGRunId,
+    runName: fileName ? rootDAGRunName : undefined,
     subRun:
       subDAGRunId && subDAGRunId !== rootDAGRunId ? subDAGRunId : undefined,
     step,
@@ -134,6 +142,7 @@ function buildWorkspaceDAGPageURL({
   remoteNode,
   workspace,
   run,
+  runName,
   subRun,
   step,
   dock,
@@ -145,6 +154,9 @@ function buildWorkspaceDAGPageURL({
   }
   if (run) {
     params.set('run', run);
+    if (runName && runName !== fileName.replace(/\.ya?ml$/, '')) {
+      params.set('dagRunName', runName);
+    }
   }
   if (subRun) {
     params.set('subRun', subRun);

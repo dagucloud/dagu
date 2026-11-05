@@ -344,7 +344,7 @@ describe('DAGSpecReadOnly with the canvas preview', () => {
 
     await waitFor(() =>
       expect(mocks.navigate).toHaveBeenCalledWith(
-        '/dags/example-v2?remoteNode=local&run=run-2'
+        '/dags/example-v2?remoteNode=local&run=run-2&dagRunName=example'
       )
     );
   });

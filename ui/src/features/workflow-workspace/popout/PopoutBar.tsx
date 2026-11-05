@@ -121,6 +121,7 @@ export function PopoutBar({
             fileName,
             remoteNode,
             run: run.dagRunId,
+            runName: run.name,
             step: kind === 'step' ? (step ?? undefined) : undefined,
             dock: 'log',
           }),

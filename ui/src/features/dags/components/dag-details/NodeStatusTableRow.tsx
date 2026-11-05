@@ -457,13 +457,15 @@ function NodeStatusTableRow({
       )
   );
 
+  // The log page reads the run under the DAG name that the link gives, which
+  // can differ from the name of the file, as for a run started with --name.
   const url = buildDAGPageURL({
-    fileName: name,
+    fileName: dagRun.sourceFileName || name,
     remoteNode,
     tab: 'log',
     step: node.step.name,
     rootDAGRunId: isSubDAGRun ? dagRun.rootDAGRunId : dagRunId,
-    rootDAGRunName: isSubDAGRun ? dagRun.rootDAGRunName : undefined,
+    rootDAGRunName: isSubDAGRun ? dagRun.rootDAGRunName : dagName,
     subDAGRunId: isSubDAGRun ? dagRun.dagRunId : undefined,
   });
 
