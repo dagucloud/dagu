@@ -2021,7 +2021,7 @@ function DAGSpec({
                     data-testid="save-slot"
                     className={cn(
                       'flex h-7 items-center justify-start',
-                      saveLabeled ? 'w-auto' : 'w-14'
+                      saveLabeled ? 'h-9 w-full' : 'w-14'
                     )}
                   >
                     {savingBlocked && issuesPopover}
@@ -2034,7 +2034,9 @@ function DAGSpec({
                           variant={
                             localHasUnsavedChanges && !syntaxError
                               ? 'primary'
-                              : 'outline'
+                              : saveLabeled
+                                ? 'ghost'
+                                : 'outline'
                           }
                           size="xs"
                           aria-label={ts('Save')}
@@ -2044,7 +2046,9 @@ function DAGSpec({
                           // its corner tells the warnings.
                           className={cn(
                             'relative justify-center p-0',
-                            saveLabeled ? 'h-9 gap-2 px-2.5 text-sm' : 'h-7 w-7'
+                            saveLabeled
+                              ? 'h-9 w-full justify-start gap-2 px-2.5 text-sm font-normal'
+                              : 'h-7 w-7'
                           )}
                           disabled={
                             isSaving || !localHasUnsavedChanges || syntaxError

@@ -104,7 +104,7 @@ export function IconButton({
       className={cn(
         'p-0',
         labeled
-          ? 'h-9 justify-start gap-2 px-2.5 text-sm font-normal [&_svg]:size-4'
+          ? 'h-9 w-full justify-start gap-2 px-2.5 text-sm font-normal [&_svg]:size-4'
           : SIZE_CLASS[size],
         FOCUS_RING,
         tone === 'destructive' && 'hover:text-destructive',
@@ -129,7 +129,10 @@ export function IconButton({
       <TooltipTrigger asChild>
         {/* A disabled button takes no pointer or focus event: its wrapper does. */}
         {isDisabled ? (
-          <span className="inline-flex shrink-0" tabIndex={0}>
+          <span
+            className={labeled ? 'flex w-full' : 'inline-flex shrink-0'}
+            tabIndex={0}
+          >
             {button}
           </span>
         ) : (

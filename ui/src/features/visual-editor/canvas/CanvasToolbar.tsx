@@ -184,7 +184,7 @@ function CompactToolbar({
             <div
               role="group"
               aria-label={ts('Layout direction')}
-              className="flex items-center gap-1"
+              className="grid grid-cols-2 gap-1"
             >
               {directions.map(({ value, label, Icon }) => (
                 <button
@@ -198,7 +198,7 @@ function CompactToolbar({
                   onClick={() => onDirectionChange?.(value)}
                   className={cn(
                     BUTTON_CLASS,
-                    'h-9 px-2.5',
+                    'h-9 w-full justify-start px-2.5 text-sm',
                     direction === value && 'bg-muted text-foreground'
                   )}
                 >
@@ -208,10 +208,11 @@ function CompactToolbar({
               ))}
             </div>
             {toolbarEnd ? (
-              // A touch has no tooltip: the actions show their names.
+              // A touch has no tooltip: the actions show their names, in an
+              // even grid with no dividers.
               <div
                 data-testid="ve-tools-sheet-actions"
-                className="flex flex-wrap items-center gap-1"
+                className="grid grid-cols-2 gap-1 [&_[data-toolbar-divider]]:hidden"
               >
                 <IconButtonLabels>{toolbarEnd}</IconButtonLabels>
               </div>

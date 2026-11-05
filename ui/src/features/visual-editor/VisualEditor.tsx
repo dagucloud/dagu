@@ -1536,7 +1536,11 @@ export function VisualEditor(props: VisualEditorProps): ReactElement {
       )}
       {readOnly ? null : (
         <>
-          <span className="mx-0.5 h-5 w-px bg-border" aria-hidden="true" />
+          <span
+            data-toolbar-divider
+            className="mx-0.5 h-5 w-px bg-border"
+            aria-hidden="true"
+          />
           {onRevertToSave ? (
             <IconButton
               label={ts('Revert to the last save')}
@@ -1561,7 +1565,11 @@ export function VisualEditor(props: VisualEditorProps): ReactElement {
             disabledReason={session.canRedo ? undefined : ts('Nothing to redo')}
             onClick={session.redo}
           />
-          <span className="mx-0.5 h-5 w-px bg-border" aria-hidden="true" />
+          <span
+            data-toolbar-divider
+            className="mx-0.5 h-5 w-px bg-border"
+            aria-hidden="true"
+          />
         </>
       )}
       {workflowPanel && (
