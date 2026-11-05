@@ -343,7 +343,7 @@ steps:
 ```
 
 <div align="center">
-  <img src="./assets/images/ui-params.webp" width="720" alt="Generated parameter input form in the Dagu Web UI">
+  <img src="./assets/images/ui-params.png" width="720" alt="Generated parameter input form in the Dagu Web UI">
 </div>
 
 ## Workflow Examples
