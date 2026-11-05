@@ -92,16 +92,16 @@ func runRestart(ctx *Context, args []string) error {
 		return fmt.Errorf("failed to read status: %w", err)
 	}
 
-	dag, err := attempt.ReadDAG(ctx)
-	if err != nil {
-		return fmt.Errorf("failed to read DAG from execution history: %w", err)
-	}
-	if loadErr != nil && dag.RestartPolicy.Enabled() {
+	dag, readErr := attempt.ReadDAG(ctx)
+	if readErr == nil && loadErr != nil && dag.RestartPolicy.Enabled() {
 		return errRestartServiceDAG(dag.Name, dag.RestartPolicy)
 	}
 
 	if dagStatus.Status != ir.Running {
 		return fmt.Errorf("DAG %s is not running, current status: %s", name, dagStatus.Status)
+	}
+	if readErr != nil {
+		return fmt.Errorf("failed to read DAG from execution history: %w", readErr)
 	}
 
 	dag, err = restoreDAGFromStatus(ctx.Context, dag, dagStatus, ctx.Persistence.DAGRunRepository)

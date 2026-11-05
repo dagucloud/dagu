@@ -6,6 +6,7 @@ package cmd_test
 import (
 	"fmt"
 	"os"
+	"path/filepath"
 	"testing"
 	"time"
 
@@ -128,6 +129,27 @@ func TestRestartCommand_RejectsPolicyAddedWhileRunning(t *testing.T) {
 
 	releaseHoldFile(t, release)
 	<-done
+}
+
+// A run that is not running cannot be restarted, so the command says so even
+// when the DAG saved with the run cannot be read.
+func TestRestartCommand_NotRunningWithoutSnapshot(t *testing.T) {
+	t.Parallel()
+
+	th := test.SetupCommand(t)
+	dag := th.DAG(t, `steps:
+  - name: "1"
+    run: "echo ok"
+`)
+	th.RunCommand(t, cmd.Start(), test.CmdTest{Args: []string{"start", dag.Location}})
+
+	snapshots, err := filepath.Glob(filepath.Join(th.Config.Paths.DAGRunsDir, "*", "dag-runs", "*", "*", "*", "*", "*", "dag.json"))
+	require.NoError(t, err)
+	require.Len(t, snapshots, 1)
+	require.NoError(t, os.Remove(snapshots[0]))
+
+	err = th.RunCommandWithError(t, cmd.Restart(), test.CmdTest{Args: []string{"restart", dag.Location}})
+	require.ErrorContains(t, err, "is not running")
 }
 
 func TestRestartCommand_BuiltExecutableRestoresExplicitEnv(t *testing.T) {
