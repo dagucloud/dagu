@@ -2685,6 +2685,14 @@ func TestIsSelectQuery(t *testing.T) {
 		{"INSERT INTO users VALUES (1) RETURNING", true},
 		{"WITH cte AS (SELECT 1) SELECT * FROM cte", true},
 		{"  WITH RECURSIVE cte AS (SELECT 1) SELECT * FROM cte", true},
+		{"-- list numbers\nSELECT 1", true},
+		{"/* header */ SELECT 1", true},
+		{"-- one\n/* two\nlines */\n  -- three\nselect 1", true},
+		{"--\r\nSELECT 1", true},
+		{"-- SELECT 1\nDELETE FROM users", false},
+		{"/* SELECT 1 */ DELETE FROM users", false},
+		{"-- only a comment", false},
+		{"/* unterminated SELECT 1", false},
 	}
 
 	for _, tt := range tests {

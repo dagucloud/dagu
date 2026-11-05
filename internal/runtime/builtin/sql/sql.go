@@ -672,7 +672,7 @@ func (e *sqlExecutor) writeMetrics(metrics *ExecutionMetrics) {
 
 // isSelectQuery determines if a query is a SELECT statement.
 func isSelectQuery(query string) bool {
-	trimmed := strings.TrimSpace(strings.ToUpper(query))
+	trimmed := strings.ToUpper(trimLeadingComments(query))
 
 	// Check for RETURNING clause (PostgreSQL/SQLite)
 	// INSERT/UPDATE/DELETE with RETURNING returns rows like SELECT
@@ -686,6 +686,30 @@ func isSelectQuery(query string) bool {
 		strings.HasPrefix(trimmed, "TABLE") ||
 		strings.HasPrefix(trimmed, "VALUES") ||
 		strings.HasPrefix(trimmed, "PRAGMA")
+}
+
+// trimLeadingComments returns query without the whitespace, line comments,
+// and block comments before its first keyword.
+func trimLeadingComments(query string) string {
+	for {
+		query = strings.TrimSpace(query)
+		switch {
+		case strings.HasPrefix(query, "--"):
+			end := strings.IndexByte(query, '\n')
+			if end < 0 {
+				return ""
+			}
+			query = query[end+1:]
+		case strings.HasPrefix(query, "/*"):
+			end := strings.Index(query[2:], "*/")
+			if end < 0 {
+				return ""
+			}
+			query = query[2+end+2:]
+		default:
+			return query
+		}
+	}
 }
 
 // splitStatements splits a SQL script into individual statements.

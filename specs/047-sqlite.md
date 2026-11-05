@@ -22,6 +22,8 @@ Workflow authors can query local data and import a small file without a server.
 
 - `sqlite.query` executes `with.query` against `with.dsn` and binds
   `with.params` values. A query row is available as a JSON object on stdout.
+  Line and block comments before the first keyword do not change whether a
+  query returns rows.
 - `sqlite.import` reads the CSV file in `with.import.input_file` into the table
   in `with.import.table`. A later action using the same file DSN sees imported
   rows.
