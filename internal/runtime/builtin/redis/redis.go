@@ -4,8 +4,10 @@
 package redis
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -208,25 +210,69 @@ func (e *redisExecutor) executeWithMetrics(ctx context.Context, command, key str
 		return err
 	}
 
-	metrics.Status = "success"
-
-	if result == nil {
-		return nil
+	if result != nil {
+		if err := e.writeResult(result); err != nil {
+			metrics.Status = "error"
+			metrics.Error = err.Error()
+			return err
+		}
 	}
 
-	return e.writeResult(result)
+	metrics.Status = "success"
+	return nil
 }
 
-// writeResult writes the result to stdout.
+// writeResult writes the result to stdout. A result whose output would
+// exceed max_result_size fails and writes nothing; 0 means no limit.
 func (e *redisExecutor) writeResult(result any) error {
-	writer := NewResultWriter(e.stdout, e.cfg.OutputFormat, e.cfg.NullValue)
-	if err := writer.Write(result); err != nil {
+	if e.cfg.MaxResultSize == 0 {
+		return e.formatResult(e.stdout, result)
+	}
+	var buf bytes.Buffer
+	if err := e.formatResult(&limitWriter{w: &buf, remaining: e.cfg.MaxResultSize}, result); err != nil {
+		return err
+	}
+	if _, err := buf.WriteTo(e.stdout); err != nil {
 		return fmt.Errorf("failed to write result: %w", err)
 	}
+	return nil
+}
+
+// formatResult writes result to w in the configured output format.
+func (e *redisExecutor) formatResult(w io.Writer, result any) error {
+	writer := NewResultWriter(w, e.cfg.OutputFormat, e.cfg.NullValue)
+	if err := writer.Write(result); err != nil {
+		return e.resultError("failed to write result", err)
+	}
 	if err := writer.Flush(); err != nil {
-		return fmt.Errorf("failed to flush result: %w", err)
+		return e.resultError("failed to flush result", err)
 	}
 	return nil
+}
+
+func (e *redisExecutor) resultError(action string, err error) error {
+	if errors.Is(err, errResultTooLarge) {
+		return fmt.Errorf("result is larger than max_result_size of %d bytes", e.cfg.MaxResultSize)
+	}
+	return fmt.Errorf("%s: %w", action, err)
+}
+
+// errResultTooLarge reports a write past a limitWriter's limit.
+var errResultTooLarge = errors.New("result too large")
+
+// limitWriter passes writes to w until remaining bytes are used up, then
+// fails with errResultTooLarge.
+type limitWriter struct {
+	w         io.Writer
+	remaining int64
+}
+
+func (l *limitWriter) Write(p []byte) (int, error) {
+	if int64(len(p)) > l.remaining {
+		return 0, errResultTooLarge
+	}
+	l.remaining -= int64(len(p))
+	return l.w.Write(p)
 }
 
 // writeMetrics writes execution metrics to stderr.
