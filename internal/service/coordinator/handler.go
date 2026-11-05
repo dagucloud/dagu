@@ -1577,6 +1577,8 @@ func (h *Handler) Heartbeat(ctx context.Context, req *coordinatorv1.HeartbeatReq
 			Labels:          req.Labels,
 			Stats:           convert.ProtoToWorkerStats(req.Stats),
 			LastHeartbeatAt: receivedAt.UnixMilli(),
+			Host:            req.Host,
+			Machine:         convert.ProtoToMachineSample(req.Machine),
 		}); err != nil {
 			return nil, status.Error(codes.Internal, "failed to persist worker heartbeat: "+err.Error())
 		}

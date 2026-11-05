@@ -1828,6 +1828,36 @@ func TestHandler_Heartbeat(t *testing.T) {
 		require.Greater(t, worker.LastHeartbeatAt, int64(0))
 	})
 
+	t.Run("HeartbeatStoresHostAndMachine", func(t *testing.T) {
+		t.Parallel()
+
+		ctx := t.Context()
+		heartbeats := newTestWorkerHeartbeatStore(t.TempDir())
+		h := NewHandler(HandlerConfig{WorkerHeartbeatStore: heartbeats})
+		t.Cleanup(func() { h.Close(context.Background()) })
+
+		cpu := 42.0
+		_, err := h.Heartbeat(ctx, &coordinatorv1.HeartbeatRequest{
+			WorkerId: "worker1",
+			Host:     "gpu-1",
+			Machine: &coordinatorv1.MachineSample{
+				Cpus:       4,
+				CpuPercent: &cpu,
+				Memory:     &coordinatorv1.MachineUsage{UsedPercent: 60, UsedBytes: 6, TotalBytes: 10},
+			},
+		})
+		require.NoError(t, err)
+
+		record, err := heartbeats.Get(ctx, "worker1")
+		require.NoError(t, err)
+		assert.Equal(t, "gpu-1", record.Host)
+		assert.Equal(t, &dispatch.MachineSample{
+			CPUs:       4,
+			CPUPercent: &cpu,
+			Memory:     &dispatch.MachineUsage{UsedPercent: 60, UsedBytes: 6, TotalBytes: 10},
+		}, record.Machine)
+	})
+
 	t.Run("HeartbeatRefreshesLeaseForRunningRootTask", func(t *testing.T) {
 		t.Parallel()
 

@@ -69,6 +69,8 @@ type Reporter struct {
 	events    *eventFeed
 	scheduler Scheduler
 	queues    Queues
+	// workers is nil when reports leave distributed workers out.
+	workers Workers
 	// remote is nil when reports leave remote access out.
 	remote RemoteAccess
 	// resources is nil when reports leave the machine's resources out.
@@ -128,12 +130,14 @@ type Reporter struct {
 // time: health at health, with the scheduler's last tick and pause from
 // scheduler, unless remote is nil, how far calls from Dagu Cloud may go, and,
 // unless resources is nil or the license is on free monitoring, whose Dagu
-// Console keeps none of it, how busy the machine is; and also, at runs, the finished and in-progress DAG runs that
-// events configures, the scheduled DAGs with what came of their latest
-// slots, and the queues that queues reads. Schedules are sent by the
-// process that reports the events. Choosing
-// off stops a report in flight. Finished runs are sent even while Dagu
-// Console pauses storing them; monitoring shows until when.
+// Console keeps none of it, how busy the machine is, and, unless workers is
+// nil or the license is on free monitoring, how many distributed workers
+// send heartbeats; and also, at runs, the finished and in-progress DAG runs
+// that events configures, the scheduled DAGs with what came of their latest
+// slots, the queues that queues reads, and those workers. Schedules are sent
+// by the process that reports the events. Choosing off stops a report in
+// flight. Finished runs are sent even while Dagu Console pauses storing
+// them; monitoring shows until when.
 //
 // Runs that finish below runs are never sent, even when runs is chosen again
 // after a restart. When Dagu Console answers that the server's license
@@ -152,6 +156,7 @@ func Start(
 	events Events,
 	scheduler Scheduler,
 	queues Queues,
+	workers Workers,
 	monitoring *Monitoring,
 	remote RemoteAccess,
 	resources Resources,
@@ -161,6 +166,7 @@ func Start(
 	r.events = newEventFeed(events)
 	r.scheduler = scheduler
 	r.queues = queues
+	r.workers = workers
 	r.remote = remote
 	r.resources = resources
 	r.refresh = refresh
@@ -637,6 +643,12 @@ type health struct {
 	// Resources is the latest sample of the machine's resources, with CPU
 	// use since the last accepted report, left out before one is taken.
 	Resources *resources `json:"resources,omitempty"`
+	// Workers are the distributed workers with a fresh heartbeat, up to
+	// maxWorkers, and WorkersTotal counts them all. Both are left out on
+	// free monitoring and while the workers are unknown; Workers is also
+	// left out below runs.
+	Workers      []workerHealth `json:"workers,omitzero"`
+	WorkersTotal *int           `json:"workers_total,omitempty"`
 }
 
 // resources is a sample of the machine's resources, or its container's when
@@ -757,6 +769,10 @@ func (r *Reporter) send(ctx context.Context, creds license.CloudCredentials, lev
 		}
 		if level.ReportsRuns() {
 			report.Health.Queues, report.Health.QueuesTotal = r.readQueues(ctx, now)
+		}
+		if !creds.Free {
+			report.Health.Workers, report.Health.WorkersTotal = r.readWorkers(ctx, now, report.Health.Services,
+				level.ReportsRuns())
 		}
 	}
 	body, err := json.Marshal(report)

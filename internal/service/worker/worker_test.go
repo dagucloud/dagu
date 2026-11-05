@@ -7,6 +7,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"os"
 	"runtime"
 	"strings"
 	"sync"
@@ -17,6 +18,7 @@ import (
 
 	"github.com/dagucloud/dagu/v2/internal/cmn/backoff"
 	"github.com/dagucloud/dagu/v2/internal/cmn/config"
+	"github.com/dagucloud/dagu/v2/internal/service/resource"
 	"github.com/dagucloud/dagu/v2/internal/service/worker"
 	"github.com/dagucloud/dagu/v2/internal/serviceregistry"
 	"github.com/dagucloud/dagu/v2/internal/test"
@@ -25,6 +27,7 @@ import (
 	"github.com/stretchr/testify/require"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
+	"google.golang.org/protobuf/proto"
 )
 
 func TestWorkerStart(t *testing.T) {
@@ -464,6 +467,80 @@ func TestWorkerHeartbeat(t *testing.T) {
 		// Cleanup
 		th.Cleanup()
 	})
+}
+
+// TestWorkerHeartbeatCarriesMachine checks that heartbeats name the worker's
+// machine and carry the sampler's latest sample, once there is one.
+func TestWorkerHeartbeatCarriesMachine(t *testing.T) {
+	t.Parallel()
+
+	host, err := os.Hostname()
+	require.NoError(t, err)
+	cpu := 25.0
+	sampled := stubMachine{ok: true, sample: resource.Sample{
+		CPUs:       4,
+		CPUPercent: &cpu,
+		Memory:     &resource.Usage{UsedPercent: 50, UsedBytes: 5, TotalBytes: 10},
+	}}
+
+	for _, tc := range []struct {
+		name    string
+		machine worker.Machine
+		want    *coordinatorv1.MachineSample
+	}{
+		{"Sampled", sampled, &coordinatorv1.MachineSample{
+			Cpus:       4,
+			CpuPercent: &cpu,
+			Memory:     &coordinatorv1.MachineUsage{UsedPercent: 50, UsedBytes: 5, TotalBytes: 10},
+		}},
+		{"NotSampledYet", stubMachine{}, nil},
+		{"NoSampler", nil, nil},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			heartbeats := make(chan *coordinatorv1.HeartbeatRequest, 1)
+			cli := newMockCoordinatorCli()
+			cli.SetPollFunc(func(ctx context.Context, _ backoff.RetryPolicy, _ *coordinatorv1.PollRequest) (*coordinatorv1.Task, error) {
+				<-ctx.Done()
+				return nil, ctx.Err()
+			})
+			cli.SetHeartbeatFunc(func(_ context.Context, req *coordinatorv1.HeartbeatRequest) (*coordinatorv1.HeartbeatResponse, error) {
+				select {
+				case heartbeats <- req:
+				default:
+				}
+				return &coordinatorv1.HeartbeatResponse{}, nil
+			})
+			w := worker.NewWorker("machine-worker", 1, cli, map[string]string{}, &config.Config{})
+			w.SetHandler(&mockHandler{})
+			if tc.machine != nil {
+				w.SetMachine(tc.machine)
+			}
+			go func() {
+				_ = w.Start(context.Background())
+			}()
+			t.Cleanup(func() { _ = w.Stop(context.Background()) })
+
+			var req *coordinatorv1.HeartbeatRequest
+			select {
+			case req = <-heartbeats:
+			case <-time.After(5 * time.Second):
+				t.Fatal("no heartbeat sent")
+			}
+			assert.Equal(t, host, req.Host)
+			assert.True(t, proto.Equal(tc.want, req.Machine), "machine sample: %v", req.Machine)
+		})
+	}
+}
+
+type stubMachine struct {
+	sample resource.Sample
+	ok     bool
+}
+
+func (m stubMachine) Since(time.Time) (resource.Sample, bool) {
+	return m.sample, m.ok
 }
 
 func TestWorkerStopWithoutStart(t *testing.T) {

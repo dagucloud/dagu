@@ -6,6 +6,7 @@ package convert
 import (
 	"fmt"
 	"maps"
+	"math"
 
 	"github.com/dagucloud/dagu/v2/internal/dispatch"
 	coordinatorv1 "github.com/dagucloud/dagu/v2/proto/coordinator/v1"
@@ -165,6 +166,64 @@ func ProtoToWorkerStats(stats *coordinatorv1.WorkerStats) *dispatch.WorkerStats 
 		BusyPollers:  stats.BusyPollers,
 		RunningTasks: runningTasks,
 	}
+}
+
+// MachineSampleToProto converts a worker's machine sample to the coordinator
+// wire shape.
+func MachineSampleToProto(sample *dispatch.MachineSample) *coordinatorv1.MachineSample {
+	if sample == nil {
+		return nil
+	}
+	out := &coordinatorv1.MachineSample{
+		Cpus:           int32(min(sample.CPUs, math.MaxInt32)), //nolint:gosec
+		CpuLimit:       sample.CPULimit,
+		CpuPercent:     sample.CPUPercent,
+		CpuPeakPercent: sample.CPUPeakPercent,
+		Memory:         machineUsageToProto(sample.Memory),
+		Disk:           machineUsageToProto(sample.Disk),
+		LogDisk:        machineUsageToProto(sample.LogDisk),
+	}
+	if l := sample.Load; l != nil {
+		out.Load = &coordinatorv1.MachineLoad{Load1: l.Load1, Load5: l.Load5, Load15: l.Load15}
+	}
+	return out
+}
+
+// ProtoToMachineSample converts a worker's machine sample to the domain
+// shape.
+func ProtoToMachineSample(sample *coordinatorv1.MachineSample) *dispatch.MachineSample {
+	if sample == nil {
+		return nil
+	}
+	out := &dispatch.MachineSample{
+		CPUs:           int(sample.Cpus),
+		CPULimit:       sample.CpuLimit,
+		CPUPercent:     sample.CpuPercent,
+		CPUPeakPercent: sample.CpuPeakPercent,
+		Memory:         protoToMachineUsage(sample.Memory),
+		Disk:           protoToMachineUsage(sample.Disk),
+		LogDisk:        protoToMachineUsage(sample.LogDisk),
+	}
+	if l := sample.Load; l != nil {
+		out.Load = &dispatch.MachineLoad{Load1: l.Load1, Load5: l.Load5, Load15: l.Load15}
+	}
+	return out
+}
+
+func machineUsageToProto(u *dispatch.MachineUsage) *coordinatorv1.MachineUsage {
+	if u == nil {
+		return nil
+	}
+	return &coordinatorv1.MachineUsage{UsedPercent: u.UsedPercent, UsedBytes: u.UsedBytes, TotalBytes: u.TotalBytes,
+		Limited: u.Limited, InodesUsedPercent: u.InodesUsedPercent}
+}
+
+func protoToMachineUsage(u *coordinatorv1.MachineUsage) *dispatch.MachineUsage {
+	if u == nil {
+		return nil
+	}
+	return &dispatch.MachineUsage{UsedPercent: u.UsedPercent, UsedBytes: u.UsedBytes, TotalBytes: u.TotalBytes,
+		Limited: u.Limited, InodesUsedPercent: u.InodesUsedPercent}
 }
 
 // RunningTaskToProto converts a running task to the coordinator wire shape.

@@ -126,6 +126,50 @@ type WorkerHeartbeatRecord struct {
 	Labels          map[string]string `json:"labels,omitempty"`
 	Stats           *WorkerStats      `json:"stats,omitempty"`
 	LastHeartbeatAt int64             `json:"lastHeartbeatAt"`
+	// Host names the machine the worker runs on; empty when unknown.
+	Host string `json:"host,omitempty"`
+	// Machine is the worker's latest machine sample; nil when the worker
+	// sends none.
+	Machine *MachineSample `json:"machine,omitempty"`
+}
+
+// MachineSample is a reading of the resources of the machine a worker runs
+// on, or of its container when the container has limits. A part whose
+// reading failed is nil.
+type MachineSample struct {
+	// CPUs counts the machine's logical CPUs, and CPULimit the CPUs the
+	// container may use, zero without a limit.
+	CPUs     int     `json:"cpus,omitempty"`
+	CPULimit float64 `json:"cpuLimit,omitempty"`
+	// CPUPercent is how busy the CPUs were over the last minute, from 0 to
+	// 100 of CPULimit when there is one, and CPUPeakPercent the highest
+	// sample in that minute.
+	CPUPercent     *float64      `json:"cpuPercent,omitempty"`
+	CPUPeakPercent *float64      `json:"cpuPeakPercent,omitempty"`
+	Memory         *MachineUsage `json:"memory,omitempty"`
+	// Disk is the disk that holds the data directory, and LogDisk the one
+	// that holds the log directory when that is another disk.
+	Disk    *MachineUsage `json:"disk,omitempty"`
+	LogDisk *MachineUsage `json:"logDisk,omitempty"`
+	Load    *MachineLoad  `json:"load,omitempty"`
+}
+
+// MachineUsage is how much of a memory or a disk is in use.
+type MachineUsage struct {
+	UsedPercent float64 `json:"usedPercent"`
+	UsedBytes   uint64  `json:"usedBytes"`
+	TotalBytes  uint64  `json:"totalBytes"`
+	// Limited is set for the memory of a container with a memory limit.
+	Limited bool `json:"limited,omitempty"`
+	// InodesUsedPercent is nil where the filesystem does not say.
+	InodesUsedPercent *float64 `json:"inodesUsedPercent,omitempty"`
+}
+
+// MachineLoad is the system load averaged over 1, 5, and 15 minutes.
+type MachineLoad struct {
+	Load1  float64 `json:"load1"`
+	Load5  float64 `json:"load5"`
+	Load15 float64 `json:"load15"`
 }
 
 // WorkerStats describes worker poller capacity and running distributed tasks.

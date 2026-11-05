@@ -14,6 +14,7 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/cmn/logger"
 	"github.com/dagucloud/dagu/v2/internal/cmn/logger/tag"
 	"github.com/dagucloud/dagu/v2/internal/service/coordinator"
+	"github.com/dagucloud/dagu/v2/internal/service/resource"
 	"github.com/dagucloud/dagu/v2/internal/service/worker"
 	"github.com/spf13/cobra"
 )
@@ -130,6 +131,15 @@ func runWorker(ctx *Context, _ []string) error {
 	}
 	w.SetHandler(worker.NewRemoteTaskHandler(handlerCfg))
 	logger.Info(ctx, "Using remote task handler")
+
+	// Heartbeats carry the machine's figures, which the server reports to
+	// Dagu Cloud on paid licenses.
+	machine := resource.NewService(ctx.Config)
+	if err := machine.Start(ctx); err != nil {
+		return fmt.Errorf("failed to start resource monitoring: %w", err)
+	}
+	defer func() { _ = machine.Stop(ctx.Context) }()
+	w.SetMachine(machine)
 
 	logger.Info(ctx, "Starting worker", tag.WorkerID(workerID), tag.MaxConcurrency(maxActiveRuns), slog.Any("labels", labels))
 	// Run status lives with the coordinator, so the worker closes waiting
