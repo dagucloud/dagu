@@ -61,7 +61,6 @@ var legacyBuiltinContextAliases = map[string]string{
 	"attempt.id":                    "context.attempt.id",
 	"step.id":                       "context.step.id",
 	"step.name":                     "context.step.name",
-	"step.repeat_index":             "context.step.repeat_index",
 	"trigger.type":                  "context.trigger.type",
 	"trigger.actor":                 "context.trigger.actor",
 	"paths.log_file":                "context.paths.log_file",

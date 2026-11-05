@@ -45,7 +45,7 @@ func TestResolveStringBuiltInRunContext(t *testing.T) {
 		runtime.WithRuntimeProfile("prod", profileResolvedAt, nil),
 	)
 
-	env := runtime.NewEnv(ctx, ir.Step{ID: "build-id", Name: "build", RepeatIndex: 2})
+	env := runtime.NewEnv(ctx, ir.Step{ID: "build-id", Name: "build"})
 	env.Scope = env.Scope.WithEntries(map[string]string{
 		runenv.EnvKeyDAGRunStatus:                  ir.Succeeded.String(),
 		runenv.EnvKeyDAGRunStepStdoutFile:          filepath.Join(tmpDir, "stdout.log"),
@@ -53,6 +53,7 @@ func TestResolveStringBuiltInRunContext(t *testing.T) {
 		runenv.EnvKeyDAGUOutputFile:                filepath.Join(tmpDir, "output.json"),
 		runenv.EnvKeyDAGPushBackIteration:          "2",
 		runenv.EnvKeyDAGPushBackPreviousStdoutFile: filepath.Join(tmpDir, "previous.log"),
+		runenv.EnvKeyDAGRunStepRepeatIndex:         "2",
 	}, cmnvalue.EnvSourceStepEnv)
 	ctx = runtime.WithEnv(ctx, env)
 
@@ -80,7 +81,7 @@ func TestResolveStringUnavailableBuiltInRunContextStaysLiteral(t *testing.T) {
 	env := runtime.NewEnv(ctx, ir.Step{Name: "step"})
 	ctx = runtime.WithEnv(ctx, env)
 
-	input := "${context.run.status} ${context.run.root_name} ${context.run.root_id} ${context.trigger.actor} ${context.profile.name} ${context.pushback.iteration}"
+	input := "${context.run.status} ${context.run.root_name} ${context.run.root_id} ${context.trigger.actor} ${context.profile.name} ${context.pushback.iteration} ${context.step.repeat_index}"
 	got, err := runtime.ResolveString(ctx, input, cmnvalue.WorkflowField("run"))
 	require.NoError(t, err)
 	assert.Equal(t, input, got)

@@ -1878,64 +1878,46 @@ func TestRunner(t *testing.T) {
 		assert.Equal(t, 2, node.State().DoneCount)
 	})
 
-	t.Run("RepeatIndexExposedAsZeroBasedAcrossRepeats", func(t *testing.T) {
-		r := setupRunner(t)
-		indexFile := filepath.Join(os.TempDir(), fmt.Sprintf("repeat_index_%s", uuid.Must(uuid.NewV7()).String()))
-		counterFile := filepath.Join(os.TempDir(), fmt.Sprintf("repeat_count_%s", uuid.Must(uuid.NewV7()).String()))
-		t.Cleanup(func() {
-			for _, f := range []string{indexFile, counterFile} {
-				if err := os.Remove(f); err != nil && !os.IsNotExist(err) {
-					require.NoError(t, err)
-				}
-			}
-		})
-		// A counter file drives the repeat: the script exits 42 (the repeat
-		// trigger) until it has run three times, then exits 0. Each execution
-		// appends its zero-based repeat index to a log, so the run ends with
-		// "0\n1\n2\n" and proves the index is exposed and advances per repeat.
-		recordScript := func() string {
-			if windowsShellTest() {
-				return fmt.Sprintf(`
-					Add-Content -Path %s -Value $env:DAG_RUN_STEP_REPEAT_INDEX
-					$count = 0
-					if (Test-Path %s) { $count = [int](Get-Content -Raw -Path %s) }
-					if ($count -lt 2) { Set-Content -Path %s -Value ($count + 1); exit 42 }
-					exit 0`,
-					test.PowerShellQuote(indexFile),
-					test.PowerShellQuote(counterFile), test.PowerShellQuote(counterFile),
-					test.PowerShellQuote(counterFile))
-			}
-			return fmt.Sprintf(`
-				printf '%%s\n' "$DAG_RUN_STEP_REPEAT_INDEX" >> "%s"
-				count=0
-				[ -f "%s" ] && count=$(cat "%s")
-				if [ "$count" -lt 2 ]; then echo $((count+1)) > "%s"; exit 42; fi
-				exit 0`,
-				shellTestPath(indexFile),
-				shellTestPath(counterFile), shellTestPath(counterFile),
-				shellTestPath(counterFile))
+	// Each repeat resolves the step again, so the index advances in
+	// Dagu-resolved fields and step env as well as in the environment variable.
+	// ACC refers to its own earlier value and must not grow across repeats.
+	t.Run("RepeatIndex", func(t *testing.T) {
+		appendIndexes := func(file string) string {
+			return test.ForOS(
+				"printf '%s|%s|%s|%s\\n' '${context.step.repeat_index}' \"$IDX\" \"$DAG_RUN_STEP_REPEAT_INDEX\" \"$ACC\" >> "+test.PosixQuote(file),
+				"Add-Content -Path "+test.PowerShellQuote(file)+" -Value ('${context.step.repeat_index}' + '|' + $env:IDX + '|' + $env:DAG_RUN_STEP_REPEAT_INDEX + '|' + $env:ACC)",
+			)
 		}
-		plan := r.newPlan(t,
-			newStep("1",
-				withScript(recordScript()),
-				func(step *ir.Step) {
-					step.RepeatPolicy.RepeatMode = ir.RepeatModeWhile
-					step.RepeatPolicy.ExitCode = []int{42}
-					step.RepeatPolicy.Limit = 3
-					step.RepeatPolicy.Interval = 20 * time.Millisecond
-				},
-			),
-		)
-		result := plan.assertRun(t, ir.Succeeded)
-		result.assertNodeStatus(t, "1", ir.NodeSucceeded)
-		node := result.nodeByName(t, "1")
-		assert.Equal(t, 3, node.State().DoneCount)
-		data, err := os.ReadFile(indexFile)
-		require.NoError(t, err)
-		// Normalize line endings: PowerShell's Add-Content emits CRLF on Windows.
-		got := string(data)
-		got = strings.ReplaceAll(got, "\r\n", "\n")
-		assert.Equal(t, "0\n1\n2\n", got)
+		cases := []struct {
+			name string
+			run  func(file string) stepOption
+		}{
+			{name: "Script", run: func(file string) stepOption { return withScript(appendIndexes(file)) }},
+			{name: "Command", run: func(file string) stepOption { return withCommand(appendIndexes(file)) }},
+		}
+		for _, tc := range cases {
+			t.Run(tc.name, func(t *testing.T) {
+				r := setupRunner(t)
+				file := filepath.Join(t.TempDir(), "indexes.log")
+				plan := r.newPlan(t,
+					newStep("1",
+						tc.run(file),
+						withEnvVars("IDX=${context.step.repeat_index}", "ACC=a", "ACC=${ACC}b"),
+						func(step *ir.Step) {
+							step.RepeatPolicy.RepeatMode = ir.RepeatModeWhile
+							step.RepeatPolicy.Limit = 3
+						},
+					),
+				)
+				result := plan.assertRun(t, ir.Succeeded)
+				assert.Equal(t, 3, result.nodeByName(t, "1").State().DoneCount)
+				data, err := os.ReadFile(file)
+				require.NoError(t, err)
+				// PowerShell's Add-Content writes CRLF line endings.
+				got := strings.ReplaceAll(string(data), "\r\n", "\n")
+				assert.Equal(t, "0|0|0|ab\n1|1|1|ab\n2|2|2|ab\n", got)
+			})
+		}
 	})
 
 	t.Run("RepeatErrorContinueOn", func(t *testing.T) {

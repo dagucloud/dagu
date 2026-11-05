@@ -121,6 +121,7 @@ var volatileRuntimeEnvironment = map[string]bool{
 	runenv.EnvKeyDAGPushBack:                   true,
 	runenv.EnvKeyDAGPushBackIteration:          true,
 	runenv.EnvKeyDAGPushBackPreviousStdoutFile: true,
+	runenv.EnvKeyDAGRunStepRepeatIndex:         true,
 }
 
 func fingerprint(recipeDigest string, inputs []FileSnapshot, controlTokens map[string]string) string {
