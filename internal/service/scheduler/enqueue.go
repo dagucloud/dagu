@@ -51,14 +51,28 @@ func EnqueueCatchupRun(
 	dagRun := ir.NewDAGRunRef(dag.Name, runID)
 
 	// Idempotency: skip if a run with this ID already exists.
-	if _, err := dagRunRepository.FindAttempt(ctx, dagRun); err == nil {
+	_, err := dagRunRepository.FindAttempt(ctx, dagRun)
+	switch {
+	case err == nil:
 		logger.Info(ctx, "Run already exists; skipping",
 			tag.DAG(dag.Name),
 			tag.RunID(runID),
 			slog.String("trigger_type", triggerType.String()),
 		)
 		return nil
-	} else if !errors.Is(err, dagrun.ErrDAGRunIDNotFound) {
+	case errors.Is(err, dagrun.ErrNoStatusData) && triggerType == ir.TriggerTypeRestart:
+		// A crash cut its creation short. The next restart follows from the run
+		// before it, so the same ID comes back at every scan and the leftover
+		// must make way. Only the scheduler holding the lock queues restarts,
+		// so no other creation of the ID is in progress.
+		logger.Warn(ctx, "Replacing a restart run whose creation was cut short",
+			tag.DAG(dag.Name),
+			tag.RunID(runID),
+		)
+		if err := dagRunRepository.RemoveDAGRun(ctx, dagRun, persis.DAGRunRemoveOptions{}); err != nil {
+			return fmt.Errorf("failed to remove incomplete run: %w", err)
+		}
+	case !errors.Is(err, dagrun.ErrDAGRunIDNotFound):
 		return fmt.Errorf("failed to check existing run: %w", err)
 	}
 

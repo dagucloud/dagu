@@ -12,6 +12,7 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/cmn/buildenv"
 	"github.com/dagucloud/dagu/v2/internal/cmn/stringutil"
 	"github.com/dagucloud/dagu/v2/internal/ir"
+	"github.com/dagucloud/dagu/v2/internal/persis"
 	runtimeenvtransport "github.com/dagucloud/dagu/v2/internal/runtimeenv/transport"
 	secretref "github.com/dagucloud/dagu/v2/internal/secret/ref"
 	"github.com/dagucloud/dagu/v2/internal/service/scheduler"
@@ -72,6 +73,51 @@ steps:
 	ref, err := items[0].Data()
 	require.NoError(t, err)
 	assert.Equal(t, ir.NewDAGRunRef(dag.Name, runID), *ref)
+}
+
+// A restart run whose creation was cut short before its status was written is
+// created again: the next restart is derived from the run before it, so the
+// same run ID comes back at every scan.
+func TestEnqueueCatchupRun_ReplacesIncompleteRestartRun(t *testing.T) {
+	t.Parallel()
+
+	th := test.Setup(t)
+	dag := th.DAG(t, `name: enqueue-incomplete-restart
+restart_policy: always
+restart_wait_sec: 1
+steps:
+  - run: echo ok
+`)
+	runID := scheduler.GenerateRestartRunID(dag.Name, "", time.Time{})
+	_, err := th.DAGRunRepository.CreateAttempt(th.Context, dag.DAG, time.Now(), runID, persis.DAGRunCreateAttemptOptions{})
+	require.NoError(t, err)
+
+	err = scheduler.EnqueueCatchupRun(
+		th.Context,
+		th.DAGRunRepository,
+		th.QueueStore,
+		th.Config.Paths.LogDir,
+		th.Config.Paths.ArtifactDir,
+		th.Config.Paths.BaseConfig,
+		"",
+		dag.Name,
+		dag.DAG,
+		runID,
+		ir.TriggerTypeRestart,
+		time.Now(),
+		"",
+	)
+	require.NoError(t, err)
+
+	attempt, err := th.DAGRunRepository.FindAttempt(th.Context, ir.NewDAGRunRef(dag.Name, runID))
+	require.NoError(t, err)
+	status, err := attempt.ReadStatus(th.Context)
+	require.NoError(t, err)
+	assert.Equal(t, ir.Queued, status.Status)
+
+	items, err := th.QueueStore.List(th.Context, dag.ProcGroup())
+	require.NoError(t, err)
+	assert.Len(t, items, 1)
 }
 
 func TestEnqueueCatchupRun_RehydratesFullDAGBeforePersisting(t *testing.T) {
