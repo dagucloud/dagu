@@ -11,10 +11,7 @@ import {
 } from 'react';
 import { subscribeClock } from '@/hooks/useClock';
 import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
-import {
-  useActiveRightPanel,
-  useCloseRightPanel,
-} from '@/contexts/RightPanelContext';
+import { useActiveRightPanel } from '@/contexts/RightPanelContext';
 import DAGSpec from '@/features/dags/components/dag-editor/DAGSpec';
 import type { DAGSpecHostProps } from '@/features/dags/components/dag-editor/hostTypes';
 import type {
@@ -31,7 +28,12 @@ import {
 import { cn } from '@/lib/utils';
 import { useRemoteNode } from '@/contexts/RemoteNodeContext';
 import { buildDAGPageURL } from '@/features/dag-runs/lib/dagRunUrls';
-import { PanelPlacementProvider } from '@/features/dags/components/step-details/PanelShell';
+import {
+  PanelColumnProvider,
+  PanelPlacementProvider,
+} from '@/features/dags/components/step-details/PanelShell';
+import { useMediaQuery } from '@/hooks/useMediaQuery';
+import { WIDE_QUERY } from '@/lib/breakpoints';
 import {
   CanvasToolbarHostContext,
   TOOLBAR_ROW_CLASS,
@@ -62,6 +64,8 @@ import { useDockYield } from './useDockYield';
 import { useTestRunNotice } from './useTestRunNotice';
 import { useEscInStepYaml } from './useEscInStepYaml';
 import { useOpenStepDetails } from './useOpenStepDetails';
+import { RightColumn } from './RightColumn';
+import { useRightColumn, type RightColumnTab } from './useRightColumn';
 import { useRightPanelClearance } from './useRightPanelClearance';
 import { runStepGates, useStepCommandHost } from './useStepCommandHost';
 import { useStepPanel } from './useStepPanel';
@@ -309,6 +313,29 @@ export function WorkspaceCanvas({
   const snapshot = url.def === 'run';
   const paneActive = useModePaneActive() && !snapshot;
   const activePanel = useActiveRightPanel();
+  // On a wide window the Workflow panel and the YAML of the file are the tabs
+  // of a right column beside the graph zone, which only the user opens,
+  // switches and collapses. A phone keeps them as panels over the zone.
+  const columnMode = useMediaQuery(WIDE_QUERY, true);
+  const [columnTab, setColumnTab] = useRightColumn();
+  const columnTabRef = useRef(columnTab);
+  columnTabRef.current = columnTab;
+  const [workflowRoot, setWorkflowRoot] = useState<HTMLDivElement | null>(null);
+  const [yamlRoot, setYamlRoot] = useState<HTMLDivElement | null>(null);
+  const [launcherRoot, setLauncherRoot] = useState<HTMLDivElement | null>(null);
+  const [layerRoot, setLayerRoot] = useState<HTMLDivElement | null>(null);
+  const panelColumn = useMemo(
+    () =>
+      columnMode
+        ? {
+            workflow: workflowRoot,
+            yaml: yamlRoot,
+            launcher: launcherRoot,
+            layer: layerRoot,
+          }
+        : null,
+    [columnMode, workflowRoot, yamlRoot, launcherRoot, layerRoot]
+  );
   // A right panel covers part of the zone: the canvas fits in the part that
   // stays free.
   const zoneRef = useRef<HTMLDivElement>(null);
@@ -361,7 +388,8 @@ export function WorkspaceCanvas({
     url.dock === null &&
     legacyTab === undefined &&
     !snapshot &&
-    !wantsYaml;
+    !wantsYaml &&
+    !columnMode;
   const ndvState = useYamlPanelMemory({
     fileName,
     ndv: url.ndv,
@@ -375,13 +403,56 @@ export function WorkspaceCanvas({
     activePanel,
     restorable: restorable && ndvState === null,
   });
+  // In the column the YAML of the file shows while its tab does; ?ndv keeps
+  // only the view of a step, which opens over the zone.
+  const shownNdv = columnMode
+    ? url.ndv === 'expanded'
+      ? 'expanded'
+      : columnTab === 'yaml'
+        ? 'docked'
+        : null
+    : ndvState;
   const ndv = useMemo<DAGSpecHostProps['ndv']>(
     () => ({
-      state: ndvState,
-      onStateChange: (state) => setUrl({ ndv: state }, { replace: true }),
+      state: shownNdv,
+      onStateChange: (state) => {
+        if (!columnMode) {
+          setUrl({ ndv: state }, { replace: true });
+          return;
+        }
+        if (state === 'expanded') {
+          setUrl({ ndv: 'expanded' }, { replace: true });
+          return;
+        }
+        // The view of a step closes and leaves the column as it is.
+        const stepView = readUrl().ndv !== null;
+        if (stepView) setUrl({ ndv: null }, { replace: true });
+        if (state === 'docked') setColumnTab('yaml');
+        else if (!stepView && columnTabRef.current === 'yaml') {
+          setColumnTab(null);
+        }
+      },
       active: paneActive,
     }),
-    [ndvState, paneActive, setUrl]
+    [shownNdv, columnMode, paneActive, setUrl, readUrl, setColumnTab]
+  );
+  // A link to the YAML panel (?ndv=docked) opens the YAML tab of the column.
+  // The run definition keeps it: there it is the panel of the run's YAML.
+  useEffect(() => {
+    if (!columnMode || snapshot || url.ndv !== 'docked') return;
+    setColumnTab('yaml');
+    setUrl({ ndv: null }, { replace: true });
+  }, [columnMode, snapshot, url.ndv, setColumnTab, setUrl]);
+  // The Workflow tab shows the Workflow panel of the editor: it opens once
+  // the editor has loaded, and stays mounted while another tab shows.
+  useEffect(() => {
+    if (columnMode && columnTab === 'workflow') handle?.openWorkflowPanel(true);
+  }, [columnMode, columnTab, handle]);
+  const onWorkflowOpenChange = useCallback(
+    (open: boolean) => {
+      if (columnMode && open) setColumnTab('workflow');
+    },
+    [columnMode, setColumnTab]
   );
 
   // A deep link (?step, ?ndv) applies once the editor has loaded the spec.
@@ -438,7 +509,10 @@ export function WorkspaceCanvas({
 
   // A click on a step opens its panel over the canvas; another right panel,
   // the node view or the snapshot takes its place.
-  const covered = url.ndv !== null || activePanel !== null || snapshot;
+  const stepViewOpen = columnMode ? url.ndv === 'expanded' : url.ndv !== null;
+  // In the column the step is a tab: a panel over the zone does not cover it.
+  const covered =
+    stepViewOpen || (!columnMode && activePanel !== null) || snapshot;
   const stepPanel = useStepPanel({
     zoneRef,
     step: url.step,
@@ -451,54 +525,19 @@ export function WorkspaceCanvas({
   const panelStep = stepPanel.shown ? url.step : null;
   const openStepDetails = useOpenStepDetails();
 
-  // A click on a step closes the Workflow panel, which covers the step
-  // panel, and opens it again once the step panel and the node view of the
-  // step have shown and closed. Another panel that opens in between is the
-  // choice.
-  const closeRightPanel = useCloseRightPanel();
-  const workflowUnderStep = useRef<'closed' | 'covered' | null>(null);
-  const activePanelRef = useRef(activePanel);
-  activePanelRef.current = activePanel;
-  const showStep = stepPanel.show;
-  const onStepClick = useCallback(
-    (_step: string, at: { clientX: number; clientY: number }) => {
-      showStep(at);
-      if (activePanelRef.current !== 'workflow') return;
-      workflowUnderStep.current = 'closed';
-      closeRightPanel();
-    },
-    [showStep, closeRightPanel]
-  );
-  useEffect(() => {
-    if (!workflowUnderStep.current) return;
-    if (
-      url.ndv === 'docked' ||
-      (activePanel !== null && activePanel !== 'ndv')
-    ) {
-      workflowUnderStep.current = null;
-      return;
-    }
-    if (stepPanel.shown || url.ndv === 'expanded') {
-      workflowUnderStep.current = 'covered';
-      return;
-    }
-    // Closing the panel renders once before the step panel opens.
-    if (workflowUnderStep.current !== 'covered' || activePanel !== null) return;
-    workflowUnderStep.current = null;
-    handle?.openWorkflowPanel(true);
-  }, [activePanel, stepPanel.shown, url.ndv, handle]);
   // The step panel is a right panel too, without a claim of its own. Each
   // click on a step can hold off its mark, so each one watches again.
   const clearance = useRightPanelClearance(
     zoneRef,
-    activePanel ?? (stepPanel.shown ? (stepPanel.openedAt ?? 'step') : null)
+    activePanel ??
+      (stepPanel.shown && !columnMode ? (stepPanel.openedAt ?? 'step') : null)
   );
   const inset = useMemo(
     () => ({ right: clearance.overlap }),
     [clearance.overlap]
   );
 
-  const ndvOpen = url.ndv !== null || activePanel === 'ndv';
+  const ndvOpen = stepViewOpen || activePanel === 'ndv';
   // A step view that opened over the YAML panel gives the YAML back when Esc
   // closes it, as its close button does (useYamlSection).
   const yamlUnderView = useRef(false);
@@ -512,7 +551,7 @@ export function WorkspaceCanvas({
     lastNdv.current = url.ndv;
   }, [url.ndv]);
   const closeStepView = () => {
-    if (yamlUnderView.current && handle) handle.toggleYaml(true);
+    if (!columnMode && yamlUnderView.current && handle) handle.toggleYaml(true);
     else setUrl({ ndv: null }, { replace: true });
   };
   // Esc closes the expanded node view when no dialog or menu is above it.
@@ -531,7 +570,7 @@ export function WorkspaceCanvas({
   // The expanded step view fills the zone and holds the room of the Run
   // panel; Activity comes back when it closes. A right panel (a launcher, the
   // Workflow, the YAML) sits in the zone above Activity: both stay open.
-  useDockYield(paneActive && ndvState === 'expanded');
+  useDockYield(paneActive && shownNdv === 'expanded');
   // Esc in the YAML of the step view closes the view too.
   useEscInStepYaml({
     active: paneActive,
@@ -591,88 +630,143 @@ export function WorkspaceCanvas({
   );
 
   return (
-    // The graph zone: every right panel and the expanded node view sit
-    // inside this box (absolute) and never beyond it, under the row of the
-    // canvas toolbars, which a panel never moves or covers.
-    <div
-      ref={zoneRef}
-      data-testid="ww-canvas"
-      className={cn(
-        'relative flex h-full min-h-0 w-full min-w-0 flex-1 flex-col overflow-hidden',
-        TOOLBAR_ZONE_CLASS
-      )}
-    >
+    // The graph zone and, on a wide window, the right column beside it. The
+    // row is the box that the column takes its width from.
+    <div className="relative flex h-full min-h-0 w-full min-w-0 flex-1 flex-row">
+      {/* The graph zone: every right panel and the expanded node view sit
+        inside this box (absolute) and never beyond it, under the row of the
+        canvas toolbars, which a panel never moves or covers. */}
       <div
-        ref={setToolbarRow}
-        data-testid="ww-canvas-toolbar"
-        hidden={snapshot}
+        ref={zoneRef}
+        data-testid="ww-canvas"
         className={cn(
-          TOOLBAR_ROW_CLASS,
-          // A docked panel is one box from the top of the zone: the toolbars
-          // sit over its top rows.
-          clearance.free !== null && TOOLBAR_ROW_OVER_PANEL_CLASS
+          'relative flex h-full min-h-0 w-full min-w-0 flex-1 flex-col overflow-hidden',
+          TOOLBAR_ZONE_CLASS
         )}
-      />
-      <CanvasOverlayInsetContext.Provider value={inset}>
-        <PanelPlacementProvider value="zone">
-          <CanvasToolbarHostContext.Provider value={toolbarRow}>
-            <div
-              data-testid="ww-canvas-graph"
-              hidden={snapshot}
-              inert={snapshot}
-              className="flex min-h-0 w-full min-w-0 flex-1 flex-col"
-            >
-              <PaneActiveContext.Provider value={paneActive}>
-                <MountAfterDockYield
-                  waits={paneActive && ndvState === 'expanded'}
+      >
+        <div
+          ref={setToolbarRow}
+          data-testid="ww-canvas-toolbar"
+          hidden={snapshot}
+          className={cn(
+            TOOLBAR_ROW_CLASS,
+            // A docked panel is one box from the top of the zone: the toolbars
+            // sit over its top rows.
+            clearance.free !== null && TOOLBAR_ROW_OVER_PANEL_CLASS
+          )}
+        />
+        <CanvasOverlayInsetContext.Provider value={inset}>
+          <PanelColumnProvider value={panelColumn}>
+            <PanelPlacementProvider value="zone">
+              <CanvasToolbarHostContext.Provider value={toolbarRow}>
+                <div
+                  data-testid="ww-canvas-graph"
+                  hidden={snapshot}
+                  inert={snapshot}
+                  className="flex min-h-0 w-full min-w-0 flex-1 flex-col"
                 >
-                  <DAGSpec
-                    fileName={fileName}
-                    localDags={dagData.localDags}
-                    editorHints={dagData.editorHints}
-                    keyboardActive={paneActive}
-                    fillHeight
-                    runSource={runSource}
-                    onRunStarted={onRunStarted}
-                    selectedStepName={url.step}
-                    onSelectedStepNameChange={onSelectedStepNameChange}
-                    onStepClick={onStepClick}
-                    ndv={ndv}
-                    openNdvOn="open"
-                    renderStepOutput={renderStepOutput}
-                    onStepCommand={onStepCommand}
-                    onOpenWorkflow={openWorkflow}
-                    stepCommandGates={stepCommandGates}
-                    followedRuns={actions.followed}
-                    inputRun={inputRun}
-                    chrome={
-                      ndvOpen || stepPanel.shown ? CHROME_NDV_OPEN : CHROME
-                    }
-                    notices={notices}
-                    editorHandleRef={editorHandleRef}
-                    onEditorStateChange={onEditorStateChange}
-                    launcherHost={launcherHost}
-                    renderWorkflowPanel={renderWorkflowPanel}
-                    initialWorkflowOpen={workflowPanel.open}
-                  />
-                </MountAfterDockYield>
-              </PaneActiveContext.Provider>
-            </div>
-          </CanvasToolbarHostContext.Provider>
-        </PanelPlacementProvider>
-      </CanvasOverlayInsetContext.Provider>
-      {panelStep !== null && (
-        <StepPanel
+                  <PaneActiveContext.Provider value={paneActive}>
+                    <MountAfterDockYield
+                      waits={paneActive && shownNdv === 'expanded'}
+                    >
+                      <DAGSpec
+                        fileName={fileName}
+                        localDags={dagData.localDags}
+                        editorHints={dagData.editorHints}
+                        keyboardActive={paneActive}
+                        fillHeight
+                        runSource={runSource}
+                        onRunStarted={onRunStarted}
+                        selectedStepName={url.step}
+                        onSelectedStepNameChange={onSelectedStepNameChange}
+                        onStepClick={(_step, at) => stepPanel.show(at)}
+                        ndv={ndv}
+                        openNdvOn="open"
+                        renderStepOutput={renderStepOutput}
+                        onStepCommand={onStepCommand}
+                        onOpenWorkflow={openWorkflow}
+                        stepCommandGates={stepCommandGates}
+                        followedRuns={actions.followed}
+                        inputRun={inputRun}
+                        chrome={
+                          ndvOpen || stepPanel.shown ? CHROME_NDV_OPEN : CHROME
+                        }
+                        notices={notices}
+                        editorHandleRef={editorHandleRef}
+                        onEditorStateChange={onEditorStateChange}
+                        launcherHost={launcherHost}
+                        renderWorkflowPanel={renderWorkflowPanel}
+                        initialWorkflowOpen={
+                          columnMode
+                            ? columnTab === 'workflow'
+                            : workflowPanel.open
+                        }
+                        onWorkflowOpenChange={onWorkflowOpenChange}
+                      />
+                    </MountAfterDockYield>
+                  </PaneActiveContext.Provider>
+                </div>
+              </CanvasToolbarHostContext.Provider>
+            </PanelPlacementProvider>
+          </PanelColumnProvider>
+        </CanvasOverlayInsetContext.Provider>
+        {panelStep !== null && !columnMode && (
+          <StepPanel
+            step={panelStep}
+            openedAt={stepPanel.openedAt}
+            onClose={stepPanel.close}
+            onStepCommand={onStepCommand}
+            gates={stepCommandGates}
+            onOpenStep={() => openStepDetails(panelStep)}
+          />
+        )}
+        {snapshot && <RunSnapshotCanvas />}
+        {actions.dialogs}
+      </div>
+      {columnMode && (
+        <RightColumn
+          tab={columnTab}
+          onSelect={(tab: RightColumnTab) => {
+            stepPanel.close();
+            handle?.closeLauncher?.();
+            setColumnTab(tab);
+          }}
+          onCollapse={() => {
+            stepPanel.close();
+            handle?.closeLauncher?.();
+            setColumnTab(null);
+          }}
+          workflowRef={setWorkflowRoot}
+          yamlRef={setYamlRoot}
           step={panelStep}
-          openedAt={stepPanel.openedAt}
-          onClose={stepPanel.close}
-          onStepCommand={onStepCommand}
-          gates={stepCommandGates}
-          onOpenStep={() => openStepDetails(panelStep)}
+          launcher={editorState?.launcher ?? null}
+          launcherRef={setLauncherRoot}
+          stepDetails={
+            panelStep !== null && (
+              <StepPanel
+                placement="column"
+                step={panelStep}
+                onClose={stepPanel.close}
+                onStepCommand={onStepCommand}
+                gates={stepCommandGates}
+                onOpenStep={() => openStepDetails(panelStep)}
+              />
+            )
+          }
+          hidden={snapshot}
         />
       )}
-      {snapshot && <RunSnapshotCanvas />}
-      {actions.dialogs}
+      {columnMode && (
+        // The layer of the YAML frame, over the zone and the column. It takes
+        // no pointer itself, and hides with the editor for the snapshot.
+        <div
+          ref={setLayerRoot}
+          data-testid="ww-panel-layer"
+          hidden={snapshot}
+          inert={snapshot}
+          className="pointer-events-none absolute inset-0"
+        />
+      )}
     </div>
   );
 }

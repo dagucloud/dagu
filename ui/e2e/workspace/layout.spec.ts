@@ -5,6 +5,7 @@ import type { Locator, Page } from '@playwright/test';
 import {
   loadStack,
   loginViaAPI,
+  openColumnTab,
   openStepForm,
   startDAG,
   waitForRunStatus,
@@ -280,8 +281,8 @@ test.describe('workspace layout', () => {
   });
 
   // The toolbar of the canvas is pinned to the top right of the zone: Save
-  // stays at the same x and y with no panel, with the YAML panel, with the
-  // Workflow panel and with the node view, clean and dirty.
+  // stays at the same x and y with the YAML and the Workflow tabs of the
+  // right column and with the node view, clean and dirty.
   test('pins the canvas toolbar to the zone when a panel opens, at five widths', async ({
     page,
     fixtureDAG,
@@ -330,6 +331,8 @@ test.describe('workspace layout', () => {
       }
     };
 
+    // The YAML tab of the right column is open at every width.
+    await openColumnTab(page, 'YAML');
     for (const width of [1920, 1440, 1280, 1152, 1024]) {
       await test.step(`window of ${width}px`, async () => {
         await page.setViewportSize({ width, height: 900 });
@@ -369,34 +372,21 @@ test.describe('workspace layout', () => {
         expect(canvas.y - zone.y).toBeLessThanOrEqual(1.5);
         expect(zone.height - canvas.height).toBeLessThanOrEqual(2.5);
 
-        // The YAML panel.
-        const yaml = toolbar.getByRole('button', { name: 'YAML', exact: true });
-        await yaml.click();
+        // The tabs of the right column, beside the zone: the YAML sits right
+        // of the zone, and a switch of tab keeps the zone.
+        await openColumnTab(page, 'YAML');
         await expect(ndv).toHaveAttribute('data-state', 'docked');
-        const panel = await box(ndv);
-        // The panel is one box from the top of the zone: the row of toolbars
-        // sits over its first 40px.
-        expect(panel.y).toBeCloseTo(zone.y, 0);
-        expect(reference.toolbar.y).toBeGreaterThanOrEqual(panel.y - 0.5);
-        expect(
-          reference.toolbar.y + reference.toolbar.height
-        ).toBeLessThanOrEqual(panel.y + 40.5);
-        await expectSame(reference, 'YAML panel');
-        await yaml.click();
-        await expect(ndv).toBeHidden();
-        await expectSame(reference, 'YAML panel closed');
-
-        // The Workflow panel.
-        const workflow = toolbar.getByRole('button', {
-          name: 'Workflow',
-          exact: true,
-        });
-        await workflow.click();
+        expect((await box(ndv)).x).toBeGreaterThanOrEqual(
+          zone.x + zone.width - 0.5
+        );
+        await expectSame(reference, 'YAML tab');
+        await openColumnTab(page, 'Workflow');
         await expect(page.getByTestId('ve-workflow')).toBeVisible();
-        await expectSame(reference, 'Workflow panel');
-        await workflow.click();
-        await expect(page.getByTestId('ve-workflow')).toBeHidden();
-        await expectSame(reference, 'Workflow panel closed');
+        await expect(ndv).toBeHidden();
+        await expectSame(reference, 'Workflow tab');
+        await openColumnTab(page, 'YAML');
+        await expect(ndv).toHaveAttribute('data-state', 'docked');
+        await expectSame(reference, 'YAML tab again');
 
         // The node view.
         await page
@@ -407,8 +397,9 @@ test.describe('workspace layout', () => {
         // The expanded node view covers the whole zone, the row included.
         expect((await box(ndv)).y).toBeCloseTo(zone.y, 0);
         await expectSame(reference, 'node view');
+        // Closed, the view gives the YAML tab back.
         await ndv.getByRole('button', { name: 'Close', exact: true }).click();
-        await expect(ndv).toBeHidden();
+        await expect(ndv).toHaveAttribute('data-state', 'docked');
         await expectSame(reference, 'node view closed');
       });
     }
@@ -432,7 +423,7 @@ test.describe('workspace layout', () => {
     await expectSame(clean, 'dirty with no panel');
   });
 
-  test('keeps the node view in the graph zone and docks it at 1280px and 900px', async ({
+  test('keeps the node view in the graph area and the YAML beside the canvas at 1280px and 900px', async ({
     page,
     fixtureDAG,
     gotoWorkspace,
@@ -449,18 +440,19 @@ test.describe('workspace layout', () => {
     await expect(ndv).toBeVisible({ timeout: 30_000 });
     await expect(ndv).toHaveAttribute('data-state', 'expanded');
 
-    // The expanded view fills the graph zone: not the window, and it leaves
-    // the bar and the sidebar free.
+    // The expanded view fills the graph area, the zone and the right column:
+    // not the window, and it leaves the bar and the sidebar free.
     const zone = await box(page.getByTestId('ww-canvas'));
+    const area = await box(page.getByTestId('ww-panel-layer'));
     const bar = await box(page.getByTestId('ww-bar'));
     let panel = await box(ndv);
     expect(panel.x).toBeGreaterThanOrEqual(zone.x - 0.5);
     expect(panel.y).toBeGreaterThanOrEqual(bar.y + bar.height - 0.5);
     expect(panel.x + panel.width).toBeLessThanOrEqual(
-      zone.x + zone.width + 0.5
+      area.x + area.width + 0.5
     );
     expect(panel.y + panel.height).toBeLessThanOrEqual(
-      zone.y + zone.height + 0.5
+      area.y + area.height + 0.5
     );
     expect(panel.width).toBeLessThan(1280 - 200);
     await expect(page.getByTestId('ww-bar')).toBeVisible();
@@ -469,36 +461,29 @@ test.describe('workspace layout', () => {
       .locator('[data-ww-action="start"]')
       .click({ trial: true, timeout: 5_000 });
 
-    // The YAML panel takes the right side of the zone and the canvas keeps
+    // The YAML tab of the right column sits beside the canvas, which keeps
     // the rest. The node view has no button that docks it.
     await expect(
       ndv.getByRole('button', { name: 'Dock to the side', exact: true })
     ).toHaveCount(0);
     await ndv.getByRole('button', { name: 'Close', exact: true }).click();
-    // The toolbar of the canvas: the node view has a YAML tab of its own.
-    await page
-      .getByTestId('ve-toolbar')
-      .getByRole('button', { name: 'YAML', exact: true })
-      .click();
+    await openColumnTab(page, 'YAML');
     await expect(ndv).toHaveAttribute('data-state', 'docked');
-    const frame0 = await box(canvasFrame(page));
-    panel = await box(ndv);
-    expect(frame0.x + frame0.width).toBeLessThanOrEqual(panel.x + 0.5);
-    expect(panel.x + panel.width).toBeLessThanOrEqual(
-      zone.x + zone.width + 0.5
-    );
+    const expectBeside = async () => {
+      const frame = await box(canvasFrame(page));
+      panel = await box(ndv);
+      expect(frame.x + frame.width).toBeLessThanOrEqual(panel.x + 0.5);
+      expect(panel.width).toBeGreaterThan(0);
+    };
+    await expectBeside();
 
     await page.setViewportSize({ width: 900, height: 800 });
     await expect(ndv).toBeVisible();
-    await expect(async () => {
-      const frame = await box(canvasFrame(page));
-      panel = await box(ndv);
-      expect(frame.x + frame.width).toBeGreaterThan(panel.x);
-    }).toPass({ timeout: 10_000 });
+    await expect(expectBeside).toPass({ timeout: 10_000 });
   });
 
   // #3507: a long line of YAML needs more than 960px on a wide screen.
-  test('widens the YAML panel past 960px, maximizes it and shares its width', async ({
+  test('widens the right column past 960px for both of its tabs', async ({
     page,
     fixtureDAG,
     gotoWorkspace,
@@ -509,71 +494,37 @@ test.describe('workspace layout', () => {
     await page.setViewportSize({ width: 2560, height: 900 });
     const { fileName } = await fixtureDAG('visual-params.yaml');
     await openEditor(page, gotoWorkspace, fileName);
-    const toolbar = page.getByTestId('ve-toolbar');
     const ndv = page.getByTestId('ndv');
-    const zone = await box(page.getByTestId('ww-canvas'));
-    expect(zone.width - 240).toBeGreaterThan(960);
+    const column = page.getByTestId('ww-right-column');
+    const area = await box(page.getByTestId('ww-panel-layer'));
 
-    await toolbar.getByRole('button', { name: 'YAML', exact: true }).click();
+    await openColumnTab(page, 'YAML');
     await expect(ndv).toHaveAttribute('data-state', 'docked');
-    const edge = ndv.getByRole('separator', { name: 'Resize step details' });
+    const edge = column.getByRole('separator', { name: 'Resize step details' });
 
-    // End gives the panel all of the zone but a strip of 240px.
-    await edge.focus();
-    await page.keyboard.press('End');
-    await expect(async () => {
-      expect((await box(ndv)).width).toBeCloseTo(zone.width - 240, -1);
-    }).toPass();
-
-    // A drag to 1400px: the canvas ends at the new edge of the panel.
+    // A drag to 1400px: the YAML follows the column, and the canvas ends at
+    // its edge.
     const grip = await box(edge);
     const y = grip.y + grip.height / 2;
     await page.mouse.move(grip.x + grip.width / 2, y);
     await page.mouse.down();
-    await page.mouse.move(zone.x + zone.width - 1400, y, { steps: 8 });
+    await page.mouse.move(area.x + area.width - 1400, y, { steps: 8 });
     await page.mouse.up();
     await expect(async () => {
+      expect((await box(column)).width).toBeCloseTo(1400, -1);
+      // The YAML fills the column, inside its 1px left border.
       const panel = await box(ndv);
-      expect(panel.width).toBeCloseTo(1400, -1);
+      expect(
+        Math.abs(panel.width - (await box(column)).width)
+      ).toBeLessThanOrEqual(1);
       const frame = await box(canvasFrame(page));
-      expect(Math.abs(frame.x + frame.width - panel.x)).toBeLessThanOrEqual(1);
+      expect(frame.x + frame.width).toBeLessThanOrEqual(panel.x + 0.5);
     }).toPass();
 
-    // Maximized, the panel fills the zone: the canvas controls go, and Save
-    // stays in the row above the panel.
-    const zoomIn = page
-      .getByTestId('ww-canvas-toolbar')
-      .getByRole('button', { name: 'Zoom in' });
-    await expect(zoomIn).toBeVisible();
-    await ndv
-      .getByRole('button', { name: 'Maximize panel', exact: true })
-      .click();
-    await expect(async () => {
-      const panel = await box(ndv);
-      expect(panel.x).toBeCloseTo(zone.x, -1);
-      expect(panel.width).toBeCloseTo(zone.width, -1);
-    }).toPass();
-    await expect(zoomIn).toBeHidden();
-    await expect(page.locator('#save-config')).toBeVisible();
-    await expect(edge).toHaveCount(0);
-
-    await ndv
-      .getByRole('button', { name: 'Restore panel', exact: true })
-      .click();
-    await expect(async () => {
-      expect((await box(ndv)).width).toBeCloseTo(1400, -1);
-    }).toPass();
-    await expect(zoomIn).toBeVisible();
-
-    // The Workflow panel opens at the width of the YAML panel.
-    await toolbar
-      .getByRole('button', { name: 'Workflow', exact: true })
-      .click();
-    const drawer = page.getByTestId('step-side-drawer');
-    await expect(drawer).toBeVisible();
-    await expect(async () => {
-      expect((await box(drawer)).width).toBeCloseTo(1400, -1);
-    }).toPass();
+    // The Workflow tab has the same width.
+    await openColumnTab(page, 'Workflow');
+    await expect(page.getByTestId('ve-workflow')).toBeVisible();
+    expect((await box(column)).width).toBeCloseTo(1400, -1);
   });
 
   test('has no horizontal scroll at 375x812 and keeps the Tools button', async ({
@@ -641,7 +592,9 @@ test.describe('workspace defaults on a laptop', () => {
     });
     await expect(dock).toHaveAttribute('data-state', 'open');
 
-    await ndv.getByRole('button', { name: 'Close', exact: true }).click();
+    // The right column collapses to its rail.
+    const column = page.getByTestId('ww-right-column');
+    await column.getByRole('button', { name: 'Collapse', exact: true }).click();
     await dock
       .getByRole('button', { name: 'Activity', exact: true })
       .first()
@@ -651,6 +604,7 @@ test.describe('workspace defaults on a laptop', () => {
     await expect(
       page.getByTestId('ww-canvas').getByTestId('ve-canvas-node-steps[0]')
     ).toBeVisible({ timeout: 30_000 });
+    await expect(column).toHaveAttribute('data-tab', 'collapsed');
     await expect(ndv).toBeHidden();
     await expect(dock).toHaveAttribute('data-state', 'collapsed');
   });

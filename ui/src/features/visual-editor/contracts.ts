@@ -498,6 +498,8 @@ export interface VisualEditorState {
   selectedStepName: string | null; // server name
   drawer: 'none' | 'yaml' | 'form' | 'add-step' | 'workflow' | 'launcher';
   direction: CanvasDirection;
+  /** The launcher whose panel is open; null or absent when none is. */
+  launcher?: LauncherId | null;
 }
 export interface CanvasViewHandle {
   fitView(): void;
@@ -521,6 +523,8 @@ export interface VisualEditorHandle {
   openWorkflowPanel(open?: boolean): void; // toggles when open is undefined
   /** Opens the panel of a launcher. No-op without launchers. Cron adds no schedule: the Add step panel does. */
   openLauncher(id: LauncherId): void;
+  /** Closes the panel of a launcher, through the guard of its draft. */
+  closeLauncher?(): void;
   toggleYaml(open?: boolean): void;
   openForm(serverStepName: string): boolean;
   /** Selects the step and shows its own YAML in the node view. False when no node has this server name. */
