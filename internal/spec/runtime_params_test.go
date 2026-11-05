@@ -832,3 +832,37 @@ func TestInt64FromUint64_ConvertsDirectly(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, int64(maxInt64AsUint), value)
 }
+
+// A JSON-form params argument keeps each number as written and passes an
+// object or array value on as JSON.
+func TestLoad_JSONParamsKeepValueText(t *testing.T) {
+	t.Parallel()
+
+	schemaDAG := []byte(`
+name: json-params-schema
+params:
+  schema:
+    type: object
+    properties:
+      version: {}
+      customer_id: {}
+      config: {type: object}
+`)
+	dag, err := LoadYAML(context.Background(), schemaDAG, WithParams(`{"version": 1.10, "customer_id": 98765432109876543, "config": {"ratio": 1.10, "note": "<a&b>"}}`))
+	require.NoError(t, err)
+	assert.Equal(t, []string{
+		`config={"note":"<a&b>","ratio":1.10}`,
+		"customer_id=98765432109876543",
+		"version=1.10",
+	}, dag.Params)
+
+	legacyDAG := []byte(`
+name: json-params-legacy
+params:
+  - ID: 0
+  - TAGS: none
+`)
+	dag, err = LoadYAML(context.Background(), legacyDAG, WithParams(`{"ID": 98765432109876543, "TAGS": ["a", 1.10]}`))
+	require.NoError(t, err)
+	assert.Equal(t, []string{"ID=98765432109876543", `TAGS=["a",1.10]`}, dag.Params)
+}
