@@ -16,6 +16,7 @@ import { registerReferenceCompletion } from '@/features/visual-editor/references
 import type { ReferenceEditorState } from '@/features/visual-editor/references/editorState';
 import { useEffect, useId, useMemo, useRef, useState } from 'react';
 import { buildEditorOptions } from './editorOptions';
+import { EditorSkeleton } from './EditorSkeleton';
 import { ISSUE_MARKER_OWNER } from './issueMarkers';
 import {
   registerQuickFixSource,
@@ -281,6 +282,14 @@ function DAGEditor({
     isEditorMounted ? editorRef.current : null,
     (stepLenses?.steps.length ?? 0) > 0
   );
+  // The skeleton stays for the fade of the editor, which takes its place.
+  const [skeleton, setSkeleton] = useState(true);
+  useEffect(() => {
+    if (!settled) return;
+    const timer = setTimeout(() => setSkeleton(false), SKELETON_FADE_MS);
+    return () => clearTimeout(timer);
+  }, [settled]);
+
   const lensKey = stepLenses
     ? `${stepLenses.label}\n${stepLenses.steps.map((step) => `${step.line}:${step.name}`).join('\n')}`
     : '';
@@ -398,34 +407,49 @@ function DAGEditor({
     document.documentElement.classList.contains('dark');
 
   return (
-    <div
-      data-settled={settled}
-      className={cn(
-        'h-full transition-opacity duration-80 ease-out motion-reduce:transition-none',
-        settled ? 'opacity-100' : 'opacity-0',
-        className
+    <div className={cn('relative h-full', className)}>
+      {skeleton && (
+        <EditorSkeleton
+          text={value ?? ''}
+          lenses={stepLenses?.steps}
+          className={cn(
+            'transition-opacity duration-80 ease-out motion-reduce:transition-none',
+            settled && 'opacity-0'
+          )}
+        />
       )}
-    >
-      <MonacoEditor
-        height="100%"
-        language="yaml"
-        path={effectiveModelUri}
-        // A run definition has a model per run. Restoring the view state of
-        // a model seen before makes Monaco cancel a pending word highlight
-        // and leave the rejection unhandled.
-        saveViewState={false}
-        theme={isDarkMode ? KILN_DARK : KILN_LIGHT}
-        value={value}
-        onChange={readOnly ? undefined : onChange}
-        onMount={editorDidMount}
-        options={options}
-      />
+      <div
+        data-settled={settled}
+        className={cn(
+          'h-full transition-opacity duration-80 ease-out motion-reduce:transition-none',
+          settled ? 'opacity-100' : 'opacity-0'
+        )}
+      >
+        <MonacoEditor
+          height="100%"
+          language="yaml"
+          path={effectiveModelUri}
+          // A run definition has a model per run. Restoring the view state of
+          // a model seen before makes Monaco cancel a pending word highlight
+          // and leave the rejection unhandled.
+          saveViewState={false}
+          theme={isDarkMode ? KILN_DARK : KILN_LIGHT}
+          value={value}
+          onChange={readOnly ? undefined : onChange}
+          onMount={editorDidMount}
+          options={options}
+          // The skeleton shows while Monaco loads.
+          loading={null}
+        />
+      </div>
     </div>
   );
 }
 
 /** The longest wait for an editor to settle before it shows anyway. */
 const SETTLE_TIMEOUT_MS = 1500;
+/** The fade of the editor over its skeleton (duration-80). */
+const SKELETON_FADE_MS = 80;
 
 /**
  * Whether the editor has settled since it mounted: its text coloured and,
