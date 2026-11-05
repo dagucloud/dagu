@@ -32,6 +32,7 @@ import {
   type SubRunStackEntry,
 } from '@/features/dags/components/common/SubRunStackModal';
 import ExecutionLog from '@/features/dags/components/dag-execution/ExecutionLog';
+import { HumanTaskResumeAlert } from '@/features/dags/components/human-task/HumanTaskResumeAlert';
 import { HumanTasksTab } from '@/features/dags/components/human-task/HumanTasksTab';
 import TimelineChart from '@/features/dags/components/visualization/TimelineChart';
 import { getManualActionState } from '@/features/dag-runs/lib/manualActionState';
@@ -352,9 +353,8 @@ function ActionsBody({ run, details, step }: RunTabProps) {
     return (
       <div className={`${SCROLL} space-y-4`}>
         {resumePending && <ApprovalResumeAlert dagRun={details} />}
-        {/* No task waits once a resume is pending: the tab shows its retry. */}
         {taskResumePending && (
-          <HumanTasksTab dagRun={details} onChanged={run.refresh} bare />
+          <HumanTaskResumeAlert dagRun={details} onChanged={run.refresh} />
         )}
         <StepManualActions
           holder={details}
