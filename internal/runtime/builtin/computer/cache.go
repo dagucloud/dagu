@@ -304,6 +304,12 @@ func (r *run) replay(ctx context.Context, index int, entry recording, budget int
 					}
 				}
 			}
+			// A value the act set through a field has no place on the screen,
+			// and typed blind it could land in any field.
+			if recorded.Invoked && recorded.Action.Kind == computeruse.KindType {
+				outcome.reason = fmt.Sprintf("turn %d of %d set a field's value through its element, which a replay by pixels cannot do", i+1, total)
+				return outcome, nil
+			}
 			action := v.absolute(recorded.Action)
 			logAction(r.timeline, index, "replay by pixels: "+describeAction(action))
 			outcome.actions++

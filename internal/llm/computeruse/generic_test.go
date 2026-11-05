@@ -240,6 +240,75 @@ func TestGenericSessionListsOnlyTheLatestElements(t *testing.T) {
 	assert.Contains(t, texts[1], `- e3: text_field "単価" empty, showing the hint "0"`, "an empty field shows its hint")
 }
 
+// An observation without a screenshot is sent as the element list alone:
+// each element with an id names the tools that take it, the others are
+// listed to be read, and the screenshots already sent stay.
+func TestGenericSessionTakesATurnFromElementsAlone(t *testing.T) {
+	t.Parallel()
+
+	provider := &scriptedProvider{}
+	for range 2 {
+		provider.responses = append(provider.responses, &llm.ChatResponse{Content: "thinking"})
+	}
+	session := newGeneric(t, provider)
+	turner, ok := session.(computeruse.ElementTurner)
+	require.True(t, ok)
+	assert.True(t, turner.ElementTurns())
+	_, err := session.Next(context.Background(), computeruse.Observation{Screen: screen("first")})
+	require.NoError(t, err)
+	_, err = session.Next(context.Background(), computeruse.Observation{Elements: []computeruse.Element{
+		{Role: "text", Name: "保存しました"},
+		{ID: "e1", Role: "text_field", Name: "金額", Value: "1200", Takes: []computeruse.Kind{computeruse.KindClick, computeruse.KindType}},
+		{ID: "e2", Role: "button", Name: "保存", In: "支払情報", Takes: []computeruse.Kind{computeruse.KindClick}},
+		{ID: "e3", Role: "combo_box", Name: "支払方法", Takes: []computeruse.Kind{computeruse.KindClick, computeruse.KindChoose}},
+		{Role: "button", Name: "送信", Disabled: true},
+	}})
+	require.NoError(t, err)
+
+	messages := provider.requests[1].Messages
+	latest := messages[len(messages)-1]
+	assert.Empty(t, latest.Images)
+	assert.NotContains(t, latest.Content, "Current screen")
+	assert.Contains(t, latest.Content, "No screenshot comes with this turn")
+	for _, line := range []string{
+		`- text "保存しました"`,
+		`- e1: text_field "金額" value "1200" [click_element, type]`,
+		`- e2: button "保存" in "支払情報" [click_element]`,
+		`- e3: combo_box "支払方法" [click_element, choose_option]`,
+		`- button "送信" disabled`,
+	} {
+		assert.Contains(t, latest.Content, line)
+	}
+	assert.Equal(t, []byte("first"), messages[1].Images[0].Data, "the earlier screenshot stays")
+}
+
+// A model may type into a field it names by id, and ask for a screenshot
+// with a tool that takes no arguments.
+func TestGenericSessionTypesIntoAFieldAndAsksForTheScreen(t *testing.T) {
+	t.Parallel()
+
+	provider := &scriptedProvider{responses: []*llm.ChatResponse{
+		{ToolCalls: []llm.ToolCall{
+			toolCall("t1", "type", `{"text":"1200","element_id":"e1"}`),
+			toolCall("s1", "screenshot", ``),
+		}},
+	}}
+	session := newGeneric(t, provider)
+	turn, err := session.Next(context.Background(), computeruse.Observation{Screen: screen("a")})
+	require.NoError(t, err)
+	assert.Equal(t, []computeruse.Action{
+		{CallID: "t1", Kind: computeruse.KindType, ElementID: "e1", Text: "1200"},
+		{CallID: "s1", Kind: computeruse.KindScreenshot},
+	}, turn.Actions)
+	for _, tool := range provider.requests[0].Tools {
+		if tool.Function.Name == "screenshot" {
+			assert.Equal(t, []string{}, tool.Function.Parameters["required"])
+			return
+		}
+	}
+	t.Fatal("no screenshot tool is offered")
+}
+
 // A task that quotes the element list's header keeps all of its text when
 // the next screen removes the earlier list.
 func TestGenericSessionKeepsATaskThatQuotesTheListHeader(t *testing.T) {
@@ -249,7 +318,7 @@ func TestGenericSessionKeepsATaskThatQuotesTheListHeader(t *testing.T) {
 	for range 2 {
 		provider.responses = append(provider.responses, &llm.ChatResponse{Content: "thinking"})
 	}
-	const task = "Read the form.\nElements you can target with click_element by id: then press 確定 last"
+	const task = "Read the form.\nElements of the window in front. Target one by its id with a tool in brackets after it; an element without an id cannot be targeted: then press 確定 last"
 	session, err := computeruse.New(llm.ProviderLocal, provider, computeruse.ModeAuto, computeruse.Options{Model: "test-model", Task: task})
 	require.NoError(t, err)
 	for range 2 {
