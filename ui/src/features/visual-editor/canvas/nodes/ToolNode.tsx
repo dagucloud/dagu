@@ -67,7 +67,7 @@ function ToolNodeComponent({ data, selected }: NodeProps<StepFlowNode>) {
             issues={node.issues}
             issueMessages={node.issueMessages}
           />
-          <RunStatus run={node.run} />
+          <RunStatus run={node.run} reuseOutline={node.reuseOutline} />
         </div>
         {detail && (
           <span className="truncate text-[11px] text-muted-foreground">

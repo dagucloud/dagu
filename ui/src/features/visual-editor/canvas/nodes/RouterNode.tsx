@@ -152,7 +152,11 @@ function RouterNodeComponent({
               issues={node.issues}
               issueMessages={node.issueMessages}
             />
-            <RunStatus run={node.run} noBadge={compact} />
+            <RunStatus
+              run={node.run}
+              reuseOutline={node.reuseOutline}
+              noBadge={compact}
+            />
           </div>
           {!compact && (node.routeValue ?? node.subtitle) && (
             <span
