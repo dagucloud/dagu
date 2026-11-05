@@ -47,8 +47,10 @@ type computerExecutor struct {
 	screenPoll   time.Duration
 	screenWait   time.Duration
 	// openElements reads the front window's elements for exact checks. It
-	// is called on the first one.
+	// is called on the first one. openMarks opens the marks that show a
+	// person where the step acts.
 	openElements func() (desktop.Elements, error)
+	openMarks    func() (desktop.Marks, error)
 	launch       func(dir, command string, args []string) error
 	newProvider  providerFactory
 	newSession   sessionFactory
@@ -102,6 +104,7 @@ func newExecutor(_ context.Context, step ir.Step) (executor.Executor, error) {
 		screenPoll:      defaultScreenPoll,
 		screenWait:      defaultScreenWait,
 		openElements:    desktop.OpenElements,
+		openMarks:       desktop.OpenMarks,
 		launch:          desktop.Launch,
 		newProvider:     runtime.NewLLMProvider,
 		newSession:      computeruse.New,

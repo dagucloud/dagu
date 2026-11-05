@@ -36,6 +36,7 @@ func Computer() *cobra.Command {
 	cmd.AddCommand(computerCheckCommand())
 	cmd.AddCommand(computerElementsCommand())
 	cmd.AddCommand(computerCacheCommand())
+	cmd.AddCommand(computerMarksCommand())
 	return cmd
 }
 

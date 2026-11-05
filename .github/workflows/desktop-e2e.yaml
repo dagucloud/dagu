@@ -68,7 +68,7 @@ jobs:
 
       - name: Test the desktop driver
         shell: bash
-        run: go test -count=1 -v -run 'TestWindowsDesktop|TestWindowsCapture|TestInputMatchesWin32Layout|TestWindowsElements|TestWindowsDirectInput|TestWindowsTableRead|TestWindowsElementTimings|TestVariantLayout|TestPointArg|TestRoleOf|TestOpenElementsCloses|TestPatternConstants|TestBstrAlloc|TestPatternAsWithoutPattern' ./internal/desktop/
+        run: go test -count=1 -v -run 'TestWindowsDesktop|TestWindowsCapture|TestWindowsMarks|TestInputMatchesWin32Layout|TestWindowsElements|TestWindowsDirectInput|TestWindowsTableRead|TestWindowsElementTimings|TestVariantLayout|TestPointArg|TestRoleOf|TestOpenElementsCloses|TestPatternConstants|TestBstrAlloc|TestPatternAsWithoutPattern' ./internal/desktop/
 
       - name: List the elements of the window in front
         shell: bash
