@@ -1873,6 +1873,7 @@ export function VisualEditor(props: VisualEditorProps): ReactElement {
           open={workflowOpen}
           onClose={() => toggleWorkflow(false)}
           bare={workflowPanelBare}
+          onShowYaml={onYamlVisibleChange ? () => toggleYaml(true) : undefined}
         >
           {workflowPanel}
         </WorkflowDrawer>

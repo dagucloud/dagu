@@ -9,18 +9,22 @@ import {
 import { cn } from '@/lib/utils';
 import { StepSideDrawer } from '@/features/dags/components/step-details/StepSideDrawer';
 import { useI18n } from '@/i18n/I18nProvider';
+import { PanelSwitchButton } from './PanelSwitchButton';
 
 /** The side drawer of the workflow panel: what the workflow is, apart from one step. */
 export function WorkflowDrawer({
   open,
   onClose,
   bare = false,
+  onShowYaml,
   children,
 }: {
   open: boolean;
   onClose(): void;
   /** The content brings its own body (tabs): no wrapper. */
   bare?: boolean;
+  /** Swaps the panel for the YAML panel, from the header. */
+  onShowYaml?(): void;
   children: ReactNode;
 }): ReactElement {
   const { ts } = useI18n();
@@ -38,7 +42,16 @@ export function WorkflowDrawer({
           title={ts('Workflow')}
           closeLabel={ts('Close')}
           onClose={onClose}
-        />
+        >
+          {onShowYaml && (
+            <div className="flex min-w-0 flex-1 items-center gap-2">
+              <h2 className="truncate text-base font-semibold text-foreground">
+                {ts('Workflow')}
+              </h2>
+              <PanelSwitchButton to="yaml" onClick={onShowYaml} />
+            </div>
+          )}
+        </PanelHeader>
         {bare ? (
           children
         ) : (
