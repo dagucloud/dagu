@@ -11,6 +11,7 @@ import (
 
 	"github.com/dagucloud/dagu/v2/internal/cmn/buildenv"
 	"github.com/dagucloud/dagu/v2/internal/cmn/stringutil"
+	"github.com/dagucloud/dagu/v2/internal/dagrun"
 	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/persis"
 	runtimeenvtransport "github.com/dagucloud/dagu/v2/internal/runtimeenv/transport"
@@ -81,43 +82,58 @@ steps:
 func TestEnqueueCatchupRun_ReplacesIncompleteRestartRun(t *testing.T) {
 	t.Parallel()
 
-	th := test.Setup(t)
-	dag := th.DAG(t, `name: enqueue-incomplete-restart
+	for name, cutShort := range map[string]func(t *testing.T, attempt dagrun.Attempt){
+		"NoStatusFile": func(*testing.T, dagrun.Attempt) {},
+		// The status file is created when the attempt is opened, and stays
+		// empty until the first status is written.
+		"EmptyStatusFile": func(t *testing.T, attempt dagrun.Attempt) {
+			require.NoError(t, attempt.Open(t.Context()))
+			require.NoError(t, attempt.Close(t.Context()))
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+
+			th := test.Setup(t)
+			dag := th.DAG(t, `name: enqueue-incomplete-restart
 restart_policy: always
 restart_wait_sec: 1
 steps:
   - run: echo ok
 `)
-	runID := scheduler.GenerateRestartRunID(dag.Name, "", time.Time{})
-	_, err := th.DAGRunRepository.CreateAttempt(th.Context, dag.DAG, time.Now(), runID, persis.DAGRunCreateAttemptOptions{})
-	require.NoError(t, err)
+			runID := scheduler.GenerateRestartRunID(dag.Name, "", time.Time{})
+			incomplete, err := th.DAGRunRepository.CreateAttempt(th.Context, dag.DAG, time.Now(), runID, persis.DAGRunCreateAttemptOptions{})
+			require.NoError(t, err)
+			cutShort(t, incomplete)
 
-	err = scheduler.EnqueueCatchupRun(
-		th.Context,
-		th.DAGRunRepository,
-		th.QueueStore,
-		th.Config.Paths.LogDir,
-		th.Config.Paths.ArtifactDir,
-		th.Config.Paths.BaseConfig,
-		"",
-		dag.Name,
-		dag.DAG,
-		runID,
-		ir.TriggerTypeRestart,
-		time.Now(),
-		"",
-	)
-	require.NoError(t, err)
+			err = scheduler.EnqueueCatchupRun(
+				th.Context,
+				th.DAGRunRepository,
+				th.QueueStore,
+				th.Config.Paths.LogDir,
+				th.Config.Paths.ArtifactDir,
+				th.Config.Paths.BaseConfig,
+				"",
+				dag.Name,
+				dag.DAG,
+				runID,
+				ir.TriggerTypeRestart,
+				time.Now(),
+				"",
+			)
+			require.NoError(t, err)
 
-	attempt, err := th.DAGRunRepository.FindAttempt(th.Context, ir.NewDAGRunRef(dag.Name, runID))
-	require.NoError(t, err)
-	status, err := attempt.ReadStatus(th.Context)
-	require.NoError(t, err)
-	assert.Equal(t, ir.Queued, status.Status)
+			attempt, err := th.DAGRunRepository.FindAttempt(th.Context, ir.NewDAGRunRef(dag.Name, runID))
+			require.NoError(t, err)
+			status, err := attempt.ReadStatus(th.Context)
+			require.NoError(t, err)
+			assert.Equal(t, ir.Queued, status.Status)
 
-	items, err := th.QueueStore.List(th.Context, dag.ProcGroup())
-	require.NoError(t, err)
-	assert.Len(t, items, 1)
+			items, err := th.QueueStore.List(th.Context, dag.ProcGroup())
+			require.NoError(t, err)
+			assert.Len(t, items, 1)
+		})
+	}
 }
 
 func TestEnqueueCatchupRun_RehydratesFullDAGBeforePersisting(t *testing.T) {

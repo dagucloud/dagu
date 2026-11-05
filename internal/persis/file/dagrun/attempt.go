@@ -115,10 +115,15 @@ func (att *Attempt) Dir() string {
 	return filepath.Dir(att.file)
 }
 
-// Exists returns true if the status file exists.
+// Exists reports whether the attempt has a status. Its status file is created
+// when the attempt is opened and stays empty until the first status is
+// written, so an empty file holds none.
 func (att *Attempt) Exists() bool {
-	_, err := fileutil.Stat(att.file)
-	return err == nil || !os.IsNotExist(err)
+	info, err := fileutil.Stat(att.file)
+	if err != nil {
+		return !os.IsNotExist(err)
+	}
+	return info.Size() > 0
 }
 
 // ModTime returns the last modification time of the status file.

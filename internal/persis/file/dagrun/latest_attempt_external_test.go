@@ -11,6 +11,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/dagucloud/dagu/v2/internal/dagrun"
 	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/persis"
 	filedagrun "github.com/dagucloud/dagu/v2/internal/persis/file/dagrun"
@@ -75,6 +76,23 @@ func TestStoreLatestAttemptSkipsStatuslessRun(t *testing.T) {
 	status, err := latest.ReadStatus(ctx)
 	require.NoError(t, err)
 	require.Equal(t, "run-1", status.DAGRunID)
+}
+
+// The status file of an attempt is created when the attempt is opened, and
+// stays empty until its first status is written. An attempt left there by a
+// crash has no status.
+func TestStoreEmptyStatusFileHasNoStatus(t *testing.T) {
+	ctx := context.Background()
+	repository := newFileRepository(t.TempDir(), persis.DAGRunRepositoryOptions{})
+	dag := &ir.DAG{Name: "empty-status"}
+
+	attempt, err := repository.CreateAttempt(ctx, dag, time.Now(), "run-1", persis.DAGRunCreateAttemptOptions{})
+	require.NoError(t, err)
+	require.NoError(t, attempt.Open(ctx))
+	require.NoError(t, attempt.Close(ctx))
+
+	_, err = repository.FindAttempt(ctx, ir.NewDAGRunRef(dag.Name, "run-1"))
+	require.ErrorIs(t, err, dagrun.ErrNoStatusData)
 }
 
 func TestUpdateLatestAttemptPointerHonorsCanceledContext(t *testing.T) {
