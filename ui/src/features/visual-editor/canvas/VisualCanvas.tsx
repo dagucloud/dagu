@@ -705,11 +705,13 @@ function CanvasView({
     }
   };
   // A change of the room of the canvas (a panel, Activity, the window) or of
-  // the graph glides the view to its new place, in one move.
-  const autoFit = useAutoFit(wrapperRef, () => {
-    fitView(fitOptions, GLIDE);
+  // the graph glides the view to its new place, in one move; while the
+  // canvas has just shown, it jumps there.
+  const autoFit = useAutoFit(wrapperRef, (glide) => {
+    const motion = glide ? GLIDE : undefined;
+    fitView(fitOptions, motion);
     // A resize that fits the graph again keeps the selected step in view.
-    keepSelectedInView(GLIDE);
+    keepSelectedInView(motion);
   });
   const {
     onUserMove: stopAutoFit,

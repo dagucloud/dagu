@@ -3,7 +3,11 @@
 
 import { act, renderHook } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { AUTO_FIT_DELAY_MS, useAutoFit } from '../useAutoFit';
+import {
+  AUTO_FIT_DELAY_MS,
+  AUTO_FIT_SETTLE_MS,
+  useAutoFit,
+} from '../useAutoFit';
 
 let notify: (width: number, height: number) => void = () => undefined;
 
@@ -58,6 +62,22 @@ describe('useAutoFit', () => {
     notify(500, 600);
     act(() => vi.advanceTimersByTime(AUTO_FIT_DELAY_MS));
     expect(fit).toHaveBeenCalledTimes(1);
+  });
+
+  // The parts of a page that opens (its triggers, its overlays) change the
+  // graph one after another: the view jumps for them, and glides for a
+  // change once the canvas has been shown for a while.
+  it('jumps for a fit just after the canvas shows, and glides later', () => {
+    const { fit, result } = setup();
+    act(() => result.current.refit());
+    expect(fit).toHaveBeenLastCalledWith(false);
+
+    act(() => vi.advanceTimersByTime(AUTO_FIT_SETTLE_MS));
+    act(() => result.current.refit());
+    expect(fit).toHaveBeenLastCalledWith(true);
+    notify(700, 600);
+    act(() => vi.advanceTimersByTime(AUTO_FIT_DELAY_MS));
+    expect(fit).toHaveBeenLastCalledWith(true);
   });
 
   // parity:canvas-auto-fit
