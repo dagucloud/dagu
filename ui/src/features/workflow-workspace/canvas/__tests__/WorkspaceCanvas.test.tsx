@@ -20,6 +20,10 @@ import {
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { NodeStatus, Status } from '@/api/v1/schema';
 import { AppBarContext } from '@/contexts/AppBarContext';
+import {
+  RightPanelProvider,
+  useRightPanelClaim,
+} from '@/contexts/RightPanelContext';
 import { UserPreferencesProvider } from '@/contexts/UserPreference';
 import type DAGSpec from '@/features/dags/components/dag-editor/DAGSpec';
 import { usePanelPlacement } from '@/features/dags/components/step-details/PanelShell';
@@ -401,41 +405,44 @@ function EditorProbe() {
   );
 }
 
-function renderCanvas(url = '/dags/example.yaml') {
+function renderCanvas(url = '/dags/example.yaml', extra?: React.ReactNode) {
   return render(
-    <UserPreferencesProvider>
-      <AppBarContext.Provider
-        value={{
-          title: 'DAGs',
-          setTitle: vi.fn(),
-          remoteNodes: ['local'],
-          setRemoteNodes: vi.fn(),
-          selectedRemoteNode: 'local',
-          selectRemoteNode: vi.fn(),
-        }}
-      >
-        <MemoryRouter initialEntries={[url]}>
-          <Routes>
-            {['/dags/:fileName', '/dags/:fileName/:tab'].map((path) => (
-              <Route
-                key={path}
-                path={path}
-                element={
-                  <WorkspaceEditorProvider>
-                    <LocationProbe />
-                    <EditorProbe />
-                    <WorkspaceCanvas
-                      fileName="example.yaml"
-                      dagData={dagData}
-                    />
-                  </WorkspaceEditorProvider>
-                }
-              />
-            ))}
-          </Routes>
-        </MemoryRouter>
-      </AppBarContext.Provider>
-    </UserPreferencesProvider>
+    <RightPanelProvider>
+      <UserPreferencesProvider>
+        <AppBarContext.Provider
+          value={{
+            title: 'DAGs',
+            setTitle: vi.fn(),
+            remoteNodes: ['local'],
+            setRemoteNodes: vi.fn(),
+            selectedRemoteNode: 'local',
+            selectRemoteNode: vi.fn(),
+          }}
+        >
+          <MemoryRouter initialEntries={[url]}>
+            <Routes>
+              {['/dags/:fileName', '/dags/:fileName/:tab'].map((path) => (
+                <Route
+                  key={path}
+                  path={path}
+                  element={
+                    <WorkspaceEditorProvider>
+                      <LocationProbe />
+                      <EditorProbe />
+                      <WorkspaceCanvas
+                        fileName="example.yaml"
+                        dagData={dagData}
+                      />
+                      {extra}
+                    </WorkspaceEditorProvider>
+                  }
+                />
+              ))}
+            </Routes>
+          </MemoryRouter>
+        </AppBarContext.Provider>
+      </UserPreferencesProvider>
+    </RightPanelProvider>
   );
 }
 
@@ -981,6 +988,41 @@ describe('WorkspaceCanvas', () => {
       act(() => props().ndv?.onStateChange(null));
       expect(location()).toHaveTextContent('step=extract');
       expect(shownPanel()).toBeNull();
+    });
+
+    // The Workflow panel gives its place to the step panel and to the node
+    // view of a step, and comes back when they close.
+    it('takes the place of the Workflow panel and gives it back', () => {
+      let setWorkflowOpen: (open: boolean) => void = () => {};
+      function WorkflowPanel() {
+        const [open, setOpen] = React.useState(false);
+        setWorkflowOpen = setOpen;
+        useRightPanelClaim('workflow', open, () => setOpen(false));
+        return open ? <div data-testid="workflow-panel" /> : null;
+      }
+      const openWorkflowPanel = vi.fn(() => setWorkflowOpen(true));
+      host.handle = {
+        openWorkflowPanel,
+        toggleYaml: vi.fn(),
+        revealStep: vi.fn(),
+      } as unknown as WorkspaceEditorHandle;
+      renderCanvas('/dags/example.yaml', <WorkflowPanel />);
+      const workflowPanel = () => screen.queryByTestId('workflow-panel');
+
+      act(() => setWorkflowOpen(true));
+      clickStep('extract');
+      expect(shownPanel()).toHaveAttribute('data-step', 'extract');
+      expect(workflowPanel()).toBeNull();
+      fireEvent.click(screen.getByRole('button', { name: 'close panel' }));
+      expect(workflowPanel()).toBeInTheDocument();
+
+      // A double click opens the node view after the step panel.
+      clickStep('extract');
+      act(() => props().ndv?.onStateChange('expanded'));
+      expect(workflowPanel()).toBeNull();
+      act(() => props().ndv?.onStateChange(null));
+      expect(workflowPanel()).toBeInTheDocument();
+      expect(openWorkflowPanel).toHaveBeenCalledTimes(2);
     });
 
     it('opens from a link to a step, not from a link to the Run panel or the node view', () => {

@@ -11,7 +11,10 @@ import {
 } from 'react';
 import { subscribeClock } from '@/hooks/useClock';
 import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
-import { useActiveRightPanel } from '@/contexts/RightPanelContext';
+import {
+  useActiveRightPanel,
+  useCloseRightPanel,
+} from '@/contexts/RightPanelContext';
 import DAGSpec from '@/features/dags/components/dag-editor/DAGSpec';
 import type { DAGSpecHostProps } from '@/features/dags/components/dag-editor/hostTypes';
 import type {
@@ -447,6 +450,43 @@ export function WorkspaceCanvas({
   });
   const panelStep = stepPanel.shown ? url.step : null;
   const openStepDetails = useOpenStepDetails();
+
+  // A click on a step closes the Workflow panel, which covers the step
+  // panel, and opens it again once the step panel and the node view of the
+  // step have shown and closed. Another panel that opens in between is the
+  // choice.
+  const closeRightPanel = useCloseRightPanel();
+  const workflowUnderStep = useRef<'closed' | 'covered' | null>(null);
+  const activePanelRef = useRef(activePanel);
+  activePanelRef.current = activePanel;
+  const showStep = stepPanel.show;
+  const onStepClick = useCallback(
+    (_step: string, at: { clientX: number; clientY: number }) => {
+      showStep(at);
+      if (activePanelRef.current !== 'workflow') return;
+      workflowUnderStep.current = 'closed';
+      closeRightPanel();
+    },
+    [showStep, closeRightPanel]
+  );
+  useEffect(() => {
+    if (!workflowUnderStep.current) return;
+    if (
+      url.ndv === 'docked' ||
+      (activePanel !== null && activePanel !== 'ndv')
+    ) {
+      workflowUnderStep.current = null;
+      return;
+    }
+    if (stepPanel.shown || url.ndv === 'expanded') {
+      workflowUnderStep.current = 'covered';
+      return;
+    }
+    // Closing the panel renders once before the step panel opens.
+    if (workflowUnderStep.current !== 'covered' || activePanel !== null) return;
+    workflowUnderStep.current = null;
+    handle?.openWorkflowPanel(true);
+  }, [activePanel, stepPanel.shown, url.ndv, handle]);
   // The step panel is a right panel too, without a claim of its own. Each
   // click on a step can hold off its mark, so each one watches again.
   const clearance = useRightPanelClearance(
@@ -596,7 +636,7 @@ export function WorkspaceCanvas({
                     onRunStarted={onRunStarted}
                     selectedStepName={url.step}
                     onSelectedStepNameChange={onSelectedStepNameChange}
-                    onStepClick={(_step, at) => stepPanel.show(at)}
+                    onStepClick={onStepClick}
                     ndv={ndv}
                     openNdvOn="open"
                     renderStepOutput={renderStepOutput}
