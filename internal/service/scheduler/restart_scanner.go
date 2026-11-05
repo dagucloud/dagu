@@ -5,6 +5,7 @@ package scheduler
 
 import (
 	"context"
+	"errors"
 	"log/slog"
 	"time"
 
@@ -29,6 +30,10 @@ import (
 //
 // Each run in a row that does not succeed within restartBackoffRunTime of its
 // start doubles the wait before the next run, up to restartBackoffMaxWait.
+//
+// Runs go through queues: while queues are disabled, a service DAG gets no run
+// and every scan returns an error for it, logged at most every
+// restartErrorLogInterval.
 
 const (
 	// restartScanInterval is how often service DAGs are checked. It bounds the
@@ -48,6 +53,10 @@ const (
 	// it is not doubled.
 	restartBackoffMaxWait = 5 * time.Minute
 )
+
+// errRestartQueuesDisabled says a service DAG gets no run: its runs go through
+// queues.
+var errRestartQueuesDisabled = errors.New("restart_policy starts runs through queues, and queues are disabled")
 
 // StopRequestedFunc reports whether an operator asked to stop a run of a DAG.
 type StopRequestedFunc func(ctx context.Context, dag *ir.DAG, runID string) (bool, error)
@@ -88,8 +97,7 @@ type RestartScannerConfig struct {
 type RestartScanner struct {
 	cfg RestartScannerConfig
 
-	warnedNoQueue map[string]struct{}
-	lastErrorLog  map[string]time.Time
+	lastErrorLog map[string]time.Time
 	// stoppedRuns maps a DAG name to the attempt of its latest run, once an
 	// operator is known to have stopped that attempt.
 	stoppedRuns map[string]string
@@ -124,12 +132,11 @@ func NewRestartScanner(cfg RestartScannerConfig) *RestartScanner {
 		cfg.IsSuspended = func(context.Context, string) (bool, error) { return false, nil }
 	}
 	return &RestartScanner{
-		cfg:           cfg,
-		warnedNoQueue: make(map[string]struct{}),
-		lastErrorLog:  make(map[string]time.Time),
-		stoppedRuns:   make(map[string]string),
-		backoff:       make(map[string]restartBackoff),
-		waiting:       make(map[string]restartDue),
+		cfg:          cfg,
+		lastErrorLog: make(map[string]time.Time),
+		stoppedRuns:  make(map[string]string),
+		backoff:      make(map[string]restartBackoff),
+		waiting:      make(map[string]restartDue),
 	}
 }
 
@@ -191,13 +198,7 @@ func (s *RestartScanner) process(ctx context.Context, entry DAGEntry, now time.T
 	}
 
 	if s.cfg.Enqueue == nil {
-		if _, warned := s.warnedNoQueue[dag.Name]; !warned {
-			s.warnedNoQueue[dag.Name] = struct{}{}
-			logger.Warn(ctx, "DAG sets restart_policy but queues are disabled; it will not be restarted",
-				tag.DAG(dag.Name),
-			)
-		}
-		return nil
+		return errRestartQueuesDisabled
 	}
 
 	// A live process or a queued item keeps the DAG busy. On error the DAG is
@@ -337,11 +338,6 @@ func failedSoonAfterStart(status *ir.DAGRunStatus) bool {
 // forgetOthers drops what the scanner remembers about DAGs it no longer keeps
 // alive.
 func (s *RestartScanner) forgetOthers(services map[string]struct{}) {
-	for name := range s.warnedNoQueue {
-		if _, ok := services[name]; !ok {
-			delete(s.warnedNoQueue, name)
-		}
-	}
 	for name := range s.lastErrorLog {
 		if _, ok := services[name]; !ok {
 			delete(s.lastErrorLog, name)

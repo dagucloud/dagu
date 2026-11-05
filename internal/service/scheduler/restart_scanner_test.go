@@ -485,6 +485,8 @@ func TestRestartScanner(t *testing.T) {
 		assert.Len(t, h.enqueued, 1, "the next scan tries again")
 	})
 
+	// Restarts go through queues, so with queues disabled the DAG never runs:
+	// an error that keeps being logged, not a warning logged once.
 	t.Run("QueuesDisabled", func(t *testing.T) {
 		t.Parallel()
 		h := newRestartHarness(t, serviceDAG("svc", ir.RestartPolicyAlways))
@@ -492,7 +494,12 @@ func TestRestartScanner(t *testing.T) {
 		h.scan()
 		h.scan()
 		assert.Empty(t, h.enqueued)
-		assert.Equal(t, 1, h.logged("queues are disabled"), "the warning is logged once per DAG")
+		assert.Equal(t, 1, h.logged("queues are disabled"), "errors are throttled")
+
+		h.now = h.now.Add(restartErrorLogInterval)
+		h.scan()
+		assert.Equal(t, 2, h.logged("queues are disabled"))
+		assert.Equal(t, 2, h.logged("level=ERROR"))
 	})
 }
 
