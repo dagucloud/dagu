@@ -34,6 +34,9 @@ const NAME_CLASS =
   'sticky left-0 z-[1] flex h-6 w-44 shrink-0 items-center gap-1 border-r border-border bg-card px-3';
 const FOCUS_CLASS =
   'cursor-pointer outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring';
+// The band of the selected run's column; its header dot is ringed, as the
+// run timeline rings the selected bar.
+const SELECTED_CLASS = 'bg-primary/20';
 // The row of the run headers, above the step rows, in the keyboard moves.
 const HEADER_ROW = -1;
 
@@ -174,7 +177,7 @@ const GridRow = memo(function GridRow({
             className={cn(
               CELL_CLASS,
               FOCUS_CLASS,
-              col === selectedCol && 'bg-primary/10'
+              col === selectedCol && SELECTED_CLASS
             )}
           >
             <CellMark entry={entry} />
@@ -402,14 +405,18 @@ export function StepsGrid({
                   CELL_CLASS,
                   FOCUS_CLASS,
                   'hover:bg-muted',
-                  col === selectedCol && 'bg-primary/10'
+                  col === selectedCol && SELECTED_CLASS
                 )}
               >
                 <StatusDot
                   kind="run"
                   status={run.status}
                   decorative
-                  className="motion-safe:animate-none"
+                  className={cn(
+                    'motion-safe:animate-none',
+                    col === selectedCol &&
+                      'ring-2 ring-primary ring-offset-1 ring-offset-card'
+                  )}
                 />
               </div>
             );
