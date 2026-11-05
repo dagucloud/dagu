@@ -1836,9 +1836,9 @@ function DAGSpec({
   };
 
   // A click on a trigger while the YAML of the file shows: the cursor goes
-  // to the key of the file that the trigger stands for. Webhooks live on the
-  // server and have no key: the YAML stays as it is.
-  const revealTrigger = (id: LauncherId) => {
+  // to the key of the file that the trigger stands for. A webhook lives on
+  // the server and has no key: false, and its panel opens.
+  const revealTrigger = (id: LauncherId): boolean => {
     const key = TRIGGER_KEYS[id];
     const editor = yamlEditorRef.current as
       | (CodeEditorLike & {
@@ -1847,9 +1847,9 @@ function DAGSpec({
         })
       | null;
     const lines = editor?.getModel()?.getValue().split('\n');
-    if (!key || !editor?.setSelection || !lines) return;
+    if (!key || !editor?.setSelection || !lines) return false;
     const index = lines.findIndex((line) => line.startsWith(`${key}:`));
-    if (index < 0) return;
+    if (index < 0) return false;
     editor.setSelection({
       startLineNumber: index + 1,
       startColumn: 1,
@@ -1857,6 +1857,7 @@ function DAGSpec({
       endColumn: lines[index]!.length + 1,
     });
     editor.revealLineInCenter?.(index + 1);
+    return true;
   };
 
   // A row of the Issues popover: the cursor of the YAML goes to the line of

@@ -255,7 +255,7 @@ describe('VisualEditor launchers', () => {
   // step shows its block.
   it('shows the YAML of the trigger while the YAML of the file shows', () => {
     const onYamlVisibleChange = vi.fn();
-    const onRevealTrigger = vi.fn();
+    const onRevealTrigger = vi.fn(() => true);
     renderEditor(yamlArraySteps, {
       yamlVisible: true,
       initialYamlMode: 'file',
@@ -268,6 +268,20 @@ describe('VisualEditor launchers', () => {
     expect(onRevealTrigger).toHaveBeenCalledWith('cron');
     expect(screen.queryByTestId('ve-launcher-panel-cron')).toBeNull();
     expect(onYamlVisibleChange).not.toHaveBeenCalledWith(false);
+  });
+
+  // A trigger with no part in the file, such as a webhook, opens its panel.
+  it('opens the panel of a trigger that has no part in the YAML', () => {
+    renderEditor(yamlArraySteps, {
+      yamlVisible: true,
+      initialYamlMode: 'file',
+      onYamlVisibleChange: vi.fn(),
+      onRevealTrigger: () => false,
+    });
+    fireEvent.click(
+      within(screen.getByTestId('ve-launcher-cron')).getByRole('button')
+    );
+    expect(screen.getByTestId('ve-launcher-panel-cron')).toBeInTheDocument();
   });
 
   // A launcher panel and a step take turns: a click on a step closes the

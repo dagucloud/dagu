@@ -1306,10 +1306,7 @@ export function VisualEditor(props: VisualEditorProps): ReactElement {
     }
     // The YAML of the file stays: the click shows the part of the file
     // that the trigger stands for, as a click on a step shows its block.
-    if (wholeFileShown && onRevealTrigger) {
-      onRevealTrigger(id);
-      return;
-    }
+    if (wholeFileShown && onRevealTrigger?.(id)) return;
     // The click on a launcher ends the focus on a step: the panel of the
     // launcher takes the place of the step.
     select(null);
