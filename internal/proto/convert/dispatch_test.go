@@ -193,3 +193,21 @@ func TestDispatchTaskPassedEnvRoundTrips(t *testing.T) {
 	require.NotNil(t, got)
 	assert.Equal(t, []string{"TODAY=2026-01-01", "GH_USER=octocat"}, got.PassedEnv)
 }
+
+func TestMachineSampleRoundTrips(t *testing.T) {
+	t.Parallel()
+
+	cpu, peak, inodes := 12.5, 80.0, 3.0
+	sample := &dispatch.MachineSample{
+		CPUs:           8,
+		CPULimit:       1.5,
+		CPUPercent:     &cpu,
+		CPUPeakPercent: &peak,
+		Memory:         &dispatch.MachineUsage{UsedPercent: 50, UsedBytes: 256 << 20, TotalBytes: 512 << 20, Limited: true},
+		Disk:           &dispatch.MachineUsage{UsedPercent: 91.5, UsedBytes: 915, TotalBytes: 1000, InodesUsedPercent: &inodes},
+		Load:           &dispatch.MachineLoad{Load1: 1.5, Load5: 1.25, Load15: 0.75},
+	}
+
+	assert.Equal(t, sample, convert.ProtoToMachineSample(convert.MachineSampleToProto(sample)))
+	assert.Nil(t, convert.ProtoToMachineSample(nil))
+}
