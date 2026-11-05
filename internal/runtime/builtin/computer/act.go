@@ -396,6 +396,17 @@ func (l *actLoop) run(ctx context.Context) error {
 					return fmt.Errorf("the model kept sending batches larger than the actions left (max_actions %d)", l.budget)
 				}
 				l.stalled = 0
+				// Check the person against the screen the model last saw
+				// before refreshing it: a window switch there would be lost
+				// once l.seen is replaced, and the next fitting batch could
+				// act on the person's window. Return to the work app first.
+				person, perr := l.personUsed(ctx)
+				if perr != nil {
+					return perr
+				}
+				if person {
+					l.returnAfterPerson(ctx)
+				}
 				shown, offered, err := l.lookAndOffer(ctx)
 				if err != nil {
 					return err
@@ -432,8 +443,13 @@ func (l *actLoop) run(ctx context.Context) error {
 			}
 			continue
 		}
-		// The batch fits, so a run of oversized batches is over.
-		l.overruns = 0
+		// A nonempty batch fits, so a run of oversized batches is over. A
+		// text-only turn fits too but has no actions, so it does not clear the
+		// count: a model can otherwise alternate oversized batches with text
+		// answers and keep the act alive until timeout without running one.
+		if len(turn.Actions) > 0 {
+			l.overruns = 0
+		}
 		// Before running the turn's actions, make sure the world still matches
 		// the screen the model chose them on. A person who used the desktop,
 		// or any other change that moved or covered the target between the
@@ -1088,6 +1104,9 @@ func sendsKeys(action computeruse.Action) bool {
 
 // admit rejects a turn whose actions the step may not run, and reports a
 // turn whose actions would take the task past its budget.
+// admit reports whether the turn's actions would push the task past its
+// action budget. A confirmation that asks a person to approve the next
+// actions is an error unless the step allows it.
 func (l *actLoop) admit(turn *computeruse.Turn) (over bool, err error) {
 	if turn.Confirmation != "" && len(turn.Actions) > 0 && l.r.cfg.OnConfirmation != confirmationAllow {
 		return false, fmt.Errorf("the model provider asks a person to confirm the next actions (%s); add an ask operation before this act and set on_confirmation: allow", turn.Confirmation)

@@ -3643,6 +3643,102 @@ func TestCapRepeatedOverrunEndsTheAct(t *testing.T) {
 	require.ErrorContains(t, execution.err, "kept sending batches larger than the actions left")
 }
 
+// A text answer between oversized batches must not clear the overrun count:
+// a model could otherwise alternate oversized batches with text and keep the
+// act alive until timeout without running a single action.
+func TestCapTextAnswerDoesNotResetOverruns(t *testing.T) {
+	t.Parallel()
+
+	run := newTestRun(t)
+	run.sessions = []*scriptedSession{{turns: []*computeruse.Turn{
+		actions(clickAt(1, 1)),
+		actions(clickAt(2, 2), clickAt(3, 3), clickAt(4, 4)),
+		said("Let me think about the next action."),
+		actions(clickAt(5, 5), clickAt(6, 6)),
+	}}}
+	execution := run.execute(`{"max_actions": 2, "cache": false, "do": [{"act": "Click around"}]}`, nil)
+	require.ErrorContains(t, execution.err, "kept sending batches larger than the actions left")
+}
+
+// A smaller batch that fits resets the overrun count, so an overrunning model
+// that then sends a valid batch is not ended by an earlier overage: a later
+// overage is again a fresh invitation rather than a termination.
+func TestCapFitBatchResetsOverruns(t *testing.T) {
+	t.Parallel()
+
+	run := newTestRun(t)
+	session := &scriptedSession{turns: []*computeruse.Turn{
+		actions(clickAt(1, 1)),
+		actions(clickAt(2, 2), clickAt(3, 3), clickAt(4, 4), clickAt(5, 5), clickAt(6, 6), clickAt(7, 7)),
+		actions(clickAt(8, 8), clickAt(9, 9), clickAt(10, 10), clickAt(11, 11), clickAt(12, 12)),
+		actions(clickAt(13, 13), clickAt(14, 14)),
+		actions(clickAt(15, 15), clickAt(16, 16), clickAt(17, 17), clickAt(18, 18)),
+		actions(clickAt(19, 19)),
+		done("Clicked around"),
+	}}
+	run.sessions = []*scriptedSession{session}
+	execution := run.execute(`{"max_actions": 10, "cache": false, "do": [{"act": "Click around"}]}`, nil)
+	require.NoError(t, execution.err)
+
+	notes, _ := session.requests()
+	require.Len(t, notes, 7)
+	overage := []string{}
+	for _, n := range notes {
+		if strings.Contains(n, "did not run") {
+			overage = append(overage, n)
+		}
+	}
+	require.Len(t, overage, 2, "two overages, each a fresh invitation because the fit between them reset the count")
+	for _, n := range overage {
+		assert.NotEqual(t, capNote, n, "an overage with actions left invites a smaller batch, it does not claim the budget is spent")
+		assert.Contains(t, n, "left")
+	}
+	assert.Empty(t, notes[4], "the fitting batch between the two overages ran without a cap")
+}
+
+// When a person switches windows while an oversized batch is held back, the
+// act checks for that input before refreshing the screen, returns to the work
+// application, and does not run the oversized batch against the person's
+// window.
+func TestCapOverrunHonorsPersonWindowSwitch(t *testing.T) {
+	t.Parallel()
+
+	expense := desktop.WindowID{Handle: 2, Title: "Expense", PID: 7, App: "expense", Bounds: image.Rect(0, 0, 400, 200)}
+	mail := desktop.WindowID{Handle: 1, Title: "Mail", PID: 8, App: "mail", Bounds: image.Rect(0, 0, 400, 200)}
+	run := newTestRun(t)
+	run.backend.windows = []desktop.WindowID{mail, expense}
+	run.backend.focusOn(expense)
+	run.backend.under = expense
+	used := false
+	session := &scriptedSession{
+		turns: []*computeruse.Turn{
+			actions(clickAt(10, 10), clickAt(20, 20), clickAt(30, 30)),
+			actions(clickAt(40, 40)),
+			done("Clicked"),
+		},
+		onNext: func() {
+			if used {
+				return
+			}
+			used = true
+			// The person switches windows as the oversized batch is held back.
+			run.backend.personUses()
+			run.backend.show(pattern(400, 200, 150))
+			run.backend.focusOn(mail)
+			run.backend.under = mail
+		},
+	}
+	run.sessions = []*scriptedSession{session}
+	execution := run.execute(`{"idle": "100ms", "max_actions": 2, "cache": false, "do": [{"act": "Save the expense"}]}`, nil)
+	require.NoError(t, execution.err)
+
+	require.Len(t, session.observations, 3)
+	assert.Contains(t, session.observations[1].Note, "actions are left", "the held-back batch keeps its overage note")
+	require.NotEmpty(t, run.backend.raised)
+	assert.Equal(t, expense.Handle, run.backend.raised[0].Handle, "the work application came back, not the person's window")
+	assert.Equal(t, []string{"move 40,40", "left down #1"}, run.backend.inputs(), "the click chosen after the person stopped lands; the oversized batch did not")
+}
+
 // A batch that overruns the actions left counts as an answer with actions,
 // so the model's answers without one are counted afresh, and with actions
 // left a text answer is reminded to continue before it is asked to report.
