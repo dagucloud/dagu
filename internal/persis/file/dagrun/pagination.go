@@ -32,6 +32,9 @@ type dagRunListItem struct {
 	Status *ir.DAGRunStatus
 }
 
+// compareDagRunListKeys orders runs newest first. The timestamp of a run
+// directory has whole seconds: within one second, a larger run ID comes
+// first, as generated IDs grow with time.
 func compareDagRunListKeys(a, b dagRunListKey) int {
 	switch {
 	case a.Timestamp.After(b.Timestamp):
@@ -42,9 +45,9 @@ func compareDagRunListKeys(a, b dagRunListKey) int {
 		return -1
 	case a.Name > b.Name:
 		return 1
-	case a.DAGRunID < b.DAGRunID:
-		return -1
 	case a.DAGRunID > b.DAGRunID:
+		return -1
+	case a.DAGRunID < b.DAGRunID:
 		return 1
 	default:
 		return 0

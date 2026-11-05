@@ -361,6 +361,46 @@ func TestRecentStatusesPageReadsWholeStatuses(t *testing.T) {
 	}
 }
 
+// Runs created in the same second keep the order of their IDs, which grow
+// with time: the newer run comes first.
+func TestRecentStatusesPageOrdersRunsOfOneSecond(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	dag, err := spec.LoadYAML(ctx, []byte("name: second\nsteps:\n  - run: echo hi\n"))
+	require.NoError(t, err)
+	repo := newEphemeralTestRepository(t, nil)
+
+	at := time.Date(2026, 1, 15, 12, 0, 0, 0, time.UTC)
+	var ids []string
+	for range 3 {
+		runID, err := ir.NewDAGRunID()
+		require.NoError(t, err)
+		ids = append([]string{runID}, ids...)
+		attempt, err := repo.CreateAttempt(ctx, dag, at, runID, persis.DAGRunCreateAttemptOptions{})
+		require.NoError(t, err)
+		require.NoError(t, attempt.Open(ctx))
+		require.NoError(t, attempt.Write(ctx, ir.NewStatusBuilder(dag).Create(runID, ir.Succeeded, 0, at,
+			ir.WithAttemptID(attempt.ID()), ir.WithFinishedAt(at))))
+		require.NoError(t, attempt.Close(ctx))
+	}
+
+	var got []string
+	cursor := ""
+	for {
+		page, err := repo.RecentStatusesPage(ctx, dag.Name, persis.RecentStatusesPageOptions{Limit: 2, Cursor: cursor})
+		require.NoError(t, err)
+		for _, status := range page.Items {
+			got = append(got, status.DAGRunID)
+		}
+		if page.NextCursor == "" {
+			break
+		}
+		cursor = page.NextCursor
+	}
+	require.Equal(t, ids, got)
+}
+
 // A run ID names one run across the history and the ephemeral store.
 func TestRunIDIsUniqueAcrossStores(t *testing.T) {
 	t.Parallel()

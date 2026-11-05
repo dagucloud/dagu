@@ -114,7 +114,7 @@ func (s *oracleSeed) expected(query persis.DAGRunStatusQuery) []string {
 		return cmp.Or(
 			right.created.Compare(left.created),
 			cmp.Compare(left.name, right.name),
-			cmp.Compare(left.id, right.id),
+			cmp.Compare(right.id, left.id),
 		)
 	})
 	keys := make([]string, 0, len(matched))
@@ -284,7 +284,7 @@ func TestQueryStatusesLazyReadUsesIndex(t *testing.T) {
 	page, err := store.QueryStatuses(th.Context, persis.DAGRunStatusQuery{Limit: 10})
 	require.NoError(t, err)
 	require.Len(t, page.Items, 10)
-	require.Equal(t, "run-38", page.Items[0].DAGRunID)
+	require.Equal(t, "run-39", page.Items[0].DAGRunID)
 	require.Zero(t, cache.Size())
 }
 
