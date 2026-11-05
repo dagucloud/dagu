@@ -1,7 +1,13 @@
 // Copyright (C) 2026 Yota Hamada
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-import { useCallback, useEffect, useMemo, useRef } from 'react';
+import {
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+} from 'react';
 import { useClock } from '@/hooks/useClock';
 import { useI18n } from '@/i18n/I18nProvider';
 import { isContinuousStep } from '@/lib/runDisplayStatus';
@@ -109,7 +115,10 @@ export function HistoryBody({ run, dag, step, selectTab }: DockTabBodyProps) {
   // reads as the history itself. Home and End still move between the tabs.
   const historyTabId = dockTabId('history');
   const live = useRef({ visible, step, pick, pickColumn });
-  live.current = { visible, step, pick, pickColumn };
+  // After the commit: the keys act on the history that shows.
+  useLayoutEffect(() => {
+    live.current = { visible, step, pick, pickColumn };
+  });
   useEffect(() => {
     if (hidden) return;
     const onKeyDown = (event: globalThis.KeyboardEvent) => {

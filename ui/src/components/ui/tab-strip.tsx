@@ -3,13 +3,14 @@
 
 import type { LucideIcon } from 'lucide-react';
 import {
+  type KeyboardEvent,
+  type ReactElement,
   useCallback,
   useId,
   useLayoutEffect,
   useRef,
   useState,
-  type KeyboardEvent,
-  type ReactElement,
+  useSyncExternalStore,
 } from 'react';
 
 import {
@@ -45,6 +46,11 @@ export interface TabStripProps {
   onChange(id: string): void;
   /** Icon-only tabs, whatever the width; the selected one keeps its name. */
   compact?: boolean;
+  /**
+   * On a touch screen the tabs keep their names and the row scrolls: an
+   * icon has no tooltip there.
+   */
+  touchLabels?: boolean;
   /** Prefix of the DOM ids of the tabs. Defaults to a generated one. */
   idPrefix?: string;
   className?: string;
@@ -67,12 +73,30 @@ const KEY_STEP: Record<string, 1 | -1> = { ArrowRight: 1, ArrowLeft: -1 };
  * selected tab is a tab stop; the arrow keys, Home and End select and focus
  * a tab.
  */
+const COARSE_POINTER = '(pointer: coarse)';
+
+function subscribeCoarse(onChange: () => void): () => void {
+  const list = window.matchMedia?.(COARSE_POINTER);
+  list?.addEventListener?.('change', onChange);
+  return () => list?.removeEventListener?.('change', onChange);
+}
+
+/** True on a touch screen: its pointer is coarse. */
+function useCoarsePointer(): boolean {
+  return useSyncExternalStore(
+    subscribeCoarse,
+    () => window.matchMedia?.(COARSE_POINTER).matches ?? false,
+    () => false
+  );
+}
+
 export function TabStrip({
   label,
   tabs,
   value,
   onChange,
   compact = false,
+  touchLabels = false,
   idPrefix,
   className,
 }: TabStripProps): ReactElement {
@@ -82,7 +106,9 @@ export function TabStrip({
   const [squeezed, setSqueezed] = useState(false);
   // The width that the row needs with the names; known once measured.
   const fullWidth = useRef(0);
-  const iconOnly = compact || squeezed;
+  const coarse = useCoarsePointer();
+  const keepNames = touchLabels && coarse;
+  const iconOnly = !keepNames && (compact || squeezed);
 
   const measure = useCallback(() => {
     const list = listRef.current;

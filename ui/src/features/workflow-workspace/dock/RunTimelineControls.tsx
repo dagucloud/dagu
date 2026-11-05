@@ -256,7 +256,7 @@ export function RunViewMenu({
           data-testid="ww-run-timeline-view"
           data-filtered={filtered || undefined}
           className={cn(
-            'inline-flex h-6 shrink-0 items-center gap-1 rounded-md px-1.5 text-[11px] font-medium hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
+            'inline-flex h-6 shrink-0 items-center gap-1 rounded-md px-1.5 text-[11px] font-medium hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring pointer-coarse:h-9 pointer-coarse:px-2.5',
             filtered ? 'bg-muted text-foreground' : 'text-muted-foreground'
           )}
         >

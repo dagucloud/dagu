@@ -151,6 +151,7 @@ export function DockTabStrip<T extends string = DockTab>({
         value={active}
         onChange={(id) => onSelect(id as T)}
         idPrefix={idPrefix}
+        touchLabels
         className="flex-1"
       />
       {menuTabs.length > 0 && (

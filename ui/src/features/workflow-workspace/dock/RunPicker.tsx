@@ -20,10 +20,11 @@ import { runTime } from './runTimelineModel';
 
 /** The facts of a run on one line: status, start and short ID. */
 function RunLine({ run, status }: { run: ApiDAGRunDetails; status: string }) {
+  const { ts } = useI18n();
   return (
     <>
       <StatusDot kind="run" status={run.status} decorative />
-      <span className="min-w-0 truncate font-medium">{status}</span>
+      <span className="min-w-0 truncate font-medium">{ts(status)}</span>
       <RelativeTime
         compact
         ago

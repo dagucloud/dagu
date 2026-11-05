@@ -104,12 +104,15 @@ function withMermaid(scripts: Script[]): string[] {
 async function openDockTab(page: Page, name: string): Promise<Locator> {
   const dock = page.getByTestId('ww-dock');
   const tab = dock.getByRole('tab', { name, exact: true });
-  // A rarely used tab waits in the More menu of the strip.
-  if ((await tab.count()) === 0) {
-    await dock.getByTestId('ww-dock-more-tabs').click();
-    await page.getByRole('menuitem', { name, exact: true }).click();
-  } else {
+  const more = dock.getByTestId('ww-dock-more-tabs');
+  // A rarely used tab waits in the More menu of the strip. The tabs come
+  // with the run: wait for one of the two ways first.
+  await expect(tab.or(more).first()).toBeVisible({ timeout: 30_000 });
+  if (await tab.isVisible()) {
     await tab.click();
+  } else {
+    await more.click();
+    await page.getByRole('menuitem', { name, exact: true }).click();
   }
   const panel = dock.getByRole('tabpanel', { name, exact: true });
   await expect(panel).toBeVisible({ timeout: 30_000 });

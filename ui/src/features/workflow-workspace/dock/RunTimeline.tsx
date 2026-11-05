@@ -1342,7 +1342,11 @@ export function RunTimeline({ compact = false }: { compact?: boolean }) {
   if (compact) {
     return (
       <RunPicker
-        runs={inRange ? visible.pool : visible.pool.slice(-settings.count)}
+        runs={
+          inRange
+            ? visible.pool
+            : timelineWindow(visible.pool, visible.selectedId, settings.count)
+        }
         selectedId={visible.selectedId}
         statusOf={statusTextOf}
         onSelect={select}

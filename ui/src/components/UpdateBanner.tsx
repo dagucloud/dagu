@@ -102,7 +102,7 @@ function DismissibleBanner({
 
   return (
     <div className="bg-violet-50 dark:bg-[#1c1840] border-b border-violet-200 dark:border-[#3a3170] px-4 py-1.5 flex items-center justify-between gap-2 text-sm">
-      <span className="min-w-0 text-violet-900 dark:text-violet-200 max-md:truncate">
+      <span className="min-w-0 text-violet-900 dark:text-violet-200">
         {children}
       </span>
       <I18nProps>
