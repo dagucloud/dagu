@@ -299,6 +299,19 @@ describe('RunActionsCluster', () => {
     expect(h.setDockTab).toHaveBeenCalledWith('actions', { user: true });
   });
 
+  // No task waits once a resume of the human tasks failed; its retry does.
+  it('leads a run whose resume failed to the Actions tab', () => {
+    setup({
+      ...details('running'),
+      status: Status.Waiting,
+      statusLabel: StatusLabel.waiting,
+      humanTaskResumePending: true,
+      nodes: [],
+    } as unknown as ApiDAGRunDetails);
+    fireEvent.click(screen.getByRole('button', { name: 'Action required' }));
+    expect(h.setDockTab).toHaveBeenCalledWith('actions', { user: true });
+  });
+
   it('is absent for a workflow that never ran', () => {
     setup(null);
     expect(screen.queryByTestId('ww-run-actions')).toBeNull();

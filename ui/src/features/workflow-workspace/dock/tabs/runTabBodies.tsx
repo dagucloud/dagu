@@ -343,14 +343,19 @@ function ActionsBody({ run, details, step }: RunTabProps) {
       ...waitingHumanTaskNodes,
       ...waitingSubRunNodes,
     ].some((n) => n.step.name === step);
-    const resumePending =
-      details.status === Status.Waiting && details.approvalResumePending;
-    if (!waits && !resumePending) {
+    const waiting = details.status === Status.Waiting;
+    const resumePending = waiting && details.approvalResumePending;
+    const taskResumePending = waiting && details.humanTaskResumePending;
+    if (!waits && !resumePending && !taskResumePending) {
       return <RunTabEmpty>{ts('This step needs no action.')}</RunTabEmpty>;
     }
     return (
       <div className={`${SCROLL} space-y-4`}>
         {resumePending && <ApprovalResumeAlert dagRun={details} />}
+        {/* No task waits once a resume is pending: the tab shows its retry. */}
+        {taskResumePending && (
+          <HumanTasksTab dagRun={details} onChanged={run.refresh} bare />
+        )}
         <StepManualActions
           holder={details}
           node={run.nodeByStep.get(step)}

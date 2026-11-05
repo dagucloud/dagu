@@ -648,6 +648,25 @@ describe('dock tab bodies', () => {
       expect(h.refreshDag).toHaveBeenCalledTimes(1);
     });
 
+    // No task waits once the resume of the human tasks failed: the task step
+    // shows the retry instead of saying that it needs nothing.
+    it('shows the retry of a failed resume on the task step', async () => {
+      setLatest(
+        run(
+          'run-1',
+          [node('review', NodeStatus.Success, { step: { humanTask: {} } })],
+          Status.Waiting,
+          { humanTaskResumePending: true }
+        )
+      );
+      await renderBody('actions', `/dags/${FILE_NAME}`, 'review');
+
+      expect(screen.getByTestId('leaf-humanTasks')).toBeInTheDocument();
+      expect(
+        screen.queryByText('This step needs no action.')
+      ).not.toBeInTheDocument();
+    });
+
     it('shows only the parts that wait', async () => {
       setLatest(
         run(
