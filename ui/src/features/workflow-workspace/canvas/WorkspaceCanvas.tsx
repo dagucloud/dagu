@@ -11,10 +11,7 @@ import {
 } from 'react';
 import { subscribeClock } from '@/hooks/useClock';
 import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
-import {
-  useActiveRightPanel,
-  useCloseRightPanel,
-} from '@/contexts/RightPanelContext';
+import { useActiveRightPanel } from '@/contexts/RightPanelContext';
 import DAGSpec from '@/features/dags/components/dag-editor/DAGSpec';
 import type { DAGSpecHostProps } from '@/features/dags/components/dag-editor/hostTypes';
 import type {
@@ -238,10 +235,10 @@ function useInputRun(p: {
 }
 
 /**
- * Mounts the editor once Activity has made room for a right panel that
- * shows from the first render, such as the YAML panel that the page
- * restores: a graph that fit the zone above the open Activity fit again,
- * and jumped, when Activity collapsed. Once mounted, the editor stays. It
+ * Mounts the editor once Activity has made room for the expanded step view
+ * of the first render, such as a link that opens a step: a graph that fit
+ * the zone above the open Activity fit again, and jumped, when Activity
+ * collapsed. Once mounted, the editor stays. It
  * is a component of its own, as the canvas must not render again for the
  * state of the dock.
  */
@@ -257,26 +254,6 @@ function MountAfterDockYield({
   const holds = !mounted && waits && open;
   if (!mounted && !holds) setMounted(true);
   return holds ? null : children;
-}
-
-/**
- * Closes the right panel when Activity opens. It is a component of its own:
- * the state of the dock changes with each toggle, and the canvas must not
- * render again for it.
- */
-function CloseRightPanelOnActivity({ paneActive }: { paneActive: boolean }) {
-  const dock = useDock();
-  const closeRightPanel = useCloseRightPanel();
-  const activePanel = useActiveRightPanel();
-  const panelRef = useRef(activePanel);
-  panelRef.current = activePanel;
-  const dockWasOpen = useRef(dock.open);
-  useEffect(() => {
-    const opened = dock.open && !dockWasOpen.current;
-    dockWasOpen.current = dock.open;
-    if (opened && paneActive && panelRef.current !== null) closeRightPanel();
-  }, [dock.open, paneActive, closeRightPanel]);
-  return null;
 }
 
 /**
@@ -495,16 +472,10 @@ export function WorkspaceCanvas({
     clearStep: () => setUrl({ step: null, ndv: null }, { replace: true }),
   });
 
-  // The step view holds the room of the Run panel while it is expanded.
-  // The right panel (a launcher, the Workflow, the YAML, the node view) and the
-  // Activity panel take turns. A panel that opens collapses Activity, which
-  // comes back when the panel closes. Activity that opens closes the panel.
-  // The node view and the YAML panel of the first render yield it at once,
-  // before their panel has mounted.
-  useDockYield(
-    paneActive &&
-      (activePanel !== null || ndvState !== null || workflowPanel.pending)
-  );
+  // The expanded step view fills the zone and holds the room of the Run
+  // panel; Activity comes back when it closes. A right panel (a launcher, the
+  // Workflow, the YAML) sits in the zone above Activity: both stay open.
+  useDockYield(paneActive && ndvState === 'expanded');
   // Esc in the YAML of the step view closes the view too.
   useEscInStepYaml({
     active: paneActive,
@@ -575,7 +546,6 @@ export function WorkspaceCanvas({
         TOOLBAR_ZONE_CLASS
       )}
     >
-      <CloseRightPanelOnActivity paneActive={paneActive} />
       <div
         ref={setToolbarRow}
         data-testid="ww-canvas-toolbar"
@@ -598,9 +568,7 @@ export function WorkspaceCanvas({
             >
               <PaneActiveContext.Provider value={paneActive}>
                 <MountAfterDockYield
-                  waits={
-                    paneActive && (ndvState !== null || workflowPanel.pending)
-                  }
+                  waits={paneActive && ndvState === 'expanded'}
                 >
                   <DAGSpec
                     fileName={fileName}

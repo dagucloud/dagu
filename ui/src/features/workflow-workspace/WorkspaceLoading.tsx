@@ -35,7 +35,7 @@ const WORKFLOW_TAB = /^\/dags\/[^/]+\/([^/]+)/;
  * page: the YAML panel by ?ndv or as the user left it, else the Workflow
  * panel as the user left it (useYamlPanelMemory), and the Run panel by
  * ?dock, a ?run of a link or as the user left it (DockProvider). The Run
- * panel yields to the right panel and to the step view.
+ * panel yields to the step view; a right panel sits above it.
  */
 function panelsAtLoad(
   pathname: string,
@@ -61,7 +61,6 @@ function panelsAtLoad(
         : null;
   const stepView = url.ndv === 'expanded' && url.step !== null;
   const dock =
-    right === null &&
     !stepView &&
     (url.dock !== null ||
       (url.run !== null && !isRunRedirect(routeState)) ||

@@ -450,16 +450,10 @@ test.describe('workspace deep links to runs', () => {
         ...carried,
       });
       await expectZone(page, 'editor');
-      // The YAML panel and the Run panel take turns: the Run panel waits,
-      // collapsed, while the YAML shows.
       await expect(page.getByTestId('ndv')).toHaveAttribute(
         'data-state',
         'docked',
         { timeout: 30_000 }
-      );
-      await expect(page.getByTestId('ww-dock')).toHaveAttribute(
-        'data-state',
-        'collapsed'
       );
     });
 

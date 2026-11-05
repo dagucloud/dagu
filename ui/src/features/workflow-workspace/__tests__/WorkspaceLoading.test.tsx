@@ -49,8 +49,8 @@ describe('WorkspaceLoading', () => {
     expect(screen.getByTestId('ww-loading-yaml')).toHaveStyle({
       width: '640px',
     });
-    // The Run panel yields to it.
-    expect(screen.queryByTestId('ww-loading-dock')).toBeNull();
+    // The Run panel stays open under it.
+    expect(screen.getByTestId('ww-loading-dock')).toBeInTheDocument();
   });
 
   it('shows the Workflow panel that the page restores', () => {
