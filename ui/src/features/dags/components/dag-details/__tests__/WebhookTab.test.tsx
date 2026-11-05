@@ -85,26 +85,27 @@ function json(body: unknown, status = 200): Promise<Response> {
 
 let current: typeof webhook | null;
 
-// Reads the webhook through SWR, as the chip of the workflow bar does.
+// Reads the webhook from the list of webhooks through SWR, as the chip of
+// the workflow bar does.
 const useWebhookQuery = createQueryHook(
   {
-    GET: async () =>
-      current ? { data: current } : { error: { code: 'not_found' } },
+    GET: async () => ({ data: { webhooks: current ? [current] : [] } }),
   } as unknown as Client<paths>,
   '/'
 );
 
 function SharedWebhook() {
-  const { data, error } = useWebhookQuery('/dags/{fileName}/webhook', {
-    params: { path: { fileName: 'deploy' }, query: { remoteNode: 'local' } },
+  const { data } = useWebhookQuery('/webhooks', {
+    params: { query: { remoteNode: 'local' } },
   });
-  const state = error
-    ? 'none'
-    : data
-      ? data.enabled
+  const found = data?.webhooks.find((item) => item.dagName === 'deploy');
+  const state = !data
+    ? 'loading'
+    : !found
+      ? 'none'
+      : found.enabled
         ? 'enabled'
-        : 'disabled'
-      : 'loading';
+        : 'disabled';
   return <output data-testid="shared-webhook">{state}</output>;
 }
 

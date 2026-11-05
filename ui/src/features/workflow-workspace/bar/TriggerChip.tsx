@@ -2,14 +2,9 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 import { Webhook } from 'lucide-react';
-import { useMemo } from 'react';
-import { useRemoteNode } from '@/contexts/RemoteNodeContext';
-import { useQuery } from '@/hooks/api';
-import { whenEnabled } from '@/hooks/queryUtils';
+import { useWorkflowWebhook } from '@/hooks/useWorkflowWebhook';
 import { useI18n } from '@/i18n/I18nProvider';
-import { isNotFoundQueryError } from '@/lib/queryErrors';
 import { toneClasses } from '@/lib/statusPalette';
-import { shouldRetryQueryError } from '@/lib/requestTimeout';
 import { cn } from '@/lib/utils';
 import type { BarSlotProps } from '../contracts';
 import { useWorkspacePermissions } from '../data';
@@ -22,13 +17,6 @@ const part =
 // icons stay and the text is for the screen reader only.
 const chipText = 'sr-only @7xl:not-sr-only @7xl:inline-flex @7xl:items-center';
 
-// A missing webhook is an answer, not a failure to retry. The app-wide rule
-// (no retry after 401 or an abort) still applies.
-const webhookQueryConfig = {
-  shouldRetryOnError: (error: unknown) =>
-    !isNotFoundQueryError(error) && shouldRetryQueryError(error),
-};
-
 /**
  * The webhook state of the workflow; nothing without a webhook. The schedule
  * shows on the Cron launcher and in the Workflow panel, not in the bar.
@@ -37,29 +25,14 @@ export function TriggerChip({ fileName }: BarSlotProps) {
   const { ts } = useI18n();
   const { canManageWebhooks } = useWorkspacePermissions();
   const [, setUrl] = useWorkspaceUrl();
-  const remoteNode = useRemoteNode();
+  const { webhook } = useWorkflowWebhook(fileName, canManageWebhooks);
 
-  const webhookInit = useMemo(
-    () =>
-      whenEnabled(canManageWebhooks, {
-        params: { path: { fileName }, query: { remoteNode } },
-      }),
-    [canManageWebhooks, fileName, remoteNode]
-  );
-  const { data: webhook, error: webhookError } = useQuery(
-    '/dags/{fileName}/webhook',
-    webhookInit,
-    webhookQueryConfig
-  );
-
-  // SWR keeps the last data next to a later error: a 404 after a delete wins.
   // A missing webhook leaves the bar empty.
-  const webhookState: 'enabled' | 'disabled' | null =
-    !canManageWebhooks || isNotFoundQueryError(webhookError) || !webhook
-      ? null
-      : webhook.enabled
-        ? 'enabled'
-        : 'disabled';
+  const webhookState: 'enabled' | 'disabled' | null = !webhook
+    ? null
+    : webhook.enabled
+      ? 'enabled'
+      : 'disabled';
   if (!webhookState) return null;
 
   // Below a bar of 1280px the chip shows only its icons: the title keeps

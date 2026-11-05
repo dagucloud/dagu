@@ -21,7 +21,7 @@ vi.mock('../../canvas/WorkspaceEditorContext', () => ({
   useWorkspaceEditor: () => ({ handle: null, state: null }),
 }));
 
-const WEBHOOK_PATH = '/dags/{fileName}/webhook';
+const WEBHOOK_PATH = '/webhooks';
 
 const scheduled = {
   name: 'etl',
@@ -52,7 +52,7 @@ function renderChip(dag: ApiDAGDetails = scheduled) {
 
 beforeEach(() => {
   mocks.GET.mockReset();
-  answerWebhook({ error: { code: 'not_found', message: 'not found' } });
+  answerWebhook({ data: { webhooks: [] } });
 });
 
 // The bar is a size container: TriggerChip shows its text in a bar of
@@ -62,7 +62,9 @@ describe('TriggerChip in the bar', () => {
   // 'Webhook Disabled' shows an icon only below 1280px: the title gives the
   // state.
   it('names the webhook state in the title and keeps its text on one line', async () => {
-    answerWebhook({ data: { enabled: false } });
+    answerWebhook({
+      data: { webhooks: [{ id: 'w1', dagName: 'etl', enabled: false }] },
+    });
     renderChip();
     const button = await screen.findByRole('button', {
       name: 'Webhook Disabled',
@@ -78,7 +80,9 @@ describe('TriggerChip in the bar', () => {
   // text-success on the page background is 4.2:1 in light mode: the state
   // takes the muted text colour and a success dot.
   it('shows an enabled webhook with a dot and readable text', async () => {
-    answerWebhook({ data: { enabled: true } });
+    answerWebhook({
+      data: { webhooks: [{ id: 'w1', dagName: 'etl', enabled: true }] },
+    });
     renderChip();
     const button = await screen.findByRole('button', {
       name: 'Webhook Enabled',
