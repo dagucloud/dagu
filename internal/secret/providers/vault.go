@@ -188,10 +188,12 @@ func (r *vaultResolver) newClient(settings vaultClientSettings) (vaultClient, er
 	}
 
 	// Unset settings keep the Vault client's own defaults, which read the
-	// standard VAULT_* environment variables.
+	// standard VAULT_* environment variables. An explicit address also
+	// replaces VAULT_AGENT_ADDR, which the client would otherwise prefer.
 	cfg := api.DefaultConfig()
 	if settings.address != "" {
 		cfg.Address = settings.address
+		cfg.AgentAddress = ""
 	}
 
 	tlsConfig := &api.TLSConfig{

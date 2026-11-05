@@ -382,7 +382,8 @@ func TestVaultResolver_resolveClientSettings(t *testing.T) {
 }
 
 // Without Dagu settings, the resolver reaches the server and token named by
-// the standard VAULT_ADDR and VAULT_TOKEN variables. Dagu settings win.
+// the standard VAULT_ADDR and VAULT_TOKEN variables. Dagu settings win, and a
+// Dagu address also wins over a Vault agent named by VAULT_AGENT_ADDR.
 func TestVaultResolver_Resolve_StandardEnvironment(t *testing.T) {
 	var gotToken atomic.Value
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -396,6 +397,7 @@ func TestVaultResolver_Resolve_StandardEnvironment(t *testing.T) {
 	defer server.Close()
 	t.Setenv("VAULT_ADDR", server.URL)
 	t.Setenv("VAULT_TOKEN", "env-token")
+	t.Setenv("VAULT_AGENT_ADDR", "")
 	ref := secretref.Ref{Name: "DB_PASSWORD", Key: "kv/data/app/password"}
 
 	value, err := (&vaultResolver{}).Resolve(context.Background(), ref)
@@ -412,6 +414,23 @@ func TestVaultResolver_Resolve_StandardEnvironment(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, "s3cret", value)
 	assert.Equal(t, "config-token", gotToken.Load())
+
+	var agentCalled atomic.Bool
+	agent := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		agentCalled.Store(true)
+		http.Error(w, "unexpected agent request", http.StatusBadGateway)
+	}))
+	defer agent.Close()
+	t.Setenv("VAULT_AGENT_ADDR", agent.URL)
+	ctx = config.WithConfig(context.Background(), &config.Config{
+		Secrets: config.SecretsConfig{
+			Vault: config.VaultSecretsConfig{Address: server.URL},
+		},
+	})
+	value, err = (&vaultResolver{}).Resolve(ctx, ref)
+	require.NoError(t, err)
+	assert.Equal(t, "s3cret", value)
+	assert.False(t, agentCalled.Load())
 }
 
 func TestVaultResolver_getClient_CachesByResolvedSettings(t *testing.T) {
