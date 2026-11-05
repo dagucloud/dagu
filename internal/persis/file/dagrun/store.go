@@ -23,6 +23,10 @@ var _ persis.DAGRunStore = (*Store)(nil)
 
 const defaultRetryCandidateCacheLimit = 2000
 
+// latestAttemptLookback is how many of the newest runs are searched for the
+// latest attempt when the latest-attempt pointer is unusable.
+const latestAttemptLookback = 10
+
 // Store manages DAG run status files on the local filesystem.
 type Store struct {
 	baseDir         string
@@ -405,18 +409,22 @@ func (store *Store) LatestAttempt(ctx context.Context, query persis.DAGRunLatest
 		return attempt, nil
 	}
 
-	// Get the latest execution data.
-	latest := root.Latest(ctx, 1)
-	if len(latest) == 0 {
-		return nil, dagrun.ErrNoStatusData
-	}
-	attempt, err := latest[0].LatestAttempt(ctx, store.cache)
-	if err == nil {
+	// A run without a visible attempt, such as one whose creation was cut
+	// short, does not hide the runs before it.
+	for _, run := range root.Latest(ctx, latestAttemptLookback) {
+		attempt, err := run.LatestAttempt(ctx, store.cache)
+		if errors.Is(err, dagrun.ErrNoStatusData) {
+			continue
+		}
+		if err != nil {
+			return nil, err
+		}
 		if markerErr := updateLatestAttemptPointer(ctx, attempt.file); markerErr != nil {
 			logger.Debug(ctx, "Failed to refresh DAG-run latest attempt pointer", tag.Error(markerErr))
 		}
+		return attempt, nil
 	}
-	return attempt, err
+	return nil, dagrun.ErrNoStatusData
 }
 
 // latestAttemptAfter lists root for its newest run created at or after cutoff

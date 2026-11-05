@@ -46,6 +46,37 @@ func TestStoreLatestAttemptUsesPersistedLatestPointer(t *testing.T) {
 	require.Equal(t, ir.Succeeded, status.Status)
 }
 
+// A newer run without a visible attempt, such as one whose creation was cut
+// short, does not hide the latest run when the latest pointer is gone.
+func TestStoreLatestAttemptSkipsStatuslessRun(t *testing.T) {
+	ctx := context.Background()
+	baseDir := t.TempDir()
+	repository := newFileRepository(baseDir, persis.DAGRunRepositoryOptions{})
+	dag := &ir.DAG{Name: "latest-statusless"}
+	startedAt := time.Date(2026, 6, 10, 12, 0, 0, 0, time.UTC)
+
+	attempt, err := repository.CreateAttempt(ctx, dag, startedAt, "run-1", persis.DAGRunCreateAttemptOptions{})
+	require.NoError(t, err)
+	require.NoError(t, attempt.Open(ctx))
+	require.NoError(t, attempt.Write(ctx, ir.DAGRunStatus{
+		Name:      dag.Name,
+		DAGRunID:  "run-1",
+		AttemptID: attempt.ID(),
+		Status:    ir.Succeeded,
+		StartedAt: startedAt.Format(time.RFC3339),
+	}))
+	require.NoError(t, attempt.Close(ctx))
+
+	createStatuslessRunDir(t, baseDir, dag.Name, startedAt.Add(time.Hour), "run-2")
+	require.NoError(t, os.Remove(filedagrun.LatestAttemptPointerPathForTest(filepath.Join(baseDir, dag.Name, "dag-runs"))))
+
+	latest, err := repository.LatestAttempt(ctx, dag.Name, persis.DAGRunLatestAttemptOptions{})
+	require.NoError(t, err)
+	status, err := latest.ReadStatus(ctx)
+	require.NoError(t, err)
+	require.Equal(t, "run-1", status.DAGRunID)
+}
+
 func TestUpdateLatestAttemptPointerHonorsCanceledContext(t *testing.T) {
 	ctx := context.Background()
 	baseDir := t.TempDir()
