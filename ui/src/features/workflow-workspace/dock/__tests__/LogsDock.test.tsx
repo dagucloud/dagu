@@ -762,9 +762,9 @@ describe('LogsDock below 768px', () => {
     renderDock(finished);
     expect(screen.getByTestId('ww-phone-nav')).toBeInTheDocument();
     expect(screen.getByTestId('ww-dock-bar')).not.toBeVisible();
-    expect(dockSection()).not.toHaveAttribute('data-sheet');
+    expect(dockSection()).not.toHaveAttribute('data-phone-view');
     fireEvent.click(toggleButton());
-    expect(dockSection()).toHaveAttribute('data-sheet', 'true');
+    expect(dockSection()).toHaveAttribute('data-phone-view', 'true');
     expect(dockSection()).toHaveClass('flex-1');
     expect(dockSection()).not.toHaveClass('fixed');
     expect(screen.queryByRole('separator')).toBeNull();
@@ -822,7 +822,7 @@ describe('LogsDock below 768px', () => {
     mockWidth(800);
     renderDock(finished);
     fireEvent.click(toggleButton());
-    expect(dockSection()).not.toHaveAttribute('data-sheet');
+    expect(dockSection()).not.toHaveAttribute('data-phone-view');
     expect(dockSection()).toHaveClass('relative');
     expect(screen.queryByRole('button', { name: 'Close' })).toBeNull();
     expect(screen.queryByTestId('ww-phone-nav')).toBeNull();

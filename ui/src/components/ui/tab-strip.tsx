@@ -10,7 +10,6 @@ import {
   useLayoutEffect,
   useRef,
   useState,
-  useSyncExternalStore,
 } from 'react';
 
 import {
@@ -18,6 +17,8 @@ import {
   TooltipContent,
   TooltipTrigger,
 } from '@/components/ui/tooltip';
+import { useMediaQuery } from '@/hooks/useMediaQuery';
+import { COARSE_POINTER_QUERY } from '@/lib/breakpoints';
 import { cn, FOCUS_RING } from '@/lib/utils';
 
 export interface TabStripTab {
@@ -73,24 +74,6 @@ const KEY_STEP: Record<string, 1 | -1> = { ArrowRight: 1, ArrowLeft: -1 };
  * selected tab is a tab stop; the arrow keys, Home and End select and focus
  * a tab.
  */
-// Any pointer: a touch screen laptop has a mouse as its primary pointer.
-const COARSE_POINTER = '(any-pointer: coarse)';
-
-function subscribeCoarse(onChange: () => void): () => void {
-  const list = window.matchMedia?.(COARSE_POINTER);
-  list?.addEventListener?.('change', onChange);
-  return () => list?.removeEventListener?.('change', onChange);
-}
-
-/** True on a touch screen: its pointer is coarse. */
-function useCoarsePointer(): boolean {
-  return useSyncExternalStore(
-    subscribeCoarse,
-    () => window.matchMedia?.(COARSE_POINTER).matches ?? false,
-    () => false
-  );
-}
-
 export function TabStrip({
   label,
   tabs,
@@ -107,7 +90,7 @@ export function TabStrip({
   const [squeezed, setSqueezed] = useState(false);
   // The width that the row needs with the names; known once measured.
   const fullWidth = useRef(0);
-  const coarse = useCoarsePointer();
+  const coarse = useMediaQuery(COARSE_POINTER_QUERY);
   const keepNames = touchLabels && coarse;
   const iconOnly = !keepNames && (compact || squeezed);
 

@@ -30,6 +30,7 @@ import {
   fallbackDockTab,
 } from './dockTabs';
 import { stepDockTabs } from './tabs/stepScope';
+import { LAPTOP_QUERY, matchesQuery, WIDE_QUERY } from '@/lib/breakpoints';
 
 export interface DockController {
   open: boolean;
@@ -94,8 +95,6 @@ export interface DockFrame {
 }
 
 export const DOCK_BAR_HEIGHT = 32;
-/** Below this window width the Run panel is a sheet that covers the page. */
-export const DOCK_SHEET_BELOW_PX = 768;
 // The Run panel opens at about 40% of the window, and never under the floor
 // that holds the bar, the timeline and a few steps.
 export const DOCK_DEFAULT_RATIO = 0.4;
@@ -134,14 +133,14 @@ export function clampDockHeight(value: number): number {
 
 /**
  * The open state that the user left. It is a choice for a wide window: on a
- * narrow one the panel is a sheet over the whole page, which opens only when
- * asked for.
+ * phone the panel is a view of its own, which opens only when asked for. A
+ * laptop opens it until the user closes it.
  */
 export function storedDockOpen(): boolean {
-  const wide =
-    window.matchMedia?.(`(min-width: ${DOCK_SHEET_BELOW_PX}px)`).matches ??
-    true;
-  return wide && readStored(DOCK_OPEN_KEY) === 'true';
+  if (!matchesQuery(WIDE_QUERY, true)) return false;
+  const stored = readStored(DOCK_OPEN_KEY);
+  if (stored !== null) return stored === 'true';
+  return matchesQuery(LAPTOP_QUERY, false);
 }
 
 function readStored(key: string): string | null {

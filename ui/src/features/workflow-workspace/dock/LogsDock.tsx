@@ -9,11 +9,12 @@ import {
   useMemo,
   useRef,
   useState,
-  useSyncExternalStore,
   type KeyboardEvent,
   type PointerEvent,
 } from 'react';
 import { IconButton } from '@/components/ui/icon-button';
+import { useMediaQuery } from '@/hooks/useMediaQuery';
+import { WIDE_QUERY } from '@/lib/breakpoints';
 import { useActiveRightPanel } from '@/contexts/RightPanelContext';
 import { useI18n } from '@/i18n/I18nProvider';
 import { cn, FOCUS_RING } from '@/lib/utils';
@@ -29,7 +30,6 @@ import {
   maxDockHeight,
   useDock,
   useDockFrame,
-  DOCK_SHEET_BELOW_PX,
 } from './DockContext';
 import { DockHeaderToolsContext } from './DockHeaderTools';
 import { FreezeWhenHidden } from './FreezeWhenHidden';
@@ -48,23 +48,6 @@ const KEYBOARD_STEP_PX = 40;
 const STEPS_NAV_ID = 'ww-run-steps-nav';
 // The tabs that most runs do not need: they wait in the More menu.
 const RARE_TABS: readonly DockTab[] = ['definition', 'artifacts'];
-
-/** True when the media query matches. Without matchMedia it is true. */
-function useMinWidth(px: number): boolean {
-  const query = `(min-width: ${px}px)`;
-  const subscribe = useCallback(
-    (onChange: () => void) => {
-      const list = window.matchMedia?.(query);
-      list?.addEventListener?.('change', onChange);
-      return () => list?.removeEventListener?.('change', onChange);
-    },
-    [query]
-  );
-  return useSyncExternalStore(
-    subscribe,
-    () => window.matchMedia?.(query).matches ?? true
-  );
-}
 
 interface Drag {
   pointerId: number;
@@ -101,8 +84,9 @@ export function LogsDock({
   const [url] = useWorkspaceUrl();
   const activePanel = useActiveRightPanel();
   const openStepDetails = useOpenStepDetails();
-  const narrow = !useMinWidth(DOCK_SHEET_BELOW_PX);
-  const sheet = narrow && dock.open;
+  // Without matchMedia (tests) the window is wide.
+  const narrow = !useMediaQuery(WIDE_QUERY, true);
+  const phoneView = narrow && dock.open;
   useDockAutoOpen();
 
   // A step view has no Timeline and names Outputs "Output" (stepScope.ts).
@@ -161,40 +145,40 @@ export function LogsDock({
     frame.resize(next);
   };
 
-  // The sheet takes the focus when it opens and gives it back when it closes.
-  // The focus goes to the sheet itself, not to Close: a focused button opens
-  // its tooltip, and the tooltip would take the first Esc.
-  const sheetRef = useRef<HTMLElement>(null);
-  // An open panel or sheet keeps the notifications above it. A maximized one
+  // The phone view takes the focus when it opens and gives it back when it
+  // closes. The focus goes to the panel itself, not to a button: a focused
+  // button opens its tooltip, and the tooltip would take the first Esc.
+  const sectionRef = useRef<HTMLElement>(null);
+  // An open panel keeps the notifications above it. A maximized one
   // fills the page: they stay in the corner.
-  useLiftNotifications(sheetRef, dock.open && !dock.maximized);
+  useLiftNotifications(sectionRef, dock.open && !dock.maximized);
   const opener = useRef<HTMLElement | null>(null);
-  const wasSheet = useRef(sheet);
+  const wasPhoneView = useRef(phoneView);
   useLayoutEffect(() => {
-    if (wasSheet.current === sheet) return;
-    wasSheet.current = sheet;
-    if (sheet) {
+    if (wasPhoneView.current === phoneView) return;
+    wasPhoneView.current = phoneView;
+    if (phoneView) {
       const focused = document.activeElement;
       opener.current = focused instanceof HTMLElement ? focused : null;
-      sheetRef.current?.focus();
+      sectionRef.current?.focus();
       return;
     }
     const back = opener.current;
     opener.current = null;
     if (back?.isConnected) back.focus();
-  }, [sheet]);
+  }, [phoneView]);
 
   const ndvAbove = activePanel === 'ndv';
-  const escState = useRef({ ndvAbove, dock, sheet, stepsOpen, closeSteps });
+  const escState = useRef({ ndvAbove, dock, phoneView, stepsOpen, closeSteps });
   useEffect(() => {
-    escState.current = { ndvAbove, dock, sheet, stepsOpen, closeSteps };
+    escState.current = { ndvAbove, dock, phoneView, stepsOpen, closeSteps };
   });
   useEffect(() => {
     const onKeyDown = (event: globalThis.KeyboardEvent) => {
       const {
         ndvAbove: blocked,
         dock: current,
-        sheet: isSheet,
+        phoneView: isPhoneView,
         stepsOpen: listOpen,
         closeSteps: closeList,
       } = escState.current;
@@ -206,7 +190,7 @@ export function LogsDock({
       } else if (current.maximized) {
         event.preventDefault();
         current.maximize(false);
-      } else if (isSheet) {
+      } else if (isPhoneView) {
         event.preventDefault();
         current.toggle();
       }
@@ -225,33 +209,33 @@ export function LogsDock({
     // draws them in its own row.
     <DockHeaderToolsContext.Provider value={narrow ? undefined : toolsEl}>
       <section
-        ref={sheetRef}
-        tabIndex={sheet ? -1 : undefined}
+        ref={sectionRef}
+        tabIndex={phoneView ? -1 : undefined}
         aria-label={ts('Logs')}
         data-testid="ww-dock"
         data-file-name={fileName}
         data-state={dock.open ? 'open' : 'collapsed'}
         data-maximized={dock.maximized || undefined}
-        data-sheet={sheet || undefined}
+        data-phone-view={phoneView || undefined}
         className={cn(
           'relative flex flex-col bg-card outline-none',
           Z.dock,
           // On a phone the open panel takes the place of the graph
           // (WorkspaceLayout hides it), above the views bar.
-          sheet && 'min-h-0 flex-1',
+          phoneView && 'min-h-0 flex-1',
           // Collapsed, the panel has no bar: only its tab shows, over the
           // bottom edge of the zone above; on a phone, the views bar.
           !dock.open && (narrow ? 'shrink-0' : 'h-0 shrink-0'),
-          dock.open && !dock.maximized && !sheet && 'shrink-0',
-          dock.maximized && !sheet && 'min-h-0'
+          dock.open && !dock.maximized && !phoneView && 'shrink-0',
+          dock.maximized && !phoneView && 'min-h-0'
         )}
         style={
-          dock.open && !sheet
+          dock.open && !phoneView
             ? { height: dock.maximized ? '100%' : `${height}px` }
             : undefined
         }
       >
-        {dock.open && !dock.maximized && !sheet && (
+        {dock.open && !dock.maximized && !phoneView && (
           <div
             role="separator"
             aria-label={ts('Resize logs')}
@@ -288,7 +272,7 @@ export function LogsDock({
           />
         )}
         <h2 className="sr-only">{ts('Logs')}</h2>
-        {sheet && url.step && (
+        {phoneView && url.step && (
           <div className="flex h-9 shrink-0 items-center justify-end border-b border-border px-2">
             <button
               type="button"

@@ -44,6 +44,7 @@ import { buildRunOverlay } from '@/features/visual-editor/run/runOverlay';
 import { stepNeighbours } from './stepOrder';
 import { useI18n } from '@/i18n/I18nProvider';
 import { cn } from '@/lib/utils';
+import { useMediaQuery } from '@/hooks/useMediaQuery';
 
 type ApiDAGDetails = components['schemas']['DAGDetails'];
 type ApiDAGRunDetails = components['schemas']['DAGRunDetails'];
@@ -116,26 +117,6 @@ function useElementWidth(
     return () => observer.disconnect();
   }, [ref, active]);
   return width;
-}
-
-function subscribeQuery(query: string, onChange: () => void): () => void {
-  const list =
-    typeof window.matchMedia === 'function' ? window.matchMedia(query) : null;
-  list?.addEventListener?.('change', onChange);
-  return () => list?.removeEventListener?.('change', onChange);
-}
-
-/** True when the query matches. Without matchMedia, the viewport is wide. */
-function useMediaQuery(query: string): boolean {
-  const subscribe = React.useCallback(
-    (onChange: () => void) => subscribeQuery(query, onChange),
-    [query]
-  );
-  const read = () =>
-    typeof window.matchMedia === 'function'
-      ? window.matchMedia(query).matches
-      : true;
-  return React.useSyncExternalStore(subscribe, read, () => true);
 }
 
 /** The step of the DAG with this server name, or one of its handlers. */
@@ -305,8 +286,9 @@ export function NodeDetailsFrame({
   const width = useDrawerWidth();
 
   const viewport = useViewportWidth();
-  const wide = useMediaQuery(NDV_WIDE_QUERY);
-  const medium = useMediaQuery(NDV_MEDIUM_QUERY);
+  // Without matchMedia (tests) the viewport is wide.
+  const wide = useMediaQuery(NDV_WIDE_QUERY, true);
+  const medium = useMediaQuery(NDV_MEDIUM_QUERY, true);
   // The columns need room: the frame, not the viewport, decides.
   const frameWidth = useElementWidth(sectionRef, state === 'expanded');
   const layout = ndvLayout(

@@ -68,6 +68,8 @@ test.describe('workspace layout', () => {
     // The Run panel starts collapsed, at its default height when it opens.
     await page.addInitScript((keys) => {
       for (const key of keys) window.localStorage.removeItem(key);
+      // Collapsed: a laptop would open the Run panel by default.
+      window.localStorage.setItem('dagu.workspace.dockOpen.v2', 'false');
     }, DOCK_KEYS);
     await signIn(page);
   });
@@ -611,7 +613,45 @@ test.describe('workspace layout', () => {
       .first()
       .click();
     await expect(dock).toHaveAttribute('data-state', 'open');
-    await expect(dock).toHaveAttribute('data-sheet', 'true');
+    await expect(dock).toHaveAttribute('data-phone-view', 'true');
     expect((await documentScrolls(page)).horizontal).toBe(false);
+  });
+});
+
+// A laptop opens the YAML and the Run panel until the user closes them.
+test.describe('workspace defaults on a laptop', () => {
+  test.skip(
+    ({ viewport }) => (viewport?.width ?? 0) < 1024,
+    'laptop layout only'
+  );
+  test.use({ storageState: { cookies: [], origins: [] } });
+
+  test('opens the YAML and the Run panel, and remembers a close', async ({
+    page,
+    fixtureDAG,
+    gotoWorkspace,
+  }) => {
+    await signIn(page);
+    const { fileName } = await fixtureDAG('visual-params.yaml');
+    await openEditor(page, gotoWorkspace, fileName);
+    const ndv = page.getByTestId('ndv');
+    const dock = page.getByTestId('ww-dock');
+    await expect(ndv).toHaveAttribute('data-state', 'docked', {
+      timeout: 30_000,
+    });
+    await expect(dock).toHaveAttribute('data-state', 'open');
+
+    await ndv.getByRole('button', { name: 'Close', exact: true }).click();
+    await dock
+      .getByRole('button', { name: 'Activity', exact: true })
+      .first()
+      .click();
+    await expect(dock).toHaveAttribute('data-state', 'collapsed');
+    await page.reload();
+    await expect(
+      page.getByTestId('ww-canvas').getByTestId('ve-canvas-node-steps[0]')
+    ).toBeVisible({ timeout: 30_000 });
+    await expect(ndv).toBeHidden();
+    await expect(dock).toHaveAttribute('data-state', 'collapsed');
   });
 });

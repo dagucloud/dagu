@@ -196,6 +196,41 @@ describe('DockProvider on a narrow window', () => {
   });
 });
 
+// A laptop opens the panel until the user closes it; a smaller window keeps
+// it collapsed until asked.
+describe('DockProvider default by window', () => {
+  function windowOf(width: number) {
+    window.matchMedia ??= (() => ({}) as MediaQueryList) as typeof matchMedia;
+    vi.spyOn(window, 'matchMedia').mockImplementation(
+      (query: string) =>
+        ({
+          matches: width >= Number(/min-width:\s*(\d+)px/.exec(query)?.[1]),
+          media: query,
+          addEventListener: vi.fn(),
+          removeEventListener: vi.fn(),
+        }) as unknown as MediaQueryList
+    );
+  }
+
+  it('opens on a laptop with nothing stored', () => {
+    localStorage.clear();
+    windowOf(1440);
+    expect(renderDock().dock.open).toBe(true);
+  });
+
+  it('keeps a close of the user on a laptop', () => {
+    localStorage.setItem(DOCK_OPEN_KEY, 'false');
+    windowOf(1440);
+    expect(renderDock().dock.open).toBe(false);
+  });
+
+  it('stays collapsed on a tablet with nothing stored', () => {
+    localStorage.clear();
+    windowOf(900);
+    expect(renderDock().dock.open).toBe(false);
+  });
+});
+
 describe('DockProvider commands', () => {
   // A component that only calls the commands must not render again when the
   // panel opens, changes tab or is maximized.
