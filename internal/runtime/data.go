@@ -788,6 +788,13 @@ func (d *Data) IncDoneCount() {
 	d.inner.State.DoneCount++
 }
 
+func (d *Data) setDoneCount(count int) {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+
+	d.inner.State.DoneCount = count
+}
+
 func (d *Data) SetRepeated(repeated bool) {
 	d.mu.Lock()
 	defer d.mu.Unlock()
