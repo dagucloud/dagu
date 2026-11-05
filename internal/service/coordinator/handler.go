@@ -1974,7 +1974,7 @@ func (h *Handler) refreshLeaseForRunningTask(ctx context.Context, workerID strin
 		return
 	}
 
-	runStatus, err := attempt.ReadStatusUncached(ctx)
+	runStatus, err := attempt.ReadStatus(ctx)
 	if err != nil {
 		logger.Warn(ctx, "Failed to read status for heartbeat lease refresh",
 			tag.RunID(task.DagRunId),
@@ -1997,8 +1997,11 @@ func (h *Handler) refreshLeaseForRunningTask(ctx context.Context, workerID strin
 		return
 	}
 
-	runStatus.LeaseAt = observedAt.UnixMilli()
-	if err := attempt.Write(ctx, *runStatus); err != nil {
+	// Every heartbeat reads the status, so the read stays cached and the
+	// change goes to a copy.
+	refreshed := *runStatus
+	refreshed.LeaseAt = observedAt.UnixMilli()
+	if err := attempt.Write(ctx, refreshed); err != nil {
 		logger.Warn(ctx, "Failed to persist heartbeat lease refresh",
 			tag.RunID(task.DagRunId),
 			tag.WorkerID(workerID),
