@@ -30,7 +30,9 @@ It does not define:
   credential file through `options.*` or workspace configuration, neither of
   which a DAG's `secrets:` field can set dynamically (`key` and `options`
   values are used literally and are not expanded like `with:` or `env:`
-  values). `aws` is the exception: its client honors `AWS_ENDPOINT_URL` and
+  values). `vault` also falls back to the standard `VAULT_ADDR`,
+  `VAULT_TOKEN`, and other `VAULT_*` variables when its Dagu settings are
+  unset. `aws` is the exception: its client honors `AWS_ENDPOINT_URL` and
   the AWS credential environment variables directly, which lets a process
   environment override it without any DAG-level indirection.
 - Secret value formatting beyond returning it as a single string (JSON field
