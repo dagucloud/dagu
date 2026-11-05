@@ -20,7 +20,8 @@ import { RunTabEmpty } from '../dock/tabs/runTabBodies';
 import type { DockTabBodyProps } from '../dock/tabs/types';
 import { useWorkspaceUrl } from '../state/workspaceUrl';
 import { StepHistory } from './StepHistory';
-import { StepsGrid } from './StepsGrid';
+import { HISTORY_LIMIT } from '../dock/runTimelineModel';
+import { StepsGrid, StepsGridSkeleton } from './StepsGrid';
 import {
   hasRunningStep,
   stepGrid,
@@ -166,6 +167,15 @@ export function HistoryBody({ run, dag, step, selectTab }: DockTabBodyProps) {
     [pick, selectTab, step]
   );
 
+  // The grid of the run summary keeps its shape while its runs load.
+  if (runs.length === 0 && history.isLoading && step === undefined) {
+    return (
+      <StepsGridSkeleton
+        steps={(dag.steps ?? []).map((definition) => definition.name)}
+        columns={HISTORY_LIMIT}
+      />
+    );
+  }
   if (runs.length === 0) {
     return (
       <RunTabEmpty>

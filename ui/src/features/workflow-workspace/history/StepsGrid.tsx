@@ -189,6 +189,61 @@ const GridRow = memo(function GridRow({
 }, rowEqual);
 
 /**
+ * The grid while its runs load, in the frame of the grid: the header row,
+ * a row for each step of the workflow with its name, and a mark for each
+ * run that the grid will show.
+ */
+export function StepsGridSkeleton({
+  steps,
+  columns,
+}: {
+  steps: readonly string[];
+  columns: number;
+}) {
+  const { ts } = useI18n();
+  const cells = Array.from({ length: columns }, (_, col) => col);
+  return (
+    <div
+      role="status"
+      aria-busy="true"
+      aria-label={ts('Loading runs...')}
+      data-testid="ww-steps-grid-loading"
+      className="h-full min-h-0 overflow-hidden pb-1"
+    >
+      <div className="flex min-w-max border-b border-border">
+        <div
+          className={cn(
+            NAME_CLASS,
+            'text-[11px] font-medium text-muted-foreground'
+          )}
+        >
+          {ts('Step')}
+        </div>
+        {cells.map((col) => (
+          <span key={col} aria-hidden="true" className={CELL_CLASS}>
+            <span className="block size-2 rounded-full bg-muted motion-safe:animate-pulse" />
+          </span>
+        ))}
+      </div>
+      {steps.map((step) => (
+        <div key={step} className="flex min-w-max">
+          <div
+            className={cn(NAME_CLASS, 'truncate text-xs text-muted-foreground')}
+          >
+            {step}
+          </div>
+          {cells.map((col) => (
+            <span key={col} aria-hidden="true" className={CELL_CLASS}>
+              <span className="block size-2.5 rounded-[2px] bg-muted motion-safe:animate-pulse" />
+            </span>
+          ))}
+        </div>
+      ))}
+    </div>
+  );
+}
+
+/**
  * The steps of the workflow by run: a row for each step, a column for each
  * run, the newest on the right and scrolled into view. A view at the right
  * end follows a new run; a view scrolled back stays on its runs, also while
