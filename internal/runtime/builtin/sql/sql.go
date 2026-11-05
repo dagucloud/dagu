@@ -438,7 +438,7 @@ func (e *sqlExecutor) executeQuery(ctx context.Context, query string) error {
 	qe := GetQueryExecutor(db, tx)
 
 	// Determine if query returns rows
-	if isSelectQuery(convertedQuery) {
+	if isSelectQuery(convertedQuery, e.commentSyntax()) {
 		rowCount, err := e.executeSelectQuery(ctx, qe, convertedQuery, params)
 		if err != nil {
 			metrics.Status = "error"
@@ -533,7 +533,7 @@ func (e *sqlExecutor) executeStatement(ctx context.Context, qe QueryExecutor, st
 		return err
 	}
 
-	if isSelectQuery(convertedStmt) {
+	if isSelectQuery(convertedStmt, e.commentSyntax()) {
 		rowCount, err := e.executeSelectQuery(ctx, qe, convertedStmt, params)
 		if err != nil {
 			metrics.Status = "error"
@@ -671,8 +671,8 @@ func (e *sqlExecutor) writeMetrics(metrics *ExecutionMetrics) {
 }
 
 // isSelectQuery determines if a query is a SELECT statement.
-func isSelectQuery(query string) bool {
-	trimmed := strings.ToUpper(trimLeadingComments(query))
+func isSelectQuery(query string, syntax commentSyntax) bool {
+	trimmed := strings.ToUpper(trimLeadingComments(query, syntax))
 
 	// Check for RETURNING clause (PostgreSQL/SQLite)
 	// INSERT/UPDATE/DELETE with RETURNING returns rows like SELECT
@@ -688,28 +688,78 @@ func isSelectQuery(query string) bool {
 		strings.HasPrefix(trimmed, "PRAGMA")
 }
 
+// commentSyntax is how a SQL dialect ends its comments.
+type commentSyntax struct {
+	// lineEndsAtCR ends a -- comment at a carriage return as well as a newline.
+	lineEndsAtCR bool
+	// nestedBlocks lets /* */ comments nest.
+	nestedBlocks bool
+}
+
+// postgresComments follows the PostgreSQL lexer. The zero commentSyntax
+// follows SQLite, which ends a line comment only at a newline and does not
+// nest block comments.
+var postgresComments = commentSyntax{lineEndsAtCR: true, nestedBlocks: true}
+
+func (e *sqlExecutor) commentSyntax() commentSyntax {
+	if e.driver.Name() == "postgres" {
+		return postgresComments
+	}
+	return commentSyntax{}
+}
+
 // trimLeadingComments returns query without the whitespace, line comments,
 // and block comments before its first keyword.
-func trimLeadingComments(query string) string {
+func trimLeadingComments(query string, syntax commentSyntax) string {
 	for {
 		query = strings.TrimSpace(query)
 		switch {
 		case strings.HasPrefix(query, "--"):
 			end := strings.IndexByte(query, '\n')
+			if syntax.lineEndsAtCR {
+				end = strings.IndexAny(query, "\r\n")
+			}
 			if end < 0 {
 				return ""
 			}
 			query = query[end+1:]
 		case strings.HasPrefix(query, "/*"):
-			end := strings.Index(query[2:], "*/")
+			end := blockCommentEnd(query, syntax.nestedBlocks)
 			if end < 0 {
 				return ""
 			}
-			query = query[2+end+2:]
+			query = query[end:]
 		default:
 			return query
 		}
 	}
+}
+
+// blockCommentEnd returns the index just past the block comment query starts
+// with, or -1 when the comment is not closed.
+func blockCommentEnd(query string, nested bool) int {
+	if !nested {
+		end := strings.Index(query[2:], "*/")
+		if end < 0 {
+			return -1
+		}
+		return 2 + end + 2
+	}
+	depth := 0
+	for i := 0; i+1 < len(query); i++ {
+		switch query[i : i+2] {
+		case "/*":
+			depth++
+			i++
+		case "*/":
+			depth--
+			i++
+			if depth == 0 {
+				return i + 1
+			}
+		}
+	}
+	return -1
 }
 
 // splitStatements splits a SQL script into individual statements.

@@ -2669,36 +2669,48 @@ func TestSplitStatements(t *testing.T) {
 func TestIsSelectQuery(t *testing.T) {
 	t.Parallel()
 
+	sqlite := sqlexec.CommentSyntax{}
+	postgres := sqlexec.PostgresComments
 	tests := []struct {
 		query    string
+		syntax   sqlexec.CommentSyntax
 		expected bool
 	}{
-		{"SELECT * FROM users", true},
-		{"  SELECT id FROM users", true},
-		{"\n\tSELECT 1", true},
-		{"select lower", true},
-		{"INSERT INTO users VALUES (1)", false},
-		{"UPDATE users SET name = 'test'", false},
-		{"DELETE FROM users", false},
-		{"CREATE TABLE users (id INT)", false},
-		{"INSERT INTO users VALUES (1) RETURNING id", true},
-		{"INSERT INTO users VALUES (1) RETURNING", true},
-		{"WITH cte AS (SELECT 1) SELECT * FROM cte", true},
-		{"  WITH RECURSIVE cte AS (SELECT 1) SELECT * FROM cte", true},
-		{"-- list numbers\nSELECT 1", true},
-		{"/* header */ SELECT 1", true},
-		{"-- one\n/* two\nlines */\n  -- three\nselect 1", true},
-		{"--\r\nSELECT 1", true},
-		{"-- SELECT 1\nDELETE FROM users", false},
-		{"/* SELECT 1 */ DELETE FROM users", false},
-		{"-- only a comment", false},
-		{"/* unterminated SELECT 1", false},
+		{"SELECT * FROM users", sqlite, true},
+		{"  SELECT id FROM users", sqlite, true},
+		{"\n\tSELECT 1", sqlite, true},
+		{"select lower", sqlite, true},
+		{"INSERT INTO users VALUES (1)", sqlite, false},
+		{"UPDATE users SET name = 'test'", sqlite, false},
+		{"DELETE FROM users", sqlite, false},
+		{"CREATE TABLE users (id INT)", sqlite, false},
+		{"INSERT INTO users VALUES (1) RETURNING id", sqlite, true},
+		{"INSERT INTO users VALUES (1) RETURNING", sqlite, true},
+		{"WITH cte AS (SELECT 1) SELECT * FROM cte", sqlite, true},
+		{"  WITH RECURSIVE cte AS (SELECT 1) SELECT * FROM cte", sqlite, true},
+		{"-- list numbers\nSELECT 1", sqlite, true},
+		{"/* header */ SELECT 1", sqlite, true},
+		{"-- one\n/* two\nlines */\n  -- three\nselect 1", sqlite, true},
+		{"--\r\nSELECT 1", sqlite, true},
+		{"-- SELECT 1\nDELETE FROM users", sqlite, false},
+		{"/* SELECT 1 */ DELETE FROM users", sqlite, false},
+		{"-- only a comment", sqlite, false},
+		{"/* unterminated SELECT 1", sqlite, false},
+		// SQLite ends a line comment only at a newline; PostgreSQL also at a
+		// carriage return.
+		{"-- header\rSELECT 1", sqlite, false},
+		{"-- header\rSELECT 1", postgres, true},
+		// PostgreSQL block comments nest; SQLite's end at the first */.
+		{"/* a /* b */ c */ SELECT 1", postgres, true},
+		{"/* a /* b */ c */ SELECT 1", sqlite, false},
+		{"/* a /* b */ SELECT 1", sqlite, true},
+		{"/* a /* b */ SELECT 1", postgres, false},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.query, func(t *testing.T) {
 			t.Parallel()
-			result := sqlexec.IsSelectQuery(tt.query)
+			result := sqlexec.IsSelectQuery(tt.query, tt.syntax)
 			assert.Equal(t, tt.expected, result, "query: %s", tt.query)
 		})
 	}
