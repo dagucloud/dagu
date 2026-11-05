@@ -148,8 +148,8 @@ func (stopDAGRunProcRepository) FreshEntriesByDAGName(context.Context, string, s
 	return nil, nil
 }
 
-func (s failingHistoryDAGRunStore) RecentStatuses(context.Context, string, int) ([]ir.DAGRunStatus, error) {
-	return nil, s.err
+func (s failingHistoryDAGRunStore) QueryStatuses(context.Context, persis.DAGRunStatusQuery) (persis.DAGRunStatusPage, error) {
+	return persis.DAGRunStatusPage{}, s.err
 }
 
 func (s failingHistoryDAGRunStore) FindAttempt(context.Context, ir.DAGRunRef) (dagrun.Attempt, error) {

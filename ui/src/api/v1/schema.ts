@@ -418,7 +418,7 @@ export interface paths {
         };
         /**
          * Retrieve execution history of a DAG
-         * @description Fetches history of DAG-runs created from this DAG definition
+         * @description Fetches history of DAG-runs created from this DAG definition, newest first, one page at a time
          */
         get: operations["getDAGDAGRunHistory"];
         put?: never;
@@ -10247,8 +10247,12 @@ export interface operations {
             query?: {
                 /** @description name of the remote node */
                 remoteNode?: components["parameters"]["RemoteNode"];
-                /** @description If true, the response also contains the ephemeral runs of this DAG, merged by start time with the other runs under the same limit. Each carries ephemeral true. No other list returns them. */
+                /** @description If true, the first page also contains the ephemeral runs of this DAG that are not older than its oldest run, merged by start time. Each carries ephemeral true. Pages read with a cursor and other lists never return them. */
                 includeEphemeral?: boolean;
+                /** @description Maximum number of DAG-runs per page, not counting ephemeral runs */
+                limit?: number;
+                /** @description Opaque cursor for loading the next page of older DAG-runs */
+                cursor?: components["parameters"]["DAGRunListCursor"];
             };
             header?: never;
             path: {
@@ -10270,6 +10274,8 @@ export interface operations {
                         dagRuns: components["schemas"]["DAGRunDetails"][];
                         /** @description Grid data for visualization */
                         gridData: components["schemas"]["DAGGridItem"][];
+                        /** @description Opaque cursor for loading the next page of older DAG-runs */
+                        nextCursor?: string;
                     };
                 };
             };

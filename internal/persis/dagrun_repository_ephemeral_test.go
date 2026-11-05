@@ -5,6 +5,7 @@ package persis_test
 
 import (
 	"context"
+	"fmt"
 	"path/filepath"
 	"testing"
 	"time"
@@ -14,6 +15,7 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/persis"
 	filedagrun "github.com/dagucloud/dagu/v2/internal/persis/file/dagrun"
+	"github.com/dagucloud/dagu/v2/internal/persis/file/dagrun/dagrunindex"
 	"github.com/dagucloud/dagu/v2/internal/spec"
 	"github.com/dagucloud/dagu/v2/internal/testutil"
 	"github.com/stretchr/testify/require"
@@ -272,9 +274,9 @@ func TestRemoveEndedEphemeralRunsKeepsStartingRetry(t *testing.T) {
 	}
 }
 
-// The history of a DAG lists ephemeral runs only on request, merged with the
-// other runs by start time, newest first, under one limit.
-func TestRecentStatusesWithEphemeralRuns(t *testing.T) {
+// The history of a DAG comes in pages of older runs, newest first. Ephemeral
+// runs come only on request, on the first page, merged by start time.
+func TestRecentStatusesPage(t *testing.T) {
 	t.Parallel()
 
 	ctx := context.Background()
@@ -298,22 +300,65 @@ func TestRecentStatusesWithEphemeralRuns(t *testing.T) {
 	write("n2", 2*time.Minute, false)
 	write("e2", 3*time.Minute, true)
 
-	ids := func(limit int, includeEphemeral bool) []string {
-		statuses, err := repo.RecentStatusesWithOptions(ctx, dag.Name, limit, persis.RecentStatusesOptions{IncludeEphemeral: includeEphemeral})
+	read := func(options persis.RecentStatusesPageOptions) ([]string, string) {
+		page, err := repo.RecentStatusesPage(ctx, dag.Name, options)
 		require.NoError(t, err)
-		var out []string
-		for _, status := range statuses {
-			out = append(out, status.DAGRunID)
+		var ids []string
+		for _, status := range page.Items {
+			ids = append(ids, status.DAGRunID)
 		}
-		return out
+		return ids, page.NextCursor
 	}
 
-	require.Equal(t, []string{"n2", "n1"}, ids(10, false))
-	require.Equal(t, []string{"e2", "n2", "e1", "n1"}, ids(10, true))
-	require.Equal(t, []string{"e2", "n2", "e1"}, ids(3, true))
-	// A limit that is not positive takes the default, as without ephemeral runs.
-	require.Equal(t, []string{"e2", "n2", "e1", "n1"}, ids(0, true))
-	require.Equal(t, []string{"e2", "n2", "e1", "n1"}, ids(-1, true))
+	ids, cursor := read(persis.RecentStatusesPageOptions{Limit: 10})
+	require.Equal(t, []string{"n2", "n1"}, ids)
+	require.Empty(t, cursor)
+
+	ids, cursor = read(persis.RecentStatusesPageOptions{Limit: 10, IncludeEphemeral: true})
+	require.Equal(t, []string{"e2", "n2", "e1", "n1"}, ids)
+	require.Empty(t, cursor)
+
+	// e1 is older than n2: it would sort among the runs of the next page.
+	ids, cursor = read(persis.RecentStatusesPageOptions{Limit: 1, IncludeEphemeral: true})
+	require.Equal(t, []string{"e2", "n2"}, ids)
+	require.NotEmpty(t, cursor)
+	ids, cursor = read(persis.RecentStatusesPageOptions{Limit: 1, Cursor: cursor, IncludeEphemeral: true})
+	require.Equal(t, []string{"n1"}, ids)
+	require.Empty(t, cursor)
+
+	// A limit that is not positive takes the default.
+	ids, _ = read(persis.RecentStatusesPageOptions{IncludeEphemeral: true})
+	require.Equal(t, []string{"e2", "n2", "e1", "n1"}, ids)
+}
+
+// A day with enough runs is listed from its run index, whose summaries have
+// no nodes. A page of the history still holds whole statuses.
+func TestRecentStatusesPageReadsWholeStatuses(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	dag, err := spec.LoadYAML(ctx, []byte("name: day\nsteps:\n  - run: echo hi\n"))
+	require.NoError(t, err)
+	repo := newEphemeralTestRepository(t, nil)
+
+	noon := time.Date(2026, 1, 15, 12, 0, 0, 0, time.UTC)
+	for i := range dagrunindex.MinRunsForIndex + 2 {
+		start := noon.Add(time.Duration(i) * time.Minute)
+		runID := fmt.Sprintf("run-%02d", i)
+		attempt, err := repo.CreateAttempt(ctx, dag, start, runID, persis.DAGRunCreateAttemptOptions{})
+		require.NoError(t, err)
+		require.NoError(t, attempt.Open(ctx))
+		require.NoError(t, attempt.Write(ctx, ir.NewStatusBuilder(dag).Create(runID, ir.Succeeded, 0, start,
+			ir.WithAttemptID(attempt.ID()), ir.WithFinishedAt(start.Add(time.Second)))))
+		require.NoError(t, attempt.Close(ctx))
+	}
+
+	page, err := repo.RecentStatusesPage(ctx, dag.Name, persis.RecentStatusesPageOptions{Limit: 5})
+	require.NoError(t, err)
+	require.Len(t, page.Items, 5)
+	for _, status := range page.Items {
+		require.Len(t, status.Nodes, 1, status.DAGRunID)
+	}
 }
 
 // A run ID names one run across the history and the ephemeral store.

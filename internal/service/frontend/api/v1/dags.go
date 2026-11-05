@@ -523,8 +523,19 @@ func (a *API) GetDAGDAGRunHistory(ctx context.Context, request api.GetDAGDAGRunH
 		return nil, err
 	}
 	dagName := a.resolveDAGName(ctx, request.FileName)
-	response, err := a.buildDAGRunHistoryResponse(ctx, dag, dagName, valueOf(request.Params.IncludeEphemeral))
+	limit := defaultHistoryLimit
+	if request.Params.Limit != nil {
+		limit = *request.Params.Limit
+	}
+	response, err := a.buildDAGRunHistoryResponse(ctx, dag, dagName, persis.RecentStatusesPageOptions{
+		Limit:            limit,
+		Cursor:           valueOf(request.Params.Cursor),
+		IncludeEphemeral: valueOf(request.Params.IncludeEphemeral),
+	})
 	if err != nil {
+		if apiErr := dagRunListBadRequest(err); apiErr != nil {
+			return nil, apiErr
+		}
 		return nil, &Error{
 			HTTPStatus: http.StatusInternalServerError,
 			Code:       api.ErrorCodeInternalError,
@@ -538,22 +549,28 @@ func (a *API) buildDAGRunHistoryResponse(
 	ctx context.Context,
 	dag *ir.DAG,
 	dagName string,
-	includeEphemeral bool,
+	options persis.RecentStatusesPageOptions,
 ) (api.GetDAGDAGRunHistory200JSONResponse, error) {
-	recentHistory, err := a.dagRunRepository.RecentStatusesWithOptions(ctx, dagName, defaultHistoryLimit, persis.RecentStatusesOptions{IncludeEphemeral: includeEphemeral})
+	page, err := a.dagRunRepository.RecentStatusesPage(ctx, dagName, options)
 	if err != nil {
 		return api.GetDAGDAGRunHistory200JSONResponse{}, fmt.Errorf("list recent DAG runs for %s: %w", dagName, err)
 	}
 
-	dagRuns := make([]api.DAGRunDetails, 0, len(recentHistory))
-	for _, status := range recentHistory {
-		dagRuns = append(dagRuns, ToDAGRunDetails(status))
+	recentHistory := make([]ir.DAGRunStatus, 0, len(page.Items))
+	dagRuns := make([]api.DAGRunDetails, 0, len(page.Items))
+	for _, status := range page.Items {
+		recentHistory = append(recentHistory, *status)
+		dagRuns = append(dagRuns, ToDAGRunDetails(*status))
 	}
 
-	return api.GetDAGDAGRunHistory200JSONResponse{
+	response := api.GetDAGDAGRunHistory200JSONResponse{
 		DagRuns:  dagRuns,
 		GridData: a.readHistoryData(ctx, dag, recentHistory),
-	}, nil
+	}
+	if page.NextCursor != "" {
+		response.NextCursor = &page.NextCursor
+	}
+	return response, nil
 }
 
 func (a *API) GetDAGDetails(ctx context.Context, request api.GetDAGDetailsRequestObject) (api.GetDAGDetailsResponseObject, error) {
@@ -2228,7 +2245,7 @@ func (a *API) GetDAGHistoryData(ctx context.Context, fileName string) (any, erro
 		}
 
 		dagName := a.resolveDAGName(readCtx, fileName)
-		return a.buildDAGRunHistoryResponse(readCtx, dag, dagName, false)
+		return a.buildDAGRunHistoryResponse(readCtx, dag, dagName, persis.RecentStatusesPageOptions{Limit: defaultHistoryLimit})
 	})
 }
 

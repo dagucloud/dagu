@@ -7,6 +7,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"slices"
 	"time"
 
 	"github.com/dagucloud/dagu/v2/internal/cmn/logger"
@@ -148,50 +149,63 @@ func endedAt(status *ir.DAGRunStatus) time.Time {
 	return time.Time{}
 }
 
-// RecentStatusesOptions tunes RecentStatusesWithOptions.
-type RecentStatusesOptions struct {
-	// IncludeEphemeral adds the ephemeral runs of the DAG to the result.
+// RecentStatusesPageOptions selects one page of RecentStatusesPage.
+type RecentStatusesPageOptions struct {
+	// Limit is the most runs of the history that the page holds.
+	Limit int
+	// Cursor is the NextCursor of the previous page; empty for the first page.
+	Cursor string
+	// IncludeEphemeral adds the ephemeral runs of the DAG to the first page.
 	IncludeEphemeral bool
 }
 
-// RecentStatusesWithOptions is RecentStatuses with options. With
-// IncludeEphemeral, the ephemeral runs of the DAG are merged with the other
-// runs by start time, newest first, under the same limit.
-func (r *DAGRunRepository) RecentStatusesWithOptions(
+// RecentStatusesPage returns one page of the runs of a DAG, newest first,
+// and the cursor of the next page of older runs. With IncludeEphemeral, the
+// first page also holds the ephemeral runs of the DAG that are not older
+// than its oldest run, merged by start time; no later page holds one.
+func (r *DAGRunRepository) RecentStatusesPage(
 	ctx context.Context,
 	name string,
-	limit int,
-	options RecentStatusesOptions,
-) ([]ir.DAGRunStatus, error) {
-	limit = recentLimit(ctx, limit)
-	statuses, err := r.RecentStatuses(ctx, name, limit)
-	if err != nil || !options.IncludeEphemeral || r.ephemeral == nil {
-		return statuses, err
+	options RecentStatusesPageOptions,
+) (DAGRunStatusPage, error) {
+	limit := recentLimit(ctx, options.Limit)
+	page, err := r.ListStatusesPage(ctx, DAGRunListOptions{
+		ExactName:  name,
+		Limit:      limit,
+		Cursor:     options.Cursor,
+		AllHistory: true,
+		FullStatus: true,
+	})
+	if err != nil || options.Cursor != "" || !options.IncludeEphemeral || r.ephemeral == nil {
+		return page, err
 	}
 	ephemeral, err := r.ephemeral.RecentStatuses(ctx, name, limit)
 	if err != nil {
-		return nil, fmt.Errorf("list recent ephemeral runs of %s: %w", name, err)
+		return DAGRunStatusPage{}, fmt.Errorf("list recent ephemeral runs of %s: %w", name, err)
 	}
-	if len(ephemeral) == 0 {
-		return statuses, nil
+	// An older ephemeral run would sort among the runs of the next page.
+	if page.NextCursor != "" && len(page.Items) > 0 {
+		oldest := startedAt(page.Items[len(page.Items)-1])
+		ephemeral = slices.DeleteFunc(ephemeral, func(status ir.DAGRunStatus) bool {
+			return startedAt(&status).Before(oldest)
+		})
 	}
-	return mergeRecentStatuses(statuses, ephemeral, limit), nil
+	page.Items = mergeRecentStatuses(page.Items, ephemeral)
+	return page, nil
 }
 
-// mergeRecentStatuses merges two lists that are each newest first, keeping
-// the order of each list, and keeps at most limit entries.
-func mergeRecentStatuses(a, b []ir.DAGRunStatus, limit int) []ir.DAGRunStatus {
-	merged := make([]ir.DAGRunStatus, 0, min(len(a)+len(b), limit))
-	for len(merged) < limit && (len(a) > 0 || len(b) > 0) {
+// mergeRecentStatuses merges runs of the history and ephemeral runs, each
+// newest first, keeping the order of each list.
+func mergeRecentStatuses(runs []*ir.DAGRunStatus, ephemeral []ir.DAGRunStatus) []*ir.DAGRunStatus {
+	merged := make([]*ir.DAGRunStatus, 0, len(runs)+len(ephemeral))
+	for len(runs) > 0 || len(ephemeral) > 0 {
 		switch {
-		case len(b) == 0:
-			merged, a = append(merged, a[0]), a[1:]
-		case len(a) == 0:
-			merged, b = append(merged, b[0]), b[1:]
-		case startedAt(&b[0]).After(startedAt(&a[0])):
-			merged, b = append(merged, b[0]), b[1:]
+		case len(ephemeral) == 0:
+			merged, runs = append(merged, runs[0]), runs[1:]
+		case len(runs) == 0 || startedAt(&ephemeral[0]).After(startedAt(runs[0])):
+			merged, ephemeral = append(merged, &ephemeral[0]), ephemeral[1:]
 		default:
-			merged, a = append(merged, a[0]), a[1:]
+			merged, runs = append(merged, runs[0]), runs[1:]
 		}
 	}
 	return merged

@@ -51,6 +51,9 @@ type DAGRunStatusQuery struct {
 	Cursor          string
 	Labels          []string
 	WorkspaceFilter *workspace.WorkspaceFilter
+	// FullStatus returns each status whole, with its nodes, where a run
+	// index would serve a summary.
+	FullStatus bool
 }
 
 // DAGRunStatusPage is one forward-only page of DAG-run statuses.
@@ -189,6 +192,8 @@ type DAGRunListOptions struct {
 	AllHistory bool
 	// Unbounded disables the repository's result limit.
 	Unbounded bool
+	// FullStatus returns each status whole, with its nodes.
+	FullStatus bool
 }
 
 // DAGRunCompareAndSwapOptions configures an atomic latest-attempt status update.

@@ -10,6 +10,7 @@ import (
 	"encoding/hex"
 	"fmt"
 	"net/http"
+	"net/url"
 	"os"
 	"path/filepath"
 	"strings"
@@ -118,6 +119,51 @@ func TestDAGRunHistoryReturnsNotFoundForMissingDAG(t *testing.T) {
 
 	server.Client().Get("/api/v1/dags/missing-dag/dag-runs").
 		ExpectStatus(http.StatusNotFound).Send(t)
+}
+
+// The history of a workflow comes in pages, each with the cursor of the next
+// page of older runs.
+func TestDAGRunHistoryPages(t *testing.T) {
+	server := test.SetupServer(t)
+	spec := "steps:\n  - run: echo hi\n"
+	dagName := "history_pages"
+	_ = server.Client().Post("/api/v1/dags", api.CreateNewDAGJSONRequestBody{Name: dagName, Spec: &spec}).
+		ExpectStatus(http.StatusCreated).Send(t)
+
+	dag := &ir.DAG{Name: dagName}
+	base := time.Now().Add(-time.Hour)
+	for i, runID := range []string{"old", "mid", "new"} {
+		attempt, err := server.DAGRunRepository.CreateAttempt(server.Context, dag, base.Add(time.Duration(i)*time.Minute), runID, persis.DAGRunCreateAttemptOptions{})
+		require.NoError(t, err)
+		status := ir.InitialStatus(dag)
+		status.DAGRunID = runID
+		status.AttemptID = attempt.ID()
+		status.Status = ir.Succeeded
+		require.NoError(t, attempt.Open(server.Context))
+		require.NoError(t, attempt.Write(server.Context, status))
+		require.NoError(t, attempt.Close(server.Context))
+	}
+
+	read := func(query string) ([]string, *string) {
+		var page api.GetDAGDAGRunHistory200JSONResponse
+		server.Client().Get("/api/v1/dags/"+dagName+"/dag-runs?"+query).
+			ExpectStatus(http.StatusOK).Send(t).Unmarshal(t, &page)
+		ids := make([]string, 0, len(page.DagRuns))
+		for _, run := range page.DagRuns {
+			ids = append(ids, run.DagRunId)
+		}
+		return ids, page.NextCursor
+	}
+
+	ids, cursor := read("limit=2")
+	require.Equal(t, []string{"new", "mid"}, ids)
+	require.NotNil(t, cursor)
+	ids, cursor = read("limit=2&cursor=" + url.QueryEscape(*cursor))
+	require.Equal(t, []string{"old"}, ids)
+	require.Nil(t, cursor)
+
+	server.Client().Get("/api/v1/dags/" + dagName + "/dag-runs?cursor=bogus").
+		ExpectStatus(http.StatusBadRequest).Send(t)
 }
 
 func TestDAGWritesDisabledInReadOnlyMode(t *testing.T) {

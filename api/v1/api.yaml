@@ -1428,7 +1428,7 @@ paths:
   /dags/{fileName}/dag-runs:
     get:
       summary: "Retrieve execution history of a DAG"
-      description: "Fetches history of DAG-runs created from this DAG definition"
+      description: "Fetches history of DAG-runs created from this DAG definition, newest first, one page at a time"
       operationId: "getDAGDAGRunHistory"
       tags:
         - "dags"
@@ -1438,10 +1438,20 @@ paths:
         - name: includeEphemeral
           in: query
           required: false
-          description: "If true, the response also contains the ephemeral runs of this DAG, merged by start time with the other runs under the same limit. Each carries ephemeral true. No other list returns them."
+          description: "If true, the first page also contains the ephemeral runs of this DAG that are not older than its oldest run, merged by start time. Each carries ephemeral true. Pages read with a cursor and other lists never return them."
           schema:
             type: boolean
             default: false
+        - name: limit
+          in: query
+          required: false
+          description: "Maximum number of DAG-runs per page, not counting ephemeral runs"
+          schema:
+            type: integer
+            default: 30
+            minimum: 1
+            maximum: 100
+        - $ref: "#/components/parameters/DAGRunListCursor"
       responses:
         "200":
           description: "A successful response"
@@ -1460,6 +1470,9 @@ paths:
                     description: "Grid data for visualization"
                     items:
                       $ref: "#/components/schemas/DAGGridItem"
+                  nextCursor:
+                    type: string
+                    description: "Opaque cursor for loading the next page of older DAG-runs"
                 required:
                   - dagRuns
                   - gridData
