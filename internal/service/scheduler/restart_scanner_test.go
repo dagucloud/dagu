@@ -63,7 +63,22 @@ func TestDecideRestart(t *testing.T) {
 		{name: "Running", latest: finished(ir.Running, 0), reason: "run_active"},
 		{name: "Queued", latest: finished(ir.Queued, 0), reason: "run_active"},
 		{name: "WaitingApproval", latest: finished(ir.Waiting, 0), reason: "run_active"},
-		{name: "NotStarted", latest: &ir.DAGRunStatus{DAGRunID: "run-1", Status: ir.NotStarted}, reason: "run_active"},
+		{
+			name:   "NotStarted",
+			latest: &ir.DAGRunStatus{DAGRunID: "run-1", Status: ir.NotStarted, StartedAt: now.Add(-time.Minute).Format(time.RFC3339)},
+			reason: "run_not_started",
+		},
+		// A run that never starts is taken for ended once the timeout passes.
+		{
+			name:   "LeftNotStarted",
+			latest: &ir.DAGRunStatus{DAGRunID: "run-1", Status: ir.NotStarted, StartedAt: now.Add(-restartNotStartedTimeout).Format(time.RFC3339)},
+			start:  true, reason: "previous_run_ended", previousEnd: now.Add(-restartNotStartedTimeout),
+		},
+		{
+			name:   "NotStartedWithoutTime",
+			latest: &ir.DAGRunStatus{DAGRunID: "run-1", Status: ir.NotStarted},
+			start:  true, reason: "previous_run_end_unknown",
+		},
 		{
 			name:   "Aborted",
 			latest: finished(ir.Aborted, 20*time.Second),

@@ -16,10 +16,10 @@ import (
 )
 
 // Only the scheduler that holds the scheduler lock runs the scanner. A DAG gets
-// no new run while it has a live process, a queued item or an active run, or
-// while its latest run cannot be read. The ID of a restart follows from the run
-// it replaces, so two schedulers that decide the same restart around a failover
-// create one run.
+// no new run while it has a live process, a run on a worker, a queued item or
+// an active run, or while its latest run cannot be read. The ID of a restart
+// follows from the run it replaces, so two schedulers that decide the same
+// restart around a failover create one run.
 //
 // A run that an operator stopped carries a stop request on its attempt,
 // whatever status it ends with: a stopped distributed run whose worker is gone
@@ -63,6 +63,13 @@ const (
 	// restartBackoffMaxWait bounds the doubled wait. A restart_wait_sec above
 	// it is not doubled.
 	restartBackoffMaxWait = 5 * time.Minute
+
+	// restartNotStartedTimeout is how long a run may stay not started before it
+	// is taken for ended. The coordinator records a run as not started until a
+	// worker runs it, and fails it once the worker is gone; the timeout covers
+	// a run left behind. A process or a worker that still runs it keeps the DAG
+	// busy.
+	restartNotStartedTimeout = 5 * time.Minute
 )
 
 // errRestartQueuesDisabled says a service DAG gets no run: its runs go through
@@ -494,8 +501,12 @@ func decideRestart(wait time.Duration, latest *ir.DAGRunStatus, now time.Time) r
 	switch {
 	case latest.DAGRunID == "":
 		return restartDecision{start: true, reason: "first_run"}
-	case latest.Status == ir.NotStarted || latest.Status.IsActive():
+	case latest.Status.IsActive():
 		return restartDecision{reason: "run_active"}
+	case latest.Status == ir.NotStarted:
+		if createdAt, ok := retryReferenceTime(latest); ok && now.Before(createdAt.Add(restartNotStartedTimeout)) {
+			return restartDecision{reason: "run_not_started", due: createdAt.Add(restartNotStartedTimeout)}
+		}
 	}
 
 	endedAt, ok := retryReferenceTime(latest)
