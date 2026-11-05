@@ -6,6 +6,8 @@
 package desktop
 
 import (
+	"errors"
+	"fmt"
 	"image"
 	"slices"
 	"sync"
@@ -35,9 +37,15 @@ var (
 	procMonitorFromPoint    = user32.NewProc("MonitorFromPoint")
 	procGetWindow           = user32.NewProc("GetWindow")
 	procIsWindowEnabled     = user32.NewProc("IsWindowEnabled")
+	procPrintWindow         = user32.NewProc("PrintWindow")
+	procIsHungAppWindow     = user32.NewProc("IsHungAppWindow")
+	procGetDpiForWindow     = user32.NewProc("GetDpiForWindow")
 
 	dwmapi                    = windows.NewLazySystemDLL("dwmapi.dll")
 	procDwmGetWindowAttribute = dwmapi.NewProc("DwmGetWindowAttribute")
+
+	shcore               = windows.NewLazySystemDLL("shcore.dll")
+	procGetDpiForMonitor = shcore.NewProc("GetDpiForMonitor")
 )
 
 const (
@@ -65,6 +73,12 @@ const (
 	swpNoZOrder     = 0x0004
 	swpNoActivate   = 0x0010
 	dwmExtendedRect = 9
+	// pwRenderFullContent makes PrintWindow render what the window manager
+	// composes, GPU-drawn content included.
+	pwRenderFullContent = 0x2
+	// mdtEffectiveDPI asks GetDpiForMonitor for the scale the display
+	// settings give a monitor.
+	mdtEffectiveDPI = 0
 )
 
 // enumWindowsCallback is made once: Go never frees a callback and caps how
@@ -223,4 +237,78 @@ func holdsOwner(hwnd windows.HWND) bool {
 	}
 	enabled, _, _ := procIsWindowEnabled.Call(owner)
 	return enabled == 0
+}
+
+// CaptureApps draws each window with PrintWindow, which renders a window's
+// own content whether or not other windows cover it. Windows.Graphics.Capture
+// would need WinRT activation and a Direct3D device through COM vtables, and
+// shows a border around each window it captures. A window whose application
+// does not answer is left out, since PrintWindow may wait for it. A window
+// the system stretches to the display's scale, as it does one of an
+// application unaware of that scale, fails the capture: PrintWindow draws it
+// at a size the screen does not show.
+func (windowsBackend) CaptureApps(apps []string) (Capture, error) {
+	if err := capturable(); err != nil {
+		return Capture{}, err
+	}
+	var shown []WindowID
+	for _, w := range visibleWindows() {
+		hwnd := uintptr(w.Handle) //nolint:gosec // a window handle round-trips through uintptr for Win32
+		if !appIn(w.App, apps) || flag(procIsIconic, hwnd) || flag(procIsHungAppWindow, hwnd) {
+			continue
+		}
+		if stretched(hwnd) {
+			return Capture{}, fmt.Errorf("%s draws its windows at another scale than the display's", w.App)
+		}
+		shown = append(shown, w)
+	}
+	width, height := screenSize()
+	return compose(image.Rect(0, 0, width, height), shown, windowCaptureWait, printWindow)
+}
+
+// printWindow returns a window's picture of its Bounds.
+func printWindow(w WindowID) (*image.RGBA, error) {
+	hwnd := uintptr(w.Handle) //nolint:gosec // a window handle round-trips through uintptr for Win32
+	var frame windows.Rect
+	if ok, _, err := procGetWindowRect.Call(hwnd, uintptr(unsafe.Pointer(&frame))); ok == 0 { //nolint:gosec // Win32 takes the buffer address as uintptr
+		return nil, fmt.Errorf("GetWindowRect: %w", err)
+	}
+	width, height := int(frame.Right-frame.Left), int(frame.Bottom-frame.Top)
+	if width <= 0 || height <= 0 {
+		return nil, errors.New("the window has no size")
+	}
+	img, err := paintBitmap(width, height, func(memory, _ uintptr) error {
+		if ok, _, err := procPrintWindow.Call(hwnd, memory, pwRenderFullContent); ok == 0 {
+			return fmt.Errorf("PrintWindow: %w", err)
+		}
+		return nil
+	})
+	if err != nil {
+		return nil, err
+	}
+	// The window's rectangle holds an invisible resize border around the
+	// frame Bounds names.
+	return Crop(img, w.Bounds.Sub(image.Pt(int(frame.Left), int(frame.Top)))), nil
+}
+
+// flag calls a Win32 function of a window that answers a BOOL.
+func flag(proc *windows.LazyProc, hwnd uintptr) bool {
+	yes, _, _ := proc.Call(hwnd)
+	return yes != 0
+}
+
+// stretched reports a window drawn at another scale than its monitor's,
+// which the system stretches to fit. Before Windows 10 1607, which has no
+// scale per window, it reports none.
+func stretched(hwnd uintptr) bool {
+	if procGetDpiForWindow.Find() != nil || procGetDpiForMonitor.Find() != nil {
+		return false
+	}
+	own, _, _ := procGetDpiForWindow.Call(hwnd)
+	monitor, _, _ := procMonitorFromWindow.Call(hwnd, monitorNearest)
+	var dpiX, dpiY uint32
+	if hr, _, _ := procGetDpiForMonitor.Call(monitor, mdtEffectiveDPI, uintptr(unsafe.Pointer(&dpiX)), uintptr(unsafe.Pointer(&dpiY))); hr != 0 { //nolint:gosec // Win32 takes the buffer addresses as uintptr
+		return false
+	}
+	return own != 0 && uint32(own) != dpiX //nolint:gosec // a DPI fits 32 bits
 }

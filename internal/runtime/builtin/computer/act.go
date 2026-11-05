@@ -967,7 +967,7 @@ func (l *actLoop) unchanged(ctx context.Context, turn *computeruse.Turn) (bool, 
 			chosen.Actions = append(chosen.Actions, v.place(recordAction(display, nil), l.seen.full))
 		}
 	}
-	if current.Bounds() != l.seen.full.Bounds() {
+	if current.Bounds() != l.seen.full.Bounds() || l.r.shown.kind() != l.seen.shown.kind() {
 		return false, nil
 	}
 	return matches(current, v, chosen), nil
@@ -981,7 +981,7 @@ func (l *actLoop) view(actions []computeruse.Action) view {
 	display := displayView(l.seen.full)
 	for _, action := range actions {
 		if at, ok := l.pointOf(action); ok {
-			return l.r.windowView(l.r.driver.WindowAt(at), display)
+			return l.r.windowView(l.r.seenAt(l.seen, at), display)
 		}
 	}
 	return l.r.windowView(l.r.driver.FocusedWindow(), display)
@@ -993,7 +993,7 @@ func (l *actLoop) pointerApps(actions []computeruse.Action) []desktop.WindowID {
 	apps := make([]desktop.WindowID, len(actions))
 	for i, action := range actions {
 		if at, ok := l.pointOf(action); ok {
-			apps[i], _ = l.r.appWindow(l.r.driver.WindowAt(at))
+			apps[i], _ = l.r.appWindow(l.r.seenAt(l.seen, at))
 		}
 	}
 	return apps
@@ -1265,6 +1265,7 @@ func (l *actLoop) apply(ctx context.Context, turn *computeruse.Turn) []computeru
 		l.outcome.recording.Turns = append(l.outcome.recording.Turns, recordedTurn{
 			Screen:    v.fingerprint(l.seen.full),
 			Window:    v.window,
+			Capture:   l.seen.shown.kind(),
 			Actions:   recorded,
 			Confirmed: turn.Confirmation != "",
 		})
@@ -1290,15 +1291,17 @@ func (l *actLoop) finish(ctx context.Context, turn *computeruse.Turn) error {
 	if !turn.Done.Success {
 		return fmt.Errorf("the model could not complete the task: %s", turn.Done.Summary)
 	}
-	final := l.seen.full
+	final, shown := l.seen.full, l.seen.shown
 	if len(turn.Actions) > 0 {
 		var err error
 		if final, err = l.r.settle(ctx); err != nil {
 			return err
 		}
+		shown = l.r.shown
 	}
 	v := l.r.windowView(l.r.driver.FocusedWindow(), displayView(final))
 	l.outcome.recording.Final, l.outcome.recording.FinalWindow = v.fingerprint(final), v.window
+	l.outcome.recording.FinalCapture = shown.kind()
 	l.outcome.recording.Version = recordingVersion
 	l.outcome.recording.System, l.outcome.recording.SavedAt = l.r.system, time.Now().UTC()
 	if len(l.elements) > 0 {

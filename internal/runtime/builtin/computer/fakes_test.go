@@ -12,9 +12,11 @@ import (
 	"fmt"
 	"image"
 	"image/color"
+	"image/draw"
 	"os"
 	"path/filepath"
 	"slices"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -77,8 +79,13 @@ type fakeBackend struct {
 	reachable []desktop.WindowID
 	// released records the buttons released.
 	released []desktop.Button
-	// captures counts the screenshots taken.
+	// captures counts the screenshots taken, of the screen or of windows.
 	captures int
+	// windowShots draw windows, by handle and in display pixels, as a
+	// window capture shows them where the screen does not, such as a window
+	// another covers; captureErr fails every window capture.
+	windowShots map[uint64]*image.RGBA
+	captureErr  error
 	// onType runs on every typing, and onKey on every key pressed, so a
 	// test can make either change a field.
 	onType func(text string)
@@ -185,6 +192,40 @@ func (b *fakeBackend) Capture() (*image.RGBA, error) {
 	defer b.mu.Unlock()
 	b.captures++
 	return b.screen, nil
+}
+
+// CaptureApps shows the listed windows of the applications asked for, the
+// front first, as the screen shows them unless windowShots draws them, over
+// black.
+func (b *fakeBackend) CaptureApps(apps []string) (desktop.Capture, error) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	b.captures++
+	if b.captureErr != nil {
+		return desktop.Capture{}, b.captureErr
+	}
+	var shown []desktop.WindowID
+	var area image.Rectangle
+	for _, w := range append(slices.Clone(b.windows), b.reachable...) {
+		named := slices.ContainsFunc(apps, func(app string) bool { return strings.EqualFold(app, w.App) })
+		if w.App != "" && named && w.Bounds.Overlaps(b.screen.Bounds()) {
+			shown = append(shown, w)
+			area = area.Union(w.Bounds)
+		}
+	}
+	if len(shown) == 0 {
+		return desktop.Capture{}, desktop.ErrNoWindows
+	}
+	canvas := image.NewRGBA(area.Intersect(b.screen.Bounds()))
+	draw.Draw(canvas, canvas.Bounds(), image.Black, image.Point{}, draw.Src)
+	for _, w := range slices.Backward(shown) {
+		src := b.screen
+		if shot, ok := b.windowShots[w.Handle]; ok {
+			src = shot
+		}
+		draw.Draw(canvas, w.Bounds, src, w.Bounds.Min, draw.Src)
+	}
+	return desktop.Capture{Image: canvas, Windows: shown}, nil
 }
 
 // fakeElements is a window whose elements a test lists by hand. The list

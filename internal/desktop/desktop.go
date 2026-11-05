@@ -51,6 +51,9 @@ func ParseButton(name string) (Button, error) {
 type Backend interface {
 	// Capture returns the primary display in physical pixels.
 	Capture() (*image.RGBA, error)
+	// CaptureApps captures the windows of applications, named by App, as
+	// Driver.CaptureApps describes.
+	CaptureApps(apps []string) (Capture, error)
 	// MoveTo moves the pointer to a physical pixel position.
 	MoveTo(x, y int) error
 	// Position reports the pointer's physical pixel position.
@@ -376,6 +379,18 @@ func (d *Driver) Close() error {
 // Screenshot captures the primary display.
 func (d *Driver) Screenshot() (*image.RGBA, error) {
 	return d.backend.Capture()
+}
+
+// CaptureApps captures the windows of applications, named by App and
+// compared ignoring case, with the menus, sheets, and dialogs they open, and
+// on macOS the menu bar while one of them is in front: each as it draws
+// itself, the parts other windows cover included, at its place and in its
+// order on the primary display, with nothing else of the screen. The
+// picture covers the part of the display those windows cover and is black
+// where none is. Minimized windows are not shown. It fails with
+// ErrNoWindows when none of the windows shows on the display.
+func (d *Driver) CaptureApps(apps []string) (Capture, error) {
+	return d.backend.CaptureApps(apps)
 }
 
 // CursorPosition reports the pointer position.

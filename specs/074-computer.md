@@ -207,6 +207,40 @@ service manager, rather than that application, starts Dagu, as on macOS;
 the second protects that application's pages in a browser a person also
 uses, where a click could start the automation again.
 
+### Screenshots
+
+Once a step works in an application, each screenshot it takes, for the
+model, a check, or an artifact, shows only the windows of the applications
+it works in and of the application in front when the step may operate its
+window, such as a browser a link opened. A step works in the applications it
+launches, the one the run's step before it worked in, and those an exact
+check or a replay by elements finds in front. Each window is drawn as it
+draws itself, the parts other windows cover included, at its place and in
+its order on the main display, with the menus, popovers, combo box lists,
+sheets, and dialogs the application opens, which are windows of their own,
+and on macOS the menu bar while one of those applications is in front. The
+screenshot covers the part of the main display those windows cover and is
+black elsewhere; positions the model gives on it map back to display pixels.
+Minimized windows are not shown. macOS draws each window with the
+`screencapture` tool by its window number, and Windows with `PrintWindow`
+and `PW_RENDERFULLCONTENT`; neither needs a permission beyond what a
+whole-screen capture does.
+
+Until the step works in an application, and whenever none of their windows
+shows on the main display or they cannot be captured, a screenshot shows the
+whole main display. A `running` lifecycle event says what the step captures
+each time that changes: `Capturing only the windows of <apps>`,
+`Capturing the whole screen until the step works in an app`, or
+`Capturing the whole screen, since` followed by the reason.
+
+Before a pointer action the model aimed at a window that another
+application's window covers on the screen, the step brings the window it
+aimed at forward; one that stays covered for a second fails the action. A
+pointer action aimed outside the windows the screenshot shows fails, since
+the model saw nothing there. Either failure is reported to the model. A
+window of an application the screenshot shows that opened since, such as a
+menu an earlier action of the round opened, takes the action as it is.
+
 ### Window size
 
 Unless `with.maximize` is `false`, a step maximizes the window in front
@@ -426,6 +460,15 @@ once. The wait counts toward the operation timeout. After the last turn, a
 replay whose turns all ran by elements needs its landmarks in front, when
 the recording has some; any other replay needs the window the act ended on,
 or the whole display where the system named none, to look as recorded.
+A pixel turn and the screen an act ended on are compared only with a
+screenshot of the kind they were recorded on, the whole screen or the
+windows of the applications the step works in (see Screenshots). A turn
+recorded on the whole screen, as every recording made before screenshots of
+windows was, does not replay once the step captures windows: the model
+works the act and records afresh, and under `never` the act fails with
+`turn <n> of <total> was recorded on the whole screen, and this run captures
+the windows of the apps it works in`. A turn recorded on windows waits, as
+any pixel turn does, for a screenshot of windows that matches.
 
 `with.input`, or `act.input` for one act, says how a replayed action
 reaches the application. `screen`, the default, sends the pointer and keys

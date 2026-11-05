@@ -35,6 +35,10 @@ func (b *recordingBackend) Capture() (*image.RGBA, error) {
 	return image.NewRGBA(image.Rect(0, 0, 4, 4)), nil
 }
 
+func (b *recordingBackend) CaptureApps([]string) (desktop.Capture, error) {
+	return desktop.Capture{}, desktop.ErrNoWindows
+}
+
 func (b *recordingBackend) MoveTo(x, y int) error {
 	b.events = append(b.events, fmt.Sprintf("move %d,%d", x, y))
 	return nil

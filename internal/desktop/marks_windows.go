@@ -30,7 +30,6 @@ var (
 	procPostMessageW             = user32.NewProc("PostMessageW")
 	procUpdateLayeredWindow      = user32.NewProc("UpdateLayeredWindow")
 	procSetWindowDisplayAffinity = user32.NewProc("SetWindowDisplayAffinity")
-	procGetDpiForWindow          = user32.NewProc("GetDpiForWindow")
 	procPostThreadMessageW       = user32.NewProc("PostThreadMessageW")
 
 	procCreateDIBSection      = gdi32.NewProc("CreateDIBSection")

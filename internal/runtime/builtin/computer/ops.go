@@ -102,6 +102,10 @@ type run struct {
 	// confine.go.
 	present  map[uint64]bool
 	workApps []string
+	// shown is what the last capture showed, and captureNote what the
+	// timeline last said the step captures; see grab.
+	shown       captured
+	captureNote string
 	// handling is set while a handler's steps run, and handled counts each
 	// handler's runs; see handleScreens.
 	handling  bool
