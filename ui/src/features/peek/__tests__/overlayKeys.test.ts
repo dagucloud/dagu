@@ -37,12 +37,22 @@ describe('overlayStepOfKey', () => {
     expect(step(document.body, 'ArrowDown', { shiftKey: true })).toBeNull();
   });
 
-  it('leaves the arrows of a field and of tabs to them', () => {
+  it('leaves the arrows of a field and of vertical tabs to them', () => {
     document.body.innerHTML =
-      '<input id="field" /><div role="tablist"><button id="tab">a</button></div>';
+      '<input id="field" /><div role="tablist" aria-orientation="vertical"><button id="tab">a</button></div>';
 
     expect(step(document.getElementById('field')!, 'ArrowDown')).toBeNull();
     expect(step(document.getElementById('tab')!, 'ArrowDown')).toBeNull();
+  });
+
+  // A row of tabs moves with Left and Right: a clicked tab keeps the focus,
+  // and Up and Down still step through the rows below.
+  it('steps from a tab of a horizontal row', () => {
+    document.body.innerHTML =
+      '<div role="tablist"><button id="tab">a</button></div>';
+
+    expect(step(document.getElementById('tab')!, 'ArrowDown')).toBe(1);
+    expect(step(document.getElementById('tab')!, 'ArrowUp')).toBe(-1);
   });
 
   it('leaves an arrow that the page took', () => {
