@@ -228,6 +228,9 @@ Rules:
   and step `env` see the index of the current execution.
   `repeat_policy.condition` sees the index of the execution that just
   finished.
+- Fields resolved once before the first execution keep index `0`: `stdout`,
+  `stderr`, `preconditions`, and the `repeat_policy` and `retry_policy`
+  settings.
 - `context.step.repeat_index` is missing for steps without `repeat_policy` and
   for handlers.
 
