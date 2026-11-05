@@ -17,6 +17,11 @@ type ClickModifiers = { ctrlKey?: boolean; metaKey?: boolean };
 /** Below this viewport width the sheet would hide the whole list. */
 const PEEK_MIN_VIEWPORT = 768;
 
+/** A key that tells targets apart as samePeekTarget does. */
+function targetKey(target: PeekTarget): string {
+  return `${target.dag}\n${target.run ?? ''}\n${target.subRun ?? ''}`;
+}
+
 /**
  * Shows a target in the peek of the nearest PeekHost. It returns false, and
  * shows nothing, without a host, on a narrow viewport or for a target that
@@ -75,9 +80,7 @@ export function usePeekSequence(targets: readonly PeekTarget[]): void {
   const setSequence = useContext(PeekContext)?.setSequence;
   const latest = useRef(targets);
   latest.current = targets;
-  const key = targets
-    .map((target) => `${target.dag}\n${target.run ?? ''}`)
-    .join('\0');
+  const key = targets.map(targetKey).join('\0');
   useEffect(() => {
     setSequence?.(latest.current);
   }, [setSequence, key]);
@@ -109,7 +112,7 @@ export function usePeekShown(): (target: PeekTarget) => boolean {
  */
 export function useRevealShownRow(): void {
   const shown = useContext(PeekContext)?.shown ?? null;
-  const key = shown ? `${shown.dag}\n${shown.run ?? ''}` : null;
+  const key = shown ? targetKey(shown) : null;
   const revealedKey = useRef(key);
   useEffect(() => {
     if (key === null || key === revealedKey.current) return;

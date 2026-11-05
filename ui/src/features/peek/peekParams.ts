@@ -16,13 +16,19 @@ export interface PeekTarget {
   dag: string;
   /** The run to show; without it the peek shows the latest run. */
   run?: string;
+  /** A sub-run of the run, which opens on the sub-run stack of the run. */
+  subRun?: string;
   /** The dock tab that the full page opens on, such as 'artifacts'. */
   dock?: string;
 }
 
-/** True when both targets name the same workflow and the same run. */
+/** True when both targets name the same workflow, run and sub-run. */
 export function samePeekTarget(a: PeekTarget, b: PeekTarget): boolean {
-  return a.dag === b.dag && (a.run ?? null) === (b.run ?? null);
+  return (
+    a.dag === b.dag &&
+    (a.run ?? null) === (b.run ?? null) &&
+    (a.subRun ?? null) === (b.subRun ?? null)
+  );
 }
 
 /** The query keys of a peek. A list page keeps them out of its own state. */
@@ -39,6 +45,7 @@ export function isPeekTarget(target: PeekTarget): boolean {
     target.dag !== '.' &&
     target.dag !== '..' &&
     (target.run === undefined || RUN_ID_PATTERN.test(target.run)) &&
+    (target.subRun === undefined || RUN_ID_PATTERN.test(target.subRun)) &&
     (target.dock === undefined || DOCK_PATTERN.test(target.dock))
   );
 }
@@ -80,6 +87,7 @@ export function peekPageURL(
     fileName: target.dag,
     remoteNode,
     run: target.run,
+    subRun: target.subRun,
     dock: target.dock,
     step,
   });

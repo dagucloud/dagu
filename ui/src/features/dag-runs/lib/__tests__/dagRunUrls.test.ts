@@ -86,6 +86,7 @@ describe('dagRunUrls', () => {
     );
   });
 
+  // A child task opens on the sub-run stack of its root run.
   it('builds the run URL of a worker task from its root run', () => {
     expect(
       buildRunningTaskURL({ dagName: 'solo', dagRunId: 'r1' }, 'local')
@@ -102,7 +103,7 @@ describe('dagRunUrls', () => {
         },
         'local'
       )
-    ).toBe('/dags/top?remoteNode=local&run=t1');
+    ).toBe('/dags/top?remoteNode=local&run=t1&subRun=c1');
     expect(
       buildRunningTaskURL(
         {
@@ -113,7 +114,7 @@ describe('dagRunUrls', () => {
         },
         'local'
       )
-    ).toBe('/dags/mid?remoteNode=local&run=m1');
+    ).toBe('/dags/mid?remoteNode=local&run=m1&subRun=c1');
   });
 
   it('keeps remote scope and sub-DAG context in DAG step log URLs', () => {
