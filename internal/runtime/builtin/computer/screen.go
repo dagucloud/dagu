@@ -199,7 +199,7 @@ const (
 	reachPoll = 50 * time.Millisecond
 )
 
-// reach makes sure a pointer action at a display position lands on the
+// reachPoint makes sure a pointer action at a display position lands on the
 // window the model saw there. A capture of windows shows them as if
 // nothing else were on the screen, so another application's window may lie
 // over the spot: the window the capture shows there is brought forward
@@ -207,7 +207,7 @@ const (
 // earlier action of the turn opened, is what the action is aimed at, and a
 // spot outside every window the capture shows is refused, since the model
 // saw nothing there. A capture of the whole screen showed what is there.
-func (r *run) reach(ctx context.Context, index int, at image.Point) error {
+func (r *run) reachPoint(ctx context.Context, index int, at image.Point) error {
 	shown := r.shown
 	if shown.kind() == captureScreen {
 		return nil
@@ -238,12 +238,12 @@ func (r *run) reach(ctx context.Context, index int, at image.Point) error {
 	}
 }
 
-// reachAction runs reach for where a pointer action in display pixels
+// reachAction runs reachPoint for where a pointer action in display pixels
 // lands, and reports a failure as the action's result.
 func (r *run) reachAction(ctx context.Context, index int, action computeruse.Action) computeruse.Result {
 	result := computeruse.Result{CallID: action.CallID}
 	if at, pointer := target(action); pointer {
-		if err := r.reach(ctx, index, at); err != nil {
+		if err := r.reachPoint(ctx, index, at); err != nil {
 			result.Error = r.masker.MaskString(err.Error())
 		}
 	}
