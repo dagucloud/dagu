@@ -6774,8 +6774,8 @@
           ]
         },
         {
-          "pattern": "\\$\\{[^}]+\\}",
-          "description": "Value reference resolved at runtime, e.g. ${params.PROVIDER} or ${env.LLM_PROVIDER}."
+          "pattern": "\\$\\{[^}]+\\}|\\$[A-Za-z0-9_]\\w*\\.\\S+",
+          "description": "Value reference resolved at runtime, e.g. ${params.PROVIDER}, ${env.LLM_PROVIDER}, or $fetch.stdout."
         }
       ],
       "description": "LLM provider name. Supports value references such as ${params.PROVIDER} resolved when the step runs."
@@ -7910,6 +7910,12 @@
         },
         "files": {
           "$ref": "#/definitions/modelFiles"
+        },
+        "provider": {
+          "$ref": "#/definitions/llmConfig/properties/provider"
+        },
+        "model": {
+          "$ref": "#/definitions/llmConfig/properties/model"
         }
       },
       "description": "Configuration for action: chat.completion."

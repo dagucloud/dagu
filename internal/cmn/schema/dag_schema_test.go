@@ -3013,6 +3013,39 @@ steps: [{run: "true"}]
 llm: {provider: openai-codex, model: gpt-5}
 steps: [{run: "true"}]
 `, false},
+		{"chat provider", `
+steps:
+  - action: chat.completion
+    with: {provider: openai, model: gpt-5, prompt: hi}
+`, true},
+		{"chat unknown provider", `
+steps:
+  - action: chat.completion
+    with: {provider: bogus, model: gpt-5, prompt: hi}
+`, false},
+		{"chat unknown fallback provider", `
+steps:
+  - action: chat.completion
+    with:
+      prompt: hi
+      model: [{provider: bogus, name: m}]
+`, false},
+		{"chat unbraced provider reference", `
+steps:
+  - id: fetch
+    run: echo openai
+  - action: chat.completion
+    with: {provider: $fetch.stdout, model: gpt-5, prompt: hi}
+`, true},
+		{"chat unbraced fallback provider reference", `
+steps:
+  - id: fetch
+    run: echo openai
+  - action: chat.completion
+    with:
+      prompt: hi
+      model: [{provider: $fetch.stdout, name: m}]
+`, true},
 		{"SMTP OAuth missing tenant", `
 smtp:
   username: alerts@example.com
