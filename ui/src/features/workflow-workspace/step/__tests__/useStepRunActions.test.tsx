@@ -1037,6 +1037,22 @@ describe('useStepRunActions on a sub-run', () => {
     );
   });
 
+  // The lifecycle handlers of a child run are its steps, as on the root run.
+  it('acts on a lifecycle handler of a sub-run', () => {
+    probeSubRun = {
+      holder: {
+        ...subRun,
+        onExit: node('cleanup', {
+          status: NodeStatus.Failed,
+          statusLabel: NodeStatusLabel.failed,
+        }),
+      } as Details,
+    };
+    renderActions(runValue(details()));
+
+    expect(actions.can('cleanup').setStatus).toBe(true);
+  });
+
   it('keeps a sub-run step from running and from the steps of the root', () => {
     probeSubRun = { holder: subRun };
     renderActions(runValue(details()));
