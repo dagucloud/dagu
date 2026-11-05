@@ -29,6 +29,11 @@ import (
 // process killed while it writes its status can leave the run lock of the DAG
 // behind, which delays the restart until the lock is stale.
 //
+// A run that has not started within restartNotStartedTimeout, and that no
+// process, worker, queue item or pending dispatch will still start, is marked
+// failed, and the DAG restarts after it. A crash while a run is queued can
+// leave such a run behind.
+//
 // Between checks, DAG-run events tell which DAGs to check: a DAG is checked at
 // the scan after its run ends, when its wait ends, and every
 // restartReconcileInterval, since an event can be lost. Without events, every
@@ -64,17 +69,18 @@ const (
 	// it is not doubled.
 	restartBackoffMaxWait = 5 * time.Minute
 
-	// restartNotStartedTimeout is how long a run may stay not started before it
-	// is taken for ended. The coordinator records a run as not started until a
-	// worker runs it, and fails it once the worker is gone; the timeout covers
-	// a run left behind. A process or a worker that still runs it keeps the DAG
-	// busy.
+	// restartNotStartedTimeout is how long a run may stay queued or not started
+	// before the scanner checks whether anything will still start it.
 	restartNotStartedTimeout = 5 * time.Minute
 )
 
 // errRestartQueuesDisabled says a service DAG gets no run: its runs go through
 // queues.
 var errRestartQueuesDisabled = errors.New("restart_policy starts runs through queues, and queues are disabled")
+
+// stuckRestartRunError is the error of a run that the scanner fails because
+// nothing will start it.
+const stuckRestartRunError = "the run did not start, and nothing was left to start it"
 
 // StopRequestedFunc reports whether an operator asked to stop a run of a DAG.
 type StopRequestedFunc func(ctx context.Context, dag *ir.DAG, runID string) (bool, error)
@@ -99,6 +105,14 @@ type RestartScannerConfig struct {
 	HasDistributedRun IsRunningFunc
 	// IsQueued reports whether a DAG has queued items.
 	IsQueued IsQueuedFunc
+	// IsDispatchPending reports whether a run waits in the coordinator for a
+	// worker, which leaves no queue item, process or lease. It is nil without
+	// distributed execution.
+	IsDispatchPending func(ctx context.Context, status *ir.DAGRunStatus) (bool, error)
+	// FailStuckRun marks a run that never started as failed at the given time,
+	// unless its latest attempt or status changed since it was read. Without
+	// it, a new run follows a stuck run directly.
+	FailStuckRun func(ctx context.Context, dag *ir.DAG, status *ir.DAGRunStatus, at time.Time) error
 	// GetLatestStatus returns the status of the latest run of a DAG, the
 	// initial status for a DAG without a run, and an error when the latest run
 	// cannot be read.
@@ -326,6 +340,11 @@ func (s *RestartScanner) process(ctx context.Context, entry DAGEntry, now time.T
 		}
 		return err
 	}
+	if decision.stuck {
+		if handled, err := s.failStuckRun(ctx, dag, &status, now); handled || err != nil {
+			return err
+		}
+	}
 
 	runID := GenerateRestartRunID(dag.Name, status.DAGRunID, decision.previousEnd)
 	logger.Info(ctx, "Restarting DAG",
@@ -340,6 +359,34 @@ func (s *RestartScanner) process(ctx context.Context, entry DAGEntry, now time.T
 	}
 	s.checkLater(dag, now)
 	return nil
+}
+
+// failStuckRun fails a latest run that never started, unless a coordinator
+// still holds it for a worker. It reports whether the scan of the DAG ends
+// there: the DAG restarts after the failed run like after any ended run.
+func (s *RestartScanner) failStuckRun(ctx context.Context, dag *ir.DAG, status *ir.DAGRunStatus, now time.Time) (bool, error) {
+	if s.cfg.IsDispatchPending != nil {
+		if pending, err := s.cfg.IsDispatchPending(ctx, status); err != nil || pending {
+			if pending {
+				s.checkLater(dag, now)
+				logNoRestart(ctx, dag, "run_dispatch_pending")
+			}
+			return true, err
+		}
+	}
+	if s.cfg.FailStuckRun == nil {
+		return false, nil
+	}
+	logger.Warn(ctx, "Failing a run that never started",
+		tag.DAG(dag.Name),
+		tag.RunID(status.DAGRunID),
+		slog.String("status", status.Status.String()),
+	)
+	if err := s.cfg.FailStuckRun(ctx, dag, status, now); err != nil {
+		return true, err
+	}
+	s.checkAt(dag, now)
+	return true, nil
 }
 
 // checkAt sets when the DAG is checked again.
@@ -492,6 +539,8 @@ type restartDecision struct {
 	previousEnd time.Time
 	// due is when the next run becomes due, for a DAG that waits.
 	due time.Time
+	// stuck says the latest run never started within restartNotStartedTimeout.
+	stuck bool
 }
 
 // decideRestart tells whether the latest run of a DAG is followed by a new run.
@@ -501,12 +550,19 @@ func decideRestart(wait time.Duration, latest *ir.DAGRunStatus, now time.Time) r
 	switch {
 	case latest.DAGRunID == "":
 		return restartDecision{start: true, reason: "first_run"}
+	case latest.Status == ir.NotStarted || latest.Status == ir.Queued:
+		createdAt, ok := retryReferenceTime(latest)
+		if !ok || !now.Before(createdAt.Add(restartNotStartedTimeout)) {
+			return restartDecision{start: true, reason: "run_never_started", stuck: true}
+		}
+		// A queued run normally starts within seconds, and its end event wakes
+		// the DAG; a not started one waits for a worker.
+		if latest.Status == ir.Queued {
+			return restartDecision{reason: "run_active"}
+		}
+		return restartDecision{reason: "run_not_started", due: createdAt.Add(restartNotStartedTimeout)}
 	case latest.Status.IsActive():
 		return restartDecision{reason: "run_active"}
-	case latest.Status == ir.NotStarted:
-		if createdAt, ok := retryReferenceTime(latest); ok && now.Before(createdAt.Add(restartNotStartedTimeout)) {
-			return restartDecision{reason: "run_not_started", due: createdAt.Add(restartNotStartedTimeout)}
-		}
 	}
 
 	endedAt, ok := retryReferenceTime(latest)

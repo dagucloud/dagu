@@ -13,7 +13,10 @@ import (
 	"time"
 
 	"github.com/dagucloud/dagu/v2/internal/cmd"
+	"github.com/dagucloud/dagu/v2/internal/cmn/stringutil"
 	"github.com/dagucloud/dagu/v2/internal/ir"
+	"github.com/dagucloud/dagu/v2/internal/persis"
+	"github.com/dagucloud/dagu/v2/internal/service/scheduler"
 	"github.com/dagucloud/dagu/v2/internal/test"
 	"github.com/dagucloud/dagu/v2/internal/test/intgharness"
 	"github.com/stretchr/testify/assert"
@@ -197,6 +200,36 @@ func TestRestartPolicyResumesDroppedRestart(t *testing.T) {
 
 	require.NoError(t, f.th.DAGRepository.SetSuspended(f.th.Context, f.dag.FileName(), false))
 	f.waitForRuns("a run after the DAG is resumed", 20*time.Second, func(runs []ir.DAGRunStatus) bool {
+		return countStatus(runs, ir.Succeeded) >= 1
+	})
+}
+
+// A restart left queued without a queue item, as a crash between writing its
+// status and queueing it leaves it, is failed once it is overdue, and the DAG
+// restarts after it.
+func TestRestartPolicyFailsLostQueuedRun(t *testing.T) {
+	f := newFixture(t, serviceDAGYAML("restart-lost-queued", "always", "echo ok"))
+	created := time.Now().Add(-time.Hour)
+	runID := scheduler.GenerateRestartRunID(f.dag.Name, "", time.Time{})
+	attempt, err := f.th.DAGRunRepository.CreateAttempt(f.th.Context, f.dag, created, runID, persis.DAGRunCreateAttemptOptions{})
+	require.NoError(t, err)
+	require.NoError(t, attempt.Open(f.th.Context))
+	require.NoError(t, attempt.Write(f.th.Context, ir.DAGRunStatus{
+		Name:        f.dag.Name,
+		DAGRunID:    runID,
+		AttemptID:   attempt.ID(),
+		Status:      ir.Queued,
+		TriggerType: ir.TriggerTypeRestart,
+		CreatedAt:   created.UnixMilli(),
+		QueuedAt:    stringutil.FormatTime(created),
+	}))
+	require.NoError(t, attempt.Close(f.th.Context))
+
+	f.StartScheduler(60 * time.Second)
+	defer f.Stop()
+
+	f.WaitForStatus(runID, ir.Failed, 20*time.Second)
+	f.waitForRuns("a run after the lost one", 20*time.Second, func(runs []ir.DAGRunStatus) bool {
 		return countStatus(runs, ir.Succeeded) >= 1
 	})
 }

@@ -39,6 +39,7 @@ func TestDecideRestart(t *testing.T) {
 		start       bool
 		reason      string
 		previousEnd time.Time
+		stuck       bool
 	}{
 		{name: "FirstRun", latest: &ir.DAGRunStatus{}, start: true, reason: "first_run"},
 		{
@@ -68,16 +69,22 @@ func TestDecideRestart(t *testing.T) {
 			latest: &ir.DAGRunStatus{DAGRunID: "run-1", Status: ir.NotStarted, StartedAt: now.Add(-time.Minute).Format(time.RFC3339)},
 			reason: "run_not_started",
 		},
-		// A run that never starts is taken for ended once the timeout passes.
+		// A run that does not start within the timeout may have nothing left to
+		// start it.
 		{
 			name:   "LeftNotStarted",
 			latest: &ir.DAGRunStatus{DAGRunID: "run-1", Status: ir.NotStarted, StartedAt: now.Add(-restartNotStartedTimeout).Format(time.RFC3339)},
-			start:  true, reason: "previous_run_ended", previousEnd: now.Add(-restartNotStartedTimeout),
+			start:  true, reason: "run_never_started", stuck: true,
 		},
 		{
 			name:   "NotStartedWithoutTime",
 			latest: &ir.DAGRunStatus{DAGRunID: "run-1", Status: ir.NotStarted},
-			start:  true, reason: "previous_run_end_unknown",
+			start:  true, reason: "run_never_started", stuck: true,
+		},
+		{
+			name:   "LeftQueued",
+			latest: &ir.DAGRunStatus{DAGRunID: "run-1", Status: ir.Queued, CreatedAt: now.Add(-restartNotStartedTimeout).UnixMilli()},
+			start:  true, reason: "run_never_started", stuck: true,
 		},
 		{
 			name:   "Aborted",
@@ -108,6 +115,7 @@ func TestDecideRestart(t *testing.T) {
 			assert.Equal(t, tt.start, got.start)
 			assert.Equal(t, tt.reason, got.reason)
 			assert.True(t, tt.previousEnd.Equal(got.previousEnd), "previousEnd = %v, want %v", got.previousEnd, tt.previousEnd)
+			assert.Equal(t, tt.stuck, got.stuck)
 		})
 	}
 }
@@ -142,6 +150,7 @@ type restartHarness struct {
 	running    bool
 	onWorker   bool
 	queued     bool
+	dispatched bool
 	latest     ir.DAGRunStatus
 	latestErr  error
 	stopped    map[string]bool
@@ -151,6 +160,7 @@ type restartHarness struct {
 	queueReads int
 	failWith   error
 	enqueued   []enqueuedRun
+	failed     []string
 	scanner    *RestartScanner
 }
 
@@ -202,6 +212,20 @@ func newRestartHarness(t *testing.T, dags ...*ir.DAG) *restartHarness {
 		IsStopRequested: func(_ context.Context, _ *ir.DAG, runID string) (bool, error) {
 			h.stopChecks++
 			return h.stopped[runID], h.stopErr
+		},
+		IsDispatchPending: func(context.Context, *ir.DAGRunStatus) (bool, error) {
+			h.reads++
+			return h.dispatched, nil
+		},
+		// The store fails the run only while it is the latest attempt with the
+		// status the scanner read.
+		FailStuckRun: func(_ context.Context, _ *ir.DAG, status *ir.DAGRunStatus, at time.Time) error {
+			if h.latest.AttemptID == status.AttemptID && h.latest.Status == status.Status {
+				h.failed = append(h.failed, status.DAGRunID)
+				h.latest.Status = ir.Failed
+				h.latest.FinishedAt = at.Format(time.RFC3339)
+			}
+			return nil
 		},
 		Enqueue: func(_ context.Context, entry DAGEntry, runID string, triggerType ir.TriggerType, _ time.Time) error {
 			if h.failWith != nil {
@@ -409,6 +433,55 @@ func TestRestartScanner(t *testing.T) {
 				h.scan()
 				assert.Empty(t, h.enqueued)
 				assert.Equal(t, 1, h.logged("Not restarting DAG"))
+			})
+		}
+	})
+
+	// A queued run that nothing will start, such as one whose queue item was
+	// never written, is failed, and the DAG restarts after it.
+	t.Run("LostQueuedRun", func(t *testing.T) {
+		t.Parallel()
+		h := newRestartHarness(t, serviceDAG("svc", ir.RestartPolicyAlways))
+		h.latest = ir.DAGRunStatus{
+			DAGRunID: "run-1", AttemptID: "attempt-1", Status: ir.Queued,
+			CreatedAt: h.now.UnixMilli(),
+		}
+		h.scan()
+		assert.Empty(t, h.failed, "a run is not failed within the timeout")
+
+		h.now = h.now.Add(restartNotStartedTimeout)
+		h.scan()
+		require.Equal(t, []string{"run-1"}, h.failed)
+		assert.Empty(t, h.enqueued, "the failed run is followed after the wait")
+		failedAt := h.now
+
+		h.now = h.now.Add(11 * time.Second)
+		h.scan()
+		require.Len(t, h.enqueued, 1)
+		assert.Equal(t, GenerateRestartRunID("svc", "run-1", failedAt), h.enqueued[0].runID)
+	})
+
+	// A run that has not started yet is left alone while anything can still
+	// start it.
+	t.Run("StuckRunBusy", func(t *testing.T) {
+		t.Parallel()
+		for name, setup := range map[string]func(*restartHarness){
+			"LiveProcess":     func(h *restartHarness) { h.running = true },
+			"RunOnWorker":     func(h *restartHarness) { h.onWorker = true },
+			"QueuedItem":      func(h *restartHarness) { h.queued = true },
+			"WaitsForAWorker": func(h *restartHarness) { h.dispatched = true },
+		} {
+			t.Run(name, func(t *testing.T) {
+				t.Parallel()
+				h := newRestartHarness(t, serviceDAG("svc", ir.RestartPolicyAlways))
+				h.latest = ir.DAGRunStatus{
+					DAGRunID: "run-1", AttemptID: "attempt-1", Status: ir.Queued,
+					CreatedAt: h.now.Add(-restartNotStartedTimeout).UnixMilli(),
+				}
+				setup(h)
+				h.scan()
+				assert.Empty(t, h.failed)
+				assert.Empty(t, h.enqueued)
 			})
 		}
 	})

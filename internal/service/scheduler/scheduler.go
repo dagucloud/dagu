@@ -21,6 +21,7 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/cmn/logger"
 	"github.com/dagucloud/dagu/v2/internal/cmn/logger/tag"
 	"github.com/dagucloud/dagu/v2/internal/cmn/signalctx"
+	"github.com/dagucloud/dagu/v2/internal/cmn/stringutil"
 	"github.com/dagucloud/dagu/v2/internal/dagrun"
 	"github.com/dagucloud/dagu/v2/internal/dagsettings"
 	"github.com/dagucloud/dagu/v2/internal/dispatch"
@@ -200,6 +201,9 @@ func New(cfg *config.Config, deps Dependencies) (*Scheduler, error) {
 	if deps.DAGRunLeaseStore != nil {
 		scheduler.restartScanner.cfg.HasDistributedRun = hasFreshLease(deps.DAGRunLeaseStore, scheduler.queueProcessor.leaseStaleThresholdOrDefault())
 	}
+	if deps.DispatchTaskStore != nil {
+		scheduler.restartScanner.cfg.IsDispatchPending = hasPendingDispatch(deps.DispatchTaskStore, scheduler.queueProcessor.leaseStaleThresholdOrDefault())
+	}
 	return scheduler, nil
 }
 
@@ -373,6 +377,22 @@ func newScheduler(
 				return false, err
 			}
 			return attempt.IsAborting(ctx)
+		},
+		FailStuckRun: func(ctx context.Context, dag *ir.DAG, status *ir.DAGRunStatus, at time.Time) error {
+			_, _, err := dagRunRepository.CompareAndSwapLatestAttemptStatus(ctx,
+				ir.NewDAGRunRef(dag.Name, status.DAGRunID), status.AttemptID, status.Status,
+				func(latest *ir.DAGRunStatus) error {
+					latest.Status = ir.Failed
+					latest.FinishedAt = stringutil.FormatTime(at)
+					latest.Error = stuckRestartRunError
+					latest.WorkerID = ""
+					latest.PID = 0
+					latest.PIDStartedAt = 0
+					latest.LeaseAt = 0
+					return nil
+				}, persis.DAGRunCompareAndSwapOptions{},
+			)
+			return err
 		},
 		Enqueue: enqueueFunc,
 		Clock:   defaultClock,
@@ -926,6 +946,19 @@ func hasFreshLease(leases dispatch.DAGRunLeaseStore, staleAfter time.Duration) I
 			}
 		}
 		return false, nil
+	}
+}
+
+// hasPendingDispatch reports whether the attempt of a run has a pending or
+// claimed dispatch task, which is how a run waiting in the coordinator shows it
+// will still start.
+func hasPendingDispatch(tasks dispatch.DispatchTaskStore, claimTimeout time.Duration) func(context.Context, *ir.DAGRunStatus) (bool, error) {
+	return func(ctx context.Context, status *ir.DAGRunStatus) (bool, error) {
+		attemptKey := dispatch.AttemptKeyForStatus(status, status.AttemptID)
+		if attemptKey == "" {
+			return false, nil
+		}
+		return tasks.HasOutstandingAttempt(ctx, attemptKey, claimTimeout)
 	}
 }
 
