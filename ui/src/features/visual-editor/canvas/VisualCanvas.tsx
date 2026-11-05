@@ -293,6 +293,24 @@ function CanvasView({
 }: VisualCanvasProps): ReactElement {
   const { ts } = useI18n();
   const wrapperRef = useRef<HTMLDivElement>(null);
+  // The ring marks a canvas that Tab reached. A key pressed after a click,
+  // such as Escape, or a focus that the page moves, shows none.
+  const [tabFocused, setTabFocused] = useState(false);
+  const tabbing = useRef(false);
+  useEffect(() => {
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Tab') tabbing.current = true;
+    };
+    const onPointerDown = () => {
+      tabbing.current = false;
+    };
+    document.addEventListener('keydown', onKeyDown, true);
+    document.addEventListener('pointerdown', onPointerDown, true);
+    return () => {
+      document.removeEventListener('keydown', onKeyDown, true);
+      document.removeEventListener('pointerdown', onPointerDown, true);
+    };
+  }, []);
   const hintId = useId();
   const editable = !frozen && !readOnly;
 
@@ -1359,7 +1377,19 @@ function CanvasView({
         aria-describedby={hintId}
         tabIndex={0}
         data-testid="ve-canvas"
-        className="relative flex h-full min-h-0 w-full flex-col overflow-clip outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring"
+        className={cn(
+          'relative flex h-full min-h-0 w-full flex-col overflow-clip outline-none',
+          tabFocused && 'ring-2 ring-inset ring-ring'
+        )}
+        onFocus={(event) => {
+          if (event.target === event.currentTarget) {
+            setTabFocused(tabbing.current);
+            tabbing.current = false;
+          }
+        }}
+        onBlur={(event) => {
+          if (event.target === event.currentTarget) setTabFocused(false);
+        }}
         onContextMenu={(event) => {
           // The menu key also sends a contextmenu event to the focused canvas.
           if (event.target === event.currentTarget) {
