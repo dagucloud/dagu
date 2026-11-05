@@ -3030,6 +3030,22 @@ steps:
       prompt: hi
       model: [{provider: bogus, name: m}]
 `, false},
+		{"chat unbraced provider reference", `
+steps:
+  - id: fetch
+    run: echo openai
+  - action: chat.completion
+    with: {provider: $fetch.stdout, model: gpt-5, prompt: hi}
+`, true},
+		{"chat unbraced fallback provider reference", `
+steps:
+  - id: fetch
+    run: echo openai
+  - action: chat.completion
+    with:
+      prompt: hi
+      model: [{provider: $fetch.stdout, name: m}]
+`, true},
 		{"SMTP OAuth missing tenant", `
 smtp:
   username: alerts@example.com
