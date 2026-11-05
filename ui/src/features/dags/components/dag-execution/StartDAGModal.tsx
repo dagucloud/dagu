@@ -350,7 +350,8 @@ function StartDAGModal({
   );
   const [isFullscreen, setIsFullscreen] = React.useState(false);
   const forceEnqueue = action === 'enqueue';
-  const [enqueue, setEnqueue] = React.useState(forceEnqueue);
+  // A run waits in the queue unless the user unchecks Enqueue.
+  const [enqueue, setEnqueue] = React.useState(true);
   const [noReuse, setNoReuse] = React.useState(false);
   const isBuild = dagDetails?.type === 'build';
   const activeProfiles = React.useMemo(
@@ -453,7 +454,7 @@ function StartDAGModal({
     setProfileSelection(
       defaultProfile ? DAG_DEFAULT_PROFILE_VALUE : NO_PROFILE_VALUE
     );
-    setEnqueue(forceEnqueue);
+    setEnqueue(true);
     setNoReuse(false);
   }, [
     defaultProfile,
@@ -461,7 +462,6 @@ function StartDAGModal({
     initialSchemaFormData,
     initialTypedFields,
     initialRawParams,
-    forceEnqueue,
   ]);
 
   const cancelButtonRef = React.useRef<HTMLButtonElement>(null);

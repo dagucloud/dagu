@@ -14,6 +14,7 @@ import {
   getStepStdout,
   showStepOutput,
   startDAG,
+  startRunNow,
   uniqueName,
   waitForDAGAvailable,
   waitForRunStatus,
@@ -1093,7 +1094,7 @@ test.describe('workspace node details view', () => {
     await page.locator('[data-ww-action="start"]').click();
     const dialog = page.getByRole('dialog', { name: 'Start workflow' });
     await expect(dialog).toBeVisible();
-    await dialog.getByRole('button', { name: 'Start', exact: true }).click();
+    await startRunNow(dialog);
 
     await expect(dock).toHaveAttribute('data-state', 'open', {
       timeout: 60_000,

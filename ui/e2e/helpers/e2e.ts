@@ -557,6 +557,15 @@ export async function getStepStdout(
   return ((await response.json()) as LogResponse).content;
 }
 
+/** Submits the Start dialog to start the run at once: Enqueue is its default. */
+export async function startRunNow(dialog: Locator): Promise<void> {
+  const enqueue = dialog.getByRole('checkbox', { name: 'Enqueue' });
+  if ((await enqueue.getAttribute('data-state')) === 'checked') {
+    await enqueue.click();
+  }
+  await dialog.getByRole('button', { name: 'Start', exact: true }).click();
+}
+
 export async function enqueueRunFromUI(
   page: Page,
   fileName: string

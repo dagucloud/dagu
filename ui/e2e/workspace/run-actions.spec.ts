@@ -16,6 +16,7 @@ import {
   loadStack,
   loginViaAPI,
   startDAG,
+  startRunNow,
   openStepForm,
   uniqueName,
   waitForDAGAvailable,
@@ -277,7 +278,7 @@ steps:
         .fill('from-run-dialog');
       await dialog.getByLabel('Run ID (optional)').fill(runId);
       const started = waitForPost(page, `${dagPath(fileName)}/start`);
-      await dialog.getByRole('button', { name: 'Start', exact: true }).click();
+      await startRunNow(dialog);
       expect(await runIdOf(await started)).toBe(runId);
       await expect(dialog).toBeHidden();
 
@@ -454,7 +455,7 @@ steps:
     const dialog = page.getByRole('dialog', { name: 'Start workflow' });
     await expect(dialog).toBeVisible();
     const started = waitForPost(page, `${dagPath(fileName)}/start`);
-    await dialog.getByRole('button', { name: 'Start', exact: true }).click();
+    await startRunNow(dialog);
     const runId = await runIdOf(await started);
 
     await expectOnRun(page, fileName, runId);

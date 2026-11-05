@@ -7,6 +7,7 @@ import {
   loadStack,
   loginViaAPI,
   startDAG,
+  startRunNow,
   openStepForm,
   uniqueName,
   waitForDAGAvailable,
@@ -428,9 +429,7 @@ test.describe('workspace single tab', () => {
       .locator('[data-ww-action="start"]')
       .click();
     const startDialog = page.getByRole('dialog', { name: 'Start workflow' });
-    await startDialog
-      .getByRole('button', { name: 'Start', exact: true })
-      .click();
+    await startRunNow(startDialog);
     await expect(startDialog).toBeHidden({ timeout: 30_000 });
     await expect
       .poll(() => query(page, 'run'), { timeout: 30_000 })

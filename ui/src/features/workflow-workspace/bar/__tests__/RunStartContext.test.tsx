@@ -313,6 +313,9 @@ describe('RunStartContext', () => {
       name: 'Run ID (optional)',
     });
     fireEvent.change(runId, { target: { value: 'my-run' } });
+    await userEvent.click(
+      within(dialog).getByRole('checkbox', { name: 'Enqueue' })
+    );
     runId.focus();
     fireEvent.keyDown(document, { key: 'Enter' });
 
@@ -334,13 +337,13 @@ describe('RunStartContext', () => {
   });
 
   // parity:start-modal-enqueue
-  it('enqueues the run when Enqueue is checked', async () => {
+  it('enqueues the run by default', async () => {
     renderWorkspace();
 
     const dialog = await requestFromOtherZone();
-    await userEvent.click(
+    expect(
       await within(dialog).findByRole('checkbox', { name: 'Enqueue' })
-    );
+    ).toBeChecked();
     await userEvent.click(
       within(dialog).getByRole('button', { name: 'Enqueue' })
     );
@@ -366,11 +369,11 @@ describe('RunStartContext', () => {
       })
     );
     await userEvent.click(
-      within(dialog).getByRole('button', { name: 'Start' })
+      within(dialog).getByRole('button', { name: 'Enqueue' })
     );
 
     await waitFor(() =>
-      expect(h.client.POST).toHaveBeenCalledWith('/dags/{fileName}/start', {
+      expect(h.client.POST).toHaveBeenCalledWith('/dags/{fileName}/enqueue', {
         params: { path: { fileName: FILE }, query: { remoteNode: 'local' } },
         body: { params: '', noReuse: true },
       })
@@ -401,7 +404,7 @@ describe('RunStartContext', () => {
 
     const dialog = await requestFromOtherZone();
     const region = await within(dialog).findByLabelText(/region/i);
-    fireEvent.click(within(dialog).getByRole('button', { name: 'Start' }));
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Enqueue' }));
     expect(
       await within(dialog).findByText(
         'Fix the highlighted parameter errors before submitting.'
@@ -410,9 +413,9 @@ describe('RunStartContext', () => {
     expect(h.client.POST).not.toHaveBeenCalled();
 
     fireEvent.change(region, { target: { value: 'eu' } });
-    fireEvent.click(within(dialog).getByRole('button', { name: 'Start' }));
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Enqueue' }));
     await waitFor(() =>
-      expect(h.client.POST).toHaveBeenCalledWith('/dags/{fileName}/start', {
+      expect(h.client.POST).toHaveBeenCalledWith('/dags/{fileName}/enqueue', {
         params: { path: { fileName: FILE }, query: { remoteNode: 'local' } },
         body: { params: '[{"region":"eu"}]' },
       })

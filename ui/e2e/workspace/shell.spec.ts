@@ -10,6 +10,7 @@ import {
   loginViaAPI,
   loginViaUI,
   openStepForm,
+  startRunNow,
   uniqueName,
   useDefaultWorkspaceScope,
 } from '../helpers/e2e';
@@ -323,9 +324,7 @@ test.describe('workspace shell', () => {
       .locator('[data-ww-action="start"]')
       .click();
     const startDialog = page.getByRole('dialog', { name: 'Start workflow' });
-    await startDialog
-      .getByRole('button', { name: 'Start', exact: true })
-      .click();
+    await startRunNow(startDialog);
 
     // Start selects the new run on the same page: ?run names it, and its
     // statuses overlay the editable graph.
