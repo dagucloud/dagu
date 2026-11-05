@@ -102,6 +102,12 @@ vi.mock('@/features/dags/components/artifacts/ArtifactsTab', async () => ({
 vi.mock('@/features/dags/components/human-task/HumanTasksTab', async () => ({
   HumanTasksTab: (await import('./leafStubs')).leaf('humanTasks'),
 }));
+vi.mock(
+  '@/features/dags/components/human-task/HumanTaskResumeAlert',
+  async () => ({
+    HumanTaskResumeAlert: (await import('./leafStubs')).leaf('taskResume'),
+  })
+);
 vi.mock('@/features/dags/components/approval/ApprovalTab', async () => ({
   ApprovalTab: (await import('./leafStubs')).leaf('approval'),
 }));
@@ -646,6 +652,43 @@ describe('dock tab bodies', () => {
       });
 
       expect(h.refreshDag).toHaveBeenCalledTimes(1);
+    });
+
+    // A failed resume of human tasks may leave no task waiting: the task step
+    // shows the retry instead of saying that it needs nothing.
+    it('shows the retry of a failed resume on the task step', async () => {
+      setLatest(
+        run(
+          'run-1',
+          [node('review', NodeStatus.Success, { step: { humanTask: {} } })],
+          Status.Waiting,
+          { humanTaskResumePending: true }
+        )
+      );
+      await renderBody('actions', `/dags/${FILE_NAME}`, 'review');
+
+      expect(screen.getByTestId('leaf-taskResume')).toBeInTheDocument();
+      expect(
+        screen.queryByText('This step needs no action.')
+      ).not.toBeInTheDocument();
+    });
+
+    // A resume can be pending for an unblocked branch while a task of this
+    // step still waits: the step keeps one form for that task, beside the
+    // retry, and no second list of the tasks of the run.
+    it('keeps one form of a waiting task beside a failed resume', async () => {
+      setLatest(
+        run(
+          'run-1',
+          [node('review', NodeStatus.Waiting, { step: { humanTask: {} } })],
+          Status.Waiting,
+          { humanTaskResumePending: true }
+        )
+      );
+      await renderBody('actions', `/dags/${FILE_NAME}`, 'review');
+
+      expect(screen.getByTestId('leaf-taskResume')).toBeInTheDocument();
+      expect(screen.getAllByTestId('leaf-humanTasks')).toHaveLength(1);
     });
 
     it('shows only the parts that wait', async () => {

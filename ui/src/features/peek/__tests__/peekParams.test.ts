@@ -6,7 +6,12 @@ import {
   buildDAGPageURL,
   buildDAGRunPageURL,
 } from '@/features/dag-runs/lib/dagRunUrls';
-import { peekPageURL, readPeek, withoutPeek } from '../peekParams';
+import {
+  peekPageURL,
+  readPeek,
+  samePeekTarget,
+  withoutPeek,
+} from '../peekParams';
 
 describe('readPeek', () => {
   it('reads a workflow, a run and a dock tab', () => {
@@ -73,6 +78,13 @@ describe('peekPageURL', () => {
     ).toBe('/dags/etl?remoteNode=local&run=run-1&dock=artifacts');
   });
 
+  // A child task of a worker opens on the sub-run stack of its root run.
+  it('is the link of a sub-run row', () => {
+    expect(
+      peekPageURL({ dag: 'etl', run: 'run-1', subRun: 'child-1' }, 'local')
+    ).toBe('/dags/etl?remoteNode=local&run=run-1&subRun=child-1');
+  });
+
   it('opens a step of the workflow or of the run', () => {
     expect(peekPageURL({ dag: 'etl' }, 'local', 'load')).toBe(
       '/dags/etl?remoteNode=local&step=load'
@@ -80,5 +92,16 @@ describe('peekPageURL', () => {
     expect(peekPageURL({ dag: 'etl', run: 'run-1' }, 'local', 'load')).toBe(
       '/dags/etl?remoteNode=local&run=run-1&step=load'
     );
+  });
+});
+
+describe('samePeekTarget', () => {
+  it('tells sub-runs of one run apart', () => {
+    const run = { dag: 'etl', run: 'run-1' };
+    expect(samePeekTarget(run, { ...run })).toBe(true);
+    expect(
+      samePeekTarget({ ...run, subRun: 'c1' }, { ...run, subRun: 'c2' })
+    ).toBe(false);
+    expect(samePeekTarget(run, { ...run, subRun: 'c1' })).toBe(false);
   });
 });

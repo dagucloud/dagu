@@ -52,6 +52,7 @@ import { cn } from '@/lib/utils';
 import type { ApiNode } from '../contracts';
 import { useWorkflowShare } from '../bar/useWorkflowShare';
 import { WorkspaceDataContext } from '../data/context';
+import { nodesByStep } from '../data/runFacts';
 import { RunTimelineWithOpener } from '../dock/tabs/runTabBodies';
 import { StepFacts } from '../step/StepFacts';
 import {
@@ -118,8 +119,9 @@ export function SubRunView({
       null
   );
   const subRuns = useStepSubRunsOpener();
-  const nodeOf = (step: string) =>
-    run.nodes.find((node) => node.step.name === step);
+  // The canvas draws the lifecycle handlers too: a click on one opens it.
+  const nodeByStep = useMemo(() => nodesByStep(run), [run]);
+  const nodeOf = (step: string) => nodeByStep.get(step);
 
   const openStep = (step: string) => {
     const node = nodeOf(step);

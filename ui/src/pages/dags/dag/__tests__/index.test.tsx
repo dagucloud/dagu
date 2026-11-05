@@ -11,6 +11,7 @@ import {
 import React from 'react';
 import { MemoryRouter, Route, Routes, useLocation } from 'react-router-dom';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { NodeStatus, Status } from '@/api/v1/schema';
 import { AppBarContext } from '@/contexts/AppBarContext';
 import { LayoutChromeProvider } from '@/contexts/LayoutChromeContext';
 import { DAGRunDetailsContent } from '@/features/dag-runs/components/dag-run-details';
@@ -868,6 +869,130 @@ describe('DAGDetails page', () => {
       expect(screen.getByTestId('location')).toHaveTextContent(
         /^\/dags\/reports\?run=r1&dagRunName=report\.yaml$/
       );
+    });
+
+    // The old run page read the run alone: a run link still reaches the run
+    // when its workflow fails to load for another reason than a missing file.
+    it('shows the run of a link whose workflow cannot be read', async () => {
+      const readable = { name: 'etl', dagRunId: 'r1', sourceFileName: 'etl' };
+      useQueryMock.mockImplementation((path) =>
+        path === '/dag-runs/{name}/{dagRunId}'
+          ? ({ data: { dagRunDetails: readable }, mutate: vi.fn() } as never)
+          : ({
+              data: undefined,
+              error: { code: 'internal_error', message: 'permission denied' },
+              mutate: vi.fn(),
+            } as never)
+      );
+
+      renderPage('/dags/etl?run=r1');
+
+      expect(await screen.findByTestId('run-details')).toBeInTheDocument();
+      expect(vi.mocked(DAGRunDetailsContent).mock.lastCall?.[0]).toMatchObject({
+        dagRun: readable,
+      });
+    });
+
+    // An old run page bookmark names its tab in ?tab, which the redirect
+    // turns into ?dock.
+    it('opens the tab of an old run page link on a run shown on its own', async () => {
+      useQueryMock.mockImplementation((path) =>
+        path === '/dag-runs/{name}/{dagRunId}'
+          ? ({
+              data: { dagRunDetails: { name: 'etl', dagRunId: 'r1' } },
+              mutate: vi.fn(),
+            } as never)
+          : ({
+              data: undefined,
+              error: { code: 'not_found', message: 'DAG is not found' },
+              mutate: vi.fn(),
+            } as never)
+      );
+
+      renderPage('/dag-runs/etl/r1?tab=artifacts');
+
+      expect(await screen.findByTestId('run-details')).toBeInTheDocument();
+      expect(vi.mocked(DAGRunDetailsContent).mock.lastCall?.[0]).toMatchObject({
+        initialTab: 'artifacts',
+      });
+    });
+
+    // Actions holds the human tasks and the approvals: a link to it opens the
+    // one that waits, even with a step named, where the run view picks none.
+    it('opens the action that waits for an Actions link with a step', async () => {
+      const gated = {
+        name: 'etl',
+        dagRunId: 'r1',
+        status: Status.Waiting,
+        nodes: [
+          {
+            step: { name: 'gate', approval: {} },
+            status: NodeStatus.Waiting,
+          },
+        ],
+      };
+      useQueryMock.mockImplementation((path) =>
+        path === '/dag-runs/{name}/{dagRunId}'
+          ? ({ data: { dagRunDetails: gated }, mutate: vi.fn() } as never)
+          : ({
+              data: undefined,
+              error: { code: 'not_found', message: 'DAG is not found' },
+              mutate: vi.fn(),
+            } as never)
+      );
+
+      renderPage('/dags/etl?run=r1&dock=actions&step=gate');
+
+      expect(await screen.findByTestId('run-details')).toBeInTheDocument();
+      expect(vi.mocked(DAGRunDetailsContent).mock.lastCall?.[0]).toMatchObject({
+        initialTab: 'approval',
+      });
+    });
+
+    // A dock that names no tab, such as a property of every object, opens
+    // the default view.
+    it('opens no tab for a dock that names none', async () => {
+      useQueryMock.mockImplementation((path) =>
+        path === '/dag-runs/{name}/{dagRunId}'
+          ? ({
+              data: { dagRunDetails: { name: 'etl', dagRunId: 'r1' } },
+              mutate: vi.fn(),
+            } as never)
+          : ({
+              data: undefined,
+              error: { code: 'not_found', message: 'DAG is not found' },
+              mutate: vi.fn(),
+            } as never)
+      );
+
+      renderPage('/dags/etl?run=r1&dock=constructor');
+
+      expect(await screen.findByTestId('run-details')).toBeInTheDocument();
+      expect(
+        vi.mocked(DAGRunDetailsContent).mock.lastCall?.[0].initialTab
+      ).toBeUndefined();
+    });
+
+    // The run of the link is read again with the workflow: a lookup that
+    // failed with it would otherwise never be tried again.
+    it('reads the run of a link again when the workflow is retried', async () => {
+      const mutateDag = vi.fn();
+      const mutateRun = vi.fn();
+      useQueryMock.mockImplementation(
+        (path) =>
+          ({
+            data: undefined,
+            error: { code: 'internal_error', message: 'disk is full' },
+            mutate:
+              path === '/dag-runs/{name}/{dagRunId}' ? mutateRun : mutateDag,
+          }) as never
+      );
+
+      renderPage('/dags/etl?run=r1');
+      fireEvent.click(screen.getByRole('button', { name: 'Try again' }));
+
+      expect(mutateDag).toHaveBeenCalled();
+      expect(mutateRun).toHaveBeenCalled();
     });
 
     // A link can name a step of the run, as the log page does.

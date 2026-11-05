@@ -37,6 +37,7 @@ import { useI18n } from '@/i18n/I18nProvider';
 import { useWorkspaceEditor } from '../canvas/WorkspaceEditorContext';
 import type { ApiDAGDetails, ApiDAGRunDetails, ApiNode } from '../contracts';
 import { useWorkspaceData } from '../data/context';
+import { nodesByStep } from '../data/runFacts';
 import { useWorkspacePermissions } from '../data/useWorkspacePermissions';
 import { useDockCommands } from '../dock/DockContext';
 import { noteTestRunStarted } from '../data/useRunHistory';
@@ -245,10 +246,7 @@ export function useStepRunActions(
   const subRun = opts.holder && isSubDAGRun(opts.holder) ? opts.holder : null;
   const details = subRun ?? run.details;
   const nodeByStep = useMemo(
-    () =>
-      subRun
-        ? new Map(subRun.nodes.map((node) => [node.step.name, node]))
-        : run.nodeByStep,
+    () => (subRun ? nodesByStep(subRun) : run.nodeByStep),
     [run.nodeByStep, subRun]
   );
   // A sub-run cannot retry a step while its root run runs.

@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 import { ClipboardCheck, FileInput } from 'lucide-react';
+import { Status } from '@/api/v1/schema';
 import { ActionButton } from '@/components/ui/action-button';
 import { getManualActionState } from '@/features/dag-runs/lib/manualActionState';
 import { useMemo, useState } from 'react';
@@ -49,14 +50,20 @@ export function RunActionsCluster({ fileName, dag }: BarSlotProps) {
   });
   if (!run.ref || !run.details) return null;
   // A run that waits for a person says so: the Actions tab holds its
-  // approvals and human tasks, and those of the runs that its steps called.
+  // approvals and human tasks, those of the runs that its steps called, and
+  // the retry of a resume that failed.
   const { waitingApprovalNodes, waitingHumanTaskNodes, waitingSubRunNodes } =
     getManualActionState(run.details);
+  const resumeFailed =
+    run.details.status === Status.Waiting &&
+    (!!run.details.approvalResumePending ||
+      !!run.details.humanTaskResumePending);
   const actionsWaiting =
+    resumeFailed ||
     waitingApprovalNodes.length +
       waitingHumanTaskNodes.length +
       waitingSubRunNodes.length >
-    0;
+      0;
   const showCopy = canWrite && stale;
   if (!canRunDags && !showCopy) return null;
   return (
@@ -87,13 +94,12 @@ export function RunActionsCluster({ fileName, dag }: BarSlotProps) {
             hideUnavailable
             stopAll={stopAll}
             markActions
-            // Like Start and Run step, a new run is shown at once; a removed
-            // run must not stay in the URL as a broken link. A run under
-            // another DAG name is not a run of this workflow.
+            // Like Start and Run step, a new run is shown at once. A run
+            // under another DAG name is not a run of this workflow. A
+            // dequeued run stays: it is kept as aborted, and can be retried.
             onRescheduled={(runId, runName) => {
               if (runName === dag.name) showRun(runId);
             }}
-            onDequeued={() => run.select('latest', { replace: true })}
             onEditRetry={() => setEditRetry(true)}
           />
         </span>

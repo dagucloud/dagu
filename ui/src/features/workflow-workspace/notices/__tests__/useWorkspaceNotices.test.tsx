@@ -222,6 +222,28 @@ describe('useWorkspaceNotices', () => {
     });
   });
 
+  // The server reports a failed resume of human tasks once no task waits, so
+  // nothing else on the page points at its retry.
+  describe('human-task-resume', () => {
+    it('shows for a waiting run whose resume failed and opens Actions', () => {
+      const { result } = renderNotices({
+        details: { status: Status.Waiting, humanTaskResumePending: true },
+      });
+      const notice = find(result.current, 'human-task-resume');
+      expect(notice.tone).toBe('warning');
+      expect(notice.message).toBe('Tasks saved; resume failed.');
+      notice.action?.run();
+      expect(dock.setTab).toHaveBeenCalledWith('actions', { user: true });
+    });
+
+    it('stays hidden when the run is not waiting', () => {
+      const { result } = renderNotices({
+        details: { status: Status.Queued, humanTaskResumePending: true },
+      });
+      expect(ids(result.current)).not.toContain('human-task-resume');
+    });
+  });
+
   // parity:overview-approval-resume-alert parity:run-approval-resume-alert
   describe('approval-resume', () => {
     it('shows for a waiting run whose resume failed and opens Actions', () => {

@@ -20,6 +20,7 @@ import { allSubRunsOf } from '../step/useStepRunActions';
 export const RUN_NOTICE_PRIORITY = {
   'run-not-found': 60,
   'approval-resume': 50,
+  'human-task-resume': 50,
   'agent-waiting': 45,
   'actions-waiting': 40,
   'sub-run-waiting': 35,
@@ -51,6 +52,8 @@ export function useWorkspaceNotices(): WorkspaceNotice[] {
   const status = run.details?.status;
   const resumePending =
     status === Status.Waiting && !!run.details?.approvalResumePending;
+  const taskResumePending =
+    status === Status.Waiting && !!run.details?.humanTaskResumePending;
   const actionCount = waiting.approvals + waiting.humanTasks;
   const agentWaiting = waiting.agent > 0;
   const pinnedRunId = selection === 'latest' ? null : selection.runId;
@@ -95,6 +98,18 @@ export function useWorkspaceNotices(): WorkspaceNotice[] {
           run: () => setTab('actions', { user: true }),
         },
         priority: RUN_NOTICE_PRIORITY['approval-resume'],
+      });
+    }
+    if (taskResumePending) {
+      notices.push({
+        id: 'human-task-resume',
+        tone: 'warning',
+        message: ts('Tasks saved; resume failed.'),
+        action: {
+          label: ts('Open actions'),
+          run: () => setTab('actions', { user: true }),
+        },
+        priority: RUN_NOTICE_PRIORITY['human-task-resume'],
       });
     }
     if (agentWaiting) {
@@ -168,6 +183,7 @@ export function useWorkspaceNotices(): WorkspaceNotice[] {
     notFound,
     hasRun,
     resumePending,
+    taskResumePending,
     agentWaiting,
     actionCount,
     waitingSubRun,

@@ -83,13 +83,17 @@ function DAGRunTable({
   const tableRef = useRef<HTMLDivElement>(null);
   // The highlight follows the run that the overlay shows, so the list shows
   // where its arrow keys ended, and the keys of the list go on from there.
+  // It follows a change of the shown run only: a refresh that moves the row
+  // of that run leaves the highlight where the list keys put it.
   const isShown = usePeekShown();
   const shownIndex = dagRuns.findIndex((dagRun) =>
     isShown({ dag: dagRun.name, run: dagRun.dagRunId })
   );
-  const [followedIndex, setFollowedIndex] = useState(-1);
-  if (followedIndex !== shownIndex) {
-    setFollowedIndex(shownIndex);
+  const shownRun = shownIndex === -1 ? null : dagRuns[shownIndex];
+  const shownKey = shownRun ? `${shownRun.name}\n${shownRun.dagRunId}` : null;
+  const [followedKey, setFollowedKey] = useState<string | null>(null);
+  if (followedKey !== shownKey) {
+    setFollowedKey(shownKey);
     if (shownIndex !== -1) setSelectedIndex(shownIndex);
   }
   useRevealShownRow();

@@ -192,6 +192,23 @@ describe('SubRunView', () => {
     ).toHaveAttribute('data-status', String(NodeStatus.Success));
   });
 
+  // The canvas draws the lifecycle handlers of the run, and a link can name
+  // one with ?step: it opens like a step.
+  it('opens a lifecycle handler of the run', async () => {
+    render(
+      <MemoryRouter>
+        <SubRunOpenProvider value={vi.fn()}>
+          <SubRunView
+            run={{ ...run, onExit: node('cleanup') }}
+            initialStep="cleanup"
+          />
+        </SubRunOpenProvider>
+      </MemoryRouter>
+    );
+
+    expect(await screen.findByTestId('step-log')).toHaveTextContent('cleanup');
+  });
+
   it('shows the log of a picked step, and closes it', async () => {
     renderView();
 

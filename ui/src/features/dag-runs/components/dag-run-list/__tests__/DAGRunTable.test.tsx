@@ -565,6 +565,37 @@ describe('DAGRunTable', () => {
       expect(peek.open).toHaveBeenCalledWith({ dag: 'alpha', run: 'run-2' });
     });
 
+    // A refresh moves the row of the run that the peek showed; the highlight
+    // that the list keys moved on stays where they put it.
+    it('keeps its highlight when a refresh moves the shown run', () => {
+      const peek = {
+        open: vi.fn(),
+        isOpen: false,
+        shown: { dag: 'alpha', run: 'run-2' },
+      };
+      const runs = ['run-1', 'run-2', 'run-3'].map((dagRunId) => ({
+        ...queuedRun,
+        dagRunId,
+      }));
+      const table = (dagRuns: typeof runs) => (
+        <MemoryRouter initialEntries={['/dag-runs']}>
+          <ConfigContext.Provider value={config}>
+            <PeekContext.Provider value={peek}>
+              <DAGRunTable dagRuns={dagRuns} />
+            </PeekContext.Provider>
+          </ConfigContext.Provider>
+        </MemoryRouter>
+      );
+      const view = render(table(runs));
+
+      fireEvent.keyDown(window, { key: 'ArrowDown' });
+      // run-1 leaves the list: run-2 moves up a row.
+      view.rerender(table(runs.slice(1)));
+      fireEvent.keyDown(window, { key: 'Enter' });
+
+      expect(peek.open).toHaveBeenCalledWith({ dag: 'alpha', run: 'run-3' });
+    });
+
     // The keys of the open peek bubble up to the window.
     it('leaves the keys to an open peek', () => {
       const peek = { open: vi.fn(), isOpen: true };

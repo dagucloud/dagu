@@ -17,6 +17,8 @@ import type { DockTab } from '../state/workspaceUrl';
 export interface DockFacts extends RunViewFacts {
   /** A waiting run whose approval was saved but whose resume failed. */
   approvalResumePending?: boolean;
+  /** A waiting run whose human tasks were saved but whose resume failed. */
+  humanTaskResumePending?: boolean;
   /** An agent DAG run: it has agent events or agent tasks. */
   isAgentRun?: boolean;
   /** The run has a continuous step: a step that repeats without a limit. */
@@ -34,6 +36,8 @@ export function dockFacts(
     ...runViewFacts(details, opts),
     approvalResumePending:
       details.status === Status.Waiting && !!details.approvalResumePending,
+    humanTaskResumePending:
+      details.status === Status.Waiting && !!details.humanTaskResumePending,
     isAgentRun:
       (details.agentEvents ?? []).length > 0 ||
       (details.agentTasks ?? []).length > 0,
@@ -109,7 +113,10 @@ export function dockTabsFor(
   return tabs;
 }
 
-/** Waiting counts shown on the Agent and Actions tabs. Zero counts are left out. */
+/**
+ * Waiting counts shown on the Agent and Actions tabs; a failed resume counts
+ * as one action. Zero counts are left out.
+ */
 export function dockTabBadges(
   facts: DockFacts | null
 ): Partial<Record<DockTab, number>> {
@@ -119,7 +126,9 @@ export function dockTabBadges(
   const actions =
     facts.waitingApprovals +
     facts.humanTasksWaiting +
-    (facts.subRunsWaiting ?? 0);
+    (facts.subRunsWaiting ?? 0) +
+    (facts.approvalResumePending ? 1 : 0) +
+    (facts.humanTaskResumePending ? 1 : 0);
   if (actions > 0) badges.actions = actions;
   return badges;
 }
