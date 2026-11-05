@@ -3137,7 +3137,6 @@ type BaseStaticMessage = keyof typeof baseEnglish;
 const english = { ...workspaceMessages.en, ...baseEnglish } as const;
 
 export type StaticMessage = keyof typeof english;
-export type StaticTranslationValues = Record<string, string | number>;
 
 const baseChinese = {
   'Plan & features': '套餐与功能',
@@ -9358,23 +9357,3 @@ export const staticMessages = {
   'zh-CN': chinese,
   ja: japanese,
 } satisfies Record<Locale, Record<StaticMessage, string>>;
-
-export function translateStatic(
-  locale: Locale,
-  source: string,
-  values?: StaticTranslationValues
-): string {
-  const catalog = staticMessages[locale];
-  const message =
-    locale !== 'en' && Object.prototype.hasOwnProperty.call(catalog, source)
-      ? catalog[source as StaticMessage]
-      : source;
-  if (!values) {
-    return message;
-  }
-
-  return message.replace(/\{(\w+)\}/g, (placeholder, name: string) => {
-    const value = values[name];
-    return value === undefined ? placeholder : String(value);
-  });
-}

@@ -3,7 +3,13 @@
 
 import '@testing-library/jest-dom/vitest';
 import { cleanup } from '@testing-library/react';
-import { afterEach } from 'vitest';
+import { afterEach, beforeAll } from 'vitest';
+import { loadStaticMessages } from '@/i18n/translateStatic';
+
+// Tests see the catalogs loaded, as the app does once its first render runs.
+beforeAll(async () => {
+  await Promise.all([loadStaticMessages('zh-CN'), loadStaticMessages('ja')]);
+});
 
 afterEach(() => {
   cleanup();

@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 import { getYamlPathAtOffset } from '@/hooks/useYamlCursorPath';
-import { translateStatic } from '@/i18n/staticMessages';
+import { translateStatic } from '@/i18n/translateStatic';
 import type { ReferenceCandidate } from '../contracts';
 import { buildReferenceCandidates } from './candidates';
 import {

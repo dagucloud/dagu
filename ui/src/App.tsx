@@ -74,7 +74,7 @@ import {
 import { escFree } from '@/features/workflow-workspace/canvas/escFree';
 import { useOverlayExit } from '@/features/peek/useOverlayExit';
 import { cn } from '@/lib/utils';
-import { translateStatic } from '@/i18n/staticMessages';
+import { translateStatic } from '@/i18n/translateStatic';
 import { I18nText } from '@/i18n/I18nText';
 
 const AdministrationPage = React.lazy(() => import('./pages/administration'));
