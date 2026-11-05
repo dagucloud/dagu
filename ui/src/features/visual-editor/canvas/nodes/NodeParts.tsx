@@ -469,7 +469,8 @@ export function ReusedMarker({
 
 /**
  * Icon, label and subtitle of a node, with run state. The issue badges sit
- * on the top right corner of the card.
+ * on the top right corner of the card. A failed step shows the first line of
+ * its error in place of the subtitle.
  */
 export function NodeHeader({
   node,
@@ -478,6 +479,7 @@ export function NodeHeader({
   node: CanvasNode;
   className?: string;
 }) {
+  const failure = failureTitle(node.run)?.split('\n')[0];
   return (
     <div className={cn('flex min-w-0 items-center gap-2 px-2.5', className)}>
       <IssueBadges
@@ -500,13 +502,24 @@ export function NodeHeader({
           {/* The chip of a reused step starts the row: before the subtitle,
               which can shrink to nothing, it leaves no gap on its left. */}
           <ReusedMarker node={node} chip />
-          {node.subtitle && (
+          {/* A failed step says why in place of its command, so the reason
+              reads without a hover. */}
+          {failure ? (
             <span
-              className="min-w-0 flex-1 truncate font-mono text-xs text-muted-foreground"
-              title={node.subtitle}
+              data-testid="ve-node-failure"
+              className="min-w-0 flex-1 truncate text-xs text-destructive"
             >
-              {node.subtitle}
+              {failure}
             </span>
+          ) : (
+            node.subtitle && (
+              <span
+                className="min-w-0 flex-1 truncate font-mono text-xs text-muted-foreground"
+                title={node.subtitle}
+              >
+                {node.subtitle}
+              </span>
+            )
           )}
           <RepeatMarker node={node} />
           <RunMeta run={node.run} />

@@ -1025,6 +1025,26 @@ describe('StepNode issues and run', () => {
     expect(queryByText('3s')).toBeNull();
   });
 
+  // The reason reads without a hover: its first line takes the place of the
+  // command on the card.
+  it('says why a step failed on its card', () => {
+    const node = makeNode({
+      subtitle: 'make build',
+      run: {
+        status: NodeStatus.Failed,
+        statusLabel: 'failed',
+        retryCount: 0,
+        doneCount: 0,
+        error: 'exit status 2\ntrace line',
+      },
+    });
+    const { getByTestId, queryByText } = renderIn(
+      <StepNode {...nodeProps(node)} />
+    );
+    expect(getByTestId('ve-node-failure')).toHaveTextContent(/^exit status 2$/);
+    expect(queryByText('make build')).toBeNull();
+  });
+
   it('gives a failed step its failure reason as a tooltip', () => {
     const node = makeNode({
       run: {
