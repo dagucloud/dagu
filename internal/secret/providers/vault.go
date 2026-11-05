@@ -146,10 +146,7 @@ func (r *vaultResolver) getClient(ctx context.Context, ref secretref.Ref) (vault
 }
 
 func (r *vaultResolver) resolveClientSettings(ctx context.Context, ref secretref.Ref) vaultClientSettings {
-	settings := vaultClientSettings{
-		address: api.DefaultAddress,
-	}
-
+	var settings vaultClientSettings
 	cfg := config.GetConfig(ctx)
 	if cfg.Secrets.Vault.Address != "" {
 		settings.address = cfg.Secrets.Vault.Address
@@ -190,8 +187,12 @@ func (r *vaultResolver) newClient(settings vaultClientSettings) (vaultClient, er
 		return r.clientFactory(settings)
 	}
 
+	// Unset settings keep the Vault client's own defaults, which read the
+	// standard VAULT_* environment variables.
 	cfg := api.DefaultConfig()
-	cfg.Address = settings.address
+	if settings.address != "" {
+		cfg.Address = settings.address
+	}
 
 	tlsConfig := &api.TLSConfig{
 		CACert:     settings.caCert,
@@ -209,8 +210,6 @@ func (r *vaultResolver) newClient(settings vaultClientSettings) (vaultClient, er
 
 	if settings.token != "" {
 		client.SetToken(settings.token)
-	} else {
-		client.ClearToken()
 	}
 
 	return &realVaultClient{client: client}, nil
