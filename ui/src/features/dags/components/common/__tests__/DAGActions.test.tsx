@@ -336,7 +336,7 @@ describe('DAGActions', () => {
             dag={{ name: 'example' }}
             displayMode="full"
             only={['start']}
-            startIconOnly
+            barStart
           />
         </MemoryRouter>
       );

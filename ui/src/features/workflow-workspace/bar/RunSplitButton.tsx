@@ -135,7 +135,7 @@ function SplitButton({
             <DAGActions
               only={['start']}
               displayMode="full"
-              startIconOnly
+              barStart
               // While the slot shows busy or error, the feedback icon takes the
               // place of the Play icon: the button keeps its size.
               startIconHidden={busy || Boolean(shownError)}

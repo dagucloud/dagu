@@ -69,4 +69,33 @@ test.describe('workspace on a phone', () => {
     await expect(page).not.toHaveURL(/[?&]ndv=/);
     await expect(node).toBeVisible();
   });
+
+  // A link to a run opens the Activity panel on it, in place of the graph,
+  // with the run named in the run picker.
+  test('opens a run link on the Activity view', async ({
+    page,
+    request,
+    fixtureDAG,
+    gotoWorkspace,
+  }) => {
+    test.setTimeout(150_000);
+    await signIn(page);
+    const token = await adminToken(request);
+    const { dagName, fileName } = await fixtureDAG('visual-params.yaml');
+    const runId = await startDAG(request, token, fileName);
+    await waitForRunStatus(request, token, dagName, runId, [...DONE]);
+
+    const base = `/dags/${encodeURIComponent(fileName)}`;
+    await gotoWorkspace(page, `${base}/executions?run=${runId}`);
+    await expect(page).toHaveURL(new RegExp(`[?&]run=${runId}(&|$)`));
+    const dock = page.getByTestId('ww-dock');
+    await expect(dock).toHaveAttribute('data-state', 'open', {
+      timeout: 30_000,
+    });
+    await expect(dock.getByTestId('ww-run-picker')).toContainText(
+      runId.slice(0, 8),
+      { timeout: 30_000 }
+    );
+    await expect(page.getByTestId('ww-pane')).toBeHidden();
+  });
 });
