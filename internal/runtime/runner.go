@@ -667,6 +667,11 @@ func (r *Runner) runNodeExecution(ctx context.Context, plan *Plan, node *Node, p
 	// running when the stop arrives completes with its own outcome.
 	stoppedDuringAttempt := false
 
+	// Seed the zero-based repeat index before the first execution. The env
+	// built for the step is reused across the repeat loop, so it is refreshed
+	// here and on every repeat with the node's done count.
+	ctx = r.setRepeatIndex(ctx, node)
+
 ExecRepeat: // repeat execution
 	for !r.isCanceled() {
 		logger.Debug(ctx, "Executing node loop")
@@ -722,6 +727,9 @@ ExecRepeat: // repeat execution
 				_ = os.Remove(stagingPath)
 				stagingPath = ""
 			}
+			// Refresh the repeat index for the next execution: the env built
+			// for the step is reused, so update it with the new done count.
+			ctx = r.setRepeatIndex(ctx, node)
 			r.prepareNodeForRepeat(ctx, node, progressCh, cont)
 			continue
 		}
@@ -2173,6 +2181,20 @@ func waitForExecution(ctx context.Context, duration time.Duration) bool {
 	case <-timer.C:
 		return ctx.Err() == nil
 	}
+}
+
+// setRepeatIndex records the node's zero-based repeat index on the step and
+// refreshes the cached execution environment, which is reused across the repeat
+// loop. The index is the node's done count: 0 on the first execution and one
+// more after each finished execution. The resolver rebuilding the built-in
+// context reads env.Step, so updating it here reaches ${context.step.repeat_index}.
+func (r *Runner) setRepeatIndex(ctx context.Context, node *Node) context.Context {
+	index := node.State().DoneCount
+	node.SetRepeatIndex(index)
+	env := GetEnv(ctx)
+	env.Step.RepeatIndex = index
+	env = env.WithEnvVars(runenv.EnvKeyDAGRunStepRepeatIndex, strconv.Itoa(index))
+	return WithEnv(ctx, env)
 }
 
 func NewPlanEnv(ctx context.Context, step ir.Step, plan *Plan) Env {

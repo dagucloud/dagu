@@ -1878,6 +1878,66 @@ func TestRunner(t *testing.T) {
 		assert.Equal(t, 2, node.State().DoneCount)
 	})
 
+	t.Run("RepeatIndexExposedAsZeroBasedAcrossRepeats", func(t *testing.T) {
+		r := setupRunner(t)
+		indexFile := filepath.Join(os.TempDir(), fmt.Sprintf("repeat_index_%s", uuid.Must(uuid.NewV7()).String()))
+		counterFile := filepath.Join(os.TempDir(), fmt.Sprintf("repeat_count_%s", uuid.Must(uuid.NewV7()).String()))
+		t.Cleanup(func() {
+			for _, f := range []string{indexFile, counterFile} {
+				if err := os.Remove(f); err != nil && !os.IsNotExist(err) {
+					require.NoError(t, err)
+				}
+			}
+		})
+		// A counter file drives the repeat: the script exits 42 (the repeat
+		// trigger) until it has run three times, then exits 0. Each execution
+		// appends its zero-based repeat index to a log, so the run ends with
+		// "0\n1\n2\n" and proves the index is exposed and advances per repeat.
+		recordScript := func() string {
+			if windowsShellTest() {
+				return fmt.Sprintf(`
+					Add-Content -Path %s -Value $env:DAG_RUN_STEP_REPEAT_INDEX
+					$count = 0
+					if (Test-Path %s) { $count = [int](Get-Content -Raw -Path %s) }
+					if ($count -lt 2) { Set-Content -Path %s -Value ($count + 1); exit 42 }
+					exit 0`,
+					test.PowerShellQuote(indexFile),
+					test.PowerShellQuote(counterFile), test.PowerShellQuote(counterFile),
+					test.PowerShellQuote(counterFile))
+			}
+			return fmt.Sprintf(`
+				printf '%%s\n' "$DAG_RUN_STEP_REPEAT_INDEX" >> "%s"
+				count=0
+				[ -f "%s" ] && count=$(cat "%s")
+				if [ "$count" -lt 2 ]; then echo $((count+1)) > "%s"; exit 42; fi
+				exit 0`,
+				shellTestPath(indexFile),
+				shellTestPath(counterFile), shellTestPath(counterFile),
+				shellTestPath(counterFile))
+		}
+		plan := r.newPlan(t,
+			newStep("1",
+				withScript(recordScript()),
+				func(step *ir.Step) {
+					step.RepeatPolicy.RepeatMode = ir.RepeatModeWhile
+					step.RepeatPolicy.ExitCode = []int{42}
+					step.RepeatPolicy.Limit = 3
+					step.RepeatPolicy.Interval = 20 * time.Millisecond
+				},
+			),
+		)
+		result := plan.assertRun(t, ir.Succeeded)
+		result.assertNodeStatus(t, "1", ir.NodeSucceeded)
+		node := result.nodeByName(t, "1")
+		assert.Equal(t, 3, node.State().DoneCount)
+		data, err := os.ReadFile(indexFile)
+		require.NoError(t, err)
+		// Normalize line endings: PowerShell's Add-Content emits CRLF on Windows.
+		got := string(data)
+		got = strings.ReplaceAll(got, "\r\n", "\n")
+		assert.Equal(t, "0\n1\n2\n", got)
+	})
+
 	t.Run("RepeatErrorContinueOn", func(t *testing.T) {
 		cases := []struct {
 			name            string

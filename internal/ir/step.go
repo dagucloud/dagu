@@ -91,6 +91,10 @@ type Step struct {
 	RetryPolicy RetryPolicy `json:"retryPolicy,omitzero"`
 	// RepeatPolicy contains the repeat policy for the step.
 	RepeatPolicy RepeatPolicy `json:"repeatPolicy,omitzero"`
+	// RepeatIndex is the zero-based repetition index of the current execution
+	// (0 on the first execution, 1 on the first repeat, and so on). It is set
+	// by the runtime and is not authored.
+	RepeatIndex int `json:"-"`
 	// MailOnError is the flag to send mail on error.
 	MailOnError bool `json:"mailOnError,omitempty"`
 	// Preconditions contains the conditions to be met before running the step.

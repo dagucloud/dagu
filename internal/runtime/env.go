@@ -108,8 +108,9 @@ func NewEnvWithError(ctx context.Context, step ir.Step) (Env, error) {
 func newEnv(ctx context.Context, step ir.Step, rCtx Context, workingDir string) Env {
 	// Build step-specific env vars
 	stepEnvs := map[string]string{
-		runenv.EnvKeyDAGRunStepName: step.Name,
-		"PWD":                       workingDir,
+		runenv.EnvKeyDAGRunStepName:       step.Name,
+		runenv.EnvKeyDAGRunStepRepeatIndex: strconv.Itoa(step.RepeatIndex),
+		"PWD":                              workingDir,
 	}
 
 	// Build scope from DAG context + step envs.

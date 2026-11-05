@@ -249,6 +249,16 @@ func (d *Data) SetScript(script string) {
 	d.inner.Step.Script = script
 }
 
+// SetRepeatIndex records the zero-based repetition index of the current
+// execution on the step, so the built-in run context and step environment
+// expose it during repeats.
+func (d *Data) SetRepeatIndex(index int) {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+
+	d.inner.Step.RepeatIndex = index
+}
+
 func (d *Data) SetStdin(stdin string) {
 	d.mu.Lock()
 	defer d.mu.Unlock()
