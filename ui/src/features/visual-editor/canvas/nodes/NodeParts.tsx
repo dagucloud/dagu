@@ -204,7 +204,9 @@ export function NodeIcon({
   return (
     <span
       className={cn(
-        'flex shrink-0 items-center justify-center rounded bg-muted text-muted-foreground',
+        // The glyph is a thin stroke on a tinted card: it takes the full
+        // foreground colour to stay legible in both themes.
+        'flex shrink-0 items-center justify-center rounded bg-muted text-foreground',
         small ? 'h-6 w-6' : 'h-8 w-8'
       )}
     >
