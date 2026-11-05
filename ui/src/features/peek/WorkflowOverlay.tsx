@@ -45,6 +45,8 @@ export interface WorkflowOverlay {
   canStep(delta: -1 | 1): boolean;
   /** Shows the row before or after the shown one in place of it. */
   step(delta: -1 | 1): void;
+  /** The rows before and after the shown one, which a step can show. */
+  neighbours: readonly PeekTarget[];
   /** The row that the overlay shows; null while it is closed. */
   target: PeekTarget | null;
   /**
@@ -213,6 +215,12 @@ export function WorkflowOverlayProvider({
       setSequence,
       canStep: (delta) => at !== -1 && sequence[at + delta] !== undefined,
       step,
+      neighbours:
+        at === -1
+          ? []
+          : [sequence[at - 1], sequence[at + 1]].filter(
+              (row): row is PeekTarget => row !== undefined
+            ),
       target: isOpen && opened ? opened.target : null,
       shown: isOpen && opened ? opened.target : lastShown,
     }),
