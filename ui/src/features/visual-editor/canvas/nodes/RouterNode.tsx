@@ -81,11 +81,14 @@ function RouterNodeComponent({
       data-shape="diamond"
       title={
         compact
-          ? compactTitle({
-              label: node.label,
-              subtitle: node.routeValue ?? node.subtitle,
-              run: node.run,
-            })
+          ? compactTitle(
+              {
+                label: node.label,
+                subtitle: node.routeValue ?? node.subtitle,
+                run: node.run,
+              },
+              ts
+            )
           : failureTitle(node.run)
       }
       role={compact ? 'group' : undefined}

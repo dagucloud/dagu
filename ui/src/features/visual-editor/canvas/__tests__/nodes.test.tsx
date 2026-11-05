@@ -1100,6 +1100,26 @@ describe('StepNode issues and run', () => {
     expect(at(NodeStatus.NotStarted)).toBeNull();
   });
 
+  // A compact card has no room for the word: its tooltip says it.
+  it('says Skipped in the tooltip of a compact card', () => {
+    const node = makeNode({
+      run: {
+        status: NodeStatus.Skipped,
+        statusLabel: '',
+        retryCount: 0,
+        doneCount: 0,
+      },
+    });
+    const { getByTestId, queryByTestId } = renderIn(
+      <StepNode {...nodeProps(node)} />,
+      makeActions({ compact: true })
+    );
+    expect(queryByTestId('ve-node-skipped')).toBeNull();
+    expect(
+      getByTestId(`ve-canvas-node-${node.key}`).getAttribute('title')
+    ).toContain('Skipped');
+  });
+
   it('shows no duration for a step without an end', () => {
     const node = makeNode({
       run: {
