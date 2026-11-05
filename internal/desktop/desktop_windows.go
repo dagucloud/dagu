@@ -471,9 +471,10 @@ func readIntegrityLevel(pid uint32) (uint32, error) {
 		return 0, err
 	}
 	defer func() { _ = token.Close() }()
-	buf := make([]byte, 128)
+	const labelSize = 128
+	buf := make([]byte, labelSize)
 	var needed uint32
-	if err := windows.GetTokenInformation(token, windows.TokenIntegrityLevel, &buf[0], uint32(len(buf)), &needed); err != nil {
+	if err := windows.GetTokenInformation(token, windows.TokenIntegrityLevel, &buf[0], labelSize, &needed); err != nil {
 		return 0, err
 	}
 	label := (*windows.Tokenmandatorylabel)(unsafe.Pointer(&buf[0])) //nolint:gosec // the buffer holds a TOKEN_MANDATORY_LABEL
