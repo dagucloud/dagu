@@ -7,6 +7,7 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"fmt"
 	"strings"
 	"testing"
 	"time"
@@ -201,6 +202,26 @@ func (h *restartHarness) endRun(status ir.Status, ago time.Duration) {
 	}
 }
 
+// waitBeforeRestart ends runID with status after it ran for ran, then scans
+// second by second and reports how long after the end the next run is queued.
+func (h *restartHarness) waitBeforeRestart(runID string, status ir.Status, ran time.Duration) time.Duration {
+	h.t.Helper()
+	h.latest = ir.DAGRunStatus{
+		DAGRunID:   runID,
+		AttemptID:  runID,
+		Status:     status,
+		StartedAt:  h.now.Add(-ran).Format(time.RFC3339),
+		FinishedAt: h.now.Format(time.RFC3339),
+	}
+	ended, queued := h.now, len(h.enqueued)
+	for len(h.enqueued) == queued {
+		require.Less(h.t, h.now.Sub(ended), time.Hour, "no restart within an hour")
+		h.now = h.now.Add(time.Second)
+		h.scan()
+	}
+	return h.now.Sub(ended)
+}
+
 func (h *restartHarness) logged(msg string) int {
 	return strings.Count(h.logs.String(), msg)
 }
@@ -244,6 +265,41 @@ func TestRestartScanner(t *testing.T) {
 		h.endRun(ir.Succeeded, time.Minute)
 		h.scan()
 		assert.Len(t, h.enqueued, 1)
+	})
+
+	// A DAG that keeps failing soon after it starts must not restart every
+	// restart_wait_sec forever: each such run in a row doubles the wait.
+	t.Run("Backoff", func(t *testing.T) {
+		t.Parallel()
+		h := newRestartHarness(t, serviceDAG("svc", ir.RestartPolicyAlways))
+		// The end is stored to the second, so a wait of 10s queues the next run
+		// 11s after the end.
+		assert.Equal(t, 11*time.Second, h.waitBeforeRestart("run-1", ir.Failed, 2*time.Second))
+		assert.Equal(t, 21*time.Second, h.waitBeforeRestart("run-2", ir.Failed, 2*time.Second))
+		assert.Equal(t, 41*time.Second, h.waitBeforeRestart("run-3", ir.Failed, 2*time.Second))
+		assert.Equal(t, 2, h.logged("keeps failing soon after it starts"))
+
+		assert.Equal(t, 11*time.Second, h.waitBeforeRestart("run-4", ir.Succeeded, time.Second), "a success resets the wait")
+		assert.Equal(t, 11*time.Second, h.waitBeforeRestart("run-5", ir.Failed, 2*time.Second))
+		assert.Equal(t, 21*time.Second, h.waitBeforeRestart("run-6", ir.Failed, 2*time.Second))
+		assert.Equal(t, 11*time.Second, h.waitBeforeRestart("run-7", ir.Failed, time.Minute), "a long run resets the wait")
+	})
+
+	t.Run("BackoffLimit", func(t *testing.T) {
+		t.Parallel()
+		h := newRestartHarness(t, serviceDAG("svc", ir.RestartPolicyAlways))
+		var waited time.Duration
+		for i := range 8 {
+			waited = h.waitBeforeRestart(fmt.Sprintf("run-%d", i), ir.Failed, time.Second)
+		}
+		assert.Equal(t, restartBackoffMaxWait+time.Second, waited)
+
+		long := serviceDAG("slow", ir.RestartPolicyAlways)
+		long.RestartWait = 10 * time.Minute
+		h = newRestartHarness(t, long)
+		h.waitBeforeRestart("run-1", ir.Failed, time.Second)
+		assert.Equal(t, long.RestartWait+time.Second, h.waitBeforeRestart("run-2", ir.Failed, time.Second),
+			"a wait above the limit does not grow")
 	})
 
 	t.Run("Busy", func(t *testing.T) {

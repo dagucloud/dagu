@@ -603,7 +603,7 @@
     },
     "restart_wait_sec": {
       "type": "integer",
-      "description": "Number of seconds to wait before restarting a failed or stopped DAG. Typically used with a process supervisor. With restart_policy, it is the wait between the end of a run and the start of the next one, and must be at least 1."
+      "description": "Number of seconds to wait before restarting a failed or stopped DAG. Typically used with a process supervisor. With restart_policy, it is the wait between the end of a run and the start of the next one, and must be at least 1; each run in a row that fails within 10 seconds of its start doubles it, up to 5 minutes."
     },
     "restart_policy": {
       "type": "string",

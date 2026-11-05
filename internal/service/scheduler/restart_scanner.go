@@ -26,6 +26,9 @@ import (
 // restarts once the zombie detector or the coordinator marks the run failed. A
 // process killed while it writes its status can leave the run lock of the DAG
 // behind, which delays the restart until the lock is stale.
+//
+// Each run in a row that does not succeed within restartBackoffRunTime of its
+// start doubles the wait before the next run, up to restartBackoffMaxWait.
 
 const (
 	// restartScanInterval is how often service DAGs are checked. It bounds the
@@ -35,6 +38,15 @@ const (
 	// restartErrorLogInterval limits how often a failing DAG is logged, since
 	// the same error would otherwise repeat at every scan.
 	restartErrorLogInterval = 30 * time.Second
+
+	// restartBackoffRunTime is how long a run that does not succeed must last
+	// for the next run to follow it after restart_wait_sec. Each run in a row
+	// that fails sooner doubles the wait.
+	restartBackoffRunTime = 10 * time.Second
+
+	// restartBackoffMaxWait bounds the doubled wait. A restart_wait_sec above
+	// it is not doubled.
+	restartBackoffMaxWait = 5 * time.Minute
 )
 
 // StopRequestedFunc reports whether an operator asked to stop a run of a DAG.
@@ -71,7 +83,8 @@ type RestartScannerConfig struct {
 //
 // Whether a run is due follows from the DAG's latest run, so a scheduler restart
 // or failover resumes where the previous scheduler stopped. The scanner only
-// remembers what saves logs and store reads.
+// remembers what saves logs and store reads, and the runs in a row that failed
+// soon after they started; a scheduler that takes over counts them anew.
 type RestartScanner struct {
 	cfg RestartScannerConfig
 
@@ -80,6 +93,15 @@ type RestartScanner struct {
 	// stoppedRuns maps a DAG name to the attempt of its latest run, once an
 	// operator is known to have stopped that attempt.
 	stoppedRuns map[string]string
+	backoff     map[string]restartBackoff
+}
+
+// restartBackoff counts the runs of a DAG in a row that failed soon after they
+// started.
+type restartBackoff struct {
+	// runID is the latest run counted, so each run is counted once.
+	runID    string
+	failures int
 }
 
 // NewRestartScanner creates a RestartScanner.
@@ -95,6 +117,7 @@ func NewRestartScanner(cfg RestartScannerConfig) *RestartScanner {
 		warnedNoQueue: make(map[string]struct{}),
 		lastErrorLog:  make(map[string]time.Time),
 		stoppedRuns:   make(map[string]string),
+		backoff:       make(map[string]restartBackoff),
 	}
 }
 
@@ -177,7 +200,7 @@ func (s *RestartScanner) process(ctx context.Context, entry DAGEntry, now time.T
 	if err != nil {
 		return err
 	}
-	decision := decideRestart(dag.RestartWait, &status, now)
+	decision := decideRestart(s.restartWait(ctx, dag, &status), &status, now)
 	if decision.start && dag.RestartPolicy == ir.RestartPolicyUnlessStopped && status.DAGRunID != "" {
 		stopped, err := s.stoppedByOperator(ctx, dag, &status)
 		if err != nil {
@@ -234,6 +257,61 @@ func (s *RestartScanner) stoppedByOperator(ctx context.Context, dag *ir.DAG, sta
 	return true, nil
 }
 
+// restartWait is how long the DAG waits after its latest run ends:
+// restart_wait_sec, doubled for each run in a row that failed soon after it
+// started, so a DAG that keeps crashing does not restart every few seconds.
+func (s *RestartScanner) restartWait(ctx context.Context, dag *ir.DAG, latest *ir.DAGRunStatus) time.Duration {
+	if latest.DAGRunID == "" || latest.Status == ir.NotStarted || latest.Status.IsActive() {
+		return dag.RestartWait
+	}
+	b := s.backoff[dag.Name]
+	if b.runID == latest.DAGRunID {
+		return backoffWait(dag.RestartWait, b.failures)
+	}
+
+	b.runID = latest.DAGRunID
+	if failedSoonAfterStart(latest) {
+		b.failures++
+	} else {
+		b.failures = 0
+	}
+	s.backoff[dag.Name] = b
+	wait := backoffWait(dag.RestartWait, b.failures)
+	if b.failures > 1 {
+		logger.Warn(ctx, "DAG keeps failing soon after it starts; its next run waits longer",
+			tag.DAG(dag.Name),
+			tag.RunID(latest.DAGRunID),
+			slog.Int("failures", b.failures),
+			slog.Duration("wait", wait),
+		)
+	}
+	return wait
+}
+
+// backoffWait doubles wait for each failure after the first, up to
+// restartBackoffMaxWait, or up to wait when it is longer.
+func backoffWait(wait time.Duration, failures int) time.Duration {
+	limit := max(wait, restartBackoffMaxWait)
+	for i := 1; i < failures && wait < limit; i++ {
+		wait *= 2
+	}
+	return min(wait, limit)
+}
+
+// failedSoonAfterStart reports whether a run that ended did not succeed within
+// restartBackoffRunTime of its start. A run without a start time never ran.
+func failedSoonAfterStart(status *ir.DAGRunStatus) bool {
+	if status.Status.IsSuccess() {
+		return false
+	}
+	startedAt, ok := parseRFC3339(status.StartedAt)
+	if !ok {
+		return true
+	}
+	finishedAt, ok := parseRFC3339(status.FinishedAt)
+	return !ok || finishedAt.Sub(startedAt) < restartBackoffRunTime
+}
+
 // forgetOthers drops what the scanner remembers about DAGs it no longer keeps
 // alive.
 func (s *RestartScanner) forgetOthers(services map[string]struct{}) {
@@ -250,6 +328,11 @@ func (s *RestartScanner) forgetOthers(services map[string]struct{}) {
 	for name := range s.stoppedRuns {
 		if _, ok := services[name]; !ok {
 			delete(s.stoppedRuns, name)
+		}
+	}
+	for name := range s.backoff {
+		if _, ok := services[name]; !ok {
+			delete(s.backoff, name)
 		}
 	}
 }
