@@ -55,6 +55,7 @@ import { useDAGDetailsQuery } from '@/features/dags/hooks/useDAGDetailsQuery';
 import { LogPopoutPage } from '@/features/workflow-workspace/popout/LogPopoutPage';
 import { useLegacyRedirect } from '@/features/workflow-workspace/state/useLegacyRedirect';
 import { useBoundedDAGRunDetails } from '@/features/dag-runs/hooks/useBoundedDAGRunDetails';
+import type { RunViewTab } from '@/features/dags/lib/runViewTabs';
 import LoadingIndicator from '@/components/ui/loading-indicator';
 
 // The run view of a workflow file that is gone reaches Mermaid, which the
@@ -72,6 +73,21 @@ type Params = {
 };
 
 type DAGRunDetails = components['schemas']['DAGRunDetails'];
+
+/**
+ * The run view of the dock tab in a run link, which old run page links name
+ * in ?tab and the redirect turns into ?dock. Actions maps to none: the run
+ * view opens the action that waits on its own.
+ */
+const RUN_VIEW_OF_DOCK: Readonly<Partial<Record<string, RunViewTab>>> = {
+  timeline: 'timeline',
+  outputs: 'outputs',
+  artifacts: 'artifacts',
+  agent: 'agent',
+  chat: 'chat',
+  tasks: 'tasks',
+  definition: 'spec',
+};
 
 /**
  * The page of a run link on the file of the run. The URL keeps the DAG name
@@ -96,12 +112,15 @@ function StandaloneRun({
   run,
   subRunId,
   step,
+  dock,
   remoteNode,
 }: {
   run: DAGRunDetails;
   subRunId: string | null;
   /** The step of the shown run that the link opens. */
   step: string | null;
+  /** The dock tab that the link opens, as a tab of the run view. */
+  dock: string | null;
   remoteNode: string;
 }) {
   const sub = subRunId && subRunId !== run.dagRunId ? subRunId : null;
@@ -131,6 +150,7 @@ function StandaloneRun({
         dagRunId={shown.dagRunId}
         refreshFn={() => void live.refresh()}
         fillHeight
+        initialTab={(dock && RUN_VIEW_OF_DOCK[dock]) || undefined}
         initialStepName={step ?? undefined}
       />
     </Suspense>
@@ -216,9 +236,13 @@ function DAGDetails() {
   // when it is not the name of the file, as for a run started with --name.
   const linkedRunId = searchParams.get('run');
   const linkedRunName = queriedDAGRunName || fileName;
+  // A workflow that fails to load in any way leaves its runs to the lookup:
+  // a run link reaches the run as the old run page did, which read the run
+  // alone.
+  const workflowFailed = !dagData?.dag && !!dagError;
   const lookUpRunFile =
     Boolean(linkedRunId) &&
-    (isNotFoundQueryError(dagError) ||
+    (workflowFailed ||
       (!!dagData?.dag &&
         dagData.dag.name !==
           (queriedDAGRunName || fileName.replace(/\.ya?ml$/, ''))));
@@ -243,13 +267,13 @@ function DAGDetails() {
   const resolvingRunFile =
     lookUpRunFile && !linkedRunError && (!linkedRun || !!runFileRedirect);
   // The run shows on its own where no workspace shows it: its source file is
-  // gone (deleted, or renamed with the DAG name kept), or the file now holds
-  // the DAG under another name.
+  // gone (deleted, or renamed with the DAG name kept) or cannot be read, or
+  // the file now holds the DAG under another name.
   const lookedUpRun = linkedRun?.dagRunDetails ?? null;
   const ownRun =
     lookedUpRun &&
     !runFileRedirect &&
-    ((isNotFoundQueryError(dagError) && !linkedRunFile) ||
+    (workflowFailed ||
       (!!dagData?.dag &&
         !!linkedRunFile &&
         lookedUpRun.name !== dagData.dag.name))
@@ -443,6 +467,7 @@ function DAGDetails() {
                 run={ownRun}
                 subRunId={searchParams.get('subRun')}
                 step={searchParams.get('step')}
+                dock={searchParams.get('dock')}
                 remoteNode={remoteNode}
               />
             ) : (

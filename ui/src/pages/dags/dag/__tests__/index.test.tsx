@@ -870,6 +870,52 @@ describe('DAGDetails page', () => {
       );
     });
 
+    // The old run page read the run alone: a run link still reaches the run
+    // when its workflow fails to load for another reason than a missing file.
+    it('shows the run of a link whose workflow cannot be read', async () => {
+      const readable = { name: 'etl', dagRunId: 'r1', sourceFileName: 'etl' };
+      useQueryMock.mockImplementation((path) =>
+        path === '/dag-runs/{name}/{dagRunId}'
+          ? ({ data: { dagRunDetails: readable }, mutate: vi.fn() } as never)
+          : ({
+              data: undefined,
+              error: { code: 'internal_error', message: 'permission denied' },
+              mutate: vi.fn(),
+            } as never)
+      );
+
+      renderPage('/dags/etl?run=r1');
+
+      expect(await screen.findByTestId('run-details')).toBeInTheDocument();
+      expect(vi.mocked(DAGRunDetailsContent).mock.lastCall?.[0]).toMatchObject({
+        dagRun: readable,
+      });
+    });
+
+    // An old run page bookmark names its tab in ?tab, which the redirect
+    // turns into ?dock.
+    it('opens the tab of an old run page link on a run shown on its own', async () => {
+      useQueryMock.mockImplementation((path) =>
+        path === '/dag-runs/{name}/{dagRunId}'
+          ? ({
+              data: { dagRunDetails: { name: 'etl', dagRunId: 'r1' } },
+              mutate: vi.fn(),
+            } as never)
+          : ({
+              data: undefined,
+              error: { code: 'not_found', message: 'DAG is not found' },
+              mutate: vi.fn(),
+            } as never)
+      );
+
+      renderPage('/dag-runs/etl/r1?tab=artifacts');
+
+      expect(await screen.findByTestId('run-details')).toBeInTheDocument();
+      expect(vi.mocked(DAGRunDetailsContent).mock.lastCall?.[0]).toMatchObject({
+        initialTab: 'artifacts',
+      });
+    });
+
     // A link can name a step of the run, as the log page does.
     it('opens the step of the link on a run shown on its own', async () => {
       useQueryMock.mockImplementation((path) =>
