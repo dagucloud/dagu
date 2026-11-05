@@ -351,7 +351,7 @@ describe('LogsDock frame', () => {
     fireEvent.keyDown(pick, { key: 'Escape' });
     expect(picker).toHaveAttribute('aria-expanded', 'true');
 
-    fireEvent.keyDown(screen.getByRole('button', { name: 'Close' }), {
+    fireEvent.keyDown(screen.getByRole('button', { name: 'Graph' }), {
       key: 'Escape',
     });
     expect(picker).toHaveAttribute('aria-expanded', 'false');
@@ -755,37 +755,54 @@ function NdvPanel() {
 
 // parity:run-step-mobile
 describe('LogsDock below 768px', () => {
-  it('is a bottom sheet at 75vh with a drag grip and a Close button', () => {
+  // A phone shows one view at a time: the views bar is the bottom of the
+  // panel, and the open panel takes the place of the graph.
+  it('takes the place of the graph, under the views bar', () => {
     mockWidth(500);
     renderDock(finished);
+    expect(screen.getByTestId('ww-phone-nav')).toBeInTheDocument();
+    expect(screen.getByTestId('ww-dock-bar')).not.toBeVisible();
     expect(dockSection()).not.toHaveAttribute('data-sheet');
     fireEvent.click(toggleButton());
     expect(dockSection()).toHaveAttribute('data-sheet', 'true');
-    expect(dockSection()).toHaveClass('fixed', 'bottom-0', 'inset-x-0');
-    expect(dockSection()).toHaveStyle({ height: '75vh' });
+    expect(dockSection()).toHaveClass('flex-1');
+    expect(dockSection()).not.toHaveClass('fixed');
     expect(screen.queryByRole('separator')).toBeNull();
     expect(dockSection()).toHaveFocus();
-    expect(screen.getByRole('button', { name: 'Close' })).toBeInTheDocument();
-    // The bar of the sheet has no room for the controls of the timeline.
+    // There is no bar for the controls of the timeline.
     expect(screen.getByTestId('timeline-stub')).toHaveAttribute(
       'data-controls',
       'row'
     );
-    const handle = screen.getByTestId('ww-sheet-grip');
-
-    fireEvent.pointerDown(handle, { pointerId: 1, button: 0, clientY: 100 });
-    fireEvent.pointerUp(handle, { pointerId: 1, clientY: 30 });
-    fireEvent.click(handle);
-    expect(dockSection()).toHaveAttribute('data-maximized', 'true');
-    expect(dockSection()).toHaveStyle({ height: '100dvh' });
-
-    fireEvent.pointerDown(handle, { pointerId: 2, button: 0, clientY: 30 });
-    fireEvent.pointerUp(handle, { pointerId: 2, clientY: 200 });
-    fireEvent.click(handle);
+    // Activity is the toggle of the panel: a second tap shows the graph.
+    fireEvent.click(toggleButton());
     expect(dockSection()).toHaveAttribute('data-state', 'collapsed');
   });
 
-  // The sheet covers 75vh: the notifications go above it, not over its log.
+  it('swaps the panel for the YAML from the views bar', () => {
+    mockWidth(500);
+    const handle = {
+      toggleYaml: vi.fn(),
+      revealStep: vi.fn(() => true),
+    } as unknown as WorkspaceEditorHandle;
+    renderDock(finished, '/dags/demo', <BindHandle handle={handle} />);
+    fireEvent.click(toggleButton());
+    fireEvent.click(screen.getByRole('button', { name: 'YAML' }));
+    expect(dockSection()).toHaveAttribute('data-state', 'collapsed');
+    expect(handle.toggleYaml).toHaveBeenCalledWith(true);
+  });
+
+  // Graph always shows the graph: it closes the YAML through ?ndv, also
+  // when the views bar has not rendered that URL yet.
+  it('goes back to the graph from the YAML', () => {
+    mockWidth(500);
+    renderDock(finished, '/dags/demo?ndv=docked');
+    fireEvent.click(screen.getByRole('button', { name: 'Graph' }));
+    expect(location.current).toBe('/dags/demo');
+  });
+
+  // The open panel of a phone: the notifications go above it, not over its
+  // log.
   it('keeps the notifications above the sheet', () => {
     mockWidth(500);
     renderDock(finished);
@@ -801,24 +818,6 @@ describe('LogsDock below 768px', () => {
     ).toBe('600px');
   });
 
-  // A touch drag can end with no click event; the next tap must still act.
-  it('closes on a tap after a drag that had no click', () => {
-    mockWidth(500);
-    renderDock(finished);
-    fireEvent.click(toggleButton());
-    let handle = screen.getByTestId('ww-sheet-grip');
-    fireEvent.pointerDown(handle, { pointerId: 1, button: 0, clientY: 30 });
-    fireEvent.pointerUp(handle, { pointerId: 1, clientY: 200 });
-    expect(dockSection()).toHaveAttribute('data-state', 'collapsed');
-
-    fireEvent.click(toggleButton());
-    handle = screen.getByTestId('ww-sheet-grip');
-    fireEvent.pointerDown(handle, { pointerId: 2, button: 0, clientY: 30 });
-    fireEvent.pointerUp(handle, { pointerId: 2, clientY: 30 });
-    fireEvent.click(handle);
-    expect(dockSection()).toHaveAttribute('data-state', 'collapsed');
-  });
-
   it('is no sheet at 768px and more', () => {
     mockWidth(800);
     renderDock(finished);
@@ -826,7 +825,7 @@ describe('LogsDock below 768px', () => {
     expect(dockSection()).not.toHaveAttribute('data-sheet');
     expect(dockSection()).toHaveClass('relative');
     expect(screen.queryByRole('button', { name: 'Close' })).toBeNull();
-    expect(screen.queryByTestId('ww-sheet-grip')).toBeNull();
+    expect(screen.queryByTestId('ww-phone-nav')).toBeNull();
   });
 
   it('opens the node details view of the selected row', () => {
@@ -864,7 +863,7 @@ describe('LogsDock below 768px', () => {
     expect(dockSection()).toHaveAttribute('data-state', 'open');
     expect(dockSection()).toHaveFocus();
 
-    await user.click(screen.getByRole('button', { name: 'Close' }));
+    await user.click(screen.getByRole('button', { name: 'Graph' }));
     expect(dockSection()).toHaveAttribute('data-state', 'collapsed');
     expect(opener).toHaveFocus();
   });

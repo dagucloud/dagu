@@ -181,6 +181,14 @@ describe('DockProvider on a narrow window', () => {
     expect(renderDock().dock.open).toBe(false);
   });
 
+  // A phone shows one view: a link to the YAML shows the YAML, not the
+  // panel that its run would open.
+  it('stays shut for a run link that also opens the YAML', () => {
+    window.matchMedia ??= (() => ({}) as MediaQueryList) as typeof matchMedia;
+    narrow(false);
+    expect(renderDock('/dags/demo?run=r1&ndv=docked').dock.open).toBe(false);
+  });
+
   it('opens from the stored state on a wide window', () => {
     window.matchMedia ??= (() => ({}) as MediaQueryList) as typeof matchMedia;
     narrow(true);

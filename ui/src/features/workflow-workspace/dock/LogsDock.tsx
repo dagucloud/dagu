@@ -1,7 +1,7 @@
 // Copyright (C) 2026 Yota Hamada
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-import { ChevronDown, ChevronUp, Maximize2, Minimize2, X } from 'lucide-react';
+import { ChevronDown, ChevronUp, Maximize2, Minimize2 } from 'lucide-react';
 import {
   useCallback,
   useEffect,
@@ -34,6 +34,7 @@ import {
 import { DockHeaderToolsContext } from './DockHeaderTools';
 import { FreezeWhenHidden } from './FreezeWhenHidden';
 import { DOCK_PANEL_ID } from './DockTabStrip';
+import { PhoneViewNav } from './PhoneViewNav';
 import { RunStepPicker, RunStepsNav } from './RunStepsNav';
 import { RunTabsPane } from './RunTabsPane';
 import { RunTimeline } from './RunTimeline';
@@ -44,9 +45,9 @@ import { useDockStep } from './useDockStep';
 import { useLiftNotifications } from './useLiftNotifications';
 
 const KEYBOARD_STEP_PX = 40;
-// A drag on the sheet handle longer than this closes or maximizes the sheet.
-const SHEET_DRAG_PX = 64;
 const STEPS_NAV_ID = 'ww-run-steps-nav';
+// The tabs that most runs do not need: they wait in the More menu.
+const RARE_TABS: readonly DockTab[] = ['definition', 'artifacts'];
 
 /** True when the media query matches. Without matchMedia it is true. */
 function useMinWidth(px: number): boolean {
@@ -80,9 +81,11 @@ interface Drag {
  * has one column: a row names the selected step and opens the steps over
  * the tabs. The body mounts at the first
  * open and stays mounted when the panel collapses or maximizes. Below 768px
- * the open panel is a bottom sheet at 75vh; when it closes, the focus goes
- * back to the element that opened it. Esc restores a maximized panel (and
- * closes the sheet) when no dialog, menu or node details view is above it.
+ * the panel has no bar: the views bar of the phone (PhoneViewNav) is its
+ * bottom, and the open panel takes the place of the graph; when it closes,
+ * the focus goes back to the element that opened it. Esc restores a
+ * maximized panel (and closes the phone view) when no dialog, menu or node
+ * details view is above it.
  */
 export function LogsDock({
   fileName,
@@ -181,19 +184,6 @@ export function LogsDock({
     if (back?.isConnected) back.focus();
   }, [sheet]);
 
-  const sheetDrag = useRef<{ pointerId: number; startY: number } | null>(null);
-  const dragged = useRef(false);
-  const endSheetDrag = (event: PointerEvent<HTMLDivElement>) => {
-    const current = sheetDrag.current;
-    if (current?.pointerId !== event.pointerId) return;
-    sheetDrag.current = null;
-    const moved = event.clientY - current.startY;
-    if (Math.abs(moved) < SHEET_DRAG_PX) return;
-    dragged.current = true;
-    if (moved > 0) dock.toggle();
-    else dock.maximize(true);
-  };
-
   const ndvAbove = activePanel === 'ndv';
   const escState = useRef({ ndvAbove, dock, sheet, stepsOpen, closeSteps });
   useEffect(() => {
@@ -226,14 +216,14 @@ export function LogsDock({
   }, []);
 
   const [toolsEl, setToolsEl] = useState<HTMLElement | null>(null);
-  const tabOnly = !dock.open && !sheet;
+  const tabOnly = !dock.open && !narrow;
   const ToggleIcon = dock.open ? ChevronDown : ChevronUp;
   const MaximizeIcon = dock.maximized ? Minimize2 : Maximize2;
 
   return (
-    // The bar of the sheet has no room for the controls of the timeline:
-    // the timeline draws them in its own row.
-    <DockHeaderToolsContext.Provider value={sheet ? undefined : toolsEl}>
+    // A phone has no bar for the controls of the timeline: the timeline
+    // draws them in its own row.
+    <DockHeaderToolsContext.Provider value={narrow ? undefined : toolsEl}>
       <section
         ref={sheetRef}
         tabIndex={sheet ? -1 : undefined}
@@ -244,57 +234,23 @@ export function LogsDock({
         data-maximized={dock.maximized || undefined}
         data-sheet={sheet || undefined}
         className={cn(
-          'flex flex-col bg-card outline-none',
+          'relative flex flex-col bg-card outline-none',
           Z.dock,
-          sheet
-            ? 'fixed inset-x-0 bottom-0 rounded-t-lg border-t shadow-lg'
-            : 'relative',
+          // On a phone the open panel takes the place of the graph
+          // (WorkspaceLayout hides it), above the views bar.
+          sheet && 'min-h-0 flex-1',
           // Collapsed, the panel has no bar: only its tab shows, over the
-          // bottom edge of the zone above.
-          !dock.open && (sheet ? 'h-8 shrink-0' : 'h-0 shrink-0'),
-          dock.open && !dock.maximized && 'shrink-0',
-          dock.maximized && 'min-h-0'
+          // bottom edge of the zone above; on a phone, the views bar.
+          !dock.open && (narrow ? 'shrink-0' : 'h-0 shrink-0'),
+          dock.open && !dock.maximized && !sheet && 'shrink-0',
+          dock.maximized && !sheet && 'min-h-0'
         )}
         style={
-          sheet
-            ? { height: dock.maximized ? '100dvh' : '75vh' }
-            : dock.open
-              ? { height: dock.maximized ? '100%' : `${height}px` }
-              : undefined
+          dock.open && !sheet
+            ? { height: dock.maximized ? '100%' : `${height}px` }
+            : undefined
         }
       >
-        {sheet && (
-          // The grip is for the pointer. The Close button below is the named,
-          // keyboard-reachable control.
-          <div
-            aria-hidden="true"
-            data-testid="ww-sheet-grip"
-            className="flex h-5 w-full shrink-0 touch-none items-center justify-center"
-            onPointerDown={(event) => {
-              if (event.button !== 0) return;
-              // A drag can end with no click: the flag must not skip a tap.
-              dragged.current = false;
-              event.currentTarget.setPointerCapture(event.pointerId);
-              sheetDrag.current = {
-                pointerId: event.pointerId,
-                startY: event.clientY,
-              };
-            }}
-            onPointerUp={endSheetDrag}
-            onPointerCancel={() => {
-              sheetDrag.current = null;
-            }}
-            onClick={() => {
-              if (dragged.current) {
-                dragged.current = false;
-                return;
-              }
-              dock.toggle();
-            }}
-          >
-            <span className="h-1 w-10 rounded-full bg-muted-foreground/40" />
-          </div>
-        )}
         {dock.open && !dock.maximized && !sheet && (
           <div
             role="separator"
@@ -332,7 +288,21 @@ export function LogsDock({
           />
         )}
         <h2 className="sr-only">{ts('Logs')}</h2>
+        {sheet && url.step && (
+          <div className="flex h-9 shrink-0 items-center justify-end border-b border-border px-2">
+            <button
+              type="button"
+              aria-label={ts('Open {step}', { step: url.step })}
+              title={url.step}
+              onClick={() => url.step && openStepDetails(url.step)}
+              className="inline-flex h-7 shrink-0 items-center rounded-md border px-2.5 text-xs font-medium text-foreground hover:bg-muted/60"
+            >
+              {ts('Open')}
+            </button>
+          </div>
+        )}
         <div
+          hidden={narrow}
           data-testid="ww-dock-bar"
           className={
             tabOnly
@@ -372,17 +342,6 @@ export function LogsDock({
             className="flex min-w-0 flex-1 items-center justify-end self-stretch"
             title={run.hasRun ? run.ref?.runId : undefined}
           />
-          {sheet && url.step && (
-            <button
-              type="button"
-              aria-label={ts('Open {step}', { step: url.step })}
-              title={url.step}
-              onClick={() => url.step && openStepDetails(url.step)}
-              className="inline-flex h-6 shrink-0 items-center rounded-md border px-2 text-xs font-medium text-foreground hover:bg-muted/60"
-            >
-              {ts('Open')}
-            </button>
-          )}
           {dock.open && (
             <IconButton
               size="sm"
@@ -390,14 +349,6 @@ export function LogsDock({
               label={ts(dock.maximized ? 'Restore' : 'Maximize')}
               pressed={dock.maximized}
               onClick={() => dock.maximize(!dock.maximized)}
-            />
-          )}
-          {sheet && (
-            <IconButton
-              size="sm"
-              icon={X}
-              label={ts('Close')}
-              onClick={dock.toggle}
             />
           )}
         </div>
@@ -411,7 +362,7 @@ export function LogsDock({
           {/* A collapsed panel keeps its last render: its steps and timeline do
             not render for the events of a run while nobody sees them. */}
           <FreezeWhenHidden hidden={!dock.open}>
-            {mounted && <RunTimeline />}
+            {mounted && <RunTimeline compact={narrow} />}
             <div className="relative flex min-h-0 flex-1 @max-[600px]:flex-col">
               {mounted && (
                 <RunStepPicker
@@ -442,6 +393,7 @@ export function LogsDock({
                 active={shown}
                 badges={frame.badges}
                 labels={step === null ? undefined : STEP_TAB_LABELS}
+                overflow={RARE_TABS}
                 onSelect={selectTab}
               >
                 {mounted && Body && (
@@ -465,6 +417,7 @@ export function LogsDock({
             </div>
           </FreezeWhenHidden>
         </div>
+        {narrow && <PhoneViewNav />}
       </section>
     </DockHeaderToolsContext.Provider>
   );

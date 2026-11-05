@@ -33,7 +33,21 @@ export interface RightPanelHandle {
 interface Holder {
   id: RightPanelId;
   evict(): void;
+  /** Opens the panel again: a panel that a transient panel covered. */
+  restore?(): void;
 }
+
+/**
+ * Panels that open for one task over the panel of the page, such as a
+ * trigger or the list of steps to add. When one closes, the YAML or the
+ * Workflow panel that it covered comes back.
+ */
+const TRANSIENT_PANELS: ReadonlySet<RightPanelId> = new Set([
+  'add-step',
+  'launcher',
+  'subdag-step',
+  'run-def-inspector',
+]);
 
 interface RightPanelStore {
   subscribe(listener: () => void): () => void;
@@ -48,6 +62,11 @@ interface RightPanelStore {
 
 function createRightPanelStore(): RightPanelStore {
   let holder: Holder | null = null;
+  // The panel that the transient holder covers, to open again on its close.
+  let covered: Holder | null = null;
+  // A panel of the page that its own host closed in this task: a transient
+  // panel that opens in the same commit covers it.
+  let justReleased: Holder | null = null;
   const listeners = new Set<() => void>();
   const notify = () => listeners.forEach((listener) => listener());
   return {
@@ -60,24 +79,44 @@ function createRightPanelStore(): RightPanelStore {
       const previous = holder;
       if (previous && previous.id !== next.id) {
         previous.evict();
+        // A transient panel keeps the panel of the page that it covers; a
+        // panel of the page is a choice of its own.
+        if (!TRANSIENT_PANELS.has(next.id)) covered = null;
+        else if (!TRANSIENT_PANELS.has(previous.id)) {
+          covered = previous.restore ? previous : null;
+        }
+      } else if (!previous) {
+        covered = TRANSIENT_PANELS.has(next.id) ? justReleased : null;
       }
       holder = next;
       if (previous?.id !== next.id) notify();
     },
     release(id) {
       if (holder?.id !== id) return;
+      const released = holder;
       holder = null;
       notify();
+      if (!TRANSIENT_PANELS.has(id)) {
+        justReleased = released;
+        queueMicrotask(() => {
+          if (justReleased === released) justReleased = null;
+        });
+      }
+      const back = covered;
+      covered = null;
+      if (back && TRANSIENT_PANELS.has(id)) back.restore?.();
     },
     drop(previous) {
       if (holder !== previous) return;
       holder = null;
+      covered = null;
       notify();
     },
     closeActive() {
       const previous = holder;
       if (!previous) return;
       holder = null;
+      covered = null;
       notify();
       previous.evict();
     },
@@ -106,12 +145,15 @@ export function RightPanelProvider({
 /**
  * The right-side panel `id`. In a provider, claim() calls the onEvicted of
  * the current holder of another id synchronously, then makes `id` active;
- * release() clears it only while `id` is active. Without a provider, claim()
- * and release() only set a local isActive, and onEvicted is never called.
+ * release() clears it only while `id` is active. A transient panel that
+ * closes calls the onRestore of the panel that it covered. Without a
+ * provider, claim() and release() only set a local isActive, and onEvicted
+ * is never called.
  */
 export function useRightPanel(
   id: RightPanelId,
-  onEvicted: () => void
+  onEvicted: () => void,
+  onRestore?: () => void
 ): RightPanelHandle {
   const store = useContext(RightPanelStoreContext);
   const [localActive, setLocalActive] = useState(false);
@@ -121,9 +163,11 @@ export function useRightPanel(
     store ? store.getActive : noActive
   );
   const onEvictedRef = useRef(onEvicted);
+  const onRestoreRef = useRef(onRestore);
   useEffect(() => {
     onEvictedRef.current = onEvicted;
-  }, [onEvicted]);
+    onRestoreRef.current = onRestore;
+  }, [onEvicted, onRestore]);
 
   // A holder that unmounts while active gives its place back.
   const claimedRef = useRef<Holder | null>(null);
@@ -136,7 +180,11 @@ export function useRightPanel(
 
   const claim = useCallback(() => {
     if (store) {
-      const holder = { id, evict: () => onEvictedRef.current() };
+      const holder: Holder = {
+        id,
+        evict: () => onEvictedRef.current(),
+        restore: () => onRestoreRef.current?.(),
+      };
       claimedRef.current = holder;
       store.claim(holder);
     } else {
@@ -181,15 +229,18 @@ export function useCloseRightPanel(): () => void {
 
 /**
  * Claims `id` while `open` is true and releases it when it closes. A null id
- * claims nothing. `onEvicted` runs when another panel takes the place.
+ * claims nothing. `onEvicted` runs when another panel takes the place;
+ * `onRestore` opens the panel again when a transient panel that covered it
+ * closes.
  */
 export function useRightPanelClaim(
   id: RightPanelId | null | undefined,
   open: boolean,
-  onEvicted: () => void
+  onEvicted: () => void,
+  onRestore?: () => void
 ): void {
   // The fallback id is never claimed: `enabled` is false without an id.
-  const { claim, release } = useRightPanel(id ?? 'ndv', onEvicted);
+  const { claim, release } = useRightPanel(id ?? 'ndv', onEvicted, onRestore);
   const enabled = !!id && open;
   useEffect(() => {
     if (!enabled) return;

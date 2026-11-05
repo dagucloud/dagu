@@ -1445,23 +1445,25 @@ describe('WorkspaceCanvas', () => {
       expect(yieldToView).toHaveBeenLastCalledWith(false);
     });
 
-    it('yields to the docked YAML panel', () => {
+    // The YAML panel sits in the zone above Activity: both stay open.
+    it('keeps Activity open beside the docked YAML panel', () => {
       const yieldToView = vi.fn();
-      ws.dock = { ...dock, yieldToView };
+      ws.dock = { ...dock, open: true, yieldToView };
       renderCanvas('/dags/example.yaml?step=extract&ndv=docked');
-      expect(yieldToView).toHaveBeenCalledWith(true, { restore: true });
+      expect(yieldToView).not.toHaveBeenCalledWith(true, expect.anything());
+      expect(screen.getByTestId('dag-spec-stand-in')).toBeInTheDocument();
     });
 
     // A graph that fit the zone above the open Activity fit again, and
-    // jumped, when Activity collapsed for the YAML panel.
-    it('mounts the editor once Activity has collapsed for the YAML panel', () => {
+    // jumped, when Activity collapsed for the step view.
+    it('mounts the editor once Activity has collapsed for the step view', () => {
       host.dockOpen = [];
       const yieldToView = vi.fn((on: boolean) => {
         ws.dock = { ...(ws.dock as DockController), open: !on };
         host.dockListeners.forEach((listener) => listener());
       });
       ws.dock = { ...dock, open: true, yieldToView };
-      renderCanvas('/dags/example.yaml?ndv=docked');
+      renderCanvas('/dags/example.yaml?step=extract&ndv=expanded');
       expect(yieldToView).toHaveBeenCalledWith(true, { restore: true });
       expect(host.dockOpen.length).toBeGreaterThan(0);
       expect(host.dockOpen).not.toContain(true);

@@ -112,7 +112,9 @@ describe('StepHistory', () => {
   });
 
   // The arrow keys move the focus only: a run is selected by Enter.
-  it('moves the focus with the arrow keys and selects with Enter', () => {
+  // Left and Right go through the history: they select the run. Home and
+  // End move the focus; Enter selects.
+  it('selects with Left, Right and Enter, and moves the focus with Home and End', () => {
     const props = renderHistory();
     const listbox = screen.getByRole('listbox', { name: 'Runs' });
     expect(bars()[2]).toHaveAttribute('tabindex', '0');
@@ -120,6 +122,8 @@ describe('StepHistory', () => {
 
     fireEvent.keyDown(listbox, { key: 'ArrowLeft' });
     expect(bars()[1]).toHaveFocus();
+    expect(props.onPick).toHaveBeenCalledWith('r2');
+    vi.mocked(props.onPick).mockClear();
     fireEvent.keyDown(listbox, { key: 'Home' });
     expect(bars()[0]).toHaveFocus();
     fireEvent.keyDown(listbox, { key: 'End' });

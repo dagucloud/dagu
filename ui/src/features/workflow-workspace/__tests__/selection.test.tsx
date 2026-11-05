@@ -443,12 +443,6 @@ describe('workspace selection', () => {
     expect(nav.location).toBe('/dags/f?step=fetch');
   });
 
-  it('collapses the Activity panel while the node view is open', () => {
-    renderWorkspace('/dags/f?step=fetch&ndv=docked', freshRun());
-    loadSpec();
-    expect(dock()).toHaveAttribute('data-state', 'collapsed');
-  });
-
   // The canvas keymap must not take Esc ('clear selection') while the NDV
   // is open, so that the workspace closes the NDV first.
   it('gives Esc on the canvas to the workspace while the NDV is open', () => {

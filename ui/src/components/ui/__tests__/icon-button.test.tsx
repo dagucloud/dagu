@@ -5,7 +5,7 @@ import { render, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { Play } from 'lucide-react';
 import { describe, expect, it, vi } from 'vitest';
-import { IconButton } from '@/components/ui/icon-button';
+import { IconButton, IconButtonLabels } from '@/components/ui/icon-button';
 import { Spinner } from '@/components/ui/spinner';
 import {
   Tooltip,
@@ -18,6 +18,24 @@ function sizeClasses(el: HTMLElement): string[] {
 }
 
 describe('IconButton', () => {
+  // A sheet on a touch screen has no tooltip: the name shows by the icon.
+  it('shows its name next to the icon inside IconButtonLabels', () => {
+    render(
+      <div>
+        <IconButton label="Plain" icon={Play} />
+        <IconButtonLabels>
+          <IconButton label="Named" icon={Play} />
+        </IconButtonLabels>
+      </div>
+    );
+    expect(screen.getByRole('button', { name: 'Plain' })).toHaveTextContent(
+      /^$/
+    );
+    const named = screen.getByRole('button', { name: 'Named' });
+    expect(named).toHaveTextContent('Named');
+    expect(named.querySelector('svg')).not.toBeNull();
+  });
+
   it('keeps the same size classes when idle, busy and disabled', () => {
     render(
       <div>

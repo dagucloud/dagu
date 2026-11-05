@@ -136,6 +136,18 @@ function dockToggle(page: Page): Locator {
 }
 
 /** Opens the Run panel with its toggle, when it is collapsed. */
+/**
+ * A choice of the View menu of the run timeline; the menu opens first. Press
+ * Escape to close it again.
+ */
+async function viewChoice(page: Page, testId: string): Promise<Locator> {
+  const item = page.getByTestId(testId);
+  if (!(await item.isVisible())) {
+    await page.getByTestId('ww-run-timeline-view').click();
+  }
+  return item;
+}
+
 async function openDock(page: Page): Promise<void> {
   if ((await dockOf(page).getAttribute('data-state')) !== 'open') {
     await dockToggle(page).click();
@@ -933,23 +945,24 @@ steps:
 
     // The toggle hides the test runs, and the browser keeps the choice.
     await openDock(page);
-    const toggle = page.getByTestId('ww-run-timeline-tests');
-    await expect(toggle).toHaveAttribute('aria-pressed', 'true');
+    const toggle = await viewChoice(page, 'ww-run-timeline-tests');
+    await expect(toggle).toHaveAttribute('aria-checked', 'true');
     await toggle.click();
-    await expect(toggle).toHaveAttribute('aria-pressed', 'false');
+    await expect(toggle).toHaveAttribute('aria-checked', 'false');
+    await page.keyboard.press('Escape');
     await expect(page.getByTestId(`ww-run-bar-${testRun}`)).toHaveCount(0);
     await page.reload();
     await expect(page.getByTestId('workflow-workspace')).toBeVisible({
       timeout: 30_000,
     });
     await openDock(page);
-    await expect(page.getByTestId('ww-run-timeline-tests')).toHaveAttribute(
-      'aria-pressed',
-      'false',
-      { timeout: 30_000 }
-    );
     await expect(page.getByTestId(`ww-run-bar-${testRun}`)).toHaveCount(0);
-    await page.getByTestId('ww-run-timeline-tests').click();
+    const kept = await viewChoice(page, 'ww-run-timeline-tests');
+    await expect(kept).toHaveAttribute('aria-checked', 'false', {
+      timeout: 30_000,
+    });
+    await kept.click();
+    await page.keyboard.press('Escape');
     await expect(page.getByTestId(`ww-run-bar-${testRun}`)).toBeVisible();
   });
 
@@ -1021,12 +1034,14 @@ steps:
     await expect(newer).toHaveAttribute('title', 'No newer run in this view');
 
     // A hidden test run is not a step of the arrows.
-    await page.getByTestId('ww-run-timeline-tests').click();
+    await (await viewChoice(page, 'ww-run-timeline-tests')).click();
+    await page.keyboard.press('Escape');
     await expect(bar(testRun)).toHaveCount(0);
     await older.click();
     await selected(newest);
     await expect(newer).toBeDisabled();
-    await page.getByTestId('ww-run-timeline-tests').click();
+    await (await viewChoice(page, 'ww-run-timeline-tests')).click();
+    await page.keyboard.press('Escape');
     await expect(newer).toBeEnabled();
   });
 
@@ -1089,22 +1104,22 @@ steps:
     ).toContainText(/Total .* = own .* \+ cached/);
 
     // The toggle counts the own time alone, and the browser keeps the choice.
-    const toggle = page.getByTestId('ww-run-timeline-cached');
-    await expect(toggle).toHaveAttribute('aria-pressed', 'true');
+    const toggle = await viewChoice(page, 'ww-run-timeline-cached');
+    await expect(toggle).toHaveAttribute('aria-checked', 'true');
     await toggle.click();
-    await expect(toggle).toHaveAttribute('aria-pressed', 'false');
+    await expect(toggle).toHaveAttribute('aria-checked', 'false');
+    await page.keyboard.press('Escape');
     await expect(page.getByTestId('ww-run-bar-cached')).toHaveCount(0);
     await page.reload();
     await expect(page.getByTestId('workflow-workspace')).toBeVisible({
       timeout: 30_000,
     });
     await openDock(page);
-    await expect(page.getByTestId('ww-run-timeline-cached')).toHaveAttribute(
-      'aria-pressed',
-      'false',
-      { timeout: 30_000 }
-    );
-    await page.getByTestId('ww-run-timeline-cached').click();
+    await expect(bar(reuse)).toBeVisible({ timeout: 30_000 });
+    const cached = await viewChoice(page, 'ww-run-timeline-cached');
+    await expect(cached).toHaveAttribute('aria-checked', 'false');
+    await cached.click();
+    await page.keyboard.press('Escape');
     await expect(bar(reuse).getByTestId('ww-run-bar-cached')).toBeVisible();
 
     // The time range: the last hour holds both runs, and the browser keeps it.

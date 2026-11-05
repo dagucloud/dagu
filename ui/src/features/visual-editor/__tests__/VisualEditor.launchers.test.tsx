@@ -4,6 +4,7 @@
 import { act, fireEvent, render, screen, within } from '@testing-library/react';
 import { createRef, useState, type ReactNode } from 'react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { RightPanelProvider } from '@/contexts/RightPanelContext';
 import { UserPreferencesProvider } from '@/contexts/UserPreference';
 import type { LauncherHost, VisualEditorHandle } from '../contracts';
 import { realSchema } from '../inspector/__tests__/realSchema';
@@ -107,13 +108,20 @@ function Harness({
 
 function renderEditor(
   initial = yamlArraySteps,
-  overrides: Partial<VisualEditorProps> = {}
+  overrides: Partial<VisualEditorProps> = {},
+  { panels = false }: { panels?: boolean } = {}
 ) {
   const handleRef = createRef<VisualEditorHandle>();
-  const node: ReactNode = (
+  const editor = (
     <UserPreferencesProvider>
       <Harness initial={initial} handleRef={handleRef} {...overrides} />
     </UserPreferencesProvider>
+  );
+  // With `panels`, the right panels take turns as on the page.
+  const node: ReactNode = panels ? (
+    <RightPanelProvider>{editor}</RightPanelProvider>
+  ) : (
+    editor
   );
   state.text = initial;
   render(node);
@@ -217,6 +225,19 @@ describe('VisualEditor launchers', () => {
     expect(onSelectedStepNameChange).toHaveBeenLastCalledWith(null);
     expect(screen.getByTestId('ve-launcher-panel-cron')).toBeInTheDocument();
     expect(ring()).not.toContain('ring-primary');
+  });
+
+  // A trigger node opens its panel over the page; with no panel under it,
+  // nothing opens when it closes (RightPanelContext restores a covered one).
+  it('opens nothing on close when no panel was open before', () => {
+    const onYamlVisibleChange = vi.fn();
+    renderEditor(yamlArraySteps, { onYamlVisibleChange }, { panels: true });
+    fireEvent.click(
+      within(screen.getByTestId('ve-launcher-cron')).getByRole('button')
+    );
+    const panel = screen.getByTestId('ve-launcher-panel-cron');
+    fireEvent.click(within(panel).getByRole('button', { name: 'Close' }));
+    expect(onYamlVisibleChange).not.toHaveBeenCalledWith(true, 'panel');
   });
 
   // A launcher panel and a step take turns: a click on a step closes the

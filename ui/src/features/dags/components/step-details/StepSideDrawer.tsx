@@ -42,6 +42,8 @@ type StepSideDrawerProps = {
    * id, and another panel that claims its place closes it.
    */
   panelId?: RightPanelId;
+  /** Opens the drawer again when a transient panel that covered it closes. */
+  onRestore?: () => void;
   /**
    * Beside the page, Escape also closes the drawer while the focus is on
    * the page, such as the button that opened it, but not in a text field.
@@ -260,10 +262,11 @@ export function StepSideDrawer({
   labelledBy,
   label,
   panelId,
+  onRestore,
   closeOnPageEscape = false,
   children,
 }: StepSideDrawerProps) {
-  useRightPanelClaim(panelId, isOpen, onClose);
+  useRightPanelClaim(panelId, isOpen, onClose, onRestore);
   const placement = usePanelPlacement();
   const viewport = useViewportWidth();
   const drawerWidth = useDrawerWidth();

@@ -4,12 +4,14 @@ import * as React from 'react';
 import { I18nProps } from '@/i18n/I18nProps';
 import { I18nTemplate } from '@/i18n/I18nTemplate';
 import { I18nText } from '@/i18n/I18nText';
+import { useIsMobile } from '@/hooks/useIsMobile';
 
 const UPDATE_DISMISSED_KEY = 'update-banner-dismissed';
 const RESTART_DISMISSED_KEY = 'restart-banner-dismissed';
 
 export function UpdateBanner() {
   const config = useConfig();
+  const phone = useIsMobile();
 
   // Restarting is the only step left once a new binary is installed, so it
   // replaces the update notice.
@@ -51,7 +53,8 @@ export function UpdateBanner() {
       storageKey={UPDATE_DISMISSED_KEY}
       dismissedValue={config.latestVersion}
     >
-      {config.upgradeCommand ? (
+      {/* A phone has one line for it: the command is for a terminal. */}
+      {config.upgradeCommand && !phone ? (
         <I18nTemplate
           text="Update available: v{current} → {latest} {releaseLink} · Run {command} to update"
           values={{
@@ -98,12 +101,14 @@ function DismissibleBanner({
   };
 
   return (
-    <div className="bg-violet-50 dark:bg-[#1c1840] border-b border-violet-200 dark:border-[#3a3170] px-4 py-1.5 flex items-center justify-between text-sm">
-      <span className="text-violet-900 dark:text-violet-200">{children}</span>
+    <div className="bg-violet-50 dark:bg-[#1c1840] border-b border-violet-200 dark:border-[#3a3170] px-4 py-1.5 flex items-center justify-between gap-2 text-sm">
+      <span className="min-w-0 text-violet-900 dark:text-violet-200">
+        {children}
+      </span>
       <I18nProps>
         <button
           onClick={handleDismiss}
-          className="p-0.5 hover:bg-violet-100 dark:hover:bg-[#2a2452] rounded"
+          className="shrink-0 p-0.5 hover:bg-violet-100 dark:hover:bg-[#2a2452] rounded"
           aria-label="Dismiss update notification"
         >
           <X className="h-4 w-4" />

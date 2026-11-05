@@ -173,7 +173,10 @@ export interface VisualEditorProps extends EditorHostProps {
    * Called at mount and at each change.
    */
   onYamlModeChange?(mode: 'file' | 'step'): void;
-  /** What the YAML shows when the editor mounts with it visible. Default 'step'. */
+  /**
+   * What the YAML shows when the editor mounts with it visible, and later
+   * when the host changes it. Default 'step'.
+   */
   initialYamlMode?: 'file' | 'step';
   /** The Workflow panel shows when the editor mounts, with a workflowPanel. */
   initialWorkflowOpen?: boolean;
@@ -634,6 +637,13 @@ export function VisualEditor(props: VisualEditorProps): ReactElement {
   // shows its own YAML or its form ('step'), with the YAML | Form bar. A host
   // that opens the view of a step itself gets the 'step' mode.
   const [yamlMode, setYamlMode] = useState<'file' | 'step'>(initialYamlMode);
+  // The host can change the mode too, as when the YAML of the file comes
+  // back after the view of a step: the editor follows it.
+  const [hostMode, setHostMode] = useState(initialYamlMode);
+  if (initialYamlMode !== hostMode) {
+    setHostMode(initialYamlMode);
+    setYamlMode(initialYamlMode);
+  }
   const reportedMode = useRef<'file' | 'step' | null>(null);
   useEffect(() => {
     if (reportedMode.current === yamlMode) return;
@@ -1536,7 +1546,11 @@ export function VisualEditor(props: VisualEditorProps): ReactElement {
       )}
       {readOnly ? null : (
         <>
-          <span className="mx-0.5 h-5 w-px bg-border" aria-hidden="true" />
+          <span
+            data-toolbar-divider
+            className="mx-0.5 h-5 w-px bg-border"
+            aria-hidden="true"
+          />
           {onRevertToSave ? (
             <IconButton
               label={ts('Revert to the last save')}
@@ -1561,7 +1575,11 @@ export function VisualEditor(props: VisualEditorProps): ReactElement {
             disabledReason={session.canRedo ? undefined : ts('Nothing to redo')}
             onClick={session.redo}
           />
-          <span className="mx-0.5 h-5 w-px bg-border" aria-hidden="true" />
+          <span
+            data-toolbar-divider
+            className="mx-0.5 h-5 w-px bg-border"
+            aria-hidden="true"
+          />
         </>
       )}
       {workflowPanel && (
@@ -1873,6 +1891,16 @@ export function VisualEditor(props: VisualEditorProps): ReactElement {
           open={workflowOpen}
           onClose={() => toggleWorkflow(false)}
           bare={workflowPanelBare}
+          // A draft in a tab of the panel is at risk when the panel goes.
+          onShowYaml={
+            onYamlVisibleChange
+              ? () =>
+                  launcherHost
+                    ? launcherHost.guard(() => toggleYaml(true))
+                    : toggleYaml(true)
+              : undefined
+          }
+          onRestore={() => applyWorkflow(true)}
         >
           {workflowPanel}
         </WorkflowDrawer>

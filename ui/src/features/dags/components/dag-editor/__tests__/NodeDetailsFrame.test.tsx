@@ -595,9 +595,10 @@ describe('NodeDetailsFrame states', () => {
     expect(section.style.width).toBe('');
     expect(backdrop).not.toHaveAttribute('hidden');
 
-    // A click on the dimmed backdrop closes the view.
+    // A click on the dimmed backdrop closes the view. It opened over the
+    // YAML panel of the file, which comes back.
     fireEvent.click(backdrop);
-    expect(host.onStateChange).toHaveBeenLastCalledWith(null);
+    expect(host.onStateChange).toHaveBeenLastCalledWith('docked');
     setNdv('expanded');
 
     setNdv(null);

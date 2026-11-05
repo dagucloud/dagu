@@ -79,9 +79,12 @@ export interface WorkspaceLayoutProps {
   dock: ReactNode;
 }
 
-/** The zones of the workspace from top to bottom: bar, main zone, dock. */
+/**
+ * The zones of the workspace from top to bottom: bar, main zone, dock. Below
+ * md the open dock takes the place of the main zone.
+ */
 export function WorkspaceLayout({ bar, main, dock }: WorkspaceLayoutProps) {
-  const { maximized } = useDock();
+  const { maximized, open: dockOpen } = useDock();
   const { rootRef, zoneRef } = useZoneTop();
   return (
     <div
@@ -93,7 +96,13 @@ export function WorkspaceLayout({ bar, main, dock }: WorkspaceLayoutProps) {
       <div
         ref={zoneRef}
         data-testid="ww-zone-main"
-        className={cn(MAIN_ZONE_CLASS, !maximized && MAIN_ZONE_FLOOR_CLASS)}
+        className={cn(
+          MAIN_ZONE_CLASS,
+          !maximized && MAIN_ZONE_FLOOR_CLASS,
+          // A phone shows one view at a time: the open Run panel replaces
+          // the graph (PhoneViewNav).
+          dockOpen && 'max-md:hidden'
+        )}
       >
         {main}
       </div>

@@ -35,7 +35,7 @@ const WORKFLOW_TAB = /^\/dags\/[^/]+\/([^/]+)/;
  * page: the YAML panel by ?ndv or as the user left it, else the Workflow
  * panel as the user left it (useYamlPanelMemory), and the Run panel by
  * ?dock, a ?run of a link or as the user left it (DockProvider). The Run
- * panel yields to the right panel and to the step view.
+ * panel yields to the step view; a right panel sits above it.
  */
 function panelsAtLoad(
   pathname: string,
@@ -61,7 +61,6 @@ function panelsAtLoad(
         : null;
   const stepView = url.ndv === 'expanded' && url.step !== null;
   const dock =
-    right === null &&
     !stepView &&
     (url.dock !== null ||
       (url.run !== null && !isRunRedirect(routeState)) ||
@@ -75,9 +74,10 @@ function panelsAtLoad(
  * the workflow, the zone the dots of the canvas, and the right panel and
  * the Run panel show as the page will show them, so that the page fills the
  * frame in and nothing moves. A load that takes long shows the loader in the
- * free part of the zone. `url` is the address of the page when it is not the
- * current one yet, as for a workflow that opens over a list. It is the
- * fallback of the route too, so the two loading states look the same.
+ * free part of the zone; on a phone, the views bar is at the bottom. `url`
+ * is the address of the page when it is not the current one yet, as for a
+ * workflow that opens over a list. It is the fallback of the route too, so
+ * the two loading states look the same.
  */
 export function WorkspaceLoading({
   fileName,
@@ -114,7 +114,9 @@ export function WorkspaceLoading({
           MAIN_ZONE_CLASS,
           MAIN_ZONE_FLOOR_CLASS,
           TOOLBAR_ZONE_CLASS,
-          'relative'
+          'relative',
+          // A phone shows the open Run panel in place of the graph.
+          dock && 'max-md:hidden'
         )}
       >
         <div aria-hidden="true" className={CANVAS_DOTS_CLASS} />
@@ -143,12 +145,21 @@ export function WorkspaceLoading({
         <div
           aria-hidden="true"
           data-testid="ww-loading-dock"
-          className="relative min-h-8 shrink bg-card"
+          className="relative min-h-8 shrink bg-card max-md:flex max-md:h-auto! max-md:flex-1 max-md:flex-col"
           style={{ height: storedDockHeight() }}
         >
-          <div className="h-8 border-t border-border" />
+          <div className="h-8 border-t border-border max-md:hidden" />
+          {/* On a phone the panel is the view: the loader shows in it. */}
+          <div className="flex min-h-0 flex-1 md:hidden">
+            <LoadingIndicator fill delayed />
+          </div>
         </div>
       )}
+      {/* The views bar of a phone (PhoneViewNav). */}
+      <div
+        aria-hidden="true"
+        className="h-12 shrink-0 border-t border-border bg-card md:hidden"
+      />
     </div>
   );
 }

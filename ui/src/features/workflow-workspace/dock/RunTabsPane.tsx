@@ -32,6 +32,7 @@ export function RunTabsPane<T extends string = DockTab>({
   label,
   labels,
   icons,
+  overflow,
   children,
 }: RunTabsPaneProps<T>) {
   const { ts } = useI18n();
@@ -47,6 +48,7 @@ export function RunTabsPane<T extends string = DockTab>({
           label={label}
           labels={labels}
           icons={icons}
+          overflow={overflow}
         />
       </div>
       {/* Always present, so the aria-controls of the tabs name an element. */}
