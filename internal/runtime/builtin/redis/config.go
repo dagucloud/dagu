@@ -220,6 +220,10 @@ func (c *Config) validate() error {
 		return fmt.Errorf("timeout must be non-negative")
 	}
 
+	if c.MaxResultSize < 0 {
+		return fmt.Errorf("max_result_size must be non-negative")
+	}
+
 	// Validate DB number
 	if c.DB < 0 || c.DB > 15 {
 		return fmt.Errorf("db must be between 0 and 15")
