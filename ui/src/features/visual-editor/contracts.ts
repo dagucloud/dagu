@@ -322,6 +322,12 @@ export interface GhostLook {
 }
 
 export interface VisualCanvasProps {
+  /**
+   * The document that the graph draws, such as its file. Another document
+   * fits its graph at once, as at the first draw, and keeps no view of the
+   * last one.
+   */
+  documentKey?: string;
   graph: CanvasGraph;
   direction: CanvasDirection;
   selected: StepKey | null;

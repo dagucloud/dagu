@@ -4,6 +4,7 @@
 import {
   useCallback,
   useEffect,
+  useLayoutEffect,
   useId,
   useImperativeHandle,
   useMemo,
@@ -262,6 +263,7 @@ export function VisualCanvas(props: VisualCanvasProps): ReactElement {
 }
 
 function CanvasView({
+  documentKey,
   graph,
   direction,
   selected,
@@ -719,6 +721,7 @@ function CanvasView({
     resume,
     refit,
     moved: userMoved,
+    settle,
   } = autoFit;
   // A reveal that waits for the size of the canvas or for a layout change.
   const pendingReveal = useRef<{
@@ -885,7 +888,8 @@ function CanvasView({
   const layoutViews = useRef<Partial<Record<'details' | 'compact', Viewport>>>(
     {}
   );
-  useEffect(() => {
+  // Before the paint: a graph that changed never shows at the old view.
+  useLayoutEffect(() => {
     const last = lastLayout.current;
     lastLayout.current = {
       nodeSet,
@@ -937,6 +941,37 @@ function CanvasView({
     userMoved,
     stopAutoFit,
     setViewport,
+    fitView,
+    fitOptions,
+  ]);
+  // Another document fits at once, before the paint of its graph: it does
+  // not glide from the view of the last one. Its graph can come a moment
+  // after its key, and that fit jumps too. The effect above then sees no
+  // change of the steps.
+  const lastDocument = useRef(documentKey);
+  useLayoutEffect(() => {
+    if (lastDocument.current === documentKey) return;
+    lastDocument.current = documentKey;
+    lastLayout.current = {
+      nodeSet,
+      direction,
+      overlayRight,
+      overlayTop,
+      compact,
+    };
+    layoutViews.current = {};
+    settle();
+    resume();
+    fitView(fitOptions);
+  }, [
+    documentKey,
+    nodeSet,
+    direction,
+    overlayRight,
+    overlayTop,
+    compact,
+    settle,
+    resume,
     fitView,
     fitOptions,
   ]);

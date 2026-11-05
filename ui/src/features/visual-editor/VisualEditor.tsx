@@ -1759,6 +1759,7 @@ export function VisualEditor(props: VisualEditorProps): ReactElement {
           <AgentRunContext.Provider value={agentRun}>
             <CanvasOverlayInsetContext.Provider value={canvasInset}>
               <VisualCanvas
+                documentKey={fileName}
                 graph={graph}
                 direction={direction}
                 selected={selected}

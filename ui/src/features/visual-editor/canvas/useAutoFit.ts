@@ -30,6 +30,11 @@ export interface AutoFit {
   resume(): void;
   /** True after a pan or zoom by the user, until `resume`. */
   moved(): boolean;
+  /**
+   * Starts the first moments of the element again, for content that takes
+   * its place as a new page would: the fits jump until they end.
+   */
+  settle(): void;
 }
 
 /** The size of a laid out element, rounded; null before it has a layout. */
@@ -120,6 +125,9 @@ export function useAutoFit(
   }, [runFit]);
 
   const moved = useCallback(() => userMoved.current, []);
+  const settle = useCallback(() => {
+    shownAt.current = Date.now();
+  }, []);
 
-  return { onUserMove, onHostMove, resume, refit, moved };
+  return { onUserMove, onHostMove, resume, refit, moved, settle };
 }

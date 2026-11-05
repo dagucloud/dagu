@@ -80,6 +80,19 @@ describe('useAutoFit', () => {
     expect(fit).toHaveBeenLastCalledWith(true);
   });
 
+  // Another document takes the place of the graph as a new page would: its
+  // fits jump again for a while.
+  it('jumps again for a while after settle', () => {
+    const { fit, result } = setup();
+    act(() => vi.advanceTimersByTime(AUTO_FIT_SETTLE_MS));
+    act(() => result.current.settle());
+    act(() => result.current.refit());
+    expect(fit).toHaveBeenLastCalledWith(false);
+    act(() => vi.advanceTimersByTime(AUTO_FIT_SETTLE_MS));
+    act(() => result.current.refit());
+    expect(fit).toHaveBeenLastCalledWith(true);
+  });
+
   // parity:canvas-auto-fit
   it('fits again 150 ms after a width change', () => {
     const { fit } = setup();
