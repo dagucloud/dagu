@@ -2,7 +2,6 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 import { act, fireEvent, render, screen, within } from '@testing-library/react';
-import userEvent from '@testing-library/user-event';
 import { useEffect, type ReactNode } from 'react';
 import { MemoryRouter, Route, Routes, useLocation } from 'react-router-dom';
 import { SWRConfig } from 'swr';
@@ -266,18 +265,6 @@ function tabNames(): string[] {
   return screen
     .getAllByRole('tab')
     .map((tab) => tab.getAttribute('aria-label') ?? tab.textContent ?? '');
-}
-
-/** The names of the tabs in the More menu of the strip; it closes again. */
-async function moreTabNames(): Promise<string[]> {
-  const more = screen.queryByTestId('ww-dock-more-tabs');
-  if (!more) return [];
-  await userEvent.click(more);
-  const names = (await screen.findAllByRole('menuitem')).map(
-    (item) => item.textContent ?? ''
-  );
-  await userEvent.keyboard('{Escape}');
-  return names;
 }
 
 function setLatest(
@@ -1528,8 +1515,7 @@ describe('dock tab visibility', () => {
     renderDock();
     await screen.findByRole('tab', { name: 'Outputs' });
 
-    // A rarely used tab: in the More menu of the strip.
-    expect((await moreTabNames()).includes('Artifacts')).toBe(shown);
+    expect(tabNames().includes('Artifacts')).toBe(shown);
   });
 
   it('shows the empty state with no request for a workflow that never ran', () => {

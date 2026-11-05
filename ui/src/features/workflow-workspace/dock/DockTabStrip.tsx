@@ -11,20 +11,12 @@ import {
   History,
   ListChecks,
   MessageSquare,
-  MoreHorizontal,
   Package,
   ScrollText,
   type LucideIcon,
 } from 'lucide-react';
 import { useMemo } from 'react';
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuTrigger,
-} from '@/components/ui/dropdown-menu';
 import { TabStrip, type TabStripTab } from '@/components/ui/tab-strip';
-import { cn, FOCUS_RING } from '@/lib/utils';
 import { useI18n } from '@/i18n/I18nProvider';
 import type { DockTab } from '../state/workspaceUrl';
 
@@ -88,11 +80,6 @@ export interface DockTabStripProps<T extends string = DockTab> {
   labels?: Partial<Record<T, string>>;
   /** Icons of the tabs that are no Run panel tab. */
   icons?: Partial<Record<T, LucideIcon>>;
-  /**
-   * Tabs that sit in a More menu at the end of the row, unless active: the
-   * ones that are rarely used.
-   */
-  overflow?: readonly T[];
 }
 
 /** The label of a tab: the host's, else the one of the Run panel. */
@@ -107,8 +94,7 @@ export function dockTabLabel<T extends string>(
 /**
  * Tab strip of the Run panel: the one TabStrip row. At a narrow width the
  * tabs show their icon only, with a tooltip, and the row scrolls if the icons
- * do not fit. The `overflow` tabs are in a More menu after the row; the
- * active one shows in the row.
+ * do not fit.
  */
 export function DockTabStrip<T extends string = DockTab>({
   tabs,
@@ -119,18 +105,14 @@ export function DockTabStrip<T extends string = DockTab>({
   label = 'Logs',
   labels,
   icons,
-  overflow,
 }: DockTabStripProps<T>) {
   const { ts } = useI18n();
   const panelId = dockPanelId(idPrefix);
-  const inMenu = (tab: T) => !!overflow?.includes(tab) && tab !== active;
-  const rowTabs = tabs.filter((tab) => !inMenu(tab));
-  const menuTabs = tabs.filter(inMenu);
   const iconOf = (tab: T) =>
     icons?.[tab] ?? DOCK_TAB_ICONS[tab as string as DockTab];
   const stripTabs = useMemo<TabStripTab[]>(
     () =>
-      rowTabs.map((tab) => ({
+      tabs.map((tab) => ({
         id: tab,
         label: ts(dockTabLabel(tab, labels)),
         icon: iconOf(tab),
@@ -140,57 +122,18 @@ export function DockTabStrip<T extends string = DockTab>({
           : undefined,
         controls: panelId,
       })),
-    // rowTabs is new for each render: its content is the key.
-    [rowTabs.join('|'), badges, panelId, labels, icons, ts]
+    // tabs can be new for each render: its content is the key.
+    [tabs.join('|'), badges, panelId, labels, icons, ts]
   );
   return (
-    <>
-      <TabStrip
-        label={ts(label)}
-        tabs={stripTabs}
-        value={active}
-        onChange={(id) => onSelect(id as T)}
-        idPrefix={idPrefix}
-        touchLabels
-        className="flex-1"
-      />
-      {menuTabs.length > 0 && (
-        <DropdownMenu>
-          <DropdownMenuTrigger asChild>
-            <button
-              type="button"
-              data-testid={`${idPrefix}-more-tabs`}
-              className={cn(
-                'inline-flex h-6 shrink-0 items-center gap-1 self-center rounded-md px-2 text-xs text-muted-foreground hover:bg-muted hover:text-foreground pointer-coarse:h-9',
-                FOCUS_RING
-              )}
-            >
-              <MoreHorizontal className="size-3.5" aria-hidden="true" />
-              {ts('More')}
-            </button>
-          </DropdownMenuTrigger>
-          <DropdownMenuContent align="end" className="min-w-40">
-            {menuTabs.map((tab) => {
-              const Icon = iconOf(tab);
-              return (
-                <DropdownMenuItem
-                  key={tab}
-                  className="gap-2 text-xs"
-                  onSelect={() => onSelect(tab)}
-                >
-                  {Icon && <Icon className="size-3.5" aria-hidden="true" />}
-                  {ts(dockTabLabel(tab, labels))}
-                  {!!badges[tab] && (
-                    <span className="ml-auto text-[10px] tabular-nums">
-                      {badges[tab]}
-                    </span>
-                  )}
-                </DropdownMenuItem>
-              );
-            })}
-          </DropdownMenuContent>
-        </DropdownMenu>
-      )}
-    </>
+    <TabStrip
+      label={ts(label)}
+      tabs={stripTabs}
+      value={active}
+      onChange={(id) => onSelect(id as T)}
+      idPrefix={idPrefix}
+      touchLabels
+      className="flex-1"
+    />
   );
 }
