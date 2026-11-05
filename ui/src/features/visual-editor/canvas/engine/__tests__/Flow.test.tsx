@@ -461,6 +461,19 @@ describe('Flow', () => {
       }
     });
 
+    // The graph never shows at the default view: it fades in at its first
+    // fit, which waits for the size of the canvas.
+    it('shows the graph from its first fit only', () => {
+      sizes.width = 0;
+      const { unmount } = renderFlow({ fitOptions: { padding: 0.1 } });
+      expect(screen.getByTestId('flow-layer')).toHaveClass('opacity-0');
+      unmount();
+
+      sizes.width = 1000;
+      renderFlow({ fitOptions: { padding: 0.1 } });
+      expect(screen.getByTestId('flow-layer')).toHaveClass('opacity-100');
+    });
+
     it('fits the nodes once, when the canvas has a size', () => {
       renderFlow({ fitOptions: { padding: 0.1, maxZoom: 2 } });
       // The nodes span 540 x 64: 1000 / (540 * 1.2) = 1.54 fits.

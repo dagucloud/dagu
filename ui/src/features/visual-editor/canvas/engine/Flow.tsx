@@ -208,6 +208,9 @@ function FlowView<N extends FlowNode, E extends FlowEdge>({
   const gesture = useRef<Gesture | null>(null);
   const swallowClick = useRef(false);
   const fitted = useRef(false);
+  // The graph fades in at its first fit, not before: it never shows at the
+  // default view, and the canvas does not flash it at full contrast.
+  const [shown, setShown] = useState(!fitOnInit);
   const arrowId = useId();
 
   store.setNodes(nodes);
@@ -274,6 +277,7 @@ function FlowView<N extends FlowNode, E extends FlowEdge>({
     }
     fitted.current = true;
     store.fitView(fitOptions);
+    setShown(true);
   }, [fitOnInit, fitOptions, nodes.length, size, store]);
 
   const pointOf = useCallback((event: { clientX: number; clientY: number }) => {
@@ -848,7 +852,7 @@ function FlowView<N extends FlowNode, E extends FlowEdge>({
               onClickCapture={onClickCapture}
               onClick={onClick}
             >
-              <Layer panning={panning}>
+              <Layer panning={panning} shown={shown}>
                 <svg
                   ref={edgesRef}
                   className="pointer-events-none absolute left-0 top-0 overflow-visible"
@@ -946,9 +950,12 @@ function layerTransform(viewport: { x: number; y: number; zoom: number }) {
  */
 function Layer({
   panning,
+  shown,
   children,
 }: {
   panning: boolean;
+  /** False until the first fit: the layer is transparent, then fades in. */
+  shown: boolean;
   children: ReactNode;
 }) {
   const ref = useRef<HTMLDivElement>(null);
@@ -962,7 +969,11 @@ function Layer({
     <div
       ref={ref}
       data-testid="flow-layer"
-      className="absolute left-0 top-0 z-[1] origin-top-left"
+      data-shown={shown}
+      className={cn(
+        'absolute left-0 top-0 z-[1] origin-top-left transition-opacity duration-300 ease-out motion-reduce:transition-none',
+        shown ? 'opacity-100' : 'opacity-0'
+      )}
       style={{
         transform: layerTransform(viewports.get()),
         willChange: panning ? 'transform' : undefined,
