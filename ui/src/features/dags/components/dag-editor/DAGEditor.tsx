@@ -184,11 +184,12 @@ function DAGEditor({
     return () => registration.dispose();
   }, [wantsQuickFixes, effectiveModelUri]);
 
-  // Clean up editor on unmount
+  // The editor and its model are disposed by @monaco-editor/react, which
+  // reads the model from the editor: disposing the editor here first would
+  // leave the model, with its text, for the next editor of the same path.
   useEffect(() => {
     return () => {
       onEditorMountRef.current?.(null);
-      editorRef.current?.dispose();
     };
   }, []);
 
