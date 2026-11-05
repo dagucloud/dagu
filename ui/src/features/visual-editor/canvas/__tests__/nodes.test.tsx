@@ -651,6 +651,10 @@ describe('StepNode issues and run', () => {
           'data-reused'
         );
         expect(view.queryByTestId('ve-node-reuse-outline')).toBeNull();
+        // It reads as a plain skipped step.
+        expect(view.getByTestId('ve-node-skipped')).toHaveTextContent(
+          'Skipped'
+        );
       });
 
       it('has no outline on a step that carries outputs but is not a previous step', () => {

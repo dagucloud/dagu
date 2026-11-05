@@ -330,7 +330,7 @@ export function RunStatus({
       >
         {text}
       </span>
-      {!noBadge && isSkipped(run) && (
+      {!noBadge && isSkipped(run, reuseOutline) && (
         <span
           aria-hidden="true"
           data-testid="ve-node-skipped"
@@ -518,22 +518,35 @@ export function NodeHeader({
 
 /** Tooltip and name of a compact card: the label and the subtitle, or the failure. */
 export function compactTitle(
-  node: Pick<CanvasNode, 'label' | 'subtitle' | 'run'>,
+  node: Pick<CanvasNode, 'label' | 'subtitle' | 'run' | 'reuseOutline'>,
   ts: ReturnType<typeof useI18n>['ts']
 ): string {
   return [
     node.label,
     node.subtitle,
     failureTitle(node.run),
-    node.run && isSkipped(node.run) ? ts('Skipped') : undefined,
+    node.run && isSkipped(node.run, node.reuseOutline)
+      ? ts('Skipped')
+      : undefined,
   ]
     .filter(Boolean)
     .join('\n');
 }
 
-/** A step that the run skipped, and did not reuse. */
-function isSkipped(run: NonNullable<CanvasNode['run']>): boolean {
-  return run.status === NodeStatus.Skipped && !run.reused && !run.reuseFailed;
+/**
+ * A step that the run skipped, and that reads as no reuse: not reused, and
+ * not the previous step that the source run could not give (its outline
+ * says it).
+ */
+function isSkipped(
+  run: NonNullable<CanvasNode['run']>,
+  reuseOutline: CanvasNode['reuseOutline']
+): boolean {
+  return (
+    run.status === NodeStatus.Skipped &&
+    !run.reused &&
+    !(reuseOutline === 'failure' && run.reuseFailed)
+  );
 }
 
 /**

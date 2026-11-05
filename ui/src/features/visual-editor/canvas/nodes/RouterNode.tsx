@@ -86,6 +86,7 @@ function RouterNodeComponent({
                 label: node.label,
                 subtitle: node.routeValue ?? node.subtitle,
                 run: node.run,
+                reuseOutline: node.reuseOutline,
               },
               ts
             )
