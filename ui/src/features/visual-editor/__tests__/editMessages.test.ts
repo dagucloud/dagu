@@ -3,7 +3,7 @@
 
 import { describe, expect, it } from 'vitest';
 import type { EditErrorCode } from '../contracts';
-import { translateStatic } from '@/i18n/staticMessages';
+import { translateStatic } from '@/i18n/translateStatic';
 import { canConvertForEdit, editErrorMessage } from '../editMessages';
 
 const codes: EditErrorCode[] = [
