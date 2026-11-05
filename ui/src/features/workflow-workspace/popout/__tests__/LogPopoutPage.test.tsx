@@ -259,7 +259,7 @@ describe('LogPopoutPage', () => {
     });
 
     // The run ID opens the file of the workflow, whose name can differ from
-    // the DAG name.
+    // the DAG name of the run: the link names the run.
     it('links the run ID to the workflow file', () => {
       renderPopout('/dags/nightly/log?dagRunId=run-7&step=deploy', {
         fileName: 'nightly',
@@ -267,7 +267,7 @@ describe('LogPopoutPage', () => {
       });
       expect(screen.getByTestId('run-meta')).toHaveAttribute(
         'data-href',
-        '/dags/nightly?remoteNode=local&run=run-7'
+        '/dags/nightly?remoteNode=local&run=run-7&dagRunName=release'
       );
     });
 

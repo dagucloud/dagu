@@ -74,16 +74,34 @@ type Params = {
 type DAGRunDetails = components['schemas']['DAGRunDetails'];
 
 /**
+ * The page of a run link on the file of the run. The URL keeps the DAG name
+ * of the run in ?dagRunName when it is not the name of the file.
+ */
+function runFileURL(
+  file: string,
+  runName: string | undefined,
+  search: URLSearchParams
+): string {
+  const query = new URLSearchParams(search);
+  if (runName && runName !== file) query.set('dagRunName', runName);
+  else query.delete('dagRunName');
+  return `/dags/${encodeURIComponent(file)}?${query.toString()}`;
+}
+
+/**
  * A run on its own, for a link that no workspace shows: the run of the link,
  * or its sub-run in ?subRun. It follows the run while the run is active.
  */
 function StandaloneRun({
   run,
   subRunId,
+  step,
   remoteNode,
 }: {
   run: DAGRunDetails;
   subRunId: string | null;
+  /** The step of the shown run that the link opens. */
+  step: string | null;
   remoteNode: string;
 }) {
   const sub = subRunId && subRunId !== run.dagRunId ? subRunId : null;
@@ -113,6 +131,7 @@ function StandaloneRun({
         dagRunId={shown.dagRunId}
         refreshFn={() => void live.refresh()}
         fillHeight
+        initialStepName={step ?? undefined}
       />
     </Suspense>
   );
@@ -191,20 +210,18 @@ function DAGDetails() {
   // the details instead of after them. The editor keeps it fresh. A log page
   // has no editor.
   useDAGSpecQuery(fileName, remoteNode, PREFETCH_OPTIONS, !popout);
-  const dagTitle = dagData?.dag?.name || fileName;
-  useEffect(() => {
-    setTitle(dagTitle);
-  }, [dagTitle, setTitle]);
-
   // A run link names the workflow by the DAG name of the run, which finds no
   // file, or the file of another DAG, when the DAG name differs from the file
-  // name. The run gives its file.
+  // name. The run gives its file. ?dagRunName names the DAG name of the run
+  // when it is not the name of the file, as for a run started with --name.
   const linkedRunId = searchParams.get('run');
+  const linkedRunName = queriedDAGRunName || fileName;
   const lookUpRunFile =
     Boolean(linkedRunId) &&
     (isNotFoundQueryError(dagError) ||
       (!!dagData?.dag &&
-        dagData.dag.name !== fileName.replace(/\.ya?ml$/, '')));
+        dagData.dag.name !==
+          (queriedDAGRunName || fileName.replace(/\.ya?ml$/, ''))));
   const {
     data: linkedRun,
     error: linkedRunError,
@@ -213,7 +230,7 @@ function DAGDetails() {
     '/dag-runs/{name}/{dagRunId}',
     whenEnabled(lookUpRunFile, {
       params: {
-        path: { name: fileName, dagRunId: linkedRunId || '' },
+        path: { name: linkedRunName, dagRunId: linkedRunId || '' },
         query: scopedQuery,
       },
     })
@@ -221,7 +238,7 @@ function DAGDetails() {
   const linkedRunFile = linkedRun?.dagRunDetails?.sourceFileName;
   const runFileRedirect =
     lookUpRunFile && linkedRunFile && linkedRunFile !== fileName
-      ? `/dags/${encodeURIComponent(linkedRunFile)}?${searchParams.toString()}`
+      ? runFileURL(linkedRunFile, linkedRun?.dagRunDetails?.name, searchParams)
       : null;
   const resolvingRunFile =
     lookUpRunFile && !linkedRunError && (!linkedRun || !!runFileRedirect);
@@ -238,6 +255,10 @@ function DAGDetails() {
         lookedUpRun.name !== dagData.dag.name))
       ? lookedUpRun
       : null;
+  const dagTitle = ownRun?.name || dagData?.dag?.name || fileName;
+  useEffect(() => {
+    setTitle(dagTitle);
+  }, [dagTitle, setTitle]);
 
   // Links from older versions and bookmarks redirect before a body mounts.
   const legacy = useLegacyRedirect(
@@ -421,6 +442,7 @@ function DAGDetails() {
               <StandaloneRun
                 run={ownRun}
                 subRunId={searchParams.get('subRun')}
+                step={searchParams.get('step')}
                 remoteNode={remoteNode}
               />
             ) : (

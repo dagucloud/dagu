@@ -20,7 +20,8 @@ describe('dagRunUrls', () => {
     ).toBe('/dags/root%20dag?remoteNode=edge-a&run=run+1');
   });
 
-  // The name of a DAG can differ from the name of its file.
+  // The name of a DAG can differ from the name of its file, and a run
+  // started with --name has a name of its own: the URL names the run.
   it('opens the workflow file of the root run when the caller has it', () => {
     expect(
       buildDAGRunPageURL({
@@ -29,7 +30,18 @@ describe('dagRunUrls', () => {
         fileName: 'etl_file',
         remoteNode: 'local',
       })
-    ).toBe('/dags/etl_file?remoteNode=local&run=r1');
+    ).toBe('/dags/etl_file?remoteNode=local&run=r1&dagRunName=etl');
+  });
+
+  it('names no run name that the file name already gives', () => {
+    expect(
+      buildDAGRunPageURL({
+        rootDAGRunName: 'etl',
+        rootDAGRunId: 'r1',
+        fileName: 'etl.yaml',
+        remoteNode: 'local',
+      })
+    ).toBe('/dags/etl.yaml?remoteNode=local&run=r1');
   });
 
   // The step of a sub-run link is a step of the sub-run.
