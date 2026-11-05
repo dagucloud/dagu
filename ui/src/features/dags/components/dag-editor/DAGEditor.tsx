@@ -280,15 +280,20 @@ function DAGEditor({
   }, [isEditorMounted, wantsStepLenses]);
   const settled = useEditorSettled(
     isEditorMounted ? editorRef.current : null,
-    (stepLenses?.steps.length ?? 0) > 0
+    (stepLenses?.steps.length ?? 0) > 0,
+    effectiveModelUri
   );
   // The skeleton stays for the fade of the editor, which takes its place.
-  const [skeleton, setSkeleton] = useState(true);
+  const [fadedIn, setFadedIn] = useState<string | null>(null);
   useEffect(() => {
     if (!settled) return;
-    const timer = setTimeout(() => setSkeleton(false), SKELETON_FADE_MS);
+    const timer = setTimeout(
+      () => setFadedIn(effectiveModelUri),
+      SKELETON_FADE_MS
+    );
     return () => clearTimeout(timer);
-  }, [settled]);
+  }, [settled, effectiveModelUri]);
+  const skeleton = fadedIn !== effectiveModelUri;
 
   const lensKey = stepLenses
     ? `${stepLenses.label}\n${stepLenses.steps.map((step) => `${step.line}:${step.name}`).join('\n')}`
@@ -421,8 +426,12 @@ function DAGEditor({
       <div
         data-settled={settled}
         className={cn(
-          'h-full transition-opacity duration-80 ease-out motion-reduce:transition-none',
-          settled ? 'opacity-100' : 'opacity-0'
+          'h-full',
+          // It fades in, and hides at once: the text of a new model never
+          // shows while it is fading out.
+          settled
+            ? 'opacity-100 transition-opacity duration-80 ease-out motion-reduce:transition-none'
+            : 'opacity-0'
         )}
       >
         <MonacoEditor
@@ -452,19 +461,23 @@ const SETTLE_TIMEOUT_MS = 1500;
 const SKELETON_FADE_MS = 80;
 
 /**
- * Whether the editor has settled since it mounted: its text coloured and,
- * when the text has steps, the lenses above them drawn. Each of them repaints
- * or moves the text, so the editor shows once they are done.
+ * Whether the editor has settled since it mounted or took the model of
+ * `modelKey`: its text coloured and, when the text has steps, the lenses
+ * above them drawn. Each of them repaints or moves the text, so the editor
+ * shows once they are done.
  */
 function useEditorSettled(
   codeEditor: monaco.editor.IStandaloneCodeEditor | null,
-  expectLenses: boolean
+  expectLenses: boolean,
+  modelKey: string
 ): boolean {
-  const [settled, setSettled] = useState(false);
+  const [settledKey, setSettledKey] = useState<string | null>(null);
+  const settled = settledKey === modelKey;
   const expectLensesRef = useRef(expectLenses);
   expectLensesRef.current = expectLenses;
   useEffect(() => {
     if (settled || !codeEditor) return;
+    const setSettled = () => setSettledKey(modelKey);
     const node = codeEditor.getDomNode();
     const done = () =>
       !node ||
@@ -474,19 +487,19 @@ function useEditorSettled(
         (!expectLensesRef.current ||
           node.querySelector('.codelens-decoration') !== null));
     if (done()) {
-      setSettled(true);
+      setSettled();
       return;
     }
     const observer = new MutationObserver(() => {
-      if (done()) setSettled(true);
+      if (done()) setSettled();
     });
     observer.observe(node!, { childList: true, subtree: true });
-    const timer = setTimeout(() => setSettled(true), SETTLE_TIMEOUT_MS);
+    const timer = setTimeout(setSettled, SETTLE_TIMEOUT_MS);
     return () => {
       observer.disconnect();
       clearTimeout(timer);
     };
-  }, [codeEditor, settled]);
+  }, [codeEditor, settled, modelKey]);
   return settled;
 }
 
