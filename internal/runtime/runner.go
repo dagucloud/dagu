@@ -1794,9 +1794,7 @@ func (r *Runner) shouldRetryNode(ctx context.Context, node *Node, execErr error)
 	)
 
 	if !shouldRetry {
-		// Retries are exhausted. Finalize the node, honoring
-		// continueOn.markSuccess so a step configured to mark success on
-		// failure is not left failed once its retries are used up.
+		// The exit code is not retryable; settle the failure now.
 		r.finalizeFailedNode(ctx, node, execErr)
 		return false
 	}
@@ -2010,16 +2008,11 @@ func (r *Runner) handleNodeExecutionError(ctx context.Context, plan *Plan, node 
 	return false
 }
 
-// finalizeFailedNode marks a node as failed after execution or retries are
-// exhausted. It honors continueOn.markSuccess: a step configured to mark
-// success on failure is promoted to Succeeded instead of staying Failed. Both
-// the retry-exhausted path and the unrecoverable-error path route through here
-// so the mark_success behavior is identical regardless of how the failure ends.
+// finalizeFailedNode records a failed execution, promoting the node to
+// succeeded when continueOn.markSuccess applies.
 func (r *Runner) finalizeFailedNode(ctx context.Context, node *Node, execErr error) {
 	node.SetStatus(ir.NodeFailed)
 	if node.ShouldMarkSuccess(ctx) {
-		// Mark as success if the node should be force marked as success,
-		// i.e. continueOn.markSuccess is set to true.
 		node.SetStatus(ir.NodeSucceeded)
 		return
 	}
