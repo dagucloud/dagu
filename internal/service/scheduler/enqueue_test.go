@@ -14,6 +14,7 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/dagrun"
 	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/persis"
+	filedagrun "github.com/dagucloud/dagu/v2/internal/persis/file/dagrun"
 	runtimeenvtransport "github.com/dagucloud/dagu/v2/internal/runtimeenv/transport"
 	secretref "github.com/dagucloud/dagu/v2/internal/secret/ref"
 	"github.com/dagucloud/dagu/v2/internal/service/scheduler"
@@ -82,13 +83,22 @@ steps:
 func TestEnqueueCatchupRun_ReplacesIncompleteRestartRun(t *testing.T) {
 	t.Parallel()
 
-	for name, cutShort := range map[string]func(t *testing.T, attempt dagrun.Attempt){
-		"NoStatusFile": func(*testing.T, dagrun.Attempt) {},
+	for name, cutShort := range map[string]func(t *testing.T, attempt dagrun.Attempt, dagRunsDir string){
+		"NoStatusFile": func(*testing.T, dagrun.Attempt, string) {},
 		// The status file is created when the attempt is opened, and stays
 		// empty until the first status is written.
-		"EmptyStatusFile": func(t *testing.T, attempt dagrun.Attempt) {
+		"EmptyStatusFile": func(t *testing.T, attempt dagrun.Attempt, _ string) {
 			require.NoError(t, attempt.Open(t.Context()))
 			require.NoError(t, attempt.Close(t.Context()))
+		},
+		// A crash in the middle of the first write leaves part of a line.
+		"PartialStatusLine": func(t *testing.T, attempt dagrun.Attempt, dagRunsDir string) {
+			require.NoError(t, attempt.Open(t.Context()))
+			require.NoError(t, attempt.Close(t.Context()))
+			files, err := filepath.Glob(filepath.Join(dagRunsDir, "*", "dag-runs", "*", "*", "*", "*", "*", filedagrun.JSONLStatusFile))
+			require.NoError(t, err)
+			require.Len(t, files, 1)
+			require.NoError(t, os.WriteFile(files[0], []byte(`{"name":"cut short`), 0600))
 		},
 	} {
 		t.Run(name, func(t *testing.T) {
@@ -104,7 +114,7 @@ steps:
 			runID := scheduler.GenerateRestartRunID(dag.Name, "", time.Time{})
 			incomplete, err := th.DAGRunRepository.CreateAttempt(th.Context, dag.DAG, time.Now(), runID, persis.DAGRunCreateAttemptOptions{})
 			require.NoError(t, err)
-			cutShort(t, incomplete)
+			cutShort(t, incomplete, th.Config.Paths.DAGRunsDir)
 
 			err = scheduler.EnqueueCatchupRun(
 				th.Context,
