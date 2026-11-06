@@ -68,11 +68,14 @@ export function useSelectedRun({
   dagData,
   remoteNode,
   listedRun,
+  standalone = false,
 }: {
   dagData: DAGPageData;
   remoteNode: string;
   /** The details of a run that a mounted history list holds, or null. */
   listedRun?: (runId: string) => ApiDAGRunDetails | null;
+  /** The page holds a run on its own, which no DAG query keeps live. */
+  standalone?: boolean;
 }): SelectedRun {
   const [searchParams] = useSearchParams();
   const [, , , setParams] = useWorkspaceUrl();
@@ -101,9 +104,13 @@ export function useSelectedRun({
   const latestIdRef = useRef(latestRunId);
   latestIdRef.current = latestRunId;
 
-  // The latest run needs no query of its own: the DAG query has it.
+  // The latest run needs no query of its own: the DAG query has it. A run on
+  // its own is the latest run of no DAG query: this query keeps it live, and
+  // the page reads the same SWR key.
   const pinnedEnabled =
-    runParam !== null && dagName !== '' && runParam !== latestRunId;
+    runParam !== null &&
+    dagName !== '' &&
+    (standalone || runParam !== latestRunId);
   const runSSE = useDAGRunSSE(
     dagName,
     runParam ?? '',

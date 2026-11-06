@@ -79,6 +79,7 @@ export function WorkspaceDataProvider({
     dagData,
     remoteNode,
     listedRun,
+    standalone: standaloneRun !== null,
   });
   useLayoutEffect(() => {
     awaited.current = awaitedRunId;
