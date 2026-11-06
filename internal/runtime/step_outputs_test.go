@@ -5,6 +5,7 @@ package runtime_test
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -260,4 +261,43 @@ func newDeclaredOutputNode(t *testing.T, executorType string, outputs []ir.StepO
 		Stdout: filepath.Join(logDir, "publish.out"),
 		Stderr: filepath.Join(logDir, "publish.err"),
 	})
+}
+
+func TestPlanEnvWorkingDirOutputs(t *testing.T) {
+	for _, mode := range []string{"plan", "plan-strict", "node", "node-strict"} {
+		t.Run(mode, func(t *testing.T) {
+			root := t.TempDir()
+			want := filepath.Join(root, "worktree")
+			outputs, err := json.Marshal(map[string]string{"path": want})
+			require.NoError(t, err)
+			raw := string(outputs)
+			step := ir.Step{Name: "show", ID: "show", Depends: []string{"worktree"}, Dir: "${steps.worktree.outputs.path}"}
+			plan, err := runtime.NewPlanFromNodes(
+				runtime.NewNode(ir.Step{Name: "worktree", ID: "worktree"}, runtime.NodeState{
+					Status: ir.NodeSucceeded, StepOutputsValue: &raw,
+				}),
+				runtime.NewNode(step, runtime.NodeState{}),
+			)
+			require.NoError(t, err)
+			ctx := runtime.NewContext(context.Background(), &ir.DAG{WorkingDir: root, WorkingDirExplicit: true}, "run-1", "dag.log")
+			var env runtime.Env
+			switch mode {
+			case "plan":
+				env = runtime.NewPlanEnv(ctx, step, plan)
+			case "plan-strict":
+				env, err = runtime.NewPlanEnvWithError(ctx, step, plan)
+			case "node":
+				env = runtime.NewPlanEnvForNode(ctx, plan.GetNodeByName("show"), plan)
+			case "node-strict":
+				env, err = runtime.NewPlanEnvForNodeWithError(ctx, plan.GetNodeByName("show"), plan)
+			}
+			require.NoError(t, err)
+			require.Equal(t, want, env.WorkingDir)
+			pwd, ok := env.Scope.Get("PWD")
+			require.True(t, ok)
+			require.Equal(t, want, pwd)
+			_, err = os.Stat(filepath.Join(root, step.Dir))
+			require.True(t, os.IsNotExist(err))
+		})
+	}
 }

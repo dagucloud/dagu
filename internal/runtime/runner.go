@@ -2266,37 +2266,50 @@ func waitForExecution(ctx context.Context, duration time.Duration) bool {
 }
 
 func NewPlanEnv(ctx context.Context, step ir.Step, plan *Plan) Env {
-	env := NewEnv(ctx, step)
-	addInheritedStepMap(ctx, &env)
-	addPlanStepsToEnv(&env, plan)
+	refs := planEnvReferences(ctx, plan, nil)
+	env := NewEnv(WithEnv(ctx, refs), step)
+	env.StepMap = refs.StepMap
 	return env
 }
 
 func NewPlanEnvWithError(ctx context.Context, step ir.Step, plan *Plan) (Env, error) {
-	env, err := NewEnvWithError(ctx, step)
+	refs := planEnvReferences(ctx, plan, nil)
+	env, err := NewEnvWithError(WithEnv(ctx, refs), step)
 	if err != nil {
 		return Env{}, err
 	}
-	addInheritedStepMap(ctx, &env)
-	addPlanStepsToEnv(&env, plan)
+	env.StepMap = refs.StepMap
 	return env, nil
 }
 
 func NewPlanEnvForNode(ctx context.Context, node *Node, plan *Plan) Env {
-	env := NewEnv(ctx, node.Step())
-	addInheritedStepMap(ctx, &env)
-	addPlanPredecessorStepsToEnv(&env, plan, node)
+	refs := planEnvReferences(ctx, plan, node)
+	env := NewEnv(WithEnv(ctx, refs), node.Step())
+	env.StepMap = refs.StepMap
 	return env
 }
 
 func NewPlanEnvForNodeWithError(ctx context.Context, node *Node, plan *Plan) (Env, error) {
-	env, err := NewEnvWithError(ctx, node.Step())
+	refs := planEnvReferences(ctx, plan, node)
+	env, err := NewEnvWithError(WithEnv(ctx, refs), node.Step())
 	if err != nil {
 		return Env{}, err
 	}
-	addInheritedStepMap(ctx, &env)
-	addPlanPredecessorStepsToEnv(&env, plan, node)
+	env.StepMap = refs.StepMap
 	return env, nil
+}
+
+// planEnvReferences prepares step references before working directory resolution.
+func planEnvReferences(ctx context.Context, plan *Plan, node *Node) Env {
+	refs, _ := LookupEnv(ctx)
+	refs.StepMap = make(map[string]cmnvalue.StepInfo)
+	addInheritedStepMap(ctx, &refs)
+	if node == nil {
+		addPlanStepsToEnv(&refs, plan)
+	} else {
+		addPlanPredecessorStepsToEnv(&refs, plan, node)
+	}
+	return refs
 }
 
 func addInheritedStepMap(ctx context.Context, env *Env) {

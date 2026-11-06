@@ -203,3 +203,11 @@ func TestDefectAndRuntimeOnlyNoticeClassification(t *testing.T) {
 		result.ExpectStderrContains("${params.environment}")
 	})
 }
+
+func TestStepOutputWorkingDir(t *testing.T) {
+	t.Parallel()
+
+	dagu := harness.NewRunner(t)
+	dagu.Run("start", "step_output_working_dir.yaml").ExpectExitCode(0)
+	dagu.ExpectFileContent("worktree/marker.txt", "resolved\n")
+}

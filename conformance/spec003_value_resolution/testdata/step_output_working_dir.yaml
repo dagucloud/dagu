@@ -1,0 +1,14 @@
+working_dir: .
+steps:
+  - id: worktree
+    run: |
+      mkdir -p worktree
+      printf 'path=worktree\n' >> "$DAGU_OUTPUT_FILE"
+    outputs:
+      - name: path
+  - id: show
+    depends: [worktree]
+    working_dir: ${steps.worktree.outputs.path}
+    run: |
+      test "$(basename "$PWD")" = worktree
+      printf 'resolved\n' > marker.txt
