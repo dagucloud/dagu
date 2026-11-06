@@ -773,6 +773,33 @@ describe('DAGDetails page', () => {
       ).toBe(true);
     });
 
+    // An edited retry stores its own definition and names no file: ?dagRunName
+    // is all that tells its run from a run of the file.
+    it('shows a run without a file on its own when the link names it', async () => {
+      const edited = { name: 'nightly-eu', dagRunId: 'r2' };
+      useQueryMock.mockImplementation(((
+        path: string,
+        init: { params: { path: Record<string, string> } } | null
+      ) => {
+        const name = init?.params.path.fileName ?? init?.params.path.name;
+        if (path === '/dags/{fileName}') {
+          return name === 'nightly'
+            ? { data: { ...dagData, dag: { ...dagData.dag, name: 'nightly' } } }
+            : { error: { code: 'not_found', message: 'DAG is not found' } };
+        }
+        if (path === '/dag-runs/{name}/{dagRunId}' && name === 'nightly-eu') {
+          return { data: { dagRunDetails: edited } };
+        }
+        return { data: undefined };
+      }) as never);
+
+      renderPage('/dags/nightly?run=r2&dagRunName=nightly-eu');
+
+      await waitFor(() =>
+        expect(workspaceMock.mock.lastCall?.[0].standaloneRun).toBe(edited)
+      );
+    });
+
     // A DAG name may end like a file name: the run link keeps it whole.
     it('opens a run link of a DAG named with a YAML suffix on its file', async () => {
       useQueryMock.mockImplementation(((

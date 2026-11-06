@@ -183,15 +183,16 @@ function DAGDetails() {
   const resolvingRunFile =
     lookUpRunFile && !linkedRunError && (!linkedRun || !!runFileRedirect);
   // The run shows on its own where no workspace shows it: its source file is
-  // gone (deleted, or renamed with the DAG name kept) or cannot be read, or
-  // the file now holds the DAG under another name.
+  // gone (deleted, or renamed with the DAG name kept) or cannot be read, the
+  // file now holds the DAG under another name, or the link names a run that
+  // has a name of its own, which an edited retry of it keeps with no file.
   const lookedUpRun = linkedRun?.dagRunDetails ?? null;
   const ownRun =
     lookedUpRun &&
     !runFileRedirect &&
     (workflowFailed ||
       (!!dagData?.dag &&
-        !!linkedRunFile &&
+        (!!linkedRunFile || !!queriedDAGRunName) &&
         lookedUpRun.name !== dagData.dag.name))
       ? lookedUpRun
       : null;
