@@ -9,6 +9,7 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"slices"
 	"sort"
 	"strings"
 
@@ -31,6 +32,11 @@ type DiscoveredFile struct {
 type DiscoveryOptions struct {
 	Recursive bool
 	Symlinks  bool
+	// SkipDirs names root-level directories (relative to root, matching the
+	// rule for the dot-directories and workspaces/ skip) that recursive
+	// discovery omits, so child-DAG subtrees stay resolvable by path but out
+	// of the catalog and scheduler. Empty means no extra skips.
+	SkipDirs []string
 }
 
 // ResolvedFile describes a DAG file entry and its canonical read target.
@@ -106,9 +112,12 @@ func Discover(root string, opts DiscoveryOptions) (DiscoveryResult, error) {
 		}
 
 		if entry.IsDir() {
-			if path != walkRoot &&
-				(strings.HasPrefix(entry.Name(), ".") || relPath == workspace.BaseConfigDirName) {
-				return filepath.SkipDir
+			if relPath != "." {
+				if strings.HasPrefix(entry.Name(), ".") ||
+					relPath == workspace.BaseConfigDirName ||
+					slices.Contains(opts.SkipDirs, entry.Name()) {
+					return filepath.SkipDir
+				}
 			}
 			dir := root
 			if relPath != "." {
