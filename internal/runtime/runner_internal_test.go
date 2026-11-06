@@ -354,6 +354,31 @@ func TestRunner_StepRetryBlockedByFailedUpstreamFails(t *testing.T) {
 		assert.Equal(t, ir.NodeAborted, plan.GetNodeByName(next.Name).State().Status)
 	})
 
+	t.Run("the selected step is behind a step an earlier attempt blocked", func(t *testing.T) {
+		t.Parallel()
+		gate, blocked := succeeds("gate", failed.Name), succeeds("blocked", "gate")
+		restored := NodeState{Status: ir.NodeAborted, Error: errors.New(ErrUpstreamFailed.Error())}
+		runner, plan, ctx, err := run(t, t.TempDir(), blocked.Name,
+			map[string]NodeState{failed.Name: wasFailed, gate.Name: restored, blocked.Name: wasAborted},
+			failed, gate, blocked)
+
+		require.ErrorIs(t, err, ErrUpstreamAborted)
+		assert.Equal(t, ir.Failed, runner.Status(ctx, plan))
+		assert.Equal(t, ir.NodeAborted, plan.GetNodeByName(gate.Name).State().Status)
+		assert.Equal(t, ir.NodeAborted, plan.GetNodeByName(blocked.Name).State().Status)
+	})
+
+	t.Run("the selected step is behind a step without an error", func(t *testing.T) {
+		t.Parallel()
+		gate, blocked := succeeds("gate"), succeeds("blocked", "gate")
+		runner, plan, ctx, err := run(t, t.TempDir(), blocked.Name,
+			map[string]NodeState{gate.Name: wasAborted, blocked.Name: wasAborted},
+			gate, blocked)
+
+		require.ErrorIs(t, err, ErrUpstreamAborted)
+		assert.Equal(t, ir.Failed, runner.Status(ctx, plan))
+	})
+
 	t.Run("a join is blocked once the selected step ran", func(t *testing.T) {
 		t.Parallel()
 		target, join := succeeds("target"), succeeds("join", "target", failed.Name)

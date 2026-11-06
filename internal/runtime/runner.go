@@ -37,6 +37,7 @@ import (
 
 var (
 	ErrUpstreamFailed   = fmt.Errorf("upstream failed")
+	ErrUpstreamAborted  = fmt.Errorf("upstream aborted")
 	ErrUpstreamSkipped  = fmt.Errorf("upstream skipped")
 	ErrUpstreamRejected = fmt.Errorf("upstream rejected")
 	ErrDeadlockDetected = errors.New("deadlock detected: no runnable nodes but DAG not finished")
@@ -269,11 +270,13 @@ func (r *Runner) Run(ctx context.Context, plan *Plan, progressCh chan ProgressUp
 		}
 	}()
 
-	// A step retry can keep the failed upstream of a step it selected, which
-	// then never runs and records no failure. This waits for every step to end,
-	// since a repeating step clears the last error.
-	if !r.isError() && blockedByFailedUpstream(plan) {
-		r.setLastError(ErrUpstreamFailed)
+	// A step retry can keep the failed or aborted upstream of a step it selected,
+	// which then never runs and records no failure. This waits for every step to
+	// end, since a repeating step clears the last error.
+	if !r.isError() {
+		if err := upstreamBlock(plan); err != nil {
+			r.setLastError(err)
+		}
 	}
 
 	// Collect final metrics
@@ -1506,15 +1509,22 @@ func (r *Runner) isFailed() bool {
 	return r.failed == 1
 }
 
-// blockedByFailedUpstream reports whether this attempt aborted a step because a
-// step it depends on failed.
-func blockedByFailedUpstream(plan *Plan) bool {
+// upstreamBlock returns the error of a step this attempt aborted because a step
+// it depends on failed or was aborted, or nil if there is none. A failed upstream
+// is the root cause of a chain, so it wins wherever its step is listed. Errors
+// restored from earlier attempts do not match these sentinels.
+func upstreamBlock(plan *Plan) error {
+	var block error
 	for _, node := range plan.Nodes() {
-		if errors.Is(node.State().Error, ErrUpstreamFailed) {
-			return true
+		err := node.State().Error
+		if errors.Is(err, ErrUpstreamFailed) {
+			return err
+		}
+		if errors.Is(err, ErrUpstreamAborted) {
+			block = err
 		}
 	}
-	return false
+	return block
 }
 
 func isReady(ctx context.Context, plan *Plan, node *Node) bool {
@@ -1559,6 +1569,7 @@ func isReady(ctx context.Context, plan *Plan, node *Node) bool {
 			logger.Debug(ctx, "Dependency aborted",
 				tag.Step(node.Name()), tag.Dependency(dep.Name()))
 			node.SetStatus(ir.NodeAborted)
+			node.SetError(ErrUpstreamAborted)
 			return false
 
 		case ir.NodeRejected:
