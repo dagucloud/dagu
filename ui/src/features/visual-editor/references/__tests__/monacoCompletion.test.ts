@@ -782,7 +782,7 @@ describe('registerFieldReferenceCompletion', () => {
     ).suggestions;
     expect(risky?.label).toEqual({
       label: candidates[1]!.token,
-      description: 'Not safe in a shell: use env',
+      description: 'Unsafe here: use env',
     });
     expect(risky?.detail).toContain('Pass it through env');
     expect(risky?.insertText).toBe(candidates[1]!.token);
