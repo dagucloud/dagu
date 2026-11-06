@@ -76,7 +76,7 @@
     },
     "tz": {
       "type": "string",
-      "description": "Timezone for scheduling and display (e.g., 'America/New_York')."
+      "description": "Timezone for scheduling and display, also exported to workflow steps as TZ (e.g., 'America/New_York')."
     },
     "env_passthrough": {
       "type": "array",
