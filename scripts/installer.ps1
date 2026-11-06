@@ -81,8 +81,6 @@ $Script:DaguExe = $null
 $Script:DaguHome = $null
 $Script:ServiceUrl = $null
 $Script:DetectedSkillTargets = 0
-# The user-level skills directory of each detected AI tool.
-$Script:SkillTargetDirs = @()
 $Script:RebootElevated = $false
 $Script:SkillMode = ""
 $Script:UninstallInstallPaths = @()
@@ -402,29 +400,22 @@ function Resolve-Defaults {
     }
 }
 
-# The configuration directory of the GitHub Copilot CLI.
-function Get-CopilotHome {
-    if ($env:COPILOT_HOME) { return $env:COPILOT_HOME }
-    return Join-Path ([Environment]::GetFolderPath("UserProfile")) ".copilot"
-}
-
 function Detect-SkillTargets {
     if ($ServiceOnly) {
         return
     }
     $userHome = [Environment]::GetFolderPath("UserProfile")
-    $dirs = @()
+    $count = 0
     $agentsHome = if ($env:AGENTS_HOME) { $env:AGENTS_HOME } else { Join-Path $userHome ".agents" }
     $codexHome = if ($env:CODEX_HOME) { $env:CODEX_HOME } else { Join-Path $userHome ".codex" }
-    if (Test-Path (Join-Path $userHome ".claude\.claude.json")) { $dirs += Join-Path $userHome ".claude\skills" }
-    if (Test-Path $agentsHome) { $dirs += Join-Path $agentsHome "skills" }
-    elseif (Test-Path $codexHome) { $dirs += Join-Path $codexHome "skills" }
-    if (Test-Path (Join-Path $userHome ".config\opencode")) { $dirs += Join-Path $userHome ".config\opencode\skills" }
-    if (Test-Path (Join-Path $userHome ".gemini\GEMINI.md")) { $dirs += Join-Path $userHome ".gemini\skills" }
-    $copilotHome = Get-CopilotHome
-    if (Test-Path (Join-Path $copilotHome "config.json")) { $dirs += Join-Path $copilotHome "skills" }
-    $Script:SkillTargetDirs = $dirs
-    $Script:DetectedSkillTargets = $dirs.Count
+    if (Test-Path (Join-Path $userHome ".claude\.claude.json")) { $count++ }
+    if (Test-Path $agentsHome) { $count++ }
+    elseif (Test-Path $codexHome) { $count++ }
+    if (Test-Path (Join-Path $userHome ".config\opencode")) { $count++ }
+    if (Test-Path (Join-Path $userHome ".gemini\GEMINI.md")) { $count++ }
+    $xdg = if ($env:XDG_CONFIG_HOME) { $env:XDG_CONFIG_HOME } else { $userHome }
+    if ((Test-Path (Join-Path $xdg ".copilot\config.json")) -or (Test-Path (Join-Path $userHome ".copilot\config.json"))) { $count++ }
+    $Script:DetectedSkillTargets = $count
 }
 
 function Get-ServiceWrapperPath {
@@ -465,12 +456,9 @@ function Discover-SkillRemovals {
     $codexSkill = Join-Path $codexHome "skills\dagu"
     $openCodeSkill = Join-Path $userHome ".config\opencode\skills\dagu"
     $geminiSkill = Join-Path $userHome ".gemini\skills\dagu"
-    $copilotSkill = Join-Path (Get-CopilotHome) "skills\dagu"
-    # npx skills --global writes to ~/.agents whatever AGENTS_HOME says.
-    $npxAgentsSkill = Join-Path $userHome ".agents\skills\dagu"
     $xdgCopilot = Join-Path $xdg ".copilot\copilot-instructions.md"
     $homeCopilot = Join-Path $userHome ".copilot\copilot-instructions.md"
-    foreach ($dir in @($claudeSkill, $agentsSkill, $npxAgentsSkill, $codexSkill, $openCodeSkill, $geminiSkill, $copilotSkill)) {
+    foreach ($dir in @($claudeSkill, $agentsSkill, $codexSkill, $openCodeSkill, $geminiSkill)) {
         if (Test-Path $dir) {
             Add-UniqueItem ([ref]$Script:UninstallSkillDirs) $dir
         }
@@ -1290,26 +1278,22 @@ function Install-AISkill {
         foreach ($dir in $SkillsDir) {
             Write-WarnMessage "--SkillsDir is no longer supported by the Dagu installer: $dir"
         }
-        Write-WarnMessage "Install the skill with: gh skill install dagucloud/dagu dagu --scope user"
+        Write-WarnMessage "Install the skill with: gh skill install dagucloud/dagu dagu"
     }
     elseif ($SkillMode -eq "auto" -and (Get-Command gh -ErrorAction SilentlyContinue)) {
-        # gh and npx skills default to the project in the current directory:
-        # name the user-level target.
-        foreach ($dir in $Script:SkillTargetDirs) {
-            & gh skill install dagucloud/dagu dagu --dir $dir --force
-            if ($LASTEXITCODE -ne 0) {
-                Write-WarnMessage "Failed to install the Dagu AI skill into $dir. Install manually with: gh skill install dagucloud/dagu dagu --dir `"$dir`" --force"
-            }
+        & gh skill install dagucloud/dagu dagu
+        if ($LASTEXITCODE -ne 0) {
+            Write-WarnMessage "Failed to install the Dagu AI skill. Install manually with: gh skill install dagucloud/dagu dagu"
         }
     }
     elseif ($SkillMode -eq "auto" -and (Get-Command npx -ErrorAction SilentlyContinue)) {
-        & npx --yes skills add https://github.com/dagucloud/dagu --skill dagu --global --yes
+        & npx skills add https://github.com/dagucloud/dagu --skill dagu
         if ($LASTEXITCODE -ne 0) {
-            Write-WarnMessage "Failed to install the Dagu AI skill. Install manually with: npx skills add https://github.com/dagucloud/dagu --skill dagu --global"
+            Write-WarnMessage "Failed to install the Dagu AI skill. Install manually with: npx skills add https://github.com/dagucloud/dagu --skill dagu"
         }
     }
     else {
-        Write-WarnMessage "No shared skills installer was found. Install manually with: gh skill install dagucloud/dagu dagu --scope user"
+        Write-WarnMessage "No shared skills installer was found. Install manually with: gh skill install dagucloud/dagu dagu"
     }
 }
 
