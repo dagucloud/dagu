@@ -44,6 +44,31 @@ describe('Preconditions', () => {
     expect(referenceList()).toBeInTheDocument();
   });
 
+  // Spec 033: a build output path exists only while the executor runs.
+  it('offers a build input but no build output', () => {
+    renderPart(Preconditions, withConditions, {
+      candidates: [
+        ...candidatesSample,
+        {
+          token: '${inputs.source}',
+          label: 'source',
+          group: 'inputs',
+          known: 'runtime',
+        },
+        {
+          token: '${outputs.artifact}',
+          label: 'artifact',
+          group: 'outputs',
+          known: 'runtime',
+        },
+      ],
+    });
+    typeOpenReference(screen.getByLabelText('New condition'));
+    const list = referenceList();
+    expect(list).toHaveTextContent('${inputs.source}');
+    expect(list).not.toHaveTextContent('${outputs.artifact}');
+  });
+
   // Spec 003: `expected` is literal, except for the number of a `num:` form.
   it('offers no references in an expected value', () => {
     renderPart(Preconditions, withConditions, {

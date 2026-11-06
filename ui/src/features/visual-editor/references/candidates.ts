@@ -10,9 +10,13 @@ import type {
 
 /** The order of the groups in a candidate list. */
 export const REFERENCE_GROUP_ORDER: readonly ReferenceGroup[] = [
+  'foreach',
+  'inputs',
+  'outputs',
   'steps',
   'params',
   'consts',
+  'stepEnv',
   'env',
   'secrets',
   'context',
@@ -21,22 +25,30 @@ export const REFERENCE_GROUP_ORDER: readonly ReferenceGroup[] = [
 /** English i18n key of each group title. The picker and the YAML hover show it. */
 export const REFERENCE_GROUP_LABELS: Readonly<Record<ReferenceGroup, string>> =
   {
+    foreach: 'Current item',
+    inputs: 'Build inputs',
+    outputs: 'Build outputs',
     steps: 'Step outputs',
     params: 'Parameters',
     consts: 'Constants',
+    stepEnv: 'Step environment',
     env: 'Environment variables',
     secrets: 'Secrets',
     context: 'Run context',
   };
 
-type VariableGroup = 'params' | 'consts' | 'env' | 'secrets';
+type ScopeStep = ReferenceScope['steps'][number];
+type ScopeVariable = ReferenceScope['params'][number];
+type ScopeForeach = NonNullable<ScopeStep['foreach']>;
+type StepsOnly = Pick<ReferenceScope, 'steps'>;
 
 // The token of a variable is the server `reference`. The client never builds it.
 function variableCandidates(
-  scope: ReferenceScope,
-  group: VariableGroup
+  variables: ScopeVariable[] | undefined,
+  group: ReferenceGroup,
+  known: ReferenceCandidate['known'] = 'static'
 ): ReferenceCandidate[] {
-  return (scope[group] ?? []).map((variable) => {
+  return (variables ?? []).map((variable) => {
     const detail =
       variable.description ||
       (group === 'secrets' || !variable.defaultValue
@@ -47,7 +59,7 @@ function variableCandidates(
       label: variable.name,
       group,
       detail,
-      known: 'static',
+      known,
     };
   });
 }
@@ -69,7 +81,7 @@ function closureOf(
 }
 
 /** The upstream lists of a scope: all ancestors, and the direct parents of a step. */
-function parentIndex(scope: ReferenceScope): {
+function parentIndex(scope: StepsOnly): {
   has(name: string): boolean;
   closure(name: string): Set<string>;
   parentsOf(name: string): string[];
@@ -108,9 +120,7 @@ function parentIndex(scope: ReferenceScope): {
  * upstream steps that no other listed step has as an ancestor. The names are
  * in the order of the list of the server.
  */
-export function directParents(
-  scope: ReferenceScope
-): (name: string) => string[] {
+export function directParents(scope: StepsOnly): (name: string) => string[] {
   return parentIndex(scope).parentsOf;
 }
 
@@ -119,7 +129,7 @@ export function directParents(
  * Empty map for an unknown step.
  */
 export function upstreamDistances(
-  scope: ReferenceScope,
+  scope: StepsOnly,
   stepName: string
 ): Map<string, number> {
   const distances = new Map<string, number>();
@@ -175,10 +185,20 @@ const CONTEXT_STEP_FIELDS = [
   'paths.step_output_file',
 ] as const;
 
-/** What the document says of the step that owns a field, beyond the scope. */
+/** One foreach around a field, for `foreach.key`, `foreach.collect` or the item body. */
+export interface ForeachFrame {
+  foreach: ScopeForeach;
+  field: 'key' | 'collect' | 'body';
+  /** The body step that holds the field, when the scope knows it. */
+  bodyStep?: ScopeStep;
+}
+
+/** What the document says of the field, beyond the scope. */
 export interface ReferenceOwnerOptions {
-  /** The step declares `repeat_policy`. */
+  /** The step entry declares `repeat_policy`. */
   repeats?: boolean;
+  /** The foreach bodies around the field, the outermost first. */
+  frames?: readonly ForeachFrame[];
 }
 
 /** True for a step entry that declares `repeat_policy`. */
@@ -186,22 +206,58 @@ export function declaresRepeat(step: StepView | undefined): boolean {
   return step?.value.repeat_policy !== undefined;
 }
 
+/**
+ * The foreach frames of a field of `step`. `path` is the YAML path below the
+ * step entry, such as ['foreach', 'steps', '0', 'run'].
+ */
+export function foreachFramesAt(
+  step: ScopeStep,
+  path: readonly string[]
+): ForeachFrame[] {
+  const frames: ForeachFrame[] = [];
+  let current: ScopeStep | undefined = step;
+  let at = 0;
+  while (path[at] === 'foreach' && current?.foreach) {
+    const foreach: ScopeForeach = current.foreach;
+    const field = path[at + 1];
+    if (field === 'key' || field === 'collect') {
+      frames.push({ foreach, field });
+      break;
+    }
+    const index = path[at + 2];
+    if (field !== 'steps' || index === undefined) break;
+    // A new body step is in the text before the scope comes back with it.
+    current = foreach.steps[Number(index)];
+    frames.push({ foreach, field: 'body', bodyStep: current });
+    at += 3;
+  }
+  return frames;
+}
+
+// Only the item of the innermost foreach is in scope: an inner item replaces an
+// outer one. `foreach.key` computes the key, which reads as empty there.
+function itemCandidates(frames: readonly ForeachFrame[]): ReferenceCandidate[] {
+  const frame = frames[frames.length - 1];
+  if (!frame) return [];
+  return variableCandidates(frame.foreach.item, 'foreach', 'runtime').filter(
+    (candidate) => frame.field !== 'key' || candidate.label !== 'key'
+  );
+}
+
 function contextCandidates(
-  scope: ReferenceScope | undefined,
-  stepName: string | null,
+  owner: ScopeStep | undefined,
+  hasOwner: boolean,
   { repeats = false }: ReferenceOwnerOptions
 ): ReferenceCandidate[] {
-  const owner = scope?.steps?.find((step) => step.name === stepName);
   const handler = owner?.stepPath.startsWith('handler_on.') ?? false;
   // Spec 017: these fields are missing outside the scopes named here.
   const missing = new Set<string>();
   if (!handler) missing.add('run.status');
   if (handler || (owner && !owner.id)) missing.add('step.id');
-  if (handler || !repeats) missing.add('step.repeat_index');
-  const fields: readonly string[] =
-    stepName === null
-      ? CONTEXT_FIELDS
-      : [...CONTEXT_FIELDS, ...CONTEXT_STEP_FIELDS];
+  if (handler || !(repeats || owner?.repeats)) missing.add('step.repeat_index');
+  const fields: readonly string[] = hasOwner
+    ? [...CONTEXT_FIELDS, ...CONTEXT_STEP_FIELDS]
+    : CONTEXT_FIELDS;
   return fields
     .filter((field) => !missing.has(field))
     .map(
@@ -214,8 +270,27 @@ function contextCandidates(
     );
 }
 
+function outputCandidates(
+  step: ScopeStep,
+  distance: number
+): ReferenceCandidate[] {
+  return step.outputs.map(
+    (output): ReferenceCandidate => ({
+      token: output.reference,
+      label: `${step.id || step.name}.${output.name}`,
+      group: 'steps',
+      detail:
+        [output.type, output.source].filter(Boolean).join(' \u00b7 ') ||
+        undefined,
+      stepName: step.name,
+      distance,
+      known: step.outputsKnown,
+    })
+  );
+}
+
 function stepCandidates(
-  scope: ReferenceScope,
+  scope: StepsOnly,
   stepName: string
 ): ReferenceCandidate[] {
   const distances = upstreamDistances(scope, stepName);
@@ -226,44 +301,86 @@ function stepCandidates(
         entry.distance !== undefined
     )
     .sort((a, b) => a.distance - b.distance || a.index - b.index)
-    .flatMap(({ step, distance }) =>
-      step.outputs.map(
-        (output): ReferenceCandidate => ({
-          token: output.reference,
-          label: `${step.id || step.name}.${output.name}`,
-          group: 'steps',
-          detail:
-            [output.type, output.source].filter(Boolean).join(' \u00b7 ') ||
-            undefined,
-          stepName: step.name,
-          distance,
-          known: step.outputsKnown,
-        })
-      )
-    );
+    .flatMap(({ step, distance }) => outputCandidates(step, distance));
+}
+
+// The outputs that one foreach body gives a field inside it: the ancestors of
+// the body step, or every body step in `collect`, which runs after the body.
+function frameOutputCandidates(frame: ForeachFrame): ReferenceCandidate[] {
+  const { foreach, field, bodyStep } = frame;
+  if (field === 'collect') {
+    return foreach.steps.flatMap((step) => outputCandidates(step, 1));
+  }
+  return bodyStep ? stepCandidates(foreach, bodyStep.name) : [];
 }
 
 /**
  * Candidates for a step input, in the order of REFERENCE_GROUP_ORDER.
  * stepName is the step that owns the field, or null when there is no owner step.
- * Only an owner step sees step outputs and the context of a step.
- * Context fields that spec 017 limits to a scope appear only in that scope.
- * Without a scope, the list holds the context candidates only.
+ * Only an owner step sees step outputs and the context of a step. A field in a
+ * foreach body belongs to its body step, and sees the outputs nearest to it
+ * first. Context fields that spec 017 limits to a scope appear only in that
+ * scope. Without a scope, the list holds the context candidates only.
  */
 export function buildReferenceCandidates(
   scope: ReferenceScope | undefined,
   stepName: string | null,
   options: ReferenceOwnerOptions = {}
 ): ReferenceCandidate[] {
-  if (!scope) return contextCandidates(scope, stepName, options);
+  const top = scope?.steps?.find((step) => step.name === stepName);
+  const frames = options.frames ?? [];
+  const bodyStep = frames[frames.length - 1]?.bodyStep;
+  const owner = bodyStep ?? top;
+  const context = contextCandidates(owner, stepName !== null, options);
+  if (!scope) return context;
+  const rootEnv = variableCandidates(scope.env, 'env');
+  const rootTokens = new Set(rootEnv.map((candidate) => candidate.token));
+  const stepEnv = variableCandidates(owner?.env, 'stepEnv').map(
+    (candidate): ReferenceCandidate =>
+      rootTokens.has(candidate.token)
+        ? { ...candidate, alsoRoot: true }
+        : candidate
+  );
+  const stepTokens = new Set(stepEnv.map((candidate) => candidate.token));
   return [
+    ...itemCandidates(frames),
+    ...variableCandidates(owner?.inputs, 'inputs', 'runtime'),
+    ...variableCandidates(owner?.pathOutputs, 'outputs', 'runtime'),
+    ...[...frames].reverse().flatMap(frameOutputCandidates),
     ...(stepName === null ? [] : stepCandidates(scope, stepName)),
-    ...variableCandidates(scope, 'params'),
-    ...variableCandidates(scope, 'consts'),
-    ...variableCandidates(scope, 'env'),
-    ...variableCandidates(scope, 'secrets'),
-    ...contextCandidates(scope, stepName, options),
+    ...variableCandidates(scope.params, 'params'),
+    ...variableCandidates(scope.consts, 'consts'),
+    ...stepEnv,
+    ...rootEnv.filter((candidate) => !stepTokens.has(candidate.token)),
+    ...variableCandidates(scope.secrets, 'secrets'),
+    ...context,
   ];
+}
+
+/**
+ * The candidates of a step env entry (spec 006). `declaredFromHere` holds the
+ * names that this entry and the later ones declare: they do not exist yet, so
+ * such a name reads the root value when the root env has it. Everything else
+ * stays, including what the step inherits from `defaults`.
+ */
+export function envEntryCandidates(
+  candidates: ReferenceCandidate[],
+  declaredFromHere: ReadonlySet<string>
+): ReferenceCandidate[] {
+  return candidates.flatMap((candidate): ReferenceCandidate[] => {
+    if (candidate.group !== 'stepEnv' || !declaredFromHere.has(candidate.label))
+      return [candidate];
+    return candidate.alsoRoot
+      ? [{ ...candidate, group: 'env', alsoRoot: undefined }]
+      : [];
+  });
+}
+
+/** The candidates of a field outside the command, as a build output path exists only there (spec 033). */
+export function withoutBuildOutputs(
+  candidates: ReferenceCandidate[]
+): ReferenceCandidate[] {
+  return candidates.filter((candidate) => candidate.group !== 'outputs');
 }
 
 /** Case-insensitive match of every space-separated word of query against token, label and detail. Keeps order. */

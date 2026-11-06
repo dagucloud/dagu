@@ -7,7 +7,10 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { useI18n } from '@/i18n/I18nProvider';
 import { I18nText } from '@/i18n/I18nText';
-import { ReferenceInput } from '@/features/visual-editor/references';
+import {
+  ReferenceInput,
+  withoutBuildOutputs,
+} from '@/features/visual-editor/references';
 import { issuesUnder } from '../../issues';
 import { FieldIssues } from '../../FieldIssues';
 import { TextField } from '../../TextField';
@@ -55,6 +58,7 @@ export function Preconditions({
   const [expected, setExpected] = useState('');
   const value = step.value.preconditions;
   const rows = conditionRows(value);
+  const references = withoutBuildOutputs(candidates);
   const set = (path: (string | number)[], next: unknown) =>
     onEdit({
       kind: 'setStepField',
@@ -117,7 +121,7 @@ export function Preconditions({
               value={typeof row.condition === 'string' ? row.condition : ''}
               readOnly={readOnly}
               issues={fieldIssues[`preconditions[${index}].condition`]}
-              candidates={candidates}
+              candidates={references}
               onCommit={(text) => set([index, 'condition'], text)}
             />
           </div>
@@ -150,7 +154,7 @@ export function Preconditions({
               aria-label={ts('New condition')}
               placeholder={ts('Condition')}
               value={condition}
-              candidates={candidates}
+              candidates={references}
               onChange={setCondition}
             />
           </div>

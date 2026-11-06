@@ -1,7 +1,7 @@
 // Copyright (C) 2026 Yota Hamada
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-import { fireEvent, screen } from '@testing-library/react';
+import { fireEvent, screen, within } from '@testing-library/react';
 import { describe, expect, it } from 'vitest';
 import { FlowSection } from '../sections/Flow';
 import { runStep } from './fixtures';
@@ -13,6 +13,37 @@ import {
 } from './referenceHarness';
 
 describe('FlowSection', () => {
+  // Spec 006: a step env entry reads the entries before it and what it inherits.
+  it('hides from an env row the entries from it on', () => {
+    const entry = (name: string) => ({
+      token: `\${env.${name}}`,
+      label: name,
+      group: 'stepEnv' as const,
+      known: 'static' as const,
+    });
+    renderPart(
+      FlowSection,
+      { ...runStep, value: { env: [{ A: '1' }, { B: '2' }, { C: '3' }] } },
+      {
+        candidates: [
+          entry('A'),
+          entry('B'),
+          entry('C'),
+          entry('INHERITED'),
+          ...candidatesSample,
+        ],
+      }
+    );
+    const env = screen.getByRole('group', { name: 'Environment' });
+    typeOpenReference(within(env).getAllByLabelText('Value')[1]!);
+    const list = referenceList();
+    expect(list).toHaveTextContent('${env.A}');
+    expect(list).toHaveTextContent('${env.INHERITED}');
+    expect(list).toHaveTextContent('${params.API_URL}');
+    expect(list).not.toHaveTextContent('${env.B}');
+    expect(list).not.toHaveTextContent('${env.C}');
+  });
+
   it('shows every flow setting of the step', () => {
     renderPart(FlowSection, runStep);
     expect(screen.getByText('Depends on')).toBeInTheDocument();

@@ -469,6 +469,9 @@ export function StepInspector(props: StepInspectorProps): ReactElement {
                 schema={props.schema}
                 readOnly={locked}
                 onEdit={props.onEdit}
+                candidatesAtPath={
+                  props.candidatesAtPath ?? (() => props.candidates)
+                }
               />
             </Section>
           </>

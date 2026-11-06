@@ -1470,6 +1470,9 @@ const baseEnglish = {
   'Environment variables': 'Environment variables',
   Secrets: 'Secrets',
   'Run context': 'Run context',
+  'Build inputs': 'Build inputs',
+  'Build outputs': 'Build outputs',
+  'Step environment': 'Step environment',
   'Upstream data': 'Upstream data',
   'Select a step to see the data of its upstream steps':
     'Select a step to see the data of its upstream steps',
@@ -4570,6 +4573,9 @@ const baseChinese = {
   'Environment variables': '环境变量',
   Secrets: '密钥',
   'Run context': '运行上下文',
+  'Build inputs': '构建输入',
+  'Build outputs': '构建输出',
+  'Step environment': '步骤环境变量',
   'Upstream data': '上游数据',
   'Select a step to see the data of its upstream steps':
     '选择一个步骤以查看其上游步骤的数据',
@@ -7662,6 +7668,9 @@ const baseJapanese = {
   'Environment variables': '環境変数',
   Secrets: 'シークレット',
   'Run context': '実行コンテキスト',
+  'Build inputs': 'ビルド入力',
+  'Build outputs': 'ビルド出力',
+  'Step environment': 'ステップの環境変数',
   'Upstream data': '上流データ',
   'Select a step to see the data of its upstream steps':
     'ステップを選択すると、その上流ステップのデータを表示します',

@@ -266,9 +266,7 @@ describe('ReferenceInput', () => {
     it('leaves Enter to the host on a lone dollar', () => {
       const onValue = vi.fn();
       const onKeyDown = vi.fn();
-      render(
-        <Controlled initial="" onValue={onValue} onKeyDown={onKeyDown} />
-      );
+      render(<Controlled initial="" onValue={onValue} onKeyDown={onKeyDown} />);
       const el = field();
       act(() => el.focus());
       fireEvent.change(el, { target: { value: 'grep foo$' } });
@@ -282,9 +280,7 @@ describe('ReferenceInput', () => {
     it('picks on a lone dollar once an arrow key chose an option', () => {
       const onValue = vi.fn();
       const onKeyDown = vi.fn();
-      render(
-        <Controlled initial="" onValue={onValue} onKeyDown={onKeyDown} />
-      );
+      render(<Controlled initial="" onValue={onValue} onKeyDown={onKeyDown} />);
       const el = field();
       act(() => el.focus());
       fireEvent.change(el, { target: { value: '$' } });

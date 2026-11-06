@@ -4,6 +4,7 @@
 import type { ReactElement } from 'react';
 import { useI18n } from '@/i18n/I18nProvider';
 import { I18nText } from '@/i18n/I18nText';
+import { envEntryCandidates } from '@/features/visual-editor/references';
 import { FieldIssues } from '../../FieldIssues';
 import { issuesUnder } from '../../issues';
 import type { SectionProps } from '../../types';
@@ -35,6 +36,7 @@ export function EnvEditor({
           value={env.entries}
           readOnly={readOnly}
           candidates={candidates}
+          rowCandidates={(fromRow) => envEntryCandidates(candidates, fromRow)}
           onChange={(next) =>
             envOps(step.key, step.value.env, next).forEach((op) => onEdit(op))
           }

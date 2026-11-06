@@ -6277,6 +6277,22 @@ export interface components {
              * @enum {string}
              */
             outputsKnown: ReferenceScopeStepOutputsKnown;
+            /** @description Environment variable names that the step declares. Values are not included. */
+            env?: components["schemas"]["ReferenceScopeVariable"][];
+            /** @description Build input paths of the step, such as ${inputs.source}. */
+            inputs?: components["schemas"]["ReferenceScopeVariable"][];
+            /** @description Build output paths of the step, such as ${outputs.artifact}. */
+            pathOutputs?: components["schemas"]["ReferenceScopeVariable"][];
+            /** @description The step has a repeat policy, set on it or inherited from defaults. */
+            repeats?: boolean;
+            foreach?: components["schemas"]["ReferenceScopeForeach"];
+        };
+        /** @description What the item body of a foreach step can reference. */
+        ReferenceScopeForeach: {
+            /** @description The current item: its value, the fields that every static item has, its index and its key. */
+            item: components["schemas"]["ReferenceScopeVariable"][];
+            /** @description The body steps. A stepPath reads steps[2].foreach.steps[0], and upstream names body steps only. */
+            steps: components["schemas"]["ReferenceScopeStep"][];
         };
         /** @description An output of a step that other steps can reference. */
         ReferenceScopeOutput: {

@@ -209,8 +209,12 @@ export interface ActionCatalogEntry {
 
 /* References */
 export type ReferenceGroup =
+  | 'foreach'
+  | 'inputs'
+  | 'outputs'
   | 'params'
   | 'consts'
+  | 'stepEnv'
   | 'env'
   | 'secrets'
   | 'steps'
@@ -223,6 +227,8 @@ export interface ReferenceCandidate {
   stepName?: string;
   distance?: number; // 1 = direct parent
   known: 'static' | 'runtime';
+  /** A step env name that the root env has too: the root value until the step sets it. */
+  alsoRoot?: boolean;
 }
 export interface ReferenceInputProps {
   value: string;
@@ -633,6 +639,8 @@ export interface StepInspectorProps {
   catalog: ActionCatalogEntry[];
   customActions: EditorCustomActionHint[];
   candidates: ReferenceCandidate[];
+  /** The references of a field of the step YAML, by its path below the step entry. */
+  candidatesAtPath?(path: string[]): ReferenceCandidate[];
   issues: ValidationIssue[];
   readOnly: boolean;
   onEdit(op: DagEditOp): void;

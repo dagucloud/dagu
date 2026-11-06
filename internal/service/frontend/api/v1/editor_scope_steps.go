@@ -24,7 +24,7 @@ import (
 // that list is static.
 func scopeSteps(dag *ir.DAG) []api.ReferenceScopeStep {
 	steps := make([]api.ReferenceScopeStep, 0, len(dag.Steps))
-	upstream := newUpstreamIndex(dag)
+	upstream := newUpstreamIndex(dag.Steps)
 	for i := range dag.Steps {
 		item := scopeStep(&dag.Steps[i], fmt.Sprintf("steps[%d]", i), upstream.names(i))
 		steps = append(steps, item)
@@ -68,7 +68,101 @@ func scopeStep(step *ir.Step, stepPath string, upstream []string) api.ReferenceS
 		item.Id = ptrOf(step.ID)
 	}
 	item.Outputs = stepOutputs(step)
+	item.Env = nonEmpty(envVariables(step.Env))
+	item.Inputs = nonEmpty(stepInputs(step))
+	item.PathOutputs = nonEmpty(stepPathOutputs(step))
+	item.Repeats = ptrOf(step.RepeatPolicy.RepeatMode != "")
+	item.Foreach = scopeForeach(step, stepPath)
 	return item
+}
+
+// nonEmpty returns nil for an empty list: the field stays out of the response.
+func nonEmpty(vars []api.ReferenceScopeVariable) *[]api.ReferenceScopeVariable {
+	if len(vars) == 0 {
+		return nil
+	}
+	return &vars
+}
+
+// stepInputs lists the build inputs of the step (spec 033). A document with
+// build errors can hold a name that no reference can use: it is left out.
+func stepInputs(step *ir.Step) []api.ReferenceScopeVariable {
+	inputs := []api.ReferenceScopeVariable{}
+	for _, input := range step.Inputs {
+		if outputNamePattern.MatchString(input.Name) {
+			inputs = append(inputs, api.ReferenceScopeVariable{Name: input.Name, Reference: "${inputs." + input.Name + "}"})
+		}
+	}
+	return inputs
+}
+
+// stepPathOutputs lists the build outputs of the step (spec 033). Other outputs
+// have no ${outputs.<name>} form.
+func stepPathOutputs(step *ir.Step) []api.ReferenceScopeVariable {
+	outputs := []api.ReferenceScopeVariable{}
+	for _, output := range step.Outputs {
+		if output.Path != "" && outputNamePattern.MatchString(output.Name) {
+			outputs = append(outputs, api.ReferenceScopeVariable{Name: output.Name, Reference: "${outputs." + output.Name + "}"})
+		}
+	}
+	return outputs
+}
+
+// scopeForeach describes what the item body of a foreach step can reference, or
+// returns nil for another step. Body steps stay out of the top-level list
+// because only their own body can reference them (spec 018).
+func scopeForeach(step *ir.Step, stepPath string) *api.ReferenceScopeForeach {
+	cfg := step.Foreach
+	if cfg == nil {
+		return nil
+	}
+	upstream := newUpstreamIndex(cfg.Steps)
+	steps := make([]api.ReferenceScopeStep, 0, len(cfg.Steps))
+	for i := range cfg.Steps {
+		path := fmt.Sprintf("%s.foreach.steps[%d]", stepPath, i)
+		steps = append(steps, scopeStep(&cfg.Steps[i], path, upstream.names(i)))
+	}
+	return &api.ReferenceScopeForeach{Item: foreachItem(cfg), Steps: steps}
+}
+
+// foreachItem lists the references to the current item: its value, then the
+// fields of static items, then its index and key.
+func foreachItem(cfg *ir.ForeachConfig) []api.ReferenceScopeVariable {
+	variable := func(name string) api.ReferenceScopeVariable {
+		return api.ReferenceScopeVariable{Name: name, Reference: "${foreach." + name + "}"}
+	}
+	item := []api.ReferenceScopeVariable{variable(cfg.As)}
+	for _, field := range commonItemFields(cfg.Items) {
+		item = append(item, variable(cfg.As+"."+field))
+	}
+	return append(item, variable("index"), variable("key"))
+}
+
+// itemFieldPattern is a foreach item field that a reference can name without
+// quotes (spec 018). A field that needs quotes is not listed.
+var itemFieldPattern = regexp.MustCompile(`^[\p{L}_][\p{L}\p{M}\p{Nd}_]*$`)
+
+// commonItemFields lists, sorted, the fields that every item has: a reference
+// to any other field fails on the items without it.
+func commonItemFields(items []any) []string {
+	counts := map[string]int{}
+	for _, item := range items {
+		fields, ok := item.(map[string]any)
+		if !ok {
+			return nil
+		}
+		for field := range fields {
+			counts[field]++
+		}
+	}
+	names := []string{}
+	for field, count := range counts {
+		if count == len(items) && itemFieldPattern.MatchString(field) {
+			names = append(names, field)
+		}
+	}
+	slices.Sort(names)
+	return names
 }
 
 // outputNamePattern is the name syntax of a step-output reference (spec 007).
@@ -211,25 +305,25 @@ func isCustomAction(step *ir.Step) bool {
 	return name != ""
 }
 
-// upstreamIndex holds the ancestor sets of the top-level steps of one DAG.
+// upstreamIndex holds the ancestor sets of the steps of one graph.
 type upstreamIndex struct {
 	steps []ir.Step
 	// ancestors[i] is a bit set over step indexes, filled once by a memoized DFS.
 	ancestors [][]uint64
 }
 
-// newUpstreamIndex computes the transitive ancestors of every top-level step.
+// newUpstreamIndex computes the transitive ancestors of every step of a graph.
 // A dependency on an unknown step name is ignored.
-func newUpstreamIndex(dag *ir.DAG) *upstreamIndex {
-	n := len(dag.Steps)
-	idx := &upstreamIndex{steps: dag.Steps, ancestors: make([][]uint64, n)}
+func newUpstreamIndex(steps []ir.Step) *upstreamIndex {
+	n := len(steps)
+	idx := &upstreamIndex{steps: steps, ancestors: make([][]uint64, n)}
 	byName := make(map[string]int, n)
-	for i := range dag.Steps {
-		byName[dag.Steps[i].Name] = i
+	for i := range steps {
+		byName[steps[i].Name] = i
 	}
 	parents := make([][]int, n)
-	for i := range dag.Steps {
-		for _, dep := range dag.Steps[i].AllDepends() {
+	for i := range steps {
+		for _, dep := range steps[i].AllDepends() {
 			if j, ok := byName[dep]; ok {
 				parents[i] = append(parents[i], j)
 			}

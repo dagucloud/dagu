@@ -9,7 +9,11 @@ import type {
   ReferenceScope,
   StepKey,
 } from '../contracts';
-import { buildReferenceCandidates, declaresRepeat } from './candidates';
+import {
+  buildReferenceCandidates,
+  declaresRepeat,
+  foreachFramesAt,
+} from './candidates';
 
 export type ReferenceScopeStep = ReferenceScope['steps'][number];
 
@@ -71,6 +75,14 @@ export function findOwningStep(
   return null;
 }
 
+/**
+ * The YAML path below a step entry, for a path under `steps` or `handler_on`.
+ * A step of a parallel group has one more index: ['steps', '1', '0', 'run'].
+ */
+export function pathBelowStep(path: readonly string[]): string[] {
+  return path.slice(/^\d+$/.test(path[2] ?? '') ? 3 : 2);
+}
+
 /** Candidates for a field at the offset, as seen by the step that owns it. */
 export function candidatesAt(
   text: string,
@@ -79,12 +91,29 @@ export function candidatesAt(
 ): ReferenceCandidate[] {
   const owner = findOwningStep(text, offset, state);
   const view = state.model?.steps.find((s) => s.key === owner?.stepPath);
+  const frames = owner
+    ? foreachFramesAt(
+        owner,
+        pathBelowStep(getYamlPathAtOffset(text, offset).path)
+      )
+    : [];
   return buildReferenceCandidates(state.scope, owner?.name ?? null, {
-    repeats: declaresRepeat(view),
+    repeats: frames.length === 0 && declaresRepeat(view),
+    frames,
   });
 }
 
 const RUN_FIELDS = new Set(['run', 'script', 'command']);
+
+/** True for a step field that a shell reads. */
+export function isRunField(field: string | undefined): boolean {
+  return field !== undefined && RUN_FIELDS.has(field);
+}
+
+/** True for a step field that runs as the command of the executor. */
+export function isCommandField(field: string | undefined): boolean {
+  return isRunField(field) || field === 'args';
+}
 
 /** True when the path points at a shell field that is a direct child of a step. */
 export function isRunFieldPath(path: string[]): boolean {

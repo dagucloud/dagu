@@ -14,6 +14,8 @@ export interface MonacoFieldProps {
   ariaLabel: string;
   /** References to complete in a script. Read when the field mounts and at each request. */
   candidates?: ReferenceCandidate[];
+  /** References to complete in the YAML of a step, by the path below the step entry. */
+  candidatesAtPath?(path: string[]): ReferenceCandidate[];
   /** Called with the text of the editor at each change. */
   onChange?(text: string): void;
   /** Called on blur when the text differs from `value`. */
