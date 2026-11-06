@@ -26,6 +26,11 @@ import (
 
 const staleLocalRunStartupGrace = 2 * time.Second
 
+// ServiceRunStartTimeout is how long a run of a DAG that sets restart_policy may
+// stay queued or not started before the scheduler checks whether anything will
+// still start it.
+const ServiceRunStartTimeout = 5 * time.Minute
+
 // ErrServiceRunActive says a DAG that sets restart_policy has an active run, which
 // a new run would run next to.
 var ErrServiceRunActive = errors.New("a DAG with a restart_policy has one run at a time")
@@ -531,10 +536,20 @@ func (m *Manager) CheckServiceRun(ctx context.Context, dag *ir.DAG, dagRunID str
 		logger.Warn(ctx, "Failed to read the latest run of a service DAG", tag.DAG(dag.Name), tag.Error(err))
 		return nil
 	}
-	if status.DAGRunID == dagRunID || !status.Status.IsActive() {
+	if status.DAGRunID == "" || status.DAGRunID == dagRunID || !m.serviceRunActive(&status) {
 		return nil
 	}
 	return fmt.Errorf("%w: run %s of DAG %s is %s", ErrServiceRunActive, status.DAGRunID, dag.Name, status.Status)
+}
+
+// serviceRunActive reports whether a run counts as active. A run that waits for a
+// worker has not started; after ServiceRunStartTimeout it may be left behind by a
+// crash, and the scheduler that would fail it may not be running.
+func (m *Manager) serviceRunActive(status *ir.DAGRunStatus) bool {
+	if status.Status == ir.NotStarted {
+		return status.CreatedAt > 0 && m.nowFunc().Sub(time.UnixMilli(status.CreatedAt)) < ServiceRunStartTimeout
+	}
+	return status.Status.IsActive()
 }
 
 // repairStaleLocalRunIfDead repairs a persisted local Running status only when

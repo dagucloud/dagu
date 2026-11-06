@@ -13,6 +13,7 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/cmn/logger/tag"
 	"github.com/dagucloud/dagu/v2/internal/eventstore"
 	"github.com/dagucloud/dagu/v2/internal/ir"
+	"github.com/dagucloud/dagu/v2/internal/runtime"
 )
 
 // Only the scheduler that holds the scheduler lock runs the scanner. A DAG gets
@@ -29,10 +30,10 @@ import (
 // process killed while it writes its status can leave the run lock of the DAG
 // behind, which delays the restart until the lock is stale.
 //
-// Two runs of a DAG can still overlap: a manual start can race with a restart,
-// and runs can predate the policy. Either can end first, so a new run follows the
-// run that ended last. A stop of one run then leaves the DAG stopped only if no
-// other run ended after it.
+// Two runs of a DAG can still overlap: runs can predate the policy, and two
+// starts on different workers can race. Either can end first, so a new run follows
+// the run that ended last. A stop of one run then leaves the DAG stopped only if
+// no other run ended after it.
 //
 // A run that has not started within restartNotStartedTimeout, and that no
 // process, worker, queue item or pending dispatch will still start, is marked
@@ -76,7 +77,7 @@ const (
 
 	// restartNotStartedTimeout is how long a run may stay queued or not started
 	// before the scanner checks whether anything will still start it.
-	restartNotStartedTimeout = 5 * time.Minute
+	restartNotStartedTimeout = runtime.ServiceRunStartTimeout
 
 	// restartRecentRuns is how many recent runs of a DAG are searched for the run
 	// that ended last.

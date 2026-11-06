@@ -1302,3 +1302,68 @@ func TestManagerReadLatestStatus(t *testing.T) {
 		require.Empty(t, latest.DAGRunID)
 	})
 }
+
+func TestCheckServiceRun(t *testing.T) {
+	t.Parallel()
+
+	const steps = "steps:\n  - run: echo ok\n"
+	const service = "restart_policy: always\nrestart_wait_sec: 1\n" + steps
+
+	for _, tt := range []struct {
+		name    string
+		spec    string
+		status  ir.Status
+		age     time.Duration
+		ownRun  bool
+		refused bool
+	}{
+		{name: "Queued", spec: service, status: ir.Queued, refused: true},
+		{name: "Waiting", spec: service, status: ir.Waiting, refused: true},
+		// A run that waits for a worker has no process and no queue item.
+		{name: "NotStarted", spec: service, status: ir.NotStarted, refused: true},
+		// The scheduler fails such a run, and may not be running to do so.
+		{name: "NotStartedTooLong", spec: service, status: ir.NotStarted, age: runtime.ServiceRunStartTimeout + time.Minute},
+		{name: "Succeeded", spec: service, status: ir.Succeeded},
+		{name: "OwnRun", spec: service, status: ir.Queued, ownRun: true},
+		{name: "NoPolicy", spec: steps, status: ir.Queued},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			th := test.Setup(t)
+			dag := th.DAG(t, tt.spec)
+			const runID = "run-1"
+			createdAt := time.Now().Add(-tt.age)
+			attempt, err := th.DAGRunRepository.CreateAttempt(th.Context, dag.DAG, createdAt, runID, persis.DAGRunCreateAttemptOptions{})
+			require.NoError(t, err)
+			require.NoError(t, attempt.Open(th.Context))
+			require.NoError(t, attempt.Write(th.Context, ir.DAGRunStatus{
+				Name:      dag.Name,
+				DAGRunID:  runID,
+				AttemptID: attempt.ID(),
+				Status:    tt.status,
+				CreatedAt: createdAt.UnixMilli(),
+			}))
+			require.NoError(t, attempt.Close(th.Context))
+
+			newRun := "run-2"
+			if tt.ownRun {
+				newRun = runID
+			}
+			err = th.DAGRunMgr.CheckServiceRun(th.Context, dag.DAG, newRun)
+			if tt.refused {
+				require.ErrorIs(t, err, runtime.ErrServiceRunActive)
+				return
+			}
+			require.NoError(t, err)
+		})
+	}
+
+	t.Run("NoRun", func(t *testing.T) {
+		t.Parallel()
+
+		th := test.Setup(t)
+		dag := th.DAG(t, service)
+		require.NoError(t, th.DAGRunMgr.CheckServiceRun(th.Context, dag.DAG, "run-1"))
+	})
+}
