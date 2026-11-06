@@ -3,18 +3,18 @@
 
 import { describe, expect, it } from 'vitest';
 import { RestartPolicy } from '@/api/v1/schema';
-import { getRestartValue, isServiceDAG } from '../dagSchedule';
+import { getRestartValue, isAlwaysOnDAG } from '../dagSchedule';
 
-describe('service DAGs', () => {
+describe('always-on DAGs', () => {
   it('recognizes the DAGs kept alive by a restart policy', () => {
-    expect(isServiceDAG({ restartPolicy: RestartPolicy.always })).toBe(true);
-    expect(isServiceDAG({ restartPolicy: RestartPolicy.unless_stopped })).toBe(
+    expect(isAlwaysOnDAG({ restartPolicy: RestartPolicy.always })).toBe(true);
+    expect(isAlwaysOnDAG({ restartPolicy: RestartPolicy.unless_stopped })).toBe(
       true
     );
   });
 
   it('does not take other DAGs for services', () => {
-    expect(isServiceDAG({})).toBe(false);
+    expect(isAlwaysOnDAG({})).toBe(false);
   });
 
   it('labels the policy with the wait between two runs', () => {

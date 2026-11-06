@@ -98,10 +98,10 @@ func (a *API) checkSingletonQueued(ctx context.Context, dag *ir.DAG) error {
 	return nil
 }
 
-// checkServiceRun returns a conflict if a new run of a DAG that sets restart_policy
+// checkAlwaysOnRun returns a conflict if a new run of a DAG that sets restart_policy
 // would run next to its active run.
-func (a *API) checkServiceRun(ctx context.Context, dag *ir.DAG, dagRunID string) error {
-	if err := a.dagRunMgr.CheckServiceRun(ctx, dag, dagRunID); err != nil {
+func (a *API) checkAlwaysOnRun(ctx context.Context, dag *ir.DAG, dagRunID string) error {
+	if err := a.dagRunMgr.CheckAlwaysOnRun(ctx, dag, dagRunID); err != nil {
 		return &Error{
 			HTTPStatus: http.StatusConflict,
 			Code:       api.ErrorCodeConflict,
@@ -111,16 +111,16 @@ func (a *API) checkServiceRun(ctx context.Context, dag *ir.DAG, dagRunID string)
 	return nil
 }
 
-// checkServiceRunOfDefinition is checkServiceRun for a DAG from a run snapshot or
+// checkAlwaysOnRunOfDefinition is checkAlwaysOnRun for a DAG from a run snapshot or
 // a request. Its current definition, which the scheduler follows, decides whether
-// it is a service, and the given DAG once the definition is gone.
-func (a *API) checkServiceRunOfDefinition(ctx context.Context, dag *ir.DAG, dagRunID string) error {
+// it is always-on, and the given DAG once the definition is gone.
+func (a *API) checkAlwaysOnRunOfDefinition(ctx context.Context, dag *ir.DAG, dagRunID string) error {
 	if a.dagRepository != nil {
 		if current, err := a.dagRepository.GetMetadata(ctx, dag.Name); err == nil {
 			dag = current
 		}
 	}
-	return a.checkServiceRun(ctx, dag, dagRunID)
+	return a.checkAlwaysOnRun(ctx, dag, dagRunID)
 }
 
 // ValidateDAGSpec implements api.StrictServerInterface.
@@ -1203,7 +1203,7 @@ func (a *API) ExecuteDAG(ctx context.Context, request api.ExecuteDAGRequestObjec
 		}
 	}
 
-	if err := a.checkServiceRun(ctx, dag, dagRunId); err != nil {
+	if err := a.checkAlwaysOnRun(ctx, dag, dagRunId); err != nil {
 		return nil, err
 	}
 
@@ -1332,7 +1332,7 @@ func (a *API) ExecuteDAGSync(ctx context.Context, request api.ExecuteDAGSyncRequ
 		}
 	}
 
-	if err := a.checkServiceRun(ctx, dag, dagRunId); err != nil {
+	if err := a.checkAlwaysOnRun(ctx, dag, dagRunId); err != nil {
 		return nil, err
 	}
 
@@ -1987,7 +1987,7 @@ func (a *API) EnqueueDAGDAGRun(ctx context.Context, request api.EnqueueDAGDAGRun
 		}
 	}
 
-	if err := a.checkServiceRun(ctx, dag, dagRunId); err != nil {
+	if err := a.checkAlwaysOnRun(ctx, dag, dagRunId); err != nil {
 		return nil, err
 	}
 

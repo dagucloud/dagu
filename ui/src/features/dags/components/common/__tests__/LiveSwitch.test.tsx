@@ -36,7 +36,7 @@ describe('LiveSwitch', () => {
     ).toBeChecked();
   });
 
-  it('names the switch after the restarts of a service DAG', () => {
+  it('names the switch after the restarts of an always-on DAG', () => {
     render(
       <LiveSwitch
         dag={

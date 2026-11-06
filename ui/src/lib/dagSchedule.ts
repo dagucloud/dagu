@@ -64,10 +64,10 @@ export function formatFireTime(
 }
 
 /**
- * A service DAG is kept alive by the scheduler (restart_policy) instead of
+ * An always-on DAG is kept alive by the scheduler (restart_policy) instead of
  * following a schedule.
  */
-export function isServiceDAG(dag: RestartPolicyFields): boolean {
+export function isAlwaysOnDAG(dag: RestartPolicyFields): boolean {
   return (
     dag.restartPolicy === RestartPolicy.always ||
     dag.restartPolicy === RestartPolicy.unless_stopped

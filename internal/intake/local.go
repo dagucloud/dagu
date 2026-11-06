@@ -77,7 +77,7 @@ func PrepareLocalExecution(ctx context.Context, req LocalRequest) (*LocalPrepara
 
 	var preparation *LocalPreparation
 	err := req.ProcRepository.WithLock(ctx, req.DAG.ProcGroup(), func() error {
-		if err := req.checkServiceProcess(ctx); err != nil {
+		if err := req.checkAlwaysOnProcess(ctx); err != nil {
 			return err
 		}
 
@@ -122,10 +122,10 @@ func PrepareLocalExecution(ctx context.Context, req LocalRequest) (*LocalPrepara
 	return preparation, nil
 }
 
-// checkServiceProcess refuses a root run of a DAG that sets restart_policy next to
+// checkAlwaysOnProcess refuses a root run of a DAG that sets restart_policy next to
 // the live process of another. It runs under the process lock, so of two starts
 // that race, the second sees the first.
-func (r LocalRequest) checkServiceProcess(ctx context.Context) error {
+func (r LocalRequest) checkAlwaysOnProcess(ctx context.Context) error {
 	if !r.DAG.RestartPolicy.Enabled() || !r.Parent.Zero() {
 		return nil
 	}
@@ -135,7 +135,7 @@ func (r LocalRequest) checkServiceProcess(ctx context.Context) error {
 	}
 	for _, entry := range entries {
 		if entry.IsRoot() && entry.Meta.DAGRunID != r.DAGRunID {
-			return fmt.Errorf("%w: run %s of DAG %s is running", runtime.ErrServiceRunActive, entry.Meta.DAGRunID, r.DAG.Name)
+			return fmt.Errorf("%w: run %s of DAG %s is running", runtime.ErrAlwaysOnRunActive, entry.Meta.DAGRunID, r.DAG.Name)
 		}
 	}
 	return nil

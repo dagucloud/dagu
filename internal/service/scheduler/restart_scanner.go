@@ -77,7 +77,7 @@ const (
 
 	// restartNotStartedTimeout is how long a run may stay queued or not started
 	// before the scanner checks whether anything will still start it.
-	restartNotStartedTimeout = runtime.ServiceRunStartTimeout
+	restartNotStartedTimeout = runtime.AlwaysOnRunStartTimeout
 
 	// restartRecentRuns is how many recent runs of a DAG are searched for the run
 	// that ended last.

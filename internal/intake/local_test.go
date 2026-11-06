@@ -154,7 +154,7 @@ func (h *localProcHandle) Stop(context.Context) error { return nil }
 
 // A DAG with a restart_policy has one run at a time. The check is made under the
 // process lock, so that of two starts that race, one sees the other.
-func TestPrepareLocalExecutionServiceDAG(t *testing.T) {
+func TestPrepareLocalExecutionAlwaysOnDAG(t *testing.T) {
 	t.Parallel()
 
 	rootEntry := func(runID string) proc.ProcEntry {
@@ -197,7 +197,7 @@ func TestPrepareLocalExecutionServiceDAG(t *testing.T) {
 			})
 
 			if tt.refused {
-				require.ErrorIs(t, err, runtime.ErrServiceRunActive)
+				require.ErrorIs(t, err, runtime.ErrAlwaysOnRunActive)
 				assert.False(t, built, "a refused run leaves no attempt")
 				return
 			}

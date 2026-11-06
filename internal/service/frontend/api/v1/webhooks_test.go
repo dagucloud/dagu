@@ -1220,7 +1220,7 @@ func mapsKeys[M ~map[string]V, V any](m M) []string {
 }
 
 // A webhook starts no run next to the active run of a DAG with a restart_policy.
-func TestWebhooks_ServiceDAGRunsOneAtATime(t *testing.T) {
+func TestWebhooks_AlwaysOnDAGRunsOneAtATime(t *testing.T) {
 	webhookParallel(t)
 	server := setupWebhookTestServer(t)
 	token := getWebhookAdminToken(t, server)

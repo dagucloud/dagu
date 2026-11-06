@@ -26,14 +26,14 @@ import (
 
 const staleLocalRunStartupGrace = 2 * time.Second
 
-// ServiceRunStartTimeout is how long a run of a DAG that sets restart_policy may
+// AlwaysOnRunStartTimeout is how long a run of a DAG that sets restart_policy may
 // stay queued or not started before the scheduler checks whether anything will
 // still start it.
-const ServiceRunStartTimeout = 5 * time.Minute
+const AlwaysOnRunStartTimeout = 5 * time.Minute
 
-// ErrServiceRunActive says a DAG that sets restart_policy has an active run, which
+// ErrAlwaysOnRunActive says a DAG that sets restart_policy has an active run, which
 // a new run would run next to.
-var ErrServiceRunActive = errors.New("a DAG with a restart_policy has one run at a time")
+var ErrAlwaysOnRunActive = errors.New("a DAG with a restart_policy has one run at a time")
 
 // ManagerOption configures a Manager.
 type ManagerOption func(*Manager)
@@ -523,31 +523,31 @@ func (m *Manager) ReadLatestStatus(ctx context.Context, dag *ir.DAG) (ir.DAGRunS
 	return *st, nil
 }
 
-// CheckServiceRun returns ErrServiceRunActive when dag sets restart_policy and a
+// CheckAlwaysOnRun returns ErrAlwaysOnRunActive when dag sets restart_policy and a
 // run other than dagRunID is active. A latest run that cannot be read does not
 // count, so that it cannot keep an operator from bringing the DAG back.
-func (m *Manager) CheckServiceRun(ctx context.Context, dag *ir.DAG, dagRunID string) error {
+func (m *Manager) CheckAlwaysOnRun(ctx context.Context, dag *ir.DAG, dagRunID string) error {
 	if !dag.RestartPolicy.Enabled() {
 		return nil
 	}
 	allHistory := m.AllHistory()
 	status, err := allHistory.ReadLatestStatus(ctx, dag)
 	if err != nil {
-		logger.Warn(ctx, "Failed to read the latest run of a service DAG", tag.DAG(dag.Name), tag.Error(err))
+		logger.Warn(ctx, "Failed to read the latest run of an always-on DAG", tag.DAG(dag.Name), tag.Error(err))
 		return nil
 	}
-	if status.DAGRunID == "" || status.DAGRunID == dagRunID || !m.serviceRunActive(&status) {
+	if status.DAGRunID == "" || status.DAGRunID == dagRunID || !m.alwaysOnRunActive(&status) {
 		return nil
 	}
-	return fmt.Errorf("%w: run %s of DAG %s is %s", ErrServiceRunActive, status.DAGRunID, dag.Name, status.Status)
+	return fmt.Errorf("%w: run %s of DAG %s is %s", ErrAlwaysOnRunActive, status.DAGRunID, dag.Name, status.Status)
 }
 
-// serviceRunActive reports whether a run counts as active. A run that waits for a
-// worker has not started; after ServiceRunStartTimeout it may be left behind by a
+// alwaysOnRunActive reports whether a run counts as active. A run that waits for a
+// worker has not started; after AlwaysOnRunStartTimeout it may be left behind by a
 // crash, and the scheduler that would fail it may not be running.
-func (m *Manager) serviceRunActive(status *ir.DAGRunStatus) bool {
+func (m *Manager) alwaysOnRunActive(status *ir.DAGRunStatus) bool {
 	if status.Status == ir.NotStarted {
-		return status.CreatedAt > 0 && m.nowFunc().Sub(time.UnixMilli(status.CreatedAt)) < ServiceRunStartTimeout
+		return status.CreatedAt > 0 && m.nowFunc().Sub(time.UnixMilli(status.CreatedAt)) < AlwaysOnRunStartTimeout
 	}
 	return status.Status.IsActive()
 }

@@ -165,7 +165,7 @@ steps:
 
 // A DAG with a restart_policy has one run at a time: no request starts a run
 // next to the active one. Once none is active, a manual start works again.
-func TestServiceDAGRunsOneAtATime(t *testing.T) {
+func TestAlwaysOnDAGRunsOneAtATime(t *testing.T) {
 	server := test.SetupServer(t)
 
 	const name = "service_dag"
@@ -218,7 +218,7 @@ steps:
 
 // The scheduler follows the current definition, so neither a run whose snapshot
 // predates the restart_policy nor a spec in the request gets around it.
-func TestServiceDAGFollowsCurrentDefinition(t *testing.T) {
+func TestAlwaysOnDAGFollowsCurrentDefinition(t *testing.T) {
 	server := test.SetupServer(t)
 
 	const name = "service_dag_later"
