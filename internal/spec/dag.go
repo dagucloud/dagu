@@ -958,6 +958,7 @@ func (s *dagBuildState) collectWarnings() {
 	if !s.ctx.opts.Has(buildFlagOnlyMetadata) {
 		s.result.BuildWarnings = append(s.result.BuildWarnings, harnessWorkingDirWarnings(s.result)...)
 		s.result.BuildWarnings = append(s.result.BuildWarnings, executorConfigWarnings(s.result)...)
+		s.result.BuildWarnings = append(s.result.BuildWarnings, modelOutputInRunWarnings(s.result)...)
 	}
 }
 
@@ -1018,6 +1019,70 @@ func executorConfigWarnings(dag *ir.DAG) []string {
 		}
 	})
 	return warnings
+}
+
+// modelOutputInRunWarnings reports shell commands that have a model's reply
+// written into their text. Dagu does not escape inserted values, and a reply can
+// carry whatever text the model read, so it can run as shell code.
+func modelOutputInRunWarnings(dag *ir.DAG) []string {
+	models := make(map[string]ir.Step)
+	commands := make(map[string]struct{})
+	walkSteps(dag, func(step ir.Step, _ string) {
+		switch step.ExecutorConfig.Type {
+		case "harness", ir.ExecutorTypeChat, ir.ExecutorTypeAgent:
+			models[step.Name] = step
+			if step.ID != "" {
+				models[step.ID] = step
+			}
+		}
+		if step.ExecutorConfig.IsCommand() {
+			commands[step.Name] = struct{}{}
+		}
+	})
+	if len(models) == 0 {
+		return nil
+	}
+
+	var warnings []string
+	seen := make(map[string]struct{})
+	for _, field := range ReferenceFields(dag) {
+		if _, ok := commands[field.OwnerStepName]; !ok || !field.Field.ReachesShell() {
+			continue
+		}
+		for _, ref := range field.Field.StepTextReferences(field.Value) {
+			model, ok := models[ref.StepName]
+			if !ok || schemaExcludesShellSyntax(model, ref.Field) {
+				continue
+			}
+			warning := fmt.Sprintf(
+				"DAG %q: step %q: %s writes model output into a shell command. "+
+					"Dagu does not escape it, so quotes or $(...) in the text can run as shell code. "+
+					"Pass it through env and read it from the environment instead.",
+				dag.Name, field.OwnerStepName, ref.Expression,
+			)
+			if _, ok := seen[warning]; ok {
+				continue
+			}
+			seen[warning] = struct{}{}
+			warnings = append(warnings, warning)
+		}
+	}
+	return warnings
+}
+
+// schemaExcludesShellSyntax reports whether the step's output schema limits the
+// field to values the author chose or to non-text values.
+func schemaExcludesShellSyntax(step ir.Step, field string) bool {
+	properties, _ := step.OutputSchema["properties"].(map[string]any)
+	property, _ := properties[field].(map[string]any)
+	if _, ok := property["enum"]; ok {
+		return true
+	}
+	switch property["type"] {
+	case "boolean", "integer", "number":
+		return true
+	}
+	return false
 }
 
 // walkSteps calls visit for every step of dag, including foreach bodies and
