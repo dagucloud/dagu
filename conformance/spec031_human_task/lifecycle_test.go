@@ -355,6 +355,35 @@ func TestPushBackReviewLoop(t *testing.T) {
 	waitForFileContent(t, dagu.ProjectPath("attempts.txt"), ":\n1:add-tests\n")
 }
 
+// Push-back feedback asks a step to revise its earlier work, so a harness step
+// that first runs after the push-back keeps its own prompt unchanged.
+func TestPushBackFeedbackSkipsPromptOfHarnessStepThatNeverRan(t *testing.T) {
+	dagu := harness.NewRunner(t)
+	env := sharedEnv(t)
+	const runID = "spec031-harness-first-run"
+	const file = "push_back_harness.yaml"
+
+	dagu.WriteExecutable("record_prompt.sh", "#!/bin/sh\nprintf '%s\\n---\\n' \"$1\" >> prompts.txt\n")
+	startWaiting(t, dagu, env, runID, file)
+	waitForStatus(t, dagu, env, runID, file, "Waiting")
+
+	pushBack(t, dagu, env, runID, "review", file, "--input=feedback=add-tests").ExpectExitCode(0)
+	status := waitForStatus(t, dagu, env, runID, file, "Waiting")
+	require.Contains(t, status.Stdout(), "push-back iteration: 1")
+
+	complete(t, dagu, env, runID, "review", file).ExpectExitCode(0)
+	waitForStatus(t, dagu, env, runID, file, "Succeeded")
+
+	prompts, err := os.ReadFile(dagu.ProjectPath("prompts.txt"))
+	require.NoError(t, err)
+	calls := strings.Split(strings.TrimSuffix(string(prompts), "---\n"), "---\n")
+	require.Len(t, calls, 3)
+	require.Equal(t, "implement the change\n", calls[0])
+	require.Contains(t, calls[1], "implement the change")
+	require.Contains(t, calls[1], "feedback: add-tests")
+	require.Equal(t, "publish the change\n", calls[2])
+}
+
 func collapseStatusLines(stdout string) string {
 	var result strings.Builder
 	for line := range strings.SplitSeq(stdout, "\n") {

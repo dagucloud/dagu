@@ -292,9 +292,10 @@ func TestStepExecutorScopesPushBackInputs(t *testing.T) {
 			ExecutorConfig: ir.ExecutorConfig{Type: executorType},
 			Approval:       &ir.ApprovalConfig{Input: []string{"FEEDBACK"}},
 		}, runtime.NodeState{
-			ApprovalIteration: 1,
-			PushBackInputs:    inputs,
-			PushBackHistory:   []ir.PushBackEntry{{Iteration: 1, Inputs: inputs, HumanTask: tc.humanTask}},
+			ApprovalIteration:      1,
+			PushBackInputs:         inputs,
+			PushBackHistory:        []ir.PushBackEntry{{Iteration: 1, Inputs: inputs, HumanTask: tc.humanTask}},
+			PushBackPreviousStdout: "/logs/draft.out",
 		})
 
 		ctx := runtime.NewContext(context.Background(), &ir.DAG{}, "run-1", "dag.log")
@@ -304,4 +305,36 @@ func TestStepExecutorScopesPushBackInputs(t *testing.T) {
 		require.Equal(t, tc.want, fakeExec.pushBackInputs, "humanTask=%v", tc.humanTask)
 		require.Equal(t, 1, fakeExec.pushBackIteration)
 	}
+}
+
+// A step in the rewound scope that has not run yet has no work for feedback to
+// revise. The executor must not rewrite its prompt, though the step's
+// environment still carries the push-back context.
+func TestStepExecutorKeepsPushBackFromStepsThatNeverRan(t *testing.T) {
+	executorType := "test-step-executor-push-back-first-run"
+	execCh := make(chan *sideChannelExecutor, 1)
+	runtimeexec.RegisterExecutor(executorType, func(context.Context, ir.Step) (runtimeexec.Executor, error) {
+		exec := &sideChannelExecutor{}
+		execCh <- exec
+		return exec, nil
+	}, nil, registry.ExecutorCapabilities{})
+	t.Cleanup(func() { runtimeexec.UnregisterExecutor(executorType) })
+
+	inputs := map[string]string{"feedback": "add tests"}
+	node := runtime.NewNode(ir.Step{
+		Name:           "publish",
+		ExecutorConfig: ir.ExecutorConfig{Type: executorType},
+	}, runtime.NodeState{
+		ApprovalIteration: 1,
+		PushBackInputs:    inputs,
+		PushBackHistory:   []ir.PushBackEntry{{Iteration: 1, Inputs: inputs, HumanTask: true}},
+	})
+
+	ctx := runtime.NewContext(context.Background(), &ir.DAG{}, "run-1", "dag.log")
+	require.NoError(t, runtime.NewStepExecutor().Execute(ctx, node))
+
+	fakeExec := <-execCh
+	require.Zero(t, fakeExec.pushBackIteration)
+	require.Empty(t, fakeExec.pushBackInputs)
+	require.Empty(t, fakeExec.previousStdout)
 }

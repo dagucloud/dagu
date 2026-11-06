@@ -143,7 +143,8 @@ type ProgressCallbackAware interface {
 }
 
 // PushBackAware is implemented by executors that can incorporate
-// push-back feedback into their conversation flow.
+// push-back feedback into their conversation flow. It is called only for a step
+// that ran before the push-back.
 type PushBackAware interface {
 	SetPushBackContext(inputs map[string]string, iteration int)
 }
