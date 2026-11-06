@@ -4,6 +4,7 @@
 import { describe, expect, it, vi } from 'vitest';
 import { ReferenceScopeStepOutputsKnown } from '@/api/v1/schema';
 import type { ReferenceScope } from '../../contracts';
+import { parseDagDoc } from '../../doc/parse';
 import {
   scopeHttpJq,
   yamlArraySteps,
@@ -89,6 +90,21 @@ describe('computeReferenceHover', () => {
     expect(
       computeReferenceHover(other, at(other, '${HOME}', 3), state)
     ).toBeNull();
+  });
+
+  it('describes the repeat index in a step with repeat_policy', () => {
+    const text =
+      'steps:\n  - name: poll\n    run: echo ${context.step.repeat_index}\n    repeat_policy:\n      repeat: while\n';
+    const hover = computeReferenceHover(text, at(text, 'repeat_index'), {
+      scope: {
+        ...scopeHttpJq,
+        steps: [
+          { ...scopeHttpJq.steps[0]!, name: 'poll', stepPath: 'steps[0]' },
+        ],
+      },
+      model: parseDagDoc(text),
+    });
+    expect(hover?.lines[0]).toBe('step.repeat_index');
   });
 
   it('returns null outside a token', () => {

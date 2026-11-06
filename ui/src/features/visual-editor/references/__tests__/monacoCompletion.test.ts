@@ -11,6 +11,7 @@ import {
   yamlMapSteps,
 } from '../../testing/fixtures';
 import type { ReferenceScope } from '../../contracts';
+import { parseDagDoc } from '../../doc/parse';
 import { editorLocale, findOwningStep } from '../editorState';
 import {
   computeReferenceCompletions,
@@ -149,14 +150,75 @@ describe('computeReferenceCompletions', () => {
     expect(result?.to).toBe(offset + 1);
   });
 
-  it('gives no step outputs inside params', () => {
+  it('offers nothing in a param default, which is literal', () => {
     const offset = at(yamlHttpJq, 'https://api', 4);
-    const result = computeReferenceCompletions(yamlHttpJq, offset, state, {
-      explicit: true,
-    });
+    expect(
+      computeReferenceCompletions(yamlHttpJq, offset, state, { explicit: true })
+    ).toBeNull();
+  });
+
+  it('gives no step outputs in a param eval', () => {
+    const text = 'params:\n  - name: day\n    eval: date\nsteps:\n  - run: a\n';
+    const result = computeReferenceCompletions(
+      text,
+      at(text, 'date', 2),
+      state,
+      { explicit: true }
+    );
     expect(result).not.toBeNull();
     expect(result?.items.some((item) => item.group === 'steps')).toBe(false);
     expect(result?.items.some((item) => item.group === 'params')).toBe(true);
+  });
+
+  // Spec 004: a const resolves only the const entries before it, and no
+  // runtime namespace.
+  it('offers only the earlier consts in a const value', () => {
+    const text =
+      'consts:\n  - first: 1\n  - second: ${\n  - third: 3\nsteps:\n  - run: a\n';
+    const scope: ReferenceScope = {
+      ...scopeHttpJq,
+      consts: ['first', 'second', 'third'].map((name) => ({
+        name,
+        reference: `\${consts.${name}}`,
+      })),
+    };
+    const result = computeReferenceCompletions(
+      text,
+      at(text, '${', 2),
+      { scope },
+      { explicit: false }
+    );
+    expect(result?.items.map((item) => item.token)).toEqual([
+      '${consts.first}',
+    ]);
+  });
+
+  it('offers the repeat index for a step with repeat_policy only', () => {
+    const text = [
+      'steps:',
+      '  - name: poll',
+      '    run: echo ${',
+      '    repeat_policy:',
+      '      repeat: while',
+      '  - name: once',
+      '    run: echo ${',
+      '',
+    ].join('\n');
+    const repeatState = {
+      scope: scopeWith(
+        { name: 'poll', stepPath: 'steps[0]' },
+        { name: 'once', stepPath: 'steps[1]' }
+      ),
+      model: parseDagDoc(text),
+    };
+    const labelsAt = (offset: number) =>
+      computeReferenceCompletions(text, offset, repeatState, {
+        explicit: false,
+      })?.items.map((item) => item.label);
+    expect(labelsAt(at(text, '${', 2))).toContain('step.repeat_index');
+    expect(labelsAt(text.lastIndexOf('${') + 2)).not.toContain(
+      'step.repeat_index'
+    );
   });
 
   it('marks a run field and no other field', () => {

@@ -1,13 +1,13 @@
 // Copyright (C) 2026 Yota Hamada
 // SPDX-License-Identifier: GPL-3.0-or-later
 
+import { isMap, isScalar, isSeq, parseDocument } from 'yaml';
 import { getYamlPathAtOffset } from '@/hooks/useYamlCursorPath';
 import { translateStatic } from '@/i18n/translateStatic';
 import type { ReferenceCandidate } from '../contracts';
-import { buildReferenceCandidates } from './candidates';
 import {
+  candidatesAt,
   editorLocale,
-  findOwningStep,
   isRunFieldPath,
   type ReferenceEditorState,
 } from './editorState';
@@ -25,9 +25,52 @@ export interface ReferenceCompletions {
   inRunField: boolean;
 }
 
+// Names of the entries of root `consts` before the entry at `index`.
+function constNamesBefore(text: string, index: number): Set<string> {
+  const names = new Set<string>();
+  const consts = parseDocument(text).get('consts');
+  if (!isSeq(consts)) {
+    return names;
+  }
+  for (const entry of consts.items.slice(0, index)) {
+    if (!isMap(entry)) {
+      continue;
+    }
+    for (const { key } of entry.items) {
+      if (isScalar(key)) {
+        names.add(String(key.value));
+      }
+    }
+  }
+  return names;
+}
+
+// Candidates that resolve in the field at `path`, by the field evaluation
+// matrix of spec 003. Null for a field that keeps references as literal text.
+function fieldCandidates(
+  text: string,
+  offset: number,
+  path: string[],
+  state: ReferenceEditorState
+): ReferenceCandidate[] | null {
+  const [root, entry, key] = path;
+  if (root === 'params' && key !== 'eval') {
+    return null;
+  }
+  const items = candidatesAt(text, offset, state);
+  if (root !== 'consts') {
+    return items;
+  }
+  const earlier = constNamesBefore(text, Number(entry));
+  return items.filter(
+    (item) => item.group === 'consts' && earlier.has(item.label)
+  );
+}
+
 /**
  * Candidates for the offset, or null when no completion applies.
- * An open "${" always applies. A cursor in a YAML value applies only for an explicit request.
+ * An open "${" applies unless the field is literal. A cursor in a YAML value
+ * applies only for an explicit request.
  */
 export function computeReferenceCompletions(
   text: string,
@@ -49,9 +92,12 @@ export function computeReferenceCompletions(
   } else {
     return null;
   }
-  const step = findOwningStep(text, offset, state);
+  const items = fieldCandidates(text, offset, cursor.path, state);
+  if (!items) {
+    return null;
+  }
   return {
-    items: buildReferenceCandidates(state.scope, step?.name ?? null),
+    items,
     from,
     to,
     inRunField: isRunFieldPath(cursor.path),
