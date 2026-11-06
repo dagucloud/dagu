@@ -129,6 +129,29 @@ describe('AvailableReferences', () => {
     expect(onInsert).toHaveBeenCalledWith('${params.REGION}');
   });
 
+  // Two steps can publish the same output variable.
+  it('keeps two rows of one token apart', () => {
+    const consoleError = vi
+      .spyOn(console, 'error')
+      .mockImplementation(() => {});
+    const variable = (stepName: string): ReferenceCandidate => ({
+      token: '${RESULT}',
+      label: `${stepName}.RESULT`,
+      group: 'steps',
+      stepName,
+      known: 'static',
+    });
+    render(<AvailableReferences candidates={[variable('a'), variable('b')]} />);
+    expect(
+      screen.getByRole('button', { name: 'a.RESULT' })
+    ).toBeInTheDocument();
+    expect(
+      screen.getByRole('button', { name: 'b.RESULT' })
+    ).toBeInTheDocument();
+    expect(consoleError).not.toHaveBeenCalled();
+    consoleError.mockRestore();
+  });
+
   it('copies the token when no field can take it', async () => {
     const writeText = vi.fn(() => Promise.resolve());
     Object.assign(navigator, { clipboard: { writeText } });

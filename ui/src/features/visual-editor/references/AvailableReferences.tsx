@@ -69,7 +69,7 @@ export function AvailableReferences({
             </div>
             {items.map((candidate) => (
               <div
-                key={candidate.token}
+                key={`${candidate.stepName ?? ''}:${candidate.token}`}
                 className="flex min-w-0 items-baseline gap-2"
               >
                 <ReferenceName
