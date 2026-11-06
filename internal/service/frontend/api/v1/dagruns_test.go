@@ -2434,6 +2434,60 @@ steps:
 	require.Contains(t, rescheduledStatus.ParamsList, "MESSAGE=hello world")
 }
 
+// The current file gives its own DAG name, which is not the name of a run
+// started with --name: a new run takes the override, else the name of its run.
+func TestRescheduleCurrentDAGFileName(t *testing.T) {
+	const (
+		dagName = "reschedule_current_file_name"
+		runName = dagName + "_run"
+	)
+	override := dagName + "_override"
+	server := test.SetupServer(t, test.WithConfigMutator(func(cfg *config.Config) {
+		cfg.Queues.Enabled = true
+		cfg.Queues.Config = []config.QueueConfig{{Name: dagName, MaxActiveRuns: 1}}
+	}))
+
+	spec := fmt.Sprintf("queue: %s\nsteps:\n  - name: main\n    run: echo done", dagName)
+	server.Client().Post("/api/v1/dags", api.CreateNewDAGJSONRequestBody{
+		Name: dagName,
+		Spec: &spec,
+	}).ExpectStatus(http.StatusCreated).Send(t)
+
+	name := runName
+	var started api.ExecuteDAG200JSONResponse
+	server.Client().Post(
+		fmt.Sprintf("/api/v1/dags/%s/start", dagName),
+		api.ExecuteDAGJSONRequestBody{DagName: &name},
+	).ExpectStatus(http.StatusOK).Send(t).Unmarshal(t, &started)
+	waitForStoredDAGRunStatus(t, server, runName, started.DagRunId, 10*time.Second, func(status *ir.DAGRunStatus) bool {
+		return status.Status == ir.Succeeded
+	})
+
+	tests := []struct {
+		name         string
+		dagName      *string
+		wantRunNamed string
+	}{
+		{name: "keeps the name of the run", wantRunNamed: runName},
+		{name: "takes the override", dagName: &override, wantRunNamed: override},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			useCurrentDagFile := true
+			var rescheduled api.RescheduleDAGRun200JSONResponse
+			server.Client().Post(
+				fmt.Sprintf("/api/v1/dag-runs/%s/%s/reschedule", runName, started.DagRunId),
+				api.RescheduleDAGRunJSONRequestBody{DagName: tt.dagName, UseCurrentDagFile: &useCurrentDagFile},
+			).ExpectStatus(http.StatusOK).Send(t).Unmarshal(t, &rescheduled)
+
+			server.Client().Get(
+				fmt.Sprintf("/api/v1/dag-runs/%s/%s", tt.wantRunNamed, rescheduled.DagRunId),
+			).ExpectStatus(http.StatusOK).Send(t)
+		})
+	}
+}
+
 func TestRescheduleDAGRunRequiresQueuesEnabled(t *testing.T) {
 	server := test.SetupServer(t, test.WithConfigMutator(func(cfg *config.Config) {
 		cfg.Queues.Enabled = false

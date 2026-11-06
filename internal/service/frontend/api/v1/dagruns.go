@@ -3625,6 +3625,12 @@ func (a *API) rescheduleDAGRun(ctx context.Context, dagName, dagRunID string, op
 			}
 		}
 	}
+	// A new run keeps the DAG name of its run unless told otherwise. The current
+	// file gives its own name, which is not the name of a run started with --name.
+	runName := nameOverride
+	if runName == "" {
+		runName = snapshotDAG.Name
+	}
 	currentFileParams := preservedSnapshotParams
 	if currentFileParams == "" {
 		currentFileParams = status.Params
@@ -3652,7 +3658,7 @@ func (a *API) rescheduleDAGRun(ctx context.Context, dagName, dagRunID string, op
 	// the snapshot carries the selector the run was routed with.
 	var rescheduleSelector map[string]string
 	if opts.useCurrentDAGFile {
-		dag, err = a.loadCurrentRescheduleDAG(ctx, storedSourceFile, nameOverride)
+		dag, err = a.loadCurrentRescheduleDAG(ctx, storedSourceFile, runName)
 		if err != nil {
 			return rescheduleDAGRunResult{}, err
 		}
@@ -3660,10 +3666,6 @@ func (a *API) rescheduleDAGRun(ctx context.Context, dagName, dagRunID string, op
 		rescheduleSelector = snapshotDAG.WorkerSelector
 		if len(snapshotDAG.YamlData) == 0 {
 			return rescheduleDAGRunResult{}, fmt.Errorf("failed to enqueue dag-run: DAG snapshot YAML is missing")
-		}
-		inlineName := snapshotDAG.Name
-		if nameOverride != "" {
-			inlineName = nameOverride
 		}
 		snapshotLoadOpts := []spec.LoadOption{
 			spec.WithDAGsDir(a.config.Paths.DAGsDir),
@@ -3677,7 +3679,7 @@ func (a *API) rescheduleDAGRun(ctx context.Context, dagName, dagRunID string, op
 			)
 		}
 
-		dag, cleanup, err = a.loadInlineDAG(ctx, string(snapshotDAG.YamlData), &inlineName, newDagRunID, snapshotLoadOpts...)
+		dag, cleanup, err = a.loadInlineDAG(ctx, string(snapshotDAG.YamlData), &runName, newDagRunID, snapshotLoadOpts...)
 		if err != nil {
 			return rescheduleDAGRunResult{}, fmt.Errorf("failed to prepare reschedule snapshot: %w", err)
 		}
@@ -3706,6 +3708,7 @@ func (a *API) rescheduleDAGRun(ctx context.Context, dagName, dagRunID string, op
 		enqueueErr = a.enqueueDAGRun(ctx, dag, enqueueRequest{
 			params:       paramsToUse,
 			dagRunID:     newDagRunID,
+			nameOverride: runName,
 			triggerType:  ir.TriggerTypeManual,
 			profileName:  profileName,
 			noReuse:      status.NoReuse,
