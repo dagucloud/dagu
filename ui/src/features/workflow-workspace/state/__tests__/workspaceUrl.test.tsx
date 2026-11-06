@@ -27,6 +27,7 @@ const BASE: WorkspaceUrlState = {
   mode: 'workspace',
   popout: null,
   run: null,
+  runName: null,
   subRun: null,
   def: null,
   step: null,
@@ -71,6 +72,9 @@ describe('parseWorkspaceUrl', () => {
         { panel: 'workflow', wtab: 'wiki' },
       ],
       [undefined, 'panel=webhook', { panel: 'webhook' }],
+      // The DAG name of a run goes with its ?run.
+      [undefined, 'run=r1&dagRunName=etl', { run: 'r1', runName: 'etl' }],
+      [undefined, 'dagRunName=etl', {}],
       [undefined, 'panel=nope&wtab=nope', {}],
       // The Profile tab is gone: its link opens the Overview.
       [undefined, 'panel=workflow&wtab=profile', { panel: 'workflow' }],
@@ -237,6 +241,7 @@ describe('round trip', () => {
       ] as const),
       popout: null,
       run: maybe('run'),
+      runName: null,
       step: maybe('step'),
       ndv: pick([null, 'docked', 'expanded'] as const),
       dock: pick([null, ...DOCK_TABS]),
@@ -246,6 +251,7 @@ describe('round trip', () => {
       sub: maybe('sub'),
       carry: {},
     };
+    if (mode === 'workspace' && state.run) state.runName = maybe('name');
     if (mode === 'popout') {
       const popout: NonNullable<WorkspaceUrlState['popout']> = {
         kind: pick(['step', 'run'] as const),
@@ -465,6 +471,38 @@ describe('useWorkspaceUrl', () => {
     const { update, last } = renderHook('/dags/x?run=r1&subRun=c1&step=s');
     update({ step: 'a' });
     expect(last().url).toBe('/dags/x?run=r1&step=a');
+  });
+
+  // `dagu start --name` stores a run under a name that only the URL holds:
+  // without it the page reads another run of the workflow.
+  it.each([
+    [{ step: 'a' }, '/dags/x?run=r1&step=a&dagRunName=etl'],
+    [{ dock: 'log' as const }, '/dags/x?run=r1&dock=log&dagRunName=etl'],
+    [
+      { panel: 'workflow' as const },
+      '/dags/x?run=r1&panel=workflow&dagRunName=etl',
+    ],
+    [
+      { run: 'r1', ndv: 'docked' as const },
+      '/dags/x?run=r1&ndv=docked&dagRunName=etl',
+    ],
+  ])('keeps the DAG name of the run for %o', (patch, url) => {
+    const { update, last } = renderHook('/dags/x?run=r1&dagRunName=etl');
+    update(patch);
+    expect(last().url).toBe(url);
+  });
+
+  it('drops the DAG name of the run with its run', () => {
+    const { update, last } = renderHook('/dags/x?run=r1&dagRunName=etl&step=a');
+    update({ run: 'r2' });
+    expect(last().url).toBe('/dags/x?run=r2&step=a');
+  });
+
+  // A reschedule makes a new run under the same DAG name.
+  it('keeps the DAG name for a new run of the same name', () => {
+    const { update, last } = renderHook('/dags/x?run=r1&dagRunName=etl');
+    update({ run: 'r2', runName: 'etl' });
+    expect(last().url).toBe('/dags/x?run=r2&dagRunName=etl');
   });
 
   it('keeps query keys that it does not own', () => {

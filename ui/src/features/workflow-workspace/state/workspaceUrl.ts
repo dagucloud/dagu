@@ -56,6 +56,11 @@ export interface WorkspaceUrlState {
   /** ?run ; null = latest */
   run: string | null;
   /**
+   * ?dagRunName: the DAG name of the run of ?run when the name of the file
+   * does not give it, as for a run started with --name.
+   */
+  runName: string | null;
+  /**
    * ?subRun: a sub-run of the run that a link opens on the sub-run stack,
    * once. A ?step next to it is a step of that sub-run, so `step` is null.
    */
@@ -116,7 +121,8 @@ const STATE_KEYS = [
   'panel',
   'wtab',
 ] as const;
-const POPOUT_KEYS = ['dagRunId', 'dagRunName', 'subDAGRunId'] as const;
+const RUN_NAME_KEY = 'dagRunName';
+const POPOUT_KEYS = ['dagRunId', RUN_NAME_KEY, 'subDAGRunId'] as const;
 const CARRY_KEYS = ['remoteNode', 'workspace'] as const;
 const OWNED_KEYS: ReadonlySet<string> = new Set<string>([
   ...STATE_KEYS,
@@ -184,13 +190,15 @@ export function parseWorkspaceUrl(
   if (workspace !== null) carry.workspace = workspace;
   const subRunId = text(search, 'subRun');
   const subRun = subRunId ? { id: subRunId, step: text(search, 'step') } : null;
+  const run = text(search, 'run');
 
   return {
     mode,
     popout,
     panel: oneOf(text(search, 'panel'), OPEN_PANELS),
     wtab: oneOf(text(search, 'wtab'), WORKFLOW_PANEL_TABS),
-    run: text(search, 'run'),
+    run,
+    runName: run && mode === 'workspace' ? text(search, RUN_NAME_KEY) : null,
     subRun,
     def: oneOf(text(search, 'def'), ['run'] as const),
     step: subRun ? null : text(search, 'step'),
@@ -229,6 +237,9 @@ function buildQuery(s: WorkspaceUrlState): URLSearchParams {
   for (const key of STATE_KEYS) {
     const value = s[key];
     if (value) query.set(key, value);
+  }
+  if (s.mode === 'workspace' && s.run && s.runName) {
+    query.set(RUN_NAME_KEY, s.runName);
   }
   // A step of the run itself drops a sub-run link that has not opened yet.
   if (s.subRun && s.step === null) {
@@ -272,9 +283,9 @@ export type ReadWorkspaceUrl = () => WorkspaceUrlState;
 /**
  * Sets or removes query keys, a null value removing its key, and keeps the
  * path and every other key as they are: a link that the page has yet to
- * redirect, such as /history?dagRunId, keeps what the redirect reads. It
- * builds on a write that the router has not rendered yet, as SetWorkspaceUrl
- * does.
+ * redirect, such as /history?dagRunId, keeps what the redirect reads. Another
+ * ?run also drops ?dagRunName, which names the run that it replaces. It builds
+ * on a write that the router has not rendered yet, as SetWorkspaceUrl does.
  */
 export type SetWorkspaceParams = (
   params: Record<string, string | null>,
@@ -388,6 +399,10 @@ export function useWorkspaceUrl(): [
         return query;
       };
       const nextState: WorkspaceUrlState = { ...base.state, ...patch };
+      // The DAG name goes with its run, unless the new run has the same one.
+      if (nextState.run !== base.state.run) {
+        nextState.runName = patch.runName ?? null;
+      }
       const query = withForeignKeys(nextState);
       const next = joinUrl(buildPath(fileName, nextState), query);
       // Compared in canonical form, so a different query order is no change.
@@ -428,10 +443,12 @@ export function useWorkspaceUrl(): [
     (params, opts) => {
       const base = latest();
       const query = new URLSearchParams(base.search);
+      const run = query.get('run');
       for (const [key, value] of Object.entries(params)) {
         if (value === null) query.delete(key);
         else query.set(key, value);
       }
+      if (run !== null && query.get('run') !== run) query.delete(RUN_NAME_KEY);
       const search = query.toString() ? `?${query.toString()}` : '';
       if (search === base.search) return;
       store.pending = {

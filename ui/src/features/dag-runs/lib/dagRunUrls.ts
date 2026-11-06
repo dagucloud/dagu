@@ -62,6 +62,11 @@ type WorkspaceDAGPageURLInput = {
 
 type DAGPageURLInput = LegacyDAGPageURLInput | WorkspaceDAGPageURLInput;
 
+/** True when the name of the file gives the DAG name of the run: a URL need not name it. */
+export function fileGivesRunName(fileName: string, runName: string): boolean {
+  return runName === fileName.replace(/\.ya?ml$/, '');
+}
+
 function appendQuery(path: string, params: URLSearchParams): string {
   const query = params.toString();
   return query ? `${path}?${query}` : path;
@@ -154,7 +159,7 @@ function buildWorkspaceDAGPageURL({
   }
   if (run) {
     params.set('run', run);
-    if (runName && runName !== fileName.replace(/\.ya?ml$/, '')) {
+    if (runName && !fileGivesRunName(fileName, runName)) {
       params.set('dagRunName', runName);
     }
   }
