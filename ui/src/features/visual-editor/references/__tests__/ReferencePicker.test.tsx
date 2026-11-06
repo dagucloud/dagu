@@ -104,6 +104,23 @@ describe('ReferencePicker', () => {
     ).toBeNull();
   });
 
+  it('says when a pick makes a step publish its output', () => {
+    renderPicker({
+      candidates: [
+        {
+          token: '${steps.a.outputs.stdout}',
+          label: 'a.stdout',
+          group: 'steps',
+          known: 'runtime',
+          publish: { step: 'steps[0]' },
+        },
+      ],
+    });
+    const option = screen.getByRole('option', { name: /a\.stdout/ });
+    expect(option).toHaveTextContent('Published when chosen');
+    expect(option).not.toHaveTextContent('Known after run');
+  });
+
   it('picks an option on click', () => {
     const { onPick } = renderPicker();
     fireEvent.click(screen.getByRole('option', { name: /HOME/ }));

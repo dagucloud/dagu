@@ -162,6 +162,30 @@ describe('AvailableReferences', () => {
     consoleError.mockRestore();
   });
 
+  it('tells a candidate that it was picked, and says what a pick does', () => {
+    const onPicked = vi.fn();
+    const onInsert = vi.fn(() => true);
+    render(
+      <AvailableReferences
+        candidates={[
+          {
+            token: '${steps.a.outputs.stdout}',
+            label: 'a.stdout',
+            group: 'steps',
+            known: 'runtime',
+            publish: { step: 'steps[0]' },
+            onPicked,
+          },
+        ]}
+        onInsert={onInsert}
+      />
+    );
+    expect(screen.getByText('Published when chosen')).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'a.stdout' }));
+    expect(onPicked).toHaveBeenCalledTimes(1);
+    expect(onInsert).toHaveBeenCalledWith('${steps.a.outputs.stdout}');
+  });
+
   it('copies the token when no field can take it', async () => {
     const writeText = vi.fn(() => Promise.resolve());
     Object.assign(navigator, { clipboard: { writeText } });

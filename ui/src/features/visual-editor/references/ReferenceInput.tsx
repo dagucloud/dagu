@@ -131,6 +131,7 @@ export function ReferenceInput({
     const pos = Math.min(el.selectionStart ?? value.length, value.length);
     const open = findOpenReference(value, pos);
     if (!open) return;
+    candidate.onPicked?.();
     // Inside a closed token, the pick replaces the whole token.
     const closed = findReferenceTokens(value).find(
       (t) => t.from === open.from && pos < t.to
@@ -146,6 +147,7 @@ export function ReferenceInput({
       Math.max(selectionRef.current.end, start),
       value.length
     );
+    candidate.onPicked?.();
     apply(insertReference(value, start, end, candidate.token));
     setButtonOpen(false);
   };

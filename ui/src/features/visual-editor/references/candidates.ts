@@ -2,11 +2,13 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 import type {
+  DagDocModel,
   ReferenceCandidate,
   ReferenceGroup,
   ReferenceScope,
   StepView,
 } from '../contracts';
+import { publishCandidates } from './publishOutput';
 
 /** The order of the groups in a candidate list. */
 export const REFERENCE_GROUP_ORDER: readonly ReferenceGroup[] = [
@@ -199,6 +201,8 @@ export interface ReferenceOwnerOptions {
   repeats?: boolean;
   /** The foreach bodies around the field, the outermost first. */
   frames?: readonly ForeachFrame[];
+  /** The document, for outputs that a pick can make a step publish. Leave it out where nothing can edit. */
+  doc?: DagDocModel;
 }
 
 /** True for a step entry that declares `repeat_policy`. */
@@ -291,7 +295,8 @@ function outputCandidates(
 
 function stepCandidates(
   scope: StepsOnly,
-  stepName: string
+  stepName: string,
+  doc?: DagDocModel
 ): ReferenceCandidate[] {
   const distances = upstreamDistances(scope, stepName);
   return (scope.steps ?? [])
@@ -301,7 +306,10 @@ function stepCandidates(
         entry.distance !== undefined
     )
     .sort((a, b) => a.distance - b.distance || a.index - b.index)
-    .flatMap(({ step, distance }) => outputCandidates(step, distance));
+    .flatMap(({ step, distance }) => [
+      ...outputCandidates(step, distance),
+      ...publishCandidates(step, distance, doc),
+    ]);
 }
 
 // The outputs that one foreach body gives a field inside it: the ancestors of
@@ -347,7 +355,7 @@ export function buildReferenceCandidates(
     ...variableCandidates(owner?.inputs, 'inputs', 'runtime'),
     ...variableCandidates(owner?.pathOutputs, 'outputs', 'runtime'),
     ...[...frames].reverse().flatMap(frameOutputCandidates),
-    ...(stepName === null ? [] : stepCandidates(scope, stepName)),
+    ...(stepName === null ? [] : stepCandidates(scope, stepName, options.doc)),
     ...variableCandidates(scope.params, 'params'),
     ...variableCandidates(scope.consts, 'consts'),
     ...stepEnv,

@@ -18,6 +18,7 @@ import {
   type CaretEditor,
 } from './editorCaret';
 import type { ReferenceEditorState } from './editorState';
+import { publishEdit } from './publishOutput';
 import { ReferencePicker } from './ReferencePicker';
 
 export interface YamlReferenceButtonProps {
@@ -86,7 +87,17 @@ export function YamlReferenceButton({
           align="end"
           emptyMessage={ts('Put the cursor in a field value')}
           onPick={(candidate) => {
-            insertAtCaret(editor(), candidate.token);
+            const current = editor();
+            const text = current?.getModel()?.getValue();
+            const published =
+              candidate.publish && text !== undefined
+                ? publishEdit(text, candidate.publish)
+                : null;
+            insertAtCaret(
+              current,
+              candidate.token,
+              published?.ok ? published.edits[0] : undefined
+            );
             setItems(null);
           }}
           onClose={close}

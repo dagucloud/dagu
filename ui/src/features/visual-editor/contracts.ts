@@ -219,6 +219,11 @@ export type ReferenceGroup =
   | 'secrets'
   | 'steps'
   | 'context';
+/** What a pick must change for an output to exist: the step, and its id if it has none. */
+export interface PublishOnPick {
+  step: StepKey;
+  id?: string;
+}
 export interface ReferenceCandidate {
   token: string; // "${steps.fetch.outputs.body}"
   label: string;
@@ -229,6 +234,10 @@ export interface ReferenceCandidate {
   known: 'static' | 'runtime';
   /** A step env name that the root env has too: the root value until the step sets it. */
   alsoRoot?: boolean;
+  /** The step does not publish this output yet: a pick must make it. */
+  publish?: PublishOnPick;
+  /** Called when the author picks this candidate, before the token is inserted. */
+  onPicked?(): void;
 }
 export interface ReferenceInputProps {
   value: string;

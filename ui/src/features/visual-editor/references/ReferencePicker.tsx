@@ -212,9 +212,13 @@ export function ReferencePicker({
                           {c.detail}
                         </span>
                       ) : null}
-                      {c.known === 'runtime' ? (
+                      {c.publish || c.known === 'runtime' ? (
                         <span className="ml-auto shrink-0 rounded-sm bg-warning/10 px-1 text-[10px] text-warning">
-                          {ts('Known after run')}
+                          {ts(
+                            c.publish
+                              ? 'Published when chosen'
+                              : 'Known after run'
+                          )}
                         </span>
                       ) : null}
                     </div>

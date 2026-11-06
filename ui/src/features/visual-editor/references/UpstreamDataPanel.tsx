@@ -1165,10 +1165,11 @@ function PanelView({
       {body}
       {references && (
         <AvailableReferences
-          // The tree above lists the outputs of the steps of the graph.
+          // The tree above lists the outputs that the steps of the graph publish.
           candidates={references.filter(
             (candidate) =>
               candidate.group !== 'steps' ||
+              candidate.publish !== undefined ||
               !scope?.steps?.some((step) => step.name === candidate.stepName)
           )}
           onInsert={onInsert}

@@ -66,7 +66,9 @@ export function AvailableReferences({
               <span className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
                 {ts(REFERENCE_GROUP_LABELS[group])}
               </span>
-              {allRuntime && <KnownAfterRun />}
+              {allRuntime && !items.some((c) => c.publish) && (
+                <Badge text="Known after run" />
+              )}
             </div>
             {items.map((candidate) => (
               <div
@@ -76,15 +78,21 @@ export function AvailableReferences({
                 <ReferenceName
                   name={candidate.label}
                   reference={candidate.token}
-                  onInsert={onInsert}
+                  onInsert={(token) => {
+                    candidate.onPicked?.();
+                    return onInsert?.(token);
+                  }}
                 />
                 {candidate.detail && (
                   <span className="min-w-0 truncate text-muted-foreground">
                     {candidate.detail}
                   </span>
                 )}
-                {candidate.known === 'runtime' && !allRuntime && (
-                  <KnownAfterRun />
+                {candidate.publish ? (
+                  <Badge text="Published when chosen" />
+                ) : (
+                  candidate.known === 'runtime' &&
+                  !allRuntime && <Badge text="Known after run" />
                 )}
               </div>
             ))}
@@ -95,11 +103,11 @@ export function AvailableReferences({
   );
 }
 
-function KnownAfterRun(): ReactElement {
+function Badge({ text }: { text: string }): ReactElement {
   const { ts } = useI18n();
   return (
     <span className="ml-auto shrink-0 rounded-sm bg-warning/10 px-1 text-[10px] text-warning">
-      {ts('Known after run')}
+      {ts(text)}
     </span>
   );
 }

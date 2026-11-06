@@ -6,6 +6,7 @@ import { getYamlPathAtOffset } from '@/hooks/useYamlCursorPath';
 import { translateStatic } from '@/i18n/translateStatic';
 import type { ReferenceCandidate } from '../contracts';
 import { envEntryCandidates, withoutBuildOutputs } from './candidates';
+import { publishEdit } from './publishOutput';
 import {
   candidatesAt,
   editorLocale,
@@ -22,6 +23,10 @@ type Monaco = typeof import('monaco-editor');
 
 // A lone "$" is shell text as often as the start of a reference: "${" opens.
 const TRIGGER_CHARACTERS = ['{', '.'];
+
+const PUBLISH_NOTE = 'Published when chosen';
+
+let fieldProviders = 0;
 
 export interface ReferenceCompletions {
   items: ReferenceCandidate[];
@@ -222,31 +227,61 @@ function isExplicit(
   );
 }
 
-function toCompletionList(
-  monaco: Monaco,
-  model: import('monaco-editor').editor.ITextModel,
-  result: ReferenceCompletions | null
-): import('monaco-editor').languages.CompletionList {
-  if (!result) {
-    return { suggestions: [] };
-  }
-  const start = model.getPositionAt(result.from);
-  const end = model.getPositionAt(result.to);
-  const range = {
+type TextModel = import('monaco-editor').editor.ITextModel;
+
+function rangeOf(model: TextModel, from: number, to: number) {
+  const start = model.getPositionAt(from);
+  const end = model.getPositionAt(to);
+  return {
     startLineNumber: start.lineNumber,
     startColumn: start.column,
     endLineNumber: end.lineNumber,
     endColumn: end.column,
   };
+}
+
+// The edit that a pick of `item` also makes in the document of the provider, as
+// a part of the same undo step.
+function publishTextEdits(
+  model: TextModel,
+  item: ReferenceCandidate
+): import('monaco-editor').editor.ISingleEditOperation[] | undefined {
+  if (!item.publish) return undefined;
+  const result = publishEdit(model.getValue(), item.publish);
+  if (!result.ok) return undefined;
+  return result.edits.map((edit) => ({
+    range: rangeOf(model, edit.from, edit.to),
+    text: edit.insert,
+  }));
+}
+
+function toCompletionList(
+  monaco: Monaco,
+  model: TextModel,
+  result: ReferenceCompletions | null,
+  extras: (item: ReferenceCandidate) => {
+    additionalTextEdits?: import('monaco-editor').editor.ISingleEditOperation[];
+    command?: import('monaco-editor').languages.Command;
+  } = () => ({})
+): import('monaco-editor').languages.CompletionList {
+  if (!result) {
+    return { suggestions: [] };
+  }
+  const locale = editorLocale();
+  const range = rangeOf(model, result.from, result.to);
   const shellNote = translateStatic(
-    editorLocale(),
+    locale,
     '${{name}} is shell syntax in run. Use ${env.{name}} for Dagu environment references.',
     { name: 'NAME' }
   );
   return {
     suggestions: result.items.map((item, index) => ({
       label: item.token,
-      detail: item.detail ? `${item.label} - ${item.detail}` : item.label,
+      detail: item.publish
+        ? `${item.label} - ${translateStatic(locale, PUBLISH_NOTE)}`
+        : item.detail
+          ? `${item.label} - ${item.detail}`
+          : item.label,
       kind: monaco.languages.CompletionItemKind.Variable,
       insertText: item.token,
       filterText: item.token,
@@ -256,6 +291,7 @@ function toCompletionList(
       (item.group === 'env' || item.group === 'stepEnv')
         ? { documentation: shellNote }
         : {}),
+      ...extras(item),
     })),
   };
 }
@@ -271,7 +307,16 @@ export function registerFieldReferenceCompletion(
   language: string,
   getCandidates: () => ReferenceCandidate[]
 ): { dispose(): void } {
-  return monaco.languages.registerCompletionItemProvider(language, {
+  // A completion item can only run code through a command.
+  const commandId = `dagu.reference.picked.${++fieldProviders}`;
+  const command = monaco.editor.registerCommand(
+    commandId,
+    (_accessor, token: string) =>
+      getCandidates()
+        .find((candidate) => candidate.token === token)
+        ?.onPicked?.()
+  );
+  const completion = monaco.languages.registerCompletionItemProvider(language, {
     triggerCharacters: TRIGGER_CHARACTERS,
     provideCompletionItems(model, position, context) {
       if (model !== editor.getModel()) {
@@ -285,10 +330,26 @@ export function registerFieldReferenceCompletion(
       return toCompletionList(
         monaco,
         model,
-        range && { items: getCandidates(), ...range, inRunField: true }
+        range && { items: getCandidates(), ...range, inRunField: true },
+        (item) =>
+          item.onPicked
+            ? {
+                command: {
+                  id: commandId,
+                  title: '',
+                  arguments: [item.token],
+                },
+              }
+            : {}
       );
     },
   });
+  return {
+    dispose() {
+      command.dispose();
+      completion.dispose();
+    },
+  };
 }
 
 /**
@@ -351,7 +412,9 @@ export function registerReferenceCompletion(
         getState(),
         { explicit: isExplicit(monaco, model, position, context) }
       );
-      return toCompletionList(monaco, model, result);
+      return toCompletionList(monaco, model, result, (item) => ({
+        additionalTextEdits: publishTextEdits(model, item),
+      }));
     },
   });
   const hover = registerReferenceHover(monaco, getState, uri);

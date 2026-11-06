@@ -3,6 +3,7 @@
 
 import { fireEvent, render, screen } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
+import { parseDagDoc } from '../../doc/parse';
 import { scopeHttpJq } from '../../testing/fixtures';
 import type { CaretEditor } from '../editorCaret';
 import { YamlReferenceButton } from '../YamlReferenceButton';
@@ -70,6 +71,61 @@ describe('YamlReferenceButton', () => {
       ])
     );
     expect(screen.queryByRole('listbox')).toBeNull();
+  });
+
+  // One edit call, so that one undo takes back both the token and the output.
+  it('publishes the output of an upstream step with the same pick', () => {
+    const doc = [
+      'steps:',
+      '  - id: fetch',
+      '    run: echo hi',
+      '  - id: use',
+      '    run: echo x',
+      '',
+    ].join('\n');
+    const offset = doc.indexOf('echo x');
+    const { editor, raw } = fakeEditor(doc, offset);
+    const base = scopeHttpJq.steps[0]!;
+    render(
+      <YamlReferenceButton
+        editorRef={{ current: editor }}
+        getState={() => ({
+          model: parseDagDoc(doc),
+          scope: {
+            ...scopeHttpJq,
+            steps: [
+              {
+                ...base,
+                name: 'fetch',
+                id: 'fetch',
+                stepPath: 'steps[0]',
+                upstream: [],
+                outputs: [],
+              },
+              {
+                ...base,
+                name: 'use',
+                id: 'use',
+                stepPath: 'steps[1]',
+                upstream: ['fetch'],
+                outputs: [],
+              },
+            ],
+          },
+        })}
+      />
+    );
+    fireEvent.click(screen.getByRole('button', { name: 'Insert reference' }));
+    fireEvent.click(screen.getByRole('option', { name: /fetch\.stdout/ }));
+    expect(raw.executeEdits).toHaveBeenCalledTimes(1);
+    const [, edits] = raw.executeEdits.mock.calls[0] as unknown as [
+      string,
+      { text: string }[],
+    ];
+    expect(edits.map((edit) => edit.text).join('\n')).toContain(
+      '${steps.fetch.outputs.stdout}'
+    );
+    expect(edits.map((edit) => edit.text).join('\n')).toContain('from: stdout');
   });
 
   it('gives the focus back to the editor on Escape', () => {

@@ -209,6 +209,20 @@ describe('insertAtCaret', () => {
     expect(fake.text()).toBe('run: ${env.A}');
   });
 
+  it('applies another edit with the token, and keeps the caret after it', () => {
+    const text = 'a: 1\nrun: ';
+    const fake = fakeEditor(text, text.length);
+    insertAtCaret(fake.editor, '${env.A}', {
+      from: 4,
+      to: 4,
+      insert: '\nb: 2',
+    });
+    expect(fake.raw.executeEdits).toHaveBeenCalledTimes(1);
+    const [, edits] = fake.raw.executeEdits.mock.calls[0]!;
+    expect(edits.map((edit) => edit.text)).toContain('\nb: 2');
+    expect(edits.map((edit) => edit.text)).toContain('${env.A}');
+  });
+
   it('makes one undo step of the edit', () => {
     const fake = fakeEditor('run: ', 5);
     insertAtCaret(fake.editor, '${env.A}');

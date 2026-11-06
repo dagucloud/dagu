@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 import { useEffect, useRef, useState } from 'react';
-import type { ReferenceCandidate } from '../contracts';
+import type { ReferenceCandidate, TextEdit } from '../contracts';
 import type { ReferenceEditorState } from './editorState';
 import { computeReferenceCompletions } from './monacoCompletion';
 
@@ -101,13 +101,14 @@ export function useCaretReferences(
 }
 
 /**
- * Puts `token` at the selection of `editor`, as one undo step, with the caret
- * after it and the focus in the editor. False without an editor or a selection,
- * so that the host can copy the token.
+ * Puts `token` at the selection of `editor`, with `also` if given, as one undo
+ * step, with the caret after the token and the focus in the editor. False
+ * without an editor or a selection, so that the host can copy the token.
  */
 export function insertAtCaret(
   editor: CaretEditor | null | undefined,
-  token: string
+  token: string,
+  also?: TextEdit
 ): boolean {
   const model = editor?.getModel();
   const selection = editor?.getSelection?.();
@@ -116,10 +117,26 @@ export function insertAtCaret(
     lineNumber: selection.startLineNumber,
     column: selection.startColumn,
   });
+  const edits = [{ range: selection, text: token }];
+  let shift = 0;
+  if (also) {
+    const from = model.getPositionAt(also.from);
+    const to = model.getPositionAt(also.to);
+    edits.push({
+      range: {
+        startLineNumber: from.lineNumber,
+        startColumn: from.column,
+        endLineNumber: to.lineNumber,
+        endColumn: to.column,
+      },
+      text: also.insert,
+    });
+    if (also.from < start) shift = also.insert.length - (also.to - also.from);
+  }
   editor.pushUndoStop();
-  editor.executeEdits('reference', [{ range: selection, text: token }]);
+  editor.executeEdits('reference', edits);
   editor.pushUndoStop();
-  editor.setPosition?.(model.getPositionAt(start + token.length));
+  editor.setPosition?.(model.getPositionAt(start + shift + token.length));
   editor.focus?.();
   return true;
 }

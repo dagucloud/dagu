@@ -57,6 +57,7 @@ import type {
   PaletteTarget,
   StepKey,
   StepNameMap,
+  ReferenceCandidate,
   StepView,
   ValidationIssue,
   VisualEditorHandle,
@@ -97,6 +98,7 @@ import {
   declaresRepeat,
   foreachFramesAt,
   insertAtCaret,
+  publishEdit,
   useCaretReferences,
   DeclaredOutputsPanel,
   UpstreamDataPanel,
@@ -1149,19 +1151,48 @@ export function VisualEditor(props: VisualEditorProps): ReactElement {
   );
 
   const repeats = declaresRepeat(selectedStep);
+  const canPublish = !readOnly && !frozen;
+  // A pick of an output that the step does not publish yet makes it publish.
+  const withPublishing = useCallback(
+    (items: ReferenceCandidate[]): ReferenceCandidate[] =>
+      items.map((candidate) => {
+        const { publish } = candidate;
+        return publish
+          ? {
+              ...candidate,
+              onPicked: () =>
+                afterEdit(session.applyWith((t) => publishEdit(t, publish))),
+            }
+          : candidate;
+      }),
+    [session, afterEdit]
+  );
   const candidates = useMemo(
     () =>
-      buildReferenceCandidates(validation?.referenceScope, serverName, {
-        repeats,
-      }),
-    [validation?.referenceScope, serverName, repeats]
+      withPublishing(
+        buildReferenceCandidates(validation?.referenceScope, serverName, {
+          repeats,
+          doc: canPublish ? model : undefined,
+        })
+      ),
+    [
+      validation?.referenceScope,
+      serverName,
+      repeats,
+      canPublish,
+      model,
+      withPublishing,
+    ]
   );
   // In the YAML, the list follows the caret: a foreach body reads more than its
   // step does. At a key, it shows what the step can read.
   const caretReferences = useCaretReferences(
     yamlEditorRef?.current as CaretEditor | null | undefined,
     yamlShownNow,
-    { scope: validation?.referenceScope, model }
+    {
+      scope: validation?.referenceScope,
+      model: canPublish ? model : undefined,
+    }
   );
   const candidatesAtPath = useCallback(
     (path: string[]) => {
@@ -1207,7 +1238,13 @@ export function VisualEditor(props: VisualEditorProps): ReactElement {
       scope={validation?.referenceScope}
       stepName={serverName}
       onInsert={readOnly || frozen ? undefined : insertReference}
-      references={inputColumnRoot ? (caretReferences ?? candidates) : undefined}
+      references={
+        inputColumnRoot && caretReferences
+          ? withPublishing(caretReferences)
+          : inputColumnRoot
+            ? candidates
+            : undefined
+      }
       onRunUpstream={
         onStepCommand && stepCommandGates?.canRunStep && serverName
           ? () => onStepCommand({ kind: 'runUpstream', step: serverName })

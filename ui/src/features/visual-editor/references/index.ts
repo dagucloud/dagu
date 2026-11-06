@@ -14,4 +14,5 @@ export { insertAtCaret, useCaretReferences } from './editorCaret';
 export type { CaretEditor } from './editorCaret';
 export { UpstreamDataPanel } from './UpstreamDataPanel';
 export { registerReferenceCompletion } from './monacoCompletion';
+export { publishEdit } from './publishOutput';
 export { YamlReferenceButton } from './YamlReferenceButton';
