@@ -219,28 +219,50 @@ func startBrowserOn(t *testing.T, profile string) *browser {
 	var out output
 	cmd.Stdout, cmd.Stderr = &out, &out
 	require.NoError(t, cmd.Start())
+	ended := make(chan struct{})
+	var endState *os.ProcessState
+	go func() {
+		endState, _ = cmd.Process.Wait()
+		close(ended)
+	}()
 	t.Cleanup(func() {
 		_ = cmd.Process.Kill()
-		_, _ = cmd.Process.Wait()
+		<-ended
 	})
-	cdpURL := make(chan string, 1)
-	started := assert.Eventually(t, func() bool {
+	cdpURL := waitForDevTools(t, activePort, &out, ended, func() *os.ProcessState { return endState })
+	return &browser{cmd: cmd, cdpURL: cdpURL, profile: profile}
+}
+
+// browserStartLimit only guards against a browser that hangs, as no test here
+// is about how fast a browser starts. The first browser on a loaded CI host
+// can take long, loading its files from a cold disk.
+const browserStartLimit = 2 * time.Minute
+
+// waitForDevTools returns the address where the browser answers on DevTools.
+// A browser that ended never will, so the wait stops at once. Chrome prints
+// nothing on Windows, so a failure says how far the browser came.
+func waitForDevTools(t *testing.T, activePort string, out *output, ended <-chan struct{}, endState func() *os.ProcessState) string {
+	t.Helper()
+	limit := time.After(browserStartLimit)
+	tick := time.NewTicker(50 * time.Millisecond)
+	defer tick.Stop()
+	for {
 		data, err := os.ReadFile(activePort) //nolint:gosec // the test's own profile
 		port, _, _ := strings.Cut(string(data), "\n")
-		if err != nil || port == "" {
-			return false
+		if err == nil && port != "" {
+			address := "http://127.0.0.1:" + port
+			if err = browserhost.Probe(t.Context(), address); err == nil {
+				return address
+			}
 		}
-		address := "http://127.0.0.1:" + port
-		if browserhost.Probe(t.Context(), address) != nil {
-			return false
+		select {
+		case <-ended:
+			t.Fatalf("the browser ended before it answered on DevTools (%v); last check: %v; it printed:\n%s", endState(), err, out.String())
+		case <-limit:
+			t.Fatalf("the browser did not answer on DevTools in %v; last check: %v; it printed:\n%s", browserStartLimit, err, out.String())
+		case <-tick.C:
 		}
-		cdpURL <- address
-		return true
-	}, 30*time.Second, 50*time.Millisecond)
-	if !started {
-		t.Fatalf("the browser did not answer on DevTools; it printed:\n%s", out.String())
 	}
-	return &browser{cmd: cmd, cdpURL: <-cdpURL, profile: profile}
 }
 
 // output keeps what a browser prints, to show when it does not start.

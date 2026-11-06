@@ -627,6 +627,35 @@ describe('useWorkspaceRun, select', () => {
     expect(view.result.current.navigationType).toBe('PUSH');
     expect(view.result.current.value.selection).toBe('latest');
   });
+
+  // The runs that a page selects share the DAG name in the URL.
+  it('keeps the DAG name of the run when another run is selected', async () => {
+    server.runs['run-5'] = run('run-5');
+    const view = renderWorkspace(() => useWorkspaceRun(), {
+      url: '/dags/demo?run=run-1&dagRunName=other&step=a',
+    });
+    await waitFor(() =>
+      expect(view.result.current.value.details?.dagRunId).toBe('run-1')
+    );
+
+    act(() => view.result.current.value.select('run-5'));
+    const params = new URLSearchParams(view.result.current.location.search);
+    expect(params.get('run')).toBe('run-5');
+    expect(params.get('dagRunName')).toBe('other');
+    expect(params.get('step')).toBe('a');
+  });
+
+  // The latest run that the page picks by itself is no run of that name.
+  it.each([
+    ['names the latest run', '/dags/demo?dagRunName=other'],
+    ['falls back from a missing run', '/dags/demo?run=gone&dagRunName=other'],
+  ])('drops the DAG name when the page %s', async (_, url) => {
+    const view = renderWorkspace(() => useWorkspaceRun(), { url });
+    await waitFor(() =>
+      expect(view.result.current.location.search).toContain('run=run-1')
+    );
+    expect(view.result.current.location.search).not.toContain('dagRunName');
+  });
 });
 
 describe('useWorkspaceRun, applyNodeStatus', () => {

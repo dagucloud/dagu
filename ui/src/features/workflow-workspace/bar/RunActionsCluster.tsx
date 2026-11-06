@@ -97,7 +97,7 @@ export function RunActionsCluster({ fileName, dag }: BarSlotProps) {
             // under another DAG name is not a run of this workflow. A
             // dequeued run stays: it is kept as aborted, and can be retried.
             onRescheduled={(runId, runName) => {
-              if (runName === dag.name) showRun(runId);
+              if (runName === dag.name) showRun(runId, url.runName);
             }}
             onEditRetry={() => setEditRetry(true)}
           />
@@ -137,8 +137,9 @@ export function RunActionsCluster({ fileName, dag }: BarSlotProps) {
           dagName={run.ref.name}
           dagRunId={run.ref.runId}
           fileName={fileName}
-          // The new run shows at once, as after Start or Reschedule.
-          onRetried={showRun}
+          // The new run shows at once, as after Start or Reschedule. It keeps
+          // the DAG name of the retried run.
+          onRetried={(runId) => showRun(runId, url.runName)}
         />
       )}
       {showCopy && (

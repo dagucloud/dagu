@@ -349,7 +349,7 @@ export function WorkspaceCanvas({
   // A run that the bar starts becomes the selected run. The node view and
   // the step stay as they are.
   const onRunStarted = useCallback(
-    (runId: string) => setUrl({ run: runId }),
+    (runId: string) => setUrl({ run: runId, runName: null }),
     [setUrl]
   );
 

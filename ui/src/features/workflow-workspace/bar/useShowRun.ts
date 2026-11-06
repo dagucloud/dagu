@@ -9,15 +9,16 @@ import { useWorkspaceUrl } from '../state/workspaceUrl';
  * ?run and keeps the step and the node view, like a pick of an older run
  * does: a run that starts from the bar stays on the step. The function
  * reads the URL when it is called, not when it was made, because a start
- * request finishes some time after the click.
+ * request finishes some time after the click. A new run has the DAG name of
+ * the file unless `runName` gives the one to keep in the URL.
  */
-export function useShowRun(): (runId: string) => void {
+export function useShowRun(): (runId: string, runName?: string | null) => void {
   const [, setUrl] = useWorkspaceUrl();
   const latest = useRef(setUrl);
   useEffect(() => {
     latest.current = setUrl;
   });
-  return useCallback((runId: string) => {
-    latest.current({ run: runId });
+  return useCallback((runId: string, runName?: string | null) => {
+    latest.current({ run: runId, runName: runName ?? null });
   }, []);
 }

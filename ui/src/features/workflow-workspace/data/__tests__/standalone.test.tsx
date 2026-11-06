@@ -2,13 +2,14 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 import { waitFor } from '@testing-library/react';
-import { describe, expect, it, vi } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { useWorkspaceUrl } from '../../state/workspaceUrl';
+import { useWorkspaceRun } from '../useWorkspaceRun';
 import { standalonePageData } from '../standalonePageData';
 import { dagPage, FILE_NAME, idleSSE, node, run } from './fixtures';
 import { renderWorkspace, serve } from './harness';
 
-const h = vi.hoisted(() => ({ GET: vi.fn() }));
+const h = vi.hoisted(() => ({ GET: vi.fn(), runSSE: vi.fn() }));
 
 vi.mock('@/hooks/api', async () => {
   const { createQueryHook } = await import('swr-openapi');
@@ -17,10 +18,16 @@ vi.mock('@/hooks/api', async () => {
     useClient: () => ({ GET: h.GET }),
   };
 });
-vi.mock('@/hooks/useDAGRunSSE', () => ({ useDAGRunSSE: () => idleSSE }));
+vi.mock('@/hooks/useDAGRunSSE', () => ({ useDAGRunSSE: h.runSSE }));
 vi.mock('@/contexts/RemoteNodeContext', () => ({
   useRemoteNode: () => 'local',
 }));
+
+beforeEach(() => {
+  h.GET.mockReset();
+  h.runSSE.mockReset();
+  h.runSSE.mockReturnValue(idleSSE);
+});
 
 // A run whose workflow file is gone shows in the workspace, drawn from the
 // definition that it stored.
@@ -55,5 +62,31 @@ describe('a run without its workflow file', () => {
       standaloneRun: orphan,
     });
     await waitFor(() => expect(view.result.current?.value).toBe('run'));
+  });
+
+  // No DAG query holds the run: a retry or a run still going shows only
+  // through the stream of the run itself.
+  it('follows the run by its own stream', async () => {
+    const orphan = run('run-9');
+    h.GET.mockImplementation(
+      serve({
+        dag: dagPage(orphan),
+        runs: { 'run-9': orphan },
+        history: { dagRuns: [], gridData: [] },
+        subRuns: [],
+      })
+    );
+    renderWorkspace(() => useWorkspaceRun(), {
+      url: `/dags/${FILE_NAME}?run=run-9`,
+      standaloneRun: orphan,
+    });
+    await waitFor(() =>
+      expect(h.runSSE).toHaveBeenLastCalledWith(
+        orphan.name,
+        'run-9',
+        true,
+        'local'
+      )
+    );
   });
 });
