@@ -17,6 +17,7 @@ This spec covers:
   `retry_policy`, history retention, and the base configuration
 - the validation errors of a DAG that sets `restart_policy`
 - the `restart` command for a DAG that sets `restart_policy`
+- runs started by hand next to an active run of a DAG that sets `restart_policy`
 
 This spec does not define:
 
@@ -102,6 +103,16 @@ run: the runs of a service DAG are started for it. The command reads the
 current definition of the DAG, so it also fails for a DAG that has no run yet,
 or whose `restart_policy` was set after its latest run started.
 
+### Runs Started by Hand
+
+A service DAG has one run at a time. While its latest run is running, queued or
+waiting, the `start`, `enqueue` and `retry` commands, their API requests and MCP
+actions, and webhooks fail without starting a run. With no active run they work,
+which is how a stopped service comes back.
+
+The run that the scheduler dispatches from the queue is not affected. A run
+started under another name with `--name` is a run of another DAG.
+
 ## Errors
 
 Rules:
@@ -119,6 +130,9 @@ Rules:
   every DAG that uses it.
 - The `restart` command for a service DAG exits with a non-zero status and an
   error that names `restart_policy`.
+- A `start`, `enqueue` or `retry` command next to an active run of a service DAG
+  exits with a non-zero status and an error that names `restart_policy`. The API
+  responds with the status 409.
 
 ## Examples
 
@@ -185,4 +199,5 @@ steps:
 ## Conformance
 
 `conformance/spec080_restart_policy/` checks the validation rules with static
-fixtures and the `restart` command for a service DAG.
+fixtures, the `restart` command for a service DAG, and the commands that start a
+run next to its active run.

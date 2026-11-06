@@ -26,6 +26,10 @@ import (
 
 const staleLocalRunStartupGrace = 2 * time.Second
 
+// ErrServiceRunActive says a DAG that sets restart_policy has an active run, which
+// a new run would run next to.
+var ErrServiceRunActive = errors.New("a DAG with a restart_policy has one run at a time")
+
 // ManagerOption configures a Manager.
 type ManagerOption func(*Manager)
 
@@ -512,6 +516,25 @@ func (m *Manager) ReadLatestStatus(ctx context.Context, dag *ir.DAG) (ir.DAGRunS
 	}
 
 	return *st, nil
+}
+
+// CheckServiceRun returns ErrServiceRunActive when dag sets restart_policy and a
+// run other than dagRunID is active. A latest run that cannot be read does not
+// count, so that it cannot keep an operator from bringing the DAG back.
+func (m *Manager) CheckServiceRun(ctx context.Context, dag *ir.DAG, dagRunID string) error {
+	if !dag.RestartPolicy.Enabled() {
+		return nil
+	}
+	allHistory := m.AllHistory()
+	status, err := allHistory.ReadLatestStatus(ctx, dag)
+	if err != nil {
+		logger.Warn(ctx, "Failed to read the latest run of a service DAG", tag.DAG(dag.Name), tag.Error(err))
+		return nil
+	}
+	if status.DAGRunID == dagRunID || !status.Status.IsActive() {
+		return nil
+	}
+	return fmt.Errorf("%w: run %s of DAG %s is %s", ErrServiceRunActive, status.DAGRunID, dag.Name, status.Status)
 }
 
 // repairStaleLocalRunIfDead repairs a persisted local Running status only when

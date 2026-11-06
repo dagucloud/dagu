@@ -162,3 +162,56 @@ steps:
 		}).ExpectStatus(http.StatusConflict).Send(t)
 	})
 }
+
+// A DAG with a restart_policy has one run at a time: no request starts a run
+// next to the active one. Once none is active, a manual start works again.
+func TestServiceDAGRunsOneAtATime(t *testing.T) {
+	server := test.SetupServer(t)
+
+	const name = "service_dag"
+	spec := fmt.Sprintf(`name: %s
+restart_policy: always
+restart_wait_sec: 1
+steps:
+  - name: main
+    run: echo ok
+`, name)
+	server.Client().Post("/api/v1/dags", api.CreateNewDAGJSONRequestBody{Name: name, Spec: &spec}).
+		ExpectStatus(http.StatusCreated).Send(t)
+
+	start := func() string {
+		var started api.ExecuteDAG200JSONResponse
+		server.Client().Post("/api/v1/dags/"+name+"/start", api.ExecuteDAGJSONRequestBody{}).
+			ExpectStatus(http.StatusOK).Send(t).Unmarshal(t, &started)
+		waitForDAGRunStatus(t, server, name, started.DagRunId, 10*time.Second, func(status *ir.DAGRunStatus) bool {
+			return status.Status == ir.Succeeded
+		})
+		return started.DagRunId
+	}
+	start()
+	ended := start()
+
+	server.Client().Post("/api/v1/dags/"+name+"/enqueue", api.EnqueueDAGDAGRunJSONRequestBody{}).
+		ExpectStatus(http.StatusOK).Send(t)
+
+	specName := name
+	for _, tt := range []struct {
+		name string
+		path string
+		body any
+	}{
+		{"Start", "/api/v1/dags/" + name + "/start", api.ExecuteDAGJSONRequestBody{}},
+		{"StartSteps", "/api/v1/dags/" + name + "/start", api.ExecuteDAGJSONRequestBody{Steps: &[]string{"main"}}},
+		{"StartSync", "/api/v1/dags/" + name + "/start-sync", api.ExecuteDAGSyncJSONRequestBody{Timeout: 5}},
+		{"Enqueue", "/api/v1/dags/" + name + "/enqueue", api.EnqueueDAGDAGRunJSONRequestBody{}},
+		{"StartFromSpec", "/api/v1/dag-runs", api.ExecuteDAGRunFromSpecJSONRequestBody{Spec: spec, Name: &specName}},
+		{"EnqueueFromSpec", "/api/v1/dag-runs/enqueue", api.EnqueueDAGRunFromSpecJSONRequestBody{Spec: spec, Name: &specName}},
+		{"Retry", "/api/v1/dag-runs/" + name + "/" + ended + "/retry", api.RetryDAGRunJSONRequestBody{DagRunId: ended}},
+		{"Reschedule", "/api/v1/dag-runs/" + name + "/" + ended + "/reschedule", api.RescheduleDAGRunJSONRequestBody{}},
+		{"EditRetry", "/api/v1/dag-runs/" + name + "/" + ended + "/edit-retry", api.EditRetryDAGRunJSONRequestBody{Spec: spec}},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			server.Client().Post(tt.path, tt.body).ExpectStatus(http.StatusConflict).Send(t)
+		})
+	}
+}

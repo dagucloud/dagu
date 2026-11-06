@@ -87,3 +87,25 @@ func TestRestartCommandIsRefused(t *testing.T) {
 		result.ExpectStderrContains("restart_policy")
 	})
 }
+
+func TestRunNextToAnActiveRunIsRefused(t *testing.T) {
+	t.Parallel()
+
+	dagu := harness.NewRunner(t)
+	env := []string{"DAGU_HOME=" + filepath.Join(t.TempDir(), "dagu")}
+	dagu.RunWithEnv(env, "start", "--run-id=ended", "validate/valid_always.yaml").ExpectExitCode(0)
+	dagu.RunWithEnv(env, "enqueue", "--run-id=queued", "validate/valid_always.yaml").ExpectExitCode(0)
+
+	for _, args := range [][]string{
+		{"start", "validate/valid_always.yaml"},
+		{"enqueue", "validate/valid_always.yaml"},
+		{"retry", "--run-id=ended", "valid_always"},
+	} {
+		result := dagu.RunWithEnv(env, args...)
+		result.ExpectNonZeroExitCode()
+		result.ExpectStderrContains("restart_policy")
+	}
+
+	dagu.RunWithEnv(env, "dequeue", "valid_always", "--dag-run=valid_always:queued").ExpectExitCode(0)
+	dagu.RunWithEnv(env, "start", "--run-id=back", "validate/valid_always.yaml").ExpectExitCode(0)
+}

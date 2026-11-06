@@ -318,6 +318,12 @@ func runStart(ctx *Context, args []string) error {
 		return handleSubDAGRun(ctx, dag, dagRunID, params, opts)
 	}
 
+	if workerID == "local" {
+		if err := ctx.DAGRunMgr.CheckServiceRun(ctx, dag, dagRunID); err != nil {
+			return err
+		}
+	}
+
 	if len(selection.steps) > 0 {
 		logger.Info(ctx, "Executing selected steps",
 			slog.Any("steps", selection.steps),

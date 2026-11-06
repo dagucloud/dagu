@@ -612,7 +612,7 @@
         { "pattern": "^\\s*([Nn][Oo]|[Aa][Ll][Ww][Aa][Yy][Ss]|[Uu][Nn][Ll][Ee][Ss][Ss]-[Ss][Tt][Oo][Pp][Pp][Ee][Dd])?\\s*$" }
       ],
       "default": "no",
-      "description": "Keeps a run of the DAG alive, like a service. \"always\": the scheduler starts a new run restart_wait_sec after the previous one ends, whatever its status. \"unless-stopped\": same, except that no run follows a run that an operator stopped. A suspended DAG gets no new run, and no DAG does while queues are disabled. Requires restart_wait_sec; cannot be combined with schedule or a DAG-level retry_policy. Cannot be set in the base configuration."
+      "description": "Keeps a run of the DAG alive, like a service. \"always\": the scheduler starts a new run restart_wait_sec after the previous one ends, whatever its status. \"unless-stopped\": same, except that no run follows a run that an operator stopped. A suspended DAG gets no new run, and no DAG does while queues are disabled. While a run is active, a manual run of the DAG is refused. Requires restart_wait_sec; cannot be combined with schedule or a DAG-level retry_policy. Cannot be set in the base configuration."
     },
     "hist_retention_days": {
       "type": "integer",

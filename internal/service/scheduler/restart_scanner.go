@@ -29,9 +29,10 @@ import (
 // process killed while it writes its status can leave the run lock of the DAG
 // behind, which delays the restart until the lock is stale.
 //
-// A manual start can put a run next to another, and either can end first, so a
-// new run follows the run that ended last. A stop of one run then leaves the DAG
-// stopped only if no other run ended after it.
+// Two runs of a DAG can still overlap: a manual start can race with a restart,
+// and runs can predate the policy. Either can end first, so a new run follows the
+// run that ended last. A stop of one run then leaves the DAG stopped only if no
+// other run ended after it.
 //
 // A run that has not started within restartNotStartedTimeout, and that no
 // process, worker, queue item or pending dispatch will still start, is marked

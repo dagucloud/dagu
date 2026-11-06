@@ -184,38 +184,41 @@ func TestRestartPolicyStop(t *testing.T) {
 	}
 }
 
-// A manual run can start next to the run of the scheduler. Stopping it stops only
-// that run, so the DAG restarts when the other run ends.
+// Two runs can overlap when the policy is added while they run. Stopping the
+// newer one stops only that run, so the DAG restarts when the older one ends.
 func TestRestartPolicyFollowsRunThatEndedLast(t *testing.T) {
 	release := filepath.Join(t.TempDir(), "release")
-	f := newFixture(t, serviceDAGYAML("restart-overlap", "unless-stopped", intgharness.PortableCommands().WaitForFile(release))).
-		StartScheduler(60 * time.Second)
-	defer f.Stop()
+	waitForRelease := intgharness.PortableCommands().WaitForFile(release)
+	f := newFixture(t, serviceDAGYAML("restart-overlap", "no", waitForRelease))
 	defer func() { _ = os.WriteFile(release, nil, 0600) }()
 
-	f.waitForRuns("a running run", 20*time.Second, func(runs []ir.DAGRunStatus) bool {
-		return len(runs) == 1 && runs[0].Status == ir.Running
-	})
-
-	const manualRun = "manual-run"
-	manualDone := make(chan error, 1)
-	go func() {
-		manualDone <- f.th.ExecuteCommand(cmd.Start(), test.CmdTest{
-			Args: []string{"start", "--run-id=" + manualRun, f.dag.Location},
+	const newerRun = "run-2"
+	runsDone := make(chan error, 2)
+	for i, runID := range []string{"run-1", newerRun} {
+		go func() {
+			runsDone <- f.th.ExecuteCommand(cmd.Start(), test.CmdTest{
+				Args: []string{"start", "--run-id=" + runID, f.dag.Location},
+			})
+		}()
+		f.waitForRuns("the runs running", 20*time.Second, func(runs []ir.DAGRunStatus) bool {
+			return countStatus(runs, ir.Running) == i+1
 		})
-	}()
-	f.waitForRuns("two running runs", 20*time.Second, func(runs []ir.DAGRunStatus) bool {
-		return countStatus(runs, ir.Running) == 2
-	})
+	}
 
-	require.NoError(t, f.th.DAGRunMgr.Stop(f.th.Context, f.dag, manualRun))
-	f.waitForRuns("the stopped manual run", 20*time.Second, func(runs []ir.DAGRunStatus) bool {
+	yaml := serviceDAGYAML("restart-overlap", "unless-stopped", waitForRelease)
+	require.NoError(t, os.WriteFile(f.dag.Location, []byte(yaml), 0644))
+	f.StartScheduler(60 * time.Second)
+	defer f.Stop()
+
+	require.NoError(t, f.th.DAGRunMgr.Stop(f.th.Context, f.dag, newerRun))
+	f.waitForRuns("the stopped run", 20*time.Second, func(runs []ir.DAGRunStatus) bool {
 		return countStatus(runs, ir.Aborted) == 1
 	})
-	<-manualDone
 
 	require.NoError(t, os.WriteFile(release, nil, 0600))
-	runs := f.waitForRuns("a run after the other run ended", 30*time.Second, func(runs []ir.DAGRunStatus) bool {
+	<-runsDone
+	<-runsDone
+	runs := f.waitForRuns("a run after the older run ended", 30*time.Second, func(runs []ir.DAGRunStatus) bool {
 		return len(runs) >= 3
 	})
 	assert.Equal(t, ir.TriggerTypeRestart, runs[0].TriggerType)

@@ -214,6 +214,14 @@ func runRetry(ctx *Context, args []string) error {
 		return fmt.Errorf("failed to read DAG from record: %w", err)
 	}
 
+	// The queue dispatches a run it holds, and a worker or a parent run retries
+	// what it was given.
+	if !queueDispatchRetry && workerID == "local" && rootRun.Zero() {
+		if err := ctx.DAGRunMgr.CheckServiceRun(ctx, dag, dagRunID); err != nil {
+			return err
+		}
+	}
+
 	dag, err = restoreDAGFromStatus(ctx.Context, dag, status, ctx.Persistence.DAGRunRepository)
 	if err != nil {
 		return fmt.Errorf("failed to restore DAG from status: %w", err)
