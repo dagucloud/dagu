@@ -465,9 +465,7 @@ describe('buildReferenceCandidates variables of the owner step', () => {
     expect(tokensOf(scope, 'a', 'stepEnv')).toEqual(['${env.TARGET}']);
     expect(tokensOf(scope, 'b', 'stepEnv')).toEqual([]);
     expect(
-      buildReferenceCandidates(scope, null).filter(
-        (c) => c.group === 'stepEnv'
-      )
+      buildReferenceCandidates(scope, null).filter((c) => c.group === 'stepEnv')
     ).toEqual([]);
   });
 
@@ -583,7 +581,9 @@ describe('buildReferenceCandidates in a foreach body', () => {
         frames: foreachFramesAt(each, ['foreach', 'steps', index, 'run']),
       });
     expect(
-      at('1').filter((c) => c.group === 'stepEnv').map((c) => c.token)
+      at('1')
+        .filter((c) => c.group === 'stepEnv')
+        .map((c) => c.token)
     ).toEqual(['${env.LOCAL}']);
     expect(at('1').map((c) => c.label)).toContain('step.repeat_index');
     expect(at('0').map((c) => c.label)).not.toContain('step.repeat_index');

@@ -80,13 +80,20 @@ export function computeReferenceHover(
   return null;
 }
 
-/** Register the reference hover provider for YAML models. Dispose the result to remove it. */
+/**
+ * Register the reference hover provider for the YAML model at `uri`, or for
+ * every YAML model without one. Dispose the result to remove it.
+ */
 export function registerReferenceHover(
   monaco: Monaco,
-  getState: () => ReferenceEditorState
+  getState: () => ReferenceEditorState,
+  uri?: string
 ): { dispose(): void } {
   const hover = monaco.languages.registerHoverProvider('yaml', {
     provideHover(model, position) {
+      if (uri !== undefined && model.uri.toString() !== uri) {
+        return null;
+      }
       const result = computeReferenceHover(
         model.getValue(),
         model.getOffsetAt(position),

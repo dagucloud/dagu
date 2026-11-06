@@ -153,8 +153,8 @@ function DAGEditor({
   const nextSchemaRegistrationRef = useRef(nextSchemaRegistration);
   nextSchemaRegistrationRef.current = nextSchemaRegistration;
 
-  // Reference completion is global to YAML models, so only an editor that
-  // gives a scope registers it, once for its lifetime.
+  // Only an editor that gives a scope registers reference completion, for its
+  // own model.
   const referenceStateRef = useRef(referenceState);
   referenceStateRef.current = referenceState;
   const wantsReferences = referenceState !== undefined;
@@ -164,10 +164,11 @@ function DAGEditor({
     }
     const registration = registerReferenceCompletion(
       monaco,
-      () => referenceStateRef.current?.() ?? {}
+      () => referenceStateRef.current?.() ?? {},
+      effectiveModelUri
     );
     return () => registration.dispose();
-  }, [wantsReferences]);
+  }, [wantsReferences, effectiveModelUri]);
 
   // The code actions of the quick fixes go to this editor's model only, and
   // go away with it.

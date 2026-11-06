@@ -3,7 +3,10 @@
 
 import MonacoEditor from '@monaco-editor/react';
 import { useEffect, useRef, useState, type ReactElement } from 'react';
-import { registerFieldReferenceCompletion } from '../references/monacoCompletion';
+import {
+  registerFieldReferenceCompletion,
+  registerStepYamlCompletion,
+} from '../references/monacoCompletion';
 import { monacoTheme } from './monacoSetup';
 import {
   fieldEditorHeight,
@@ -24,6 +27,7 @@ export function MonacoFieldEditor({
   lines = 10,
   ariaLabel,
   candidates,
+  candidatesAtPath,
   onChange,
   onCommit,
   focusRequest,
@@ -39,6 +43,8 @@ export function MonacoFieldEditor({
   readOnlyRef.current = readOnly;
   const candidatesRef = useRef(candidates);
   candidatesRef.current = candidates;
+  const candidatesAtPathRef = useRef(candidatesAtPath);
+  candidatesAtPathRef.current = candidatesAtPath;
 
   useEffect(() => {
     if (value !== shown.current) {
@@ -69,13 +75,20 @@ export function MonacoFieldEditor({
             focusRequest.current = false;
             editor.focus();
           }
-          if (candidatesRef.current) {
-            const completion = registerFieldReferenceCompletion(
-              monaco,
-              editor,
-              language,
-              () => candidatesRef.current ?? []
-            );
+          const completion = candidatesAtPathRef.current
+            ? registerStepYamlCompletion(
+                monaco,
+                editor,
+                (path) => candidatesAtPathRef.current?.(path) ?? []
+              )
+            : candidatesRef.current &&
+              registerFieldReferenceCompletion(
+                monaco,
+                editor,
+                language,
+                () => candidatesRef.current ?? []
+              );
+          if (completion) {
             editor.onDidDispose(() => completion.dispose());
           }
           editor.onDidBlurEditorText(() => {

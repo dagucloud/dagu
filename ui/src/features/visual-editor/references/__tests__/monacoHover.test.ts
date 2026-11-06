@@ -128,9 +128,24 @@ describe('registerReferenceHover', () => {
         CompletionItemKind: { Variable: 4 },
         CompletionTriggerKind: { Invoke: 0 },
       },
+      Uri: { parse: (uri: string) => uri },
     } as unknown as typeof import('monaco-editor');
     return { monaco, registerHoverProvider, disposeCompletion, disposeHover };
   }
+
+  // The YAML of one step has another owner: the text does not say which step.
+  it('answers only for the model at the uri', () => {
+    const { monaco, registerHoverProvider } = fakeMonaco();
+    registerReferenceHover(monaco, () => state, 'inmemory://doc');
+    const [, provider] = registerHoverProvider.mock.calls[0] as unknown as [
+      string,
+      { provideHover(model: unknown, position: unknown): unknown },
+    ];
+    const model = { uri: { toString: () => 'inmemory://other' } };
+    expect(
+      provider.provideHover(model, { lineNumber: 1, column: 1 })
+    ).toBeNull();
+  });
 
   it('returns markdown lines with the token range', () => {
     const { monaco, registerHoverProvider } = fakeMonaco();
@@ -186,7 +201,11 @@ describe('registerReferenceHover', () => {
 
   it('is disposed together with the completion provider', () => {
     const { monaco, disposeCompletion, disposeHover } = fakeMonaco();
-    const handle = registerReferenceCompletion(monaco, () => state);
+    const handle = registerReferenceCompletion(
+      monaco,
+      () => state,
+      'inmemory://doc'
+    );
     handle.dispose();
     expect(disposeCompletion).toHaveBeenCalledTimes(1);
     expect(disposeHover).toHaveBeenCalledTimes(1);

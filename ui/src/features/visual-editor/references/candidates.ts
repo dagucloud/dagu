@@ -252,8 +252,7 @@ function contextCandidates(
   const missing = new Set<string>();
   if (!handler) missing.add('run.status');
   if (handler || (owner && !owner.id)) missing.add('step.id');
-  if (handler || !(repeats || owner?.repeats))
-    missing.add('step.repeat_index');
+  if (handler || !(repeats || owner?.repeats)) missing.add('step.repeat_index');
   const fields: readonly string[] = hasOwner
     ? [...CONTEXT_FIELDS, ...CONTEXT_STEP_FIELDS]
     : CONTEXT_FIELDS;

@@ -95,6 +95,7 @@ import { buildActionCatalog, StepInspector } from './inspector';
 import {
   buildReferenceCandidates,
   declaresRepeat,
+  foreachFramesAt,
   DeclaredOutputsPanel,
   UpstreamDataPanel,
 } from './references';
@@ -1147,6 +1148,18 @@ export function VisualEditor(props: VisualEditorProps): ReactElement {
       }),
     [validation?.referenceScope, serverName, repeats]
   );
+  const candidatesAtPath = useCallback(
+    (path: string[]) => {
+      const scope = validation?.referenceScope;
+      const owner = scope?.steps?.find((step) => step.name === serverName);
+      const frames = owner ? foreachFramesAt(owner, path) : [];
+      return buildReferenceCandidates(scope, serverName, {
+        repeats: frames.length === 0 && repeats,
+        frames,
+      });
+    },
+    [validation?.referenceScope, serverName, repeats]
+  );
 
   // A host can show the run of the step and the upstream data in columns
   // of its own.
@@ -1212,6 +1225,7 @@ export function VisualEditor(props: VisualEditorProps): ReactElement {
             catalog={catalog}
             customActions={customActions}
             candidates={candidates}
+            candidatesAtPath={candidatesAtPath}
             issues={issues.byStep[selected] ?? []}
             readOnly={readOnly || frozen}
             onEdit={onEdit}

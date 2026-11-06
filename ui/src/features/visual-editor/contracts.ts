@@ -637,6 +637,8 @@ export interface StepInspectorProps {
   catalog: ActionCatalogEntry[];
   customActions: EditorCustomActionHint[];
   candidates: ReferenceCandidate[];
+  /** The references of a field of the step YAML, by its path below the step entry. */
+  candidatesAtPath?(path: string[]): ReferenceCandidate[];
   issues: ValidationIssue[];
   readOnly: boolean;
   onEdit(op: DagEditOp): void;

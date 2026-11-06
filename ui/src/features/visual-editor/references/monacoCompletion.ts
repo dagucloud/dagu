@@ -10,6 +10,7 @@ import {
   candidatesAt,
   editorLocale,
   isCommandField,
+  isRunField,
   isRunFieldPath,
   pathBelowStep,
   type ReferenceEditorState,
@@ -65,20 +66,16 @@ const LITERAL_OUTPUT_FIELDS = new Set(['name', 'type']);
 
 const STEP_ROOTS = new Set(['steps', 'handler_on']);
 
-// The path below the innermost step around a field: the step entry, then each
-// foreach body. Null for a path outside any step.
-function pathBelowInnermostStep(path: string[]): string[] | null {
-  if (!STEP_ROOTS.has(path[0] ?? '')) return null;
-  let below = pathBelowStep(path);
-  while (below[0] === 'foreach' && below[1] === 'steps') {
-    below = below.slice(3);
+// The path below the innermost step of `below`, a path below a step entry.
+function pathBelowBodies(below: string[]): string[] {
+  let inner = below;
+  while (inner[0] === 'foreach' && inner[1] === 'steps') {
+    inner = inner.slice(3);
   }
-  return below;
+  return inner;
 }
 
-function isLiteralField(path: string[]): boolean {
-  const below = pathBelowInnermostStep(path);
-  if (!below) return LITERAL_ROOT_FIELDS.has(path[0] ?? '');
+function isLiteralStepField(below: string[]): boolean {
   const [field = '', second = '', third = ''] = below;
   if (field === 'foreach') return LITERAL_FOREACH_FIELDS.has(second);
   if (field === 'outputs') return LITERAL_OUTPUT_FIELDS.has(third);
@@ -121,6 +118,24 @@ function envNamesBefore(
   return new Set(names.slice(0, names.indexOf(entry)));
 }
 
+// The candidates that resolve in a step field. `path` is its path in `text`,
+// and `below` the part of it below the innermost step.
+function narrowToStepField(
+  text: string,
+  path: string[],
+  below: string[],
+  items: ReferenceCandidate[]
+): ReferenceCandidate[] {
+  if (below[0] === 'env') {
+    const envPath = path.slice(0, path.length - below.length + 1);
+    return envEntryCandidates(
+      items,
+      envNamesBefore(text, envPath, below[1] ?? '')
+    );
+  }
+  return isCommandField(below[0]) ? items : withoutBuildOutputs(items);
+}
+
 // Candidates that resolve in the field at `path`, by the field evaluation
 // matrix of spec 003. Null for a field that keeps references as literal text.
 function fieldCandidates(
@@ -129,8 +144,14 @@ function fieldCandidates(
   path: string[],
   state: ReferenceEditorState
 ): ReferenceCandidate[] | null {
-  const [root, entry, key] = path;
-  if (isLiteralField(path) || (root === 'params' && key !== 'eval')) {
+  const [root = '', entry, key] = path;
+  const below = STEP_ROOTS.has(root)
+    ? pathBelowBodies(pathBelowStep(path))
+    : null;
+  const literal = below
+    ? isLiteralStepField(below)
+    : LITERAL_ROOT_FIELDS.has(root) || (root === 'params' && key !== 'eval');
+  if (literal) {
     return null;
   }
   const items = candidatesAt(text, offset, state);
@@ -140,15 +161,7 @@ function fieldCandidates(
       (item) => item.group === 'consts' && earlier.has(item.label)
     );
   }
-  const below = pathBelowInnermostStep(path);
-  if (below?.[0] === 'env') {
-    const envPath = path.slice(0, path.length - below.length + 1);
-    return envEntryCandidates(
-      items,
-      envNamesBefore(text, envPath, below[1] ?? '')
-    );
-  }
-  return isCommandField(below?.[0]) ? items : withoutBuildOutputs(items);
+  return below ? narrowToStepField(text, path, below, items) : items;
 }
 
 /**
@@ -239,7 +252,8 @@ function toCompletionList(
       filterText: item.token,
       sortText: String(index).padStart(5, '0'),
       range,
-      ...(result.inRunField && item.group === 'env'
+      ...(result.inRunField &&
+      (item.group === 'env' || item.group === 'stepEnv')
         ? { documentation: shellNote }
         : {}),
     })),
@@ -278,16 +292,59 @@ export function registerFieldReferenceCompletion(
 }
 
 /**
- * Register the reference completion and hover providers for YAML models.
- * Dispose the result to remove both.
+ * Register reference completion for an editor that holds the YAML of one step,
+ * whose top level is the step entry. `candidatesAtPath` takes the path below
+ * that entry. Dispose the result to remove it.
+ */
+export function registerStepYamlCompletion(
+  monaco: Monaco,
+  editor: { getModel(): unknown },
+  candidatesAtPath: (path: string[]) => ReferenceCandidate[]
+): { dispose(): void } {
+  return monaco.languages.registerCompletionItemProvider('yaml', {
+    triggerCharacters: TRIGGER_CHARACTERS,
+    provideCompletionItems(model, position, context) {
+      if (model !== editor.getModel()) {
+        return { suggestions: [] };
+      }
+      const text = model.getValue();
+      const offset = model.getOffsetAt(position);
+      const { path, isInValue } = getYamlPathAtOffset(text, offset);
+      const range = replacedRange(
+        text,
+        offset,
+        isExplicit(monaco, model, position, context) && isInValue
+      );
+      const below = pathBelowBodies(path);
+      if (!range || isLiteralStepField(below)) {
+        return { suggestions: [] };
+      }
+      return toCompletionList(monaco, model, {
+        items: narrowToStepField(text, path, below, candidatesAtPath(path)),
+        ...range,
+        inRunField: isRunField(below[0]),
+      });
+    },
+  });
+}
+
+/**
+ * Register the reference completion and hover providers for the YAML of one
+ * document, the model at `modelUri`. A provider is global to its language, and
+ * other YAML models have other owners. Dispose the result to remove both.
  */
 export function registerReferenceCompletion(
   monaco: Monaco,
-  getState: () => ReferenceEditorState
+  getState: () => ReferenceEditorState,
+  modelUri: string
 ): { dispose(): void } {
+  const uri = monaco.Uri.parse(modelUri).toString();
   const completion = monaco.languages.registerCompletionItemProvider('yaml', {
     triggerCharacters: TRIGGER_CHARACTERS,
     provideCompletionItems(model, position, context) {
+      if (model.uri.toString() !== uri) {
+        return { suggestions: [] };
+      }
       const result = computeReferenceCompletions(
         model.getValue(),
         model.getOffsetAt(position),
@@ -297,7 +354,7 @@ export function registerReferenceCompletion(
       return toCompletionList(monaco, model, result);
     },
   });
-  const hover = registerReferenceHover(monaco, getState);
+  const hover = registerReferenceHover(monaco, getState, uri);
   return {
     dispose() {
       completion.dispose();

@@ -105,9 +105,14 @@ export function candidatesAt(
 
 const RUN_FIELDS = new Set(['run', 'script', 'command']);
 
+/** True for a step field that a shell reads. */
+export function isRunField(field: string | undefined): boolean {
+  return field !== undefined && RUN_FIELDS.has(field);
+}
+
 /** True for a step field that runs as the command of the executor. */
 export function isCommandField(field: string | undefined): boolean {
-  return field !== undefined && (RUN_FIELDS.has(field) || field === 'args');
+  return isRunField(field) || field === 'args';
 }
 
 /** True when the path points at a shell field that is a direct child of a step. */

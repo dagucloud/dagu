@@ -6,6 +6,7 @@ export {
   buildReferenceCandidates,
   declaresRepeat,
   envEntryCandidates,
+  foreachFramesAt,
   withoutBuildOutputs,
 } from './candidates';
 export { DeclaredOutputsPanel } from './DeclaredOutputsPanel';
