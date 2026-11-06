@@ -151,6 +151,19 @@ describe('computeReferenceCompletions', () => {
     expect(result?.to).toBe(offset + 1);
   });
 
+  it('leaves a lone dollar alone unless the request is explicit', () => {
+    const text = `${yamlHttpJq.slice(0, filterOffset)}$${yamlHttpJq.slice(filterOffset)}`;
+    const offset = filterOffset + 1;
+    expect(
+      computeReferenceCompletions(text, offset, state, { explicit: false })
+    ).toBeNull();
+    const result = computeReferenceCompletions(text, offset, state, {
+      explicit: true,
+    });
+    expect(result?.from).toBe(filterOffset);
+    expect(result?.to).toBe(offset);
+  });
+
   it('offers nothing in a param default, which is literal', () => {
     const offset = at(yamlHttpJq, 'https://api', 4);
     expect(
@@ -276,6 +289,13 @@ function fakeModel(text: string) {
   const lines = text.split('\n');
   return {
     getValue: () => text,
+    // Monaco's default word definition, where "$" is a word character.
+    getWordUntilPosition: (p: { lineNumber: number; column: number }) => ({
+      word:
+        /[^\s`~!@#%^&*()\-=+[{\]}\\|;:'",.<>/?]+$/.exec(
+          lines[p.lineNumber - 1]!.slice(0, p.column - 1)
+        )?.[0] ?? '',
+    }),
     getOffsetAt: (p: { lineNumber: number; column: number }) =>
       lines.slice(0, p.lineNumber - 1).reduce((n, l) => n + l.length + 1, 0) +
       p.column -
@@ -392,25 +412,42 @@ describe('registerFieldReferenceCompletion', () => {
   it('offers them at the caret for an explicit request only', () => {
     const text = 'echo a\n';
     const { complete } = setup(text);
-    expect(complete(4, TRIGGER)).toEqual([]);
-    expect(complete(4, INVOKE)[0]?.range).toMatchObject({
-      startColumn: 5,
-      endColumn: 5,
+    expect(complete(5, TRIGGER)).toEqual([]);
+    expect(complete(5, INVOKE)[0]?.range).toMatchObject({
+      startColumn: 6,
+      endColumn: 6,
     });
+  });
+
+  // Monaco reports a list that opens while a word is typed as Invoke, the same
+  // as Ctrl+Space. Offering there lets Enter replace what the author typed.
+  it.each([
+    ['ls', 1],
+    ['ls', 2],
+    ['echo a', 6],
+    ['echo $HOME', 6],
+    ['echo $HOME', 10],
+    ['grep foo$', 9],
+    ['$', 1],
+  ])('offers nothing while typing %s at %i', (text, offset) => {
+    const { complete } = setup(text);
+    expect(complete(offset, INVOKE)).toEqual([]);
+    expect(complete(offset, TRIGGER)).toEqual([]);
   });
 
   // ${NAME} is shell syntax in a script, as it is in a `run` field of the YAML.
   it('adds the shell note to env items', () => {
-    const { complete } = setup('$');
-    const [env, param] = complete(1, TRIGGER);
+    const { complete } = setup('${');
+    const [env, param] = complete(2, TRIGGER);
     expect(env?.documentation).toContain('${env.NAME}');
     expect(param?.documentation).toBeUndefined();
   });
 
   // Monaco providers are global to a language: other fields must not get these.
   it('offers nothing for the model of another editor', () => {
-    const { complete } = setup('$');
-    expect(complete(1, TRIGGER, fakeModel('$'))).toEqual([]);
+    const { complete } = setup('${');
+    expect(complete(2, TRIGGER)).not.toEqual([]);
+    expect(complete(2, TRIGGER, fakeModel('${'))).toEqual([]);
   });
 
   it('removes the provider on dispose', () => {
@@ -451,7 +488,7 @@ describe('registerReferenceCompletion', () => {
       0
     );
     expect(language).toBe('yaml');
-    expect(provider.triggerCharacters).toEqual(['$', '{', '.']);
+    expect(provider.triggerCharacters).toEqual(['{', '.']);
     handle.dispose();
     expect(disposeCompletion).toHaveBeenCalledTimes(1);
   });
@@ -487,8 +524,18 @@ describe('registerReferenceCompletion', () => {
     );
   });
 
+  // Monaco reports a list that opens while a word is typed as Invoke.
+  it.each([
+    ['steps:\n  - run: ls\n', 'ls', 2],
+    ['steps:\n  - run: echo $HOME\n', '$HOME', 5],
+    ['steps:\n  - run: grep foo$\n', 'foo$', 4],
+  ])('offers nothing while typing in %j', (text, marker, shift) => {
+    const { result } = setup(text, at(text, marker, shift), 0);
+    expect(result.suggestions).toEqual([]);
+  });
+
   it('adds a shell note to env items in a run field only', () => {
-    const run = at(yamlArraySteps, 'sort data', 2);
+    const run = at(yamlArraySteps, 'sort data', 0);
     const inRun = setup(yamlArraySteps, run, 0).result.suggestions;
     const env = inRun.find((s) => s.label === '${env.HOME}');
     expect(env?.documentation).toBe(

@@ -262,6 +262,51 @@ describe('ReferenceInput', () => {
       expect(onValue).toHaveBeenLastCalledWith('${steps.fetch.outputs.body}');
     });
 
+    // `grep foo$` is a whole command: Enter must commit it, not pick a reference.
+    it('leaves Enter to the host on a lone dollar', () => {
+      const onValue = vi.fn();
+      const onKeyDown = vi.fn();
+      render(
+        <Controlled initial="" onValue={onValue} onKeyDown={onKeyDown} />
+      );
+      const el = field();
+      act(() => el.focus());
+      fireEvent.change(el, { target: { value: 'grep foo$' } });
+      expect(screen.getByRole('listbox')).toBeInTheDocument();
+      expect(el).not.toHaveAttribute('aria-activedescendant');
+      fireEvent.keyDown(el, { key: 'Enter' });
+      expect(onKeyDown).toHaveBeenCalledTimes(1);
+      expect(onValue).toHaveBeenLastCalledWith('grep foo$');
+    });
+
+    it('picks on a lone dollar once an arrow key chose an option', () => {
+      const onValue = vi.fn();
+      const onKeyDown = vi.fn();
+      render(
+        <Controlled initial="" onValue={onValue} onKeyDown={onKeyDown} />
+      );
+      const el = field();
+      act(() => el.focus());
+      fireEvent.change(el, { target: { value: '$' } });
+      fireEvent.keyDown(el, { key: 'ArrowDown' });
+      fireEvent.keyDown(el, { key: 'Enter' });
+      expect(onKeyDown).not.toHaveBeenCalled();
+      expect(onValue).toHaveBeenLastCalledWith('${steps.fetch.outputs.body}');
+    });
+
+    it('activates the first option once the brace follows the dollar', () => {
+      render(<Controlled initial="" />);
+      const el = field();
+      act(() => el.focus());
+      fireEvent.change(el, { target: { value: '$' } });
+      expect(el).not.toHaveAttribute('aria-activedescendant');
+      fireEvent.change(el, { target: { value: '${' } });
+      expect(el).toHaveAttribute(
+        'aria-activedescendant',
+        screen.getAllByRole('option')[0]?.id
+      );
+    });
+
     it('closes on Escape and stays closed for that reference', () => {
       const onValue = vi.fn();
       render(<Controlled initial="" onValue={onValue} />);

@@ -16,7 +16,8 @@ import { findOpenReference } from './tokens';
 
 type Monaco = typeof import('monaco-editor');
 
-const TRIGGER_CHARACTERS = ['$', '{', '.'];
+// A lone "$" is shell text as often as the start of a reference: "${" opens.
+const TRIGGER_CHARACTERS = ['{', '.'];
 
 export interface ReferenceCompletions {
   items: ReferenceCandidate[];
@@ -97,25 +98,34 @@ export function computeReferenceCompletions(
 }
 
 // The text that a chosen item replaces, or null when no completion applies:
-// an open "${", or the empty text at the offset when `atOffset` allows it.
+// an open "${", or, when `atOffset` allows it, a lone "$" or the empty text at
+// the offset.
 function replacedRange(
   text: string,
   offset: number,
   atOffset: boolean
 ): { from: number; to: number } | null {
   const open = findOpenReference(text, offset);
-  if (open) {
+  if (open && (atOffset || text[open.from + 1] === '{')) {
     // The editor closes a brace that the user types: replace it too.
     return { from: open.from, to: text[offset] === '}' ? offset + 1 : offset };
   }
   return atOffset ? { from: offset, to: offset } : null;
 }
 
+// Monaco also reports a list that opens while a word is typed as Invoke. Only a
+// request with no word before the caret comes from the author, and offering in
+// a word would let Enter replace what they typed.
 function isExplicit(
   monaco: Monaco,
+  model: import('monaco-editor').editor.ITextModel,
+  position: import('monaco-editor').Position,
   context: import('monaco-editor').languages.CompletionContext
 ): boolean {
-  return context.triggerKind === monaco.languages.CompletionTriggerKind.Invoke;
+  return (
+    context.triggerKind === monaco.languages.CompletionTriggerKind.Invoke &&
+    model.getWordUntilPosition(position).word === ''
+  );
 }
 
 function toCompletionList(
@@ -175,7 +185,7 @@ export function registerFieldReferenceCompletion(
       const range = replacedRange(
         model.getValue(),
         model.getOffsetAt(position),
-        isExplicit(monaco, context)
+        isExplicit(monaco, model, position, context)
       );
       return toCompletionList(
         monaco,
@@ -201,7 +211,7 @@ export function registerReferenceCompletion(
         model.getValue(),
         model.getOffsetAt(position),
         getState(),
-        { explicit: isExplicit(monaco, context) }
+        { explicit: isExplicit(monaco, model, position, context) }
       );
       return toCompletionList(monaco, model, result);
     },

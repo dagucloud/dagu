@@ -80,6 +80,9 @@ export function ReferenceInput({
   const inlineOpen =
     openReference !== null && openReference.from !== dismissedFrom;
   const pickerOpen = !disabled && (buttonOpen || inlineOpen);
+  // A command can end in "$", as in `grep foo$`: Enter stays with the field.
+  const loneDollar =
+    openReference !== null && value[openReference.from + 1] !== '{';
 
   useEffect(() => {
     if (openReference === null && dismissedFrom !== null)
@@ -304,6 +307,7 @@ export function ReferenceInput({
           candidates={candidates}
           showSearch={buttonOpen}
           query={buttonOpen ? undefined : openReference?.query}
+          idle={loneDollar}
           onPick={buttonOpen ? pickFromButton : pickInline}
           onClose={
             buttonOpen

@@ -134,6 +134,34 @@ describe('ReferencePicker', () => {
     expect(active()[0]).toHaveTextContent('fetch body');
   });
 
+  describe('when idle', () => {
+    const active = () =>
+      screen
+        .getAllByRole('option')
+        .filter((o) => o.getAttribute('aria-selected') === 'true');
+
+    it('has no active option and leaves Enter to the host', () => {
+      const { onPick } = renderPicker({ idle: true });
+      expect(active()).toHaveLength(0);
+      expect(
+        fireEvent.keyDown(screen.getByLabelText('keys'), { key: 'Enter' })
+      ).toBe(true);
+      expect(onPick).not.toHaveBeenCalled();
+    });
+
+    it('moves to the first option with the down arrow', () => {
+      renderPicker({ idle: true });
+      fireEvent.keyDown(screen.getByLabelText('keys'), { key: 'ArrowDown' });
+      expect(active()[0]).toHaveTextContent('fetch body');
+    });
+
+    it('moves to the last option with the up arrow', () => {
+      renderPicker({ idle: true });
+      fireEvent.keyDown(screen.getByLabelText('keys'), { key: 'ArrowUp' });
+      expect(active()[0]).toHaveTextContent('HOME');
+    });
+  });
+
   it('reports the active option id', () => {
     const onActiveChange = vi.fn();
     renderPicker({ onActiveChange });
