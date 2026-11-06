@@ -316,6 +316,61 @@ func TestRunner_StepRetryWithDownstreamIncludesInferredBuildDescendant(t *testin
 	assert.Equal(t, ir.BuildDecisionDeferred, consumerBuild.Decision)
 }
 
+// A step retry whose step cannot start because its upstream still failed runs
+// nothing, which must not read as a successful run.
+func TestRunner_StepRetryBlockedByFailedUpstreamFails(t *testing.T) {
+	t.Parallel()
+
+	workingDir := t.TempDir()
+	failed := ir.Step{
+		ID:       "failed",
+		Name:     "failed",
+		Commands: []ir.CommandEntry{{Command: "false"}},
+	}
+	blocked := ir.Step{
+		ID:       "blocked",
+		Name:     "blocked",
+		Commands: []ir.CommandEntry{{Command: "true"}},
+		Depends:  []string{failed.Name},
+	}
+	next := ir.Step{
+		ID:       "next",
+		Name:     "next",
+		Commands: []ir.CommandEntry{{Command: "true"}},
+		Depends:  []string{blocked.Name},
+	}
+	dag := &ir.DAG{
+		Name:               "step-retry",
+		WorkingDir:         workingDir,
+		WorkingDirExplicit: true,
+		Steps:              []ir.Step{failed, blocked, next},
+	}
+	nodes := []*Node{
+		NodeWithData(NodeData{Step: failed, State: NodeState{Status: ir.NodeFailed}}),
+		NodeWithData(NodeData{Step: blocked, State: NodeState{Status: ir.NodeAborted}}),
+		NodeWithData(NodeData{Step: next, State: NodeState{Status: ir.NodeAborted}}),
+	}
+	plan, err := CreateStepRetryPlanWithOptions(dag, nodes, blocked.Name, StepRetryPlanOptions{
+		IncludeDownstream: true,
+	})
+	require.NoError(t, err)
+
+	runner := New(&Config{DAGRunID: "run-1", LogDir: t.TempDir()})
+	ctx := NewContext(
+		context.Background(),
+		dag,
+		"run-1",
+		filepath.Join(workingDir, "dag.log"),
+		WithAttemptID("attempt-1"),
+	)
+	require.ErrorIs(t, runner.Run(ctx, plan, nil), ErrUpstreamFailed)
+
+	assert.Equal(t, ir.Failed, runner.Status(ctx, plan))
+	assert.Equal(t, ir.NodeFailed, plan.GetNodeByName(failed.Name).State().Status)
+	assert.Equal(t, ir.NodeAborted, plan.GetNodeByName(blocked.Name).State().Status)
+	assert.Equal(t, ir.NodeAborted, plan.GetNodeByName(next.Name).State().Status)
+}
+
 // Descendants reached through inferred build edges are reset at run start,
 // after build planning resolved their paths. A reset human task still reopens
 // from its template, and the other reset steps keep their resolved paths.

@@ -386,9 +386,18 @@ func (r *Runner) runGraphLoop(ctx context.Context, plan *Plan, nodes []*Node, pr
 
 	// Find initial ready nodes
 	for _, node := range nodes {
-		if node.State().Status == ir.NodeNotStarted && isReady(ctx, plan, node) {
+		if node.State().Status != ir.NodeNotStarted {
+			continue
+		}
+		if isReady(ctx, plan, node) {
 			logger.Debug(ctx, "Initial node ready", tag.Step(node.Name()))
 			readyCh <- node
+			continue
+		}
+		// Only a step retry starts with a failed upstream. The step it selected
+		// never runs, so the run has not succeeded.
+		if errors.Is(node.State().Error, ErrUpstreamFailed) {
+			r.setLastError(ErrUpstreamFailed)
 		}
 	}
 
