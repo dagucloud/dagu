@@ -27,12 +27,21 @@ Workflow authors can make an HTTP request and consume its result.
   `status_code` and `headers`; a non-success response keeps them.
 - An explicit `with.skip_tls_verify: false` rejects an untrusted server
   certificate. Setting it to `true` permits that certificate.
+- `with.status_exit_codes` maps an HTTP status code (`"404"`) or a class
+  (`"5xx"`) to the step exit code (0–255). An exact code wins over a class. The
+  status of a 2xx response is unaffected. For a non-2xx response covered by the
+  map, the step exits with the mapped code instead of the default `1`; a mapped
+  value of `0` makes the step succeed. A status not present in the map keeps
+  today's behaviour. Validation rejects keys outside `100`–`599` or `1xx`–`5xx`
+  and values outside `0`–`255`.
 
 ## Errors
 
 Missing method or URL fields fail validation with a diagnostic naming the field.
-A non-success HTTP response fails the step. When `with.output` names an existing
-file, an error response preserves that file and writes the error body to stdout.
+A `with.status_exit_codes` key or value outside its allowed range fails
+validation. A non-success HTTP response fails the step unless `status_exit_codes`
+maps its status to `0`. When `with.output` names an existing file, an error
+response preserves that file and writes the error body to stdout.
 
 ## Examples
 

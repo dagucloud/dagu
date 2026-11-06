@@ -12,6 +12,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"time"
 
@@ -34,6 +35,7 @@ type http struct {
 	url       string
 	method    string
 	cfg       *httpConfig
+	exitCode  int
 }
 
 type httpConfig struct {
@@ -51,6 +53,11 @@ type httpConfig struct {
 	Output        string            `json:"output" mapstructure:"output"`
 	JSON          bool              `json:"json" mapstructure:"json"`
 	SkipTLSVerify bool              `json:"skip_tls_verify" mapstructure:"skip_tls_verify"`
+	// StatusExitCodes maps an HTTP status code or class (e.g. "404", "5xx") to
+	// the step exit code used when the response carries that status. An exact
+	// code wins over a class. A status not present keeps the default behaviour
+	// (exit 1). Decoded and validated in decodeHTTPConfig.
+	StatusExitCodes map[string]int `json:"status_exit_codes,omitzero" mapstructure:"status_exit_codes"`
 }
 
 // httpJSONResult is the stdout of format: json. A silent success leaves
@@ -307,6 +314,19 @@ func (e *http) Run(_ context.Context) error {
 
 	resCode := rsp.StatusCode()
 
+	// Map the response status to a configured exit code when one applies. An
+	// exact code wins over a class (4xx, 5xx, ...). With no mapping the step
+	// keeps today's behaviour: a non-2xx response is exit 1.
+	if !rsp.IsSuccess() {
+		if mapped, ok := resolveStatusExitCode(e.cfg.StatusExitCodes, resCode); ok {
+			e.exitCode = mapped
+			if mapped == 0 {
+				return nil
+			}
+			return fmt.Errorf("%w: %d", errHTTPStatusCode, resCode)
+		}
+	}
+
 	if e.hasFileOutput() {
 		if err = e.writeFileOutputResult(rsp); err != nil {
 			return err
@@ -331,6 +351,12 @@ func (e *http) Run(_ context.Context) error {
 		return fmt.Errorf("%w: %d", errHTTPStatusCode, resCode)
 	}
 	return nil
+}
+
+// ExitCode implements executor.ExitCoder. It reports the status-derived exit
+// code when status_exit_codes mapped a non-2xx response, and 0 otherwise.
+func (e *http) ExitCode() int {
+	return e.exitCode
 }
 
 func (e *http) writeFileOutputResult(rsp *resty.Response) error {
@@ -390,7 +416,59 @@ func decodeHTTPConfig(dat map[string]any, cfg *httpConfig) error {
 		ErrorUnused:      false,
 		Result:           cfg,
 	})
-	return md.Decode(dat)
+	if err := md.Decode(dat); err != nil {
+		return err
+	}
+	return validateStatusExitCodes(cfg.StatusExitCodes)
+}
+
+// validateStatusExitCodes checks a status_exit_codes map. Keys must be a numeric
+// status code (100-599) or a status class (1xx-5xx); values must be 0-255.
+func validateStatusExitCodes(m map[string]int) error {
+	for key, code := range m {
+		if !validStatusKey(key) {
+			return fmt.Errorf("http status_exit_codes: invalid key %q (use a code 100-599 or a class 1xx-5xx)", key)
+		}
+		if code < 0 || code > 255 {
+			return fmt.Errorf("http status_exit_codes: value for %q must be 0-255, got %d", key, code)
+		}
+	}
+	return nil
+}
+
+// validStatusKey reports whether key is a single status code (100-599) or a
+// class (1xx-5xx).
+func validStatusKey(key string) bool {
+	if len(key) != 3 {
+		return false
+	}
+	if key[1] == 'x' && key[2] == 'x' {
+		return key[0] >= '1' && key[0] <= '5'
+	}
+	for _, c := range key {
+		if c < '0' || c > '9' {
+			return false
+		}
+	}
+	n := int(key[0]-'0')*100 + int(key[1]-'0')*10 + int(key[2]-'0')
+	return n >= 100 && n <= 599
+}
+
+// resolveStatusExitCode returns the configured exit code for status, preferring
+// an exact code over a class (4xx, 5xx, ...). The second result reports whether
+// a mapping was found.
+func resolveStatusExitCode(m map[string]int, status int) (int, bool) {
+	if m == nil {
+		return 0, false
+	}
+	if code, ok := m[strconv.Itoa(status)]; ok {
+		return code, true
+	}
+	class := strconv.Itoa(status/100) + "xx"
+	if code, ok := m[class]; ok {
+		return code, true
+	}
+	return 0, false
 }
 
 func decodeHTTPConfigFromString(_ context.Context, source string, target *httpConfig) error {

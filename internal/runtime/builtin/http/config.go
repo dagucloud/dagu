@@ -41,6 +41,12 @@ var configSchema = &jsonschema.Schema{
 		"output":          {Type: "string", Description: "File path to write the response body to. When set, the response body is written to this file instead of stdout."},
 		"json":            {Type: "boolean", Description: "Format output as JSON"},
 		"skip_tls_verify": {Type: "boolean", Description: "Skip TLS certificate verification"},
+		"status_exit_codes": {
+			Type: "object",
+			Description: "Map an HTTP status code (e.g. \"404\") or class (e.g. \"5xx\") to the step exit code (0-255). " +
+				"An exact code wins over a class. A status not in the map keeps the default behaviour (exit 1).",
+			AdditionalProperties: &jsonschema.Schema{Type: "integer"},
+		},
 	},
 }
 
