@@ -209,8 +209,12 @@ export interface ActionCatalogEntry {
 
 /* References */
 export type ReferenceGroup =
+  | 'foreach'
+  | 'inputs'
+  | 'outputs'
   | 'params'
   | 'consts'
+  | 'stepEnv'
   | 'env'
   | 'secrets'
   | 'steps'

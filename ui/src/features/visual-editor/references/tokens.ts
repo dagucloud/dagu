@@ -12,7 +12,9 @@ export type ReferenceNamespace =
   | 'env'
   | 'steps'
   | 'context'
-  | 'foreach';
+  | 'foreach'
+  | 'inputs'
+  | 'outputs';
 
 /** A "${...}" token in a text, with its range. */
 export interface ReferenceToken {
@@ -36,6 +38,8 @@ const RESERVED = new Set<string>([
   'steps',
   'context',
   'foreach',
+  'inputs',
+  'outputs',
 ]);
 
 const unsupported = { kind: 'unsupported' as const };
@@ -65,6 +69,8 @@ function isCanonicalPath(
   switch (namespace) {
     case 'params':
     case 'consts':
+    case 'inputs':
+    case 'outputs':
       return rest.length === 1 && NAME.test(a);
     case 'env':
       return rest.length === 1 && ENV_NAME.test(a);

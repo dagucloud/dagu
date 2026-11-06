@@ -235,6 +235,216 @@ describe('computeReferenceCompletions', () => {
     );
   });
 
+  describe('fields that keep references as literal text', () => {
+    const offers = (text: string) =>
+      computeReferenceCompletions(
+        text,
+        at(text, '${', 2),
+        { scope: scopeHttpJq },
+        { explicit: false }
+      ) !== null;
+
+    // Spec 003 lists these as literal.
+    it.each([
+      ['root name', 'name: ${\nsteps:\n  - run: a\n'],
+      ['root description', 'description: ${\nsteps:\n  - run: a\n'],
+      ['root timeout', 'timeout_sec: ${\nsteps:\n  - run: a\n'],
+      ['root retry', 'retry_policy:\n  limit: ${\nsteps:\n  - run: a\n'],
+      ['secret key', 'secrets:\n  - name: A\n    key: ${\nsteps: []\n'],
+      ['step name', 'steps:\n  - name: ${\n    run: a\n'],
+      ['step id', 'steps:\n  - id: ${\n    run: a\n'],
+      ['step depends', 'steps:\n  - depends: [${]\n    run: a\n'],
+      ['step timeout', 'steps:\n  - timeout_sec: ${\n    run: a\n'],
+      ['handler name', 'handler_on:\n  exit:\n    name: ${\n    run: a\n'],
+      [
+        'output name',
+        'steps:\n  - run: a\n    outputs:\n      - name: ${\n',
+      ],
+      [
+        'foreach alias',
+        'steps:\n  - foreach:\n      as: ${\n      items: [a]\n',
+      ],
+      [
+        'body step name',
+        'steps:\n  - foreach:\n      items: [a]\n      steps:\n        - name: ${\n',
+      ],
+    ])('offers nothing in a %s', (_name, text) => {
+      expect(offers(text)).toBe(false);
+    });
+
+    it.each([
+      ['root env', 'env:\n  - A: ${\nsteps:\n  - run: a\n'],
+      ['working dir', 'steps:\n  - working_dir: ${\n    run: a\n'],
+      ['step retry', 'steps:\n  - run: a\n    retry_policy:\n      limit: ${\n'],
+      // The name of a step field means nothing inside `with`.
+      ['with name', 'steps:\n  - action: x\n    with:\n      name: ${\n'],
+      [
+        'body run',
+        'steps:\n  - foreach:\n      items: [a]\n      steps:\n        - run: ${\n',
+      ],
+    ])('offers references in a %s', (_name, text) => {
+      expect(offers(text)).toBe(true);
+    });
+  });
+
+  describe('in a foreach', () => {
+    const scope = (): ReferenceScope => {
+      const base = scopeHttpJq.steps[0]!;
+      return {
+        ...scopeHttpJq,
+        steps: [
+          {
+            ...base,
+            name: 'each',
+            id: 'each',
+            stepPath: 'steps[0]',
+            upstream: [],
+            outputs: [],
+            foreach: {
+              item: [
+                { name: 'item', reference: '${foreach.item}' },
+                { name: 'index', reference: '${foreach.index}' },
+                { name: 'key', reference: '${foreach.key}' },
+              ],
+              steps: [
+                {
+                  ...base,
+                  name: 'first',
+                  id: 'first',
+                  stepPath: 'steps[0].foreach.steps[0]',
+                  upstream: [],
+                },
+              ],
+            },
+          },
+        ],
+      };
+    };
+    const tokensIn = (text: string) =>
+      computeReferenceCompletions(
+        text,
+        at(text, '${', 2),
+        { scope: scope() },
+        { explicit: false }
+      )?.items.map((item) => item.token);
+    const doc = (field: string) =>
+      [
+        'steps:',
+        '  - name: each',
+        '    foreach:',
+        '      items: [a]',
+        ...field.split('\n').map((line) => `      ${line}`),
+      ].join('\n');
+
+    it('offers the item in a body step', () => {
+      expect(
+        tokensIn(doc('steps:\n  - name: first\n    run: echo ${'))
+      ).toContain('${foreach.item}');
+    });
+
+    it('offers the item but not the key in foreach.key', () => {
+      const tokens = tokensIn(doc('key: ${\nsteps: []'));
+      expect(tokens).toContain('${foreach.item}');
+      expect(tokens).not.toContain('${foreach.key}');
+    });
+
+    it('offers no item in foreach.items', () => {
+      const text = 'steps:\n  - name: each\n    foreach:\n      items: ${\n';
+      expect(tokensIn(text)).not.toContain('${foreach.item}');
+    });
+  });
+
+  describe('in a step env entry', () => {
+    const scope = (): ReferenceScope => ({
+      ...scopeHttpJq,
+      env: [],
+      steps: [
+        {
+          ...scopeHttpJq.steps[0]!,
+          name: 'a',
+          id: 'a',
+          stepPath: 'steps[0]',
+          upstream: [],
+          outputs: [],
+          env: ['FIRST', 'SECOND', 'THIRD'].map((name) => ({
+            name,
+            reference: `\${env.${name}}`,
+          })),
+        },
+      ],
+    });
+    const ownEnv = (text: string) =>
+      computeReferenceCompletions(
+        text,
+        at(text, '${', 2),
+        { scope: scope() },
+        { explicit: false }
+      )
+        ?.items.filter((item) => item.group === 'stepEnv')
+        .map((item) => item.label);
+
+    // Spec 006: a step env entry reads only the entries before it.
+    it.each([
+      ['a list of maps', '- FIRST: 1\n      - SECOND: ${\n      - THIRD: 3'],
+      ['a list of strings', '- FIRST=1\n      - SECOND=${\n      - THIRD=3'],
+      ['a map', 'FIRST: 1\n      SECOND: ${\n      THIRD: 3'],
+    ])('offers only the earlier entries in %s', (_form, entries) => {
+      const text = `steps:\n  - name: a\n    env:\n      ${entries}\n    run: x\n`;
+      expect(ownEnv(text)).toEqual(['FIRST']);
+    });
+
+    it('offers every entry outside the env', () => {
+      const text =
+        'steps:\n  - name: a\n    env:\n      - FIRST: 1\n    run: echo ${\n';
+      expect(ownEnv(text)).toEqual(['FIRST', 'SECOND', 'THIRD']);
+    });
+  });
+
+  // Spec 033: a build output path exists only while the executor runs. A run
+  // showed that `preconditions` fails the build.
+  describe('with a build output', () => {
+    const scope = (): ReferenceScope => ({
+      ...scopeHttpJq,
+      steps: [
+        {
+          ...scopeHttpJq.steps[0]!,
+          name: 'a',
+          id: 'a',
+          stepPath: 'steps[0]',
+          upstream: [],
+          outputs: [],
+          inputs: [{ name: 'source', reference: '${inputs.source}' }],
+          pathOutputs: [{ name: 'artifact', reference: '${outputs.artifact}' }],
+        },
+      ],
+    });
+    const tokensIn = (field: string) => {
+      const text = `steps:\n  - name: a\n    ${field}\n`;
+      return computeReferenceCompletions(
+        text,
+        at(text, '${', 2),
+        { scope: scope() },
+        { explicit: false }
+      )?.items.map((item) => item.token);
+    };
+
+    it.each([
+      ['run', 'run: cp ${'],
+      ['env', 'env:\n      - OUT: ${'],
+    ])('offers it in %s', (_name, field) => {
+      expect(tokensIn(field)).toContain('${outputs.artifact}');
+    });
+
+    it.each([
+      ['a precondition', 'preconditions:\n      - condition: ${'],
+      ['working_dir', 'working_dir: ${'],
+    ])('offers the input but not the output in %s', (_name, field) => {
+      const tokens = tokensIn(field);
+      expect(tokens).toContain('${inputs.source}');
+      expect(tokens).not.toContain('${outputs.artifact}');
+    });
+  });
+
   it('marks a run field and no other field', () => {
     const run = at(yamlArraySteps, 'sort data', 2);
     const inRun = computeReferenceCompletions(
@@ -246,16 +456,6 @@ describe('computeReferenceCompletions', () => {
       }
     );
     expect(inRun?.inRunField).toBe(true);
-    const name = at(yamlArraySteps, 'transform   #', 2);
-    const inName = computeReferenceCompletions(
-      yamlArraySteps,
-      name,
-      { scope: scopeHttpJq },
-      {
-        explicit: true,
-      }
-    );
-    expect(inName?.inRunField).toBe(false);
     const filter = computeReferenceCompletions(
       yamlHttpJq,
       filterOffset,

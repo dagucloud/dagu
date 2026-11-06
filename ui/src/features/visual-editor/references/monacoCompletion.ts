@@ -5,10 +5,13 @@ import { isMap, isScalar, isSeq, parseDocument } from 'yaml';
 import { getYamlPathAtOffset } from '@/hooks/useYamlCursorPath';
 import { translateStatic } from '@/i18n/translateStatic';
 import type { ReferenceCandidate } from '../contracts';
+import { envEntryCandidates, withoutBuildOutputs } from './candidates';
 import {
   candidatesAt,
   editorLocale,
+  isCommandField,
   isRunFieldPath,
+  pathBelowStep,
   type ReferenceEditorState,
 } from './editorState';
 import { registerReferenceHover } from './monacoHover';
@@ -28,24 +31,94 @@ export interface ReferenceCompletions {
   inRunField: boolean;
 }
 
+// Fields that spec 003 keeps as literal text.
+const LITERAL_ROOT_FIELDS = new Set([
+  'name',
+  'description',
+  'group',
+  'tags',
+  'type',
+  'schedule',
+  'retry_policy',
+  'timeout_sec',
+  'delay_sec',
+  'max_active_steps',
+  'max_active_runs',
+  'max_clean_up_time_sec',
+  'max_output_size',
+  'secrets',
+]);
+const LITERAL_STEP_FIELDS = new Set([
+  'id',
+  'name',
+  'description',
+  'depends',
+  'action',
+  'type',
+  'timeout_sec',
+  'continue_on',
+  'mail_on_error',
+  'signal_on_stop',
+]);
+const LITERAL_FOREACH_FIELDS = new Set(['as', 'max_concurrent']);
+const LITERAL_OUTPUT_FIELDS = new Set(['name', 'type']);
+
+const STEP_ROOTS = new Set(['steps', 'handler_on']);
+
+// The path below the innermost step around a field: the step entry, then each
+// foreach body. Null for a path outside any step.
+function pathBelowInnermostStep(path: string[]): string[] | null {
+  if (!STEP_ROOTS.has(path[0] ?? '')) return null;
+  let below = pathBelowStep(path);
+  while (below[0] === 'foreach' && below[1] === 'steps') {
+    below = below.slice(3);
+  }
+  return below;
+}
+
+function isLiteralField(path: string[]): boolean {
+  const below = pathBelowInnermostStep(path);
+  if (!below) return LITERAL_ROOT_FIELDS.has(path[0] ?? '');
+  const [field = '', second = '', third = ''] = below;
+  if (field === 'foreach') return LITERAL_FOREACH_FIELDS.has(second);
+  if (field === 'outputs') return LITERAL_OUTPUT_FIELDS.has(third);
+  return LITERAL_STEP_FIELDS.has(field);
+}
+
+// The names that a list item declares: `- KEY: value`, or `- KEY=value`.
+function entryNames(entry: unknown): string[] {
+  if (isMap(entry)) {
+    return entry.items.flatMap(({ key }) =>
+      isScalar(key) ? [String(key.value)] : []
+    );
+  }
+  return isScalar(entry) ? [String(entry.value).split('=')[0] ?? ''] : [];
+}
+
 // Names of the entries of root `consts` before the entry at `index`.
 function constNamesBefore(text: string, index: number): Set<string> {
-  const names = new Set<string>();
   const consts = parseDocument(text).get('consts');
-  if (!isSeq(consts)) {
-    return names;
+  return new Set(
+    isSeq(consts) ? consts.items.slice(0, index).flatMap(entryNames) : []
+  );
+}
+
+// Names of the step env entries before `entry`, the list index or map key that
+// the field has below the env at `envPath`.
+function envNamesBefore(
+  text: string,
+  envPath: string[],
+  entry: string
+): Set<string> {
+  const env = parseDocument(text).getIn(envPath);
+  if (isSeq(env)) {
+    return new Set(env.items.slice(0, Number(entry)).flatMap(entryNames));
   }
-  for (const entry of consts.items.slice(0, index)) {
-    if (!isMap(entry)) {
-      continue;
-    }
-    for (const { key } of entry.items) {
-      if (isScalar(key)) {
-        names.add(String(key.value));
-      }
-    }
-  }
-  return names;
+  if (!isMap(env)) return new Set();
+  const names = env.items.flatMap(({ key }) =>
+    isScalar(key) ? [String(key.value)] : []
+  );
+  return new Set(names.slice(0, names.indexOf(entry)));
 }
 
 // Candidates that resolve in the field at `path`, by the field evaluation
@@ -57,17 +130,25 @@ function fieldCandidates(
   state: ReferenceEditorState
 ): ReferenceCandidate[] | null {
   const [root, entry, key] = path;
-  if (root === 'params' && key !== 'eval') {
+  if (isLiteralField(path) || (root === 'params' && key !== 'eval')) {
     return null;
   }
   const items = candidatesAt(text, offset, state);
-  if (root !== 'consts') {
-    return items;
+  if (root === 'consts') {
+    const earlier = constNamesBefore(text, Number(entry));
+    return items.filter(
+      (item) => item.group === 'consts' && earlier.has(item.label)
+    );
   }
-  const earlier = constNamesBefore(text, Number(entry));
-  return items.filter(
-    (item) => item.group === 'consts' && earlier.has(item.label)
-  );
+  const below = pathBelowInnermostStep(path);
+  if (below?.[0] === 'env') {
+    const envPath = path.slice(0, path.length - below.length + 1);
+    return envEntryCandidates(
+      items,
+      envNamesBefore(text, envPath, below[1] ?? '')
+    );
+  }
+  return isCommandField(below?.[0]) ? items : withoutBuildOutputs(items);
 }
 
 /**
