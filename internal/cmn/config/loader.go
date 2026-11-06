@@ -418,6 +418,9 @@ func (l *ConfigLoader) Load() (*Config, error) {
 		if err := l.validateTrustedProxyConfigKeys(); err != nil {
 			return nil, err
 		}
+		if err := l.validateExternalAuthConfigKeys(); err != nil {
+			return nil, err
+		}
 	}
 
 	var def Definition
@@ -898,6 +901,7 @@ func (l *ConfigLoader) loadServerAuth(cfg *Config, def Definition) {
 	l.loadOIDCAuth(cfg, def.Auth)
 	l.loadTrustedProxyAuth(cfg, def.Auth)
 	l.loadBuiltinAuth(cfg, def.Auth)
+	l.loadExternalAuth(cfg, def.Auth)
 	l.setAuthDefaults(cfg)
 }
 
@@ -1345,6 +1349,84 @@ func (l *ConfigLoader) loadBuiltinAuth(cfg *Config, auth *AuthDef) {
 		cfg.Server.Auth.Builtin.InitialAdmin.Username = auth.Builtin.InitialAdmin.Username
 		cfg.Server.Auth.Builtin.InitialAdmin.Password = auth.Builtin.InitialAdmin.Password
 	}
+}
+
+const (
+	defaultExternalTokenMaxAge    = 60 * time.Second
+	defaultExternalAuthZENTimeout = 2 * time.Second
+)
+
+func (l *ConfigLoader) loadExternalAuth(cfg *Config, authDef *AuthDef) {
+	def := authDef.External
+	if def == nil {
+		return
+	}
+
+	external := &cfg.Server.Auth.External
+	external.Token.MaxAge = defaultExternalTokenMaxAge
+	external.AuthZEN.Timeout = defaultExternalAuthZENTimeout
+	if def.Enabled != nil {
+		external.Enabled = *def.Enabled
+	}
+	if def.Token != nil {
+		external.Token.Header = def.Token.Header
+		external.Token.Issuer = def.Token.Issuer
+		external.Token.Audience = def.Token.Audience
+		external.Token.PublicKeysFile = def.Token.PublicKeysFile
+		if def.Token.MaxAge != "" {
+			external.Token.MaxAge = l.parseDuration("auth.external.token.max_age", def.Token.MaxAge)
+		}
+	}
+	if def.AuthZEN != nil {
+		external.AuthZEN.BaseURL = def.AuthZEN.BaseURL
+		external.AuthZEN.TokenFile = def.AuthZEN.TokenFile
+		if def.AuthZEN.Timeout != "" {
+			external.AuthZEN.Timeout = l.parseDuration("auth.external.authzen.timeout", def.AuthZEN.Timeout)
+		}
+		external.AuthZEN.CacheTTL = l.parseDuration("auth.external.authzen.cache_ttl", def.AuthZEN.CacheTTL)
+	}
+}
+
+// validateExternalAuthConfigKeys rejects unknown keys and malformed durations
+// in auth.external, so that a typo cannot silently weaken the hook.
+func (l *ConfigLoader) validateExternalAuthConfigKeys() error {
+	raw := l.v.GetStringMap("auth.external")
+	if len(raw) == 0 {
+		return nil
+	}
+
+	var decoded AuthExternalDef
+	decoder, err := mapstructure.NewDecoder(&mapstructure.DecoderConfig{
+		Result:      &decoded,
+		ErrorUnused: true,
+		TagName:     "mapstructure",
+	})
+	if err != nil {
+		return fmt.Errorf("validate auth.external config: %w", err)
+	}
+	if err := decoder.Decode(raw); err != nil {
+		return fmt.Errorf("invalid auth.external config: %w", err)
+	}
+
+	var durations []struct{ key, value string }
+	if decoded.Token != nil {
+		durations = append(durations, struct{ key, value string }{"auth.external.token.max_age", decoded.Token.MaxAge})
+	}
+	if decoded.AuthZEN != nil {
+		durations = append(durations,
+			struct{ key, value string }{"auth.external.authzen.timeout", decoded.AuthZEN.Timeout},
+			struct{ key, value string }{"auth.external.authzen.cache_ttl", decoded.AuthZEN.CacheTTL},
+		)
+	}
+	for _, d := range durations {
+		if d.value == "" {
+			continue
+		}
+		if _, err := time.ParseDuration(d.value); err != nil {
+			return fmt.Errorf("invalid auth.external config: %s must be a duration such as \"5s\" (got %q)", d.key, d.value)
+		}
+	}
+	return nil
 }
 
 func (l *ConfigLoader) setAuthDefaults(cfg *Config) {

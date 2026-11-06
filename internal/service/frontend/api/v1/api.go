@@ -49,6 +49,7 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/service/coordinator"
 	"github.com/dagucloud/dagu/v2/internal/service/frontend/api/pathutil"
 	frontendauth "github.com/dagucloud/dagu/v2/internal/service/frontend/auth"
+	"github.com/dagucloud/dagu/v2/internal/service/frontend/extauthz"
 	incidentservice "github.com/dagucloud/dagu/v2/internal/service/incident"
 	notificationservice "github.com/dagucloud/dagu/v2/internal/service/notification"
 	"github.com/dagucloud/dagu/v2/internal/service/resource"
@@ -89,6 +90,7 @@ type API struct {
 	subCmdBuilder        *launcher.SubCmdBuilder
 	resourceService      resourceMonitor
 	authService          AuthService
+	externalAuthz        *extauthz.Authorizer
 	auditService         *audit.Service
 	eventService         *eventstore.Service
 	incidentService      IncidentService
@@ -575,6 +577,7 @@ func (a *API) ConfigureRoutes(ctx context.Context, r chi.Router, writeTimeout ti
 		r.Use(frontendauth.LoginRateLimitMiddleware(loginPath))
 		r.Use(stepLogDownloadFormAuth(mountedAPIPath))
 		r.Use(frontendauth.Middleware(authOptions))
+		r.Use(a.externalIdentityMiddleware(authOptions.PublicPaths, authOptions.PublicPathPrefixes))
 		r.Use(a.restAuditSubjectMiddleware())
 		r.Use(a.syncProxyAuthorization(mountedAPIPath))
 		r.Use(a.licenseProxyAuthorization(mountedAPIPath))
@@ -586,9 +589,12 @@ func (a *API) ConfigureRoutes(ctx context.Context, r chi.Router, writeTimeout ti
 		r.Use(WithRemoteNode(a.remoteNodeResolver, mountedAPIPath))
 		r.Use(WebhookRequestContextMiddleware(a.webhookMaxPayloadSize()))
 
+		// The last middleware runs first, so the external authorization
+		// check happens before any handler or name validation.
 		middlewares := []api.StrictMiddlewareFunc{
 			validateDAGFileNameMiddleware,
 			resetSyncWriteDeadline(writeTimeout),
+			a.externalAuthorizationMiddleware(),
 		}
 		options := api.StrictHTTPServerOptions{
 			RequestErrorHandlerFunc: func(w http.ResponseWriter, r *http.Request, _ error) {

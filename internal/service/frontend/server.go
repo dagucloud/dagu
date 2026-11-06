@@ -58,6 +58,7 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/service/frontend/api/pathutil"
 	apiv1 "github.com/dagucloud/dagu/v2/internal/service/frontend/api/v1"
 	"github.com/dagucloud/dagu/v2/internal/service/frontend/auth"
+	"github.com/dagucloud/dagu/v2/internal/service/frontend/extauthz"
 	"github.com/dagucloud/dagu/v2/internal/service/frontend/metrics"
 	"github.com/dagucloud/dagu/v2/internal/service/frontend/sse"
 	"github.com/dagucloud/dagu/v2/internal/service/frontend/terminal"
@@ -121,6 +122,7 @@ type Server struct {
 	builtinOIDCCfg       *auth.BuiltinOIDCConfig
 	trustedProxyCfg      *auth.TrustedProxyLoginConfig
 	authService          *authservice.Service
+	externalAuthz        *extauthz.Authorizer
 	auditService         *audit.Service
 	auditStore           io.Closer
 	eventService         *eventstore.Service
@@ -438,6 +440,19 @@ func NewServer(setup ServerConfig, opts ...ServerOption) (*Server, error) {
 		}
 	}
 
+	var externalAuthz *extauthz.Authorizer
+	if cfg.Server.Auth.External.Enabled {
+		externalAuthz, err = extauthz.New(cfg.Server.Auth.External)
+		if err != nil {
+			return nil, fmt.Errorf("external authorization: %w", err)
+		}
+		apiOpts = append(apiOpts, apiv1.WithExternalAuthorizer(externalAuthz))
+		logger.Info(ctx, "External authorization hook enabled",
+			slog.String("tokenHeader", cfg.Server.Auth.External.Token.Header),
+			slog.String("pdp", cfg.Server.Auth.External.AuthZEN.BaseURL),
+			slog.Duration("cacheTTL", cfg.Server.Auth.External.AuthZEN.CacheTTL))
+	}
+
 	var authSvc *authservice.Service
 	if cfg.Server.Auth.Mode == config.AuthModeBuiltin {
 		if stores.AuthService == nil || stores.UserStore == nil {
@@ -625,6 +640,7 @@ func NewServer(setup ServerConfig, opts ...ServerOption) (*Server, error) {
 		builtinOIDCCfg:       builtinOIDCCfg,
 		trustedProxyCfg:      trustedProxyCfg,
 		authService:          authSvc,
+		externalAuthz:        externalAuthz,
 		auditService:         auditSvc,
 		auditStore:           auditStore,
 		eventService:         eventSvc,
@@ -1417,6 +1433,7 @@ func (srv *Server) setupSSERoute(ctx context.Context, r *chi.Mux, apiV1BasePath 
 		r.Use(auth.QueryTokenMiddleware())
 		r.Use(auth.ClientIPMiddleware())
 		r.Use(auth.Middleware(authOpts))
+		r.Use(srv.externalAuthzMiddleware(extauthz.ActionEventsRead))
 		r.Use(srv.injectDefaultStreamUserMiddleware())
 
 		r.Get("/stream", multiplexHandler.HandleStream)
@@ -1507,6 +1524,7 @@ func (srv *Server) setupMCPRoute(ctx context.Context, r *chi.Mux) {
 		r.Use(auth.QueryTokenMiddleware())
 		r.Use(auth.ClientIPMiddleware())
 		r.Use(auth.Middleware(authOpts))
+		r.Use(srv.externalAuthzMiddleware(extauthz.ActionMCPUse))
 		r.Use(srv.injectDefaultStreamUserMiddleware())
 		r.Use(srv.mcpAuditSubjectMiddleware())
 		r.Use(clearWriteDeadlineMiddleware)
@@ -1594,6 +1612,16 @@ func (srv *Server) registerDedicatedSSEFetchers(registrar *sse.Multiplexer) {
 		registrar.SetPublishOnWake(sse.TopicTypeDAGRuns, true)
 		registrar.SetPublishOnWake(sse.TopicTypeQueues, true)
 	}
+}
+
+// externalAuthzMiddleware applies the external authorization hook to a whole
+// surface. The event stream and the MCP tools call the API handlers
+// directly, so they need one action for the surface.
+func (srv *Server) externalAuthzMiddleware(action extauthz.Action) func(http.Handler) http.Handler {
+	if srv.externalAuthz == nil {
+		return func(next http.Handler) http.Handler { return next }
+	}
+	return srv.externalAuthz.Middleware(action)
 }
 
 func (srv *Server) injectDefaultStreamUserMiddleware() func(http.Handler) http.Handler {
