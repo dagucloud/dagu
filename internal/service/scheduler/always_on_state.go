@@ -28,7 +28,7 @@ const (
 
 // DescribeAlwaysOn returns the state of an always-on DAG. stopRequested tells
 // whether an operator stopped the latest run. It is called only when the answer
-// matters: for an aborted run of an unless-stopped DAG.
+// matters: for a run of an unless-stopped DAG that has ended, with any status.
 func DescribeAlwaysOn(
 	policy ir.RestartPolicy,
 	latest *ir.DAGRunStatus,
@@ -45,11 +45,9 @@ func DescribeAlwaysOn(
 		return pendingOrSuspended(suspended), nil
 	case suspended:
 		return AlwaysOnStateSuspended, nil
-	case latest.Status.IsSuccess():
-		return AlwaysOnStateRestarting, nil
 	}
 
-	if policy == ir.RestartPolicyUnlessStopped && latest.Status == ir.Aborted && stopRequested != nil {
+	if policy == ir.RestartPolicyUnlessStopped && stopRequested != nil {
 		stopped, err := stopRequested()
 		if err != nil {
 			return "", err
@@ -57,6 +55,9 @@ func DescribeAlwaysOn(
 		if stopped {
 			return AlwaysOnStateStopped, nil
 		}
+	}
+	if latest.Status.IsSuccess() {
+		return AlwaysOnStateRestarting, nil
 	}
 	return AlwaysOnStateFailing, nil
 }

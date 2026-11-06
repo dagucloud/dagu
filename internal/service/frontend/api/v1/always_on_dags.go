@@ -73,9 +73,9 @@ func (a *API) listAlwaysOnDAGs(ctx context.Context, filter *workspace.WorkspaceF
 	history := a.dagRunMgr.AllHistory()
 	dags := make([]api.AlwaysOnDAG, 0, len(result.Items))
 	for _, item := range result.Items {
-		latest, statusErr := history.GetLatestStatus(ctx, item.DAG)
+		latest, statusErr := history.ReadLatestStatus(ctx, item.DAG)
 		if statusErr != nil {
-			errList = append(errList, statusErr.Error())
+			errList = append(errList, fmt.Sprintf("%s: %v", item.Name, statusErr))
 		}
 		// A run keeps the workspace its DAG had when it started, so after a move
 		// the latest run may belong to a workspace the caller cannot see.
@@ -86,7 +86,9 @@ func (a *API) listAlwaysOnDAGs(ctx context.Context, filter *workspace.WorkspaceF
 			return a.stopRequested(ctx, item.DAG, latest.DAGRunID)
 		})
 		if stateErr != nil {
-			errList = append(errList, stateErr.Error())
+			errList = append(errList, fmt.Sprintf("%s: %v", item.Name, stateErr))
+		}
+		if statusErr != nil || stateErr != nil {
 			state = scheduler.AlwaysOnStateFailing
 		}
 		dags = append(dags, api.AlwaysOnDAG{

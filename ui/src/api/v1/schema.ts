@@ -7614,7 +7614,7 @@ export interface components {
          *     - pending: no run is alive yet, or the latest run waits in the queue.
          *     - running: a run is alive.
          *     - restarting: the latest run succeeded and the next run is due.
-         *     - failing: the latest run did not succeed and the next run is due.
+         *     - failing: the latest run did not succeed and the next run is due, or the latest run cannot be read, which `errors` reports.
          *     - suspended: the DAG gets no new run.
          *     - stopped: an operator stopped the latest run of an unless-stopped DAG.
          *

@@ -50,6 +50,23 @@ func TestDescribeAlwaysOn(t *testing.T) {
 			latest: run(ir.Aborted), stop: notStopped, want: AlwaysOnStateFailing,
 		},
 		{
+			// A stopped distributed run whose worker is gone ends as failed.
+			name: "StoppedRunThatFailed", policy: ir.RestartPolicyUnlessStopped,
+			latest: run(ir.Failed), stop: stopped, want: AlwaysOnStateStopped,
+		},
+		{
+			name: "StoppedRunThatSucceeded", policy: ir.RestartPolicyUnlessStopped,
+			latest: run(ir.Succeeded), stop: stopped, want: AlwaysOnStateStopped,
+		},
+		{
+			name: "FailedWithoutStopRequest", policy: ir.RestartPolicyUnlessStopped,
+			latest: run(ir.Failed), stop: notStopped, want: AlwaysOnStateFailing,
+		},
+		{
+			name: "SucceededWithoutStopRequest", policy: ir.RestartPolicyUnlessStopped,
+			latest: run(ir.Succeeded), stop: notStopped, want: AlwaysOnStateRestarting,
+		},
+		{
 			name: "AlwaysIgnoresStop", policy: ir.RestartPolicyAlways,
 			latest: run(ir.Aborted), stop: stopped, want: AlwaysOnStateFailing,
 		},
@@ -73,9 +90,17 @@ func TestDescribeAlwaysOn(t *testing.T) {
 	t.Run("StopCheckSkippedWhenNotNeeded", func(t *testing.T) {
 		t.Parallel()
 		calls := 0
-		_, err := DescribeAlwaysOn(ir.RestartPolicyUnlessStopped, run(ir.Failed), false,
-			func() (bool, error) { calls++; return true, nil })
-		require.NoError(t, err)
+		for _, tt := range []struct {
+			policy ir.RestartPolicy
+			status ir.Status
+		}{
+			{ir.RestartPolicyAlways, ir.Failed},
+			{ir.RestartPolicyUnlessStopped, ir.Running},
+		} {
+			_, err := DescribeAlwaysOn(tt.policy, run(tt.status), false,
+				func() (bool, error) { calls++; return true, nil })
+			require.NoError(t, err)
+		}
 		assert.Zero(t, calls)
 	})
 }

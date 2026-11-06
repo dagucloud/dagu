@@ -5,7 +5,10 @@ package api_test
 
 import (
 	"context"
+	"io/fs"
 	"net/http"
+	"os"
+	"path/filepath"
 	"testing"
 	"time"
 
@@ -13,6 +16,7 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/cmn/config"
 	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/persis"
+	filedagrun "github.com/dagucloud/dagu/v2/internal/persis/file/dagrun"
 	localapi "github.com/dagucloud/dagu/v2/internal/service/frontend/api/v1"
 	"github.com/dagucloud/dagu/v2/internal/test"
 	"github.com/stretchr/testify/assert"
@@ -161,6 +165,62 @@ func TestListAlwaysOnDAGs(t *testing.T) {
 	sseData, err := apiImpl.GetAlwaysOnDAGsData(ctx, "")
 	require.NoError(t, err)
 	assert.Equal(t, api.AlwaysOnDAGsResponse(list), sseData)
+}
+
+// A latest run that cannot be read is not a DAG without a run: the scheduler
+// starts nothing after it, so the list reports the error and does not say that a
+// first run is coming.
+func TestListAlwaysOnDAGsReportsUnreadableLatestRun(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	helper := test.Setup(t, test.WithStatusPersistence())
+	helper.CreateDAGFile(t, helper.Config.Paths.DAGsDir, "svc-broken", []byte(alwaysOnDAGSpec))
+	seedRun(t, helper, "svc-broken", "run-broken", ir.Succeeded, ir.TriggerTypeRestart)
+	corruptStatusFiles(t, helper.Config.Paths.DAGRunsDir)
+
+	resp, err := newAlwaysOnDAGAPI(helper).ListAlwaysOnDAGs(ctx, api.ListAlwaysOnDAGsRequestObject{})
+	require.NoError(t, err)
+	list, ok := resp.(api.ListAlwaysOnDAGs200JSONResponse)
+	require.True(t, ok, "expected 200 response, got %T", resp)
+	require.Len(t, list.Dags, 1)
+	assert.Equal(t, api.AlwaysOnDAGStateFailing, list.Dags[0].State)
+	require.Len(t, list.Errors, 1)
+	assert.Contains(t, list.Errors[0], "svc-broken")
+}
+
+// corruptStatusFiles replaces every status file below dir with a complete line
+// that is not a status.
+func corruptStatusFiles(t *testing.T, dir string) {
+	t.Helper()
+	found := false
+	require.NoError(t, filepath.WalkDir(dir, func(path string, entry fs.DirEntry, err error) error {
+		if err != nil || entry.IsDir() || entry.Name() != filedagrun.JSONLStatusFile {
+			return err
+		}
+		found = true
+		return os.WriteFile(path, []byte("not a status\n"), 0o600)
+	}))
+	require.True(t, found, "no status file below %s", dir)
+}
+
+// A stop leaves a request on the attempt, whatever status the run ends with.
+func TestListAlwaysOnDAGsSeesTheStopOfARunThatFailed(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	helper := test.Setup(t, test.WithStatusPersistence())
+	spec := "restart_policy: unless-stopped\nrestart_wait_sec: 5\nsteps:\n  - run: echo hi\n"
+	helper.CreateDAGFile(t, helper.Config.Paths.DAGsDir, "svc-stopped", []byte(spec))
+	seedRun(t, helper, "svc-stopped", "run-stopped", ir.Failed, ir.TriggerTypeRestart)
+	attempt, err := helper.DAGRunRepository.FindAttempt(ctx, ir.NewDAGRunRef("svc-stopped", "run-stopped"))
+	require.NoError(t, err)
+	require.NoError(t, attempt.Abort(ctx))
+
+	resp, err := newAlwaysOnDAGAPI(helper).ListAlwaysOnDAGs(ctx, api.ListAlwaysOnDAGsRequestObject{})
+	require.NoError(t, err)
+	list, ok := resp.(api.ListAlwaysOnDAGs200JSONResponse)
+	require.True(t, ok, "expected 200 response, got %T", resp)
+	require.Len(t, list.Dags, 1)
+	assert.Equal(t, api.AlwaysOnDAGStateStopped, list.Dags[0].State)
 }
 
 // A run that a restart policy started stays out of the list on request, and a
