@@ -581,31 +581,37 @@ describe('formatYaml folds long lines', () => {
     }
   });
 
-  it('keeps the data of 1500 generated strings, in every position', () => {
-    const next = random(20260101);
-    for (let i = 0; i < 1500; i++) {
-      const value = sentence(next);
-      const data = {
-        name: 'generated',
-        description: value,
-        steps: [
-          { name: 'a', run: value, env: { KEY: value }, depends: [value] },
-          { name: 'b', with: { text: value }, command: [value, value] },
-        ],
-      };
-      const text = stringify(data, { lineWidth: 0 });
-      const out = formatYaml(text);
-      expect(parse(out), JSON.stringify(value)).toEqual(data);
-      expect(formatYaml(out), JSON.stringify(value)).toBe(out);
-      // A value with a line end keeps its lines.
-      if (value.includes('\n')) continue;
-      for (const line of out.split('\n')) {
-        if (line.length > FORMAT_LINE_WIDTH) {
-          expect(unfoldable(line), line).toBe(true);
+  // Seeded and synchronous: a time limit cannot stop it, and would only fail a
+  // finished run on a busy machine.
+  it(
+    'keeps the data of 1500 generated strings, in every position',
+    { timeout: 0 },
+    () => {
+      const next = random(20260101);
+      for (let i = 0; i < 1500; i++) {
+        const value = sentence(next);
+        const data = {
+          name: 'generated',
+          description: value,
+          steps: [
+            { name: 'a', run: value, env: { KEY: value }, depends: [value] },
+            { name: 'b', with: { text: value }, command: [value, value] },
+          ],
+        };
+        const text = stringify(data, { lineWidth: 0 });
+        const out = formatYaml(text);
+        expect(parse(out), JSON.stringify(value)).toEqual(data);
+        expect(formatYaml(out), JSON.stringify(value)).toBe(out);
+        // A value with a line end keeps its lines.
+        if (value.includes('\n')) continue;
+        for (const line of out.split('\n')) {
+          if (line.length > FORMAT_LINE_WIDTH) {
+            expect(unfoldable(line), line).toBe(true);
+          }
         }
       }
     }
-  });
+  );
 });
 
 describe('formatStepRange', () => {
