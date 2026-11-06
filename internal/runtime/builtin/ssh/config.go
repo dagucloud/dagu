@@ -180,7 +180,8 @@ func portValueSchema(description string) *jsonschema.Schema {
 }
 
 var configSchema = &jsonschema.Schema{
-	Type: "object",
+	Type:                 "object",
+	AdditionalProperties: &jsonschema.Schema{Not: &jsonschema.Schema{}},
 	Properties: map[string]*jsonschema.Schema{
 		"user":            {Type: "string", Description: "SSH username"},
 		"host":            {Type: "string", Description: "SSH hostname"},
@@ -208,7 +209,8 @@ var configSchema = &jsonschema.Schema{
 }
 
 var sftpConfigSchema = &jsonschema.Schema{
-	Type: "object",
+	Type:                 "object",
+	AdditionalProperties: &jsonschema.Schema{Not: &jsonschema.Schema{}},
 	Properties: map[string]*jsonschema.Schema{
 		"user":            {Type: "string", Description: "SSH username"},
 		"host":            {Type: "string", Description: "SSH hostname"},
