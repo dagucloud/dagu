@@ -184,6 +184,10 @@ func ApplyPushBack(status *ir.DAGRunStatus, source *ir.Node, pb PushBack) (int, 
 
 	for _, node := range rewound {
 		previousStdout := node.Stdout
+		if previousStdout == "" {
+			// Reset again before it ran again: its last stdout is still current.
+			previousStdout = node.PushBackPreviousStdout
+		}
 		// What the rewound attempt spent on models stays: the run spent it.
 		modelUsage := node.ModelUsage
 		*node = *ir.NewNodeFromStep(node.Step)
