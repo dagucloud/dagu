@@ -316,59 +316,92 @@ func TestRunner_StepRetryWithDownstreamIncludesInferredBuildDescendant(t *testin
 	assert.Equal(t, ir.BuildDecisionDeferred, consumerBuild.Decision)
 }
 
-// A step retry whose step cannot start because its upstream still failed runs
-// nothing, which must not read as a successful run.
+// A step retry can select a step whose upstream still failed. That step never
+// runs, which must not read as a successful run, whatever else the retry ran.
 func TestRunner_StepRetryBlockedByFailedUpstreamFails(t *testing.T) {
 	t.Parallel()
 
-	workingDir := t.TempDir()
-	failed := ir.Step{
-		ID:       "failed",
-		Name:     "failed",
-		Commands: []ir.CommandEntry{{Command: "false"}},
+	failed := ir.Step{ID: "failed", Name: "failed", Commands: []ir.CommandEntry{{Command: "false"}}}
+	succeeds := func(name string, depends ...string) ir.Step {
+		return ir.Step{ID: name, Name: name, Commands: []ir.CommandEntry{{Command: "true"}}, Depends: depends}
 	}
-	blocked := ir.Step{
-		ID:       "blocked",
-		Name:     "blocked",
-		Commands: []ir.CommandEntry{{Command: "true"}},
-		Depends:  []string{failed.Name},
+	run := func(t *testing.T, workingDir, step string, states map[string]NodeState, steps ...ir.Step) (*Runner, *Plan, context.Context, error) {
+		t.Helper()
+		dag := &ir.DAG{Name: "step-retry", WorkingDir: workingDir, WorkingDirExplicit: true, Steps: steps}
+		nodes := make([]*Node, 0, len(steps))
+		for _, s := range steps {
+			nodes = append(nodes, NodeWithData(NodeData{Step: s, State: states[s.Name]}))
+		}
+		plan, err := CreateStepRetryPlanWithOptions(dag, nodes, step, StepRetryPlanOptions{IncludeDownstream: true})
+		require.NoError(t, err)
+		runner := New(&Config{DAGRunID: "run-1", LogDir: t.TempDir()})
+		ctx := NewContext(context.Background(), dag, "run-1", filepath.Join(workingDir, "dag.log"), WithAttemptID("attempt-1"))
+		return runner, plan, ctx, runner.Run(ctx, plan, nil)
 	}
-	next := ir.Step{
-		ID:       "next",
-		Name:     "next",
-		Commands: []ir.CommandEntry{{Command: "true"}},
-		Depends:  []string{blocked.Name},
-	}
-	dag := &ir.DAG{
-		Name:               "step-retry",
-		WorkingDir:         workingDir,
-		WorkingDirExplicit: true,
-		Steps:              []ir.Step{failed, blocked, next},
-	}
-	nodes := []*Node{
-		NodeWithData(NodeData{Step: failed, State: NodeState{Status: ir.NodeFailed}}),
-		NodeWithData(NodeData{Step: blocked, State: NodeState{Status: ir.NodeAborted}}),
-		NodeWithData(NodeData{Step: next, State: NodeState{Status: ir.NodeAborted}}),
-	}
-	plan, err := CreateStepRetryPlanWithOptions(dag, nodes, blocked.Name, StepRetryPlanOptions{
-		IncludeDownstream: true,
+	wasFailed, wasAborted := NodeState{Status: ir.NodeFailed}, NodeState{Status: ir.NodeAborted}
+
+	t.Run("the selected step and its downstream are blocked", func(t *testing.T) {
+		t.Parallel()
+		blocked, next := succeeds("blocked", failed.Name), succeeds("next", "blocked")
+		runner, plan, ctx, err := run(t, t.TempDir(), blocked.Name,
+			map[string]NodeState{failed.Name: wasFailed, blocked.Name: wasAborted, next.Name: wasAborted},
+			failed, blocked, next)
+
+		require.ErrorIs(t, err, ErrUpstreamFailed)
+		assert.Equal(t, ir.Failed, runner.Status(ctx, plan))
+		assert.Equal(t, ir.NodeFailed, plan.GetNodeByName(failed.Name).State().Status)
+		assert.Equal(t, ir.NodeAborted, plan.GetNodeByName(blocked.Name).State().Status)
+		assert.Equal(t, ir.NodeAborted, plan.GetNodeByName(next.Name).State().Status)
 	})
-	require.NoError(t, err)
 
-	runner := New(&Config{DAGRunID: "run-1", LogDir: t.TempDir()})
-	ctx := NewContext(
-		context.Background(),
-		dag,
-		"run-1",
-		filepath.Join(workingDir, "dag.log"),
-		WithAttemptID("attempt-1"),
-	)
-	require.ErrorIs(t, runner.Run(ctx, plan, nil), ErrUpstreamFailed)
+	t.Run("a join is blocked once the selected step ran", func(t *testing.T) {
+		t.Parallel()
+		target, join := succeeds("target"), succeeds("join", "target", failed.Name)
+		runner, plan, ctx, err := run(t, t.TempDir(), target.Name,
+			map[string]NodeState{failed.Name: wasFailed, target.Name: {Status: ir.NodeSucceeded}, join.Name: wasAborted},
+			failed, target, join)
 
-	assert.Equal(t, ir.Failed, runner.Status(ctx, plan))
-	assert.Equal(t, ir.NodeFailed, plan.GetNodeByName(failed.Name).State().Status)
-	assert.Equal(t, ir.NodeAborted, plan.GetNodeByName(blocked.Name).State().Status)
-	assert.Equal(t, ir.NodeAborted, plan.GetNodeByName(next.Name).State().Status)
+		require.ErrorIs(t, err, ErrUpstreamFailed)
+		assert.Equal(t, ir.Failed, runner.Status(ctx, plan))
+		assert.Equal(t, ir.NodeSucceeded, plan.GetNodeByName(target.Name).State().Status)
+		assert.Equal(t, ir.NodeAborted, plan.GetNodeByName(join.Name).State().Status)
+	})
+
+	t.Run("a repeating step clears its own failure beside a blocked join", func(t *testing.T) {
+		t.Parallel()
+		workingDir := t.TempDir()
+		// It fails once, which the repeat clears from the last error, then succeeds.
+		target := ir.Step{
+			ID:   "target",
+			Name: "target",
+			Commands: []ir.CommandEntry{{Command: "sh", Args: []string{
+				"-c", "test -f marker || { touch marker; exit 1; }",
+			}}},
+			RepeatPolicy: ir.RepeatPolicy{RepeatMode: ir.RepeatModeUntil, ExitCode: []int{0}, Limit: 3, Interval: time.Millisecond},
+		}
+		join := succeeds("join", "target", failed.Name)
+		runner, plan, ctx, err := run(t, workingDir, target.Name,
+			map[string]NodeState{failed.Name: wasFailed, target.Name: {Status: ir.NodeSucceeded}, join.Name: wasAborted},
+			failed, target, join)
+
+		require.ErrorIs(t, err, ErrUpstreamFailed)
+		assert.Equal(t, ir.Failed, runner.Status(ctx, plan))
+		assert.FileExists(t, filepath.Join(workingDir, "marker"))
+		assert.Equal(t, ir.NodeAborted, plan.GetNodeByName(join.Name).State().Status)
+	})
+
+	t.Run("a step an earlier attempt blocked outside the selection changes nothing", func(t *testing.T) {
+		t.Parallel()
+		blocked, other := succeeds("blocked", failed.Name), succeeds("other")
+		restored := NodeState{Status: ir.NodeAborted, Error: errors.New(ErrUpstreamFailed.Error())}
+		runner, plan, ctx, err := run(t, t.TempDir(), other.Name,
+			map[string]NodeState{failed.Name: wasFailed, blocked.Name: restored, other.Name: wasFailed},
+			failed, blocked, other)
+
+		require.NoError(t, err)
+		assert.Equal(t, ir.Succeeded, runner.Status(ctx, plan))
+		assert.Equal(t, ir.NodeSucceeded, plan.GetNodeByName(other.Name).State().Status)
+	})
 }
 
 // Descendants reached through inferred build edges are reset at run start,

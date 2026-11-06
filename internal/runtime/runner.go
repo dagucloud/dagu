@@ -269,6 +269,13 @@ func (r *Runner) Run(ctx context.Context, plan *Plan, progressCh chan ProgressUp
 		}
 	}()
 
+	// A step retry can keep the failed upstream of a step it selected, which
+	// then never runs and records no failure. This waits for every step to end,
+	// since a repeating step clears the last error.
+	if !r.isError() && blockedByFailedUpstream(plan) {
+		r.setLastError(ErrUpstreamFailed)
+	}
+
 	// Collect final metrics
 	r.metrics.totalExecutionTime = time.Since(r.metrics.startTime)
 
@@ -386,18 +393,9 @@ func (r *Runner) runGraphLoop(ctx context.Context, plan *Plan, nodes []*Node, pr
 
 	// Find initial ready nodes
 	for _, node := range nodes {
-		if node.State().Status != ir.NodeNotStarted {
-			continue
-		}
-		if isReady(ctx, plan, node) {
+		if node.State().Status == ir.NodeNotStarted && isReady(ctx, plan, node) {
 			logger.Debug(ctx, "Initial node ready", tag.Step(node.Name()))
 			readyCh <- node
-			continue
-		}
-		// Only a step retry starts with a failed upstream. The step it selected
-		// never runs, so the run has not succeeded.
-		if errors.Is(node.State().Error, ErrUpstreamFailed) {
-			r.setLastError(ErrUpstreamFailed)
 		}
 	}
 
@@ -1506,6 +1504,17 @@ func (r *Runner) isFailed() bool {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
 	return r.failed == 1
+}
+
+// blockedByFailedUpstream reports whether this attempt aborted a step because a
+// step it depends on failed.
+func blockedByFailedUpstream(plan *Plan) bool {
+	for _, node := range plan.Nodes() {
+		if errors.Is(node.State().Error, ErrUpstreamFailed) {
+			return true
+		}
+	}
+	return false
 }
 
 func isReady(ctx context.Context, plan *Plan, node *Node) bool {
