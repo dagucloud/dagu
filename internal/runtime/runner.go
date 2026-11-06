@@ -37,6 +37,7 @@ import (
 
 var (
 	ErrUpstreamFailed   = fmt.Errorf("upstream failed")
+	ErrUpstreamAborted  = fmt.Errorf("upstream aborted")
 	ErrUpstreamSkipped  = fmt.Errorf("upstream skipped")
 	ErrUpstreamRejected = fmt.Errorf("upstream rejected")
 	ErrDeadlockDetected = errors.New("deadlock detected: no runnable nodes but DAG not finished")
@@ -269,6 +270,15 @@ func (r *Runner) Run(ctx context.Context, plan *Plan, progressCh chan ProgressUp
 		}
 	}()
 
+	// A step retry can keep the failed or aborted upstream of a step it selected,
+	// which then never runs and records no failure. This waits for every step to
+	// end, since a repeating step clears the last error.
+	if !r.isError() {
+		if err := upstreamBlock(plan); err != nil {
+			r.setLastError(err)
+		}
+	}
+
 	// Collect final metrics
 	r.metrics.totalExecutionTime = time.Since(r.metrics.startTime)
 
@@ -383,6 +393,8 @@ func (r *Runner) runGraphLoop(ctx context.Context, plan *Plan, nodes []*Node, pr
 	// Buffer size = total nodes to avoid blocking
 	readyCh := make(chan *Node, len(nodes))
 	doneCh := make(chan *Node, len(nodes))
+
+	settleBlockedNodes(ctx, plan, nodes)
 
 	// Find initial ready nodes
 	for _, node := range nodes {
@@ -1499,6 +1511,45 @@ func (r *Runner) isFailed() bool {
 	return r.failed == 1
 }
 
+// upstreamBlock returns the error of a step this attempt set out to run and
+// aborted because a step it depends on failed or was aborted, or nil if there is
+// none. A failed upstream is the root cause of a chain, so it wins wherever its
+// step is listed. Errors restored from earlier attempts do not match these
+// sentinels.
+func upstreamBlock(plan *Plan) error {
+	var block error
+	for _, node := range plan.Nodes() {
+		if !plan.inRetrySelection(node) {
+			continue
+		}
+		err := node.State().Error
+		if errors.Is(err, ErrUpstreamFailed) {
+			return err
+		}
+		if errors.Is(err, ErrUpstreamAborted) {
+			block = err
+		}
+	}
+	return block
+}
+
+// settleBlockedNodes ends every node that the restored state of a retry blocks
+// before anything runs. No completion reaches these nodes later, and a node can
+// be listed before the upstream that blocks it, so the scan repeats until
+// nothing changes.
+func settleBlockedNodes(ctx context.Context, plan *Plan, nodes []*Node) {
+	for changed := true; changed; {
+		changed = false
+		for _, node := range nodes {
+			if node.State().Status != ir.NodeNotStarted {
+				continue
+			}
+			isReady(ctx, plan, node)
+			changed = changed || node.State().Status != ir.NodeNotStarted
+		}
+	}
+}
+
 func isReady(ctx context.Context, plan *Plan, node *Node) bool {
 	for _, depID := range plan.Dependencies(node.id) {
 		dep := plan.GetNode(depID)
@@ -1541,6 +1592,7 @@ func isReady(ctx context.Context, plan *Plan, node *Node) bool {
 			logger.Debug(ctx, "Dependency aborted",
 				tag.Step(node.Name()), tag.Dependency(dep.Name()))
 			node.SetStatus(ir.NodeAborted)
+			node.SetError(ErrUpstreamAborted)
 			return false
 
 		case ir.NodeRejected:
