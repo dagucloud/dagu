@@ -34,6 +34,10 @@ export interface ReferencePickerProps {
   query?: string;
   /** No option is active until an arrow key moves to one: Enter stays with the host. */
   idle?: boolean;
+  /** What to say when the host has no candidates. */
+  emptyMessage?: string;
+  /** The side of the wrapper that the panel lines up with. */
+  align?: 'start' | 'end';
   onPick(candidate: ReferenceCandidate): void;
   onClose(): void;
   /** Id of the active option, or undefined when the list is empty. */
@@ -60,6 +64,8 @@ export function ReferencePicker({
   showSearch,
   query,
   idle = false,
+  emptyMessage,
+  align = 'start',
   onPick,
   onClose,
   onActiveChange,
@@ -134,7 +140,10 @@ export function ReferencePicker({
   return (
     <div
       ref={panelRef}
-      className="absolute left-0 top-full z-50 mt-1 w-full min-w-64 overflow-hidden rounded-md border border-border bg-popover text-popover-foreground shadow-md"
+      className={cn(
+        'absolute top-full z-50 mt-1 w-full min-w-64 overflow-hidden rounded-md border border-border bg-popover text-popover-foreground shadow-md',
+        align === 'end' ? 'right-0' : 'left-0'
+      )}
       // Keep the focus where it is: a click inside must not blur the input.
       onMouseDown={(e) => {
         if (e.target !== searchRef.current) e.preventDefault();
@@ -221,9 +230,9 @@ export function ReferencePicker({
       </div>
       {items.length === 0 ? (
         <div role="status" className="px-2 py-2 text-xs text-muted-foreground">
-          {candidates.length === 0
-            ? ts('No references available')
-            : ts('No matching references')}
+          {candidates.length > 0
+            ? ts('No matching references')
+            : (emptyMessage ?? ts('No references available'))}
         </div>
       ) : null}
     </div>

@@ -96,8 +96,11 @@ import {
   buildReferenceCandidates,
   declaresRepeat,
   foreachFramesAt,
+  insertAtCaret,
+  useCaretReferences,
   DeclaredOutputsPanel,
   UpstreamDataPanel,
+  type CaretEditor,
 } from './references';
 import { insertIntoField, useLastFocusedField } from './insertIntoField';
 import { useZoneWidth } from './useZoneWidth';
@@ -1129,15 +1132,20 @@ export function VisualEditor(props: VisualEditorProps): ReactElement {
   useEffect(() => {
     resetLastField();
   }, [selected, resetLastField]);
-  // False when no field can take the token: the panel copies it instead.
+  // False when nothing can take the token: the panel copies it instead.
   const insertReference = useCallback(
     (token: string) => {
-      const field = lastField.get();
-      if (!field) return false;
-      insertIntoField(field, token);
-      return true;
+      const field = formOpen || !yamlShownNow ? lastField.get() : null;
+      if (field) {
+        insertIntoField(field, token);
+        return true;
+      }
+      return (
+        yamlShownNow &&
+        insertAtCaret(yamlEditorRef?.current as CaretEditor | null, token)
+      );
     },
-    [lastField]
+    [lastField, formOpen, yamlShownNow, yamlEditorRef]
   );
 
   const repeats = declaresRepeat(selectedStep);
@@ -1147,6 +1155,13 @@ export function VisualEditor(props: VisualEditorProps): ReactElement {
         repeats,
       }),
     [validation?.referenceScope, serverName, repeats]
+  );
+  // In the YAML, the list follows the caret: a foreach body reads more than its
+  // step does. At a key, it shows what the step can read.
+  const caretReferences = useCaretReferences(
+    yamlEditorRef?.current as CaretEditor | null | undefined,
+    yamlShownNow,
+    { scope: validation?.referenceScope, model }
   );
   const candidatesAtPath = useCallback(
     (path: string[]) => {
@@ -1192,6 +1207,7 @@ export function VisualEditor(props: VisualEditorProps): ReactElement {
       scope={validation?.referenceScope}
       stepName={serverName}
       onInsert={readOnly || frozen ? undefined : insertReference}
+      references={inputColumnRoot ? (caretReferences ?? candidates) : undefined}
       onRunUpstream={
         onStepCommand && stepCommandGates?.canRunStep && serverName
           ? () => onStepCommand({ kind: 'runUpstream', step: serverName })

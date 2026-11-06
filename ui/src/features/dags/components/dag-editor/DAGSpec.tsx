@@ -95,6 +95,7 @@ import {
   requiredFieldOf,
 } from '@/features/visual-editor/inspector/issues';
 import type { ReferenceEditorState } from '@/features/visual-editor/references/editorState';
+import { YamlReferenceButton } from '@/features/visual-editor/references/YamlReferenceButton';
 import ExternalChangeDialog from './ExternalChangeDialog';
 import { useStepViewForm } from './stepViewMode';
 import { preloadDAGEditor } from './loadDAGEditor';
@@ -1635,26 +1636,34 @@ function DAGSpec({
     );
     return !!fresh && formatStepRange(deferredText, fresh) === null;
   }, [canFormatStep, deferredText, yamlStep]);
-  const yamlTools = !editable ? null : yamlKind === 'step' ? (
-    <YamlTools
-      scope="step"
-      fixCount={stepFixes.length}
-      canFormat={canFormatStep}
-      formatted={stepFormatted}
-      formatOffReason={
-        yamlStep === null ? ts('Select a step first') : undefined
-      }
-      onFixAll={applyStepQuickFixes}
-      onFormat={formatStep}
-    />
-  ) : (
-    <YamlTools
-      fixCount={allFixes.length}
-      canFormat={canFormat}
-      formatted={textFormatted}
-      onFixAll={applyAllQuickFixes}
-      onFormat={formatText}
-    />
+  const yamlTools = !editable ? null : (
+    <>
+      <YamlReferenceButton
+        editorRef={yamlEditorRef}
+        getState={referenceState}
+      />
+      {yamlKind === 'step' ? (
+        <YamlTools
+          scope="step"
+          fixCount={stepFixes.length}
+          canFormat={canFormatStep}
+          formatted={stepFormatted}
+          formatOffReason={
+            yamlStep === null ? ts('Select a step first') : undefined
+          }
+          onFixAll={applyStepQuickFixes}
+          onFormat={formatStep}
+        />
+      ) : (
+        <YamlTools
+          fixCount={allFixes.length}
+          canFormat={canFormat}
+          formatted={textFormatted}
+          onFixAll={applyAllQuickFixes}
+          onFormat={formatText}
+        />
+      )}
+    </>
   );
 
   // Show loading indicator while fetching data

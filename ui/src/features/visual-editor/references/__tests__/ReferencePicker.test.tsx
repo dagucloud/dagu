@@ -116,6 +116,16 @@ describe('ReferencePicker', () => {
     expect(screen.queryAllByRole('option')).toHaveLength(0);
   });
 
+  it('shows the message of the host when it has no candidates', () => {
+    renderPicker({
+      candidates: [],
+      emptyMessage: 'Put the cursor in a field value',
+    });
+    expect(
+      screen.getByText('Put the cursor in a field value')
+    ).toBeInTheDocument();
+  });
+
   it('moves the active option with the arrow keys and wraps', () => {
     renderPicker();
     const keys = screen.getByLabelText('keys');
