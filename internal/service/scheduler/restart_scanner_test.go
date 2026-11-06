@@ -153,6 +153,8 @@ type restartHarness struct {
 	dispatched bool
 	latest     ir.DAGRunStatus
 	latestErr  error
+	recent     []ir.DAGRunStatus
+	recentErr  error
 	stopped    map[string]bool
 	stopErr    error
 	stopChecks int
@@ -208,6 +210,9 @@ func newRestartHarness(t *testing.T, dags ...*ir.DAG) *restartHarness {
 		GetLatestStatus: func(context.Context, *ir.DAG) (ir.DAGRunStatus, error) {
 			h.reads++
 			return h.latest, h.latestErr
+		},
+		RecentRuns: func(context.Context, *ir.DAG) ([]ir.DAGRunStatus, error) {
+			return h.recent, h.recentErr
 		},
 		IsStopRequested: func(_ context.Context, _ *ir.DAG, runID string) (bool, error) {
 			h.stopChecks++
@@ -600,6 +605,82 @@ func TestRestartScanner(t *testing.T) {
 				assert.Equal(t, tt.restarted, len(h.enqueued) == 1)
 			})
 		}
+	})
+
+	// A manual start can put a run next to another; the older one can end last.
+	t.Run("RunThatEndedLast", func(t *testing.T) {
+		t.Parallel()
+
+		const (
+			newer = "run-newer"
+			older = "run-older"
+		)
+		overlap := func(h *restartHarness, newerEnd, olderEnd time.Duration) {
+			h.latest = ir.DAGRunStatus{DAGRunID: newer, AttemptID: "attempt-newer", Status: ir.Aborted, FinishedAt: h.now.Add(-newerEnd).Format(time.RFC3339)}
+			h.recent = []ir.DAGRunStatus{
+				h.latest,
+				{DAGRunID: older, AttemptID: "attempt-older", Status: ir.Succeeded, FinishedAt: h.now.Add(-olderEnd).Format(time.RFC3339)},
+			}
+			h.stopped[newer] = true
+		}
+
+		t.Run("StoppedRunEndedFirst", func(t *testing.T) {
+			t.Parallel()
+			h := newRestartHarness(t, serviceDAG("svc", ir.RestartPolicyUnlessStopped))
+			overlap(h, time.Hour, time.Minute)
+			h.scan()
+			require.Len(t, h.enqueued, 1)
+			assert.Equal(t, GenerateRestartRunID("svc", older, h.now.Add(-time.Minute)), h.enqueued[0].runID)
+		})
+
+		t.Run("StoppedRunEndedLast", func(t *testing.T) {
+			t.Parallel()
+			h := newRestartHarness(t, serviceDAG("svc", ir.RestartPolicyUnlessStopped))
+			overlap(h, time.Minute, time.Hour)
+			h.scan()
+			assert.Empty(t, h.enqueued)
+		})
+
+		t.Run("EndedInTheSameSecond", func(t *testing.T) {
+			t.Parallel()
+			h := newRestartHarness(t, serviceDAG("svc", ir.RestartPolicyUnlessStopped))
+			overlap(h, time.Minute, time.Minute)
+			h.scan()
+			require.Len(t, h.enqueued, 1)
+			assert.Equal(t, GenerateRestartRunID("svc", older, h.now.Add(-time.Minute)), h.enqueued[0].runID)
+		})
+
+		t.Run("WaitFollowsIt", func(t *testing.T) {
+			t.Parallel()
+			h := newRestartHarness(t, serviceDAG("svc", ir.RestartPolicyAlways))
+			overlap(h, time.Hour, time.Second)
+			h.scan()
+			assert.Empty(t, h.enqueued)
+
+			h.now = h.now.Add(10 * time.Second)
+			h.scan()
+			assert.Len(t, h.enqueued, 1)
+		})
+
+		t.Run("OlderRunStillActive", func(t *testing.T) {
+			t.Parallel()
+			h := newRestartHarness(t, serviceDAG("svc", ir.RestartPolicyAlways))
+			overlap(h, time.Hour, time.Minute)
+			h.recent[1].Status = ir.Running
+			h.scan()
+			require.Len(t, h.enqueued, 1)
+			assert.Equal(t, GenerateRestartRunID("svc", newer, h.now.Add(-time.Hour)), h.enqueued[0].runID)
+		})
+
+		t.Run("ReadFails", func(t *testing.T) {
+			t.Parallel()
+			h := newRestartHarness(t, serviceDAG("svc", ir.RestartPolicyAlways))
+			overlap(h, time.Hour, time.Minute)
+			h.recentErr = errors.New("disk failure")
+			h.scan()
+			assert.Empty(t, h.enqueued)
+			assert.Equal(t, 1, h.logged("Restart scanner failed to process DAG"))
+		})
 	})
 
 	t.Run("StopIsCheckedOnce", func(t *testing.T) {

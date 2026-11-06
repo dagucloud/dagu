@@ -29,6 +29,10 @@ import (
 // process killed while it writes its status can leave the run lock of the DAG
 // behind, which delays the restart until the lock is stale.
 //
+// A manual start can put a run next to another, and either can end first, so a
+// new run follows the run that ended last. A stop of one run then leaves the DAG
+// stopped only if no other run ended after it.
+//
 // A run that has not started within restartNotStartedTimeout, and that no
 // process, worker, queue item or pending dispatch will still start, is marked
 // failed, and the DAG restarts after it. A crash while a run is queued can
@@ -72,6 +76,10 @@ const (
 	// restartNotStartedTimeout is how long a run may stay queued or not started
 	// before the scanner checks whether anything will still start it.
 	restartNotStartedTimeout = 5 * time.Minute
+
+	// restartRecentRuns is how many recent runs of a DAG are searched for the run
+	// that ended last.
+	restartRecentRuns = 10
 )
 
 // errRestartQueuesDisabled says a service DAG gets no run: its runs go through
@@ -117,6 +125,8 @@ type RestartScannerConfig struct {
 	// initial status for a DAG without a run, and an error when the latest run
 	// cannot be read.
 	GetLatestStatus GetLatestStatusFunc
+	// RecentRuns returns the recent runs of a DAG, newest first.
+	RecentRuns func(ctx context.Context, dag *ir.DAG) ([]ir.DAGRunStatus, error)
 	// IsStopRequested reports whether an operator stopped a run.
 	IsStopRequested StopRequestedFunc
 	// Enqueue queues a run, unless a run with the ID already exists. It is nil
@@ -131,7 +141,7 @@ type RestartScannerConfig struct {
 // previous one ends. With unless-stopped, no run follows a run that an operator
 // stopped.
 //
-// Whether a run is due follows from the DAG's latest run, so a scheduler restart
+// Whether a run is due follows from the DAG's stored runs, so a scheduler restart
 // or failover resumes where the previous scheduler stopped. The scanner only
 // remembers what saves logs and store reads, and the runs in a row that failed
 // soon after they started; a scheduler that takes over counts them anew.
@@ -289,7 +299,7 @@ func (s *RestartScanner) process(ctx context.Context, entry DAGEntry, now time.T
 		return errRestartQueuesDisabled
 	}
 
-	status, err := s.cfg.GetLatestStatus(ctx, dag)
+	status, err := s.statusToFollow(ctx, dag)
 	if err != nil {
 		return err
 	}
@@ -359,6 +369,34 @@ func (s *RestartScanner) process(ctx context.Context, entry DAGEntry, now time.T
 	}
 	s.checkLater(dag, now)
 	return nil
+}
+
+// statusToFollow returns the status of the run that a new run would follow: the
+// latest run or, once it has ended, the run that ended last. The end is stored to
+// the second, and a tie goes to the older run: a stop of the newer one in the same
+// second does not hide a run that nobody stopped.
+func (s *RestartScanner) statusToFollow(ctx context.Context, dag *ir.DAG) (ir.DAGRunStatus, error) {
+	latest, err := s.cfg.GetLatestStatus(ctx, dag)
+	if err != nil || s.cfg.RecentRuns == nil || !runEnded(latest.Status.String()) {
+		return latest, err
+	}
+	lastEnd, ok := retryReferenceTime(&latest)
+	if !ok {
+		return latest, nil
+	}
+	recent, err := s.cfg.RecentRuns(ctx, dag)
+	if err != nil {
+		return ir.DAGRunStatus{}, err
+	}
+	for i := range recent {
+		if !runEnded(recent[i].Status.String()) {
+			continue
+		}
+		if end, ok := retryReferenceTime(&recent[i]); ok && !end.Before(lastEnd) {
+			latest, lastEnd = recent[i], end
+		}
+	}
+	return latest, nil
 }
 
 // failStuckRun fails a latest run that never started, unless a coordinator

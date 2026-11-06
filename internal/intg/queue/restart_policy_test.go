@@ -184,6 +184,43 @@ func TestRestartPolicyStop(t *testing.T) {
 	}
 }
 
+// A manual run can start next to the run of the scheduler. Stopping it stops only
+// that run, so the DAG restarts when the other run ends.
+func TestRestartPolicyFollowsRunThatEndedLast(t *testing.T) {
+	release := filepath.Join(t.TempDir(), "release")
+	f := newFixture(t, serviceDAGYAML("restart-overlap", "unless-stopped", intgharness.PortableCommands().WaitForFile(release))).
+		StartScheduler(60 * time.Second)
+	defer f.Stop()
+	defer func() { _ = os.WriteFile(release, nil, 0600) }()
+
+	f.waitForRuns("a running run", 20*time.Second, func(runs []ir.DAGRunStatus) bool {
+		return len(runs) == 1 && runs[0].Status == ir.Running
+	})
+
+	const manualRun = "manual-run"
+	manualDone := make(chan error, 1)
+	go func() {
+		manualDone <- f.th.ExecuteCommand(cmd.Start(), test.CmdTest{
+			Args: []string{"start", "--run-id=" + manualRun, f.dag.Location},
+		})
+	}()
+	f.waitForRuns("two running runs", 20*time.Second, func(runs []ir.DAGRunStatus) bool {
+		return countStatus(runs, ir.Running) == 2
+	})
+
+	require.NoError(t, f.th.DAGRunMgr.Stop(f.th.Context, f.dag, manualRun))
+	f.waitForRuns("the stopped manual run", 20*time.Second, func(runs []ir.DAGRunStatus) bool {
+		return countStatus(runs, ir.Aborted) == 1
+	})
+	<-manualDone
+
+	require.NoError(t, os.WriteFile(release, nil, 0600))
+	runs := f.waitForRuns("a run after the other run ended", 30*time.Second, func(runs []ir.DAGRunStatus) bool {
+		return len(runs) >= 3
+	})
+	assert.Equal(t, ir.TriggerTypeRestart, runs[0].TriggerType)
+}
+
 // A restart that is queued when the DAG is suspended is dropped as aborted. It
 // was not stopped by an operator, so the DAG restarts once it is resumed.
 func TestRestartPolicyResumesDroppedRestart(t *testing.T) {
