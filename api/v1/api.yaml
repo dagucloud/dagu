@@ -16039,12 +16039,50 @@ components:
           enum:
             - static
             - runtime
+        env:
+          type: array
+          description: "Environment variable names that the step declares. Values are not included."
+          items:
+            $ref: "#/components/schemas/ReferenceScopeVariable"
+        inputs:
+          type: array
+          description: "Build input paths of the step, such as ${inputs.source}."
+          items:
+            $ref: "#/components/schemas/ReferenceScopeVariable"
+        pathOutputs:
+          type: array
+          description: "Build output paths of the step, such as ${outputs.artifact}."
+          items:
+            $ref: "#/components/schemas/ReferenceScopeVariable"
+        repeats:
+          type: boolean
+          description: "The step has a repeat policy, set on it or inherited from defaults."
+        foreach:
+          $ref: "#/components/schemas/ReferenceScopeForeach"
       required:
         - name
         - stepPath
         - upstream
         - outputs
         - outputsKnown
+
+    ReferenceScopeForeach:
+      type: object
+      description: "What the item body of a foreach step can reference."
+      properties:
+        item:
+          type: array
+          description: "The current item: its value, the fields that every static item has, its index and its key."
+          items:
+            $ref: "#/components/schemas/ReferenceScopeVariable"
+        steps:
+          type: array
+          description: "The body steps. A stepPath reads steps[2].foreach.steps[0], and upstream names body steps only."
+          items:
+            $ref: "#/components/schemas/ReferenceScopeStep"
+      required:
+        - item
+        - steps
 
     ReferenceScopeOutput:
       type: object

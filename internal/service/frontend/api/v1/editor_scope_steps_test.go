@@ -585,3 +585,270 @@ func TestScopeUpstreamLarge(t *testing.T) {
 		})
 	}
 }
+
+// variableReferences lists the reference tokens of variables, nil when absent.
+func variableReferences(vars *[]api.ReferenceScopeVariable) []string {
+	if vars == nil {
+		return nil
+	}
+	out := make([]string, 0, len(*vars))
+	for _, v := range *vars {
+		out = append(out, v.Reference)
+	}
+	return out
+}
+
+func TestScopeStepEnv(t *testing.T) {
+	const secret = "s3cret-value"
+	dag := loadScopeDAG(t, `
+env:
+  - ROOT_ONLY: root
+defaults:
+  env:
+    - FROM_DEFAULTS: d
+steps:
+  - name: list
+    run: echo a
+    env:
+      - TARGET: `+secret+`
+      - BUCKET=b
+  - name: plain
+    run: echo b
+    depends: list
+`)
+	got := scopeStepsByName(t, dag)
+	assert.Equal(t,
+		[]string{"${env.BUCKET}", "${env.FROM_DEFAULTS}", "${env.TARGET}"},
+		variableReferences(got["list"].Env))
+	// A step inherits defaults too, and the root env is not its own.
+	assert.Equal(t, []string{"${env.FROM_DEFAULTS}"}, variableReferences(got["plain"].Env))
+	for _, v := range *got["list"].Env {
+		// Env values can hold secrets: the scope never carries them.
+		assert.Nil(t, v.DefaultValue)
+		assert.NotContains(t, fmt.Sprintf("%+v", v), secret)
+	}
+}
+
+func TestScopeStepRepeats(t *testing.T) {
+	dag := loadScopeDAG(t, `
+steps:
+  - name: poll
+    run: echo a
+    repeat_policy:
+      repeat: while
+      limit: 2
+      condition: "false"
+  - name: once
+    run: echo b
+    depends: poll
+`)
+	got := scopeStepsByName(t, dag)
+	assert.True(t, valueOf(got["poll"].Repeats))
+	assert.Nil(t, got["once"].Repeats)
+}
+
+func TestScopeStepRepeatsFromDefaults(t *testing.T) {
+	dag := loadScopeDAG(t, `
+defaults:
+  repeat_policy:
+    repeat: while
+    limit: 2
+    condition: "false"
+steps:
+  - name: poll
+    run: echo a
+`)
+	assert.True(t, valueOf(scopeStepsByName(t, dag)["poll"].Repeats))
+}
+
+func TestScopeStepBuildPaths(t *testing.T) {
+	dag := loadScopeDAG(t, `
+type: build
+working_dir: /workspace
+steps:
+  - id: compile
+    name: compile
+    inputs:
+      - name: source
+        path: source.txt
+      - name: header
+        path: header.h
+    outputs:
+      - name: artifact
+        path: artifact.bin
+    run: compiler
+  - id: plain
+    name: plain
+    run: echo hi
+    depends: compile
+`)
+	got := scopeStepsByName(t, dag)
+	assert.Equal(t, []string{"${inputs.source}", "${inputs.header}"}, variableReferences(got["compile"].Inputs))
+	assert.Equal(t, []string{"${outputs.artifact}"}, variableReferences(got["compile"].PathOutputs))
+	assert.Nil(t, got["plain"].Inputs)
+	assert.Nil(t, got["plain"].PathOutputs)
+}
+
+func TestScopeForeachItem(t *testing.T) {
+	const (
+		value = "${foreach.item}"
+		index = "${foreach.index}"
+		key   = "${foreach.key}"
+	)
+	tests := []struct {
+		name string
+		// lines holds the fields of the foreach mapping, before its steps.
+		lines string
+		want  []string
+	}{
+		{
+			name:  "scalar items use the default alias",
+			lines: `items: [a, b]`,
+			want:  []string{value, index, key},
+		},
+		{
+			name:  "an alias renames the item",
+			lines: "items: [a]\n      as: episode",
+			want:  []string{"${foreach.episode}", index, key},
+		},
+		{
+			name:  "objects give the fields that every item has",
+			lines: `items: [{url: a, slug: b}, {url: c, slug: d, extra: e}]`,
+			want:  []string{value, "${foreach.item.slug}", "${foreach.item.url}", index, key},
+		},
+		{
+			name:  "any script may be written unquoted",
+			lines: `items: [{名前: a, _row: 1}]`,
+			want:  []string{value, "${foreach.item._row}", "${foreach.item.名前}", index, key},
+		},
+		{
+			name:  "a field that needs quotes is left out",
+			lines: `items: [{"First Name": a, ok: b}]`,
+			want:  []string{value, "${foreach.item.ok}", index, key},
+		},
+		{
+			name:  "items from an expression have unknown fields",
+			lines: `items: "${params.LIST}"`,
+			want:  []string{value, index, key},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			dag := loadScopeDAG(t, `
+params:
+  - LIST: '[]'
+steps:
+  - name: each
+    foreach:
+      `+tt.lines+`
+      steps:
+        - name: body
+          run: echo hi
+`)
+			got := scopeStepsByName(t, dag)["each"]
+			require.NotNil(t, got.Foreach)
+			assert.Equal(t, tt.want, variableReferences(&got.Foreach.Item))
+		})
+	}
+}
+
+func TestScopeForeachBodySteps(t *testing.T) {
+	dag := loadScopeDAG(t, `
+type: graph
+steps:
+  - id: before
+    name: before
+    run: echo a
+  - id: each
+    name: each
+    depends: before
+    foreach:
+      items: [a]
+      steps:
+        - id: fetch
+          name: fetch
+          run: echo a
+          outputs:
+            - name: body
+          env:
+            - LOCAL: x
+        - id: parse
+          name: parse
+          depends: fetch
+          run: echo b
+          repeat_policy:
+            repeat: while
+            limit: 2
+            condition: "false"
+        - id: last
+          name: last
+          depends: parse
+          run: echo c
+`)
+	got := scopeStepsByName(t, dag)
+	// Body steps stay under their foreach step, not in the top-level list.
+	assert.NotContains(t, got, "fetch")
+	require.NotNil(t, got["each"].Foreach)
+	body := got["each"].Foreach.Steps
+	require.Len(t, body, 3)
+
+	fetch, parse, last := body[0], body[1], body[2]
+	assert.Equal(t, "steps[1].foreach.steps[0]", fetch.StepPath)
+	assert.Equal(t, []string{}, fetch.Upstream)
+	require.Len(t, fetch.Outputs, 1)
+	assert.Equal(t, "${steps.fetch.outputs.body}", fetch.Outputs[0].Reference)
+	assert.Equal(t, []string{"${env.LOCAL}"}, variableReferences(fetch.Env))
+	assert.Nil(t, fetch.Repeats)
+
+	assert.Equal(t, []string{"fetch"}, parse.Upstream)
+	assert.True(t, valueOf(parse.Repeats))
+	// Upstream is transitive and names body steps only, never `before`.
+	assert.Equal(t, []string{"fetch", "parse"}, last.Upstream)
+}
+
+// The steps of a nested body use the path of their own body.
+func TestScopeForeachNested(t *testing.T) {
+	dag := loadScopeDAG(t, `
+type: graph
+steps:
+  - id: outer
+    name: outer
+    foreach:
+      items: [a]
+      as: group
+      steps:
+        - id: inner
+          name: inner
+          foreach:
+            items: [{n: 1}]
+            as: row
+            steps:
+              - id: leaf
+                name: leaf
+                run: echo hi
+`)
+	got := scopeStepsByName(t, dag)["outer"]
+	require.NotNil(t, got.Foreach)
+	require.Len(t, got.Foreach.Steps, 1)
+	inner := got.Foreach.Steps[0]
+	assert.Equal(t, "steps[0].foreach.steps[0]", inner.StepPath)
+	require.NotNil(t, inner.Foreach)
+	assert.Equal(t, "${foreach.row}", inner.Foreach.Item[0].Reference)
+	require.Len(t, inner.Foreach.Steps, 1)
+	assert.Equal(t, "steps[0].foreach.steps[0].foreach.steps[0]", inner.Foreach.Steps[0].StepPath)
+}
+
+// A step without foreach, env or build paths gives none of the optional fields.
+func TestScopeStepOptionalFieldsAbsent(t *testing.T) {
+	dag := loadScopeDAG(t, `
+steps:
+  - name: plain
+    run: echo hi
+`)
+	got := scopeStepsByName(t, dag)["plain"]
+	assert.Nil(t, got.Env)
+	assert.Nil(t, got.Inputs)
+	assert.Nil(t, got.PathOutputs)
+	assert.Nil(t, got.Repeats)
+	assert.Nil(t, got.Foreach)
+}
