@@ -170,6 +170,53 @@ func TestAttempt_ReadStatusUncachedDoesNotPopulateCache(t *testing.T) {
 	assert.Zero(t, cache.Size())
 }
 
+// TestDAGRun_LatestAttemptFallsBackFromEmptyNewestAttempt reproduces the
+// read-race from #3425: a retry or push-back resume creates the newest attempt's
+// status file empty, and the first status line is appended later. A read in that
+// window must not report the run as corrupted; it should fall back to the
+// previous attempt's last observed state.
+func TestDAGRun_LatestAttemptFallsBackFromEmptyNewestAttempt(t *testing.T) {
+	root := createTempDir(t)
+
+	// Previous attempt: a complete status line.
+	prevDir := filepath.Join(root, attemptDirName(persis.NewUTC(time.Now().Add(-time.Minute)), "prev"))
+	require.NoError(t, os.MkdirAll(prevDir, 0750))
+	prevStatus := createTestStatus(ir.Running)
+	prevStatus.DAGRunID = "prev"
+	writeJSONToFile(t, filepath.Join(prevDir, JSONLStatusFile), prevStatus)
+
+	// Newest attempt: exists but is empty, as right after Open before the first Write.
+	newDir := filepath.Join(root, attemptDirName(persis.NewUTC(time.Now()), "new"))
+	require.NoError(t, os.MkdirAll(newDir, 0750))
+	require.NoError(t, os.WriteFile(filepath.Join(newDir, JSONLStatusFile), nil, 0600))
+
+	dr := &DAGRun{baseDir: root}
+	att, err := dr.LatestAttempt(t.Context(), nil)
+	require.NoError(t, err)
+
+	// The empty newest attempt is skipped; the previous attempt is returned.
+	status, err := att.ReadStatus(t.Context())
+	require.NoError(t, err)
+	assert.Equal(t, "prev", status.DAGRunID)
+}
+
+// TestDAGRun_LatestAttemptReturnsEmptyNewestAttemptWhenOnlyAttempt verifies the
+// fallback does not mask a lone attempt that simply has not been written yet: the
+// empty attempt is still returned so a caller can distinguish "starting" from
+// "no data".
+func TestDAGRun_LatestAttemptReturnsEmptyNewestAttemptWhenOnlyAttempt(t *testing.T) {
+	root := createTempDir(t)
+
+	newDir := filepath.Join(root, attemptDirName(persis.NewUTC(time.Now()), "new"))
+	require.NoError(t, os.MkdirAll(newDir, 0750))
+	require.NoError(t, os.WriteFile(filepath.Join(newDir, JSONLStatusFile), nil, 0600))
+
+	dr := &DAGRun{baseDir: root}
+	att, err := dr.LatestAttempt(t.Context(), nil)
+	require.NoError(t, err)
+	assert.Equal(t, filepath.Join(newDir, JSONLStatusFile), att.file)
+}
+
 func TestAttempt_Compact(t *testing.T) {
 	dir := createTempDir(t)
 	file := filepath.Join(dir, "status.dat")

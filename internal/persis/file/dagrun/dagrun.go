@@ -238,7 +238,14 @@ func (dr DAGRun) LatestAttempt(ctx context.Context, cache *fileutil.Cache[*ir.DA
 	if err != nil {
 		return nil, fmt.Errorf("failed to list run directories: %w", err)
 	}
-	// Return the first valid run
+	// The newest attempt may exist but have no status line yet: Attempt.Open
+	// creates an empty status file, and the first line is appended later. A
+	// reader in that window finds no complete line and would treat the run as
+	// corrupted. Fall back to the previous attempt so a read during a retry or
+	// push-back resume reports the run's last observed state instead of failing.
+	// Writers resolve attempts by run ID and never use this path, so the attempt
+	// a write targets is unchanged.
+	var newestEmpty *Attempt
 	for _, attDir := range attDirs {
 		if err := ctx.Err(); err != nil {
 			return nil, err
@@ -251,11 +258,31 @@ func (dr DAGRun) LatestAttempt(ctx context.Context, cache *fileutil.Cache[*ir.DA
 		if att.Hidden() {
 			continue
 		}
-		if att.Exists() {
-			return att, nil
+		if !att.Exists() {
+			continue
 		}
+		if statusFileEmpty(att) {
+			if newestEmpty == nil {
+				newestEmpty = att
+			}
+			continue
+		}
+		return att, nil
+	}
+	if newestEmpty != nil {
+		return newestEmpty, nil
 	}
 	return nil, dagrun.ErrNoStatusData
+}
+
+// statusFileEmpty reports whether the attempt's status file exists but holds no
+// complete status line yet, as right after Attempt.Open before the first Write.
+func statusFileEmpty(att *Attempt) bool {
+	info, err := os.Stat(att.file)
+	if err != nil {
+		return false
+	}
+	return info.Size() == 0
 }
 
 // newestAttemptID returns the ID of the newest visible attempt, including an
