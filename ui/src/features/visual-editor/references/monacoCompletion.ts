@@ -8,8 +8,8 @@ import type { ReferenceCandidate } from '../contracts';
 import {
   envEntryCandidates,
   forShellField,
-  SHELL_RISK_LABEL,
   SHELL_RISK_NOTE,
+  SHELL_RISK_ROW,
   withoutBuildOutputs,
 } from './candidates';
 import { publishEdit } from './publishOutput';
@@ -274,12 +274,12 @@ function toCompletionList(
   );
   return {
     suggestions: result.items.map((item, index) => ({
-      // A description shows on every row, and a detail on the focused one, so
-      // neither waits for the documentation to open.
+      // A description shows on every row, without the details pane, which holds
+      // the whole note.
       label: item.shellRisk
         ? {
             label: item.token,
-            description: translateStatic(locale, SHELL_RISK_LABEL),
+            description: translateStatic(locale, SHELL_RISK_ROW),
           }
         : item.token,
       detail: item.shellRisk

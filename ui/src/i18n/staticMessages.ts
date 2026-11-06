@@ -1464,6 +1464,7 @@ const baseEnglish = {
   'Put the cursor in a field value': 'Put the cursor in a field value',
   'Published when chosen': 'Published when chosen',
   'Not safe in a shell': 'Not safe in a shell',
+  'Not safe in a shell: use env': 'Not safe in a shell: use env',
   'A model wrote this text, so a shell can run it as code. Pass it through env and read it from the environment instead.':
     'A model wrote this text, so a shell can run it as code. Pass it through env and read it from the environment instead.',
   'Search references': 'Search references',
@@ -4581,6 +4582,7 @@ const baseChinese = {
   'Put the cursor in a field value': '请将光标放在字段值中',
   'Published when chosen': '选择后发布',
   'Not safe in a shell': '在 shell 中不安全',
+  'Not safe in a shell: use env': '在 shell 中不安全：请用 env',
   'A model wrote this text, so a shell can run it as code. Pass it through env and read it from the environment instead.':
     '此文本由模型生成，shell 可能会将其作为代码执行。请通过 env 传递，并从环境变量中读取。',
   'Search references': '搜索引用',
@@ -7690,6 +7692,7 @@ const baseJapanese = {
   'Put the cursor in a field value': 'フィールドの値にカーソルを置いてください',
   'Published when chosen': '選ぶと公開されます',
   'Not safe in a shell': 'シェルでは安全ではありません',
+  'Not safe in a shell: use env': 'シェルでは安全ではありません: env を使用',
   'A model wrote this text, so a shell can run it as code. Pass it through env and read it from the environment instead.':
     'このテキストはモデルが書いたもので、シェルがコードとして実行するおそれがあります。env で渡し、環境変数から読み取ってください。',
   'Search references': '参照を検索',

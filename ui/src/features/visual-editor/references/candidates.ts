@@ -41,6 +41,8 @@ export const REFERENCE_GROUP_LABELS: Readonly<Record<ReferenceGroup, string>> =
 
 /** English i18n keys of what the lists say of a value that is not safe in a shell. */
 export const SHELL_RISK_LABEL = 'Not safe in a shell';
+/** The label with what to do, for a row that has no room for the note. */
+export const SHELL_RISK_ROW = 'Not safe in a shell: use env';
 export const SHELL_RISK_NOTE =
   'A model wrote this text, so a shell can run it as code. Pass it through env and read it from the environment instead.';
 

@@ -763,8 +763,7 @@ describe('registerFieldReferenceCompletion', () => {
   });
 
   // ${NAME} is shell syntax in a script, as it is in a `run` field of the YAML.
-  // The row must say so before anyone opens its documentation: the marker shows
-  // on every row, and the guidance on the row that has the focus.
+  // The row must say so, and what to do, before anyone opens the details pane.
   it('marks a value that is not safe in a shell on its row', () => {
     const { monaco, registerCompletionItemProvider } = fakeMonaco();
     const model = fakeModel('${');
@@ -783,7 +782,7 @@ describe('registerFieldReferenceCompletion', () => {
     ).suggestions;
     expect(risky?.label).toEqual({
       label: candidates[1]!.token,
-      description: 'Not safe in a shell',
+      description: 'Not safe in a shell: use env',
     });
     expect(risky?.detail).toContain('Pass it through env');
     expect(risky?.insertText).toBe(candidates[1]!.token);
