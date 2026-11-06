@@ -394,6 +394,8 @@ func (r *Runner) runGraphLoop(ctx context.Context, plan *Plan, nodes []*Node, pr
 	readyCh := make(chan *Node, len(nodes))
 	doneCh := make(chan *Node, len(nodes))
 
+	settleBlockedNodes(ctx, plan, nodes)
+
 	// Find initial ready nodes
 	for _, node := range nodes {
 		if node.State().Status == ir.NodeNotStarted && isReady(ctx, plan, node) {
@@ -1525,6 +1527,23 @@ func upstreamBlock(plan *Plan) error {
 		}
 	}
 	return block
+}
+
+// settleBlockedNodes ends every node that the restored state of a retry blocks
+// before anything runs. No completion reaches these nodes later, and a node can
+// be listed before the upstream that blocks it, so the scan repeats until
+// nothing changes.
+func settleBlockedNodes(ctx context.Context, plan *Plan, nodes []*Node) {
+	for changed := true; changed; {
+		changed = false
+		for _, node := range nodes {
+			if node.State().Status != ir.NodeNotStarted {
+				continue
+			}
+			isReady(ctx, plan, node)
+			changed = changed || node.State().Status != ir.NodeNotStarted
+		}
+	}
 }
 
 func isReady(ctx context.Context, plan *Plan, node *Node) bool {

@@ -379,6 +379,18 @@ func TestRunner_StepRetryBlockedByFailedUpstreamFails(t *testing.T) {
 		assert.Equal(t, ir.Failed, runner.Status(ctx, plan))
 	})
 
+	t.Run("a downstream step is listed before the step blocking it", func(t *testing.T) {
+		t.Parallel()
+		blocked, next := succeeds("blocked", failed.Name), succeeds("next", "blocked")
+		runner, plan, ctx, err := run(t, t.TempDir(), blocked.Name,
+			map[string]NodeState{failed.Name: wasFailed, blocked.Name: wasAborted, next.Name: wasAborted},
+			next, blocked, failed)
+
+		require.ErrorIs(t, err, ErrUpstreamFailed)
+		assert.Equal(t, ir.Failed, runner.Status(ctx, plan))
+		assert.Equal(t, ir.NodeAborted, plan.GetNodeByName(next.Name).State().Status)
+	})
+
 	t.Run("a join is blocked once the selected step ran", func(t *testing.T) {
 		t.Parallel()
 		target, join := succeeds("target"), succeeds("join", "target", failed.Name)
