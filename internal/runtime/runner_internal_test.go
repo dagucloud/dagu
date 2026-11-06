@@ -442,6 +442,52 @@ func TestRunner_StepRetryBlockedByFailedUpstreamFails(t *testing.T) {
 		assert.Equal(t, ir.Failed, runner.Status(ctx, plan))
 	})
 
+	t.Run("the selected step is blocked beside a failure allowed to continue", func(t *testing.T) {
+		t.Parallel()
+		tolerated := ir.Step{
+			ID:         "tolerated",
+			Name:       "tolerated",
+			Commands:   []ir.CommandEntry{{Command: "false"}},
+			ContinueOn: ir.ContinueOn{Failure: true},
+		}
+		done, gate, blocked := succeeds("done"), succeeds("gate"), succeeds("blocked", "gate")
+		runner, plan, ctx, err := retry(t, t.TempDir(), blocked.Name, false,
+			map[string]NodeState{
+				tolerated.Name: wasFailed,
+				done.Name:      {Status: ir.NodeSucceeded},
+				gate.Name:      wasAborted,
+				blocked.Name:   wasAborted,
+			},
+			tolerated, done, gate, blocked)
+
+		require.ErrorIs(t, err, ErrUpstreamAborted)
+		assert.Equal(t, ir.Failed, runner.Status(ctx, plan))
+	})
+
+	t.Run("a selected step fails and may continue while its join is blocked", func(t *testing.T) {
+		t.Parallel()
+		target := ir.Step{
+			ID:         "target",
+			Name:       "target",
+			Commands:   []ir.CommandEntry{{Command: "false"}},
+			ContinueOn: ir.ContinueOn{Failure: true},
+		}
+		done, gate, join := succeeds("done"), succeeds("gate"), succeeds("join", "target", "gate")
+		runner, plan, ctx, err := run(t, t.TempDir(), target.Name,
+			map[string]NodeState{
+				target.Name: wasFailed,
+				done.Name:   {Status: ir.NodeSucceeded},
+				gate.Name:   wasAborted,
+				join.Name:   wasAborted,
+			},
+			target, done, gate, join)
+
+		require.Error(t, err)
+		assert.Equal(t, ir.Failed, runner.Status(ctx, plan))
+		assert.Equal(t, ir.NodeFailed, plan.GetNodeByName(target.Name).State().Status)
+		assert.Equal(t, ir.NodeAborted, plan.GetNodeByName(join.Name).State().Status)
+	})
+
 	t.Run("a canceled run leaves a step behind one left aborted outside the selection", func(t *testing.T) {
 		t.Parallel()
 		first, second, third := succeeds("first"), succeeds("second", "first"), succeeds("third", "second")
