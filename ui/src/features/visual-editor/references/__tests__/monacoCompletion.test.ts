@@ -236,6 +236,98 @@ describe('computeReferenceCompletions', () => {
     );
   });
 
+  // Spec 067: a shell can run a model's reply as code, and a run field says so.
+  describe('with a model output', () => {
+    const scope = (): ReferenceScope => {
+      const base = scopeHttpJq.steps[0]!;
+      return {
+        ...scopeHttpJq,
+        steps: [
+          {
+            ...base,
+            name: 'model',
+            id: 'model',
+            stepPath: 'steps[0]',
+            upstream: [],
+            outputs: [
+              {
+                ...base.outputs[0]!,
+                name: 'reply',
+                reference: '${steps.model.outputs.reply}',
+                modelOutput: true,
+              },
+            ],
+          },
+          {
+            ...base,
+            name: 'next',
+            id: 'next',
+            stepPath: 'steps[1]',
+            upstream: ['model'],
+            outputs: [],
+          },
+        ],
+      };
+    };
+    // The row of the model output in a field of the step `next`.
+    const rowIn = (field: string) => {
+      const text = `steps:\n  - name: model\n    run: a\n  - name: next\n    ${field}\n`;
+      return computeReferenceCompletions(
+        text,
+        at(text, '${', 2),
+        { scope: scope() },
+        { explicit: false }
+      )?.items.find((item) => item.label === 'model.reply');
+    };
+
+    it('marks it in a run field', () => {
+      expect(rowIn('run: echo ${')?.shellRisk).toBe(true);
+    });
+
+    // The fix is to pass it through env, so env must offer it plainly.
+    it('leaves it unmarked in env', () => {
+      const row = rowIn('env:\n      - REPLY: ${');
+      expect(row).toBeDefined();
+      expect(row?.shellRisk).toBeUndefined();
+    });
+
+    // A shell reads a body step's run too, and the validator warns there.
+    describe('in a foreach body', () => {
+      const body = (field: string) =>
+        [
+          'foreach:',
+          '      items: [a]',
+          '      steps:',
+          '        - name: inner',
+          `          ${field}`,
+        ].join('\n');
+
+      it('marks it in a run field', () => {
+        expect(rowIn(body('run: echo ${'))?.shellRisk).toBe(true);
+      });
+
+      it('leaves it unmarked in env', () => {
+        const row = rowIn(body('env:\n            - REPLY: ${'));
+        expect(row).toBeDefined();
+        expect(row?.shellRisk).toBeUndefined();
+      });
+    });
+
+    it('marks it in a run field of a parallel group', () => {
+      const text =
+        'steps:\n  - name: model\n    run: a\n  - - name: next\n      run: echo ${\n';
+      const parallel = scope();
+      parallel.steps[1]!.stepPath = 'steps[1]';
+      const row = computeReferenceCompletions(
+        text,
+        at(text, '${', 2),
+        { scope: parallel },
+        { explicit: false }
+      )?.items.find((item) => item.label === 'model.reply');
+      expect(row?.shellRisk).toBe(true);
+    });
+  });
+
   describe('fields that keep references as literal text', () => {
     const offers = (text: string) =>
       computeReferenceCompletions(
@@ -573,7 +665,7 @@ type Provider = {
     context: { triggerKind: number }
   ): {
     suggestions: {
-      label: string;
+      label: string | { label: string; description: string };
       detail: string;
       kind: number;
       insertText: string;
@@ -671,6 +763,32 @@ describe('registerFieldReferenceCompletion', () => {
   });
 
   // ${NAME} is shell syntax in a script, as it is in a `run` field of the YAML.
+  // The row must say so, and what to do, before anyone opens the details pane.
+  it('marks a value that is not safe in a shell on its row', () => {
+    const { monaco, registerCompletionItemProvider } = fakeMonaco();
+    const model = fakeModel('${');
+    registerFieldReferenceCompletion(
+      monaco,
+      { getModel: () => model },
+      'shell',
+      () => [{ ...candidates[1]!, shellRisk: true }, candidates[0]!]
+    );
+    const [, provider] = registerCompletionItemProvider.mock
+      .calls[0] as unknown as [string, Provider];
+    const [risky, plain] = provider.provideCompletionItems(
+      model,
+      model.getPositionAt(2),
+      { triggerKind: 1 }
+    ).suggestions;
+    expect(risky?.label).toEqual({
+      label: candidates[1]!.token,
+      description: 'Unsafe here: use env',
+    });
+    expect(risky?.detail).toContain('Pass it through env');
+    expect(risky?.insertText).toBe(candidates[1]!.token);
+    expect(plain?.label).toBe(candidates[0]!.token);
+  });
+
   it('adds the shell note to env items', () => {
     const { complete } = setup('${');
     const [env, param] = complete(2, TRIGGER);

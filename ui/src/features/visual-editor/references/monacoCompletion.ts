@@ -5,7 +5,13 @@ import { isMap, isScalar, isSeq, parseDocument } from 'yaml';
 import { getYamlPathAtOffset } from '@/hooks/useYamlCursorPath';
 import { translateStatic } from '@/i18n/translateStatic';
 import type { ReferenceCandidate } from '../contracts';
-import { envEntryCandidates, withoutBuildOutputs } from './candidates';
+import {
+  envEntryCandidates,
+  forShellField,
+  SHELL_RISK_NOTE,
+  SHELL_RISK_ROW,
+  withoutBuildOutputs,
+} from './candidates';
 import { publishEdit } from './publishOutput';
 import {
   candidatesAt,
@@ -13,6 +19,7 @@ import {
   isCommandField,
   isRunField,
   isRunFieldPath,
+  pathBelowBodies,
   pathBelowStep,
   type ReferenceEditorState,
 } from './editorState';
@@ -70,15 +77,6 @@ const LITERAL_FOREACH_FIELDS = new Set(['as', 'max_concurrent']);
 const LITERAL_OUTPUT_FIELDS = new Set(['name', 'type']);
 
 const STEP_ROOTS = new Set(['steps', 'handler_on']);
-
-// The path below the innermost step of `below`, a path below a step entry.
-function pathBelowBodies(below: string[]): string[] {
-  let inner = below;
-  while (inner[0] === 'foreach' && inner[1] === 'steps') {
-    inner = inner.slice(3);
-  }
-  return inner;
-}
 
 function isLiteralStepField(below: string[]): boolean {
   const [field = '', second = '', third = ''] = below;
@@ -189,10 +187,11 @@ export function computeReferenceCompletions(
   if (!items) {
     return null;
   }
+  const inRunField = isRunFieldPath(cursor.path);
   return {
-    items,
+    items: inRunField ? forShellField(items) : items,
     ...range,
-    inRunField: isRunFieldPath(cursor.path),
+    inRunField,
   };
 }
 
@@ -275,12 +274,21 @@ function toCompletionList(
   );
   return {
     suggestions: result.items.map((item, index) => ({
-      label: item.token,
-      detail: item.publish
-        ? `${item.label} - ${translateStatic(locale, PUBLISH_NOTE)}`
-        : item.detail
-          ? `${item.label} - ${item.detail}`
-          : item.label,
+      // A description shows on every row, without the details pane, which holds
+      // the whole note.
+      label: item.shellRisk
+        ? {
+            label: item.token,
+            description: translateStatic(locale, SHELL_RISK_ROW),
+          }
+        : item.token,
+      detail: item.shellRisk
+        ? translateStatic(locale, SHELL_RISK_NOTE)
+        : item.publish
+          ? `${item.label} - ${translateStatic(locale, PUBLISH_NOTE)}`
+          : item.detail
+            ? `${item.label} - ${item.detail}`
+            : item.label,
       kind: monaco.languages.CompletionItemKind.Variable,
       insertText: item.token,
       filterText: item.token,
@@ -379,10 +387,17 @@ export function registerStepYamlCompletion(
       if (!range || isLiteralStepField(below)) {
         return { suggestions: [] };
       }
+      const inRunField = isRunField(below[0]);
+      const items = narrowToStepField(
+        text,
+        path,
+        below,
+        candidatesAtPath(path)
+      );
       return toCompletionList(monaco, model, {
-        items: narrowToStepField(text, path, below, candidatesAtPath(path)),
+        items: inRunField ? forShellField(items) : items,
         ...range,
-        inRunField: isRunField(below[0]),
+        inRunField,
       });
     },
   });

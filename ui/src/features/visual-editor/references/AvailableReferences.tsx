@@ -9,6 +9,8 @@ import {
   filterReferenceCandidates,
   REFERENCE_GROUP_LABELS,
   REFERENCE_GROUP_ORDER,
+  SHELL_RISK_LABEL,
+  SHELL_RISK_NOTE,
 } from './candidates';
 import { ReferenceName, type InsertToken } from './ReferenceName';
 
@@ -71,28 +73,34 @@ export function AvailableReferences({
               {allRuntime && <Badge text="Known after run" />}
             </div>
             {items.map((candidate) => (
-              <div
-                key={`${candidate.stepName ?? ''}:${candidate.token}`}
-                className="flex min-w-0 items-baseline gap-2"
-              >
-                <ReferenceName
-                  name={candidate.label}
-                  reference={candidate.token}
-                  onInsert={(token) => {
-                    candidate.onPicked?.();
-                    return onInsert?.(token);
-                  }}
-                />
-                {candidate.detail && (
-                  <span className="min-w-0 truncate text-muted-foreground">
-                    {candidate.detail}
-                  </span>
-                )}
-                {candidate.publish ? (
-                  <Badge text="Published when chosen" />
-                ) : (
-                  candidate.known === 'runtime' &&
-                  !allRuntime && <Badge text="Known after run" />
+              <div key={`${candidate.stepName ?? ''}:${candidate.token}`}>
+                <div className="flex min-w-0 items-baseline gap-2">
+                  <ReferenceName
+                    name={candidate.label}
+                    reference={candidate.token}
+                    onInsert={(token) => {
+                      candidate.onPicked?.();
+                      return onInsert?.(token);
+                    }}
+                  />
+                  {candidate.detail && (
+                    <span className="min-w-0 truncate text-muted-foreground">
+                      {candidate.detail}
+                    </span>
+                  )}
+                  {candidate.shellRisk ? (
+                    <Badge text={SHELL_RISK_LABEL} />
+                  ) : candidate.publish ? (
+                    <Badge text="Published when chosen" />
+                  ) : (
+                    candidate.known === 'runtime' &&
+                    !allRuntime && <Badge text="Known after run" />
+                  )}
+                </div>
+                {candidate.shellRisk && (
+                  <p className="text-[10px] text-warning">
+                    {ts(SHELL_RISK_NOTE)}
+                  </p>
                 )}
               </div>
             ))}

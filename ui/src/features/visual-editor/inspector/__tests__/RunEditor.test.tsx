@@ -59,6 +59,29 @@ describe('RunEditor', () => {
     expect(referenceList()).toBeInTheDocument();
   });
 
+  // Spec 067: a shell can run a model's reply as code.
+  it('warns of a model output in a command', () => {
+    render(
+      <RunEditor
+        step={oneLine}
+        readOnly={false}
+        onEdit={vi.fn()}
+        fieldIssues={{}}
+        candidates={[
+          {
+            token: '${steps.model.outputs.reply}',
+            label: 'model.reply',
+            group: 'steps',
+            known: 'runtime',
+            modelOutput: true,
+          },
+        ]}
+      />
+    );
+    typeOpenReference(screen.getByRole('textbox', { name: 'Command' }));
+    expect(referenceList()).toHaveTextContent('Not safe in a shell');
+  });
+
   it('completes references in a script', async () => {
     completionProviders.length = 0;
     setup({ ...oneLine, value: { name: 'build', run: 'make\nmake test' } });

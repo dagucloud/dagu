@@ -84,6 +84,15 @@ export function pathBelowStep(path: readonly string[]): string[] {
   return path.slice(/^\d+$/.test(path[2] ?? '') ? 3 : 2);
 }
 
+/** The path below the innermost step of `below`, a path below a step entry. */
+export function pathBelowBodies(below: string[]): string[] {
+  let inner = below;
+  while (inner[0] === 'foreach' && inner[1] === 'steps') {
+    inner = inner.slice(3);
+  }
+  return inner;
+}
+
 /** Candidates for a field at the offset, as seen by the step that owns it. */
 export function candidatesAt(
   text: string,
@@ -127,13 +136,12 @@ export function isCommandField(field: string | undefined): boolean {
   return isRunField(field) || field === 'args';
 }
 
-/** True when the path points at a shell field that is a direct child of a step. */
+/** True when the path points at a shell field of a step, at any depth of foreach bodies. */
 export function isRunFieldPath(path: string[]): boolean {
-  const [root, , field] = path;
+  const [root] = path;
   return (
     (root === 'steps' || root === 'handler_on') &&
-    field !== undefined &&
-    RUN_FIELDS.has(field)
+    isRunField(pathBelowBodies(pathBelowStep(path))[0])
   );
 }
 

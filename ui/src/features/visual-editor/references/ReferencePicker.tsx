@@ -17,6 +17,8 @@ import {
   filterReferenceCandidates,
   REFERENCE_GROUP_LABELS,
   REFERENCE_GROUP_ORDER,
+  SHELL_RISK_LABEL,
+  SHELL_RISK_NOTE,
 } from './candidates';
 
 export interface ReferencePickerHandle {
@@ -212,7 +214,11 @@ export function ReferencePicker({
                           {c.detail}
                         </span>
                       ) : null}
-                      {c.publish || c.known === 'runtime' ? (
+                      {c.shellRisk ? (
+                        <span className="ml-auto shrink-0 rounded-sm bg-warning/10 px-1 text-[10px] font-medium text-warning">
+                          {ts(SHELL_RISK_LABEL)}
+                        </span>
+                      ) : c.publish || c.known === 'runtime' ? (
                         <span className="ml-auto shrink-0 rounded-sm bg-warning/10 px-1 text-[10px] text-warning">
                           {ts(
                             c.publish
@@ -225,6 +231,11 @@ export function ReferencePicker({
                     <div className="truncate font-mono text-[10px] text-muted-foreground">
                       {c.token}
                     </div>
+                    {c.shellRisk ? (
+                      <div className="text-[10px] text-warning">
+                        {ts(SHELL_RISK_NOTE)}
+                      </div>
+                    ) : null}
                   </div>
                 )
               )}

@@ -13,6 +13,7 @@ import {
   envEntryCandidates,
   filterReferenceCandidates,
   foreachFramesAt,
+  forShellField,
   REFERENCE_GROUP_ORDER,
   upstreamDistances,
 } from '../candidates';
@@ -690,6 +691,39 @@ describe('buildReferenceCandidates in a foreach body', () => {
     expect(tokens(['foreach', 'steps', '9', 'run'], 'foreach')).toContain(
       '${foreach.item}'
     );
+  });
+});
+
+describe('a model output', () => {
+  const scope = emptyScope([
+    scopeStep('model', {
+      outputs: [
+        {
+          name: 'reply',
+          reference: '${steps.model.outputs.reply}',
+          source: ReferenceScopeOutputSource.declared,
+          modelOutput: true,
+        },
+        {
+          name: 'label',
+          reference: '${steps.model.outputs.label}',
+          source: ReferenceScopeOutputSource.declared,
+        },
+      ],
+    }),
+    scopeStep('next', { upstream: ['model'] }),
+  ]);
+  const steps = () =>
+    buildReferenceCandidates(scope, 'next').filter((c) => c.group === 'steps');
+
+  it('stays unmarked until a field says that a shell reads it', () => {
+    expect(steps().some((c) => c.shellRisk)).toBe(false);
+  });
+
+  it('is marked in a shell field, and an output the schema limits is not', () => {
+    const [reply, label] = forShellField(steps());
+    expect(reply?.shellRisk).toBe(true);
+    expect(label?.shellRisk).toBeUndefined();
   });
 });
 

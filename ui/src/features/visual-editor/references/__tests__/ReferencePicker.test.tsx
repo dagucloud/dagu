@@ -121,6 +121,26 @@ describe('ReferencePicker', () => {
     expect(option).not.toHaveTextContent('Known after run');
   });
 
+  it('warns of a value that is not safe in a shell, and says what to do', () => {
+    renderPicker({
+      candidates: [
+        {
+          token: '${steps.model.outputs.reply}',
+          label: 'model.reply',
+          group: 'steps',
+          known: 'runtime',
+          shellRisk: true,
+        },
+      ],
+    });
+    // Focus stays in the field while the arrow keys move, so a tooltip would
+    // reach nobody who uses the keyboard: the note is part of the option.
+    const option = screen.getByRole('option', { name: /model\.reply/ });
+    expect(option).toHaveTextContent('Not safe in a shell');
+    expect(option).toHaveTextContent('Pass it through env');
+    expect(screen.queryByText('Known after run')).toBeNull();
+  });
+
   it('picks an option on click', () => {
     const { onPick } = renderPicker();
     fireEvent.click(screen.getByRole('option', { name: /HOME/ }));

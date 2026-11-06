@@ -867,3 +867,79 @@ steps:
 	assert.Nil(t, got.Repeats)
 	assert.Nil(t, got.Foreach)
 }
+
+// TestScopeModelOutputMatchesValidator keeps the picker and `dagu validate` in
+// step: an output is flagged exactly when writing it into a shell command warns.
+func TestScopeModelOutputMatchesValidator(t *testing.T) {
+	const (
+		chat = "action: chat.completion\n    with:\n      messages: [{role: user, content: hi}]\n"
+		// The fields of an output_schema are what a reference can name.
+		schema = "    output_schema:\n      type: object\n      properties:\n        reply: {type: string}\n        label: {type: string, enum: [a, b]}\n        count: {type: integer}\n        rate: {type: number}\n        ok: {type: boolean}\n"
+	)
+	tests := []struct {
+		name string
+		// producer holds the fields of the step, after its id.
+		producer string
+		output   string
+		want     bool
+	}{
+		{"free text from a model", chat + schema, "reply", true},
+		{"an enum", chat + schema, "label", false},
+		{"an integer", chat + schema, "count", false},
+		{"a number", chat + schema, "rate", false},
+		{"a boolean", chat + schema, "ok", false},
+		{"a command", "run: echo hi\n    outputs:\n      - name: reply\n", "reply", false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			dag := loadScopeDAG(t, `
+type: graph
+steps:
+  - id: producer
+    `+tt.producer+`
+  - id: consumer
+    depends: producer
+    run: echo "${steps.producer.outputs.`+tt.output+`}"
+`)
+			warned := false
+			for _, warning := range dag.BuildWarnings {
+				warned = warned || strings.Contains(warning, "writes model output into a shell command")
+			}
+			require.Equal(t, tt.want, warned, "the validator: %v", dag.BuildWarnings)
+
+			flagged := false
+			for _, output := range scopeStepsByName(t, dag)["producer"].Outputs {
+				if output.Name == tt.output {
+					flagged = valueOf(output.ModelOutput)
+				}
+			}
+			assert.Equal(t, tt.want, flagged)
+		})
+	}
+}
+
+// Spec 067 reads a harness and an agent step as models too.
+func TestScopeModelOutputExecutors(t *testing.T) {
+	for _, typ := range []string{"harness", ir.ExecutorTypeChat, ir.ExecutorTypeAgent} {
+		step := &ir.Step{
+			ID:             "producer",
+			ExecutorConfig: ir.ExecutorConfig{Type: typ},
+			Outputs:        []ir.StepOutputDeclaration{{Name: "reply"}},
+		}
+		outputs := stepOutputs(step)
+		require.Len(t, outputs, 1)
+		assert.True(t, valueOf(outputs[0].ModelOutput), typ)
+	}
+}
+
+// ${VAR} is not what the validator reads, so an output variable stays unflagged.
+func TestScopeModelOutputVariable(t *testing.T) {
+	step := &ir.Step{
+		ID:             "producer",
+		Output:         "REPLY",
+		ExecutorConfig: ir.ExecutorConfig{Type: ir.ExecutorTypeChat},
+	}
+	outputs := stepOutputs(step)
+	require.Len(t, outputs, 1)
+	assert.Nil(t, outputs[0].ModelOutput)
+}
