@@ -13,6 +13,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/dagucloud/dagu/v2/internal/executor/registry"
 	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/runtime"
 	"github.com/stretchr/testify/assert"
@@ -927,4 +928,19 @@ func TestJQExecutor_RelativeInputUsesWorkingDir(t *testing.T) {
 			assert.Equal(t, "dagu\n", stdout.String())
 		})
 	}
+}
+
+// TestJQRejectsUnknownWithKey verifies that the closed executor config schema
+// rejects an unknown `with` key at validation time instead of silently dropping
+// it (#3440).
+func TestJQRejectsUnknownWithKey(t *testing.T) {
+	t.Parallel()
+
+	err := registry.ValidateExecutorConfig("jq", map[string]any{"raw": true, "inpout": "x.json"})
+	require.Error(t, err, "unknown with key must be rejected")
+
+	// Accepted keys, including filter/data folded from the jq.filter action, pass.
+	require.NoError(t, registry.ValidateExecutorConfig("jq", map[string]any{
+		"raw": true, "input": "x.json", "filter": ".foo", "data": map[string]any{"a": 1},
+	}))
 }
