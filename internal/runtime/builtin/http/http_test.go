@@ -791,3 +791,86 @@ func (tw *testWriter) Write(p []byte) (n int, err error) {
 func (tw *testWriter) String() string {
 	return string(tw.data)
 }
+
+func TestHTTPExecutor_StatusExitCodes(t *testing.T) {
+	t.Parallel()
+
+	for _, tc := range []struct {
+		name     string
+		status   int
+		mapCfg   map[string]any
+		wantErr  bool
+		wantExit int
+	}{
+		{"ExactCodeMapsToZero", 409, map[string]any{"status_exit_codes": map[string]any{"409": 0}}, false, 0},
+		{"ExactCodeMapsToNonZero", 404, map[string]any{"status_exit_codes": map[string]any{"404": 23}}, true, 23},
+		{"ClassMapsToRetryable", 503, map[string]any{"status_exit_codes": map[string]any{"5xx": 75}}, true, 75},
+		{"ExactWinsOverClass", 404, map[string]any{"status_exit_codes": map[string]any{"404": 0, "4xx": 66}}, false, 0},
+		{"UnmappedKeepsDefault", 400, map[string]any{"status_exit_codes": map[string]any{"404": 0, "5xx": 75}}, true, 0},
+		{"NoMapKeepsDefault", 500, nil, true, 0},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			server := httptest.NewServer(nethttp.HandlerFunc(func(w nethttp.ResponseWriter, _ *nethttp.Request) {
+				w.WriteHeader(tc.status)
+			}))
+			defer server.Close()
+
+			cfg := map[string]any{"url": server.URL}
+			if tc.mapCfg != nil {
+				maps.Copy(cfg, tc.mapCfg)
+			}
+			step := ir.Step{
+				Commands:       []ir.CommandEntry{{Command: "GET"}},
+				ExecutorConfig: ir.ExecutorConfig{Type: "http", Config: cfg},
+			}
+
+			executor, err := newHTTP(context.Background(), step)
+			require.NoError(t, err)
+			httpExec, ok := executor.(*http)
+			require.True(t, ok)
+			httpExec.SetStdout(&testWriter{})
+			httpExec.SetStderr(&testWriter{})
+
+			err = httpExec.Run(context.Background())
+			if tc.wantErr {
+				require.ErrorIs(t, err, errHTTPStatusCode)
+			} else {
+				require.NoError(t, err)
+			}
+			assert.Equal(t, tc.wantExit, httpExec.ExitCode())
+		})
+	}
+}
+
+func TestHTTPExecutor_StatusExitCodesValidation(t *testing.T) {
+	t.Parallel()
+
+	for _, tc := range []struct {
+		name  string
+		value map[string]any
+		ok    bool
+	}{
+		{"ValidExact", map[string]any{"status_exit_codes": map[string]any{"404": 0}}, true},
+		{"ValidClass", map[string]any{"status_exit_codes": map[string]any{"5xx": 75}}, true},
+		{"InvalidKey", map[string]any{"status_exit_codes": map[string]any{"999": 0}}, false},
+		{"InvalidClass", map[string]any{"status_exit_codes": map[string]any{"9xx": 0}}, false},
+		{"ValueOutOfRange", map[string]any{"status_exit_codes": map[string]any{"404": 256}}, false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			step := ir.Step{
+				Commands:       []ir.CommandEntry{{Command: "GET", Args: []string{"https://example.com"}}},
+				ExecutorConfig: ir.ExecutorConfig{Type: "http", Config: tc.value},
+			}
+			_, err := newHTTP(context.Background(), step)
+			if tc.ok {
+				require.NoError(t, err)
+			} else {
+				require.Error(t, err)
+			}
+		})
+	}
+}
