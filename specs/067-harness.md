@@ -118,7 +118,11 @@ does an escaped reference. A field that the step's `output_schema` declares with
 limits its values. The warning is reported the same way as a working-directory
 warning.
 
-The fix is to pass the value through step `env` and read it as `"$NAME"`.
+The fix is to pass the value through step `env` and read it from the environment.
+How to read it safely depends on what runs the command: Dagu leaves `"$NAME"` to a
+POSIX or Nix shell on the local host, but writes it into the text in other cases
+(Spec 003), such as a container with a shell, where `"$(printenv NAME)"` reads it
+safely.
 
 ### Working-directory warnings
 

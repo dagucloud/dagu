@@ -1057,7 +1057,7 @@ func modelOutputInRunWarnings(dag *ir.DAG) []string {
 			warning := fmt.Sprintf(
 				"DAG %q: step %q: %s writes model output into a shell command. "+
 					"Dagu does not escape it, so quotes or $(...) in the text can run as shell code. "+
-					`Pass it through env and use "$NAME" instead.`,
+					"Pass it through env and read it from the environment instead.",
 				dag.Name, field.OwnerStepName, ref.Expression,
 			)
 			if _, ok := seen[warning]; ok {
