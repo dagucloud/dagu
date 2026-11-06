@@ -3,7 +3,13 @@
 
 import type { Locale } from '@/contexts/UserPreference';
 import { getYamlPathAtOffset } from '@/hooks/useYamlCursorPath';
-import type { DagDocModel, ReferenceScope, StepKey } from '../contracts';
+import type {
+  DagDocModel,
+  ReferenceCandidate,
+  ReferenceScope,
+  StepKey,
+} from '../contracts';
+import { buildReferenceCandidates, declaresRepeat } from './candidates';
 
 export type ReferenceScopeStep = ReferenceScope['steps'][number];
 
@@ -63,6 +69,19 @@ export function findOwningStep(
     return steps.find((s) => s.stepPath === `handler_on.${second}`) ?? null;
   }
   return null;
+}
+
+/** Candidates for a field at the offset, as seen by the step that owns it. */
+export function candidatesAt(
+  text: string,
+  offset: number,
+  state: ReferenceEditorState
+): ReferenceCandidate[] {
+  const owner = findOwningStep(text, offset, state);
+  const view = state.model?.steps.find((s) => s.key === owner?.stepPath);
+  return buildReferenceCandidates(state.scope, owner?.name ?? null, {
+    repeats: declaresRepeat(view),
+  });
 }
 
 const RUN_FIELDS = new Set(['run', 'script', 'command']);

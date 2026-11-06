@@ -7,6 +7,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { useI18n } from '@/i18n/I18nProvider';
 import { I18nText } from '@/i18n/I18nText';
+import { ReferenceInput } from '@/features/visual-editor/references';
 import { issuesUnder } from '../../issues';
 import { FieldIssues } from '../../FieldIssues';
 import { TextField } from '../../TextField';
@@ -39,13 +40,15 @@ export function conditionRows(value: unknown): Condition[] | null {
 /**
  * Preconditions of a step as rows of `condition` and `expected`. A row
  * edit sets one key of one item, a removed row removes the item and a new
- * row appends one item. Another form is shown read-only.
+ * row appends one item. Another form is shown read-only. Only `condition`
+ * offers references: `expected` is literal outside its `num:` form.
  */
 export function Preconditions({
   step,
   readOnly,
   onEdit,
   fieldIssues,
+  candidates,
 }: SectionProps): ReactElement {
   const { ts } = useI18n();
   const [condition, setCondition] = useState('');
@@ -114,6 +117,7 @@ export function Preconditions({
               value={typeof row.condition === 'string' ? row.condition : ''}
               readOnly={readOnly}
               issues={fieldIssues[`preconditions[${index}].condition`]}
+              candidates={candidates}
               onCommit={(text) => set([index, 'condition'], text)}
             />
           </div>
@@ -141,13 +145,15 @@ export function Preconditions({
       ))}
       {!readOnly && (
         <div className="flex items-center gap-1">
-          <Input
-            className="h-7 flex-[2] px-2 text-xs"
-            aria-label={ts('New condition')}
-            placeholder={ts('Condition')}
-            value={condition}
-            onChange={(event) => setCondition(event.target.value)}
-          />
+          <div className="min-w-0 flex-[2]">
+            <ReferenceInput
+              aria-label={ts('New condition')}
+              placeholder={ts('Condition')}
+              value={condition}
+              candidates={candidates}
+              onChange={setCondition}
+            />
+          </div>
           <Input
             className="h-7 flex-1 px-2 text-xs"
             aria-label={ts('New expected value')}

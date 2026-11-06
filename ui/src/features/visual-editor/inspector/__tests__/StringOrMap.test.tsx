@@ -7,6 +7,11 @@ import type { JSONSchema } from '../../contracts';
 import { isStringOrMap } from '../widgets/StringOrMap';
 import { buildUiSchema } from '../widgets';
 import { renderInspectorForm } from './formHarness';
+import {
+  candidatesSample,
+  referenceList,
+  typeOpenReference,
+} from './referenceHarness';
 
 // The `params` of `dag.run`: a string, a list or a map.
 const schema: JSONSchema = {
@@ -55,6 +60,16 @@ describe('StringOrMap', () => {
       'aria-pressed',
       'true'
     );
+  });
+
+  it('offers the references of the form in a map value', () => {
+    renderInspectorForm(
+      schema,
+      { dag: 'greeter', params: { NAME: 'world' } },
+      { candidates: candidatesSample }
+    );
+    typeOpenReference(screen.getByDisplayValue('world'));
+    expect(referenceList()).toHaveTextContent('API_URL');
   });
 
   it('sends the whole map when a value changes', () => {

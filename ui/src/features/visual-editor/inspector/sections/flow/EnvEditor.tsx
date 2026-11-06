@@ -16,6 +16,7 @@ export function EnvEditor({
   readOnly,
   onEdit,
   fieldIssues,
+  candidates,
 }: SectionProps): ReactElement {
   const { ts } = useI18n();
   const env = readEnv(step.value.env);
@@ -33,6 +34,7 @@ export function EnvEditor({
           label={ts('Environment')}
           value={env.entries}
           readOnly={readOnly}
+          candidates={candidates}
           onChange={(next) =>
             envOps(step.key, step.value.env, next).forEach((op) => onEdit(op))
           }

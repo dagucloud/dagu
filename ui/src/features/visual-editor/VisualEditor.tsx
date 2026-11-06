@@ -94,6 +94,7 @@ import {
 import { buildActionCatalog, StepInspector } from './inspector';
 import {
   buildReferenceCandidates,
+  declaresRepeat,
   DeclaredOutputsPanel,
   UpstreamDataPanel,
 } from './references';
@@ -1138,9 +1139,13 @@ export function VisualEditor(props: VisualEditorProps): ReactElement {
     [lastField]
   );
 
+  const repeats = declaresRepeat(selectedStep);
   const candidates = useMemo(
-    () => buildReferenceCandidates(validation?.referenceScope, serverName),
-    [validation?.referenceScope, serverName]
+    () =>
+      buildReferenceCandidates(validation?.referenceScope, serverName, {
+        repeats,
+      }),
+    [validation?.referenceScope, serverName, repeats]
   );
 
   // A host can show the run of the step and the upstream data in columns

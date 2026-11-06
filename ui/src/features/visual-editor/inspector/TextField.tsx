@@ -6,12 +6,14 @@ import {
   useId,
   useRef,
   useState,
+  type KeyboardEvent,
   type ReactElement,
   type ReactNode,
 } from 'react';
 import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
-import type { ValidationIssue } from '../contracts';
+import { ReferenceInput } from '@/features/visual-editor/references';
+import type { ReferenceCandidate, ValidationIssue } from '../contracts';
 import { FieldIssues } from './FieldIssues';
 
 export interface TextFieldProps {
@@ -23,6 +25,8 @@ export interface TextFieldProps {
   multiline?: boolean;
   placeholder?: string;
   issues?: ValidationIssue[];
+  /** References to offer. Without them, the field takes plain text only. */
+  candidates?: ReferenceCandidate[];
   /** Called on blur (and Enter for one line) when the text changed. */
   onCommit(text: string): void;
 }
@@ -30,7 +34,8 @@ export interface TextFieldProps {
 /**
  * Labeled text input with a local draft. The draft is sent on blur, or on
  * Enter for a one-line input, only when it differs from `value`. Escape
- * restores `value`. The draft resets when `value` changes from outside.
+ * restores `value`. The draft resets when `value` changes from outside. An
+ * open list of references takes Enter and Escape first.
  */
 export function TextField({
   label,
@@ -40,6 +45,7 @@ export function TextField({
   multiline = false,
   placeholder,
   issues,
+  candidates,
   onCommit,
 }: TextFieldProps): ReactElement {
   const id = useId();
@@ -66,6 +72,14 @@ export function TextField({
     'aria-invalid':
       issues?.some((issue) => issue.severity === 'error') || undefined,
     onBlur: commit,
+    onKeyDown: (event: KeyboardEvent) => {
+      if (event.nativeEvent.isComposing) return;
+      if (event.key === 'Enter' && !multiline) {
+        commit();
+      } else if (event.key === 'Escape') {
+        setDraft(value);
+      }
+    },
   };
 
   return (
@@ -76,32 +90,25 @@ export function TextField({
       >
         {label}
       </label>
-      {multiline ? (
+      {candidates ? (
+        <ReferenceInput
+          {...common}
+          candidates={candidates}
+          multiline={multiline}
+          onChange={setDraft}
+        />
+      ) : multiline ? (
         <Textarea
           {...common}
           rows={2}
           className="min-h-0 px-2 py-1 text-xs"
           onChange={(event) => setDraft(event.target.value)}
-          onKeyDown={(event) => {
-            if (event.nativeEvent.isComposing) return;
-            if (event.key === 'Escape') {
-              setDraft(value);
-            }
-          }}
         />
       ) : (
         <Input
           {...common}
           className="h-7 px-2 text-xs"
           onChange={(event) => setDraft(event.target.value)}
-          onKeyDown={(event) => {
-            if (event.nativeEvent.isComposing) return;
-            if (event.key === 'Enter') {
-              commit();
-            } else if (event.key === 'Escape') {
-              setDraft(value);
-            }
-          }}
         />
       )}
       <FieldIssues issues={issues} />

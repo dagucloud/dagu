@@ -3,6 +3,8 @@
 
 // Shared by MonacoField and its lazy editor, so that neither imports the other.
 
+import type { ReferenceCandidate } from '../contracts';
+
 export interface MonacoFieldProps {
   value: string;
   language: string;
@@ -10,6 +12,8 @@ export interface MonacoFieldProps {
   /** Editor height in lines. */
   lines?: number;
   ariaLabel: string;
+  /** References to complete in a script. Read when the field mounts and at each request. */
+  candidates?: ReferenceCandidate[];
   /** Called with the text of the editor at each change. */
   onChange?(text: string): void;
   /** Called on blur when the text differs from `value`. */

@@ -127,6 +127,7 @@ function setup(step: StepView, readOnly = false) {
       readOnly={readOnly}
       onEdit={onEdit}
       fieldIssues={{}}
+      candidates={[]}
       catalog={catalogSample}
     />
   );

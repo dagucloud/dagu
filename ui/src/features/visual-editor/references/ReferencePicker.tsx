@@ -32,6 +32,8 @@ export interface ReferencePickerProps {
   showSearch?: boolean;
   /** Filter text from the host, for use without a search box. */
   query?: string;
+  /** No option is active until an arrow key moves to one: Enter stays with the host. */
+  idle?: boolean;
   onPick(candidate: ReferenceCandidate): void;
   onClose(): void;
   /** Id of the active option, or undefined when the list is empty. */
@@ -57,15 +59,18 @@ export function ReferencePicker({
   candidates,
   showSearch,
   query,
+  idle = false,
   onPick,
   onClose,
   onActiveChange,
   ref,
 }: ReferencePickerProps): ReactElement {
   const { ts } = useI18n();
+  const panelRef = useRef<HTMLDivElement>(null);
   const listRef = useRef<HTMLDivElement>(null);
   const searchRef = useRef<HTMLInputElement>(null);
-  const [activeIndex, setActiveIndex] = useState(0);
+  const startIndex = idle ? -1 : 0;
+  const [activeIndex, setActiveIndex] = useState(startIndex);
   const [search, setSearch] = useState('');
 
   const filter = showSearch ? search : (query ?? '');
@@ -78,11 +83,11 @@ export function ReferencePicker({
   const optionId = (index: number) => `${id}-opt-${index}`;
   const activeId = active >= 0 ? optionId(active) : undefined;
 
-  // Start at the first option each time the filter changes the list.
+  // Start over each time the filter changes the list.
   const listKey = items.map((c) => c.token).join('\n');
   useEffect(() => {
-    setActiveIndex(0);
-  }, [listKey]);
+    setActiveIndex(startIndex);
+  }, [listKey, startIndex]);
 
   useEffect(() => {
     if (showSearch) searchRef.current?.focus();
@@ -91,6 +96,11 @@ export function ReferencePicker({
   useEffect(() => {
     onActiveChange?.(activeId);
   }, [activeId, onActiveChange]);
+
+  // A panel that opens near the end of a form moves the form just enough.
+  useEffect(() => {
+    panelRef.current?.scrollIntoView?.({ block: 'nearest' });
+  }, []);
 
   useEffect(() => {
     if (active < 0) return;
@@ -106,7 +116,7 @@ export function ReferencePicker({
         if (count > 0) setActiveIndex((active + 1) % count);
         return count > 0;
       case 'ArrowUp':
-        if (count > 0) setActiveIndex((active - 1 + count) % count);
+        if (count > 0) setActiveIndex(active > 0 ? active - 1 : count - 1);
         return count > 0;
       case 'Enter':
         if (!items[active]) return false;
@@ -123,6 +133,7 @@ export function ReferencePicker({
 
   return (
     <div
+      ref={panelRef}
       className="absolute left-0 top-full z-50 mt-1 w-full min-w-64 overflow-hidden rounded-md border border-border bg-popover text-popover-foreground shadow-md"
       // Keep the focus where it is: a click inside must not blur the input.
       onMouseDown={(e) => {

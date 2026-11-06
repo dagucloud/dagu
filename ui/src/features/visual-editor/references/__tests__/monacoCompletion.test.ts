@@ -10,10 +10,12 @@ import {
   yamlHttpJq,
   yamlMapSteps,
 } from '../../testing/fixtures';
-import type { ReferenceScope } from '../../contracts';
+import type { ReferenceCandidate, ReferenceScope } from '../../contracts';
+import { parseDagDoc } from '../../doc/parse';
 import { editorLocale, findOwningStep } from '../editorState';
 import {
   computeReferenceCompletions,
+  registerFieldReferenceCompletion,
   registerReferenceCompletion,
 } from '../monacoCompletion';
 
@@ -149,14 +151,88 @@ describe('computeReferenceCompletions', () => {
     expect(result?.to).toBe(offset + 1);
   });
 
-  it('gives no step outputs inside params', () => {
-    const offset = at(yamlHttpJq, 'https://api', 4);
-    const result = computeReferenceCompletions(yamlHttpJq, offset, state, {
+  it('leaves a lone dollar alone unless the request is explicit', () => {
+    const text = `${yamlHttpJq.slice(0, filterOffset)}$${yamlHttpJq.slice(filterOffset)}`;
+    const offset = filterOffset + 1;
+    expect(
+      computeReferenceCompletions(text, offset, state, { explicit: false })
+    ).toBeNull();
+    const result = computeReferenceCompletions(text, offset, state, {
       explicit: true,
     });
+    expect(result?.from).toBe(filterOffset);
+    expect(result?.to).toBe(offset);
+  });
+
+  it('offers nothing in a param default, which is literal', () => {
+    const offset = at(yamlHttpJq, 'https://api', 4);
+    expect(
+      computeReferenceCompletions(yamlHttpJq, offset, state, { explicit: true })
+    ).toBeNull();
+  });
+
+  it('gives no step outputs in a param eval', () => {
+    const text = 'params:\n  - name: day\n    eval: date\nsteps:\n  - run: a\n';
+    const result = computeReferenceCompletions(
+      text,
+      at(text, 'date', 2),
+      state,
+      { explicit: true }
+    );
     expect(result).not.toBeNull();
     expect(result?.items.some((item) => item.group === 'steps')).toBe(false);
     expect(result?.items.some((item) => item.group === 'params')).toBe(true);
+  });
+
+  // Spec 004: a const resolves only the const entries before it, and no
+  // runtime namespace.
+  it('offers only the earlier consts in a const value', () => {
+    const text =
+      'consts:\n  - first: 1\n  - second: ${\n  - third: 3\nsteps:\n  - run: a\n';
+    const scope: ReferenceScope = {
+      ...scopeHttpJq,
+      consts: ['first', 'second', 'third'].map((name) => ({
+        name,
+        reference: `\${consts.${name}}`,
+      })),
+    };
+    const result = computeReferenceCompletions(
+      text,
+      at(text, '${', 2),
+      { scope },
+      { explicit: false }
+    );
+    expect(result?.items.map((item) => item.token)).toEqual([
+      '${consts.first}',
+    ]);
+  });
+
+  it('offers the repeat index for a step with repeat_policy only', () => {
+    const text = [
+      'steps:',
+      '  - name: poll',
+      '    run: echo ${',
+      '    repeat_policy:',
+      '      repeat: while',
+      '  - name: once',
+      '    run: echo ${',
+      '',
+    ].join('\n');
+    const repeatState = {
+      scope: scopeWith(
+        { name: 'poll', stepPath: 'steps[0]' },
+        { name: 'once', stepPath: 'steps[1]' }
+      ),
+      model: parseDagDoc(text),
+    };
+    const labelsAt = (offset: number) =>
+      computeReferenceCompletions(text, offset, repeatState, {
+        explicit: false,
+      })?.items.map((item) => item.label);
+    expect(labelsAt(at(text, '${', 2))).toContain('step.repeat_index');
+    expect(labelsAt(text.lastIndexOf('${') + 2)).not.toContain(
+      'step.repeat_index'
+    );
   });
 
   it('marks a run field and no other field', () => {
@@ -213,6 +289,13 @@ function fakeModel(text: string) {
   const lines = text.split('\n');
   return {
     getValue: () => text,
+    // Monaco's default word definition, where "$" is a word character.
+    getWordUntilPosition: (p: { lineNumber: number; column: number }) => ({
+      word:
+        /[^\s`~!@#%^&*()\-=+[{\]}\\|;:'",.<>/?]+$/.exec(
+          lines[p.lineNumber - 1]!.slice(0, p.column - 1)
+        )?.[0] ?? '',
+    }),
     getOffsetAt: (p: { lineNumber: number; column: number }) =>
       lines.slice(0, p.lineNumber - 1).reduce((n, l) => n + l.length + 1, 0) +
       p.column -
@@ -277,6 +360,103 @@ type Provider = {
   };
 };
 
+describe('registerFieldReferenceCompletion', () => {
+  const candidates: ReferenceCandidate[] = [
+    { token: '${env.HOME}', label: 'HOME', group: 'env', known: 'static' },
+    {
+      token: '${params.API_URL}',
+      label: 'API_URL',
+      group: 'params',
+      known: 'static',
+    },
+  ];
+  const TRIGGER = 1;
+  const INVOKE = 0;
+
+  function setup(text: string) {
+    const { monaco, registerCompletionItemProvider, disposeCompletion } =
+      fakeMonaco();
+    const model = fakeModel(text);
+    const handle = registerFieldReferenceCompletion(
+      monaco,
+      { getModel: () => model },
+      'shell',
+      () => candidates
+    );
+    const [language, provider] = registerCompletionItemProvider.mock
+      .calls[0] as unknown as [string, Provider];
+    const complete = (
+      offset: number,
+      triggerKind: number,
+      target: ReturnType<typeof fakeModel> = model
+    ) =>
+      provider.provideCompletionItems(target, target.getPositionAt(offset), {
+        triggerKind,
+      }).suggestions;
+    return { handle, language, complete, disposeCompletion };
+  }
+
+  it('offers the candidates after an open reference', () => {
+    const text = 'echo ${pa}\n';
+    const { language, complete } = setup(text);
+    expect(language).toBe('shell');
+    const items = complete(at(text, 'pa', 2), TRIGGER);
+    expect(items.map((item) => item.insertText)).toEqual([
+      '${env.HOME}',
+      '${params.API_URL}',
+    ]);
+    // The range runs from the dollar sign over the closing brace.
+    expect(items[0]?.range).toMatchObject({ startColumn: 6, endColumn: 11 });
+  });
+
+  it('offers them at the caret for an explicit request only', () => {
+    const text = 'echo a\n';
+    const { complete } = setup(text);
+    expect(complete(5, TRIGGER)).toEqual([]);
+    expect(complete(5, INVOKE)[0]?.range).toMatchObject({
+      startColumn: 6,
+      endColumn: 6,
+    });
+  });
+
+  // Monaco reports a list that opens while a word is typed as Invoke, the same
+  // as Ctrl+Space. Offering there lets Enter replace what the author typed.
+  it.each([
+    ['ls', 1],
+    ['ls', 2],
+    ['echo a', 6],
+    ['echo $HOME', 6],
+    ['echo $HOME', 10],
+    ['grep foo$', 9],
+    ['$', 1],
+  ])('offers nothing while typing %s at %i', (text, offset) => {
+    const { complete } = setup(text);
+    expect(complete(offset, INVOKE)).toEqual([]);
+    expect(complete(offset, TRIGGER)).toEqual([]);
+  });
+
+  // ${NAME} is shell syntax in a script, as it is in a `run` field of the YAML.
+  it('adds the shell note to env items', () => {
+    const { complete } = setup('${');
+    const [env, param] = complete(2, TRIGGER);
+    expect(env?.documentation).toContain('${env.NAME}');
+    expect(param?.documentation).toBeUndefined();
+  });
+
+  // Monaco providers are global to a language: other fields must not get these.
+  it('offers nothing for the model of another editor', () => {
+    const { complete } = setup('${');
+    expect(complete(2, TRIGGER)).not.toEqual([]);
+    expect(complete(2, TRIGGER, fakeModel('${'))).toEqual([]);
+  });
+
+  it('removes the provider on dispose', () => {
+    const { handle, disposeCompletion } = setup('');
+    handle.dispose();
+    expect(disposeCompletion).toHaveBeenCalledTimes(1);
+  });
+});
+
 describe('registerReferenceCompletion', () => {
   afterEach(() => {
     document.documentElement.lang = 'en';
@@ -308,7 +488,7 @@ describe('registerReferenceCompletion', () => {
       0
     );
     expect(language).toBe('yaml');
-    expect(provider.triggerCharacters).toEqual(['$', '{', '.']);
+    expect(provider.triggerCharacters).toEqual(['{', '.']);
     handle.dispose();
     expect(disposeCompletion).toHaveBeenCalledTimes(1);
   });
@@ -344,8 +524,18 @@ describe('registerReferenceCompletion', () => {
     );
   });
 
+  // Monaco reports a list that opens while a word is typed as Invoke.
+  it.each([
+    ['steps:\n  - run: ls\n', 'ls', 2],
+    ['steps:\n  - run: echo $HOME\n', '$HOME', 5],
+    ['steps:\n  - run: grep foo$\n', 'foo$', 4],
+  ])('offers nothing while typing in %j', (text, marker, shift) => {
+    const { result } = setup(text, at(text, marker, shift), 0);
+    expect(result.suggestions).toEqual([]);
+  });
+
   it('adds a shell note to env items in a run field only', () => {
-    const run = at(yamlArraySteps, 'sort data', 2);
+    const run = at(yamlArraySteps, 'sort data', 0);
     const inRun = setup(yamlArraySteps, run, 0).result.suggestions;
     const env = inRun.find((s) => s.label === '${env.HOME}');
     expect(env?.documentation).toBe(

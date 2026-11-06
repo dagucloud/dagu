@@ -5,6 +5,7 @@ import type {
   ReferenceCandidate,
   ReferenceGroup,
   ReferenceScope,
+  StepView,
 } from '../contracts';
 
 /** The order of the groups in a candidate list. */
@@ -174,19 +175,43 @@ const CONTEXT_STEP_FIELDS = [
   'paths.step_output_file',
 ] as const;
 
-function contextCandidates(stepName: string | null): ReferenceCandidate[] {
-  const fields =
+/** What the document says of the step that owns a field, beyond the scope. */
+export interface ReferenceOwnerOptions {
+  /** The step declares `repeat_policy`. */
+  repeats?: boolean;
+}
+
+/** True for a step entry that declares `repeat_policy`. */
+export function declaresRepeat(step: StepView | undefined): boolean {
+  return step?.value.repeat_policy !== undefined;
+}
+
+function contextCandidates(
+  scope: ReferenceScope | undefined,
+  stepName: string | null,
+  { repeats = false }: ReferenceOwnerOptions
+): ReferenceCandidate[] {
+  const owner = scope?.steps?.find((step) => step.name === stepName);
+  const handler = owner?.stepPath.startsWith('handler_on.') ?? false;
+  // Spec 017: these fields are missing outside the scopes named here.
+  const missing = new Set<string>();
+  if (!handler) missing.add('run.status');
+  if (handler || (owner && !owner.id)) missing.add('step.id');
+  if (handler || !repeats) missing.add('step.repeat_index');
+  const fields: readonly string[] =
     stepName === null
       ? CONTEXT_FIELDS
       : [...CONTEXT_FIELDS, ...CONTEXT_STEP_FIELDS];
-  return fields.map(
-    (field): ReferenceCandidate => ({
-      token: `\${context.${field}}`,
-      label: field,
-      group: 'context',
-      known: 'runtime',
-    })
-  );
+  return fields
+    .filter((field) => !missing.has(field))
+    .map(
+      (field): ReferenceCandidate => ({
+        token: `\${context.${field}}`,
+        label: field,
+        group: 'context',
+        known: 'runtime',
+      })
+    );
 }
 
 function stepCandidates(
@@ -222,20 +247,22 @@ function stepCandidates(
  * Candidates for a step input, in the order of REFERENCE_GROUP_ORDER.
  * stepName is the step that owns the field, or null when there is no owner step.
  * Only an owner step sees step outputs and the context of a step.
+ * Context fields that spec 017 limits to a scope appear only in that scope.
  * Without a scope, the list holds the context candidates only.
  */
 export function buildReferenceCandidates(
   scope: ReferenceScope | undefined,
-  stepName: string | null
+  stepName: string | null,
+  options: ReferenceOwnerOptions = {}
 ): ReferenceCandidate[] {
-  if (!scope) return contextCandidates(stepName);
+  if (!scope) return contextCandidates(scope, stepName, options);
   return [
     ...(stepName === null ? [] : stepCandidates(scope, stepName)),
     ...variableCandidates(scope, 'params'),
     ...variableCandidates(scope, 'consts'),
     ...variableCandidates(scope, 'env'),
     ...variableCandidates(scope, 'secrets'),
-    ...contextCandidates(stepName),
+    ...contextCandidates(scope, stepName, options),
   ];
 }
 

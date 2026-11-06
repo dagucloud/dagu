@@ -113,6 +113,7 @@ export function StringOrMapField(props: FieldProps): ReactElement {
         label={label}
         value={isStringMap(formData) ? formData : {}}
         readOnly={locked}
+        candidates={contextCandidates(registry.formContext)}
         onChange={(next) =>
           send(Object.keys(next).length > 0 ? next : undefined)
         }

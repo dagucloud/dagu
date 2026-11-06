@@ -319,7 +319,6 @@ describe('buildReferenceCandidates context', () => {
       [
         'dag.name',
         'run.id',
-        'run.status',
         'run.scheduled_at',
         'run.root_name',
         'run.root_id',
@@ -342,23 +341,61 @@ describe('buildReferenceCandidates context', () => {
 
   it('adds the current step fields when a step owns the field', () => {
     const labels = contextOf('fetch').map((c) => c.label);
-    expect(labels.slice(-6)).toEqual([
+    expect(labels.slice(-5)).toEqual([
       'step.id',
       'step.name',
-      'step.repeat_index',
       'paths.step_stdout_file',
       'paths.step_stderr_file',
       'paths.step_output_file',
     ]);
-    expect(labels).toHaveLength(19);
+    expect(labels).toHaveLength(17);
     expect(contextOf(null).map((c) => c.label)).not.toContain('step.id');
+  });
+
+  describe('fields that spec 017 limits to a scope', () => {
+    const base = scopeHttpJq.steps[0]!;
+    const scope: ReferenceScope = {
+      ...scopeHttpJq,
+      steps: [
+        ...scopeHttpJq.steps,
+        { ...base, name: 'no_id', id: undefined, stepPath: 'steps[2]' },
+        {
+          ...base,
+          name: 'on_failure',
+          id: undefined,
+          stepPath: 'handler_on.failure',
+        },
+      ],
+    };
+    const labelsOf = (stepName: string | null, repeats = false) =>
+      buildReferenceCandidates(scope, stepName, { repeats }).map(
+        (c) => c.label
+      );
+
+    it('offers the run status in a handler only', () => {
+      expect(labelsOf('on_failure')).toContain('run.status');
+      expect(labelsOf('fetch')).not.toContain('run.status');
+      expect(labelsOf(null)).not.toContain('run.status');
+    });
+
+    it('offers the repeat index for a repeating step only', () => {
+      expect(labelsOf('fetch', true)).toContain('step.repeat_index');
+      expect(labelsOf('fetch')).not.toContain('step.repeat_index');
+      expect(labelsOf('on_failure', true)).not.toContain('step.repeat_index');
+    });
+
+    it('offers the step id for a step with an id only', () => {
+      expect(labelsOf('fetch')).toContain('step.id');
+      expect(labelsOf('no_id')).not.toContain('step.id');
+      expect(labelsOf('on_failure')).not.toContain('step.id');
+    });
   });
 
   it('returns only context candidates without a scope', () => {
     const out = buildReferenceCandidates(undefined, null);
-    expect(out).toHaveLength(13);
+    expect(out).toHaveLength(12);
     expect(out.every((c) => c.group === 'context')).toBe(true);
-    expect(buildReferenceCandidates(undefined, 'a')).toHaveLength(19);
+    expect(buildReferenceCandidates(undefined, 'a')).toHaveLength(17);
   });
 
   it('follows the group order', () => {

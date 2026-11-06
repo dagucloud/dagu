@@ -2,10 +2,10 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 import { translateStatic } from '@/i18n/translateStatic';
-import { buildReferenceCandidates, REFERENCE_GROUP_LABELS } from './candidates';
+import { REFERENCE_GROUP_LABELS } from './candidates';
 import {
+  candidatesAt,
   editorLocale,
-  findOwningStep,
   isInRunField,
   type ReferenceEditorState,
 } from './editorState';
@@ -59,9 +59,9 @@ export function computeReferenceHover(
   if (token.kind !== 'canonical') {
     return null;
   }
-  const step = findOwningStep(text, offset, state);
-  const candidates = buildReferenceCandidates(state.scope, step?.name ?? null);
-  const candidate = candidates.find((c) => c.token === token.text);
+  const candidate = candidatesAt(text, offset, state).find(
+    (c) => c.token === token.text
+  );
   if (candidate) {
     const lines = [
       candidate.detail
