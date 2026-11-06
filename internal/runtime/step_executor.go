@@ -202,8 +202,12 @@ func (e *StepExecutor) setupExecutorSideChannels(cmd executor.Executor, node *No
 		agentHandler.SetAgentSession(node.GetAgentSession())
 	}
 
+	// Executors turn feedback into the request they send, in place of or on top
+	// of the step's own prompt. Only a step that ran has work for it to revise; a
+	// step first running after a push-back keeps its prompt, and can still read
+	// the feedback from its environment.
 	state := node.State()
-	if state.ApprovalIteration <= 0 {
+	if state.ApprovalIteration <= 0 || state.PushBackPreviousStdout == "" {
 		return
 	}
 
