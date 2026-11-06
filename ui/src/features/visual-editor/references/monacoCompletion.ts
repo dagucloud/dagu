@@ -16,6 +16,8 @@ import { findOpenReference } from './tokens';
 
 type Monaco = typeof import('monaco-editor');
 
+const TRIGGER_CHARACTERS = ['$', '{', '.'];
+
 export interface ReferenceCompletions {
   items: ReferenceCandidate[];
   /** Start of the text that a chosen item replaces. */
@@ -78,18 +80,9 @@ export function computeReferenceCompletions(
   state: ReferenceEditorState,
   opts: { explicit: boolean }
 ): ReferenceCompletions | null {
-  const open = findOpenReference(text, offset);
   const cursor = getYamlPathAtOffset(text, offset);
-  let from: number;
-  let to: number;
-  if (open) {
-    from = open.from;
-    // The editor closes a brace that the user types: replace it too.
-    to = text[offset] === '}' ? offset + 1 : offset;
-  } else if (opts.explicit && cursor.isInValue) {
-    from = offset;
-    to = offset;
-  } else {
+  const range = replacedRange(text, offset, opts.explicit && cursor.isInValue);
+  if (!range) {
     return null;
   }
   const items = fieldCandidates(text, offset, cursor.path, state);
@@ -98,10 +91,99 @@ export function computeReferenceCompletions(
   }
   return {
     items,
-    from,
-    to,
+    ...range,
     inRunField: isRunFieldPath(cursor.path),
   };
+}
+
+// The text that a chosen item replaces, or null when no completion applies:
+// an open "${", or the empty text at the offset when `atOffset` allows it.
+function replacedRange(
+  text: string,
+  offset: number,
+  atOffset: boolean
+): { from: number; to: number } | null {
+  const open = findOpenReference(text, offset);
+  if (open) {
+    // The editor closes a brace that the user types: replace it too.
+    return { from: open.from, to: text[offset] === '}' ? offset + 1 : offset };
+  }
+  return atOffset ? { from: offset, to: offset } : null;
+}
+
+function isExplicit(
+  monaco: Monaco,
+  context: import('monaco-editor').languages.CompletionContext
+): boolean {
+  return context.triggerKind === monaco.languages.CompletionTriggerKind.Invoke;
+}
+
+function toCompletionList(
+  monaco: Monaco,
+  model: import('monaco-editor').editor.ITextModel,
+  result: ReferenceCompletions | null
+): import('monaco-editor').languages.CompletionList {
+  if (!result) {
+    return { suggestions: [] };
+  }
+  const start = model.getPositionAt(result.from);
+  const end = model.getPositionAt(result.to);
+  const range = {
+    startLineNumber: start.lineNumber,
+    startColumn: start.column,
+    endLineNumber: end.lineNumber,
+    endColumn: end.column,
+  };
+  const shellNote = translateStatic(
+    editorLocale(),
+    '${{name}} is shell syntax in run. Use ${env.{name}} for Dagu environment references.',
+    { name: 'NAME' }
+  );
+  return {
+    suggestions: result.items.map((item, index) => ({
+      label: item.token,
+      detail: item.detail ? `${item.label} - ${item.detail}` : item.label,
+      kind: monaco.languages.CompletionItemKind.Variable,
+      insertText: item.token,
+      filterText: item.token,
+      sortText: String(index).padStart(5, '0'),
+      range,
+      ...(result.inRunField && item.group === 'env'
+        ? { documentation: shellNote }
+        : {}),
+    })),
+  };
+}
+
+/**
+ * Register reference completion for the script of one editor, where the text
+ * is a `run` value and not YAML. A provider is global to its language, so this
+ * one answers only for the model of `editor`. Dispose the result to remove it.
+ */
+export function registerFieldReferenceCompletion(
+  monaco: Monaco,
+  editor: { getModel(): unknown },
+  language: string,
+  getCandidates: () => ReferenceCandidate[]
+): { dispose(): void } {
+  return monaco.languages.registerCompletionItemProvider(language, {
+    triggerCharacters: TRIGGER_CHARACTERS,
+    provideCompletionItems(model, position, context) {
+      if (model !== editor.getModel()) {
+        return { suggestions: [] };
+      }
+      const range = replacedRange(
+        model.getValue(),
+        model.getOffsetAt(position),
+        isExplicit(monaco, context)
+      );
+      return toCompletionList(
+        monaco,
+        model,
+        range && { items: getCandidates(), ...range, inRunField: true }
+      );
+    },
+  });
 }
 
 /**
@@ -113,46 +195,15 @@ export function registerReferenceCompletion(
   getState: () => ReferenceEditorState
 ): { dispose(): void } {
   const completion = monaco.languages.registerCompletionItemProvider('yaml', {
-    triggerCharacters: ['$', '{', '.'],
+    triggerCharacters: TRIGGER_CHARACTERS,
     provideCompletionItems(model, position, context) {
-      const text = model.getValue();
-      const offset = model.getOffsetAt(position);
-      const explicit =
-        context.triggerKind === monaco.languages.CompletionTriggerKind.Invoke;
-      const result = computeReferenceCompletions(text, offset, getState(), {
-        explicit,
-      });
-      if (!result) {
-        return { suggestions: [] };
-      }
-      const start = model.getPositionAt(result.from);
-      const end = model.getPositionAt(result.to);
-      const range = {
-        startLineNumber: start.lineNumber,
-        startColumn: start.column,
-        endLineNumber: end.lineNumber,
-        endColumn: end.column,
-      };
-      const locale = editorLocale();
-      const shellNote = translateStatic(
-        locale,
-        '${{name}} is shell syntax in run. Use ${env.{name}} for Dagu environment references.',
-        { name: 'NAME' }
+      const result = computeReferenceCompletions(
+        model.getValue(),
+        model.getOffsetAt(position),
+        getState(),
+        { explicit: isExplicit(monaco, context) }
       );
-      return {
-        suggestions: result.items.map((item, index) => ({
-          label: item.token,
-          detail: item.detail ? `${item.label} - ${item.detail}` : item.label,
-          kind: monaco.languages.CompletionItemKind.Variable,
-          insertText: item.token,
-          filterText: item.token,
-          sortText: String(index).padStart(5, '0'),
-          range,
-          ...(result.inRunField && item.group === 'env'
-            ? { documentation: shellNote }
-            : {}),
-        })),
-      };
+      return toCompletionList(monaco, model, result);
     },
   });
   const hover = registerReferenceHover(monaco, getState);

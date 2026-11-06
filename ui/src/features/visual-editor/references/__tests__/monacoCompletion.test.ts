@@ -10,11 +10,12 @@ import {
   yamlHttpJq,
   yamlMapSteps,
 } from '../../testing/fixtures';
-import type { ReferenceScope } from '../../contracts';
+import type { ReferenceCandidate, ReferenceScope } from '../../contracts';
 import { parseDagDoc } from '../../doc/parse';
 import { editorLocale, findOwningStep } from '../editorState';
 import {
   computeReferenceCompletions,
+  registerFieldReferenceCompletion,
   registerReferenceCompletion,
 } from '../monacoCompletion';
 
@@ -338,6 +339,86 @@ type Provider = {
     }[];
   };
 };
+
+describe('registerFieldReferenceCompletion', () => {
+  const candidates: ReferenceCandidate[] = [
+    { token: '${env.HOME}', label: 'HOME', group: 'env', known: 'static' },
+    {
+      token: '${params.API_URL}',
+      label: 'API_URL',
+      group: 'params',
+      known: 'static',
+    },
+  ];
+  const TRIGGER = 1;
+  const INVOKE = 0;
+
+  function setup(text: string) {
+    const { monaco, registerCompletionItemProvider, disposeCompletion } =
+      fakeMonaco();
+    const model = fakeModel(text);
+    const handle = registerFieldReferenceCompletion(
+      monaco,
+      { getModel: () => model },
+      'shell',
+      () => candidates
+    );
+    const [language, provider] = registerCompletionItemProvider.mock
+      .calls[0] as unknown as [string, Provider];
+    const complete = (
+      offset: number,
+      triggerKind: number,
+      target: ReturnType<typeof fakeModel> = model
+    ) =>
+      provider.provideCompletionItems(target, target.getPositionAt(offset), {
+        triggerKind,
+      }).suggestions;
+    return { handle, language, complete, disposeCompletion };
+  }
+
+  it('offers the candidates after an open reference', () => {
+    const text = 'echo ${pa}\n';
+    const { language, complete } = setup(text);
+    expect(language).toBe('shell');
+    const items = complete(at(text, 'pa', 2), TRIGGER);
+    expect(items.map((item) => item.insertText)).toEqual([
+      '${env.HOME}',
+      '${params.API_URL}',
+    ]);
+    // The range runs from the dollar sign over the closing brace.
+    expect(items[0]?.range).toMatchObject({ startColumn: 6, endColumn: 11 });
+  });
+
+  it('offers them at the caret for an explicit request only', () => {
+    const text = 'echo a\n';
+    const { complete } = setup(text);
+    expect(complete(4, TRIGGER)).toEqual([]);
+    expect(complete(4, INVOKE)[0]?.range).toMatchObject({
+      startColumn: 5,
+      endColumn: 5,
+    });
+  });
+
+  // ${NAME} is shell syntax in a script, as it is in a `run` field of the YAML.
+  it('adds the shell note to env items', () => {
+    const { complete } = setup('$');
+    const [env, param] = complete(1, TRIGGER);
+    expect(env?.documentation).toContain('${env.NAME}');
+    expect(param?.documentation).toBeUndefined();
+  });
+
+  // Monaco providers are global to a language: other fields must not get these.
+  it('offers nothing for the model of another editor', () => {
+    const { complete } = setup('$');
+    expect(complete(1, TRIGGER, fakeModel('$'))).toEqual([]);
+  });
+
+  it('removes the provider on dispose', () => {
+    const { handle, disposeCompletion } = setup('');
+    handle.dispose();
+    expect(disposeCompletion).toHaveBeenCalledTimes(1);
+  });
+});
 
 describe('registerReferenceCompletion', () => {
   afterEach(() => {

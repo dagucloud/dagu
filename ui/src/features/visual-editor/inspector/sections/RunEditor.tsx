@@ -156,6 +156,7 @@ export function RunEditor(props: SectionProps): ReactElement {
             lines={8}
             readOnly={readOnly}
             ariaLabel={ts('Script')}
+            candidates={candidates}
             onCommit={commit}
           />
           <FieldIssues issues={fieldIssues[key]} />

@@ -6,6 +6,7 @@ import { describe, expect, it, vi } from 'vitest';
 import type { StepView } from '../../contracts';
 import { RunEditor } from '../sections/RunEditor';
 import { runStep } from './fixtures';
+import { completionProviders } from './monacoMock';
 import {
   candidatesSample,
   referenceList,
@@ -56,6 +57,13 @@ describe('RunEditor', () => {
     setup(oneLine);
     typeOpenReference(screen.getByRole('textbox', { name: 'Command' }));
     expect(referenceList()).toBeInTheDocument();
+  });
+
+  it('completes references in a script', async () => {
+    completionProviders.length = 0;
+    setup({ ...oneLine, value: { name: 'build', run: 'make\nmake test' } });
+    await screen.findByTestId('monaco');
+    expect(completionProviders.map((p) => p.language)).toEqual(['shell']);
   });
 
   it('edits a one-line command', () => {
