@@ -665,7 +665,7 @@ type Provider = {
     context: { triggerKind: number }
   ): {
     suggestions: {
-      label: string;
+      label: string | { label: string; description: string };
       detail: string;
       kind: number;
       insertText: string;
@@ -763,23 +763,31 @@ describe('registerFieldReferenceCompletion', () => {
   });
 
   // ${NAME} is shell syntax in a script, as it is in a `run` field of the YAML.
-  it('explains a value that is not safe in a shell', () => {
+  // The row must say so before anyone opens its documentation: the marker shows
+  // on every row, and the guidance on the row that has the focus.
+  it('marks a value that is not safe in a shell on its row', () => {
     const { monaco, registerCompletionItemProvider } = fakeMonaco();
     const model = fakeModel('${');
     registerFieldReferenceCompletion(
       monaco,
       { getModel: () => model },
       'shell',
-      () => [{ ...candidates[1]!, shellRisk: true }]
+      () => [{ ...candidates[1]!, shellRisk: true }, candidates[0]!]
     );
     const [, provider] = registerCompletionItemProvider.mock
       .calls[0] as unknown as [string, Provider];
-    const [item] = provider.provideCompletionItems(
+    const [risky, plain] = provider.provideCompletionItems(
       model,
       model.getPositionAt(2),
       { triggerKind: 1 }
     ).suggestions;
-    expect(item?.documentation).toContain('Pass it through env');
+    expect(risky?.label).toEqual({
+      label: candidates[1]!.token,
+      description: 'Not safe in a shell',
+    });
+    expect(risky?.detail).toContain('Pass it through env');
+    expect(risky?.insertText).toBe(candidates[1]!.token);
+    expect(plain?.label).toBe(candidates[0]!.token);
   });
 
   it('adds the shell note to env items', () => {

@@ -8,6 +8,7 @@ import type { ReferenceCandidate } from '../contracts';
 import {
   envEntryCandidates,
   forShellField,
+  SHELL_RISK_LABEL,
   SHELL_RISK_NOTE,
   withoutBuildOutputs,
 } from './candidates';
@@ -273,12 +274,21 @@ function toCompletionList(
   );
   return {
     suggestions: result.items.map((item, index) => ({
-      label: item.token,
-      detail: item.publish
-        ? `${item.label} - ${translateStatic(locale, PUBLISH_NOTE)}`
-        : item.detail
-          ? `${item.label} - ${item.detail}`
-          : item.label,
+      // A description shows on every row, and a detail on the focused one, so
+      // neither waits for the documentation to open.
+      label: item.shellRisk
+        ? {
+            label: item.token,
+            description: translateStatic(locale, SHELL_RISK_LABEL),
+          }
+        : item.token,
+      detail: item.shellRisk
+        ? translateStatic(locale, SHELL_RISK_NOTE)
+        : item.publish
+          ? `${item.label} - ${translateStatic(locale, PUBLISH_NOTE)}`
+          : item.detail
+            ? `${item.label} - ${item.detail}`
+            : item.label,
       kind: monaco.languages.CompletionItemKind.Variable,
       insertText: item.token,
       filterText: item.token,
@@ -287,9 +297,6 @@ function toCompletionList(
       ...(result.inRunField &&
       (item.group === 'env' || item.group === 'stepEnv')
         ? { documentation: shellNote }
-        : {}),
-      ...(item.shellRisk
-        ? { documentation: translateStatic(locale, SHELL_RISK_NOTE) }
         : {}),
       ...extras(item),
     })),
