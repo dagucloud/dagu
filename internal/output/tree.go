@@ -179,6 +179,10 @@ func (r *Renderer) renderStepHeader(node *ir.Node, isLast bool, prefix string) s
 		lineParts = append(lineParts, r.text(label))
 	}
 
+	if node.Repeated && node.DoneCount > 1 {
+		lineParts = append(lineParts, r.gray("×"+strconv.Itoa(node.DoneCount)))
+	}
+
 	return prefix + branchChar(isLast) + strings.Join(lineParts, " ") + "\n"
 }
 
