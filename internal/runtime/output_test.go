@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"path/filepath"
 	goruntime "runtime"
 	"strings"
 	"sync/atomic"
@@ -883,4 +884,21 @@ func TestOutputCoordinator_CapturedStderr(t *testing.T) {
 		require.NoError(t, err)
 		assert.Equal(t, "first attempt\nsecond attempt", output)
 	})
+}
+
+func TestOutputCoordinator_SetupFileCreatesParentDirs(t *testing.T) {
+	t.Parallel()
+
+	for _, artifact := range []bool{false, true} {
+		t.Run(fmt.Sprintf("artifact=%v", artifact), func(t *testing.T) {
+			t.Parallel()
+
+			path := filepath.Join(t.TempDir(), "newdir", "nested", "out.txt")
+			oc := &OutputCoordinator{}
+			file, err := oc.setupFile(context.Background(), path, artifact)
+			require.NoError(t, err)
+			require.NoError(t, file.Close())
+			assert.FileExists(t, path)
+		})
+	}
 }

@@ -522,6 +522,11 @@ func (oc *OutputCoordinator) setupFile(ctx context.Context, filePath string, art
 		absFilePath = filepath.Clean(absFilePath)
 	}
 
+	// Create missing parent directories, as stdout.artifact already does.
+	if err := os.MkdirAll(filepath.Dir(absFilePath), 0o750); err != nil {
+		return nil, fmt.Errorf("failed to create directory for %q: %w", absFilePath, err)
+	}
+
 	open := fileutil.OpenOrCreateFile
 	if artifact {
 		// Keep existing content until an attempt starts, and avoid append mode:
