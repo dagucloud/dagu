@@ -10,5 +10,8 @@ export {
   withoutBuildOutputs,
 } from './candidates';
 export { DeclaredOutputsPanel } from './DeclaredOutputsPanel';
+export { insertAtCaret, useCaretReferences } from './editorCaret';
+export type { CaretEditor } from './editorCaret';
 export { UpstreamDataPanel } from './UpstreamDataPanel';
 export { registerReferenceCompletion } from './monacoCompletion';
+export { YamlReferenceButton } from './YamlReferenceButton';

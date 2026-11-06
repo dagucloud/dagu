@@ -1460,6 +1460,8 @@ const baseEnglish = {
   //
   // visual-editor:P1-4 begin
   'Insert reference': 'Insert reference',
+  'Available references': 'Available references',
+  'Put the cursor in a field value': 'Put the cursor in a field value',
   'Search references': 'Search references',
   References: 'References',
   'No references available': 'No references available',
@@ -4563,6 +4565,8 @@ const baseChinese = {
   //
   // visual-editor:P1-4 begin
   'Insert reference': '插入引用',
+  'Available references': '可用引用',
+  'Put the cursor in a field value': '请将光标放在字段值中',
   'Search references': '搜索引用',
   References: '引用',
   'No references available': '没有可用的引用',
@@ -7658,6 +7662,8 @@ const baseJapanese = {
   //
   // visual-editor:P1-4 begin
   'Insert reference': '参照を挿入',
+  'Available references': '利用できる参照',
+  'Put the cursor in a field value': 'フィールドの値にカーソルを置いてください',
   'Search references': '参照を検索',
   References: '参照',
   'No references available': '利用可能な参照はありません',

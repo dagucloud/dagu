@@ -21,7 +21,6 @@ import {
   TooltipContent,
   TooltipTrigger,
 } from '@/components/ui/tooltip';
-import { useCopyFeedback } from '@/hooks/useCopyFeedback';
 import { useI18n } from '@/i18n/I18nProvider';
 import { shortRunId } from '@/lib/shortRunId';
 import { nodeStatusText } from '@/lib/status-utils';
@@ -31,6 +30,7 @@ import type {
   FollowedStepRun,
   InputRun,
   InputRunPicker,
+  ReferenceCandidate,
   ReferenceScope,
   StepOutputs,
 } from '../contracts';
@@ -46,7 +46,9 @@ import {
   useCacheScope,
   useOutputCacheEntries,
 } from '../run/useOutputCacheEntries';
+import { AvailableReferences } from './AvailableReferences';
 import { upstreamDistances } from './candidates';
+import { ReferenceName, type InsertToken } from './ReferenceName';
 import { useStepLinks } from './StepLinks';
 import { upstreamTree, type UpstreamNode } from './upstreamTree';
 import { InputMark } from './InputMark';
@@ -306,55 +308,6 @@ function RowStatus({
       {icon}
       {label}
     </span>
-  );
-}
-
-/** Puts a token in the field that has the focus. False when no field takes it. */
-type InsertToken = (token: string) => boolean | void;
-
-/**
- * A name that inserts its reference at the cursor of the field that has the
- * focus, or copies it when no field takes it. A copy shows a Check on the name
- * for 2 s.
- */
-export function ReferenceName({
-  name,
-  reference,
-  onInsert,
-}: {
-  name: string;
-  reference: string | null;
-  onInsert?: InsertToken;
-}): ReactElement {
-  const { ts } = useI18n();
-  const { copied, copy } = useCopyFeedback(2000);
-  if (!reference) return <span className="font-mono font-medium">{name}</span>;
-  return (
-    <button
-      type="button"
-      title={reference}
-      aria-label={copied ? ts('Copied') : undefined}
-      // A text field takes the plain text of a drop at the point of the drop.
-      draggable
-      onDragStart={(event) => {
-        event.dataTransfer.setData('text/plain', reference);
-        event.dataTransfer.effectAllowed = 'copy';
-      }}
-      onClick={() => {
-        if (onInsert && onInsert(reference) !== false) return;
-        void copy(reference);
-      }}
-      className="relative rounded font-mono font-medium hover:underline focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
-    >
-      {/* The name keeps its width, so the row does not move. */}
-      <span className={cn(copied && 'invisible')}>{name}</span>
-      {copied && (
-        <Check
-          className="absolute inset-0 m-auto size-3 text-success"
-          aria-hidden="true"
-        />
-      )}
-    </button>
   );
 }
 
@@ -919,6 +872,8 @@ interface PanelProps {
   stepName: string | null;
   /** Gives false when no field can take the token. */
   onInsert?: InsertToken;
+  /** The references that the field being edited can read, listed under the upstream data. */
+  references?: ReferenceCandidate[];
   /**
    * Runs the upstream steps of the step, not the step. The button shows
    * only with this callback and when the step has upstream steps.
@@ -973,6 +928,7 @@ function PanelView({
   scope,
   stepName,
   onInsert,
+  references,
   onRunUpstream,
   runUpstreamBlocked,
   followed,
@@ -1207,6 +1163,17 @@ function PanelView({
         )}
       </div>
       {body}
+      {references && (
+        <AvailableReferences
+          // The tree above lists the outputs of the steps of the graph.
+          candidates={references.filter(
+            (candidate) =>
+              candidate.group !== 'steps' ||
+              !scope?.steps?.some((step) => step.name === candidate.stepName)
+          )}
+          onInsert={onInsert}
+        />
+      )}
     </div>
   );
 }

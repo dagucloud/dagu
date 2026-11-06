@@ -1085,10 +1085,15 @@ describe.skipIf(realSchema === null)('VisualEditor', () => {
         executeEdits: () => true,
         pushUndoStop: () => true,
         trigger: () => undefined,
+        // Every listener hears a move, as in Monaco.
         onDidChangeCursorPosition: (
           listener: (event: { position: { lineNumber: number } }) => void
         ) => {
-          moveCursor = (lineNumber) => listener({ position: { lineNumber } });
+          const previous = moveCursor;
+          moveCursor = (lineNumber) => {
+            previous(lineNumber);
+            listener({ position: { lineNumber } });
+          };
           return { dispose: () => undefined };
         },
       };
@@ -1146,7 +1151,10 @@ describe.skipIf(realSchema === null)('VisualEditor', () => {
               source: string;
             }) => void
           ) => {
+            // Every listener hears a move, as in Monaco.
+            const previous = state.move;
             state.move = (lineNumber, source = 'mouse') => {
+              previous(lineNumber, source);
               state.positionLine = lineNumber;
               listener({ position: { lineNumber }, source });
             };

@@ -4,7 +4,7 @@
 import type { ReactElement } from 'react';
 import { useI18n } from '@/i18n/I18nProvider';
 import type { ReferenceScope } from '../contracts';
-import { ReferenceName } from './UpstreamDataPanel';
+import { ReferenceName } from './ReferenceName';
 
 /**
  * The OUTPUT column of the node details view on a definition: the action of
