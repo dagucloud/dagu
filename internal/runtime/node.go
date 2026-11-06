@@ -174,6 +174,8 @@ func (n *Node) ShouldContinue(ctx context.Context) bool {
 		ok, err := n.LogContainsPattern(ctx, continueOn.Output)
 		if err != nil {
 			logger.Error(ctx, "Failed to check log for pattern", tag.Error(err))
+			// Not cached: a failed read says nothing about the log, and the next
+			// check can still read it.
 			return false
 		}
 		if ok {
