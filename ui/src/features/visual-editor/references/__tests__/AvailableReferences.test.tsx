@@ -228,10 +228,8 @@ describe('AvailableReferences', () => {
         ]}
       />
     );
-    expect(screen.getByText('Not safe in a shell')).toHaveAttribute(
-      'title',
-      expect.stringContaining('Pass it through env')
-    );
+    expect(screen.getByText('Not safe in a shell')).toBeInTheDocument();
+    expect(screen.getByText(/Pass it through env/)).toBeInTheDocument();
   });
 
   it('copies the token when no field can take it', async () => {

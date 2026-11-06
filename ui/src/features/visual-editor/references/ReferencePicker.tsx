@@ -215,10 +215,7 @@ export function ReferencePicker({
                         </span>
                       ) : null}
                       {c.shellRisk ? (
-                        <span
-                          title={ts(SHELL_RISK_NOTE)}
-                          className="ml-auto shrink-0 rounded-sm bg-warning/10 px-1 text-[10px] font-medium text-warning"
-                        >
+                        <span className="ml-auto shrink-0 rounded-sm bg-warning/10 px-1 text-[10px] font-medium text-warning">
                           {ts(SHELL_RISK_LABEL)}
                         </span>
                       ) : c.publish || c.known === 'runtime' ? (
@@ -234,6 +231,11 @@ export function ReferencePicker({
                     <div className="truncate font-mono text-[10px] text-muted-foreground">
                       {c.token}
                     </div>
+                    {c.shellRisk ? (
+                      <div className="text-[10px] text-warning">
+                        {ts(SHELL_RISK_NOTE)}
+                      </div>
+                    ) : null}
                   </div>
                 )
               )}

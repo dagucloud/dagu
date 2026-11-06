@@ -269,23 +269,62 @@ describe('computeReferenceCompletions', () => {
         ],
       };
     };
-    const riskIn = (field: string) => {
+    // The row of the model output in a field of the step `next`.
+    const rowIn = (field: string) => {
       const text = `steps:\n  - name: model\n    run: a\n  - name: next\n    ${field}\n`;
       return computeReferenceCompletions(
         text,
         at(text, '${', 2),
         { scope: scope() },
         { explicit: false }
-      )?.items.find((item) => item.label === 'model.reply')?.shellRisk;
+      )?.items.find((item) => item.label === 'model.reply');
     };
 
     it('marks it in a run field', () => {
-      expect(riskIn('run: echo ${')).toBe(true);
+      expect(rowIn('run: echo ${')?.shellRisk).toBe(true);
     });
 
     // The fix is to pass it through env, so env must offer it plainly.
     it('leaves it unmarked in env', () => {
-      expect(riskIn('env:\n      - REPLY: ${')).toBeUndefined();
+      const row = rowIn('env:\n      - REPLY: ${');
+      expect(row).toBeDefined();
+      expect(row?.shellRisk).toBeUndefined();
+    });
+
+    // A shell reads a body step's run too, and the validator warns there.
+    describe('in a foreach body', () => {
+      const body = (field: string) =>
+        [
+          'foreach:',
+          '      items: [a]',
+          '      steps:',
+          '        - name: inner',
+          `          ${field}`,
+        ].join('\n');
+
+      it('marks it in a run field', () => {
+        expect(rowIn(body('run: echo ${'))?.shellRisk).toBe(true);
+      });
+
+      it('leaves it unmarked in env', () => {
+        const row = rowIn(body('env:\n            - REPLY: ${'));
+        expect(row).toBeDefined();
+        expect(row?.shellRisk).toBeUndefined();
+      });
+    });
+
+    it('marks it in a run field of a parallel group', () => {
+      const text =
+        'steps:\n  - name: model\n    run: a\n  - - name: next\n      run: echo ${\n';
+      const parallel = scope();
+      parallel.steps[1]!.stepPath = 'steps[1]';
+      const row = computeReferenceCompletions(
+        text,
+        at(text, '${', 2),
+        { scope: parallel },
+        { explicit: false }
+      )?.items.find((item) => item.label === 'model.reply');
+      expect(row?.shellRisk).toBe(true);
     });
   });
 

@@ -133,11 +133,11 @@ describe('ReferencePicker', () => {
         },
       ],
     });
-    const badge = screen.getByText('Not safe in a shell');
-    expect(badge).toHaveAttribute(
-      'title',
-      expect.stringContaining('Pass it through env')
-    );
+    // Focus stays in the field while the arrow keys move, so a tooltip would
+    // reach nobody who uses the keyboard: the note is part of the option.
+    const option = screen.getByRole('option', { name: /model\.reply/ });
+    expect(option).toHaveTextContent('Not safe in a shell');
+    expect(option).toHaveTextContent('Pass it through env');
     expect(screen.queryByText('Known after run')).toBeNull();
   });
 

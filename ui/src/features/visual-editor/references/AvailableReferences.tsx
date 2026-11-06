@@ -73,30 +73,34 @@ export function AvailableReferences({
               {allRuntime && <Badge text="Known after run" />}
             </div>
             {items.map((candidate) => (
-              <div
-                key={`${candidate.stepName ?? ''}:${candidate.token}`}
-                className="flex min-w-0 items-baseline gap-2"
-              >
-                <ReferenceName
-                  name={candidate.label}
-                  reference={candidate.token}
-                  onInsert={(token) => {
-                    candidate.onPicked?.();
-                    return onInsert?.(token);
-                  }}
-                />
-                {candidate.detail && (
-                  <span className="min-w-0 truncate text-muted-foreground">
-                    {candidate.detail}
-                  </span>
-                )}
-                {candidate.shellRisk ? (
-                  <Badge text={SHELL_RISK_LABEL} title={SHELL_RISK_NOTE} />
-                ) : candidate.publish ? (
-                  <Badge text="Published when chosen" />
-                ) : (
-                  candidate.known === 'runtime' &&
-                  !allRuntime && <Badge text="Known after run" />
+              <div key={`${candidate.stepName ?? ''}:${candidate.token}`}>
+                <div className="flex min-w-0 items-baseline gap-2">
+                  <ReferenceName
+                    name={candidate.label}
+                    reference={candidate.token}
+                    onInsert={(token) => {
+                      candidate.onPicked?.();
+                      return onInsert?.(token);
+                    }}
+                  />
+                  {candidate.detail && (
+                    <span className="min-w-0 truncate text-muted-foreground">
+                      {candidate.detail}
+                    </span>
+                  )}
+                  {candidate.shellRisk ? (
+                    <Badge text={SHELL_RISK_LABEL} />
+                  ) : candidate.publish ? (
+                    <Badge text="Published when chosen" />
+                  ) : (
+                    candidate.known === 'runtime' &&
+                    !allRuntime && <Badge text="Known after run" />
+                  )}
+                </div>
+                {candidate.shellRisk && (
+                  <p className="text-[10px] text-warning">
+                    {ts(SHELL_RISK_NOTE)}
+                  </p>
                 )}
               </div>
             ))}
@@ -107,19 +111,10 @@ export function AvailableReferences({
   );
 }
 
-function Badge({
-  text,
-  title,
-}: {
-  text: string;
-  title?: string;
-}): ReactElement {
+function Badge({ text }: { text: string }): ReactElement {
   const { ts } = useI18n();
   return (
-    <span
-      title={title ? ts(title) : undefined}
-      className="ml-auto shrink-0 rounded-sm bg-warning/10 px-1 text-[10px] text-warning"
-    >
+    <span className="ml-auto shrink-0 rounded-sm bg-warning/10 px-1 text-[10px] text-warning">
       {ts(text)}
     </span>
   );

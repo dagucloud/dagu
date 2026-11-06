@@ -18,6 +18,7 @@ import {
   isCommandField,
   isRunField,
   isRunFieldPath,
+  pathBelowBodies,
   pathBelowStep,
   type ReferenceEditorState,
 } from './editorState';
@@ -75,15 +76,6 @@ const LITERAL_FOREACH_FIELDS = new Set(['as', 'max_concurrent']);
 const LITERAL_OUTPUT_FIELDS = new Set(['name', 'type']);
 
 const STEP_ROOTS = new Set(['steps', 'handler_on']);
-
-// The path below the innermost step of `below`, a path below a step entry.
-function pathBelowBodies(below: string[]): string[] {
-  let inner = below;
-  while (inner[0] === 'foreach' && inner[1] === 'steps') {
-    inner = inner.slice(3);
-  }
-  return inner;
-}
 
 function isLiteralStepField(below: string[]): boolean {
   const [field = '', second = '', third = ''] = below;
