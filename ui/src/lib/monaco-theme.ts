@@ -74,6 +74,10 @@ export function registerKilnThemes() {
       'editorWidget.background': '#ffffff',
       'editorWidget.border': '#d3d3db',
       'editorSuggestWidget.selectedBackground': '#ebe8fc',
+      // The base theme keeps white text on the selected row, for a dark row.
+      'editorSuggestWidget.selectedForeground': '#111114',
+      'editorSuggestWidget.selectedIconForeground': '#5d4fe0',
+      'editorSuggestWidget.focusHighlightForeground': '#5d4fe0',
     },
   });
 }
