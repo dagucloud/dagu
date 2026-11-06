@@ -272,10 +272,12 @@ func (r *Runner) Run(ctx context.Context, plan *Plan, progressCh chan ProgressUp
 
 	// A step retry can keep the failed or aborted upstream of a step it selected,
 	// which then never runs and records no failure. This waits for every step to
-	// end, since a repeating step clears the last error.
+	// end, since a repeating step clears the last error. The run fails outright,
+	// since a failure allowed to continue would otherwise read as partial success.
 	if !r.isError() {
 		if err := upstreamBlock(plan); err != nil {
 			r.setLastError(err)
+			r.setFailed()
 		}
 	}
 
