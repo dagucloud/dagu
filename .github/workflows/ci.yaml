@@ -12,6 +12,8 @@ on:
       - "go.mod"
       - "go.sum"
       - "internal/**"
+      - "llms.txt"
+      - "skills/**"
       - "Makefile"
       - "proto/**"
       - "scripts/ci/**"
@@ -38,6 +40,8 @@ on:
       - "go.mod"
       - "go.sum"
       - "internal/**"
+      - "llms.txt"
+      - "skills/**"
       - "Makefile"
       - "proto/**"
       - "scripts/ci/**"
@@ -124,7 +128,7 @@ jobs:
           windows_installer_changed=false
           while IFS= read -r file; do
             case "${file}" in
-              *.go|go.mod|go.sum|Makefile|scripts/ci/*|.github/opencode/*|.github/actions/setup-go-cache/*|.github/workflows/ci.yaml)
+              *.go|go.mod|go.sum|Makefile|llms.txt|skills/*|scripts/ci/*|.github/opencode/*|.github/actions/setup-go-cache/*|.github/workflows/ci.yaml)
                 go_changed=true
                 ;;
             esac
@@ -180,6 +184,11 @@ jobs:
             echo "$diff"
             exit 1
           fi
+
+      - name: Check llms.txt is current
+        run: |
+          make llms
+          git diff --exit-code -- llms.txt || (echo "llms.txt is stale. Please run 'make llms'" && exit 1)
 
       # The linter is built from this module's requirements, as make lint
       # does, so it reads the export data of this module's Go; a release
