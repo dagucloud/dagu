@@ -50,7 +50,11 @@ func (r *DAGRepository) list(ctx context.Context, opts DAGListOptions, includeSe
 		if err := ctx.Err(); err != nil {
 			return pagination.NewPaginatedResult([]DAGListItem{}, 0, *opts.Paginator), catalog.Issues, err
 		}
-		if item.DAG == nil || opts.ActiveOnly && (len(item.Schedule) == 0 || item.Suspended) {
+		if item.DAG == nil {
+			continue
+		}
+		// Active DAGs are the ones the scheduler starts runs of.
+		if opts.ActiveOnly && (item.Suspended || (len(item.Schedule) == 0 && !item.RestartPolicy.Enabled())) {
 			continue
 		}
 		if opts.Name != "" && !matchesDAGListSearch(item.Name, item.ID, opts.Name) {

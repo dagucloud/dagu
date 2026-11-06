@@ -1625,6 +1625,35 @@ steps:
 	require.Contains(t, err.Error(), "retry_policy")
 }
 
+// The loader reads restart_policy case-insensitively, so the schema accepts
+// what the loader accepts.
+func TestDAGSchemaRestartPolicy(t *testing.T) {
+	t.Parallel()
+
+	resolved := mustResolveDAGSchema(t)
+	for value, valid := range map[string]bool{
+		`always`:             true,
+		`Always`:             true,
+		`" UNLESS-STOPPED "`: true,
+		`"no"`:               true,
+		`""`:                 true,
+		`sometimes`:          false,
+		`on-failure`:         false,
+	} {
+		t.Run(value, func(t *testing.T) {
+			t.Parallel()
+			doc := mustParseYAMLDocument(t, "restart_policy: "+value+"\nrestart_wait_sec: 5\nsteps:\n  - run: echo hi\n")
+			err := resolved.Validate(doc)
+			if valid {
+				require.NoError(t, err)
+				return
+			}
+			require.Error(t, err)
+			require.Contains(t, err.Error(), "restart_policy")
+		})
+	}
+}
+
 func TestDAGSchemaResources(t *testing.T) {
 	t.Parallel()
 

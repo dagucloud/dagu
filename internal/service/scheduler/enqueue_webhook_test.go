@@ -61,7 +61,7 @@ func TestEnqueueCatchupRunPropagatesFindAttemptErrors(t *testing.T) {
 		"",
 	)
 	require.ErrorIs(t, err, storeErr)
-	assert.Contains(t, err.Error(), "failed to check existing catchup run")
+	assert.Contains(t, err.Error(), "failed to check existing run")
 }
 
 type findAttemptErrStore struct {

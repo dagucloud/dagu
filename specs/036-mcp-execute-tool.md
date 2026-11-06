@@ -217,7 +217,7 @@ Common conditions map to codes as follows:
 | The accepted credential is not authorized for the requested execution. | `unauthorized` |
 | Tool input is malformed, misses a required field, or uses unknown values. | `invalid_tool_input` |
 | The named DAG or DAG-run does not exist. | `resource_not_found` |
-| A singleton run is already running or queued, the step to decide is not waiting, `attemptId` names another attempt, or the action otherwise conflicts with current run state. | `conflict` |
+| A singleton run is already running or queued, a DAG with a `restart_policy` has an active run, the step to decide is not waiting, `attemptId` names another attempt, or the action otherwise conflicts with current run state. | `conflict` |
 | The action target exists but cannot currently be acted on. | `resource_unavailable` |
 | The server fails unexpectedly while handling the action. | `internal_error` |
 

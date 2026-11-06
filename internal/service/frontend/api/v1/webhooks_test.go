@@ -1218,3 +1218,26 @@ func mapsKeys[M ~map[string]V, V any](m M) []string {
 	}
 	return keys
 }
+
+// A webhook starts no run next to the active run of a DAG with a restart_policy.
+func TestWebhooks_ServiceDAGRunsOneAtATime(t *testing.T) {
+	webhookParallel(t)
+	server := setupWebhookTestServer(t)
+	token := getWebhookAdminToken(t, server)
+
+	const dagName = "webhook-service"
+	createTestDAGWithSpec(t, server, token, dagName, `restart_policy: always
+restart_wait_sec: 1
+steps:
+  - run: echo ok
+`)
+	var created api.WebhookCreateResponse
+	server.Client().Post("/api/v1/dags/"+dagName+"/webhook", nil).
+		WithBearerToken(token).ExpectStatus(http.StatusCreated).Send(t).Unmarshal(t, &created)
+
+	// The first run stays queued: the test server runs no scheduler.
+	for _, want := range []int{http.StatusOK, http.StatusConflict} {
+		server.Client().Post("/api/v1/webhooks/"+dagName, api.WebhookRequest{}).
+			WithBearerToken(created.Token).ExpectStatus(want).Send(t)
+	}
+}

@@ -603,7 +603,16 @@
     },
     "restart_wait_sec": {
       "type": "integer",
-      "description": "Number of seconds to wait before restarting a failed or stopped DAG. Typically used with a process supervisor."
+      "description": "Number of seconds to wait before restarting a failed or stopped DAG. Typically used with a process supervisor. With restart_policy, it is the wait between the end of a run and the start of the next one, and must be at least 1; each run in a row that fails within 10 seconds of its start doubles it, up to 5 minutes."
+    },
+    "restart_policy": {
+      "type": "string",
+      "anyOf": [
+        { "enum": ["no", "always", "unless-stopped"] },
+        { "pattern": "^\\s*([Nn][Oo]|[Aa][Ll][Ww][Aa][Yy][Ss]|[Uu][Nn][Ll][Ee][Ss][Ss]-[Ss][Tt][Oo][Pp][Pp][Ee][Dd])?\\s*$" }
+      ],
+      "default": "no",
+      "description": "Keeps a run of the DAG alive, like a service. \"always\": the scheduler starts a new run restart_wait_sec after the previous one ends, whatever its status. \"unless-stopped\": same, except that no run follows a run that an operator stopped. A suspended DAG gets no new run, and no DAG does while queues are disabled. While a run is active, a manual run of the DAG is refused. Requires restart_wait_sec; cannot be combined with schedule or a DAG-level retry_policy. Cannot be set in the base configuration."
     },
     "hist_retention_days": {
       "type": "integer",

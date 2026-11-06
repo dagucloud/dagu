@@ -318,7 +318,7 @@ Errors:
 - invalid_tool_input for missing fields, unknown action, unsupported targetType, or malformed input, when reject targets a human task, or when inputs do not fit the waiting step.
 - unauthorized when the caller cannot perform the requested execution operation.
 - resource_not_found when the named DAG, DAG-run, or step does not exist. A misspelled stored-DAG name carries close existing names under details.didYouMean.
-- conflict when a singleton run is already running or queued, when the step to decide is not waiting for a person, or when attemptId differs from the run's current attempt, which details.attemptId reports.
+- conflict when a singleton run is already running or queued, when a DAG with a restart_policy has an active run, when the step to decide is not waiting for a person, or when attemptId differs from the run's current attempt, which details.attemptId reports.
 - resource_unavailable or internal_error for runtime failures.`,
 		},
 		{
