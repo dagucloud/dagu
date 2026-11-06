@@ -1486,6 +1486,20 @@ func TestNodeShouldContinue(t *testing.T) {
 	}
 }
 
+// The continue_on decision is the node's own state, not a step output. As an
+// output it reached later steps' scope and every consumer of child outputs.
+func TestNodeShouldContinueKeepsDecisionOutOfOutputs(t *testing.T) {
+	t.Parallel()
+
+	node := runtime.NewNode(ir.Step{Name: "check"}, runtime.NodeState{
+		Status:   ir.NodeFailed,
+		ExitCode: 1,
+	})
+
+	require.False(t, node.ShouldContinue(context.Background()))
+	assert.Empty(t, node.OutputVariablesMap())
+}
+
 type nodeHelper struct {
 	*runtime.Node
 	test.Helper
