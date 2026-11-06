@@ -1323,3 +1323,45 @@ func TestSelectBastionAuthMethod_NoAuth(t *testing.T) {
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "no authentication method available for bastion")
 }
+
+// An unknown with key must fail validation instead of being silently dropped
+// by the ssh and sftp executors (#3440). The command text is folded into the
+// step command by the action normalizer, so host/user still validate.
+func TestSSHRejectsUnknownWithKey(t *testing.T) {
+	t.Parallel()
+
+	for _, executorType := range []string{"ssh", "sftp"} {
+		t.Run(executorType, func(t *testing.T) {
+			t.Parallel()
+
+			err := registry.ValidateExecutorConfig(executorType, map[string]any{
+				"host": "example.com", "stricht_host_key": true,
+			})
+			require.Error(t, err)
+			require.Contains(t, err.Error(), `did you mean "strict_host_key" instead of "stricht_host_key"?`)
+
+			require.NoError(t, registry.ValidateExecutorConfig(executorType, map[string]any{
+				"host": "example.com", "user": "me", "port": 22,
+			}))
+		})
+	}
+}
+
+// Every unknown with key must be reported, including when the config holds no
+// other valid field and when several typos appear together (#3440).
+func TestSSHRejectsMultipleUnknownWithKeys(t *testing.T) {
+	t.Parallel()
+
+	for _, executorType := range []string{"ssh", "sftp"} {
+		t.Run(executorType, func(t *testing.T) {
+			t.Parallel()
+
+			err := registry.ValidateExecutorConfig(executorType, map[string]any{
+				"stricht_host_key": true, "prot": 22,
+			})
+			require.Error(t, err)
+			require.Contains(t, err.Error(), `stricht_host_key`)
+			require.Contains(t, err.Error(), `prot`)
+		})
+	}
+}
