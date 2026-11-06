@@ -3,7 +3,7 @@
 
 import { fireEvent, render, screen, within } from '@testing-library/react';
 import { useRef } from 'react';
-import { describe, expect, it, vi } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { ReferenceCandidate } from '../../contracts';
 import {
   ReferencePicker,
@@ -206,5 +206,21 @@ describe('ReferencePicker', () => {
     const options = screen.getAllByRole('option');
     expect(options).toHaveLength(1);
     expect(options[0]).toHaveTextContent('API_URL');
+  });
+
+  describe('when it opens', () => {
+    afterEach(() => {
+      Reflect.deleteProperty(Element.prototype, 'scrollIntoView');
+    });
+
+    // A list near the end of a form must not stay below the fold.
+    it('brings the whole panel into view', () => {
+      const scrollIntoView = vi.fn();
+      Element.prototype.scrollIntoView = scrollIntoView;
+      renderPicker();
+      expect(scrollIntoView.mock.contexts).toContain(
+        screen.getByRole('listbox').parentElement
+      );
+    });
   });
 });

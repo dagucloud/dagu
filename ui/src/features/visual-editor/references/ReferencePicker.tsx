@@ -63,6 +63,7 @@ export function ReferencePicker({
   ref,
 }: ReferencePickerProps): ReactElement {
   const { ts } = useI18n();
+  const panelRef = useRef<HTMLDivElement>(null);
   const listRef = useRef<HTMLDivElement>(null);
   const searchRef = useRef<HTMLInputElement>(null);
   const [activeIndex, setActiveIndex] = useState(0);
@@ -91,6 +92,11 @@ export function ReferencePicker({
   useEffect(() => {
     onActiveChange?.(activeId);
   }, [activeId, onActiveChange]);
+
+  // A panel that opens near the end of a form moves the form just enough.
+  useEffect(() => {
+    panelRef.current?.scrollIntoView?.({ block: 'nearest' });
+  }, []);
 
   useEffect(() => {
     if (active < 0) return;
@@ -123,6 +129,7 @@ export function ReferencePicker({
 
   return (
     <div
+      ref={panelRef}
       className="absolute left-0 top-full z-50 mt-1 w-full min-w-64 overflow-hidden rounded-md border border-border bg-popover text-popover-foreground shadow-md"
       // Keep the focus where it is: a click inside must not blur the input.
       onMouseDown={(e) => {
