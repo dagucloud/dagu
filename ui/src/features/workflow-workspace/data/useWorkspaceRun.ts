@@ -41,6 +41,7 @@ export function useWorkspaceRun(): WorkspaceRunValue {
 }
 
 const RUN_PARAM = 'run';
+const RUN_NAME_PARAM = 'dagRunName';
 
 interface NodePatch {
   selKey: string;
@@ -166,8 +167,18 @@ export function useSelectedRun({
   // same tick that the router has yet to render, such as ?ndv. The path and
   // the other keys stay: a legacy link redirects once its run is known.
   const writeRun = useCallback(
-    (runId: string | null, replace?: boolean, state?: unknown) => {
-      setParams({ [RUN_PARAM]: runId }, { replace: !!replace, state });
+    (runId: string | null, replace?: boolean) => {
+      setParams({ [RUN_PARAM]: runId }, { replace: !!replace });
+    },
+    [setParams]
+  );
+  // The page picks a run by itself: a DAG name in the URL is not its name.
+  const pickRun = useCallback(
+    (runId: string | null, state?: unknown) => {
+      setParams(
+        { [RUN_PARAM]: runId, [RUN_NAME_PARAM]: null },
+        { replace: true, state }
+      );
     },
     [setParams]
   );
@@ -231,15 +242,15 @@ export function useSelectedRun({
     const fallback =
       latestRunId !== null && latestRunId !== runParam ? latestRunId : null;
     fallbackRun.current = fallback;
-    writeRun(fallback, true);
-  }, [missing, runParam, latestRunId, writeRun]);
+    pickRun(fallback);
+  }, [missing, runParam, latestRunId, pickRun]);
 
   // No ?run: the URL names the latest run, with no history entry.
   useEffect(() => {
     if (runParam !== null || latestRunId === null || legacyIdx) return;
     if (dagName === '' || missingRuns.current.has(latestRunId)) return;
-    writeRun(latestRunId, true, RUN_REDIRECT_STATE);
-  }, [runParam, latestRunId, legacyIdx, dagName, writeRun]);
+    pickRun(latestRunId, RUN_REDIRECT_STATE);
+  }, [runParam, latestRunId, legacyIdx, dagName, pickRun]);
 
   const select = useCallback(
     (sel: 'latest' | string, opts?: { replace?: boolean }) => {

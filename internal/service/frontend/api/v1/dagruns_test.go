@@ -2484,6 +2484,12 @@ func TestRescheduleCurrentDAGFileName(t *testing.T) {
 			server.Client().Get(
 				fmt.Sprintf("/api/v1/dag-runs/%s/%s", tt.wantRunNamed, rescheduled.DagRunId),
 			).ExpectStatus(http.StatusOK).Send(t)
+
+			// The queue rebuilds the stored DAG: the run keeps the name when it runs.
+			test.ProcessQueuedInlineRun(t, server, dagName)
+			waitForStoredDAGRunStatus(t, server, tt.wantRunNamed, rescheduled.DagRunId, 10*time.Second, func(status *ir.DAGRunStatus) bool {
+				return status.Status == ir.Succeeded
+			})
 		})
 	}
 }

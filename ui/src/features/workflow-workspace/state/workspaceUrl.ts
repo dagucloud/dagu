@@ -57,7 +57,9 @@ export interface WorkspaceUrlState {
   run: string | null;
   /**
    * ?dagRunName: the DAG name of the run of ?run when the name of the file
-   * does not give it, as for a run started with --name.
+   * does not give it, as for a run started with --name. The runs that a page
+   * selects share it, so it stays with a new ?run until a write clears it. A
+   * name left behind only costs a failed lookup; a lost one shows another run.
    */
   runName: string | null;
   /**
@@ -283,9 +285,9 @@ export type ReadWorkspaceUrl = () => WorkspaceUrlState;
 /**
  * Sets or removes query keys, a null value removing its key, and keeps the
  * path and every other key as they are: a link that the page has yet to
- * redirect, such as /history?dagRunId, keeps what the redirect reads. Another
- * ?run also drops ?dagRunName, which names the run that it replaces. It builds
- * on a write that the router has not rendered yet, as SetWorkspaceUrl does.
+ * redirect, such as /history?dagRunId, keeps what the redirect reads. It
+ * builds on a write that the router has not rendered yet, as SetWorkspaceUrl
+ * does.
  */
 export type SetWorkspaceParams = (
   params: Record<string, string | null>,
@@ -399,10 +401,6 @@ export function useWorkspaceUrl(): [
         return query;
       };
       const nextState: WorkspaceUrlState = { ...base.state, ...patch };
-      // The DAG name goes with its run, unless the new run has the same one.
-      if (nextState.run !== base.state.run) {
-        nextState.runName = patch.runName ?? null;
-      }
       const query = withForeignKeys(nextState);
       const next = joinUrl(buildPath(fileName, nextState), query);
       // Compared in canonical form, so a different query order is no change.
@@ -443,12 +441,10 @@ export function useWorkspaceUrl(): [
     (params, opts) => {
       const base = latest();
       const query = new URLSearchParams(base.search);
-      const run = query.get('run');
       for (const [key, value] of Object.entries(params)) {
         if (value === null) query.delete(key);
         else query.set(key, value);
       }
-      if (run !== null && query.get('run') !== run) query.delete(RUN_NAME_KEY);
       const search = query.toString() ? `?${query.toString()}` : '';
       if (search === base.search) return;
       store.pending = {

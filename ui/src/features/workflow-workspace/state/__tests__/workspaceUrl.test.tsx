@@ -492,17 +492,18 @@ describe('useWorkspaceUrl', () => {
     expect(last().url).toBe(url);
   });
 
-  it('drops the DAG name of the run with its run', () => {
+  // The runs that a page selects share the name: a lost name shows another run.
+  it('keeps the DAG name for another run', () => {
     const { update, last } = renderHook('/dags/x?run=r1&dagRunName=etl&step=a');
     update({ run: 'r2' });
-    expect(last().url).toBe('/dags/x?run=r2&step=a');
+    expect(last().url).toBe('/dags/x?run=r2&step=a&dagRunName=etl');
   });
 
-  // A reschedule makes a new run under the same DAG name.
-  it('keeps the DAG name for a new run of the same name', () => {
+  // A run started from the file has the DAG name of the file.
+  it('clears the DAG name when asked', () => {
     const { update, last } = renderHook('/dags/x?run=r1&dagRunName=etl');
-    update({ run: 'r2', runName: 'etl' });
-    expect(last().url).toBe('/dags/x?run=r2&dagRunName=etl');
+    update({ run: 'r2', runName: null });
+    expect(last().url).toBe('/dags/x?run=r2');
   });
 
   it('keeps query keys that it does not own', () => {

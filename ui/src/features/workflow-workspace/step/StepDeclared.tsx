@@ -71,7 +71,6 @@ export function StepDeclared({
           mode: 'workspace',
           popout: null,
           run: runId,
-          runName: runId === url.run ? url.runName : null,
           step,
           ndv: null,
           dock: null,
