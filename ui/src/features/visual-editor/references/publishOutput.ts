@@ -7,6 +7,7 @@ import type {
   PublishOnPick,
   ReferenceCandidate,
   ReferenceScope,
+  StepView,
 } from '../contracts';
 import { minimalEdit } from '../doc/format';
 import { applyEdit } from '../doc/index';
@@ -20,6 +21,13 @@ const PUBLISHING_FIELDS = ['output', 'outputs', 'output_schema', STDOUT];
 
 // The name syntax of a step in a ${steps.<id>...} reference.
 const STEP_ID = /^[A-Za-z][A-Za-z0-9_]*$/;
+
+// A scope comes back from a validation, which can trail the text: the entry at
+// the path of `step` may be another step by now.
+function isSameStep(step: ScopeStep, view: StepView): boolean {
+  if (step.id !== view.id) return false;
+  return view.explicitName === undefined || view.explicitName === step.name;
+}
 
 /**
  * The output that a pick would make `step` publish: what a plain command step
@@ -35,9 +43,10 @@ export function publishCandidates(
   distance: number,
   doc: DagDocModel | undefined
 ): ReferenceCandidate[] {
-  if (!doc || doc.dagType === 'build' || step.outputs.length > 0) return [];
+  if (!doc?.ok || doc.dagType === 'build' || step.outputs.length > 0) return [];
   const view = doc.steps.find((entry) => entry.key === step.stepPath);
   if (!view || view.kind !== 'run' || view.broken !== undefined) return [];
+  if (!isSameStep(step, view)) return [];
   if (PUBLISHING_FIELDS.some((field) => view.value[field] !== undefined)) {
     return [];
   }

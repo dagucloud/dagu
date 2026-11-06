@@ -54,7 +54,9 @@ export function AvailableReferences({
       )}
       {groups.map(({ group, items }) => {
         // A group that only a run gives says so once, not on each row.
-        const allRuntime = items.every((c) => c.known === 'runtime');
+        const allRuntime =
+          items.every((c) => c.known === 'runtime') &&
+          !items.some((c) => c.publish);
         return (
           <div
             key={group}
@@ -66,9 +68,7 @@ export function AvailableReferences({
               <span className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
                 {ts(REFERENCE_GROUP_LABELS[group])}
               </span>
-              {allRuntime && !items.some((c) => c.publish) && (
-                <Badge text="Known after run" />
-              )}
+              {allRuntime && <Badge text="Known after run" />}
             </div>
             {items.map((candidate) => (
               <div

@@ -11,7 +11,7 @@ import {
   yamlMapSteps,
 } from '../../testing/fixtures';
 import type { ReferenceCandidate, ReferenceScope } from '../../contracts';
-import { parseDagDoc } from '../../doc/parse';
+import { parseDagDoc, parseDagDocLenient } from '../../doc/parse';
 import { editorLocale, findOwningStep } from '../editorState';
 import {
   computeReferenceCompletions,
@@ -558,6 +558,15 @@ function fakeMonaco() {
 
 type Provider = {
   triggerCharacters: string[];
+  resolveCompletionItem?(
+    item: Provider['provideCompletionItems'] extends (...args: never[]) => {
+      suggestions: (infer T)[];
+    }
+      ? T
+      : never
+  ): {
+    additionalTextEdits?: { text: string; range: { endLineNumber: number } }[];
+  };
   provideCompletionItems(
     model: ReturnType<typeof fakeModel>,
     position: { lineNumber: number; column: number },
@@ -885,6 +894,51 @@ describe('registerReferenceCompletion', () => {
     expect(items('inmemory://other')).toEqual([]);
   });
 
+  // A broken step must not take the list of the readable steps with it, as the
+  // model of the editor keeps them.
+  it('reads a stale model leniently, keeping the readable steps', () => {
+    const typed = [
+      'steps:',
+      '  - id: fetch',
+      '    run: echo hi',
+      '  - id: use',
+      '    depends: fetch',
+      '    run: echo ${',
+      '  - id: broken',
+      '    run: [',
+      '',
+    ].join('\n');
+    const base = scopeHttpJq.steps[0]!;
+    const scope: ReferenceScope = {
+      ...scopeHttpJq,
+      steps: ['fetch', 'use', 'broken'].map((name, index) => ({
+        ...base,
+        name,
+        id: name,
+        stepPath: `steps[${index}]`,
+        upstream: name === 'use' ? ['fetch'] : [],
+        outputs: [],
+      })),
+    };
+    const { monaco, registerCompletionItemProvider } = fakeMonaco();
+    registerReferenceCompletion(
+      monaco,
+      () => ({ scope, model: parseDagDocLenient('steps: []\n') }),
+      MODEL_URI
+    );
+    const [, provider] = registerCompletionItemProvider.mock
+      .calls[0] as unknown as [string, Provider];
+    const model = fakeModel(typed);
+    const items = provider.provideCompletionItems(
+      model,
+      model.getPositionAt(at(typed, '${', 2)),
+      { triggerKind: 1 }
+    ).suggestions;
+    expect(items.map((item) => item.insertText)).toContain(
+      '${steps.fetch.outputs.stdout}'
+    );
+  });
+
   // The provider runs on the keystroke, before the parsed model has that text.
   it('offers a publishable output while the model is behind the text', () => {
     const typed = [
@@ -988,12 +1042,19 @@ describe('registerReferenceCompletion', () => {
       (s) => s.insertText === '${steps.fetch.outputs.stdout}'
     );
     expect(item?.detail).toContain('Published when chosen');
-    expect(item?.additionalTextEdits).toHaveLength(1);
-    expect(item?.additionalTextEdits?.[0]?.text).toContain('from: stdout');
+    // Each edit parses the document, so a list computes none until it is needed.
+    expect(item?.additionalTextEdits).toBeUndefined();
+    const resolved = provider.resolveCompletionItem?.(item!);
+    expect(resolved?.additionalTextEdits).toHaveLength(1);
+    expect(resolved?.additionalTextEdits?.[0]?.text).toContain('from: stdout');
     // Above the line of the caret, so that the two edits do not overlap.
-    expect(item?.additionalTextEdits?.[0]?.range.endLineNumber).toBeLessThan(6);
+    expect(
+      resolved?.additionalTextEdits?.[0]?.range.endLineNumber
+    ).toBeLessThan(6);
     const plain = items.find((s) => s.insertText === '${params.API_URL}');
-    expect(plain?.additionalTextEdits).toBeUndefined();
+    expect(
+      provider.resolveCompletionItem?.(plain!)?.additionalTextEdits
+    ).toBeUndefined();
   });
 
   it('builds items in candidate order for an explicit request', () => {

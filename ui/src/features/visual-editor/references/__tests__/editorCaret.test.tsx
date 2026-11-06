@@ -64,16 +64,23 @@ function fakeEditor(initial: string, offset = 0) {
           text: string;
         }[]
       ) => {
-        const [edit] = edits;
-        const from = toOffset({
-          lineNumber: edit!.range.startLineNumber,
-          column: edit!.range.startColumn,
-        });
-        const to = toOffset({
-          lineNumber: edit!.range.endLineNumber,
-          column: edit!.range.endColumn,
-        });
-        text = text.slice(0, from) + edit!.text + text.slice(to);
+        // Every edit reads the offsets of the text before this call, as in Monaco.
+        const located = edits
+          .map((edit) => ({
+            from: toOffset({
+              lineNumber: edit.range.startLineNumber,
+              column: edit.range.startColumn,
+            }),
+            to: toOffset({
+              lineNumber: edit.range.endLineNumber,
+              column: edit.range.endColumn,
+            }),
+            text: edit.text,
+          }))
+          .sort((a, b) => b.from - a.from);
+        for (const edit of located) {
+          text = text.slice(0, edit.from) + edit.text + text.slice(edit.to);
+        }
         return true;
       }
     ),
@@ -209,18 +216,54 @@ describe('insertAtCaret', () => {
     expect(fake.text()).toBe('run: ${env.A}');
   });
 
-  it('applies another edit with the token, and keeps the caret after it', () => {
-    const text = 'a: 1\nrun: ';
-    const fake = fakeEditor(text, text.length);
-    insertAtCaret(fake.editor, '${env.A}', {
-      from: 4,
-      to: 4,
-      insert: '\nb: 2',
+  describe('with another edit', () => {
+    const caretAfter = (fake: ReturnType<typeof fakeEditor>, token: string) => {
+      const [position] = fake.raw.setPosition.mock.calls[0]!;
+      const lines = fake.text().split('\n');
+      const before = lines
+        .slice(0, position.lineNumber - 1)
+        .reduce((n, line) => n + line.length + 1, 0);
+      const caret = before + position.column - 1;
+      return fake.text().slice(caret - token.length, caret);
+    };
+
+    it('applies both in one call, with the edit before the caret', () => {
+      const text = 'a: 1\nrun: ';
+      const fake = fakeEditor(text, text.length);
+      insertAtCaret(fake.editor, '${env.A}', {
+        from: 4,
+        to: 4,
+        insert: '\nb: 2',
+      });
+      expect(fake.raw.executeEdits).toHaveBeenCalledTimes(1);
+      expect(fake.text()).toBe('a: 1\nb: 2\nrun: ${env.A}');
+      expect(caretAfter(fake, '${env.A}')).toBe('${env.A}');
     });
-    expect(fake.raw.executeEdits).toHaveBeenCalledTimes(1);
-    const [, edits] = fake.raw.executeEdits.mock.calls[0]!;
-    expect(edits.map((edit) => edit.text)).toContain('\nb: 2');
-    expect(edits.map((edit) => edit.text)).toContain('${env.A}');
+
+    it('applies both in one call, with the edit after the caret', () => {
+      const text = 'run: \na: 1';
+      const fake = fakeEditor(text, 5);
+      insertAtCaret(fake.editor, '${env.A}', {
+        from: text.length,
+        to: text.length,
+        insert: '\nb: 2',
+      });
+      expect(fake.raw.executeEdits).toHaveBeenCalledTimes(1);
+      expect(fake.text()).toBe('run: ${env.A}\na: 1\nb: 2');
+      expect(caretAfter(fake, '${env.A}')).toBe('${env.A}');
+    });
+
+    it('moves the caret by what an earlier edit removes', () => {
+      const text = 'old: long\nrun: ';
+      const fake = fakeEditor(text, text.length);
+      insertAtCaret(fake.editor, '${env.A}', {
+        from: 5,
+        to: 9,
+        insert: 'x',
+      });
+      expect(fake.text()).toBe('old: x\nrun: ${env.A}');
+      expect(caretAfter(fake, '${env.A}')).toBe('${env.A}');
+    });
   });
 
   it('makes one undo step of the edit', () => {

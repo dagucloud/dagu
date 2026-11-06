@@ -3,7 +3,7 @@
 
 import type { Locale } from '@/contexts/UserPreference';
 import { getYamlPathAtOffset } from '@/hooks/useYamlCursorPath';
-import { parseDagDoc } from '../doc/parse';
+import { parseDagDocLenient } from '../doc/parse';
 import type {
   DagDocModel,
   ReferenceCandidate,
@@ -112,7 +112,7 @@ function currentDoc(
   model: DagDocModel | undefined
 ): DagDocModel | undefined {
   if (!model) return undefined;
-  return model.text === text ? model : parseDagDoc(text);
+  return model.text === text ? model : parseDagDocLenient(text);
 }
 
 const RUN_FIELDS = new Set(['run', 'script', 'command']);

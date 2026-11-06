@@ -260,7 +260,6 @@ function toCompletionList(
   model: TextModel,
   result: ReferenceCompletions | null,
   extras: (item: ReferenceCandidate) => {
-    additionalTextEdits?: import('monaco-editor').editor.ISingleEditOperation[];
     command?: import('monaco-editor').languages.Command;
   } = () => ({})
 ): import('monaco-editor').languages.CompletionList {
@@ -400,6 +399,10 @@ export function registerReferenceCompletion(
   modelUri: string
 ): { dispose(): void } {
   const uri = monaco.Uri.parse(modelUri).toString();
+  const unpublished = new WeakMap<
+    import('monaco-editor').languages.CompletionItem,
+    () => import('monaco-editor').editor.ISingleEditOperation[] | undefined
+  >();
   const completion = monaco.languages.registerCompletionItemProvider('yaml', {
     triggerCharacters: TRIGGER_CHARACTERS,
     provideCompletionItems(model, position, context) {
@@ -412,9 +415,20 @@ export function registerReferenceCompletion(
         getState(),
         { explicit: isExplicit(monaco, model, position, context) }
       );
-      return toCompletionList(monaco, model, result, (item) => ({
-        additionalTextEdits: publishTextEdits(model, item),
-      }));
+      const list = toCompletionList(monaco, model, result);
+      result?.items.forEach((item, index) => {
+        const suggestion = list.suggestions[index];
+        if (item.publish && suggestion) {
+          unpublished.set(suggestion, () => publishTextEdits(model, item));
+        }
+      });
+      return list;
+    },
+    // Each edit parses the document, and a long chain of steps offers many, so
+    // an item computes its edit only when the editor is about to need it.
+    resolveCompletionItem(suggestion) {
+      const edits = unpublished.get(suggestion)?.();
+      return edits ? { ...suggestion, additionalTextEdits: edits } : suggestion;
     },
   });
   const hover = registerReferenceHover(monaco, getState, uri);

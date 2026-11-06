@@ -186,6 +186,34 @@ describe('AvailableReferences', () => {
     expect(onInsert).toHaveBeenCalledWith('${steps.a.outputs.stdout}');
   });
 
+  // The group cannot say it for all when one row says something else.
+  it('marks each row when a group also has a publishable row', () => {
+    render(
+      <AvailableReferences
+        candidates={[
+          {
+            token: '${steps.a.outputs.x}',
+            label: 'a.x',
+            group: 'steps',
+            known: 'runtime',
+          },
+          {
+            token: '${steps.b.outputs.stdout}',
+            label: 'b.stdout',
+            group: 'steps',
+            known: 'runtime',
+            publish: { step: 'steps[1]' },
+          },
+        ]}
+      />
+    );
+    const row = (name: string) =>
+      screen.getByRole('button', { name }).parentElement;
+    expect(row('a.x')).toHaveTextContent('Known after run');
+    expect(row('b.stdout')).toHaveTextContent('Published when chosen');
+    expect(screen.getAllByText('Known after run')).toHaveLength(1);
+  });
+
   it('copies the token when no field can take it', async () => {
     const writeText = vi.fn(() => Promise.resolve());
     Object.assign(navigator, { clipboard: { writeText } });

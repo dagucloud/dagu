@@ -8,6 +8,18 @@ import { scopeHttpJq } from '../../testing/fixtures';
 import type { CaretEditor } from '../editorCaret';
 import { YamlReferenceButton } from '../YamlReferenceButton';
 
+const publishing = vi.hoisted(() => ({
+  result: null as null | { ok: false; code: string; message: string },
+}));
+vi.mock('../publishOutput', async (original) => {
+  const actual = await original<typeof import('../publishOutput')>();
+  return {
+    ...actual,
+    publishEdit: (...args: Parameters<typeof actual.publishEdit>) =>
+      publishing.result ?? actual.publishEdit(...args),
+  };
+});
+
 function fakeEditor(text: string, offset: number) {
   const position = { lineNumber: 1, column: 1 };
   const lines = text.slice(0, offset).split('\n');
@@ -126,6 +138,53 @@ describe('YamlReferenceButton', () => {
       '${steps.fetch.outputs.stdout}'
     );
     expect(edits.map((edit) => edit.text).join('\n')).toContain('from: stdout');
+  });
+
+  // A reference to an output that nothing publishes would stay unresolved.
+  it('inserts nothing and says why when the output cannot be published', () => {
+    const doc =
+      'steps:\n  - id: fetch\n    run: echo hi\n  - id: use\n    run: x\n';
+    const { editor, raw } = fakeEditor(doc, doc.lastIndexOf('x'));
+    const base = scopeHttpJq.steps[0]!;
+    publishing.result = {
+      ok: false,
+      code: 'parseError',
+      message: 'Cannot edit',
+    };
+    render(
+      <YamlReferenceButton
+        editorRef={{ current: editor }}
+        getState={() => ({
+          model: parseDagDoc(doc),
+          scope: {
+            ...scopeHttpJq,
+            steps: [
+              {
+                ...base,
+                name: 'fetch',
+                id: 'fetch',
+                stepPath: 'steps[0]',
+                upstream: [],
+                outputs: [],
+              },
+              {
+                ...base,
+                name: 'use',
+                id: 'use',
+                stepPath: 'steps[1]',
+                upstream: ['fetch'],
+                outputs: [],
+              },
+            ],
+          },
+        })}
+      />
+    );
+    fireEvent.click(screen.getByRole('button', { name: 'Insert reference' }));
+    fireEvent.click(screen.getByRole('option', { name: /fetch\.stdout/ }));
+    publishing.result = null;
+    expect(raw.executeEdits).not.toHaveBeenCalled();
+    expect(screen.getByText('Cannot edit')).toBeInTheDocument();
   });
 
   it('gives the focus back to the editor on Escape', () => {

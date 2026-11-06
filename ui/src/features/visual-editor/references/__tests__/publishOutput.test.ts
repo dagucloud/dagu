@@ -92,6 +92,56 @@ describe('publishable outputs', () => {
     ).not.toContainEqual(expect.objectContaining({ group: 'steps' }));
   });
 
+  // The scope comes back from a validation, which can trail the text: the step
+  // at its path may be another one by now.
+  describe('while the scope is behind the document', () => {
+    const offered = (scopeSteps: ScopeStep[], text: string) =>
+      buildReferenceCandidates(scopeOf(...scopeSteps), 'use', {
+        doc: parseDagDoc(text),
+      }).filter((c) => c.group === 'steps');
+    const use = (index: number): ScopeStep => ({
+      ...scopeStep('use', index, 'use'),
+      upstream: ['fetch'],
+    });
+
+    it('offers nothing when another step has the id of the path', () => {
+      const text =
+        'steps:\n  - id: added\n    run: a\n  - id: fetch\n    run: b\n  - id: use\n    run: c\n';
+      expect(offered([scopeStep('fetch', 0, 'fetch'), use(1)], text)).toEqual(
+        []
+      );
+    });
+
+    it('offers nothing when another step has the name of the path', () => {
+      const text =
+        'steps:\n  - name: added\n    run: a\n  - name: fetch\n    run: b\n  - id: use\n    run: c\n';
+      expect(offered([scopeStep('fetch', 0), use(1)], text)).toEqual([]);
+    });
+
+    it('offers nothing when a step with only an id took the place of one with none', () => {
+      const text =
+        'steps:\n  - id: added\n    run: a\n  - name: fetch\n    run: b\n  - id: use\n    run: c\n';
+      expect(offered([scopeStep('fetch', 0), use(1)], text)).toEqual([]);
+    });
+
+    it('offers nothing when the step lost its id', () => {
+      const text =
+        'steps:\n  - name: fetch\n    run: a\n  - id: use\n    run: b\n';
+      expect(offered([scopeStep('fetch', 0, 'fetch'), use(1)], text)).toEqual(
+        []
+      );
+    });
+
+    it('offers nothing when the document does not read', () => {
+      expect(
+        offered(
+          [scopeStep('fetch', 0, 'fetch'), use(1)],
+          'steps: [\n  - id: fetch\n'
+        )
+      ).toEqual([]);
+    });
+  });
+
   describe('for a step without an id', () => {
     const text = (name: string) =>
       `steps:\n  - name: ${name}\n    run: echo\n  - name: use\n    run: echo\n`;
