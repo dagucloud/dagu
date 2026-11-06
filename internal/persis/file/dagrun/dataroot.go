@@ -61,7 +61,7 @@ func NewDataRoot(baseDir, dagName string) DataRoot {
 func NewDataRootWithArtifactDir(baseDir, dagName, artifactDir string) DataRoot {
 	root := DataRoot{baseDir: baseDir, artifactDir: artifactDir}
 	root.prefix = dagDirName(dagName)
-	root.dagRunsDir = filepath.Join(baseDir, root.prefix, "dag-runs")
+	root.dagRunsDir = filepath.Join(baseDir, root.prefix, dagRunsDirName)
 	root.globPattern = filepath.Join(root.dagRunsDir, "*", "*", "*", DAGRunDirPrefix+"*")
 	root.DirLock = dirlock.New(root.dagRunsDir, &dirlock.LockOptions{
 		StaleThreshold: 30 * time.Second,      // Default stale threshold
