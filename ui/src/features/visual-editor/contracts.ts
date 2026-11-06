@@ -1,7 +1,7 @@
 // Copyright (C) 2026 Yota Hamada
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-import type { ReactNode, Ref } from 'react';
+import type { KeyboardEvent, ReactNode, Ref } from 'react';
 import type { components } from '@/api/v1/schema';
 import type { RepeatPolicyView } from '@/components/ui/repeat-summary';
 import type { JSONSchema } from '@/lib/schema-utils';
@@ -233,7 +233,10 @@ export interface ReferenceInputProps {
   disabled?: boolean;
   id?: string;
   'aria-label'?: string;
+  'aria-invalid'?: boolean;
   onBlur?(): void;
+  /** Called for a key that the open list does not use. */
+  onKeyDown?(event: KeyboardEvent): void;
 }
 
 /* Canvas */

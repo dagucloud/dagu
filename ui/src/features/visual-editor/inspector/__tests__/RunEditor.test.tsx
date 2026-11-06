@@ -6,6 +6,11 @@ import { describe, expect, it, vi } from 'vitest';
 import type { StepView } from '../../contracts';
 import { RunEditor } from '../sections/RunEditor';
 import { runStep } from './fixtures';
+import {
+  candidatesSample,
+  referenceList,
+  typeOpenReference,
+} from './referenceHarness';
 
 vi.mock(
   '@monaco-editor/react',
@@ -26,6 +31,7 @@ function setup(step: StepView, readOnly = false) {
       readOnly={readOnly}
       onEdit={onEdit}
       fieldIssues={{}}
+      candidates={candidatesSample}
     />
   );
   return onEdit;
@@ -46,6 +52,12 @@ describe('RunEditor layout', () => {
 });
 
 describe('RunEditor', () => {
+  it('offers references in a one-line command', () => {
+    setup(oneLine);
+    typeOpenReference(screen.getByRole('textbox', { name: 'Command' }));
+    expect(referenceList()).toBeInTheDocument();
+  });
+
   it('edits a one-line command', () => {
     const onEdit = setup(oneLine);
     const input = screen.getByRole('textbox', { name: 'Command' });

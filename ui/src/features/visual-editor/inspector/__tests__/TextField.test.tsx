@@ -5,6 +5,11 @@ import { fireEvent, render, screen } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
 import { issuesSample } from '../../testing/fixtures';
 import { TextField } from '../TextField';
+import {
+  candidatesSample,
+  referenceList,
+  typeOpenReference,
+} from './referenceHarness';
 
 function setup(props: Partial<Parameters<typeof TextField>[0]> = {}) {
   const onCommit = vi.fn();
@@ -100,5 +105,42 @@ describe('TextField', () => {
       'true'
     );
     expect(screen.getByRole('alert')).toHaveTextContent('unknown dependency');
+  });
+});
+
+describe('TextField with candidates', () => {
+  const withCandidates = () => setup({ candidates: candidatesSample });
+
+  it('gives Enter to the open list, then sends the draft', () => {
+    const { input, onCommit } = withCandidates();
+    typeOpenReference(input);
+    expect(referenceList()).toBeInTheDocument();
+    fireEvent.keyDown(input, { key: 'Enter' });
+    expect(input).toHaveValue('${params.API_URL}');
+    expect(referenceList()).not.toBeInTheDocument();
+    expect(onCommit).not.toHaveBeenCalled();
+    fireEvent.keyDown(input, { key: 'Enter' });
+    expect(onCommit).toHaveBeenCalledWith('${params.API_URL}');
+  });
+
+  it('closes the open list on Escape, then restores the value', () => {
+    const { input } = withCandidates();
+    typeOpenReference(input);
+    fireEvent.keyDown(input, { key: 'Escape' });
+    expect(referenceList()).not.toBeInTheDocument();
+    expect(input).toHaveValue('${');
+    fireEvent.keyDown(input, { key: 'Escape' });
+    expect(input).toHaveValue('fetch');
+  });
+
+  it('sends the draft on blur and marks an invalid value', () => {
+    const { input, onCommit } = setup({
+      candidates: candidatesSample,
+      issues: [issuesSample[0]!],
+    });
+    expect(input).toHaveAttribute('aria-invalid', 'true');
+    fireEvent.change(input, { target: { value: 'load' } });
+    fireEvent.blur(input);
+    expect(onCommit).toHaveBeenCalledWith('load');
   });
 });

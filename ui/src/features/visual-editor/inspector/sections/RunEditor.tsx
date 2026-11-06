@@ -87,7 +87,7 @@ function ShellSelect({
  * step.
  */
 export function RunEditor(props: SectionProps): ReactElement {
-  const { step, readOnly, onEdit, fieldIssues } = props;
+  const { step, readOnly, onEdit, fieldIssues, candidates } = props;
   const { ts } = useI18n();
   const classic =
     'run' in step.value
@@ -168,6 +168,7 @@ export function RunEditor(props: SectionProps): ReactElement {
             value={text}
             readOnly={readOnly}
             issues={fieldIssues[key]}
+            candidates={candidates}
             onCommit={commit}
           />
         </div>

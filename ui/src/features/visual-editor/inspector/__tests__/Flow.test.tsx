@@ -6,6 +6,11 @@ import { describe, expect, it } from 'vitest';
 import { FlowSection } from '../sections/Flow';
 import { runStep } from './fixtures';
 import { fieldOp, renderPart } from './flowHarness';
+import {
+  candidatesSample,
+  referenceList,
+  typeOpenReference,
+} from './referenceHarness';
 
 describe('FlowSection', () => {
   it('shows every flow setting of the step', () => {
@@ -20,6 +25,12 @@ describe('FlowSection', () => {
       screen.getByRole('group', { name: 'Environment' })
     ).toBeInTheDocument();
     expect(screen.getByLabelText('Output name')).toHaveValue('artifact');
+  });
+
+  it('offers references in an environment value', () => {
+    renderPart(FlowSection, runStep, { candidates: candidatesSample });
+    typeOpenReference(screen.getByDisplayValue('-mod=mod'));
+    expect(referenceList()).toBeInTheDocument();
   });
 
   it('edits one environment value of a list of maps', () => {
