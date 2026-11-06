@@ -100,6 +100,16 @@ describe('AvailableReferences', () => {
     expect(row).toHaveTextContent('Known after run');
   });
 
+  // The step view tells apart a field that finds things from one that takes a
+  // value: its input column has no field for a value.
+  it('searches with a search box, not a text field', () => {
+    render(<AvailableReferences candidates={candidates} />);
+    expect(
+      screen.getByRole('searchbox', { name: 'Search references' })
+    ).toBeInTheDocument();
+    expect(screen.queryByRole('textbox')).toBeNull();
+  });
+
   it('filters with the search box', () => {
     render(<AvailableReferences candidates={candidates} />);
     fireEvent.change(screen.getByLabelText('Search references'), {

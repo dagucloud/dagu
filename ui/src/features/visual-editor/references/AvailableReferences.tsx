@@ -40,6 +40,7 @@ export function AvailableReferences({
         {ts('Available references')}
       </h4>
       <Input
+        type="search"
         className="h-7 px-2 text-xs"
         value={query}
         placeholder={ts('Search references')}
