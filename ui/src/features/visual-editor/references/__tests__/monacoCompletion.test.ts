@@ -236,6 +236,59 @@ describe('computeReferenceCompletions', () => {
     );
   });
 
+  // Spec 067: a shell can run a model's reply as code, and a run field says so.
+  describe('with a model output', () => {
+    const scope = (): ReferenceScope => {
+      const base = scopeHttpJq.steps[0]!;
+      return {
+        ...scopeHttpJq,
+        steps: [
+          {
+            ...base,
+            name: 'model',
+            id: 'model',
+            stepPath: 'steps[0]',
+            upstream: [],
+            outputs: [
+              {
+                ...base.outputs[0]!,
+                name: 'reply',
+                reference: '${steps.model.outputs.reply}',
+                modelOutput: true,
+              },
+            ],
+          },
+          {
+            ...base,
+            name: 'next',
+            id: 'next',
+            stepPath: 'steps[1]',
+            upstream: ['model'],
+            outputs: [],
+          },
+        ],
+      };
+    };
+    const riskIn = (field: string) => {
+      const text = `steps:\n  - name: model\n    run: a\n  - name: next\n    ${field}\n`;
+      return computeReferenceCompletions(
+        text,
+        at(text, '${', 2),
+        { scope: scope() },
+        { explicit: false }
+      )?.items.find((item) => item.label === 'model.reply')?.shellRisk;
+    };
+
+    it('marks it in a run field', () => {
+      expect(riskIn('run: echo ${')).toBe(true);
+    });
+
+    // The fix is to pass it through env, so env must offer it plainly.
+    it('leaves it unmarked in env', () => {
+      expect(riskIn('env:\n      - REPLY: ${')).toBeUndefined();
+    });
+  });
+
   describe('fields that keep references as literal text', () => {
     const offers = (text: string) =>
       computeReferenceCompletions(
@@ -671,6 +724,25 @@ describe('registerFieldReferenceCompletion', () => {
   });
 
   // ${NAME} is shell syntax in a script, as it is in a `run` field of the YAML.
+  it('explains a value that is not safe in a shell', () => {
+    const { monaco, registerCompletionItemProvider } = fakeMonaco();
+    const model = fakeModel('${');
+    registerFieldReferenceCompletion(
+      monaco,
+      { getModel: () => model },
+      'shell',
+      () => [{ ...candidates[1]!, shellRisk: true }]
+    );
+    const [, provider] = registerCompletionItemProvider.mock
+      .calls[0] as unknown as [string, Provider];
+    const [item] = provider.provideCompletionItems(
+      model,
+      model.getPositionAt(2),
+      { triggerKind: 1 }
+    ).suggestions;
+    expect(item?.documentation).toContain('Pass it through env');
+  });
+
   it('adds the shell note to env items', () => {
     const { complete } = setup('${');
     const [env, param] = complete(2, TRIGGER);

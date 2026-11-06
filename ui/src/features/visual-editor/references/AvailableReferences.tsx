@@ -9,6 +9,8 @@ import {
   filterReferenceCandidates,
   REFERENCE_GROUP_LABELS,
   REFERENCE_GROUP_ORDER,
+  SHELL_RISK_LABEL,
+  SHELL_RISK_NOTE,
 } from './candidates';
 import { ReferenceName, type InsertToken } from './ReferenceName';
 
@@ -88,7 +90,9 @@ export function AvailableReferences({
                     {candidate.detail}
                   </span>
                 )}
-                {candidate.publish ? (
+                {candidate.shellRisk ? (
+                  <Badge text={SHELL_RISK_LABEL} title={SHELL_RISK_NOTE} />
+                ) : candidate.publish ? (
                   <Badge text="Published when chosen" />
                 ) : (
                   candidate.known === 'runtime' &&
@@ -103,10 +107,19 @@ export function AvailableReferences({
   );
 }
 
-function Badge({ text }: { text: string }): ReactElement {
+function Badge({
+  text,
+  title,
+}: {
+  text: string;
+  title?: string;
+}): ReactElement {
   const { ts } = useI18n();
   return (
-    <span className="ml-auto shrink-0 rounded-sm bg-warning/10 px-1 text-[10px] text-warning">
+    <span
+      title={title ? ts(title) : undefined}
+      className="ml-auto shrink-0 rounded-sm bg-warning/10 px-1 text-[10px] text-warning"
+    >
       {ts(text)}
     </span>
   );

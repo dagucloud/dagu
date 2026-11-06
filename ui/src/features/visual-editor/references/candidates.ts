@@ -39,6 +39,11 @@ export const REFERENCE_GROUP_LABELS: Readonly<Record<ReferenceGroup, string>> =
     context: 'Run context',
   };
 
+/** English i18n keys of what the lists say of a value that is not safe in a shell. */
+export const SHELL_RISK_LABEL = 'Not safe in a shell';
+export const SHELL_RISK_NOTE =
+  'A model wrote this text, so a shell can run it as code. Pass it through env and read it from the environment instead.';
+
 type ScopeStep = ReferenceScope['steps'][number];
 type ScopeVariable = ReferenceScope['params'][number];
 type ScopeForeach = NonNullable<ScopeStep['foreach']>;
@@ -289,6 +294,7 @@ function outputCandidates(
       stepName: step.name,
       distance,
       known: step.outputsKnown,
+      ...(output.modelOutput ? { modelOutput: true } : {}),
     })
   );
 }
@@ -382,6 +388,18 @@ export function envEntryCandidates(
       ? [{ ...candidate, group: 'env', alsoRoot: undefined }]
       : [];
   });
+}
+
+/**
+ * The candidates of a field that a shell reads: a model's reply is marked,
+ * because Dagu does not escape it and a shell can run it as code (spec 067).
+ */
+export function forShellField(
+  candidates: ReferenceCandidate[]
+): ReferenceCandidate[] {
+  return candidates.map((candidate) =>
+    candidate.modelOutput ? { ...candidate, shellRisk: true } : candidate
+  );
 }
 
 /** The candidates of a field outside the command, as a build output path exists only there (spec 033). */

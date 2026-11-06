@@ -4,6 +4,7 @@
 import { useState, type ReactElement } from 'react';
 import { useI18n } from '@/i18n/I18nProvider';
 import { I18nText } from '@/i18n/I18nText';
+import { forShellField } from '@/features/visual-editor/references';
 import { cn } from '@/lib/utils';
 import { FieldIssues } from '../FieldIssues';
 import { MonacoField } from '../MonacoField';
@@ -87,7 +88,8 @@ function ShellSelect({
  * step.
  */
 export function RunEditor(props: SectionProps): ReactElement {
-  const { step, readOnly, onEdit, fieldIssues, candidates } = props;
+  const { step, readOnly, onEdit, fieldIssues } = props;
+  const candidates = forShellField(props.candidates);
   const { ts } = useI18n();
   const classic =
     'run' in step.value

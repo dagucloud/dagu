@@ -7,6 +7,7 @@ export {
   declaresRepeat,
   envEntryCandidates,
   foreachFramesAt,
+  forShellField,
   withoutBuildOutputs,
 } from './candidates';
 export { DeclaredOutputsPanel } from './DeclaredOutputsPanel';

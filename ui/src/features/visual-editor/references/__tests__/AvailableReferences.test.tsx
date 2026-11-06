@@ -214,6 +214,26 @@ describe('AvailableReferences', () => {
     expect(screen.getAllByText('Known after run')).toHaveLength(1);
   });
 
+  it('warns of a value that is not safe in a shell', () => {
+    render(
+      <AvailableReferences
+        candidates={[
+          {
+            token: '${steps.model.outputs.reply}',
+            label: 'model.reply',
+            group: 'steps',
+            known: 'runtime',
+            shellRisk: true,
+          },
+        ]}
+      />
+    );
+    expect(screen.getByText('Not safe in a shell')).toHaveAttribute(
+      'title',
+      expect.stringContaining('Pass it through env')
+    );
+  });
+
   it('copies the token when no field can take it', async () => {
     const writeText = vi.fn(() => Promise.resolve());
     Object.assign(navigator, { clipboard: { writeText } });

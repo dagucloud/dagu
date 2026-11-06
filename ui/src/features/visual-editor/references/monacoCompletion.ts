@@ -5,7 +5,12 @@ import { isMap, isScalar, isSeq, parseDocument } from 'yaml';
 import { getYamlPathAtOffset } from '@/hooks/useYamlCursorPath';
 import { translateStatic } from '@/i18n/translateStatic';
 import type { ReferenceCandidate } from '../contracts';
-import { envEntryCandidates, withoutBuildOutputs } from './candidates';
+import {
+  envEntryCandidates,
+  forShellField,
+  SHELL_RISK_NOTE,
+  withoutBuildOutputs,
+} from './candidates';
 import { publishEdit } from './publishOutput';
 import {
   candidatesAt,
@@ -189,10 +194,11 @@ export function computeReferenceCompletions(
   if (!items) {
     return null;
   }
+  const inRunField = isRunFieldPath(cursor.path);
   return {
-    items,
+    items: inRunField ? forShellField(items) : items,
     ...range,
-    inRunField: isRunFieldPath(cursor.path),
+    inRunField,
   };
 }
 
@@ -290,6 +296,9 @@ function toCompletionList(
       (item.group === 'env' || item.group === 'stepEnv')
         ? { documentation: shellNote }
         : {}),
+      ...(item.shellRisk
+        ? { documentation: translateStatic(locale, SHELL_RISK_NOTE) }
+        : {}),
       ...extras(item),
     })),
   };
@@ -379,10 +388,17 @@ export function registerStepYamlCompletion(
       if (!range || isLiteralStepField(below)) {
         return { suggestions: [] };
       }
+      const inRunField = isRunField(below[0]);
+      const items = narrowToStepField(
+        text,
+        path,
+        below,
+        candidatesAtPath(path)
+      );
       return toCompletionList(monaco, model, {
-        items: narrowToStepField(text, path, below, candidatesAtPath(path)),
+        items: inRunField ? forShellField(items) : items,
         ...range,
-        inRunField: isRunField(below[0]),
+        inRunField,
       });
     },
   });

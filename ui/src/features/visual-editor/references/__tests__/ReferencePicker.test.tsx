@@ -121,6 +121,26 @@ describe('ReferencePicker', () => {
     expect(option).not.toHaveTextContent('Known after run');
   });
 
+  it('warns of a value that is not safe in a shell, and says what to do', () => {
+    renderPicker({
+      candidates: [
+        {
+          token: '${steps.model.outputs.reply}',
+          label: 'model.reply',
+          group: 'steps',
+          known: 'runtime',
+          shellRisk: true,
+        },
+      ],
+    });
+    const badge = screen.getByText('Not safe in a shell');
+    expect(badge).toHaveAttribute(
+      'title',
+      expect.stringContaining('Pass it through env')
+    );
+    expect(screen.queryByText('Known after run')).toBeNull();
+  });
+
   it('picks an option on click', () => {
     const { onPick } = renderPicker();
     fireEvent.click(screen.getByRole('option', { name: /HOME/ }));

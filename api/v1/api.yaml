@@ -16118,6 +16118,9 @@ components:
             - action
         type:
           type: string
+        modelOutput:
+          type: boolean
+          description: "A model wrote this value, and its schema does not limit it, so a shell can run it as code."
       required:
         - name
         - reference

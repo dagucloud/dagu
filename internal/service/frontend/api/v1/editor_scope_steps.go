@@ -198,9 +198,10 @@ func stepOutputs(step *ir.Step) []api.ReferenceScopeOutput {
 		}
 		seen[name] = struct{}{}
 		o := api.ReferenceScopeOutput{
-			Name:      name,
-			Reference: "${steps." + step.ID + ".outputs." + name + "}",
-			Source:    source,
+			Name:        name,
+			Reference:   "${steps." + step.ID + ".outputs." + name + "}",
+			Source:      source,
+			ModelOutput: ptrOf(isModelOutput(step, name)),
 		}
 		if typ != "" {
 			o.Type = ptrOf(typ)
@@ -252,6 +253,27 @@ func stepOutputs(step *ir.Step) []api.ReferenceScopeOutput {
 		return strings.Compare(a.Name, b.Name)
 	})
 	return outputs
+}
+
+// isModelOutput reports whether a model wrote the named output of the step, in a
+// form that a shell can run as code (spec 067). It follows the warning of
+// modelOutputInRunWarnings in internal/spec, and a test holds the two together.
+func isModelOutput(step *ir.Step, name string) bool {
+	switch step.ExecutorConfig.Type {
+	case "harness", ir.ExecutorTypeChat, ir.ExecutorTypeAgent:
+	default:
+		return false
+	}
+	properties, _ := step.OutputSchema["properties"].(map[string]any)
+	property, _ := properties[name].(map[string]any)
+	if _, limited := property["enum"]; limited {
+		return false
+	}
+	switch property["type"] {
+	case "boolean", "integer", "number":
+		return false
+	}
+	return true
 }
 
 // publishesRuntimeOutputs reports whether only a run reveals the output names of

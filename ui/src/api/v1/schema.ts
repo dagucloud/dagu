@@ -6313,6 +6313,8 @@ export interface components {
             /** @enum {string} */
             source: ReferenceScopeOutputSource;
             type?: string;
+            /** @description A model wrote this value, and its schema does not limit it, so a shell can run it as code. */
+            modelOutput?: boolean;
         };
         /** @description Persisted outputs of one step in a DAG-run. */
         StepOutputs: {

@@ -236,6 +236,10 @@ export interface ReferenceCandidate {
   alsoRoot?: boolean;
   /** The step does not publish this output yet: a pick must make it. */
   publish?: PublishOnPick;
+  /** A model wrote this value, in a form that a shell can run as code. */
+  modelOutput?: boolean;
+  /** The field is read by a shell, and this value is not safe there. */
+  shellRisk?: boolean;
   /** Called when the author picks this candidate, before the token is inserted. */
   onPicked?(): void;
 }
