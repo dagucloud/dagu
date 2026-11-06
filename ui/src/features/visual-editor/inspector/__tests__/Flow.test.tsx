@@ -13,8 +13,8 @@ import {
 } from './referenceHarness';
 
 describe('FlowSection', () => {
-  // Spec 006: a step env entry reads only the entries before it.
-  it('offers an env row the entries before it only', () => {
+  // Spec 006: a step env entry reads the entries before it and what it inherits.
+  it('hides from an env row the entries from it on', () => {
     const entry = (name: string) => ({
       token: `\${env.${name}}`,
       label: name,
@@ -24,12 +24,21 @@ describe('FlowSection', () => {
     renderPart(
       FlowSection,
       { ...runStep, value: { env: [{ A: '1' }, { B: '2' }, { C: '3' }] } },
-      { candidates: [entry('A'), entry('B'), entry('C'), ...candidatesSample] }
+      {
+        candidates: [
+          entry('A'),
+          entry('B'),
+          entry('C'),
+          entry('INHERITED'),
+          ...candidatesSample,
+        ],
+      }
     );
     const env = screen.getByRole('group', { name: 'Environment' });
     typeOpenReference(within(env).getAllByLabelText('Value')[1]!);
     const list = referenceList();
     expect(list).toHaveTextContent('${env.A}');
+    expect(list).toHaveTextContent('${env.INHERITED}');
     expect(list).toHaveTextContent('${params.API_URL}');
     expect(list).not.toHaveTextContent('${env.B}');
     expect(list).not.toHaveTextContent('${env.C}');

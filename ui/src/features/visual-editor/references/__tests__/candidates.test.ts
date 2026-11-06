@@ -10,6 +10,7 @@ import type { ReferenceScope } from '../../contracts';
 import { scopeHttpJq } from '../../testing/fixtures';
 import {
   buildReferenceCandidates,
+  envEntryCandidates,
   filterReferenceCandidates,
   foreachFramesAt,
   REFERENCE_GROUP_ORDER,
@@ -480,6 +481,50 @@ describe('buildReferenceCandidates variables of the owner step', () => {
     expect(tokensOf(scope, 'a', 'env')).toEqual(['${env.HOME}']);
   });
 
+  describe('in a step env entry', () => {
+    const scope = {
+      ...emptyScope([
+        scopeStep('a', {
+          env: [
+            variable('${env.INHERITED}'),
+            variable('${env.OWN}'),
+            variable('${env.PATH}'),
+          ],
+        }),
+      ]),
+      env: [variable('${env.PATH}'), variable('${env.HOME}')],
+    };
+    const entry = (fromHere: string[]) =>
+      envEntryCandidates(
+        buildReferenceCandidates(scope, 'a'),
+        new Set(fromHere)
+      )
+        .filter((c) => c.group === 'stepEnv' || c.group === 'env')
+        .map((c) => `${c.group}:${c.label}`);
+
+    it('hides a name that the entry or a later one declares', () => {
+      expect(entry(['OWN'])).toEqual([
+        'stepEnv:INHERITED',
+        'stepEnv:PATH',
+        'env:HOME',
+      ]);
+    });
+
+    // PATH: ${env.PATH}:/extra reads the root value.
+    it('offers the root value of the name that the entry declares', () => {
+      expect(entry(['PATH'])).toEqual([
+        'stepEnv:INHERITED',
+        'stepEnv:OWN',
+        'env:PATH',
+        'env:HOME',
+      ]);
+    });
+
+    it('keeps what the entry inherits from defaults', () => {
+      expect(entry([])).toContain('stepEnv:INHERITED');
+    });
+  });
+
   it('lists the build paths of the owner step', () => {
     const scope = emptyScope([
       scopeStep('compile', {
@@ -636,6 +681,11 @@ describe('buildReferenceCandidates in a foreach body', () => {
     expect(all).not.toContain('${foreach.item}');
   });
 
+  it('gives no frame to the `steps` key of a body, which is in no step', () => {
+    expect(foreachFramesAt(each, ['foreach', 'steps'])).toEqual([]);
+  });
+
+  // A new body step is in the text before the scope comes back with it.
   it('still offers the item for a body step the scope does not know yet', () => {
     expect(tokens(['foreach', 'steps', '9', 'run'], 'foreach')).toContain(
       '${foreach.item}'

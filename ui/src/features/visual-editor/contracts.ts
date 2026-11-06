@@ -227,6 +227,8 @@ export interface ReferenceCandidate {
   stepName?: string;
   distance?: number; // 1 = direct parent
   known: 'static' | 'runtime';
+  /** A step env name that the root env has too: the root value until the step sets it. */
+  alsoRoot?: boolean;
 }
 export interface ReferenceInputProps {
   value: string;

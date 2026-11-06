@@ -18,8 +18,8 @@ export interface KeyValueEditorProps {
   onChange(next: Record<string, string>): void;
   /** References that a value can take. */
   candidates: ReferenceCandidate[];
-  /** Narrows the references of a row by the keys of the rows before it. */
-  rowCandidates?(earlierKeys: ReadonlySet<string>): ReferenceCandidate[];
+  /** Narrows the references of a row by the keys of that row and the rows after it. */
+  rowCandidates?(keysFromRow: ReadonlySet<string>): ReferenceCandidate[];
   /** Accessible name of the editor, for example the field label. */
   label?: string;
 }
@@ -141,7 +141,7 @@ export function KeyValueEditor({
               disabled={readOnly}
               candidates={
                 rowCandidates?.(
-                  new Set(rows.slice(0, index).map((r) => r.key.trim()))
+                  new Set(rows.slice(index).map((r) => r.key.trim()))
                 ) ?? candidates
               }
               onChange={(text) => update(index, { value: text })}

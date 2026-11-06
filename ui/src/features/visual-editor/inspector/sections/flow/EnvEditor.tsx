@@ -36,7 +36,7 @@ export function EnvEditor({
           value={env.entries}
           readOnly={readOnly}
           candidates={candidates}
-          rowCandidates={(earlier) => envEntryCandidates(candidates, earlier)}
+          rowCandidates={(fromRow) => envEntryCandidates(candidates, fromRow)}
           onChange={(next) =>
             envOps(step.key, step.value.env, next).forEach((op) => onEdit(op))
           }

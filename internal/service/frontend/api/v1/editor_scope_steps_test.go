@@ -622,6 +622,7 @@ steps:
 		variableReferences(got["list"].Env))
 	// A step inherits defaults too, and the root env is not its own.
 	assert.Equal(t, []string{"${env.FROM_DEFAULTS}"}, variableReferences(got["plain"].Env))
+	require.NotNil(t, got["list"].Env)
 	for _, v := range *got["list"].Env {
 		// Env values can hold secrets: the scope never carries them.
 		assert.Nil(t, v.DefaultValue)
@@ -687,6 +688,20 @@ steps:
 	assert.Equal(t, []string{"${outputs.artifact}"}, variableReferences(got["compile"].PathOutputs))
 	assert.Nil(t, got["plain"].Inputs)
 	assert.Nil(t, got["plain"].PathOutputs)
+}
+
+// A document with build errors can hold a name that no reference can use.
+func TestScopeStepBuildPathsSkipInvalidNames(t *testing.T) {
+	step := &ir.Step{
+		Inputs: []ir.StepInputDeclaration{{Name: ""}, {Name: "two words"}, {Name: "source"}},
+		Outputs: []ir.StepOutputDeclaration{
+			{Name: "", Path: "a"},
+			{Name: "1bad", Path: "b"},
+			{Name: "artifact", Path: "c"},
+		},
+	}
+	assert.Equal(t, []api.ReferenceScopeVariable{{Name: "source", Reference: "${inputs.source}"}}, stepInputs(step))
+	assert.Equal(t, []api.ReferenceScopeVariable{{Name: "artifact", Reference: "${outputs.artifact}"}}, stepPathOutputs(step))
 }
 
 func TestScopeForeachItem(t *testing.T) {

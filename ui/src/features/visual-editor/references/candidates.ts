@@ -224,8 +224,10 @@ export function foreachFramesAt(
       frames.push({ foreach, field });
       break;
     }
-    if (field !== 'steps') break;
-    current = foreach.steps[Number(path[at + 2])];
+    const index = path[at + 2];
+    if (field !== 'steps' || index === undefined) break;
+    // A new body step is in the text before the scope comes back with it.
+    current = foreach.steps[Number(index)];
     frames.push({ foreach, field: 'body', bodyStep: current });
     at += 3;
   }
@@ -331,8 +333,15 @@ export function buildReferenceCandidates(
   const owner = bodyStep ?? top;
   const context = contextCandidates(owner, stepName !== null, options);
   if (!scope) return context;
-  const stepEnv = variableCandidates(owner?.env, 'stepEnv');
-  const ownNames = new Set(stepEnv.map((candidate) => candidate.token));
+  const rootEnv = variableCandidates(scope.env, 'env');
+  const rootTokens = new Set(rootEnv.map((candidate) => candidate.token));
+  const stepEnv = variableCandidates(owner?.env, 'stepEnv').map(
+    (candidate): ReferenceCandidate =>
+      rootTokens.has(candidate.token)
+        ? { ...candidate, alsoRoot: true }
+        : candidate
+  );
+  const stepTokens = new Set(stepEnv.map((candidate) => candidate.token));
   return [
     ...itemCandidates(frames),
     ...variableCandidates(owner?.inputs, 'inputs', 'runtime'),
@@ -342,23 +351,29 @@ export function buildReferenceCandidates(
     ...variableCandidates(scope.params, 'params'),
     ...variableCandidates(scope.consts, 'consts'),
     ...stepEnv,
-    ...variableCandidates(scope.env, 'env').filter(
-      (candidate) => !ownNames.has(candidate.token)
-    ),
+    ...rootEnv.filter((candidate) => !stepTokens.has(candidate.token)),
     ...variableCandidates(scope.secrets, 'secrets'),
     ...context,
   ];
 }
 
-/** The candidates of a step env entry: it reads only the entries before it (spec 006). */
+/**
+ * The candidates of a step env entry (spec 006). `declaredFromHere` holds the
+ * names that this entry and the later ones declare: they do not exist yet, so
+ * such a name reads the root value when the root env has it. Everything else
+ * stays, including what the step inherits from `defaults`.
+ */
 export function envEntryCandidates(
   candidates: ReferenceCandidate[],
-  earlierNames: ReadonlySet<string>
+  declaredFromHere: ReadonlySet<string>
 ): ReferenceCandidate[] {
-  return candidates.filter(
-    (candidate) =>
-      candidate.group !== 'stepEnv' || earlierNames.has(candidate.label)
-  );
+  return candidates.flatMap((candidate): ReferenceCandidate[] => {
+    if (candidate.group !== 'stepEnv' || !declaredFromHere.has(candidate.label))
+      return [candidate];
+    return candidate.alsoRoot
+      ? [{ ...candidate, group: 'env', alsoRoot: undefined }]
+      : [];
+  });
 }
 
 /** The candidates of a field outside the command, as a build output path exists only there (spec 033). */

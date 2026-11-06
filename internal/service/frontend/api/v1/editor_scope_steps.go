@@ -84,11 +84,14 @@ func nonEmpty(vars []api.ReferenceScopeVariable) *[]api.ReferenceScopeVariable {
 	return &vars
 }
 
-// stepInputs lists the build inputs of the step (spec 033).
+// stepInputs lists the build inputs of the step (spec 033). A document with
+// build errors can hold a name that no reference can use: it is left out.
 func stepInputs(step *ir.Step) []api.ReferenceScopeVariable {
-	inputs := make([]api.ReferenceScopeVariable, 0, len(step.Inputs))
+	inputs := []api.ReferenceScopeVariable{}
 	for _, input := range step.Inputs {
-		inputs = append(inputs, api.ReferenceScopeVariable{Name: input.Name, Reference: "${inputs." + input.Name + "}"})
+		if outputNamePattern.MatchString(input.Name) {
+			inputs = append(inputs, api.ReferenceScopeVariable{Name: input.Name, Reference: "${inputs." + input.Name + "}"})
+		}
 	}
 	return inputs
 }
@@ -98,7 +101,7 @@ func stepInputs(step *ir.Step) []api.ReferenceScopeVariable {
 func stepPathOutputs(step *ir.Step) []api.ReferenceScopeVariable {
 	outputs := []api.ReferenceScopeVariable{}
 	for _, output := range step.Outputs {
-		if output.Path != "" {
+		if output.Path != "" && outputNamePattern.MatchString(output.Name) {
 			outputs = append(outputs, api.ReferenceScopeVariable{Name: output.Name, Reference: "${outputs." + output.Name + "}"})
 		}
 	}

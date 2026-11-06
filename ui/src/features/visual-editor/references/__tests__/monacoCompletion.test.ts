@@ -358,7 +358,7 @@ describe('computeReferenceCompletions', () => {
   describe('in a step env entry', () => {
     const scope = (): ReferenceScope => ({
       ...scopeHttpJq,
-      env: [],
+      env: [{ name: 'SECOND', reference: '${env.SECOND}' }],
       steps: [
         {
           ...scopeHttpJq.steps[0]!,
@@ -367,37 +367,50 @@ describe('computeReferenceCompletions', () => {
           stepPath: 'steps[0]',
           upstream: [],
           outputs: [],
-          env: ['FIRST', 'SECOND', 'THIRD'].map((name) => ({
+          // INHERITED comes from `defaults`, so the entry does not list it.
+          env: ['FIRST', 'INHERITED', 'SECOND', 'THIRD'].map((name) => ({
             name,
             reference: `\${env.${name}}`,
           })),
         },
       ],
     });
-    const ownEnv = (text: string) =>
+    const envTokens = (text: string) =>
       computeReferenceCompletions(
         text,
         at(text, '${', 2),
         { scope: scope() },
         { explicit: false }
       )
-        ?.items.filter((item) => item.group === 'stepEnv')
-        .map((item) => item.label);
+        ?.items.filter(
+          (item) => item.group === 'stepEnv' || item.group === 'env'
+        )
+        .map((item) => `${item.group}:${item.label}`);
 
-    // Spec 006: a step env entry reads only the entries before it.
+    // Spec 006: a step env entry reads the entries before it, what it inherits
+    // from `defaults`, and the root value of a name that it declares itself.
     it.each([
       ['a list of maps', '- FIRST: 1\n      - SECOND: ${\n      - THIRD: 3'],
       ['a list of strings', '- FIRST=1\n      - SECOND=${\n      - THIRD=3'],
       ['a map', 'FIRST: 1\n      SECOND: ${\n      THIRD: 3'],
-    ])('offers only the earlier entries in %s', (_form, entries) => {
+    ])('offers what the entry can read in %s', (_form, entries) => {
       const text = `steps:\n  - name: a\n    env:\n      ${entries}\n    run: x\n`;
-      expect(ownEnv(text)).toEqual(['FIRST']);
+      expect(envTokens(text)).toEqual([
+        'stepEnv:FIRST',
+        'stepEnv:INHERITED',
+        'env:SECOND',
+      ]);
     });
 
     it('offers every entry outside the env', () => {
       const text =
         'steps:\n  - name: a\n    env:\n      - FIRST: 1\n    run: echo ${\n';
-      expect(ownEnv(text)).toEqual(['FIRST', 'SECOND', 'THIRD']);
+      expect(envTokens(text)).toEqual([
+        'stepEnv:FIRST',
+        'stepEnv:INHERITED',
+        'stepEnv:SECOND',
+        'stepEnv:THIRD',
+      ]);
     });
   });
 
@@ -726,7 +739,7 @@ describe('registerStepYamlCompletion', () => {
     expect(complete(at(text, '${', 2))).toEqual([]);
   });
 
-  it('offers an env entry only the entries before it', () => {
+  it('hides from an env entry the entries from it on', () => {
     const text = 'env:\n  - A: 1\n  - B: ${\n';
     const { complete } = setup(text);
     const tokens = complete(at(text, '${', 2)).map((item) => item.insertText);

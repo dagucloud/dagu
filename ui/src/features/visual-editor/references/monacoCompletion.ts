@@ -100,22 +100,22 @@ function constNamesBefore(text: string, index: number): Set<string> {
   );
 }
 
-// Names of the step env entries before `entry`, the list index or map key that
-// the field has below the env at `envPath`.
-function envNamesBefore(
+// Names that the step env at `envPath` declares from `entry` on: `entry` is the
+// list index or map key of the field below that env.
+function envNamesFrom(
   text: string,
   envPath: string[],
   entry: string
 ): Set<string> {
   const env = parseDocument(text).getIn(envPath);
   if (isSeq(env)) {
-    return new Set(env.items.slice(0, Number(entry)).flatMap(entryNames));
+    return new Set(env.items.slice(Number(entry)).flatMap(entryNames));
   }
   if (!isMap(env)) return new Set();
   const names = env.items.flatMap(({ key }) =>
     isScalar(key) ? [String(key.value)] : []
   );
-  return new Set(names.slice(0, names.indexOf(entry)));
+  return new Set(names.slice(Math.max(0, names.indexOf(entry))));
 }
 
 // The candidates that resolve in a step field. `path` is its path in `text`,
@@ -130,7 +130,7 @@ function narrowToStepField(
     const envPath = path.slice(0, path.length - below.length + 1);
     return envEntryCandidates(
       items,
-      envNamesBefore(text, envPath, below[1] ?? '')
+      envNamesFrom(text, envPath, below[1] ?? '')
     );
   }
   return isCommandField(below[0]) ? items : withoutBuildOutputs(items);
