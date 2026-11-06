@@ -9,6 +9,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/dagucloud/dagu/v2/internal/executor/registry"
 	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/runtime"
 	"github.com/stretchr/testify/assert"
@@ -309,4 +310,20 @@ func TestCreateClientWithRetry_ConfigErrorFailsAtOnce(t *testing.T) {
 	defer cancel()
 	_, err = createClientWithRetry(ctx, cfg)
 	require.ErrorContains(t, err, "failed to read CA certificate")
+}
+
+// An unknown with key must fail validation instead of being silently dropped
+// by the redis executor (#3440). host/key/command remain accepted.
+func TestRedisRejectsUnknownWithKey(t *testing.T) {
+	t.Parallel()
+
+	err := registry.ValidateExecutorConfig("redis", map[string]any{
+		"host": "127.0.0.1", "hoost": "typo",
+	})
+	require.Error(t, err)
+	require.Contains(t, err.Error(), `did you mean "host" instead of "hoost"?`)
+
+	require.NoError(t, registry.ValidateExecutorConfig("redis", map[string]any{
+		"host": "127.0.0.1", "port": 6379, "command": "GET", "key": "mykey",
+	}))
 }
