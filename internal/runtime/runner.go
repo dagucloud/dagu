@@ -272,12 +272,10 @@ func (r *Runner) Run(ctx context.Context, plan *Plan, progressCh chan ProgressUp
 
 	// A step retry can keep the failed or aborted upstream of a step it selected,
 	// which then never runs and records no failure. This waits for every step to
-	// end, since a repeating step clears the last error. The run fails outright,
-	// since a failure allowed to continue would otherwise read as partial success.
+	// end, since a repeating step clears the last error.
 	if !r.isError() {
 		if err := upstreamBlock(plan); err != nil {
 			r.setLastError(err)
-			r.setFailed()
 		}
 	}
 
@@ -1521,18 +1519,21 @@ func (r *Runner) isFailed() bool {
 func upstreamBlock(plan *Plan) error {
 	var block error
 	for _, node := range plan.Nodes() {
-		if !plan.inRetrySelection(node) {
+		if !blockedByUpstream(plan, node) {
 			continue
 		}
 		err := node.State().Error
 		if errors.Is(err, ErrUpstreamFailed) {
 			return err
 		}
-		if errors.Is(err, ErrUpstreamAborted) {
-			block = err
-		}
+		block = err
 	}
 	return block
+}
+
+func blockedByUpstream(plan *Plan, node *Node) bool {
+	err := node.State().Error
+	return plan.inRetrySelection(node) && (errors.Is(err, ErrUpstreamFailed) || errors.Is(err, ErrUpstreamAborted))
 }
 
 // settleBlockedNodes ends every node that the restored state of a retry blocks
@@ -1788,6 +1789,10 @@ func (r *Runner) isPartialSuccess(ctx context.Context, p *Plan) bool {
 				// This disqualifies the DAG from being partial success
 				return false
 			}
+		}
+		// A step the plan set out to run never ran, so its work is not done.
+		if blockedByUpstream(p, node) {
+			return false
 		}
 	}
 
