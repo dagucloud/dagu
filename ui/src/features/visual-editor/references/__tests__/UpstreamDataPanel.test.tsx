@@ -139,6 +139,20 @@ describe('UpstreamDataPanel available references', () => {
     expect(within(outputs).queryByText(`${topLevel}.body`)).toBeNull();
   });
 
+  // The tree has no row for an output that the step does not publish yet.
+  it('keeps an output that a pick would publish', () => {
+    renderPanel({
+      references: [
+        {
+          ...references[1]!,
+          label: `${topLevel}.stdout`,
+          publish: { step: 'steps[0]' },
+        },
+      ],
+    });
+    expect(screen.getByText(`${topLevel}.stdout`)).toBeInTheDocument();
+  });
+
   it('shows no list without references', () => {
     renderPanel();
     expect(screen.queryByText('Available references')).toBeNull();

@@ -18,6 +18,7 @@ import {
   type CaretEditor,
 } from './editorCaret';
 import type { ReferenceEditorState } from './editorState';
+import { publishEdit } from './publishOutput';
 import { ReferencePicker } from './ReferencePicker';
 
 export interface YamlReferenceButtonProps {
@@ -39,6 +40,7 @@ export function YamlReferenceButton({
   const listboxId = `${useId()}-references`;
   const wrapperRef = useRef<HTMLDivElement>(null);
   const [items, setItems] = useState<ReferenceCandidate[] | null>(null);
+  const [failure, setFailure] = useState<string | null>(null);
   const editor = () => editorRef.current as CaretEditor | null;
 
   const close = () => {
@@ -71,6 +73,7 @@ export function YamlReferenceButton({
             return;
           }
           const current = editor();
+          setFailure(null);
           setItems(
             current ? (referencesAtCaret(current, getState()) ?? []) : []
           );
@@ -84,9 +87,25 @@ export function YamlReferenceButton({
           candidates={items}
           showSearch
           align="end"
-          emptyMessage={ts('Put the cursor in a field value')}
+          emptyMessage={
+            failure !== null
+              ? ts(failure)
+              : ts('Put the cursor in a field value')
+          }
           onPick={(candidate) => {
-            insertAtCaret(editor(), candidate.token);
+            const current = editor();
+            const text = current?.getModel()?.getValue();
+            const published =
+              candidate.publish && text !== undefined
+                ? publishEdit(text, candidate.publish)
+                : null;
+            // A reference to an output that nothing publishes stays unresolved.
+            if (published && !published.ok) {
+              setFailure(published.message);
+              setItems([]);
+              return;
+            }
+            insertAtCaret(current, candidate.token, published?.edits[0]);
             setItems(null);
           }}
           onClose={close}

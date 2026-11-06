@@ -162,6 +162,58 @@ describe('AvailableReferences', () => {
     consoleError.mockRestore();
   });
 
+  it('tells a candidate that it was picked, and says what a pick does', () => {
+    const onPicked = vi.fn();
+    const onInsert = vi.fn(() => true);
+    render(
+      <AvailableReferences
+        candidates={[
+          {
+            token: '${steps.a.outputs.stdout}',
+            label: 'a.stdout',
+            group: 'steps',
+            known: 'runtime',
+            publish: { step: 'steps[0]' },
+            onPicked,
+          },
+        ]}
+        onInsert={onInsert}
+      />
+    );
+    expect(screen.getByText('Published when chosen')).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'a.stdout' }));
+    expect(onPicked).toHaveBeenCalledTimes(1);
+    expect(onInsert).toHaveBeenCalledWith('${steps.a.outputs.stdout}');
+  });
+
+  // The group cannot say it for all when one row says something else.
+  it('marks each row when a group also has a publishable row', () => {
+    render(
+      <AvailableReferences
+        candidates={[
+          {
+            token: '${steps.a.outputs.x}',
+            label: 'a.x',
+            group: 'steps',
+            known: 'runtime',
+          },
+          {
+            token: '${steps.b.outputs.stdout}',
+            label: 'b.stdout',
+            group: 'steps',
+            known: 'runtime',
+            publish: { step: 'steps[1]' },
+          },
+        ]}
+      />
+    );
+    const row = (name: string) =>
+      screen.getByRole('button', { name }).parentElement;
+    expect(row('a.x')).toHaveTextContent('Known after run');
+    expect(row('b.stdout')).toHaveTextContent('Published when chosen');
+    expect(screen.getAllByText('Known after run')).toHaveLength(1);
+  });
+
   it('copies the token when no field can take it', async () => {
     const writeText = vi.fn(() => Promise.resolve());
     Object.assign(navigator, { clipboard: { writeText } });

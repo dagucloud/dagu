@@ -8,6 +8,9 @@ export const completionProviders: { language: string; disposed: boolean }[] =
   [];
 
 const monacoStub = {
+  editor: {
+    registerCommand: () => ({ dispose() {} }),
+  },
   languages: {
     registerCompletionItemProvider(language: string) {
       const entry = { language, disposed: false };

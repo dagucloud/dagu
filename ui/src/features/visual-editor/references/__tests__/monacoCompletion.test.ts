@@ -11,7 +11,7 @@ import {
   yamlMapSteps,
 } from '../../testing/fixtures';
 import type { ReferenceCandidate, ReferenceScope } from '../../contracts';
-import { parseDagDoc } from '../../doc/parse';
+import { parseDagDoc, parseDagDocLenient } from '../../doc/parse';
 import { editorLocale, findOwningStep } from '../editorState';
 import {
   computeReferenceCompletions,
@@ -537,7 +537,9 @@ function fakeMonaco() {
   const registerCompletionItemProvider = vi.fn(() => ({
     dispose: disposeCompletion,
   }));
+  const registerCommand = vi.fn(() => ({ dispose: vi.fn() }));
   const monaco = {
+    editor: { registerCommand },
     languages: {
       registerCompletionItemProvider,
       registerHoverProvider: vi.fn(() => ({ dispose: vi.fn() })),
@@ -549,12 +551,22 @@ function fakeMonaco() {
   return {
     monaco: monaco as unknown as typeof import('monaco-editor'),
     registerCompletionItemProvider,
+    registerCommand,
     disposeCompletion,
   };
 }
 
 type Provider = {
   triggerCharacters: string[];
+  resolveCompletionItem?(
+    item: Provider['provideCompletionItems'] extends (...args: never[]) => {
+      suggestions: (infer T)[];
+    }
+      ? T
+      : never
+  ): {
+    additionalTextEdits?: { text: string; range: { endLineNumber: number } }[];
+  };
   provideCompletionItems(
     model: ReturnType<typeof fakeModel>,
     position: { lineNumber: number; column: number },
@@ -568,6 +580,11 @@ type Provider = {
       filterText: string;
       sortText: string;
       documentation?: string;
+      additionalTextEdits?: {
+        text: string;
+        range: { endLineNumber: number };
+      }[];
+      command?: { id: string; arguments?: unknown[] };
       range: {
         startLineNumber: number;
         startColumn: number;
@@ -659,6 +676,36 @@ describe('registerFieldReferenceCompletion', () => {
     const [env, param] = complete(2, TRIGGER);
     expect(env?.documentation).toContain('${env.NAME}');
     expect(param?.documentation).toBeUndefined();
+  });
+
+  // A pick in a form field edits another step through the host.
+  it('tells the candidate that it was picked, through a command', () => {
+    const onPicked = vi.fn();
+    const { monaco, registerCompletionItemProvider, registerCommand } =
+      fakeMonaco();
+    const model = fakeModel('${');
+    const handle = registerFieldReferenceCompletion(
+      monaco,
+      { getModel: () => model },
+      'shell',
+      () => [{ ...candidates[0]!, onPicked }, candidates[1]!]
+    );
+    const [, provider] = registerCompletionItemProvider.mock
+      .calls[0] as unknown as [string, Provider];
+    const [first, second] = provider.provideCompletionItems(
+      model,
+      model.getPositionAt(2),
+      { triggerKind: 1 }
+    ).suggestions;
+    expect(second?.command).toBeUndefined();
+    const [id, run] = registerCommand.mock.calls[0] as unknown as [
+      string,
+      (accessor: unknown, token: string) => void,
+    ];
+    expect(first?.command?.id).toBe(id);
+    run(null, first?.command?.arguments?.[0] as string);
+    expect(onPicked).toHaveBeenCalledTimes(1);
+    handle.dispose();
   });
 
   // Monaco providers are global to a language: other fields must not get these.
@@ -845,6 +892,169 @@ describe('registerReferenceCompletion', () => {
     };
     expect(items(MODEL_URI)).not.toEqual([]);
     expect(items('inmemory://other')).toEqual([]);
+  });
+
+  // A broken step must not take the list of the readable steps with it, as the
+  // model of the editor keeps them.
+  it('reads a stale model leniently, keeping the readable steps', () => {
+    const typed = [
+      'steps:',
+      '  - id: fetch',
+      '    run: echo hi',
+      '  - id: use',
+      '    depends: fetch',
+      '    run: echo ${',
+      '  - id: broken',
+      '    run: [',
+      '',
+    ].join('\n');
+    const base = scopeHttpJq.steps[0]!;
+    const scope: ReferenceScope = {
+      ...scopeHttpJq,
+      steps: ['fetch', 'use', 'broken'].map((name, index) => ({
+        ...base,
+        name,
+        id: name,
+        stepPath: `steps[${index}]`,
+        upstream: name === 'use' ? ['fetch'] : [],
+        outputs: [],
+      })),
+    };
+    const { monaco, registerCompletionItemProvider } = fakeMonaco();
+    registerReferenceCompletion(
+      monaco,
+      () => ({ scope, model: parseDagDocLenient('steps: []\n') }),
+      MODEL_URI
+    );
+    const [, provider] = registerCompletionItemProvider.mock
+      .calls[0] as unknown as [string, Provider];
+    const model = fakeModel(typed);
+    const items = provider.provideCompletionItems(
+      model,
+      model.getPositionAt(at(typed, '${', 2)),
+      { triggerKind: 1 }
+    ).suggestions;
+    expect(items.map((item) => item.insertText)).toContain(
+      '${steps.fetch.outputs.stdout}'
+    );
+  });
+
+  // The provider runs on the keystroke, before the parsed model has that text.
+  it('offers a publishable output while the model is behind the text', () => {
+    const typed = [
+      'steps:',
+      '  - id: fetch',
+      '    run: echo hi',
+      '  - id: use',
+      '    depends: fetch',
+      '    run: echo ${',
+      '',
+    ].join('\n');
+    const base = scopeHttpJq.steps[0]!;
+    const scope: ReferenceScope = {
+      ...scopeHttpJq,
+      steps: [
+        {
+          ...base,
+          name: 'fetch',
+          id: 'fetch',
+          stepPath: 'steps[0]',
+          upstream: [],
+          outputs: [],
+        },
+        {
+          ...base,
+          name: 'use',
+          id: 'use',
+          stepPath: 'steps[1]',
+          upstream: ['fetch'],
+          outputs: [],
+        },
+      ],
+    };
+    const { monaco, registerCompletionItemProvider } = fakeMonaco();
+    registerReferenceCompletion(
+      monaco,
+      () => ({ scope, model: parseDagDoc(typed.replace(' ${', '')) }),
+      MODEL_URI
+    );
+    const [, provider] = registerCompletionItemProvider.mock
+      .calls[0] as unknown as [string, Provider];
+    const model = fakeModel(typed);
+    const items = provider.provideCompletionItems(
+      model,
+      model.getPositionAt(at(typed, '${', 2)),
+      { triggerKind: 1 }
+    ).suggestions;
+    expect(items.map((item) => item.insertText)).toContain(
+      '${steps.fetch.outputs.stdout}'
+    );
+  });
+
+  // Both edits come as one, so one undo takes both back.
+  it('publishes the output of an upstream step with the same pick', () => {
+    const text = [
+      'steps:',
+      '  - id: fetch',
+      '    run: echo hi',
+      '  - id: use',
+      '    depends: fetch',
+      '    run: echo ${',
+      '',
+    ].join('\n');
+    const base = scopeHttpJq.steps[0]!;
+    const scope: ReferenceScope = {
+      ...scopeHttpJq,
+      steps: [
+        {
+          ...base,
+          name: 'fetch',
+          id: 'fetch',
+          stepPath: 'steps[0]',
+          upstream: [],
+          outputs: [],
+        },
+        {
+          ...base,
+          name: 'use',
+          id: 'use',
+          stepPath: 'steps[1]',
+          upstream: ['fetch'],
+          outputs: [],
+        },
+      ],
+    };
+    const { monaco, registerCompletionItemProvider } = fakeMonaco();
+    registerReferenceCompletion(
+      monaco,
+      () => ({ scope, model: parseDagDoc(text) }),
+      MODEL_URI
+    );
+    const [, provider] = registerCompletionItemProvider.mock
+      .calls[0] as unknown as [string, Provider];
+    const model = fakeModel(text);
+    const items = provider.provideCompletionItems(
+      model,
+      model.getPositionAt(at(text, '${', 2)),
+      { triggerKind: 1 }
+    ).suggestions;
+    const item = items.find(
+      (s) => s.insertText === '${steps.fetch.outputs.stdout}'
+    );
+    expect(item?.detail).toContain('Published when chosen');
+    // Each edit parses the document, so a list computes none until it is needed.
+    expect(item?.additionalTextEdits).toBeUndefined();
+    const resolved = provider.resolveCompletionItem?.(item!);
+    expect(resolved?.additionalTextEdits).toHaveLength(1);
+    expect(resolved?.additionalTextEdits?.[0]?.text).toContain('from: stdout');
+    // Above the line of the caret, so that the two edits do not overlap.
+    expect(
+      resolved?.additionalTextEdits?.[0]?.range.endLineNumber
+    ).toBeLessThan(6);
+    const plain = items.find((s) => s.insertText === '${params.API_URL}');
+    expect(
+      provider.resolveCompletionItem?.(plain!)?.additionalTextEdits
+    ).toBeUndefined();
   });
 
   it('builds items in candidate order for an explicit request', () => {

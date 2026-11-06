@@ -3,6 +3,7 @@
 
 import type { Locale } from '@/contexts/UserPreference';
 import { getYamlPathAtOffset } from '@/hooks/useYamlCursorPath';
+import { parseDagDocLenient } from '../doc/parse';
 import type {
   DagDocModel,
   ReferenceCandidate,
@@ -100,7 +101,18 @@ export function candidatesAt(
   return buildReferenceCandidates(state.scope, owner?.name ?? null, {
     repeats: frames.length === 0 && declaresRepeat(view),
     frames,
+    doc: currentDoc(text, state.model),
   });
+}
+
+// The model trails the text by a parse, and a completion runs on the keystroke.
+// A state without a model is one where nothing can edit.
+function currentDoc(
+  text: string,
+  model: DagDocModel | undefined
+): DagDocModel | undefined {
+  if (!model) return undefined;
+  return model.text === text ? model : parseDagDocLenient(text);
 }
 
 const RUN_FIELDS = new Set(['run', 'script', 'command']);
