@@ -5076,7 +5076,7 @@ func buildArtifactPreview(archiveDir, relPath string) (api.ArtifactPreviewRespon
 		return api.ArtifactPreviewResponse{}, err
 	}
 	mimeType := detectArtifactMimeType(absPath, sniffBytes)
-	kind := artifactPreviewKind(relPath, mimeType)
+	kind := artifactPreviewKind(relPath, mimeType, sniffBytes)
 	previewLimit := artifactPreviewLimit(kind)
 	tooLarge := previewLimit > 0 && info.Size() > previewLimit
 
@@ -5149,7 +5149,16 @@ func detectArtifactMimeType(path string, previewBytes []byte) string {
 	return http.DetectContentType(previewBytes)
 }
 
-func artifactPreviewKind(path, mimeType string) api.ArtifactPreviewKind {
+// zipMagic is the leading four bytes of a zip container (PK\x03\x04, PK\x05\x06,
+// or PK\x07\x08). Office Open XML packages and other zip-based artifacts carry
+// it, so a file whose type merely mentions "xml" is not text when its content
+// is a zip archive.
+var zipMagic = []byte("PK\x03\x04")
+
+func artifactPreviewKind(path, mimeType string, previewBytes []byte) api.ArtifactPreviewKind {
+	if bytes.HasPrefix(previewBytes, zipMagic) {
+		return api.ArtifactPreviewKindBinary
+	}
 	switch strings.ToLower(filepath.Ext(path)) {
 	case ".md", ".markdown", ".mdown", ".mkd":
 		return api.ArtifactPreviewKindMarkdown
