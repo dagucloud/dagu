@@ -1018,3 +1018,25 @@ func TestStartCommand_OtherDAGRunsNextToActiveRun(t *testing.T) {
 	th.RunCommand(t, cmd.Enqueue(), test.CmdTest{Args: []string{"enqueue", "--run-id=queued", dag.Location}})
 	th.RunCommand(t, cmd.Start(), test.CmdTest{Args: []string{"start", "--run-id=next", dag.Location}})
 }
+
+// The scheduler follows the current definition, so a run whose snapshot predates
+// the restart_policy is refused like any other.
+func TestStartCommand_ServiceDAGFollowsCurrentDefinition(t *testing.T) {
+	t.Parallel()
+
+	const steps = `steps:
+  - name: "1"
+    run: "echo ok"
+`
+	th := test.SetupCommand(t)
+	dag := th.DAG(t, steps)
+	th.RunCommand(t, cmd.Start(), test.CmdTest{Args: []string{"start", "--run-id=ended", dag.Location}})
+
+	require.NoError(t, os.WriteFile(dag.Location, []byte("restart_policy: always\nrestart_wait_sec: 1\n"+steps), 0600))
+	th.RunCommand(t, cmd.Enqueue(), test.CmdTest{Args: []string{"enqueue", "--run-id=queued", dag.Location}})
+
+	err := th.RunCommandWithError(t, cmd.Retry(), test.CmdTest{Args: []string{"retry", "--run-id=ended", dag.Name}})
+	require.ErrorContains(t, err, "restart_policy")
+	err = th.RunCommandWithError(t, cmd.Start(), test.CmdTest{Args: []string{"start", "--from-run-id=ended", dag.Name}})
+	require.ErrorContains(t, err, "restart_policy")
+}

@@ -111,6 +111,18 @@ func (a *API) checkServiceRun(ctx context.Context, dag *ir.DAG, dagRunID string)
 	return nil
 }
 
+// checkServiceRunOfDefinition is checkServiceRun for a DAG from a run snapshot or
+// a request. Its current definition, which the scheduler follows, decides whether
+// it is a service, and the given DAG once the definition is gone.
+func (a *API) checkServiceRunOfDefinition(ctx context.Context, dag *ir.DAG, dagRunID string) error {
+	if a.dagRepository != nil {
+		if current, err := a.dagRepository.GetMetadata(ctx, dag.Name); err == nil {
+			dag = current
+		}
+	}
+	return a.checkServiceRun(ctx, dag, dagRunID)
+}
+
 // ValidateDAGSpec implements api.StrictServerInterface.
 func (a *API) ValidateDAGSpec(ctx context.Context, request api.ValidateDAGSpecRequestObject) (api.ValidateDAGSpecResponseObject, error) {
 	if request.Body == nil {

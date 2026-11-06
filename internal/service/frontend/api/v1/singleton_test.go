@@ -215,3 +215,49 @@ steps:
 		})
 	}
 }
+
+// The scheduler follows the current definition, so neither a run whose snapshot
+// predates the restart_policy nor a spec in the request gets around it.
+func TestServiceDAGFollowsCurrentDefinition(t *testing.T) {
+	server := test.SetupServer(t)
+
+	const name = "service_dag_later"
+	const steps = `steps:
+  - name: main
+    run: echo ok
+`
+	plain := steps
+	server.Client().Post("/api/v1/dags", api.CreateNewDAGJSONRequestBody{Name: name, Spec: &plain}).
+		ExpectStatus(http.StatusCreated).Send(t)
+
+	var started api.ExecuteDAG200JSONResponse
+	server.Client().Post("/api/v1/dags/"+name+"/start", api.ExecuteDAGJSONRequestBody{}).
+		ExpectStatus(http.StatusOK).Send(t).Unmarshal(t, &started)
+	ended := started.DagRunId
+	waitForDAGRunStatus(t, server, name, ended, 10*time.Second, func(status *ir.DAGRunStatus) bool {
+		return status.Status == ir.Succeeded
+	})
+
+	server.Client().Put("/api/v1/dags/"+name+"/spec", api.UpdateDAGSpecJSONRequestBody{
+		Spec: "restart_policy: always\nrestart_wait_sec: 1\n" + steps,
+	}).ExpectStatus(http.StatusOK).Send(t)
+	server.Client().Post("/api/v1/dags/"+name+"/enqueue", api.EnqueueDAGDAGRunJSONRequestBody{}).
+		ExpectStatus(http.StatusOK).Send(t)
+
+	specName := name
+	for _, tt := range []struct {
+		name string
+		path string
+		body any
+	}{
+		{"Retry", "/api/v1/dag-runs/" + name + "/" + ended + "/retry", api.RetryDAGRunJSONRequestBody{DagRunId: ended}},
+		{"Reschedule", "/api/v1/dag-runs/" + name + "/" + ended + "/reschedule", api.RescheduleDAGRunJSONRequestBody{}},
+		{"EditRetry", "/api/v1/dag-runs/" + name + "/" + ended + "/edit-retry", api.EditRetryDAGRunJSONRequestBody{Spec: "name: " + name + "\n" + steps}},
+		{"StartFromSpec", "/api/v1/dag-runs", api.ExecuteDAGRunFromSpecJSONRequestBody{Spec: steps, Name: &specName}},
+		{"EnqueueFromSpec", "/api/v1/dag-runs/enqueue", api.EnqueueDAGRunFromSpecJSONRequestBody{Spec: steps, Name: &specName}},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			server.Client().Post(tt.path, tt.body).ExpectStatus(http.StatusConflict).Send(t)
+		})
+	}
+}

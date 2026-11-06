@@ -106,12 +106,16 @@ or whose `restart_policy` was set after its latest run started.
 ### Runs Started by Hand
 
 A service DAG has one run at a time. While its latest run is running, queued or
-waiting, the `start`, `enqueue` and `retry` commands, their API requests and MCP
-actions, and webhooks fail without starting a run. With no active run they work,
-which is how a stopped service comes back.
+waiting, or has not started for up to 5 minutes, the `start`, `enqueue` and
+`retry` commands, their API requests and MCP actions, and webhooks fail without
+starting a run. With no active run they work, which is how a stopped service
+comes back.
 
-The run that the scheduler dispatches from the queue is not affected. A run
-started under another name with `--name` is a run of another DAG.
+The current definition of the DAG decides whether it is a service, also for a run
+started from a run snapshot or from a spec in a request. The run that the
+scheduler dispatches from the queue is refused only when another run of the DAG
+has a live process on the same host; it then ends as failed. A run started under
+another name with `--name` is a run of another DAG.
 
 ## Errors
 

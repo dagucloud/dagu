@@ -257,7 +257,7 @@ func (a *API) ExecuteDAGRunFromSpec(ctx context.Context, request api.ExecuteDAGR
 		}
 	}
 
-	if err := a.checkServiceRun(ctx, dag, dagRunId); err != nil {
+	if err := a.checkServiceRunOfDefinition(ctx, dag, dagRunId); err != nil {
 		return nil, err
 	}
 
@@ -400,7 +400,7 @@ func (a *API) EnqueueDAGRunFromSpec(ctx context.Context, request api.EnqueueDAGR
 		}
 	}
 
-	if err := a.checkServiceRun(ctx, dag, dagRunId); err != nil {
+	if err := a.checkServiceRunOfDefinition(ctx, dag, dagRunId); err != nil {
 		return nil, err
 	}
 
@@ -3133,7 +3133,7 @@ func (a *API) retryDAGRun(ctx context.Context, dagName, dagRunID, retryDagRunID,
 			Message:    message,
 		}
 	}
-	if err := a.checkServiceRun(ctx, dag, sourceDagRunID); err != nil {
+	if err := a.checkServiceRunOfDefinition(ctx, dag, sourceDagRunID); err != nil {
 		return retryDAGRunResult{}, err
 	}
 
@@ -3688,7 +3688,7 @@ func (a *API) rescheduleDAGRun(ctx context.Context, dagName, dagRunID string, op
 	if err := a.ensureDAGRunIDUnique(ctx, dag, newDagRunID); err != nil {
 		return rescheduleDAGRunResult{}, err
 	}
-	if err := a.checkServiceRun(ctx, dag, newDagRunID); err != nil {
+	if err := a.checkServiceRunOfDefinition(ctx, dag, newDagRunID); err != nil {
 		return rescheduleDAGRunResult{}, err
 	}
 
