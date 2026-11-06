@@ -1511,13 +1511,17 @@ func (r *Runner) isFailed() bool {
 	return r.failed == 1
 }
 
-// upstreamBlock returns the error of a step this attempt aborted because a step
-// it depends on failed or was aborted, or nil if there is none. A failed upstream
-// is the root cause of a chain, so it wins wherever its step is listed. Errors
-// restored from earlier attempts do not match these sentinels.
+// upstreamBlock returns the error of a step this attempt set out to run and
+// aborted because a step it depends on failed or was aborted, or nil if there is
+// none. A failed upstream is the root cause of a chain, so it wins wherever its
+// step is listed. Errors restored from earlier attempts do not match these
+// sentinels.
 func upstreamBlock(plan *Plan) error {
 	var block error
 	for _, node := range plan.Nodes() {
+		if !plan.inRetrySelection(node) {
+			continue
+		}
 		err := node.State().Error
 		if errors.Is(err, ErrUpstreamFailed) {
 			return err

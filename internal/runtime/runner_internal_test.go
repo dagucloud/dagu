@@ -325,18 +325,22 @@ func TestRunner_StepRetryBlockedByFailedUpstreamFails(t *testing.T) {
 	succeeds := func(name string, depends ...string) ir.Step {
 		return ir.Step{ID: name, Name: name, Commands: []ir.CommandEntry{{Command: "true"}}, Depends: depends}
 	}
-	run := func(t *testing.T, workingDir, step string, states map[string]NodeState, steps ...ir.Step) (*Runner, *Plan, context.Context, error) {
+	retry := func(t *testing.T, workingDir, step string, downstream bool, states map[string]NodeState, steps ...ir.Step) (*Runner, *Plan, context.Context, error) {
 		t.Helper()
 		dag := &ir.DAG{Name: "step-retry", WorkingDir: workingDir, WorkingDirExplicit: true, Steps: steps}
 		nodes := make([]*Node, 0, len(steps))
 		for _, s := range steps {
 			nodes = append(nodes, NodeWithData(NodeData{Step: s, State: states[s.Name]}))
 		}
-		plan, err := CreateStepRetryPlanWithOptions(dag, nodes, step, StepRetryPlanOptions{IncludeDownstream: true})
+		plan, err := CreateStepRetryPlanWithOptions(dag, nodes, step, StepRetryPlanOptions{IncludeDownstream: downstream})
 		require.NoError(t, err)
 		runner := New(&Config{DAGRunID: "run-1", LogDir: t.TempDir()})
 		ctx := NewContext(context.Background(), dag, "run-1", filepath.Join(workingDir, "dag.log"), WithAttemptID("attempt-1"))
 		return runner, plan, ctx, runner.Run(ctx, plan, nil)
+	}
+	run := func(t *testing.T, workingDir, step string, states map[string]NodeState, steps ...ir.Step) (*Runner, *Plan, context.Context, error) {
+		t.Helper()
+		return retry(t, workingDir, step, true, states, steps...)
 	}
 	wasFailed, wasAborted := NodeState{Status: ir.NodeFailed}, NodeState{Status: ir.NodeAborted}
 
@@ -425,6 +429,42 @@ func TestRunner_StepRetryBlockedByFailedUpstreamFails(t *testing.T) {
 		assert.Equal(t, ir.Failed, runner.Status(ctx, plan))
 		assert.FileExists(t, filepath.Join(workingDir, "marker"))
 		assert.Equal(t, ir.NodeAborted, plan.GetNodeByName(join.Name).State().Status)
+	})
+
+	t.Run("the selected step is blocked without its downstream", func(t *testing.T) {
+		t.Parallel()
+		blocked, next := succeeds("blocked", failed.Name), succeeds("next", "blocked")
+		runner, plan, ctx, err := retry(t, t.TempDir(), blocked.Name, false,
+			map[string]NodeState{failed.Name: wasFailed, blocked.Name: wasAborted, next.Name: wasAborted},
+			failed, blocked, next)
+
+		require.ErrorIs(t, err, ErrUpstreamFailed)
+		assert.Equal(t, ir.Failed, runner.Status(ctx, plan))
+	})
+
+	t.Run("a canceled run leaves a step behind one left aborted outside the selection", func(t *testing.T) {
+		t.Parallel()
+		first, second, third := succeeds("first"), succeeds("second", "first"), succeeds("third", "second")
+		runner, plan, ctx, err := retry(t, t.TempDir(), first.Name, false,
+			map[string]NodeState{first.Name: wasAborted, second.Name: wasAborted},
+			first, second, third)
+
+		require.NoError(t, err)
+		assert.Equal(t, ir.Succeeded, runner.Status(ctx, plan))
+		assert.Equal(t, ir.NodeSucceeded, plan.GetNodeByName(first.Name).State().Status)
+		assert.Equal(t, ir.NodeAborted, plan.GetNodeByName(second.Name).State().Status)
+	})
+
+	t.Run("a canceled run leaves a step behind one failed outside the selection", func(t *testing.T) {
+		t.Parallel()
+		stranded, other := succeeds("stranded", failed.Name), succeeds("other")
+		runner, plan, ctx, err := retry(t, t.TempDir(), other.Name, false,
+			map[string]NodeState{failed.Name: wasFailed, other.Name: wasFailed},
+			failed, stranded, other)
+
+		require.NoError(t, err)
+		assert.Equal(t, ir.Succeeded, runner.Status(ctx, plan))
+		assert.Equal(t, ir.NodeSucceeded, plan.GetNodeByName(other.Name).State().Status)
 	})
 
 	t.Run("a step an earlier attempt blocked outside the selection changes nothing", func(t *testing.T) {
