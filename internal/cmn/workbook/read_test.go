@@ -1314,6 +1314,8 @@ func TestStaleDimensionDoesNotWidenTheUsedRange(t *testing.T) {
 	assert.Equal(t, 1, result.Count)
 }
 
+// TestParseWhere covers name:value pairs, including a value with a colon
+// and an empty value, the JSON object form, and the errors for bad input.
 func TestParseWhere(t *testing.T) {
 	t.Parallel()
 	cases := map[string]map[string]any{

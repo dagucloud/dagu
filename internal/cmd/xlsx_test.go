@@ -437,6 +437,8 @@ func flagBook(t *testing.T) string {
 	return path
 }
 
+// readFlags runs dagu xlsx read on path with args and --format json, and
+// returns the decoded result.
 func readFlags(t *testing.T, path string, args ...string) *workbook.ReadResult {
 	t.Helper()
 	out, err := runXlsx(t, append([]string{"read", path, "--format", "json"}, args...)...)
@@ -446,8 +448,9 @@ func readFlags(t *testing.T, path string, args ...string) *workbook.ReadResult {
 	return &result
 }
 
-// Each flag gives the read the value the xlsx.read field gives it: the
-// expected options below are what the step builds from the same field.
+// TestXlsxReadFieldFlags checks that each flag gives the read the value the
+// xlsx.read field gives it: the expected options below are what the step
+// builds from the same field.
 func TestXlsxReadFieldFlags(t *testing.T) {
 	t.Parallel()
 	path := flagBook(t)
@@ -522,6 +525,8 @@ func TestXlsxReadFieldFlags(t *testing.T) {
 	})
 }
 
+// TestXlsxReadFieldFlagErrors checks that a bad --where, --columns, --types,
+// --merged or --formulas value fails with an error that names the flag.
 func TestXlsxReadFieldFlagErrors(t *testing.T) {
 	t.Parallel()
 	path := flagBook(t)

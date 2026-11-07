@@ -237,6 +237,9 @@ func runXlsxInspect(cmd *cobra.Command, args []string) error {
 	return renderInfo(out, info)
 }
 
+// runXlsxRead turns the read flags into workbook.ReadOptions, checking each
+// one as the matching xlsx.read field is checked, reads the workbook, and
+// prints the rows as a table or as JSON.
 func runXlsxRead(cmd *cobra.Command, args []string) error {
 	format, err := xlsxFormat(cmd)
 	if err != nil {

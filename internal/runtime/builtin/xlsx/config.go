@@ -200,6 +200,9 @@ func isWriter(operation string) bool {
 	}
 }
 
+// validateConfig checks the fields of an xlsx step for its operation and
+// parses the ones the workbook package reads, such as header and columns.
+// A bad value returns an error wrapping errConfig.
 func validateConfig(operation string, cfg *config) error {
 	allowed, ok := fieldsByOperation[operation]
 	if !ok {
