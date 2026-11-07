@@ -807,6 +807,96 @@ func TestParseSeparatedValues_BackwardCompatibility(t *testing.T) {
 	}
 }
 
+func TestParseSeparatorName(t *testing.T) {
+	for _, name := range stringutil.SeparatorNames() {
+		_, ok := stringutil.ParseSeparatorName(name)
+		require.True(t, ok, name)
+	}
+
+	sep, ok := stringutil.ParseSeparatorName(" Newline ")
+	require.True(t, ok)
+	require.Equal(t, stringutil.SeparatorTypeNewline, sep)
+
+	_, ok = stringutil.ParseSeparatorName("json")
+	require.False(t, ok)
+	_, ok = stringutil.ParseSeparatorName("")
+	require.False(t, ok)
+}
+
+// An explicit separator must split on that separator alone, so a single line
+// containing other delimiter characters stays one item and JSON text is not
+// parsed as an array.
+func TestSplitBySeparator(t *testing.T) {
+	pvc := "|volumeSnapshotName=snapshot-3a24|restoreSize=1Gi|sourcePvcName=test-pvc1|"
+	tests := []struct {
+		name      string
+		input     string
+		separator stringutil.SeparatorType
+		expected  []string
+	}{
+		{
+			name:      "NewlineKeepsPipesInSingleLine",
+			input:     pvc,
+			separator: stringutil.SeparatorTypeNewline,
+			expected:  []string{pvc},
+		},
+		{
+			name:      "NewlineSplitsLinesAndDropsBlankOnes",
+			input:     pvc + "\r\n\n  " + pvc + "  \n",
+			separator: stringutil.SeparatorTypeNewline,
+			expected:  []string{pvc, pvc},
+		},
+		{
+			name:      "NewlineDoesNotParseJSON",
+			input:     `["a","b"]`,
+			separator: stringutil.SeparatorTypeNewline,
+			expected:  []string{`["a","b"]`},
+		},
+		{
+			name:      "Comma",
+			input:     "a, b,,c|d",
+			separator: stringutil.SeparatorTypeComma,
+			expected:  []string{"a", "b", "c|d"},
+		},
+		{
+			name:      "Semicolon",
+			input:     "a;b , c;",
+			separator: stringutil.SeparatorTypeSemicolon,
+			expected:  []string{"a", "b , c"},
+		},
+		{
+			name:      "Pipe",
+			input:     pvc,
+			separator: stringutil.SeparatorTypePipe,
+			expected:  []string{"volumeSnapshotName=snapshot-3a24", "restoreSize=1Gi", "sourcePvcName=test-pvc1"},
+		},
+		{
+			name:      "Tab",
+			input:     "a b\tc,d\t",
+			separator: stringutil.SeparatorTypeTab,
+			expected:  []string{"a b", "c,d"},
+		},
+		{
+			name:      "Space",
+			input:     "  a  b\tc\nd ",
+			separator: stringutil.SeparatorTypeSpace,
+			expected:  []string{"a", "b", "c", "d"},
+		},
+		{
+			name:      "Empty",
+			input:     "  \n ",
+			separator: stringutil.SeparatorTypeNewline,
+			expected:  nil,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			require.Equal(t, tt.expected, stringutil.SplitBySeparator(tt.input, tt.separator))
+		})
+	}
+}
+
 func TestRandomString(t *testing.T) {
 	t.Run("GeneratesCorrectLength", func(t *testing.T) {
 		// Test various lengths

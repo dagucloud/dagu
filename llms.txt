@@ -680,6 +680,20 @@ steps:
 
 Each child invocation receives the current item as `ITEM`.
 
+A string item source is parsed as a JSON array when it is one, and otherwise split on a detected separator: line breaks when the string has several lines, else the most frequent of `,` `;` `|` and tab, else whitespace. Detection cannot tell one item containing `|` or `,` from several items on one line, so set `separator` (`newline`, `comma`, `semicolon`, `pipe`, `tab`, or `space`) when items may contain delimiter characters. An explicit separator splits on that separator alone and skips JSON detection; it requires a string `items` value.
+
+```yaml
+  - id: restore
+    action: dag.run
+    with:
+      dag: restore-pvc
+      params:
+        PVC_DETAILS: ${ITEM}
+    parallel:
+      items: ${get_pvcs.outputs.ALL_PVCS}
+      separator: newline
+```
+
 `max_concurrent` defaults to 10. Set `defaults.max_concurrent` in a DAG or base config to change it for every `parallel` and `foreach` step that omits `max_concurrent`:
 
 ```yaml

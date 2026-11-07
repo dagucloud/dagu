@@ -2210,6 +2210,11 @@
                     }
                   ]
                 },
+                "separator": {
+                  "type": "string",
+                  "enum": ["newline", "comma", "semicolon", "pipe", "tab", "space"],
+                  "description": "Separator used to split a string item source into items. When omitted, the separator is detected from the resolved string. Requires a string items value."
+                },
                 "max_concurrent": {
                   "type": "integer",
                   "minimum": 1,

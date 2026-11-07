@@ -1497,10 +1497,21 @@ func (n *Node) buildChildRunParams(ctx context.Context, subDAG *ir.SubDAG) ([]ex
 			return nil, fmt.Errorf("failed to eval parallel variable %q: %w", parallel.Variable, err)
 		}
 
-		// Parse the value using smart separator detection
-		parsedItems, err := stringutil.ParseSeparatedValues(value)
-		if err != nil {
-			return nil, fmt.Errorf("failed to parse parallel variable %q: %w", parallel.Variable, err)
+		var parsedItems []string
+		if parallel.Separator != "" {
+			// An explicit separator splits on that separator alone, so an item
+			// may contain other delimiter characters without being split.
+			separator, ok := stringutil.ParseSeparatorName(parallel.Separator)
+			if !ok {
+				return nil, fmt.Errorf("unknown parallel separator %q", parallel.Separator)
+			}
+			parsedItems = stringutil.SplitBySeparator(value, separator)
+		} else {
+			// Parse the value using smart separator detection
+			parsedItems, err = stringutil.ParseSeparatedValues(value)
+			if err != nil {
+				return nil, fmt.Errorf("failed to parse parallel variable %q: %w", parallel.Variable, err)
+			}
 		}
 		for _, item := range parsedItems {
 			items = append(items, item)

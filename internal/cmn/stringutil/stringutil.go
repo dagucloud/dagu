@@ -261,6 +261,58 @@ func DetectSeparatorType(s string) SeparatorType {
 	return separatorType
 }
 
+// ParseSeparatorName maps a user-facing separator name to its SeparatorType.
+// Names are case-insensitive. JSON and quoted-string detection have no name
+// because they are only reachable through automatic detection.
+func ParseSeparatorName(name string) (SeparatorType, bool) {
+	switch strings.ToLower(strings.TrimSpace(name)) {
+	case "newline":
+		return SeparatorTypeNewline, true
+	case "comma":
+		return SeparatorTypeComma, true
+	case "semicolon":
+		return SeparatorTypeSemicolon, true
+	case "pipe":
+		return SeparatorTypePipe, true
+	case "tab":
+		return SeparatorTypeTab, true
+	case "space":
+		return SeparatorTypeSpace, true
+	default:
+		return 0, false
+	}
+}
+
+// SeparatorNames lists the names accepted by ParseSeparatorName.
+func SeparatorNames() []string {
+	return []string{"newline", "comma", "semicolon", "pipe", "tab", "space"}
+}
+
+// SplitBySeparator splits s on exactly the given separator, trims each token
+// and drops empty tokens. Unlike ParseSeparatedValues it never inspects the
+// content to guess a separator, so a token may contain any other delimiter
+// character, and JSON text is split like any other text.
+func SplitBySeparator(s string, separator SeparatorType) []string {
+	switch separator {
+	case SeparatorTypeNewline:
+		return parseNewlineSeparated(s)
+	case SeparatorTypeComma:
+		return parseDelimited(s, ",")
+	case SeparatorTypeSemicolon:
+		return parseDelimited(s, ";")
+	case SeparatorTypePipe:
+		return parseDelimited(s, "|")
+	case SeparatorTypeTab:
+		return parseDelimited(s, "\t")
+	case SeparatorTypeSpace, SeparatorTypeJSON, SeparatorTypeQuoted:
+		// JSON and quoted detection have no explicit splitting form; whitespace
+		// is the only non-guessing behavior left for them.
+		return parseSpaceSeparated(s)
+	default:
+		return parseSpaceSeparated(s)
+	}
+}
+
 // ParseSeparatedValues intelligently parses a string into separate values
 // based on detected separator patterns. Handles JSON arrays, various delimiters,
 // quoted strings, and space-separated values.
