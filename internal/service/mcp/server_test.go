@@ -6,6 +6,7 @@ package mcp
 import (
 	"context"
 	"encoding/json"
+	"maps"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -580,9 +581,7 @@ func TestExecuteLaunchHandlersForwardProfile(t *testing.T) {
 			{"targetType": executeTargetTypeInlineSpec, "name": "inline-profile", "spec": "steps:\n  - run: echo hello\n"},
 		} {
 			arguments := map[string]any{"action": action, "profile": "missing"}
-			for key, value := range target {
-				arguments[key] = value
-			}
+			maps.Copy(arguments, target)
 			result := callTool(t, ctx, session, toolExecute, arguments)
 			require.True(t, result.IsError, "%s %s", action, target["targetType"])
 			output := structuredMap(t, result)
