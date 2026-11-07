@@ -297,7 +297,7 @@ export function ParallelExecutionModal({
                   >
                     <button
                       className={`
-                        flex-1 text-left transition-colors duration-150 border rounded px-3 py-2 flex items-center gap-3 focus:outline-none
+                        flex-1 min-w-0 text-left transition-colors duration-150 border rounded px-3 py-2 flex items-center gap-3 focus:outline-none
                         ${
                           selectedIndex === displayIndex
                             ? 'border-info bg-info-muted'
