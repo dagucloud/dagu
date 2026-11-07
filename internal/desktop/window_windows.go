@@ -166,6 +166,14 @@ func (windowsBackend) WindowAt(x, y int) WindowID {
 	return windowID(windows.HWND(hwnd))
 }
 
+// inputWindowAt is the window pointer input at a position reaches: the
+// innermost one there, which may belong to another process than the
+// top-level window WindowAt names.
+func inputWindowAt(x, y int) WindowID {
+	hwnd, _, _ := procWindowFromPoint.Call(pointArg(x, y))
+	return windowID(windows.HWND(hwnd))
+}
+
 func (windowsBackend) Maximize(w WindowID) (bool, error) {
 	if w.Handle == 0 {
 		return false, nil
