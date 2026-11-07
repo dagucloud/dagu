@@ -321,9 +321,9 @@ func runStart(ctx *Context, args []string) error {
 	if workerID == "local" {
 		definition := dag
 		if fromRunID != "" {
-			definition = serviceDefinition(ctx, dag)
+			definition = alwaysOnDefinition(ctx, dag)
 		}
-		if err := ctx.DAGRunMgr.CheckServiceRun(ctx, definition, dagRunID); err != nil {
+		if err := ctx.DAGRunMgr.CheckAlwaysOnRun(ctx, definition, dagRunID); err != nil {
 			return err
 		}
 	}

@@ -1,0 +1,266 @@
+// Copyright (C) 2026 Yota Hamada
+// SPDX-License-Identifier: GPL-3.0-or-later
+
+package api_test
+
+import (
+	"context"
+	"io/fs"
+	"net/http"
+	"os"
+	"path/filepath"
+	"testing"
+	"time"
+
+	"github.com/dagucloud/dagu/v2/api/v1"
+	"github.com/dagucloud/dagu/v2/internal/cmn/config"
+	"github.com/dagucloud/dagu/v2/internal/ir"
+	"github.com/dagucloud/dagu/v2/internal/persis"
+	filedagrun "github.com/dagucloud/dagu/v2/internal/persis/file/dagrun"
+	localapi "github.com/dagucloud/dagu/v2/internal/service/frontend/api/v1"
+	"github.com/dagucloud/dagu/v2/internal/test"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+)
+
+func newAlwaysOnDAGAPI(helper test.Helper) *localapi.API {
+	return localapi.New(
+		helper.DAGRepository,
+		helper.DAGRunRepository,
+		helper.QueueStore,
+		helper.ProcRepository,
+		helper.DAGRunMgr,
+		helper.Config,
+		nil,
+		helper.ServiceRegistry,
+		nil,
+		nil,
+	)
+}
+
+const alwaysOnDAGSpec = "restart_policy: always\nrestart_wait_sec: 5\nhist_retention_runs: 10\nsteps:\n  - run: echo hi\n"
+
+// seedRun saves a run of a DAG with the given status and trigger.
+func seedRun(t *testing.T, helper test.Helper, name, id string, status ir.Status, trigger ir.TriggerType) {
+	t.Helper()
+	seedRunAt(t, helper, name, id, status, trigger, time.Now())
+}
+
+// seedRunAt saves a run that started at the given time, with the labels the
+// DAG had then.
+func seedRunAt(t *testing.T, helper test.Helper, name, id string, status ir.Status, trigger ir.TriggerType, now time.Time, labels ...string) {
+	t.Helper()
+	ctx := context.Background()
+	dag := &ir.DAG{Name: name}
+	attempt, err := helper.DAGRunRepository.CreateAttempt(ctx, dag, now, id, persis.DAGRunCreateAttemptOptions{})
+	require.NoError(t, err)
+	require.NoError(t, attempt.Open(ctx))
+	runStatus := ir.InitialStatus(dag)
+	runStatus.DAGRunID = id
+	runStatus.AttemptID = attempt.ID()
+	runStatus.Status = status
+	runStatus.TriggerType = trigger
+	runStatus.Labels = labels
+	runStatus.StartedAt = now.Format(time.RFC3339)
+	if !status.IsActive() {
+		runStatus.FinishedAt = now.Format(time.RFC3339)
+	}
+	require.NoError(t, attempt.Write(ctx, runStatus))
+	require.NoError(t, attempt.Close(ctx))
+}
+
+// With latest_status_today, the usual lookup ignores a run of an earlier day.
+// An always-on DAG that has been down for a day still has a latest run, so it is
+// not pending.
+func TestListAlwaysOnDAGsSeesTheLatestRunOfAnEarlierDay(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	helper := test.Setup(t, test.WithStatusPersistence(), test.WithConfigMutator(func(cfg *config.Config) {
+		cfg.Server.LatestStatusToday = true
+	}))
+	helper.CreateDAGFile(t, helper.Config.Paths.DAGsDir, "svc-old", []byte(alwaysOnDAGSpec))
+	seedRunAt(t, helper, "svc-old", "run-old", ir.Succeeded, ir.TriggerTypeRestart, time.Now().Add(-48*time.Hour))
+
+	resp, err := newAlwaysOnDAGAPI(helper).ListAlwaysOnDAGs(ctx, api.ListAlwaysOnDAGsRequestObject{})
+	require.NoError(t, err)
+	list, ok := resp.(api.ListAlwaysOnDAGs200JSONResponse)
+	require.True(t, ok, "expected 200 response, got %T", resp)
+	require.Len(t, list.Dags, 1)
+	require.NotNil(t, list.Dags[0].LatestRun)
+	assert.Equal(t, "run-old", list.Dags[0].LatestRun.DagRunId)
+	assert.NotEqual(t, api.AlwaysOnDAGStatePending, list.Dags[0].State)
+}
+
+// A run keeps the workspace its DAG had when it started. After the DAG moves
+// to another workspace, a viewer of that workspace does not see the runs it
+// made in the previous one.
+func TestListAlwaysOnDAGsHidesRunsOfAnotherWorkspace(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	helper := test.Setup(t, test.WithStatusPersistence())
+	helper.CreateDAGFile(t, helper.Config.Paths.DAGsDir, "svc-moved", []byte("labels:\n  - workspace=dev\n"+alwaysOnDAGSpec))
+	seedRunAt(t, helper, "svc-moved", "run-ops", ir.Running, ir.TriggerTypeRestart, time.Now(), "workspace=ops")
+
+	dev := api.Workspace("dev")
+	resp, err := newAlwaysOnDAGAPI(helper).ListAlwaysOnDAGs(ctx, api.ListAlwaysOnDAGsRequestObject{
+		Params: api.ListAlwaysOnDAGsParams{Workspace: &dev},
+	})
+	require.NoError(t, err)
+	list, ok := resp.(api.ListAlwaysOnDAGs200JSONResponse)
+	require.True(t, ok, "expected 200 response, got %T", resp)
+	require.Len(t, list.Dags, 1)
+	assert.Nil(t, list.Dags[0].LatestRun)
+	assert.Equal(t, api.AlwaysOnDAGStatePending, list.Dags[0].State)
+}
+
+func TestListAlwaysOnDAGs(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	helper := test.Setup(t, test.WithStatusPersistence())
+	dir := helper.Config.Paths.DAGsDir
+	helper.CreateDAGFile(t, dir, "plain", []byte("steps:\n  - run: echo plain\n"))
+	for _, name := range []string{"svc-idle", "svc-live", "svc-done", "svc-failing", "svc-paused"} {
+		helper.CreateDAGFile(t, dir, name, []byte(alwaysOnDAGSpec))
+	}
+	seedRun(t, helper, "svc-live", "run-live", ir.Running, ir.TriggerTypeRestart)
+	seedRun(t, helper, "svc-done", "run-done", ir.Succeeded, ir.TriggerTypeRestart)
+	seedRun(t, helper, "svc-failing", "run-failed", ir.Failed, ir.TriggerTypeRestart)
+	seedRun(t, helper, "svc-paused", "run-paused", ir.Succeeded, ir.TriggerTypeRestart)
+	apiImpl := newAlwaysOnDAGAPI(helper)
+	require.NoError(t, helper.DAGRepository.SetSuspended(ctx, "svc-paused", true))
+
+	resp, err := apiImpl.ListAlwaysOnDAGs(ctx, api.ListAlwaysOnDAGsRequestObject{})
+	require.NoError(t, err)
+	list, ok := resp.(api.ListAlwaysOnDAGs200JSONResponse)
+	require.True(t, ok, "expected 200 response, got %T", resp)
+
+	states := make(map[string]api.AlwaysOnDAGState, len(list.Dags))
+	names := make([]string, 0, len(list.Dags))
+	for _, dag := range list.Dags {
+		names = append(names, dag.FileName)
+		states[dag.FileName] = dag.State
+		assert.Equal(t, api.RestartPolicy("always"), dag.RestartPolicy)
+		assert.Equal(t, 5, dag.RestartWaitSec)
+	}
+	assert.Equal(t, []string{"svc-done", "svc-failing", "svc-idle", "svc-live", "svc-paused"}, names)
+	assert.Equal(t, map[string]api.AlwaysOnDAGState{
+		"svc-idle":    "pending",
+		"svc-live":    "running",
+		"svc-done":    "restarting",
+		"svc-failing": "failing",
+		"svc-paused":  "suspended",
+	}, states)
+	assert.Empty(t, list.Errors)
+
+	for _, dag := range list.Dags {
+		if dag.FileName == "svc-idle" {
+			assert.Nil(t, dag.LatestRun)
+			continue
+		}
+		require.NotNil(t, dag.LatestRun, dag.FileName)
+		assert.NotEmpty(t, dag.LatestRun.DagRunId)
+	}
+
+	// The SSE topic carries the same list.
+	sseData, err := apiImpl.GetAlwaysOnDAGsData(ctx, "")
+	require.NoError(t, err)
+	assert.Equal(t, api.AlwaysOnDAGsResponse(list), sseData)
+}
+
+// A latest run that cannot be read is not a DAG without a run: the scheduler
+// starts nothing after it, so the list reports the error and does not say that a
+// first run is coming.
+func TestListAlwaysOnDAGsReportsUnreadableLatestRun(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	helper := test.Setup(t, test.WithStatusPersistence())
+	helper.CreateDAGFile(t, helper.Config.Paths.DAGsDir, "svc-broken", []byte(alwaysOnDAGSpec))
+	seedRun(t, helper, "svc-broken", "run-broken", ir.Succeeded, ir.TriggerTypeRestart)
+	corruptStatusFiles(t, helper.Config.Paths.DAGRunsDir)
+
+	resp, err := newAlwaysOnDAGAPI(helper).ListAlwaysOnDAGs(ctx, api.ListAlwaysOnDAGsRequestObject{})
+	require.NoError(t, err)
+	list, ok := resp.(api.ListAlwaysOnDAGs200JSONResponse)
+	require.True(t, ok, "expected 200 response, got %T", resp)
+	require.Len(t, list.Dags, 1)
+	assert.Equal(t, api.AlwaysOnDAGStateFailing, list.Dags[0].State)
+	require.Len(t, list.Errors, 1)
+	assert.Contains(t, list.Errors[0], "svc-broken")
+}
+
+// corruptStatusFiles replaces every status file below dir with a complete line
+// that is not a status.
+func corruptStatusFiles(t *testing.T, dir string) {
+	t.Helper()
+	found := false
+	require.NoError(t, filepath.WalkDir(dir, func(path string, entry fs.DirEntry, err error) error {
+		if err != nil || entry.IsDir() || entry.Name() != filedagrun.JSONLStatusFile {
+			return err
+		}
+		found = true
+		return os.WriteFile(path, []byte("not a status\n"), 0o600)
+	}))
+	require.True(t, found, "no status file below %s", dir)
+}
+
+// A stop leaves a request on the attempt, whatever status the run ends with.
+func TestListAlwaysOnDAGsSeesTheStopOfARunThatFailed(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	helper := test.Setup(t, test.WithStatusPersistence())
+	spec := "restart_policy: unless-stopped\nrestart_wait_sec: 5\nsteps:\n  - run: echo hi\n"
+	helper.CreateDAGFile(t, helper.Config.Paths.DAGsDir, "svc-stopped", []byte(spec))
+	seedRun(t, helper, "svc-stopped", "run-stopped", ir.Failed, ir.TriggerTypeRestart)
+	attempt, err := helper.DAGRunRepository.FindAttempt(ctx, ir.NewDAGRunRef("svc-stopped", "run-stopped"))
+	require.NoError(t, err)
+	require.NoError(t, attempt.Abort(ctx))
+
+	resp, err := newAlwaysOnDAGAPI(helper).ListAlwaysOnDAGs(ctx, api.ListAlwaysOnDAGsRequestObject{})
+	require.NoError(t, err)
+	list, ok := resp.(api.ListAlwaysOnDAGs200JSONResponse)
+	require.True(t, ok, "expected 200 response, got %T", resp)
+	require.Len(t, list.Dags, 1)
+	assert.Equal(t, api.AlwaysOnDAGStateStopped, list.Dags[0].State)
+}
+
+// A run that a restart policy started stays out of the list on request, and a
+// run that someone started by hand stays in.
+func TestListDAGRunsExcludesAlwaysOnRuns(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	helper := test.Setup(t, test.WithStatusPersistence())
+	seedRun(t, helper, "svc", "restarted", ir.Succeeded, ir.TriggerTypeRestart)
+	seedRun(t, helper, "svc", "manual", ir.Succeeded, ir.TriggerTypeManual)
+	apiImpl := newAlwaysOnDAGAPI(helper)
+
+	runIDs := func(runs []api.DAGRunSummary) []string {
+		ids := make([]string, 0, len(runs))
+		for _, run := range runs {
+			ids = append(ids, run.DagRunId)
+		}
+		return ids
+	}
+	list := func(exclude *bool) []string {
+		resp, err := apiImpl.ListDAGRuns(ctx, api.ListDAGRunsRequestObject{
+			Params: api.ListDAGRunsParams{ExcludeAlwaysOnRuns: exclude},
+		})
+		require.NoError(t, err)
+		page, ok := resp.(api.ListDAGRuns200JSONResponse)
+		require.True(t, ok, "expected 200 response, got %T", resp)
+		return runIDs(page.DagRuns)
+	}
+	yes, no := true, false
+
+	assert.ElementsMatch(t, []string{"restarted", "manual"}, list(nil))
+	assert.ElementsMatch(t, []string{"restarted", "manual"}, list(&no))
+	assert.Equal(t, []string{"manual"}, list(&yes))
+
+	sseData, err := apiImpl.GetDAGRunsListData(ctx, "excludeAlwaysOnRuns=true")
+	require.NoError(t, err)
+	page, ok := sseData.(api.DAGRunsPageResponse)
+	require.True(t, ok, "expected a page, got %T", sseData)
+	assert.Equal(t, []string{"manual"}, runIDs(page.DagRuns))
+
+	err = apiImpl.ValidateDAGRunsListQuery(ctx, "excludeAlwaysOnRuns=maybe")
+	requireAPIErrorStatus(t, err, http.StatusBadRequest)
+}

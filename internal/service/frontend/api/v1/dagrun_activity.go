@@ -76,6 +76,8 @@ func (a *API) GetDAGRunActivity(ctx context.Context, request api.GetDAGRunActivi
 		labels:    params.Labels,
 		workspace: params.Workspace,
 		cursor:    params.Cursor,
+
+		excludeAlwaysOnRuns: params.ExcludeAlwaysOnRuns != nil && *params.ExcludeAlwaysOnRuns,
 	}, time.Now())
 	if err != nil {
 		return nil, err
@@ -124,6 +126,13 @@ func (a *API) activityQueryFromString(ctx context.Context, queryString string) (
 	if raw := values.Get("labels"); raw != "" {
 		params.labels = &raw
 	}
+	if raw := values.Get("excludeAlwaysOnRuns"); raw != "" {
+		exclude, convErr := strconv.ParseBool(raw)
+		if convErr != nil {
+			return activityQuery{}, activityBadRequest(fmt.Sprintf("invalid excludeAlwaysOnRuns: %q", raw))
+		}
+		params.excludeAlwaysOnRuns = exclude
+	}
 	params.workspace = workspaceParamFromValues(values)
 	return a.newActivityQuery(ctx, params, time.Now())
 }
@@ -135,6 +144,8 @@ type activityParams struct {
 	labels    *string
 	workspace *api.Workspace
 	cursor    *string
+	// excludeAlwaysOnRuns leaves out the runs that a restart policy started.
+	excludeAlwaysOnRuns bool
 }
 
 // activityQuery is a validated activity window, its filters, and the page
@@ -145,6 +156,13 @@ type activityQuery struct {
 	labels          []string
 	workspaceFilter *workspace.WorkspaceFilter
 	cursor          string
+	// excludeAlwaysOnRuns leaves out the runs that a restart policy started.
+	excludeAlwaysOnRuns bool
+}
+
+// skips reports whether the query leaves a run out.
+func (q activityQuery) skips(status *ir.DAGRunStatus) bool {
+	return q.excludeAlwaysOnRuns && status.TriggerType == ir.TriggerTypeRestart
 }
 
 func (a *API) newActivityQuery(ctx context.Context, params activityParams, now time.Time) (activityQuery, error) {
@@ -183,6 +201,7 @@ func (a *API) newActivityQuery(ctx context.Context, params activityParams, now t
 		return activityQuery{}, err
 	}
 	query.workspaceFilter = filter
+	query.excludeAlwaysOnRuns = params.excludeAlwaysOnRuns
 	return query, nil
 }
 
@@ -203,14 +222,18 @@ func (a *API) dagRunActivity(ctx context.Context, query activityQuery) (api.DAGR
 }
 
 func (a *API) readDAGRunActivity(ctx context.Context, query activityQuery) (api.DAGRunActivity, error) {
-	page, err := a.dagRunRepository.ListStatusesPage(ctx, persis.DAGRunListOptions{
+	listOptions := persis.DAGRunListOptions{
 		From:            persis.NewUTC(query.from),
 		To:              persis.NewUTC(query.to),
 		Labels:          query.labels,
 		WorkspaceFilter: query.workspaceFilter,
 		Limit:           activityPageSize,
 		Cursor:          query.cursor,
-	})
+	}
+	if query.excludeAlwaysOnRuns {
+		listOptions.ExcludeTriggerTypes = []ir.TriggerType{ir.TriggerTypeRestart}
+	}
+	page, err := a.dagRunRepository.ListStatusesPage(ctx, listOptions)
 	if err != nil {
 		if badRequest := dagRunListBadRequest(err); badRequest != nil {
 			return api.DAGRunActivity{}, badRequest
@@ -245,6 +268,9 @@ func (a *API) readDAGRunActivity(ctx context.Context, query activityQuery) (api.
 	if err != nil {
 		return api.DAGRunActivity{}, fmt.Errorf("error reading latest dag-runs: %w", err)
 	}
+	if query.excludeAlwaysOnRuns {
+		latest = slices.DeleteFunc(slices.Clone(latest), query.skips)
+	}
 	result.Attention = attentionRuns(latest)
 	result.Active = a.activeRuns(ctx, query, page.Items, latest)
 	result.Upcoming = a.upcomingRuns(ctx, query)
@@ -261,6 +287,11 @@ func (a *API) activityQueues(ctx context.Context, query activityQuery) []api.DAG
 	scan := activityQueueScan
 	labelFilters := parseLabelFilters(query.labels)
 	scan.matches = func(summary api.DAGRunSummary) bool {
+		// An always-on DAG restarts all the time, so its queue would flip
+		// between a run and a wait. Its lane shows it instead.
+		if query.excludeAlwaysOnRuns && valueOf(summary.TriggerType) == api.TriggerTypeRestart {
+			return false
+		}
 		labels := ir.NewLabels(valueOf(summary.Labels))
 		return query.workspaceFilter.MatchesLabels(labels) && labels.MatchesFilters(labelFilters)
 	}
@@ -420,7 +451,7 @@ func (a *API) activeRuns(ctx context.Context, query activityQuery, pageRuns, lat
 	seen := make(map[ir.DAGRunRef]struct{})
 	add := func(status *ir.DAGRunStatus) {
 		ref := ir.NewDAGRunRef(status.Name, status.DAGRunID)
-		if _, ok := seen[ref]; ok || !isActiveRunStatus(status.Status) {
+		if _, ok := seen[ref]; ok || !isActiveRunStatus(status.Status) || query.skips(status) {
 			return
 		}
 		seen[ref] = struct{}{}

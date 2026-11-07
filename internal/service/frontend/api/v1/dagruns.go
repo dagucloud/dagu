@@ -257,7 +257,7 @@ func (a *API) ExecuteDAGRunFromSpec(ctx context.Context, request api.ExecuteDAGR
 		}
 	}
 
-	if err := a.checkServiceRunOfDefinition(ctx, dag, dagRunId); err != nil {
+	if err := a.checkAlwaysOnRunOfDefinition(ctx, dag, dagRunId); err != nil {
 		return nil, err
 	}
 
@@ -400,7 +400,7 @@ func (a *API) EnqueueDAGRunFromSpec(ctx context.Context, request api.EnqueueDAGR
 		}
 	}
 
-	if err := a.checkServiceRunOfDefinition(ctx, dag, dagRunId); err != nil {
+	if err := a.checkAlwaysOnRunOfDefinition(ctx, dag, dagRunId); err != nil {
 		return nil, err
 	}
 
@@ -706,6 +706,8 @@ func (a *API) ListDAGRuns(ctx context.Context, request api.ListDAGRunsRequestObj
 		labels:   labelsParam,
 		limit:    request.Params.Limit,
 		cursor:   request.Params.Cursor,
+
+		excludeAlwaysOnRuns: request.Params.ExcludeAlwaysOnRuns != nil && *request.Params.ExcludeAlwaysOnRuns,
 	})
 	workspaceFilter, err := a.workspaceFilterForParams(ctx, request.Params.Workspace)
 	if err != nil {
@@ -796,6 +798,8 @@ type dagRunListFilterInput struct {
 	labels    *string
 	limit     *int
 	cursor    *string
+	// excludeAlwaysOnRuns drops the runs that a restart policy started.
+	excludeAlwaysOnRuns bool
 }
 
 func buildDAGRunListOptions(input dagRunListFilterInput) dagRunListOptions {
@@ -832,6 +836,9 @@ func buildDAGRunListOptions(input dagRunListFilterInput) dagRunListOptions {
 	}
 	if input.cursor != nil && *input.cursor != "" {
 		opts.query.Cursor = *input.cursor
+	}
+	if input.excludeAlwaysOnRuns {
+		opts.query.ExcludeTriggerTypes = []ir.TriggerType{ir.TriggerTypeRestart}
 	}
 	opts.query.Limit = limit
 	return opts
@@ -3133,7 +3140,7 @@ func (a *API) retryDAGRun(ctx context.Context, dagName, dagRunID, retryDagRunID,
 			Message:    message,
 		}
 	}
-	if err := a.checkServiceRunOfDefinition(ctx, dag, sourceDagRunID); err != nil {
+	if err := a.checkAlwaysOnRunOfDefinition(ctx, dag, sourceDagRunID); err != nil {
 		return retryDAGRunResult{}, err
 	}
 
@@ -3690,7 +3697,7 @@ func (a *API) rescheduleDAGRun(ctx context.Context, dagName, dagRunID string, op
 	if err := a.ensureDAGRunIDUnique(ctx, dag, newDagRunID); err != nil {
 		return rescheduleDAGRunResult{}, err
 	}
-	if err := a.checkServiceRunOfDefinition(ctx, dag, newDagRunID); err != nil {
+	if err := a.checkAlwaysOnRunOfDefinition(ctx, dag, newDagRunID); err != nil {
 		return rescheduleDAGRunResult{}, err
 	}
 
@@ -5255,6 +5262,8 @@ func (a *API) dagRunListOptionsFromQueryString(ctx context.Context, queryString 
 		labels       *string
 		limit        *int
 		cursor       *string
+
+		excludeAlwaysOnRuns bool
 	)
 
 	if rawStatuses, hasStatus := params["status"]; hasStatus {
@@ -5314,6 +5323,13 @@ func (a *API) dagRunListOptionsFromQueryString(ctx context.Context, queryString 
 	if rawCursor := params.Get("cursor"); rawCursor != "" {
 		cursor = &rawCursor
 	}
+	if rawExclude := params.Get("excludeAlwaysOnRuns"); rawExclude != "" {
+		parsed, convErr := strconv.ParseBool(rawExclude)
+		if convErr != nil {
+			return dagRunListOptions{}, invalidDAGRunListParam(ctx, "excludeAlwaysOnRuns", rawExclude, convErr)
+		}
+		excludeAlwaysOnRuns = parsed
+	}
 
 	opts := buildDAGRunListOptions(dagRunListFilterInput{
 		statuses: statusValues,
@@ -5324,6 +5340,8 @@ func (a *API) dagRunListOptionsFromQueryString(ctx context.Context, queryString 
 		labels:   labels,
 		limit:    limit,
 		cursor:   cursor,
+
+		excludeAlwaysOnRuns: excludeAlwaysOnRuns,
 	})
 
 	workspaceParam := workspaceParamFromValues(params)

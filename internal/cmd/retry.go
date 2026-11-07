@@ -219,7 +219,7 @@ func runRetry(ctx *Context, args []string) error {
 	// The queue dispatches a run it holds, and a worker or a parent run retries
 	// what it was given.
 	if !queueDispatchRetry && workerID == "local" && rootRun.Zero() {
-		if err := ctx.DAGRunMgr.CheckServiceRun(ctx, serviceDefinition(ctx, dag), dagRunID); err != nil {
+		if err := ctx.DAGRunMgr.CheckAlwaysOnRun(ctx, alwaysOnDefinition(ctx, dag), dagRunID); err != nil {
 			return err
 		}
 	}
@@ -438,10 +438,10 @@ func storedDAGHasNonDefaultWorkingDir(dag *ir.DAG) bool {
 	return filepath.Clean(dag.WorkingDir) != filepath.Clean(filepath.Dir(dag.Location))
 }
 
-// serviceDefinition returns what decides whether the DAG of a run snapshot is a
-// service: its current definition, which the scheduler follows, or the snapshot
+// alwaysOnDefinition returns what decides whether the DAG of a run snapshot is
+// always-on: its current definition, which the scheduler follows, or the snapshot
 // once the definition is gone.
-func serviceDefinition(ctx *Context, snapshot *ir.DAG) *ir.DAG {
+func alwaysOnDefinition(ctx *Context, snapshot *ir.DAG) *ir.DAG {
 	current, err := spec.Load(ctx, snapshot.Name,
 		spec.WithBaseConfig(ctx.Config.Paths.BaseConfig),
 		spec.WithWorkspaceBaseConfigDir(workspace.BaseConfigDir(ctx.Config.Paths.DAGsDir)),

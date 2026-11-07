@@ -536,9 +536,9 @@ func TestSuspendFlagName(t *testing.T) {
 func TestBuild_RestartPolicy(t *testing.T) {
 	dir := t.TempDir()
 
-	service := []byte("name: svc\nrestart_policy: unless-stopped\nrestart_wait_sec: 7\nsteps:\n  - name: serve\n    command: echo serve\n")
+	alwaysOn := []byte("name: svc\nrestart_policy: unless-stopped\nrestart_wait_sec: 7\nsteps:\n  - name: serve\n    command: echo serve\n")
 	plain := []byte("name: plain\nsteps:\n  - name: run\n    command: echo run\n")
-	require.NoError(t, os.WriteFile(filepath.Join(dir, "svc.yaml"), service, 0600))
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "svc.yaml"), alwaysOn, 0600))
 	require.NoError(t, os.WriteFile(filepath.Join(dir, "plain.yaml"), plain, 0600))
 
 	var files []YAMLFileMeta

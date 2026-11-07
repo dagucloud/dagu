@@ -128,7 +128,7 @@ func enqueueDAGRun(ctx *Context, dag *ir.DAG, dagRunID string, opts runOptions) 
 		return fmt.Errorf("DAG %q with ID %q already exists", dag.Name, dagRunID)
 	}
 
-	if err := ctx.DAGRunMgr.CheckServiceRun(ctx, dag, dagRunID); err != nil {
+	if err := ctx.DAGRunMgr.CheckAlwaysOnRun(ctx, dag, dagRunID); err != nil {
 		return err
 	}
 
