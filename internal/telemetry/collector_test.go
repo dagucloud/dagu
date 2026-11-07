@@ -5,10 +5,12 @@ package telemetry
 
 import (
 	"context"
+	"errors"
 	"strings"
 	"testing"
 	"time"
 
+	"github.com/dagucloud/dagu/v2/internal/dagrun"
 	"github.com/dagucloud/dagu/v2/internal/dispatch"
 	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/pagination"
@@ -36,10 +38,21 @@ func (m *mockDAGLister) List(ctx context.Context, params persis.DAGListOptions) 
 type mockDAGRunStore struct {
 	testutil.DAGRunStoreStub
 	mock.Mock
+	options        persis.DAGRunRepositoryOptions
+	latestAttempts map[string]dagrun.Attempt
+	latestQueries  []persis.DAGRunLatestAttemptQuery
 }
 
 func (m *mockDAGRunStore) repository() *persis.DAGRunRepository {
-	return persis.NewDAGRunRepository(m, nil, persis.DAGRunRepositoryOptions{})
+	return persis.NewDAGRunRepository(m, nil, m.options)
+}
+
+func (m *mockDAGRunStore) LatestAttempt(_ context.Context, query persis.DAGRunLatestAttemptQuery) (dagrun.Attempt, error) {
+	m.latestQueries = append(m.latestQueries, query)
+	if attempt, ok := m.latestAttempts[query.Name]; ok {
+		return attempt, nil
+	}
+	return nil, dagrun.ErrNoStatusData
 }
 
 func newMockDAGRunRepository() *persis.DAGRunRepository {
@@ -217,8 +230,8 @@ func TestCollector_Describe(t *testing.T) {
 		count++
 	}
 
-	// 9 aggregate/info + 5 per-DAG + 5 per-worker + 1 cache metrics
-	assert.Equal(t, 20, count)
+	// 9 aggregate/info + 6 per-DAG + 5 per-worker + 1 cache metrics
+	assert.Equal(t, 21, count)
 }
 
 func TestCollector_Collect_BasicMetrics(t *testing.T) {
@@ -353,6 +366,130 @@ func TestCollector_Collect_WithDAGRuns(t *testing.T) {
 			}
 		}
 	}
+}
+
+func TestCollector_Collect_WithDAGRunStatus(t *testing.T) {
+	dagRepository := &mockDAGLister{}
+	dagRunRepository := &mockDAGRunStore{
+		// LatestStatusToday would scope latest-run queries to today unless the
+		// collector passes AllHistory, so NotBefore must stay unset.
+		options: persis.DAGRunRepositoryOptions{LatestStatusToday: true},
+		latestAttempts: map[string]dagrun.Attempt{
+			"dag-a": &testutil.MockAttempt{Status: &ir.DAGRunStatus{Name: "dag-a", Status: ir.Succeeded}},
+			"dag-b": &testutil.MockAttempt{Status: &ir.DAGRunStatus{Name: "dag-b", Status: ir.Failed}},
+		},
+	}
+	queueStore := &mockQueueStore{}
+
+	// dag-c has no run history so LatestAttempt returns ErrNoStatusData.
+	dagRepository.On("List", mock.Anything, mock.Anything).Return(
+		pagination.PaginatedResult[persis.DAGListItem]{
+			Items: []persis.DAGListItem{
+				{DAG: &ir.DAG{Name: "dag-a"}},
+				{DAG: &ir.DAG{Name: "dag-b"}},
+				{DAG: &ir.DAG{Name: "dag-c"}},
+			},
+			TotalCount: 3,
+		},
+		[]string{},
+		nil,
+	)
+	dagRunRepository.On("ListStatuses", mock.Anything, mock.Anything).Return([]*ir.DAGRunStatus{}, nil)
+	queueStore.On("All", mock.Anything).Return([]queue.QueuedItemData{}, nil)
+
+	collector := NewCollector(
+		"1.0.0",
+		dagRepository,
+		dagRunRepository.repository(),
+		queueStore,
+		nil,
+	)
+
+	registry := prometheus.NewRegistry()
+	registry.MustRegister(collector)
+
+	metrics, err := registry.Gather()
+	require.NoError(t, err)
+	metricMap := metricFamilyMap(metrics)
+
+	family, ok := metricMap["dagu_dag_run_status"]
+	require.True(t, ok, "dagu_dag_run_status metric family not found")
+	assert.Equal(t, dto.MetricType_GAUGE, family.GetType())
+
+	statuses := []string{
+		"not_started", "running", "failed", "aborted", "succeeded",
+		"queued", "partially_succeeded", "waiting", "rejected",
+	}
+	for _, status := range statuses {
+		expected := float64(0)
+		if status == "succeeded" {
+			expected = 1
+		}
+		assertGaugeValue(t, family, map[string]string{"dag": "dag-a", "status": status}, expected)
+	}
+	for _, status := range statuses {
+		expected := float64(0)
+		if status == "failed" {
+			expected = 1
+		}
+		assertGaugeValue(t, family, map[string]string{"dag": "dag-b", "status": status}, expected)
+	}
+
+	// DAGs without a latest run emit no series.
+	for _, metric := range family.GetMetric() {
+		for _, label := range metric.GetLabel() {
+			if label.GetName() == "dag" {
+				assert.NotEqual(t, "dag-c", label.GetValue())
+			}
+		}
+	}
+
+	// Latest-run lookups must request all history, not the today-only window.
+	require.Len(t, dagRunRepository.latestQueries, 3)
+	for _, query := range dagRunRepository.latestQueries {
+		assert.True(t, query.NotBefore.IsZero())
+	}
+}
+
+// A failed ListStatuses must not suppress the current-status gauge, which
+// reads through LatestAttempt instead.
+func TestCollector_Collect_DAGRunStatusSurvivesListStatusesFailure(t *testing.T) {
+	dagRepository := &mockDAGLister{}
+	dagRunRepository := &mockDAGRunStore{
+		latestAttempts: map[string]dagrun.Attempt{
+			"dag-a": &testutil.MockAttempt{Status: &ir.DAGRunStatus{Name: "dag-a", Status: ir.Running}},
+		},
+	}
+	queueStore := &mockQueueStore{}
+
+	dagRepository.On("List", mock.Anything, mock.Anything).Return(
+		pagination.PaginatedResult[persis.DAGListItem]{
+			Items:      []persis.DAGListItem{{DAG: &ir.DAG{Name: "dag-a"}}},
+			TotalCount: 1,
+		},
+		[]string{},
+		nil,
+	)
+	dagRunRepository.On("ListStatuses", mock.Anything, mock.Anything).Return(nil, errors.New("status store unavailable"))
+	queueStore.On("All", mock.Anything).Return([]queue.QueuedItemData{}, nil)
+
+	collector := NewCollector(
+		"1.0.0",
+		dagRepository,
+		dagRunRepository.repository(),
+		queueStore,
+		nil,
+	)
+
+	registry := prometheus.NewRegistry()
+	registry.MustRegister(collector)
+
+	metrics, err := registry.Gather()
+	require.NoError(t, err)
+
+	family, ok := metricFamilyMap(metrics)["dagu_dag_run_status"]
+	require.True(t, ok, "dagu_dag_run_status metric family not found")
+	assertGaugeValue(t, family, map[string]string{"dag": "dag-a", "status": "running"}, 1)
 }
 
 func TestCollector_Collect_WithWorkerHeartbeatMetrics(t *testing.T) {
