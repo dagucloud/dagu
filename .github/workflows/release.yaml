@@ -220,8 +220,7 @@ jobs:
         env:
           RELEASE_TAG: ${{ github.ref_name }}
         run: |
-          $version = $env:RELEASE_TAG -replace '^v', ''
-          foreach ($file in @("dist\dagu-windows-amd64.exe", "dist\dagu-$version-setup.exe")) {
+          foreach ($file in @("dist\dagu-windows-amd64.exe", "dist\dagu-windows-amd64-setup.exe")) {
             $signature = Get-AuthenticodeSignature -FilePath $file
             Write-Host "${file}: $($signature.Status) $($signature.SignerCertificate.Subject)"
             if ($signature.Status -ne 'Valid') {
@@ -238,8 +237,7 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           RELEASE_TAG: ${{ github.ref_name }}
         run: |
-          version="${RELEASE_TAG#v}"
-          installer="dist/dagu-${version}-setup.exe"
+          installer="dist/dagu-windows-amd64-setup.exe"
           if [ ! -f "$installer" ]; then
             echo "::error::${installer} was not produced by the Inno Setup compiler"
             exit 1

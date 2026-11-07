@@ -36,7 +36,9 @@ ChangesEnvironment=yes
 ArchitecturesInstallIn64BitMode=x64compatible
 ArchitecturesAllowed=x64compatible
 OutputDir=dist
-OutputBaseFilename=dagu-{#AppVersion}-setup
+; The name carries no version so the newest installer always has the same
+; URL: https://github.com/dagucloud/dagu/releases/latest/download/dagu-windows-amd64-setup.exe
+OutputBaseFilename=dagu-windows-amd64-setup
 Uninstallable=yes
 UninstallDisplayIcon={app}\{#AppExeName}
 WizardStyle=modern
