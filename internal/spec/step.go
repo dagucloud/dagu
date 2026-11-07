@@ -19,6 +19,7 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/cmn/cmdutil"
 	"github.com/dagucloud/dagu/v2/internal/cmn/runenv"
 	"github.com/dagucloud/dagu/v2/internal/cmn/signal"
+	"github.com/dagucloud/dagu/v2/internal/cmn/stringutil"
 	cmnvalue "github.com/dagucloud/dagu/v2/internal/cmn/value"
 	"github.com/dagucloud/dagu/v2/internal/executor/registry"
 	"github.com/dagucloud/dagu/v2/internal/ir"
@@ -2374,6 +2375,16 @@ func buildStepParallel(_ stepBuildContext, s *step, result *ir.Step) error {
 				default:
 					return ir.NewValidationError("parallel.items", val, fmt.Errorf("parallel.items must be string or array, got %T", val))
 				}
+
+			case "separator":
+				name, ok := val.(string)
+				if !ok {
+					return ir.NewValidationError("parallel.separator", val, fmt.Errorf("parallel.separator must be a string, got %T", val))
+				}
+				if _, ok := stringutil.ParseSeparatorName(name); !ok {
+					return ir.NewValidationError("parallel.separator", name, fmt.Errorf("parallel.separator must be one of %s", strings.Join(stringutil.SeparatorNames(), ", ")))
+				}
+				result.Parallel.Separator = name
 
 			case "max_concurrent":
 				switch mc := val.(type) {

@@ -878,6 +878,53 @@ func TestNodeBuildSubDAGRuns(t *testing.T) {
 	}
 }
 
+// A single pipe-delimited line is split into fragments by automatic separator
+// detection. An explicit newline separator must keep it as one item.
+func TestBuildSubDAGRunsParallelSeparator(t *testing.T) {
+	const item = "|volumeSnapshotName=snapshot-3a24|restoreSize=1Gi|sourcePvcName=test-pvc1|"
+
+	run := func(t *testing.T, separator string) []runtime.SubDAGRun {
+		t.Helper()
+		ctx := runtime.NewContext(context.Background(), &ir.DAG{}, "test-run", "test.log")
+		env := runtime.GetEnv(ctx)
+		env.Scope = env.Scope.WithEntry("PVCS", item, cmnvalue.EnvSourceStepEnv)
+		ctx = runtime.WithEnv(ctx, env)
+
+		subDAG := &ir.SubDAG{Name: "sub-dag", Params: "PVC=${ITEM}"}
+		step := ir.Step{
+			Name:     "restore",
+			Parallel: &ir.ParallelConfig{Variable: "${PVCS}", Separator: separator},
+			SubDAG:   subDAG,
+		}
+		runs, err := runtime.NewNode(step, runtime.NodeState{}).BuildSubDAGRuns(ctx, subDAG)
+		require.NoError(t, err)
+		return runs
+	}
+
+	t.Run("AutoDetectSplitsOnPipe", func(t *testing.T) {
+		require.Len(t, run(t, ""), 3)
+	})
+
+	t.Run("ExplicitNewlineKeepsItemWhole", func(t *testing.T) {
+		runs := run(t, "newline")
+		require.Len(t, runs, 1)
+		require.Equal(t, item, runs[0].ParallelItem)
+		require.Contains(t, runs[0].Params, item)
+	})
+
+	t.Run("UnknownSeparatorFails", func(t *testing.T) {
+		ctx := runtime.NewContext(context.Background(), &ir.DAG{}, "test-run", "test.log")
+		subDAG := &ir.SubDAG{Name: "sub-dag"}
+		step := ir.Step{
+			Name:     "restore",
+			Parallel: &ir.ParallelConfig{Variable: "a b", Separator: "colon"},
+			SubDAG:   subDAG,
+		}
+		_, err := runtime.NewNode(step, runtime.NodeState{}).BuildSubDAGRuns(ctx, subDAG)
+		require.ErrorContains(t, err, `unknown parallel separator "colon"`)
+	})
+}
+
 func TestStepExecutorResolvesMultiCommandExecutableToken(t *testing.T) {
 	executorType := "test-command-token-resolution"
 	created := make(chan ir.Step, 1)

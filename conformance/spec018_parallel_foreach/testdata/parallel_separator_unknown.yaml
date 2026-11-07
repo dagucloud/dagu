@@ -1,0 +1,15 @@
+steps:
+  - name: fanout
+    action: dag.run
+    with:
+      dag: child
+    parallel:
+      items: ${ITEMS}
+      separator: colon
+
+---
+
+name: child
+steps:
+  - name: ok
+    run: "true"
