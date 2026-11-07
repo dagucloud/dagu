@@ -225,6 +225,49 @@ func TestNewPlanEnvForNodeIncludesOnlyPredecessorStepReferences(t *testing.T) {
 	require.NotContains(t, env.StepMap, "deploy")
 }
 
+func TestStepWorkingDirResolvesPredecessorStepOutput(t *testing.T) {
+	t.Parallel()
+
+	// Regression test for #3603: a step's working_dir must resolve
+	// ${steps.<id>.outputs.<name>} references against the predecessors that
+	// have already run in the plan.
+	wantDir := t.TempDir()
+	declared := fmt.Sprintf(`{"path":%q}`, wantDir)
+	worktree := runtime.NewNode(
+		ir.Step{Name: "worktree", ID: "worktree"},
+		runtime.NodeState{StepOutputsValue: &declared},
+	)
+	show := runtime.NewNode(
+		ir.Step{Name: "show", ID: "show", Depends: []string{"worktree"}, Dir: "${steps.worktree.outputs.path}"},
+		runtime.NodeState{},
+	)
+	plan, err := runtime.NewPlanFromNodes(worktree, show)
+	require.NoError(t, err)
+
+	env := runtime.NewPlanEnvForNode(context.Background(), show, plan)
+	require.Equal(t, filepath.Clean(wantDir), env.WorkingDir)
+}
+
+func TestStepWorkingDirWithoutPredecessorOutputKeepsLiteralDir(t *testing.T) {
+	t.Parallel()
+
+	// A predecessor that has not published the referenced output leaves the
+	// working_dir text unchanged rather than failing the run.
+	worktree := runtime.NewNode(
+		ir.Step{Name: "worktree", ID: "worktree"},
+		runtime.NodeState{},
+	)
+	show := runtime.NewNode(
+		ir.Step{Name: "show", ID: "show", Depends: []string{"worktree"}, Dir: "${steps.worktree.outputs.path}"},
+		runtime.NodeState{},
+	)
+	plan, err := runtime.NewPlanFromNodes(worktree, show)
+	require.NoError(t, err)
+
+	env := runtime.NewPlanEnvForNode(context.Background(), show, plan)
+	require.Equal(t, "${steps.worktree.outputs.path}", env.WorkingDir)
+}
+
 func registerDeclaredOutputExecutor(t *testing.T, run func(context.Context, *declaredOutputExecutor) error) string {
 	t.Helper()
 
