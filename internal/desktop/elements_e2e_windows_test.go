@@ -6,6 +6,7 @@
 package desktop
 
 import (
+	"encoding/json"
 	"fmt"
 	"image"
 	"os"
@@ -14,11 +15,14 @@ import (
 	"runtime"
 	"slices"
 	"strings"
+	"syscall"
 	"testing"
 	"time"
+	"unsafe"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"golang.org/x/sys/windows"
 )
 
 const elementsWindowTitle = "Dagu elements test"
@@ -637,4 +641,128 @@ func median(n int, fn func()) time.Duration {
 	}
 	slices.Sort(times)
 	return times[len(times)/2]
+}
+
+// belowEnv carries, to the copy of TestWindowsElevatedWindow that runs at
+// medium integrity, the elements of the window above it.
+const belowEnv = "DAGU_DESKTOP_E2E_BELOW"
+
+var procCreateRestrictedToken = windows.NewLazySystemDLL("advapi32.dll").NewProc("CreateRestrictedToken")
+
+// elevatedTargets are the elements the medium-integrity copy acts on.
+type elevatedTargets struct {
+	Save   Element
+	Amount Element
+}
+
+// A process below an application's integrity level, as a step not run as
+// administrator is below an application that is, cannot operate it: its
+// pointer and key input and its element actions fail naming the application
+// and reach nothing, while its screen and its window still read. The test
+// starts the window at its own level and runs itself again at medium.
+func TestWindowsElevatedWindow(t *testing.T) {
+	if targets := os.Getenv(belowEnv); targets != "" {
+		operateFromBelow(t, targets)
+		return
+	}
+	driver := e2eDesktop(t)
+	own, err := processIntegrity(windows.GetCurrentProcessId())
+	require.NoError(t, err)
+	if own <= mediumRID {
+		t.Skipf("the test runs at integrity level %#x, too low to start a window above a medium-level copy of itself", own)
+	}
+	els := e2eElements(t)
+	window := elementsWindow(t, driver, els)
+	outline, err := els.Outline(window, 0)
+	require.NoError(t, err)
+	byID := map[string]Element{}
+	for _, e := range outline {
+		byID[e.ID] = e
+	}
+	for _, id := range []string{"saveButton", "amountBox", "statusLabel"} {
+		require.Contains(t, byID, id, "outline: %+v", outline)
+	}
+	// The copy clicks and scrolls at the pointer, which rests on the button.
+	require.NoError(t, driver.Move(t.Context(), centre(byID["saveButton"].Bounds)))
+
+	targets, err := json.Marshal(elevatedTargets{Save: byID["saveButton"], Amount: byID["amountBox"]})
+	require.NoError(t, err)
+	below := exec.Command(os.Args[0], "-test.run=^TestWindowsElevatedWindow$", "-test.count=1", "-test.v") //nolint:gosec // the test binary runs itself
+	below.Env = append(os.Environ(), belowEnv+"="+string(targets))
+	below.SysProcAttr = &syscall.SysProcAttr{Token: syscall.Token(mediumToken(t))}
+	out, belowErr := below.CombinedOutput()
+	t.Logf("medium-integrity copy:\n%s", out)
+
+	// Nothing the copy did reached the window.
+	status := centre(byID["statusLabel"].Bounds)
+	label, err := els.At(status.X, status.Y)
+	require.NoError(t, err)
+	assert.Equal(t, "待機中", label.Name)
+	field := centre(byID["amountBox"].Bounds)
+	amount, err := els.At(field.X, field.Y)
+	require.NoError(t, err)
+	assert.Empty(t, amount.Value)
+	require.NoError(t, belowErr)
+}
+
+// operateFromBelow operates, from medium integrity, the window the test
+// started above it.
+func operateFromBelow(t *testing.T, encoded string) {
+	var targets elevatedTargets
+	require.NoError(t, json.Unmarshal([]byte(encoded), &targets))
+	own, err := processIntegrity(windows.GetCurrentProcessId())
+	require.NoError(t, err)
+	require.Equal(t, mediumRID, own, "the copy runs at medium integrity")
+	driver := e2eDesktop(t)
+	els := e2eElements(t)
+	ctx := t.Context()
+
+	_, err = driver.Screenshot()
+	assert.NoError(t, err, "the screen reads across the boundary")
+	front, err := els.FrontWindow()
+	assert.NoError(t, err, "the window reads across the boundary")
+	assert.Equal(t, elementsWindowTitle, front.Name)
+
+	// Input fails naming the application; an element action is a refusal
+	// too, since nothing reached the element.
+	elevated := func(what string, err error) {
+		t.Helper()
+		t.Logf("%s: %v", what, err)
+		if assert.Error(t, err, what) {
+			assert.Contains(t, err.Error(), "powershell runs elevated", what)
+		}
+	}
+	refused := func(what string, err error) {
+		t.Helper()
+		elevated(what, err)
+		assert.ErrorIs(t, err, ErrRefused, what)
+	}
+	elevated("click", driver.Click(ctx, nil, ButtonLeft, 1, nil))
+	elevated("scroll", driver.Scroll(ctx, nil, 0, 1, nil))
+	elevated("type", driver.Type(ctx, "1200"))
+	elevated("key", driver.PressKeys(ctx, []Key{KeyEnter}, 1))
+	refused("invoke", els.Apply(targets.Save, PatternInvoke, ""))
+	refused("set value", els.Apply(targets.Amount, PatternSetValue, "1200"))
+	refused("focus", els.Focus(targets.Amount))
+}
+
+// mediumToken returns a primary token of this process's user at medium
+// integrity, the level of a process started without administrator rights.
+// It is a restricted copy of this process's own token, which a process may
+// start another with and no privilege.
+func mediumToken(t *testing.T) windows.Token {
+	t.Helper()
+	var own windows.Token
+	require.NoError(t, windows.OpenProcessToken(windows.CurrentProcess(), windows.TOKEN_DUPLICATE|windows.TOKEN_QUERY|windows.TOKEN_ASSIGN_PRIMARY|windows.TOKEN_ADJUST_DEFAULT, &own))
+	defer func() { _ = own.Close() }()
+	var token windows.Token
+	if ok, _, err := procCreateRestrictedToken.Call(uintptr(own), 0, 0, 0, 0, 0, 0, 0, uintptr(unsafe.Pointer(&token))); ok == 0 { //nolint:gosec // Win32 takes the out-parameter as uintptr
+		require.NoError(t, err, "CreateRestrictedToken")
+	}
+	t.Cleanup(func() { _ = token.Close() })
+	sid, err := windows.CreateWellKnownSid(windows.WinMediumLabelSid)
+	require.NoError(t, err)
+	label := windows.Tokenmandatorylabel{Label: windows.SIDAndAttributes{Sid: sid, Attributes: windows.SE_GROUP_INTEGRITY}}
+	require.NoError(t, windows.SetTokenInformation(token, windows.TokenIntegrityLevel, (*byte)(unsafe.Pointer(&label)), label.Size())) //nolint:gosec // Win32 reads a TOKEN_MANDATORY_LABEL
+	return token
 }

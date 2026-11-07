@@ -48,6 +48,17 @@ func (r refusal) Error() string { return string(r) }
 
 func (refusal) Is(target error) bool { return target == ErrRefused }
 
+// refusedError marks an error given before the element acted, such as input
+// to its window being refused: it reads as that error, matches ErrRefused,
+// and unwraps to the error.
+type refusedError struct{ err error }
+
+func (r refusedError) Error() string { return r.err.Error() }
+
+func (r refusedError) Unwrap() error { return r.err }
+
+func (refusedError) Is(target error) bool { return target == ErrRefused }
+
 // Refused reports an error from Apply that came before the element acted:
 // the element was not there, was disabled, lacked the pattern, or refused
 // it. Any other error may have come after the element acted.

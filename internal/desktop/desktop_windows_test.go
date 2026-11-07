@@ -213,6 +213,13 @@ func TestWindowsDesktopPress(t *testing.T) {
 	assert.NoError(t, backend.Key(KeyShift, false))
 }
 
+// A scroll of zero notches sends nothing, so it is not refused either, even
+// where a press would be.
+func TestWheelZeroNotchesSendsNothing(t *testing.T) {
+	stubIntegrity(t, func(uint32) (uint32, error) { return 0, windows.ERROR_ACCESS_DENIED })
+	assert.NoError(t, windowsBackend{}.Wheel(0, 0))
+}
+
 // An access-denied cursor read names the input desktop problem when there is
 // one; any other failure keeps the GetCursorPos context.
 func TestGetCursorPosError(t *testing.T) {
