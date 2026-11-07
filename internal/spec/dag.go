@@ -1032,8 +1032,7 @@ func modelOutputInRunWarnings(dag *ir.DAG) []string {
 	models := make(map[string]ir.Step)
 	commands := make(map[string]struct{})
 	walkSteps(dag, func(step ir.Step, _ string) {
-		switch step.ExecutorConfig.Type {
-		case "harness", ir.ExecutorTypeChat, ir.ExecutorTypeAgent:
+		if isModelStep(step) {
 			models[step.Name] = step
 			if step.ID != "" {
 				models[step.ID] = step
@@ -1055,7 +1054,7 @@ func modelOutputInRunWarnings(dag *ir.DAG) []string {
 		}
 		for _, ref := range field.Field.StepTextReferences(field.Value) {
 			model, ok := models[ref.StepName]
-			if !ok || schemaExcludesShellSyntax(model, ref.Field) {
+			if !ok || !IsShellUnsafeModelOutput(model, ref.Field) {
 				continue
 			}
 			warning := fmt.Sprintf(
@@ -1072,6 +1071,21 @@ func modelOutputInRunWarnings(dag *ir.DAG) []string {
 		}
 	}
 	return warnings
+}
+
+// IsShellUnsafeModelOutput reports whether the named output of the step is model
+// text that can run as shell code when written into a shell command (spec 067).
+func IsShellUnsafeModelOutput(step ir.Step, output string) bool {
+	return isModelStep(step) && !schemaExcludesShellSyntax(step, output)
+}
+
+// isModelStep reports whether a model writes the outputs of the step.
+func isModelStep(step ir.Step) bool {
+	switch step.ExecutorConfig.Type {
+	case "harness", ir.ExecutorTypeChat, ir.ExecutorTypeAgent:
+		return true
+	}
+	return false
 }
 
 // schemaExcludesShellSyntax reports whether the step's output schema limits the

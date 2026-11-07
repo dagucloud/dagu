@@ -8,6 +8,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/spec"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -93,6 +94,46 @@ func TestModelOutputInRunWarnings(t *testing.T) {
 			require.Len(t, warnings, 1)
 			assert.Contains(t, warnings[0], `DAG "reply": step "consumer": `+tt.want)
 			assert.Contains(t, warnings[0], "env")
+		})
+	}
+}
+
+func TestIsShellUnsafeModelOutput(t *testing.T) {
+	t.Parallel()
+
+	schema := map[string]any{"properties": map[string]any{
+		"summary":  map[string]any{"type": "string"},
+		"approved": map[string]any{"type": "boolean"},
+		"attempts": map[string]any{"type": "integer"},
+		"score":    map[string]any{"type": "number"},
+		"severity": map[string]any{"type": "string", "enum": []any{"low", "high"}},
+	}}
+
+	tests := []struct {
+		name     string
+		executor string
+		output   string
+		want     bool
+	}{
+		{name: "Harness", executor: "harness", output: "summary", want: true},
+		{name: "Chat", executor: ir.ExecutorTypeChat, output: "summary", want: true},
+		{name: "Agent", executor: ir.ExecutorTypeAgent, output: "summary", want: true},
+		{name: "NotInSchema", executor: ir.ExecutorTypeChat, output: "other", want: true},
+		{name: "Boolean", executor: ir.ExecutorTypeChat, output: "approved"},
+		{name: "Integer", executor: ir.ExecutorTypeChat, output: "attempts"},
+		{name: "Number", executor: ir.ExecutorTypeChat, output: "score"},
+		{name: "Enum", executor: ir.ExecutorTypeChat, output: "severity"},
+		{name: "NotAModel", executor: "command", output: "summary"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			step := ir.Step{
+				ExecutorConfig: ir.ExecutorConfig{Type: tt.executor},
+				OutputSchema:   schema,
+			}
+			assert.Equal(t, tt.want, spec.IsShellUnsafeModelOutput(step, tt.output))
 		})
 	}
 }

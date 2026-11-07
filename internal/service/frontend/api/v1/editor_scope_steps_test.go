@@ -918,20 +918,6 @@ steps:
 	}
 }
 
-// Spec 067 reads a harness and an agent step as models too.
-func TestScopeModelOutputExecutors(t *testing.T) {
-	for _, typ := range []string{"harness", ir.ExecutorTypeChat, ir.ExecutorTypeAgent} {
-		step := &ir.Step{
-			ID:             "producer",
-			ExecutorConfig: ir.ExecutorConfig{Type: typ},
-			Outputs:        []ir.StepOutputDeclaration{{Name: "reply"}},
-		}
-		outputs := stepOutputs(step)
-		require.Len(t, outputs, 1)
-		assert.True(t, valueOf(outputs[0].ModelOutput), typ)
-	}
-}
-
 // ${VAR} is not what the validator reads, so an output variable stays unflagged.
 func TestScopeModelOutputVariable(t *testing.T) {
 	step := &ir.Step{
