@@ -133,7 +133,7 @@ func executeToolInputSchema() json.RawMessage {
 			},
 			"profile": {
 				"type": "string",
-				"description": "Runtime profile name for start or enqueue. Selects the profile for this run only, instead of the DAG default profile; omit to keep the default profile resolution."
+				"description": "Runtime profile name for start or enqueue. Selects the profile for this run only. When omitted, a stored DAG keeps its default profile resolution and an inline spec runs without a profile."
 			},
 			"labels": {
 				"type": "array",

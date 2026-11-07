@@ -548,6 +548,50 @@ func TestExecuteToolSupportsProfile(t *testing.T) {
 	require.Nil(t, enqueueBody(executeInput{Name: "etl"}).Profile)
 }
 
+// Every launch handler receives the selected profile: a profile the server
+// does not know is refused before the run is created, for stored DAGs and
+// inline specs alike.
+func TestExecuteLaunchHandlersForwardProfile(t *testing.T) {
+	ctx := context.Background()
+	dagStore := testutil.NewFileDAGRepository(t.TempDir(), filedag.WithSkipExamples(true))
+	require.NoError(t, dagStore.Create(ctx, "profile-run", []byte("name: profile-run\nsteps:\n  - run: echo hello\n")))
+	profileStore, err := persiststore.NewProfileStore(persisttestutil.NewMemoryBackend().Collection(persis.CollectionProfiles))
+	require.NoError(t, err)
+	cfg := &config.Config{}
+	cfg.Server.Permissions = map[config.Permission]bool{config.PermissionRunDAGs: true, config.PermissionWriteDAGs: true}
+	api := frontendapi.New(
+		dagStore,
+		testutil.NewFileDAGRunRepository(t.TempDir(), persis.DAGRunRepositoryOptions{}),
+		nil,
+		nil,
+		runtime.Manager{},
+		cfg,
+		nil,
+		nil,
+		prometheus.NewRegistry(),
+		nil,
+		frontendapi.WithProfileStore(profileStore),
+	)
+	session := connectTestClient(t, ctx, NewServer(api))
+
+	for _, action := range []string{executeActionStart, executeActionEnqueue} {
+		for _, target := range []map[string]any{
+			{"targetType": executeTargetTypeDAG, "name": "profile-run"},
+			{"targetType": executeTargetTypeInlineSpec, "name": "inline-profile", "spec": "steps:\n  - run: echo hello\n"},
+		} {
+			arguments := map[string]any{"action": action, "profile": "missing"}
+			for key, value := range target {
+				arguments[key] = value
+			}
+			result := callTool(t, ctx, session, toolExecute, arguments)
+			require.True(t, result.IsError, "%s %s", action, target["targetType"])
+			output := structuredMap(t, result)
+			require.Equal(t, executeErrorResourceNotFound, output["code"], "%s %s", action, target["targetType"])
+			require.Equal(t, "runtime profile missing not found", output["message"], "%s %s", action, target["targetType"])
+		}
+	}
+}
+
 func TestExecuteBodiesUseRequestedDAGName(t *testing.T) {
 	t.Parallel()
 

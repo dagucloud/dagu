@@ -285,7 +285,7 @@ Fields:
 - queue: queue name for enqueue.
 - singleton: singleton run flag for start and enqueue.
 - noReuse: when true for start or enqueue, execute eligible build steps instead of reusing prior materializations.
-- profile: runtime profile name for start and enqueue. Selects the profile for this run only, instead of the DAG default profile. Omit to keep the default profile resolution. The profile must exist and be usable by the caller.
+- profile: runtime profile name for start and enqueue. Selects the profile for this run only. When omitted, a stored DAG keeps its default profile resolution and an inline spec runs without a profile. The profile must exist and be usable by the caller.
 - labels: labels for start and enqueue.
 - stepName: optional step name for retry. Required for approve, reject, and push_back: the waiting step to decide.
 - includeDownstream: when true, retry the selected step and every reachable descendant. Requires stepName.

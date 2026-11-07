@@ -53,7 +53,7 @@ Tool input is a JSON object. Fields outside this table fail with
 | `queue` | string | Optional for `enqueue`. | Queue override. |
 | `singleton` | boolean | Optional for `start` and `enqueue`. | Reject duplicate running or queued DAG-runs. |
 | `noReuse` | boolean | Optional for `start` and `enqueue`. | Execute eligible build steps without reusing prior materializations. |
-| `profile` | string | Optional for `start` and `enqueue`. | Runtime profile for this run only. When absent, the run uses the DAG default profile resolution. |
+| `profile` | string | Optional for `start` and `enqueue`. | Runtime profile for this run only. When absent, a stored DAG keeps its default profile resolution and an inline spec runs without a profile. |
 | `labels` | array of strings | Optional for `start` and `enqueue`. | Additional labels, each `key=value` or key-only. |
 | `stepName` | string | Optional for `retry`; required for `approve`, `reject`, and `push_back`. | Step to retry, or the waiting step to decide. |
 | `includeDownstream` | boolean | Optional for `retry`. Requires `stepName`. | Retry the selected step and every reachable descendant. |
