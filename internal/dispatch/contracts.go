@@ -59,6 +59,7 @@ type DispatchTask struct {
 	ProfileName    string
 	DefinitionID   string
 	TriggerActor   string
+	TriggerType    ir.TriggerType
 
 	PreviousStatus *ir.DAGRunStatus
 

@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"github.com/dagucloud/dagu/v2/internal/dispatch"
+	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/proto/convert"
 	coordinatorv1 "github.com/dagucloud/dagu/v2/proto/coordinator/v1"
 	"github.com/stretchr/testify/assert"
@@ -40,6 +41,7 @@ func TestDispatchTaskAttributionRoundTrips(t *testing.T) {
 		ProfileName:         "prod",
 		DefinitionID:        "ops/daily",
 		TriggerActor:        "alice",
+		TriggerType:         ir.TriggerTypeManual,
 		ParallelItem:        "item-1",
 		IncludeDownstream:   true,
 	}
@@ -50,6 +52,7 @@ func TestDispatchTaskAttributionRoundTrips(t *testing.T) {
 	assert.Equal(t, "prod", protoTask.ProfileName)
 	assert.Equal(t, "ops/daily", protoTask.DefinitionId)
 	assert.Equal(t, "alice", protoTask.TriggerActor)
+	assert.Equal(t, "manual", protoTask.TriggerType)
 	assert.Equal(t, "item-1", protoTask.ParallelItem)
 	assert.True(t, protoTask.IncludeDownstream)
 	assert.Equal(t, &baseWorkspace, protoTask.BaseConfigWorkspace)
@@ -60,6 +63,7 @@ func TestDispatchTaskAttributionRoundTrips(t *testing.T) {
 	assert.Equal(t, "prod", got.ProfileName)
 	assert.Equal(t, "ops/daily", got.DefinitionID)
 	assert.Equal(t, "alice", got.TriggerActor)
+	assert.Equal(t, ir.TriggerTypeManual, got.TriggerType)
 	assert.Equal(t, "item-1", got.ParallelItem)
 	assert.True(t, got.IncludeDownstream)
 	assert.Equal(t, &baseWorkspace, got.BaseConfigWorkspace)

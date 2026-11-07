@@ -265,6 +265,7 @@ func (h *remoteTaskHandler) reportTaskLoadFailure(ctx context.Context, run remot
 		ProfileName:  run.profileName,
 		DefinitionID: task.DefinitionId,
 		TriggerActor: task.TriggerActor,
+		TriggerType:  run.triggerType(),
 		// The run ended before any step could use a model.
 		ModelUsageRecorded: true,
 	}
@@ -322,6 +323,7 @@ func (h *remoteTaskHandler) reportDAGRunInitFailure(
 		ProfileName:  run.profileName,
 		DefinitionID: task.DefinitionId,
 		TriggerActor: task.TriggerActor,
+		TriggerType:  run.triggerType(),
 		// The run ended before any step could use a model.
 		ModelUsageRecorded: true,
 	}
@@ -375,6 +377,14 @@ type remoteRun struct {
 	retry         *retryConfig
 	profileName   string
 	workspaceSeed *runtimeexec.WorkspaceSeed
+}
+
+// triggerType is how the run was started: a retry carries the queued run's type.
+func (r remoteRun) triggerType() ir.TriggerType {
+	if r.retry != nil {
+		return r.retry.triggerType
+	}
+	return ir.ParseTriggerType(r.task.TriggerType)
 }
 
 type taskInitError struct {
@@ -789,6 +799,7 @@ func (h *remoteTaskHandler) executeDAGRun(
 		ProfileName:              run.profileName,
 		DAGDefinitionID:          task.DefinitionId,
 		TriggerActor:             task.TriggerActor,
+		TriggerType:              run.triggerType(),
 		ParallelItem:             task.ParallelItem,
 		ServiceRegistry:          h.serviceRegistry,
 		SubWorkflowRunnerFactory: subWorkflowRunnerFactory,
@@ -810,7 +821,6 @@ func (h *remoteTaskHandler) executeDAGRun(
 		opts.StepRetry = run.retry.stepName
 		opts.IncludeDownstream = run.retry.includeDownstream
 		opts.BypassPreconditions = run.retry.bypassPreconditions
-		opts.TriggerType = run.retry.triggerType
 		opts.RetryPath = run.retry.retryPath
 	}
 

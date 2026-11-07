@@ -170,6 +170,13 @@ func WithTriggerActor(actor string) TaskOption {
 	}
 }
 
+// WithTriggerType sets how a dispatched task's DAG run was initiated.
+func WithTriggerType(triggerType ir.TriggerType) TaskOption {
+	return func(task *dispatch.DispatchTask) {
+		task.TriggerType = triggerType
+	}
+}
+
 // WithBaseConfig sets the effective base configuration and optional workspace provenance.
 // This allows workers to apply base config without needing local base config files.
 func WithBaseConfig(content string, workspace *string) TaskOption {

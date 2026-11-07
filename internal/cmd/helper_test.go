@@ -37,6 +37,17 @@ func TestDispatchBaseConfig(t *testing.T) {
 	assert.Equal(t, string(dag.BaseConfigData), client.task.BaseConfig)
 }
 
+func TestDispatchTriggerType(t *testing.T) {
+	t.Parallel()
+
+	ctx := &Context{Context: context.Background(), Config: &config.Config{}, Quiet: true}
+	client := &smtpDispatchClient{err: errors.New("stop after dispatch")}
+	err := dispatchToCoordinatorAndWait(ctx, &ir.DAG{Name: "gpu"}, "run", runOptions{triggerType: ir.TriggerTypeManual}, client)
+	require.ErrorIs(t, err, client.err)
+	require.NotNil(t, client.task)
+	assert.Equal(t, ir.TriggerTypeManual, client.task.TriggerType)
+}
+
 // A selected-steps run is dispatched as a retry of its seeded queued attempt,
 // so the worker starts from the seeded node states.
 func TestDispatchSeededRun(t *testing.T) {

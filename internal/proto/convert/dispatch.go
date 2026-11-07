@@ -9,6 +9,7 @@ import (
 	"math"
 
 	"github.com/dagucloud/dagu/v2/internal/dispatch"
+	"github.com/dagucloud/dagu/v2/internal/ir"
 	coordinatorv1 "github.com/dagucloud/dagu/v2/proto/coordinator/v1"
 )
 
@@ -43,6 +44,7 @@ func DispatchTaskToProto(task *dispatch.DispatchTask) (*coordinatorv1.Task, erro
 		ProfileName:                task.ProfileName,
 		DefinitionId:               task.DefinitionID,
 		TriggerActor:               task.TriggerActor,
+		TriggerType:                task.TriggerType.String(),
 		BaseConfig:                 task.BaseConfig,
 		BaseConfigWorkspace:        task.BaseConfigWorkspace,
 		Labels:                     task.Labels,
@@ -103,6 +105,7 @@ func ProtoToDispatchTask(task *coordinatorv1.Task) (*dispatch.DispatchTask, erro
 		ProfileName:                task.ProfileName,
 		DefinitionID:               task.DefinitionId,
 		TriggerActor:               task.TriggerActor,
+		TriggerType:                ir.ParseTriggerType(task.TriggerType),
 		BaseConfig:                 task.BaseConfig,
 		BaseConfigWorkspace:        task.BaseConfigWorkspace,
 		Labels:                     task.Labels,
