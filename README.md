@@ -124,6 +124,13 @@ npm install -g --ignore-scripts=false @dagucloud/dagu
 irm https://raw.githubusercontent.com/dagucloud/dagu/main/scripts/installer.ps1 | iex
 ```
 
+**Windows (Scoop):**
+
+```powershell
+scoop bucket add dagu https://github.com/dagucloud/scoop-bucket
+scoop install dagu
+```
+
 **Docker:**
 
 ```sh
