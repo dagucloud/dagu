@@ -1454,6 +1454,39 @@ func TestHandleStart(t *testing.T) {
 	})
 }
 
+// A queued run that fails to load on the worker keeps its trigger type.
+func TestHandleRetryLoadErrorKeepsQueuedTrigger(t *testing.T) {
+	t.Parallel()
+
+	previous, err := convert.DAGRunStatusToProto(&ir.DAGRunStatus{
+		Name: "queued-dag", DAGRunID: "run-1", Status: ir.Queued, TriggerType: ir.TriggerTypeManual,
+	})
+	require.NoError(t, err)
+
+	var reported *ir.DAGRunStatus
+	client := newMockRemoteCoordinatorClient()
+	client.ReportStatusFunc = func(_ context.Context, req *coordinatorv1.ReportStatusRequest) (*coordinatorv1.ReportStatusResponse, error) {
+		reported, err = convert.ProtoToDAGRunStatus(req.Status)
+		return &coordinatorv1.ReportStatusResponse{Accepted: true}, err
+	}
+	handler := &remoteTaskHandler{
+		workerID:          "test-worker",
+		coordinatorClient: client,
+		config:            &config.Config{Paths: config.PathsConfig{DAGsDir: t.TempDir()}},
+	}
+
+	err = handler.handleRetry(context.Background(), &coordinatorv1.Task{
+		Operation:      coordinatorv1.Operation_OPERATION_RETRY,
+		Target:         "queued-dag",
+		DagRunId:       "run-1",
+		Definition:     `invalid: yaml: content: [[[`,
+		PreviousStatus: previous,
+	})
+	require.ErrorContains(t, err, "failed to load DAG")
+	require.NotNil(t, reported)
+	assert.Equal(t, ir.TriggerTypeManual, reported.TriggerType)
+}
+
 func TestRemoteHandler_UniqueLogDirs(t *testing.T) {
 	t.Parallel()
 
