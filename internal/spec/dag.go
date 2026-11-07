@@ -2492,6 +2492,14 @@ func parseParamsInternal(ctx buildContext, d *dag) (*paramsResult, error) {
 	}
 
 	result, err := buildDAGParamsResult(ctx, d)
+	if err != nil {
+		// Every params field builder returns this same instance, so attributing
+		// it to 'params' here lets the build report it once instead of once per
+		// derived field (see dagBuildState.finish).
+		if _, ok := errors.AsType[*ir.ValidationError](err); !ok {
+			err = ir.NewValidationError("params", nil, err)
+		}
+	}
 	if ctx.paramsState != nil {
 		ctx.paramsState.cached = true
 		ctx.paramsState.result = result
