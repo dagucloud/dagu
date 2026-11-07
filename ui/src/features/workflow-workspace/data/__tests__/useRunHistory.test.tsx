@@ -93,10 +93,10 @@ describe('useRunHistory', () => {
     expect(historyCalls()).toHaveLength(0);
   });
 
-  it('shares the DAGExecutionHistory key and follows the history SSE', async () => {
+  it('shares the plain history key and follows the history SSE', async () => {
     const view = renderWorkspace(() => {
       const history = useRunHistory({ enabled: true });
-      // The query of DAGExecutionHistory.tsx, with the same params.
+      // The same history query with the same params, as another reader.
       useQuery(HISTORY_PATH, {
         params: {
           query: { remoteNode: 'local' },

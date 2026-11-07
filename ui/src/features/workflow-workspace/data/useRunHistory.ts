@@ -106,11 +106,11 @@ function firstTestRunRemoval(
 }
 
 /**
- * The run history of the workflow. Without `includeEphemeral` it has the SWR
- * key of DAGExecutionHistory, so both share one cache entry. With it, the
- * server also lists the test runs (they leave no trace elsewhere): the query
- * has a key of its own and the SSE feed cannot fill it, so an event only
- * revalidates it. With `pollTestRuns`, the list is read again every
+ * The run history of the workflow. Without `includeEphemeral` it has the
+ * plain SWR key of the history query, which the history SSE feed fills. With
+ * it, the server also lists the test runs (they leave no trace elsewhere):
+ * the query has a key of its own and the SSE feed cannot fill it, so an
+ * event only revalidates it. With `pollTestRuns`, the list is read again every
  * `TEST_RUN_POLL_MS` while a test run in it is active or this tab started one
  * a moment ago. The server drops an ended test run without any event, so the
  * list is read once more when the first one is gone, and a few more times
