@@ -807,6 +807,7 @@ func TestParseSeparatedValues_BackwardCompatibility(t *testing.T) {
 	}
 }
 
+// Every listed name must round-trip and names are exact lowercase tokens.
 func TestParseSeparatorName(t *testing.T) {
 	for _, name := range stringutil.SeparatorNames() {
 		_, ok := stringutil.ParseSeparatorName(name)

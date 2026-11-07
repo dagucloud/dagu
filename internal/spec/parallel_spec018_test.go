@@ -98,6 +98,7 @@ steps:
 	}
 }
 
+// A valid separator is stored on the IR alongside the string item source.
 func TestParallelSpec018Separator(t *testing.T) {
 	t.Parallel()
 
