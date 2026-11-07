@@ -201,8 +201,10 @@ func expandRuntimeValue(ctx context.Context, raw string, rCtx Context, dag *ir.D
 		rCtx.DAG = dag
 	}
 	var foreach cmnvalue.Values
+	var steps map[string]cmnvalue.StepInfo
 	if inherited, ok := LookupEnv(ctx); ok {
 		foreach = inherited.Foreach
+		steps = inherited.StepMap
 	}
 	resolver := cmnvalue.NewResolver(
 		cmnvalue.StaticScope{Consts: dagScope.consts, Params: dagScope.paramDeclarations},
@@ -212,6 +214,7 @@ func expandRuntimeValue(ctx context.Context, raw string, rCtx Context, dag *ir.D
 			ParamsJSON:     dagScope.paramsJSON,
 			Env:            scope,
 			Foreach:        foreach,
+			Steps:          steps,
 			BuiltinContext: builtinContextFromDAGContext(rCtx, scope, step),
 		},
 	)
