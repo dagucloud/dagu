@@ -186,6 +186,47 @@ params:
 	assert.Equal(t, dag.SourceFile, resolved.SourceFile)
 }
 
+func TestResolveRuntimeParams_ReloadsCopyAgainstAuthoredFile(t *testing.T) {
+	t.Parallel()
+
+	// A local child is reloaded from a temporary copy when it is enqueued or
+	// selects a worker. A schema next to the authored file is still found.
+	authoredDir := t.TempDir()
+	require.NoError(t, os.MkdirAll(filepath.Join(authoredDir, "schemas"), 0o750))
+	require.NoError(t, os.MkdirAll(filepath.Join(authoredDir, "children"), 0o750))
+	require.NoError(t, os.WriteFile(filepath.Join(authoredDir, "schemas", "run.json"), []byte(`{
+  "type": "object",
+  "properties": {
+    "region": {"type": "string", "enum": ["us-east-1", "us-west-2"]}
+  }
+}`), 0o600))
+
+	yaml := []byte(`
+name: unit-a
+params:
+  schema: ../schemas/run.json
+`)
+	authored := filepath.Join(authoredDir, "children", "unit-a.yaml")
+	require.NoError(t, os.WriteFile(authored, yaml, 0o600))
+	copied := filepath.Join(t.TempDir(), "unit-a-1234.yaml")
+	require.NoError(t, os.WriteFile(copied, yaml, 0o600))
+
+	dag, err := Load(context.Background(), authored, WithoutEval())
+	require.NoError(t, err)
+	dag.Location = copied
+	dag.SourceFile = authored
+	dag.YamlData = nil
+
+	resolved, err := ResolveRuntimeParams(context.Background(), dag, "region=us-west-2", ResolveRuntimeParamsOptions{})
+	require.NoError(t, err)
+	assert.Equal(t, []string{"region=us-west-2"}, resolved.Params)
+	assert.Equal(t, authored, resolved.SourceFile)
+
+	snapshot, err := ReloadRuntimeSnapshot(context.Background(), dag, "region=us-east-1", ResolveRuntimeParamsOptions{})
+	require.NoError(t, err)
+	assert.Equal(t, []string{"region=us-east-1"}, snapshot.Params)
+}
+
 func TestResolveRuntimeParams_LegacyNamedParamsPreservePositionalOverrides(t *testing.T) {
 	t.Parallel()
 

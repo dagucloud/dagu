@@ -1391,7 +1391,7 @@
       "properties": {
         "schema": {
           "$ref": "#/definitions/jsonSchemaDeclaration",
-          "description": "JSON Schema declaration used for parameter validation."
+          "description": "JSON Schema declaration used for parameter validation. A relative file path is looked up in the current working directory of the Dagu process, then in the DAG's working_dir, then next to the DAG file as authored (so it also works for a child dispatched to a worker). `~` and `$VAR` in the path expand from the Dagu process environment, not from the DAG's env or base config."
         },
         "values": {
           "type": "object",

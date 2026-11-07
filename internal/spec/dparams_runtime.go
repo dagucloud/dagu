@@ -125,6 +125,11 @@ func runtimeParamLoadOptions(dag *ir.DAG, params any, opts ResolveRuntimeParamsO
 	if dag.Name != "" {
 		loadOpts = append(loadOpts, WithName(dag.Name))
 	}
+	// A child copied to a temporary location keeps resolving relative paths,
+	// such as a params schema, against the file it was authored in.
+	if dag.SourceFile != "" {
+		loadOpts = append(loadOpts, WithSourceFile(dag.SourceFile))
+	}
 	if opts.BaseConfig != "" {
 		loadOpts = append(loadOpts, WithBaseConfig(opts.BaseConfig))
 	}
