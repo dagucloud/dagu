@@ -16,8 +16,11 @@ jobs:
   goreleaser:
     # The ubuntu-26.04 image runs out of disk space during the release build.
     runs-on: ubuntu-24.04
-    # id-token and attestations let the attest step below record build
-    # provenance for the archives this job produces.
+    # The Azure federated credential that lets this job sign is issued to the
+    # `release` environment, so the job must run in it.
+    environment: release
+    # id-token lets the Azure login and the attest step below exchange this
+    # job's identity; attestations records build provenance for the archives.
     permissions:
       contents: write
       id-token: write
@@ -52,6 +55,20 @@ jobs:
 
       - name: Clean UI dependencies
         run: rm -rf ui/node_modules
+
+      # Signs the Windows binaries with Azure Artifact Signing, see
+      # .goreleaser.yaml and scripts/ci/sign-windows.sh. Until the signing
+      # account exists the variable is empty and the release ships unsigned.
+      - name: Prepare Azure Artifact Signing
+        if: vars.AZURE_SIGNING_ACCOUNT != ''
+        uses: ./.github/actions/artifact-signing
+        with:
+          client-id: ${{ vars.AZURE_CLIENT_ID }}
+          tenant-id: ${{ vars.AZURE_TENANT_ID }}
+          subscription-id: ${{ vars.AZURE_SUBSCRIPTION_ID }}
+          endpoint: ${{ vars.AZURE_SIGNING_ENDPOINT }}
+          account: ${{ vars.AZURE_SIGNING_ACCOUNT }}
+          profile: ${{ vars.AZURE_SIGNING_PROFILE }}
 
       - name: Run GoReleaser
         uses: goreleaser/goreleaser-action@ec59f474b9834571250b370d4735c50f8e2d1e29 # v7.0.0
@@ -111,16 +128,36 @@ jobs:
             skill/dagu=repo:skills/dagu
 
   # The Inno Setup compiler is Windows-only, so the installer cannot be produced
-  # in the GoReleaser job. It wraps the amd64 binary that job already published,
-  # so the installer and the archive ship identical bytes.
+  # in the GoReleaser job. It wraps the amd64 binary that job already published
+  # and signed, so the installer and the archive ship identical bytes.
   windows-installer:
     name: Publish Windows installer
     needs: goreleaser
     runs-on: windows-latest
     timeout-minutes: 20
+    environment: release
+    # contents: write uploads the installer to the release; id-token: write
+    # lets the Azure login exchange this job's identity for a signing token.
+    permissions:
+      contents: write
+      id-token: write
     steps:
       - name: Check out code
         uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+
+      # Signs the installer and its uninstaller with the same certificate as
+      # the binary inside them. Until the signing account exists the variable
+      # is empty and the installer ships unsigned.
+      - name: Prepare Azure Artifact Signing
+        if: vars.AZURE_SIGNING_ACCOUNT != ''
+        uses: ./.github/actions/artifact-signing
+        with:
+          client-id: ${{ vars.AZURE_CLIENT_ID }}
+          tenant-id: ${{ vars.AZURE_TENANT_ID }}
+          subscription-id: ${{ vars.AZURE_SUBSCRIPTION_ID }}
+          endpoint: ${{ vars.AZURE_SIGNING_ENDPOINT }}
+          account: ${{ vars.AZURE_SIGNING_ACCOUNT }}
+          profile: ${{ vars.AZURE_SIGNING_PROFILE }}
 
       - name: Download the published Windows binary
         shell: bash
@@ -162,9 +199,36 @@ jobs:
             Write-Host "Inno Setup 6 is not preinstalled on this image; installing it."
             choco install innosetup --no-progress --yes
           }
-          & $iscc /DAppVersion=$version /DBinaryPath=dist\dagu-windows-amd64.exe scripts\installer.iss
+          $arguments = @("/DAppVersion=$version", "/DBinaryPath=dist\dagu-windows-amd64.exe")
+          if ($env:AZURE_SIGNING_ACCOUNT) {
+            # Inno Setup expands $q to a quote and $f to the quoted file to sign.
+            # The token stays in the environment, which ISCC passes on to jsign.
+            $signTool = 'java -jar $q' + $env:JSIGN_JAR + '$q ' + $env:JSIGN_ARGS + ' $f'
+            $arguments += "/Sjsign=$signTool"
+            $arguments += "/DSignTool=jsign"
+          }
+          & $iscc @arguments scripts\installer.iss
           if ($LASTEXITCODE -ne 0) {
             throw "Inno Setup compilation failed with exit code $LASTEXITCODE."
+          }
+
+      # A broken or missing signature would ship the very warning this is
+      # meant to remove, so refuse to publish one.
+      - name: Verify the signatures
+        if: vars.AZURE_SIGNING_ACCOUNT != ''
+        shell: powershell
+        env:
+          RELEASE_TAG: ${{ github.ref_name }}
+        run: |
+          foreach ($file in @("dist\dagu-windows-amd64.exe", "dist\dagu-windows-amd64-setup.exe")) {
+            $signature = Get-AuthenticodeSignature -FilePath $file
+            Write-Host "${file}: $($signature.Status) $($signature.SignerCertificate.Subject)"
+            if ($signature.Status -ne 'Valid') {
+              throw "$file is not validly signed: $($signature.StatusMessage)"
+            }
+            if (-not $signature.TimeStamperCertificate) {
+              throw "$file is signed but not timestamped, so its signature would expire with the certificate."
+            }
           }
 
       - name: Attach the installer to the release
@@ -173,8 +237,7 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           RELEASE_TAG: ${{ github.ref_name }}
         run: |
-          version="${RELEASE_TAG#v}"
-          installer="dist/dagu-${version}-setup.exe"
+          installer="dist/dagu-windows-amd64-setup.exe"
           if [ ! -f "$installer" ]; then
             echo "::error::${installer} was not produced by the Inno Setup compiler"
             exit 1

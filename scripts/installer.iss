@@ -36,10 +36,20 @@ ChangesEnvironment=yes
 ArchitecturesInstallIn64BitMode=x64compatible
 ArchitecturesAllowed=x64compatible
 OutputDir=dist
-OutputBaseFilename=dagu-{#AppVersion}-setup
+; The name carries no version so the newest installer always has the same
+; URL: https://github.com/dagucloud/dagu/releases/latest/download/dagu-windows-amd64-setup.exe
+OutputBaseFilename=dagu-windows-amd64-setup
 Uninstallable=yes
 UninstallDisplayIcon={app}\{#AppExeName}
 WizardStyle=modern
+#ifdef SignTool
+; The release workflow defines this sign tool on the ISCC command line, so the
+; installer and its uninstaller carry the same signature as dagu.exe. Builds
+; that do not pass /DSignTool stay unsigned.
+SignTool={#SignTool}
+SignedUninstaller=yes
+SignToolRetryCount=3
+#endif
 
 [Tasks]
 Name: "path"; Description: "Add Dagu to the system PATH"; GroupDescription: "Additional options:"

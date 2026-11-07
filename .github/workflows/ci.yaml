@@ -649,7 +649,7 @@ jobs:
           $installDir = "$env:ProgramFiles\Dagu"
           $before = [Environment]::GetEnvironmentVariable("Path", "Machine")
 
-          Start-Process -Wait -FilePath "dist\dagu-0.0.0-setup.exe" -ArgumentList @(
+          Start-Process -Wait -FilePath "dist\dagu-windows-amd64-setup.exe" -ArgumentList @(
             "/VERYSILENT", "/SUPPRESSMSGBOXES", "/NORESTART", "/TASKS=path"
           )
           if (-not (Test-Path "$installDir\dagu.exe")) {
