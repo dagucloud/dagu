@@ -139,6 +139,18 @@ it pressed is still down. An `act` the model drives holds the desktop
 across its turns, so an application its actions move into is taken at the
 step's next operation.
 
+On Windows, a step cannot operate an application whose process runs at a
+higher integrity level than Dagu, such as one run as administrator when Dagu
+is not: Windows drops the input yet reports it sent. A click or scroll over
+one of its windows, a drag that starts on one, keys or typing while one has
+the focus, and an element of one performing a pattern or taking the focus
+fail before anything is sent, with a result that names the application and
+says it runs elevated, and the model is told. So does input to an
+application whose level Dagu cannot read, which may run elevated or as
+another user. The screen and the window still read. Running the application
+without administrator rights, or Dagu at the same level, lets the step
+operate it.
+
 ### Conditions
 
 `expect` and `when` take a statement string, or an object with exactly one
