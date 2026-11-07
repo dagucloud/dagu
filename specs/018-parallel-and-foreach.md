@@ -227,8 +227,8 @@ steps:
 
 Rules:
 
-- `parallel.separator` is optional and must be one of `newline`, `comma`,
-  `semicolon`, `pipe`, `tab`, or `space`. Matching is case-insensitive.
+- `parallel.separator` is optional and must be exactly one of `newline`,
+  `comma`, `semicolon`, `pipe`, `tab`, or `space`.
 
 - `parallel.separator` requires a string item source. It is invalid with a
   direct array item source.

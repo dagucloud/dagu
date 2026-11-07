@@ -2384,7 +2384,7 @@ func buildStepParallel(_ stepBuildContext, s *step, result *ir.Step) error {
 				if _, ok := stringutil.ParseSeparatorName(name); !ok {
 					return ir.NewValidationError("parallel.separator", name, fmt.Errorf("parallel.separator must be one of %s", strings.Join(stringutil.SeparatorNames(), ", ")))
 				}
-				result.Parallel.Separator = strings.ToLower(strings.TrimSpace(name))
+				result.Parallel.Separator = name
 
 			case "max_concurrent":
 				switch mc := val.(type) {

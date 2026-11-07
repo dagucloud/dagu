@@ -262,10 +262,10 @@ func DetectSeparatorType(s string) SeparatorType {
 }
 
 // ParseSeparatorName maps a user-facing separator name to its SeparatorType.
-// Names are case-insensitive. JSON and quoted-string detection have no name
-// because they are only reachable through automatic detection.
+// Names are exact lowercase tokens. JSON and quoted-string detection have no
+// name because they are only reachable through automatic detection.
 func ParseSeparatorName(name string) (SeparatorType, bool) {
-	switch strings.ToLower(strings.TrimSpace(name)) {
+	switch name {
 	case "newline":
 		return SeparatorTypeNewline, true
 	case "comma":

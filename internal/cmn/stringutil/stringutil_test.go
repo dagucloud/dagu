@@ -813,10 +813,14 @@ func TestParseSeparatorName(t *testing.T) {
 		require.True(t, ok, name)
 	}
 
-	sep, ok := stringutil.ParseSeparatorName(" Newline ")
+	sep, ok := stringutil.ParseSeparatorName("newline")
 	require.True(t, ok)
 	require.Equal(t, stringutil.SeparatorTypeNewline, sep)
 
+	_, ok = stringutil.ParseSeparatorName("Newline")
+	require.False(t, ok)
+	_, ok = stringutil.ParseSeparatorName(" newline")
+	require.False(t, ok)
 	_, ok = stringutil.ParseSeparatorName("json")
 	require.False(t, ok)
 	_, ok = stringutil.ParseSeparatorName("")

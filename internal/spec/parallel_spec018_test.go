@@ -49,6 +49,13 @@ func TestParallelSpec018Validation(t *testing.T) {
 			wantParts: []string{"parallel.separator", "newline", "comma", "semicolon", "pipe", "tab", "space"},
 		},
 		{
+			name: "rejects mixed case separator",
+			parallel: `
+      items: ${ITEMS}
+      separator: Newline`,
+			wantParts: []string{"parallel.separator", "newline"},
+		},
+		{
 			name: "rejects non string separator",
 			parallel: `
       items: ${ITEMS}
@@ -102,7 +109,7 @@ steps:
       dag: child
     parallel:
       items: ${ITEMS}
-      separator: Newline
+      separator: newline
 
 ---
 
