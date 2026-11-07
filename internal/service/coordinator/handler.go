@@ -1055,6 +1055,7 @@ func (h *Handler) writeInitialStatus(ctx context.Context, attempt dagrun.Attempt
 		Root:         root,
 		Labels:       labels,
 		TriggerActor: task.TriggerActor,
+		TriggerType:  ir.ParseTriggerType(task.TriggerType),
 		ScheduleTime: task.ScheduleTime,
 		DefinitionID: task.DefinitionId,
 		ProfileName:  task.ProfileName,

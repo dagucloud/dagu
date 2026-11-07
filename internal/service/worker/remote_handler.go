@@ -265,6 +265,7 @@ func (h *remoteTaskHandler) reportTaskLoadFailure(ctx context.Context, run remot
 		ProfileName:  run.profileName,
 		DefinitionID: task.DefinitionId,
 		TriggerActor: task.TriggerActor,
+		TriggerType:  ir.ParseTriggerType(task.TriggerType),
 		// The run ended before any step could use a model.
 		ModelUsageRecorded: true,
 	}
@@ -322,6 +323,7 @@ func (h *remoteTaskHandler) reportDAGRunInitFailure(
 		ProfileName:  run.profileName,
 		DefinitionID: task.DefinitionId,
 		TriggerActor: task.TriggerActor,
+		TriggerType:  ir.ParseTriggerType(task.TriggerType),
 		// The run ended before any step could use a model.
 		ModelUsageRecorded: true,
 	}
@@ -789,6 +791,7 @@ func (h *remoteTaskHandler) executeDAGRun(
 		ProfileName:              run.profileName,
 		DAGDefinitionID:          task.DefinitionId,
 		TriggerActor:             task.TriggerActor,
+		TriggerType:              ir.ParseTriggerType(task.TriggerType),
 		ParallelItem:             task.ParallelItem,
 		ServiceRegistry:          h.serviceRegistry,
 		SubWorkflowRunnerFactory: subWorkflowRunnerFactory,

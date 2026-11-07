@@ -2017,6 +2017,7 @@ steps:
 	var (
 		reportedMu sync.Mutex
 		finalActor string
+		finalType  ir.TriggerType
 	)
 	client.ReportStatusFunc = func(_ context.Context, req *coordinatorv1.ReportStatusRequest) (*coordinatorv1.ReportStatusResponse, error) {
 		status, err := convert.ProtoToDAGRunStatus(req.Status)
@@ -2024,6 +2025,7 @@ steps:
 		if status.Status == ir.Succeeded {
 			reportedMu.Lock()
 			finalActor = status.TriggerActor
+			finalType = status.TriggerType
 			reportedMu.Unlock()
 		}
 		return &coordinatorv1.ReportStatusResponse{Accepted: true}, nil
@@ -2052,7 +2054,7 @@ steps:
 	// Call executeDAGRun - this should succeed and log completion
 	// For top-level runs, pass empty parent and ensure root matches dagRunID
 	err := handler.executeDAGRun(th.Context, dag.DAG, remoteRun{
-		task:     &coordinatorv1.Task{DagRunId: dagRunID, TriggerActor: "alice"},
+		task:     &coordinatorv1.Task{DagRunId: dagRunID, TriggerActor: "alice", TriggerType: "manual"},
 		root:     root,
 		handlers: handlers,
 	})
@@ -2062,6 +2064,7 @@ steps:
 	reportedMu.Lock()
 	defer reportedMu.Unlock()
 	require.Equal(t, "alice", finalActor)
+	require.Equal(t, ir.TriggerTypeManual, finalType)
 }
 
 func TestRemoteRunReporter_FinalizesSchedulerLogByClosingLiveWriterOnce(t *testing.T) {

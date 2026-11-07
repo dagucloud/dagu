@@ -206,6 +206,7 @@ func TestRunnerRunDispatchesWorkflowRequest(t *testing.T) {
 	require.Len(t, dispatcher.dispatches, 1)
 	task := dispatcher.dispatches[0]
 	assert.Equal(t, dispatch.DispatchOperationStart, task.Operation)
+	assert.Equal(t, ir.TriggerTypeSubDAG, task.TriggerType)
 	assert.Equal(t, "child-1", task.DAGRunID)
 	assert.Equal(t, "child", task.Target)
 	assert.Equal(t, "ITEM=1", task.Params)

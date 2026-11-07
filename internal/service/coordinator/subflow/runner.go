@@ -310,7 +310,7 @@ func (r *Runner) dispatchRetryWithStatus(
 }
 
 func (r *Runner) buildStartTask(req executor.SubWorkflowRequest) (*dispatch.DispatchTask, error) {
-	opts, err := r.taskOptions(req, executor.WithTaskParams(req.Params))
+	opts, err := r.taskOptions(req, executor.WithTaskParams(req.Params), executor.WithTriggerType(ir.TriggerTypeSubDAG))
 	if err != nil {
 		return nil, err
 	}
