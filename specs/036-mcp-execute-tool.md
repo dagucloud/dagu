@@ -53,6 +53,7 @@ Tool input is a JSON object. Fields outside this table fail with
 | `queue` | string | Optional for `enqueue`. | Queue override. |
 | `singleton` | boolean | Optional for `start` and `enqueue`. | Reject duplicate running or queued DAG-runs. |
 | `noReuse` | boolean | Optional for `start` and `enqueue`. | Execute eligible build steps without reusing prior materializations. |
+| `profile` | string | Optional for `start` and `enqueue`. | Runtime profile for this run only. When absent, the run uses the DAG default profile resolution. |
 | `labels` | array of strings | Optional for `start` and `enqueue`. | Additional labels, each `key=value` or key-only. |
 | `stepName` | string | Optional for `retry`; required for `approve`, `reject`, and `push_back`. | Step to retry, or the waiting step to decide. |
 | `includeDownstream` | boolean | Optional for `retry`. Requires `stepName`. | Retry the selected step and every reachable descendant. |
@@ -72,8 +73,8 @@ Rules:
   whitespace; a string that is empty after trimming is treated as absent.
 - `targetType=run` is valid only for `retry`, `stop`, `approve`, `reject`, and
   `push_back`, and those actions require it.
-- `params`, `singleton`, `noReuse`, and `labels` are valid only for `start`
-  and `enqueue`; `queue` is valid only for `enqueue`; `includeDownstream` is
+- `params`, `singleton`, `noReuse`, `profile`, and `labels` are valid only for
+  `start` and `enqueue`; `queue` is valid only for `enqueue`; `includeDownstream` is
   valid only for `retry`; `stepName` is valid only for `retry`, `approve`,
   `reject`, and `push_back`; `subDAGRunId` and `attemptId` are valid only for
   `approve`, `reject`, and `push_back`; `inputs` is valid only for `approve`
@@ -216,7 +217,7 @@ Common conditions map to codes as follows:
 | Authentication is required and the request is not authenticated. | `unauthenticated` |
 | The accepted credential is not authorized for the requested execution. | `unauthorized` |
 | Tool input is malformed, misses a required field, or uses unknown values. | `invalid_tool_input` |
-| The named DAG or DAG-run does not exist. | `resource_not_found` |
+| The named DAG, DAG-run, or runtime profile does not exist. | `resource_not_found` |
 | A singleton run is already running or queued, a DAG with a `restart_policy` has an active run, the step to decide is not waiting, `attemptId` names another attempt, or the action otherwise conflicts with current run state. | `conflict` |
 | The action target exists but cannot currently be acted on. | `resource_unavailable` |
 | The server fails unexpectedly while handling the action. | `internal_error` |

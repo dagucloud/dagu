@@ -435,6 +435,7 @@ func TestExecuteInputValidation(t *testing.T) {
 		{name: "enqueue rejects step name", input: `{"action":"enqueue","name":"etl","stepName":"build"}`, wantField: executeFieldStepName},
 		{name: "retry rejects params", input: `{"action":"retry","name":"etl","dagRunId":"run-1","params":"x=1"}`, wantField: executeFieldParams},
 		{name: "retry rejects disabled no reuse", input: `{"action":"retry","name":"etl","dagRunId":"run-1","noReuse":false}`, wantField: executeFieldNoReuse},
+		{name: "retry rejects profile", input: `{"action":"retry","name":"etl","dagRunId":"run-1","profile":"prod"}`, wantField: executeFieldProfile},
 		{name: "stop rejects step name", input: `{"action":"stop","name":"etl","dagRunId":"run-1","stepName":"build"}`, wantField: executeFieldStepName},
 		{name: "stop rejects disabled downstream", input: `{"action":"stop","name":"etl","dagRunId":"run-1","includeDownstream":false}`, wantField: executeFieldIncludeDownstream},
 		{name: "stop rejects empty labels", input: `{"action":"stop","name":"etl","dagRunId":"run-1","labels":[]}`, wantField: executeFieldLabels},
@@ -515,6 +516,36 @@ func TestExecuteToolSupportsNoReuse(t *testing.T) {
 	enqueueBody := enqueueBody(executeInput{NoReuse: true})
 	require.NotNil(t, enqueueBody.NoReuse)
 	require.True(t, *enqueueBody.NoReuse)
+}
+
+// A selected profile reaches both launch request bodies, and an omitted one
+// leaves the server's default profile resolution untouched.
+func TestExecuteToolSupportsProfile(t *testing.T) {
+	ctx := context.Background()
+	session := connectTestClient(t, ctx, NewServer(nil))
+
+	result, err := session.ListTools(ctx, nil)
+	require.NoError(t, err)
+	schema, err := json.Marshal(findTool(t, result.Tools, toolExecute).InputSchema)
+	require.NoError(t, err)
+	require.Contains(t, string(schema), `"profile"`)
+
+	input, executeErr := parseExecuteToolInput(json.RawMessage(
+		`{"action":"enqueue","name":"etl","profile":"  parent-example  "}`,
+	))
+	require.Nil(t, executeErr)
+	require.Equal(t, "parent-example", input.Profile)
+
+	startBody := executeBody(input)
+	require.NotNil(t, startBody.Profile)
+	require.Equal(t, "parent-example", string(*startBody.Profile))
+
+	queuedBody := enqueueBody(input)
+	require.NotNil(t, queuedBody.Profile)
+	require.Equal(t, "parent-example", string(*queuedBody.Profile))
+
+	require.Nil(t, executeBody(executeInput{Name: "etl"}).Profile)
+	require.Nil(t, enqueueBody(executeInput{Name: "etl"}).Profile)
 }
 
 func TestExecuteBodiesUseRequestedDAGName(t *testing.T) {
