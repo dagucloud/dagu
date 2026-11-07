@@ -1313,3 +1313,61 @@ func TestStaleDimensionDoesNotWidenTheUsedRange(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, 1, result.Count)
 }
+
+// TestParseWhere covers name:value pairs, including a value with a colon
+// and an empty value, the JSON object form, and the errors for bad input.
+func TestParseWhere(t *testing.T) {
+	t.Parallel()
+	cases := map[string]map[string]any{
+		"":                            nil,
+		"Status:open":                 {"Status": "open"},
+		" Status : open , Region:e":   {"Status": "open", "Region": "e"},
+		"Status:":                     {"Status": ""},
+		"Time:10:30":                  {"Time": "10:30"},
+		`{"Status": "open"}`:          {"Status": "open"},
+		`{"金額（税込）": {"ne": 0}}`:       {"金額（税込）": map[string]any{"ne": float64(0)}},
+		`{"担当者: 氏名": ["a", "b"]}`:     {"担当者: 氏名": []any{"a", "b"}},
+		`{"a,b": {"in": ["x", "y"]}}`: {"a,b": map[string]any{"in": []any{"x", "y"}}},
+	}
+	for text, want := range cases {
+		got, err := ParseWhere(text)
+		require.NoError(t, err, text)
+		assert.Equal(t, want, got, text)
+		if want != nil {
+			require.NoError(t, ValidateWhere(got), text)
+		}
+	}
+	for text, msg := range map[string]string{
+		"Status":                    `"Status" must be name:value`,
+		"Status:a,Region":           `"Region" must be name:value`,
+		":open":                     `":open" must be name:value`,
+		"Status:a,Status:b":         `column "Status" is given twice`,
+		`{"Status": `:               "invalid JSON",
+		`{"a": 1} x`:                "invalid JSON: expected one value",
+		`{"a": {"like": "x"}}`:      `unknown operator "like"; use eq, ne, or in`,
+		`{"a": {"in": "x"}}`:        "in must be a list",
+		`{"a": {"eq": 1, "ne": 2}}`: "a must use one of eq, ne, or in",
+	} {
+		_, err := ParseWhere(text)
+		require.Error(t, err, text)
+		assert.Contains(t, err.Error(), msg, text)
+	}
+}
+
+func TestParseMergedAndFormulaModes(t *testing.T) {
+	t.Parallel()
+	for in, want := range map[string]MergedMode{"": "", "fill": MergedFill, "first": MergedFirst} {
+		got, err := ParseMergedMode(in)
+		require.NoError(t, err)
+		assert.Equal(t, want, got)
+	}
+	_, err := ParseMergedMode("last")
+	assert.EqualError(t, err, "merged must be fill or first")
+	for in, want := range map[string]FormulaMode{"": "", "cached": FormulaCached, "text": FormulaText, "calculate": FormulaCalculate} {
+		got, err := ParseFormulaMode(in)
+		require.NoError(t, err)
+		assert.Equal(t, want, got)
+	}
+	_, err = ParseFormulaMode("eval")
+	assert.EqualError(t, err, "formulas must be cached, text, or calculate")
+}

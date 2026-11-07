@@ -409,3 +409,143 @@ func TestXlsxErrors(t *testing.T) {
 	_, err = runXlsx(t, "read", "book.xlsx", "--header", "yes")
 	require.ErrorContains(t, err, "--header: header must be true, false, a row number")
 }
+
+// flagBook holds headers a comma list cannot name: a comma, a colon, and
+// full-width parentheses. A merged Region, padded text, and a formula cover
+// --merged, --trim, and --formulas.
+func flagBook(t *testing.T) string {
+	t.Helper()
+	f := excelize.NewFile()
+	const s = "Sheet1"
+	rows := [][]any{
+		{"担当者: 氏名", "金額（税込）", "a,b", "Region", "Memo"},
+		{"Sato", 100, "x", "East", "  pad  "},
+		{"Ito", 200, "y", nil, "ok"},
+		{"Kato", 300, "x", "West", "ok"},
+	}
+	for i, row := range rows {
+		cell, err := excelize.CoordinatesToCellName(1, i+1)
+		require.NoError(t, err)
+		require.NoError(t, f.SetSheetRow(s, cell, &row))
+	}
+	require.NoError(t, f.MergeCell(s, "D2", "D3"))
+	require.NoError(t, f.SetCellFormula(s, "F2", "1+2"))
+	require.NoError(t, f.SetCellValue(s, "F1", "Sum"))
+	path := filepath.Join(t.TempDir(), "flags.xlsx")
+	require.NoError(t, f.SaveAs(path))
+	require.NoError(t, f.Close())
+	return path
+}
+
+// readFlags runs dagu xlsx read on path with args and --format json, and
+// returns the decoded result.
+func readFlags(t *testing.T, path string, args ...string) *workbook.ReadResult {
+	t.Helper()
+	out, err := runXlsx(t, append([]string{"read", path, "--format", "json"}, args...)...)
+	require.NoError(t, err)
+	var result workbook.ReadResult
+	require.NoError(t, json.Unmarshal([]byte(out), &result))
+	return &result
+}
+
+// TestXlsxReadFieldFlags checks that each flag gives the read the value the
+// xlsx.read field gives it: the expected options below are what the step
+// builds from the same field.
+func TestXlsxReadFieldFlags(t *testing.T) {
+	t.Parallel()
+	path := flagBook(t)
+	want := func(opts workbook.ReadOptions) *workbook.ReadResult {
+		t.Helper()
+		result, err := workbook.Read(context.Background(), path, opts)
+		require.NoError(t, err)
+		// The CLI prints JSON, so compare through JSON.
+		data, err := json.Marshal(result)
+		require.NoError(t, err)
+		var round workbook.ReadResult
+		require.NoError(t, json.Unmarshal(data, &round))
+		return &round
+	}
+
+	t.Run("where pairs", func(t *testing.T) {
+		got := readFlags(t, path, "--where", "Region:West")
+		assert.Equal(t, want(workbook.ReadOptions{Where: map[string]any{"Region": "West"}}), got)
+		require.Equal(t, 1, got.Count)
+		assert.Equal(t, "Kato", got.Rows[0]["担当者: 氏名"])
+	})
+	t.Run("where JSON names headers with a comma and a colon", func(t *testing.T) {
+		got := readFlags(t, path, "--where", `{"a,b": "x", "担当者: 氏名": {"ne": "Sato"}}`)
+		assert.Equal(t, want(workbook.ReadOptions{Where: map[string]any{
+			"a,b": "x", "担当者: 氏名": map[string]any{"ne": "Sato"},
+		}}), got)
+		require.Equal(t, 1, got.Count)
+		assert.Equal(t, "Kato", got.Rows[0]["担当者: 氏名"])
+	})
+	t.Run("columns JSON", func(t *testing.T) {
+		got := readFlags(t, path, "--columns", `[{"担当者: 氏名": "owner"}, {"金額（税込）": "amount"}, "a,b"]`)
+		cols, err := workbook.ParseColumns([]any{map[string]any{"担当者: 氏名": "owner"}, map[string]any{"金額（税込）": "amount"}, "a,b"})
+		require.NoError(t, err)
+		assert.Equal(t, want(workbook.ReadOptions{Columns: cols}), got)
+		assert.Equal(t, []string{"owner", "amount", "a,b"}, got.Headers)
+	})
+	t.Run("types JSON", func(t *testing.T) {
+		got := readFlags(t, path, "--types", `{"a,b": "string", "金額（税込）": "integer"}`)
+		assert.Equal(t, want(workbook.ReadOptions{Types: map[string]workbook.ColumnType{
+			"a,b": workbook.TypeString, "金額（税込）": workbook.TypeInteger,
+		}}), got)
+	})
+	t.Run("types with a colon in the name", func(t *testing.T) {
+		got := readFlags(t, path, "--types", "担当者: 氏名:string")
+		assert.Equal(t, want(workbook.ReadOptions{Types: map[string]workbook.ColumnType{"担当者: 氏名": workbook.TypeString}}), got)
+	})
+	t.Run("merged", func(t *testing.T) {
+		got := readFlags(t, path, "--merged", "first")
+		assert.Equal(t, want(workbook.ReadOptions{Merged: workbook.MergedFirst}), got)
+		assert.Nil(t, got.Rows[1]["Region"])
+		fill := readFlags(t, path, "--merged", "fill")
+		assert.Equal(t, "East", fill.Rows[1]["Region"])
+	})
+	t.Run("trim", func(t *testing.T) {
+		got := readFlags(t, path, "--trim")
+		assert.Equal(t, want(workbook.ReadOptions{Trim: true}), got)
+		assert.Equal(t, "pad", got.Rows[0]["Memo"])
+		assert.Equal(t, "  pad  ", readFlags(t, path).Rows[0]["Memo"])
+	})
+	t.Run("formulas", func(t *testing.T) {
+		got := readFlags(t, path, "--formulas", "text", "--range", "A1:F")
+		assert.Equal(t, want(workbook.ReadOptions{Formulas: workbook.FormulaText, Range: "A1:F"}), got)
+		assert.Equal(t, "=1+2", got.Rows[0]["Sum"])
+		calc := readFlags(t, path, "--formulas", "calculate", "--range", "A1:F")
+		assert.EqualValues(t, 3, calc.Rows[0]["Sum"])
+	})
+	t.Run("on-type-error", func(t *testing.T) {
+		got := readFlags(t, path, "--types", "Memo:number", "--on-type-error", "keep")
+		assert.Equal(t, want(workbook.ReadOptions{
+			Types: map[string]workbook.ColumnType{"Memo": workbook.TypeNumber}, OnTypeError: workbook.TypeErrorKeep,
+		}), got)
+	})
+}
+
+// TestXlsxReadFieldFlagErrors checks that a bad --where, --columns, --types,
+// --merged or --formulas value fails with an error that names the flag.
+func TestXlsxReadFieldFlagErrors(t *testing.T) {
+	t.Parallel()
+	path := flagBook(t)
+	for _, tc := range []struct {
+		args []string
+		want string
+	}{
+		{[]string{"--where", `{"Region": `}, "--where: invalid JSON"},
+		{[]string{"--where", `["Region"]`}, `--where: "[\"Region\"]" must be name:value`},
+		{[]string{"--where", "Region"}, `--where: "Region" must be name:value`},
+		{[]string{"--where", `{"Region": {"like": "E"}}`}, `--where: Region: unknown operator "like"`},
+		{[]string{"--where", "Nope:x"}, `where: column "Nope" not found`},
+		{[]string{"--columns", `["a",`}, "--columns: columns: invalid JSON"},
+		{[]string{"--types", `{"a,b": `}, "--types: types must be a JSON object"},
+		{[]string{"--merged", "last"}, "--merged: merged must be fill or first"},
+		{[]string{"--formulas", "eval"}, "--formulas: formulas must be cached, text, or calculate"},
+	} {
+		_, err := runXlsx(t, append([]string{"read", path}, tc.args...)...)
+		require.Error(t, err, tc.args)
+		assert.Contains(t, err.Error(), tc.want, tc.args)
+	}
+}

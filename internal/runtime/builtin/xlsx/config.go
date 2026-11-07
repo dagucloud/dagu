@@ -200,6 +200,9 @@ func isWriter(operation string) bool {
 	}
 }
 
+// validateConfig checks the fields of an xlsx step for its operation and
+// parses the ones the workbook package reads, such as header and columns.
+// A bad value returns an error wrapping errConfig.
 func validateConfig(operation string, cfg *config) error {
 	allowed, ok := fieldsByOperation[operation]
 	if !ok {
@@ -218,15 +221,11 @@ func validateConfig(operation string, cfg *config) error {
 	if cfg.columns, err = workbook.ParseColumns(cfg.Columns); err != nil {
 		return fmt.Errorf("%w: %v", errConfig, err)
 	}
-	switch cfg.Merged {
-	case "", string(workbook.MergedFill), string(workbook.MergedFirst):
-	default:
-		return fmt.Errorf("%w: merged must be fill or first", errConfig)
+	if _, err = workbook.ParseMergedMode(cfg.Merged); err != nil {
+		return fmt.Errorf("%w: %v", errConfig, err)
 	}
-	switch cfg.Formulas {
-	case "", string(workbook.FormulaCached), string(workbook.FormulaText), string(workbook.FormulaCalculate):
-	default:
-		return fmt.Errorf("%w: formulas must be cached, text, or calculate", errConfig)
+	if _, err = workbook.ParseFormulaMode(cfg.Formulas); err != nil {
+		return fmt.Errorf("%w: %v", errConfig, err)
 	}
 	// YAML parses an unquoted null as nil, so a present but empty value is
 	// the null spelling of warn.

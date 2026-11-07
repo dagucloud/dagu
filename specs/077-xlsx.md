@@ -532,12 +532,22 @@ prints what `xlsx.info` publishes plus up to N typed sample rows per sheet;
 `--sheet` describes one sheet, matched as `sheet` matches, and a name that
 is not in the workbook fails with `sheet "Nope" not found; sheets present:
 ...`. `dagu xlsx read <path>
-[--sheet] [--range] [--header] [--columns] [--types] [--on-type-error]
-[--max-rows] [--skip-hidden] [--password P] [--format]` prints what
-`xlsx.read` publishes, the flags taking the values the fields take.
+[--sheet] [--range] [--header] [--columns] [--where] [--merged] [--trim]
+[--formulas] [--types] [--on-type-error] [--max-rows] [--skip-hidden]
+[--password P] [--format]` prints what `xlsx.read` publishes, the flags
+taking the values the fields take and checked as the fields are.
 `--types` is comma-separated `name:type` pairs, split at each pair's last
 colon, or a JSON object when a name holds a comma; `--on-type-error` is
-`fail` (default), `warn`, or `keep`.
+`fail` (default), `warn`, or `keep`. `--where` is comma-separated
+`name:value` pairs, split at each pair's first colon, so a value may hold
+one and `Status:` matches empty cells, or a JSON object, which also takes
+`{ne: v}` and `{in: [a, b]}`. `--columns` is the field's comma-separated
+form or a JSON list of names and `{name: alias}` entries. A value that
+starts with `{` or `[` is read as JSON, so a header with a comma or a
+colon can be named; in `--columns` a name with a colon needs the
+`{name: alias}` form, as in the field. `--merged` is `fill` (default) or
+`first`, `--trim` is a switch, and `--formulas` is `cached` (default),
+`text`, or `calculate`.
 For both commands, a path of `-` reads the workbook from standard input. The
 input is limited to 64 MiB; larger input fails before workbook parsing. The
 JSON inspect result uses `-` as its `path`.

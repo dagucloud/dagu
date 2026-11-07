@@ -176,6 +176,16 @@ const (
 	MergedFirst MergedMode = "first"
 )
 
+// ParseMergedMode validates a merged value; empty means the default, fill.
+func ParseMergedMode(s string) (MergedMode, error) {
+	switch m := MergedMode(s); m {
+	case "", MergedFill, MergedFirst:
+		return m, nil
+	default:
+		return "", fmt.Errorf("merged must be fill or first")
+	}
+}
+
 // mergeFill lists the merge regions of a sheet so a covered cell can be
 // resolved to the region's top-left cell on demand. Regions are kept as
 // rectangles rather than expanded per cell, because one merge can cover a

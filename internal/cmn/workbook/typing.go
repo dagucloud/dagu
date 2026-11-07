@@ -90,6 +90,17 @@ const (
 	FormulaCalculate FormulaMode = "calculate"
 )
 
+// ParseFormulaMode validates a formulas value; empty means the default,
+// cached.
+func ParseFormulaMode(s string) (FormulaMode, error) {
+	switch m := FormulaMode(s); m {
+	case "", FormulaCached, FormulaText, FormulaCalculate:
+		return m, nil
+	default:
+		return "", fmt.Errorf("formulas must be cached, text, or calculate")
+	}
+}
+
 const (
 	dateLayout     = "2006-01-02"
 	dateTimeLayout = "2006-01-02T15:04:05"
