@@ -6,6 +6,7 @@ package mcp
 import (
 	"context"
 	"encoding/json"
+	"maps"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -435,6 +436,7 @@ func TestExecuteInputValidation(t *testing.T) {
 		{name: "enqueue rejects step name", input: `{"action":"enqueue","name":"etl","stepName":"build"}`, wantField: executeFieldStepName},
 		{name: "retry rejects params", input: `{"action":"retry","name":"etl","dagRunId":"run-1","params":"x=1"}`, wantField: executeFieldParams},
 		{name: "retry rejects disabled no reuse", input: `{"action":"retry","name":"etl","dagRunId":"run-1","noReuse":false}`, wantField: executeFieldNoReuse},
+		{name: "retry rejects profile", input: `{"action":"retry","name":"etl","dagRunId":"run-1","profile":"prod"}`, wantField: executeFieldProfile},
 		{name: "stop rejects step name", input: `{"action":"stop","name":"etl","dagRunId":"run-1","stepName":"build"}`, wantField: executeFieldStepName},
 		{name: "stop rejects disabled downstream", input: `{"action":"stop","name":"etl","dagRunId":"run-1","includeDownstream":false}`, wantField: executeFieldIncludeDownstream},
 		{name: "stop rejects empty labels", input: `{"action":"stop","name":"etl","dagRunId":"run-1","labels":[]}`, wantField: executeFieldLabels},
@@ -515,6 +517,78 @@ func TestExecuteToolSupportsNoReuse(t *testing.T) {
 	enqueueBody := enqueueBody(executeInput{NoReuse: true})
 	require.NotNil(t, enqueueBody.NoReuse)
 	require.True(t, *enqueueBody.NoReuse)
+}
+
+// A selected profile reaches both launch request bodies, and an omitted one
+// leaves the server's default profile resolution untouched.
+func TestExecuteToolSupportsProfile(t *testing.T) {
+	ctx := context.Background()
+	session := connectTestClient(t, ctx, NewServer(nil))
+
+	result, err := session.ListTools(ctx, nil)
+	require.NoError(t, err)
+	schema, err := json.Marshal(findTool(t, result.Tools, toolExecute).InputSchema)
+	require.NoError(t, err)
+	require.Contains(t, string(schema), `"profile"`)
+
+	input, executeErr := parseExecuteToolInput(json.RawMessage(
+		`{"action":"enqueue","name":"etl","profile":"  parent-example  "}`,
+	))
+	require.Nil(t, executeErr)
+	require.Equal(t, "parent-example", input.Profile)
+
+	startBody := executeBody(input)
+	require.NotNil(t, startBody.Profile)
+	require.Equal(t, "parent-example", string(*startBody.Profile))
+
+	queuedBody := enqueueBody(input)
+	require.NotNil(t, queuedBody.Profile)
+	require.Equal(t, "parent-example", string(*queuedBody.Profile))
+
+	require.Nil(t, executeBody(executeInput{Name: "etl"}).Profile)
+	require.Nil(t, enqueueBody(executeInput{Name: "etl"}).Profile)
+}
+
+// Every launch handler receives the selected profile: a profile the server
+// does not know is refused before the run is created, for stored DAGs and
+// inline specs alike.
+func TestExecuteLaunchHandlersForwardProfile(t *testing.T) {
+	ctx := context.Background()
+	dagStore := testutil.NewFileDAGRepository(t.TempDir(), filedag.WithSkipExamples(true))
+	require.NoError(t, dagStore.Create(ctx, "profile-run", []byte("name: profile-run\nsteps:\n  - run: echo hello\n")))
+	profileStore, err := persiststore.NewProfileStore(persisttestutil.NewMemoryBackend().Collection(persis.CollectionProfiles))
+	require.NoError(t, err)
+	cfg := &config.Config{}
+	cfg.Server.Permissions = map[config.Permission]bool{config.PermissionRunDAGs: true, config.PermissionWriteDAGs: true}
+	api := frontendapi.New(
+		dagStore,
+		testutil.NewFileDAGRunRepository(t.TempDir(), persis.DAGRunRepositoryOptions{}),
+		nil,
+		nil,
+		runtime.Manager{},
+		cfg,
+		nil,
+		nil,
+		prometheus.NewRegistry(),
+		nil,
+		frontendapi.WithProfileStore(profileStore),
+	)
+	session := connectTestClient(t, ctx, NewServer(api))
+
+	for _, action := range []string{executeActionStart, executeActionEnqueue} {
+		for _, target := range []map[string]any{
+			{"targetType": executeTargetTypeDAG, "name": "profile-run"},
+			{"targetType": executeTargetTypeInlineSpec, "name": "inline-profile", "spec": "steps:\n  - run: echo hello\n"},
+		} {
+			arguments := map[string]any{"action": action, "profile": "missing"}
+			maps.Copy(arguments, target)
+			result := callTool(t, ctx, session, toolExecute, arguments)
+			require.True(t, result.IsError, "%s %s", action, target["targetType"])
+			output := structuredMap(t, result)
+			require.Equal(t, executeErrorResourceNotFound, output["code"], "%s %s", action, target["targetType"])
+			require.Equal(t, "runtime profile missing not found", output["message"], "%s %s", action, target["targetType"])
+		}
+	}
 }
 
 func TestExecuteBodiesUseRequestedDAGName(t *testing.T) {

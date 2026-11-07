@@ -642,6 +642,7 @@ func (svc *Service) startDAG(ctx context.Context, targetType string, input execu
 			Name:      stringPtr(input.Name),
 			NoReuse:   body.NoReuse,
 			Params:    body.Params,
+			Profile:   body.Profile,
 			Singleton: body.Singleton,
 			Spec:      input.Spec,
 		}
@@ -694,6 +695,7 @@ func (svc *Service) enqueueDAG(ctx context.Context, targetType string, input exe
 			Name:      stringPtr(input.Name),
 			NoReuse:   body.NoReuse,
 			Params:    body.Params,
+			Profile:   body.Profile,
 			Queue:     body.Queue,
 			Singleton: body.Singleton,
 			Spec:      input.Spec,
@@ -772,6 +774,7 @@ func executeBody(input executeInput) *daguapi.ExecuteDAGJSONRequestBody {
 	if input.NoReuse {
 		body.NoReuse = &input.NoReuse
 	}
+	body.Profile = profileOverride(input)
 	if len(input.Labels) > 0 {
 		labels := daguapi.Labels(input.Labels)
 		body.Labels = &labels
@@ -796,11 +799,22 @@ func enqueueBody(input executeInput) *daguapi.EnqueueDAGDAGRunJSONRequestBody {
 	if input.NoReuse {
 		body.NoReuse = &input.NoReuse
 	}
+	body.Profile = profileOverride(input)
 	if len(input.Labels) > 0 {
 		labels := daguapi.Labels(input.Labels)
 		body.Labels = &labels
 	}
 	return body
+}
+
+// profileOverride returns the runtime profile selected for a launch, or nil to
+// keep the server's default profile resolution for the DAG.
+func profileOverride(input executeInput) *daguapi.RuntimeProfileOverride {
+	if input.Profile == "" {
+		return nil
+	}
+	profile := daguapi.RuntimeProfileOverride(input.Profile)
+	return &profile
 }
 
 func (svc *Service) readResourceText(ctx context.Context, rawURI string) (string, string, error) {
