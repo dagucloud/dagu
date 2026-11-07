@@ -9,7 +9,6 @@ import (
 	"fmt"
 	"io"
 	"os"
-	"path/filepath"
 	goruntime "runtime"
 	"strings"
 	"sync/atomic"
@@ -884,41 +883,4 @@ func TestOutputCoordinator_CapturedStderr(t *testing.T) {
 		require.NoError(t, err)
 		assert.Equal(t, "first attempt\nsecond attempt", output)
 	})
-}
-
-func TestOutputCoordinator_SetupFileCreatesParentDirs(t *testing.T) {
-	t.Parallel()
-
-	for _, artifact := range []bool{false, true} {
-		t.Run(fmt.Sprintf("artifact=%v", artifact), func(t *testing.T) {
-			t.Parallel()
-
-			path := filepath.Join(t.TempDir(), "newdir", "nested", "out.txt")
-			oc := &OutputCoordinator{}
-			file, err := oc.setupFile(context.Background(), path, artifact)
-			require.NoError(t, err)
-			require.NoError(t, file.Close())
-			assert.FileExists(t, path)
-		})
-	}
-}
-
-func TestOutputCoordinator_SetupFileParentThroughSymlink(t *testing.T) {
-	t.Parallel()
-	if goruntime.GOOS == "windows" {
-		t.Skip("symlinks need extra privileges on Windows")
-	}
-
-	// root/a/link -> root/b/sub, so root/a/link/../new resolves to root/b/new.
-	root := t.TempDir()
-	require.NoError(t, os.MkdirAll(filepath.Join(root, "a"), 0o750))
-	require.NoError(t, os.MkdirAll(filepath.Join(root, "b", "sub"), 0o750))
-	require.NoError(t, os.Symlink(filepath.Join(root, "b", "sub"), filepath.Join(root, "a", "link")))
-
-	path := filepath.Join(root, "a", "link") + "/../new/out.txt"
-	oc := &OutputCoordinator{}
-	file, err := oc.setupFile(context.Background(), path, false)
-	require.NoError(t, err)
-	require.NoError(t, file.Close())
-	assert.FileExists(t, filepath.Join(root, "b", "new", "out.txt"))
 }

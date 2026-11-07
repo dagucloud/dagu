@@ -6,11 +6,13 @@ package runtime
 import (
 	"bytes"
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"log/slog"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"sync"
 
@@ -18,6 +20,7 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/cmn/logger"
 	"github.com/dagucloud/dagu/v2/internal/cmn/logger/tag"
 	"github.com/dagucloud/dagu/v2/internal/cmn/masking"
+	cmnvalue "github.com/dagucloud/dagu/v2/internal/cmn/value"
 	"github.com/dagucloud/dagu/v2/internal/runctx"
 	"github.com/dagucloud/dagu/v2/internal/runtime/executor"
 )
@@ -522,17 +525,6 @@ func (oc *OutputCoordinator) setupFile(ctx context.Context, filePath string, art
 		absFilePath = filepath.Clean(absFilePath)
 	}
 
-	// Create missing parent directories, as stdout.artifact already does.
-	// For absolute paths, split instead of filepath.Dir so the parent is not
-	// cleaned lexically: a ".." after a symlink must match what open() sees.
-	parentDir := filepath.Dir(absFilePath)
-	if filepath.IsAbs(absFilePath) {
-		parentDir, _ = filepath.Split(absFilePath)
-	}
-	if err := os.MkdirAll(parentDir, 0o750); err != nil {
-		return nil, fmt.Errorf("failed to create directory for %q: %w", absFilePath, err)
-	}
-
 	open := fileutil.OpenOrCreateFile
 	if artifact {
 		// Keep existing content until an attempt starts, and avoid append mode:
@@ -540,11 +532,47 @@ func (oc *OutputCoordinator) setupFile(ctx context.Context, filePath string, art
 		open = fileutil.OpenOrCreateFileForRandomWrite
 	}
 	file, err := open(absFilePath)
+	// Artifact parents are created and validated when the path is resolved.
+	if !artifact && errors.Is(err, os.ErrNotExist) {
+		if err := createRedirectParent(filePath, absFilePath); err != nil {
+			return nil, err
+		}
+		file, err = open(absFilePath)
+	}
 	if err != nil {
 		return nil, fmt.Errorf("failed to open file %q: %w", absFilePath, err)
 	}
 
 	return file, nil
+}
+
+// createRedirectParent creates the missing parent directories of a plain
+// redirect path. A path that is unlikely to name a deliberate location fails
+// instead, so that a mistake cannot become a stray directory and a passing step.
+func createRedirectParent(raw, absPath string) error {
+	normalized := strings.ReplaceAll(raw, `\`, "/")
+	segments := strings.Split(normalized, "/")
+	last := segments[len(segments)-1]
+
+	var reason string
+	switch {
+	case cmnvalue.HasAnyReference(normalized):
+		reason = "the path has an unresolved reference"
+	case segments[0] == "~":
+		reason = "~ is not expanded in redirect paths"
+	case slices.Contains(segments, ".."):
+		reason = "the path has a .. segment"
+	case last == "" || last == ".":
+		reason = "the path does not name a file"
+	}
+	if reason != "" {
+		return fmt.Errorf("cannot create parent directories for %q: %s", raw, reason)
+	}
+
+	if err := fileutil.MkdirAll(filepath.Dir(absPath), 0o750); err != nil {
+		return fmt.Errorf("failed to create parent directories for %q: %w", absPath, err)
+	}
+	return nil
 }
 
 func (oc *OutputCoordinator) capturedOutput(ctx context.Context) (string, error) {
