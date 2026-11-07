@@ -26,6 +26,9 @@ type SubDAGRunDetail = components['schemas']['SubDAGRunDetail'];
 // "all" is a special filter that shows everything
 type StatusFilterValue = 'all' | StatusLabel;
 
+// Pixels the params cell of the selected row scrolls per arrow key press.
+const PARAMS_SCROLL_STEP = 80;
+
 type Props = {
   isOpen: boolean;
   onClose: () => void;
@@ -185,6 +188,24 @@ export function ParallelExecutionModal({
               : (prev - 1 + filteredSubRuns.length) % filteredSubRuns.length
           );
           break;
+        case 'ArrowLeft':
+        case 'ArrowRight': {
+          // Long params only scroll with a pointer otherwise: the cell sits
+          // inside the row button, so it cannot take focus itself.
+          if (selectedIndex === null) return;
+          const row = scrollContainerRef.current?.children[selectedIndex];
+          const params = row?.querySelector<HTMLElement>(
+            '[data-params-scroll]'
+          );
+          if (!params) return;
+          e.preventDefault();
+          params.scrollBy({
+            left:
+              e.key === 'ArrowRight' ? PARAMS_SCROLL_STEP : -PARAMS_SCROLL_STEP,
+            behavior: 'smooth',
+          });
+          break;
+        }
         case 'Enter':
           e.preventDefault();
           if (selectedIndex !== null && filteredSubRuns[selectedIndex]) {
@@ -323,7 +344,10 @@ export function ParallelExecutionModal({
                           />
                         </span>
                       )}
-                      <div className="flex-1 min-w-0 overflow-x-auto">
+                      <div
+                        className="flex-1 min-w-0 overflow-x-auto"
+                        data-params-scroll
+                      >
                         {subRun.params ? (
                           <code className="text-sm font-mono text-muted-foreground whitespace-nowrap">
                             {subRun.params}
@@ -362,6 +386,10 @@ export function ParallelExecutionModal({
             <span className="opacity-40">•</span>
             <span>
               <I18nText text={'↑↓ Navigate'} />
+            </span>
+            <span className="opacity-40">•</span>
+            <span>
+              <I18nText text={'←→ Scroll'} />
             </span>
             <span className="opacity-40">•</span>
             <span>

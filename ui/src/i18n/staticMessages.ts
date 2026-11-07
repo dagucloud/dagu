@@ -228,6 +228,7 @@ const baseEnglish = {
   '). To deactivate, remove the environment variable and restart Dagu.':
     '). To deactivate, remove the environment variable and restart Dagu.',
   '←→ Select': '←→ Select',
+  '←→ Scroll': '←→ Scroll',
   '↑↓ Navigate': '↑↓ Navigate',
   '↻ until': '↻ until',
   '↻ while': '↻ while',
@@ -3374,6 +3375,7 @@ const baseChinese = {
   '). To deactivate, remove the environment variable and restart Dagu.':
     ')。要停用，请删除环境变量并重启 Dagu。',
   '←→ Select': '←→ 选择',
+  '←→ Scroll': '←→ 滚动',
   '↑↓ Navigate': '↑↓ 导航',
   '↻ until': '↻ 直到...',
   '↻ while': '↻ 当...时',
@@ -6441,6 +6443,7 @@ const baseJapanese = {
   '). To deactivate, remove the environment variable and restart Dagu.':
     ') で設定されています。無効にするには、環境変数を削除して Dagu を再起動してください。',
   '←→ Select': '←→ 選択',
+  '←→ Scroll': '←→ スクロール',
   '↑↓ Navigate': '↑↓ 移動',
   '↻ until': '↻ 条件が真になるまで',
   '↻ while': '↻ 条件が真の間',
