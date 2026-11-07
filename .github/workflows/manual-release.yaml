@@ -38,6 +38,12 @@ jobs:
   goreleaser:
     needs: validate-inputs
     runs-on: ubuntu-latest
+    # The Azure federated credential that lets this job sign is issued to the
+    # `release` environment, so the job must run in it.
+    environment: release
+    permissions:
+      contents: write
+      id-token: write
     steps:
       - name: Check out code
         uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
@@ -71,6 +77,20 @@ jobs:
 
       - name: Clean UI dependencies
         run: rm -rf ui/node_modules
+
+      # Signs the Windows binaries with Azure Artifact Signing, see
+      # .goreleaser.yaml and scripts/ci/sign-windows.sh. Until the signing
+      # account exists the variable is empty and the release ships unsigned.
+      - name: Prepare Azure Artifact Signing
+        if: vars.AZURE_SIGNING_ACCOUNT != ''
+        uses: ./.github/actions/artifact-signing
+        with:
+          client-id: ${{ vars.AZURE_CLIENT_ID }}
+          tenant-id: ${{ vars.AZURE_TENANT_ID }}
+          subscription-id: ${{ vars.AZURE_SUBSCRIPTION_ID }}
+          endpoint: ${{ vars.AZURE_SIGNING_ENDPOINT }}
+          account: ${{ vars.AZURE_SIGNING_ACCOUNT }}
+          profile: ${{ vars.AZURE_SIGNING_PROFILE }}
 
       - name: Run GoReleaser
         uses: goreleaser/goreleaser-action@ec59f474b9834571250b370d4735c50f8e2d1e29 # v7.0.0

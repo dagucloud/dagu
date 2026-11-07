@@ -11,6 +11,12 @@ builds:
     binary: dagu
     env:
       - CGO_ENABLED=0
+    # Signs each Windows binary in place before it is archived and checksummed,
+    # and does nothing unless the release workflow configured Artifact Signing.
+    hooks:
+      post:
+        - cmd: bash scripts/ci/sign-windows.sh "{{ .Path }}"
+          output: true
     goos:
       - linux
       - darwin

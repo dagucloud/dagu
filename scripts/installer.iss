@@ -40,6 +40,14 @@ OutputBaseFilename=dagu-{#AppVersion}-setup
 Uninstallable=yes
 UninstallDisplayIcon={app}\{#AppExeName}
 WizardStyle=modern
+#ifdef SignTool
+; The release workflow defines this sign tool on the ISCC command line, so the
+; installer and its uninstaller carry the same signature as dagu.exe. Builds
+; that do not pass /DSignTool stay unsigned.
+SignTool={#SignTool}
+SignedUninstaller=yes
+SignToolRetryCount=3
+#endif
 
 [Tasks]
 Name: "path"; Description: "Add Dagu to the system PATH"; GroupDescription: "Additional options:"

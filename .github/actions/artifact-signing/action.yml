@@ -1,0 +1,82 @@
+name: Prepare Azure Artifact Signing
+description: >-
+  Logs in to Azure with the job's OIDC token, fetches a short-lived access
+  token for Azure Artifact Signing (formerly Trusted Signing) and downloads a
+  pinned jsign, which signs Windows executables with that service from any OS.
+  It exports the environment scripts/ci/sign-windows.sh and the Inno Setup
+  sign tool read: JSIGN_JAR, JSIGN_ARGS and AZURE_SIGNING_TOKEN. Callers gate
+  the action on vars.AZURE_SIGNING_ACCOUNT so releases build unsigned until the
+  signing account exists.
+
+inputs:
+  client-id:
+    description: Client ID of the Entra app with a federated credential for this repository.
+    required: true
+  tenant-id:
+    description: Entra tenant ID that app lives in.
+    required: true
+  subscription-id:
+    description: Subscription that holds the Artifact Signing account.
+    required: true
+  endpoint:
+    description: Regional Artifact Signing endpoint, such as https://jpe.codesigning.azure.net.
+    required: true
+  account:
+    description: Artifact Signing account name.
+    required: true
+  profile:
+    description: Certificate profile in that account to sign with.
+    required: true
+
+runs:
+  using: composite
+  steps:
+    - name: Log in to Azure
+      uses: azure/login@7184910d9eb2b1c5e48f7073824a90609bb9b6d6 # v3.1.0
+      with:
+        client-id: ${{ inputs.client-id }}
+        tenant-id: ${{ inputs.tenant-id }}
+        subscription-id: ${{ inputs.subscription-id }}
+
+    # The token is good for about an hour, which covers a release build. It is
+    # masked before it reaches GITHUB_ENV so a later step cannot print it.
+    - name: Fetch a signing token
+      shell: bash
+      env:
+        SIGNING_ENDPOINT: ${{ inputs.endpoint }}
+        SIGNING_ACCOUNT: ${{ inputs.account }}
+        SIGNING_PROFILE: ${{ inputs.profile }}
+      run: |
+        token="$(az account get-access-token \
+          --resource https://codesigning.azure.net \
+          --query accessToken --output tsv)"
+        if [ -z "$token" ]; then
+          echo "::error::Azure returned no access token for Artifact Signing"
+          exit 1
+        fi
+        echo "::add-mask::$token"
+        {
+          echo "AZURE_SIGNING_TOKEN=$token"
+          echo "AZURE_SIGNING_ACCOUNT=$SIGNING_ACCOUNT"
+          # jsign takes the endpoint as a host name; the Microsoft certificate
+          # chain is timestamped by Microsoft's own authority.
+          echo "JSIGN_ARGS=--storetype TRUSTEDSIGNING --keystore ${SIGNING_ENDPOINT#https://} --storepass env:AZURE_SIGNING_TOKEN --alias ${SIGNING_ACCOUNT}/${SIGNING_PROFILE} --tsaurl http://timestamp.acs.microsoft.com --tsmode RFC3161 --name Dagu --url https://github.com/dagucloud/dagu"
+        } >> "$GITHUB_ENV"
+
+    # Bump JSIGN_VERSION and JSIGN_SHA256 together.
+    - name: Install jsign
+      shell: bash
+      env:
+        JSIGN_VERSION: "7.6"
+        JSIGN_SHA256: 6cf58aa080e7ff82656f320cff8d4a3bff30408df8766806dcba3740dd839fa5
+      run: |
+        jar="${RUNNER_TEMP}/jsign-${JSIGN_VERSION}.jar"
+        curl --fail --silent --show-error --location \
+          --output "$jar" \
+          "https://github.com/ebourg/jsign/releases/download/${JSIGN_VERSION}/jsign-${JSIGN_VERSION}.jar"
+        echo "${JSIGN_SHA256}  ${jar}" | sha256sum --check --quiet -
+        if command -v cygpath >/dev/null 2>&1; then
+          jar="$(cygpath -w "$jar")"
+        fi
+        echo "JSIGN_JAR=$jar" >> "$GITHUB_ENV"
+        java -version
