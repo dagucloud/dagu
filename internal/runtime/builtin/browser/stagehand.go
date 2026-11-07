@@ -583,7 +583,8 @@ func startEngine(ctx context.Context, browser *stagehand.Browser, cdpURL string,
 }
 
 // runtimeSocketFailure is the runtime's message when its socket to the browser
-// does not open.
+// does not open. Only the message identifies this failure: its RPC code and data
+// are those of any runtime error.
 const runtimeSocketFailure = "CDP websocket failed to open"
 
 // createClient starts the runtime. The runtime tries its socket to the browser
