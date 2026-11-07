@@ -47,6 +47,14 @@ runs:
         SIGNING_ACCOUNT: ${{ inputs.account }}
         SIGNING_PROFILE: ${{ inputs.profile }}
       run: |
+        # The three values end up in a flat, word-split jsign command line, so
+        # a space or a quote in one of them would break or extend that line.
+        for value in "$SIGNING_ENDPOINT" "$SIGNING_ACCOUNT" "$SIGNING_PROFILE"; do
+          if ! printf '%s' "$value" | grep -qE '^[A-Za-z0-9._:/-]+$'; then
+            echo "::error::Artifact Signing endpoint, account and profile may only contain letters, digits, . _ : / and -"
+            exit 1
+          fi
+        done
         token="$(az account get-access-token \
           --resource https://codesigning.azure.net \
           --query accessToken --output tsv)"

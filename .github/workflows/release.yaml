@@ -136,6 +136,8 @@ jobs:
     runs-on: windows-latest
     timeout-minutes: 20
     environment: release
+    # contents: write uploads the installer to the release; id-token: write
+    # lets the Azure login exchange this job's identity for a signing token.
     permissions:
       contents: write
       id-token: write
