@@ -523,7 +523,13 @@ func (oc *OutputCoordinator) setupFile(ctx context.Context, filePath string, art
 	}
 
 	// Create missing parent directories, as stdout.artifact already does.
-	if err := os.MkdirAll(filepath.Dir(absFilePath), 0o750); err != nil {
+	// For absolute paths, split instead of filepath.Dir so the parent is not
+	// cleaned lexically: a ".." after a symlink must match what open() sees.
+	parentDir := filepath.Dir(absFilePath)
+	if filepath.IsAbs(absFilePath) {
+		parentDir, _ = filepath.Split(absFilePath)
+	}
+	if err := os.MkdirAll(parentDir, 0o750); err != nil {
 		return nil, fmt.Errorf("failed to create directory for %q: %w", absFilePath, err)
 	}
 
