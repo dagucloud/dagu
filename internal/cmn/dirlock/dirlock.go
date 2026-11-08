@@ -78,6 +78,10 @@ type LockOptions struct {
 	// OnWait is called once when Lock transitions into retry/wait mode after
 	// encountering a lock conflict.
 	OnWait func()
+
+	// OnRetryError, when set, keeps Lock waiting through errors that occur after
+	// its first attempt and receives each one. Without it, Lock returns them.
+	OnRetryError func(error)
 }
 
 // LockInfo contains information about a lock
@@ -167,6 +171,9 @@ func (l *dirLock) Heartbeat(_ context.Context) error {
 	tokenPath := filepath.Join(l.lockPath, l.ownerFile)
 	data, err := fileutil.ReadFile(tokenPath)
 	if err != nil {
+		if !os.IsNotExist(err) {
+			return fmt.Errorf("failed to read lock token: %w", err)
+		}
 		l.isHeld = false
 		return fmt.Errorf("%w: failed to read lock token: %v", ErrLockNotHeld, err)
 	}
@@ -178,6 +185,10 @@ func (l *dirLock) Heartbeat(_ context.Context) error {
 	// Touch the lock directory to update its modification time
 	now := time.Now()
 	if err := os.Chtimes(l.lockPath, now, now); err != nil {
+		if os.IsNotExist(err) {
+			l.isHeld = false
+			return fmt.Errorf("%w: lock directory is gone: %v", ErrLockNotHeld, err)
+		}
 		return fmt.Errorf("failed to update lock timestamp: %w", err)
 	}
 
@@ -543,12 +554,17 @@ func (l *dirLock) Lock(ctx context.Context) error {
 		case <-ctx.Done():
 			return ctx.Err()
 		case <-ticker.C:
-			if err := l.TryLock(); err == nil {
+			err := l.TryLock()
+			if err == nil {
 				return nil
-			} else if err != ErrLockConflict {
+			}
+			if err == ErrLockConflict {
+				continue
+			}
+			if l.opts.OnRetryError == nil {
 				return err
 			}
-			// Continue retrying on lock conflict
+			l.opts.OnRetryError(err)
 		}
 	}
 }
