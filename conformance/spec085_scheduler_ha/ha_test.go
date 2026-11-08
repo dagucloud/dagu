@@ -9,6 +9,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"runtime"
 	"testing"
 	"time"
 
@@ -76,14 +77,17 @@ func (s *scheduler) role() string {
 
 func (s *scheduler) waitRole(t *testing.T, want string, within time.Duration) {
 	t.Helper()
-	require.Eventuallyf(t, func() bool {
+	for deadline := time.Now().Add(within); time.Now().Before(deadline); time.Sleep(50 * time.Millisecond) {
 		select {
 		case <-s.process.Done():
 			require.FailNowf(t, "scheduler exited", "%s", s.process.FailureOutput())
 		default:
 		}
-		return s.role() == want
-	}, within, 50*time.Millisecond, "scheduler did not report role %q", want)
+		if s.role() == want {
+			return
+		}
+	}
+	require.FailNowf(t, "timed out", "scheduler did not report role %q within %s", want, within)
 }
 
 // startPair starts an active scheduler and a standby behind it.
@@ -123,11 +127,16 @@ func TestKillActive(t *testing.T) {
 
 func TestStopActive(t *testing.T) {
 	t.Parallel()
+	if runtime.GOOS == "windows" {
+		t.Skip("Windows has no graceful stop for a background process; TestKillActive covers the forced stop")
+	}
 
 	active, standby := newCluster(t).startPair()
 
 	active.process.Stop()
 
-	// A clean stop releases the lock, so the standby does not wait for staleness.
-	standby.waitRole(t, roleActive, staleThreshold/2)
+	// Exit code 0 shows the process shut down by itself rather than through
+	// the harness's force fallback, so it released the lock on the way out.
+	require.Zerof(t, active.process.ExitCode(), "%s", active.process.FailureOutput())
+	standby.waitRole(t, roleActive, retryInterval+startupAllowance)
 }
