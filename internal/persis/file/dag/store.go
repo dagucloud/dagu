@@ -12,6 +12,7 @@ import (
 	"os"
 	"path"
 	"path/filepath"
+	"slices"
 	"sort"
 	"strings"
 	"sync"
@@ -200,6 +201,7 @@ type Store struct {
 	skipDirectoryCreation  bool                     // Skip creating base directory for execution-scoped stores
 	baseConfigMu           sync.Mutex               // Protects base config state refresh and invalidation
 	indexMu                sync.Mutex               // Protects index load/rebuild/invalidate
+	serviceDAGs            serviceDAGNameCache      // Service DAG names of the last index read
 }
 
 func (store *Store) Get(ctx context.Context, id string) (persis.DAGDefinition, error) {
@@ -237,23 +239,56 @@ func (store *Store) CatalogIncludingSearchPaths(ctx context.Context) (persis.DAG
 // the saved index records them. It does not check the index against the DAG
 // files, so a file changed outside the store counts after the next listing.
 func (store *Store) ServiceDAGNames(ctx context.Context) ([]string, error) {
-	var current *catalog
-	if entries, ok := dagindex.ReadEntries(store.indexPath); ok {
-		current = newCatalog(entries, nil, store.recursive)
-	} else {
-		loaded, err := store.loadCatalog(ctx, false)
-		if err != nil {
-			return nil, err
+	if info, err := os.Stat(store.indexPath); err == nil {
+		if names, ok := store.serviceDAGs.get(info); ok {
+			return names, nil
 		}
-		current = loaded
+		if entries, ok := dagindex.ReadEntries(store.indexPath); ok {
+			names := serviceDAGNamesOf(newCatalog(entries, nil, store.recursive))
+			store.serviceDAGs.put(info, names)
+			return slices.Clone(names), nil
+		}
 	}
+	current, err := store.loadCatalog(ctx, false)
+	if err != nil {
+		return nil, err
+	}
+	return serviceDAGNamesOf(current), nil
+}
+
+func serviceDAGNamesOf(current *catalog) []string {
 	names := make([]string, 0)
 	for _, entry := range current.entries {
 		if entry.RestartPolicy != "" {
 			names = append(names, entry.Name)
 		}
 	}
-	return names, nil
+	return names
+}
+
+// serviceDAGNameCache holds the service DAG names of the last index read. The
+// store replaces the index file at each write, so a file of the same size and
+// modification time still holds the same names.
+type serviceDAGNameCache struct {
+	mu      sync.Mutex
+	size    int64
+	modTime time.Time
+	names   []string
+}
+
+func (c *serviceDAGNameCache) get(info os.FileInfo) ([]string, bool) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if c.names == nil || c.size != info.Size() || !c.modTime.Equal(info.ModTime()) {
+		return nil, false
+	}
+	return slices.Clone(c.names), true
+}
+
+func (c *serviceDAGNameCache) put(info os.FileInfo, names []string) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.size, c.modTime, c.names = info.Size(), info.ModTime(), names
 }
 
 func (store *Store) catalog(ctx context.Context, includeSearchPaths bool) (persis.DAGCatalog, error) {
