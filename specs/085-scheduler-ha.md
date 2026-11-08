@@ -50,6 +50,8 @@ reading logs, which instance is active and how long a failover takes.
   `active` or `standby`.
 - `GET /health?role=active` answers `503` on an instance that is not active,
   so a load balancer or probe can select the active instance.
+- The server's metrics include `dagu_scheduler_instances{status}`, the number of
+  instances with `status` `active` or `standby`.
 
 ## Configuration
 
