@@ -24,6 +24,16 @@ export interface ReferenceEditorState {
   model?: DagDocModel;
 }
 
+// True when the text from `from` to `to` is white space only.
+function isBlank(text: string, from: number, to: number): boolean {
+  for (let at = from; at < to; at++) {
+    if (/\S/.test(text.charAt(at))) return false;
+  }
+  return true;
+}
+
+// A step range ends at its last character, so the blank text after it, where
+// the author types the next line of the step, is also in the step.
 function stepKeyFromModel(
   text: string,
   offset: number,
@@ -35,7 +45,7 @@ function stepKeyFromModel(
   let best: { key: StepKey; size: number } | null = null;
   for (const step of [...model.steps, ...model.handlers]) {
     const { from, to } = step.range;
-    if (offset < from || offset > to) {
+    if (offset < from || (offset > to && !isBlank(text, to, offset))) {
       continue;
     }
     if (!best || to - from < best.size) {

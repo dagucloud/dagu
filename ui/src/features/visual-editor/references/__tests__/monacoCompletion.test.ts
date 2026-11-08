@@ -61,6 +61,28 @@ describe('findOwningStep', () => {
     ).toBeNull();
   });
 
+  // A step range ends at its last character, but the author types the next
+  // line of the step on the blank line after it.
+  it('keeps the blank text after a step in the step', () => {
+    const text =
+      'steps:\n  - name: a\n    run: |\n      echo a\n      \n' +
+      '  - name: b\n    run: echo b\n    \ntags: nightly\n';
+    const state = {
+      scope: scopeWith(
+        { name: 'a', stepPath: 'steps[0]' },
+        { name: 'b', stepPath: 'steps[1]' }
+      ),
+      model: parseDagDocLenient(text),
+    };
+    expect(
+      findOwningStep(text, at(text, '      \n  - name: b', 6), state)?.name
+    ).toBe('a');
+    expect(findOwningStep(text, at(text, '    \ntags', 4), state)?.name).toBe(
+      'b'
+    );
+    expect(findOwningStep(text, at(text, 'nightly'), state)).toBeNull();
+  });
+
   it('falls back to the YAML path when there is no model', () => {
     const state = { scope: scopeHttpJq };
     expect(
