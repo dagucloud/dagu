@@ -79,6 +79,9 @@ type Scheduler struct {
 	lockLost            atomic.Pointer[error]
 	fenceExit           func(error)
 	fenceExitAfter      time.Duration
+	fenceMu             sync.Mutex
+	fenceWatchdog       *time.Timer
+	startReturned       bool
 	dirLock             dirlock.DirLock // File-based lock to prevent multiple scheduler instances
 	dagExecutor         *DAGExecutor
 	healthServer        *HealthServer // Health check server for monitoring
@@ -634,6 +637,7 @@ func (s *Scheduler) unregisterService(ctx context.Context) {
 
 func (s *Scheduler) Start(ctx context.Context) (err error) {
 	defer func() {
+		s.disarmFenceWatchdog()
 		if err == nil {
 			err = s.lockLostError()
 		}

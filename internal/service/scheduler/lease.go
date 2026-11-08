@@ -48,9 +48,28 @@ func (s *Scheduler) selfFence(ctx context.Context, cause error) {
 	// acquired by another process.
 	s.lockHeld.Store(false)
 
-	watchdog := time.AfterFunc(s.fenceExitAfter, func() { s.fenceExit(lost) })
-	defer watchdog.Stop()
+	s.armFenceWatchdog(lost)
 	s.Stop(ctx)
+}
+
+// armFenceWatchdog ends the process if Start has not returned in time. Stop can
+// return while Start still waits on a loop blocked on the same storage.
+func (s *Scheduler) armFenceWatchdog(lost error) {
+	s.fenceMu.Lock()
+	defer s.fenceMu.Unlock()
+	if s.startReturned {
+		return
+	}
+	s.fenceWatchdog = time.AfterFunc(s.fenceExitAfter, func() { s.fenceExit(lost) })
+}
+
+func (s *Scheduler) disarmFenceWatchdog() {
+	s.fenceMu.Lock()
+	defer s.fenceMu.Unlock()
+	s.startReturned = true
+	if s.fenceWatchdog != nil {
+		s.fenceWatchdog.Stop()
+	}
 }
 
 // lockLostError returns the reason Start must report a failure, if any.
