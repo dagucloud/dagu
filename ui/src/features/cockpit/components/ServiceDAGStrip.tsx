@@ -9,7 +9,11 @@ import { useI18n } from '@/i18n/I18nProvider';
 import { cn } from '@/lib/utils';
 import { useServiceDAGs } from '../hooks/useServiceDAGs';
 import { ServiceDAGRuns } from './ServiceDAGRuns';
-import { ServiceDAGStateBadge, ServiceDAGStatusText } from './ServiceDAGState';
+import {
+  ServiceDAGFailure,
+  ServiceDAGStateBadge,
+  ServiceDAGStatusText,
+} from './ServiceDAGState';
 
 type ServiceDAG = components['schemas']['ServiceDAG'];
 
@@ -40,6 +44,10 @@ function ServiceDAGCard({
           <ServiceDAGStatusText
             dag={dag}
             className="block truncate text-[11px] text-muted-foreground"
+          />
+          <ServiceDAGFailure
+            dag={dag}
+            className="block truncate text-[11px] text-destructive"
           />
         </span>
         <ServiceDAGStateBadge state={dag.state} />

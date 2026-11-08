@@ -159,6 +159,55 @@ describe('ServiceDAGStrip', () => {
       '/dags/my%20dag'
     );
   });
+  it('says how many runs in a row failed and why the latest one did', () => {
+    hook.serviceDAGs = [
+      dag({
+        fileName: 'ingest',
+        name: 'ingest',
+        state: ServiceDAGState.failing,
+        consecutiveFailures: 3,
+        latestRun: {
+          dagRunId: 'r3',
+          status: Status.Failed,
+          finishedAt: '2026-10-20T11:59:58Z',
+          error: 'serve: exit status 3',
+        },
+      }),
+      dag({ fileName: 'flaky', name: 'flaky', consecutiveFailures: 10 }),
+      dag({ fileName: 'once', name: 'once', consecutiveFailures: 1 }),
+      dag({ fileName: 'healthy', name: 'healthy' }),
+    ];
+
+    renderStrip();
+
+    expect(screen.getByRole('link', { name: /ingest/ })).toHaveTextContent(
+      '3 failures in a row: serve: exit status 3'
+    );
+    expect(screen.getByRole('link', { name: /flaky/ })).toHaveTextContent(
+      '10+ failures in a row'
+    );
+    expect(screen.getByRole('link', { name: /once/ })).toHaveTextContent(
+      'Last run failed'
+    );
+    expect(screen.getByRole('link', { name: /healthy/ })).not.toHaveTextContent(
+      /failed|failures/
+    );
+  });
+
+  it('says why the state of a service DAG cannot be read', () => {
+    hook.serviceDAGs = [
+      dag({
+        state: ServiceDAGState.failing,
+        readError: 'status file is corrupt',
+      }),
+    ];
+
+    renderStrip();
+
+    expect(screen.getByRole('link', { name: /worker/ })).toHaveTextContent(
+      'status file is corrupt'
+    );
+  });
 });
 
 describe('ServiceDAGStrip runs', () => {
