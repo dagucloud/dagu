@@ -242,6 +242,7 @@ func newScheduler(
 	if timeLoc == nil {
 		timeLoc = time.Local
 	}
+	var tookOverStaleLock atomic.Bool
 	lockOpts := &dirlock.LockOptions{
 		StaleThreshold: cfg.Scheduler.LockStaleThreshold,
 		RetryInterval:  cfg.Scheduler.LockRetryInterval,
@@ -251,6 +252,10 @@ func newScheduler(
 		ObserveHeartbeat: true,
 		OnRetryError: func(err error) {
 			logger.Warn(context.Background(), "Failed to check scheduler lock, will retry", tag.Error(err))
+		},
+		OnStaleTakeover: func() {
+			tookOverStaleLock.Store(true)
+			logger.Warn(context.Background(), "Took over the scheduler lock from a failed instance")
 		},
 	}
 	lockDir := filepath.Join(persisfile.SchedulerStateDir(cfg.Paths), "locks")
@@ -367,6 +372,12 @@ func newScheduler(
 		},
 		IsQueued:  isQueued,
 		RunExists: runExists,
+		RecoveryWindow: func() time.Duration {
+			if tookOverStaleLock.Load() {
+				return cfg.Scheduler.FailoverRecoveryWindow
+			}
+			return 0
+		},
 	})
 
 	// The restart decision follows from the latest run, whatever its day. A

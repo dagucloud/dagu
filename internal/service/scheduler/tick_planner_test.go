@@ -3180,3 +3180,79 @@ func TestDispatchExistingRun(t *testing.T) {
 
 	assert.Equal(t, &schedulerstate.ScheduleSlot{At: slot, Outcome: schedulerstate.SlotDispatched}, lastSlot(tp, "hourly"))
 }
+
+// Slots that fell between a failed scheduler's last tick and the takeover are
+// replayed once, within the recovery window and only after a takeover. The
+// first tick runs the current minute's slot, so it is never replayed.
+func TestFailoverRecovery(t *testing.T) {
+	t.Parallel()
+
+	base := time.Date(2026, 2, 7, 12, 0, 0, 0, time.UTC)
+	now := base.Add(2*time.Minute + 40*time.Second)
+	window := 2 * time.Minute
+	missed := func(at time.Time) *schedulerstate.ScheduleSlot {
+		return &schedulerstate.ScheduleSlot{At: at, Outcome: schedulerstate.SlotMissed}
+	}
+	planned := func(at time.Time) *schedulerstate.ScheduleSlot {
+		return &schedulerstate.ScheduleSlot{At: at, Outcome: schedulerstate.SlotPlanned}
+	}
+	for _, tc := range []struct {
+		name       string
+		lastTick   time.Time
+		lastSlot   *schedulerstate.ScheduleSlot
+		window     time.Duration
+		noQueues   bool
+		wantReplay []time.Time
+		wantSlot   *schedulerstate.ScheduleSlot
+	}{
+		{name: "gap", lastTick: base, window: window, wantReplay: []time.Time{base.Add(time.Minute)}},
+		{
+			name:       "only inside the window",
+			lastTick:   base.Add(-10 * time.Minute),
+			window:     window,
+			wantReplay: []time.Time{base.Add(time.Minute)},
+			wantSlot:   missed(base),
+		},
+		{
+			name:       "planned but never started",
+			lastTick:   base.Add(time.Minute),
+			lastSlot:   planned(base.Add(time.Minute)),
+			window:     window,
+			wantReplay: []time.Time{base.Add(time.Minute)},
+		},
+		{
+			name:     "planned in the current minute",
+			lastTick: base.Add(2 * time.Minute),
+			lastSlot: planned(base.Add(2 * time.Minute)),
+			window:   window,
+		},
+		{name: "normal start", lastTick: base, wantSlot: missed(base.Add(time.Minute))},
+		{name: "queues disabled", lastTick: base, window: window, noQueues: true, wantSlot: missed(base.Add(time.Minute))},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			dag := &ir.DAG{Name: "minutely", Schedule: []ir.Schedule{mustParseSchedule(t, "* * * * *")}}
+			state := newMockState(tc.lastTick)
+			state.DAGs = map[string]schedulerstate.DAGWatermark{dag.Name: {LastSlot: tc.lastSlot}}
+			tp, _ := newTestTickPlanner(&mockStateStore{state: state})
+			tp.cfg.Clock = func() time.Time { return now }
+			tp.cfg.QueuesEnabled = !tc.noQueues
+			tp.cfg.RecoveryWindow = func() time.Duration { return tc.window }
+
+			require.NoError(t, tp.Init(t.Context(), testDAGEntries(dag)))
+
+			var replayed []time.Time
+			if buffer := tp.buffers[dag.Name]; buffer != nil {
+				for _, item := range buffer.items {
+					assert.Equal(t, ir.TriggerTypeCatchUp, item.TriggerType)
+					replayed = append(replayed, item.ScheduledTime.UTC())
+				}
+			}
+			assert.Equal(t, tc.wantReplay, replayed)
+			if tc.wantSlot != nil {
+				assert.Equal(t, tc.wantSlot, lastSlot(tp, dag.Name))
+			}
+		})
+	}
+}

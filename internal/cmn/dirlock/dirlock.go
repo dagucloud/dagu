@@ -83,6 +83,10 @@ type LockOptions struct {
 	// its first attempt and receives each one. Without it, Lock returns them.
 	OnRetryError func(error)
 
+	// OnStaleTakeover, when set, is called each time the lock is acquired by
+	// replacing one that its holder left behind.
+	OnStaleTakeover func()
+
 	// ObserveHeartbeat makes a contender judge staleness by watching the holder
 	// renew the lock, timed on the contender's own clock. It removes the need
 	// for synchronized clocks and for fresh directory attributes on network
@@ -311,7 +315,13 @@ func (l *dirLock) TryLock() error {
 		// also have left released lock directories behind. Sweep them before
 		// creating the new lock, so the sweep does not eat into its lease.
 		l.removeAbandonedTempDirs()
-		return l.createLock()
+		if err := l.createLock(); err != nil {
+			return err
+		}
+		if l.opts.OnStaleTakeover != nil {
+			l.opts.OnStaleTakeover()
+		}
+		return nil
 	} else if !os.IsNotExist(err) {
 		if isRetryableLockStateError(err) {
 			return ErrLockConflict

@@ -148,6 +148,7 @@ var legacyToSnakeCaseKey = map[string]string{
 	"scheduler.lockstalethreshold":      "scheduler.lock_stale_threshold",
 	"scheduler.lockretryinterval":       "scheduler.lock_retry_interval",
 	"scheduler.zombiedetectioninterval": "scheduler.zombie_detection_interval",
+	"scheduler.failoverrecoverywindow":  "scheduler.failover_recovery_window",
 	"scheduler.wakehold":                "scheduler.wake_hold",
 	"scheduler.heartbeatinterval":       "scheduler.heartbeat_interval",
 	"scheduler.stalethreshold":          "scheduler.stale_threshold",

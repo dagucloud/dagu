@@ -61,6 +61,20 @@ reading logs, which instance is active and how long a failover takes.
   with different data directories never share an ID.
 - When existing runs cannot be read, a run is not created.
 
+### Missed slots
+
+- The first tick of a new active scheduler runs the slots of the current
+  minute.
+- A scheduler that takes over a stale lock also replays earlier slots of
+  recurring schedules that fell between the failed scheduler's last tick and
+  the takeover, as far back as `scheduler.failover_recovery_window`. A slot the
+  failed scheduler planned but did not start is replayed too.
+- Replayed runs go through the queue, have the catch-up trigger type, and
+  follow the DAG's `overlap_policy`. Nothing is replayed when queues are
+  disabled.
+- A scheduler that acquires a released lock replays only what the DAG's own
+  `catchup_window` asks for.
+
 ### Observability
 
 - Every scheduler serves `GET /health` on `scheduler.port`, including a
@@ -77,6 +91,7 @@ reading logs, which instance is active and how long a failover takes.
 | --- | --- | --- |
 | `scheduler.lock_stale_threshold` | `30s` | Age at which a lock can be taken over |
 | `scheduler.lock_retry_interval` | `5s` | How often a standby tries the lock |
+| `scheduler.failover_recovery_window` | `2m` | How far back a takeover replays missed slots; `0s` disables it |
 | `scheduler.port` | `8090` | Port of the health endpoint; `0` disables it |
 
 ## Storage

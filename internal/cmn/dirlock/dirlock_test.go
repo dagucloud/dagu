@@ -1537,3 +1537,31 @@ func TestObserverRestrictedDir(t *testing.T) {
 		return contender.TryLock() == nil
 	}, 5*time.Second, 10*time.Millisecond)
 }
+
+// Only replacing a lock left by another holder counts as a takeover.
+func TestOnStaleTakeover(t *testing.T) {
+	t.Parallel()
+
+	var takeovers atomic.Int32
+	opts := &LockOptions{
+		StaleThreshold:  time.Second,
+		OnStaleTakeover: func() { takeovers.Add(1) },
+	}
+
+	dir := t.TempDir()
+	first := New(dir, opts)
+	require.NoError(t, first.TryLock())
+	require.Zero(t, takeovers.Load(), "a free lock is not a takeover")
+	require.NoError(t, first.Unlock())
+
+	second := New(dir, opts)
+	require.NoError(t, second.TryLock())
+	require.Zero(t, takeovers.Load(), "a released lock is not a takeover")
+
+	old := time.Now().Add(-time.Minute)
+	require.NoError(t, os.Chtimes(filepath.Join(dir, ".dagu_lock"), old, old))
+
+	third := New(dir, opts)
+	require.NoError(t, third.TryLock())
+	require.EqualValues(t, 1, takeovers.Load())
+}
