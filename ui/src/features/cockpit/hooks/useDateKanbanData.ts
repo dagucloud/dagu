@@ -162,12 +162,11 @@ export function useRangeKanbanData(
       remoteNode,
       fromDate,
       toDate,
-      // A service DAG restarts without end, so the boards leave its runs out. The
-      // service DAG list shows it instead.
-      excludeServiceDAGRuns: true,
       ...workspaceQuery,
       ...(labelsParam ? { labels: labelsParam } : {}),
-      ...(nameParam ? { name: nameParam } : {}),
+      // A service DAG restarts without end, so the boards leave its runs out
+      // and the service DAG list shows it instead. A search by name shows them.
+      ...(nameParam ? { name: nameParam } : { excludeServiceDAGRuns: true }),
     }),
     [fromDate, remoteNode, toDate, workspaceQuery, labelsParam, nameParam]
   );
