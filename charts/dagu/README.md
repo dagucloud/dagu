@@ -110,7 +110,7 @@ scheduler:
 
 Scheduler replicas share the same `ReadWriteMany` volume and compete for one lock. The replica holding the lock schedules runs and consumes queues. The others wait, and one of them takes over when the lock is released or stops being renewed.
 
-Image tag `2.25.2` and earlier have a known limitation: a scheduler that stalls past `scheduler.lock_stale_threshold` can dispatch once more after a standby has taken over, so one schedule slot can run twice. Later releases stop dispatching before the lock can be taken over.
+Image tag `2.26.0` and earlier have a known limitation: a scheduler that stalls past `scheduler.lock_stale_threshold` can dispatch once more after a standby has taken over, so one schedule slot can run twice. Later releases stop dispatching before the lock can be taken over.
 
 Worker pools use their existing ephemeral `/data` volumes for per-run work, so the separate work root requires no additional volume. Custom deployments that instead share a durable work root across execution processes must drain those processes before upgrading from the nested work-directory layout. Old and new versions must not execute the same run concurrently during that transition.
 
