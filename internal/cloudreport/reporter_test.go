@@ -72,7 +72,7 @@ func TestReportPayload(t *testing.T) {
 			"arch": %q,
 			"started_at": "2026-10-09T12:00:00Z",
 			"services": [
-				{"name": "scheduler", "instances": 1},
+				{"name": "scheduler", "instances": 1, "standby": 1},
 				{"name": "coordinator", "instances": 2}
 			]
 		}
