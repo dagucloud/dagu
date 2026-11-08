@@ -2,8 +2,9 @@
 
 ## Status
 
-Partially implemented. Conformance covers roles, takeover, and role
-reporting. Further sections are added as the behavior they describe lands.
+Partially implemented. Conformance covers roles, takeover, role reporting,
+missed slots, and queued runs. Further sections are added as the behavior they
+describe lands.
 
 ## Scope
 
@@ -61,6 +62,14 @@ reading logs, which instance is active and how long a failover takes.
   with different data directories never share an ID.
 - When existing runs cannot be read, a run is not created.
 
+### Runs in progress
+
+- A run keeps going when the scheduler that started it stops or fails, whether
+  it was started directly or from a queue.
+- The exception is `signal_handling.enable_propagation`. With it, a stopping
+  scheduler forwards SIGINT and SIGTERM to the runs it started, which stops
+  them.
+
 ### Missed slots
 
 - The first tick of a new active scheduler runs the slots of the current
@@ -111,5 +120,8 @@ the same path on every host, because it is part of each slot's run ID.
 `conformance/spec085_scheduler_ha` runs the real binary. It asserts that one
 of two schedulers is active and stays so past the stale threshold, that a
 standby takes over within the bound after the active process is killed, that
-a clean stop hands over without waiting for staleness, and that losing the
-lock ends `dagu scheduler` and `dagu start-all` with a failure.
+a clean stop hands over without waiting for staleness, that losing the lock
+ends `dagu scheduler` and `dagu start-all` with a failure, that a slot that
+passes with no active scheduler runs once after a later takeover, that a slot
+runs once when its scheduler is killed as it comes due, and that a queued run
+finishes after the scheduler that started it stops.

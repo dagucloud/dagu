@@ -327,7 +327,9 @@ func (e *DAGExecutor) executeDAG(
 			QueueDispatch: true,
 		})
 		spec.Env = append(spec.Env, e.managedOpenCodeEnv(ctx, dag)...)
-		return launcher.Run(ctx, spec)
+		// A queued run outlives the scheduler that started it, as a run started
+		// directly does.
+		return launcher.Run(context.WithoutCancel(ctx), spec)
 
 	default:
 		return fmt.Errorf("unknown operation: %s", operation)

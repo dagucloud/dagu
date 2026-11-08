@@ -265,7 +265,7 @@ func newSlotCluster(t *testing.T) *cluster {
 	c.dagu.WriteFile("slots.yaml", fmt.Sprintf(`schedule: "* * * * *"
 steps:
   - id: record
-    run: echo "$DAG_RUN_ID" >> %s
+    run: echo "$DAG_RUN_ID" >> %q
 `, c.dagu.ProjectPath(slotRunsFile)))
 	return c
 }
@@ -317,6 +317,39 @@ func (c *cluster) slotRuns(slot time.Time) int {
 		}
 	}
 	return count
+}
+
+// A queued run keeps going after the scheduler that started it stops.
+func TestStopKeepsQueuedRun(t *testing.T) {
+	t.Parallel()
+	if runtime.GOOS == "windows" {
+		t.Skip("the step is a POSIX command")
+	}
+
+	c := newCluster(t)
+	started, release := c.dagu.ProjectPath("started"), c.dagu.ProjectPath("release")
+	c.dagu.WriteFile("queued.yaml", fmt.Sprintf(`steps:
+  - id: work
+    run: touch %q && until [ -e %q ]; do sleep 0.05; done
+`, started, release))
+
+	active := c.start()
+	active.waitRole(t, roleActive, harness.WaitTimeout(t))
+	const runID = "queued-run"
+	env := c.env(0)
+	c.dagu.RunWithEnv(env, "enqueue", "--run-id="+runID, "queued.yaml").ExpectExitCode(0)
+	waitUntil(t, harness.WaitTimeout(t), "the queued step to start", func() bool {
+		_, err := os.Stat(started)
+		return err == nil
+	})
+
+	active.process.Stop()
+	require.NoError(t, os.WriteFile(release, nil, 0600))
+
+	waitUntil(t, harness.WaitTimeout(t), "the run to succeed", func() bool {
+		result := c.dagu.RunWithEnv(env, "status", "--run-id="+runID, "queued.yaml")
+		return result.ExitCode() == 0 && strings.Contains(result.Stdout(), "Succeeded")
+	})
 }
 
 func schedulerActive(apiPort int) bool {
