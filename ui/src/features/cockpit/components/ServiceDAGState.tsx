@@ -99,3 +99,44 @@ export function ServiceDAGStatusText({
     </Ticker>
   );
 }
+
+/** The API reports at most this many failures in a row. */
+const MAX_REPORTED_FAILURES = 10;
+
+/**
+ * Why a service DAG fails, or null while it does not: the error that kept its
+ * state from being read, or how many runs in a row failed and the error of the
+ * latest one.
+ */
+export function ServiceDAGFailure({
+  dag,
+  className,
+}: {
+  dag: ServiceDAG;
+  className?: string;
+}): React.ReactElement | null {
+  const { ts } = useI18n();
+  if (dag.readError) {
+    return (
+      <span className={className} title={dag.readError}>
+        {dag.readError}
+      </span>
+    );
+  }
+  const count = dag.consecutiveFailures;
+  if (count === 0) {
+    return null;
+  }
+  const streak =
+    count === 1
+      ? ts('Last run failed')
+      : ts('{count} failures in a row', {
+          count: count >= MAX_REPORTED_FAILURES ? `${count}+` : count,
+        });
+  const error = dag.latestRun?.error;
+  return (
+    <span className={className} title={error}>
+      {error ? `${streak}: ${error}` : streak}
+    </span>
+  );
+}
