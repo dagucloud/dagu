@@ -663,6 +663,10 @@ func (store *Store) loadIndex(ctx context.Context, files []DiscoveredFile) ([]*i
 	// Rebuild.
 	logger.Info(ctx, "Rebuilding DAG definition index", tag.Dir(store.baseDir))
 	idx := dagindex.Build(ctx, store.baseDir, yamlFiles, flags, store.defaultLoadOptions()...)
+	// A cancel stops the build part way, and a partial index would hide DAGs.
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
 	if err := dagindex.Write(indexPath, idx); err != nil {
 		logger.Warn(ctx, "Failed to write DAG definition index", tag.Error(err))
 	}

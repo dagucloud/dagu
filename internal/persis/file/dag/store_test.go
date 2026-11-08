@@ -2538,6 +2538,24 @@ steps:
 	assert.Len(t, result.Items, 1)
 }
 
+// A rebuild that a cancel cut short holds only the DAGs read before it, so it
+// must not be saved as the index of the whole directory.
+func TestCatalog_CancelledRebuildWritesNoIndex(t *testing.T) {
+	tmpDir := t.TempDir()
+	store := NewStore(tmpDir, WithSkipExamples(true))
+	require.NoError(t, os.WriteFile(filepath.Join(tmpDir, "svc.yaml"), []byte("steps:\n  - run: echo ok\n"), 0600))
+
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	_, err := store.Catalog(ctx)
+	require.ErrorIs(t, err, context.Canceled)
+	assert.False(t, fileExists(filepath.Join(tmpDir, dagindex.IndexFileName)))
+
+	result, err := store.Catalog(context.Background())
+	require.NoError(t, err)
+	assert.Len(t, result.Items, 1)
+}
+
 func TestInvalidateIndex_RemovesFile(t *testing.T) {
 	tmpDir := t.TempDir()
 	store := NewStore(tmpDir, WithSkipExamples(true))
