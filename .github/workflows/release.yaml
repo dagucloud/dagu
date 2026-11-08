@@ -146,6 +146,12 @@ jobs:
     needs: goreleaser
     # On a tag push this waits for the archives; a manual run has them already.
     if: always() && (github.event_name == 'workflow_dispatch' || needs.goreleaser.result == 'success')
+    # Two runs for one tag (a tag push and a manual rebuild, say) would race
+    # to publish the installer; they publish one after the other instead, and
+    # a running upload is never cancelled.
+    concurrency:
+      group: windows-installer-${{ inputs.tag || github.ref_name }}
+      cancel-in-progress: false
     runs-on: windows-latest
     timeout-minutes: 20
     environment: release
@@ -256,16 +262,45 @@ jobs:
             }
           }
 
+      # The release may already carry an installer, and an upload can fail
+      # halfway. The new file goes up under a temporary name first, so the
+      # release is never without a complete installer; only once it is there
+      # is the old one moved aside and the new one given the final name.
       - name: Attach the installer to the release
         shell: bash
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           RELEASE_TAG: ${{ inputs.tag || github.ref_name }}
         run: |
-          installer="dist/dagu-windows-amd64-setup.exe"
+          asset="dagu-windows-amd64-setup.exe"
+          installer="dist/${asset}"
           if [ ! -f "$installer" ]; then
             echo "::error::${installer} was not produced by the Inno Setup compiler"
             exit 1
           fi
-          gh release upload "$RELEASE_TAG" "$installer" \
-            --repo "$GITHUB_REPOSITORY" --clobber
+          staging="${RUNNER_TEMP}/${asset}.uploading"
+          cp "$installer" "$staging"
+          # --clobber here only replaces a leftover of an earlier failed run.
+          gh release upload "$RELEASE_TAG" "$staging" --repo "$GITHUB_REPOSITORY" --clobber
+
+          asset_id() {
+            gh api "repos/${GITHUB_REPOSITORY}/releases/tags/${RELEASE_TAG}" \
+              --jq ".assets[] | select(.name == \"$1\") | .id"
+          }
+          rename_asset() {
+            gh api --method PATCH "repos/${GITHUB_REPOSITORY}/releases/assets/$1" \
+              -f name="$2" --jq '.name'
+          }
+          previous_id="$(asset_id "${asset}.previous")"
+          if [ -n "$previous_id" ]; then
+            gh api --method DELETE "repos/${GITHUB_REPOSITORY}/releases/assets/${previous_id}"
+          fi
+          current_id="$(asset_id "$asset")"
+          if [ -n "$current_id" ]; then
+            rename_asset "$current_id" "${asset}.previous"
+          fi
+          rename_asset "$(asset_id "${asset}.uploading")" "$asset"
+          if [ -n "$current_id" ]; then
+            gh api --method DELETE "repos/${GITHUB_REPOSITORY}/releases/assets/${current_id}"
+          fi
+          echo "Published ${asset} on ${RELEASE_TAG}"

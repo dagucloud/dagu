@@ -388,8 +388,10 @@ begin
     place their ports can come from. }
   WebPort := Trim(ExpandConstant('{param:PORT|{#DefaultPort}}'));
   CoordinatorPort := Trim(ExpandConstant('{param:COORDINATORPORT|{#DefaultCoordinatorPort}}'));
-  WebPortFromCommandLine := ExpandConstant('{param:PORT|}') <> '';
-  CoordinatorPortFromCommandLine := ExpandConstant('{param:COORDINATORPORT|}') <> '';
+  { An empty default does not reveal whether the parameter was given, so a
+    value no one would pass stands in for "absent". }
+  WebPortFromCommandLine := ExpandConstant('{param:PORT|*absent*}') <> '*absent*';
+  CoordinatorPortFromCommandLine := ExpandConstant('{param:COORDINATORPORT|*absent*}') <> '*absent*';
 
   PortPage := CreateInputQueryPage(wpSelectTasks,
     'Network ports', 'Which ports should the Dagu service use?',
