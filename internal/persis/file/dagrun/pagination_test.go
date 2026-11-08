@@ -10,6 +10,7 @@ import (
 	"math"
 	"os"
 	"path/filepath"
+	"runtime"
 	"slices"
 	"strings"
 	"testing"
@@ -271,15 +272,19 @@ func TestQueryStatusesSkipsExcludedDAGs(t *testing.T) {
 			}, false)
 		}
 	}
-	// Listing this directory fails, so a list that reads it fails.
+	// Listing this directory fails, so a list that reads it fails. Windows
+	// reads a file in place of the directory as missing, so there the list
+	// that reads it succeeds too.
 	broken := filepath.Join(seed.th.Backend.baseDir, dagDirName("broken"))
 	require.NoError(t, os.MkdirAll(broken, 0o750))
 	require.NoError(t, os.WriteFile(filepath.Join(broken, "dag-runs"), nil, 0o600))
 
 	query := persis.DAGRunStatusQuery{ExcludeDAGNames: []string{"my.svc", "broken"}}
 	require.Equal(t, seed.expected(query), listAll(t, seed.th.Backend, query))
-	_, err := seed.th.Backend.QueryStatuses(t.Context(), persis.DAGRunStatusQuery{})
-	require.Error(t, err)
+	if runtime.GOOS != "windows" {
+		_, err := seed.th.Backend.QueryStatuses(t.Context(), persis.DAGRunStatusQuery{})
+		require.Error(t, err)
+	}
 
 	t.Run("CursorOutlivesNameChanges", func(t *testing.T) {
 		query := persis.DAGRunStatusQuery{ExcludeDAGNames: []string{"my.svc", "broken"}, Limit: 1}
