@@ -278,29 +278,36 @@ func serviceDAGNamesOf(current *catalog) []string {
 	return names
 }
 
-// serviceDAGNameCache holds the service DAG names of the last index read. The
-// store replaces the index file at each write, so a file of the same size and
-// modification time still holds the same names.
+// serviceDAGNameCache holds the service DAG names of the last index read.
 type serviceDAGNameCache struct {
-	mu      sync.Mutex
-	size    int64
-	modTime time.Time
-	names   []string
+	mu    sync.Mutex
+	index os.FileInfo
+	names []string
 }
 
 func (c *serviceDAGNameCache) get(info os.FileInfo) ([]string, bool) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	if c.names == nil || c.size != info.Size() || !c.modTime.Equal(info.ModTime()) {
+	if c.index == nil || !sameIndexFile(c.index, info) {
 		return nil, false
 	}
 	return slices.Clone(c.names), true
 }
 
 func (c *serviceDAGNameCache) put(info os.FileInfo, names []string) {
+	// Windows reads the identity of a file at its first comparison, so read it
+	// now, while the path still names the file the names came from.
+	_ = os.SameFile(info, info)
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	c.size, c.modTime, c.names = info.Size(), info.ModTime(), names
+	c.index, c.names = info, names
+}
+
+// sameIndexFile reports whether two stats describe one unchanged index file.
+// The store replaces the file at each write, so its identity changes even
+// where timestamps are too coarse to tell two writes apart.
+func sameIndexFile(a, b os.FileInfo) bool {
+	return os.SameFile(a, b) && a.Size() == b.Size() && a.ModTime().Equal(b.ModTime())
 }
 
 func (store *Store) catalog(ctx context.Context, includeSearchPaths bool) (persis.DAGCatalog, error) {

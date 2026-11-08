@@ -2612,6 +2612,43 @@ func TestSavedServiceDAGNames(t *testing.T) {
 	assert.Equal(t, []string{"svc"}, names)
 }
 
+// A rewritten index of the same size can keep its modification time where
+// timestamps are coarse; the names must still come from the new file.
+func TestServiceDAGNamesSeesIndexRewriteInSameTick(t *testing.T) {
+	tmpDir := t.TempDir()
+	store := NewStore(tmpDir, WithSkipExamples(true))
+	ctx := context.Background()
+	const service = "restart_policy: always\nrestart_wait_sec: 5\nsteps:\n  - run: echo ok\n"
+	const plain = "restart_wait_sec: 5\nrestart_policy: no\nsteps:\n  - run: echo ok\n"
+	write := func(file, content string) {
+		t.Helper()
+		require.NoError(t, os.WriteFile(filepath.Join(tmpDir, file+".yaml"), []byte(content), 0600))
+	}
+	write("a1", service)
+	write("b1", plain)
+	_, err := store.Catalog(ctx)
+	require.NoError(t, err)
+	names, err := store.ServiceDAGNames(ctx)
+	require.NoError(t, err)
+	require.Equal(t, []string{"a1"}, names)
+
+	indexPath := store.indexPath
+	before, err := os.Stat(indexPath)
+	require.NoError(t, err)
+	write("a1", plain)
+	write("b1", service)
+	_, err = store.Catalog(ctx)
+	require.NoError(t, err)
+	require.NoError(t, os.Chtimes(indexPath, before.ModTime(), before.ModTime()))
+	after, err := os.Stat(indexPath)
+	require.NoError(t, err)
+	require.Equal(t, before.Size(), after.Size(), "the test needs an index of the same size")
+
+	names, err = store.ServiceDAGNames(ctx)
+	require.NoError(t, err)
+	assert.Equal(t, []string{"b1"}, names)
+}
+
 func TestInvalidateIndex_RemovesFile(t *testing.T) {
 	tmpDir := t.TempDir()
 	store := NewStore(tmpDir, WithSkipExamples(true))
