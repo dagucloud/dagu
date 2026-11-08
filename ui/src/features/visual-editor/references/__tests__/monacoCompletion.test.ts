@@ -313,6 +313,27 @@ describe('computeReferenceCompletions', () => {
       });
     });
 
+    // The author types the next line of a run block on a blank line, where the
+    // YAML path and the step range have already ended.
+    it('marks it on a blank line of a run block', () => {
+      const block =
+        'steps:\n  - name: model\n    run: a\n  - name: next\n    run: |\n      echo a\n      ';
+      for (const text of [block, `${block}\n  - name: last\n    run: b\n`]) {
+        const result = computeReferenceCompletions(
+          text,
+          block.length,
+          { scope: scope(), model: parseDagDocLenient(text) },
+          { explicit: true }
+        );
+        expect(result?.from).toBe(block.length);
+        expect(result?.inRunField).toBe(true);
+        expect(result?.items.map((item) => item.label)).toContain('step.name');
+        expect(
+          result?.items.find((item) => item.label === 'model.reply')?.shellRisk
+        ).toBe(true);
+      }
+    });
+
     it('marks it in a run field of a parallel group', () => {
       const text =
         'steps:\n  - name: model\n    run: a\n  - - name: next\n      run: echo ${\n';
