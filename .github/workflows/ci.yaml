@@ -650,9 +650,12 @@ jobs:
           $installDir = "$env:ProgramFiles\Dagu"
           $before = [Environment]::GetEnvironmentVariable("Path", "Machine")
 
-          Start-Process -Wait -FilePath "dist\dagu-windows-amd64-setup.exe" -ArgumentList @(
+          $setup = Start-Process -Wait -PassThru -FilePath "dist\dagu-windows-amd64-setup.exe" -ArgumentList @(
             "/VERYSILENT", "/SUPPRESSMSGBOXES", "/NORESTART", "/TASKS=manual,path"
           )
+          if ($setup.ExitCode -ne 0) {
+            throw "The installer exited with code $($setup.ExitCode)."
+          }
           if (-not (Test-Path "$installDir\dagu.exe")) {
             throw "The installer did not place dagu.exe in $installDir."
           }
@@ -684,13 +687,19 @@ jobs:
           $installDir = "$env:ProgramFiles\Dagu"
           $shortcut = "$env:ProgramData\Microsoft\Windows\Start Menu\Programs\Dagu\Open Dagu.url"
 
-          Start-Process -Wait -FilePath "dist\dagu-windows-amd64-setup.exe" -ArgumentList @(
+          $setup = Start-Process -Wait -PassThru -FilePath "dist\dagu-windows-amd64-setup.exe" -ArgumentList @(
             "/VERYSILENT", "/SUPPRESSMSGBOXES", "/NORESTART", "/TASKS=service,path",
             "/PORT=18090", "/COORDINATORPORT=18091"
           )
           $log = "$installDir\service-setup.log"
           if (Test-Path $log) {
             Get-Content $log
+          }
+          if ($setup.ExitCode -ne 0) {
+            throw "The installer exited with code $($setup.ExitCode)."
+          }
+          if ((Get-Content "$installDir\dagu-service.xml" -Raw) -notmatch 'name="DAGU_COORDINATOR_PORT" value="18091"') {
+            throw "The service configuration does not use the chosen coordinator port."
           }
           $service = Get-Service -Name Dagu -ErrorAction SilentlyContinue
           if (-not $service -or $service.Status -ne "Running") {

@@ -214,6 +214,17 @@ begin
   end;
 end;
 
+{ Wraps a value as a PowerShell single-quoted literal; a quote inside it is
+  doubled, which an install directory chosen by the user may well contain. }
+function PsQuote(const Value: string): string;
+var
+  Escaped: string;
+begin
+  Escaped := Value;
+  StringChangeEx(Escaped, '''', '''''', True);
+  Result := '''' + Escaped + '''';
+end;
+
 function WebUrl(Param: string): string;
 begin
   { The service binds 127.0.0.1, so the address is spelled out rather than
@@ -353,8 +364,8 @@ procedure InitializeWizard;
 begin
   { Silent installs never show the page, so the command line is the only
     place their ports can come from. }
-  WebPort := ExpandConstant('{param:PORT|{#DefaultPort}}');
-  CoordinatorPort := ExpandConstant('{param:COORDINATORPORT|{#DefaultCoordinatorPort}}');
+  WebPort := Trim(ExpandConstant('{param:PORT|{#DefaultPort}}'));
+  CoordinatorPort := Trim(ExpandConstant('{param:COORDINATORPORT|{#DefaultCoordinatorPort}}'));
 
   PortPage := CreateInputQueryPage(wpSelectTasks,
     'Network ports', 'Which ports should the Dagu service use?',
@@ -404,17 +415,19 @@ begin
           'On your first visit, create the admin account.';
       end;
     end else if WizardIsTaskSelected('path') then begin
+      { start-all binds its own default port, whatever the port page held
+        before the user switched to this mode. }
       WizardForm.FinishedLabel.Caption :=
         'Dagu is installed.' + #13#10#13#10 +
         'Open a new terminal window and run:' + #13#10 +
         '    dagu start-all' + #13#10#13#10 +
-        'Then visit ' + WebUrl('') + ' in your browser.';
+        'Then visit http://127.0.0.1:{#DefaultPort} in your browser.';
     end else begin
       WizardForm.FinishedLabel.Caption :=
         'Dagu is installed.' + #13#10#13#10 +
         'Open a terminal window and run:' + #13#10 +
         '    "' + ExpandConstant('{app}\{#AppExeName}') + '" start-all' + #13#10#13#10 +
-        'Then visit ' + WebUrl('') + ' in your browser.';
+        'Then visit http://127.0.0.1:{#DefaultPort} in your browser.';
     end;
     { The label keeps its designed height unless told to fit the new text,
       and the "Open Dagu" checkbox has to move below it. }
@@ -492,13 +505,13 @@ begin
     PowerShell's own file redirection produces. }
   if not Exec(PowerShellPath,
               '-NoProfile -NonInteractive -ExecutionPolicy Bypass -Command "' +
-              '$global:code = 0; & { try { & ''' + ExpandConstant('{app}\') + InstallerScript + '''' +
+              '$global:code = 0; & { try { & ' + PsQuote(ExpandConstant('{app}\') + InstallerScript) +
               ' -NoPrompt -ServiceOnly -Service yes -ServiceScope system -OpenBrowser no' +
               ' -Port ' + WebPort + ' -CoordinatorPort ' + CoordinatorPort +
-              ' -InstallDir ''' + ExpandConstant('{app}') + '''' +
+              ' -InstallDir ' + PsQuote(ExpandConstant('{app}')) +
               '; if ($LASTEXITCODE) { $global:code = $LASTEXITCODE } }' +
               ' catch { Write-Output (''Error: '' + $_.Exception.Message); $global:code = 1 } }' +
-              ' *>&1 | Out-File -Encoding utf8 -FilePath ''' + LogFile + '''; exit $global:code"',
+              ' *>&1 | Out-File -Encoding utf8 -FilePath ' + PsQuote(LogFile) + '; exit $global:code"',
               ExpandConstant('{app}'), SW_HIDE, ewWaitUntilTerminated, ResultCode) then begin
     ServiceSetupFailed := True;
     Log('Dagu service setup could not be started: ' + SysErrorMessage(ResultCode));
@@ -561,6 +574,14 @@ var
   Wrapper: string;
 begin
   Result := '';
+  { The port page validates what the user typed; a silent install skips the
+    page, so its /PORT and /COORDINATORPORT values are checked here instead. }
+  if WizardIsTaskSelected('service') and
+     (not IsValidPort(WebPort) or not IsValidPort(CoordinatorPort) or (WebPort = CoordinatorPort)) then begin
+    Result := '/PORT and /COORDINATORPORT must be two different numbers between 1 and 65535 ' +
+      '(got "' + WebPort + '" and "' + CoordinatorPort + '").';
+    exit;
+  end;
   { A running service holds dagu.exe open, which would block the file copy.
     The wrapper returns only once the service has actually stopped. }
   Wrapper := ExpandConstant('{app}\') + ServiceWrapper;
