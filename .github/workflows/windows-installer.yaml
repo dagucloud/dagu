@@ -305,6 +305,38 @@ jobs:
             throw "The Open Dagu shortcut does not point at the chosen port."
           }
 
+          # A silent upgrade keeps each port the installed service uses unless
+          # the command line sets that one, so each flag is tried on its own.
+          function Assert-ServicePorts($web, $coordinator, $case) {
+            $xml = Get-Content "$installDir\dagu-service.xml" -Raw
+            if ($xml -notmatch ('name="DAGU_PORT" value="' + $web + '"')) {
+              throw "After $case the service does not use web UI port $web."
+            }
+            if ($xml -notmatch ('name="DAGU_COORDINATOR_PORT" value="' + $coordinator + '"')) {
+              throw "After $case the service does not use coordinator port $coordinator."
+            }
+            $service = Get-Service -Name Dagu -ErrorAction SilentlyContinue
+            if (-not $service -or $service.Status -ne "Running") {
+              throw "The Dagu service is not running after $case."
+            }
+            Invoke-WebRequest -Uri "http://127.0.0.1:$web/api/v1/health" -UseBasicParsing | Out-Null
+          }
+          foreach ($case in @(
+            @{ Flags = @("/PORT=18092"); Web = 18092; Coordinator = 18091 },
+            @{ Flags = @("/COORDINATORPORT=18093"); Web = 18092; Coordinator = 18093 }
+          )) {
+            $upgrade = Start-Process -Wait -PassThru -FilePath "dist\dagu-windows-amd64-setup.exe" -ArgumentList (
+              @("/VERYSILENT", "/SUPPRESSMSGBOXES", "/NORESTART", "/TASKS=service,path") + $case.Flags
+            )
+            if (Test-Path $log) {
+              Get-Content $log
+            }
+            if ($upgrade.ExitCode -ne 0) {
+              throw "The upgrade with $($case.Flags) exited with code $($upgrade.ExitCode)."
+            }
+            Assert-ServicePorts $case.Web $case.Coordinator "an upgrade with $($case.Flags)"
+          }
+
           Start-Process -Wait -FilePath "$installDir\unins000.exe" -ArgumentList @(
             "/VERYSILENT", "/SUPPRESSMSGBOXES", "/NORESTART"
           )
