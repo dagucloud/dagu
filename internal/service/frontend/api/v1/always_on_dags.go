@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"net/url"
+	"sync"
 	"time"
 
 	"github.com/dagucloud/dagu/v2/api/v1"
@@ -100,12 +101,91 @@ func (a *API) listAlwaysOnDAGs(ctx context.Context, filter *workspace.WorkspaceF
 			Suspended:      item.Suspended,
 			LatestRun:      toAlwaysOnDAGRun(latest),
 			ReadError:      readError,
+
+			ConsecutiveFailures: a.failureStreak(ctx, item.DAG, latest),
 		})
 	}
 	if errList == nil {
 		errList = []string{}
 	}
 	return api.AlwaysOnDAGsResponse{Dags: dags, Errors: errList}, nil
+}
+
+// alwaysOnFailureStreakLimit caps the failed runs in a row that the always-on
+// list counts, so that it reads a bounded part of the history.
+const alwaysOnFailureStreakLimit = 10
+
+// failureStreaks keeps the count of failed runs in a row of each always-on DAG
+// with the latest run it was counted for, so that a DAG whose latest run has
+// not changed costs no read of its history.
+type failureStreaks struct {
+	mu     sync.Mutex
+	counts map[string]failureStreak
+}
+
+type failureStreak struct {
+	runID  string
+	status ir.Status
+	count  int
+}
+
+func (s *failureStreaks) get(name string, latest ir.DAGRunStatus) (int, bool) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	streak, ok := s.counts[name]
+	if !ok || streak.runID != latest.DAGRunID || streak.status != latest.Status {
+		return 0, false
+	}
+	return streak.count, true
+}
+
+func (s *failureStreaks) put(name string, latest ir.DAGRunStatus, count int) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.counts == nil {
+		s.counts = make(map[string]failureStreak)
+	}
+	s.counts[name] = failureStreak{runID: latest.DAGRunID, status: latest.Status, count: count}
+}
+
+// failureStreak counts the newest ended runs of an always-on DAG in a row that
+// did not succeed, up to alwaysOnFailureStreakLimit. A run that an operator
+// stopped, or one from another workspace than the latest run, ends the count.
+func (a *API) failureStreak(ctx context.Context, dag *ir.DAG, latest ir.DAGRunStatus) int {
+	if latest.DAGRunID == "" || latest.Status.IsSuccess() {
+		return 0
+	}
+	if count, ok := a.alwaysOnFailures.get(dag.Name, latest); ok {
+		return count
+	}
+	// One more than the limit, since a run that is alive takes a place.
+	statuses, err := a.dagRunRepository.RecentStatuses(ctx, dag.Name, alwaysOnFailureStreakLimit+1)
+	if err != nil {
+		logger.Warn(ctx, "Failed to read the recent runs of an always-on DAG", tag.DAG(dag.Name), tag.Error(err))
+		return 0
+	}
+	latestWorkspace, _ := workspace.WorkspaceNameFromLabels(ir.NewLabels(latest.Labels))
+	count := 0
+	for _, status := range statuses {
+		if !runEnded(status.Status) {
+			continue
+		}
+		if status.Status.IsSuccess() || count == alwaysOnFailureStreakLimit {
+			break
+		}
+		if name, _ := workspace.WorkspaceNameFromLabels(ir.NewLabels(status.Labels)); name != latestWorkspace {
+			break
+		}
+		if stopped, err := a.stopRequested(ctx, dag, status.DAGRunID); err == nil && stopped {
+			break
+		}
+		count++
+	}
+	// A cancelled read skips runs, so its count is not kept.
+	if ctx.Err() == nil {
+		a.alwaysOnFailures.put(dag.Name, latest, count)
+	}
+	return count
 }
 
 // excludedDAGNames returns the DAGs whose runs a list leaves out: the always-on

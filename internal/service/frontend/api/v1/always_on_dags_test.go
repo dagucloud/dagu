@@ -5,6 +5,7 @@ package api_test
 
 import (
 	"context"
+	"fmt"
 	"io/fs"
 	"net/http"
 	"os"
@@ -301,4 +302,101 @@ func TestListDAGRunsExcludesAlwaysOnRuns(t *testing.T) {
 
 	err = apiImpl.ValidateDAGRunsListQuery(ctx, "excludeAlwaysOnRuns=maybe")
 	requireAPIErrorStatus(t, err, http.StatusBadRequest)
+}
+
+// consecutiveFailures reads the always-on list and returns the count of
+// failed runs in a row that it reports for the only DAG.
+func consecutiveFailures(t *testing.T, apiImpl *localapi.API) int {
+	t.Helper()
+	resp, err := apiImpl.ListAlwaysOnDAGs(context.Background(), api.ListAlwaysOnDAGsRequestObject{})
+	require.NoError(t, err)
+	list, ok := resp.(api.ListAlwaysOnDAGs200JSONResponse)
+	require.True(t, ok, "expected 200 response, got %T", resp)
+	require.Len(t, list.Dags, 1)
+	return list.Dags[0].ConsecutiveFailures
+}
+
+// A DAG that keeps crashing shows as running most of the time, so the list
+// counts the failed runs before the one that has not ended. A success, a stop
+// by an operator or a run from another workspace ends the count. The runs that
+// have not ended are queued here: a running run without a process would be
+// repaired into a failed one.
+func TestListAlwaysOnDAGsCountsFailuresInARow(t *testing.T) {
+	t.Parallel()
+	start := time.Now().Add(-time.Hour)
+	at := func(i int) time.Time { return start.Add(time.Duration(i) * time.Minute) }
+	setup := func(t *testing.T) (test.Helper, *localapi.API) {
+		helper := test.Setup(t, test.WithStatusPersistence())
+		helper.CreateDAGFile(t, helper.Config.Paths.DAGsDir, "svc", []byte(alwaysOnDAGSpec))
+		return helper, newAlwaysOnDAGAPI(helper)
+	}
+
+	t.Run("CrashLoop", func(t *testing.T) {
+		t.Parallel()
+		helper, apiImpl := setup(t)
+		seedRunAt(t, helper, "svc", "ok", ir.Succeeded, ir.TriggerTypeRestart, at(0))
+		for i := 1; i <= 3; i++ {
+			seedRunAt(t, helper, "svc", fmt.Sprintf("crash-%d", i), ir.Failed, ir.TriggerTypeRestart, at(i))
+		}
+		seedRunAt(t, helper, "svc", "next", ir.Queued, ir.TriggerTypeRestart, at(4))
+		assert.Equal(t, 3, consecutiveFailures(t, apiImpl))
+	})
+
+	t.Run("SuccessEndsCount", func(t *testing.T) {
+		t.Parallel()
+		helper, apiImpl := setup(t)
+		seedRunAt(t, helper, "svc", "crash", ir.Failed, ir.TriggerTypeRestart, at(0))
+		seedRunAt(t, helper, "svc", "ok", ir.Succeeded, ir.TriggerTypeRestart, at(1))
+		assert.Equal(t, 0, consecutiveFailures(t, apiImpl))
+	})
+
+	t.Run("StopEndsCount", func(t *testing.T) {
+		t.Parallel()
+		helper, apiImpl := setup(t)
+		seedRunAt(t, helper, "svc", "crash-1", ir.Failed, ir.TriggerTypeRestart, at(0))
+		seedRunAt(t, helper, "svc", "stopped", ir.Aborted, ir.TriggerTypeRestart, at(1))
+		attempt, err := helper.DAGRunRepository.FindAttempt(context.Background(), ir.NewDAGRunRef("svc", "stopped"))
+		require.NoError(t, err)
+		require.NoError(t, attempt.Abort(context.Background()))
+		seedRunAt(t, helper, "svc", "crash-2", ir.Failed, ir.TriggerTypeRestart, at(2))
+		assert.Equal(t, 1, consecutiveFailures(t, apiImpl))
+	})
+
+	t.Run("OtherWorkspaceEndsCount", func(t *testing.T) {
+		t.Parallel()
+		helper, apiImpl := setup(t)
+		seedRunAt(t, helper, "svc", "crash-old", ir.Failed, ir.TriggerTypeRestart, at(0), "workspace=dev")
+		seedRunAt(t, helper, "svc", "crash-new", ir.Failed, ir.TriggerTypeRestart, at(1))
+		assert.Equal(t, 1, consecutiveFailures(t, apiImpl))
+	})
+
+	t.Run("Capped", func(t *testing.T) {
+		t.Parallel()
+		helper, apiImpl := setup(t)
+		for i := range 12 {
+			seedRunAt(t, helper, "svc", fmt.Sprintf("crash-%02d", i), ir.Failed, ir.TriggerTypeRestart, at(i))
+		}
+		assert.Equal(t, 10, consecutiveFailures(t, apiImpl))
+		// A run that has not ended takes no place among the ten.
+		seedRunAt(t, helper, "svc", "next", ir.Queued, ir.TriggerTypeRestart, at(12))
+		assert.Equal(t, 10, consecutiveFailures(t, apiImpl))
+	})
+
+	// The count is kept for the latest run, so the history is read again only
+	// when the latest run changes.
+	t.Run("ReadOncePerLatestRun", func(t *testing.T) {
+		t.Parallel()
+		helper, apiImpl := setup(t)
+		for i := 1; i <= 3; i++ {
+			seedRunAt(t, helper, "svc", fmt.Sprintf("crash-%d", i), ir.Failed, ir.TriggerTypeRestart, at(i))
+		}
+		seedRunAt(t, helper, "svc", "next", ir.Queued, ir.TriggerTypeRestart, at(4))
+		require.Equal(t, 3, consecutiveFailures(t, apiImpl))
+
+		seedRunAt(t, helper, "svc", "crash-0", ir.Failed, ir.TriggerTypeRestart, at(0))
+		assert.Equal(t, 3, consecutiveFailures(t, apiImpl))
+
+		seedRunAt(t, helper, "svc", "next-2", ir.Queued, ir.TriggerTypeRestart, at(5))
+		assert.Equal(t, 4, consecutiveFailures(t, apiImpl))
+	})
 }

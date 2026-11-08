@@ -18667,6 +18667,11 @@ components:
         readError:
           type: string
           description: "Why the state could not be read. Set only with the state failing."
+        consecutiveFailures:
+          type: integer
+          minimum: 0
+          maximum: 10
+          description: "How many of the newest ended runs in a row did not succeed, up to 10. A run that an operator stopped ends the count. A count above zero while the DAG is running means that it keeps failing."
       required:
         - fileName
         - name
@@ -18674,6 +18679,7 @@ components:
         - restartWaitSec
         - state
         - suspended
+        - consecutiveFailures
 
     AlwaysOnDAGsResponse:
       type: object

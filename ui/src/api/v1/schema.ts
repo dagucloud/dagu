@@ -7652,6 +7652,8 @@ export interface components {
             latestRun?: components["schemas"]["AlwaysOnDAGRun"];
             /** @description Why the state could not be read. Set only with the state failing. */
             readError?: string;
+            /** @description How many of the newest ended runs in a row did not succeed, up to 10. A run that an operator stopped ends the count. A count above zero while the DAG is running means that it keeps failing. */
+            consecutiveFailures: number;
         };
         /** @description The always-on DAGs */
         AlwaysOnDAGsResponse: {
