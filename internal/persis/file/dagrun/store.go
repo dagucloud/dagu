@@ -296,8 +296,12 @@ func (store *Store) CreateAttempt(ctx context.Context, req persis.DAGRunCreateAt
 		}
 		run = r
 	} else {
-		// Check if the dag-run already exists
-		existingRun, _ := dataRoot.FindByDAGRunID(ctx, req.DAGRunID)
+		// Check if the dag-run already exists. A failed lookup must not count as
+		// "no such run", or a scheduler could start a slot twice.
+		existingRun, err := dataRoot.FindByDAGRunID(ctx, req.DAGRunID)
+		if err != nil && !errors.Is(err, dagrun.ErrDAGRunIDNotFound) {
+			return nil, fmt.Errorf("failed to check for an existing dag-run: %w", err)
+		}
 		if existingRun != nil {
 			// Error if the dag-run already exists
 			return nil, fmt.Errorf("%w: %s", dagrun.ErrDAGRunAlreadyExists, req.DAGRunID)

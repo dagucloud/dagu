@@ -14,6 +14,8 @@ import (
 const (
 	// catchupPrefix is the scheme identifier for catchup run IDs.
 	catchupPrefix = "catchup-"
+	// slotPrefix is the scheme identifier for runs of a recurring schedule.
+	slotPrefix = "sched-"
 	// oneOffPrefix is the scheme identifier for one-off scheduled run IDs.
 	oneOffPrefix = "oneoff-"
 	// restartPrefix is the scheme identifier for restart run IDs.
@@ -33,6 +35,14 @@ const (
 // GenerateCatchupRunID produces a deterministic run ID for a catchup run.
 func GenerateCatchupRunID(dagName string, scheduledTime time.Time) string {
 	return generateScheduledRunID(catchupPrefix, dagName, scheduledTime)
+}
+
+// GenerateSlotRunID produces the run ID of one slot of a recurring schedule. A
+// live run and a catch-up of the slot share it, so whichever comes second is
+// rejected as a duplicate. dataDir keeps installations on one host from sharing
+// an ID, and with it a control socket.
+func GenerateSlotRunID(dataDir, dagName string, scheduledTime time.Time) string {
+	return generateScheduledRunID(slotPrefix, dataDir+":"+dagName, scheduledTime)
 }
 
 // GenerateOneOffRunID produces a deterministic run ID for a one-off schedule.

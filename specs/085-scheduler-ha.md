@@ -52,6 +52,15 @@ reading logs, which instance is active and how long a failover takes.
   standby therefore waits a full `T` even for a lock left behind long ago, so
   a host restarted after a crash starts scheduling `T` after it comes up.
 
+### Run identity
+
+- Each slot of a recurring schedule has one run ID, derived from the data
+  directory, the DAG name, and the slot's time, in the form
+  `sched-<hash>-<UTC time>`. A live run and a catch-up of the same slot share
+  it, so a slot has at most one run, including around a failover. Installations
+  with different data directories never share an ID.
+- When existing runs cannot be read, a run is not created.
+
 ### Observability
 
 - Every scheduler serves `GET /health` on `scheduler.port`, including a
@@ -73,7 +82,8 @@ reading logs, which instance is active and how long a failover takes.
 ## Storage
 
 All schedulers must use the same `DAGU_HOME`, or the same data and DAG
-directories, on storage that every host can reach.
+directories, on storage that every host can reach. The data directory must have
+the same path on every host, because it is part of each slot's run ID.
 
 ## Not provided
 

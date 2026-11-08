@@ -342,9 +342,6 @@ func newScheduler(
 		IsSuspended:     isSuspended,
 		GetLatestStatus: drm.GetLatestStatus,
 		IsRunning:       isRunning,
-		GenRunID: func(context.Context) (string, error) {
-			return ir.NewDAGRunID()
-		},
 		Dispatch: func(ctx context.Context, entry DAGEntry, runID string, triggerType ir.TriggerType, scheduleTime time.Time) error {
 			return dagExecutor.HandleJob(
 				ctx, entry,
@@ -360,6 +357,7 @@ func newScheduler(
 		},
 		Clock:           defaultClock,
 		Location:        timeLoc,
+		DataDir:         cfg.Paths.DataDir,
 		Events:          eventCh,
 		ProfileResolver: profileResolver,
 		QueuesEnabled:   queuesEnabled,
