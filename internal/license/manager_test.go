@@ -7,6 +7,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
@@ -1135,6 +1136,34 @@ func TestManager_doHeartbeat(t *testing.T) {
 		assert.Equal(t, "rotated", m.currentActivation().HeartbeatSecret)
 	})
 
+	// The store keeps changing under a heartbeat. One retry is the limit, and
+	// credentials still in flux say nothing about the license.
+	t.Run("401 retries once and keeps the license", func(t *testing.T) {
+		t.Parallel()
+
+		pub, priv := testKeyPair(t)
+		claims := validClaims()
+		token := signToken(t, priv, claims)
+
+		var calls atomic.Int32
+		srv := newMockCloudServer(t, mockCloudServerConfig{
+			heartbeatHandler: func(w http.ResponseWriter, r *http.Request) {
+				calls.Add(1)
+				errorHandlerFn(http.StatusUnauthorized, "unauthorized")(w, r)
+			},
+		})
+
+		ad := makeAD("server-001")
+		store := &changingActivationStore{base: *ad}
+		m := NewManager(ManagerConfig{LicenseDir: t.TempDir(), CloudURL: srv.URL}, pub, store, slog.Default())
+		m.state.Update(claims, token)
+
+		m.doHeartbeat(context.Background(), ad)
+
+		assert.EqualValues(t, 2, calls.Load())
+		assert.False(t, m.Checker().IsCommunity(), "changing credentials must not clear the license")
+	})
+
 	t.Run("401 with an unchanged stored secret does not retry", func(t *testing.T) {
 		t.Parallel()
 
@@ -1769,4 +1798,17 @@ func TestStoredCloudCredentials(t *testing.T) {
 	}}, pub, "")()
 	require.True(t, ok)
 	assert.Equal(t, defaultCloudURL, got.CloudURL)
+}
+
+// changingActivationStore holds different credentials on every load.
+type changingActivationStore struct {
+	mockActivationStore
+	base  ActivationData
+	loads atomic.Int32
+}
+
+func (s *changingActivationStore) Load() (*ActivationData, error) {
+	data := s.base
+	data.HeartbeatSecret = fmt.Sprintf("rotated-%d", s.loads.Add(1))
+	return &data, nil
 }
