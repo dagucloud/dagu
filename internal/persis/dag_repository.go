@@ -65,6 +65,11 @@ func (r *DAGRepository) GetMetadata(ctx context.Context, id string) (*ir.DAG, er
 	return r.store.GetMetadata(ctx, id)
 }
 
+// AlwaysOnDAGNames returns the names of the DAGs that set a restart policy.
+func (r *DAGRepository) AlwaysOnDAGNames(ctx context.Context) ([]string, error) {
+	return r.store.AlwaysOnDAGNames(ctx)
+}
+
 func (r *DAGRepository) GetDetails(ctx context.Context, id string, opts DAGLoadOptions) (*ir.DAG, error) {
 	definition, err := r.store.Get(ctx, id)
 	if err != nil {

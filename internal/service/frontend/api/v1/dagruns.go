@@ -714,6 +714,7 @@ func (a *API) ListDAGRuns(ctx context.Context, request api.ListDAGRunsRequestObj
 		return nil, err
 	}
 	opts.query.WorkspaceFilter = workspaceFilter
+	opts.query.ExcludeDAGNames = a.excludedDAGNames(ctx, opts.excludeAlwaysOnRuns)
 	var dagName, dagRunID string
 	if request.Params.Name != nil {
 		dagName = *request.Params.Name
@@ -786,6 +787,9 @@ func (a *API) ListDAGRunsByName(ctx context.Context, request api.ListDAGRunsByNa
 
 type dagRunListOptions struct {
 	query persis.DAGRunListOptions
+	// excludeAlwaysOnRuns leaves out the runs of the always-on DAGs, which a
+	// read resolves into query.ExcludeDAGNames.
+	excludeAlwaysOnRuns bool
 }
 
 type dagRunListFilterInput struct {
@@ -798,7 +802,7 @@ type dagRunListFilterInput struct {
 	labels    *string
 	limit     *int
 	cursor    *string
-	// excludeAlwaysOnRuns drops the runs that a restart policy started.
+	// excludeAlwaysOnRuns drops the runs of the always-on DAGs.
 	excludeAlwaysOnRuns bool
 }
 
@@ -837,9 +841,7 @@ func buildDAGRunListOptions(input dagRunListFilterInput) dagRunListOptions {
 	if input.cursor != nil && *input.cursor != "" {
 		opts.query.Cursor = *input.cursor
 	}
-	if input.excludeAlwaysOnRuns {
-		opts.query.ExcludeTriggerTypes = []ir.TriggerType{ir.TriggerTypeRestart}
-	}
+	opts.excludeAlwaysOnRuns = input.excludeAlwaysOnRuns
 	opts.query.Limit = limit
 	return opts
 }
@@ -5216,6 +5218,7 @@ func (a *API) GetDAGRunsListData(ctx context.Context, queryString string) (any, 
 		if err != nil {
 			return nil, err
 		}
+		opts.query.ExcludeDAGNames = a.excludedDAGNames(readCtx, opts.excludeAlwaysOnRuns)
 
 		page, err := a.dagRunRepository.ListStatusesPage(readCtx, opts.query)
 		if err != nil {

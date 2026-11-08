@@ -12173,7 +12173,7 @@ components:
     ExcludeAlwaysOnRuns:
       name: excludeAlwaysOnRuns
       in: query
-      description: "Leave out the runs that a restart policy started (trigger type restart). An always-on DAG runs without end, so these runs are better read from the always-on list. A run that someone started by hand stays in the result."
+      description: "Leave out every run of the always-on DAGs, the DAGs that set a restart policy, whoever started it. Their state is read from the always-on list instead. The always-on DAGs come from the DAG index, so a DAG file edited outside Dagu counts after the next DAG listing."
       required: false
       schema:
         type: boolean

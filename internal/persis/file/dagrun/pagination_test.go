@@ -30,7 +30,6 @@ type seededRun struct {
 	status    ir.Status
 	labels    []string
 	attemptID string
-	trigger   ir.TriggerType
 }
 
 type oracleSeed struct {
@@ -55,7 +54,6 @@ func (s *oracleSeed) write(t *testing.T, run seededRun, retry bool) {
 	status.AttemptID = attempt.ID()
 	status.Status = run.status
 	status.Labels = run.labels
-	status.TriggerType = run.trigger
 	require.NoError(t, attempt.Write(ctx, status))
 	require.NoError(t, attempt.Close(ctx))
 	run.attemptID = attempt.ID()
@@ -108,7 +106,7 @@ func (s *oracleSeed) expected(query persis.DAGRunStatusQuery) []string {
 			!strings.Contains(run.id, query.DAGRunID),
 			!query.From.IsZero() && run.created.Before(query.From.Time),
 			!query.To.IsZero() && !run.created.Before(query.To.Time),
-			slices.Contains(query.ExcludeTriggerTypes, run.trigger):
+			slices.Contains(query.ExcludeDAGNames, run.name):
 			continue
 		}
 		matched = append(matched, run)
@@ -167,17 +165,12 @@ func seedOracleRuns(t *testing.T) *oracleSeed {
 		for day := range 3 {
 			// At least ten finished runs a day, so each day gets an index.
 			for i := range 12 {
-				trigger := ir.TriggerTypeManual
-				if name == "gamma" && i%3 != 0 {
-					trigger = ir.TriggerTypeRestart
-				}
 				seed.write(t, seededRun{
 					name:    name,
 					id:      fmt.Sprintf("%s-%d-%02d", name, day, i),
 					created: base.Add(time.Duration(day)*24*time.Hour + time.Duration(i)*7*time.Minute),
 					status:  terminal[i%len(terminal)],
 					labels:  dags[name],
-					trigger: trigger,
 				}, false)
 			}
 		}
@@ -223,14 +216,14 @@ func TestQueryStatusesMatchesOracle(t *testing.T) {
 	base := time.Date(2026, 3, 1, 0, 0, 0, 0, time.UTC)
 
 	filters := map[string]persis.DAGRunStatusQuery{
-		"None":            {},
-		"Statuses":        {Statuses: []ir.Status{ir.Failed, ir.Running}},
-		"Labels":          {Labels: []string{"team=a"}},
-		"Name":            {Name: "ALP"},
-		"ExactName":       {ExactName: "beta"},
-		"DAGRunID":        {DAGRunID: "-1-"},
-		"ExcludeTriggers": {ExcludeTriggerTypes: []ir.TriggerType{ir.TriggerTypeRestart}},
-		"Workspace":       {WorkspaceFilter: &workspace.WorkspaceFilter{Enabled: true, Workspaces: []string{"ops"}}},
+		"None":        {},
+		"Statuses":    {Statuses: []ir.Status{ir.Failed, ir.Running}},
+		"Labels":      {Labels: []string{"team=a"}},
+		"Name":        {Name: "ALP"},
+		"ExactName":   {ExactName: "beta"},
+		"DAGRunID":    {DAGRunID: "-1-"},
+		"ExcludeDAGs": {ExcludeDAGNames: []string{"gamma"}},
+		"Workspace":   {WorkspaceFilter: &workspace.WorkspaceFilter{Enabled: true, Workspaces: []string{"ops"}}},
 		"Range": {
 			From: persis.NewUTC(base.Add(24*time.Hour + 30*time.Minute)),
 			To:   persis.NewUTC(base.Add(48*time.Hour + 2*time.Hour + time.Second)),
@@ -261,6 +254,50 @@ func TestQueryStatusesMatchesOracle(t *testing.T) {
 			}
 		}
 	}
+}
+
+// A list that leaves DAGs out skips their directories, including one whose
+// name the directory spells differently, without reading anything there.
+func TestQueryStatusesSkipsExcludedDAGs(t *testing.T) {
+	seed := &oracleSeed{th: setupTestRepository(t)}
+	base := time.Date(2026, 3, 1, 0, 0, 0, 0, time.UTC)
+	for i := range 2 {
+		for _, name := range []string{"my.svc", "plain"} {
+			seed.write(t, seededRun{
+				name:    name,
+				id:      fmt.Sprintf("%s-%d", name, i),
+				created: base.Add(time.Duration(i) * time.Minute),
+				status:  ir.Succeeded,
+			}, false)
+		}
+	}
+	// Listing this directory fails, so a list that reads it fails.
+	broken := filepath.Join(seed.th.Backend.baseDir, dagDirName("broken"))
+	require.NoError(t, os.MkdirAll(broken, 0o750))
+	require.NoError(t, os.WriteFile(filepath.Join(broken, "dag-runs"), nil, 0o600))
+
+	query := persis.DAGRunStatusQuery{ExcludeDAGNames: []string{"my.svc", "broken"}}
+	require.Equal(t, seed.expected(query), listAll(t, seed.th.Backend, query))
+	_, err := seed.th.Backend.QueryStatuses(t.Context(), persis.DAGRunStatusQuery{})
+	require.Error(t, err)
+
+	t.Run("CursorOutlivesNameChanges", func(t *testing.T) {
+		query := persis.DAGRunStatusQuery{ExcludeDAGNames: []string{"my.svc", "broken"}, Limit: 1}
+		page, err := seed.th.Backend.QueryStatuses(t.Context(), query)
+		require.NoError(t, err)
+		require.NotEmpty(t, page.NextCursor)
+
+		query.Cursor = page.NextCursor
+		query.ExcludeDAGNames = []string{"my.svc", "broken", "other"}
+		next, err := seed.th.Backend.QueryStatuses(t.Context(), query)
+		require.NoError(t, err)
+		require.Len(t, next.Items, 1)
+		require.Equal(t, "plain-0", next.Items[0].DAGRunID)
+
+		// The cursor still names its filter: without exclusion it is refused.
+		_, err = seed.th.Backend.QueryStatuses(t.Context(), persis.DAGRunStatusQuery{Limit: 1, Cursor: page.NextCursor})
+		require.Error(t, err)
+	})
 }
 
 // A lazy read lists finished runs from the day's index, so a page of them

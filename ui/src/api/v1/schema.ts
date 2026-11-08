@@ -8669,7 +8669,7 @@ export interface components {
         WikiPagesPerPage: number;
         /** @description Workspace selector. For list and search APIs, use all, default, or a workspace name. Omitted means all. */
         Workspace: string;
-        /** @description Leave out the runs that a restart policy started (trigger type restart). An always-on DAG runs without end, so these runs are better read from the always-on list. A run that someone started by hand stays in the result. */
+        /** @description Leave out every run of the always-on DAGs, the DAGs that set a restart policy, whoever started it. Their state is read from the always-on list instead. The always-on DAGs come from the DAG index, so a DAG file edited outside Dagu counts after the next DAG listing. */
         ExcludeAlwaysOnRuns: boolean;
         /** @description Optional Wiki page path prefix within the selected workspace */
         WikiPagePrefix: components["schemas"]["WikiPagePath"];
@@ -11136,7 +11136,7 @@ export interface operations {
                 remoteNode?: components["parameters"]["RemoteNode"];
                 /** @description Workspace selector. For list and search APIs, use all, default, or a workspace name. Omitted means all. */
                 workspace?: components["parameters"]["Workspace"];
-                /** @description Leave out the runs that a restart policy started (trigger type restart). An always-on DAG runs without end, so these runs are better read from the always-on list. A run that someone started by hand stays in the result. */
+                /** @description Leave out every run of the always-on DAGs, the DAGs that set a restart policy, whoever started it. Their state is read from the always-on list instead. The always-on DAGs come from the DAG index, so a DAG file edited outside Dagu counts after the next DAG listing. */
                 excludeAlwaysOnRuns?: components["parameters"]["ExcludeAlwaysOnRuns"];
                 /** @description start of the time range for filtering DAG-runs, as a Unix timestamp in seconds */
                 fromDate?: components["parameters"]["DateTimeFrom"];
@@ -11203,7 +11203,7 @@ export interface operations {
                 remoteNode?: components["parameters"]["RemoteNode"];
                 /** @description Workspace selector. For list and search APIs, use all, default, or a workspace name. Omitted means all. */
                 workspace?: components["parameters"]["Workspace"];
-                /** @description Leave out the runs that a restart policy started (trigger type restart). An always-on DAG runs without end, so these runs are better read from the always-on list. A run that someone started by hand stays in the result. */
+                /** @description Leave out every run of the always-on DAGs, the DAGs that set a restart policy, whoever started it. Their state is read from the always-on list instead. The always-on DAGs come from the DAG index, so a DAG file edited outside Dagu counts after the next DAG listing. */
                 excludeAlwaysOnRuns?: components["parameters"]["ExcludeAlwaysOnRuns"];
                 /** @description Filter DAG-runs by name */
                 name?: string;

@@ -10,6 +10,8 @@ import (
 	"time"
 
 	"github.com/dagucloud/dagu/v2/api/v1"
+	"github.com/dagucloud/dagu/v2/internal/cmn/logger"
+	"github.com/dagucloud/dagu/v2/internal/cmn/logger/tag"
 	"github.com/dagucloud/dagu/v2/internal/cmn/stringutil"
 	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/pagination"
@@ -105,6 +107,25 @@ func (a *API) listAlwaysOnDAGs(ctx context.Context, filter *workspace.WorkspaceF
 		errList = []string{}
 	}
 	return api.AlwaysOnDAGsResponse{Dags: dags, Errors: errList}, nil
+}
+
+// excludedDAGNames returns the DAGs whose runs a list leaves out: the always-on
+// DAGs when exclude is set, and none otherwise. The result is never nil when
+// exclude is set, even if the names cannot be read, so a page cursor keeps
+// its filter; the list then keeps those runs rather than fail.
+func (a *API) excludedDAGNames(ctx context.Context, exclude bool) []string {
+	if !exclude {
+		return nil
+	}
+	names, err := a.dagRepository.AlwaysOnDAGNames(ctx)
+	if err != nil {
+		logger.Warn(ctx, "Failed to read the always-on DAGs; their runs stay in the list", tag.Error(err))
+		return []string{}
+	}
+	if names == nil {
+		return []string{}
+	}
+	return names
 }
 
 // stopRequested reports whether an operator asked to stop a run: a stop from

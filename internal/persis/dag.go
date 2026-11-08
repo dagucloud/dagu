@@ -61,6 +61,10 @@ type DAGDefinitionStore interface {
 	// alt_dags_dir). Stores without additional search paths may return the same
 	// result as Catalog.
 	CatalogIncludingSearchPaths(ctx context.Context) (DAGCatalog, error)
+	// AlwaysOnDAGNames returns the names of the DAGs that set a restart policy.
+	// It may read a listing saved earlier, so a definition changed outside the
+	// store can count only after the next Catalog.
+	AlwaysOnDAGNames(ctx context.Context) ([]string, error)
 	MigrateSuspensionState(ctx context.Context) error
 	SetSuspended(ctx context.Context, id string, suspended bool) error
 	IsSuspended(ctx context.Context, id string) (bool, error)

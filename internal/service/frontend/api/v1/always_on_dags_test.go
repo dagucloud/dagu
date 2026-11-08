@@ -223,14 +223,17 @@ func TestListAlwaysOnDAGsSeesTheStopOfARunThatFailed(t *testing.T) {
 	assert.Equal(t, api.AlwaysOnDAGStateStopped, list.Dags[0].State)
 }
 
-// A run that a restart policy started stays out of the list on request, and a
-// run that someone started by hand stays in.
+// On request a run list leaves out every run of an always-on DAG, whoever
+// started it. A restart run of a DAG that is no longer always-on stays in.
 func TestListDAGRunsExcludesAlwaysOnRuns(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
 	helper := test.Setup(t, test.WithStatusPersistence())
+	helper.CreateDAGFile(t, helper.Config.Paths.DAGsDir, "svc", []byte(alwaysOnDAGSpec))
+	helper.CreateDAGFile(t, helper.Config.Paths.DAGsDir, "former", []byte("steps:\n  - run: echo hi\n"))
 	seedRun(t, helper, "svc", "restarted", ir.Succeeded, ir.TriggerTypeRestart)
 	seedRun(t, helper, "svc", "manual", ir.Succeeded, ir.TriggerTypeManual)
+	seedRun(t, helper, "former", "former-restart", ir.Succeeded, ir.TriggerTypeRestart)
 	apiImpl := newAlwaysOnDAGAPI(helper)
 
 	runIDs := func(runs []api.DAGRunSummary) []string {
@@ -251,15 +254,15 @@ func TestListDAGRunsExcludesAlwaysOnRuns(t *testing.T) {
 	}
 	yes, no := true, false
 
-	assert.ElementsMatch(t, []string{"restarted", "manual"}, list(nil))
-	assert.ElementsMatch(t, []string{"restarted", "manual"}, list(&no))
-	assert.Equal(t, []string{"manual"}, list(&yes))
+	assert.ElementsMatch(t, []string{"restarted", "manual", "former-restart"}, list(nil))
+	assert.ElementsMatch(t, []string{"restarted", "manual", "former-restart"}, list(&no))
+	assert.Equal(t, []string{"former-restart"}, list(&yes))
 
 	sseData, err := apiImpl.GetDAGRunsListData(ctx, "excludeAlwaysOnRuns=true")
 	require.NoError(t, err)
 	page, ok := sseData.(api.DAGRunsPageResponse)
 	require.True(t, ok, "expected a page, got %T", sseData)
-	assert.Equal(t, []string{"manual"}, runIDs(page.DagRuns))
+	assert.Equal(t, []string{"former-restart"}, runIDs(page.DagRuns))
 
 	err = apiImpl.ValidateDAGRunsListQuery(ctx, "excludeAlwaysOnRuns=maybe")
 	requireAPIErrorStatus(t, err, http.StatusBadRequest)

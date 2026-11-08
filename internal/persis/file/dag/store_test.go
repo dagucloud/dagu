@@ -2556,6 +2556,43 @@ func TestCatalog_CancelledRebuildWritesNoIndex(t *testing.T) {
 	assert.Len(t, result.Items, 1)
 }
 
+// AlwaysOnDAGNames trusts the saved index, so a DAG file changed outside the
+// store counts once a listing has seen it.
+func TestAlwaysOnDAGNames(t *testing.T) {
+	tmpDir := t.TempDir()
+	store := NewStore(tmpDir, WithSkipExamples(true))
+	ctx := context.Background()
+	write := func(file, content string) {
+		t.Helper()
+		require.NoError(t, os.WriteFile(filepath.Join(tmpDir, file+".yaml"), []byte(content), 0600))
+	}
+	const alwaysOn = "restart_policy: always\nrestart_wait_sec: 5\nsteps:\n  - run: echo ok\n"
+	write("svc", alwaysOn)
+	write("renamed", "name: custom\n"+alwaysOn)
+	write("plain", "steps:\n  - run: echo ok\n")
+
+	names, err := store.AlwaysOnDAGNames(ctx)
+	require.NoError(t, err)
+	assert.ElementsMatch(t, []string{"svc", "custom"}, names)
+
+	write("plain", alwaysOn)
+	names, err = store.AlwaysOnDAGNames(ctx)
+	require.NoError(t, err)
+	assert.ElementsMatch(t, []string{"svc", "custom"}, names)
+
+	_, err = store.Catalog(ctx)
+	require.NoError(t, err)
+	names, err = store.AlwaysOnDAGNames(ctx)
+	require.NoError(t, err)
+	assert.ElementsMatch(t, []string{"svc", "custom", "plain"}, names)
+
+	// An index that cannot be read gives way to a full listing.
+	require.NoError(t, os.WriteFile(filepath.Join(tmpDir, dagindex.IndexFileName), []byte("not an index"), 0600))
+	names, err = store.AlwaysOnDAGNames(ctx)
+	require.NoError(t, err)
+	assert.ElementsMatch(t, []string{"svc", "custom", "plain"}, names)
+}
+
 func TestInvalidateIndex_RemovesFile(t *testing.T) {
 	tmpDir := t.TempDir()
 	store := NewStore(tmpDir, WithSkipExamples(true))

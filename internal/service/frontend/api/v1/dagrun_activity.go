@@ -144,7 +144,7 @@ type activityParams struct {
 	labels    *string
 	workspace *api.Workspace
 	cursor    *string
-	// excludeAlwaysOnRuns leaves out the runs that a restart policy started.
+	// excludeAlwaysOnRuns leaves out the runs of the always-on DAGs.
 	excludeAlwaysOnRuns bool
 }
 
@@ -156,13 +156,16 @@ type activityQuery struct {
 	labels          []string
 	workspaceFilter *workspace.WorkspaceFilter
 	cursor          string
-	// excludeAlwaysOnRuns leaves out the runs that a restart policy started.
+	// excludeAlwaysOnRuns leaves out the runs of the always-on DAGs.
 	excludeAlwaysOnRuns bool
+	// excludedDAGs holds the DAGs whose runs a read leaves out.
+	excludedDAGs map[string]struct{}
 }
 
-// skips reports whether the query leaves a run out.
-func (q activityQuery) skips(status *ir.DAGRunStatus) bool {
-	return q.excludeAlwaysOnRuns && status.TriggerType == ir.TriggerTypeRestart
+// skips reports whether the query leaves out the runs of a DAG.
+func (q activityQuery) skips(name string) bool {
+	_, ok := q.excludedDAGs[name]
+	return ok
 }
 
 func (a *API) newActivityQuery(ctx context.Context, params activityParams, now time.Time) (activityQuery, error) {
@@ -222,18 +225,20 @@ func (a *API) dagRunActivity(ctx context.Context, query activityQuery) (api.DAGR
 }
 
 func (a *API) readDAGRunActivity(ctx context.Context, query activityQuery) (api.DAGRunActivity, error) {
-	listOptions := persis.DAGRunListOptions{
+	excluded := a.excludedDAGNames(ctx, query.excludeAlwaysOnRuns)
+	query.excludedDAGs = make(map[string]struct{}, len(excluded))
+	for _, name := range excluded {
+		query.excludedDAGs[name] = struct{}{}
+	}
+	page, err := a.dagRunRepository.ListStatusesPage(ctx, persis.DAGRunListOptions{
 		From:            persis.NewUTC(query.from),
 		To:              persis.NewUTC(query.to),
 		Labels:          query.labels,
 		WorkspaceFilter: query.workspaceFilter,
 		Limit:           activityPageSize,
 		Cursor:          query.cursor,
-	}
-	if query.excludeAlwaysOnRuns {
-		listOptions.ExcludeTriggerTypes = []ir.TriggerType{ir.TriggerTypeRestart}
-	}
-	page, err := a.dagRunRepository.ListStatusesPage(ctx, listOptions)
+		ExcludeDAGNames: excluded,
+	})
 	if err != nil {
 		if badRequest := dagRunListBadRequest(err); badRequest != nil {
 			return api.DAGRunActivity{}, badRequest
@@ -264,12 +269,10 @@ func (a *API) readDAGRunActivity(ctx context.Context, query activityQuery) (api.
 		NotBefore:       persis.NewUTC(query.from),
 		Labels:          query.labels,
 		WorkspaceFilter: query.workspaceFilter,
+		ExcludeDAGNames: excluded,
 	})
 	if err != nil {
 		return api.DAGRunActivity{}, fmt.Errorf("error reading latest dag-runs: %w", err)
-	}
-	if query.excludeAlwaysOnRuns {
-		latest = slices.DeleteFunc(slices.Clone(latest), query.skips)
 	}
 	result.Attention = attentionRuns(latest)
 	result.Active = a.activeRuns(ctx, query, page.Items, latest)
@@ -289,7 +292,7 @@ func (a *API) activityQueues(ctx context.Context, query activityQuery) []api.DAG
 	scan.matches = func(summary api.DAGRunSummary) bool {
 		// An always-on DAG restarts all the time, so its queue would flip
 		// between a run and a wait. Its lane shows it instead.
-		if query.excludeAlwaysOnRuns && valueOf(summary.TriggerType) == api.TriggerTypeRestart {
+		if query.skips(summary.Name) {
 			return false
 		}
 		labels := ir.NewLabels(valueOf(summary.Labels))
@@ -451,7 +454,7 @@ func (a *API) activeRuns(ctx context.Context, query activityQuery, pageRuns, lat
 	seen := make(map[ir.DAGRunRef]struct{})
 	add := func(status *ir.DAGRunStatus) {
 		ref := ir.NewDAGRunRef(status.Name, status.DAGRunID)
-		if _, ok := seen[ref]; ok || !isActiveRunStatus(status.Status) || query.skips(status) {
+		if _, ok := seen[ref]; ok || !isActiveRunStatus(status.Status) {
 			return
 		}
 		seen[ref] = struct{}{}
@@ -476,7 +479,8 @@ func (a *API) activeRuns(ctx context.Context, query activityQuery, pageRuns, lat
 		groups:
 			for _, group := range slices.Sorted(maps.Keys(alive)) {
 				for _, ref := range alive[group] {
-					if _, ok := seen[ref]; ok {
+					// A left-out DAG costs no read of the bounded budget.
+					if _, ok := seen[ref]; ok || query.skips(ref.Name) {
 						continue
 					}
 					if reads == activityLiveRunReads {

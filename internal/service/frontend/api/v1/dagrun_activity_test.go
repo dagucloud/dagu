@@ -7,6 +7,7 @@ import (
 	"context"
 	"fmt"
 	"net/http"
+	"os"
 	"path/filepath"
 	"testing"
 	"time"
@@ -18,6 +19,7 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/pagination"
 	"github.com/dagucloud/dagu/v2/internal/persis"
 	"github.com/dagucloud/dagu/v2/internal/persis/file"
+	filedag "github.com/dagucloud/dagu/v2/internal/persis/file/dag"
 	"github.com/dagucloud/dagu/v2/internal/persis/store"
 	"github.com/dagucloud/dagu/v2/internal/queue"
 	runtimepkg "github.com/dagucloud/dagu/v2/internal/runtime"
@@ -211,6 +213,32 @@ func TestDAGRunActivityListsLiveRunsFromBeforeWindow(t *testing.T) {
 	assert.Empty(t, activity.Runs)
 }
 
+// Live runs of the DAGs that the activity leaves out spend none of the bound on
+// status reads, so the other live runs still appear.
+func TestDAGRunActivityLeftOutLiveRunsCostNoReads(t *testing.T) {
+	f := newActivityFixture(t)
+	f.alwaysOn("svc")
+	day := time.Date(2026, 3, 2, 0, 0, 0, 0, time.UTC)
+	var refs []ir.DAGRunRef
+	for i := range activityLiveRunReads {
+		id := fmt.Sprintf("svc-%02d", i)
+		f.addRun("svc", id, ir.Running, day.Add(-time.Hour).Add(time.Duration(i)*time.Second), 0)
+		refs = append(refs, ir.NewDAGRunRef("svc", id))
+	}
+	f.addRun("train", "train-1", ir.Running, day.Add(-time.Hour), 0)
+	f.api.procRepository = aliveProcs{refs: append(refs, ir.NewDAGRunRef("train", "train-1"))}
+
+	from, to := day.Unix(), day.Add(24*time.Hour).Unix()
+	exclude := true
+	resp, err := f.api.GetDAGRunActivity(t.Context(), openapiv1.GetDAGRunActivityRequestObject{
+		Params: openapiv1.GetDAGRunActivityParams{FromDate: &from, ToDate: &to, ExcludeAlwaysOnRuns: &exclude},
+	})
+	require.NoError(t, err)
+	activity, ok := resp.(openapiv1.GetDAGRunActivity200JSONResponse)
+	require.True(t, ok)
+	assert.Equal(t, []string{"train-1"}, runIDs(activity.Active))
+}
+
 func TestDAGRunActivityRejectsInvalidWindows(t *testing.T) {
 	f := newActivityFixture(t)
 	now := time.Now()
@@ -269,12 +297,6 @@ func TestDAGRunActivityStreamTakesOnlyLiveWindows(t *testing.T) {
 // zero queuedAt saves the run without a queue time.
 func (f *activityFixture) queueRun(queueStore queue.QueueStore, name, id string, queuedAt time.Time, labels ...string) {
 	f.t.Helper()
-	f.queueTriggeredRun(queueStore, name, id, ir.TriggerTypeUnknown, queuedAt, labels...)
-}
-
-// queueTriggeredRun is queueRun for a run that the trigger started.
-func (f *activityFixture) queueTriggeredRun(queueStore queue.QueueStore, name, id string, trigger ir.TriggerType, queuedAt time.Time, labels ...string) {
-	f.t.Helper()
 	ctx := f.t.Context()
 	dag := &ir.DAG{Name: name}
 	createdAt := queuedAt
@@ -289,7 +311,6 @@ func (f *activityFixture) queueTriggeredRun(queueStore queue.QueueStore, name, i
 	runStatus.AttemptID = attempt.ID()
 	runStatus.Status = ir.Queued
 	runStatus.ProcGroup = name
-	runStatus.TriggerType = trigger
 	runStatus.Labels = labels
 	if !queuedAt.IsZero() {
 		runStatus.QueuedAt = queuedAt.UTC().Format(time.RFC3339)
@@ -549,13 +570,28 @@ func TestDAGRunActivityWarnsOfANearlyFullDisk(t *testing.T) {
 	assert.Nil(t, read(f, viewer), "a viewer cannot view system status")
 }
 
-// An always-on DAG restarts without end, so on request its runs stay out of the
-// timeline, the failing DAGs and the runs in progress.
+// alwaysOn saves always-on DAGs with these names, whose runs the activity
+// leaves out on request.
+func (f *activityFixture) alwaysOn(names ...string) {
+	f.t.Helper()
+	dir := f.t.TempDir()
+	for _, name := range names {
+		spec := "restart_policy: always\nrestart_wait_sec: 5\nsteps:\n  - run: echo hi\n"
+		require.NoError(f.t, os.WriteFile(filepath.Join(dir, name+".yaml"), []byte(spec), 0o600))
+	}
+	f.api.dagRepository = testutil.NewFileDAGRepository(dir, filedag.WithSkipExamples(true))
+}
+
+// An always-on DAG restarts without end, so on request every run of it stays
+// out of the timeline, the failing DAGs and the runs in progress, whoever
+// started it. A restart run of a DAG that is no longer always-on stays in.
 func TestDAGRunActivityLeavesOutAlwaysOnRunsOnRequest(t *testing.T) {
 	f := newActivityFixture(t)
+	f.alwaysOn("svc-a", "svc-b")
 	day := time.Date(2026, 3, 2, 0, 0, 0, 0, time.UTC)
 	f.addRun("job", "job-1", ir.Succeeded, day.Add(time.Hour), time.Second)
-	f.addTriggeredRun("svc-a", "svc-a-1", ir.TriggerTypeRestart, ir.Failed, day.Add(2*time.Hour), time.Second)
+	f.addTriggeredRun("former", "former-1", ir.TriggerTypeRestart, ir.Succeeded, day.Add(90*time.Minute), time.Second)
+	f.addRun("svc-a", "svc-a-1", ir.Failed, day.Add(2*time.Hour), time.Second)
 	f.addTriggeredRun("svc-b", "svc-b-1", ir.TriggerTypeRestart, ir.Running, day.Add(3*time.Hour), 0)
 
 	read := func(exclude bool) openapiv1.DAGRunActivity {
@@ -570,12 +606,12 @@ func TestDAGRunActivityLeavesOutAlwaysOnRunsOnRequest(t *testing.T) {
 	}
 
 	all := read(false)
-	assert.ElementsMatch(t, []string{"job-1", "svc-a-1", "svc-b-1"}, runIDs(all.Runs))
+	assert.ElementsMatch(t, []string{"job-1", "former-1", "svc-a-1", "svc-b-1"}, runIDs(all.Runs))
 	assert.Equal(t, []string{"svc-a-1"}, runIDs(all.Attention))
 	assert.Equal(t, []string{"svc-b-1"}, runIDs(all.Active))
 
 	without := read(true)
-	assert.Equal(t, []string{"job-1"}, runIDs(without.Runs))
+	assert.ElementsMatch(t, []string{"job-1", "former-1"}, runIDs(without.Runs))
 	assert.Empty(t, without.Attention)
 	assert.Empty(t, without.Active)
 
@@ -591,11 +627,12 @@ func TestDAGRunActivityLeavesOutAlwaysOnRunsOnRequest(t *testing.T) {
 // the activity leaves it out of the queues that it lists.
 func TestDAGRunActivityLeavesOutTheQueuesOfAlwaysOnDAGsOnRequest(t *testing.T) {
 	f := newActivityFixture(t)
+	f.alwaysOn("svc")
 	queueStore := store.NewQueueStore(file.NewCollection(filepath.Join(t.TempDir(), "queue")))
 	f.api.queueStore = queueStore
 	now := time.Now().Truncate(time.Second)
 	f.queueRun(queueStore, "etl", "etl-1", now.Add(-time.Minute))
-	f.queueTriggeredRun(queueStore, "svc", "svc-1", ir.TriggerTypeRestart, now.Add(-10*time.Second))
+	f.queueRun(queueStore, "svc", "svc-1", now.Add(-10*time.Second))
 
 	read := func(exclude bool) []string {
 		from, to := now.Add(-time.Hour).Unix(), now.Add(time.Hour).Unix()
