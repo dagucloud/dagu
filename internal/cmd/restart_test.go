@@ -71,7 +71,7 @@ steps:
 
 // The scheduler starts the runs of a DAG with a restart_policy, so the restart
 // command, which starts a run of its own, is refused.
-func TestRestartCommand_RejectsAlwaysOnDAG(t *testing.T) {
+func TestRestartCommand_RejectsServiceDAG(t *testing.T) {
 	t.Parallel()
 
 	th := test.SetupCommand(t)
@@ -89,7 +89,7 @@ steps:
 
 // A DAG with a restart_policy that has no run yet is refused for its policy,
 // not for its missing history.
-func TestRestartCommand_RejectsAlwaysOnDAGWithoutRun(t *testing.T) {
+func TestRestartCommand_RejectsServiceDAGWithoutRun(t *testing.T) {
 	t.Parallel()
 
 	th := test.SetupCommand(t)

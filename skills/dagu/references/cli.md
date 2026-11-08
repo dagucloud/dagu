@@ -32,7 +32,7 @@ Flags:
 - `--worker-label` — Worker label (`key=value`) this run requires, replacing the DAG's `worker_selector` for this run and kept with the run for retries; repeatable. Not with `--worker-id`
 - `--trigger-type` — Trigger source (`scheduler`, `manual`, `webhook`, `subdag`, `retry`, `catchup`, `restart`); defaults to `manual`
 
-A DAG with `restart_policy: always` or `unless-stopped` has one run at a time: while a run is active, `dagu start`, `dagu enqueue` and `dagu retry` are refused. With no active run they work, which is how a stopped always-on DAG comes back.
+A DAG with `restart_policy: always` or `unless-stopped` has one run at a time: while a run is active, `dagu start`, `dagu enqueue` and `dagu retry` are refused. With no active run they work, which is how a stopped service comes back.
 
 ### dagu enqueue
 

@@ -2128,7 +2128,7 @@ paths:
       parameters:
         - $ref: "#/components/parameters/RemoteNode"
         - $ref: "#/components/parameters/Workspace"
-        - $ref: "#/components/parameters/ExcludeAlwaysOnRuns"
+        - $ref: "#/components/parameters/ExcludeServiceDAGRuns"
         - $ref: "#/components/parameters/DateTimeFrom"
         - $ref: "#/components/parameters/DateTimeTo"
         - name: "hours"
@@ -2183,7 +2183,7 @@ paths:
         - $ref: "#/components/parameters/DAGRunListCursor"
         - $ref: "#/components/parameters/RemoteNode"
         - $ref: "#/components/parameters/Workspace"
-        - $ref: "#/components/parameters/ExcludeAlwaysOnRuns"
+        - $ref: "#/components/parameters/ExcludeServiceDAGRuns"
         - name: "name"
           in: "query"
           required: false
@@ -5275,11 +5275,11 @@ paths:
               schema:
                 $ref: "#/components/schemas/Error"
 
-  /always-on-dags:
+  /service-dags:
     get:
-      summary: "List the always-on DAGs"
-      description: "Returns the DAGs that set a restart policy, each with a compact state. An always-on DAG runs without end, so this list replaces its runs in the run lists. The state follows from the latest run. The response has no list of runs, but the state and the latest run change at each restart, so a DAG that restarts every few seconds changes it that often, and the live stream sends it at most once every two seconds."
-      operationId: "listAlwaysOnDAGs"
+      summary: "List the service DAGs"
+      description: "Returns the DAGs that set a restart policy, each with a compact state. A service DAG runs without end, so this list replaces its runs in the run lists. The state follows from the latest run. The response has no list of runs, but the state and the latest run change at each restart, so a DAG that restarts every few seconds changes it that often, and the live stream sends it at most once every two seconds."
+      operationId: "listServiceDAGs"
       tags:
         - "dags"
       parameters:
@@ -5291,7 +5291,7 @@ paths:
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/AlwaysOnDAGsResponse"
+                $ref: "#/components/schemas/ServiceDAGsResponse"
         default:
           description: "Generic error response"
           content:
@@ -12170,10 +12170,10 @@ components:
         maxLength: 64
         pattern: "^[A-Za-z0-9_-]+$"
 
-    ExcludeAlwaysOnRuns:
-      name: excludeAlwaysOnRuns
+    ExcludeServiceDAGRuns:
+      name: excludeServiceDAGRuns
       in: query
-      description: "Leave out every run of the always-on DAGs, the DAGs that set a restart policy, whoever started it. Their state is read from the always-on list instead. The always-on DAGs come from the DAG index, so a DAG file edited outside Dagu counts after the next DAG listing."
+      description: "Leave out every run of the service DAGs, the DAGs that set a restart policy, whoever started it. Their state is read from the service DAG list instead. The service DAGs come from the DAG index, so a DAG file edited outside Dagu counts after the next DAG listing."
       required: false
       schema:
         type: boolean
@@ -18608,10 +18608,10 @@ components:
         - dagName
         - startedAt
 
-    AlwaysOnDAGState:
+    ServiceDAGState:
       type: string
       description: |
-        What an always-on DAG does, as its latest run shows it:
+        What a service DAG does, as its latest run shows it:
         - pending: no run is alive yet, or the latest run waits in the queue.
         - running: a run is alive.
         - restarting: the latest run succeeded, or an operator stopped the latest run of an always DAG, and the next run is due.
@@ -18620,9 +18620,9 @@ components:
         - stopped: an operator stopped the latest run of an unless-stopped DAG.
       enum: ["pending", "running", "restarting", "failing", "suspended", "stopped"]
 
-    AlwaysOnDAGRun:
+    ServiceDAGRun:
       type: object
-      description: "The latest run of an always-on DAG"
+      description: "The latest run of a service DAG"
       properties:
         dagRunId:
           $ref: "#/components/schemas/DAGRunId"
@@ -18643,7 +18643,7 @@ components:
         - dagRunId
         - status
 
-    AlwaysOnDAG:
+    ServiceDAG:
       type: object
       description: "A DAG that sets a restart policy, with its state"
       properties:
@@ -18658,12 +18658,12 @@ components:
           type: integer
           description: "Seconds the scheduler waits after a run ends before it starts the next one."
         state:
-          $ref: "#/components/schemas/AlwaysOnDAGState"
+          $ref: "#/components/schemas/ServiceDAGState"
         suspended:
           type: boolean
           description: "Whether the DAG is suspended"
         latestRun:
-          $ref: "#/components/schemas/AlwaysOnDAGRun"
+          $ref: "#/components/schemas/ServiceDAGRun"
         readError:
           type: string
           description: "Why the state could not be read. Set only with the state failing."
@@ -18681,14 +18681,14 @@ components:
         - suspended
         - consecutiveFailures
 
-    AlwaysOnDAGsResponse:
+    ServiceDAGsResponse:
       type: object
-      description: "The always-on DAGs"
+      description: "The service DAGs"
       properties:
         dags:
           type: array
           items:
-            $ref: "#/components/schemas/AlwaysOnDAG"
+            $ref: "#/components/schemas/ServiceDAG"
         errors:
           type: array
           description: "Errors met while the DAGs were listed, such as DAG files that cannot be read. An error about one DAG's state is in its readError."

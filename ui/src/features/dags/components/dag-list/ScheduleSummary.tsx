@@ -22,7 +22,7 @@ import { cn } from '@/lib/utils';
 import type { components } from '@/api/v1/schema';
 import {
   getRestartValue,
-  isAlwaysOnDAG,
+  isServiceDAG,
   parseNextRun,
 } from '../../../../lib/dagSchedule';
 import {
@@ -250,7 +250,7 @@ function RestartText({ dag, ts }: { dag: DAGFile; ts: Translate }) {
 /**
  * The schedule of a workflow on one line: when it runs next and which
  * schedule fires then, a "+N" marker with the list of all schedules, and the
- * webhook marker. An always-on DAG shows its restart policy instead.
+ * webhook marker. A service DAG shows its restart policy instead.
  * `emptyLabel` false hides the "No schedule" text.
  */
 export function ScheduleLine({
@@ -271,7 +271,7 @@ export function ScheduleLine({
         <Ticker intervalMs={REFRESH_MS}>
           {() => <ScheduleBody dag={dag} />}
         </Ticker>
-      ) : isAlwaysOnDAG(dag.dag) ? (
+      ) : isServiceDAG(dag.dag) ? (
         <RestartText dag={dag} ts={ts} />
       ) : (
         emptyLabel && <span className="truncate">{ts('No schedule')}</span>

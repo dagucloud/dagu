@@ -38,7 +38,7 @@ import { Link } from 'react-router-dom';
 import { DAGNameInputModal } from '@/components/DAGNameInputModal';
 import { components, Status } from '../../../../api/v1/schema';
 import dayjs from '../../../../lib/dayjs';
-import { isAlwaysOnDAG } from '../../../../lib/dagSchedule';
+import { isServiceDAG } from '../../../../lib/dagSchedule';
 import RelativeTime from '@/components/ui/relative-time';
 import { RunStatusChip } from '@/features/dag-runs/components/common/RunStatusChip';
 import VisuallyHidden from '@/components/ui/visually-hidden';
@@ -239,7 +239,7 @@ function DAGCard({
   const labels = withoutWorkspaceLabels(dag.dag.labels ?? dag.dag.tags ?? []);
   const description = dag.dag.description;
   const hasSchedule = (dag.dag.schedule ?? []).length > 0;
-  const isAlwaysOn = isAlwaysOnDAG(dag.dag);
+  const isService = isServiceDAG(dag.dag);
 
   // The outline marks the focus: the shadow of card-obsidian hides a ring.
   return (
@@ -342,13 +342,13 @@ function DAGCard({
           className="flex items-center gap-1 flex-shrink-0 min-w-0"
           onClick={(e) => e.stopPropagation()}
         >
-          {(hasSchedule || isAlwaysOn) && (
+          {(hasSchedule || isService) && (
             <LiveSwitch dag={dag} refresh={refreshFn} />
           )}
           <span className="text-xs text-muted-foreground truncate">
             {dag.suspended ? (
               <I18nText text={'Suspended'} />
-            ) : isAlwaysOn ? (
+            ) : isService ? (
               <I18nText text={'Enabled'} />
             ) : hasSchedule ? (
               <I18nText text={'Live'} />
@@ -904,10 +904,10 @@ const defaultColumns = [
       }
 
       const hasSchedule = (data.dag.dag.schedule ?? []).length > 0;
-      const isAlwaysOn = isAlwaysOnDAG(data.dag.dag);
+      const isService = isServiceDAG(data.dag.dag);
       return (
         <div className="flex min-w-0 items-center gap-1">
-          {(hasSchedule || isAlwaysOn) && (
+          {(hasSchedule || isService) && (
             <div
               onClick={(e) => e.stopPropagation()}
               className="flex-shrink-0 p-0.5"

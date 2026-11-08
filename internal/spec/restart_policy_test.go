@@ -120,7 +120,7 @@ func TestRestartPolicyInTheBaseConfiguration(t *testing.T) {
 		assert.Equal(t, ir.RestartPolicyNo, dag.RestartPolicy)
 	})
 
-	t.Run("AlwaysOnDAGDropsWhatItCannotInherit", func(t *testing.T) {
+	t.Run("ServiceDAGDropsWhatItCannotInherit", func(t *testing.T) {
 		t.Parallel()
 		opts := writeBase("schedule.yaml",
 			"restart_wait_sec: 7\nretry_policy:\n  limit: 2\n  interval_sec: 1\nschedule: \"0 * * * *\"\n")
@@ -142,7 +142,7 @@ func TestRestartPolicyInTheBaseConfiguration(t *testing.T) {
 		assert.Len(t, dag.Schedule, 1)
 	})
 
-	t.Run("AlwaysOnDAGWithoutAnyWaitIsRejected", func(t *testing.T) {
+	t.Run("ServiceDAGWithoutAnyWaitIsRejected", func(t *testing.T) {
 		t.Parallel()
 		opts := writeBase("no-wait.yaml", "queue: pool\n")
 		path := createTempYAMLFile(t, "restart_policy: always\nsteps:\n  - run: echo tick\n")
@@ -152,7 +152,7 @@ func TestRestartPolicyInTheBaseConfiguration(t *testing.T) {
 	})
 }
 
-// An always-on DAG adds a run at each restart, so without a retention of its
+// A service DAG adds a run at each restart, so without a retention of its
 // own it keeps a number of runs rather than the days of other DAGs.
 func TestRestartPolicyHistoryRetention(t *testing.T) {
 	t.Parallel()

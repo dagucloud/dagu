@@ -257,7 +257,7 @@ func (a *API) ExecuteDAGRunFromSpec(ctx context.Context, request api.ExecuteDAGR
 		}
 	}
 
-	if err := a.checkAlwaysOnRunOfDefinition(ctx, dag, dagRunId); err != nil {
+	if err := a.checkServiceRunOfDefinition(ctx, dag, dagRunId); err != nil {
 		return nil, err
 	}
 
@@ -400,7 +400,7 @@ func (a *API) EnqueueDAGRunFromSpec(ctx context.Context, request api.EnqueueDAGR
 		}
 	}
 
-	if err := a.checkAlwaysOnRunOfDefinition(ctx, dag, dagRunId); err != nil {
+	if err := a.checkServiceRunOfDefinition(ctx, dag, dagRunId); err != nil {
 		return nil, err
 	}
 
@@ -707,14 +707,14 @@ func (a *API) ListDAGRuns(ctx context.Context, request api.ListDAGRunsRequestObj
 		limit:    request.Params.Limit,
 		cursor:   request.Params.Cursor,
 
-		excludeAlwaysOnRuns: request.Params.ExcludeAlwaysOnRuns != nil && *request.Params.ExcludeAlwaysOnRuns,
+		excludeServiceDAGRuns: request.Params.ExcludeServiceDAGRuns != nil && *request.Params.ExcludeServiceDAGRuns,
 	})
 	workspaceFilter, err := a.workspaceFilterForParams(ctx, request.Params.Workspace)
 	if err != nil {
 		return nil, err
 	}
 	opts.query.WorkspaceFilter = workspaceFilter
-	opts.query.ExcludeDAGNames = a.excludedDAGNames(ctx, opts.excludeAlwaysOnRuns)
+	opts.query.ExcludeDAGNames = a.excludedDAGNames(ctx, opts.excludeServiceDAGRuns)
 	var dagName, dagRunID string
 	if request.Params.Name != nil {
 		dagName = *request.Params.Name
@@ -787,9 +787,9 @@ func (a *API) ListDAGRunsByName(ctx context.Context, request api.ListDAGRunsByNa
 
 type dagRunListOptions struct {
 	query persis.DAGRunListOptions
-	// excludeAlwaysOnRuns leaves out the runs of the always-on DAGs, which a
+	// excludeServiceDAGRuns leaves out the runs of the service DAGs, which a
 	// read resolves into query.ExcludeDAGNames.
-	excludeAlwaysOnRuns bool
+	excludeServiceDAGRuns bool
 }
 
 type dagRunListFilterInput struct {
@@ -802,8 +802,8 @@ type dagRunListFilterInput struct {
 	labels    *string
 	limit     *int
 	cursor    *string
-	// excludeAlwaysOnRuns drops the runs of the always-on DAGs.
-	excludeAlwaysOnRuns bool
+	// excludeServiceDAGRuns drops the runs of the service DAGs.
+	excludeServiceDAGRuns bool
 }
 
 func buildDAGRunListOptions(input dagRunListFilterInput) dagRunListOptions {
@@ -841,7 +841,7 @@ func buildDAGRunListOptions(input dagRunListFilterInput) dagRunListOptions {
 	if input.cursor != nil && *input.cursor != "" {
 		opts.query.Cursor = *input.cursor
 	}
-	opts.excludeAlwaysOnRuns = input.excludeAlwaysOnRuns
+	opts.excludeServiceDAGRuns = input.excludeServiceDAGRuns
 	opts.query.Limit = limit
 	return opts
 }
@@ -3142,7 +3142,7 @@ func (a *API) retryDAGRun(ctx context.Context, dagName, dagRunID, retryDagRunID,
 			Message:    message,
 		}
 	}
-	if err := a.checkAlwaysOnRunOfDefinition(ctx, dag, sourceDagRunID); err != nil {
+	if err := a.checkServiceRunOfDefinition(ctx, dag, sourceDagRunID); err != nil {
 		return retryDAGRunResult{}, err
 	}
 
@@ -3697,7 +3697,7 @@ func (a *API) rescheduleDAGRun(ctx context.Context, dagName, dagRunID string, op
 	if err := a.ensureDAGRunIDUnique(ctx, dag, newDagRunID); err != nil {
 		return rescheduleDAGRunResult{}, err
 	}
-	if err := a.checkAlwaysOnRunOfDefinition(ctx, dag, newDagRunID); err != nil {
+	if err := a.checkServiceRunOfDefinition(ctx, dag, newDagRunID); err != nil {
 		return rescheduleDAGRunResult{}, err
 	}
 
@@ -5218,7 +5218,7 @@ func (a *API) GetDAGRunsListData(ctx context.Context, queryString string) (any, 
 		if err != nil {
 			return nil, err
 		}
-		opts.query.ExcludeDAGNames = a.excludedDAGNames(readCtx, opts.excludeAlwaysOnRuns)
+		opts.query.ExcludeDAGNames = a.excludedDAGNames(readCtx, opts.excludeServiceDAGRuns)
 
 		page, err := a.dagRunRepository.ListStatusesPage(readCtx, opts.query)
 		if err != nil {
@@ -5263,7 +5263,7 @@ func (a *API) dagRunListOptionsFromQueryString(ctx context.Context, queryString 
 		limit        *int
 		cursor       *string
 
-		excludeAlwaysOnRuns bool
+		excludeServiceDAGRuns bool
 	)
 
 	if rawStatuses, hasStatus := params["status"]; hasStatus {
@@ -5323,12 +5323,12 @@ func (a *API) dagRunListOptionsFromQueryString(ctx context.Context, queryString 
 	if rawCursor := params.Get("cursor"); rawCursor != "" {
 		cursor = &rawCursor
 	}
-	if rawExclude := params.Get("excludeAlwaysOnRuns"); rawExclude != "" {
+	if rawExclude := params.Get("excludeServiceDAGRuns"); rawExclude != "" {
 		parsed, convErr := strconv.ParseBool(rawExclude)
 		if convErr != nil {
-			return dagRunListOptions{}, invalidDAGRunListParam(ctx, "excludeAlwaysOnRuns", rawExclude, convErr)
+			return dagRunListOptions{}, invalidDAGRunListParam(ctx, "excludeServiceDAGRuns", rawExclude, convErr)
 		}
-		excludeAlwaysOnRuns = parsed
+		excludeServiceDAGRuns = parsed
 	}
 
 	opts := buildDAGRunListOptions(dagRunListFilterInput{
@@ -5341,7 +5341,7 @@ func (a *API) dagRunListOptionsFromQueryString(ctx context.Context, queryString 
 		limit:    limit,
 		cursor:   cursor,
 
-		excludeAlwaysOnRuns: excludeAlwaysOnRuns,
+		excludeServiceDAGRuns: excludeServiceDAGRuns,
 	})
 
 	workspaceParam := workspaceParamFromValues(params)

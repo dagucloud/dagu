@@ -233,10 +233,10 @@ func (store *Store) CatalogIncludingSearchPaths(ctx context.Context) (persis.DAG
 	return store.catalog(ctx, true)
 }
 
-// AlwaysOnDAGNames returns the names of the DAGs that set a restart policy, as
+// ServiceDAGNames returns the names of the DAGs that set a restart policy, as
 // the saved index records them. It does not check the index against the DAG
 // files, so a file changed outside the store counts after the next listing.
-func (store *Store) AlwaysOnDAGNames(ctx context.Context) ([]string, error) {
+func (store *Store) ServiceDAGNames(ctx context.Context) ([]string, error) {
 	var current *catalog
 	if entries, ok := dagindex.ReadEntries(store.indexPath); ok {
 		current = newCatalog(entries, nil, store.recursive)

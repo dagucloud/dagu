@@ -32,7 +32,7 @@ This spec does not define:
 
 ## Goal
 
-A workflow author can declare that a DAG is always on, kept
+A workflow author can declare that a DAG is a long-running service, kept
 running by Dagu instead of a cron schedule, a supervisor DAG, or an external
 watchdog.
 
@@ -46,7 +46,7 @@ watchdog.
 
 ## Terms
 
-An always-on DAG is a DAG whose `restart_policy` is `always` or `unless-stopped`.
+A service DAG is a DAG whose `restart_policy` is `always` or `unless-stopped`.
 
 ## Behavior
 
@@ -66,11 +66,11 @@ Rules:
 - An empty value, or an absent field, means `no`.
 - A base configuration cannot set `restart_policy` to `always` or
   `unless-stopped`: it applies to every DAG, so it would turn them all into
-  always-on DAGs.
+  services.
 
 ### Restrictions
 
-An always-on DAG:
+A service DAG:
 
 - must have a `restart_wait_sec` of at least 1, set in its file or inherited
   from the base configuration
@@ -78,40 +78,40 @@ An always-on DAG:
   including `start`, `stop` and `restart`. An empty `schedule` defines none.
 - must not define a DAG-level `retry_policy` in its file
 
-A schedule or a DAG-level `retry_policy` that an always-on DAG would inherit from
+A schedule or a DAG-level `retry_policy` that a service DAG would inherit from
 the base configuration is ignored.
 
-An always-on DAG may set `queue`, `timeout_sec`, `max_clean_up_time_sec`, history
+A service DAG may set `queue`, `timeout_sec`, `max_clean_up_time_sec`, history
 retention, `handler_on`, `preconditions`, and any other field.
 
 ### History Retention
 
-An always-on DAG adds a run to its history each time it is restarted, so days of
+A service DAG adds a run to its history each time it is restarted, so days of
 runs do not bound its history:
 
 - a `hist_retention_days` in its file applies
 - a `hist_retention_days` in the base configuration does not apply
 - a `hist_retention_runs` in its file or in the base configuration applies
 
-An always-on DAG left without a retention keeps its latest 100 runs, where other
+A service DAG left without a retention keeps its latest 100 runs, where other
 DAGs keep 30 days of runs.
 
 ### Restart Command
 
-The `restart` command fails for an always-on DAG, without stopping or starting a
-run: the runs of an always-on DAG are started for it. The command reads the
+The `restart` command fails for a service DAG, without stopping or starting a
+run: the runs of a service DAG are started for it. The command reads the
 current definition of the DAG, so it also fails for a DAG that has no run yet,
 or whose `restart_policy` was set after its latest run started.
 
 ### Runs Started by Hand
 
-An always-on DAG has one run at a time. While its latest run is running, queued or
+A service DAG has one run at a time. While its latest run is running, queued or
 waiting, or has not started for up to 5 minutes, the `start`, `enqueue` and
 `retry` commands, their API requests and MCP actions, and webhooks fail without
-starting a run. With no active run they work, which is how a stopped always-on DAG
+starting a run. With no active run they work, which is how a stopped service
 comes back.
 
-The current definition of the DAG decides whether it is always-on, also for a run
+The current definition of the DAG decides whether it is a service, also for a run
 started from a run snapshot or from a spec in a request. The run that the
 scheduler dispatches from the queue is refused only when another run of the DAG
 has a live process on the same host; it then ends as failed. A run started under
@@ -123,18 +123,18 @@ Rules:
 
 - A `restart_policy` that is not `no`, `always` or `unless-stopped` fails
   validation on the field `restart_policy`.
-- An always-on DAG with a missing or non-positive `restart_wait_sec` fails
+- A service DAG with a missing or non-positive `restart_wait_sec` fails
   validation on the field `restart_wait_sec`.
-- An always-on DAG that defines a schedule fails validation on the field
+- A service DAG that defines a schedule fails validation on the field
   `restart_policy`.
-- An always-on DAG that defines a DAG-level `retry_policy` fails validation on
+- A service DAG that defines a DAG-level `retry_policy` fails validation on
   the field `restart_policy`.
 - A base configuration that sets `restart_policy` to `always` or
   `unless-stopped` fails validation on the field `restart_policy`, and so does
   every DAG that uses it.
-- The `restart` command for an always-on DAG exits with a non-zero status and an
+- The `restart` command for a service DAG exits with a non-zero status and an
   error that names `restart_policy`.
-- A `start`, `enqueue` or `retry` command next to an active run of an always-on DAG
+- A `start`, `enqueue` or `retry` command next to an active run of a service DAG
   exits with a non-zero status and an error that names `restart_policy`. The API
   responds with the status 409.
 
@@ -203,5 +203,5 @@ steps:
 ## Conformance
 
 `conformance/spec080_restart_policy/` checks the validation rules with static
-fixtures, the `restart` command for an always-on DAG, and the commands that start a
+fixtures, the `restart` command for a service DAG, and the commands that start a
 run next to its active run.

@@ -148,7 +148,7 @@ func (a *API) EditRetryDAGRun(ctx context.Context, request api.EditRetryDAGRunRe
 	if err := a.ensureDAGRunIDUnique(ctx, plan.editedDAG, plan.newDAGRunID); err != nil {
 		return nil, err
 	}
-	if err := a.checkAlwaysOnRunOfDefinition(ctx, plan.editedDAG, plan.newDAGRunID); err != nil {
+	if err := a.checkServiceRunOfDefinition(ctx, plan.editedDAG, plan.newDAGRunID); err != nil {
 		return nil, err
 	}
 

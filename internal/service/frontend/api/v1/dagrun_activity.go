@@ -77,7 +77,7 @@ func (a *API) GetDAGRunActivity(ctx context.Context, request api.GetDAGRunActivi
 		workspace: params.Workspace,
 		cursor:    params.Cursor,
 
-		excludeAlwaysOnRuns: params.ExcludeAlwaysOnRuns != nil && *params.ExcludeAlwaysOnRuns,
+		excludeServiceDAGRuns: params.ExcludeServiceDAGRuns != nil && *params.ExcludeServiceDAGRuns,
 	}, time.Now())
 	if err != nil {
 		return nil, err
@@ -126,12 +126,12 @@ func (a *API) activityQueryFromString(ctx context.Context, queryString string) (
 	if raw := values.Get("labels"); raw != "" {
 		params.labels = &raw
 	}
-	if raw := values.Get("excludeAlwaysOnRuns"); raw != "" {
+	if raw := values.Get("excludeServiceDAGRuns"); raw != "" {
 		exclude, convErr := strconv.ParseBool(raw)
 		if convErr != nil {
-			return activityQuery{}, activityBadRequest(fmt.Sprintf("invalid excludeAlwaysOnRuns: %q", raw))
+			return activityQuery{}, activityBadRequest(fmt.Sprintf("invalid excludeServiceDAGRuns: %q", raw))
 		}
-		params.excludeAlwaysOnRuns = exclude
+		params.excludeServiceDAGRuns = exclude
 	}
 	params.workspace = workspaceParamFromValues(values)
 	return a.newActivityQuery(ctx, params, time.Now())
@@ -144,8 +144,8 @@ type activityParams struct {
 	labels    *string
 	workspace *api.Workspace
 	cursor    *string
-	// excludeAlwaysOnRuns leaves out the runs of the always-on DAGs.
-	excludeAlwaysOnRuns bool
+	// excludeServiceDAGRuns leaves out the runs of the service DAGs.
+	excludeServiceDAGRuns bool
 }
 
 // activityQuery is a validated activity window, its filters, and the page
@@ -156,8 +156,8 @@ type activityQuery struct {
 	labels          []string
 	workspaceFilter *workspace.WorkspaceFilter
 	cursor          string
-	// excludeAlwaysOnRuns leaves out the runs of the always-on DAGs.
-	excludeAlwaysOnRuns bool
+	// excludeServiceDAGRuns leaves out the runs of the service DAGs.
+	excludeServiceDAGRuns bool
 	// excludedDAGs holds the DAGs whose runs a read leaves out.
 	excludedDAGs map[string]struct{}
 }
@@ -204,7 +204,7 @@ func (a *API) newActivityQuery(ctx context.Context, params activityParams, now t
 		return activityQuery{}, err
 	}
 	query.workspaceFilter = filter
-	query.excludeAlwaysOnRuns = params.excludeAlwaysOnRuns
+	query.excludeServiceDAGRuns = params.excludeServiceDAGRuns
 	return query, nil
 }
 
@@ -225,7 +225,7 @@ func (a *API) dagRunActivity(ctx context.Context, query activityQuery) (api.DAGR
 }
 
 func (a *API) readDAGRunActivity(ctx context.Context, query activityQuery) (api.DAGRunActivity, error) {
-	excluded := a.excludedDAGNames(ctx, query.excludeAlwaysOnRuns)
+	excluded := a.excludedDAGNames(ctx, query.excludeServiceDAGRuns)
 	query.excludedDAGs = make(map[string]struct{}, len(excluded))
 	for _, name := range excluded {
 		query.excludedDAGs[name] = struct{}{}
@@ -290,7 +290,7 @@ func (a *API) activityQueues(ctx context.Context, query activityQuery) []api.DAG
 	scan := activityQueueScan
 	labelFilters := parseLabelFilters(query.labels)
 	scan.matches = func(summary api.DAGRunSummary) bool {
-		// An always-on DAG restarts all the time, so its queue would flip
+		// A service DAG restarts all the time, so its queue would flip
 		// between a run and a wait. Its lane shows it instead.
 		if query.skips(summary.Name) {
 			return false

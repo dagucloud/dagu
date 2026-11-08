@@ -2005,7 +2005,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/always-on-dags": {
+    "/service-dags": {
         parameters: {
             query?: never;
             header?: never;
@@ -2013,10 +2013,10 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * List the always-on DAGs
-         * @description Returns the DAGs that set a restart policy, each with a compact state. An always-on DAG runs without end, so this list replaces its runs in the run lists. The state follows from the latest run. The response has no list of runs, but the state and the latest run change at each restart, so a DAG that restarts every few seconds changes it that often, and the live stream sends it at most once every two seconds.
+         * List the service DAGs
+         * @description Returns the DAGs that set a restart policy, each with a compact state. A service DAG runs without end, so this list replaces its runs in the run lists. The state follows from the latest run. The response has no list of runs, but the state and the latest run change at each restart, so a DAG that restarts every few seconds changes it that often, and the live stream sends it at most once every two seconds.
          */
-        get: operations["listAlwaysOnDAGs"];
+        get: operations["listServiceDAGs"];
         put?: never;
         post?: never;
         delete?: never;
@@ -7610,7 +7610,7 @@ export interface components {
             parentDagRunId?: components["schemas"]["DAGRunId"];
         };
         /**
-         * @description What an always-on DAG does, as its latest run shows it:
+         * @description What a service DAG does, as its latest run shows it:
          *     - pending: no run is alive yet, or the latest run waits in the queue.
          *     - running: a run is alive.
          *     - restarting: the latest run succeeded, or an operator stopped the latest run of an always DAG, and the next run is due.
@@ -7620,9 +7620,9 @@ export interface components {
          *
          * @enum {string}
          */
-        AlwaysOnDAGState: AlwaysOnDAGState;
-        /** @description The latest run of an always-on DAG */
-        AlwaysOnDAGRun: {
+        ServiceDAGState: ServiceDAGState;
+        /** @description The latest run of a service DAG */
+        ServiceDAGRun: {
             dagRunId: components["schemas"]["DAGRunId"];
             status: components["schemas"]["Status"];
             /**
@@ -7639,25 +7639,25 @@ export interface components {
             error?: string;
         };
         /** @description A DAG that sets a restart policy, with its state */
-        AlwaysOnDAG: {
+        ServiceDAG: {
             /** @description File ID of the DAG file */
             fileName: string;
             name: components["schemas"]["DAGName"];
             restartPolicy: components["schemas"]["RestartPolicy"];
             /** @description Seconds the scheduler waits after a run ends before it starts the next one. */
             restartWaitSec: number;
-            state: components["schemas"]["AlwaysOnDAGState"];
+            state: components["schemas"]["ServiceDAGState"];
             /** @description Whether the DAG is suspended */
             suspended: boolean;
-            latestRun?: components["schemas"]["AlwaysOnDAGRun"];
+            latestRun?: components["schemas"]["ServiceDAGRun"];
             /** @description Why the state could not be read. Set only with the state failing. */
             readError?: string;
             /** @description How many of the newest ended runs in a row did not succeed, up to 10. A run that an operator stopped ends the count. A count above zero while the DAG is running means that it keeps failing. */
             consecutiveFailures: number;
         };
-        /** @description The always-on DAGs */
-        AlwaysOnDAGsResponse: {
-            dags: components["schemas"]["AlwaysOnDAG"][];
+        /** @description The service DAGs */
+        ServiceDAGsResponse: {
+            dags: components["schemas"]["ServiceDAG"][];
             /** @description Errors met while the DAGs were listed, such as DAG files that cannot be read. An error about one DAG's state is in its readError. */
             errors: string[];
         };
@@ -8675,8 +8675,8 @@ export interface components {
         WikiPagesPerPage: number;
         /** @description Workspace selector. For list and search APIs, use all, default, or a workspace name. Omitted means all. */
         Workspace: string;
-        /** @description Leave out every run of the always-on DAGs, the DAGs that set a restart policy, whoever started it. Their state is read from the always-on list instead. The always-on DAGs come from the DAG index, so a DAG file edited outside Dagu counts after the next DAG listing. */
-        ExcludeAlwaysOnRuns: boolean;
+        /** @description Leave out every run of the service DAGs, the DAGs that set a restart policy, whoever started it. Their state is read from the service DAG list instead. The service DAGs come from the DAG index, so a DAG file edited outside Dagu counts after the next DAG listing. */
+        ExcludeServiceDAGRuns: boolean;
         /** @description Optional Wiki page path prefix within the selected workspace */
         WikiPagePrefix: components["schemas"]["WikiPagePath"];
         /** @description Filter by DAG names containing this value */
@@ -11142,8 +11142,8 @@ export interface operations {
                 remoteNode?: components["parameters"]["RemoteNode"];
                 /** @description Workspace selector. For list and search APIs, use all, default, or a workspace name. Omitted means all. */
                 workspace?: components["parameters"]["Workspace"];
-                /** @description Leave out every run of the always-on DAGs, the DAGs that set a restart policy, whoever started it. Their state is read from the always-on list instead. The always-on DAGs come from the DAG index, so a DAG file edited outside Dagu counts after the next DAG listing. */
-                excludeAlwaysOnRuns?: components["parameters"]["ExcludeAlwaysOnRuns"];
+                /** @description Leave out every run of the service DAGs, the DAGs that set a restart policy, whoever started it. Their state is read from the service DAG list instead. The service DAGs come from the DAG index, so a DAG file edited outside Dagu counts after the next DAG listing. */
+                excludeServiceDAGRuns?: components["parameters"]["ExcludeServiceDAGRuns"];
                 /** @description start of the time range for filtering DAG-runs, as a Unix timestamp in seconds */
                 fromDate?: components["parameters"]["DateTimeFrom"];
                 /** @description end of the time range for filtering DAG-runs, as a Unix timestamp in seconds */
@@ -11209,8 +11209,8 @@ export interface operations {
                 remoteNode?: components["parameters"]["RemoteNode"];
                 /** @description Workspace selector. For list and search APIs, use all, default, or a workspace name. Omitted means all. */
                 workspace?: components["parameters"]["Workspace"];
-                /** @description Leave out every run of the always-on DAGs, the DAGs that set a restart policy, whoever started it. Their state is read from the always-on list instead. The always-on DAGs come from the DAG index, so a DAG file edited outside Dagu counts after the next DAG listing. */
-                excludeAlwaysOnRuns?: components["parameters"]["ExcludeAlwaysOnRuns"];
+                /** @description Leave out every run of the service DAGs, the DAGs that set a restart policy, whoever started it. Their state is read from the service DAG list instead. The service DAGs come from the DAG index, so a DAG file edited outside Dagu counts after the next DAG listing. */
+                excludeServiceDAGRuns?: components["parameters"]["ExcludeServiceDAGRuns"];
                 /** @description Filter DAG-runs by name */
                 name?: string;
                 /** @description Filter DAG-runs by DAG labels (comma-separated). Returns runs from DAGs that have ALL specified labels. Mutually exclusive with `tags`; the server returns HTTP 400 if both are set. */
@@ -15046,7 +15046,7 @@ export interface operations {
             };
         };
     };
-    listAlwaysOnDAGs: {
+    listServiceDAGs: {
         parameters: {
             query?: {
                 /** @description name of the remote node */
@@ -15066,7 +15066,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["AlwaysOnDAGsResponse"];
+                    "application/json": components["schemas"]["ServiceDAGsResponse"];
                 };
             };
             /** @description Generic error response */
@@ -24101,7 +24101,7 @@ export enum RepeatMode {
     While = "while",
     Until = "until"
 }
-export enum AlwaysOnDAGState {
+export enum ServiceDAGState {
     pending = "pending",
     running = "running",
     restarting = "restarting",

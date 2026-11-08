@@ -217,7 +217,7 @@ func TestDAGRunActivityListsLiveRunsFromBeforeWindow(t *testing.T) {
 // status reads, so the other live runs still appear.
 func TestDAGRunActivityLeftOutLiveRunsCostNoReads(t *testing.T) {
 	f := newActivityFixture(t)
-	f.alwaysOn("svc")
+	f.serviceDAGs("svc")
 	day := time.Date(2026, 3, 2, 0, 0, 0, 0, time.UTC)
 	var refs []ir.DAGRunRef
 	for i := range activityLiveRunReads {
@@ -231,7 +231,7 @@ func TestDAGRunActivityLeftOutLiveRunsCostNoReads(t *testing.T) {
 	from, to := day.Unix(), day.Add(24*time.Hour).Unix()
 	exclude := true
 	resp, err := f.api.GetDAGRunActivity(t.Context(), openapiv1.GetDAGRunActivityRequestObject{
-		Params: openapiv1.GetDAGRunActivityParams{FromDate: &from, ToDate: &to, ExcludeAlwaysOnRuns: &exclude},
+		Params: openapiv1.GetDAGRunActivityParams{FromDate: &from, ToDate: &to, ExcludeServiceDAGRuns: &exclude},
 	})
 	require.NoError(t, err)
 	activity, ok := resp.(openapiv1.GetDAGRunActivity200JSONResponse)
@@ -570,9 +570,9 @@ func TestDAGRunActivityWarnsOfANearlyFullDisk(t *testing.T) {
 	assert.Nil(t, read(f, viewer), "a viewer cannot view system status")
 }
 
-// alwaysOn saves always-on DAGs with these names, whose runs the activity
+// serviceDAGs saves service DAGs with these names, whose runs the activity
 // leaves out on request.
-func (f *activityFixture) alwaysOn(names ...string) {
+func (f *activityFixture) serviceDAGs(names ...string) {
 	f.t.Helper()
 	dir := f.t.TempDir()
 	for _, name := range names {
@@ -582,12 +582,12 @@ func (f *activityFixture) alwaysOn(names ...string) {
 	f.api.dagRepository = testutil.NewFileDAGRepository(dir, filedag.WithSkipExamples(true))
 }
 
-// An always-on DAG restarts without end, so on request every run of it stays
+// A service DAG restarts without end, so on request every run of it stays
 // out of the timeline, the failing DAGs and the runs in progress, whoever
-// started it. A restart run of a DAG that is no longer always-on stays in.
-func TestDAGRunActivityLeavesOutAlwaysOnRunsOnRequest(t *testing.T) {
+// started it. A restart run of a DAG that is no longer a service DAG stays in.
+func TestDAGRunActivityLeavesOutServiceDAGRunsOnRequest(t *testing.T) {
 	f := newActivityFixture(t)
-	f.alwaysOn("svc-a", "svc-b")
+	f.serviceDAGs("svc-a", "svc-b")
 	day := time.Date(2026, 3, 2, 0, 0, 0, 0, time.UTC)
 	f.addRun("job", "job-1", ir.Succeeded, day.Add(time.Hour), time.Second)
 	f.addTriggeredRun("former", "former-1", ir.TriggerTypeRestart, ir.Succeeded, day.Add(90*time.Minute), time.Second)
@@ -597,7 +597,7 @@ func TestDAGRunActivityLeavesOutAlwaysOnRunsOnRequest(t *testing.T) {
 	read := func(exclude bool) openapiv1.DAGRunActivity {
 		from, to := day.Unix(), day.Add(24*time.Hour).Unix()
 		resp, err := f.api.GetDAGRunActivity(t.Context(), openapiv1.GetDAGRunActivityRequestObject{
-			Params: openapiv1.GetDAGRunActivityParams{FromDate: &from, ToDate: &to, ExcludeAlwaysOnRuns: &exclude},
+			Params: openapiv1.GetDAGRunActivityParams{FromDate: &from, ToDate: &to, ExcludeServiceDAGRuns: &exclude},
 		})
 		require.NoError(t, err)
 		activity, ok := resp.(openapiv1.GetDAGRunActivity200JSONResponse)
@@ -616,18 +616,18 @@ func TestDAGRunActivityLeavesOutAlwaysOnRunsOnRequest(t *testing.T) {
 	assert.Empty(t, without.Active)
 
 	// The live stream takes the same switch.
-	data, err := f.api.GetDAGRunActivityData(t.Context(), "excludeAlwaysOnRuns=true")
+	data, err := f.api.GetDAGRunActivityData(t.Context(), "excludeServiceDAGRuns=true")
 	require.NoError(t, err)
 	assert.IsType(t, openapiv1.DAGRunActivity{}, data)
-	_, err = f.api.GetDAGRunActivityData(t.Context(), "excludeAlwaysOnRuns=maybe")
+	_, err = f.api.GetDAGRunActivityData(t.Context(), "excludeServiceDAGRuns=maybe")
 	require.Error(t, err)
 }
 
-// The queue of an always-on DAG flips between a run and a wait, so on request
+// The queue of a service DAG flips between a run and a wait, so on request
 // the activity leaves it out of the queues that it lists.
-func TestDAGRunActivityLeavesOutTheQueuesOfAlwaysOnDAGsOnRequest(t *testing.T) {
+func TestDAGRunActivityLeavesOutTheQueuesOfServiceDAGsOnRequest(t *testing.T) {
 	f := newActivityFixture(t)
-	f.alwaysOn("svc")
+	f.serviceDAGs("svc")
 	queueStore := store.NewQueueStore(file.NewCollection(filepath.Join(t.TempDir(), "queue")))
 	f.api.queueStore = queueStore
 	now := time.Now().Truncate(time.Second)
@@ -637,7 +637,7 @@ func TestDAGRunActivityLeavesOutTheQueuesOfAlwaysOnDAGsOnRequest(t *testing.T) {
 	read := func(exclude bool) []string {
 		from, to := now.Add(-time.Hour).Unix(), now.Add(time.Hour).Unix()
 		resp, err := f.api.GetDAGRunActivity(t.Context(), openapiv1.GetDAGRunActivityRequestObject{
-			Params: openapiv1.GetDAGRunActivityParams{FromDate: &from, ToDate: &to, ExcludeAlwaysOnRuns: &exclude},
+			Params: openapiv1.GetDAGRunActivityParams{FromDate: &from, ToDate: &to, ExcludeServiceDAGRuns: &exclude},
 		})
 		require.NoError(t, err)
 		activity, ok := resp.(openapiv1.GetDAGRunActivity200JSONResponse)

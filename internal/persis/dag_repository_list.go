@@ -57,7 +57,7 @@ func (r *DAGRepository) list(ctx context.Context, opts DAGListOptions, includeSe
 		if opts.ActiveOnly && (item.Suspended || (len(item.Schedule) == 0 && !item.RestartPolicy.Enabled())) {
 			continue
 		}
-		if opts.OnlyAlwaysOn && !item.RestartPolicy.Enabled() {
+		if opts.OnlyServiceDAGs && !item.RestartPolicy.Enabled() {
 			continue
 		}
 		if opts.Name != "" && !matchesDAGListSearch(item.Name, item.ID, opts.Name) {

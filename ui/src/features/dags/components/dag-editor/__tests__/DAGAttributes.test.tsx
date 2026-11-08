@@ -32,7 +32,7 @@ describe('DAGAttributes', () => {
     );
   });
 
-  it('renders the restart policy of an always-on DAG', () => {
+  it('renders the restart policy of a service DAG', () => {
     render(
       <DAGAttributes
         dag={{

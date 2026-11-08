@@ -974,7 +974,7 @@ func writeLegacyCommandProcFile(
 
 // A DAG with a restart_policy has one run at a time: no command starts a run
 // next to the active one. Once none is active, a manual start works again.
-func TestStartCommand_AlwaysOnDAGRunsOneAtATime(t *testing.T) {
+func TestStartCommand_ServiceDAGRunsOneAtATime(t *testing.T) {
 	t.Parallel()
 
 	th := test.SetupCommand(t)
@@ -1021,7 +1021,7 @@ func TestStartCommand_OtherDAGRunsNextToActiveRun(t *testing.T) {
 
 // The scheduler follows the current definition, so a run whose snapshot predates
 // the restart_policy is refused like any other.
-func TestStartCommand_AlwaysOnDAGFollowsCurrentDefinition(t *testing.T) {
+func TestStartCommand_ServiceDAGFollowsCurrentDefinition(t *testing.T) {
 	t.Parallel()
 
 	const steps = `steps:

@@ -48,7 +48,7 @@ import (
 // Each run in a row that does not succeed within restartBackoffRunTime of its
 // start doubles the wait before the next run, up to restartBackoffMaxWait.
 //
-// Runs go through queues: while queues are disabled, an always-on DAG gets no run
+// Runs go through queues: while queues are disabled, a service DAG gets no run
 // and every scan returns an error for it, logged at most every
 // restartErrorLogInterval.
 
@@ -77,14 +77,14 @@ const (
 
 	// restartNotStartedTimeout is how long a run may stay queued or not started
 	// before the scanner checks whether anything will still start it.
-	restartNotStartedTimeout = runtime.AlwaysOnRunStartTimeout
+	restartNotStartedTimeout = runtime.ServiceRunStartTimeout
 
 	// restartRecentRuns is how many recent runs of a DAG are searched for the run
 	// that ended last.
 	restartRecentRuns = 10
 )
 
-// errRestartQueuesDisabled says an always-on DAG gets no run: its runs go through
+// errRestartQueuesDisabled says a service DAG gets no run: its runs go through
 // queues.
 var errRestartQueuesDisabled = errors.New("restart_policy starts runs through queues, and queues are disabled")
 
@@ -222,7 +222,7 @@ func (s *RestartScanner) Start(ctx context.Context) {
 func (s *RestartScanner) scan(ctx context.Context) {
 	now := s.cfg.Clock()
 	s.readEvents(ctx, now)
-	alwaysOn := make(map[string]struct{})
+	services := make(map[string]struct{})
 	for _, entry := range s.cfg.Entries() {
 		if ctx.Err() != nil {
 			return
@@ -230,12 +230,12 @@ func (s *RestartScanner) scan(ctx context.Context) {
 		if entry.DAG == nil || !entry.DAG.RestartPolicy.Enabled() {
 			continue
 		}
-		alwaysOn[entry.DAG.Name] = struct{}{}
+		services[entry.DAG.Name] = struct{}{}
 		if err := s.process(ctx, entry, now); err != nil {
 			s.logError(ctx, entry.DAG.Name, now, err)
 		}
 	}
-	s.forgetOthers(alwaysOn)
+	s.forgetOthers(services)
 }
 
 // readEvents makes the DAGs whose run ended due for a check. The first read
@@ -524,24 +524,24 @@ func failedSoonAfterStart(status *ir.DAGRunStatus) bool {
 
 // forgetOthers drops what the scanner remembers about DAGs it no longer keeps
 // alive.
-func (s *RestartScanner) forgetOthers(alwaysOn map[string]struct{}) {
+func (s *RestartScanner) forgetOthers(services map[string]struct{}) {
 	for name := range s.lastErrorLog {
-		if _, ok := alwaysOn[name]; !ok {
+		if _, ok := services[name]; !ok {
 			delete(s.lastErrorLog, name)
 		}
 	}
 	for name := range s.stoppedRuns {
-		if _, ok := alwaysOn[name]; !ok {
+		if _, ok := services[name]; !ok {
 			delete(s.stoppedRuns, name)
 		}
 	}
 	for name := range s.backoff {
-		if _, ok := alwaysOn[name]; !ok {
+		if _, ok := services[name]; !ok {
 			delete(s.backoff, name)
 		}
 	}
 	for name := range s.nextCheck {
-		if _, ok := alwaysOn[name]; !ok {
+		if _, ok := services[name]; !ok {
 			delete(s.nextCheck, name)
 		}
 	}
@@ -572,7 +572,7 @@ func logNoRestart(ctx context.Context, dag *ir.DAG, reason string, attrs ...slog
 	logger.Debug(ctx, "Not restarting DAG", attrs...)
 }
 
-// restartDecision tells whether an always-on DAG is due for a new run.
+// restartDecision tells whether a service DAG is due for a new run.
 type restartDecision struct {
 	start  bool
 	reason string

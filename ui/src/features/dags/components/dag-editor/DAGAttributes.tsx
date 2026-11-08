@@ -13,7 +13,7 @@ import {
   getRestartValue,
   getScheduleKey,
   getScheduleLabel,
-  isAlwaysOnDAG,
+  isServiceDAG,
   parseNextRun,
 } from '@/lib/dagSchedule';
 import { envVariableNames, visibleLabels } from './workflowLabels';
@@ -93,7 +93,7 @@ function DAGAttributes({ dag }: Props) {
         )}
 
         {/* Restart policy, in the place of a schedule */}
-        {isAlwaysOnDAG(dag) && (
+        {isServiceDAG(dag) && (
           <div className="space-y-1 md:col-span-2">
             <div className="flex items-center gap-2 text-sm font-medium text-muted-foreground mb-2">
               <Calendar className="h-4 w-4" />

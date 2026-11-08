@@ -22,22 +22,22 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/workspace"
 )
 
-// ListAlwaysOnDAGs returns the DAGs that set a restart policy, with their state.
-func (a *API) ListAlwaysOnDAGs(ctx context.Context, request api.ListAlwaysOnDAGsRequestObject) (api.ListAlwaysOnDAGsResponseObject, error) {
+// ListServiceDAGs returns the DAGs that set a restart policy, with their state.
+func (a *API) ListServiceDAGs(ctx context.Context, request api.ListServiceDAGsRequestObject) (api.ListServiceDAGsResponseObject, error) {
 	filter, err := a.workspaceFilterForParams(ctx, request.Params.Workspace)
 	if err != nil {
 		return nil, err
 	}
-	resp, err := a.readAlwaysOnDAGs(ctx, filter)
+	resp, err := a.readServiceDAGs(ctx, filter)
 	if err != nil {
 		return nil, err
 	}
-	return api.ListAlwaysOnDAGs200JSONResponse(resp), nil
+	return api.ListServiceDAGs200JSONResponse(resp), nil
 }
 
-// GetAlwaysOnDAGsData returns the always-on DAG list for the SSE topic. The query
-// string takes the workspace parameter of ListAlwaysOnDAGs.
-func (a *API) GetAlwaysOnDAGsData(ctx context.Context, queryString string) (any, error) {
+// GetServiceDAGsData returns the service DAG list for the SSE topic. The query
+// string takes the workspace parameter of ListServiceDAGs.
+func (a *API) GetServiceDAGsData(ctx context.Context, queryString string) (any, error) {
 	params, err := url.ParseQuery(queryString)
 	if err != nil {
 		return nil, fmt.Errorf("invalid query parameters: %w", err)
@@ -46,36 +46,36 @@ func (a *API) GetAlwaysOnDAGsData(ctx context.Context, queryString string) (any,
 	if err != nil {
 		return nil, err
 	}
-	return a.readAlwaysOnDAGs(ctx, filter)
+	return a.readServiceDAGs(ctx, filter)
 }
 
-// readAlwaysOnDAGs lists the always-on DAGs within the read timeout of the other
+// readServiceDAGs lists the service DAGs within the read timeout of the other
 // DAG-run reads. For each DAG the list probes the process table, the socket of a
 // running run and the status file, and the live stream asks for it every two
 // seconds, so a stalled file system must not hold the read without a bound.
-func (a *API) readAlwaysOnDAGs(ctx context.Context, filter *workspace.WorkspaceFilter) (api.AlwaysOnDAGsResponse, error) {
+func (a *API) readServiceDAGs(ctx context.Context, filter *workspace.WorkspaceFilter) (api.ServiceDAGsResponse, error) {
 	return withDAGRunReadTimeout(ctx, dagRunReadRequestInfo{
-		endpoint: "/always-on-dags",
-	}, func(readCtx context.Context) (api.AlwaysOnDAGsResponse, error) {
-		return a.listAlwaysOnDAGs(readCtx, filter)
+		endpoint: "/service-dags",
+	}, func(readCtx context.Context) (api.ServiceDAGsResponse, error) {
+		return a.listServiceDAGs(readCtx, filter)
 	})
 }
 
-func (a *API) listAlwaysOnDAGs(ctx context.Context, filter *workspace.WorkspaceFilter) (api.AlwaysOnDAGsResponse, error) {
+func (a *API) listServiceDAGs(ctx context.Context, filter *workspace.WorkspaceFilter) (api.ServiceDAGsResponse, error) {
 	paginator := pagination.NewPaginator(1, int(^uint(0)>>1))
 	result, errList, err := a.dagRepository.List(ctx, persis.DAGListOptions{
 		Paginator:       &paginator,
-		OnlyAlwaysOn:    true,
+		OnlyServiceDAGs: true,
 		Sort:            "name",
 		Order:           "asc",
 		WorkspaceFilter: filter,
 	})
 	if err != nil {
-		return api.AlwaysOnDAGsResponse{}, fmt.Errorf("error listing always-on DAGs: %w", err)
+		return api.ServiceDAGsResponse{}, fmt.Errorf("error listing service DAGs: %w", err)
 	}
 
 	history := a.dagRunMgr.AllHistory()
-	dags := make([]api.AlwaysOnDAG, 0, len(result.Items))
+	dags := make([]api.ServiceDAG, 0, len(result.Items))
 	for _, item := range result.Items {
 		latest, statusErr := history.ReadLatestStatus(ctx, item.DAG)
 		// A run keeps the workspace its DAG had when it started, so after a move
@@ -83,23 +83,23 @@ func (a *API) listAlwaysOnDAGs(ctx context.Context, filter *workspace.WorkspaceF
 		if !filter.MatchesLabels(ir.NewLabels(latest.Labels)) {
 			latest = ir.InitialStatus(item.DAG)
 		}
-		state, stateErr := scheduler.DescribeAlwaysOn(item.RestartPolicy, &latest, item.Suspended, func() (bool, error) {
+		state, stateErr := scheduler.DescribeServiceDAG(item.RestartPolicy, &latest, item.Suspended, func() (bool, error) {
 			return a.stopRequested(ctx, item.DAG, latest.DAGRunID)
 		})
 		var readError *string
 		if readErr := errors.Join(statusErr, stateErr); readErr != nil {
-			state = scheduler.AlwaysOnStateFailing
+			state = scheduler.ServiceDAGStateFailing
 			message := readErr.Error()
 			readError = &message
 		}
-		dags = append(dags, api.AlwaysOnDAG{
+		dags = append(dags, api.ServiceDAG{
 			FileName:       item.ID,
 			Name:           item.Name,
 			RestartPolicy:  api.RestartPolicy(item.RestartPolicy),
 			RestartWaitSec: int(item.RestartWait.Seconds()),
-			State:          api.AlwaysOnDAGState(state),
+			State:          api.ServiceDAGState(state),
 			Suspended:      item.Suspended,
-			LatestRun:      toAlwaysOnDAGRun(latest),
+			LatestRun:      toServiceDAGRun(latest),
 			ReadError:      readError,
 
 			ConsecutiveFailures: a.failureStreak(ctx, item.DAG, latest),
@@ -108,14 +108,14 @@ func (a *API) listAlwaysOnDAGs(ctx context.Context, filter *workspace.WorkspaceF
 	if errList == nil {
 		errList = []string{}
 	}
-	return api.AlwaysOnDAGsResponse{Dags: dags, Errors: errList}, nil
+	return api.ServiceDAGsResponse{Dags: dags, Errors: errList}, nil
 }
 
-// alwaysOnFailureStreakLimit caps the failed runs in a row that the always-on
-// list counts, so that it reads a bounded part of the history.
-const alwaysOnFailureStreakLimit = 10
+// serviceDAGFailureStreakLimit caps the failed runs in a row that the
+// service DAG list counts, so that it reads a bounded part of the history.
+const serviceDAGFailureStreakLimit = 10
 
-// failureStreaks keeps the count of failed runs in a row of each always-on DAG
+// failureStreaks keeps the count of failed runs in a row of each service DAG
 // with the latest run it was counted for, so that a DAG whose latest run has
 // not changed costs no read of its history.
 type failureStreaks struct {
@@ -148,20 +148,20 @@ func (s *failureStreaks) put(name string, latest ir.DAGRunStatus, count int) {
 	s.counts[name] = failureStreak{runID: latest.DAGRunID, status: latest.Status, count: count}
 }
 
-// failureStreak counts the newest ended runs of an always-on DAG in a row that
-// did not succeed, up to alwaysOnFailureStreakLimit. A run that an operator
+// failureStreak counts the newest ended runs of a service DAG in a row that
+// did not succeed, up to serviceDAGFailureStreakLimit. A run that an operator
 // stopped, or one from another workspace than the latest run, ends the count.
 func (a *API) failureStreak(ctx context.Context, dag *ir.DAG, latest ir.DAGRunStatus) int {
 	if latest.DAGRunID == "" || latest.Status.IsSuccess() {
 		return 0
 	}
-	if count, ok := a.alwaysOnFailures.get(dag.Name, latest); ok {
+	if count, ok := a.serviceDAGFailures.get(dag.Name, latest); ok {
 		return count
 	}
 	// One more than the limit, since a run that is alive takes a place.
-	statuses, err := a.dagRunRepository.RecentStatuses(ctx, dag.Name, alwaysOnFailureStreakLimit+1)
+	statuses, err := a.dagRunRepository.RecentStatuses(ctx, dag.Name, serviceDAGFailureStreakLimit+1)
 	if err != nil {
-		logger.Warn(ctx, "Failed to read the recent runs of an always-on DAG", tag.DAG(dag.Name), tag.Error(err))
+		logger.Warn(ctx, "Failed to read the recent runs of a service DAG", tag.DAG(dag.Name), tag.Error(err))
 		return 0
 	}
 	latestWorkspace, _ := workspace.WorkspaceNameFromLabels(ir.NewLabels(latest.Labels))
@@ -170,7 +170,7 @@ func (a *API) failureStreak(ctx context.Context, dag *ir.DAG, latest ir.DAGRunSt
 		if !runEnded(status.Status) {
 			continue
 		}
-		if status.Status.IsSuccess() || count == alwaysOnFailureStreakLimit {
+		if status.Status.IsSuccess() || count == serviceDAGFailureStreakLimit {
 			break
 		}
 		if name, _ := workspace.WorkspaceNameFromLabels(ir.NewLabels(status.Labels)); name != latestWorkspace {
@@ -183,12 +183,12 @@ func (a *API) failureStreak(ctx context.Context, dag *ir.DAG, latest ir.DAGRunSt
 	}
 	// A cancelled read skips runs, so its count is not kept.
 	if ctx.Err() == nil {
-		a.alwaysOnFailures.put(dag.Name, latest, count)
+		a.serviceDAGFailures.put(dag.Name, latest, count)
 	}
 	return count
 }
 
-// excludedDAGNames returns the DAGs whose runs a list leaves out: the always-on
+// excludedDAGNames returns the DAGs whose runs a list leaves out: the service
 // DAGs when exclude is set, and none otherwise. The result is never nil when
 // exclude is set, even if the names cannot be read, so a page cursor keeps
 // its filter; the list then keeps those runs rather than fail.
@@ -196,9 +196,9 @@ func (a *API) excludedDAGNames(ctx context.Context, exclude bool) []string {
 	if !exclude {
 		return nil
 	}
-	names, err := a.dagRepository.AlwaysOnDAGNames(ctx)
+	names, err := a.dagRepository.ServiceDAGNames(ctx)
 	if err != nil {
-		logger.Warn(ctx, "Failed to read the always-on DAGs; their runs stay in the list", tag.Error(err))
+		logger.Warn(ctx, "Failed to read the service DAGs; their runs stay in the list", tag.Error(err))
 		return []string{}
 	}
 	if names == nil {
@@ -217,14 +217,14 @@ func (a *API) stopRequested(ctx context.Context, dag *ir.DAG, runID string) (boo
 	return attempt.IsAborting(ctx)
 }
 
-// toAlwaysOnDAGRun describes the latest run of an always-on DAG. It leaves out
-// what changes while a run lives, so that a steady always-on DAG keeps one
+// toServiceDAGRun describes the latest run of a service DAG. It leaves out
+// what changes while a run lives, so that a steady service DAG keeps one
 // payload.
-func toAlwaysOnDAGRun(status ir.DAGRunStatus) *api.AlwaysOnDAGRun {
+func toServiceDAGRun(status ir.DAGRunStatus) *api.ServiceDAGRun {
 	if status.DAGRunID == "" {
 		return nil
 	}
-	run := &api.AlwaysOnDAGRun{
+	run := &api.ServiceDAGRun{
 		DagRunId:   status.DAGRunID,
 		Status:     api.Status(status.Status),
 		StartedAt:  parseRunTime(status.StartedAt),

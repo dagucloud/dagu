@@ -309,7 +309,7 @@ func (h *restartHarness) logged(msg string) int {
 	return strings.Count(h.logs.String(), msg)
 }
 
-func alwaysOnDAG(name string, policy ir.RestartPolicy) *ir.DAG {
+func serviceDAG(name string, policy ir.RestartPolicy) *ir.DAG {
 	return &ir.DAG{Name: name, RestartPolicy: policy, RestartWait: 10 * time.Second}
 }
 
@@ -318,7 +318,7 @@ func TestRestartScanner(t *testing.T) {
 
 	t.Run("FirstRun", func(t *testing.T) {
 		t.Parallel()
-		h := newRestartHarness(t, alwaysOnDAG("svc", ir.RestartPolicyAlways))
+		h := newRestartHarness(t, serviceDAG("svc", ir.RestartPolicyAlways))
 		h.scan()
 		require.Len(t, h.enqueued, 1)
 		assert.Equal(t, enqueuedRun{
@@ -330,7 +330,7 @@ func TestRestartScanner(t *testing.T) {
 
 	t.Run("Wait", func(t *testing.T) {
 		t.Parallel()
-		h := newRestartHarness(t, alwaysOnDAG("svc", ir.RestartPolicyAlways))
+		h := newRestartHarness(t, serviceDAG("svc", ir.RestartPolicyAlways))
 		h.endRun(ir.Failed, 4*time.Second)
 		h.scan()
 		assert.Empty(t, h.enqueued, "the wait has not elapsed")
@@ -344,7 +344,7 @@ func TestRestartScanner(t *testing.T) {
 
 	t.Run("Succeeded", func(t *testing.T) {
 		t.Parallel()
-		h := newRestartHarness(t, alwaysOnDAG("svc", ir.RestartPolicyAlways))
+		h := newRestartHarness(t, serviceDAG("svc", ir.RestartPolicyAlways))
 		h.endRun(ir.Succeeded, time.Minute)
 		h.scan()
 		assert.Len(t, h.enqueued, 1)
@@ -354,7 +354,7 @@ func TestRestartScanner(t *testing.T) {
 	// before the wait ends, so the scanner reads no store until then.
 	t.Run("NoReadsWhileWaiting", func(t *testing.T) {
 		t.Parallel()
-		h := newRestartHarness(t, alwaysOnDAG("svc", ir.RestartPolicyAlways))
+		h := newRestartHarness(t, serviceDAG("svc", ir.RestartPolicyAlways))
 		h.endRun(ir.Failed, 0)
 		h.scan()
 		reads := h.reads
@@ -372,7 +372,7 @@ func TestRestartScanner(t *testing.T) {
 
 	t.Run("EditedWaitApplies", func(t *testing.T) {
 		t.Parallel()
-		dag := alwaysOnDAG("svc", ir.RestartPolicyAlways)
+		dag := serviceDAG("svc", ir.RestartPolicyAlways)
 		h := newRestartHarness(t, dag)
 		h.endRun(ir.Failed, 0)
 		h.scan()
@@ -387,7 +387,7 @@ func TestRestartScanner(t *testing.T) {
 	// restart_wait_sec forever: each such run in a row doubles the wait.
 	t.Run("Backoff", func(t *testing.T) {
 		t.Parallel()
-		h := newRestartHarness(t, alwaysOnDAG("svc", ir.RestartPolicyAlways))
+		h := newRestartHarness(t, serviceDAG("svc", ir.RestartPolicyAlways))
 		// The end is stored to the second, so a wait of 10s queues the next run
 		// 11s after the end.
 		assert.Equal(t, 11*time.Second, h.waitBeforeRestart("run-1", ir.Failed, 2*time.Second))
@@ -403,14 +403,14 @@ func TestRestartScanner(t *testing.T) {
 
 	t.Run("BackoffLimit", func(t *testing.T) {
 		t.Parallel()
-		h := newRestartHarness(t, alwaysOnDAG("svc", ir.RestartPolicyAlways))
+		h := newRestartHarness(t, serviceDAG("svc", ir.RestartPolicyAlways))
 		var waited time.Duration
 		for i := range 8 {
 			waited = h.waitBeforeRestart(fmt.Sprintf("run-%d", i), ir.Failed, time.Second)
 		}
 		assert.Equal(t, restartBackoffMaxWait+time.Second, waited)
 
-		long := alwaysOnDAG("slow", ir.RestartPolicyAlways)
+		long := serviceDAG("slow", ir.RestartPolicyAlways)
 		long.RestartWait = 10 * time.Minute
 		h = newRestartHarness(t, long)
 		h.waitBeforeRestart("run-1", ir.Failed, time.Second)
@@ -433,7 +433,7 @@ func TestRestartScanner(t *testing.T) {
 		} {
 			t.Run(name, func(t *testing.T) {
 				t.Parallel()
-				h := newRestartHarness(t, alwaysOnDAG("svc", ir.RestartPolicyAlways))
+				h := newRestartHarness(t, serviceDAG("svc", ir.RestartPolicyAlways))
 				setup(h)
 				h.scan()
 				assert.Empty(t, h.enqueued)
@@ -446,7 +446,7 @@ func TestRestartScanner(t *testing.T) {
 	// never written, is failed, and the DAG restarts after it.
 	t.Run("LostQueuedRun", func(t *testing.T) {
 		t.Parallel()
-		h := newRestartHarness(t, alwaysOnDAG("svc", ir.RestartPolicyAlways))
+		h := newRestartHarness(t, serviceDAG("svc", ir.RestartPolicyAlways))
 		h.latest = ir.DAGRunStatus{
 			DAGRunID: "run-1", AttemptID: "attempt-1", Status: ir.Queued,
 			CreatedAt: h.now.UnixMilli(),
@@ -478,7 +478,7 @@ func TestRestartScanner(t *testing.T) {
 		} {
 			t.Run(name, func(t *testing.T) {
 				t.Parallel()
-				h := newRestartHarness(t, alwaysOnDAG("svc", ir.RestartPolicyAlways))
+				h := newRestartHarness(t, serviceDAG("svc", ir.RestartPolicyAlways))
 				h.latest = ir.DAGRunStatus{
 					DAGRunID: "run-1", AttemptID: "attempt-1", Status: ir.Queued,
 					CreatedAt: h.now.Add(-restartNotStartedTimeout).UnixMilli(),
@@ -495,7 +495,7 @@ func TestRestartScanner(t *testing.T) {
 	// restart.
 	t.Run("QueueReadOnlyBeforeRestart", func(t *testing.T) {
 		t.Parallel()
-		h := newRestartHarness(t, alwaysOnDAG("svc", ir.RestartPolicyAlways))
+		h := newRestartHarness(t, serviceDAG("svc", ir.RestartPolicyAlways))
 		h.endRun(ir.Running, 0)
 		h.scan()
 		h.endRun(ir.Failed, 0)
@@ -512,7 +512,7 @@ func TestRestartScanner(t *testing.T) {
 	// says the run ended.
 	t.Run("EventWakesDAG", func(t *testing.T) {
 		t.Parallel()
-		h := newRestartHarness(t, alwaysOnDAG("svc", ir.RestartPolicyAlways))
+		h := newRestartHarness(t, serviceDAG("svc", ir.RestartPolicyAlways))
 		events := h.withEvents()
 		h.endRun(ir.Running, 0)
 		h.scan()
@@ -540,7 +540,7 @@ func TestRestartScanner(t *testing.T) {
 	// while anyway.
 	t.Run("LostEvent", func(t *testing.T) {
 		t.Parallel()
-		h := newRestartHarness(t, alwaysOnDAG("svc", ir.RestartPolicyAlways))
+		h := newRestartHarness(t, serviceDAG("svc", ir.RestartPolicyAlways))
 		h.withEvents()
 		h.endRun(ir.Running, 0)
 		h.scan()
@@ -557,7 +557,7 @@ func TestRestartScanner(t *testing.T) {
 
 	t.Run("EventsUnavailable", func(t *testing.T) {
 		t.Parallel()
-		h := newRestartHarness(t, alwaysOnDAG("svc", ir.RestartPolicyAlways))
+		h := newRestartHarness(t, serviceDAG("svc", ir.RestartPolicyAlways))
 		h.withEvents().headErr = errors.New("event store unreadable")
 		h.endRun(ir.Running, 0)
 		h.scan()
@@ -570,7 +570,7 @@ func TestRestartScanner(t *testing.T) {
 
 	t.Run("Suspended", func(t *testing.T) {
 		t.Parallel()
-		h := newRestartHarness(t, alwaysOnDAG("svc", ir.RestartPolicyAlways))
+		h := newRestartHarness(t, serviceDAG("svc", ir.RestartPolicyAlways))
 		h.suspended["svc"] = true
 		h.scan()
 		assert.Empty(t, h.enqueued)
@@ -598,7 +598,7 @@ func TestRestartScanner(t *testing.T) {
 		} {
 			t.Run(tt.name, func(t *testing.T) {
 				t.Parallel()
-				h := newRestartHarness(t, alwaysOnDAG("svc", tt.policy))
+				h := newRestartHarness(t, serviceDAG("svc", tt.policy))
 				h.endRun(tt.status, time.Hour)
 				h.stopped["run-1"] = tt.stopped
 				h.scan()
@@ -626,7 +626,7 @@ func TestRestartScanner(t *testing.T) {
 
 		t.Run("StoppedRunEndedFirst", func(t *testing.T) {
 			t.Parallel()
-			h := newRestartHarness(t, alwaysOnDAG("svc", ir.RestartPolicyUnlessStopped))
+			h := newRestartHarness(t, serviceDAG("svc", ir.RestartPolicyUnlessStopped))
 			overlap(h, time.Hour, time.Minute)
 			h.scan()
 			require.Len(t, h.enqueued, 1)
@@ -635,7 +635,7 @@ func TestRestartScanner(t *testing.T) {
 
 		t.Run("StoppedRunEndedLast", func(t *testing.T) {
 			t.Parallel()
-			h := newRestartHarness(t, alwaysOnDAG("svc", ir.RestartPolicyUnlessStopped))
+			h := newRestartHarness(t, serviceDAG("svc", ir.RestartPolicyUnlessStopped))
 			overlap(h, time.Minute, time.Hour)
 			h.scan()
 			assert.Empty(t, h.enqueued)
@@ -643,7 +643,7 @@ func TestRestartScanner(t *testing.T) {
 
 		t.Run("EndedInTheSameSecond", func(t *testing.T) {
 			t.Parallel()
-			h := newRestartHarness(t, alwaysOnDAG("svc", ir.RestartPolicyUnlessStopped))
+			h := newRestartHarness(t, serviceDAG("svc", ir.RestartPolicyUnlessStopped))
 			overlap(h, time.Minute, time.Minute)
 			h.scan()
 			require.Len(t, h.enqueued, 1)
@@ -652,7 +652,7 @@ func TestRestartScanner(t *testing.T) {
 
 		t.Run("WaitFollowsIt", func(t *testing.T) {
 			t.Parallel()
-			h := newRestartHarness(t, alwaysOnDAG("svc", ir.RestartPolicyAlways))
+			h := newRestartHarness(t, serviceDAG("svc", ir.RestartPolicyAlways))
 			overlap(h, time.Hour, time.Second)
 			h.scan()
 			assert.Empty(t, h.enqueued)
@@ -664,7 +664,7 @@ func TestRestartScanner(t *testing.T) {
 
 		t.Run("OlderRunStillActive", func(t *testing.T) {
 			t.Parallel()
-			h := newRestartHarness(t, alwaysOnDAG("svc", ir.RestartPolicyAlways))
+			h := newRestartHarness(t, serviceDAG("svc", ir.RestartPolicyAlways))
 			overlap(h, time.Hour, time.Minute)
 			h.recent[1].Status = ir.Running
 			h.scan()
@@ -674,7 +674,7 @@ func TestRestartScanner(t *testing.T) {
 
 		t.Run("ReadFails", func(t *testing.T) {
 			t.Parallel()
-			h := newRestartHarness(t, alwaysOnDAG("svc", ir.RestartPolicyAlways))
+			h := newRestartHarness(t, serviceDAG("svc", ir.RestartPolicyAlways))
 			overlap(h, time.Hour, time.Minute)
 			h.recentErr = errors.New("disk failure")
 			h.scan()
@@ -685,7 +685,7 @@ func TestRestartScanner(t *testing.T) {
 
 	t.Run("StopIsCheckedOnce", func(t *testing.T) {
 		t.Parallel()
-		h := newRestartHarness(t, alwaysOnDAG("svc", ir.RestartPolicyUnlessStopped))
+		h := newRestartHarness(t, serviceDAG("svc", ir.RestartPolicyUnlessStopped))
 		h.endRun(ir.Aborted, time.Hour)
 		h.stopped["run-1"] = true
 		h.scan()
@@ -696,14 +696,14 @@ func TestRestartScanner(t *testing.T) {
 
 		h.entries = nil
 		h.scan()
-		h.entries = []DAGEntry{{DefinitionID: "svc", DAG: alwaysOnDAG("svc", ir.RestartPolicyUnlessStopped)}}
+		h.entries = []DAGEntry{{DefinitionID: "svc", DAG: serviceDAG("svc", ir.RestartPolicyUnlessStopped)}}
 		h.scan()
 		assert.Equal(t, 2, h.stopChecks, "a DAG that left the scheduler is forgotten")
 	})
 
 	t.Run("NewAttemptOfAStoppedRun", func(t *testing.T) {
 		t.Parallel()
-		h := newRestartHarness(t, alwaysOnDAG("svc", ir.RestartPolicyUnlessStopped))
+		h := newRestartHarness(t, serviceDAG("svc", ir.RestartPolicyUnlessStopped))
 		h.endRun(ir.Aborted, time.Hour)
 		h.stopped["run-1"] = true
 		h.scan()
@@ -718,7 +718,7 @@ func TestRestartScanner(t *testing.T) {
 
 	t.Run("StopCheckFails", func(t *testing.T) {
 		t.Parallel()
-		h := newRestartHarness(t, alwaysOnDAG("svc", ir.RestartPolicyUnlessStopped))
+		h := newRestartHarness(t, serviceDAG("svc", ir.RestartPolicyUnlessStopped))
 		h.endRun(ir.Aborted, time.Hour)
 		h.stopErr = errors.New("store unavailable")
 		h.scan()
@@ -728,7 +728,7 @@ func TestRestartScanner(t *testing.T) {
 
 	t.Run("LatestStatusFails", func(t *testing.T) {
 		t.Parallel()
-		h := newRestartHarness(t, alwaysOnDAG("svc", ir.RestartPolicyAlways))
+		h := newRestartHarness(t, serviceDAG("svc", ir.RestartPolicyAlways))
 		h.latestErr = errors.New("status unreadable")
 		h.scan()
 		assert.Empty(t, h.enqueued, "an unreadable latest run is not taken for no run")
@@ -737,7 +737,7 @@ func TestRestartScanner(t *testing.T) {
 
 	t.Run("NoPolicy", func(t *testing.T) {
 		t.Parallel()
-		h := newRestartHarness(t, alwaysOnDAG("plain", ir.RestartPolicyNo), alwaysOnDAG("svc", ir.RestartPolicyAlways))
+		h := newRestartHarness(t, serviceDAG("plain", ir.RestartPolicyNo), serviceDAG("svc", ir.RestartPolicyAlways))
 		h.entries = append(h.entries, DAGEntry{})
 		h.scan()
 		require.Len(t, h.enqueued, 1)
@@ -746,7 +746,7 @@ func TestRestartScanner(t *testing.T) {
 
 	t.Run("EnqueueFails", func(t *testing.T) {
 		t.Parallel()
-		h := newRestartHarness(t, alwaysOnDAG("svc", ir.RestartPolicyAlways))
+		h := newRestartHarness(t, serviceDAG("svc", ir.RestartPolicyAlways))
 		h.failWith = errors.New("disk full")
 		h.scan()
 		h.now = h.now.Add(time.Second)
@@ -769,7 +769,7 @@ func TestRestartScanner(t *testing.T) {
 	// an error that keeps being logged, not a warning logged once.
 	t.Run("QueuesDisabled", func(t *testing.T) {
 		t.Parallel()
-		h := newRestartHarness(t, alwaysOnDAG("svc", ir.RestartPolicyAlways))
+		h := newRestartHarness(t, serviceDAG("svc", ir.RestartPolicyAlways))
 		h.scanner.cfg.Enqueue = nil
 		h.scan()
 		h.scan()

@@ -381,7 +381,7 @@ func runEvent(eventType eventstore.EventType, status ir.Status, name, runID, roo
 		DAGRunID:  runID,
 		AttemptID: "attempt-1",
 		Status:    status,
-		// A hand start, so only the DAG tells that the run is always-on.
+		// A hand start, so only the DAG marks the run as a service DAG run.
 		TriggerType: ir.TriggerTypeManual,
 	}
 	if rootName != "" {
@@ -390,71 +390,71 @@ func runEvent(eventType eventstore.EventType, status ir.Status, name, runID, roo
 	return eventstore.NewDAGRunEvent(eventstore.Source{Service: eventstore.SourceServiceServer}, eventType, runStatus, nil)
 }
 
-var alwaysOnSVC = map[string]struct{}{"svc": {}}
+var serviceDAGSet = map[string]struct{}{"svc": {}}
 
-// A run of an always-on DAG changes only the lists that show always-on runs,
-// so an always-on DAG that restarts all the time does not refresh the lists
+// A run of a service DAG changes only the lists that show service DAG runs,
+// so a service DAG that restarts all the time does not refresh the lists
 // that leave them out, whoever started the run.
-func TestDAGRunInvalidatorSkipsAlwaysOnRunsForListsThatExcludeThem(t *testing.T) {
+func TestDAGRunInvalidatorSkipsServiceDAGRunsForListsThatExcludeThem(t *testing.T) {
 	const (
-		withAlwaysOn    = "dagruns:status=1"
-		withoutAlwaysOn = "dagruns:status=1&excludeAlwaysOnRuns=true"
+		withServiceDAGs    = "dagruns:status=1"
+		withoutServiceDAGs = "dagruns:status=1&excludeServiceDAGRuns=true"
 		// The default run list has no status filter.
-		withoutAlwaysOnAnyStatus = "dagruns:excludeAlwaysOnRuns=true"
+		withoutServiceDAGsAnyStatus = "dagruns:excludeServiceDAGRuns=true"
 	)
-	mux, refreshes := countingTopics(t, TopicTypeDAGRuns, withAlwaysOn, withoutAlwaysOn, withoutAlwaysOnAnyStatus)
+	mux, refreshes := countingTopics(t, TopicTypeDAGRuns, withServiceDAGs, withoutServiceDAGs, withoutServiceDAGsAnyStatus)
 
-	wakeTopicsForDAGRunEvents(mux, []*eventstore.Event{runEvent(eventstore.TypeDAGRunRunning, ir.Running, "svc", "run-1", "")}, alwaysOnSVC)
-	require.Eventually(t, func() bool { return refreshes(withAlwaysOn) == 1 }, time.Second, 10*time.Millisecond)
+	wakeTopicsForDAGRunEvents(mux, []*eventstore.Event{runEvent(eventstore.TypeDAGRunRunning, ir.Running, "svc", "run-1", "")}, serviceDAGSet)
+	require.Eventually(t, func() bool { return refreshes(withServiceDAGs) == 1 }, time.Second, 10*time.Millisecond)
 	require.Never(t, func() bool {
-		return refreshes(withoutAlwaysOn) != 0 || refreshes(withoutAlwaysOnAnyStatus) != 0
+		return refreshes(withoutServiceDAGs) != 0 || refreshes(withoutServiceDAGsAnyStatus) != 0
 	}, 200*time.Millisecond, 20*time.Millisecond)
 
-	wakeTopicsForDAGRunEvents(mux, []*eventstore.Event{runEvent(eventstore.TypeDAGRunRunning, ir.Running, "job", "run-2", "")}, alwaysOnSVC)
+	wakeTopicsForDAGRunEvents(mux, []*eventstore.Event{runEvent(eventstore.TypeDAGRunRunning, ir.Running, "job", "run-2", "")}, serviceDAGSet)
 	require.Eventually(t, func() bool {
-		return refreshes(withAlwaysOn) == 2 && refreshes(withoutAlwaysOn) == 1 && refreshes(withoutAlwaysOnAnyStatus) == 1
+		return refreshes(withServiceDAGs) == 2 && refreshes(withoutServiceDAGs) == 1 && refreshes(withoutServiceDAGsAnyStatus) == 1
 	}, time.Second, 10*time.Millisecond)
 }
 
-// The activity summary skips always-on runs on the same terms as the lists.
-func TestDAGRunInvalidatorSkipsAlwaysOnRunsForActivityThatExcludesThem(t *testing.T) {
+// The activity summary skips service DAG runs on the same terms as the lists.
+func TestDAGRunInvalidatorSkipsServiceDAGRunsForActivityThatExcludesThem(t *testing.T) {
 	const (
-		withAlwaysOn    = "dagrunactivity:hours=24"
-		withoutAlwaysOn = "dagrunactivity:hours=24&excludeAlwaysOnRuns=true"
+		withServiceDAGs    = "dagrunactivity:hours=24"
+		withoutServiceDAGs = "dagrunactivity:hours=24&excludeServiceDAGRuns=true"
 	)
-	mux, refreshes := countingTopics(t, TopicTypeDAGRunActivity, withAlwaysOn, withoutAlwaysOn)
+	mux, refreshes := countingTopics(t, TopicTypeDAGRunActivity, withServiceDAGs, withoutServiceDAGs)
 	failed := func(name, runID string) *eventstore.Event {
 		return runEvent(eventstore.TypeDAGRunFailed, ir.Failed, name, runID, "")
 	}
 
 	// A batch that mixes both kinds still reaches the topic that excludes.
-	wakeTopicsForDAGRunEvents(mux, []*eventstore.Event{failed("svc", "run-1"), failed("job", "run-2")}, alwaysOnSVC)
+	wakeTopicsForDAGRunEvents(mux, []*eventstore.Event{failed("svc", "run-1"), failed("job", "run-2")}, serviceDAGSet)
 	require.Eventually(t, func() bool {
-		return refreshes(withAlwaysOn) == 1 && refreshes(withoutAlwaysOn) == 1
+		return refreshes(withServiceDAGs) == 1 && refreshes(withoutServiceDAGs) == 1
 	}, time.Second, 10*time.Millisecond)
 
-	wakeTopicsForDAGRunEvents(mux, []*eventstore.Event{failed("svc", "run-3")}, alwaysOnSVC)
-	require.Eventually(t, func() bool { return refreshes(withAlwaysOn) == 2 }, time.Second, 10*time.Millisecond)
-	require.Never(t, func() bool { return refreshes(withoutAlwaysOn) != 1 }, 200*time.Millisecond, 20*time.Millisecond)
+	wakeTopicsForDAGRunEvents(mux, []*eventstore.Event{failed("svc", "run-3")}, serviceDAGSet)
+	require.Eventually(t, func() bool { return refreshes(withServiceDAGs) == 2 }, time.Second, 10*time.Millisecond)
+	require.Never(t, func() bool { return refreshes(withoutServiceDAGs) != 1 }, 200*time.Millisecond, 20*time.Millisecond)
 }
 
-// The always-on list changes only with the runs of the always-on DAGs, so a busy
+// The service DAG list changes only with the runs of the service DAGs, so a busy
 // server with other DAGs does not refetch it. A sub-run counts as its root
 // DAG, and when the names cannot be read every run wakes the list.
-func TestDAGRunInvalidatorWakesAlwaysOnListOnlyForItsDAGs(t *testing.T) {
-	const topic = "alwaysondags:"
-	mux, refreshes := countingTopics(t, TopicTypeAlwaysOnDAGs, topic)
+func TestDAGRunInvalidatorWakesServiceDAGListOnlyForItsDAGs(t *testing.T) {
+	const topic = "servicedags:"
+	mux, refreshes := countingTopics(t, TopicTypeServiceDAGs, topic)
 	running := func(name, rootName string) []*eventstore.Event {
 		return []*eventstore.Event{runEvent(eventstore.TypeDAGRunRunning, ir.Running, name, "run-"+name, rootName)}
 	}
 
-	wakeTopicsForDAGRunEvents(mux, running("job", ""), alwaysOnSVC)
+	wakeTopicsForDAGRunEvents(mux, running("job", ""), serviceDAGSet)
 	require.Never(t, func() bool { return refreshes(topic) != 0 }, 200*time.Millisecond, 20*time.Millisecond)
 
-	wakeTopicsForDAGRunEvents(mux, running("svc", ""), alwaysOnSVC)
+	wakeTopicsForDAGRunEvents(mux, running("svc", ""), serviceDAGSet)
 	require.Eventually(t, func() bool { return refreshes(topic) == 1 }, time.Second, 10*time.Millisecond)
 
-	wakeTopicsForDAGRunEvents(mux, running("child", "svc"), alwaysOnSVC)
+	wakeTopicsForDAGRunEvents(mux, running("child", "svc"), serviceDAGSet)
 	require.Eventually(t, func() bool { return refreshes(topic) == 2 }, time.Second, 10*time.Millisecond)
 
 	wakeTopicsForDAGRunEvents(mux, running("job", ""), nil)

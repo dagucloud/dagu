@@ -13,7 +13,7 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/ir"
 )
 
-func TestDescribeAlwaysOn(t *testing.T) {
+func TestDescribeServiceDAG(t *testing.T) {
 	t.Parallel()
 
 	run := func(status ir.Status) *ir.DAGRunStatus {
@@ -28,62 +28,62 @@ func TestDescribeAlwaysOn(t *testing.T) {
 		latest    *ir.DAGRunStatus
 		suspended bool
 		stop      func() (bool, error)
-		want      AlwaysOnState
+		want      ServiceDAGState
 	}{
-		{name: "NoRun", latest: &ir.DAGRunStatus{}, want: AlwaysOnStatePending},
-		{name: "NoRunSuspended", latest: &ir.DAGRunStatus{}, suspended: true, want: AlwaysOnStateSuspended},
-		{name: "Running", latest: run(ir.Running), want: AlwaysOnStateRunning},
-		{name: "RunningWhileSuspended", latest: run(ir.Running), suspended: true, want: AlwaysOnStateRunning},
-		{name: "WaitingApproval", latest: run(ir.Waiting), want: AlwaysOnStateRunning},
-		{name: "Queued", latest: run(ir.Queued), want: AlwaysOnStatePending},
-		{name: "Succeeded", latest: run(ir.Succeeded), want: AlwaysOnStateRestarting},
-		{name: "PartiallySucceeded", latest: run(ir.PartiallySucceeded), want: AlwaysOnStateRestarting},
-		{name: "Failed", latest: run(ir.Failed), want: AlwaysOnStateFailing},
-		{name: "SucceededSuspended", latest: run(ir.Succeeded), suspended: true, want: AlwaysOnStateSuspended},
-		{name: "FailedSuspended", latest: run(ir.Failed), suspended: true, want: AlwaysOnStateSuspended},
+		{name: "NoRun", latest: &ir.DAGRunStatus{}, want: ServiceDAGStatePending},
+		{name: "NoRunSuspended", latest: &ir.DAGRunStatus{}, suspended: true, want: ServiceDAGStateSuspended},
+		{name: "Running", latest: run(ir.Running), want: ServiceDAGStateRunning},
+		{name: "RunningWhileSuspended", latest: run(ir.Running), suspended: true, want: ServiceDAGStateRunning},
+		{name: "WaitingApproval", latest: run(ir.Waiting), want: ServiceDAGStateRunning},
+		{name: "Queued", latest: run(ir.Queued), want: ServiceDAGStatePending},
+		{name: "Succeeded", latest: run(ir.Succeeded), want: ServiceDAGStateRestarting},
+		{name: "PartiallySucceeded", latest: run(ir.PartiallySucceeded), want: ServiceDAGStateRestarting},
+		{name: "Failed", latest: run(ir.Failed), want: ServiceDAGStateFailing},
+		{name: "SucceededSuspended", latest: run(ir.Succeeded), suspended: true, want: ServiceDAGStateSuspended},
+		{name: "FailedSuspended", latest: run(ir.Failed), suspended: true, want: ServiceDAGStateSuspended},
 		{
 			name: "StoppedByOperator", policy: ir.RestartPolicyUnlessStopped,
-			latest: run(ir.Aborted), stop: stopped, want: AlwaysOnStateStopped,
+			latest: run(ir.Aborted), stop: stopped, want: ServiceDAGStateStopped,
 		},
 		{
 			name: "AbortedWithoutStopRequest", policy: ir.RestartPolicyUnlessStopped,
-			latest: run(ir.Aborted), stop: notStopped, want: AlwaysOnStateFailing,
+			latest: run(ir.Aborted), stop: notStopped, want: ServiceDAGStateFailing,
 		},
 		{
 			// A stopped distributed run whose worker is gone ends as failed.
 			name: "StoppedRunThatFailed", policy: ir.RestartPolicyUnlessStopped,
-			latest: run(ir.Failed), stop: stopped, want: AlwaysOnStateStopped,
+			latest: run(ir.Failed), stop: stopped, want: ServiceDAGStateStopped,
 		},
 		{
 			name: "StoppedRunThatSucceeded", policy: ir.RestartPolicyUnlessStopped,
-			latest: run(ir.Succeeded), stop: stopped, want: AlwaysOnStateStopped,
+			latest: run(ir.Succeeded), stop: stopped, want: ServiceDAGStateStopped,
 		},
 		{
 			name: "FailedWithoutStopRequest", policy: ir.RestartPolicyUnlessStopped,
-			latest: run(ir.Failed), stop: notStopped, want: AlwaysOnStateFailing,
+			latest: run(ir.Failed), stop: notStopped, want: ServiceDAGStateFailing,
 		},
 		{
 			name: "SucceededWithoutStopRequest", policy: ir.RestartPolicyUnlessStopped,
-			latest: run(ir.Succeeded), stop: notStopped, want: AlwaysOnStateRestarting,
+			latest: run(ir.Succeeded), stop: notStopped, want: ServiceDAGStateRestarting,
 		},
 		{
 			// A stop does not keep an always DAG down: the next run follows.
 			name: "AlwaysStoppedRestarts", policy: ir.RestartPolicyAlways,
-			latest: run(ir.Aborted), stop: stopped, want: AlwaysOnStateRestarting,
+			latest: run(ir.Aborted), stop: stopped, want: ServiceDAGStateRestarting,
 		},
 		{
 			name: "AlwaysStoppedRunThatFailed", policy: ir.RestartPolicyAlways,
-			latest: run(ir.Failed), stop: stopped, want: AlwaysOnStateRestarting,
+			latest: run(ir.Failed), stop: stopped, want: ServiceDAGStateRestarting,
 		},
 		{
 			name: "AlwaysFailedWithoutStopRequest", policy: ir.RestartPolicyAlways,
-			latest: run(ir.Failed), stop: notStopped, want: AlwaysOnStateFailing,
+			latest: run(ir.Failed), stop: notStopped, want: ServiceDAGStateFailing,
 		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
-			got, err := DescribeAlwaysOn(tt.policy, tt.latest, tt.suspended, tt.stop)
+			got, err := DescribeServiceDAG(tt.policy, tt.latest, tt.suspended, tt.stop)
 			require.NoError(t, err)
 			assert.Equal(t, tt.want, got)
 		})
@@ -91,7 +91,7 @@ func TestDescribeAlwaysOn(t *testing.T) {
 
 	t.Run("StopCheckFails", func(t *testing.T) {
 		t.Parallel()
-		_, err := DescribeAlwaysOn(ir.RestartPolicyUnlessStopped, run(ir.Aborted), false,
+		_, err := DescribeServiceDAG(ir.RestartPolicyUnlessStopped, run(ir.Aborted), false,
 			func() (bool, error) { return false, errors.New("boom") })
 		require.Error(t, err)
 	})
@@ -106,7 +106,7 @@ func TestDescribeAlwaysOn(t *testing.T) {
 			{ir.RestartPolicyAlways, ir.Succeeded},
 			{ir.RestartPolicyUnlessStopped, ir.Running},
 		} {
-			_, err := DescribeAlwaysOn(tt.policy, run(tt.status), false,
+			_, err := DescribeServiceDAG(tt.policy, run(tt.status), false,
 				func() (bool, error) { calls++; return true, nil })
 			require.NoError(t, err)
 		}

@@ -1303,11 +1303,11 @@ func TestManagerReadLatestStatus(t *testing.T) {
 	})
 }
 
-func TestCheckAlwaysOnRun(t *testing.T) {
+func TestCheckServiceRun(t *testing.T) {
 	t.Parallel()
 
 	const steps = "steps:\n  - run: echo ok\n"
-	const alwaysOn = "restart_policy: always\nrestart_wait_sec: 1\n" + steps
+	const service = "restart_policy: always\nrestart_wait_sec: 1\n" + steps
 
 	for _, tt := range []struct {
 		name    string
@@ -1317,14 +1317,14 @@ func TestCheckAlwaysOnRun(t *testing.T) {
 		ownRun  bool
 		refused bool
 	}{
-		{name: "Queued", spec: alwaysOn, status: ir.Queued, refused: true},
-		{name: "Waiting", spec: alwaysOn, status: ir.Waiting, refused: true},
+		{name: "Queued", spec: service, status: ir.Queued, refused: true},
+		{name: "Waiting", spec: service, status: ir.Waiting, refused: true},
 		// A run that waits for a worker has no process and no queue item.
-		{name: "NotStarted", spec: alwaysOn, status: ir.NotStarted, refused: true},
+		{name: "NotStarted", spec: service, status: ir.NotStarted, refused: true},
 		// The scheduler fails such a run, and may not be running to do so.
-		{name: "NotStartedTooLong", spec: alwaysOn, status: ir.NotStarted, age: runtime.AlwaysOnRunStartTimeout + time.Minute},
-		{name: "Succeeded", spec: alwaysOn, status: ir.Succeeded},
-		{name: "OwnRun", spec: alwaysOn, status: ir.Queued, ownRun: true},
+		{name: "NotStartedTooLong", spec: service, status: ir.NotStarted, age: runtime.ServiceRunStartTimeout + time.Minute},
+		{name: "Succeeded", spec: service, status: ir.Succeeded},
+		{name: "OwnRun", spec: service, status: ir.Queued, ownRun: true},
 		{name: "NoPolicy", spec: steps, status: ir.Queued},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
@@ -1350,9 +1350,9 @@ func TestCheckAlwaysOnRun(t *testing.T) {
 			if tt.ownRun {
 				newRun = runID
 			}
-			err = th.DAGRunMgr.CheckAlwaysOnRun(th.Context, dag.DAG, newRun)
+			err = th.DAGRunMgr.CheckServiceRun(th.Context, dag.DAG, newRun)
 			if tt.refused {
-				require.ErrorIs(t, err, runtime.ErrAlwaysOnRunActive)
+				require.ErrorIs(t, err, runtime.ErrServiceRunActive)
 				return
 			}
 			require.NoError(t, err)
@@ -1363,7 +1363,7 @@ func TestCheckAlwaysOnRun(t *testing.T) {
 		t.Parallel()
 
 		th := test.Setup(t)
-		dag := th.DAG(t, alwaysOn)
-		require.NoError(t, th.DAGRunMgr.CheckAlwaysOnRun(th.Context, dag.DAG, "run-1"))
+		dag := th.DAG(t, service)
+		require.NoError(t, th.DAGRunMgr.CheckServiceRun(th.Context, dag.DAG, "run-1"))
 	})
 }

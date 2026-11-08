@@ -124,7 +124,7 @@ type API struct {
 	oidcRoleMapping      func() config.OIDCRoleMapping
 	openCodeHost         *opencodehost.Host
 	workspaceDeprecation deprecation.Sources
-	alwaysOnFailures     failureStreaks
+	serviceDAGFailures   failureStreaks
 }
 
 type processRepository interface {

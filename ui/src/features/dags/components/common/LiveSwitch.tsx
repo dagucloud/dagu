@@ -16,7 +16,7 @@ import { useConfig } from '../../../../contexts/ConfigContext';
 import { useClient } from '../../../../hooks/api';
 import { I18nProps } from '@/i18n/I18nProps';
 import { useI18n } from '@/i18n/I18nProvider';
-import { isAlwaysOnDAG } from '@/lib/dagSchedule';
+import { isServiceDAG } from '@/lib/dagSchedule';
 
 /**
  * Props for the LiveSwitch component
@@ -49,7 +49,7 @@ function LiveSwitch({ dag, refresh, 'aria-label': ariaLabel }: Props) {
   const [showConfirm, setShowConfirm] = useState(false);
   const [pendingState, setPendingState] = useState<boolean | null>(null);
   const remoteNode = useRemoteNode();
-  const isAlwaysOn = isAlwaysOnDAG(dag.dag);
+  const isService = isServiceDAG(dag.dag);
 
   const onSubmit = useCallback(
     async (suspend: boolean) => {
@@ -109,7 +109,7 @@ function LiveSwitch({ dag, refresh, 'aria-label': ariaLabel }: Props) {
         disabled={!config.permissions.runDags}
         aria-label={
           ariaLabel ??
-          ts(isAlwaysOn ? 'Restarts for {name}' : 'Schedule for {name}', {
+          ts(isService ? 'Restarts for {name}' : 'Schedule for {name}', {
             name: dag.dag.name,
           })
         }
@@ -117,7 +117,7 @@ function LiveSwitch({ dag, refresh, 'aria-label': ariaLabel }: Props) {
       <I18nProps>
         <ConfirmModal
           title={
-            isAlwaysOn
+            isService
               ? pendingState
                 ? 'Resume restarts'
                 : 'Suspend restarts'
@@ -126,7 +126,7 @@ function LiveSwitch({ dag, refresh, 'aria-label': ariaLabel }: Props) {
                 : 'Disable schedule'
           }
           buttonText={
-            isAlwaysOn
+            isService
               ? pendingState
                 ? 'Resume'
                 : 'Suspend'
@@ -139,7 +139,7 @@ function LiveSwitch({ dag, refresh, 'aria-label': ariaLabel }: Props) {
           onSubmit={handleConfirm}
         >
           <p>
-            {isAlwaysOn
+            {isService
               ? ts(
                   pendingState
                     ? 'Resume the restarts of "{name}"? The scheduler starts a run when one is due.'

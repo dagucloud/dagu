@@ -88,18 +88,18 @@ const (
 	dagRunActivityMaxInterval = 30 * time.Second
 	// dagRunsMaxInterval bounds how stale a live run list gets when no run
 	// event wakes it, such as when a DAG gains or loses a restart policy and
-	// its runs move in or out of the lists that leave always-on runs out.
+	// its runs move in or out of the lists that leave service DAG runs out.
 	dagRunsMaxInterval = 30 * time.Second
 	// dagDetailsMaxInterval bounds how stale a DAG details topic gets when no
 	// wake reaches it, such as when its next run time passes or a DAG file
 	// outside the watched directories changes.
 	dagDetailsMaxInterval = 30 * time.Second
-	// alwaysOnDAGsMinInterval is the shortest gap between two refetches of the
-	// always-on DAG list.
-	alwaysOnDAGsMinInterval = 2 * time.Second
-	// alwaysOnDAGsMaxInterval bounds how stale the list gets when nothing wakes
+	// serviceDAGsMinInterval is the shortest gap between two refetches of the
+	// service DAG list.
+	serviceDAGsMinInterval = 2 * time.Second
+	// serviceDAGsMaxInterval bounds how stale the list gets when nothing wakes
 	// it, such as an operator stop that no run event reports yet.
-	alwaysOnDAGsMaxInterval = 30 * time.Second
+	serviceDAGsMaxInterval = 30 * time.Second
 )
 
 var wikiSSETopicTypes = [...]sse.TopicType{
@@ -734,7 +734,7 @@ func NewServer(setup ServerConfig, opts ...ServerOption) (*Server, error) {
 			return
 		}
 		srv.sseMultiplexer.WakeTopicType(sse.TopicTypeDAGsList)
-		srv.sseMultiplexer.WakeTopicType(sse.TopicTypeAlwaysOnDAGs)
+		srv.sseMultiplexer.WakeTopicType(sse.TopicTypeServiceDAGs)
 		srv.sseMultiplexer.WakeTopic(sse.TopicTypeDAG, fileName)
 	}))
 	apiOpts = append(apiOpts, apiv1.WithWikiMutationNotifier(func() {
@@ -1417,11 +1417,11 @@ func (srv *Server) setupSSERoute(ctx context.Context, r *chi.Mux, apiV1BasePath 
 	srv.registerDedicatedSSEFetchers(srv.sseMultiplexer)
 	srv.startAppStreamInvalidationBridge(ctx)
 	if srv.eventService != nil {
-		var alwaysOnDAGs sse.AlwaysOnDAGNames
+		var serviceDAGs sse.ServiceDAGNames
 		if srv.dagRepository != nil {
-			alwaysOnDAGs = srv.dagRepository.AlwaysOnDAGNames
+			serviceDAGs = srv.dagRepository.ServiceDAGNames
 		}
-		sse.StartDAGRunEventInvalidation(srv.sseMultiplexer.Context(), srv.eventService, srv.sseMultiplexer, alwaysOnDAGs, slog.Default(), time.Second)
+		sse.StartDAGRunEventInvalidation(srv.sseMultiplexer.Context(), srv.eventService, srv.sseMultiplexer, serviceDAGs, slog.Default(), time.Second)
 	}
 
 	multiplexHandler := sse.NewMultiplexHandler(srv.sseMultiplexer, srv.remoteNodeResolver)
@@ -1473,13 +1473,13 @@ func (srv *Server) wakeMultiplexedTopicsForAppEvent(event sse.AppEvent) {
 	switch event.Type {
 	case sse.AppEventTypeDAGChanged:
 		srv.sseMultiplexer.WakeTopicType(sse.TopicTypeDAGsList)
-		srv.sseMultiplexer.WakeTopicType(sse.TopicTypeAlwaysOnDAGs)
+		srv.sseMultiplexer.WakeTopicType(sse.TopicTypeServiceDAGs)
 		srv.sseMultiplexer.WakeTopicType(sse.TopicTypeDAG)
 		srv.sseMultiplexer.WakeTopicType(sse.TopicTypeDAGHistory)
 	case sse.AppEventTypeScheduler:
 		srv.sseMultiplexer.WakeTopicType(sse.TopicTypeDAGsList)
 		srv.sseMultiplexer.WakeTopicType(sse.TopicTypeDAG)
-		srv.sseMultiplexer.WakeTopicType(sse.TopicTypeAlwaysOnDAGs)
+		srv.sseMultiplexer.WakeTopicType(sse.TopicTypeServiceDAGs)
 	case sse.AppEventTypeQueue:
 		srv.sseMultiplexer.WakeTopicType(sse.TopicTypeQueues)
 		if event.QueueName != "" {
@@ -1503,7 +1503,7 @@ func (srv *Server) wakeAllMultiplexedFileBackedTopics() {
 	srv.sseMultiplexer.WakeTopicType(sse.TopicTypeQueueItems)
 	srv.sseMultiplexer.WakeTopicType(sse.TopicTypeQueues)
 	srv.sseMultiplexer.WakeTopicType(sse.TopicTypeDAGsList)
-	srv.sseMultiplexer.WakeTopicType(sse.TopicTypeAlwaysOnDAGs)
+	srv.sseMultiplexer.WakeTopicType(sse.TopicTypeServiceDAGs)
 	srv.wakeWikiTopics()
 }
 
@@ -1572,11 +1572,11 @@ func (srv *Server) registerDedicatedSSEFetchers(registrar *sse.Multiplexer) {
 	registrar.SetMaxInterval(sse.TopicTypeDAGRuns, dagRunsMaxInterval)
 	registrar.RegisterFetcher(sse.TopicTypeQueues, srv.apiV1.GetQueuesListData)
 	registrar.RegisterFetcher(sse.TopicTypeDAGsList, srv.apiV1.GetDAGsListData)
-	registrar.RegisterFetcher(sse.TopicTypeAlwaysOnDAGs, srv.apiV1.GetAlwaysOnDAGsData)
+	registrar.RegisterFetcher(sse.TopicTypeServiceDAGs, srv.apiV1.GetServiceDAGsData)
 	// A service restarts all the time, and a refetch reads the latest run of
-	// every always-on DAG, so bursts of run events are merged into one refetch.
-	registrar.SetMinInterval(sse.TopicTypeAlwaysOnDAGs, alwaysOnDAGsMinInterval)
-	registrar.SetMaxInterval(sse.TopicTypeAlwaysOnDAGs, alwaysOnDAGsMaxInterval)
+	// every service DAG, so bursts of run events are merged into one refetch.
+	registrar.SetMinInterval(sse.TopicTypeServiceDAGs, serviceDAGsMinInterval)
+	registrar.SetMaxInterval(sse.TopicTypeServiceDAGs, serviceDAGsMaxInterval)
 	for _, topicType := range []sse.TopicType{sse.TopicTypeWikiPage, sse.TopicTypeLegacyDoc} {
 		registrar.RegisterFetcher(topicType, srv.apiV1.GetWikiPageContentData)
 	}
@@ -1616,8 +1616,8 @@ func (srv *Server) registerDedicatedSSEFetchers(registrar *sse.Multiplexer) {
 			registrar.SetMaxInterval(sse.TopicTypeDAG, dagDetailsMaxInterval)
 			// DAG changes, such as a suspension, reach this topic through the
 			// app stream.
-			registrar.SetRefreshMode(sse.TopicTypeAlwaysOnDAGs, sse.TopicRefreshModeOnDemand)
-			registrar.SetPublishOnWake(sse.TopicTypeAlwaysOnDAGs, true)
+			registrar.SetRefreshMode(sse.TopicTypeServiceDAGs, sse.TopicRefreshModeOnDemand)
+			registrar.SetPublishOnWake(sse.TopicTypeServiceDAGs, true)
 		}
 		registrar.SetPublishOnWake(sse.TopicTypeDAGRuns, true)
 		registrar.SetPublishOnWake(sse.TopicTypeQueues, true)

@@ -778,7 +778,7 @@ func (a *API) TriggerWebhook(ctx context.Context, request api.TriggerWebhookRequ
 		dagRunID = uuid.Must(uuid.NewV7()).String()
 	}
 
-	if err := a.dagRunMgr.CheckAlwaysOnRun(ctx, dag, dagRunID); err != nil {
+	if err := a.dagRunMgr.CheckServiceRun(ctx, dag, dagRunID); err != nil {
 		return api.TriggerWebhook409JSONResponse{
 			Code:    api.ErrorCodeConflict,
 			Message: err.Error(),

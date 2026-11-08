@@ -18,17 +18,17 @@ import (
 
 const defaultDAGRunInvalidationPollInterval = time.Second
 
-// AlwaysOnDAGNames returns the names of the DAGs that set a restart policy.
-type AlwaysOnDAGNames func(ctx context.Context) ([]string, error)
+// ServiceDAGNames returns the names of the DAGs that set a restart policy.
+type ServiceDAGNames func(ctx context.Context) ([]string, error)
 
 // StartDAGRunEventInvalidation wakes the topics that show the runs of new
-// DAG-run events. alwaysOnDAGs tells which events concern an always-on DAG;
+// DAG-run events. serviceDAGs tells which events concern a service DAG;
 // when it is nil or fails, every event counts as one that may.
 func StartDAGRunEventInvalidation(
 	ctx context.Context,
 	service *eventstore.Service,
 	mux *Multiplexer,
-	alwaysOnDAGs AlwaysOnDAGNames,
+	serviceDAGs ServiceDAGNames,
 	logger *slog.Logger,
 	pollInterval time.Duration,
 ) {
@@ -82,20 +82,20 @@ func StartDAGRunEventInvalidation(
 				continue
 			}
 
-			wakeTopicsForDAGRunEvents(mux, events, readAlwaysOnDAGs(ctx, alwaysOnDAGs, logger))
+			wakeTopicsForDAGRunEvents(mux, events, readServiceDAGs(ctx, serviceDAGs, logger))
 		}
 	}()
 }
 
-// readAlwaysOnDAGs returns the set of always-on DAG names, or nil when they
+// readServiceDAGs returns the set of service DAG names, or nil when they
 // cannot be read.
-func readAlwaysOnDAGs(ctx context.Context, read AlwaysOnDAGNames, logger *slog.Logger) map[string]struct{} {
+func readServiceDAGs(ctx context.Context, read ServiceDAGNames, logger *slog.Logger) map[string]struct{} {
 	if read == nil {
 		return nil
 	}
 	names, err := read(ctx)
 	if err != nil {
-		logger.Warn("Failed to read the always-on DAGs for SSE invalidation", slog.String("error", err.Error()))
+		logger.Warn("Failed to read the service DAGs for SSE invalidation", slog.String("error", err.Error()))
 		return nil
 	}
 	set := make(map[string]struct{}, len(names))
@@ -106,8 +106,8 @@ func readAlwaysOnDAGs(ctx context.Context, read AlwaysOnDAGNames, logger *slog.L
 }
 
 // wakeTopicsForDAGRunEvents wakes the topics that show the runs of events.
-// alwaysOn holds the names of the always-on DAGs; nil means they are unknown.
-func wakeTopicsForDAGRunEvents(mux *Multiplexer, events []*eventstore.Event, alwaysOn map[string]struct{}) {
+// serviceDAGs holds the names of the service DAGs; nil means they are unknown.
+func wakeTopicsForDAGRunEvents(mux *Multiplexer, events []*eventstore.Event, serviceDAGs map[string]struct{}) {
 	if mux == nil {
 		return
 	}
@@ -117,10 +117,10 @@ func wakeTopicsForDAGRunEvents(mux *Multiplexer, events []*eventstore.Event, alw
 		withoutRuns: make(map[ir.Status]struct{}),
 	}
 	for _, event := range events {
-		statuses, alwaysOnRun := wakeTopicsForDAGRunEvent(mux, event, alwaysOn)
+		statuses, serviceDAGRun := wakeTopicsForDAGRunEvent(mux, event, serviceDAGs)
 		for _, status := range statuses {
 			affected.all[status] = struct{}{}
-			if !alwaysOnRun {
+			if !serviceDAGRun {
 				affected.withoutRuns[status] = struct{}{}
 			}
 		}
@@ -130,7 +130,7 @@ func wakeTopicsForDAGRunEvents(mux *Multiplexer, events []*eventstore.Event, alw
 }
 
 // listWakeStatuses holds the statuses that a batch of events changed. A run
-// of an always-on DAG changes a list only when the list shows always-on runs,
+// of a service DAG changes a list only when the list shows service DAG runs,
 // so those events count in all but not in withoutRuns.
 type listWakeStatuses struct {
 	all         map[ir.Status]struct{}
@@ -139,8 +139,8 @@ type listWakeStatuses struct {
 
 // wakeTopicsForDAGRunEvent wakes the topics that show the run of an event. It
 // returns the statuses that the event changed in lists, and whether the run
-// belongs to an always-on DAG. A sub-run belongs to the DAG of its root run.
-func wakeTopicsForDAGRunEvent(mux *Multiplexer, event *eventstore.Event, alwaysOn map[string]struct{}) ([]ir.Status, bool) {
+// belongs to a service DAG. A sub-run belongs to the DAG of its root run.
+func wakeTopicsForDAGRunEvent(mux *Multiplexer, event *eventstore.Event, serviceDAGs map[string]struct{}) ([]ir.Status, bool) {
 	if event == nil {
 		return nil, false
 	}
@@ -153,7 +153,7 @@ func wakeTopicsForDAGRunEvent(mux *Multiplexer, event *eventstore.Event, alwaysO
 	if dagName == "" {
 		dagName = snapshot.Name
 	}
-	_, alwaysOnRun := alwaysOn[dagName]
+	_, serviceDAGRun := serviceDAGs[dagName]
 
 	if snapshot.Name != "" && snapshot.DAGRunID != "" {
 		mux.WakeTopic(TopicTypeDAGRun, snapshot.Name+"/"+snapshot.DAGRunID)
@@ -170,8 +170,8 @@ func wakeTopicsForDAGRunEvent(mux *Multiplexer, event *eventstore.Event, alwaysO
 
 	mux.WakeTopicType(TopicTypeQueues)
 	mux.WakeTopicType(TopicTypeDAGsList)
-	if alwaysOn == nil || alwaysOnRun {
-		mux.WakeTopicType(TopicTypeAlwaysOnDAGs)
+	if serviceDAGs == nil || serviceDAGRun {
+		mux.WakeTopicType(TopicTypeServiceDAGs)
 	}
 
 	if snapshot.ProcGroup != "" {
@@ -182,12 +182,12 @@ func wakeTopicsForDAGRunEvent(mux *Multiplexer, event *eventstore.Event, alwaysO
 	if snapshot.DAGFile != "" {
 		mux.wakeDAGFileTopics(TopicTypeDAG, snapshot.DAGFile)
 		mux.wakeDAGFileTopics(TopicTypeDAGHistory, snapshot.DAGFile)
-		return affectedStatuses, alwaysOnRun
+		return affectedStatuses, serviceDAGRun
 	}
 
 	mux.WakeTopicType(TopicTypeDAG)
 	mux.WakeTopicType(TopicTypeDAGHistory)
-	return affectedStatuses, alwaysOnRun
+	return affectedStatuses, serviceDAGRun
 }
 
 func affectedDAGRunListStatuses(eventType eventstore.EventType, current ir.Status) []ir.Status {
@@ -242,20 +242,20 @@ func wakeDAGRunListTopics(mux *Multiplexer, affected listWakeStatuses) {
 
 // dagRunActivityTopicMatches reports whether the changes reach an activity
 // topic. Activity has no status filter, so any change does, except changes
-// that only concern always-on runs when the topic leaves them out.
+// that only concern service DAG runs when the topic leaves them out.
 func dagRunActivityTopicMatches(identifier string, affected listWakeStatuses) bool {
-	if excludesAlwaysOnRuns(identifier) {
+	if excludesServiceDAGRuns(identifier) {
 		return len(affected.withoutRuns) > 0
 	}
 	return true
 }
 
-func excludesAlwaysOnRuns(identifier string) bool {
+func excludesServiceDAGRuns(identifier string) bool {
 	values, err := url.ParseQuery(identifier)
 	if err != nil {
 		return false
 	}
-	exclude, err := strconv.ParseBool(values.Get("excludeAlwaysOnRuns"))
+	exclude, err := strconv.ParseBool(values.Get("excludeServiceDAGRuns"))
 	return err == nil && exclude
 }
 
@@ -265,7 +265,7 @@ func dagRunListTopicMatchesStatuses(identifier string, affected listWakeStatuses
 		return true
 	}
 	affectedStatuses := affected.all
-	if excludesAlwaysOnRuns(identifier) {
+	if excludesServiceDAGRuns(identifier) {
 		affectedStatuses = affected.withoutRuns
 	}
 	if len(affectedStatuses) == 0 {

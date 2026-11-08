@@ -61,7 +61,7 @@ func runRestart(ctx *Context, args []string) error {
 	name := args[0]
 
 	// The scheduler follows the current definition, so it decides whether the
-	// DAG is always-on. The snapshot of a run decides only once the definition
+	// DAG is a service. The snapshot of a run decides only once the definition
 	// is gone.
 	current, loadErr := spec.Load(ctx, args[0],
 		spec.WithBaseConfig(ctx.Config.Paths.BaseConfig),
@@ -69,7 +69,7 @@ func runRestart(ctx *Context, args []string) error {
 		spec.WithDAGsDir(ctx.Config.Paths.DAGsDir),
 	)
 	if loadErr == nil && current.RestartPolicy.Enabled() {
-		return errRestartAlwaysOnDAG(current.Name, current.RestartPolicy)
+		return errRestartServiceDAG(current.Name, current.RestartPolicy)
 	}
 
 	var attempt dagrun.Attempt
@@ -94,7 +94,7 @@ func runRestart(ctx *Context, args []string) error {
 
 	dag, readErr := attempt.ReadDAG(ctx)
 	if readErr == nil && loadErr != nil && dag.RestartPolicy.Enabled() {
-		return errRestartAlwaysOnDAG(dag.Name, dag.RestartPolicy)
+		return errRestartServiceDAG(dag.Name, dag.RestartPolicy)
 	}
 
 	if dagStatus.Status != ir.Running {
@@ -117,10 +117,10 @@ func runRestart(ctx *Context, args []string) error {
 	return nil
 }
 
-// errRestartAlwaysOnDAG rejects the restart of a DAG that sets restart_policy:
+// errRestartServiceDAG rejects the restart of a DAG that sets restart_policy:
 // the scheduler starts its runs, and a run started by the command next to them
 // would race with the scheduler's own restart.
-func errRestartAlwaysOnDAG(name string, policy ir.RestartPolicy) error {
+func errRestartServiceDAG(name string, policy ir.RestartPolicy) error {
 	return fmt.Errorf(
 		"DAG %s sets restart_policy %q, so the scheduler starts its runs: stop the running run instead "+
 			"(with unless-stopped, start the DAG again after the stop)",
