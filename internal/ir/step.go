@@ -449,7 +449,15 @@ type RepeatPolicy struct {
 	Condition *Condition `json:"condition,omitempty"`
 	// ExitCode is the list of exit codes that should trigger a repeat.
 	ExitCode []int `json:"exitCode,omitempty"`
+	// OnLimit controls what happens when the repeat limit is reached with an
+	// "until" condition still unmet. Empty or "succeed" keeps the step's last
+	// result; "fail" marks the step failed.
+	OnLimit string `json:"onLimit,omitempty"`
 }
+
+// RepeatOnLimitFail is the on_limit value that fails a step whose repeat
+// limit is reached with the until condition unmet.
+const RepeatOnLimitFail = "fail"
 
 // UnmarshalJSON implements the json.Unmarshaler interface for RepeatPolicy.
 // It handles the legacy boolean repeat field and the new string repeat modes.
@@ -474,6 +482,7 @@ func (r *RepeatPolicy) UnmarshalJSON(data []byte) error {
 	r.Backoff = aux.Backoff
 	r.MaxInterval = aux.MaxInterval
 	r.MaxIntervalStr = aux.MaxIntervalStr
+	r.OnLimit = aux.OnLimit
 
 	// If RepeatMode is already set, we're done (new format)
 	if r.RepeatMode != "" {

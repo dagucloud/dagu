@@ -2102,6 +2102,9 @@ func (r *Runner) shouldRepeatNode(ctx context.Context, node *Node, execErr error
 
 	// Check the hard limit first - this overrides everything
 	if rp.Limit > 0 && node.State().DoneCount >= rp.Limit {
+		if rp.OnLimit == ir.RepeatOnLimitFail {
+			r.failRepeatLimit(ctx, node, rp)
+		}
 		return false
 	}
 
@@ -2196,6 +2199,23 @@ func (r *Runner) evalUntilCondition(ctx context.Context, shell []string, node *N
 	}
 	// Unconditional until: repeat until the step succeeds
 	return execErr != nil, nil
+}
+
+// failRepeatLimit marks the node failed when the repeat limit was reached
+// with an "until" condition still unmet (on_limit: fail). A met condition,
+// or one that cannot be evaluated, leaves the step's last result untouched.
+func (r *Runner) failRepeatLimit(ctx context.Context, node *Node, rp ir.RepeatPolicy) {
+	if rp.Condition == nil {
+		return
+	}
+	ctx = r.reloadNodeOutputs(ctx, node)
+	shell := GetEnv(ctx).Shell(ctx)
+	if err := EvalCondition(ctx, shell, rp.Condition); !errors.Is(err, ErrConditionNotMet) {
+		return
+	}
+	err := fmt.Errorf("repeat limit %d reached; condition not met", rp.Limit)
+	node.MarkError(err)
+	r.setLastError(err)
 }
 
 // setupRepeatEnv sets up the environment of the node's next repeat the same

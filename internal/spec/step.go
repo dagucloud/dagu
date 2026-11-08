@@ -248,6 +248,7 @@ type repeatPolicy struct {
 	ExitCode       []int              `yaml:"exit_code,omitempty"`        // List of exit codes to consider for repeating the step
 	Backoff        types.BackoffValue `yaml:"backoff,omitempty"`          // Accepts bool or float
 	MaxIntervalSec types.IntOrDynamic `yaml:"max_interval_sec,omitempty"` // Maximum interval in seconds
+	OnLimit        string             `yaml:"on_limit,omitempty"`         // What happens when the limit is reached with the until condition unmet: "fail" or "succeed"
 }
 
 // retryPolicy defines the retry policy for a step.
@@ -1081,6 +1082,17 @@ func buildStepRepeatPolicy(_ stepBuildContext, s *step) (ir.RepeatPolicy, error)
 		result.MaxInterval = time.Second * time.Duration(maxIntervalSec)
 	}
 	result.MaxIntervalStr = rp.MaxIntervalSec.Str()
+
+	switch rp.OnLimit {
+	case "", "succeed":
+	case ir.RepeatOnLimitFail:
+		if mode != ir.RepeatModeUntil || rp.Condition == "" {
+			return ir.RepeatPolicy{}, fmt.Errorf("repeat_policy.on_limit: fail requires repeat: until with a condition")
+		}
+		result.OnLimit = rp.OnLimit
+	default:
+		return ir.RepeatPolicy{}, fmt.Errorf("repeat_policy.on_limit must be \"fail\" or \"succeed\", got %q", rp.OnLimit)
+	}
 
 	return result, nil
 }
