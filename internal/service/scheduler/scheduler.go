@@ -372,14 +372,8 @@ func newScheduler(
 		RecentRuns: func(ctx context.Context, dag *ir.DAG) ([]ir.DAGRunStatus, error) {
 			return dagRunRepository.RecentStatuses(ctx, dag.Name, restartRecentRuns)
 		},
-		// A stop from the CLI, the API or the coordinator leaves an abort request
-		// on the attempt; other aborted runs have none.
 		IsStopRequested: func(ctx context.Context, dag *ir.DAG, runID string) (bool, error) {
-			attempt, err := dagRunRepository.FindAttempt(ctx, ir.NewDAGRunRef(dag.Name, runID))
-			if err != nil {
-				return false, err
-			}
-			return attempt.IsAborting(ctx)
+			return IsStopRequested(ctx, dagRunRepository, dag, runID)
 		},
 		FailStuckRun: func(ctx context.Context, dag *ir.DAG, status *ir.DAGRunStatus, at time.Time) error {
 			_, _, err := dagRunRepository.CompareAndSwapLatestAttemptStatus(ctx,

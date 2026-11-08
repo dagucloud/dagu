@@ -706,6 +706,8 @@ func (a *API) ListDAGRuns(ctx context.Context, request api.ListDAGRunsRequestObj
 		labels:   labelsParam,
 		limit:    request.Params.Limit,
 		cursor:   request.Params.Cursor,
+
+		excludeServiceDAGRuns: request.Params.ExcludeServiceDAGRuns != nil && *request.Params.ExcludeServiceDAGRuns,
 	})
 	workspaceFilter, err := a.workspaceFilterForParams(ctx, request.Params.Workspace)
 	if err != nil {
@@ -724,7 +726,7 @@ func (a *API) ListDAGRuns(ctx context.Context, request api.ListDAGRunsRequestObj
 		endpoint: "/dag-runs",
 		dagName:  dagName,
 		dagRunID: dagRunID,
-	}, opts.query)
+	}, opts)
 	if err != nil {
 		if apiErr := dagRunListBadRequest(err); apiErr != nil {
 			return nil, apiErr
@@ -765,7 +767,7 @@ func (a *API) ListDAGRunsByName(ctx context.Context, request api.ListDAGRunsByNa
 		endpoint: "/dag-runs/{name}",
 		dagName:  request.Name,
 		dagRunID: dagRunID,
-	}, opts.query)
+	}, opts)
 	if err != nil {
 		if apiErr := dagRunListBadRequest(err); apiErr != nil {
 			return nil, apiErr
@@ -782,8 +784,15 @@ func (a *API) ListDAGRunsByName(ctx context.Context, request api.ListDAGRunsByNa
 	return api.ListDAGRunsByName200JSONResponse(toDAGRunsPageResponse(page)), nil
 }
 
+// excludeServiceDAGRunsParam names the query parameter that leaves out the
+// runs of the service DAGs.
+const excludeServiceDAGRunsParam = "excludeServiceDAGRuns"
+
 type dagRunListOptions struct {
 	query persis.DAGRunListOptions
+	// excludeServiceDAGRuns leaves out the runs of the service DAGs, which a
+	// read resolves into query.ExcludeDAGNames.
+	excludeServiceDAGRuns bool
 }
 
 type dagRunListFilterInput struct {
@@ -796,6 +805,8 @@ type dagRunListFilterInput struct {
 	labels    *string
 	limit     *int
 	cursor    *string
+	// excludeServiceDAGRuns drops the runs of the service DAGs.
+	excludeServiceDAGRuns bool
 }
 
 func buildDAGRunListOptions(input dagRunListFilterInput) dagRunListOptions {
@@ -833,6 +844,7 @@ func buildDAGRunListOptions(input dagRunListFilterInput) dagRunListOptions {
 	if input.cursor != nil && *input.cursor != "" {
 		opts.query.Cursor = *input.cursor
 	}
+	opts.excludeServiceDAGRuns = input.excludeServiceDAGRuns
 	opts.query.Limit = limit
 	return opts
 }
@@ -840,10 +852,13 @@ func buildDAGRunListOptions(input dagRunListFilterInput) dagRunListOptions {
 func (a *API) readDAGRunsPage(
 	ctx context.Context,
 	info dagRunReadRequestInfo,
-	opts persis.DAGRunListOptions,
+	opts dagRunListOptions,
 ) (persis.DAGRunStatusPage, error) {
 	page, err := withDAGRunReadTimeout(ctx, info, func(readCtx context.Context) (persis.DAGRunStatusPage, error) {
-		page, listErr := a.dagRunRepository.ListStatusesPage(readCtx, opts)
+		query := opts.query
+		// The names can take a DAG listing to resolve, so the timeout covers it.
+		query.ExcludeDAGNames = a.excludedDAGNames(readCtx, opts.excludeServiceDAGRuns)
+		page, listErr := a.dagRunRepository.ListStatusesPage(readCtx, query)
 		if listErr != nil {
 			return persis.DAGRunStatusPage{}, fmt.Errorf("error listing dag-runs: %w", listErr)
 		}
@@ -5212,6 +5227,7 @@ func (a *API) GetDAGRunsListData(ctx context.Context, queryString string) (any, 
 		if err != nil {
 			return nil, err
 		}
+		opts.query.ExcludeDAGNames = a.excludedDAGNames(readCtx, opts.excludeServiceDAGRuns)
 
 		page, err := a.dagRunRepository.ListStatusesPage(readCtx, opts.query)
 		if err != nil {
@@ -5255,6 +5271,8 @@ func (a *API) dagRunListOptionsFromQueryString(ctx context.Context, queryString 
 		labels       *string
 		limit        *int
 		cursor       *string
+
+		excludeServiceDAGRuns bool
 	)
 
 	if rawStatuses, hasStatus := params["status"]; hasStatus {
@@ -5314,6 +5332,13 @@ func (a *API) dagRunListOptionsFromQueryString(ctx context.Context, queryString 
 	if rawCursor := params.Get("cursor"); rawCursor != "" {
 		cursor = &rawCursor
 	}
+	if rawExclude := params.Get(excludeServiceDAGRunsParam); rawExclude != "" {
+		parsed, convErr := strconv.ParseBool(rawExclude)
+		if convErr != nil {
+			return dagRunListOptions{}, invalidDAGRunListParam(ctx, excludeServiceDAGRunsParam, rawExclude, convErr)
+		}
+		excludeServiceDAGRuns = parsed
+	}
 
 	opts := buildDAGRunListOptions(dagRunListFilterInput{
 		statuses: statusValues,
@@ -5324,6 +5349,8 @@ func (a *API) dagRunListOptionsFromQueryString(ctx context.Context, queryString 
 		labels:   labels,
 		limit:    limit,
 		cursor:   cursor,
+
+		excludeServiceDAGRuns: excludeServiceDAGRuns,
 	})
 
 	workspaceParam := workspaceParamFromValues(params)

@@ -47,6 +47,7 @@ func TestLatestStatusesReturnsNewestRunPerDAG(t *testing.T) {
 	require.Equal(t, []string{"broken/boom/failed"}, latest(persis.DAGRunLatestStatusesQuery{
 		WorkspaceFilter: &workspace.WorkspaceFilter{Enabled: true, Workspaces: []string{"ops"}},
 	}))
+	require.Equal(t, []string{"recovered/fixed/succeeded"}, latest(persis.DAGRunLatestStatusesQuery{ExcludeDAGNames: []string{"broken"}}))
 
 	// A lost pointer is rebuilt from the run directories.
 	require.NoError(t, os.Remove(filepath.Join(baseDir, "recovered", "dag-runs", ".dagrun.latest")))

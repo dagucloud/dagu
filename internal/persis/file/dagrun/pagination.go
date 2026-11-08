@@ -164,8 +164,12 @@ func (store *Store) newStatusIterators(ctx context.Context, opts persis.DAGRunSt
 		roots = append(roots, store.dataRoot(opts.ExactName))
 	}
 
+	excluded := dagDirNames(opts.ExcludeDAGNames)
 	iterators := make([]*dagRunStatusIterator, 0, len(roots))
 	for _, root := range roots {
+		if _, skip := excluded[root.prefix]; skip {
+			continue
+		}
 		iterator, err := newDAGRunStatusIterator(store, root, opts, iterOpts)
 		if err != nil {
 			return nil, err

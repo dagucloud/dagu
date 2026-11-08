@@ -18,10 +18,19 @@ import (
 
 const defaultDAGRunInvalidationPollInterval = time.Second
 
+// ServiceDAGNames returns the names of the DAGs that set a restart policy,
+// or false when they are not known without building a DAG listing. It is
+// called for each batch of events, so it must not wait on such a build.
+type ServiceDAGNames func() ([]string, bool)
+
+// StartDAGRunEventInvalidation wakes the topics that show the runs of new
+// DAG-run events. serviceDAGs tells which events concern a service DAG;
+// when it is nil or does not know them, every event counts as one that may.
 func StartDAGRunEventInvalidation(
 	ctx context.Context,
 	service *eventstore.Service,
 	mux *Multiplexer,
+	serviceDAGs ServiceDAGNames,
 	logger *slog.Logger,
 	pollInterval time.Duration,
 ) {
@@ -71,36 +80,81 @@ func StartDAGRunEventInvalidation(
 				continue
 			}
 			cursor = nextCursor
+			if len(events) == 0 {
+				continue
+			}
 
-			wakeTopicsForDAGRunEvents(mux, events)
+			wakeTopicsForDAGRunEvents(mux, events, readServiceDAGs(serviceDAGs))
 		}
 	}()
 }
 
-func wakeTopicsForDAGRunEvents(mux *Multiplexer, events []*eventstore.Event) {
+// readServiceDAGs returns the set of service DAG names, or nil when they are
+// not known.
+func readServiceDAGs(read ServiceDAGNames) map[string]struct{} {
+	if read == nil {
+		return nil
+	}
+	names, ok := read()
+	if !ok {
+		return nil
+	}
+	set := make(map[string]struct{}, len(names))
+	for _, name := range names {
+		set[name] = struct{}{}
+	}
+	return set
+}
+
+// wakeTopicsForDAGRunEvents wakes the topics that show the runs of events.
+// serviceDAGs holds the names of the service DAGs; nil means they are unknown.
+func wakeTopicsForDAGRunEvents(mux *Multiplexer, events []*eventstore.Event, serviceDAGs map[string]struct{}) {
 	if mux == nil {
 		return
 	}
 
-	affectedStatuses := make(map[ir.Status]struct{})
+	affected := listWakeStatuses{
+		all:                   make(map[ir.Status]struct{}),
+		withoutServiceDAGRuns: make(map[ir.Status]struct{}),
+	}
 	for _, event := range events {
-		for _, status := range wakeTopicsForDAGRunEvent(mux, event) {
-			affectedStatuses[status] = struct{}{}
+		statuses, serviceDAGRun := wakeTopicsForDAGRunEvent(mux, event, serviceDAGs)
+		for _, status := range statuses {
+			affected.all[status] = struct{}{}
+			if !serviceDAGRun {
+				affected.withoutServiceDAGRuns[status] = struct{}{}
+			}
 		}
 	}
 
-	wakeDAGRunListTopics(mux, affectedStatuses)
+	wakeDAGRunListTopics(mux, affected)
 }
 
-func wakeTopicsForDAGRunEvent(mux *Multiplexer, event *eventstore.Event) []ir.Status {
+// listWakeStatuses holds the statuses that a batch of events changed. A run
+// of a service DAG changes a list only when the list shows service DAG runs,
+// so those events count in all but not in withoutServiceDAGRuns.
+type listWakeStatuses struct {
+	all                   map[ir.Status]struct{}
+	withoutServiceDAGRuns map[ir.Status]struct{}
+}
+
+// wakeTopicsForDAGRunEvent wakes the topics that show the run of an event. It
+// returns the statuses that the event changed in lists, and whether the run
+// belongs to a service DAG. A sub-run belongs to the DAG of its root run.
+func wakeTopicsForDAGRunEvent(mux *Multiplexer, event *eventstore.Event, serviceDAGs map[string]struct{}) ([]ir.Status, bool) {
 	if event == nil {
-		return nil
+		return nil, false
 	}
 
 	snapshot, err := eventstore.DAGRunSnapshotFromEvent(event)
 	if err != nil || snapshot == nil {
-		return nil
+		return nil, false
 	}
+	dagName := snapshot.Root.Name
+	if dagName == "" {
+		dagName = snapshot.Name
+	}
+	_, serviceDAGRun := serviceDAGs[dagName]
 
 	if snapshot.Name != "" && snapshot.DAGRunID != "" {
 		mux.WakeTopic(TopicTypeDAGRun, snapshot.Name+"/"+snapshot.DAGRunID)
@@ -117,6 +171,9 @@ func wakeTopicsForDAGRunEvent(mux *Multiplexer, event *eventstore.Event) []ir.St
 
 	mux.WakeTopicType(TopicTypeQueues)
 	mux.WakeTopicType(TopicTypeDAGsList)
+	if serviceDAGs == nil || serviceDAGRun {
+		mux.WakeTopicType(TopicTypeServiceDAGs)
+	}
 
 	if snapshot.ProcGroup != "" {
 		mux.WakeTopic(TopicTypeQueueItems, snapshot.ProcGroup)
@@ -126,12 +183,12 @@ func wakeTopicsForDAGRunEvent(mux *Multiplexer, event *eventstore.Event) []ir.St
 	if snapshot.DAGFile != "" {
 		mux.wakeDAGFileTopics(TopicTypeDAG, snapshot.DAGFile)
 		mux.wakeDAGFileTopics(TopicTypeDAGHistory, snapshot.DAGFile)
-		return affectedStatuses
+		return affectedStatuses, serviceDAGRun
 	}
 
 	mux.WakeTopicType(TopicTypeDAG)
 	mux.WakeTopicType(TopicTypeDAGHistory)
-	return affectedStatuses
+	return affectedStatuses, serviceDAGRun
 }
 
 func affectedDAGRunListStatuses(eventType eventstore.EventType, current ir.Status) []ir.Status {
@@ -160,8 +217,8 @@ func affectedDAGRunListStatuses(eventType eventstore.EventType, current ir.Statu
 	}
 }
 
-func wakeDAGRunListTopics(mux *Multiplexer, affectedStatuses map[ir.Status]struct{}) {
-	if len(affectedStatuses) == 0 {
+func wakeDAGRunListTopics(mux *Multiplexer, affected listWakeStatuses) {
+	if len(affected.all) == 0 {
 		return
 	}
 
@@ -171,8 +228,8 @@ func wakeDAGRunListTopics(mux *Multiplexer, affectedStatuses map[ir.Status]struc
 		if topic == nil {
 			continue
 		}
-		if topic.topicType == TopicTypeDAGRunActivity ||
-			topic.topicType == TopicTypeDAGRuns && dagRunListTopicMatchesStatuses(topic.identifier, affectedStatuses) {
+		if topic.topicType == TopicTypeDAGRunActivity && dagRunActivityTopicMatches(topic.identifier, affected) ||
+			topic.topicType == TopicTypeDAGRuns && dagRunListTopicMatchesStatuses(topic.identifier, affected) {
 			topics = append(topics, topic)
 		}
 	}
@@ -184,10 +241,35 @@ func wakeDAGRunListTopics(mux *Multiplexer, affectedStatuses map[ir.Status]struc
 	}
 }
 
-func dagRunListTopicMatchesStatuses(identifier string, affectedStatuses map[ir.Status]struct{}) bool {
+// dagRunActivityTopicMatches reports whether the changes reach an activity
+// topic. Activity has no status filter, so any change does, except changes
+// that only concern service DAG runs when the topic leaves them out.
+func dagRunActivityTopicMatches(identifier string, affected listWakeStatuses) bool {
+	values, err := url.ParseQuery(identifier)
+	if err != nil || !excludesServiceDAGRuns(values) {
+		return true
+	}
+	return len(affected.withoutServiceDAGRuns) > 0
+}
+
+// excludesServiceDAGRuns reports whether a topic query leaves out the runs of
+// the service DAGs.
+func excludesServiceDAGRuns(values url.Values) bool {
+	exclude, err := strconv.ParseBool(values.Get("excludeServiceDAGRuns"))
+	return err == nil && exclude
+}
+
+func dagRunListTopicMatchesStatuses(identifier string, affected listWakeStatuses) bool {
 	values, err := url.ParseQuery(identifier)
 	if err != nil {
 		return true
+	}
+	affectedStatuses := affected.all
+	if excludesServiceDAGRuns(values) {
+		affectedStatuses = affected.withoutServiceDAGRuns
+	}
+	if len(affectedStatuses) == 0 {
+		return false
 	}
 	rawStatuses, hasStatusFilter := values["status"]
 	if !hasStatusFilter {

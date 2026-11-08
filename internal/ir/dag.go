@@ -680,11 +680,11 @@ func appendHolidays(dst, holidays []Holiday) []Holiday {
 func (d *DAG) initializeDefaults() {
 	const (
 		defaultHistRetentionDays = 30
-		// An always-on DAG adds a run at each restart, so it keeps a number of
+		// A service DAG adds a run at each restart, so it keeps a number of
 		// runs rather than days of them.
-		defaultAlwaysOnHistRetentionRuns = 100
-		defaultMaxCleanUpTime            = 5 * time.Second
-		defaultMaxActiveRuns             = 1
+		defaultServiceDAGHistRetentionRuns = 100
+		defaultMaxCleanUpTime              = 5 * time.Second
+		defaultMaxActiveRuns               = 1
 	)
 
 	if d.Type == "" {
@@ -695,7 +695,7 @@ func (d *DAG) initializeDefaults() {
 	}
 	if d.HistRetentionDays == 0 && d.HistRetentionRuns == 0 {
 		if d.RestartPolicy.Enabled() {
-			d.HistRetentionRuns = defaultAlwaysOnHistRetentionRuns
+			d.HistRetentionRuns = defaultServiceDAGHistRetentionRuns
 		} else {
 			d.HistRetentionDays = defaultHistRetentionDays
 		}

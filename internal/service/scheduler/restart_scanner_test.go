@@ -753,6 +753,7 @@ func TestRestartScanner(t *testing.T) {
 		h.scan()
 		assert.Empty(t, h.enqueued)
 		assert.Equal(t, 1, h.logged("Restart scanner failed to process DAG"), "errors are throttled")
+		assert.Zero(t, h.logged("Restarting DAG"), "a restart that failed is not logged as one")
 
 		h.now = h.now.Add(restartErrorLogInterval)
 		h.scan()
@@ -761,6 +762,7 @@ func TestRestartScanner(t *testing.T) {
 		h.failWith = nil
 		h.scan()
 		assert.Len(t, h.enqueued, 1, "the next scan tries again")
+		assert.Equal(t, 1, h.logged("Restarting DAG"))
 	})
 
 	// Restarts go through queues, so with queues disabled the DAG never runs:
