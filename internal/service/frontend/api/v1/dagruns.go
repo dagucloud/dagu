@@ -714,7 +714,6 @@ func (a *API) ListDAGRuns(ctx context.Context, request api.ListDAGRunsRequestObj
 		return nil, err
 	}
 	opts.query.WorkspaceFilter = workspaceFilter
-	opts.query.ExcludeDAGNames = a.excludedDAGNames(ctx, opts.excludeServiceDAGRuns)
 	var dagName, dagRunID string
 	if request.Params.Name != nil {
 		dagName = *request.Params.Name
@@ -727,7 +726,7 @@ func (a *API) ListDAGRuns(ctx context.Context, request api.ListDAGRunsRequestObj
 		endpoint: "/dag-runs",
 		dagName:  dagName,
 		dagRunID: dagRunID,
-	}, opts.query)
+	}, opts)
 	if err != nil {
 		if apiErr := dagRunListBadRequest(err); apiErr != nil {
 			return nil, apiErr
@@ -768,7 +767,7 @@ func (a *API) ListDAGRunsByName(ctx context.Context, request api.ListDAGRunsByNa
 		endpoint: "/dag-runs/{name}",
 		dagName:  request.Name,
 		dagRunID: dagRunID,
-	}, opts.query)
+	}, opts)
 	if err != nil {
 		if apiErr := dagRunListBadRequest(err); apiErr != nil {
 			return nil, apiErr
@@ -849,10 +848,13 @@ func buildDAGRunListOptions(input dagRunListFilterInput) dagRunListOptions {
 func (a *API) readDAGRunsPage(
 	ctx context.Context,
 	info dagRunReadRequestInfo,
-	opts persis.DAGRunListOptions,
+	opts dagRunListOptions,
 ) (persis.DAGRunStatusPage, error) {
 	page, err := withDAGRunReadTimeout(ctx, info, func(readCtx context.Context) (persis.DAGRunStatusPage, error) {
-		page, listErr := a.dagRunRepository.ListStatusesPage(readCtx, opts)
+		query := opts.query
+		// The names can take a DAG listing to resolve, so the timeout covers it.
+		query.ExcludeDAGNames = a.excludedDAGNames(readCtx, opts.excludeServiceDAGRuns)
+		page, listErr := a.dagRunRepository.ListStatusesPage(readCtx, query)
 		if listErr != nil {
 			return persis.DAGRunStatusPage{}, fmt.Errorf("error listing dag-runs: %w", listErr)
 		}
