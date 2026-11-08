@@ -15,9 +15,11 @@ const (
 	AlwaysOnStatePending AlwaysOnState = "pending"
 	// AlwaysOnStateRunning means a run is alive.
 	AlwaysOnStateRunning AlwaysOnState = "running"
-	// AlwaysOnStateRestarting means the latest run succeeded and the next run is due.
+	// AlwaysOnStateRestarting means the latest run succeeded, or an operator
+	// stopped the latest run of an always DAG, and the next run is due.
 	AlwaysOnStateRestarting AlwaysOnState = "restarting"
-	// AlwaysOnStateFailing means the latest run did not succeed and the next run is due.
+	// AlwaysOnStateFailing means the latest run did not succeed, with no stop
+	// request, and the next run is due.
 	AlwaysOnStateFailing AlwaysOnState = "failing"
 	// AlwaysOnStateSuspended means the DAG gets no new run.
 	AlwaysOnStateSuspended AlwaysOnState = "suspended"
@@ -28,7 +30,7 @@ const (
 
 // DescribeAlwaysOn returns the state of an always-on DAG. stopRequested tells
 // whether an operator stopped the latest run. It is called only when the answer
-// matters: for a run of an unless-stopped DAG that has ended, with any status.
+// matters: for a run that has ended, unless an always DAG's run succeeded.
 func DescribeAlwaysOn(
 	policy ir.RestartPolicy,
 	latest *ir.DAGRunStatus,
@@ -47,13 +49,20 @@ func DescribeAlwaysOn(
 		return AlwaysOnStateSuspended, nil
 	}
 
-	if policy == ir.RestartPolicyUnlessStopped && stopRequested != nil {
+	if latest.Status.IsSuccess() && policy != ir.RestartPolicyUnlessStopped {
+		return AlwaysOnStateRestarting, nil
+	}
+	if stopRequested != nil {
 		stopped, err := stopRequested()
 		if err != nil {
 			return "", err
 		}
 		if stopped {
-			return AlwaysOnStateStopped, nil
+			// A stop keeps an unless-stopped DAG down; an always DAG runs again.
+			if policy == ir.RestartPolicyUnlessStopped {
+				return AlwaysOnStateStopped, nil
+			}
+			return AlwaysOnStateRestarting, nil
 		}
 	}
 	if latest.Status.IsSuccess() {

@@ -67,8 +67,17 @@ func TestDescribeAlwaysOn(t *testing.T) {
 			latest: run(ir.Succeeded), stop: notStopped, want: AlwaysOnStateRestarting,
 		},
 		{
-			name: "AlwaysIgnoresStop", policy: ir.RestartPolicyAlways,
-			latest: run(ir.Aborted), stop: stopped, want: AlwaysOnStateFailing,
+			// A stop does not keep an always DAG down: the next run follows.
+			name: "AlwaysStoppedRestarts", policy: ir.RestartPolicyAlways,
+			latest: run(ir.Aborted), stop: stopped, want: AlwaysOnStateRestarting,
+		},
+		{
+			name: "AlwaysStoppedRunThatFailed", policy: ir.RestartPolicyAlways,
+			latest: run(ir.Failed), stop: stopped, want: AlwaysOnStateRestarting,
+		},
+		{
+			name: "AlwaysFailedWithoutStopRequest", policy: ir.RestartPolicyAlways,
+			latest: run(ir.Failed), stop: notStopped, want: AlwaysOnStateFailing,
 		},
 	}
 	for _, tt := range tests {
@@ -94,7 +103,7 @@ func TestDescribeAlwaysOn(t *testing.T) {
 			policy ir.RestartPolicy
 			status ir.Status
 		}{
-			{ir.RestartPolicyAlways, ir.Failed},
+			{ir.RestartPolicyAlways, ir.Succeeded},
 			{ir.RestartPolicyUnlessStopped, ir.Running},
 		} {
 			_, err := DescribeAlwaysOn(tt.policy, run(tt.status), false,
