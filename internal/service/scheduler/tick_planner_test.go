@@ -13,6 +13,7 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/testutil"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -2495,7 +2496,7 @@ func TestTickPlanner_DispatchRunLegacyCatchupAttemptAdvancesWatermark(t *testing
 	run := tp.createPlannedRun(DAGEntry{DAG: dag}, ir.Schedule{}, scheduledTime, ir.TriggerTypeCatchUp)
 	tp.DispatchRun(context.Background(), run)
 
-	assert.Equal(t, []string{legacyRunID}, checkedRunIDs[:1])
+	assert.Equal(t, []string{legacyRunID}, checkedRunIDs)
 	tp.mu.RLock()
 	wm, ok := tp.watermarkState.DAGs[dag.Name]
 	tp.mu.RUnlock()
@@ -3110,6 +3111,53 @@ func TestLiveCatchupSameID(t *testing.T) {
 	replay := tp.createPlannedRun(DAGEntry{DAG: dag}, dag.Schedule[0], slot, ir.TriggerTypeCatchUp)
 
 	assert.Equal(t, live.RunID, replay.RunID)
+}
+
+// When a failed dispatch cannot be checked against the stored runs, the slot may
+// have started, so it is neither recorded as failed nor dropped from catch-up.
+func TestDispatchLookupError(t *testing.T) {
+	t.Parallel()
+
+	slot := time.Date(2026, 2, 7, 12, 0, 0, 0, time.UTC)
+	newPlanner := func(t *testing.T) (*TickPlanner, *ir.DAG) {
+		t.Helper()
+		tp, _ := newTestTickPlanner(&mockStateStore{})
+		dispatchErr := errors.New("dispatch failed")
+		tp.cfg.Dispatch = func(context.Context, DAGEntry, string, ir.TriggerType, time.Time) error { return dispatchErr }
+		tp.cfg.Enqueue = func(context.Context, DAGEntry, string, ir.TriggerType, time.Time) error { return dispatchErr }
+		tp.cfg.RunExists = func(_ context.Context, _ *ir.DAG, runID string) (bool, error) {
+			if strings.HasPrefix(runID, slotPrefix) {
+				return false, errors.New("unreadable")
+			}
+			return false, nil
+		}
+		dag := &ir.DAG{Name: "hourly", Schedule: []ir.Schedule{mustParseSchedule(t, "0 * * * *")}}
+		require.NoError(t, tp.Init(t.Context(), testDAGEntries(dag)))
+		return tp, dag
+	}
+
+	t.Run("live", func(t *testing.T) {
+		t.Parallel()
+		tp, _ := newPlanner(t)
+
+		runs := tp.Plan(t.Context(), slot)
+		require.Len(t, runs, 1)
+		tp.DispatchRun(t.Context(), runs[0])
+
+		assert.Equal(t, &schedulerstate.ScheduleSlot{At: slot, Outcome: schedulerstate.SlotPlanned}, lastSlot(tp, "hourly"))
+	})
+
+	t.Run("catch-up", func(t *testing.T) {
+		t.Parallel()
+		tp, dag := newPlanner(t)
+
+		run := tp.createPlannedRun(DAGEntry{DAG: dag}, dag.Schedule[0], slot, ir.TriggerTypeCatchUp)
+		tp.DispatchRun(t.Context(), run)
+
+		item, ok := tp.buffers[dag.Name].Peek()
+		require.True(t, ok, "the slot stays in the catch-up buffer")
+		assert.Equal(t, slot, item.ScheduledTime)
+	})
 }
 
 // A distributed dispatch can fail because another scheduler already started the

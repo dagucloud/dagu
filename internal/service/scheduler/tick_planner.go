@@ -1119,21 +1119,6 @@ func scheduleDueAt(schedule ir.Schedule, now time.Time) (time.Time, bool) {
 	return next, true
 }
 
-// slotRunExists reports whether the planned run of a slot was already created,
-// which is why its dispatch can fail after another scheduler started it.
-func (tp *TickPlanner) slotRunExists(ctx context.Context, run PlannedRun) bool {
-	exists, err := tp.cfg.RunExists(ctx, run.DAG, run.RunID)
-	if err != nil {
-		logger.Error(ctx, "Failed to re-check dag-run after dispatch error",
-			tag.DAG(run.DAG.Name),
-			tag.RunID(run.RunID),
-			tag.Error(err),
-		)
-		return false
-	}
-	return exists
-}
-
 // createPlannedRun generates a run ID and constructs a PlannedRun. Every ID is
 // deterministic, so a slot planned twice, as around a failover, names one run.
 func (tp *TickPlanner) createPlannedRun(entry DAGEntry, schedule ir.Schedule, scheduledTime time.Time, triggerType ir.TriggerType) PlannedRun {
@@ -1922,12 +1907,27 @@ func (tp *TickPlanner) DispatchRun(ctx context.Context, run PlannedRun) {
 				return
 			}
 		}
-		if run.ScheduleType == ScheduleTypeStart && !run.Schedule.IsOneOff() && tp.slotRunExists(ctx, run) {
-			if run.TriggerType == ir.TriggerTypeCatchUp {
-				tp.advanceDAGWatermark(run.DAG.Name, run.ScheduledTime)
+		if run.ScheduleType == ScheduleTypeStart && !run.Schedule.IsOneOff() {
+			exists, existsErr := tp.cfg.RunExists(ctx, run.DAG, run.RunID)
+			if existsErr != nil {
+				logger.Error(ctx, "Failed to re-check dag-run after dispatch error",
+					tag.DAG(run.DAG.Name),
+					tag.RunID(run.RunID),
+					tag.Error(existsErr),
+				)
+				// The slot may have started, so its outcome stays unsettled.
+				if run.TriggerType == ir.TriggerTypeCatchUp {
+					tp.reinsertCatchupItem(ctx, run)
+				}
+				return
 			}
-			tp.recordStartSlot(run, schedulerstate.SlotDispatched)
-			return
+			if exists {
+				if run.TriggerType == ir.TriggerTypeCatchUp {
+					tp.advanceDAGWatermark(run.DAG.Name, run.ScheduledTime)
+				}
+				tp.recordStartSlot(run, schedulerstate.SlotDispatched)
+				return
+			}
 		}
 
 		logger.Error(ctx, "Failed to dispatch run",
