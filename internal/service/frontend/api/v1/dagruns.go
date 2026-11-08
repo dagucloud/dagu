@@ -784,6 +784,10 @@ func (a *API) ListDAGRunsByName(ctx context.Context, request api.ListDAGRunsByNa
 	return api.ListDAGRunsByName200JSONResponse(toDAGRunsPageResponse(page)), nil
 }
 
+// excludeServiceDAGRunsParam names the query parameter that leaves out the
+// runs of the service DAGs.
+const excludeServiceDAGRunsParam = "excludeServiceDAGRuns"
+
 type dagRunListOptions struct {
 	query persis.DAGRunListOptions
 	// excludeServiceDAGRuns leaves out the runs of the service DAGs, which a
@@ -5325,10 +5329,10 @@ func (a *API) dagRunListOptionsFromQueryString(ctx context.Context, queryString 
 	if rawCursor := params.Get("cursor"); rawCursor != "" {
 		cursor = &rawCursor
 	}
-	if rawExclude := params.Get("excludeServiceDAGRuns"); rawExclude != "" {
+	if rawExclude := params.Get(excludeServiceDAGRunsParam); rawExclude != "" {
 		parsed, convErr := strconv.ParseBool(rawExclude)
 		if convErr != nil {
-			return dagRunListOptions{}, invalidDAGRunListParam(ctx, "excludeServiceDAGRuns", rawExclude, convErr)
+			return dagRunListOptions{}, invalidDAGRunListParam(ctx, excludeServiceDAGRunsParam, rawExclude, convErr)
 		}
 		excludeServiceDAGRuns = parsed
 	}

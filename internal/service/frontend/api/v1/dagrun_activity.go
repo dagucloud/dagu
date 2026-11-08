@@ -126,10 +126,10 @@ func (a *API) activityQueryFromString(ctx context.Context, queryString string) (
 	if raw := values.Get("labels"); raw != "" {
 		params.labels = &raw
 	}
-	if raw := values.Get("excludeServiceDAGRuns"); raw != "" {
+	if raw := values.Get(excludeServiceDAGRunsParam); raw != "" {
 		exclude, convErr := strconv.ParseBool(raw)
 		if convErr != nil {
-			return activityQuery{}, activityBadRequest(fmt.Sprintf("invalid excludeServiceDAGRuns: %q", raw))
+			return activityQuery{}, activityBadRequest(fmt.Sprintf("invalid %s: %q", excludeServiceDAGRunsParam, raw))
 		}
 		params.excludeServiceDAGRuns = exclude
 	}
