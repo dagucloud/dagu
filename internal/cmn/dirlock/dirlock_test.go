@@ -1478,3 +1478,62 @@ func TestObserverReadError(t *testing.T) {
 
 	requireConflictFor(t, newObserverLock(dir), 3*observerStale)
 }
+
+// A holder that lost the lock can still write its heartbeat into the new lock
+// directory. Only the current owner's renewals count.
+func TestObserverFencedHeartbeat(t *testing.T) {
+	t.Parallel()
+
+	dir := t.TempDir()
+	holder := newObserverLock(dir)
+	require.NoError(t, holder.TryLock())
+	// The empty suffix sorts this name before every real heartbeat file.
+	require.NoError(t, os.WriteFile(filepath.Join(holder.lockPath, heartbeatFilePrefix), []byte("former:1"), 0600))
+
+	contender := newObserverLock(dir)
+	for deadline := time.Now().Add(3 * observerStale); time.Now().Before(deadline); time.Sleep(10 * time.Millisecond) {
+		require.NoError(t, holder.Heartbeat(context.Background()))
+		require.ErrorIs(t, contender.TryLock(), ErrLockConflict)
+	}
+}
+
+// A holder from a release without heartbeat files renews only the directory
+// timestamp, which a contender watches instead.
+func TestObserverLegacyHolder(t *testing.T) {
+	t.Parallel()
+
+	dir := t.TempDir()
+	holder := New(dir, &LockOptions{StaleThreshold: observerStale}).(*dirLock)
+	require.NoError(t, holder.TryLock())
+
+	contender := newObserverLock(dir)
+	var lastRenewal time.Time
+	for deadline := time.Now().Add(3 * observerStale); time.Now().Before(deadline); time.Sleep(10 * time.Millisecond) {
+		lastRenewal = time.Now()
+		require.NoError(t, holder.Heartbeat(context.Background()))
+		require.ErrorIs(t, contender.TryLock(), ErrLockConflict)
+	}
+
+	require.Eventually(t, func() bool {
+		return contender.TryLock() == nil
+	}, 5*time.Second, 10*time.Millisecond)
+	require.GreaterOrEqual(t, time.Since(lastRenewal), observerStale)
+}
+
+// A dead holder's unreadable directory must not block a takeover forever.
+func TestObserverRestrictedDir(t *testing.T) {
+	if runtime.GOOS == "windows" || os.Getuid() == 0 {
+		t.Skip("relies on directory permissions being enforced")
+	}
+
+	dir := t.TempDir()
+	holder := newObserverLock(dir)
+	require.NoError(t, holder.TryLock())
+	require.NoError(t, os.Chmod(holder.lockPath, 0))
+	restoreAccessOnCleanup(t, dir)
+
+	contender := newObserverLock(dir)
+	require.Eventually(t, func() bool {
+		return contender.TryLock() == nil
+	}, 5*time.Second, 10*time.Millisecond)
+}

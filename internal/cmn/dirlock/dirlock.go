@@ -263,14 +263,28 @@ func (l *dirLock) holderIsStale(info os.FileInfo) bool {
 // as the value for it.
 func (l *dirLock) readHolderBeat(info os.FileInfo) (string, error) {
 	entries, err := os.ReadDir(l.lockPath)
+	if errors.Is(err, os.ErrPermission) {
+		l.restoreLockDirAccess()
+		entries, err = os.ReadDir(l.lockPath)
+	}
 	if err != nil {
 		return "", err
 	}
 	for _, e := range entries {
-		if strings.HasPrefix(e.Name(), heartbeatFilePrefix) {
-			data, err := fileutil.ReadFile(filepath.Join(l.lockPath, e.Name()))
-			return string(data), err
+		if !strings.HasPrefix(e.Name(), ownerFilePrefix) {
+			continue
 		}
+		// A holder that lost the lock can still write its heartbeat here, so
+		// only the current owner's file counts.
+		name := heartbeatFilePrefix + strings.TrimPrefix(e.Name(), ownerFilePrefix)
+		data, err := fileutil.ReadFile(filepath.Join(l.lockPath, name))
+		if err == nil {
+			return string(data), nil
+		}
+		if !os.IsNotExist(err) {
+			return "", err
+		}
+		break
 	}
 	return fmt.Sprintf("mtime:%d", info.ModTime().UnixNano()), nil
 }
