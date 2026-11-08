@@ -202,6 +202,17 @@ func (p *Process) Stop() {
 	<-p.done
 }
 
+// Kill ends the command at once, without the graceful shutdown Stop requests,
+// and waits for it to exit.
+func (p *Process) Kill() {
+	p.t.Helper()
+	_, _ = p.proc.Stop(cmdutil.StopRequest{
+		Intent: cmdutil.ForceTermination(),
+		Reason: cmdutil.StopReasonShutdown,
+	})
+	<-p.done
+}
+
 // stopGracePeriod bounds how long a managed process gets to shut down
 // gracefully before its process group is force-killed.
 const stopGracePeriod = 5 * time.Second

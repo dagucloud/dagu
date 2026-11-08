@@ -583,6 +583,13 @@ func (s *Scheduler) updateServiceStatus(ctx context.Context, status serviceregis
 	}
 }
 
+func (s *Scheduler) healthRole() string {
+	if s.lockHeld.Load() {
+		return healthRoleActive
+	}
+	return healthRoleStandby
+}
+
 func (s *Scheduler) stopHealthServer(ctx context.Context, failureMsg string) {
 	if s.healthServer == nil || s.disableHealthServer {
 		return
@@ -671,6 +678,7 @@ func (s *Scheduler) Start(ctx context.Context) error {
 	// on the HA lock. Active/inactive role is tracked separately via the
 	// service registry status.
 	if !s.disableHealthServer {
+		s.healthServer.SetRoleFunc(s.healthRole)
 		if err := s.healthServer.Start(ctx); err != nil {
 			return fmt.Errorf("failed to start health check server: %w", err)
 		}
