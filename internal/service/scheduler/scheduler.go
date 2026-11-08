@@ -246,6 +246,9 @@ func newScheduler(
 		StaleThreshold: cfg.Scheduler.LockStaleThreshold,
 		RetryInterval:  cfg.Scheduler.LockRetryInterval,
 		OnWait:         hooks.onLockWait,
+		// Shared storage such as NFS caches directory attributes for longer
+		// than the stale threshold, and hosts can disagree on the time.
+		ObserveHeartbeat: true,
 		OnRetryError: func(err error) {
 			logger.Warn(context.Background(), "Failed to check scheduler lock, will retry", tag.Error(err))
 		},

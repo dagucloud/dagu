@@ -1390,3 +1390,150 @@ func TestFailedUnlockNotReused(t *testing.T) {
 	require.NoError(t, os.Rename(aside, lock.lockPath))
 	require.ErrorIs(t, lock.TryLock(), ErrLockConflict)
 }
+
+const observerStale = 200 * time.Millisecond
+
+func newObserverLock(dir string) *dirLock {
+	return New(dir, &LockOptions{
+		StaleThreshold:   observerStale,
+		RetryInterval:    10 * time.Millisecond,
+		ObserveHeartbeat: true,
+	}).(*dirLock)
+}
+
+// requireConflictFor proves a contender cannot take the lock for the whole period.
+func requireConflictFor(t *testing.T, contender *dirLock, period time.Duration) {
+	t.Helper()
+	for deadline := time.Now().Add(period); time.Now().Before(deadline); time.Sleep(10 * time.Millisecond) {
+		require.ErrorIs(t, contender.TryLock(), ErrLockConflict)
+	}
+}
+
+// A standby whose clock runs ahead sees an old timestamp on a healthy lock. It
+// must not take the lock while the holder keeps renewing it.
+func TestObserverSkew(t *testing.T) {
+	t.Parallel()
+
+	dir := t.TempDir()
+	holder := newObserverLock(dir)
+	require.NoError(t, holder.TryLock())
+	contender := newObserverLock(dir)
+
+	old := time.Now().Add(-time.Hour)
+	for deadline := time.Now().Add(3 * observerStale); time.Now().Before(deadline); time.Sleep(20 * time.Millisecond) {
+		require.NoError(t, holder.Heartbeat(context.Background()))
+		require.NoError(t, os.Chtimes(holder.lockPath, old, old))
+		require.ErrorIs(t, contender.TryLock(), ErrLockConflict)
+	}
+}
+
+func TestObserverFrozen(t *testing.T) {
+	t.Parallel()
+
+	dir := t.TempDir()
+	holder := newObserverLock(dir)
+	require.NoError(t, holder.TryLock())
+
+	contender := newObserverLock(dir)
+	start := time.Now()
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	require.NoError(t, contender.Lock(ctx))
+	require.GreaterOrEqual(t, time.Since(start), observerStale)
+	require.True(t, contender.IsHeldByMe())
+}
+
+// An old timestamp alone says nothing: a contender has to watch the holder
+// fail to renew for the whole threshold.
+func TestObserverColdStart(t *testing.T) {
+	t.Parallel()
+
+	dir := t.TempDir()
+	holder := newObserverLock(dir)
+	require.NoError(t, holder.TryLock())
+	old := time.Now().Add(-time.Hour)
+	require.NoError(t, os.Chtimes(holder.lockPath, old, old))
+
+	contender := newObserverLock(dir)
+	requireConflictFor(t, contender, observerStale/2)
+
+	require.Eventually(t, func() bool {
+		return contender.TryLock() == nil
+	}, 5*time.Second, 10*time.Millisecond)
+}
+
+// A heartbeat that cannot be read may be a storage fault, so it cannot count
+// as a holder that stopped.
+func TestObserverReadError(t *testing.T) {
+	t.Parallel()
+
+	dir := t.TempDir()
+	holder := newObserverLock(dir)
+	require.NoError(t, holder.TryLock())
+
+	beatPath := filepath.Join(holder.lockPath, holder.heartbeatFile)
+	require.NoError(t, os.Remove(beatPath))
+	require.NoError(t, os.Mkdir(beatPath, 0700))
+
+	requireConflictFor(t, newObserverLock(dir), 3*observerStale)
+}
+
+// A holder that lost the lock can still write its heartbeat into the new lock
+// directory. Only the current owner's renewals count.
+func TestObserverFencedHeartbeat(t *testing.T) {
+	t.Parallel()
+
+	dir := t.TempDir()
+	holder := newObserverLock(dir)
+	require.NoError(t, holder.TryLock())
+	// The empty suffix sorts this name before every real heartbeat file.
+	require.NoError(t, os.WriteFile(filepath.Join(holder.lockPath, heartbeatFilePrefix), []byte("former:1"), 0600))
+
+	contender := newObserverLock(dir)
+	for deadline := time.Now().Add(3 * observerStale); time.Now().Before(deadline); time.Sleep(10 * time.Millisecond) {
+		require.NoError(t, holder.Heartbeat(context.Background()))
+		require.ErrorIs(t, contender.TryLock(), ErrLockConflict)
+	}
+}
+
+// A holder from a release without heartbeat files renews only the directory
+// timestamp, which a contender watches instead.
+func TestObserverLegacyHolder(t *testing.T) {
+	t.Parallel()
+
+	dir := t.TempDir()
+	holder := New(dir, &LockOptions{StaleThreshold: observerStale}).(*dirLock)
+	require.NoError(t, holder.TryLock())
+
+	contender := newObserverLock(dir)
+	var lastRenewal time.Time
+	for deadline := time.Now().Add(3 * observerStale); time.Now().Before(deadline); time.Sleep(10 * time.Millisecond) {
+		lastRenewal = time.Now()
+		require.NoError(t, holder.Heartbeat(context.Background()))
+		require.ErrorIs(t, contender.TryLock(), ErrLockConflict)
+	}
+
+	require.Eventually(t, func() bool {
+		return contender.TryLock() == nil
+	}, 5*time.Second, 10*time.Millisecond)
+	require.GreaterOrEqual(t, time.Since(lastRenewal), observerStale)
+}
+
+// A dead holder's unreadable directory must not block a takeover forever.
+func TestObserverRestrictedDir(t *testing.T) {
+	if runtime.GOOS == "windows" || os.Getuid() == 0 {
+		t.Skip("relies on directory permissions being enforced")
+	}
+
+	dir := t.TempDir()
+	holder := newObserverLock(dir)
+	require.NoError(t, holder.TryLock())
+	require.NoError(t, os.Chmod(holder.lockPath, 0))
+	restoreAccessOnCleanup(t, dir)
+
+	contender := newObserverLock(dir)
+	require.Eventually(t, func() bool {
+		return contender.TryLock() == nil
+	}, 5*time.Second, 10*time.Millisecond)
+}
