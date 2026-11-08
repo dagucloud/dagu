@@ -217,8 +217,16 @@ func validateBuildRedirectAliases(
 		} else if !filepath.IsAbs(resolved) {
 			resolved = filepath.Join(base, resolved)
 		}
-		if declaration, ok := declaredPaths[pathKeys.ComparisonKey(filepath.Clean(resolved))]; ok {
+		cleaned := filepath.Clean(resolved)
+		if declaration, ok := declaredPaths[pathKeys.ComparisonKey(cleaned)]; ok {
 			return fmt.Errorf("step %s %s path aliases %s: %s", step.Name, redirect.field, declaration, resolved)
+		}
+		// Declared paths are regular files, so nothing can exist beneath one.
+		// Creating the redirect's parents would replace the file with a directory.
+		for parent := filepath.Dir(cleaned); parent != filepath.Dir(parent); parent = filepath.Dir(parent) {
+			if declaration, ok := declaredPaths[pathKeys.ComparisonKey(parent)]; ok {
+				return fmt.Errorf("step %s %s path is inside %s: %s", step.Name, redirect.field, declaration, resolved)
+			}
 		}
 	}
 	return nil

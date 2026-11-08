@@ -1825,7 +1825,7 @@
           "oneOf": [
             {
               "type": "string",
-              "description": "File path where the step's standard output (stdout) will be written."
+              "description": "File path where the step's standard output (stdout) will be written. Missing parent directories are created."
             },
             {
               "type": "object",
@@ -1850,7 +1850,7 @@
           "oneOf": [
             {
               "type": "string",
-              "description": "File path where the step's standard error (stderr) will be written."
+              "description": "File path where the step's standard error (stderr) will be written. Missing parent directories are created."
             },
             {
               "type": "object",
