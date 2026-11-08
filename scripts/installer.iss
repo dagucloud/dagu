@@ -85,6 +85,8 @@ Filename: "{code:WebUrl}"; Description: "Open Dagu in your browser"; Flags: post
 ; Earlier installers created a Start menu launcher per Dagu process. An
 ; upgrade would otherwise leave them next to the single Open Dagu entry.
 [InstallDelete]
+; Recreated below when the service is chosen; gone when it is not.
+Type: files; Name: "{group}\Open Dagu.url"
 Type: files; Name: "{group}\Dagu start-all.lnk"
 Type: files; Name: "{group}\Dagu server.lnk"
 Type: files; Name: "{group}\Dagu scheduler.lnk"
