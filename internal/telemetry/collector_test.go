@@ -5,6 +5,7 @@ package telemetry
 
 import (
 	"context"
+	"errors"
 	"strings"
 	"testing"
 	"time"
@@ -763,5 +764,21 @@ func TestCollector_SchedulerInstances(t *testing.T) {
 
 	t.Run("none", func(t *testing.T) {
 		assert.Equal(t, map[string]float64{"active": 0, "standby": 0}, collect(t, nil))
+	})
+
+	// An unreadable registry says nothing about the standby, so no count is
+	// reported rather than a count of zero.
+	t.Run("lookup error", func(t *testing.T) {
+		serviceRegistry := &mockServiceRegistry{}
+		serviceRegistry.On("GetServiceMembers", mock.Anything, mock.Anything).Return([]serviceregistry.HostInfo(nil), errors.New("unreadable"))
+
+		collector := NewCollector("1.0.0", dagRepository, dagRunRepository.repository(), queueStore, serviceRegistry)
+		registry := prometheus.NewRegistry()
+		require.NoError(t, registry.Register(collector))
+		families, err := registry.Gather()
+		require.NoError(t, err)
+		for _, family := range families {
+			assert.NotEqual(t, "dagu_scheduler_instances", family.GetName())
+		}
 	})
 }

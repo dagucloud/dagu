@@ -322,10 +322,10 @@ func (c *Collector) Collect(ch chan<- prometheus.Metric) {
 
 	// Scheduler status
 	schedulerRunning := float64(0)
-	var activeSchedulers, standbySchedulers float64
 	if c.serviceRegistry != nil {
 		members, err := c.serviceRegistry.GetServiceMembers(ctx, serviceregistry.ServiceNameScheduler)
 		if err == nil {
+			var activeSchedulers, standbySchedulers float64
 			for _, member := range members {
 				switch member.Status {
 				case serviceregistry.ServiceStatusActive:
@@ -336,6 +336,8 @@ func (c *Collector) Collect(ch chan<- prometheus.Metric) {
 				case serviceregistry.ServiceStatusUnknown:
 				}
 			}
+			ch <- prometheus.MustNewConstMetric(c.schedulerInstancesDesc, prometheus.GaugeValue, activeSchedulers, schedulerStatusActive)
+			ch <- prometheus.MustNewConstMetric(c.schedulerInstancesDesc, prometheus.GaugeValue, standbySchedulers, schedulerStatusStandby)
 		}
 	}
 	ch <- prometheus.MustNewConstMetric(
@@ -343,8 +345,6 @@ func (c *Collector) Collect(ch chan<- prometheus.Metric) {
 		prometheus.GaugeValue,
 		schedulerRunning,
 	)
-	ch <- prometheus.MustNewConstMetric(c.schedulerInstancesDesc, prometheus.GaugeValue, activeSchedulers, schedulerStatusActive)
-	ch <- prometheus.MustNewConstMetric(c.schedulerInstancesDesc, prometheus.GaugeValue, standbySchedulers, schedulerStatusStandby)
 
 	c.collectWorkerMetrics(ctx, ch)
 
