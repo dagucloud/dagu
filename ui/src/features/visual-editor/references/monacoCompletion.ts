@@ -178,12 +178,13 @@ export function computeReferenceCompletions(
   state: ReferenceEditorState,
   opts: { explicit: boolean }
 ): ReferenceCompletions | null {
-  const cursor = getYamlPathAtOffset(text, offset);
+  const field = fieldOffset(text, offset);
+  const cursor = getYamlPathAtOffset(text, field);
   const range = replacedRange(text, offset, opts.explicit && cursor.isInValue);
   if (!range) {
     return null;
   }
-  const items = fieldCandidates(text, offset, cursor.path, state);
+  const items = fieldCandidates(text, field, cursor.path, state);
   if (!items) {
     return null;
   }
@@ -193,6 +194,19 @@ export function computeReferenceCompletions(
     ...range,
     inRunField,
   };
+}
+
+// The offset whose field the caret reads. On a blank line, the author types the
+// next line of the field above, such as a line of a run block, but the YAML
+// path and the step ranges end at the last character of that field.
+function fieldOffset(text: string, offset: number): number {
+  const lineStart = text.lastIndexOf('\n', offset - 1) + 1;
+  const lineEnd = text.indexOf('\n', offset);
+  const line = text.slice(lineStart, lineEnd === -1 ? text.length : lineEnd);
+  if (line.trim() !== '') return offset;
+  let end = lineStart;
+  while (end > 0 && /\s/.test(text.charAt(end - 1))) end--;
+  return end > 0 ? end : offset;
 }
 
 // The text that a chosen item replaces, or null when no completion applies:

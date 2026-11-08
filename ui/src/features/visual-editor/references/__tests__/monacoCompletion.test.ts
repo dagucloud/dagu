@@ -61,28 +61,6 @@ describe('findOwningStep', () => {
     ).toBeNull();
   });
 
-  // A step range ends at its last character, but the author types the next
-  // line of the step on the blank line after it.
-  it('keeps the blank text after a step in the step', () => {
-    const text =
-      'steps:\n  - name: a\n    run: |\n      echo a\n      \n' +
-      '  - name: b\n    run: echo b\n    \ntags: nightly\n';
-    const state = {
-      scope: scopeWith(
-        { name: 'a', stepPath: 'steps[0]' },
-        { name: 'b', stepPath: 'steps[1]' }
-      ),
-      model: parseDagDocLenient(text),
-    };
-    expect(
-      findOwningStep(text, at(text, '      \n  - name: b', 6), state)?.name
-    ).toBe('a');
-    expect(findOwningStep(text, at(text, '    \ntags', 4), state)?.name).toBe(
-      'b'
-    );
-    expect(findOwningStep(text, at(text, 'nightly'), state)).toBeNull();
-  });
-
   it('falls back to the YAML path when there is no model', () => {
     const state = { scope: scopeHttpJq };
     expect(
@@ -333,6 +311,27 @@ describe('computeReferenceCompletions', () => {
         expect(row).toBeDefined();
         expect(row?.shellRisk).toBeUndefined();
       });
+    });
+
+    // The author types the next line of a run block on a blank line, where the
+    // YAML path and the step range have already ended.
+    it('marks it on a blank line of a run block', () => {
+      const block =
+        'steps:\n  - name: model\n    run: a\n  - name: next\n    run: |\n      echo a\n      ';
+      for (const text of [block, `${block}\n  - name: last\n    run: b\n`]) {
+        const result = computeReferenceCompletions(
+          text,
+          block.length,
+          { scope: scope(), model: parseDagDocLenient(text) },
+          { explicit: true }
+        );
+        expect(result?.from).toBe(block.length);
+        expect(result?.inRunField).toBe(true);
+        expect(result?.items.map((item) => item.label)).toContain('step.name');
+        expect(
+          result?.items.find((item) => item.label === 'model.reply')?.shellRisk
+        ).toBe(true);
+      }
     });
 
     it('marks it in a run field of a parallel group', () => {
