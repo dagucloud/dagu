@@ -1615,9 +1615,8 @@ func (srv *Server) registerDedicatedSSEFetchers(registrar *sse.Multiplexer) {
 			registrar.SetRefreshMode(sse.TopicTypeDAG, sse.TopicRefreshModeOnDemand)
 			registrar.SetMaxInterval(sse.TopicTypeDAG, dagDetailsMaxInterval)
 			// DAG changes, such as a suspension, reach this topic through the
-			// app stream.
+			// app stream. A wake that leaves the list unchanged sends nothing.
 			registrar.SetRefreshMode(sse.TopicTypeServiceDAGs, sse.TopicRefreshModeOnDemand)
-			registrar.SetPublishOnWake(sse.TopicTypeServiceDAGs, true)
 		}
 		registrar.SetPublishOnWake(sse.TopicTypeDAGRuns, true)
 		registrar.SetPublishOnWake(sse.TopicTypeQueues, true)
