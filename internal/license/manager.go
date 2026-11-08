@@ -534,6 +534,9 @@ func (m *Manager) heartbeatLoop(ctx context.Context, ad *ActivationData) {
 		case <-ctx.Done():
 			return
 		case <-ticker.C:
+			if current := m.currentActivation(); current != nil {
+				ad = current
+			}
 			m.doHeartbeat(ctx, ad)
 		}
 	}
@@ -570,6 +573,10 @@ func (m *Manager) checkIn(ctx context.Context, ad *ActivationData) error {
 				m.setFailure(licenseRevokedFailure)
 				return nil
 			case 401: // Unauthorized - deactivated or credentials invalid
+				if rotated := m.rotatedActivation(ad); rotated != nil {
+					m.logger.Info("License heartbeat secret changed in the shared store, retrying with it")
+					return m.checkIn(ctx, rotated)
+				}
 				m.logger.Error("License heartbeat unauthorized, license may have been deactivated",
 					slog.String("error", cloudErr.Message))
 				m.state.Update(nil, "")
@@ -598,6 +605,17 @@ func (m *Manager) checkIn(ctx context.Context, ad *ActivationData) error {
 	m.logger.Debug("License heartbeat successful",
 		slog.String("plan", newClaims.Plan))
 	return nil
+}
+
+// rotatedActivation returns the stored activation when it holds credentials
+// other than ad's. Instances sharing a store each activate, and every activation
+// replaces the credentials the console accepts for the others.
+func (m *Manager) rotatedActivation(ad *ActivationData) *ActivationData {
+	stored := m.loadCachedActivation(ad.LicenseKey)
+	if stored == nil || (stored.HeartbeatSecret == ad.HeartbeatSecret && stored.ServerID == ad.ServerID) {
+		return nil
+	}
+	return stored
 }
 
 // applyToken verifies a token Dagu Console issued for the activation ad,
