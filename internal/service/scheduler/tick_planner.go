@@ -52,9 +52,6 @@ type PlannedRun struct {
 // DispatchFunc dispatches a catch-up or scheduled run for the given DAG.
 type DispatchFunc func(ctx context.Context, entry DAGEntry, runID string, triggerType ir.TriggerType, scheduleTime time.Time) error
 
-// RunIDFunc generates a unique run ID.
-type RunIDFunc func(ctx context.Context) (string, error)
-
 // IsRunningFunc checks if a DAG has any active run.
 type IsRunningFunc func(ctx context.Context, dag *ir.DAG) (bool, error)
 
@@ -88,12 +85,12 @@ type TickPlannerConfig struct {
 	IsSuspended     IsSuspendedFunc
 	GetLatestStatus GetLatestStatusFunc
 	IsRunning       IsRunningFunc
-	GenRunID        RunIDFunc
 	Dispatch        DispatchFunc
 	Stop            StopFunc
 	Restart         RestartFunc
 	Clock           Clock
 	Location        *time.Location // timezone for cron schedule evaluation
+	DataDir         string         // data directory, part of each slot's run ID
 	Events          <-chan DAGChangeEvent
 	ProfileResolver DAGProfileResolver
 
@@ -122,7 +119,7 @@ type TickPlannerConfig struct {
 //   - flushMu spans a flush's snapshot and save, so a later snapshot is never
 //     overwritten by an earlier one. Lock order: entryMu, flushMu, mu.
 //   - Plan() holds entryMu during I/O calls (IsSuspended, IsRunning,
-//     GetLatestStatus, GenRunID). This is intentional: the lock prevents
+//     GetLatestStatus). This is intentional: the lock prevents
 //     event processing during planning, ensuring a consistent snapshot of
 //     entries for the entire plan cycle.
 //   - Plan() resolves DAG profiles before the main planning lock, then
@@ -221,11 +218,6 @@ func NewTickPlanner(cfg TickPlannerConfig) *TickPlanner {
 	}
 	if cfg.Location == nil {
 		cfg.Location = time.Local
-	}
-	if cfg.GenRunID == nil {
-		cfg.GenRunID = func(context.Context) (string, error) {
-			return "", fmt.Errorf("genRunID not configured")
-		}
 	}
 	if cfg.Dispatch == nil {
 		cfg.Dispatch = func(context.Context, DAGEntry, string, ir.TriggerType, time.Time) error {
@@ -686,11 +678,8 @@ func (tp *TickPlanner) Plan(ctx context.Context, now time.Time) []PlannedRun {
 							item, _ = buf.Peek()
 						}
 						buf.Pop()
-						run, ok := tp.createPlannedRun(ctx, item.DAGEntry, item.Schedule, item.ScheduledTime, item.TriggerType)
-						if ok {
-							candidates = append(candidates, run)
-							catchupProduced = true
-						}
+						candidates = append(candidates, tp.createPlannedRun(item.DAGEntry, item.Schedule, item.ScheduledTime, item.TriggerType))
+						catchupProduced = true
 					} else {
 						switch buf.overlapPolicy {
 						case ir.OverlapPolicySkip:
@@ -761,8 +750,8 @@ func (tp *TickPlanner) Plan(ctx context.Context, now time.Time) []PlannedRun {
 				continue
 			}
 
-			run, ok := tp.createPlannedRun(ctx, entry.DAGEntry, schedule, oneOffState.ScheduledTime, ir.TriggerTypeScheduler)
-			if ok && shouldPreferStartCandidate(run, startCandidate, hasStartCandidate) {
+			run := tp.createPlannedRun(entry.DAGEntry, schedule, oneOffState.ScheduledTime, ir.TriggerTypeScheduler)
+			if shouldPreferStartCandidate(run, startCandidate, hasStartCandidate) {
 				startCandidate = run
 				hasStartCandidate = true
 			}
@@ -781,11 +770,7 @@ func (tp *TickPlanner) Plan(ctx context.Context, now time.Time) []PlannedRun {
 				tp.recordSlot(dagName, next, skipped)
 				continue
 			}
-			run, ok := tp.createPlannedRun(ctx, entry.DAGEntry, schedule, next, ir.TriggerTypeScheduler)
-			if !ok {
-				tp.recordSlot(dagName, next, schedulerstate.SlotFailed)
-				continue
-			}
+			run := tp.createPlannedRun(entry.DAGEntry, schedule, next, ir.TriggerTypeScheduler)
 			if shouldPreferStartCandidate(run, startCandidate, hasStartCandidate) {
 				startCandidate = run
 				hasStartCandidate = true
@@ -1134,26 +1119,28 @@ func scheduleDueAt(schedule ir.Schedule, now time.Time) (time.Time, bool) {
 	return next, true
 }
 
-// createPlannedRun generates a run ID and constructs a PlannedRun.
-// For catchup runs, a deterministic ID is generated from the DAG name and
-// scheduled time. For all other runs, a random UUID v7 is used.
-func (tp *TickPlanner) createPlannedRun(ctx context.Context, entry DAGEntry, schedule ir.Schedule, scheduledTime time.Time, triggerType ir.TriggerType) (PlannedRun, bool) {
+// slotRunExists reports whether the planned run of a slot was already created,
+// which is why its dispatch can fail after another scheduler started it.
+func (tp *TickPlanner) slotRunExists(ctx context.Context, run PlannedRun) bool {
+	exists, err := tp.cfg.RunExists(ctx, run.DAG, run.RunID)
+	if err != nil {
+		logger.Error(ctx, "Failed to re-check dag-run after dispatch error",
+			tag.DAG(run.DAG.Name),
+			tag.RunID(run.RunID),
+			tag.Error(err),
+		)
+		return false
+	}
+	return exists
+}
+
+// createPlannedRun generates a run ID and constructs a PlannedRun. Every ID is
+// deterministic, so a slot planned twice, as around a failover, names one run.
+func (tp *TickPlanner) createPlannedRun(entry DAGEntry, schedule ir.Schedule, scheduledTime time.Time, triggerType ir.TriggerType) PlannedRun {
 	dag := entry.DAG
-	var runID string
-	if triggerType == ir.TriggerTypeCatchUp {
-		runID = GenerateCatchupRunID(dag.Name, scheduledTime)
-	} else if schedule.IsOneOff() {
+	runID := GenerateSlotRunID(tp.cfg.DataDir, dag.Name, scheduledTime)
+	if triggerType != ir.TriggerTypeCatchUp && schedule.IsOneOff() {
 		runID = GenerateOneOffRunID(dag.Name, schedule.Fingerprint(), scheduledTime)
-	} else {
-		var err error
-		runID, err = tp.cfg.GenRunID(ctx)
-		if err != nil {
-			logger.Error(ctx, "Failed to generate run ID",
-				tag.DAG(dag.Name),
-				tag.Error(err),
-			)
-			return PlannedRun{}, false
-		}
 	}
 
 	return PlannedRun{
@@ -1164,7 +1151,7 @@ func (tp *TickPlanner) createPlannedRun(ctx context.Context, entry DAGEntry, sch
 		ScheduleType:  ScheduleTypeStart,
 		Schedule:      schedule,
 		Fingerprint:   schedule.Fingerprint(),
-	}, true
+	}
 }
 
 // Advance records that this tick was processed. Updates global and per-DAG watermarks.
@@ -1871,21 +1858,26 @@ func (tp *TickPlanner) DispatchRun(ctx context.Context, run PlannedRun) {
 				)
 				return
 			}
-			legacyRunID := generateLegacyCatchupRunID(run.DAG.Name, run.ScheduledTime)
-			exists, existsErr := tp.cfg.RunExists(ctx, run.DAG, legacyRunID)
-			if existsErr != nil {
-				logger.Error(ctx, "Failed to check for existing catchup dag-run",
-					tag.DAG(run.DAG.Name),
-					tag.RunID(legacyRunID),
-					tag.Error(existsErr),
-				)
-				tp.reinsertCatchupItem(ctx, run)
-				return
-			}
-			if exists {
-				tp.advanceDAGWatermark(run.DAG.Name, run.ScheduledTime)
-				tp.recordStartSlot(run, schedulerstate.SlotDone)
-				return
+			// A slot replayed by an earlier release has one of these IDs.
+			for _, earlierRunID := range []string{
+				generateLegacyCatchupRunID(run.DAG.Name, run.ScheduledTime),
+				GenerateCatchupRunID(run.DAG.Name, run.ScheduledTime),
+			} {
+				exists, existsErr := tp.cfg.RunExists(ctx, run.DAG, earlierRunID)
+				if existsErr != nil {
+					logger.Error(ctx, "Failed to check for existing catchup dag-run",
+						tag.DAG(run.DAG.Name),
+						tag.RunID(earlierRunID),
+						tag.Error(existsErr),
+					)
+					tp.reinsertCatchupItem(ctx, run)
+					return
+				}
+				if exists {
+					tp.advanceDAGWatermark(run.DAG.Name, run.ScheduledTime)
+					tp.recordStartSlot(run, schedulerstate.SlotDone)
+					return
+				}
 			}
 			err = tp.cfg.Enqueue(ctx, run.DAGEntry, run.RunID, run.TriggerType, run.ScheduledTime)
 		} else if tp.queuesRun(run.DAG) {
@@ -1929,6 +1921,13 @@ func (tp *TickPlanner) DispatchRun(ctx context.Context, run PlannedRun) {
 				}
 				return
 			}
+		}
+		if run.ScheduleType == ScheduleTypeStart && !run.Schedule.IsOneOff() && tp.slotRunExists(ctx, run) {
+			if run.TriggerType == ir.TriggerTypeCatchUp {
+				tp.advanceDAGWatermark(run.DAG.Name, run.ScheduledTime)
+			}
+			tp.recordStartSlot(run, schedulerstate.SlotDispatched)
+			return
 		}
 
 		logger.Error(ctx, "Failed to dispatch run",
