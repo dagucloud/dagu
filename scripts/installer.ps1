@@ -763,6 +763,17 @@ function Invoke-Uninstall {
                 try { Stop-Service -Name $Script:ServiceName -Force -ErrorAction SilentlyContinue } catch {}
                 & sc.exe delete $Script:ServiceName | Out-Null
             }
+            # A service that could not be removed must keep its wrapper and
+            # config, or it would start at the next boot with nothing left to
+            # remove it with. Windows drops a deleted service only once every
+            # handle to it is closed, so give it a moment.
+            $deadline = (Get-Date).AddSeconds(15)
+            while ((Get-Service -Name $Script:ServiceName -ErrorAction SilentlyContinue) -and ((Get-Date) -lt $deadline)) {
+                Start-Sleep -Seconds 1
+            }
+            if (Get-Service -Name $Script:ServiceName -ErrorAction SilentlyContinue) {
+                throw "The $($Script:ServiceName) Windows service is still registered, so its files were left in place. Stop whatever holds the service open, then run the uninstall again."
+            }
         }
     }
     foreach ($path in $Script:UninstallInstallPaths) {
