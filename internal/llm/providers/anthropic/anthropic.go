@@ -250,10 +250,9 @@ func (p *Provider) buildRequestBody(req *llm.ChatRequest, stream bool) ([]byte, 
 		chatReq.MaxTokens = thinkingBudget + 4096
 	}
 
-	if req.Temperature != nil {
+	// Thinking uses provider-controlled sampling parameters.
+	if chatReq.Thinking == nil {
 		chatReq.Temperature = req.Temperature
-	}
-	if req.TopP != nil {
 		chatReq.TopP = req.TopP
 	}
 	if len(req.Stop) > 0 {

@@ -507,3 +507,40 @@ func TestStreamResponse_MergesUsage(t *testing.T) {
 	require.NotNil(t, usage)
 	assert.Equal(t, llm.Usage{PromptTokens: 120, CompletionTokens: 40, TotalTokens: 160, CachedPromptTokens: 100, CacheWritePromptTokens: 8}, *usage)
 }
+
+func TestBuildRequestBody_ThinkingSampling(t *testing.T) {
+	t.Parallel()
+	for _, tt := range []struct {
+		name         string
+		thinking     *llm.ThinkingRequest
+		wantSampling bool
+	}{
+		{name: "absent", wantSampling: true},
+		{name: "disabled", thinking: &llm.ThinkingRequest{}, wantSampling: true},
+		{name: "none", thinking: &llm.ThinkingRequest{Enabled: true, Effort: llm.ThinkingEffortNone}, wantSampling: true},
+		{name: "adaptive", thinking: &llm.ThinkingRequest{Enabled: true}},
+		{name: "budget", thinking: &llm.ThinkingRequest{Enabled: true, BudgetTokens: new(2048)}},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			provider := &Provider{}
+			body, err := provider.buildRequestBody(&llm.ChatRequest{
+				Model:       "claude-sonnet-4-6",
+				Messages:    []llm.Message{{Role: llm.RoleUser, Content: "Hello"}},
+				Thinking:    tt.thinking,
+				Temperature: new(0.7),
+				TopP:        new(0.9),
+			}, false)
+			require.NoError(t, err)
+			var parsed map[string]any
+			require.NoError(t, json.Unmarshal(body, &parsed))
+			if tt.wantSampling {
+				assert.Equal(t, 0.7, parsed["temperature"])
+				assert.Equal(t, 0.9, parsed["top_p"])
+			} else {
+				assert.NotContains(t, parsed, "temperature")
+				assert.NotContains(t, parsed, "top_p")
+			}
+		})
+	}
+}
