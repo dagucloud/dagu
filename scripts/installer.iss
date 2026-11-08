@@ -413,15 +413,21 @@ var
   Previous: string;
 begin
   if (CurPageID = PortPage.ID) and not PortPagePrefilled then begin
-    { An upgrade keeps the ports the running service already has. }
+    { An upgrade offers the ports the running service already has, except
+      for one named on the command line. A silent install walks this page
+      and its Next handler too, so that exception keeps /PORT in force. }
     PortPagePrefilled := True;
-    Previous := ReadServiceEnv('DAGU_PORT');
-    if IsValidPort(Previous) then begin
-      PortPage.Values[0] := Previous;
+    if not WebPortFromCommandLine then begin
+      Previous := ReadServiceEnv('DAGU_PORT');
+      if IsValidPort(Previous) then begin
+        PortPage.Values[0] := Previous;
+      end;
     end;
-    Previous := ReadServiceEnv('DAGU_COORDINATOR_PORT');
-    if IsValidPort(Previous) then begin
-      PortPage.Values[1] := Previous;
+    if not CoordinatorPortFromCommandLine then begin
+      Previous := ReadServiceEnv('DAGU_COORDINATOR_PORT');
+      if IsValidPort(Previous) then begin
+        PortPage.Values[1] := Previous;
+      end;
     end;
   end;
 
