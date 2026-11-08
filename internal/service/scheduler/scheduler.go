@@ -75,7 +75,13 @@ type Scheduler struct {
 	queueStore          queuedomain.QueueStore
 	procRepository      processRepository
 	config              *config.Config
-	lease               *lockLease      // Renews dirLock while this instance is active
+	lease               *lockLease // Renews dirLock while this instance is active
+	lockLost            atomic.Pointer[error]
+	fenceExit           func(error)
+	fenceExitAfter      time.Duration
+	fenceMu             sync.Mutex
+	fenceWatchdog       *time.Timer
+	startReturned       bool
 	dirLock             dirlock.DirLock // File-based lock to prevent multiple scheduler instances
 	dagExecutor         *DAGExecutor
 	healthServer        *HealthServer // Health check server for monitoring
@@ -413,6 +419,8 @@ func newScheduler(
 
 	s := &Scheduler{
 		quit:             make(chan any),
+		fenceExit:        exitOnLostLock,
+		fenceExitAfter:   defaultFenceExitAfter,
 		entryReader:      er,
 		dagRepository:    dagRepository,
 		dagRunRepository: dagRunRepository,
@@ -627,7 +635,14 @@ func (s *Scheduler) unregisterService(ctx context.Context) {
 	}
 }
 
-func (s *Scheduler) Start(ctx context.Context) error {
+func (s *Scheduler) Start(ctx context.Context) (err error) {
+	defer func() {
+		s.disarmFenceWatchdog()
+		if err == nil {
+			err = s.lockLostError()
+		}
+	}()
+
 	ctx, cancel, ok := s.beginStartup(ctx)
 	if !ok {
 		return nil
@@ -897,12 +912,7 @@ func (s *Scheduler) startPublicWebhooks(ctx context.Context) {
 
 func (s *Scheduler) startHeartbeat(ctx context.Context) {
 	if err := s.lease.run(ctx, s.quit); err != nil {
-		logger.Error(ctx, "Scheduler lock lost, self-fencing", tag.Error(err))
-		// Self-fencing protocol: clear lockHeld BEFORE calling Stop().
-		// This makes releaseDirLock skip Unlock, so a scheduler that just
-		// lost ownership cannot remove a replacement lock acquired by another process.
-		s.lockHeld.Store(false)
-		s.Stop(ctx)
+		s.selfFence(ctx, err)
 	}
 }
 

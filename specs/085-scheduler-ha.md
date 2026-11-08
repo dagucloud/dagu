@@ -34,6 +34,10 @@ reading logs, which instance is active and how long a failover takes.
   the lock is no longer its own. A renewal that blocks on storage counts as
   no renewal.
 - An instance past that limit dispatches nothing, even before it stops.
+- An instance that stops being active this way exits with a non-zero status,
+  so a supervisor can restart it. `dagu start-all` exits too, rather than
+  leaving its web UI running without a scheduler. A process that cannot finish
+  stopping within 10 seconds is ended.
 
 ### Takeover
 
@@ -74,5 +78,6 @@ directories, on storage that every host can reach.
 
 `conformance/spec085_scheduler_ha` runs the real binary. It asserts that one
 of two schedulers is active and stays so past the stale threshold, that a
-standby takes over within the bound after the active process is killed, and
-that a clean stop hands over without waiting for staleness.
+standby takes over within the bound after the active process is killed, that
+a clean stop hands over without waiting for staleness, and that losing the
+lock ends `dagu scheduler` and `dagu start-all` with a failure.

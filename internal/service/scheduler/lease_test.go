@@ -120,3 +120,70 @@ func TestLeaseLost(t *testing.T) {
 	require.ErrorIs(t, err, dirlock.ErrLockNotHeld)
 	require.Less(t, time.Since(started), lease.budget, "losing the lock ends the lease at once")
 }
+
+type stuckEntryReader struct {
+	staticEntryReader
+	release chan struct{}
+}
+
+func (r *stuckEntryReader) Stop() { <-r.release }
+
+// A stop that hangs on storage must not leave a process running with no lock.
+func TestFenceWatchdog(t *testing.T) {
+	fixture := newHASchedulerFixture(t)
+	sc := newHASchedulerForTest(t, fixture, TestHooks{})
+
+	reader := &stuckEntryReader{release: make(chan struct{})}
+	defer close(reader.release)
+	sc.entryReader = reader
+	sc.fenceExitAfter = 20 * time.Millisecond
+	exited := make(chan error, 1)
+	sc.fenceExit = func(cause error) { exited <- cause }
+
+	go sc.selfFence(context.Background(), errors.New("lease ran out"))
+
+	select {
+	case cause := <-exited:
+		require.ErrorIs(t, cause, ErrLockLost)
+	case <-time.After(5 * time.Second):
+		t.Fatal("watchdog did not end the process")
+	}
+}
+
+// Stop can return while Start still waits on a loop blocked on the same
+// storage, so the watchdog must outlive Stop.
+func TestFenceWatchdogOutlivesStop(t *testing.T) {
+	fixture := newHASchedulerFixture(t)
+	sc := newHASchedulerForTest(t, fixture, TestHooks{})
+
+	release := make(chan struct{})
+	close(release)
+	sc.entryReader = &stuckEntryReader{release: release}
+	sc.fenceExitAfter = 200 * time.Millisecond
+	exited := make(chan error, 1)
+	sc.fenceExit = func(cause error) { exited <- cause }
+
+	sc.selfFence(context.Background(), errors.New("lease ran out"))
+
+	select {
+	case cause := <-exited:
+		require.ErrorIs(t, cause, ErrLockLost)
+	case <-time.After(5 * time.Second):
+		t.Fatal("watchdog stopped with Stop")
+	}
+}
+
+// Once Start has returned, the process is free to carry on.
+func TestFenceWatchdogDisarm(t *testing.T) {
+	t.Parallel()
+
+	var exits atomic.Int32
+	sc := &Scheduler{fenceExitAfter: 10 * time.Millisecond, fenceExit: func(error) { exits.Add(1) }}
+
+	sc.armFenceWatchdog(ErrLockLost)
+	sc.disarmFenceWatchdog()
+	sc.armFenceWatchdog(ErrLockLost)
+
+	time.Sleep(100 * time.Millisecond)
+	require.Zero(t, exits.Load())
+}
