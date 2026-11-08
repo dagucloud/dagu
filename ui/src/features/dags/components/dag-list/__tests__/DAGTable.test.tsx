@@ -11,7 +11,14 @@ import {
 import React from 'react';
 import { MemoryRouter, useLocation } from 'react-router-dom';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { Status, ViewSortField, ViewSortOrder } from '@/api/v1/schema';
+import {
+  RestartPolicy,
+  ServiceDAGState,
+  Status,
+  ViewSortField,
+  ViewSortOrder,
+  type components,
+} from '@/api/v1/schema';
 import { PanelWidthContext } from '@/components/SplitLayout';
 import { AppBarContext } from '@/contexts/AppBarContext';
 import { ConfigContext } from '@/contexts/ConfigContext';
@@ -28,6 +35,14 @@ vi.mock('@/hooks/api', () => ({
       labels: ['team=ops'],
     },
   }),
+}));
+
+const serviceDAGs = vi.hoisted(() => ({
+  current: [] as components['schemas']['ServiceDAG'][],
+}));
+
+vi.mock('@/features/cockpit/hooks/useServiceDAGs', () => ({
+  useServiceDAGs: () => ({ serviceDAGs: serviceDAGs.current, error: null }),
 }));
 
 vi.mock('@/features/dags/components/common/DAGActions', () => ({
@@ -222,6 +237,7 @@ describe('DAGTable', () => {
   afterEach(() => {
     vi.unstubAllGlobals();
     localStorage.clear();
+    serviceDAGs.current = [];
   });
 
   it('links workflow names to their canonical detail pages', () => {
@@ -680,6 +696,52 @@ describe('DAGTable', () => {
     expect(
       within(cards).getByRole('button', { name: 'Pin workflow alpha' })
     ).toHaveAttribute('aria-pressed', 'false');
+  });
+
+  // The server tells an operator's stop from a run that ended aborted, so
+  // the card takes the state from the service DAG list.
+  it('shows a service DAG as Stopped only when the server says so', () => {
+    const service = (name: string) =>
+      ({
+        ...workflow({ name, status: Status.Aborted }),
+        dag: {
+          name,
+          restartPolicy: RestartPolicy.unless_stopped,
+          restartWaitSec: 5,
+        },
+      }) as never;
+    serviceDAGs.current = [
+      {
+        fileName: 'stopped.yaml',
+        name: 'stopped',
+        restartPolicy: RestartPolicy.unless_stopped,
+        restartWaitSec: 5,
+        state: ServiceDAGState.stopped,
+        suspended: false,
+        consecutiveFailures: 0,
+      },
+      {
+        fileName: 'failing.yaml',
+        name: 'failing',
+        restartPolicy: RestartPolicy.unless_stopped,
+        restartWaitSec: 5,
+        state: ServiceDAGState.failing,
+        suspended: false,
+        consecutiveFailures: 1,
+      },
+    ];
+
+    renderTable('', {
+      panelWidth: 600,
+      dags: [service('stopped'), service('failing')],
+    });
+    const cards = screen.getByTestId('workflow-card-view');
+    const card = (name: string) =>
+      within(cards).getByRole('link', { name }).closest('.card-obsidian')!;
+
+    expect(card('stopped')).toHaveTextContent('Stopped');
+    expect(card('failing')).toHaveTextContent('Enabled');
+    expect(card('failing')).not.toHaveTextContent('Stopped');
   });
 
   it('opens the workflow page when a row is clicked', () => {
