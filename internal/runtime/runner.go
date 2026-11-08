@@ -2214,8 +2214,9 @@ func (r *Runner) failRepeatLimit(ctx context.Context, node *Node, rp ir.RepeatPo
 		return
 	}
 	err := fmt.Errorf("repeat limit %d reached; condition not met", rp.Limit)
-	node.MarkError(err)
-	r.setLastError(err)
+	// Use the same failure path as a regular step failure so that
+	// continueOn.markSuccess still applies to a repeat-limit failure.
+	r.finalizeFailedNode(ctx, node, err)
 }
 
 // setupRepeatEnv sets up the environment of the node's next repeat the same

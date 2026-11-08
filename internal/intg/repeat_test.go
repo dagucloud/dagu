@@ -627,3 +627,73 @@ func TestRepeatPolicy_UntilOnLimitFailConditionMet(t *testing.T) {
 	assert.Equal(t, ir.NodeSucceeded, dagRunStatus.Nodes[0].Status)
 	assert.Equal(t, 1, dagRunStatus.Nodes[0].DoneCount, "the met condition must end the loop after the first attempt")
 }
+
+func TestRepeatPolicy_UntilOnLimitFailContinueOnMarkSuccess(t *testing.T) {
+	repeatPolicyParallel(t)
+	th := test.Setup(t)
+
+	// A repeat-limit failure goes through the same failure path as a normal
+	// step failure, so continue_on.mark_success still promotes it to success.
+	dag := th.DAG(t, `steps:
+  - name: fix
+    command: echo attempt
+    repeat_policy:
+      repeat: until
+      condition: "pending"
+      expected: "done"
+      limit: 2
+      interval_sec: 0
+      on_limit: fail
+    continue_on:
+      failure: true
+      mark_success: true
+`)
+	agent := dag.Agent()
+
+	ctx, cancel := context.WithTimeout(agent.Context, repeatPolicyTimeout(15*time.Second))
+	defer cancel()
+
+	err := agent.Run(ctx)
+	require.NoError(t, err, "mark_success must keep the DAG successful")
+
+	dag.AssertLatestStatus(t, ir.Succeeded)
+	dagRunStatus, err := th.DAGRunMgr.GetLatestStatus(th.Context, dag.DAG)
+	require.NoError(t, err)
+	require.Len(t, dagRunStatus.Nodes, 1)
+	assert.Equal(t, ir.NodeSucceeded, dagRunStatus.Nodes[0].Status)
+	assert.Equal(t, 2, dagRunStatus.Nodes[0].DoneCount, "the step must still stop at the limit")
+}
+
+func TestRepeatPolicy_UntilOnLimitFailConditionMetOnFinalAttempt(t *testing.T) {
+	repeatPolicyParallel(t)
+	th := test.Setup(t)
+
+	// The condition becomes true exactly on the last allowed attempt. The
+	// hard-limit check runs before the condition, so on_limit: fail must not
+	// turn a loop that just succeeded into a failure.
+	dag := th.DAG(t, `steps:
+  - name: fix
+    command: echo attempt
+    repeat_policy:
+      repeat: until
+      condition: "${context.step.repeat_index}"
+      expected: "2"
+      limit: 3
+      interval_sec: 0
+      on_limit: fail
+`)
+	agent := dag.Agent()
+
+	ctx, cancel := context.WithTimeout(agent.Context, repeatPolicyTimeout(15*time.Second))
+	defer cancel()
+
+	err := agent.Run(ctx)
+	require.NoError(t, err, "a condition met on the final attempt must succeed")
+
+	dag.AssertLatestStatus(t, ir.Succeeded)
+	dagRunStatus, err := th.DAGRunMgr.GetLatestStatus(th.Context, dag.DAG)
+	require.NoError(t, err)
+	require.Len(t, dagRunStatus.Nodes, 1)
+	assert.Equal(t, ir.NodeSucceeded, dagRunStatus.Nodes[0].Status)
+	assert.Equal(t, 3, dagRunStatus.Nodes[0].DoneCount, "the loop must reach the limit")
+}
