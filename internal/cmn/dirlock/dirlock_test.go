@@ -1390,3 +1390,91 @@ func TestFailedUnlockNotReused(t *testing.T) {
 	require.NoError(t, os.Rename(aside, lock.lockPath))
 	require.ErrorIs(t, lock.TryLock(), ErrLockConflict)
 }
+
+const observerStale = 200 * time.Millisecond
+
+func newObserverLock(dir string) *dirLock {
+	return New(dir, &LockOptions{
+		StaleThreshold:   observerStale,
+		RetryInterval:    10 * time.Millisecond,
+		ObserveHeartbeat: true,
+	}).(*dirLock)
+}
+
+// requireConflictFor proves a contender cannot take the lock for the whole period.
+func requireConflictFor(t *testing.T, contender *dirLock, period time.Duration) {
+	t.Helper()
+	for deadline := time.Now().Add(period); time.Now().Before(deadline); time.Sleep(10 * time.Millisecond) {
+		require.ErrorIs(t, contender.TryLock(), ErrLockConflict)
+	}
+}
+
+// A standby whose clock runs ahead sees an old timestamp on a healthy lock. It
+// must not take the lock while the holder keeps renewing it.
+func TestObserverSkew(t *testing.T) {
+	t.Parallel()
+
+	dir := t.TempDir()
+	holder := newObserverLock(dir)
+	require.NoError(t, holder.TryLock())
+	contender := newObserverLock(dir)
+
+	old := time.Now().Add(-time.Hour)
+	for deadline := time.Now().Add(3 * observerStale); time.Now().Before(deadline); time.Sleep(20 * time.Millisecond) {
+		require.NoError(t, holder.Heartbeat(context.Background()))
+		require.NoError(t, os.Chtimes(holder.lockPath, old, old))
+		require.ErrorIs(t, contender.TryLock(), ErrLockConflict)
+	}
+}
+
+func TestObserverFrozen(t *testing.T) {
+	t.Parallel()
+
+	dir := t.TempDir()
+	holder := newObserverLock(dir)
+	require.NoError(t, holder.TryLock())
+
+	contender := newObserverLock(dir)
+	start := time.Now()
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	require.NoError(t, contender.Lock(ctx))
+	require.GreaterOrEqual(t, time.Since(start), observerStale)
+	require.True(t, contender.IsHeldByMe())
+}
+
+// An old timestamp alone says nothing: a contender has to watch the holder
+// fail to renew for the whole threshold.
+func TestObserverColdStart(t *testing.T) {
+	t.Parallel()
+
+	dir := t.TempDir()
+	holder := newObserverLock(dir)
+	require.NoError(t, holder.TryLock())
+	old := time.Now().Add(-time.Hour)
+	require.NoError(t, os.Chtimes(holder.lockPath, old, old))
+
+	contender := newObserverLock(dir)
+	requireConflictFor(t, contender, observerStale/2)
+
+	require.Eventually(t, func() bool {
+		return contender.TryLock() == nil
+	}, 5*time.Second, 10*time.Millisecond)
+}
+
+// A heartbeat that cannot be read may be a storage fault, so it cannot count
+// as a holder that stopped.
+func TestObserverReadError(t *testing.T) {
+	t.Parallel()
+
+	dir := t.TempDir()
+	holder := newObserverLock(dir)
+	require.NoError(t, holder.TryLock())
+
+	beatPath := filepath.Join(holder.lockPath, holder.heartbeatFile)
+	require.NoError(t, os.Remove(beatPath))
+	require.NoError(t, os.Mkdir(beatPath, 0700))
+
+	requireConflictFor(t, newObserverLock(dir), 3*observerStale)
+}

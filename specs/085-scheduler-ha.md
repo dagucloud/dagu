@@ -47,6 +47,11 @@ reading logs, which instance is active and how long a failover takes.
   active after the lock goes stale. With a stale threshold `T` and a retry
   interval `R`, this happens within `T + 2R` plus startup of the death.
 
+- A standby judges staleness by watching the active instance renew the lock,
+  timed on its own clock. Clock differences between hosts do not affect it. A
+  standby therefore waits a full `T` even for a lock left behind long ago, so
+  a host restarted after a crash starts scheduling `T` after it comes up.
+
 ### Observability
 
 - Every scheduler serves `GET /health` on `scheduler.port`, including a
