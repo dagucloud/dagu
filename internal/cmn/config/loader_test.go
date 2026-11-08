@@ -376,6 +376,7 @@ func TestLoad_Env(t *testing.T) {
 			LockRetryInterval:       5 * time.Second,
 			ZombieDetectionInterval: 90 * time.Second,
 			RetryFailureWindow:      24 * time.Hour,
+			FailoverRecoveryWindow:  2 * time.Minute,
 			FailureThreshold:        3,
 			WakeHold:                4 * time.Minute,
 		},
@@ -1003,6 +1004,7 @@ scheduler:
   lock_stale_threshold: 50s
   lock_retry_interval: 10s
   zombie_detection_interval: 60s
+  failover_recovery_window: 0s
   wake_hold: 3m
 `)
 

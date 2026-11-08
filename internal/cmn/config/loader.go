@@ -1547,6 +1547,8 @@ func (l *ConfigLoader) loadQueuesConfig(cfg *Config, def Definition) {
 // failed, while an unroutable run still fails within the same sitting.
 const defaultCoordinatorWorkerWaitTimeout = 2 * time.Minute
 
+const defaultFailoverRecoveryWindow = 2 * time.Minute
+
 func (l *ConfigLoader) loadCoordinatorConfig(cfg *Config, def Definition) {
 	cfg.Coordinator.Enabled = l.resolveCoordinatorEnabled(def)
 	cfg.Coordinator.WorkerWaitTimeout = defaultCoordinatorWorkerWaitTimeout
@@ -1722,6 +1724,7 @@ func (l *ConfigLoader) loadSchedulerConfig(cfg *Config, def Definition) {
 		cfg.Scheduler.LockRetryInterval = l.parseDuration("scheduler.lock_retry_interval", def.Scheduler.LockRetryInterval)
 		cfg.Scheduler.ZombieDetectionInterval = l.parseDuration("scheduler.zombie_detection_interval", def.Scheduler.ZombieDetectionInterval)
 		cfg.Scheduler.RetryFailureWindow = l.parseDuration("scheduler.retry_failure_window", def.Scheduler.RetryFailureWindow)
+		cfg.Scheduler.FailoverRecoveryWindow = l.parseDuration("scheduler.failover_recovery_window", def.Scheduler.FailoverRecoveryWindow)
 		cfg.Scheduler.FailureThreshold = def.Scheduler.FailureThreshold
 		cfg.Scheduler.WakeHold = l.parseDuration("scheduler.wake_hold", def.Scheduler.WakeHold)
 	}
@@ -1747,6 +1750,10 @@ func (l *ConfigLoader) setSchedulerDefaults(cfg *Config) {
 	// Default RetryFailureWindow only if not explicitly set (0 disables scanning)
 	if cfg.Scheduler.RetryFailureWindow <= 0 && !l.v.IsSet("scheduler.retry_failure_window") {
 		cfg.Scheduler.RetryFailureWindow = 24 * time.Hour
+	}
+	// Default FailoverRecoveryWindow only if not explicitly set (0 disables replay)
+	if cfg.Scheduler.FailoverRecoveryWindow <= 0 && !l.v.IsSet("scheduler.failover_recovery_window") {
+		cfg.Scheduler.FailoverRecoveryWindow = defaultFailoverRecoveryWindow
 	}
 	if cfg.Scheduler.FailureThreshold <= 0 {
 		cfg.Scheduler.FailureThreshold = 3
@@ -2350,6 +2357,7 @@ func (l *ConfigLoader) setViperDefaultValues(paths Paths) {
 	l.v.SetDefault("scheduler.lock_stale_threshold", "30s")
 	l.v.SetDefault("scheduler.lock_retry_interval", "5s")
 	l.v.SetDefault("scheduler.retry_failure_window", "24h")
+	l.v.SetDefault("scheduler.failover_recovery_window", defaultFailoverRecoveryWindow.String())
 
 	// Peer
 	l.v.SetDefault("peer.insecure", true)
@@ -2463,6 +2471,7 @@ var envBindings = []envBinding{
 	{key: "scheduler.lock_retry_interval", env: "SCHEDULER_LOCK_RETRY_INTERVAL"},
 	{key: "scheduler.zombie_detection_interval", env: "SCHEDULER_ZOMBIE_DETECTION_INTERVAL"},
 	{key: "scheduler.retry_failure_window", env: "SCHEDULER_RETRY_FAILURE_WINDOW"},
+	{key: "scheduler.failover_recovery_window", env: "SCHEDULER_FAILOVER_RECOVERY_WINDOW"},
 	{key: "scheduler.failure_threshold", env: "SCHEDULER_FAILURE_THRESHOLD"},
 	{key: "scheduler.wake_hold", env: "SCHEDULER_WAKE_HOLD"},
 

@@ -106,6 +106,9 @@ type TickPlannerConfig struct {
 	HasGlobalQueue HasGlobalQueueFunc
 	// RunExists checks whether a durable dag-run record already exists.
 	RunExists RunExistsFunc
+	// RecoveryWindow returns how far back startup replays slots missed while
+	// the lock passed from a failed scheduler, or 0 after a normal start.
+	RecoveryWindow func() time.Duration
 }
 
 // TickPlanner is the unified scheduling decision module.
@@ -218,6 +221,9 @@ func NewTickPlanner(cfg TickPlannerConfig) *TickPlanner {
 	}
 	if cfg.Location == nil {
 		cfg.Location = time.Local
+	}
+	if cfg.RecoveryWindow == nil {
+		cfg.RecoveryWindow = func() time.Duration { return 0 }
 	}
 	if cfg.Dispatch == nil {
 		cfg.Dispatch = func(context.Context, DAGEntry, string, ir.TriggerType, time.Time) error {
@@ -381,14 +387,22 @@ func (tp *TickPlanner) Init(ctx context.Context, entries []DAGEntry) error {
 	)
 
 	tp.settlePlannedSlots(ctx, entries)
-	// The first tick takes the current minute's slots.
-	firstTick := tp.cfg.Clock().Truncate(time.Minute)
+	var recovery time.Duration
+	if tp.cfg.QueuesEnabled {
+		recovery = tp.cfg.RecoveryWindow()
+	}
+	// The first tick takes the current minute's slots, and recovery replays
+	// the slots inside its window.
+	missedBefore := tp.cfg.Clock().Truncate(time.Minute)
+	if recovery > 0 {
+		missedBefore = tp.cfg.Clock().Add(-recovery)
+	}
 	for _, entry := range entries {
 		if active, ok := activeByDAG[entry.DAG.Name]; ok {
-			tp.recordMissedSlot(ctx, entry, active, state.LastTick, firstTick)
+			tp.recordMissedSlot(ctx, entry, active, state.LastTick, missedBefore)
 		}
 	}
-	tp.initBuffers(ctx, entries, activeByDAG)
+	tp.initBuffers(ctx, entries, activeByDAG, recovery)
 	tp.Flush(ctx)
 	return nil
 }
@@ -487,10 +501,19 @@ func (tp *TickPlanner) recordSlot(dagName string, at time.Time, outcome schedule
 	return true
 }
 
+// includeUnstartedSlot moves replayFrom back to cover a slot that a failed
+// scheduler planned but never started, unless the slot is older than earliest.
+func includeUnstartedSlot(replayFrom time.Time, slot *schedulerstate.ScheduleSlot, earliest time.Time) time.Time {
+	if slot == nil || slot.Outcome != schedulerstate.SlotPlanned || slot.At.Before(earliest) || slot.At.After(replayFrom) {
+		return replayFrom
+	}
+	return slot.At.Add(-time.Second)
+}
+
 // initBuffers creates per-DAG queues for DAGs with CatchupWindow > 0
 // and enqueues catch-up items. Requires QueuesEnabled; when disabled,
 // catchup buffers are not populated and a warning is logged per DAG.
-func (tp *TickPlanner) initBuffers(ctx context.Context, entries []DAGEntry, activeByDAG map[string]activeDAGSchedules) {
+func (tp *TickPlanner) initBuffers(ctx context.Context, entries []DAGEntry, activeByDAG map[string]activeDAGSchedules, recovery time.Duration) {
 	if !tp.cfg.QueuesEnabled {
 		for _, entry := range entries {
 			dag := entry.DAG
@@ -517,7 +540,8 @@ func (tp *TickPlanner) initBuffers(ctx context.Context, entries []DAGEntry, acti
 
 	for _, entry := range entries {
 		dag := entry.DAG
-		if dag.CatchupWindow <= 0 {
+		window := max(dag.CatchupWindow, recovery)
+		if window <= 0 {
 			continue
 		}
 		active, ok := activeByDAG[dag.Name]
@@ -528,13 +552,17 @@ func (tp *TickPlanner) initBuffers(ctx context.Context, entries []DAGEntry, acti
 			continue
 		}
 
-		var lastScheduledTime time.Time
-		if wm, ok := dagWatermarks[dag.Name]; ok {
-			lastScheduledTime = wm.LastScheduledTime
+		wm := dagWatermarks[dag.Name]
+		replayFrom := ComputeReplayFrom(window, lastTick, wm.LastScheduledTime, now)
+		if recovery > 0 {
+			replayFrom = includeUnstartedSlot(replayFrom, wm.LastSlot, now.Add(-recovery))
 		}
-
-		replayFrom := ComputeReplayFrom(dag.CatchupWindow, lastTick, lastScheduledTime, now)
-		missed := computeMissedScheduleIntervals(active.start, replayFrom.In(tp.cfg.Location), now)
+		replayTo := now
+		if dag.CatchupWindow <= 0 {
+			// The first tick runs the current minute's slots as usual.
+			replayTo = now.Truncate(time.Minute).Add(-time.Second)
+		}
+		missed := computeMissedScheduleIntervals(active.start, replayFrom.In(tp.cfg.Location), replayTo)
 
 		if len(missed) == 0 {
 			continue
