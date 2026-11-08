@@ -103,6 +103,9 @@ type dirLock struct {
 	// beforeStaleClaim, when set by tests, runs after a stale lock has been
 	// observed and before it is claimed.
 	beforeStaleClaim func()
+	// beforeReleaseClaim, when set by tests, runs before a holder claims its own
+	// lock instance to release it.
+	beforeReleaseClaim func()
 	// afterClaim, when set by tests, runs after a lock instance has been
 	// claimed for removal and before it is removed.
 	afterClaim func()
@@ -598,11 +601,17 @@ func (l *dirLock) Unlock() error {
 	// Claim our own instance so that only it can be removed, even if a stale
 	// takeover replaces it concurrently.
 	claimName := claimedFilePrefix + newUniqueID()
+	if l.beforeReleaseClaim != nil {
+		l.beforeReleaseClaim()
+	}
 	if err := fileutil.Rename(tokenPath, filepath.Join(l.lockPath, claimName)); err != nil {
 		if isLostClaimError(err) {
 			l.isHeld = false
 			return fmt.Errorf("%w: lock was taken over: %v", ErrLockNotHeld, err)
 		}
+		// Nothing renews the lock after a release attempt, so using it again
+		// needs a fresh acquisition.
+		l.isHeld = false
 		return fmt.Errorf("failed to remove lock directory: %w", err)
 	}
 	l.isHeld = false

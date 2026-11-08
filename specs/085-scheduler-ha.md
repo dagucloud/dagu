@@ -25,9 +25,11 @@ reading logs, which instance is active and how long a failover takes.
   instance holding it is `active`. Every other instance is `standby`.
 - Only the active instance schedules runs and consumes queues.
 - A standby keeps waiting for as long as the active instance renews the lock.
-- A standby keeps waiting through storage errors.
+- A standby keeps waiting through storage errors once it has started waiting.
+  An error on its first attempt at the lock ends startup, so a wrong data
+  directory fails at once.
 - The active instance renews the lock every `I`, the smaller of 7 seconds and
-  a quarter of the stale threshold. It keeps running through renewal errors,
+  a quarter of the stale threshold `T`. It keeps running through renewal errors,
   and stops being active once it has gone `T - I` without a renewal or finds
   the lock is no longer its own. A renewal that blocks on storage counts as
   no renewal.

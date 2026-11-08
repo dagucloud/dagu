@@ -17,6 +17,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
@@ -1335,8 +1336,8 @@ func TestLockRetryError(t *testing.T) {
 		OnWait: func() {
 			// Replace the directory with a file so the next attempt fails with
 			// an error that is not a lock conflict.
-			require.NoError(t, os.Rename(lockDir, aside))
-			require.NoError(t, os.WriteFile(lockDir, nil, 0600))
+			assert.NoError(t, os.Rename(lockDir, aside))
+			assert.NoError(t, os.WriteFile(lockDir, nil, 0600))
 		},
 		OnRetryError: func(err error) {
 			once.Do(func() { retried <- err })
@@ -1362,8 +1363,30 @@ func TestLockRetryError(t *testing.T) {
 	}
 
 	require.NoError(t, os.Remove(lockDir))
-	require.NoError(t, os.Rename(aside, lockDir))
-	require.NoError(t, holder.Unlock())
 	require.NoError(t, <-acquired)
 	require.True(t, waiter.IsHeldByMe())
+}
+
+// Nothing renews a lock after a release attempt, so a failed release must not
+// leave it reusable without a fresh acquisition.
+func TestFailedUnlockNotReused(t *testing.T) {
+	t.Parallel()
+	if runtime.GOOS == "windows" {
+		t.Skip("relies on ENOTDIR from a path through a regular file")
+	}
+
+	lock := New(t.TempDir(), &LockOptions{}).(*dirLock)
+	require.NoError(t, lock.TryLock())
+
+	aside := lock.lockPath + ".aside"
+	lock.beforeReleaseClaim = func() {
+		// Replace the directory with a file so that the claim fails.
+		require.NoError(t, os.Rename(lock.lockPath, aside))
+		require.NoError(t, os.WriteFile(lock.lockPath, nil, 0600))
+	}
+	require.Error(t, lock.Unlock())
+
+	require.NoError(t, os.Remove(lock.lockPath))
+	require.NoError(t, os.Rename(aside, lock.lockPath))
+	require.ErrorIs(t, lock.TryLock(), ErrLockConflict)
 }

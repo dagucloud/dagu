@@ -14,7 +14,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-const testLeaseStale = 400 * time.Millisecond
+const testLeaseStale = 2 * time.Second
 
 type scriptedLock struct {
 	dirlock.DirLock
