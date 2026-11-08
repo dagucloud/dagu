@@ -101,6 +101,7 @@ var
   PortPage: TInputQueryWizardPage;
   PortPagePrefilled: Boolean;
   WebPort, CoordinatorPort: string;
+  PortsFromCommandLine: Boolean;
   ServiceSetupFailed: Boolean;
 
 { ---------------------------------------------------------------------------
@@ -285,6 +286,16 @@ begin
   Result := (Number >= 1) and (Number <= 65535);
 end;
 
+{ Rewrites a valid port in canonical decimal form, so "08080" and "8080" are
+  the same port everywhere it is compared, probed or passed on. }
+function NormalizePort(var Value: string): Boolean;
+begin
+  Result := IsValidPort(Value);
+  if Result then begin
+    Value := IntToStr(StrToInt(Trim(Value)));
+  end;
+end;
+
 { Tries to listen on the port the way the service will, and reports whether
   that worked. Setup itself cannot open sockets, so PowerShell does it. }
 function PortIsFree(const Port: string): Boolean;
@@ -366,6 +377,8 @@ begin
     place their ports can come from. }
   WebPort := Trim(ExpandConstant('{param:PORT|{#DefaultPort}}'));
   CoordinatorPort := Trim(ExpandConstant('{param:COORDINATORPORT|{#DefaultCoordinatorPort}}'));
+  PortsFromCommandLine := (ExpandConstant('{param:PORT|}') <> '') or
+    (ExpandConstant('{param:COORDINATORPORT|}') <> '');
 
   PortPage := CreateInputQueryPage(wpSelectTasks,
     'Network ports', 'Which ports should the Dagu service use?',
@@ -447,7 +460,7 @@ begin
   end;
   WebPort := Trim(PortPage.Values[0]);
   CoordinatorPort := Trim(PortPage.Values[1]);
-  if not IsValidPort(WebPort) or not IsValidPort(CoordinatorPort) then begin
+  if not NormalizePort(WebPort) or not NormalizePort(CoordinatorPort) then begin
     MsgBox('Enter a port number between 1 and 65535 in each field.', mbError, MB_OK);
     Result := False;
     exit;
@@ -571,16 +584,29 @@ end;
 function PrepareToInstall(var NeedsRestart: Boolean): String;
 var
   ResultCode: Integer;
-  Wrapper: string;
+  Wrapper, Previous: string;
 begin
   Result := '';
-  { The port page validates what the user typed; a silent install skips the
-    page, so its /PORT and /COORDINATORPORT values are checked here instead. }
-  if WizardIsTaskSelected('service') and
-     (not IsValidPort(WebPort) or not IsValidPort(CoordinatorPort) or (WebPort = CoordinatorPort)) then begin
-    Result := '/PORT and /COORDINATORPORT must be two different numbers between 1 and 65535 ' +
-      '(got "' + WebPort + '" and "' + CoordinatorPort + '").';
-    exit;
+  if WizardIsTaskSelected('service') then begin
+    { A silent upgrade without /PORT or /COORDINATORPORT keeps the ports the
+      installed service already uses, as the port page does interactively. }
+    if WizardSilent and not PortsFromCommandLine then begin
+      Previous := ReadServiceEnv('DAGU_PORT');
+      if IsValidPort(Previous) then begin
+        WebPort := Previous;
+      end;
+      Previous := ReadServiceEnv('DAGU_COORDINATOR_PORT');
+      if IsValidPort(Previous) then begin
+        CoordinatorPort := Previous;
+      end;
+    end;
+    { The port page validates what the user typed; a silent install skips the
+      page, so its /PORT and /COORDINATORPORT values are checked here instead. }
+    if not NormalizePort(WebPort) or not NormalizePort(CoordinatorPort) or (WebPort = CoordinatorPort) then begin
+      Result := '/PORT and /COORDINATORPORT must be two different numbers between 1 and 65535 ' +
+        '(got "' + WebPort + '" and "' + CoordinatorPort + '").';
+      exit;
+    end;
   end;
   { A running service holds dagu.exe open, which would block the file copy.
     The wrapper returns only once the service has actually stopped. }
