@@ -692,6 +692,17 @@ func (s *Scheduler) Start(ctx context.Context) error {
 		}
 		return fmt.Errorf("failed to acquire scheduler lock: %w", err)
 	}
+
+	// Catch signals before reporting the lock as held. A signal during the rest
+	// of startup waits here for the cron loop, which stops cleanly and releases
+	// the lock; without this it would kill the process and leave the lock to go
+	// stale.
+	sig := make(chan os.Signal, 1)
+	if !s.disableSignals {
+		signal.Notify(sig, syscall.SIGHUP, syscall.SIGINT, syscall.SIGTERM, syscall.SIGQUIT)
+		defer signal.Stop(sig)
+	}
+
 	s.lockHeld.Store(true)
 	state.lockAcquired = true
 
@@ -724,8 +735,6 @@ func (s *Scheduler) Start(ctx context.Context) error {
 		return err
 	}
 
-	sig := make(chan os.Signal, 1)
-
 	queueWatcher := s.queueStore.QueueWatcher(ctx)
 	notifyCh, err := queueWatcher.Start(ctx)
 	if err != nil {
@@ -736,11 +745,6 @@ func (s *Scheduler) Start(ctx context.Context) error {
 	state.queueWatcherStarted = true
 	s.queueProcessor.Start(ctx, notifyCh)
 	state.queueProcessorStarted = true
-
-	if !s.disableSignals {
-		signal.Notify(sig, syscall.SIGHUP, syscall.SIGINT, syscall.SIGTERM, syscall.SIGQUIT)
-		defer signal.Stop(sig)
-	}
 
 	if err := s.entryReader.Init(ctx); err != nil {
 		logger.Error(ctx, "Failed to initialize entry reader", tag.Error(err))
