@@ -75,6 +75,7 @@ type Scheduler struct {
 	queueStore          queuedomain.QueueStore
 	procRepository      processRepository
 	config              *config.Config
+	lease               *lockLease      // Renews dirLock while this instance is active
 	dirLock             dirlock.DirLock // File-based lock to prevent multiple scheduler instances
 	dagExecutor         *DAGExecutor
 	healthServer        *HealthServer // Health check server for monitoring
@@ -239,6 +240,9 @@ func newScheduler(
 		StaleThreshold: cfg.Scheduler.LockStaleThreshold,
 		RetryInterval:  cfg.Scheduler.LockRetryInterval,
 		OnWait:         hooks.onLockWait,
+		OnRetryError: func(err error) {
+			logger.Warn(context.Background(), "Failed to check scheduler lock, will retry", tag.Error(err))
+		},
 	}
 	lockDir := filepath.Join(persisfile.SchedulerStateDir(cfg.Paths), "locks")
 	dirLock := dirlock.New(lockDir, lockOpts)
@@ -706,6 +710,8 @@ func (s *Scheduler) Start(ctx context.Context) error {
 		return nil
 	}
 
+	s.lease = newLockLease(s.dirLock, s.config.Scheduler.LockStaleThreshold)
+
 	var wg sync.WaitGroup
 	wg.Go(func() {
 		s.startHeartbeat(ctx)
@@ -890,26 +896,13 @@ func (s *Scheduler) startPublicWebhooks(ctx context.Context) {
 }
 
 func (s *Scheduler) startHeartbeat(ctx context.Context) {
-	ticker := time.NewTicker(time.Second * 7)
-	defer ticker.Stop()
-
-	for {
-		select {
-		case <-s.quit:
-			return
-		case <-ctx.Done():
-			return
-		case <-ticker.C:
-			if err := s.dirLock.Heartbeat(ctx); err != nil {
-				logger.Error(ctx, "Heartbeat failed, scheduler self-fencing", tag.Error(err))
-				// Self-fencing protocol: clear lockHeld BEFORE calling Stop().
-				// This makes releaseDirLock skip Unlock, so a scheduler that just
-				// lost ownership cannot remove a replacement lock acquired by another process.
-				s.lockHeld.Store(false)
-				s.Stop(ctx)
-				return
-			}
-		}
+	if err := s.lease.run(ctx, s.quit); err != nil {
+		logger.Error(ctx, "Scheduler lock lost, self-fencing", tag.Error(err))
+		// Self-fencing protocol: clear lockHeld BEFORE calling Stop().
+		// This makes releaseDirLock skip Unlock, so a scheduler that just
+		// lost ownership cannot remove a replacement lock acquired by another process.
+		s.lockHeld.Store(false)
+		s.Stop(ctx)
 	}
 }
 
@@ -1047,6 +1040,9 @@ func (s *Scheduler) waitForTick(ctx context.Context, sig chan os.Signal, timer *
 
 func (s *Scheduler) runTickSafely(ctx context.Context, tickTime time.Time) (processed time.Time) {
 	processed = tickTime
+	if s.leaseExpired(ctx) {
+		return processed
+	}
 	defer func() {
 		if r := recover(); r != nil {
 			logger.Error(ctx, "Scheduler tick panicked",
@@ -1078,6 +1074,9 @@ func (s *Scheduler) runTick(ctx context.Context, tickTime time.Time) {
 // first, as a late tick recovers it. It returns the last tick run.
 func (s *Scheduler) runHeldTicks(ctx context.Context, since time.Time) (processed time.Time) {
 	processed = since.Truncate(time.Minute)
+	if s.leaseExpired(ctx) {
+		return processed
+	}
 	defer func() {
 		if r := recover(); r != nil {
 			logger.Error(ctx, "Scheduler tick panicked",
@@ -1097,6 +1096,17 @@ func (s *Scheduler) runHeldTicks(ctx context.Context, since time.Time) (processe
 		s.planner.Flush(ctx)
 	}
 	return processed
+}
+
+// leaseExpired reports whether the scheduler must not dispatch, because another
+// instance may already be active. It catches a process that was paused long
+// enough to lose its lease and has not yet noticed.
+func (s *Scheduler) leaseExpired(ctx context.Context) bool {
+	if s.lease == nil || !s.lease.expired() {
+		return false
+	}
+	logger.Warn(ctx, "Skipping scheduler tick: scheduler lock lease expired")
+	return true
 }
 
 // NextTick returns the next tick time for the scheduler.

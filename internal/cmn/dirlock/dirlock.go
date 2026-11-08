@@ -78,6 +78,10 @@ type LockOptions struct {
 	// OnWait is called once when Lock transitions into retry/wait mode after
 	// encountering a lock conflict.
 	OnWait func()
+
+	// OnRetryError, when set, keeps Lock waiting through errors that occur after
+	// its first attempt and receives each one. Without it, Lock returns them.
+	OnRetryError func(error)
 }
 
 // LockInfo contains information about a lock
@@ -99,6 +103,9 @@ type dirLock struct {
 	// beforeStaleClaim, when set by tests, runs after a stale lock has been
 	// observed and before it is claimed.
 	beforeStaleClaim func()
+	// beforeReleaseClaim, when set by tests, runs before a holder claims its own
+	// lock instance to release it.
+	beforeReleaseClaim func()
 	// afterClaim, when set by tests, runs after a lock instance has been
 	// claimed for removal and before it is removed.
 	afterClaim func()
@@ -167,6 +174,9 @@ func (l *dirLock) Heartbeat(_ context.Context) error {
 	tokenPath := filepath.Join(l.lockPath, l.ownerFile)
 	data, err := fileutil.ReadFile(tokenPath)
 	if err != nil {
+		if !os.IsNotExist(err) {
+			return fmt.Errorf("failed to read lock token: %w", err)
+		}
 		l.isHeld = false
 		return fmt.Errorf("%w: failed to read lock token: %v", ErrLockNotHeld, err)
 	}
@@ -178,6 +188,10 @@ func (l *dirLock) Heartbeat(_ context.Context) error {
 	// Touch the lock directory to update its modification time
 	now := time.Now()
 	if err := os.Chtimes(l.lockPath, now, now); err != nil {
+		if os.IsNotExist(err) {
+			l.isHeld = false
+			return fmt.Errorf("%w: lock directory is gone: %v", ErrLockNotHeld, err)
+		}
 		return fmt.Errorf("failed to update lock timestamp: %w", err)
 	}
 
@@ -543,12 +557,17 @@ func (l *dirLock) Lock(ctx context.Context) error {
 		case <-ctx.Done():
 			return ctx.Err()
 		case <-ticker.C:
-			if err := l.TryLock(); err == nil {
+			err := l.TryLock()
+			if err == nil {
 				return nil
-			} else if err != ErrLockConflict {
+			}
+			if err == ErrLockConflict {
+				continue
+			}
+			if l.opts.OnRetryError == nil {
 				return err
 			}
-			// Continue retrying on lock conflict
+			l.opts.OnRetryError(err)
 		}
 	}
 }
@@ -582,11 +601,17 @@ func (l *dirLock) Unlock() error {
 	// Claim our own instance so that only it can be removed, even if a stale
 	// takeover replaces it concurrently.
 	claimName := claimedFilePrefix + newUniqueID()
+	if l.beforeReleaseClaim != nil {
+		l.beforeReleaseClaim()
+	}
 	if err := fileutil.Rename(tokenPath, filepath.Join(l.lockPath, claimName)); err != nil {
 		if isLostClaimError(err) {
 			l.isHeld = false
 			return fmt.Errorf("%w: lock was taken over: %v", ErrLockNotHeld, err)
 		}
+		// Nothing renews the lock after a release attempt, so using it again
+		// needs a fresh acquisition.
+		l.isHeld = false
 		return fmt.Errorf("failed to remove lock directory: %w", err)
 	}
 	l.isHeld = false

@@ -17,6 +17,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
@@ -1284,4 +1285,108 @@ func TestUnlock_RestrictedLockDir(t *testing.T) {
 			require.NoError(t, next.Unlock())
 		})
 	}
+}
+
+// Storage that fails for a moment says nothing about who owns the lock.
+func TestHeartbeatReadError(t *testing.T) {
+	t.Parallel()
+
+	lock := New(t.TempDir(), &LockOptions{}).(*dirLock)
+	require.NoError(t, lock.TryLock())
+
+	ownerPath := filepath.Join(lock.lockPath, lock.ownerFile)
+	require.NoError(t, os.Remove(ownerPath))
+	require.NoError(t, os.Mkdir(ownerPath, 0700))
+
+	err := lock.Heartbeat(context.Background())
+	require.Error(t, err)
+	require.NotErrorIs(t, err, ErrLockNotHeld)
+	require.True(t, lock.isHeld, "a read error must not give up the lock")
+}
+
+func TestHeartbeatOwnerGone(t *testing.T) {
+	t.Parallel()
+
+	lock := New(t.TempDir(), &LockOptions{}).(*dirLock)
+	require.NoError(t, lock.TryLock())
+	require.NoError(t, os.Remove(filepath.Join(lock.lockPath, lock.ownerFile)))
+
+	require.ErrorIs(t, lock.Heartbeat(context.Background()), ErrLockNotHeld)
+	require.False(t, lock.isHeld)
+}
+
+// A standby must survive a storage error while it waits for the lock.
+func TestLockRetryError(t *testing.T) {
+	t.Parallel()
+	if runtime.GOOS == "windows" {
+		t.Skip("relies on ENOTDIR from a path through a regular file")
+	}
+
+	root := t.TempDir()
+	lockDir := filepath.Join(root, "locks")
+	aside := filepath.Join(root, "aside")
+
+	holder := New(lockDir, &LockOptions{})
+	require.NoError(t, holder.TryLock())
+
+	retried := make(chan error, 1)
+	var once sync.Once
+	waiter := New(lockDir, &LockOptions{
+		RetryInterval: 5 * time.Millisecond,
+		OnWait: func() {
+			// Replace the directory with a file so the next attempt fails with
+			// an error that is not a lock conflict.
+			assert.NoError(t, os.Rename(lockDir, aside))
+			assert.NoError(t, os.WriteFile(lockDir, nil, 0600))
+		},
+		OnRetryError: func(err error) {
+			once.Do(func() { retried <- err })
+		},
+	})
+
+	acquired := make(chan error, 1)
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	go func() {
+		// lockDir is a file now, so this also proves waiting resumes once
+		// storage recovers.
+		acquired <- waiter.Lock(ctx)
+	}()
+
+	select {
+	case err := <-retried:
+		require.Error(t, err)
+	case err := <-acquired:
+		t.Fatalf("Lock returned instead of waiting: %v", err)
+	case <-time.After(5 * time.Second):
+		t.Fatal("no retry error was reported")
+	}
+
+	require.NoError(t, os.Remove(lockDir))
+	require.NoError(t, <-acquired)
+	require.True(t, waiter.IsHeldByMe())
+}
+
+// Nothing renews a lock after a release attempt, so a failed release must not
+// leave it reusable without a fresh acquisition.
+func TestFailedUnlockNotReused(t *testing.T) {
+	t.Parallel()
+	if runtime.GOOS == "windows" {
+		t.Skip("relies on ENOTDIR from a path through a regular file")
+	}
+
+	lock := New(t.TempDir(), &LockOptions{}).(*dirLock)
+	require.NoError(t, lock.TryLock())
+
+	aside := lock.lockPath + ".aside"
+	lock.beforeReleaseClaim = func() {
+		// Replace the directory with a file so that the claim fails.
+		require.NoError(t, os.Rename(lock.lockPath, aside))
+		require.NoError(t, os.WriteFile(lock.lockPath, nil, 0600))
+	}
+	require.Error(t, lock.Unlock())
+
+	require.NoError(t, os.Remove(lock.lockPath))
+	require.NoError(t, os.Rename(aside, lock.lockPath))
+	require.ErrorIs(t, lock.TryLock(), ErrLockConflict)
 }
