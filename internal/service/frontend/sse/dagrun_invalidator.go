@@ -113,15 +113,15 @@ func wakeTopicsForDAGRunEvents(mux *Multiplexer, events []*eventstore.Event, ser
 	}
 
 	affected := listWakeStatuses{
-		all:         make(map[ir.Status]struct{}),
-		withoutRuns: make(map[ir.Status]struct{}),
+		all:                   make(map[ir.Status]struct{}),
+		withoutServiceDAGRuns: make(map[ir.Status]struct{}),
 	}
 	for _, event := range events {
 		statuses, serviceDAGRun := wakeTopicsForDAGRunEvent(mux, event, serviceDAGs)
 		for _, status := range statuses {
 			affected.all[status] = struct{}{}
 			if !serviceDAGRun {
-				affected.withoutRuns[status] = struct{}{}
+				affected.withoutServiceDAGRuns[status] = struct{}{}
 			}
 		}
 	}
@@ -131,10 +131,10 @@ func wakeTopicsForDAGRunEvents(mux *Multiplexer, events []*eventstore.Event, ser
 
 // listWakeStatuses holds the statuses that a batch of events changed. A run
 // of a service DAG changes a list only when the list shows service DAG runs,
-// so those events count in all but not in withoutRuns.
+// so those events count in all but not in withoutServiceDAGRuns.
 type listWakeStatuses struct {
-	all         map[ir.Status]struct{}
-	withoutRuns map[ir.Status]struct{}
+	all                   map[ir.Status]struct{}
+	withoutServiceDAGRuns map[ir.Status]struct{}
 }
 
 // wakeTopicsForDAGRunEvent wakes the topics that show the run of an event. It
@@ -244,17 +244,16 @@ func wakeDAGRunListTopics(mux *Multiplexer, affected listWakeStatuses) {
 // topic. Activity has no status filter, so any change does, except changes
 // that only concern service DAG runs when the topic leaves them out.
 func dagRunActivityTopicMatches(identifier string, affected listWakeStatuses) bool {
-	if excludesServiceDAGRuns(identifier) {
-		return len(affected.withoutRuns) > 0
+	values, err := url.ParseQuery(identifier)
+	if err != nil || !excludesServiceDAGRuns(values) {
+		return true
 	}
-	return true
+	return len(affected.withoutServiceDAGRuns) > 0
 }
 
-func excludesServiceDAGRuns(identifier string) bool {
-	values, err := url.ParseQuery(identifier)
-	if err != nil {
-		return false
-	}
+// excludesServiceDAGRuns reports whether a topic query leaves out the runs of
+// the service DAGs.
+func excludesServiceDAGRuns(values url.Values) bool {
 	exclude, err := strconv.ParseBool(values.Get("excludeServiceDAGRuns"))
 	return err == nil && exclude
 }
@@ -265,8 +264,8 @@ func dagRunListTopicMatchesStatuses(identifier string, affected listWakeStatuses
 		return true
 	}
 	affectedStatuses := affected.all
-	if excludesServiceDAGRuns(identifier) {
-		affectedStatuses = affected.withoutRuns
+	if excludesServiceDAGRuns(values) {
+		affectedStatuses = affected.withoutServiceDAGRuns
 	}
 	if len(affectedStatuses) == 0 {
 		return false

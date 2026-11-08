@@ -1573,8 +1573,8 @@ func (srv *Server) registerDedicatedSSEFetchers(registrar *sse.Multiplexer) {
 	registrar.RegisterFetcher(sse.TopicTypeQueues, srv.apiV1.GetQueuesListData)
 	registrar.RegisterFetcher(sse.TopicTypeDAGsList, srv.apiV1.GetDAGsListData)
 	registrar.RegisterFetcher(sse.TopicTypeServiceDAGs, srv.apiV1.GetServiceDAGsData)
-	// A service restarts all the time, and a refetch reads the latest run of
-	// every service DAG, so bursts of run events are merged into one refetch.
+	// A service DAG restarts all the time, and a refetch reads the latest run
+	// of every service DAG, so bursts of run events are merged into one refetch.
 	registrar.SetMinInterval(sse.TopicTypeServiceDAGs, serviceDAGsMinInterval)
 	registrar.SetMaxInterval(sse.TopicTypeServiceDAGs, serviceDAGsMaxInterval)
 	for _, topicType := range []sse.TopicType{sse.TopicTypeWikiPage, sse.TopicTypeLegacyDoc} {

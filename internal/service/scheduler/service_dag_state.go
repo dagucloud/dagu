@@ -3,7 +3,12 @@
 
 package scheduler
 
-import "github.com/dagucloud/dagu/v2/internal/ir"
+import (
+	"context"
+
+	"github.com/dagucloud/dagu/v2/internal/ir"
+	"github.com/dagucloud/dagu/v2/internal/persis"
+)
 
 // ServiceDAGState tells what a service DAG is doing, as far as its latest run
 // shows it. It needs no memory of the scheduler, so any process can compute it.
@@ -69,6 +74,17 @@ func DescribeServiceDAG(
 		return ServiceDAGStateRestarting, nil
 	}
 	return ServiceDAGStateFailing, nil
+}
+
+// IsStopRequested reports whether an operator asked to stop a run: a stop from
+// the CLI, the API or the coordinator leaves an abort request on the attempt,
+// which other aborted runs lack.
+func IsStopRequested(ctx context.Context, runs *persis.DAGRunRepository, dag *ir.DAG, runID string) (bool, error) {
+	attempt, err := runs.FindAttempt(ctx, ir.NewDAGRunRef(dag.Name, runID))
+	if err != nil {
+		return false, err
+	}
+	return attempt.IsAborting(ctx)
 }
 
 func pendingOrSuspended(suspended bool) ServiceDAGState {

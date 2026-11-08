@@ -84,7 +84,7 @@ func (a *API) listServiceDAGs(ctx context.Context, filter *workspace.WorkspaceFi
 			latest = ir.InitialStatus(item.DAG)
 		}
 		state, stateErr := scheduler.DescribeServiceDAG(item.RestartPolicy, &latest, item.Suspended, func() (bool, error) {
-			return a.stopRequested(ctx, item.DAG, latest.DAGRunID)
+			return scheduler.IsStopRequested(ctx, a.dagRunRepository, item.DAG, latest.DAGRunID)
 		})
 		var readError *string
 		if readErr := errors.Join(statusErr, stateErr); readErr != nil {
@@ -176,7 +176,7 @@ func (a *API) failureStreak(ctx context.Context, dag *ir.DAG, latest ir.DAGRunSt
 		if name, _ := workspace.WorkspaceNameFromLabels(ir.NewLabels(status.Labels)); name != latestWorkspace {
 			break
 		}
-		if stopped, err := a.stopRequested(ctx, dag, status.DAGRunID); err == nil && stopped {
+		if stopped, err := scheduler.IsStopRequested(ctx, a.dagRunRepository, dag, status.DAGRunID); err == nil && stopped {
 			break
 		}
 		count++
@@ -205,16 +205,6 @@ func (a *API) excludedDAGNames(ctx context.Context, exclude bool) []string {
 		return []string{}
 	}
 	return names
-}
-
-// stopRequested reports whether an operator asked to stop a run: a stop from
-// the CLI, the API or the coordinator leaves an abort request on the attempt.
-func (a *API) stopRequested(ctx context.Context, dag *ir.DAG, runID string) (bool, error) {
-	attempt, err := a.dagRunRepository.FindAttempt(ctx, ir.NewDAGRunRef(dag.Name, runID))
-	if err != nil {
-		return false, err
-	}
-	return attempt.IsAborting(ctx)
 }
 
 // toServiceDAGRun describes the latest run of a service DAG. It leaves out
