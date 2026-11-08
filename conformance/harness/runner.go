@@ -218,6 +218,11 @@ func (p *Process) Kill() {
 // gracefully before its process group is force-killed.
 const stopGracePeriod = 5 * time.Second
 
+// PID returns the command's process ID.
+func (p *Process) PID() int {
+	return p.proc.PID()
+}
+
 // ExitCode returns the process exit code after the command exits.
 func (p *Process) ExitCode() int {
 	p.t.Helper()

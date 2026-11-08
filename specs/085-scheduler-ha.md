@@ -123,5 +123,7 @@ standby takes over within the bound after the active process is killed, that
 a clean stop hands over without waiting for staleness, that losing the lock
 ends `dagu scheduler` and `dagu start-all` with a failure, that a slot that
 passes with no active scheduler runs once after a later takeover, that a slot
-runs once when its scheduler is killed as it comes due, and that a queued run
+runs once when its scheduler is killed as it comes due, that a scheduler that
+stalls past the stale threshold exits with a failure when it resumes while the
+slot it missed runs once on the new active scheduler, and that a queued run
 finishes after the scheduler that started it stops.
