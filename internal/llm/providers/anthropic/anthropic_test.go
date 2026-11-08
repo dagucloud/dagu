@@ -512,10 +512,14 @@ func TestBuildRequestBody_ThinkingSampling(t *testing.T) {
 	t.Parallel()
 	for _, tt := range []struct {
 		name         string
+		model        string
 		thinking     *llm.ThinkingRequest
 		wantSampling bool
 	}{
 		{name: "absent", wantSampling: true},
+		{name: "opus_without_thinking", model: "claude-opus-4-7"},
+		{name: "sonnet_without_thinking", model: "claude-sonnet-5"},
+		{name: "proxy_without_thinking", model: "my-deployment", wantSampling: true},
 		{name: "disabled", thinking: &llm.ThinkingRequest{}, wantSampling: true},
 		{name: "none", thinking: &llm.ThinkingRequest{Enabled: true, Effort: llm.ThinkingEffortNone}, wantSampling: true},
 		{name: "adaptive", thinking: &llm.ThinkingRequest{Enabled: true}},
@@ -524,8 +528,12 @@ func TestBuildRequestBody_ThinkingSampling(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 			provider := &Provider{}
+			model := tt.model
+			if model == "" {
+				model = "claude-sonnet-4-6"
+			}
 			body, err := provider.buildRequestBody(&llm.ChatRequest{
-				Model:       "claude-sonnet-4-6",
+				Model:       model,
 				Messages:    []llm.Message{{Role: llm.RoleUser, Content: "Hello"}},
 				Thinking:    tt.thinking,
 				Temperature: new(0.7),

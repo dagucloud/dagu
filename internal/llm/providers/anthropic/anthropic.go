@@ -250,8 +250,8 @@ func (p *Provider) buildRequestBody(req *llm.ChatRequest, stream bool) ([]byte, 
 		chatReq.MaxTokens = thinkingBudget + 4096
 	}
 
-	// Thinking uses provider-controlled sampling parameters.
-	if chatReq.Thinking == nil {
+	// Thinking and newer models use provider-controlled sampling parameters.
+	if chatReq.Thinking == nil && claudemodel.SamplingSupported(req.Model) {
 		chatReq.Temperature = req.Temperature
 		chatReq.TopP = req.TopP
 	}

@@ -8,6 +8,7 @@ package claudemodel
 import (
 	"regexp"
 	"strconv"
+	"strings"
 )
 
 // modelPattern reads the family and version from a model ID such as
@@ -58,4 +59,18 @@ func Parse(id string) (Model, bool) {
 func ForcedToolChoiceSupported(id string) bool {
 	model, ok := Parse(id)
 	return ok && model.Family != "fable" && model.Family != "mythos" && model.Major < 5
+}
+
+// SamplingSupported reports whether a model accepts custom sampling parameters.
+// Newer models use provider-controlled sampling even with thinking off.
+// Unrecognized IDs report true to preserve sampling for proxy deployments.
+func SamplingSupported(id string) bool {
+	if strings.Contains(id, "claude-mythos") || strings.Contains(id, "claude-fable") {
+		return false
+	}
+	model, ok := Parse(id)
+	if !ok {
+		return true
+	}
+	return model.Major < 5 && !(model.Family == "opus" && model.Major == 4 && model.Minor >= 7)
 }
