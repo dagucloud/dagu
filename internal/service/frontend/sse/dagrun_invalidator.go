@@ -18,10 +18,17 @@ import (
 
 const defaultDAGRunInvalidationPollInterval = time.Second
 
+// AlwaysOnDAGNames returns the names of the DAGs that set a restart policy.
+type AlwaysOnDAGNames func(ctx context.Context) ([]string, error)
+
+// StartDAGRunEventInvalidation wakes the topics that show the runs of new
+// DAG-run events. alwaysOnDAGs tells which events concern an always-on DAG;
+// when it is nil or fails, every event counts as one that may.
 func StartDAGRunEventInvalidation(
 	ctx context.Context,
 	service *eventstore.Service,
 	mux *Multiplexer,
+	alwaysOnDAGs AlwaysOnDAGNames,
 	logger *slog.Logger,
 	pollInterval time.Duration,
 ) {
@@ -71,13 +78,36 @@ func StartDAGRunEventInvalidation(
 				continue
 			}
 			cursor = nextCursor
+			if len(events) == 0 {
+				continue
+			}
 
-			wakeTopicsForDAGRunEvents(mux, events)
+			wakeTopicsForDAGRunEvents(mux, events, readAlwaysOnDAGs(ctx, alwaysOnDAGs, logger))
 		}
 	}()
 }
 
-func wakeTopicsForDAGRunEvents(mux *Multiplexer, events []*eventstore.Event) {
+// readAlwaysOnDAGs returns the set of always-on DAG names, or nil when they
+// cannot be read.
+func readAlwaysOnDAGs(ctx context.Context, read AlwaysOnDAGNames, logger *slog.Logger) map[string]struct{} {
+	if read == nil {
+		return nil
+	}
+	names, err := read(ctx)
+	if err != nil {
+		logger.Warn("Failed to read the always-on DAGs for SSE invalidation", slog.String("error", err.Error()))
+		return nil
+	}
+	set := make(map[string]struct{}, len(names))
+	for _, name := range names {
+		set[name] = struct{}{}
+	}
+	return set
+}
+
+// wakeTopicsForDAGRunEvents wakes the topics that show the runs of events.
+// alwaysOn holds the names of the always-on DAGs; nil means they are unknown.
+func wakeTopicsForDAGRunEvents(mux *Multiplexer, events []*eventstore.Event, alwaysOn map[string]struct{}) {
 	if mux == nil {
 		return
 	}
@@ -87,7 +117,7 @@ func wakeTopicsForDAGRunEvents(mux *Multiplexer, events []*eventstore.Event) {
 		withoutRuns: make(map[ir.Status]struct{}),
 	}
 	for _, event := range events {
-		statuses, alwaysOnRun := wakeTopicsForDAGRunEvent(mux, event)
+		statuses, alwaysOnRun := wakeTopicsForDAGRunEvent(mux, event, alwaysOn)
 		for _, status := range statuses {
 			affected.all[status] = struct{}{}
 			if !alwaysOnRun {
@@ -100,17 +130,17 @@ func wakeTopicsForDAGRunEvents(mux *Multiplexer, events []*eventstore.Event) {
 }
 
 // listWakeStatuses holds the statuses that a batch of events changed. A run
-// that a restart policy started changes a list only when the list shows
-// always-on runs, so those events count in all but not in withoutRuns.
+// of an always-on DAG changes a list only when the list shows always-on runs,
+// so those events count in all but not in withoutRuns.
 type listWakeStatuses struct {
 	all         map[ir.Status]struct{}
 	withoutRuns map[ir.Status]struct{}
 }
 
 // wakeTopicsForDAGRunEvent wakes the topics that show the run of an event. It
-// returns the statuses that the event changed in lists, and whether a restart
-// policy started the run.
-func wakeTopicsForDAGRunEvent(mux *Multiplexer, event *eventstore.Event) ([]ir.Status, bool) {
+// returns the statuses that the event changed in lists, and whether the run
+// belongs to an always-on DAG. A sub-run belongs to the DAG of its root run.
+func wakeTopicsForDAGRunEvent(mux *Multiplexer, event *eventstore.Event, alwaysOn map[string]struct{}) ([]ir.Status, bool) {
 	if event == nil {
 		return nil, false
 	}
@@ -119,7 +149,11 @@ func wakeTopicsForDAGRunEvent(mux *Multiplexer, event *eventstore.Event) ([]ir.S
 	if err != nil || snapshot == nil {
 		return nil, false
 	}
-	alwaysOnRun := snapshot.TriggerType == ir.TriggerTypeRestart
+	dagName := snapshot.Root.Name
+	if dagName == "" {
+		dagName = snapshot.Name
+	}
+	_, alwaysOnRun := alwaysOn[dagName]
 
 	if snapshot.Name != "" && snapshot.DAGRunID != "" {
 		mux.WakeTopic(TopicTypeDAGRun, snapshot.Name+"/"+snapshot.DAGRunID)
@@ -136,7 +170,9 @@ func wakeTopicsForDAGRunEvent(mux *Multiplexer, event *eventstore.Event) ([]ir.S
 
 	mux.WakeTopicType(TopicTypeQueues)
 	mux.WakeTopicType(TopicTypeDAGsList)
-	mux.WakeTopicType(TopicTypeAlwaysOnDAGs)
+	if alwaysOn == nil || alwaysOnRun {
+		mux.WakeTopicType(TopicTypeAlwaysOnDAGs)
+	}
 
 	if snapshot.ProcGroup != "" {
 		mux.WakeTopic(TopicTypeQueueItems, snapshot.ProcGroup)
