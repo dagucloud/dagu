@@ -7,6 +7,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
@@ -1099,6 +1100,98 @@ func TestManager_doHeartbeat(t *testing.T) {
 		assert.Equal(t, 0, store.removeCalls, "stored activation must NOT be removed by heartbeat failure")
 	})
 
+	// Replicas share the store. Another replica activating rotates the secret
+	// held by the console, and saves the new one there.
+	t.Run("401 retries with a secret rotated in the store", func(t *testing.T) {
+		t.Parallel()
+
+		pub, priv := testKeyPair(t)
+		claims := validClaims()
+		token := signToken(t, priv, claims)
+		refreshed := signToken(t, priv, validClaims())
+
+		srv := newMockCloudServer(t, mockCloudServerConfig{
+			heartbeatHandler: func(w http.ResponseWriter, r *http.Request) {
+				var req HeartbeatRequest
+				assert.NoError(t, json.NewDecoder(r.Body).Decode(&req))
+				if req.HeartbeatSecret != "rotated" {
+					errorHandlerFn(http.StatusUnauthorized, "unauthorized")(w, r)
+					return
+				}
+				heartbeatHandlerFn(refreshed)(w, r)
+			},
+		})
+
+		stale := makeAD("server-001")
+		rotated := *stale
+		rotated.HeartbeatSecret = "rotated"
+		store := &mockActivationStore{data: &rotated}
+		m := NewManager(ManagerConfig{LicenseDir: t.TempDir(), CloudURL: srv.URL}, pub, store, slog.Default())
+		m.state.Update(claims, token)
+
+		m.doHeartbeat(context.Background(), stale)
+
+		assert.False(t, m.Checker().IsCommunity(), "a rotated secret must not clear the license")
+		assert.Empty(t, m.Failure())
+		assert.Equal(t, "rotated", m.currentActivation().HeartbeatSecret)
+	})
+
+	// The store keeps changing under a heartbeat. One retry is the limit, and
+	// credentials still in flux say nothing about the license.
+	t.Run("401 retries once and keeps the license", func(t *testing.T) {
+		t.Parallel()
+
+		pub, priv := testKeyPair(t)
+		claims := validClaims()
+		token := signToken(t, priv, claims)
+
+		var calls atomic.Int32
+		srv := newMockCloudServer(t, mockCloudServerConfig{
+			heartbeatHandler: func(w http.ResponseWriter, r *http.Request) {
+				calls.Add(1)
+				errorHandlerFn(http.StatusUnauthorized, "unauthorized")(w, r)
+			},
+		})
+
+		ad := makeAD("server-001")
+		store := &changingActivationStore{base: *ad}
+		m := NewManager(ManagerConfig{LicenseDir: t.TempDir(), CloudURL: srv.URL}, pub, store, slog.Default())
+		m.state.Update(claims, token)
+
+		m.doHeartbeat(context.Background(), ad)
+
+		assert.EqualValues(t, 2, calls.Load())
+		assert.False(t, m.Checker().IsCommunity(), "changing credentials must not clear the license")
+	})
+
+	t.Run("401 with an unchanged stored secret does not retry", func(t *testing.T) {
+		t.Parallel()
+
+		pub, priv := testKeyPair(t)
+		claims := validClaims()
+		token := signToken(t, priv, claims)
+
+		var calls atomic.Int32
+		srv := newMockCloudServer(t, mockCloudServerConfig{
+			heartbeatHandler: func(w http.ResponseWriter, r *http.Request) {
+				calls.Add(1)
+				errorHandlerFn(http.StatusUnauthorized, "unauthorized")(w, r)
+			},
+		})
+
+		ad := makeAD("server-001")
+		stored := *ad
+		store := &mockActivationStore{data: &stored}
+		m := NewManager(ManagerConfig{LicenseDir: t.TempDir(), CloudURL: srv.URL}, pub, store, slog.Default())
+		m.state.Update(claims, token)
+
+		m.doHeartbeat(context.Background(), ad)
+
+		assert.EqualValues(t, 1, calls.Load())
+		assert.True(t, m.Checker().IsCommunity())
+		assert.Equal(t, licenseUnauthorizedFailure, m.Failure())
+	})
+
 	t.Run("network error leaves state unchanged with cached token", func(t *testing.T) {
 		t.Parallel()
 
@@ -1705,4 +1798,17 @@ func TestStoredCloudCredentials(t *testing.T) {
 	}}, pub, "")()
 	require.True(t, ok)
 	assert.Equal(t, defaultCloudURL, got.CloudURL)
+}
+
+// changingActivationStore holds different credentials on every load.
+type changingActivationStore struct {
+	mockActivationStore
+	base  ActivationData
+	loads atomic.Int32
+}
+
+func (s *changingActivationStore) Load() (*ActivationData, error) {
+	data := s.base
+	data.HeartbeatSecret = fmt.Sprintf("rotated-%d", s.loads.Add(1))
+	return &data, nil
 }
