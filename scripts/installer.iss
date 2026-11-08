@@ -101,7 +101,7 @@ var
   PortPage: TInputQueryWizardPage;
   PortPagePrefilled: Boolean;
   WebPort, CoordinatorPort: string;
-  PortsFromCommandLine: Boolean;
+  WebPortFromCommandLine, CoordinatorPortFromCommandLine: Boolean;
   ServiceSetupFailed: Boolean;
 
 { ---------------------------------------------------------------------------
@@ -377,8 +377,8 @@ begin
     place their ports can come from. }
   WebPort := Trim(ExpandConstant('{param:PORT|{#DefaultPort}}'));
   CoordinatorPort := Trim(ExpandConstant('{param:COORDINATORPORT|{#DefaultCoordinatorPort}}'));
-  PortsFromCommandLine := (ExpandConstant('{param:PORT|}') <> '') or
-    (ExpandConstant('{param:COORDINATORPORT|}') <> '');
+  WebPortFromCommandLine := ExpandConstant('{param:PORT|}') <> '';
+  CoordinatorPortFromCommandLine := ExpandConstant('{param:COORDINATORPORT|}') <> '';
 
   PortPage := CreateInputQueryPage(wpSelectTasks,
     'Network ports', 'Which ports should the Dagu service use?',
@@ -588,16 +588,21 @@ var
 begin
   Result := '';
   if WizardIsTaskSelected('service') then begin
-    { A silent upgrade without /PORT or /COORDINATORPORT keeps the ports the
-      installed service already uses, as the port page does interactively. }
-    if WizardSilent and not PortsFromCommandLine then begin
-      Previous := ReadServiceEnv('DAGU_PORT');
-      if IsValidPort(Previous) then begin
-        WebPort := Previous;
+    { A silent upgrade keeps each port the installed service already uses
+      unless the command line sets that one, as the port page does
+      interactively. }
+    if WizardSilent then begin
+      if not WebPortFromCommandLine then begin
+        Previous := ReadServiceEnv('DAGU_PORT');
+        if IsValidPort(Previous) then begin
+          WebPort := Previous;
+        end;
       end;
-      Previous := ReadServiceEnv('DAGU_COORDINATOR_PORT');
-      if IsValidPort(Previous) then begin
-        CoordinatorPort := Previous;
+      if not CoordinatorPortFromCommandLine then begin
+        Previous := ReadServiceEnv('DAGU_COORDINATOR_PORT');
+        if IsValidPort(Previous) then begin
+          CoordinatorPort := Previous;
+        end;
       end;
     end;
     { The port page validates what the user typed; a silent install skips the
