@@ -6,6 +6,7 @@ package harness
 import (
 	"bytes"
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"net"
@@ -202,9 +203,33 @@ func (p *Process) Stop() {
 	<-p.done
 }
 
+// Kill ends the command at once, without the graceful shutdown Stop requests,
+// and waits for it to exit.
+func (p *Process) Kill() {
+	p.t.Helper()
+	_, _ = p.proc.Stop(cmdutil.StopRequest{
+		Intent: cmdutil.ForceTermination(),
+		Reason: cmdutil.StopReasonShutdown,
+	})
+	<-p.done
+}
+
 // stopGracePeriod bounds how long a managed process gets to shut down
 // gracefully before its process group is force-killed.
 const stopGracePeriod = 5 * time.Second
+
+// ExitCode returns the process exit code after the command exits.
+func (p *Process) ExitCode() int {
+	p.t.Helper()
+	<-p.done
+	if exitErr, ok := errors.AsType[*exec.ExitError](p.err); ok {
+		return exitErr.ExitCode()
+	}
+	if p.err != nil {
+		p.t.Fatalf("waiting for command: %v", p.err)
+	}
+	return 0
+}
 
 // FailureOutput returns captured output after the command exits.
 func (p *Process) FailureOutput() string {

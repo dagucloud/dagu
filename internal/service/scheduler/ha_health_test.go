@@ -59,6 +59,60 @@ func TestScheduler_StandbyHealthServerStartsBeforeLockAndStopsCleanly(t *testing
 	requireHealthServerStopped(t, standbyURL)
 }
 
+func TestHealthRole(t *testing.T) {
+	fixture := newHASchedulerFixture(t)
+	ctx := context.Background()
+
+	active := newHASchedulerForTest(t, fixture, TestHooks{})
+	activeErr := startSchedulerForTest(t, active, ctx)
+	defer func() {
+		active.Stop(ctx)
+		waitSchedulerStopForTest(t, activeErr, "active scheduler")
+	}()
+
+	waitStarted := make(chan struct{}, 1)
+	standby := newHASchedulerForTest(t, fixture, TestHooks{
+		OnLockWait: func() {
+			select {
+			case waitStarted <- struct{}{}:
+			default:
+			}
+		},
+	})
+	standbyErr := startWaitingSchedulerForTest(t, standby, ctx, waitStarted)
+	defer func() {
+		standby.Stop(ctx)
+		waitSchedulerStopForTest(t, standbyErr, "standby scheduler")
+	}()
+
+	activeURL := requireHealthServerURL(t, active.healthServer)
+	standbyURL := requireHealthServerURL(t, standby.healthServer)
+
+	requireHealth(t, activeURL+"/health", http.StatusOK, "active")
+	requireHealth(t, standbyURL+"/health", http.StatusOK, "standby")
+
+	// A load balancer asks for the role, so only the active instance passes.
+	requireHealth(t, activeURL+"/health?role=active", http.StatusOK, "active")
+	requireHealth(t, standbyURL+"/health?role=active", http.StatusServiceUnavailable, "standby")
+}
+
+func requireHealth(t *testing.T, url string, wantCode int, wantRole string) {
+	t.Helper()
+
+	client := &http.Client{Timeout: time.Second}
+	resp, err := client.Get(url)
+	require.NoError(t, err)
+	defer func() {
+		_ = resp.Body.Close()
+	}()
+
+	var body HealthResponse
+	require.NoError(t, json.NewDecoder(resp.Body).Decode(&body))
+	require.Equal(t, wantCode, resp.StatusCode)
+	require.Equal(t, "healthy", body.Status)
+	require.Equal(t, wantRole, body.Role)
+}
+
 type haSchedulerFixture struct {
 	cfg              *config.Config
 	dagRepository    *persis.DAGRepository
