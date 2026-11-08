@@ -507,7 +507,14 @@ func contextWithItemScope(ctx context.Context, stepName, alias string, index int
 	// name keeps one step's item apart from another's whose name holds
 	// brackets.
 	env.ForeachItem += fmt.Sprintf("%q[%d]", stepName, index)
-	return runtime.WithEnv(ctx, env), nil
+	ctx = runtime.WithEnv(ctx, env)
+	// Body steps build their env from the DAG context's scope, not from the
+	// Env stored above. Inherit the parent step's scope (its env and its
+	// predecessors' output variables) without the foreach entry: adding that
+	// to the scope would resolve bare `$foreach` references in body text.
+	rCtx := runtime.GetDAGContext(ctx)
+	rCtx.EnvScope = scope
+	return runtime.WithDAGContext(ctx, rCtx), nil
 }
 
 func containsUnresolvedSupportedReference(value string) bool {
