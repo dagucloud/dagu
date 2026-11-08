@@ -120,3 +120,32 @@ func TestLeaseLost(t *testing.T) {
 	require.ErrorIs(t, err, dirlock.ErrLockNotHeld)
 	require.Less(t, time.Since(started), lease.budget, "losing the lock ends the lease at once")
 }
+
+type stuckEntryReader struct {
+	staticEntryReader
+	release chan struct{}
+}
+
+func (r *stuckEntryReader) Stop() { <-r.release }
+
+// A stop that hangs on storage must not leave a process running with no lock.
+func TestFenceWatchdog(t *testing.T) {
+	fixture := newHASchedulerFixture(t)
+	sc := newHASchedulerForTest(t, fixture, TestHooks{})
+
+	reader := &stuckEntryReader{release: make(chan struct{})}
+	defer close(reader.release)
+	sc.entryReader = reader
+	sc.fenceExitAfter = 20 * time.Millisecond
+	exited := make(chan error, 1)
+	sc.fenceExit = func(cause error) { exited <- cause }
+
+	go sc.selfFence(context.Background(), errors.New("lease ran out"))
+
+	select {
+	case cause := <-exited:
+		require.ErrorIs(t, cause, ErrLockLost)
+	case <-time.After(5 * time.Second):
+		t.Fatal("watchdog did not end the process")
+	}
+}
