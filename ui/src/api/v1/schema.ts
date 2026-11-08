@@ -7614,7 +7614,7 @@ export interface components {
          *     - pending: no run is alive yet, or the latest run waits in the queue.
          *     - running: a run is alive.
          *     - restarting: the latest run succeeded, or an operator stopped the latest run of an always DAG, and the next run is due.
-         *     - failing: the latest run did not succeed and the next run is due, or the latest run cannot be read, which `errors` reports.
+         *     - failing: the latest run did not succeed and the next run is due, or the latest run cannot be read, which `readError` reports.
          *     - suspended: the DAG gets no new run.
          *     - stopped: an operator stopped the latest run of an unless-stopped DAG.
          *
@@ -7635,6 +7635,8 @@ export interface components {
              * @description When the run ended. Omitted while it is alive.
              */
             finishedAt?: string;
+            /** @description Why the run did not succeed: the first failed step and its error, or the error of the run. Set only for a run that ended without success. */
+            error?: string;
         };
         /** @description A DAG that sets a restart policy, with its state */
         AlwaysOnDAG: {
@@ -7648,11 +7650,13 @@ export interface components {
             /** @description Whether the DAG is suspended */
             suspended: boolean;
             latestRun?: components["schemas"]["AlwaysOnDAGRun"];
+            /** @description Why the state could not be read. Set only with the state failing. */
+            readError?: string;
         };
         /** @description The always-on DAGs */
         AlwaysOnDAGsResponse: {
             dags: components["schemas"]["AlwaysOnDAG"][];
-            /** @description Errors met while the response was built */
+            /** @description Errors met while the DAGs were listed, such as DAG files that cannot be read. An error about one DAG's state is in its readError. */
             errors: string[];
         };
         /** @description Response containing all queues with their active DAG-runs */

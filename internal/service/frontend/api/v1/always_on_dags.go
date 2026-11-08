@@ -5,6 +5,7 @@ package api
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net/url"
 	"time"
@@ -76,9 +77,6 @@ func (a *API) listAlwaysOnDAGs(ctx context.Context, filter *workspace.WorkspaceF
 	dags := make([]api.AlwaysOnDAG, 0, len(result.Items))
 	for _, item := range result.Items {
 		latest, statusErr := history.ReadLatestStatus(ctx, item.DAG)
-		if statusErr != nil {
-			errList = append(errList, fmt.Sprintf("%s: %v", item.Name, statusErr))
-		}
 		// A run keeps the workspace its DAG had when it started, so after a move
 		// the latest run may belong to a workspace the caller cannot see.
 		if !filter.MatchesLabels(ir.NewLabels(latest.Labels)) {
@@ -87,11 +85,11 @@ func (a *API) listAlwaysOnDAGs(ctx context.Context, filter *workspace.WorkspaceF
 		state, stateErr := scheduler.DescribeAlwaysOn(item.RestartPolicy, &latest, item.Suspended, func() (bool, error) {
 			return a.stopRequested(ctx, item.DAG, latest.DAGRunID)
 		})
-		if stateErr != nil {
-			errList = append(errList, fmt.Sprintf("%s: %v", item.Name, stateErr))
-		}
-		if statusErr != nil || stateErr != nil {
+		var readError *string
+		if readErr := errors.Join(statusErr, stateErr); readErr != nil {
 			state = scheduler.AlwaysOnStateFailing
+			message := readErr.Error()
+			readError = &message
 		}
 		dags = append(dags, api.AlwaysOnDAG{
 			FileName:       item.ID,
@@ -101,6 +99,7 @@ func (a *API) listAlwaysOnDAGs(ctx context.Context, filter *workspace.WorkspaceF
 			State:          api.AlwaysOnDAGState(state),
 			Suspended:      item.Suspended,
 			LatestRun:      toAlwaysOnDAGRun(latest),
+			ReadError:      readError,
 		})
 	}
 	if errList == nil {
@@ -145,12 +144,27 @@ func toAlwaysOnDAGRun(status ir.DAGRunStatus) *api.AlwaysOnDAGRun {
 	if status.DAGRunID == "" {
 		return nil
 	}
-	return &api.AlwaysOnDAGRun{
+	run := &api.AlwaysOnDAGRun{
 		DagRunId:   status.DAGRunID,
 		Status:     api.Status(status.Status),
 		StartedAt:  parseRunTime(status.StartedAt),
 		FinishedAt: parseRunTime(status.FinishedAt),
 	}
+	if runEnded(status.Status) && !status.Status.IsSuccess() {
+		step, message := firstFailure(&status)
+		if step != "" {
+			message = step + ": " + message
+		}
+		if message != "" {
+			run.Error = &message
+		}
+	}
+	return run
+}
+
+// runEnded reports whether a run with the status has ended.
+func runEnded(status ir.Status) bool {
+	return !status.IsActive() && status != ir.NotStarted
 }
 
 // parseRunTime reads a time that a run status stores, in any format that the

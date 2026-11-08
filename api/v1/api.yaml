@@ -18615,7 +18615,7 @@ components:
         - pending: no run is alive yet, or the latest run waits in the queue.
         - running: a run is alive.
         - restarting: the latest run succeeded, or an operator stopped the latest run of an always DAG, and the next run is due.
-        - failing: the latest run did not succeed and the next run is due, or the latest run cannot be read, which `errors` reports.
+        - failing: the latest run did not succeed and the next run is due, or the latest run cannot be read, which `readError` reports.
         - suspended: the DAG gets no new run.
         - stopped: an operator stopped the latest run of an unless-stopped DAG.
       enum: ["pending", "running", "restarting", "failing", "suspended", "stopped"]
@@ -18636,6 +18636,9 @@ components:
           type: string
           format: date-time
           description: "When the run ended. Omitted while it is alive."
+        error:
+          type: string
+          description: "Why the run did not succeed: the first failed step and its error, or the error of the run. Set only for a run that ended without success."
       required:
         - dagRunId
         - status
@@ -18661,6 +18664,9 @@ components:
           description: "Whether the DAG is suspended"
         latestRun:
           $ref: "#/components/schemas/AlwaysOnDAGRun"
+        readError:
+          type: string
+          description: "Why the state could not be read. Set only with the state failing."
       required:
         - fileName
         - name
@@ -18679,7 +18685,7 @@ components:
             $ref: "#/components/schemas/AlwaysOnDAG"
         errors:
           type: array
-          description: "Errors met while the response was built"
+          description: "Errors met while the DAGs were listed, such as DAG files that cannot be read. An error about one DAG's state is in its readError."
           items:
             type: string
       required:

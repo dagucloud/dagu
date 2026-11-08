@@ -184,8 +184,43 @@ func TestListAlwaysOnDAGsReportsUnreadableLatestRun(t *testing.T) {
 	require.True(t, ok, "expected 200 response, got %T", resp)
 	require.Len(t, list.Dags, 1)
 	assert.Equal(t, api.AlwaysOnDAGStateFailing, list.Dags[0].State)
-	require.Len(t, list.Errors, 1)
-	assert.Contains(t, list.Errors[0], "svc-broken")
+	require.NotNil(t, list.Dags[0].ReadError)
+	assert.NotEmpty(t, *list.Dags[0].ReadError)
+	assert.Empty(t, list.Errors)
+}
+
+// A run that failed in a step names the step and its error, which the run's
+// own error field leaves empty.
+func TestListAlwaysOnDAGsReportsWhyTheLatestRunFailed(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	helper := test.Setup(t, test.WithStatusPersistence())
+	helper.CreateDAGFile(t, helper.Config.Paths.DAGsDir, "svc", []byte(alwaysOnDAGSpec))
+	dag := &ir.DAG{Name: "svc"}
+	attempt, err := helper.DAGRunRepository.CreateAttempt(ctx, dag, time.Now(), "run-1", persis.DAGRunCreateAttemptOptions{})
+	require.NoError(t, err)
+	require.NoError(t, attempt.Open(ctx))
+	status := ir.InitialStatus(dag)
+	status.DAGRunID = "run-1"
+	status.AttemptID = attempt.ID()
+	status.Status = ir.Failed
+	status.StartedAt = time.Now().Format(time.RFC3339)
+	status.FinishedAt = status.StartedAt
+	status.Nodes = []*ir.Node{
+		{Step: ir.Step{Name: "prepare"}, Status: ir.NodeSucceeded},
+		{Step: ir.Step{Name: "serve"}, Status: ir.NodeFailed, Error: "exit status 1"},
+	}
+	require.NoError(t, attempt.Write(ctx, status))
+	require.NoError(t, attempt.Close(ctx))
+
+	resp, err := newAlwaysOnDAGAPI(helper).ListAlwaysOnDAGs(ctx, api.ListAlwaysOnDAGsRequestObject{})
+	require.NoError(t, err)
+	list, ok := resp.(api.ListAlwaysOnDAGs200JSONResponse)
+	require.True(t, ok, "expected 200 response, got %T", resp)
+	require.Len(t, list.Dags, 1)
+	require.NotNil(t, list.Dags[0].LatestRun)
+	require.NotNil(t, list.Dags[0].LatestRun.Error)
+	assert.Equal(t, "serve: exit status 1", *list.Dags[0].LatestRun.Error)
 }
 
 // corruptStatusFiles replaces every status file below dir with a complete line
