@@ -714,3 +714,24 @@ func stringConfigValue(value any) string {
 	v, _ := value.(string)
 	return v
 }
+
+// Body steps must see the foreach step's own env and the output variables of
+// its predecessors, not just the DAG-level scope.
+func TestForeachRuntimeBodyInheritsParentEnvAndPredecessorOutputs(t *testing.T) {
+	probeType, state := registerForeachProbeExecutor(t)
+	r := setupRunner(t)
+
+	parent := foreachRuntimeStep(probeType, []any{
+		map[string]any{"slug": "one", "url": "one"},
+	}, 1)
+	parent.Depends = []string{"plan"}
+	parent.Env = []string{"REGION=eu"}
+	parent.Foreach.Steps[0].ExecutorConfig.Config["value"] = `${GREETING}|${env.REGION}`
+
+	plan := newStep("plan", withCommand("echo hello"), withOutput("GREETING"))
+
+	r.newPlan(t, plan, parent).assertRun(t, ir.Succeeded)
+	assert.ElementsMatch(t, []foreachProbeRecord{
+		{Value: "hello|eu", Key: "one"},
+	}, state.records())
+}
