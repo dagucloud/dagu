@@ -1419,7 +1419,7 @@ func (srv *Server) setupSSERoute(ctx context.Context, r *chi.Mux, apiV1BasePath 
 	if srv.eventService != nil {
 		var serviceDAGs sse.ServiceDAGNames
 		if srv.dagRepository != nil {
-			serviceDAGs = srv.dagRepository.ServiceDAGNames
+			serviceDAGs = srv.dagRepository.SavedServiceDAGNames
 		}
 		sse.StartDAGRunEventInvalidation(srv.sseMultiplexer.Context(), srv.eventService, srv.sseMultiplexer, serviceDAGs, slog.Default(), time.Second)
 	}

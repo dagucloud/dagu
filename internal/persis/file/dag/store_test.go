@@ -2593,6 +2593,25 @@ func TestServiceDAGNames(t *testing.T) {
 	assert.ElementsMatch(t, []string{"svc", "custom", "plain"}, names)
 }
 
+// A saved-only read answers from an index that exists and never builds one,
+// so a caller that must not wait for a rebuild can use it.
+func TestSavedServiceDAGNames(t *testing.T) {
+	tmpDir := t.TempDir()
+	store := NewStore(tmpDir, WithSkipExamples(true))
+	require.NoError(t, os.WriteFile(filepath.Join(tmpDir, "svc.yaml"),
+		[]byte("restart_policy: always\nrestart_wait_sec: 5\nsteps:\n  - run: echo ok\n"), 0600))
+
+	_, ok := store.SavedServiceDAGNames()
+	assert.False(t, ok)
+	assert.NoFileExists(t, filepath.Join(tmpDir, dagindex.IndexFileName))
+
+	_, err := store.Catalog(context.Background())
+	require.NoError(t, err)
+	names, ok := store.SavedServiceDAGNames()
+	assert.True(t, ok)
+	assert.Equal(t, []string{"svc"}, names)
+}
+
 func TestInvalidateIndex_RemovesFile(t *testing.T) {
 	tmpDir := t.TempDir()
 	store := NewStore(tmpDir, WithSkipExamples(true))

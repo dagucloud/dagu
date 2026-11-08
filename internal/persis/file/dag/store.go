@@ -239,21 +239,33 @@ func (store *Store) CatalogIncludingSearchPaths(ctx context.Context) (persis.DAG
 // the saved index records them. It does not check the index against the DAG
 // files, so a file changed outside the store counts after the next listing.
 func (store *Store) ServiceDAGNames(ctx context.Context) ([]string, error) {
-	if info, err := os.Stat(store.indexPath); err == nil {
-		if names, ok := store.serviceDAGs.get(info); ok {
-			return names, nil
-		}
-		if entries, ok := dagindex.ReadEntries(store.indexPath); ok {
-			names := serviceDAGNamesOf(newCatalog(entries, nil, store.recursive))
-			store.serviceDAGs.put(info, names)
-			return slices.Clone(names), nil
-		}
+	if names, ok := store.SavedServiceDAGNames(); ok {
+		return names, nil
 	}
 	current, err := store.loadCatalog(ctx, false)
 	if err != nil {
 		return nil, err
 	}
 	return serviceDAGNamesOf(current), nil
+}
+
+// SavedServiceDAGNames is ServiceDAGNames without building an index: it
+// reports false when no saved index can be read.
+func (store *Store) SavedServiceDAGNames() ([]string, bool) {
+	info, err := os.Stat(store.indexPath)
+	if err != nil {
+		return nil, false
+	}
+	if names, ok := store.serviceDAGs.get(info); ok {
+		return names, true
+	}
+	entries, ok := dagindex.ReadEntries(store.indexPath)
+	if !ok {
+		return nil, false
+	}
+	names := serviceDAGNamesOf(newCatalog(entries, nil, store.recursive))
+	store.serviceDAGs.put(info, names)
+	return slices.Clone(names), true
 }
 
 func serviceDAGNamesOf(current *catalog) []string {

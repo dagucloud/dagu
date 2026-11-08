@@ -18,12 +18,14 @@ import (
 
 const defaultDAGRunInvalidationPollInterval = time.Second
 
-// ServiceDAGNames returns the names of the DAGs that set a restart policy.
-type ServiceDAGNames func(ctx context.Context) ([]string, error)
+// ServiceDAGNames returns the names of the DAGs that set a restart policy,
+// or false when they are not known without building a DAG listing. It is
+// called for each batch of events, so it must not wait on such a build.
+type ServiceDAGNames func() ([]string, bool)
 
 // StartDAGRunEventInvalidation wakes the topics that show the runs of new
 // DAG-run events. serviceDAGs tells which events concern a service DAG;
-// when it is nil or fails, every event counts as one that may.
+// when it is nil or does not know them, every event counts as one that may.
 func StartDAGRunEventInvalidation(
 	ctx context.Context,
 	service *eventstore.Service,
@@ -82,20 +84,19 @@ func StartDAGRunEventInvalidation(
 				continue
 			}
 
-			wakeTopicsForDAGRunEvents(mux, events, readServiceDAGs(ctx, serviceDAGs, logger))
+			wakeTopicsForDAGRunEvents(mux, events, readServiceDAGs(serviceDAGs))
 		}
 	}()
 }
 
-// readServiceDAGs returns the set of service DAG names, or nil when they
-// cannot be read.
-func readServiceDAGs(ctx context.Context, read ServiceDAGNames, logger *slog.Logger) map[string]struct{} {
+// readServiceDAGs returns the set of service DAG names, or nil when they are
+// not known.
+func readServiceDAGs(read ServiceDAGNames) map[string]struct{} {
 	if read == nil {
 		return nil
 	}
-	names, err := read(ctx)
-	if err != nil {
-		logger.Warn("Failed to read the service DAGs for SSE invalidation", slog.String("error", err.Error()))
+	names, ok := read()
+	if !ok {
 		return nil
 	}
 	set := make(map[string]struct{}, len(names))

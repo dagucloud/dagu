@@ -65,6 +65,9 @@ type DAGDefinitionStore interface {
 	// It may read a listing saved earlier, so a definition changed outside the
 	// store can count only after the next Catalog.
 	ServiceDAGNames(ctx context.Context) ([]string, error)
+	// SavedServiceDAGNames is ServiceDAGNames that never builds a listing: it
+	// reports false when no saved listing can be read.
+	SavedServiceDAGNames() ([]string, bool)
 	MigrateSuspensionState(ctx context.Context) error
 	SetSuspended(ctx context.Context, id string, suspended bool) error
 	IsSuspended(ctx context.Context, id string) (bool, error)
