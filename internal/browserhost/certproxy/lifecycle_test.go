@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 const testPollInterval = 20 * time.Millisecond
@@ -29,6 +30,15 @@ func watch(t *testing.T, cdpURL string, grace time.Duration) <-chan struct{} {
 		<-done
 	})
 	return done
+}
+
+// waitSeen waits for the first answer of browser to the watch. The watch
+// takes a browser that changes before it first answers as one that has not
+// started yet, and waits the grace period for it.
+func waitSeen(t *testing.T, browser *fakeBrowser) {
+	t.Helper()
+	require.Eventually(t, func() bool { return browser.answered.Load() > 0 },
+		5*time.Second, testPollInterval, "the watch never checked on its browser")
 }
 
 func assertRunning(t *testing.T, done <-chan struct{}) {
@@ -61,6 +71,7 @@ func TestWatchBrowser(t *testing.T) {
 		t.Parallel()
 		browser := newFakeBrowser(t)
 		done := watch(t, browser.server.URL, time.Minute)
+		waitSeen(t, browser)
 		assertRunning(t, done)
 		browser.server.Close()
 		assertEnds(t, done)
@@ -70,6 +81,7 @@ func TestWatchBrowser(t *testing.T) {
 		t.Parallel()
 		browser := newFakeBrowser(t)
 		done := watch(t, browser.server.URL, time.Minute)
+		waitSeen(t, browser)
 		assertRunning(t, done)
 		browser.id.Store("second")
 		assertEnds(t, done)
@@ -80,6 +92,7 @@ func TestWatchBrowser(t *testing.T) {
 		t.Parallel()
 		browser := newFakeBrowser(t)
 		done := watch(t, browser.server.URL, time.Minute)
+		waitSeen(t, browser)
 		assertRunning(t, done)
 		browser.replaced.Store(true)
 		assertEnds(t, done)
