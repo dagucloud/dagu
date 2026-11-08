@@ -82,6 +82,15 @@ Name: "{group}\Open Dagu"; Filename: "{code:WebUrl}"; IconFilename: "{app}\{#App
 [Run]
 Filename: "{code:WebUrl}"; Description: "Open Dagu in your browser"; Flags: postinstall shellexec skipifsilent nowait; Tasks: service; Check: ServiceIsReady
 
+; Earlier installers created a Start menu launcher per Dagu process. An
+; upgrade would otherwise leave them next to the single Open Dagu entry.
+[InstallDelete]
+Type: files; Name: "{group}\Dagu start-all.lnk"
+Type: files; Name: "{group}\Dagu server.lnk"
+Type: files; Name: "{group}\Dagu scheduler.lnk"
+Type: files; Name: "{group}\Dagu coordinator.lnk"
+Type: files; Name: "{group}\Dagu worker.lnk"
+
 [UninstallDelete]
 Type: files; Name: "{app}\{#ServiceConfig}.*.bak"
 Type: files; Name: "{app}\{#ServiceSetupLog}"
@@ -496,6 +505,10 @@ begin
       Space + 'Web UI: ' + WebUrl('') + NewLine +
       Space + 'Coordinator port: ' + CoordinatorPort + NewLine +
       Space + 'Data and logs: ' + DataDir;
+  end else if ServiceAlreadyInstalled then begin
+    Result := Result + NewLine + NewLine + 'Windows service:' + NewLine +
+      Space + 'The installed Dagu service will be removed. Its data in ' +
+      DataDir + ' is kept.';
   end;
 end;
 
@@ -631,6 +644,12 @@ begin
   end;
   if WizardIsTaskSelected('service') then begin
     InstallService;
+  end else if ServiceAlreadyInstalled then begin
+    { An upgrade that switches to the command-line tool must not leave the
+      old service registered, stopped now and back at the next boot. }
+    WizardForm.StatusLabel.Caption := 'Removing the Dagu Windows service...';
+    WizardForm.StatusLabel.Refresh;
+    RemoveService;
   end;
 end;
 
