@@ -321,8 +321,9 @@ func (svc *Service) waitForRun(ctx context.Context, input executeInput, dagRunID
 
 	output["completed"] = false
 	for {
-		raw, err := svc.api.GetDAGRunDetailsData(ctx, input.Name+"/"+dagRunID)
+		result, err := svc.api.GetDAGRunDetailsWithOutputsData(ctx, input.Name, dagRunID, "")
 		if err == nil {
+			raw := result.Details
 			run, detailsErr := dagRunDetailsFromResponse(raw)
 			if detailsErr != nil {
 				output["waitError"] = detailsErr.Error()
@@ -341,7 +342,7 @@ func (svc *Service) waitForRun(ctx context.Context, input executeInput, dagRunID
 					output["waitError"] = normalizeErr.Error()
 					return "Dagu execute action completed, but waiting for the run failed. Poll the runUri resource for completion."
 				}
-				maps.Copy(details, svc.runOutputFields(ctx, details, runAddress{name: input.Name, dagRunID: dagRunID}))
+				maps.Copy(details, runOutputFields(result, details))
 				output["completed"] = terminal
 				output["run"] = details
 				if waiting {

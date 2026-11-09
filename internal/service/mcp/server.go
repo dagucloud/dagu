@@ -970,9 +970,11 @@ func (svc *Service) readResourceText(ctx context.Context, rawURI string) (string
 			if parsed.RawQuery != "" {
 				return "", "", mcpsdk.ResourceNotFoundError(rawURI)
 			}
-			data, err = svc.api.GetSubDAGRunDetailsData(ctx, identifier+"/"+segments[3])
+			addr := runAddress{name: segments[0], dagRunID: segments[1], subRunID: segments[3]}
+			var result frontendapi.DAGRunDetailsWithOutputs
+			result, err = svc.api.GetDAGRunDetailsWithOutputsData(ctx, addr.name, addr.dagRunID, addr.subRunID)
 			if err == nil {
-				data, err = svc.withRunOutputs(ctx, data, runAddress{name: segments[0], dagRunID: segments[1], subRunID: segments[3]})
+				data, err = withRunOutputs(result, addr)
 			}
 		case len(segments) == 3:
 			if parsed.RawQuery != "" {
@@ -980,9 +982,11 @@ func (svc *Service) readResourceText(ctx context.Context, rawURI string) (string
 			}
 			data, err = svc.api.GetDAGRunLogsData(ctx, identifier)
 		default:
-			data, err = svc.api.GetDAGRunDetailsData(ctx, identifier)
+			addr := runAddress{name: segments[0], dagRunID: segments[1]}
+			var result frontendapi.DAGRunDetailsWithOutputs
+			result, err = svc.api.GetDAGRunDetailsWithOutputsData(ctx, addr.name, addr.dagRunID, "")
 			if err == nil {
-				data, err = svc.withRunOutputs(ctx, data, runAddress{name: segments[0], dagRunID: segments[1]})
+				data, err = withRunOutputs(result, addr)
 			}
 		}
 		if err != nil {

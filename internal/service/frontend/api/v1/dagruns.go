@@ -1158,39 +1158,48 @@ func (a *API) GetDAGRunOutputs(ctx context.Context, request api.GetDAGRunOutputs
 	}, nil
 }
 
-// GetDAGRunOutputsData returns the collected outputs of a DAG run, or of the
-// sub DAG run subDAGRunID under that root, with the same visibility checks as
-// GetDAGRunDetailsData and GetSubDAGRunDetailsData. A run without outputs
-// returns nil.
-func (a *API) GetDAGRunOutputsData(ctx context.Context, name, dagRunID, subDAGRunID string) (*ir.DAGRunOutputs, error) {
-	var attempt dagrun.Attempt
-	if subDAGRunID == "" {
-		found, notFound, err := a.findVisibleAttempt(ctx, name, dagRunID)
-		if err != nil {
-			return nil, err
-		}
-		if notFound != "" {
-			return nil, errors.New(notFound)
-		}
-		attempt = found
-	} else {
-		root := ir.NewDAGRunRef(name, dagRunID)
-		if err := a.requireDAGRunVisible(ctx, root); err != nil {
-			return nil, err
-		}
-		found, err := a.getReferencedAttempt(ctx, root, subDAGRunID, "")
-		if err != nil {
-			return nil, fmt.Errorf("sub dag-run ID %s not found for DAG %s: %w", subDAGRunID, name, err)
-		}
-		workspaceName, err := workspaceNameForAttempt(ctx, found)
-		if err != nil {
-			return nil, err
-		}
-		if err := a.requireWorkspaceVisible(ctx, workspaceName); err != nil {
-			return nil, err
-		}
-		attempt = found
+// DAGRunDetailsWithOutputs is a run details response together with the
+// outputs read from the attempt the details came from.
+type DAGRunDetailsWithOutputs struct {
+	// Details is the same value GetDAGRunDetailsData or
+	// GetSubDAGRunDetailsData returns.
+	Details any
+	// Outputs is nil when the run has no outputs.
+	Outputs *ir.DAGRunOutputs
+	// OutputsErr is set when the outputs could not be read. Details are still
+	// valid then.
+	OutputsErr error
+}
+
+// GetDAGRunDetailsWithOutputsData returns the details of a DAG run, or of the
+// sub DAG run subDAGRunID under that root, together with its outputs. Details
+// and outputs are loaded in one pass under the same read timeout and
+// visibility checks as GetDAGRunDetailsData and GetSubDAGRunDetailsData.
+func (a *API) GetDAGRunDetailsWithOutputsData(ctx context.Context, name, dagRunID, subDAGRunID string) (DAGRunDetailsWithOutputs, error) {
+	if subDAGRunID != "" {
+		return a.getSubDAGRunDetails(ctx, name, dagRunID, subDAGRunID, true)
 	}
+	return withDAGRunReadTimeout(ctx, dagRunReadRequestInfo{
+		endpoint: "/dag-runs/{name}/{dagRunId}",
+		dagName:  name,
+		dagRunID: dagRunID,
+	}, func(readCtx context.Context) (DAGRunDetailsWithOutputs, error) {
+		attempt, dagStatus, err := a.loadRootDAGRunDetailsAttemptAndStatus(readCtx, name, dagRunID)
+		if err != nil {
+			return DAGRunDetailsWithOutputs{}, err
+		}
+		result := DAGRunDetailsWithOutputs{
+			Details: api.GetDAGRunDetails200JSONResponse{
+				DagRunDetails: a.toDAGRunDetailsWithSpecSource(readCtx, attempt, *dagStatus),
+			},
+		}
+		result.Outputs, result.OutputsErr = readAttemptOutputs(readCtx, attempt, name, dagStatus.DAGRunID)
+		return result, nil
+	})
+}
+
+// readAttemptOutputs reads the outputs of attempt and logs a read error.
+func readAttemptOutputs(ctx context.Context, attempt dagrun.Attempt, name, dagRunID string) (*ir.DAGRunOutputs, error) {
 	outputs, err := attempt.ReadOutputs(ctx)
 	if err != nil {
 		logger.Error(ctx, "Failed to read outputs",
@@ -4722,36 +4731,71 @@ func (a *API) GetSubDAGRunDetailsData(ctx context.Context, identifier string) (a
 			identifier,
 		)
 	}
-
-	root := ir.NewDAGRunRef(parts[0], parts[1])
-	if err := a.requireDAGRunVisible(ctx, root); err != nil {
+	result, err := a.getSubDAGRunDetails(ctx, parts[0], parts[1], parts[2], false)
+	if err != nil {
 		return nil, err
 	}
-	dagStatus, err := withDAGRunReadTimeout(ctx, dagRunReadRequestInfo{
+	return result.Details, nil
+}
+
+// getSubDAGRunDetails loads the details of a sub DAG run and, when
+// withOutputs is set, its outputs, under one read timeout.
+func (a *API) getSubDAGRunDetails(ctx context.Context, name, dagRunID, subDAGRunID string, withOutputs bool) (DAGRunDetailsWithOutputs, error) {
+	root := ir.NewDAGRunRef(name, dagRunID)
+	if err := a.requireDAGRunVisible(ctx, root); err != nil {
+		return DAGRunDetailsWithOutputs{}, err
+	}
+	type subRead struct {
+		status     *ir.DAGRunStatus
+		outputs    *ir.DAGRunOutputs
+		outputsErr error
+	}
+	read, err := withDAGRunReadTimeout(ctx, dagRunReadRequestInfo{
 		endpoint:    "/dag-runs/{name}/{dagRunId}/sub/{subDAGRunId}",
-		dagName:     parts[0],
-		dagRunID:    parts[1],
-		subDAGRunID: parts[2],
-	}, func(readCtx context.Context) (*ir.DAGRunStatus, error) {
-		return a.getReferencedDAGRunStatus(readCtx, root, parts[2], "")
+		dagName:     name,
+		dagRunID:    dagRunID,
+		subDAGRunID: subDAGRunID,
+	}, func(readCtx context.Context) (subRead, error) {
+		ref, dagStatus, err := a.getReferencedDAGRunStatusWithRef(readCtx, root, subDAGRunID, "")
+		if err != nil || !withOutputs {
+			return subRead{status: dagStatus}, err
+		}
+		// The status lookup does not return its attempt, so find the
+		// attempt the same way it did: under the root, or by the DAG name
+		// it fell back to.
+		var attempt dagrun.Attempt
+		if ref == root {
+			attempt, err = a.dagRunRepository.FindSubAttempt(readCtx, root, subDAGRunID)
+		} else {
+			attempt, err = a.dagRunRepository.FindAttempt(readCtx, ref)
+		}
+		if err != nil {
+			return subRead{status: dagStatus, outputsErr: err}, nil
+		}
+		outputs, outputsErr := readAttemptOutputs(readCtx, attempt, name, dagRunID)
+		return subRead{status: dagStatus, outputs: outputs, outputsErr: outputsErr}, nil
 	})
 	if err != nil {
 		if errors.Is(err, context.DeadlineExceeded) || errors.Is(err, context.Canceled) {
-			return nil, err
+			return DAGRunDetailsWithOutputs{}, err
 		}
-		return nil, fmt.Errorf(
+		return DAGRunDetailsWithOutputs{}, fmt.Errorf(
 			"sub dag-run ID %s not found for DAG %s: %w",
-			parts[2],
-			parts[0],
+			subDAGRunID,
+			name,
 			err,
 		)
 	}
-	if err := a.requireDAGRunStatusVisible(ctx, dagStatus); err != nil {
-		return nil, err
+	if err := a.requireDAGRunStatusVisible(ctx, read.status); err != nil {
+		return DAGRunDetailsWithOutputs{}, err
 	}
 
-	return api.GetSubDAGRunDetails200JSONResponse{
-		DagRunDetails: ToDAGRunDetails(*dagStatus),
+	return DAGRunDetailsWithOutputs{
+		Details: api.GetSubDAGRunDetails200JSONResponse{
+			DagRunDetails: ToDAGRunDetails(*read.status),
+		},
+		Outputs:    read.outputs,
+		OutputsErr: read.outputsErr,
 	}, nil
 }
 

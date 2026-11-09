@@ -290,18 +290,14 @@ func (svc *Service) readToolImpl(ctx context.Context, input readInput) (*mcpsdk.
 		}
 	case readTargetRun:
 		if err = svc.requireAPI(); err == nil {
-			var raw any
+			var result frontendapi.DAGRunDetailsWithOutputs
 			addr := runAddress{name: input.Name, dagRunID: input.DAGRunID, subRunID: input.SubRunID}
-			if input.SubRunID != "" {
-				raw, err = svc.api.GetSubDAGRunDetailsData(ctx, input.Name+"/"+input.DAGRunID+"/"+input.SubRunID)
-			} else {
-				raw, err = svc.api.GetDAGRunDetailsData(ctx, input.Name+"/"+input.DAGRunID)
-			}
+			result, err = svc.api.GetDAGRunDetailsWithOutputsData(ctx, input.Name, input.DAGRunID, input.SubRunID)
 			if err == nil {
 				var details map[string]any
-				details, err = normalizeRunDetails(raw, addr)
+				details, err = normalizeRunDetails(result.Details, addr)
 				if err == nil {
-					maps.Copy(details, svc.runOutputFields(ctx, details, addr))
+					maps.Copy(details, runOutputFields(result, details))
 					data = details
 				}
 			}
@@ -1654,24 +1650,11 @@ const (
 	runOutputsMaxBytes     = 32 << 10
 )
 
-// runOutputFields reads the outputs of the run described by details, the
-// normalized run details read for addr, and returns the fields to add to the
-// run response. The read uses the resolved run IDs in details, so a "latest"
-// or aliased address reads the same run whose details were returned.
-func (svc *Service) runOutputFields(ctx context.Context, details map[string]any, addr runAddress) map[string]any {
-	if id, _ := details["dagRunId"].(string); id != "" {
-		if addr.subRunID == "" {
-			addr.dagRunID = id
-			if name, _ := details["name"].(string); name != "" {
-				addr.name = name
-			}
-		} else {
-			addr.subRunID = id
-		}
-	}
+// runOutputFields returns the fields to add to a run response for the
+// outputs loaded with result. details is result.Details normalized.
+func runOutputFields(result frontendapi.DAGRunDetailsWithOutputs, details map[string]any) map[string]any {
 	attemptID, _ := details["attemptId"].(string)
-	outputs, err := svc.api.GetDAGRunOutputsData(ctx, addr.name, addr.dagRunID, addr.subRunID)
-	return boundedRunOutputs(outputs, attemptID, err)
+	return boundedRunOutputs(result.Outputs, attemptID, result.OutputsErr)
 }
 
 // boundedRunOutputs returns the run response fields for outputs read from the
@@ -1709,19 +1692,19 @@ func boundedRunOutputs(outputs *ir.DAGRunOutputs, attemptID string, err error) m
 	return fields
 }
 
-// withRunOutputs adds the run's output fields to a run details API response
-// served as a run resource. The response is returned unchanged when the run
-// has no outputs.
-func (svc *Service) withRunOutputs(ctx context.Context, data any, addr runAddress) (any, error) {
-	details, err := normalizeRunDetails(data, addr)
+// withRunOutputs returns the run details API response in result, served as a
+// run resource, with the run's output fields added. The response is returned
+// unchanged when the run has no outputs.
+func withRunOutputs(result frontendapi.DAGRunDetailsWithOutputs, addr runAddress) (any, error) {
+	details, err := normalizeRunDetails(result.Details, addr)
 	if err != nil {
 		return nil, err
 	}
-	fields := svc.runOutputFields(ctx, details, addr)
+	fields := runOutputFields(result, details)
 	if len(fields) == 0 {
-		return data, nil
+		return result.Details, nil
 	}
-	raw, err := json.Marshal(data)
+	raw, err := json.Marshal(result.Details)
 	if err != nil {
 		return nil, err
 	}
