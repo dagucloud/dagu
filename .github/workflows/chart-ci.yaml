@@ -184,6 +184,18 @@ jobs:
             --set deploymentMode=distributed \
             --set persistence.accessMode=ReadWriteMany \
             --set persistence.storageClass=nfs-client \
+            --set scheduler.replicas=2 \
+            --show-only templates/scheduler-deployment.yaml \
+            >/tmp/dagu-scheduler-standby-render.yaml
+
+          grep -Fq 'replicas: 2' /tmp/dagu-scheduler-standby-render.yaml
+
+          helm template dagu ./charts/dagu \
+            --namespace dagu \
+            --kube-version 1.35.0 \
+            --set deploymentMode=distributed \
+            --set persistence.accessMode=ReadWriteMany \
+            --set persistence.storageClass=nfs-client \
             --set coordinator.replicas=2 \
             --show-only templates/coordinator-deployment.yaml \
             >/tmp/dagu-coordinator-render.yaml
