@@ -7,6 +7,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"maps"
 	"net/http"
 	"sort"
 	"strconv"
@@ -340,6 +341,7 @@ func (svc *Service) waitForRun(ctx context.Context, input executeInput, dagRunID
 					output["waitError"] = normalizeErr.Error()
 					return "Dagu execute action completed, but waiting for the run failed. Poll the runUri resource for completion."
 				}
+				maps.Copy(details, svc.runOutputFields(ctx, details, runAddress{name: input.Name, dagRunID: dagRunID}))
 				output["completed"] = terminal
 				output["run"] = details
 				if waiting {

@@ -6,6 +6,8 @@ package mcp
 import (
 	"context"
 	"encoding/json"
+	"errors"
+	"fmt"
 	"maps"
 	"net/http"
 	"net/http/httptest"
@@ -1838,4 +1840,55 @@ func TestForeachResourceURIs(t *testing.T) {
 		require.NotNil(t, readErr, raw)
 		require.Equal(t, readErrorInvalidToolInput, readErr.Code, raw)
 	}
+}
+
+func runOutputs(attemptID string, values map[string]string) *ir.DAGRunOutputs {
+	return &ir.DAGRunOutputs{Metadata: ir.OutputsMetadata{AttemptID: attemptID}, Outputs: values}
+}
+
+func TestBoundedRunOutputs(t *testing.T) {
+	require.Nil(t, boundedRunOutputs(nil, "a1", nil))
+	require.Nil(t, boundedRunOutputs(runOutputs("a1", map[string]string{}), "a1", nil))
+
+	require.Equal(t, map[string]any{"outputs": map[string]string{"count": "3", "greeting": "hello"}},
+		boundedRunOutputs(runOutputs("a1", map[string]string{"greeting": "hello", "count": "3"}), "a1", nil))
+
+	require.Equal(t, map[string]any{"outputsError": "error reading outputs: boom"},
+		boundedRunOutputs(nil, "a1", errors.New("error reading outputs: boom")))
+
+	// Outputs of another attempt are not the returned attempt's outputs.
+	fields := boundedRunOutputs(runOutputs("a2", map[string]string{"greeting": "hello"}), "a1", nil)
+	require.NotContains(t, fields, "outputs")
+	require.Contains(t, fields["outputsError"], "attempt a2")
+}
+
+// A value over a limit is left out whole and counted; the values kept are
+// never cut.
+func TestBoundedRunOutputsLimits(t *testing.T) {
+	big := strings.Repeat("x", runOutputValueMaxBytes+1)
+	fields := boundedRunOutputs(runOutputs("", map[string]string{"big": big, "small": "ok"}), "a1", nil)
+	require.Equal(t, map[string]any{"outputs": map[string]string{"small": "ok"}, "outputsOmitted": 1}, fields)
+
+	many := make(map[string]string)
+	for i := range runOutputsMaxCount + 5 {
+		many[fmt.Sprintf("k%03d", i)] = "v"
+	}
+	fields = boundedRunOutputs(runOutputs("a1", many), "a1", nil)
+	require.Len(t, fields["outputs"], runOutputsMaxCount)
+	require.Equal(t, 5, fields["outputsOmitted"])
+
+	value := strings.Repeat("y", runOutputValueMaxBytes)
+	large := make(map[string]string)
+	for i := range 10 {
+		large[fmt.Sprintf("k%d", i)] = value
+	}
+	fields = boundedRunOutputs(runOutputs("a1", large), "a1", nil)
+	kept := fields["outputs"].(map[string]string)
+	total := 0
+	for key, v := range kept {
+		require.Equal(t, value, v)
+		total += len(key) + len(v)
+	}
+	require.LessOrEqual(t, total, runOutputsMaxBytes)
+	require.Equal(t, 10-len(kept), fields["outputsOmitted"])
 }

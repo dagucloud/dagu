@@ -1158,6 +1158,46 @@ func (a *API) GetDAGRunOutputs(ctx context.Context, request api.GetDAGRunOutputs
 	}, nil
 }
 
+// GetDAGRunOutputsData returns the collected outputs of a DAG run, or of the
+// sub DAG run subDAGRunID under that root, with the same visibility checks as
+// GetDAGRunDetailsData and GetSubDAGRunDetailsData. A run without outputs
+// returns nil.
+func (a *API) GetDAGRunOutputsData(ctx context.Context, name, dagRunID, subDAGRunID string) (*ir.DAGRunOutputs, error) {
+	var attempt dagrun.Attempt
+	if subDAGRunID == "" {
+		found, notFound, err := a.findVisibleAttempt(ctx, name, dagRunID)
+		if err != nil {
+			return nil, err
+		}
+		if notFound != "" {
+			return nil, errors.New(notFound)
+		}
+		attempt = found
+	} else {
+		root := ir.NewDAGRunRef(name, dagRunID)
+		if err := a.requireDAGRunVisible(ctx, root); err != nil {
+			return nil, err
+		}
+		found, err := a.getReferencedAttempt(ctx, root, subDAGRunID, "")
+		if err != nil {
+			return nil, fmt.Errorf("sub dag-run ID %s not found for DAG %s: %w", subDAGRunID, name, err)
+		}
+		workspaceName, err := workspaceNameForAttempt(ctx, found)
+		if err != nil {
+			return nil, err
+		}
+		if err := a.requireWorkspaceVisible(ctx, workspaceName); err != nil {
+			return nil, err
+		}
+		attempt = found
+	}
+	outputs, err := attempt.ReadOutputs(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("error reading outputs: %w", err)
+	}
+	return outputs, nil
+}
+
 func (a *API) GetDAGRunStepLog(ctx context.Context, request api.GetDAGRunStepLogRequestObject) (api.GetDAGRunStepLogResponseObject, error) {
 	ref := ir.NewDAGRunRef(request.Name, request.DagRunId)
 	dagStatus, err := a.dagRunMgr.GetSavedStatus(ctx, ref)

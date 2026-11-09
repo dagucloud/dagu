@@ -8,8 +8,10 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"maps"
 	"net/http"
 	"net/url"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -296,7 +298,12 @@ func (svc *Service) readToolImpl(ctx context.Context, input readInput) (*mcpsdk.
 				raw, err = svc.api.GetDAGRunDetailsData(ctx, input.Name+"/"+input.DAGRunID)
 			}
 			if err == nil {
-				data, err = normalizeRunDetails(raw, addr)
+				var details map[string]any
+				details, err = normalizeRunDetails(raw, addr)
+				if err == nil {
+					maps.Copy(details, svc.runOutputFields(ctx, details, addr))
+					data = details
+				}
 			}
 		}
 	case readTargetRunLogs:
@@ -1635,6 +1642,92 @@ func normalizeRunDetails(raw any, addr runAddress) (map[string]any, error) {
 	if handlers := runHandlerEntries(addr, run); len(handlers) > 0 {
 		out["handlers"] = handlers
 	}
+	return out, nil
+}
+
+// Run outputs go into a model's context, so a run response carries at most
+// this many outputs and bytes. A value is never cut, because a cut JSON value
+// is invalid; one that does not fit is left out and counted instead.
+const (
+	runOutputsMaxCount     = 50
+	runOutputValueMaxBytes = 4 << 10
+	runOutputsMaxBytes     = 32 << 10
+)
+
+// runOutputFields reads the outputs of the run described by details, the
+// normalized run details read for addr, and returns the fields to add to the
+// run response. The read uses the resolved run IDs in details, so a "latest"
+// or aliased address reads the same run whose details were returned.
+func (svc *Service) runOutputFields(ctx context.Context, details map[string]any, addr runAddress) map[string]any {
+	if id, _ := details["dagRunId"].(string); id != "" {
+		if addr.subRunID == "" {
+			addr.dagRunID = id
+			if name, _ := details["name"].(string); name != "" {
+				addr.name = name
+			}
+		} else {
+			addr.subRunID = id
+		}
+	}
+	attemptID, _ := details["attemptId"].(string)
+	outputs, err := svc.api.GetDAGRunOutputsData(ctx, addr.name, addr.dagRunID, addr.subRunID)
+	return boundedRunOutputs(outputs, attemptID, err)
+}
+
+// boundedRunOutputs returns the run response fields for outputs read from the
+// attempt attemptID. A run without outputs adds no fields. A read error or
+// outputs recorded by another attempt add outputsError instead of outputs.
+func boundedRunOutputs(outputs *ir.DAGRunOutputs, attemptID string, err error) map[string]any {
+	if err != nil {
+		return map[string]any{"outputsError": err.Error()}
+	}
+	if outputs == nil || len(outputs.Outputs) == 0 {
+		return nil
+	}
+	if recorded := outputs.Metadata.AttemptID; attemptID != "" && recorded != "" && recorded != attemptID {
+		return map[string]any{"outputsError": fmt.Sprintf("outputs were recorded by attempt %s, not the returned attempt %s; read the run again", recorded, attemptID)}
+	}
+
+	kept := make(map[string]string)
+	omitted, total := 0, 0
+	for _, key := range slices.Sorted(maps.Keys(outputs.Outputs)) {
+		value := outputs.Outputs[key]
+		size := len(key) + len(value)
+		if len(kept) == runOutputsMaxCount || len(value) > runOutputValueMaxBytes || total+size > runOutputsMaxBytes {
+			omitted++
+			continue
+		}
+		kept[key] = value
+		total += size
+	}
+	fields := map[string]any{"outputs": kept}
+	if omitted > 0 {
+		fields["outputsOmitted"] = omitted
+	}
+	return fields
+}
+
+// withRunOutputs adds the run's output fields to a run details API response
+// served as a run resource. The response is returned unchanged when the run
+// has no outputs.
+func (svc *Service) withRunOutputs(ctx context.Context, data any, addr runAddress) (any, error) {
+	details, err := normalizeRunDetails(data, addr)
+	if err != nil {
+		return nil, err
+	}
+	fields := svc.runOutputFields(ctx, details, addr)
+	if len(fields) == 0 {
+		return data, nil
+	}
+	raw, err := json.Marshal(data)
+	if err != nil {
+		return nil, err
+	}
+	var out map[string]any
+	if err := json.Unmarshal(raw, &out); err != nil {
+		return nil, err
+	}
+	maps.Copy(out, fields)
 	return out, nil
 }
 

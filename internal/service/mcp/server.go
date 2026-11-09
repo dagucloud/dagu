@@ -971,6 +971,9 @@ func (svc *Service) readResourceText(ctx context.Context, rawURI string) (string
 				return "", "", mcpsdk.ResourceNotFoundError(rawURI)
 			}
 			data, err = svc.api.GetSubDAGRunDetailsData(ctx, identifier+"/"+segments[3])
+			if err == nil {
+				data, err = svc.withRunOutputs(ctx, data, runAddress{name: segments[0], dagRunID: segments[1], subRunID: segments[3]})
+			}
 		case len(segments) == 3:
 			if parsed.RawQuery != "" {
 				identifier += "?" + parsed.RawQuery
@@ -978,6 +981,9 @@ func (svc *Service) readResourceText(ctx context.Context, rawURI string) (string
 			data, err = svc.api.GetDAGRunLogsData(ctx, identifier)
 		default:
 			data, err = svc.api.GetDAGRunDetailsData(ctx, identifier)
+			if err == nil {
+				data, err = svc.withRunOutputs(ctx, data, runAddress{name: segments[0], dagRunID: segments[1]})
+			}
 		}
 		if err != nil {
 			return "", "", err

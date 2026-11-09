@@ -44,6 +44,7 @@ func TestExecuteStartWithWaitReturnsRunResult(t *testing.T) {
 	server.CreateDAG(t, "mcp_execute_wait", `steps:
   - name: main
     run: "echo done"
+    output: RESULT
 `)
 	session := server.Connect(t, "")
 
@@ -66,6 +67,7 @@ func TestExecuteStartWithWaitReturnsRunResult(t *testing.T) {
 	require.True(t, ok)
 	require.Equal(t, "mcp_execute_wait", run["name"])
 	require.NotEmpty(t, run["statusLabel"])
+	require.Equal(t, map[string]any{"result": "done"}, run["outputs"])
 
 	steps, ok := run["steps"].([]any)
 	require.True(t, ok)
