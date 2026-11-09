@@ -1193,6 +1193,11 @@ func (a *API) GetDAGRunOutputsData(ctx context.Context, name, dagRunID, subDAGRu
 	}
 	outputs, err := attempt.ReadOutputs(ctx)
 	if err != nil {
+		logger.Error(ctx, "Failed to read outputs",
+			tag.Error(err),
+			tag.DAG(name),
+			tag.RunID(dagRunID),
+		)
 		return nil, fmt.Errorf("error reading outputs: %w", err)
 	}
 	return outputs, nil

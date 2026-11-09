@@ -1853,8 +1853,8 @@ func TestBoundedRunOutputs(t *testing.T) {
 	require.Equal(t, map[string]any{"outputs": map[string]string{"count": "3", "greeting": "hello"}},
 		boundedRunOutputs(runOutputs("a1", map[string]string{"greeting": "hello", "count": "3"}), "a1", nil))
 
-	require.Equal(t, map[string]any{"outputsError": "error reading outputs: boom"},
-		boundedRunOutputs(nil, "a1", errors.New("error reading outputs: boom")))
+	require.Equal(t, map[string]any{"outputsError": "outputs could not be read"},
+		boundedRunOutputs(nil, "a1", errors.New("error reading outputs: open /data/outputs.json: permission denied")))
 
 	// Outputs of another attempt are not the returned attempt's outputs.
 	fields := boundedRunOutputs(runOutputs("a2", map[string]string{"greeting": "hello"}), "a1", nil)

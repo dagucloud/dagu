@@ -1677,9 +1677,11 @@ func (svc *Service) runOutputFields(ctx context.Context, details map[string]any,
 // boundedRunOutputs returns the run response fields for outputs read from the
 // attempt attemptID. A run without outputs adds no fields. A read error or
 // outputs recorded by another attempt add outputsError instead of outputs.
+// The read error itself is logged by the API and not returned, since it can
+// name server paths.
 func boundedRunOutputs(outputs *ir.DAGRunOutputs, attemptID string, err error) map[string]any {
 	if err != nil {
-		return map[string]any{"outputsError": err.Error()}
+		return map[string]any{"outputsError": "outputs could not be read"}
 	}
 	if outputs == nil || len(outputs.Outputs) == 0 {
 		return nil
