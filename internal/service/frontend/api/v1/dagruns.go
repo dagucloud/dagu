@@ -1164,7 +1164,7 @@ type DAGRunDetailsWithOutputs struct {
 	// Details is the same value GetDAGRunDetailsData or
 	// GetSubDAGRunDetailsData returns.
 	Details any
-	// Outputs is nil when the run has no outputs.
+	// Outputs is nil when the run has no outputs or has not finished yet.
 	Outputs *ir.DAGRunOutputs
 	// OutputsErr is set when the outputs could not be read. Details are still
 	// valid then.
@@ -1175,6 +1175,8 @@ type DAGRunDetailsWithOutputs struct {
 // sub DAG run subDAGRunID under that root, together with its outputs. Details
 // and outputs are loaded in one pass under the same read timeout and
 // visibility checks as GetDAGRunDetailsData and GetSubDAGRunDetailsData.
+// Outputs are only read for a finished run, since the outputs file is
+// written when the run finishes.
 func (a *API) GetDAGRunDetailsWithOutputsData(ctx context.Context, name, dagRunID, subDAGRunID string) (DAGRunDetailsWithOutputs, error) {
 	if subDAGRunID != "" {
 		return a.getSubDAGRunDetails(ctx, name, dagRunID, subDAGRunID, true)
@@ -1193,9 +1195,17 @@ func (a *API) GetDAGRunDetailsWithOutputsData(ctx context.Context, name, dagRunI
 				DagRunDetails: a.toDAGRunDetailsWithSpecSource(readCtx, attempt, *dagStatus),
 			},
 		}
-		result.Outputs, result.OutputsErr = readAttemptOutputs(readCtx, attempt, name, dagStatus.DAGRunID)
+		if runFinished(dagStatus) {
+			result.Outputs, result.OutputsErr = readAttemptOutputs(readCtx, attempt, name, dagStatus.DAGRunID)
+		}
 		return result, nil
 	})
+}
+
+// runFinished reports whether the run is past the point where its outputs are
+// written.
+func runFinished(status *ir.DAGRunStatus) bool {
+	return !status.Status.IsActive() && status.Status != ir.NotStarted
 }
 
 // readAttemptOutputs reads the outputs of attempt and logs a read error.
@@ -4757,7 +4767,7 @@ func (a *API) getSubDAGRunDetails(ctx context.Context, name, dagRunID, subDAGRun
 		subDAGRunID: subDAGRunID,
 	}, func(readCtx context.Context) (subRead, error) {
 		ref, dagStatus, err := a.getReferencedDAGRunStatusWithRef(readCtx, root, subDAGRunID, "")
-		if err != nil || !withOutputs {
+		if err != nil || !withOutputs || !runFinished(dagStatus) {
 			return subRead{status: dagStatus}, err
 		}
 		// The status lookup does not return its attempt, so find the

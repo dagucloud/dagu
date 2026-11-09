@@ -1693,27 +1693,24 @@ func boundedRunOutputs(outputs *ir.DAGRunOutputs, attemptID string, err error) m
 }
 
 // withRunOutputs returns the run details API response in result, served as a
-// run resource, with the run's output fields added. The response is returned
-// unchanged when the run has no outputs.
-func withRunOutputs(result frontendapi.DAGRunDetailsWithOutputs, addr runAddress) (any, error) {
-	details, err := normalizeRunDetails(result.Details, addr)
+// run resource, with the run's output fields added next to dagRunDetails. The
+// response is returned unchanged when the run has no outputs.
+func withRunOutputs(result frontendapi.DAGRunDetailsWithOutputs) any {
+	run, err := dagRunDetailsFromResponse(result.Details)
 	if err != nil {
-		return nil, err
+		return result.Details
 	}
-	fields := runOutputFields(result, details)
+	var attemptID string
+	if run.AttemptId != nil {
+		attemptID = *run.AttemptId
+	}
+	fields := boundedRunOutputs(result.Outputs, attemptID, result.OutputsErr)
 	if len(fields) == 0 {
-		return result.Details, nil
+		return result.Details
 	}
-	raw, err := json.Marshal(result.Details)
-	if err != nil {
-		return nil, err
-	}
-	var out map[string]any
-	if err := json.Unmarshal(raw, &out); err != nil {
-		return nil, err
-	}
+	out := map[string]any{"dagRunDetails": run}
 	maps.Copy(out, fields)
-	return out, nil
+	return out
 }
 
 func dagRunDetailsFromResponse(raw any) (daguapi.DAGRunDetails, error) {

@@ -1892,3 +1892,25 @@ func TestBoundedRunOutputsLimits(t *testing.T) {
 	require.LessOrEqual(t, total, runOutputsMaxBytes)
 	require.Equal(t, 10-len(kept), fields["outputsOmitted"])
 }
+
+// A run resource keeps the REST body and adds the output fields next to
+// dagRunDetails. Without outputs, or for an unexpected response, the body is
+// returned as it is.
+func TestWithRunOutputs(t *testing.T) {
+	attemptID := "a1"
+	details := daguapi.GetDAGRunDetails200JSONResponse{DagRunDetails: daguapi.DAGRunDetails{AttemptId: &attemptID}}
+
+	require.Equal(t, details, withRunOutputs(frontendapi.DAGRunDetailsWithOutputs{Details: details}))
+	require.Equal(t, "other", withRunOutputs(frontendapi.DAGRunDetailsWithOutputs{
+		Details: "other",
+		Outputs: runOutputs("a1", map[string]string{"greeting": "hello"}),
+	}))
+
+	require.Equal(t, map[string]any{
+		"dagRunDetails": details.DagRunDetails,
+		"outputs":       map[string]string{"greeting": "hello"},
+	}, withRunOutputs(frontendapi.DAGRunDetailsWithOutputs{
+		Details: details,
+		Outputs: runOutputs("a1", map[string]string{"greeting": "hello"}),
+	}))
+}
