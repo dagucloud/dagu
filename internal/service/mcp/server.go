@@ -1211,14 +1211,7 @@ func isSubStepLogResourceSegments(segments []string) bool {
 // checkpoint is not final: the run resumes once an operator resolves its
 // waiting steps.
 func isTerminalStatus(status int) bool {
-	switch ir.Status(status) {
-	case ir.Failed, ir.Aborted, ir.Succeeded, ir.PartiallySucceeded, ir.Rejected:
-		return true
-	case ir.NotStarted, ir.Running, ir.Queued, ir.Waiting:
-		return false
-	default:
-		return false
-	}
+	return ir.Status(status).IsTerminal()
 }
 
 func (svc *Service) requireAPI() error {

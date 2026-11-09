@@ -1685,7 +1685,12 @@ func boundedRunOutputs(outputs *ir.DAGRunOutputs, attemptID string, err error) m
 		kept[key] = value
 		total += size
 	}
-	fields := map[string]any{"outputs": kept}
+	// outputs is left out when no value fits, the same as for a run without
+	// outputs; outputsOmitted then counts every value.
+	fields := map[string]any{}
+	if len(kept) > 0 {
+		fields["outputs"] = kept
+	}
 	if omitted > 0 {
 		fields["outputsOmitted"] = omitted
 	}

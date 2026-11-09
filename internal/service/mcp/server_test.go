@@ -1891,6 +1891,10 @@ func TestBoundedRunOutputsLimits(t *testing.T) {
 	}
 	require.LessOrEqual(t, total, runOutputsMaxBytes)
 	require.Equal(t, 10-len(kept), fields["outputsOmitted"])
+
+	// When no value fits, there is no outputs field, only the count.
+	fields = boundedRunOutputs(runOutputs("a1", map[string]string{"big": big}), "a1", nil)
+	require.Equal(t, map[string]any{"outputsOmitted": 1}, fields)
 }
 
 // A run resource keeps the REST body and adds the output fields next to
