@@ -65,26 +65,31 @@ func TestForcedToolChoiceSupported(t *testing.T) {
 
 func TestSamplingSupported(t *testing.T) {
 	t.Parallel()
-	for _, tt := range []struct {
+
+	tests := []struct {
 		id       string
 		expected bool
 	}{
-		{"claude-opus-4-6", true},
-		{"claude-opus-4-7", false},
-		{"anthropic/claude-opus-4.8", false},
-		{"claude-opus-5", false},
-		{"claude-opus-5-5", false},
-		{"claude-sonnet-4-6", true},
-		{"claude-sonnet-5", false},
-		{"claude-sonnet-5-5", false},
-		{"claude-haiku-4-5", true},
-		{"claude-haiku-5-5", false},
-		{"claude-fable-5-1", false},
-		{"claude-mythos-preview", false},
-		{"claude-mythos-5-1", false},
-		{"claude-3-5-sonnet-20241022", true},
-		{"my-deployment", true},
-	} {
-		t.Run(tt.id, func(t *testing.T) { t.Parallel(); assert.Equal(t, tt.expected, claudemodel.SamplingSupported(tt.id)) })
+		{id: "claude-opus-4-6", expected: true},
+		{id: "claude-opus-4-7", expected: false},
+		{id: "anthropic/claude-opus-4.8", expected: false},
+		{id: "claude-opus-5", expected: false},
+		{id: "claude-opus-5-5", expected: false},
+		{id: "claude-sonnet-4-6", expected: true},
+		{id: "claude-sonnet-5", expected: false},
+		{id: "claude-sonnet-5-5", expected: false},
+		{id: "claude-haiku-4-5", expected: true},
+		{id: "claude-haiku-5-5", expected: false},
+		{id: "claude-fable-5-1", expected: false},
+		{id: "claude-mythos-preview", expected: false},
+		{id: "claude-mythos-5-1", expected: false},
+		{id: "claude-3-5-sonnet-20241022", expected: true},
+		{id: "my-deployment", expected: true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.id, func(t *testing.T) {
+			t.Parallel()
+			assert.Equal(t, tt.expected, claudemodel.SamplingSupported(tt.id))
+		})
 	}
 }

@@ -65,12 +65,20 @@ func ForcedToolChoiceSupported(id string) bool {
 // Newer models use provider-controlled sampling even with thinking off.
 // Unrecognized IDs report true to preserve sampling for proxy deployments.
 func SamplingSupported(id string) bool {
-	if strings.Contains(id, "claude-mythos") || strings.Contains(id, "claude-fable") {
+	// Mythos Preview has no version segment for Parse to read.
+	if strings.Contains(id, "claude-mythos-preview") {
 		return false
 	}
 	model, ok := Parse(id)
 	if !ok {
 		return true
 	}
-	return model.Major < 5 && !(model.Family == "opus" && model.Major == 4 && model.Minor >= 7)
+	if model.Family == "fable" || model.Family == "mythos" {
+		return false
+	}
+	// Opus dropped custom sampling at 4.7, ahead of the 5 generation.
+	if model.Family == "opus" && model.Major == 4 && model.Minor >= 7 {
+		return false
+	}
+	return model.Major < 5
 }
