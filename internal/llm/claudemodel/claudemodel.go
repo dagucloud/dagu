@@ -64,6 +64,9 @@ func ForcedToolChoiceSupported(id string) bool {
 // SamplingSupported reports whether a model accepts custom sampling parameters.
 // Newer models use provider-controlled sampling even with thinking off.
 // Unrecognized IDs report true to preserve sampling for proxy deployments.
+// The matrix reflects anthropic-version 2023-06-01, the version the provider
+// sends; later API versions reject sampling parameters on every model, which
+// would make this function return false unconditionally.
 func SamplingSupported(id string) bool {
 	// Mythos Preview has no version segment for Parse to read.
 	if strings.Contains(id, "claude-mythos-preview") {

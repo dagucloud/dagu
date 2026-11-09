@@ -397,8 +397,10 @@ func inputSchema(parameters map[string]any) map[string]any {
 }
 
 // samplingSupported reports whether a request may customize sampling.
-// Thinking disables temperature; top_p is deliberately omitted alongside it,
-// even where the API allows a restricted range.
+// The API rejects custom sampling while thinking is enabled, and on models that
+// do not accept it at all, so a request without thinking can still lose its
+// parameters. top_p is deliberately omitted alongside temperature, even where
+// the API allows a restricted range.
 func samplingSupported(req *llm.ChatRequest) bool {
 	thinking, _ := thinkingConfig(req.Thinking)
 	return thinking == nil && claudemodel.SamplingSupported(req.Model)

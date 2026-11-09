@@ -508,32 +508,31 @@ func TestStreamResponse_MergesUsage(t *testing.T) {
 	assert.Equal(t, llm.Usage{PromptTokens: 120, CompletionTokens: 40, TotalTokens: 160, CachedPromptTokens: 100, CacheWritePromptTokens: 8}, *usage)
 }
 
-func TestBuildRequestBody_ThinkingSampling(t *testing.T) {
+func TestBuildRequestBody_Sampling(t *testing.T) {
 	t.Parallel()
-	for _, tt := range []struct {
+
+	tests := []struct {
 		name         string
 		model        string
 		thinking     *llm.ThinkingRequest
 		wantSampling bool
 	}{
-		{name: "absent", wantSampling: true},
+		{name: "absent", model: "claude-sonnet-4-6", wantSampling: true},
 		{name: "opus_without_thinking", model: "claude-opus-4-7"},
 		{name: "sonnet_without_thinking", model: "claude-sonnet-5"},
 		{name: "proxy_without_thinking", model: "my-deployment", wantSampling: true},
-		{name: "disabled", thinking: &llm.ThinkingRequest{}, wantSampling: true},
-		{name: "none", thinking: &llm.ThinkingRequest{Enabled: true, Effort: llm.ThinkingEffortNone}, wantSampling: true},
-		{name: "adaptive", thinking: &llm.ThinkingRequest{Enabled: true}},
-		{name: "budget", thinking: &llm.ThinkingRequest{Enabled: true, BudgetTokens: new(2048)}},
-	} {
+		{name: "disabled", model: "claude-sonnet-4-6", thinking: &llm.ThinkingRequest{}, wantSampling: true},
+		{name: "none", model: "claude-sonnet-4-6", thinking: &llm.ThinkingRequest{Enabled: true, Effort: llm.ThinkingEffortNone}, wantSampling: true},
+		{name: "adaptive", model: "claude-sonnet-4-6", thinking: &llm.ThinkingRequest{Enabled: true}},
+		{name: "budget", model: "claude-sonnet-4-6", thinking: &llm.ThinkingRequest{Enabled: true, BudgetTokens: new(2048)}},
+	}
+
+	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
-			provider := &Provider{}
-			model := tt.model
-			if model == "" {
-				model = "claude-sonnet-4-6"
-			}
+			provider := &Provider{config: llm.Config{APIKey: "test-key"}}
 			body, err := provider.buildRequestBody(&llm.ChatRequest{
-				Model:       model,
+				Model:       tt.model,
 				Messages:    []llm.Message{{Role: llm.RoleUser, Content: "Hello"}},
 				Thinking:    tt.thinking,
 				Temperature: new(0.7),
