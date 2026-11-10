@@ -1325,20 +1325,25 @@ func TestSchemaMismatchFailsInWords(t *testing.T) {
 
 	for _, tc := range []struct {
 		name   string
+		schema string
 		answer string
 		detail string
 	}{
-		{"null field", `{"statements":[{"answer":null}]}`, "statements[0].answer is null, expected string"},
-		{"later item", `{"statements":[{"answer":"a"},{"answer":3}]}`, "statements[1].answer is number, expected string"},
-		{"missing field", `{"statements":[{}]}`, "statements[0].answer is missing"},
-		{"null list", `{"statements":null}`, "statements is null, expected array"},
-		{"null answer", `null`, "the answer is null, expected object"},
+		{"null field", statementsSchema, `{"statements":[{"answer":null}]}`, "statements[0].answer is null, expected string"},
+		{"later item", statementsSchema, `{"statements":[{"answer":"a"},{"answer":3}]}`, "statements[1].answer is number, expected string"},
+		{"missing field", statementsSchema, `{"statements":[{}]}`, "statements[0].answer is missing"},
+		{"null list", statementsSchema, `{"statements":null}`, "statements is null, expected array"},
+		{"null answer", statementsSchema, `null`, "the answer is null, expected object"},
+		{"type list", `{"type": "object", "properties": {"a": {"type": ["string", "null"]}}}`, `{"a":3}`, "a is number, expected string or null"},
+		{"nullable field", `{"type": "object", "properties": {"a": {"anyOf": [{"type": "string"}, {"type": "null"}]}}}`, `{"a":3}`, "a is number, expected string or null"},
+		{"field named default", `{"type": "object", "properties": {"default": {"type": "string"}}, "required": ["default"]}`, `{"default":null}`, "default is null, expected string"},
+		{"value named default", `{"type": "object", "properties": {"a": {"type": "string"}, "kind": {"enum": ["default"]}}, "required": ["a"]}`, `{"a":null,"kind":"default"}`, "a is null, expected string"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 
 			run := newTestRun(t, func(*llmpkg.ChatRequest) (string, error) { return tc.answer, nil })
-			execution := run.execute(extractWith(statementsSchema), nil)
+			execution := run.execute(extractWith(tc.schema), nil)
 
 			require.ErrorContains(t, execution.err, "do[0] extract failed: model request failed: openai/test-model: the answer does not match the schema: "+tc.detail)
 			assert.Equal(t, 2, run.provider.callCount())
@@ -1361,6 +1366,7 @@ func TestFittingAnswerIsNotCorrected(t *testing.T) {
 		{"null in a type list", `{"type": "object", "properties": {"a": {"type": ["string", "null"]}}, "required": ["a"]}`, `{"a":null}`},
 		{"pattern Go cannot compile", `{"type": "object", "properties": {"a": {"type": "string", "pattern": "^(?!x)"}}, "required": ["a"]}`, `{"a":null}`},
 		{"default the runtime fills in", `{"type": "object", "properties": {"a": {"type": "string", "default": "x"}}, "required": ["a"]}`, `{}`},
+		{"default on a list item's field", `{"type": "object", "properties": {"a": {"type": "array", "items": {"type": "object", "properties": {"b": {"type": "string", "default": "x"}}, "required": ["b"]}}}}`, `{"a":[{}]}`},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()

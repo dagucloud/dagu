@@ -4,7 +4,7 @@
 package browser
 
 import (
-	"bytes"
+	"cmp"
 	"context"
 	"encoding/json"
 	"errors"
@@ -12,6 +12,7 @@ import (
 	"io"
 	"maps"
 	"slices"
+	"strings"
 	"sync"
 
 	"github.com/dagucloud/dagu/v2/internal/cmn/masking"
@@ -247,7 +248,7 @@ type answerSchema struct {
 // cannot compile, or one with defaults, which the runtime fills in first.
 func newAnswerSchema(raw json.RawMessage, fields map[string]any) *answerSchema {
 	schema := &answerSchema{fields: fields}
-	if bytes.Contains(raw, []byte(`"default"`)) {
+	if hasDefault(fields) {
 		return schema
 	}
 	var parsed jsonschema.Schema
@@ -258,6 +259,30 @@ func newAnswerSchema(raw json.RawMessage, fields map[string]any) *answerSchema {
 		schema.resolved = resolved
 	}
 	return schema
+}
+
+// hasDefault reports whether schema or a schema nested in it has the default
+// keyword.
+func hasDefault(schema map[string]any) bool {
+	if _, ok := schema["default"]; ok {
+		return true
+	}
+	var nested []any
+	for _, keyword := range []string{"items", "additionalProperties", "not"} {
+		nested = append(nested, schema[keyword])
+	}
+	for _, keyword := range []string{"anyOf", "oneOf", "allOf", "prefixItems"} {
+		list, _ := schema[keyword].([]any)
+		nested = append(nested, list...)
+	}
+	for _, keyword := range []string{"properties", "$defs", "definitions"} {
+		named, _ := schema[keyword].(map[string]any)
+		nested = slices.AppendSeq(nested, maps.Values(named))
+	}
+	return slices.ContainsFunc(nested, func(value any) bool {
+		child, ok := value.(map[string]any)
+		return ok && hasDefault(child)
+	})
 }
 
 // check returns a sentence saying why answer does not fit the schema, or nil
@@ -285,9 +310,10 @@ func (s *answerSchema) check(answer json.RawMessage) error {
 // wrong JSON type or lacks a required field. It returns "" when the mismatch
 // is of another kind.
 func firstMismatch(path string, schema map[string]any, value any) string {
-	want, _ := schema["type"].(string)
-	if got := jsonKind(value); want != "" && got != want && (want != "integer" || got != "number") {
-		return fmt.Sprintf("%s is %s, expected %s", describePath(path), got, want)
+	if allowed, got := allowedTypes(schema), jsonKind(value); len(allowed) > 0 && !slices.ContainsFunc(allowed, func(kind string) bool {
+		return kind == got || (kind == "integer" && got == "number")
+	}) {
+		return fmt.Sprintf("%s is %s, expected %s", cmp.Or(path, "the answer"), got, strings.Join(allowed, " or "))
 	}
 	switch value := value.(type) {
 	case map[string]any:
@@ -321,18 +347,41 @@ func firstMismatch(path string, schema map[string]any, value any) string {
 	return ""
 }
 
+// allowedTypes returns the JSON types a schema permits through its type
+// keyword or an anyOf of typed schemas, the form the browser runtime sends for
+// a nullable field. It returns nil when the schema does not settle them.
+func allowedTypes(schema map[string]any) []string {
+	switch kinds := schema["type"].(type) {
+	case string:
+		return []string{kinds}
+	case []any:
+		allowed := make([]string, 0, len(kinds))
+		for _, kind := range kinds {
+			if kind, ok := kind.(string); ok {
+				allowed = append(allowed, kind)
+			}
+		}
+		return allowed
+	}
+	branches, _ := schema["anyOf"].([]any)
+	var allowed []string
+	for _, branch := range branches {
+		typed, _ := branch.(map[string]any)
+		kinds := allowedTypes(typed)
+		if len(kinds) == 0 {
+			return nil
+		}
+		allowed = append(allowed, kinds...)
+	}
+	return allowed
+}
+
+// joinPath names the field called name of the object at path.
 func joinPath(path, name string) string {
 	if path == "" {
 		return name
 	}
 	return path + "." + name
-}
-
-func describePath(path string) string {
-	if path == "" {
-		return "the answer"
-	}
-	return path
 }
 
 // jsonKind returns the JSON type name of a decoded value.
