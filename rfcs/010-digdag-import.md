@@ -169,9 +169,8 @@ Each generated entry is named after the expression it replaces, and
 references in commands, queries, and params are rewritten to `${dates.NAME}`.
 
 A manual Digdag run uses the current time as its session time. A manual Dagu
-run without `--scheduled-at` resolves `dates` from the clock in the same way,
-except entries built on the previous or next slot, which need
-`--scheduled-at`.
+run without `--scheduled-at` uses the DAG's latest past slot (RFC 007), so its
+`dates` follow that slot rather than the current time.
 
 ### Operators
 

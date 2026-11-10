@@ -91,6 +91,8 @@ Each entry has exactly one of `at` and `within`.
   attempt.
 - **A manual run with `--scheduled-at`** in the past, and every backfill
   run, has no deadline. Its anchor is already history.
+- **A run on a default slot** (RFC 007) anchors to the time it was created.
+  It starts now, whatever period its dates describe.
 - **Validation.** `dagu validate` rejects an entry with both or neither of
   `at` and `within`, a malformed time, and a non-positive duration.
 
