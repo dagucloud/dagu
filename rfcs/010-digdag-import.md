@@ -1,11 +1,11 @@
-# RFC 009: Digdag Import
+# RFC 010: Digdag Import
 
 - **Status:** Proposed; starts only after the gate under
   [Compatibility and rollout](#compatibility-and-rollout) is met
 - **Date:** 2026-11-10
 - **Affected areas:** a new `dagucloud/digdag-import` repository, `docs`
   (migration guide), and the Dagu agent skill. No change to the `dagu`
-  binary beyond RFCs 006, 007, and 008
+  binary beyond RFCs 007, 008, and 009
 
 ## Summary
 
@@ -20,8 +20,8 @@ workflow, plus a report. The report lists every construct it converted, every
 construct it converted with a caveat, and every construct it left for a
 person, with the file and line of each.
 
-Schedules, session time, backfill, and `sla:` map onto RFCs 006, 007, and
-008. Operators that Dagu has no action for become commands that call the same
+Schedules, session time, backfill, and `sla:` map onto RFCs 007, 008, and
+009. Operators that Dagu has no action for become commands that call the same
 CLI, or are reported. The tool never drops a construct silently.
 
 ## Problem statement
@@ -42,7 +42,7 @@ Digdag workflow cannot be moved by hand without deciding, task by task:
 - **`sla:`.** Late-run alerts have had no counterpart.
 - **Operators.** Digdag ships about 40, from `sh>` to `bq>` and `td>`.
 
-RFCs 006, 007, and 008 close the first three for every Dagu user. This RFC is
+RFCs 007, 008, and 009 close the first three for every Dagu user. This RFC is
 the part that is specific to Digdag.
 
 ## Goals
@@ -135,7 +135,7 @@ should gain the check.
 | `skip_on_overtime: true` | `overlap_policy: skip` | exact |
 | `skip_delayed_by:` | Reported; `catchup_window` is the nearest control | manual |
 | `start:`, `end:` | Reported | manual |
-| `sla: {time}` | `deadline: {at}` (RFC 008) | exact |
+| `sla: {time}` | `deadline: {at}` (RFC 009) | exact |
 | `sla: {duration}` | `deadline: {within}` | exact |
 | `sla: {fail: true}` | `fail: true` | exact |
 | `sla: {alert: true}` | `notify: true`; the route is configured on the server | caveat |
@@ -146,7 +146,7 @@ should gain the check.
 Digdag's session time is not the fire time. For `daily>: 07:00:00` the
 session time is 00:00 of that day; for `hourly>: 30:00` it is the top of the
 hour. Dagu's `scheduled_at` is the fire time. The converter writes `dates`
-entries (RFC 006) that reproduce Digdag's values:
+entries (RFC 007) that reproduce Digdag's values:
 
 | Digdag | `dates` entry | Level |
 | --- | --- | --- |
@@ -199,7 +199,7 @@ The migration guide maps the commands. The tool does not convert them.
 | Digdag | Dagu |
 | --- | --- |
 | `digdag push` and revisions | Git sync |
-| `digdag backfill --from` | `dagu backfill --from` (RFC 007) |
+| `digdag backfill --from` | `dagu backfill --from` (RFC 008) |
 | `digdag retry --resume` | Retry of the failed run |
 | `digdag retry --all` | A new run with `--scheduled-at` |
 | `digdag reschedule --skip-to` | Suspend the DAG until then |
@@ -230,8 +230,8 @@ level, the suggested rewrite, and the path of the generated stub.
 | Step | Ships |
 | --- | --- |
 | Gate | Interviews with five teams that run Digdag in production today. The RFC proceeds only if at least three would move to a self-hosted successor, and their workflows fit the mapping above. |
-| First | `--check`, structure, schedule, session time, `sh>`, `call>`, `embulk>`. Requires RFC 006. |
-| Second | The remaining operators, `sla:` (RFC 008), `report.json`, and the migration guide with the backfill mapping (RFC 007). |
+| First | `--check`, structure, schedule, session time, `sh>`, `call>`, `embulk>`. Requires RFC 007. |
+| Second | The remaining operators, `sla:` (RFC 009), `report.json`, and the migration guide with the backfill mapping (RFC 008). |
 | Third | The agent skill section. |
 
 - The gate comes first because the demand is not established. The teams
@@ -282,7 +282,7 @@ level, the suggested rewrite, and the path of the generated stub.
 
 1. Is the gate's threshold right, and who runs the interviews?
 2. Should Dagu add "run this DAG for a slot unless it already ran", so
-   `require>` converts exactly? RFC 007's slot lookup makes it possible.
+   `require>` converts exactly? RFC 008's slot lookup makes it possible.
 3. Should `py>` convert through a small shim that reproduces `digdag.env`,
    or stay manual?
 4. Should the tool also read a running Digdag server, to list which

@@ -1,4 +1,4 @@
-# RFC 007: Backfill
+# RFC 008: Backfill
 
 - **Status:** Proposed
 - **Date:** 2026-11-10
@@ -16,7 +16,7 @@ dagu backfill etl --from 2026-10-01 --to 2026-10-31
 
 A backfill lists the schedule's fire times in the range, skips the slots that
 already have a run, and queues one run per remaining slot, oldest first. Each
-run carries its slot's scheduled time and window (RFC 006), so the DAG needs
+run carries its slot's scheduled time and window (RFC 007), so the DAG needs
 no date params. The backfill is a record: it can be previewed, watched,
 cancelled, and submitted again without starting anything twice.
 
@@ -182,7 +182,7 @@ when any did not, or `cancelled`.
 
 | Release | Ships |
 | --- | --- |
-| First | CLI, API, backfill record, scheduler dispatch, `--dry-run`. Requires the first release of RFC 006. |
+| First | CLI, API, backfill record, scheduler dispatch, `--dry-run`. Requires the first release of RFC 007. |
 | Second | UI dialog, Backfills tab, and the MCP action. |
 
 - `backfill` is a new value of `context.trigger.type` in spec 017.

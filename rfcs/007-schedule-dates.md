@@ -1,4 +1,4 @@
-# RFC 006: Schedule Window and Derived Dates
+# RFC 007: Schedule Window and Derived Dates
 
 - **Status:** Proposed
 - **Date:** 2026-11-10
@@ -14,7 +14,7 @@ declare the dates it derives from that window.
 A run gets `interval_start`, `interval_end`, `next_scheduled_at`, and the
 timezone of its schedule, next to the existing `scheduled_at`. A manual run can
 be given a scheduled time, so one DAG serves scheduled runs, reruns of a past
-day, and backfills (RFC 007).
+day, and backfills (RFC 008).
 
 A `dates` block turns those instants into the strings a job needs: yesterday in
 Tokyo, the first day of the month, the last business day. Dates are validated

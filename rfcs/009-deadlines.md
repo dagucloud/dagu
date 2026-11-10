@@ -1,4 +1,4 @@
-# RFC 008: Run Deadlines
+# RFC 009: Run Deadlines
 
 - **Status:** Proposed
 - **Date:** 2026-11-10
@@ -85,7 +85,7 @@ Each entry has exactly one of `at` and `within`.
   the run was created. Queue time counts.
 - **`within`** is the anchor plus the duration.
 - **`at`** is the first occurrence of that wall-clock time at or after the
-  anchor, in `context.run.timezone` (RFC 006), else the server zone. A 23:00
+  anchor, in `context.run.timezone` (RFC 007), else the server zone. A 23:00
   run with `at: "05:00"` has its deadline the next morning.
 - **Retries do not move the deadline.** It is anchored to the run, not the
   attempt.
@@ -156,7 +156,7 @@ status `failed` with the reason `deadline missed: <name>`. The `failure` and
 | Second | `fail: true`, incident policies, and DAG-level email. |
 
 - `deadline` is a new top-level key. Existing DAGs are unaffected.
-- `at` uses `context.run.timezone` once the first release of RFC 006 ships.
+- `at` uses `context.run.timezone` once the first release of RFC 007 ships.
   Before that it uses the schedule entry's zone, computed the same way.
 - `timeout_sec` is unchanged. The two can be combined: a deadline to alert,
   a timeout to stop.
