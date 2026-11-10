@@ -14,6 +14,7 @@ import { RelativeTime } from '@/components/ui/relative-time';
 import StatusChip from '@/components/ui/status-chip';
 import Ticker from '@/components/ui/ticker';
 import { useCanAccessSystemStatus } from '@/contexts/AuthContext';
+import { ServiceDAGFailure } from '@/features/cockpit/components/ServiceDAGState';
 import { DAGRunActions } from '@/features/dag-runs/components/common';
 import { PeekLink } from '@/features/peek/PeekLink';
 import { peekPageURL } from '@/features/peek/peekParams';
@@ -275,6 +276,9 @@ export function NeedsAttention({
                     (item.run.failedStep
                       ? `${item.run.failedStep}: ${item.run.error ?? ''}`
                       : (item.run.error ?? ''))}
+                  {item.kind === 'serviceFailing' && (
+                    <ServiceDAGFailure dag={item.dag} />
+                  )}
                   {item.kind === 'waiting' && ts('Waiting for input')}
                   {item.kind === 'slow' && (
                     <Ticker intervalMs={1000}>

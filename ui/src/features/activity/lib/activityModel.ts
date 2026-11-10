@@ -46,6 +46,7 @@ const MIN_USUAL_SAMPLES = 3;
 
 export type AttentionItem =
   | { kind: 'failing'; name: string; run: ActivityRun }
+  | { kind: 'serviceFailing'; name: string; run: ActivityRun; dag: ServiceDAG }
   | { kind: 'waiting'; name: string; run: ActivityRun }
   | { kind: 'slow'; name: string; run: ActivityRun; usualSeconds: number };
 
@@ -127,8 +128,8 @@ function serviceDAGRun(dag: ServiceDAG): ActivityRun | undefined {
  * Lists what needs a person: workflows whose latest run did not succeed,
  * runs waiting for input, and runs taking much longer than the loaded runs
  * of their workflow usually take. The activity leaves out the runs of service
- * DAGs, so the service DAGs that wait for input come from the service DAG
- * list.
+ * DAGs, so the service DAGs that keep failing or wait for input come from the
+ * service DAG list.
  */
 export function attentionItems(
   activity: DAGRunActivity,
@@ -145,11 +146,17 @@ export function attentionItems(
   const waiting = activity.active
     .filter((run) => run.status === Status.Waiting)
     .map<AttentionItem>((run) => ({ kind: 'waiting', name: run.name, run }));
+  const serviceFailing: AttentionItem[] = [];
   for (const dag of serviceDAGs) {
     const run = serviceDAGRun(dag);
     if (!run) continue;
     if (dag.state === ServiceDAGState.waiting) {
       waiting.push({ kind: 'waiting', name: dag.name, run });
+    } else if (
+      dag.state === ServiceDAGState.failing ||
+      dag.consecutiveFailures > 0
+    ) {
+      serviceFailing.push({ kind: 'serviceFailing', name: dag.name, run, dag });
     }
   }
 
@@ -169,7 +176,7 @@ export function attentionItems(
     }
   }
 
-  return [...failing, ...waiting, ...slow];
+  return [...failing, ...serviceFailing, ...waiting, ...slow];
 }
 
 /**
