@@ -180,7 +180,8 @@ func portValueSchema(description string) *jsonschema.Schema {
 }
 
 var configSchema = &jsonschema.Schema{
-	Type: "object",
+	Type:                 "object",
+	AdditionalProperties: &jsonschema.Schema{Not: &jsonschema.Schema{}},
 	Properties: map[string]*jsonschema.Schema{
 		"user":            {Type: "string", Description: "SSH username"},
 		"host":            {Type: "string", Description: "SSH hostname"},
@@ -194,8 +195,9 @@ var configSchema = &jsonschema.Schema{
 		"shell_args":      {Type: "array", Items: &jsonschema.Schema{Type: "string"}, Description: "Additional shell arguments"},
 		"timeout":         {Type: "string", Description: "Connection timeout (e.g., '30s', '1m')"},
 		"bastion": {
-			Type:        "object",
-			Description: "Bastion/jump host configuration",
+			Type:                 "object",
+			Description:          "Bastion/jump host configuration",
+			AdditionalProperties: &jsonschema.Schema{Not: &jsonschema.Schema{}},
 			Properties: map[string]*jsonschema.Schema{
 				"host":     {Type: "string", Description: "Bastion host address"},
 				"port":     portValueSchema("Bastion SSH port"),
@@ -208,7 +210,8 @@ var configSchema = &jsonschema.Schema{
 }
 
 var sftpConfigSchema = &jsonschema.Schema{
-	Type: "object",
+	Type:                 "object",
+	AdditionalProperties: &jsonschema.Schema{Not: &jsonschema.Schema{}},
 	Properties: map[string]*jsonschema.Schema{
 		"user":            {Type: "string", Description: "SSH username"},
 		"host":            {Type: "string", Description: "SSH hostname"},
@@ -223,8 +226,9 @@ var sftpConfigSchema = &jsonschema.Schema{
 		"source":          {Type: "string", Description: "Source path (local for upload, remote for download)"},
 		"destination":     {Type: "string", Description: "Destination path (remote for upload, local for download)"},
 		"bastion": {
-			Type:        "object",
-			Description: "Bastion/jump host configuration",
+			Type:                 "object",
+			Description:          "Bastion/jump host configuration",
+			AdditionalProperties: &jsonschema.Schema{Not: &jsonschema.Schema{}},
 			Properties: map[string]*jsonschema.Schema{
 				"host":     {Type: "string", Description: "Bastion host address"},
 				"port":     portValueSchema("Bastion SSH port"),
