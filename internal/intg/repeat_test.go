@@ -697,3 +697,78 @@ func TestRepeatPolicy_UntilOnLimitFailConditionMetOnFinalAttempt(t *testing.T) {
 	assert.Equal(t, ir.NodeSucceeded, dagRunStatus.Nodes[0].Status)
 	assert.Equal(t, 3, dagRunStatus.Nodes[0].DoneCount, "the loop must reach the limit")
 }
+
+func TestRepeatPolicy_UntilOnLimitFailEvaluationError(t *testing.T) {
+	repeatPolicyParallel(t)
+	th := test.Setup(t)
+
+	// The limit short-circuits the normal repeat decision, so a broken
+	// condition is evaluated only inside the on_limit handling. An evaluation
+	// error is not a loop answer: it must fail the step instead of being
+	// swallowed as if the condition had been met.
+	dag := th.DAG(t, `steps:
+  - name: fix
+    command: echo attempt
+    repeat_policy:
+      repeat: until
+      condition: "not-a-number"
+      expected: "num:>=1"
+      limit: 1
+      interval_sec: 0
+      on_limit: fail
+`)
+	agent := dag.Agent()
+
+	ctx, cancel := context.WithTimeout(agent.Context, repeatPolicyTimeout(15*time.Second))
+	defer cancel()
+
+	err := agent.Run(ctx)
+	require.Error(t, err, "an unevaluable condition must fail the DAG at the limit")
+
+	dagRunStatus, err := th.DAGRunMgr.GetLatestStatus(th.Context, dag.DAG)
+	require.NoError(t, err)
+	require.Len(t, dagRunStatus.Nodes, 1)
+
+	node := dagRunStatus.Nodes[0]
+	assert.Equal(t, ir.NodeFailed, node.Status, "an evaluation error at the limit must not be swallowed")
+	assert.Equal(t, 1, node.DoneCount, "the limit must stop after the first attempt")
+	require.NotEmpty(t, node.Error)
+	assert.NotContains(t, node.Error, "condition not met", "the failure must report the evaluation error")
+}
+
+func TestRepeatPolicy_UntilOnLimitFailKeepsAttemptError(t *testing.T) {
+	repeatPolicyParallel(t)
+	th := test.Setup(t)
+
+	// The attempt that reaches the limit may itself fail. The repeat-limit
+	// message is the headline, but the command error must remain actionable.
+	counterFile := filepath.Join(t.TempDir(), "counter")
+	dag := th.DAG(t, fmt.Sprintf(`steps:
+  - run: |
+%s
+    repeat_policy:
+      repeat: until
+      condition: "pending"
+      expected: "done"
+      limit: 2
+      interval_sec: 0
+      on_limit: fail
+`, indentScript(repeatExitCodeScript(counterFile, 3, false), 6)))
+	agent := dag.Agent()
+
+	ctx, cancel := context.WithTimeout(agent.Context, repeatPolicyTimeout(15*time.Second))
+	defer cancel()
+
+	err := agent.Run(ctx)
+	require.Error(t, err, "the exhausted loop must fail")
+
+	dagRunStatus, err := th.DAGRunMgr.GetLatestStatus(th.Context, dag.DAG)
+	require.NoError(t, err)
+	require.Len(t, dagRunStatus.Nodes, 1)
+
+	node := dagRunStatus.Nodes[0]
+	assert.Equal(t, ir.NodeFailed, node.Status)
+	require.NotEmpty(t, node.Error)
+	assert.Contains(t, node.Error, "repeat limit 2 reached", "the limit message must stay visible")
+	assert.Contains(t, node.Error, "exit status 1", "the failed attempt's command error must not be overwritten")
+}

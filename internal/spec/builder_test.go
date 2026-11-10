@@ -983,7 +983,7 @@ func TestBuildStepRepeatPolicy(t *testing.T) {
 		wantBackoff     float64
 		wantMaxInterval time.Duration
 		wantNoCondition bool
-		wantOnLimit     string
+		wantOnLimit     ir.RepeatOnLimit
 	}{
 		{
 			name: "RepeatPolicyBasic",
@@ -1269,9 +1269,7 @@ steps:
 			if tt.wantMaxInterval > 0 {
 				assert.Equal(t, tt.wantMaxInterval, rp.MaxInterval)
 			}
-			if tt.wantOnLimit != "" {
-				assert.Equal(t, tt.wantOnLimit, rp.OnLimit)
-			}
+			assert.Equal(t, tt.wantOnLimit, rp.OnLimit)
 		})
 	}
 	// RepeatPolicy error tests
@@ -1321,6 +1319,32 @@ steps:
       on_limit: fail
 `,
 			errContains: "repeat_policy.on_limit: fail requires repeat: until with a condition",
+		},
+		{
+			name: "RepeatPolicyOnLimitValidatedWithoutMode",
+			yaml: `
+steps:
+  - name: "no-mode-invalid-on-limit"
+    run: "echo test"
+    repeat_policy:
+      limit: 2
+      on_limit: abort
+`,
+			errContains: `repeat_policy.on_limit must be "fail" or "succeed"`,
+		},
+		{
+			name: "RepeatPolicyOnLimitFailRequiresLimit",
+			yaml: `
+steps:
+  - name: "on-limit-fail-no-limit"
+    run: "echo test"
+    repeat_policy:
+      repeat: until
+      condition: "pending"
+      expected: "done"
+      on_limit: fail
+`,
+			errContains: "repeat_policy.on_limit: fail requires a limit",
 		},
 		{
 			name: "RepeatPolicyInvalidType",

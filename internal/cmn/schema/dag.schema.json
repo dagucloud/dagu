@@ -379,6 +379,11 @@
             },
             "interval_sec": { "type": "integer" },
             "limit": { "type": "integer", "minimum": 1 },
+            "on_limit": {
+              "type": "string",
+              "enum": ["fail", "succeed"],
+              "description": "Outcome of an exhausted until loop: fail marks the step failed, succeed (the default) keeps its last result"
+            },
             "backoff": {
               "oneOf": [
                 { "type": "boolean" },
@@ -2030,6 +2035,11 @@
               "type": "integer",
               "minimum": 1,
               "description": "Maximum number of times this step will be executed. Once reached, the step stops repeating regardless of other conditions."
+            },
+            "on_limit": {
+              "type": "string",
+              "enum": ["fail", "succeed"],
+              "description": "Outcome of an exhausted until loop: fail marks the step failed, succeed (the default) keeps its last result. fail requires repeat: until, a condition, and a limit."
             },
             "backoff": {
               "oneOf": [

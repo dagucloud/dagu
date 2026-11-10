@@ -1045,6 +1045,21 @@ func buildStepRepeatPolicy(_ stepBuildContext, s *step) (ir.RepeatPolicy, error)
 		}
 	}
 
+	// Validate on_limit before the mode gate so a typo cannot hide behind a
+	// repeat_policy block that has no resolvable repeat mode.
+	switch ir.RepeatOnLimit(rp.OnLimit) {
+	case "", ir.RepeatOnLimitSucceed:
+	case ir.RepeatOnLimitFail:
+		if mode != ir.RepeatModeUntil || rp.Condition == "" {
+			return ir.RepeatPolicy{}, fmt.Errorf("repeat_policy.on_limit: fail requires repeat: until with a condition")
+		}
+		if rp.Limit.Int() <= 0 && rp.Limit.Str() == "" {
+			return ir.RepeatPolicy{}, fmt.Errorf("repeat_policy.on_limit: fail requires a limit")
+		}
+	default:
+		return ir.RepeatPolicy{}, fmt.Errorf("repeat_policy.on_limit must be \"fail\" or \"succeed\", got %q", rp.OnLimit)
+	}
+
 	// No repeat if mode is not determined
 	if mode == "" {
 		return ir.RepeatPolicy{}, nil
@@ -1083,15 +1098,8 @@ func buildStepRepeatPolicy(_ stepBuildContext, s *step) (ir.RepeatPolicy, error)
 	}
 	result.MaxIntervalStr = rp.MaxIntervalSec.Str()
 
-	switch rp.OnLimit {
-	case "", "succeed":
-	case ir.RepeatOnLimitFail:
-		if mode != ir.RepeatModeUntil || rp.Condition == "" {
-			return ir.RepeatPolicy{}, fmt.Errorf("repeat_policy.on_limit: fail requires repeat: until with a condition")
-		}
-		result.OnLimit = rp.OnLimit
-	default:
-		return ir.RepeatPolicy{}, fmt.Errorf("repeat_policy.on_limit must be \"fail\" or \"succeed\", got %q", rp.OnLimit)
+	if ir.RepeatOnLimit(rp.OnLimit) == ir.RepeatOnLimitFail {
+		result.OnLimit = ir.RepeatOnLimitFail
 	}
 
 	return result, nil

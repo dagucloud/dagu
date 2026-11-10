@@ -426,6 +426,17 @@ const (
 	RepeatModeUntil RepeatMode = "until"
 )
 
+// RepeatOnLimit is the type for the repeat-limit outcome.
+type RepeatOnLimit string
+
+const (
+	// RepeatOnLimitFail marks the step failed when an "until" loop exhausts
+	// its limit with the condition still unmet.
+	RepeatOnLimitFail RepeatOnLimit = "fail"
+	// RepeatOnLimitSucceed keeps the step's last result at the limit.
+	RepeatOnLimitSucceed RepeatOnLimit = "succeed"
+)
+
 // RepeatPolicy contains the repeat policy for a step.
 type RepeatPolicy struct {
 	// RepeatMode determines if and how the step should be repeated.
@@ -452,12 +463,8 @@ type RepeatPolicy struct {
 	// OnLimit controls what happens when the repeat limit is reached with an
 	// "until" condition still unmet. Empty or "succeed" keeps the step's last
 	// result; "fail" marks the step failed.
-	OnLimit string `json:"onLimit,omitempty"`
+	OnLimit RepeatOnLimit `json:"onLimit,omitempty"`
 }
-
-// RepeatOnLimitFail is the on_limit value that fails a step whose repeat
-// limit is reached with the until condition unmet.
-const RepeatOnLimitFail = "fail"
 
 // UnmarshalJSON implements the json.Unmarshaler interface for RepeatPolicy.
 // It handles the legacy boolean repeat field and the new string repeat modes.

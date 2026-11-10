@@ -10,9 +10,9 @@ import (
 	"github.com/dagucloud/dagu/v2/conformance/harness"
 )
 
-// An unevaluable repeat condition stops repetition and follows continue_on.
 // on_limit: fail turns an exhausted until loop into a failed step, while a
-// met condition still ends the loop successfully.
+// met condition still ends the loop successfully. An unevaluable condition at
+// the limit is an evaluation error, not a loop answer, so it fails too.
 func TestRuntimeRepeatOnLimitFailUnix(t *testing.T) {
 	t.Parallel()
 	if runtime.GOOS == "windows" {
@@ -26,6 +26,7 @@ func TestRuntimeRepeatOnLimitFailUnix(t *testing.T) {
 	}{
 		{"until_not_met_on_limit_fail.yaml", 1, "tick\ntick\n"},
 		{"until_met_on_limit_fail_succeeds.yaml", 0, "tick\n"},
+		{"until_eval_error_at_limit.yaml", 1, "tick\n"},
 	}
 	for _, tc := range cases {
 		t.Run(tc.file, func(t *testing.T) {
@@ -39,6 +40,7 @@ func TestRuntimeRepeatOnLimitFailUnix(t *testing.T) {
 	}
 }
 
+// An unevaluable repeat condition stops repetition and follows continue_on.
 func TestRuntimeRepeatConditionEvaluationErrorUnix(t *testing.T) {
 	t.Parallel()
 	if runtime.GOOS == "windows" {
