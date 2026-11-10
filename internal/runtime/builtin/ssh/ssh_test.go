@@ -1324,44 +1324,72 @@ func TestSelectBastionAuthMethod_NoAuth(t *testing.T) {
 	assert.Contains(t, err.Error(), "no authentication method available for bastion")
 }
 
-// An unknown with key must fail validation instead of being silently dropped
-// by the ssh and sftp executors (#3440). The command text is folded into the
-// step command by the action normalizer, so host/user still validate.
-func TestSSHRejectsUnknownWithKey(t *testing.T) {
+// Unknown keys fail validation for both executors, at the top level of the
+// config and inside the bastion block.
+func TestSSHRejectsUnknownKeys(t *testing.T) {
 	t.Parallel()
 
+	tests := []struct {
+		name   string
+		config map[string]any
+		want   []string
+	}{
+		{
+			name:   "suggests closest key",
+			config: map[string]any{"host": "example.com", "stricht_host_key": true},
+			want:   []string{`did you mean "strict_host_key" instead of "stricht_host_key"?`},
+		},
+		{
+			name:   "reports every unknown key",
+			config: map[string]any{"stricht_host_key": true, "prot": 22},
+			want:   []string{"stricht_host_key", "prot"},
+		},
+		{
+			name: "bastion",
+			config: map[string]any{
+				"host":    "example.com",
+				"bastion": map[string]any{"host": "jump.example.com", "prot": 2222},
+			},
+			want: []string{"prot"},
+		},
+	}
+
 	for _, executorType := range []string{"ssh", "sftp"} {
-		t.Run(executorType, func(t *testing.T) {
-			t.Parallel()
+		for _, tt := range tests {
+			t.Run(executorType+"/"+tt.name, func(t *testing.T) {
+				t.Parallel()
 
-			err := registry.ValidateExecutorConfig(executorType, map[string]any{
-				"host": "example.com", "stricht_host_key": true,
+				err := registry.ValidateExecutorConfig(executorType, tt.config)
+				require.Error(t, err)
+				for _, want := range tt.want {
+					require.Contains(t, err.Error(), want)
+				}
 			})
-			require.Error(t, err)
-			require.Contains(t, err.Error(), `did you mean "strict_host_key" instead of "stricht_host_key"?`)
-
-			require.NoError(t, registry.ValidateExecutorConfig(executorType, map[string]any{
-				"host": "example.com", "user": "me", "port": 22,
-			}))
-		})
+		}
 	}
 }
 
-// Every unknown with key must be reported, including when the config holds no
-// other valid field and when several typos appear together (#3440).
-func TestSSHRejectsMultipleUnknownWithKeys(t *testing.T) {
+func TestSSHAcceptsDeclaredKeys(t *testing.T) {
 	t.Parallel()
+
+	config := map[string]any{
+		"host": "example.com",
+		"user": "me",
+		"port": 22,
+		"bastion": map[string]any{
+			"host":     "jump.example.com",
+			"port":     22,
+			"user":     "ops",
+			"key":      "/path/to/key",
+			"password": "secret",
+		},
+	}
 
 	for _, executorType := range []string{"ssh", "sftp"} {
 		t.Run(executorType, func(t *testing.T) {
 			t.Parallel()
 
-			err := registry.ValidateExecutorConfig(executorType, map[string]any{
-				"stricht_host_key": true, "prot": 22,
-			})
-			require.Error(t, err)
-			require.Contains(t, err.Error(), `stricht_host_key`)
-			require.Contains(t, err.Error(), `prot`)
+			require.NoError(t, registry.ValidateExecutorConfig(executorType, config))
 		})
 	}
 }
