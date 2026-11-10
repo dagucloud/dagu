@@ -36,8 +36,9 @@ more than that:
 - **Portability.** Steps do this with `date`, whose flags differ between GNU
   and BSD. The scheduling guide already shows
   `date -d tomorrow || date -v+1d`. Windows has neither.
-- **Manual runs.** Rerunning one past day means editing params by hand,
-  because a manual run has no scheduled time.
+- **Manual runs.** Rerunning one past day means editing params by hand. The
+  `--schedule-time` flag exists for the scheduler's own use and is
+  unavailable in remote contexts. The API, UI, and MCP have no equivalent.
 - **Preview.** Nothing shows which dates a run will use until it runs.
 
 Other schedulers answer this with a logical time: Airflow's data interval,
@@ -52,7 +53,10 @@ Digdag evaluates JavaScript with Moment.js inside `${...}` for the arithmetic.
 3. Common date arithmetic needs no shell and gives the same result on Linux,
    macOS, and Windows.
 4. Derived dates are validated at load and never change across retries.
-5. The upcoming-runs preview shows the dates each run will use.
+5. Upcoming runs and any chosen slot show their window and dates before the
+   run starts.
+6. A scheduled DAG's `dates` always come from a schedule slot, whichever
+   trigger starts the run.
 
 ## Non-goals
 
@@ -76,41 +80,90 @@ New fields under `context.run`, following the proposal in dagucloud/dagu#3279:
 | `context.run.timezone` | The IANA zone the slot's schedule entry was evaluated in. |
 
 - **Format.** The three new instants are UTC RFC 3339, like `scheduled_at`.
+- **Bounds.** The window is half-open: `[interval_start, interval_end)`. An
+  event at exactly `interval_end` belongs to the next slot.
 - **Derived from the schedule.** `interval_start` is the previous fire time,
   whether or not a run happened then. A retry, a catchup run, and a backfill
   of one slot all see the same window.
+- **Active entries** are the recurring start entries with no `profile` or
+  with the profile of the run. One-off `at` entries are not part of the
+  cadence and never bound another run's window. A run fired by an `at` entry
+  gets the window of an off-schedule time.
 - **Several schedule entries.** Previous and next are taken across all active
   start entries, so a cadence split over entries yields contiguous windows.
 - **Business calendars.** A fire dropped by a calendar is not a fire. The
   window before a Monday run starts at Friday's fire.
 - **Timezone.** The entry's `CRON_TZ` or `TZ` prefix, else the server `tz`,
-  else the host's local zone. `@every` uses UTC.
+  else the host's local zone. `@every` uses UTC. A slot at a time no entry
+  fires belongs to the entry of its previous fire time. A DAG with no
+  recurring start entry uses the server `tz`, else the host's local zone.
 - **Recorded on the run.** The scheduler computes the values at dispatch and
   stores them with the run. Retries keep them after the schedule is edited.
-- **Sub-DAGs** do not inherit the window. The parent passes dates as params,
-  as it passes any other value.
+- **Reruns.** `dagu restart` and the reschedule action start a new run for
+  the same slot, unless `--scheduled-at` names another. The new run copies
+  `scheduled_at`, the window, and `timezone` from the original and resolves
+  `dates` from the definition it runs.
+- **Sub-DAGs** take `scheduled_at`, the window, and `timezone` from a parent
+  run that has a slot, so a backfill reaches shared child DAGs. A child's
+  `dates` resolve against the inherited slot.
 
 ### Choosing the slot of a manual run
 
-`dagu start`, `dagu enqueue`, the run dialog, the `start` and `enqueue`
-endpoints, and the MCP execute tool accept a scheduled time:
+`dagu start`, `dagu enqueue`, `dagu restart`, `dagu dry`, the run dialog, the
+`start` and `enqueue` endpoints (`scheduleTime`), and the MCP execute tool
+(`scheduled_at`) accept a scheduled time:
 
 ```sh
+dagu start etl --scheduled-at latest
+dagu start etl --scheduled-at 2026-11-09
+dagu start etl --scheduled-at 2026-11-09T02:00
 dagu start etl --scheduled-at 2026-11-09T02:00:00+09:00
 ```
 
-- The timestamp is RFC 3339 with an offset, at minute precision, like an `at`
-  schedule entry.
+| Form | Meaning |
+| --- | --- |
+| `latest` | The latest fire time at or before now. |
+| A date | The fire time on that date. With none or several, the command fails and lists the nearest fire times. |
+| A time without an offset | That wall-clock time in the schedule's zone. |
+| RFC 3339 with an offset | That instant. |
+
+- Times are at minute precision, like an `at` schedule entry.
+- Forms without an offset use the zone of the recurring start entries. When
+  entries use different zones, those forms are rejected and the message
+  lists the zones. A DAG with no recurring start entry uses the server zone
+  and rejects `latest` and a date.
+- `--scheduled-at` works in local and remote contexts. It replaces
+  `--schedule-time`, which stays as a hidden alias because the scheduler
+  launches runs with it.
 - The run records `scheduled_at` and the window as if the scheduler had fired
   that slot. The run's trigger type stays `manual`.
-- A time that is not a fire time of the schedule is accepted. Its window runs
-  from the previous fire time to the given time.
-- For a DAG with no schedule, `interval_start` and `next_scheduled_at` stay
-  missing.
-- The run dialog offers the latest past slot when the DAG has `dates`.
+- A time that is not a fire time of the schedule is accepted, because a slot
+  from before a schedule edit is no longer a fire time. Its window runs from
+  the previous fire time to the given time. Every surface warns and names
+  the nearest fire times. The run dialog lists fire times and needs an
+  explicit choice for any other time.
+- For a DAG with no recurring start entry, `interval_start` and
+  `next_scheduled_at` stay missing.
+- The scheduler's already-finished and `skip_if_successful` checks read a
+  manual run by when it ran, as they do today. A chosen slot cannot suppress
+  a scheduled fire.
+- The run dialog preselects the latest past slot when the DAG has `dates`.
 
-A manual run without a scheduled time has no slot. Its `scheduled_at` and
-window stay missing, as today.
+### A run with no chosen slot
+
+A manual, webhook, or file-triggered run that names no slot, and a sub-DAG of
+a parent with none, gets:
+
+| DAG | The run's slot |
+| --- | --- |
+| Recurring start entries and `dates` | The default slot: the latest fire time at or before the run's creation, recorded as if chosen. |
+| Recurring start entries, no `dates` | None. `scheduled_at` and the window stay missing, as today. |
+| No recurring start entry | None. |
+
+The default slot keeps a hand-started run on the dates the schedule gave. A
+monthly DAG fired on the 1st and started by hand on the 15th processes what
+the run on the 1st processed. The run details say when a slot was the
+default.
 
 ## Derived dates
 
@@ -137,18 +190,18 @@ For the run fired at 2026-11-10 02:00 in Tokyo, `target_day` is `2026-11-09`,
 
 | Field | Meaning | Default |
 | --- | --- | --- |
-| `from` | `scheduled_at`, `interval_start`, or `next_scheduled_at`. | `scheduled_at` |
+| `from` | `scheduled_at`, `interval_start`, `interval_end`, or `next_scheduled_at`. | `scheduled_at` |
 | `shift` | One operation, or a list applied left to right. | none |
 | `format` | A named format or a strftime pattern. | `date` |
-| `timezone` | The zone used for shifting and formatting. | `context.run.timezone` |
+| `timezone` | The zone used for shifting and formatting. | `context.run.timezone`, else the server `tz`, else the host's local zone |
 
 Shift operations:
 
 | Operation | Meaning |
 | --- | --- |
-| `+N` or `-N` with `m`, `h` | Elapsed minutes or hours. |
+| `+N` or `-N` with `min`, `h` | Elapsed minutes or hours. |
 | `+N` or `-N` with `d`, `w`, `mo`, `y` | Calendar days, weeks, months, or years in the zone. |
-| `+N` or `-N` with `bd` | Business days of the DAG's `calendar`. |
+| `+N` or `-N` with `bd` | Business days of the calendar in effect for the slot. |
 | `hour_start`, `day_start`, `week_start`, `month_start`, `year_start` | The start of that unit in the zone. |
 
 Named formats:
@@ -167,39 +220,65 @@ Rules:
   `dates` is a reserved root namespace; a param named `dates` stays
   addressable as `${params.dates}`.
 - **Validation at load.** An unknown `from`, operation, format directive, or
-  zone fails `dagu validate`. So does `bd` without a `calendar`.
+  zone fails `dagu validate`. The unit `m` is unknown, and its error names
+  `min` and `mo`, so a month cannot silently become a minute.
+- **Business days** use the calendar of the slot's schedule entry, its own or
+  the DAG's. A run with no entry, such as a sub-DAG or a DAG with no
+  schedule, uses the DAG's `calendar`. `dagu validate` fails on `bd` when a
+  recurring start entry has no calendar, or when the DAG has neither a
+  recurring start entry nor a `calendar`.
 - **Resolved once.** Dates are computed when the run is created and recorded
   on the run. Every attempt reads the recorded values.
 - **Calendar arithmetic.** A day shift keeps the wall-clock time across a
   daylight saving change. A month shift clamps to the last day of the month:
   March 31 minus one month is the last day of February.
 - **Week start** is Monday.
-- **A run without a slot.** A manual run with no scheduled time resolves
-  `from: scheduled_at` against the time the run was created, cut to the
-  minute. A date whose `from` is `interval_start` or `next_scheduled_at`
-  fails the run at start with a message naming `--scheduled-at`. The run
-  details mark dates that came from the clock.
+- **A run without a slot** resolves `from: scheduled_at` and
+  `from: interval_end` against the time the run was created, cut to the
+  minute. The run details mark dates that came from the clock.
+- **A date that needs a window.** `from: interval_start` and
+  `from: next_scheduled_at` need recurring start entries or a parent with a
+  slot. On a DAG with no recurring start entry, `dagu validate` warns, and a
+  start outside such a parent is refused before a run exists. The error
+  names the date and says the DAG has no schedule. The run dialog shows the
+  same text and disables Run. A sub-DAG under a parent with no slot fails at
+  start and names the date.
 - **Environment.** Dates are not projected into environment variables. A DAG
   passes the ones a script needs through `env`.
 
 ### Preview
 
 `dagu calendar fires <DAG>`, the Cron launcher, `upcomingRuns` in the API, and
-the MCP read result list the resolved dates beside each upcoming run. The
-editor shows them as the YAML changes.
+the MCP read result list the resolved dates beside each upcoming run.
+`dagu calendar fires --from` lists past fires the same way. The editor shows
+them as the YAML changes.
+
+A slot's dates usually describe the period before it fired: the slot fired on
+November 10 loads November 9. A wrong pick is costliest on a past slot, so
+every way of starting one shows the slot, window, and dates:
+
+- `dagu dry [--scheduled-at <slot>]` prints what the run would use.
+- The run dialog shows them and updates them as the slot changes.
+- `dagu start` and `dagu enqueue` print them when the run is created.
+- The API and MCP return them without starting a run.
 
 ## Compatibility and rollout
 
 | Release | Ships |
 | --- | --- |
-| First | `interval_start`, `interval_end`, `next_scheduled_at`, `timezone`, and `--scheduled-at`. Closes dagucloud/dagu#3279. |
-| Second | `dates` and its preview. |
+| First | `interval_start`, `interval_end`, `next_scheduled_at`, `timezone`, `--scheduled-at`, slot inheritance by sub-DAGs, and reruns that keep the slot. Closes dagucloud/dagu#3279. |
+| Second | `dates`, the default slot, and the previews. |
 
-- Existing DAGs are unaffected. `dates` is a new top-level key.
+- `dates` is a new top-level key. DAGs that do not use it keep their
+  behavior, except for sub-DAGs.
+- A sub-DAG of a run with a slot now has `context.run.scheduled_at`, which
+  was missing. A clock time in its `wait` steps resolves on the slot's day
+  instead of the day the attempt started.
 - A DAG that uses `${dates.x}` as plain text today changes meaning. Spec 003
   preserves unknown reference-looking text, so such text is possible. The
   release notes must say so.
-- Spec 017 gains the new `context.run` fields. A new spec owns `dates`.
+- Spec 017 gains the new `context.run` fields and their availability in
+  sub-DAGs. A new spec owns `dates`.
 
 ## Verification and acceptance criteria
 
@@ -214,7 +293,26 @@ editor shows them as the YAML changes.
 5. With a weekday calendar, `-1bd` on a Monday resolves to Friday.
 6. `{ shift: [month_start, -1d] }` on 2026-03-15 resolves to `2026-02-28`.
 7. The same DAG gives the same dates on Linux, macOS, and Windows.
-8. `dagu validate` rejects `shift: -1bd` when the DAG names no calendar.
+8. `dagu validate` rejects `shift: -1bd` when a recurring start entry has
+   `calendar: none`, and accepts it when every entry names its own calendar.
+9. `dagu validate` rejects `shift: -1m` and names `min` and `mo`.
+10. A monthly DAG with `dates`, fired on the 1st and started by hand on the
+    15th with no slot, resolves `{ shift: -1d }` to the last day of the
+    previous month.
+11. `dagu restart` and reschedule of a past slot's run keep its
+    `scheduled_at` and window.
+12. A sub-DAG with its own `dates`, run by a parent for a past slot, resolves
+    them from the parent's slot.
+13. `dagu dry --scheduled-at` prints the window and dates that the real run
+    of that slot records.
+14. `--scheduled-at 2026-11-09` selects the only fire of that day, and fails
+    with the list of fires on a DAG with several.
+15. An off-schedule `--scheduled-at` warns and names the nearest fire times.
+16. A DAG with no schedule and `from: interval_start` is refused at start and
+    leaves no run. The same DAG succeeds as a sub-DAG of a run with a slot.
+17. A one-off `at` fire between two cron fires leaves the window of the next
+    cron fire unchanged.
+18. A manual run for a future slot does not suppress that slot's fire.
 
 ## Alternatives considered
 
@@ -230,6 +328,12 @@ editor shows them as the YAML changes.
   the step runs.
 - **A `context.logical` namespace** separate from `scheduled_at`. Two names
   for one instant.
+- **The clock for a manual run with no slot.** A monthly DAG started on the
+  15th would load the 14th, and the same DAG would get different dates from
+  the CLI and the run dialog.
+- **Fail a manual run with no slot.** Every plain `dagu start` and webhook
+  would need a slot the operator has to look up, when the latest slot is
+  almost always the one meant.
 
 ## Consequences
 
@@ -237,14 +341,12 @@ editor shows them as the YAML changes.
   without date params.
 - The schedule becomes part of what a run computes, not only when it starts.
   Editing a schedule changes the windows of later runs.
+- A manual run of a DAG with `dates` repeats its latest slot rather than
+  processing up to now.
 - `dates` is a second small language beside cron. It must stay closed: new
   operations need a spec change.
 
 ## Open questions
 
-1. Should a manual run with no scheduled time fail when the DAG has `dates`,
-   instead of using the clock?
-2. Should `week_start` be configurable, or follow the calendar?
-3. Should `dates` allow one entry to build on another (`from: target_day`)?
-4. Should catchup and backfill runs of a sub-DAG inherit the window after
-   all, so shared child DAGs need no date params?
+1. Should `week_start` be configurable, or follow the calendar?
+2. Should `dates` allow one entry to build on another (`from: target_day`)?
