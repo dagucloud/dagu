@@ -258,7 +258,10 @@ vi.mock('@/contexts/SchemaContext', () => ({
   useSchema: () => ({ schema: null }),
 }));
 vi.mock('@/contexts/UnsavedChangesContext', () => ({
-  useUnsavedChanges: () => ({ setHasUnsavedChanges: vi.fn() }),
+  useUnsavedChanges: () => ({
+    setHasUnsavedChanges: vi.fn(),
+    registerSave: () => () => {},
+  }),
 }));
 vi.mock('@/components/ui/error-modal', () => ({
   useErrorModal: () => ({ showError: vi.fn() }),

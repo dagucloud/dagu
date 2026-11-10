@@ -34,6 +34,8 @@ const mocks = vi.hoisted(() => {
     showError: vi.fn(),
     showToast: vi.fn(),
     useQuery: vi.fn(),
+    // The save that the editor offers to the readers of the unsaved context.
+    contextSave: { current: null as (() => Promise<boolean>) | null },
     editorProps: {
       current: {} as {
         markers?: unknown[];
@@ -88,7 +90,15 @@ vi.mock('../customActionSchema', async (importOriginal) => {
 });
 
 vi.mock('../../../../../contexts/UnsavedChangesContext', () => ({
-  useUnsavedChanges: () => ({ setHasUnsavedChanges: vi.fn() }),
+  useUnsavedChanges: () => ({
+    setHasUnsavedChanges: vi.fn(),
+    registerSave: (handler: () => Promise<boolean>) => {
+      mocks.contextSave.current = handler;
+      return () => {
+        mocks.contextSave.current = null;
+      };
+    },
+  }),
 }));
 
 // The DAG event stream of the test; useSSECacheSync and sseFallbackOptions
@@ -1214,6 +1224,72 @@ describe('DAGSpec visual view', () => {
     expect(
       screen.queryByRole('dialog', { name: 'Review changes' })
     ).not.toBeInTheDocument();
+  });
+
+  // A reader of the unsaved context saves in order to run: no diff is shown.
+  it('saves for the unsaved context without the diff', async () => {
+    await renderSpec();
+    fireEvent.click(screen.getByText('Visual edit'));
+
+    let saved = false;
+    await act(async () => {
+      saved = await mocks.contextSave.current!();
+    });
+
+    expect(saved).toBe(true);
+    expect(
+      screen.queryByRole('dialog', { name: 'Review changes' })
+    ).not.toBeInTheDocument();
+    expect(mocks.put.mock.calls[0]?.[1].body.spec).toBe(
+      savedSpec + '# visual\n'
+    );
+    expect(dagContextValue.refresh).toHaveBeenCalledOnce();
+  });
+
+  it('tells the unsaved context that a refused save saved nothing', async () => {
+    mocks.put.mockResolvedValueOnce({ data: { errors: ['steps: bad'] } });
+    await renderSpec();
+    fireEvent.click(screen.getByText('Visual edit'));
+
+    let saved = true;
+    await act(async () => {
+      saved = await mocks.contextSave.current!();
+    });
+
+    expect(saved).toBe(false);
+    expect(mocks.showError).toHaveBeenCalledWith(
+      'The spec was not saved',
+      undefined,
+      'Validation errors',
+      ['steps: bad']
+    );
+    expect(dagContextValue.refresh).not.toHaveBeenCalled();
+  });
+
+  it('sends no text with a syntax error for the unsaved context', async () => {
+    await renderSpec();
+    fireEvent.change(screen.getByLabelText('DAG spec'), {
+      target: { value: 'steps:\n  - name: b\n   command: [unclosed' },
+    });
+
+    let saved = true;
+    await act(async () => {
+      saved = await mocks.contextSave.current!();
+    });
+
+    expect(saved).toBe(false);
+    expect(mocks.put).not.toHaveBeenCalled();
+    expect(mocks.showToast).toHaveBeenCalledWith(
+      'Fix the YAML syntax error before you save',
+      { variant: 'error' }
+    );
+  });
+
+  it('offers no save to the unsaved context for a reader', async () => {
+    mocks.canWrite = false;
+    await renderSpec();
+
+    expect(mocks.contextSave.current).toBeNull();
   });
 
   // In the graph zone the node view (z-60) is over the page: the diff goes above it.
