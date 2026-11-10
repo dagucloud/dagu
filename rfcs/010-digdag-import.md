@@ -198,7 +198,7 @@ The migration guide maps the commands. The tool does not convert them.
 | Digdag | Dagu |
 | --- | --- |
 | `digdag push` and revisions | Git sync |
-| `digdag backfill --from` | `dagu backfill --from` (RFC 008) |
+| `digdag backfill --from` | `dagu backfill start --from` (RFC 008) |
 | `digdag retry --resume` | Retry of the failed run |
 | `digdag retry --all` | A new run with `--scheduled-at` |
 | `digdag reschedule --skip-to` | Suspend the DAG until then |
@@ -212,8 +212,8 @@ one step:
 1. Convert, and resolve the report's items.
 2. Point the converted DAGs at a scratch dataset or schema through params.
 3. Run both schedulers on the same schedule for a week.
-4. Compare outputs, then compare `dagu backfill --dry-run` with the Digdag
-   sessions of that week.
+4. Compare outputs, then compare `dagu backfill start --dry-run` with the
+   Digdag sessions of that week.
 5. Disable the Digdag schedule and repoint the DAGs.
 
 ## For coding agents
