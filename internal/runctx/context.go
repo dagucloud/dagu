@@ -54,6 +54,9 @@ type Context struct {
 	LogWriterFactory     LogWriterFactory     // For remote log streaming (nil = use local files)
 	DefaultExecMode      config.ExecutionMode // Server-level default execution mode (local or distributed)
 	NoReuse              bool
+	// Cycle is the cycle of a looping run that the steps execute in, counted
+	// from 1. It is zero for a run that does not loop.
+	Cycle int
 }
 
 // LogWriterFactory creates log writers for step stdout/stderr.

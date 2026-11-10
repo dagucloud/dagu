@@ -16,6 +16,7 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/cmn/stringutil"
 	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/persis"
+	"github.com/dagucloud/dagu/v2/internal/runtime/agent"
 	"github.com/dagucloud/dagu/v2/internal/test"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -130,6 +131,98 @@ func TestLoopWaitStopDuringTheWaitEndsTheRunThen(t *testing.T) {
 	finishedAt, err := stringutil.ParseTime(final.FinishedAt)
 	require.NoError(t, err)
 	assert.False(t, finishedAt.Before(stoppedAt), "the run should end when it was stopped")
+}
+
+// Each cycle executes the child DAG of a step again, rather than finding the
+// child run of an earlier cycle.
+func TestLoopWaitRunsAChildDAGInEachCycle(t *testing.T) {
+	dir := filepath.ToSlash(t.TempDir())
+	th := test.Setup(t)
+	dag := th.DAG(t, loopDAGYAML(`action: dag.run
+    with:
+      dag: loop-child`)+`
+---
+
+name: loop-child
+steps:
+  - action: file.write
+    with:
+      path: "`+dir+`/${DAG_RUN_ID}"
+      content: done
+`)
+	agent := dag.Agent()
+	stop := runLoop(t, agent)
+
+	// The third cycle starts after the second ended.
+	require.Eventually(t, func() bool {
+		return liveStatus(t, th, dag.Name).Cycle >= 3
+	}, intgTestTimeout(30*time.Second), 100*time.Millisecond, "the run should reach its third cycle")
+	_ = stop()
+
+	// The child writes a file named after its run.
+	entries, err := os.ReadDir(dir)
+	require.NoError(t, err)
+	assert.GreaterOrEqual(t, len(entries), 2, "each cycle should run the child")
+}
+
+// A retry goes on with the cycle it retries: a retry of a step inside the
+// child run of that cycle finds the child run, and the cycles after it run
+// their own children.
+func TestLoopWaitRetryOfAChildStepGoesOnWithItsCycle(t *testing.T) {
+	th := test.Setup(t)
+	dir := t.TempDir()
+	seen := filepath.Join(dir, "seen")
+	ready := filepath.Join(dir, "ready")
+	// The child succeeds in the first cycle and fails in the second, until it
+	// is ready.
+	work := test.ForOS(
+		fmt.Sprintf("if [ -f %[1]s ]; then exit 0; fi\nif [ -f %[2]s ]; then exit 1; fi\ntouch %[2]s",
+			test.PosixQuote(test.ShellPath(ready)), test.PosixQuote(test.ShellPath(seen))),
+		fmt.Sprintf("if (Test-Path %[1]s) { exit 0 }\nif (Test-Path %[2]s) { exit 1 }\nNew-Item -ItemType File -Path %[2]s -Force | Out-Null",
+			test.PowerShellQuote(ready), test.PowerShellQuote(seen)),
+	)
+	dag := th.DAG(t, loopDAGYAML(`action: dag.run
+    with:
+      dag: loop-child`)+fmt.Sprintf(`
+---
+
+name: loop-child
+shell: %s
+steps:
+  - name: work
+    run: |
+%s
+`, test.ForOS("sh", "powershell"), indentCommandBlock(work, 6)))
+
+	initial := dag.Agent()
+	initial.RunError(t)
+	status := initial.Status(th.Context)
+	require.Equal(t, 2, status.Cycle)
+	require.Len(t, status.Nodes, 1)
+	require.Len(t, status.Nodes[0].SubRuns, 1)
+
+	rootRef := ir.NewDAGRunRef(dag.Name, status.DAGRunID)
+	child := status.Nodes[0].SubRuns[0].DAGRunID
+	path, _, err := th.DAGRunRepository.ResolveRetryPath(th.Context, rootRef, child, "work")
+	require.NoError(t, err)
+	require.NoError(t, os.WriteFile(ready, nil, 0o600))
+
+	retry := dag.Agent(test.WithAgentOptions(agent.Options{
+		RetryTarget: &status,
+		StepRetry:   path.RootStep(),
+		RetryPath:   path,
+	}))
+	stop := runLoop(t, retry)
+
+	// A cycle that fails ends the run, so the fourth cycle starts only after
+	// the retried cycle and the one after it succeeded.
+	require.Eventually(t, func() bool {
+		return liveStatus(t, th, dag.Name).Cycle >= 4
+	}, intgTestTimeout(30*time.Second), 100*time.Millisecond, "the run should loop after the retry")
+	_ = stop()
+
+	childStatus, _ := readChildRun(t, th, rootRef, child)
+	assert.Equal(t, ir.Succeeded, childStatus, "the retry should run the child step again")
 }
 
 // By default a cycle that fails ends the run, so the restart policy starts a

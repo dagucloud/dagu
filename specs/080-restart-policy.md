@@ -177,6 +177,12 @@ run.
 - During the wait between two cycles the run reports `running` and has no end
   time. `startedAt` is the start of the first cycle. The status carries `cycle`,
   the number of the cycle the run is in, and `failedCycles`.
+- Each cycle starts its own child runs: a step that runs a child DAG starts a
+  new child run in each cycle.
+- The `retry` command, given a run that loops, goes on with the cycle that the
+  run ended in, and keeps `cycle` and `failedCycles`. Only that cycle retries
+  steps, including steps inside its child runs; the cycles after it run fresh
+  plans.
 - When a cycle starts, the step and handler logs of the cycle before it are
   removed, except those of the latest failed cycle. A run that loops for months
   does not fill the disk, and the failure that matters stays readable.

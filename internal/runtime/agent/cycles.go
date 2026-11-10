@@ -12,7 +12,9 @@ import (
 
 	"github.com/dagucloud/dagu/v2/internal/cmn/logger"
 	"github.com/dagucloud/dagu/v2/internal/cmn/logger/tag"
+	"github.com/dagucloud/dagu/v2/internal/dagrun"
 	"github.com/dagucloud/dagu/v2/internal/ir"
+	"github.com/dagucloud/dagu/v2/internal/runctx"
 	"github.com/dagucloud/dagu/v2/internal/runtime"
 	"github.com/dagucloud/dagu/v2/internal/runtime/runstate"
 )
@@ -65,16 +67,22 @@ func (a *Agent) runCycles(ctx context.Context, attempt runstate.Attempt, progres
 		return runner.Run(ctx, plan, progressCh)
 	}
 
+	cycles := &cycleState{number: 1, startedAt: plan.StartAt()}
+	// A retry goes on with the cycle it retries, so that a step finds the child
+	// runs of that cycle.
+	if t := a.retryTarget; t != nil && t.Cycle > 0 {
+		cycles.number, cycles.failed = t.Cycle, t.FailedCycles
+	}
 	a.lock.Lock()
-	a.cycles = &cycleState{number: 1, startedAt: plan.StartAt()}
+	a.cycles = cycles
 	a.lock.Unlock()
 	// Whatever way the loop ends, the run is not waiting for a cycle any more.
 	// A run that stays marked as waiting would be stored as running, with no end
 	// time, as its final status.
 	defer a.stopWaiting()
 
-	for {
-		lastErr := runner.Run(ctx, plan, progressCh)
+	for first := true; ; first = false {
+		lastErr := runner.Run(a.cycleContext(ctx, first), plan, progressCh)
 		again := a.endCycle(ctx, attempt, runner, plan)
 		if !again {
 			return lastErr
@@ -94,6 +102,23 @@ func (a *Agent) runCycles(ctx context.Context, attempt runstate.Attempt, progres
 		}
 		plan = next
 	}
+}
+
+// cycleContext tells the steps of the current cycle which cycle they execute
+// in. Only the first cycle of a retry retries steps: the cycles after it
+// execute fresh plans.
+func (a *Agent) cycleContext(ctx context.Context, first bool) context.Context {
+	a.lock.RLock()
+	number := a.cycles.number
+	a.lock.RUnlock()
+	rCtx := runctx.GetContext(ctx)
+	rCtx.Cycle = number
+	if !first {
+		rCtx.RetryPath = dagrun.RetryPath{}
+		rCtx.IncludeDownstream = false
+		rCtx.BypassPreconditions = false
+	}
+	return runctx.WithContext(ctx, rCtx)
 }
 
 // abort ends the loop during a wait. The caller holds the agent's lock.

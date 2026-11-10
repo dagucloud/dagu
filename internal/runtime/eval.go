@@ -268,6 +268,11 @@ func GenerateSubDAGRunIDForTarget(ctx context.Context, dagName, params string, r
 	if dagName != "" {
 		identity = dagName + "\x00" + params
 	}
+	// Each cycle of a looping run starts its own child runs. A child run of an
+	// earlier cycle would be continued as a retry, which skips its steps.
+	if cycle := GetEnv(ctx).Cycle; cycle > 0 {
+		identity = fmt.Sprintf("%s\x00cycle=%d", identity, cycle)
+	}
 
 	if repeated {
 		// If this is a repeated sub DAG run, we need to generate a unique ID with randomness
