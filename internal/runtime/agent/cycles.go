@@ -33,8 +33,8 @@ type cycleState struct {
 	waiting bool
 	// startedAt is when the first cycle started, which is when the run started.
 	startedAt time.Time
-	// abortedAt is when a stop request ended the loop during a wait. It is zero
-	// while the loop goes on.
+	// abortedAt is when a stop ended a loop that would have gone on, during a
+	// wait or at the end of a cycle. It is zero while the loop goes on.
 	abortedAt time.Time
 
 	// lastLogs are the log files of the cycle that just ended, and lastFailed
@@ -121,7 +121,7 @@ func (a *Agent) cycleContext(ctx context.Context, first bool) context.Context {
 	return runctx.WithContext(ctx, rCtx)
 }
 
-// abort ends the loop during a wait. The caller holds the agent's lock.
+// abort ends the loop for a stop. The caller holds the agent's lock.
 func (c *cycleState) abort() {
 	c.abortedAt = time.Now()
 	c.waiting = false
@@ -145,7 +145,8 @@ func (a *Agent) endCycle(ctx context.Context, attempt runstate.Attempt, runner *
 	// restart policy then starts a new run, which counts the interruption.
 	continues := status == ir.Succeeded || status == ir.PartiallySucceeded ||
 		(failed && a.dag.LoopOnFailure == ir.LoopOnFailureContinue)
-	again := continues && ctx.Err() == nil && !a.stopRequested()
+	stopped := ctx.Err() != nil || a.stopRequested()
+	again := continues && !stopped
 
 	a.lock.Lock()
 	c := a.cycles
@@ -155,6 +156,11 @@ func (a *Agent) endCycle(ctx context.Context, attempt runstate.Attempt, runner *
 	c.lastLogs = cycleLogFiles(runner, plan)
 	c.lastFailed = failed
 	c.waiting = again
+	// A stop does not reach lifecycle handlers, so a cycle can still succeed
+	// after it. The loop would have gone on: the stop is what ends it.
+	if continues && stopped {
+		c.abort()
+	}
 	number := c.number
 	a.lock.Unlock()
 
@@ -291,9 +297,9 @@ func cycleLogFiles(runner *runtime.Runner, plan *runtime.Plan) []string {
 //
 // Between two cycles the plan of the last cycle is finished, but the run is
 // not: it reports as running with no end. A run starts when its first cycle
-// does. A loop that a stop request ended during a wait reports as aborted, so
-// that unless-stopped sees the stop, and ends when the stop came, so that the
-// restart policy waits from then.
+// does. A loop that a stop ended reports as aborted, so that unless-stopped
+// sees the stop, and ends when the loop did, so that the restart policy waits
+// from then.
 func (a *Agent) cycleStatusOptions(status *ir.Status, finishedAt, startedAt *time.Time) []ir.StatusOption {
 	c := a.cycles
 	if c == nil {

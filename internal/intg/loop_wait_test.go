@@ -133,6 +133,47 @@ func TestLoopWaitStopDuringTheWaitEndsTheRunThen(t *testing.T) {
 	assert.False(t, finishedAt.Before(stoppedAt), "the run should end when it was stopped")
 }
 
+// A stop does not reach lifecycle handlers, so a cycle whose success handler
+// was running when the stop came still succeeds. The stop still ends the loop,
+// so the run ends as aborted.
+func TestLoopWaitStopDuringASuccessHandlerAbortsTheRun(t *testing.T) {
+	th := test.Setup(t)
+	dir := t.TempDir()
+	started := filepath.Join(dir, "started")
+	release := filepath.Join(dir, "release")
+	handler := test.ForOS(
+		fmt.Sprintf("touch %[1]s\nwhile [ ! -f %[2]s ]; do sleep 0.1; done",
+			test.PosixQuote(test.ShellPath(started)), test.PosixQuote(test.ShellPath(release))),
+		fmt.Sprintf("New-Item -ItemType File -Path %[1]s -Force | Out-Null\nwhile (-not (Test-Path %[2]s)) { Start-Sleep -Milliseconds 100 }",
+			test.PowerShellQuote(started), test.PowerShellQuote(release)),
+	)
+	dag := th.DAG(t, loopDAGYAML(loopSuccessStepYAML(t), fmt.Sprintf(`shell: %s
+handler_on:
+  success:
+    run: |
+%s
+`, test.ForOS("sh", "powershell"), indentCommandBlock(handler, 6))))
+	agent := dag.Agent()
+	done := make(chan error, 1)
+	go func() { done <- agent.Run(agent.Context) }()
+
+	require.Eventually(t, func() bool {
+		_, err := os.Stat(started)
+		return err == nil
+	}, intgTestTimeout(30*time.Second), 50*time.Millisecond, "the success handler should start")
+	agent.Signal(agent.Context, os.Interrupt)
+	require.NoError(t, os.WriteFile(release, nil, 0o600))
+	select {
+	case <-done:
+	case <-time.After(intgTestTimeout(20 * time.Second)):
+		t.Fatal("the run did not stop")
+	}
+
+	final := agent.Status(agent.Context)
+	assert.Equal(t, ir.Aborted, final.Status)
+	assert.Equal(t, 1, final.Cycle)
+}
+
 // Each cycle executes the child DAG of a step again, rather than finding the
 // child run of an earlier cycle.
 func TestLoopWaitRunsAChildDAGInEachCycle(t *testing.T) {

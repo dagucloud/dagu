@@ -170,8 +170,10 @@ run.
 - The loop ends when a stop is requested, even during the wait, when a cycle is
   aborted, when a cycle waits for approval, or when a cycle fails and
   `loop_on_failure` is `restart`. The run then ends with the status of the last
-  cycle, and with `aborted` after a stop. A run stopped during the wait ends
-  when the stop comes, so `restart_wait_sec` counts from the stop.
+  cycle, and with `aborted` after a stop, even when the last cycle succeeded: a
+  stop does not reach lifecycle handlers, so a cycle whose `success` handler
+  was running still succeeds. A run stopped during the wait ends when the stop
+  comes, so `restart_wait_sec` counts from the stop.
 - A cycle that times out (`timeout_sec`) fails. It is a failed cycle like any
   other: with `loop_on_failure: continue` the run goes on with the next cycle.
 - During the wait between two cycles the run reports `running` and has no end
