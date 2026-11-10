@@ -2260,6 +2260,9 @@ const baseEnglish = {
   'Renaming...': 'Renaming...',
   Reschedule: 'Reschedule',
   'Run anyway': 'Run anyway',
+  'Save & Run': 'Save & Run',
+  'Save & Run saves your edits and runs them. Run anyway runs the last saved version, without your edits.':
+    'Save & Run saves your edits and runs them. Run anyway runs the last saved version, without your edits.',
   'Run one of the example workflows from the {link} to see activity here.':
     'Run one of the example workflows from the {link} to see activity here.',
   'Send incidents': 'Send incidents',
@@ -5353,6 +5356,9 @@ const baseChinese = {
     '从同步跟踪中移除 {count} 个缺失项？文件将保留在远程仓库中。',
   Reschedule: '重新调度',
   'Run anyway': '仍然运行',
+  'Save & Run': '保存并运行',
+  'Save & Run saves your edits and runs them. Run anyway runs the last saved version, without your edits.':
+    '“保存并运行”会保存您的编辑并运行。“仍然运行”会运行最后保存的版本，不包含您的编辑。',
   'Run one of the example workflows from the {link} to see activity here.':
     '在{link}运行一个示例工作流，即可在此查看活动。',
   'Send incidents': '发送事件',
@@ -8496,6 +8502,9 @@ const baseJapanese = {
     '同期管理から欠落アイテムを {count} 件削除しますか？ファイルはリモートリポジトリに残ります。',
   Reschedule: '再スケジュール',
   'Run anyway': 'そのまま実行',
+  'Save & Run': '保存して実行',
+  'Save & Run saves your edits and runs them. Run anyway runs the last saved version, without your edits.':
+    '「保存して実行」は編集内容を保存して実行します。「そのまま実行」は編集内容を含めず、最後に保存したバージョンを実行します。',
   'Run one of the example workflows from the {link} to see activity here.':
     '{link}からサンプルワークフローを実行すると、ここにアクティビティが表示されます。',
   'Send incidents': 'インシデントを送信',
