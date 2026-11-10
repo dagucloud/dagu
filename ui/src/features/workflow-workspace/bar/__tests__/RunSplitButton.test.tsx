@@ -116,6 +116,8 @@ interface Setup {
   details?: ApiDAGRunDetails | null;
   latest?: ApiDAGRunDetails;
   dirtyFlag?: boolean;
+  /** An editor offers its save to the unsaved context. */
+  canSave?: boolean;
   editor?: { dirty: boolean; buffer: string } | null;
   cluster?: boolean;
   url?: string;
@@ -143,6 +145,13 @@ function DirtyFlag({ on }: { on: boolean }) {
   return null;
 }
 
+/** Offers a save to the unsaved context, as an editor of a writer does. */
+function Saver() {
+  const { registerSave } = useUnsavedChanges();
+  useEffect(() => registerSave(async () => true), [registerSave]);
+  return null;
+}
+
 function Where() {
   const location = useLocation();
   return (
@@ -157,6 +166,7 @@ function setup({
   details,
   latest = runDetails('run-3'),
   dirtyFlag = false,
+  canSave = false,
   editor = null,
   cluster = false,
   url = `/dags/${FILE}`,
@@ -211,6 +221,7 @@ function setup({
           <WorkspaceEditorProvider>
             <RunStartProvider>
               <DirtyFlag on={dirtyFlag} />
+              {canSave && <Saver />}
               {editor && <EditorBinder {...editor} />}
               {children}
             </RunStartProvider>
@@ -498,6 +509,52 @@ describe('RunSplitButton', () => {
     expect(
       within(menu).getByRole('menuitem', { name: 'Run unsaved draft' })
     ).not.toHaveAttribute('aria-disabled');
+  });
+
+  const menuItems = async () =>
+    within(await openMenu())
+      .getAllByRole('menuitem')
+      .map((item) => item.textContent);
+
+  it('offers to save and run to a user who can save and run', async () => {
+    setup({
+      canSave: true,
+      dirtyFlag: true,
+      editor: { dirty: true, buffer: 'steps: []\n' },
+    });
+
+    expect(await menuItems()).toEqual(['Save & Run', 'Run unsaved draft']);
+  });
+
+  it('keeps Save & Run off while there is nothing to save', async () => {
+    setup({ canSave: true });
+
+    const menu = await openMenu();
+    expect(
+      within(menu).getByRole('menuitem', { name: 'Save & Run' })
+    ).toHaveAttribute('aria-disabled', 'true');
+  });
+
+  it('offers no save and run without runDags', async () => {
+    h.runDags = false;
+    setup({
+      canSave: true,
+      dirtyFlag: true,
+      editor: { dirty: true, buffer: 'steps: []\n' },
+    });
+
+    expect(await menuItems()).toEqual(['Run unsaved draft']);
+  });
+
+  it('offers only save and run without canExecute', async () => {
+    h.canExecute = false;
+    setup({
+      canSave: true,
+      dirtyFlag: true,
+      editor: { dirty: true, buffer: 'steps: []\n' },
+    });
+
+    expect(await menuItems()).toEqual(['Save & Run']);
   });
 
   it('shows nothing without runDags and without a draft', () => {

@@ -1,7 +1,7 @@
 // Copyright (C) 2026 Yota Hamada
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-import { AlertTriangle, ChevronDown, FilePen, Play } from 'lucide-react';
+import { AlertTriangle, ChevronDown, FilePen, Play, Save } from 'lucide-react';
 import { useEffect, useState } from 'react';
 import { flushSync } from 'react-dom';
 import { Button } from '@/components/ui/button';
@@ -12,6 +12,7 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
+import { useUnsavedChanges } from '@/contexts/UnsavedChangesContext';
 import DAGActions from '@/features/dags/components/common/DAGActions';
 import { useEditorRunActions } from '@/features/visual-editor/run/useEditorRunActions';
 import { useI18n } from '@/i18n/I18nProvider';
@@ -22,7 +23,7 @@ import { useWorkspaceData } from '../data/context';
 import { useWorkspacePermissions } from '../data/useWorkspacePermissions';
 import { useWorkspaceRefresh } from '../data/useWorkspaceRefresh';
 import { Z } from '../zLayers';
-import { RunStartTarget } from './RunStartContext';
+import { RunStartTarget, useRunStart } from './RunStartContext';
 import { useShowRun } from './useShowRun';
 
 // How long the failed-start icon replaces the Play icon.
@@ -68,9 +69,9 @@ function StartFeedback({
  * The Start icon button and a caret menu with the unsaved draft. The primary
  * button is the only DAGActions of the workspace, start only: it keeps the
  * unsaved guard and the Start dialog, which runs the saved definition. The
- * caret has its slot whenever the user may run a draft, so that Start keeps
- * its place when the draft becomes dirty. While the editor equals the saved
- * file, its menu says that there is no draft to run.
+ * caret has its slot whenever the user may run a draft or save and run, so
+ * that Start keeps its place when the draft becomes dirty. While the editor
+ * equals the saved file, its menu says that there is no draft to run.
  */
 export function RunSplitButton(props: BarSlotProps) {
   const { canRunDags, canExecute } = useWorkspacePermissions();
@@ -92,6 +93,8 @@ function SplitButton({
   const refresh = useWorkspaceRefresh();
   const { handle, state } = useWorkspaceEditor();
   const dirty = state?.dirty ?? false;
+  const { hasUnsavedChanges } = useUnsavedChanges();
+  const { canSaveAndStart, requestSaveAndStart } = useRunStart();
   // The buffer is read when the draft runs, not on every render.
   const [spec, setSpec] = useState('');
   const actions = useEditorRunActions({
@@ -120,7 +123,8 @@ function SplitButton({
   // The draft is the one choice that Start does not give. With Start beside
   // it, the caret keeps its slot while there is no draft; alone, it shows
   // only for a draft.
-  const hasMenu = canExecute && (dirty || canRunDags);
+  const canRunDraft = canExecute && (dirty || canRunDags);
+  const hasMenu = canRunDraft || canSaveAndStart;
   if (!canRunDags && !hasMenu) return null;
 
   return (
@@ -187,21 +191,33 @@ function SplitButton({
             </Button>
           </DropdownMenuTrigger>
           <DropdownMenuContent align="end" className={cn(Z.menu, 'w-64')}>
-            <DropdownMenuItem
-              disabled={busy || !dirty}
-              onSelect={runDraft}
-              className="gap-2"
-            >
-              <FilePen aria-hidden="true" className="size-4 shrink-0" />
-              <span className="flex min-w-0 flex-col">
-                {ts('Run unsaved draft')}
-                {!dirty && (
-                  <span className="text-xs text-muted-foreground">
-                    {ts('No unsaved changes')}
-                  </span>
-                )}
-              </span>
-            </DropdownMenuItem>
+            {canSaveAndStart && (
+              <DropdownMenuItem
+                disabled={busy || !hasUnsavedChanges}
+                onSelect={requestSaveAndStart}
+                className="gap-2"
+              >
+                <Save aria-hidden="true" className="size-4 shrink-0" />
+                {ts('Save & Run')}
+              </DropdownMenuItem>
+            )}
+            {canRunDraft && (
+              <DropdownMenuItem
+                disabled={busy || !dirty}
+                onSelect={runDraft}
+                className="gap-2"
+              >
+                <FilePen aria-hidden="true" className="size-4 shrink-0" />
+                <span className="flex min-w-0 flex-col">
+                  {ts('Run unsaved draft')}
+                  {!dirty && (
+                    <span className="text-xs text-muted-foreground">
+                      {ts('No unsaved changes')}
+                    </span>
+                  )}
+                </span>
+              </DropdownMenuItem>
+            )}
           </DropdownMenuContent>
         </DropdownMenu>
       )}
