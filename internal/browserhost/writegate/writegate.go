@@ -76,7 +76,8 @@ type Policy struct {
 	// SignIn are the sign-in endpoints whose writes are sent.
 	SignIn []Rule `json:"sign_in,omitempty" yaml:"sign_in,omitempty"`
 	// Writes declare requests that save although their method only reads,
-	// such as a delete link.
+	// such as a delete link. A host they name is one the work writes to
+	// from a page of another site.
 	Writes []Rule `json:"writes,omitempty" yaml:"writes,omitempty"`
 	// NoiseHosts are hosts whose writes, such as analytics, are blocked
 	// without counting as the work's writes.
@@ -147,8 +148,10 @@ const (
 	ClassApproved = "approved"
 	// ClassSignIn is a write to a sign-in endpoint the policy lists.
 	ClassSignIn = "sign_in"
-	// ClassNoise is a beacon, a report, a write to a noise host, or one to
-	// an endpoint that only collects analytics or error reports.
+	// ClassNoise is a beacon, a report, a write to a noise host, one to an
+	// endpoint that only collects analytics or error reports, or one a
+	// page sends without loading a document to a site other than the open
+	// pages' and to a host no policy rule names.
 	ClassNoise = "noise"
 	// ClassPerson is a write sent while a person holds the browser.
 	ClassPerson = "person"
