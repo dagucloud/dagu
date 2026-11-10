@@ -58,6 +58,38 @@ func TestClassify(t *testing.T) {
 	assert.True(t, write)
 }
 
+// A write is foreign when a page's script sends it to a site no open page
+// shows and no policy rule names.
+func TestForeign(t *testing.T) {
+	t.Parallel()
+
+	r := newRules(Policy{
+		SignIn: []Rule{{Host: "login.idp.example", Path: "/session"}},
+		Writes: []Rule{{Host: "*.vendor.example", Path: "/items/delete"}},
+	}, nil)
+	sites := map[string]bool{siteOf("www.shop.co.jp"): true, siteOf("10.0.0.5"): true}
+	cases := []struct {
+		name    string
+		req     request
+		sites   map[string]bool
+		foreign bool
+	}{
+		{"another site", request{Method: "POST", URL: "https://insight.ads.example/track", ResourceType: "Fetch"}, sites, true},
+		{"the page's host", request{Method: "POST", URL: "https://www.shop.co.jp/cart", ResourceType: "XHR"}, sites, false},
+		{"the page's site", request{Method: "POST", URL: "https://api.shop.co.jp/cart", ResourceType: "XHR"}, sites, false},
+		{"another site under the suffix", request{Method: "POST", URL: "https://ads.co.jp/track", ResourceType: "XHR"}, sites, true},
+		{"the page's address", request{Method: "POST", URL: "http://10.0.0.5:8080/save", ResourceType: "XHR"}, sites, false},
+		{"another address", request{Method: "POST", URL: "http://10.0.0.6/save", ResourceType: "XHR"}, sites, true},
+		{"a page load", request{Method: "POST", URL: "https://pay.example/checkout", ResourceType: "Document"}, sites, false},
+		{"a host a writes rule names", request{Method: "POST", URL: "https://api.vendor.example/items", ResourceType: "Fetch"}, sites, false},
+		{"a host a sign-in rule names", request{Method: "POST", URL: "https://login.idp.example/mfa", ResourceType: "Fetch"}, sites, false},
+		{"no page open", request{Method: "POST", URL: "https://insight.ads.example/track", ResourceType: "Fetch"}, nil, false},
+	}
+	for _, tc := range cases {
+		assert.Equal(t, tc.foreign, r.foreign(tc.req, tc.sites), tc.name)
+	}
+}
+
 // The writes of one kind sign alike however their values change between
 // runs, and writes of other kinds sign apart.
 func TestSignatureStaysAcrossRuns(t *testing.T) {

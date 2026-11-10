@@ -830,6 +830,44 @@ func TestGateRecordSendsWhatTheOperationMay(t *testing.T) {
 	assert.Equal(t, `{"ok":true}`, sent.Response)
 }
 
+// A write a page's script sends to another site, as an ad or a measuring
+// script does, is blocked without counting as the work's. A write to the
+// page's own site, a page load that writes, and a write the operation may
+// send are decided as on any site.
+func TestGateCountsAnotherSitesWriteAsNoise(t *testing.T) {
+	t.Parallel()
+
+	s := startSite(t)
+	b := startBrowser(t)
+	controls, _, _ := guardIn(t, b, writegate.ModeRecord, writegate.Policy{}, nil)
+	p := openPage(t, b)
+	p.goTo(s.URL + "/")
+	// The site answers on localhost too, which is another site than
+	// 127.0.0.1.
+	other := strings.Replace(s.URL, "127.0.0.1", "localhost", 1)
+
+	assert.Contains(t, p.eval(`post(`+quote(other+"/w/beacon")+`, {mode: 'no-cors'})`), "error")
+	assert.Contains(t, p.eval(`post('/w/save')`), "error")
+	p.load(`const f = document.createElement('form'); f.method = 'post'; f.action = ` + quote(other+"/w/form") + `; document.body.appendChild(f); f.submit()`)
+
+	list := events(t, controls)
+	beacon, ok := find(list, "/w/beacon")
+	require.True(t, ok, "%+v", list)
+	assert.Equal(t, writegate.ClassNoise, beacon.Class)
+	assert.Equal(t, writegate.OutcomeBlocked, beacon.Outcome)
+	save, ok := find(list, "/w/save")
+	require.True(t, ok, "%+v", list)
+	assert.True(t, save.Consequential(), "a write to the page's own site")
+	form, ok := find(list, "/w/form")
+	require.True(t, ok, "%+v", list)
+	assert.True(t, form.Consequential(), "a page load that writes")
+	assert.Empty(t, s.written())
+
+	require.NoError(t, writegate.Begin(t.Context(), controls, []string{beacon.Signature}, time.Minute))
+	assert.Equal(t, "ok 0", p.eval(`post(`+quote(other+"/w/beacon")+`, {mode: 'no-cors'})`))
+	assert.Equal(t, map[string]int{"/w/beacon": 1}, s.written())
+}
+
 // A sent write answered with a stream reaches the page as the stream
 // begins, not when it ends.
 func TestGateLetsAStreamedAnswerThrough(t *testing.T) {

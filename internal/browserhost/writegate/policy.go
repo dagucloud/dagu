@@ -9,6 +9,7 @@ import (
 	"encoding/json"
 	"mime"
 	"mime/multipart"
+	"net"
 	"net/url"
 	"regexp"
 	"slices"
@@ -17,6 +18,7 @@ import (
 
 	"github.com/dagucloud/dagu/v2/internal/cmn/hostpattern"
 	"github.com/dagucloud/dagu/v2/internal/cmn/masking"
+	"golang.org/x/net/publicsuffix"
 	"golang.org/x/text/encoding/htmlindex"
 )
 
@@ -107,6 +109,38 @@ func (r *rules) classify(req request, person bool) (string, bool) {
 		return ClassNoise, true
 	}
 	return ClassWrite, true
+}
+
+// foreign reports whether a write of the work is one a page sends by
+// itself to another site, as an ad or a measuring script does: it loads no
+// document, its host is on none of sites, the sites of the open pages, and
+// no rule of the policy names its host. With no page open, no write is
+// foreign.
+func (r *rules) foreign(req request, sites map[string]bool) bool {
+	u, err := url.Parse(req.URL)
+	if err != nil || req.ResourceType == resourceDocument || len(sites) == 0 || sites[siteOf(u.Hostname())] {
+		return false
+	}
+	for _, rule := range slices.Concat(r.policy.SignIn, r.policy.Writes) {
+		if hostpattern.Match(u.Hostname(), rule.Host) {
+			return false
+		}
+	}
+	return true
+}
+
+// siteOf returns the site of host: its registrable domain, such as
+// example.co.jp for app.example.co.jp, or the host itself when it has
+// none, as an IP address or a single name.
+func siteOf(host string) string {
+	host = strings.ToLower(strings.TrimSuffix(host, "."))
+	if net.ParseIP(host) != nil {
+		return host
+	}
+	if site, err := publicsuffix.EffectiveTLDPlusOne(host); err == nil {
+		return site
+	}
+	return host
 }
 
 // matchAny reports whether a rule matches the request. A rule naming a

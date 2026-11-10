@@ -1227,7 +1227,7 @@
         },
         "write_policy": {
           "type": "string",
-          "description": "Path to the write gate policy browser steps follow: sign_in rules (host, path, and optionally the secret the request must carry) whose writes are sent, writes rules that declare reads that save, and noise_hosts whose writes do not count."
+          "description": "Path to the write gate policy browser steps follow: sign_in rules (host, path, and optionally the secret the request must carry) whose writes are sent, writes rules that declare reads that save and name the hosts on another site than the page's that the work writes to, and noise_hosts whose writes do not count. A write a page sends without loading a document to a site other than the open pages' does not count either, unless a rule names its host."
         },
         "trusted_cas": {
           "type": "array",
