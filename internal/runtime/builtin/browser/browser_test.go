@@ -1292,6 +1292,108 @@ func TestModelBridgeFallsBackAfterCorrection(t *testing.T) {
 	assert.Equal(t, 2, strings.Count(log.String(), "openai/primary answer rejected"))
 }
 
+const statementsSchema = `{"type": "object", "properties": {"statements": {"type": "array", "items": {"type": "object", "properties": {"answer": {"type": "string"}}, "required": ["answer"]}}}, "required": ["statements"]}`
+
+// extractWith is a step whose only operation extracts with schema.
+func extractWith(schema string) string {
+	return fmt.Sprintf(`{"do": [{"extract": {"instruction": "The statements", "schema": %s}}]}`, schema)
+}
+
+func TestSchemaMismatchIsCorrected(t *testing.T) {
+	t.Parallel()
+
+	// A model that finds nothing fills the item with nulls until told why
+	// that cannot be used.
+	run := newTestRun(t, func(req *llmpkg.ChatRequest) (string, error) {
+		if strings.Contains(lastUserText(req), "Call the respond tool again") {
+			return `{"statements":[]}`, nil
+		}
+		return `{"statements":[{"answer":null}]}`, nil
+	})
+	execution := run.execute(extractWith(statementsSchema), nil)
+	require.NoError(t, execution.err)
+
+	require.Equal(t, 2, run.provider.callCount())
+	correction := lastUserText(run.provider.calls[1])
+	assert.Contains(t, correction, "statements[0].answer is null, expected string")
+	assert.Contains(t, correction, "empty list")
+	assert.Contains(t, execution.stderr.String(), "statements[0].answer is null, expected string")
+}
+
+func TestSchemaMismatchFailsInWords(t *testing.T) {
+	t.Parallel()
+
+	for _, tc := range []struct {
+		name   string
+		schema string
+		answer string
+		detail string
+	}{
+		{"null field", statementsSchema, `{"statements":[{"answer":null}]}`, "statements[0].answer is null, expected string"},
+		{"later item", statementsSchema, `{"statements":[{"answer":"a"},{"answer":3}]}`, "statements[1].answer is number, expected string"},
+		{"missing field", statementsSchema, `{"statements":[{}]}`, "statements[0].answer is missing"},
+		{"null list", statementsSchema, `{"statements":null}`, "statements is null, expected array"},
+		{"null answer", statementsSchema, `null`, "the answer is null, expected object"},
+		{"type list", `{"type": "object", "properties": {"a": {"type": ["string", "null"]}}}`, `{"a":3}`, "a is number, expected string or null"},
+		{"nullable field", `{"type": "object", "properties": {"a": {"anyOf": [{"type": "string"}, {"type": "null"}]}}}`, `{"a":3}`, "a is number, expected string or null"},
+		{"field named default", `{"type": "object", "properties": {"default": {"type": "string"}}, "required": ["default"]}`, `{"default":null}`, "default is null, expected string"},
+		{"value named default", `{"type": "object", "properties": {"a": {"type": "string"}, "kind": {"enum": ["default"]}}, "required": ["a"]}`, `{"a":null,"kind":"default"}`, "a is null, expected string"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			run := newTestRun(t, func(*llmpkg.ChatRequest) (string, error) { return tc.answer, nil })
+			execution := run.execute(extractWith(tc.schema), nil)
+
+			require.ErrorContains(t, execution.err, "do[0] extract failed: model request failed: openai/test-model: the answer does not match the schema: "+tc.detail)
+			assert.Equal(t, 2, run.provider.callCount())
+		})
+	}
+}
+
+// An answer is left to the browser runtime when this package cannot judge it
+// as the runtime would.
+func TestFittingAnswerIsNotCorrected(t *testing.T) {
+	t.Parallel()
+
+	for _, tc := range []struct {
+		name   string
+		schema string
+		answer string
+	}{
+		{"empty list", statementsSchema, `{"statements":[]}`},
+		{"nullable field", `{"type": "object", "properties": {"a": {"anyOf": [{"type": "string"}, {"type": "null"}]}}, "required": ["a"]}`, `{"a":null}`},
+		{"null in a type list", `{"type": "object", "properties": {"a": {"type": ["string", "null"]}}, "required": ["a"]}`, `{"a":null}`},
+		{"pattern Go cannot compile", `{"type": "object", "properties": {"a": {"type": "string", "pattern": "^(?!x)"}}, "required": ["a"]}`, `{"a":null}`},
+		{"default the runtime fills in", `{"type": "object", "properties": {"a": {"type": "string", "default": "x"}}, "required": ["a"]}`, `{}`},
+		{"default on a list item's field", `{"type": "object", "properties": {"a": {"type": "array", "items": {"type": "object", "properties": {"b": {"type": "string", "default": "x"}}, "required": ["b"]}}}}`, `{"a":[{}]}`},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			run := newTestRun(t, func(*llmpkg.ChatRequest) (string, error) { return tc.answer, nil })
+			require.NoError(t, run.execute(extractWith(tc.schema), nil).err)
+			assert.Equal(t, 1, run.provider.callCount())
+		})
+	}
+}
+
+// The validator's own wording quotes the answer, which can hold a secret
+// read from the page.
+func TestSchemaMismatchMasksAnswerValues(t *testing.T) {
+	t.Parallel()
+
+	run := newTestRun(t, func(*llmpkg.ChatRequest) (string, error) { return `{"kind":"s3cr3t-token"}`, nil })
+	run.secrets = map[string]string{"TOKEN": "s3cr3t-token"}
+	execution := run.execute(extractWith(`{"type": "object", "properties": {"kind": {"enum": ["a"]}}}`), nil)
+
+	require.ErrorContains(t, execution.err, "the answer does not match the schema")
+	assert.NotContains(t, execution.err.Error(), "s3cr3t-token")
+	assert.NotContains(t, execution.stderr.String(), "s3cr3t-token")
+	require.Equal(t, 2, run.provider.callCount())
+	assert.NotContains(t, lastUserText(run.provider.calls[1]), "s3cr3t-token")
+}
+
 func TestCheckAllowedDomain(t *testing.T) {
 	t.Parallel()
 
