@@ -526,13 +526,10 @@ describe('RunSplitButton', () => {
     expect(await menuItems()).toEqual(['Save & Run', 'Run unsaved draft']);
   });
 
-  it('keeps Save & Run off while there is nothing to save', async () => {
+  it('offers no save and run while there is nothing to save', async () => {
     setup({ canSave: true });
 
-    const menu = await openMenu();
-    expect(
-      within(menu).getByRole('menuitem', { name: 'Save & Run' })
-    ).toHaveAttribute('aria-disabled', 'true');
+    expect(await menuItems()).toEqual(['Run unsaved draftNo unsaved changes']);
   });
 
   it('offers no save and run without runDags', async () => {

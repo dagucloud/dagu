@@ -56,10 +56,15 @@ export function UnsavedChangesProvider({
     setHasUnsavedChangesState(value);
   }, []);
 
-  const save = useCallback<SaveHandler>(
-    async () => (await saveHandler.current?.()) ?? false,
-    []
-  );
+  const save = useCallback<SaveHandler>(async () => {
+    try {
+      return (await saveHandler.current?.()) ?? false;
+    } catch (error) {
+      // A caller starts a run on true: a save that threw saved nothing.
+      console.error('Failed to save the edits:', error);
+      return false;
+    }
+  }, []);
 
   const registerSave = useCallback((handler: SaveHandler) => {
     saveHandler.current = handler;

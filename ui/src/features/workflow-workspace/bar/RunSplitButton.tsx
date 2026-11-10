@@ -69,9 +69,10 @@ function StartFeedback({
  * The Start icon button and a caret menu with the unsaved draft. The primary
  * button is the only DAGActions of the workspace, start only: it keeps the
  * unsaved guard and the Start dialog, which runs the saved definition. The
- * caret has its slot whenever the user may run a draft or save and run, so
- * that Start keeps its place when the draft becomes dirty. While the editor
- * equals the saved file, its menu says that there is no draft to run.
+ * caret has its slot whenever the user may run a draft, so that Start keeps
+ * its place when the draft becomes dirty. While the editor equals the saved
+ * file, its menu says that there is no draft to run. With unsaved changes,
+ * the menu also offers to save and run to a user who may do both.
  */
 export function RunSplitButton(props: BarSlotProps) {
   const { canRunDags, canExecute } = useWorkspacePermissions();
@@ -124,7 +125,8 @@ function SplitButton({
   // it, the caret keeps its slot while there is no draft; alone, it shows
   // only for a draft.
   const canRunDraft = canExecute && (dirty || canRunDags);
-  const hasMenu = canRunDraft || canSaveAndStart;
+  const canSaveAndRun = canSaveAndStart && hasUnsavedChanges;
+  const hasMenu = canRunDraft || canSaveAndRun;
   if (!canRunDags && !hasMenu) return null;
 
   return (
@@ -191,9 +193,9 @@ function SplitButton({
             </Button>
           </DropdownMenuTrigger>
           <DropdownMenuContent align="end" className={cn(Z.menu, 'w-64')}>
-            {canSaveAndStart && (
+            {canSaveAndRun && (
               <DropdownMenuItem
-                disabled={busy || !hasUnsavedChanges}
+                disabled={busy}
                 onSelect={requestSaveAndStart}
                 className="gap-2"
               >
