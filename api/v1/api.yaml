@@ -15981,12 +15981,13 @@ components:
             - notice
         source:
           type: string
-          description: "Stage that produced the issue."
+          description: "Stage that produced the issue. A host issue depends on the server host, not only on the spec."
           enum:
             - load
             - build
             - warning
             - valueReference
+            - host
         message:
           type: string
           description: "Human-readable message. For errors, the same text as the matching errors entry."

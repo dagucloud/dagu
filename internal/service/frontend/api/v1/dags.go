@@ -167,17 +167,21 @@ func (a *API) ValidateDAGSpecData(ctx context.Context, name, source string) (*ap
 	}
 
 	notices := a.specValueReferenceNotices(ctx, name, source)
+	hostIssues := a.hostCommandIssues(ctx, dag)
 
 	response := &api.ValidateDAGSpec200JSONResponse{
 		Valid:                 len(errs) == 0,
 		Dag:                   details,
 		Errors:                errs,
-		Issues:                buildValidationIssues(err, dag, notices),
+		Issues:                append(buildValidationIssues(err, dag, notices), hostIssues...),
 		ValueReferenceNotices: toAPIValueReferenceNotices(notices),
 		ReferenceScope:        buildReferenceScope(dag),
 	}
 	if dag != nil {
-		response.Warnings = dag.BuildWarnings
+		response.Warnings = slices.Clone(dag.BuildWarnings)
+		for _, issue := range hostIssues {
+			response.Warnings = append(response.Warnings, issue.Message)
+		}
 	}
 	return response, dag, nil
 }

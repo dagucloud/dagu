@@ -6256,7 +6256,7 @@ export interface components {
              */
             severity: ValidationIssueSeverity;
             /**
-             * @description Stage that produced the issue.
+             * @description Stage that produced the issue. A host issue depends on the server host, not only on the spec.
              * @enum {string}
              */
             source: ValidationIssueSource;
@@ -23986,7 +23986,8 @@ export enum ValidationIssueSource {
     load = "load",
     build = "build",
     warning = "warning",
-    valueReference = "valueReference"
+    valueReference = "valueReference",
+    host = "host"
 }
 export enum ReferenceScopeStepOutputsKnown {
     static = "static",
