@@ -122,7 +122,7 @@ describe('attentionItems', () => {
 describe('attentionItems for service DAGs', () => {
   function serviceDAG(
     name: string,
-    latestRun: components['schemas']['ServiceDAGRun']
+    overrides: Partial<components['schemas']['ServiceDAG']>
   ): components['schemas']['ServiceDAG'] {
     return {
       fileName: name,
@@ -133,12 +133,13 @@ describe('attentionItems for service DAGs', () => {
       state: ServiceDAGState.running,
       suspended: false,
       consecutiveFailures: 0,
-      latestRun,
+      latestRun: { dagRunId: `${name}-1`, status: Status.Running },
+      ...overrides,
     };
   }
 
   // The activity leaves out the runs of service DAGs.
-  it('lists the runs of service DAGs that wait for input', () => {
+  it('lists the service DAGs that wait for input', () => {
     const items = attentionItems(
       activity({
         active: [{ name: 'approve', dagRunId: 'a-1', status: Status.Waiting }],
@@ -146,20 +147,23 @@ describe('attentionItems for service DAGs', () => {
       [],
       FROM,
       [
-        serviceDAG('worker', {
-          dagRunId: 'w-1',
-          status: Status.Waiting,
-          startedAt: new Date(FROM * 1000).toISOString(),
+        serviceDAG('healthy', {}),
+        serviceDAG('gated', {
+          state: ServiceDAGState.waiting,
+          latestRun: {
+            dagRunId: 'g-1',
+            status: Status.Waiting,
+            startedAt: new Date(FROM * 1000).toISOString(),
+          },
         }),
-        serviceDAG('healthy', { dagRunId: 'h-1', status: Status.Running }),
       ]
     );
 
     expect(items.map((item) => `${item.kind}:${item.name}`)).toEqual([
       'waiting:approve',
-      'waiting:worker',
+      'waiting:gated',
     ]);
-    expect(items[1]!.run).toMatchObject({ dagRunId: 'w-1', startedAt: FROM });
+    expect(items[1]!.run).toMatchObject({ dagRunId: 'g-1', startedAt: FROM });
   });
 });
 

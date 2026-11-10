@@ -8,7 +8,6 @@ import { useQuery } from '@/hooks/api';
 import { sseFallbackOptions, useSSECacheSync } from '@/hooks/useSSECacheSync';
 import { useServiceDAGsSSE } from '@/hooks/useServiceDAGsSSE';
 import { workspaceSelectionQuery } from '@/lib/workspace';
-import { isWaitingForInput } from '../components/ServiceDAGState';
 
 type ServiceDAG = components['schemas']['ServiceDAG'];
 
@@ -16,7 +15,7 @@ function needsAttention(dag: ServiceDAG): boolean {
   return (
     dag.state === ServiceDAGState.failing ||
     dag.consecutiveFailures > 0 ||
-    isWaitingForInput(dag)
+    dag.state === ServiceDAGState.waiting
   );
 }
 

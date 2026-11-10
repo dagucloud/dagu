@@ -92,6 +92,12 @@ func (a *API) listServiceDAGs(ctx context.Context, filter *workspace.WorkspaceFi
 			message := readErr.Error()
 			readError = &message
 		}
+		runs := a.serviceDAGHistory(ctx, item.DAG, latest)
+		var nextRestartAt *time.Time
+		if readError == nil && !runs.nextRestart.IsZero() &&
+			(state == scheduler.ServiceDAGStateRestarting || state == scheduler.ServiceDAGStateFailing) {
+			nextRestartAt = &runs.nextRestart
+		}
 		dags = append(dags, api.ServiceDAG{
 			FileName:       item.ID,
 			Name:           item.Name,
@@ -102,8 +108,9 @@ func (a *API) listServiceDAGs(ctx context.Context, filter *workspace.WorkspaceFi
 			Suspended:      item.Suspended,
 			LatestRun:      toServiceDAGRun(latest),
 			ReadError:      readError,
+			NextRestartAt:  nextRestartAt,
 
-			ConsecutiveFailures: a.failureStreak(ctx, item.DAG, latest),
+			ConsecutiveFailures: runs.failures,
 		})
 	}
 	if errList == nil {
@@ -116,62 +123,83 @@ func (a *API) listServiceDAGs(ctx context.Context, filter *workspace.WorkspaceFi
 // service DAG list counts, so that it reads a bounded part of the history.
 const serviceDAGFailureStreakLimit = 10
 
-// failureStreaks keeps the count of failed runs in a row of each service DAG
-// with the latest run it was counted for, so that a DAG whose latest run has
-// not changed costs no read of its history.
-type failureStreaks struct {
-	mu     sync.Mutex
-	counts map[string]failureStreak
+// serviceDAGHistory is what the service DAG list reads from the recent runs of
+// a DAG.
+type serviceDAGHistory struct {
+	// failures counts the newest ended runs in a row that did not succeed, up to
+	// serviceDAGFailureStreakLimit.
+	failures int
+	// nextRestart is when the scheduler starts the next run. It is zero while
+	// the latest run has not ended.
+	nextRestart time.Time
 }
 
-type failureStreak struct {
-	runID  string
-	status ir.Status
-	count  int
+// serviceDAGHistories keeps the history of each service DAG with the latest
+// run it was read for, so that a DAG whose latest run has not changed costs no
+// read of its runs.
+type serviceDAGHistories struct {
+	mu      sync.Mutex
+	entries map[string]serviceDAGHistoryEntry
 }
 
-func (s *failureStreaks) get(name string, latest ir.DAGRunStatus) (int, bool) {
+type serviceDAGHistoryEntry struct {
+	runID   string
+	status  ir.Status
+	history serviceDAGHistory
+}
+
+func (s *serviceDAGHistories) get(name string, latest ir.DAGRunStatus) (serviceDAGHistory, bool) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	streak, ok := s.counts[name]
-	if !ok || streak.runID != latest.DAGRunID || streak.status != latest.Status {
-		return 0, false
+	entry, ok := s.entries[name]
+	if !ok || entry.runID != latest.DAGRunID || entry.status != latest.Status {
+		return serviceDAGHistory{}, false
 	}
-	return streak.count, true
+	return entry.history, true
 }
 
-func (s *failureStreaks) put(name string, latest ir.DAGRunStatus, count int) {
+func (s *serviceDAGHistories) put(name string, latest ir.DAGRunStatus, history serviceDAGHistory) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	if s.counts == nil {
-		s.counts = make(map[string]failureStreak)
+	if s.entries == nil {
+		s.entries = make(map[string]serviceDAGHistoryEntry)
 	}
-	s.counts[name] = failureStreak{runID: latest.DAGRunID, status: latest.Status, count: count}
+	s.entries[name] = serviceDAGHistoryEntry{runID: latest.DAGRunID, status: latest.Status, history: history}
 }
 
-// failureStreak counts the newest ended runs of a service DAG in a row that
-// did not succeed, up to serviceDAGFailureStreakLimit. A run that an operator
-// stopped, or one from another workspace than the latest run, ends the count.
-func (a *API) failureStreak(ctx context.Context, dag *ir.DAG, latest ir.DAGRunStatus) int {
-	if latest.DAGRunID == "" || latest.Status.IsSuccess() {
-		return 0
+// serviceDAGHistory reads the history of a service DAG from its recent runs. A
+// run that an operator stopped, or one from another workspace than the latest
+// run, ends the count of failures.
+func (a *API) serviceDAGHistory(ctx context.Context, dag *ir.DAG, latest ir.DAGRunStatus) serviceDAGHistory {
+	if latest.DAGRunID == "" {
+		return serviceDAGHistory{}
 	}
-	if count, ok := a.serviceDAGFailures.get(dag.Name, latest); ok {
-		return count
+	if latest.Status.IsSuccess() {
+		// A success ends both the count and the backoff, so the latest run
+		// tells the rest.
+		next, _ := scheduler.NextRestart(dag.RestartWait, []ir.DAGRunStatus{latest})
+		return serviceDAGHistory{nextRestart: next}
+	}
+	if history, ok := a.serviceDAGHistories.get(dag.Name, latest); ok {
+		return history
 	}
 	// One more than the limit, since a run that is alive takes a place.
 	statuses, err := a.dagRunRepository.RecentStatuses(ctx, dag.Name, serviceDAGFailureStreakLimit+1)
 	if err != nil {
 		logger.Warn(ctx, "Failed to read the recent runs of a service DAG", tag.DAG(dag.Name), tag.Error(err))
-		return 0
+		return serviceDAGHistory{}
 	}
-	latestWorkspace, _ := workspace.WorkspaceNameFromLabels(ir.NewLabels(latest.Labels))
-	count := 0
+	ended := make([]ir.DAGRunStatus, 0, len(statuses))
 	for _, status := range statuses {
-		if !runEnded(status.Status) {
-			continue
+		if runEnded(status.Status) {
+			ended = append(ended, status)
 		}
-		if status.Status.IsSuccess() || count == serviceDAGFailureStreakLimit {
+	}
+
+	latestWorkspace, _ := workspace.WorkspaceNameFromLabels(ir.NewLabels(latest.Labels))
+	var history serviceDAGHistory
+	for _, status := range ended {
+		if status.Status.IsSuccess() || history.failures == serviceDAGFailureStreakLimit {
 			break
 		}
 		if name, _ := workspace.WorkspaceNameFromLabels(ir.NewLabels(status.Labels)); name != latestWorkspace {
@@ -180,13 +208,16 @@ func (a *API) failureStreak(ctx context.Context, dag *ir.DAG, latest ir.DAGRunSt
 		if stopped, err := scheduler.IsStopRequested(ctx, a.dagRunRepository, dag, status.DAGRunID); err == nil && stopped {
 			break
 		}
-		count++
+		history.failures++
 	}
-	// A cancelled read skips runs, so its count is not kept.
+	if runEnded(latest.Status) {
+		history.nextRestart, _ = scheduler.NextRestart(dag.RestartWait, ended)
+	}
+	// A cancelled read skips runs, so its history is not kept.
 	if ctx.Err() == nil {
-		a.serviceDAGFailures.put(dag.Name, latest, count)
+		a.serviceDAGHistories.put(dag.Name, latest, history)
 	}
-	return count
+	return history
 }
 
 // excludedDAGNames returns the DAGs whose runs a list leaves out: the service

@@ -66,22 +66,32 @@ describe('describeServiceDAG', () => {
     });
   });
 
-  it('counts down to the next run after a run ends', () => {
+  it('counts down to the time the scheduler starts the next run', () => {
     const ended = dag({
       state: ServiceDAGState.restarting,
-      latestRun: {
-        dagRunId: 'r1',
-        status: Status.Success,
-        startedAt: '2026-10-20T11:59:50Z',
-        finishedAt: '2026-10-20T11:59:57Z',
-      },
+      nextRestartAt: '2026-10-20T12:00:02Z',
     });
 
     expect(describeServiceDAG(ended, NOW)).toEqual({
-      text: 'Restart in {seconds}s',
-      values: { seconds: 2 },
+      text: 'Restart in {duration}',
+      values: { duration: '2s' },
     });
     expect(describeServiceDAG(ended, NOW + 5000).text).toBe('Restarting…');
+  });
+
+  // The scheduler waits longer for a DAG that keeps failing soon after it
+  // starts than restartWaitSec says.
+  it('counts down the longer wait of a DAG that keeps failing', () => {
+    const crashing = dag({
+      state: ServiceDAGState.failing,
+      consecutiveFailures: 8,
+      nextRestartAt: '2026-10-20T12:04:47Z',
+    });
+
+    expect(describeServiceDAG(crashing, NOW)).toEqual({
+      text: 'Restart in {duration}',
+      values: { duration: '4m 47s' },
+    });
   });
 
   it('says why no run follows', () => {
@@ -139,6 +149,7 @@ describe('ServiceDAGStrip', () => {
           startedAt: '2026-10-20T11:59:50Z',
           finishedAt: '2026-10-20T11:59:58Z',
         },
+        nextRestartAt: '2026-10-20T12:00:03Z',
       }),
       dag({
         fileName: 'my dag',
@@ -195,10 +206,11 @@ describe('ServiceDAGStrip', () => {
     );
   });
 
-  // The server counts a run that waits for a person as running.
+  // A run that waits for a person does nothing until someone acts on it.
   it('says that a service DAG waits for input', () => {
     hook.serviceDAGs = [
       dag({
+        state: ServiceDAGState.waiting,
         latestRun: {
           dagRunId: 'r1',
           status: Status.Waiting,
@@ -211,6 +223,7 @@ describe('ServiceDAGStrip', () => {
 
     const card = screen.getByRole('link', { name: /worker/ });
     expect(card).toHaveTextContent('Waiting for input');
+    expect(card).toHaveTextContent('Waiting');
     expect(card).not.toHaveTextContent('Running');
   });
 

@@ -5,6 +5,7 @@ package scheduler
 
 import (
 	"context"
+	"time"
 
 	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/persis"
@@ -20,6 +21,9 @@ const (
 	ServiceDAGStatePending ServiceDAGState = "pending"
 	// ServiceDAGStateRunning means a run is alive.
 	ServiceDAGStateRunning ServiceDAGState = "running"
+	// ServiceDAGStateWaiting means a run is alive but waits for a person, such
+	// as an approval, and does nothing until someone acts on it.
+	ServiceDAGStateWaiting ServiceDAGState = "waiting"
 	// ServiceDAGStateRestarting means the latest run succeeded, or an operator
 	// stopped the latest run of an always DAG, and the next run is due.
 	ServiceDAGStateRestarting ServiceDAGState = "restarting"
@@ -45,8 +49,10 @@ func DescribeServiceDAG(
 	switch {
 	case latest == nil || latest.DAGRunID == "":
 		return pendingOrSuspended(suspended), nil
-	case latest.Status == ir.Running || latest.Status == ir.Waiting:
-		// Suspending does not stop a run that is alive.
+	// Suspending does not stop a run that is alive.
+	case latest.Status == ir.Waiting:
+		return ServiceDAGStateWaiting, nil
+	case latest.Status == ir.Running:
 		return ServiceDAGStateRunning, nil
 	case latest.Status == ir.NotStarted || latest.Status == ir.Queued:
 		return pendingOrSuspended(suspended), nil
@@ -74,6 +80,29 @@ func DescribeServiceDAG(
 		return ServiceDAGStateRestarting, nil
 	}
 	return ServiceDAGStateFailing, nil
+}
+
+// NextRestart returns when the scheduler starts the next run of a service DAG
+// whose latest run ended, given its ended runs newest first: restart_wait_sec
+// after the end of the latest run, longer while the runs in a row fail soon
+// after they start. ok is false when the end of the latest run is unknown.
+func NextRestart(restartWait time.Duration, ended []ir.DAGRunStatus) (time.Time, bool) {
+	if len(ended) == 0 {
+		return time.Time{}, false
+	}
+	endedAt, ok := retryReferenceTime(&ended[0])
+	if !ok {
+		return time.Time{}, false
+	}
+	failures := 0
+	for i := range ended {
+		if !failedSoonAfterStart(&ended[i]) {
+			break
+		}
+		failures++
+	}
+	// The end is stored to the second, as the scanner allows for.
+	return endedAt.Add(time.Second + backoffWait(restartWait, failures)), true
 }
 
 // IsStopRequested reports whether an operator asked to stop a run: a stop from

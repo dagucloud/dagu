@@ -51,7 +51,7 @@ function ServiceDAGQueueCard({
           dag={dag}
           className="min-w-0 truncate text-sm text-muted-foreground"
         />
-        <ServiceDAGStateBadge dag={dag} />
+        <ServiceDAGStateBadge state={dag.state} />
       </div>
     </Link>
   );

@@ -50,7 +50,7 @@ function ServiceDAGCard({
             className="block truncate text-[11px] text-destructive"
           />
         </span>
-        <ServiceDAGStateBadge dag={dag} />
+        <ServiceDAGStateBadge state={dag.state} />
       </Link>
       {onToggle && (
         <button

@@ -6,7 +6,6 @@ import { describe, expect, it, vi } from 'vitest';
 import {
   RestartPolicy,
   ServiceDAGState,
-  Status,
   type components,
 } from '@/api/v1/schema';
 import { useServiceDAGs } from '../useServiceDAGs';
@@ -56,7 +55,7 @@ describe('useServiceDAGs', () => {
       dag('b', { state: ServiceDAGState.failing }),
       dag('c'),
       dag('d', { consecutiveFailures: 2 }),
-      dag('e', { latestRun: { dagRunId: 'e-1', status: Status.Waiting } }),
+      dag('e', { state: ServiceDAGState.waiting }),
     ];
 
     const { result } = renderHook(() => useServiceDAGs());

@@ -184,6 +184,38 @@ func TestListServiceDAGs(t *testing.T) {
 	assert.Equal(t, api.ServiceDAGsResponse(list), sseData)
 }
 
+// A DAG whose runs keep failing soon after they start restarts later and
+// later, so the list says when the next run starts, as the scheduler decides.
+func TestListServiceDAGsReportsWhenTheNextRunStarts(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	helper := test.Setup(t, test.WithStatusPersistence())
+	dir := helper.Config.Paths.DAGsDir
+	for _, name := range []string{"svc-crashing", "svc-live"} {
+		helper.CreateDAGFile(t, dir, name, []byte(serviceDAGSpec))
+	}
+	// Each run ends as it starts, so each one failed soon after it started.
+	end := time.Now().Add(-time.Minute).Truncate(time.Second).UTC()
+	for i, id := range []string{"crash-1", "crash-2", "crash-3"} {
+		seedRunAt(t, helper, "svc-crashing", id, ir.Failed, ir.TriggerTypeRestart, end.Add(time.Duration(i-2)*time.Minute))
+	}
+	seedRun(t, helper, "svc-live", "run-live", ir.Running, ir.TriggerTypeRestart)
+
+	resp, err := newServiceDAGAPI(helper).ListServiceDAGs(ctx, api.ListServiceDAGsRequestObject{})
+	require.NoError(t, err)
+	list, ok := resp.(api.ListServiceDAGs200JSONResponse)
+	require.True(t, ok, "expected 200 response, got %T", resp)
+
+	next := make(map[string]*time.Time, len(list.Dags))
+	for _, dag := range list.Dags {
+		next[dag.FileName] = dag.NextRestartAt
+	}
+	// restart_wait_sec is 5, doubled twice, and the end is stored to the second.
+	require.NotNil(t, next["svc-crashing"])
+	assert.Equal(t, end.Add(21*time.Second), next["svc-crashing"].UTC())
+	assert.Nil(t, next["svc-live"], "a run that is alive has no restart time")
+}
+
 // A DAG that sets no queue runs in a queue named after it, so a client can
 // tell which queue belongs to the DAG.
 func TestListServiceDAGsReportsTheQueueOfEachDAG(t *testing.T) {

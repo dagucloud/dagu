@@ -3,6 +3,7 @@
 
 import {
   type DAGRunActivityQueueBlockedReason,
+  ServiceDAGState,
   Status,
   type components,
 } from '@/api/v1/schema';
@@ -107,11 +108,27 @@ function usualSeconds(runs: ActivityRun[]): Map<string, number> {
   return usual;
 }
 
+/** The latest run of a service DAG, as a run of the activity. */
+function serviceDAGRun(dag: ServiceDAG): ActivityRun | undefined {
+  const run = dag.latestRun;
+  if (!run) return undefined;
+  const startedAt = run.startedAt ? Date.parse(run.startedAt) : NaN;
+  return {
+    name: dag.name,
+    dagRunId: run.dagRunId,
+    status: run.status,
+    startedAt: Number.isNaN(startedAt)
+      ? undefined
+      : Math.floor(startedAt / 1000),
+  };
+}
+
 /**
  * Lists what needs a person: workflows whose latest run did not succeed,
  * runs waiting for input, and runs taking much longer than the loaded runs
  * of their workflow usually take. The activity leaves out the runs of service
- * DAGs, so their runs that wait for input come from the service DAG list.
+ * DAGs, so the service DAGs that wait for input come from the service DAG
+ * list.
  */
 export function attentionItems(
   activity: DAGRunActivity,
@@ -129,21 +146,11 @@ export function attentionItems(
     .filter((run) => run.status === Status.Waiting)
     .map<AttentionItem>((run) => ({ kind: 'waiting', name: run.name, run }));
   for (const dag of serviceDAGs) {
-    const run = dag.latestRun;
-    if (run?.status !== Status.Waiting) continue;
-    const startedAt = run.startedAt ? Date.parse(run.startedAt) : NaN;
-    waiting.push({
-      kind: 'waiting',
-      name: dag.name,
-      run: {
-        name: dag.name,
-        dagRunId: run.dagRunId,
-        status: run.status,
-        startedAt: Number.isNaN(startedAt)
-          ? undefined
-          : Math.floor(startedAt / 1000),
-      },
-    });
+    const run = serviceDAGRun(dag);
+    if (!run) continue;
+    if (dag.state === ServiceDAGState.waiting) {
+      waiting.push({ kind: 'waiting', name: dag.name, run });
+    }
   }
 
   const usual = usualSeconds(runs);

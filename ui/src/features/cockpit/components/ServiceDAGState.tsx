@@ -2,11 +2,11 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 import React from 'react';
-import { components, ServiceDAGState, Status } from '@/api/v1/schema';
+import { components, ServiceDAGState } from '@/api/v1/schema';
 import { Badge } from '@/components/ui/badge';
 import Ticker from '@/components/ui/ticker';
 import { formatElapsed } from '@/lib/dagRunTiming';
-import { runStatusText } from '@/lib/status-utils';
+import { formatDurationMs } from '@/lib/formatDuration';
 import { useI18n } from '@/i18n/I18nProvider';
 
 type ServiceDAG = components['schemas']['ServiceDAG'];
@@ -15,6 +15,7 @@ type BadgeVariant = React.ComponentProps<typeof Badge>['variant'];
 const STATE_LABEL: Record<ServiceDAGState, string> = {
   [ServiceDAGState.pending]: 'Pending',
   [ServiceDAGState.running]: 'Running',
+  [ServiceDAGState.waiting]: 'Waiting',
   [ServiceDAGState.restarting]: 'Restarting',
   [ServiceDAGState.failing]: 'Failing',
   [ServiceDAGState.suspended]: 'Suspended',
@@ -24,19 +25,12 @@ const STATE_LABEL: Record<ServiceDAGState, string> = {
 const STATE_VARIANT: Record<ServiceDAGState, BadgeVariant> = {
   [ServiceDAGState.pending]: 'default',
   [ServiceDAGState.running]: 'running',
+  [ServiceDAGState.waiting]: 'warning',
   [ServiceDAGState.restarting]: 'success',
   [ServiceDAGState.failing]: 'error',
   [ServiceDAGState.suspended]: 'warning',
   [ServiceDAGState.stopped]: 'default',
 };
-
-/**
- * Whether the run of a service DAG waits for a person. The server counts such a
- * run as running, but it does nothing until someone acts on it.
- */
-export function isWaitingForInput(dag: ServiceDAG): boolean {
-  return dag.latestRun?.status === Status.Waiting;
-}
 
 /**
  * What a service DAG does right now, as a source string for the catalog and its
@@ -47,13 +41,8 @@ export function describeServiceDAG(
   dag: ServiceDAG,
   now: number
 ): { text: string; values?: Record<string, string | number> } {
-  const finishedAt = dag.latestRun?.finishedAt
-    ? Date.parse(dag.latestRun.finishedAt)
-    : NaN;
-
   switch (dag.state) {
     case ServiceDAGState.running: {
-      if (isWaitingForInput(dag)) return { text: 'Waiting for input' };
       const duration = formatElapsed(dag.latestRun?.startedAt, undefined, {
         live: true,
         now,
@@ -62,14 +51,21 @@ export function describeServiceDAG(
         ? { text: 'Up for {duration}', values: { duration } }
         : { text: 'Running' };
     }
+    case ServiceDAGState.waiting:
+      return { text: 'Waiting for input' };
     case ServiceDAGState.restarting:
     case ServiceDAGState.failing: {
-      if (Number.isNaN(finishedAt)) return { text: 'Restarting…' };
-      const remaining = Math.ceil(
-        (finishedAt + dag.restartWaitSec * 1000 - now) / 1000
-      );
+      // The server knows how long the scheduler backs off a DAG that keeps
+      // failing; restartWaitSec alone would end the count too early.
+      const nextRestart = dag.nextRestartAt
+        ? Date.parse(dag.nextRestartAt)
+        : NaN;
+      const remaining = Math.ceil((nextRestart - now) / 1000);
       return remaining > 0
-        ? { text: 'Restart in {seconds}s', values: { seconds: remaining } }
+        ? {
+            text: 'Restart in {duration}',
+            values: { duration: formatDurationMs(remaining * 1000) },
+          }
         : { text: 'Restarting…' };
     }
     case ServiceDAGState.stopped:
@@ -83,19 +79,12 @@ export function describeServiceDAG(
 
 /** The state of a service DAG as a badge. */
 export function ServiceDAGStateBadge({
-  dag,
+  state,
 }: {
-  dag: ServiceDAG;
+  state: ServiceDAGState;
 }): React.ReactElement {
   const { ts } = useI18n();
-  if (isWaitingForInput(dag)) {
-    return <Badge variant="warning">{ts(runStatusText(Status.Waiting))}</Badge>;
-  }
-  return (
-    <Badge variant={STATE_VARIANT[dag.state]}>
-      {ts(STATE_LABEL[dag.state])}
-    </Badge>
-  );
+  return <Badge variant={STATE_VARIANT[state]}>{ts(STATE_LABEL[state])}</Badge>;
 }
 
 /** What a service DAG does right now, kept current by the local clock. */
