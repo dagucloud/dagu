@@ -1,7 +1,7 @@
 // Copyright (C) 2026 Yota Hamada
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-import { Plus, Trash2 } from 'lucide-react';
+import { Plus, SlidersHorizontal, Trash2 } from 'lucide-react';
 import { useState, type ReactElement, type ReactNode } from 'react';
 import type { components, UpcomingRunsHold } from '@/api/v1/schema';
 import { Button } from '@/components/ui/button';
@@ -18,6 +18,7 @@ import type { ScheduleView } from '../doc';
 import { LAUNCHER_ICONS, LAUNCHER_LABELS } from './LauncherNode';
 import type { LauncherId } from './model';
 import { nextRuns, SCHEDULE_PRESETS } from './nextRuns';
+import { ScheduleBuilder, ScheduleSummary } from './ScheduleBuilder';
 import { UpcomingRuns } from './UpcomingRuns';
 
 type Schedule = components['schemas']['Schedule'];
@@ -104,6 +105,34 @@ export function ManualLauncherPanel({
   );
 }
 
+/** The next fire times of an expression, as the browser computes them. */
+function NextRunsPreview({ expression }: { expression: string }): ReactElement {
+  const { ts } = useI18n();
+  const { tz } = useConfig();
+  const runs = nextRuns(expression, 3, new Date(), tz);
+  if (!runs) {
+    return (
+      <p className="text-xs text-muted-foreground">
+        {ts('No preview for this expression')}
+      </p>
+    );
+  }
+  return (
+    <p
+      className="text-xs text-muted-foreground"
+      data-testid="ve-launcher-next-runs"
+    >
+      {ts('Next runs:')}{' '}
+      {runs
+        .map(
+          (run) =>
+            formatAbsoluteTime(run.toISOString(), { seconds: false }) ?? '-'
+        )
+        .join(', ')}
+    </p>
+  );
+}
+
 function ExpressionRow({
   expression,
   editable,
@@ -120,9 +149,15 @@ function ExpressionRow({
   onRemove(): void;
 }): ReactElement {
   const { ts } = useI18n();
-  const { tz } = useConfig();
   const [draft, setDraft] = useState(expression);
-  const runs = nextRuns(draft.trim(), 3, new Date(), tz);
+  const [formOpen, setFormOpen] = useState(false);
+  // The row stays mounted when its expression changes, so that an edit in
+  // the form keeps the form open. A new expression replaces the draft.
+  const [shown, setShown] = useState(expression);
+  if (shown !== expression) {
+    setShown(expression);
+    setDraft(expression);
+  }
   const previewed = !serverPreview || draft.trim() !== expression;
   const commit = () => {
     const next = draft.trim();
@@ -152,6 +187,19 @@ function ExpressionRow({
             type="button"
             variant="ghost"
             size="icon-sm"
+            aria-label={ts('Edit with the form')}
+            title={ts('Edit with the form')}
+            aria-expanded={formOpen}
+            onClick={() => setFormOpen((open) => !open)}
+          >
+            <SlidersHorizontal className="h-4 w-4" aria-hidden="true" />
+          </Button>
+        )}
+        {editable && (
+          <Button
+            type="button"
+            variant="ghost"
+            size="icon-sm"
             aria-label={ts('Remove this expression')}
             title={ts('Remove this expression')}
             onClick={onRemove}
@@ -160,24 +208,16 @@ function ExpressionRow({
           </Button>
         )}
       </div>
-      {!previewed ? null : runs ? (
-        <p
-          className="text-xs text-muted-foreground"
-          data-testid="ve-launcher-next-runs"
-        >
-          {ts('Next runs:')}{' '}
-          {runs
-            .map(
-              (run) =>
-                formatAbsoluteTime(run.toISOString(), { seconds: false }) ?? '-'
-            )
-            .join(', ')}
-        </p>
-      ) : (
-        <p className="text-xs text-muted-foreground">
-          {ts('No preview for this expression')}
-        </p>
+      {editable && formOpen && (
+        <ScheduleBuilder
+          expression={draft}
+          onChange={(next) => {
+            if (next === expression || onCommit(next)) setDraft(next);
+          }}
+        />
       )}
+      <ScheduleSummary expression={draft} />
+      {previewed && <NextRunsPreview expression={draft.trim()} />}
     </li>
   );
 }
@@ -231,7 +271,7 @@ export function CronLauncherPanel({
         <ul className="space-y-3" aria-label={ts('Cron expressions')}>
           {expressions.map((expression, index) => (
             <ExpressionRow
-              key={`${expression}-${index}`}
+              key={index}
               expression={expression}
               editable={editable}
               serverPreview={upcomingRuns !== undefined}
@@ -264,6 +304,7 @@ export function CronLauncherPanel({
       )}
       {editable && (
         <section className="space-y-2" aria-label={ts('Add an expression')}>
+          <ScheduleBuilder expression={added} onChange={setAdded} />
           <div className="flex items-center gap-2">
             <input
               type="text"
@@ -290,6 +331,12 @@ export function CronLauncherPanel({
               {ts('Add')}
             </Button>
           </div>
+          {added.trim() !== '' && (
+            <>
+              <ScheduleSummary expression={added} />
+              <NextRunsPreview expression={added.trim()} />
+            </>
+          )}
           <div className="flex flex-wrap gap-1.5">
             {SCHEDULE_PRESETS.map((preset) => (
               <button

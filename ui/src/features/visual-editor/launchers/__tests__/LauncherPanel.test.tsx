@@ -1,7 +1,8 @@
 // Copyright (C) 2026 Yota Hamada
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-import { fireEvent, render, screen } from '@testing-library/react';
+import { fireEvent, render, screen, within } from '@testing-library/react';
+import { useState, type ReactElement } from 'react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { ScheduleKind } from '@/api/v1/schema';
 import { formatAbsoluteTime } from '@/lib/dagRunTiming';
@@ -105,6 +106,146 @@ describe('CronLauncherPanel', () => {
     ].map((iso) => formatAbsoluteTime(iso, { seconds: false }));
     expect(screen.getByTestId('ve-launcher-next-runs')).toHaveTextContent(
       `Next runs: ${runs.join(', ')}`
+    );
+  });
+
+  // The form is the way to a schedule without cron syntax: its controls
+  // write the expression that the Add button saves.
+  it('builds each kind of schedule in the form', () => {
+    const onChange = vi.fn();
+    renderPanel([], onChange);
+    const frequency = () => screen.getByLabelText('Frequency');
+    const added = screen.getByLabelText('New cron expression');
+
+    fireEvent.change(frequency(), { target: { value: 'minutes' } });
+    fireEvent.change(screen.getByLabelText('Minutes between runs'), {
+      target: { value: '10' },
+    });
+    expect(added).toHaveValue('*/10 * * * *');
+
+    fireEvent.change(frequency(), { target: { value: 'hourly' } });
+    fireEvent.change(screen.getByLabelText('Minute of the hour'), {
+      target: { value: '30' },
+    });
+    expect(added).toHaveValue('30 * * * *');
+
+    fireEvent.change(frequency(), { target: { value: 'daily' } });
+    fireEvent.change(screen.getByLabelText('Time of day'), {
+      target: { value: '18:30' },
+    });
+    expect(added).toHaveValue('30 18 * * *');
+
+    fireEvent.change(frequency(), { target: { value: 'weekly' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Wednesday' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Friday' }));
+    expect(added).toHaveValue('30 18 * * 1,3,5');
+    expect(screen.getByTestId('ve-schedule-summary')).toHaveTextContent(
+      'Every week on Mon, Wed, Fri at 18:30'
+    );
+
+    fireEvent.change(frequency(), { target: { value: 'monthly' } });
+    fireEvent.change(screen.getByLabelText('Day of the month'), {
+      target: { value: '31' },
+    });
+    expect(added).toHaveValue('30 18 31 * *');
+    expect(
+      screen.getByText('A month without day 31 has no run.')
+    ).toBeInTheDocument();
+    expect(
+      screen.getByText(
+        `Times are in the time zone of the scheduler (${SCHEDULER_TZ}).`
+      )
+    ).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Add' }));
+    expect(onChange).toHaveBeenCalledExactlyOnceWith(['30 18 31 * *']);
+  });
+
+  it('keeps the last day of a weekly schedule', () => {
+    renderPanel([]);
+    fireEvent.change(screen.getByLabelText('Frequency'), {
+      target: { value: 'weekly' },
+    });
+    expect(screen.getByRole('button', { name: 'Monday' })).toBeDisabled();
+  });
+
+  it('shows in the form an expression typed in the field', () => {
+    renderPanel([]);
+    fireEvent.change(screen.getByLabelText('New cron expression'), {
+      target: { value: '0 9 * * MON-FRI' },
+    });
+    expect(screen.getByLabelText('Frequency')).toHaveValue('weekly');
+    expect(screen.getByLabelText('Time of day')).toHaveValue('09:00');
+    expect(screen.getByRole('button', { name: 'Friday' })).toHaveAttribute(
+      'aria-pressed',
+      'true'
+    );
+    expect(screen.getByRole('button', { name: 'Saturday' })).toHaveAttribute(
+      'aria-pressed',
+      'false'
+    );
+  });
+
+  // Opening the form of a row reads the expression and writes nothing. An
+  // expression outside the form stays until a frequency replaces it.
+  it('leaves an expression unchanged until the form is edited', () => {
+    const onChange = vi.fn();
+    renderPanel(['CRON_TZ=Asia/Tokyo 0 9 * * *', '0 9 * * MON-FRI'], onChange);
+    const rows = within(screen.getByLabelText('Cron expressions')).getAllByRole(
+      'listitem'
+    );
+    const custom = within(rows[0]!);
+    const weekdays = within(rows[1]!);
+
+    fireEvent.click(custom.getByRole('button', { name: 'Edit with the form' }));
+    expect(custom.getByLabelText('Frequency')).toHaveDisplayValue(
+      'Custom expression'
+    );
+    expect(custom.queryByTestId('ve-schedule-summary')).toBeNull();
+
+    fireEvent.click(
+      weekdays.getByRole('button', { name: 'Edit with the form' })
+    );
+    expect(weekdays.getByLabelText('Frequency')).toHaveValue('weekly');
+    expect(weekdays.getByLabelText('Cron expression')).toHaveValue(
+      '0 9 * * MON-FRI'
+    );
+    expect(onChange).not.toHaveBeenCalled();
+
+    fireEvent.click(weekdays.getByRole('button', { name: 'Saturday' }));
+    expect(onChange).toHaveBeenCalledExactlyOnceWith([
+      'CRON_TZ=Asia/Tokyo 0 9 * * *',
+      '0 9 * * 1-6',
+    ]);
+  });
+
+  // An edit in the form of a row is saved at once, and the form stays open
+  // for the next one.
+  it('keeps the form of a row open across its edits', () => {
+    function Panel(): ReactElement {
+      const [expressions, setExpressions] = useState(['0 9 * * *']);
+      return (
+        <CronLauncherPanel
+          schedule={{ present: true, expressions, others: 0 }}
+          editable
+          onChange={setExpressions}
+          onClose={() => undefined}
+        />
+      );
+    }
+    render(<Panel />);
+    const row = within(screen.getByLabelText('Cron expressions'));
+    fireEvent.click(row.getByRole('button', { name: 'Edit with the form' }));
+    fireEvent.change(row.getByLabelText('Time of day'), {
+      target: { value: '10:15' },
+    });
+    expect(row.getByLabelText('Cron expression')).toHaveValue('15 10 * * *');
+    fireEvent.change(row.getByLabelText('Frequency'), {
+      target: { value: 'monthly' },
+    });
+    expect(row.getByLabelText('Cron expression')).toHaveValue('15 10 1 * *');
+    expect(row.getByTestId('ve-schedule-summary')).toHaveTextContent(
+      'Every month on day 1 at 10:15'
     );
   });
 });
