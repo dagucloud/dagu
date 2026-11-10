@@ -7669,6 +7669,8 @@ export interface components {
             restartPolicy: components["schemas"]["RestartPolicy"];
             /** @description Seconds the scheduler waits after a run ends before it starts the next one. */
             restartWaitSec: number;
+            /** @description Queue that the runs of the DAG enter: the queue the DAG sets, or its name when it sets none. */
+            queue: string;
             state: components["schemas"]["ServiceDAGState"];
             /** @description Whether the DAG is suspended */
             suspended: boolean;

@@ -37,6 +37,7 @@ const dag: components['schemas']['ServiceDAG'] = {
   name: 'worker',
   restartPolicy: RestartPolicy.always,
   restartWaitSec: 5,
+  queue: 'worker',
   state: ServiceDAGState.running,
   suspended: false,
   consecutiveFailures: 0,
@@ -114,6 +115,16 @@ describe('QueueList service DAGs', () => {
 
     expect(screen.queryByRole('region', { name: 'Service DAGs' })).toBeNull();
     expect(screen.queryByRole('heading', { name: 'Queues' })).toBeNull();
+  });
+
+  // Its runs enter the shared queue, so no queue is named after the DAG.
+  it('draws no queue for a service DAG that sets another queue', () => {
+    renderList([queue('services')], [{ ...dag, queue: 'services' }]);
+
+    expect(screen.queryByRole('link', { name: /worker/ })).toBeNull();
+    expect(screen.getByRole('link', { name: /services/ })).toHaveTextContent(
+      'Capacity'
+    );
   });
 
   it('keeps a global queue that shares its name with a service DAG', () => {

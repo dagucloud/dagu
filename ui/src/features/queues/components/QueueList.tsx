@@ -6,7 +6,7 @@ import { EmptyState } from '@/components/PageStates';
 import React from 'react';
 import { QueueType, type components } from '../../../api/v1/schema';
 import QueueCard from './QueueCard';
-import { idleServiceDAGQueue } from '../lib/idleServiceDAGQueue';
+import { idleServiceDAGQueue, ownsQueue } from '../lib/idleServiceDAGQueue';
 import { I18nText } from '@/i18n/I18nText';
 import { useI18n } from '@/i18n/I18nProvider';
 
@@ -19,10 +19,8 @@ interface QueueListProps {
 
 function QueueList({ queues, isLoading, serviceDAGs = [] }: QueueListProps) {
   const { ts } = useI18n();
-  // A DAG without a queue of its own uses a queue named after it.
-  const serviceDAGByQueue = new Map(
-    serviceDAGs.map((dag) => [dag.name, dag])
-  );
+  const queueOwners = serviceDAGs.filter(ownsQueue);
+  const serviceDAGByQueue = new Map(queueOwners.map((dag) => [dag.name, dag]));
   if (isLoading) {
     return (
       <div className="flex h-32 items-center justify-center">
@@ -34,7 +32,7 @@ function QueueList({ queues, isLoading, serviceDAGs = [] }: QueueListProps) {
     );
   }
 
-  if (queues.length === 0 && serviceDAGs.length === 0) {
+  if (queues.length === 0 && queueOwners.length === 0) {
     return (
       <EmptyState
         icon={<Layers />}
@@ -57,7 +55,7 @@ function QueueList({ queues, isLoading, serviceDAGs = [] }: QueueListProps) {
   // The server lists a DAG queue only while a run is alive or waiting, so an
   // service DAG between two runs has no queue in the list. Its card stays,
   // drawn as an idle queue, unless a global queue of the same name is its queue.
-  const serviceDAGQueues = serviceDAGs.flatMap((dag) => {
+  const serviceDAGQueues = queueOwners.flatMap((dag) => {
     const own = queues.find((queue) => queue.name === dag.name);
     if (!own) return [idleServiceDAGQueue(dag.name)];
     return own.type === QueueType.dag_based ? [own] : [];

@@ -107,6 +107,7 @@ vi.mock('@/features/cockpit/hooks/useServiceDAGs', () => ({
       name: `dag-${index}`,
       restartPolicy: 'always',
       restartWaitSec: 5,
+      queue: `dag-${index}`,
       state: 'running',
       suspended: false,
       consecutiveFailures: 0,

@@ -18727,6 +18727,9 @@ components:
         restartWaitSec:
           type: integer
           description: "Seconds the scheduler waits after a run ends before it starts the next one."
+        queue:
+          type: string
+          description: "Queue that the runs of the DAG enter: the queue the DAG sets, or its name when it sets none."
         state:
           $ref: "#/components/schemas/ServiceDAGState"
         suspended:
@@ -18747,6 +18750,7 @@ components:
         - name
         - restartPolicy
         - restartWaitSec
+        - queue
         - state
         - suspended
         - consecutiveFailures

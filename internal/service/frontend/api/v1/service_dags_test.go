@@ -184,6 +184,28 @@ func TestListServiceDAGs(t *testing.T) {
 	assert.Equal(t, api.ServiceDAGsResponse(list), sseData)
 }
 
+// A DAG that sets no queue runs in a queue named after it, so a client can
+// tell which queue belongs to the DAG.
+func TestListServiceDAGsReportsTheQueueOfEachDAG(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	helper := test.Setup(t, test.WithStatusPersistence())
+	dir := helper.Config.Paths.DAGsDir
+	helper.CreateDAGFile(t, dir, "svc-own", []byte(serviceDAGSpec))
+	helper.CreateDAGFile(t, dir, "svc-shared", []byte("queue: services\n"+serviceDAGSpec))
+
+	resp, err := newServiceDAGAPI(helper).ListServiceDAGs(ctx, api.ListServiceDAGsRequestObject{})
+	require.NoError(t, err)
+	list, ok := resp.(api.ListServiceDAGs200JSONResponse)
+	require.True(t, ok, "expected 200 response, got %T", resp)
+
+	queues := make(map[string]string, len(list.Dags))
+	for _, dag := range list.Dags {
+		queues[dag.FileName] = dag.Queue
+	}
+	assert.Equal(t, map[string]string{"svc-own": "svc-own", "svc-shared": "services"}, queues)
+}
+
 // A latest run that cannot be read is not a DAG without a run: the scheduler
 // starts nothing after it, so the list reports the error and does not say that a
 // first run is coming.

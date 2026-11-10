@@ -32,7 +32,10 @@ import {
   ServiceDAGStateBadge,
   ServiceDAGStatusText,
 } from '@/features/cockpit/components/ServiceDAGState';
-import { idleServiceDAGQueue } from '@/features/queues/lib/idleServiceDAGQueue';
+import {
+  idleServiceDAGQueue,
+  ownsQueue,
+} from '@/features/queues/lib/idleServiceDAGQueue';
 import { useServiceDAGs } from '@/features/cockpit/hooks/useServiceDAGs';
 import { formatQueuedCount } from '@/features/queues/components/QueueCard';
 import QueueRunsTable from '@/features/queues/components/QueueRunsTable';
@@ -142,16 +145,19 @@ function QueueDetailsPage() {
     }
   );
 
-  // A DAG without a queue of its own uses a queue named after it. A global
-  // queue that has the same name does not belong to the DAG. The server lists a
-  // DAG queue only while a run is alive or waiting, so for a service DAG that
-  // is between two runs the queue is missing, and the page shows it as idle.
+  // A global queue that has the name of a service DAG does not belong to it.
+  // The server lists a DAG queue only while a run is alive or waiting, so for a
+  // service DAG that is between two runs the queue is missing, and the page
+  // shows it as idle.
+  const owner = serviceDAGs.find(
+    (candidate) => ownsQueue(candidate) && candidate.name === queueName
+  );
   const dag = fetchedQueue
     ? fetchedQueue.type === QueueType.dag_based
-      ? serviceDAGs.find((candidate) => candidate.name === queueName)
+      ? owner
       : undefined
     : error && isNotFoundQueryError(error)
-      ? serviceDAGs.find((candidate) => candidate.name === queueName)
+      ? owner
       : undefined;
   const queue =
     fetchedQueue ?? (dag ? idleServiceDAGQueue(dag.name) : undefined);

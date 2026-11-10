@@ -38,6 +38,7 @@ function dag(name: string, overrides: Partial<ServiceDAG> = {}): ServiceDAG {
     name,
     restartPolicy: RestartPolicy.always,
     restartWaitSec: 5,
+    queue: name,
     state: ServiceDAGState.running,
     suspended: false,
     consecutiveFailures: 0,

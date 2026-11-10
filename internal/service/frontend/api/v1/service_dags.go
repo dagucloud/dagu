@@ -97,6 +97,7 @@ func (a *API) listServiceDAGs(ctx context.Context, filter *workspace.WorkspaceFi
 			Name:           item.Name,
 			RestartPolicy:  api.RestartPolicy(item.RestartPolicy),
 			RestartWaitSec: int(item.RestartWait.Seconds()),
+			Queue:          item.ProcGroup(),
 			State:          api.ServiceDAGState(state),
 			Suspended:      item.Suspended,
 			LatestRun:      toServiceDAGRun(latest),

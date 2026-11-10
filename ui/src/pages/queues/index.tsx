@@ -127,6 +127,12 @@ function Queues() {
       })
       .sort((a, b) => a.name.localeCompare(b.name));
   }, [data?.queues, searchText]);
+  const filteredServiceDAGs = React.useMemo(() => {
+    const search = searchText.toLowerCase();
+    return serviceDAGs.filter((dag) =>
+      dag.queue.toLowerCase().includes(search)
+    );
+  }, [serviceDAGs, searchText]);
 
   if (error) {
     const errorData = error as components['schemas']['Error'];
@@ -184,7 +190,7 @@ function Queues() {
         <QueueList
           queues={filteredQueues}
           isLoading={isLoading && !data}
-          serviceDAGs={serviceDAGs}
+          serviceDAGs={filteredServiceDAGs}
         />
       </div>
     </div>

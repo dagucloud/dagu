@@ -135,6 +135,7 @@ describe('QueueDetailsPage', () => {
         name: 'running-heavy-q',
         restartPolicy: 'always',
         restartWaitSec: 5,
+        queue: 'running-heavy-q',
         state: 'failing',
         suspended: false,
         consecutiveFailures: 0,
@@ -155,6 +156,7 @@ describe('QueueDetailsPage', () => {
         name: 'running-heavy-q',
         restartPolicy: 'always',
         restartWaitSec: 5,
+        queue: 'running-heavy-q',
         state: 'failing',
         suspended: false,
         consecutiveFailures: 0,
@@ -181,6 +183,7 @@ describe('QueueDetailsPage', () => {
         name: 'running-heavy-q',
         restartPolicy: 'always',
         restartWaitSec: 5,
+        queue: 'running-heavy-q',
         state: 'restarting',
         suspended: false,
         consecutiveFailures: 0,
@@ -193,6 +196,26 @@ describe('QueueDetailsPage', () => {
     expect(
       await screen.findByRole('link', { name: /Restarting/ })
     ).toHaveAttribute('href', '/dags/running-heavy-q');
+  });
+
+  // A DAG that sets another queue runs there, so no queue is named after it.
+  it('says that the queue is not found when its service DAG sets another queue', () => {
+    serviceDAGs.current = [
+      {
+        fileName: 'running-heavy-q',
+        name: 'running-heavy-q',
+        restartPolicy: 'always',
+        restartWaitSec: 5,
+        queue: 'services',
+        state: 'restarting',
+        suspended: false,
+        consecutiveFailures: 0,
+      },
+    ];
+
+    renderPage(cappedZeroQueue, { missing: true });
+
+    expect(screen.getByText('Queue not found')).toBeInTheDocument();
   });
 
   it('says that the queue is not found when no service DAG owns it', () => {
