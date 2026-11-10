@@ -31,7 +31,7 @@ const MINUTES_OF_HOUR = Array.from({ length: 60 }, (_, minute) => minute);
 const DAYS_OF_MONTH = Array.from({ length: 31 }, (_, index) => index + 1);
 
 const CONTROL_CLASS =
-  'h-8 min-w-0 rounded-md border border-input bg-background px-2 text-sm text-foreground outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50';
+  'h-7 min-w-0 rounded-md border border-input bg-background px-2 text-xs text-foreground outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50';
 
 const twoDigits = (value: number): string => String(value).padStart(2, '0');
 

@@ -251,6 +251,10 @@ export function CronLauncherPanel({
 }): ReactElement {
   const { ts } = useI18n();
   const [added, setAdded] = useState('');
+  // A row keeps its position as key so that it stays mounted across its
+  // own edits. A removal moves the rows after it to other positions, so it
+  // remounts the rows and their state does not pass to another expression.
+  const [removals, setRemovals] = useState(0);
   const { expressions } = schedule;
   const add = (expression: string) => {
     const next = expression.trim();
@@ -271,7 +275,7 @@ export function CronLauncherPanel({
         <ul className="space-y-3" aria-label={ts('Cron expressions')}>
           {expressions.map((expression, index) => (
             <ExpressionRow
-              key={index}
+              key={`${removals}-${index}`}
               expression={expression}
               editable={editable}
               serverPreview={upcomingRuns !== undefined}
@@ -280,9 +284,10 @@ export function CronLauncherPanel({
                 onChange(expressions.map((e, i) => (i === index ? next : e)));
                 return true;
               }}
-              onRemove={() =>
-                onChange(expressions.filter((_, i) => i !== index))
-              }
+              onRemove={() => {
+                setRemovals((count) => count + 1);
+                onChange(expressions.filter((_, i) => i !== index));
+              }}
             />
           ))}
         </ul>

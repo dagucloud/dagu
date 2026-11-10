@@ -31,6 +31,19 @@ function renderPanel(
   );
 }
 
+/** A panel that keeps the schedule it writes, as the editor does. */
+function StatefulPanel({ initial }: { initial: string[] }): ReactElement {
+  const [expressions, setExpressions] = useState(initial);
+  return (
+    <CronLauncherPanel
+      schedule={{ present: true, expressions, others: 0 }}
+      editable
+      onChange={setExpressions}
+      onClose={() => undefined}
+    />
+  );
+}
+
 describe('CronLauncherPanel', () => {
   afterEach(() => {
     vi.useRealTimers();
@@ -222,18 +235,7 @@ describe('CronLauncherPanel', () => {
   // An edit in the form of a row is saved at once, and the form stays open
   // for the next one.
   it('keeps the form of a row open across its edits', () => {
-    function Panel(): ReactElement {
-      const [expressions, setExpressions] = useState(['0 9 * * *']);
-      return (
-        <CronLauncherPanel
-          schedule={{ present: true, expressions, others: 0 }}
-          editable
-          onChange={setExpressions}
-          onClose={() => undefined}
-        />
-      );
-    }
-    render(<Panel />);
+    render(<StatefulPanel initial={['0 9 * * *']} />);
     const row = within(screen.getByLabelText('Cron expressions'));
     fireEvent.click(row.getByRole('button', { name: 'Edit with the form' }));
     fireEvent.change(row.getByLabelText('Time of day'), {
@@ -247,5 +249,21 @@ describe('CronLauncherPanel', () => {
     expect(row.getByTestId('ve-schedule-summary')).toHaveTextContent(
       'Every month on day 1 at 10:15'
     );
+  });
+
+  // The open form belongs to its expression, not to its place in the list.
+  it('does not open the form of the row that follows a removed row', () => {
+    render(<StatefulPanel initial={['0 9 * * *', '0 18 * * *']} />);
+    const list = within(screen.getByLabelText('Cron expressions'));
+    fireEvent.click(
+      list.getAllByRole('button', { name: 'Edit with the form' })[0]!
+    );
+    expect(list.getByTestId('ve-schedule-builder')).toBeInTheDocument();
+
+    fireEvent.click(
+      list.getAllByRole('button', { name: 'Remove this expression' })[0]!
+    );
+    expect(list.getByLabelText('Cron expression')).toHaveValue('0 18 * * *');
+    expect(list.queryByTestId('ve-schedule-builder')).toBeNull();
   });
 });
