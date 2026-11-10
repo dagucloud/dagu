@@ -87,6 +87,7 @@ function useKanbanBucket(
     toDate: number;
     status: Status[];
     limit: number;
+    excludeServiceDAGRuns?: boolean;
   },
   liveEnabled: boolean,
   fallbackIntervalMs: number
@@ -189,9 +190,11 @@ export function useRangeKanbanData(
     isLive,
     fallbackIntervalMs
   );
+  // A run that waits for a person needs one, whatever DAG it belongs to.
   const review = useKanbanBucket(
     {
       ...baseQuery,
+      excludeServiceDAGRuns: undefined,
       status: [Status.Waiting],
       limit: WAITING_PAGE_LIMIT,
     },

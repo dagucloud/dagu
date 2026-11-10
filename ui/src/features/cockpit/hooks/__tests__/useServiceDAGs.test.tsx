@@ -6,6 +6,7 @@ import { describe, expect, it, vi } from 'vitest';
 import {
   RestartPolicy,
   ServiceDAGState,
+  Status,
   type components,
 } from '@/api/v1/schema';
 import { useServiceDAGs } from '../useServiceDAGs';
@@ -47,14 +48,15 @@ function dag(name: string, overrides: Partial<ServiceDAG> = {}): ServiceDAG {
 }
 
 describe('useServiceDAGs', () => {
-  // The server sorts by name; a DAG that keeps failing must not hide in a
-  // long list.
-  it('puts the failing DAGs first and keeps the order of each group', () => {
+  // The server sorts by name; a DAG that keeps failing or waits for a person
+  // must not hide in a long list.
+  it('puts the DAGs that need a person first and keeps the order of each group', () => {
     response.dags = [
       dag('a'),
       dag('b', { state: ServiceDAGState.failing }),
       dag('c'),
       dag('d', { consecutiveFailures: 2 }),
+      dag('e', { latestRun: { dagRunId: 'e-1', status: Status.Waiting } }),
     ];
 
     const { result } = renderHook(() => useServiceDAGs());
@@ -62,6 +64,7 @@ describe('useServiceDAGs', () => {
     expect(result.current.serviceDAGs.map((d) => d.name)).toEqual([
       'b',
       'd',
+      'e',
       'a',
       'c',
     ]);

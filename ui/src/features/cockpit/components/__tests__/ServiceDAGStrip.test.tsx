@@ -195,6 +195,25 @@ describe('ServiceDAGStrip', () => {
     );
   });
 
+  // The server counts a run that waits for a person as running.
+  it('says that a service DAG waits for input', () => {
+    hook.serviceDAGs = [
+      dag({
+        latestRun: {
+          dagRunId: 'r1',
+          status: Status.Waiting,
+          startedAt: '2026-10-20T11:58:00Z',
+        },
+      }),
+    ];
+
+    renderStrip();
+
+    const card = screen.getByRole('link', { name: /worker/ });
+    expect(card).toHaveTextContent('Waiting for input');
+    expect(card).not.toHaveTextContent('Running');
+  });
+
   it('says why the state of a service DAG cannot be read', () => {
     hook.serviceDAGs = [
       dag({

@@ -335,7 +335,7 @@ function QueueDetailsPage() {
                   to={`/dags/${encodeURIComponent(dag.fileName)}`}
                   className="flex items-center gap-2 rounded-md px-1.5 py-0.5 text-sm text-muted-foreground transition-colors hover:bg-accent/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
                 >
-                  <ServiceDAGStateBadge state={dag.state} />
+                  <ServiceDAGStateBadge dag={dag} />
                   <ServiceDAGStatusText dag={dag} />
                 </Link>
               )}

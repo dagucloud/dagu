@@ -2,10 +2,11 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 import React from 'react';
-import { components, ServiceDAGState } from '@/api/v1/schema';
+import { components, ServiceDAGState, Status } from '@/api/v1/schema';
 import { Badge } from '@/components/ui/badge';
 import Ticker from '@/components/ui/ticker';
 import { formatElapsed } from '@/lib/dagRunTiming';
+import { runStatusText } from '@/lib/status-utils';
 import { useI18n } from '@/i18n/I18nProvider';
 
 type ServiceDAG = components['schemas']['ServiceDAG'];
@@ -30,6 +31,14 @@ const STATE_VARIANT: Record<ServiceDAGState, BadgeVariant> = {
 };
 
 /**
+ * Whether the run of a service DAG waits for a person. The server counts such a
+ * run as running, but it does nothing until someone acts on it.
+ */
+export function isWaitingForInput(dag: ServiceDAG): boolean {
+  return dag.latestRun?.status === Status.Waiting;
+}
+
+/**
  * What a service DAG does right now, as a source string for the catalog and its
  * values. The state comes from the server and does not change while a service DAG
  * keeps running, so the time-based part is computed here from the clock.
@@ -44,6 +53,7 @@ export function describeServiceDAG(
 
   switch (dag.state) {
     case ServiceDAGState.running: {
+      if (isWaitingForInput(dag)) return { text: 'Waiting for input' };
       const duration = formatElapsed(dag.latestRun?.startedAt, undefined, {
         live: true,
         now,
@@ -73,12 +83,19 @@ export function describeServiceDAG(
 
 /** The state of a service DAG as a badge. */
 export function ServiceDAGStateBadge({
-  state,
+  dag,
 }: {
-  state: ServiceDAGState;
+  dag: ServiceDAG;
 }): React.ReactElement {
   const { ts } = useI18n();
-  return <Badge variant={STATE_VARIANT[state]}>{ts(STATE_LABEL[state])}</Badge>;
+  if (isWaitingForInput(dag)) {
+    return <Badge variant="warning">{ts(runStatusText(Status.Waiting))}</Badge>;
+  }
+  return (
+    <Badge variant={STATE_VARIANT[dag.state]}>
+      {ts(STATE_LABEL[dag.state])}
+    </Badge>
+  );
 }
 
 /** What a service DAG does right now, kept current by the local clock. */

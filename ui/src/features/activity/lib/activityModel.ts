@@ -10,6 +10,7 @@ import {
 export type DAGRunActivity = components['schemas']['DAGRunActivity'];
 export type ActivityRun = components['schemas']['DAGRunActivityRun'];
 export type ActivityQueue = components['schemas']['DAGRunActivityQueue'];
+type ServiceDAG = components['schemas']['ServiceDAG'];
 
 /** A time range in Unix seconds. */
 export type TimeRange = { from: number; to: number };
@@ -109,12 +110,14 @@ function usualSeconds(runs: ActivityRun[]): Map<string, number> {
 /**
  * Lists what needs a person: workflows whose latest run did not succeed,
  * runs waiting for input, and runs taking much longer than the loaded runs
- * of their workflow usually take.
+ * of their workflow usually take. The activity leaves out the runs of service
+ * DAGs, so their runs that wait for input come from the service DAG list.
  */
 export function attentionItems(
   activity: DAGRunActivity,
   runs: ActivityRun[],
-  nowSeconds: number
+  nowSeconds: number,
+  serviceDAGs: ServiceDAG[] = []
 ): AttentionItem[] {
   const failing = activity.attention.map<AttentionItem>((run) => ({
     kind: 'failing',
@@ -125,6 +128,23 @@ export function attentionItems(
   const waiting = activity.active
     .filter((run) => run.status === Status.Waiting)
     .map<AttentionItem>((run) => ({ kind: 'waiting', name: run.name, run }));
+  for (const dag of serviceDAGs) {
+    const run = dag.latestRun;
+    if (run?.status !== Status.Waiting) continue;
+    const startedAt = run.startedAt ? Date.parse(run.startedAt) : NaN;
+    waiting.push({
+      kind: 'waiting',
+      name: dag.name,
+      run: {
+        name: dag.name,
+        dagRunId: run.dagRunId,
+        status: run.status,
+        startedAt: Number.isNaN(startedAt)
+          ? undefined
+          : Math.floor(startedAt / 1000),
+      },
+    });
+  }
 
   const usual = usualSeconds(runs);
   const slow: AttentionItem[] = [];

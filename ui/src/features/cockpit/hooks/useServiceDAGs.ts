@@ -8,16 +8,21 @@ import { useQuery } from '@/hooks/api';
 import { sseFallbackOptions, useSSECacheSync } from '@/hooks/useSSECacheSync';
 import { useServiceDAGsSSE } from '@/hooks/useServiceDAGsSSE';
 import { workspaceSelectionQuery } from '@/lib/workspace';
+import { isWaitingForInput } from '../components/ServiceDAGState';
 
 type ServiceDAG = components['schemas']['ServiceDAG'];
 
-function isFailing(dag: ServiceDAG): boolean {
-  return dag.state === ServiceDAGState.failing || dag.consecutiveFailures > 0;
+function needsAttention(dag: ServiceDAG): boolean {
+  return (
+    dag.state === ServiceDAGState.failing ||
+    dag.consecutiveFailures > 0 ||
+    isWaitingForInput(dag)
+  );
 }
 
 /**
- * Lists the DAGs that a restart policy keeps alive, the failing ones first,
- * each group in the server's order. The live stream carries
+ * Lists the DAGs that a restart policy keeps alive, first the ones that fail or
+ * wait for a person, each group in the server's order. The live stream carries
  * the list itself and sends it again only when a state changes, so a service DAG
  * that keeps running costs no traffic.
  */
@@ -41,7 +46,7 @@ export function useServiceDAGs(): {
   const serviceDAGs = useMemo(
     () =>
       [...(data?.dags ?? [])].sort(
-        (a, b) => Number(isFailing(b)) - Number(isFailing(a))
+        (a, b) => Number(needsAttention(b)) - Number(needsAttention(a))
       ),
     [data]
   );

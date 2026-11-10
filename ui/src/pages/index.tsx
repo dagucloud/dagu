@@ -248,6 +248,10 @@ function Dashboard(): React.ReactElement {
       filteredRuns: runs.filter((run) => matches(run.name)),
     };
   }, [activity, runs, filter]);
+  const filteredServiceDAGs = React.useMemo(() => {
+    const query = filter.trim().toLowerCase();
+    return serviceDAGs.filter((dag) => dag.name.toLowerCase().includes(query));
+  }, [serviceDAGs, filter]);
 
   // The lanes also draw runs still going from before the window, which the
   // window's run list leaves out, so the empty states count them too.
@@ -385,7 +389,8 @@ function Dashboard(): React.ReactElement {
                 items={attentionItems(
                   filteredActivity,
                   filteredRuns,
-                  nowSeconds
+                  nowSeconds,
+                  filteredServiceDAGs
                 )}
                 remoteNode={remoteNode}
                 onChanged={() => void refresh()}

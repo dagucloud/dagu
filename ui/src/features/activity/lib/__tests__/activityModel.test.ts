@@ -2,7 +2,13 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 import { describe, expect, it } from 'vitest';
-import { DAGRunActivityQueueBlockedReason, Status } from '@/api/v1/schema';
+import {
+  DAGRunActivityQueueBlockedReason,
+  RestartPolicy,
+  ServiceDAGState,
+  Status,
+  type components,
+} from '@/api/v1/schema';
 import {
   type ActivityRun,
   attentionItems,
@@ -110,6 +116,50 @@ describe('attentionItems', () => {
       'slow:train',
     ]);
     expect(items[3]).toMatchObject({ usualSeconds: 600 });
+  });
+});
+
+describe('attentionItems for service DAGs', () => {
+  function serviceDAG(
+    name: string,
+    latestRun: components['schemas']['ServiceDAGRun']
+  ): components['schemas']['ServiceDAG'] {
+    return {
+      fileName: name,
+      name,
+      restartPolicy: RestartPolicy.always,
+      restartWaitSec: 5,
+      queue: name,
+      state: ServiceDAGState.running,
+      suspended: false,
+      consecutiveFailures: 0,
+      latestRun,
+    };
+  }
+
+  // The activity leaves out the runs of service DAGs.
+  it('lists the runs of service DAGs that wait for input', () => {
+    const items = attentionItems(
+      activity({
+        active: [{ name: 'approve', dagRunId: 'a-1', status: Status.Waiting }],
+      }),
+      [],
+      FROM,
+      [
+        serviceDAG('worker', {
+          dagRunId: 'w-1',
+          status: Status.Waiting,
+          startedAt: new Date(FROM * 1000).toISOString(),
+        }),
+        serviceDAG('healthy', { dagRunId: 'h-1', status: Status.Running }),
+      ]
+    );
+
+    expect(items.map((item) => `${item.kind}:${item.name}`)).toEqual([
+      'waiting:approve',
+      'waiting:worker',
+    ]);
+    expect(items[1]!.run).toMatchObject({ dagRunId: 'w-1', startedAt: FROM });
   });
 });
 
