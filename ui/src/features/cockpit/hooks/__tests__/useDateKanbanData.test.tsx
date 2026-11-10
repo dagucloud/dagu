@@ -56,8 +56,23 @@ describe('useRangeKanbanData', () => {
     }
   });
 
-  // A search by name must find a service DAG's runs too.
-  it('keeps the runs of service DAGs in a search by name', () => {
+  // A saved view has no service DAG cards, so its boards show every run that
+  // its filters match. A view of only service DAGs would otherwise be empty.
+  it.each([
+    ['a DAG name', { name: 'worker' }],
+    ['a workspace', { workspace: 'ops' }],
+    ['labels', { labels: ['team=a'] }],
+    ['no filter', {}],
+  ])('keeps the runs of service DAGs in a saved view by %s', (_, filters) => {
+    renderHook(() => useRangeKanbanData(0, 86400, false, 5000, filters));
+
+    expect(queries().length).toBeGreaterThan(0);
+    for (const query of queries()) {
+      expect(query.excludeServiceDAGRuns).toBeUndefined();
+    }
+  });
+
+  it('sends the DAG name of a saved view', () => {
     renderHook(() =>
       useRangeKanbanData(0, 86400, false, 5000, { name: 'worker' })
     );
@@ -65,7 +80,6 @@ describe('useRangeKanbanData', () => {
     expect(queries().length).toBeGreaterThan(0);
     for (const query of queries()) {
       expect(query.name).toBe('worker');
-      expect(query.excludeServiceDAGRuns).toBeUndefined();
     }
   });
 });

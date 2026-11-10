@@ -165,11 +165,20 @@ export function useRangeKanbanData(
       toDate,
       ...workspaceQuery,
       ...(labelsParam ? { labels: labelsParam } : {}),
-      // A service DAG restarts without end, so the boards leave its runs out
-      // and the service DAG list shows it instead. A search by name shows them.
-      ...(nameParam ? { name: nameParam } : { excludeServiceDAGRuns: true }),
+      ...(nameParam ? { name: nameParam } : {}),
+      // A service DAG restarts without end, so the Cockpit boards leave its runs
+      // out and its cards show it instead. A saved view has no such cards.
+      ...(hasFilters ? {} : { excludeServiceDAGRuns: true }),
     }),
-    [fromDate, remoteNode, toDate, workspaceQuery, labelsParam, nameParam]
+    [
+      fromDate,
+      remoteNode,
+      toDate,
+      workspaceQuery,
+      labelsParam,
+      nameParam,
+      hasFilters,
+    ]
   );
 
   const queued = useKanbanBucket(
