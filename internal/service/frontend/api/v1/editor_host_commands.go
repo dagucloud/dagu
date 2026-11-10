@@ -111,9 +111,11 @@ func findMissingCommands(dag *ir.DAG, defaultShell string, exists func(string) b
 				fieldPath = fmt.Sprintf("%s[%d]", fieldPath, i)
 			}
 			issues = append(issues, api.ValidationIssue{
-				Severity:  api.ValidationIssueSeverityWarning,
-				Source:    api.ValidationIssueSourceHost,
-				Message:   fmt.Sprintf("step %q: command %q was not found on the server host", step.Name, entry.Command),
+				Severity: api.ValidationIssueSeverityWarning,
+				Source:   api.ValidationIssueSourceHost,
+				// The command is printed as written: %q would double the
+				// separators of a Windows path.
+				Message:   fmt.Sprintf("step %q: command '%s' was not found on the server host", step.Name, entry.Command),
 				StepName:  ptrOf(step.Name),
 				StepPath:  ptrOf(stepPath),
 				FieldPath: ptrOf(fieldPath),

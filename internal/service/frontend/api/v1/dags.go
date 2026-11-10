@@ -173,7 +173,7 @@ func (a *API) ValidateDAGSpecData(ctx context.Context, name, source string) (*ap
 		Valid:                 len(errs) == 0,
 		Dag:                   details,
 		Errors:                errs,
-		Issues:                append(buildValidationIssues(err, dag, notices), hostIssues...),
+		Issues:                append(slices.Clip(buildValidationIssues(err, dag, notices)), hostIssues...),
 		ValueReferenceNotices: toAPIValueReferenceNotices(notices),
 		ReferenceScope:        buildReferenceScope(dag),
 	}
