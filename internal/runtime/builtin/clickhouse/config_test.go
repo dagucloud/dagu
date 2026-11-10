@@ -187,3 +187,20 @@ func TestExecutorRegistered(t *testing.T) {
 	}))
 	assert.Error(t, registry.ValidateExecutorConfig(executorType, map[string]any{"url": 5}))
 }
+
+// An unknown with key must fail validation instead of being silently dropped
+// by the clickhouse executor (#3440). The query text is folded into the step
+// command by the action normalizer, so url/settings still validate.
+func TestClickHouseRejectsUnknownWithKey(t *testing.T) {
+	t.Parallel()
+
+	err := registry.ValidateExecutorConfig(executorType, map[string]any{
+		"url": "http://localhost:8123", "output_formt": "json",
+	})
+	require.Error(t, err)
+	require.Contains(t, err.Error(), `did you mean "output_format" instead of "output_formt"?`)
+
+	require.NoError(t, registry.ValidateExecutorConfig(executorType, map[string]any{
+		"url": "http://localhost:8123", "settings": map[string]any{"readonly": 1}, "timeout": "${T}",
+	}))
+}
