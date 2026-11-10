@@ -728,7 +728,7 @@ steps:
       destination: /remote/file.tar.gz
 ```
 
-Shared SSH fields: `user`, `host`, `port`, `key`, `password`, `timeout`, `strict_host_key`, `known_host_file`, `shell`, `shell_args`, `bastion`.
+Shared SSH fields: `user`, `host`, `port`, `key`, `password`, `timeout`, `strict_host_key`, `known_host_file`, `bastion`. `ssh.run` also accepts `shell` and `shell_args`.
 
 ## http.request
 
