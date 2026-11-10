@@ -32,6 +32,8 @@ export interface SettingsLeaveGuard {
    * the run page): it also asks while the editor draft is not saved.
    */
   guardLeave(next: () => void): void;
+  /** Whether guardLeave would ask now. */
+  leaveAtRisk(): boolean;
   /** A settings section is at risk (the editor draft is not counted). */
   atRisk: boolean;
   /** The confirmation to render. Null in a SettingsLeaveGuardProvider, which renders it once. */
@@ -119,6 +121,7 @@ function useGuardController(): SettingsLeaveGuard {
   }, []);
   const guard = useCallback((next: () => void) => ask(next, false), [ask]);
   const guardLeave = useCallback((next: () => void) => ask(next, true), [ask]);
+  const leaveAtRisk = useCallback(() => isAnyRisk(riskRef.current), []);
 
   const atRisk = isAtRisk(risk);
   const anyRisk = isAnyRisk(risk);
@@ -186,6 +189,7 @@ function useGuardController(): SettingsLeaveGuard {
     guard,
     setEditorDirty,
     guardLeave,
+    leaveAtRisk,
     atRisk,
     confirmDialog,
   };
@@ -211,6 +215,7 @@ export function SettingsLeaveGuardProvider({
     guard,
     setEditorDirty,
     guardLeave,
+    leaveAtRisk,
     atRisk,
   } = controller;
   const value = useMemo<SettingsLeaveGuard>(
@@ -220,10 +225,19 @@ export function SettingsLeaveGuardProvider({
       guard,
       setEditorDirty,
       guardLeave,
+      leaveAtRisk,
       atRisk,
       confirmDialog: null,
     }),
-    [setDirty, setSecretVisible, guard, setEditorDirty, guardLeave, atRisk]
+    [
+      setDirty,
+      setSecretVisible,
+      guard,
+      setEditorDirty,
+      guardLeave,
+      leaveAtRisk,
+      atRisk,
+    ]
   );
   return createElement(
     SettingsLeaveGuardContext.Provider,

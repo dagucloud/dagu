@@ -58,6 +58,11 @@ export interface StepPanelProps {
   gates: StepCommandGates;
   /** Opens the node view of the step, as a double click on it does. */
   onOpenStep(): void;
+  /**
+   * 'column' is the temporary tab of the right column: the panel fills it,
+   * leaves the canvas as it is and has no close button of its own.
+   */
+  placement?: 'zone' | 'column';
 }
 
 /**
@@ -76,7 +81,9 @@ export function StepPanel({
   onStepCommand,
   gates,
   onOpenStep,
+  placement = 'zone',
 }: StepPanelProps) {
+  const inColumn = placement === 'column';
   const { ts } = useI18n();
   const { dagData, fileName, run } = useWorkspaceData('StepPanel');
   const { handle } = useWorkspaceEditor();
@@ -119,17 +126,26 @@ export function StepPanel({
       aria-label={ts('Details of {step}', { step })}
       data-testid="ww-step-panel"
       data-step-panel=""
-      data-panel-shell={besideCanvas ? 'right' : undefined}
+      data-panel-shell={!inColumn && besideCanvas ? 'right' : undefined}
       data-step={step}
       // The shell, the width and the header of every right panel: a trigger
-      // panel and a step panel take turns as one pane.
-      className={cn(
-        PANEL_ZONE_SHELL_CLASS,
-        'max-md:w-full',
-        Z.ndv,
-        passThrough && 'pointer-events-none'
-      )}
-      style={{ width: getStoredDrawerWidth(), maxWidth: panelMaxWidth() }}
+      // panel and a step panel take turns as one pane. In the column the tab
+      // is the shell.
+      className={
+        inColumn
+          ? 'flex min-h-0 flex-1 flex-col'
+          : cn(
+              PANEL_ZONE_SHELL_CLASS,
+              'max-md:w-full',
+              Z.ndv,
+              passThrough && 'pointer-events-none'
+            )
+      }
+      style={
+        inColumn
+          ? undefined
+          : { width: getStoredDrawerWidth(), maxWidth: panelMaxWidth() }
+      }
     >
       <header className={PANEL_HEADER_CLASS}>
         {node && (
@@ -148,7 +164,14 @@ export function StepPanel({
             {step}
           </h2>
         </div>
-        <IconButton icon={X} size="sm" label={ts('Close')} onClick={onClose} />
+        {!inColumn && (
+          <IconButton
+            icon={X}
+            size="sm"
+            label={ts('Close')}
+            onClick={onClose}
+          />
+        )}
       </header>
       <div className="min-h-0 flex-1">
         <StepRunTabs

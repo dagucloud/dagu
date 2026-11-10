@@ -57,6 +57,7 @@ import type {
   PaletteTarget,
   StepKey,
   StepNameMap,
+  ReferenceCandidate,
   StepView,
   ValidationIssue,
   VisualEditorHandle,
@@ -84,6 +85,7 @@ import {
 import { canConvertForEdit, editErrorMessage } from './editMessages';
 import {
   effectivePanelWidth,
+  usePanelColumn,
   usePanelPlacement,
 } from '@/features/dags/components/step-details/PanelShell';
 import {
@@ -93,8 +95,14 @@ import {
 import { buildActionCatalog, StepInspector } from './inspector';
 import {
   buildReferenceCandidates,
+  declaresRepeat,
+  foreachFramesAt,
+  insertAtCaret,
+  publishEdit,
+  useCaretReferences,
   DeclaredOutputsPanel,
   UpstreamDataPanel,
+  type CaretEditor,
 } from './references';
 import { insertIntoField, useLastFocusedField } from './insertIntoField';
 import { useZoneWidth } from './useZoneWidth';
@@ -247,7 +255,8 @@ function sameState(a: VisualEditorState, b: VisualEditorState): boolean {
     a.canRedo === b.canRedo &&
     a.selectedStepName === b.selectedStepName &&
     a.drawer === b.drawer &&
-    a.direction === b.direction
+    a.direction === b.direction &&
+    (a.launcher ?? null) === (b.launcher ?? null)
   );
 }
 
@@ -606,13 +615,18 @@ export function VisualEditor(props: VisualEditorProps): ReactElement {
   // The launcher whose panel is open, and what the host side of the launchers
   // reads from the server. Only a host that gives `launcherHost` has them.
   const [launcherOpen, setLauncherOpen] = useState<LauncherId | null>(null);
+  // In the right column of the host, the Workflow panel and the YAML of the
+  // file are tabs that the host switches: nothing that opens over the canvas
+  // (a launcher, Add step, the view of a step) closes them.
+  const panelColumn = usePanelColumn();
+  const inColumn = panelColumn !== null;
   // The YAML takes the place of the Workflow and launcher panels when it
   // shows, not before: the right of the canvas never stands empty between
   // two panels, and the graph does not move for the switch.
   const [yamlShownBefore, setYamlShownBefore] = useState(yamlVisible);
   if (yamlVisible !== yamlShownBefore) {
     setYamlShownBefore(yamlVisible);
-    if (yamlVisible) {
+    if (yamlVisible && !inColumn) {
       setWorkflowOpen(false);
       setLauncherOpen(null);
     }
@@ -689,13 +703,13 @@ export function VisualEditor(props: VisualEditorProps): ReactElement {
         select(key);
         setYamlMode('step');
         setFormOpen(false);
-        setWorkflowOpen(false);
+        if (!inColumn) setWorkflowOpen(false);
         setLauncherOpen(null);
         setAddTarget(null);
         onYamlVisibleChange?.(true);
       });
     },
-    [onYamlVisibleChange, setFormOpen, select]
+    [onYamlVisibleChange, setFormOpen, select, inColumn]
   );
   useEffect(() => {
     if (editedName.current) editedName.current.fresh = false;
@@ -717,13 +731,21 @@ export function VisualEditor(props: VisualEditorProps): ReactElement {
         select(key);
         setYamlMode('step');
         setFormOpen(true);
-        setWorkflowOpen(false);
+        if (!inColumn) setWorkflowOpen(false);
         setLauncherOpen(null);
         setAddTarget(null);
         onYamlVisibleChange?.(inDrawer);
       });
     },
-    [hasForm, showYamlFor, onYamlVisibleChange, inDrawer, setFormOpen, select]
+    [
+      hasForm,
+      showYamlFor,
+      onYamlVisibleChange,
+      inDrawer,
+      setFormOpen,
+      select,
+      inColumn,
+    ]
   );
   // A click on a step, or a selection from the host: with openNdvOn 'open',
   // it only selects, and the form opens on Enter or on the Open command. The
@@ -763,12 +785,13 @@ export function VisualEditor(props: VisualEditorProps): ReactElement {
     (target: PaletteTarget) => {
       if (!canEdit) return;
       setAddTarget(target);
-      setWorkflowOpen(false);
       setLauncherOpen(null);
+      if (inColumn) return;
+      setWorkflowOpen(false);
       // The YAML and the form come back, in the same mode, with the new step.
       onYamlVisibleChange?.(false);
     },
-    [canEdit, onYamlVisibleChange]
+    [canEdit, onYamlVisibleChange, inColumn]
   );
 
   const setText = useCallback(
@@ -1111,20 +1134,77 @@ export function VisualEditor(props: VisualEditorProps): ReactElement {
   useEffect(() => {
     resetLastField();
   }, [selected, resetLastField]);
-  // False when no field can take the token: the panel copies it instead.
+  // False when nothing can take the token: the panel copies it instead.
   const insertReference = useCallback(
     (token: string) => {
-      const field = lastField.get();
-      if (!field) return false;
-      insertIntoField(field, token);
-      return true;
+      const field = formOpen || !yamlShownNow ? lastField.get() : null;
+      if (field) {
+        insertIntoField(field, token);
+        return true;
+      }
+      return (
+        yamlShownNow &&
+        insertAtCaret(yamlEditorRef?.current as CaretEditor | null, token)
+      );
     },
-    [lastField]
+    [lastField, formOpen, yamlShownNow, yamlEditorRef]
   );
 
+  const repeats = declaresRepeat(selectedStep);
+  const canPublish = !readOnly && !frozen;
+  // A pick of an output that the step does not publish yet makes it publish.
+  const withPublishing = useCallback(
+    (items: ReferenceCandidate[]): ReferenceCandidate[] =>
+      items.map((candidate) => {
+        const { publish } = candidate;
+        return publish
+          ? {
+              ...candidate,
+              onPicked: () =>
+                afterEdit(session.applyWith((t) => publishEdit(t, publish))),
+            }
+          : candidate;
+      }),
+    [session, afterEdit]
+  );
   const candidates = useMemo(
-    () => buildReferenceCandidates(validation?.referenceScope, serverName),
-    [validation?.referenceScope, serverName]
+    () =>
+      withPublishing(
+        buildReferenceCandidates(validation?.referenceScope, serverName, {
+          repeats,
+          doc: canPublish ? model : undefined,
+        })
+      ),
+    [
+      validation?.referenceScope,
+      serverName,
+      repeats,
+      canPublish,
+      model,
+      withPublishing,
+    ]
+  );
+  // In the YAML, the list follows the caret: a foreach body reads more than its
+  // step does. At a key, it shows what the step can read.
+  const caretReferences = useCaretReferences(
+    yamlEditorRef?.current as CaretEditor | null | undefined,
+    yamlShownNow,
+    {
+      scope: validation?.referenceScope,
+      model: canPublish ? model : undefined,
+    }
+  );
+  const candidatesAtPath = useCallback(
+    (path: string[]) => {
+      const scope = validation?.referenceScope;
+      const owner = scope?.steps?.find((step) => step.name === serverName);
+      const frames = owner ? foreachFramesAt(owner, path) : [];
+      return buildReferenceCandidates(scope, serverName, {
+        repeats: frames.length === 0 && repeats,
+        frames,
+      });
+    },
+    [validation?.referenceScope, serverName, repeats]
   );
 
   // A host can show the run of the step and the upstream data in columns
@@ -1158,6 +1238,13 @@ export function VisualEditor(props: VisualEditorProps): ReactElement {
       scope={validation?.referenceScope}
       stepName={serverName}
       onInsert={readOnly || frozen ? undefined : insertReference}
+      references={
+        inputColumnRoot && caretReferences
+          ? withPublishing(caretReferences)
+          : inputColumnRoot
+            ? candidates
+            : undefined
+      }
       onRunUpstream={
         onStepCommand && stepCommandGates?.canRunStep && serverName
           ? () => onStepCommand({ kind: 'runUpstream', step: serverName })
@@ -1191,6 +1278,7 @@ export function VisualEditor(props: VisualEditorProps): ReactElement {
             catalog={catalog}
             customActions={customActions}
             candidates={candidates}
+            candidatesAtPath={candidatesAtPath}
             issues={issues.byStep[selected] ?? []}
             readOnly={readOnly || frozen}
             onEdit={onEdit}
@@ -1290,11 +1378,13 @@ export function VisualEditor(props: VisualEditorProps): ReactElement {
     applyWorkflow(next);
   };
   const applyWorkflow = (next: boolean) => {
-    setAddTarget(null);
-    if (next) {
+    if (next && !inColumn) {
+      setAddTarget(null);
       setFormOpen(false);
       setLauncherOpen(null);
       onYamlVisibleChange?.(false);
+    } else if (!inColumn) {
+      setAddTarget(null);
     }
     setWorkflowOpen(next);
   };
@@ -1305,16 +1395,19 @@ export function VisualEditor(props: VisualEditorProps): ReactElement {
       return;
     }
     // The YAML of the file stays: the click shows the part of the file
-    // that the trigger stands for, as a click on a step shows its block.
-    if (wholeFileShown && onRevealTrigger?.(id)) return;
+    // that the trigger stands for, as a click on a step shows its block. In
+    // the host's column the panel of the trigger is a tab of its own.
+    if (!inColumn && wholeFileShown && onRevealTrigger?.(id)) return;
     // The click on a launcher ends the focus on a step: the panel of the
     // launcher takes the place of the step.
     select(null);
     setHighlighted(null);
     setAddTarget(null);
     setFormOpen(false);
-    setWorkflowOpen(false);
-    onYamlVisibleChange?.(false);
+    if (!inColumn) {
+      setWorkflowOpen(false);
+      onYamlVisibleChange?.(false);
+    }
     setLauncherOpen(id);
   };
   const closeLauncher = () => {
@@ -1353,6 +1446,7 @@ export function VisualEditor(props: VisualEditorProps): ReactElement {
     duplicateSelection,
     toggleWorkflow,
     openLauncher,
+    closeLauncher,
     toggleYaml,
     pickStep,
     showFormFor,
@@ -1373,6 +1467,7 @@ export function VisualEditor(props: VisualEditorProps): ReactElement {
     duplicateSelection,
     toggleWorkflow,
     openLauncher,
+    closeLauncher,
     toggleYaml,
     pickStep,
     showFormFor,
@@ -1417,6 +1512,7 @@ export function VisualEditor(props: VisualEditorProps): ReactElement {
         }
       },
       openLauncher: (id) => live.current.openLauncher(id),
+      closeLauncher: () => live.current.closeLauncher(),
       toggleYaml: (open) => live.current.toggleYaml(open),
       openForm: (name) => {
         const key = live.current.keyOf(name);
@@ -1469,12 +1565,15 @@ export function VisualEditor(props: VisualEditorProps): ReactElement {
   const drawerShrinksCanvas =
     !chrome ||
     (band === 'wide' && panelBase - drawerWidth >= MIN_CANVAS_BESIDE_DRAWER);
+  // The panels in the host's column (the Workflow panel, the YAML of the
+  // file, a launcher) are beside the canvas, not over it.
   const panelOpen =
     !!inspectorContent ||
-    yamlVisible ||
     !!addTarget ||
-    launcherOpen !== null ||
-    (workflowOpen && !!workflowPanel);
+    (!inColumn &&
+      (yamlVisible ||
+        launcherOpen !== null ||
+        (workflowOpen && !!workflowPanel)));
   const drawerCovers = !!chrome && panelOpen && !drawerShrinksCanvas;
   // A toolbar in the row of the zone never meets a panel: only a narrow
   // window, where the row is hidden, has the 'Tools' sheet.
@@ -1525,6 +1624,7 @@ export function VisualEditor(props: VisualEditorProps): ReactElement {
     selectedStepName: serverNameOf(selected),
     drawer,
     direction,
+    launcher: launcherOpen,
   };
   // Called after each commit, but only when a field changed.
   const reportedState = useRef<VisualEditorState | null>(null);
@@ -1586,7 +1686,7 @@ export function VisualEditor(props: VisualEditorProps): ReactElement {
           />
         </>
       )}
-      {workflowPanel && (
+      {workflowPanel && !inColumn && (
         <IconButton
           label={ts('Workflow')}
           icon={SlidersHorizontal}
@@ -1594,7 +1694,7 @@ export function VisualEditor(props: VisualEditorProps): ReactElement {
           onClick={() => toggleWorkflow()}
         />
       )}
-      {onYamlVisibleChange && (
+      {onYamlVisibleChange && !inColumn && (
         <IconButton
           label={ts('YAML')}
           icon={FileCode}
@@ -1731,6 +1831,7 @@ export function VisualEditor(props: VisualEditorProps): ReactElement {
           <AgentRunContext.Provider value={agentRun}>
             <CanvasOverlayInsetContext.Provider value={canvasInset}>
               <VisualCanvas
+                documentKey={fileName}
                 graph={graph}
                 direction={direction}
                 selected={selected}
@@ -1865,6 +1966,7 @@ export function VisualEditor(props: VisualEditorProps): ReactElement {
           label={ts('Launcher')}
           panelId="launcher"
           closeOnPageEscape
+          column={panelColumn?.launcher}
         >
           {launcherOpen === 'manual' && (
             <ManualLauncherPanel

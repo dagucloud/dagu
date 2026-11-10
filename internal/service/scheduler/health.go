@@ -5,6 +5,12 @@ package scheduler
 
 import "github.com/dagucloud/dagu/v2/internal/service/healthcheck"
 
+// Roles a scheduler reports on /health.
+const (
+	healthRoleActive  = "active"
+	healthRoleStandby = "standby"
+)
+
 // HealthServer represents the scheduler health check server.
 type HealthServer = healthcheck.Server
 

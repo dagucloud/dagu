@@ -14,6 +14,7 @@ import (
 	"net"
 	"net/http"
 	"net/http/httptest"
+	"net/http/httputil"
 	"net/url"
 	"os"
 	"os/exec"
@@ -1292,6 +1293,100 @@ func TestStagehandReattachAfterProcessExit(t *testing.T) {
 	require.Eventually(t, func() bool {
 		return browserhost.Probe(context.Background(), handle.CDPURL) != nil
 	}, 10*time.Second, 200*time.Millisecond, "closing terminates the browser")
+}
+
+// The runtime tries once to open its socket to the browser, and a host can
+// refuse that try, so one refusal must not fail the step.
+func TestStagehandStartsAfterItsSocketFailsToOpen(t *testing.T) {
+	t.Parallel()
+
+	model := &shopModel{}
+	var eng engine
+	handle, sockets := refusingRuntimeSockets(t, 1)
+	err := withStartupSlot(func() (err error) {
+		eng, err = stagehandLauncher{}.Reattach(t.Context(), handle, launchOptions{Generate: model.generate})
+		return err
+	})
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = eng.Close(context.WithoutCancel(t.Context())) })
+	assert.Greater(t, sockets.Load(), int32(1), "the runtime opened a socket after the refusal")
+
+	require.NoError(t, eng.Goto(t.Context(), serveShop(t), time.Minute))
+	outcome, err := eng.Act(t.Context(), "Click the Submit button", nil, nil, time.Minute)
+	require.NoError(t, err)
+	assert.True(t, outcome.Success, outcome.Message)
+}
+
+// A browser that keeps refusing fails the start, within a bound.
+func TestStagehandStartGivesUpOnARefusingBrowser(t *testing.T) {
+	t.Parallel()
+
+	handle, sockets := refusingRuntimeSockets(t, runtimeStartAttempts+1)
+	err := withStartupSlot(func() error {
+		_, err := stagehandLauncher{}.Reattach(t.Context(), handle, launchOptions{Generate: (&shopModel{}).generate})
+		return err
+	})
+	require.ErrorContains(t, err, runtimeSocketFailure)
+	assert.Equal(t, int32(runtimeStartAttempts), sockets.Load())
+}
+
+// refusingRuntimeSockets starts a browser and returns a handle to it through a
+// proxy that refuses the runtime's first sockets. The returned count covers
+// every socket the runtime tried to open.
+func refusingRuntimeSockets(t *testing.T, refused int32) (browserHandle, *atomic.Int32) {
+	t.Helper()
+	launched := launchBrowser(t, launchOptions{Generate: (&shopModel{}).generate})
+	handle := launched.Handle()
+	require.NoError(t, launched.Detach(t.Context()))
+	// A running worker keeps the socket it has. A new one opens its own.
+	stopRuntimeWorker(t, handle)
+
+	browserURL, err := url.Parse(handle.CDPURL)
+	require.NoError(t, err)
+	forward := httputil.NewSingleHostReverseProxy(browserURL)
+	sockets := new(atomic.Int32)
+	proxy := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// Of the browser's clients, only the runtime connects from the extension.
+		if strings.HasPrefix(r.Header.Get("Origin"), "chrome-extension://") && sockets.Add(1) <= refused {
+			http.Error(w, "refused", http.StatusServiceUnavailable)
+			return
+		}
+		forward.ServeHTTP(w, r)
+	}))
+	t.Cleanup(proxy.Close)
+	handle.CDPURL = proxy.URL
+	return handle, sockets
+}
+
+// stopRuntimeWorker ends the runtime's service worker, as the browser does to
+// a worker left idle.
+func stopRuntimeWorker(t *testing.T, handle browserHandle) {
+	t.Helper()
+	get := func(path string) []byte {
+		req, err := http.NewRequestWithContext(t.Context(), http.MethodGet, handle.CDPURL+path, nil)
+		require.NoError(t, err)
+		resp, err := http.DefaultClient.Do(req)
+		require.NoError(t, err)
+		defer func() { _ = resp.Body.Close() }()
+		body, err := io.ReadAll(resp.Body)
+		require.NoError(t, err)
+		require.Equal(t, http.StatusOK, resp.StatusCode, string(body))
+		return body
+	}
+	var targets []struct {
+		ID   string `json:"id"`
+		Type string `json:"type"`
+		URL  string `json:"url"`
+	}
+	require.NoError(t, json.Unmarshal(get("/json/list"), &targets))
+	workers := 0
+	for _, target := range targets {
+		if target.Type == "service_worker" && strings.HasPrefix(target.URL, "chrome-extension://"+handle.ExtensionID+"/") {
+			get("/json/close/" + target.ID)
+			workers++
+		}
+	}
+	require.Positive(t, workers, "the browser lists the runtime's worker")
 }
 
 const reportBody = "id,total\n1,10\n2,20\n"

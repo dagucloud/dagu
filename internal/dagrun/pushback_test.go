@@ -70,6 +70,22 @@ func TestApplyPushBack(t *testing.T) {
 	assert.Equal(t, "Review", status.Nodes[3].Step.HumanTask.Prompt)
 }
 
+// A second push-back can reset a step before it runs again. Its last stdout is
+// still what the agent should revise.
+func TestApplyPushBackKeepsPreviousStdoutAcrossResets(t *testing.T) {
+	t.Parallel()
+
+	status := pushBackStatus()
+	review := status.Nodes[3]
+	_, err := dagrun.ApplyPushBack(status, review, dagrun.PushBack{TargetName: "implement"})
+	require.NoError(t, err)
+	require.Equal(t, "/logs/implement.out", status.Nodes[1].PushBackPreviousStdout)
+
+	_, err = dagrun.ApplyPushBack(status, review, dagrun.PushBack{TargetName: "implement"})
+	require.NoError(t, err)
+	assert.Equal(t, "/logs/implement.out", status.Nodes[1].PushBackPreviousStdout)
+}
+
 // A pushed-back step keeps what its rewound attempt spent on models, which
 // the run still spent.
 func TestApplyPushBackKeepsModelUsage(t *testing.T) {

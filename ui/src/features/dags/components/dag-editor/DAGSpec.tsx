@@ -12,6 +12,7 @@ import { useCopyFeedback } from '@/hooks/useCopyFeedback';
 import { StepDetailsDrawer } from '@/features/dags/components/step-details';
 import {
   panelShellClass,
+  usePanelColumn,
   usePanelPlacement,
   PanelHeader,
   panelWidth,
@@ -94,6 +95,7 @@ import {
   requiredFieldOf,
 } from '@/features/visual-editor/inspector/issues';
 import type { ReferenceEditorState } from '@/features/visual-editor/references/editorState';
+import { YamlReferenceButton } from '@/features/visual-editor/references/YamlReferenceButton';
 import ExternalChangeDialog from './ExternalChangeDialog';
 import { useStepViewForm } from './stepViewMode';
 import { preloadDAGEditor } from './loadDAGEditor';
@@ -307,6 +309,7 @@ function DAGSpec({
   launcherHost,
   renderWorkflowPanel,
   initialWorkflowOpen = false,
+  onWorkflowOpenChange,
 }: Props) {
   const { ts } = useI18n();
   const remoteNode = useRemoteNode();
@@ -319,7 +322,14 @@ function DAGSpec({
   const [activeTab, setActiveTab] = React.useState('parent');
   // The Workflow panel stays open across the documents of the file: each
   // document has its own editor, which opens with it.
-  const [workflowOpen, setWorkflowOpen] = React.useState(initialWorkflowOpen);
+  const [workflowOpen, setWorkflowOpenState] =
+    React.useState(initialWorkflowOpen);
+  const onWorkflowOpenChangeRef = React.useRef(onWorkflowOpenChange);
+  onWorkflowOpenChangeRef.current = onWorkflowOpenChange;
+  const setWorkflowOpen = React.useCallback((open: boolean) => {
+    setWorkflowOpenState(open);
+    onWorkflowOpenChangeRef.current?.(open);
+  }, []);
   const [selectedSpecStepName, setSelectedSpecStepName] = React.useState<
     string | null
   >(null);
@@ -1026,6 +1036,7 @@ function DAGSpec({
   // step (its node view). With the ndv prop, the host owns whether it is open.
   const { yamlKind, setYamlKind, sectionOpen, setSectionOpen } =
     useYamlSection(ndv);
+  const panelColumn = usePanelColumn();
   // The step that the YAML shows alone: the schema docs follow it.
   const [yamlStepPath, setYamlStepPath] = React.useState<string[] | null>(null);
   // Where the visual editor puts its controls in the bar of the YAML drawer.
@@ -1543,6 +1554,7 @@ function DAGSpec({
         if (v) run(v);
         else pendingPanelRef.current = run;
       },
+      closeLauncher: () => visual()?.closeLauncher?.(),
       openForm: (name) => visual()?.openForm(name) ?? false,
       openYaml: (name) => visual()?.openYaml(name) ?? false,
       copySelection: () => visual()?.copySelection() ?? null,
@@ -1624,26 +1636,34 @@ function DAGSpec({
     );
     return !!fresh && formatStepRange(deferredText, fresh) === null;
   }, [canFormatStep, deferredText, yamlStep]);
-  const yamlTools = !editable ? null : yamlKind === 'step' ? (
-    <YamlTools
-      scope="step"
-      fixCount={stepFixes.length}
-      canFormat={canFormatStep}
-      formatted={stepFormatted}
-      formatOffReason={
-        yamlStep === null ? ts('Select a step first') : undefined
-      }
-      onFixAll={applyStepQuickFixes}
-      onFormat={formatStep}
-    />
-  ) : (
-    <YamlTools
-      fixCount={allFixes.length}
-      canFormat={canFormat}
-      formatted={textFormatted}
-      onFixAll={applyAllQuickFixes}
-      onFormat={formatText}
-    />
+  const yamlTools = !editable ? null : (
+    <>
+      <YamlReferenceButton
+        editorRef={yamlEditorRef}
+        getState={referenceState}
+      />
+      {yamlKind === 'step' ? (
+        <YamlTools
+          scope="step"
+          fixCount={stepFixes.length}
+          canFormat={canFormatStep}
+          formatted={stepFormatted}
+          formatOffReason={
+            yamlStep === null ? ts('Select a step first') : undefined
+          }
+          onFixAll={applyStepQuickFixes}
+          onFormat={formatStep}
+        />
+      ) : (
+        <YamlTools
+          fixCount={allFixes.length}
+          canFormat={canFormat}
+          formatted={textFormatted}
+          onFixAll={applyAllQuickFixes}
+          onFormat={formatText}
+        />
+      )}
+    </>
   );
 
   // Show loading indicator while fetching data
@@ -2419,10 +2439,12 @@ function DAGSpec({
                     stepName={ndvStepName}
                     title={ndvTitle}
                     note={
-                      // The Workflow panel is the one of the parent tab.
+                      // The Workflow panel is the one of the parent tab; a
+                      // column of the host has its own tabs.
                       yamlKind === 'file' &&
                       preview.dag &&
-                      activeTab === 'parent' ? (
+                      activeTab === 'parent' &&
+                      !panelColumn ? (
                         <PanelSwitchButton
                           to="workflow"
                           onClick={() => editorHandle.openWorkflowPanel(true)}

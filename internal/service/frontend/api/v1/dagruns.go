@@ -257,6 +257,10 @@ func (a *API) ExecuteDAGRunFromSpec(ctx context.Context, request api.ExecuteDAGR
 		}
 	}
 
+	if err := a.checkServiceRunOfDefinition(ctx, dag, dagRunId); err != nil {
+		return nil, err
+	}
+
 	profileName, _, err := a.explicitRunProfile(ctx, request.Body.Profile)
 	if err != nil {
 		return nil, err
@@ -394,6 +398,10 @@ func (a *API) EnqueueDAGRunFromSpec(ctx context.Context, request api.EnqueueDAGR
 		if err := a.checkSingletonQueued(ctx, dag); err != nil {
 			return nil, err
 		}
+	}
+
+	if err := a.checkServiceRunOfDefinition(ctx, dag, dagRunId); err != nil {
+		return nil, err
 	}
 
 	profileName, _, err := a.explicitRunProfile(ctx, request.Body.Profile)
@@ -698,6 +706,8 @@ func (a *API) ListDAGRuns(ctx context.Context, request api.ListDAGRunsRequestObj
 		labels:   labelsParam,
 		limit:    request.Params.Limit,
 		cursor:   request.Params.Cursor,
+
+		excludeServiceDAGRuns: request.Params.ExcludeServiceDAGRuns != nil && *request.Params.ExcludeServiceDAGRuns,
 	})
 	workspaceFilter, err := a.workspaceFilterForParams(ctx, request.Params.Workspace)
 	if err != nil {
@@ -716,7 +726,7 @@ func (a *API) ListDAGRuns(ctx context.Context, request api.ListDAGRunsRequestObj
 		endpoint: "/dag-runs",
 		dagName:  dagName,
 		dagRunID: dagRunID,
-	}, opts.query)
+	}, opts)
 	if err != nil {
 		if apiErr := dagRunListBadRequest(err); apiErr != nil {
 			return nil, apiErr
@@ -757,7 +767,7 @@ func (a *API) ListDAGRunsByName(ctx context.Context, request api.ListDAGRunsByNa
 		endpoint: "/dag-runs/{name}",
 		dagName:  request.Name,
 		dagRunID: dagRunID,
-	}, opts.query)
+	}, opts)
 	if err != nil {
 		if apiErr := dagRunListBadRequest(err); apiErr != nil {
 			return nil, apiErr
@@ -774,8 +784,15 @@ func (a *API) ListDAGRunsByName(ctx context.Context, request api.ListDAGRunsByNa
 	return api.ListDAGRunsByName200JSONResponse(toDAGRunsPageResponse(page)), nil
 }
 
+// excludeServiceDAGRunsParam names the query parameter that leaves out the
+// runs of the service DAGs.
+const excludeServiceDAGRunsParam = "excludeServiceDAGRuns"
+
 type dagRunListOptions struct {
 	query persis.DAGRunListOptions
+	// excludeServiceDAGRuns leaves out the runs of the service DAGs, which a
+	// read resolves into query.ExcludeDAGNames.
+	excludeServiceDAGRuns bool
 }
 
 type dagRunListFilterInput struct {
@@ -788,6 +805,8 @@ type dagRunListFilterInput struct {
 	labels    *string
 	limit     *int
 	cursor    *string
+	// excludeServiceDAGRuns drops the runs of the service DAGs.
+	excludeServiceDAGRuns bool
 }
 
 func buildDAGRunListOptions(input dagRunListFilterInput) dagRunListOptions {
@@ -825,6 +844,7 @@ func buildDAGRunListOptions(input dagRunListFilterInput) dagRunListOptions {
 	if input.cursor != nil && *input.cursor != "" {
 		opts.query.Cursor = *input.cursor
 	}
+	opts.excludeServiceDAGRuns = input.excludeServiceDAGRuns
 	opts.query.Limit = limit
 	return opts
 }
@@ -832,10 +852,13 @@ func buildDAGRunListOptions(input dagRunListFilterInput) dagRunListOptions {
 func (a *API) readDAGRunsPage(
 	ctx context.Context,
 	info dagRunReadRequestInfo,
-	opts persis.DAGRunListOptions,
+	opts dagRunListOptions,
 ) (persis.DAGRunStatusPage, error) {
 	page, err := withDAGRunReadTimeout(ctx, info, func(readCtx context.Context) (persis.DAGRunStatusPage, error) {
-		page, listErr := a.dagRunRepository.ListStatusesPage(readCtx, opts)
+		query := opts.query
+		// The names can take a DAG listing to resolve, so the timeout covers it.
+		query.ExcludeDAGNames = a.excludedDAGNames(readCtx, opts.excludeServiceDAGRuns)
+		page, listErr := a.dagRunRepository.ListStatusesPage(readCtx, query)
 		if listErr != nil {
 			return persis.DAGRunStatusPage{}, fmt.Errorf("error listing dag-runs: %w", listErr)
 		}
@@ -3125,6 +3148,9 @@ func (a *API) retryDAGRun(ctx context.Context, dagName, dagRunID, retryDagRunID,
 			Message:    message,
 		}
 	}
+	if err := a.checkServiceRunOfDefinition(ctx, dag, sourceDagRunID); err != nil {
+		return retryDAGRunResult{}, err
+	}
 
 	auditStepName := stepName
 	var retryPath dagrun.RetryPath
@@ -3614,6 +3640,12 @@ func (a *API) rescheduleDAGRun(ctx context.Context, dagName, dagRunID string, op
 			}
 		}
 	}
+	// A new run keeps the DAG name of its run unless told otherwise. The current
+	// file gives its own name, which is not the name of a run started with --name.
+	runName := nameOverride
+	if runName == "" {
+		runName = snapshotDAG.Name
+	}
 	currentFileParams := preservedSnapshotParams
 	if currentFileParams == "" {
 		currentFileParams = status.Params
@@ -3641,7 +3673,7 @@ func (a *API) rescheduleDAGRun(ctx context.Context, dagName, dagRunID string, op
 	// the snapshot carries the selector the run was routed with.
 	var rescheduleSelector map[string]string
 	if opts.useCurrentDAGFile {
-		dag, err = a.loadCurrentRescheduleDAG(ctx, storedSourceFile, nameOverride)
+		dag, err = a.loadCurrentRescheduleDAG(ctx, storedSourceFile, runName)
 		if err != nil {
 			return rescheduleDAGRunResult{}, err
 		}
@@ -3649,10 +3681,6 @@ func (a *API) rescheduleDAGRun(ctx context.Context, dagName, dagRunID string, op
 		rescheduleSelector = snapshotDAG.WorkerSelector
 		if len(snapshotDAG.YamlData) == 0 {
 			return rescheduleDAGRunResult{}, fmt.Errorf("failed to enqueue dag-run: DAG snapshot YAML is missing")
-		}
-		inlineName := snapshotDAG.Name
-		if nameOverride != "" {
-			inlineName = nameOverride
 		}
 		snapshotLoadOpts := []spec.LoadOption{
 			spec.WithDAGsDir(a.config.Paths.DAGsDir),
@@ -3666,7 +3694,7 @@ func (a *API) rescheduleDAGRun(ctx context.Context, dagName, dagRunID string, op
 			)
 		}
 
-		dag, cleanup, err = a.loadInlineDAG(ctx, string(snapshotDAG.YamlData), &inlineName, newDagRunID, snapshotLoadOpts...)
+		dag, cleanup, err = a.loadInlineDAG(ctx, string(snapshotDAG.YamlData), &runName, newDagRunID, snapshotLoadOpts...)
 		if err != nil {
 			return rescheduleDAGRunResult{}, fmt.Errorf("failed to prepare reschedule snapshot: %w", err)
 		}
@@ -3675,6 +3703,9 @@ func (a *API) rescheduleDAGRun(ctx context.Context, dagName, dagRunID string, op
 	}
 
 	if err := a.ensureDAGRunIDUnique(ctx, dag, newDagRunID); err != nil {
+		return rescheduleDAGRunResult{}, err
+	}
+	if err := a.checkServiceRunOfDefinition(ctx, dag, newDagRunID); err != nil {
 		return rescheduleDAGRunResult{}, err
 	}
 
@@ -3692,6 +3723,7 @@ func (a *API) rescheduleDAGRun(ctx context.Context, dagName, dagRunID string, op
 		enqueueErr = a.enqueueDAGRun(ctx, dag, enqueueRequest{
 			params:       paramsToUse,
 			dagRunID:     newDagRunID,
+			nameOverride: runName,
 			triggerType:  ir.TriggerTypeManual,
 			profileName:  profileName,
 			noReuse:      status.NoReuse,
@@ -5195,6 +5227,7 @@ func (a *API) GetDAGRunsListData(ctx context.Context, queryString string) (any, 
 		if err != nil {
 			return nil, err
 		}
+		opts.query.ExcludeDAGNames = a.excludedDAGNames(readCtx, opts.excludeServiceDAGRuns)
 
 		page, err := a.dagRunRepository.ListStatusesPage(readCtx, opts.query)
 		if err != nil {
@@ -5238,6 +5271,8 @@ func (a *API) dagRunListOptionsFromQueryString(ctx context.Context, queryString 
 		labels       *string
 		limit        *int
 		cursor       *string
+
+		excludeServiceDAGRuns bool
 	)
 
 	if rawStatuses, hasStatus := params["status"]; hasStatus {
@@ -5297,6 +5332,13 @@ func (a *API) dagRunListOptionsFromQueryString(ctx context.Context, queryString 
 	if rawCursor := params.Get("cursor"); rawCursor != "" {
 		cursor = &rawCursor
 	}
+	if rawExclude := params.Get(excludeServiceDAGRunsParam); rawExclude != "" {
+		parsed, convErr := strconv.ParseBool(rawExclude)
+		if convErr != nil {
+			return dagRunListOptions{}, invalidDAGRunListParam(ctx, excludeServiceDAGRunsParam, rawExclude, convErr)
+		}
+		excludeServiceDAGRuns = parsed
+	}
 
 	opts := buildDAGRunListOptions(dagRunListFilterInput{
 		statuses: statusValues,
@@ -5307,6 +5349,8 @@ func (a *API) dagRunListOptionsFromQueryString(ctx context.Context, queryString 
 		labels:   labels,
 		limit:    limit,
 		cursor:   cursor,
+
+		excludeServiceDAGRuns: excludeServiceDAGRuns,
 	})
 
 	workspaceParam := workspaceParamFromValues(params)

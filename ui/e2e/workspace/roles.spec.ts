@@ -210,12 +210,12 @@ steps:
               .getByRole('button', { name: 'Stop', exact: true })
           ).toBeVisible({ timeout: 30_000 });
         }
-        // "Copy to editor" writes the editor: it needs write access, and the
+        // Restoring the definition of a run writes the editor: it needs write access, and the
         // stale run gives it.
         await expectPresent(
-          page
-            .getByTestId('ww-run-actions')
-            .getByRole('button', { name: 'Copy to editor' }),
+          page.getByTestId('ww-run-actions').getByRole('button', {
+            name: "Revert to this run's YAML",
+          }),
           gates.canWrite
         );
         // The run menu holds the unsaved draft only. A clean editor keeps

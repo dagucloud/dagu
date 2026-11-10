@@ -40,6 +40,17 @@ type StepOutputReference struct {
 	Path       []string
 }
 
+// StepTextReference is a reference that inserts text a step produced, as opposed
+// to metadata such as its exit code or the path of its log.
+type StepTextReference struct {
+	// Expression is the reference as written.
+	Expression string
+	// StepName is the step the reference reads.
+	StepName string
+	// Field is the top-level output field read. It is empty for the whole output.
+	Field string
+}
+
 // scanReferences classifies strict references and eval refs. When escapes is
 // set, a reference whose dollar carries a backslash escape is skipped.
 func scanReferences(raw string, escapes bool) []reference {
@@ -249,6 +260,53 @@ func (f Field) HasStepRuntimeOutputReference(raw, stepID string) bool {
 		return true
 	}
 	return false
+}
+
+// StepTextReferences returns the references in raw, read as a value of the
+// field, that insert text a step produced.
+func (f Field) StepTextReferences(raw string) []StepTextReference {
+	var out []StepTextReference
+	for _, ref := range scanReferences(raw, f.escapesDollar()) {
+		if ref.StepOutput != nil {
+			out = append(out, StepTextReference{
+				Expression: ref.Raw,
+				StepName:   ref.StepOutput.StepName,
+				Field:      ref.StepOutput.Path[0],
+			})
+			continue
+		}
+		if ref.Kind != referenceEval {
+			continue
+		}
+		name, path, ok := referenceParts(ref.Raw)
+		if !ok {
+			continue
+		}
+		if field, ok := stepTextPathField(path); ok {
+			out = append(out, StepTextReference{Expression: ref.Raw, StepName: name, Field: field})
+		}
+	}
+	return out
+}
+
+// stepTextPathField reports whether a step reference path reads produced text,
+// and returns its top-level field, if it names one.
+func stepTextPathField(path string) (string, bool) {
+	for _, prefix := range []string{".outputs", ".output"} {
+		rest, ok := strings.CutPrefix(path, prefix)
+		if !ok {
+			continue
+		}
+		switch {
+		case rest == "" || rest[0] == ':' || rest[0] == '[':
+			return "", true
+		case rest[0] == '.':
+			field, _, _ := strings.Cut(rest[1:], ".")
+			field, _, _ = strings.Cut(field, "[")
+			return field, true
+		}
+	}
+	return "", false
 }
 
 // unqualifiedItemFieldReferences returns each unescaped ${alias.field} token in

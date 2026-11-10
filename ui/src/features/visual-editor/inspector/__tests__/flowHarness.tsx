@@ -4,7 +4,11 @@
 import { fireEvent, render, screen } from '@testing-library/react';
 import type { ComponentType } from 'react';
 import { vi } from 'vitest';
-import type { StepView, ValidationIssue } from '../../contracts';
+import type {
+  ReferenceCandidate,
+  StepView,
+  ValidationIssue,
+} from '../../contracts';
 import type { SectionProps } from '../types';
 
 /** Renders one flow part with an `onEdit` mock and a helper that edits a text field. */
@@ -15,6 +19,7 @@ export function renderPart(
     readOnly?: boolean;
     fieldIssues?: Record<string, ValidationIssue[]>;
     derivedName?: string;
+    candidates?: ReferenceCandidate[];
   } = {}
 ) {
   const onEdit = vi.fn();
@@ -25,6 +30,7 @@ export function renderPart(
       onEdit={onEdit}
       fieldIssues={options.fieldIssues ?? {}}
       derivedName={options.derivedName}
+      candidates={options.candidates ?? []}
     />
   );
   const edit = (label: string, value: string, index = 0) => {

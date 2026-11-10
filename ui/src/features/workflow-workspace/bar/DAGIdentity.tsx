@@ -14,6 +14,7 @@ import { useWorkspaceRefresh } from '../data';
 import { DescriptionPopover } from './DescriptionPopover';
 import { useWorkflowShare } from './useWorkflowShare';
 import { WorkflowRenameButton } from './WorkflowEditButtons';
+import { useStandaloneRun } from '../data/context';
 
 export interface DAGIdentityProps extends BarSlotProps {
   /** Whether the DAG is pinned; the pin button is hidden when unknown. */
@@ -54,6 +55,7 @@ export function DAGIdentity({
 }: DAGIdentityProps) {
   const { ts } = useI18n();
   const onPinChanged = usePinChanged();
+  const standalone = useStandaloneRun() !== null;
   const dirty = useWorkspaceEditor().state?.dirty ?? false;
   const name = dag.name;
   const description = dag.description?.trim();
@@ -81,7 +83,13 @@ export function DAGIdentity({
       >
         {name}
       </h1>
-      <WorkflowRenameButton fileName={fileName} workspaceName={workspaceName} />
+      {/* A run without its workflow file has no file to rename. */}
+      {!standalone && (
+        <WorkflowRenameButton
+          fileName={fileName}
+          workspaceName={workspaceName}
+        />
+      )}
       <div
         data-testid="ww-identity-secondary"
         className="hidden shrink-0 items-center @2xl:flex"

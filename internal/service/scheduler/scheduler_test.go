@@ -583,7 +583,7 @@ func TestScheduler_SelfFencesOnOwnershipLoss(t *testing.T) {
 
 	select {
 	case err := <-errCh:
-		require.NoError(t, err)
+		require.ErrorIs(t, err, scheduler.ErrLockLost)
 	case <-time.After(5 * time.Second):
 		t.Fatal("scheduler Start() did not return after self-fencing")
 	}

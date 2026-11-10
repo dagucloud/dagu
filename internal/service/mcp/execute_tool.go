@@ -50,6 +50,7 @@ const (
 	executeFieldQueue              = "queue"
 	executeFieldSingleton          = "singleton"
 	executeFieldNoReuse            = "noReuse"
+	executeFieldProfile            = "profile"
 	executeFieldLabels             = "labels"
 	executeFieldStepName           = "stepName"
 	executeFieldIncludeDownstream  = "includeDownstream"
@@ -74,6 +75,7 @@ type executeInput struct {
 	Queue              string
 	Singleton          bool
 	NoReuse            bool
+	Profile            string
 	Labels             []string
 	StepName           string
 	IncludeDownstream  bool
@@ -128,6 +130,10 @@ func executeToolInputSchema() json.RawMessage {
 			"noReuse": {
 				"type": "boolean",
 				"description": "Execute eligible build steps without reusing prior materializations for start or enqueue."
+			},
+			"profile": {
+				"type": "string",
+				"description": "Runtime profile name for start or enqueue. Selects the profile for this run only. When omitted, a stored DAG keeps its default profile resolution and an inline spec runs without a profile."
 			},
 			"labels": {
 				"type": "array",
@@ -429,6 +435,8 @@ func parseExecuteToolInput(raw json.RawMessage) (executeInput, *executeToolError
 			input.Singleton, parseErr = executeBoolField(field, value)
 		case executeFieldNoReuse:
 			input.NoReuse, parseErr = executeBoolField(field, value)
+		case executeFieldProfile:
+			input.Profile, parseErr = executeStringField(field, value)
 		case executeFieldLabels:
 			if err := json.Unmarshal(value, &input.Labels); err != nil {
 				parseErr = executeInputError("Field labels must be an array of strings.", executeFieldLabels)
@@ -570,6 +578,8 @@ func validateExecuteInput(input *executeInput, provided map[string]bool) *execut
 			return executeInputError("The singleton field is only valid for start and enqueue.", executeFieldSingleton)
 		case provided[executeFieldNoReuse]:
 			return executeInputError("The noReuse field is only valid for start and enqueue.", executeFieldNoReuse)
+		case input.Profile != "":
+			return executeInputError("The profile field is only valid for start and enqueue.", executeFieldProfile)
 		case provided[executeFieldLabels]:
 			return executeInputError("The labels field is only valid for start and enqueue.", executeFieldLabels)
 		}

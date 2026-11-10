@@ -285,6 +285,7 @@ export function StepInspector(props: StepInspectorProps): ReactElement {
     onEdit: props.onEdit,
     fieldIssues,
     derivedName: props.serverStep?.name,
+    candidates: props.candidates,
   };
   const counts = {
     general: countUnder(fieldIssues, GENERAL_FIELDS),
@@ -321,7 +322,6 @@ export function StepInspector(props: StepInspectorProps): ReactElement {
         {...common}
         schema={props.schema}
         customActions={props.customActions}
-        candidates={props.candidates}
       />
     </Section>
   );
@@ -469,6 +469,9 @@ export function StepInspector(props: StepInspectorProps): ReactElement {
                 schema={props.schema}
                 readOnly={locked}
                 onEdit={props.onEdit}
+                candidatesAtPath={
+                  props.candidatesAtPath ?? (() => props.candidates)
+                }
               />
             </Section>
           </>

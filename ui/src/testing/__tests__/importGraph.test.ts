@@ -115,7 +115,6 @@ describe('findForbiddenStaticImports', () => {
       'features/dags/components/visualization/Graph.tsx',
       'features/dags/components/visualization/DAGGraph.tsx',
       'features/dags/components/DAGStatus.tsx',
-      'features/dags/components/dag-execution/DAGExecutionHistory.tsx',
     ]);
     // The real tree: the run view still reaches Mermaid, statically.
     const hits = findForbiddenStaticImports(

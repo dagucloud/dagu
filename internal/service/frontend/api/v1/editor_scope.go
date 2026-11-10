@@ -94,12 +94,17 @@ func scalarText(value any) (string, bool) {
 }
 
 // scopeEnv lists the names of the env entries of dag, deduplicated and sorted.
+func scopeEnv(dag *ir.DAG) []api.ReferenceScopeVariable {
+	return envVariables(dag.Env)
+}
+
+// envVariables lists the names of NAME=value entries, deduplicated and sorted.
 // It never reads the value of an entry: the response must not carry values,
 // which can hold secrets.
-func scopeEnv(dag *ir.DAG) []api.ReferenceScopeVariable {
-	seen := make(map[string]struct{}, len(dag.Env))
-	names := make([]string, 0, len(dag.Env))
-	for _, entry := range dag.Env {
+func envVariables(entries []string) []api.ReferenceScopeVariable {
+	seen := make(map[string]struct{}, len(entries))
+	names := make([]string, 0, len(entries))
+	for _, entry := range entries {
 		name, _, found := strings.Cut(entry, "=")
 		name = strings.TrimSpace(name)
 		if !found || !envNamePattern.MatchString(name) {

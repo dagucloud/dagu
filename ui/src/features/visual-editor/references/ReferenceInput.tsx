@@ -8,6 +8,7 @@ import {
   useMemo,
   useRef,
   useState,
+  type KeyboardEvent,
   type ReactElement,
   type ReactNode,
 } from 'react';
@@ -53,7 +54,9 @@ export function ReferenceInput({
   disabled,
   id,
   'aria-label': ariaLabel,
+  'aria-invalid': ariaInvalid,
   onBlur,
+  onKeyDown,
 }: ReferenceInputProps): ReactElement {
   const { ts } = useI18n();
   const listboxId = `${useId()}-references`;
@@ -77,6 +80,9 @@ export function ReferenceInput({
   const inlineOpen =
     openReference !== null && openReference.from !== dismissedFrom;
   const pickerOpen = !disabled && (buttonOpen || inlineOpen);
+  // A command can end in "$", as in `grep foo$`: Enter stays with the field.
+  const loneDollar =
+    openReference !== null && value[openReference.from + 1] !== '{';
 
   useEffect(() => {
     if (openReference === null && dismissedFrom !== null)
@@ -125,6 +131,7 @@ export function ReferenceInput({
     const pos = Math.min(el.selectionStart ?? value.length, value.length);
     const open = findOpenReference(value, pos);
     if (!open) return;
+    candidate.onPicked?.();
     // Inside a closed token, the pick replaces the whole token.
     const closed = findReferenceTokens(value).find(
       (t) => t.from === open.from && pos < t.to
@@ -140,6 +147,7 @@ export function ReferenceInput({
       Math.max(selectionRef.current.end, start),
       value.length
     );
+    candidate.onPicked?.();
     apply(insertReference(value, start, end, candidate.token));
     setButtonOpen(false);
   };
@@ -169,6 +177,7 @@ export function ReferenceInput({
     placeholder,
     disabled,
     'aria-label': ariaLabel,
+    'aria-invalid': ariaInvalid,
     // A text field, not a combobox: aria-expanded and aria-haspopup do not
     // apply to it. The open list is announced through aria-controls.
     'aria-autocomplete': 'list' as const,
@@ -203,16 +212,15 @@ export function ReferenceInput({
       syncCaret(e.currentTarget),
     onKeyUp: (e: { currentTarget: FieldElement }) => syncCaret(e.currentTarget),
     onClick: (e: { currentTarget: FieldElement }) => syncCaret(e.currentTarget),
-    onKeyDown: (e: {
-      key: string;
-      preventDefault(): void;
-      stopPropagation(): void;
-    }) => {
-      if (!inlineOpen || !PICKER_KEYS.has(e.key)) return;
-      if (pickerRef.current?.handleKey(e.key)) {
+    onKeyDown: (e: KeyboardEvent<FieldElement>) => {
+      const forPicker =
+        inlineOpen && !e.nativeEvent.isComposing && PICKER_KEYS.has(e.key);
+      if (forPicker && pickerRef.current?.handleKey(e.key)) {
         e.preventDefault();
         e.stopPropagation();
+        return;
       }
+      onKeyDown?.(e);
     },
   };
 
@@ -301,6 +309,7 @@ export function ReferenceInput({
           candidates={candidates}
           showSearch={buttonOpen}
           query={buttonOpen ? undefined : openReference?.query}
+          idle={loneDollar}
           onPick={buttonOpen ? pickFromButton : pickInline}
           onClose={
             buttonOpen

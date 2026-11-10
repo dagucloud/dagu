@@ -52,7 +52,6 @@ const forbidden = [
   '@/features/dags/components/dag-details/DAGStatusOverview',
   '@/features/dags/components/dag-details/NodeStatusTable',
   '@/features/dags/components/dag-details/NodeStatusTableRow',
-  '@/features/dags/components/dag-execution/DAGExecutionHistory',
   '@/features/dags/components/visualization/DAGGraph',
   '@/features/dags/components/visualization/Graph',
   '@/features/dags/components/step-details/StepDetailsDrawer',

@@ -191,6 +191,9 @@ type DAG struct {
 	Delay time.Duration `json:"delay,omitempty"`
 	// RestartWait is the time to wait before restarting the DAG.
 	RestartWait time.Duration `json:"restartWait,omitempty"`
+	// RestartPolicy makes the scheduler keep a run of the DAG alive: a new run is
+	// started RestartWait after the previous one ends. See specs/080-restart-policy.md.
+	RestartPolicy RestartPolicy `json:"restartPolicy,omitempty"`
 	// MaxActiveSteps specifies the maximum concurrent steps to run in an execution.
 	MaxActiveSteps int `json:"maxActiveSteps,omitempty"`
 	// MaxActiveRuns specifies the maximum number of concurrent dag-runs.
@@ -677,8 +680,11 @@ func appendHolidays(dst, holidays []Holiday) []Holiday {
 func (d *DAG) initializeDefaults() {
 	const (
 		defaultHistRetentionDays = 30
-		defaultMaxCleanUpTime    = 5 * time.Second
-		defaultMaxActiveRuns     = 1
+		// A service DAG adds a run at each restart, so it keeps a number of
+		// runs rather than days of them.
+		defaultServiceDAGHistRetentionRuns = 100
+		defaultMaxCleanUpTime              = 5 * time.Second
+		defaultMaxActiveRuns               = 1
 	)
 
 	if d.Type == "" {
@@ -688,7 +694,11 @@ func (d *DAG) initializeDefaults() {
 		d.LogOutput = LogOutputSeparate
 	}
 	if d.HistRetentionDays == 0 && d.HistRetentionRuns == 0 {
-		d.HistRetentionDays = defaultHistRetentionDays
+		if d.RestartPolicy.Enabled() {
+			d.HistRetentionRuns = defaultServiceDAGHistRetentionRuns
+		} else {
+			d.HistRetentionDays = defaultHistRetentionDays
+		}
 	}
 	if d.MaxCleanUpTime == 0 {
 		d.MaxCleanUpTime = defaultMaxCleanUpTime

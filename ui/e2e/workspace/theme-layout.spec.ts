@@ -5,6 +5,7 @@ import type { Page } from '@playwright/test';
 import {
   loadStack,
   loginViaAPI,
+  openColumnTab,
   startDAG,
   uniqueName,
   waitForDAGAvailable,
@@ -253,12 +254,22 @@ async function checkEditButtons(
       barBox!.x + barBox!.width + 0.5
     );
   }
-  const nameBox = await bar.locator('h1').boundingBox();
-  const gap = renameBox!.x - (nameBox!.x + nameBox!.width);
-  expect(gap, `Rename next to the name (${where})`).toBeGreaterThanOrEqual(
-    -0.5
-  );
-  expect(gap, `Rename next to the name (${where})`).toBeLessThanOrEqual(12);
+  // The name and Rename in one layout, once the bar has settled after the
+  // dialog: two reads apart can fall on either side of a relayout.
+  const gap = () =>
+    bar.evaluate((element) => {
+      const name = element.querySelector('h1')!.getBoundingClientRect();
+      const button = element
+        .querySelector('[data-testid="ww-bar-rename"]')!
+        .getBoundingClientRect();
+      return button.left - name.right;
+    });
+  await expect
+    .poll(gap, { message: `Rename next to the name (${where})` })
+    .toBeGreaterThanOrEqual(-0.5);
+  await expect
+    .poll(gap, { message: `Rename next to the name (${where})` })
+    .toBeLessThanOrEqual(12);
   await rename.focus();
   await expect(rename, `Rename focus (${where})`).toBeFocused();
   if (narrow) return;
@@ -463,11 +474,8 @@ test.describe('workspace theme and layout', () => {
     await signIn(page);
     await page.setViewportSize({ width: 1440, height: 900 });
     await gotoWorkspace(page, routePath(ranDAG, 'latest'));
-    // The YAML button opens the whole file; no step is selected.
-    await page
-      .getByTestId('ve-toolbar')
-      .getByRole('button', { name: 'YAML', exact: true })
-      .click();
+    // The YAML tab shows the whole file; no step is selected.
+    await openColumnTab(page, 'YAML');
     const ndv = page.getByTestId('ndv');
     await expect(ndv).toHaveAttribute('data-state', 'docked', {
       timeout: 30_000,

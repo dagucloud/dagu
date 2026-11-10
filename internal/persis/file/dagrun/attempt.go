@@ -115,10 +115,51 @@ func (att *Attempt) Dir() string {
 	return filepath.Dir(att.file)
 }
 
-// Exists returns true if the status file exists.
+// Exists reports whether the attempt has a status. A status counts once its line
+// ends with a newline: the status file is created when the attempt is opened, and
+// a crash during the first write can leave part of a line.
 func (att *Attempt) Exists() bool {
-	_, err := fileutil.Stat(att.file)
-	return err == nil || !os.IsNotExist(err)
+	info, err := fileutil.Stat(att.file)
+	if err != nil {
+		return !os.IsNotExist(err)
+	}
+	if info.Size() == 0 {
+		return false
+	}
+	complete, err := hasCompleteLine(att.file, info.Size())
+	return err != nil || complete
+}
+
+// hasCompleteLine reports whether the file holds a line that ends with a newline.
+// The last byte answers it, except for a file that a crash cut short.
+func hasCompleteLine(path string, size int64) (bool, error) {
+	f, err := openStatusFileWithRetry(path)
+	if err != nil {
+		return false, err
+	}
+	defer func() {
+		_ = f.Close()
+	}()
+
+	last := make([]byte, 1)
+	if _, err := f.ReadAt(last, size-1); err != nil {
+		return false, err
+	}
+	if last[0] == '\n' {
+		return true, nil
+	}
+	reader := bufio.NewReader(f)
+	for {
+		_, err := reader.ReadSlice('\n')
+		switch {
+		case err == nil:
+			return true, nil
+		case errors.Is(err, io.EOF):
+			return false, nil
+		case !errors.Is(err, bufio.ErrBufferFull):
+			return false, err
+		}
+	}
 }
 
 // ModTime returns the last modification time of the status file.

@@ -223,7 +223,7 @@ function buttonNames(): string[] {
     .map((b) => b.getAttribute('aria-label') ?? b.textContent ?? '');
 }
 
-const COPY = 'Copy to editor';
+const COPY = "Revert to this run's YAML";
 
 beforeEach(() => {
   vi.clearAllMocks();
@@ -439,6 +439,24 @@ describe('RunActionsCluster', () => {
     );
   });
 
+  // A run started with --name lives under a name that only the URL holds, and
+  // a reschedule keeps the name.
+  it('names the new run of a reschedule as the run it comes from', async () => {
+    h.client.POST.mockResolvedValue({ data: { dagRunId: 'run-9' } });
+    setup(details('failed'), '/dags/nightly?run=run-1&dagRunName=etl');
+    fireEvent.click(screen.getByRole('button', { name: 'Retry' }));
+    const dialog = screen.getByRole('dialog');
+    fireEvent.click(
+      within(dialog).getByRole('checkbox', { name: 'Reschedule as a new run' })
+    );
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Reschedule' }));
+    await waitFor(() =>
+      expect(screen.getByTestId('where')).toHaveTextContent(
+        '/dags/nightly?run=run-9&dagRunName=etl'
+      )
+    );
+  });
+
   // A name override makes a run of another DAG, which this workflow does not
   // list: the page stays on the run that it shows.
   it('stays on the run after a reschedule under another DAG name', async () => {
@@ -510,12 +528,12 @@ describe('RunActionsCluster', () => {
     expect(screen.queryByRole('dialog')).toBeNull();
   });
 
-  describe('Copy to editor', () => {
+  describe("Revert to this run's YAML", () => {
     beforeEach(() => {
       h.runSpec = 'name: etl\nsteps: [a]\n';
     });
 
-    // The icon follows the run actions, with the editor icon.
+    // The icon follows the run actions.
     // parity:test-run-header-meta
     it('shows after the run actions while the run is stale', () => {
       setup(details('failed'));

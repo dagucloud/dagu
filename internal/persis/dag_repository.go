@@ -65,6 +65,17 @@ func (r *DAGRepository) GetMetadata(ctx context.Context, id string) (*ir.DAG, er
 	return r.store.GetMetadata(ctx, id)
 }
 
+// ServiceDAGNames returns the names of the DAGs that set a restart policy.
+func (r *DAGRepository) ServiceDAGNames(ctx context.Context) ([]string, error) {
+	return r.store.ServiceDAGNames(ctx)
+}
+
+// SavedServiceDAGNames returns the names of the DAGs that set a restart
+// policy without building a listing, or false when none is saved.
+func (r *DAGRepository) SavedServiceDAGNames() ([]string, bool) {
+	return r.store.SavedServiceDAGNames()
+}
+
 func (r *DAGRepository) GetDetails(ctx context.Context, id string, opts DAGLoadOptions) (*ir.DAG, error) {
 	definition, err := r.store.Get(ctx, id)
 	if err != nil {

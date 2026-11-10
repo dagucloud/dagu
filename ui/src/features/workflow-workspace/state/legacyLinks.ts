@@ -1,7 +1,10 @@
 // Copyright (C) 2026 Yota Hamada
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-import { buildDAGRunPageURL } from '@/features/dag-runs/lib/dagRunUrls';
+import {
+  buildDAGRunPageURL,
+  fileGivesRunName,
+} from '@/features/dag-runs/lib/dagRunUrls';
 
 export type LegacyResult =
   | { kind: 'none' }
@@ -88,14 +91,29 @@ function redirect(to: string): LegacyResult {
   return { kind: 'redirect', to };
 }
 
+/** Names the run in ?dagRunName when the name of the file does not give it. */
+function setRunName(
+  query: URLSearchParams,
+  fileName: string,
+  search: URLSearchParams
+): void {
+  const name = text(search, 'dagRunName');
+  if (name !== null && !fileGivesRunName(fileName, name)) {
+    query.set('dagRunName', name);
+  }
+}
+
 /** The legacy run query (dagRunId, dagRunName, subDAGRunId) becomes ?run. */
-function withRun(search: URLSearchParams): URLSearchParams {
+function withRun(fileName: string, search: URLSearchParams): URLSearchParams {
   const query = new URLSearchParams(search);
   const dagRunId = text(search, 'dagRunId');
   query.delete('dagRunId');
   query.delete('dagRunName');
   query.delete('subDAGRunId');
-  if (dagRunId !== null) query.set('run', dagRunId);
+  if (dagRunId !== null) {
+    query.set('run', dagRunId);
+    setRunName(query, fileName, search);
+  }
   return query;
 }
 
@@ -157,7 +175,7 @@ export function resolveLegacyLink(
       return runPage(fileName, search, rootName, dagRunId, subDAGRunId);
     }
     // R5: the old Spec tab was the YAML, so the editor opens it (?yaml=1).
-    const query = withRun(search);
+    const query = withRun(fileName, search);
     query.set('yaml', '1');
     return redirect(join(dagPath(fileName), query));
   }
@@ -173,6 +191,7 @@ export function resolveLegacyLink(
         ['run', dagRunId],
         ['dock', 'history'],
       ]);
+      setRunName(runQuery, fileName, search);
       for (const [key, value] of query) runQuery.append(key, value);
       return redirect(join(dagPath(fileName), runQuery));
     }
@@ -195,7 +214,7 @@ export function resolveLegacyLink(
   // route still resolve: dagRunId becomes ?run, and a bare idx needs the history.
   if (tab === 'executions' && search.get('run') === null) {
     if (dagRunId !== null)
-      return redirect(join(dagPath(fileName), withRun(search)));
+      return redirect(join(dagPath(fileName), withRun(fileName, search)));
     const idx = search.get('idx');
     if (idx !== null && /^\d+$/.test(idx)) {
       return { kind: 'needsHistory', idx: Number(idx) };

@@ -778,6 +778,13 @@ func (a *API) TriggerWebhook(ctx context.Context, request api.TriggerWebhookRequ
 		dagRunID = uuid.Must(uuid.NewV7()).String()
 	}
 
+	if err := a.dagRunMgr.CheckServiceRun(ctx, dag, dagRunID); err != nil {
+		return api.TriggerWebhook409JSONResponse{
+			Code:    api.ErrorCodeConflict,
+			Message: err.Error(),
+		}, nil
+	}
+
 	// Enqueue directly from the API layer so accepted webhook payloads do not
 	// need to fit in a subprocess command line.
 	if err := a.enqueuePreparedDAGRun(ctx, dag, params, dagRunID, ir.TriggerTypeWebhook, profileName, false, nil); err != nil {

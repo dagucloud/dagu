@@ -42,10 +42,6 @@ import (
 	"github.com/google/jsonschema-go/jsonschema"
 )
 
-// systemVarPrefix is the prefix for temporary variables used internally by Dagu
-// to avoid conflicts with user-defined variables.
-const systemVarPrefix = "DAGU_"
-
 // Node is a node in a DAG. It executes a command.
 type Node struct {
 	Data
@@ -58,6 +54,9 @@ type Node struct {
 	done         atomic.Bool
 	retryPolicy  RetryPolicy
 	cmdEvaluated atomic.Bool
+	// continueOnDecision caches ShouldContinue's answer for the current attempt,
+	// because matching continue_on.output reads the step's log. Guarded by mu.
+	continueOnDecision *bool
 	// bypassPreconditions skips step precondition evaluation for this node.
 	// Step-retry plans set it when the retry asks to bypass preconditions.
 	bypassPreconditions bool
@@ -163,30 +162,35 @@ func (n *Node) ShouldContinue(ctx context.Context) bool {
 
 	}
 
-	cacheKey := systemVarPrefix + "CONTINUE_ON." + n.Name()
-	if v, ok := n.getBoolVariable(cacheKey); ok {
-		return v
+	if n.continueOnDecision != nil {
+		return *n.continueOnDecision
 	}
 
 	if n.MatchExitCode(continueOn.ExitCode) {
-		n.setBoolVariable(cacheKey, true)
-		return true
+		return n.cacheContinueOnDecision(true)
 	}
 
 	if len(continueOn.Output) > 0 {
 		ok, err := n.LogContainsPattern(ctx, continueOn.Output)
 		if err != nil {
 			logger.Error(ctx, "Failed to check log for pattern", tag.Error(err))
+			// Not cached: a failed read says nothing about the log, and the next
+			// check can still read it.
 			return false
 		}
 		if ok {
-			n.setBoolVariable(cacheKey, true)
-			return true
+			return n.cacheContinueOnDecision(true)
 		}
 	}
 
-	n.setBoolVariable(cacheKey, false)
-	return false
+	return n.cacheContinueOnDecision(false)
+}
+
+// cacheContinueOnDecision records decision for the current attempt and returns
+// it. The caller holds mu.
+func (n *Node) cacheContinueOnDecision(decision bool) bool {
+	n.continueOnDecision = &decision
+	return decision
 }
 
 func (n *Node) Execute(ctx context.Context, onSetup ...func()) error {
@@ -860,19 +864,12 @@ func (n *Node) determineNodeStatus(cmd executor.Executor) error {
 	return nil
 }
 
-// clearVariable removes a variable from the Node's internal state.
-// Variables are scoped to the Node to avoid race conditions when
-// multiple DAG steps or concurrent tasks run simultaneously.
-func (n *Node) clearVariable(key string) {
-	n.ClearVariable(key)
-}
-
 func (n *Node) setupExecutor(ctx context.Context) (context.Context, executor.Executor, error) {
 	n.mu.Lock()
 	defer n.mu.Unlock()
 
-	// Clear the cache
-	n.clearVariable(systemVarPrefix + "CONTINUE_ON." + n.Name())
+	// A new attempt decides again.
+	n.continueOnDecision = nil
 
 	// Reset the state
 	n.ResetError()
@@ -1500,10 +1497,21 @@ func (n *Node) buildChildRunParams(ctx context.Context, subDAG *ir.SubDAG) ([]ex
 			return nil, fmt.Errorf("failed to eval parallel variable %q: %w", parallel.Variable, err)
 		}
 
-		// Parse the value using smart separator detection
-		parsedItems, err := stringutil.ParseSeparatedValues(value)
-		if err != nil {
-			return nil, fmt.Errorf("failed to parse parallel variable %q: %w", parallel.Variable, err)
+		var parsedItems []string
+		if parallel.Separator != "" {
+			// An explicit separator splits on that separator alone, so an item
+			// may contain other delimiter characters without being split.
+			separator, ok := stringutil.ParseSeparatorName(parallel.Separator)
+			if !ok {
+				return nil, fmt.Errorf("unknown parallel separator %q", parallel.Separator)
+			}
+			parsedItems = stringutil.SplitBySeparator(value, separator)
+		} else {
+			// Parse the value using smart separator detection
+			parsedItems, err = stringutil.ParseSeparatedValues(value)
+			if err != nil {
+				return nil, fmt.Errorf("failed to parse parallel variable %q: %w", parallel.Variable, err)
+			}
 		}
 		for _, item := range parsedItems {
 			items = append(items, item)

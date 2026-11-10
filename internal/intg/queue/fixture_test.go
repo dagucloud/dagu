@@ -209,6 +209,11 @@ func (f *fixture) enqueueWithPriority(priority queue.QueuePriority) string {
 }
 
 func (f *fixture) enqueueCatchup(scheduleTime time.Time) string {
+	return f.enqueueByScheduler(ir.TriggerTypeCatchUp, scheduleTime)
+}
+
+// enqueueByScheduler queues a run the way the scheduler does.
+func (f *fixture) enqueueByScheduler(triggerType ir.TriggerType, scheduleTime time.Time) string {
 	runID, err := ir.NewDAGRunID()
 	require.NoError(f.t, err)
 	require.NoError(f.t, scheduler.EnqueueCatchupRun(
@@ -222,7 +227,7 @@ func (f *fixture) enqueueCatchup(scheduleTime time.Time) string {
 		f.dag.FileName(),
 		f.dag,
 		runID,
-		ir.TriggerTypeCatchUp,
+		triggerType,
 		scheduleTime,
 		"",
 	))

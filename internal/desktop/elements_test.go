@@ -120,9 +120,23 @@ func TestRefused(t *testing.T) {
 		{"no such pattern", ErrNoPattern, true},
 		{"a read-only field", refusal("the field is read-only"), true},
 		{"nothing to expand", refusal("the element has nothing to expand"), true},
+		{"input the window does not take", refusedError{errors.New("admintool runs elevated")}, true},
 		{"no answer in time", fmt.Errorf("AXPress: no answer within 2s: %w", context.DeadlineExceeded), false},
 		{"a choice that did not stick", errors.New("the menu stayed open after its option was chosen"), false},
 	} {
 		assert.Equal(t, tc.refused, Refused(tc.err), tc.name)
 	}
+}
+
+// The error input to a window gets, given before the element acted, reads
+// as itself and matches both ErrRefused and what it wraps.
+func TestRefusedErrorWraps(t *testing.T) {
+	t.Parallel()
+
+	cause := fmt.Errorf("read the integrity level of admintool: %w", context.DeadlineExceeded)
+	err := refusedError{cause}
+	assert.EqualError(t, err, cause.Error())
+	assert.ErrorIs(t, err, ErrRefused)
+	assert.ErrorIs(t, err, cause)
+	assert.ErrorIs(t, err, context.DeadlineExceeded)
 }

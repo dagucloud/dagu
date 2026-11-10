@@ -80,6 +80,16 @@ const ROWS: Row[] = [
       query: { run: 'X', yaml: '1' },
     },
   },
+  // A run started with --name has a name that the file does not give.
+  {
+    rule: 'R5',
+    url: '/spec?dagRunId=X&dagRunName=nightly-eu',
+    expected: {
+      kind: 'redirect',
+      path: '/dags/flow.yaml',
+      query: { run: 'X', dagRunName: 'nightly-eu', yaml: '1' },
+    },
+  },
   {
     rule: 'R5',
     url: '/spec?dagRunId=X',
@@ -164,6 +174,15 @@ const ROWS: Row[] = [
     },
   },
   {
+    rule: 'R7',
+    url: '/history?dagRunId=X&dagRunName=nightly-eu',
+    expected: {
+      kind: 'redirect',
+      path: '/dags/flow.yaml',
+      query: { run: 'X', dagRunName: 'nightly-eu', dock: 'history' },
+    },
+  },
+  {
     rule: 'R8',
     url: '/history?idx=2',
     expected: { kind: 'needsHistory', idx: 2 },
@@ -203,6 +222,15 @@ const ROWS: Row[] = [
       kind: 'redirect',
       path: '/dags/flow.yaml',
       query: { run: 'X', step: 'y' },
+    },
+  },
+  {
+    rule: 'R11',
+    url: '/executions?dagRunId=X&dagRunName=nightly-eu',
+    expected: {
+      kind: 'redirect',
+      path: '/dags/flow.yaml',
+      query: { run: 'X', dagRunName: 'nightly-eu' },
     },
   },
   {

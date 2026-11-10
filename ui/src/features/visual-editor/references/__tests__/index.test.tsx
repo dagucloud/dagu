@@ -44,10 +44,11 @@ describe('references module', () => {
       registerCompletionItemProvider: vi.fn(() => ({ dispose })),
       registerHoverProvider: vi.fn(() => ({ dispose })),
     };
-    const monaco = { languages } as unknown as Parameters<
-      typeof registerReferenceCompletion
-    >[0];
-    registerReferenceCompletion(monaco, () => ({})).dispose();
+    const monaco = {
+      languages,
+      Uri: { parse: (uri: string) => uri },
+    } as unknown as Parameters<typeof registerReferenceCompletion>[0];
+    registerReferenceCompletion(monaco, () => ({}), 'inmemory://doc').dispose();
     expect(languages.registerCompletionItemProvider).toHaveBeenCalledWith(
       'yaml',
       expect.anything()

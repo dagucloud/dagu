@@ -1237,6 +1237,7 @@ func TestHandler_Poll(t *testing.T) {
 				DagRunId:     "run-123",
 				AttemptKey:   "attempt-key",
 				TriggerActor: "alice",
+				TriggerType:  "manual",
 				ScheduleTime: "2026-03-13T10:00:00Z",
 			},
 			"test-dag",
@@ -1249,6 +1250,7 @@ func TestHandler_Poll(t *testing.T) {
 		require.NoError(t, err)
 		require.Equal(t, "2026-03-13T10:00:00Z", status.ScheduleTime)
 		require.Equal(t, "alice", status.TriggerActor)
+		require.Equal(t, ir.TriggerTypeManual, status.TriggerType)
 	})
 
 	t.Run("WriteInitialStatusRecordsModelUsage", func(t *testing.T) {

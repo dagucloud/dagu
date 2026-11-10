@@ -129,6 +129,8 @@ Rules:
 
 - Arbitrary data is safer to pass through step `env`, files, or a direct-argv execution field when such a field is available.
 
+- `dagu validate` warns when a model step's output is written into a shell command; see Spec 067.
+
 - The selected shell or script interpreter receives the preserved text.
 
 - The selected shell or script interpreter may interpret or reject the preserved text.

@@ -2538,6 +2538,117 @@ steps:
 	assert.Len(t, result.Items, 1)
 }
 
+// A rebuild that a cancel cut short holds only the DAGs read before it, so it
+// must not be saved as the index of the whole directory.
+func TestCatalog_CancelledRebuildWritesNoIndex(t *testing.T) {
+	tmpDir := t.TempDir()
+	store := NewStore(tmpDir, WithSkipExamples(true))
+	require.NoError(t, os.WriteFile(filepath.Join(tmpDir, "svc.yaml"), []byte("steps:\n  - run: echo ok\n"), 0600))
+
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	_, err := store.Catalog(ctx)
+	require.ErrorIs(t, err, context.Canceled)
+	assert.False(t, fileExists(filepath.Join(tmpDir, dagindex.IndexFileName)))
+
+	result, err := store.Catalog(context.Background())
+	require.NoError(t, err)
+	assert.Len(t, result.Items, 1)
+}
+
+// ServiceDAGNames trusts the saved index, so a DAG file changed outside the
+// store counts once a listing has seen it.
+func TestServiceDAGNames(t *testing.T) {
+	tmpDir := t.TempDir()
+	store := NewStore(tmpDir, WithSkipExamples(true))
+	ctx := context.Background()
+	write := func(file, content string) {
+		t.Helper()
+		require.NoError(t, os.WriteFile(filepath.Join(tmpDir, file+".yaml"), []byte(content), 0600))
+	}
+	const serviceDAG = "restart_policy: always\nrestart_wait_sec: 5\nsteps:\n  - run: echo ok\n"
+	write("svc", serviceDAG)
+	write("renamed", "name: custom\n"+serviceDAG)
+	write("plain", "steps:\n  - run: echo ok\n")
+
+	names, err := store.ServiceDAGNames(ctx)
+	require.NoError(t, err)
+	assert.ElementsMatch(t, []string{"svc", "custom"}, names)
+
+	write("plain", serviceDAG)
+	names, err = store.ServiceDAGNames(ctx)
+	require.NoError(t, err)
+	assert.ElementsMatch(t, []string{"svc", "custom"}, names)
+
+	_, err = store.Catalog(ctx)
+	require.NoError(t, err)
+	names, err = store.ServiceDAGNames(ctx)
+	require.NoError(t, err)
+	assert.ElementsMatch(t, []string{"svc", "custom", "plain"}, names)
+
+	// An index that cannot be read gives way to a full listing.
+	require.NoError(t, os.WriteFile(filepath.Join(tmpDir, dagindex.IndexFileName), []byte("not an index"), 0600))
+	names, err = store.ServiceDAGNames(ctx)
+	require.NoError(t, err)
+	assert.ElementsMatch(t, []string{"svc", "custom", "plain"}, names)
+}
+
+// A saved-only read answers from an index that exists and never builds one,
+// so a caller that must not wait for a rebuild can use it.
+func TestSavedServiceDAGNames(t *testing.T) {
+	tmpDir := t.TempDir()
+	store := NewStore(tmpDir, WithSkipExamples(true))
+	require.NoError(t, os.WriteFile(filepath.Join(tmpDir, "svc.yaml"),
+		[]byte("restart_policy: always\nrestart_wait_sec: 5\nsteps:\n  - run: echo ok\n"), 0600))
+
+	_, ok := store.SavedServiceDAGNames()
+	assert.False(t, ok)
+	assert.NoFileExists(t, filepath.Join(tmpDir, dagindex.IndexFileName))
+
+	_, err := store.Catalog(context.Background())
+	require.NoError(t, err)
+	names, ok := store.SavedServiceDAGNames()
+	assert.True(t, ok)
+	assert.Equal(t, []string{"svc"}, names)
+}
+
+// A rewritten index of the same size can keep its modification time where
+// timestamps are coarse; the names must still come from the new file.
+func TestServiceDAGNamesSeesIndexRewriteInSameTick(t *testing.T) {
+	tmpDir := t.TempDir()
+	store := NewStore(tmpDir, WithSkipExamples(true))
+	ctx := context.Background()
+	const service = "restart_policy: always\nrestart_wait_sec: 5\nsteps:\n  - run: echo ok\n"
+	const plain = "restart_wait_sec: 5\nrestart_policy: no\nsteps:\n  - run: echo ok\n"
+	write := func(file, content string) {
+		t.Helper()
+		require.NoError(t, os.WriteFile(filepath.Join(tmpDir, file+".yaml"), []byte(content), 0600))
+	}
+	write("a1", service)
+	write("b1", plain)
+	_, err := store.Catalog(ctx)
+	require.NoError(t, err)
+	names, err := store.ServiceDAGNames(ctx)
+	require.NoError(t, err)
+	require.Equal(t, []string{"a1"}, names)
+
+	indexPath := store.indexPath
+	before, err := os.Stat(indexPath)
+	require.NoError(t, err)
+	write("a1", plain)
+	write("b1", service)
+	_, err = store.Catalog(ctx)
+	require.NoError(t, err)
+	require.NoError(t, os.Chtimes(indexPath, before.ModTime(), before.ModTime()))
+	after, err := os.Stat(indexPath)
+	require.NoError(t, err)
+	require.Equal(t, before.Size(), after.Size(), "the test needs an index of the same size")
+
+	names, err = store.ServiceDAGNames(ctx)
+	require.NoError(t, err)
+	assert.Equal(t, []string{"b1"}, names)
+}
+
 func TestInvalidateIndex_RemovesFile(t *testing.T) {
 	tmpDir := t.TempDir()
 	store := NewStore(tmpDir, WithSkipExamples(true))

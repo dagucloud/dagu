@@ -127,7 +127,7 @@ var startWorkerIDFlag = commandLineFlag{
 // triggerTypeFlag identifies how this DAG run was initiated
 var triggerTypeFlag = commandLineFlag{
 	name:         "trigger-type",
-	usage:        "How this DAG run was initiated (scheduler, manual, webhook, subdag, retry, catchup)",
+	usage:        "How this DAG run was initiated (scheduler, manual, webhook, subdag, retry, catchup, restart)",
 	defaultValue: "manual",
 }
 
@@ -316,6 +316,16 @@ func runStart(ctx *Context, args []string) error {
 		}
 		opts.parent = parent
 		return handleSubDAGRun(ctx, dag, dagRunID, params, opts)
+	}
+
+	if workerID == "local" {
+		definition := dag
+		if fromRunID != "" {
+			definition = serviceDefinition(ctx, dag)
+		}
+		if err := ctx.DAGRunMgr.CheckServiceRun(ctx, definition, dagRunID); err != nil {
+			return err
+		}
 	}
 
 	if len(selection.steps) > 0 {
@@ -759,6 +769,7 @@ func dispatchToCoordinatorAndWait(ctx *Context, d *ir.DAG, dagRunID string, opts
 	if opts.triggerActor != "" {
 		taskOpts = append(taskOpts, executor.WithTriggerActor(opts.triggerActor))
 	}
+	taskOpts = append(taskOpts, executor.WithTriggerType(opts.triggerType))
 
 	operation := dispatch.DispatchOperationStart
 	if opts.seed != nil {

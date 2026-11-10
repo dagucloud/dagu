@@ -107,6 +107,10 @@ describe('classifyReferencePath', () => {
       canonical('foreach')
     );
     expect(classifyReferencePath('foreach.key')).toEqual(canonical('foreach'));
+    expect(classifyReferencePath('inputs.source')).toEqual(canonical('inputs'));
+    expect(classifyReferencePath('outputs.artifact')).toEqual(
+      canonical('outputs')
+    );
     expect(classifyReferencePath('foreach.item')).toEqual(canonical('foreach'));
     expect(classifyReferencePath('foreach.item.name')).toEqual(
       canonical('foreach')

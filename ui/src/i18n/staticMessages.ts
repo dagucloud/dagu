@@ -228,6 +228,7 @@ const baseEnglish = {
   '). To deactivate, remove the environment variable and restart Dagu.':
     '). To deactivate, remove the environment variable and restart Dagu.',
   '←→ Select': '←→ Select',
+  '←→ Scroll': '←→ Scroll',
   '↑↓ Navigate': '↑↓ Navigate',
   '↻ until': '↻ until',
   '↻ while': '↻ while',
@@ -1460,6 +1461,13 @@ const baseEnglish = {
   //
   // visual-editor:P1-4 begin
   'Insert reference': 'Insert reference',
+  'Available references': 'Available references',
+  'Put the cursor in a field value': 'Put the cursor in a field value',
+  'Published when chosen': 'Published when chosen',
+  'Not safe in a shell': 'Not safe in a shell',
+  'Unsafe here: use env': 'Unsafe here: use env',
+  'A model wrote this text, so a shell can run it as code. Pass it through env and read it from the environment instead.':
+    'A model wrote this text, so a shell can run it as code. Pass it through env and read it from the environment instead.',
   'Search references': 'Search references',
   References: 'References',
   'No references available': 'No references available',
@@ -1470,6 +1478,9 @@ const baseEnglish = {
   'Environment variables': 'Environment variables',
   Secrets: 'Secrets',
   'Run context': 'Run context',
+  'Build inputs': 'Build inputs',
+  'Build outputs': 'Build outputs',
+  'Step environment': 'Step environment',
   'Upstream data': 'Upstream data',
   'Select a step to see the data of its upstream steps':
     'Select a step to see the data of its upstream steps',
@@ -1936,6 +1947,7 @@ const baseEnglish = {
   'Items per page': 'Items per page',
   '{selected} of {loaded} selected': '{selected} of {loaded} selected',
   'Schedule for {name}': 'Schedule for {name}',
+  'Restarts for {name}': 'Restarts for {name}',
   'Target name': 'Target name',
   'Target:': 'Target:',
   'Task input is safely stored, but the DAG-run still needs to be queued for resume.':
@@ -2181,6 +2193,10 @@ const baseEnglish = {
     "Allow callers to select an approved profile with {header}. Without the header, the DAG's default profile resolution is used.",
   'Are you sure you want to {action} the schedule for "{name}"?':
     'Are you sure you want to {action} the schedule for "{name}"?',
+  'Resume the restarts of "{name}"? The scheduler starts a run when one is due.':
+    'Resume the restarts of "{name}"? The scheduler starts a run when one is due.',
+  'Suspend the restarts of "{name}"? A running run keeps running.':
+    'Suspend the restarts of "{name}"? A running run keeps running.',
   'Are you sure you want to {action} the webhook for "{name}"?':
     'Are you sure you want to {action} the webhook for "{name}"?',
   'Are you sure you want to delete remote node "{name}"? This action cannot be undone.':
@@ -2295,8 +2311,10 @@ const baseEnglish = {
   retry: 'retry',
   reschedule: 'reschedule',
   'Disable schedule': 'Disable schedule',
+  'Suspend restarts': 'Suspend restarts',
   'Disable Webhook': 'Disable Webhook',
   'Enable schedule': 'Enable schedule',
+  'Resume restarts': 'Resume restarts',
   'Enable Webhook': 'Enable Webhook',
   '+{count} more': '+{count} more',
   '+{count} more step': '+{count} more step',
@@ -2937,6 +2955,7 @@ const baseEnglish = {
   Manual: 'Manual',
   'Sub-DAG': 'Sub-DAG',
   'Catch-up': 'Catch-up',
+  Restart: 'Restart',
   'Run log': 'Run log',
   Stream: 'Stream',
   'Lines shown': 'Lines shown',
@@ -3137,7 +3156,6 @@ type BaseStaticMessage = keyof typeof baseEnglish;
 const english = { ...workspaceMessages.en, ...baseEnglish } as const;
 
 export type StaticMessage = keyof typeof english;
-export type StaticTranslationValues = Record<string, string | number>;
 
 const baseChinese = {
   'Plan & features': '套餐与功能',
@@ -3357,6 +3375,7 @@ const baseChinese = {
   '). To deactivate, remove the environment variable and restart Dagu.':
     ')。要停用，请删除环境变量并重启 Dagu。',
   '←→ Select': '←→ 选择',
+  '←→ Scroll': '←→ 滚动',
   '↑↓ Navigate': '↑↓ 导航',
   '↻ until': '↻ 直到...',
   '↻ while': '↻ 当...时',
@@ -4561,6 +4580,13 @@ const baseChinese = {
   //
   // visual-editor:P1-4 begin
   'Insert reference': '插入引用',
+  'Available references': '可用引用',
+  'Put the cursor in a field value': '请将光标放在字段值中',
+  'Published when chosen': '选择后发布',
+  'Not safe in a shell': '在 shell 中不安全',
+  'Unsafe here: use env': '此处不安全：请用 env',
+  'A model wrote this text, so a shell can run it as code. Pass it through env and read it from the environment instead.':
+    '此文本由模型生成，shell 可能会将其作为代码执行。请通过 env 传递，并从环境变量中读取。',
   'Search references': '搜索引用',
   References: '引用',
   'No references available': '没有可用的引用',
@@ -4571,6 +4597,9 @@ const baseChinese = {
   'Environment variables': '环境变量',
   Secrets: '密钥',
   'Run context': '运行上下文',
+  'Build inputs': '构建输入',
+  'Build outputs': '构建输出',
+  'Step environment': '步骤环境变量',
   'Upstream data': '上游数据',
   'Select a step to see the data of its upstream steps':
     '选择一个步骤以查看其上游步骤的数据',
@@ -5023,6 +5052,7 @@ const baseChinese = {
   'Items per page': '每页条数',
   '{selected} of {loaded} selected': '已选择 {loaded} 项中的 {selected} 项',
   'Schedule for {name}': '{name} 的调度',
+  'Restarts for {name}': '{name} 的重启',
   'Target name': '目标名称',
   'Target:': '目标:',
   'Task input is safely stored, but the DAG-run still needs to be queued for resume.':
@@ -5259,6 +5289,10 @@ const baseChinese = {
     '允许调用方使用 {header} 选择已批准的配置。未提供该请求头时，将使用 DAG 的默认配置解析。',
   'Are you sure you want to {action} the schedule for "{name}"?':
     '确定要{action}“{name}”的计划吗？',
+  'Resume the restarts of "{name}"? The scheduler starts a run when one is due.':
+    '恢复“{name}”的重启吗？调度器会在需要时启动运行。',
+  'Suspend the restarts of "{name}"? A running run keeps running.':
+    '暂停“{name}”的重启吗？正在进行的运行会继续运行。',
   'Are you sure you want to {action} the webhook for "{name}"?':
     '确定要{action}“{name}”的 Webhook 吗？',
   'Are you sure you want to delete remote node "{name}"? This action cannot be undone.':
@@ -5370,8 +5404,10 @@ const baseChinese = {
   retry: '重试',
   reschedule: '重新调度',
   'Disable schedule': '禁用计划',
+  'Suspend restarts': '暂停重启',
   'Disable Webhook': '禁用 Webhook',
   'Enable schedule': '启用计划',
+  'Resume restarts': '恢复重启',
   'Enable Webhook': '启用 Webhook',
   '+{count} more': '另有 {count} 个',
   '+{count} more step': '另有 {count} 个步骤',
@@ -5993,6 +6029,7 @@ const baseChinese = {
   Manual: '手动',
   'Sub-DAG': '子工作流',
   'Catch-up': '补跑',
+  Restart: '重启',
   'Run log': '运行日志',
   Stream: '输出流',
   'Lines shown': '显示的行',
@@ -6406,6 +6443,7 @@ const baseJapanese = {
   '). To deactivate, remove the environment variable and restart Dagu.':
     ') で設定されています。無効にするには、環境変数を削除して Dagu を再起動してください。',
   '←→ Select': '←→ 選択',
+  '←→ Scroll': '←→ スクロール',
   '↑↓ Navigate': '↑↓ 移動',
   '↻ until': '↻ 条件が真になるまで',
   '↻ while': '↻ 条件が真の間',
@@ -7653,6 +7691,13 @@ const baseJapanese = {
   //
   // visual-editor:P1-4 begin
   'Insert reference': '参照を挿入',
+  'Available references': '利用できる参照',
+  'Put the cursor in a field value': 'フィールドの値にカーソルを置いてください',
+  'Published when chosen': '選ぶと公開されます',
+  'Not safe in a shell': 'シェルでは安全ではありません',
+  'Unsafe here: use env': 'ここでは危険: env を使用',
+  'A model wrote this text, so a shell can run it as code. Pass it through env and read it from the environment instead.':
+    'このテキストはモデルが書いたもので、シェルがコードとして実行するおそれがあります。env で渡し、環境変数から読み取ってください。',
   'Search references': '参照を検索',
   References: '参照',
   'No references available': '利用可能な参照はありません',
@@ -7663,6 +7708,9 @@ const baseJapanese = {
   'Environment variables': '環境変数',
   Secrets: 'シークレット',
   'Run context': '実行コンテキスト',
+  'Build inputs': 'ビルド入力',
+  'Build outputs': 'ビルド出力',
+  'Step environment': 'ステップの環境変数',
   'Upstream data': '上流データ',
   'Select a step to see the data of its upstream steps':
     'ステップを選択すると、その上流ステップのデータを表示します',
@@ -8136,6 +8184,7 @@ const baseJapanese = {
   'Items per page': '1 ページの件数',
   '{selected} of {loaded} selected': '{loaded} 件中 {selected} 件を選択',
   'Schedule for {name}': '{name} のスケジュール',
+  'Restarts for {name}': '{name} の再起動',
   'Target name': 'ターゲット名',
   'Target:': 'ターゲット:',
   'Task input is safely stored, but the DAG-run still needs to be queued for resume.':
@@ -8381,6 +8430,10 @@ const baseJapanese = {
     '呼び出し元は {header} を使って承認済みプロファイルを選択できます。このヘッダーがない場合は、DAG のデフォルトプロファイル解決が使用されます。',
   'Are you sure you want to {action} the schedule for "{name}"?':
     '「{name}」のスケジュールを{action}にしますか？',
+  'Resume the restarts of "{name}"? The scheduler starts a run when one is due.':
+    '「{name}」の再起動を再開しますか？実行が必要になると、スケジューラーが実行を開始します。',
+  'Suspend the restarts of "{name}"? A running run keeps running.':
+    '「{name}」の再起動を一時停止しますか？実行中の実行はそのまま続行されます。',
   'Are you sure you want to {action} the webhook for "{name}"?':
     '「{name}」の Webhook を{action}にしますか？',
   'Are you sure you want to delete remote node "{name}"? This action cannot be undone.':
@@ -8495,8 +8548,10 @@ const baseJapanese = {
   retry: '再試行',
   reschedule: '再スケジュール',
   'Disable schedule': 'スケジュールを無効化',
+  'Suspend restarts': '再起動を一時停止',
   'Disable Webhook': 'Webhook を無効化',
   'Enable schedule': 'スケジュールを有効化',
+  'Resume restarts': '再起動を再開',
   'Enable Webhook': 'Webhook を有効化',
   '+{count} more': '他 {count} 件',
   '+{count} more step': '他 {count} ステップ',
@@ -9144,6 +9199,7 @@ const baseJapanese = {
   Manual: '手動',
   'Sub-DAG': 'サブワークフロー',
   'Catch-up': 'キャッチアップ',
+  Restart: '再起動',
   'Run log': '実行ログ',
   Stream: '出力ストリーム',
   'Lines shown': '表示する行',
@@ -9358,23 +9414,3 @@ export const staticMessages = {
   'zh-CN': chinese,
   ja: japanese,
 } satisfies Record<Locale, Record<StaticMessage, string>>;
-
-export function translateStatic(
-  locale: Locale,
-  source: string,
-  values?: StaticTranslationValues
-): string {
-  const catalog = staticMessages[locale];
-  const message =
-    locale !== 'en' && Object.prototype.hasOwnProperty.call(catalog, source)
-      ? catalog[source as StaticMessage]
-      : source;
-  if (!values) {
-    return message;
-  }
-
-  return message.replace(/\{(\w+)\}/g, (placeholder, name: string) => {
-    const value = values[name];
-    return value === undefined ? placeholder : String(value);
-  });
-}

@@ -17,7 +17,7 @@ import {
 import { expect, signIn, test } from './fixtures';
 
 // parity:test-e2e-gaps (the one tab: the editable graph with the run overlay,
-// the Run panel below it, the run timeline and keys, Copy to editor and the
+// the Run panel below it, the run timeline and keys, the restore of a run definition and the
 // read-only run definition)
 
 // NodeStatus.Success in ui/src/api/v1/schema.ts.
@@ -786,7 +786,7 @@ steps:
     // the editor, which stays on the same page.
     const copy = page
       .getByTestId('ww-run-actions')
-      .getByRole('button', { name: 'Copy to editor' });
+      .getByRole('button', { name: "Revert to this run's YAML" });
     await expect(copy).toBeEnabled({ timeout: 30_000 });
     await copy.click();
     await expect.poll(() => new URL(page.url()).pathname).toBe(base);

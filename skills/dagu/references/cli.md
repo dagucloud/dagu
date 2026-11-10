@@ -30,7 +30,9 @@ Flags:
 - `--no-reuse` — Recompute reusable build steps while preserving staged, atomic publication
 - `--worker-id` — Worker ID executing this DAG run; auto-set in distributed mode and defaults to `local`
 - `--worker-label` — Worker label (`key=value`) this run requires, replacing the DAG's `worker_selector` for this run and kept with the run for retries; repeatable. Not with `--worker-id`
-- `--trigger-type` — Trigger source (`scheduler`, `manual`, `webhook`, `subdag`, `retry`, `catchup`); defaults to `manual`
+- `--trigger-type` — Trigger source (`scheduler`, `manual`, `webhook`, `subdag`, `retry`, `catchup`, `restart`); defaults to `manual`
+
+A DAG with `restart_policy: always` or `unless-stopped` has one run at a time: while a run is active, `dagu start`, `dagu enqueue` and `dagu retry` are refused. With no active run they work, which is how a stopped service comes back.
 
 ### dagu enqueue
 
@@ -51,7 +53,7 @@ Flags:
 - `--tags` — Deprecated alias for `--labels`
 - `--default-working-dir` — Default working directory for DAGs without explicit workingDir
 - `--no-reuse` — Recompute reusable build steps when the queued run starts
-- `--trigger-type` — Trigger source (`scheduler`, `manual`, `webhook`, `subdag`, `retry`, `catchup`); defaults to `manual`
+- `--trigger-type` — Trigger source (`scheduler`, `manual`, `webhook`, `subdag`, `retry`, `catchup`, `restart`); defaults to `manual`
 
 ### dagu exec
 
@@ -83,6 +85,8 @@ Stop an active DAG run: `dagu stop <dag-name> [--run-id/-r <id>]`
 ### dagu restart
 
 Stop and restart a DAG run: `dagu restart <dag-name> [--run-id/-r <id>]`
+
+A DAG with `restart_policy: always` or `unless-stopped` is refused: the scheduler starts its runs, so stop the running run instead. With `unless-stopped`, the scheduler starts no run after a stop: start the DAG again with `dagu start`.
 
 ### dagu retry
 

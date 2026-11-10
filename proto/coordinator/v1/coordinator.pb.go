@@ -513,7 +513,9 @@ type Task struct {
 	BypassPreconditions bool `protobuf:"varint,40,opt,name=bypass_preconditions,json=bypassPreconditions,proto3" json:"bypass_preconditions,omitempty"`
 	// Resolved "KEY=value" pairs the parent opted to share with the child run via
 	// the step's pass_env field.
-	PassedEnvs    []string `protobuf:"bytes,41,rep,name=passed_envs,json=passedEnvs,proto3" json:"passed_envs,omitempty"`
+	PassedEnvs []string `protobuf:"bytes,41,rep,name=passed_envs,json=passedEnvs,proto3" json:"passed_envs,omitempty"`
+	// How the DAG run was initiated. Workers record this on a started run.
+	TriggerType   string `protobuf:"bytes,42,opt,name=trigger_type,json=triggerType,proto3" json:"trigger_type,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -823,6 +825,13 @@ func (x *Task) GetPassedEnvs() []string {
 	return nil
 }
 
+func (x *Task) GetTriggerType() string {
+	if x != nil {
+		return x.TriggerType
+	}
+	return ""
+}
+
 func (x *Task) SetOperation(v Operation) {
 	x.Operation = v
 }
@@ -983,6 +992,10 @@ func (x *Task) SetPassedEnvs(v []string) {
 	x.PassedEnvs = v
 }
 
+func (x *Task) SetTriggerType(v string) {
+	x.TriggerType = v
+}
+
 func (x *Task) HasPreviousStatus() bool {
 	if x == nil {
 		return false
@@ -1072,6 +1085,8 @@ type Task_builder struct {
 	// Resolved "KEY=value" pairs the parent opted to share with the child run via
 	// the step's pass_env field.
 	PassedEnvs []string
+	// How the DAG run was initiated. Workers record this on a started run.
+	TriggerType string
 }
 
 func (b0 Task_builder) Build() *Task {
@@ -1118,6 +1133,7 @@ func (b0 Task_builder) Build() *Task {
 	x.BaseConfigWorkspace = b.BaseConfigWorkspace
 	x.BypassPreconditions = b.BypassPreconditions
 	x.PassedEnvs = b.PassedEnvs
+	x.TriggerType = b.TriggerType
 	return m0
 }
 
@@ -6499,7 +6515,7 @@ const file_proto_coordinator_v1_coordinator_proto_rawDesc = "" +
 	"\x0fDispatchRequest\x12(\n" +
 	"\x04task\x18\x01 \x01(\v2\x14.coordinator.v1.TaskR\x04task\x12>\n" +
 	"\x1badmission_reservation_token\x18\x02 \x01(\tR\x19admissionReservationToken\"\x12\n" +
-	"\x10DispatchResponse\"\x97\x0e\n" +
+	"\x10DispatchResponse\"\xba\x0e\n" +
 	"\x04Task\x127\n" +
 	"\toperation\x18\x06 \x01(\x0e2\x19.coordinator.v1.OperationR\toperation\x12)\n" +
 	"\x11root_dag_run_name\x18\x01 \x01(\tR\x0erootDagRunName\x12%\n" +
@@ -6552,7 +6568,8 @@ const file_proto_coordinator_v1_coordinator_proto_rawDesc = "" +
 	"\x15base_config_workspace\x18' \x01(\tH\x00R\x13baseConfigWorkspace\x88\x01\x01\x121\n" +
 	"\x14bypass_preconditions\x18( \x01(\bR\x13bypassPreconditions\x12\x1f\n" +
 	"\vpassed_envs\x18) \x03(\tR\n" +
-	"passedEnvs\x1aA\n" +
+	"passedEnvs\x12!\n" +
+	"\ftrigger_type\x18* \x01(\tR\vtriggerType\x1aA\n" +
 	"\x13WorkerSelectorEntry\x12\x10\n" +
 	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
 	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01B\x18\n" +

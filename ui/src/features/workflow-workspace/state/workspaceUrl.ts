@@ -14,6 +14,7 @@ import {
   useNavigate,
   useParams,
 } from 'react-router-dom';
+import { useStandaloneRun } from '../data/context';
 
 /** The old Executions tab is the workspace; /dags/:f/executions redirects (legacyLinks.ts). */
 export type WorkspaceMode = 'workspace' | 'popout';
@@ -54,6 +55,13 @@ export interface WorkspaceUrlState {
   } | null;
   /** ?run ; null = latest */
   run: string | null;
+  /**
+   * ?dagRunName: the DAG name of the run of ?run when the name of the file
+   * does not give it, as for a run started with --name. The runs that a page
+   * selects share it, so it stays with a new ?run until a write clears it. A
+   * name left behind only costs a failed lookup; a lost one shows another run.
+   */
+  runName: string | null;
   /**
    * ?subRun: a sub-run of the run that a link opens on the sub-run stack,
    * once. A ?step next to it is a step of that sub-run, so `step` is null.
@@ -115,7 +123,8 @@ const STATE_KEYS = [
   'panel',
   'wtab',
 ] as const;
-const POPOUT_KEYS = ['dagRunId', 'dagRunName', 'subDAGRunId'] as const;
+const RUN_NAME_KEY = 'dagRunName';
+const POPOUT_KEYS = ['dagRunId', RUN_NAME_KEY, 'subDAGRunId'] as const;
 const CARRY_KEYS = ['remoteNode', 'workspace'] as const;
 const OWNED_KEYS: ReadonlySet<string> = new Set<string>([
   ...STATE_KEYS,
@@ -183,13 +192,15 @@ export function parseWorkspaceUrl(
   if (workspace !== null) carry.workspace = workspace;
   const subRunId = text(search, 'subRun');
   const subRun = subRunId ? { id: subRunId, step: text(search, 'step') } : null;
+  const run = text(search, 'run');
 
   return {
     mode,
     popout,
     panel: oneOf(text(search, 'panel'), OPEN_PANELS),
     wtab: oneOf(text(search, 'wtab'), WORKFLOW_PANEL_TABS),
-    run: text(search, 'run'),
+    run,
+    runName: run && mode === 'workspace' ? text(search, RUN_NAME_KEY) : null,
     subRun,
     def: oneOf(text(search, 'def'), ['run'] as const),
     step: subRun ? null : text(search, 'step'),
@@ -228,6 +239,9 @@ function buildQuery(s: WorkspaceUrlState): URLSearchParams {
   for (const key of STATE_KEYS) {
     const value = s[key];
     if (value) query.set(key, value);
+  }
+  if (s.mode === 'workspace' && s.run && s.runName) {
+    query.set(RUN_NAME_KEY, s.runName);
   }
   // A step of the run itself drops a sub-run link that has not opened yet.
   if (s.subRun && s.step === null) {
@@ -327,10 +341,13 @@ export function useWorkspaceUrl(): [
   const navigate = useNavigate();
   const { navigator } = useContext(UNSAFE_NavigationContext);
   const store = storeOf(navigator);
-  const state = useMemo(
-    () => parseWorkspaceUrl(tab, new URLSearchParams(location.search)),
-    [tab, location.search]
-  );
+  // A run without its workflow file has no definition but its own: the page
+  // stays on the definition of the run.
+  const standalone = useStandaloneRun() !== null;
+  const state = useMemo(() => {
+    const parsed = parseWorkspaceUrl(tab, new URLSearchParams(location.search));
+    return standalone ? { ...parsed, def: 'run' as const } : parsed;
+  }, [tab, location.search, standalone]);
 
   // The router has committed a new location: the written URL is no longer
   // pending. A location key can come back (history Back), so a stale entry

@@ -10,6 +10,11 @@ export interface WorkspaceDataValue {
   workspaceName: string | null;
   remoteNode: string;
   run: WorkspaceRunValue;
+  /**
+   * The run that the page shows without its workflow file, from the
+   * definition that the run stored; null for a page of a workflow file.
+   */
+  standaloneRun?: ApiDAGRunDetails | null;
   refresh(): Promise<void>;
   /**
    * Registers the mutator of a mounted, enabled history query, and a reader
@@ -25,6 +30,14 @@ export interface WorkspaceDataValue {
 export const WorkspaceDataContext = createContext<WorkspaceDataValue | null>(
   null
 );
+
+/**
+ * The run that the page shows without its workflow file; null for a page of
+ * a workflow file, and outside a workspace.
+ */
+export function useStandaloneRun(): ApiDAGRunDetails | null {
+  return useContext(WorkspaceDataContext)?.standaloneRun ?? null;
+}
 
 export function useWorkspaceData(hook: string): WorkspaceDataValue {
   const value = useContext(WorkspaceDataContext);

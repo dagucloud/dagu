@@ -59,6 +59,8 @@ export interface RenderOptions {
   url?: string;
   refreshDag?: () => Promise<unknown>;
   workspaceName?: string | null;
+  /** A run whose workflow file is gone, as the page passes it. */
+  standaloneRun?: ApiDAGRunDetails | null;
 }
 
 /**
@@ -71,6 +73,7 @@ export function renderWorkspace<T>(
     url = `/dags/${FILE_NAME}`,
     refreshDag,
     workspaceName = null,
+    standaloneRun = null,
   }: RenderOptions = {}
 ) {
   const page: { mutate: KeyedMutator<DAGPageData> | null } = { mutate: null };
@@ -87,6 +90,7 @@ export function renderWorkspace<T>(
         dagData={data}
         refreshDag={refreshDag ?? (() => mutate())}
         workspaceName={workspaceName}
+        standaloneRun={standaloneRun}
       >
         {children}
       </WorkspaceDataProvider>

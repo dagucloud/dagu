@@ -16,6 +16,7 @@ function setup(step: StepView = httpStep, readOnly = false) {
       readOnly={readOnly}
       onEdit={onEdit}
       fieldIssues={{ name: [issuesSample[0]!] }}
+      candidates={[]}
     />
   );
   const edit = (label: string, value: string) => {
@@ -50,6 +51,7 @@ describe('GeneralSection', () => {
         readOnly={false}
         onEdit={() => undefined}
         fieldIssues={{}}
+        candidates={[]}
         derivedName="cmd_1"
       />
     );

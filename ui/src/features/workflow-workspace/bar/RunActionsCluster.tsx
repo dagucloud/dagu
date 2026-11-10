@@ -1,13 +1,12 @@
 // Copyright (C) 2026 Yota Hamada
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-import { ClipboardCheck, FileInput } from 'lucide-react';
+import { ClipboardCheck, FileClock } from 'lucide-react';
 import { Status } from '@/api/v1/schema';
 import { ActionButton } from '@/components/ui/action-button';
 import { getManualActionState } from '@/features/dag-runs/lib/manualActionState';
 import { useMemo, useState } from 'react';
 import ConfirmDialog from '@/components/ui/confirm-dialog';
-import { IconButton } from '@/components/ui/icon-button';
 import DAGRunActions from '@/features/dag-runs/components/common/DAGRunActions';
 import { useRunSpecStale } from '@/features/visual-editor/run/useRunSpecStale';
 import { useI18n } from '@/i18n/I18nProvider';
@@ -23,9 +22,9 @@ import { cn } from '@/lib/utils';
 
 /**
  * Flat icons for the selected run, past or active: stop, cancel auto-retry,
- * reject, retry, reschedule and dequeue (with runDags); then "Copy to
- * editor" (with write access, only while the run used a different definition
- * than the saved one). Each group has its slot of one icon, there, empty,
+ * reject, retry, reschedule and dequeue (with runDags); then the revert to
+ * the YAML of the run (with write access, only while the run used a different
+ * definition than the saved one). Each group has its slot of one icon, there, empty,
  * when the group has no icon: the bar does not change its width with the
  * state of the run. Absent for a workflow that never ran.
  */
@@ -98,7 +97,7 @@ export function RunActionsCluster({ fileName, dag }: BarSlotProps) {
             // under another DAG name is not a run of this workflow. A
             // dequeued run stays: it is kept as aborted, and can be retried.
             onRescheduled={(runId, runName) => {
-              if (runName === dag.name) showRun(runId);
+              if (runName === dag.name) showRun(runId, url.runName);
             }}
             onEditRetry={() => setEditRetry(true)}
           />
@@ -107,20 +106,27 @@ export function RunActionsCluster({ fileName, dag }: BarSlotProps) {
       {canWrite && (canRunDags || showCopy) && (
         <span
           data-testid="ww-run-copy-slot"
-          // The empty slot keeps the bar still on a wide window; a phone
-          // needs the room for the name.
+          // The empty slot keeps the bar still on a wide window: there it has
+          // the room of the named button. A phone needs the room for the name.
           className={cn(
-            'inline-flex size-7 shrink-0 items-center justify-center',
+            'inline-flex size-7 shrink-0 items-center justify-center @7xl:w-[11.5rem] @7xl:justify-start',
             !showCopy && 'max-md:hidden'
           )}
         >
           {showCopy && (
-            <IconButton
-              label={ts('Copy to editor')}
-              icon={FileInput}
+            // Named on a wide bar, as the run actions are.
+            <ActionButton
+              label="wide"
+              className="max-w-full"
+              icon={<FileClock className="h-4 w-4" />}
+              title={ts(
+                'Replaces the editor text with the YAML of this run. Nothing is saved until you save.'
+              )}
               disabled={!copy.canCopy}
               onClick={copy.request}
-            />
+            >
+              {ts("Revert to this run's YAML")}
+            </ActionButton>
           )}
         </span>
       )}
@@ -131,8 +137,9 @@ export function RunActionsCluster({ fileName, dag }: BarSlotProps) {
           dagName={run.ref.name}
           dagRunId={run.ref.runId}
           fileName={fileName}
-          // The new run shows at once, as after Start or Reschedule.
-          onRetried={showRun}
+          // The new run shows at once, as after Start or Reschedule. It keeps
+          // the DAG name of the retried run.
+          onRetried={(runId) => showRun(runId, url.runName)}
         />
       )}
       {showCopy && (

@@ -30,8 +30,12 @@ func (store *Store) LatestStatuses(ctx context.Context, query persis.DAGRunLates
 		}
 	}
 
+	excluded := dagDirNames(query.ExcludeDAGNames)
 	var statuses []*ir.DAGRunStatus
 	for _, root := range roots {
+		if _, skip := excluded[root.prefix]; skip {
+			continue
+		}
 		attempt, err := store.newestAttemptSince(ctx, root, query.NotBefore)
 		if err != nil {
 			if ctxErr := ctx.Err(); ctxErr != nil {

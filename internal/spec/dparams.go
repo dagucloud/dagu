@@ -243,7 +243,9 @@ func buildDAGParamPlan(ctx buildContext, d *dag) (*dagParamPlan, error) {
 		if ctx.opts.Has(buildFlagSkipSchemaValidation) {
 			return buildLegacyParamPlan(extractSchemaValues(d.Params))
 		}
-		return buildExternalSchemaParamPlan(d.Params, d.WorkingDir, ctx.file)
+		// A relative schema path is anchored to the file the author wrote, not
+		// to the temporary copy a worker or an in-process child runs from.
+		return buildExternalSchemaParamPlan(d.Params, d.WorkingDir, authoredFile(ctx))
 	}
 	if err := malformedInlineJSONSchemaShapeError(d.Params); err != nil {
 		return nil, err

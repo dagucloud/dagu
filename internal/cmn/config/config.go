@@ -776,6 +776,9 @@ type Scheduler struct {
 	ZombieDetectionInterval time.Duration // Default: 45s; 0 disables
 	RetryFailureWindow      time.Duration // Default: 24h; 0 disables DAG-level retry scanning. Current limitation: the window is evaluated from the original DAG-run timestamp/day bucket, not the latest failed attempt timestamp.
 	FailureThreshold        int           // Default: 3
+	// FailoverRecoveryWindow is how far back a scheduler that takes over from
+	// a failed one replays missed schedule slots. 0 disables the replay.
+	FailoverRecoveryWindow time.Duration // Default: 2m
 	// WakeHold is how long at most the scheduler holds its ticks after the
 	// host wakes from sleep, pausing itself until the pause is cleared through
 	// the API, so definitions can be refreshed before the first tick. 0 (the
@@ -909,6 +912,9 @@ func (c *Config) validateScheduler() error {
 	}
 	if c.Scheduler.RetryFailureWindow < 0 {
 		return fmt.Errorf("scheduler.retry_failure_window must be >= 0")
+	}
+	if c.Scheduler.FailoverRecoveryWindow < 0 {
+		return fmt.Errorf("scheduler.failover_recovery_window must be >= 0")
 	}
 	return nil
 }

@@ -282,7 +282,8 @@ func (e *uiaElements) Outline(window Element, limit int) ([]Element, error) {
 	})
 }
 
-// Focus finds the element again and gives it the keyboard focus.
+// Focus finds the element again and gives it the keyboard focus. Like
+// Apply, it fails in a window Windows keeps this process's input from.
 func (e *uiaElements) Focus(target Element) error {
 	return e.run("focus", func(w *uiaWorker) error {
 		el, err := w.locate(target, e.scope)
@@ -298,7 +299,11 @@ func (e *uiaElements) Focus(target Element) error {
 // runs on a thread of its own, with an automation client of its own: an
 // application may run the element's handler inside the call, and one that
 // opens a dialog there holds the call until the dialog closes, which must
-// not hold the thread that reads the screen.
+// not hold the thread that reads the screen. In a window of a higher
+// integrity level than this process, or one whose level cannot be read, it
+// fails before anything is asked of the element, with the error pointer
+// input to that window gets, as a refusal: Windows hides such a window's
+// elements from this process or drops what is asked of them.
 func (e *uiaElements) Apply(target Element, pattern Pattern, value string) error {
 	select {
 	case <-e.quit:
@@ -405,13 +410,20 @@ func readAlone[T any](ctx context.Context, what string, fn func(*uiaWorker) (T, 
 // locate finds an element again, under its centre first and then by its
 // path in the front window, and returns it live. In a window a reader is
 // scoped to it goes by the path alone, since another window may cover the
-// centre. The caller releases it.
+// centre. The window it is found in must take this process's input, as
+// checkWindow decides: one that does not fails with the error pointer input
+// to it gets, as a refusal, before anything is asked of the element. The
+// caller releases it.
 func (w *uiaWorker) locate(target Element, scope *WindowID) (*element, error) {
 	if scope == nil && !target.Bounds.Empty() {
 		centre := target.Bounds.Min.Add(target.Bounds.Size().Div(2))
 		if el, err := w.auto.elementFromPoint(centre.X, centre.Y, w.cacheElement); err == nil {
 			found, err := w.convert(el, false)
 			if err == nil && found.Role == target.Role && found.Name == target.Name && found.ID == target.ID {
+				if err := checkWindow(inputWindowAt(centre.X, centre.Y)); err != nil {
+					el.release()
+					return nil, refusedError{err}
+				}
 				return el, nil
 			}
 			el.release()
@@ -425,6 +437,11 @@ func (w *uiaWorker) locate(target Element, scope *WindowID) (*element, error) {
 		return nil, err
 	}
 	defer top.el.release()
+	// An elevated window hides its elements from this process, so it is
+	// checked before its tree is read, which would find nothing in it.
+	if err := checkWindow(windowID(top.hwnd)); err != nil {
+		return nil, refusedError{err}
+	}
 	tree, err := w.subtree(top, findLimit)
 	if err != nil {
 		return nil, err

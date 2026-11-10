@@ -10,8 +10,10 @@ import { RelativeTime } from '@/components/ui/relative-time';
 import { useI18n } from '@/i18n/I18nProvider';
 import {
   formatFireTime,
+  getRestartValue,
   getScheduleKey,
   getScheduleLabel,
+  isServiceDAG,
   parseNextRun,
 } from '@/lib/dagSchedule';
 import { envVariableNames, visibleLabels } from './workflowLabels';
@@ -87,6 +89,22 @@ function DAGAttributes({ dag }: Props) {
                 ts('No upcoming run')
               )}
             </div>
+          </div>
+        )}
+
+        {/* Restart policy, in the place of a schedule */}
+        {isServiceDAG(dag) && (
+          <div className="space-y-1 md:col-span-2">
+            <div className="flex items-center gap-2 text-sm font-medium text-muted-foreground mb-2">
+              <Calendar className="h-4 w-4" />
+              <span>{ts('Schedule')}</span>
+            </div>
+            <Badge
+              variant="outline"
+              className="h-auto max-w-full justify-start whitespace-normal break-words bg-primary/10 px-2.5 py-1 text-primary border-primary/30 normal-case tracking-normal"
+            >
+              <I18nText text={'Restart'} />: {getRestartValue(dag)}
+            </Badge>
           </div>
         )}
 

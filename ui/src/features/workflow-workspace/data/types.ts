@@ -73,7 +73,7 @@ export interface WorkspaceRunValue {
 }
 
 export interface WorkspacePermissions {
-  /** Edit, Save, Rename, Delete, Copy to editor. */
+  /** Edit, Save, Rename, Delete, restore the definition of a run. */
   canWrite: boolean;
   /** Run..., Stop, Retry, Reschedule, Reject, Dequeue, Retry step, Set status. */
   canRunDags: boolean;

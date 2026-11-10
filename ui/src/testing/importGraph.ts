@@ -29,7 +29,6 @@ export const MERMAID_FORBIDDEN: Array<string | RegExp> = [
   'features/dags/components/visualization/Graph.tsx',
   'features/dags/components/visualization/DAGGraph.tsx',
   'features/dags/components/DAGStatus.tsx',
-  'features/dags/components/dag-execution/DAGExecutionHistory.tsx',
 ];
 
 const DEFAULT_SRC_DIR = path.resolve(

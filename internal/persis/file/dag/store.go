@@ -12,6 +12,7 @@ import (
 	"os"
 	"path"
 	"path/filepath"
+	"slices"
 	"sort"
 	"strings"
 	"sync"
@@ -200,6 +201,7 @@ type Store struct {
 	skipDirectoryCreation  bool                     // Skip creating base directory for execution-scoped stores
 	baseConfigMu           sync.Mutex               // Protects base config state refresh and invalidation
 	indexMu                sync.Mutex               // Protects index load/rebuild/invalidate
+	serviceDAGs            serviceDAGNameCache      // Service DAG names of the last index read
 }
 
 func (store *Store) Get(ctx context.Context, id string) (persis.DAGDefinition, error) {
@@ -231,6 +233,81 @@ func (store *Store) Catalog(ctx context.Context) (persis.DAGCatalog, error) {
 // directory's entries.
 func (store *Store) CatalogIncludingSearchPaths(ctx context.Context) (persis.DAGCatalog, error) {
 	return store.catalog(ctx, true)
+}
+
+// ServiceDAGNames returns the names of the DAGs that set a restart policy, as
+// the saved index records them. It does not check the index against the DAG
+// files, so a file changed outside the store counts after the next listing.
+func (store *Store) ServiceDAGNames(ctx context.Context) ([]string, error) {
+	if names, ok := store.SavedServiceDAGNames(); ok {
+		return names, nil
+	}
+	current, err := store.loadCatalog(ctx, false)
+	if err != nil {
+		return nil, err
+	}
+	return serviceDAGNamesOf(current), nil
+}
+
+// SavedServiceDAGNames is ServiceDAGNames without building an index: it
+// reports false when no saved index can be read.
+func (store *Store) SavedServiceDAGNames() ([]string, bool) {
+	info, err := os.Stat(store.indexPath)
+	if err != nil {
+		return nil, false
+	}
+	if names, ok := store.serviceDAGs.get(info); ok {
+		return names, true
+	}
+	entries, ok := dagindex.ReadEntries(store.indexPath)
+	if !ok {
+		return nil, false
+	}
+	names := serviceDAGNamesOf(newCatalog(entries, nil, store.recursive))
+	store.serviceDAGs.put(info, names)
+	return slices.Clone(names), true
+}
+
+func serviceDAGNamesOf(current *catalog) []string {
+	names := make([]string, 0)
+	for _, entry := range current.entries {
+		if entry.RestartPolicy != "" {
+			names = append(names, entry.Name)
+		}
+	}
+	return names
+}
+
+// serviceDAGNameCache holds the service DAG names of the last index read.
+type serviceDAGNameCache struct {
+	mu    sync.Mutex
+	index os.FileInfo
+	names []string
+}
+
+func (c *serviceDAGNameCache) get(info os.FileInfo) ([]string, bool) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if c.index == nil || !sameIndexFile(c.index, info) {
+		return nil, false
+	}
+	return slices.Clone(c.names), true
+}
+
+func (c *serviceDAGNameCache) put(info os.FileInfo, names []string) {
+	// Windows reads the identity of a file at its first comparison, so read it
+	// now, while the path still names the file the names came from.
+	_ = os.SameFile(info, info)
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.index, c.names = info, names
+}
+
+// sameIndexFile reports whether two stats describe one unchanged index file.
+// The store replaces the file at each write, so its identity changes even
+// where timestamps are too coarse to tell two writes apart.
+func sameIndexFile(a, b os.FileInfo) bool {
+	return os.SameFile(a, b) && a.Size() == b.Size() && a.ModTime().Equal(b.ModTime())
 }
 
 func (store *Store) catalog(ctx context.Context, includeSearchPaths bool) (persis.DAGCatalog, error) {
@@ -663,6 +740,10 @@ func (store *Store) loadIndex(ctx context.Context, files []DiscoveredFile) ([]*i
 	// Rebuild.
 	logger.Info(ctx, "Rebuilding DAG definition index", tag.Dir(store.baseDir))
 	idx := dagindex.Build(ctx, store.baseDir, yamlFiles, flags, store.defaultLoadOptions()...)
+	// A cancel stops the build part way, and a partial index would hide DAGs.
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
 	if err := dagindex.Write(indexPath, idx); err != nil {
 		logger.Warn(ctx, "Failed to write DAG definition index", tag.Error(err))
 	}

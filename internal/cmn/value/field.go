@@ -110,6 +110,12 @@ func (f Field) escapesDollar() bool {
 	return !f.isPath
 }
 
+// ReachesShell reports whether a shell or script interpreter parses the field's
+// resolved text, so text inserted into it can act as code.
+func (f Field) ReachesShell() bool {
+	return f.kind == fieldShellCommand || f.kind == fieldCommandScript
+}
+
 // ConstLoadField returns the policy for loading const declarations.
 func ConstLoadField(path string) Field { return newField(path, fieldConstLoad) }
 

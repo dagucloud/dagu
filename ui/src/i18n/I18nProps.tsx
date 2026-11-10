@@ -3,7 +3,7 @@
 
 import React from 'react';
 import { useI18n } from './I18nProvider';
-import { translateStatic } from './staticMessages';
+import { translateStatic } from './translateStatic';
 
 const localizedProps = [
   'aria-label',

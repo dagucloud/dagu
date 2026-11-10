@@ -3,18 +3,55 @@
 
 import { fireEvent, render, screen } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
-import { KeyValueEditor } from '../widgets';
+import { KeyValueEditor, type KeyValueEditorProps } from '../widgets';
 import { renderInspectorForm } from './formHarness';
+import {
+  candidatesSample,
+  referenceList,
+  typeOpenReference,
+} from './referenceHarness';
+
+// The tests of the rows use no references.
+function Editor(props: Omit<KeyValueEditorProps, 'candidates'>) {
+  return <KeyValueEditor candidates={[]} {...props} />;
+}
 
 describe('KeyValueEditor', () => {
-  it('sends the new object when an input loses the focus', () => {
+  it('offers references in a value, and sends the chosen one', () => {
     const onChange = vi.fn();
     render(
       <KeyValueEditor
-        value={{ X: 'a', Y: 'b' }}
+        value={{ X: 'a' }}
         readOnly={false}
         onChange={onChange}
+        candidates={candidatesSample}
       />
+    );
+    const value = screen.getByLabelText('Value');
+    typeOpenReference(value);
+    expect(referenceList()).toBeInTheDocument();
+    fireEvent.keyDown(value, { key: 'Enter' });
+    fireEvent.blur(value);
+    expect(onChange).toHaveBeenCalledWith({ X: '${params.API_URL}' });
+  });
+
+  it('offers no references in a key', () => {
+    render(
+      <KeyValueEditor
+        value={{ X: 'a' }}
+        readOnly={false}
+        onChange={vi.fn()}
+        candidates={candidatesSample}
+      />
+    );
+    typeOpenReference(screen.getByLabelText('Key'));
+    expect(referenceList()).not.toBeInTheDocument();
+  });
+
+  it('sends the new object when an input loses the focus', () => {
+    const onChange = vi.fn();
+    render(
+      <Editor value={{ X: 'a', Y: 'b' }} readOnly={false} onChange={onChange} />
     );
     const values = screen.getAllByLabelText('Value');
     fireEvent.change(values[0]!, { target: { value: 'c' } });
@@ -25,9 +62,7 @@ describe('KeyValueEditor', () => {
 
   it('sends nothing when nothing changed', () => {
     const onChange = vi.fn();
-    render(
-      <KeyValueEditor value={{ X: 'a' }} readOnly={false} onChange={onChange} />
-    );
+    render(<Editor value={{ X: 'a' }} readOnly={false} onChange={onChange} />);
     fireEvent.blur(screen.getByLabelText('Value'));
     expect(onChange).not.toHaveBeenCalled();
   });
@@ -35,11 +70,7 @@ describe('KeyValueEditor', () => {
   it('removes a row at once', () => {
     const onChange = vi.fn();
     render(
-      <KeyValueEditor
-        value={{ X: 'a', Y: 'b' }}
-        readOnly={false}
-        onChange={onChange}
-      />
+      <Editor value={{ X: 'a', Y: 'b' }} readOnly={false} onChange={onChange} />
     );
     fireEvent.click(screen.getAllByRole('button', { name: 'Remove' })[0]!);
     expect(onChange).toHaveBeenCalledWith({ Y: 'b' });
@@ -47,7 +78,7 @@ describe('KeyValueEditor', () => {
 
   it('adds a row and sends it once it has a key', () => {
     const onChange = vi.fn();
-    render(<KeyValueEditor value={{}} readOnly={false} onChange={onChange} />);
+    render(<Editor value={{}} readOnly={false} onChange={onChange} />);
     fireEvent.click(screen.getByRole('button', { name: 'Add entry' }));
     fireEvent.blur(screen.getByLabelText('Key'));
     expect(onChange).not.toHaveBeenCalled();
@@ -64,7 +95,7 @@ describe('KeyValueEditor', () => {
   // Names of Object.prototype members are ordinary keys.
   it('sends a key that matches an inherited property', () => {
     const onChange = vi.fn();
-    render(<KeyValueEditor value={{}} readOnly={false} onChange={onChange} />);
+    render(<Editor value={{}} readOnly={false} onChange={onChange} />);
     fireEvent.click(screen.getByRole('button', { name: 'Add entry' }));
     fireEvent.change(screen.getByLabelText('Key'), {
       target: { value: 'constructor' },
@@ -79,11 +110,7 @@ describe('KeyValueEditor', () => {
   it('keeps the key order on a rename', () => {
     const onChange = vi.fn();
     render(
-      <KeyValueEditor
-        value={{ A: '1', B: '2' }}
-        readOnly={false}
-        onChange={onChange}
-      />
+      <Editor value={{ A: '1', B: '2' }} readOnly={false} onChange={onChange} />
     );
     const keys = screen.getAllByLabelText('Key');
     fireEvent.change(keys[0]!, { target: { value: 'Z' } });
@@ -96,7 +123,7 @@ describe('KeyValueEditor', () => {
   it('sends nothing while two rows have the same key', () => {
     const onChange = vi.fn();
     render(
-      <KeyValueEditor
+      <Editor
         value={{ A: 'one', B: 'two' }}
         readOnly={false}
         onChange={onChange}
@@ -116,7 +143,7 @@ describe('KeyValueEditor', () => {
   });
 
   it('disables every input when read-only', () => {
-    render(<KeyValueEditor value={{ X: 'a' }} readOnly onChange={vi.fn()} />);
+    render(<Editor value={{ X: 'a' }} readOnly onChange={vi.fn()} />);
     expect(screen.getByLabelText('Key')).toBeDisabled();
     expect(screen.getByRole('button', { name: 'Remove' })).toBeDisabled();
     expect(screen.queryByRole('button', { name: 'Add entry' })).toBeNull();
@@ -124,14 +151,10 @@ describe('KeyValueEditor', () => {
 
   it('shows new rows when the value changes from outside', () => {
     const { rerender } = render(
-      <KeyValueEditor value={{ X: 'a' }} readOnly={false} onChange={vi.fn()} />
+      <Editor value={{ X: 'a' }} readOnly={false} onChange={vi.fn()} />
     );
     rerender(
-      <KeyValueEditor
-        value={{ X: 'a', Y: 'b' }}
-        readOnly={false}
-        onChange={vi.fn()}
-      />
+      <Editor value={{ X: 'a', Y: 'b' }} readOnly={false} onChange={vi.fn()} />
     );
     expect(screen.getAllByLabelText('Key')).toHaveLength(2);
   });
@@ -150,6 +173,16 @@ describe('KeyValueField', () => {
   };
 
   const uiSchema = { headers: { 'ui:field': 'KeyValue' } };
+
+  it('offers the references of the form in a value', () => {
+    renderInspectorForm(
+      schema,
+      { headers: { X: 'a' } },
+      { uiSchema, candidates: candidatesSample }
+    );
+    typeOpenReference(screen.getByLabelText('Value'));
+    expect(referenceList()).toHaveTextContent('API_URL');
+  });
 
   it('removes the key of a removed row from the form data', () => {
     const { onChange } = renderInspectorForm(

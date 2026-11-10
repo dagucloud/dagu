@@ -43,7 +43,7 @@ const dagBarrelImports = {
 
 const classicRunViewImports = {
   regex:
-    '(^|/)dags/components/(DAGStatus|dag-details/(DAGStatusOverview|NodeStatusTable\\w*|DAGDetailsContent|DAGHeader)|dag-execution/(DAGExecutionHistory|LogSideModal)|visualization/(DAGGraph|Graph)|step-details/StepDetailsDrawer)(\\.tsx?)?$',
+    '(^|/)dags/components/(DAGStatus|dag-details/(DAGStatusOverview|NodeStatusTable\\w*|DAGDetailsContent|DAGHeader)|dag-execution/LogSideModal|visualization/(DAGGraph|Graph)|step-details/StepDetailsDrawer)(\\.tsx?)?$',
   message:
     'The workspace does not mount the classic run view or the Mermaid graph.',
 };

@@ -1,4 +1,11 @@
-import { createContext, useContext, useEffect, useMemo } from 'react';
+import {
+  createContext,
+  startTransition,
+  use,
+  useContext,
+  useEffect,
+  useMemo,
+} from 'react';
 import { useUserPreferences, type Locale } from '@/contexts/UserPreference';
 import {
   translate,
@@ -6,9 +13,11 @@ import {
   type TranslationValues,
 } from './messages';
 import {
+  hasStaticMessages,
+  loadStaticMessages,
   translateStatic,
   type StaticTranslationValues,
-} from './staticMessages';
+} from './translateStatic';
 
 type I18nContextValue = {
   locale: Locale;
@@ -29,6 +38,12 @@ const I18nContext = createContext<I18nContextValue>(defaultI18nContext);
 export function I18nProvider({ children }: { children: React.ReactNode }) {
   const { preferences, updatePreference } = useUserPreferences();
 
+  // Suspends until the catalog loads, so no text shows in English first. A
+  // switch is a transition: the current language stays on screen meanwhile.
+  if (!hasStaticMessages(preferences.locale)) {
+    use(loadStaticMessages(preferences.locale));
+  }
+
   useEffect(() => {
     document.documentElement.lang = preferences.locale;
   }, [preferences.locale]);
@@ -36,7 +51,8 @@ export function I18nProvider({ children }: { children: React.ReactNode }) {
   const value = useMemo<I18nContextValue>(
     () => ({
       locale: preferences.locale,
-      setLocale: (locale) => updatePreference('locale', locale),
+      setLocale: (locale) =>
+        startTransition(() => updatePreference('locale', locale)),
       t: (key, values) => translate(preferences.locale, key, values),
       ts: (source, values) =>
         translateStatic(preferences.locale, source, values),

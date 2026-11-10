@@ -164,6 +164,7 @@ export const WorkflowWorkspace = memo(function WorkflowWorkspace({
   refreshDag,
   workspaceName,
   legacyHistoryIdx,
+  standaloneRun = null,
 }: WorkflowWorkspaceProps) {
   const dag = dagData.dag;
 
@@ -177,6 +178,7 @@ export const WorkflowWorkspace = memo(function WorkflowWorkspace({
         dagData={dagData}
         refreshDag={refreshDag}
         workspaceName={workspaceName}
+        standaloneRun={standaloneRun}
       >
         <DockProvider>
           <RightPanelProvider>

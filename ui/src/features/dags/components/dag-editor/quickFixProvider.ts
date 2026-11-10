@@ -15,7 +15,7 @@ import {
   type QuickFix,
 } from '@/features/visual-editor/doc/quickFixes';
 import { editorLocale } from '@/features/visual-editor/references/editorState';
-import { translateStatic } from '@/i18n/staticMessages';
+import { translateStatic } from '@/i18n/translateStatic';
 import { ISSUE_MARKER_OWNER } from './issueMarkers';
 
 type Monaco = typeof import('monaco-editor');

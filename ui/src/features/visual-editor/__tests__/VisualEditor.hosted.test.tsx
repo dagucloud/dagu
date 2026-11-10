@@ -1071,6 +1071,7 @@ describe.skipIf(realSchema === null)('VisualEditor in a host', () => {
         selectedStepName: null,
         drawer: 'none',
         direction: 'TB',
+        launcher: null,
       });
 
       update({ ...props, toolbarTrail: <span>trail</span> });

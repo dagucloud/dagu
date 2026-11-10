@@ -76,7 +76,7 @@
     },
     "tz": {
       "type": "string",
-      "description": "Timezone for scheduling and display (e.g., 'America/New_York')."
+      "description": "Timezone for scheduling and display, also exported to workflow steps as TZ (e.g., 'America/New_York')."
     },
     "env_passthrough": {
       "type": "array",
@@ -1395,6 +1395,10 @@
         "lock_retry_interval": {
           "type": "string",
           "description": "Interval between lock retry attempts. Default: '5s'."
+        },
+        "failover_recovery_window": {
+          "type": "string",
+          "description": "How far back a scheduler that takes over from a failed one replays missed schedule slots. Requires queues. '0s' disables it. Default: '2m'."
         },
         "zombie_detection_interval": {
           "type": "string",

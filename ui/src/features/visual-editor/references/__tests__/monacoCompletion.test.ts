@@ -10,11 +10,14 @@ import {
   yamlHttpJq,
   yamlMapSteps,
 } from '../../testing/fixtures';
-import type { ReferenceScope } from '../../contracts';
+import type { ReferenceCandidate, ReferenceScope } from '../../contracts';
+import { parseDagDoc, parseDagDocLenient } from '../../doc/parse';
 import { editorLocale, findOwningStep } from '../editorState';
 import {
   computeReferenceCompletions,
+  registerFieldReferenceCompletion,
   registerReferenceCompletion,
+  registerStepYamlCompletion,
 } from '../monacoCompletion';
 
 const at = (text: string, marker: string, shift = 0) =>
@@ -149,14 +152,424 @@ describe('computeReferenceCompletions', () => {
     expect(result?.to).toBe(offset + 1);
   });
 
-  it('gives no step outputs inside params', () => {
-    const offset = at(yamlHttpJq, 'https://api', 4);
-    const result = computeReferenceCompletions(yamlHttpJq, offset, state, {
+  it('leaves a lone dollar alone unless the request is explicit', () => {
+    const text = `${yamlHttpJq.slice(0, filterOffset)}$${yamlHttpJq.slice(filterOffset)}`;
+    const offset = filterOffset + 1;
+    expect(
+      computeReferenceCompletions(text, offset, state, { explicit: false })
+    ).toBeNull();
+    const result = computeReferenceCompletions(text, offset, state, {
       explicit: true,
     });
+    expect(result?.from).toBe(filterOffset);
+    expect(result?.to).toBe(offset);
+  });
+
+  it('offers nothing in a param default, which is literal', () => {
+    const offset = at(yamlHttpJq, 'https://api', 4);
+    expect(
+      computeReferenceCompletions(yamlHttpJq, offset, state, { explicit: true })
+    ).toBeNull();
+  });
+
+  it('gives no step outputs in a param eval', () => {
+    const text = 'params:\n  - name: day\n    eval: date\nsteps:\n  - run: a\n';
+    const result = computeReferenceCompletions(
+      text,
+      at(text, 'date', 2),
+      state,
+      { explicit: true }
+    );
     expect(result).not.toBeNull();
     expect(result?.items.some((item) => item.group === 'steps')).toBe(false);
     expect(result?.items.some((item) => item.group === 'params')).toBe(true);
+  });
+
+  // Spec 004: a const resolves only the const entries before it, and no
+  // runtime namespace.
+  it('offers only the earlier consts in a const value', () => {
+    const text =
+      'consts:\n  - first: 1\n  - second: ${\n  - third: 3\nsteps:\n  - run: a\n';
+    const scope: ReferenceScope = {
+      ...scopeHttpJq,
+      consts: ['first', 'second', 'third'].map((name) => ({
+        name,
+        reference: `\${consts.${name}}`,
+      })),
+    };
+    const result = computeReferenceCompletions(
+      text,
+      at(text, '${', 2),
+      { scope },
+      { explicit: false }
+    );
+    expect(result?.items.map((item) => item.token)).toEqual([
+      '${consts.first}',
+    ]);
+  });
+
+  it('offers the repeat index for a step with repeat_policy only', () => {
+    const text = [
+      'steps:',
+      '  - name: poll',
+      '    run: echo ${',
+      '    repeat_policy:',
+      '      repeat: while',
+      '  - name: once',
+      '    run: echo ${',
+      '',
+    ].join('\n');
+    const repeatState = {
+      scope: scopeWith(
+        { name: 'poll', stepPath: 'steps[0]' },
+        { name: 'once', stepPath: 'steps[1]' }
+      ),
+      model: parseDagDoc(text),
+    };
+    const labelsAt = (offset: number) =>
+      computeReferenceCompletions(text, offset, repeatState, {
+        explicit: false,
+      })?.items.map((item) => item.label);
+    expect(labelsAt(at(text, '${', 2))).toContain('step.repeat_index');
+    expect(labelsAt(text.lastIndexOf('${') + 2)).not.toContain(
+      'step.repeat_index'
+    );
+  });
+
+  // Spec 067: a shell can run a model's reply as code, and a run field says so.
+  describe('with a model output', () => {
+    const scope = (): ReferenceScope => {
+      const base = scopeHttpJq.steps[0]!;
+      return {
+        ...scopeHttpJq,
+        steps: [
+          {
+            ...base,
+            name: 'model',
+            id: 'model',
+            stepPath: 'steps[0]',
+            upstream: [],
+            outputs: [
+              {
+                ...base.outputs[0]!,
+                name: 'reply',
+                reference: '${steps.model.outputs.reply}',
+                modelOutput: true,
+              },
+            ],
+          },
+          {
+            ...base,
+            name: 'next',
+            id: 'next',
+            stepPath: 'steps[1]',
+            upstream: ['model'],
+            outputs: [],
+          },
+        ],
+      };
+    };
+    // The row of the model output in a field of the step `next`.
+    const rowIn = (field: string) => {
+      const text = `steps:\n  - name: model\n    run: a\n  - name: next\n    ${field}\n`;
+      return computeReferenceCompletions(
+        text,
+        at(text, '${', 2),
+        { scope: scope() },
+        { explicit: false }
+      )?.items.find((item) => item.label === 'model.reply');
+    };
+
+    it('marks it in a run field', () => {
+      expect(rowIn('run: echo ${')?.shellRisk).toBe(true);
+    });
+
+    // The fix is to pass it through env, so env must offer it plainly.
+    it('leaves it unmarked in env', () => {
+      const row = rowIn('env:\n      - REPLY: ${');
+      expect(row).toBeDefined();
+      expect(row?.shellRisk).toBeUndefined();
+    });
+
+    // A shell reads a body step's run too, and the validator warns there.
+    describe('in a foreach body', () => {
+      const body = (field: string) =>
+        [
+          'foreach:',
+          '      items: [a]',
+          '      steps:',
+          '        - name: inner',
+          `          ${field}`,
+        ].join('\n');
+
+      it('marks it in a run field', () => {
+        expect(rowIn(body('run: echo ${'))?.shellRisk).toBe(true);
+      });
+
+      it('leaves it unmarked in env', () => {
+        const row = rowIn(body('env:\n            - REPLY: ${'));
+        expect(row).toBeDefined();
+        expect(row?.shellRisk).toBeUndefined();
+      });
+    });
+
+    // The author types the next line of a run block on a blank line, where the
+    // YAML path and the step range have already ended.
+    it('marks it on a blank line of a run block', () => {
+      const block =
+        'steps:\n  - name: model\n    run: a\n  - name: next\n    run: |\n      echo a\n      ';
+      for (const text of [block, `${block}\n  - name: last\n    run: b\n`]) {
+        const result = computeReferenceCompletions(
+          text,
+          block.length,
+          { scope: scope(), model: parseDagDocLenient(text) },
+          { explicit: true }
+        );
+        expect(result?.from).toBe(block.length);
+        expect(result?.inRunField).toBe(true);
+        expect(result?.items.map((item) => item.label)).toContain('step.name');
+        expect(
+          result?.items.find((item) => item.label === 'model.reply')?.shellRisk
+        ).toBe(true);
+      }
+    });
+
+    it('marks it in a run field of a parallel group', () => {
+      const text =
+        'steps:\n  - name: model\n    run: a\n  - - name: next\n      run: echo ${\n';
+      const parallel = scope();
+      parallel.steps[1]!.stepPath = 'steps[1]';
+      const row = computeReferenceCompletions(
+        text,
+        at(text, '${', 2),
+        { scope: parallel },
+        { explicit: false }
+      )?.items.find((item) => item.label === 'model.reply');
+      expect(row?.shellRisk).toBe(true);
+    });
+  });
+
+  describe('fields that keep references as literal text', () => {
+    const offers = (text: string) =>
+      computeReferenceCompletions(
+        text,
+        at(text, '${', 2),
+        { scope: scopeHttpJq },
+        { explicit: false }
+      ) !== null;
+
+    // Spec 003 lists these as literal.
+    it.each([
+      ['root name', 'name: ${\nsteps:\n  - run: a\n'],
+      ['root description', 'description: ${\nsteps:\n  - run: a\n'],
+      ['root timeout', 'timeout_sec: ${\nsteps:\n  - run: a\n'],
+      ['root retry', 'retry_policy:\n  limit: ${\nsteps:\n  - run: a\n'],
+      ['secret key', 'secrets:\n  - name: A\n    key: ${\nsteps: []\n'],
+      ['step name', 'steps:\n  - name: ${\n    run: a\n'],
+      ['step id', 'steps:\n  - id: ${\n    run: a\n'],
+      ['step depends', 'steps:\n  - depends: [${]\n    run: a\n'],
+      ['step timeout', 'steps:\n  - timeout_sec: ${\n    run: a\n'],
+      ['handler name', 'handler_on:\n  exit:\n    name: ${\n    run: a\n'],
+      ['output name', 'steps:\n  - run: a\n    outputs:\n      - name: ${\n'],
+      [
+        'foreach alias',
+        'steps:\n  - foreach:\n      as: ${\n      items: [a]\n',
+      ],
+      [
+        'body step name',
+        'steps:\n  - foreach:\n      items: [a]\n      steps:\n        - name: ${\n',
+      ],
+    ])('offers nothing in a %s', (_name, text) => {
+      expect(offers(text)).toBe(false);
+    });
+
+    it.each([
+      ['root env', 'env:\n  - A: ${\nsteps:\n  - run: a\n'],
+      ['working dir', 'steps:\n  - working_dir: ${\n    run: a\n'],
+      [
+        'step retry',
+        'steps:\n  - run: a\n    retry_policy:\n      limit: ${\n',
+      ],
+      // The name of a step field means nothing inside `with`.
+      ['with name', 'steps:\n  - action: x\n    with:\n      name: ${\n'],
+      [
+        'body run',
+        'steps:\n  - foreach:\n      items: [a]\n      steps:\n        - run: ${\n',
+      ],
+    ])('offers references in a %s', (_name, text) => {
+      expect(offers(text)).toBe(true);
+    });
+  });
+
+  describe('in a foreach', () => {
+    const scope = (): ReferenceScope => {
+      const base = scopeHttpJq.steps[0]!;
+      return {
+        ...scopeHttpJq,
+        steps: [
+          {
+            ...base,
+            name: 'each',
+            id: 'each',
+            stepPath: 'steps[0]',
+            upstream: [],
+            outputs: [],
+            foreach: {
+              item: [
+                { name: 'item', reference: '${foreach.item}' },
+                { name: 'index', reference: '${foreach.index}' },
+                { name: 'key', reference: '${foreach.key}' },
+              ],
+              steps: [
+                {
+                  ...base,
+                  name: 'first',
+                  id: 'first',
+                  stepPath: 'steps[0].foreach.steps[0]',
+                  upstream: [],
+                },
+              ],
+            },
+          },
+        ],
+      };
+    };
+    const tokensIn = (text: string) =>
+      computeReferenceCompletions(
+        text,
+        at(text, '${', 2),
+        { scope: scope() },
+        { explicit: false }
+      )?.items.map((item) => item.token);
+    const doc = (field: string) =>
+      [
+        'steps:',
+        '  - name: each',
+        '    foreach:',
+        '      items: [a]',
+        ...field.split('\n').map((line) => `      ${line}`),
+      ].join('\n');
+
+    it('offers the item in a body step', () => {
+      expect(
+        tokensIn(doc('steps:\n  - name: first\n    run: echo ${'))
+      ).toContain('${foreach.item}');
+    });
+
+    it('offers the item but not the key in foreach.key', () => {
+      const tokens = tokensIn(doc('key: ${\nsteps: []'));
+      expect(tokens).toContain('${foreach.item}');
+      expect(tokens).not.toContain('${foreach.key}');
+    });
+
+    it('offers no item in foreach.items', () => {
+      const text = 'steps:\n  - name: each\n    foreach:\n      items: ${\n';
+      expect(tokensIn(text)).not.toContain('${foreach.item}');
+    });
+  });
+
+  describe('in a step env entry', () => {
+    const scope = (): ReferenceScope => ({
+      ...scopeHttpJq,
+      env: [{ name: 'SECOND', reference: '${env.SECOND}' }],
+      steps: [
+        {
+          ...scopeHttpJq.steps[0]!,
+          name: 'a',
+          id: 'a',
+          stepPath: 'steps[0]',
+          upstream: [],
+          outputs: [],
+          // INHERITED comes from `defaults`, so the entry does not list it.
+          env: ['FIRST', 'INHERITED', 'SECOND', 'THIRD'].map((name) => ({
+            name,
+            reference: `\${env.${name}}`,
+          })),
+        },
+      ],
+    });
+    const envTokens = (text: string) =>
+      computeReferenceCompletions(
+        text,
+        at(text, '${', 2),
+        { scope: scope() },
+        { explicit: false }
+      )
+        ?.items.filter(
+          (item) => item.group === 'stepEnv' || item.group === 'env'
+        )
+        .map((item) => `${item.group}:${item.label}`);
+
+    // Spec 006: a step env entry reads the entries before it, what it inherits
+    // from `defaults`, and the root value of a name that it declares itself.
+    it.each([
+      ['a list of maps', '- FIRST: 1\n      - SECOND: ${\n      - THIRD: 3'],
+      ['a list of strings', '- FIRST=1\n      - SECOND=${\n      - THIRD=3'],
+      ['a map', 'FIRST: 1\n      SECOND: ${\n      THIRD: 3'],
+    ])('offers what the entry can read in %s', (_form, entries) => {
+      const text = `steps:\n  - name: a\n    env:\n      ${entries}\n    run: x\n`;
+      expect(envTokens(text)).toEqual([
+        'stepEnv:FIRST',
+        'stepEnv:INHERITED',
+        'env:SECOND',
+      ]);
+    });
+
+    it('offers every entry outside the env', () => {
+      const text =
+        'steps:\n  - name: a\n    env:\n      - FIRST: 1\n    run: echo ${\n';
+      expect(envTokens(text)).toEqual([
+        'stepEnv:FIRST',
+        'stepEnv:INHERITED',
+        'stepEnv:SECOND',
+        'stepEnv:THIRD',
+      ]);
+    });
+  });
+
+  // Spec 033: a build output path exists only while the executor runs. A run
+  // showed that `preconditions` fails the build.
+  describe('with a build output', () => {
+    const scope = (): ReferenceScope => ({
+      ...scopeHttpJq,
+      steps: [
+        {
+          ...scopeHttpJq.steps[0]!,
+          name: 'a',
+          id: 'a',
+          stepPath: 'steps[0]',
+          upstream: [],
+          outputs: [],
+          inputs: [{ name: 'source', reference: '${inputs.source}' }],
+          pathOutputs: [{ name: 'artifact', reference: '${outputs.artifact}' }],
+        },
+      ],
+    });
+    const tokensIn = (field: string) => {
+      const text = `steps:\n  - name: a\n    ${field}\n`;
+      return computeReferenceCompletions(
+        text,
+        at(text, '${', 2),
+        { scope: scope() },
+        { explicit: false }
+      )?.items.map((item) => item.token);
+    };
+
+    it.each([
+      ['run', 'run: cp ${'],
+      ['env', 'env:\n      - OUT: ${'],
+    ])('offers it in %s', (_name, field) => {
+      expect(tokensIn(field)).toContain('${outputs.artifact}');
+    });
+
+    it.each([
+      ['a precondition', 'preconditions:\n      - condition: ${'],
+      ['working_dir', 'working_dir: ${'],
+    ])('offers the input but not the output in %s', (_name, field) => {
+      const tokens = tokensIn(field);
+      expect(tokens).toContain('${inputs.source}');
+      expect(tokens).not.toContain('${outputs.artifact}');
+    });
   });
 
   it('marks a run field and no other field', () => {
@@ -170,16 +583,6 @@ describe('computeReferenceCompletions', () => {
       }
     );
     expect(inRun?.inRunField).toBe(true);
-    const name = at(yamlArraySteps, 'transform   #', 2);
-    const inName = computeReferenceCompletions(
-      yamlArraySteps,
-      name,
-      { scope: scopeHttpJq },
-      {
-        explicit: true,
-      }
-    );
-    expect(inName?.inRunField).toBe(false);
     const filter = computeReferenceCompletions(
       yamlHttpJq,
       filterOffset,
@@ -209,10 +612,20 @@ describe('computeReferenceCompletions', () => {
 
 const KIND_VARIABLE = 4;
 
-function fakeModel(text: string) {
+const MODEL_URI = 'inmemory://dagu/editor/default.yaml';
+
+function fakeModel(text: string, uri = MODEL_URI) {
   const lines = text.split('\n');
   return {
+    uri: { toString: () => uri },
     getValue: () => text,
+    // Monaco's default word definition, where "$" is a word character.
+    getWordUntilPosition: (p: { lineNumber: number; column: number }) => ({
+      word:
+        /[^\s`~!@#%^&*()\-=+[{\]}\\|;:'",.<>/?]+$/.exec(
+          lines[p.lineNumber - 1]!.slice(0, p.column - 1)
+        )?.[0] ?? '',
+    }),
     getOffsetAt: (p: { lineNumber: number; column: number }) =>
       lines.slice(0, p.lineNumber - 1).reduce((n, l) => n + l.length + 1, 0) +
       p.column -
@@ -237,36 +650,54 @@ function fakeMonaco() {
   const registerCompletionItemProvider = vi.fn(() => ({
     dispose: disposeCompletion,
   }));
+  const registerCommand = vi.fn(() => ({ dispose: vi.fn() }));
   const monaco = {
+    editor: { registerCommand },
     languages: {
       registerCompletionItemProvider,
       registerHoverProvider: vi.fn(() => ({ dispose: vi.fn() })),
       CompletionItemKind: { Variable: KIND_VARIABLE },
       CompletionTriggerKind: { Invoke: 0, TriggerCharacter: 1 },
     },
+    Uri: { parse: (uri: string) => ({ toString: () => uri }) },
   };
   return {
     monaco: monaco as unknown as typeof import('monaco-editor'),
     registerCompletionItemProvider,
+    registerCommand,
     disposeCompletion,
   };
 }
 
 type Provider = {
   triggerCharacters: string[];
+  resolveCompletionItem?(
+    item: Provider['provideCompletionItems'] extends (...args: never[]) => {
+      suggestions: (infer T)[];
+    }
+      ? T
+      : never
+  ): {
+    additionalTextEdits?: { text: string; range: { endLineNumber: number } }[];
+  };
   provideCompletionItems(
     model: ReturnType<typeof fakeModel>,
     position: { lineNumber: number; column: number },
     context: { triggerKind: number }
   ): {
     suggestions: {
-      label: string;
+      label: string | { label: string; description: string };
       detail: string;
       kind: number;
       insertText: string;
       filterText: string;
       sortText: string;
       documentation?: string;
+      additionalTextEdits?: {
+        text: string;
+        range: { endLineNumber: number };
+      }[];
+      command?: { id: string; arguments?: unknown[] };
       range: {
         startLineNumber: number;
         startColumn: number;
@@ -277,6 +708,269 @@ type Provider = {
   };
 };
 
+describe('registerFieldReferenceCompletion', () => {
+  const candidates: ReferenceCandidate[] = [
+    { token: '${env.HOME}', label: 'HOME', group: 'env', known: 'static' },
+    {
+      token: '${params.API_URL}',
+      label: 'API_URL',
+      group: 'params',
+      known: 'static',
+    },
+  ];
+  const TRIGGER = 1;
+  const INVOKE = 0;
+
+  function setup(text: string) {
+    const { monaco, registerCompletionItemProvider, disposeCompletion } =
+      fakeMonaco();
+    const model = fakeModel(text);
+    const handle = registerFieldReferenceCompletion(
+      monaco,
+      { getModel: () => model },
+      'shell',
+      () => candidates
+    );
+    const [language, provider] = registerCompletionItemProvider.mock
+      .calls[0] as unknown as [string, Provider];
+    const complete = (
+      offset: number,
+      triggerKind: number,
+      target: ReturnType<typeof fakeModel> = model
+    ) =>
+      provider.provideCompletionItems(target, target.getPositionAt(offset), {
+        triggerKind,
+      }).suggestions;
+    return { handle, language, complete, disposeCompletion };
+  }
+
+  it('offers the candidates after an open reference', () => {
+    const text = 'echo ${pa}\n';
+    const { language, complete } = setup(text);
+    expect(language).toBe('shell');
+    const items = complete(at(text, 'pa', 2), TRIGGER);
+    expect(items.map((item) => item.insertText)).toEqual([
+      '${env.HOME}',
+      '${params.API_URL}',
+    ]);
+    // The range runs from the dollar sign over the closing brace.
+    expect(items[0]?.range).toMatchObject({ startColumn: 6, endColumn: 11 });
+  });
+
+  it('offers them at the caret for an explicit request only', () => {
+    const text = 'echo a\n';
+    const { complete } = setup(text);
+    expect(complete(5, TRIGGER)).toEqual([]);
+    expect(complete(5, INVOKE)[0]?.range).toMatchObject({
+      startColumn: 6,
+      endColumn: 6,
+    });
+  });
+
+  // Monaco reports a list that opens while a word is typed as Invoke, the same
+  // as Ctrl+Space. Offering there lets Enter replace what the author typed.
+  it.each([
+    ['ls', 1],
+    ['ls', 2],
+    ['echo a', 6],
+    ['echo $HOME', 6],
+    ['echo $HOME', 10],
+    ['grep foo$', 9],
+    ['$', 1],
+  ])('offers nothing while typing %s at %i', (text, offset) => {
+    const { complete } = setup(text);
+    expect(complete(offset, INVOKE)).toEqual([]);
+    expect(complete(offset, TRIGGER)).toEqual([]);
+  });
+
+  // ${NAME} is shell syntax in a script, as it is in a `run` field of the YAML.
+  // The row must say so, and what to do, before anyone opens the details pane.
+  it('marks a value that is not safe in a shell on its row', () => {
+    const { monaco, registerCompletionItemProvider } = fakeMonaco();
+    const model = fakeModel('${');
+    registerFieldReferenceCompletion(
+      monaco,
+      { getModel: () => model },
+      'shell',
+      () => [{ ...candidates[1]!, shellRisk: true }, candidates[0]!]
+    );
+    const [, provider] = registerCompletionItemProvider.mock
+      .calls[0] as unknown as [string, Provider];
+    const [risky, plain] = provider.provideCompletionItems(
+      model,
+      model.getPositionAt(2),
+      { triggerKind: 1 }
+    ).suggestions;
+    expect(risky?.label).toEqual({
+      label: candidates[1]!.token,
+      description: 'Unsafe here: use env',
+    });
+    expect(risky?.detail).toContain('Pass it through env');
+    expect(risky?.insertText).toBe(candidates[1]!.token);
+    expect(plain?.label).toBe(candidates[0]!.token);
+  });
+
+  it('adds the shell note to env items', () => {
+    const { complete } = setup('${');
+    const [env, param] = complete(2, TRIGGER);
+    expect(env?.documentation).toContain('${env.NAME}');
+    expect(param?.documentation).toBeUndefined();
+  });
+
+  // A pick in a form field edits another step through the host.
+  it('tells the candidate that it was picked, through a command', () => {
+    const onPicked = vi.fn();
+    const { monaco, registerCompletionItemProvider, registerCommand } =
+      fakeMonaco();
+    const model = fakeModel('${');
+    const handle = registerFieldReferenceCompletion(
+      monaco,
+      { getModel: () => model },
+      'shell',
+      () => [{ ...candidates[0]!, onPicked }, candidates[1]!]
+    );
+    const [, provider] = registerCompletionItemProvider.mock
+      .calls[0] as unknown as [string, Provider];
+    const [first, second] = provider.provideCompletionItems(
+      model,
+      model.getPositionAt(2),
+      { triggerKind: 1 }
+    ).suggestions;
+    expect(second?.command).toBeUndefined();
+    const [id, run] = registerCommand.mock.calls[0] as unknown as [
+      string,
+      (accessor: unknown, token: string) => void,
+    ];
+    expect(first?.command?.id).toBe(id);
+    run(null, first?.command?.arguments?.[0] as string);
+    expect(onPicked).toHaveBeenCalledTimes(1);
+    handle.dispose();
+  });
+
+  // Monaco providers are global to a language: other fields must not get these.
+  it('offers nothing for the model of another editor', () => {
+    const { complete } = setup('${');
+    expect(complete(2, TRIGGER)).not.toEqual([]);
+    expect(complete(2, TRIGGER, fakeModel('${'))).toEqual([]);
+  });
+
+  it('removes the provider on dispose', () => {
+    const { handle, disposeCompletion } = setup('');
+    handle.dispose();
+    expect(disposeCompletion).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe('registerStepYamlCompletion', () => {
+  const TRIGGER = 1;
+  const INVOKE = 0;
+
+  function setup(text: string) {
+    const { monaco, registerCompletionItemProvider } = fakeMonaco();
+    const model = fakeModel(text);
+    const candidatesAtPath = vi.fn((): ReferenceCandidate[] => [
+      {
+        token: '${params.REGION}',
+        label: 'REGION',
+        group: 'params',
+        known: 'static',
+      },
+      { token: '${env.A}', label: 'A', group: 'stepEnv', known: 'static' },
+      { token: '${env.B}', label: 'B', group: 'stepEnv', known: 'static' },
+      {
+        token: '${outputs.artifact}',
+        label: 'artifact',
+        group: 'outputs',
+        known: 'runtime',
+      },
+    ]);
+    registerStepYamlCompletion(
+      monaco,
+      { getModel: () => model },
+      candidatesAtPath
+    );
+    const [language, provider] = registerCompletionItemProvider.mock
+      .calls[0] as unknown as [string, Provider];
+    const complete = (
+      offset: number,
+      triggerKind = TRIGGER,
+      target: ReturnType<typeof fakeModel> = model
+    ) =>
+      provider.provideCompletionItems(target, target.getPositionAt(offset), {
+        triggerKind,
+      }).suggestions;
+    return { language, complete, candidatesAtPath };
+  }
+
+  it('reads the path below the step entry', () => {
+    const text = 'foreach:\n  steps:\n    - run: echo ${\n';
+    const { language, complete, candidatesAtPath } = setup(text);
+    expect(language).toBe('yaml');
+    expect(complete(at(text, '${', 2))[0]?.insertText).toBe('${params.REGION}');
+    expect(candidatesAtPath).toHaveBeenCalledWith([
+      'foreach',
+      'steps',
+      '0',
+      'run',
+    ]);
+  });
+
+  it.each([
+    ['name: ${\nrun: a\n'],
+    ['timeout_sec: ${\n'],
+    ['foreach:\n  as: ${\n'],
+    ['foreach:\n  steps:\n    - name: ${\n'],
+  ])('offers nothing in the literal field of %j', (text) => {
+    const { complete } = setup(text);
+    expect(complete(at(text, '${', 2))).toEqual([]);
+  });
+
+  it('hides from an env entry the entries from it on', () => {
+    const text = 'env:\n  - A: 1\n  - B: ${\n';
+    const { complete } = setup(text);
+    const tokens = complete(at(text, '${', 2)).map((item) => item.insertText);
+    expect(tokens).toContain('${env.A}');
+    expect(tokens).not.toContain('${env.B}');
+  });
+
+  it('offers a build output in the command and not in a condition', () => {
+    const run = 'run: ${\n';
+    expect(
+      setup(run)
+        .complete(at(run, '${', 2))
+        .map((item) => item.insertText)
+    ).toContain('${outputs.artifact}');
+    const pre = 'preconditions:\n  - condition: ${\n';
+    expect(
+      setup(pre)
+        .complete(at(pre, '${', 2))
+        .map((item) => item.insertText)
+    ).not.toContain('${outputs.artifact}');
+  });
+
+  it('adds the shell note to env items in a run field only', () => {
+    const documented = (text: string) =>
+      setup(text)
+        .complete(at(text, '${', 2))
+        .find((item) => item.insertText === '${env.A}')?.documentation;
+    expect(documented('run: ${\n')).toContain('${env.NAME}');
+    expect(documented('working_dir: ${\n')).toBeUndefined();
+  });
+
+  it('offers nothing while a word is typed or for an explicit key', () => {
+    const typed = 'run: ls\n';
+    expect(setup(typed).complete(at(typed, 'ls', 2), INVOKE)).toEqual([]);
+    const key = 'run: a\n';
+    expect(setup(key).complete(0, INVOKE)).toEqual([]);
+  });
+
+  it('offers nothing for the model of another editor', () => {
+    const text = 'run: ${\n';
+    const { complete } = setup(text);
+    expect(complete(at(text, '${', 2), TRIGGER, fakeModel(text))).toEqual([]);
+  });
+});
+
 describe('registerReferenceCompletion', () => {
   afterEach(() => {
     document.documentElement.lang = 'en';
@@ -285,9 +979,11 @@ describe('registerReferenceCompletion', () => {
   function setup(text: string, offset: number, triggerKind: number) {
     const { monaco, registerCompletionItemProvider, disposeCompletion } =
       fakeMonaco();
-    const handle = registerReferenceCompletion(monaco, () => ({
-      scope: scopeHttpJq,
-    }));
+    const handle = registerReferenceCompletion(
+      monaco,
+      () => ({ scope: scopeHttpJq }),
+      MODEL_URI
+    );
     const [language, provider] = registerCompletionItemProvider.mock
       .calls[0] as unknown as [string, Provider];
     const model = fakeModel(text);
@@ -308,9 +1004,196 @@ describe('registerReferenceCompletion', () => {
       0
     );
     expect(language).toBe('yaml');
-    expect(provider.triggerCharacters).toEqual(['$', '{', '.']);
+    expect(provider.triggerCharacters).toEqual(['{', '.']);
     handle.dispose();
     expect(disposeCompletion).toHaveBeenCalledTimes(1);
+  });
+
+  // The YAML of one step is YAML too, but it is not this document.
+  it('answers only for the model of the document', () => {
+    const { monaco, registerCompletionItemProvider } = fakeMonaco();
+    registerReferenceCompletion(
+      monaco,
+      () => ({ scope: scopeHttpJq }),
+      MODEL_URI
+    );
+    const [, provider] = registerCompletionItemProvider.mock
+      .calls[0] as unknown as [string, Provider];
+    const text = 'steps:\n  - run: ${\n';
+    const offset = at(text, '${', 2);
+    const items = (uri: string) => {
+      const model = fakeModel(text, uri);
+      return provider.provideCompletionItems(
+        model,
+        model.getPositionAt(offset),
+        { triggerKind: 1 }
+      ).suggestions;
+    };
+    expect(items(MODEL_URI)).not.toEqual([]);
+    expect(items('inmemory://other')).toEqual([]);
+  });
+
+  // A broken step must not take the list of the readable steps with it, as the
+  // model of the editor keeps them.
+  it('reads a stale model leniently, keeping the readable steps', () => {
+    const typed = [
+      'steps:',
+      '  - id: fetch',
+      '    run: echo hi',
+      '  - id: use',
+      '    depends: fetch',
+      '    run: echo ${',
+      '  - id: broken',
+      '    run: [',
+      '',
+    ].join('\n');
+    const base = scopeHttpJq.steps[0]!;
+    const scope: ReferenceScope = {
+      ...scopeHttpJq,
+      steps: ['fetch', 'use', 'broken'].map((name, index) => ({
+        ...base,
+        name,
+        id: name,
+        stepPath: `steps[${index}]`,
+        upstream: name === 'use' ? ['fetch'] : [],
+        outputs: [],
+      })),
+    };
+    const { monaco, registerCompletionItemProvider } = fakeMonaco();
+    registerReferenceCompletion(
+      monaco,
+      () => ({ scope, model: parseDagDocLenient('steps: []\n') }),
+      MODEL_URI
+    );
+    const [, provider] = registerCompletionItemProvider.mock
+      .calls[0] as unknown as [string, Provider];
+    const model = fakeModel(typed);
+    const items = provider.provideCompletionItems(
+      model,
+      model.getPositionAt(at(typed, '${', 2)),
+      { triggerKind: 1 }
+    ).suggestions;
+    expect(items.map((item) => item.insertText)).toContain(
+      '${steps.fetch.outputs.stdout}'
+    );
+  });
+
+  // The provider runs on the keystroke, before the parsed model has that text.
+  it('offers a publishable output while the model is behind the text', () => {
+    const typed = [
+      'steps:',
+      '  - id: fetch',
+      '    run: echo hi',
+      '  - id: use',
+      '    depends: fetch',
+      '    run: echo ${',
+      '',
+    ].join('\n');
+    const base = scopeHttpJq.steps[0]!;
+    const scope: ReferenceScope = {
+      ...scopeHttpJq,
+      steps: [
+        {
+          ...base,
+          name: 'fetch',
+          id: 'fetch',
+          stepPath: 'steps[0]',
+          upstream: [],
+          outputs: [],
+        },
+        {
+          ...base,
+          name: 'use',
+          id: 'use',
+          stepPath: 'steps[1]',
+          upstream: ['fetch'],
+          outputs: [],
+        },
+      ],
+    };
+    const { monaco, registerCompletionItemProvider } = fakeMonaco();
+    registerReferenceCompletion(
+      monaco,
+      () => ({ scope, model: parseDagDoc(typed.replace(' ${', '')) }),
+      MODEL_URI
+    );
+    const [, provider] = registerCompletionItemProvider.mock
+      .calls[0] as unknown as [string, Provider];
+    const model = fakeModel(typed);
+    const items = provider.provideCompletionItems(
+      model,
+      model.getPositionAt(at(typed, '${', 2)),
+      { triggerKind: 1 }
+    ).suggestions;
+    expect(items.map((item) => item.insertText)).toContain(
+      '${steps.fetch.outputs.stdout}'
+    );
+  });
+
+  // Both edits come as one, so one undo takes both back.
+  it('publishes the output of an upstream step with the same pick', () => {
+    const text = [
+      'steps:',
+      '  - id: fetch',
+      '    run: echo hi',
+      '  - id: use',
+      '    depends: fetch',
+      '    run: echo ${',
+      '',
+    ].join('\n');
+    const base = scopeHttpJq.steps[0]!;
+    const scope: ReferenceScope = {
+      ...scopeHttpJq,
+      steps: [
+        {
+          ...base,
+          name: 'fetch',
+          id: 'fetch',
+          stepPath: 'steps[0]',
+          upstream: [],
+          outputs: [],
+        },
+        {
+          ...base,
+          name: 'use',
+          id: 'use',
+          stepPath: 'steps[1]',
+          upstream: ['fetch'],
+          outputs: [],
+        },
+      ],
+    };
+    const { monaco, registerCompletionItemProvider } = fakeMonaco();
+    registerReferenceCompletion(
+      monaco,
+      () => ({ scope, model: parseDagDoc(text) }),
+      MODEL_URI
+    );
+    const [, provider] = registerCompletionItemProvider.mock
+      .calls[0] as unknown as [string, Provider];
+    const model = fakeModel(text);
+    const items = provider.provideCompletionItems(
+      model,
+      model.getPositionAt(at(text, '${', 2)),
+      { triggerKind: 1 }
+    ).suggestions;
+    const item = items.find(
+      (s) => s.insertText === '${steps.fetch.outputs.stdout}'
+    );
+    expect(item?.detail).toContain('Published when chosen');
+    // Each edit parses the document, so a list computes none until it is needed.
+    expect(item?.additionalTextEdits).toBeUndefined();
+    const resolved = provider.resolveCompletionItem?.(item!);
+    expect(resolved?.additionalTextEdits).toHaveLength(1);
+    expect(resolved?.additionalTextEdits?.[0]?.text).toContain('from: stdout');
+    // Above the line of the caret, so that the two edits do not overlap.
+    expect(
+      resolved?.additionalTextEdits?.[0]?.range.endLineNumber
+    ).toBeLessThan(6);
+    const plain = items.find((s) => s.insertText === '${params.API_URL}');
+    expect(
+      provider.resolveCompletionItem?.(plain!)?.additionalTextEdits
+    ).toBeUndefined();
   });
 
   it('builds items in candidate order for an explicit request', () => {
@@ -344,8 +1227,18 @@ describe('registerReferenceCompletion', () => {
     );
   });
 
+  // Monaco reports a list that opens while a word is typed as Invoke.
+  it.each([
+    ['steps:\n  - run: ls\n', 'ls', 2],
+    ['steps:\n  - run: echo $HOME\n', '$HOME', 5],
+    ['steps:\n  - run: grep foo$\n', 'foo$', 4],
+  ])('offers nothing while typing in %j', (text, marker, shift) => {
+    const { result } = setup(text, at(text, marker, shift), 0);
+    expect(result.suggestions).toEqual([]);
+  });
+
   it('adds a shell note to env items in a run field only', () => {
-    const run = at(yamlArraySteps, 'sort data', 2);
+    const run = at(yamlArraySteps, 'sort data', 0);
     const inRun = setup(yamlArraySteps, run, 0).result.suggestions;
     const env = inRun.find((s) => s.label === '${env.HOME}');
     expect(env?.documentation).toBe(

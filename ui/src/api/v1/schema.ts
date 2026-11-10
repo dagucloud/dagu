@@ -277,7 +277,7 @@ export interface paths {
         };
         /**
          * List all available DAGs
-         * @description Retrieves DAG definitions with optional filtering by name, labels, and active status (scheduled and not suspended).
+         * @description Retrieves DAG definitions with optional filtering by name, labels, and active status (scheduled or kept running by a restart policy of always or unless-stopped, and not suspended).
          */
         get: operations["listDAGs"];
         put?: never;
@@ -1999,6 +1999,26 @@ export interface paths {
         put?: never;
         /** Restart a managed-agent session cleanly in a sub DAG-run */
         post: operations["restartSubDAGRunStepAgentSession"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/service-dags": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List the service DAGs
+         * @description Returns the DAGs that set a restart policy, each with a compact state. A service DAG runs without end, so this list replaces its runs in the run lists. The state follows from the latest run. The response has no list of runs, but the state and the latest run change at each restart, so a DAG that restarts every few seconds changes it that often, and the live stream sends it at most once every two seconds.
+         */
+        get: operations["listServiceDAGs"];
+        put?: never;
+        post?: never;
         delete?: never;
         options?: never;
         head?: never;
@@ -5789,6 +5809,9 @@ export interface components {
             workspace?: string;
             /** @description List of scheduling expressions defining when DAG-runs should be created from this DAG */
             schedule?: components["schemas"]["Schedule"][];
+            restartPolicy?: components["schemas"]["RestartPolicy"];
+            /** @description Seconds the scheduler waits after a run ends before it starts the next one. Used with restartPolicy. */
+            restartWaitSec?: number;
             /** @description Human-readable description of the DAG's purpose and behavior */
             description?: string;
             /** @description List of parameter names that can be passed to DAG-runs created from this DAG */
@@ -6019,6 +6042,11 @@ export interface components {
          */
         TriggerType: TriggerType;
         /**
+         * @description Restart policy of a DAG: the scheduler keeps a run of the DAG alive and starts the next run restartWaitSec seconds after the previous one ends. With unless-stopped, no run follows a run that an operator stopped. Omitted when the DAG has no restart policy.
+         * @enum {string}
+         */
+        RestartPolicy: RestartPolicy;
+        /**
          * @description Numeric status code indicating current node state:
          *     0: "Not started"
          *     1: "Running"
@@ -6163,6 +6191,9 @@ export interface components {
             steps?: components["schemas"]["Step"][];
             /** @description Time in seconds to wait before starting a DAG-run */
             delay?: number;
+            restartPolicy?: components["schemas"]["RestartPolicy"];
+            /** @description Seconds the scheduler waits after a run ends before it starts the next one. Used with restartPolicy. */
+            restartWaitSec?: number;
             /** @description Number of days to retain historical logs */
             histRetentionDays?: number;
             /** @description Number of DAG runs to retain historical logs. Mutually exclusive with histRetentionDays. */
@@ -6277,6 +6308,22 @@ export interface components {
              * @enum {string}
              */
             outputsKnown: ReferenceScopeStepOutputsKnown;
+            /** @description Environment variable names that the step declares. Values are not included. */
+            env?: components["schemas"]["ReferenceScopeVariable"][];
+            /** @description Build input paths of the step, such as ${inputs.source}. */
+            inputs?: components["schemas"]["ReferenceScopeVariable"][];
+            /** @description Build output paths of the step, such as ${outputs.artifact}. */
+            pathOutputs?: components["schemas"]["ReferenceScopeVariable"][];
+            /** @description The step has a repeat policy, set on it or inherited from defaults. */
+            repeats?: boolean;
+            foreach?: components["schemas"]["ReferenceScopeForeach"];
+        };
+        /** @description What the item body of a foreach step can reference. */
+        ReferenceScopeForeach: {
+            /** @description The current item: its value, the fields that every static item has, its index and its key. */
+            item: components["schemas"]["ReferenceScopeVariable"][];
+            /** @description The body steps. A stepPath reads steps[2].foreach.steps[0], and upstream names body steps only. */
+            steps: components["schemas"]["ReferenceScopeStep"][];
         };
         /** @description An output of a step that other steps can reference. */
         ReferenceScopeOutput: {
@@ -6286,6 +6333,8 @@ export interface components {
             /** @enum {string} */
             source: ReferenceScopeOutputSource;
             type?: string;
+            /** @description A model wrote this value, and its schema does not limit it, so a shell can run it as code. */
+            modelOutput?: boolean;
         };
         /** @description Persisted outputs of one step in a DAG-run. */
         StepOutputs: {
@@ -7560,6 +7609,58 @@ export interface components {
             parentDagRunName?: components["schemas"]["DAGName"];
             parentDagRunId?: components["schemas"]["DAGRunId"];
         };
+        /**
+         * @description What a service DAG does, as its latest run shows it:
+         *     - pending: no run is alive yet, or the latest run waits in the queue.
+         *     - running: a run is alive.
+         *     - restarting: the latest run succeeded, or an operator stopped the latest run of an always DAG, and the next run is due.
+         *     - failing: the latest run did not succeed and the next run is due, or the latest run cannot be read, which `readError` reports.
+         *     - suspended: the DAG gets no new run.
+         *     - stopped: an operator stopped the latest run of an unless-stopped DAG.
+         *
+         * @enum {string}
+         */
+        ServiceDAGState: ServiceDAGState;
+        /** @description The latest run of a service DAG */
+        ServiceDAGRun: {
+            dagRunId: components["schemas"]["DAGRunId"];
+            status: components["schemas"]["Status"];
+            /**
+             * Format: date-time
+             * @description When the run started. Omitted until it starts.
+             */
+            startedAt?: string;
+            /**
+             * Format: date-time
+             * @description When the run ended. Omitted while it is alive.
+             */
+            finishedAt?: string;
+            /** @description Why the run did not succeed: the first failed step and its error, or the error of the run. Set only for a run that ended without success. */
+            error?: string;
+        };
+        /** @description A DAG that sets a restart policy, with its state */
+        ServiceDAG: {
+            /** @description File ID of the DAG file */
+            fileName: string;
+            name: components["schemas"]["DAGName"];
+            restartPolicy: components["schemas"]["RestartPolicy"];
+            /** @description Seconds the scheduler waits after a run ends before it starts the next one. */
+            restartWaitSec: number;
+            state: components["schemas"]["ServiceDAGState"];
+            /** @description Whether the DAG is suspended */
+            suspended: boolean;
+            latestRun?: components["schemas"]["ServiceDAGRun"];
+            /** @description Why the state could not be read. Set only with the state failing. */
+            readError?: string;
+            /** @description How many of the newest ended runs in a row did not succeed, up to 10. A run that an operator stopped ends the count. A count above zero while the DAG is running means that it keeps failing. */
+            consecutiveFailures: number;
+        };
+        /** @description The service DAGs */
+        ServiceDAGsResponse: {
+            dags: components["schemas"]["ServiceDAG"][];
+            /** @description Errors met while the DAGs were listed, such as DAG files that cannot be read. An error about one DAG's state is in its readError. */
+            errors: string[];
+        };
         /** @description Response containing all queues with their active DAG-runs */
         QueuesResponse: {
             /** @description List of all queues with their running and queued DAG-runs */
@@ -8480,7 +8581,7 @@ export interface components {
             workspaceScope?: components["schemas"]["ViewWorkspaceScope"];
             sortField?: components["schemas"]["ViewSortField"];
             sortOrder?: components["schemas"]["ViewSortOrder"];
-            /** @description Whether the view only includes scheduled, unsuspended workflows. */
+            /** @description Whether the view only includes workflows that are scheduled or kept running by a restart policy of always or unless-stopped, and not suspended. */
             activeOnly?: boolean;
             /** @description Whether this is the default workflow view for its workspace scope. */
             isDefault?: boolean;
@@ -8501,7 +8602,7 @@ export interface components {
             workspaceScope?: components["schemas"]["ViewWorkspaceScope"];
             sortField?: components["schemas"]["ViewSortField"];
             sortOrder?: components["schemas"]["ViewSortOrder"];
-            /** @description Whether the view only includes scheduled, unsuspended workflows. */
+            /** @description Whether the view only includes workflows that are scheduled or kept running by a restart policy of always or unless-stopped, and not suspended. */
             activeOnly?: boolean;
             /** @description DAG run ID filter. Empty matches any. */
             dagRunId?: string;
@@ -8574,6 +8675,8 @@ export interface components {
         WikiPagesPerPage: number;
         /** @description Workspace selector. For list and search APIs, use all, default, or a workspace name. Omitted means all. */
         Workspace: string;
+        /** @description Leave out every run of the service DAGs, the DAGs that set a restart policy, whoever started it. Their state is read from the service DAG list instead. The service DAGs come from the DAG index, so a DAG file edited outside Dagu counts after the next DAG listing. */
+        ExcludeServiceDAGRuns: boolean;
         /** @description Optional Wiki page path prefix within the selected workspace */
         WikiPagePrefix: components["schemas"]["WikiPagePath"];
         /** @description Filter by DAG names containing this value */
@@ -9700,7 +9803,7 @@ export interface operations {
                 name?: string;
                 /** @description Filter DAGs by labels (comma-separated). Returns DAGs that have ALL specified labels. Mutually exclusive with `tags`; the server returns HTTP 400 if both are set. */
                 labels?: string;
-                /** @description Filter to DAGs that have a schedule and are not suspended. */
+                /** @description Filter to DAGs that are not suspended and have a schedule or a restart policy of always or unless-stopped. */
                 active?: boolean;
                 /**
                  * @deprecated
@@ -11039,6 +11142,8 @@ export interface operations {
                 remoteNode?: components["parameters"]["RemoteNode"];
                 /** @description Workspace selector. For list and search APIs, use all, default, or a workspace name. Omitted means all. */
                 workspace?: components["parameters"]["Workspace"];
+                /** @description Leave out every run of the service DAGs, the DAGs that set a restart policy, whoever started it. Their state is read from the service DAG list instead. The service DAGs come from the DAG index, so a DAG file edited outside Dagu counts after the next DAG listing. */
+                excludeServiceDAGRuns?: components["parameters"]["ExcludeServiceDAGRuns"];
                 /** @description start of the time range for filtering DAG-runs, as a Unix timestamp in seconds */
                 fromDate?: components["parameters"]["DateTimeFrom"];
                 /** @description end of the time range for filtering DAG-runs, as a Unix timestamp in seconds */
@@ -11104,6 +11209,8 @@ export interface operations {
                 remoteNode?: components["parameters"]["RemoteNode"];
                 /** @description Workspace selector. For list and search APIs, use all, default, or a workspace name. Omitted means all. */
                 workspace?: components["parameters"]["Workspace"];
+                /** @description Leave out every run of the service DAGs, the DAGs that set a restart policy, whoever started it. Their state is read from the service DAG list instead. The service DAGs come from the DAG index, so a DAG file edited outside Dagu counts after the next DAG listing. */
+                excludeServiceDAGRuns?: components["parameters"]["ExcludeServiceDAGRuns"];
                 /** @description Filter DAG-runs by name */
                 name?: string;
                 /** @description Filter DAG-runs by DAG labels (comma-separated). Returns runs from DAGs that have ALL specified labels. Mutually exclusive with `tags`; the server returns HTTP 400 if both are set. */
@@ -14926,6 +15033,40 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Generic error response */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+        };
+    };
+    listServiceDAGs: {
+        parameters: {
+            query?: {
+                /** @description name of the remote node */
+                remoteNode?: components["parameters"]["RemoteNode"];
+                /** @description Workspace selector. For list and search APIs, use all, default, or a workspace name. Omitted means all. */
+                workspace?: components["parameters"]["Workspace"];
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description A successful response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ServiceDAGsResponse"];
                 };
             };
             /** @description Generic error response */
@@ -23761,7 +23902,12 @@ export enum TriggerType {
     subdag = "subdag",
     retry = "retry",
     catchup = "catchup",
-    file = "file"
+    file = "file",
+    restart = "restart"
+}
+export enum RestartPolicy {
+    always = "always",
+    unless_stopped = "unless-stopped"
 }
 export enum NodeStatus {
     NotStarted = 0,
@@ -23954,6 +24100,14 @@ export enum AvailabilityWindowWindow {
 export enum RepeatMode {
     While = "while",
     Until = "until"
+}
+export enum ServiceDAGState {
+    pending = "pending",
+    running = "running",
+    restarting = "restarting",
+    failing = "failing",
+    suspended = "suspended",
+    stopped = "stopped"
 }
 export enum QueueType {
     global = "global",

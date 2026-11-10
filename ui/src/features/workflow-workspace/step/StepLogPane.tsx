@@ -49,7 +49,7 @@ export function stepLogPageURL({
     remoteNode,
     tab: 'log',
     rootDAGRunId: sub ? holder.rootDAGRunId : holder.dagRunId,
-    rootDAGRunName: sub ? holder.rootDAGRunName : undefined,
+    rootDAGRunName: sub ? holder.rootDAGRunName : holder.name,
     subDAGRunId: sub ? holder.dagRunId : undefined,
     step,
     stream: stream !== Stream.stdout ? stream : undefined,
@@ -73,7 +73,7 @@ export function runLogPageURL({
     remoteNode,
     tab: 'dagRun-log',
     rootDAGRunId: sub ? holder.rootDAGRunId : holder.dagRunId,
-    rootDAGRunName: sub ? holder.rootDAGRunName : undefined,
+    rootDAGRunName: sub ? holder.rootDAGRunName : holder.name,
     subDAGRunId: sub ? holder.dagRunId : undefined,
   });
 }

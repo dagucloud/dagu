@@ -10,6 +10,7 @@ import WebhookTab from '@/features/dags/components/dag-details/WebhookTab';
 import {
   PANEL_BODY_CLASS,
   PanelHeader,
+  usePanelColumn,
 } from '@/features/dags/components/step-details/PanelShell';
 import { useI18n } from '@/i18n/I18nProvider';
 import { formatAbsoluteTime } from '@/lib/dagRunTiming';
@@ -33,22 +34,26 @@ function Shell({
 }): ReactElement {
   const { ts } = useI18n();
   const Icon = LAUNCHER_ICONS[id];
+  // In the host's right column the tab names the launcher and closes it.
+  const inColumn = usePanelColumn() !== null;
   return (
     <div
       data-testid={`ve-launcher-panel-${id}`}
       className="flex min-h-0 flex-1 flex-col"
     >
-      <PanelHeader
-        title={
-          <span className="flex items-center gap-2">
-            <Icon className="h-4 w-4 shrink-0" aria-hidden="true" />
-            {ts(LAUNCHER_LABELS[id])}
-          </span>
-        }
-        subtitle={ts('Launcher')}
-        closeLabel={ts('Close')}
-        onClose={onClose}
-      />
+      {!inColumn && (
+        <PanelHeader
+          title={
+            <span className="flex items-center gap-2">
+              <Icon className="h-4 w-4 shrink-0" aria-hidden="true" />
+              {ts(LAUNCHER_LABELS[id])}
+            </span>
+          }
+          subtitle={ts('Launcher')}
+          closeLabel={ts('Close')}
+          onClose={onClose}
+        />
+      )}
       <div className={`${PANEL_BODY_CLASS} space-y-4`}>{children}</div>
     </div>
   );
