@@ -4773,6 +4773,9 @@ func (a *API) getSubDAGRunDetails(ctx context.Context, name, dagRunID, subDAGRun
 		status     *ir.DAGRunStatus
 		outputs    *ir.DAGRunOutputs
 		outputsErr error
+		// visibleErr is kept out of the closure's error so it isn't wrapped
+		// as not found below.
+		visibleErr error
 	}
 	read, err := withDAGRunReadTimeout(ctx, dagRunReadRequestInfo{
 		endpoint:    "/dag-runs/{name}/{dagRunId}/sub/{subDAGRunId}",
@@ -4781,8 +4784,16 @@ func (a *API) getSubDAGRunDetails(ctx context.Context, name, dagRunID, subDAGRun
 		subDAGRunID: subDAGRunID,
 	}, func(readCtx context.Context) (subRead, error) {
 		ref, dagStatus, err := a.getReferencedDAGRunStatusWithRef(readCtx, root, subDAGRunID, "")
-		if err != nil || !withOutputs || !dagStatus.Status.IsTerminal() {
+		if err != nil {
 			return subRead{status: dagStatus}, err
+		}
+		// Check the child's visibility before reading its outputs, so a
+		// rejected read does no outputs I/O and logs nothing about the child.
+		if visibleErr := a.requireDAGRunStatusVisible(readCtx, dagStatus); visibleErr != nil {
+			return subRead{visibleErr: visibleErr}, nil
+		}
+		if !withOutputs || !dagStatus.Status.IsTerminal() {
+			return subRead{status: dagStatus}, nil
 		}
 		runAttrs := []slog.Attr{
 			tag.DAG(name),
@@ -4817,8 +4828,8 @@ func (a *API) getSubDAGRunDetails(ctx context.Context, name, dagRunID, subDAGRun
 			err,
 		)
 	}
-	if err := a.requireDAGRunStatusVisible(ctx, read.status); err != nil {
-		return DAGRunDetailsWithOutputs{}, err
+	if read.visibleErr != nil {
+		return DAGRunDetailsWithOutputs{}, read.visibleErr
 	}
 
 	return DAGRunDetailsWithOutputs{

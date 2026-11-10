@@ -160,11 +160,7 @@ steps:
 	parent := requireData(t, mcptest.StructuredMap(t, result))
 	parentStep := requireItem(t, parent["steps"].([]any), "name", "call-child")
 	require.NotEmpty(t, parentStep["error"])
-	subRuns, ok := parentStep["subRuns"].([]any)
-	require.True(t, ok)
-	require.NotEmpty(t, subRuns)
-	subRun, ok := subRuns[0].(map[string]any)
-	require.True(t, ok)
+	subRun := requireFirstSubRun(t, parentStep)
 	subRunID := requireString(t, subRun, "dagRunId")
 	subURI := runURI("mcp_sub_parent", dagRunID) + "/sub/" + subRunID
 	requireURIEqual(t, subURI, requireString(t, subRun, "uri"))
@@ -265,6 +261,17 @@ func TestReadRunURIUsesCanonicalNameSegment(t *testing.T) {
 	})
 	requireReadSuccess(t, result, "run", runURI(fixture.dagName, fixture.dagRunID), "dag_run", "application/json")
 	require.Equal(t, "dagu://runs/mcp.read-contract/"+fixture.dagRunID, runURI(fixture.dagName, fixture.dagRunID))
+}
+
+// requireFirstSubRun returns the first entry of a step's subRuns.
+func requireFirstSubRun(t *testing.T, step map[string]any) map[string]any {
+	t.Helper()
+	subRuns, ok := step["subRuns"].([]any)
+	require.Truef(t, ok, "step has no subRuns: %v", step)
+	require.NotEmpty(t, subRuns)
+	subRun, ok := subRuns[0].(map[string]any)
+	require.Truef(t, ok, "subRuns[0] is not an object: %v", subRuns[0])
+	return subRun
 }
 
 func requireRunListItem(t *testing.T, item map[string]any, dagName, dagRunID string) {
@@ -403,7 +410,9 @@ steps:
 	require.NotContains(t, parent, "outputsOmitted")
 	require.NotContains(t, parent, "outputsError")
 
-	subRunID := requireString(t, requireItem(t, parent["steps"].([]any), "name", "call-child")["subRuns"].([]any)[0].(map[string]any), "dagRunId")
+	steps, ok := parent["steps"].([]any)
+	require.Truef(t, ok, "run has no steps: %v", parent)
+	subRunID := requireString(t, requireFirstSubRun(t, requireItem(t, steps, "name", "call-child")), "dagRunId")
 	child := requireData(t, mcptest.StructuredMap(t, callRead(t, session, map[string]any{
 		"target":   "run",
 		"name":     "mcp_outputs_parent",
