@@ -92,6 +92,7 @@ func newServer(ctx *Context, rs *resource.Service, stores frontend.Stores, opts 
 		WorkerHeartbeatStore: ctx.Persistence.WorkerHeartbeatStore,
 		SchedulerStateStore:  ctx.Persistence.SchedulerStateStore,
 		SchedulerPauseStore:  ctx.Persistence.SchedulerPauseStore,
+		RestartBackoffStore:  ctx.Persistence.RestartBackoffStore,
 		Caches:               ctx.Caches,
 		LicenseManager:       ctx.LicenseManager,
 		ResourceService:      rs,

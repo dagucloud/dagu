@@ -9,6 +9,7 @@ import (
 
 	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/persis"
+	"github.com/dagucloud/dagu/v2/internal/schedulerstate"
 )
 
 // ServiceDAGState tells what a service DAG is doing, as far as its latest run
@@ -83,26 +84,15 @@ func DescribeServiceDAG(
 }
 
 // NextRestart returns when the scheduler starts the next run of a service DAG
-// whose latest run ended, given its ended runs newest first: restart_wait_sec
-// after the end of the latest run, longer while the runs in a row fail soon
-// after they start. ok is false when the end of the latest run is unknown.
-func NextRestart(restartWait time.Duration, ended []ir.DAGRunStatus) (time.Time, bool) {
-	if len(ended) == 0 {
-		return time.Time{}, false
-	}
-	endedAt, ok := retryReferenceTime(&ended[0])
+// after its latest run ended, given the backoff that the scheduler last shared
+// for the DAG. A run may have ended since that save, so it is counted here as the
+// scheduler counts it. ok is false when the end of the run is unknown.
+func NextRestart(restartWait time.Duration, latest *ir.DAGRunStatus, backoff schedulerstate.RestartBackoff) (time.Time, bool) {
+	endedAt, ok := retryReferenceTime(latest)
 	if !ok {
 		return time.Time{}, false
 	}
-	failures := 0
-	for i := range ended {
-		if !failedSoonAfterStart(&ended[i]) {
-			break
-		}
-		failures++
-	}
-	// The end is stored to the second, as the scanner allows for.
-	return endedAt.Add(time.Second + backoffWait(restartWait, failures)), true
+	return restartDue(endedAt, backoffWait(restartWait, countRun(backoff, latest).Failures)), true
 }
 
 // IsStopRequested reports whether an operator asked to stop a run: a stop from

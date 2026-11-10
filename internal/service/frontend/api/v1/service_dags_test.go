@@ -18,14 +18,16 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/persis"
 	filedagrun "github.com/dagucloud/dagu/v2/internal/persis/file/dagrun"
+	"github.com/dagucloud/dagu/v2/internal/persis/store"
 	"github.com/dagucloud/dagu/v2/internal/proc"
+	"github.com/dagucloud/dagu/v2/internal/schedulerstate"
 	localapi "github.com/dagucloud/dagu/v2/internal/service/frontend/api/v1"
 	"github.com/dagucloud/dagu/v2/internal/test"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
-func newServiceDAGAPI(helper test.Helper) *localapi.API {
+func newServiceDAGAPI(helper test.Helper, opts ...localapi.APIOption) *localapi.API {
 	return localapi.New(
 		helper.DAGRepository,
 		helper.DAGRunRepository,
@@ -37,6 +39,7 @@ func newServiceDAGAPI(helper test.Helper) *localapi.API {
 		helper.ServiceRegistry,
 		nil,
 		nil,
+		opts...,
 	)
 }
 
@@ -184,24 +187,32 @@ func TestListServiceDAGs(t *testing.T) {
 	assert.Equal(t, api.ServiceDAGsResponse(list), sseData)
 }
 
-// A DAG whose runs keep failing soon after they start restarts later and
-// later, so the list says when the next run starts, as the scheduler decides.
+// The count of runs that failed soon after they started lives in the scheduler.
+// A DAG with hist_retention_runs: 1 keeps one run, so the list must take the
+// count from the scheduler and not from the runs it can read.
 func TestListServiceDAGsReportsWhenTheNextRunStarts(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
 	helper := test.Setup(t, test.WithStatusPersistence())
 	dir := helper.Config.Paths.DAGsDir
-	for _, name := range []string{"svc-crashing", "svc-live"} {
-		helper.CreateDAGFile(t, dir, name, []byte(serviceDAGSpec))
+	spec := []byte("restart_policy: always\nrestart_wait_sec: 5\nhist_retention_runs: 1\nsteps:\n  - run: echo hi\n")
+	for _, name := range []string{"svc-counted", "svc-uncounted", "svc-first", "svc-live"} {
+		helper.CreateDAGFile(t, dir, name, spec)
 	}
-	// Each run ends as it starts, so each one failed soon after it started.
+	// A run that ends as it starts has failed soon after it started.
 	end := time.Now().Add(-time.Minute).Truncate(time.Second).UTC()
-	for i, id := range []string{"crash-1", "crash-2", "crash-3"} {
-		seedRunAt(t, helper, "svc-crashing", id, ir.Failed, ir.TriggerTypeRestart, end.Add(time.Duration(i-2)*time.Minute))
-	}
+	seedRunAt(t, helper, "svc-counted", "crash-3", ir.Failed, ir.TriggerTypeRestart, end)
+	seedRunAt(t, helper, "svc-uncounted", "crash-3", ir.Failed, ir.TriggerTypeRestart, end)
+	seedRunAt(t, helper, "svc-first", "crash-1", ir.Failed, ir.TriggerTypeRestart, end)
 	seedRun(t, helper, "svc-live", "run-live", ir.Running, ir.TriggerTypeRestart)
+	backoffStore := store.NewRestartBackoffStore(helper.Backend.Collection(persis.CollectionSchedulerState))
+	require.NoError(t, backoffStore.Save(ctx, map[string]schedulerstate.RestartBackoff{
+		"svc-counted":   {RunID: "crash-3", Failures: 3},
+		"svc-uncounted": {RunID: "crash-2", Failures: 2},
+	}))
 
-	resp, err := newServiceDAGAPI(helper).ListServiceDAGs(ctx, api.ListServiceDAGsRequestObject{})
+	resp, err := newServiceDAGAPI(helper, localapi.WithRestartBackoffStore(backoffStore)).
+		ListServiceDAGs(ctx, api.ListServiceDAGsRequestObject{})
 	require.NoError(t, err)
 	list, ok := resp.(api.ListServiceDAGs200JSONResponse)
 	require.True(t, ok, "expected 200 response, got %T", resp)
@@ -210,9 +221,16 @@ func TestListServiceDAGsReportsWhenTheNextRunStarts(t *testing.T) {
 	for _, dag := range list.Dags {
 		next[dag.FileName] = dag.NextRestartAt
 	}
-	// restart_wait_sec is 5, doubled twice, and the end is stored to the second.
-	require.NotNil(t, next["svc-crashing"])
-	assert.Equal(t, end.Add(21*time.Second), next["svc-crashing"].UTC())
+	// restart_wait_sec is 5, doubled twice for the third failure in a row, and
+	// the end is stored to the second.
+	for name, wait := range map[string]time.Duration{
+		"svc-counted":   21 * time.Second,
+		"svc-uncounted": 21 * time.Second,
+		"svc-first":     6 * time.Second,
+	} {
+		require.NotNil(t, next[name], name)
+		assert.Equal(t, end.Add(wait), next[name].UTC(), name)
+	}
 	assert.Nil(t, next["svc-live"], "a run that is alive has no restart time")
 }
 

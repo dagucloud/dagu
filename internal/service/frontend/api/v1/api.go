@@ -124,7 +124,8 @@ type API struct {
 	oidcRoleMapping      func() config.OIDCRoleMapping
 	openCodeHost         *opencodehost.Host
 	workspaceDeprecation deprecation.Sources
-	serviceDAGHistories  serviceDAGHistories
+	serviceDAGFailures   failureStreaks
+	restartBackoffStore  schedulerstate.RestartBackoffStore
 }
 
 type processRepository interface {
@@ -433,6 +434,14 @@ func WithSchedulerStateStore(store schedulerstate.Store) APIOption {
 func WithSchedulerPauseStore(store schedulerstate.PauseStore) APIOption {
 	return func(a *API) {
 		a.schedulerPauseStore = store
+	}
+}
+
+// WithRestartBackoffStore sets the store through which the scheduler shares its
+// restart backoff.
+func WithRestartBackoffStore(store schedulerstate.RestartBackoffStore) APIOption {
+	return func(a *API) {
+		a.restartBackoffStore = store
 	}
 }
 
