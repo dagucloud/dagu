@@ -24,7 +24,7 @@ func TestStartCycleDoesNotStartAfterAStop(t *testing.T) {
 	assert.False(t, a.startCycle(context.Background(), &runtime.Plan{}))
 	assert.Same(t, previous, a.plan, "the plan of the run does not change")
 	assert.Equal(t, 1, a.cycles.number)
-	assert.True(t, a.cycles.aborted)
+	assert.False(t, a.cycles.abortedAt.IsZero(), "the run is aborted")
 	assert.False(t, a.cycles.waiting)
 }
 

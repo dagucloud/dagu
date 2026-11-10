@@ -13,6 +13,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/dagucloud/dagu/v2/internal/cmn/stringutil"
 	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/persis"
 	"github.com/dagucloud/dagu/v2/internal/test"
@@ -30,12 +31,16 @@ func loopSuccessStepYAML(t *testing.T) string {
 }
 
 func loopDAGYAML(step string, extra ...string) string {
+	return loopDAGYAMLWithWait(1, step, extra...)
+}
+
+func loopDAGYAMLWithWait(waitSec int, step string, extra ...string) string {
 	return fmt.Sprintf(`restart_policy: always
 restart_wait_sec: 1
-loop_wait_sec: 1
+loop_wait_sec: %d
 %ssteps:
   - %s
-`, strings.Join(extra, ""), step)
+`, waitSec, strings.Join(extra, ""), step)
 }
 
 // runLoop starts the run of a looping DAG and returns a function that stops it
@@ -99,6 +104,32 @@ func TestLoopWaitRunsTheStepsAgainInOneRun(t *testing.T) {
 	})
 	require.NoError(t, err)
 	assert.Len(t, runs, 1, "every cycle is part of the one run")
+}
+
+// A stop during the wait between two cycles ends the run when it comes, so the
+// restart policy waits from the stop and not from the end of the last cycle.
+func TestLoopWaitStopDuringTheWaitEndsTheRunThen(t *testing.T) {
+	th := test.Setup(t)
+	dag := th.DAG(t, loopDAGYAMLWithWait(60, loopSuccessStepYAML(t)))
+	agent := dag.Agent()
+	stop := runLoop(t, agent)
+
+	require.Eventually(t, func() bool {
+		status := liveStatus(t, th, dag.Name)
+		return status.Status == ir.Running && len(status.Nodes) == 1 &&
+			status.Nodes[0].Status == ir.NodeSucceeded
+	}, intgTestTimeout(30*time.Second), 50*time.Millisecond, "the run should wait for its second cycle")
+
+	// The stop comes well after the cycle ended.
+	time.Sleep(100 * time.Millisecond)
+	stoppedAt := time.Now().Truncate(time.Millisecond)
+	_ = stop()
+
+	final := agent.Status(agent.Context)
+	require.Equal(t, ir.Aborted, final.Status)
+	finishedAt, err := stringutil.ParseTime(final.FinishedAt)
+	require.NoError(t, err)
+	assert.False(t, finishedAt.Before(stoppedAt), "the run should end when it was stopped")
 }
 
 // By default a cycle that fails ends the run, so the restart policy starts a

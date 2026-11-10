@@ -31,8 +31,9 @@ type cycleState struct {
 	waiting bool
 	// startedAt is when the first cycle started, which is when the run started.
 	startedAt time.Time
-	// aborted is true when a stop request ended the loop during a wait.
-	aborted bool
+	// abortedAt is when a stop request ended the loop during a wait. It is zero
+	// while the loop goes on.
+	abortedAt time.Time
 
 	// lastLogs are the log files of the cycle that just ended, and lastFailed
 	// tells whether it failed. They are removed when the next cycle starts, so a
@@ -80,8 +81,7 @@ func (a *Agent) runCycles(ctx context.Context, attempt runstate.Attempt, progres
 		}
 		if !a.waitForNextCycle(ctx) {
 			a.lock.Lock()
-			a.cycles.aborted = true
-			a.cycles.waiting = false
+			a.cycles.abort()
 			a.lock.Unlock()
 			return lastErr
 		}
@@ -94,6 +94,12 @@ func (a *Agent) runCycles(ctx context.Context, attempt runstate.Attempt, progres
 		}
 		plan = next
 	}
+}
+
+// abort ends the loop during a wait. The caller holds the agent's lock.
+func (c *cycleState) abort() {
+	c.abortedAt = time.Now()
+	c.waiting = false
 }
 
 // stopWaiting clears the wait between two cycles, which only the loop in
@@ -194,8 +200,7 @@ func (a *Agent) startCycle(ctx context.Context, next *runtime.Plan) bool {
 	a.lock.Lock()
 	c := a.cycles
 	if a.stopRequested() {
-		c.aborted = true
-		c.waiting = false
+		c.abort()
 		a.lock.Unlock()
 		return false
 	}
@@ -262,7 +267,8 @@ func cycleLogFiles(runner *runtime.Runner, plan *runtime.Plan) []string {
 // Between two cycles the plan of the last cycle is finished, but the run is
 // not: it reports as running with no end. A run starts when its first cycle
 // does. A loop that a stop request ended during a wait reports as aborted, so
-// that unless-stopped sees the stop.
+// that unless-stopped sees the stop, and ends when the stop came, so that the
+// restart policy waits from then.
 func (a *Agent) cycleStatusOptions(status *ir.Status, finishedAt, startedAt *time.Time) []ir.StatusOption {
 	c := a.cycles
 	if c == nil {
@@ -270,8 +276,9 @@ func (a *Agent) cycleStatusOptions(status *ir.Status, finishedAt, startedAt *tim
 	}
 	*startedAt = c.startedAt
 	switch {
-	case c.aborted:
+	case !c.abortedAt.IsZero():
 		*status = ir.Aborted
+		*finishedAt = c.abortedAt
 	case c.waiting:
 		*status = ir.Running
 		*finishedAt = time.Time{}
