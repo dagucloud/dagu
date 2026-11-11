@@ -65,11 +65,10 @@ export function useGettingStarted(): GettingStarted {
   const canConnect = isAdmin && community && !isLicenseManagedByEnv(license);
   const hasAlertStep = canConnect || canAddChannel;
   // MCP clients reach the server through Dagu Cloud, once it connects, or
-  // with an API key, which only the local server's built-in auth issues.
+  // with an API key, which built-in auth issues.
   const online = !loading && !licenseError && Boolean(license.serverId);
   const canUseCloud = canConnect || (isAdmin && online);
-  const canCreateKey =
-    isAdmin && authMode === 'builtin' && remoteNode === 'local';
+  const canCreateKey = isAdmin && authMode === 'builtin';
 
   const { data: sample, error: sampleError } = useQuery(
     '/dags',
@@ -117,7 +116,7 @@ export function useGettingStarted(): GettingStarted {
   );
   const { data: keyList, error: keysError } = useQuery(
     '/api-keys',
-    active && canCreateKey ? {} : null,
+    active && canCreateKey ? { params: { query: { remoteNode } } } : null,
     queryOptions
   );
 

@@ -22,7 +22,7 @@ vi.mock('@/contexts/AuthContext', () => ({
   useIsAdmin: vi.fn(),
 }));
 
-type Init = { params?: { query: Record<string, unknown> } } | null;
+type Init = { params: { query: Record<string, unknown> } } | null;
 
 const useQueryMock = vi.mocked(
   useQuery as unknown as (path: string, init: Init) => unknown
@@ -95,7 +95,7 @@ function serve(served: Served) {
   useQueryMock.mockImplementation((path, init) => {
     if (!init) return { data: undefined };
     const name =
-      requestNames[path] ?? (init.params?.query.active ? 'active' : 'sample');
+      requestNames[path] ?? (init.params.query.active ? 'active' : 'sample');
     return served.failing === name
       ? { data: undefined, error: new Error('unavailable') }
       : { data: answers[name] };
@@ -106,8 +106,7 @@ function serve(served: Served) {
 function requests(): [string, Record<string, unknown>][] {
   const seen = new Map<string, [string, Record<string, unknown>]>();
   for (const [path, init] of useQueryMock.mock.calls) {
-    if (init)
-      seen.set(JSON.stringify([path, init]), [path, init.params?.query ?? {}]);
+    if (init) seen.set(JSON.stringify([path, init]), [path, init.params.query]);
   }
   return [...seen.values()];
 }
@@ -303,14 +302,11 @@ describe('useGettingStarted', () => {
     expect(stored()).toBeNull();
   });
 
-  // API keys are issued by the local server's built-in auth only.
-  it.each([
-    ['without built-in auth', { authMode: 'basic' }],
-    ['on a remote node', { remoteNode: 'edge' }],
-  ])('offers only Dagu Cloud for MCP clients %s', (_, options) => {
+  // API keys are issued by built-in auth only.
+  it('offers only Dagu Cloud for MCP clients without built-in auth', () => {
     serve({ sample: list(examples), channels: { channels: [] } });
 
-    const { result } = renderGettingStarted(options);
+    const { result } = renderGettingStarted({ authMode: 'basic' });
 
     expect(requests().filter(([path]) => path === '/api-keys')).toEqual([]);
     expect(result.current).toMatchObject({
@@ -378,7 +374,7 @@ describe('useGettingStarted', () => {
 
     renderGettingStarted({ remoteNode: 'edge' });
 
-    expect(requests()).toHaveLength(3);
+    expect(requests()).toHaveLength(4);
     for (const [, query] of requests()) {
       expect(query.remoteNode).toBe('edge');
     }
