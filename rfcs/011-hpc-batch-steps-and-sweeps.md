@@ -1,4 +1,4 @@
-# RFC 007: HPC Batch Steps and Sweeps
+# RFC 011: HPC Batch Steps and Sweeps
 
 - **Status:** Proposed
 - **Date:** 2026-11-11
