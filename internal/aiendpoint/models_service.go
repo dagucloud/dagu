@@ -24,6 +24,10 @@ type modelsState struct {
 	locks sync.Map
 	// background counts the reads that a create or a rotation starts.
 	background sync.WaitGroup
+	// onDemand holds the time of the last on-demand refresh of each endpoint, which
+	// the model check starts. See CheckModel.
+	refreshMu sync.Mutex
+	onDemand  map[string]time.Time
 }
 
 // EnableModels turns on the models list: the service then reads, keeps and
