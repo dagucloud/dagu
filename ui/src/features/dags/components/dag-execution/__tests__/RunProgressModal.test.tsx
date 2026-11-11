@@ -208,4 +208,23 @@ describe('RunProgressModal', () => {
       '/dags/example?remoteNode=edge&run=run-1&step=build'
     );
   });
+
+  // The name of a DAG can differ from the name of its file.
+  it('opens the source file of the run when its name differs', () => {
+    vi.mocked(useBoundedDAGRunDetails).mockReturnValue({
+      data: { ...dagRun, sourceFileName: 'example-v2' },
+      error: null,
+      isLoading: false,
+      isValidating: false,
+      refresh: vi.fn(),
+    });
+
+    renderModal();
+
+    fireEvent.click(screen.getByRole('button', { name: 'View details' }));
+
+    expect(screen.getByLabelText('Location')).toHaveTextContent(
+      '/dags/example-v2?remoteNode=edge&run=run-1&dagRunName=example'
+    );
+  });
 });
