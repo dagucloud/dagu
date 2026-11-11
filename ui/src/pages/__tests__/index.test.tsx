@@ -36,10 +36,14 @@ vi.mock('../../features/activity/hooks/useDAGRunActivity', () => ({
 
 const serviceDAGs = vi.hoisted(() => ({
   current: [] as components['schemas']['ServiceDAG'][],
+  error: null as unknown,
 }));
 
 vi.mock('@/features/cockpit/hooks/useServiceDAGs', () => ({
-  useServiceDAGs: () => ({ serviceDAGs: serviceDAGs.current, error: null }),
+  useServiceDAGs: () => ({
+    serviceDAGs: serviceDAGs.current,
+    error: serviceDAGs.error,
+  }),
 }));
 
 vi.mock('../../features/activity/hooks/useGettingStarted', () => ({
@@ -272,6 +276,7 @@ describe('DashboardPage', () => {
   afterEach(() => {
     vi.clearAllMocks();
     serviceDAGs.current = [];
+    serviceDAGs.error = null;
   });
 
   it('shows what needs attention with the failing step', () => {
@@ -764,6 +769,21 @@ describe('DashboardPage', () => {
     expect(screen.getByText(/Start a workflow from the/)).toBeVisible();
     expect(
       screen.queryByText('Create your first workflow')
+    ).not.toBeInTheDocument();
+  });
+
+  // The page leaves out the runs of service DAGs, so it must not say that
+  // nothing ran while the service DAGs cannot be read.
+  it('keeps the page when the service DAGs cannot be read', () => {
+    serviceDAGs.error = { code: 'internal_error', message: 'store is down' };
+    mockDAGList(['etl', 'backup']);
+    mockActivity({ activity: makeActivity() });
+
+    renderPage();
+
+    expect(screen.getByRole('alert')).toHaveTextContent('store is down');
+    expect(
+      screen.queryByText(/Start a workflow from the/)
     ).not.toBeInTheDocument();
   });
 

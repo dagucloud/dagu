@@ -12,12 +12,15 @@ import { useServiceDAGs } from '../useServiceDAGs';
 
 type ServiceDAG = components['schemas']['ServiceDAG'];
 
-const response = vi.hoisted(() => ({ dags: [] as ServiceDAG[] }));
+const response = vi.hoisted(() => ({
+  dags: [] as ServiceDAG[],
+  error: undefined as unknown,
+}));
 
 vi.mock('@/hooks/api', () => ({
   useQuery: () => ({
     data: { dags: response.dags, errors: [] },
-    error: undefined,
+    error: response.error,
     mutate: vi.fn(),
   }),
 }));
@@ -67,5 +70,18 @@ describe('useServiceDAGs', () => {
       'a',
       'c',
     ]);
+  });
+
+  // A query fails with the error body of the API, which is no Error object.
+  it('reports a list that cannot be read', () => {
+    response.error = { code: 'internal_error', message: 'store is down' };
+
+    const { result } = renderHook(() => useServiceDAGs());
+
+    expect(result.current.error).toEqual({
+      code: 'internal_error',
+      message: 'store is down',
+    });
+    response.error = undefined;
   });
 });

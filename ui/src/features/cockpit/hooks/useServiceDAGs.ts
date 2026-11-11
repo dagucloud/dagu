@@ -27,7 +27,8 @@ function needsAttention(dag: ServiceDAG): boolean {
  */
 export function useServiceDAGs(): {
   serviceDAGs: ServiceDAG[];
-  error: Error | null;
+  /** The error of the latest read, as the query reports it, or null. */
+  error: unknown;
 } {
   const appBarContext = useContext(AppBarContext);
   const remoteNode = appBarContext.selectedRemoteNode || 'local';
@@ -52,6 +53,6 @@ export function useServiceDAGs(): {
 
   return {
     serviceDAGs,
-    error: error instanceof Error ? error : null,
+    error: error ?? null,
   };
 }

@@ -19,6 +19,7 @@ type ServiceDAG = components['schemas']['ServiceDAG'];
 
 const hook = vi.hoisted(() => ({
   serviceDAGs: [] as ServiceDAG[],
+  error: null as unknown,
   runs: [] as unknown[],
   useQuery: vi.fn(),
 }));
@@ -31,7 +32,7 @@ vi.mock('@/hooks/api', () => ({
 }));
 
 vi.mock('../../hooks/useServiceDAGs', () => ({
-  useServiceDAGs: () => ({ serviceDAGs: hook.serviceDAGs, error: null }),
+  useServiceDAGs: () => ({ serviceDAGs: hook.serviceDAGs, error: hook.error }),
 }));
 
 const NOW = Date.parse('2026-10-20T12:00:00Z');
@@ -130,6 +131,18 @@ describe('ServiceDAGStrip', () => {
       </UserPreferencesProvider>
     );
   }
+
+  // The lists leave out the runs of service DAGs, so a list that cannot be
+  // read must not look like one without a service DAG.
+  it('says when the service DAGs cannot be read', () => {
+    hook.error = { code: 'internal_error', message: 'store is down' };
+
+    renderStrip();
+
+    expect(screen.getByRole('region', { name: 'Service DAGs' })).toBeVisible();
+    expect(screen.getByRole('alert')).toHaveTextContent('store is down');
+    hook.error = null;
+  });
 
   it('shows nothing without a service DAG', () => {
     const { container } = renderStrip();

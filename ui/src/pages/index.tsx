@@ -218,7 +218,7 @@ function Dashboard(): React.ReactElement {
   } = useDAGRunActivity(activityWindow, workspaceQuery, remoteNode);
   // A service DAG restarts all the time, so the lists leave its runs out
   // and a strip of cards shows it instead.
-  const { serviceDAGs } = useServiceDAGs();
+  const { serviceDAGs, error: serviceDAGsError } = useServiceDAGs();
   // Shares the pause banner's request, so it costs nothing extra.
   const { schedulerRunning } = useSchedulerPause();
   const gettingStarted = useGettingStarted();
@@ -283,6 +283,7 @@ function Dashboard(): React.ReactElement {
     !!activity &&
     laneRuns.length === 0 &&
     serviceDAGs.length === 0 &&
+    !serviceDAGsError &&
     (!live ||
       (activity.active.length === 0 &&
         activity.attention.length === 0 &&

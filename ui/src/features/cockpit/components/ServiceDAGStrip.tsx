@@ -6,6 +6,7 @@ import React, { useState } from 'react';
 import { Link } from 'react-router-dom';
 import { components } from '@/api/v1/schema';
 import { useI18n } from '@/i18n/I18nProvider';
+import { getQueryErrorMessage } from '@/lib/queryErrors';
 import { cn } from '@/lib/utils';
 import { useServiceDAGs } from '../hooks/useServiceDAGs';
 import { ServiceDAGRuns } from './ServiceDAGRuns';
@@ -91,9 +92,11 @@ export function ServiceDAGStrip({
   className?: string;
 }): React.ReactElement | null {
   const { ts } = useI18n();
-  const { serviceDAGs } = useServiceDAGs();
+  const { serviceDAGs, error } = useServiceDAGs();
   const [open, setOpen] = useState<string | null>(null);
-  if (serviceDAGs.length === 0) {
+  // The lists leave out the runs of service DAGs, so a list that cannot be read
+  // says so rather than look like one without a service DAG.
+  if (serviceDAGs.length === 0 && !error) {
     return null;
   }
   const openDAG = serviceDAGs.find((dag) => dag.fileName === open);
@@ -109,6 +112,11 @@ export function ServiceDAGStrip({
           {serviceDAGs.length}
         </span>
       </h2>
+      {error ? (
+        <p role="alert" className="pb-1.5 text-xs text-destructive">
+          {getQueryErrorMessage(error, ts('Failed to load service DAGs'))}
+        </p>
+      ) : null}
       {/* A phone lists every card at full width: a scroll box inside the page
           is hard to scroll there. */}
       <div className="grid gap-2 sm:max-h-40 sm:grid-cols-[repeat(auto-fill,minmax(14rem,1fr))] sm:overflow-y-auto">
