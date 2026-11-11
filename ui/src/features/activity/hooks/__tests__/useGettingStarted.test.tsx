@@ -293,20 +293,51 @@ describe('useGettingStarted', () => {
     });
   });
 
-  it('hides without remembering when the remote access request fails', () => {
-    serve({ sample: list(examples), failing: 'remoteAccess' });
+  // A key from a server older than key surfaces is accepted on all of them.
+  it('counts an API key without surfaces as a connected AI app', () => {
+    serve({
+      sample: list(examples),
+      channels: { channels: [] },
+      keys: { apiKeys: [{ id: 'k1' }] },
+    });
 
-    const { result } = renderGettingStarted({ license: connected });
+    const { result } = renderGettingStarted();
 
-    expect(result.current.status).toBe('hidden');
-    expect(stored()).toBeNull();
+    expect(result.current).toMatchObject({
+      steps: [{}, {}, {}, {}, { id: 'ai', done: true }],
+    });
   });
 
-  // API keys are issued by built-in auth only.
-  it('offers only Dagu Cloud for MCP clients without built-in auth', () => {
+  // A server too old to report remote access, or to list keys, still shows
+  // the rest of its first steps.
+  it.each([
+    ['remote access', 'remoteAccess', connected],
+    ['API keys', 'keys', community],
+  ])(
+    'leaves out the AI app step when %s cannot be read',
+    (_, failing, license) => {
+      serve({ sample: list(examples), channels: { channels: [] }, failing });
+
+      const { result } = renderGettingStarted({ license });
+
+      expect(stepIDs(result.current)).toEqual([
+        'run',
+        'create',
+        'schedule',
+        'alert',
+      ]);
+    }
+  );
+
+  // API keys are issued by built-in auth, whose mode is known only for the
+  // local server.
+  it.each([
+    ['without built-in auth', { authMode: 'basic' }],
+    ['on a remote node', { remoteNode: 'edge' }],
+  ])('offers only Dagu Cloud for MCP clients %s', (_, options) => {
     serve({ sample: list(examples), channels: { channels: [] } });
 
-    const { result } = renderGettingStarted({ authMode: 'basic' });
+    const { result } = renderGettingStarted(options);
 
     expect(requests().filter(([path]) => path === '/api-keys')).toEqual([]);
     expect(result.current).toMatchObject({
@@ -348,7 +379,7 @@ describe('useGettingStarted', () => {
     expect(requests()).toEqual([]);
   });
 
-  it.each(['sample', 'active', 'channels', 'keys'])(
+  it.each(['sample', 'active', 'channels'])(
     'hides without remembering when the %s request fails',
     (failing) => {
       serve({
@@ -374,7 +405,7 @@ describe('useGettingStarted', () => {
 
     renderGettingStarted({ remoteNode: 'edge' });
 
-    expect(requests()).toHaveLength(4);
+    expect(requests()).toHaveLength(3);
     for (const [, query] of requests()) {
       expect(query.remoteNode).toBe('edge');
     }

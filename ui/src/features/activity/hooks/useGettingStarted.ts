@@ -65,10 +65,12 @@ export function useGettingStarted(): GettingStarted {
   const canConnect = isAdmin && community && !isLicenseManagedByEnv(license);
   const hasAlertStep = canConnect || canAddChannel;
   // MCP clients reach the server through Dagu Cloud, once it connects, or
-  // with an API key, which built-in auth issues.
+  // with an API key, which built-in auth issues. Only the local server's
+  // auth mode is known here.
   const online = !loading && !licenseError && Boolean(license.serverId);
   const canUseCloud = canConnect || (isAdmin && online);
-  const canCreateKey = isAdmin && authMode === 'builtin';
+  const canCreateKey =
+    isAdmin && authMode === 'builtin' && remoteNode === 'local';
 
   const { data: sample, error: sampleError } = useQuery(
     '/dags',
@@ -121,28 +123,29 @@ export function useGettingStarted(): GettingStarted {
   );
 
   const failed =
-    !!sampleError ||
-    !!scheduledError ||
-    !!channelsError ||
-    !!remoteAccessError ||
-    !!keysError ||
-    !!licenseError;
+    !!sampleError || !!scheduledError || !!channelsError || !!licenseError;
+  // The AI app step is left out when what it reads fails, as on a server too
+  // old to report remote access, rather than hiding the whole checklist.
+  const aiUnknown = !!remoteAccessError || !!keysError;
   const scheduled =
     progress?.scheduled ??
     (scheduledList ? scheduledList.pagination.totalRecords > 0 : undefined);
   const alerted = !community || !!channelList?.channels?.length;
   const connectedAI =
     (!!remoteAccess && remoteAccess.level !== LicenseRemoteAccessLevel.off) ||
-    !!keyList?.apiKeys.some((key) =>
-      key.allowedSurfaces.includes(APIKeyAllowedSurfaces.mcp)
+    !!keyList?.apiKeys.some(
+      // A key without surfaces, from an older server, is accepted on all.
+      (key) =>
+        !key.allowedSurfaces?.length ||
+        key.allowedSurfaces.includes(APIKeyAllowedSurfaces.mcp)
     );
   const ready =
     !!progress &&
     scheduled !== undefined &&
     !loading &&
     (!community || !canAddChannel || !!channelList) &&
-    (!isAdmin || !online || !!remoteAccess) &&
-    (!canCreateKey || !!keyList);
+    (!isAdmin || !online || !!remoteAccess || !!remoteAccessError) &&
+    (!canCreateKey || !!keyList || !!keysError);
 
   let steps: GettingStartedStep[] = [];
   let next: string | undefined;
@@ -159,7 +162,7 @@ export function useGettingStarted(): GettingStarted {
     if (hasAlertStep) {
       steps.push({ id: 'alert', done: alerted, canConnect, canAddChannel });
     }
-    if (canUseCloud || canCreateKey) {
+    if ((canUseCloud || canCreateKey) && !aiUnknown) {
       steps.push({ id: 'ai', done: connectedAI, canUseCloud, canCreateKey });
     }
     if (stored !== STARTED) {
