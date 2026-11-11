@@ -255,6 +255,8 @@ func (e *enqueueExecutor) enqueueOne(ctx context.Context, runParams executor.Run
 		ProfileName:    rCtx.ProfileName,
 		ParallelItem:   runParams.ParallelItem,
 		WorkerSelector: maps.Clone(dagCopy.WorkerSelector),
+		ScheduleTime:   rCtx.ScheduleTime,
+		ScheduleWindow: rCtx.ScheduleWindow,
 	})
 	if err != nil {
 		return enqueueRunOutput{}, err

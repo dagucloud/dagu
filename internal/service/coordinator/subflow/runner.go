@@ -406,6 +406,12 @@ func (r *Runner) taskOptions(
 	if req.TriggerActor != "" {
 		options = append(options, executor.WithTriggerActor(req.TriggerActor))
 	}
+	if req.ScheduleTime != "" {
+		options = append(options,
+			executor.WithScheduleTime(req.ScheduleTime),
+			executor.WithScheduleWindow(req.ScheduleWindow),
+		)
+	}
 
 	if req.Workspace != nil {
 		options = append(options, executor.WithWorkspaceBundle(req.Workspace.Descriptor))
