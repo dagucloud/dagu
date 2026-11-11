@@ -476,6 +476,10 @@ func NewServer(setup ServerConfig, opts ...ServerOption) (*Server, error) {
 			if err != nil {
 				return nil, fmt.Errorf("failed to create proxy authentication provisioning service: %w", err)
 			}
+			proxySources, err := newIPAccessPolicy(cfg.Server.IPAccess)
+			if err != nil {
+				return nil, fmt.Errorf("configure IP access: %w", err)
+			}
 			trustedProxyCfg = &auth.TrustedProxyLoginConfig{
 				Enabled:        true,
 				UserHeader:     trustedProxy.Headers.User,
@@ -487,9 +491,11 @@ func NewServer(setup ServerConfig, opts ...ServerOption) (*Server, error) {
 					count, err := stores.AuthService.CountUsers(ctx)
 					return count > 0, err
 				},
+				TrustedSource: proxySources.fromTrustedProxy,
 				LoginBasePath: evaluatedBasePath,
 			}
 			logger.Info(ctx, "Proxy authentication enabled",
+				slog.Any("trustedProxies", cfg.Server.IPAccess.TrustedProxies),
 				slog.Bool("autoSignup", trustedProxy.AutoSignup),
 				slog.String("defaultRole", trustedProxy.RoleMapping.DefaultRole),
 				slog.Bool("skipOrgRoleSync", trustedProxy.RoleMapping.SkipOrgRoleSync))
