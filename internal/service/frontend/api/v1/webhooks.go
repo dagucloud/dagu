@@ -753,6 +753,9 @@ func (a *API) TriggerWebhook(ctx context.Context, request api.TriggerWebhookRequ
 	var dagRunID string
 	if request.Body != nil && request.Body.DagRunId != nil && *request.Body.DagRunId != "" {
 		dagRunID = *request.Body.DagRunId
+		if err := validateDAGRunID(dagRunID); err != nil {
+			return nil, err
+		}
 		// Check if a dag-run with this ID already exists
 		statuses, err := a.dagRunRepository.ListStatuses(ctx, persis.DAGRunListOptions{DAGRunID: dagRunID})
 		if err != nil {

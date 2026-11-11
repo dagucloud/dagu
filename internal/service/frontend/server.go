@@ -1433,6 +1433,7 @@ func (srv *Server) setupSSERoute(ctx context.Context, r *chi.Mux, apiV1BasePath 
 		r.Use(auth.ClientIPMiddleware())
 		r.Use(auth.Middleware(authOpts))
 		r.Use(srv.injectDefaultStreamUserMiddleware())
+		r.Use(srv.apiV1.RemoteNodeStreamAuthorization)
 
 		r.Get("/stream", multiplexHandler.HandleStream)
 		r.Post("/stream/topics", multiplexHandler.HandleTopicMutation)
