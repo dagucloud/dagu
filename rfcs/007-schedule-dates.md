@@ -137,6 +137,10 @@ dagu start etl --scheduled-at 2026-11-09T02:00:00+09:00
   launches runs with it.
 - The run records `scheduled_at` and the window as if the scheduler had fired
   that slot. The run's trigger type stays `manual`.
+- A slot later than now is rejected, as Airflow and Control-M reject one. A
+  run for a day that has not happened loads nothing, or loads part of a day
+  and records it as done. The error names the latest fire time. `dagu dry`
+  and the previews accept a future slot, because they start nothing.
 - A time that is not a fire time of the schedule is accepted, because a slot
   from before a schedule edit is no longer a fire time. Its window runs from
   the previous fire time to the given time. Every surface warns and names
@@ -314,7 +318,9 @@ every way of starting one shows the slot, window, and dates:
     leaves no run. The same DAG succeeds as a sub-DAG of a run with a slot.
 17. A one-off `at` fire between two cron fires leaves the window of the next
     cron fire unchanged.
-18. A manual run for a future slot does not suppress that slot's fire.
+18. `dagu start --scheduled-at` with a slot later than now is refused, names
+    the latest fire time, and leaves no run. `dagu dry --scheduled-at` with
+    the same slot prints its window and dates.
 19. With a weekday calendar, `{ shift: [month_start, +1mo, -1d, bd_or_prev] }`
     on 2026-05-15 resolves to `2026-05-29`, the Friday before a month end
     that falls on a Sunday.
@@ -339,6 +345,9 @@ every way of starting one shows the slot, window, and dates:
 - **The clock for a manual run with no slot.** A monthly DAG started on the
   15th would load the 14th, and the same DAG would get different dates from
   the CLI and the run dialog.
+- **Allow a manual run for a future slot,** to test a month end before it
+  comes. `dagu dry` shows the same window and dates without loading a day
+  that has no data yet, and a mistyped month is the likelier cause.
 - **Fail a manual run with no slot.** Every plain `dagu start` and webhook
   would need a slot the operator has to look up, when the latest slot is
   almost always the one meant.
