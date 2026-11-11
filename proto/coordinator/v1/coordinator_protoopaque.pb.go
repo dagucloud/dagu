@@ -121,10 +121,11 @@ func (x WorkerHealthStatus) Number() protoreflect.EnumNumber {
 type LogStreamType int32
 
 const (
-	LogStreamType_LOG_STREAM_TYPE_UNSPECIFIED LogStreamType = 0
-	LogStreamType_LOG_STREAM_TYPE_STDOUT      LogStreamType = 1
-	LogStreamType_LOG_STREAM_TYPE_STDERR      LogStreamType = 2
-	LogStreamType_LOG_STREAM_TYPE_SCHEDULER   LogStreamType = 3 // Scheduler/DAG run log
+	LogStreamType_LOG_STREAM_TYPE_UNSPECIFIED  LogStreamType = 0
+	LogStreamType_LOG_STREAM_TYPE_STDOUT       LogStreamType = 1
+	LogStreamType_LOG_STREAM_TYPE_STDERR       LogStreamType = 2
+	LogStreamType_LOG_STREAM_TYPE_SCHEDULER    LogStreamType = 3 // Scheduler/DAG run log
+	LogStreamType_LOG_STREAM_TYPE_AGENT_STREAM LogStreamType = 4 // Raw stream of a CLI agent, stored next to the stdout log
 )
 
 // Enum value maps for LogStreamType.
@@ -134,12 +135,14 @@ var (
 		1: "LOG_STREAM_TYPE_STDOUT",
 		2: "LOG_STREAM_TYPE_STDERR",
 		3: "LOG_STREAM_TYPE_SCHEDULER",
+		4: "LOG_STREAM_TYPE_AGENT_STREAM",
 	}
 	LogStreamType_value = map[string]int32{
-		"LOG_STREAM_TYPE_UNSPECIFIED": 0,
-		"LOG_STREAM_TYPE_STDOUT":      1,
-		"LOG_STREAM_TYPE_STDERR":      2,
-		"LOG_STREAM_TYPE_SCHEDULER":   3,
+		"LOG_STREAM_TYPE_UNSPECIFIED":  0,
+		"LOG_STREAM_TYPE_STDOUT":       1,
+		"LOG_STREAM_TYPE_STDERR":       2,
+		"LOG_STREAM_TYPE_SCHEDULER":    3,
+		"LOG_STREAM_TYPE_AGENT_STREAM": 4,
 	}
 )
 
@@ -1515,6 +1518,7 @@ type HeartbeatRequest struct {
 	xxx_hidden_Machine      *MachineSample         `protobuf:"bytes,5,opt,name=machine,proto3"`
 	xxx_hidden_Version      string                 `protobuf:"bytes,6,opt,name=version,proto3"`
 	xxx_hidden_Capabilities []string               `protobuf:"bytes,7,rep,name=capabilities,proto3"`
+	xxx_hidden_Offline      bool                   `protobuf:"varint,8,opt,name=offline,proto3"`
 	unknownFields           protoimpl.UnknownFields
 	sizeCache               protoimpl.SizeCache
 }
@@ -1593,6 +1597,13 @@ func (x *HeartbeatRequest) GetCapabilities() []string {
 	return nil
 }
 
+func (x *HeartbeatRequest) GetOffline() bool {
+	if x != nil {
+		return x.xxx_hidden_Offline
+	}
+	return false
+}
+
 func (x *HeartbeatRequest) SetWorkerId(v string) {
 	x.xxx_hidden_WorkerId = v
 }
@@ -1619,6 +1630,10 @@ func (x *HeartbeatRequest) SetVersion(v string) {
 
 func (x *HeartbeatRequest) SetCapabilities(v []string) {
 	x.xxx_hidden_Capabilities = v
+}
+
+func (x *HeartbeatRequest) SetOffline(v bool) {
+	x.xxx_hidden_Offline = v
 }
 
 func (x *HeartbeatRequest) HasStats() bool {
@@ -1654,6 +1669,10 @@ type HeartbeatRequest_builder struct {
 	Version  string
 	// Capabilities of the worker, as in PollRequest.
 	Capabilities []string
+	// offline is the last heartbeat of a worker that stops. The coordinator
+	// removes the worker at once, so no dispatch counts on it. The checks of a
+	// heartbeat apply: only the pool of the worker ID can remove the worker.
+	Offline bool
 }
 
 func (b0 HeartbeatRequest_builder) Build() *HeartbeatRequest {
@@ -1667,6 +1686,7 @@ func (b0 HeartbeatRequest_builder) Build() *HeartbeatRequest {
 	x.xxx_hidden_Machine = b.Machine
 	x.xxx_hidden_Version = b.Version
 	x.xxx_hidden_Capabilities = b.Capabilities
+	x.xxx_hidden_Offline = b.Offline
 	return m0
 }
 
@@ -8269,7 +8289,7 @@ const file_proto_coordinator_v1_coordinator_proto_rawDesc = "" +
 	" \x01(\tR\aversion\x1a9\n" +
 	"\vLabelsEntry\x12\x10\n" +
 	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
-	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01\"\xee\x02\n" +
+	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01\"\x88\x03\n" +
 	"\x10HeartbeatRequest\x12\x1b\n" +
 	"\tworker_id\x18\x01 \x01(\tR\bworkerId\x12D\n" +
 	"\x06labels\x18\x02 \x03(\v2,.coordinator.v1.HeartbeatRequest.LabelsEntryR\x06labels\x121\n" +
@@ -8277,7 +8297,8 @@ const file_proto_coordinator_v1_coordinator_proto_rawDesc = "" +
 	"\x04host\x18\x04 \x01(\tR\x04host\x127\n" +
 	"\amachine\x18\x05 \x01(\v2\x1d.coordinator.v1.MachineSampleR\amachine\x12\x18\n" +
 	"\aversion\x18\x06 \x01(\tR\aversion\x12\"\n" +
-	"\fcapabilities\x18\a \x03(\tR\fcapabilities\x1a9\n" +
+	"\fcapabilities\x18\a \x03(\tR\fcapabilities\x12\x18\n" +
+	"\aoffline\x18\b \x01(\bR\aoffline\x1a9\n" +
 	"\vLabelsEntry\x12\x10\n" +
 	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
 	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01\"\x8c\x03\n" +
@@ -8623,12 +8644,13 @@ const file_proto_coordinator_v1_coordinator_proto_rawDesc = "" +
 	" WORKER_HEALTH_STATUS_UNSPECIFIED\x10\x00\x12 \n" +
 	"\x1cWORKER_HEALTH_STATUS_HEALTHY\x10\x01\x12 \n" +
 	"\x1cWORKER_HEALTH_STATUS_WARNING\x10\x02\x12\"\n" +
-	"\x1eWORKER_HEALTH_STATUS_UNHEALTHY\x10\x03*\x87\x01\n" +
+	"\x1eWORKER_HEALTH_STATUS_UNHEALTHY\x10\x03*\xa9\x01\n" +
 	"\rLogStreamType\x12\x1f\n" +
 	"\x1bLOG_STREAM_TYPE_UNSPECIFIED\x10\x00\x12\x1a\n" +
 	"\x16LOG_STREAM_TYPE_STDOUT\x10\x01\x12\x1a\n" +
 	"\x16LOG_STREAM_TYPE_STDERR\x10\x02\x12\x1d\n" +
-	"\x19LOG_STREAM_TYPE_SCHEDULER\x10\x032\xd5\x12\n" +
+	"\x19LOG_STREAM_TYPE_SCHEDULER\x10\x03\x12 \n" +
+	"\x1cLOG_STREAM_TYPE_AGENT_STREAM\x10\x042\xd5\x12\n" +
 	"\x12CoordinatorService\x12A\n" +
 	"\x04Poll\x12\x1b.coordinator.v1.PollRequest\x1a\x1c.coordinator.v1.PollResponse\x12M\n" +
 	"\bDispatch\x12\x1f.coordinator.v1.DispatchRequest\x1a .coordinator.v1.DispatchResponse\x12S\n" +
