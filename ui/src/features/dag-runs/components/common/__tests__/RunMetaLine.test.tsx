@@ -299,6 +299,23 @@ describe('RunMetaLine', () => {
       expect(rowsOf(await screen.findByRole('tooltip'))).toEqual(expected);
     });
 
+    // A run of a schedule slot owns the window from the previous fire up to
+    // its scheduled time.
+    it('lists the start of the window after the scheduled time', async () => {
+      const windowed = { ...timed, intervalStart: '2026-03-13T09:29:00Z' };
+      render(<RunMetaLine dagRun={windowed} showTimes />);
+
+      await userEvent.hover(
+        within(screen.getByTitle('Started')).getByText(/ago$/)
+      );
+
+      const rows = rowsOf(await screen.findByRole('tooltip'));
+      expect(rows.slice(0, 2)).toEqual([
+        ['Scheduled', absoluteOf(windowed.scheduleTime)],
+        ['Window start', absoluteOf(windowed.intervalStart)],
+      ]);
+    });
+
     // The workflow bar shows the start as '7d ago' in one row: its tooltip
     // gives the times and the duration.
     it('opens on the start of the inline row, with the duration', async () => {

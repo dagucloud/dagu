@@ -565,6 +565,7 @@ steps:
 			runID,
 			ir.TriggerTypeCatchUp,
 			scheduleTime,
+			ir.ScheduleWindow{},
 			"",
 		))
 

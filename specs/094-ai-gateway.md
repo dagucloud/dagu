@@ -306,7 +306,7 @@ message RelayEnd {
 
 The worker announces the capability `ai_relay.v1` in `PollRequest` and `HeartbeatRequest`
 (`repeated string capabilities`, with the numbers 4 and 5). The task has `repeated string
-required_capabilities`, with the number 42. See [Version check](#version-check). A worker or a
+required_capabilities`, with the number 46. See [Version check](#version-check). A worker or a
 coordinator of a release before these fields ignores them.
 
 The coordinator reports a refusal of the identity checks 1, 2 and 4 as an error of gRPC with the code

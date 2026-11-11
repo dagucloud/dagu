@@ -3570,6 +3570,8 @@ func (a *API) RescheduleDAGRun(ctx context.Context, request api.RescheduleDAGRun
 		if body.UseCurrentDagFile != nil {
 			opts.useCurrentDAGFile = *body.UseCurrentDagFile
 		}
+		opts.scheduleTime = body.ScheduleTime
+		opts.dryRun = valueOf(body.DryRun)
 	}
 
 	result, err := a.rescheduleDAGRun(ctx, request.Name, request.DagRunId, opts)
@@ -3578,8 +3580,9 @@ func (a *API) RescheduleDAGRun(ctx context.Context, request api.RescheduleDAGRun
 	}
 
 	return api.RescheduleDAGRun200JSONResponse{
-		DagRunId: result.newDagRunID,
-		Queued:   result.queued,
+		DagRunId:     result.newDagRunID,
+		Queued:       result.queued,
+		ScheduleTime: result.scheduleTime,
 	}, nil
 }
 
@@ -3587,11 +3590,17 @@ type rescheduleDAGRunOptions struct {
 	nameOverride      string
 	newDagRunID       string
 	useCurrentDAGFile bool
+	// scheduleTime names the slot of the new run; nil keeps the historic
+	// run's slot.
+	scheduleTime *api.ScheduleSlotValue
+	// dryRun checks the request and creates no run.
+	dryRun bool
 }
 
 type rescheduleDAGRunResult struct {
-	newDagRunID string
-	queued      bool
+	newDagRunID  string
+	queued       bool
+	scheduleTime *time.Time
 }
 
 func (a *API) rescheduleDAGRun(ctx context.Context, dagName, dagRunID string, opts rescheduleDAGRunOptions) (rescheduleDAGRunResult, error) {
@@ -3719,6 +3728,15 @@ func (a *API) rescheduleDAGRun(ctx context.Context, dagName, dagRunID string, op
 		return rescheduleDAGRunResult{}, err
 	}
 
+	slot, err := a.rescheduleSlot(dag, profileName, status, opts.scheduleTime)
+	if err != nil {
+		return rescheduleDAGRunResult{}, err
+	}
+	scheduleTime, _ := slot.slotResponse()
+	if opts.dryRun {
+		return rescheduleDAGRunResult{newDagRunID: newDagRunID, scheduleTime: scheduleTime}, nil
+	}
+
 	logger.Info(ctx, "Rescheduling dag-run",
 		tag.DAG(dag.Name),
 		slog.String("from-dag-run-id", sourceDagRunID),
@@ -3738,9 +3756,10 @@ func (a *API) rescheduleDAGRun(ctx context.Context, dagName, dagRunID string, op
 			profileName:  profileName,
 			noReuse:      status.NoReuse,
 			definitionID: status.DAGDefinitionID(),
+			scheduleTime: slot.scheduleTimeOrEmpty(),
 		})
 	} else {
-		enqueueErr = a.enqueuePreparedDAGRun(ctx, dag, paramsToUse, newDagRunID, ir.TriggerTypeManual, profileName, status.NoReuse, rescheduleSelector)
+		enqueueErr = a.enqueuePreparedDAGRun(ctx, dag, paramsToUse, newDagRunID, ir.TriggerTypeManual, profileName, status.NoReuse, rescheduleSelector, slot)
 	}
 	if enqueueErr != nil {
 		return rescheduleDAGRunResult{}, fmt.Errorf("failed to enqueue dag-run: %w", enqueueErr)
@@ -3760,8 +3779,9 @@ func (a *API) rescheduleDAGRun(ctx context.Context, dagName, dagRunID string, op
 	a.logAudit(ctx, audit.CategoryDAG, "dag_reschedule", detailsMap)
 
 	return rescheduleDAGRunResult{
-		newDagRunID: newDagRunID,
-		queued:      queued,
+		newDagRunID:  newDagRunID,
+		queued:       queued,
+		scheduleTime: scheduleTime,
 	}, nil
 }
 
@@ -3774,6 +3794,7 @@ func (a *API) enqueuePreparedDAGRun(
 	profileName string,
 	noReuse bool,
 	workerSelector map[string]string,
+	slot *requestedSlot,
 ) error {
 	resolvedDAG, err := spec.ResolveRuntimeParams(ctx, dag, params, spec.ResolveRuntimeParamsOptions{
 		BaseConfig: a.config.Paths.BaseConfig,
@@ -3821,6 +3842,8 @@ func (a *API) enqueuePreparedDAGRun(
 		ProceedOnStatusCloseErr: true,
 		ProfileName:             profileName,
 		NoReuse:                 noReuse,
+		ScheduleTime:            slot.scheduleTimeOrEmpty(),
+		ScheduleWindow:          slot.windowOrZero(),
 	})
 	if err != nil {
 		return err
