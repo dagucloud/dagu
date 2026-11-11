@@ -424,8 +424,8 @@ func (tp *TickPlanner) settlePlannedSlots(ctx context.Context, entries []DAGEntr
 				tag.DAG(entry.DAG.Name), tag.Error(err))
 			continue
 		}
-		scheduledAt, err := stringutil.ParseTime(status.ScheduleTime)
-		if err == nil && scheduledAt.Truncate(time.Minute).Equal(slot.At.Truncate(time.Minute)) {
+		scheduledAt, ok := scheduledSlotOf(status)
+		if ok && scheduledAt.Equal(slot.At.Truncate(time.Minute)) {
 			tp.recordSlot(entry.DAG.Name, slot.At, schedulerstate.SlotDispatched)
 		}
 	}
@@ -1012,17 +1012,26 @@ func latestSuccessReferenceTime(status ir.DAGRunStatus) (time.Time, bool) {
 	return time.Time{}, false
 }
 
-func latestScheduledSlot(status ir.DAGRunStatus, schedule ir.Schedule) (time.Time, latestScheduledSlotState) {
-	if status.ScheduleTime == "" {
-		return time.Time{}, latestScheduledSlotUnknown
+// scheduledSlotOf returns the slot the scheduler ran a run for. A manual run
+// started for a slot is not the scheduler's run of it and is read by when it
+// ran, so it cannot suppress or settle a scheduled fire.
+func scheduledSlotOf(status ir.DAGRunStatus) (time.Time, bool) {
+	if status.ScheduleTime == "" || status.TriggerType == ir.TriggerTypeManual {
+		return time.Time{}, false
 	}
-
 	scheduledAt, err := stringutil.ParseTime(status.ScheduleTime)
 	if err != nil {
+		return time.Time{}, false
+	}
+	return scheduledAt.Truncate(time.Minute), true
+}
+
+func latestScheduledSlot(status ir.DAGRunStatus, schedule ir.Schedule) (time.Time, latestScheduledSlotState) {
+	scheduledAt, ok := scheduledSlotOf(status)
+	if !ok {
 		return time.Time{}, latestScheduledSlotUnknown
 	}
 
-	scheduledAt = scheduledAt.Truncate(time.Minute)
 	if !scheduleMatchesFireTime(schedule, scheduledAt) {
 		return scheduledAt, latestScheduledSlotStale
 	}

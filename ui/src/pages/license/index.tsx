@@ -26,6 +26,7 @@ import {
 import { useI18n } from '@/i18n/I18nProvider';
 import {
   consoleBaseURL,
+  hasActiveLicense,
   hasLicense,
   isFreeLicense,
   isLicenseManagedByEnv,
@@ -99,17 +100,29 @@ export default function LicenseSection({
   // Set while a Dagu Console page opened from here may change the plan.
   const consoleOpened = useRef(false);
 
+  // A visit to #remote-access asks for MCP clients: on a server not yet
+  // connected, the offer to connect lands with them and the trial chosen.
+  const mcpRequested = hash === '#remote-access';
+
   // Each visit to #activate, even a repeated one, opens the key form, which
-  // takes focus, in view. A visit to #monitoring waits for its section, which
-  // appears once the license status is known. Leaving both forgets the last
-  // visit, since history can return to its entry while this page stays.
+  // takes focus, in view. A visit to #monitoring or #remote-access waits for
+  // its section, which appears once the license status is known. Leaving
+  // them forgets the last visit, since history can return to its entry while
+  // this page stays.
   const handledVisit = useRef<string | null>(null);
   useEffect(() => {
-    if (hash !== '#activate' && hash !== '#monitoring') {
+    if (
+      hash !== '#activate' &&
+      hash !== '#monitoring' &&
+      hash !== '#remote-access'
+    ) {
       handledVisit.current = null;
       return;
     }
-    const target = document.getElementById(hash.slice(1));
+    // A server not yet connected turns remote access on as it connects.
+    const id =
+      hash === '#remote-access' && !online ? 'monitoring' : hash.slice(1);
+    const target = document.getElementById(id);
     if (!target || handledVisit.current === locationKey) return;
     handledVisit.current = locationKey;
     if (hash === '#activate') setKeyOpen(true);
@@ -281,6 +294,13 @@ export default function LicenseSection({
   const restartNote = via ? restartNotes[via] : undefined;
   const consoleHref = license.consoleUrl || licenseLink('manage', 'plan-page');
   const busy = Boolean(pendingAction);
+  const remoteAccessPlan = free
+    ? 'free'
+    : hasActiveLicense(license)
+      ? license.plan === 'trial'
+        ? 'trial'
+        : 'paid'
+      : undefined;
 
   return (
     <>
@@ -369,6 +389,7 @@ export default function LicenseSection({
             remoteAccess={remoteAccess.remoteAccess}
             disabled={busy}
             trialRequested={trialRequested}
+            mcpRequested={mcpRequested}
           />
         )}
 
@@ -399,6 +420,9 @@ export default function LicenseSection({
             remoteAccess={remoteAccess.remoteAccess}
             remoteNode={remoteNode}
             consoleURL={consoleBaseURL(license)}
+            plan={remoteAccessPlan}
+            trialURL={consoleHref}
+            onOpenTrial={() => (consoleOpened.current = true)}
             showActivity={license.features.includes('audit')}
             loadError={Boolean(remoteAccess.error)}
             onRetry={() => void remoteAccess.refresh()}

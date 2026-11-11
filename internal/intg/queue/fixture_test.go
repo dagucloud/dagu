@@ -229,6 +229,7 @@ func (f *fixture) enqueueByScheduler(triggerType ir.TriggerType, scheduleTime ti
 		runID,
 		triggerType,
 		scheduleTime,
+		ir.ScheduleWindow{},
 		"",
 	))
 	f.runIDs = append(f.runIDs, runID)
