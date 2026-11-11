@@ -579,6 +579,7 @@ message ResolveSecretReferenceRequest {
   string attempt_key = 6; // Active distributed attempt lease key
   string attempt_id = 7;  // Attempt ID created by the coordinator
   string dag_name = 8;    // Current DAG definition; empty keeps legacy root behavior
+  string step_name = 9;   // Step that lists the secret; required for a value in a DAG with step scope
 }
 
 message ResolveSecretReferenceResponse {

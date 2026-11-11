@@ -5928,6 +5928,7 @@ type ResolveSecretReferenceRequest struct {
 	xxx_hidden_AttemptKey string                 `protobuf:"bytes,6,opt,name=attempt_key,json=attemptKey,proto3"`
 	xxx_hidden_AttemptId  string                 `protobuf:"bytes,7,opt,name=attempt_id,json=attemptId,proto3"`
 	xxx_hidden_DagName    string                 `protobuf:"bytes,8,opt,name=dag_name,json=dagName,proto3"`
+	xxx_hidden_StepName   string                 `protobuf:"bytes,9,opt,name=step_name,json=stepName,proto3"`
 	unknownFields         protoimpl.UnknownFields
 	sizeCache             protoimpl.SizeCache
 }
@@ -6013,6 +6014,13 @@ func (x *ResolveSecretReferenceRequest) GetDagName() string {
 	return ""
 }
 
+func (x *ResolveSecretReferenceRequest) GetStepName() string {
+	if x != nil {
+		return x.xxx_hidden_StepName
+	}
+	return ""
+}
+
 func (x *ResolveSecretReferenceRequest) SetName(v string) {
 	x.xxx_hidden_Name = v
 }
@@ -6045,6 +6053,10 @@ func (x *ResolveSecretReferenceRequest) SetDagName(v string) {
 	x.xxx_hidden_DagName = v
 }
 
+func (x *ResolveSecretReferenceRequest) SetStepName(v string) {
+	x.xxx_hidden_StepName = v
+}
+
 type ResolveSecretReferenceRequest_builder struct {
 	_ [0]func() // Prevents comparability and use of unkeyed literals for the builder.
 
@@ -6056,6 +6068,7 @@ type ResolveSecretReferenceRequest_builder struct {
 	AttemptKey string
 	AttemptId  string
 	DagName    string
+	StepName   string
 }
 
 func (b0 ResolveSecretReferenceRequest_builder) Build() *ResolveSecretReferenceRequest {
@@ -6070,6 +6083,7 @@ func (b0 ResolveSecretReferenceRequest_builder) Build() *ResolveSecretReferenceR
 	x.xxx_hidden_AttemptKey = b.AttemptKey
 	x.xxx_hidden_AttemptId = b.AttemptId
 	x.xxx_hidden_DagName = b.DagName
+	x.xxx_hidden_StepName = b.StepName
 	return m0
 }
 
@@ -6845,7 +6859,7 @@ const file_proto_coordinator_v1_coordinator_proto_rawDesc = "" +
 	"\x04name\x18\x01 \x01(\tR\x04name\":\n" +
 	"\x0eGetDAGResponse\x12\x12\n" +
 	"\x04spec\x18\x01 \x01(\tR\x04spec\x12\x14\n" +
-	"\x05error\x18\x02 \x01(\tR\x05error\"\xfa\x01\n" +
+	"\x05error\x18\x02 \x01(\tR\x05error\"\x97\x02\n" +
 	"\x1dResolveSecretReferenceRequest\x12\x12\n" +
 	"\x04name\x18\x01 \x01(\tR\x04name\x12\x10\n" +
 	"\x03ref\x18\x02 \x01(\tR\x03ref\x12\x1c\n" +
@@ -6857,7 +6871,8 @@ const file_proto_coordinator_v1_coordinator_proto_rawDesc = "" +
 	"attemptKey\x12\x1d\n" +
 	"\n" +
 	"attempt_id\x18\a \x01(\tR\tattemptId\x12\x19\n" +
-	"\bdag_name\x18\b \x01(\tR\adagName\"6\n" +
+	"\bdag_name\x18\b \x01(\tR\adagName\x12\x1b\n" +
+	"\tstep_name\x18\t \x01(\tR\bstepName\"6\n" +
 	"\x1eResolveSecretReferenceResponse\x12\x14\n" +
 	"\x05value\x18\x01 \x01(\tR\x05value\"\xd7\x01\n" +
 	"\x1cResolveRuntimeProfileRequest\x12\x1b\n" +
