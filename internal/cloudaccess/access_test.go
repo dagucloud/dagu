@@ -6,6 +6,7 @@ package cloudaccess
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"path/filepath"
@@ -82,13 +83,20 @@ func (f *fakeCloud) accept(t *testing.T) *websocket.Conn {
 }
 
 // startAccess runs the service against cloud at a remote access level,
-// serving calls with mcp. The returned credentials are those the service
-// reads, which a test may replace.
-func startAccess(t *testing.T, cloud *fakeCloud, key cloudKey, level config.RemoteAccessLevel, mcp http.Handler) (*Service, *Settings, *atomic.Pointer[license.CloudCredentials]) {
+// serving calls with mcp, with settings saved in a file.
+func startAccess(t *testing.T, cloud *fakeCloud, key cloudKey, level config.RemoteAccessLevel, mcp http.Handler) (*Service, *Settings) {
 	t.Helper()
-	settings := NewSettings(config.CloudConfig{}, filemonitor.NewStateStore(filepath.Join(t.TempDir(), "access-settings.json")))
-	require.NoError(t, settings.Set(context.Background(), new(level), nil))
-	creds := testCreds
+	settings := newSettingsAt(t, level)
+	service, _ := runAccess(t, cloud, key, settings, testCreds, mcp)
+	return service, settings
+}
+
+// runAccess runs the service against cloud with settings, serving calls with
+// mcp. It reads creds, pointed at cloud, until the test replaces them
+// through the returned pointer.
+func runAccess(t *testing.T, cloud *fakeCloud, key cloudKey, settings *Settings, creds license.CloudCredentials,
+	mcp http.Handler) (*Service, *atomic.Pointer[license.CloudCredentials]) {
+	t.Helper()
 	creds.CloudURL = cloud.console.URL
 	var current atomic.Pointer[license.CloudCredentials]
 	current.Store(&creds)
@@ -108,7 +116,7 @@ func startAccess(t *testing.T, cloud *fakeCloud, key cloudKey, level config.Remo
 		cancel()
 		<-done
 	})
-	return service, settings, &current
+	return service, &current
 }
 
 // Turning remote access on connects the process, and turning it off
@@ -117,7 +125,7 @@ func TestRemoteAccessHoldsAConnectionWhileOn(t *testing.T) {
 	cloud := newFakeCloud(t)
 	key := newCloudKey(t)
 	started, ended := make(chan struct{}), make(chan struct{})
-	service, settings, _ := startAccess(t, cloud, key, config.RemoteAccessOff, http.HandlerFunc(func(_ http.ResponseWriter, r *http.Request) {
+	service, settings := startAccess(t, cloud, key, config.RemoteAccessOff, http.HandlerFunc(func(_ http.ResponseWriter, r *http.Request) {
 		close(started)
 		<-r.Context().Done()
 		close(ended)
@@ -165,7 +173,7 @@ func TestRemoteAccessHoldsAConnectionWhileOn(t *testing.T) {
 func TestRemoteAccessWaitsAfterARefusal(t *testing.T) {
 	cloud := newFakeCloud(t)
 	cloud.refusal.Store("access from Dagu Cloud needs a plan or a trial")
-	service, settings, _ := startAccess(t, cloud, newCloudKey(t), config.RemoteAccessOperator, http.NotFoundHandler())
+	service, settings := startAccess(t, cloud, newCloudKey(t), config.RemoteAccessOperator, http.NotFoundHandler())
 	require.Eventually(t, func() bool {
 		return service.State().Error == "Access from Dagu Cloud needs a plan or a trial."
 	}, waitFor, 10*time.Millisecond)
@@ -183,20 +191,62 @@ func TestRemoteAccessWaitsAfterARefusal(t *testing.T) {
 func TestRemoteAccessRetriesWhenTheLicenseChanges(t *testing.T) {
 	cloud := newFakeCloud(t)
 	cloud.refusal.Store("access from Dagu Cloud needs a plan or a trial")
-	service, _, creds := startAccess(t, cloud, newCloudKey(t), config.RemoteAccessOperator, http.NotFoundHandler())
-	free := *creds.Load()
+	free := testCreds
 	free.Free = true
-	creds.Store(&free)
+	service, creds := runAccess(t, cloud, newCloudKey(t), newSettingsAt(t, config.RemoteAccessOperator), free, http.NotFoundHandler())
 	require.Eventually(t, func() bool { return service.State().Error != "" }, waitFor, 10*time.Millisecond)
 	time.Sleep(50 * time.Millisecond)
 	assert.Equal(t, int32(1), cloud.tickets.Load(), "the same license is not asked about again soon")
 
 	cloud.refusal.Store("")
-	trial := free
+	trial := *creds.Load()
 	trial.Free = false
 	creds.Store(&trial)
 	cloud.accept(t)
 	require.Eventually(t, func() bool { return service.State().Connected }, waitFor, 10*time.Millisecond)
+}
+
+// While a refusal holds, a moment the settings cannot be read does not hide
+// why Dagu Cloud refused the server once they can be read again.
+func TestRemoteAccessKeepsTheRefusalAfterASettingsError(t *testing.T) {
+	cloud := newFakeCloud(t)
+	cloud.refusal.Store("access from Dagu Cloud needs a plan or a trial")
+	store := &failingStore{StateStore: filemonitor.NewStateStore(filepath.Join(t.TempDir(), "access-settings.json"))}
+	settings := NewSettings(config.CloudConfig{}, store)
+	require.NoError(t, settings.Set(context.Background(), new(config.RemoteAccessOperator), nil))
+	// Each read goes to the store rather than the cache.
+	var ticks atomic.Int64
+	settings.now = func() time.Time { return time.Now().Add(time.Duration(ticks.Add(1)) * settingsTTL) }
+	service, _ := runAccess(t, cloud, newCloudKey(t), settings, testCreds, http.NotFoundHandler())
+	refusal := "Access from Dagu Cloud needs a plan or a trial."
+	require.Eventually(t, func() bool { return service.State().Error == refusal }, waitFor, 10*time.Millisecond)
+
+	store.failing.Store(true)
+	require.Eventually(t, func() bool { return service.State().Error == stateUnreadable }, waitFor, 10*time.Millisecond)
+	store.failing.Store(false)
+	require.Eventually(t, func() bool { return service.State().Error == refusal }, waitFor, 10*time.Millisecond)
+	assert.Equal(t, int32(1), cloud.tickets.Load())
+}
+
+// newSettingsAt returns settings saved in a file, at a remote access level.
+func newSettingsAt(t *testing.T, level config.RemoteAccessLevel) *Settings {
+	t.Helper()
+	settings := NewSettings(config.CloudConfig{}, filemonitor.NewStateStore(filepath.Join(t.TempDir(), "access-settings.json")))
+	require.NoError(t, settings.Set(context.Background(), new(level), nil))
+	return settings
+}
+
+// failingStore fails every load while failing is set.
+type failingStore struct {
+	StateStore
+	failing atomic.Bool
+}
+
+func (s *failingStore) Load(ctx context.Context) ([]byte, bool, error) {
+	if s.failing.Load() {
+		return nil, false, errors.New("disk unavailable")
+	}
+	return s.StateStore.Load(ctx)
 }
 
 func writeJSON(t *testing.T, ws *websocket.Conn, v any) {

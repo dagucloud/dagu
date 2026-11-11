@@ -125,6 +125,7 @@ func (s *Service) Run(ctx context.Context, mcp http.Handler) {
 	// once.
 	var held license.CloudCredentials
 	var heldUntil time.Time
+	var heldState State
 	for {
 		// The read below sees any change made before it.
 		select {
@@ -147,7 +148,8 @@ func (s *Service) Run(ctx context.Context, mcp http.Handler) {
 			s.setState(State{Error: stateNotConnected})
 		case creds == held && time.Now().Before(heldUntil):
 			// Dagu Cloud refused these credentials lately; asking again soon
-			// would not change its answer.
+			// would not change its answer, which stays shown.
+			s.setState(heldState)
 		default:
 			started := time.Now()
 			err := s.connect(ctx, creds)
@@ -164,10 +166,12 @@ func (s *Service) Run(ctx context.Context, mcp http.Handler) {
 				s.setState(State{})
 			case isRefused:
 				held, heldUntil = creds, time.Now().Add(s.timing.refused)
-				s.setState(State{Error: refusalMessage(refused)})
+				heldState = State{Error: refusalMessage(refused)}
+				s.setState(heldState)
 			case errors.Is(err, cloudrelay.ErrDropped):
 				held, heldUntil = creds, time.Now().Add(s.timing.refused)
-				s.setState(State{Error: err.Error()})
+				heldState = State{Error: err.Error()}
+				s.setState(heldState)
 			default:
 				if time.Since(started) >= s.timing.stable {
 					backoff = s.timing.minBackoff
