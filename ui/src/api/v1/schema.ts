@@ -5998,6 +5998,16 @@ export interface components {
          * @enum {string}
          */
         UpcomingRunsHold: UpcomingRunsHold;
+        /** @description A past time at which a start schedule fired */
+        RecentFire: {
+            /**
+             * Format: date-time
+             * @description Fire time, with the offset of the zone the schedule is evaluated in
+             */
+            time: string;
+            /** @description Name of the zone the schedule is evaluated in */
+            timezone: string;
+        };
         /** @description A time at which a start schedule fires */
         UpcomingRun: {
             /**
@@ -6173,6 +6183,8 @@ export interface components {
             /** @description Next fire times of the start schedules, earliest first. Derived from the definition alone: suspension, scheduler pauses, and runtime profiles do not filter it. */
             upcomingRuns?: components["schemas"]["UpcomingRun"][];
             upcomingRunsHold?: components["schemas"]["UpcomingRunsHold"];
+            /** @description Latest fire times of the recurring start schedules at or before now, latest first, for the DAG's default runtime profile. These are the slots a manual run can be started for with scheduleTime. */
+            recentFires?: components["schemas"]["RecentFire"][];
             /** @description Logical grouping of related DAGs for organizational purposes */
             group?: string;
             /** @description Unique identifier for the DAG within its group */

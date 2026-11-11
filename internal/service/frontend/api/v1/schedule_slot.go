@@ -4,6 +4,7 @@
 package api
 
 import (
+	"context"
 	"net/http"
 	"slices"
 	"strings"
@@ -54,6 +55,32 @@ func (a *API) resolveRequestedSlot(dag *ir.DAG, profile string, value *api.Sched
 		window:       slot.Window,
 		warning:      slot.Warning,
 	}, nil
+}
+
+// recentFiresLimit is how many past slots the run dialog offers.
+const recentFiresLimit = 5
+
+// recentFires lists the latest slots of the DAG's start schedules for its
+// default runtime profile, latest first.
+func (a *API) recentFires(ctx context.Context, fileName string, dag *ir.DAG) *[]api.RecentFire {
+	if dag == nil || len(dag.Schedule) == 0 {
+		return nil
+	}
+	profile, err := a.runProfileForDAG(ctx, fileName, dagWorkspaceName(dag), nil)
+	if err != nil {
+		profile = ""
+	}
+	schedules := slices.Clone(dag.Schedule)
+	spec.BindScheduleCalendars(schedules, a.calendarSource())
+	fires := ir.RecentScheduleFires(schedules, profile, a.serverLocation(), time.Now(), recentFiresLimit)
+	if len(fires) == 0 {
+		return nil
+	}
+	out := make([]api.RecentFire, 0, len(fires))
+	for _, fire := range fires {
+		out = append(out, api.RecentFire{Time: fire, Timezone: fireZoneLabel(fire)})
+	}
+	return &out
 }
 
 func (a *API) serverLocation() *time.Location {

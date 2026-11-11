@@ -195,6 +195,25 @@ func fireOnDate(active []Schedule, loc *time.Location, day time.Time) (time.Time
 // maxListedFires bounds the fire times an error lists.
 const maxListedFires = 5
 
+// RecentScheduleFires returns up to limit fires of the recurring start
+// schedules for the profile at or before now, latest first, each in the zone
+// of the schedule that fires.
+func RecentScheduleFires(schedules []Schedule, profile string, loc *time.Location, now time.Time, limit int) []time.Time {
+	if loc == nil {
+		loc = time.Local
+	}
+	active := activeWindowSchedules(schedules, profile)
+	var fires []time.Time
+	for at := latestFire(active, loc, now); !at.IsZero() && len(fires) < limit; at = windowOf(active, loc, at).Start {
+		zone := loc
+		if i := slices.IndexFunc(active, func(s Schedule) bool { return firesAt(s, at.In(loc)) }); i >= 0 {
+			zone = scheduleZone(active[i], loc)
+		}
+		fires = append(fires, at.In(zone))
+	}
+	return fires
+}
+
 func latestFire(active []Schedule, loc *time.Location, now time.Time) time.Time {
 	cutoff := now.In(loc).Truncate(time.Minute).Add(time.Minute)
 	return windowOf(active, loc, cutoff).Start
