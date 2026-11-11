@@ -610,31 +610,31 @@ func (svc *Service) deleteDAG(ctx context.Context, name string) error {
 	}
 }
 
-func (svc *Service) startDAG(ctx context.Context, targetType string, input executeInput) (string, error) {
+func (svc *Service) startDAG(ctx context.Context, targetType string, input executeInput) (string, []string, error) {
 	body := executeBody(input)
 	switch targetType {
 	case "dag":
 		if err := requireName(input.Name); err != nil {
-			return "", err
+			return "", nil, err
 		}
 		resp, err := svc.api.ExecuteDAG(ctx, daguapi.ExecuteDAGRequestObject{
 			FileName: daguapi.DAGFileName(input.Name),
 			Body:     body,
 		})
 		if err != nil {
-			return "", err
+			return "", nil, err
 		}
 		switch r := resp.(type) {
 		case daguapi.ExecuteDAG200JSONResponse:
-			return string(r.DagRunId), nil
+			return string(r.DagRunId), derefWarnings(r.Warnings), nil
 		case *daguapi.ExecuteDAG200JSONResponse:
-			return string(r.DagRunId), nil
+			return string(r.DagRunId), derefWarnings(r.Warnings), nil
 		default:
-			return "", fmt.Errorf("unexpected execute DAG response %T", resp)
+			return "", nil, fmt.Errorf("unexpected execute DAG response %T", resp)
 		}
 	case "inline_spec":
 		if strings.TrimSpace(input.Spec) == "" {
-			return "", errors.New("spec is required for inline_spec target")
+			return "", nil, errors.New("spec is required for inline_spec target")
 		}
 		inlineBody := &daguapi.ExecuteDAGRunFromSpecJSONRequestBody{
 			DagRunId:  body.DagRunId,
@@ -648,46 +648,46 @@ func (svc *Service) startDAG(ctx context.Context, targetType string, input execu
 		}
 		resp, err := svc.api.ExecuteDAGRunFromSpec(ctx, daguapi.ExecuteDAGRunFromSpecRequestObject{Body: inlineBody})
 		if err != nil {
-			return "", err
+			return "", nil, err
 		}
 		switch r := resp.(type) {
 		case daguapi.ExecuteDAGRunFromSpec200JSONResponse:
-			return string(r.DagRunId), nil
+			return string(r.DagRunId), nil, nil
 		case *daguapi.ExecuteDAGRunFromSpec200JSONResponse:
-			return string(r.DagRunId), nil
+			return string(r.DagRunId), nil, nil
 		default:
-			return "", fmt.Errorf("unexpected execute inline DAG response %T", resp)
+			return "", nil, fmt.Errorf("unexpected execute inline DAG response %T", resp)
 		}
 	default:
-		return "", fmt.Errorf("unsupported start targetType %q", targetType)
+		return "", nil, fmt.Errorf("unsupported start targetType %q", targetType)
 	}
 }
 
-func (svc *Service) enqueueDAG(ctx context.Context, targetType string, input executeInput) (string, error) {
+func (svc *Service) enqueueDAG(ctx context.Context, targetType string, input executeInput) (string, []string, error) {
 	body := enqueueBody(input)
 	switch targetType {
 	case "dag":
 		if err := requireName(input.Name); err != nil {
-			return "", err
+			return "", nil, err
 		}
 		resp, err := svc.api.EnqueueDAGDAGRun(ctx, daguapi.EnqueueDAGDAGRunRequestObject{
 			FileName: daguapi.DAGFileName(input.Name),
 			Body:     body,
 		})
 		if err != nil {
-			return "", err
+			return "", nil, err
 		}
 		switch r := resp.(type) {
 		case daguapi.EnqueueDAGDAGRun200JSONResponse:
-			return string(r.DagRunId), nil
+			return string(r.DagRunId), derefWarnings(r.Warnings), nil
 		case *daguapi.EnqueueDAGDAGRun200JSONResponse:
-			return string(r.DagRunId), nil
+			return string(r.DagRunId), derefWarnings(r.Warnings), nil
 		default:
-			return "", fmt.Errorf("unexpected enqueue DAG response %T", resp)
+			return "", nil, fmt.Errorf("unexpected enqueue DAG response %T", resp)
 		}
 	case "inline_spec":
 		if strings.TrimSpace(input.Spec) == "" {
-			return "", errors.New("spec is required for inline_spec target")
+			return "", nil, errors.New("spec is required for inline_spec target")
 		}
 		inlineBody := &daguapi.EnqueueDAGRunFromSpecJSONRequestBody{
 			DagRunId:  body.DagRunId,
@@ -702,19 +702,27 @@ func (svc *Service) enqueueDAG(ctx context.Context, targetType string, input exe
 		}
 		resp, err := svc.api.EnqueueDAGRunFromSpec(ctx, daguapi.EnqueueDAGRunFromSpecRequestObject{Body: inlineBody})
 		if err != nil {
-			return "", err
+			return "", nil, err
 		}
 		switch r := resp.(type) {
 		case daguapi.EnqueueDAGRunFromSpec200JSONResponse:
-			return string(r.DagRunId), nil
+			return string(r.DagRunId), nil, nil
 		case *daguapi.EnqueueDAGRunFromSpec200JSONResponse:
-			return string(r.DagRunId), nil
+			return string(r.DagRunId), nil, nil
 		default:
-			return "", fmt.Errorf("unexpected enqueue inline DAG response %T", resp)
+			return "", nil, fmt.Errorf("unexpected enqueue inline DAG response %T", resp)
 		}
 	default:
-		return "", fmt.Errorf("unsupported enqueue targetType %q", targetType)
+		return "", nil, fmt.Errorf("unsupported enqueue targetType %q", targetType)
 	}
+}
+
+// derefWarnings returns the warnings of a launch response.
+func derefWarnings(warnings *[]string) []string {
+	if warnings == nil {
+		return nil
+	}
+	return *warnings
 }
 
 func (svc *Service) retryDAGRun(ctx context.Context, input executeInput) error {
@@ -774,6 +782,9 @@ func executeBody(input executeInput) *daguapi.ExecuteDAGJSONRequestBody {
 	if input.NoReuse {
 		body.NoReuse = &input.NoReuse
 	}
+	if input.ScheduleTime != "" {
+		body.ScheduleTime = &input.ScheduleTime
+	}
 	body.Profile = profileOverride(input)
 	if len(input.Labels) > 0 {
 		labels := daguapi.Labels(input.Labels)
@@ -798,6 +809,9 @@ func enqueueBody(input executeInput) *daguapi.EnqueueDAGDAGRunJSONRequestBody {
 	}
 	if input.NoReuse {
 		body.NoReuse = &input.NoReuse
+	}
+	if input.ScheduleTime != "" {
+		body.ScheduleTime = &input.ScheduleTime
 	}
 	body.Profile = profileOverride(input)
 	if len(input.Labels) > 0 {
