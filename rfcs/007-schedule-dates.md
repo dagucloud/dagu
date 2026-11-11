@@ -203,6 +203,7 @@ Shift operations:
 | `+N` or `-N` with `d`, `w`, `mo`, `y` | Calendar days, weeks, months, or years in the zone. |
 | `+N` or `-N` with `bd` | Business days of the calendar in effect for the slot. |
 | `hour_start`, `day_start`, `week_start`, `month_start`, `year_start` | The start of that unit in the zone. |
+| `bd_or_next`, `bd_or_prev` | The same day when it is a business day, else the next or the previous business day. |
 
 Named formats:
 
@@ -224,9 +225,10 @@ Rules:
   `min` and `mo`, so a month cannot silently become a minute.
 - **Business days** use the calendar of the slot's schedule entry, its own or
   the DAG's. A run with no entry, such as a sub-DAG or a DAG with no
-  schedule, uses the DAG's `calendar`. `dagu validate` fails on `bd` when a
-  recurring start entry has no calendar, or when the DAG has neither a
-  recurring start entry nor a `calendar`.
+  schedule, uses the DAG's `calendar`. `dagu validate` fails on `bd`,
+  `bd_or_next`, and `bd_or_prev` when a recurring start entry has no
+  calendar, or when the DAG has neither a recurring start entry nor a
+  `calendar`.
 - **Resolved once.** Dates are computed when the run is created and recorded
   on the run. Every attempt reads the recorded values.
 - **Calendar arithmetic.** A day shift keeps the wall-clock time across a
@@ -313,6 +315,9 @@ every way of starting one shows the slot, window, and dates:
 17. A one-off `at` fire between two cron fires leaves the window of the next
     cron fire unchanged.
 18. A manual run for a future slot does not suppress that slot's fire.
+19. With a weekday calendar, `{ shift: [month_start, +1mo, -1d, bd_or_prev] }`
+    on 2026-05-15 resolves to `2026-05-29`, the Friday before a month end
+    that falls on a Sunday.
 
 ## Alternatives considered
 
@@ -328,6 +333,9 @@ every way of starting one shows the slot, window, and dates:
   the step runs.
 - **A `context.logical` namespace** separate from `scheduled_at`. Two names
   for one instant.
+- **Only `+Nbd` and `-Nbd` for business days.** They always move. "The last
+  business day of the month" needs a step that stays put on a business day,
+  which Control-M's working-day arithmetic also provides beside its offsets.
 - **The clock for a manual run with no slot.** A monthly DAG started on the
   15th would load the 14th, and the same DAG would get different dates from
   the CLI and the run dialog.
