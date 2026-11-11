@@ -2007,6 +2007,19 @@ func TestLatestScheduledSlotMarksRemovedScheduleSlotStale(t *testing.T) {
 	assert.Equal(t, time.Date(2026, 2, 7, 12, 34, 0, 0, time.UTC), scheduledAt)
 }
 
+// A manual run started for a slot is read by when it ran, as a manual run
+// without a slot is.
+func TestLatestScheduledSlotIgnoresManualRunSlot(t *testing.T) {
+	t.Parallel()
+
+	_, state := latestScheduledSlot(ir.DAGRunStatus{
+		ScheduleTime: "2026-02-07T12:00:00Z",
+		TriggerType:  ir.TriggerTypeManual,
+	}, mustParseSchedule(t, "0 * * * *"))
+
+	assert.Equal(t, latestScheduledSlotUnknown, state)
+}
+
 func TestTickPlanner_ProfileScopedStartSchedules(t *testing.T) {
 	t.Parallel()
 
@@ -3048,7 +3061,8 @@ func TestTickPlanner_InitRecordsMissedSlot(t *testing.T) {
 }
 
 // A slot left planned when the scheduler stopped is dispatched once the
-// DAG's latest run is of that slot; otherwise it stays planned.
+// DAG's latest run is of that slot; otherwise it stays planned. A manual run
+// started for the slot is not the scheduler's run of it.
 func TestTickPlanner_InitSettlesPlannedSlot(t *testing.T) {
 	t.Parallel()
 
@@ -3056,10 +3070,12 @@ func TestTickPlanner_InitSettlesPlannedSlot(t *testing.T) {
 	for _, tc := range []struct {
 		name         string
 		scheduleTime string
+		triggerType  ir.TriggerType
 		want         schedulerstate.SlotOutcome
 	}{
-		{"ran", "2026-02-07T11:00:00Z", schedulerstate.SlotDispatched},
-		{"never ran", "2026-02-07T10:00:00Z", schedulerstate.SlotPlanned},
+		{"ran", "2026-02-07T11:00:00Z", ir.TriggerTypeScheduler, schedulerstate.SlotDispatched},
+		{"never ran", "2026-02-07T10:00:00Z", ir.TriggerTypeScheduler, schedulerstate.SlotPlanned},
+		{"manual run of the slot", "2026-02-07T11:00:00Z", ir.TriggerTypeManual, schedulerstate.SlotPlanned},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
@@ -3069,7 +3085,7 @@ func TestTickPlanner_InitSettlesPlannedSlot(t *testing.T) {
 			}
 			tp, _ := newTestTickPlanner(&mockStateStore{state: state})
 			tp.cfg.GetLatestStatus = func(context.Context, *ir.DAG) (ir.DAGRunStatus, error) {
-				return ir.DAGRunStatus{Status: ir.Succeeded, ScheduleTime: tc.scheduleTime}, nil
+				return ir.DAGRunStatus{Status: ir.Succeeded, ScheduleTime: tc.scheduleTime, TriggerType: tc.triggerType}, nil
 			}
 			dag := &ir.DAG{Name: "hourly", Schedule: []ir.Schedule{mustParseSchedule(t, "0 * * * *")}}
 

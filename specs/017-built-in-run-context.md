@@ -180,7 +180,7 @@ workflow-language specs and makes the trust boundary explicit:
 | --- | --- | --- |
 | `context.run.id` | All run, step, and handler scopes | Unique identifier for the current DAG run. |
 | `context.run.status` | Status-aware scopes only | Canonical lowercase run status. |
-| `context.run.scheduled_at` | Scheduled, catchup, and one-off scheduled runs only | UTC RFC3339 timestamp for the logical schedule time that caused the run. |
+| `context.run.scheduled_at` | Scheduled, catchup, and one-off scheduled runs, and manual runs started for a slot | UTC RFC3339 timestamp for the logical schedule time of the run's slot. |
 | `context.run.interval_start` | Runs with a schedule time whose DAG has a recurring start schedule | UTC RFC3339 timestamp of the latest fire of the active start schedules strictly before `scheduled_at`. |
 | `context.run.interval_end` | Runs with a schedule time | The same instant as `context.run.scheduled_at`. |
 | `context.run.next_scheduled_at` | Runs with a schedule time whose DAG has a recurring start schedule | UTC RFC3339 timestamp of the earliest fire of the active start schedules strictly after `scheduled_at`. |
@@ -207,6 +207,16 @@ Rules:
   that schedule's `CRON_TZ` or `TZ` zone, else the server zone. `@every`
   schedules use `UTC`. A DAG with no recurring start schedule uses the server
   zone.
+- A manual run started with `dagu start`, `dagu enqueue`, or `dagu restart`
+  and `--scheduled-at` gets the schedule time and window of the slot it
+  names, as the scheduler's run of that slot does. Its trigger type stays
+  `manual`. `--scheduled-at` takes `latest`, a date, a time without an offset
+  read in the schedule's zone, or an RFC 3339 time with an offset. A slot
+  later than now is rejected; `dagu dry` accepts one. A time that no schedule
+  fires is accepted with a warning that names the nearest fire times.
+- The scheduler reads a manual run by when it ran, not by its slot, so a
+  manual run of a slot does not suppress or settle that slot's scheduled
+  fire.
 - `context.run.status` is available in lifecycle handlers and other explicitly
   status-aware surfaces. It is unavailable in normal step execution unless an
   owning spec explicitly makes that surface status-aware.

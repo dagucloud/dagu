@@ -6,6 +6,7 @@ package spec017_built_in_run_context_test
 import (
 	"fmt"
 	"os"
+	"path/filepath"
 	"regexp"
 	"strings"
 	"testing"
@@ -108,6 +109,105 @@ func TestRuntimeScheduleWindow(t *testing.T) {
 		"timezone=Asia/Tokyo",
 		"",
 	}, "\n"))
+}
+
+// A manual run started for a slot gets the window the scheduler's run of
+// that slot gets. A time without an offset is read in the schedule's zone.
+func TestScheduledAtStartsRunForSlot(t *testing.T) {
+	t.Parallel()
+
+	dagu := harness.NewRunner(t)
+	result := dagu.Run(
+		"start",
+		"--run-id=spec017-scheduled-at",
+		"--scheduled-at=2026-03-13T12:00",
+		"schedule_window.yaml",
+	)
+	result.ExpectExitCode(0)
+	dagu.ExpectFileContent("schedule-window.txt", strings.Join([]string{
+		"scheduled=2026-03-13T03:00:00Z",
+		"start=2026-03-13T02:30:00Z",
+		"end=2026-03-13T03:00:00Z",
+		"next=2026-03-13T03:30:00Z",
+		"timezone=Asia/Tokyo",
+		"",
+	}, "\n"))
+}
+
+func TestScheduledAtRejectsFutureSlot(t *testing.T) {
+	t.Parallel()
+
+	dagu := harness.NewRunner(t)
+	result := dagu.Run(
+		"start",
+		"--run-id=spec017-scheduled-at-future",
+		"--scheduled-at=2999-01-01T00:00",
+		"schedule_window.yaml",
+	)
+	result.ExpectNonZeroExitCode()
+	result.ExpectStderrContains("scheduled time 2999-01-01T00:00:00+09:00 is later than now")
+	dagu.ExpectNoFile("schedule-window.txt")
+}
+
+// A dry run starts nothing, so it previews a slot that has not come.
+func TestDryScheduledAtPreviewsFutureSlot(t *testing.T) {
+	t.Parallel()
+
+	dagu := harness.NewRunner(t)
+	result := dagu.Run(
+		"dry",
+		"--scheduled-at=2999-01-01T00:00",
+		"schedule_window.yaml",
+	)
+	result.ExpectExitCode(0)
+	stdout := result.Stdout()
+	for _, want := range []string{
+		"Scheduled at: 2999-01-01T00:00:00+09:00 (Asia/Tokyo)",
+		"Window:       2998-12-31T23:30:00+09:00 to 2999-01-01T00:00:00+09:00",
+		"Next fire:    2999-01-01T00:30:00+09:00",
+	} {
+		if !strings.Contains(stdout, want) {
+			t.Fatalf("stdout does not contain %q:\n%s", want, stdout)
+		}
+	}
+	dagu.ExpectNoFile("schedule-window.txt")
+}
+
+// The window is recorded when the run is created, so a retry keeps it after
+// the schedule is edited.
+func TestRetryKeepsScheduleWindow(t *testing.T) {
+	t.Parallel()
+
+	dagu := harness.NewRunner(t)
+	// Both commands must read the same run history.
+	env := []string{"DAGU_HOME=" + filepath.Join(t.TempDir(), "dagu")}
+	dagu.RunWithEnv(
+		env,
+		"start",
+		"--run-id=spec017-window-retry",
+		"--trigger-type=scheduler",
+		"--schedule-time=2026-03-13T12:00:00+09:00",
+		"schedule_window_retry.yaml",
+	).ExpectNonZeroExitCode()
+	want := "start=2026-03-13T02:30:00Z\nnext=2026-03-13T03:30:00Z\n"
+	dagu.ExpectFileContent("schedule-window.txt", want)
+
+	edited := strings.Replace(readProjectFile(t, dagu, "schedule_window_retry.yaml"),
+		"*/30 * * * *", "0 * * * *", 1)
+	dagu.WriteFile("schedule_window_retry.yaml", edited)
+	dagu.WriteFile("retry-ok", "")
+	dagu.RunWithEnv(env, "retry", "--run-id=spec017-window-retry", "builtin_schedule_window_retry").ExpectExitCode(0)
+
+	dagu.ExpectFileContent("schedule-window.txt", want)
+}
+
+func readProjectFile(t *testing.T, dagu *harness.Runner, name string) string {
+	t.Helper()
+	data, err := os.ReadFile(dagu.ProjectPath(name))
+	if err != nil {
+		t.Fatalf("read %s: %v", name, err)
+	}
+	return string(data)
 }
 
 // A DAG with no recurring start schedule has no previous or next fire, so
