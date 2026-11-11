@@ -58,6 +58,7 @@ func TestEnqueueCatchupRunPropagatesFindAttemptErrors(t *testing.T) {
 		"run-1",
 		ir.TriggerTypeCatchUp,
 		time.Now(),
+		ir.ScheduleWindow{},
 		"",
 	)
 	require.ErrorIs(t, err, storeErr)
