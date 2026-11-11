@@ -102,14 +102,18 @@ func runEnqueue(ctx *Context, args []string) error {
 		return fmt.Errorf("failed to read no-reuse: %w", err)
 	}
 
-	return enqueueDAGRun(ctx, dag, runID, runOptions{
+	opts := runOptions{
 		triggerType:  triggerType,
 		triggerActor: triggerActor,
 		scheduleTime: scheduleTime,
 		profileName:  profileName,
 		definitionID: dagDefinitionIDFromEnv(),
 		noReuse:      noReuse,
-	})
+	}
+	if scheduleTime != "" {
+		opts.scheduleWindow = scheduleWindowAt(ctx, dag, profileName, scheduleTime)
+	}
+	return enqueueDAGRun(ctx, dag, runID, opts)
 }
 
 // enqueueDAGRun enqueues a dag-run to the queue.
@@ -142,6 +146,7 @@ func enqueueDAGRun(ctx *Context, dag *ir.DAG, dagRunID string, opts runOptions) 
 		TriggerType:             opts.triggerType,
 		TriggerActor:            opts.triggerActor,
 		ScheduleTime:            opts.scheduleTime,
+		ScheduleWindow:          opts.scheduleWindow,
 		ProfileName:             opts.profileName,
 		DefinitionID:            opts.definitionID,
 		NoReuse:                 opts.noReuse,

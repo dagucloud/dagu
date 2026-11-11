@@ -237,6 +237,9 @@ type Agent struct {
 	// Set by the scheduler for cron-triggered runs; empty for manual runs.
 	scheduleTime string
 
+	// scheduleWindow is the window the run's schedule slot owns.
+	scheduleWindow ir.ScheduleWindow
+
 	// queuedRun indicates this execution is from a queued item.
 	// The dag-run was already created by the enqueue command.
 	queuedRun bool
@@ -409,6 +412,9 @@ type Options struct {
 	// ScheduleTime is the RFC 3339 timestamp of when this run was scheduled.
 	// Set by the scheduler for cron-triggered runs; empty for manual runs.
 	ScheduleTime string
+	// ScheduleWindow is the window the slot at ScheduleTime owns. A retried
+	// run keeps the window recorded on its status instead.
+	ScheduleWindow ir.ScheduleWindow
 	// ArtifactDir is the per-run artifact directory when artifact storage is enabled.
 	ArtifactDir string
 	// DAGRunLogDir is the base log directory used for child DAG runs created by executors.
@@ -486,6 +492,7 @@ func New(
 		parallelItem:             opts.ParallelItem,
 		defaultExecMode:          opts.DefaultExecMode,
 		scheduleTime:             opts.ScheduleTime,
+		scheduleWindow:           opts.ScheduleWindow,
 		dagRunLogDir:             opts.DAGRunLogDir,
 		dagRunArtifactDir:        opts.DAGRunArtifactDir,
 		socketServerFactory:      opts.SocketServerFactory,
@@ -769,7 +776,10 @@ func (a *Agent) Run(ctx context.Context) (runErr error) {
 		runtime.WithRuntimeProfile(a.profileName, a.profileResolvedAt, a.profileEntries),
 	}
 	if scheduleTime := a.contextScheduleTime(); scheduleTime != "" {
-		contextOpts = append(contextOpts, runtime.WithScheduleTime(scheduleTime))
+		contextOpts = append(contextOpts,
+			runtime.WithScheduleTime(scheduleTime),
+			runtime.WithScheduleWindow(a.contextScheduleWindow()),
+		)
 	}
 	if len(a.extraEnvs) > 0 {
 		contextOpts = append(contextOpts, runtime.WithEnvVars(a.extraEnvs...))
@@ -1615,10 +1625,16 @@ func (a *Agent) Status(ctx context.Context) ir.DAGRunStatus {
 				ir.WithReusedInputs(source.ReusedInputs),
 			)
 			if source.ScheduleTime != "" {
-				statusOpts = append(statusOpts, ir.WithScheduleTime(source.ScheduleTime))
+				statusOpts = append(statusOpts,
+					ir.WithScheduleTime(source.ScheduleTime),
+					ir.WithScheduleWindow(source.ScheduleWindow()),
+				)
 			}
 		} else if a.scheduleTime != "" {
-			statusOpts = append(statusOpts, ir.WithScheduleTime(a.scheduleTime))
+			statusOpts = append(statusOpts,
+				ir.WithScheduleTime(a.scheduleTime),
+				ir.WithScheduleWindow(a.scheduleWindow),
+			)
 		}
 		runStatus := ir.Failed
 		if !a.startupFinishedAt.IsZero() {
@@ -1681,10 +1697,16 @@ func (a *Agent) Status(ctx context.Context) ir.DAGRunStatus {
 			ir.WithReusedInputs(source.ReusedInputs),
 		)
 		if source.ScheduleTime != "" {
-			opts = append(opts, ir.WithScheduleTime(source.ScheduleTime))
+			opts = append(opts,
+				ir.WithScheduleTime(source.ScheduleTime),
+				ir.WithScheduleWindow(source.ScheduleWindow()),
+			)
 		}
 	} else if a.scheduleTime != "" {
-		opts = append(opts, ir.WithScheduleTime(a.scheduleTime))
+		opts = append(opts,
+			ir.WithScheduleTime(a.scheduleTime),
+			ir.WithScheduleWindow(a.scheduleWindow),
+		)
 	}
 
 	// Create the status object to record the current status.
@@ -1729,6 +1751,15 @@ func (a *Agent) contextScheduleTime() string {
 		raw = a.scheduleTime
 	}
 	return contextTimeValue(raw)
+}
+
+// contextScheduleWindow returns the window of the slot contextScheduleTime
+// names.
+func (a *Agent) contextScheduleWindow() ir.ScheduleWindow {
+	if source := a.statusSourceTarget(); source != nil && source.ScheduleTime != "" {
+		return source.ScheduleWindow()
+	}
+	return a.scheduleWindow
 }
 
 func contextTimeValue(raw string) string {
@@ -2395,7 +2426,10 @@ func (a *Agent) dryRun(ctx context.Context) error {
 		runtime.WithParams(a.dag.Params),
 	}
 	if scheduleTime := a.contextScheduleTime(); scheduleTime != "" {
-		contextOpts = append(contextOpts, runtime.WithScheduleTime(scheduleTime))
+		contextOpts = append(contextOpts,
+			runtime.WithScheduleTime(scheduleTime),
+			runtime.WithScheduleWindow(a.contextScheduleWindow()),
+		)
 	}
 	if a.artifactDir != "" {
 		contextOpts = append(contextOpts, runtime.WithArtifactDir(a.artifactDir))
