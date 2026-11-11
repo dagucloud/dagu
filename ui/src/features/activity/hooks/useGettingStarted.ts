@@ -2,12 +2,17 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 import { useContext, useEffect } from 'react';
+import {
+  APIKeyAllowedSurfaces,
+  LicenseRemoteAccessLevel,
+} from '@/api/v1/schema';
 import { AppBarContext } from '@/contexts/AppBarContext';
 import {
   useCanManageNotifications,
   useCanWrite,
   useIsAdmin,
 } from '@/contexts/AuthContext';
+import { useConfig } from '@/contexts/ConfigContext';
 import { useQuery } from '@/hooks/api';
 import { useLicenseState } from '@/hooks/useLicense';
 import { useStoredValue } from '@/hooks/useStoredValue';
@@ -28,7 +33,8 @@ export type GettingStartedStep =
   | { id: 'run'; done: boolean; exampleFile?: string }
   | { id: 'create'; done: boolean }
   | { id: 'schedule'; done: boolean }
-  | { id: 'alert'; done: boolean; canConnect: boolean; canAddChannel: boolean };
+  | { id: 'alert'; done: boolean; canConnect: boolean; canAddChannel: boolean }
+  | { id: 'ai'; done: boolean; canUseCloud: boolean; canCreateKey: boolean };
 
 export type GettingStarted =
   | { status: 'hidden' | 'pending' }
@@ -48,6 +54,7 @@ export function useGettingStarted(): GettingStarted {
   const remoteNode = selectedRemoteNode || 'local';
   const canWrite = useCanWrite();
   const isAdmin = useIsAdmin();
+  const { authMode } = useConfig();
   const canAddChannel = useCanManageNotifications();
   const { license, loading, error: licenseError } = useLicenseState();
   const [stored, setStored] = useStoredValue(
@@ -57,6 +64,13 @@ export function useGettingStarted(): GettingStarted {
   const community = license.community;
   const canConnect = isAdmin && community && !isLicenseManagedByEnv(license);
   const hasAlertStep = canConnect || canAddChannel;
+  // MCP clients reach the server through Dagu Cloud, once it connects, or
+  // with an API key, which built-in auth issues. Only the local server's
+  // auth mode is known here.
+  const online = !loading && !licenseError && Boolean(license.serverId);
+  const canUseCloud = canConnect || (isAdmin && online);
+  const canCreateKey =
+    isAdmin && authMode === 'builtin' && remoteNode === 'local';
 
   const { data: sample, error: sampleError } = useQuery(
     '/dags',
@@ -97,18 +111,41 @@ export function useGettingStarted(): GettingStarted {
       : null,
     queryOptions
   );
+  const { data: remoteAccess, error: remoteAccessError } = useQuery(
+    '/license/remote-access',
+    active && isAdmin && online ? { params: { query: { remoteNode } } } : null,
+    queryOptions
+  );
+  const { data: keyList, error: keysError } = useQuery(
+    '/api-keys',
+    active && canCreateKey ? { params: { query: { remoteNode } } } : null,
+    queryOptions
+  );
 
   const failed =
     !!sampleError || !!scheduledError || !!channelsError || !!licenseError;
+  // The AI app step is left out when what it reads fails, as on a server too
+  // old to report remote access, rather than hiding the whole checklist.
+  const aiUnknown = !!remoteAccessError || !!keysError;
   const scheduled =
     progress?.scheduled ??
     (scheduledList ? scheduledList.pagination.totalRecords > 0 : undefined);
   const alerted = !community || !!channelList?.channels?.length;
+  const connectedAI =
+    (!!remoteAccess && remoteAccess.level !== LicenseRemoteAccessLevel.off) ||
+    !!keyList?.apiKeys.some(
+      // A key without surfaces, from an older server, is accepted on all.
+      (key) =>
+        !key.allowedSurfaces?.length ||
+        key.allowedSurfaces.includes(APIKeyAllowedSurfaces.mcp)
+    );
   const ready =
     !!progress &&
     scheduled !== undefined &&
     !loading &&
-    (!community || !canAddChannel || !!channelList);
+    (!community || !canAddChannel || !!channelList) &&
+    (!isAdmin || !online || !!remoteAccess || !!remoteAccessError) &&
+    (!canCreateKey || !!keyList || !!keysError);
 
   let steps: GettingStartedStep[] = [];
   let next: string | undefined;
@@ -124,6 +161,9 @@ export function useGettingStarted(): GettingStarted {
     ];
     if (hasAlertStep) {
       steps.push({ id: 'alert', done: alerted, canConnect, canAddChannel });
+    }
+    if ((canUseCloud || canCreateKey) && !aiUnknown) {
+      steps.push({ id: 'ai', done: connectedAI, canUseCloud, canCreateKey });
     }
     if (stored !== STARTED) {
       // A server already in use when first seen never needs the checklist.

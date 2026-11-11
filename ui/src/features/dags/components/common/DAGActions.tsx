@@ -890,7 +890,8 @@ function DAGActions({
                 dagRunId,
                 immediate,
                 profile,
-                noReuse
+                noReuse,
+                scheduleTime
               ) => {
                 if (dagContext.onEnqueue) {
                   const result = await dagContext.onEnqueue(
@@ -898,7 +899,8 @@ function DAGActions({
                     dagRunId,
                     immediate,
                     profile,
-                    noReuse
+                    noReuse,
+                    scheduleTime
                   );
                   const startedRunId =
                     typeof result === 'string' && result ? result : dagRunId;
@@ -915,9 +917,13 @@ function DAGActions({
                   dagRunId?: string;
                   profile?: string;
                   noReuse?: boolean;
+                  scheduleTime?: string;
                 } = { params };
                 if (dagRunId) {
                   body.dagRunId = dagRunId;
+                }
+                if (scheduleTime) {
+                  body.scheduleTime = scheduleTime;
                 }
                 if (profile !== undefined) {
                   body.profile = profile;
@@ -960,6 +966,9 @@ function DAGActions({
                   showRunProgress(data.dagRunId);
                 }
                 showToast(immediate ? 'DAG run started' : 'DAG run enqueued');
+                for (const warning of data?.warnings ?? []) {
+                  showToast(warning, { variant: 'info' });
+                }
                 // Just refresh the current page data
                 reloadData();
               }}
