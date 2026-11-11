@@ -652,6 +652,7 @@ func (a *API) getDAGDetailsData(ctx context.Context, fileName string) (api.GetDA
 		details.NextRun = a.projectNextRun(ctx, dag)
 		details.UpcomingRuns = a.scheduleFires(dag)
 		details.UpcomingRunsHold = a.upcomingRunsHold(ctx, fileName, details.UpcomingRuns)
+		details.RecentFires = a.recentFires(ctx, fileName, dag)
 	}
 
 	localDAGs := make([]api.LocalDag, 0, len(dag.LocalDAGs))

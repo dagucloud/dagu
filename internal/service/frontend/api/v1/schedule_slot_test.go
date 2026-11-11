@@ -78,6 +78,19 @@ steps:
 		}).ExpectStatus(http.StatusBadRequest).Send(t)
 	})
 
+	t.Run("DetailsListRecentFires", func(t *testing.T) {
+		var details api.GetDAGDetails200JSONResponse
+		server.Client().Get("/api/v1/dags/slot_dag").ExpectStatus(http.StatusOK).Send(t).Unmarshal(t, &details)
+
+		require.NotNil(t, details.Dag)
+		require.NotNil(t, details.Dag.RecentFires)
+		fires := *details.Dag.RecentFires
+		require.Len(t, fires, 5)
+		assert.Equal(t, "Asia/Tokyo", fires[0].Timezone)
+		assert.False(t, fires[0].Time.After(time.Now()))
+		assert.Equal(t, 30*time.Minute, fires[0].Time.Sub(fires[1].Time))
+	})
+
 	t.Run("EnqueueRecordsTheSlotWindow", func(t *testing.T) {
 		var resp api.EnqueueDAGDAGRun200JSONResponse
 		server.Client().Post("/api/v1/dags/slot_dag/enqueue", api.EnqueueDAGDAGRunJSONRequestBody{

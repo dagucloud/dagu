@@ -200,3 +200,24 @@ func TestResolveScheduleSlot(t *testing.T) {
 		})
 	}
 }
+
+func TestRecentScheduleFires(t *testing.T) {
+	t.Parallel()
+
+	tokyo, err := time.LoadLocation("Asia/Tokyo")
+	require.NoError(t, err)
+	daily, err := ir.NewCronSchedule("CRON_TZ=Asia/Tokyo 0 2 * * *")
+	require.NoError(t, err)
+	oneOff, err := ir.NewOneOffSchedule("2026-11-11T01:00:00Z")
+	require.NoError(t, err)
+
+	fires := ir.RecentScheduleFires([]ir.Schedule{daily, oneOff}, "", time.UTC,
+		time.Date(2026, 11, 11, 3, 10, 0, 0, time.UTC), 3)
+
+	assert.Equal(t, []time.Time{
+		time.Date(2026, 11, 11, 2, 0, 0, 0, tokyo),
+		time.Date(2026, 11, 10, 2, 0, 0, 0, tokyo),
+		time.Date(2026, 11, 9, 2, 0, 0, 0, tokyo),
+	}, fires)
+	assert.Equal(t, "Asia/Tokyo", fires[0].Location().String())
+}
