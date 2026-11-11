@@ -86,13 +86,26 @@ function ServiceDAGCard({
  */
 export function ServiceDAGStrip({
   expandable = false,
+  bounded = false,
+  nameFilter = '',
   className,
 }: {
   expandable?: boolean;
+  /**
+   * Set on a page that does not scroll, such as the Cockpit: the cards then
+   * scroll in a box of their own at every width, so the rest stays in view.
+   */
+  bounded?: boolean;
+  /** Shows only the service DAGs whose name contains it, ignoring case. */
+  nameFilter?: string;
   className?: string;
 }): React.ReactElement | null {
   const { ts } = useI18n();
-  const { serviceDAGs, error } = useServiceDAGs();
+  const { serviceDAGs: allServiceDAGs, error } = useServiceDAGs();
+  const query = nameFilter.trim().toLowerCase();
+  const serviceDAGs = query
+    ? allServiceDAGs.filter((dag) => dag.name.toLowerCase().includes(query))
+    : allServiceDAGs;
   const [open, setOpen] = useState<string | null>(null);
   // The lists leave out the runs of service DAGs, so a list that cannot be read
   // says so rather than look like one without a service DAG.
@@ -117,9 +130,16 @@ export function ServiceDAGStrip({
           {getQueryErrorMessage(error, ts('Failed to load service DAGs'))}
         </p>
       ) : null}
-      {/* A phone lists every card at full width: a scroll box inside the page
-          is hard to scroll there. */}
-      <div className="grid gap-2 sm:max-h-40 sm:grid-cols-[repeat(auto-fill,minmax(14rem,1fr))] sm:overflow-y-auto">
+      {/* A phone lists every card at full width where the page scrolls: a
+          scroll box inside the page is hard to scroll there. */}
+      <div
+        className={cn(
+          'grid gap-2 sm:grid-cols-[repeat(auto-fill,minmax(14rem,1fr))]',
+          bounded
+            ? 'max-h-40 overflow-y-auto'
+            : 'sm:max-h-40 sm:overflow-y-auto'
+        )}
+      >
         {serviceDAGs.map((dag) => (
           <ServiceDAGCard
             key={dag.fileName}

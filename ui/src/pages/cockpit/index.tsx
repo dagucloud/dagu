@@ -22,7 +22,7 @@ export default function CockpitPage(): React.ReactElement {
         selectedWorkspace={selectedWorkspace}
         onTemplateSelectorOpenChange={setIsTemplateSelectorOpen}
       />
-      <ServiceDAGStrip className="px-2 pb-3" />
+      <ServiceDAGStrip bounded className="px-2 pb-3" />
       <DateKanbanList
         selectedWorkspace={selectedWorkspace}
         workspaceKey={workspaceKey}

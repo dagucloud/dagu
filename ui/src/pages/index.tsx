@@ -397,7 +397,7 @@ function Dashboard(): React.ReactElement {
                 onChanged={() => void refresh()}
               />
             )}
-            <ServiceDAGStrip className="px-0" />
+            <ServiceDAGStrip nameFilter={filter} className="px-0" />
             <section className="flex min-w-0 flex-col gap-2">
               <div className="flex items-center justify-between gap-2">
                 <h2 className="text-sm font-medium text-foreground">

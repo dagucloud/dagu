@@ -169,6 +169,26 @@ describe('ServiceDAGStrip', () => {
     hook.error = null;
   });
 
+  it('shows only the service DAGs whose name matches a filter', () => {
+    hook.serviceDAGs = [
+      dag({ fileName: 'ingest', name: 'ingest' }),
+      dag({ fileName: 'web-api', name: 'web-api' }),
+    ];
+
+    render(
+      <UserPreferencesProvider>
+        <I18nProvider>
+          <MemoryRouter>
+            <ServiceDAGStrip nameFilter="Ingest" />
+          </MemoryRouter>
+        </I18nProvider>
+      </UserPreferencesProvider>
+    );
+
+    expect(screen.getByRole('link', { name: /ingest/ })).toBeVisible();
+    expect(screen.queryByRole('link', { name: /web-api/ })).toBeNull();
+  });
+
   it('shows nothing without a service DAG', () => {
     const { container } = renderStrip();
 
