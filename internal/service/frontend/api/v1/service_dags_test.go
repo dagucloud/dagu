@@ -17,6 +17,7 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/cmn/config"
 	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/persis"
+	"github.com/dagucloud/dagu/v2/internal/proc"
 	filedagrun "github.com/dagucloud/dagu/v2/internal/persis/file/dagrun"
 	localapi "github.com/dagucloud/dagu/v2/internal/service/frontend/api/v1"
 	"github.com/dagucloud/dagu/v2/internal/test"
@@ -48,7 +49,9 @@ func seedRun(t *testing.T, helper test.Helper, name, id string, status ir.Status
 }
 
 // seedRunAt saves a run that started at the given time, with the labels the
-// DAG had then.
+// DAG had then. A running run gets a live process heartbeat for the rest of
+// the test; without one, a status read after the startup grace window would
+// repair it as a stale process.
 func seedRunAt(t *testing.T, helper test.Helper, name, id string, status ir.Status, trigger ir.TriggerType, now time.Time, labels ...string) {
 	t.Helper()
 	ctx := context.Background()
@@ -68,6 +71,19 @@ func seedRunAt(t *testing.T, helper test.Helper, name, id string, status ir.Stat
 	}
 	require.NoError(t, attempt.Write(ctx, runStatus))
 	require.NoError(t, attempt.Close(ctx))
+	if status != ir.Running {
+		return
+	}
+	handle, err := helper.ProcRepository.Acquire(ctx, dag.ProcGroup(), proc.ProcMeta{
+		StartedAt:    now.Unix(),
+		Name:         name,
+		DAGRunID:     id,
+		AttemptID:    attempt.ID(),
+		RootName:     name,
+		RootDAGRunID: id,
+	})
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = handle.Stop(context.Background()) })
 }
 
 // With latest_status_today, the usual lookup ignores a run of an earlier day.
