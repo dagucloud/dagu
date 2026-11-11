@@ -41,7 +41,7 @@ func TestEgressProxyCommandRejectsABadProxyCredential(t *testing.T) {
 		want []string
 	}{
 		{"env without destination", with("--proxy-credential-env", "SOME_VAR"), nil, []string{"flag --proxy-credential-env", "needs the flag --allow-with-credential", `"SOME_VAR"`}},
-		{"file without destination", with("--proxy-credential-file", good), nil, []string{"flag --proxy-credential-file", "needs the flag --allow-with-credential", good}},
+		{"file without destination", with("--proxy-credential-file", good), nil, []string{"flag --proxy-credential-file", "needs the flag --allow-with-credential", fmt.Sprintf("%q", good)}},
 		{"destination without credential", with("--allow-with-credential", "github.com:443"), nil, []string{"flag --allow-with-credential", "--proxy-credential-env", "--proxy-credential-file", "got none"}},
 		{"two sources", with("--allow-with-credential", "github.com:443", "--proxy-credential-env", "SOME_VAR", "--proxy-credential-file", good), nil, []string{"give exactly one", "--proxy-credential-env", "--proxy-credential-file"}},
 		{"bad destination", with("--allow-with-credential", "https://github.com", "--proxy-credential-file", good), nil, []string{"flag --allow-with-credential", `"https://github.com"`}},
