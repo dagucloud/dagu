@@ -610,6 +610,29 @@ func TestWebhooks_TriggerWithDagRunID(t *testing.T) {
 	}, 30*time.Second, 100*time.Millisecond, "duplicate dag-run ID should return 409 Conflict")
 }
 
+// The dag-run ID becomes part of run storage paths, so the webhook must apply
+// the same character rules as the other run endpoints.
+func TestWebhooks_TriggerRejectsUnsafeDagRunID(t *testing.T) {
+	t.Parallel()
+	server := setupWebhookTestServer(t)
+	token := getWebhookAdminToken(t, server)
+
+	dagName := "webhook_unsafe_run_id_test"
+	createTestDAG(t, server, token, dagName)
+
+	createResp := server.Client().Post("/api/v1/dags/"+dagName+"/webhook", nil).
+		WithBearerToken(token).ExpectStatus(http.StatusCreated).Send(t)
+
+	var createResult api.WebhookCreateResponse
+	createResp.Unmarshal(t, &createResult)
+
+	for _, dagRunID := range []string{"../../escape", "run/../escape", `run\escape`} {
+		server.Client().Post("/api/v1/webhooks/"+dagName, api.WebhookRequest{
+			DagRunId: &dagRunID,
+		}).WithBearerToken(createResult.Token).ExpectStatus(http.StatusBadRequest).Send(t)
+	}
+}
+
 func TestWebhooks_TriggerUsesDAGDefaultProfile(t *testing.T) {
 	t.Parallel()
 	server := setupWebhookTestServer(t)
