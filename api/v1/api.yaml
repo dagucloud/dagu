@@ -546,6 +546,8 @@ paths:
       operationId: "listAPIKeys"
       tags:
         - "api-keys"
+      parameters:
+        - $ref: "#/components/parameters/RemoteNode"
       responses:
         "200":
           description: "List of API keys"
