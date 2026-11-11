@@ -259,6 +259,12 @@ func runRetry(ctx *Context, args []string) error {
 	if len(dag.WorkerSelector) > 0 && workerID == "local" {
 		return fmt.Errorf("cannot retry DAG %q with workerSelector via CLI; use 'dagu enqueue' for distributed execution", dag.Name)
 	}
+	// A DAG that needs a CLI provider runs on an agent worker when the process
+	// has a coordinator (Spec 092, "Dispatch"), so a local retry would bypass it.
+	if providers := dag.AgentProviders(); len(providers) > 0 && workerID == "local" && ctx.Config.Coordinator.Enabled {
+		return fmt.Errorf("cannot retry DAG %q via CLI: it needs the provider %q, so a run goes to an agent worker; retry it from the server or the API",
+			dag.Name, providers[0])
+	}
 
 	// For DAGs using a global queue: when invoked by the user, enqueue the retry
 	// so it respects queue capacity. When status is already Queued, we're being
@@ -742,6 +748,12 @@ func executeRetry(ctx *Context, dag *ir.DAG, status *ir.DAGRunStatus, opts runOp
 	}
 
 	as := ctx.runtimeStores()
+	if opts.workerID == "local" {
+		// A local run calls the gateway in its own process (Spec 094, "Local mode").
+		if ctx, err = withLocalAIGateway(ctx, as.SecretStore); err != nil {
+			return err
+		}
+	}
 	triggerType := queue.PreservedQueueTriggerType(status)
 	if triggerType == ir.TriggerTypeUnknown {
 		triggerType = ir.TriggerTypeRetry

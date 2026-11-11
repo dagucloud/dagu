@@ -108,6 +108,11 @@ func runRestart(ctx *Context, args []string) error {
 	if err != nil {
 		return fmt.Errorf("failed to restore DAG from status: %w", err)
 	}
+	// A restart runs the DAG in this process. A DAG that needs a CLI provider
+	// runs on an agent worker when the process has a coordinator (Spec 092).
+	if providers := dag.AgentProviders(); len(providers) > 0 && ctx.Config.Coordinator.Enabled {
+		return fmt.Errorf("cannot restart DAG %q via CLI: it needs the provider %q, so a run goes to an agent worker", dag.Name, providers[0])
+	}
 
 	definitionID := dagStatus.DAGDefinitionID()
 	if err := handleRestartProcess(ctx, dag, dagRunID, scheduleTime, definitionID, dagStatus.NoReuse); err != nil {
@@ -208,6 +213,10 @@ func executeDAGWithRunID(
 	}
 
 	as := ctx.runtimeStores()
+	// A local run calls the gateway in its own process (Spec 094, "Local mode").
+	if ctx, err = withLocalAIGateway(ctx, as.SecretStore); err != nil {
+		return err
+	}
 	extraEnvs, err := prepareDAGTools(ctx, dag)
 	if err != nil {
 		return err

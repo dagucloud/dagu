@@ -130,6 +130,7 @@ func mergeDAGRunLease(current, incoming dispatch.DAGRunLease) (dispatch.DAGRunLe
 		(!current.Root.Zero() && !incoming.Root.Zero() && current.Root != incoming.Root) ||
 		(current.AttemptID != "" && incoming.AttemptID != "" && current.AttemptID != incoming.AttemptID) ||
 		(current.WorkerID != "" && incoming.WorkerID != "" && current.WorkerID != incoming.WorkerID) ||
+		(current.WorkerPool != "" && incoming.WorkerPool != "" && current.WorkerPool != incoming.WorkerPool) ||
 		(current.ProfileName != "" && incoming.ProfileName != "" && current.ProfileName != incoming.ProfileName) ||
 		(current.ClaimToken != "" && incoming.ClaimToken != "" && current.ClaimToken != incoming.ClaimToken) ||
 		(current.WorkspaceBundleDigest != "" && incoming.WorkspaceBundleDigest != "" && current.WorkspaceBundleDigest != incoming.WorkspaceBundleDigest) {
@@ -152,6 +153,9 @@ func mergeDAGRunLease(current, incoming dispatch.DAGRunLease) (dispatch.DAGRunLe
 	}
 	if current.WorkerID == "" {
 		current.WorkerID = incoming.WorkerID
+	}
+	if current.WorkerPool == "" {
+		current.WorkerPool = incoming.WorkerPool
 	}
 	if current.Owner.Host == "" {
 		current.Owner.Host = incoming.Owner.Host

@@ -557,6 +557,35 @@ auth:
 	}
 }
 
+// The schema of coordinator.worker_pools is closed, as the loader is (Spec 092).
+func TestConfigSchemaWorkerPools(t *testing.T) {
+	t.Parallel()
+
+	resolved := mustResolveConfigSchema(t)
+	require.NoError(t, resolved.Validate(mustParseYAMLDocument(t, `
+coordinator:
+  worker_pools:
+    - name: agent-claude
+      identities: [agent-claude]
+      labels:
+        agent.provider.claude: "true"
+    - name: general
+      identities: [general-worker]
+  dispatchers: [server]
+`)))
+	for _, spec := range []string{
+		"coordinator:\n  dispatchers: []\n",
+		"coordinator:\n  dispatchers: [1]\n",
+		"coordinator:\n  worker_pools: []\n",
+		"coordinator:\n  worker_pools:\n    - name: Agent\n      identities: [x]\n",
+		"coordinator:\n  worker_pools:\n    - name: a\n      identities: []\n",
+		"coordinator:\n  worker_pools:\n    - name: a\n      identities: [x]\n      label: {}\n",
+		"coordinator:\n  worker_pools:\n    - name: a\n      identities: [x]\n      labels: {zone: 1}\n",
+	} {
+		require.Error(t, resolved.Validate(mustParseYAMLDocument(t, spec)), spec)
+	}
+}
+
 func TestConfigSchemaRepoCopyMatchesEmbeddedSchema(t *testing.T) {
 	t.Parallel()
 

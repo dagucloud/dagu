@@ -112,6 +112,8 @@ var outputFromFlag = commandLineFlag{
 	isStringArray: true,
 }
 
+// outputFlag is deprecated since --output-from. It stays for scripts that use
+// it, and its values have no source run to record.
 var outputFlag = commandLineFlag{
 	name:          "output",
 	usage:         "Deprecated: use --output-from <step>=<run-id>. Output of a step skipped by --only, as <step>.<name>=<value>; repeatable",
@@ -677,6 +679,12 @@ func executeDAGRun(ctx *Context, d *ir.DAG, dagRunID string, opts runOptions) er
 	queuedRun := opts.workerID != "local"
 
 	as := ctx.runtimeStores()
+	if opts.workerID == "local" {
+		// A local run calls the gateway in its own process (Spec 094, "Local mode").
+		if ctx, err = withLocalAIGateway(ctx, as.SecretStore); err != nil {
+			return err
+		}
+	}
 	extraEnvs, err := prepareDAGTools(ctx, d)
 	if err != nil {
 		return err
@@ -745,14 +753,14 @@ func dispatchToCoordinatorAndWait(ctx *Context, d *ir.DAG, dagRunID string, opts
 	}()
 
 	logger.Info(ctx, "Dispatching DAG for distributed execution",
-		slog.Any("worker-selector", d.WorkerSelector),
+		slog.Any("worker-selector", d.DispatchWorkerSelector()),
 	)
 
 	taskOpts := []executor.TaskOption{
 		executor.WithBaseConfig(executor.ResolveBaseConfig(d.BaseConfigData, ctx.Config.Paths.BaseConfig), d.BaseConfigWorkspace),
 	}
-	if len(d.WorkerSelector) > 0 {
-		taskOpts = append(taskOpts, executor.WithWorkerSelector(d.WorkerSelector))
+	if selector := d.DispatchWorkerSelector(); len(selector) > 0 {
+		taskOpts = append(taskOpts, executor.WithWorkerSelector(selector))
 	}
 	if len(d.Labels) > 0 {
 		taskOpts = append(taskOpts, executor.WithLabels(strings.Join(d.Labels.Strings(), ",")))
@@ -788,6 +796,11 @@ func dispatchToCoordinatorAndWait(ctx *Context, d *ir.DAG, dagRunID string, opts
 	if err := coordinatorCli.Dispatch(signalAwareCtx, dispatch.DispatchRequest{Task: task}); err != nil {
 		if opts.seed != nil {
 			intake.MarkSeedFailed(ctx, ctx.Persistence.DAGRunRepository, opts.seed, err)
+		}
+		if providers := d.AgentProviders(); len(providers) > 0 {
+			// Spec 092, "Dispatch": only a process with no coordinator runs the agent here.
+			return fmt.Errorf("failed to dispatch task: the DAG needs the provider %q, so a run goes to an agent worker through the coordinator; set coordinator.enabled to false to run it on this host (development mode): %w",
+				providers[0], err)
 		}
 		return fmt.Errorf("failed to dispatch task: %w", err)
 	}

@@ -235,6 +235,10 @@ message HeartbeatRequest {
   WorkerStats stats = 3;
   string host = 4;            // Name of the machine the worker runs on
   MachineSample machine = 5;  // Unset until the worker samples its machine
+  // offline is the last heartbeat of a worker that stops. The coordinator
+  // removes the worker at once, so no dispatch counts on it. The checks of a
+  // heartbeat apply: only the pool of the worker ID can remove the worker.
+  bool offline = 6;
   // Capabilities of the worker, as in PollRequest.
   repeated string capabilities = 7;
 }
@@ -400,6 +404,7 @@ enum LogStreamType {
   LOG_STREAM_TYPE_STDOUT = 1;
   LOG_STREAM_TYPE_STDERR = 2;
   LOG_STREAM_TYPE_SCHEDULER = 3;  // Scheduler/DAG run log
+  LOG_STREAM_TYPE_AGENT_STREAM = 4;  // Raw stream of a CLI agent, stored next to the stdout log
 }
 
 // Response message for log streaming.
