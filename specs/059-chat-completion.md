@@ -7,8 +7,8 @@ Partially implemented.
 ## Scope
 
 This spec covers `chat.completion` request construction, response output,
-stream selection, model fallback, the `with.tools` agentic tool-calling
-loop, and structured output through `output_schema`, using a local
+stream selection, model fallback, the agentic tool-calling
+loop of `with.dags` and `with.tools`, and structured output through `output_schema`, using a local
 OpenAI-compatible endpoint. No external model service is required.
 
 Provider-specific parameters, timeout, abort, and UI-facing tool sub-DAG
@@ -36,10 +36,18 @@ single model does not activate fallback.
 
 ### Tool calling
 
-`with.tools` names other DAGs as callable functions. Each named DAG's
-declared parameters become the tool's JSON Schema (offered to the model as
-`tools` on every request), and its name becomes the tool name. A tool-calling
-request always uses a non-streaming call, regardless of `with.stream`.
+`with.dags` names other DAGs as callable functions. Each entry has a `name` and
+optional `params`. The list form of `tools` (a list
+of DAG names) is deprecated. Use the key `dags`. The list form stays valid in
+`with.tools` and in the `llm` block. Each name is an entry of `dags` with no
+params, and the tool name is the name of the loaded DAG. See
+[The list form of tools](090-agent-tools.md#the-list-form-of-tools-deprecated).
+Each named DAG's declared parameters become the tool's JSON Schema (offered to
+the model as `tools` on every request), and its name becomes the tool name.
+[Spec 090](090-agent-tools.md) defines the key `dags`, the tool map with the
+category `mcp`, and fixed inputs. A
+tool-calling request always uses a non-streaming call, regardless of
+`with.stream`.
 
 When the model's response includes tool calls, each one runs the
 corresponding DAG as a sub-DAG-run, passing the model's JSON arguments as
@@ -48,7 +56,7 @@ returned to the model as the tool result content, in a `tool` role message
 addressed to the tool call's ID. The loop then sends another request
 including that tool result, repeating until a response has no tool calls.
 
-A tool call naming a DAG outside `with.tools`, or whose sub-DAG-run itself
+A tool call naming a tool outside the catalog, or whose sub-DAG-run itself
 fails, is not fatal to the step: the result content reports the problem to
 the model (`tool "<name>" not found`, or the execution error), and the loop
 continues to request another response.
@@ -87,7 +95,7 @@ message without tool calls, followed by a user message stating why it was
 rejected. When the corrected answer is also unusable, that model has
 failed and the next `with.model` entry is tried.
 
-With `with.tools`, the tool DAGs are offered next to `respond`. A response
+With `with.dags`, the tool DAGs are offered next to `respond`. A response
 that calls `respond` ends the loop; other tool calls in that response do
 not run. Reaching `with.max_tool_iterations` without an answer fails that
 model, like an unusable answer: the next `with.model` entry starts over,
@@ -124,6 +132,66 @@ the images go with the one request and are not kept. A push-back resends
 the feedback without the files. `files` is refused in a DAG-level `llm`
 block, since it belongs with the prompt it goes with.
 
+## Keys and endpoints
+
+Status: Implemented. [Spec 094](094-ai-gateway.md) defines this section.
+
+The new method is the block `with.endpoint`. It names an endpoint of the AI page, a model and an
+optional effort. The administrator adds the key one time on that page. The key stays in the
+coordinator, and the step never reads it.
+
+```yaml
+steps:
+  - action: chat.completion
+    with:
+      endpoint:
+        name: cle1
+        model: claude-sonnet-4-6
+        effort: high
+      prompt: Summarize the supplied text.
+```
+
+The provider type comes from the endpoint, so `with.provider` is not needed. The key `name` and the key
+`model` are required. A value reference is valid in `model` and not valid in `name`. The key `effort`
+is optional. It is a literal, one of `low`, `medium`, `high`, `xhigh` and `max`. An `effort` has the same
+effect as `thinking: { enabled: true, effort: <effort> }`. The block is closed: an unknown key is a
+validation error. A value that is not a block is a validation error too.
+
+A step that needs a fallback uses the list form of `with.model`. Each entry of the list names its own
+`endpoint`, or it uses the old method with `provider`. An entry with neither is a validation error.
+The block has no list.
+
+The old method is deprecated. It stays valid and does not change. It uses the keys `provider`, `model`,
+`base_url`, `api_key_name` and `thinking`. The key is then in the environment of the step, and the call
+goes from the step process to the provider. Use the block `endpoint` in a new step.
+
+`dagu validate` prints one warning for each step that uses `provider`, `base_url` or `api_key_name` in
+`with` or in a row of a model list. The warning names each such key:
+
+```text
+Deprecated DAG syntax: steps[0].with.provider, steps[0].with.api_key_name: use with.endpoint, an endpoint of the AI page
+```
+
+The warning does not change the exit code. The loader gives no warning and does not change the old
+method. The Model node of the canvas marks a provider of the old method as deprecated.
+
+The keys `model`, `thinking`, `provider`, `base_url` and `api_key_name` of `with` contradict the block
+`endpoint`. Each one of these keys in the same `with` is a validation error. The same holds for `endpoint` with `api_key_name`, `base_url` or
+`provider` in the same model entry.
+
+The block `endpoint` is valid in `with`. The key `endpoint` is valid in an entry of a model list. Neither
+is valid in the key `llm` of a DAG, in an agent DAG, or in the `llm` block of another action.
+
+When the step starts, Dagu checks each endpoint of its models. A failed check fails the step before
+the first request, with the reason of Spec 094. Each model that names an endpoint sends its requests
+to a relay that exists for that attempt only. Streaming, tool calling, structured output and model
+fallback work as they do with the old method. A fallback entry that names another endpoint uses
+its own relay.
+
+The start check also looks for the model of each entry that has an endpoint in the models list of that
+endpoint. A model that the list lacks fails the step before the first request, with the reason
+`model_unknown`. A chat step has no model alias. See [Spec 093](093-ai-endpoints.md#use-in-a-step).
+
 ## Errors
 
 `dagu validate` rejects missing prompt/message input and a configured
@@ -139,12 +207,25 @@ error naming the last model and stating that no answer matched
 `output_schema`. The error contains no part of the rejected answers; the
 step's stderr receives each rejected answer with the reason.
 
+`dagu validate` also rejects the block `endpoint` with `api_key_name`, `base_url`, `provider`, `model` or
+`thinking` in the same `with`. The error is `key "endpoint" and key "<key>" contradict each other;
+<reason>`. The reason of `model` is `the block endpoint gives the model`, and the reason of `thinking`
+is `the block endpoint gives the effort`. It rejects `endpoint` with `api_key_name`, `base_url` or `provider` in the
+same model entry too. It rejects a value that is not a block, and a block with no `name` or no `model`.
+It rejects an unknown key of the block, and an `effort` that is not one of the five levels. The error names the key and
+the path. An entry of a model list with no `provider` and no `endpoint` gives the error
+`model[<n>].provider: required, unless the model names an endpoint`. `dagu validate` does not check that
+the endpoint exists, because it does not read the store.
+
 When the first fallback model rejects a request and the next succeeds,
 the step succeeds and writes the successful response. Exhausted fallback,
 provider-specific errors, and lifecycle failures are outside this
 conformance scope.
 
 ## Example
+
+The examples use the deprecated old method with a local endpoint, because it needs no AI page. Use the
+block `endpoint` in a new step.
 
 ```yaml
 steps:
@@ -214,8 +295,8 @@ steps:
       model: local-model
       base_url: http://localhost:8080
       prompt: What is the weather in Paris?
-      tools:
-        - get-weather
+      dags:
+        - name: get-weather
       max_tool_iterations: 5
 ---
 name: get-weather
