@@ -149,6 +149,14 @@ func WithScheduleTime(scheduleTime string) TaskOption {
 	}
 }
 
+// WithScheduleWindow sets the window the slot at the task's schedule time
+// owns.
+func WithScheduleWindow(window ir.ScheduleWindow) TaskOption {
+	return func(task *dispatch.DispatchTask) {
+		task.ScheduleWindow = window
+	}
+}
+
 // WithProfileName sets the runtime profile name for a dispatched task.
 func WithProfileName(profileName string) TaskOption {
 	return func(task *dispatch.DispatchTask) {
