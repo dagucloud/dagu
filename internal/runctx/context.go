@@ -19,6 +19,7 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/dispatch"
 	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/runtime/runstate"
+	"github.com/dagucloud/dagu/v2/internal/runtime/untrusted"
 )
 
 const runtimeProfileOrigin = "runtime_profile"
@@ -54,6 +55,14 @@ type Context struct {
 	LogWriterFactory     LogWriterFactory     // For remote log streaming (nil = use local files)
 	DefaultExecMode      config.ExecutionMode // Server-level default execution mode (local or distributed)
 	NoReuse              bool
+	// RunSecrets holds the values of every secret of the run, for masking. The
+	// scope of a step can hold fewer secrets (Spec 092).
+	RunSecrets *RunSecrets
+	// RunWorkDir is the work directory of the run (DAG_RUN_WORK_DIR). Unlike
+	// the variable, a step cannot change it.
+	RunWorkDir string
+	// StepGate lets an isolated untrusted step hold the run alone.
+	StepGate *StepGate
 }
 
 // LogWriterFactory creates log writers for step stdout/stderr.
@@ -62,7 +71,8 @@ type Context struct {
 // - Remote streaming to coordinator
 type LogWriterFactory interface {
 	// NewStepWriter creates a writer for a step's log output.
-	// stepName identifies the step, streamType should be StreamTypeStdout or StreamTypeStderr.
+	// stepName identifies the step. streamType is StreamTypeStdout, StreamTypeStderr
+	// or StreamTypeAgentStream.
 	NewStepWriter(ctx context.Context, stepName string, streamType int) io.WriteCloser
 }
 
@@ -72,6 +82,9 @@ const (
 	StreamTypeStdout = 1
 	// StreamTypeStderr indicates stderr stream
 	StreamTypeStderr = 2
+	// StreamTypeAgentStream indicates the raw stream of a CLI agent. The log
+	// writer stores it next to the stdout log of the step.
+	StreamTypeAgentStream = 3
 )
 
 // UserEnvsMap returns only user-defined environment variables as a map,
@@ -307,6 +320,14 @@ func WithRuntimeProfileValues(defaultEnvs, defaultSecrets, selectedEnvs, selecte
 	}
 }
 
+// WithRunSecrets sets the holder of the secret values of the run. NewContext
+// adds the secrets of the scope to it.
+func WithRunSecrets(secrets *RunSecrets) ContextOption {
+	return func(o *contextOptions) {
+		o.RunSecrets = secrets
+	}
+}
+
 // WithLogEncoding sets the log file character encoding.
 func WithLogEncoding(charset string) ContextOption {
 	return func(o *contextOptions) {
@@ -470,6 +491,11 @@ func NewContext(
 	if len(secretEnvs) > 0 {
 		scope = scope.WithEntries(secretEnvs, cmnvalue.EnvSourceSecret)
 	}
+	// In a run with an untrusted step, git opens a bare repository only when
+	// the command names it (Spec 092).
+	if dag.HasUntrustedStep() {
+		scope = scope.WithEntries(untrusted.GitSafetyEntries(scope.Get), cmnvalue.EnvSourceDAGEnv)
+	}
 
 	// Fields the caller cannot set through an option, because they are derived
 	// from the required arguments or from the environment layering above.
@@ -478,6 +504,12 @@ func NewContext(
 	options.Shell = dag.Shell
 	options.BaseEnv = config.GetBaseEnv(ctx)
 	options.EnvScope = scope
+	options.RunWorkDir = options.workDir
+	options.StepGate = NewStepGate()
+	if options.RunSecrets == nil {
+		options.RunSecrets = NewRunSecrets(nil, nil, nil)
+	}
+	options.RunSecrets.AddMap(scope.AllSecrets())
 
 	return context.WithValue(ctx, dagCtxKey{}, options.Context)
 }

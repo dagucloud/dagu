@@ -7306,6 +7306,7 @@
         {
           "type": "string",
           "enum": [
+            "agent.run",
             "archive.create",
             "archive.extract",
             "archive.list",

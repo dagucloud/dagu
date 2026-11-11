@@ -159,6 +159,59 @@ func (w *referenceFieldWalker) walkStep(path string, step ir.Step) {
 	w.walkContainer(path+".container", step.Container, base)
 	w.walkLLM(path+".llm", step.LLM, base)
 	w.walkMessages(path+".messages", step.Messages, base)
+	w.walkAgentRun(path, step.Agent, base)
+}
+
+// walkAgentRun adds the fields of an agent.run step that no other walker
+// reaches: the prompt, the system text, and the fields of the tool entries.
+func (w *referenceFieldWalker) walkAgentRun(path string, agent *ir.AgentRun, base ReferenceField) {
+	if agent == nil {
+		return
+	}
+	promptPath := path + ".with.prompt"
+	w.add(base.withPathValue(promptPath, agent.Prompt).withField(cmnvalue.WorkflowField(promptPath)))
+	systemPath := path + ".with.system"
+	w.add(base.withPathValue(systemPath, agent.System).withField(cmnvalue.WorkflowField(systemPath)))
+	if agent.CLI != nil {
+		w.walkToolEntries(path+".with.dags", path+".with.tools", agent.CLI.Tools, base)
+	}
+}
+
+// walkToolEntries adds the fields of the tool entries that the step resolves
+// when it starts: the fixed inputs of a DAG entry, and the URL and the headers
+// of an inline mcp entry. dagsPath is the path of the key dags, and toolsPath is
+// the path of the key tools. The index of an entry counts in its category.
+func (w *referenceFieldWalker) walkToolEntries(dagsPath, toolsPath string, entries []ir.ToolEntry, base ReferenceField) {
+	dags, mcp := 0, 0
+	for _, entry := range entries {
+		switch entry.Kind {
+		case ir.ToolEntryDAG:
+			for _, name := range sortedKeys(entry.Params) {
+				text, ok := entry.Params[name].Value.(string)
+				if !ok || entry.Params[name].FromAI {
+					continue
+				}
+				fieldPath := fmt.Sprintf("%s[%d].params.%s", dagsPath, dags, name)
+				w.add(base.withPathValue(fieldPath, text).withField(cmnvalue.WorkflowField(fieldPath)))
+			}
+			dags++
+		case ir.ToolEntryMCP:
+			if entry.MCP == nil {
+				continue
+			}
+			entryPath := fmt.Sprintf("%s.mcp[%d]", toolsPath, mcp)
+			if !entry.IsNamedMCP() {
+				w.add(base.withPathValue(entryPath+".url", entry.MCP.URL).withField(cmnvalue.WorkflowField(entryPath + ".url")))
+			}
+			for _, key := range sortedKeys(entry.MCP.Headers) {
+				headerPath := entryPath + ".headers." + key
+				w.add(base.withPathValue(headerPath, entry.MCP.Headers[key]).withField(cmnvalue.WorkflowField(headerPath)))
+			}
+			mcp++
+		case ir.ToolEntryBuiltin:
+			// The builtin entry holds command patterns, which Dagu does not resolve.
+		}
+	}
 }
 
 func (w *referenceFieldWalker) walkStepCommands(path string, step ir.Step, base ReferenceField, command cmnvalue.CommandContext) {
@@ -239,6 +292,7 @@ func (w *referenceFieldWalker) walkLLM(path string, llm *ir.LLMConfig, base Refe
 		w.add(base.withPathValue(modelPath+".name", model.Name).withField(cmnvalue.ExecutorConfigField(modelPath + ".name")))
 		w.add(base.withPathValue(modelPath+".base_url", model.BaseURL).withField(cmnvalue.ExecutorConfigField(modelPath + ".base_url")))
 	}
+	w.walkToolEntries(path+".dags", path+".tools", llm.ToolEntries, base)
 }
 
 func (w *referenceFieldWalker) walkMessages(path string, messages []ir.PromptMessage, base ReferenceField) {

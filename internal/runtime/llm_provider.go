@@ -52,10 +52,22 @@ func NewLLMProvider(ctx context.Context, cfg *ir.LLMConfig) (llmpkg.Provider, er
 		baseURL = llmpkg.DefaultBaseURL(providerType)
 	}
 
+	return newLLMProvider(providerType, apiKey, baseURL, cfg.ProviderOrder)
+}
+
+// NewRelayProvider builds the provider of a model that uses an AI endpoint (Spec
+// 094). The base URL is the address of the relay, and the key is the secret of
+// the relay. The provider sends no other credential: the coordinator adds the key
+// of the endpoint.
+func NewRelayProvider(providerType llmpkg.ProviderType, baseURL, secret string) (llmpkg.Provider, error) {
+	return newLLMProvider(providerType, secret, baseURL, nil)
+}
+
+func newLLMProvider(providerType llmpkg.ProviderType, apiKey, baseURL string, providerOrder []string) (llmpkg.Provider, error) {
 	provider, err := llmpkg.NewProvider(providerType, llmpkg.Config{
 		APIKey:          apiKey,
 		BaseURL:         baseURL,
-		ProviderOrder:   cfg.ProviderOrder,
+		ProviderOrder:   providerOrder,
 		Timeout:         5 * time.Minute,
 		MaxRetries:      3,
 		InitialInterval: 1 * time.Second,
@@ -72,16 +84,21 @@ func NewLLMProvider(ctx context.Context, cfg *ir.LLMConfig) (llmpkg.Provider, er
 // ResolveModels evaluates variable substitution in the provider and model name of
 // each entry. base_url is resolved later, when the provider is built, once shared
 // config has been merged in; api_key_name is not value-resolved at all, since it
-// names an environment variable the provider construction reads.
+// names an environment variable the provider construction reads. An entry with an
+// endpoint has no provider: the endpoint gives the provider type.
 func ResolveModels(ctx context.Context, models []ir.ModelEntry) ([]ir.ModelEntry, error) {
 	resolved := make([]ir.ModelEntry, len(models))
 	for i, model := range models {
-		provider, err := ResolveString(ctx, model.Provider, cmnvalue.WorkflowField("llm.provider"))
-		if err != nil {
-			return nil, fmt.Errorf("failed to evaluate provider: %w", err)
-		}
-		if provider == "" {
-			return nil, emptyAfterResolution("provider", model.Provider)
+		var provider string
+		if model.Endpoint == "" {
+			var err error
+			provider, err = ResolveString(ctx, model.Provider, cmnvalue.WorkflowField("llm.provider"))
+			if err != nil {
+				return nil, fmt.Errorf("failed to evaluate provider: %w", err)
+			}
+			if provider == "" {
+				return nil, emptyAfterResolution("provider", model.Provider)
+			}
 		}
 		name, err := ResolveString(ctx, model.Name, cmnvalue.WorkflowField("llm.model"))
 		if err != nil {
@@ -115,7 +132,9 @@ func EffectiveLLMConfig(cfg *ir.LLMConfig, model ir.ModelEntry) *ir.LLMConfig {
 		System:                cfg.System,
 		Stream:                cfg.Stream,
 		Thinking:              cfg.Thinking,
-		Tools:                 cfg.Tools,
+		ToolEntries:           cfg.ToolEntries,
+		MaxTools:              cfg.MaxTools,
+		ToolResultMaxBytes:    cfg.ToolResultMaxBytes,
 		MaxToolIterations:     cfg.MaxToolIterations,
 		MaxContextTokens:      cfg.MaxContextTokens,
 		ObservationMaxBytes:   cfg.ObservationMaxBytes,
@@ -127,6 +146,7 @@ func EffectiveLLMConfig(cfg *ir.LLMConfig, model ir.ModelEntry) *ir.LLMConfig {
 		TopP:                  coalescePtr(model.TopP, cfg.TopP),
 		BaseURL:               coalesceStr(model.BaseURL, cfg.BaseURL),
 		APIKeyName:            coalesceStr(model.APIKeyName, cfg.APIKeyName),
+		Endpoint:              model.Endpoint,
 		ProviderOrder:         coalesceSlice(model.ProviderOrder, cfg.ProviderOrder),
 	}
 }
@@ -158,18 +178,9 @@ func coalesceSlice[T any](override, fallback []T) []T {
 // secret itself; only the copy sent to the provider is masked, and the run's own
 // transcript keeps the resolved text.
 func MaskSecretsForProvider(ctx context.Context, msgs []ir.LLMMessage) []ir.LLMMessage {
-	rCtx := GetDAGContext(ctx)
-	if rCtx.EnvScope == nil {
+	envPairs := GetDAGContext(ctx).SecretsForMasking()
+	if len(envPairs) == 0 {
 		return msgs
-	}
-	secrets := rCtx.EnvScope.AllSecrets()
-	if len(secrets) == 0 {
-		return msgs
-	}
-
-	envPairs := make([]string, 0, len(secrets))
-	for key, value := range secrets {
-		envPairs = append(envPairs, key+"="+value)
 	}
 	masker := masking.NewMasker(masking.SourcedEnvVars{Secrets: envPairs})
 

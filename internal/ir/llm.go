@@ -3,7 +3,10 @@
 
 package ir
 
-import "fmt"
+import (
+	"fmt"
+	"slices"
+)
 
 // LLMRole represents the role of a message sender in a session.
 type LLMRole string
@@ -90,6 +93,10 @@ type ModelEntry struct {
 	BaseURL string `json:"baseURL,omitempty"`
 	// APIKeyName overrides the API key environment variable for this model.
 	APIKeyName string `json:"apiKeyName,omitempty"`
+	// Endpoint is the name of the AI endpoint of this model (Spec 094). An entry
+	// with an endpoint has no provider, base URL or key name: the endpoint gives
+	// them.
+	Endpoint string `json:"endpoint,omitempty"`
 	// ProviderOrder overrides the shared providerOrder for this model.
 	ProviderOrder []string `json:"providerOrder,omitempty"`
 }
@@ -119,6 +126,9 @@ type LLMConfig struct {
 	// APIKeyName is the name of the environment variable containing the API key.
 	// If not specified, the default environment variable for the provider is used.
 	APIKeyName string `json:"apiKeyName,omitempty"`
+	// Endpoint is the name of the AI endpoint of the step (Spec 094). The step then
+	// has one model and no model list. Only a chat.completion step has it.
+	Endpoint string `json:"endpoint,omitempty"`
 	// ProviderOrder names the upstream providers OpenRouter tries first, in
 	// order. Only the openrouter provider accepts it.
 	ProviderOrder []string `json:"providerOrder,omitempty"`
@@ -129,10 +139,18 @@ type LLMConfig struct {
 	// Provider-specific: Anthropic uses budget_tokens, OpenAI uses reasoning.effort,
 	// Gemini uses thinkingLevel/thinkingBudget, OpenRouter normalizes across providers.
 	Thinking *ThinkingConfig `json:"thinking,omitempty"`
-	// Tools is a list of DAG names to use as callable tools.
-	// Tool names, descriptions, and parameters are auto-discovered from DAG definitions.
-	// Example: ["search-tool", "analyzer-tool"]
-	Tools []string `json:"tools,omitempty"`
+	// ToolEntries lists the tool entries (Spec 090). The DAG entries of the key
+	// dags come first, then the mcp entries.
+	ToolEntries []ToolEntry `json:"toolEntries,omitempty"`
+	// Skills lists the skills offered to the model, with their files already
+	// read.
+	Skills []SkillEntry `json:"skills,omitempty"`
+	// MaxTools limits the number of tools of the effective catalog.
+	// Default is DefaultMaxTools.
+	MaxTools *int `json:"maxTools,omitempty"`
+	// ToolResultMaxBytes limits one tool result sent to the model. Zero
+	// disables the limit. Default is DefaultToolResultMaxBytes.
+	ToolResultMaxBytes *int `json:"toolResultMaxBytes,omitempty"`
 	// MaxToolIterations limits the number of tool calling rounds.
 	// Default is 10 if not specified.
 	MaxToolIterations *int `json:"maxToolIterations,omitempty"`
@@ -189,9 +207,39 @@ func (c *LLMConfig) GetMaxToolIterations() int {
 	return *c.MaxToolIterations
 }
 
+// Default limits of the tool catalog of a chat step.
+const (
+	// DefaultMaxTools is the default size limit of the effective catalog.
+	DefaultMaxTools = 64
+	// DefaultToolResultMaxBytes is the default size limit of one tool result.
+	DefaultToolResultMaxBytes = 524288
+)
+
 // HasTools returns true if tools are configured.
 func (c *LLMConfig) HasTools() bool {
-	return len(c.Tools) > 0
+	return len(c.ToolEntries) > 0
+}
+
+// HasSkills returns true if skills are configured.
+func (c *LLMConfig) HasSkills() bool {
+	return len(c.Skills) > 0
+}
+
+// GetMaxTools returns the size limit of the effective catalog.
+func (c *LLMConfig) GetMaxTools() int {
+	if c.MaxTools == nil {
+		return DefaultMaxTools
+	}
+	return *c.MaxTools
+}
+
+// GetToolResultMaxBytes returns the size limit of one tool result. Zero means
+// no limit.
+func (c *LLMConfig) GetToolResultMaxBytes() int {
+	if c.ToolResultMaxBytes == nil {
+		return DefaultToolResultMaxBytes
+	}
+	return *c.ToolResultMaxBytes
 }
 
 // GetModels returns the ordered list of models to try.
@@ -204,7 +252,20 @@ func (c *LLMConfig) GetModels() []ModelEntry {
 	return []ModelEntry{{
 		Provider: c.Provider,
 		Name:     c.Model,
+		Endpoint: c.Endpoint,
 	}}
+}
+
+// Endpoints returns the names of the AI endpoints that the models use, in the
+// order of the models, with no repeat.
+func (c *LLMConfig) Endpoints() []string {
+	var names []string
+	for _, model := range c.GetModels() {
+		if model.Endpoint != "" && !slices.Contains(names, model.Endpoint) {
+			names = append(names, model.Endpoint)
+		}
+	}
+	return names
 }
 
 // HasFallback returns true if there are multiple models configured.

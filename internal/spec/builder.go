@@ -24,6 +24,9 @@ type buildContext struct {
 	index int
 
 	customStepTypes *customStepTypeRegistry
+	// sideFiles records the skill files that the build reads.
+	// It is shared by every document of one file.
+	sideFiles *sideFileCollector
 	// baseDAG contains the built base-config DAG for the current document.
 	// It is used while building child handlers and steps so DAG-level defaults
 	// inherited from base config are visible during executor inference.
@@ -302,6 +305,10 @@ func parseSecretRefs(ctx buildContext, d *dag) ([]secretref.Ref, error) {
 		}
 		if hasRef && !secretRefPathPattern.MatchString(def.Ref) {
 			return nil, ir.NewValidationError("secrets", def, fmt.Errorf("secret %q: registry ref must be a slash-separated lowercase slug path", def.Name))
+		}
+
+		if hasRef && secretref.IsReserved(def.Ref) {
+			return nil, ir.NewValidationError("secrets", def, fmt.Errorf("secret %q: registry ref %q is reserved for the AI feature: no registry ref may start with %q", def.Name, def.Ref, secretref.ReservedPrefix))
 		}
 
 		secrets = append(secrets, secretref.Ref{

@@ -538,6 +538,7 @@ func loadDAGsFromData(ctx buildContext, data []byte, filePath string, base *base
 		}
 	}
 
+	ctx.sideFiles = &sideFileCollector{}
 	dags := make([]*ir.DAG, 0, len(docs))
 	for _, doc := range docs {
 		docBase := fileBase
@@ -559,6 +560,14 @@ func loadDAGsFromData(ctx buildContext, data []byte, filePath string, base *base
 	}
 	if err := validateUniqueNames(dags); err != nil {
 		return nil, err
+	}
+	sideFiles := ctx.sideFiles.list()
+	skillRefs := ctx.sideFiles.skillRefs()
+	skillWarnings := ctx.sideFiles.warningList()
+	for _, dag := range dags {
+		dag.SideFiles = sideFiles
+		dag.SkillRefs = skillRefs
+		dag.BuildWarnings = append(dag.BuildWarnings, skillWarnings...)
 	}
 	return dags, nil
 }
@@ -1272,6 +1281,18 @@ func extractRawDefaults(cm map[string]any) map[string]any {
 // types. It converts raw map[string]any values to the appropriate typed values.
 func typedUnionDecodeHook() mapstructure.DecodeHookFunc {
 	return func(_ reflect.Type, to reflect.Type, data any) (any, error) {
+		if to == reflect.TypeFor[*chatEndpoint]() || to == reflect.TypeFor[chatEndpoint]() {
+			switch data.(type) {
+			case *chatEndpoint, chatEndpoint:
+				return data, nil
+			}
+			return nil, errLLMEndpoint
+		}
+		if to == reflect.TypeFor[skillEntryList]() && data != nil {
+			if _, ok := data.([]any); !ok {
+				return nil, skillsListError(data)
+			}
+		}
 		if to == reflect.TypeFor[toolsConfig]() {
 			return decodeViaYAML[toolsConfig](data)
 		}

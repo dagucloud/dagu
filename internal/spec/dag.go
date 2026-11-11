@@ -1192,6 +1192,11 @@ func (s *dagBuildState) validateResult() {
 		if err := validateAgent(s.result); err != nil {
 			s.errs = append(s.errs, err)
 		}
+		s.errs = append(s.errs, validateStepTrust(s.result)...)
+
+		if err := validateAgentRouting(s.result); err != nil {
+			s.errs = append(s.errs, err)
+		}
 	}
 
 	if s.result.RestartPolicy.Enabled() && s.result.RestartWait < time.Second {
@@ -3091,12 +3096,17 @@ func buildS3(_ buildContext, d *dag) (*ir.S3Config, error) {
 	}, nil
 }
 
-func buildLLM(_ buildContext, d *dag) (*ir.LLMConfig, error) {
+func buildLLM(ctx buildContext, d *dag) (*ir.LLMConfig, error) {
 	if d.LLM == nil {
 		return nil, nil
 	}
 
 	cfg := d.LLM
+
+	// An endpoint belongs to a chat.completion step, not to the DAG.
+	if err := rejectLLMEndpoint("llm", cfg); err != nil {
+		return nil, err
+	}
 
 	// Validate provider if specified (optional at DAG level)
 	if err := validateLLMProvider(cfg.Provider); err != nil {
@@ -3164,20 +3174,39 @@ func buildLLM(_ buildContext, d *dag) (*ir.LLMConfig, error) {
 		return nil, err
 	}
 
+	tools, err := parseToolMapValue(cfg.DAGs, cfg.Tools, "llm")
+	if err != nil {
+		return nil, err
+	}
+	toolEntries, err := buildToolEntries(tools)
+	if err != nil {
+		return nil, err
+	}
+	skills, err := parseSkillEntries(ctx, []any(cfg.Skills), "llm.skills")
+	if err != nil {
+		return nil, err
+	}
+	if err := validateToolLimits(cfg); err != nil {
+		return nil, err
+	}
+
 	return &ir.LLMConfig{
-		Provider:    cfg.Provider,
-		Model:       modelString,
-		Models:      models,
-		System:      cfg.System,
-		Temperature: cfg.Temperature,
-		MaxTokens:   cfg.MaxTokens,
-		TopP:        cfg.TopP,
-		BaseURL:     cfg.BaseURL,
-		APIKeyName:  cfg.APIKeyName,
-		Stream:      cfg.Stream,
-		Thinking:    thinking,
-		Tools:       cfg.Tools,
-		WebSearch:   buildWebSearchConfig(cfg.WebSearch),
+		Provider:           cfg.Provider,
+		Model:              modelString,
+		Models:             models,
+		System:             cfg.System,
+		Temperature:        cfg.Temperature,
+		MaxTokens:          cfg.MaxTokens,
+		TopP:               cfg.TopP,
+		BaseURL:            cfg.BaseURL,
+		APIKeyName:         cfg.APIKeyName,
+		Stream:             cfg.Stream,
+		Thinking:           thinking,
+		ToolEntries:        toolEntries,
+		Skills:             skills,
+		MaxTools:           cfg.MaxTools,
+		ToolResultMaxBytes: cfg.ToolResultMaxBytes,
+		WebSearch:          buildWebSearchConfig(cfg.WebSearch),
 
 		ProviderOrder:         cfg.ProviderOrder,
 		MaxToolIterations:     cfg.MaxToolIterations,
