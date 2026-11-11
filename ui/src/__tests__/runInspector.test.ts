@@ -36,6 +36,9 @@ function openInspector(
 ) {
   const requests: Message[] = [];
   const notifications: Message[] = [];
+  // The content's height, which resize changes, and the observers it wakes.
+  let contentHeight = CONTENT_HEIGHT;
+  const observers: (() => void)[] = [];
   const host = {
     postMessage(message: Message) {
       if (message.id === undefined && message.method) {
@@ -58,6 +61,9 @@ function openInspector(
       Object.defineProperty(window, 'parent', { value: host });
       Object.defineProperty(window, 'ResizeObserver', {
         value: class {
+          constructor(callback: () => void) {
+            observers.push(callback);
+          }
           observe() {}
           disconnect() {}
         },
@@ -71,7 +77,7 @@ function openInspector(
           value(this: HTMLElement) {
             const height =
               this.style.height === 'max-content'
-                ? CONTENT_HEIGHT
+                ? contentHeight
                 : FRAME_HEIGHT;
             return { height, width: 600, top: 0, left: 0, bottom: height };
           },
@@ -92,6 +98,11 @@ function openInspector(
 
   return {
     requests,
+    /** Changes the content's height, as the browser reports a resize. */
+    resize: (height: number) => {
+      contentHeight = height;
+      for (const observe of observers) observe();
+    },
     /** The heights the inspector asked the host to give its frame. */
     heights: () =>
       notifications
@@ -426,6 +437,19 @@ describe('run inspector', () => {
       expect(inspector.heights()).toContain(CONTENT_HEIGHT)
     );
     expect(inspector.heights()).not.toContain(FRAME_HEIGHT);
+  });
+
+  // Content that grows and then shrinks, as when a run's logs open and a
+  // shorter result replaces them, takes the frame down with it.
+  it('shrinks the frame when the content does', async () => {
+    const inspector = openInspector({ serverTools: {} });
+    await waitForInit(inspector);
+    const lastHeight = () => inspector.heights().slice(-1)[0];
+
+    inspector.resize(640);
+    await vi.waitFor(() => expect(lastHeight()).toBe(640));
+    inspector.resize(CONTENT_HEIGHT);
+    await vi.waitFor(() => expect(lastHeight()).toBe(CONTENT_HEIGHT));
   });
 
   it('says so when a read returns no data', async () => {
