@@ -245,6 +245,11 @@ func remoteRunStart(ctx *Context, args []string) error {
 		if len(args) != 1 || ctx.Command.Flags().Changed("params") || ctx.Command.ArgsLenAtDash() != -1 || stdinParamsRequested(ctx) {
 			return fmt.Errorf("parameters cannot be provided when using --from-run-id")
 		}
+		// A remote rerun goes through reschedule, which keeps the historic
+		// run's slot and cannot carry another.
+		if ctx.Command.Flags().Changed(scheduledAtFlag.name) {
+			return fmt.Errorf("--%s cannot be combined with --from-run-id in a remote context", scheduledAtFlag.name)
+		}
 		dag, err := remoteResolveDAG(ctx, args[0])
 		if err != nil {
 			return err
@@ -303,6 +308,10 @@ func remoteRunStart(ctx *Context, args []string) error {
 	if err != nil {
 		return err
 	}
+	scheduledAt, err := ctx.StringParam("scheduled-at")
+	if err != nil {
+		return err
+	}
 	resp, err := ctx.Remote.startDAG(ctx, dag.FileName, api.ExecuteDAGJSONBody{
 		DagName:          stringPtrOrNil(nameOverride),
 		DagRunId:         stringPtrOrNil(runID),
@@ -314,10 +323,12 @@ func remoteRunStart(ctx *Context, args []string) error {
 		OutputsFromRuns:  outputsFromRuns,
 		Outputs:          outputs,
 		WorkerSelector:   workerSelector,
+		ScheduleTime:     stringPtrOrNil(scheduledAt),
 	})
 	if err != nil {
 		return err
 	}
+	printRemoteWarnings(ctx, resp.Warnings)
 	fmt.Println(resp.DagRunId)
 	return nil
 }
@@ -354,6 +365,10 @@ func remoteRunEnqueue(ctx *Context, args []string) error {
 	if err != nil {
 		return err
 	}
+	scheduledAt, err := ctx.StringParam("scheduled-at")
+	if err != nil {
+		return err
+	}
 	resp, err := ctx.Remote.enqueueDAG(ctx, dag.FileName, api.EnqueueDAGDAGRunJSONBody{
 		DagName:        stringPtrOrNil(nameOverride),
 		DagRunId:       stringPtrOrNil(runID),
@@ -362,12 +377,24 @@ func remoteRunEnqueue(ctx *Context, args []string) error {
 		Labels:         labels,
 		NoReuse:        &noReuse,
 		WorkerSelector: workerSelector,
+		ScheduleTime:   stringPtrOrNil(scheduledAt),
 	})
 	if err != nil {
 		return err
 	}
+	printRemoteWarnings(ctx, resp.Warnings)
 	fmt.Println(resp.DagRunId)
 	return nil
+}
+
+// printRemoteWarnings prints the warnings a server returned to stderr.
+func printRemoteWarnings(ctx *Context, warnings *[]string) {
+	if warnings == nil {
+		return
+	}
+	for _, warning := range *warnings {
+		_, _ = fmt.Fprintf(ctx.Command.ErrOrStderr(), "Warning: %s\n", warning)
+	}
 }
 
 func remoteRunStatus(ctx *Context, args []string) error {
@@ -494,6 +521,11 @@ func remoteRunRetry(ctx *Context, args []string) error {
 }
 
 func remoteRunRestart(ctx *Context, args []string) error {
+	for _, flag := range []string{scheduleTimeFlag.name, scheduledAtFlag.name} {
+		if ctx.Command.Flags().Changed(flag) {
+			return fmt.Errorf("--%s is only supported in the local context", flag)
+		}
+	}
 	dag, err := remoteResolveDAG(ctx, args[0])
 	if err != nil {
 		return err

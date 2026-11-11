@@ -4,6 +4,7 @@
 package cmd
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -314,6 +315,69 @@ func TestRemoteStartSendsSteps(t *testing.T) {
 	assert.Equal(t, map[string]string{"extract": "run-9"}, *body.OutputsFromRuns)
 	require.NotNil(t, body.Outputs)
 	assert.Equal(t, map[string]map[string]string{"transform": {"rows": "3"}}, *body.Outputs)
+}
+
+// The server resolves the slot, so the CLI sends --scheduled-at as given and
+// prints the warnings the server returns.
+func TestRemoteStartSendsScheduledAt(t *testing.T) {
+	t.Parallel()
+
+	bodies := make(chan api.ExecuteDAGJSONBody, 1)
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		if r.Method == http.MethodGet {
+			_, _ = w.Write([]byte(`{"dag":{"name":"etl"}}`))
+			return
+		}
+		var body api.ExecuteDAGJSONBody
+		require.NoError(t, json.NewDecoder(r.Body).Decode(&body))
+		bodies <- body
+		_, _ = w.Write([]byte(`{"dagRunId":"run-1","warnings":["off schedule"]}`))
+	}))
+	defer server.Close()
+
+	command := &cobra.Command{Use: "start"}
+	initFlags(command, startFlags...)
+	require.NoError(t, command.Flags().Set("scheduled-at", "2026-11-09"))
+	var stderr bytes.Buffer
+	command.SetErr(&stderr)
+	ctx := &Context{
+		Context: context.Background(),
+		Command: command,
+		Remote:  &remoteClient{baseURL: server.URL, client: server.Client()},
+	}
+
+	require.NoError(t, remoteRunStart(ctx, []string{"etl"}))
+
+	body := <-bodies
+	require.NotNil(t, body.ScheduleTime)
+	assert.Equal(t, "2026-11-09", *body.ScheduleTime)
+	assert.Equal(t, "Warning: off schedule\n", stderr.String())
+}
+
+func TestRemoteRerunRejectsScheduledAt(t *testing.T) {
+	t.Parallel()
+
+	command := &cobra.Command{Use: "start"}
+	initFlags(command, startFlags...)
+	require.NoError(t, command.Flags().Set("from-run-id", "run-1"))
+	require.NoError(t, command.Flags().Set("scheduled-at", "latest"))
+	ctx := &Context{Context: context.Background(), Command: command}
+
+	err := remoteRunStart(ctx, []string{"etl"})
+	require.EqualError(t, err, "--scheduled-at cannot be combined with --from-run-id in a remote context")
+}
+
+func TestRemoteRestartRejectsScheduledAt(t *testing.T) {
+	t.Parallel()
+
+	command := &cobra.Command{Use: "restart"}
+	initFlags(command, restartFlags...)
+	require.NoError(t, command.Flags().Set("scheduled-at", "latest"))
+	ctx := &Context{Context: context.Background(), Command: command}
+
+	err := remoteRunRestart(ctx, []string{"etl"})
+	require.EqualError(t, err, "--scheduled-at is only supported in the local context")
 }
 
 // These cases replace process stdin and must remain sequential.
