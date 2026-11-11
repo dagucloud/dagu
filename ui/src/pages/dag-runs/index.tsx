@@ -757,9 +757,12 @@ function DAGRuns() {
   );
 
   // A service DAG restarts without end, so its runs would fill an unfiltered
-  // list. A search by name, run ID or status shows them.
+  // list. A search by name, run ID, status or labels shows them.
   const hideServiceDAGRuns =
-    !apiSearchText && !apiDagRunId && apiStatus === 'all';
+    !apiSearchText &&
+    !apiDagRunId &&
+    apiStatus === 'all' &&
+    apiLabels.length === 0;
   const dagRunQuery = React.useMemo(
     () => ({
       remoteNode: appBarContext.selectedRemoteNode || 'local',

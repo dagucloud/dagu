@@ -304,7 +304,7 @@ describe('DAGRuns page', () => {
     expect(screen.queryByRole('region', { name: 'Service DAGs' })).toBeNull();
   });
 
-  it.each(['name=worker', 'dagRunId=run-1', 'status=2'])(
+  it.each(['name=worker', 'dagRunId=run-1', 'status=2', 'labels=team%3Ddata'])(
     'shows the runs of service DAGs when the list is filtered by %s',
     (filter) => {
       serviceDAGsState.count = 2;
