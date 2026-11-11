@@ -245,10 +245,9 @@ func remoteRunStart(ctx *Context, args []string) error {
 		if len(args) != 1 || ctx.Command.Flags().Changed("params") || ctx.Command.ArgsLenAtDash() != -1 || stdinParamsRequested(ctx) {
 			return fmt.Errorf("parameters cannot be provided when using --from-run-id")
 		}
-		// A remote rerun goes through reschedule, which keeps the historic
-		// run's slot and cannot carry another.
-		if ctx.Command.Flags().Changed(scheduledAtFlag.name) {
-			return fmt.Errorf("--%s cannot be combined with --from-run-id in a remote context", scheduledAtFlag.name)
+		scheduledAt, err := ctx.StringParam(scheduledAtFlag.name)
+		if err != nil {
+			return err
 		}
 		dag, err := remoteResolveDAG(ctx, args[0])
 		if err != nil {
@@ -256,8 +255,9 @@ func remoteRunStart(ctx *Context, args []string) error {
 		}
 		nameOverride, _ := ctx.StringParam("name")
 		resp, err := ctx.Remote.rescheduleDAGRun(ctx, dag.Dag.Name, fromRunID, api.RescheduleDAGRunJSONBody{
-			DagName:  stringPtrOrNil(nameOverride),
-			DagRunId: nil,
+			DagName:      stringPtrOrNil(nameOverride),
+			DagRunId:     nil,
+			ScheduleTime: stringPtrOrNil(scheduledAt),
 		})
 		if err != nil {
 			return err
