@@ -178,12 +178,13 @@ schedule: "CRON_TZ=Asia/Tokyo 0 2 * * *"
 calendar: jp-holidays
 
 dates:
-  target_day:     { shift: -1d }
-  target_compact: { shift: -1d, format: date_compact }
-  month_start:    { shift: [-1d, month_start] }
-  prev_month_end: { shift: [month_start, -1d] }
-  last_open_day:  { shift: -1bd }
+  target_day:     -1d
+  target_compact: { from: target_day, format: date_compact }
+  month_start:    [-1d, month_start]
+  prev_month_end: [month_start, -1d]
+  last_open_day:  -1bd
   window_start:   { from: interval_start, format: rfc3339 }
+  window_days:    { each: 1d }
   loaded_at:      { format: "%Y/%m/%d %H:%M", timezone: UTC }
 
 steps:
@@ -192,14 +193,24 @@ steps:
 ```
 
 For the run fired at 2026-11-10 02:00 in Tokyo, `target_day` is `2026-11-09`,
-`month_start` is `2026-11-01`, and `prev_month_end` is `2026-10-31`.
+`month_start` is `2026-11-01`, `prev_month_end` is `2026-10-31`, and
+`window_days` is `["2026-11-09"]`.
+
+Monday's run owns the window from Friday's fire. On 2026-11-09, `window_days`
+is `["2026-11-06", "2026-11-07", "2026-11-08"]`, while `target_day` names only
+Sunday. A job that loads one day at a time uses
+`parallel: ${dates.window_days}`.
 
 | Field | Meaning | Default |
 | --- | --- | --- |
-| `from` | `scheduled_at`, `interval_start`, `interval_end`, or `next_scheduled_at`. | `scheduled_at` |
+| `from` | `scheduled_at`, `interval_start`, `interval_end`, `next_scheduled_at`, or the name of another entry. | `scheduled_at` |
+| `each` | A step through the window. The entry becomes a list. | none |
 | `shift` | One operation, or a list applied left to right. | none |
 | `format` | A named format or a strftime pattern. | `date` |
 | `timezone` | The zone used for shifting and formatting. | `context.run.timezone`, else the server `tz`, else the host's local zone |
+
+An entry written as a string or a list is its `shift`: `target_day: -1d` means
+`{ shift: -1d }`.
 
 Shift operations:
 
@@ -226,6 +237,23 @@ Rules:
 - **Reference.** `${dates.NAME}` resolves wherever `${params.NAME}` does.
   `dates` is a reserved root namespace; a param named `dates` stays
   addressable as `${params.dates}`.
+- **Params.** Dates resolve before params, so the slot is known when
+  `params[].eval` runs and `eval` can read `${dates.NAME}`.
+  `params[].default` stays literal.
+- **Building on another entry.** `from: target_day` starts from that entry's
+  instant after its `shift`. The new entry takes that entry's `timezone`
+  unless it sets its own, and does not take its `format`. An entry cannot be
+  named `scheduled_at`, `interval_start`, `interval_end`, or
+  `next_scheduled_at`. A cycle, or a `from` that names a list, fails
+  `dagu validate`.
+- **Lists.** `each` steps from `interval_start` up to, but not including,
+  `interval_end`. `shift` and `format` apply to each value, and
+  `${dates.NAME}` gives a JSON array. The step has no sign: `1d`, `2h`,
+  `1bd`. A `bd` list starts at the first business day at or after
+  `interval_start`. `each` cannot be combined with `from`. A step under one
+  day needs an explicit `format`, because the default `date` would repeat
+  values. A list over 1,000 values, the `parallel` limit, is refused before a
+  run exists.
 - **Validation at load.** An unknown `from`, operation, format directive, or
   zone fails `dagu validate`. The unit `m` is unknown, and its error names
   `min` and `mo`, so a month cannot silently become a minute.
@@ -244,15 +272,40 @@ Rules:
 - **A run without a slot** resolves `from: scheduled_at` and
   `from: interval_end` against the time the run was created, cut to the
   minute. The run details mark dates that came from the clock.
-- **A date that needs a window.** `from: interval_start` and
-  `from: next_scheduled_at` need recurring start entries or a parent with a
-  slot. On a DAG with no recurring start entry, `dagu validate` warns, and a
+- **A date that needs a window.** `from: interval_start`,
+  `from: next_scheduled_at`, `each`, and any entry built on one of them need
+  recurring start entries or a parent with a slot. On a DAG with no
+  recurring start entry, `dagu validate` warns, and a
   start outside such a parent is refused before a run exists. The error
   names the date and says the DAG has no schedule. The run dialog shows the
   same text and disables Run. A sub-DAG under a parent with no slot fails at
   start and names the date.
 - **Environment.** Dates are not projected into environment variables. A DAG
   passes the ones a script needs through `env`.
+
+### Overriding a date for one run
+
+A date is derived from the slot and has no override of its own. A DAG that
+allows one declares a param:
+
+```yaml
+params:
+  - name: date
+    eval: ${dates.target_day}
+
+steps:
+  - run: ./load.sh --date ${params.date}
+```
+
+```sh
+dagu start etl -- date=2026-11-01
+```
+
+- `eval` runs only when the caller gives no value, so the param follows the
+  slot until an operator overrides it.
+- The override changes `${params.date}`, not `${dates.target_day}`.
+- The run dialog prefills the param from the selected slot, because
+  metadata-only loads skip `eval`.
 
 ### Preview
 
@@ -286,7 +339,8 @@ every way of starting one shows the slot, window, and dates:
   preserves unknown reference-looking text, so such text is possible. The
   release notes must say so.
 - Spec 017 gains the new `context.run` fields and their availability in
-  sub-DAGs. A new spec owns `dates`.
+  sub-DAGs. A new spec owns `dates`. Specs 003 and 005 add its namespace and
+  its use in `params[].eval`.
 
 ## Verification and acceptance criteria
 
@@ -326,6 +380,15 @@ every way of starting one shows the slot, window, and dates:
 19. With a weekday calendar, `{ shift: [month_start, +1mo, -1d, bd_or_prev] }`
     on 2026-05-15 resolves to `2026-05-29`, the Friday before a month end
     that falls on a Sunday.
+20. `target_day: -1d` resolves the same as `{ shift: -1d }`.
+21. `{ from: target_day, format: date_compact }` gives `20261109` for the run
+    of 2026-11-10. A cycle of entries fails `dagu validate`.
+22. On a daily DAG with a weekday calendar, Monday's `{ each: 1d }` lists
+    Friday, Saturday, and Sunday, and `parallel` runs one child for each.
+23. `{ each: 1h }` with no `format` fails `dagu validate`.
+24. A param with `eval: ${dates.target_day}` follows the slot.
+    `-- date=2026-11-01` overrides it and leaves `${dates.target_day}`
+    unchanged.
 
 ## Alternatives considered
 
@@ -368,4 +431,3 @@ every way of starting one shows the slot, window, and dates:
 ## Open questions
 
 1. Should `week_start` be configurable, or follow the calendar?
-2. Should `dates` allow one entry to build on another (`from: target_day`)?
