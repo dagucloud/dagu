@@ -57,6 +57,18 @@ func (a *API) resolveRequestedSlot(dag *ir.DAG, profile string, value *api.Sched
 	}, nil
 }
 
+// rescheduleSlot returns the slot of a run rescheduled from status: the one
+// the request names, else the historic run's own.
+func (a *API) rescheduleSlot(dag *ir.DAG, profile string, status *ir.DAGRunStatus, value *api.ScheduleSlotValue) (*requestedSlot, error) {
+	if value != nil && strings.TrimSpace(*value) != "" {
+		return a.resolveRequestedSlot(dag, profile, value)
+	}
+	if status.ScheduleTime == "" {
+		return nil, nil
+	}
+	return &requestedSlot{scheduleTime: status.ScheduleTime, window: status.ScheduleWindow()}, nil
+}
+
 // recentFiresLimit is how many past slots the run dialog offers.
 const recentFiresLimit = 5
 

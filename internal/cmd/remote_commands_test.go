@@ -8,6 +8,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -355,29 +356,49 @@ func TestRemoteStartSendsScheduledAt(t *testing.T) {
 	assert.Equal(t, "Warning: off schedule\n", stderr.String())
 }
 
-func TestRemoteRerunRejectsScheduledAt(t *testing.T) {
+// A remote restart reruns through reschedule, which carries the slot the
+// flag names for the server to resolve.
+func TestRemoteRestartSendsScheduledAt(t *testing.T) {
 	t.Parallel()
 
-	command := &cobra.Command{Use: "start"}
-	initFlags(command, startFlags...)
-	require.NoError(t, command.Flags().Set("from-run-id", "run-1"))
-	require.NoError(t, command.Flags().Set("scheduled-at", "latest"))
-	ctx := &Context{Context: context.Background(), Command: command}
-
-	err := remoteRunStart(ctx, []string{"etl"})
-	require.EqualError(t, err, "--scheduled-at cannot be combined with --from-run-id in a remote context")
-}
-
-func TestRemoteRestartRejectsScheduledAt(t *testing.T) {
-	t.Parallel()
+	var stopped atomic.Bool
+	bodies := make(chan api.RescheduleDAGRunJSONBody, 1)
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		switch {
+		case strings.HasSuffix(r.URL.Path, "/stop"):
+			stopped.Store(true)
+		case strings.HasSuffix(r.URL.Path, "/reschedule"):
+			var body api.RescheduleDAGRunJSONBody
+			require.NoError(t, json.NewDecoder(r.Body).Decode(&body))
+			bodies <- body
+			_, _ = w.Write([]byte(`{"dagRunId":"run-2","queued":true}`))
+		case strings.Contains(r.URL.Path, "/dag-runs/"):
+			status := ir.Running
+			if stopped.Load() {
+				status = ir.Aborted
+			}
+			_, _ = fmt.Fprintf(w, `{"dagRunId":"run-1","status":%d}`, status)
+		default:
+			_, _ = w.Write([]byte(`{"dag":{"name":"etl"}}`))
+		}
+	}))
+	defer server.Close()
 
 	command := &cobra.Command{Use: "restart"}
 	initFlags(command, restartFlags...)
-	require.NoError(t, command.Flags().Set("scheduled-at", "latest"))
-	ctx := &Context{Context: context.Background(), Command: command}
+	require.NoError(t, command.Flags().Set("scheduled-at", "2026-11-09"))
+	ctx := &Context{
+		Context: context.Background(),
+		Command: command,
+		Remote:  &remoteClient{baseURL: server.URL, client: server.Client()},
+	}
 
-	err := remoteRunRestart(ctx, []string{"etl"})
-	require.EqualError(t, err, "--scheduled-at is only supported in the local context")
+	require.NoError(t, remoteRunRestart(ctx, []string{"etl"}))
+
+	body := <-bodies
+	require.NotNil(t, body.ScheduleTime)
+	assert.Equal(t, "2026-11-09", *body.ScheduleTime)
 }
 
 // These cases replace process stdin and must remain sequential.

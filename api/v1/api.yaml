@@ -2661,6 +2661,10 @@ paths:
                 useCurrentDagFile:
                   type: boolean
                   description: "When true, reschedule from the current contents of the original DAG file instead of the stored historical YAML snapshot."
+                scheduleTime:
+                  allOf:
+                    - $ref: "#/components/schemas/ScheduleSlotValue"
+                  description: "Schedule slot for the new run. Omit to keep the slot of the historic run."
       responses:
         "200":
           description: "Successfully scheduled a new DAG-run"

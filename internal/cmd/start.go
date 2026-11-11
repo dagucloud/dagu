@@ -206,6 +206,7 @@ func runStart(ctx *Context, args []string) error {
 		dag             *ir.DAG
 		params          string
 		historicNoReuse bool
+		historicSlot    runSlot
 	)
 
 	if fromRunID != "" {
@@ -234,6 +235,7 @@ func runStart(ctx *Context, args []string) error {
 			profileName = status.ProfileName
 		}
 		historicNoReuse = status.NoReuse
+		historicSlot = runSlot{scheduleTime: status.ScheduleTime, window: status.ScheduleWindow()}
 
 		snapshot, err := attempt.ReadDAG(ctx)
 		if err != nil {
@@ -301,6 +303,11 @@ func runStart(ctx *Context, args []string) error {
 	slot, err := runSlotParams(ctx, dag, profileName, false)
 	if err != nil {
 		return err
+	}
+	// A rerun of a historic run is for the same slot unless the flags name
+	// another.
+	if slot.scheduleTime == "" {
+		slot = historicSlot
 	}
 
 	opts := runOptions{

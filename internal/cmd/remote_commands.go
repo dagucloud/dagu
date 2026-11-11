@@ -521,10 +521,12 @@ func remoteRunRetry(ctx *Context, args []string) error {
 }
 
 func remoteRunRestart(ctx *Context, args []string) error {
-	for _, flag := range []string{scheduleTimeFlag.name, scheduledAtFlag.name} {
-		if ctx.Command.Flags().Changed(flag) {
-			return fmt.Errorf("--%s is only supported in the local context", flag)
-		}
+	if ctx.Command.Flags().Changed(scheduleTimeFlag.name) {
+		return fmt.Errorf("--%s is only supported in the local context", scheduleTimeFlag.name)
+	}
+	scheduledAt, err := ctx.StringParam(scheduledAtFlag.name)
+	if err != nil {
+		return err
 	}
 	dag, err := remoteResolveDAG(ctx, args[0])
 	if err != nil {
@@ -552,7 +554,9 @@ func remoteRunRestart(ctx *Context, args []string) error {
 	if err := waitForRemoteStop(ctx, dag.Dag.Name, detail.DagRunId); err != nil {
 		return err
 	}
-	resp, err := ctx.Remote.rescheduleDAGRun(ctx, dag.Dag.Name, detail.DagRunId, api.RescheduleDAGRunJSONBody{})
+	resp, err := ctx.Remote.rescheduleDAGRun(ctx, dag.Dag.Name, detail.DagRunId, api.RescheduleDAGRunJSONBody{
+		ScheduleTime: stringPtrOrNil(scheduledAt),
+	})
 	if err != nil {
 		return err
 	}

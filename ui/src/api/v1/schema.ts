@@ -11721,6 +11721,8 @@ export interface operations {
                     dagName?: string;
                     /** @description When true, reschedule from the current contents of the original DAG file instead of the stored historical YAML snapshot. */
                     useCurrentDagFile?: boolean;
+                    /** @description Schedule slot for the new run. Omit to keep the slot of the historic run. */
+                    scheduleTime?: components["schemas"]["ScheduleSlotValue"];
                 };
             };
         };

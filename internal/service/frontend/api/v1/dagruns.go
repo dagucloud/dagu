@@ -3560,6 +3560,7 @@ func (a *API) RescheduleDAGRun(ctx context.Context, request api.RescheduleDAGRun
 		if body.UseCurrentDagFile != nil {
 			opts.useCurrentDAGFile = *body.UseCurrentDagFile
 		}
+		opts.scheduleTime = body.ScheduleTime
 	}
 
 	result, err := a.rescheduleDAGRun(ctx, request.Name, request.DagRunId, opts)
@@ -3577,6 +3578,9 @@ type rescheduleDAGRunOptions struct {
 	nameOverride      string
 	newDagRunID       string
 	useCurrentDAGFile bool
+	// scheduleTime names the slot of the new run; nil keeps the historic
+	// run's slot.
+	scheduleTime *api.ScheduleSlotValue
 }
 
 type rescheduleDAGRunResult struct {
@@ -3718,6 +3722,10 @@ func (a *API) rescheduleDAGRun(ctx context.Context, dagName, dagRunID string, op
 	if opts.useCurrentDAGFile {
 		paramsToUse = currentFileParams
 	}
+	slot, err := a.rescheduleSlot(dag, profileName, status, opts.scheduleTime)
+	if err != nil {
+		return rescheduleDAGRunResult{}, err
+	}
 	var enqueueErr error
 	if opts.useCurrentDAGFile {
 		enqueueErr = a.enqueueDAGRun(ctx, dag, enqueueRequest{
@@ -3728,9 +3736,10 @@ func (a *API) rescheduleDAGRun(ctx context.Context, dagName, dagRunID string, op
 			profileName:  profileName,
 			noReuse:      status.NoReuse,
 			definitionID: status.DAGDefinitionID(),
+			scheduleTime: slot.scheduleTimeOrEmpty(),
 		})
 	} else {
-		enqueueErr = a.enqueuePreparedDAGRun(ctx, dag, paramsToUse, newDagRunID, ir.TriggerTypeManual, profileName, status.NoReuse, rescheduleSelector)
+		enqueueErr = a.enqueuePreparedDAGRun(ctx, dag, paramsToUse, newDagRunID, ir.TriggerTypeManual, profileName, status.NoReuse, rescheduleSelector, slot)
 	}
 	if enqueueErr != nil {
 		return rescheduleDAGRunResult{}, fmt.Errorf("failed to enqueue dag-run: %w", enqueueErr)
@@ -3764,6 +3773,7 @@ func (a *API) enqueuePreparedDAGRun(
 	profileName string,
 	noReuse bool,
 	workerSelector map[string]string,
+	slot *requestedSlot,
 ) error {
 	resolvedDAG, err := spec.ResolveRuntimeParams(ctx, dag, params, spec.ResolveRuntimeParamsOptions{
 		BaseConfig: a.config.Paths.BaseConfig,
@@ -3811,6 +3821,8 @@ func (a *API) enqueuePreparedDAGRun(
 		ProceedOnStatusCloseErr: true,
 		ProfileName:             profileName,
 		NoReuse:                 noReuse,
+		ScheduleTime:            slot.scheduleTimeOrEmpty(),
+		ScheduleWindow:          slot.windowOrZero(),
 	})
 	if err != nil {
 		return err

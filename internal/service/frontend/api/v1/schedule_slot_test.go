@@ -91,6 +91,30 @@ steps:
 		assert.Equal(t, 30*time.Minute, fires[0].Time.Sub(fires[1].Time))
 	})
 
+	t.Run("RescheduleKeepsOrReplacesTheSlot", func(t *testing.T) {
+		var started api.ExecuteDAG200JSONResponse
+		server.Client().Post("/api/v1/dags/slot_dag/start", api.ExecuteDAGJSONRequestBody{
+			ScheduleTime: slotOf("2026-03-13T12:00"),
+		}).ExpectStatus(http.StatusOK).Send(t).Unmarshal(t, &started)
+		waitForDAGRunStatus(t, server, "slot_dag", started.DagRunId, 10*time.Second, func(status *ir.DAGRunStatus) bool {
+			return status.Status == ir.Succeeded
+		})
+		reschedule := func(t *testing.T, body api.RescheduleDAGRunJSONRequestBody) api.DAGRunDetails {
+			t.Helper()
+			var resp api.RescheduleDAGRun200JSONResponse
+			server.Client().Post(fmt.Sprintf("/api/v1/dag-runs/slot_dag/%s/reschedule", started.DagRunId), body).
+				ExpectStatus(http.StatusOK).Send(t).Unmarshal(t, &resp)
+			return runDetails(t, resp.DagRunId)
+		}
+
+		kept := reschedule(t, api.RescheduleDAGRunJSONRequestBody{})
+		assert.Equal(t, "2026-03-13T02:30:00Z", valueOrEmpty(kept.IntervalStart))
+		assert.Equal(t, "Asia/Tokyo", valueOrEmpty(kept.ScheduleTimezone))
+
+		replaced := reschedule(t, api.RescheduleDAGRunJSONRequestBody{ScheduleTime: slotOf("2026-03-13T11:00")})
+		assert.Equal(t, "2026-03-13T01:30:00Z", valueOrEmpty(replaced.IntervalStart))
+	})
+
 	t.Run("EnqueueRecordsTheSlotWindow", func(t *testing.T) {
 		var resp api.EnqueueDAGDAGRun200JSONResponse
 		server.Client().Post("/api/v1/dags/slot_dag/enqueue", api.EnqueueDAGDAGRunJSONRequestBody{
