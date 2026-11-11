@@ -16,7 +16,7 @@ import QueueList from '../QueueList';
 
 // The strip that shares the state pieces reads service DAGs; the list gets them
 // as a prop.
-vi.mock('@/features/cockpit/hooks/useServiceDAGs', () => ({
+vi.mock('@/features/service-dags/hooks/useServiceDAGs', () => ({
   useServiceDAGs: () => ({ serviceDAGs: [], error: null }),
 }));
 

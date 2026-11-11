@@ -18,7 +18,7 @@ const { clientMock, getMock, serviceDAGs, useQueryMock } = vi.hoisted(() => {
   };
 });
 
-vi.mock('@/features/cockpit/hooks/useServiceDAGs', () => ({
+vi.mock('@/features/service-dags/hooks/useServiceDAGs', () => ({
   useServiceDAGs: () => ({ serviceDAGs: serviceDAGs.current, error: null }),
 }));
 

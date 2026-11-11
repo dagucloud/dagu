@@ -42,7 +42,7 @@ const serviceDAGs = vi.hoisted(() => ({
   enabled: [] as boolean[],
 }));
 
-vi.mock('@/features/cockpit/hooks/useServiceDAGs', () => ({
+vi.mock('@/features/service-dags/hooks/useServiceDAGs', () => ({
   useServiceDAGs: ({ enabled = true }: { enabled?: boolean } = {}) => {
     serviceDAGs.enabled.push(enabled);
     return { serviceDAGs: enabled ? serviceDAGs.current : [], error: null };

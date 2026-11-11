@@ -14,7 +14,7 @@ import { RelativeTime } from '@/components/ui/relative-time';
 import StatusChip from '@/components/ui/status-chip';
 import Ticker from '@/components/ui/ticker';
 import { useCanAccessSystemStatus } from '@/contexts/AuthContext';
-import { ServiceDAGFailure } from '@/features/cockpit/components/ServiceDAGState';
+import { ServiceDAGFailure } from '@/features/service-dags/components/ServiceDAGState';
 import { DAGRunActions } from '@/features/dag-runs/components/common';
 import { PeekLink } from '@/features/peek/PeekLink';
 import { peekPageURL } from '@/features/peek/peekParams';

@@ -27,7 +27,7 @@ import { useUserPreferences } from '../../contexts/UserPreference';
 import DAGRunBatchActions from '../../features/dag-runs/components/common/DAGRunBatchActions';
 import DAGRunGroupedView from '../../features/dag-runs/components/dag-run-list/DAGRunGroupedView';
 import DAGRunTable from '../../features/dag-runs/components/dag-run-list/DAGRunTable';
-import { ServiceDAGStrip } from '../../features/cockpit/components/ServiceDAGStrip';
+import { ServiceDAGStrip } from '../../features/service-dags/components/ServiceDAGStrip';
 import { usePaginatedDAGRuns } from '../../features/dag-runs/hooks/dagRunPagination';
 import {
   buildRunViewSpec,

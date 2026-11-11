@@ -65,7 +65,7 @@ vi.mock('@/contexts/SearchStateContext', () => ({
   useSearchState: () => searchState,
 }));
 
-vi.mock('@/features/cockpit/hooks/useServiceDAGs', () => ({
+vi.mock('@/features/service-dags/hooks/useServiceDAGs', () => ({
   useServiceDAGs: () => ({ serviceDAGs: [worker], error: null }),
 }));
 

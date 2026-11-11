@@ -8,7 +8,7 @@ import { components } from '@/api/v1/schema';
 import {
   ServiceDAGStateBadge,
   ServiceDAGStatusText,
-} from '@/features/cockpit/components/ServiceDAGState';
+} from '@/features/service-dags/components/ServiceDAGState';
 import { cn } from '@/lib/utils';
 import { I18nText } from '@/i18n/I18nText';
 import { I18nProps } from '@/i18n/I18nProps';

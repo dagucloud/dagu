@@ -24,8 +24,8 @@ import {
   useDAGRunActivity,
 } from '../features/activity/hooks/useDAGRunActivity';
 import { useGettingStarted } from '../features/activity/hooks/useGettingStarted';
-import { ServiceDAGStrip } from '../features/cockpit/components/ServiceDAGStrip';
-import { useServiceDAGs } from '../features/cockpit/hooks/useServiceDAGs';
+import { ServiceDAGStrip } from '../features/service-dags/components/ServiceDAGStrip';
+import { useServiceDAGs } from '../features/service-dags/hooks/useServiceDAGs';
 import {
   attentionItems,
   fitRange,

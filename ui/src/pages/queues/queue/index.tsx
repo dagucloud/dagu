@@ -31,12 +31,12 @@ import {
 import {
   ServiceDAGStateBadge,
   ServiceDAGStatusText,
-} from '@/features/cockpit/components/ServiceDAGState';
+} from '@/features/service-dags/components/ServiceDAGState';
 import {
   idleServiceDAGQueue,
   ownsQueue,
-} from '@/features/queues/lib/idleServiceDAGQueue';
-import { useServiceDAGs } from '@/features/cockpit/hooks/useServiceDAGs';
+} from '@/features/queues/lib/serviceDAGQueue';
+import { useServiceDAGs } from '@/features/service-dags/hooks/useServiceDAGs';
 import { formatQueuedCount } from '@/features/queues/components/QueueCard';
 import QueueRunsTable from '@/features/queues/components/QueueRunsTable';
 import {

@@ -9,7 +9,7 @@ import { RefreshButton } from '@/components/ui/refresh-button';
 import { AppBarContext } from '../../contexts/AppBarContext';
 import { useSearchState } from '../../contexts/SearchStateContext';
 import QueueList from '../../features/queues/components/QueueList';
-import { useServiceDAGs } from '../../features/cockpit/hooks/useServiceDAGs';
+import { useServiceDAGs } from '../../features/service-dags/hooks/useServiceDAGs';
 import { useQuery } from '../../hooks/api';
 import { useQueuesListSSE } from '../../hooks/useQueuesListSSE';
 import {

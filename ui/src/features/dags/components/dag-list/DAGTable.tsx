@@ -40,7 +40,7 @@ import { components, ServiceDAGState, Status } from '../../../../api/v1/schema';
 import dayjs from '../../../../lib/dayjs';
 import { isServiceDAG } from '../../../../lib/dagSchedule';
 import RelativeTime from '@/components/ui/relative-time';
-import { useServiceDAGs } from '@/features/cockpit/hooks/useServiceDAGs';
+import { useServiceDAGs } from '@/features/service-dags/hooks/useServiceDAGs';
 import { RunStatusChip } from '@/features/dag-runs/components/common/RunStatusChip';
 import VisuallyHidden from '@/components/ui/visually-hidden';
 import { CreateDAGButton, DAGPagination } from '../common';

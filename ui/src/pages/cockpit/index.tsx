@@ -2,7 +2,7 @@ import React, { useEffect, useState } from 'react';
 import { useCockpitState } from '@/features/cockpit/hooks/useCockpitState';
 import { CockpitToolbar } from '@/features/cockpit/components/CockpitToolbar';
 import { DateKanbanList } from '@/features/cockpit/components/DateKanbanList';
-import { ServiceDAGStrip } from '@/features/cockpit/components/ServiceDAGStrip';
+import { ServiceDAGStrip } from '@/features/service-dags/components/ServiceDAGStrip';
 import { AppBarContext } from '@/contexts/AppBarContext';
 
 export default function CockpitPage(): React.ReactElement {

@@ -39,7 +39,7 @@ const serviceDAGs = vi.hoisted(() => ({
   error: null as unknown,
 }));
 
-vi.mock('@/features/cockpit/hooks/useServiceDAGs', () => ({
+vi.mock('@/features/service-dags/hooks/useServiceDAGs', () => ({
   useServiceDAGs: () => ({
     serviceDAGs: serviceDAGs.current,
     error: serviceDAGs.error,

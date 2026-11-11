@@ -100,7 +100,7 @@ vi.mock('@/hooks/api', () => ({
   }),
 }));
 
-vi.mock('@/features/cockpit/hooks/useServiceDAGs', () => ({
+vi.mock('@/features/service-dags/hooks/useServiceDAGs', () => ({
   useServiceDAGs: () => ({
     serviceDAGs: Array.from({ length: serviceDAGsState.count }, (_, index) => ({
       fileName: `dag-${index}`,

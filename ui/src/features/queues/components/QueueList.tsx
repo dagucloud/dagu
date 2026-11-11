@@ -6,7 +6,7 @@ import { EmptyState } from '@/components/PageStates';
 import React from 'react';
 import { QueueType, type components } from '../../../api/v1/schema';
 import QueueCard from './QueueCard';
-import { idleServiceDAGQueue, ownsQueue } from '../lib/idleServiceDAGQueue';
+import { idleServiceDAGQueue, ownsQueue } from '../lib/serviceDAGQueue';
 import { I18nText } from '@/i18n/I18nText';
 import { useI18n } from '@/i18n/I18nProvider';
 
