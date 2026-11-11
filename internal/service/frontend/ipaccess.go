@@ -80,6 +80,19 @@ func (p *ipAccessPolicy) middleware(next http.Handler) http.Handler {
 	})
 }
 
+// fromTrustedProxy reports whether the request's direct peer is a trusted
+// proxy. With no trusted proxies configured, only loopback peers qualify.
+func (p *ipAccessPolicy) fromTrustedProxy(r *http.Request) bool {
+	peer, err := parseRequestIP(r.RemoteAddr)
+	if err != nil {
+		return false
+	}
+	if len(p.trustedProxies) == 0 {
+		return peer.IsLoopback()
+	}
+	return prefixesContain(p.trustedProxies, peer)
+}
+
 func (p *ipAccessPolicy) clientIP(r *http.Request) (netip.Addr, error) {
 	peer, err := parseRequestIP(r.RemoteAddr)
 	if err != nil {

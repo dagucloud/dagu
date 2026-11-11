@@ -916,6 +916,8 @@ ip_access:
 Forwarded addresses are used only when the direct peer matches
 `trusted_proxies`. The proxy must remove client-supplied forwarding headers and
 set or append the verified client address. Keep trusted proxy ranges narrow.
+Proxy authentication (`auth.proxy`) accepts identity headers only from
+`trusted_proxies`, or only from loopback peers when the list is empty.
 
 ### Paths
 

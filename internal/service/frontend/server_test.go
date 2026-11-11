@@ -629,6 +629,7 @@ func TestServerAuthRoutesUseEvaluatedBasePathAndKeepProxyHeadersScoped(t *testin
 			GroupsHeader:  "X-Proxy-Groups",
 			Provision:     proxyProvision,
 			AuthService:   proxyTokenStub{},
+			TrustedSource: func(*http.Request) bool { return true },
 			LoginBasePath: "/dagu",
 			InitialSetupComplete: func(context.Context) (bool, error) {
 				return true, nil

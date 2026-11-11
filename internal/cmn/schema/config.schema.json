@@ -278,7 +278,7 @@
         },
         "trusted_proxies": {
           "type": "array",
-          "description": "Proxy addresses and CIDR ranges permitted to supply forwarded client IP headers.",
+          "description": "Proxy addresses and CIDR ranges permitted to supply forwarded client IP headers and proxy authentication identity headers. Empty limits proxy authentication to loopback peers.",
           "uniqueItems": true,
           "items": {
             "type": "string",
