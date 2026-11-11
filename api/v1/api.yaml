@@ -550,6 +550,8 @@ paths:
       operationId: "listAPIKeys"
       tags:
         - "api-keys"
+      parameters:
+        - $ref: "#/components/parameters/RemoteNode"
       responses:
         "200":
           description: "List of API keys"
@@ -1139,6 +1141,8 @@ paths:
                   type: boolean
                   description: "If true, execute eligible build steps without reusing prior materializations"
                   default: false
+                scheduleTime:
+                  $ref: "#/components/schemas/ScheduleSlotValue"
                 labels:
                   allOf:
                     - $ref: "#/components/schemas/Labels"
@@ -1220,6 +1224,15 @@ paths:
                 properties:
                   dagRunId:
                     $ref: "#/components/schemas/DAGRunId"
+                  scheduleTime:
+                    type: string
+                    format: date-time
+                    description: "RFC 3339 instant of the schedule slot the run was started for, when the request named one"
+                  warnings:
+                    type: array
+                    items:
+                      type: string
+                    description: "Warnings about the request, such as a scheduleTime that is not a fire time of the schedule"
                 required:
                   - dagRunId
         "400":
@@ -1389,6 +1402,8 @@ paths:
                   type: boolean
                   description: "If true, execute eligible build steps without reusing prior materializations"
                   default: false
+                scheduleTime:
+                  $ref: "#/components/schemas/ScheduleSlotValue"
                 labels:
                   allOf:
                     - $ref: "#/components/schemas/Labels"
@@ -1408,6 +1423,15 @@ paths:
                 properties:
                   dagRunId:
                     $ref: "#/components/schemas/DAGRunId"
+                  scheduleTime:
+                    type: string
+                    format: date-time
+                    description: "RFC 3339 instant of the schedule slot the run was started for, when the request named one"
+                  warnings:
+                    type: array
+                    items:
+                      type: string
+                    description: "Warnings about the request, such as a scheduleTime that is not a fire time of the schedule"
                 required:
                   - dagRunId
         "400":
@@ -2641,6 +2665,14 @@ paths:
                 useCurrentDagFile:
                   type: boolean
                   description: "When true, reschedule from the current contents of the original DAG file instead of the stored historical YAML snapshot."
+                scheduleTime:
+                  allOf:
+                    - $ref: "#/components/schemas/ScheduleSlotValue"
+                  description: "Schedule slot for the new run. Omit to keep the slot of the historic run."
+                dryRun:
+                  type: boolean
+                  default: false
+                  description: "Check the request, including scheduleTime, and return the new run's ID and slot without creating the run."
       responses:
         "200":
           description: "Successfully scheduled a new DAG-run"
@@ -2654,6 +2686,10 @@ paths:
                   queued:
                     type: boolean
                     description: "Indicates whether the run was queued instead of starting immediately."
+                  scheduleTime:
+                    type: string
+                    format: date-time
+                    description: "RFC 3339 instant of the new run's schedule slot, when it has one"
                 required:
                   - dagRunId
                   - queued
@@ -17165,6 +17201,21 @@ components:
         - "schedulerPaused"
         - "suspended"
 
+    RecentFire:
+      type: object
+      description: "A past time at which a start schedule fired"
+      properties:
+        time:
+          type: string
+          format: date-time
+          description: "Fire time, with the offset of the zone the schedule is evaluated in"
+        timezone:
+          type: string
+          description: "Name of the zone the schedule is evaluated in"
+      required:
+        - time
+        - timezone
+
     UpcomingRun:
       type: object
       description: "A time at which a start schedule fires"
@@ -17459,6 +17510,11 @@ components:
             $ref: "#/components/schemas/UpcomingRun"
         upcomingRunsHold:
           $ref: "#/components/schemas/UpcomingRunsHold"
+        recentFires:
+          type: array
+          description: "Latest fire times of the recurring start schedules at or before now, latest first, for the DAG's default runtime profile. These are the slots a manual run can be started for with scheduleTime."
+          items:
+            $ref: "#/components/schemas/RecentFire"
         group:
           type: string
           description: "Logical grouping of related DAGs for organizational purposes"
@@ -18078,6 +18134,10 @@ components:
         - pid
         - startedAtMs
 
+    ScheduleSlotValue:
+      type: string
+      description: "Schedule slot to run for: latest (the latest fire at or before now), a date (2006-01-02) when the schedule fires once that day, a time without an offset (2006-01-02T15:04) read in the schedule's zone, or an RFC 3339 time with an offset. The run gets the schedule time and window of that slot. A slot later than now returns 400. A time that is not a fire time is accepted with a warning."
+      example: "2026-11-09"
     DAGRunSummary:
       type: object
       description: "Current status of a DAG-run"
@@ -18106,6 +18166,15 @@ components:
         scheduleTime:
           type: string
           description: "RFC 3339 timestamp of when the DAG-run was scheduled to run"
+        intervalStart:
+          type: string
+          description: "RFC 3339 instant of the previous fire of the DAG's schedule before scheduleTime; the run's window is [intervalStart, scheduleTime)"
+        nextScheduledAt:
+          type: string
+          description: "RFC 3339 instant of the next fire of the DAG's schedule after scheduleTime"
+        scheduleTimezone:
+          type: string
+          description: "Zone the run's schedule slot is evaluated in, such as Asia/Tokyo"
         startedAt:
           type: string
           description: "RFC 3339 timestamp with millisecond precision when the DAG-run started. A run that an older version stored has second precision."
