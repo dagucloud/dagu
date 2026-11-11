@@ -355,6 +355,19 @@ func TestRemoteStartSendsScheduledAt(t *testing.T) {
 	assert.Equal(t, "Warning: off schedule\n", stderr.String())
 }
 
+func TestRemoteRerunRejectsScheduledAt(t *testing.T) {
+	t.Parallel()
+
+	command := &cobra.Command{Use: "start"}
+	initFlags(command, startFlags...)
+	require.NoError(t, command.Flags().Set("from-run-id", "run-1"))
+	require.NoError(t, command.Flags().Set("scheduled-at", "latest"))
+	ctx := &Context{Context: context.Background(), Command: command}
+
+	err := remoteRunStart(ctx, []string{"etl"})
+	require.EqualError(t, err, "--scheduled-at cannot be combined with --from-run-id in a remote context")
+}
+
 func TestRemoteRestartRejectsScheduledAt(t *testing.T) {
 	t.Parallel()
 

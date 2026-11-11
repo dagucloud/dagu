@@ -146,6 +146,19 @@ func TestResolveScheduleSlot(t *testing.T) {
 			wantStart: utc(2026, 11, 9, 1, 0),
 		},
 		{
+			name: "calendar that is not loaded rejected",
+			schedules: func(t *testing.T) []ir.Schedule {
+				unbound, err := ir.ParseScheduleValue(
+					map[string]any{"expression": "0 9 * * *", "calendar": "missing"},
+					ir.ScheduleParseOptions{AllowCalendar: true},
+				)
+				require.NoError(t, err)
+				return []ir.Schedule{unbound}
+			},
+			value:   "latest",
+			wantErr: `the schedule names calendar "missing", which is not loaded`,
+		},
+		{
 			name:      "seconds rejected",
 			schedules: tokyoDaily,
 			value:     "2026-11-09T02:00:30+09:00",

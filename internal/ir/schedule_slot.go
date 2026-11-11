@@ -50,6 +50,13 @@ func ResolveScheduleSlot(req ScheduleSlotRequest) (ScheduleSlot, error) {
 		loc = time.Local
 	}
 	active := activeWindowSchedules(req.Schedules, req.Profile)
+	for _, sched := range active {
+		// An unbound calendar schedule never fires, so the slot would get a
+		// window that leaves it out.
+		if _, bound := sched.BoundCalendar(); sched.HasCalendar() && !bound {
+			return ScheduleSlot{}, fmt.Errorf("the schedule names calendar %q, which is not loaded", sched.Calendar)
+		}
+	}
 	value := strings.TrimSpace(req.Value)
 
 	at, err := parseScheduleSlot(value, active, loc, req.Now)
