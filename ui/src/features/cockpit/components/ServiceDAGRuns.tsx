@@ -11,6 +11,7 @@ import { buildDAGRunPageURL } from '@/features/dag-runs/lib/dagRunUrls';
 import { useQuery } from '@/hooks/api';
 import { useI18n } from '@/i18n/I18nProvider';
 import { formatElapsed } from '@/lib/dagRunTiming';
+import { workspaceSelectionQuery } from '@/lib/workspace';
 
 type DAGRunSummary = components['schemas']['DAGRunSummary'];
 
@@ -38,6 +39,11 @@ export function ServiceDAGRuns({ name }: { name: string }): React.ReactElement {
   const { ts } = useI18n();
   const appBarContext = useContext(AppBarContext);
   const remoteNode = appBarContext.selectedRemoteNode || 'local';
+  // A DAG moved between workspaces keeps its runs in the old one.
+  const workspaceQuery = useMemo(
+    () => workspaceSelectionQuery(appBarContext.workspaceSelection),
+    [appBarContext.workspaceSelection]
+  );
   // Fixed for the life of the list, so the request key stays the same.
   const fromDate = useMemo(
     () => Math.floor(Date.now() / 1000) - WINDOW_DAYS * 24 * 60 * 60,
@@ -48,7 +54,7 @@ export function ServiceDAGRuns({ name }: { name: string }): React.ReactElement {
     {
       params: {
         path: { name },
-        query: { remoteNode, fromDate, limit: RUN_LIMIT },
+        query: { remoteNode, fromDate, limit: RUN_LIMIT, ...workspaceQuery },
       },
     },
     { refreshInterval: REFRESH_MS, keepPreviousData: true }

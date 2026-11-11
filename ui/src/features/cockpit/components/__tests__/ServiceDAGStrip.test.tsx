@@ -10,8 +10,10 @@ import {
   Status,
   type components,
 } from '@/api/v1/schema';
+import { AppBarContext } from '@/contexts/AppBarContext';
 import { UserPreferencesProvider } from '@/contexts/UserPreference';
 import { I18nProvider } from '@/i18n/I18nProvider';
+import { WorkspaceKind } from '@/lib/workspace';
 import { describeServiceDAG } from '../ServiceDAGState';
 import { ServiceDAGStrip } from '../ServiceDAGStrip';
 
@@ -294,7 +296,19 @@ describe('ServiceDAGStrip runs', () => {
       <UserPreferencesProvider>
         <I18nProvider>
           <MemoryRouter>
-            <ServiceDAGStrip expandable={expandable} />
+            <AppBarContext.Provider
+              value={
+                {
+                  selectedRemoteNode: 'local',
+                  workspaceSelection: {
+                    kind: WorkspaceKind.workspace,
+                    workspace: 'ops',
+                  },
+                } as never
+              }
+            >
+              <ServiceDAGStrip expandable={expandable} />
+            </AppBarContext.Provider>
           </MemoryRouter>
         </I18nProvider>
       </UserPreferencesProvider>
@@ -321,6 +335,10 @@ describe('ServiceDAGStrip runs', () => {
       }),
       expect.anything()
     );
+    // A DAG moved between workspaces keeps its runs in the old one.
+    expect(hook.useQuery.mock.calls[0]?.[1]).toMatchObject({
+      params: { query: { workspace: 'ops' } },
+    });
     const list = screen.getByRole('list');
     expect(within(list).getAllByRole('link')).toHaveLength(2);
     expect(within(list).getByText('run-2')).toBeInTheDocument();
