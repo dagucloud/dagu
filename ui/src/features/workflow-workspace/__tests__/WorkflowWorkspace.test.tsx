@@ -422,10 +422,12 @@ describe('WorkflowWorkspace start', () => {
   it('selects the started run through the page enqueue', async () => {
     renderAt('/dags/x?step=extract');
     await clickStart('start now');
+    // The page enqueue gets every field of the dialog, a slot included.
     expect(onEnqueue).toHaveBeenCalledWith(
       'p=1',
       'chosen-id',
       true,
+      undefined,
       undefined,
       undefined
     );

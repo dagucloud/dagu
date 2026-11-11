@@ -54,14 +54,15 @@ function useStartThenShow(
   const showRun = useShowRun();
   const { noteUserRun } = useDockCommands();
   return useCallback(
-    async (params, dagRunId, immediate, profile, noReuse) => {
+    async (params, dagRunId, immediate, profile, noReuse, scheduleTime) => {
       if (parentEnqueue) {
         const result = await parentEnqueue(
           params,
           dagRunId,
           immediate,
           profile,
-          noReuse
+          noReuse,
+          scheduleTime
         );
         const id = typeof result === 'string' && result ? result : dagRunId;
         if (id) {
@@ -75,10 +76,12 @@ function useStartThenShow(
         dagRunId?: string;
         profile?: string;
         noReuse?: boolean;
+        scheduleTime?: string;
       } = { params };
       if (dagRunId) body.dagRunId = dagRunId;
       if (profile !== undefined) body.profile = profile;
       if (noReuse !== undefined) body.noReuse = noReuse;
+      if (scheduleTime) body.scheduleTime = scheduleTime;
       const init = {
         params: { path: { fileName }, query: { remoteNode } },
         body,
