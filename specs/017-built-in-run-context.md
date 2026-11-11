@@ -99,6 +99,10 @@ ${context.dag.name}
 ${context.run.id}
 ${context.run.status}
 ${context.run.scheduled_at}
+${context.run.interval_start}
+${context.run.interval_end}
+${context.run.next_scheduled_at}
+${context.run.timezone}
 ${context.run.root_name}
 ${context.run.root_id}
 ${context.attempt.id}
@@ -177,6 +181,10 @@ workflow-language specs and makes the trust boundary explicit:
 | `context.run.id` | All run, step, and handler scopes | Unique identifier for the current DAG run. |
 | `context.run.status` | Status-aware scopes only | Canonical lowercase run status. |
 | `context.run.scheduled_at` | Scheduled, catchup, and one-off scheduled runs only | UTC RFC3339 timestamp for the logical schedule time that caused the run. |
+| `context.run.interval_start` | Runs with a schedule time whose DAG has a recurring start schedule | UTC RFC3339 timestamp of the latest fire of the active start schedules strictly before `scheduled_at`. |
+| `context.run.interval_end` | Runs with a schedule time | The same instant as `context.run.scheduled_at`. |
+| `context.run.next_scheduled_at` | Runs with a schedule time whose DAG has a recurring start schedule | UTC RFC3339 timestamp of the earliest fire of the active start schedules strictly after `scheduled_at`. |
+| `context.run.timezone` | Runs with a schedule time | IANA name of the zone the slot's schedule is evaluated in, or `UTC±HH:MM` when the zone has no name. |
 | `context.run.root_name` | Sub-DAG runs only | DAG name of the root DAG run. |
 | `context.run.root_id` | Sub-DAG runs only | DAG-run ID of the root DAG run. |
 
@@ -186,6 +194,19 @@ Rules:
 - `context.run.scheduled_at` is not a unique run identifier. Scheduled, catchup, and
   retry behavior may create multiple runs associated with one logical schedule
   time. Workflow authors must use `context.run.id` when they need identity.
+- The window `[interval_start, interval_end)` is derived from the schedule,
+  not from run history. The active start schedules are the recurring start
+  schedules with no `profile` or with the run's profile; one-off `at`
+  schedules never bound a window, and a fire dropped by a business calendar
+  is not a fire.
+- The window and timezone are computed when the run with a schedule time is
+  created and recorded on the run. Retries keep them after the schedule is
+  edited.
+- The slot belongs to the first active schedule that fires at
+  `scheduled_at`, else to the schedule of the previous fire. Its timezone is
+  that schedule's `CRON_TZ` or `TZ` zone, else the server zone. `@every`
+  schedules use `UTC`. A DAG with no recurring start schedule uses the server
+  zone.
 - `context.run.status` is available in lifecycle handlers and other explicitly
   status-aware surfaces. It is unavailable in normal step execution unless an
   owning spec explicitly makes that surface status-aware.

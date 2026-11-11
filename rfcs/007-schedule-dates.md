@@ -94,7 +94,9 @@ New fields under `context.run`, following the proposal in dagucloud/dagu#3279:
 - **Business calendars.** A fire dropped by a calendar is not a fire. The
   window before a Monday run starts at Friday's fire.
 - **Timezone.** The entry's `CRON_TZ` or `TZ` prefix, else the server `tz`,
-  else the host's local zone. `@every` uses UTC. A slot at a time no entry
+  else the host's local zone. `@every` uses UTC. A zone with no IANA name,
+  such as the host's zone when `tz` is unset, is named by its UTC offset,
+  such as `UTC+09:00`. A slot at a time no entry
   fires belongs to the entry of its previous fire time. A DAG with no
   recurring start entry uses the server `tz`, else the host's local zone.
 - **Recorded on the run.** The scheduler computes the values at dispatch and

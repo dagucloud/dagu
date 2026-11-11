@@ -110,7 +110,11 @@ func runRestart(ctx *Context, args []string) error {
 	}
 
 	definitionID := dagStatus.DAGDefinitionID()
-	if err := handleRestartProcess(ctx, dag, dagRunID, scheduleTime, definitionID, dagStatus.NoReuse); err != nil {
+	var scheduleWindow ir.ScheduleWindow
+	if scheduleTime != "" {
+		scheduleWindow = scheduleWindowAt(ctx, dag, dagStatus.ProfileName, scheduleTime)
+	}
+	if err := handleRestartProcess(ctx, dag, dagRunID, scheduleTime, scheduleWindow, definitionID, dagStatus.NoReuse); err != nil {
 		return fmt.Errorf("restart process failed for DAG %s: %w", dag.Name, err)
 	}
 
@@ -133,6 +137,7 @@ func handleRestartProcess(
 	d *ir.DAG,
 	oldDagRunID string,
 	scheduleTime string,
+	scheduleWindow ir.ScheduleWindow,
 	definitionID string,
 	noReuse bool,
 ) error {
@@ -155,17 +160,18 @@ func handleRestartProcess(
 		d,
 		newDagRunID,
 		runOptions{
-			root:         ir.NewDAGRunRef(d.Name, newDagRunID),
-			triggerType:  ir.TriggerTypeUnknown,
-			scheduleTime: scheduleTime,
-			definitionID: definitionID,
-			noReuse:      noReuse,
+			root:           ir.NewDAGRunRef(d.Name, newDagRunID),
+			triggerType:    ir.TriggerTypeUnknown,
+			scheduleTime:   scheduleTime,
+			scheduleWindow: scheduleWindow,
+			definitionID:   definitionID,
+			noReuse:        noReuse,
 		},
 		func(execCtx context.Context) (dagrun.Attempt, error) {
 			return ctx.Persistence.DAGRunRepository.CreateAttempt(execCtx, d, time.Now(), newDagRunID, persis.DAGRunCreateAttemptOptions{})
 		},
 		func(preparedAttempt dagrun.Attempt) error {
-			return executeDAGWithRunID(ctx, ctx.DAGRunMgr, d, newDagRunID, scheduleTime, definitionID, noReuse, preparedAttempt)
+			return executeDAGWithRunID(ctx, ctx.DAGRunMgr, d, newDagRunID, scheduleTime, scheduleWindow, definitionID, noReuse, preparedAttempt)
 		},
 	)
 }
@@ -177,6 +183,7 @@ func executeDAGWithRunID(
 	dag *ir.DAG,
 	dagRunID string,
 	scheduleTime string,
+	scheduleWindow ir.ScheduleWindow,
 	definitionID string,
 	noReuse bool,
 	preparedAttempt dagrun.Attempt,
@@ -238,6 +245,7 @@ func executeDAGWithRunID(
 			PeerConfig:               ctx.Config.Core.Peer,
 			DefaultExecMode:          ctx.Config.DefaultExecMode,
 			ScheduleTime:             scheduleTime,
+			ScheduleWindow:           scheduleWindow,
 			ArtifactDir:              artifactDir,
 			DAGRunLogDir:             ctx.Config.Paths.LogDir,
 			DAGRunArtifactDir:        ctx.Config.Paths.ArtifactDir,

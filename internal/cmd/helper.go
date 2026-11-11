@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"os/user"
 	"path/filepath"
+	"slices"
 	"strings"
 	"time"
 
@@ -80,6 +81,19 @@ func parseScheduleTimeParam(ctx *Context) (string, error) {
 		}
 	}
 	return scheduleTime, nil
+}
+
+// scheduleWindowAt returns the window the slot at scheduleTime owns among the
+// DAG's start schedules for the profile, or the zero window when scheduleTime
+// is empty. The value has passed parseScheduleTimeParam.
+func scheduleWindowAt(ctx *Context, dag *ir.DAG, profile, scheduleTime string) ir.ScheduleWindow {
+	slot, err := time.Parse(time.RFC3339, scheduleTime)
+	if err != nil {
+		return ir.ScheduleWindow{}
+	}
+	schedules := slices.Clone(dag.Schedule)
+	spec.BindScheduleCalendars(schedules, spec.NewCalendarSource(ctx.Config.Paths.CalendarsDir))
+	return ir.ScheduleWindowAt(schedules, profile, ctx.Config.Core.Location, slot)
 }
 
 // restoreDAGFromStatus restores a DAG from a previous run's status and YAML.

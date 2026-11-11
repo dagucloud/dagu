@@ -88,6 +88,52 @@ func TestRuntimeBuiltInRunContext(t *testing.T) {
 	)
 }
 
+func TestRuntimeScheduleWindow(t *testing.T) {
+	t.Parallel()
+
+	dagu := harness.NewRunner(t)
+	result := dagu.Run(
+		"start",
+		"--run-id=spec017-window",
+		"--trigger-type=scheduler",
+		"--schedule-time=2026-03-13T12:00:00+09:00",
+		"schedule_window.yaml",
+	)
+	result.ExpectExitCode(0)
+	dagu.ExpectFileContent("schedule-window.txt", strings.Join([]string{
+		"scheduled=2026-03-13T03:00:00Z",
+		"start=2026-03-13T02:30:00Z",
+		"end=2026-03-13T03:00:00Z",
+		"next=2026-03-13T03:30:00Z",
+		"timezone=Asia/Tokyo",
+		"",
+	}, "\n"))
+}
+
+// A DAG with no recurring start schedule has no previous or next fire, so
+// only the end of its window and the server zone are known.
+func TestRuntimeScheduleWindowWithoutSchedule(t *testing.T) {
+	t.Parallel()
+
+	dagu := harness.NewRunner(t)
+	result := dagu.RunWithEnv(
+		[]string{"DAGU_TZ=Europe/Paris"},
+		"start",
+		"--run-id=spec017-window-unscheduled",
+		"--trigger-type=scheduler",
+		"--schedule-time=2026-03-13T12:00:00+01:00",
+		"schedule_window_unscheduled.yaml",
+	)
+	result.ExpectExitCode(0)
+	dagu.ExpectFileContent("schedule-window.txt", strings.Join([]string{
+		"start=${context.run.interval_start}",
+		"end=2026-03-13T11:00:00Z",
+		"next=${context.run.next_scheduled_at}",
+		"timezone=Europe/Paris",
+		"",
+	}, "\n"))
+}
+
 func TestLegacyBuiltInRunContextAliases(t *testing.T) {
 	t.Parallel()
 

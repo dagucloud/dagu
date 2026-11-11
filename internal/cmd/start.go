@@ -306,6 +306,9 @@ func runStart(ctx *Context, args []string) error {
 		definitionID: dagDefinitionIDFromEnv(),
 		noReuse:      noReuse,
 	}
+	if scheduleTime != "" {
+		opts.scheduleWindow = scheduleWindowAt(ctx, dag, profileName, scheduleTime)
+	}
 
 	ctx.Context = logger.WithValues(ctx.Context, tag.DAG(dag.Name), tag.RunID(dagRunID))
 
@@ -713,6 +716,7 @@ func executeDAGRun(ctx *Context, d *ir.DAG, dagRunID string, opts runOptions) er
 			ParallelItem:             opts.parallelItem,
 			DefaultExecMode:          ctx.Config.DefaultExecMode,
 			ScheduleTime:             opts.scheduleTime,
+			ScheduleWindow:           opts.scheduleWindow,
 			ArtifactDir:              artifactDir,
 			DAGRunLogDir:             ctx.Config.Paths.LogDir,
 			DAGRunArtifactDir:        ctx.Config.Paths.ArtifactDir,

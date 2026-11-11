@@ -8,6 +8,7 @@ import (
 	"io"
 	"maps"
 	"strings"
+	"time"
 
 	"github.com/dagucloud/dagu/v2/internal/build"
 	"github.com/dagucloud/dagu/v2/internal/cmn/config"
@@ -25,17 +26,22 @@ const runtimeProfileOrigin = "runtime_profile"
 
 // Context contains the execution metadata for a dag-run.
 type Context struct {
-	DAGRunID             string
-	RootDAGRun           ir.DAGRunRef
-	RetryPath            dagrun.RetryPath
-	IncludeDownstream    bool
-	BypassPreconditions  bool
-	AttemptID            string
-	WorkerID             string
-	TriggerType          ir.TriggerType
-	TriggerActor         string
-	RunStartedAt         string
-	ScheduleTime         string
+	DAGRunID            string
+	RootDAGRun          ir.DAGRunRef
+	RetryPath           dagrun.RetryPath
+	IncludeDownstream   bool
+	BypassPreconditions bool
+	AttemptID           string
+	WorkerID            string
+	TriggerType         ir.TriggerType
+	TriggerActor        string
+	RunStartedAt        string
+	ScheduleTime        string
+	// IntervalStart, NextScheduledAt, and ScheduleTimezone describe the
+	// window the run's schedule slot owns, as resolved by context.run.*.
+	IntervalStart        string
+	NextScheduledAt      string
+	ScheduleTimezone     string
 	DAG                  *ir.DAG
 	DAGLoader            DAGLoader
 	BaseEnv              *config.BaseEnv
@@ -235,6 +241,25 @@ func WithScheduleTime(scheduleTime string) ContextOption {
 	return func(o *contextOptions) {
 		o.ScheduleTime = scheduleTime
 	}
+}
+
+// WithScheduleWindow sets the window the run's schedule slot owns for value
+// resolution.
+func WithScheduleWindow(window ir.ScheduleWindow) ContextOption {
+	return func(o *contextOptions) {
+		o.IntervalStart = contextInstant(window.Start)
+		o.NextScheduledAt = contextInstant(window.Next)
+		o.ScheduleTimezone = window.Timezone
+	}
+}
+
+// contextInstant formats an instant as context values carry it: UTC
+// RFC 3339, or empty when unknown.
+func contextInstant(t time.Time) string {
+	if t.IsZero() {
+		return ""
+	}
+	return t.UTC().Format(time.RFC3339)
 }
 
 // WithParams sets runtime parameters.
@@ -579,6 +604,10 @@ func buildDAGRunBuiltinContext(
 	addDAGRunBuiltinValue(values, "context.run.id", dagRunID)
 	addDAGRunBuiltinValue(values, "context.attempt.started_at", options.RunStartedAt)
 	addDAGRunBuiltinValue(values, "context.run.scheduled_at", options.ScheduleTime)
+	addDAGRunBuiltinValue(values, "context.run.interval_start", options.IntervalStart)
+	addDAGRunBuiltinValue(values, "context.run.interval_end", options.ScheduleTime)
+	addDAGRunBuiltinValue(values, "context.run.next_scheduled_at", options.NextScheduledAt)
+	addDAGRunBuiltinValue(values, "context.run.timezone", options.ScheduleTimezone)
 	if rootDAGRunContextAvailable(options.RootDAGRun, dag, dagRunID) {
 		addDAGRunBuiltinValue(values, "context.run.root_name", options.RootDAGRun.Name)
 		addDAGRunBuiltinValue(values, "context.run.root_id", options.RootDAGRun.ID)
