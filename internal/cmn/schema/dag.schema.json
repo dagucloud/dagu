@@ -2303,6 +2303,18 @@
           },
           "description": "Worker labels for a sub-DAG step. Values can be strings, numbers, or booleans (non-string values are coerced to strings). For example: {\"gpu\": true, \"memory\": \"64G\"} requires a worker with gpu=true and memory=64G labels. Use a map of label key-value pairs to target specific workers. Map keys and values support variable substitution (e.g. ${VAR}) resolved from the runtime environment; parallel sub-DAG children can reference the item via ${ITEM}."
         },
+        "secrets": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "pattern": "^[A-Za-z_][A-Za-z0-9_]*$"
+          },
+          "description": "Names of the secrets block of the DAG that this step gets. When a step of the DAG is untrusted or has this key, a step gets only the secrets that its list names. An untrusted step cannot have this key."
+        },
+        "untrusted": {
+          "type": "boolean",
+          "description": "Marks a step that runs code that an agent wrote or controls. The step gets no secret and no DAGU_ variable except DAGU_OUTPUT_FILE. With untrusted.uid and untrusted.gid in the configuration, it runs as the restricted user. Valid on a step with run, command or script, and with the action harness.run. An agent.run step is always untrusted. In a DAG that has an agent.run step, a step with run, command, script or harness.run is untrusted by default. Set untrusted: false to make such a step trusted. In such a DAG, a step that lists secrets must have untrusted: false."
+        },
         "env": {
           "oneOf": [
             {
@@ -2391,13 +2403,6 @@
           },
           "deprecated": true,
           "description": "Deprecated top-level messages for chat steps. Use action with with.prompt or with.messages."
-        },
-        "tools": {
-          "type": "array",
-          "items": {
-            "type": "string"
-          },
-          "description": "List of tool DAG names available to the LLM for function calling. Only valid when type is 'chat'. Tools are other DAGs that can be called by the LLM to perform specific tasks."
         },
         "value": {
           "type": "string",
@@ -2544,6 +2549,7 @@
                 { "required": ["stdin"] },
                 { "required": ["stdout"] },
                 { "required": ["timeout_sec"] },
+                { "required": ["untrusted"] },
                 { "required": ["worker_selector"] }
               ]
             },
@@ -3082,6 +3088,18 @@
             "required": ["with"],
             "properties": {
               "with": { "$ref": "#/definitions/chatCompletionActionConfig" }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": { "action": { "const": "agent.run" } },
+            "required": ["action"]
+          },
+          "then": {
+            "required": ["with"],
+            "properties": {
+              "with": { "$ref": "#/definitions/agentRunActionConfig" }
             }
           }
         },
@@ -6871,6 +6889,35 @@
           "$ref": "#/definitions/thinkingConfig",
           "description": "Extended thinking/reasoning configuration. Enables deeper reasoning for complex tasks."
         },
+        "dags": {
+          "type": "array",
+          "items": { "$ref": "#/definitions/toolDAGEntry" },
+          "description": "DAGs offered to the model as tools. A call runs the DAG as a child run. Do not use it with the list form of tools."
+        },
+        "tools": {
+          "oneOf": [
+            { "$ref": "#/definitions/toolMap" },
+            { "$ref": "#/definitions/toolList" }
+          ],
+          "description": "Other tools offered to the model: a map with the category mcp. The list form (a list of DAG names) is deprecated. Use the key dags."
+        },
+        "skills": {
+          "type": "array",
+          "items": { "$ref": "#/definitions/skillEntry" },
+          "description": "Names of the skills offered to the model (skills/<name>/SKILL.md). The system message lists the skills, and the model reads one with the tool load_skill."
+        },
+        "max_tools": {
+          "type": "integer",
+          "minimum": 1,
+          "default": 64,
+          "description": "Maximum number of tools in the effective catalog of the step. A larger catalog fails the step. The default is the key agent_tools.max_tools of the Dagu configuration."
+        },
+        "tool_result_max_bytes": {
+          "type": "integer",
+          "minimum": 0,
+          "default": 524288,
+          "description": "Maximum size in bytes of one tool result sent to the model. Set to zero to disable the limit. The default is the key agent_tools.tool_result_max_bytes of the Dagu configuration."
+        },
         "max_context_tokens": {
           "type": "integer",
           "minimum": 0,
@@ -6923,6 +6970,204 @@
         }
       ],
       "description": "LLM configuration without agent-only context management settings."
+    },
+    "skillEntry": {
+      "type": "string",
+      "maxLength": 64,
+      "pattern": "^[a-z0-9]+(-[a-z0-9]+)*$",
+      "description": "Name of a skill folder in the skills directory (skills/<name>/SKILL.md)."
+    },
+    "agentRunToolMap": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "mcp": {
+          "type": "array",
+          "items": { "$ref": "#/definitions/toolMCPEntry" },
+          "description": "Remote MCP servers. The CLI gets each one as an MCP server of its config. An inline entry with url is called directly. A named entry with no url goes through the relay of the gateway."
+        },
+        "builtin": { "$ref": "#/definitions/agentRunBuiltinTools" }
+      },
+      "description": "The tool map of an agent.run step: the categories mcp and builtin. Only the map form is valid: the list form of tools is for chat.completion."
+    },
+    "agentRunBuiltinTools": {
+      "type": "object",
+      "additionalProperties": false,
+      "minProperties": 1,
+      "properties": {
+        "read": { "const": true, "description": "Read files of the workspace." },
+        "write": { "const": true, "description": "Write files of the workspace." },
+        "edit": { "const": true, "description": "Replace one exact text in a file." },
+        "search": { "const": true, "description": "Search files by content and by name." },
+        "shell": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["allow"],
+          "properties": {
+            "allow": {
+              "type": "array",
+              "minItems": 1,
+              "items": { "type": "string", "minLength": 1, "not": { "const": "*" } },
+              "description": "Command patterns. A pattern is a command prefix. A final ' *' means any arguments."
+            },
+            "deny": {
+              "type": "array",
+              "items": { "type": "string", "minLength": 1, "not": { "const": "*" } },
+              "description": "Command patterns that never run, also when allow matches."
+            }
+          },
+          "description": "The shell tool, limited to the command patterns of allow."
+        }
+      },
+      "description": "The neutral built-in tools of an agent: Read, Write, Edit, Search and Shell. Dagu maps them to the tools of the CLI."
+    },
+    "agentRunActionConfig": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "prompt": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Prompt template. Value references resolve when the step starts. No command substitution runs. A DAG secret must not appear in it. The step needs a prompt."
+        },
+        "system": {
+          "type": "string",
+          "description": "System text. Dagu adds it to the prompt of the CLI with --append-system-prompt."
+        },
+        "provider": {
+          "type": "string",
+          "minLength": 1,
+          "pattern": "^[^$]*$",
+          "description": "A built-in CLI provider (such as claude or codex) or a harnesses entry. A chat provider is not valid: use chat.completion. The value is a name, not a reference. The step needs a provider."
+        },
+        "model": { "type": "string", "minLength": 1, "description": "Model of a CLI provider other than claude. The provider claude takes the model in the block endpoint, and this key is not valid with it. Model names do not translate between providers." },
+        "endpoint": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["name", "model"],
+          "properties": {
+            "name": {
+              "type": "string",
+              "pattern": "^[a-z][a-z0-9-]{0,63}$",
+              "description": "Name of an AI endpoint (Spec 094). An administrator adds the endpoint with its key on the AI page, and chooses which DAGs may use it. The CLI never sees the key. The endpoint must have the protocol anthropic. The value is a name, not a reference. Dagu checks that the endpoint exists and that the DAG may use it when the step starts, not when it loads the DAG."
+            },
+            "model": {
+              "type": "string",
+              "minLength": 1,
+              "description": "Model of the endpoint. Choose a model that the endpoint lists. Dagu checks the model when the step starts. The value can be a reference."
+            },
+            "effort": {
+              "anyOf": [
+                { "type": "string", "enum": ["low", "medium", "high", "xhigh", "max"] },
+                { "type": "string", "pattern": "\\$" }
+              ],
+              "description": "Level of effort of the model, passed as --effort. The value is low, medium, high, xhigh or max, or a reference that resolves to one of them when the step starts. Dagu does not check that the model supports the level: the CLI reports it."
+            }
+          },
+          "description": "The AI endpoint and the model of the step, as one block. The provider claude needs this block, and the DAG does not load without it. Another CLI provider does not support it."
+        },
+        "dags": {
+          "type": "array",
+          "items": { "$ref": "#/definitions/toolDAGEntry" },
+          "description": "DAGs offered to the agent as tools. Dagu serves them to the CLI through the tool bridge, an MCP server of the attempt. A call runs the DAG as a child run."
+        },
+        "tools": {
+          "$ref": "#/definitions/agentRunToolMap",
+          "description": "Other tools of the agent: a map with the categories mcp and builtin."
+        },
+        "skills": {
+          "type": "array",
+          "items": { "$ref": "#/definitions/skillEntry" },
+          "description": "Names of the skills (skills/<name>/SKILL.md). Dagu mounts them as files for the attempt, and the CLI reads them with its tool Skill."
+        },
+        "max_tool_iterations": { "type": "integer", "minimum": 1, "description": "Limit of turns of the CLI, passed as --max-turns. An attempt that reaches it before an answer fails. This differs from chat.completion, where reaching the limit does not fail the step." },
+        "max_tool_calls": { "type": "integer", "minimum": 1, "default": 100, "description": "Limit of the calls of the tool bridge in one attempt. A call over the limit gets an error result, and the attempt does not fail. The built-in tools and the tools of an mcp entry do not count." }
+      },
+      "required": ["prompt", "provider"],
+      "if": {
+        "properties": { "provider": { "const": "claude" } },
+        "required": ["provider"]
+      },
+      "then": {
+        "required": ["endpoint"],
+        "not": { "required": ["model"] }
+      },
+      "else": {
+        "not": {
+          "anyOf": [
+            { "required": ["endpoint"] },
+            { "required": ["system"] },
+            { "required": ["dags"] },
+            { "required": ["tools"] },
+            { "required": ["skills"] },
+            { "required": ["max_tool_iterations"] },
+            { "required": ["max_tool_calls"] }
+          ]
+        }
+      },
+      "description": "Configuration for action: agent.run. The action runs a CLI provider and compiles to harness.run. The step keys output_schema and timeout_sec apply to it. A CLI provider other than claude supports only model, prompt and the step key timeout_sec."
+    },
+    "toolParams": {
+      "type": "object",
+      "additionalProperties": true,
+      "description": "Inputs of the tool. A plain value is fixed and hidden from the model. { from_ai: true } or { from_ai: { description } } leaves the input to the model."
+    },
+    "toolDAGEntry": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name"],
+      "properties": {
+        "name": { "type": "string", "minLength": 1, "maxLength": 64, "description": "Name of a DAG of the DAGs directory or of the same file. The tool name is this name, with each character outside [A-Za-z0-9_-] replaced by an underscore. It has 64 characters at most." },
+        "params": { "$ref": "#/definitions/toolParams" }
+      },
+      "description": "A DAG offered as a tool. The tool description is the description of the DAG."
+    },
+    "toolMCPInlineEntry": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name", "url", "allow"],
+      "properties": {
+        "name": { "type": "string", "pattern": "^[a-z][a-z0-9-]*$", "not": { "const": "dagu" }, "description": "Label of the server. The tools of the server get the names <name>_<tool>. The name dagu is reserved for the tool bridge." },
+        "url": { "type": "string", "minLength": 1, "description": "Streamable HTTP endpoint of the MCP server (http or https). May reference upstream values." },
+        "headers": { "type": "object", "additionalProperties": { "type": "string" }, "description": "Headers sent to the server, for example Authorization. The agent can read them in the MCP config of the attempt: use a named entry for a credential." },
+        "allow": { "type": "array", "minItems": 1, "items": { "type": "string" }, "description": "Tools of the server that join the catalog." }
+      },
+      "description": "An inline MCP server, with its URL. The connection, the listing and each call have a fixed limit of 30 seconds."
+    },
+    "toolMCPNamedEntry": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name", "allow"],
+      "properties": {
+        "name": { "type": "string", "pattern": "^[a-z][a-z0-9-]{0,63}$", "not": { "const": "dagu" }, "description": "Name of a MCP server entry of the AI page. The tools of the server get the names <name>_<tool>. The URL and the credentials stay in the coordinator." },
+        "allow": { "type": "array", "minItems": 1, "items": { "type": "string" }, "description": "Tools of the server that the step can call. The coordinator refuses a tools/call for another tool." }
+      },
+      "description": "A MCP server entry of the AI page, with no url. Only the actions chat.completion and agent.run can use it. The MCP traffic goes through the relay of the gateway."
+    },
+    "toolMCPEntry": {
+      "oneOf": [
+        { "$ref": "#/definitions/toolMCPInlineEntry" },
+        { "$ref": "#/definitions/toolMCPNamedEntry" }
+      ],
+      "description": "A remote MCP server: an inline entry with url, or a named entry with no url."
+    },
+    "toolList": {
+      "type": "array",
+      "items": { "type": "string", "minLength": 1 },
+      "deprecated": true,
+      "description": "The list form of tools: a list of DAG names. It is deprecated. Use the key dags. Each name is an entry of dags with no params."
+    },
+    "toolMap": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "mcp": {
+          "type": "array",
+          "items": { "$ref": "#/definitions/toolMCPEntry" },
+          "description": "Remote MCP servers."
+        }
+      },
+      "description": "The tool map of a chat step. It has the category mcp. The DAG tools are in the key dags."
     },
     "webSearchConfig": {
       "type": "object",
@@ -7901,14 +8146,80 @@
       },
       "description": "Configuration for action: decision.evaluate. Responses are captured as JSON automatically unless output capture is explicitly configured."
     },
+    "aiEndpointName": {
+      "type": "string",
+      "pattern": "^[a-z][a-z0-9-]{0,63}$",
+      "description": "Name of an AI endpoint (Spec 094). An administrator adds the endpoint with its key on the AI page, and chooses which DAGs may use it. The step never sees the key. The value is a name, not a reference. Dagu checks that the endpoint exists and that the DAG may use it when the step starts, not when it loads the DAG."
+    },
+    "chatModelEntry": {
+      "type": "object",
+      "required": ["name"],
+      "properties": {
+        "name": { "type": "string" },
+        "endpoint": {
+          "$ref": "#/definitions/aiEndpointName",
+          "description": "AI endpoint of this model. The provider type comes from the endpoint. Not valid with provider, base_url or api_key_name in the same entry."
+        },
+        "provider": { "$ref": "#/definitions/llmProvider" },
+        "temperature": { "type": "number" },
+        "max_tokens": { "type": "integer" },
+        "top_p": { "type": "number" },
+        "base_url": { "type": "string" },
+        "api_key_name": { "type": "string" }
+      },
+      "allOf": [
+        { "not": { "required": ["endpoint", "api_key_name"] } },
+        { "not": { "required": ["endpoint", "base_url"] } },
+        { "not": { "required": ["endpoint", "provider"] } }
+      ]
+    },
     "chatCompletionActionConfig": {
       "type": "object",
       "anyOf": [
         { "required": ["prompt"] },
         { "required": ["messages"] }
       ],
+      "allOf": [
+        { "not": { "required": ["endpoint", "api_key_name"] } },
+        { "not": { "required": ["endpoint", "base_url"] } },
+        { "not": { "required": ["endpoint", "provider"] } },
+        { "not": { "required": ["endpoint", "model"] } },
+        { "not": { "required": ["endpoint", "thinking"] } }
+      ],
       "additionalProperties": true,
       "properties": {
+        "endpoint": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["name", "model"],
+          "properties": {
+            "name": {
+              "$ref": "#/definitions/aiEndpointName"
+            },
+            "model": {
+              "type": "string",
+              "minLength": 1,
+              "description": "Model of the endpoint. Choose a model that the endpoint lists. Dagu checks the model when the step starts. The value can be a reference."
+            },
+            "effort": {
+              "type": "string",
+              "enum": ["low", "medium", "high", "xhigh", "max"],
+              "description": "Level of effort of the model. The step turns thinking on with this effort. The value is a literal level, not a reference."
+            }
+          },
+          "description": "The AI endpoint and the model of the step, as one block. The provider type comes from the endpoint. The block replaces the keys provider, base_url, api_key_name, model and thinking: they are not valid in the same with. A step that needs a model list keeps the key model, and each entry names its own endpoint."
+        },
+        "model": {
+          "oneOf": [
+            { "type": "string" },
+            {
+              "type": "array",
+              "minItems": 1,
+              "items": { "$ref": "#/definitions/chatModelEntry" }
+            }
+          ],
+          "description": "Model name (string) or array of model objects for fallback. Each object can name its own endpoint. Not valid with the block endpoint, which gives the model."
+        },
         "prompt": {
           "type": "string",
           "minLength": 1,
@@ -7922,14 +8233,40 @@
           },
           "description": "Explicit chat messages."
         },
+        "dags": {
+          "type": "array",
+          "items": { "$ref": "#/definitions/toolDAGEntry" },
+          "description": "DAGs offered to the model as tools. A call runs the DAG as a child run. Do not use it with the list form of tools."
+        },
+        "tools": {
+          "oneOf": [
+            { "$ref": "#/definitions/toolMap" },
+            { "$ref": "#/definitions/toolList" }
+          ],
+          "description": "Other tools offered to the model: a map with the category mcp. The list form (a list of DAG names) is deprecated. Use the key dags."
+        },
+        "skills": {
+          "type": "array",
+          "items": { "$ref": "#/definitions/skillEntry" },
+          "description": "Names of the skills offered to the model (skills/<name>/SKILL.md). The system message lists the skills, and the model reads one with the tool load_skill."
+        },
+        "max_tools": {
+          "type": "integer",
+          "minimum": 1,
+          "default": 64,
+          "description": "Maximum number of tools in the effective catalog of the step. A larger catalog fails the step. The default is the key agent_tools.max_tools of the Dagu configuration."
+        },
+        "tool_result_max_bytes": {
+          "type": "integer",
+          "minimum": 0,
+          "default": 524288,
+          "description": "Maximum size in bytes of one tool result sent to the model. Set to zero to disable the limit. The default is the key agent_tools.tool_result_max_bytes of the Dagu configuration."
+        },
         "files": {
           "$ref": "#/definitions/modelFiles"
         },
         "provider": {
           "$ref": "#/definitions/llmConfig/properties/provider"
-        },
-        "model": {
-          "$ref": "#/definitions/llmConfig/properties/model"
         }
       },
       "description": "Configuration for action: chat.completion."
