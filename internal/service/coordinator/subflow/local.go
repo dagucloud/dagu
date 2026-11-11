@@ -319,6 +319,8 @@ func (r *Local) Enqueue(ctx context.Context, req executor.EnqueueRequest) (execu
 		TriggerActor:     req.TriggerActor,
 		ParallelItem:     req.ParallelItem,
 		ProfileName:      req.ProfileName,
+		ScheduleTime:     req.ScheduleTime,
+		ScheduleWindow:   req.ScheduleWindow,
 	})
 	if err != nil {
 		return executor.EnqueueResult{}, fmt.Errorf("failed to enqueue DAG run: %w", err)
@@ -488,6 +490,8 @@ func (r *Local) newAgent(
 	opts.RootDAGRun = req.RootDAGRun
 	opts.TriggerActor = req.TriggerActor
 	opts.ParallelItem = req.ParallelItem
+	opts.ScheduleTime = req.ScheduleTime
+	opts.ScheduleWindow = req.ScheduleWindow
 	opts.RetryPath = req.RetryPath
 	opts.ExtraEnvs = append(inProcessExtraEnvs(req), toolEnvs...)
 	opts.InheritedEnvs = inheritedEnvForLocalRunner(rCtx.InheritedEnvs())

@@ -154,16 +154,16 @@ func isLikelyLocalDAGArg(arg string) bool {
 	return len(arg) > 2 && arg[1] == ':' && arg[2] == '\\'
 }
 
-func (c *remoteClient) startDAG(ctx context.Context, fileName string, body api.ExecuteDAGJSONBody) (*api.DAGRunSummary, error) {
-	var out api.DAGRunSummary
+func (c *remoteClient) startDAG(ctx context.Context, fileName string, body api.ExecuteDAGJSONBody) (*api.ExecuteDAG200JSONResponse, error) {
+	var out api.ExecuteDAG200JSONResponse
 	if err := c.do(ctx, http.MethodPost, "/dags/"+url.PathEscape(fileName)+"/start", body, &out, nil); err != nil {
 		return nil, err
 	}
 	return &out, nil
 }
 
-func (c *remoteClient) enqueueDAG(ctx context.Context, fileName string, body api.EnqueueDAGDAGRunJSONBody) (*api.DAGRunSummary, error) {
-	var out api.DAGRunSummary
+func (c *remoteClient) enqueueDAG(ctx context.Context, fileName string, body api.EnqueueDAGDAGRunJSONBody) (*api.EnqueueDAGDAGRun200JSONResponse, error) {
+	var out api.EnqueueDAGDAGRun200JSONResponse
 	if err := c.do(ctx, http.MethodPost, "/dags/"+url.PathEscape(fileName)+"/enqueue", body, &out, nil); err != nil {
 		return nil, err
 	}

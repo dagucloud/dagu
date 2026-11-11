@@ -4,15 +4,18 @@
 package cmd
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -314,6 +317,150 @@ func TestRemoteStartSendsSteps(t *testing.T) {
 	assert.Equal(t, map[string]string{"extract": "run-9"}, *body.OutputsFromRuns)
 	require.NotNil(t, body.Outputs)
 	assert.Equal(t, map[string]map[string]string{"transform": {"rows": "3"}}, *body.Outputs)
+}
+
+// The server resolves the slot, so the CLI sends --scheduled-at as given and
+// prints the warnings the server returns.
+func TestRemoteStartSendsScheduledAt(t *testing.T) {
+	t.Parallel()
+
+	bodies := make(chan api.ExecuteDAGJSONBody, 1)
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		if r.Method == http.MethodGet {
+			_, _ = w.Write([]byte(`{"dag":{"name":"etl"}}`))
+			return
+		}
+		var body api.ExecuteDAGJSONBody
+		require.NoError(t, json.NewDecoder(r.Body).Decode(&body))
+		bodies <- body
+		_, _ = w.Write([]byte(`{"dagRunId":"run-1","warnings":["off schedule"]}`))
+	}))
+	defer server.Close()
+
+	command := &cobra.Command{Use: "start"}
+	initFlags(command, startFlags...)
+	require.NoError(t, command.Flags().Set("scheduled-at", "2026-11-09"))
+	var stderr bytes.Buffer
+	command.SetErr(&stderr)
+	ctx := &Context{
+		Context: context.Background(),
+		Command: command,
+		Remote:  &remoteClient{baseURL: server.URL, client: server.Client()},
+	}
+
+	require.NoError(t, remoteRunStart(ctx, []string{"etl"}))
+
+	body := <-bodies
+	require.NotNil(t, body.ScheduleTime)
+	assert.Equal(t, "2026-11-09", *body.ScheduleTime)
+	assert.Equal(t, "Warning: off schedule\n", stderr.String())
+}
+
+// A remote rerun goes through reschedule, which carries the slot the flag
+// names for the server to resolve.
+func TestRemoteRerunSendsScheduledAt(t *testing.T) {
+	t.Parallel()
+
+	bodies := make(chan api.RescheduleDAGRunJSONBody, 1)
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		if strings.HasSuffix(r.URL.Path, "/reschedule") {
+			var body api.RescheduleDAGRunJSONBody
+			require.NoError(t, json.NewDecoder(r.Body).Decode(&body))
+			bodies <- body
+			_, _ = w.Write([]byte(`{"dagRunId":"run-2","queued":true}`))
+			return
+		}
+		_, _ = w.Write([]byte(`{"dag":{"name":"etl"}}`))
+	}))
+	defer server.Close()
+
+	command := &cobra.Command{Use: "start"}
+	initFlags(command, startFlags...)
+	require.NoError(t, command.Flags().Set("from-run-id", "run-1"))
+	require.NoError(t, command.Flags().Set("scheduled-at", "latest"))
+	ctx := &Context{
+		Context: context.Background(),
+		Command: command,
+		Remote:  &remoteClient{baseURL: server.URL, client: server.Client()},
+	}
+
+	require.NoError(t, remoteRunStart(ctx, []string{"etl"}))
+
+	body := <-bodies
+	require.NotNil(t, body.ScheduleTime)
+	assert.Equal(t, "latest", *body.ScheduleTime)
+}
+
+// A remote restart checks the replacement with a dry run before it stops the
+// run, then reruns for the slot the server resolved.
+func TestRemoteRestartSendsScheduledAt(t *testing.T) {
+	t.Parallel()
+
+	var events []string
+	var mu sync.Mutex
+	record := func(event string) {
+		mu.Lock()
+		defer mu.Unlock()
+		events = append(events, event)
+	}
+	newServer := func(t *testing.T, rejectSlot bool) *httptest.Server {
+		var stopped atomic.Bool
+		return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			w.Header().Set("Content-Type", "application/json")
+			switch {
+			case strings.HasSuffix(r.URL.Path, "/stop"):
+				stopped.Store(true)
+				record("stop")
+			case strings.HasSuffix(r.URL.Path, "/reschedule"):
+				var body api.RescheduleDAGRunJSONBody
+				require.NoError(t, json.NewDecoder(r.Body).Decode(&body))
+				if body.DryRun != nil && *body.DryRun {
+					record("dry-run " + *body.ScheduleTime)
+					if rejectSlot {
+						w.WriteHeader(http.StatusBadRequest)
+						_, _ = w.Write([]byte(`{"code":"bad_request","message":"invalid scheduleTime"}`))
+						return
+					}
+					_, _ = w.Write([]byte(`{"dagRunId":"run-2","queued":false,"scheduleTime":"2026-11-09T02:00:00+09:00"}`))
+					return
+				}
+				record("reschedule " + *body.ScheduleTime)
+				_, _ = w.Write([]byte(`{"dagRunId":"run-2","queued":true}`))
+			case strings.Contains(r.URL.Path, "/dag-runs/"):
+				status := ir.Running
+				if stopped.Load() {
+					status = ir.Aborted
+				}
+				_, _ = fmt.Fprintf(w, `{"dagRunId":"run-1","status":%d}`, status)
+			default:
+				_, _ = w.Write([]byte(`{"dag":{"name":"etl"}}`))
+			}
+		}))
+	}
+	restart := func(server *httptest.Server) error {
+		command := &cobra.Command{Use: "restart"}
+		initFlags(command, restartFlags...)
+		require.NoError(t, command.Flags().Set("scheduled-at", "latest"))
+		ctx := &Context{
+			Context: context.Background(),
+			Command: command,
+			Remote:  &remoteClient{baseURL: server.URL, client: server.Client()},
+		}
+		return remoteRunRestart(ctx, []string{"etl"})
+	}
+
+	server := newServer(t, false)
+	defer server.Close()
+	require.NoError(t, restart(server))
+	assert.Equal(t, []string{"dry-run latest", "stop", "reschedule 2026-11-08T17:00:00Z"}, events)
+
+	events = nil
+	rejecting := newServer(t, true)
+	defer rejecting.Close()
+	require.Error(t, restart(rejecting))
+	assert.Equal(t, []string{"dry-run latest"}, events, "a rejected slot leaves the run going")
 }
 
 // These cases replace process stdin and must remain sequential.
