@@ -116,7 +116,7 @@ func untrustedID(key string, value any, processIDs []int, kind string) (uint32, 
 	id, valid := configInt(value)
 	if !valid || id < UntrustedIDMin || id > UntrustedIDMax {
 		return 0, fmt.Errorf("config: key %q: expected an integer from %d to %d, got %s",
-			key, UntrustedIDMin, UntrustedIDMax, showConfigValue(value))
+			key, int64(UntrustedIDMin), int64(UntrustedIDMax), showConfigValue(value))
 	}
 	for _, processID := range processIDs {
 		if processID >= 0 && int64(processID) == id {
