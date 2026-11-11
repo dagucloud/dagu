@@ -73,39 +73,6 @@ func (a *API) requireSyncWrite(ctx context.Context) error {
 	return a.requireSyncRead(ctx)
 }
 
-// syncProxyAuthorization checks local permissions before remote node credentials are applied.
-func (a *API) syncProxyAuthorization(apiBasePath string) func(http.Handler) http.Handler {
-	syncPath := strings.TrimRight(apiBasePath, "/") + "/sync"
-	return func(next http.Handler) http.Handler {
-		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			remoteNode := r.URL.Query().Get("remoteNode")
-			if remoteNode == "" || remoteNode == "local" ||
-				(r.URL.Path != syncPath && !strings.HasPrefix(r.URL.Path, syncPath+"/")) {
-				next.ServeHTTP(w, r)
-				return
-			}
-
-			var err error
-			switch {
-			case r.Method == http.MethodGet:
-				err = a.requireSyncRead(r.Context())
-			case r.Method == http.MethodPut && r.URL.Path == syncPath+"/config":
-				err = a.requireAdmin(r.Context())
-			case r.Method == http.MethodPost && r.URL.Path == syncPath+"/test-connection":
-				err = a.requireAdmin(r.Context())
-			default:
-				err = a.requireSyncWrite(r.Context())
-			}
-			if err != nil {
-				WriteErrorResponse(w, err)
-				return
-			}
-
-			next.ServeHTTP(w, r)
-		})
-	}
-}
-
 // internalError creates an internal server error from an error.
 func internalError(err error) *Error {
 	return &Error{

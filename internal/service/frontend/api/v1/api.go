@@ -570,6 +570,11 @@ func (a *API) ConfigureRoutes(ctx context.Context, r chi.Router, writeTimeout ti
 
 	loginPath := pathutil.BuildPublicEndpointPath(mountedAPIPath, "auth/login")
 
+	remoteNodeAuthorization, err := a.remoteNodeAuthorization(swagger)
+	if err != nil {
+		return err
+	}
+
 	r.Group(func(r chi.Router) {
 		r.Use(a.restAuditSeedMiddleware())
 		r.Use(frontendauth.ClientIPMiddleware())
@@ -577,8 +582,7 @@ func (a *API) ConfigureRoutes(ctx context.Context, r chi.Router, writeTimeout ti
 		r.Use(stepLogDownloadFormAuth(mountedAPIPath))
 		r.Use(frontendauth.Middleware(authOptions))
 		r.Use(a.restAuditSubjectMiddleware())
-		r.Use(a.syncProxyAuthorization(mountedAPIPath))
-		r.Use(a.licenseProxyAuthorization(mountedAPIPath))
+		r.Use(remoteNodeAuthorization)
 		r.Use(humanTaskInputMiddleware(mountedAPIPath))
 		if a.config.Server.StrictValidation {
 			r.Use(a.createValidatorMiddleware(swagger))
