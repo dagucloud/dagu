@@ -379,6 +379,17 @@ function StartDAGModal({
     [profiles]
   );
   const hasDefaultProfile = defaultProfile !== '';
+  // The listed slots come from the DAG's default profile. Another profile
+  // can have schedules of its own, which decide the run's window.
+  const defaultProfileName = defaultProfile ?? '';
+  const selectedProfileName =
+    profileSelection === DAG_DEFAULT_PROFILE_VALUE
+      ? defaultProfileName
+      : profileSelection === NO_PROFILE_VALUE
+        ? ''
+        : profileSelection;
+  const slotsFollowOtherProfile =
+    recentFires.length > 0 && selectedProfileName !== defaultProfileName;
   const showProfileSelector =
     defaultProfileLoading ||
     profilesLoading ||
@@ -807,6 +818,15 @@ function StartDAGModal({
                       <I18nText
                         text={
                           'The run gets the schedule time and window of this slot.'
+                        }
+                      />
+                    </p>
+                  )}
+                  {slotsFollowOtherProfile && (
+                    <p className="text-xs text-muted-foreground">
+                      <I18nText
+                        text={
+                          "The listed times follow the DAG's default profile. The run's window follows the selected profile."
                         }
                       />
                     </p>

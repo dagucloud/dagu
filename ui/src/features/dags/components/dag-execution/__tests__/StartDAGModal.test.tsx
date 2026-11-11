@@ -693,6 +693,40 @@ describe('StartDAGModal', () => {
       );
     });
 
+    // The slots come from the DAG's default profile, and another profile can
+    // have schedules of its own.
+    it('says which profile the slots follow when another is selected', async () => {
+      const user = userEvent.setup();
+      const hint =
+        "The listed times follow the DAG's default profile. The run's window follows the selected profile.";
+
+      render(
+        <StartDAGModal
+          visible={true}
+          dismissModal={vi.fn()}
+          onSubmit={vi.fn()}
+          dag={scheduledDag}
+          profiles={[
+            {
+              id: 'prod-id',
+              name: 'prod',
+              status: RuntimeProfileStatus.active,
+              protected: false,
+              description: '',
+              entries: [],
+              createdAt: '2026-01-01T00:00:00Z',
+              updatedAt: '2026-01-01T00:00:00Z',
+            },
+          ]}
+        />
+      );
+
+      expect(screen.queryByText(hint)).not.toBeInTheDocument();
+      await user.click(screen.getByRole('combobox', { name: /profile/i }));
+      await user.click(await screen.findByRole('option', { name: 'prod' }));
+      expect(screen.getByText(hint)).toBeInTheDocument();
+    });
+
     it('is absent for a DAG with no recent slot', () => {
       render(
         <StartDAGModal

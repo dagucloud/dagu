@@ -10,6 +10,7 @@ import {
   type ReactNode,
 } from 'react';
 import { DialogLayerProvider } from '@/components/ui/dialog';
+import { useSimpleToast } from '@/components/ui/simple-toast';
 import { useRemoteNode } from '@/contexts/RemoteNodeContext';
 import { RightPanelProvider } from '@/contexts/RightPanelContext';
 import { DAGContext } from '@/features/dags/contexts/DAGContext';
@@ -53,6 +54,7 @@ function useStartThenShow(
   const remoteNode = useRemoteNode();
   const showRun = useShowRun();
   const { noteUserRun } = useDockCommands();
+  const { showToast } = useSimpleToast();
   return useCallback(
     async (params, dagRunId, immediate, profile, noReuse, scheduleTime) => {
       if (parentEnqueue) {
@@ -96,9 +98,13 @@ function useStartThenShow(
         noteUserRun?.(data.dagRunId);
         showRun(data.dagRunId);
       }
+      // Such as a scheduled time that is not a fire time of the schedule.
+      for (const warning of data?.warnings ?? []) {
+        showToast(warning, { variant: 'info' });
+      }
       return data?.dagRunId;
     },
-    [parentEnqueue, client, remoteNode, fileName, showRun, noteUserRun]
+    [parentEnqueue, client, remoteNode, fileName, showRun, noteUserRun, showToast]
   );
 }
 
