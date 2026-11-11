@@ -552,6 +552,8 @@ func (c *Context) SubWorkflowRunnerFactory() func(context.Context) (runtimeexec.
 		WorkerID:           "local",
 		DAGRunLogDir:       c.Config.Paths.LogDir,
 		DAGRunArtifactDir:  c.Config.Paths.ArtifactDir,
+		// Without a coordinator, a child that needs a CLI provider runs here.
+		LocalAgentRuns: !c.Config.Coordinator.Enabled,
 	})
 }
 

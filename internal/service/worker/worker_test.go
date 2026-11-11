@@ -467,6 +467,45 @@ func TestWorkerHeartbeat(t *testing.T) {
 		// Cleanup
 		th.Cleanup()
 	})
+
+	// A worker that stops tells the coordinator in its last heartbeat, so the
+	// coordinator does not count on it until its heartbeat is stale.
+	t.Run("StopSendsOfflineHeartbeat", func(t *testing.T) {
+		mockCoordinatorCli := newMockCoordinatorCli()
+		var mu sync.Mutex
+		var sent []*coordinatorv1.HeartbeatRequest
+		mockCoordinatorCli.SetHeartbeatFunc(func(_ context.Context, req *coordinatorv1.HeartbeatRequest) (*coordinatorv1.HeartbeatResponse, error) {
+			mu.Lock()
+			defer mu.Unlock()
+			sent = append(sent, req)
+			return &coordinatorv1.HeartbeatResponse{}, nil
+		})
+		heartbeats := func() []*coordinatorv1.HeartbeatRequest {
+			mu.Lock()
+			defer mu.Unlock()
+			return append([]*coordinatorv1.HeartbeatRequest(nil), sent...)
+		}
+
+		w := worker.NewWorker("offline-worker", 2, mockCoordinatorCli, map[string]string{"zone": "a"}, &config.Config{})
+		w.SetHandler(&mockHandler{})
+		go func() {
+			_ = w.Start(context.Background())
+		}()
+		require.Eventually(t, func() bool { return len(heartbeats()) > 0 }, 5*time.Second, 10*time.Millisecond)
+
+		stopCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		require.NoError(t, w.Stop(stopCtx))
+
+		all := heartbeats()
+		last := all[len(all)-1]
+		assert.True(t, last.Offline, "the last heartbeat marks the worker offline")
+		assert.Equal(t, "offline-worker", last.WorkerId)
+		assert.Equal(t, "a", last.Labels["zone"])
+		for _, req := range all[:len(all)-1] {
+			assert.False(t, req.Offline)
+		}
+	})
 }
 
 // TestWorkerHeartbeatCarriesMachine checks that heartbeats name the worker's

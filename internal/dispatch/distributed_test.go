@@ -126,3 +126,19 @@ func TestWorkerHeartbeatMatches(t *testing.T) {
 		})
 	}
 }
+
+// The check of the available workers applies the rule of Spec 092: a worker with
+// a label agent.provider.<P> matches only a selector that has that label.
+func TestWorkerHeartbeatMatchesExclusiveAgentRule(t *testing.T) {
+	t.Parallel()
+
+	agent := dispatch.WorkerHeartbeatRecord{WorkerID: "agent-1", Labels: map[string]string{"agent.provider.claude": "true"}}
+	general := dispatch.WorkerHeartbeatRecord{WorkerID: "general-1", Labels: map[string]string{"zone": "eu"}}
+	agentSelector := map[string]string{"agent.provider.claude": "true"}
+
+	assert.True(t, dispatch.WorkerHeartbeatMatches(agent, agentSelector, ""))
+	assert.False(t, dispatch.WorkerHeartbeatMatches(agent, nil, ""), "an agent worker takes no run that needs no provider")
+	assert.False(t, dispatch.WorkerHeartbeatMatches(general, agentSelector, ""), "a general worker takes no agent run")
+	assert.True(t, dispatch.WorkerHeartbeatMatches(general, nil, ""))
+	assert.False(t, dispatch.WorkerHeartbeatMatches(agent, agentSelector, "other"))
+}

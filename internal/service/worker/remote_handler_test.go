@@ -1000,6 +1000,40 @@ steps:
 		cleanup()
 	})
 
+	// The worker loads the DAG from the definition of the task, and it reads the skills
+	// at the path of the source file of the task. A worker that has the DAG folder
+	// at that path loads the skill. A worker without it fails at load with the folders
+	// that it searched.
+	t.Run("SkillAtTheSourcePath", func(t *testing.T) {
+		t.Parallel()
+
+		shared := t.TempDir()
+		require.NoError(t, os.MkdirAll(filepath.Join(shared, "skills", "reviewer"), 0o750))
+		require.NoError(t, os.WriteFile(filepath.Join(shared, "skills", "reviewer", "SKILL.md"),
+			[]byte("---\nname: reviewer\ndescription: A reviewer\n---\nRead the diff.\n"), 0o600))
+		definition := "name: agent\nsteps:\n  - id: review\n    action: agent.run\n    with:\n      provider: claude\n      endpoint:\n        name: test-endpoint\n        model: claude-test\n      prompt: hi\n      skills: [reviewer]\n"
+		handler := &remoteTaskHandler{config: &config.Config{Paths: config.PathsConfig{DAGsDir: t.TempDir()}}}
+
+		loaded, err := handler.loadDAG(context.Background(), &coordinatorv1.Task{
+			Target: "agent", Definition: definition, SourceFile: filepath.Join(shared, "agent.yaml"),
+		})
+		require.NoError(t, err)
+		t.Cleanup(loaded.cleanup)
+		require.NotNil(t, loaded.dag.Steps[0].Agent)
+		assert.Equal(t, "claude", loaded.dag.Steps[0].Agent.Provider)
+		require.NotNil(t, loaded.dag.Steps[0].Agent.CLI)
+		require.Len(t, loaded.dag.Steps[0].Agent.CLI.Skills, 1)
+
+		missing := t.TempDir()
+		_, err = handler.loadDAG(context.Background(), &coordinatorv1.Task{
+			Target: "agent", Definition: definition, SourceFile: filepath.Join(missing, "agent.yaml"),
+		})
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), `skill "reviewer"`)
+		assert.Contains(t, err.Error(), "Dagu searched")
+		assert.Contains(t, err.Error(), filepath.Join(missing, "skills"))
+	})
+
 	t.Run("CleanupOnSpecLoadError", func(t *testing.T) {
 		t.Parallel()
 
@@ -1920,6 +1954,11 @@ steps:
 	require.NotNil(t, loaded.workspaceSeed)
 	require.Len(t, loaded.dag.Steps, 1)
 	assert.Equal(t, "child-step", loaded.dag.Steps[0].Name)
+	// The restricted user of an untrusted step passes the folder above the
+	// workspace, which is the work directory of the run (Spec 092).
+	info, err := os.Stat(remoteWorkspaceWorkDir(task))
+	require.NoError(t, err)
+	assert.Equal(t, os.FileMode(0o711), info.Mode().Perm())
 	baseDir := t.TempDir()
 	require.NoError(t, os.Mkdir(filepath.Join(baseDir, "ops"), 0750))
 	require.NoError(t, os.WriteFile(filepath.Join(baseDir, "ops", "base.yaml"), []byte("smtp:\n  host: ops.example\n"), 0600))

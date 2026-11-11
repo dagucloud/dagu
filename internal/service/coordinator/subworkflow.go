@@ -49,6 +49,10 @@ type SubWorkflowRunnerConfig struct {
 	WorkerID           string
 	DAGRunLogDir       string
 	DAGRunArtifactDir  string
+	// LocalAgentRuns marks a process with no coordinator. A child that needs a
+	// CLI provider then runs in this process (Spec 092, development mode).
+	// Otherwise it always goes to the coordinator.
+	LocalAgentRuns bool
 }
 
 // NewSubWorkflowRunnerFactory creates recursive child workflow runners.
@@ -66,28 +70,31 @@ func NewSubWorkflowRunnerFactory(cfg SubWorkflowRunnerConfig) func(context.Conte
 		} else {
 			runnerOpts = append(runnerOpts, subflow.WithoutDispatcherCleanup())
 		}
+		localOpts := []subflow.LocalOption{
+			subflow.WithLocalDAGRunRepository(cfg.DAGRunRepository),
+			subflow.WithLocalRunStateStore(cfg.RunStateStore),
+			subflow.WithLocalQueueStore(cfg.QueueStore),
+			subflow.WithLocalStateStore(cfg.StateStore),
+			subflow.WithLocalSecretStore(cfg.SecretStore),
+			subflow.WithLocalSecretResolver(cfg.SecretResolver),
+			subflow.WithLocalProfileStore(cfg.ProfileStore),
+			subflow.WithLocalProfileResolver(cfg.ProfileResolver),
+			subflow.WithLocalServiceRegistry(cfg.ServiceRegistry),
+			subflow.WithLocalStatusPusher(cfg.StatusPusher),
+			subflow.WithLocalLogWriterFactory(cfg.LogWriterFactory),
+			subflow.WithLocalArtifactFinalizer(cfg.ArtifactFinalizer),
+			subflow.WithLocalSubWorkflowRunnerFactory(factory),
+			subflow.WithLocalRemoteDAGLoader(cfg.RemoteDAGLoader),
+			subflow.WithLocalWorkerID(cfg.WorkerID),
+			subflow.WithLocalDAGRunDirs(cfg.DAGRunLogDir, cfg.DAGRunArtifactDir),
+		}
+		if cfg.LocalAgentRuns {
+			runnerOpts = append(runnerOpts, subflow.WithLocalAgentRuns())
+			localOpts = append(localOpts, subflow.WithLocalAgentRunsAllowed())
+		}
 		return subflow.NewRouter(
 			subflow.New(dispatcher, cfg.DefaultExecMode, runnerOpts...),
-			subflow.NewLocal(
-				cfg.DAGRunMgr,
-				cfg.DAGRepository,
-				subflow.WithLocalDAGRunRepository(cfg.DAGRunRepository),
-				subflow.WithLocalRunStateStore(cfg.RunStateStore),
-				subflow.WithLocalQueueStore(cfg.QueueStore),
-				subflow.WithLocalStateStore(cfg.StateStore),
-				subflow.WithLocalSecretStore(cfg.SecretStore),
-				subflow.WithLocalSecretResolver(cfg.SecretResolver),
-				subflow.WithLocalProfileStore(cfg.ProfileStore),
-				subflow.WithLocalProfileResolver(cfg.ProfileResolver),
-				subflow.WithLocalServiceRegistry(cfg.ServiceRegistry),
-				subflow.WithLocalStatusPusher(cfg.StatusPusher),
-				subflow.WithLocalLogWriterFactory(cfg.LogWriterFactory),
-				subflow.WithLocalArtifactFinalizer(cfg.ArtifactFinalizer),
-				subflow.WithLocalSubWorkflowRunnerFactory(factory),
-				subflow.WithLocalRemoteDAGLoader(cfg.RemoteDAGLoader),
-				subflow.WithLocalWorkerID(cfg.WorkerID),
-				subflow.WithLocalDAGRunDirs(cfg.DAGRunLogDir, cfg.DAGRunArtifactDir),
-			),
+			subflow.NewLocal(cfg.DAGRunMgr, cfg.DAGRepository, localOpts...),
 		), nil
 	}
 	return factory

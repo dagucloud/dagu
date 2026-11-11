@@ -306,6 +306,14 @@ var (
 		usage:     "Required coordinator addresses (format: host1:port1,host2:port2)",
 		bindViper: true,
 	}
+
+	// workerAgentFlag has no configuration key and no environment variable: only
+	// the command line makes an agent worker (Spec 092).
+	workerAgentFlag = commandLineFlag{
+		name:          flagAgent,
+		usage:         "Make an agent worker of a CLI provider: <provider>=<absolute path of its binary>. The worker takes one run, then exits",
+		isStringArray: true,
+	}
 )
 
 // Peer TLS flags

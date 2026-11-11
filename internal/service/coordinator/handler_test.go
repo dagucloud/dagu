@@ -1037,6 +1037,14 @@ func TestDispatchWorkerAvailability(t *testing.T) {
 	}
 }
 
+// A held run that no worker took names the selector that the task carries.
+func TestHeldDispatchFailureNamesTheSelector(t *testing.T) {
+	t.Parallel()
+
+	assert.Equal(t, "no worker matched the selector {zone: build} within 1m0s",
+		heldDispatchFailure(&dispatch.DispatchTask{WorkerSelector: map[string]string{"zone": "build"}}, time.Minute))
+}
+
 func TestDispatchPollerCapacity(t *testing.T) {
 	t.Parallel()
 
@@ -1059,7 +1067,7 @@ func TestDispatchPollerCapacity(t *testing.T) {
 	h.waitingPollers["gpu-poller"] = &workerInfo{
 		workerID: "gpu-worker", labels: map[string]string{"type": "gpu"}, taskChan: busy,
 	}
-	require.NoError(t, h.ensureWaitingWorkerAvailability(ctx, task.WorkerSelector, task.TargetWorkerId))
+	require.NoError(t, h.ensureWaitingWorkerAvailability(ctx, task.WorkerSelector, task.RequiredCapabilities, task.TargetWorkerId))
 	require.ErrorIs(t, h.dispatchToWaitingPoller(ctx, task), errNoAvailableWorkers)
 	require.Empty(t, other)
 }

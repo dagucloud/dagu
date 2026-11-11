@@ -10,6 +10,7 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/cmn/config"
 	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/proto/convert"
+	"github.com/dagucloud/dagu/v2/internal/runtime"
 	"github.com/dagucloud/dagu/v2/internal/service/coordinator"
 	"github.com/dagucloud/dagu/v2/internal/serviceregistry"
 	coordinatorv1 "github.com/dagucloud/dagu/v2/proto/coordinator/v1"
@@ -95,4 +96,16 @@ func LoadRemoteTaskDAGForTest(ctx context.Context, cfg *config.Config, task *coo
 // CleanupErrorMessageForTest exposes cleanupErrorMessage for tests.
 func CleanupErrorMessageForTest(err error) string {
 	return cleanupErrorMessage(err)
+}
+
+// FinalReportPusherForTest returns the pusher that records its pushes in the
+// final report of the context of the task of an agent worker.
+func FinalReportPusherForTest(ctx context.Context, pusher runtime.StatusPusher) runtime.StatusPusher {
+	return wrapFinalReport(ctx, pusher)
+}
+
+// RefusedByRoutingForTest returns the error of a DAG that the routing check of
+// the worker refuses.
+func RefusedByRoutingForTest(err error) error {
+	return refusedByRouting(err)
 }

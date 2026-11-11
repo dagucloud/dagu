@@ -13,7 +13,9 @@ import (
 	"math"
 	"os"
 	"runtime"
+	"slices"
 	"sync"
+	"sync/atomic"
 	"syscall"
 	"time"
 
@@ -24,6 +26,7 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/cmn/stringutil"
 	"github.com/dagucloud/dagu/v2/internal/dagrun"
 	"github.com/dagucloud/dagu/v2/internal/dispatch"
+	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/opencodehost"
 	"github.com/dagucloud/dagu/v2/internal/proto/convert"
 	"github.com/dagucloud/dagu/v2/internal/runtime/builtin/sql"
@@ -41,8 +44,12 @@ type Worker struct {
 	coordinatorCli coordinator.Client
 	handler        TaskHandler
 	labels         map[string]string
-	labelErr       error
-	cfg            *config.Config
+	// capabilities are the capabilities that the worker announces in each poll
+	// and heartbeat (Spec 094, "Version check").
+	capabilities    []string
+	capabilitiesSet bool
+	labelErr        error
+	cfg             *config.Config
 	// host names the machine the worker runs on; empty when unknown.
 	host string
 	// machine samples that machine for heartbeats; nil sends no sample.
@@ -67,12 +74,25 @@ type Worker struct {
 	pollersDone chan struct{}      // Signals when all pollers, and so all tasks, have stopped
 	stopDone    chan struct{}      // Signals when all goroutines have stopped
 
+	// The heartbeat loop ends after its current heartbeat when Stop closes
+	// heartbeatStop, so the offline heartbeat of Stop is the last heartbeat.
+	heartbeatStop     chan struct{}
+	heartbeatDone     chan struct{}
+	heartbeatsStarted atomic.Bool
+
 	// For global PostgreSQL connection pool
 	poolManager  *sql.GlobalPoolManager
 	healthServer *healthcheck.Server
 	openCodeHost *opencodehost.Host
 
 	afterTaskAckHook func(context.Context, *coordinatorv1.Task) bool
+
+	// Agent mode (Spec 092, "The agent worker"). agentProvider is empty for a
+	// general worker.
+	agentProvider string
+	agentRunDone  chan struct{}
+	agentRunOnce  sync.Once
+	agentRunErr   error
 }
 
 type runningTaskState struct {
@@ -125,6 +145,19 @@ func (w *Worker) SetAfterTaskAckHook(hook func(context.Context, *coordinatorv1.T
 	w.afterTaskAckHook = hook
 }
 
+// SetCapabilities sets the capabilities that the worker announces, in place of
+// the capabilities that the start of the worker detects. A test uses it to make
+// a worker that lacks a capability.
+func (w *Worker) SetCapabilities(capabilities []string) {
+	w.capabilities = append([]string(nil), capabilities...)
+	w.capabilitiesSet = true
+}
+
+// Capabilities returns the capabilities that the worker announces.
+func (w *Worker) Capabilities() []string {
+	return append([]string(nil), w.capabilities...)
+}
+
 // NewWorker creates a new worker instance.
 func NewWorker(
 	workerID string,
@@ -162,6 +195,8 @@ func NewWorker(
 		pollerTasks:    make(map[string]string),
 		cancelFuncs:    make(map[string]context.CancelFunc),
 		runSignals:     make(map[string]*runSignal),
+		heartbeatStop:  make(chan struct{}),
+		heartbeatDone:  make(chan struct{}),
 		healthServer:   healthcheck.NewServer("worker", healthPort),
 		openCodeHost:   opencodehost.New(context.Background(), openCodeConfig),
 	}
@@ -175,6 +210,9 @@ func (w *Worker) Start(ctx context.Context) (err error) {
 	logger.Info(ctx, "Starting worker",
 		tag.WorkerID(w.id),
 		tag.MaxConcurrency(w.maxActiveRuns))
+	if !w.capabilitiesSet {
+		w.capabilities = detectCapabilities(ctx)
+	}
 
 	if w.handler == nil {
 		return fmt.Errorf("worker task handler is not configured")
@@ -252,6 +290,10 @@ func (w *Worker) Start(ctx context.Context) (err error) {
 				handler:     w.handler,
 			}
 			poller := NewPoller(w.id, w.coordinatorCli, wrappedHandler, pollerIndex, w.labels)
+			poller.capabilities = w.capabilities
+			if w.agentProvider != "" {
+				poller.onRunEnd = w.finishAgentRun
+			}
 			poller.Run(pollCtx)
 		}(i)
 	}
@@ -262,7 +304,9 @@ func (w *Worker) Start(ctx context.Context) (err error) {
 	})
 
 	// Start heartbeat goroutine
+	w.heartbeatsStarted.Store(true)
 	wg.Go(func() {
+		defer close(w.heartbeatDone)
 		w.sendHeartbeats(internalCtx)
 	})
 	wg.Go(func() {
@@ -285,6 +329,17 @@ func (w *Worker) Start(ctx context.Context) (err error) {
 }
 
 func workerLabels(configured map[string]string) (map[string]string, error) {
+	// The labels of the agent workers come from the option --agent. A configured
+	// label with one of these keys would make a false claim.
+	for _, key := range slices.Sorted(maps.Keys(configured)) {
+		if ir.IsAgentLabel(key) {
+			// Spec 092, "Reserved labels": only the option --agent sets them.
+			return nil, fmt.Errorf(
+				"worker label %q is reserved: Dagu sets the labels that start with %s; start the worker with --agent <provider>=<path> to make an agent worker",
+				key, ir.AgentLabelPrefix,
+			)
+		}
+	}
 	labels := maps.Clone(configured)
 	if labels == nil {
 		labels = make(map[string]string, 2)
@@ -393,6 +448,9 @@ const (
 	// stopCleanupTimeout bounds closing the coordinator client, health server
 	// and OpenCode host once the Stop context is done.
 	stopCleanupTimeout = 5 * time.Second
+	// offlineHeartbeatTimeout bounds the end of the heartbeat loop and the
+	// offline heartbeat.
+	offlineHeartbeatTimeout = 5 * time.Second
 )
 
 // Stop gracefully shuts down the worker. It stops polling, sends SIGTERM to
@@ -400,7 +458,9 @@ const (
 // handlers, or until ctx is done. Without a deadline on ctx, Stop can wait
 // indefinitely for a task that does not exit. When ctx is done first, Stop
 // cancels the remaining tasks, waits up to stopCanceledRunsTimeout for them to
-// exit, then up to stopCleanupTimeout to release its resources.
+// exit, then up to stopCleanupTimeout to release its resources. When no task
+// runs any more, the last heartbeat tells the coordinator that the worker is
+// offline, so the coordinator does not count on it until it is stale.
 func (w *Worker) Stop(ctx context.Context) error {
 	var err error
 	w.stopOnce.Do(func() {
@@ -421,6 +481,7 @@ func (w *Worker) Stop(ctx context.Context) error {
 					tag.WorkerID(w.id))
 			}
 		}
+		w.endHeartbeats(ctx)
 
 		// Cancel the internal context to signal all goroutines to stop
 		if w.stopCancel != nil {
@@ -447,6 +508,10 @@ func (w *Worker) Stop(ctx context.Context) error {
 		var cancelCleanup context.CancelFunc
 		ctx, cancelCleanup = liveStopContext(ctx, stopCleanupTimeout)
 		defer cancelCleanup()
+
+		// Spec 092, "End": the worker tells the coordinator that it is gone
+		// before it exits.
+		w.sendOfflineHeartbeat(ctx)
 
 		// Close the global PostgreSQL pool manager if initialized
 		if w.poolManager != nil {
@@ -489,6 +554,53 @@ func liveStopContext(ctx context.Context, timeout time.Duration) (context.Contex
 		return ctx, func() {}
 	}
 	return context.WithTimeout(context.WithoutCancel(ctx), timeout)
+}
+
+// endHeartbeats ends the heartbeat loop after its current heartbeat. A
+// heartbeat in flight then cannot reach the coordinator after the offline
+// heartbeat.
+func (w *Worker) endHeartbeats(ctx context.Context) {
+	if !w.heartbeatsStarted.Load() {
+		return
+	}
+	close(w.heartbeatStop)
+	timer := time.NewTimer(offlineHeartbeatTimeout)
+	defer timer.Stop()
+	select {
+	case <-w.heartbeatDone:
+	case <-ctx.Done():
+	case <-timer.C:
+	}
+}
+
+// sendOfflineHeartbeat tells the coordinator that the worker is gone. A worker
+// with a task that still runs sends nothing: the coordinator keeps it until its
+// last heartbeat is stale, and the rules of a lost worker apply to the task.
+func (w *Worker) sendOfflineHeartbeat(ctx context.Context) {
+	if !w.heartbeatsStarted.Load() {
+		return
+	}
+	w.pollersMu.Lock()
+	running := len(w.runningTasks)
+	w.pollersMu.Unlock()
+	if running > 0 {
+		logger.Warn(ctx, "Worker stops with running tasks; the coordinator keeps it until its heartbeat is stale",
+			tag.WorkerID(w.id), slog.Int("running-tasks", running))
+		return
+	}
+	callCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), offlineHeartbeatTimeout)
+	defer cancel()
+	if _, err := w.coordinatorCli.Heartbeat(callCtx, &coordinatorv1.HeartbeatRequest{
+		WorkerId:     w.id,
+		Labels:       w.labels,
+		Capabilities: w.capabilities,
+		Offline:      true,
+	}); err != nil {
+		logger.Warn(ctx, "Failed to tell the coordinator that the worker is offline; it keeps the worker until its heartbeat is stale",
+			tag.WorkerID(w.id), tag.Error(err))
+		return
+	}
+	logger.Info(ctx, "Told the coordinator that the worker is offline", tag.WorkerID(w.id))
 }
 
 // WaitReady blocks until the worker appears in coordinator registration.
@@ -664,12 +776,19 @@ func (w *Worker) sendHeartbeats(ctx context.Context) {
 
 	waitWithContext := func(ctx context.Context, d time.Duration) bool {
 		if d <= 0 {
-			return ctx.Err() == nil
+			select {
+			case <-w.heartbeatStop:
+				return false
+			default:
+				return ctx.Err() == nil
+			}
 		}
 		timer := time.NewTimer(d)
 		defer timer.Stop()
 		select {
 		case <-ctx.Done():
+			return false
+		case <-w.heartbeatStop:
 			return false
 		case <-timer.C:
 			return true
@@ -823,8 +942,9 @@ func (w *Worker) sendHeartbeat(ctx context.Context) error {
 	busyCount32 := int32(min(busyCount, math.MaxInt32))        //nolint:gosec
 
 	req := &coordinatorv1.HeartbeatRequest{
-		WorkerId: w.id,
-		Labels:   w.labels,
+		WorkerId:     w.id,
+		Labels:       w.labels,
+		Capabilities: w.capabilities,
 		Stats: &coordinatorv1.WorkerStats{
 			TotalPollers: totalPollers,
 			BusyPollers:  busyCount32,
