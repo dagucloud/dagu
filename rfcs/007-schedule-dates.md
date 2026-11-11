@@ -113,7 +113,7 @@ New fields under `context.run`, following the proposal in dagucloud/dagu#3279:
 
 `dagu start`, `dagu enqueue`, `dagu restart`, `dagu dry`, the run dialog, the
 `start` and `enqueue` endpoints (`scheduleTime`), and the MCP execute tool
-(`scheduled_at`) accept a scheduled time:
+(`scheduleTime`) accept a scheduled time:
 
 ```sh
 dagu start etl --scheduled-at latest
