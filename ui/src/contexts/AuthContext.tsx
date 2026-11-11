@@ -304,7 +304,8 @@ export function useCanExecute(): boolean {
   const config = useConfig();
   const appBarContext = useContext(AppBarContext);
   const workspace = workspaceRoleTarget(appBarContext.workspaceSelection);
-  if (config.authMode !== 'builtin') return config.permissions.runDags;
+  if (!config.permissions.runDags) return false;
+  if (config.authMode !== 'builtin') return true;
   if (!user) return false;
   return roleAtLeast(
     effectiveWorkspaceRole(user, workspace),
@@ -315,7 +316,8 @@ export function useCanExecute(): boolean {
 export function useCanExecuteForWorkspace(workspace?: string | null): boolean {
   const { user } = useAuth();
   const config = useConfig();
-  if (config.authMode !== 'builtin') return config.permissions.runDags;
+  if (!config.permissions.runDags) return false;
+  if (config.authMode !== 'builtin') return true;
   if (!user) return false;
   return roleAtLeast(
     effectiveWorkspaceRole(user, workspace ?? ''),
