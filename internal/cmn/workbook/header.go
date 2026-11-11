@@ -250,7 +250,7 @@ func layoutHeader(reg region, spec HeaderSpec) (headerLayout, error) {
 // headerNames builds column names for a region: multi-row headers are
 // joined with a space, line breaks become spaces, empty names fall back to
 // the column letter, and duplicates get a numeric suffix.
-func headerNames(reg region, layout headerLayout, grid [][]string, merges mergeFill, warn func(string)) []string {
+func (w *file) headerNames(reg region, layout headerLayout, grid [][]string, merges mergeFill, warn func(string)) []string {
 	names := make([]string, 0, reg.C2-reg.C1+1)
 	// _row is reserved for the row number, so a header spelled that way is
 	// renamed like a duplicate.
@@ -262,7 +262,14 @@ func headerNames(reg region, layout headerLayout, grid [][]string, merges mergeF
 			var parts []string
 			for _, r := range layout.rows {
 				oc, or := merges.origin(c, r)
-				text := cleanHeader(cellAt(grid, oc, or))
+				raw := cellAt(grid, oc, or)
+				if raw == "" {
+					cell := cellName(oc, or)
+					if formula, _ := w.f.GetCellFormula(reg.Sheet, cell); formula != "" {
+						raw = w.uncachedFormulaValue(reg.Sheet, cell, formula, warn)
+					}
+				}
+				text := cleanHeader(raw)
 				if text != "" {
 					parts = append(parts, text)
 				}

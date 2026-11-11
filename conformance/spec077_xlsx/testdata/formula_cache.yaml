@@ -1,0 +1,64 @@
+working_dir: .
+steps:
+  - id: cells
+    action: xlsx.write_cells
+    with:
+      path: cells.xlsx
+      cells:
+        A2: 20
+  - id: update
+    action: xlsx.update_rows
+    with:
+      path: update.xlsx
+      key: id
+      rows: [{id: one, amount: 20}]
+  - id: append
+    action: xlsx.append
+    with:
+      path: append.xlsx
+      rows: [{amount: 18}]
+  - id: read_cells
+    depends: cells
+    action: xlsx.read
+    with:
+      path: cells.xlsx
+  - id: read_update
+    depends: update
+    action: xlsx.read
+    with:
+      path: update.xlsx
+  - id: read_append
+    depends: append
+    action: xlsx.read
+    with:
+      path: append.xlsx
+  - id: cells_summary
+    depends: cells
+    action: xlsx.read
+    with:
+      path: cells.xlsx
+      sheet: Summary
+  - id: update_summary
+    depends: update
+    action: xlsx.read
+    with:
+      path: update.xlsx
+      sheet: Summary
+  - id: append_summary
+    depends: append
+    action: xlsx.read
+    with:
+      path: append.xlsx
+      sheet: Summary
+  - id: out
+    depends: [read_cells, read_update, read_append, cells_summary, update_summary, append_summary]
+    action: file.write
+    with:
+      path: out.json
+      content: |
+        {"cells": {"rows": ${steps.read_cells.outputs.rows}, "warnings": ${steps.read_cells.outputs.warnings}},
+         "update": {"rows": ${steps.read_update.outputs.rows}, "warnings": ${steps.read_update.outputs.warnings}},
+         "append": {"rows": ${steps.read_append.outputs.rows}, "warnings": ${steps.read_append.outputs.warnings}},
+         "cells_summary": {"rows": ${steps.cells_summary.outputs.rows}},
+         "update_summary": {"rows": ${steps.update_summary.outputs.rows}},
+         "append_summary": {"rows": ${steps.append_summary.outputs.rows}}}
