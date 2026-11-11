@@ -67,8 +67,10 @@ type DispatchTask struct {
 	BaseConfigWorkspace *string
 	Labels              string
 	ScheduleTime        string
-	SourceFile          string
-	SourceWorkDir       string
+	// ScheduleWindow is the window the slot at ScheduleTime owns.
+	ScheduleWindow ir.ScheduleWindow
+	SourceFile     string
+	SourceWorkDir  string
 
 	WorkerSelector map[string]string
 	// RequiredCapabilities lists the capabilities that a worker must announce to

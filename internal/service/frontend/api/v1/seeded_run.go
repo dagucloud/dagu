@@ -34,6 +34,8 @@ type seededRun struct {
 	triggerType  ir.TriggerType
 	// enqueue sends the run to the DAG's queue when one is configured.
 	enqueue bool
+	// slot is the schedule slot the run is for, or nil.
+	slot *requestedSlot
 }
 
 // launchSeededDAGRun persists run as a queued attempt and hands it to the
@@ -59,6 +61,8 @@ func (a *API) launchSeededDAGRun(ctx context.Context, run seededRun) (queued boo
 		ProfileName:      run.profileName,
 		NoReuse:          run.noReuse,
 		Ephemeral:        run.ephemeral,
+		ScheduleTime:     run.slot.scheduleTimeOrEmpty(),
+		ScheduleWindow:   run.slot.windowOrZero(),
 		LogBaseDir:       a.config.Paths.LogDir,
 		ArtifactBaseDir:  a.config.Paths.ArtifactDir,
 	})

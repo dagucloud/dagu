@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"io"
 	"path/filepath"
+	"time"
 
 	"github.com/dagucloud/dagu/v2/internal/cmn/stringutil"
 	"github.com/dagucloud/dagu/v2/internal/ir"
@@ -19,7 +20,7 @@ import (
 	"github.com/spf13/cobra"
 )
 
-var dryFlags = []commandLineFlag{paramsFlag, nameFlag, profileFlag, noReuseFlag, dryFormatFlag}
+var dryFlags = []commandLineFlag{paramsFlag, nameFlag, profileFlag, noReuseFlag, dryFormatFlag, scheduledAtFlag}
 
 // Dry returns the cobra command for dry-run simulation.
 func Dry() *cobra.Command {
@@ -37,9 +38,12 @@ allowing you to test different parameter configurations.
 
 --format json writes one JSON object to stdout, {"checks":[...]}, and omits the run summary. text, the default, keeps warnings on stderr and the summary on stdout. A check does not change the exit status.
 
+--scheduled-at simulates the run of a schedule slot, including one that has not come yet, and prints the slot and the window it owns.
+
 Example:
   dagu dry my_dag.yaml -- P1=foo P2=bar
   dagu dry --format json my_dag.yaml
+  dagu dry --scheduled-at 2026-11-30 my_dag.yaml
 `,
 			Args: cobra.MinimumNArgs(1),
 		}, dryFlags,
@@ -92,6 +96,11 @@ func runDry(ctx *Context, args []string) error {
 	if err != nil {
 		return err
 	}
+	// A dry run starts nothing, so it may preview a slot that has not come.
+	slot, err := runSlotParams(ctx, dag, profileName, true)
+	if err != nil {
+		return err
+	}
 
 	ag := agent.New(
 		dagRunID,
@@ -114,6 +123,8 @@ func runDry(ctx *Context, args []string) error {
 			RootDAGRun:               ir.NewDAGRunRef(dag.Name, dagRunID),
 			PeerConfig:               ctx.Config.Core.Peer,
 			DefaultExecMode:          ctx.Config.DefaultExecMode,
+			ScheduleTime:             slot.scheduleTime,
+			ScheduleWindow:           slot.window,
 			DAGRunLogDir:             ctx.Config.Paths.LogDir,
 			DAGRunArtifactDir:        ctx.Config.Paths.ArtifactDir,
 		},
@@ -129,6 +140,9 @@ func runDry(ctx *Context, args []string) error {
 		return writeDryRunJSON(ctx.Command.OutOrStdout(), ag.DryRunChecks())
 	}
 
+	if slot.scheduleTime != "" {
+		writeDrySlot(ctx.Command.OutOrStdout(), slot, ctx.Config.Core.Location)
+	}
 	ag.PrintSummary(ctx)
 
 	return nil
@@ -159,6 +173,28 @@ func writeDryRunJSON(out io.Writer, checks []runtime.DryRunCheck) error {
 	encoder := json.NewEncoder(out)
 	encoder.SetIndent("", "  ")
 	return encoder.Encode(payload)
+}
+
+// writeDrySlot prints the slot a dry run simulates and the window it owns, in
+// the zone of its schedule. A zone with no IANA name is the server zone.
+func writeDrySlot(out io.Writer, slot runSlot, serverZone *time.Location) {
+	at, err := stringutil.ParseTime(slot.scheduleTime)
+	if err != nil {
+		return
+	}
+	zone, err := time.LoadLocation(slot.window.Timezone)
+	if err != nil {
+		zone = serverZone
+	}
+	format := func(t time.Time) string {
+		if t.IsZero() {
+			return "none"
+		}
+		return t.In(zone).Format(time.RFC3339)
+	}
+	_, _ = fmt.Fprintf(out, "Scheduled at: %s (%s)\n", format(at), slot.window.Timezone)
+	_, _ = fmt.Fprintf(out, "Window:       %s to %s\n", format(slot.window.Start), format(at))
+	_, _ = fmt.Fprintf(out, "Next fire:    %s\n", format(slot.window.Next))
 }
 
 // loadDAGForDryRun loads the DAG with parameters from flags or command-line arguments.
