@@ -29,7 +29,7 @@ function ServiceDAGCard({
 }): React.ReactElement {
   const { ts } = useI18n();
   return (
-    <div className="flex min-w-48 max-w-72 items-stretch rounded-md border border-border bg-card transition-colors focus-within:ring-2 focus-within:ring-ring">
+    <div className="flex min-w-0 items-stretch rounded-md border border-border bg-card transition-colors focus-within:ring-2 focus-within:ring-ring">
       <Link
         to={`/dags/${encodeURIComponent(dag.fileName)}`}
         title={ts('Restarts {seconds}s after a run ends', {
@@ -109,7 +109,9 @@ export function ServiceDAGStrip({
           {serviceDAGs.length}
         </span>
       </h2>
-      <div className="flex max-h-40 flex-wrap gap-2 overflow-y-auto">
+      {/* A phone lists every card at full width: a scroll box inside the page
+          is hard to scroll there. */}
+      <div className="grid gap-2 sm:max-h-40 sm:grid-cols-[repeat(auto-fill,minmax(14rem,1fr))] sm:overflow-y-auto">
         {serviceDAGs.map((dag) => (
           <ServiceDAGCard
             key={dag.fileName}
