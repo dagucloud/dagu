@@ -18691,6 +18691,14 @@ components:
         - stopped: an operator stopped the latest run of an unless-stopped DAG.
       enum: ["pending", "running", "waiting", "restarting", "failing", "suspended", "stopped"]
 
+    ServiceDAGRestartHold:
+      type: string
+      description: |
+        Why the next run of a service DAG does not start, set with the states restarting and failing in place of nextRestartAt:
+        - paused: an operator paused the scheduler.
+        - noScheduler: no scheduler is running.
+      enum: ["paused", "noScheduler"]
+
     ServiceDAGRun:
       type: object
       description: "The latest run of a service DAG"
@@ -18734,7 +18742,9 @@ components:
         nextRestartAt:
           type: string
           format: date-time
-          description: "When the scheduler starts the next run: restartWaitSec after the latest run ended, longer while the runs in a row fail soon after they start. Set only with the states restarting and failing."
+          description: "When the scheduler starts the next run: restartWaitSec after the latest run ended, longer while the runs in a row fail soon after they start. Set only with the states restarting and failing, and not with restartHold."
+        restartHold:
+          $ref: "#/components/schemas/ServiceDAGRestartHold"
         state:
           $ref: "#/components/schemas/ServiceDAGState"
         suspended:

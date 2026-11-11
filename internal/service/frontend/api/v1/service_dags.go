@@ -77,6 +77,7 @@ func (a *API) listServiceDAGs(ctx context.Context, filter *workspace.WorkspaceFi
 
 	history := a.dagRunMgr.AllHistory()
 	backoff := a.restartBackoff(ctx)
+	hold := a.restartHold(ctx)
 	dags := make([]api.ServiceDAG, 0, len(result.Items))
 	for _, item := range result.Items {
 		latest, statusErr := history.ReadLatestStatus(ctx, item.DAG)
@@ -95,8 +96,11 @@ func (a *API) listServiceDAGs(ctx context.Context, filter *workspace.WorkspaceFi
 			readError = &message
 		}
 		var nextRestartAt *time.Time
+		var restartHold *api.ServiceDAGRestartHold
 		if readError == nil && (state == scheduler.ServiceDAGStateRestarting || state == scheduler.ServiceDAGStateFailing) {
-			if at, ok := scheduler.NextRestart(item.RestartWait, &latest, backoff[item.Name]); ok {
+			if hold != nil {
+				restartHold = hold
+			} else if at, ok := scheduler.NextRestart(item.RestartWait, &latest, backoff[item.Name]); ok {
 				nextRestartAt = &at
 			}
 		}
@@ -111,6 +115,7 @@ func (a *API) listServiceDAGs(ctx context.Context, filter *workspace.WorkspaceFi
 			LatestRun:      toServiceDAGRun(latest),
 			ReadError:      readError,
 			NextRestartAt:  nextRestartAt,
+			RestartHold:    restartHold,
 
 			ConsecutiveFailures: a.failureStreak(ctx, item.DAG, latest),
 		})
@@ -119,6 +124,26 @@ func (a *API) listServiceDAGs(ctx context.Context, filter *workspace.WorkspaceFi
 		errList = []string{}
 	}
 	return api.ServiceDAGsResponse{Dags: dags, Errors: errList}, nil
+}
+
+// restartHold tells why the scheduler starts no run of a service DAG now, or
+// returns nil while it does: an operator paused it, or no scheduler runs. The
+// wake hold keeps restarts going, and a scheduler whose state is unknown may run.
+func (a *API) restartHold(ctx context.Context) *api.ServiceDAGRestartHold {
+	if a.schedulerPauseStore != nil {
+		pause, err := a.schedulerPauseStore.Get(ctx)
+		if err != nil {
+			logger.Warn(ctx, "Failed to read the scheduler pause state", tag.Error(err))
+		} else if pause.Paused && !pause.WakeHold() {
+			hold := api.ServiceDAGRestartHoldPaused
+			return &hold
+		}
+	}
+	if running, known := a.schedulerRunning(ctx); known && !running {
+		hold := api.ServiceDAGRestartHoldNoScheduler
+		return &hold
+	}
+	return nil
 }
 
 // restartBackoff returns what the scheduler shares of its restart backoff. It is

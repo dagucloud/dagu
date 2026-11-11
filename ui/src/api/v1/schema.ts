@@ -7645,6 +7645,14 @@ export interface components {
          * @enum {string}
          */
         ServiceDAGState: ServiceDAGState;
+        /**
+         * @description Why the next run of a service DAG does not start, set with the states restarting and failing in place of nextRestartAt:
+         *     - paused: an operator paused the scheduler.
+         *     - noScheduler: no scheduler is running.
+         *
+         * @enum {string}
+         */
+        ServiceDAGRestartHold: ServiceDAGRestartHold;
         /** @description The latest run of a service DAG */
         ServiceDAGRun: {
             dagRunId: components["schemas"]["DAGRunId"];
@@ -7674,9 +7682,10 @@ export interface components {
             queue: string;
             /**
              * Format: date-time
-             * @description When the scheduler starts the next run: restartWaitSec after the latest run ended, longer while the runs in a row fail soon after they start. Set only with the states restarting and failing.
+             * @description When the scheduler starts the next run: restartWaitSec after the latest run ended, longer while the runs in a row fail soon after they start. Set only with the states restarting and failing, and not with restartHold.
              */
             nextRestartAt?: string;
+            restartHold?: components["schemas"]["ServiceDAGRestartHold"];
             state: components["schemas"]["ServiceDAGState"];
             /** @description Whether the DAG is suspended */
             suspended: boolean;
@@ -24185,6 +24194,10 @@ export enum ServiceDAGState {
     failing = "failing",
     suspended = "suspended",
     stopped = "stopped"
+}
+export enum ServiceDAGRestartHold {
+    paused = "paused",
+    noScheduler = "noScheduler"
 }
 export enum QueueType {
     global = "global",

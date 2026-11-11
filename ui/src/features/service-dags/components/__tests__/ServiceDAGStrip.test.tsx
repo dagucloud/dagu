@@ -6,6 +6,7 @@ import { MemoryRouter } from 'react-router-dom';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   RestartPolicy,
+  ServiceDAGRestartHold,
   ServiceDAGState,
   Status,
   type components,
@@ -95,6 +96,28 @@ describe('describeServiceDAG', () => {
       text: 'Restart in {duration}',
       values: { duration: '4m 47s' },
     });
+  });
+
+  // The countdown would pass with no run while the scheduler starts none.
+  it('says why no restart comes', () => {
+    expect(
+      describeServiceDAG(
+        dag({
+          state: ServiceDAGState.failing,
+          restartHold: ServiceDAGRestartHold.paused,
+        }),
+        NOW
+      ).text
+    ).toBe('Restart on hold: the scheduler is paused');
+    expect(
+      describeServiceDAG(
+        dag({
+          state: ServiceDAGState.restarting,
+          restartHold: ServiceDAGRestartHold.noScheduler,
+        }),
+        NOW
+      ).text
+    ).toBe('Restart on hold: no scheduler is running');
   });
 
   it('says why no run follows', () => {

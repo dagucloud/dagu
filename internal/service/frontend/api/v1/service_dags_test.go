@@ -22,12 +22,19 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/proc"
 	"github.com/dagucloud/dagu/v2/internal/schedulerstate"
 	localapi "github.com/dagucloud/dagu/v2/internal/service/frontend/api/v1"
+	"github.com/dagucloud/dagu/v2/internal/serviceregistry"
 	"github.com/dagucloud/dagu/v2/internal/test"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
+// newServiceDAGAPI returns an API with one active scheduler, which starts the
+// runs of service DAGs.
 func newServiceDAGAPI(helper test.Helper, opts ...localapi.APIOption) *localapi.API {
+	return newServiceDAGAPIWithSchedulers(helper, []serviceregistry.ServiceStatus{serviceregistry.ServiceStatusActive}, opts...)
+}
+
+func newServiceDAGAPIWithSchedulers(helper test.Helper, schedulers []serviceregistry.ServiceStatus, opts ...localapi.APIOption) *localapi.API {
 	return localapi.New(
 		helper.DAGRepository,
 		helper.DAGRunRepository,
@@ -36,11 +43,25 @@ func newServiceDAGAPI(helper test.Helper, opts ...localapi.APIOption) *localapi.
 		helper.DAGRunMgr,
 		helper.Config,
 		nil,
-		helper.ServiceRegistry,
+		schedulerRegistry{statuses: schedulers},
 		nil,
 		nil,
 		opts...,
 	)
+}
+
+// schedulerRegistry reports one scheduler instance in each of the statuses.
+type schedulerRegistry struct {
+	serviceregistry.ServiceRegistry
+	statuses []serviceregistry.ServiceStatus
+}
+
+func (r schedulerRegistry) GetServiceMembers(context.Context, serviceregistry.ServiceName) ([]serviceregistry.HostInfo, error) {
+	members := make([]serviceregistry.HostInfo, 0, len(r.statuses))
+	for i, status := range r.statuses {
+		members = append(members, serviceregistry.HostInfo{ID: fmt.Sprintf("scheduler-%d", i), Status: status})
+	}
+	return members, nil
 }
 
 const serviceDAGSpec = "restart_policy: always\nrestart_wait_sec: 5\nhist_retention_runs: 10\nsteps:\n  - run: echo hi\n"
@@ -232,6 +253,63 @@ func TestListServiceDAGsReportsWhenTheNextRunStarts(t *testing.T) {
 		assert.Equal(t, end.Add(wait), next[name].UTC(), name)
 	}
 	assert.Nil(t, next["svc-live"], "a run that is alive has no restart time")
+}
+
+// A paused scheduler starts no run, and neither does a missing one. The list
+// says why rather than give a time that would pass with no run. The wake hold
+// keeps restarts going, and a scheduler whose state is unknown may be running.
+func TestListServiceDAGsReportsWhyNoRestartComes(t *testing.T) {
+	t.Parallel()
+	active := []serviceregistry.ServiceStatus{serviceregistry.ServiceStatusActive}
+	paused := api.ServiceDAGRestartHoldPaused
+	noScheduler := api.ServiceDAGRestartHoldNoScheduler
+
+	tests := []struct {
+		name       string
+		schedulers []serviceregistry.ServiceStatus
+		pause      func(context.Context, schedulerstate.PauseStore) error
+		hold       *api.ServiceDAGRestartHold
+	}{
+		{name: "Running", schedulers: active},
+		{name: "Paused", schedulers: active, pause: func(ctx context.Context, s schedulerstate.PauseStore) error {
+			return s.Set(ctx, true, "admin", "maintenance")
+		}, hold: &paused},
+		{name: "WakeHold", schedulers: active, pause: func(ctx context.Context, s schedulerstate.PauseStore) error {
+			_, err := s.SetHold(ctx, true, "host woke")
+			return err
+		}},
+		{name: "NoScheduler", schedulers: []serviceregistry.ServiceStatus{serviceregistry.ServiceStatusInactive}, hold: &noScheduler},
+		{name: "UnknownScheduler", schedulers: []serviceregistry.ServiceStatus{serviceregistry.ServiceStatusUnknown}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			ctx := context.Background()
+			helper := test.Setup(t, test.WithStatusPersistence())
+			helper.CreateDAGFile(t, helper.Config.Paths.DAGsDir, "svc", []byte(serviceDAGSpec))
+			seedRun(t, helper, "svc", "run-1", ir.Failed, ir.TriggerTypeRestart)
+			pauseStore := store.NewSchedulerPauseStore(helper.Backend.Collection(persis.CollectionSchedulerState))
+			if tt.pause != nil {
+				require.NoError(t, tt.pause(ctx, pauseStore))
+			}
+
+			resp, err := newServiceDAGAPIWithSchedulers(helper, tt.schedulers, localapi.WithSchedulerPauseStore(pauseStore)).
+				ListServiceDAGs(ctx, api.ListServiceDAGsRequestObject{})
+			require.NoError(t, err)
+			list, ok := resp.(api.ListServiceDAGs200JSONResponse)
+			require.True(t, ok, "expected 200 response, got %T", resp)
+			require.Len(t, list.Dags, 1)
+			dag := list.Dags[0]
+
+			assert.Equal(t, api.ServiceDAGStateFailing, dag.State)
+			assert.Equal(t, tt.hold, dag.RestartHold)
+			if tt.hold != nil {
+				assert.Nil(t, dag.NextRestartAt, "no time while no restart comes")
+			} else {
+				assert.NotNil(t, dag.NextRestartAt)
+			}
+		})
+	}
 }
 
 // A DAG that sets no queue runs in a queue named after it, so a client can

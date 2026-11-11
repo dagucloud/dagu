@@ -2,7 +2,11 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 import React from 'react';
-import { components, ServiceDAGState } from '@/api/v1/schema';
+import {
+  components,
+  ServiceDAGRestartHold,
+  ServiceDAGState,
+} from '@/api/v1/schema';
 import { Badge } from '@/components/ui/badge';
 import Ticker from '@/components/ui/ticker';
 import { formatElapsed } from '@/lib/dagRunTiming';
@@ -55,6 +59,12 @@ export function describeServiceDAG(
       return { text: 'Waiting for input' };
     case ServiceDAGState.restarting:
     case ServiceDAGState.failing: {
+      if (dag.restartHold === ServiceDAGRestartHold.paused) {
+        return { text: 'Restart on hold: the scheduler is paused' };
+      }
+      if (dag.restartHold === ServiceDAGRestartHold.noScheduler) {
+        return { text: 'Restart on hold: no scheduler is running' };
+      }
       // The server knows how long the scheduler backs off a DAG that keeps
       // failing; restartWaitSec alone would end the count too early.
       const nextRestart = dag.nextRestartAt
