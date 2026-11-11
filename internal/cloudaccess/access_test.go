@@ -82,15 +82,18 @@ func (f *fakeCloud) accept(t *testing.T) *websocket.Conn {
 }
 
 // startAccess runs the service against cloud at a remote access level,
-// serving calls with mcp.
-func startAccess(t *testing.T, cloud *fakeCloud, key cloudKey, level config.RemoteAccessLevel, mcp http.Handler) (*Service, *Settings) {
+// serving calls with mcp. The returned credentials are those the service
+// reads, which a test may replace.
+func startAccess(t *testing.T, cloud *fakeCloud, key cloudKey, level config.RemoteAccessLevel, mcp http.Handler) (*Service, *Settings, *atomic.Pointer[license.CloudCredentials]) {
 	t.Helper()
 	settings := NewSettings(config.CloudConfig{}, filemonitor.NewStateStore(filepath.Join(t.TempDir(), "access-settings.json")))
 	require.NoError(t, settings.Set(context.Background(), new(level), nil))
 	creds := testCreds
 	creds.CloudURL = cloud.console.URL
+	var current atomic.Pointer[license.CloudCredentials]
+	current.Store(&creds)
 	service := New(Config{
-		Credentials: func() (license.CloudCredentials, bool) { return creds, true },
+		Credentials: func() (license.CloudCredentials, bool) { return *current.Load(), true },
 		Settings:    settings,
 		Key:         key.public,
 	})
@@ -105,7 +108,7 @@ func startAccess(t *testing.T, cloud *fakeCloud, key cloudKey, level config.Remo
 		cancel()
 		<-done
 	})
-	return service, settings
+	return service, settings, &current
 }
 
 // Turning remote access on connects the process, and turning it off
@@ -114,7 +117,7 @@ func TestRemoteAccessHoldsAConnectionWhileOn(t *testing.T) {
 	cloud := newFakeCloud(t)
 	key := newCloudKey(t)
 	started, ended := make(chan struct{}), make(chan struct{})
-	service, settings := startAccess(t, cloud, key, config.RemoteAccessOff, http.HandlerFunc(func(_ http.ResponseWriter, r *http.Request) {
+	service, settings, _ := startAccess(t, cloud, key, config.RemoteAccessOff, http.HandlerFunc(func(_ http.ResponseWriter, r *http.Request) {
 		close(started)
 		<-r.Context().Done()
 		close(ended)
@@ -162,7 +165,7 @@ func TestRemoteAccessHoldsAConnectionWhileOn(t *testing.T) {
 func TestRemoteAccessWaitsAfterARefusal(t *testing.T) {
 	cloud := newFakeCloud(t)
 	cloud.refusal.Store("access from Dagu Cloud needs a plan or a trial")
-	service, settings := startAccess(t, cloud, newCloudKey(t), config.RemoteAccessOperator, http.NotFoundHandler())
+	service, settings, _ := startAccess(t, cloud, newCloudKey(t), config.RemoteAccessOperator, http.NotFoundHandler())
 	require.Eventually(t, func() bool {
 		return service.State().Error == "Access from Dagu Cloud needs a plan or a trial."
 	}, waitFor, 10*time.Millisecond)
@@ -171,6 +174,27 @@ func TestRemoteAccessWaitsAfterARefusal(t *testing.T) {
 
 	cloud.refusal.Store("")
 	require.NoError(t, settings.Set(context.Background(), new(config.RemoteAccessDeveloper), nil))
+	cloud.accept(t)
+	require.Eventually(t, func() bool { return service.State().Connected }, waitFor, 10*time.Millisecond)
+}
+
+// A server refused for want of a plan connects as soon as its license
+// changes, as when a trial starts, rather than after the refusal wait.
+func TestRemoteAccessRetriesWhenTheLicenseChanges(t *testing.T) {
+	cloud := newFakeCloud(t)
+	cloud.refusal.Store("access from Dagu Cloud needs a plan or a trial")
+	service, _, creds := startAccess(t, cloud, newCloudKey(t), config.RemoteAccessOperator, http.NotFoundHandler())
+	free := *creds.Load()
+	free.Free = true
+	creds.Store(&free)
+	require.Eventually(t, func() bool { return service.State().Error != "" }, waitFor, 10*time.Millisecond)
+	time.Sleep(50 * time.Millisecond)
+	assert.Equal(t, int32(1), cloud.tickets.Load(), "the same license is not asked about again soon")
+
+	cloud.refusal.Store("")
+	trial := free
+	trial.Free = false
+	creds.Store(&trial)
 	cloud.accept(t)
 	require.Eventually(t, func() bool { return service.State().Connected }, waitFor, 10*time.Millisecond)
 }

@@ -66,8 +66,8 @@ type timing struct {
 	// stable is how long a connection must have lasted for a failure after
 	// it to start the backoff afresh.
 	stable time.Duration
-	// refused is how long the service waits after Dagu Cloud refused a
-	// ticket, which asking again soon does not change.
+	// refused is how long the service waits to ask again with credentials
+	// Dagu Cloud refused, which asking again soon does not change.
 	refused time.Duration
 }
 
@@ -120,10 +120,16 @@ func (s *Service) State() State {
 func (s *Service) Run(ctx context.Context, mcp http.Handler) {
 	s.calls.mcp = mcp
 	backoff := s.timing.minBackoff
+	// After a refusal, the same credentials wait until heldUntil. Changed
+	// credentials, as when a trial starts, or changed settings connect at
+	// once.
+	var held license.CloudCredentials
+	var heldUntil time.Time
 	for {
 		// The read below sees any change made before it.
 		select {
 		case <-s.changes():
+			heldUntil = time.Time{}
 		default:
 		}
 		wait := s.timing.check
@@ -139,6 +145,9 @@ func (s *Service) Run(ctx context.Context, mcp http.Handler) {
 			s.setState(State{})
 		case !connected:
 			s.setState(State{Error: stateNotConnected})
+		case creds == held && time.Now().Before(heldUntil):
+			// Dagu Cloud refused these credentials lately; asking again soon
+			// would not change its answer.
 		default:
 			started := time.Now()
 			err := s.connect(ctx, creds)
@@ -154,10 +163,10 @@ func (s *Service) Run(ctx context.Context, mcp http.Handler) {
 				wait = 0
 				s.setState(State{})
 			case isRefused:
-				wait = s.timing.refused
+				held, heldUntil = creds, time.Now().Add(s.timing.refused)
 				s.setState(State{Error: refusalMessage(refused)})
 			case errors.Is(err, cloudrelay.ErrDropped):
-				wait = s.timing.refused
+				held, heldUntil = creds, time.Now().Add(s.timing.refused)
 				s.setState(State{Error: err.Error()})
 			default:
 				if time.Since(started) >= s.timing.stable {
@@ -174,6 +183,7 @@ func (s *Service) Run(ctx context.Context, mcp http.Handler) {
 			return
 		case <-time.After(wait):
 		case <-s.changes():
+			heldUntil = time.Time{}
 		}
 	}
 }
