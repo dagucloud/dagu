@@ -1,0 +1,8 @@
+# Delete the old log files.
+group: maintenance
+description: Delete the old log files.
+schedule: "30 2 * * *"
+type: chain
+steps:
+  - name: run
+    run: echo "cleanup-logs"
