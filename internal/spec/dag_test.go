@@ -2729,11 +2729,18 @@ func TestBuildSecrets(t *testing.T) {
 				errContains: "registry ref must be a slash-separated lowercase slug path",
 			},
 			{
-				name: "ReservedAIRef",
+				name: "ReservedEndpointKeyRef",
 				input: []secretRef{
 					{Name: "MY_SECRET", Ref: "ai/endpoint/anthropic"},
 				},
 				errContains: `registry ref "ai/endpoint/anthropic" is reserved for the AI feature`,
+			},
+			{
+				name: "ReservedMCPCredentialRef",
+				input: []secretRef{
+					{Name: "MY_SECRET", Ref: "ai/mcp/search/authorization"},
+				},
+				errContains: `registry ref "ai/mcp/search/authorization" is reserved for the AI feature`,
 			},
 			{
 				name: "DuplicateNames",
