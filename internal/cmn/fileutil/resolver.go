@@ -32,7 +32,7 @@ func (r *FileResolver) ResolveFilePath(file string) (string, error) {
 
 // ResolveFilePathLiteral resolves a path without expanding environment variables.
 func (r *FileResolver) ResolveFilePathLiteral(file string) (string, error) {
-	return r.resolveFilePath(file, false, resolvePathLiteral)
+	return r.resolveFilePath(file, false, ResolvePathLiteral)
 }
 
 func (r *FileResolver) resolveFilePath(file string, expandEnv bool, resolvePath func(string) (string, error)) (string, error) {
@@ -83,7 +83,8 @@ func (r *FileResolver) resolveFilePath(file string, expandEnv bool, resolvePath 
 	}
 }
 
-func resolvePathLiteral(path string) (string, error) {
+// ResolvePathLiteral is ResolvePath without environment variable expansion.
+func ResolvePathLiteral(path string) (string, error) {
 	path = strings.TrimSpace(path)
 	if path == "" {
 		return "", nil

@@ -18,10 +18,11 @@ import (
 const workbookSampleRows = 5
 
 // readWorkbook describes a workbook on the server's filesystem. The path is
-// any file the server process can read, the same trust DAG authoring has,
-// and it is recorded in the audit log.
+// any file the server process can read, and it is recorded in the audit log.
+// It is taken literally: expanding the server's environment would echo
+// variable values back in error messages.
 func readWorkbook(ctx context.Context, input readInput) (any, error) {
-	path, err := fileutil.ResolvePath(input.Path)
+	path, err := fileutil.ResolvePathLiteral(input.Path)
 	if err != nil {
 		return nil, invalidTargetValue(input.Target, readFieldPath, err.Error())
 	}
