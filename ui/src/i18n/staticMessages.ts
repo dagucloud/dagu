@@ -3,6 +3,8 @@
 
 import type { Locale } from '@/contexts/UserPreference';
 import { backfillMessages } from '@/features/backfills/messages';
+import aiEndpointMessages from '@/features/ai-endpoints/messages';
+import mcpMessages from '@/features/ai-endpoints/mcpMessages';
 import { workspaceMessages } from '@/features/workflow-workspace/messages';
 
 const baseEnglish = {
@@ -3302,6 +3304,8 @@ type BaseStaticMessage = keyof typeof baseEnglish;
 const english = {
   ...workspaceMessages.en,
   ...backfillMessages.en,
+  ...aiEndpointMessages.en,
+  ...mcpMessages.en,
   ...baseEnglish,
 } as const;
 
@@ -9830,12 +9834,16 @@ const baseJapanese = {
 const chinese = {
   ...workspaceMessages['zh-CN'],
   ...backfillMessages['zh-CN'],
+  ...aiEndpointMessages['zh-CN'],
+  ...mcpMessages['zh-CN'],
   ...baseChinese,
 } as const satisfies Record<StaticMessage, string>;
 
 const japanese = {
   ...workspaceMessages.ja,
   ...backfillMessages.ja,
+  ...aiEndpointMessages.ja,
+  ...mcpMessages.ja,
   ...baseJapanese,
 } as const satisfies Record<StaticMessage, string>;
 
