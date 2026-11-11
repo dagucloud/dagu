@@ -35,8 +35,13 @@ function openInspector(
   answer: (method: string, params: Message['params']) => unknown = () => ({})
 ) {
   const requests: Message[] = [];
+  const notifications: Message[] = [];
   const host = {
     postMessage(message: Message) {
+      if (message.id === undefined && message.method) {
+        notifications.push(message);
+        return;
+      }
       if (message.id === undefined || !message.method) return;
       requests.push(message);
       const result =
@@ -57,6 +62,24 @@ function openInspector(
           disconnect() {}
         },
       });
+      // The host's frame is taller than the content, which fills it unless
+      // measured at max-content.
+      Object.defineProperty(
+        window.HTMLHtmlElement.prototype,
+        'getBoundingClientRect',
+        {
+          value(this: HTMLElement) {
+            const height =
+              this.style.height === 'max-content'
+                ? CONTENT_HEIGHT
+                : FRAME_HEIGHT;
+            return { height, width: 600, top: 0, left: 0, bottom: height };
+          },
+        }
+      );
+      Object.defineProperty(window.HTMLHtmlElement.prototype, 'scrollHeight', {
+        get: () => FRAME_HEIGHT,
+      });
     },
   });
   const { document } = dom.window;
@@ -69,6 +92,11 @@ function openInspector(
 
   return {
     requests,
+    /** The heights the inspector asked the host to give its frame. */
+    heights: () =>
+      notifications
+        .filter((n) => n.method === 'ui/notifications/size-changed')
+        .map((n) => n.params?.height),
     /** The tool calls and resource reads that the inspector made. */
     calls: () => requests.filter((r) => r.method !== 'ui/initialize'),
     notify: (method: string, params: Record<string, unknown>) =>
@@ -80,6 +108,8 @@ function openInspector(
     status: () => document.getElementById('run-status')?.textContent,
     log: () => document.getElementById('log-output')?.textContent,
     message: () => document.getElementById('message')?.textContent,
+    eyebrow: () => document.querySelector('.eyebrow')?.textContent,
+    title: () => document.getElementById('run-name')?.textContent,
     clickStepLog: (name: string) =>
       Array.from(document.querySelectorAll('#steps .step'))
         .find((row) => row.querySelector('.step-name')?.textContent === name)
@@ -90,6 +120,10 @@ function openInspector(
     button: (id: string) => document.getElementById(id) as HTMLButtonElement,
   };
 }
+
+// The heights of the inspector's content and of the frame the host gives it.
+const CONTENT_HEIGHT = 120;
+const FRAME_HEIGHT = 900;
 
 const runURI = 'dagu://runs/etl/r1';
 
@@ -373,6 +407,25 @@ describe('run inspector', () => {
     expect(inspector.calls().map((call) => call.params)).toEqual([
       { name: 'dagu_read', arguments: { uri: runURI } },
     ]);
+  });
+
+  // A read that is not about a run, such as the DAG list, shows as a short
+  // result, and the frame shrinks to it rather than keeping its height.
+  it('fits a read that is not about a run', async () => {
+    const inspector = openInspector({ serverTools: {} });
+    await waitForInit(inspector);
+    inspector.notify('ui/notifications/tool-result', {
+      content: [{ type: 'text', text: 'Dagu read completed.' }],
+      structuredContent: { target: 'reference' },
+    });
+
+    await vi.waitFor(() => expect(inspector.title()).toBe('Dagu result'));
+    expect(inspector.eyebrow()).toBe('Dagu');
+    expect(inspector.message()).toBe('Dagu read completed.');
+    await vi.waitFor(() =>
+      expect(inspector.heights()).toContain(CONTENT_HEIGHT)
+    );
+    expect(inspector.heights()).not.toContain(FRAME_HEIGHT);
   });
 
   it('says so when a read returns no data', async () => {
