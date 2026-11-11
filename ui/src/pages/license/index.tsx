@@ -26,6 +26,7 @@ import {
 import { useI18n } from '@/i18n/I18nProvider';
 import {
   consoleBaseURL,
+  hasActiveLicense,
   hasLicense,
   isFreeLicense,
   isLicenseManagedByEnv,
@@ -293,6 +294,13 @@ export default function LicenseSection({
   const restartNote = via ? restartNotes[via] : undefined;
   const consoleHref = license.consoleUrl || licenseLink('manage', 'plan-page');
   const busy = Boolean(pendingAction);
+  const remoteAccessPlan = free
+    ? 'free'
+    : hasActiveLicense(license)
+      ? license.plan === 'trial'
+        ? 'trial'
+        : 'paid'
+      : undefined;
 
   return (
     <>
@@ -412,6 +420,9 @@ export default function LicenseSection({
             remoteAccess={remoteAccess.remoteAccess}
             remoteNode={remoteNode}
             consoleURL={consoleBaseURL(license)}
+            plan={remoteAccessPlan}
+            trialURL={consoleHref}
+            onOpenTrial={() => (consoleOpened.current = true)}
             showActivity={license.features.includes('audit')}
             loadError={Boolean(remoteAccess.error)}
             onRetry={() => void remoteAccess.refresh()}

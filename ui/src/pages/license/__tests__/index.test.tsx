@@ -1642,13 +1642,14 @@ describe('LicensePage', () => {
           return Promise.resolve({ data: access });
         }
       );
+      const post = vi.fn().mockResolvedValue({ data: undefined });
       useClientMock.mockReturnValue({
         GET: get,
-        POST: vi.fn(),
+        POST: post,
         PUT: put,
       } as never);
       renderPage(license, { path });
-      return { get, put };
+      return { get, put, post };
     }
 
     function findRemoteAccessCard() {
@@ -1745,8 +1746,64 @@ describe('LicensePage', () => {
         within(card).getByRole('button', { name: 'Copy MCP URL' })
       ).toBeVisible();
       expect(
-        within(card).getByRole('link', { name: 'Manage MCP clients' })
-      ).toHaveAttribute('href', 'https://console.example.com/ai-apps');
+        within(card).getByRole('link', {
+          name: 'Setup steps for Claude, ChatGPT, and more',
+        })
+      ).toHaveAttribute('href', 'https://console.example.com/mcp-access');
+    });
+
+    it('offers remote access as part of a trial', async () => {
+      serveRemoteAccess(remoteOff, { license: { ...online, plan: 'trial' } });
+      const card = await findRemoteAccessCard();
+      expect(
+        await within(card).findByText(
+          'Use this server from Claude, ChatGPT, and other MCP clients'
+        )
+      ).toBeVisible();
+      expect(card).toHaveTextContent('Included in your trial.');
+      expect(
+        within(card).getByRole('button', { name: 'Turn on' })
+      ).toBeVisible();
+    });
+
+    // Dagu Cloud refuses calls under the free plan, so the trial comes
+    // first, and the plan is read again on coming back from it.
+    it('offers the trial first on the free plan', async () => {
+      const { post } = serveRemoteAccess(remoteOff, {
+        license: {
+          ...freeOnline,
+          consoleUrl: 'https://console.dagu.sh/servers',
+        },
+      });
+      const card = await findRemoteAccessCard();
+      const trial = await within(card).findByRole('link', {
+        name: 'Start free trial',
+      });
+      expect(trial).toHaveAttribute('href', 'https://console.dagu.sh/servers');
+      expect(card).toHaveTextContent('Needs a paid plan or a trial.');
+      expect(
+        within(card).getByRole('button', { name: 'Turn on' })
+      ).toBeVisible();
+
+      await userEvent.click(trial);
+      window.dispatchEvent(new Event('focus'));
+      expect(post).toHaveBeenCalledWith('/license/refresh', {
+        params: { query: { remoteNode: 'local' } },
+      });
+    });
+
+    it('warns that Dagu Cloud refuses calls on the free plan', async () => {
+      serveRemoteAccess(
+        { ...remoteOff, level: LicenseRemoteAccessLevel.viewer },
+        { license: freeOnline }
+      );
+      const card = await findRemoteAccessCard();
+      expect(
+        await within(card).findByText('MCP calls need a paid plan or a trial')
+      ).toBeVisible();
+      expect(
+        within(card).getByRole('link', { name: 'Start free trial' })
+      ).toBeVisible();
     });
 
     it('says why Dagu Cloud refused the connection', async () => {

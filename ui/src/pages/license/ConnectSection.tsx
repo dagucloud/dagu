@@ -253,7 +253,7 @@ export function ConnectSection({
             </span>
             <span className="block text-xs text-muted-foreground">
               {ts(
-                'Audit logs, role-based access, single sign-on, and chat and webhook alerts. No card needed; free monitoring stays when the trial ends.'
+                'MCP access from Claude and ChatGPT, audit logs, role-based access, single sign-on, and chat and webhook alerts. No card needed; free monitoring stays when the trial ends.'
               )}
             </span>
           </span>
