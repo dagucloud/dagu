@@ -1,0 +1,20 @@
+name: builtin_schedule_window_parent
+working_dir: .
+schedule: "CRON_TZ=Asia/Tokyo */30 * * * *"
+steps:
+  - id: call_child
+    action: dag.run
+    with:
+      dag: builtin_schedule_window_child
+
+---
+
+name: builtin_schedule_window_child
+working_dir: .
+steps:
+  - id: capture
+    run: |
+      printf 'scheduled=%s\n' '${context.run.scheduled_at}' > child-window.txt
+      printf 'start=%s\n' '${context.run.interval_start}' >> child-window.txt
+      printf 'next=%s\n' '${context.run.next_scheduled_at}' >> child-window.txt
+      printf 'timezone=%s\n' '${context.run.timezone}' >> child-window.txt

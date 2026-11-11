@@ -60,6 +60,7 @@ export function ConnectSection({
   remoteAccess,
   disabled,
   trialRequested = false,
+  mcpRequested = false,
 }: {
   connect: ReturnType<typeof useLicenseConnect>;
   /** What the server reports; unknown while loading or unavailable. */
@@ -69,6 +70,11 @@ export function ConnectSection({
   disabled: boolean;
   /** Whether the trial starts out chosen, as when a page asked for it. */
   trialRequested?: boolean;
+  /**
+   * Whether MCP clients, and the trial they need, start out chosen, as when a
+   * page asked for remote access.
+   */
+  mcpRequested?: boolean;
 }) {
   const { ts } = useI18n();
   const {
@@ -85,14 +91,19 @@ export function ConnectSection({
   const [report, setReport] = useState<ReportingLevel>(
     LicenseMonitoringLevel.errors
   );
-  const [trial, setTrial] = useState(trialRequested);
-  const [mcp, setMCP] = useState(false);
+  const [trial, setTrial] = useState(trialRequested || mcpRequested);
+  const [mcp, setMCP] = useState(mcpRequested);
   const [mcpLevel, setMCPLevel] = useState<OnLevel>(
     DEFAULT_REMOTE_ACCESS_LEVEL
   );
   useEffect(() => {
     if (trialRequested) setTrial(true);
   }, [trialRequested]);
+  useEffect(() => {
+    if (!mcpRequested) return;
+    setMCP(true);
+    setTrial(true);
+  }, [mcpRequested]);
   // A level an administrator chose before, as on a server that connected
   // earlier, stays chosen.
   const chosen =
@@ -242,7 +253,7 @@ export function ConnectSection({
             </span>
             <span className="block text-xs text-muted-foreground">
               {ts(
-                'Audit logs, role-based access, single sign-on, and chat and webhook alerts. No card needed; free monitoring stays when the trial ends.'
+                'MCP access from Claude and ChatGPT, audit logs, role-based access, single sign-on, and chat and webhook alerts. No card needed; free monitoring stays when the trial ends.'
               )}
             </span>
           </span>

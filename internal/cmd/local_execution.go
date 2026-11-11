@@ -26,6 +26,7 @@ type runOptions struct {
 	triggerActor      string
 	parallelItem      string
 	scheduleTime      string
+	scheduleWindow    ir.ScheduleWindow
 	profileName       string
 	definitionID      string
 	step              string
@@ -72,6 +73,7 @@ func withPreparedLocalExecution(
 		TriggerType:     opts.triggerType,
 		TriggerActor:    opts.triggerActor,
 		ScheduleTime:    opts.scheduleTime,
+		ScheduleWindow:  opts.scheduleWindow,
 		ProfileName:     opts.profileName,
 		LogBaseDir:      ctx.Config.Paths.LogDir,
 		ArtifactBaseDir: ctx.Config.Paths.ArtifactDir,

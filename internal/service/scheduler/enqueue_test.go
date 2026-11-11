@@ -37,6 +37,11 @@ steps:
 
 	runID := "catchup-run-1"
 	scheduleTime := time.Date(2026, 2, 7, 12, 0, 0, 0, time.UTC)
+	window := ir.ScheduleWindow{
+		Start:    time.Date(2026, 2, 7, 11, 0, 0, 0, time.UTC),
+		Next:     time.Date(2026, 2, 7, 13, 0, 0, 0, time.UTC),
+		Timezone: "Asia/Tokyo",
+	}
 
 	err := scheduler.EnqueueCatchupRun(
 		th.Context,
@@ -51,6 +56,7 @@ steps:
 		runID,
 		ir.TriggerTypeCatchUp,
 		scheduleTime,
+		window,
 		"prod",
 	)
 	require.NoError(t, err)
@@ -64,6 +70,7 @@ steps:
 	require.Equal(t, ir.Queued, status.Status)
 	require.Equal(t, ir.TriggerTypeCatchUp, status.TriggerType)
 	require.Equal(t, stringutil.FormatTime(scheduleTime), status.ScheduleTime)
+	require.Equal(t, window, status.ScheduleWindow())
 	require.Equal(t, "prod", status.ProfileName)
 	require.NotEmpty(t, status.Log)
 	assert.Contains(t, status.Log, filepath.Join(th.Config.Paths.LogDir, dag.Name))
@@ -129,6 +136,7 @@ steps:
 				runID,
 				ir.TriggerTypeRestart,
 				time.Now(),
+				ir.ScheduleWindow{},
 				"",
 			)
 			require.NoError(t, err)
@@ -188,6 +196,7 @@ steps:
 		runID,
 		ir.TriggerTypeCatchUp,
 		scheduleTime,
+		ir.ScheduleWindow{},
 		"",
 	)
 	require.NoError(t, err)
@@ -270,6 +279,7 @@ steps:
 			runID,
 			ir.TriggerTypeCatchUp,
 			time.Date(2026, 2, 7, 12, 0, 0, 0, time.UTC),
+			ir.ScheduleWindow{},
 			"",
 		)
 		require.NoError(t, err)
