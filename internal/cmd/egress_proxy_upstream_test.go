@@ -10,6 +10,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"sync"
 	"testing"
@@ -18,6 +19,13 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
+
+// errorHolds reports whether msg holds part as it is, or as %q prints it. An
+// error of the command quotes a path with %q, and %q escapes the backslashes
+// of a Windows path.
+func errorHolds(msg, part string) bool {
+	return strings.Contains(msg, part) || strings.Contains(msg, strings.Trim(strconv.Quote(part), `"`))
+}
 
 func keyFile(t *testing.T, content string) string {
 	t.Helper()
@@ -96,7 +104,7 @@ func TestEgressProxyCommandRejectsABadUpstream(t *testing.T) {
 			err := root.ExecuteContext(t.Context())
 			require.Error(t, err)
 			for _, part := range tc.want {
-				assert.Contains(t, err.Error(), part)
+				assert.True(t, errorHolds(err.Error(), part), "the error %q does not hold %q", err.Error(), part)
 			}
 			for _, part := range tc.absent {
 				assert.NotContains(t, err.Error(), part)
