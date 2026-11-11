@@ -252,6 +252,8 @@ func isRemoteNodeRequest(r *http.Request) bool {
 	return remoteNode != "" && remoteNode != "local"
 }
 
+// remoteNodeAccessFor returns the access the request's operation needs. A
+// request that matches no operation needs an administrator.
 func remoteNodeAccessFor(router routers.Router, r *http.Request) remoteNodeAccess {
 	route, _, err := router.FindRoute(r)
 	if err != nil {
@@ -260,6 +262,8 @@ func remoteNodeAccessFor(router routers.Router, r *http.Request) remoteNodeAcces
 	return remoteNodeOperationAccess[route.Operation.OperationID]
 }
 
+// requireRemoteNodeAccess checks the caller against access. Server permissions
+// always apply; role and workspace checks apply only where rolesApply does.
 func (a *API) requireRemoteNodeAccess(ctx context.Context, access remoteNodeAccess) error {
 	switch access {
 	case remoteNodeAccessDenied:
@@ -299,6 +303,8 @@ func (a *API) requireRemoteNodeAccess(ctx context.Context, access remoteNodeAcce
 	return nil
 }
 
+// allows reports whether role meets access. Denied operations are rejected
+// before roles are checked, so they fall through to the admin rule here.
 func (access remoteNodeAccess) allows(role auth.Role) bool {
 	switch access {
 	case remoteNodeAccessRead:
