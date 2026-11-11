@@ -8,8 +8,8 @@
 
 ## Summary
 
-Let a DAG say when a run should have finished, and tell someone when it has
-not:
+Let a DAG say when a run should have started or finished, and tell someone
+when it has not:
 
 ```yaml
 schedule: "CRON_TZ=Asia/Tokyo 0 1 * * *"
@@ -42,11 +42,13 @@ long:
 
 So operators learn a job is late when a downstream consumer complains.
 Schedulers aimed at batch operations have this: Digdag's `sla:` takes a time
-of day or a duration, and can alert or fail.
+of day or a duration, and can alert or fail. Control-M, JP1/AJS3, and AutoSys
+each watch two deadlines, one for the start of a job and one for its end.
 
 ## Goals
 
-1. Declare a deadline as a time of day or as a duration.
+1. Declare a deadline for a run's start or its finish, as a time of day or
+   as a duration.
 2. Alert through the channels that already carry failures.
 3. Catch runs that are queued, waiting, or hung, not only runs that are
    slow.
@@ -69,15 +71,18 @@ deadline:
   - at: "05:00"
   - within: 90m
     fail: true
+  - for: start
+    within: 15m
 ```
 
 | Field | Meaning | Default |
 | --- | --- | --- |
-| `at` | A wall-clock time, `HH:MM`. | |
+| `for` | `finish` or `start`: what must have happened by the deadline. | `finish` |
+| `at` | A wall-clock time, `HH:MM`, with an optional day offset such as `05:00+1d`. | |
 | `within` | A duration, in the syntax of `catchup_window`. | |
 | `fail` | Stop the run and mark it `failed` when the deadline passes. | `false` |
 | `notify` | Send the event to notification routes and incident policies. | `true` |
-| `name` | Shown in the alert. Unique within the DAG. | `at 05:00`, `within 90m` |
+| `name` | Shown in the alert. Unique within the DAG. | `at 05:00`, `within 90m`, `start within 15m` |
 
 Each entry has exactly one of `at` and `within`.
 
@@ -87,6 +92,12 @@ Each entry has exactly one of `at` and `within`.
 - **`at`** is the first occurrence of that wall-clock time at or after the
   anchor, in `context.run.timezone` (RFC 007), else the server zone. A 23:00
   run with `at: "05:00"` has its deadline the next morning.
+- **A day offset** moves `at` by whole calendar days after that first
+  occurrence. A 01:00 run with `at: "02:00+1d"` has its deadline at 02:00 the
+  next day, 25 hours after its slot.
+- **A start deadline** is missed while the run is still `queued`: waiting in
+  its queue, or waiting for a worker. A finish deadline is missed while the
+  run is not finished.
 - **Retries do not move the deadline.** It is anchored to the run, not the
   attempt.
 - **A manual run with `--scheduled-at`** in the past, and every backfill
@@ -94,12 +105,13 @@ Each entry has exactly one of `at` and `within`.
 - **A run on a default slot** (RFC 007) anchors to the time it was created.
   It starts now, whatever period its dates describe.
 - **Validation.** `dagu validate` rejects an entry with both or neither of
-  `at` and `within`, a malformed time, and a non-positive duration.
+  `at` and `within`, a malformed time or day offset, a non-positive duration,
+  and an unknown `for`.
 
 ## Evaluation
 
 ```text
-scheduler tick ─▶ runs with an open deadline ─▶ deadline passed and run not finished?
+scheduler tick ─▶ runs with an open deadline ─▶ deadline passed and not met?
                                                    │ yes
                                                    ▼
                               mark fired ─▶ dag.run.deadline_missed ─▶ routes, incidents
@@ -113,6 +125,8 @@ scheduler tick ─▶ runs with an open deadline ─▶ deadline passed and run 
 - **Finished** means `succeeded`, `partially_succeeded`, `failed`,
   `aborted`, or `rejected`. `queued`, `running`, and `waiting` are not
   finished.
+- **Started** means any status other than `queued`. A run that finished or
+  failed before its start deadline has started.
 - **Once.** The run record stores each fired deadline. A restart does not
   fire it again.
 - **Late evaluation.** If the scheduler was down when the deadline passed,
@@ -126,8 +140,9 @@ scheduler tick ─▶ runs with an open deadline ─▶ deadline passed and run 
 ### The event
 
 `dag.run.deadline_missed` joins the event store's `dag.run.*` types. It
-carries the DAG, the run ID, the deadline's name, the deadline time, the run
-status when it fired, and whether the run was failed.
+carries the DAG, the run ID, the deadline's name, whether it was for the
+start or the finish, the deadline time, the run status when it fired, and
+whether the run was failed.
 
 - **Notification routes** can select it like `dag.run.failed`. A route that
   selects failures does not receive it unless it also selects deadlines.
@@ -178,6 +193,13 @@ status `failed` with the reason `deadline missed: <name>`. The `failure` and
 8. `at: "05:00"` on a `CRON_TZ=Asia/Tokyo` schedule fires at 05:00 Tokyo
    time on a server whose zone is UTC.
 9. A backfill run of last week's slot produces no event.
+10. A run still queued 15 minutes after its slot with `for: start` and
+    `within: 15m` produces one event that names the start. A run that left
+    the queue a minute earlier produces none.
+11. With `for: start` and `fail: true`, the queued run is removed from its
+    queue and ends `failed`.
+12. A run scheduled at 01:00 with `at: "02:00+1d"` produces no event at 02:00
+    that day, and one at 02:00 the next day if it is still running.
 
 ## Alternatives considered
 
@@ -189,6 +211,11 @@ status `failed` with the reason `deadline missed: <name>`. The `failure` and
   its own, and it has no view of the deadline in the UI.
 - **Extend `timeout_sec` with an `on_timeout: alert` mode.** It would still
   count from the run's start and still be a duration.
+- **Separate `start_deadline` and `deadline` keys.** Two lists with the same
+  fields. One list with `for` keeps the event, the validation, and the UI
+  the same for both.
+- **Hours past 24,** such as JP1's `47:59` and AutoSys's `71:59`, for a
+  deadline on a later day. `05:00+1d` says the same and stays a valid time.
 - **Child steps under the deadline,** as Digdag's `sla:` allows. The event
   plus a `dag` trigger does the same without a second place for steps.
 
@@ -204,9 +231,14 @@ status `failed` with the reason `deadline missed: <name>`. The `failure` and
 
 1. Should a slot that produced no run at all miss its deadline? A scheduler
    outage past `catchup_window` is the worst case and is not covered here.
+   Prefect's Frequency SLA and Rundeck's missed-fire mark cover this case.
 2. Should a deadline be allowed on a DAG's `base.yaml`, so one line covers
    every DAG?
-3. Should `at` accept a day offset, such as `"05:00+1d"`, for jobs whose
-   deadline is more than a day after the slot?
-4. Should there be a warning before the deadline, such as `warn_before:
-   30m`?
+3. Should there be a warning before the deadline, such as `warn_before:
+   30m`? Airflow's Deadline Alerts take a negative interval for this, and
+   Dagster's freshness policies have a `warn_window`.
+4. Should a deadline be relative to the DAG's usual duration, such as
+   `within: 150%`? Control-M's `EXECTIME`, Airflow's `AVERAGE_RUNTIME`
+   reference, and Rundeck's "Average Duration Exceeded" all do this. It
+   needs run history, which the non-goal on predicting lateness excludes
+   today.
