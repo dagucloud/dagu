@@ -10,7 +10,7 @@ import {
   useCanWrite,
   useIsAdmin,
 } from '@/contexts/AuthContext';
-import type { LicenseStatus } from '@/contexts/ConfigContext';
+import { ConfigContext, type LicenseStatus } from '@/contexts/ConfigContext';
 import { LicenseContext } from '@/contexts/LicenseContext';
 import { useQuery } from '@/hooks/api';
 import { type GettingStarted, useGettingStarted } from '../useGettingStarted';
@@ -22,7 +22,7 @@ vi.mock('@/contexts/AuthContext', () => ({
   useIsAdmin: vi.fn(),
 }));
 
-type Init = { params: { query: Record<string, unknown> } } | null;
+type Init = { params?: { query: Record<string, unknown> } } | null;
 
 const useQueryMock = vi.mocked(
   useQuery as unknown as (path: string, init: Init) => unknown
@@ -46,6 +46,8 @@ const licensed: LicenseStatus = {
   valid: true,
   plan: 'team',
 };
+// A server connected to Dagu Cloud, which MCP clients can reach through it.
+const connected: LicenseStatus = { ...licensed, serverId: 'srv-1' };
 
 function dag(
   name: string,
@@ -72,22 +74,31 @@ type Served = {
   sample?: object;
   active?: object;
   channels?: object;
+  remoteAccess?: object;
+  keys?: object;
   failing?: string;
 };
 
-// Answers each request from `served`; `failing` names a request that errors.
+const requestNames: Record<string, keyof Served> = {
+  '/notification-channels': 'channels',
+  '/license/remote-access': 'remoteAccess',
+  '/api-keys': 'keys',
+};
+
+const noKeys = { apiKeys: [] };
+const mcpKey = { apiKeys: [{ id: 'k1', allowedSurfaces: ['mcp'] }] };
+
+// Answers each request from `served`, with no API keys unless it names some;
+// `failing` names a request that errors.
 function serve(served: Served) {
+  const answers: Served = { keys: noKeys, ...served };
   useQueryMock.mockImplementation((path, init) => {
     if (!init) return { data: undefined };
     const name =
-      path === '/notification-channels'
-        ? 'channels'
-        : init.params.query.active
-          ? 'active'
-          : 'sample';
+      requestNames[path] ?? (init.params?.query.active ? 'active' : 'sample');
     return served.failing === name
       ? { data: undefined, error: new Error('unavailable') }
-      : { data: served[name as keyof Served] };
+      : { data: answers[name] };
   });
 }
 
@@ -95,7 +106,8 @@ function serve(served: Served) {
 function requests(): [string, Record<string, unknown>][] {
   const seen = new Map<string, [string, Record<string, unknown>]>();
   for (const [path, init] of useQueryMock.mock.calls) {
-    if (init) seen.set(JSON.stringify([path, init]), [path, init.params.query]);
+    if (init)
+      seen.set(JSON.stringify([path, init]), [path, init.params?.query ?? {}]);
   }
   return [...seen.values()];
 }
@@ -103,13 +115,22 @@ function requests(): [string, Record<string, unknown>][] {
 function renderGettingStarted({
   license = community,
   remoteNode = 'local',
-}: { license?: LicenseStatus; remoteNode?: string } = {}) {
+  authMode = 'builtin',
+}: {
+  license?: LicenseStatus;
+  remoteNode?: string;
+  authMode?: string;
+} = {}) {
   const wrapper = ({ children }: { children: React.ReactNode }) => (
-    <AppBarContext.Provider value={{ selectedRemoteNode: remoteNode } as never}>
-      <LicenseContext.Provider value={{ license, mutate: vi.fn() }}>
-        {children}
-      </LicenseContext.Provider>
-    </AppBarContext.Provider>
+    <ConfigContext.Provider value={{ authMode } as never}>
+      <AppBarContext.Provider
+        value={{ selectedRemoteNode: remoteNode } as never}
+      >
+        <LicenseContext.Provider value={{ license, mutate: vi.fn() }}>
+          {children}
+        </LicenseContext.Provider>
+      </AppBarContext.Provider>
+    </ConfigContext.Provider>
   );
   return renderHook(() => useGettingStarted(), { wrapper });
 }
@@ -141,6 +162,7 @@ describe('useGettingStarted', () => {
       'create',
       'schedule',
       'alert',
+      'ai',
     ]);
     expect(result.current).toMatchObject({
       steps: [
@@ -148,6 +170,7 @@ describe('useGettingStarted', () => {
         {},
         {},
         { id: 'alert', canConnect: true, canAddChannel: true },
+        { id: 'ai', done: false, canUseCloud: true, canCreateKey: true },
       ],
     });
     expect(stored()).toBe('started');
@@ -208,7 +231,7 @@ describe('useGettingStarted', () => {
       { active: true, perPage: 1, remoteNode: 'local', workspace: 'all' },
     ]);
     expect(result.current).toMatchObject({
-      steps: [{}, { done: true }, { id: 'schedule', done: false }, {}],
+      steps: [{}, { done: true }, { id: 'schedule', done: false }, {}, {}],
     });
   });
 
@@ -237,7 +260,7 @@ describe('useGettingStarted', () => {
     expect(result.current.status).toBe('visible');
   });
 
-  it('leaves out alerts for a user who can neither connect nor add channels', () => {
+  it('leaves out alerts and AI apps for a user who cannot set them up', () => {
     vi.mocked(useIsAdmin).mockReturnValue(false);
     vi.mocked(useCanManageNotifications).mockReturnValue(false);
     serve({ sample: list(examples) });
@@ -245,6 +268,54 @@ describe('useGettingStarted', () => {
     const { result } = renderGettingStarted();
 
     expect(stepIDs(result.current)).toEqual(['run', 'create', 'schedule']);
+  });
+
+  it('counts an API key that MCP clients may use as a connected AI app', () => {
+    serve({ sample: list(examples), channels: { channels: [] }, keys: mcpKey });
+
+    const { result } = renderGettingStarted();
+
+    expect(result.current).toMatchObject({
+      steps: [{}, {}, {}, {}, { id: 'ai', done: true }],
+    });
+  });
+
+  it('counts remote access as a connected AI app on a connected server', () => {
+    serve({ sample: list(examples), remoteAccess: { level: 'viewer' } });
+
+    const { result } = renderGettingStarted({ license: connected });
+
+    expect(requests()).toContainEqual([
+      '/license/remote-access',
+      { remoteNode: 'local' },
+    ]);
+    expect(result.current).toMatchObject({
+      steps: [{}, {}, {}, {}, { id: 'ai', done: true, canUseCloud: true }],
+    });
+  });
+
+  it('hides without remembering when the remote access request fails', () => {
+    serve({ sample: list(examples), failing: 'remoteAccess' });
+
+    const { result } = renderGettingStarted({ license: connected });
+
+    expect(result.current.status).toBe('hidden');
+    expect(stored()).toBeNull();
+  });
+
+  // API keys are issued by the local server's built-in auth only.
+  it.each([
+    ['without built-in auth', { authMode: 'basic' }],
+    ['on a remote node', { remoteNode: 'edge' }],
+  ])('offers only Dagu Cloud for MCP clients %s', (_, options) => {
+    serve({ sample: list(examples), channels: { channels: [] } });
+
+    const { result } = renderGettingStarted(options);
+
+    expect(requests().filter(([path]) => path === '/api-keys')).toEqual([]);
+    expect(result.current).toMatchObject({
+      steps: [{}, {}, {}, {}, { id: 'ai', canCreateKey: false }],
+    });
   });
 
   // An upgraded server already runs its own scheduled workflows.
@@ -265,6 +336,7 @@ describe('useGettingStarted', () => {
     serve({
       sample: list([dag('etl', { ran: true, schedule: true })]),
       channels: { channels: [{ id: 'slack' }] },
+      keys: mcpKey,
     });
     const { result, unmount } = renderGettingStarted();
     expect(result.current.status).toBe('hidden');
@@ -280,7 +352,7 @@ describe('useGettingStarted', () => {
     expect(requests()).toEqual([]);
   });
 
-  it.each(['sample', 'active', 'channels'])(
+  it.each(['sample', 'active', 'channels', 'keys'])(
     'hides without remembering when the %s request fails',
     (failing) => {
       serve({

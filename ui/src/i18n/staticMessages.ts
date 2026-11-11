@@ -3007,6 +3007,11 @@ const baseEnglish = {
   'Open Workflows': 'Open Workflows',
   'Scheduling guide': 'Scheduling guide',
   'Add a notification channel': 'Add a notification channel',
+  'Connect an AI app': 'Connect an AI app',
+  'Let Claude, ChatGPT, or a coding agent run and edit workflows here over MCP.':
+    'Let Claude, ChatGPT, or a coding agent run and edit workflows here over MCP.',
+  'Use from Claude or ChatGPT': 'Use from Claude or ChatGPT',
+  'Set up a coding agent': 'Set up a coding agent',
   'Could not change remote access.': 'Could not change remote access.',
   'Remote access': 'Remote access',
   'Serves the MCP tools of this server through the Dagu Cloud MCP endpoint. The server connects out to Dagu Cloud, so no inbound port is opened.':
@@ -6098,6 +6103,11 @@ const baseChinese = {
   'Open Workflows': '打开工作流',
   'Scheduling guide': '计划指南',
   'Add a notification channel': '添加通知频道',
+  'Connect an AI app': '连接 AI 应用',
+  'Let Claude, ChatGPT, or a coding agent run and edit workflows here over MCP.':
+    '让 Claude、ChatGPT 或编码智能体通过 MCP 在此运行和编辑工作流。',
+  'Use from Claude or ChatGPT': '在 Claude 或 ChatGPT 中使用',
+  'Set up a coding agent': '设置编码智能体',
   'Could not change remote access.': '无法更改远程访问。',
   'Remote access': '远程访问',
   'Serves the MCP tools of this server through the Dagu Cloud MCP endpoint. The server connects out to Dagu Cloud, so no inbound port is opened.':
@@ -9290,6 +9300,11 @@ const baseJapanese = {
   'Open Workflows': 'ワークフローを開く',
   'Scheduling guide': 'スケジュールのガイド',
   'Add a notification channel': '通知チャネルを追加',
+  'Connect an AI app': 'AI アプリを接続',
+  'Let Claude, ChatGPT, or a coding agent run and edit workflows here over MCP.':
+    'Claude、ChatGPT、コーディングエージェントが MCP 経由でここのワークフローを実行・編集できるようにします。',
+  'Use from Claude or ChatGPT': 'Claude や ChatGPT から使う',
+  'Set up a coding agent': 'コーディングエージェントを設定',
   'Could not change remote access.': 'リモートアクセスを変更できませんでした。',
   'Remote access': 'リモートアクセス',
   'Serves the MCP tools of this server through the Dagu Cloud MCP endpoint. The server connects out to Dagu Cloud, so no inbound port is opened.':
