@@ -589,6 +589,15 @@ func deleteInlineEnqueueMapValue(ms *yaml.MapSlice, key string) {
 	}
 }
 
+// dagsDirLoadOptions lets a definition that has no file find the agents and skills of
+// the DAGs directory.
+func (a *API) dagsDirLoadOptions() []spec.LoadOption {
+	if a == nil || a.config == nil || a.config.Paths.DAGsDir == "" {
+		return nil
+	}
+	return []spec.LoadOption{spec.WithDAGsDir(a.config.Paths.DAGsDir)}
+}
+
 func (a *API) loadInlineDAG(ctx context.Context, specContent string, name *string, dagRunID string, extraLoadOpts ...spec.LoadOption) (*ir.DAG, func(), error) {
 	nameHint := "inline"
 	if name != nil && *name != "" {
@@ -601,9 +610,8 @@ func (a *API) loadInlineDAG(ctx context.Context, specContent string, name *strin
 		}
 		nameHint = *name
 	} else {
-		validateOpts := append([]spec.LoadOption{
-			spec.WithoutEval(),
-		}, extraLoadOpts...)
+		validateOpts := append([]spec.LoadOption{spec.WithoutEval()}, a.dagsDirLoadOptions()...)
+		validateOpts = append(validateOpts, extraLoadOpts...)
 		dag, err := spec.LoadYAML(
 			ctx, []byte(specContent),
 			validateOpts...,
@@ -638,7 +646,7 @@ func (a *API) loadInlineDAG(ctx context.Context, specContent string, name *strin
 		return nil, func() {}, fmt.Errorf("failed to write spec to temp file: %w", err)
 	}
 
-	loadOpts := append([]spec.LoadOption{}, extraLoadOpts...)
+	loadOpts := append(a.dagsDirLoadOptions(), extraLoadOpts...)
 	if name != nil && *name != "" {
 		loadOpts = append(loadOpts, spec.WithName(*name))
 	}
@@ -1638,11 +1646,12 @@ func (a *API) GetDAGRunStepMessages(ctx context.Context, request api.GetDAGRunSt
 	}
 
 	return api.GetDAGRunStepMessages200JSONResponse{
-		Messages:        toChatMessages(messages),
-		ToolDefinitions: toToolDefinitions(node.ToolDefinitions),
-		StepStatus:      api.NodeStatus(node.Status),
-		StepStatusLabel: api.NodeStatusLabel(node.Status.String()),
-		HasMore:         node.Status == ir.NodeRunning,
+		Messages:         toChatMessages(messages),
+		ToolDefinitions:  toToolDefinitions(node.ToolDefinitions),
+		SkillDefinitions: toSkillDefinitions(node.SkillDefinitions),
+		StepStatus:       api.NodeStatus(node.Status),
+		StepStatusLabel:  api.NodeStatusLabel(node.Status.String()),
+		HasMore:          node.Status == ir.NodeRunning,
 	}, nil
 }
 
@@ -1681,11 +1690,12 @@ func (a *API) GetSubDAGRunStepMessages(ctx context.Context, request api.GetSubDA
 	}
 
 	return api.GetSubDAGRunStepMessages200JSONResponse{
-		Messages:        toChatMessages(messages),
-		ToolDefinitions: toToolDefinitions(node.ToolDefinitions),
-		StepStatus:      api.NodeStatus(node.Status),
-		StepStatusLabel: api.NodeStatusLabel(node.Status.String()),
-		HasMore:         node.Status == ir.NodeRunning,
+		Messages:         toChatMessages(messages),
+		ToolDefinitions:  toToolDefinitions(node.ToolDefinitions),
+		SkillDefinitions: toSkillDefinitions(node.SkillDefinitions),
+		StepStatus:       api.NodeStatus(node.Status),
+		StepStatusLabel:  api.NodeStatusLabel(node.Status.String()),
+		HasMore:          node.Status == ir.NodeRunning,
 	}, nil
 }
 
@@ -3203,7 +3213,7 @@ func (a *API) retryDAGRun(ctx context.Context, dagName, dagRunID, retryDagRunID,
 		}
 		// Create and dispatch retry task to coordinator
 		opts := []executor.TaskOption{
-			executor.WithWorkerSelector(dag.WorkerSelector),
+			executor.WithWorkerSelector(dag.DispatchWorkerSelector()),
 			executor.WithPreviousStatus(prevStatus),
 			executor.WithBaseConfig(executor.ResolveBaseConfig(dag.BaseConfigData, a.config.Paths.BaseConfig), dag.BaseConfigWorkspace),
 		}
@@ -4346,7 +4356,7 @@ func (a *API) resumeManagedAttempt(ctx context.Context, dag *ir.DAG, status *ir.
 			return err
 		}
 		options := []executor.TaskOption{
-			executor.WithWorkerSelector(dag.WorkerSelector),
+			executor.WithWorkerSelector(dag.DispatchWorkerSelector()),
 			executor.WithPreviousStatus(status),
 			executor.WithBaseConfig(executor.ResolveBaseConfig(dag.BaseConfigData, a.config.Paths.BaseConfig), dag.BaseConfigWorkspace),
 		}

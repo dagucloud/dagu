@@ -90,14 +90,14 @@ func (e Env) UserEnvsMap() map[string]string {
 // It resolves the step's working directory and sets initial per-step environment
 // variables: PWD to the resolved working directory and the DAG run step name.
 func NewEnv(ctx context.Context, step ir.Step) Env {
-	rCtx := GetDAGContext(ctx)
+	rCtx := stepDAGContext(ctx, step)
 	workingDir := resolveWorkingDir(ctx, step, rCtx)
 	return newEnv(ctx, step, rCtx, workingDir)
 }
 
 // NewEnvWithError creates an Env and returns working directory resolution errors.
 func NewEnvWithError(ctx context.Context, step ir.Step) (Env, error) {
-	rCtx := GetDAGContext(ctx)
+	rCtx := stepDAGContext(ctx, step)
 	workingDir, err := resolveWorkingDirStrict(ctx, step, rCtx)
 	if err != nil {
 		return Env{}, err

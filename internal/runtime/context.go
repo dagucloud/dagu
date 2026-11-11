@@ -100,6 +100,8 @@ var (
 	WithRuntimeProfile = runctx.WithRuntimeProfile
 	// WithRuntimeProfileValues sets the resolved runtime profile environment.
 	WithRuntimeProfileValues = runctx.WithRuntimeProfileValues
+	// WithRunSecrets sets the holder of the secret values of the run.
+	WithRunSecrets = runctx.WithRunSecrets
 )
 
 // LogWriterFactory is re-exported from execution package

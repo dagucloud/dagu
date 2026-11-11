@@ -561,6 +561,7 @@ func (a *API) specValueReferenceNotices(ctx context.Context, name, source string
 		spec.WithAllowBuildErrors(),
 		spec.WithoutEval(),
 		spec.WithWorkspaceBaseConfigDir(workspace.BaseConfigDir(a.config.Paths.DAGsDir)),
+		spec.WithDAGsDir(a.config.Paths.DAGsDir),
 	}
 	if a.config.Paths.BaseConfig != "" {
 		opts = append(opts, spec.WithBaseConfig(a.config.Paths.BaseConfig))
