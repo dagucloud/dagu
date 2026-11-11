@@ -953,6 +953,31 @@ describe('LicensePage', () => {
       ).toBeVisible();
     });
 
+    // A link asking for remote access before the server connects lands on
+    // this offer with MCP clients and the trial they need chosen.
+    it('chooses MCP clients and the trial from a link to #remote-access', () => {
+      const scroll = vi.spyOn(Element.prototype, 'scrollIntoView');
+      useClientMock.mockReturnValue({
+        GET: vi.fn().mockReturnValue(new Promise(() => {})),
+      } as never);
+      renderPage(community(), { path: '/license#remote-access' });
+
+      expect(scroll.mock.contexts).toContain(offer());
+      expect(
+        within(offer()).getByRole('checkbox', {
+          name: /Use this server from MCP clients/,
+        })
+      ).toBeChecked();
+      expect(
+        within(offer()).getByRole('checkbox', {
+          name: /Also try paid features free for 14 days/,
+        })
+      ).toBeChecked();
+      expect(
+        within(offer()).getByRole('button', { name: 'Connect and start trial' })
+      ).toBeVisible();
+    });
+
     it('starts the same request from the free monitoring offer', async () => {
       vi.spyOn(window, 'open').mockReturnValue(null);
       const post = vi.fn().mockResolvedValue({ data: pending });
@@ -1579,11 +1604,19 @@ describe('LicensePage', () => {
     };
 
     // Serves an online license with audit logs, the given remote access,
-    // which PUT changes the way the server does, and the given audit entries.
+    // which PUT changes the way the server does, and the given audit entries,
+    // and renders the page at path.
     function serveRemoteAccess(
       initial: LicenseRemoteAccess,
-      entries = [],
-      license = online
+      {
+        entries = [],
+        license = online,
+        path,
+      }: {
+        entries?: never[];
+        license?: Partial<LicenseStatus>;
+        path?: string;
+      } = {}
     ) {
       let access = initial;
       const get = vi.fn((path: string) =>
@@ -1614,7 +1647,7 @@ describe('LicensePage', () => {
         POST: vi.fn(),
         PUT: put,
       } as never);
-      renderPage(license);
+      renderPage(license, { path });
       return { get, put };
     }
 
@@ -1697,10 +1730,11 @@ describe('LicensePage', () => {
     it('shows how to connect an AI app through the console', async () => {
       serveRemoteAccess(
         { ...remoteOff, level: LicenseRemoteAccessLevel.viewer },
-        [],
         {
-          ...online,
-          consoleUrl: 'https://console.example.com/servers?server=srv-123',
+          license: {
+            ...online,
+            consoleUrl: 'https://console.example.com/servers?server=srv-123',
+          },
         }
       );
       const card = await findRemoteAccessCard();
@@ -1732,25 +1766,27 @@ describe('LicensePage', () => {
     it('lists the calls agents made lately', async () => {
       serveRemoteAccess(
         { ...remoteOff, level: LicenseRemoteAccessLevel.operator },
-        [
-          {
-            id: '2',
-            timestamp: new Date().toISOString(),
-            category: 'mcp',
-            action: 'mcp.tool_call.denied',
-            mcpTool: 'dagu_change',
-            username: 'ana@example.com',
-            details: '{"mcp_action":"upsert_dag","resource_id":"etl"}',
-          },
-          {
-            id: '1',
-            timestamp: new Date().toISOString(),
-            category: 'mcp',
-            action: 'mcp.tool_call.started',
-            mcpTool: 'dagu_execute',
-            username: 'ana@example.com',
-          },
-        ] as never
+        {
+          entries: [
+            {
+              id: '2',
+              timestamp: new Date().toISOString(),
+              category: 'mcp',
+              action: 'mcp.tool_call.denied',
+              mcpTool: 'dagu_change',
+              username: 'ana@example.com',
+              details: '{"mcp_action":"upsert_dag","resource_id":"etl"}',
+            },
+            {
+              id: '1',
+              timestamp: new Date().toISOString(),
+              category: 'mcp',
+              action: 'mcp.tool_call.started',
+              mcpTool: 'dagu_execute',
+              username: 'ana@example.com',
+            },
+          ] as never,
+        }
       );
       const card = await findRemoteAccessCard();
       const activity = await within(card).findByText(
@@ -1775,6 +1811,15 @@ describe('LicensePage', () => {
       expect(card).toHaveTextContent(
         'cloud.remote_access and cloud.remote_approvals in the server configuration set these.'
       );
+    });
+
+    it('scrolls to remote access from a link to #remote-access', async () => {
+      const scroll = vi.spyOn(Element.prototype, 'scrollIntoView');
+      serveRemoteAccess(remoteOff, { path: '/license#remote-access' });
+
+      const card = await findRemoteAccessCard();
+      expect(scroll.mock.contexts).toContain(card);
+      scroll.mockRestore();
     });
   });
 
