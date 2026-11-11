@@ -283,6 +283,14 @@ func (r *Request) Send(t *testing.T) *Response {
 			SetHeader("Content-Type", "application/json").
 			Patch(url)
 	case http.MethodPut:
+		if raw, ok := r.body.([]byte); ok {
+			// A byte slice is sent as it is, for the routes that take a file.
+			res, err = req.
+				SetBody(raw).
+				SetHeader("Content-Type", "application/octet-stream").
+				Put(url)
+			break
+		}
 		jsonBody, jsonErr := json.Marshal(r.body)
 		require.NoError(t, jsonErr, "failed to marshal request body")
 

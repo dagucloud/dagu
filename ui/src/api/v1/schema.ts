@@ -3370,6 +3370,122 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/skills": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List skills
+         * @description Lists the skill folders of the DAGs directory, sorted by name. A skill that is not in the Agent Skills format is listed too, with its errors: Dagu refuses to load it.
+         */
+        get: operations["listSkills"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/skills/download": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Download several skills as one ZIP
+         * @description Streams one ZIP that holds each named skill as a top-level folder with its files exactly as stored. A skill that is not valid can be downloaded. An unknown name gives 404 and no ZIP. At most 100 skills.
+         */
+        post: operations["downloadSkills"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/skills/{name}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get a skill
+         * @description Returns the raw SKILL.md of a skill, its hash, its files, and its errors and warnings.
+         */
+        get: operations["getSkill"];
+        /**
+         * Create or update SKILL.md
+         * @description Validates the SKILL.md content and writes it atomically as skills/{name}/SKILL.md of the DAGs directory. Send If-Match with the hash that the client read, or If-None-Match: * to create the skill. A skill that changed meanwhile gives 409 with its current hash. Requires developer role or above.
+         */
+        put: operations["updateSkill"];
+        post?: never;
+        /**
+         * Delete a skill
+         * @description Deletes the whole folder of a skill with every file. Send If-Match with the hash that the client read. Requires developer role or above.
+         */
+        delete: operations["deleteSkill"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/skills/{name}/download": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Download one skill as a ZIP
+         * @description Streams a ZIP with the skill as the top-level folder <name>/ and its files exactly as stored. A skill that is not valid can be downloaded.
+         */
+        get: operations["downloadSkill"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/skills/{name}/files": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get one file of a skill
+         * @description Streams the bytes of one file of a skill, exactly as stored. The header ETag holds the hash of the skill.
+         */
+        get: operations["getSkillFile"];
+        /**
+         * Create or replace one file of a skill
+         * @description Writes one file under references/, assets/ or scripts/ atomically. The body holds the bytes of the file. A file of references/ or scripts/ MUST be valid UTF-8. Send If-Match with the hash that the client read. SKILL.md has its own route. Requires developer role or above.
+         */
+        put: operations["putSkillFile"];
+        post?: never;
+        /**
+         * Delete one file of a skill
+         * @description Deletes one file under references/, assets/ or scripts/. Send If-Match with the hash that the client read. Requires developer role or above.
+         */
+        delete: operations["deleteSkillFile"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/calendars": {
         parameters: {
             query?: never;
@@ -4967,10 +5083,114 @@ export interface components {
             messages: components["schemas"]["ChatMessage"][];
             /** @description Tool definitions that were available to the LLM */
             toolDefinitions?: components["schemas"]["ToolDefinition"][];
+            /** @description Skills that the effective catalog offered to the LLM or left out */
+            skillDefinitions?: components["schemas"]["SkillDefinition"][];
             stepStatus: components["schemas"]["NodeStatus"];
             stepStatusLabel: components["schemas"]["NodeStatusLabel"];
             /** @description True if step is still running and more messages may arrive */
             hasMore: boolean;
+        };
+        /** @description One finding of the check of a skill against the Agent Skills format */
+        SkillIssue: {
+            /**
+             * @description An error makes Dagu refuse the skill. A warning does not.
+             * @enum {string}
+             */
+            severity: SkillIssueSeverity;
+            /** @description Identifier of the rule, for example name-folder */
+            rule: string;
+            /** @description File of the skill, relative to its folder. Empty when the issue concerns the folder. */
+            file?: string;
+            /** @description What is wrong and what the rule is */
+            message: string;
+        };
+        /** @description One file of a skill */
+        SkillFile: {
+            /** @description Path relative to the skill folder, with / separators */
+            path: string;
+            /**
+             * Format: int64
+             * @description Size in bytes
+             */
+            size: number;
+            /** @description SHA-256 of the content, in lower case hexadecimal */
+            sha256: string;
+            /** @description True for a text file that the model can read (SKILL.md, references/ and scripts/) */
+            text: boolean;
+        };
+        /** @description A skill folder of the skills directory */
+        SkillSummary: {
+            /** @description Name of the skill, the name of its folder. A chat.completion step names it in with.skills. */
+            name: string;
+            /** @description Description of the skill. Empty when the front matter is not valid. */
+            description: string;
+            /** @description Hash of the version of the skill: the SHA-256 of the sorted list of the path and the SHA-256 of each file */
+            hash: string;
+            /** @description False when the skill has an error. Dagu refuses a skill that is not valid. */
+            valid: boolean;
+            /** @description Errors of the format. Not empty when valid is false. */
+            errors: components["schemas"]["SkillIssue"][];
+            /** @description Warnings of the format. They do not refuse the skill. */
+            warnings: components["schemas"]["SkillIssue"][];
+            /** @description Number of files, with SKILL.md */
+            fileCount: number;
+            /**
+             * Format: int64
+             * @description Size of all files in bytes
+             */
+            totalBytes: number;
+            /** @description Number of lines of the Markdown body */
+            bodyLines: number;
+            /** @description Estimate of the tokens of the body: bytes divided by 3.7. Approximate. */
+            bodyTokens: number;
+        };
+        /** @description A skill with the content of SKILL.md and the list of its files */
+        SkillDetail: {
+            /** @description Name of the skill */
+            name: string;
+            /** @description The raw content of SKILL.md. Empty when the file does not exist. */
+            content: string;
+            /** @description Hash of the version of the skill. Send it in If-Match for a write. */
+            hash: string;
+            errors: components["schemas"]["SkillIssue"][];
+            warnings: components["schemas"]["SkillIssue"][];
+            files: components["schemas"]["SkillFile"][];
+            license?: string;
+            compatibility?: string;
+            /** @description The value of allowed-tools. Informational: it never widens the permissions of a step. */
+            allowedTools?: string;
+            metadata?: {
+                [key: string]: string;
+            };
+            summary: components["schemas"]["SkillSummary"];
+        };
+        /** @description The skill after a write */
+        SkillWriteResult: {
+            /** @description The new hash of the skill */
+            hash: string;
+            errors: components["schemas"]["SkillIssue"][];
+            warnings: components["schemas"]["SkillIssue"][];
+            files: components["schemas"]["SkillFile"][];
+        };
+        /** @description An error of a skill route: a content that breaks a rule, or a write that conflicts */
+        SkillError: {
+            code: components["schemas"]["ErrorCode"];
+            message: string;
+            /** @description The rules that the content breaks */
+            issues?: components["schemas"]["SkillIssue"][];
+            /** @description For a conflict: the hash of the skill now. Empty when the skill does not exist. */
+            hash?: string;
+        };
+        /** @description A skill that the effective catalog of a step offered to the LLM */
+        SkillDefinition: {
+            /** @description Name of the skill */
+            name: string;
+            /** @description Description of the skill */
+            description?: string;
+            /** @description Hash of the version of the skill that the step received */
+            hash?: string;
+            /** @description Set only in the record of an older run, where a condition left the skill out. The effective catalog no longer leaves a skill out. */
+            omitted?: string;
         };
         /** @description A tool definition that was available to the LLM */
         ToolDefinition: {
@@ -4982,6 +5202,8 @@ export interface components {
             parameters?: {
                 [key: string]: unknown;
             };
+            /** @description Where the tool comes from: dag:<name>, mcp:<name> (the label of the server) or skills (the tool load_skill) */
+            source?: string;
         };
         /** @description Request body for rejecting a waiting step */
         RejectStepRequest: {
@@ -9267,6 +9489,10 @@ export interface components {
         ArtifactPath: string & unknown & unknown & unknown;
         /** @description Whether to recursively expand nested artifact directories */
         ArtifactRecursive: boolean;
+        /** @description name of the skill, the name of its folder. A new skill MUST follow the name rule of the Agent Skills format (checked by the server). */
+        SkillName: string;
+        /** @description Path of a file of the skill, relative to its folder, with / separators, for example references/guide.md */
+        SkillFilePath: string;
         /** @description name of the remote node */
         RemoteNode: string;
         /** @description Filter entries after this time (ISO 8601 format) */
@@ -19790,6 +20016,712 @@ export interface operations {
             };
         };
     };
+    listSkills: {
+        parameters: {
+            query?: {
+                /** @description name of the remote node */
+                remoteNode?: components["parameters"]["RemoteNode"];
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Skills */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        skills: components["schemas"]["SkillSummary"][];
+                    };
+                };
+            };
+            /** @description Not authenticated */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Unexpected error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+        };
+    };
+    downloadSkills: {
+        parameters: {
+            query?: {
+                /** @description name of the remote node */
+                remoteNode?: components["parameters"]["RemoteNode"];
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    /** @description Names of the skills */
+                    names: string[];
+                };
+            };
+        };
+        responses: {
+            /** @description The ZIP */
+            200: {
+                headers: {
+                    /** @description Attachment file name: skills-<date>.zip, or <name>.zip for one skill */
+                    "Content-Disposition"?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/zip": string;
+                };
+            };
+            /** @description Invalid request, or too many skills, or the skills are too large */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Not authenticated */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description A skill does not exist */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Unexpected error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+        };
+    };
+    getSkill: {
+        parameters: {
+            query?: {
+                /** @description name of the remote node */
+                remoteNode?: components["parameters"]["RemoteNode"];
+            };
+            header?: never;
+            path: {
+                /** @description name of the skill, the name of its folder. A new skill MUST follow the name rule of the Agent Skills format (checked by the server). */
+                name: components["parameters"]["SkillName"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Skill */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SkillDetail"];
+                };
+            };
+            /** @description Invalid skill name */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Not authenticated */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Skill not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Unexpected error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+        };
+    };
+    updateSkill: {
+        parameters: {
+            query?: {
+                /** @description name of the remote node */
+                remoteNode?: components["parameters"]["RemoteNode"];
+            };
+            header?: {
+                /** @description The hash of the skill that the client read (the field hash). The write applies only when the skill still has this hash. Every write needs this header, or If-None-Match: * to create. */
+                "If-Match"?: string;
+                /** @description The value * makes the write apply only when the skill does not exist. */
+                "If-None-Match"?: string;
+            };
+            path: {
+                /** @description name of the skill, the name of its folder. A new skill MUST follow the name rule of the Agent Skills format (checked by the server). */
+                name: components["parameters"]["SkillName"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    /** @description The raw content of SKILL.md: a YAML front matter block with name and description, then the Markdown instructions */
+                    content: string;
+                };
+            };
+        };
+        responses: {
+            /** @description Skill saved */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SkillWriteResult"];
+                };
+            };
+            /** @description Invalid skill name or invalid SKILL.md */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SkillError"];
+                };
+            };
+            /** @description Not authenticated */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Requires developer role or above */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description If-Match names a skill that does not exist */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description The skill changed after the client read it, or it exists */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SkillError"];
+                };
+            };
+            /** @description The request has no If-Match or If-None-Match header */
+            428: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Unexpected error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+        };
+    };
+    deleteSkill: {
+        parameters: {
+            query?: {
+                /** @description name of the remote node */
+                remoteNode?: components["parameters"]["RemoteNode"];
+            };
+            header?: {
+                /** @description The hash of the skill that the client read (the field hash). The request applies only when the skill still has this hash. The request needs this header. */
+                "If-Match"?: string;
+            };
+            path: {
+                /** @description name of the skill, the name of its folder. A new skill MUST follow the name rule of the Agent Skills format (checked by the server). */
+                name: components["parameters"]["SkillName"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Skill deleted */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Invalid skill name */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Not authenticated */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Requires developer role or above */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Skill not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description The skill changed after the client read it */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SkillError"];
+                };
+            };
+            /** @description The request has no If-Match header */
+            428: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Unexpected error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+        };
+    };
+    downloadSkill: {
+        parameters: {
+            query?: {
+                /** @description name of the remote node */
+                remoteNode?: components["parameters"]["RemoteNode"];
+            };
+            header?: never;
+            path: {
+                /** @description name of the skill, the name of its folder. A new skill MUST follow the name rule of the Agent Skills format (checked by the server). */
+                name: components["parameters"]["SkillName"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The ZIP */
+            200: {
+                headers: {
+                    /** @description Attachment file name: <name>.zip */
+                    "Content-Disposition"?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/zip": string;
+                };
+            };
+            /** @description Invalid skill name */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Not authenticated */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Skill not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Unexpected error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+        };
+    };
+    getSkillFile: {
+        parameters: {
+            query: {
+                /** @description name of the remote node */
+                remoteNode?: components["parameters"]["RemoteNode"];
+                /** @description Path of a file of the skill, relative to its folder, with / separators, for example references/guide.md */
+                path: components["parameters"]["SkillFilePath"];
+            };
+            header?: never;
+            path: {
+                /** @description name of the skill, the name of its folder. A new skill MUST follow the name rule of the Agent Skills format (checked by the server). */
+                name: components["parameters"]["SkillName"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description File content */
+            200: {
+                headers: {
+                    /** @description Attachment file name */
+                    "Content-Disposition"?: string;
+                    /** @description The hash of the skill */
+                    ETag?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/octet-stream": string;
+                };
+            };
+            /** @description Invalid skill name or path */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Not authenticated */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Skill or file not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description The skill changed while the server read the file; read it again */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Unexpected error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+        };
+    };
+    putSkillFile: {
+        parameters: {
+            query: {
+                /** @description name of the remote node */
+                remoteNode?: components["parameters"]["RemoteNode"];
+                /** @description Path of a file of the skill, relative to its folder, with / separators, for example references/guide.md */
+                path: components["parameters"]["SkillFilePath"];
+            };
+            header?: {
+                /** @description The hash of the skill that the client read (the field hash). The request applies only when the skill still has this hash. The request needs this header. */
+                "If-Match"?: string;
+            };
+            path: {
+                /** @description name of the skill, the name of its folder. A new skill MUST follow the name rule of the Agent Skills format (checked by the server). */
+                name: components["parameters"]["SkillName"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/octet-stream": string;
+            };
+        };
+        responses: {
+            /** @description File saved */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SkillWriteResult"];
+                };
+            };
+            /** @description Invalid name, path or content */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SkillError"];
+                };
+            };
+            /** @description Not authenticated */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Requires developer role or above */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Skill not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description The skill changed after the client read it */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SkillError"];
+                };
+            };
+            /** @description The file is too large */
+            413: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description The request has no If-Match header */
+            428: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Unexpected error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+        };
+    };
+    deleteSkillFile: {
+        parameters: {
+            query: {
+                /** @description name of the remote node */
+                remoteNode?: components["parameters"]["RemoteNode"];
+                /** @description Path of a file of the skill, relative to its folder, with / separators, for example references/guide.md */
+                path: components["parameters"]["SkillFilePath"];
+            };
+            header?: {
+                /** @description The hash of the skill that the client read (the field hash). The request applies only when the skill still has this hash. The request needs this header. */
+                "If-Match"?: string;
+            };
+            path: {
+                /** @description name of the skill, the name of its folder. A new skill MUST follow the name rule of the Agent Skills format (checked by the server). */
+                name: components["parameters"]["SkillName"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description File deleted */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SkillWriteResult"];
+                };
+            };
+            /** @description Invalid name or path */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SkillError"];
+                };
+            };
+            /** @description Not authenticated */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Requires developer role or above */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Skill or file not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description The skill changed after the client read it */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SkillError"];
+                };
+            };
+            /** @description The request has no If-Match header */
+            428: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Unexpected error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+        };
+    };
     listCalendars: {
         parameters: {
             query?: {
@@ -25315,6 +26247,10 @@ export enum ChatMessageRole {
     user = "user",
     assistant = "assistant",
     tool = "tool"
+}
+export enum SkillIssueSeverity {
+    error = "error",
+    warning = "warning"
 }
 export enum AgentInteractionResponseRequestDecision {
     once = "once",
