@@ -369,3 +369,34 @@ func TestAIModelsAPI_URLChangeReadsTheList(t *testing.T) {
 	assert.Len(t, provider.calls(), 2)
 	assert.Equal(t, []string{"gpt-6"}, getModels(t, api, "cle1").Models)
 }
+
+// The routes of the list need the role admin. A role that edits DAGs reads the
+// models of an endpoint that it may use from the route of choices.
+func TestAIModelsAPI_RolesOverHTTP(t *testing.T) {
+	provider := newAIModelsProvider(t)
+	server := setupBuiltinAuthServer(t)
+	adminToken := getAdminToken(t, server)
+	managerToken := createRuntimeProfileUserToken(t, server, adminToken, "ai-manager", "managerpass1", apigen.UserRoleManager)
+	viewerToken := createRuntimeProfileUserToken(t, server, adminToken, "ai-viewer", "viewerpass1", apigen.UserRoleViewer)
+	developerToken := createRuntimeProfileUserToken(t, server, adminToken, "ai-developer", "developerpass1", apigen.UserRoleDeveloper)
+
+	server.Client().Post("/api/v1/ai/endpoints", aiCustomBody("cle1", provider, true)).WithBearerToken(adminToken).ExpectStatus(http.StatusCreated).Send(t)
+
+	for _, token := range []string{managerToken, developerToken, viewerToken} {
+		server.Client().Get("/api/v1/ai/endpoints/cle1/models").WithBearerToken(token).ExpectStatus(http.StatusForbidden).Send(t)
+		server.Client().Post("/api/v1/ai/endpoints/cle1/models/reload", nil).WithBearerToken(token).ExpectStatus(http.StatusForbidden).Send(t)
+	}
+	server.Client().Get("/api/v1/ai/endpoints/cle1/models").ExpectStatus(http.StatusUnauthorized).Send(t)
+	server.Client().Post("/api/v1/ai/endpoints/cle1/models/reload", nil).ExpectStatus(http.StatusUnauthorized).Send(t)
+
+	reloaded := server.Client().Post("/api/v1/ai/endpoints/cle1/models/reload", nil).WithBearerToken(adminToken).ExpectStatus(http.StatusOK).Send(t)
+	assert.Contains(t, reloaded.Body, `"gpt-5"`)
+	assert.NotContains(t, reloaded.Body, aiTestKey)
+	read := server.Client().Get("/api/v1/ai/endpoints/cle1/models").WithBearerToken(adminToken).ExpectStatus(http.StatusOK).Send(t)
+	assert.Contains(t, read.Body, `"gpt-5-mini"`)
+
+	// The developer gets the models through the choices. The viewer cannot.
+	choices := server.Client().Get("/api/v1/ai/endpoint-choices?dag=fix-bug").WithBearerToken(developerToken).ExpectStatus(http.StatusOK).Send(t)
+	assert.Contains(t, choices.Body, `"models":["gpt-5","gpt-5-mini"]`)
+	server.Client().Get("/api/v1/ai/endpoint-choices?dag=fix-bug").WithBearerToken(viewerToken).ExpectStatus(http.StatusForbidden).Send(t)
+}
