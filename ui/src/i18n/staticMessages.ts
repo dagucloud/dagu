@@ -719,6 +719,8 @@ const baseEnglish = {
   'Example Request': 'Example Request',
   'Example workflows': 'Example workflows',
   Examples: 'Examples',
+  'Execute permission is required to answer or restart this session.':
+    'Execute permission is required to answer or restart this session.',
   'Execute permission is required to complete this task.':
     'Execute permission is required to complete this task.',
   Execution: 'Execution',
@@ -3859,6 +3861,8 @@ const baseChinese = {
   'Example Request': '请求示例',
   'Example workflows': '工作流示例',
   Examples: '示例',
+  'Execute permission is required to answer or restart this session.':
+    '回答或重启此会话需要执行权限。',
   'Execute permission is required to complete this task.':
     '完成此任务需要执行权限。',
   Execution: '执行',
@@ -6944,6 +6948,8 @@ const baseJapanese = {
   'Example Request': 'リクエストの例',
   'Example workflows': 'ワークフローの例',
   Examples: '例',
+  'Execute permission is required to answer or restart this session.':
+    'このセッションに回答したり再起動したりするには、実行権限が必要です。',
   'Execute permission is required to complete this task.':
     'このタスクを完了するには、実行権限が必要です。',
   Execution: '実行',
