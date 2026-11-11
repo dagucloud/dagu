@@ -17,6 +17,7 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/cmn/logger"
 	"github.com/dagucloud/dagu/v2/internal/cmn/logger/tag"
 	"github.com/dagucloud/dagu/v2/internal/cmn/runenv"
+	"github.com/dagucloud/dagu/v2/internal/cmn/stringutil"
 	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/persis"
 	"github.com/dagucloud/dagu/v2/internal/runtimeenv"
@@ -83,17 +84,70 @@ func parseScheduleTimeParam(ctx *Context) (string, error) {
 	return scheduleTime, nil
 }
 
-// scheduleWindowAt returns the window the slot at scheduleTime owns among the
-// DAG's start schedules for the profile, or the zero window when scheduleTime
-// is empty. The value has passed parseScheduleTimeParam.
-func scheduleWindowAt(ctx *Context, dag *ir.DAG, profile, scheduleTime string) ir.ScheduleWindow {
-	slot, err := time.Parse(time.RFC3339, scheduleTime)
-	if err != nil {
-		return ir.ScheduleWindow{}
+// runSlot is the schedule slot a run is started for.
+type runSlot struct {
+	scheduleTime string
+	window       ir.ScheduleWindow
+	// operatorChosen reports a slot named with --scheduled-at, not by the
+	// scheduler.
+	operatorChosen bool
+}
+
+// runSlotParams reads the slot a run is started for: --schedule-time, which
+// the scheduler sets, or --scheduled-at, which an operator sets. The window
+// is computed among the DAG's start schedules for the profile. A slot later
+// than now is rejected unless allowFuture. A warning about a time no
+// schedule fires is printed to stderr.
+func runSlotParams(ctx *Context, dag *ir.DAG, profile string, allowFuture bool) (runSlot, error) {
+	var scheduleTime string
+	if ctx.Command.Flags().Lookup(scheduleTimeFlag.name) != nil {
+		var err error
+		if scheduleTime, err = parseScheduleTimeParam(ctx); err != nil {
+			return runSlot{}, err
+		}
 	}
+	scheduledAt, err := ctx.StringParam("scheduled-at")
+	if err != nil {
+		return runSlot{}, fmt.Errorf("failed to get scheduled-at: %w", err)
+	}
+	switch {
+	case scheduledAt != "" && scheduleTime != "":
+		return runSlot{}, fmt.Errorf("--scheduled-at cannot be combined with --schedule-time")
+	case scheduleTime != "":
+		at, _ := time.Parse(time.RFC3339, scheduleTime)
+		window := ir.ScheduleWindowAt(boundStartSchedules(ctx, dag), profile, ctx.Config.Core.Location, at)
+		return runSlot{scheduleTime: scheduleTime, window: window}, nil
+	case scheduledAt == "":
+		return runSlot{}, nil
+	}
+
+	slot, err := ir.ResolveScheduleSlot(ir.ScheduleSlotRequest{
+		Value:       scheduledAt,
+		Schedules:   boundStartSchedules(ctx, dag),
+		Profile:     profile,
+		Location:    ctx.Config.Core.Location,
+		Now:         time.Now(),
+		AllowFuture: allowFuture,
+	})
+	if err != nil {
+		return runSlot{}, fmt.Errorf("invalid --scheduled-at: %w", err)
+	}
+	if slot.Warning != "" {
+		_, _ = fmt.Fprintf(ctx.Command.ErrOrStderr(), "Warning: %s\n", slot.Warning)
+	}
+	return runSlot{
+		scheduleTime:   stringutil.FormatTime(slot.At.In(ctx.Config.Core.Location)),
+		window:         slot.Window,
+		operatorChosen: true,
+	}, nil
+}
+
+// boundStartSchedules returns a copy of the DAG's start schedules with their
+// calendars bound, so they fire as the scheduler fires them.
+func boundStartSchedules(ctx *Context, dag *ir.DAG) []ir.Schedule {
 	schedules := slices.Clone(dag.Schedule)
 	spec.BindScheduleCalendars(schedules, spec.NewCalendarSource(ctx.Config.Paths.CalendarsDir))
-	return ir.ScheduleWindowAt(schedules, profile, ctx.Config.Core.Location, slot)
+	return schedules
 }
 
 // restoreDAGFromStatus restores a DAG from a previous run's status and YAML.

@@ -135,8 +135,10 @@ dagu start etl --scheduled-at 2026-11-09T02:00:00+09:00
   lists the zones. A DAG with no recurring start entry uses the server zone
   and rejects `latest` and a date.
 - `--scheduled-at` works in local and remote contexts. It replaces
-  `--schedule-time`, which stays as a hidden alias because the scheduler
-  launches runs with it.
+  `--schedule-time` for operators. The scheduler keeps launching runs with
+  `--schedule-time`, now hidden, which takes the RFC 3339 instant the
+  scheduler fired and neither rejects nor warns: a restart schedule's fire
+  is not a start fire, and a warning on every such run would be noise.
 - The run records `scheduled_at` and the window as if the scheduler had fired
   that slot. The run's trigger type stays `manual`.
 - A slot later than now is rejected, as Airflow and Control-M reject one. A
