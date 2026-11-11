@@ -28,6 +28,15 @@ func NewDAGRepository(store DAGDefinitionStore, options DAGRepositoryOptions) *D
 	return &DAGRepository{store: store, options: options}
 }
 
+// DAGsDir returns the DAGs directory where a definition that has no file finds
+// the skills directory. It is empty when the repository has none.
+func (r *DAGRepository) DAGsDir() string {
+	if r == nil {
+		return ""
+	}
+	return r.options.DAGsDir
+}
+
 func (r *DAGRepository) loadOptions(opts ...spec.LoadOption) []spec.LoadOption {
 	loadOpts := make([]spec.LoadOption, 0, len(opts)+2)
 	if r.options.BaseConfigPath != "" {
@@ -35,6 +44,9 @@ func (r *DAGRepository) loadOptions(opts ...spec.LoadOption) []spec.LoadOption {
 	}
 	if r.options.WorkspaceBaseConfigDir != "" {
 		loadOpts = append(loadOpts, spec.WithWorkspaceBaseConfigDir(r.options.WorkspaceBaseConfigDir))
+	}
+	if r.options.DAGsDir != "" {
+		loadOpts = append(loadOpts, spec.WithDAGsDir(r.options.DAGsDir))
 	}
 	if r.options.Calendars != nil {
 		loadOpts = append(loadOpts, spec.WithCalendars(r.options.Calendars))

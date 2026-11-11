@@ -85,6 +85,7 @@ It must not be treated as product behavior until implementation catches up.
 | [083: Continuous Runs](083-continuous-runs.md) | Partially implemented |
 | [084: Business Calendars](084-business-calendars.md) | Implemented |
 | [085: Scheduler High Availability](085-scheduler-ha.md) | Partially implemented |
+| [091: Agent Node](091-agent-node.md) | Partially implemented |
 | [092: Agent Workers](092-agent-workers.md) | Partially implemented |
 | [093: AI Endpoints](093-ai-endpoints.md) | Implemented |
 | [094: AI Gateway](094-ai-gateway.md) | Implemented |
