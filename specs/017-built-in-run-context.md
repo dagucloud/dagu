@@ -207,6 +207,16 @@ Rules:
   that schedule's `CRON_TZ` or `TZ` zone, else the server zone. `@every`
   schedules use `UTC`. A DAG with no recurring start schedule uses the server
   zone.
+- A manual run started with `dagu start`, `dagu enqueue`, or `dagu restart`
+  and `--scheduled-at` gets the schedule time and window of the slot it
+  names, as the scheduler's run of that slot does. Its trigger type stays
+  `manual`. `--scheduled-at` takes `latest`, a date, a time without an offset
+  read in the schedule's zone, or an RFC 3339 time with an offset. A slot
+  later than now is rejected; `dagu dry` accepts one. A time that no schedule
+  fires is accepted with a warning that names the nearest fire times.
+- The scheduler reads a manual run by when it ran, not by its slot, so a
+  manual run of a slot does not suppress or settle that slot's scheduled
+  fire.
 - `context.run.status` is available in lifecycle handlers and other explicitly
   status-aware surfaces. It is unavailable in normal step execution unless an
   owning spec explicitly makes that surface status-aware.

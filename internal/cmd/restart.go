@@ -43,7 +43,7 @@ Example:
 	)
 }
 
-var restartFlags = []commandLineFlag{dagRunIDFlagRestart, scheduleTimeFlag}
+var restartFlags = []commandLineFlag{dagRunIDFlagRestart, scheduleTimeFlag, scheduledAtFlag}
 
 func runRestart(ctx *Context, args []string) error {
 	if ctx.IsRemote() {
@@ -53,11 +53,6 @@ func runRestart(ctx *Context, args []string) error {
 	if err != nil {
 		return fmt.Errorf("failed to get dag-run ID: %w", err)
 	}
-	scheduleTime, err := parseScheduleTimeParam(ctx)
-	if err != nil {
-		return err
-	}
-
 	name := args[0]
 
 	// The scheduler follows the current definition, so it decides whether the
@@ -110,11 +105,11 @@ func runRestart(ctx *Context, args []string) error {
 	}
 
 	definitionID := dagStatus.DAGDefinitionID()
-	var scheduleWindow ir.ScheduleWindow
-	if scheduleTime != "" {
-		scheduleWindow = scheduleWindowAt(ctx, dag, dagStatus.ProfileName, scheduleTime)
+	slot, err := runSlotParams(ctx, dag, dagStatus.ProfileName, false)
+	if err != nil {
+		return err
 	}
-	if err := handleRestartProcess(ctx, dag, dagRunID, scheduleTime, scheduleWindow, definitionID, dagStatus.NoReuse); err != nil {
+	if err := handleRestartProcess(ctx, dag, dagRunID, slot.scheduleTime, slot.window, definitionID, dagStatus.NoReuse); err != nil {
 		return fmt.Errorf("restart process failed for DAG %s: %w", dag.Name, err)
 	}
 

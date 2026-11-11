@@ -110,6 +110,68 @@ func TestRuntimeScheduleWindow(t *testing.T) {
 	}, "\n"))
 }
 
+// A manual run started for a slot gets the window the scheduler's run of
+// that slot gets. A time without an offset is read in the schedule's zone.
+func TestScheduledAtStartsRunForSlot(t *testing.T) {
+	t.Parallel()
+
+	dagu := harness.NewRunner(t)
+	result := dagu.Run(
+		"start",
+		"--run-id=spec017-scheduled-at",
+		"--scheduled-at=2026-03-13T12:00",
+		"schedule_window.yaml",
+	)
+	result.ExpectExitCode(0)
+	dagu.ExpectFileContent("schedule-window.txt", strings.Join([]string{
+		"scheduled=2026-03-13T03:00:00Z",
+		"start=2026-03-13T02:30:00Z",
+		"end=2026-03-13T03:00:00Z",
+		"next=2026-03-13T03:30:00Z",
+		"timezone=Asia/Tokyo",
+		"",
+	}, "\n"))
+}
+
+func TestScheduledAtRejectsFutureSlot(t *testing.T) {
+	t.Parallel()
+
+	dagu := harness.NewRunner(t)
+	result := dagu.Run(
+		"start",
+		"--run-id=spec017-scheduled-at-future",
+		"--scheduled-at=2999-01-01T00:00",
+		"schedule_window.yaml",
+	)
+	result.ExpectNonZeroExitCode()
+	result.ExpectStderrContains("scheduled time 2999-01-01T00:00:00+09:00 is later than now")
+	dagu.ExpectNoFile("schedule-window.txt")
+}
+
+// A dry run starts nothing, so it previews a slot that has not come.
+func TestDryScheduledAtPreviewsFutureSlot(t *testing.T) {
+	t.Parallel()
+
+	dagu := harness.NewRunner(t)
+	result := dagu.Run(
+		"dry",
+		"--scheduled-at=2999-01-01T00:00",
+		"schedule_window.yaml",
+	)
+	result.ExpectExitCode(0)
+	stdout := result.Stdout()
+	for _, want := range []string{
+		"Scheduled at: 2999-01-01T00:00:00+09:00 (Asia/Tokyo)",
+		"Window:       2998-12-31T23:30:00+09:00 to 2999-01-01T00:00:00+09:00",
+		"Next fire:    2999-01-01T00:30:00+09:00",
+	} {
+		if !strings.Contains(stdout, want) {
+			t.Fatalf("stdout does not contain %q:\n%s", want, stdout)
+		}
+	}
+	dagu.ExpectNoFile("schedule-window.txt")
+}
+
 // A DAG with no recurring start schedule has no previous or next fire, so
 // only the end of its window and the server zone are known.
 func TestRuntimeScheduleWindowWithoutSchedule(t *testing.T) {

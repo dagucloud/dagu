@@ -39,7 +39,7 @@ Examples:
 	)
 }
 
-var enqueueFlags = []commandLineFlag{paramsFlag, paramsStdinFlag, nameFlag, dagRunIDFlag, queueFlag, workerLabelFlag, labelsFlag, tagsFlag, defaultWorkingDirFlag, profileFlag, triggerTypeFlag, triggerActorFlag, scheduleTimeFlag, noReuseFlag}
+var enqueueFlags = []commandLineFlag{paramsFlag, paramsStdinFlag, nameFlag, dagRunIDFlag, queueFlag, workerLabelFlag, labelsFlag, tagsFlag, defaultWorkingDirFlag, profileFlag, triggerTypeFlag, triggerActorFlag, scheduleTimeFlag, scheduledAtFlag, noReuseFlag}
 
 func runEnqueue(ctx *Context, args []string) error {
 	if ctx.IsRemote() {
@@ -89,11 +89,11 @@ func runEnqueue(ctx *Context, args []string) error {
 		return fmt.Errorf("failed to get trigger actor: %w", err)
 	}
 
-	scheduleTime, err := parseScheduleTimeParam(ctx)
+	profileName, err := runtimeProfileNameParam(ctx)
 	if err != nil {
 		return err
 	}
-	profileName, err := runtimeProfileNameParam(ctx)
+	slot, err := runSlotParams(ctx, dag, profileName, false)
 	if err != nil {
 		return err
 	}
@@ -102,18 +102,15 @@ func runEnqueue(ctx *Context, args []string) error {
 		return fmt.Errorf("failed to read no-reuse: %w", err)
 	}
 
-	opts := runOptions{
-		triggerType:  triggerType,
-		triggerActor: triggerActor,
-		scheduleTime: scheduleTime,
-		profileName:  profileName,
-		definitionID: dagDefinitionIDFromEnv(),
-		noReuse:      noReuse,
-	}
-	if scheduleTime != "" {
-		opts.scheduleWindow = scheduleWindowAt(ctx, dag, profileName, scheduleTime)
-	}
-	return enqueueDAGRun(ctx, dag, runID, opts)
+	return enqueueDAGRun(ctx, dag, runID, runOptions{
+		triggerType:    triggerType,
+		triggerActor:   triggerActor,
+		scheduleTime:   slot.scheduleTime,
+		scheduleWindow: slot.window,
+		profileName:    profileName,
+		definitionID:   dagDefinitionIDFromEnv(),
+		noReuse:        noReuse,
+	})
 }
 
 // enqueueDAGRun enqueues a dag-run to the queue.
