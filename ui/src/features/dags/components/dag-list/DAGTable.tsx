@@ -159,6 +159,12 @@ interface DAGCardProps {
   onTogglePin: (dag: components['schemas']['DAGFile']) => void;
   /** The overlay shows the workflow, or showed it last. */
   isShown?: boolean;
+  /**
+   * Set for a service DAG that an operator stopped. The server tells it from
+   * the abort request of the latest run, so a run that the scheduler restarts
+   * does not count as stopped.
+   */
+  isStopped?: boolean;
   className?: string;
 }
 
@@ -216,21 +222,6 @@ function DeleteDAGButton({
  */
 const SHOWN_CARD = 'shadow-[inset_3px_0_0_0_var(--primary)]! bg-muted/20!';
 
-/**
- * The state of a service DAG that is not suspended: Enabled, or Stopped after
- * an operator's stop. The server tells it from the abort request of the latest
- * run, so a run that the scheduler restarts does not show as Stopped.
- */
-function ServiceDAGEnabledLabel({ fileName }: { fileName: string }) {
-  const { serviceDAGs } = useServiceDAGs();
-  const state = serviceDAGs.find((dag) => dag.fileName === fileName)?.state;
-  return (
-    <I18nText
-      text={state === ServiceDAGState.stopped ? 'Stopped' : 'Enabled'}
-    />
-  );
-}
-
 function DAGCard({
   dag,
   onOpen,
@@ -246,6 +237,7 @@ function DAGCard({
   isPinPending,
   onTogglePin,
   isShown = false,
+  isStopped = false,
   className = '',
 }: DAGCardProps) {
   const fileName = dag.fileName;
@@ -365,7 +357,7 @@ function DAGCard({
             {dag.suspended ? (
               <I18nText text={'Suspended'} />
             ) : isService ? (
-              <ServiceDAGEnabledLabel fileName={dag.fileName} />
+              <I18nText text={isStopped ? 'Stopped' : 'Enabled'} />
             ) : hasSchedule ? (
               <I18nText text={'Live'} />
             ) : (
@@ -1172,6 +1164,22 @@ function DAGTable({
   const peekOrOpen = usePeekOrOpen();
   const isShown = usePeekShown();
   useRevealShownRow();
+  // Read only while a service DAG is listed, so a list without one reads
+  // nothing. A card says whether an operator stopped its DAG.
+  const hasServiceDAGs = useMemo(
+    () => dags.some((dag) => isServiceDAG(dag.dag)),
+    [dags]
+  );
+  const { serviceDAGs } = useServiceDAGs({ enabled: hasServiceDAGs });
+  const stoppedServiceDAGs = useMemo(
+    () =>
+      new Set(
+        serviceDAGs
+          .filter((dag) => dag.state === ServiceDAGState.stopped)
+          .map((dag) => dag.fileName)
+      ),
+    [serviceDAGs]
+  );
   const columns = useMemo(
     () =>
       canDeleteDAGs
@@ -2017,6 +2025,9 @@ function DAGTable({
                               )}
                               onTogglePin={(dag) => void togglePin(dag)}
                               isShown={isShown({ dag: dagRow.dag.fileName })}
+                              isStopped={stoppedServiceDAGs.has(
+                                dagRow.dag.fileName
+                              )}
                               className="ml-2"
                             />
                           );
@@ -2057,6 +2068,7 @@ function DAGTable({
                     isPinPending={pendingPins.has(dagRow.dag.fileName)}
                     onTogglePin={(dag) => void togglePin(dag)}
                     isShown={isShown({ dag: dagRow.dag.fileName })}
+                    isStopped={stoppedServiceDAGs.has(dagRow.dag.fileName)}
                   />
                   {endsPinnedSection && (
                     <div className="border-t-2 border-border" />

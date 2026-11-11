@@ -25,7 +25,12 @@ function needsAttention(dag: ServiceDAG): boolean {
  * the list itself and sends it again only when a state changes, so a service DAG
  * that keeps running costs no traffic.
  */
-export function useServiceDAGs(): {
+export function useServiceDAGs({
+  enabled = true,
+}: {
+  /** Off, the hook reads nothing and returns no DAG. */
+  enabled?: boolean;
+} = {}): {
   serviceDAGs: ServiceDAG[];
   /** The error of the latest read, as the query reports it, or null. */
   error: unknown;
@@ -36,10 +41,10 @@ export function useServiceDAGs(): {
     () => workspaceSelectionQuery(appBarContext.workspaceSelection),
     [appBarContext.workspaceSelection]
   );
-  const sse = useServiceDAGsSSE(workspaceQuery);
+  const sse = useServiceDAGsSSE(workspaceQuery, enabled);
   const { data, error, mutate } = useQuery(
     '/service-dags',
-    { params: { query: { remoteNode, ...workspaceQuery } } },
+    enabled ? { params: { query: { remoteNode, ...workspaceQuery } } } : null,
     sseFallbackOptions(sse, 5000)
   );
   useSSECacheSync(sse, mutate);

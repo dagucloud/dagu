@@ -15,14 +15,18 @@ type ServiceDAG = components['schemas']['ServiceDAG'];
 const response = vi.hoisted(() => ({
   dags: [] as ServiceDAG[],
   error: undefined as unknown,
+  inits: [] as unknown[],
 }));
 
 vi.mock('@/hooks/api', () => ({
-  useQuery: () => ({
-    data: { dags: response.dags, errors: [] },
-    error: response.error,
-    mutate: vi.fn(),
-  }),
+  useQuery: (_path: string, init: unknown) => {
+    response.inits.push(init);
+    return {
+      data: init ? { dags: response.dags, errors: [] } : undefined,
+      error: response.error,
+      mutate: vi.fn(),
+    };
+  },
 }));
 
 vi.mock('@/hooks/useServiceDAGsSSE', () => ({
@@ -83,5 +87,15 @@ describe('useServiceDAGs', () => {
       message: 'store is down',
     });
     response.error = undefined;
+  });
+
+  it('reads nothing while it is off', () => {
+    response.dags = [dag('a')];
+    response.inits = [];
+
+    const { result } = renderHook(() => useServiceDAGs({ enabled: false }));
+
+    expect(response.inits).toEqual([null]);
+    expect(result.current.serviceDAGs).toEqual([]);
   });
 });

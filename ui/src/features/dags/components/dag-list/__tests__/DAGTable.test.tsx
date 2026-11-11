@@ -39,10 +39,14 @@ vi.mock('@/hooks/api', () => ({
 
 const serviceDAGs = vi.hoisted(() => ({
   current: [] as components['schemas']['ServiceDAG'][],
+  enabled: [] as boolean[],
 }));
 
 vi.mock('@/features/cockpit/hooks/useServiceDAGs', () => ({
-  useServiceDAGs: () => ({ serviceDAGs: serviceDAGs.current, error: null }),
+  useServiceDAGs: ({ enabled = true }: { enabled?: boolean } = {}) => {
+    serviceDAGs.enabled.push(enabled);
+    return { serviceDAGs: enabled ? serviceDAGs.current : [], error: null };
+  },
 }));
 
 vi.mock('@/features/dags/components/common/DAGActions', () => ({
@@ -744,6 +748,15 @@ describe('DAGTable', () => {
     expect(card('stopped')).toHaveTextContent('Stopped');
     expect(card('failing')).toHaveTextContent('Enabled');
     expect(card('failing')).not.toHaveTextContent('Stopped');
+  });
+
+  // A list without a service DAG has no use for the service DAG list.
+  it('reads the service DAG list only while it lists a service DAG', () => {
+    serviceDAGs.enabled = [];
+    renderTable('', { panelWidth: 600, dags: [workflow({ name: 'etl' })] });
+
+    expect(serviceDAGs.enabled.length).toBeGreaterThan(0);
+    expect(serviceDAGs.enabled).not.toContain(true);
   });
 
   it('opens the workflow page when a row is clicked', () => {
