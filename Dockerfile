@@ -60,13 +60,15 @@ RUN set -eux; \
     done; \
     apt-get clean && rm -rf /var/lib/apt/lists/*
 
-# Install common tools
+# Install common tools. The upgrade picks up security fixes released after
+# the base image was published.
 ENV DEBIAN_FRONTEND=noninteractive
 RUN set -eux; \
     for attempt in 1 2 3 4 5; do \
       rm -rf /var/lib/apt/lists/*; \
       apt-get update -o Acquire::Retries=5 \
                      -o APT::Update::Error-Mode=any && \
+      apt-get -o Acquire::Retries=5 upgrade -y && \
       apt-get -o Acquire::Retries=5 install -y \
       sudo \
       tini \
