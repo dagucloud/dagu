@@ -180,7 +180,7 @@ workflow-language specs and makes the trust boundary explicit:
 | --- | --- | --- |
 | `context.run.id` | All run, step, and handler scopes | Unique identifier for the current DAG run. |
 | `context.run.status` | Status-aware scopes only | Canonical lowercase run status. |
-| `context.run.scheduled_at` | Scheduled, catchup, and one-off scheduled runs only | UTC RFC3339 timestamp for the logical schedule time that caused the run. |
+| `context.run.scheduled_at` | Scheduled, catchup, and one-off scheduled runs, and manual runs started for a slot | UTC RFC3339 timestamp for the logical schedule time of the run's slot. |
 | `context.run.interval_start` | Runs with a schedule time whose DAG has a recurring start schedule | UTC RFC3339 timestamp of the latest fire of the active start schedules strictly before `scheduled_at`. |
 | `context.run.interval_end` | Runs with a schedule time | The same instant as `context.run.scheduled_at`. |
 | `context.run.next_scheduled_at` | Runs with a schedule time whose DAG has a recurring start schedule | UTC RFC3339 timestamp of the earliest fire of the active start schedules strictly after `scheduled_at`. |

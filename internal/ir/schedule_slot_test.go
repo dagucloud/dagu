@@ -34,6 +34,7 @@ func TestResolveScheduleSlot(t *testing.T) {
 		name        string
 		schedules   func(t *testing.T) []ir.Schedule
 		value       string
+		location    string
 		allowFuture bool
 		wantAt      time.Time
 		wantStart   time.Time
@@ -129,6 +130,22 @@ func TestResolveScheduleSlot(t *testing.T) {
 			wantAt:    utc(2026, 11, 9, 2, 0),
 		},
 		{
+			name: "time skipped by a daylight saving change rejected",
+			schedules: func(t *testing.T) []ir.Schedule {
+				return []ir.Schedule{cronEntry(t, "CRON_TZ=America/New_York 30 * * * *")}
+			},
+			value:   "2026-03-08T02:30",
+			wantErr: `scheduled time "2026-03-08T02:30" does not exist in America/New_York`,
+		},
+		{
+			name:      "interval-only schedule reads a time without an offset in UTC",
+			schedules: func(t *testing.T) []ir.Schedule { return []ir.Schedule{cronEntry(t, "@every 1h")} },
+			location:  "Asia/Tokyo",
+			value:     "2026-11-09T02:00",
+			wantAt:    utc(2026, 11, 9, 2, 0),
+			wantStart: utc(2026, 11, 9, 1, 0),
+		},
+		{
 			name:      "seconds rejected",
 			schedules: tokyoDaily,
 			value:     "2026-11-09T02:00:30+09:00",
@@ -146,10 +163,16 @@ func TestResolveScheduleSlot(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
+			loc := time.UTC
+			if tt.location != "" {
+				var err error
+				loc, err = time.LoadLocation(tt.location)
+				require.NoError(t, err)
+			}
 			slot, err := ir.ResolveScheduleSlot(ir.ScheduleSlotRequest{
 				Value:       tt.value,
 				Schedules:   tt.schedules(t),
-				Location:    time.UTC,
+				Location:    loc,
 				Now:         now,
 				AllowFuture: tt.allowFuture,
 			})

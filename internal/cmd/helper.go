@@ -88,6 +88,9 @@ func parseScheduleTimeParam(ctx *Context) (string, error) {
 type runSlot struct {
 	scheduleTime string
 	window       ir.ScheduleWindow
+	// operatorChosen reports a slot named with --scheduled-at, not by the
+	// scheduler.
+	operatorChosen bool
 }
 
 // runSlotParams reads the slot a run is started for: --schedule-time, which
@@ -132,7 +135,11 @@ func runSlotParams(ctx *Context, dag *ir.DAG, profile string, allowFuture bool) 
 	if slot.Warning != "" {
 		_, _ = fmt.Fprintf(ctx.Command.ErrOrStderr(), "Warning: %s\n", slot.Warning)
 	}
-	return runSlot{scheduleTime: stringutil.FormatTime(slot.At.In(ctx.Config.Core.Location)), window: slot.Window}, nil
+	return runSlot{
+		scheduleTime:   stringutil.FormatTime(slot.At.In(ctx.Config.Core.Location)),
+		window:         slot.Window,
+		operatorChosen: true,
+	}, nil
 }
 
 // boundStartSchedules returns a copy of the DAG's start schedules with their

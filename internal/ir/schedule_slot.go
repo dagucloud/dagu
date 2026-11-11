@@ -102,6 +102,11 @@ func parseScheduleSlot(value string, active []Schedule, loc *time.Location, now 
 		return fireOnDate(active, loc, day)
 	}
 	if at, err := time.ParseInLocation(slotLocalMinuteLayout, value, zone); err == nil {
+		// A wall-clock time skipped by a daylight saving change names no
+		// instant; time.Date would move it to another hour.
+		if at.Format(slotLocalMinuteLayout) != value {
+			return time.Time{}, fmt.Errorf("scheduled time %q does not exist in %s; give the time with an offset", value, zone)
+		}
 		return at, nil
 	}
 	return time.Time{}, fmt.Errorf("invalid scheduled time %q: use %q, a date (2006-01-02), a time (2006-01-02T15:04), or RFC 3339 with an offset",
@@ -116,13 +121,16 @@ func minuteSlot(at time.Time, value string) (time.Time, error) {
 }
 
 // slotZone returns the zone a time without an offset is read in: the zone
-// of the recurring start schedules, else loc. Interval schedules fire
-// independent of zone and name none.
+// of the recurring start schedules, UTC when they are all interval
+// schedules, else loc. Interval schedules fire independent of zone and name
+// none when other schedules do.
 func slotZone(active []Schedule, loc *time.Location) (*time.Location, error) {
 	var zones []string
 	byName := map[string]*time.Location{}
+	intervals := 0
 	for _, sched := range active {
 		if isIntervalSchedule(sched) {
+			intervals++
 			continue
 		}
 		zone := scheduleZone(sched, loc)
@@ -134,6 +142,9 @@ func slotZone(active []Schedule, loc *time.Location) (*time.Location, error) {
 	}
 	switch len(zones) {
 	case 0:
+		if intervals > 0 {
+			return time.UTC, nil
+		}
 		return loc, nil
 	case 1:
 		return byName[zones[0]], nil
