@@ -69,6 +69,7 @@ func init() {
 	rootCmd.AddCommand(cmd.Browser())
 	rootCmd.AddCommand(cmd.Computer())
 	rootCmd.AddCommand(cmd.Xlsx())
+	rootCmd.AddCommand(cmd.EgressProxy())
 
 	config.Version = version
 }
