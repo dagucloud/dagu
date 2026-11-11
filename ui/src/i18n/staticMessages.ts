@@ -533,6 +533,12 @@ const baseEnglish = {
   'Secret refs': 'Secret refs',
   'DAG Tabs': 'DAG Tabs',
   'Run ID (optional)': 'Run ID (optional)',
+  'Scheduled at (optional)': 'Scheduled at (optional)',
+  'None (run now)': 'None (run now)',
+  'Other time': 'Other time',
+  "The listed times follow the DAG's default profile. The run's window follows the selected profile.": "The listed times follow the DAG's default profile. The run's window follows the selected profile.",
+  'latest, 2026-11-09, 2026-11-09T02:00, or RFC 3339': 'latest, 2026-11-09, 2026-11-09T02:00, or RFC 3339',
+  'The run gets the schedule time and window of this slot.': 'The run gets the schedule time and window of this slot.',
   'DAG:': 'DAG:',
   'Run error': 'Run error',
   'Run precondition not met': 'Run precondition not met',
@@ -1759,6 +1765,7 @@ const baseEnglish = {
   'Scanning...': 'Scanning...',
   Schedule: 'Schedule',
   Scheduled: 'Scheduled',
+  'Window start': 'Window start',
   'Scheduled At': 'Scheduled At',
   'Scheduled:': 'Scheduled:',
   'Scheduler Service': 'Scheduler Service',
@@ -2836,8 +2843,8 @@ const baseEnglish = {
   'Connect and start trial': 'Connect and start trial',
   'Also try paid features free for 14 days':
     'Also try paid features free for 14 days',
-  'Audit logs, role-based access, single sign-on, and chat and webhook alerts. No card needed; free monitoring stays when the trial ends.':
-    'Audit logs, role-based access, single sign-on, and chat and webhook alerts. No card needed; free monitoring stays when the trial ends.',
+  'MCP access from Claude and ChatGPT, audit logs, role-based access, single sign-on, and chat and webhook alerts. No card needed; free monitoring stays when the trial ends.':
+    'MCP access from Claude and ChatGPT, audit logs, role-based access, single sign-on, and chat and webhook alerts. No card needed; free monitoring stays when the trial ends.',
   'Dagu Console stops monitoring this server, and its free slot becomes available to another server.':
     'Dagu Console stops monitoring this server, and its free slot becomes available to another server.',
   'The Free plan supports up to 2 API keys.':
@@ -3007,6 +3014,11 @@ const baseEnglish = {
   'Open Workflows': 'Open Workflows',
   'Scheduling guide': 'Scheduling guide',
   'Add a notification channel': 'Add a notification channel',
+  'Connect an AI app': 'Connect an AI app',
+  'Let Claude, ChatGPT, or a coding agent run and edit workflows here over MCP.':
+    'Let Claude, ChatGPT, or a coding agent run and edit workflows here over MCP.',
+  'Use from Claude or ChatGPT': 'Use from Claude or ChatGPT',
+  'Set up a coding agent': 'Set up a coding agent',
   'Could not change remote access.': 'Could not change remote access.',
   'Remote access': 'Remote access',
   'Serves the MCP tools of this server through the Dagu Cloud MCP endpoint. The server connects out to Dagu Cloud, so no inbound port is opened.':
@@ -3035,7 +3047,22 @@ const baseEnglish = {
   'MCP URL copied': 'MCP URL copied',
   'Add this URL to your MCP client as a remote MCP server, then sign in to Dagu Cloud. Workspace owners choose what each client may do.':
     'Add this URL to your MCP client as a remote MCP server, then sign in to Dagu Cloud. Workspace owners choose what each client may do.',
-  'Manage MCP clients': 'Manage MCP clients',
+  'Use this server from Claude, ChatGPT, and other MCP clients':
+    'Use this server from Claude, ChatGPT, and other MCP clients',
+  'Included in your trial. Turn on remote access, then add the MCP URL to your client.':
+    'Included in your trial. Turn on remote access, then add the MCP URL to your client.',
+  'Included in your plan. Turn on remote access, then add the MCP URL to your client.':
+    'Included in your plan. Turn on remote access, then add the MCP URL to your client.',
+  'Needs a paid plan or a trial. The 14-day trial is free, with no card needed.':
+    'Needs a paid plan or a trial. The 14-day trial is free, with no card needed.',
+  'Turn on remote access, then add the MCP URL to your client.':
+    'Turn on remote access, then add the MCP URL to your client.',
+  'MCP calls need a paid plan or a trial':
+    'MCP calls need a paid plan or a trial',
+  'Dagu Cloud refuses calls to this server until its workspace has one. The 14-day trial is free, with no card needed.':
+    'Dagu Cloud refuses calls to this server until its workspace has one. The 14-day trial is free, with no card needed.',
+  'Setup steps for Claude, ChatGPT, and more':
+    'Setup steps for Claude, ChatGPT, and more',
   'Choose remote access': 'Choose remote access',
   'The highest role a Dagu Cloud user gets on this server. Dagu Cloud may grant less, never more.':
     'The highest role a Dagu Cloud user gets on this server. Dagu Cloud may grant less, never more.',
@@ -3684,6 +3711,12 @@ const baseChinese = {
   'Secret refs': '密钥引用',
   'DAG Tabs': 'DAG 标签页',
   'Run ID (optional)': '运行 ID（可选）',
+  'Scheduled at (optional)': '计划时间（可选）',
+  'None (run now)': '无（立即运行）',
+  'Other time': '其他时间',
+  "The listed times follow the DAG's default profile. The run's window follows the selected profile.": '列出的时间来自 DAG 的默认配置文件。本次运行的时间窗口按所选配置文件计算。',
+  'latest, 2026-11-09, 2026-11-09T02:00, or RFC 3339': 'latest、2026-11-09、2026-11-09T02:00 或 RFC 3339',
+  'The run gets the schedule time and window of this slot.': '本次运行使用该时间槽的计划时间和时间窗口。',
   'DAG:': 'DAG：',
   'Run error': '运行错误',
   'Run precondition not met': '运行前置条件未满足',
@@ -4875,6 +4908,7 @@ const baseChinese = {
   'Scanning...': '扫描中...',
   Schedule: '调度',
   Scheduled: '已计划',
+  'Window start': '窗口开始',
   'Scheduled At': '计划时间',
   'Scheduled:': '计划:',
   'Scheduler Service': '调度服务',
@@ -5917,8 +5951,8 @@ const baseChinese = {
   'Connect for free': '免费连接',
   'Connect and start trial': '连接并开始试用',
   'Also try paid features free for 14 days': '同时免费试用付费功能 14 天',
-  'Audit logs, role-based access, single sign-on, and chat and webhook alerts. No card needed; free monitoring stays when the trial ends.':
-    '审计日志、基于角色的访问控制、单点登录，以及聊天和 Webhook 告警。无需银行卡；试用结束后免费监控仍会保留。',
+  'MCP access from Claude and ChatGPT, audit logs, role-based access, single sign-on, and chat and webhook alerts. No card needed; free monitoring stays when the trial ends.':
+    '通过 Claude 和 ChatGPT 进行 MCP 访问、审计日志、基于角色的访问控制、单点登录，以及聊天和 Webhook 告警。无需银行卡；试用结束后免费监控仍会保留。',
   'Dagu Console stops monitoring this server, and its free slot becomes available to another server.':
     'Dagu Console 将停止监控此服务器，其免费名额可供其他服务器使用。',
   'The Free plan supports up to 2 API keys.':
@@ -6083,6 +6117,11 @@ const baseChinese = {
   'Open Workflows': '打开工作流',
   'Scheduling guide': '计划指南',
   'Add a notification channel': '添加通知频道',
+  'Connect an AI app': '连接 AI 应用',
+  'Let Claude, ChatGPT, or a coding agent run and edit workflows here over MCP.':
+    '让 Claude、ChatGPT 或编码智能体通过 MCP 在此运行和编辑工作流。',
+  'Use from Claude or ChatGPT': '在 Claude 或 ChatGPT 中使用',
+  'Set up a coding agent': '设置编码智能体',
   'Could not change remote access.': '无法更改远程访问。',
   'Remote access': '远程访问',
   'Serves the MCP tools of this server through the Dagu Cloud MCP endpoint. The server connects out to Dagu Cloud, so no inbound port is opened.':
@@ -6110,7 +6149,21 @@ const baseChinese = {
   'MCP URL copied': '已复制 MCP URL',
   'Add this URL to your MCP client as a remote MCP server, then sign in to Dagu Cloud. Workspace owners choose what each client may do.':
     '将此 URL 作为远程 MCP 服务器添加到你的 MCP 客户端，然后登录 Dagu Cloud。工作区所有者决定每个客户端可以执行的操作。',
-  'Manage MCP clients': '管理 MCP 客户端',
+  'Use this server from Claude, ChatGPT, and other MCP clients':
+    '在 Claude、ChatGPT 和其他 MCP 客户端中使用此服务器',
+  'Included in your trial. Turn on remote access, then add the MCP URL to your client.':
+    '已包含在您的试用中。开启远程访问，然后将 MCP URL 添加到您的客户端。',
+  'Included in your plan. Turn on remote access, then add the MCP URL to your client.':
+    '已包含在您的套餐中。开启远程访问，然后将 MCP URL 添加到您的客户端。',
+  'Needs a paid plan or a trial. The 14-day trial is free, with no card needed.':
+    '需要付费套餐或试用。14 天试用免费，无需银行卡。',
+  'Turn on remote access, then add the MCP URL to your client.':
+    '开启远程访问，然后将 MCP URL 添加到您的客户端。',
+  'MCP calls need a paid plan or a trial': 'MCP 调用需要付费套餐或试用',
+  'Dagu Cloud refuses calls to this server until its workspace has one. The 14-day trial is free, with no card needed.':
+    '在此服务器的工作区拥有付费套餐或试用之前，Dagu Cloud 会拒绝对它的调用。14 天试用免费，无需银行卡。',
+  'Setup steps for Claude, ChatGPT, and more':
+    'Claude、ChatGPT 等客户端的设置步骤',
   'Choose remote access': '选择远程访问',
   'The highest role a Dagu Cloud user gets on this server. Dagu Cloud may grant less, never more.':
     'Dagu Cloud 用户在此服务器上获得的最高角色。Dagu Cloud 可以授予更低的角色，但绝不会更高。',
@@ -6762,6 +6815,12 @@ const baseJapanese = {
   'Secret refs': 'シークレット参照',
   'DAG Tabs': 'DAG タブ',
   'Run ID (optional)': '実行 ID（任意）',
+  'Scheduled at (optional)': 'スケジュール時刻（任意）',
+  'None (run now)': 'なし（今すぐ実行）',
+  'Other time': 'その他の時刻',
+  "The listed times follow the DAG's default profile. The run's window follows the selected profile.": '一覧の時刻は DAG のデフォルトプロファイルに基づきます。実行のウィンドウは選択したプロファイルに従います。',
+  'latest, 2026-11-09, 2026-11-09T02:00, or RFC 3339': 'latest、2026-11-09、2026-11-09T02:00、または RFC 3339',
+  'The run gets the schedule time and window of this slot.': 'この実行はこのスロットのスケジュール時刻とウィンドウを使います。',
   'DAG:': 'DAG：',
   'Run error': '実行エラー',
   'Run precondition not met': '実行の前提条件が満たされていません',
@@ -8003,6 +8062,7 @@ const baseJapanese = {
   'Scanning...': 'スキャン中...',
   Schedule: 'スケジュール',
   Scheduled: 'スケジュール済み',
+  'Window start': 'ウィンドウ開始',
   'Scheduled At': 'スケジュール時刻',
   'Scheduled:': 'スケジュール:',
   'Scheduler Service': 'スケジューラーサービス',
@@ -9087,8 +9147,8 @@ const baseJapanese = {
   'Connect for free': '無料で接続',
   'Connect and start trial': '接続してトライアルを開始',
   'Also try paid features free for 14 days': '有料機能も 14 日間無料で試す',
-  'Audit logs, role-based access, single sign-on, and chat and webhook alerts. No card needed; free monitoring stays when the trial ends.':
-    '監査ログ、ロールベースのアクセス制御、シングルサインオン、チャットと Webhook へのアラート。カードは不要で、トライアル終了後も無料モニタリングは続きます。',
+  'MCP access from Claude and ChatGPT, audit logs, role-based access, single sign-on, and chat and webhook alerts. No card needed; free monitoring stays when the trial ends.':
+    'Claude や ChatGPT からの MCP アクセス、監査ログ、ロールベースのアクセス制御、シングルサインオン、チャットと Webhook へのアラート。カードは不要で、トライアル終了後も無料モニタリングは続きます。',
   'Dagu Console stops monitoring this server, and its free slot becomes available to another server.':
     'Dagu Console はこのサーバーの監視を停止し、無料枠は他のサーバーで使えるようになります。',
   'The Free plan supports up to 2 API keys.':
@@ -9261,6 +9321,11 @@ const baseJapanese = {
   'Open Workflows': 'ワークフローを開く',
   'Scheduling guide': 'スケジュールのガイド',
   'Add a notification channel': '通知チャネルを追加',
+  'Connect an AI app': 'AI アプリを接続',
+  'Let Claude, ChatGPT, or a coding agent run and edit workflows here over MCP.':
+    'Claude、ChatGPT、コーディングエージェントが MCP 経由でここのワークフローを実行・編集できるようにします。',
+  'Use from Claude or ChatGPT': 'Claude や ChatGPT から使う',
+  'Set up a coding agent': 'コーディングエージェントを設定',
   'Could not change remote access.': 'リモートアクセスを変更できませんでした。',
   'Remote access': 'リモートアクセス',
   'Serves the MCP tools of this server through the Dagu Cloud MCP endpoint. The server connects out to Dagu Cloud, so no inbound port is opened.':
@@ -9290,7 +9355,21 @@ const baseJapanese = {
   'MCP URL copied': 'MCP URL をコピーしました',
   'Add this URL to your MCP client as a remote MCP server, then sign in to Dagu Cloud. Workspace owners choose what each client may do.':
     'この URL をリモート MCP サーバーとして MCP クライアントに追加し、Dagu Cloud にサインインしてください。各クライアントに許可する操作はワークスペースのオーナーが決めます。',
-  'Manage MCP clients': 'MCP クライアントを管理',
+  'Use this server from Claude, ChatGPT, and other MCP clients':
+    'Claude、ChatGPT などの MCP クライアントからこのサーバーを使う',
+  'Included in your trial. Turn on remote access, then add the MCP URL to your client.':
+    'トライアルに含まれています。リモートアクセスをオンにしてから、MCP URL をクライアントに追加します。',
+  'Included in your plan. Turn on remote access, then add the MCP URL to your client.':
+    'プランに含まれています。リモートアクセスをオンにしてから、MCP URL をクライアントに追加します。',
+  'Needs a paid plan or a trial. The 14-day trial is free, with no card needed.':
+    '有料プランまたはトライアルが必要です。14 日間のトライアルは無料で、カードは不要です。',
+  'Turn on remote access, then add the MCP URL to your client.':
+    'リモートアクセスをオンにしてから、MCP URL をクライアントに追加します。',
+  'MCP calls need a paid plan or a trial':
+    'MCP の呼び出しには有料プランまたはトライアルが必要です',
+  'Dagu Cloud refuses calls to this server until its workspace has one. The 14-day trial is free, with no card needed.':
+    'ワークスペースに有料プランかトライアルがあるまで、Dagu Cloud はこのサーバーへの呼び出しを拒否します。14 日間のトライアルは無料で、カードは不要です。',
+  'Setup steps for Claude, ChatGPT, and more': 'Claude、ChatGPT などの設定手順',
   'Choose remote access': 'リモートアクセスを選択',
   'The highest role a Dagu Cloud user gets on this server. Dagu Cloud may grant less, never more.':
     'Dagu Cloud のユーザーがこのサーバーで得る最も高いロールです。Dagu Cloud はこれより低いロールを付与することはあっても、高いロールは付与しません。',

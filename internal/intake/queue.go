@@ -39,9 +39,11 @@ type QueueRequest struct {
 	TriggerActor string
 	ParallelItem string
 	ScheduleTime string
-	ProfileName  string
-	DefinitionID string
-	NoReuse      bool
+	// ScheduleWindow is the window the slot at ScheduleTime owns.
+	ScheduleWindow ir.ScheduleWindow
+	ProfileName    string
+	DefinitionID   string
+	NoReuse        bool
 
 	AttemptOptions persis.DAGRunCreateAttemptOptions
 
@@ -195,7 +197,7 @@ func queuedStatus(req QueueRequest, dagRun ir.DAGRunRef, attemptID, logFile, arc
 		ir.WithEphemeral(req.AttemptOptions.Ephemeral),
 	}
 	if req.ScheduleTime != "" {
-		opts = append(opts, ir.WithScheduleTime(req.ScheduleTime))
+		opts = append(opts, ir.WithScheduleTime(req.ScheduleTime), ir.WithScheduleWindow(req.ScheduleWindow))
 	}
 
 	return ir.NewStatusBuilder(req.DAG).Create(req.DAGRunID, ir.Queued, 0, time.Time{}, opts...)

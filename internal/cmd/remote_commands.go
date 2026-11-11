@@ -245,14 +245,19 @@ func remoteRunStart(ctx *Context, args []string) error {
 		if len(args) != 1 || ctx.Command.Flags().Changed("params") || ctx.Command.ArgsLenAtDash() != -1 || stdinParamsRequested(ctx) {
 			return fmt.Errorf("parameters cannot be provided when using --from-run-id")
 		}
+		scheduledAt, err := ctx.StringParam(scheduledAtFlag.name)
+		if err != nil {
+			return err
+		}
 		dag, err := remoteResolveDAG(ctx, args[0])
 		if err != nil {
 			return err
 		}
 		nameOverride, _ := ctx.StringParam("name")
 		resp, err := ctx.Remote.rescheduleDAGRun(ctx, dag.Dag.Name, fromRunID, api.RescheduleDAGRunJSONBody{
-			DagName:  stringPtrOrNil(nameOverride),
-			DagRunId: nil,
+			DagName:      stringPtrOrNil(nameOverride),
+			DagRunId:     nil,
+			ScheduleTime: stringPtrOrNil(scheduledAt),
 		})
 		if err != nil {
 			return err
@@ -303,6 +308,10 @@ func remoteRunStart(ctx *Context, args []string) error {
 	if err != nil {
 		return err
 	}
+	scheduledAt, err := ctx.StringParam("scheduled-at")
+	if err != nil {
+		return err
+	}
 	resp, err := ctx.Remote.startDAG(ctx, dag.FileName, api.ExecuteDAGJSONBody{
 		DagName:          stringPtrOrNil(nameOverride),
 		DagRunId:         stringPtrOrNil(runID),
@@ -314,10 +323,12 @@ func remoteRunStart(ctx *Context, args []string) error {
 		OutputsFromRuns:  outputsFromRuns,
 		Outputs:          outputs,
 		WorkerSelector:   workerSelector,
+		ScheduleTime:     stringPtrOrNil(scheduledAt),
 	})
 	if err != nil {
 		return err
 	}
+	printRemoteWarnings(ctx, resp.Warnings)
 	fmt.Println(resp.DagRunId)
 	return nil
 }
@@ -354,6 +365,10 @@ func remoteRunEnqueue(ctx *Context, args []string) error {
 	if err != nil {
 		return err
 	}
+	scheduledAt, err := ctx.StringParam("scheduled-at")
+	if err != nil {
+		return err
+	}
 	resp, err := ctx.Remote.enqueueDAG(ctx, dag.FileName, api.EnqueueDAGDAGRunJSONBody{
 		DagName:        stringPtrOrNil(nameOverride),
 		DagRunId:       stringPtrOrNil(runID),
@@ -362,12 +377,24 @@ func remoteRunEnqueue(ctx *Context, args []string) error {
 		Labels:         labels,
 		NoReuse:        &noReuse,
 		WorkerSelector: workerSelector,
+		ScheduleTime:   stringPtrOrNil(scheduledAt),
 	})
 	if err != nil {
 		return err
 	}
+	printRemoteWarnings(ctx, resp.Warnings)
 	fmt.Println(resp.DagRunId)
 	return nil
+}
+
+// printRemoteWarnings prints the warnings a server returned to stderr.
+func printRemoteWarnings(ctx *Context, warnings *[]string) {
+	if warnings == nil {
+		return
+	}
+	for _, warning := range *warnings {
+		_, _ = fmt.Fprintf(ctx.Command.ErrOrStderr(), "Warning: %s\n", warning)
+	}
 }
 
 func remoteRunStatus(ctx *Context, args []string) error {
@@ -494,6 +521,13 @@ func remoteRunRetry(ctx *Context, args []string) error {
 }
 
 func remoteRunRestart(ctx *Context, args []string) error {
+	if ctx.Command.Flags().Changed(scheduleTimeFlag.name) {
+		return fmt.Errorf("--%s is only supported in the local context", scheduleTimeFlag.name)
+	}
+	scheduledAt, err := ctx.StringParam(scheduledAtFlag.name)
+	if err != nil {
+		return err
+	}
 	dag, err := remoteResolveDAG(ctx, args[0])
 	if err != nil {
 		return err
@@ -514,13 +548,30 @@ func remoteRunRestart(ctx *Context, args []string) error {
 	if ir.Status(detail.Status) != ir.Running {
 		return fmt.Errorf("DAG %s is not running, current status: %s", dag.Dag.Name, ir.Status(detail.Status))
 	}
+	// Check the replacement before stopping the run, so a slot the server
+	// rejects leaves the run going. The replacement then names the resolved
+	// instant, so a value such as latest keeps the meaning it was checked
+	// with.
+	dryRun := true
+	plan, err := ctx.Remote.rescheduleDAGRun(ctx, dag.Dag.Name, detail.DagRunId, api.RescheduleDAGRunJSONBody{
+		ScheduleTime: stringPtrOrNil(scheduledAt),
+		DryRun:       &dryRun,
+	})
+	if err != nil {
+		return err
+	}
+	body := api.RescheduleDAGRunJSONBody{ScheduleTime: stringPtrOrNil(scheduledAt)}
+	if scheduledAt != "" && plan.ScheduleTime != nil {
+		resolved := plan.ScheduleTime.UTC().Format(time.RFC3339)
+		body.ScheduleTime = &resolved
+	}
 	if err := ctx.Remote.stopDAGRun(ctx, dag.Dag.Name, detail.DagRunId); err != nil {
 		return err
 	}
 	if err := waitForRemoteStop(ctx, dag.Dag.Name, detail.DagRunId); err != nil {
 		return err
 	}
-	resp, err := ctx.Remote.rescheduleDAGRun(ctx, dag.Dag.Name, detail.DagRunId, api.RescheduleDAGRunJSONBody{})
+	resp, err := ctx.Remote.rescheduleDAGRun(ctx, dag.Dag.Name, detail.DagRunId, body)
 	if err != nil {
 		return err
 	}
