@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
+	"strings"
 	"testing"
 
 	"github.com/spf13/viper"
@@ -32,15 +33,30 @@ func freeIDs() (uid, gid uint32) {
 func TestUntrustedDefault(t *testing.T) {
 	cfg := loadFromYAML(t, "debug: false\n")
 	assert.Equal(t, UntrustedConfig{}, cfg.Untrusted)
+	assert.Empty(t, isolationWarnings(cfg))
 }
 
-// The key isolation turns the isolation off. The value on keeps the default.
+// isolationWarnings returns the warnings that name the key untrusted.isolation.
+func isolationWarnings(cfg *Config) []string {
+	var found []string
+	for _, w := range cfg.Warnings {
+		if strings.Contains(w, "untrusted.isolation") {
+			found = append(found, w)
+		}
+	}
+	return found
+}
+
+// The key isolation turns the isolation off, and the start logs a warning that
+// names the key. The value on keeps the default.
 func TestUntrustedIsolation(t *testing.T) {
 	cfg := loadFromYAML(t, "untrusted:\n  isolation: off\n")
 	assert.Equal(t, UntrustedConfig{IsolationOff: true}, cfg.Untrusted)
+	assert.Len(t, isolationWarnings(cfg), 1)
 
 	cfg = loadFromYAML(t, "untrusted:\n  isolation: on\n")
 	assert.Equal(t, UntrustedConfig{}, cfg.Untrusted)
+	assert.Empty(t, isolationWarnings(cfg))
 
 	uid, gid := freeIDs()
 	cfg = loadFromYAML(t, fmt.Sprintf("untrusted:\n  isolation: on\n  uid: %d\n  gid: %d\n", uid, gid))

@@ -24,6 +24,9 @@ type buildContext struct {
 	index int
 
 	customStepTypes *customStepTypeRegistry
+	// sideFiles records the skill files that the build reads.
+	// It is shared by every document of one file.
+	sideFiles *sideFileCollector
 	// baseDAG contains the built base-config DAG for the current document.
 	// It is used while building child handlers and steps so DAG-level defaults
 	// inherited from base config are visible during executor inference.
