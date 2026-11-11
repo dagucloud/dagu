@@ -1,0 +1,166 @@
+// Copyright (C) 2026 Yota Hamada
+// SPDX-License-Identifier: GPL-3.0-or-later
+
+package ir_test
+
+import (
+	"testing"
+	"time"
+
+	"github.com/dagucloud/dagu/v2/internal/ir"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+)
+
+func TestResolveScheduleSlot(t *testing.T) {
+	t.Parallel()
+
+	cronEntry := func(t *testing.T, expr string) ir.Schedule {
+		t.Helper()
+		schedule, err := ir.NewCronSchedule(expr)
+		require.NoError(t, err)
+		return schedule
+	}
+	utc := func(year int, month time.Month, day, hour, minute int) time.Time {
+		return time.Date(year, month, day, hour, minute, 0, 0, time.UTC)
+	}
+	// 2026-11-11 12:10 in Tokyo.
+	now := utc(2026, 11, 11, 3, 10)
+	tokyoDaily := func(t *testing.T) []ir.Schedule {
+		return []ir.Schedule{cronEntry(t, "CRON_TZ=Asia/Tokyo 0 2 * * *")}
+	}
+
+	tests := []struct {
+		name        string
+		schedules   func(t *testing.T) []ir.Schedule
+		value       string
+		allowFuture bool
+		wantAt      time.Time
+		wantStart   time.Time
+		wantWarning string
+		wantErr     string
+	}{
+		{
+			name:      "latest fire at or before now",
+			schedules: tokyoDaily,
+			value:     "latest",
+			wantAt:    utc(2026, 11, 10, 17, 0),
+			wantStart: utc(2026, 11, 9, 17, 0),
+		},
+		{
+			name:      "the only fire on a date in the schedule's zone",
+			schedules: tokyoDaily,
+			value:     "2026-11-09",
+			wantAt:    utc(2026, 11, 8, 17, 0),
+			wantStart: utc(2026, 11, 7, 17, 0),
+		},
+		{
+			name:      "time without an offset in the schedule's zone",
+			schedules: tokyoDaily,
+			value:     "2026-11-09T02:00",
+			wantAt:    utc(2026, 11, 8, 17, 0),
+			wantStart: utc(2026, 11, 7, 17, 0),
+		},
+		{
+			name:      "RFC 3339 instant",
+			schedules: tokyoDaily,
+			value:     "2026-11-09T02:00:00+09:00",
+			wantAt:    utc(2026, 11, 8, 17, 0),
+			wantStart: utc(2026, 11, 7, 17, 0),
+		},
+		{
+			name:        "time no schedule fires is accepted with a warning",
+			schedules:   tokyoDaily,
+			value:       "2026-11-09T03:00",
+			wantAt:      utc(2026, 11, 8, 18, 0),
+			wantStart:   utc(2026, 11, 8, 17, 0),
+			wantWarning: "2026-11-09T03:00:00+09:00 is not a fire time of the schedule; nearest fire times: 2026-11-09T02:00:00+09:00 (before), 2026-11-10T02:00:00+09:00 (after)",
+		},
+		{
+			name:      "slot later than now rejected",
+			schedules: tokyoDaily,
+			value:     "2026-11-15",
+			wantErr:   "scheduled time 2026-11-15T02:00:00+09:00 is later than now; the latest fire time is 2026-11-11T02:00:00+09:00",
+		},
+		{
+			name:        "slot later than now allowed for a dry run",
+			schedules:   tokyoDaily,
+			value:       "2026-11-15",
+			allowFuture: true,
+			wantAt:      utc(2026, 11, 14, 17, 0),
+			wantStart:   utc(2026, 11, 13, 17, 0),
+		},
+		{
+			name:      "date with several fires rejected",
+			schedules: func(t *testing.T) []ir.Schedule { return []ir.Schedule{cronEntry(t, "0 9,17 * * *")} },
+			value:     "2026-11-09",
+			wantErr:   "the schedule fires more than once on 2026-11-09 (2026-11-09T09:00:00Z, 2026-11-09T17:00:00Z); give the time",
+		},
+		{
+			name:      "date with no fire rejected",
+			schedules: func(t *testing.T) []ir.Schedule { return []ir.Schedule{cronEntry(t, "0 9 * * 1-5")} },
+			value:     "2026-11-08", // Sunday
+			wantErr:   "the schedule does not fire on 2026-11-08; nearest fire times: 2026-11-06T09:00:00Z (before), 2026-11-09T09:00:00Z (after)",
+		},
+		{
+			name: "time without an offset rejected when schedules use different zones",
+			schedules: func(t *testing.T) []ir.Schedule {
+				return []ir.Schedule{cronEntry(t, "CRON_TZ=Asia/Tokyo 0 2 * * *"), cronEntry(t, "CRON_TZ=Europe/Paris 0 2 * * *")}
+			},
+			value:   "2026-11-09T02:00",
+			wantErr: "the schedules use different zones (Asia/Tokyo, Europe/Paris); give the time with an offset",
+		},
+		{
+			name:      "latest needs a recurring schedule",
+			schedules: func(*testing.T) []ir.Schedule { return nil },
+			value:     "latest",
+			wantErr:   `"latest" needs a recurring start schedule`,
+		},
+		{
+			name:      "date needs a recurring schedule",
+			schedules: func(*testing.T) []ir.Schedule { return nil },
+			value:     "2026-11-09",
+			wantErr:   "a date needs a recurring start schedule; give a time such as 2026-11-09T00:00",
+		},
+		{
+			name:      "time on a DAG without a schedule read in the server zone",
+			schedules: func(*testing.T) []ir.Schedule { return nil },
+			value:     "2026-11-09T02:00",
+			wantAt:    utc(2026, 11, 9, 2, 0),
+		},
+		{
+			name:      "seconds rejected",
+			schedules: tokyoDaily,
+			value:     "2026-11-09T02:00:30+09:00",
+			wantErr:   `invalid scheduled time "2026-11-09T02:00:30+09:00": seconds must be :00`,
+		},
+		{
+			name:      "unknown form rejected",
+			schedules: tokyoDaily,
+			value:     "yesterday",
+			wantErr:   `invalid scheduled time "yesterday"`,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			slot, err := ir.ResolveScheduleSlot(ir.ScheduleSlotRequest{
+				Value:       tt.value,
+				Schedules:   tt.schedules(t),
+				Location:    time.UTC,
+				Now:         now,
+				AllowFuture: tt.allowFuture,
+			})
+			if tt.wantErr != "" {
+				require.ErrorContains(t, err, tt.wantErr)
+				return
+			}
+			require.NoError(t, err)
+			assert.Equal(t, tt.wantAt, slot.At)
+			assert.Equal(t, tt.wantStart, slot.Window.Start)
+			assert.Equal(t, tt.wantWarning, slot.Warning)
+		})
+	}
+}

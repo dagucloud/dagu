@@ -35,9 +35,13 @@ func ScheduleWindowAt(schedules []Schedule, profile string, loc *time.Location, 
 	if loc == nil {
 		loc = time.Local
 	}
-	slot = slot.In(loc)
-	active := activeWindowSchedules(schedules, profile)
+	return windowOf(activeWindowSchedules(schedules, profile), loc, slot)
+}
 
+// windowOf returns the window of the slot among schedules already filtered
+// to the active ones.
+func windowOf(active []Schedule, loc *time.Location, slot time.Time) ScheduleWindow {
+	slot = slot.In(loc)
 	var window ScheduleWindow
 	// The slot belongs to the first schedule firing at it, else to the
 	// schedule of the previous fire.
@@ -104,10 +108,8 @@ func firesAt(sched Schedule, slot time.Time) bool {
 // scheduleZone returns the zone a schedule is evaluated in. An interval
 // schedule fires on a grid aligned to the Unix epoch, independent of zone.
 func scheduleZone(sched Schedule, loc *time.Location) *time.Location {
-	if base, ok := sched.baseCron(); ok {
-		if _, interval := base.(intervalSchedule); interval {
-			return time.UTC
-		}
+	if isIntervalSchedule(sched) {
+		return time.UTC
 	}
 	if zone := sched.Location(); zone != nil {
 		return zone
