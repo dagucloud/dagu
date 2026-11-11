@@ -6,6 +6,7 @@ package spec017_built_in_run_context_test
 import (
 	"fmt"
 	"os"
+	"path/filepath"
 	"regexp"
 	"strings"
 	"testing"
@@ -170,6 +171,43 @@ func TestDryScheduledAtPreviewsFutureSlot(t *testing.T) {
 		}
 	}
 	dagu.ExpectNoFile("schedule-window.txt")
+}
+
+// The window is recorded when the run is created, so a retry keeps it after
+// the schedule is edited.
+func TestRetryKeepsScheduleWindow(t *testing.T) {
+	t.Parallel()
+
+	dagu := harness.NewRunner(t)
+	// Both commands must read the same run history.
+	env := []string{"DAGU_HOME=" + filepath.Join(t.TempDir(), "dagu")}
+	dagu.RunWithEnv(
+		env,
+		"start",
+		"--run-id=spec017-window-retry",
+		"--trigger-type=scheduler",
+		"--schedule-time=2026-03-13T12:00:00+09:00",
+		"schedule_window_retry.yaml",
+	).ExpectNonZeroExitCode()
+	want := "start=2026-03-13T02:30:00Z\nnext=2026-03-13T03:30:00Z\n"
+	dagu.ExpectFileContent("schedule-window.txt", want)
+
+	edited := strings.Replace(readProjectFile(t, dagu, "schedule_window_retry.yaml"),
+		"*/30 * * * *", "0 * * * *", 1)
+	dagu.WriteFile("schedule_window_retry.yaml", edited)
+	dagu.WriteFile("retry-ok", "")
+	dagu.RunWithEnv(env, "retry", "--run-id=spec017-window-retry", "builtin_schedule_window_retry").ExpectExitCode(0)
+
+	dagu.ExpectFileContent("schedule-window.txt", want)
+}
+
+func readProjectFile(t *testing.T, dagu *harness.Runner, name string) string {
+	t.Helper()
+	data, err := os.ReadFile(dagu.ProjectPath(name))
+	if err != nil {
+		t.Fatalf("read %s: %v", name, err)
+	}
+	return string(data)
 }
 
 // A DAG with no recurring start schedule has no previous or next fire, so
