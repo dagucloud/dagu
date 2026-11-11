@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strconv"
 	"strings"
 	"testing"
@@ -274,4 +275,45 @@ func TestAIKeyDocs(t *testing.T) {
 	values := parsed.Values()
 	assert.Equal(t, "(empty)", values["upstream.proxy_url"])
 	assert.Equal(t, "128", values["relay.max_streams"])
+}
+
+// The table of Spec 093, "Configuration", and the table of the code agree: the keys, the order, the
+// defaults and the ranges. The reference of the keys is the table of the code, so
+// a change of one needs a change of the other.
+func TestAIKeyDocsMatchTheSpec(t *testing.T) {
+	t.Parallel()
+
+	data, err := os.ReadFile(filepath.Join("..", "..", "..", "specs", "093-ai-endpoints.md"))
+	require.NoError(t, err)
+	row := regexp.MustCompile("^\\| `ai\\.([a-z_.]+)` \\| (integer|string) \\| ([^|]+?) \\| ([^|]+?) \\|$")
+	rangePattern := regexp.MustCompile(`^(\d+) to (\d+)`)
+
+	var specKeys []string
+	// A Windows checkout of the spec has CRLF line ends: the row pattern ends with the end of a line.
+	for line := range strings.SplitSeq(strings.ReplaceAll(string(data), "\r\n", "\n"), "\n") {
+		m := row.FindStringSubmatch(line)
+		if m == nil {
+			continue
+		}
+		specKeys = append(specKeys, m[1])
+		var doc *AIKeyDoc
+		for _, d := range AIKeyDocs() {
+			if d.Key == m[1] {
+				doc = &d
+			}
+		}
+		require.NotNil(t, doc, "the spec has the key %s, and the code has not", m[1])
+		assert.Equal(t, doc.Type, m[2], m[1])
+		assert.Equal(t, doc.Default, m[3], m[1])
+		if doc.Type == "integer" {
+			r := rangePattern.FindStringSubmatch(m[4])
+			require.NotNil(t, r, m[1])
+			assert.Equal(t, doc.Range, r[1]+" to "+r[2], m[1])
+		}
+	}
+	var codeKeys []string
+	for _, d := range AIKeyDocs() {
+		codeKeys = append(codeKeys, d.Key)
+	}
+	assert.Equal(t, codeKeys, specKeys)
 }
