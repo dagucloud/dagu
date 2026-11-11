@@ -90,7 +90,7 @@ It must not be treated as product behavior until implementation catches up.
 | [089: Node Targeting](089-node-targeting.md) | Partially implemented |
 | [090: Agent Tools](090-agent-tools.md) | Partially implemented |
 | [091: Agent Node](091-agent-node.md) | Partially implemented |
-| [092: Agent Workers](092-agent-workers.md) | Not implemented |
+| [092: Agent Workers](092-agent-workers.md) | Partially implemented |
 | [093: AI Endpoints](093-ai-endpoints.md) | Implemented |
 | [094: AI Gateway](094-ai-gateway.md) | Implemented |
 | [095: MCP Servers](095-mcp-servers.md) | Implemented |

@@ -153,11 +153,15 @@ func (e *SubDAGExecutor) SetWorkspaceSeed(seed WorkspaceSeed) {
 	e.workspaceSeed = &seed
 }
 
+// effectiveWorkerSelector returns the selector of the child run: the selector
+// of the step, else the worker_selector of the child, with the implied label of
+// the CLI provider that the child needs (Spec 092, "Dispatch").
 func (e *SubDAGExecutor) effectiveWorkerSelector() map[string]string {
+	selector := e.DAG.WorkerSelector
 	if len(e.workerSelector) > 0 {
-		return e.workerSelector
+		selector = e.workerSelector
 	}
-	return e.DAG.WorkerSelector
+	return ir.WithAgentWorkerSelector(selector, e.DAG)
 }
 
 func (e *SubDAGExecutor) shouldRunWithSubWorkflowRunner(ctx context.Context, req SubWorkflowRequest) bool {
