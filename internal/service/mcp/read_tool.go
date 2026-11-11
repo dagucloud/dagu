@@ -277,7 +277,13 @@ func (svc *Service) readToolImpl(ctx context.Context, input readInput) (*mcpsdk.
 			data, err = svc.searchWikiPages(ctx, input.Workspace, input.Search, input.Prefix, input.Cursor, input.Limit)
 		}
 	case readTargetWorkbook:
-		data, err = readWorkbook(ctx, input)
+		// A workbook can be any file the server can read, so describing one
+		// takes the trust of DAG authoring.
+		if err = svc.requireAPI(); err == nil {
+			if err = svc.api.RequireDAGAuthoring(ctx); err == nil {
+				data, err = readWorkbook(ctx, input)
+			}
+		}
 	case readTargetRuns:
 		if err = svc.requireAPI(); err == nil {
 			var raw any

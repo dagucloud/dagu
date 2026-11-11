@@ -1053,6 +1053,15 @@ func (a *API) requireDAGWrite(ctx context.Context) error {
 	return nil
 }
 
+// RequireDAGAuthoring returns an error unless the caller may author DAGs on
+// this server.
+func (a *API) RequireDAGAuthoring(ctx context.Context) error {
+	if err := a.isAllowed(config.PermissionWriteDAGs); err != nil {
+		return err
+	}
+	return a.requireDeveloperOrAbove(ctx)
+}
+
 // requireUserManagement checks if user management is enabled.
 func (a *API) requireUserManagement() error {
 	if a.authService == nil {
