@@ -50,7 +50,9 @@ type LocalRequest struct {
 	TriggerActor string
 
 	ScheduleTime string
-	ProfileName  string
+	// ScheduleWindow is the window the slot at ScheduleTime owns.
+	ScheduleWindow ir.ScheduleWindow
+	ProfileName    string
 
 	LogBaseDir      string
 	ArtifactBaseDir string
@@ -195,7 +197,7 @@ func recordPreparedAttemptFailure(
 		ir.WithRuntimeProfile(req.ProfileName, "", nil),
 	}
 	if req.ScheduleTime != "" {
-		opts = append(opts, ir.WithScheduleTime(req.ScheduleTime))
+		opts = append(opts, ir.WithScheduleTime(req.ScheduleTime), ir.WithScheduleWindow(req.ScheduleWindow))
 	}
 	status := ir.NewStatusBuilder(req.DAG).Create(req.DAGRunID, ir.Failed, 0, time.Now(), opts...)
 

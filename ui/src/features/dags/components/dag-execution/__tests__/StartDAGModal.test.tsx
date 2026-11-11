@@ -607,6 +607,142 @@ describe('StartDAGModal', () => {
     );
   });
 
+  describe('scheduled at', () => {
+    const scheduledDag = {
+      name: 'slot-dag',
+      recentFires: [
+        { time: '2026-11-11T02:00:00+09:00', timezone: 'Asia/Tokyo' },
+        { time: '2026-11-10T02:00:00+09:00', timezone: 'Asia/Tokyo' },
+      ],
+    } as never;
+
+    it('starts the run for a recent slot', async () => {
+      const user = userEvent.setup();
+      const onSubmit = vi.fn().mockResolvedValue(undefined);
+
+      render(
+        <StartDAGModal
+          visible={true}
+          dismissModal={vi.fn()}
+          onSubmit={onSubmit}
+          dag={scheduledDag}
+        />
+      );
+
+      await user.click(
+        screen.getByRole('combobox', { name: /scheduled at/i })
+      );
+      await user.click(
+        await screen.findByRole('option', {
+          name: '2026-11-10 02:00 (Asia/Tokyo)',
+        })
+      );
+      await user.click(screen.getByRole('button', { name: 'Enqueue' }));
+
+      await waitFor(() =>
+        expect(onSubmit).toHaveBeenCalledWith(
+          '',
+          undefined,
+          false,
+          undefined,
+          undefined,
+          '2026-11-10T02:00:00+09:00'
+        )
+      );
+    });
+
+    // Any time other than a listed slot must be typed on purpose.
+    it('requires a time when Other time is chosen', async () => {
+      const user = userEvent.setup();
+      const onSubmit = vi.fn().mockResolvedValue(undefined);
+
+      render(
+        <StartDAGModal
+          visible={true}
+          dismissModal={vi.fn()}
+          onSubmit={onSubmit}
+          dag={scheduledDag}
+        />
+      );
+
+      await user.click(
+        screen.getByRole('combobox', { name: /scheduled at/i })
+      );
+      await user.click(await screen.findByRole('option', { name: 'Other time' }));
+      await user.click(screen.getByRole('button', { name: 'Enqueue' }));
+
+      expect(
+        await screen.findByText('Enter the scheduled time, or choose None.')
+      ).toBeInTheDocument();
+      expect(onSubmit).not.toHaveBeenCalled();
+
+      await user.type(
+        screen.getByRole('textbox', { name: 'Scheduled time' }),
+        'latest'
+      );
+      await user.click(screen.getByRole('button', { name: 'Enqueue' }));
+      await waitFor(() =>
+        expect(onSubmit).toHaveBeenCalledWith(
+          '',
+          undefined,
+          false,
+          undefined,
+          undefined,
+          'latest'
+        )
+      );
+    });
+
+    // The slots come from the DAG's default profile, and another profile can
+    // have schedules of its own.
+    it('says which profile the slots follow when another is selected', async () => {
+      const user = userEvent.setup();
+      const hint =
+        "The listed times follow the DAG's default profile. The run's window follows the selected profile.";
+
+      render(
+        <StartDAGModal
+          visible={true}
+          dismissModal={vi.fn()}
+          onSubmit={vi.fn()}
+          dag={scheduledDag}
+          profiles={[
+            {
+              id: 'prod-id',
+              name: 'prod',
+              status: RuntimeProfileStatus.active,
+              protected: false,
+              description: '',
+              entries: [],
+              createdAt: '2026-01-01T00:00:00Z',
+              updatedAt: '2026-01-01T00:00:00Z',
+            },
+          ]}
+        />
+      );
+
+      expect(screen.queryByText(hint)).not.toBeInTheDocument();
+      await user.click(screen.getByRole('combobox', { name: /profile/i }));
+      await user.click(await screen.findByRole('option', { name: 'prod' }));
+      expect(screen.getByText(hint)).toBeInTheDocument();
+    });
+
+    it('is absent for a DAG with no recent slot', () => {
+      render(
+        <StartDAGModal
+          visible={true}
+          dismissModal={vi.fn()}
+          onSubmit={vi.fn()}
+          dag={{ name: 'manual-dag' } as never}
+        />
+      );
+
+      expect(
+        screen.queryByRole('combobox', { name: /scheduled at/i })
+      ).not.toBeInTheDocument();
+    });
+  });
+
   it('can disable reuse for a build run', async () => {
     const user = userEvent.setup();
     const onSubmit = vi.fn().mockResolvedValue(undefined);

@@ -99,7 +99,8 @@ type Props = {
     dagRunId?: string,
     immediate?: boolean,
     profile?: string,
-    noReuse?: boolean
+    noReuse?: boolean,
+    scheduleTime?: string
   ) => Promise<void> | void;
   action?: 'start' | 'enqueue';
   profiles?: components['schemas']['RuntimeProfileResponse'][];
@@ -110,6 +111,16 @@ type Props = {
 
 const DAG_DEFAULT_PROFILE_VALUE = '__dag_default__';
 const NO_PROFILE_VALUE = '__none__';
+const NO_SLOT_VALUE = '__no_slot__';
+const OTHER_SLOT_VALUE = '__other_slot__';
+
+type RecentFire = components['schemas']['RecentFire'];
+
+// formatRecentFire shows a fire in the zone of its schedule, as the API
+// returns it, e.g. "2026-11-11 02:00 (Asia/Tokyo)".
+function formatRecentFire(fire: RecentFire): string {
+  return `${fire.time.slice(0, 10)} ${fire.time.slice(11, 16)} (${fire.timezone})`;
+}
 
 function profileOverrideForSelection(
   selection: string,
@@ -353,6 +364,12 @@ function StartDAGModal({
   // A run waits in the queue unless the user unchecks Enqueue.
   const [enqueue, setEnqueue] = React.useState(true);
   const [noReuse, setNoReuse] = React.useState(false);
+  const [slotSelection, setSlotSelection] = React.useState(NO_SLOT_VALUE);
+  const [customSlot, setCustomSlot] = React.useState('');
+  const recentFires = React.useMemo(
+    () => dagDetails?.recentFires ?? [],
+    [dagDetails]
+  );
   const isBuild = dagDetails?.type === 'build';
   const activeProfiles = React.useMemo(
     () =>
@@ -362,6 +379,17 @@ function StartDAGModal({
     [profiles]
   );
   const hasDefaultProfile = defaultProfile !== '';
+  // The listed slots come from the DAG's default profile. Another profile
+  // can have schedules of its own, which decide the run's window.
+  const defaultProfileName = defaultProfile ?? '';
+  const selectedProfileName =
+    profileSelection === DAG_DEFAULT_PROFILE_VALUE
+      ? defaultProfileName
+      : profileSelection === NO_PROFILE_VALUE
+        ? ''
+        : profileSelection;
+  const slotsFollowOtherProfile =
+    recentFires.length > 0 && selectedProfileName !== defaultProfileName;
   const showProfileSelector =
     defaultProfileLoading ||
     profilesLoading ||
@@ -456,6 +484,8 @@ function StartDAGModal({
     );
     setEnqueue(true);
     setNoReuse(false);
+    setSlotSelection(NO_SLOT_VALUE);
+    setCustomSlot('');
   }, [
     defaultProfile,
     visible,
@@ -520,6 +550,17 @@ function StartDAGModal({
       paramsPayload = stringifyParams(rawParams);
     }
 
+    let scheduleTime: string | undefined;
+    if (slotSelection === OTHER_SLOT_VALUE) {
+      scheduleTime = customSlot.trim();
+      if (!scheduleTime) {
+        setSubmitError('Enter the scheduled time, or choose None.');
+        return;
+      }
+    } else if (slotSelection !== NO_SLOT_VALUE) {
+      scheduleTime = slotSelection;
+    }
+
     setSubmitting(true);
     setSubmitError(null);
     try {
@@ -527,7 +568,16 @@ function StartDAGModal({
         profileSelection,
         hasDefaultProfile
       );
-      if (isBuild) {
+      if (scheduleTime) {
+        await onSubmit(
+          paramsPayload,
+          dagRunId || undefined,
+          !enqueue,
+          profileOverride,
+          isBuild ? noReuse : undefined,
+          scheduleTime
+        );
+      } else if (isBuild) {
         await onSubmit(
           paramsPayload,
           dagRunId || undefined,
@@ -554,6 +604,7 @@ function StartDAGModal({
       setSubmitting(false);
     }
   }, [
+    customSlot,
     dag,
     dagRunId,
     dismissModal,
@@ -569,6 +620,7 @@ function StartDAGModal({
     useSchemaFields,
     submitting,
     profileSelection,
+    slotSelection,
     typedFields,
     useTypedFields,
   ]);
@@ -717,6 +769,70 @@ function StartDAGModal({
                   />
                 </I18nProps>
               </div>
+
+              {recentFires.length > 0 && (
+                <div className="space-y-1.5">
+                  <Label htmlFor="scheduled-at">
+                    <I18nText text={'Scheduled at (optional)'} />
+                  </Label>
+                  <Select
+                    value={slotSelection}
+                    disabled={loading || submitting}
+                    onValueChange={setSlotSelection}
+                  >
+                    <SelectTrigger
+                      id="scheduled-at"
+                      className="h-7 w-full px-2 py-1"
+                    >
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value={NO_SLOT_VALUE}>
+                        <I18nText text={'None (run now)'} />
+                      </SelectItem>
+                      {recentFires.map((fire) => (
+                        <SelectItem key={fire.time} value={fire.time}>
+                          {formatRecentFire(fire)}
+                        </SelectItem>
+                      ))}
+                      <SelectItem value={OTHER_SLOT_VALUE}>
+                        <I18nText text={'Other time'} />
+                      </SelectItem>
+                    </SelectContent>
+                  </Select>
+                  {slotSelection === OTHER_SLOT_VALUE && (
+                    <I18nProps>
+                      <Input
+                        id="scheduled-at-custom"
+                        aria-label="Scheduled time"
+                        placeholder="latest, 2026-11-09, 2026-11-09T02:00, or RFC 3339"
+                        value={customSlot}
+                        disabled={loading || submitting}
+                        className="h-7 px-2"
+                        onChange={(event) => setCustomSlot(event.target.value)}
+                      />
+                    </I18nProps>
+                  )}
+                  {slotSelection !== NO_SLOT_VALUE && (
+                    <p className="text-xs text-muted-foreground">
+                      <I18nText
+                        text={
+                          'The run gets the schedule time and window of this slot.'
+                        }
+                      />
+                    </p>
+                  )}
+                  {slotsFollowOtherProfile && (
+                    <p className="text-xs text-muted-foreground">
+                      <I18nText
+                        text={
+                          "The listed times follow the DAG's default profile. The run's window follows the selected profile."
+                        }
+                      />
+                    </p>
+                  )}
+                </div>
+              )}
 
               {showProfileSelector && (
                 <div className="space-y-1.5">

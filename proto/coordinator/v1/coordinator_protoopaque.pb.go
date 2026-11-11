@@ -491,6 +491,9 @@ type Task struct {
 	xxx_hidden_BypassPreconditions        bool                   `protobuf:"varint,40,opt,name=bypass_preconditions,json=bypassPreconditions,proto3"`
 	xxx_hidden_PassedEnvs                 []string               `protobuf:"bytes,41,rep,name=passed_envs,json=passedEnvs,proto3"`
 	xxx_hidden_TriggerType                string                 `protobuf:"bytes,42,opt,name=trigger_type,json=triggerType,proto3"`
+	xxx_hidden_IntervalStart              string                 `protobuf:"bytes,43,opt,name=interval_start,json=intervalStart,proto3"`
+	xxx_hidden_NextScheduledAt            string                 `protobuf:"bytes,44,opt,name=next_scheduled_at,json=nextScheduledAt,proto3"`
+	xxx_hidden_ScheduleTimezone           string                 `protobuf:"bytes,45,opt,name=schedule_timezone,json=scheduleTimezone,proto3"`
 	XXX_raceDetectHookData                protoimpl.RaceDetectHookData
 	XXX_presence                          [2]uint32
 	unknownFields                         protoimpl.UnknownFields
@@ -812,6 +815,27 @@ func (x *Task) GetTriggerType() string {
 	return ""
 }
 
+func (x *Task) GetIntervalStart() string {
+	if x != nil {
+		return x.xxx_hidden_IntervalStart
+	}
+	return ""
+}
+
+func (x *Task) GetNextScheduledAt() string {
+	if x != nil {
+		return x.xxx_hidden_NextScheduledAt
+	}
+	return ""
+}
+
+func (x *Task) GetScheduleTimezone() string {
+	if x != nil {
+		return x.xxx_hidden_ScheduleTimezone
+	}
+	return ""
+}
+
 func (x *Task) SetOperation(v Operation) {
 	x.xxx_hidden_Operation = v
 }
@@ -962,7 +986,7 @@ func (x *Task) SetIncludeDownstream(v bool) {
 
 func (x *Task) SetBaseConfigWorkspace(v string) {
 	x.xxx_hidden_BaseConfigWorkspace = &v
-	protoimpl.X.SetPresent(&(x.XXX_presence[1]), 37, 41)
+	protoimpl.X.SetPresent(&(x.XXX_presence[1]), 37, 44)
 }
 
 func (x *Task) SetBypassPreconditions(v bool) {
@@ -975,6 +999,18 @@ func (x *Task) SetPassedEnvs(v []string) {
 
 func (x *Task) SetTriggerType(v string) {
 	x.xxx_hidden_TriggerType = v
+}
+
+func (x *Task) SetIntervalStart(v string) {
+	x.xxx_hidden_IntervalStart = v
+}
+
+func (x *Task) SetNextScheduledAt(v string) {
+	x.xxx_hidden_NextScheduledAt = v
+}
+
+func (x *Task) SetScheduleTimezone(v string) {
+	x.xxx_hidden_ScheduleTimezone = v
 }
 
 func (x *Task) HasPreviousStatus() bool {
@@ -1069,6 +1105,11 @@ type Task_builder struct {
 	PassedEnvs []string
 	// How the DAG run was initiated. Workers record this on a started run.
 	TriggerType string
+	// Window the slot at schedule_time owns: RFC 3339 bounds and the zone of
+	// the slot's schedule. Empty when unknown.
+	IntervalStart    string
+	NextScheduledAt  string
+	ScheduleTimezone string
 }
 
 func (b0 Task_builder) Build() *Task {
@@ -1113,12 +1154,15 @@ func (b0 Task_builder) Build() *Task {
 	x.xxx_hidden_TargetWorkerId = b.TargetWorkerId
 	x.xxx_hidden_IncludeDownstream = b.IncludeDownstream
 	if b.BaseConfigWorkspace != nil {
-		protoimpl.X.SetPresentNonAtomic(&(x.XXX_presence[1]), 37, 41)
+		protoimpl.X.SetPresentNonAtomic(&(x.XXX_presence[1]), 37, 44)
 		x.xxx_hidden_BaseConfigWorkspace = b.BaseConfigWorkspace
 	}
 	x.xxx_hidden_BypassPreconditions = b.BypassPreconditions
 	x.xxx_hidden_PassedEnvs = b.PassedEnvs
 	x.xxx_hidden_TriggerType = b.TriggerType
+	x.xxx_hidden_IntervalStart = b.IntervalStart
+	x.xxx_hidden_NextScheduledAt = b.NextScheduledAt
+	x.xxx_hidden_ScheduleTimezone = b.ScheduleTimezone
 	return m0
 }
 
@@ -6539,7 +6583,7 @@ const file_proto_coordinator_v1_coordinator_proto_rawDesc = "" +
 	"\x0fDispatchRequest\x12(\n" +
 	"\x04task\x18\x01 \x01(\v2\x14.coordinator.v1.TaskR\x04task\x12>\n" +
 	"\x1badmission_reservation_token\x18\x02 \x01(\tR\x19admissionReservationToken\"\x12\n" +
-	"\x10DispatchResponse\"\xba\x0e\n" +
+	"\x10DispatchResponse\"\xba\x0f\n" +
 	"\x04Task\x127\n" +
 	"\toperation\x18\x06 \x01(\x0e2\x19.coordinator.v1.OperationR\toperation\x12)\n" +
 	"\x11root_dag_run_name\x18\x01 \x01(\tR\x0erootDagRunName\x12%\n" +
@@ -6593,7 +6637,10 @@ const file_proto_coordinator_v1_coordinator_proto_rawDesc = "" +
 	"\x14bypass_preconditions\x18( \x01(\bR\x13bypassPreconditions\x12\x1f\n" +
 	"\vpassed_envs\x18) \x03(\tR\n" +
 	"passedEnvs\x12!\n" +
-	"\ftrigger_type\x18* \x01(\tR\vtriggerType\x1aA\n" +
+	"\ftrigger_type\x18* \x01(\tR\vtriggerType\x12%\n" +
+	"\x0einterval_start\x18+ \x01(\tR\rintervalStart\x12*\n" +
+	"\x11next_scheduled_at\x18, \x01(\tR\x0fnextScheduledAt\x12+\n" +
+	"\x11schedule_timezone\x18- \x01(\tR\x10scheduleTimezone\x1aA\n" +
 	"\x13WorkerSelectorEntry\x12\x10\n" +
 	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
 	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01B\x18\n" +
