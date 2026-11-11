@@ -547,6 +547,7 @@ func (f *testFixture) enqueueCatchup(scheduleTime time.Time) (string, error) {
 		runID,
 		ir.TriggerTypeCatchUp,
 		scheduleTime,
+		ir.ScheduleWindow{},
 		"",
 	)
 	if err != nil {
