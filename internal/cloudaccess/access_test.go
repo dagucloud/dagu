@@ -187,23 +187,33 @@ func TestRemoteAccessWaitsAfterARefusal(t *testing.T) {
 }
 
 // A server refused for want of a plan connects as soon as its license
-// changes, as when a trial starts, rather than after the refusal wait.
+// changes, rather than after the refusal wait: as a trial replaces the free
+// plan, or a plan replaces a trial that ended.
 func TestRemoteAccessRetriesWhenTheLicenseChanges(t *testing.T) {
-	cloud := newFakeCloud(t)
-	cloud.refusal.Store("access from Dagu Cloud needs a plan or a trial")
-	free := testCreds
-	free.Free = true
-	service, creds := runAccess(t, cloud, newCloudKey(t), newSettingsAt(t, config.RemoteAccessOperator), free, http.NotFoundHandler())
-	require.Eventually(t, func() bool { return service.State().Error != "" }, waitFor, 10*time.Millisecond)
-	time.Sleep(50 * time.Millisecond)
-	assert.Equal(t, int32(1), cloud.tickets.Load(), "the same license is not asked about again soon")
+	free, trial, team := testCreds, testCreds, testCreds
+	free.Free, free.Plan = true, "free"
+	trial.Plan = "trial"
+	team.Plan = "team"
+	for name, change := range map[string][2]license.CloudCredentials{
+		"trial starts":     {free, trial},
+		"plan after trial": {trial, team},
+	} {
+		t.Run(name, func(t *testing.T) {
+			cloud := newFakeCloud(t)
+			cloud.refusal.Store("access from Dagu Cloud needs a plan or a trial")
+			service, creds := runAccess(t, cloud, newCloudKey(t), newSettingsAt(t, config.RemoteAccessOperator), change[0], http.NotFoundHandler())
+			require.Eventually(t, func() bool { return service.State().Error != "" }, waitFor, 10*time.Millisecond)
+			time.Sleep(50 * time.Millisecond)
+			assert.Equal(t, int32(1), cloud.tickets.Load(), "the same license is not asked about again soon")
 
-	cloud.refusal.Store("")
-	trial := *creds.Load()
-	trial.Free = false
-	creds.Store(&trial)
-	cloud.accept(t)
-	require.Eventually(t, func() bool { return service.State().Connected }, waitFor, 10*time.Millisecond)
+			cloud.refusal.Store("")
+			after := change[1]
+			after.CloudURL = creds.Load().CloudURL
+			creds.Store(&after)
+			cloud.accept(t)
+			require.Eventually(t, func() bool { return service.State().Connected }, waitFor, 10*time.Millisecond)
+		})
+	}
 }
 
 // While a refusal holds, a moment the settings cannot be read does not hide
