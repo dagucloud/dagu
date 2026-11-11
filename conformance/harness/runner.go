@@ -176,7 +176,7 @@ const (
 func FreePort(t *testing.T) int {
 	t.Helper()
 	for range servicePortAttempts {
-		port := servicePortMin + rand.IntN(servicePortMax-servicePortMin)
+		port := servicePortMin + rand.IntN(servicePortMax-servicePortMin) //nolint:gosec // Spreads test ports; needs no unpredictability.
 		listener, err := net.Listen("tcp", fmt.Sprintf("127.0.0.1:%d", port))
 		if err != nil {
 			continue
