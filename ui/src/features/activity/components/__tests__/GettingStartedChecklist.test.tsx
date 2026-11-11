@@ -17,6 +17,7 @@ const freshSteps: GettingStartedStep[] = [
   { id: 'create', done: false },
   { id: 'schedule', done: false },
   { id: 'alert', done: false, canConnect: true, canAddChannel: true },
+  { id: 'ai', done: false, canUseCloud: true, canCreateKey: true },
 ];
 
 function renderChecklist(
@@ -49,8 +50,8 @@ describe('GettingStartedChecklist', () => {
     renderChecklist();
 
     const checklist = screen.getByRole('region', { name: 'Getting started' });
-    expect(checklist).toHaveTextContent('0 of 4 done');
-    expect(within(checklist).getAllByRole('listitem')).toHaveLength(4);
+    expect(checklist).toHaveTextContent('0 of 5 done');
+    expect(within(checklist).getAllByRole('listitem')).toHaveLength(5);
     expect(
       within(stepItem('Run a workflow')).getByRole('link', {
         name: 'Open the retry example',
@@ -76,6 +77,13 @@ describe('GettingStartedChecklist', () => {
     expect(
       alert.getByRole('link', { name: 'Add a notification channel' })
     ).toHaveAttribute('href', '/notification-channels');
+    const ai = within(stepItem('Connect an AI app'));
+    expect(
+      ai.getByRole('link', { name: 'Use from Claude or ChatGPT' })
+    ).toHaveAttribute('href', '/settings#remote-access');
+    expect(
+      ai.getByRole('link', { name: 'Set up a coding agent' })
+    ).toHaveAttribute('href', '/api-keys');
   });
 
   it('points at the Workflows page without the retry example', () => {

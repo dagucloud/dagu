@@ -145,6 +145,39 @@ steps:
 	require.Equal(t, true, output["completed"])
 }
 
+// A run started for a slot gets that slot's window; a time no schedule fires
+// is accepted with a warning.
+func TestExecuteStartForScheduleSlot(t *testing.T) {
+	server := mcptest.NewServer(t)
+	server.CreateDAG(t, "mcp_execute_slot", `schedule: "0 * * * *"
+steps:
+  - name: main
+    run: "echo done"
+`)
+	session := server.Connect(t, "")
+
+	result := callExecute(t, session, map[string]any{
+		"action":       "start",
+		"name":         "mcp_execute_slot",
+		"scheduleTime": "2026-03-13T12:10:00Z",
+		"wait":         true,
+	})
+	require.False(t, result.IsError)
+	output := mcptest.StructuredMap(t, result)
+	require.Equal(t, true, output["completed"])
+	warnings, ok := output["warnings"].([]any)
+	require.True(t, ok)
+	require.Len(t, warnings, 1)
+	assert.Contains(t, warnings[0], "is not a fire time of the schedule")
+
+	future := callExecute(t, session, map[string]any{
+		"action":       "start",
+		"name":         "mcp_execute_slot",
+		"scheduleTime": "2999-01-01T00:00:00Z",
+	})
+	require.True(t, future.IsError)
+}
+
 func TestExecuteInputErrorsAreStructured(t *testing.T) {
 	server := mcptest.NewServer(t)
 	session := server.Connect(t, "")
@@ -183,6 +216,16 @@ func TestExecuteInputErrorsAreStructured(t *testing.T) {
 			name:      "start rejects enqueue-only field",
 			arguments: map[string]any{"action": "start", "name": "etl", "queue": "batch"},
 			field:     "queue",
+		},
+		{
+			name:      "retry rejects scheduleTime",
+			arguments: map[string]any{"action": "retry", "name": "etl", "dagRunId": "run-1", "scheduleTime": "latest"},
+			field:     "scheduleTime",
+		},
+		{
+			name:      "inline spec rejects scheduleTime",
+			arguments: map[string]any{"action": "start", "name": "etl", "spec": "steps: []", "scheduleTime": "latest"},
+			field:     "scheduleTime",
 		},
 	}
 

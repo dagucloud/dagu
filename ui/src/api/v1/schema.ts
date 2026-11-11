@@ -6494,6 +6494,16 @@ export interface components {
          * @enum {string}
          */
         UpcomingRunsHold: UpcomingRunsHold;
+        /** @description A past time at which a start schedule fired */
+        RecentFire: {
+            /**
+             * Format: date-time
+             * @description Fire time, with the offset of the zone the schedule is evaluated in
+             */
+            time: string;
+            /** @description Name of the zone the schedule is evaluated in */
+            timezone: string;
+        };
         /** @description A time at which a start schedule fires */
         UpcomingRun: {
             /**
@@ -6669,6 +6679,8 @@ export interface components {
             /** @description Next fire times of the start schedules, earliest first. Derived from the definition alone: suspension, scheduler pauses, and runtime profiles do not filter it. */
             upcomingRuns?: components["schemas"]["UpcomingRun"][];
             upcomingRunsHold?: components["schemas"]["UpcomingRunsHold"];
+            /** @description Latest fire times of the recurring start schedules at or before now, latest first, for the DAG's default runtime profile. These are the slots a manual run can be started for with scheduleTime. */
+            recentFires?: components["schemas"]["RecentFire"][];
             /** @description Logical grouping of related DAGs for organizational purposes */
             group?: string;
             /** @description Unique identifier for the DAG within its group */
@@ -6989,6 +7001,11 @@ export interface components {
              */
             startedAtMs: number;
         };
+        /**
+         * @description Schedule slot to run for: latest (the latest fire at or before now), a date (2006-01-02) when the schedule fires once that day, a time without an offset (2006-01-02T15:04) read in the schedule's zone, or an RFC 3339 time with an offset. The run gets the schedule time and window of that slot. A slot later than now returns 400. A time that is not a fire time is accepted with a warning.
+         * @example 2026-11-09
+         */
+        ScheduleSlotValue: string;
         /** @description Current status of a DAG-run */
         DAGRunSummary: {
             dagRunId: components["schemas"]["DAGRunId"];
@@ -7005,6 +7022,12 @@ export interface components {
             autoRetryLimit?: number | null;
             /** @description RFC 3339 timestamp of when the DAG-run was scheduled to run */
             scheduleTime?: string;
+            /** @description RFC 3339 instant of the previous fire of the DAG's schedule before scheduleTime; the run's window is [intervalStart, scheduleTime) */
+            intervalStart?: string;
+            /** @description RFC 3339 instant of the next fire of the DAG's schedule after scheduleTime */
+            nextScheduledAt?: string;
+            /** @description Zone the run's schedule slot is evaluated in, such as Asia/Tokyo */
+            scheduleTimezone?: string;
             /** @description RFC 3339 timestamp with millisecond precision when the DAG-run started. A run that an older version stored has second precision. */
             startedAt: string;
             /** @description RFC 3339 timestamp with millisecond precision when the DAG-run finished. A run that an older version stored has second precision. */
@@ -10215,7 +10238,10 @@ export interface operations {
     };
     listAPIKeys: {
         parameters: {
-            query?: never;
+            query?: {
+                /** @description name of the remote node */
+                remoteNode?: components["parameters"]["RemoteNode"];
+            };
             header?: never;
             path?: never;
             cookie?: never;
@@ -10868,6 +10894,7 @@ export interface operations {
                      * @default false
                      */
                     noReuse?: boolean;
+                    scheduleTime?: components["schemas"]["ScheduleSlotValue"];
                     /** @description Additional labels to apply to the DAG-run. Mutually exclusive with `tags`; the server returns HTTP 400 if both are set. */
                     labels?: components["schemas"]["Labels"];
                     /** @description Run only these steps, by step name or ID, in a new DAG-run of the current definition. Every other step is recorded as skipped and does not run. Not supported for agent DAGs. */
@@ -10909,6 +10936,13 @@ export interface operations {
                 content: {
                     "application/json": {
                         dagRunId: components["schemas"]["DAGRunId"];
+                        /**
+                         * Format: date-time
+                         * @description RFC 3339 instant of the schedule slot the run was started for, when the request named one
+                         */
+                        scheduleTime?: string;
+                        /** @description Warnings about the request, such as a scheduleTime that is not a fire time of the schedule */
+                        warnings?: string[];
                     };
                 };
             };
@@ -11073,6 +11107,7 @@ export interface operations {
                      * @default false
                      */
                     noReuse?: boolean;
+                    scheduleTime?: components["schemas"]["ScheduleSlotValue"];
                     /** @description Additional labels to apply to the DAG-run. Mutually exclusive with `tags`; the server returns HTTP 400 if both are set. */
                     labels?: components["schemas"]["Labels"];
                     /**
@@ -11092,6 +11127,13 @@ export interface operations {
                 content: {
                     "application/json": {
                         dagRunId: components["schemas"]["DAGRunId"];
+                        /**
+                         * Format: date-time
+                         * @description RFC 3339 instant of the schedule slot the run was started for, when the request named one
+                         */
+                        scheduleTime?: string;
+                        /** @description Warnings about the request, such as a scheduleTime that is not a fire time of the schedule */
+                        warnings?: string[];
                     };
                 };
             };
@@ -12458,6 +12500,13 @@ export interface operations {
                     dagName?: string;
                     /** @description When true, reschedule from the current contents of the original DAG file instead of the stored historical YAML snapshot. */
                     useCurrentDagFile?: boolean;
+                    /** @description Schedule slot for the new run. Omit to keep the slot of the historic run. */
+                    scheduleTime?: components["schemas"]["ScheduleSlotValue"];
+                    /**
+                     * @description Check the request, including scheduleTime, and return the new run's ID and slot without creating the run.
+                     * @default false
+                     */
+                    dryRun?: boolean;
                 };
             };
         };
@@ -12472,6 +12521,11 @@ export interface operations {
                         dagRunId: components["schemas"]["DAGRunId"];
                         /** @description Indicates whether the run was queued instead of starting immediately. */
                         queued: boolean;
+                        /**
+                         * Format: date-time
+                         * @description RFC 3339 instant of the new run's schedule slot, when it has one
+                         */
+                        scheduleTime?: string;
                     };
                 };
             };

@@ -780,6 +780,7 @@ func testOnlineCloudCredentials(t *testing.T, plan string, free bool) {
 		ServerID:        serverID,
 		HeartbeatSecret: "hb-secret",
 		Free:            free,
+		Plan:            plan,
 	}, creds)
 }
 
@@ -1786,6 +1787,7 @@ func TestStoredCloudCredentials(t *testing.T) {
 		LicenseID:       "lic-1",
 		ServerID:        "srv-1",
 		HeartbeatSecret: "hb-secret",
+		Plan:            "pro",
 	}, got)
 
 	_, otherPriv := testKeyPair(t)
