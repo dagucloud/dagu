@@ -294,10 +294,14 @@ func (svc *Service) readToolImpl(ctx context.Context, input readInput) (*mcpsdk.
 			addr := runAddress{name: input.Name, dagRunID: input.DAGRunID, subRunID: input.SubRunID}
 			result, err = svc.api.GetDAGRunDetailsWithOutputsData(ctx, input.Name, input.DAGRunID, input.SubRunID)
 			if err == nil {
+				var run daguapi.DAGRunDetails
 				var details map[string]any
-				details, err = normalizeRunDetails(result.Details, addr)
+				run, err = dagRunDetailsFromResponse(result.Details)
 				if err == nil {
-					maps.Copy(details, runOutputFields(result, details))
+					details, err = normalizeRunDetails(result.Details, addr)
+				}
+				if err == nil {
+					maps.Copy(details, runOutputFields(result, run))
 					data = details
 				}
 			}
@@ -1651,9 +1655,12 @@ const (
 )
 
 // runOutputFields returns the fields to add to a run response for the
-// outputs loaded with result. details is result.Details normalized.
-func runOutputFields(result frontendapi.DAGRunDetailsWithOutputs, details map[string]any) map[string]any {
-	attemptID, _ := details["attemptId"].(string)
+// outputs loaded with result. run is result.Details decoded.
+func runOutputFields(result frontendapi.DAGRunDetailsWithOutputs, run daguapi.DAGRunDetails) map[string]any {
+	var attemptID string
+	if run.AttemptId != nil {
+		attemptID = *run.AttemptId
+	}
 	return boundedRunOutputs(result.Outputs, attemptID, result.OutputsErr)
 }
 
@@ -1705,11 +1712,7 @@ func withRunOutputs(result frontendapi.DAGRunDetailsWithOutputs) any {
 	if err != nil {
 		return result.Details
 	}
-	var attemptID string
-	if run.AttemptId != nil {
-		attemptID = *run.AttemptId
-	}
-	fields := boundedRunOutputs(result.Outputs, attemptID, result.OutputsErr)
+	fields := runOutputFields(result, run)
 	if len(fields) == 0 {
 		return result.Details
 	}

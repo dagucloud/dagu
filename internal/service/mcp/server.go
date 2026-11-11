@@ -970,22 +970,14 @@ func (svc *Service) readResourceText(ctx context.Context, rawURI string) (string
 			if parsed.RawQuery != "" {
 				return "", "", mcpsdk.ResourceNotFoundError(rawURI)
 			}
-			var result frontendapi.DAGRunDetailsWithOutputs
-			result, err = svc.api.GetDAGRunDetailsWithOutputsData(ctx, segments[0], segments[1], segments[3])
-			if err == nil {
-				data = withRunOutputs(result)
-			}
+			data, err = svc.runResourceData(ctx, segments[0], segments[1], segments[3])
 		case len(segments) == 3:
 			if parsed.RawQuery != "" {
 				identifier += "?" + parsed.RawQuery
 			}
 			data, err = svc.api.GetDAGRunLogsData(ctx, identifier)
 		default:
-			var result frontendapi.DAGRunDetailsWithOutputs
-			result, err = svc.api.GetDAGRunDetailsWithOutputsData(ctx, segments[0], segments[1], "")
-			if err == nil {
-				data = withRunOutputs(result)
-			}
+			data, err = svc.runResourceData(ctx, segments[0], segments[1], "")
 		}
 		if err != nil {
 			return "", "", err
@@ -1001,6 +993,16 @@ func (svc *Service) readResourceText(ctx context.Context, rawURI string) (string
 }
 
 // readForeachResource serves the foreach item resources of a run.
+// runResourceData returns the run details for a run resource, with its
+// outputs added. subRunID is empty for a root run.
+func (svc *Service) runResourceData(ctx context.Context, name, dagRunID, subRunID string) (any, error) {
+	result, err := svc.api.GetDAGRunDetailsWithOutputsData(ctx, name, dagRunID, subRunID)
+	if err != nil {
+		return nil, err
+	}
+	return withRunOutputs(result), nil
+}
+
 func (svc *Service) readForeachResource(ctx context.Context, rawURI string, resource runResource, rawQuery string) (string, string, error) {
 	if resource.queryTarget() == "" && rawQuery != "" {
 		return "", "", mcpsdk.ResourceNotFoundError(rawURI)
