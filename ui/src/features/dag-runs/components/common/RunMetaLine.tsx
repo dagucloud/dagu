@@ -39,6 +39,7 @@ type RunFields = Pick<
   | 'finishedAt'
   | 'queuedAt'
   | 'scheduleTime'
+  | 'intervalStart'
   | 'triggerType'
   | 'triggerActor'
   | 'workerId'
@@ -242,6 +243,8 @@ function RunTimes({
   const times = (
     [
       ['Scheduled', dagRun.scheduleTime],
+      // The run's window runs from here up to its scheduled time.
+      ['Window start', dagRun.intervalStart],
       ['Queued', dagRun.queuedAt],
       ['Started', dagRun.startedAt],
       // A waiting run has the finish time of its pause, not of its end.

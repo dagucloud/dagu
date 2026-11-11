@@ -21,6 +21,13 @@ import type { LicenseRemoteAccess } from '@/hooks/useLicenseRemoteAccess';
 import { useI18n } from '@/i18n/I18nProvider';
 import { remoteAccessLevelLabels } from '@/lib/license';
 import { cn } from '@/lib/utils';
+import { LicenseCallout } from './LicenseAlerts';
+
+/**
+ * How the server's plan treats calls from Dagu Cloud: a trial or a paid plan
+ * lets them through; under the free plan Dagu Cloud refuses them.
+ */
+export type RemoteAccessPlan = 'trial' | 'paid' | 'free';
 
 /** A level at which calls from Dagu Cloud reach this server. */
 export type OnLevel = Exclude<
@@ -56,6 +63,15 @@ const levelSummaries: Record<LicenseRemoteAccessLevel, string> = {
     'MCP calls also change DAG definitions, so they can run any command on this machine.',
 };
 
+/** What the offer to turn remote access on says under each plan. */
+const offPromptDetails: Record<RemoteAccessPlan | 'unknown', string> = {
+  trial:
+    'Included in your trial. Turn on remote access, then add the MCP URL to your client.',
+  paid: 'Included in your plan. Turn on remote access, then add the MCP URL to your client.',
+  free: 'Needs a paid plan or a trial. The 14-day trial is free, with no card needed.',
+  unknown: 'Turn on remote access, then add the MCP URL to your client.',
+};
+
 /**
  * The level offered first. MCP clients are mostly used to manage workflows,
  * which takes changing DAG definitions.
@@ -81,12 +97,16 @@ function Row({ label, children }: { label: string; children: ReactNode }) {
 /**
  * Shows how far MCP calls through Dagu Cloud may go on this server, whether
  * their calls reach it, how to connect one, and what they did lately, and lets
- * an administrator change it unless the configuration fixes it.
+ * an administrator change it unless the configuration fixes it. While it is
+ * off, it offers to turn it on, or to start the trial it needs first.
  */
 export function RemoteAccessSection({
   remoteAccess,
   remoteNode,
   consoleURL,
+  plan,
+  trialURL,
+  onOpenTrial,
   showActivity,
   loadError,
   onRetry,
@@ -96,6 +116,12 @@ export function RemoteAccessSection({
   remoteNode: string;
   /** The base URL of the Dagu Console whose MCP endpoint AI apps use. */
   consoleURL: string;
+  /** The server's plan; unknown for a license that lapsed. */
+  plan?: RemoteAccessPlan;
+  /** The Dagu Console page where a trial starts. */
+  trialURL: string;
+  /** Called as the trial page opens, so the plan is read again on return. */
+  onOpenTrial: () => void;
   /** Lists recent calls, which audit logs record. */
   showActivity: boolean;
   loadError: boolean;
@@ -113,6 +139,19 @@ export function RemoteAccessSection({
     remoteAccess !== undefined &&
     remoteAccess.level !== LicenseRemoteAccessLevel.off;
   const mcpURL = `${consoleURL}/mcp`;
+  const trialLink = (variant: 'primary' | 'outline') => (
+    <Button asChild size="sm" variant={variant}>
+      <a
+        href={trialURL}
+        target="_blank"
+        rel="noopener noreferrer"
+        onClick={onOpenTrial}
+      >
+        <ExternalLink className="h-3.5 w-3.5" aria-hidden="true" />
+        {ts('Start free trial')}
+      </a>
+    </Button>
+  );
 
   async function change(next: {
     level?: LicenseRemoteAccessLevel;
@@ -162,6 +201,42 @@ export function RemoteAccessSection({
       ) : (
         remoteAccess && (
           <>
+            {!on && !remoteAccess.levelConfigured && (
+              <div className="flex flex-wrap items-center justify-between gap-3 rounded-md border border-primary/30 bg-primary/5 p-3">
+                <div className="min-w-0 flex-1 space-y-0.5">
+                  <p className="text-sm font-medium">
+                    {ts(
+                      'Use this server from Claude, ChatGPT, and other MCP clients'
+                    )}
+                  </p>
+                  <p className="text-xs text-muted-foreground">
+                    {ts(offPromptDetails[plan ?? 'unknown'])}
+                  </p>
+                </div>
+                <span className="flex flex-wrap items-center gap-2">
+                  {plan === 'free' && trialLink('primary')}
+                  <Button
+                    size="sm"
+                    variant={plan === 'free' ? 'outline' : 'primary'}
+                    disabled={saving}
+                    onClick={() => setChoosing(true)}
+                  >
+                    {ts('Turn on')}
+                  </Button>
+                </span>
+              </div>
+            )}
+            {on && plan === 'free' && (
+              <LicenseCallout
+                tone="warning"
+                title={ts('MCP calls need a paid plan or a trial')}
+                action={trialLink('outline')}
+              >
+                {ts(
+                  'Dagu Cloud refuses calls to this server until its workspace has one. The 14-day trial is free, with no card needed.'
+                )}
+              </LicenseCallout>
+            )}
             <dl className="grid grid-cols-[7.5rem_minmax(0,1fr)] items-center gap-x-4 gap-y-1.5 text-sm">
               <Row label={ts('Access')}>
                 <span className="flex flex-wrap items-center justify-between gap-2">
@@ -197,16 +272,7 @@ export function RemoteAccessSection({
                         {ts('Turn off')}
                       </Button>
                     </span>
-                  ) : (
-                    <Button
-                      size="xs"
-                      variant="outline"
-                      disabled={saving}
-                      onClick={() => setChoosing(true)}
-                    >
-                      {ts('Turn on')}
-                    </Button>
-                  )}
+                  ) : null}
                 </span>
               </Row>
               <Row label={ts('Human tasks')}>
@@ -260,13 +326,13 @@ export function RemoteAccessSection({
                   'Add this URL to your MCP client as a remote MCP server, then sign in to Dagu Cloud. Workspace owners choose what each client may do.'
                 )}
                 <a
-                  href={`${consoleURL}/ai-apps`}
+                  href={`${consoleURL}/mcp-access`}
                   target="_blank"
                   rel="noopener noreferrer"
                   className="inline-flex items-center gap-1 text-foreground underline underline-offset-2"
                 >
                   <ExternalLink className="h-3 w-3" aria-hidden="true" />
-                  {ts('Manage MCP clients')}
+                  {ts('Setup steps for Claude, ChatGPT, and more')}
                 </a>
               </p>
             )}

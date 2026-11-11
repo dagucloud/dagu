@@ -32,6 +32,8 @@ type selectedStepsStart struct {
 	// workerSelector is the request's per-run selector; the seeded run is
 	// persisted from the resolved DAG, which must carry it.
 	workerSelector map[string]string
+	// slot is the schedule slot the run is for, or nil.
+	slot *requestedSlot
 }
 
 // stepSelection is the step selection of a start request body.
@@ -191,6 +193,7 @@ func (a *API) startSelectedSteps(ctx context.Context, dag *ir.DAG, req selectedS
 		noReuse:      req.noReuse,
 		ephemeral:    req.selection.ephemeral,
 		triggerType:  ir.TriggerTypeManual,
+		slot:         req.slot,
 	})
 	return err
 }
