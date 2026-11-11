@@ -35,6 +35,10 @@ type EnqueueRequest struct {
 	TriggerActor   string
 	ParallelItem   string
 	WorkerSelector map[string]string
+	// ScheduleTime and ScheduleWindow name the parent's schedule slot, which
+	// the child inherits.
+	ScheduleTime   string
+	ScheduleWindow ir.ScheduleWindow
 }
 
 // EnqueueResult describes the persisted state after queue admission.
@@ -63,6 +67,10 @@ type SubWorkflowRequest struct {
 	// PassedEnv holds resolved "KEY=value" pairs the parent opted to share
 	// with the child run via the step's pass_env field.
 	PassedEnv []string
+	// ScheduleTime and ScheduleWindow name the parent's schedule slot, which
+	// the child inherits.
+	ScheduleTime   string
+	ScheduleWindow ir.ScheduleWindow
 }
 
 // SubWorkflowRetryRequest describes a child workflow step retry.

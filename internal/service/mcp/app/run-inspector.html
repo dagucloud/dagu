@@ -298,7 +298,7 @@
     <main class="app" aria-live="polite">
       <div class="header">
         <div>
-          <div class="eyebrow">Dagu run</div>
+          <div class="eyebrow" id="eyebrow">Dagu run</div>
           <h1 id="run-name">Connecting…</h1>
           <div class="run-id" id="run-id"></div>
         </div>
@@ -363,6 +363,7 @@
 
         const elements = {
           actions: document.getElementById("actions"),
+          eyebrow: document.getElementById("eyebrow"),
           finishedAt: document.getElementById("finished-at"),
           logs: document.getElementById("logs"),
           logsSection: document.getElementById("logs-section"),
@@ -591,6 +592,7 @@
         }
 
         function renderRun(run) {
+          elements.eyebrow.textContent = "Dagu run";
           latestRun = run || {};
           updateIdentity(run);
           const name = text(run?.name || runIdentity.name, "Dagu run");
@@ -888,6 +890,7 @@
             return;
           }
 
+          elements.eyebrow.textContent = "Dagu";
           elements.runName.textContent = "Dagu result";
           elements.runID.textContent = "";
           elements.status.classList.add("hidden");
@@ -968,13 +971,23 @@
         elements.stop.addEventListener("click", () => execute("stop"));
         elements.retry.addEventListener("click", () => execute("retry"));
 
+        // A host sizes the frame from what the inspector reports. The page
+        // fills the frame it was given, so it is measured at max-content to
+        // let the frame shrink when the content does.
+        let reported = { width: 0, height: 0 };
+
         function reportSize() {
           if (!initialized) return;
           window.requestAnimationFrame(() => {
-            notify("ui/notifications/size-changed", {
-              width: Math.ceil(document.documentElement.scrollWidth),
-              height: Math.ceil(document.documentElement.scrollHeight),
-            });
+            const html = document.documentElement;
+            const previous = html.style.height;
+            html.style.height = "max-content";
+            const height = Math.ceil(html.getBoundingClientRect().height);
+            html.style.height = previous;
+            const width = Math.ceil(window.innerWidth);
+            if (width === reported.width && height === reported.height) return;
+            reported = { width, height };
+            notify("ui/notifications/size-changed", { width, height });
           });
         }
 

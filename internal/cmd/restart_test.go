@@ -69,6 +69,45 @@ steps:
 	require.Equal(t, "2026-03-13T10:00:00Z", recentHistory[0].ScheduleTime)
 }
 
+// A slot named with --scheduled-at makes the restarted run manual, so the
+// scheduler reads it by when it ran, not as its own run of the slot.
+func TestRestartCommand_ScheduledAtRunIsManual(t *testing.T) {
+	t.Parallel()
+
+	th := test.SetupCommand(t)
+	release := newHoldFile(t)
+	dag := th.DAG(t, fmt.Sprintf(`steps:
+  - name: hold
+    run: %q
+`, holdUntilFileExistsCommand(release)))
+
+	done1 := make(chan struct{})
+	go func() {
+		th.RunCommand(t, cmd.Start(), test.CmdTest{Args: []string{"start", dag.Location}})
+		close(done1)
+	}()
+	dag.AssertCurrentStatus(t, ir.Running)
+
+	done2 := make(chan struct{})
+	go func() {
+		args := []string{"restart", "--scheduled-at=2026-03-13T10:00:00Z", dag.Location}
+		th.RunCommand(t, cmd.Restart(), test.CmdTest{Args: args})
+		close(done2)
+	}()
+	releaseDone := releaseHoldFileWhenRecentStatusCountAtLeast(t, th, dag.Name, 2, release)
+	require.NoError(t, <-releaseDone)
+	<-done1
+	<-done2
+
+	recentHistory, err := th.DAGRunRepository.RecentStatuses(th.Context, dag.Name, 1)
+	require.NoError(t, err)
+	require.Len(t, recentHistory, 1)
+	require.Equal(t, ir.TriggerTypeManual, recentHistory[0].TriggerType)
+	scheduledAt, err := time.Parse(time.RFC3339, recentHistory[0].ScheduleTime)
+	require.NoError(t, err)
+	require.True(t, scheduledAt.Equal(time.Date(2026, 3, 13, 10, 0, 0, 0, time.UTC)))
+}
+
 // The scheduler starts the runs of a DAG with a restart_policy, so the restart
 // command, which starts a run of its own, is refused.
 func TestRestartCommand_RejectsServiceDAG(t *testing.T) {

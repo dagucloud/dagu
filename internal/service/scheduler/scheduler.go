@@ -316,6 +316,7 @@ func newScheduler(
 				runID,
 				triggerType,
 				scheduleTime,
+				ir.ScheduleWindowAt(dag.Schedule, profileName, timeLoc, scheduleTime),
 				profileName,
 			)
 		}

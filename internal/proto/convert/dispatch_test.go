@@ -5,6 +5,7 @@ package convert_test
 
 import (
 	"testing"
+	"time"
 
 	"github.com/dagucloud/dagu/v2/internal/dispatch"
 	"github.com/dagucloud/dagu/v2/internal/ir"
@@ -196,6 +197,29 @@ func TestDispatchTaskPassedEnvRoundTrips(t *testing.T) {
 	require.NoError(t, err)
 	require.NotNil(t, got)
 	assert.Equal(t, []string{"TODAY=2026-01-01", "GH_USER=octocat"}, got.PassedEnv)
+}
+
+func TestDispatchTaskScheduleWindowRoundTrips(t *testing.T) {
+	t.Parallel()
+
+	task := &dispatch.DispatchTask{
+		ScheduleTime: "2026-03-13T12:00:00Z",
+		ScheduleWindow: ir.ScheduleWindow{
+			Start:    time.Date(2026, 3, 13, 11, 30, 0, 0, time.UTC),
+			Next:     time.Date(2026, 3, 13, 12, 30, 0, 0, time.UTC),
+			Timezone: "Asia/Tokyo",
+		},
+	}
+
+	protoTask, err := convert.DispatchTaskToProto(task)
+	require.NoError(t, err)
+	assert.Equal(t, "2026-03-13T11:30:00Z", protoTask.IntervalStart)
+	assert.Equal(t, "2026-03-13T12:30:00Z", protoTask.NextScheduledAt)
+	assert.Equal(t, "Asia/Tokyo", protoTask.ScheduleTimezone)
+
+	got, err := convert.ProtoToDispatchTask(protoTask)
+	require.NoError(t, err)
+	assert.Equal(t, task.ScheduleWindow, got.ScheduleWindow)
 }
 
 func TestMachineSampleRoundTrips(t *testing.T) {

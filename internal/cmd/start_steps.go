@@ -171,6 +171,8 @@ func runSelectedSteps(ctx *Context, dag *ir.DAG, dagRunID, params string, opts r
 		ProfileName:      opts.profileName,
 		DefinitionID:     opts.definitionID,
 		NoReuse:          opts.noReuse,
+		ScheduleTime:     opts.scheduleTime,
+		ScheduleWindow:   opts.scheduleWindow,
 		LogBaseDir:       ctx.Config.Paths.LogDir,
 		ArtifactBaseDir:  ctx.Config.Paths.ArtifactDir,
 	}

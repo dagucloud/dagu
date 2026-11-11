@@ -223,10 +223,15 @@ type DAGRunStatus struct {
 	CreatedAt          int64  `json:"createdAt,omitempty"`
 	QueuedAt           string `json:"queuedAt,omitempty"`
 	ScheduleTime       string `json:"scheduleTime,omitempty"`
-	StartedAt          string `json:"startedAt,omitempty"`
-	FinishedAt         string `json:"finishedAt,omitempty"`
-	AutoRetryCount     int    `json:"autoRetryCount,omitempty"`
-	AutoRetryLimit     int    `json:"autoRetryLimit,omitempty"`
+	// IntervalStart, NextScheduledAt, and ScheduleTimezone describe the
+	// window the run's schedule slot owns. See ScheduleWindow.
+	IntervalStart    string `json:"intervalStart,omitempty"`
+	NextScheduledAt  string `json:"nextScheduledAt,omitempty"`
+	ScheduleTimezone string `json:"scheduleTimezone,omitempty"`
+	StartedAt        string `json:"startedAt,omitempty"`
+	FinishedAt       string `json:"finishedAt,omitempty"`
+	AutoRetryCount   int    `json:"autoRetryCount,omitempty"`
+	AutoRetryLimit   int    `json:"autoRetryLimit,omitempty"`
 	// AutoRetryInterval is stored as a duration snapshot for retry scanner decisions.
 	AutoRetryInterval time.Duration `json:"autoRetryInterval,omitempty"`
 	AutoRetryBackoff  float64       `json:"autoRetryBackoff,omitempty"`
@@ -319,6 +324,15 @@ func NormalizeDAGRunConditions(status *DAGRunStatus) {
 }
 
 // DAGRun returns a reference to the dag-run associated with this status
+// ScheduleWindow returns the window the run's schedule slot owns.
+func (st *DAGRunStatus) ScheduleWindow() ScheduleWindow {
+	return ScheduleWindow{
+		Start:    parseWindowInstant(st.IntervalStart),
+		Next:     parseWindowInstant(st.NextScheduledAt),
+		Timezone: st.ScheduleTimezone,
+	}
+}
+
 func (st *DAGRunStatus) DAGRun() DAGRunRef {
 	return NewDAGRunRef(st.Name, st.DAGRunID)
 }
