@@ -1885,31 +1885,28 @@ func TestAgentActionRequiresExecute(t *testing.T) {
 	actions := []struct {
 		name  string
 		child bool
-		call  func(context.Context, *agentResumeFixture) error
+		ok    any
+		call  func(context.Context, *agentResumeFixture) (any, error)
 	}{
-		{name: "Respond", call: func(ctx context.Context, f *agentResumeFixture) error {
-			_, err := f.api.RespondDAGRunStepAgentInteraction(ctx, openapiv1.RespondDAGRunStepAgentInteractionRequestObject{
+		{name: "Respond", ok: &openapiv1.RespondDAGRunStepAgentInteraction200JSONResponse{}, call: func(ctx context.Context, f *agentResumeFixture) (any, error) {
+			return f.api.RespondDAGRunStepAgentInteraction(ctx, openapiv1.RespondDAGRunStepAgentInteractionRequestObject{
 				Name: f.root.Name, DagRunId: f.root.ID, StepName: "agent", InteractionId: "ask-1", Body: body,
 			})
-			return err
 		}},
-		{name: "RespondSub", child: true, call: func(ctx context.Context, f *agentResumeFixture) error {
-			_, err := f.api.RespondSubDAGRunStepAgentInteraction(ctx, openapiv1.RespondSubDAGRunStepAgentInteractionRequestObject{
+		{name: "RespondSub", child: true, ok: &openapiv1.RespondSubDAGRunStepAgentInteraction200JSONResponse{}, call: func(ctx context.Context, f *agentResumeFixture) (any, error) {
+			return f.api.RespondSubDAGRunStepAgentInteraction(ctx, openapiv1.RespondSubDAGRunStepAgentInteractionRequestObject{
 				Name: f.root.Name, DagRunId: f.root.ID, SubDAGRunId: f.subRunID, StepName: "agent", InteractionId: "ask-1", Body: body,
 			})
-			return err
 		}},
-		{name: "Restart", call: func(ctx context.Context, f *agentResumeFixture) error {
-			_, err := f.api.RestartDAGRunStepAgentSession(ctx, openapiv1.RestartDAGRunStepAgentSessionRequestObject{
+		{name: "Restart", ok: &openapiv1.RestartDAGRunStepAgentSession200JSONResponse{}, call: func(ctx context.Context, f *agentResumeFixture) (any, error) {
+			return f.api.RestartDAGRunStepAgentSession(ctx, openapiv1.RestartDAGRunStepAgentSessionRequestObject{
 				Name: f.root.Name, DagRunId: f.root.ID, StepName: "agent",
 			})
-			return err
 		}},
-		{name: "RestartSub", child: true, call: func(ctx context.Context, f *agentResumeFixture) error {
-			_, err := f.api.RestartSubDAGRunStepAgentSession(ctx, openapiv1.RestartSubDAGRunStepAgentSessionRequestObject{
+		{name: "RestartSub", child: true, ok: &openapiv1.RestartSubDAGRunStepAgentSession200JSONResponse{}, call: func(ctx context.Context, f *agentResumeFixture) (any, error) {
+			return f.api.RestartSubDAGRunStepAgentSession(ctx, openapiv1.RestartSubDAGRunStepAgentSessionRequestObject{
 				Name: f.root.Name, DagRunId: f.root.ID, SubDAGRunId: f.subRunID, StepName: "agent",
 			})
-			return err
 		}},
 	}
 	for _, action := range actions {
@@ -1922,7 +1919,7 @@ func TestAgentActionRequiresExecute(t *testing.T) {
 				before, err := cloneManualStatus(f.status)
 				require.NoError(t, err)
 
-				err = action.call(ctx, f)
+				response, err := action.call(ctx, f)
 
 				if role == auth.RoleViewer {
 					require.ErrorIs(t, err, errInsufficientPermissions)
@@ -1931,6 +1928,7 @@ func TestAgentActionRequiresExecute(t *testing.T) {
 					return
 				}
 				require.NoError(t, err)
+				require.IsType(t, action.ok, response)
 			})
 		}
 	}
