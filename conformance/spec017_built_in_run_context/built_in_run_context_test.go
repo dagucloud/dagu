@@ -210,6 +210,54 @@ func readProjectFile(t *testing.T, dagu *harness.Runner, name string) string {
 	return string(data)
 }
 
+// A sub-DAG takes the slot of its parent, so a rerun of a past slot reaches
+// shared child DAGs. The child has no schedule of its own.
+func TestSubDAGInheritsScheduleWindow(t *testing.T) {
+	t.Parallel()
+
+	dagu := harness.NewRunner(t)
+	result := dagu.Run(
+		"start",
+		"--run-id=spec017-window-parent",
+		"--scheduled-at=2026-03-13T12:00",
+		"schedule_window_subdag.yaml",
+	)
+	result.ExpectExitCode(0)
+	dagu.ExpectFileContent("child-window.txt", strings.Join([]string{
+		"scheduled=2026-03-13T03:00:00Z",
+		"start=2026-03-13T02:30:00Z",
+		"next=2026-03-13T03:30:00Z",
+		"timezone=Asia/Tokyo",
+		"",
+	}, "\n"))
+}
+
+// A rerun of a historic run is for that run's slot.
+func TestRerunFromRunKeepsScheduleWindow(t *testing.T) {
+	t.Parallel()
+
+	dagu := harness.NewRunner(t)
+	// Both commands must read the same run history.
+	env := []string{"DAGU_HOME=" + filepath.Join(t.TempDir(), "dagu")}
+	dagu.RunWithEnv(env,
+		"start",
+		"--run-id=spec017-window-source",
+		"--scheduled-at=2026-03-13T12:00",
+		"schedule_window.yaml",
+	).ExpectExitCode(0)
+	want := readProjectFile(t, dagu, "schedule-window.txt")
+	dagu.WriteFile("schedule-window.txt", "")
+
+	dagu.RunWithEnv(env,
+		"start",
+		"--run-id=spec017-window-rerun",
+		"--from-run-id=spec017-window-source",
+		"builtin_schedule_window",
+	).ExpectExitCode(0)
+
+	dagu.ExpectFileContent("schedule-window.txt", want)
+}
+
 // A DAG with no recurring start schedule has no previous or next fire, so
 // only the end of its window and the server zone are known.
 func TestRuntimeScheduleWindowWithoutSchedule(t *testing.T) {

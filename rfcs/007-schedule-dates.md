@@ -104,7 +104,9 @@ New fields under `context.run`, following the proposal in dagucloud/dagu#3279:
 - **Reruns.** `dagu restart` and the reschedule action start a new run for
   the same slot, unless `--scheduled-at` names another. The new run copies
   `scheduled_at`, the window, and `timezone` from the original and resolves
-  `dates` from the definition it runs.
+  `dates` from the definition it runs. A reschedule from the current DAG file
+  keeps the slot and computes its window from the current schedule, the
+  schedule of the definition it runs.
 - **Sub-DAGs** take `scheduled_at`, the window, and `timezone` from a parent
   run that has a slot, so a backfill reaches shared child DAGs. A child's
   `dates` resolve against the inherited slot.

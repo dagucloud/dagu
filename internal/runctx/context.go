@@ -39,9 +39,11 @@ type Context struct {
 	ScheduleTime        string
 	// IntervalStart, NextScheduledAt, and ScheduleTimezone describe the
 	// window the run's schedule slot owns, as resolved by context.run.*.
-	IntervalStart        string
-	NextScheduledAt      string
-	ScheduleTimezone     string
+	IntervalStart    string
+	NextScheduledAt  string
+	ScheduleTimezone string
+	// ScheduleWindow is the same window, as child runs inherit it.
+	ScheduleWindow       ir.ScheduleWindow
 	DAG                  *ir.DAG
 	DAGLoader            DAGLoader
 	BaseEnv              *config.BaseEnv
@@ -250,6 +252,7 @@ func WithScheduleWindow(window ir.ScheduleWindow) ContextOption {
 		o.IntervalStart = contextInstant(window.Start)
 		o.NextScheduledAt = contextInstant(window.Next)
 		o.ScheduleTimezone = window.Timezone
+		o.ScheduleWindow = window
 	}
 }
 

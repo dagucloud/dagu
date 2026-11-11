@@ -180,11 +180,11 @@ workflow-language specs and makes the trust boundary explicit:
 | --- | --- | --- |
 | `context.run.id` | All run, step, and handler scopes | Unique identifier for the current DAG run. |
 | `context.run.status` | Status-aware scopes only | Canonical lowercase run status. |
-| `context.run.scheduled_at` | Scheduled, catchup, and one-off scheduled runs, and manual runs started for a slot | UTC RFC3339 timestamp for the logical schedule time of the run's slot. |
-| `context.run.interval_start` | Runs with a schedule time whose DAG has a recurring start schedule | UTC RFC3339 timestamp of the latest fire of the active start schedules strictly before `scheduled_at`. |
+| `context.run.scheduled_at` | Scheduled, catchup, and one-off scheduled runs, manual runs started for a slot, reruns of a run with a slot, and sub-DAG runs of a run with a slot | UTC RFC3339 timestamp for the logical schedule time of the run's slot. |
+| `context.run.interval_start` | Runs with a schedule time whose DAG has a recurring start schedule, and sub-DAG runs that inherit a window | UTC RFC3339 timestamp of the latest fire of the active start schedules strictly before `scheduled_at`; for a sub-DAG run, its parent's value. |
 | `context.run.interval_end` | Runs with a schedule time | The same instant as `context.run.scheduled_at`. |
-| `context.run.next_scheduled_at` | Runs with a schedule time whose DAG has a recurring start schedule | UTC RFC3339 timestamp of the earliest fire of the active start schedules strictly after `scheduled_at`. |
-| `context.run.timezone` | Runs with a schedule time | IANA name of the zone the slot's schedule is evaluated in, or `UTC±HH:MM` when the zone has no name. |
+| `context.run.next_scheduled_at` | Runs with a schedule time whose DAG has a recurring start schedule, and sub-DAG runs that inherit a window | UTC RFC3339 timestamp of the earliest fire of the active start schedules strictly after `scheduled_at`; for a sub-DAG run, its parent's value. |
+| `context.run.timezone` | Runs with a schedule time | IANA name of the zone the slot's schedule is evaluated in, or `UTC±HH:MM` when the zone has no name; for a sub-DAG run, its parent's value. |
 | `context.run.root_name` | Sub-DAG runs only | DAG name of the root DAG run. |
 | `context.run.root_id` | Sub-DAG runs only | DAG-run ID of the root DAG run. |
 
@@ -194,6 +194,8 @@ Rules:
 - `context.run.scheduled_at` is not a unique run identifier. Scheduled, catchup, and
   retry behavior may create multiple runs associated with one logical schedule
   time. Workflow authors must use `context.run.id` when they need identity.
+- A run computes its window from its own DAG's schedules. A sub-DAG run
+  does not; it inherits its parent's window, whatever its own schedules.
 - The window `[interval_start, interval_end)` is derived from the schedule,
   not from run history. The active start schedules are the recurring start
   schedules with no `profile` or with the run's profile; one-off `at`
@@ -214,6 +216,13 @@ Rules:
   read in the schedule's zone, or an RFC 3339 time with an offset. A slot
   later than now is rejected; `dagu dry` accepts one. A time that no schedule
   fires is accepted with a warning that names the nearest fire times.
+- A sub-DAG run, started by `dag.run` or `dag.enqueue`, takes the schedule
+  time, window, and timezone of a parent run that has a slot. A sub-DAG of a
+  parent with no slot has none.
+- `dagu restart`, `dagu start --from-run-id`, and the reschedule action start
+  the new run for the historic run's slot, with its recorded window, unless
+  a slot is named. A reschedule from the current DAG file keeps the slot and
+  computes its window from the current schedule.
 - The scheduler reads a manual run by when it ran, not by its slot, so a
   manual run of a slot does not suppress or settle that slot's scheduled
   fire.

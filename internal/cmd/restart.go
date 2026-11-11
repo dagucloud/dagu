@@ -108,6 +108,10 @@ func runRestart(ctx *Context, args []string) error {
 	if err != nil {
 		return err
 	}
+	// The restarted run is for the same slot unless the flags name another.
+	if slot.scheduleTime == "" {
+		slot = runSlot{scheduleTime: dagStatus.ScheduleTime, window: dagStatus.ScheduleWindow()}
+	}
 	opts := runOptions{
 		triggerType:    ir.TriggerTypeUnknown,
 		scheduleTime:   slot.scheduleTime,

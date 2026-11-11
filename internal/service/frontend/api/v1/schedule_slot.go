@@ -5,6 +5,7 @@ package api
 
 import (
 	"context"
+	"fmt"
 	"net/http"
 	"slices"
 	"strings"
@@ -55,6 +56,22 @@ func (a *API) resolveRequestedSlot(dag *ir.DAG, profile string, value *api.Sched
 		window:       slot.Window,
 		warning:      slot.Warning,
 	}, nil
+}
+
+// rescheduleSlot returns the slot of a run rescheduled from status: the one
+// the request names, else the historic run's own.
+func (a *API) rescheduleSlot(dag *ir.DAG, profile string, status *ir.DAGRunStatus, value *api.ScheduleSlotValue) (*requestedSlot, error) {
+	if value != nil && strings.TrimSpace(*value) != "" {
+		return a.resolveRequestedSlot(dag, profile, value)
+	}
+	if status.ScheduleTime == "" {
+		return nil, nil
+	}
+	at, err := stringutil.ParseTime(status.ScheduleTime)
+	if err != nil {
+		return nil, fmt.Errorf("parse schedule time of the historic run: %w", err)
+	}
+	return &requestedSlot{scheduleTime: status.ScheduleTime, at: at.UTC(), window: status.ScheduleWindow()}, nil
 }
 
 // recentFiresLimit is how many past slots the run dialog offers.
