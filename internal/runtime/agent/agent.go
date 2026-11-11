@@ -1754,7 +1754,8 @@ func (a *Agent) contextScheduleTime() string {
 }
 
 // contextScheduleWindow returns the window of the slot contextScheduleTime
-// names.
+// names: the one recorded on the retried status, else the one this run was
+// started with.
 func (a *Agent) contextScheduleWindow() ir.ScheduleWindow {
 	if source := a.statusSourceTarget(); source != nil && source.ScheduleTime != "" {
 		return source.ScheduleWindow()

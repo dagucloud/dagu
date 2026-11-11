@@ -253,6 +253,8 @@ func WithScheduleWindow(window ir.ScheduleWindow) ContextOption {
 	}
 }
 
+// contextInstant formats an instant as context values carry it: UTC
+// RFC 3339, or empty when unknown.
 func contextInstant(t time.Time) string {
 	if t.IsZero() {
 		return ""

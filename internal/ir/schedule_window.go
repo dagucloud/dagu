@@ -69,6 +69,8 @@ func ScheduleWindowAt(schedules []Schedule, profile string, loc *time.Location, 
 	return window
 }
 
+// activeWindowSchedules returns the recurring start schedules that are active
+// for the profile: those with no profile or with the profile.
 func activeWindowSchedules(schedules []Schedule, profile string) []Schedule {
 	var active []Schedule
 	for _, sched := range schedules {
@@ -94,6 +96,7 @@ func previousFire(sched Schedule, slot time.Time) time.Time {
 	return time.Time{}
 }
 
+// firesAt reports whether the schedule fires at slot.
 func firesAt(sched Schedule, slot time.Time) bool {
 	return sched.Next(slot.Add(-time.Second)).Equal(slot)
 }
@@ -130,6 +133,8 @@ func formatWindowInstant(t time.Time) string {
 	return t.UTC().Format(time.RFC3339)
 }
 
+// parseWindowInstant parses a window bound stored on a run, or returns zero
+// when the bound is unknown.
 func parseWindowInstant(value string) time.Time {
 	t, err := time.Parse(time.RFC3339, value)
 	if err != nil {
@@ -138,6 +143,7 @@ func parseWindowInstant(value string) time.Time {
 	return t.UTC()
 }
 
+// utcOrZero returns t in UTC, keeping the zero time zero.
 func utcOrZero(t time.Time) time.Time {
 	if t.IsZero() {
 		return t
