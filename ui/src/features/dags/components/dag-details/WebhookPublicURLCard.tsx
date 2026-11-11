@@ -80,6 +80,8 @@ interface WebhookPublicURLCardProps {
   webhook: WebhookDetails;
   onWebhookChange: (webhook: WebhookDetails) => void;
   onSecretCreated: (secret: string) => void;
+  /** Called with true when the card hands over a sender secret to show once. */
+  onSecretVisibleChange?: (visible: boolean) => void;
 }
 
 // formatSize shows whole bytes below a kilobyte.
@@ -101,6 +103,7 @@ function WebhookPublicURLCard({
   webhook,
   onWebhookChange,
   onSecretCreated,
+  onSecretVisibleChange,
 }: WebhookPublicURLCardProps) {
   const { ts } = useI18n();
   const client = useClient();
@@ -212,6 +215,7 @@ function WebhookPublicURLCard({
       setSecret('');
       onWebhookChange(data.webhook);
       if (data.secret) {
+        onSecretVisibleChange?.(true);
         onSecretCreated(data.secret);
       }
     }, 'Failed to save the sender');
