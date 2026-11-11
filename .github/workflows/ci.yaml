@@ -123,7 +123,7 @@ jobs:
             esac
 
             case "${file}" in
-              ui/*)
+              ui/*|.github/workflows/ci.yaml)
                 e2e_changed=true
                 ;;
             esac
@@ -410,9 +410,11 @@ jobs:
         working-directory: ui
         run: pnpm install --frozen-lockfile
 
+      # The runner image has Chromium's libraries. Installing nothing through
+      # apt keeps the job independent of the Ubuntu package mirrors.
       - name: Install Playwright Chromium
         working-directory: ui
-        run: pnpm exec playwright install --with-deps chromium
+        run: pnpm exec playwright install chromium
 
       - name: Run browser E2E tests
         env:

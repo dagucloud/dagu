@@ -327,6 +327,10 @@ describe('buildReferenceCandidates context', () => {
         'dag.name',
         'run.id',
         'run.scheduled_at',
+        'run.interval_start',
+        'run.interval_end',
+        'run.next_scheduled_at',
+        'run.timezone',
         'run.root_name',
         'run.root_id',
         'attempt.id',
@@ -355,7 +359,7 @@ describe('buildReferenceCandidates context', () => {
       'paths.step_stderr_file',
       'paths.step_output_file',
     ]);
-    expect(labels).toHaveLength(17);
+    expect(labels).toHaveLength(21);
     expect(contextOf(null).map((c) => c.label)).not.toContain('step.id');
   });
 
@@ -400,9 +404,9 @@ describe('buildReferenceCandidates context', () => {
 
   it('returns only context candidates without a scope', () => {
     const out = buildReferenceCandidates(undefined, null);
-    expect(out).toHaveLength(12);
+    expect(out).toHaveLength(16);
     expect(out.every((c) => c.group === 'context')).toBe(true);
-    expect(buildReferenceCandidates(undefined, 'a')).toHaveLength(17);
+    expect(buildReferenceCandidates(undefined, 'a')).toHaveLength(21);
   });
 
   it('follows the group order', () => {

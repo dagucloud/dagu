@@ -808,6 +808,7 @@ func (h *remoteTaskHandler) executeDAGRun(
 		PeerConfig:               h.peerConfig,
 		DefaultExecMode:          h.config.DefaultExecMode,
 		ScheduleTime:             task.ScheduleTime,
+		ScheduleWindow:           convert.ScheduleWindowFromTask(task),
 		ArtifactDir:              env.artifactDir,
 		ArtifactFinalizer:        artifactUploader,
 		WorkspaceSeed:            run.workspaceSeed,
