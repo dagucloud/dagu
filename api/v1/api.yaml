@@ -2665,6 +2665,10 @@ paths:
                   allOf:
                     - $ref: "#/components/schemas/ScheduleSlotValue"
                   description: "Schedule slot for the new run. Omit to keep the slot of the historic run."
+                dryRun:
+                  type: boolean
+                  default: false
+                  description: "Check the request, including scheduleTime, and return the new run's ID and slot without creating the run."
       responses:
         "200":
           description: "Successfully scheduled a new DAG-run"
@@ -2678,6 +2682,10 @@ paths:
                   queued:
                     type: boolean
                     description: "Indicates whether the run was queued instead of starting immediately."
+                  scheduleTime:
+                    type: string
+                    format: date-time
+                    description: "RFC 3339 instant of the new run's schedule slot, when it has one"
                 required:
                   - dagRunId
                   - queued

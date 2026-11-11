@@ -548,15 +548,30 @@ func remoteRunRestart(ctx *Context, args []string) error {
 	if ir.Status(detail.Status) != ir.Running {
 		return fmt.Errorf("DAG %s is not running, current status: %s", dag.Dag.Name, ir.Status(detail.Status))
 	}
+	// Check the replacement before stopping the run, so a slot the server
+	// rejects leaves the run going. The replacement then names the resolved
+	// instant, so a value such as latest keeps the meaning it was checked
+	// with.
+	dryRun := true
+	plan, err := ctx.Remote.rescheduleDAGRun(ctx, dag.Dag.Name, detail.DagRunId, api.RescheduleDAGRunJSONBody{
+		ScheduleTime: stringPtrOrNil(scheduledAt),
+		DryRun:       &dryRun,
+	})
+	if err != nil {
+		return err
+	}
+	body := api.RescheduleDAGRunJSONBody{ScheduleTime: stringPtrOrNil(scheduledAt)}
+	if scheduledAt != "" && plan.ScheduleTime != nil {
+		resolved := plan.ScheduleTime.UTC().Format(time.RFC3339)
+		body.ScheduleTime = &resolved
+	}
 	if err := ctx.Remote.stopDAGRun(ctx, dag.Dag.Name, detail.DagRunId); err != nil {
 		return err
 	}
 	if err := waitForRemoteStop(ctx, dag.Dag.Name, detail.DagRunId); err != nil {
 		return err
 	}
-	resp, err := ctx.Remote.rescheduleDAGRun(ctx, dag.Dag.Name, detail.DagRunId, api.RescheduleDAGRunJSONBody{
-		ScheduleTime: stringPtrOrNil(scheduledAt),
-	})
+	resp, err := ctx.Remote.rescheduleDAGRun(ctx, dag.Dag.Name, detail.DagRunId, body)
 	if err != nil {
 		return err
 	}

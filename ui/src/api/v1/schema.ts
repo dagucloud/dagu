@@ -11723,6 +11723,11 @@ export interface operations {
                     useCurrentDagFile?: boolean;
                     /** @description Schedule slot for the new run. Omit to keep the slot of the historic run. */
                     scheduleTime?: components["schemas"]["ScheduleSlotValue"];
+                    /**
+                     * @description Check the request, including scheduleTime, and return the new run's ID and slot without creating the run.
+                     * @default false
+                     */
+                    dryRun?: boolean;
                 };
             };
         };
@@ -11737,6 +11742,11 @@ export interface operations {
                         dagRunId: components["schemas"]["DAGRunId"];
                         /** @description Indicates whether the run was queued instead of starting immediately. */
                         queued: boolean;
+                        /**
+                         * Format: date-time
+                         * @description RFC 3339 instant of the new run's schedule slot, when it has one
+                         */
+                        scheduleTime?: string;
                     };
                 };
             };

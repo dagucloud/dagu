@@ -115,6 +115,37 @@ steps:
 		assert.Equal(t, "2026-03-13T01:30:00Z", valueOrEmpty(replaced.IntervalStart))
 	})
 
+	// A dry run reports the new run's slot and creates no run, so a remote
+	// restart can check it before stopping the running run.
+	t.Run("RescheduleDryRunCreatesNoRun", func(t *testing.T) {
+		var started api.ExecuteDAG200JSONResponse
+		server.Client().Post("/api/v1/dags/slot_dag/start", api.ExecuteDAGJSONRequestBody{
+			ScheduleTime: slotOf("2026-03-13T12:00"),
+		}).ExpectStatus(http.StatusOK).Send(t).Unmarshal(t, &started)
+		waitForDAGRunStatus(t, server, "slot_dag", started.DagRunId, 10*time.Second, func(status *ir.DAGRunStatus) bool {
+			return status.Status == ir.Succeeded
+		})
+		path := fmt.Sprintf("/api/v1/dag-runs/slot_dag/%s/reschedule", started.DagRunId)
+		dryRun := true
+
+		var plan api.RescheduleDAGRun200JSONResponse
+		server.Client().Post(path, api.RescheduleDAGRunJSONRequestBody{
+			ScheduleTime: slotOf("2026-03-13T11:00"),
+			DryRun:       &dryRun,
+		}).ExpectStatus(http.StatusOK).Send(t).Unmarshal(t, &plan)
+
+		require.NotNil(t, plan.ScheduleTime)
+		assert.True(t, plan.ScheduleTime.Equal(time.Date(2026, 3, 13, 2, 0, 0, 0, time.UTC)))
+		assert.False(t, plan.Queued)
+		server.Client().Get(fmt.Sprintf("/api/v1/dags/slot_dag/dag-runs/%s", plan.DagRunId)).
+			ExpectStatus(http.StatusNotFound).Send(t)
+
+		server.Client().Post(path, api.RescheduleDAGRunJSONRequestBody{
+			ScheduleTime: slotOf("2999-01-01T00:00"),
+			DryRun:       &dryRun,
+		}).ExpectStatus(http.StatusBadRequest).Send(t)
+	})
+
 	t.Run("EnqueueRecordsTheSlotWindow", func(t *testing.T) {
 		var resp api.EnqueueDAGDAGRun200JSONResponse
 		server.Client().Post("/api/v1/dags/slot_dag/enqueue", api.EnqueueDAGDAGRunJSONRequestBody{
