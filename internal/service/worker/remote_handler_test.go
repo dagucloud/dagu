@@ -1958,7 +1958,9 @@ steps:
 	// workspace, which is the work directory of the run (Spec 092).
 	info, err := os.Stat(remoteWorkspaceWorkDir(task))
 	require.NoError(t, err)
-	assert.Equal(t, os.FileMode(0o711), info.Mode().Perm())
+	if runtime.GOOS != "windows" { // Windows does not report the permission bits.
+		assert.Equal(t, os.FileMode(0o711), info.Mode().Perm())
+	}
 	baseDir := t.TempDir()
 	require.NoError(t, os.Mkdir(filepath.Join(baseDir, "ops"), 0750))
 	require.NoError(t, os.WriteFile(filepath.Join(baseDir, "ops", "base.yaml"), []byte("smtp:\n  host: ops.example\n"), 0600))

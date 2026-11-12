@@ -730,7 +730,9 @@ func TestAIRelay_ManySmallChunks(t *testing.T) {
 		want.WriteString("data: " + strings.Repeat("x", i%50) + "\n\n")
 	}
 	assert.Equal(t, want.String(), sink.text())
-	assert.Greater(t, sink.chunks, 100, "the events arrive in many chunks")
+	// The count of the chunks depends on how the network joins small writes, so the test
+	// checks only that the relay passes the stream on in many pieces, not as one buffer.
+	assert.Greater(t, sink.chunks, 10, "the events arrive in many chunks")
 }
 
 func TestAIRelay_LargeRequestBodyInChunks(t *testing.T) {

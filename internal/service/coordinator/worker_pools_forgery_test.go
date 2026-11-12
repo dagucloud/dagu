@@ -113,6 +113,9 @@ func startReviewServerWithDAGs(t *testing.T, dags *persis.DAGRepository) *review
 	server := grpc.NewServer(append([]grpc.ServerOption{grpc.Creds(creds)}, pools.ServerOptions()...)...)
 	coordinatorv1.RegisterCoordinatorServiceServer(server, handler)
 	go func() { _ = server.Serve(listener) }()
+	// The handler keeps the file of each attempt open until it closes. Windows cannot
+	// remove the open files of a test folder, so the handler closes after the server stops.
+	t.Cleanup(func() { handler.Close(context.Background()) })
 	t.Cleanup(server.Stop)
 	return s
 }
