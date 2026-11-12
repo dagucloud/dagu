@@ -1321,7 +1321,9 @@ does not carry tables, images, or charts.
 no cap; `_row` is not. It publishes `path`, `format`, `count`, `sheet`,
 `range`, `warnings`, and with `artifact: true` the file's copy. The reverse
 direction is `xlsx.write` with `input`, whose csv also takes `encoding` and
-`delimiter`.
+`delimiter`; without `encoding` the input is detected as UTF-8 or else
+Shift_JIS, and a file that is neither, or not UTF-8 under `encoding: utf-8`,
+fails naming it.
 
 `xlsx.extract` reads fields out of a sheet laid out as a form rather than a
 table, such as a supplier's quote whose layout differs by sender. `path`,
@@ -1392,11 +1394,11 @@ steps:
 
 ## chat.completion
 
-Send a prompt to a model and print the reply. `with.prompt` (or `with.messages`) is required; every other `with` key (`provider`, `model`, `system`, `tools`, `max_tool_iterations`, `stream`, `thinking`, `web_search`, `files`) configures the model and replaces the DAG-level `llm` block entirely. `with.model` can be a list of `{provider, name}` entries tried in order.
+Send a prompt to a model and print the reply. `with.prompt` (or `with.messages`) is required; every other `with` key (`provider`, `model`, `system`, `tools`, `max_tool_iterations`, `stream`, `thinking`, `web_search`, `files`, `max_file_chars`) configures the model and replaces the DAG-level `llm` block entirely. `with.model` can be a list of `{provider, name}` entries tried in order.
 
-With `provider: openrouter`, `provider_order` lists the upstream providers OpenRouter tries first, such as `[azure/eu]`; a `with.model` entry can set its own. OpenRouter can pass over an endpoint, such as one with a regional surcharge, unless the request names it, so an account limited to zero-data-retention endpoints may need it to reach some models. Other providers refuse `provider_order`. Every `llm` block takes it, including the DAG-level one and `with.llm` of `browser.run` and `computer.run`.
+With `provider: openrouter`, `provider_order` lists the upstream providers OpenRouter tries first, such as `[azure/eu]`; a `with.model` entry can set its own. OpenRouter can pass over an endpoint, such as one with a regional surcharge, unless the request names it, so an account limited to zero-data-retention endpoints may need it to reach some models. Other providers refuse `provider_order`. Every `llm` block takes it, including the DAG-level one and `with.llm` of `browser.run` and `computer.run`. A request that carries tools, or forces a tool call, also sets OpenRouter's `provider.require_parameters`, so it reaches only endpoints that support them.
 
-`with.files` gives the model files to read with the prompt: a path or glob pattern, a list of them, or a list an earlier step published, such as the emails `mail.search` found with `save_attachments: true`. PDF, Word (`.docx`), Excel (`.xlsx`) and text files go as text ahead of the prompt, each in a `<file name="…">` block; images go as images, scaled down to fit a model; and a PDF page without text, such as a scan, goes as an image too. Up to 50 MB a file, 1,000,000 characters of text and 50 images a step. Read a document into typed values with `output_schema`:
+`with.files` gives the model files to read with the prompt: a path or glob pattern, a list of them, or a list an earlier step published, such as the emails `mail.search` found with `save_attachments: true`. PDF, Word (`.docx`), Excel (`.xlsx`) and text files go as text ahead of the prompt, each in a `<file name="…">` block; images go as images, scaled down to fit a model; and a PDF page without text, such as a scan, goes as an image too. Up to 50 MB a file, `max_file_chars` characters of text (1,000,000 by default; set it to what the model's context window holds) and 50 images a step. When the provider refuses the request for its length, the error ends with how many characters the files held, so the work can be split. Read a document into typed values with `output_schema`:
 
 ```yaml
 steps:
@@ -1576,7 +1578,7 @@ Browser behavior:
 - Where the browser sandbox cannot start, the host setting `browser.sandbox: false` or `DAGU_BROWSER_SANDBOX=false` turns it off for every browser step; a compromised page then runs with the Dagu process's permissions, so prefer the seccomp profile. DAGs cannot change it. With the sandbox on, a browser step fails when `CI` is set or Dagu runs as root on Linux, because the browser would run without the sandbox there; set `DAGU_BROWSER_SANDBOX=false` to allow it.
 - The host setting `browser.max_open` (or `DAGU_BROWSER_MAX_OPEN`) bounds the browsers open at once on the host, across steps, DAG runs, and browser sessions; a browser past it waits for one to close within the step's timeout. Each browser holds a Chromium process, so set it where memory is tight; `0`, the default, sets no limit.
 - Profiles and the replay cache live on the host that runs the step. Pin such steps with `worker_selector` in distributed mode.
-- A browser without a window (`headless: true`, the default) sends the user agent the same Chrome sends with one and reports a desktop-sized screen, so showing the window does not change how a site sees the step. A page the site refused, with a bot check such as Cloudflare's or a 403 or 429, is logged as `page refused` and named at the end of the error of a step that fails on it; a bot check that passes on its own is waited out for up to 10 seconds.
+- A browser without a window (`headless: true`, the default) sends the user agent the same Chrome sends with one and reports a desktop-sized screen, so showing the window does not change how a site sees the step. A page the site refused, with a bot check such as Cloudflare's or a 403 or 429, is logged as `page refused` and fails the `act`, `upload`, `expect`, or `extract` that would run on it, with the refusal as its error, unless a `when` on it holds (an `extract` never runs there); a `goto`, `wait`, `screenshot`, or `ask` runs, and a step that ends on a refused page fails. A step that fails there for another reason names the refusal at the end of its error; a bot check that passes on its own is waited out for up to 10 seconds.
 - After a site redesign, clear recorded acts with `dagu browser cache clear <dag> [--step <id>]` on that host instead of editing the instruction or setting `cache: false`.
 
 ## computer.extract / computer.run

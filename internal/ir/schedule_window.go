@@ -85,6 +85,23 @@ func activeWindowSchedules(schedules []Schedule, profile string) []Schedule {
 	return active
 }
 
+// PreviousFire returns the latest fire of the recurring schedules strictly
+// before t, or zero when none fires within five years. A schedule that names
+// no zone is evaluated in t's zone. Calendar schedules must be bound to their
+// calendars.
+func PreviousFire(schedules []Schedule, t time.Time) time.Time {
+	var latest time.Time
+	for _, sched := range schedules {
+		if !sched.IsCron() {
+			continue
+		}
+		if prev := previousFire(sched, t); prev.After(latest) {
+			latest = prev
+		}
+	}
+	return latest
+}
+
 // previousFire returns the schedule's latest fire strictly before slot, or
 // zero when none falls within the longest lookback.
 func previousFire(sched Schedule, slot time.Time) time.Time {

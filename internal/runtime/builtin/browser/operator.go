@@ -191,14 +191,18 @@ func (o *operator) checkNavigation(ctx context.Context, index int, target string
 }
 
 // pageRefusal returns the refusal the page shows, if it shows one. A page a
-// client certificate kept from opening is the certificate's to explain, and
-// a page that cannot be read shows none.
-func (o *operator) pageRefusal(ctx context.Context) (refusal, bool) {
+// client certificate kept from opening is the certificate's to explain. The
+// error reports a page that cannot be read, which tells nothing either way.
+func (o *operator) pageRefusal(ctx context.Context) (refusal, bool, error) {
 	page, err := o.eng.PageOutcome(ctx)
-	if err != nil || certificateFailure(page, nil, o.presented, o.certificateProxy) != nil {
-		return refusal{}, false
+	if err != nil {
+		return refusal{}, false, err
 	}
-	return refusalOf(page)
+	if certificateFailure(page, nil, o.presented, o.certificateProxy) != nil {
+		return refusal{}, false, nil
+	}
+	refused, ok := refusalOf(page)
+	return refused, ok, nil
 }
 
 // explainWait adds to err the connections the certificate proxy still waits

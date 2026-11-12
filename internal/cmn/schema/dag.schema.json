@@ -6905,6 +6905,12 @@
         },
         "files": {
           "$ref": "#/definitions/modelFiles"
+        },
+        "max_file_chars": {
+          "type": "integer",
+          "minimum": 1,
+          "default": 1000000,
+          "description": "Maximum characters of text the files of a chat.completion step may hold together, 1,000,000 by default. Raise it for a model whose context window holds more, lower it for one that holds less."
         }
       },
       "description": "LLM configuration. Supports OpenAI, Anthropic, Google Gemini, OpenRouter, and local models (Ollama/vLLM)."
@@ -7924,6 +7930,9 @@
         },
         "files": {
           "$ref": "#/definitions/modelFiles"
+        },
+        "max_file_chars": {
+          "$ref": "#/definitions/llmConfig/properties/max_file_chars"
         },
         "provider": {
           "$ref": "#/definitions/llmConfig/properties/provider"
@@ -9136,7 +9145,7 @@
         "encoding": {
           "type": "string",
           "enum": ["utf-8", "utf-8-bom", "shift_jis", "cp932", "windows-31j", "sjis", "ms932"],
-          "description": "Encoding of a csv file: the input of xlsx.write and xlsx.append, or the output of xlsx.convert. utf-8 (default), utf-8-bom, or shift_jis (also cp932)."
+          "description": "Encoding of a csv file: the input of xlsx.write and xlsx.append, or the output of xlsx.convert. utf-8, utf-8-bom, or shift_jis (also cp932). An input without encoding is detected: UTF-8, or else Shift_JIS."
         },
         "delimiter": {
           "type": "string",
