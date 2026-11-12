@@ -5,9 +5,11 @@ package scheduler
 
 import (
 	"context"
+	"time"
 
 	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/persis"
+	"github.com/dagucloud/dagu/v2/internal/schedulerstate"
 )
 
 // ServiceDAGState tells what a service DAG is doing, as far as its latest run
@@ -20,6 +22,9 @@ const (
 	ServiceDAGStatePending ServiceDAGState = "pending"
 	// ServiceDAGStateRunning means a run is alive.
 	ServiceDAGStateRunning ServiceDAGState = "running"
+	// ServiceDAGStateWaiting means a run is alive but waits for a person, such
+	// as an approval, and does nothing until someone acts on it.
+	ServiceDAGStateWaiting ServiceDAGState = "waiting"
 	// ServiceDAGStateRestarting means the latest run succeeded, or an operator
 	// stopped the latest run of an always DAG, and the next run is due.
 	ServiceDAGStateRestarting ServiceDAGState = "restarting"
@@ -45,8 +50,10 @@ func DescribeServiceDAG(
 	switch {
 	case latest == nil || latest.DAGRunID == "":
 		return pendingOrSuspended(suspended), nil
-	case latest.Status == ir.Running || latest.Status == ir.Waiting:
-		// Suspending does not stop a run that is alive.
+	// Suspending does not stop a run that is alive.
+	case latest.Status == ir.Waiting:
+		return ServiceDAGStateWaiting, nil
+	case latest.Status == ir.Running:
 		return ServiceDAGStateRunning, nil
 	case latest.Status == ir.NotStarted || latest.Status == ir.Queued:
 		return pendingOrSuspended(suspended), nil
@@ -74,6 +81,18 @@ func DescribeServiceDAG(
 		return ServiceDAGStateRestarting, nil
 	}
 	return ServiceDAGStateFailing, nil
+}
+
+// NextRestart returns when the scheduler starts the next run of a service DAG
+// after its latest run ended, given the backoff that the scheduler last shared
+// for the DAG. A run may have ended since that save, so it is counted here as the
+// scheduler counts it. ok is false when the end of the run is unknown.
+func NextRestart(restartWait time.Duration, latest *ir.DAGRunStatus, backoff schedulerstate.RestartBackoff) (time.Time, bool) {
+	endedAt, ok := retryReferenceTime(latest)
+	if !ok {
+		return time.Time{}, false
+	}
+	return restartDue(endedAt, backoffWait(restartWait, countRun(backoff, latest).Failures)), true
 }
 
 // IsStopRequested reports whether an operator asked to stop a run: a stop from

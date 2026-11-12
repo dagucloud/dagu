@@ -33,6 +33,7 @@ type Persistence struct {
 	StateStore                dagrun.StateStore
 	SchedulerStateStore       schedulerstate.Store
 	SchedulerPauseStore       schedulerstate.PauseStore
+	RestartBackoffStore       schedulerstate.RestartBackoffStore
 	WatchStateStore           schedulerstate.WatchStore
 	ServiceRegistry           serviceregistry.ServiceRegistry
 	DispatchTaskStore         dispatch.DispatchTaskStore
@@ -89,6 +90,9 @@ func newFilePersistence(
 	schedulerPauseStore := store.NewSchedulerPauseStore(
 		backend.Collection(persis.CollectionSchedulerState),
 	)
+	restartBackoffStore := store.NewRestartBackoffStore(
+		backend.Collection(persis.CollectionSchedulerState),
+	)
 	watchStateStore := store.NewWatchStateStore(backend.Collection(persis.CollectionWatchState))
 	serviceRegistry := file.NewServiceRegistry(cfg)
 	bundleStore := workspacebundle.NewStore(
@@ -117,6 +121,7 @@ func newFilePersistence(
 		StateStore:                stateStore,
 		SchedulerStateStore:       schedulerStateStore,
 		SchedulerPauseStore:       schedulerPauseStore,
+		RestartBackoffStore:       restartBackoffStore,
 		WatchStateStore:           watchStateStore,
 		ServiceRegistry:           serviceRegistry,
 		DispatchTaskStore:         dispatchTaskStore,

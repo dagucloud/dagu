@@ -126,6 +126,7 @@ func (r *run) resumeSession(ctx context.Context, recordID string, session *ir.Ag
 	opts := launchOptions{
 		DownloadsDir:   record.DownloadsDir,
 		AllowedDomains: r.cfg.Browser.AllowedDomains,
+		DismissConfirm: r.cfg.dismissesConfirm(),
 		Generate:       r.bridge.generate,
 	}
 	eng, err := r.exec.launcher.Reattach(ctx, recordedHandle(record), opts)

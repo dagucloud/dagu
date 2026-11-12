@@ -98,7 +98,7 @@ type engine interface {
 	// previous call, after allowing grace for one to begin and waiting up to
 	// timeout for running ones to finish.
 	WaitForDownloads(ctx context.Context, grace, timeout time.Duration) ([]string, error)
-	// TakeDialogs returns the JavaScript dialogs the browser accepted since
+	// TakeDialogs returns the JavaScript dialogs the browser answered since
 	// the previous call.
 	TakeDialogs() []dialog
 	// TakeBlockedRequests returns the number of requests allowed_domains
@@ -146,6 +146,9 @@ type launchOptions struct {
 	UserDataDir    string
 	DownloadsDir   string
 	AllowedDomains []string
+	// DismissConfirm answers the confirm dialogs pages open with cancel in
+	// place of OK.
+	DismissConfirm bool
 	// NoSandbox turns off the browser sandbox.
 	NoSandbox bool
 	Generate  generateFunc
@@ -217,8 +220,9 @@ type pageOutcome struct {
 	// Text is the start of the page's visible text.
 	Text string `json:"text"`
 	// BotCheck names the check the site answered with in place of the page,
-	// such as browserhost.BotCheckCloudflare, or is empty.
-	BotCheck string `json:"-"`
+	// such as browserhost.BotCheckCloudflare, or the check the page shows
+	// in a frame, such as botCheckRecaptcha, or is empty.
+	BotCheck string `json:"botCheck"`
 }
 
 // pageSnapshot is the accessibility tree of a page.
@@ -238,10 +242,12 @@ type pageSnapshot struct {
 	Title      string
 }
 
-// dialog is a JavaScript dialog the browser accepted.
+// dialog is a JavaScript dialog the browser answered.
 type dialog struct {
 	Type    string
 	Message string
+	// Dismissed reports a confirm answered with cancel in place of OK.
+	Dismissed bool
 }
 
 // recordedAction is one deterministic action an act operation performed.

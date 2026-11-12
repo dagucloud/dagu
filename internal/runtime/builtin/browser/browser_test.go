@@ -21,6 +21,7 @@ import (
 	"time"
 
 	"github.com/dagucloud/dagu/v2/internal/browserhost"
+	"github.com/dagucloud/dagu/v2/internal/browserhost/writegate"
 	cmnconfig "github.com/dagucloud/dagu/v2/internal/cmn/config"
 	"github.com/dagucloud/dagu/v2/internal/cmn/replaycache"
 	"github.com/dagucloud/dagu/v2/internal/cmn/runenv"
@@ -330,6 +331,136 @@ func TestAcceptedDialogsAreReported(t *testing.T) {
 	session := execution.exec.GetAgentSession()
 	assert.Equal(t, []string{"act:completed", "dialog:completed", "screenshot:completed"}, eventNames(session))
 	assert.Contains(t, execution.stderr.String(), `[1/2] dialog "Send *******?" → accepted confirm`)
+}
+
+// Under on_confirm: dismiss, the browser is launched dismissing confirms, and
+// a dismissed confirm is reported as such without failing the step.
+func TestDismissedConfirmIsReported(t *testing.T) {
+	t.Parallel()
+
+	run := newTestRun(t, pageModel(nil))
+	run.engine.actDialogs = []dialog{{Type: "confirm", Message: "Delete this record permanently?", Dismissed: true}}
+	execution := run.execute(`{"browser": {"on_confirm": "dismiss"}, "do": [{"act": "Click the Archive button"}, {"screenshot": "after"}]}`, nil)
+	require.NoError(t, execution.err)
+
+	require.Len(t, run.launcher.launches, 1)
+	assert.True(t, run.launcher.launches[0].DismissConfirm)
+	session := execution.exec.GetAgentSession()
+	assert.Equal(t, []string{"act:completed", "dialog:completed", "screenshot:completed"}, eventNames(session))
+	assert.Contains(t, execution.stderr.String(), `[1/2] dialog "Delete this record permanently?" → dismissed confirm`)
+}
+
+// Under on_confirm: fail, a confirm is dismissed and fails the operation
+// that opened it with the dialog's message; other dialogs are still only
+// reported.
+func TestUnexpectedConfirmFailsOperation(t *testing.T) {
+	t.Parallel()
+
+	run := newTestRun(t, pageModel(nil))
+	run.engine.actDialogs = []dialog{
+		{Type: "alert", Message: "Welcome"},
+		{Type: "confirm", Message: "Delete this record permanently?", Dismissed: true},
+	}
+	execution := run.execute(`{"browser": {"on_confirm": "fail"}, "do": [{"act": "Click the Archive button"}, {"screenshot": "after"}]}`, nil)
+
+	require.EqualError(t, execution.err, `browser: do[0] act failed: confirm dialog "Delete this record permanently?" was not expected`)
+	require.Len(t, run.launcher.launches, 1)
+	assert.True(t, run.launcher.launches[0].DismissConfirm)
+	session := execution.exec.GetAgentSession()
+	assert.Equal(t, []string{"act:completed", "dialog:completed", "dialog:failed"}, eventNames(session))
+	assert.Contains(t, execution.stderr.String(), `[1/2] dialog "Welcome" → accepted alert`)
+	assert.Contains(t, execution.stderr.String(), `[1/2] dialog "Delete this record permanently?" → dismissed confirm`)
+}
+
+// A resumed step keeps dismissing confirms in the browser it reattaches.
+func TestAskResumeKeepsOnConfirm(t *testing.T) {
+	t.Parallel()
+
+	const steps = `{
+		"browser": {"on_confirm": "fail"},
+		"do": [
+			{"ask": {"prompt": "Enter the code", "as": "otp"}},
+			{"act": "Type %otp% and submit"}
+		]
+	}`
+	run := newTestRun(t, pageModel(nil))
+	waiting := run.execute(steps, nil)
+	require.NoError(t, waiting.err)
+	session := waiting.exec.GetAgentSession()
+	require.Len(t, session.Interactions, 1)
+	session.Interactions[0].Status = ir.AgentInteractionAnswered
+	session.Interactions[0].Answers = [][]string{{"123456"}}
+	require.NoError(t, run.execute(steps, session).err)
+
+	require.Len(t, run.launcher.reattachOptions, 1)
+	assert.True(t, run.launcher.reattachOptions[0].DismissConfirm)
+}
+
+// A confirm the page opens while the step waits for downloads at its end is
+// still reported, and under on_confirm: fail fails the step instead of
+// letting it succeed.
+func TestConfirmDuringFinalWaitFailsStep(t *testing.T) {
+	t.Parallel()
+
+	run := newTestRun(t, pageModel(nil))
+	run.engine.lateDialogs = []dialog{{Type: "confirm", Message: "Leave without saving?", Dismissed: true}}
+	execution := run.execute(`{"browser": {"on_confirm": "fail"}, "do": [{"act": "Click the Archive button"}]}`, nil)
+
+	require.EqualError(t, execution.err, `browser: do[0] act failed: confirm dialog "Leave without saving?" was not expected`)
+	assert.Equal(t, []string{"act:completed", "dialog:failed"}, eventNames(execution.exec.GetAgentSession()))
+}
+
+// Under on_confirm: dismiss, a confirm opened during the final wait is
+// reported and the step succeeds.
+func TestConfirmDuringFinalWaitIsReported(t *testing.T) {
+	t.Parallel()
+
+	run := newTestRun(t, pageModel(nil))
+	run.engine.lateDialogs = []dialog{{Type: "confirm", Message: "Leave without saving?", Dismissed: true}}
+	execution := run.execute(`{"browser": {"on_confirm": "dismiss"}, "do": [{"act": "Click the Archive button"}]}`, nil)
+
+	require.NoError(t, execution.err)
+	assert.Equal(t, []string{"act:completed", "dialog:completed"}, eventNames(execution.exec.GetAgentSession()))
+	assert.Contains(t, execution.stderr.String(), `[1/1] dialog "Leave without saving?" → dismissed confirm`)
+}
+
+// A confirm opened while the step waits for downloads before an ask is
+// reported before the browser detaches, and under on_confirm: fail fails
+// the step instead of waiting.
+func TestConfirmBeforeAskFailsStep(t *testing.T) {
+	t.Parallel()
+
+	run := newTestRun(t, pageModel(nil))
+	run.engine.lateDialogs = []dialog{{Type: "confirm", Message: "Leave without saving?", Dismissed: true}}
+	execution := run.execute(`{"browser": {"on_confirm": "fail"}, "do": [
+		{"act": "Click the Archive button"},
+		{"ask": {"prompt": "Enter the code", "as": "otp"}}
+	]}`, nil)
+
+	require.EqualError(t, execution.err, `browser: do[0] act failed: confirm dialog "Leave without saving?" was not expected`)
+	assert.False(t, run.engine.detached, "the step fails instead of waiting")
+	assert.Equal(t, []string{"act:completed", "dialog:failed"}, eventNames(execution.exec.GetAgentSession()))
+}
+
+// A confirm the step did not expect fails it even when the same operation
+// sent a write a rehearsal would have stopped at; the write stays reported.
+func TestUnexpectedConfirmFailsRehearsal(t *testing.T) {
+	t.Parallel()
+
+	run := newTestRun(t, pageModel(nil))
+	run.engine.handle.WriteGate = runningGate()
+	run.engine.actWrites = []writegate.Event{blockedSave}
+	run.engine.actDialogs = []dialog{{Type: "confirm", Message: "Delete this record permanently?", Dismissed: true}}
+	execution := run.execute(`{"browser": {"on_confirm": "fail", "write_gate": "rehearse"}, "do": [
+		{"act": "Click the Save button"},
+		{"screenshot": "after"}
+	]}`, nil)
+
+	require.EqualError(t, execution.err, `browser: do[0] act failed: confirm dialog "Delete this record permanently?" was not expected`)
+	status, err := execution.exec.DetermineNodeStatus()
+	require.NoError(t, err)
+	assert.NotEqual(t, ir.NodePartiallySucceeded, status)
+	assert.Equal(t, []string{"act:completed", "dialog:failed", "write:blocked"}, eventNames(execution.exec.GetAgentSession()))
 }
 
 // Requests allowed_domains blocked appear in the timeline after the operation
