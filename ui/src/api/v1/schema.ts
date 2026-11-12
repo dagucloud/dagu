@@ -7682,7 +7682,7 @@ export interface components {
             queue: string;
             /**
              * Format: date-time
-             * @description When the scheduler starts the next run: restartWaitSec after the latest run ended, longer while the runs in a row fail soon after they start. Set only with the states restarting and failing, and not with restartHold.
+             * @description When the next run is due: restartWaitSec after the latest run ended, longer while the runs in a row fail soon after they start. The scheduler then queues the run, so a busy queue can start it later. Set only with the states restarting and failing, and not with restartHold.
              */
             nextRestartAt?: string;
             restartHold?: components["schemas"]["ServiceDAGRestartHold"];
