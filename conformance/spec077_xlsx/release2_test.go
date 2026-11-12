@@ -243,6 +243,11 @@ func TestXlsxConvert(t *testing.T) {
 	readJSON(t, input, "out.json", &back)
 	require.Equal(t, []string{"品名", "数量"}, back.Headers)
 	require.Equal(t, "みかん", back.Rows[0]["品名"])
+
+	empty := harness.NewRunner(t)
+	empty.Run("start", "convert_encoding_null.yaml").ExpectExitCode(0)
+	require.Equal(t, "\xEF\xBB\xBFItem,Qty\npear,3\n", readFile(t, empty, "null_encoding.csv"),
+		"an encoding left empty, as YAML's null is, takes the default")
 }
 
 func TestXlsxDryRunChecks(t *testing.T) {
@@ -288,7 +293,7 @@ func TestXlsxReleaseTwoValidation(t *testing.T) {
 		{"validation_write_cells_merge.yaml", `merge: "B2" is not a range`},
 		{"validation_sheet_bad_operation.yaml", "move does not equal any of: [add copy rename delete]"},
 		{"validation_convert_no_output.yaml", "convert requires with.output"},
-		{"validation_bad_encoding.yaml", "latin1 does not equal any of: [utf-8 utf-8-bom shift_jis cp932 windows-31j sjis ms932]"},
+		{"validation_bad_encoding.yaml", "latin1 does not equal any of: [utf-8 utf-8-bom shift_jis cp932 windows-31j sjis ms932"},
 	} {
 		t.Run(tc.file, func(t *testing.T) {
 			t.Parallel()

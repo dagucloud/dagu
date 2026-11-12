@@ -835,7 +835,7 @@ var configSchema = &jsonschema.Schema{
 		"if_exists": {Type: "string", Enum: []any{"fail", "skip", "replace"},
 			Description: "What xlsx.sheet does when the sheet to create already exists: fail (default), skip with a warning, or replace its contents."},
 		"position": {Description: "xlsx.sheet: 1-based position of the sheet add or copy creates; by default an added sheet goes last and a copy right after its source."},
-		"encoding": {Type: "string", Enum: []any{"utf-8", "utf-8-bom", "shift_jis", "cp932", "windows-31j", "sjis", "ms932"},
+		"encoding": {Enum: []any{"utf-8", "utf-8-bom", "shift_jis", "cp932", "windows-31j", "sjis", "ms932", "", nil},
 			Description: "Encoding of a csv file: the input of xlsx.write and xlsx.append, or the output of xlsx.convert. utf-8, utf-8-bom, or shift_jis (also cp932, windows-31j). An input without encoding is detected: UTF-8, or else Shift_JIS; convert writes utf-8-bom by default so Excel opens it as UTF-8."},
 		"delimiter": {Type: "string", Description: "Field separator of a csv file, one character; a comma by default."},
 		"instruction": {Type: "string", Description: "xlsx.extract: what to find on the sheet, such as 'A supplier quote; find the quote number, delivery date, and total'. " +
