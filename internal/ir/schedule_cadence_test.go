@@ -28,6 +28,9 @@ func TestSameCadence(t *testing.T) {
 		{"*/30 * * * *", "*/15 * * * *", false},
 		{"0 2 1 * *", "0 2 2 * *", false},
 		{"@every 1h", "0 * * * *", false},
+		{"0 2 * * MON-FRI", "0 6 * * 1,2,3,4,5", true},
+		{"0 2 * * *", "@daily", true},
+		{"0 2 1-31 * *", "0 6 * * *", false},
 	} {
 		assert.Equal(t, tc.want, ir.SameCadence(tc.a, tc.b), "%s vs %s", tc.a, tc.b)
 	}
