@@ -5,6 +5,7 @@ package frontend
 
 import (
 	"context"
+	"crypto/tls"
 	"errors"
 	"fmt"
 	"io"
@@ -13,6 +14,7 @@ import (
 	"mime"
 	"net"
 	"net/http"
+	"net/url"
 	"os"
 	"os/signal"
 	"path"
@@ -70,12 +72,34 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/tunnel"
 	"github.com/dagucloud/dagu/v2/internal/upgrade"
 	workspacepkg "github.com/dagucloud/dagu/v2/internal/workspace"
+	"github.com/dagucloud/dagu/v2/internal/workspace/deprecation"
 )
 
 const (
 	serverShutdownTimeout = 10 * time.Second
 	httpShutdownBudget    = 5 * time.Second
 	httpWriteTimeout      = 60 * time.Second
+	// dagRunActivityMinInterval is the shortest gap between two refetches
+	// of one live activity topic.
+	dagRunActivityMinInterval = 5 * time.Second
+	// dagRunActivityMaxInterval bounds how stale a live activity topic gets
+	// when no run event wakes it, such as when a queued run records why it
+	// cannot start or the data disk fills.
+	dagRunActivityMaxInterval = 30 * time.Second
+	// dagRunsMaxInterval bounds how stale a live run list gets when no run
+	// event wakes it, such as when a DAG gains or loses a restart policy and
+	// its runs move in or out of the lists that leave service DAG runs out.
+	dagRunsMaxInterval = 30 * time.Second
+	// dagDetailsMaxInterval bounds how stale a DAG details topic gets when no
+	// wake reaches it, such as when its next run time passes or a DAG file
+	// outside the watched directories changes.
+	dagDetailsMaxInterval = 30 * time.Second
+	// serviceDAGsMinInterval is the shortest gap between two refetches of the
+	// service DAG list.
+	serviceDAGsMinInterval = 2 * time.Second
+	// serviceDAGsMaxInterval bounds how stale the list gets when nothing wakes
+	// it, such as an operator stop that no run event reports yet.
+	serviceDAGsMaxInterval = 30 * time.Second
 )
 
 var wikiSSETopicTypes = [...]sse.TopicType{
@@ -118,6 +142,7 @@ type Server struct {
 	newNotificationLease func() chatbridge.Lease
 	syncService          gitsync.Service
 	listener             net.Listener
+	onReady              func(url string)
 	appStream            *sse.AppStreamService
 	sseMultiplexer       *sse.Multiplexer
 	terminalManager      *terminal.Manager
@@ -125,10 +150,17 @@ type Server struct {
 	tunnelAPIOpts        []apiv1.APIOption
 	tunnelService        *tunnel.Service
 	dagRepository        *persis.DAGRepository
+	dagRunRepository     *persis.DAGRunRepository
+	ephemeralCleanup     ephemeralCleanupConfig
 	licenseManager       *license.Manager
 	remoteNodeResolver   *remotenode.Resolver
 	upgradeStore         upgrade.CacheStore
 	routeRegistrars      []RouteRegistrar
+	workspaceDeprecation deprecation.Sources
+
+	// notificationMonitorsDisabled leaves DAG-run notification and incident
+	// delivery to another service in the same process.
+	notificationMonitorsDisabled bool
 }
 
 // ServerOption is a functional option for configuring the Server.
@@ -138,6 +170,22 @@ type ServerOption func(*Server)
 func WithListener(l net.Listener) ServerOption {
 	return func(s *Server) {
 		s.listener = l
+	}
+}
+
+// WithOnReady sets a function called once the server accepts connections,
+// with the URL that opens the web UI from this host.
+func WithOnReady(fn func(url string)) ServerOption {
+	return func(s *Server) {
+		s.onReady = fn
+	}
+}
+
+// WithoutNotificationMonitors keeps Serve from delivering DAG-run
+// notifications and incidents; their APIs stay available.
+func WithoutNotificationMonitors() ServerOption {
+	return func(s *Server) {
+		s.notificationMonitorsDisabled = true
 	}
 }
 
@@ -355,6 +403,9 @@ func NewServer(setup ServerConfig, opts ...ServerOption) (*Server, error) {
 	if stores.WorkspaceBaseConfig != nil {
 		apiOpts = append(apiOpts, apiv1.WithWorkspaceBaseConfigProvider(stores.WorkspaceBaseConfig))
 	}
+	if stores.PublicWebhooks != nil {
+		apiOpts = append(apiOpts, apiv1.WithPublicWebhookStore(stores.PublicWebhooks))
+	}
 
 	var auditSvc *audit.Service
 	if stores.Audit != nil {
@@ -372,6 +423,9 @@ func NewServer(setup ServerConfig, opts ...ServerOption) (*Server, error) {
 
 	if stores.BaseConfig != nil {
 		apiOpts = append(apiOpts, apiv1.WithBaseConfigStore(stores.BaseConfig))
+	}
+	if stores.Calendar != nil {
+		apiOpts = append(apiOpts, apiv1.WithCalendarStore(stores.Calendar))
 	}
 
 	// Initialize the workspace store before OIDC provisioning so login-time
@@ -422,6 +476,10 @@ func NewServer(setup ServerConfig, opts ...ServerOption) (*Server, error) {
 			if err != nil {
 				return nil, fmt.Errorf("failed to create proxy authentication provisioning service: %w", err)
 			}
+			proxySources, err := newIPAccessPolicy(cfg.Server.IPAccess)
+			if err != nil {
+				return nil, fmt.Errorf("configure IP access: %w", err)
+			}
 			trustedProxyCfg = &auth.TrustedProxyLoginConfig{
 				Enabled:        true,
 				UserHeader:     trustedProxy.Headers.User,
@@ -433,9 +491,11 @@ func NewServer(setup ServerConfig, opts ...ServerOption) (*Server, error) {
 					count, err := stores.AuthService.CountUsers(ctx)
 					return count > 0, err
 				},
+				TrustedSource: proxySources.fromTrustedProxy,
 				LoginBasePath: evaluatedBasePath,
 			}
 			logger.Info(ctx, "Proxy authentication enabled",
+				slog.Any("trustedProxies", cfg.Server.IPAccess.TrustedProxies),
 				slog.Bool("autoSignup", trustedProxy.AutoSignup),
 				slog.String("defaultRole", trustedProxy.RoleMapping.DefaultRole),
 				slog.Bool("skipOrgRoleSync", trustedProxy.RoleMapping.SkipOrgRoleSync))
@@ -528,6 +588,9 @@ func NewServer(setup ServerConfig, opts ...ServerOption) (*Server, error) {
 	if stores.DAGSettings != nil {
 		apiOpts = append(apiOpts, apiv1.WithDAGSettingsStore(stores.DAGSettings))
 	}
+	if stores.DAGPins != nil {
+		apiOpts = append(apiOpts, apiv1.WithDAGPinStore(stores.DAGPins))
+	}
 
 	if stores.Wiki != nil {
 		apiOpts = append(apiOpts, apiv1.WithWikiStore(stores.Wiki))
@@ -539,11 +602,15 @@ func NewServer(setup ServerConfig, opts ...ServerOption) (*Server, error) {
 
 	var notificationSvc *notificationservice.Service
 	if stores.Notification != nil && eventSvc != nil && stores.NotificationState != nil {
-		notificationSvc = notificationservice.New(
-			stores.Notification,
-			dr,
+		notificationOpts := []notificationservice.Option{
 			notificationservice.WithPublicURL(cfg.Server.PublicURL),
-		)
+		}
+		// Command channels run shell commands, so they need the same server
+		// permissions as writing and running DAGs.
+		if cfg.Server.Permissions[config.PermissionWriteDAGs] && cfg.Server.Permissions[config.PermissionRunDAGs] {
+			notificationOpts = append(notificationOpts, notificationservice.WithCommandChannels(cfg.Core.BaseEnv.WithoutCredentials(), dagRunRepository))
+		}
+		notificationSvc = notificationservice.New(stores.Notification, dr, notificationOpts...)
 		apiOpts = append(apiOpts, apiv1.WithNotificationService(notificationSvc))
 	} else if stores.Notification != nil {
 		slog.Default().Warn("Notification delivery is unavailable because the event or state store is disabled")
@@ -562,10 +629,10 @@ func NewServer(setup ServerConfig, opts ...ServerOption) (*Server, error) {
 	}
 
 	upgradeStore := stores.Upgrade
-	var updateInfoChecker UpdateChecker
-	if upgradeStore != nil {
-		updateInfoChecker = &updateChecker{store: upgradeStore}
-	}
+	updateInfoChecker := newUpdateChecker(ctx, upgradeStore)
+
+	workspaceDeprecation := workspaceDeprecationSources(cfg, dr, stores, authSvc)
+	apiOpts = append(apiOpts, apiv1.WithWorkspaceDeprecation(workspaceDeprecation))
 
 	// Note: SSO/OIDC gating is applied after opts are processed (see below)
 
@@ -586,8 +653,10 @@ func NewServer(setup ServerConfig, opts ...ServerOption) (*Server, error) {
 		syncService:          syncSvc,
 		metricsRegistry:      mr,
 		dagRepository:        dr,
+		dagRunRepository:     dagRunRepository,
 		remoteNodeResolver:   remoteNodeResolver,
 		upgradeStore:         upgradeStore,
+		workspaceDeprecation: workspaceDeprecation,
 		funcsConfig: funcsConfig{
 			NavbarColor:           cfg.UI.NavbarColor,
 			NavbarTitle:           cfg.UI.NavbarTitle,
@@ -671,6 +740,7 @@ func NewServer(setup ServerConfig, opts ...ServerOption) (*Server, error) {
 			return
 		}
 		srv.sseMultiplexer.WakeTopicType(sse.TopicTypeDAGsList)
+		srv.sseMultiplexer.WakeTopicType(sse.TopicTypeServiceDAGs)
 		srv.sseMultiplexer.WakeTopic(sse.TopicTypeDAG, fileName)
 	}))
 	apiOpts = append(apiOpts, apiv1.WithWikiMutationNotifier(func() {
@@ -691,20 +761,54 @@ func NewServer(setup ServerConfig, opts ...ServerOption) (*Server, error) {
 	return srv, nil
 }
 
-// updateChecker implements UpdateChecker by reading from the upgrade cache store.
+// updateChecker implements UpdateChecker from the upgrade cache store and the
+// binary the server started from.
 type updateChecker struct {
-	store upgrade.CacheStore
+	store          upgrade.CacheStore // nil when update checks are disabled
+	binary         *upgrade.RunningBinary
+	upgradeCommand string
+	restartCommand string
 }
 
-func (u *updateChecker) GetUpdateInfo() (bool, string) {
+func newUpdateChecker(ctx context.Context, store upgrade.CacheStore) *updateChecker {
+	binary, err := upgrade.CaptureRunningBinary()
+	if err != nil {
+		logger.Debug(ctx, "Cannot detect replacement of the running binary", tag.Error(err))
+	}
+	return &updateChecker{
+		store:          store,
+		binary:         binary,
+		upgradeCommand: upgrade.DetectInstallMethod().UpgradeCommand(),
+		restartCommand: upgrade.RestartCommand(),
+	}
+}
+
+func (u *updateChecker) UpdateStatus() UpdateStatus {
+	status := UpdateStatus{
+		UpgradeCommand:  u.upgradeCommand,
+		RestartRequired: u.binary != nil && u.binary.Replaced(),
+		RestartCommand:  u.restartCommand,
+	}
 	if u.store == nil {
-		return false, ""
+		return status
 	}
-	cache := upgrade.GetCachedUpdateInfo(u.store)
-	if cache == nil {
-		return false, ""
+	if cache := upgrade.GetCachedUpdateInfo(u.store); cache != nil {
+		status.UpdateAvailable = cache.UpdateAvailable
+		status.LatestVersion = cache.LatestVersion
 	}
-	return cache.UpdateAvailable, cache.LatestVersion
+	return status
+}
+
+// tunnelHosts returns the tunnel's host name while one is connected.
+func (srv *Server) tunnelHosts() []string {
+	if srv.tunnelService == nil {
+		return nil
+	}
+	tunnelURL, err := url.Parse(srv.tunnelService.PublicURL())
+	if err != nil || tunnelURL.Hostname() == "" {
+		return nil
+	}
+	return []string{tunnelURL.Hostname()}
 }
 
 // setupChecker implements SetupRequiredChecker by counting users via the auth service.
@@ -740,7 +844,7 @@ func initSyncService(ctx context.Context, cfg *config.Config) gitsync.Service {
 	}
 
 	syncCfg := gitsync.NewConfigFromGlobal(cfg.GitSync)
-	svc := gitsync.NewService(syncCfg, cfg.Paths.DAGsDir, cfg.Paths.WikiDir, cfg.Paths.DataDir)
+	svc := gitsync.NewService(syncCfg, cfg.Paths.DAGsDir, cfg.Paths.WikiDir, cfg.Paths.CalendarsDir, cfg.Paths.DataDir)
 
 	if syncCfg.AutoSync.Enabled {
 		if err := svc.Start(ctx); err != nil {
@@ -831,7 +935,9 @@ func skipPathsMiddleware(mw func(http.Handler) http.Handler, skip map[string]str
 	}
 }
 
-// Serve starts the HTTP server and configures routes.
+// Serve configures routes and serves HTTP until ctx ends or a shutdown signal
+// arrives. It returns an error when it cannot listen or stops serving
+// unexpectedly.
 func (srv *Server) Serve(ctx context.Context) error {
 	r := chi.NewMux()
 	apiV1BasePath := srv.configureAPIPath(ctx)
@@ -872,11 +978,19 @@ func (srv *Server) Serve(ctx context.Context) error {
 	r.Use(middleware.Recoverer)
 	r.Use(securityHeadersMiddleware(srv.config.Server.TLS != nil))
 	r.Use(ipAccessPolicy.middleware)
-	r.Use(corsPolicy{
+	setupPath := path.Join(apiV1BasePath, "auth/setup")
+	machineHostname, _ := os.Hostname()
+	hostNamePolicy := newHostPolicy(srv.config, setupPath, machineHostname, srv.tunnelHosts)
+	r.Use(hostNamePolicy.middleware)
+	crossOriginPolicy := corsPolicy{
 		allowedOrigins: srv.config.Server.CORSAllowedOrigins,
 		publicURL:      srv.config.Server.PublicURL,
-		setupPath:      path.Join(apiV1BasePath, "auth/setup"),
-	}.middleware)
+		setupPath:      setupPath,
+	}
+	for _, warning := range crossOriginPolicy.originWarnings() {
+		logger.Warn(ctx, warning)
+	}
+	r.Use(crossOriginPolicy.middleware)
 	r.Use(middleware.RedirectSlashes)
 
 	if err := srv.setupRoutes(ctx, r); err != nil {
@@ -908,18 +1022,67 @@ func (srv *Server) Serve(ctx context.Context) error {
 		WriteTimeout:      httpWriteTimeout,
 	}
 
-	if err := srv.startMonitors(ctx); err != nil {
+	if err := srv.listen(addr); err != nil {
 		return err
 	}
+	if !srv.notificationMonitorsDisabled {
+		if err := srv.startMonitors(ctx); err != nil {
+			_ = srv.listener.Close()
+			return err
+		}
+	}
 
+	webURL := localURL(srv.listener.Addr(), srv.config.Server.TLS != nil, srv.funcsConfig.BasePath)
 	metrics.StartUptime(ctx)
-	logger.Info(ctx, "Server is starting", tag.Addr(addr))
+	logger.Info(ctx, "Server is starting", tag.Addr(srv.listener.Addr().String()), tag.URL(webURL))
 	srv.startPeriodicUpdateCheck(ctx)
+	srv.startEphemeralRunCleanup(ctx)
 
-	go srv.startServer(ctx)
-	srv.setupGracefulShutdown(ctx)
+	serveErr := make(chan error, 1)
+	go srv.startServer(ctx, serveErr)
+	if srv.onReady != nil {
+		srv.onReady(webURL)
+	}
+	srv.warnWorkspaceDeprecation(ctx)
+	return srv.setupGracefulShutdown(ctx, serveErr)
+}
 
+// listen loads the TLS certificate when TLS is configured and binds addr
+// unless a listener was supplied.
+func (srv *Server) listen(addr string) error {
+	if tlsCfg := srv.config.Server.TLS; tlsCfg != nil {
+		cert, err := tls.LoadX509KeyPair(tlsCfg.CertFile, tlsCfg.KeyFile)
+		if err != nil {
+			return fmt.Errorf("load TLS certificate: %w", err)
+		}
+		srv.httpServer.TLSConfig = &tls.Config{
+			Certificates: []tls.Certificate{cert},
+			MinVersion:   tls.VersionTLS12,
+		}
+	}
+	if srv.listener != nil {
+		return nil
+	}
+	listener, err := net.Listen("tcp", addr)
+	if err != nil {
+		return err
+	}
+	srv.listener = listener
 	return nil
+}
+
+// localURL returns the URL that opens the web UI from this host for a server
+// listening on addr. An unspecified address is reached through localhost.
+func localURL(addr net.Addr, useTLS bool, basePath string) string {
+	hostPort := addr.String()
+	if tcpAddr, ok := addr.(*net.TCPAddr); ok && tcpAddr.IP.IsUnspecified() {
+		hostPort = net.JoinHostPort("localhost", strconv.Itoa(tcpAddr.Port))
+	}
+	scheme := "http"
+	if useTLS {
+		scheme = "https"
+	}
+	return scheme + "://" + hostPort + basePath
 }
 
 func trustedProxyRequestHeaders(cfg config.AuthTrustedProxy) []string {
@@ -1135,8 +1298,13 @@ func (srv *Server) setupAssetRoutesWithFS(r *chi.Mux, basePath string, assetFS f
 			_, _ = w.Write(cmnschema.ConfigSchemaJSON)
 			return
 		}
+		if strings.HasSuffix(r.URL.Path, "calendar.schema.json") {
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write(cmnschema.CalendarSchemaJSON)
+			return
+		}
 
-		if ctype := mime.TypeByExtension(path.Ext(r.URL.Path)); ctype != "" {
+		if ctype := mime.TypeByExtension(strings.ToLower(path.Ext(r.URL.Path))); ctype != "" {
 			w.Header().Set("Content-Type", ctype)
 		}
 		fileServer.ServeHTTP(w, r)
@@ -1255,7 +1423,11 @@ func (srv *Server) setupSSERoute(ctx context.Context, r *chi.Mux, apiV1BasePath 
 	srv.registerDedicatedSSEFetchers(srv.sseMultiplexer)
 	srv.startAppStreamInvalidationBridge(ctx)
 	if srv.eventService != nil {
-		sse.StartDAGRunEventInvalidation(srv.sseMultiplexer.Context(), srv.eventService, srv.sseMultiplexer, slog.Default(), time.Second)
+		var serviceDAGs sse.ServiceDAGNames
+		if srv.dagRepository != nil {
+			serviceDAGs = srv.dagRepository.SavedServiceDAGNames
+		}
+		sse.StartDAGRunEventInvalidation(srv.sseMultiplexer.Context(), srv.eventService, srv.sseMultiplexer, serviceDAGs, slog.Default(), time.Second)
 	}
 
 	multiplexHandler := sse.NewMultiplexHandler(srv.sseMultiplexer, srv.remoteNodeResolver)
@@ -1267,6 +1439,7 @@ func (srv *Server) setupSSERoute(ctx context.Context, r *chi.Mux, apiV1BasePath 
 		r.Use(auth.ClientIPMiddleware())
 		r.Use(auth.Middleware(authOpts))
 		r.Use(srv.injectDefaultStreamUserMiddleware())
+		r.Use(srv.apiV1.RemoteNodeStreamAuthorization)
 
 		r.Get("/stream", multiplexHandler.HandleStream)
 		r.Post("/stream/topics", multiplexHandler.HandleTopicMutation)
@@ -1307,10 +1480,13 @@ func (srv *Server) wakeMultiplexedTopicsForAppEvent(event sse.AppEvent) {
 	switch event.Type {
 	case sse.AppEventTypeDAGChanged:
 		srv.sseMultiplexer.WakeTopicType(sse.TopicTypeDAGsList)
+		srv.sseMultiplexer.WakeTopicType(sse.TopicTypeServiceDAGs)
 		srv.sseMultiplexer.WakeTopicType(sse.TopicTypeDAG)
 		srv.sseMultiplexer.WakeTopicType(sse.TopicTypeDAGHistory)
 	case sse.AppEventTypeScheduler:
 		srv.sseMultiplexer.WakeTopicType(sse.TopicTypeDAGsList)
+		srv.sseMultiplexer.WakeTopicType(sse.TopicTypeDAG)
+		srv.sseMultiplexer.WakeTopicType(sse.TopicTypeServiceDAGs)
 	case sse.AppEventTypeQueue:
 		srv.sseMultiplexer.WakeTopicType(sse.TopicTypeQueues)
 		if event.QueueName != "" {
@@ -1334,6 +1510,7 @@ func (srv *Server) wakeAllMultiplexedFileBackedTopics() {
 	srv.sseMultiplexer.WakeTopicType(sse.TopicTypeQueueItems)
 	srv.sseMultiplexer.WakeTopicType(sse.TopicTypeQueues)
 	srv.sseMultiplexer.WakeTopicType(sse.TopicTypeDAGsList)
+	srv.sseMultiplexer.WakeTopicType(sse.TopicTypeServiceDAGs)
 	srv.wakeWikiTopics()
 }
 
@@ -1364,6 +1541,13 @@ func (srv *Server) setupMCPRoute(ctx context.Context, r *chi.Mux) {
 	logger.Info(ctx, "MCP route configured", slog.String("path", mcpPath))
 }
 
+// CloudMCPHandler returns the MCP handler for the calls Dagu Cloud carries to
+// this server. approvals reports whether those calls may decide steps waiting
+// for a person.
+func (srv *Server) CloudMCPHandler(approvals func(context.Context) bool) http.Handler {
+	return dagumcp.NewCloudHandler(srv.apiV1, approvals)
+}
+
 func clearWriteDeadlineMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if err := http.NewResponseController(w).SetWriteDeadline(time.Time{}); err != nil {
@@ -1385,8 +1569,21 @@ func (srv *Server) registerDedicatedSSEFetchers(registrar *sse.Multiplexer) {
 	registrar.RegisterFetcher(sse.TopicTypeDAGRunLogs, srv.apiV1.GetDAGRunLogsData)
 	registrar.RegisterFetcher(sse.TopicTypeStepLog, srv.apiV1.GetStepLogData)
 	registrar.RegisterFetcher(sse.TopicTypeDAGRuns, srv.apiV1.GetDAGRunsListData)
+	registrar.RegisterValidator(sse.TopicTypeDAGRuns, srv.apiV1.ValidateDAGRunsListQuery)
+	registrar.RegisterFetcher(sse.TopicTypeDAGRunActivity, srv.apiV1.GetDAGRunActivityData)
+	registrar.RegisterValidator(sse.TopicTypeDAGRunActivity, srv.apiV1.ValidateDAGRunActivityQuery)
+	// Each activity refetch scans the whole window, so bursts of run events
+	// are merged into at most one refetch per interval.
+	registrar.SetMinInterval(sse.TopicTypeDAGRunActivity, dagRunActivityMinInterval)
+	registrar.SetMaxInterval(sse.TopicTypeDAGRunActivity, dagRunActivityMaxInterval)
+	registrar.SetMaxInterval(sse.TopicTypeDAGRuns, dagRunsMaxInterval)
 	registrar.RegisterFetcher(sse.TopicTypeQueues, srv.apiV1.GetQueuesListData)
 	registrar.RegisterFetcher(sse.TopicTypeDAGsList, srv.apiV1.GetDAGsListData)
+	registrar.RegisterFetcher(sse.TopicTypeServiceDAGs, srv.apiV1.GetServiceDAGsData)
+	// A service DAG restarts all the time, and a refetch reads the latest run
+	// of every service DAG, so bursts of run events are merged into one refetch.
+	registrar.SetMinInterval(sse.TopicTypeServiceDAGs, serviceDAGsMinInterval)
+	registrar.SetMaxInterval(sse.TopicTypeServiceDAGs, serviceDAGsMaxInterval)
 	for _, topicType := range []sse.TopicType{sse.TopicTypeWikiPage, sse.TopicTypeLegacyDoc} {
 		registrar.RegisterFetcher(topicType, srv.apiV1.GetWikiPageContentData)
 	}
@@ -1412,6 +1609,7 @@ func (srv *Server) registerDedicatedSSEFetchers(registrar *sse.Multiplexer) {
 			sse.TopicTypeSubDAGRun,
 			sse.TopicTypeDAGHistory,
 			sse.TopicTypeDAGRuns,
+			sse.TopicTypeDAGRunActivity,
 			sse.TopicTypeQueues,
 		} {
 			registrar.SetRefreshMode(topicType, sse.TopicRefreshModeOnDemand)
@@ -1419,6 +1617,13 @@ func (srv *Server) registerDedicatedSSEFetchers(registrar *sse.Multiplexer) {
 		if appStreamAvailable {
 			registrar.SetRefreshMode(sse.TopicTypeDAGsList, sse.TopicRefreshModeOnDemand)
 			registrar.SetPublishOnWake(sse.TopicTypeDAGsList, true)
+			// DAG details also need file wakes: definition, base config,
+			// suspension, and scheduler state changes.
+			registrar.SetRefreshMode(sse.TopicTypeDAG, sse.TopicRefreshModeOnDemand)
+			registrar.SetMaxInterval(sse.TopicTypeDAG, dagDetailsMaxInterval)
+			// DAG changes, such as a suspension, reach this topic through the
+			// app stream. A wake that leaves the list unchanged sends nothing.
+			registrar.SetRefreshMode(sse.TopicTypeServiceDAGs, sse.TopicRefreshModeOnDemand)
 		}
 		registrar.SetPublishOnWake(sse.TopicTypeDAGRuns, true)
 		registrar.SetPublishOnWake(sse.TopicTypeQueues, true)
@@ -1490,34 +1695,18 @@ func (srv *Server) buildStreamAuthOptions(realm string) auth.Options {
 	return opts
 }
 
-func (srv *Server) startServer(ctx context.Context) {
-	tlsCfg := srv.config.Server.TLS
-	hasListener := srv.listener != nil
-
-	if tlsCfg != nil {
-		logger.Info(ctx, "Starting TLS server",
-			tag.Cert(tlsCfg.CertFile), slog.String("key", tlsCfg.KeyFile),
-			slog.Bool("preBoundListener", hasListener))
-	} else if hasListener {
-		logger.Info(ctx, "Starting server on pre-bound listener")
+// startServer serves on the bound listener and reports any failure other than
+// a requested shutdown to serveErr.
+func (srv *Server) startServer(ctx context.Context, serveErr chan<- error) {
+	var err error
+	if tlsCfg := srv.config.Server.TLS; tlsCfg != nil {
+		logger.Info(ctx, "Starting TLS server", tag.Cert(tlsCfg.CertFile), slog.String("key", tlsCfg.KeyFile))
+		err = srv.httpServer.ServeTLS(srv.listener, "", "")
+	} else {
+		err = srv.httpServer.Serve(srv.listener)
 	}
-
-	err := srv.serveHTTP(tlsCfg, hasListener)
-	if err != nil && err != http.ErrServerClosed {
-		logger.Error(ctx, "Server failed to start or unexpected shutdown", tag.Error(err))
-	}
-}
-
-func (srv *Server) serveHTTP(tlsCfg *config.TLSConfig, hasListener bool) error {
-	switch {
-	case hasListener && tlsCfg != nil:
-		return srv.httpServer.ServeTLS(srv.listener, tlsCfg.CertFile, tlsCfg.KeyFile)
-	case hasListener:
-		return srv.httpServer.Serve(srv.listener)
-	case tlsCfg != nil:
-		return srv.httpServer.ListenAndServeTLS(tlsCfg.CertFile, tlsCfg.KeyFile)
-	default:
-		return srv.httpServer.ListenAndServe()
+	if !errors.Is(err, http.ErrServerClosed) {
+		serveErr <- err
 	}
 }
 
@@ -1661,11 +1850,19 @@ func runShutdownSequence(shutdownCtx context.Context, actions shutdownActions) e
 	return shutdownErr
 }
 
-func (srv *Server) setupGracefulShutdown(ctx context.Context) {
-	var received os.Signal
+// setupGracefulShutdown waits until ctx ends, a shutdown signal arrives, or
+// serving fails, then shuts the server down. It returns the serving failure.
+func (srv *Server) setupGracefulShutdown(ctx context.Context, serveErr <-chan error) error {
+	var (
+		received os.Signal
+		failure  error
+	)
 	if signalctx.OSSignalsDisabled(ctx) {
-		<-ctx.Done()
-		logger.Info(ctx, "Context done, shutting down server")
+		select {
+		case <-ctx.Done():
+			logger.Info(ctx, "Context done, shutting down server")
+		case failure = <-serveErr:
+		}
 	} else {
 		quit := make(chan os.Signal, 1)
 		signal.Notify(quit, syscall.SIGINT, syscall.SIGTERM)
@@ -1676,6 +1873,7 @@ func (srv *Server) setupGracefulShutdown(ctx context.Context) {
 		case sig := <-quit:
 			received = sig
 			logger.Info(ctx, "Received shutdown signal", slog.String("signal", sig.String()))
+		case failure = <-serveErr:
 		}
 		signal.Stop(quit)
 	}
@@ -1693,4 +1891,5 @@ func (srv *Server) setupGracefulShutdown(ctx context.Context) {
 	}
 	// Runner cleanup has its own DAG budget, independent of HTTP shutdown.
 	<-runsDone
+	return failure
 }

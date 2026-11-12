@@ -1,7 +1,7 @@
 // Copyright (C) 2026 Yota Hamada
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-import { render, screen, waitFor } from '@testing-library/react';
+import { act, render, screen, waitFor } from '@testing-library/react';
 import React from 'react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
@@ -9,22 +9,31 @@ import type { Config } from '@/contexts/ConfigContext';
 import { AppBarContext } from '@/contexts/AppBarContext';
 import App from '../App';
 import { useLicense } from '@/hooks/useLicense';
+import { useWorkflowOverlay } from '@/features/peek/WorkflowOverlay';
 import userEvent from '@testing-library/user-event';
+import { useLocation } from 'react-router-dom';
 
-const { clientMock, clientGetMock, overviewImportError, useQueryMock } =
-  vi.hoisted(() => {
-    const clientGetMock = vi.fn();
-    return {
-      clientGetMock,
-      overviewImportError: { current: false },
-      useQueryMock: vi.fn(),
-      clientMock: {
-        GET: clientGetMock,
-        POST: vi.fn(),
-        DELETE: vi.fn(),
-      },
-    };
-  });
+const {
+  clientMock,
+  clientGetMock,
+  overviewImportError,
+  pageRenders,
+  useQueryMock,
+} = vi.hoisted(() => {
+  const clientGetMock = vi.fn();
+  return {
+    clientGetMock,
+    overviewImportError: { current: false },
+    // The renders of the workflow list, and the runs of its title effect.
+    pageRenders: { dags: 0, titles: 0 },
+    useQueryMock: vi.fn(),
+    clientMock: {
+      GET: clientGetMock,
+      POST: vi.fn(),
+      DELETE: vi.fn(),
+    },
+  };
+});
 
 vi.hoisted(() => {
   vi.stubGlobal('getConfig', () => ({
@@ -43,6 +52,7 @@ vi.mock('../layouts/Layout', () => ({
   default: ({ children }: { children: React.ReactNode }) => {
     const license = useLicense();
     const { selectRemoteNode } = React.useContext(AppBarContext);
+    const overlay = useWorkflowOverlay();
     return (
       <main>
         <output aria-label="Current license">
@@ -50,6 +60,10 @@ vi.mock('../layouts/Layout', () => ({
         </output>
         <button onClick={() => selectRemoteNode('remote')}>
           Select remote
+        </button>
+        <button onClick={() => overlay?.open({ dag: 'etl' })}>Open etl</button>
+        <button onClick={() => overlay?.setSequence([{ dag: 'etl' }])}>
+          List rows
         </button>
         {children}
       </main>
@@ -72,9 +86,27 @@ vi.mock('../pages/dag-runs', () => ({ default: () => <h1>DAG Runs</h1> }));
 vi.mock('../pages/dag-runs/dag-run', () => ({
   default: () => <h1>DAG Run Details</h1>,
 }));
-vi.mock('../pages/dags', () => ({ default: () => <h1>DAGs</h1> }));
+// The workflow list sets its title as the pages do, and reads its location.
+vi.mock('../pages/dags', () => ({
+  default: function DAGsPage() {
+    pageRenders.dags++;
+    useLocation();
+    const appBar = React.useContext(AppBarContext);
+    React.useEffect(() => {
+      pageRenders.titles++;
+      appBar.setTitle('Workflows');
+    }, [appBar]);
+    return <h1>DAGs</h1>;
+  },
+}));
 vi.mock('../pages/dags/dag', () => ({
-  default: () => <h1>DAG Details</h1>,
+  default: function DAGDetailsPage() {
+    const { setTitle } = React.useContext(AppBarContext);
+    React.useEffect(() => {
+      setTitle('etl');
+    }, [setTitle]);
+    return <h1>DAG Details</h1>;
+  },
 }));
 vi.mock('../pages/wiki', () => ({ default: () => <h1>Wiki</h1> }));
 vi.mock('../pages/event-logs', () => ({
@@ -94,7 +126,14 @@ vi.mock('../pages/incidents', () => ({
 vi.mock('../pages/integrations', () => ({
   default: () => <h1>Integrations</h1>,
 }));
-vi.mock('../pages/license', () => ({ default: () => <h1>License</h1> }));
+vi.mock('../pages/license', () => ({
+  default: ({ children }: { children?: React.ReactNode }) => (
+    <>
+      <h1>License</h1>
+      {children}
+    </>
+  ),
+}));
 vi.mock('../pages/login', () => ({ default: () => <h1>Login</h1> }));
 vi.mock('../pages/notification-channels', () => ({
   default: () => <h1>Notification Channels</h1>,
@@ -176,6 +215,9 @@ function makeConfig(overrides: Partial<Config> = {}): Config {
     gitSyncEnabled: true,
     updateAvailable: false,
     latestVersion: '',
+    upgradeCommand: '',
+    restartRequired: false,
+    restartCommand: '',
     permissions: {
       writeDags: true,
       runDags: true,
@@ -216,6 +258,12 @@ function renderAt(path: string, config = makeConfig()): void {
 }
 
 beforeEach(() => {
+  // jsdom has no matchMedia; the workflow overlay reads reduced motion.
+  vi.stubGlobal('matchMedia', () => ({
+    matches: false,
+    addEventListener: () => undefined,
+    removeEventListener: () => undefined,
+  }));
   localStorage.clear();
   sessionStorage.clear();
   clientGetMock.mockReset();
@@ -279,6 +327,63 @@ describe('App document title', () => {
       await screen.findByRole('heading', { name: 'Queues' })
     ).toBeVisible();
     expect(document.title).toBe('Operations');
+  });
+});
+
+// A workflow shows over the page that opened it, and that page stays as it
+// was. A title from the workflow page made both pages set theirs in turn.
+describe('App workflow overlay', () => {
+  async function renderWorkflows() {
+    renderAt('/dags');
+    await screen.findByRole('heading', { name: 'DAGs' });
+    await waitFor(() => expect(document.title).toBe('Workflows - Dagu'));
+    // The loads of the app at its start render the page too: they end first.
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+  }
+
+  it('keeps the title of the page below', async () => {
+    await renderWorkflows();
+    const before = pageRenders.titles;
+
+    await userEvent.click(screen.getByRole('button', { name: 'Open etl' }));
+
+    expect(
+      await screen.findByRole('heading', { name: 'DAG Details' })
+    ).toBeInTheDocument();
+    expect(document.title).toBe('Workflows - Dagu');
+    expect(pageRenders.titles).toBe(before);
+  });
+
+  // The page asks for the same keys when it mounts, and finds them asked.
+  it('asks for the workflow at the click', async () => {
+    await renderWorkflows();
+
+    await userEvent.click(screen.getByRole('button', { name: 'Open etl' }));
+
+    const params = {
+      params: { query: { remoteNode: 'local' }, path: { fileName: 'etl' } },
+    };
+    expect(useQueryMock).toHaveBeenCalledWith(
+      '/dags/{fileName}',
+      params,
+      expect.anything()
+    );
+    expect(useQueryMock).toHaveBeenCalledWith(
+      '/dags/{fileName}/spec',
+      params,
+      expect.anything()
+    );
+  });
+
+  it('does not render the page below for a change of the overlay', async () => {
+    await renderWorkflows();
+    const before = pageRenders.dags;
+
+    await userEvent.click(screen.getByRole('button', { name: 'List rows' }));
+
+    expect(pageRenders.dags).toBe(before);
   });
 });
 
@@ -378,6 +483,28 @@ describe('App license routing', () => {
     ).toBeVisible();
     expect(window.location.pathname).toBe('/profiles');
     expect(window.location.hash).toBe('#secret-refs');
+  });
+
+  it('redirects the old license route to Settings, keeping its query and hash', async () => {
+    renderAt('/license?trial=1#monitoring');
+
+    expect(
+      await screen.findByRole('heading', { name: 'License' })
+    ).toBeVisible();
+    expect(window.location.pathname).toBe('/settings');
+    expect(window.location.search).toBe('?trial=1');
+    expect(window.location.hash).toBe('#monitoring');
+  });
+
+  it('opens remote nodes as a section of Settings', async () => {
+    renderAt('/remote-nodes');
+
+    expect(
+      await screen.findByRole('heading', { name: 'Remote Nodes' })
+    ).toBeVisible();
+    expect(screen.getByRole('heading', { name: 'Settings' })).toBeVisible();
+    expect(window.location.pathname).toBe('/settings');
+    expect(window.location.hash).toBe('#remote-nodes');
   });
 
   it('offers a reload when a lazy route chunk fails to load', async () => {

@@ -105,7 +105,7 @@ func (r *run) query(ctx context.Context, instruction string, schema map[string]a
 	}
 	var errs []error
 	for _, m := range r.models {
-		resp, err := llmpkg.ChatWithRetry(ctx, m.provider, &llmpkg.ChatRequest{
+		answer, err := r.ask(ctx, m, &llmpkg.ChatRequest{
 			Model:       m.cfg.Model,
 			Messages:    messages,
 			Temperature: m.cfg.Temperature,
@@ -119,7 +119,8 @@ func (r *run) query(ctx context.Context, instruction string, schema map[string]a
 					Parameters:  parameters,
 				},
 			}},
-		}, llmpkg.DefaultLogicalRetryConfig())
+			ToolChoice: agentstep.ToolChoiceRequired,
+		})
 		if err != nil {
 			if ctx.Err() != nil {
 				return nil, ctx.Err()
@@ -127,15 +128,34 @@ func (r *run) query(ctx context.Context, instruction string, schema map[string]a
 			errs = append(errs, fmt.Errorf("%s: %w", m.label(), err))
 			continue
 		}
-		r.usage.add(resp.Usage)
-		answer, err := agentstep.StructuredAnswer(resp)
-		if err != nil {
-			errs = append(errs, fmt.Errorf("%s: %w", m.label(), err))
-			continue
-		}
 		return answer, nil
 	}
 	return nil, modelFailure{fmt.Errorf("model request failed: %w", errors.Join(errs...))}
+}
+
+// ask asks one model for a structured answer and counts the tokens of its
+// calls. An answer that cannot be used is logged and corrected once, as
+// plain messages, before the model counts as failed.
+func (r *run) ask(ctx context.Context, m model, req *llmpkg.ChatRequest) (json.RawMessage, error) {
+	corrected := false
+	for {
+		resp, err := llmpkg.ChatWithRetry(ctx, m.provider, req, llmpkg.DefaultLogicalRetryConfig())
+		if err != nil {
+			return nil, err
+		}
+		r.usage.add(resp.Usage)
+		answer, err := agentstep.StructuredAnswer(resp)
+		if err == nil {
+			return answer, nil
+		}
+		rejected := r.masker.MaskString(agentstep.RejectedAnswer(resp))
+		_, _ = fmt.Fprintf(r.timeline.Log, "warning: %s answer rejected: %v\n%s\n", m.label(), err, rejected)
+		if corrected {
+			return nil, err
+		}
+		corrected = true
+		agentstep.AppendCorrection(req, rejected, err)
+	}
 }
 
 // judge asks the models whether a statement holds for the screen.

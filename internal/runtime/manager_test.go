@@ -9,12 +9,14 @@ import (
 	"errors"
 	"net/http"
 	"os"
+	"path/filepath"
 	"testing"
 	"time"
 
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/require"
 
+	"github.com/dagucloud/dagu/v2/internal/cmn/config"
 	"github.com/dagucloud/dagu/v2/internal/cmn/procutil"
 	"github.com/dagucloud/dagu/v2/internal/cmn/sock"
 	"github.com/dagucloud/dagu/v2/internal/cmn/stringutil"
@@ -763,6 +765,34 @@ steps:
 		require.Equal(t, "original-group", processes.attemptGroup)
 		attempt.AssertExpectations(t)
 	})
+	t.Run("GetSavedStatusKeepsRunThatStartsWaitingDuringTheRead", func(t *testing.T) {
+		// The run process writes Waiting and exits after its status is read as
+		// Running. A run parked for input has no process, so it is not stale.
+		ctx := th.Context
+		ref := ir.NewDAGRunRef("parked-dag", uuid.Must(uuid.NewV7()).String())
+		dag := &ir.DAG{Name: ref.Name}
+		running := testNewStatus(dag, ref.ID, ir.Running, ir.NodeRunning)
+		staleAt := time.Now().Add(-3 * time.Second)
+		running.StartedAt = stringutil.FormatTime(staleAt)
+		running.CreatedAt = staleAt.UnixMilli()
+		waiting := testNewStatus(dag, ref.ID, ir.Waiting, ir.NodeWaiting)
+
+		attempt := new(testutil.MockAttempt)
+		attempt.Test(t)
+		attempt.On("ReadStatus", ctx).Return(&running, nil).Once()
+		attempt.On("ReadDAG", ctx).Return(dag, nil).Once()
+		attempt.On("ReadStatus", ctx).Return(&waiting, nil).Once()
+		store := &managerDAGRunStore{rootAttempt: attempt}
+		repository := persis.NewDAGRunRepository(store, nil, persis.DAGRunRepositoryOptions{})
+		mgr := runtime.NewManager(repository, &managerProcessRepository{}, th.Config)
+
+		saved, err := mgr.GetSavedStatus(ctx, ref)
+
+		require.NoError(t, err)
+		require.Equal(t, ir.Waiting, saved.Status)
+		require.Equal(t, ir.NodeWaiting, saved.Nodes[0].Status)
+		attempt.AssertExpectations(t)
+	})
 	t.Run("GetLatestStatusKeepsFreshRunDuringStartupGrace", func(t *testing.T) {
 		dag := th.DAG(t, `steps:
   - name: "1"
@@ -1199,6 +1229,141 @@ func (r *managerProcessRepository) IsAttemptAlive(_ context.Context, group strin
 	return r.attemptAlive, nil
 }
 
-func (*managerProcessRepository) LatestFreshEntryByDAGName(context.Context, string, string) (*procctrl.ProcEntry, error) {
+func (*managerProcessRepository) FreshEntriesByDAGName(context.Context, string, string) ([]procctrl.ProcEntry, error) {
 	return nil, nil
+}
+
+// With latest_status_today, the usual lookup ignores a run of an earlier day,
+// and a DAG that ran yesterday looks as if it never ran. The restart scanner
+// needs the latest run whatever its day.
+func TestManagerAllHistoryFindsTheLatestRunOfAnEarlierDay(t *testing.T) {
+	th := test.Setup(t, test.WithStatusPersistence(), test.WithConfigMutator(func(cfg *config.Config) {
+		cfg.Server.LatestStatusToday = true
+	}))
+	dag := th.DAG(t, "steps:\n  - name: one\n    command: echo one\n")
+	ctx := th.Context
+
+	attempt, err := th.DAGRunRepository.CreateAttempt(ctx, dag.DAG, time.Now().Add(-48*time.Hour), "run-old", persis.DAGRunCreateAttemptOptions{})
+	require.NoError(t, err)
+	require.NoError(t, attempt.Open(ctx))
+	status := ir.InitialStatus(dag.DAG)
+	status.DAGRunID = "run-old"
+	status.AttemptID = attempt.ID()
+	status.Status = ir.Succeeded
+	require.NoError(t, attempt.Write(ctx, status))
+	require.NoError(t, attempt.Close(ctx))
+
+	today, err := th.DAGRunMgr.GetLatestStatus(ctx, dag.DAG)
+	require.NoError(t, err)
+	require.Empty(t, today.DAGRunID, "the lookup limited to today finds no run")
+
+	allHistory := th.DAGRunMgr.AllHistory()
+	all, err := allHistory.GetLatestStatus(ctx, dag.DAG)
+	require.NoError(t, err)
+	require.Equal(t, "run-old", all.DAGRunID)
+}
+
+// ReadLatestStatus returns the initial status only for a DAG without a run. A
+// latest run whose status cannot be read is an error, which GetLatestStatus
+// still reports as the initial status.
+func TestManagerReadLatestStatus(t *testing.T) {
+	th := test.Setup(t, test.WithStatusPersistence())
+	ctx := th.Context
+
+	t.Run("NoRun", func(t *testing.T) {
+		dag := th.DAG(t, "steps:\n  - name: one\n    command: echo one\n")
+		status, err := th.DAGRunMgr.ReadLatestStatus(ctx, dag.DAG)
+		require.NoError(t, err)
+		require.Empty(t, status.DAGRunID)
+	})
+
+	t.Run("UnreadableStatus", func(t *testing.T) {
+		dag := th.DAG(t, "steps:\n  - name: one\n    command: echo one\n")
+		attempt, err := th.DAGRunRepository.CreateAttempt(ctx, dag.DAG, time.Now(), "run-1", persis.DAGRunCreateAttemptOptions{})
+		require.NoError(t, err)
+		require.NoError(t, attempt.Open(ctx))
+		status := ir.InitialStatus(dag.DAG)
+		status.DAGRunID = "run-1"
+		status.AttemptID = attempt.ID()
+		status.Status = ir.Succeeded
+		require.NoError(t, attempt.Write(ctx, status))
+		require.NoError(t, attempt.Close(ctx))
+
+		files, err := filepath.Glob(filepath.Join(th.Config.Paths.DAGRunsDir, dag.Name, "dag-runs", "*", "*", "*", "*", "*", "status.jsonl"))
+		require.NoError(t, err)
+		require.Len(t, files, 1)
+		require.NoError(t, os.WriteFile(files[0], []byte("{not json\n"), 0o600))
+
+		_, err = th.DAGRunMgr.ReadLatestStatus(ctx, dag.DAG)
+		require.Error(t, err)
+
+		latest, err := th.DAGRunMgr.GetLatestStatus(ctx, dag.DAG)
+		require.NoError(t, err)
+		require.Empty(t, latest.DAGRunID)
+	})
+}
+
+func TestCheckServiceRun(t *testing.T) {
+	t.Parallel()
+
+	const steps = "steps:\n  - run: echo ok\n"
+	const service = "restart_policy: always\nrestart_wait_sec: 1\n" + steps
+
+	for _, tt := range []struct {
+		name    string
+		spec    string
+		status  ir.Status
+		age     time.Duration
+		ownRun  bool
+		refused bool
+	}{
+		{name: "Queued", spec: service, status: ir.Queued, refused: true},
+		{name: "Waiting", spec: service, status: ir.Waiting, refused: true},
+		// A run that waits for a worker has no process and no queue item.
+		{name: "NotStarted", spec: service, status: ir.NotStarted, refused: true},
+		// The scheduler fails such a run, and may not be running to do so.
+		{name: "NotStartedTooLong", spec: service, status: ir.NotStarted, age: runtime.ServiceRunStartTimeout + time.Minute},
+		{name: "Succeeded", spec: service, status: ir.Succeeded},
+		{name: "OwnRun", spec: service, status: ir.Queued, ownRun: true},
+		{name: "NoPolicy", spec: steps, status: ir.Queued},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			th := test.Setup(t)
+			dag := th.DAG(t, tt.spec)
+			const runID = "run-1"
+			createdAt := time.Now().Add(-tt.age)
+			attempt, err := th.DAGRunRepository.CreateAttempt(th.Context, dag.DAG, createdAt, runID, persis.DAGRunCreateAttemptOptions{})
+			require.NoError(t, err)
+			require.NoError(t, attempt.Open(th.Context))
+			require.NoError(t, attempt.Write(th.Context, ir.DAGRunStatus{
+				Name:      dag.Name,
+				DAGRunID:  runID,
+				AttemptID: attempt.ID(),
+				Status:    tt.status,
+				CreatedAt: createdAt.UnixMilli(),
+			}))
+			require.NoError(t, attempt.Close(th.Context))
+
+			newRun := "run-2"
+			if tt.ownRun {
+				newRun = runID
+			}
+			err = th.DAGRunMgr.CheckServiceRun(th.Context, dag.DAG, newRun)
+			if tt.refused {
+				require.ErrorIs(t, err, runtime.ErrServiceRunActive)
+				return
+			}
+			require.NoError(t, err)
+		})
+	}
+
+	t.Run("NoRun", func(t *testing.T) {
+		t.Parallel()
+
+		th := test.Setup(t)
+		dag := th.DAG(t, service)
+		require.NoError(t, th.DAGRunMgr.CheckServiceRun(th.Context, dag.DAG, "run-1"))
+	})
 }

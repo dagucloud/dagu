@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"github.com/dagucloud/dagu/v2/internal/test"
+	"github.com/spf13/cobra"
 	"github.com/stretchr/testify/require"
 )
 
@@ -49,11 +50,31 @@ func cancelWhenLogContains(t *testing.T, th test.Command, want ...string) {
 	})
 }
 
-func commandLogWaitTimeout() time.Duration {
-	if runtime.GOOS == "windows" {
-		return 30 * time.Second
+// commandError runs a command expected to exit on its own and returns its
+// error. The test fails when the command keeps running.
+func commandError(t *testing.T, th test.Command, command *cobra.Command, args ...string) error {
+	t.Helper()
+
+	done := make(chan error, 1)
+	go func() {
+		done <- th.ExecuteCommand(command, test.CmdTest{Args: args})
+	}()
+	select {
+	case err := <-done:
+		return err
+	case <-time.After(commandLogWaitTimeout()):
+		th.Cancel()
+		<-done
+		t.Fatalf("%s kept running; output: %s", args[0], th.LoggingOutput.String())
+		return nil
 	}
-	return 10 * time.Second
+}
+
+// commandLogWaitTimeout bounds a wait for a command to make progress. It only
+// decides how long a failing test takes, and a loaded CI host can stall a
+// command for over ten seconds.
+func commandLogWaitTimeout() time.Duration {
+	return 30 * time.Second
 }
 
 func assertSecondInterruptTerminatesBlockedCleanup(t *testing.T, commandName, shutdownLog string) {

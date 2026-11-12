@@ -4,11 +4,13 @@
 package runtime
 
 import (
+	"cmp"
 	"context"
 	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 
 	"github.com/dagucloud/dagu/v2/internal/cmn/cmdutil"
@@ -20,14 +22,114 @@ import (
 	dagutools "github.com/dagucloud/dagu/v2/internal/tools"
 )
 
-// warnDryRunStep logs the checkDryRunStep result as a warning. A missing
-// executable never fails a dry run: the real run may execute on another host
-// (a distributed worker, a server rather than a CI checkout), and an upstream
-// step may create or install the executable first.
-func warnDryRunStep(ctx context.Context, node *Node) {
-	if err := checkDryRunStep(ctx, node.Step()); err != nil {
-		logger.Warn(ctx, "Dry run: step may fail on this host", tag.Error(err))
+// DryRunCheck is one problem a dry run can show for a step. Field is the
+// step field the problem concerns, such as "with.sheet" or "run", and
+// Message is the text after that field label.
+type DryRunCheck struct {
+	Step    string `json:"step"`
+	Field   string `json:"field"`
+	Message string `json:"message"`
+}
+
+// noteDryRunStep logs the checkDryRunStep result as a warning and keeps it
+// for a machine-readable report. A missing executable never fails a dry run:
+// the real run may execute on another host (a distributed worker, a server
+// rather than a CI checkout), and an upstream step may create or install the
+// executable first. A repeating step is checked on its first pass only, since
+// later passes would report the same problems again.
+func (r *Runner) noteDryRunStep(ctx context.Context, node *Node) {
+	if node.State().DoneCount > 0 {
+		return
 	}
+	err := checkDryRunStep(ctx, node.Step())
+	if err == nil {
+		return
+	}
+	logger.Warn(ctx, "Dry run: step may fail on this host", tag.Error(err))
+	r.mu.Lock()
+	r.dryChecks = append(r.dryChecks, dryRunChecksFor(node.Name(), err)...)
+	r.mu.Unlock()
+}
+
+// DryRunChecks returns the problems this dry run recorded for plan, in run
+// order: the init handler, the plan's steps, then the other handlers. It is
+// empty when every step passed.
+func (r *Runner) DryRunChecks(plan *Plan) []DryRunCheck {
+	r.mu.RLock()
+	checks := slices.Clone(r.dryChecks)
+	r.mu.RUnlock()
+
+	nodes := r.NodesInRunOrder(plan)
+	order := make([]string, len(nodes))
+	for i, node := range nodes {
+		order[i] = node.Name()
+	}
+	sortDryRunChecks(order, checks)
+	return checks
+}
+
+// sortDryRunChecks sorts checks in place by the position of their step in
+// stepOrder. Problems of one step keep the order they were reported in. A
+// step missing from stepOrder follows the named steps, in the order it was
+// first recorded.
+func sortDryRunChecks(stepOrder []string, checks []DryRunCheck) {
+	rank := make(map[string]int, len(stepOrder))
+	for i, name := range stepOrder {
+		if _, seen := rank[name]; !seen {
+			rank[name] = i
+		}
+	}
+	next := len(stepOrder)
+	for _, check := range checks {
+		if _, seen := rank[check.Step]; !seen {
+			rank[check.Step] = next
+			next++
+		}
+	}
+	slices.SortStableFunc(checks, func(a, b DryRunCheck) int {
+		return cmp.Compare(rank[a.Step], rank[b.Step])
+	})
+}
+
+// dryRunChecksFor splits a joined check error into one check per problem.
+// Each problem is reported as field '<name>': <message>.
+func dryRunChecksFor(step string, err error) []DryRunCheck {
+	flat := flattenJoined(err)
+	checks := make([]DryRunCheck, 0, len(flat))
+	for _, item := range flat {
+		field, message := splitDryRunField(item.Error())
+		checks = append(checks, DryRunCheck{Step: step, Field: field, Message: message})
+	}
+	return checks
+}
+
+func flattenJoined(err error) []error {
+	if err == nil {
+		return nil
+	}
+	type joined interface{ Unwrap() []error }
+	group, ok := err.(joined)
+	if !ok {
+		return []error{err}
+	}
+	var out []error
+	for _, item := range group.Unwrap() {
+		out = append(out, flattenJoined(item)...)
+	}
+	return out
+}
+
+func splitDryRunField(message string) (string, string) {
+	const prefix = "field '"
+	if !strings.HasPrefix(message, prefix) {
+		return "", message
+	}
+	rest := message[len(prefix):]
+	field, text, ok := strings.Cut(rest, "': ")
+	if !ok {
+		return "", message
+	}
+	return field, text
 }
 
 // checkDryRunStep reports what a dry run can tell would fail if the step ran
@@ -47,7 +149,7 @@ func dryRunHook(ctx context.Context, step ir.Step, caps registry.ExecutorCapabil
 	if caps.DryRunCheck == nil {
 		return nil
 	}
-	resolved, err := resolverWithoutNotices(GetEnv(ctx)).Object(ctx, step.ExecutorConfig.Config, cmnvalue.ExecutorConfigField("with"))
+	resolved, err := resolverWithoutNotices(GetEnv(ctx)).Object(ctx, step.ExecutorConfig.Config, registry.ConfigField(step, "with"))
 	if err == nil {
 		if config, err := objectAsConfig(resolved); err == nil {
 			step.ExecutorConfig.Config = config

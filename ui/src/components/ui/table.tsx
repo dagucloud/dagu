@@ -1,20 +1,31 @@
 import * as React from 'react';
 
+import { useOverflowFocusable } from '@/hooks/useOverflowFocusable';
 import { cn } from '@/lib/utils';
 
 const Table = React.forwardRef<
   HTMLTableElement,
   React.HTMLAttributes<HTMLTableElement>
->(({ className, ...props }, ref) => (
-  <div className="w-full overflow-auto rounded-md border border-border bg-card">
-    <table
-      ref={ref}
-      data-slot="table"
-      className={cn('w-full caption-bottom border-collapse text-sm', className)}
-      {...props}
-    />
-  </div>
-));
+>(({ className, ...props }, ref) => {
+  const [scrollRef, scrollTabIndex] = useOverflowFocusable<HTMLDivElement>();
+  return (
+    <div
+      ref={scrollRef}
+      tabIndex={scrollTabIndex}
+      className="w-full overflow-auto rounded-lg border border-border bg-card outline-none focus-visible:ring-2 focus-visible:ring-ring"
+    >
+      <table
+        ref={ref}
+        data-slot="table"
+        className={cn(
+          'w-full caption-bottom border-collapse text-sm',
+          className
+        )}
+        {...props}
+      />
+    </div>
+  );
+});
 Table.displayName = 'Table';
 
 const TableHeader = React.forwardRef<
@@ -24,7 +35,7 @@ const TableHeader = React.forwardRef<
   <thead
     ref={ref}
     data-slot="table-header"
-    className={cn('bg-surface-variant/70 [&_tr]:border-b', className)}
+    className={cn('bg-muted/40 [&_tr]:border-b', className)}
     {...props}
   />
 ));
@@ -64,7 +75,7 @@ const TableRow = React.forwardRef<
     ref={ref}
     data-slot="table-row"
     className={cn(
-      'border-b border-border bg-card transition-colors hover:bg-muted/60 data-[state=selected]:bg-muted',
+      'border-b border-border bg-card transition-colors hover:bg-muted/50 data-[state=selected]:bg-muted',
       className
     )}
     {...props}
@@ -80,7 +91,7 @@ const TableHead = React.forwardRef<
     ref={ref}
     data-slot="table-head"
     className={cn(
-      'h-9 px-3 py-2 text-left align-middle text-xs font-semibold text-text-secondary [&:has([role=checkbox])]:pr-0',
+      'h-9 px-3 py-2 text-left align-middle text-xs font-medium text-muted-foreground [&:has([role=checkbox])]:pr-0',
       className
     )}
     {...props}

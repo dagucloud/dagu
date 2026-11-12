@@ -150,7 +150,6 @@ export function useBoundedDAGRunDetails({
 
     const controller = new AbortController();
     controllerRef.current = controller;
-    setError(null);
 
     if (dataRef.current == null) {
       setIsLoading(true);

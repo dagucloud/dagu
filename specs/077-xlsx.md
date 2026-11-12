@@ -8,11 +8,14 @@ Conformance covers every statement below that a run of the `dagu` binary
 can observe: the stdout line and the `warning:` and `problem:` streams,
 path forms, every `range` and `header` form with the header warnings,
 table detection, typing, formulas and error cells, empty rows, `where`,
-`max_rows` with its default and the output budget, `rows` and every
+`max_rows` with its default and the output budget, the column profile of
+`xlsx.info` with its caps and the warning cap, hidden sheets and rows with
+`skip_hidden` on read, validate, and convert, `rows` and every
 `input` file kind with its encodings and the byte order mark, write modes
 and `types` on write, sheet preservation, append, update_rows with its
-matching rules, modes, shape checks, the foreach aggregate, and every
-error, the lock file, artifacts including a DAG with artifacts disabled,
+matching rules, modes, shape checks, the foreach aggregate, concurrent
+foreach items updating one workbook, and every error, the lock file,
+artifacts including a DAG with artifacts disabled,
 validate with every problem kind, `max_problems`, the stderr lines, and
 `on_problem: fail`, the human task that follows a validation, write_cells
 with its value forms, `merge`, into a copy, in a foreach, and every error,
@@ -35,14 +38,17 @@ fixture.
 
 Conformance exceptions, behavior that a black-box run cannot observe or
 set up and that unit tests of `internal/cmn/workbook` cover instead:
-`password` (nothing in Dagu writes a protected workbook); the styles,
+`with.password` on an xlsx step (nothing in Dagu writes a protected workbook;
+opening one is covered by `dagu xlsx` and the workbook read target); the styles,
 hyperlinks, merged regions, and tables that `mode: replace` clears,
-`style: table` formatting, style copying, and column widths (not readable
-through `xlsx.read`; that a replace empties the values is covered); the
+`style: table` formatting, `formats`, style copying, and column widths (not
+readable through `xlsx.read`; that a replace empties the values is covered); the
 temporary file of an
 atomic save and symbolic links; a lock file another process holds,
-`wait_for_unlock` timing, and Windows sharing violations; the consequences
-of a rename or delete for formulas and defined names and what a copy
+`wait_for_unlock` timing, and Windows sharing violations; the line a write
+logs while it waits for another write of the same workbook, and aliases of
+one workbook through symbolic links or case; the consequences of a rename
+or delete for formulas and defined names and what a copy
 leaves behind (library behavior); the dry check leaving an unopenable
 workbook to the run; `.xls` and `.ods` beyond the extension check. Which
 cell a real model names is not a conformance matter: the scripted model answers
@@ -81,7 +87,7 @@ changed shape under the workflow is refused rather than written to.
 | Action | Purpose | Outputs |
 | --- | --- | --- |
 | `xlsx.read` | Rows of a sheet, range, named range, or table. | `rows`, `count`, `headers`, `sheet`, `range`, `warnings`, `truncated` |
-| `xlsx.info` | Sheets with used range, detected table, headers, column types, row count, and tables; named ranges; date system. | `path`, `date_system`, `sheets`, `named_ranges`, `warnings` |
+| `xlsx.info` | Sheets with used range, detected table, headers, column types, a profile of each column, row count, and tables; named ranges; date system. | `path`, `date_system`, `sheets`, `named_ranges`, `warnings` |
 | `xlsx.list_sheets` | Sheet names in order. | `sheets`, `count` |
 | `xlsx.write` | Create a workbook or write a sheet from rows. | `path`, `sheet`, `changes`, `dry_run`, `warnings`, `artifact` |
 | `xlsx.append` | Add rows below the last used row. | Same as `xlsx.write` |
@@ -100,7 +106,11 @@ step's `stdout:` and `stderr:` file redirects (Spec 013) capture them.
 
 Only `.xlsx` and `.xlsm` paths are accepted. `path` resolves like the file
 actions: absolute and `~` paths as written, relative paths against the step
-working directory. A `password` opens a protected workbook.
+working directory. A `password` opens a protected workbook. A protected
+workbook opened without that password, or with the wrong one, fails with
+`<name>: workbook password is missing or incorrect`. Only ECMA-376 agile
+and standard encryption can be opened; any other mechanism fails with
+`<name>: workbook encryption is not supported`.
 
 ### Addressing
 
@@ -149,7 +159,9 @@ Each row carries `_row`, its 1-based sheet row number. `types` pins columns
 to `string`, `number`, `integer`, `boolean`, `date`, or `datetime`; a cell
 that cannot convert fails the step naming the cell, or with
 `on_type_error: warn` (also spelled `"null"`, quoted so YAML keeps the
-word) becomes null with a warning.
+word) becomes null with a warning. With `on_type_error: keep` it keeps the
+value it was read as, with the same warning, for a reader that shows a
+person what to fix.
 
 #### Japanese text under a pinned type
 
@@ -248,6 +260,43 @@ out from the end and `truncated` is true with the warning `output
 truncated to N of M rows; narrow the range or columns, or filter with
 where`.
 
+Rows hidden by a filter or by hand are read like any other row.
+`skip_hidden: true` leaves them out: they are not returned, not counted
+toward `max_rows`, and do not stop a `stop_at_blank` read. A row past the
+last row holding a cell counts as shown.
+
+### Describing a workbook
+
+`xlsx.info` publishes one entry per sheet in `sheets`: `name`, `hidden`
+(true for a sheet hidden from the workbook's tabs, very hidden included;
+absent otherwise), `used_range`, `range` (the detected table),
+`header_row` (0 for an empty sheet), `headers`, `types`, `row_count`,
+`hidden_rows`, `columns`, `profile_truncated`, and `tables` (`{name,
+range}`). `hidden_rows` counts the data rows holding a value that are
+hidden by a filter or by hand, among the rows the profile reads; it is
+absent when there are none. `types` and `columns` cover the data rows
+of the detected table that hold a value, up to 5000; when the table holds
+more, `profile_truncated` is true, and is absent otherwise. A column's type
+is the kind most of its cells hold, a column mixing integers and decimals
+being `number` and one mixing dates and datetimes `datetime`; an empty
+column is `string`.
+
+`columns` profiles each column in header order:
+
+| Field | Meaning |
+| --- | --- |
+| `name`, `type` | The header and its entry in `types`. |
+| `filled`, `blank` | Cells that hold a value, and cells that are empty or hold only white space. |
+| `distinct` | Distinct values, compared as trimmed text, counted up to 1000. |
+| `values` | The distinct values in order of first appearance, when there are 12 or fewer and one repeats, so a column of unique identifiers lists none. A value longer than 40 characters is cut to 40 ending in `…`. |
+| `min`, `max` | The lowest and highest number of an `integer` or `number` column, or date of a `date` or `datetime` column, over the cells that read as that type the way `types` reads them, so `１２` counts as 12. |
+| `odd` | Cells holding a value the column's type cannot read even when pinned with `types`, such as `未定` in a number column. `１２`, `三千`, and `令和8年10月3日` read under their type and are not odd; a `string` column has none. |
+| `odd_cells` | The first three odd cells as `{cell, text}`, such as `{"cell": "D300", "text": "未定"}`, the text cut like a value. |
+
+`values`, `min`, `max`, `odd`, and `odd_cells` are absent when there is
+nothing to report. A sheet reports its first 20 read warnings, such as
+`Sheet1: Sheet1!B3: error cell #N/A`, then `Sheet1: 380 more warnings`.
+
 ### Writing
 
 `xlsx.write` takes `rows` or `input`, not both. `rows` is a list of objects
@@ -261,8 +310,10 @@ own order as the header; an append onto a sheet that already has rows
 matches each field to the header row by name (see below), so a named row's
 key order does not matter there.
 
-A missing workbook is created in a directory that must exist; no writer
-creates directories. A `sheet` that does not exist is created; an
+Missing parent directories are created after validation for an actual workbook
+write, not during a dry run. An input rejected before save does not create
+directories. A missing workbook is created; a `sheet` that does not exist is
+created; an
 existing sheet is replaced (`mode: replace`, the default) or extended
 (`mode: append`). A replaced sheet is cleared in place: its merged regions
 and tables are removed, and every cell holding a value or formula is
@@ -276,7 +327,9 @@ kept for the same reason. The sheet itself, its position, the defined names scop
 formulas on other sheets that refer to it stay valid. Other sheets, column
 widths, styles, and defined names are untouched. An AutoFilter on the
 replaced sheet stays in place, as the underlying library offers no way to
-remove one.
+remove one. A replace rebuilds the sheet; to fill a formatted sheet or a
+form and keep its look, use `xlsx.write_cells`, `xlsx.update_rows`, or
+`xlsx.append`, which keep each cell's style.
 
 Values are written by type: numbers as numbers, booleans as booleans,
 `2026-10-01` and `2026-10-01T14:30:00` strings as dates, other strings as
@@ -286,10 +339,18 @@ keeps ISO-looking text as text.
 `style: table` (default) makes a new or replaced sheet look finished: bold
 header on a light fill, frozen below the header, column widths fitted to
 content between 8 and 60 characters with East Asian characters counting
-double, and number formats by column kind: integers plain, decimals with two
+double, and number formats by column kind: integers General, so a fraction
+written later under the same format keeps its digits, decimals with two
 places, dates `yyyy-mm-dd`, date-times `yyyy-mm-dd hh:mm:ss`, text `@`. A
+column's kind is its pinned type, or else the kind most of its values have;
+a whole number is an integer however it arrives, so JSON `17500` shows as
+`17500`, and a column mixing integers and decimals is a decimal column. A
 column mixing dates and date-times is formatted as date-time. `style: none`
-writes bare cells.
+writes bare cells. `formats` on `xlsx.write` and `xlsx.append` names a
+number format per column, such as `{Total: "#,##0", Rate: "0.0%"}`: every
+cell written to that column takes it under either style, in place of the
+format of the column's kind or of the cell above; an appended cell keeps
+the rest of the style it copies.
 
 `xlsx.append`, and `mode: append`, write below the last non-empty row with
 no header, and each new cell copies the style of the cell above it, so a date
@@ -298,7 +359,14 @@ header so the first run creates a table. A cell to append that lies in a
 merged cell, such as an empty notes box below the rows, fails the step with
 `Sheet1!A3: cannot append into merged cell A3:B4; unmerge it to write this
 cell`, since every value written inside it would land in its top-left
-cell.
+cell. With `output`, `xlsx.append` writes the result there and leaves the
+workbook at `path` as it was, by the rules `xlsx.write_cells` follows (see
+Writing cells), with `leave output out to append to the workbook in place`
+ending the message for an output that is the workbook itself; a `path`
+that does not exist starts a new workbook at `output`. An existing `output`
+is replaced, not appended to: `path` is read, the rows are appended in
+memory, and the result overwrites `output`, so an `xlsx.append` with a fixed
+`output` inside a `foreach` keeps only the last iteration's rows.
 
 Fields are placed by name. Object rows, rows from a CSV header, and rows
 given `columns` are matched to the sheet's header row, its first row, by
@@ -333,10 +401,11 @@ as text; `{value: "007", type: string}` pins text, and `type` takes any
 column type. Without `set`, every field other than the key and `_row` goes
 to the column of the same name. A field in `set` that no row carries is an
 error:
-`set.Status: field "state" is not in any row`. A column that is not in the
-header row is added at the right, its header cell copying the style of the
-last header cell; a new header cell inside a merged cell fails as it does
-for an append.
+`set.Status: field "state" is not in any row`. An empty `rows` list, such as
+a scheduled run with nothing pending, succeeds and changes nothing, with or
+without `set`. A column that is not in the header row is added at the right
+when a row is written, its header cell copying the style of the last header
+cell; a new header cell inside a merged cell fails as it does for an append.
 
 Rows are matched by `_row` when present, else by the key column, with keys
 compared as trimmed text so `7` and `"7"` match. A key found at two rows is
@@ -367,6 +436,17 @@ write it the same value, which is written once and counted once in
 `cells_changed`; different values fail the step with `rows[0] and rows[1]
 write different values to merged cell Sheet1!C2:C3`, a row that leaves the
 cell as it already is included.
+
+With `output`, the updated workbook is written there and the workbook at
+`path` is left as it was, so one workbook serves many updates; on Windows a
+workbook another program holds still fails the step, as for
+`xlsx.write_cells`. A missing parent folder of `output` is created as for
+`xlsx.write`.
+`output` must be a workbook and a different file from `path`, a hard link
+included, else `orders.xlsx: output must be a different file from path;
+leave output out to update the workbook in place`; the output path takes
+the saved file's place in `path` and `artifact`. An existing output is
+replaced.
 
 ### Shape checks
 
@@ -409,11 +489,29 @@ fails the step; a lock file nobody holds is a leftover of a crash, so the
 step warns and continues: on Windows, where the hold can be probed,
 `~$orders.xlsx exists but no program holds it; the workbook may have been
 closed without cleanup`, elsewhere `~$orders.xlsx exists; the workbook may
-be open in another program, or the lock file may be a leftover`. A Windows
-sharing violation on open, save, or
-rename fails the same way. `wait_for_unlock: 5m` retries a locked workbook,
-waiting two seconds and doubling to one minute, and logs each wait; the
-whole open-modify-save sequence runs again on each try.
+be open in another program, or the lock file may be a leftover`. On
+Windows, a sharing violation on open or save fails the same way, and so
+does a rename refused because another program holds the workbook open:
+Excel shares only reads, so the temporary file is written but the rename
+over the original is refused with access denied, and the step tells that
+hold apart from a read-only workbook or a permission problem, which keep
+the system error. A refused rename leaves no temporary file behind.
+`wait_for_unlock: 5m` retries a locked workbook, waiting two seconds and
+doubling to one minute, and logs each wait; the whole open-modify-save
+sequence runs again on each try.
+
+Writes to one workbook from the same Dagu process run one at a time, so
+foreach items that update one workbook concurrently keep every change. A
+write that finds another write of the same workbook in progress logs
+`orders.xlsx is being written by another step; waiting for it to finish`
+and starts when that write ends; the wait is not limited by
+`wait_for_unlock`, and a step stopped while it waits leaves the workbook
+untouched. Paths that reach one file through a symbolic link, or that
+differ only in case on a filesystem that ignores case, are one workbook,
+and a writer with `output` (`xlsx.write_cells`, `xlsx.update_rows`, or
+`xlsx.append`) holds both the workbook at `path` and the output. Writes
+from another process, such as another `dagu start` or a distributed
+worker, are not coordinated: the last save wins.
 
 ### Artifacts
 
@@ -428,19 +526,42 @@ not repeat a write that already happened.
 
 ### CLI
 
-`dagu xlsx inspect <path> [--rows N] [--sheet NAME] [--format text|json]`
+`dagu xlsx inspect <path> [--rows N] [--sheet NAME] [--password P]
+[--format text|json]`
 prints what `xlsx.info` publishes plus up to N typed sample rows per sheet;
-`--sheet` keeps one sheet, and a name that is not in the workbook fails
-with `sheet "Nope" not found; sheets present: ...`. `dagu xlsx read <path>
-[--sheet] [--range] [--header] [--columns] [--max-rows] [--format]` prints
-what `xlsx.read` publishes, the flags taking the values the fields take.
-Both read the file directly, create no run, and exit non-zero with the
-error on stderr. The `text` format of `inspect` prints a heading,
+`--sheet` describes one sheet, matched as `sheet` matches, and a name that
+is not in the workbook fails with `sheet "Nope" not found; sheets present:
+...`. `dagu xlsx read <path>
+[--sheet] [--range] [--header] [--columns] [--types] [--on-type-error]
+[--max-rows] [--skip-hidden] [--password P] [--format]` prints what
+`xlsx.read` publishes, the flags taking the values the fields take.
+`--types` is comma-separated `name:type` pairs, split at each pair's last
+colon, or a JSON object when a name holds a comma; `--on-type-error` is
+`fail` (default), `warn`, or `keep`.
+For both commands, a path of `-` reads the workbook from standard input. The
+input is limited to 64 MiB; larger input fails before workbook parsing. The
+JSON inspect result uses `-` as its `path`.
+`--password` is the password of a protected workbook. When the flag is
+omitted, `DAGU_XLSX_PASSWORD` supplies it; when both are set, the flag
+wins, including when the flag is empty. The variable is the recommended
+form, since a flag value is visible in the process list and kept in
+shell history. A protected workbook opened
+without the right password fails with `<name>: workbook password is
+missing or incorrect`.
+Both read the supplied path or standard input directly, create no run, and
+exit non-zero with the error on stderr. The `text` format of `inspect` prints a
+heading,
 `orders.xlsx: 2 sheets, 1900 date system`, then one line per sheet,
 `Sheet "Orders": used A1:C3, table Orders!A1:C3, header row 1, 2 rows`,
-followed by the columns with their kinds and the sample rows; the `text`
-format of `read` prints a tab-separated header line starting with `_row`
-and one line per row.
+with `(hidden)` after the name of a hidden sheet, `, 3 hidden` after the
+row count when rows are hidden, and `, first 5000 profiled` at the end
+when the profile is truncated, followed
+by the columns with their profiles and the sample rows. Each column reads
+`Name (type: values; min..max; N blank; N odd: CELL "text", ...)`, each
+part present only when the profile has it, as in `Columns: Invoice No
+(string), 状態 (string: 済, 未; 40 blank), 数量 (number; 1..250; 1 odd:
+D300 "未定")`. The `text` format of `read` prints a tab-separated header
+line starting with `_row` and one line per row.
 
 `dagu xlsx cache clear <DAG> [--step ID]` removes the cached cell
 addresses of a DAG's `xlsx.extract` steps on this host, printing `Removed
@@ -453,14 +574,15 @@ and is a later addition.
 ### MCP
 
 The `dagu_read` target `workbook` takes `path`, any workbook the server
-process can read, and returns the `inspect` description with five sample
-rows per sheet. The path is recorded in the audit log as `workbook_path`.
-Spec 021 defines the target's fields and errors.
+process can read, and an optional `password` that opens a protected
+workbook. It returns the `inspect` description with five sample
+rows per sheet. The path is recorded in the audit log as `workbook_path`;
+the password is not. Spec 021 defines the target's fields and errors.
 
 ### Validating
 
 `xlsx.validate` reads a sheet the way `xlsx.read` does (`sheet`, `range`,
-`header`, `columns`, `merged`, `trim`, `formulas`) and checks every
+`header`, `columns`, `merged`, `skip_hidden`, `trim`, `formulas`) and checks every
 non-empty row against rules: `required` lists columns the header row must
 have, `not_blank` columns no row may leave empty, `unique` columns whose
 values may not repeat, `types` columns whose cells must convert, and
@@ -559,9 +681,15 @@ The model answers through one `respond` tool whose parameters list each
 property as an A1 address, with or without a sheet, or `null` for a field
 the sheet lacks, and `labels`, the addresses of the cells that are labels
 or headings rather than values, which the cache watches; a property named
-`labels` is refused at validation. An answer that is not an object, that
-names something other than one cell within the listed sheet and range, or
-whose `labels` is not a list of addresses, is unusable: the
+`labels` is refused at validation. A reply without a `respond` call is
+accepted when its text is valid JSON. Any other reply without usable
+`respond` arguments gets one correction: the next request to the same model
+carries the rejected reply as an assistant message, followed by a user
+message stating why it was rejected, and the step log shows the rejected
+reply after `warning: <provider>/<model> answer rejected: <reason>`. An
+answer that is not an object, that names something other than one cell
+within the listed sheet and range, or whose `labels` is not a list of
+addresses, is unusable, as is a corrected reply that is still unusable: the
 next configured model is asked, and when every model's answer is unusable
 the step fails with `model request failed: <provider>/<model>: ...` naming
 each answer's fault. An empty cell within the range is a null value, since
@@ -575,12 +703,14 @@ found "n/a"`; Japanese text such as `￥123,000`, `12万3,500円`, `令和8年10
 
 The step takes the DAG-level `llm` block, or `with.llm`, which replaces it,
 as browser steps do. Several models are tried in order, each set up when
-its turn comes, and an unusable answer or a model that cannot be set up
-counts as a failed request. The outputs are
-each property, `cells` (property to the `Sheet1!B7` it was read from,
-empty when absent), `sheet`, `warnings`, and `source`, `model` or `cache`.
+its turn comes, and an unusable answer, after its correction when it gets
+one, or a model that cannot be set up counts as a failed request. The
+outputs are each property, `cells` (property to the `Sheet1!B7` it was
+read from, empty when absent), `sheet`, `warnings`, and `source`, `model`
+or `cache`.
 The stdout line is `Extracted 4 fields from quote.xlsx Sheet1 (model, 1234
-tokens)` or `Extracted 4 fields from quote.xlsx Sheet1 (cache)`.
+tokens)` or `Extracted 4 fields from quote.xlsx Sheet1 (cache)`; the token
+count covers every model call, a rejected reply's included.
 
 With `cache: true`, the default, the answered addresses are kept by sheet
 layout under `<data dir>/xlsx/cache/<dag>/<step>.json`. The layout is the
@@ -653,6 +783,7 @@ the cell stores, so a date written over text is a change.
 The workbook must exist: a template fill needs a template, and `xlsx.write`
 creates workbooks. With `output`, the result is written there and the
 workbook at `path` is left as it was, so one template serves many fills;
+a missing parent folder of `output` is created as for `xlsx.write`;
 `output` must be a different file from `path`, a hard link included, else
 `output must be a different file from path; leave output out to fill the
 workbook in place`; the output path takes the saved file's place in `path`
@@ -700,7 +831,8 @@ images, charts, or page setup.
 `xlsx.convert` writes the rows of a sheet to the file named by `output`,
 as `csv`, `json`, or `jsonl` by the file's extension (`.ndjson` counts as
 jsonl) or by `format`. It reads the way `xlsx.read` does (`sheet`,
-`range`, `header`, `columns`, `types`, `trim`, `merged`, `formulas`) but
+`range`, `header`, `columns`, `types`, `trim`, `merged`, `formulas`,
+`skip_hidden`) but
 with every row and no output budget, since the rows go to a file, and a
 cell that fails a pinned type fails the step. Columns follow the header
 order, or `columns`, and the `_row` field is not written: the file is a
@@ -754,6 +886,11 @@ Every one of these is rejected by `dagu validate`:
 - `xlsx.update_rows` without `key`: `key is required for update_rows`;
   without `rows`: `update_rows requires with.rows`; with `header: false`:
   `update_rows needs a header row; header: false is not supported`.
+- An `output` of `xlsx.update_rows` or `xlsx.append` that is not a
+  workbook: `output: out.csv: only .xlsx and .xlsm workbooks are
+  supported; save as .xlsx`. `xlsx.write` takes no `output`, also with
+  `mode: append`: `with.output is not valid for xlsx.write`; use
+  `xlsx.append` to append to a copy.
 - A field of another operation, such as `range` on `xlsx.info`:
   `with.range is not valid for xlsx.info`.
 - An unknown field: `unexpected additional properties ["strip"]`. A value
@@ -761,7 +898,7 @@ Every one of these is rejected by `dagu validate`:
   of: [<the accepted values>]`, so `merged: join` gives `join does not equal
   any of: [fill first]`; the enums are `merged` (`fill`, `first`),
   `formulas` (`cached`, `text`, `calculate`), `on_type_error` (`fail`,
-  `warn`, `null`), `mode` (`replace`, `append`), `style` (`table`, `none`),
+  `warn`, `null`, `keep`), `mode` (`replace`, `append`), `style` (`table`, `none`),
   `format` (`json`, `jsonl`, `csv`), `missing` (`fail`, `skip`, `append`),
   `on_problem` (`warn`, `fail`), `operation` (`add`, `copy`, `rename`,
   `delete`), `if_exists` (`fail`, `skip`, `replace`), `encoding` (`utf-8`,
@@ -783,7 +920,8 @@ Every one of these is rejected by `dagu validate`:
   `missing: skip` or
   `append` with `key: _row`: `missing: skip needs a key column; with key:
   _row nothing else identifies a row`; `wait_for_unlock` that is not a
-  duration: `wait_for_unlock must be a duration such as 30s or 5m`.
+  duration: `wait_for_unlock must be a duration such as 30s or 5m`; a blank
+  entry in `formats`: `formats.Total must not be empty`.
 - `xlsx.validate` with no rule: `validate requires at least one of
   with.required, with.not_blank, with.unique, with.types, or with.allowed`;
   `max_problems` below 1: `max_problems must be >= 1`; an `allowed` value
@@ -833,6 +971,10 @@ Every one of these is rejected by `dagu validate`:
 - A path that is not `.xlsx` or `.xlsm`: an error containing
   `only .xlsx and .xlsm workbooks are supported; save as .xlsx`.
 - A missing workbook: `<name>: workbook not found`.
+- A protected workbook opened with no password or the wrong one:
+  `<name>: workbook password is missing or incorrect`.
+- A protected workbook whose encryption is not agile or standard:
+  `<name>: workbook encryption is not supported`.
 - A missing sheet: `sheet "Order" not found; sheets present: Orders, Summary`.
 - A range that is none of the accepted forms:
   `range "Totals" is not a cell range, named range, or table`.
@@ -867,6 +1009,10 @@ Every one of these is rejected by `dagu validate`:
   it to write this cell`; a new column whose header cell is inside a merged
   cell: `Sheet1!C1: merged cell B1:C1 covers the header cell of new column
   "note"; unmerge it to add the column`.
+- An `output` of `xlsx.update_rows` or `xlsx.append` that is the workbook
+  itself: `orders.xlsx: output must be a different file from path; leave
+  output out to update the workbook in place`, or `to append to the
+  workbook in place`.
 - A workbook another program holds, on Windows:
   `orders.xlsx is open in another program; close it and retry`.
 - `artifact: true` in a DAG whose artifacts are disabled:

@@ -95,8 +95,6 @@ const (
 	// respondInstruction asks for the answer through the respond tool. It is
 	// added to each request and never saved to the session.
 	respondInstruction = "When you have the answer, call the respond tool with arguments that match its parameter schema. That call ends the conversation."
-	correctionFormat   = "Your answer could not be used: %v. Call the respond tool again with arguments that match its parameter schema."
-	emptyAnswer        = "(no answer)"
 )
 
 // errNoAnswer is the step error when no model answers the output_schema. It
@@ -223,7 +221,7 @@ func (e *Executor) runStructuredForModel(ctx context.Context, provider llmpkg.Pr
 			return nil
 		}
 
-		rejected := rejectedAnswer(resp)
+		rejected := agentstep.RejectedAnswer(resp)
 		logger.Warn(ctx, "Model answer does not match output_schema",
 			slog.String("provider", cfg.Provider),
 			slog.String("model", cfg.Model),
@@ -238,7 +236,7 @@ func (e *Executor) runStructuredForModel(ctx context.Context, provider llmpkg.Pr
 		}
 		corrected = true
 		conv.add(ir.LLMMessage{Role: ir.LLMRoleAssistant, Content: rejected, Metadata: metadata}, nil)
-		conv.add(ir.LLMMessage{Role: ir.LLMRoleUser, Content: fmt.Sprintf(correctionFormat, reason)}, nil)
+		conv.add(ir.LLMMessage{Role: ir.LLMRoleUser, Content: agentstep.Correction(reason)}, nil)
 	}
 
 	e.savedMessages = conv.messages
@@ -263,18 +261,4 @@ func callsRespond(calls []llmpkg.ToolCall) bool {
 	return slices.ContainsFunc(calls, func(call llmpkg.ToolCall) bool {
 		return call.Function.Name == agentstep.RespondToolName
 	})
-}
-
-// rejectedAnswer returns what the model answered: the respond call's
-// arguments, otherwise its text.
-func rejectedAnswer(resp *llmpkg.ChatResponse) string {
-	for _, call := range resp.ToolCalls {
-		if call.Function.Name == agentstep.RespondToolName {
-			return call.Function.Arguments
-		}
-	}
-	if resp.Content != "" {
-		return resp.Content
-	}
-	return emptyAnswer
 }

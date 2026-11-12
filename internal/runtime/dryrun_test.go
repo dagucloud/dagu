@@ -163,3 +163,31 @@ func TestCheckDryRunStepRunsTheExecutorHook(t *testing.T) {
 	require.NoError(t, checkDryRun(t, t.TempDir(), newStep("plain", withCommand("true")), nil),
 		"an executor without a hook is checked as before")
 }
+
+func TestDryRunChecksForSplitsProblems(t *testing.T) {
+	err := errors.Join(
+		errors.New(`field 'with.key': column "Nope" not found`),
+		errors.New(`field 'with.set': column "Also" not found`),
+	)
+	require.Equal(t, []runtime.DryRunCheck{
+		{Step: "mark", Field: "with.key", Message: `column "Nope" not found`},
+		{Step: "mark", Field: "with.set", Message: `column "Also" not found`},
+	}, runtime.DryRunChecksFor("mark", err))
+
+	plain := errors.New("shell missing")
+	require.Equal(t, []runtime.DryRunCheck{{Step: "check", Message: "shell missing"}}, runtime.DryRunChecksFor("check", plain))
+}
+
+func TestSortDryRunChecksFollowsSteps(t *testing.T) {
+	checks := []runtime.DryRunCheck{
+		{Step: "load", Field: "with.path", Message: "missing"},
+		{Step: "read", Field: "with.sheet", Message: "nope"},
+		{Step: "load", Field: "with.source", Message: "also"},
+	}
+	runtime.SortDryRunChecks([]string{"read", "load"}, checks)
+	require.Equal(t, []runtime.DryRunCheck{
+		{Step: "read", Field: "with.sheet", Message: "nope"},
+		{Step: "load", Field: "with.path", Message: "missing"},
+		{Step: "load", Field: "with.source", Message: "also"},
+	}, checks)
+}

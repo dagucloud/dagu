@@ -26,6 +26,15 @@ const (
 	StatusWaiting   = "waiting"
 	StatusCacheHit  = "cache-hit"
 	StatusHealed    = "healed"
+
+	// How an operation ran, carried as the via of its event: a recording
+	// replayed by the window's or page's elements, a recording replayed by
+	// the pixels of the screen, the model, or an exact check that read the
+	// window or page without one.
+	ViaElement = "element"
+	ViaScreen  = "screen"
+	ViaModel   = "model"
+	ViaExact   = "exact"
 )
 
 const (
@@ -51,10 +60,13 @@ type Timeline struct {
 type Report struct {
 	// Index is the position in with.do, or -1 for work before the first
 	// operation.
-	Index    int
-	Kind     string
-	Subject  string
-	Status   string
+	Index   int
+	Kind    string
+	Subject string
+	Status  string
+	// Via is how the operation ran, ViaElement, ViaScreen, ViaModel, or
+	// ViaExact, or empty for one that decides nothing, such as a wait.
+	Via      string
 	Detail   string
 	Tokens   int
 	Duration time.Duration
@@ -86,19 +98,28 @@ func (t *Timeline) Operation(report Report) {
 	if detail != "" {
 		line += " → " + detail
 	}
-	line += fmt.Sprintf(" (%s, %d tokens, %s)", report.Status, report.Tokens, report.Duration.Round(100*time.Millisecond))
-	_, _ = fmt.Fprintln(t.Log, line)
+	facts := []string{report.Status, fmt.Sprintf("%d tokens", report.Tokens), report.Duration.Round(100 * time.Millisecond).String()}
+	if report.Via != "" {
+		facts = append(facts, "via "+report.Via)
+	}
+	_, _ = fmt.Fprintf(t.Log, "%s (%s)\n", line, strings.Join(facts, ", "))
 
 	content := subject
 	if detail != "" {
 		content += "\n" + detail
 	}
 	t.AppendEvent(ir.AgentSessionEvent{
-		Type:    EventOperation,
-		Name:    report.Kind,
-		Status:  report.Status,
-		Content: content,
-		Files:   report.Files,
+		Type:     EventOperation,
+		Name:     report.Kind,
+		Status:   report.Status,
+		Content:  content,
+		Files:    report.Files,
+		Position: max(report.Index+1, 0),
+		Via:      report.Via,
+		// Milliseconds suit a timeline; a sub-millisecond operation reads
+		// as instant.
+		DurationMs: report.Duration.Milliseconds(),
+		Tokens:     int64(report.Tokens),
 	})
 }
 

@@ -93,3 +93,14 @@ steps:
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "depends on non-existent step")
 }
+
+func TestDryCommand_RejectsFormat(t *testing.T) {
+	th := test.SetupCommand(t)
+	dag := th.DAG(t, `steps:
+  - run: "true"
+`)
+	err := th.RunCommandWithError(t, cmd.Dry(), test.CmdTest{
+		Args: []string{"dry", dag.Location, "--format", "yaml"},
+	})
+	require.ErrorContains(t, err, `--format "yaml": use text or json`)
+}

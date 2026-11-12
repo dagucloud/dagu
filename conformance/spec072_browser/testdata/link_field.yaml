@@ -1,0 +1,19 @@
+llm:
+  provider: local
+  model: test-model
+steps:
+  - id: listings
+    action: browser.extract
+    with:
+      url: https://shop.example.com/listings
+      instruction: The listings with their links
+      schema:
+        type: object
+        properties:
+          listings:
+            type: array
+            items:
+              type: object
+              properties:
+                name: {type: string}
+                link: {type: string}

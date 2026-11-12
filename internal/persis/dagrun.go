@@ -24,6 +24,9 @@ type DAGRunStore interface {
 	CreateAttempt(ctx context.Context, req DAGRunCreateAttemptRequest) (dagrun.Attempt, error)
 	RecentStatuses(ctx context.Context, name string, limit int) ([]ir.DAGRunStatus, error)
 	LatestAttempt(ctx context.Context, query DAGRunLatestAttemptQuery) (dagrun.Attempt, error)
+	// LatestStatuses returns the status of each DAG's newest run when that
+	// run was created at or after NotBefore and matches the query's filters.
+	LatestStatuses(ctx context.Context, query DAGRunLatestStatusesQuery) ([]*ir.DAGRunStatus, error)
 	QueryStatuses(ctx context.Context, query DAGRunStatusQuery) (DAGRunStatusPage, error)
 	CompareAndSwapLatestAttemptStatus(ctx context.Context, req DAGRunCompareAndSwapStatusRequest) (*ir.DAGRunStatus, bool, error)
 	FindAttempt(ctx context.Context, ref ir.DAGRunRef) (dagrun.Attempt, error)
@@ -48,6 +51,12 @@ type DAGRunStatusQuery struct {
 	Cursor          string
 	Labels          []string
 	WorkspaceFilter *workspace.WorkspaceFilter
+	// FullStatus returns each status whole, with its nodes, where a run
+	// index would serve a summary.
+	FullStatus bool
+	// ExcludeDAGNames drops the runs of these DAGs. A cursor records only
+	// whether it is set, so a page stays valid when the names change.
+	ExcludeDAGNames []string
 }
 
 // DAGRunStatusPage is one forward-only page of DAG-run statuses.
@@ -73,6 +82,15 @@ type DAGRunLatestAttemptQuery struct {
 	NotBefore TimeInUTC
 }
 
+// DAGRunLatestStatusesQuery selects the newest run of every DAG.
+type DAGRunLatestStatusesQuery struct {
+	NotBefore       TimeInUTC
+	Labels          []string
+	WorkspaceFilter *workspace.WorkspaceFilter
+	// ExcludeDAGNames drops the runs of these DAGs.
+	ExcludeDAGNames []string
+}
+
 // DAGRunCompareAndSwapStatusRequest describes an atomic latest-attempt status update.
 type DAGRunCompareAndSwapStatusRequest struct {
 	DAGRun             ir.DAGRunRef
@@ -95,6 +113,9 @@ type DAGRunRetentionRequest struct {
 type DAGRunRemoveRequest struct {
 	DAGRun       ir.DAGRunRef
 	RejectActive bool
+	// ExpectedAttemptID, when set, refuses the removal with ErrDAGRunActive
+	// unless it names the newest attempt of the run.
+	ExpectedAttemptID string
 }
 
 // ArtifactPruneRequest describes a sweep for orphaned artifact directories.
@@ -111,6 +132,9 @@ type ArtifactPruneRequest struct {
 	OlderThan TimeInUTC
 	// DryRun reports what would be removed without removing it.
 	DryRun bool
+	// SharedStores are other stores whose runs write to the same artifact
+	// root. Their runs keep their entries, as the runs of the store do.
+	SharedStores []DAGRunStore
 }
 
 // ArtifactPruneResult reports the paths a sweep removed, or would remove in a
@@ -128,6 +152,9 @@ type DAGRunRepositoryOptions struct {
 	Location          *time.Location
 	Now               func() time.Time
 	RemovalEnqueuer   DAGRunRemovalEnqueuer
+	// EphemeralStore holds ephemeral runs apart from the history. Without it
+	// the repository cannot create an ephemeral run.
+	EphemeralStore DAGRunStore
 }
 
 // DAGRunRemovalEnqueuer durably records resources before their DAG-run history is removed.
@@ -143,6 +170,9 @@ type DAGRunCreateAttemptOptions struct {
 	Retry bool
 	// AttemptID uses a caller-assigned attempt identifier when non-empty.
 	AttemptID string
+	// Ephemeral creates the run in the ephemeral store, where no listing,
+	// retention pass or event reaches it. It applies only to a new root run.
+	Ephemeral bool
 }
 
 // DAGRunLatestAttemptOptions configures a latest-attempt lookup.
@@ -163,10 +193,15 @@ type DAGRunListOptions struct {
 	Cursor          string
 	Labels          []string
 	WorkspaceFilter *workspace.WorkspaceFilter
+	// ExcludeDAGNames drops the runs of these DAGs. A cursor records only
+	// whether it is set, so a page stays valid when the names change.
+	ExcludeDAGNames []string
 	// AllHistory disables the implicit recent-time window when no range is set.
 	AllHistory bool
 	// Unbounded disables the repository's result limit.
 	Unbounded bool
+	// FullStatus returns each status whole, with its nodes.
+	FullStatus bool
 }
 
 // DAGRunCompareAndSwapOptions configures an atomic latest-attempt status update.
@@ -190,6 +225,9 @@ type DAGRunRetentionOptions struct {
 type DAGRunRemoveOptions struct {
 	// RejectActive refuses to remove an active DAG run.
 	RejectActive bool
+	// ExpectedAttemptID refuses to remove a DAG run whose newest attempt is
+	// another one, such as a retry that is starting.
+	ExpectedAttemptID string
 }
 
 // TimeInUTC wraps a time normalized to UTC.

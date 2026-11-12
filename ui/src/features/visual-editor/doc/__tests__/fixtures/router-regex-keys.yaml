@@ -1,0 +1,13 @@
+working_dir: .
+steps:
+  - name: pick
+    action: router.route
+    with:
+      value: "404"
+      routes:
+        "re:^5\\d\\d$": [server_error]
+        "re:^4\\d\\d$": [client_error]
+  - name: server_error
+    run: echo 5xx > server_error.out
+  - name: client_error
+    run: echo 4xx > client_error.out

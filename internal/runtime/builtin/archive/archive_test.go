@@ -10,11 +10,13 @@ import (
 	"encoding/json"
 	"errors"
 	"io"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"testing"
 
 	"github.com/dagucloud/dagu/v2/internal/ir"
+	"github.com/dagucloud/dagu/v2/internal/runtime"
 	"github.com/mholt/archives"
 )
 
@@ -204,5 +206,100 @@ func makeZip(t *testing.T, path string, files map[string]string) {
 	}
 	if err := zw.Close(); err != nil {
 		t.Fatalf("close zip writer: %v", err)
+	}
+}
+
+// Relative source and destination paths name files under the step working
+// directory, not the Dagu process directory.
+func TestArchiveRelativePathsUseWorkingDir(t *testing.T) {
+	workDir := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(workDir, "data"), 0o755); err != nil {
+		t.Fatalf("mkdir data: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(workDir, "data", "a.txt"), []byte("alpha"), 0o644); err != nil {
+		t.Fatalf("write a.txt: %v", err)
+	}
+
+	run := func(op string, cfg map[string]any) {
+		t.Helper()
+		step := ir.Step{
+			Name:           op,
+			Commands:       []ir.CommandEntry{{Command: op}},
+			ExecutorConfig: ir.ExecutorConfig{Type: executorType, Config: cfg},
+		}
+		dag := &ir.DAG{Name: "archive-test", WorkingDir: workDir, WorkingDirExplicit: true}
+		ctx := runtime.NewContext(context.Background(), dag, "run-1", "")
+		ctx = runtime.WithEnv(ctx, runtime.NewEnv(ctx, step))
+		exec, err := newExecutor(ctx, step)
+		if err != nil {
+			t.Fatalf("newExecutor(%s): %v", op, err)
+		}
+		exec.SetStdout(io.Discard)
+		if err := exec.Run(ctx); err != nil {
+			t.Fatalf("%s Run: %v", op, err)
+		}
+	}
+
+	run(opCreate, map[string]any{"source": "data", "destination": "out/data.tar.gz"})
+	if _, err := os.Stat(filepath.Join(workDir, "out", "data.tar.gz")); err != nil {
+		t.Fatalf("archive not created under the working directory: %v", err)
+	}
+
+	run(opExtract, map[string]any{"source": "out/data.tar.gz", "destination": "restored"})
+	got, err := os.ReadFile(filepath.Join(workDir, "restored", "data", "a.txt"))
+	if err != nil {
+		t.Fatalf("extracted file not under the working directory: %v", err)
+	}
+	if string(got) != "alpha" {
+		t.Fatalf("extracted content = %q, want %q", got, "alpha")
+	}
+}
+
+// Archiving the working directory itself keeps its entries at the archive
+// root, as with source "." before relative paths resolved.
+func TestArchiveCreateDotSourceKeepsRootEntries(t *testing.T) {
+	workDir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(workDir, "a.txt"), []byte("alpha"), 0o644); err != nil {
+		t.Fatalf("write a.txt: %v", err)
+	}
+	destArchive := filepath.Join(t.TempDir(), "dot.tar.gz")
+
+	step := ir.Step{
+		Name:     "create-dot",
+		Commands: []ir.CommandEntry{{Command: opCreate}},
+		ExecutorConfig: ir.ExecutorConfig{
+			Type:   executorType,
+			Config: map[string]any{"source": ".", "destination": destArchive},
+		},
+	}
+	dag := &ir.DAG{Name: "archive-test", WorkingDir: workDir, WorkingDirExplicit: true}
+	ctx := runtime.NewContext(context.Background(), dag, "run-1", "")
+	ctx = runtime.WithEnv(ctx, runtime.NewEnv(ctx, step))
+	exec, err := newExecutor(ctx, step)
+	if err != nil {
+		t.Fatalf("newExecutor: %v", err)
+	}
+	out := &bytes.Buffer{}
+	exec.SetStdout(out)
+	if err := exec.Run(ctx); err != nil {
+		t.Fatalf("create Run: %v", err)
+	}
+
+	fsys, err := archives.FileSystem(context.Background(), destArchive, nil)
+	if err != nil {
+		t.Fatalf("FileSystem: %v", err)
+	}
+	if _, err := fs.Stat(fsys, "a.txt"); err != nil {
+		t.Fatalf("a.txt not at the archive root: %v", err)
+	}
+
+	var result struct {
+		Source string `json:"source"`
+	}
+	if err := json.Unmarshal(out.Bytes(), &result); err != nil {
+		t.Fatalf("decode output: %v", err)
+	}
+	if result.Source != "." {
+		t.Fatalf("output source = %q, want the path as written", result.Source)
 	}
 }

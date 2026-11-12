@@ -8,6 +8,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/dagucloud/dagu/v2/internal/cmn/stringutil"
 	"github.com/spf13/cobra"
 )
 
@@ -487,6 +488,40 @@ steps:
     depends: [summarize]
 `,
 	},
+	{
+		ID:          15,
+		Name:        "js-transform",
+		Description: "Extract links from fetched HTML with a sandboxed JavaScript step",
+		Content: `type: graph
+steps:
+  - id: fetch
+    action: http.request
+    with:
+      method: GET
+      url: https://example.com
+    output: HTML
+  - id: links
+    action: js.run
+    with:
+      input: ${HTML}
+      script: |
+        const urls = new Set();
+        for (const m of input.matchAll(/href="([^"]+)"/g)) {
+          urls.add(new URL(m[1], "https://example.com").href);
+        }
+        return [...urls];
+    output: LINKS
+    depends: [fetch]
+  - id: report
+    action: js.run
+    with:
+      input: ${LINKS}
+      format: json
+      script: |
+        return input.length + " links, first: " + (input[0] || "none");
+    depends: [links]
+`,
+	},
 }
 
 // ExampleCount returns the number of available examples.
@@ -566,7 +601,7 @@ func titleCase(s string) string {
 	words := strings.Split(s, "-")
 	for i, w := range words {
 		if len(w) > 0 {
-			words[i] = strings.ToUpper(w[:1]) + w[1:]
+			words[i] = stringutil.UpperFirst(w)
 		}
 	}
 	return strings.Join(words, " ")

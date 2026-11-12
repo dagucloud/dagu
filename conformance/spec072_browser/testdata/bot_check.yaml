@@ -1,0 +1,10 @@
+working_dir: .
+env:
+  - SHOP_URL: ${SHOP_URL}
+steps:
+  - id: orders
+    action: browser.run
+    with:
+      url: ${SHOP_URL}/guarded
+      do:
+        - expect: {text: "Orders", within: 1s}

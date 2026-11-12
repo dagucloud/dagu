@@ -5,6 +5,7 @@ import { Button } from '@/components/ui/button';
 import { ConfirmDialog } from '@/components/ui/confirm-dialog';
 import { RelativeTime } from '@/components/ui/relative-time';
 import { Tab, Tabs } from '@/components/ui/tabs';
+import { useCanExecuteForWorkspace } from '@/contexts/AuthContext';
 import { useRemoteNode } from '@/contexts/RemoteNodeContext';
 import { useClient } from '@/hooks/api';
 import {
@@ -273,7 +274,7 @@ function InteractionCard({
       {questions.map((question, questionIndex) => (
         <div key={`${interaction.id}-${questionIndex}`} className="space-y-2">
           <div>
-            <div className="text-xs font-medium uppercase text-muted-foreground">
+            <div className="text-xs font-medium text-muted-foreground">
               {question.header}
             </div>
             <div className="text-sm">{question.question}</div>
@@ -363,6 +364,7 @@ function AgentSessionCard({
 }) {
   const client = useClient();
   const remoteNode = useRemoteNode();
+  const canExecute = useCanExecuteForWorkspace(dagRun.workspace);
   const [busy, setBusy] = React.useState(false);
   const [error, setError] = React.useState<string>();
   const [confirmRestart, setConfirmRestart] = React.useState(false);
@@ -491,7 +493,7 @@ function AgentSessionCard({
               ` · OpenCode ${session.providerVersion}`}
           </div>
         </div>
-        {canRestart && (
+        {canRestart && canExecute && (
           <Button
             size="sm"
             variant={session.state === 'unavailable' ? 'primary' : 'secondary'}
@@ -523,7 +525,7 @@ function AgentSessionCard({
           key={interaction.id}
           interaction={interaction}
           provider={session.provider}
-          busy={busy}
+          busy={busy || !canExecute}
           onPermission={(decision) => respond(interaction, { decision })}
           onQuestion={(answers) =>
             respond(
@@ -535,6 +537,16 @@ function AgentSessionCard({
           }
         />
       ))}
+
+      {!canExecute && (pending.length > 0 || canRestart) && (
+        <p className="text-xs text-muted-foreground">
+          <I18nText
+            text={
+              'Execute permission is required to answer or restart this session.'
+            }
+          />
+        </p>
+      )}
 
       {session.usage &&
         ((session.usage.totalTokens || 0) > 0 ||

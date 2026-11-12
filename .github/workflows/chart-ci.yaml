@@ -104,8 +104,28 @@ jobs:
             exit 1
           fi
 
+      # The templates follow main and the default image is Chart.appVersion,
+      # so an older appVersion renders settings its image does not know.
+      - name: Require the latest Dagu release as appVersion
+        shell: bash
+        run: |
+          app_version="$(awk -F': ' '$1=="appVersion"{gsub(/"/,"",$2); print $2; exit}' charts/dagu/Chart.yaml)"
+          latest="$(git tag --list 'v*' --sort=-v:refname | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+$' | sed -n 1p || true)"
+          if [[ -z "${latest}" ]]; then
+            echo "::error::No Dagu release tag found"
+            exit 1
+          fi
+          if [[ "${app_version}" != "${latest#v}" ]]; then
+            echo "::error::charts/dagu/Chart.yaml appVersion is ${app_version}; set it to the latest Dagu release, ${latest#v}"
+            exit 1
+          fi
+
       - name: Set up Helm
         uses: azure/setup-helm@9bc31f4ebc9c6b171d7bfbaa5d006ae7abdb4310 # v5.0.1
+        with:
+          # "latest" falls back to an older Helm when the release lookup
+          # fails, and older releases word schema errors differently.
+          version: v4.3.1
 
       - name: Lint chart
         run: helm lint --strict ./charts/dagu
@@ -117,6 +137,7 @@ jobs:
             --kube-version 1.19.0 >/tmp/dagu-default-render.yaml
 
           grep -Fq 'cors_allowed_origins: []' /tmp/dagu-default-render.yaml
+          grep -Fq 'allowed_hosts: []' /tmp/dagu-default-render.yaml
           grep -Fq -- '- start-all' /tmp/dagu-default-render.yaml
           grep -Fq 'type: ClusterIP' /tmp/dagu-default-render.yaml
           grep -Fq 'helm.sh/resource-policy: keep' /tmp/dagu-default-render.yaml
@@ -156,6 +177,18 @@ jobs:
           grep -Fq 'name: dagu-worker-general' /tmp/dagu-distributed-render.yaml
           grep -Fq -- '- ReadWriteMany' /tmp/dagu-distributed-render.yaml
           test "$(grep -Fc 'serviceAccountName: dagu' /tmp/dagu-distributed-render.yaml)" -eq 4
+
+          helm template dagu ./charts/dagu \
+            --namespace dagu \
+            --kube-version 1.35.0 \
+            --set deploymentMode=distributed \
+            --set persistence.accessMode=ReadWriteMany \
+            --set persistence.storageClass=nfs-client \
+            --set scheduler.replicas=2 \
+            --show-only templates/scheduler-deployment.yaml \
+            >/tmp/dagu-scheduler-standby-render.yaml
+
+          grep -Fq 'replicas: 2' /tmp/dagu-scheduler-standby-render.yaml
 
           helm template dagu ./charts/dagu \
             --namespace dagu \
@@ -212,6 +245,7 @@ jobs:
           grep -Fq 'name: "dagu-license"' /tmp/dagu-optional-render.yaml
           grep -Fq 'name: "dagu-oidc"' /tmp/dagu-optional-render.yaml
           grep -Fq 'cors_allowed_origins: ["https://app.example.com"]' /tmp/dagu-optional-render.yaml
+          grep -Fq 'allowed_hosts: ["dagu.example.com"]' /tmp/dagu-optional-render.yaml
           grep -Fq 'engineering: developer' /tmp/dagu-optional-render.yaml
           grep -Fq 'workspace: platform' /tmp/dagu-optional-render.yaml
           grep -Fq 'secretName: "dagu-tls"' /tmp/dagu-optional-render.yaml

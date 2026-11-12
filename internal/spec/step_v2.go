@@ -54,6 +54,7 @@ var builtinActionNormalizers = map[string]actionNormalizer{
 	"browser.extract":     normalizeBrowserExtractAction,
 	"browser.run":         normalizeBrowserRunAction,
 	"chat.completion":     normalizeChatAction,
+	"clickhouse.query":    normalizeClickHouseQueryAction,
 	"computer.extract":    normalizeComputerExtractAction,
 	"computer.run":        normalizeComputerRunAction,
 	"container.run":       optionalCommandAction("container", "command"),
@@ -79,6 +80,7 @@ var builtinActionNormalizers = map[string]actionNormalizer{
 	"http.request":        normalizeHTTPRequestAction,
 	"human.task":          normalizeHumanTaskAction,
 	"jq.filter":           normalizeJQFilterAction,
+	"js.run":              normalizeJSRunAction,
 	"k8s.run":             optionalCommandAction("k8s", "command"),
 	"kubernetes.run":      optionalCommandAction("kubernetes", "command"),
 	"log.write":           normalizeLogAction,
@@ -605,6 +607,23 @@ func commandAction(executorType, field string) actionNormalizer {
 	}
 }
 
+// normalizeClickHouseQueryAction takes the SQL from with.query, which becomes
+// the step command, or from with.file, which the executor reads.
+func normalizeClickHouseQueryAction(normalized map[string]any, with map[string]any) error {
+	_, hasQuery := with["query"]
+	_, hasFile := with["file"]
+	switch {
+	case hasQuery && hasFile:
+		return ir.NewValidationError("with", nil, fmt.Errorf("with.query and with.file are mutually exclusive"))
+	case hasFile:
+		return finishAction(normalized, "clickhouse", with)
+	case hasQuery:
+		return normalizeCommandAction(normalized, "clickhouse", with, "query")
+	default:
+		return ir.NewValidationError("with", nil, fmt.Errorf("with.query or with.file is required"))
+	}
+}
+
 func normalizeOptionalCommandAction(normalized map[string]any, executorType string, with map[string]any, field string) error {
 	if value, ok := with[field]; ok {
 		delete(with, field)
@@ -825,6 +844,25 @@ func normalizeJQFilterAction(normalized map[string]any, with map[string]any) err
 		delete(with, "data")
 	}
 	return finishAction(normalized, "jq", with)
+}
+
+func normalizeJSRunAction(normalized map[string]any, with map[string]any) error {
+	value, err := requireActionField(with, "script")
+	if err != nil {
+		return err
+	}
+	script, ok := value.(string)
+	if !ok || strings.TrimSpace(script) == "" {
+		return ir.NewValidationError("with", with, fmt.Errorf("with.script must be a non-empty string"))
+	}
+	if _, hasInput := with["input"]; hasInput {
+		if _, hasFile := with["input_file"]; hasFile {
+			return ir.NewValidationError("with", with, fmt.Errorf("js.run does not allow both with.input and with.input_file"))
+		}
+	}
+	delete(with, "script")
+	normalized["script"] = script
+	return finishAction(normalized, "js", with)
 }
 
 func stringifyActionData(data any) (string, error) {

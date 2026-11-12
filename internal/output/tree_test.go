@@ -71,6 +71,41 @@ func TestRenderDAGStatus_BasicSuccess(t *testing.T) {
 	require.Contains(t, output, "Result: Succeeded")
 }
 
+// How many times a repeated step ran is the main signal for a closed loop, and
+// a step that used up its limit still reads as succeeded.
+func TestRenderDAGStatus_RepeatCount(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name      string
+		repeated  bool
+		doneCount int
+		want      string
+	}{
+		{name: "RepeatedManyTimes", repeated: true, doneCount: 5, want: "loop [succeeded] ×5\n"},
+		{name: "RepeatedOnce", repeated: true, doneCount: 1, want: "loop [succeeded]\n"},
+		{name: "NotRepeated", doneCount: 2, want: "loop [succeeded]\n"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			status := &ir.DAGRunStatus{
+				Status: ir.Succeeded,
+				Nodes: []*ir.Node{{
+					Step:      ir.Step{Name: "loop"},
+					Status:    ir.NodeSucceeded,
+					Repeated:  tt.repeated,
+					DoneCount: tt.doneCount,
+				}},
+			}
+
+			output := newTestRenderer().RenderDAGStatus(&ir.DAG{Name: "test-dag"}, status)
+			require.Contains(t, output, tt.want)
+		})
+	}
+}
+
 func TestRenderDAGStatus_BuildDecision(t *testing.T) {
 	t.Parallel()
 	dag := &ir.DAG{Name: "build-dag"}
@@ -1406,4 +1441,18 @@ func TestRenderDAGStatus_SchedulerLogLastBranchWhenNoSteps(t *testing.T) {
 	output := newTestRenderer().RenderDAGStatus(dag, status)
 
 	require.Contains(t, output, "└─log:")
+}
+
+func TestWrapTextMultibyteBoundary(t *testing.T) {
+	t.Parallel()
+
+	// A word wider than maxWidth is split into chunks; a byte-width cut must
+	// not split a multibyte rune.
+	word := strings.Repeat("界", 20)
+	lines := wrapText(word, 20)
+	require.NotEmpty(t, lines)
+	for _, line := range lines {
+		assert.True(t, utf8.ValidString(line))
+	}
+	assert.Equal(t, word, strings.Join(lines, ""))
 }

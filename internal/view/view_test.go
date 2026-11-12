@@ -47,6 +47,22 @@ func TestView_ValidateWorkflow(t *testing.T) {
 	assert.True(t, v.Pinned)
 }
 
+func TestView_ValidateWorkflowAcceptsSortFields(t *testing.T) {
+	for _, field := range []string{
+		view.WorkflowSortName,
+		view.WorkflowSortNextRun,
+		view.WorkflowSortStatus,
+		view.WorkflowSortLastRun,
+	} {
+		t.Run(field, func(t *testing.T) {
+			v := &view.View{Name: "workflow", Type: view.TypeWorkflow, SortField: field}
+			v.Normalize()
+			require.NoError(t, v.Validate())
+			assert.Equal(t, field, v.SortField)
+		})
+	}
+}
+
 func TestView_ValidateWorkflowRejectsInvalidFields(t *testing.T) {
 	tests := []struct {
 		name   string

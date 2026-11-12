@@ -8,8 +8,10 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"maps"
 	"net/http"
 	"net/url"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -60,6 +62,7 @@ const (
 	readFieldQuery     = "query"
 	readFieldWorkspace = "workspace"
 	readFieldPath      = "path"
+	readFieldPassword  = "password"
 	readFieldSearch    = "search"
 	readFieldPrefix    = "prefix"
 	readFieldCursor    = "cursor"
@@ -78,19 +81,22 @@ const (
 )
 
 type readInput struct {
-	Target    string `json:"target" jsonschema:"Read target: dags, dag, dag_spec, dag_profile, dag_search, wiki, wiki_page, wiki_search, workbook, runs, run, run_logs, step_log, or reference."`
-	Name      string `json:"name,omitempty" jsonschema:"DAG name for dag, dag_spec, dag_profile, run, run_logs, and step_log targets."`
-	DAGRunID  string `json:"dagRunId,omitempty" jsonschema:"DAG-run ID for run, run_logs, and step_log targets. The value latest is accepted where Dagu accepts it."`
-	SubRunID  string `json:"subRunId,omitempty" jsonschema:"Child DAG-run ID for run and step_log targets, addressed under the root run identified by name and dagRunId."`
-	StepName  string `json:"stepName,omitempty" jsonschema:"Step name for the step_log target."`
-	Query     string `json:"query,omitempty" jsonschema:"URL query string for list targets, for example page=1&perPage=100 or status=running."`
-	Workspace string `json:"workspace,omitempty" jsonschema:"Workspace: all, default, or a workspace name. Required for wiki_page and optional for wiki, wiki_search, and dag_search."`
-	Path      string `json:"path,omitempty" jsonschema:"Wiki page path without the .md extension (required for wiki_page), or a workbook file path the server can read (required for workbook)."`
-	Search    string `json:"search,omitempty" jsonschema:"Search text. Required for wiki_search and dag_search."`
-	Prefix    string `json:"prefix,omitempty" jsonschema:"Wiki page path prefix. Optional for wiki and wiki_search."`
-	Cursor    string `json:"cursor,omitempty" jsonschema:"Opaque cursor returned by wiki_search or dag_search."`
-	Limit     int    `json:"limit,omitempty" jsonschema:"Maximum search results to return, from 1 to 50."`
-	URI       string `json:"uri,omitempty" jsonschema:"Resource URI to read directly, for example dagu://reference/authoring."`
+	Target       string `json:"target" jsonschema:"Read target: dags, dag, dag_spec, dag_profile, dag_search, wiki, wiki_page, wiki_search, workbook, runs, run, run_logs, step_log, foreach_items, foreach_item, or reference."`
+	Name         string `json:"name,omitempty" jsonschema:"DAG name for dag, dag_spec, dag_profile, run, run_logs, and step_log targets."`
+	DAGRunID     string `json:"dagRunId,omitempty" jsonschema:"DAG-run ID for run, run_logs, and step_log targets. The value latest is accepted where Dagu accepts it."`
+	SubRunID     string `json:"subRunId,omitempty" jsonschema:"Child DAG-run ID for run and step_log targets, addressed under the root run identified by name and dagRunId."`
+	StepName     string `json:"stepName,omitempty" jsonschema:"Step name for the step_log, foreach_items, and foreach_item targets."`
+	Item         string `json:"item,omitempty" jsonschema:"Foreach item path for the foreach_item target, or with bodyStepName for step_log. A top-level item is its index; a nested item is the foreachParent a body step reports, a dot, and the index."`
+	BodyStepName string `json:"bodyStepName,omitempty" jsonschema:"Body step name inside a foreach item for the step_log target; requires item."`
+	Query        string `json:"query,omitempty" jsonschema:"URL query string for list targets, for example page=1&perPage=100 or status=running."`
+	Workspace    string `json:"workspace,omitempty" jsonschema:"Workspace: all, default, or a workspace name. Required for wiki_page and optional for wiki, wiki_search, and dag_search."`
+	Path         string `json:"path,omitempty" jsonschema:"Wiki page path without the .md extension (required for wiki_page), or a workbook file path the server can read (required for workbook)."`
+	Password     string `json:"password,omitempty" jsonschema:"Password of a protected workbook. Optional for workbook; not recorded in the audit log."`
+	Search       string `json:"search,omitempty" jsonschema:"Search text. Required for wiki_search and dag_search."`
+	Prefix       string `json:"prefix,omitempty" jsonschema:"Wiki page path prefix. Optional for wiki and wiki_search."`
+	Cursor       string `json:"cursor,omitempty" jsonschema:"Opaque cursor returned by wiki_search or dag_search."`
+	Limit        int    `json:"limit,omitempty" jsonschema:"Maximum search results to return, from 1 to 50."`
+	URI          string `json:"uri,omitempty" jsonschema:"Resource URI to read directly, for example dagu://reference/authoring."`
 }
 
 func readToolInputSchema() json.RawMessage {
@@ -99,7 +105,7 @@ func readToolInputSchema() json.RawMessage {
 		"properties": {
 			"target": {
 				"type": "string",
-				"enum": ["references", "reference", "dags", "dag", "dag_spec", "dag_profile", "dag_search", "wiki", "wiki_page", "wiki_search", "workbook", "runs", "run", "run_logs", "step_log"],
+				"enum": ["references", "reference", "dags", "dag", "dag_spec", "dag_profile", "dag_search", "wiki", "wiki_page", "wiki_search", "workbook", "runs", "run", "run_logs", "step_log", "foreach_items", "foreach_item"],
 				"description": "Read target."
 			},
 			"name": {
@@ -112,15 +118,23 @@ func readToolInputSchema() json.RawMessage {
 			},
 			"subRunId": {
 				"type": "string",
-				"description": "Child DAG-run ID for run and step_log targets. Reads the child run addressed under the root run identified by name and dagRunId."
+				"description": "Child DAG-run ID for run, step_log, foreach_items, and foreach_item targets. Reads the child run addressed under the root run identified by name and dagRunId."
 			},
 			"stepName": {
 				"type": "string",
-				"description": "Step name for the step_log target."
+				"description": "Step name for the step_log, foreach_items, and foreach_item targets."
+			},
+			"item": {
+				"type": "string",
+				"description": "Foreach item path for the foreach_item target, or together with bodyStepName for step_log. A top-level item is its index; a nested item is the foreachParent a body step reports, a dot, and the index."
+			},
+			"bodyStepName": {
+				"type": "string",
+				"description": "Body step name inside a foreach item for the step_log target. Requires item."
 			},
 			"query": {
 				"type": "string",
-				"description": "URL query string without a leading question mark. Allowed for dags, wiki, runs, run_logs (tail), and step_log (tail, head, offset, limit, stream)."
+				"description": "URL query string without a leading question mark. Allowed for dags, wiki, runs, run_logs (tail), step_log (tail, head, offset, limit, stream), and foreach_items (parent, status, page, perPage)."
 			},
 			"workspace": {
 				"type": "string",
@@ -129,6 +143,10 @@ func readToolInputSchema() json.RawMessage {
 			"path": {
 				"type": "string",
 				"description": "Wiki page path without the .md extension (required for wiki_page), or a workbook file path the server can read (required for workbook)."
+			},
+			"password": {
+				"type": "string",
+				"description": "Password of a protected workbook. Optional for the workbook target. It is not recorded in the audit log."
 			},
 			"search": {
 				"type": "string",
@@ -261,7 +279,13 @@ func (svc *Service) readToolImpl(ctx context.Context, input readInput) (*mcpsdk.
 			data, err = svc.searchWikiPages(ctx, input.Workspace, input.Search, input.Prefix, input.Cursor, input.Limit)
 		}
 	case readTargetWorkbook:
-		data, err = readWorkbook(ctx, input)
+		// A workbook can be any file the server can read, so describing one
+		// takes the trust of DAG authoring.
+		if err = svc.requireAPI(); err == nil {
+			if err = svc.api.RequireDAGAuthoring(ctx); err == nil {
+				data, err = readWorkbook(ctx, input)
+			}
+		}
 	case readTargetRuns:
 		if err = svc.requireAPI(); err == nil {
 			var raw any
@@ -272,15 +296,20 @@ func (svc *Service) readToolImpl(ctx context.Context, input readInput) (*mcpsdk.
 		}
 	case readTargetRun:
 		if err = svc.requireAPI(); err == nil {
-			var raw any
+			var result frontendapi.DAGRunDetailsWithOutputs
 			addr := runAddress{name: input.Name, dagRunID: input.DAGRunID, subRunID: input.SubRunID}
-			if input.SubRunID != "" {
-				raw, err = svc.api.GetSubDAGRunDetailsData(ctx, input.Name+"/"+input.DAGRunID+"/"+input.SubRunID)
-			} else {
-				raw, err = svc.api.GetDAGRunDetailsData(ctx, input.Name+"/"+input.DAGRunID)
-			}
+			result, err = svc.api.GetDAGRunDetailsWithOutputsData(ctx, input.Name, input.DAGRunID, input.SubRunID)
 			if err == nil {
-				data, err = normalizeRunDetails(raw, addr)
+				var run daguapi.DAGRunDetails
+				var details map[string]any
+				run, err = dagRunDetailsFromResponse(result.Details)
+				if err == nil {
+					details, err = normalizeRunDetails(result.Details, addr)
+				}
+				if err == nil {
+					maps.Copy(details, runOutputFields(result, run))
+					data = details
+				}
 			}
 		}
 	case readTargetRunLogs:
@@ -291,9 +320,27 @@ func (svc *Service) readToolImpl(ctx context.Context, input readInput) (*mcpsdk.
 			}
 			data, err = svc.api.GetDAGRunLogsData(ctx, identifier)
 		}
+	case readTargetForeachItems:
+		if err = svc.requireAPI(); err == nil {
+			data, err = svc.api.GetForeachItemsDataByRef(ctx, ir.NewDAGRunRef(input.Name, input.DAGRunID), input.SubRunID, input.StepName, foreachItemsQuery(input.Query))
+		}
+	case readTargetForeachItem:
+		if err = svc.requireAPI(); err == nil {
+			data, err = svc.api.GetForeachItemDataByRef(ctx, ir.NewDAGRunRef(input.Name, input.DAGRunID), input.SubRunID, input.StepName, input.Item)
+		}
 	case readTargetStepLog:
 		if err = svc.requireAPI(); err == nil {
-			if input.SubRunID != "" {
+			if input.Item != "" {
+				data, err = svc.api.GetForeachStepLogDataByRef(
+					ctx,
+					ir.NewDAGRunRef(input.Name, input.DAGRunID),
+					input.SubRunID,
+					input.StepName,
+					input.Item,
+					input.BodyStepName,
+					stepLogReadOptions(input.Query),
+				)
+			} else if input.SubRunID != "" {
 				data, err = svc.api.GetSubStepLogDataByRef(
 					ctx,
 					ir.NewDAGRunRef(input.Name, input.DAGRunID),
@@ -322,12 +369,18 @@ func (svc *Service) readToolImpl(ctx context.Context, input readInput) (*mcpsdk.
 		"data":       data,
 		"references": defaultReferenceURIs(),
 	}
-	if input.Target == readTargetStepLog {
+	if input.Target == readTargetStepLog || input.Target == readTargetForeachItems || input.Target == readTargetForeachItem {
 		output["name"] = input.Name
 		output["dagRunId"] = input.DAGRunID
 		output["stepName"] = input.StepName
 		if input.SubRunID != "" {
 			output["subRunId"] = input.SubRunID
+		}
+		if input.Item != "" {
+			output["item"] = input.Item
+		}
+		if input.BodyStepName != "" {
+			output["bodyStepName"] = input.BodyStepName
 		}
 	}
 	if input.Workspace != "" {
@@ -411,7 +464,11 @@ func parseReadToolInput(raw json.RawMessage) (readInput, *readToolError) {
 		if err := json.Unmarshal(value, &text); err != nil {
 			return readInput{}, invalidToolInput("Field "+field+" must be a string.", field)
 		}
-		text = strings.TrimSpace(text)
+		// A password is significant in full, including surrounding spaces.
+		// Every other string field is trimmed, and an empty result is absent.
+		if field != readFieldPassword {
+			text = strings.TrimSpace(text)
+		}
 		if text == "" {
 			if field == readFieldTarget {
 				emptyTarget = true
@@ -429,9 +486,12 @@ func parseReadToolInput(raw json.RawMessage) (readInput, *readToolError) {
 			readFieldDAGRunID,
 			readFieldSubRunID,
 			readFieldStepName,
+			readFieldItem,
+			readFieldBodyStepName,
 			readFieldQuery,
 			readFieldWorkspace,
 			readFieldPath,
+			readFieldPassword,
 			readFieldSearch,
 			readFieldPrefix,
 			readFieldCursor,
@@ -468,18 +528,21 @@ func parseReadToolInput(raw json.RawMessage) (readInput, *readToolError) {
 	}
 
 	input := readInput{
-		Target:    target,
-		Name:      values[readFieldName],
-		DAGRunID:  values[readFieldDAGRunID],
-		SubRunID:  values[readFieldSubRunID],
-		StepName:  values[readFieldStepName],
-		Query:     values[readFieldQuery],
-		Workspace: values[readFieldWorkspace],
-		Path:      values[readFieldPath],
-		Search:    values[readFieldSearch],
-		Prefix:    values[readFieldPrefix],
-		Cursor:    values[readFieldCursor],
-		Limit:     limit,
+		Target:       target,
+		Name:         values[readFieldName],
+		DAGRunID:     values[readFieldDAGRunID],
+		SubRunID:     values[readFieldSubRunID],
+		StepName:     values[readFieldStepName],
+		Item:         values[readFieldItem],
+		BodyStepName: values[readFieldBodyStepName],
+		Query:        values[readFieldQuery],
+		Workspace:    values[readFieldWorkspace],
+		Path:         values[readFieldPath],
+		Password:     values[readFieldPassword],
+		Search:       values[readFieldSearch],
+		Prefix:       values[readFieldPrefix],
+		Cursor:       values[readFieldCursor],
+		Limit:        limit,
 	}
 	if err := validateTargetReadInput(&input); err != nil {
 		return readInput{}, err
@@ -494,9 +557,12 @@ func isReadInputField(field string) bool {
 		readFieldDAGRunID,
 		readFieldSubRunID,
 		readFieldStepName,
+		readFieldItem,
+		readFieldBodyStepName,
 		readFieldQuery,
 		readFieldWorkspace,
 		readFieldPath,
+		readFieldPassword,
 		readFieldSearch,
 		readFieldPrefix,
 		readFieldCursor,
@@ -684,7 +750,17 @@ func parseReadResourceURI(rawURI string) (readInput, *readToolError) {
 				URI:      uriWithQuery(subStepLogURI(resource.segments[0], resource.segments[1], resource.segments[3], resource.segments[5]), resource.query),
 			}, nil
 		default:
-			return readInput{}, invalidResourceURI(rawURI, "Unsupported DAG-run resource path.")
+			foreach, ok := parseForeachResource(resource.segments)
+			if !ok {
+				return readInput{}, invalidResourceURI(rawURI, "Unsupported DAG-run resource path.")
+			}
+			if foreach.queryTarget() == "" && resource.query != "" {
+				return readInput{}, invalidResourceURI(rawURI, "Foreach item resources do not support query parameters.")
+			}
+			if err := validateReadQuery(foreach.queryTarget(), resource.query, true, rawURI); err != nil {
+				return readInput{}, err
+			}
+			return foreach.readInput(resource.query), nil
 		}
 	default:
 		return readInput{}, &readToolError{
@@ -713,11 +789,18 @@ func parseReadResourcePath(rawURI string) (readResourcePath, *readToolError) {
 }
 
 func validateTargetReadInput(input *readInput) *readToolError {
-	if input.StepName != "" && input.Target != readTargetStepLog {
+	stepTarget := input.Target == readTargetStepLog || input.Target == readTargetForeachItems || input.Target == readTargetForeachItem
+	if input.StepName != "" && !stepTarget {
 		return invalidTargetField(input.Target, readFieldStepName)
 	}
-	if input.SubRunID != "" && input.Target != readTargetRun && input.Target != readTargetStepLog {
+	if input.SubRunID != "" && input.Target != readTargetRun && !stepTarget {
 		return invalidTargetField(input.Target, readFieldSubRunID)
+	}
+	if input.Item != "" && input.Target != readTargetStepLog && input.Target != readTargetForeachItem {
+		return invalidTargetField(input.Target, readFieldItem)
+	}
+	if input.BodyStepName != "" && input.Target != readTargetStepLog {
+		return invalidTargetField(input.Target, readFieldBodyStepName)
 	}
 	workspaceTarget := input.Target == readTargetWiki || input.Target == readTargetWikiPage ||
 		input.Target == readTargetWikiSearch || input.Target == readTargetDAGSearch
@@ -727,6 +810,9 @@ func validateTargetReadInput(input *readInput) *readToolError {
 	}
 	if input.Path != "" && input.Target != readTargetWikiPage && input.Target != readTargetWorkbook {
 		return invalidTargetField(input.Target, readFieldPath)
+	}
+	if input.Password != "" && input.Target != readTargetWorkbook {
+		return invalidTargetField(input.Target, readFieldPassword)
 	}
 	if input.Search != "" && !searchTarget {
 		return invalidTargetField(input.Target, readFieldSearch)
@@ -943,11 +1029,42 @@ func validateTargetReadInput(input *readInput) *readToolError {
 		if err := validateReadQuery(input.Target, input.Query, false, ""); err != nil {
 			return err
 		}
-		if input.SubRunID != "" {
-			input.URI = uriWithQuery(subStepLogURI(input.Name, input.DAGRunID, input.SubRunID, input.StepName), input.Query)
-		} else {
-			input.URI = uriWithQuery(stepLogURI(input.Name, input.DAGRunID, input.StepName), input.Query)
+		addr := runAddress{name: input.Name, dagRunID: input.DAGRunID, subRunID: input.SubRunID}
+		switch {
+		case input.Item != "" && input.BodyStepName == "":
+			return missingTargetField(input.Target, readFieldBodyStepName)
+		case input.Item == "" && input.BodyStepName != "":
+			return missingTargetField(input.Target, readFieldItem)
+		case input.Item != "":
+			input.URI = uriWithQuery(addr.foreachStepLogURI(input.StepName, input.Item, input.BodyStepName), input.Query)
+		default:
+			input.URI = uriWithQuery(addr.stepLogURI(input.StepName), input.Query)
 		}
+	case readTargetForeachItems, readTargetForeachItem:
+		if input.Name == "" {
+			return missingTargetField(input.Target, readFieldName)
+		}
+		if input.DAGRunID == "" {
+			return missingTargetField(input.Target, readFieldDAGRunID)
+		}
+		if input.StepName == "" {
+			return missingTargetField(input.Target, readFieldStepName)
+		}
+		addr := runAddress{name: input.Name, dagRunID: input.DAGRunID, subRunID: input.SubRunID}
+		if input.Target == readTargetForeachItem {
+			if input.Item == "" {
+				return missingTargetField(input.Target, readFieldItem)
+			}
+			if input.Query != "" {
+				return invalidTargetField(input.Target, readFieldQuery)
+			}
+			input.URI = addr.foreachItemURI(input.StepName, input.Item)
+			break
+		}
+		if err := validateReadQuery(input.Target, input.Query, false, ""); err != nil {
+			return err
+		}
+		input.URI = uriWithQuery(addr.foreachItemsURI(input.StepName), input.Query)
 	default:
 		return unsupportedReadTargetError(input.Target)
 	}
@@ -1026,6 +1143,11 @@ func isAllowedReadQueryParam(target, key string) bool {
 		case "tail", "head", "offset", "limit", "stream":
 			return true
 		}
+	case readTargetForeachItems:
+		switch key {
+		case "parent", "status", "page", "perPage":
+			return true
+		}
 	}
 	return false
 }
@@ -1092,6 +1214,8 @@ func validReadQueryValue(target, key, value string) bool {
 		case "stream":
 			return value == "stdout" || value == "stderr"
 		}
+	case readTargetForeachItems:
+		return validForeachItemsQueryValue(key, value)
 	}
 	return false
 }
@@ -1180,6 +1304,9 @@ func normalizeDAGList(raw any) (map[string]any, error) {
 		if schedules := scheduleStrings(dag.Dag.Schedule); len(schedules) > 0 {
 			item["schedule"] = schedules
 		}
+		if dag.Dag.RestartPolicy != nil {
+			item["restartPolicy"] = string(*dag.Dag.RestartPolicy)
+		}
 		if dag.Dag.Labels != nil && len(*dag.Dag.Labels) > 0 {
 			item["labels"] = *dag.Dag.Labels
 		}
@@ -1239,6 +1366,12 @@ func normalizeDAGDetails(raw any, fallbackName string) (map[string]any, error) {
 		if schedules := scheduleStrings(dag.Schedule); len(schedules) > 0 {
 			out["schedule"] = schedules
 		}
+		if dag.RestartPolicy != nil {
+			out["restartPolicy"] = string(*dag.RestartPolicy)
+			if dag.RestartWaitSec != nil {
+				out["restartWaitSec"] = *dag.RestartWaitSec
+			}
+		}
 		if dag.Labels != nil && len(*dag.Labels) > 0 {
 			out["labels"] = *dag.Labels
 		}
@@ -1256,6 +1389,13 @@ func normalizeDAGDetails(raw any, fallbackName string) (map[string]any, error) {
 		}
 		if dag.NextRun != nil {
 			out["nextRun"] = dag.NextRun.Format(time.RFC3339)
+		}
+		if dag.UpcomingRuns != nil && len(*dag.UpcomingRuns) > 0 {
+			runs := make([]string, 0, len(*dag.UpcomingRuns))
+			for _, run := range *dag.UpcomingRuns {
+				runs = append(runs, run.Time.Format(time.RFC3339))
+			}
+			out["upcomingRuns"] = runs
 		}
 		if dag.Steps != nil && len(*dag.Steps) > 0 {
 			steps := make([]map[string]any, 0, len(*dag.Steps))
@@ -1464,6 +1604,9 @@ func normalizeRunDetails(raw any, addr runAddress) (map[string]any, error) {
 	if addr.subRunID == "" {
 		out["logsUri"] = runLogsURI(addr.name, addr.dagRunID)
 	}
+	if run.AttemptId != nil && *run.AttemptId != "" {
+		out["attemptId"] = *run.AttemptId
+	}
 	if isSetTimestamp(run.StartedAt) {
 		out["startedAt"] = run.StartedAt
 	}
@@ -1508,6 +1651,82 @@ func normalizeRunDetails(raw any, addr runAddress) (map[string]any, error) {
 	return out, nil
 }
 
+// Run outputs go into a model's context, so a run response carries at most
+// this many outputs and bytes. A value is never cut, because a cut JSON value
+// is invalid; one that does not fit is left out and counted instead.
+const (
+	runOutputsMaxCount     = 50
+	runOutputValueMaxBytes = 4 << 10
+	runOutputsMaxBytes     = 32 << 10
+)
+
+// runOutputFields returns the fields to add to a run response for the
+// outputs loaded with result. run is result.Details decoded.
+func runOutputFields(result frontendapi.DAGRunDetailsWithOutputs, run daguapi.DAGRunDetails) map[string]any {
+	var attemptID string
+	if run.AttemptId != nil {
+		attemptID = *run.AttemptId
+	}
+	return boundedRunOutputs(result.Outputs, attemptID, result.OutputsErr)
+}
+
+// boundedRunOutputs returns the run response fields for outputs read from the
+// attempt attemptID. A run without outputs adds no fields. A read error or
+// outputs recorded by another attempt add outputsError instead of outputs.
+// The read error itself is logged by the API and not returned, since it can
+// name server paths.
+func boundedRunOutputs(outputs *ir.DAGRunOutputs, attemptID string, err error) map[string]any {
+	if err != nil {
+		return map[string]any{"outputsError": "outputs could not be read"}
+	}
+	if outputs == nil || len(outputs.Outputs) == 0 {
+		return nil
+	}
+	if recorded := outputs.Metadata.AttemptID; attemptID != "" && recorded != "" && recorded != attemptID {
+		return map[string]any{"outputsError": fmt.Sprintf("outputs were recorded by attempt %s, not the returned attempt %s; read the run again", recorded, attemptID)}
+	}
+
+	kept := make(map[string]string)
+	omitted, total := 0, 0
+	for _, key := range slices.Sorted(maps.Keys(outputs.Outputs)) {
+		value := outputs.Outputs[key]
+		size := len(key) + len(value)
+		if len(kept) == runOutputsMaxCount || len(value) > runOutputValueMaxBytes || total+size > runOutputsMaxBytes {
+			omitted++
+			continue
+		}
+		kept[key] = value
+		total += size
+	}
+	// outputs is left out when no value fits, the same as for a run without
+	// outputs; outputsOmitted then counts every value.
+	fields := map[string]any{}
+	if len(kept) > 0 {
+		fields["outputs"] = kept
+	}
+	if omitted > 0 {
+		fields["outputsOmitted"] = omitted
+	}
+	return fields
+}
+
+// withRunOutputs returns the run details API response in result, served as a
+// run resource, with the run's output fields added next to dagRunDetails. The
+// response is returned unchanged when the run has no outputs.
+func withRunOutputs(result frontendapi.DAGRunDetailsWithOutputs) any {
+	run, err := dagRunDetailsFromResponse(result.Details)
+	if err != nil {
+		return result.Details
+	}
+	fields := runOutputFields(result, run)
+	if len(fields) == 0 {
+		return result.Details
+	}
+	out := map[string]any{"dagRunDetails": run}
+	maps.Copy(out, fields)
+	return out
+}
+
 func dagRunDetailsFromResponse(raw any) (daguapi.DAGRunDetails, error) {
 	switch data := raw.(type) {
 	case daguapi.GetDAGRunDetails200JSONResponse:
@@ -1540,6 +1759,9 @@ func runStepEntry(addr runAddress, node daguapi.Node) map[string]any {
 	}
 	if node.Step.Id != nil && *node.Step.Id != "" {
 		entry["id"] = *node.Step.Id
+	}
+	if node.Step.ExecutorConfig != nil && node.Step.ExecutorConfig.Type != nil && *node.Step.ExecutorConfig.Type == ir.ExecutorTypeForeach {
+		entry["foreachUri"] = addr.foreachItemsURI(node.Step.Name)
 	}
 	if isSetTimestamp(node.StartedAt) {
 		entry["startedAt"] = node.StartedAt
@@ -1710,10 +1932,17 @@ func resourceURIForReadError(input readInput) string {
 	case readTargetRunLogs:
 		return runLogsURIWithQuery(input.Name, input.DAGRunID, input.Query)
 	case readTargetStepLog:
-		if input.SubRunID != "" {
-			return uriWithQuery(subStepLogURI(input.Name, input.DAGRunID, input.SubRunID, input.StepName), input.Query)
+		addr := runAddress{name: input.Name, dagRunID: input.DAGRunID, subRunID: input.SubRunID}
+		if input.Item != "" {
+			return uriWithQuery(addr.foreachStepLogURI(input.StepName, input.Item, input.BodyStepName), input.Query)
 		}
-		return uriWithQuery(stepLogURI(input.Name, input.DAGRunID, input.StepName), input.Query)
+		return uriWithQuery(addr.stepLogURI(input.StepName), input.Query)
+	case readTargetForeachItems:
+		addr := runAddress{name: input.Name, dagRunID: input.DAGRunID, subRunID: input.SubRunID}
+		return uriWithQuery(addr.foreachItemsURI(input.StepName), input.Query)
+	case readTargetForeachItem:
+		addr := runAddress{name: input.Name, dagRunID: input.DAGRunID, subRunID: input.SubRunID}
+		return addr.foreachItemURI(input.StepName, input.Item)
 	default:
 		return ""
 	}
@@ -1887,6 +2116,11 @@ func readResourceLinks(uri string) []resourceLink {
 			}}
 		}
 		if len(resource.segments) >= 2 {
+			if foreach, ok := parseForeachResource(resource.segments); ok {
+				link := foreach.link()
+				link.uri = resource.rawURI
+				return []resourceLink{link}
+			}
 			if len(resource.segments) == 5 && resource.segments[2] == "steps" && resource.segments[4] == "logs" {
 				return []resourceLink{{
 					uri:         resource.rawURI,

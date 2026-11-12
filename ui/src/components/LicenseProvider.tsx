@@ -3,6 +3,7 @@
 
 import { useState, useEffect, type ReactNode } from 'react';
 import { useQuery } from '@/hooks/api';
+import { subscribeClock } from '@/hooks/useClock';
 import { LicenseContext } from '@/contexts/LicenseContext';
 import type { LicenseStatus } from '@/contexts/ConfigContext';
 import type { components } from '@/api/v1/schema';
@@ -37,11 +38,7 @@ export function LicenseProvider({
   const [now, setNow] = useState(Date.now);
   useEffect(() => {
     if (!enabled) return;
-    const timer = window.setInterval(
-      () => setNow(Date.now()),
-      LICENSE_REFRESH_INTERVAL
-    );
-    return () => window.clearInterval(timer);
+    return subscribeClock(LICENSE_REFRESH_INTERVAL, () => setNow(Date.now()));
   }, [enabled]);
   // Bootstrap status belongs to the local server, never a persisted remote selection.
   if (bootstrap.remoteNode !== remoteNode) {

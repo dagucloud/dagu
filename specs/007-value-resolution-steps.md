@@ -65,9 +65,7 @@ Explicit inspection surfaces report a passive notice for that preserved referenc
 
 ### Dependency Rules
 
-- Step output references do not create dependencies.
-
-- A step output reference can resolve only when the owning step depends directly or transitively on the producing step.
+- A step output reference can resolve only when the owning step depends directly or transitively on the producing step, through `depends` or through an inferred dependency.
 
 - A step output reference to the owning step cannot resolve.
 
@@ -109,6 +107,49 @@ Rules:
 - `foreach.collect` expressions resolve after a successful item body with item
   scope and that item body's step-output scope available.
 
+### Inferred Dependencies
+
+A supported step output reference is an unambiguous ordering signal: without
+the dependency the reference can only preserve as text. Dagu therefore adds
+the dependency.
+
+Rules:
+
+- A supported `${steps.<step_id>.outputs.<name>}` reference in a value-resolution
+  field adds an inferred dependency from the producing step to the top-level
+  step that owns the field.
+- Only the reference forms this spec defines as supported create an inferred
+  dependency. Escaped text, unsupported braced text, `${env.<name>}`,
+  `$NAME`, and string-form `output: VAR` variables create none.
+- Only fields with step-output lookup scope create an inferred dependency. A
+  field whose notice reason would be `namespace_unavailable` creates none.
+  `handler_on` steps have no position in the step graph and create none.
+- A template executor body is rendered as written and creates none. Other
+  template executor fields, such as `with.data`, create one.
+- A reference inside `foreach.steps` to a top-level step attaches the
+  dependency to the owning top-level `foreach` step. A reference inside
+  `foreach.steps` to another body step of the same body creates no top-level
+  dependency.
+- Item-scoped `foreach.key` and `foreach.collect` fields create none.
+- Explicit `depends` and inferred dependencies are unioned. An explicit empty
+  `depends` sequence does not suppress inferred dependencies.
+- A reference to a producer the owning step already depends on, directly or
+  transitively, adds nothing.
+- A reference to an unknown step id or to the owning step adds nothing and
+  keeps its passive notice.
+- The combined graph must be acyclic. An inferred dependency that would close a
+  cycle is a load error that names the producing step and the owning step.
+- In a chain DAG, chain order already satisfies every inferred dependency that
+  points to an earlier step. A reference to a later step is the cycle case.
+- Inferred dependencies order execution. Behavior that `depends` enables
+  beyond ordering, such as chat message inheritance between LLM steps, still
+  requires an explicit `depends` entry.
+- Inferred dependencies are stored on the step separately from `depends`.
+  `dagu validate` reports each one as
+  `inferred: <producer> -> <consumer> (<field path>)`, the API carries them in
+  a field separate from `depends`, and the UI graph draws them with a distinct
+  line style.
+
 ### Validation
 
 - An unresolved supported step-output reference in a value-resolution field must preserve the original reference text.
@@ -125,7 +166,6 @@ Rules:
 | --- | --- |
 | `unknown_step_id` | The referenced step id does not identify a step. |
 | `unknown_output_name` | The referenced step is known, but the output name is not declared by an available output contract. |
-| `missing_dependency` | The owning step does not depend directly or transitively on the producing step. |
 | `self_reference` | The owning step references its own output. |
 | `namespace_unavailable` | The owning field has no step-output lookup scope in the current phase. |
 
@@ -134,8 +174,6 @@ Rules:
 - An unknown `steps.<step_id>.outputs.<name>` reference must use reason `unknown_output_name` when the referenced step is known, publishes a statically known output contract, and the referenced output name is not in it.
 
 - A step whose published output names are known only during a run has no statically known contract, so a reference to it must not use reason `unknown_output_name`. A sub-DAG step and an action step resolved from a manifest publish such names.
-
-- A step output reference without a direct or transitive dependency on the producing step must use reason `missing_dependency`.
 
 - A step output reference to the owning step must use reason `self_reference`.
 
@@ -153,7 +191,6 @@ Rules:
   2. `unknown_step_id`
   3. `self_reference`
   4. `unknown_output_name`
-  5. `missing_dependency`
 
 - Escaped step-output-looking text must not produce a passive notice.
 
@@ -178,7 +215,7 @@ steps:
     run: ./deploy.sh "$IMAGE"
 ```
 
-Passive notice for missing dependency:
+Inferred dependency:
 
 ```yaml
 steps:
@@ -192,8 +229,24 @@ steps:
     run: echo ${steps.build.outputs.image}
 ```
 
-Inspection surfaces report a passive notice with reason `missing_dependency`.
-Normal execution preserves the reference text and stays silent unless the later shell rejects it.
+`deploy` runs after `build` and the reference resolves to `v1.2.3`.
+`dagu validate` reports `inferred: build -> deploy (steps[1].run)`.
+
+Inferred dependency cycle:
+
+```yaml
+steps:
+  - id: a
+    run: echo ${steps.b.outputs.y}
+    outputs:
+      - name: x
+  - id: b
+    run: echo ${steps.a.outputs.x}
+    outputs:
+      - name: y
+```
+
+Loading fails with an error naming `a` and `b`.
 
 Literal embedded code:
 

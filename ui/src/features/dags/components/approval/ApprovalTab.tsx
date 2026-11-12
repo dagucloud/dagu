@@ -1,12 +1,13 @@
 // Copyright (C) 2026 Yota Hamada
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-import { Check, RotateCcw } from 'lucide-react';
+import { Ban, Check, RotateCcw } from 'lucide-react';
 import React, { useState } from 'react';
 
 import { Button } from '@/components/ui/button';
 import { useRemoteNode } from '@/contexts/RemoteNodeContext';
 import { getManualActionState } from '@/features/dag-runs/lib/manualActionState';
+import { RejectDAGRunDialog } from '@/features/dag-runs/components/common/RejectDAGRunDialog';
 import { useClient } from '@/hooks/api';
 import { components, Stream } from '../../../../api/v1/schema';
 import { InlineLogViewer } from '../common/InlineLogViewer';
@@ -20,25 +21,42 @@ type NodeData = components['schemas']['Node'];
 interface ApprovalTabProps {
   dagRun: DAGRunDetails;
   dagName: string;
+  /** Shows only the card of this step. */
+  stepName?: string;
+  /**
+   * The host is a padded panel: the cards have no frame, and a line apart
+   * from the next one.
+   */
+  bare?: boolean;
+  /** Called after an approval or a push back reached the server. */
+  onChanged?: () => void;
 }
 
 function ApprovalCard({
   node,
   dagRun,
   dagName,
+  bare,
   onAction,
 }: {
   node: NodeData;
   dagRun: DAGRunDetails;
   dagName: string;
-  onAction: (node: NodeData, action: 'approve' | 'retry') => void;
+  bare?: boolean;
+  onAction: (node: NodeData, action: 'approve' | 'retry' | 'reject') => void;
 }) {
   const step = node.step;
   const prompt = step.approval?.prompt || step.description;
   const iteration = node?.approvalIteration || 0;
 
   return (
-    <div className="bg-surface border border-border rounded-lg p-4 space-y-3">
+    <div
+      className={
+        bare
+          ? 'space-y-3 border-b border-border pb-4 last:border-b-0 last:pb-0'
+          : 'bg-surface border border-border rounded-lg p-4 space-y-3'
+      }
+    >
       {/* Header + Action buttons */}
       <div className="flex items-start justify-between gap-4">
         <div className="space-y-1">
@@ -46,7 +64,7 @@ function ApprovalCard({
             <span className="text-sm font-semibold">{step.name}</span>
             {iteration > 0 && (
               <span className="text-xs font-normal text-muted-foreground bg-muted px-1.5 py-0.5 rounded">
-                <I18nText text={"Iteration"} /> {iteration}
+                <I18nText text={'Iteration'} /> {iteration}
               </span>
             )}
           </div>
@@ -55,6 +73,15 @@ function ApprovalCard({
           )}
         </div>
         <div className="flex shrink-0 gap-2">
+          <Button
+            size="sm"
+            variant="outline"
+            className="text-destructive hover:text-destructive"
+            onClick={() => onAction(node, 'reject')}
+          >
+            <Ban className="h-4 w-4" />
+            <I18nText text={'Reject'} />
+          </Button>
           {step.approval && (
             <Button
               size="sm"
@@ -62,7 +89,7 @@ function ApprovalCard({
               onClick={() => onAction(node, 'retry')}
             >
               <RotateCcw className="h-4 w-4" />
-              <I18nText text={"Retry"} />
+              <I18nText text={'Retry'} />
             </Button>
           )}
           <Button
@@ -71,7 +98,7 @@ function ApprovalCard({
             onClick={() => onAction(node, 'approve')}
           >
             <Check className="h-4 w-4" />
-            <I18nText text={"Approve"} />
+            <I18nText text={'Approve'} />
           </Button>
         </div>
       </div>
@@ -83,7 +110,7 @@ function ApprovalCard({
       {/* Step Output */}
       <div>
         <div className="text-xs font-medium text-muted-foreground mb-1">
-          <I18nText text={"Step Output"} />
+          <I18nText text={'Step Output'} />
         </div>
         <div className="max-h-[400px] overflow-y-auto rounded border border-border">
           <InlineLogViewer
@@ -99,7 +126,13 @@ function ApprovalCard({
   );
 }
 
-export function ApprovalTab({ dagRun, dagName }: ApprovalTabProps) {
+export function ApprovalTab({
+  dagRun,
+  dagName,
+  stepName,
+  bare,
+  onChanged,
+}: ApprovalTabProps) {
   const client = useClient();
   const remoteNode = useRemoteNode();
 
@@ -107,8 +140,13 @@ export function ApprovalTab({ dagRun, dagName }: ApprovalTabProps) {
     node: NodeData;
     action: 'approve' | 'retry';
   } | null>(null);
+  const [rejectStep, setRejectStep] = useState<string | null>(null);
 
-  const { waitingApprovalNodes: waitingNodes } = getManualActionState(dagRun);
+  const { waitingApprovalNodes } = getManualActionState(dagRun);
+  const waitingNodes =
+    stepName === undefined
+      ? waitingApprovalNodes
+      : waitingApprovalNodes.filter((node) => node.step.name === stepName);
 
   const isSubRun = !!(
     dagRun.rootDAGRunId &&
@@ -136,6 +174,7 @@ export function ApprovalTab({ dagRun, dagName }: ApprovalTabProps) {
       body: { inputs: Object.keys(inputs).length > 0 ? inputs : undefined },
     });
     if (error) throw new Error(error.message || 'Failed to approve step');
+    onChanged?.();
   };
 
   const handlePushBack = async (inputs: Record<string, string>) => {
@@ -151,12 +190,13 @@ export function ApprovalTab({ dagRun, dagName }: ApprovalTabProps) {
       body: { inputs: Object.keys(inputs).length > 0 ? inputs : undefined },
     });
     if (error) throw new Error(error.message || 'Failed to retry step');
+    onChanged?.();
   };
 
   if (waitingNodes.length === 0) {
     return (
       <div className="text-center text-muted-foreground py-8 text-sm">
-        <I18nText text={"No steps awaiting approval."} />
+        <I18nText text={'No steps awaiting approval.'} />
       </div>
     );
   }
@@ -169,9 +209,26 @@ export function ApprovalTab({ dagRun, dagName }: ApprovalTabProps) {
           node={node}
           dagRun={dagRun}
           dagName={dagName}
-          onAction={(n, action) => setReviewState({ node: n, action })}
+          bare={bare}
+          onAction={(n, action) =>
+            action === 'reject'
+              ? setRejectStep(n.step.name)
+              : setReviewState({ node: n, action })
+          }
         />
       ))}
+
+      <RejectDAGRunDialog
+        open={rejectStep !== null}
+        onOpenChange={(open) => {
+          if (!open) setRejectStep(null);
+        }}
+        dagName={getPathParams('').name}
+        dagRunId={getPathParams('').dagRunId}
+        subDAGRunId={isSubRun ? dagRun.dagRunId : undefined}
+        stepName={rejectStep ?? ''}
+        onSettled={() => onChanged?.()}
+      />
 
       {reviewState && (
         <StepReviewModal

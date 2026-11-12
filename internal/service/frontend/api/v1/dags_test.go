@@ -6,8 +6,11 @@ package api_test
 import (
 	"bytes"
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"fmt"
 	"net/http"
+	"net/url"
 	"os"
 	"path/filepath"
 	"strings"
@@ -17,6 +20,8 @@ import (
 	"github.com/dagucloud/dagu/v2/api/v1"
 	"github.com/dagucloud/dagu/v2/internal/cmn/config"
 	"github.com/dagucloud/dagu/v2/internal/ir"
+	"github.com/dagucloud/dagu/v2/internal/launcher"
+	"github.com/dagucloud/dagu/v2/internal/persis"
 	persisfile "github.com/dagucloud/dagu/v2/internal/persis/file"
 	"github.com/dagucloud/dagu/v2/internal/runtime"
 	"github.com/dagucloud/dagu/v2/internal/schedulerstate"
@@ -116,6 +121,51 @@ func TestDAGRunHistoryReturnsNotFoundForMissingDAG(t *testing.T) {
 		ExpectStatus(http.StatusNotFound).Send(t)
 }
 
+// The history of a workflow comes in pages, each with the cursor of the next
+// page of older runs.
+func TestDAGRunHistoryPages(t *testing.T) {
+	server := test.SetupServer(t)
+	spec := "steps:\n  - run: echo hi\n"
+	dagName := "history_pages"
+	_ = server.Client().Post("/api/v1/dags", api.CreateNewDAGJSONRequestBody{Name: dagName, Spec: &spec}).
+		ExpectStatus(http.StatusCreated).Send(t)
+
+	dag := &ir.DAG{Name: dagName}
+	base := time.Now().Add(-time.Hour)
+	for i, runID := range []string{"old", "mid", "new"} {
+		attempt, err := server.DAGRunRepository.CreateAttempt(server.Context, dag, base.Add(time.Duration(i)*time.Minute), runID, persis.DAGRunCreateAttemptOptions{})
+		require.NoError(t, err)
+		status := ir.InitialStatus(dag)
+		status.DAGRunID = runID
+		status.AttemptID = attempt.ID()
+		status.Status = ir.Succeeded
+		require.NoError(t, attempt.Open(server.Context))
+		require.NoError(t, attempt.Write(server.Context, status))
+		require.NoError(t, attempt.Close(server.Context))
+	}
+
+	read := func(query string) ([]string, *string) {
+		var page api.GetDAGDAGRunHistory200JSONResponse
+		server.Client().Get("/api/v1/dags/"+dagName+"/dag-runs?"+query).
+			ExpectStatus(http.StatusOK).Send(t).Unmarshal(t, &page)
+		ids := make([]string, 0, len(page.DagRuns))
+		for _, run := range page.DagRuns {
+			ids = append(ids, run.DagRunId)
+		}
+		return ids, page.NextCursor
+	}
+
+	ids, cursor := read("limit=2")
+	require.Equal(t, []string{"new", "mid"}, ids)
+	require.NotNil(t, cursor)
+	ids, cursor = read("limit=2&cursor=" + url.QueryEscape(*cursor))
+	require.Equal(t, []string{"old"}, ids)
+	require.Nil(t, cursor)
+
+	server.Client().Get("/api/v1/dags/" + dagName + "/dag-runs?cursor=bogus").
+		ExpectStatus(http.StatusBadRequest).Send(t)
+}
+
 func TestDAGWritesDisabledInReadOnlyMode(t *testing.T) {
 	// Setup server with gitSync.enabled=true, pushEnabled=false (read-only mode)
 	server := test.SetupServer(t, test.WithConfigMutator(func(cfg *config.Config) {
@@ -184,6 +234,34 @@ func TestDAGWritesAllowedWhenGitSyncDisabled(t *testing.T) {
 	server.Client().Delete("/api/v1/dags/test_dag_gitsync_disabled").ExpectStatus(http.StatusNoContent).Send(t)
 }
 
+// Start forms label a titled param by its title and keep its name visible,
+// so the details response carries both.
+func TestDAGDetailsParamTitle(t *testing.T) {
+	server := test.SetupServer(t)
+	definition := `params:
+  - name: region
+    title: AWS region
+    description: Region the instances are launched in.
+steps:
+  - command: echo ${region}
+`
+	server.Client().Post("/api/v1/dags", api.CreateNewDAGJSONRequestBody{
+		Name: "param_title", Spec: &definition,
+	}).ExpectStatus(http.StatusCreated).Send(t)
+
+	var details api.GetDAGDetails200JSONResponse
+	server.Client().Get("/api/v1/dags/param_title").ExpectStatus(http.StatusOK).Send(t).Unmarshal(t, &details)
+	require.NotNil(t, details.Dag)
+	require.NotNil(t, details.Dag.ParamDefs)
+	require.Len(t, *details.Dag.ParamDefs, 1)
+	def := (*details.Dag.ParamDefs)[0]
+	assert.Equal(t, "region", *def.Name)
+	require.NotNil(t, def.Title)
+	assert.Equal(t, "AWS region", *def.Title)
+	require.NotNil(t, def.Description)
+	assert.Equal(t, "Region the instances are launched in.", *def.Description)
+}
+
 func TestDAGSpecWarnings(t *testing.T) {
 	server := test.SetupServer(t)
 	for _, tc := range []struct {
@@ -240,6 +318,143 @@ func TestDAGSpecWarnings(t *testing.T) {
 			require.Empty(t, updated.Errors)
 		})
 	}
+}
+
+// The editor previews fire times from an unsaved spec, and the saved DAG's
+// spec and details pages show the same list.
+func TestDAGSpecUpcomingRuns(t *testing.T) {
+	server := test.SetupServer(t)
+	name := "upcoming_runs"
+	definition := `schedule:
+  - "0 18 * * *"
+  - "CRON_TZ=Asia/Tokyo 0 9 * * *"
+steps:
+  - run: echo hello
+`
+	tokyo, err := time.LoadLocation("Asia/Tokyo")
+	require.NoError(t, err)
+
+	requireUpcomingRuns := func(t *testing.T, runs *[]api.UpcomingRun) {
+		t.Helper()
+		require.NotNil(t, runs)
+		require.Len(t, *runs, 10)
+		for i, run := range *runs {
+			if i > 0 {
+				require.True(t, (*runs)[i-1].Time.Before(run.Time))
+			}
+			switch run.ScheduleIndex {
+			case 0:
+				require.Equal(t, server.Config.Core.Location.String(), run.Timezone)
+				require.Equal(t, 18, run.Time.In(server.Config.Core.Location).Hour())
+			case 1:
+				require.Equal(t, "Asia/Tokyo", run.Timezone)
+				require.Equal(t, 9, run.Time.In(tokyo).Hour())
+			default:
+				t.Fatalf("unexpected schedule index %d", run.ScheduleIndex)
+			}
+		}
+	}
+
+	response := server.Client().Post("/api/v1/dags/validate", api.ValidateDAGSpecJSONRequestBody{
+		Name: &name, Spec: definition,
+	}).ExpectStatus(http.StatusOK).Send(t)
+	var validation api.ValidateDAGSpec200JSONResponse
+	response.Unmarshal(t, &validation)
+	require.True(t, validation.Valid)
+	require.NotNil(t, validation.Dag)
+	requireUpcomingRuns(t, validation.Dag.UpcomingRuns)
+
+	server.Client().Post("/api/v1/dags", api.CreateNewDAGJSONRequestBody{
+		Name: name, Spec: &definition,
+	}).ExpectStatus(http.StatusCreated).Send(t)
+
+	response = server.Client().Get("/api/v1/dags/" + name + "/spec").ExpectStatus(http.StatusOK).Send(t)
+	var saved api.GetDAGSpec200JSONResponse
+	response.Unmarshal(t, &saved)
+	require.NotNil(t, saved.Dag)
+	requireUpcomingRuns(t, saved.Dag.UpcomingRuns)
+
+	response = server.Client().Get("/api/v1/dags/" + name).ExpectStatus(http.StatusOK).Send(t)
+	var details api.GetDAGDetails200JSONResponse
+	response.Unmarshal(t, &details)
+	require.NotNil(t, details.Dag)
+	requireUpcomingRuns(t, details.Dag.UpcomingRuns)
+	require.Nil(t, details.Dag.UpcomingRunsHold)
+
+	// A suspended DAG still lists its schedule's runs, and says none will start.
+	server.Client().Post("/api/v1/dags/"+name+"/suspend", api.UpdateDAGSuspensionStateJSONRequestBody{
+		Suspend: true,
+	}).ExpectStatus(http.StatusOK).Send(t)
+	response = server.Client().Get("/api/v1/dags/" + name + "/spec").ExpectStatus(http.StatusOK).Send(t)
+	response.Unmarshal(t, &saved)
+	require.NotNil(t, saved.Dag.UpcomingRunsHold)
+	require.Equal(t, api.UpcomingRunsHoldSuspended, *saved.Dag.UpcomingRunsHold)
+}
+
+// A calendar's holidays show in the preview as skipped dates, and the
+// calendar list names the calendars the editor can complete.
+func TestDAGSpecCalendars(t *testing.T) {
+	server := test.SetupServer(t)
+	calendarsDir := server.Config.Paths.CalendarsDir
+	require.NotEmpty(t, calendarsDir)
+	require.NoError(t, os.MkdirAll(calendarsDir, 0o750))
+	// Every day is a business day except tomorrow, so the preview is
+	// deterministic whatever day the test runs.
+	tomorrow := time.Now().In(server.Config.Core.Location).AddDate(0, 0, 1).Format(time.DateOnly)
+	require.NoError(t, os.WriteFile(filepath.Join(calendarsDir, "ops.yaml"), []byte(
+		"description: Operations days\nweekdays: [MON, TUE, WED, THU, FRI, SAT, SUN]\nholidays:\n  - date: "+tomorrow+"\n    name: Maintenance\n",
+	), 0o600))
+
+	name := "calendar_preview"
+	definition := `schedule:
+  - expression: "0 12 * * *"
+    calendar: ops
+steps:
+  - run: echo hello
+`
+	response := server.Client().Post("/api/v1/dags/validate", api.ValidateDAGSpecJSONRequestBody{
+		Name: &name, Spec: definition,
+	}).ExpectStatus(http.StatusOK).Send(t)
+	var validation api.ValidateDAGSpec200JSONResponse
+	response.Unmarshal(t, &validation)
+	require.True(t, validation.Valid, validation.Errors)
+	require.NotNil(t, validation.Dag.Schedule)
+	require.Equal(t, "ops", *(*validation.Dag.Schedule)[0].Calendar)
+
+	var skipped []api.Holiday
+	for _, run := range *validation.Dag.UpcomingRuns {
+		require.NotEqual(t, tomorrow, run.Time.Format(time.DateOnly))
+		if run.SkippedHolidays != nil {
+			skipped = append(skipped, *run.SkippedHolidays...)
+		}
+	}
+	require.Len(t, skipped, 1)
+	require.Equal(t, tomorrow, skipped[0].Date.Format(time.DateOnly))
+	require.Equal(t, "Maintenance", *skipped[0].Name)
+
+	response = server.Client().Get("/api/v1/calendars").ExpectStatus(http.StatusOK).Send(t)
+	var calendars api.ListCalendars200JSONResponse
+	response.Unmarshal(t, &calendars)
+	require.Len(t, calendars.Calendars, 2)
+	require.Equal(t, "ops", calendars.Calendars[0].Name)
+	require.Equal(t, "Operations days", *calendars.Calendars[0].Description)
+	require.Equal(t, "weekdays", calendars.Calendars[1].Name)
+	require.True(t, calendars.Calendars[1].Builtin)
+
+	unknown := `schedule:
+  - expression: "0 12 * * *"
+    calendar: opps
+steps:
+  - run: echo hello
+`
+	response = server.Client().Post("/api/v1/dags/validate", api.ValidateDAGSpecJSONRequestBody{
+		Name: &name, Spec: unknown,
+	}).ExpectStatus(http.StatusOK).Send(t)
+	response.Unmarshal(t, &validation)
+	require.False(t, validation.Valid)
+	// The [line:column] prefix lets the editor mark the calendar line.
+	require.Contains(t, validation.Errors,
+		`[3:15] field 'schedule[0].calendar': unknown calendar "opps"; available: ops, weekdays`)
 }
 
 func TestDAGSpecInheritsBaseGraphType(t *testing.T) {
@@ -698,6 +913,109 @@ steps:
 		assert.ElementsMatch(t, labels, *details.DagRunDetails.Labels)
 
 		_ = server.Client().Delete("/api/v1/dags/" + dagName).ExpectStatus(http.StatusNoContent).Send(t)
+	})
+
+	t.Run("StartAndEnqueueRefuseParamsOverTheLimit", func(t *testing.T) {
+		spec := `
+params:
+  - PAYLOAD: ""
+steps:
+  - name: echo
+    run: echo "test"
+`
+		dagName := "test_oversized_params_dag"
+
+		_ = server.Client().Post("/api/v1/dags", api.CreateNewDAGJSONRequestBody{
+			Name: dagName,
+			Spec: &spec,
+		}).ExpectStatus(http.StatusCreated).Send(t)
+
+		params := fmt.Sprintf(`{"PAYLOAD":%q}`, strings.Repeat("x", launcher.MaxParamsSize))
+		for _, path := range []string{"/start", "/enqueue"} {
+			resp := server.Client().Post("/api/v1/dags/"+dagName+path, api.ExecuteDAGJSONRequestBody{
+				Params: &params,
+			}).ExpectStatus(http.StatusBadRequest).Send(t)
+
+			var errResp api.Error
+			resp.Unmarshal(t, &errResp)
+			require.Contains(t, errResp.Message, "params exceed", path)
+		}
+
+		_ = server.Client().Delete("/api/v1/dags/" + dagName).ExpectStatus(http.StatusNoContent).Send(t)
+	})
+
+	// A per-run selector is kept in the run's own DAG snapshot, which is what
+	// the queue dispatcher, a retry, and a reschedule read.
+	t.Run("EnqueueDAGWithWorkerSelector", func(t *testing.T) {
+		spec := `
+worker_selector: local
+steps:
+  - name: echo
+    run: echo "routed"
+`
+		dagName := "test_enqueue_worker_selector_dag"
+
+		_ = server.Client().Post("/api/v1/dags", api.CreateNewDAGJSONRequestBody{
+			Name: dagName,
+			Spec: &spec,
+		}).ExpectStatus(http.StatusCreated).Send(t)
+
+		selector := api.WorkerSelectorOverride{"zone": "b", "gpu": "yes"}
+		resp := server.Client().Post("/api/v1/dags/"+dagName+"/enqueue", api.EnqueueDAGDAGRunJSONRequestBody{
+			WorkerSelector: &selector,
+		}).ExpectStatus(http.StatusOK).Send(t)
+
+		var enqResp api.EnqueueDAGDAGRun200JSONResponse
+		resp.Unmarshal(t, &enqResp)
+		require.NotEmpty(t, enqResp.DagRunId)
+
+		snapshot := snapshotDAGOf(t, server, dagName, enqResp.DagRunId)
+		assert.Equal(t, map[string]string{"zone": "b", "gpu": "yes"}, snapshot.WorkerSelector)
+		assert.False(t, snapshot.ForceLocal)
+
+		_ = server.Client().Delete("/api/v1/dags/" + dagName).ExpectStatus(http.StatusNoContent).Send(t)
+	})
+
+	t.Run("WorkerSelectorRefusedWhenInvalidOrWithApproval", func(t *testing.T) {
+		plain := `
+steps:
+  - name: echo
+    run: echo "test"
+`
+		approval := `
+steps:
+  - name: gate
+    run: echo "gate"
+    approval:
+      prompt: "Approve the gate"
+`
+		for _, tc := range []struct {
+			name     string
+			spec     string
+			selector api.WorkerSelectorOverride
+		}{
+			{name: "test_ws_bad_key_dag", spec: plain, selector: api.WorkerSelectorOverride{"bad key": "b"}},
+			{name: "test_ws_empty_value_dag", spec: plain, selector: api.WorkerSelectorOverride{"zone": ""}},
+			{name: "test_ws_approval_dag", spec: approval, selector: api.WorkerSelectorOverride{"zone": "b"}},
+		} {
+			_ = server.Client().Post("/api/v1/dags", api.CreateNewDAGJSONRequestBody{
+				Name: tc.name,
+				Spec: &tc.spec,
+			}).ExpectStatus(http.StatusCreated).Send(t)
+
+			for _, path := range []string{"/start", "/enqueue"} {
+				resp := server.Client().Post("/api/v1/dags/"+tc.name+path, api.ExecuteDAGJSONRequestBody{
+					WorkerSelector: &tc.selector,
+				}).ExpectStatus(http.StatusBadRequest).Send(t)
+
+				var errResp api.Error
+				resp.Unmarshal(t, &errResp)
+				require.Equal(t, api.ErrorCodeBadRequest, errResp.Code, "%s %s", tc.name, path)
+				require.Contains(t, errResp.Message, "workerSelector", "%s %s", tc.name, path)
+			}
+
+			_ = server.Client().Delete("/api/v1/dags/" + tc.name).ExpectStatus(http.StatusNoContent).Send(t)
+		}
 	})
 
 	t.Run("EnqueueDAGWithInvalidLabels", func(t *testing.T) {
@@ -2100,12 +2418,14 @@ steps:
 	require.NotEmpty(t, notice.Message)
 }
 
-func TestGetDAGSpecIncludesValueReferenceNoticeReason(t *testing.T) {
+// A step-output reference without depends is reported as an inferred
+// dependency on the step, not as a value-reference notice.
+func TestGetDAGDetailsIncludesInferredDepends(t *testing.T) {
 	t.Parallel()
 
 	helper := test.Setup(t, test.WithStatusPersistence())
 	dag := helper.DAG(t, `
-name: spec-step-value-resolution-notice
+name: dag-details-inferred-depends
 steps:
   - id: build
     run: printf 'image=v1\n' >> "$DAGU_OUTPUT_FILE"
@@ -2134,11 +2454,21 @@ steps:
 	require.NoError(t, err)
 
 	specResp := asGetDAGSpecResp(t, specRespObj)
-	require.Len(t, specResp.ValueReferenceNotices, 1)
+	require.Empty(t, specResp.ValueReferenceNotices)
 
-	notice := specResp.ValueReferenceNotices[0]
-	require.NotNil(t, notice.Reason)
-	require.Equal(t, api.ValueReferenceNoticeReasonMissingDependency, *notice.Reason)
+	detailsRespObj, err := apiImpl.GetDAGDetails(context.Background(), api.GetDAGDetailsRequestObject{
+		FileName: dag.FileName(),
+	})
+	require.NoError(t, err)
+	detailsResp, ok := detailsRespObj.(api.GetDAGDetails200JSONResponse)
+	require.True(t, ok, "expected 200 response, got %T", detailsRespObj)
+
+	require.NotNil(t, detailsResp.Dag.Steps)
+	steps := *detailsResp.Dag.Steps
+	require.Len(t, steps, 2)
+	require.Empty(t, steps[1].Depends)
+	require.NotNil(t, steps[1].InferredDepends)
+	require.Equal(t, []string{"build"}, *steps[1].InferredDepends)
 }
 
 func TestGetDAGSpecIncludesValueReferenceNoticeClassWithoutReason(t *testing.T) {
@@ -2175,4 +2505,534 @@ steps:
 	notice := specResp.ValueReferenceNotices[0]
 	require.NotNil(t, notice.Class)
 	require.Equal(t, api.ValueReferenceNoticeClassRuntimeOnly, *notice.Class)
+}
+
+// TestListDAGsSortsByLastRunServerSide verifies that sorting the DAG list by
+// lastRun happens on the server across every page, not only within the loaded
+// rows. The most recently run DAG must come first in descending order.
+func TestListDAGsSortsByLastRunServerSide(t *testing.T) {
+	t.Parallel()
+
+	helper := test.Setup(t, test.WithStatusPersistence())
+
+	// Create three DAGs and give each a latest run with a distinct start time.
+	now := time.Now().UTC()
+	names := []string{"sort-lastrun-0", "sort-lastrun-1", "sort-lastrun-2"}
+	runTimes := []time.Time{now.Add(-3 * time.Minute), now.Add(-1 * time.Minute), now.Add(-2 * time.Minute)}
+	for i, name := range names {
+		dag := helper.DAG(t, fmt.Sprintf(`
+name: %s
+steps:
+  - run: echo hi
+`, name))
+		attempt, err := helper.DAGRunRepository.CreateAttempt(helper.Context, dag.DAG, runTimes[i], fmt.Sprintf("run-%d", i), persis.DAGRunCreateAttemptOptions{})
+		require.NoError(t, err)
+		status := ir.InitialStatus(dag.DAG)
+		status.DAGRunID = fmt.Sprintf("run-%d", i)
+		status.AttemptID = attempt.ID()
+		status.Status = ir.Succeeded
+		status.StartedAt = runTimes[i].Format(time.RFC3339)
+		require.NoError(t, attempt.Open(helper.Context))
+		require.NoError(t, attempt.Write(helper.Context, status))
+		require.NoError(t, attempt.Close(helper.Context))
+	}
+
+	apiImpl := localapi.New(
+		helper.DAGRepository,
+		helper.DAGRunRepository,
+		helper.QueueStore,
+		helper.ProcRepository,
+		helper.DAGRunMgr,
+		helper.Config,
+		nil,
+		helper.ServiceRegistry,
+		nil,
+		nil,
+	)
+
+	// Sort by lastRun descending: the most recently run DAG must come first.
+	order := api.ListDAGsParamsOrderDesc
+	sortField := api.ListDAGsParamsSortLastRun
+	listRespObj, err := apiImpl.ListDAGs(context.Background(), api.ListDAGsRequestObject{
+		Params: api.ListDAGsParams{Sort: &sortField, Order: &order},
+	})
+	require.NoError(t, err)
+	listResp, ok := listRespObj.(*api.ListDAGs200JSONResponse)
+	require.True(t, ok)
+	require.Len(t, listResp.Dags, 3)
+	require.Equal(t, "sort-lastrun-1", listResp.Dags[0].Dag.Name)
+	require.Equal(t, "sort-lastrun-2", listResp.Dags[1].Dag.Name)
+	require.Equal(t, "sort-lastrun-0", listResp.Dags[2].Dag.Name)
+}
+
+// TestListDAGsSortsByStatusServerSide verifies that sorting the DAG list by
+// status happens on the server. In ascending order the lowest status value
+// comes first.
+func TestListDAGsSortsByStatusServerSide(t *testing.T) {
+	t.Parallel()
+
+	helper := test.Setup(t, test.WithStatusPersistence())
+
+	// Create three DAGs and give each a latest run with a distinct status.
+	now := time.Now().UTC()
+	names := []string{"sort-status-0", "sort-status-1", "sort-status-2"}
+	statuses := []ir.Status{ir.Succeeded, ir.Failed, ir.Running}
+	for i, name := range names {
+		dag := helper.DAG(t, fmt.Sprintf(`
+name: %s
+steps:
+  - run: echo hi
+`, name))
+		attempt, err := helper.DAGRunRepository.CreateAttempt(helper.Context, dag.DAG, now, fmt.Sprintf("run-%d", i), persis.DAGRunCreateAttemptOptions{})
+		require.NoError(t, err)
+		status := ir.InitialStatus(dag.DAG)
+		status.DAGRunID = fmt.Sprintf("run-%d", i)
+		status.AttemptID = attempt.ID()
+		status.Status = statuses[i]
+		status.StartedAt = now.Format(time.RFC3339)
+		// A local Running run with no live process is repaired once its
+		// startup grace passes, which a slow runner can reach before the
+		// list call. A remote worker's status stands as written.
+		status.WorkerID = "worker-1"
+		require.NoError(t, attempt.Open(helper.Context))
+		require.NoError(t, attempt.Write(helper.Context, status))
+		require.NoError(t, attempt.Close(helper.Context))
+	}
+
+	apiImpl := localapi.New(
+		helper.DAGRepository,
+		helper.DAGRunRepository,
+		helper.QueueStore,
+		helper.ProcRepository,
+		helper.DAGRunMgr,
+		helper.Config,
+		nil,
+		helper.ServiceRegistry,
+		nil,
+		nil,
+	)
+
+	// Sort by status ascending in the rank order: Running, Failed, Succeeded.
+	order := api.ListDAGsParamsOrderAsc
+	sortField := api.ListDAGsParamsSortStatus
+	listRespObj, err := apiImpl.ListDAGs(context.Background(), api.ListDAGsRequestObject{
+		Params: api.ListDAGsParams{Sort: &sortField, Order: &order},
+	})
+	require.NoError(t, err)
+	listResp, ok := listRespObj.(*api.ListDAGs200JSONResponse)
+	require.True(t, ok)
+	require.Len(t, listResp.Dags, 3)
+	require.Equal(t, "sort-status-2", listResp.Dags[0].Dag.Name)
+	require.Equal(t, "sort-status-1", listResp.Dags[1].Dag.Name)
+	require.Equal(t, "sort-status-0", listResp.Dags[2].Dag.Name)
+}
+
+// TestListDAGsSortsByLastRunPaginates verifies that the server-side lastRun
+// sort paginates with the caller's page and perPage, not the unbounded page
+// used to load every DAG for the sort. With perPage 1 and page 2, exactly the
+// second most recently run DAG must come back.
+func TestListDAGsSortsByLastRunPaginates(t *testing.T) {
+	t.Parallel()
+
+	helper := test.Setup(t, test.WithStatusPersistence())
+
+	// Create three DAGs and give each a latest run with a distinct start time.
+	now := time.Now().UTC()
+	names := []string{"sort-paginate-0", "sort-paginate-1", "sort-paginate-2"}
+	runTimes := []time.Time{now.Add(-3 * time.Minute), now.Add(-1 * time.Minute), now.Add(-2 * time.Minute)}
+	for i, name := range names {
+		dag := helper.DAG(t, fmt.Sprintf(`
+name: %s
+steps:
+  - run: echo hi
+`, name))
+		attempt, err := helper.DAGRunRepository.CreateAttempt(helper.Context, dag.DAG, runTimes[i], fmt.Sprintf("run-%d", i), persis.DAGRunCreateAttemptOptions{})
+		require.NoError(t, err)
+		status := ir.InitialStatus(dag.DAG)
+		status.DAGRunID = fmt.Sprintf("run-%d", i)
+		status.AttemptID = attempt.ID()
+		status.Status = ir.Succeeded
+		status.StartedAt = runTimes[i].Format(time.RFC3339)
+		require.NoError(t, attempt.Open(helper.Context))
+		require.NoError(t, attempt.Write(helper.Context, status))
+		require.NoError(t, attempt.Close(helper.Context))
+	}
+
+	apiImpl := localapi.New(
+		helper.DAGRepository,
+		helper.DAGRunRepository,
+		helper.QueueStore,
+		helper.ProcRepository,
+		helper.DAGRunMgr,
+		helper.Config,
+		nil,
+		helper.ServiceRegistry,
+		nil,
+		nil,
+	)
+
+	// Sort by lastRun descending, one item per page, ask for page 2. The most
+	// recently run DAG is sort-paginate-1, so page 2 must be sort-paginate-2.
+	order := api.ListDAGsParamsOrderDesc
+	sortField := api.ListDAGsParamsSortLastRun
+	page := 2
+	perPage := 1
+	listRespObj, err := apiImpl.ListDAGs(context.Background(), api.ListDAGsRequestObject{
+		Params: api.ListDAGsParams{
+			Sort:    &sortField,
+			Order:   &order,
+			Page:    &page,
+			PerPage: &perPage,
+		},
+	})
+	require.NoError(t, err)
+	listResp, ok := listRespObj.(*api.ListDAGs200JSONResponse)
+	require.True(t, ok)
+	require.Len(t, listResp.Dags, 1)
+	require.Equal(t, "sort-paginate-2", listResp.Dags[0].Dag.Name)
+	require.Equal(t, 3, listResp.Pagination.TotalRecords)
+
+	// A page past the end returns no DAGs instead of slicing out of range.
+	page = 5
+	listRespObj, err = apiImpl.ListDAGs(context.Background(), api.ListDAGsRequestObject{
+		Params: api.ListDAGsParams{
+			Sort:    &sortField,
+			Order:   &order,
+			Page:    &page,
+			PerPage: &perPage,
+		},
+	})
+	require.NoError(t, err)
+	listResp, ok = listRespObj.(*api.ListDAGs200JSONResponse)
+	require.True(t, ok)
+	require.Empty(t, listResp.Dags)
+	require.Equal(t, 3, listResp.Pagination.TotalRecords)
+}
+
+// TestListDAGsSortsByStatusNoRunLastDesc verifies that a DAG with no latest run
+// sorts last even in descending order, matching the documented behavior.
+func TestListDAGsSortsByStatusNoRunLastDesc(t *testing.T) {
+	t.Parallel()
+
+	helper := test.Setup(t, test.WithStatusPersistence())
+
+	// Two DAGs with runs (Succeeded and Failed) and one DAG with no run.
+	now := time.Now().UTC()
+	names := []string{"sort-norun-0", "sort-norun-1", "sort-norun-none"}
+	statuses := []ir.Status{ir.Succeeded, ir.Failed, ir.NotStarted}
+	for i, name := range names {
+		dag := helper.DAG(t, fmt.Sprintf(`
+name: %s
+steps:
+  - run: echo hi
+`, name))
+		if statuses[i] == ir.NotStarted {
+			continue
+		}
+		attempt, err := helper.DAGRunRepository.CreateAttempt(helper.Context, dag.DAG, now, fmt.Sprintf("run-%d", i), persis.DAGRunCreateAttemptOptions{})
+		require.NoError(t, err)
+		status := ir.InitialStatus(dag.DAG)
+		status.DAGRunID = fmt.Sprintf("run-%d", i)
+		status.AttemptID = attempt.ID()
+		status.Status = statuses[i]
+		status.StartedAt = now.Format(time.RFC3339)
+		require.NoError(t, attempt.Open(helper.Context))
+		require.NoError(t, attempt.Write(helper.Context, status))
+		require.NoError(t, attempt.Close(helper.Context))
+	}
+
+	apiImpl := localapi.New(
+		helper.DAGRepository,
+		helper.DAGRunRepository,
+		helper.QueueStore,
+		helper.ProcRepository,
+		helper.DAGRunMgr,
+		helper.Config,
+		nil,
+		helper.ServiceRegistry,
+		nil,
+		nil,
+	)
+
+	// Sort by status descending. The no-run DAG must still come last.
+	order := api.ListDAGsParamsOrderDesc
+	sortField := api.ListDAGsParamsSortStatus
+	listRespObj, err := apiImpl.ListDAGs(context.Background(), api.ListDAGsRequestObject{
+		Params: api.ListDAGsParams{Sort: &sortField, Order: &order},
+	})
+	require.NoError(t, err)
+	listResp, ok := listRespObj.(*api.ListDAGs200JSONResponse)
+	require.True(t, ok)
+	require.Len(t, listResp.Dags, 3)
+	require.Equal(t, "sort-norun-0", listResp.Dags[0].Dag.Name)
+	require.Equal(t, "sort-norun-1", listResp.Dags[1].Dag.Name)
+	require.Equal(t, "sort-norun-none", listResp.Dags[2].Dag.Name)
+}
+
+// writeLatestRun records a finished run for dag with the given status and
+// startedAt string, created at createdAt.
+func writeLatestRun(t *testing.T, helper test.Helper, dag *ir.DAG, runID string, status ir.Status, createdAt time.Time, startedAt string) {
+	t.Helper()
+	attempt, err := helper.DAGRunRepository.CreateAttempt(helper.Context, dag, createdAt, runID, persis.DAGRunCreateAttemptOptions{})
+	require.NoError(t, err)
+	st := ir.InitialStatus(dag)
+	st.DAGRunID = runID
+	st.AttemptID = attempt.ID()
+	st.Status = status
+	st.StartedAt = startedAt
+	require.NoError(t, attempt.Open(helper.Context))
+	require.NoError(t, attempt.Write(helper.Context, st))
+	require.NoError(t, attempt.Close(helper.Context))
+}
+
+// TestListDAGsSortsByLastRunParsesLegacyTime verifies that a run whose start
+// time was stored in the legacy "2006-01-02 15:04:05" format sorts by that
+// time instead of as "never ran".
+func TestListDAGsSortsByLastRunParsesLegacyTime(t *testing.T) {
+	t.Parallel()
+
+	helper := test.Setup(t, test.WithStatusPersistence())
+
+	now := time.Now().Truncate(time.Second)
+	runs := []struct {
+		name      string
+		createdAt time.Time
+		startedAt string
+	}{
+		{"sort-legacy-old", now.Add(-3 * time.Minute), now.Add(-3 * time.Minute).Format(time.RFC3339)},
+		{"sort-legacy-new", now.Add(-1 * time.Minute), now.Add(-1 * time.Minute).In(time.Local).Format("2006-01-02 15:04:05")},
+		{"sort-legacy-mid", now.Add(-2 * time.Minute), now.Add(-2 * time.Minute).Format(time.RFC3339)},
+	}
+	for i, run := range runs {
+		dag := helper.DAG(t, fmt.Sprintf(`
+name: %s
+steps:
+  - run: echo hi
+`, run.name))
+		writeLatestRun(t, helper, dag.DAG, fmt.Sprintf("run-%d", i), ir.Succeeded, run.createdAt, run.startedAt)
+	}
+
+	apiImpl := localapi.New(
+		helper.DAGRepository,
+		helper.DAGRunRepository,
+		helper.QueueStore,
+		helper.ProcRepository,
+		helper.DAGRunMgr,
+		helper.Config,
+		nil,
+		helper.ServiceRegistry,
+		nil,
+		nil,
+	)
+
+	order := api.ListDAGsParamsOrderDesc
+	sortField := api.ListDAGsParamsSortLastRun
+	listRespObj, err := apiImpl.ListDAGs(context.Background(), api.ListDAGsRequestObject{
+		Params: api.ListDAGsParams{Sort: &sortField, Order: &order},
+	})
+	require.NoError(t, err)
+	listResp, ok := listRespObj.(*api.ListDAGs200JSONResponse)
+	require.True(t, ok)
+	require.Len(t, listResp.Dags, 3)
+	require.Equal(t, "sort-legacy-new", listResp.Dags[0].Dag.Name)
+	require.Equal(t, "sort-legacy-mid", listResp.Dags[1].Dag.Name)
+	require.Equal(t, "sort-legacy-old", listResp.Dags[2].Dag.Name)
+}
+
+// TestListDAGsRunSortFallsBackToNameAboveLimit verifies that a status or
+// lastRun sort over more matching DAGs than the limit is not rejected: the
+// list comes back sorted by name in the requested order, and errors[] says
+// why.
+func TestListDAGsRunSortFallsBackToNameAboveLimit(t *testing.T) {
+	t.Parallel()
+
+	helper := test.Setup(t, test.WithStatusPersistence())
+	writePinTestDAGs(t, helper, "run-a", "run-b", "other-c")
+	apiImpl, _ := newDAGPinAPI(t, helper, localapi.WithRunSortDAGLimitForTest(2))
+
+	for _, sortField := range []api.ListDAGsParamsSort{api.ListDAGsParamsSortStatus, api.ListDAGsParamsSortLastRun} {
+		t.Run(string(sortField), func(t *testing.T) {
+			// None of the DAGs has run, so the run sort would list them by
+			// name ascending. The fallback lists them by name descending.
+			order := api.ListDAGsParamsOrderDesc
+			resp, err := apiImpl.ListDAGs(context.Background(), api.ListDAGsRequestObject{
+				Params: api.ListDAGsParams{Sort: &sortField, Order: &order},
+			})
+			require.NoError(t, err)
+			list, ok := resp.(*api.ListDAGs200JSONResponse)
+			require.True(t, ok, "expected 200 response, got %T", resp)
+			assert.Equal(t, []string{"run-b", "run-a", "other-c"}, listedFileNames(list.Dags))
+			assert.Equal(t, 3, list.Pagination.TotalRecords)
+			require.Len(t, list.Errors, 1)
+			assert.Contains(t, list.Errors[0], "sorting by "+string(sortField)+" is limited to 2 matching DAGs (found 3)")
+		})
+	}
+
+	// At the limit the run sort applies: with no runs it lists by name
+	// ascending whatever the order, and reports nothing.
+	order := api.ListDAGsParamsOrderDesc
+	sortField := api.ListDAGsParamsSortStatus
+	name := "run-"
+	resp, err := apiImpl.ListDAGs(context.Background(), api.ListDAGsRequestObject{
+		Params: api.ListDAGsParams{Sort: &sortField, Order: &order, Name: &name},
+	})
+	require.NoError(t, err)
+	list, ok := resp.(*api.ListDAGs200JSONResponse)
+	require.True(t, ok, "expected 200 response, got %T", resp)
+	assert.Equal(t, []string{"run-a", "run-b"}, listedFileNames(list.Dags))
+	assert.Empty(t, list.Errors)
+}
+
+const validateScopeSpec = `
+name: scope-spec
+params:
+  - region: eu
+consts:
+  - image: ${consts.missing}
+steps:
+  - name: fetch
+    id: fetch
+    run: echo hi
+    outputs:
+      - name: body
+        type: string
+  - name: use
+    run: echo ${steps.fetch.outputs.body}
+    depends: [fetch]
+`
+
+func TestValidateIssuesAndScope(t *testing.T) {
+	server := test.SetupServer(t)
+	name := "validate_scope"
+
+	var body api.ValidateDAGSpec200JSONResponse
+	server.Client().Post("/api/v1/dags/validate", api.ValidateDAGSpecJSONRequestBody{
+		Name: &name, Spec: validateScopeSpec,
+	}).ExpectStatus(http.StatusOK).Send(t).Unmarshal(t, &body)
+
+	require.True(t, body.Valid)
+	require.Empty(t, body.Errors)
+
+	require.Len(t, body.ValueReferenceNotices, 1)
+	require.NotNil(t, body.ValueReferenceNotices[0].FieldPath)
+	assert.Equal(t, "consts.image", *body.ValueReferenceNotices[0].FieldPath)
+	require.Len(t, body.Issues, 1)
+	assert.Equal(t, api.ValidationIssueSeverityNotice, body.Issues[0].Severity)
+	assert.Equal(t, api.ValidationIssueSourceValueReference, body.Issues[0].Source)
+
+	require.NotNil(t, body.ReferenceScope)
+	scope := body.ReferenceScope
+	require.Len(t, scope.Params, 1)
+	assert.Equal(t, "${params.region}", scope.Params[0].Reference)
+	require.NotNil(t, scope.Params[0].DefaultValue)
+	assert.Equal(t, "eu", *scope.Params[0].DefaultValue)
+	require.Len(t, scope.Steps, 2)
+	fetch, use := scope.Steps[0], scope.Steps[1]
+	assert.Equal(t, "steps[0]", fetch.StepPath)
+	require.NotNil(t, fetch.Id)
+	assert.Equal(t, "fetch", *fetch.Id)
+	require.Len(t, fetch.Outputs, 1)
+	assert.Equal(t, "${steps.fetch.outputs.body}", fetch.Outputs[0].Reference)
+	assert.Equal(t, api.ReferenceScopeOutputSourceDeclared, fetch.Outputs[0].Source)
+	assert.Equal(t, api.ReferenceScopeStepOutputsKnownStatic, fetch.OutputsKnown)
+	assert.Equal(t, []string{"fetch"}, use.Upstream)
+}
+
+func TestValidateIssuesInvalidSpec(t *testing.T) {
+	server := test.SetupServer(t)
+	name := "validate_invalid"
+
+	var body api.ValidateDAGSpec200JSONResponse
+	server.Client().Post("/api/v1/dags/validate", api.ValidateDAGSpecJSONRequestBody{
+		Name: &name,
+		Spec: "steps:\n  - name: a\n    run: echo a\n    depends: [missing]\n",
+	}).ExpectStatus(http.StatusOK).Send(t).Unmarshal(t, &body)
+
+	require.False(t, body.Valid)
+	require.NotEmpty(t, body.Errors)
+	var messages []string
+	for _, issue := range body.Issues {
+		if issue.Severity == api.ValidationIssueSeverityError {
+			messages = append(messages, issue.Message)
+		}
+	}
+	assert.Equal(t, body.Errors, messages)
+}
+
+func TestValidateIssuesBaseConfig(t *testing.T) {
+	server := test.SetupServer(t)
+	require.NoError(t, os.WriteFile(server.Config.Paths.BaseConfig, []byte("type: graph\n"), 0600))
+	name := "validate_base"
+
+	var body api.ValidateDAGSpec200JSONResponse
+	server.Client().Post("/api/v1/dags/validate", api.ValidateDAGSpecJSONRequestBody{
+		Name: &name,
+		Spec: "steps:\n  - name: build\n    run: echo b\n  - name: test\n    run: echo t\n    depends: [build]\n",
+	}).ExpectStatus(http.StatusOK).Send(t).Unmarshal(t, &body)
+
+	require.True(t, body.Valid)
+	require.NotNil(t, body.ReferenceScope)
+	require.Len(t, body.ReferenceScope.Steps, 2)
+	assert.Equal(t, []string{"build"}, body.ReferenceScope.Steps[1].Upstream)
+}
+
+func TestDAGSpecSha256(t *testing.T) {
+	server := test.SetupServer(t)
+	spec := "steps:\n  - run: echo hash\n"
+	server.Client().Post("/api/v1/dags", api.CreateNewDAGJSONRequestBody{
+		Name: "sha_get", Spec: &spec,
+	}).ExpectStatus(http.StatusCreated).Send(t)
+
+	var body api.GetDAGSpec200JSONResponse
+	server.Client().Get("/api/v1/dags/sha_get/spec").
+		ExpectStatus(http.StatusOK).Send(t).Unmarshal(t, &body)
+
+	sum := sha256.Sum256([]byte(body.Spec))
+	assert.Equal(t, hex.EncodeToString(sum[:]), body.Sha256)
+	assert.Equal(t, spec, body.Spec)
+}
+
+func TestUpdateDAGSpecSha256(t *testing.T) {
+	server := test.SetupServer(t)
+	spec := "steps:\n  - run: echo one\n"
+	server.Client().Post("/api/v1/dags", api.CreateNewDAGJSONRequestBody{
+		Name: "sha_put", Spec: &spec,
+	}).ExpectStatus(http.StatusCreated).Send(t)
+	var got api.GetDAGSpec200JSONResponse
+	server.Client().Get("/api/v1/dags/sha_put/spec").
+		ExpectStatus(http.StatusOK).Send(t).Unmarshal(t, &got)
+
+	next := "steps:\n  - run: echo two\n"
+	var put api.UpdateDAGSpec200JSONResponse
+	server.Client().Put("/api/v1/dags/sha_put/spec", api.UpdateDAGSpecJSONRequestBody{
+		Spec: next, ExpectedSha256: &got.Sha256,
+	}).ExpectStatus(http.StatusOK).Send(t).Unmarshal(t, &put)
+	sum := sha256.Sum256([]byte(next))
+	assert.Equal(t, hex.EncodeToString(sum[:]), put.Sha256)
+
+	// The returned hash lets the client save again without a re-read.
+	server.Client().Put("/api/v1/dags/sha_put/spec", api.UpdateDAGSpecJSONRequestBody{
+		Spec: spec, ExpectedSha256: &put.Sha256,
+	}).ExpectStatus(http.StatusOK).Send(t)
+}
+
+func TestUpdateDAGSpecConflict(t *testing.T) {
+	server := test.SetupServer(t)
+	spec := "steps:\n  - run: echo one\n"
+	server.Client().Post("/api/v1/dags", api.CreateNewDAGJSONRequestBody{
+		Name: "sha_conflict", Spec: &spec,
+	}).ExpectStatus(http.StatusCreated).Send(t)
+
+	wrong := strings.Repeat("0", 64)
+	var apiErr api.Error
+	server.Client().Put("/api/v1/dags/sha_conflict/spec", api.UpdateDAGSpecJSONRequestBody{
+		Spec: "steps:\n  - run: echo two\n", ExpectedSha256: &wrong,
+	}).ExpectStatus(http.StatusConflict).Send(t).Unmarshal(t, &apiErr)
+	assert.Equal(t, api.ErrorCodeConflict, apiErr.Code)
+	assert.NotEmpty(t, apiErr.Message)
+
+	var got api.GetDAGSpec200JSONResponse
+	server.Client().Get("/api/v1/dags/sha_conflict/spec").
+		ExpectStatus(http.StatusOK).Send(t).Unmarshal(t, &got)
+	assert.Equal(t, spec, got.Spec)
 }

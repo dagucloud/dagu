@@ -5,6 +5,7 @@ package persis
 
 import (
 	"context"
+	"slices"
 	"sort"
 	"strings"
 	"time"
@@ -49,7 +50,14 @@ func (r *DAGRepository) list(ctx context.Context, opts DAGListOptions, includeSe
 		if err := ctx.Err(); err != nil {
 			return pagination.NewPaginatedResult([]DAGListItem{}, 0, *opts.Paginator), catalog.Issues, err
 		}
-		if item.DAG == nil || opts.ActiveOnly && (len(item.Schedule) == 0 || item.Suspended) {
+		if item.DAG == nil {
+			continue
+		}
+		// Active DAGs are the ones the scheduler starts runs of.
+		if opts.ActiveOnly && (item.Suspended || (len(item.Schedule) == 0 && !item.RestartPolicy.Enabled())) {
+			continue
+		}
+		if opts.OnlyServiceDAGs && !item.RestartPolicy.Enabled() {
 			continue
 		}
 		if opts.Name != "" && !matchesDAGListSearch(item.Name, item.ID, opts.Name) {
@@ -74,17 +82,45 @@ func (r *DAGRepository) list(ctx context.Context, opts DAGListOptions, includeSe
 	return pagination.NewPaginatedResult(items, totalCount, *opts.Paginator), catalog.Issues, nil
 }
 
+// sortDAGList lists pinned DAGs first and applies opts.Sort and opts.Order
+// within each part. Remaining ties fall back to the ID so that pages stay
+// stable between requests.
 func sortDAGList(items []DAGListItem, opts DAGListOptions) {
-	ascending := opts.Order != "desc"
+	compare := dagListComparator(items, opts)
+	slices.SortFunc(items, func(a, b DAGListItem) int {
+		if c := comparePinned(opts.PinnedIDs, a.ID, b.ID); c != 0 {
+			return c
+		}
+		if c := compare(a, b); c != 0 {
+			return c
+		}
+		return strings.Compare(a.ID, b.ID)
+	})
+}
+
+func comparePinned(pinned map[string]struct{}, a, b string) int {
+	_, aPinned := pinned[a]
+	_, bPinned := pinned[b]
+	switch {
+	case aPinned == bPinned:
+		return 0
+	case aPinned:
+		return -1
+	default:
+		return 1
+	}
+}
+
+func dagListComparator(items []DAGListItem, opts DAGListOptions) func(a, b DAGListItem) int {
+	direction := 1
+	if opts.Order == "desc" {
+		direction = -1
+	}
+	byName := func(a, b DAGListItem) int {
+		return direction * strings.Compare(strings.ToLower(a.Name), strings.ToLower(b.Name))
+	}
 	if opts.Sort != "nextRun" {
-		sort.Slice(items, func(i, j int) bool {
-			left, right := strings.ToLower(items[i].Name), strings.ToLower(items[j].Name)
-			if ascending {
-				return left < right
-			}
-			return left > right
-		})
-		return
+		return byName
 	}
 
 	now := time.Now()
@@ -101,25 +137,22 @@ func sortDAGList(items []DAGListItem, opts DAGListOptions) {
 			nextRuns[item.DAG] = project(item.DAG, now)
 		}
 	}
-	sort.Slice(items, func(i, j int) bool {
-		left, right := nextRuns[items[i].DAG], nextRuns[items[j].DAG]
-		if left.IsZero() && right.IsZero() {
-			if ascending {
-				return strings.ToLower(items[i].Name) < strings.ToLower(items[j].Name)
-			}
-			return strings.ToLower(items[i].Name) > strings.ToLower(items[j].Name)
+	return func(a, b DAGListItem) int {
+		left, right := nextRuns[a.DAG], nextRuns[b.DAG]
+		switch {
+		case left.IsZero() && right.IsZero():
+			return byName(a, b)
+		case left.IsZero():
+			// DAGs without a next run come last in either order.
+			return 1
+		case right.IsZero():
+			return -1
 		}
-		if left.IsZero() {
-			return false
+		if c := direction * left.Compare(right); c != 0 {
+			return c
 		}
-		if right.IsZero() {
-			return true
-		}
-		if ascending {
-			return left.Before(right)
-		}
-		return right.Before(left)
-	})
+		return byName(a, b)
+	}
 }
 
 func (r *DAGRepository) LabelList(ctx context.Context) ([]string, []string, error) {

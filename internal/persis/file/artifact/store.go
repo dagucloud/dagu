@@ -128,7 +128,7 @@ func (s *Store) collectDay(
 		}
 
 		rec := s.readRecord(ctx, day, runDir.name)
-		if rec == nil {
+		if rec == nil || rec.Ephemeral {
 			continue
 		}
 		if !query.WorkspaceFilter.MatchesLabels(ir.NewLabels(rec.Labels)) {

@@ -11,6 +11,7 @@ import (
 	"strings"
 
 	"github.com/dagucloud/dagu/v2/internal/cmn/stringutil"
+	"github.com/dagucloud/dagu/v2/internal/launcher"
 	"github.com/dagucloud/dagu/v2/internal/spec"
 )
 
@@ -34,8 +35,9 @@ func stdinParamsRequested(ctx *Context) bool {
 }
 
 // maxStdinParamsSize bounds the bytes read from stdin as run params, so a
-// large redirected file or stream cannot exhaust memory.
-const maxStdinParamsSize = 1 << 20 // 1 MiB
+// large redirected file or stream cannot exhaust memory. It is the limit the
+// launcher passes params on stdin within.
+const maxStdinParamsSize = launcher.MaxParamsSize
 
 // readStdinParams returns stdin trimmed, for use as run params.
 func readStdinParams() (string, error) {

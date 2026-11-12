@@ -4,11 +4,12 @@
 import { Checkbox } from '@/components/ui/checkbox';
 import { ChevronDown, ChevronRight } from 'lucide-react';
 import { useMemo, useState } from 'react';
+import { PeekLink } from '@/features/peek/PeekLink';
 import { components, Status } from '../../../../api/v1/schema';
-import dayjs from '../../../../lib/dayjs';
 import { getDAGRunScheduleSortValue } from '../../../../lib/dagRunTiming';
 import RelativeTime from '@/components/ui/relative-time';
 import StatusChip from '@/components/ui/status-chip';
+import { RunStatusChip } from '../common/RunStatusChip';
 import AutoRetryBadge from '../common/AutoRetryBadge';
 import {
   DAGRunSelectionItem,
@@ -16,8 +17,15 @@ import {
 } from '../../hooks/useBulkDAGRunSelection';
 import { StepDetailsTooltip } from './StepDetailsTooltip';
 import { DAGRunArtifactsButton } from './DAGRunArtifactsButton';
-import { useConfig } from '../../../../contexts/ConfigContext';
+import {
+  PEEK_SHOWN_ROW,
+  usePeekOrOpen,
+  usePeekSequence,
+  usePeekShown,
+  useRevealShownRow,
+} from '@/features/peek/usePeekOrOpen';
 import { I18nText } from '@/i18n/I18nText';
+import { RunListDuration } from './RunListDuration';
 import { useI18n } from '@/i18n/I18nProvider';
 
 interface DAGRunGroupedViewProps {
@@ -25,9 +33,6 @@ interface DAGRunGroupedViewProps {
   /** True while the first page is being fetched; suppresses the empty state. */
   isLoading?: boolean;
   selectedRunKeys?: Set<string>;
-  selectedDAGRun?: { name: string; dagRunId: string } | null;
-  onSelectDAGRun?: (dagRun: { name: string; dagRunId: string } | null) => void;
-  onViewArtifacts?: (dagRun: DAGRunSelectionItem) => void;
   onToggleBulkSelect?: (dagRun: DAGRunSelectionItem) => void;
 }
 
@@ -39,13 +44,12 @@ function DAGRunGroupedView({
   dagRuns,
   isLoading = false,
   selectedRunKeys,
-  selectedDAGRun = null,
-  onSelectDAGRun,
-  onViewArtifacts,
   onToggleBulkSelect,
 }: DAGRunGroupedViewProps) {
   const { ts } = useI18n();
-  const config = useConfig();
+  const peekOrOpen = usePeekOrOpen();
+  const isShown = usePeekShown();
+  useRevealShownRow();
   const [expandedGroups, setExpandedGroups] = useState<Set<string>>(new Set());
 
   // Group DAG runs by name
@@ -82,53 +86,6 @@ function DAGRunGroupedView({
       }
       return next;
     });
-  };
-
-  // Calculate duration between start and finish times
-  const calculateDuration = (
-    startedAt: string,
-    finishedAt: string | null,
-    status: number
-  ): string => {
-    if (!startedAt) {
-      return '-';
-    }
-
-    if (status === Status.Running && !finishedAt) {
-      const start = dayjs(startedAt);
-      const now = dayjs();
-      const durationMs = now.diff(start);
-      return formatDuration(durationMs);
-    }
-
-    if (finishedAt) {
-      const start = dayjs(startedAt);
-      const end = dayjs(finishedAt);
-      const durationMs = end.diff(start);
-      return formatDuration(durationMs);
-    }
-
-    return '-';
-  };
-
-  const formatDuration = (durationMs: number): string => {
-    const seconds = Math.floor(durationMs / 1000);
-
-    if (seconds < 60) {
-      return `${seconds}s`;
-    }
-
-    const minutes = Math.floor(seconds / 60);
-    const remainingSeconds = seconds % 60;
-
-    if (minutes < 60) {
-      return `${minutes}m ${remainingSeconds}s`;
-    }
-
-    const hours = Math.floor(minutes / 60);
-    const remainingMinutes = minutes % 60;
-
-    return `${hours}h ${remainingMinutes}m ${remainingSeconds}s`;
   };
 
   // Get the most recent run for each group for summary display
@@ -169,23 +126,36 @@ function DAGRunGroupedView({
     <div className="flex flex-col items-center justify-center py-12 px-4 border rounded-md bg-card">
       <div className="text-6xl mb-4">🔍</div>
       <h3 className="text-lg font-normal text-foreground mb-2">
-        <I18nText text={'No DAG runs found'} />
+        <I18nText text={'No runs found'} />
       </h3>
       <p className="text-sm text-muted-foreground text-center max-w-md mb-4">
         <I18nText
           text={
-            'No DAG runs in the selected time range. Adjust the date range or filters, or start a workflow from the Workflows page.'
+            'No runs in the selected time range. Adjust the date range or filters, or start a workflow from the Workflows page.'
           }
         />
       </p>
     </div>
   );
 
+  // The peek steps through the runs of the open groups, in their order.
+  usePeekSequence(
+    Object.keys(groupedDAGRuns)
+      .sort()
+      .filter((dagName) => expandedGroups.has(dagName))
+      .flatMap((dagName) =>
+        (groupedDAGRuns[dagName] ?? []).map((run) => ({
+          dag: run.name,
+          run: run.dagRunId,
+        }))
+      )
+  );
+
   if (dagRuns.length === 0) {
     if (isLoading) {
       return (
         <div className="flex items-center justify-center py-12 text-sm text-muted-foreground">
-          <I18nText text={'Loading DAG runs...'} />
+          <I18nText text={'Loading runs...'} />
         </div>
       );
     }
@@ -195,9 +165,6 @@ function DAGRunGroupedView({
   const sortedDagNames = Object.keys(groupedDAGRuns).sort();
   const isBulkSelected = (dagRun: DAGRunSelectionItem) =>
     selectedRunKeys?.has(getDAGRunSelectionKey(dagRun)) ?? false;
-  const isFocused = (dagRun: DAGRunSelectionItem) =>
-    selectedDAGRun?.name === dagRun.name &&
-    selectedDAGRun?.dagRunId === dagRun.dagRunId;
 
   return (
     <div className="border rounded-md bg-card">
@@ -220,7 +187,15 @@ function DAGRunGroupedView({
               >
                 <div className="flex items-center gap-2 flex-1 min-w-0">
                   <button
+                    type="button"
                     className="flex-shrink-0 p-1 hover:bg-muted rounded"
+                    aria-expanded={isExpanded}
+                    aria-label={ts(
+                      isExpanded ? 'Collapse {name}' : 'Expand {name}',
+                      {
+                        name: dagName,
+                      }
+                    )}
                     onClick={(e) => {
                       e.stopPropagation();
                       toggleGroup(dagName);
@@ -280,9 +255,14 @@ function DAGRunGroupedView({
                 </div>
                 <div className="flex items-center gap-2 flex-shrink-0">
                   {summary.allSameStatus && summary.uniformStatus != null ? (
-                    <StatusChip status={summary.uniformStatus} size="xs">
+                    <RunStatusChip
+                      name={summary.latestRun.name}
+                      dagRunId={summary.latestRun.dagRunId}
+                      status={summary.uniformStatus}
+                      size="xs"
+                    >
                       {summary.latestRun.statusLabel}
-                    </StatusChip>
+                    </RunStatusChip>
                   ) : (
                     <StatusChip status={undefined} size="xs">
                       <I18nText text={'Mixed'} />
@@ -298,22 +278,31 @@ function DAGRunGroupedView({
                     {runs.map((dagRun) => (
                       <div
                         key={dagRun.dagRunId}
-                        className={`px-3 py-2 pl-11 hover:bg-muted/20 cursor-pointer transition-colors text-xs ${
-                          isFocused(dagRun) ? 'bg-muted/20' : ''
-                        } ${isBulkSelected(dagRun) ? 'bg-muted/30' : ''}`}
-                        onClick={(e) => {
-                          if (e.ctrlKey || e.metaKey) {
-                            const basePath = config.basePath || '';
-                            window.open(
-                              `${basePath}/dag-runs/${dagRun.name}/${dagRun.dagRunId}`,
-                              '_blank'
-                            );
-                          } else if (onSelectDAGRun) {
-                            onSelectDAGRun({
-                              name: dagRun.name,
-                              dagRunId: dagRun.dagRunId,
-                            });
+                        tabIndex={0}
+                        data-peek-shown={
+                          isShown({ dag: dagRun.name, run: dagRun.dagRunId }) ||
+                          undefined
+                        }
+                        className={`px-3 py-2 pl-11 hover:bg-muted/20 cursor-pointer transition-colors text-xs focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring ${isBulkSelected(dagRun) ? 'bg-muted/30' : ''} ${isShown({ dag: dagRun.name, run: dagRun.dagRunId }) ? `${PEEK_SHOWN_ROW} bg-muted/20` : ''}`}
+                        onClick={(e) =>
+                          peekOrOpen(
+                            { dag: dagRun.name, run: dagRun.dagRunId },
+                            e
+                          )
+                        }
+                        onKeyDown={(e) => {
+                          // Enter on the run ID link or a control stays theirs.
+                          if (
+                            e.key !== 'Enter' ||
+                            e.target !== e.currentTarget
+                          ) {
+                            return;
                           }
+                          e.preventDefault();
+                          peekOrOpen(
+                            { dag: dagRun.name, run: dagRun.dagRunId },
+                            e
+                          );
                         }}
                       >
                         <div className="flex items-start justify-between gap-3">
@@ -336,9 +325,16 @@ function DAGRunGroupedView({
                               </div>
                             )}
                             <div className="flex-1 min-w-0 space-y-1">
-                              <div className="font-mono text-muted-foreground truncate">
+                              <PeekLink
+                                peek={{
+                                  dag: dagRun.name,
+                                  run: dagRun.dagRunId,
+                                }}
+                                className="block truncate font-mono text-muted-foreground hover:underline"
+                                onClick={(event) => event.stopPropagation()}
+                              >
                                 {dagRun.dagRunId}
-                              </div>
+                              </PeekLink>
                               <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs">
                                 {dagRun.scheduleTime && (
                                   <div className="whitespace-nowrap">
@@ -370,11 +366,11 @@ function DAGRunGroupedView({
                                   <span className="text-muted-foreground">
                                     <I18nText text={'Duration:'} />{' '}
                                   </span>
-                                  {calculateDuration(
-                                    dagRun.startedAt,
-                                    dagRun.finishedAt,
-                                    dagRun.status
-                                  )}
+                                  <RunListDuration
+                                    startedAt={dagRun.startedAt}
+                                    finishedAt={dagRun.finishedAt}
+                                    status={dagRun.status}
+                                  />
                                   {dagRun.status === Status.Running &&
                                     dagRun.startedAt && (
                                       <span className="inline-block w-1.5 h-1.5 rounded-full bg-success animate-pulse" />
@@ -384,17 +380,17 @@ function DAGRunGroupedView({
                             </div>
                           </div>
                           <div className="mt-0.5 flex flex-shrink-0 items-start gap-2">
-                            {onViewArtifacts && (
-                              <DAGRunArtifactsButton
-                                dagRun={dagRun}
-                                onClick={() => onViewArtifacts(dagRun)}
-                              />
-                            )}
+                            <DAGRunArtifactsButton dagRun={dagRun} />
                             <StepDetailsTooltip dagRun={dagRun}>
                               <div className="flex flex-col items-end gap-1">
-                                <StatusChip status={dagRun.status} size="xs">
+                                <RunStatusChip
+                                  name={dagRun.name}
+                                  dagRunId={dagRun.dagRunId}
+                                  status={dagRun.status}
+                                  size="xs"
+                                >
                                   {dagRun.statusLabel}
-                                </StatusChip>
+                                </RunStatusChip>
                                 <AutoRetryBadge
                                   status={dagRun.status}
                                   count={dagRun.autoRetryCount}

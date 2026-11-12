@@ -1454,6 +1454,39 @@ func TestHandleStart(t *testing.T) {
 	})
 }
 
+// A queued run that fails to load on the worker keeps its trigger type.
+func TestHandleRetryLoadErrorKeepsQueuedTrigger(t *testing.T) {
+	t.Parallel()
+
+	previous, err := convert.DAGRunStatusToProto(&ir.DAGRunStatus{
+		Name: "queued-dag", DAGRunID: "run-1", Status: ir.Queued, TriggerType: ir.TriggerTypeManual,
+	})
+	require.NoError(t, err)
+
+	var reported *ir.DAGRunStatus
+	client := newMockRemoteCoordinatorClient()
+	client.ReportStatusFunc = func(_ context.Context, req *coordinatorv1.ReportStatusRequest) (*coordinatorv1.ReportStatusResponse, error) {
+		reported, err = convert.ProtoToDAGRunStatus(req.Status)
+		return &coordinatorv1.ReportStatusResponse{Accepted: true}, err
+	}
+	handler := &remoteTaskHandler{
+		workerID:          "test-worker",
+		coordinatorClient: client,
+		config:            &config.Config{Paths: config.PathsConfig{DAGsDir: t.TempDir()}},
+	}
+
+	err = handler.handleRetry(context.Background(), &coordinatorv1.Task{
+		Operation:      coordinatorv1.Operation_OPERATION_RETRY,
+		Target:         "queued-dag",
+		DagRunId:       "run-1",
+		Definition:     `invalid: yaml: content: [[[`,
+		PreviousStatus: previous,
+	})
+	require.ErrorContains(t, err, "failed to load DAG")
+	require.NotNil(t, reported)
+	assert.Equal(t, ir.TriggerTypeManual, reported.TriggerType)
+}
+
 func TestRemoteHandler_UniqueLogDirs(t *testing.T) {
 	t.Parallel()
 
@@ -2017,6 +2050,7 @@ steps:
 	var (
 		reportedMu sync.Mutex
 		finalActor string
+		finalType  ir.TriggerType
 	)
 	client.ReportStatusFunc = func(_ context.Context, req *coordinatorv1.ReportStatusRequest) (*coordinatorv1.ReportStatusResponse, error) {
 		status, err := convert.ProtoToDAGRunStatus(req.Status)
@@ -2024,6 +2058,7 @@ steps:
 		if status.Status == ir.Succeeded {
 			reportedMu.Lock()
 			finalActor = status.TriggerActor
+			finalType = status.TriggerType
 			reportedMu.Unlock()
 		}
 		return &coordinatorv1.ReportStatusResponse{Accepted: true}, nil
@@ -2052,7 +2087,7 @@ steps:
 	// Call executeDAGRun - this should succeed and log completion
 	// For top-level runs, pass empty parent and ensure root matches dagRunID
 	err := handler.executeDAGRun(th.Context, dag.DAG, remoteRun{
-		task:     &coordinatorv1.Task{DagRunId: dagRunID, TriggerActor: "alice"},
+		task:     &coordinatorv1.Task{DagRunId: dagRunID, TriggerActor: "alice", TriggerType: "manual"},
 		root:     root,
 		handlers: handlers,
 	})
@@ -2062,6 +2097,7 @@ steps:
 	reportedMu.Lock()
 	defer reportedMu.Unlock()
 	require.Equal(t, "alice", finalActor)
+	require.Equal(t, ir.TriggerTypeManual, finalType)
 }
 
 func TestRemoteRunReporter_FinalizesSchedulerLogByClosingLiveWriterOnce(t *testing.T) {
@@ -2744,6 +2780,86 @@ steps:
 	require.NoError(t, err)
 	require.True(t, terminalStatusSeen)
 	require.Equal(t, 1, terminalStatusReports)
+}
+
+// The terminal status releases the attempt lease, so the coordinator rejects
+// any scheduler log chunk a dispatched sub-DAG run sends after it.
+func TestExecuteDAGRun_SubDAGLogFinalization(t *testing.T) {
+	th := test.Setup(t)
+
+	dag := th.DAG(t, `name: worker-dispatched-child
+steps:
+  - name: child-step
+    run: echo child
+`)
+
+	isScheduler := func(chunk *coordinatorv1.LogChunk) bool {
+		return chunk.StreamType == coordinatorv1.LogStreamType_LOG_STREAM_TYPE_SCHEDULER
+	}
+
+	var (
+		streamsMu            sync.Mutex
+		streams              []*mockStreamLogsClient
+		terminalStatusSeen   bool
+		schedulerAtTerminal  int
+		schedulerFinalBefore bool
+	)
+
+	client := newMockRemoteCoordinatorClient()
+	client.StreamLogsFunc = func(ctx context.Context) (coordinatorv1.CoordinatorService_StreamLogsClient, error) {
+		stream := newMockStreamLogsClient()
+		stream.ctx = ctx
+
+		streamsMu.Lock()
+		streams = append(streams, stream)
+		streamsMu.Unlock()
+
+		return stream, nil
+	}
+
+	childRunID := "run-dispatched-child"
+	root := ir.NewDAGRunRef("worker-parent", "run-dispatched-parent")
+	client.ReportStatusFunc = func(_ context.Context, req *coordinatorv1.ReportStatusRequest) (*coordinatorv1.ReportStatusResponse, error) {
+		status, err := convert.ProtoToDAGRunStatus(req.Status)
+		require.NoError(t, err)
+		if status.Status != ir.Succeeded {
+			return &coordinatorv1.ReportStatusResponse{Accepted: true}, nil
+		}
+
+		streamsMu.Lock()
+		defer streamsMu.Unlock()
+		terminalStatusSeen = true
+		schedulerAtTerminal = countLogChunks(streams, isScheduler)
+		schedulerFinalBefore = hasSchedulerFinalChunk(streams, childRunID, dag.Name, status.AttemptID, root)
+
+		return &coordinatorv1.ReportStatusResponse{Accepted: true}, nil
+	}
+
+	handler := &remoteTaskHandler{
+		workerID:          "integration-test-worker",
+		coordinatorClient: client,
+		dagRepository:     th.DAGRepository,
+		dagRunMgr:         th.DAGRunMgr,
+		serviceRegistry:   th.ServiceRegistry,
+		peerConfig:        config.Peer{Insecure: true},
+		config:            th.Config,
+	}
+
+	run := remoteRun{
+		task:   &coordinatorv1.Task{DagRunId: childRunID, AttemptId: "attempt-dispatched-child"},
+		root:   root,
+		parent: root,
+	}
+	run.handlers = handler.createRemoteHandlers(run, dag.Name)
+
+	err := handler.executeDAGRun(th.Context, dag.DAG, run)
+	require.NoError(t, err)
+
+	streamsMu.Lock()
+	defer streamsMu.Unlock()
+	require.True(t, terminalStatusSeen)
+	require.True(t, schedulerFinalBefore, "scheduler log should be finalized before terminal status is reported")
+	require.Equal(t, schedulerAtTerminal, countLogChunks(streams, isScheduler), "no scheduler log chunk may follow the terminal status")
 }
 
 func TestExecuteDAGRun_DispatchesRemoteSubDAGThroughCoordinatorClient(t *testing.T) {

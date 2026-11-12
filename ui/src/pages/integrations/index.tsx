@@ -38,7 +38,7 @@ export default function IntegrationsPage(): React.ReactElement {
     <div className="flex h-full min-h-0 flex-col gap-4 overflow-auto">
       <Title>{t('navigation.integrations')}</Title>
 
-      <div className="grid gap-3 md:grid-cols-2">
+      <div className="grid gap-2 md:grid-cols-2 xl:grid-cols-3">
         {integrationLinks.map((link) => (
           <Link
             key={link.to}

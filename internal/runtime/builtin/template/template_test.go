@@ -73,6 +73,81 @@ func TestValidateTemplateRejectsAmbiguousTemplateReference(t *testing.T) {
 	}
 }
 
+// A syntax error in an inline template must fail validation, not the run.
+func TestValidateTemplateParsesInlineTemplate(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name    string
+		step    ir.Step
+		wantErr string
+		noHint  bool
+	}{
+		{
+			name: "valid template",
+			step: ir.Step{Script: "Hello, {{ .name }}!"},
+		},
+		{
+			name:    "unclosed action",
+			step:    ir.Step{Script: "Hello, {{ .name "},
+			wantErr: "field 'with.template': template: parse error",
+		},
+		{
+			name: "data key without dot",
+			step: ir.Step{
+				Script: "{{ report }}",
+				ExecutorConfig: ir.ExecutorConfig{
+					Config: map[string]any{"data": map[string]any{"report": "x"}},
+				},
+			},
+			wantErr: `function "report" not defined: "report" is a with.data key and needs a leading dot (.report)`,
+		},
+		{
+			name: "nested access without dot",
+			step: ir.Step{
+				Script: "{{ report.name }}",
+				ExecutorConfig: ir.ExecutorConfig{
+					Config: map[string]any{"data": map[string]any{"report": map[string]any{"name": "x"}}},
+				},
+			},
+			wantErr: `"report" is a with.data key and needs a leading dot (.report)`,
+		},
+		{
+			name:    "unknown function is not a data key",
+			step:    ir.Step{Script: "{{ report }}"},
+			wantErr: `function "report" not defined`,
+			noHint:  true,
+		},
+		{
+			name: "data is an unresolved reference",
+			step: ir.Step{
+				Script: "{{ report }}",
+				ExecutorConfig: ir.ExecutorConfig{
+					Config: map[string]any{"data": "${steps.prev.outputs.data}"},
+				},
+			},
+			wantErr: `function "report" not defined`,
+			noHint:  true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			err := validateTemplate(tt.step)
+			if tt.wantErr == "" {
+				require.NoError(t, err)
+				return
+			}
+			require.ErrorContains(t, err, tt.wantErr)
+			if tt.noHint {
+				assert.NotContains(t, err.Error(), "needs a leading dot")
+			}
+		})
+	}
+}
+
 func TestNewTemplateRequiresScriptMessage(t *testing.T) {
 	_, err := newTemplate(context.Background(), ir.Step{})
 	require.Error(t, err)
@@ -178,6 +253,22 @@ func TestTemplateExec_MissingKeyError(t *testing.T) {
 	err := e.Run(context.Background())
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "execution error")
+}
+
+// Templates from with.template_ref are parsed at run time and get the same hint.
+func TestTemplateExec_DataKeyWithoutDotHint(t *testing.T) {
+	t.Parallel()
+
+	e := &templateExec{
+		stdout: &bytes.Buffer{},
+		stderr: os.Stderr,
+		script: "{{ report }}",
+		data:   map[string]any{"report": "x"},
+	}
+
+	err := e.Run(context.Background())
+	require.ErrorContains(t, err, `template: parse error`)
+	require.ErrorContains(t, err, `"report" is a with.data key and needs a leading dot (.report)`)
 }
 
 func TestTemplateExec_InvalidSyntax(t *testing.T) {

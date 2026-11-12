@@ -7,21 +7,18 @@ import { AppBarContext } from '@/contexts/AppBarContext';
 export default function CockpitPage(): React.ReactElement {
   const { setTitle } = React.useContext(AppBarContext);
   const [isTemplateSelectorOpen, setIsTemplateSelectorOpen] = useState(false);
-  const { selectedWorkspace, workspaceKey, selectedTemplate, selectTemplate } =
-    useCockpitState();
+  const { selectedWorkspace, workspaceKey } = useCockpitState();
 
   useEffect(() => {
     setTitle('Cockpit');
   }, [setTitle]);
 
-  const suspendBackgroundLoading = isTemplateSelectorOpen || !!selectedTemplate;
+  const suspendBackgroundLoading = isTemplateSelectorOpen;
 
   return (
     <div className="flex flex-col h-full min-h-0">
       <CockpitToolbar
         selectedWorkspace={selectedWorkspace}
-        selectedTemplate={selectedTemplate}
-        onSelectTemplate={selectTemplate}
         onTemplateSelectorOpenChange={setIsTemplateSelectorOpen}
       />
       <DateKanbanList

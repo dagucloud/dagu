@@ -2347,3 +2347,31 @@ func TestService_DeleteChannelRejectsInUseChannel(t *testing.T) {
 	err = svc.DeleteChannel(context.Background(), "channel-1")
 	assert.ErrorIs(t, err, notificationmodel.ErrChannelInUse)
 }
+
+func TestAttachmentsEventRoundTrip(t *testing.T) {
+	for _, merged := range []bool{false, true} {
+		stdout, stderr := "/logs/step.out", "/logs/step.err"
+		want := []string{"/logs/dag-run.log", stdout, stderr}
+		if merged {
+			stdout, stderr = "/logs/step.log", "/logs/step.log"
+			want = []string{"/logs/dag-run.log", stdout}
+		}
+		status := &ir.DAGRunStatus{Name: "synthetic", DAGRunID: "run", AttemptID: "attempt", Status: ir.Succeeded,
+			Log: "/logs/dag-run.log", Nodes: []*ir.Node{{Stdout: stdout, Stderr: stderr}}}
+		event := eventstore.NewDAGRunEvent(eventstore.Source{Service: eventstore.SourceServiceServer, Instance: "test"}, eventstore.TypeDAGRunSucceeded, status, nil)
+		data, err := json.Marshal(event)
+		if err != nil {
+			t.Fatal(err)
+		}
+		var stored eventstore.Event
+		if err := json.Unmarshal(data, &stored); err != nil {
+			t.Fatal(err)
+		}
+		restored, err := eventstore.DAGRunStatusFromEvent(&stored)
+		if err != nil {
+			t.Fatal(err)
+		}
+		got := logAttachments([]chatbridge.NotificationEvent{{Status: restored}, {Status: restored}})
+		assert.Equal(t, want, got)
+	}
+}

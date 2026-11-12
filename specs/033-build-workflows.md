@@ -44,8 +44,13 @@ step-level containers and other executor types are invalid for those steps.
 ## Planning and references
 
 Paths are canonicalized before execution. If an input path matches another
-step's output path, the plan gains a producer-to-consumer dependency. Explicit
-and inferred edges are combined and the resulting graph must be acyclic. Each
+step's output path, the plan gains a producer-to-consumer dependency. Step
+output references add inferred dependencies the same way under
+[Spec 007](007-value-resolution-steps.md). Explicit and inferred edges are
+combined and the resulting graph must be acyclic. An inferred edge of either
+kind is not a control dependency: the consumer may be reused when the
+producer's value is unchanged, while an explicit `depends` entry forces the
+consumer to run whenever the producer ran. Each
 canonical output path must have exactly one producer, so two steps may not use
 equivalent spellings such as `artifact.bin` and `./artifact.bin`.
 
@@ -88,8 +93,9 @@ output and manifest intact. Recovery refuses to overwrite a final output that
 matches neither the previous nor the proposed materialization.
 
 Standard-stream destinations, including artifact destinations, must not resolve
-to any declared build input or output. Static aliases are rejected during
-planning, and late-resolved aliases are rejected before opening the destination.
+to, or beneath, any declared build input or output. Static aliases are rejected
+during planning, and late-resolved aliases are rejected before opening the
+destination.
 
 `--no-reuse` on `start`, `dry`, or `enqueue` bypasses manifest hits without
 bypassing staging or commit safety. Dry-run only previews decisions: it creates

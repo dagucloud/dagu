@@ -4,6 +4,9 @@
 
 Partially implemented.
 
+Integration tests cover relative `with.script_file` and `with.tls_ca` paths
+resolved from the step working directory.
+
 ## Scope
 
 This spec covers Redis action configuration acceptance, command agreement,
@@ -25,6 +28,13 @@ configuration before commands reach a Redis service.
 must agree with that action name. Configured `redis.set` and `redis.get`
 actions with DAG-level connection settings pass `dagu validate` without
 contacting Redis.
+
+A relative `with.script_file`, `with.tls_ca`, `with.tls_cert`, or
+`with.tls_key` names a file under the step working directory.
+
+`with.max_result_size` caps the bytes a command result writes to stdout,
+10 MiB by default; `0` means no limit. A larger result fails the step and
+writes nothing.
 
 ## Errors
 

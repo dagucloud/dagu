@@ -40,17 +40,47 @@ type computerExecutor struct {
 	step        ir.Step
 	cfg         config
 	openDesktop func() (*desktop.Driver, error)
-	launch      func(dir, command string, args []string) error
-	newProvider providerFactory
-	newSession  sessionFactory
-	settle      settleTiming
+	// checkDesktop reports whether the desktop can be automated. A step
+	// waits while it reports only problems a person clears, checking every
+	// screenPoll, for up to screenWait when the step sets no timeout.
+	checkDesktop func() desktop.Diagnostics
+	screenPoll   time.Duration
+	screenWait   time.Duration
+	// openElements reads the front window's elements for exact checks. It
+	// is called on the first one. openMarks opens the marks that show a
+	// person where the step acts.
+	openElements func() (desktop.Elements, error)
+	openMarks    func() (desktop.Marks, error)
+	launch       func(dir, command string, args []string) error
+	newProvider  providerFactory
+	newSession   sessionFactory
+	settle       settleTiming
 	// desktopLock is the directory of the lock that gives one step at a
 	// time the desktop; empty uses the data directory.
 	desktopLock string
-	// idlePoll spaces the checks for a person using the desktop.
-	idlePoll time.Duration
-	stdout   io.Writer
-	stderr   io.Writer
+	// idlePoll spaces the checks for a person using the desktop, and
+	// personWait is how long a step waits for one before giving up.
+	idlePoll   time.Duration
+	personWait time.Duration
+	// findWithin is how long a replay waits for an element or a screen
+	// when the step sets nothing.
+	findWithin time.Duration
+	// onConsole reports whether a person at the keyboard could collide
+	// with the step's input; a remote session has none, and its connection
+	// feeds the desktop input of its own, so a step there does not wait
+	// for a person unless idle is set.
+	onConsole func() bool
+	// system is which pinned block this device runs, windows or macos, or
+	// "" on another system. It is hostSystem() in production; a test sets
+	// it so pins resolve on any runner.
+	system string
+	// protectedApps are applications whose windows the step never operates
+	// or maximizes, from DAGU_DESKTOP_PROTECTED_APPS in production, and
+	// protectedTitles window titles, from DAGU_DESKTOP_PROTECTED_TITLES.
+	protectedApps   []string
+	protectedTitles []string
+	stdout          io.Writer
+	stderr          io.Writer
 
 	mu            sync.Mutex
 	cancel        context.CancelFunc
@@ -62,28 +92,33 @@ type computerExecutor struct {
 }
 
 func newExecutor(_ context.Context, step ir.Step) (executor.Executor, error) {
-	if step.LLM == nil {
-		return nil, errNoModel
-	}
-	cfg, err := parseConfig(step.ExecutorConfig.Config)
+	cfg, err := checkStep(step)
 	if err != nil {
 		return nil, err
 	}
-	if err := cfg.validate(); err != nil {
-		return nil, err
-	}
 	return &computerExecutor{
-		step:        step,
-		cfg:         cfg,
-		openDesktop: desktop.Open,
-		launch:      desktop.Launch,
-		newProvider: runtime.NewLLMProvider,
-		newSession:  computeruse.New,
-		settle:      defaultSettle,
-		desktopLock: userDesktopLock(),
-		idlePoll:    defaultIdlePoll,
-		stdout:      os.Stdout,
-		stderr:      os.Stderr,
+		step:            step,
+		cfg:             cfg,
+		openDesktop:     desktop.Open,
+		checkDesktop:    desktop.Check,
+		screenPoll:      defaultScreenPoll,
+		screenWait:      defaultScreenWait,
+		openElements:    desktop.OpenElements,
+		openMarks:       desktop.OpenMarks,
+		launch:          desktop.Launch,
+		newProvider:     runtime.NewLLMProvider,
+		newSession:      computeruse.New,
+		settle:          defaultSettle,
+		desktopLock:     userDesktopLock(),
+		idlePoll:        defaultIdlePoll,
+		personWait:      defaultPersonWait,
+		findWithin:      defaultFindWithin,
+		onConsole:       desktop.OnConsoleSession,
+		system:          hostSystem(),
+		protectedApps:   protectedApps(),
+		protectedTitles: protectedTitles(),
+		stdout:          os.Stdout,
+		stderr:          os.Stderr,
 	}, nil
 }
 

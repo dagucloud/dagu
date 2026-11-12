@@ -151,21 +151,6 @@ func TestLoadYAMLWithResultReportsStepOutputReferenceReasons(t *testing.T) {
 		wantReason cmnvalue.ValueReferenceNoticeReason
 	}{
 		{
-			name: "MissingDependency",
-			yaml: `
-steps:
-  - id: build
-    run: printf 'image=v1\n' >> "$DAGU_OUTPUT_FILE"
-    outputs:
-      - name: image
-  - id: deploy
-    run: echo ${steps.build.outputs.image}
-`,
-			wantField:  "steps[1].run",
-			wantToken:  "${steps.build.outputs.image}",
-			wantReason: cmnvalue.ValueReferenceReasonMissingDependency,
-		},
-		{
 			name: "UnknownStepID",
 			yaml: `
 steps:

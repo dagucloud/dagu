@@ -23,6 +23,8 @@ Workflow authors can validate SQL action inputs before connecting to a database.
 - `postgres.import` requires `with.import`, which describes the source file and
   destination table.
 - Both actions use `with.dsn` to identify the database connection.
+- A relative `with.import.input_file` or `with.output_file` names a file under
+  the step working directory.
 - `dagu validate` accepts configured actions without a running database or a
   local import file.
 

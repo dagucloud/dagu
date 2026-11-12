@@ -8,6 +8,9 @@ import (
 	"errors"
 	"fmt"
 	"image"
+	"image/color"
+	"math"
+	"strings"
 	"testing"
 	"time"
 
@@ -20,12 +23,20 @@ import (
 type recordingBackend struct {
 	events  []string
 	failKey desktop.Key
+	// failReleases is how many more button releases fail.
+	failReleases int
 	// personInputAt is the last input the desktop received from a person.
 	personInputAt time.Time
+	// focus is the window with the keyboard focus.
+	focus desktop.WindowID
 }
 
 func (b *recordingBackend) Capture() (*image.RGBA, error) {
 	return image.NewRGBA(image.Rect(0, 0, 4, 4)), nil
+}
+
+func (b *recordingBackend) CaptureApps([]string) (desktop.Capture, error) {
+	return desktop.Capture{}, desktop.ErrNoWindows
 }
 
 func (b *recordingBackend) MoveTo(x, y int) error {
@@ -37,6 +48,10 @@ func (b *recordingBackend) Position() (int, int, error) { return 7, 8, nil }
 
 func (b *recordingBackend) Button(button desktop.Button, down bool, clicks int) error {
 	b.events = append(b.events, fmt.Sprintf("%s %s #%d", button, upDown(down), clicks))
+	if !down && b.failReleases > 0 {
+		b.failReleases--
+		return errors.New("release failed")
+	}
 	return nil
 }
 
@@ -59,6 +74,17 @@ func (b *recordingBackend) Type(text string) error {
 }
 
 func (b *recordingBackend) LastInput() time.Time { return b.personInputAt }
+
+func (b *recordingBackend) FocusedWindow() desktop.WindowID      { return b.focus }
+func (b *recordingBackend) WindowAt(int, int) desktop.WindowID   { return desktop.WindowID{} }
+func (b *recordingBackend) Windows() []desktop.WindowID          { return nil }
+func (b *recordingBackend) ReachableWindows() []desktop.WindowID { return nil }
+func (b *recordingBackend) Raise(desktop.WindowID) error         { return nil }
+
+func (b *recordingBackend) Maximize(w desktop.WindowID) (bool, error) {
+	b.events = append(b.events, "maximize "+w.App)
+	return true, nil
+}
 
 func (b *recordingBackend) Close() error { return nil }
 
@@ -138,6 +164,10 @@ func TestDriverScrollAtPoint(t *testing.T) {
 	require.NoError(t, driver.Scroll(context.Background(), &at, 0, -3, nil))
 
 	assert.Equal(t, []string{"move 5,6", "wheel 0,-3"}, backend.events)
+
+	require.ErrorContains(t, driver.Scroll(context.Background(), &at, 0, 101, nil), "at most 100 notches")
+	require.ErrorContains(t, driver.Scroll(context.Background(), &at, math.MinInt, 0, nil), "at most 100 notches")
+	assert.Len(t, backend.events, 2, "a scroll too long sends nothing")
 }
 
 func TestParseButton(t *testing.T) {
@@ -193,7 +223,7 @@ func TestDriverWaitForIdle(t *testing.T) {
 	backend := &recordingBackend{personInputAt: time.Now()}
 	driver := desktop.New(backend)
 	waits := 0
-	onWait := func() { waits++ }
+	onWait := func(time.Duration) { waits++ }
 
 	require.NoError(t, driver.WaitForIdle(context.Background(), idle, poll, onWait))
 	assert.Equal(t, 1, waits)
@@ -206,4 +236,185 @@ func TestDriverWaitForIdle(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Millisecond)
 	defer cancel()
 	assert.ErrorIs(t, driver.WaitForIdle(ctx, time.Hour, poll, onWait), context.DeadlineExceeded)
+}
+
+// Only problems a person clears at the computer are worth waiting for; one
+// that needs a permission or another setup fails at once.
+func TestDiagnosticsAwaitsPerson(t *testing.T) {
+	t.Parallel()
+
+	diagnostics := func(codes ...string) desktop.Diagnostics {
+		var d desktop.Diagnostics
+		for _, code := range codes {
+			d.Problems = append(d.Problems, desktop.Problem{Code: code, Message: code})
+		}
+		return d
+	}
+	for _, codes := range [][]string{{"screen_locked"}, {"no_session"}, {"other_session"}} {
+		assert.True(t, diagnostics(codes...).AwaitsPerson(), codes)
+	}
+	for _, codes := range [][]string{nil, {"screen_recording"}, {"screen_locked", "accessibility"}, {"service_session"}, {"unsupported"}} {
+		assert.False(t, diagnostics(codes...).AwaitsPerson(), codes)
+	}
+}
+
+func TestDriverOwnedProtectsTitles(t *testing.T) {
+	t.Parallel()
+
+	driver := desktop.New(&recordingBackend{})
+	driver.ProtectTitles(" · Runbook ", "")
+	driver.ProtectApps("Runbook")
+
+	page := desktop.WindowID{Handle: 1, PID: 999999, App: "Google Chrome", Title: "バッチ · Runbook"}
+	assert.True(t, driver.Owned(page), "a page with a protected title is owned in any application")
+	assert.True(t, driver.OwnedPage(page), "it is owned as a page another application shows")
+	assert.False(t, driver.Owned(desktop.WindowID{Handle: 2, PID: 999999, App: "Google Chrome", Title: "Inbox - Mail"}))
+	assert.False(t, driver.Owned(desktop.WindowID{Handle: 3, PID: 999999, App: "Google Chrome"}), "a window without a title is nobody's")
+	own := desktop.WindowID{Handle: 4, PID: 999999, App: "Runbook", Title: "Settings · Runbook"}
+	assert.True(t, driver.Owned(own))
+	assert.False(t, driver.OwnedPage(own), "a protected application's own window is not a page another shows")
+}
+
+func TestDriverOwnedProtectsApps(t *testing.T) {
+	t.Parallel()
+
+	driver := desktop.New(&recordingBackend{})
+	driver.ProtectApps(" runbook ", "")
+
+	assert.True(t, driver.Owned(desktop.WindowID{Handle: 1, PID: 999999, App: "Runbook"}), "a protected app is owned whatever its process")
+	assert.False(t, driver.Owned(desktop.WindowID{Handle: 2, PID: 999999, App: "TextEdit"}))
+	assert.False(t, driver.Owned(desktop.WindowID{Handle: 3}), "a window the system does not name is nobody's")
+}
+
+// A button pressed and not released is released by ReleaseHeld, and one
+// whose release fails stays pressed for the next ReleaseHeld.
+func TestReleaseHeldReleasesWhatStaysPressed(t *testing.T) {
+	t.Parallel()
+
+	backend := &recordingBackend{failReleases: 2}
+	driver := desktop.New(backend)
+	require.NoError(t, driver.PressButton(desktop.ButtonLeft))
+	require.Error(t, driver.ReleaseButton(desktop.ButtonLeft))
+	require.Error(t, driver.ReleaseHeld())
+	require.NoError(t, driver.ReleaseHeld())
+	require.NoError(t, driver.ReleaseHeld())
+	assert.Equal(t, []string{"left down #1", "left up #1", "left up #1", "left up #1"}, backend.events)
+}
+
+// Closing the driver releases a button still pressed.
+func TestCloseReleasesWhatStaysPressed(t *testing.T) {
+	t.Parallel()
+
+	backend := &recordingBackend{}
+	driver := desktop.New(backend)
+	require.NoError(t, driver.PressButton(desktop.ButtonLeft))
+	require.NoError(t, driver.Close())
+	assert.Equal(t, []string{"left down #1", "left up #1"}, backend.events)
+}
+
+// recordedMarks records the marks a driver shows among its backend's
+// input.
+type recordedMarks struct {
+	backend *recordingBackend
+	colors  map[color.RGBA]bool
+	closed  bool
+}
+
+func (m *recordedMarks) Show(mark desktop.Mark) error {
+	m.backend.events = append(m.backend.events, fmt.Sprintf("mark %s %v", mark.Label, mark.Target))
+	m.colors[mark.Color] = true
+	return nil
+}
+
+func (m *recordedMarks) Close() error {
+	m.closed = true
+	return nil
+}
+
+// A driver showing marks marks each action just before it acts, labelled
+// with the name it was given: the point of a pointer action, or the pointer
+// for one at the pointer, and the focused window for keys and typing, whose
+// text no mark shows. Its marks share one color, and close with it.
+func TestDriverMarksEachAction(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	backend := &recordingBackend{focus: desktop.WindowID{Handle: 1, Bounds: image.Rect(0, 0, 640, 480)}}
+	driver := desktop.New(backend)
+	marks := &recordedMarks{backend: backend, colors: map[color.RGBA]bool{}}
+	driver.ShowMarks(marks, "post")
+
+	at := image.Pt(100, 50)
+	require.NoError(t, driver.Click(ctx, &at, desktop.ButtonLeft, 1, nil))
+	require.NoError(t, driver.Click(ctx, nil, desktop.ButtonRight, 2, nil))
+	require.NoError(t, driver.Type(ctx, "hunter2\nok"))
+	require.NoError(t, driver.PressKeys(ctx, []desktop.Key{desktop.KeyCtrl, "s"}, 1))
+	driver.Mark(image.Rect(10, 10, 90, 30), "press")
+	driver.Mark(image.Rectangle{}, "press")
+
+	assert.Equal(t, []string{
+		"mark post · click (76,26)-(124,74)",
+		"move 100,50",
+		"left down #1",
+		"left up #1",
+		"mark post · right click x2 (-17,-16)-(31,32)",
+		"right down #1",
+		"right up #1",
+		"right down #2",
+		"right up #2",
+		"mark post · type (0,0)-(640,480)",
+		"type hunter2",
+		"key enter down",
+		"key enter up",
+		"type ok",
+		"mark post · press ctrl+s (0,0)-(640,480)",
+		"key ctrl down",
+		"key s down",
+		"key s up",
+		"key ctrl up",
+		"mark post · press (10,10)-(90,30)",
+	}, backend.events, "an empty target shows no mark")
+	assert.Len(t, marks.colors, 1)
+
+	require.NoError(t, driver.Close())
+	assert.True(t, marks.closed)
+}
+
+// Typing into an element the step focused is marked on the element, until
+// input that may move the focus; a drag is marked from end to end.
+func TestDriverMarksTheFocusedElement(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	backend := &recordingBackend{focus: desktop.WindowID{Handle: 1, Bounds: image.Rect(0, 0, 640, 480)}}
+	driver := desktop.New(backend)
+	driver.ShowMarks(&recordedMarks{backend: backend, colors: map[color.RGBA]bool{}}, "post")
+
+	driver.MarkFocus(image.Rect(200, 100, 400, 124))
+	require.NoError(t, driver.Type(ctx, "12,000"))
+	require.NoError(t, driver.Type(ctx, "円"))
+	require.NoError(t, driver.PressKeys(ctx, []desktop.Key{desktop.KeyTab}, 1))
+	require.NoError(t, driver.Type(ctx, "next"))
+	driver.MarkFocus(image.Rect(200, 140, 400, 164))
+	require.NoError(t, driver.Type(ctx, "a\nb"))
+	require.NoError(t, driver.Type(ctx, "c"))
+	require.NoError(t, driver.Drag(ctx, []image.Point{{X: 30, Y: 30}, {X: 200, Y: 100}}, nil))
+
+	var marked []string
+	for _, event := range backend.events {
+		if strings.HasPrefix(event, "mark ") {
+			marked = append(marked, event)
+		}
+	}
+	assert.Equal(t, []string{
+		"mark post · focus (200,100)-(400,124)",
+		"mark post · type (200,100)-(400,124)",
+		"mark post · type (200,100)-(400,124)",
+		"mark post · press tab (200,100)-(400,124)",
+		"mark post · type (0,0)-(640,480)",
+		"mark post · focus (200,140)-(400,164)",
+		"mark post · type (200,140)-(400,164)",
+		"mark post · type (0,0)-(640,480)",
+		"mark post · drag (6,6)-(224,124)",
+	}, marked)
 }

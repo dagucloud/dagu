@@ -6,6 +6,7 @@ package jq
 import (
 	"bytes"
 	"context"
+	"fmt"
 	"math"
 	"os"
 	"path/filepath"
@@ -13,6 +14,7 @@ import (
 	"testing"
 
 	"github.com/dagucloud/dagu/v2/internal/ir"
+	"github.com/dagucloud/dagu/v2/internal/runtime"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -450,6 +452,33 @@ func TestJQExecutor_ConfigInput(t *testing.T) {
 	assert.Equal(t, "a\nb\n", stdout.String())
 }
 
+// The with object resolves before the executor runs, so the input path is used
+// as given and a backslash before $ in it is not read as an escape again.
+func TestJQExecutor_ConfigInputUsesResolvedPath(t *testing.T) {
+	t.Parallel()
+
+	filePath := filepath.Join(t.TempDir(), `in\$x.json`)
+	require.NoError(t, os.MkdirAll(filepath.Dir(filePath), 0o750))
+	require.NoError(t, os.WriteFile(filePath, []byte(`{"name": "a"}`), 0o600))
+
+	step := ir.Step{
+		Commands: []ir.CommandEntry{{CmdWithArgs: `.name`}},
+		ExecutorConfig: ir.ExecutorConfig{
+			Type:   "jq",
+			Config: map[string]any{"raw": true, "input": filePath},
+		},
+	}
+
+	ctx := context.Background()
+	executor, err := newJQ(ctx, step)
+	require.NoError(t, err)
+
+	var stdout bytes.Buffer
+	executor.SetStdout(&stdout)
+	require.NoError(t, executor.Run(ctx))
+	assert.Equal(t, "a\n", stdout.String())
+}
+
 func TestJQExecutor_ConfigInputWithRawFalse(t *testing.T) {
 	t.Parallel()
 
@@ -827,4 +856,75 @@ func TestJQExecutor_ArgsDuplicateName(t *testing.T) {
 	_, err := newJQ(context.Background(), step)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "duplicates variable $name")
+}
+
+// A bare halt stops successfully; any non-zero halt_error fails the step,
+// even when its value is null.
+func TestJQErrors(t *testing.T) {
+	t.Parallel()
+	for _, raw := range []bool{false, true} {
+		for _, tc := range []struct{ name, query, data, wantErr, wantStdout string }{
+			{"type", ".amount + 1.1", `{"amount":"bad"}`, "cannot add", ""},
+			{"after value", `.[] | if . == 2 then error("bad row") else . end`, `[1,2,3]`, "bad row", "1\n"},
+			{"syntax", `{税: .x}`, `{"x":1}`, "unexpected token", ""},
+			{"empty", `empty`, `{}`, "", ""},
+			{"success", `.amount * 2`, `{"amount":3}`, "", "6\n"},
+			{"halt", `1, halt, 2`, `{}`, "", "1\n"},
+			{"halt error", `1, ("stop" | halt_error(5)), 2`, `{}`, "stop", "1\n"},
+			{"null halt error", `null | halt_error(1)`, `{}`, "halt error", ""},
+		} {
+			t.Run(fmt.Sprintf("%s/raw=%v", tc.name, raw), func(t *testing.T) {
+				t.Parallel()
+				step := ir.Step{Script: tc.data, Commands: []ir.CommandEntry{{CmdWithArgs: tc.query}}, ExecutorConfig: ir.ExecutorConfig{Config: map[string]any{"raw": raw}}}
+				exec, err := newJQ(context.Background(), step)
+				require.NoError(t, err)
+				var stdout, stderr bytes.Buffer
+				exec.SetStdout(&stdout)
+				exec.SetStderr(&stderr)
+				err = exec.Run(context.Background())
+				if tc.wantErr != "" {
+					require.ErrorContains(t, err, tc.wantErr)
+				} else {
+					require.NoError(t, err)
+				}
+				assert.Equal(t, tc.wantStdout, stdout.String())
+			})
+		}
+	}
+}
+
+// A relative with.input, or a relative file:// path in the data, names a file
+// under the step working directory, not the Dagu process directory.
+func TestJQExecutor_RelativeInputUsesWorkingDir(t *testing.T) {
+	t.Parallel()
+
+	workDir := t.TempDir()
+	require.NoError(t, os.WriteFile(filepath.Join(workDir, "in.json"), []byte(`{"name":"dagu"}`), 0o600))
+
+	for name, step := range map[string]ir.Step{
+		"input": {
+			Commands:       []ir.CommandEntry{{CmdWithArgs: ".name"}},
+			ExecutorConfig: ir.ExecutorConfig{Type: "jq", Config: map[string]any{"input": "in.json", "raw": true}},
+		},
+		"file data": {
+			Commands:       []ir.CommandEntry{{CmdWithArgs: ".name"}},
+			Script:         "file://in.json",
+			ExecutorConfig: ir.ExecutorConfig{Type: "jq", Config: map[string]any{"raw": true}},
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+			dag := &ir.DAG{Name: "jq-test", WorkingDir: workDir, WorkingDirExplicit: true}
+			ctx := runtime.NewContext(context.Background(), dag, "run-1", "")
+			ctx = runtime.WithEnv(ctx, runtime.NewEnv(ctx, step))
+
+			executor, err := newJQ(ctx, step)
+			require.NoError(t, err)
+			var stdout bytes.Buffer
+			executor.SetStdout(&stdout)
+			executor.SetStderr(&bytes.Buffer{})
+			require.NoError(t, executor.Run(ctx))
+			assert.Equal(t, "dagu\n", stdout.String())
+		})
+	}
 }

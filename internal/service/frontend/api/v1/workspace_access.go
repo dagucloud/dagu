@@ -303,7 +303,7 @@ func (a *API) workspaceFilterForParams(ctx context.Context, workspaceParam *api.
 }
 
 func (a *API) effectiveRoleForWorkspace(ctx context.Context, workspaceName string) (auth.Role, bool, error) {
-	if a.authService == nil {
+	if !a.rolesApply(ctx) {
 		return auth.RoleAdmin, true, nil
 	}
 	user, ok := auth.UserFromContext(ctx)
@@ -352,7 +352,21 @@ func (a *API) requireWorkspaceVisible(ctx context.Context, workspaceName string)
 	return nil
 }
 
+// requireDAGWriteForWorkspace allows changes to DAG definitions, which Git
+// sync read-only mode blocks.
 func (a *API) requireDAGWriteForWorkspace(ctx context.Context, workspaceName string) error {
+	if err := a.requireWorkspaceWrite(ctx, workspaceName); err != nil {
+		return err
+	}
+	if a.dagWritesDisabled {
+		return errDAGWritesDisabled
+	}
+	return nil
+}
+
+// requireWorkspaceWrite allows changes that need DAG write permission in the
+// workspace without modifying DAG definitions.
+func (a *API) requireWorkspaceWrite(ctx context.Context, workspaceName string) error {
 	if !a.config.Server.Permissions[config.PermissionWriteDAGs] {
 		return errPermissionDenied
 	}
@@ -362,9 +376,6 @@ func (a *API) requireDAGWriteForWorkspace(ctx context.Context, workspaceName str
 	}
 	if !ok || !role.CanWrite() {
 		return errInsufficientPermissions
-	}
-	if a.dagWritesDisabled {
-		return errDAGWritesDisabled
 	}
 	return nil
 }

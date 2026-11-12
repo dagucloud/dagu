@@ -206,6 +206,10 @@ func (stubPauseStore) Set(context.Context, bool, string, string) error {
 	return nil
 }
 
+func (stubPauseStore) SetHold(context.Context, bool, string) (bool, error) {
+	return false, nil
+}
+
 func TestNewSuspensionChecker(t *testing.T) {
 	t.Parallel()
 

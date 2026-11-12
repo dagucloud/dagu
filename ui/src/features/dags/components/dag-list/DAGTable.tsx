@@ -10,6 +10,7 @@ import {
   getCoreRowModel,
   getExpandedRowModel,
   getFilteredRowModel,
+  Row,
   RowData,
   Updater,
   useReactTable,
@@ -21,6 +22,7 @@ import {
   ChevronDown,
   ChevronUp,
   PencilLine,
+  Pin,
   Search,
   Trash2,
 } from 'lucide-react';
@@ -32,41 +34,20 @@ import React, {
   useRef,
   useState,
 } from 'react';
-import { Link, useNavigate } from 'react-router-dom';
+import { Link } from 'react-router-dom';
 import { DAGNameInputModal } from '@/components/DAGNameInputModal';
 import { components, Status } from '../../../../api/v1/schema';
-import type { Config } from '../../../../contexts/ConfigContext';
 import dayjs from '../../../../lib/dayjs';
-import {
-  getScheduleKey,
-  getScheduleLabel,
-  parseNextRun,
-} from '../../../../lib/dagSchedule';
+import { isServiceDAG } from '../../../../lib/dagSchedule';
 import RelativeTime from '@/components/ui/relative-time';
-import StatusChip from '@/components/ui/status-chip';
-import Ticker from '@/components/ui/ticker';
+import { RunStatusChip } from '@/features/dag-runs/components/common/RunStatusChip';
 import VisuallyHidden from '@/components/ui/visually-hidden';
-import { CreateDAGModal, DAGPagination } from '../common';
+import { CreateDAGButton, DAGPagination } from '../common';
 import DAGActions from '../common/DAGActions';
 import LiveSwitch from '../common/LiveSwitch';
-
-declare const getConfig: () => Config;
-
-// Helper to format milliseconds into d/h/m/s
-function formatMs(ms: number): string {
-  const seconds = Math.floor(ms / 1000);
-  const days = Math.floor(seconds / 86400);
-  const hours = Math.floor((seconds % 86400) / 3600);
-  const minutes = Math.floor((seconds % 3600) / 60);
-  const secs = seconds % 60;
-  const parts: string[] = [];
-  if (days > 0) parts.push(`${days}d`);
-  if (hours > 0) parts.push(`${hours}h`);
-  if (minutes > 0) parts.push(`${minutes}m`);
-  // Only show seconds if no larger units or if seconds > 0
-  if (secs > 0 || parts.length === 0) parts.push(`${secs}s`);
-  return parts.join(' ');
-}
+import { ScheduleLine } from './ScheduleSummary';
+import PinToggle from '../common/PinToggle';
+import { formatDurationMs } from '@/lib/formatDuration';
 
 // Import shadcn/ui components
 import { PanelWidthContext } from '../../../../components/SplitLayout';
@@ -98,7 +79,19 @@ import {
 } from '@/components/ui/select';
 import { Switch } from '@/components/ui/switch';
 import { AppBarContext } from '../../../../contexts/AppBarContext';
-import type { WorkflowFilterView } from './workflowViews';
+import { PeekLink } from '@/features/peek/PeekLink';
+import {
+  PEEK_SHOWN_ROW,
+  usePeekOrOpen,
+  usePeekSequence,
+  usePeekShown,
+  useRevealShownRow,
+} from '@/features/peek/usePeekOrOpen';
+import {
+  isRunSortField,
+  maxRunSortDAGs,
+  type WorkflowFilterView,
+} from './workflowViews';
 import { useQuery } from '../../../../hooks/api';
 import { parseLabelParts } from '../../../../lib/utils';
 import {
@@ -114,11 +107,44 @@ import { useI18n } from '@/i18n/I18nProvider';
 // Set higher than table's comfortable minimum width (~700px for all columns)
 const CARD_VIEW_THRESHOLD = 700;
 
+/**
+ * The name of a workflow. A plain click shows its peek, like a click on the
+ * row; it is a real link, so a middle click or a Ctrl click opens a new tab.
+ */
+function DAGNameLink({
+  fileName,
+  children,
+}: {
+  fileName: string;
+  children: React.ReactNode;
+}) {
+  return (
+    <PeekLink
+      peek={{ dag: fileName }}
+      className="block truncate text-sm font-medium text-foreground hover:underline"
+      onClick={(event) => event.stopPropagation()}
+    >
+      {children}
+    </PeekLink>
+  );
+}
+
+/**
+ * A key handler that opens on Enter pressed on the element itself. Enter on a
+ * link or a control inside it stays with that control.
+ */
+function onOwnEnter(open: (event: React.KeyboardEvent) => void) {
+  return (event: React.KeyboardEvent) => {
+    if (event.key !== 'Enter' || event.target !== event.currentTarget) return;
+    event.preventDefault();
+    open(event);
+  };
+}
+
 // Reusable DAG Card component for mobile and narrow panel views
 interface DAGCardProps {
   dag: components['schemas']['DAGFile'];
-  isSelected: boolean;
-  onSelect: (fileName: string, title: string) => void;
+  onOpen: (event: React.MouseEvent | React.KeyboardEvent) => void;
   onLabelClick: (label: string) => void;
   refreshFn: () => void;
   canDeleteDAGs: boolean;
@@ -127,6 +153,11 @@ interface DAGCardProps {
   canRenameDAGs: boolean;
   onRenameDAG: (dag: components['schemas']['DAGFile']) => void;
   onDeleteDAG: (dag: components['schemas']['DAGFile']) => void;
+  canPin: boolean;
+  isPinPending: boolean;
+  onTogglePin: (dag: components['schemas']['DAGFile']) => void;
+  /** The overlay shows the workflow, or showed it last. */
+  isShown?: boolean;
   className?: string;
 }
 
@@ -141,7 +172,7 @@ function RenameDAGButton({
     <I18nProps>
       <Button
         type="button"
-        variant="secondary"
+        variant="ghost"
         size="icon-sm"
         aria-label={`Rename workflow ${dag.dag.name}`}
         title="Rename workflow"
@@ -164,9 +195,9 @@ function DeleteDAGButton({
     <I18nProps>
       <Button
         type="button"
-        variant="secondary"
+        variant="ghost"
         size="icon-sm"
-        className="text-muted-foreground hover:border-destructive/40 hover:bg-destructive/10 hover:text-destructive focus-visible:text-destructive"
+        className="hover:bg-destructive/10 hover:text-destructive focus-visible:text-destructive"
         aria-label={`Delete workflow ${dag.dag.name}`}
         title="Delete workflow"
         onClick={() => onDelete(dag)}
@@ -177,10 +208,16 @@ function DeleteDAGButton({
   );
 }
 
+/**
+ * The mark of the card that the overlay shows: PEEK_SHOWN_ROW with a tint.
+ * card-obsidian is plain CSS, which wins over the utility layer, so the
+ * mark needs !important; the class stays literal for the Tailwind scan.
+ */
+const SHOWN_CARD = 'shadow-[inset_3px_0_0_0_var(--primary)]! bg-muted/20!';
+
 function DAGCard({
   dag,
-  isSelected,
-  onSelect,
+  onOpen,
   onLabelClick,
   refreshFn,
   canDeleteDAGs,
@@ -189,6 +226,10 @@ function DAGCard({
   canRenameDAGs,
   onRenameDAG,
   onDeleteDAG,
+  canPin,
+  isPinPending,
+  onTogglePin,
+  isShown = false,
   className = '',
 }: DAGCardProps) {
   const fileName = dag.fileName;
@@ -197,22 +238,17 @@ function DAGCard({
   const statusLabel = dag.latestDAGRun?.statusLabel;
   const labels = withoutWorkspaceLabels(dag.dag.labels ?? dag.dag.tags ?? []);
   const description = dag.dag.description;
-  const schedules = dag.dag.schedule || [];
-  const hasSchedule = schedules.length > 0;
-  const nextRun = parseNextRun(dag.nextRun);
+  const hasSchedule = (dag.dag.schedule ?? []).length > 0;
+  const isService = isServiceDAG(dag.dag);
 
-  const handleCardClick = (e: React.MouseEvent) => {
-    if (e.metaKey || e.ctrlKey) {
-      window.open(`/dags/${fileName}`, '_blank');
-    } else {
-      onSelect(fileName, title);
-    }
-  };
-
+  // The outline marks the focus: the shadow of card-obsidian hides a ring.
   return (
     <div
-      className={`card-obsidian p-2.5 cursor-pointer hover:bg-white/[0.05] transition-all duration-300 ${isSelected ? 'shadow-[inset_3px_0_0_0_var(--primary)] bg-white/[0.04]' : ''} ${status === Status.Running ? 'animate-running-row' : ''} ${className}`}
-      onClick={handleCardClick}
+      tabIndex={0}
+      data-peek-shown={isShown || undefined}
+      className={`card-obsidian p-2.5 cursor-pointer hover:bg-white/[0.05] transition-colors duration-300 focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-ring ${status === Status.Running ? 'animate-running-row' : ''} ${isShown ? SHOWN_CARD : ''} ${className}`}
+      onClick={onOpen}
+      onKeyDown={onOwnEnter(onOpen)}
     >
       {/* Header: Name + Status */}
       <div className="flex justify-between items-start gap-2 mb-1.5">
@@ -229,17 +265,32 @@ function DAGCard({
               />
             </div>
           )}
-          <Link
-            to={`/dags/${fileName}`}
+          <PeekLink
+            peek={{ dag: fileName }}
             className="font-medium text-xs truncate flex-1 min-w-0 hover:underline"
             onClick={(event) => event.stopPropagation()}
           >
             {title}
-          </Link>
+          </PeekLink>
         </div>
-        <StatusChip status={status} size="xs">
-          {statusLabel}
-        </StatusChip>
+        <div className="flex flex-shrink-0 items-center gap-1">
+          <PinToggle
+            name={title}
+            pinned={dag.pinned}
+            canToggle={canPin}
+            pending={isPinPending}
+            onToggle={() => onTogglePin(dag)}
+            className="size-6"
+          />
+          <RunStatusChip
+            name={title}
+            dagRunId={dag.latestDAGRun?.dagRunId}
+            status={status}
+            size="xs"
+          >
+            {statusLabel}
+          </RunStatusChip>
+        </div>
       </div>
 
       {/* Description */}
@@ -251,15 +302,7 @@ function DAGCard({
 
       {/* Schedule & Last Run */}
       <div className="flex flex-wrap items-center gap-1.5 text-xs text-muted-foreground mb-1.5">
-        {schedules.map((schedule, idx) => (
-          <Badge
-            key={getScheduleKey(schedule, idx)}
-            variant="outline"
-            className={`text-xs font-normal px-1 py-0 h-3 normal-case tracking-normal ${schedule.kind === 'at' ? 'border-0' : ''}`}
-          >
-            {getScheduleLabel(schedule)}
-          </Badge>
-        ))}
+        <ScheduleLine dag={dag} emptyLabel={false} />
         {dag.latestDAGRun.startedAt && dag.latestDAGRun.startedAt !== '-' && (
           <span className="flex items-center gap-0.5">
             <Calendar className="h-2.5 w-2.5" />
@@ -272,34 +315,6 @@ function DAGCard({
         )}
       </div>
 
-      {hasSchedule && !dag.suspended && (
-        <div className="text-xs text-muted-foreground mb-1.5 leading-tight">
-          {nextRun ? (
-            <Ticker intervalMs={1000}>
-              {() => {
-                const ms = nextRun.getTime() - new Date().getTime();
-                if (ms <= 0) {
-                  return (
-                    <span>
-                      <I18nText text={'Due now'} />
-                    </span>
-                  );
-                }
-                return (
-                  <span>
-                    <I18nText text={'Run in'} /> {formatMs(ms)}
-                  </span>
-                );
-              }}
-            </Ticker>
-          ) : (
-            <span>
-              <I18nText text={'No upcoming run'} />
-            </span>
-          )}
-        </div>
-      )}
-
       {/* Labels */}
       {labels.length > 0 && (
         <div className="flex flex-wrap gap-0.5 mb-1.5">
@@ -309,13 +324,12 @@ function DAGCard({
               <Badge
                 key={label}
                 variant="outline"
-                className="text-xs px-1 py-0 h-3 rounded-sm border-primary/30 bg-primary/10 text-primary"
+                className="h-[18px] rounded border-transparent bg-muted px-1.5 py-0 text-[11px] font-normal text-muted-foreground"
                 onClick={(e) => {
                   e.stopPropagation();
                   onLabelClick(label);
                 }}
               >
-                <div className="h-1 w-1 rounded-full bg-primary/70 mr-0.5"></div>
                 {label}
               </Badge>
             ))}
@@ -325,13 +339,17 @@ function DAGCard({
       {/* Actions row: LiveSwitch + DAGActions */}
       <div className="flex flex-wrap items-center justify-between gap-1 pt-1.5 border-t border-border/50 min-w-0">
         <div
-          className={`flex items-center gap-1 flex-shrink-0 min-w-0 ${!hasSchedule ? 'opacity-40 pointer-events-none' : ''}`}
+          className="flex items-center gap-1 flex-shrink-0 min-w-0"
           onClick={(e) => e.stopPropagation()}
         >
-          <LiveSwitch dag={dag} refresh={refreshFn} />
+          {(hasSchedule || isService) && (
+            <LiveSwitch dag={dag} refresh={refreshFn} />
+          )}
           <span className="text-xs text-muted-foreground truncate">
             {dag.suspended ? (
               <I18nText text={'Suspended'} />
+            ) : isService ? (
+              <I18nText text={'Enabled'} />
             ) : hasSchedule ? (
               <I18nText text={'Live'} />
             ) : (
@@ -359,6 +377,31 @@ function DAGCard({
         </div>
       </div>
     </div>
+  );
+}
+
+// Pinned DAGs lead the rows; the "Pinned" header and a divider frame them.
+function countLeadingPinnedRows(rows: Row<Data>[]): number {
+  let count = 0;
+  for (const row of rows) {
+    if (
+      row.depth !== 0 ||
+      row.original.kind !== ItemKind.DAG ||
+      !(row.original as DAGRow).dag.pinned
+    ) {
+      break;
+    }
+    count++;
+  }
+  return count;
+}
+
+function PinnedSectionLabel() {
+  return (
+    <span className="inline-flex items-center gap-1.5 text-[11px] font-medium text-muted-foreground">
+      <Pin className="h-3 w-3" aria-hidden="true" />
+      <I18nText text={'Pinned'} />
+    </span>
   );
 }
 
@@ -437,12 +480,12 @@ type Props = {
   onDeleteWorkflowView: (viewId: string) => Promise<void>;
   onDeleteDAGs: (fileNames: string[]) => Promise<DAGDeleteResult[]>;
   onRenameDAG: (fileName: string, newFileName: string) => Promise<void>;
+  /** Whether the current user can pin a workflow for everyone */
+  canPinDAG: (dag: components['schemas']['DAGFile']) => boolean;
+  /** Pins or unpins a workflow for all users */
+  onSetDAGPinned: (fileName: string, pinned: boolean) => Promise<void>;
   /** Total workflows matching the server-side filters */
   resultCount?: number;
-  /** Currently selected DAG file name */
-  selectedDAG?: string | null;
-  /** Handler for DAG selection changes */
-  onSelectDAG?: (fileName: string, title: string) => void;
 };
 
 export type DAGDeleteResult = {
@@ -484,6 +527,9 @@ declare module '@tanstack/react-table' {
     onOpenRenameDAG?: (dag: components['schemas']['DAGFile']) => void;
     canDeleteDAGs?: boolean;
     onOpenDeleteDAG?: (dag: components['schemas']['DAGFile']) => void;
+    canPinDAG?: (dag: components['schemas']['DAGFile']) => boolean;
+    isPinPending?: (fileName: string) => boolean;
+    onTogglePin?: (dag: components['schemas']['DAGFile']) => void;
   }
 }
 
@@ -564,7 +610,7 @@ const defaultColumns = [
         )}
       </div>
     ),
-    cell: ({ row }) => {
+    cell: ({ row, table }) => {
       if (row.getCanExpand()) {
         return (
           <div
@@ -591,7 +637,23 @@ const defaultColumns = [
           </div>
         );
       }
-      return null;
+      if (row.original.kind !== ItemKind.DAG) {
+        return null;
+      }
+      const dag = (row.original as DAGRow).dag;
+      const meta = table.options.meta;
+      return (
+        <div className="flex min-h-[2.5rem] items-center justify-center">
+          <PinToggle
+            name={dag.dag.name}
+            pinned={dag.pinned}
+            canToggle={meta?.canPinDAG?.(dag) ?? false}
+            pending={meta?.isPinPending?.(dag.fileName)}
+            revealOnHover
+            onToggle={() => meta?.onTogglePin?.(dag)}
+          />
+        </div>
+      );
     },
     size: 32,
     minSize: 32,
@@ -600,14 +662,9 @@ const defaultColumns = [
   columnHelper.accessor('name', {
     id: 'Name',
     header: () => (
-      <div className="flex flex-col py-1">
-        <span className="text-xs">
-          <I18nText text={'Name'} />
-        </span>
-        <span className="text-xs font-normal text-muted-foreground">
-          <I18nText text={'Description'} />
-        </span>
-      </div>
+      <span className="text-xs">
+        <I18nText text={'Name'} />
+      </span>
     ),
     cell: ({ row, getValue, table }) => {
       const data = row.original!;
@@ -636,13 +693,7 @@ const defaultColumns = [
             style={{ paddingLeft: `${row.depth * 1.5}rem` }}
             className="space-y-0.5 min-w-0"
           >
-            <Link
-              to={`/dags/${data.dag.fileName}`}
-              className="block font-medium text-foreground tracking-tight text-xs truncate hover:underline"
-              onClick={(event) => event.stopPropagation()}
-            >
-              {getValue()}
-            </Link>
+            <DAGNameLink fileName={data.dag.fileName}>{getValue()}</DAGNameLink>
 
             {description && (
               <div className="text-xs text-muted-foreground whitespace-normal leading-tight line-clamp-2">
@@ -662,7 +713,7 @@ const defaultColumns = [
                       <Badge
                         key={label}
                         variant="outline"
-                        className="text-xs px-1 py-0 h-3.5 rounded-sm border-primary/30 bg-primary/10 text-primary hover:bg-primary/15 hover:text-primary transition-colors duration-200 cursor-pointer font-normal whitespace-normal break-words focus-visible:outline-none"
+                        className="h-[18px] gap-0.5 rounded border-transparent bg-muted px-1.5 py-0 text-[11px] font-normal text-muted-foreground transition-colors duration-150 cursor-pointer whitespace-normal break-words hover:bg-accent hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
                         role="button"
                         tabIndex={0}
                         onKeyDown={(e) => {
@@ -682,10 +733,11 @@ const defaultColumns = [
                           if (handleLabelClick) handleLabelClick(label);
                         }}
                       >
-                        <div className="h-1 w-1 rounded-full bg-primary/70 mr-0.5"></div>
                         {value !== null ? (
                           <>
-                            <span className="font-medium">{key}</span>
+                            <span className="font-medium text-foreground/80">
+                              {key}
+                            </span>
                             <span className="opacity-60">=</span>
                             <span>{value}</span>
                           </>
@@ -755,14 +807,9 @@ const defaultColumns = [
     size: 80,
     minSize: 80,
     header: () => (
-      <div className="flex flex-col py-1">
-        <span className="text-xs">
-          <I18nText text={'Status'} />
-        </span>
-        <span className="text-xs font-normal text-muted-foreground">
-          <I18nText text={'Latest status'} />
-        </span>
-      </div>
+      <span className="text-xs">
+        <I18nText text={'Status'} />
+      </span>
     ),
     cell: ({ row }) => {
       // Use row
@@ -770,9 +817,14 @@ const defaultColumns = [
       if (data.kind === ItemKind.DAG) {
         // Use the updated StatusChip component with xs size
         return (
-          <StatusChip status={data.dag.latestDAGRun.status} size="xs">
+          <RunStatusChip
+            name={data.dag.dag.name}
+            dagRunId={data.dag.latestDAGRun?.dagRunId}
+            status={data.dag.latestDAGRun.status}
+            size="xs"
+          >
             {data.dag.latestDAGRun?.statusLabel}
-          </StatusChip>
+          </RunStatusChip>
         );
       }
       return null;
@@ -784,14 +836,9 @@ const defaultColumns = [
     size: 110,
     minSize: 90,
     header: () => (
-      <div className="flex flex-col py-1">
-        <span className="text-xs">
-          <I18nText text={'Last Run'} />
-        </span>
-        <span className="text-xs font-normal text-muted-foreground">
-          {getConfig().tz || <I18nText text={'Local Timezone'} />}
-        </span>
-      </div>
+      <span className="text-xs">
+        <I18nText text={'Last Run'} />
+      </span>
     ),
     cell: ({ row }) => {
       const data = row.original!;
@@ -818,7 +865,7 @@ const defaultColumns = [
           if (durationMs > 0) {
             durationContent = (
               <div className="text-xs text-muted-foreground">
-                {formatMs(durationMs)}
+                {formatDurationMs(durationMs)}
               </div>
             );
           }
@@ -843,17 +890,12 @@ const defaultColumns = [
   }),
   columnHelper.accessor('kind', {
     id: 'ScheduleAndNextRun',
-    size: 140,
-    minSize: 120,
+    size: 220,
+    minSize: 180,
     header: () => (
-      <div className="flex flex-col py-1">
-        <span className="text-xs">
-          <I18nText text={'Live / Schedule'} />
-        </span>
-        <span className="text-xs font-normal text-muted-foreground">
-          <I18nText text={'Toggle & next run'} />
-        </span>
-      </div>
+      <span className="text-xs">
+        <I18nText text={'Schedule'} />
+      </span>
     ),
     cell: ({ row, table }) => {
       const data = row.original!;
@@ -861,97 +903,22 @@ const defaultColumns = [
         return null;
       }
 
-      const schedules = data.dag.dag.schedule || [];
-      const hasSchedule = schedules.length > 0;
-
-      // LiveSwitch component
-      const liveSwitch = (
-        <div
-          onClick={(e) => e.stopPropagation()}
-          className={`flex-shrink-0 p-0.5 ${!hasSchedule ? 'opacity-40 pointer-events-none' : ''}`}
-        >
-          <LiveSwitch
-            dag={data.dag}
-            refresh={table.options.meta?.refreshFn}
-            aria-label={`Toggle ${data.name}`}
-          />
-        </div>
-      );
-
-      if (!hasSchedule) {
-        return (
-          <div className="flex items-center gap-2">
-            {liveSwitch}
-            <span className="text-xs text-muted-foreground">
-              <I18nText text={'No schedule'} />
-            </span>
-          </div>
-        );
-      }
-
-      // Display schedule expressions
-      const scheduleContent = (
-        <div className="flex flex-wrap gap-0.5">
-          {schedules.map((schedule, index) => (
-            <Badge
-              key={getScheduleKey(schedule, index)}
-              variant="outline"
-              className="text-xs font-normal px-1 py-0 h-3.5 normal-case tracking-normal"
-            >
-              {getScheduleLabel(schedule)}
-            </Badge>
-          ))}
-        </div>
-      );
-
-      // Display next run information
-      let nextRunContent: React.ReactNode | null = null;
-      if (!data.dag.suspended && schedules.length > 0) {
-        const nextRun = parseNextRun(data.dag.nextRun);
-        if (nextRun) {
-          nextRunContent = (
-            <div className="text-xs text-muted-foreground font-normal leading-tight">
-              <Ticker intervalMs={1000}>
-                {() => {
-                  const ms = nextRun.getTime() - new Date().getTime();
-                  if (ms <= 0) {
-                    return (
-                      <span>
-                        <I18nText text={'Due now'} />
-                      </span>
-                    );
-                  }
-                  return (
-                    <span>
-                      <I18nText text={'Run in'} /> {formatMs(ms)}
-                    </span>
-                  );
-                }}
-              </Ticker>
-            </div>
-          );
-        } else {
-          nextRunContent = (
-            <div className="text-xs text-muted-foreground font-normal leading-tight">
-              <I18nText text={'No upcoming run'} />
-            </div>
-          );
-        }
-      } else if (data.dag.suspended) {
-        nextRunContent = (
-          <div className="text-xs text-muted-foreground font-normal leading-tight">
-            <I18nText text={'Suspended'} />
-          </div>
-        );
-      }
-
+      const hasSchedule = (data.dag.dag.schedule ?? []).length > 0;
+      const isService = isServiceDAG(data.dag.dag);
       return (
-        <div className="flex items-start gap-1 min-w-0">
-          {liveSwitch}
-          <div className="space-y-0.5 min-w-0 overflow-hidden">
-            {scheduleContent}
-            {nextRunContent}
-          </div>
+        <div className="flex min-w-0 items-center gap-1">
+          {(hasSchedule || isService) && (
+            <div
+              onClick={(e) => e.stopPropagation()}
+              className="flex-shrink-0 p-0.5"
+            >
+              <LiveSwitch
+                dag={data.dag}
+                refresh={table.options.meta?.refreshFn}
+              />
+            </div>
+          )}
+          <ScheduleLine dag={data.dag} />
         </div>
       );
     },
@@ -962,14 +929,9 @@ const defaultColumns = [
     minSize: 160,
     maxSize: 160,
     header: () => (
-      <div className="flex flex-col items-center py-1">
-        <span className="text-xs">
-          <I18nText text={'Actions'} />
-        </span>
-        <span className="text-xs font-normal text-muted-foreground">
-          <I18nText text={'Operations'} />
-        </span>
-      </div>
+      <span className="sr-only">
+        <I18nText text={'Actions'} />
+      </span>
     ),
     cell: ({ row, table }) => {
       // Use row and table
@@ -981,7 +943,7 @@ const defaultColumns = [
       return (
         // Wrap DAGActions in a div and stop propagation on its click
         <div
-          className="flex items-center justify-center gap-1 scale-90" // Scale down for density
+          className="flex items-center justify-center gap-0.5"
           onClick={(e) => e.stopPropagation()}
         >
           <DAGActions
@@ -1013,14 +975,15 @@ const defaultColumns = [
 const columnToSortField: Record<string, string> = {
   Name: 'name',
   ScheduleAndNextRun: 'nextRun',
+  Status: 'status',
+  LastRun: 'lastRun',
 };
-
-// Client-side sortable columns
-const clientSortableColumns = ['Status', 'LastRun'];
 
 const cardSortOptions = [
   { value: 'name', label: 'Name' },
   { value: 'nextRun', label: 'Next run' },
+  { value: 'status', label: 'Status' },
+  { value: 'lastRun', label: 'Last run' },
 ] as const;
 
 function getCardSortLabel(sort: string): string {
@@ -1040,21 +1003,25 @@ function WorkflowsEmptyState({
   icon,
   heading,
   description,
+  descriptionValues,
   showAllButton,
   onShowAllWorkflows,
 }: {
   icon: string;
   heading: string;
   description: string;
+  descriptionValues?: Record<string, string>;
   showAllButton: boolean;
   onShowAllWorkflows?: () => void;
 }) {
   return (
     <>
       <div className="text-6xl mb-4">{icon}</div>
-      <h3 className="text-lg font-medium text-foreground mb-2">{heading}</h3>
+      <h3 className="text-lg font-medium text-foreground mb-2">
+        <I18nText text={heading} />
+      </h3>
       <p className="text-sm text-muted-foreground text-center max-w-md mb-4 whitespace-normal break-words">
-        {description}
+        <I18nText text={description} values={descriptionValues} />
       </p>
       <div className="flex flex-wrap items-center justify-center gap-2">
         {showAllButton && (
@@ -1062,7 +1029,7 @@ function WorkflowsEmptyState({
             <I18nText text={'Show all workflows'} />
           </Button>
         )}
-        <CreateDAGModal />
+        <CreateDAGButton />
       </div>
     </>
   );
@@ -1081,68 +1048,35 @@ function buildGrepSearchUrl(searchText: string): string {
   return '/search';
 }
 
-// --- Header Component for both Server-side and Client-side Sorting ---
+// --- Header Component for Server-side Sorting ---
 const SortableHeader = ({
   column,
   children,
   currentSort,
   currentOrder,
   onSort,
-  clientSort,
-  clientOrder,
-  onClientSort,
 }: {
   column: Column<Data, unknown>;
   children: React.ReactNode;
   currentSort?: string;
   currentOrder?: string;
   onSort?: (field: string, order: string) => void;
-  clientSort?: string;
-  clientOrder?: string;
-  onClientSort?: (field: string, order: string) => void;
 }) => {
   const serverSortField = columnToSortField[column.id];
-  const isClientSortable = clientSortableColumns.includes(column.id);
+  const isActive = Boolean(serverSortField) && currentSort === serverSortField;
 
-  // Check if this column is currently sorted (either server or client)
-  const isServerActive = serverSortField && currentSort === serverSortField;
-  const isClientActive = isClientSortable && clientSort === column.id;
-  const isActive = isServerActive || isClientActive;
-
-  // Determine if column is sortable at all
-  const isSortable =
-    (serverSortField && onSort) || (isClientSortable && onClientSort);
-
-  if (!isSortable) {
+  if (!serverSortField || !onSort) {
     return <>{children}</>;
   }
 
   const handleClick = () => {
-    if (serverSortField && onSort) {
-      // Server-side sorting
-      const newOrder =
-        isServerActive && currentOrder === 'asc' ? 'desc' : 'asc';
-      onSort(serverSortField, newOrder);
-      // Clear client sort when server sort is applied
-      if (onClientSort) {
-        onClientSort('', '');
-      }
-    } else if (isClientSortable && onClientSort) {
-      // Client-side sorting
-      const newOrder = isClientActive && clientOrder === 'asc' ? 'desc' : 'asc';
-      onClientSort(column.id, newOrder);
-    }
+    const newOrder = isActive && currentOrder === 'asc' ? 'desc' : 'asc';
+    onSort(serverSortField, newOrder);
   };
 
-  // Determine which order to show
-  function getDisplayOrder(): string {
-    if (isServerActive) return currentOrder || '';
-    if (isClientActive) return clientOrder || '';
-    return '';
-  }
-  const displayOrder = getDisplayOrder();
+  const displayOrder = isActive ? currentOrder || '' : '';
 
-  const button = (
+  return (
     <Button
       variant="ghost"
       onClick={handleClick}
@@ -1157,23 +1091,22 @@ const SortableHeader = ({
       )}
     </Button>
   );
-
-  // Wrap client-sortable columns with tooltip
-  if (isClientSortable) {
-    return (
-      <Tooltip>
-        <TooltipTrigger asChild>{button}</TooltipTrigger>
-        <TooltipContent className="bg-muted text-muted-foreground border">
-          <p className="text-xs">
-            <I18nText text={'Sorts current page only'} />
-          </p>
-        </TooltipContent>
-      </Tooltip>
-    );
-  }
-
-  return button;
 };
+
+// Tooltip body for a run sort (status or last run) that is disabled because
+// more workflows match than the server sorts by run.
+const RunSortDisabledTooltip = () => (
+  <TooltipContent className="bg-muted text-muted-foreground border">
+    <p className="text-xs">
+      <I18nText
+        text={
+          'Sorting by this column is disabled for more than {count} workflows'
+        }
+        values={{ count: maxRunSortDAGs }}
+      />
+    </p>
+  </TooltipContent>
+);
 
 /**
  * DAGTable component displays a table of DAGs with filtering, sorting, and grouping capabilities
@@ -1212,12 +1145,17 @@ function DAGTable({
   onDeleteWorkflowView,
   onDeleteDAGs,
   onRenameDAG,
+  canPinDAG,
+  onSetDAGPinned,
   resultCount,
-  selectedDAG = null,
-  onSelectDAG,
 }: Props) {
   const { ts } = useI18n();
-  const navigate = useNavigate();
+  // Status and LastRun sorts are disabled when the list total exceeds the
+  // server cap, because the server would sort by name instead.
+  const runSortDisabled = (resultCount ?? 0) > maxRunSortDAGs;
+  const peekOrOpen = usePeekOrOpen();
+  const isShown = usePeekShown();
+  useRevealShownRow();
   const columns = useMemo(
     () =>
       canDeleteDAGs
@@ -1245,6 +1183,24 @@ function DAGTable({
   >(null);
   const [isRenaming, setIsRenaming] = useState(false);
   const [renameError, setRenameError] = useState<string | null>(null);
+  const [pendingPins, setPendingPins] = useState<Set<string>>(() => new Set());
+
+  const togglePin = useCallback(
+    async (dag: components['schemas']['DAGFile']) => {
+      const { fileName } = dag;
+      setPendingPins((current) => new Set(current).add(fileName));
+      try {
+        await onSetDAGPinned(fileName, !dag.pinned);
+      } finally {
+        setPendingPins((current) => {
+          const next = new Set(current);
+          next.delete(fileName);
+          return next;
+        });
+      }
+    },
+    [onSetDAGPinned]
+  );
   const [expanded, setExpanded] = useState<ExpandedState>(() => {
     try {
       const saved = localStorage.getItem('dagu_dag_table_expanded');
@@ -1264,9 +1220,6 @@ function DAGTable({
     },
     []
   );
-
-  const [clientSort, setClientSort] = useState<string>('');
-  const [clientOrder, setClientOrder] = useState<string>('asc');
 
   useEffect(() => {
     const loadedFileNames = new Set(dags.map((dag) => dag.fileName));
@@ -1422,26 +1375,6 @@ function DAGTable({
     [onRenameDAG, renameTarget]
   );
 
-  // Handler for client-side sorting
-  const handleClientSort = (field: string, order: string) => {
-    setClientSort(field);
-    setClientOrder(order);
-  };
-
-  // Handler for DAG selection
-  const handleSelectDAG = (fileName: string, title: string) => {
-    // Check if screen is small (less than 768px width)
-    const isSmallScreen = window.innerWidth < 768;
-
-    if (isSmallScreen) {
-      // For small screens, navigate directly to the DAG details page
-      navigate(`/dags/${fileName}`);
-    } else if (onSelectDAG) {
-      // For larger screens, call the selection handler
-      onSelectDAG(fileName, title);
-    }
-  };
-
   useEffect(() => {
     const nameFilter = columnFilters.find((f) => f.id === 'Name');
 
@@ -1487,51 +1420,17 @@ function DAGTable({
     [searchLabels, handleSearchLabelsChange]
   );
 
-  // Helper function for client-side sorting comparison
-  const getSortValue = useCallback(
-    (
-      dag: components['schemas']['DAGFile']
-    ): string | components['schemas']['Status'] => {
-      if (clientSort === 'Status') {
-        return dag.latestDAGRun?.status || '';
-      }
-      if (clientSort === 'LastRun') {
-        return dag.latestDAGRun?.startedAt || '';
-      }
-      return '';
-    },
-    [clientSort]
-  );
-
-  const compareDags = useCallback(
-    (
-      a: components['schemas']['DAGFile'],
-      b: components['schemas']['DAGFile']
-    ): number => {
-      let aValue = getSortValue(a);
-      let bValue = getSortValue(b);
-
-      if (clientOrder === 'desc') {
-        [aValue, bValue] = [bValue, aValue];
-      }
-
-      if (aValue < bValue) return -1;
-      if (aValue > bValue) return 1;
-      return 0;
-    },
-    [getSortValue, clientOrder]
-  );
-
-  // Transform the flat list of DAGs into a hierarchical structure with groups
+  // Transform the flat list of DAGs into a hierarchical structure with groups.
+  // Pinned DAGs lead as flat rows, even when they belong to a group. The rows
+  // keep the server order.
   const data = useMemo(() => {
-    const sortedDags = [...dags];
-
-    if (clientSort) {
-      sortedDags.sort(compareDags);
-    }
+    const pinnedRows: Data[] = dags
+      .filter((dag) => dag.pinned)
+      .map((dag) => ({ kind: ItemKind.DAG, name: dag.dag.name, dag }));
+    const unpinnedDags = dags.filter((dag) => !dag.pinned);
 
     const groups: { [key: string]: Data } = {};
-    sortedDags.forEach((dag) => {
+    unpinnedDags.forEach((dag) => {
       const groupName = dag.dag.group;
       if (groupName) {
         if (!groups[groupName]) {
@@ -1549,22 +1448,9 @@ function DAGTable({
       }
     });
 
-    // Sort sub-rows within groups if client sorting is active
-    if (clientSort) {
-      Object.values(groups).forEach((group) => {
-        if (group.subRows) {
-          group.subRows.sort((a, b) => {
-            const aDag = (a as DAGRow).dag;
-            const bDag = (b as DAGRow).dag;
-            return compareDags(aDag, bDag);
-          });
-        }
-      });
-    }
-
-    const hierarchicalData: Data[] = Object.values(groups);
+    const hierarchicalData: Data[] = [...pinnedRows, ...Object.values(groups)];
     // Add DAGs without a group
-    sortedDags
+    unpinnedDags
       .filter((dag) => !dag.dag.group)
       .forEach((dag) => {
         hierarchicalData.push({
@@ -1574,48 +1460,7 @@ function DAGTable({
         });
       });
     return hierarchicalData;
-  }, [dags, clientSort, compareDags]);
-
-  useEffect(() => {
-    if (!selectedDAG || !tableInstanceRef.current || !onSelectDAG) return;
-
-    const handleKeyDown = (event: KeyboardEvent) => {
-      // Get all DAG rows from the sorted table rows (not groups)
-      const sortedRows = tableInstanceRef.current?.getRowModel().rows || [];
-      const dagRows = sortedRows
-        .filter((row) => (row.original as Data)?.kind === ItemKind.DAG)
-        .map((row) => ({
-          fileName: (row.original as DAGRow).dag.fileName,
-          title: (row.original as DAGRow).dag.dag.name,
-        }));
-
-      // Find current index
-      const currentIndex = dagRows.findIndex(
-        (item) => item.fileName === selectedDAG
-      );
-      if (currentIndex === -1) return;
-
-      // Navigate with arrow keys
-      if (event.key === 'ArrowDown' && currentIndex < dagRows.length - 1) {
-        event.preventDefault();
-        const nextDAG = dagRows[currentIndex + 1];
-        if (nextDAG) {
-          onSelectDAG(nextDAG.fileName, nextDAG.title);
-        }
-      } else if (event.key === 'ArrowUp' && currentIndex > 0) {
-        event.preventDefault();
-        const prevDAG = dagRows[currentIndex - 1];
-        if (prevDAG) {
-          onSelectDAG(prevDAG.fileName, prevDAG.title);
-        }
-      }
-    };
-
-    window.addEventListener('keydown', handleKeyDown);
-    return () => {
-      window.removeEventListener('keydown', handleKeyDown);
-    };
-  }, [selectedDAG, onSelectDAG]);
+  }, [dags]);
 
   const instance = useReactTable<Data>({
     data,
@@ -1649,10 +1494,22 @@ function DAGTable({
       onOpenRenameDAG: openRenameDAG,
       canDeleteDAGs,
       onOpenDeleteDAG: openDeleteDAG,
+      canPinDAG,
+      isPinPending: (fileName) => pendingPins.has(fileName),
+      onTogglePin: (dag) => void togglePin(dag),
     },
   });
+  // The peek steps through the workflows that the table shows, in their
+  // order: the rows of the open groups too.
+  usePeekSequence(
+    instance
+      .getRowModel()
+      .rows.filter((row) => row.original?.kind === ItemKind.DAG)
+      .map((row) => ({ dag: (row.original as DAGRow).dag.fileName }))
+  );
 
   tableInstanceRef.current = instance as ReturnType<typeof useReactTable>;
+  const pinnedRowCount = countLeadingPinnedRows(instance.getRowModel().rows);
   const filteredDAGFileNames = new Set(getFilteredDAGFileNames());
   const selectedDAGsForDelete = dags.filter(
     (dag) =>
@@ -1685,7 +1542,9 @@ function DAGTable({
     ? {
         icon: '🔍',
         heading: 'No workflows found',
-        description: `No workflows match the “${activeWorkflowViewName}” view. Try adjusting its filters or show all workflows.`,
+        description:
+          'No workflows match the “{view}” view. Try adjusting its filters or show all workflows.',
+        descriptionValues: { view: activeWorkflowViewName },
       }
     : isPristineAllView
       ? {
@@ -1705,7 +1564,7 @@ function DAGTable({
       {/* Search, Filter and Pagination Controls */}
       <div
         data-testid="workflow-controls"
-        className={`mb-3 space-y-3 rounded-lg border border-border bg-card/50 p-3 ${
+        className={`mb-4 space-y-2 ${
           isLoading ? 'opacity-70 pointer-events-none' : ''
         }`}
       >
@@ -1844,15 +1703,30 @@ function DAGTable({
                   </SelectTrigger>
                 </I18nProps>
                 <SelectContent>
-                  {cardSortOptions.map((option) => (
-                    <SelectItem
-                      key={option.value}
-                      value={option.value}
-                      className="text-xs"
-                    >
-                      <I18nText text={option.label} />
-                    </SelectItem>
-                  ))}
+                  {cardSortOptions.map((option) => {
+                    const disabled =
+                      runSortDisabled && isRunSortField(option.value);
+                    const item = (
+                      <SelectItem
+                        key={option.value}
+                        value={option.value}
+                        className="text-xs"
+                        disabled={disabled}
+                      >
+                        <I18nText text={option.label} />
+                      </SelectItem>
+                    );
+                    return disabled ? (
+                      <Tooltip key={option.value}>
+                        <TooltipTrigger asChild>
+                          <div className="cursor-not-allowed">{item}</div>
+                        </TooltipTrigger>
+                        <RunSortDisabledTooltip />
+                      </Tooltip>
+                    ) : (
+                      item
+                    );
+                  })}
                 </SelectContent>
               </Select>
               <Button
@@ -1895,14 +1769,14 @@ function DAGTable({
           className={`w-full text-xs ${isLoading ? 'opacity-70' : ''}`}
           style={{ tableLayout: 'fixed' }}
         >
-          {/* Column widths: Select 40px, Expand 32px, Name auto, Status 10%, LastRun 18%, Schedule 20%, Actions 160px */}
+          {/* Column widths: Select 40px, Expand 32px, Name auto, Status 10%, LastRun 12%, Schedule 28%, Actions 160px */}
           <colgroup>
             {canDeleteDAGs && <col style={{ width: '40px' }} />}
             <col style={{ width: '32px' }} />
             <col />
             <col style={{ width: '10%' }} />
-            <col style={{ width: '18%' }} />
-            <col style={{ width: '20%' }} />
+            <col style={{ width: '12%' }} />
+            <col style={{ width: '28%' }} />
             <col style={{ width: '160px' }} />
           </colgroup>
           <TableHeader>
@@ -1917,22 +1791,35 @@ function DAGTable({
                       <div>
                         {' '}
                         {/* Wrap header content */}
-                        {columnToSortField[header.column.id] ||
-                        clientSortableColumns.includes(header.column.id) ? (
-                          <SortableHeader
-                            column={header.column}
-                            currentSort={sortField}
-                            currentOrder={sortOrder}
-                            onSort={onSortChange}
-                            clientSort={clientSort}
-                            clientOrder={clientOrder}
-                            onClientSort={handleClientSort}
-                          >
-                            {flexRender(
-                              header.column.columnDef.header,
-                              header.getContext()
-                            )}
-                          </SortableHeader>
+                        {columnToSortField[header.column.id] ? (
+                          runSortDisabled &&
+                          isRunSortField(
+                            columnToSortField[header.column.id]
+                          ) ? (
+                            <Tooltip>
+                              <TooltipTrigger asChild>
+                                <span className="cursor-not-allowed">
+                                  {flexRender(
+                                    header.column.columnDef.header,
+                                    header.getContext()
+                                  )}
+                                </span>
+                              </TooltipTrigger>
+                              <RunSortDisabledTooltip />
+                            </Tooltip>
+                          ) : (
+                            <SortableHeader
+                              column={header.column}
+                              currentSort={sortField}
+                              currentOrder={sortOrder}
+                              onSort={onSortChange}
+                            >
+                              {flexRender(
+                                header.column.columnDef.header,
+                                header.getContext()
+                              )}
+                            </SortableHeader>
+                          )
                         ) : (
                           flexRender(
                             header.column.columnDef.header,
@@ -1947,48 +1834,60 @@ function DAGTable({
             ))}
           </TableHeader>
           <TableBody>
+            {pinnedRowCount > 0 && (
+              <TableRow className="hover:bg-transparent">
+                <TableCell colSpan={columns.length} className="px-2 pb-1 pt-2">
+                  <PinnedSectionLabel />
+                </TableCell>
+              </TableRow>
+            )}
             {instance.getRowModel().rows.length ? (
-              instance.getRowModel().rows.map((row) => {
+              instance.getRowModel().rows.map((row, index) => {
                 // For DAG rows, make the entire row clickable
                 const isDAGRow = row.original?.kind === ItemKind.DAG;
+                const endsPinnedSection =
+                  index === pinnedRowCount - 1 &&
+                  index < instance.getRowModel().rows.length - 1;
                 const isDeleteSelected =
                   isDAGRow &&
                   'dag' in row.original &&
                   deleteSelection.has((row.original as DAGRow).dag.fileName);
+                const rowShown =
+                  isDAGRow &&
+                  'dag' in row.original &&
+                  isShown({ dag: (row.original as DAGRow).dag.fileName });
                 // Type guard to ensure we only access dag property when it exists
 
                 return (
                   <TableRow
                     key={row.id}
                     data-state={isDeleteSelected ? 'selected' : undefined}
-                    className={`text-[0.8125rem] ${
+                    data-peek-shown={rowShown || undefined}
+                    className={`text-[0.8125rem] ${rowShown ? PEEK_SHOWN_ROW : ''} ${
                       row.original?.kind === ItemKind.Group
                         ? 'bg-muted/50 font-semibold cursor-pointer hover:bg-muted/70'
-                        : isDAGRow &&
-                            'dag' in row.original &&
-                            selectedDAG ===
-                              (row.original as DAGRow).dag.fileName
-                          ? 'cursor-pointer hover:bg-muted/50 shadow-[inset_3px_0_0_0_var(--primary)]'
-                          : 'cursor-pointer hover:bg-muted/50'
-                    } ${isDAGRow && 'dag' in row.original && (row.original as DAGRow).dag.latestDAGRun?.status === Status.Running ? 'animate-running-row' : ''}`}
+                        : 'cursor-pointer hover:bg-muted/50'
+                    } ${isDAGRow && 'dag' in row.original && (row.original as DAGRow).dag.latestDAGRun?.status === Status.Running ? 'animate-running-row' : ''} ${isDAGRow ? 'group/row focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring' : ''} ${endsPinnedSection ? 'border-b-2' : ''}`}
+                    tabIndex={isDAGRow ? 0 : undefined}
+                    onKeyDown={
+                      isDAGRow && 'dag' in row.original
+                        ? onOwnEnter((e) =>
+                            peekOrOpen(
+                              { dag: (row.original as DAGRow).dag.fileName },
+                              e
+                            )
+                          )
+                        : undefined
+                    }
                     onClick={(e) => {
                       // Handle group row clicks - toggle expanded state
                       if ((row.original as Data)?.kind === ItemKind.Group) {
                         row.toggleExpanded();
                       }
-                      // Handle DAG row clicks - select DAG or open in new tab
+                      // Handle DAG row clicks - show the peek, or a new tab with Cmd/Ctrl
                       else if (isDAGRow && 'dag' in row.original) {
                         const dagRow = row.original as DAGRow;
-                        const fileName = dagRow.dag.fileName;
-                        const title = dagRow.dag.dag.name;
-
-                        // If Cmd (Mac) or Ctrl (Windows/Linux) key is pressed, open in new tab
-                        if (e.metaKey || e.ctrlKey) {
-                          window.open(`/dags/${fileName}`, '_blank');
-                        } else {
-                          // Normal click behavior - select the DAG
-                          handleSelectDAG(fileName, title);
-                        }
+                        peekOrOpen({ dag: dagRow.dag.fileName }, e);
                       }
                     }}
                   >
@@ -2031,8 +1930,13 @@ function DAGTable({
         data-testid="workflow-card-view"
         className={`space-y-2 ${useCardView ? 'block' : 'md:hidden'}`}
       >
+        {pinnedRowCount > 0 && (
+          <div className="px-1">
+            <PinnedSectionLabel />
+          </div>
+        )}
         {instance.getRowModel().rows.length ? (
-          instance.getRowModel().rows.map((row) => {
+          instance.getRowModel().rows.map((row, index) => {
             // Render group rows with collapsible header
             if (row.original?.kind === ItemKind.Group) {
               const groupRow = row.original as GroupRow;
@@ -2053,7 +1957,7 @@ function DAGTable({
                           <ChevronDown className="h-4 w-4 text-muted-foreground" />
                         )}
                       </div>
-                      <span className="text-xs font-semibold text-muted-foreground uppercase tracking-wide truncate">
+                      <span className="text-xs font-semibold text-muted-foreground truncate">
                         {groupRow.name}
                       </span>
                     </div>
@@ -2078,8 +1982,9 @@ function DAGTable({
                             <DAGCard
                               key={subRow.id}
                               dag={dagRow.dag}
-                              isSelected={selectedDAG === dagRow.dag.fileName}
-                              onSelect={handleSelectDAG}
+                              onOpen={(e) =>
+                                peekOrOpen({ dag: dagRow.dag.fileName }, e)
+                              }
                               onLabelClick={handleLabelClick}
                               refreshFn={refreshFn}
                               canDeleteDAGs={canDeleteDAGs}
@@ -2090,6 +1995,12 @@ function DAGTable({
                               canRenameDAGs={canRenameDAGs}
                               onRenameDAG={openRenameDAG}
                               onDeleteDAG={openDeleteDAG}
+                              canPin={canPinDAG(dagRow.dag)}
+                              isPinPending={pendingPins.has(
+                                dagRow.dag.fileName
+                              )}
+                              onTogglePin={(dag) => void togglePin(dag)}
+                              isShown={isShown({ dag: dagRow.dag.fileName })}
                               className="ml-2"
                             />
                           );
@@ -2110,21 +2021,31 @@ function DAGTable({
               row.depth === 0
             ) {
               const dagRow = row.original as DAGRow;
+              const endsPinnedSection =
+                index === pinnedRowCount - 1 &&
+                index < instance.getRowModel().rows.length - 1;
               return (
-                <DAGCard
-                  key={row.id}
-                  dag={dagRow.dag}
-                  isSelected={selectedDAG === dagRow.dag.fileName}
-                  onSelect={handleSelectDAG}
-                  onLabelClick={handleLabelClick}
-                  refreshFn={refreshFn}
-                  canDeleteDAGs={canDeleteDAGs}
-                  isDeleteSelected={deleteSelection.has(dagRow.dag.fileName)}
-                  onToggleDeleteSelection={toggleDeleteSelection}
-                  canRenameDAGs={canRenameDAGs}
-                  onRenameDAG={openRenameDAG}
-                  onDeleteDAG={openDeleteDAG}
-                />
+                <React.Fragment key={row.id}>
+                  <DAGCard
+                    dag={dagRow.dag}
+                    onOpen={(e) => peekOrOpen({ dag: dagRow.dag.fileName }, e)}
+                    onLabelClick={handleLabelClick}
+                    refreshFn={refreshFn}
+                    canDeleteDAGs={canDeleteDAGs}
+                    isDeleteSelected={deleteSelection.has(dagRow.dag.fileName)}
+                    onToggleDeleteSelection={toggleDeleteSelection}
+                    canRenameDAGs={canRenameDAGs}
+                    onRenameDAG={openRenameDAG}
+                    onDeleteDAG={openDeleteDAG}
+                    canPin={canPinDAG(dagRow.dag)}
+                    isPinPending={pendingPins.has(dagRow.dag.fileName)}
+                    onTogglePin={(dag) => void togglePin(dag)}
+                    isShown={isShown({ dag: dagRow.dag.fileName })}
+                  />
+                  {endsPinnedSection && (
+                    <div className="border-t-2 border-border" />
+                  )}
+                </React.Fragment>
               );
             }
 

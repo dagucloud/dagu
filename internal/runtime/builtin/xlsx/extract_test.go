@@ -11,6 +11,7 @@ import (
 	"maps"
 	"os"
 	"path/filepath"
+	"slices"
 	"strconv"
 	"strings"
 	"sync"
@@ -65,14 +66,40 @@ type scriptedProvider struct {
 	requests []*llmpkg.ChatRequest
 	answer   func(req *llmpkg.ChatRequest) map[string]any
 	fail     error
+	// prose answers the first requests in plain text, one entry each,
+	// without the respond call.
+	prose []string
+	// badArgs answers the next requests with a respond call whose
+	// arguments are each entry, which need not be valid JSON.
+	badArgs []string
 }
 
 func (p *scriptedProvider) Chat(_ context.Context, req *llmpkg.ChatRequest) (*llmpkg.ChatResponse, error) {
 	p.mu.Lock()
-	p.requests = append(p.requests, req)
+	// Record what this call carried: a retry appends to req.Messages.
+	sent := *req
+	sent.Messages = slices.Clone(req.Messages)
+	p.requests = append(p.requests, &sent)
+	var text, badArgs string
+	prose, bad := len(p.prose) > 0, false
+	if prose {
+		text, p.prose = p.prose[0], p.prose[1:]
+	} else if len(p.badArgs) > 0 {
+		badArgs, p.badArgs, bad = p.badArgs[0], p.badArgs[1:], true
+	}
 	p.mu.Unlock()
 	if p.fail != nil {
 		return nil, p.fail
+	}
+	usage := llmpkg.Usage{PromptTokens: 10, CompletionTokens: 2}
+	if prose {
+		return &llmpkg.ChatResponse{Content: text, Usage: usage}, nil
+	}
+	if bad {
+		return &llmpkg.ChatResponse{
+			ToolCalls: []llmpkg.ToolCall{{ID: "call_1", Type: "function", Function: llmpkg.ToolCallFunction{Name: "respond", Arguments: badArgs}}},
+			Usage:     usage,
+		}, nil
 	}
 	args, err := json.Marshal(p.answer(req))
 	if err != nil {
@@ -116,10 +143,12 @@ func (p *scriptedProvider) lastUserMessage() string {
 // names the leftmost text cell of every row as a label.
 func labelRight(descriptions map[string]string) func(req *llmpkg.ChatRequest) map[string]any {
 	return func(req *llmpkg.ChatRequest) map[string]any {
+		// The listing is the first user message; a correction may follow.
 		listing := ""
 		for _, m := range req.Messages {
 			if m.Role == llmpkg.RoleUser {
 				listing = m.Content
+				break
 			}
 		}
 		answer := map[string]any{}
@@ -522,6 +551,76 @@ func TestExtractFallsBackOnUnusableAnswer(t *testing.T) {
 	failed := r.execute(quoteConfig(map[string]any{"cache": false}), llm)
 	require.ErrorContains(t, failed.err, "model request failed: openai/first: xlsx: model answered field \"quote_no\" with \"123000\", not a cell address")
 	require.ErrorContains(t, failed.err, "openai/second: xlsx: model answered field")
+}
+
+// A model whose answer has no respond call is shown that answer and asked
+// once more before the next model is tried. The rejected answer reaches the
+// step log masked, and every call's tokens count.
+func TestExtractCorrectsAnUnusableAnswer(t *testing.T) {
+	t.Parallel()
+
+	t.Run("Corrected", func(t *testing.T) {
+		t.Parallel()
+		r := newExtractRun(t)
+		r.secrets = map[string]string{"SHOP_TOKEN": "tok-12345"}
+		quoteBook(t, r.dir, nil)
+		r.provider.prose = []string{"The quote number is in B3. tok-12345"}
+		run := r.execute(quoteConfig(nil), testModel)
+		require.NoError(t, run.err)
+
+		assert.Equal(t, "Q-2026-001", run.exec.GetOutputs()["quote_no"])
+		require.Equal(t, 2, r.provider.count(), "the same model was asked once more")
+		assert.Len(t, r.provider.requests[0].Messages, 2, "the first call carried no correction")
+		retry := r.provider.requests[1].Messages
+		require.Len(t, retry, 4)
+		assert.Equal(t, llmpkg.RoleAssistant, retry[2].Role)
+		assert.NotContains(t, retry[2].Content, "tok-12345")
+		assert.Equal(t, llmpkg.RoleUser, retry[3].Role)
+		assert.Contains(t, retry[3].Content, "model did not return structured output")
+		log := run.stderr.String()
+		assert.Contains(t, log, "warning: openai/test-model answer rejected: model did not return structured output")
+		assert.Contains(t, log, "The quote number is in B3.")
+		assert.NotContains(t, log, "tok-12345")
+		assert.Equal(t, "Extracted 3 fields from quote.xlsx Sheet1 (model, 24 tokens)\n", run.stdout.String(), "both calls count")
+	})
+
+	t.Run("InvalidArguments", func(t *testing.T) {
+		t.Parallel()
+		r := newExtractRun(t)
+		r.secrets = map[string]string{"SHOP_TOKEN": "tok-12345"}
+		quoteBook(t, r.dir, nil)
+		r.provider.badArgs = []string{`{"quote_no": "B3", "note": "tok-12345"`}
+		run := r.execute(quoteConfig(nil), testModel)
+		require.NoError(t, run.err)
+
+		assert.Equal(t, "Q-2026-001", run.exec.GetOutputs()["quote_no"])
+		require.Equal(t, 2, r.provider.count(), "the same model was asked once more")
+		assert.Len(t, r.provider.requests[0].Messages, 2, "the first call carried no correction")
+		retry := r.provider.requests[1].Messages
+		require.Len(t, retry, 4)
+		assert.Equal(t, llmpkg.RoleAssistant, retry[2].Role)
+		assert.Contains(t, retry[2].Content, `"quote_no": "B3"`, "the model sees its own arguments")
+		assert.NotContains(t, retry[2].Content, "tok-12345")
+		assert.Contains(t, retry[3].Content, "model did not return structured output")
+		assert.NotContains(t, run.stderr.String(), "tok-12345")
+		assert.Equal(t, "Extracted 3 fields from quote.xlsx Sheet1 (model, 24 tokens)\n", run.stdout.String(), "both calls count")
+	})
+
+	t.Run("FallsBackAfterOneCorrection", func(t *testing.T) {
+		t.Parallel()
+		r := newExtractRun(t)
+		quoteBook(t, r.dir, nil)
+		first := &scriptedProvider{answer: quoteAnswer, prose: []string{"Prose.", "Prose again."}}
+		r.providers = []*scriptedProvider{first, r.provider}
+		llm := &ir.LLMConfig{Provider: "openai", Model: "first", Models: []ir.ModelEntry{{Provider: "openai", Name: "first"}, {Provider: "openai", Name: "second"}}}
+		run := r.execute(quoteConfig(nil), llm)
+		require.NoError(t, run.err)
+
+		assert.Equal(t, 2, first.count(), "the first model was corrected once")
+		require.Equal(t, 1, r.provider.count(), "the second model was asked")
+		assert.Len(t, r.provider.requests[0].Messages, 2, "the next model starts without the correction")
+		assert.Equal(t, "Extracted 3 fields from quote.xlsx Sheet1 (model, 36 tokens)\n", run.stdout.String())
+	})
 }
 
 func TestExtractFallsBackOnAddressOutsideTheListing(t *testing.T) {

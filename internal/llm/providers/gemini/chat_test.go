@@ -6,12 +6,88 @@ package gemini_test
 import (
 	"context"
 	"encoding/json"
+	"io"
+	"net/http"
+	"net/http/httptest"
+	"strconv"
 	"testing"
 
 	"github.com/dagucloud/dagu/v2/internal/llm"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
+
+func TestThinkingRequests(t *testing.T) {
+	t.Parallel()
+
+	for _, tt := range []struct {
+		model string
+		want  string
+	}{
+		{model: "gemini-2.5-flash", want: `{"thinkingBudget":8192}`},
+		{model: "gemini-3.8-flash", want: `{"thinkingLevel":"HIGH"}`},
+	} {
+		for _, stream := range []bool{false, true} {
+			t.Run(tt.model+"/stream="+strconv.FormatBool(stream), func(t *testing.T) {
+				var requestBody []byte
+				server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+					wantPath := "/models/" + tt.model
+					if stream {
+						wantPath += ":streamGenerateContent"
+					} else {
+						wantPath += ":generateContent"
+					}
+					assert.Equal(t, wantPath, r.URL.Path)
+					assert.Equal(t, "test-key", r.Header.Get("x-goog-api-key"))
+					var err error
+					requestBody, err = io.ReadAll(r.Body)
+					if err != nil {
+						http.Error(w, "failed to read request", http.StatusBadRequest)
+						return
+					}
+					if stream {
+						w.Header().Set("Content-Type", "text/event-stream")
+						_, _ = io.WriteString(w, "data: {\"candidates\":[{\"content\":{\"parts\":[{\"text\":\"ok\"}]},\"finishReason\":\"STOP\"}]}\n\n")
+						return
+					}
+					_, _ = io.WriteString(w, `{"candidates":[{"content":{"parts":[{"text":"ok"}]},"finishReason":"STOP"}]}`)
+				}))
+				defer server.Close()
+
+				provider, err := llm.NewProvider(llm.ProviderGemini, llm.Config{
+					APIKey: "test-key", BaseURL: server.URL,
+				})
+				require.NoError(t, err)
+				req := &llm.ChatRequest{
+					Model:    tt.model,
+					Thinking: &llm.ThinkingRequest{Enabled: true, Effort: llm.ThinkingEffortHigh},
+					Messages: []llm.Message{{Role: llm.RoleUser, Content: "Hello"}},
+				}
+
+				if stream {
+					events, err := provider.ChatStream(context.Background(), req)
+					require.NoError(t, err)
+					var text string
+					for event := range events {
+						require.NoError(t, event.Error)
+						text += event.Delta
+					}
+					assert.Equal(t, "ok", text)
+				} else {
+					_, err = provider.Chat(context.Background(), req)
+					require.NoError(t, err)
+				}
+
+				var request map[string]json.RawMessage
+				require.NoError(t, json.Unmarshal(requestBody, &request))
+				var config map[string]json.RawMessage
+				require.NoError(t, json.Unmarshal(request["generationConfig"], &config))
+				require.Contains(t, config, "thinkingConfig")
+				assert.JSONEq(t, tt.want, string(config["thinkingConfig"]))
+			})
+		}
+	}
+}
 
 // toolTurnParts is a model turn whose function call carries a thought
 // signature, as Gemini 3 returns it.

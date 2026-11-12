@@ -5,56 +5,44 @@ import { Badge } from '@/components/ui/badge';
 import { useLicenseState } from '@/hooks/useLicense';
 import { useI18n } from '@/i18n/I18nProvider';
 import {
-  licenseDaysLeft,
   licensePlanName,
-  TRIAL_WARNING_DAYS,
+  licenseStatus,
+  type LicenseTone,
 } from '@/lib/license';
-import { Shield, ShieldCheck } from 'lucide-react';
 
-export function LicenseStatusBadge() {
+const variants: Record<
+  LicenseTone,
+  'success' | 'secondary' | 'warning' | 'error'
+> = {
+  ok: 'success',
+  neutral: 'secondary',
+  warning: 'warning',
+  error: 'error',
+};
+
+/** Shows the license status, prefixed with the plan unless `plan` is false. */
+export function LicenseStatusBadge({ plan = true }: { plan?: boolean }) {
   const { license, loading, error, now } = useLicenseState();
   const { ts } = useI18n();
-  const days = licenseDaysLeft(license.expiry, now);
-  let status = ts('Active');
-  let variant: 'secondary' | 'warning' | 'error' = 'secondary';
+  let label: string;
+  let variant: (typeof variants)[LicenseTone];
   if (loading) {
-    status = ts('Checking license…');
+    label = ts('Checking license…');
     variant = 'secondary';
   } else if (error) {
-    status = ts('License status unavailable');
+    label = ts('License status unavailable');
     variant = 'warning';
-  } else if (license.error) {
-    status = ts('License Error');
-    variant = 'error';
-  } else if (license.warningCode) {
-    status = ts('License needs attention');
-    variant = 'warning';
-  } else if (license.gracePeriod) {
-    status = ts('Grace Period');
-    variant = 'warning';
-  } else if (license.community) {
-    status = ts('Community');
-    variant = 'secondary';
-  } else if (!license.valid) {
-    status = ts('Expired');
-    variant = 'error';
-  } else if (license.plan === 'trial' && days !== undefined) {
-    status =
-      days === 0
-        ? ts('Expires today')
-        : ts(days === 1 ? '{count} day left' : '{count} days left', {
-            count: days,
-          });
-    variant = days <= TRIAL_WARNING_DAYS ? 'warning' : 'secondary';
+  } else {
+    const status = licenseStatus(license, now);
+    const text = ts(status.text, status.values);
+    label =
+      plan && !license.error && !license.community
+        ? `${ts(licensePlanName(license))} · ${text}`
+        : text;
+    variant = variants[status.tone];
   }
-  const label =
-    loading || error || license.error || license.community
-      ? status
-      : `${ts(licensePlanName(license))} · ${status}`;
-  const Icon = license.valid && !license.community ? ShieldCheck : Shield;
   return (
     <Badge variant={variant} className="max-w-full" title={label}>
-      <Icon aria-hidden="true" className="shrink-0" />
       <span className="truncate">{label}</span>
     </Badge>
   );

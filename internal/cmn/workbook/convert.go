@@ -66,6 +66,8 @@ type ConvertOptions struct {
 	Trim     bool
 	Merged   MergedMode
 	Formulas FormulaMode
+	// SkipHidden leaves out rows hidden by a filter or by hand.
+	SkipHidden bool
 	// Encoding applies to CSV; empty means UTF-8.
 	Encoding Encoding
 	// Delimiter applies to CSV; zero means a comma.
@@ -107,7 +109,7 @@ func Convert(ctx context.Context, path string, opts ConvertOptions) (*ConvertRes
 	rows, err := w.read(ctx, ReadOptions{
 		Sheet: opts.Sheet, Range: opts.Range, Header: opts.Header, Columns: opts.Columns,
 		Types: opts.Types, Trim: opts.Trim, Merged: opts.Merged, Formulas: opts.Formulas,
-		OnTypeError: TypeErrorFail, noLimit: true,
+		SkipHidden: opts.SkipHidden, OnTypeError: TypeErrorFail, noLimit: true,
 	})
 	if err != nil {
 		return nil, err

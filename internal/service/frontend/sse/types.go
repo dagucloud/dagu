@@ -60,9 +60,11 @@ type TopicType string
 //   - TopicTypeDAGRunLogs: "dagName/dagRunId"
 //   - TopicTypeStepLog: "dagName/dagRunId/stepName"
 //   - TopicTypeDAGRuns: URL query string (e.g., "limit=50&offset=0")
+//   - TopicTypeDAGRunActivity: URL query string (e.g., "hours=24")
 //   - TopicTypeQueueItems: "queueName"
 //   - TopicTypeQueues: URL query string
 //   - TopicTypeDAGsList: URL query string (e.g., "page=1&perPage=100&name=mydag")
+//   - TopicTypeServiceDAGs: URL query string (e.g., "workspace=ops")
 //   - TopicTypeWikiPage: Wiki page path (e.g., "runbooks/deployment")
 //   - TopicTypeWikiTree: URL query string (e.g., "page=1&perPage=200")
 const (
@@ -73,11 +75,17 @@ const (
 	TopicTypeDAGRunLogs TopicType = "dagrunlogs"
 	TopicTypeStepLog    TopicType = "steplog"
 	TopicTypeDAGRuns    TopicType = "dagruns"
-	TopicTypeQueueItems TopicType = "queueitems"
-	TopicTypeQueues     TopicType = "queues"
-	TopicTypeDAGsList   TopicType = "dagslist"
-	TopicTypeWikiPage   TopicType = "wikipage"
-	TopicTypeWikiTree   TopicType = "wikitree"
+	// TopicTypeDAGRunActivity streams the aggregated activity of a window
+	// that ends now.
+	TopicTypeDAGRunActivity TopicType = "dagrunactivity"
+	TopicTypeQueueItems     TopicType = "queueitems"
+	TopicTypeQueues         TopicType = "queues"
+	TopicTypeDAGsList       TopicType = "dagslist"
+	// TopicTypeServiceDAGs streams the DAGs that set a restart policy, with a
+	// compact state that stays the same while a service DAG keeps running.
+	TopicTypeServiceDAGs TopicType = "servicedags"
+	TopicTypeWikiPage    TopicType = "wikipage"
+	TopicTypeWikiTree    TopicType = "wikitree"
 	// TopicTypeLegacyDoc is the deprecated alias for TopicTypeWikiPage.
 	TopicTypeLegacyDoc TopicType = "doc"
 	// TopicTypeLegacyDocTree is the deprecated alias for TopicTypeWikiTree.
@@ -100,7 +108,9 @@ const maxQueryLength = 4096
 // SetSSEHeaders sets the standard headers required for SSE responses.
 func SetSSEHeaders(w http.ResponseWriter) {
 	w.Header().Set("Content-Type", "text/event-stream")
-	w.Header().Set("Cache-Control", "no-cache")
+	// no-transform keeps a compressing proxy, such as a development server,
+	// from holding events back in its buffer.
+	w.Header().Set("Cache-Control", "no-cache, no-transform")
 	w.Header().Set("Connection", "keep-alive")
 	w.Header().Set("X-Accel-Buffering", "no")
 }

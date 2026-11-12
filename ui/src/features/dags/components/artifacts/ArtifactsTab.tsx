@@ -148,6 +148,7 @@ export default function ArtifactsTab({
   }>({ id: 0, controller: null });
 
   const allNodes = useMemo(() => flattenNodes(tree), [tree]);
+  const fileCount = allNodes.filter((node) => node.type === 'file').length;
   const scope = JSON.stringify([
     remoteNode,
     dagRun.name,
@@ -344,8 +345,8 @@ export default function ArtifactsTab({
               {tree.length === 0 ? (
                 <I18nText text={'No files yet'} />
               ) : (
-                ts('{count} files', {
-                  count: allNodes.filter((node) => node.type === 'file').length,
+                ts(fileCount === 1 ? '{count} file' : '{count} files', {
+                  count: fileCount,
                 })
               )}
             </p>

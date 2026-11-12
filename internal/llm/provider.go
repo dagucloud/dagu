@@ -28,8 +28,6 @@ type ProviderType string
 const (
 	// ProviderOpenAI is the OpenAI provider (GPT models).
 	ProviderOpenAI ProviderType = "openai"
-	// ProviderOpenAICodex is the ChatGPT/Codex subscription provider.
-	ProviderOpenAICodex ProviderType = "openai-codex"
 	// ProviderAnthropic is the Anthropic provider (Claude models).
 	ProviderAnthropic ProviderType = "anthropic"
 	// ProviderGemini is the Google Gemini provider.
@@ -49,8 +47,6 @@ func ParseProviderType(s string) (ProviderType, error) {
 	switch s {
 	case "openai":
 		return ProviderOpenAI, nil
-	case "openai-codex":
-		return ProviderOpenAICodex, nil
 	case "anthropic":
 		return ProviderAnthropic, nil
 	case "gemini", "google":
@@ -74,8 +70,6 @@ func DefaultAPIKeyEnvVar(providerType ProviderType) string {
 	switch providerType {
 	case ProviderOpenAI:
 		return "OPENAI_API_KEY"
-	case ProviderOpenAICodex:
-		return ""
 	case ProviderAnthropic:
 		return "ANTHROPIC_API_KEY"
 	case ProviderGemini:
@@ -98,8 +92,6 @@ func DefaultBaseURL(providerType ProviderType) string {
 	switch providerType {
 	case ProviderOpenAI:
 		return "https://api.openai.com/v1"
-	case ProviderOpenAICodex:
-		return "https://chatgpt.com/backend-api"
 	case ProviderAnthropic:
 		return "https://api.anthropic.com"
 	case ProviderGemini:

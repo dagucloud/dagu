@@ -6,22 +6,26 @@ import { cn } from '@/lib/utils';
 import * as React from 'react';
 
 interface AutocompleteInputProps {
+  id?: string;
   value: string;
   onValueChange: (value: string) => void;
   suggestions: string[];
   placeholder?: string;
   'aria-label'?: string;
   className?: string;
+  disabled?: boolean;
   onEnterPress?: () => void;
 }
 
 function AutocompleteInput({
+  id,
   value,
   onValueChange,
   suggestions,
   placeholder,
   'aria-label': ariaLabel,
   className,
+  disabled,
   onEnterPress,
 }: AutocompleteInputProps) {
   const [isOpen, setIsOpen] = React.useState(false);
@@ -140,12 +144,14 @@ function AutocompleteInput({
   return (
     <div ref={containerRef} className="relative">
       <Input
+        id={id}
         type="text"
         value={value}
         onChange={handleInputChange}
         onKeyDown={handleKeyDown}
         onFocus={handleInputFocus}
         placeholder={placeholder}
+        disabled={disabled}
         role="combobox"
         aria-label={ariaLabel ?? placeholder}
         aria-expanded={isOpen && filteredSuggestions.length > 0}

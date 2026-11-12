@@ -1,4 +1,4 @@
-# External CLI Harnesses
+# External Harnesses
 
 Use `action: harness.run` to invoke external coding agents from DAG steps. Dagu selects the configured provider; its executable must be installed on the host or available in the selected container.
 
@@ -72,16 +72,16 @@ If the owning worker or OpenCode server disappears, the step remains waiting and
 
 OpenCode persists managed conversations in the Dagu service user's OpenCode data directory; run `opencode debug paths` as that user to locate it. Dagu stores the session reference and UI timeline with the DAG run. If OpenCode's session data is lost, Dagu remains running and marks the affected step unavailable. Use **Start clean session** to create a new conversation and submit the original prompt again.
 
-The managed server is a shared service-identity boundary for trusted workflows. Use separate Dagu workers or containerized CLI execution when workflows require isolation from one another. Managed compatibility is capability-checked at startup; OpenCode v1.18.11 is the currently tested release.
+The managed server is a shared service-identity boundary for trusted workflows. Use separate Dagu workers or containerized CLI execution when workflows require isolation from one another. Managed compatibility is capability-checked at startup; OpenCode v1.18.11 and v2.1.4 are tested releases. Install v2 with `npm install -g @opencode/cli@2.1.4`; the v1 package is `opencode-ai`. Dagu selects the managed HTTP protocol from the server version. V2 message history is paginated, and pending permissions and question forms are reconciled while a step runs. For v2, specify `model` when using the separate `variant` option, or use `model: provider/model#variant`. CLI-only options must match the installed OpenCode version; v2 no longer accepts the v1 `--variant` and `--command` flags. Use managed mode for Dagu’s `variant` and `command` options. A managed v2 command must submit a prompt to the current session, as configured template commands do; callbacks that only change settings or launch a separate subagent do not produce a harness result. The existing question interface handles OpenCode’s built-in question forms.
 
 ## How `with` Works
 
 Harness supports built-in provider adapters and named custom harness definitions:
 
 - `with.provider` selects a built-in provider adapter or a custom `harnesses:` entry
-- top-level `harnesses.<name>` defines how to invoke a custom harness CLI
+- top-level `harnesses.<name>` defines a custom CLI or ACP connection
 
-For built-in provider adapters and custom providers, non-reserved `with` keys are passed directly as CLI flags:
+For CLI provider adapters and local ACP startup, non-reserved `with` keys are passed directly as CLI flags:
 
 - `key: "value"` → `--key value`
 - `key: true` → `--key`
@@ -116,6 +116,14 @@ steps:
 
 Custom harness definition fields:
 
+- `protocol` — `cli` (default) or `acp`
+- `transport` — ACP `stdio` (default), `websocket`, or `http`
+- `url` — remote ACP endpoint; `ws://`/`wss://` or `http://`/`https://`
+- `headers` — remote request headers; values support workflow variables
+- `cwd` — absolute working directory on the remote agent host
+- `ca_file` — optional local PEM roots for a remote connection, alongside system roots
+- `bearer_subprotocol` — WebSocket-only opt-in for bridges requiring `bearer.<token>`; defaults to false
+
 - `binary` — CLI binary or path
 - `prefix_args` — args that always appear before prompt placement and runtime flags
 - `prompt_mode` — `arg`, `flag`, or `stdin`
@@ -123,6 +131,63 @@ Custom harness definition fields:
 - `prompt_position` — `before_flags` or `after_flags`
 - `flag_style` — `gnu_long` or `single_dash`
 - `option_flags` — per-option override from `with` key to exact flag token
+
+## ACP Agents
+
+Install and authenticate an ACP adapter, then select `protocol: acp`:
+
+```yaml
+harnesses:
+  agent:
+    protocol: acp
+    binary: codex-acp
+steps:
+  - action: harness.run
+    with:
+      provider: agent
+      prompt: Review this project.
+      acp_permission: deny
+    output: REVIEW
+```
+
+Remote connections use the same step with a remote definition:
+
+```yaml
+harnesses:
+  agent:
+    protocol: acp
+    transport: websocket            # or http for Streamable HTTP
+    url: wss://acp.example.com/acp   # https://acp.example.com/acp for HTTP
+    cwd: /srv/project
+    headers:
+      Authorization: Bearer ${ACP_TOKEN}
+    # ca_file: /path/to/private-ca.pem
+```
+
+Remote definitions reject local startup fields and adapter CLI flags, and remote
+steps inherit only `acp_permission` from DAG-level `harness:` defaults, also when
+a variable selects the provider. URL, cwd,
+CA path, and header values support workflow variables. Dagu warns when headers
+go over `ws://` or `http://` to a non-loopback host. Relative CA paths resolve
+from the local step working directory; remote cwd belongs to the agent host.
+TLS certificate and hostname verification stay enabled. WebSocket uses control
+Ping frames and offers `acp.v1`. Bearer tokens stay in the Authorization header
+unless `bearer_subprotocol: true` is explicitly enabled for a compatible bridge;
+that option rejects tokens containing characters such as `/` or `=`.
+HTTP uses the ACP SDK's experimental Streamable HTTP profile, with connection and
+session SSE streams; endpoints must implement that profile.
+
+All transports capture assistant text as stdout and support ordered fallback.
+`with.stdin` is appended to the prompt after a blank line. `with.acp_permission`
+defaults to `deny`; `allow` selects only an offered `allow_once` permission and
+never grants persistent approval. A DAG-level `acp_permission` applies only to
+ACP steps; CLI providers never receive it as a flag. A denial selects the agent's reject option and
+fails the attempt. Only `end_turn` succeeds. A graceful Stop sends
+`session/cancel` and waits for the agent to end its turn; a forced Stop (after
+`max_clean_up_time_sec`) or a timeout also closes the connection. Stop skips
+fallback. Use `timeout_sec` to bound a turn. Client filesystem/terminal
+callbacks, interactive authentication, session resume, and local adapters inside
+containers are unsupported; remote steps ignore a DAG-level `container:`.
 
 ## DAG-Level Defaults and Fallback
 
@@ -450,6 +515,6 @@ Kilo runs as `kilo run "<prompt>" --auto` by default for unattended execution.
 4. **Retry on transient failures** — Add `retry_policy: { limit: 3, interval_sec: 30 }` to handle rate limits and network errors.
 5. **Working directory** — Use `working_dir:` on the step. The CLI operates relative to this directory.
 6. **Output capture** — Use string-form `output: VAR_NAME` for small flat values, declared `outputs:` for explicit `${steps.<step_id>.outputs.<name>}` values, object-form `output:` for structured `${step_id.output.*}` access, and `stdout.artifact` / `stderr.artifact` when large provider output, reports, JSON, Markdown, or logs should be stored as DAG-run artifacts. Use `${step_id.stdout}` only when a downstream step needs the stdout log file path.
-7. **Exit codes** — `0` means success. Provider process or container failures keep the provider's exit code when available; setup and internal errors use `1`; timeout and cancellation paths use `124`.
+7. **Exit codes** — `0` means success. Provider process or container failures keep the provider's exit code when available; setup and internal errors use `1`; timeouts use `124`. Explicit ACP Stop uses the signal exit code (normally `143`, or `137` when forced).
 8. **Failure output** — Recent stderr is included in the error message on failure. When failed stdout exists, Dagu also includes a recent stdout tail and writes that tail to stderr.
 9. **Fallback behavior** — If the primary harness config fails and the context is still active, fallback entries are tried in order. Failed-attempt stdout is not emitted to step stdout; its recent tail may be written to stderr and included in failure diagnostics. Stderr from failed attempts remains visible in logs.

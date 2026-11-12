@@ -88,3 +88,34 @@ func TestProfileSecretIsMasked(t *testing.T) {
 	require.Contains(t, output, "*******")
 	require.NotContains(t, output, "profile-secret-value")
 }
+
+// A DAG secrets: entry with the env provider reads profile entries: a global
+// default secret and a selected profile variable. The run fails before any
+// step starts when an env secret's key is unset, so success shows both
+// resolved; their values are masked as DAG secrets.
+func TestEnvSecretReadsProfileEntries(t *testing.T) {
+	t.Parallel()
+
+	server, token := setupBuiltinAuthServer(t)
+
+	setSecret(t, server, token, "_global", "GLOBAL_PROF_SECRET", "global-secret-value")
+	withAuth(server.Client().Post("/api/v1/profiles", api.CreateRuntimeProfileRequest{Name: "selected"}), token).
+		ExpectStatus(http.StatusCreated).Send(t)
+	setVariable(t, server, token, "selected", "SELECTED_VAR", "selected-value")
+
+	spec := `secrets:
+  - name: FROM_GLOBAL
+    provider: env
+    key: GLOBAL_PROF_SECRET
+  - name: FROM_SELECTED
+    provider: env
+    key: SELECTED_VAR
+steps:
+  - command: echo "values are $FROM_GLOBAL $FROM_SELECTED"
+`
+	output := runInlineSpec(t, server, token, spec, "env-secret-profile-dag", "selected", nil)
+
+	require.Contains(t, output, "values are ******* *******")
+	require.NotContains(t, output, "global-secret-value")
+	require.NotContains(t, output, "selected-value")
+}

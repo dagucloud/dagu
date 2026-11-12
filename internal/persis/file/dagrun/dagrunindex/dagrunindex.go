@@ -4,8 +4,13 @@
 package dagrunindex
 
 import (
+	"bufio"
+	"bytes"
 	"context"
+	"encoding/binary"
+	"errors"
 	"fmt"
+	"io"
 	"math"
 	"os"
 	"path/filepath"
@@ -22,6 +27,7 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/persis"
 	indexv1 "github.com/dagucloud/dagu/v2/proto/index/v1"
 	"golang.org/x/sync/singleflight"
+	"google.golang.org/protobuf/encoding/protowire"
 	"google.golang.org/protobuf/proto"
 )
 
@@ -279,6 +285,180 @@ func rebuildForDay(dayDir string, dagRunDirs []os.DirEntry, cached map[string]En
 	return entries, false, nil
 }
 
+// DayIndex looks up the entries of a day's index one run at a time, from
+// newer runs to older ones. The first lookup reads the index up to its run
+// and keeps only the entries later lookups can reach, so memory stays bounded
+// on a day of any size. Only the entries looked up are decoded.
+type DayIndex struct {
+	dayDir  string
+	modTime time.Time
+	// reach is the number of runs the lookups may visit.
+	reach   int
+	loaded  bool
+	entries [][]byte
+}
+
+// Field numbers of the index messages, taken from their descriptors.
+var (
+	indexVersionField = (&indexv1.DAGRunIndex{}).ProtoReflect().Descriptor().Fields().ByName("version").Number()
+	indexEntriesField = (&indexv1.DAGRunIndex{}).ProtoReflect().Descriptor().Fields().ByName("entries").Number()
+	entryRunDirField  = (&indexv1.DAGRunIndexEntry{}).ProtoReflect().Descriptor().Fields().ByName("dag_run_dir").Number()
+)
+
+// NewDayIndex returns the index of dayDir for lookups that visit at most reach
+// runs, or nil when the day has no index.
+func NewDayIndex(dayDir string, reach int) *DayIndex {
+	info, err := os.Stat(filepath.Join(dayDir, IndexFileName))
+	if err != nil {
+		return nil
+	}
+	return &DayIndex{dayDir: dayDir, modTime: info.ModTime(), reach: reach}
+}
+
+// Lookup returns the entry of the run in the directory runDir, created at
+// created, when the index holds one that still matches disk. A run newer than
+// the first one looked up is not found. A nil DayIndex holds no entries.
+func (d *DayIndex) Lookup(runDir string, created time.Time) (Entry, bool) {
+	// A run created after the index was written is not in it.
+	if d == nil || created.After(d.modTime) {
+		return Entry{}, false
+	}
+	if !d.loaded {
+		d.loaded = true
+		d.entries = readEncodedEntries(filepath.Join(d.dayDir, IndexFileName), runDir, d.reach)
+	}
+
+	i, found := slices.BinarySearchFunc(d.entries, []byte(runDir), func(entry, target []byte) int {
+		entryRunDir, _ := encodedRunDir(entry)
+		return bytes.Compare(entryRunDir, target)
+	})
+	if !found {
+		return Entry{}, false
+	}
+	var protoEntry indexv1.DAGRunIndexEntry
+	if err := proto.Unmarshal(d.entries[i], &protoEntry); err != nil {
+		return Entry{}, false
+	}
+	entry := protoToEntry(&protoEntry)
+	if !entryMatchesDisk(d.dayDir, entry) {
+		return Entry{}, false
+	}
+	return entry, true
+}
+
+// readEncodedEntries reads an index of the current version up to the entry of
+// the run directory through, and returns the last keep entries read, in the
+// order written, which is by run directory. It returns nil when the index is
+// unreadable.
+func readEncodedEntries(indexPath, through string, keep int) [][]byte {
+	file, err := os.Open(indexPath) //nolint:gosec // the index path is built from the day directory
+	if err != nil {
+		return nil
+	}
+	defer func() { _ = file.Close() }()
+	info, err := file.Stat()
+	if err != nil {
+		return nil
+	}
+	reader := bufio.NewReader(file)
+
+	last := []byte(through)
+	kept := entryRing{keep: keep}
+	var version uint64
+	var entry []byte
+	for {
+		tag, err := binary.ReadUvarint(reader)
+		if errors.Is(err, io.EOF) {
+			break
+		}
+		if err != nil {
+			return nil
+		}
+		num, typ := protowire.DecodeTag(tag)
+		if typ == protowire.VarintType {
+			value, err := binary.ReadUvarint(reader)
+			if err != nil {
+				return nil
+			}
+			if num == indexVersionField {
+				version = value
+			}
+			continue
+		}
+		if num != indexEntriesField || typ != protowire.BytesType {
+			return nil
+		}
+
+		size, err := binary.ReadUvarint(reader)
+		if err != nil || size > uint64(info.Size()) { //nolint:gosec // a file size is never negative
+			return nil
+		}
+		entry = slices.Grow(entry[:0], int(size))[:size] //nolint:gosec // bounded by the file size
+		if _, err := io.ReadFull(reader, entry); err != nil {
+			return nil
+		}
+		runDir, ok := encodedRunDir(entry)
+		if !ok {
+			return nil
+		}
+		// Entries after this one sort after through as well.
+		if bytes.Compare(runDir, last) > 0 {
+			break
+		}
+		kept.push(entry)
+	}
+	if version != IndexVersion {
+		return nil
+	}
+	return kept.ordered()
+}
+
+// entryRing keeps the last keep entries pushed, reusing the space of the ones
+// it drops.
+type entryRing struct {
+	keep    int
+	entries [][]byte
+	next    int
+}
+
+func (r *entryRing) push(entry []byte) {
+	if r.keep <= 0 {
+		return
+	}
+	if len(r.entries) < r.keep {
+		r.entries = append(r.entries, slices.Clone(entry))
+		return
+	}
+	r.entries[r.next] = append(r.entries[r.next][:0], entry...)
+	r.next = (r.next + 1) % r.keep
+}
+
+// ordered returns the kept entries in the order pushed.
+func (r *entryRing) ordered() [][]byte {
+	return slices.Concat(r.entries[r.next:], r.entries[:r.next])
+}
+
+// encodedRunDir returns the run directory name of an encoded index entry.
+func encodedRunDir(entry []byte) ([]byte, bool) {
+	for len(entry) > 0 {
+		num, typ, n := protowire.ConsumeTag(entry)
+		if n < 0 {
+			return nil, false
+		}
+		entry = entry[n:]
+		if num == entryRunDirField && typ == protowire.BytesType {
+			runDir, n := protowire.ConsumeBytes(entry)
+			return runDir, n >= 0
+		}
+		n = protowire.ConsumeFieldValue(num, typ, entry)
+		if n < 0 {
+			return nil, false
+		}
+		entry = entry[n:]
+	}
+	return nil, false
+}
+
 // DeleteIndex removes the .dagrun.index file from a day directory.
 func DeleteIndex(dayDir string) {
 	_ = fileutil.Remove(filepath.Join(dayDir, IndexFileName))
@@ -439,39 +619,43 @@ func writeIndex(dayDir string, entries []Entry) error {
 func protoToEntries(protoEntries []*indexv1.DAGRunIndexEntry) []Entry {
 	entries := make([]Entry, len(protoEntries))
 	for i, pe := range protoEntries {
-		entries[i] = Entry{
-			DagRunDir:            pe.DagRunDir,
-			DagRunID:             pe.DagRunId,
-			LatestAttemptDir:     pe.LatestAttemptDir,
-			Status:               ir.Status(pe.Status),
-			StartedAtUnix:        pe.StartedAt,
-			FinishedAtUnix:       pe.FinishedAt,
-			Labels:               pe.Labels,
-			Name:                 pe.Name,
-			WorkerID:             pe.WorkerId,
-			Params:               pe.Params,
-			QueuedAt:             pe.QueuedAt,
-			ScheduleTime:         pe.ScheduleTime,
-			TriggerType:          ir.TriggerType(pe.TriggerType),
-			TriggerActor:         pe.TriggerActor,
-			CreatedAt:            pe.CreatedAt,
-			AttemptID:            pe.AttemptId,
-			AutoRetryCount:       int(pe.AutoRetryCount),
-			ParentName:           pe.ParentDagRunName,
-			ParentID:             pe.ParentDagRunId,
-			AutoRetryLimit:       int(pe.AutoRetryLimit),
-			AutoRetryInterval:    time.Duration(pe.AutoRetryInterval),
-			AutoRetryBackoff:     pe.AutoRetryBackoff,
-			AutoRetryMaxInterval: time.Duration(pe.AutoRetryMaxInterval),
-			ProcGroup:            pe.ProcGroup,
-			DefinitionID:         pe.DefinitionId,
-			ArchiveDir:           pe.ArchiveDir,
-			latestStatusSize:     pe.LatestStatusSize,
-			latestStatusModTime:  pe.LatestStatusModTime,
-			runDirModTime:        pe.RunDirModTime,
-		}
+		entries[i] = protoToEntry(pe)
 	}
 	return entries
+}
+
+func protoToEntry(pe *indexv1.DAGRunIndexEntry) Entry {
+	return Entry{
+		DagRunDir:            pe.DagRunDir,
+		DagRunID:             pe.DagRunId,
+		LatestAttemptDir:     pe.LatestAttemptDir,
+		Status:               ir.Status(pe.Status),
+		StartedAtUnix:        pe.StartedAt,
+		FinishedAtUnix:       pe.FinishedAt,
+		Labels:               pe.Labels,
+		Name:                 pe.Name,
+		WorkerID:             pe.WorkerId,
+		Params:               pe.Params,
+		QueuedAt:             pe.QueuedAt,
+		ScheduleTime:         pe.ScheduleTime,
+		TriggerType:          ir.TriggerType(pe.TriggerType),
+		TriggerActor:         pe.TriggerActor,
+		CreatedAt:            pe.CreatedAt,
+		AttemptID:            pe.AttemptId,
+		AutoRetryCount:       int(pe.AutoRetryCount),
+		ParentName:           pe.ParentDagRunName,
+		ParentID:             pe.ParentDagRunId,
+		AutoRetryLimit:       int(pe.AutoRetryLimit),
+		AutoRetryInterval:    time.Duration(pe.AutoRetryInterval),
+		AutoRetryBackoff:     pe.AutoRetryBackoff,
+		AutoRetryMaxInterval: time.Duration(pe.AutoRetryMaxInterval),
+		ProcGroup:            pe.ProcGroup,
+		DefinitionID:         pe.DefinitionId,
+		ArchiveDir:           pe.ArchiveDir,
+		latestStatusSize:     pe.LatestStatusSize,
+		latestStatusModTime:  pe.LatestStatusModTime,
+		runDirModTime:        pe.RunDirModTime,
+	}
 }
 
 func filterDAGRunDirs(entries []os.DirEntry) []os.DirEntry {
@@ -544,26 +728,39 @@ func parseTimeToUnix(s string) int64 {
 
 // parseStatusFile reads the status file. This is a local wrapper to avoid
 // importing the parent dagrun package (which would create a circular dependency).
-// It reads the file and finds the last valid JSON line.
+// It finds the last valid JSON line, reading the file from its end.
 // Keep in sync with internal/dagrun/runstatus.go:StatusFromJSON if the format changes.
 func parseStatusFile(filePath string) (*ir.DAGRunStatus, error) {
-	data, err := fileutil.ReadFile(filePath)
+	f, err := fileutil.Open(filePath)
+	if err != nil {
+		return nil, err
+	}
+	defer func() {
+		_ = f.Close()
+	}()
+	info, err := f.Stat()
 	if err != nil {
 		return nil, err
 	}
 
-	lines := strings.Split(strings.TrimSpace(string(data)), "\n")
-	// Walk backwards to find the last valid status line.
-	for _, line := range slices.Backward(lines) {
-		line := strings.TrimSpace(line)
-		if line == "" {
-			continue
+	var result *ir.DAGRunStatus
+	err = fileutil.ReadLinesBackward(context.Background(), f, info.Size(), func(line []byte, _ bool) (bool, error) {
+		line = bytes.TrimSpace(line)
+		if len(line) == 0 {
+			return false, nil
 		}
-		status, err := ir.StatusFromJSON(line)
-		if err == nil {
-			return status, nil
+		status, err := ir.StatusFromJSON(string(line))
+		if err != nil {
+			return false, nil
 		}
+		result = status
+		return true, nil
+	})
+	if err != nil {
+		return nil, err
 	}
-
-	return nil, fmt.Errorf("no valid status found in %s", filePath)
+	if result == nil {
+		return nil, fmt.Errorf("no valid status found in %s", filePath)
+	}
+	return result, nil
 }

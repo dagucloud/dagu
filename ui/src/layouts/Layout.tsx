@@ -2,15 +2,22 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 import { LicenseBadge } from '@/components/LicenseBadge';
+import { CommandPaletteProvider } from '@/components/command-palette/CommandPaletteProvider';
 import { LicenseBanner } from '@/components/LicenseBanner';
+import { MonitoringNotice } from '@/components/MonitoringNotice';
 import { SchedulerPauseBanner } from '@/components/SchedulerPauseBanner';
 import { UpdateBanner } from '@/components/UpdateBanner';
 import { useConfig } from '@/contexts/ConfigContext';
+import {
+  LayoutChromeProvider,
+  useLayoutChromeState,
+} from '@/contexts/LayoutChromeContext';
 import { cn } from '@/lib/utils';
 import { getResponsiveTitleClass } from '@/lib/text-utils';
 import { Menu, X } from 'lucide-react';
 import * as React from 'react';
 import { useLocation } from 'react-router-dom';
+import { useWorkflowOverlay } from '@/features/peek/WorkflowOverlay';
 import { ContentNavigation } from './ContentNavigation';
 import { mainListItems as MainListItems } from '../menu';
 import { useI18n } from '@/i18n/I18nProvider';
@@ -74,6 +81,22 @@ function getSidebarOverlayColor(foreground: string, alpha: number): string {
 // Constants
 const NAV_SIDEBAR_EXPANDED_WIDTH = 240;
 const NAV_SIDEBAR_COLLAPSED_WIDTH = 56;
+// Below this window width the sidebar starts as its icon rail, so that the
+// content keeps its room. The saved choice applies again at this width.
+export const NAV_SIDEBAR_AUTO_COLLAPSE_BELOW = 900;
+
+function subscribeToResize(onChange: () => void) {
+  window.addEventListener('resize', onChange);
+  return () => window.removeEventListener('resize', onChange);
+}
+
+function useWideWindow(): boolean {
+  return React.useSyncExternalStore(
+    subscribeToResize,
+    () => window.innerWidth >= NAV_SIDEBAR_AUTO_COLLAPSE_BELOW,
+    () => true
+  );
+}
 
 type LayoutProps = {
   navbarColor?: string;
@@ -92,8 +115,22 @@ type LayoutProps = {
  */
 function Content({ navbarColor, children }: LayoutProps) {
   const config = useConfig();
-  const location = useLocation();
+  // Below a workflow overlay, the frame is that of the page under it.
+  const urlLocation = useLocation();
+  const location = useWorkflowOverlay()?.background ?? urlLocation;
   const { t } = useI18n();
+  const {
+    fullBleed,
+    hideBreadcrumb,
+    value: layoutChrome,
+  } = useLayoutChromeState();
+
+  // The workflow page draws its own first row and fills the area. The frame
+  // takes that shape from the address, before the page has loaded, so that a
+  // reload shows no breadcrumb strip and no padding that then go away.
+  const workspaceRoute = /^\/dags\/[^/]+/.test(location.pathname);
+  const bleed = fullBleed || workspaceRoute;
+  const noBreadcrumb = hideBreadcrumb || workspaceRoute;
 
   const hasCustomColor: boolean = Boolean(
     navbarColor && navbarColor.trim() !== ''
@@ -106,6 +143,7 @@ function Content({ navbarColor, children }: LayoutProps) {
         backgroundColor: navbarColor,
         color: contrastColor,
         '--sidebar-foreground': contrastColor,
+        '--sidebar-accent-foreground': contrastColor,
         '--sidebar-primary': contrastColor,
         '--sidebar-ring': contrastColor,
         '--sidebar-hover': getSidebarOverlayColor(contrastColor ?? '#fff', 0.1),
@@ -124,6 +162,14 @@ function Content({ navbarColor, children }: LayoutProps) {
     const saved = localStorage.getItem('sidebarExpanded');
     return saved ? saved === 'true' : true;
   });
+  // On a window below the auto-collapse width the choice of the user applies
+  // to this visit only, and the saved choice stays as it was.
+  const wideWindow = useWideWindow();
+  const [isNarrowSidebarExpanded, setIsNarrowSidebarExpanded] =
+    React.useState(false);
+  const sidebarExpanded = wideWindow
+    ? isSidebarExpanded
+    : isNarrowSidebarExpanded;
   // Mobile sidebar state (hidden by default)
   const [isMobileSidebarOpen, setIsMobileSidebarOpen] = React.useState(false);
   const openMenuButtonRef = React.useRef<HTMLButtonElement>(null);
@@ -137,6 +183,10 @@ function Content({ navbarColor, children }: LayoutProps) {
 
     closeMenuButtonRef.current?.focus();
     const closeOnEscape = (event: KeyboardEvent) => {
+      // A menu inside the sidebar already handled the key.
+      if (event.defaultPrevented) {
+        return;
+      }
       if (event.key === 'Escape') {
         setIsMobileSidebarOpen(false);
         requestAnimationFrame(() => openMenuButtonRef.current?.focus());
@@ -181,10 +231,14 @@ function Content({ navbarColor, children }: LayoutProps) {
 
   // Toggle sidebar function
   const toggleSidebar = () => {
-    setIsSidebarExpanded(!isSidebarExpanded);
+    if (wideWindow) {
+      setIsSidebarExpanded(!isSidebarExpanded);
+    } else {
+      setIsNarrowSidebarExpanded(!isNarrowSidebarExpanded);
+    }
   };
 
-  const desktopSidebarWidth = isSidebarExpanded
+  const desktopSidebarWidth = sidebarExpanded
     ? NAV_SIDEBAR_EXPANDED_WIDTH
     : NAV_SIDEBAR_COLLAPSED_WIDTH;
   const desktopSidebarStyle = {
@@ -206,13 +260,13 @@ function Content({ navbarColor, children }: LayoutProps) {
         style={desktopSidebarStyle}
       >
         <div className="flex flex-col h-full">
-          <nav className="flex-1 overflow-y-auto min-h-0 px-2 py-3">
+          <div className="flex-1 overflow-y-auto min-h-0 px-2 py-3">
             <MainListItems
-              isOpen={isSidebarExpanded}
+              isOpen={sidebarExpanded}
               onToggle={toggleSidebar}
               customColor={hasCustomColor}
             />
-          </nav>
+          </div>
         </div>
       </aside>
 
@@ -254,12 +308,25 @@ function Content({ navbarColor, children }: LayoutProps) {
 
         {/* Scrollable Content - More Compact Padding */}
         <main className="flex min-h-0 flex-1 flex-col overflow-hidden">
-          <ContentNavigation pathname={location.pathname} />
+          {!noBreadcrumb && <ContentNavigation pathname={location.pathname} />}
           <UpdateBanner />
-          <LicenseBanner />
+          {/* The Settings page states these itself, with their actions. */}
+          {location.pathname !== '/settings' && (
+            <>
+              <LicenseBanner />
+              <MonitoringNotice />
+            </>
+          )}
           <SchedulerPauseBanner />
-          <div className="min-h-0 flex-1 overflow-auto p-4 md:p-6 w-full">
-            {children}
+          <div
+            className={cn(
+              'min-h-0 flex-1 w-full',
+              bleed ? 'overflow-hidden' : 'overflow-auto p-4 md:p-6'
+            )}
+          >
+            <LayoutChromeProvider value={layoutChrome}>
+              {children}
+            </LayoutChromeProvider>
           </div>
         </main>
       </div>
@@ -276,14 +343,14 @@ function Content({ navbarColor, children }: LayoutProps) {
             aria-modal="true"
             aria-labelledby="mobile-navigation-title"
             className={cn(
-              'h-full w-64 overflow-hidden shadow-lg border-r border-border',
+              'flex h-full w-64 flex-col overflow-hidden shadow-lg border-r border-border',
               !hasCustomColor && 'bg-sidebar text-sidebar-foreground',
               hasCustomColor && 'custom-sidebar-color'
             )}
             style={sidebarStyle}
             onClick={(e) => e.stopPropagation()}
           >
-            <div className="flex justify-between items-center p-4 border-b border-sidebar-border">
+            <div className="flex shrink-0 justify-between items-center p-4 border-b border-sidebar-border">
               <span
                 id="mobile-navigation-title"
                 className={cn(
@@ -306,14 +373,14 @@ function Content({ navbarColor, children }: LayoutProps) {
                 <X className="h-5 w-5" />
               </button>
             </div>
-            <div className="flex flex-col h-full pt-2">
-              <nav className="flex-1 overflow-y-auto min-h-0 px-2">
-                <MainListItems
-                  isOpen={true}
-                  onNavItemClick={closeMobileSidebar}
-                  customColor={hasCustomColor}
-                />
-              </nav>
+            {/* The menu scrolls its nav and keeps its footer in view. */}
+            <div className="min-h-0 flex-1 px-2 pt-2">
+              <MainListItems
+                isOpen={true}
+                onNavItemClick={closeMobileSidebar}
+                customColor={hasCustomColor}
+                hideHeader
+              />
             </div>
           </div>
         </div>
@@ -324,5 +391,9 @@ function Content({ navbarColor, children }: LayoutProps) {
 
 // Default export Layout component
 export default function Layout({ navbarColor, children }: LayoutProps) {
-  return <Content navbarColor={navbarColor}>{children}</Content>;
+  return (
+    <CommandPaletteProvider>
+      <Content navbarColor={navbarColor}>{children}</Content>
+    </CommandPaletteProvider>
+  );
 }

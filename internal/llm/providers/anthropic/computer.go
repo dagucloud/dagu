@@ -118,6 +118,8 @@ func (s *computerSession) Next(ctx context.Context, obs computeruse.Observation)
 	if err := json.NewDecoder(respBody).Decode(&resp); err != nil {
 		return nil, llm.WrapError(providerName, fmt.Errorf("failed to decode response: %w", err))
 	}
+	// The call is billed whether or not its answer can be used.
+	llm.RecordUsage(ctx, llm.UsageRecord{Provider: providerName, Model: s.opts.Model, Usage: resp.Usage.llm()})
 	if resp.StopReason == stopReasonRefusal {
 		return nil, fmt.Errorf("%s: the model declined the request: %s", providerName, resp.StopDetails.describe())
 	}
@@ -206,11 +208,7 @@ func (s *computerSession) observationContent(obs computeruse.Observation) []any 
 }
 
 func (s *computerSession) turn(resp computerResponse) (*computeruse.Turn, error) {
-	turn := &computeruse.Turn{Usage: llm.Usage{
-		PromptTokens:     resp.Usage.InputTokens,
-		CompletionTokens: resp.Usage.OutputTokens,
-		TotalTokens:      resp.Usage.InputTokens + resp.Usage.OutputTokens,
-	}}
+	turn := &computeruse.Turn{Usage: resp.Usage.llm()}
 	s.pending = s.pending[:0]
 	// Actions after a call that cannot be performed are not run, as the
 	// toolset's batch rules require; they are answered as skipped.
@@ -260,10 +258,7 @@ type computerResponse struct {
 	Content     []json.RawMessage `json:"content"`
 	StopReason  string            `json:"stop_reason"`
 	StopDetails *stopDetails      `json:"stop_details"`
-	Usage       struct {
-		InputTokens  int `json:"input_tokens"`
-		OutputTokens int `json:"output_tokens"`
-	} `json:"usage"`
+	Usage       apiUsage          `json:"usage"`
 }
 
 type stopDetails struct {

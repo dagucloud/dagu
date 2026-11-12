@@ -4,6 +4,7 @@
 package registry
 
 import (
+	"strings"
 	"sync"
 	"testing"
 
@@ -119,4 +120,53 @@ func TestValidateExecutorConfig_RequiredFields(t *testing.T) {
 	// With required field
 	err = ValidateExecutorConfig("test_required", map[string]any{"image": "alpine"})
 	require.NoError(t, err)
+}
+
+func TestValidateExecutorConfig_UnknownKeyHint(t *testing.T) {
+	t.Parallel()
+
+	properties := map[string]*jsonschema.Schema{
+		"input":         {},
+		"format":        {Type: "string"},
+		"stop_at_blank": {},
+		"data":          {},
+		"date":          {},
+	}
+	RegisterExecutorConfigSchema("test_closed", &jsonschema.Schema{
+		Type:                 "object",
+		AdditionalProperties: &jsonschema.Schema{Not: &jsonschema.Schema{}},
+		Properties:           properties,
+	})
+	// An open schema accepts undefined keys, so none of them is a misspelling
+	// even when the config fails for another reason.
+	RegisterExecutorConfigSchema("test_open", &jsonschema.Schema{
+		Type:       "object",
+		Properties: properties,
+	})
+
+	for _, tc := range []struct {
+		name         string
+		executorType string
+		config       map[string]any
+		hint         string // empty when nothing is close enough to suggest
+	}{
+		{"misspelled key", "test_closed", map[string]any{"format": "json", "inputs": 1}, `did you mean "input" instead of "inputs"?`},
+		{"camel case key", "test_closed", map[string]any{"stopAtBlank": true}, `did you mean "stop_at_blank" instead of "stopAtBlank"?`},
+		{"several keys", "test_closed", map[string]any{"inputs": 1, "fromat": "json"},
+			`did you mean "format" instead of "fromat", "input" instead of "inputs"?`},
+		{"equally close keys", "test_closed", map[string]any{"dat": 1}, `did you mean "data" instead of "dat"?`},
+		{"unrelated key", "test_closed", map[string]any{"zzbogus": 1}, ""},
+		{"open schema", "test_open", map[string]any{"format": 1, "inputs": 1}, ""},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			err := ValidateExecutorConfig(tc.executorType, tc.config)
+			require.Error(t, err)
+			if tc.hint == "" {
+				require.NotContains(t, err.Error(), "did you mean")
+				return
+			}
+			require.True(t, strings.HasSuffix(err.Error(), "; "+tc.hint), "error %q does not end with %q", err, tc.hint)
+		})
+	}
 }

@@ -37,7 +37,7 @@ function SectionLinks({
 }): React.ReactElement {
   return (
     <section className="space-y-2">
-      <h3 className="text-xs font-semibold uppercase text-muted-foreground">
+      <h3 className="text-xs font-semibold text-muted-foreground">
         {section.title}
       </h3>
       <div className="grid gap-2 md:grid-cols-2 xl:grid-cols-3">
@@ -222,7 +222,7 @@ export default function HomePage(): React.ReactElement {
               description: t('home.administrationDescription'),
             },
             {
-              to: '/remote-nodes',
+              to: '/settings#remote-nodes',
               label: t('navigation.remoteNodes'),
               description: t('home.remoteNodesDescription'),
             },
@@ -236,7 +236,7 @@ export default function HomePage(): React.ReactElement {
                 ]
               : []),
             {
-              to: '/license',
+              to: '/settings',
               label: t('navigation.license'),
               description: t('home.licenseDescription'),
             },

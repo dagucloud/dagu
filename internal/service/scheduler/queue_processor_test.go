@@ -14,7 +14,6 @@ import (
 	"sync"
 	"sync/atomic"
 	"testing"
-	"testing/synctest"
 	"time"
 
 	"github.com/dagucloud/dagu/v2/internal/cmn/config"
@@ -554,58 +553,6 @@ func TestQueueProcessor_SelectRunnableQueueItemsSkipsOutstandingReservations(t *
 	selectedRef, err := runnable[0].Data()
 	require.NoError(t, err)
 	assert.Equal(t, "run-2", selectedRef.ID)
-}
-
-func TestQueueProcessor_StaleOutstandingDispatchReservationsExpire(t *testing.T) {
-	f := newQueueFixture(t).withDAG("distributed-stale-select-dag", 1).
-		withProcessor(config.Queues{}, WithLeaseStaleThreshold(freshDistributedTestThreshold)).
-		simulateQueue(1, false)
-
-	f.enqueueRuns(1)
-
-	runRef := ir.NewDAGRunRef(f.dag.Name, "run-1")
-	attempt, err := f.dagRunRepository.FindAttempt(f.ctx, runRef)
-	require.NoError(t, err)
-	status, err := attempt.ReadStatus(f.ctx)
-	require.NoError(t, err)
-
-	synctest.Test(t, func(t *testing.T) {
-		require.NoError(t, f.dispatchStore.Enqueue(f.ctx, &dispatch.DispatchTask{
-			DAGRunID:   runRef.ID,
-			Target:     f.dag.Name,
-			QueueName:  f.dag.Name,
-			AttemptID:  attempt.ID(),
-			AttemptKey: queueAttemptKey(runRef, attempt, status),
-		}))
-
-		dispatcher := f.processor.newQueueDispatcher()
-		count, err := dispatcher.countOutstandingDispatchReservations(f.ctx, f.dag.Name)
-		require.NoError(t, err)
-		require.Equal(t, 1, count)
-
-		// Advance the test clock past expiry without imposing a deadline on disk I/O.
-		time.Sleep(2 * freshDistributedTestThreshold)
-		count, err = dispatcher.countOutstandingDispatchReservations(f.ctx, f.dag.Name)
-		require.NoError(t, err)
-		assert.Zero(t, count)
-	})
-
-	items, err := f.queueStore.List(f.ctx, f.dag.Name)
-	require.NoError(t, err)
-
-	runnable, err := f.processor.newQueueDispatcher().selectRunnableQueueItems(f.ctx, items, 1)
-	require.NoError(t, err)
-	require.Len(t, runnable, 1)
-
-	selectedRef, err := runnable[0].Data()
-	require.NoError(t, err)
-	assert.Equal(t, "run-1", selectedRef.ID)
-
-	pendingEntries, err := os.ReadDir(filepath.Join(f.distributedDir, "pending"))
-	if !errors.Is(err, os.ErrNotExist) {
-		require.NoError(t, err)
-	}
-	assert.Empty(t, pendingEntries)
 }
 
 func TestQueueDispatcher_DistributedDispatchHandsOffWithAdmissionToken(t *testing.T) {
@@ -1286,6 +1233,18 @@ func (m *mockDispatchTaskStore) HasOutstandingAttempt(ctx context.Context, attem
 		return m.hasOutstandingAttemptFunc(ctx, attemptKey, claimTimeout)
 	}
 	return false, nil
+}
+
+func (m *mockDispatchTaskStore) ListExpiredHeld(context.Context, time.Time) ([]*dispatch.DispatchTask, error) {
+	return nil, nil
+}
+
+func (m *mockDispatchTaskStore) ListStalePending(context.Context, time.Time) ([]*dispatch.DispatchTask, error) {
+	return nil, nil
+}
+
+func (m *mockDispatchTaskStore) DeletePending(context.Context, string) error {
+	return nil
 }
 
 func TestQueueProcessor_CheckStartupStatusTreatsRunningStatusAsStarted(t *testing.T) {

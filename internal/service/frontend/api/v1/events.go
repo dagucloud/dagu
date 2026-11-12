@@ -35,6 +35,10 @@ func (a *API) ListEventLogs(ctx context.Context, request api.ListEventLogsReques
 	if request.Params.Type != nil {
 		filter.Type = eventstore.EventType(*request.Params.Type)
 	}
+	if filter.Type == "" {
+		// Same-status updates are invalidation signals, not outcomes.
+		filter.ExcludeTypes = []eventstore.EventType{eventstore.TypeDAGRunUpdated}
+	}
 	if request.Params.DagName != nil {
 		filter.DAGName = *request.Params.DagName
 	}

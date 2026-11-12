@@ -15,12 +15,17 @@ import (
 	"sync"
 	"testing"
 	"time"
+	"unicode/utf8"
 
+	"github.com/dagucloud/dagu/v2/internal/cmn/collections"
 	"github.com/dagucloud/dagu/v2/internal/cmn/stringutil"
 	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/llm"
+	"github.com/dagucloud/dagu/v2/internal/runctx"
 	"github.com/dagucloud/dagu/v2/internal/runtime"
 	"github.com/dagucloud/dagu/v2/internal/runtime/agentloop"
+	"github.com/dagucloud/dagu/v2/internal/runtime/runstate"
+	"github.com/dagucloud/dagu/v2/internal/runtime/runstate/memstore"
 	"github.com/dagucloud/dagu/v2/internal/runtime/transform"
 	"github.com/dagucloud/dagu/v2/internal/spec"
 	"github.com/dagucloud/dagu/v2/internal/test"
@@ -1755,4 +1760,38 @@ func TestAgentLoop_FailsAfterAllModelsAreExhausted(t *testing.T) {
 	assert.Equal(t, 2, primary.requestCount())
 	assert.Equal(t, 2, fallbackOne.requestCount())
 	assert.Equal(t, 1, fallbackTwo.requestCount())
+}
+
+func TestChildRunSummaryTruncatesOutputOnRuneBoundary(t *testing.T) {
+	t.Parallel()
+
+	// The 2000-byte output budget can land inside a multibyte rune; the
+	// summary carried into the next agent prompt must stay valid UTF-8.
+	store := memstore.New()
+	root := ir.NewDAGRunRef("root", "root-run")
+	attempt, err := store.BeginAttempt(context.Background(), runstate.BeginAttemptRequest{
+		DAG:        &ir.DAG{Name: "child"},
+		RunID:      "child-run",
+		RootDAGRun: root,
+	})
+	require.NoError(t, err)
+
+	vars := &collections.SyncMap{}
+	vars.Store("out", "out="+strings.Repeat("a", 1999)+"界")
+	require.NoError(t, attempt.RecordStatus(context.Background(), ir.DAGRunStatus{
+		Name: "child", DAGRunID: "child-run", Status: ir.Succeeded,
+		Nodes: []*ir.Node{{
+			Step:            ir.Step{Name: "s1"},
+			Status:          ir.NodeSucceeded,
+			OutputVariables: vars,
+		}},
+	}))
+
+	ctx := runctx.WithContext(context.Background(), runctx.Context{
+		RootDAGRun:    root,
+		RunStateStore: store,
+	})
+	summary := runtime.ChildRunSummary(ctx, "child-run", false)
+	require.Contains(t, summary, "outputs:")
+	assert.True(t, utf8.ValidString(summary))
 }

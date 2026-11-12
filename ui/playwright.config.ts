@@ -52,6 +52,21 @@ export default defineConfig({
   ],
   use: {
     baseURL,
+    // A laptop opens the YAML and the Run panel of the workflow page until
+    // the user closes them. The specs start from both closed; a spec of the
+    // default starts from an empty storage.
+    storageState: {
+      cookies: [],
+      origins: [
+        {
+          origin: new URL(baseURL).origin,
+          localStorage: [
+            { name: 'dagu.workspace.dockOpen.v2', value: 'false' },
+            { name: 'dagu.workspace.yamlPanelOpen', value: 'false' },
+          ],
+        },
+      ],
+    },
     trace: 'retain-on-failure',
     screenshot: 'only-on-failure',
     video: 'retain-on-failure',
@@ -62,6 +77,16 @@ export default defineConfig({
       use: {
         ...devices['Desktop Chrome'],
         browserName: 'chromium',
+        viewport: { width: 1440, height: 900 },
+      },
+    },
+    {
+      name: 'workspace-mobile',
+      testDir: './e2e/workspace',
+      use: {
+        ...devices['Desktop Chrome'],
+        browserName: 'chromium',
+        viewport: { width: 390, height: 844 },
       },
     },
   ],

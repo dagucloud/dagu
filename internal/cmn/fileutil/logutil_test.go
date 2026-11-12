@@ -4,10 +4,17 @@
 package fileutil
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
+
+	"github.com/stretchr/testify/require"
+	"golang.org/x/text/encoding"
+	"golang.org/x/text/encoding/japanese"
+	"golang.org/x/text/encoding/unicode"
 )
 
 func TestReadLogLines(t *testing.T) {
@@ -431,7 +438,7 @@ func TestReadFirstLines(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			result, err := readFirstLines(tt.filePath, tt.n, tt.totalLines, nil)
+			result, err := readFirstLines(tt.filePath, tt.n, tt.totalLines, lineDecoder{})
 
 			// Check error expectation
 			if (err != nil) != tt.expectError {
@@ -542,7 +549,7 @@ func TestReadLastLines(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			result, err := readLastLines(tt.filePath, tt.n, tt.totalLines, nil)
+			result, err := readLastLines(tt.filePath, tt.n, tt.totalLines, lineDecoder{})
 
 			// Check error expectation
 			if (err != nil) != tt.expectError {
@@ -577,6 +584,58 @@ func TestReadLastLines(t *testing.T) {
 					t.Errorf("readLastLines() line %d = %q, want %q", i, line, tt.expectedLines[i])
 				}
 			}
+		})
+	}
+}
+
+// A tail must return the end of the file even when the sampled line count
+// underestimates it, as it does when long lines open the file.
+func TestReadLogLinesTailWithUnderestimatedCount(t *testing.T) {
+	var b strings.Builder
+	for range 1000 {
+		b.WriteString(strings.Repeat("h", 1000))
+		b.WriteByte('\n')
+	}
+	for i := range 20000 {
+		fmt.Fprintf(&b, "line-%d\n", i)
+	}
+	path := filepath.Join(t.TempDir(), "skewed.log")
+	require.NoError(t, os.WriteFile(path, []byte(b.String()), 0o600))
+
+	result, err := ReadLogLines(path, LogReadOptions{Tail: 10000})
+
+	require.NoError(t, err)
+	require.Equal(t, 10000, len(result.Lines))
+	require.Equal(t, "line-10000", result.Lines[0])
+	require.Equal(t, "line-19999", result.Lines[9999])
+	require.True(t, result.HasMore)
+	require.GreaterOrEqual(t, result.TotalLines, result.LineCount+1)
+}
+
+func TestReadLogLinesTailLineEndings(t *testing.T) {
+	tests := []struct {
+		name      string
+		content   string
+		tail      int
+		wantLines []string
+		wantMore  bool
+	}{
+		{name: "TrailingNewline", content: "a\nb\nc\n", tail: 2, wantLines: []string{"b", "c"}, wantMore: true},
+		{name: "NoTrailingNewline", content: "a\nb\nc", tail: 2, wantLines: []string{"b", "c"}, wantMore: true},
+		{name: "CRLF", content: "a\r\nb\r\nc\r\n", tail: 2, wantLines: []string{"b", "c"}, wantMore: true},
+		{name: "EmptyLastLine", content: "a\n\n", tail: 1, wantLines: []string{""}, wantMore: true},
+		{name: "ExactlyAllLines", content: "a\nb\n", tail: 2, wantLines: []string{"a", "b"}, wantMore: false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			path := filepath.Join(t.TempDir(), "endings.log")
+			require.NoError(t, os.WriteFile(path, []byte(tt.content), 0o600))
+
+			result, err := ReadLogLines(path, LogReadOptions{Tail: tt.tail})
+
+			require.NoError(t, err)
+			require.Equal(t, tt.wantLines, result.Lines)
+			require.Equal(t, tt.wantMore, result.HasMore)
 		})
 	}
 }
@@ -680,7 +739,7 @@ func TestReadLinesRange(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			result, err := readLinesRange(tt.filePath, tt.offset, tt.limit, tt.totalLines, nil)
+			result, err := readLinesRange(tt.filePath, tt.offset, tt.limit, tt.totalLines, lineDecoder{})
 
 			// Check error expectation
 			if (err != nil) != tt.expectError {
@@ -839,6 +898,98 @@ func generateVaryingLineLengths(lineCount int) string {
 	return builder.String()
 }
 
+// A non-UTF-8 charset decodes only the lines that are not already UTF-8, so a
+// log that mixes UTF-8 and code page output stays readable.
+func TestReadLogLinesEncoding(t *testing.T) {
+	encode := func(enc encoding.Encoding, s string) []byte {
+		b, err := enc.NewEncoder().Bytes([]byte(s))
+		if err != nil {
+			t.Fatalf("Failed to encode %q: %v", s, err)
+		}
+		return b
+	}
+	mixed := slices.Concat(
+		[]byte("開始\r\n"),
+		encode(japanese.ShiftJIS, "こんにちは\r\n"),
+		[]byte("done\r\n終了\r\n"),
+	)
+
+	tests := []struct {
+		name    string
+		content []byte
+		options LogReadOptions
+		want    []string
+	}{
+		{
+			name:    "UTF8UnderShiftJIS",
+			content: []byte("日本語の出力テスト\r\n"),
+			options: LogReadOptions{Encoding: "shift_jis"},
+			want:    []string{"日本語の出力テスト"},
+		},
+		{
+			name:    "ShiftJIS",
+			content: encode(japanese.ShiftJIS, "こんにちは\n"),
+			options: LogReadOptions{Encoding: "shift_jis"},
+			want:    []string{"こんにちは"},
+		},
+		{
+			name:    "MixedHead",
+			content: mixed,
+			options: LogReadOptions{Encoding: "shift_jis", Head: 2},
+			want:    []string{"開始", "こんにちは"},
+		},
+		{
+			name:    "MixedTail",
+			content: mixed,
+			options: LogReadOptions{Encoding: "shift_jis", Tail: 3},
+			want:    []string{"こんにちは", "done", "終了"},
+		},
+		{
+			name:    "MixedRange",
+			content: mixed,
+			options: LogReadOptions{Encoding: "shift_jis", Offset: 2, Limit: 3},
+			want:    []string{"こんにちは", "done", "終了"},
+		},
+		{
+			// ISO-2022-JP text is 7-bit, which is also valid UTF-8.
+			name:    "ISO2022JP",
+			content: encode(japanese.ISO2022JP, "日本語\n"),
+			options: LogReadOptions{Encoding: "iso-2022-jp"},
+			want:    []string{"日本語"},
+		},
+		{
+			// "~" before a newline continues the line in HZ-GB2312.
+			name:    "HZGB2312Continuation",
+			content: []byte("foo~\nbar\n"),
+			options: LogReadOptions{Encoding: "hz-gb-2312"},
+			want:    []string{"foobar"},
+		},
+		{
+			name:    "UTF16LE",
+			content: encode(unicode.UTF16(unicode.LittleEndian, unicode.IgnoreBOM), "A\n日本\n"),
+			options: LogReadOptions{Encoding: "utf-16le"},
+			want:    []string{"A", "日本"},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			path := filepath.Join(t.TempDir(), "step.out")
+			if err := os.WriteFile(path, tt.content, 0600); err != nil {
+				t.Fatalf("Failed to create test log file: %v", err)
+			}
+
+			result, err := ReadLogLines(path, tt.options)
+			if err != nil {
+				t.Fatalf("ReadLogLines() error = %v", err)
+			}
+			if !slices.Equal(result.Lines, tt.want) {
+				t.Errorf("ReadLogLines() lines = %q, want %q", result.Lines, tt.want)
+			}
+		})
+	}
+}
+
 func TestDecodeString(t *testing.T) {
 	tests := []struct {
 		name     string
@@ -931,6 +1082,42 @@ func TestDecodeString(t *testing.T) {
 	}
 }
 
+// Lines longer than bufio.Scanner's default 64 KiB limit must still be read.
+func TestReadLogLinesLongLine(t *testing.T) {
+	tempDir := t.TempDir()
+
+	longLine := strings.Repeat("x", 200*1024)
+	testLogPath := filepath.Join(tempDir, "long.log")
+	content := "Line 1\n" + longLine + "\nLine 3\n"
+	if err := os.WriteFile(testLogPath, []byte(content), 0600); err != nil {
+		t.Fatalf("Failed to create test log file: %v", err)
+	}
+
+	tests := []struct {
+		name    string
+		options LogReadOptions
+	}{
+		{name: "Range", options: LogReadOptions{Offset: 1, Limit: 10}},
+		{name: "Head", options: LogReadOptions{Head: 3}},
+		{name: "Tail", options: LogReadOptions{Tail: 3}},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result, err := ReadLogLines(testLogPath, tt.options)
+			if err != nil {
+				t.Fatalf("ReadLogLines() error = %v", err)
+			}
+			if result.LineCount != 3 || len(result.Lines) != 3 {
+				t.Fatalf("ReadLogLines() LineCount = %v, want 3", result.LineCount)
+			}
+			if result.Lines[1] != longLine {
+				t.Errorf("ReadLogLines() long line length = %d, want %d", len(result.Lines[1]), len(longLine))
+			}
+		})
+	}
+}
+
 func TestDecodeStringCharsetNormalization(t *testing.T) {
 	// Test that charset names are properly normalized
 	// "こんにちは" in Shift_JIS encoding
@@ -952,5 +1139,24 @@ func TestDecodeStringCharsetNormalization(t *testing.T) {
 				t.Errorf("DecodeString(%q, input) = %q, want %q", charset, result, expected)
 			}
 		})
+	}
+}
+
+// BenchmarkReadLogLinesTail measures a live-viewer tail of a large log.
+func BenchmarkReadLogLinesTail(b *testing.B) {
+	path := filepath.Join(b.TempDir(), "large.log")
+	file, err := os.Create(path)
+	require.NoError(b, err)
+	line := strings.Repeat("x", 120) + "\n"
+	for range 1_000_000 {
+		_, err = file.WriteString(line)
+		require.NoError(b, err)
+	}
+	require.NoError(b, file.Close())
+
+	b.ResetTimer()
+	for b.Loop() {
+		_, err := ReadLogLines(path, LogReadOptions{Tail: 1000})
+		require.NoError(b, err)
 	}
 }

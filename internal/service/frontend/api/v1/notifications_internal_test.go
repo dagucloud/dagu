@@ -80,8 +80,12 @@ func (s notificationServiceStub) DeleteChannel(context.Context, string) error {
 	return nil
 }
 
-func (s notificationServiceStub) SendTest(context.Context, string, string, eventstore.EventType) ([]notificationservice.TestResult, error) {
+func (s notificationServiceStub) SendTest(context.Context, string, string, eventstore.EventType, ...notificationservice.TestOption) ([]notificationservice.TestResult, error) {
 	return nil, nil
+}
+
+func (s notificationServiceStub) CommandChannelsEnabled() bool {
+	return false
 }
 
 func (s notificationServiceStub) SendChannelTest(context.Context, string) ([]notificationservice.TestResult, error) {

@@ -25,7 +25,8 @@ import (
 
 func setupWebhookTestService(t *testing.T) (*Service, string) {
 	t.Helper()
-	webhookStore, err := store.NewWebhookStore(testutil.NewMemoryBackend().Collection("webhooks"), nil)
+	backend := testutil.NewMemoryBackend()
+	webhookStore, err := store.NewWebhookStore(backend.Collection("webhooks"), backend.Collection("webhook_dag_claims"), nil)
 	require.NoError(t, err)
 	service := New(nil, Config{
 		TokenSecret: mustTokenSecret("test"),
@@ -39,7 +40,8 @@ func setupWebhookTestServiceWithEncryptedStore(t *testing.T) (*Service, string) 
 	t.Helper()
 	encryptor, err := cryptoutil.NewEncryptor("test-encryption-key")
 	require.NoError(t, err)
-	webhookStore, err := store.NewWebhookStore(testutil.NewMemoryBackend().Collection("webhooks"), encryptor)
+	backend := testutil.NewMemoryBackend()
+	webhookStore, err := store.NewWebhookStore(backend.Collection("webhooks"), backend.Collection("webhook_dag_claims"), encryptor)
 	require.NoError(t, err)
 	service := New(nil, Config{
 		TokenSecret: mustTokenSecret("test"),

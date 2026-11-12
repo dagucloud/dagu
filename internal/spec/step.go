@@ -19,11 +19,13 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/cmn/cmdutil"
 	"github.com/dagucloud/dagu/v2/internal/cmn/runenv"
 	"github.com/dagucloud/dagu/v2/internal/cmn/signal"
+	"github.com/dagucloud/dagu/v2/internal/cmn/stringutil"
 	cmnvalue "github.com/dagucloud/dagu/v2/internal/cmn/value"
 	"github.com/dagucloud/dagu/v2/internal/executor/registry"
 	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/llm"
 	"github.com/dagucloud/dagu/v2/internal/spec/types"
+	"github.com/goccy/go-yaml"
 )
 
 // step defines a step in the DAG.
@@ -143,7 +145,7 @@ type step struct {
 	// Router configuration (type: router)
 	// Value is the expression to evaluate for routing
 	Value string `yaml:"value,omitempty"`
-	// Routes maps patterns to target step names
+	// Routes maps patterns to target step ids or names
 	Routes map[string][]string `yaml:"routes,omitempty"`
 
 	// parsedOutput caches parsed output configuration during a single step build.
@@ -152,6 +154,8 @@ type step struct {
 	parsedOutputCached bool
 	outputsSet         bool
 	inputsSet          bool
+	// stepDefaults holds the defaults applied to the step, or nil.
+	stepDefaults *defaults
 }
 
 type execSpec struct {
@@ -260,7 +264,8 @@ type retryPolicy struct {
 type thinkingConfig struct {
 	// Enabled activates thinking mode for supported models.
 	Enabled bool `yaml:"enabled,omitempty"`
-	// Effort controls reasoning depth: low, medium, high, xhigh.
+	// Effort controls reasoning depth: none, minimal, low, medium, high,
+	// xhigh, max.
 	Effort string `yaml:"effort,omitempty"`
 	// BudgetTokens sets explicit token budget (provider-specific).
 	BudgetTokens *int `yaml:"budget_tokens,omitempty"`
@@ -311,6 +316,9 @@ type llmConfig struct {
 	// APIKeyName is the name of the environment variable containing the API key.
 	// If not specified, the default environment variable for the provider is used.
 	APIKeyName string `yaml:"api_key_name,omitempty"`
+	// ProviderOrder names the upstream providers OpenRouter tries first, in
+	// order. Only the openrouter provider accepts it.
+	ProviderOrder []string `yaml:"provider_order,omitempty"`
 	// Stream enables or disables streaming output.
 	// Default is true.
 	Stream *bool `yaml:"stream,omitempty"`
@@ -331,6 +339,9 @@ type llmConfig struct {
 	ObservationKeepRecent *int `yaml:"observation_keep_recent,omitempty"`
 	// WebSearch configures provider-native web search.
 	WebSearch *webSearchConfig `yaml:"web_search,omitempty"`
+	// Files names the files the model reads with the prompt: paths, glob
+	// patterns, or a list an earlier step published.
+	Files types.StringOrArray `yaml:"files,omitempty"`
 }
 
 // llmMessage defines a message in the LLM session.
@@ -1036,15 +1047,6 @@ func buildStepRepeatPolicy(_ stepBuildContext, s *step) (ir.RepeatPolicy, error)
 	// No repeat if mode is not determined
 	if mode == "" {
 		return ir.RepeatPolicy{}, nil
-	}
-
-	// Validate that explicit string while/until modes have appropriate conditions
-	// (bool true is allowed without conditions for backward compatibility)
-	if rp.Repeat.IsSet() && !rp.Repeat.IsBool() {
-		m := rp.Repeat.String()
-		if (m == "while" || m == "until") && rp.Condition == "" && len(rp.ExitCode) == 0 {
-			return ir.RepeatPolicy{}, fmt.Errorf("repeat mode '%s' requires either 'condition' or 'exit_code' to be specified", m)
-		}
 	}
 
 	var result ir.RepeatPolicy
@@ -2172,7 +2174,16 @@ func buildStepExecutor(ctx stepBuildContext, s *step, result *ir.Step) error {
 		mergeRedisConfig(ctx.dag.Redis, result.ExecutorConfig.Config)
 	}
 	if result.ExecutorConfig.Type == "harness" && ctx.dag != nil && ctx.dag.Harness != nil {
-		result.ExecutorConfig.Config = mergeHarnessConfig(ctx.dag.Harness, ctx.dag.Harnesses, stepConfig)
+		config, inherited := mergeHarnessConfig(ctx.dag.Harness, ctx.dag.Harnesses, stepConfig)
+		result.ExecutorConfig.Config = config
+		// A provider chosen by a variable is unknown here, so the runtime filters
+		// the inherited options once the provider resolves.
+		if len(inherited) > 0 && strings.Contains(harnessProviderName(config), "${") {
+			if result.ExecutorConfig.Metadata == nil {
+				result.ExecutorConfig.Metadata = make(map[string]any, 1)
+			}
+			result.ExecutorConfig.Metadata[ir.HarnessInheritedOptionsKey] = inherited
+		}
 	}
 	if isKubernetesExecutorType(result.ExecutorConfig.Type) && ctx.dag != nil && ctx.dag.Kubernetes != nil {
 		result.ExecutorConfig.Config = mergeKubernetesExecutorConfig(ctx.dag.Kubernetes, result.ExecutorConfig.Config)
@@ -2247,7 +2258,9 @@ func mergeRedisConfig(dagRedis *ir.RedisConfig, stepConfig map[string]any) {
 	setIfMissing("max_retries", dagRedis.MaxRetries)
 }
 
-func mergeHarnessConfig(dagHarness *ir.HarnessConfig, defs ir.HarnessDefinitions, stepConfig map[string]any) map[string]any {
+// mergeHarnessConfig applies DAG-level harness defaults to a step config and
+// returns the merged config with the sorted keys it inherited.
+func mergeHarnessConfig(dagHarness *ir.HarnessConfig, defs ir.HarnessDefinitions, stepConfig map[string]any) (map[string]any, []string) {
 	effectiveProvider := harnessProviderName(stepConfig)
 	if effectiveProvider == "" && dagHarness != nil {
 		effectiveProvider = harnessProviderName(dagHarness.Config)
@@ -2262,19 +2275,29 @@ func mergeHarnessConfig(dagHarness *ir.HarnessConfig, defs ir.HarnessDefinitions
 	}
 
 	if dagHarness == nil {
-		return merged
+		return merged, nil
 	}
 
+	def := defs[effectiveProvider]
 	dagConfig := dagHarness.Config
 	if ir.IsEffectiveBuiltinCLIHarnessProvider(effectiveProvider, defs) {
 		dagConfig = ir.NormalizeBuiltinHarnessFlagKeys(dagConfig)
 	}
+	// Remote ACP agents accept no CLI options, so DAG-level options meant for
+	// other providers are not inherited.
+	remoteACP := def != nil && def.IsRemote()
 
+	var inherited []string
 	for key, value := range dagConfig {
+		if remoteACP && key != "provider" && key != "acp_permission" {
+			continue
+		}
 		if _, exists := merged[key]; !exists {
 			merged[key] = cloneAny(value)
+			inherited = append(inherited, key)
 		}
 	}
+	slices.Sort(inherited)
 
 	if _, exists := stepConfig["fallback"]; exists {
 		merged["fallback"] = cloneAny(stepConfig["fallback"])
@@ -2282,7 +2305,7 @@ func mergeHarnessConfig(dagHarness *ir.HarnessConfig, defs ir.HarnessDefinitions
 		merged["fallback"] = cloneAny(dagHarness.Fallback)
 	}
 
-	return merged
+	return merged, inherited
 }
 
 func harnessProviderName(cfg map[string]any) string {
@@ -2319,7 +2342,7 @@ func buildStepParallel(_ stepBuildContext, s *step, result *ir.Step) error {
 	}
 
 	result.Parallel = &ir.ParallelConfig{
-		MaxConcurrent: ir.DefaultMaxConcurrent,
+		MaxConcurrent: s.stepDefaults.maxConcurrent(),
 	}
 
 	switch v := s.Parallel.(type) {
@@ -2352,6 +2375,16 @@ func buildStepParallel(_ stepBuildContext, s *step, result *ir.Step) error {
 				default:
 					return ir.NewValidationError("parallel.items", val, fmt.Errorf("parallel.items must be string or array, got %T", val))
 				}
+
+			case "separator":
+				name, ok := val.(string)
+				if !ok {
+					return ir.NewValidationError("parallel.separator", val, fmt.Errorf("parallel.separator must be a string, got %T", val))
+				}
+				if _, ok := stringutil.ParseSeparatorName(name); !ok {
+					return ir.NewValidationError("parallel.separator", name, fmt.Errorf("parallel.separator must be one of %s", strings.Join(stringutil.SeparatorNames(), ", ")))
+				}
+				result.Parallel.Separator = name
 
 			case "max_concurrent":
 				switch mc := val.(type) {
@@ -2394,7 +2427,7 @@ func buildStepForeach(ctx stepBuildContext, s *step, result *ir.Step) error {
 		return err
 	}
 
-	cfg, err := parseForeachConfig(ctx, s.Foreach)
+	cfg, err := parseForeachConfig(ctx, s.Foreach, s.stepDefaults)
 	if err != nil {
 		return err
 	}
@@ -2424,7 +2457,9 @@ func validateForeachExecutionTarget(s *step) error {
 	return nil
 }
 
-func parseForeachConfig(ctx stepBuildContext, raw any) (*ir.ForeachConfig, error) {
+// parseForeachConfig parses a foreach field; defs are the step defaults the
+// foreach step and its body steps inherit.
+func parseForeachConfig(ctx stepBuildContext, raw any, defs *defaults) (*ir.ForeachConfig, error) {
 	obj, ok := raw.(map[string]any)
 	if !ok {
 		return nil, ir.NewValidationError("foreach", raw,
@@ -2433,7 +2468,7 @@ func parseForeachConfig(ctx stepBuildContext, raw any) (*ir.ForeachConfig, error
 
 	cfg := &ir.ForeachConfig{
 		As:            "item",
-		MaxConcurrent: ir.DefaultMaxConcurrent,
+		MaxConcurrent: defs.maxConcurrent(),
 	}
 
 	for key, value := range obj {
@@ -2464,13 +2499,13 @@ func parseForeachConfig(ctx stepBuildContext, raw any) (*ir.ForeachConfig, error
 			}
 			cfg.Key = keyExpr
 		case "max_concurrent":
-			maxConcurrent, err := parseForeachMaxConcurrent(value)
+			maxConcurrent, err := parseMaxConcurrent("foreach.max_concurrent", value)
 			if err != nil {
 				return nil, err
 			}
 			cfg.MaxConcurrent = maxConcurrent
 		case "steps":
-			steps, err := parseForeachSteps(ctx, value)
+			steps, err := parseForeachSteps(ctx, value, defs)
 			if err != nil {
 				return nil, err
 			}
@@ -2511,35 +2546,37 @@ func parseForeachItems(value any, cfg *ir.ForeachConfig) error {
 	return nil
 }
 
-func parseForeachMaxConcurrent(value any) (int, error) {
+// parseMaxConcurrent parses a max_concurrent value reported under field.
+func parseMaxConcurrent(field string, value any) (int, error) {
 	var maxConcurrent int
 	switch mc := value.(type) {
 	case int:
 		maxConcurrent = mc
 	case int64:
 		if mc > math.MaxInt || mc < math.MinInt {
-			return 0, ir.NewValidationError("foreach.max_concurrent", mc,
+			return 0, ir.NewValidationError(field, mc,
 				fmt.Errorf("value %d exceeds integer range", mc))
 		}
 		maxConcurrent = int(mc)
 	case uint64:
 		if mc > math.MaxInt {
-			return 0, ir.NewValidationError("foreach.max_concurrent", mc,
+			return 0, ir.NewValidationError(field, mc,
 				fmt.Errorf("value %d exceeds maximum int", mc))
 		}
 		maxConcurrent = int(mc)
 	default:
-		return 0, ir.NewValidationError("foreach.max_concurrent", value,
-			fmt.Errorf("foreach.max_concurrent must be an integer, got %T", value))
+		return 0, ir.NewValidationError(field, value,
+			fmt.Errorf("%s must be an integer, got %T", field, value))
 	}
 	if maxConcurrent < 1 || maxConcurrent > ir.MaxExpansionConcurrency {
-		return 0, ir.NewValidationError("foreach.max_concurrent", value,
+		return 0, ir.NewValidationError(field, value,
 			fmt.Errorf("max_concurrent must be an integer from 1 through %d", ir.MaxExpansionConcurrency))
 	}
 	return maxConcurrent, nil
 }
 
-func parseForeachSteps(ctx stepBuildContext, value any) ([]ir.Step, error) {
+// parseForeachSteps builds the body steps of a foreach with defs applied.
+func parseForeachSteps(ctx stepBuildContext, value any, defs *defaults) ([]ir.Step, error) {
 	rawSteps, ok := value.([]any)
 	if !ok {
 		return nil, ir.NewValidationError("foreach.steps", value,
@@ -2558,7 +2595,7 @@ func parseForeachSteps(ctx stepBuildContext, value any) ([]ir.Step, error) {
 			return nil, ir.NewValidationError("foreach.steps", rawStep,
 				fmt.Errorf("foreach.steps[%d] must be an object, got %T", idx, rawStep))
 		}
-		builtStep, err := buildStepFromRaw(ctx, idx, stepMap, names, nil)
+		builtStep, err := buildStepFromRaw(ctx, idx, stepMap, names, defs)
 		if err != nil {
 			return nil, ir.NewValidationError("foreach.steps", rawStep, err)
 		}
@@ -2631,16 +2668,34 @@ func buildStepLLM(ctx stepBuildContext, s *step, result *ir.Step) error {
 	}
 
 	// Step has explicit llm: config - use it (full override of DAG-level)
-	cfg := s.LLM
+	cfg, err := llmConfigOf(s.LLM)
+	if err != nil {
+		return err
+	}
+	result.LLM = cfg
+	return nil
+}
 
+// ParseLLMConfig reads an llm block, written as a step's llm field is, in
+// YAML or JSON, and checks it as a step's would be.
+func ParseLLMConfig(data []byte) (*ir.LLMConfig, error) {
+	var cfg llmConfig
+	if err := yaml.UnmarshalWithOptions(data, &cfg, yaml.Strict()); err != nil {
+		return nil, fmt.Errorf("llm: %w", err)
+	}
+	return llmConfigOf(&cfg)
+}
+
+// llmConfigOf checks an llm block and returns the configuration it gives.
+func llmConfigOf(cfg *llmConfig) (*ir.LLMConfig, error) {
 	// Validate provider if specified (for single model config)
 	if err := validateLLMProvider(cfg.Provider); err != nil {
-		return ir.NewValidationError("llm.provider", cfg.Provider, err)
+		return nil, ir.NewValidationError("llm.provider", cfg.Provider, err)
 	}
 
 	// Model is required when llm config is provided
 	if cfg.Model.IsZero() {
-		return ir.NewValidationError("llm.model", nil,
+		return nil, ir.NewValidationError("llm.model", nil,
 			fmt.Errorf("model must be specified when llm config is provided"))
 	}
 
@@ -2652,12 +2707,12 @@ func buildStepLLM(ctx stepBuildContext, s *step, result *ir.Step) error {
 		var err error
 		models, err = convertModelEntries(cfg.Model.Entries())
 		if err != nil {
-			return err
+			return nil, err
 		}
 	} else {
 		modelString = cfg.Model.String()
 		if modelString == "" {
-			return ir.NewValidationError("llm.model", cfg.Model.Value(),
+			return nil, ir.NewValidationError("llm.model", cfg.Model.Value(),
 				fmt.Errorf("model must be specified when llm config is provided"))
 		}
 	}
@@ -2665,7 +2720,7 @@ func buildStepLLM(ctx stepBuildContext, s *step, result *ir.Step) error {
 	// Validate temperature range
 	if cfg.Temperature != nil {
 		if *cfg.Temperature < 0.0 || *cfg.Temperature > 2.0 {
-			return ir.NewValidationError("llm.temperature", *cfg.Temperature,
+			return nil, ir.NewValidationError("llm.temperature", *cfg.Temperature,
 				fmt.Errorf("temperature must be between 0.0 and 2.0"))
 		}
 	}
@@ -2673,28 +2728,36 @@ func buildStepLLM(ctx stepBuildContext, s *step, result *ir.Step) error {
 	// Validate max_tokens if specified
 	if cfg.MaxTokens != nil {
 		if *cfg.MaxTokens < 1 {
-			return ir.NewValidationError("llm.max_tokens", *cfg.MaxTokens,
+			return nil, ir.NewValidationError("llm.max_tokens", *cfg.MaxTokens,
 				fmt.Errorf("max_tokens must be at least 1"))
 		}
 	}
+	// Zero would leave a chat step no round in which to call the model.
+	if cfg.MaxToolIterations != nil && *cfg.MaxToolIterations < 1 {
+		return nil, ir.NewValidationError("llm.max_tool_iterations", *cfg.MaxToolIterations,
+			fmt.Errorf("max_tool_iterations must be at least 1"))
+	}
 	if err := validateAgentLLMLimits(cfg, false); err != nil {
-		return err
+		return nil, err
+	}
+	if err := validateProviderOrder(cfg, models); err != nil {
+		return nil, err
 	}
 
 	// Validate top_p range
 	if cfg.TopP != nil {
 		if *cfg.TopP < 0.0 || *cfg.TopP > 1.0 {
-			return ir.NewValidationError("llm.top_p", *cfg.TopP,
+			return nil, ir.NewValidationError("llm.top_p", *cfg.TopP,
 				fmt.Errorf("top_p must be between 0.0 and 1.0"))
 		}
 	}
 
 	thinking, err := buildThinkingConfig(cfg.Thinking)
 	if err != nil {
-		return err
+		return nil, err
 	}
 
-	result.LLM = &ir.LLMConfig{
+	return &ir.LLMConfig{
 		Provider:          cfg.Provider,
 		Model:             modelString,
 		Models:            models,
@@ -2704,14 +2767,14 @@ func buildStepLLM(ctx stepBuildContext, s *step, result *ir.Step) error {
 		TopP:              cfg.TopP,
 		BaseURL:           cfg.BaseURL,
 		APIKeyName:        cfg.APIKeyName,
+		ProviderOrder:     cfg.ProviderOrder,
 		Stream:            cfg.Stream,
 		Thinking:          thinking,
 		Tools:             cfg.Tools,
 		MaxToolIterations: cfg.MaxToolIterations,
 		WebSearch:         buildWebSearchConfig(cfg.WebSearch),
-	}
-
-	return nil
+		Files:             cfg.Files.Values(),
+	}, nil
 }
 
 func validateAgentLLMLimits(cfg *llmConfig, agentRoot bool) error {
@@ -2772,6 +2835,39 @@ func validateLLMProvider(provider string) error {
 	return err
 }
 
+// validateProviderOrder refuses provider_order for a model whose provider is
+// not openrouter, the one provider that routes among upstream providers. A
+// model entry's own provider_order replaces the shared one. A provider that
+// carries a value reference is checked once the step resolves it.
+func validateProviderOrder(cfg *llmConfig, models []ir.ModelEntry) error {
+	if len(models) == 0 {
+		return requireOpenRouter("llm.provider_order", cfg.ProviderOrder, cfg.Provider)
+	}
+	for i, model := range models {
+		path, order := "llm.provider_order", cfg.ProviderOrder
+		if len(model.ProviderOrder) > 0 {
+			path, order = fmt.Sprintf("llm.model[%d].provider_order", i), model.ProviderOrder
+		}
+		if err := requireOpenRouter(path, order, model.Provider); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// requireOpenRouter refuses an order for a provider other than openrouter. A
+// missing provider is left to the check that requires one.
+func requireOpenRouter(path string, order []string, provider string) error {
+	if len(order) == 0 || provider == "" || cmnvalue.HasValueReference(provider) {
+		return nil
+	}
+	if providerType, _ := llm.ParseProviderType(provider); providerType == llm.ProviderOpenRouter {
+		return nil
+	}
+	return ir.NewValidationError(path, order,
+		fmt.Errorf("provider_order is only supported by the openrouter provider, not %q", provider))
+}
+
 // convertModelEntries converts types.ModelEntry slice to ir.ModelEntry slice with validation.
 func convertModelEntries(entries []types.ModelEntry) ([]ir.ModelEntry, error) {
 	models := make([]ir.ModelEntry, len(entries))
@@ -2780,13 +2876,14 @@ func convertModelEntries(entries []types.ModelEntry) ([]ir.ModelEntry, error) {
 			return nil, ir.NewValidationError(fmt.Sprintf("llm.model[%d].provider", i), e.Provider, err)
 		}
 		models[i] = ir.ModelEntry{
-			Provider:    e.Provider,
-			Name:        e.Name,
-			Temperature: e.Temperature,
-			MaxTokens:   e.MaxTokens,
-			TopP:        e.TopP,
-			BaseURL:     e.BaseURL,
-			APIKeyName:  e.APIKeyName,
+			Provider:      e.Provider,
+			Name:          e.Name,
+			Temperature:   e.Temperature,
+			MaxTokens:     e.MaxTokens,
+			TopP:          e.TopP,
+			BaseURL:       e.BaseURL,
+			APIKeyName:    e.APIKeyName,
+			ProviderOrder: e.ProviderOrder,
 		}
 	}
 	return models, nil

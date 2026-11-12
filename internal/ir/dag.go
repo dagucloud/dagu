@@ -5,9 +5,11 @@ package ir
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"maps"
 	"path/filepath"
+	"slices"
 	"strings"
 	"time"
 
@@ -103,6 +105,8 @@ type DAG struct {
 	Description string `json:"description,omitempty"`
 	// Schedule configuration for starting, stopping, and restarting the DAG.
 	Schedule []Schedule `json:"schedule,omitempty"`
+	// Calendar is the calendar of start schedules that name none.
+	Calendar string `json:"calendar,omitempty"`
 	// StopSchedule contains the cron expressions for stopping the DAG.
 	StopSchedule []Schedule `json:"stopSchedule,omitempty"`
 	// RestartSchedule contains the cron expressions for restarting the DAG.
@@ -187,6 +191,9 @@ type DAG struct {
 	Delay time.Duration `json:"delay,omitempty"`
 	// RestartWait is the time to wait before restarting the DAG.
 	RestartWait time.Duration `json:"restartWait,omitempty"`
+	// RestartPolicy makes the scheduler keep a run of the DAG alive: a new run is
+	// started RestartWait after the previous one ends. See specs/080-restart-policy.md.
+	RestartPolicy RestartPolicy `json:"restartPolicy,omitempty"`
 	// MaxActiveSteps specifies the maximum concurrent steps to run in an execution.
 	MaxActiveSteps int `json:"maxActiveSteps,omitempty"`
 	// MaxActiveRuns specifies the maximum number of concurrent dag-runs.
@@ -237,6 +244,8 @@ type DAG struct {
 	Resources *Resources `json:"resources,omitempty"`
 	// Webhook contains DAG-level webhook trigger behavior configuration.
 	Webhook *WebhookConfig `json:"webhook,omitempty"`
+	// Watch names the folder whose arriving files each start a run.
+	Watch *WatchConfig `json:"watch,omitempty"`
 	// RegistryAuths maps registry hostnames to authentication configs.
 	// Optional: If not specified, falls back to DOCKER_AUTH_CONFIG or docker config.
 	// Credentials are evaluated at runtime. Excluded from JSON: may contain passwords.
@@ -285,9 +294,11 @@ const (
 )
 
 // ParamDef describes a single DAG parameter for API/UI consumers.
-// Name is empty for positional parameters.
+// Name is empty for positional parameters. Title is an optional
+// human-readable label for forms; Name remains the parameter identifier.
 type ParamDef struct {
 	Name        string   `json:"name,omitempty"`
+	Title       string   `json:"title,omitempty"`
 	Type        string   `json:"type,omitempty"`
 	Default     any      `json:"default,omitempty"`
 	Description string   `json:"description,omitempty"`
@@ -305,6 +316,16 @@ type WebhookConfig struct {
 	// ForwardHeaders is the allowlist of request headers to expose to
 	// webhook-triggered DAG runs via the WEBHOOK_HEADERS runtime variable.
 	ForwardHeaders []string `json:"forwardHeaders,omitempty"`
+}
+
+// WatchConfig names a folder whose arriving files each start a run.
+type WatchConfig struct {
+	// Path is the folder watched; a leading ~ is the home directory.
+	Path string `json:"path"`
+	// Pattern is the glob a file's name must match; empty matches every file.
+	Pattern string `json:"pattern,omitempty"`
+	// Interval is how often the folder is read.
+	Interval time.Duration `json:"interval"`
 }
 
 // ArtifactsConfig controls DAG run artifact storage.
@@ -396,6 +417,10 @@ func (d *DAG) Clone() *DAG {
 		webhookCopy.ForwardHeaders = append([]string(nil), d.Webhook.ForwardHeaders...)
 		clone.Webhook = &webhookCopy
 	}
+	if d.Watch != nil {
+		watchCopy := *d.Watch
+		clone.Watch = &watchCopy
+	}
 	if d.Harness != nil {
 		clone.Harness = cloneHarnessConfig(d.Harness)
 	}
@@ -418,6 +443,55 @@ func (d *DAG) HasApprovalSteps() bool {
 		}
 	}
 	return false
+}
+
+// ErrWorkerSelectorApproval is returned when a worker selector is set on a DAG
+// with approval steps, which must run locally.
+var ErrWorkerSelectorApproval = errors.New("DAG with approval steps cannot be dispatched to workers")
+
+// ValidateWorkerSelector checks a selector given for one run: every key must
+// be a valid label key and every value a non-empty valid label value.
+func ValidateWorkerSelector(selector map[string]string) error {
+	var errs []error
+	for _, key := range slices.Sorted(maps.Keys(selector)) {
+		value := selector[key]
+		if strings.TrimSpace(value) == "" {
+			errs = append(errs, fmt.Errorf("worker selector %q: value cannot be empty", key))
+			continue
+		}
+		if err := ValidateLabel(Label{Key: key, Value: value}); err != nil {
+			errs = append(errs, fmt.Errorf("worker selector %q: %w", key, err))
+		}
+	}
+	return errors.Join(errs...)
+}
+
+// ApplyWorkerSelector replaces the DAG's worker selector for one run, also
+// clearing worker_selector: local, under the same rule as the YAML key: a DAG
+// with approval steps keeps running locally.
+func (d *DAG) ApplyWorkerSelector(selector map[string]string) error {
+	if len(selector) == 0 {
+		return nil
+	}
+	if err := ValidateWorkerSelector(selector); err != nil {
+		return err
+	}
+	if d.HasApprovalSteps() {
+		return NewValidationError("worker_selector", selector, ErrWorkerSelectorApproval)
+	}
+	d.WorkerSelector = maps.Clone(selector)
+	d.ForceLocal = false
+	return nil
+}
+
+// FormatWorkerSelector renders a selector as {key: value, ...} with sorted
+// keys, for messages that name the workers a run is waiting for.
+func FormatWorkerSelector(selector map[string]string) string {
+	parts := make([]string, 0, len(selector))
+	for _, key := range slices.Sorted(maps.Keys(selector)) {
+		parts = append(parts, key+": "+selector[key])
+	}
+	return "{" + strings.Join(parts, ", ") + "}"
 }
 
 // HasHumanTaskSteps reports whether the DAG declares a human task. An agent
@@ -479,7 +553,7 @@ func (d *DAG) Validate() error {
 	}
 
 	for _, step := range d.Steps {
-		for _, dep := range step.Depends {
+		for _, dep := range step.AllDepends() {
 			if !stepExists[dep] {
 				errs = append(errs, NewValidationError("depends", dep,
 					fmt.Errorf("step %s depends on non-existent step", step.Name)))
@@ -508,12 +582,109 @@ func (d *DAG) NextRun(now time.Time) time.Time {
 	return next
 }
 
+// ScheduleFire is a time at which a start schedule fires.
+type ScheduleFire struct {
+	// Time is the fire time in the schedule's time zone, or in the zone of
+	// the evaluation time when the schedule names none.
+	Time time.Time
+	// ScheduleIndex is the position of the firing schedule in DAG.Schedule.
+	ScheduleIndex int
+	// SkippedHolidays lists the holidays, since the previous fire, on which
+	// the schedule's cron expression fired but its calendar did not.
+	SkippedHolidays []Holiday
+	// BusinessDay is the listed business-day position the fire matched, or
+	// 0 when the schedule lists none.
+	BusinessDay int
+	// ExtraBusinessDay reports whether the fire falls on a business day only
+	// because its calendar lists it as one.
+	ExtraBusinessDay bool
+}
+
+// UpcomingFires returns up to limit start-schedule fire times after from,
+// earliest first. Schedules that fire at the same instant yield one fire,
+// attributed to the first of them. The result ignores scheduler state such
+// as suspension, pauses, and consumed one-off schedules.
+func (d *DAG) UpcomingFires(from time.Time, limit int) []ScheduleFire {
+	if limit <= 0 || len(d.Schedule) == 0 {
+		return nil
+	}
+	cursors := make([]fireCursor, len(d.Schedule))
+	for i, sched := range d.Schedule {
+		cursors[i] = nextFireCursor(sched, from)
+	}
+
+	var fires []ScheduleFire
+	for len(fires) < limit {
+		earliest := -1
+		for i, cursor := range cursors {
+			if !cursor.at.IsZero() && (earliest < 0 || cursor.at.Before(cursors[earliest].at)) {
+				earliest = i
+			}
+		}
+		if earliest < 0 {
+			break
+		}
+		at := cursors[earliest].at
+		sched := d.Schedule[earliest]
+		loc := sched.Location()
+		if loc == nil {
+			loc = from.Location()
+		}
+		fire := ScheduleFire{Time: at.In(loc), ScheduleIndex: earliest}
+		if bound, ok := sched.Parsed.(calendarSchedule); ok {
+			day := bound.dateOf(at)
+			fire.BusinessDay = bound.businessDay(day)
+			fire.ExtraBusinessDay = bound.calendar.IsExtraBusinessDay(day)
+		}
+		// A one-off's time carries its own offset, in which an unzoned cron
+		// would be evaluated; advance from the evaluation zone instead.
+		after := at.In(from.Location())
+		for i, cursor := range cursors {
+			if cursor.at.IsZero() || cursor.at.After(at) {
+				continue
+			}
+			fire.SkippedHolidays = appendHolidays(fire.SkippedHolidays, cursor.skipped)
+			cursors[i] = nextFireCursor(d.Schedule[i], after)
+		}
+		fires = append(fires, fire)
+	}
+	return fires
+}
+
+// fireCursor is a schedule's next fire and the holidays skipped to reach it.
+type fireCursor struct {
+	at      time.Time
+	skipped []Holiday
+}
+
+func nextFireCursor(sched Schedule, after time.Time) fireCursor {
+	if bound, ok := sched.Parsed.(calendarSchedule); ok {
+		at, skipped := bound.next(after)
+		return fireCursor{at: at, skipped: skipped}
+	}
+	return fireCursor{at: sched.Next(after)}
+}
+
+// appendHolidays appends the holidays not yet listed, keeping one entry per
+// date when several schedules or candidates skip the same day.
+func appendHolidays(dst, holidays []Holiday) []Holiday {
+	for _, holiday := range holidays {
+		if !slices.ContainsFunc(dst, func(listed Holiday) bool { return listed.Date == holiday.Date }) {
+			dst = append(dst, holiday)
+		}
+	}
+	return dst
+}
+
 // initializeDefaults sets the default values for the DAG.
 func (d *DAG) initializeDefaults() {
 	const (
 		defaultHistRetentionDays = 30
-		defaultMaxCleanUpTime    = 5 * time.Second
-		defaultMaxActiveRuns     = 1
+		// A service DAG adds a run at each restart, so it keeps a number of
+		// runs rather than days of them.
+		defaultServiceDAGHistRetentionRuns = 100
+		defaultMaxCleanUpTime              = 5 * time.Second
+		defaultMaxActiveRuns               = 1
 	)
 
 	if d.Type == "" {
@@ -523,7 +694,11 @@ func (d *DAG) initializeDefaults() {
 		d.LogOutput = LogOutputSeparate
 	}
 	if d.HistRetentionDays == 0 && d.HistRetentionRuns == 0 {
-		d.HistRetentionDays = defaultHistRetentionDays
+		if d.RestartPolicy.Enabled() {
+			d.HistRetentionRuns = defaultServiceDAGHistRetentionRuns
+		} else {
+			d.HistRetentionDays = defaultHistRetentionDays
+		}
 	}
 	if d.MaxCleanUpTime == 0 {
 		d.MaxCleanUpTime = defaultMaxCleanUpTime
@@ -859,7 +1034,15 @@ type Schedule struct {
 	At string `json:"at,omitempty"`
 	// Profile is the runtime profile name that activates this schedule.
 	Profile string `json:"profile,omitempty"`
-	// Parsed is the parsed cron schedule.
+	// Calendar names the calendar whose business days the schedule fires
+	// on. It is empty, or CalendarNone, for a schedule without one.
+	Calendar string `json:"calendar,omitempty"`
+	// BusinessDays keeps only the fires on these business days of the
+	// month, counted from the start when positive and from the end when
+	// negative.
+	BusinessDays []int `json:"business_days,omitempty"`
+	// Parsed is the parsed cron schedule. A calendar schedule has none until
+	// its calendar is bound.
 	Parsed cron.Schedule `json:"-"`
 	// AtTime is the parsed one-off schedule time.
 	AtTime time.Time `json:"-"`
@@ -874,17 +1057,21 @@ func (s Schedule) MarshalJSON() ([]byte, error) {
 		return nil, err
 	}
 	return json.Marshal(struct {
-		Kind       ScheduleKind `json:"kind,omitempty"`
-		Expression string       `json:"expression,omitempty"`
-		At         string       `json:"at,omitempty"`
-		Profile    string       `json:"profile,omitempty"`
-		Warnings   []string     `json:"warnings,omitempty"`
+		Kind         ScheduleKind `json:"kind,omitempty"`
+		Expression   string       `json:"expression,omitempty"`
+		At           string       `json:"at,omitempty"`
+		Profile      string       `json:"profile,omitempty"`
+		Calendar     string       `json:"calendar,omitempty"`
+		BusinessDays []int        `json:"business_days,omitempty"`
+		Warnings     []string     `json:"warnings,omitempty"`
 	}{
-		Kind:       normalized.Kind,
-		Expression: normalized.Expression,
-		At:         normalized.At,
-		Profile:    normalized.Profile,
-		Warnings:   normalized.Warnings,
+		Kind:         normalized.Kind,
+		Expression:   normalized.Expression,
+		At:           normalized.At,
+		Profile:      normalized.Profile,
+		Calendar:     normalized.Calendar,
+		BusinessDays: normalized.BusinessDays,
+		Warnings:     normalized.Warnings,
 	})
 }
 
@@ -902,7 +1089,7 @@ func (s *Schedule) UnmarshalJSON(data []byte) error {
 		return nil
 	}
 
-	schedule, err := parseScheduleMap(raw, ScheduleParseOptions{AllowAt: true})
+	schedule, err := parseScheduleMap(raw, ScheduleParseOptions{AllowAt: true, AllowCalendar: true})
 	if err != nil {
 		return err
 	}

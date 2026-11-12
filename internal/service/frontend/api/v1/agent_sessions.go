@@ -40,6 +40,9 @@ const (
 	agentSessionActionBadRequest agentSessionActionClass = iota
 	agentSessionActionNotFound
 	agentSessionActionConflict
+	// agentSessionActionAPIError carries its own HTTP status, such as a
+	// failed authorization check.
+	agentSessionActionAPIError
 )
 
 type agentSessionActionError struct {
@@ -51,6 +54,9 @@ type agentSessionActionError struct {
 func (e *agentSessionActionError) Error() string { return e.message }
 
 func classifyAgentSessionAction(err error) agentSessionActionClass {
+	if _, ok := errors.AsType[*Error](err); ok {
+		return agentSessionActionAPIError
+	}
 	var actionErr *agentSessionActionError
 	if !errors.As(err, &actionErr) {
 		return agentSessionActionBadRequest
@@ -72,6 +78,8 @@ func (a *API) RespondDAGRunStepAgentInteraction(ctx context.Context, request api
 	response, err := a.respondAgentInteraction(ctx, ir.NewDAGRunRef(request.Name, request.DagRunId), "", request.StepName, request.InteractionId, request.Body)
 	if err != nil {
 		switch classifyAgentSessionAction(err) {
+		case agentSessionActionAPIError:
+			return nil, err
 		case agentSessionActionNotFound:
 			return &api.RespondDAGRunStepAgentInteraction404JSONResponse{Code: api.ErrorCodeNotFound, Message: err.Error()}, nil
 		case agentSessionActionConflict:
@@ -91,6 +99,8 @@ func (a *API) RespondSubDAGRunStepAgentInteraction(ctx context.Context, request 
 	response, err := a.respondAgentInteraction(ctx, ir.NewDAGRunRef(request.Name, request.DagRunId), request.SubDAGRunId, request.StepName, request.InteractionId, request.Body)
 	if err != nil {
 		switch classifyAgentSessionAction(err) {
+		case agentSessionActionAPIError:
+			return nil, err
 		case agentSessionActionNotFound:
 			return &api.RespondSubDAGRunStepAgentInteraction404JSONResponse{Code: api.ErrorCodeNotFound, Message: err.Error()}, nil
 		case agentSessionActionConflict:
@@ -110,6 +120,8 @@ func (a *API) RestartDAGRunStepAgentSession(ctx context.Context, request api.Res
 	response, err := a.restartAgentSession(ctx, ir.NewDAGRunRef(request.Name, request.DagRunId), "", request.StepName)
 	if err != nil {
 		switch classifyAgentSessionAction(err) {
+		case agentSessionActionAPIError:
+			return nil, err
 		case agentSessionActionNotFound:
 			return &api.RestartDAGRunStepAgentSession404JSONResponse{Code: api.ErrorCodeNotFound, Message: err.Error()}, nil
 		case agentSessionActionConflict:
@@ -129,6 +141,8 @@ func (a *API) RestartSubDAGRunStepAgentSession(ctx context.Context, request api.
 	response, err := a.restartAgentSession(ctx, ir.NewDAGRunRef(request.Name, request.DagRunId), request.SubDAGRunId, request.StepName)
 	if err != nil {
 		switch classifyAgentSessionAction(err) {
+		case agentSessionActionAPIError:
+			return nil, err
 		case agentSessionActionNotFound:
 			return &api.RestartSubDAGRunStepAgentSession404JSONResponse{Code: api.ErrorCodeNotFound, Message: err.Error()}, nil
 		case agentSessionActionConflict:
@@ -166,7 +180,7 @@ func (a *API) loadAgentStatus(ctx context.Context, root ir.DAGRunRef, subDAGRunI
 	if err != nil {
 		return ir.DAGRunRef{}, nil, nil, err
 	}
-	if err := a.requireWorkspaceVisible(ctx, workspaceName); err != nil {
+	if err := a.requireExecuteForWorkspace(ctx, workspaceName); err != nil {
 		return ir.DAGRunRef{}, nil, nil, err
 	}
 	return mutationRef, status, attempt, nil
@@ -248,7 +262,7 @@ func (a *API) requireLocalBrowserSession(ctx context.Context, ref ir.DAGRunRef, 
 // waiting to be resumed. An error means the browser's state is unknown.
 func browserSessionWaiting(ctx context.Context, dataDir, dagRunID, stepName string, now time.Time) (bool, error) {
 	store := browserhost.NewStore(filepath.Join(dataDir, browserhost.DataDirName))
-	record, err := store.Load(browserhost.RecordID(dagRunID, stepName))
+	record, err := store.Load(browserhost.RecordID(dagRunID, "", stepName))
 	if errors.Is(err, os.ErrNotExist) {
 		return false, nil
 	}
@@ -397,7 +411,7 @@ func (a *API) respondAgentInteraction(ctx context.Context, root ir.DAGRunRef, su
 		if subDAGRunID == "" {
 			err = a.resumeWaitingDAGRun(ctx, root, updated)
 		} else {
-			err = a.resumeSubDAGRun(ctx, root, subDAGRunID)
+			err = a.resumeResolvedSubDAGRun(ctx, root, mutationRef, subDAGRunID, stepName)
 		}
 		if err != nil {
 			_ = a.rollbackPushBack(ctx, mutationRef, applied, original)
@@ -459,7 +473,7 @@ func (a *API) restartAgentSession(ctx context.Context, root ir.DAGRunRef, subDAG
 	if subDAGRunID == "" {
 		err = a.resumeWaitingDAGRun(ctx, root, updated)
 	} else {
-		err = a.resumeSubDAGRun(ctx, root, subDAGRunID)
+		err = a.resumeResolvedSubDAGRun(ctx, root, mutationRef, subDAGRunID, stepName)
 	}
 	if err != nil {
 		_ = a.rollbackPushBack(ctx, mutationRef, applied, original)
@@ -540,6 +554,9 @@ func validateAgentInteractionResponse(interaction ir.AgentInteraction, body *api
 			return errors.New("permission response requires a decision")
 		}
 		decision := string(*body.Decision)
+		if decision == ir.AgentDecisionSkip && interaction.Permission == ir.AgentPermissionBrowserWrite {
+			return nil
+		}
 		if decision != "once" && decision != "session" && decision != "reject" {
 			return errors.New("permission decision must be once, session, or reject")
 		}

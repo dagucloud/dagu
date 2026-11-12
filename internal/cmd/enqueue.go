@@ -39,7 +39,7 @@ Examples:
 	)
 }
 
-var enqueueFlags = []commandLineFlag{paramsFlag, paramsStdinFlag, nameFlag, dagRunIDFlag, queueFlag, labelsFlag, tagsFlag, defaultWorkingDirFlag, profileFlag, triggerTypeFlag, triggerActorFlag, scheduleTimeFlag, noReuseFlag}
+var enqueueFlags = []commandLineFlag{paramsFlag, paramsStdinFlag, nameFlag, dagRunIDFlag, queueFlag, workerLabelFlag, labelsFlag, tagsFlag, defaultWorkingDirFlag, profileFlag, triggerTypeFlag, triggerActorFlag, scheduleTimeFlag, scheduledAtFlag, noReuseFlag}
 
 func runEnqueue(ctx *Context, args []string) error {
 	if ctx.IsRemote() {
@@ -72,6 +72,9 @@ func runEnqueue(ctx *Context, args []string) error {
 	if queueOverride != "" {
 		dag.Queue = queueOverride
 	}
+	if err := applyWorkerLabelsOverride(ctx, dag); err != nil {
+		return err
+	}
 
 	if err := parseAndAppendLabels(ctx, dag); err != nil {
 		return err
@@ -86,11 +89,11 @@ func runEnqueue(ctx *Context, args []string) error {
 		return fmt.Errorf("failed to get trigger actor: %w", err)
 	}
 
-	scheduleTime, err := parseScheduleTimeParam(ctx)
+	profileName, err := runtimeProfileNameParam(ctx)
 	if err != nil {
 		return err
 	}
-	profileName, err := runtimeProfileNameParam(ctx)
+	slot, err := runSlotParams(ctx, dag, profileName, false)
 	if err != nil {
 		return err
 	}
@@ -100,12 +103,13 @@ func runEnqueue(ctx *Context, args []string) error {
 	}
 
 	return enqueueDAGRun(ctx, dag, runID, runOptions{
-		triggerType:  triggerType,
-		triggerActor: triggerActor,
-		scheduleTime: scheduleTime,
-		profileName:  profileName,
-		definitionID: dagDefinitionIDFromEnv(),
-		noReuse:      noReuse,
+		triggerType:    triggerType,
+		triggerActor:   triggerActor,
+		scheduleTime:   slot.scheduleTime,
+		scheduleWindow: slot.window,
+		profileName:    profileName,
+		definitionID:   dagDefinitionIDFromEnv(),
+		noReuse:        noReuse,
 	})
 }
 
@@ -125,6 +129,10 @@ func enqueueDAGRun(ctx *Context, dag *ir.DAG, dagRunID string, opts runOptions) 
 		return fmt.Errorf("DAG %q with ID %q already exists", dag.Name, dagRunID)
 	}
 
+	if err := ctx.DAGRunMgr.CheckServiceRun(ctx, dag, dagRunID); err != nil {
+		return err
+	}
+
 	queued, err := intake.EnqueueRun(ctx.Context, intake.QueueRequest{
 		DAGRunRepository:        ctx.Persistence.DAGRunRepository,
 		QueueStore:              ctx.Persistence.QueueStore,
@@ -135,6 +143,7 @@ func enqueueDAGRun(ctx *Context, dag *ir.DAG, dagRunID string, opts runOptions) 
 		TriggerType:             opts.triggerType,
 		TriggerActor:            opts.triggerActor,
 		ScheduleTime:            opts.scheduleTime,
+		ScheduleWindow:          opts.scheduleWindow,
 		ProfileName:             opts.profileName,
 		DefinitionID:            opts.definitionID,
 		NoReuse:                 opts.noReuse,

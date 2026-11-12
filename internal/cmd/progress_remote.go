@@ -236,7 +236,7 @@ func (p *RemoteProgressDisplay) truncateWorkerDisplay(maxWidth int) string {
 		return ""
 	}
 	if len(p.workerID) > maxWidth {
-		return p.workerID[:maxWidth-1] + "…"
+		return stringutil.TruncUTF8Bytes(p.workerID, maxWidth-1) + "…"
 	}
 	return p.workerID
 }
@@ -260,7 +260,7 @@ func (p *RemoteProgressDisplay) truncateWorkerID(availableWidth int) string {
 
 	workerSuffix := " → " + p.workerID
 	if len(workerSuffix) > availableWidth {
-		return workerSuffix[:availableWidth-1] + "…"
+		return stringutil.TruncUTF8Bytes(workerSuffix, availableWidth-1) + "…"
 	}
 	return workerSuffix
 }

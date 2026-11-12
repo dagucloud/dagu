@@ -6,7 +6,11 @@ package scheduler
 import (
 	"context"
 	"io"
+	"maps"
 	"net/http"
+	"os"
+	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 
@@ -50,15 +54,7 @@ func TestNotificationServiceUsesConfiguredPublicURL(t *testing.T) {
 		Paths:  config.PathsConfig{DataDir: t.TempDir()},
 		Server: config.Server{PublicURL: "https://dagu.example.com/workflows"},
 	}
-	key, err := crypto.ResolveKey(cfg.Paths.DataDir)
-	require.NoError(t, err)
-	encryptor, err := crypto.NewEncryptor(key)
-	require.NoError(t, err)
-	store, err := persisfile.NewNotificationStore(
-		persisfile.NewBackend(cfg.Paths).Collection(persis.CollectionNotifications),
-		encryptor,
-	)
-	require.NoError(t, err)
+	store := newNotificationTestStore(t, cfg)
 
 	settings, err := notificationmodel.Normalize(&notificationmodel.Settings{
 		DAGName: "daily-report",
@@ -81,6 +77,7 @@ func TestNotificationServiceUsesConfiguredPublicURL(t *testing.T) {
 		cfg,
 		store,
 		nil,
+		nil,
 		notificationservice.WithHTTPClient(httpClient),
 	)
 	results, err := service.SendTest(
@@ -95,4 +92,66 @@ func TestNotificationServiceUsesConfiguredPublicURL(t *testing.T) {
 	request := <-received
 	require.NoError(t, request.err)
 	assert.Contains(t, request.body, `"message":"https://dagu.example.com/workflows/dag-runs/daily-report/notification-test"`)
+}
+
+// Command channels need the server's DAG write and run permissions, and
+// their commands never see Dagu's own credentials.
+func TestNotificationServiceCommandChannels(t *testing.T) {
+	t.Parallel()
+	if runtime.GOOS == "windows" {
+		t.Skip("POSIX shell syntax")
+	}
+
+	allowed := map[config.Permission]bool{
+		config.PermissionWriteDAGs: true,
+		config.PermissionRunDAGs:   true,
+	}
+	outPath := filepath.Join(t.TempDir(), "env.txt")
+	cfg := &config.Config{
+		Paths:  config.PathsConfig{DataDir: t.TempDir()},
+		Server: config.Server{Permissions: allowed},
+		Core: config.Core{BaseEnv: config.NewBaseEnv([]string{
+			"PATH=" + os.Getenv("PATH"),
+			"DAGU_AUTH_BASIC_PASSWORD=secret",
+		})},
+	}
+	service := newNotificationService(cfg, newNotificationTestStore(t, cfg), nil, nil)
+	channel, err := service.SaveChannel(context.Background(), &notificationmodel.Channel{
+		Name:    "env",
+		Type:    notificationmodel.ProviderCommand,
+		Enabled: true,
+		Command: &notificationmodel.CommandTarget{Command: "env > " + outPath},
+	}, "tester")
+	require.NoError(t, err)
+
+	results, err := service.SendChannelTest(context.Background(), channel.ID)
+	require.NoError(t, err)
+	require.Len(t, results, 1)
+	require.True(t, results[0].Delivered, results[0].Error)
+	body, err := os.ReadFile(outPath)
+	require.NoError(t, err)
+	assert.Contains(t, string(body), "DAG_NAME=")
+	assert.NotContains(t, string(body), "DAGU_AUTH_BASIC_PASSWORD")
+
+	for _, permission := range []config.Permission{config.PermissionWriteDAGs, config.PermissionRunDAGs} {
+		denied := maps.Clone(allowed)
+		denied[permission] = false
+		cfg := &config.Config{Server: config.Server{Permissions: denied}}
+		assert.False(t, newNotificationService(cfg, nil, nil, nil).CommandChannelsEnabled(), permission)
+	}
+}
+
+func newNotificationTestStore(t *testing.T, cfg *config.Config) notificationmodel.Store {
+	t.Helper()
+
+	key, err := crypto.ResolveKey(cfg.Paths.DataDir)
+	require.NoError(t, err)
+	encryptor, err := crypto.NewEncryptor(key)
+	require.NoError(t, err)
+	store, err := persisfile.NewNotificationStore(
+		persisfile.NewBackend(cfg.Paths).Collection(persis.CollectionNotifications),
+		encryptor,
+	)
+	require.NoError(t, err)
+	return store
 }

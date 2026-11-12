@@ -17,10 +17,25 @@ const providerName = browserhost.AgentProvider
 // statusBlocked marks requests allowed_domains blocked.
 const statusBlocked = "blocked"
 
+const (
+	// kindPage labels what the page the browser shows tells about the run.
+	kindPage = "page"
+	// statusRefused marks a page a site refused.
+	statusRefused = "refused"
+)
+
 // logBlocked reports the requests allowed_domains blocked while the
 // operation at index ran, summarized by describeBlocked.
 func logBlocked(t *agentstep.Timeline, index int, summary string) {
 	summary = t.Masker.MaskString(summary)
 	_, _ = fmt.Fprintf(t.Log, "%s %s %s %s\n", t.Position(index), kindAllowedDomains, statusBlocked, summary)
 	t.AppendEvent(ir.AgentSessionEvent{Type: agentstep.EventOperation, Name: kindAllowedDomains, Status: statusBlocked, Content: summary})
+}
+
+// logRefusal reports the refusal the page showed after the operation at
+// index.
+func logRefusal(t *agentstep.Timeline, index int, refused refusal) {
+	content := t.Masker.MaskString(refused.String())
+	_, _ = fmt.Fprintf(t.Log, "%s %s %s %s\n", t.Position(index), kindPage, statusRefused, content)
+	t.AppendEvent(ir.AgentSessionEvent{Type: agentstep.EventOperation, Name: kindPage, Status: statusRefused, Content: content})
 }

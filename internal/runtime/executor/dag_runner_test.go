@@ -14,6 +14,7 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/persis"
 	"github.com/dagucloud/dagu/v2/internal/runctx"
+	"github.com/dagucloud/dagu/v2/internal/runtime/modelusage"
 	"github.com/dagucloud/dagu/v2/internal/runtime/runstate"
 	"github.com/dagucloud/dagu/v2/internal/runtime/runstate/memstore"
 	"github.com/dagucloud/dagu/v2/internal/runtime/workspacebundle"
@@ -367,6 +368,45 @@ func TestRetry_Distributed(t *testing.T) {
 
 	require.NoError(t, executor.Kill(os.Interrupt))
 	assert.Equal(t, 0, runner.cancelCalled)
+}
+
+// A child run's model usage counts toward the step that ran it, as the
+// child's latest total: a retry of the same child replaces it rather than
+// adding to it, since the child's total already covers its earlier attempts.
+func TestSubDAGExecutor_ReportsChildModelUsage(t *testing.T) {
+	t.Parallel()
+
+	dagCtx := runctx.Context{
+		DAG:        &ir.DAG{Name: "parent"},
+		RootDAGRun: ir.NewDAGRunRef("parent", "root-123"),
+		DAGRunID:   "parent-456",
+	}
+	usage := func(calls int64) []ir.ModelUsage {
+		return []ir.ModelUsage{{Provider: "openrouter", Model: "kitewell/included", Calls: calls, InputTokens: 100 * calls}}
+	}
+	runner := &mockSubWorkflowRunner{
+		shouldRun:   true,
+		runResult:   &ir.RunStatus{Name: "child", DAGRunID: "child-789", Status: ir.Failed, ModelUsage: usage(2)},
+		retryResult: &ir.RunStatus{Name: "child", DAGRunID: "child-789", Status: ir.Succeeded, ModelUsage: usage(3)},
+	}
+	executor := &SubDAGExecutor{
+		DAG:               &ir.DAG{Name: "child", YamlData: []byte("name: child")},
+		subWorkflowRunner: runner,
+		externalStepRetry: true,
+		activeRuns:        make(map[string]context.CancelFunc),
+		dagCtx:            dagCtx,
+		killed:            make(chan struct{}),
+	}
+	meter := modelusage.NewMeter(nil)
+	ctx := modelusage.WithMeter(runctx.WithContext(context.Background(), dagCtx), meter)
+
+	_, err := executor.Execute(ctx, RunParams{RunID: "child-789"}, "")
+	require.NoError(t, err)
+	assert.Equal(t, usage(2), meter.Snapshot().Total())
+
+	_, err = executor.Retry(ctx, RunParams{RunID: "child-789"}, "flaky", "", dagrun.RetryPath{})
+	require.NoError(t, err)
+	assert.Equal(t, usage(3), meter.Snapshot().Total(), "the retried child's total replaces its earlier one")
 }
 
 func TestSubDAGExecutor_ExecuteDoesNotDispatchAfterPreRunKill(t *testing.T) {

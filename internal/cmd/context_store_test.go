@@ -126,11 +126,68 @@ func TestStore_ValidateContext(t *testing.T) {
 			},
 			wantErr: "path separators",
 		},
+		{
+			name: "url with query",
+			ctx: &cliContext{
+				Name:      "prod",
+				ServerURL: "https://example.com/api/v1?x=1",
+				APIKey:    "dagu_test",
+			},
+			wantErr: "must not include query parameters or fragments",
+		},
+		{
+			name: "url with fragment",
+			ctx: &cliContext{
+				Name:      "prod",
+				ServerURL: "https://example.com/api/v1#frag",
+				APIKey:    "dagu_test",
+			},
+			wantErr: "must not include query parameters or fragments",
+		},
+		{
+			name: "url with empty query delimiter",
+			ctx: &cliContext{
+				Name:      "prod",
+				ServerURL: "https://example.com?",
+				APIKey:    "dagu_test",
+			},
+			wantErr: "must not include query parameters or fragments",
+		},
+		{
+			name: "url with empty fragment delimiter",
+			ctx: &cliContext{
+				Name:      "prod",
+				ServerURL: "https://example.com#",
+				APIKey:    "dagu_test",
+			},
+			wantErr: "must not include query parameters or fragments",
+		},
+		{
+			name: "url with credentials",
+			ctx: &cliContext{
+				Name:      "prod",
+				ServerURL: "https://user:pass@example.com/api/v1",
+				APIKey:    "dagu_test",
+			},
+			wantErr: "must not include credentials",
+		},
+		{
+			name: "valid https url with path",
+			ctx: &cliContext{
+				Name:      "prod",
+				ServerURL: "https://example.com/api/v1",
+				APIKey:    "dagu_test",
+			},
+		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			err := store.ValidateContext(tt.ctx)
+			if tt.wantErr == "" {
+				require.NoError(t, err)
+				return
+			}
 			require.Error(t, err)
 			assert.Contains(t, err.Error(), tt.wantErr)
 		})

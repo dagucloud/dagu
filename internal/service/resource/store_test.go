@@ -82,6 +82,24 @@ func TestMemoryStore_EmptyHistory(t *testing.T) {
 	assert.Empty(t, history.Load)
 }
 
+func TestMemoryStore_DiskUsedPercent(t *testing.T) {
+	t.Parallel()
+
+	store := NewMemoryStore(time.Hour, 10*time.Second)
+	_, ok := store.DiskUsedPercent()
+	assert.False(t, ok, "nothing recorded yet")
+
+	store.Add(0, 0, 91.5, 0, 0, 0, 500_000_000_000, 457_500_000_000)
+	used, ok := store.DiskUsedPercent()
+	require.True(t, ok)
+	assert.Equal(t, 91.5, used)
+
+	// A failed disk read records no total.
+	store.Add(0, 0, 0, 0, 0, 0, 0, 0)
+	_, ok = store.DiskUsedPercent()
+	assert.False(t, ok)
+}
+
 func TestMemoryStore_GetHistoryReturnsCopy(t *testing.T) {
 	t.Parallel()
 

@@ -1,0 +1,6 @@
+schedule:
+  - expression: "CRON_TZ=UTC 0 9 * * *"
+    calendar: weekdays
+    business_days: [-1]
+steps:
+  - run: echo scheduled

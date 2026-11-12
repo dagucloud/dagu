@@ -4,8 +4,10 @@
 package redis
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -27,17 +29,15 @@ var (
 
 // redisExecutor implements the Executor interface for Redis operations.
 type redisExecutor struct {
-	mu            sync.Mutex
-	step          ir.Step
-	cfg           *Config
-	client        goredis.UniversalClient
-	poolManager   *GlobalRedisPoolManager
-	stdout        io.Writer
-	stderr        io.Writer
-	cancelFunc    context.CancelFunc
-	lockRelease   func() error
-	useGlobalPool bool
-	closed        bool
+	mu          sync.Mutex
+	step        ir.Step
+	cfg         *Config
+	client      goredis.UniversalClient
+	stdout      io.Writer
+	stderr      io.Writer
+	cancelFunc  context.CancelFunc
+	lockRelease func() error
+	closed      bool
 }
 
 // ExecutionMetrics holds metrics from Redis execution.
@@ -58,35 +58,17 @@ func newRedisExecutor(ctx context.Context, step ir.Step) (executor.Executor, err
 		return nil, fmt.Errorf("failed to parse redis config: %w", err)
 	}
 
-	// Check for global pool manager (worker mode)
-	var client goredis.UniversalClient
-	var poolManager *GlobalRedisPoolManager
-	var useGlobalPool bool
-
-	if pm := GetRedisPoolManager(ctx); pm != nil {
-		// Use global pool for worker mode
-		client, err = pm.GetOrCreateClient(ctx, cfg)
-		if err != nil {
-			return nil, fmt.Errorf("failed to get client from global pool: %w", err)
-		}
-		poolManager = pm
-		useGlobalPool = true
-	} else {
-		// Use per-step connection (non-distributed mode)
-		client, err = createClientWithRetry(ctx, cfg)
-		if err != nil {
-			return nil, fmt.Errorf("failed to create redis client: %w", err)
-		}
+	client, err := createClientWithRetry(ctx, cfg)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create redis client: %w", err)
 	}
 
 	return &redisExecutor{
-		step:          step,
-		cfg:           cfg,
-		client:        client,
-		poolManager:   poolManager,
-		useGlobalPool: useGlobalPool,
-		stdout:        os.Stdout,
-		stderr:        os.Stderr,
+		step:   step,
+		cfg:    cfg,
+		client: client,
+		stdout: os.Stdout,
+		stderr: os.Stderr,
 	}, nil
 }
 
@@ -111,10 +93,7 @@ func (e *redisExecutor) Kill(_ os.Signal) error {
 	return nil
 }
 
-// Close releases resources held by the Redis executor.
-// In worker mode (global pool), releases the client back to the pool.
-// In non-worker mode, closes the client.
-// Implements io.Closer.
+// Close releases the lock the step holds and closes its client.
 func (e *redisExecutor) Close() error {
 	e.mu.Lock()
 	defer e.mu.Unlock()
@@ -135,20 +114,8 @@ func (e *redisExecutor) Close() error {
 		return nil
 	}
 
-	var err error
-
-	if e.useGlobalPool && e.poolManager != nil {
-		// Worker mode: release client back to pool
-		e.poolManager.ReleaseClient(e.cfg)
-		// Don't close the client - pool owns it
-	} else {
-		// Non-worker mode: close the client
-		err = e.client.Close()
-	}
-
-	// Clear references to prevent misuse
+	err := e.client.Close()
 	e.client = nil
-	e.poolManager = nil
 	return err
 }
 
@@ -243,25 +210,69 @@ func (e *redisExecutor) executeWithMetrics(ctx context.Context, command, key str
 		return err
 	}
 
-	metrics.Status = "success"
-
-	if result == nil {
-		return nil
+	if result != nil {
+		if err := e.writeResult(result); err != nil {
+			metrics.Status = "error"
+			metrics.Error = err.Error()
+			return err
+		}
 	}
 
-	return e.writeResult(result)
+	metrics.Status = "success"
+	return nil
 }
 
-// writeResult writes the result to stdout.
+// writeResult writes the result to stdout. A result whose output would
+// exceed max_result_size fails and writes nothing; 0 means no limit.
 func (e *redisExecutor) writeResult(result any) error {
-	writer := NewResultWriter(e.stdout, e.cfg.OutputFormat, e.cfg.NullValue)
-	if err := writer.Write(result); err != nil {
+	if e.cfg.MaxResultSize == 0 {
+		return e.formatResult(e.stdout, result)
+	}
+	var buf bytes.Buffer
+	if err := e.formatResult(&limitWriter{w: &buf, remaining: e.cfg.MaxResultSize}, result); err != nil {
+		return err
+	}
+	if _, err := buf.WriteTo(e.stdout); err != nil {
 		return fmt.Errorf("failed to write result: %w", err)
 	}
+	return nil
+}
+
+// formatResult writes result to w in the configured output format.
+func (e *redisExecutor) formatResult(w io.Writer, result any) error {
+	writer := NewResultWriter(w, e.cfg.OutputFormat, e.cfg.NullValue)
+	if err := writer.Write(result); err != nil {
+		return e.resultError("failed to write result", err)
+	}
 	if err := writer.Flush(); err != nil {
-		return fmt.Errorf("failed to flush result: %w", err)
+		return e.resultError("failed to flush result", err)
 	}
 	return nil
+}
+
+func (e *redisExecutor) resultError(action string, err error) error {
+	if errors.Is(err, errResultTooLarge) {
+		return fmt.Errorf("result is larger than max_result_size of %d bytes", e.cfg.MaxResultSize)
+	}
+	return fmt.Errorf("%s: %w", action, err)
+}
+
+// errResultTooLarge reports a write past a limitWriter's limit.
+var errResultTooLarge = errors.New("result too large")
+
+// limitWriter passes writes to w until remaining bytes are used up, then
+// fails with errResultTooLarge.
+type limitWriter struct {
+	w         io.Writer
+	remaining int64
+}
+
+func (l *limitWriter) Write(p []byte) (int, error) {
+	if int64(len(p)) > l.remaining {
+		return 0, errResultTooLarge
+	}
+	l.remaining -= int64(len(p))
+	return l.w.Write(p)
 }
 
 // writeMetrics writes execution metrics to stderr.
@@ -280,6 +291,10 @@ func init() {
 		"redis",
 		newRedisExecutor,
 		nil,
-		registry.ExecutorCapabilities{Command: true, Script: true},
+		registry.ExecutorCapabilities{
+			Command:    true,
+			Script:     true,
+			PathInputs: []string{"script_file", "tls_cert", "tls_key", "tls_ca"},
+		},
 	)
 }

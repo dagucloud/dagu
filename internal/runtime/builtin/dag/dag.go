@@ -15,6 +15,7 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/cmn/fileutil"
 	"github.com/dagucloud/dagu/v2/internal/cmn/logger"
 	"github.com/dagucloud/dagu/v2/internal/cmn/logger/tag"
+	"github.com/dagucloud/dagu/v2/internal/dagrun"
 	"github.com/dagucloud/dagu/v2/internal/executor/registry"
 	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/runctx"
@@ -157,7 +158,15 @@ func (e *dagExecutor) Run(ctx context.Context) error {
 		if hop.RunID != e.runParams.RunID {
 			return errTargetRunMissing(hop.RunID, e.step.Name)
 		}
-		result, execErr = e.child.Retry(ctx, e.runParams, path.NextStep(), e.workDir, path.Advance())
+		switch path.NextLeaf() {
+		case dagrun.RetryLeafResume:
+			// Executing an existing child run continues it from its checkpoint.
+			result, execErr = e.child.Execute(ctx, e.runParams, e.workDir)
+		case dagrun.RetryLeafReuse:
+			result, execErr = e.child.Reuse(ctx, e.runParams, e.workDir)
+		default:
+			result, execErr = e.child.Retry(ctx, e.runParams, path.NextStep(), e.workDir, path.Advance())
+		}
 	} else {
 		result, execErr = e.child.Execute(ctx, e.runParams, e.workDir)
 	}
@@ -208,7 +217,7 @@ func (e *dagExecutor) DetermineNodeStatus() (ir.NodeStatus, error) {
 			return ir.NodeSkipped, nil
 		}
 		return ir.NodeFailed, fmt.Errorf("sub DAG run %s failed with status: %s", e.result.DAGRunID, e.result.Status)
-	case ir.NotStarted, ir.Running, ir.Failed, ir.Queued:
+	case ir.NotStarted, ir.Running, ir.Failed, ir.Queued, ir.Rejected:
 		return ir.NodeFailed, fmt.Errorf("sub DAG run %s failed with status: %s", e.result.DAGRunID, e.result.Status)
 	default:
 		// This should never happen, but satisfies the exhaustive check

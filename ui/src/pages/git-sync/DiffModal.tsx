@@ -8,7 +8,7 @@ import {
 } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
 import { SyncStatus } from '@/api/v1/schema';
-import { useUserPreferences } from '@/contexts/UserPreference';
+import { useResolvedTheme } from '@/contexts/UserPreference';
 import { Upload, RotateCcw, Trash2, EyeOff, RefreshCw, X } from 'lucide-react';
 import { DialogClose } from '@/components/ui/dialog';
 import { useI18n } from '@/i18n/I18nProvider';
@@ -64,8 +64,7 @@ export function DiffModal({
   isDeleting,
 }: DiffModalProps) {
   const { ts } = useI18n();
-  const { preferences } = useUserPreferences();
-  const isDarkMode = preferences.theme === 'dark';
+  const isDarkMode = useResolvedTheme() === 'dark';
 
   const getTitles = () => {
     if (!status) return { left: 'Remote', right: 'Local' };

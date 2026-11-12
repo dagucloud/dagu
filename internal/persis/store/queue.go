@@ -7,6 +7,8 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"maps"
+	"slices"
 	"sort"
 	"strings"
 	"sync"
@@ -25,7 +27,10 @@ const (
 	queuePollInterval        = 2 * time.Second
 )
 
-var _ queue.QueueStore = (*QueueStore)(nil)
+var (
+	_ queue.QueueStore = (*QueueStore)(nil)
+	_ queue.Summarizer = (*QueueStore)(nil)
+)
 
 // QueueStore implements [queue.QueueStore] on top of a [persis.Collection].
 // Records are keyed as "{queueName}/{itemID}", while item IDs exposed through
@@ -273,6 +278,34 @@ func (s *QueueStore) QueueList(ctx context.Context) ([]string, error) {
 	}
 	sort.Strings(names)
 	return names, nil
+}
+
+// Summaries sums up the queues that hold queued items, in name order, from
+// the items' IDs alone. The next item in line is the first by ID: IDs
+// order high priority first, and each priority by when it was queued.
+func (s *QueueStore) Summaries(ctx context.Context) ([]queue.Summary, error) {
+	ids, err := s.queueRecordIDs(ctx, "")
+	if err != nil {
+		return nil, err
+	}
+	counts := make(map[string]int)
+	next := make(map[string]string)
+	for _, id := range ids {
+		name, itemID, ok := splitQueueRecordID(id)
+		if !ok || !strings.HasPrefix(itemID, "item_") {
+			continue
+		}
+		counts[name]++
+		if first, seen := next[name]; !seen || itemID < first {
+			next[name] = itemID
+		}
+	}
+	summaries := make([]queue.Summary, 0, len(counts))
+	for _, name := range slices.Sorted(maps.Keys(counts)) {
+		_, queuedAt := queueItemMetadata(next[name], time.Time{})
+		summaries = append(summaries, queue.Summary{Name: name, Queued: counts[name], Next: next[name], NextQueuedAt: queuedAt})
+	}
+	return summaries, nil
 }
 
 // QueueWatcher returns a backend-neutral polling watcher.

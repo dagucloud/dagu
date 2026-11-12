@@ -2,8 +2,10 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 // Package spec077_xlsx_test covers the xlsx actions through the CLI. Every
-// workbook is created by xlsx.write inside the fixture, and step outputs are
-// captured with file.write steps because outputs do not go to stdout.
+// workbook is created by xlsx.write inside the fixture, except one with
+// hidden sheets and rows, which no action writes and the test builds; step
+// outputs are captured with file.write steps because outputs do not go to
+// stdout.
 package spec077_xlsx_test
 
 import (
@@ -69,6 +71,15 @@ func TestXlsxRoundTrip(t *testing.T) {
 	require.Equal(t, "Orders!A1:E3", meta.Range)
 	require.False(t, meta.Truncated)
 
+	type column struct {
+		Name     string `json:"name"`
+		Type     string `json:"type"`
+		Filled   int    `json:"filled"`
+		Blank    int    `json:"blank"`
+		Distinct int    `json:"distinct"`
+		Min      any    `json:"min"`
+		Max      any    `json:"max"`
+	}
 	var info []struct {
 		Name      string            `json:"name"`
 		Range     string            `json:"range"`
@@ -76,6 +87,7 @@ func TestXlsxRoundTrip(t *testing.T) {
 		Headers   []string          `json:"headers"`
 		Types     map[string]string `json:"types"`
 		RowCount  int               `json:"row_count"`
+		Columns   []column          `json:"columns"`
 	}
 	readJSON(t, dagu, "info.json", &info)
 	require.Len(t, info, 1)
@@ -87,6 +99,13 @@ func TestXlsxRoundTrip(t *testing.T) {
 	require.Equal(t, "datetime", info[0].Types["Due"])
 	require.Equal(t, "boolean", info[0].Types["Paid"])
 	require.Equal(t, 2, info[0].RowCount)
+	require.Equal(t, []column{
+		{Name: "Invoice No", Type: "string", Filled: 2, Distinct: 2},
+		{Name: "Amount", Type: "number", Filled: 2, Distinct: 2, Min: float64(10), Max: 20.5},
+		{Name: "Due", Type: "datetime", Filled: 2, Distinct: 2, Min: "2026-10-01T00:00:00", Max: "2026-10-02T14:30:00"},
+		{Name: "Paid", Type: "boolean", Filled: 2, Distinct: 2},
+		{Name: "Note", Type: "string", Filled: 1, Blank: 1, Distinct: 1},
+	}, info[0].Columns)
 
 	var sheets []string
 	readJSON(t, dagu, "sheets.json", &sheets)
@@ -284,6 +303,17 @@ func TestXlsxTypeErrors(t *testing.T) {
 	readJSON(t, warn, "out_null.json", &asNull)
 	require.Equal(t, out.Rows, asNull.Rows)
 	require.Equal(t, out.Warnings, asNull.Warnings)
+
+	// on_type_error: keep keeps the value as read, with the same warning.
+	var kept struct {
+		Rows     []map[string]any `json:"rows"`
+		Warnings []string         `json:"warnings"`
+	}
+	readJSON(t, warn, "out_keep.json", &kept)
+	require.Len(t, kept.Rows, 2)
+	require.Equal(t, "N/A", kept.Rows[0]["Amount"])
+	require.Equal(t, float64(7), kept.Rows[1]["Amount"])
+	require.Equal(t, out.Warnings, kept.Warnings)
 }
 
 func TestXlsxUnsupportedFormat(t *testing.T) {

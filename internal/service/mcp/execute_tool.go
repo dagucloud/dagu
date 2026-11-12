@@ -7,6 +7,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"maps"
 	"net/http"
 	"sort"
 	"strconv"
@@ -21,10 +22,13 @@ import (
 )
 
 const (
-	executeActionStart   = "start"
-	executeActionEnqueue = "enqueue"
-	executeActionRetry   = "retry"
-	executeActionStop    = "stop"
+	executeActionStart    = "start"
+	executeActionEnqueue  = "enqueue"
+	executeActionRetry    = "retry"
+	executeActionStop     = "stop"
+	executeActionApprove  = "approve"
+	executeActionReject   = "reject"
+	executeActionPushBack = "push_back"
 
 	executeTargetTypeDAG        = "dag"
 	executeTargetTypeInlineSpec = "inline_spec"
@@ -47,11 +51,17 @@ const (
 	executeFieldQueue              = "queue"
 	executeFieldSingleton          = "singleton"
 	executeFieldNoReuse            = "noReuse"
+	executeFieldScheduleTime       = "scheduleTime"
+	executeFieldProfile            = "profile"
 	executeFieldLabels             = "labels"
 	executeFieldStepName           = "stepName"
 	executeFieldIncludeDownstream  = "includeDownstream"
 	executeFieldWait               = "wait"
 	executeFieldWaitTimeoutSeconds = "waitTimeoutSeconds"
+	executeFieldSubDAGRunID        = "subDAGRunId"
+	executeFieldInputs             = "inputs"
+	executeFieldReason             = "reason"
+	executeFieldAttemptID          = "attemptId"
 
 	executeWaitDefaultTimeoutSeconds = 60
 	executeWaitMaxTimeoutSeconds     = 300
@@ -67,11 +77,19 @@ type executeInput struct {
 	Queue              string
 	Singleton          bool
 	NoReuse            bool
+	ScheduleTime       string
+	Profile            string
 	Labels             []string
 	StepName           string
 	IncludeDownstream  bool
 	Wait               bool
 	WaitTimeoutSeconds int
+	SubDAGRunID        string
+	// Inputs keeps the raw JSON object so human-task input reaches the
+	// human-task parser with its exact encoding.
+	Inputs    json.RawMessage
+	Reason    string
+	AttemptID string
 }
 
 func executeToolInputSchema() json.RawMessage {
@@ -80,13 +98,13 @@ func executeToolInputSchema() json.RawMessage {
 		"properties": {
 			"action": {
 				"type": "string",
-				"enum": ["start", "enqueue", "retry", "stop"],
-				"description": "Execution action."
+				"enum": ["start", "enqueue", "retry", "stop", "approve", "reject", "push_back"],
+				"description": "Execution action. approve, reject, and push_back decide a step that waits for a person: an approval gate or a human task, as listed under the steps of dagu_read target=run. approve completes a human task; human tasks cannot be rejected."
 			},
 			"targetType": {
 				"type": "string",
 				"enum": ["dag", "inline_spec", "run"],
-				"description": "Target type. Defaults to run for retry and stop, inline_spec when spec is present, otherwise dag."
+				"description": "Target type. Defaults to run for retry, stop, approve, reject, and push_back, inline_spec when spec is present, otherwise dag."
 			},
 			"name": {
 				"type": "string",
@@ -98,7 +116,7 @@ func executeToolInputSchema() json.RawMessage {
 			},
 			"dagRunId": {
 				"type": "string",
-				"description": "DAG-run ID. Required for retry and stop; optional override for start and enqueue."
+				"description": "DAG-run ID. Required for retry, stop, approve, reject, and push_back; optional override for start and enqueue."
 			},
 			"params": {
 				"type": ["string", "object"],
@@ -116,6 +134,14 @@ func executeToolInputSchema() json.RawMessage {
 				"type": "boolean",
 				"description": "Execute eligible build steps without reusing prior materializations for start or enqueue."
 			},
+			"scheduleTime": {
+				"type": "string",
+				"description": "Schedule slot to start or enqueue the DAG for: latest, a date (2006-01-02), a time in the schedule's zone (2006-01-02T15:04), or RFC 3339 with an offset. The run gets that slot's schedule time and window. A slot later than now is rejected. Only for targetType dag."
+			},
+			"profile": {
+				"type": "string",
+				"description": "Runtime profile name for start or enqueue. Selects the profile for this run only. When omitted, a stored DAG keeps its default profile resolution and an inline spec runs without a profile."
+			},
 			"labels": {
 				"type": "array",
 				"items": {"type": "string"},
@@ -123,11 +149,27 @@ func executeToolInputSchema() json.RawMessage {
 			},
 			"stepName": {
 				"type": "string",
-				"description": "Optional step name for retry."
+				"description": "Optional step name for retry. Required for approve, reject, and push_back: the waiting step to decide."
 			},
 			"includeDownstream": {
 				"type": "boolean",
 				"description": "When true, retry the selected step and every reachable descendant. Requires stepName."
+			},
+			"subDAGRunId": {
+				"type": "string",
+				"description": "For approve, reject, and push_back: ID of the sub-DAG run that owns the waiting step, when the step is inside a sub-DAG run of dagRunId."
+			},
+			"inputs": {
+				"type": "object",
+				"description": "For approve and push_back: values for the step. An approval gate takes string values for the names in its input list; a human task takes values for its form, or for its push-back feedback form."
+			},
+			"reason": {
+				"type": "string",
+				"description": "Optional reason for reject."
+			},
+			"attemptId": {
+				"type": "string",
+				"description": "For approve, reject, and push_back: the attemptId from the dagu_read run details the decision is based on. The decision is refused with conflict when the run has moved to another attempt since that read."
 			},
 			"wait": {
 				"type": "boolean",
@@ -192,19 +234,25 @@ func (svc *Service) executeToolImpl(ctx context.Context, input executeInput) (*m
 
 	var (
 		dagRunID string
+		warnings []string
 		err      error
 	)
 
 	switch input.Action {
 	case executeActionStart:
-		dagRunID, err = svc.startDAG(ctx, input.TargetType, input)
+		dagRunID, warnings, err = svc.startDAG(ctx, input.TargetType, input)
 	case executeActionEnqueue:
-		dagRunID, err = svc.enqueueDAG(ctx, input.TargetType, input)
+		dagRunID, warnings, err = svc.enqueueDAG(ctx, input.TargetType, input)
 	case executeActionRetry:
 		err = svc.retryDAGRun(ctx, input)
 		dagRunID = input.DAGRunID
 	case executeActionStop:
 		err = svc.stopDAGRun(ctx, input)
+		dagRunID = input.DAGRunID
+	case executeActionApprove, executeActionReject, executeActionPushBack:
+		if err = svc.allowRemoteDecision(ctx, input); err == nil {
+			err = svc.decideWaitingStep(ctx, input)
+		}
 		dagRunID = input.DAGRunID
 	}
 	if err != nil {
@@ -218,8 +266,19 @@ func (svc *Service) executeToolImpl(ctx context.Context, input executeInput) (*m
 		"dagRunId":   dagRunID,
 		"references": defaultReferenceURIs(),
 	}
+	if len(warnings) > 0 {
+		output["warnings"] = warnings
+	}
 	links := []resourceLink{}
 	message := "Dagu execute action completed."
+	decision := isStepDecisionAction(input.Action)
+	if decision {
+		output["stepName"] = input.StepName
+		if input.SubDAGRunID != "" {
+			output["subDAGRunId"] = input.SubDAGRunID
+		}
+		message = stepDecisionMessage(input)
+	}
 	if input.Name != "" && dagRunID != "" {
 		run := runURI(input.Name, dagRunID)
 		logs := runLogsURI(input.Name, dagRunID)
@@ -242,6 +301,9 @@ func (svc *Service) executeToolImpl(ctx context.Context, input executeInput) (*m
 			message = svc.waitForRun(ctx, input, dagRunID, output)
 		} else {
 			output["subscribe"] = "Subscribe to " + run + " to receive an MCP resource update notification when the run reaches a terminal state or stops at a waiting checkpoint."
+			if decision {
+				svc.recordRunStatus(ctx, input.Name, dagRunID, output)
+			}
 		}
 	}
 
@@ -269,8 +331,9 @@ func (svc *Service) waitForRun(ctx context.Context, input executeInput, dagRunID
 
 	output["completed"] = false
 	for {
-		raw, err := svc.api.GetDAGRunDetailsData(ctx, input.Name+"/"+dagRunID)
+		result, err := svc.api.GetDAGRunDetailsWithOutputsData(ctx, input.Name, dagRunID, "")
 		if err == nil {
+			raw := result.Details
 			run, detailsErr := dagRunDetailsFromResponse(raw)
 			if detailsErr != nil {
 				output["waitError"] = detailsErr.Error()
@@ -289,6 +352,7 @@ func (svc *Service) waitForRun(ctx context.Context, input executeInput, dagRunID
 					output["waitError"] = normalizeErr.Error()
 					return "Dagu execute action completed, but waiting for the run failed. Poll the runUri resource for completion."
 				}
+				maps.Copy(details, runOutputFields(result, run))
 				output["completed"] = terminal
 				output["run"] = details
 				if waiting {
@@ -384,6 +448,10 @@ func parseExecuteToolInput(raw json.RawMessage) (executeInput, *executeToolError
 			input.Singleton, parseErr = executeBoolField(field, value)
 		case executeFieldNoReuse:
 			input.NoReuse, parseErr = executeBoolField(field, value)
+		case executeFieldScheduleTime:
+			input.ScheduleTime, parseErr = executeStringField(field, value)
+		case executeFieldProfile:
+			input.Profile, parseErr = executeStringField(field, value)
 		case executeFieldLabels:
 			if err := json.Unmarshal(value, &input.Labels); err != nil {
 				parseErr = executeInputError("Field labels must be an array of strings.", executeFieldLabels)
@@ -398,6 +466,18 @@ func parseExecuteToolInput(raw json.RawMessage) (executeInput, *executeToolError
 			if err := json.Unmarshal(value, &input.WaitTimeoutSeconds); err != nil {
 				parseErr = executeInputError("Field waitTimeoutSeconds must be an integer.", executeFieldWaitTimeoutSeconds)
 			}
+		case executeFieldSubDAGRunID:
+			input.SubDAGRunID, parseErr = executeStringField(field, value)
+		case executeFieldInputs:
+			var object map[string]json.RawMessage
+			if err := json.Unmarshal(value, &object); err != nil {
+				parseErr = executeInputError("Field inputs must be an object.", executeFieldInputs)
+			}
+			input.Inputs = value
+		case executeFieldReason:
+			input.Reason, parseErr = executeStringField(field, value)
+		case executeFieldAttemptID:
+			input.AttemptID, parseErr = executeStringField(field, value)
 		default:
 			parseErr = executeInputError("Unknown field "+field+".", field)
 		}
@@ -453,14 +533,16 @@ func validateExecuteInput(input *executeInput, provided map[string]bool) *execut
 	switch input.Action {
 	case "":
 		return executeInputError("The action field is required.", executeFieldAction)
-	case executeActionStart, executeActionEnqueue, executeActionRetry, executeActionStop:
+	case executeActionStart, executeActionEnqueue, executeActionRetry, executeActionStop,
+		executeActionApprove, executeActionReject, executeActionPushBack:
 	default:
 		return executeInputError("Unsupported execute action.", executeFieldAction)
 	}
+	decision := isStepDecisionAction(input.Action)
 
 	if input.TargetType == "" {
 		switch {
-		case input.Action == executeActionRetry || input.Action == executeActionStop:
+		case input.Action == executeActionRetry || input.Action == executeActionStop || decision:
 			input.TargetType = executeTargetTypeRun
 		case strings.TrimSpace(input.Spec) != "":
 			input.TargetType = executeTargetTypeInlineSpec
@@ -486,9 +568,9 @@ func validateExecuteInput(input *executeInput, provided map[string]bool) *execut
 				return executeInputError("The spec field is required for targetType inline_spec.", executeFieldSpec)
 			}
 		default:
-			return executeInputError("The run targetType is only valid for retry and stop.", executeFieldTargetType)
+			return executeInputError("The run targetType is only valid for retry, stop, approve, reject, and push_back.", executeFieldTargetType)
 		}
-	case executeActionRetry, executeActionStop:
+	case executeActionRetry, executeActionStop, executeActionApprove, executeActionReject, executeActionPushBack:
 		if input.TargetType != executeTargetTypeRun {
 			return executeInputError("The "+input.Action+" action requires targetType run.", executeFieldTargetType)
 		}
@@ -511,20 +593,44 @@ func validateExecuteInput(input *executeInput, provided map[string]bool) *execut
 			return executeInputError("The singleton field is only valid for start and enqueue.", executeFieldSingleton)
 		case provided[executeFieldNoReuse]:
 			return executeInputError("The noReuse field is only valid for start and enqueue.", executeFieldNoReuse)
+		case provided[executeFieldScheduleTime]:
+			return executeInputError("The scheduleTime field is only valid for start and enqueue.", executeFieldScheduleTime)
+		case input.Profile != "":
+			return executeInputError("The profile field is only valid for start and enqueue.", executeFieldProfile)
 		case provided[executeFieldLabels]:
 			return executeInputError("The labels field is only valid for start and enqueue.", executeFieldLabels)
 		}
 	}
+	if launchAction && provided[executeFieldScheduleTime] && input.TargetType != executeTargetTypeDAG {
+		return executeInputError("The scheduleTime field is only valid for targetType dag.", executeFieldScheduleTime)
+	}
 	if input.Action != executeActionRetry {
-		if input.StepName != "" {
-			return executeInputError("The stepName field is only valid for retry.", executeFieldStepName)
+		if input.StepName != "" && !decision {
+			return executeInputError("The stepName field is only valid for retry, approve, reject, and push_back.", executeFieldStepName)
 		}
 		if provided[executeFieldIncludeDownstream] {
 			return executeInputError("The includeDownstream field is only valid for retry.", executeFieldIncludeDownstream)
 		}
 	}
+	if !decision {
+		switch {
+		case input.SubDAGRunID != "":
+			return executeInputError("The subDAGRunId field is only valid for approve, reject, and push_back.", executeFieldSubDAGRunID)
+		case input.AttemptID != "":
+			return executeInputError("The attemptId field is only valid for approve, reject, and push_back.", executeFieldAttemptID)
+		}
+	}
+	if provided[executeFieldInputs] && input.Action != executeActionApprove && input.Action != executeActionPushBack {
+		return executeInputError("The inputs field is only valid for approve and push_back.", executeFieldInputs)
+	}
+	if input.Reason != "" && input.Action != executeActionReject {
+		return executeInputError("The reason field is only valid for reject.", executeFieldReason)
+	}
 	if !launchAction && input.DAGRunID == "" {
 		return executeInputError("The dagRunId field is required.", executeFieldDAGRunID)
+	}
+	if decision && input.StepName == "" {
+		return executeInputError("The stepName field is required for "+input.Action+".", executeFieldStepName)
 	}
 	if input.IncludeDownstream && strings.TrimSpace(input.StepName) == "" {
 		return executeInputError("includeDownstream requires stepName", executeFieldStepName)
@@ -556,6 +662,14 @@ func classifyExecuteToolError(input executeInput, err error) *executeToolError {
 		TargetType: input.TargetType,
 		DAGName:    input.Name,
 		DAGRunID:   input.DAGRunID,
+	}
+
+	if executeErr, ok := errors.AsType[*executeToolError](err); ok {
+		out.Code = executeErr.Code
+		out.Message = executeErr.Message
+		out.Field = executeErr.Field
+		out.Details = executeErr.Details
+		return out
 	}
 
 	if apiErr, ok := errors.AsType[*frontendapi.Error](err); ok {

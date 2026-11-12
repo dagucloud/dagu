@@ -4,11 +4,14 @@
 
 Partially implemented.
 
+Conformance covers relative `with.input` and `file://` paths resolved from the
+step working directory.
+
 ## Scope
 
 This spec covers `jq.filter` input selection, named arguments, scalar output,
-and configuration errors. The jq language, other value-resolution permutations,
-object formatting, and per-value error iteration belong to executor tests.
+and configuration and execution errors. The jq language, other value-resolution
+permutations, object formatting, and `halt` semantics belong to executor tests.
 
 ## Goal
 
@@ -20,7 +23,8 @@ an external jq command.
 `with.filter` supplies the query. `with.data` accepts inline data;
 `with.input` names a JSON file. A `with.data` string beginning with
 `file://` reads the named file. The `file://` shortcut applies only to
-`with.data`; `with.input` is a filesystem path.
+`with.data`; `with.input` is a filesystem path. A relative `with.input` or
+`file://` path names a file under the step working directory.
 
 A scalar result is written as JSON followed by a newline. With
 `with.raw: true`, strings are written without JSON quotes and a null result
@@ -56,8 +60,10 @@ the invalid configuration.
 Duplicate normalized argument names fail executor setup. Invalid variable names
 and undeclared jq variables fail filter compilation at step execution.
 
-Other filter-language errors, missing files, timeout, and abort behavior are
-outside this conformance scope.
+Unhandled filter evaluation errors fail the step. Output decoding must not hide
+a filter syntax, compilation, or evaluation error.
+
+Missing files, timeout, and abort behavior are outside this conformance scope.
 
 ## Example
 

@@ -91,7 +91,7 @@ export function TaskChecklistTab({ tasks }: TaskChecklistTabProps) {
                 </div>
               ) : null}
               {task.status !== 'open' && task.reason ? (
-                <div className="text-muted-foreground/80 mt-0.5 text-xs break-words whitespace-normal italic">
+                <div className="text-muted-foreground mt-0.5 text-xs break-words whitespace-normal italic">
                   {task.reason}
                 </div>
               ) : null}

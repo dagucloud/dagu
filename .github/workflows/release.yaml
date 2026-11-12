@@ -5,6 +5,15 @@ on:
     tags:
       - "v[0-9]+.[0-9]+.[0-9]+"
       - "v[0-9]+.[0-9]+.[0-9]+-*"
+  # Rebuilds and re-signs only the Windows installer of a release that already
+  # exists, from the installer script of the branch this runs on. It wraps the
+  # binary that release already carries, so the archives stay as they were.
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Existing release tag whose Windows installer to rebuild (e.g. v2.26.0)"
+        required: true
+        type: string
 
 # contents: write is required for GoReleaser to create the GitHub release and
 # upload assets. Restrict everything else to the minimum.
@@ -14,9 +23,15 @@ permissions:
 jobs:
   # Build release binaries
   goreleaser:
-    runs-on: ubuntu-latest
-    # id-token and attestations let the attest step below record build
-    # provenance for the archives this job produces.
+    # A manual run only rebuilds the installer; the archives are not touched.
+    if: github.event_name == 'push'
+    # The ubuntu-26.04 image runs out of disk space during the release build.
+    runs-on: ubuntu-24.04
+    # The Azure federated credential that lets this job sign is issued to the
+    # `release` environment, so the job must run in it.
+    environment: release
+    # id-token lets the Azure login and the attest step below exchange this
+    # job's identity; attestations records build provenance for the archives.
     permissions:
       contents: write
       id-token: write
@@ -51,6 +66,20 @@ jobs:
 
       - name: Clean UI dependencies
         run: rm -rf ui/node_modules
+
+      # Signs the Windows binaries with Azure Artifact Signing, see
+      # .goreleaser.yaml and scripts/ci/sign-windows.sh. Until the signing
+      # account exists the variable is empty and the release ships unsigned.
+      - name: Prepare Azure Artifact Signing
+        if: vars.AZURE_SIGNING_ACCOUNT != ''
+        uses: ./.github/actions/artifact-signing
+        with:
+          client-id: ${{ vars.AZURE_CLIENT_ID }}
+          tenant-id: ${{ vars.AZURE_TENANT_ID }}
+          subscription-id: ${{ vars.AZURE_SUBSCRIPTION_ID }}
+          endpoint: ${{ vars.AZURE_SIGNING_ENDPOINT }}
+          account: ${{ vars.AZURE_SIGNING_ACCOUNT }}
+          profile: ${{ vars.AZURE_SIGNING_PROFILE }}
 
       - name: Run GoReleaser
         uses: goreleaser/goreleaser-action@ec59f474b9834571250b370d4735c50f8e2d1e29 # v7.0.0
@@ -110,16 +139,56 @@ jobs:
             skill/dagu=repo:skills/dagu
 
   # The Inno Setup compiler is Windows-only, so the installer cannot be produced
-  # in the GoReleaser job. It wraps the amd64 binary that job already published,
-  # so the installer and the archive ship identical bytes.
+  # in the GoReleaser job. It wraps the amd64 binary that job already published
+  # and signed, so the installer and the archive ship identical bytes.
   windows-installer:
     name: Publish Windows installer
     needs: goreleaser
+    # On a tag push this waits for the archives; a manual run has them already.
+    if: always() && (github.event_name == 'workflow_dispatch' || needs.goreleaser.result == 'success')
+    # Two runs for one tag (a tag push and a manual rebuild, say) would race
+    # to publish the installer; they publish one after the other instead, and
+    # a running upload is never cancelled.
+    concurrency:
+      group: windows-installer-${{ inputs.tag || github.ref_name }}
+      cancel-in-progress: false
     runs-on: windows-latest
     timeout-minutes: 20
+    environment: release
+    # contents: write uploads the installer to the release; id-token: write
+    # lets the Azure login exchange this job's identity for a signing token.
+    permissions:
+      contents: write
+      id-token: write
     steps:
       - name: Check out code
         uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+
+      # The tag names a release asset to download and a file to upload, so
+      # only a plain version tag is accepted from the manual input.
+      - name: Validate the release tag
+        shell: bash
+        env:
+          RELEASE_TAG: ${{ inputs.tag || github.ref_name }}
+        run: |
+          if ! echo "$RELEASE_TAG" | grep -qE '^v[0-9]+\.[0-9]+\.[0-9]+([.\-][a-zA-Z0-9._-]+)?$'; then
+            echo "::error::The release tag must look like v1.2.3, got: ${RELEASE_TAG}"
+            exit 1
+          fi
+
+      # Signs the installer and its uninstaller with the same certificate as
+      # the binary inside them. Until the signing account exists the variable
+      # is empty and the installer ships unsigned.
+      - name: Prepare Azure Artifact Signing
+        if: vars.AZURE_SIGNING_ACCOUNT != ''
+        uses: ./.github/actions/artifact-signing
+        with:
+          client-id: ${{ vars.AZURE_CLIENT_ID }}
+          tenant-id: ${{ vars.AZURE_TENANT_ID }}
+          subscription-id: ${{ vars.AZURE_SUBSCRIPTION_ID }}
+          endpoint: ${{ vars.AZURE_SIGNING_ENDPOINT }}
+          account: ${{ vars.AZURE_SIGNING_ACCOUNT }}
+          profile: ${{ vars.AZURE_SIGNING_PROFILE }}
 
       - name: Download the published Windows binary
         shell: bash
@@ -128,7 +197,7 @@ jobs:
           # Context values are passed via env so they're treated as data, not code.
           # Writing ${{ expr }} directly inside `run:` would let a crafted value
           # execute arbitrary shell commands before the runner sees the script.
-          RELEASE_TAG: ${{ github.ref_name }}
+          RELEASE_TAG: ${{ inputs.tag || github.ref_name }}
         run: |
           version="${RELEASE_TAG#v}"
           asset="dagu_${version}_windows_amd64.tar.gz"
@@ -153,7 +222,7 @@ jobs:
       - name: Build the installer
         shell: powershell
         env:
-          RELEASE_TAG: ${{ github.ref_name }}
+          RELEASE_TAG: ${{ inputs.tag || github.ref_name }}
         run: |
           $version = $env:RELEASE_TAG -replace '^v', ''
           $iscc = "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe"
@@ -161,22 +230,77 @@ jobs:
             Write-Host "Inno Setup 6 is not preinstalled on this image; installing it."
             choco install innosetup --no-progress --yes
           }
-          & $iscc /DAppVersion=$version /DBinaryPath=dist\dagu-windows-amd64.exe scripts\installer.iss
+          $arguments = @("/DAppVersion=$version", "/DBinaryPath=dist\dagu-windows-amd64.exe")
+          if ($env:AZURE_SIGNING_ACCOUNT) {
+            # Inno Setup expands $q to a quote and $f to the quoted file to sign.
+            # The token stays in the environment, which ISCC passes on to jsign.
+            $signTool = 'java -jar $q' + $env:JSIGN_JAR + '$q ' + $env:JSIGN_ARGS + ' $f'
+            $arguments += "/Sjsign=$signTool"
+            $arguments += "/DSignTool=jsign"
+          }
+          & $iscc @arguments scripts\installer.iss
           if ($LASTEXITCODE -ne 0) {
             throw "Inno Setup compilation failed with exit code $LASTEXITCODE."
           }
 
+      # A broken or missing signature would ship the very warning this is
+      # meant to remove, so refuse to publish one.
+      - name: Verify the signatures
+        if: vars.AZURE_SIGNING_ACCOUNT != ''
+        shell: powershell
+        env:
+          RELEASE_TAG: ${{ inputs.tag || github.ref_name }}
+        run: |
+          foreach ($file in @("dist\dagu-windows-amd64.exe", "dist\dagu-windows-amd64-setup.exe")) {
+            $signature = Get-AuthenticodeSignature -FilePath $file
+            Write-Host "${file}: $($signature.Status) $($signature.SignerCertificate.Subject)"
+            if ($signature.Status -ne 'Valid') {
+              throw "$file is not validly signed: $($signature.StatusMessage)"
+            }
+            if (-not $signature.TimeStamperCertificate) {
+              throw "$file is signed but not timestamped, so its signature would expire with the certificate."
+            }
+          }
+
+      # The release may already carry an installer, and an upload can fail
+      # halfway. The new file goes up under a temporary name first, so the
+      # release is never without a complete installer; only once it is there
+      # is the old one moved aside and the new one given the final name.
       - name: Attach the installer to the release
         shell: bash
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          RELEASE_TAG: ${{ github.ref_name }}
+          RELEASE_TAG: ${{ inputs.tag || github.ref_name }}
         run: |
-          version="${RELEASE_TAG#v}"
-          installer="dist/dagu-${version}-setup.exe"
+          asset="dagu-windows-amd64-setup.exe"
+          installer="dist/${asset}"
           if [ ! -f "$installer" ]; then
             echo "::error::${installer} was not produced by the Inno Setup compiler"
             exit 1
           fi
-          gh release upload "$RELEASE_TAG" "$installer" \
-            --repo "$GITHUB_REPOSITORY" --clobber
+          staging="${RUNNER_TEMP}/${asset}.uploading"
+          cp "$installer" "$staging"
+          # --clobber here only replaces a leftover of an earlier failed run.
+          gh release upload "$RELEASE_TAG" "$staging" --repo "$GITHUB_REPOSITORY" --clobber
+
+          asset_id() {
+            gh api "repos/${GITHUB_REPOSITORY}/releases/tags/${RELEASE_TAG}" \
+              --jq ".assets[] | select(.name == \"$1\") | .id"
+          }
+          rename_asset() {
+            gh api --method PATCH "repos/${GITHUB_REPOSITORY}/releases/assets/$1" \
+              -f name="$2" --jq '.name'
+          }
+          previous_id="$(asset_id "${asset}.previous")"
+          if [ -n "$previous_id" ]; then
+            gh api --method DELETE "repos/${GITHUB_REPOSITORY}/releases/assets/${previous_id}"
+          fi
+          current_id="$(asset_id "$asset")"
+          if [ -n "$current_id" ]; then
+            rename_asset "$current_id" "${asset}.previous"
+          fi
+          rename_asset "$(asset_id "${asset}.uploading")" "$asset"
+          if [ -n "$current_id" ]; then
+            gh api --method DELETE "repos/${GITHUB_REPOSITORY}/releases/assets/${current_id}"
+          fi
+          echo "Published ${asset} on ${RELEASE_TAG}"

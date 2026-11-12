@@ -28,6 +28,8 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/cmn/logger/tag"
 	cmnvalue "github.com/dagucloud/dagu/v2/internal/cmn/value"
 	"github.com/dagucloud/dagu/v2/internal/ir"
+	"github.com/dagucloud/dagu/v2/internal/samples"
+	"github.com/dagucloud/dagu/v2/internal/telemetry"
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/trace"
@@ -35,6 +37,7 @@ import (
 
 var (
 	ErrUpstreamFailed   = fmt.Errorf("upstream failed")
+	ErrUpstreamAborted  = fmt.Errorf("upstream aborted")
 	ErrUpstreamSkipped  = fmt.Errorf("upstream skipped")
 	ErrUpstreamRejected = fmt.Errorf("upstream rejected")
 	ErrDeadlockDetected = errors.New("deadlock detected: no runnable nodes but DAG not finished")
@@ -51,10 +54,12 @@ type ChatMessagesHandler interface {
 // Runner runs a plan of steps.
 type Runner struct {
 	logDir           string
+	attemptDir       string
 	maxActiveRuns    int
 	timeout          time.Duration
 	delay            time.Duration
 	dry              bool
+	dryChecks        []DryRunCheck
 	onInit           *ir.Step
 	onExit           *ir.Step
 	onSuccess        *ir.Step
@@ -67,6 +72,11 @@ type Runner struct {
 	forcedStatus     *ir.Status
 	materializations build.MaterializationStore
 	noReuse          bool
+	skipHandlers     bool
+
+	// now and openRecorder are set by tests; nil uses the real ones.
+	now          func() time.Time
+	openRecorder sampleRecorderOpener
 
 	dagRunAutoRetryCount int
 	dagRunAutoRetryLimit int
@@ -97,9 +107,18 @@ type Runner struct {
 	}
 }
 
+// clock returns the current time.
+func (r *Runner) clock() time.Time {
+	if r.now != nil {
+		return r.now()
+	}
+	return time.Now()
+}
+
 func New(cfg *Config) *Runner {
 	return &Runner{
 		logDir:               cfg.LogDir,
+		attemptDir:           cfg.AttemptDir,
 		maxActiveRuns:        cfg.MaxActiveSteps,
 		timeout:              cfg.Timeout,
 		delay:                cfg.Delay,
@@ -116,6 +135,8 @@ func New(cfg *Config) *Runner {
 		forcedStatus:         cfg.ForcedStatus,
 		materializations:     cfg.MaterializationStore,
 		noReuse:              cfg.NoReuse,
+		skipHandlers:         cfg.SkipHandlers,
+		openRecorder:         samples.OpenRecorder,
 		dagRunAutoRetryCount: cfg.DAGRunAutoRetryCount,
 		dagRunAutoRetryLimit: cfg.DAGRunAutoRetryLimit,
 		dagRunIsRoot:         cfg.DAGRunIsRoot,
@@ -123,7 +144,10 @@ func New(cfg *Config) *Runner {
 }
 
 type Config struct {
-	LogDir               string
+	LogDir string
+	// AttemptDir is the directory of the attempt that the run writes to. A
+	// continuous step stores its samples under it. Empty records no samples.
+	AttemptDir           string
 	MaxActiveSteps       int
 	Timeout              time.Duration
 	Delay                time.Duration
@@ -139,6 +163,10 @@ type Config struct {
 	ForcedStatus         *ir.Status
 	MaterializationStore build.MaterializationStore
 	NoReuse              bool
+	// SkipHandlers stops the runner from calling the handlers that run after
+	// the steps: on wait, on success, on failure, on abort, and on exit. The
+	// init handler runs before the steps and is not affected.
+	SkipHandlers bool
 
 	DAGRunAutoRetryCount int
 	DAGRunAutoRetryLimit int
@@ -241,6 +269,15 @@ func (r *Runner) Run(ctx context.Context, plan *Plan, progressCh chan ProgressUp
 			r.runGraphLoop(executionCtx, plan, nodes, progressCh)
 		}
 	}()
+
+	// A step retry can keep the failed or aborted upstream of a step it selected,
+	// which then never runs and records no failure. This waits for every step to
+	// end, since a repeating step clears the last error.
+	if !r.isError() {
+		if err := upstreamBlock(plan); err != nil {
+			r.setLastError(err)
+		}
+	}
 
 	// Collect final metrics
 	r.metrics.totalExecutionTime = time.Since(r.metrics.startTime)
@@ -357,6 +394,8 @@ func (r *Runner) runGraphLoop(ctx context.Context, plan *Plan, nodes []*Node, pr
 	readyCh := make(chan *Node, len(nodes))
 	doneCh := make(chan *Node, len(nodes))
 
+	settleBlockedNodes(ctx, plan, nodes)
+
 	// Find initial ready nodes
 	for _, node := range nodes {
 		if node.State().Status == ir.NodeNotStarted && isReady(ctx, plan, node) {
@@ -424,14 +463,18 @@ func (r *Runner) runGraphLoop(ctx context.Context, plan *Plan, nodes []*Node, pr
 				// Set step context for all logs in this goroutine
 				ctx := logger.WithValues(ctx, tag.Step(n.Name()))
 
-				// Ensure node is finished and wg is decremented
-				defer r.finishNode(n, &wg)
-				// Recover from panics and signal progress for status updates
-				defer r.recoverNodePanic(ctx, n, progressCh)
-				// Signal completion to runner loop
+				// Finish the node and clamp its dependents before the runner loop
+				// queues them and before the wait group lets the run end, so that
+				// a dependent starts after the finish and the final status holds
+				// the clamped times.
 				defer func() {
+					defer wg.Done()
+					r.finishNode(n, nil)
+					r.clampDependentStarts(plan, n)
 					doneCh <- n
 				}()
+				// Recover from panics and signal progress for status updates
+				defer r.recoverNodePanic(ctx, n, progressCh)
 
 				// Anything evaluated during Prepare must see the node's real pre-execution env.
 				var err error
@@ -444,6 +487,7 @@ func (r *Runner) runGraphLoop(ctx context.Context, plan *Plan, nodes []*Node, pr
 				}
 				if n.Step().HumanTask != nil {
 					r.runHumanTask(ctx, plan, n, progressCh)
+					r.clampStartToDependencies(plan, n)
 					return
 				}
 				if !r.dry {
@@ -461,6 +505,8 @@ func (r *Runner) runGraphLoop(ctx context.Context, plan *Plan, nodes []*Node, pr
 					n.SetStatus(ir.NodeFailed)
 					return
 				}
+
+				r.clampStartToDependencies(plan, n)
 
 				// Status already set to Running before goroutine spawn
 				// Send progress notification after successful preparation
@@ -569,7 +615,10 @@ func (r *Runner) runNodeExecution(ctx context.Context, plan *Plan, node *Node, p
 	}
 
 	ctx = spanCtx
+	ctx = withStepTraceContext(ctx)
 	ctx = r.setupNodeExecutionEnv(ctx, node)
+	cont := r.newContinuousStep(ctx, node)
+	defer cont.close(ctx)
 	preparedNodeTornDown := false
 	teardownPreparedNode := func() {
 		if preparedNodeTornDown {
@@ -641,6 +690,7 @@ ExecRepeat: // repeat execution
 			node.SetStatus(ir.NodeFailed)
 			return
 		}
+		cont.beforeExecution(node)
 		execErr := r.execNode(attemptCtx, node, progressCh)
 		stoppedDuringAttempt = r.isCanceled()
 		if execErr == nil {
@@ -651,10 +701,21 @@ ExecRepeat: // repeat execution
 			execErr = commitErr
 		}
 		isRetriable := r.handleNodeExecutionError(ctx, plan, node, execErr)
+		// The sample is of the execution alone, without the retry wait.
+		cont.afterExecution(ctx, node, execErr)
+		if isRetriable {
+			isRetriable = r.waitForRetry(ctx, node, execErr)
+		}
 		if isRetriable {
 			if stagingPath != "" {
 				_ = os.Remove(stagingPath)
 				stagingPath = ""
+			}
+			if cont != nil {
+				cont.retried()
+				if cont.reportDue() {
+					r.report(ctx, progressCh, node)
+				}
 			}
 			continue ExecRepeat
 		}
@@ -673,7 +734,15 @@ ExecRepeat: // repeat execution
 				_ = os.Remove(stagingPath)
 				stagingPath = ""
 			}
-			r.prepareNodeForRepeat(ctx, node, progressCh)
+			node.resetForAttempt(declaredStep)
+			ctx, err = r.setupRepeatEnv(spanCtx, plan, node, buildSession)
+			if err != nil {
+				r.setLastError(err)
+				node.MarkError(err)
+				node.SetStatus(ir.NodeFailed)
+				return
+			}
+			r.prepareNodeForRepeat(ctx, node, progressCh, cont)
 			continue
 		}
 
@@ -773,6 +842,64 @@ func (r *Runner) setupNodeExecutionEnv(ctx context.Context, node *Node) context.
 	return WithEnv(ctx, env)
 }
 
+// withStepTraceContext gives the step process the W3C trace context of the
+// step span as TRACEPARENT and TRACESTATE. It adds nothing when the context has
+// no valid span, which is the case when tracing is off for the DAG.
+//
+// The names act like initial current-step values (spec 006): a step-local
+// source that sets either name keeps its value, and Dagu adds neither name.
+// The two names form one trace context, so a root-scope value of the other
+// name is replaced with an empty value.
+func withStepTraceContext(ctx context.Context) context.Context {
+	if !trace.SpanContextFromContext(ctx).IsValid() {
+		return ctx
+	}
+	env := GetEnv(ctx)
+	parentLocal := hasStepLocalEntry(env.Scope, runenv.EnvKeyTraceParent)
+	stateLocal := hasStepLocalEntry(env.Scope, runenv.EnvKeyTraceState)
+	if parentLocal && stateLocal {
+		return ctx
+	}
+	if parentLocal || stateLocal {
+		other := runenv.EnvKeyTraceState
+		if stateLocal {
+			other = runenv.EnvKeyTraceParent
+		}
+		if _, inherited := env.Scope.Get(other); !inherited {
+			return ctx
+		}
+		env.Scope = env.Scope.WithEntry(other, "", cmnvalue.EnvSourceStepEnv)
+		return WithEnv(ctx, env)
+	}
+	values := make(map[string]string, 2)
+	for _, entry := range telemetry.InjectTraceContext(ctx) {
+		if key, value, ok := strings.Cut(entry, "="); ok {
+			values[key] = value
+		}
+	}
+	traceParent := values[runenv.EnvKeyTraceParent]
+	if traceParent == "" {
+		return ctx
+	}
+	scope := env.Scope.WithEntry(runenv.EnvKeyTraceParent, traceParent, cmnvalue.EnvSourceStepEnv)
+	// A TRACESTATE from the run scope belongs to another span, so replace it
+	// even when the step span has no trace state.
+	traceState := values[runenv.EnvKeyTraceState]
+	if _, inherited := scope.Get(runenv.EnvKeyTraceState); traceState != "" || inherited {
+		scope = scope.WithEntry(runenv.EnvKeyTraceState, traceState, cmnvalue.EnvSourceStepEnv)
+	}
+	env.Scope = scope
+	return WithEnv(ctx, env)
+}
+
+// hasStepLocalEntry reports whether key comes from the step's own env, its
+// container env, or a predecessor output. Run-level sources never use these
+// source kinds.
+func hasStepLocalEntry(scope *cmnvalue.EnvScope, key string) bool {
+	entry, ok := scope.GetEntry(key)
+	return ok && (entry.Source == cmnvalue.EnvSourceStepEnv || entry.Source == cmnvalue.EnvSourceOutput)
+}
+
 func (r *Runner) setLastError(err error) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
@@ -838,6 +965,39 @@ func (r *Runner) runHumanTask(ctx context.Context, plan *Plan, node *Node, progr
 		node.OpenHumanTask(prompt, artifacts, time.Now())
 	}
 	r.report(ctx, progressCh, node)
+}
+
+// clampDependentStarts keeps the start of each dependent of a node that just
+// finished from being earlier than the finish of that node. A dependent can
+// start while the finish is being recorded, because its status is final before
+// its finish time is set.
+func (r *Runner) clampDependentStarts(plan *Plan, node *Node) {
+	state := node.State()
+	if state.FinishedAt.IsZero() {
+		return
+	}
+	for _, depID := range plan.Dependents(node.id) {
+		dep := plan.GetNode(depID)
+		// A dependent that started before this node did keeps the times of an
+		// earlier run, such as a step retry without its downstream steps.
+		if dep.State().StartedAt.Before(state.StartedAt) {
+			continue
+		}
+		dep.ClampStartedAt(state.FinishedAt)
+	}
+}
+
+// clampStartToDependencies keeps the start of a node from being earlier than
+// the finish of any dependency. The clock can give an earlier value because of
+// its resolution or an adjustment. A real later start is kept as it is.
+func (r *Runner) clampStartToDependencies(plan *Plan, node *Node) {
+	var latest time.Time
+	for _, depID := range plan.Dependencies(node.id) {
+		if finished := plan.GetNode(depID).State().FinishedAt; finished.After(latest) {
+			latest = finished
+		}
+	}
+	node.ClampStartedAt(latest)
 }
 
 func (r *Runner) teardownNode(node *Node) error {
@@ -953,6 +1113,11 @@ func (r *Runner) setupVariables(ctx context.Context, plan *Plan, node *Node) (co
 		return ctx, err
 	}
 	node.SetWorkingDir(env.WorkingDir)
+	if node.Step().RepeatPolicy.RepeatMode != "" {
+		env.Scope = env.Scope.WithEntry(
+			runenv.EnvKeyDAGRunStepRepeatIndex, strconv.Itoa(node.State().DoneCount), cmnvalue.EnvSourceStepEnv,
+		)
+	}
 
 	// Load output variables and approval inputs from predecessor nodes.
 	for _, predNode := range planPredecessorNodes(plan, node) {
@@ -1145,7 +1310,7 @@ func disableDeclaredStepOutputs(env *Env) {
 
 func (r *Runner) execNode(ctx context.Context, node *Node, progressCh chan ProgressUpdate) error {
 	if r.dry {
-		warnDryRunStep(ctx, node)
+		r.noteDryRunStep(ctx, node)
 		return nil
 	}
 	report := func() {
@@ -1346,6 +1511,48 @@ func (r *Runner) isFailed() bool {
 	return r.failed == 1
 }
 
+// upstreamBlock returns the error of a step this attempt set out to run and
+// aborted because a step it depends on failed or was aborted, or nil if there is
+// none. A failed upstream is the root cause of a chain, so it wins wherever its
+// step is listed. Errors restored from earlier attempts do not match these
+// sentinels.
+func upstreamBlock(plan *Plan) error {
+	var block error
+	for _, node := range plan.Nodes() {
+		if !blockedByUpstream(plan, node) {
+			continue
+		}
+		err := node.State().Error
+		if errors.Is(err, ErrUpstreamFailed) {
+			return err
+		}
+		block = err
+	}
+	return block
+}
+
+func blockedByUpstream(plan *Plan, node *Node) bool {
+	err := node.State().Error
+	return plan.inRetrySelection(node) && (errors.Is(err, ErrUpstreamFailed) || errors.Is(err, ErrUpstreamAborted))
+}
+
+// settleBlockedNodes ends every node that the restored state of a retry blocks
+// before anything runs. No completion reaches these nodes later, and a node can
+// be listed before the upstream that blocks it, so the scan repeats until
+// nothing changes.
+func settleBlockedNodes(ctx context.Context, plan *Plan, nodes []*Node) {
+	for changed := true; changed; {
+		changed = false
+		for _, node := range nodes {
+			if node.State().Status != ir.NodeNotStarted {
+				continue
+			}
+			isReady(ctx, plan, node)
+			changed = changed || node.State().Status != ir.NodeNotStarted
+		}
+	}
+}
+
 func isReady(ctx context.Context, plan *Plan, node *Node) bool {
 	for _, depID := range plan.Dependencies(node.id) {
 		dep := plan.GetNode(depID)
@@ -1388,6 +1595,7 @@ func isReady(ctx context.Context, plan *Plan, node *Node) bool {
 			logger.Debug(ctx, "Dependency aborted",
 				tag.Step(node.Name()), tag.Dependency(dep.Name()))
 			node.SetStatus(ir.NodeAborted)
+			node.SetError(ErrUpstreamAborted)
 			return false
 
 		case ir.NodeRejected:
@@ -1423,6 +1631,7 @@ func isReady(ctx context.Context, plan *Plan, node *Node) bool {
 func (r *Runner) runEventHandler(ctx context.Context, plan *Plan, node *Node, extraEnvs map[string]string) error {
 	defer node.Finish()
 
+	ctx = logger.WithValues(ctx, tag.Step(node.Name()))
 	var err error
 	ctx, err = r.setupEnvironEventHandler(ctx, plan, node, extraEnvs)
 	if err != nil {
@@ -1431,7 +1640,7 @@ func (r *Runner) runEventHandler(ctx context.Context, plan *Plan, node *Node, ex
 	}
 
 	if r.dry {
-		warnDryRunStep(logger.WithValues(ctx, tag.Step(node.Name())), node)
+		r.noteDryRunStep(ctx, node)
 		node.SetStatus(ir.NodeSucceeded)
 		return nil
 	}
@@ -1483,6 +1692,11 @@ func (r *Runner) setup(ctx context.Context) (err error) {
 		ir.HandlerOnWait:    r.onWait,
 	}
 	for handlerType, step := range handlerSteps {
+		// A selected-steps run without a graph end step calls no handler that
+		// runs after the steps, so these handlers get no node and no status.
+		if r.skipHandlers && handlerType != ir.HandlerOnInit {
+			continue
+		}
 		if step != nil {
 			r.handlers[handlerType] = &Node{Data: newSafeData(NodeData{Step: *step})}
 		}
@@ -1576,6 +1790,10 @@ func (r *Runner) isPartialSuccess(ctx context.Context, p *Plan) bool {
 				return false
 			}
 		}
+		// A step the plan set out to run never ran, so its work is not done.
+		if blockedByUpstream(p, node) {
+			return false
+		}
 	}
 
 	// Second pass: check for partial success conditions
@@ -1648,10 +1866,8 @@ func (r *Runner) shouldRetryNode(ctx context.Context, node *Node, execErr error)
 	)
 
 	if !shouldRetry {
-		// finish the node with error
-		node.SetStatus(ir.NodeFailed)
-		node.MarkError(execErr)
-		r.setLastError(execErr)
+		// The exit code is not retryable; settle the failure now.
+		r.finalizeFailedNode(ctx, node, execErr)
 		return false
 	}
 
@@ -1676,13 +1892,19 @@ func (r *Runner) shouldRetryNode(ctx context.Context, node *Node, execErr error)
 		return false
 	}
 
-	// Set the node status to running so that it can be retried inline
 	node.IncRetryCount()
+	return true
+}
+
+// waitForRetry waits for the backoff of an inline retry, then sets the node
+// to running so that it is retried. It reports false, with the node aborted,
+// when the run stops during the wait.
+func (r *Runner) waitForRetry(ctx context.Context, node *Node, execErr error) bool {
 	interval := ir.CalculateBackoffInterval(
 		node.Step().RetryPolicy.Interval,
 		node.Step().RetryPolicy.Backoff,
 		node.Step().RetryPolicy.MaxInterval,
-		node.GetRetryCount()-1, // -1 because we just incremented
+		node.GetRetryCount()-1, // -1 because the count includes this retry
 	)
 	if !waitForExecution(ctx, interval) || r.isCanceled() {
 		node.SetStatus(ir.NodeAborted)
@@ -1809,7 +2031,11 @@ func (r *Runner) handleNodeExecutionError(ctx context.Context, plan *Plan, node 
 		if step.Timeout > 0 {
 			// Step-level timeout: Node.Execute already set status to failed and exitCode=124.
 			// Keep failed status and ensure we don't retry.
-			logger.Info(ctx, "Step timed out (step-level timeout)",
+			logTimeout := logger.Info
+			if isContinuousStep(step) {
+				logTimeout = logger.Debug // the failed event gives the info line
+			}
+			logTimeout(ctx, "Step timed out (step-level timeout)",
 				tag.Timeout(step.Timeout),
 				tag.Error(execErr),
 			)
@@ -1848,18 +2074,22 @@ func (r *Runner) handleNodeExecutionError(ctx context.Context, plan *Plan, node 
 
 	default:
 		// node execution error is unexpected and unrecoverable
-		node.SetStatus(ir.NodeFailed)
-		if node.ShouldMarkSuccess(ctx) {
-			// mark as success if the node should be force marked as success
-			// i.e. continueOn.markSuccess is set to true
-			node.SetStatus(ir.NodeSucceeded)
-		} else {
-			node.MarkError(execErr)
-			r.setLastError(execErr)
-		}
+		r.finalizeFailedNode(ctx, node, execErr)
 	}
 
 	return false
+}
+
+// finalizeFailedNode records a failed execution, promoting the node to
+// succeeded when continueOn.markSuccess applies.
+func (r *Runner) finalizeFailedNode(ctx context.Context, node *Node, execErr error) {
+	node.SetStatus(ir.NodeFailed)
+	if node.ShouldMarkSuccess(ctx) {
+		node.SetStatus(ir.NodeSucceeded)
+		return
+	}
+	node.MarkError(execErr)
+	r.setLastError(execErr)
 }
 
 // shouldRepeatNode determines if a node should be repeated based on its repeat policy
@@ -1968,15 +2198,36 @@ func (r *Runner) evalUntilCondition(ctx context.Context, shell []string, node *N
 	return execErr != nil, nil
 }
 
+// setupRepeatEnv sets up the environment of the node's next repeat the same
+// way as its first execution, so that every value derived from the repeat
+// index follows it. ctx is the context the first execution started from.
+func (r *Runner) setupRepeatEnv(ctx context.Context, plan *Plan, node *Node, session *build.Session) (context.Context, error) {
+	ctx, err := r.setupVariables(ctx, plan, node)
+	if err != nil {
+		return ctx, err
+	}
+	ctx = withStepTraceContext(ctx)
+	ctx = r.setupNodeExecutionEnv(ctx, node)
+	if session == nil {
+		return ctx, nil
+	}
+	return withBuildPaths(ctx, node, session.InputPaths(), nil, !session.HasPathOutput())
+}
+
 // prepareNodeForRepeat sets up a node for repetition
-func (r *Runner) prepareNodeForRepeat(ctx context.Context, node *Node, progressCh chan ProgressUpdate) {
+func (r *Runner) prepareNodeForRepeat(ctx context.Context, node *Node, progressCh chan ProgressUpdate, cont *continuousStep) {
 	step := node.Step()
+	// A continuous step repeats for years: each execution logs at debug level.
+	logRepeat := logger.Info
+	if cont != nil {
+		logRepeat = logger.Debug
+	}
 
 	node.SetStatus(ir.NodeRunning) // reset status to running for the repeat
 	if r.lastError == node.Error() {
 		r.setLastError(nil) // clear last error if we are repeating
 	}
-	logger.Info(ctx, "Step will be repeated",
+	logRepeat(ctx, "Step will be repeated",
 		slog.Duration("interval", step.RepeatPolicy.Interval),
 	)
 	interval := ir.CalculateBackoffInterval(
@@ -1985,14 +2236,22 @@ func (r *Runner) prepareNodeForRepeat(ctx context.Context, node *Node, progressC
 		step.RepeatPolicy.MaxInterval,
 		node.State().DoneCount,
 	)
+	// A failed or a recovered execution is written at once, not after the wait.
+	if cont != nil && cont.writeDue && cont.reportDue() {
+		r.report(ctx, progressCh, node)
+	}
 	if !waitForExecution(ctx, interval) {
 		node.SetStatus(ir.NodeAborted)
 		return
 	}
 	node.SetRepeated(true) // mark as repeated
-	logger.Info(ctx, "Repeating step")
+	logRepeat(ctx, "Repeating step")
 
-	r.report(ctx, progressCh, node)
+	// A continuous step writes the status once a minute and at a change of
+	// state, not after each execution.
+	if cont.reportDue() {
+		r.report(ctx, progressCh, node)
+	}
 }
 
 func waitForExecution(ctx context.Context, duration time.Duration) bool {

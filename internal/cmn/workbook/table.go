@@ -31,13 +31,20 @@ type Table struct {
 // objects, or a list of arrays. Objects keep the key order of the JSON text
 // when there is one; otherwise keys are sorted. columns, when given, selects
 // and orders the fields written, and may itself be a JSON array string or a
-// comma-separated list.
+// comma-separated list. A ${...} reference that substitution left in the
+// text is named in the error.
 func DecodeRows(value any, columns any) (Table, error) {
+	return decodeRows(value, columns, true)
+}
+
+// decodeRows is DecodeRows for text that may not have gone through
+// substitution, such as a file's contents; see rowList.
+func decodeRows(value any, columns any, substituted bool) (Table, error) {
 	order, err := columnOrder(columns)
 	if err != nil {
 		return Table{}, err
 	}
-	list, jsonText, err := rowList(value, "objects or arrays")
+	list, jsonText, err := rowList(value, "objects or arrays", substituted)
 	if err != nil {
 		return Table{}, err
 	}
@@ -224,7 +231,7 @@ func LoadTable(path string, opts LoadOptions) (Table, error) {
 	}
 	switch format {
 	case "json":
-		return DecodeRows(string(data), columns)
+		return decodeRows(string(data), columns, false)
 	case "jsonl", "ndjson":
 		// Each line is one object; the lines are joined into one JSON array
 		// so DecodeRows keeps their key order the way it does for JSON text.
@@ -244,7 +251,7 @@ func LoadTable(path string, opts LoadOptions) (Table, error) {
 		if err := scanner.Err(); err != nil {
 			return Table{}, fmt.Errorf("input: %w", err)
 		}
-		return DecodeRows("["+strings.Join(objects, ",")+"]", columns)
+		return decodeRows("["+strings.Join(objects, ",")+"]", columns, false)
 	case "csv":
 		return csvToTable(strings.NewReader(string(data)), columns, opts.Delimiter)
 	default:

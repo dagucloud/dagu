@@ -1,16 +1,10 @@
 <!doctype html>
-<html lang="en" translate="no" class="dark" style="background-color: #020617">
+<html lang="en" translate="no">
   <head>
     <meta charset="UTF-8" />
     <meta http-equiv="X-UA-Compatible" content="IE=edge" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <link rel="icon" href="/assets/favicon.ico" />
-    <link rel="preconnect" href="https://fonts.googleapis.com" />
-    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-    <link
-      href="https://fonts.googleapis.com/css2?family=Hanken+Grotesk:ital,wght@0,300..800;1,300..800&display=swap"
-      rel="stylesheet"
-    />
     <title>Dagu</title>
     <script>
       function getConfig() {
@@ -55,6 +49,9 @@
           terminalEnabled: true,
           updateAvailable: true,
           latestVersion: 'v2.0.0',
+          upgradeCommand: 'dagu upgrade',
+          restartRequired: false,
+          restartCommand: '',
           license: {
             valid: false,
             plan: '',
@@ -68,6 +65,25 @@
           },
         };
       }
+    </script>
+    <script>
+      // Apply the saved or system theme before the app loads so the page
+      // does not flash the other theme.
+      (function () {
+        var theme;
+        try {
+          theme = JSON.parse(localStorage.getItem('user_preferences') || '{}').theme;
+        } catch (e) {}
+        var dark =
+          theme === 'dark' ||
+          (theme !== 'light' &&
+            !!window.matchMedia &&
+            window.matchMedia('(prefers-color-scheme: dark)').matches);
+        var root = document.documentElement;
+        root.classList.toggle('dark', dark);
+        root.style.colorScheme = dark ? 'dark' : 'light';
+        root.style.backgroundColor = dark ? '#0b0d12' : '#f4f2ed';
+      })();
     </script>
   </head>
 

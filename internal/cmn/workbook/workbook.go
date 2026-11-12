@@ -8,14 +8,19 @@
 package workbook
 
 import (
+	"archive/zip"
+	"bytes"
+	"encoding/binary"
 	"errors"
 	"fmt"
+	"io"
 	"io/fs"
 	"os"
 	"path/filepath"
 	"sort"
 	"strings"
 
+	"github.com/richardlehane/mscfb"
 	"github.com/xuri/excelize/v2"
 )
 
@@ -83,6 +88,15 @@ var ErrUnsupportedFormat = errors.New("only .xlsx and .xlsm workbooks are suppor
 // ErrNotWorkbook is wrapped into errors for files that cannot be parsed.
 var ErrNotWorkbook = errors.New("not a valid .xlsx workbook")
 
+// ErrPassword is wrapped into errors for a protected workbook opened
+// without the right password.
+var ErrPassword = errors.New("workbook password is missing or incorrect")
+
+// ErrUnsupportedEncryption is wrapped into errors for a protected workbook
+// whose encryption cannot be decrypted. Only ECMA-376 agile and standard
+// encryption are supported.
+var ErrUnsupportedEncryption = errors.New("workbook encryption is not supported")
+
 // CheckExtension rejects paths whose extension is not .xlsx or .xlsm.
 func CheckExtension(path string) error {
 	switch strings.ToLower(filepath.Ext(path)) {
@@ -102,8 +116,9 @@ type file struct {
 	sheets   []string
 	kinds    map[int]cellKind
 	grids    map[string][][]string
-	// dated memoizes styles derived for dates written into plain cells.
-	dated map[datedKey]int
+	// numFmts memoizes styles derived from a cell's style with another
+	// number format, such as a date written into a plain cell.
+	numFmts map[numFmtKey]int
 }
 
 func open(path, password string) (*file, error) {
@@ -126,6 +141,16 @@ func open(path, password string) (*file, error) {
 		if locked := classifyError(path, err); locked != nil && errors.As(locked, new(*LockedError)) {
 			return nil, locked
 		}
+		if decryptFailed(err) {
+			if cause := encryptionCause(path); cause != nil {
+				return nil, fmt.Errorf("%s: %w", filepath.Base(path), cause)
+			}
+		}
+		if errors.Is(err, excelize.ErrWorkbookPassword) {
+			// excelize blames the password for any zip failure once one is
+			// set, but this file is not an encrypted package.
+			return nil, fmt.Errorf("%s: %w", filepath.Base(path), ErrNotWorkbook)
+		}
 		return nil, fmt.Errorf("%s: %w: %v", filepath.Base(path), ErrNotWorkbook, err)
 	}
 	w := &file{f: f, path: path, base: filepath.Base(path), kinds: map[int]cellKind{}, grids: map[string][][]string{}}
@@ -134,6 +159,88 @@ func open(path, password string) (*file, error) {
 		w.date1904 = *props.Date1904
 	}
 	return w, nil
+}
+
+// openBytes opens a workbook from bounded in-memory bytes. Keeping the path
+// label preserves the file error messages and the inspect result for stdin.
+func openBytes(path string, b []byte, password string) (*file, error) {
+	f, err := excelize.OpenReader(bytes.NewReader(b), excelize.Options{Password: password})
+	if err != nil {
+		if decryptFailed(err) {
+			if cause := encryptionCauseBytes(b); cause != nil {
+				return nil, fmt.Errorf("%s: %w", filepath.Base(path), cause)
+			}
+		}
+		if errors.Is(err, excelize.ErrWorkbookPassword) {
+			// excelize blames the password for any zip failure once one is
+			// set, but this input is not an encrypted package.
+			return nil, fmt.Errorf("%s: %w", filepath.Base(path), ErrNotWorkbook)
+		}
+		return nil, fmt.Errorf("%s: %w: %v", filepath.Base(path), ErrNotWorkbook, err)
+	}
+	w := &file{f: f, path: path, base: filepath.Base(path), kinds: map[int]cellKind{}, grids: map[string][][]string{}}
+	w.sheets = f.GetSheetList()
+	if props, err := f.GetWorkbookProps(); err == nil && props.Date1904 != nil {
+		w.date1904 = *props.Date1904
+	}
+	return w, nil
+}
+
+// encryptionInfoStream names the stream of an encrypted package that
+// starts with the encryption version.
+const encryptionInfoStream = "EncryptionInfo"
+
+// decryptFailed reports whether an excelize open error is one that a wrong
+// password or an undecryptable package produces. Errors from parsing a
+// package that did decrypt are not.
+func decryptFailed(err error) bool {
+	return errors.Is(err, excelize.ErrWorkbookFileFormat) ||
+		errors.Is(err, excelize.ErrWorkbookPassword) ||
+		errors.Is(err, zip.ErrFormat)
+}
+
+// encryptionCause returns ErrPassword when path is an encrypted package with
+// a supported encryption version, ErrUnsupportedEncryption when the version
+// is not supported, and nil when path is not an encrypted package or its
+// version cannot be read.
+func encryptionCause(path string) error {
+	f, err := os.Open(path) //nolint:gosec // path is the workbook the caller asked to open
+	if err != nil {
+		return nil
+	}
+	defer func() { _ = f.Close() }()
+	return encryptionCauseReader(f)
+}
+
+func encryptionCauseBytes(b []byte) error {
+	return encryptionCauseReader(bytes.NewReader(b))
+}
+
+func encryptionCauseReader(r io.ReaderAt) error {
+	doc, err := mscfb.New(r)
+	if err != nil {
+		return nil
+	}
+	for entry, err := doc.Next(); err == nil; entry, err = doc.Next() {
+		if entry.Name != encryptionInfoStream {
+			continue
+		}
+		var version [4]byte
+		if n, _ := entry.ReadAt(version[:], 0); n < len(version) {
+			return nil
+		}
+		if supportedEncryption(binary.LittleEndian.Uint16(version[:2]), binary.LittleEndian.Uint16(version[2:])) {
+			return ErrPassword
+		}
+		return ErrUnsupportedEncryption
+	}
+	return nil
+}
+
+// supportedEncryption reports whether an EncryptionInfo version is one
+// excelize decrypts: 4.4 is agile, and 2.2 through 4.2 are standard.
+func supportedEncryption(major, minor uint16) bool {
+	return (major == 4 && minor == 4) || (major >= 2 && major <= 4 && minor == 2)
 }
 
 func (w *file) close() {

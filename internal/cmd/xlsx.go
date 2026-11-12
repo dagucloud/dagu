@@ -7,7 +7,9 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 
 	"github.com/dagucloud/dagu/v2/internal/cmn/fileutil"
@@ -15,6 +17,11 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/cmn/workbook"
 	"github.com/spf13/cobra"
 )
+
+const maxXlsxStdinBytes = 64 << 20
+
+// xlsxPasswordEnv supplies a workbook password when --password is omitted.
+const xlsxPasswordEnv = "DAGU_XLSX_PASSWORD" //nolint:gosec // This is an environment variable name, not a credential.
 
 // Xlsx returns the command group for workbooks. inspect and read open a file
 // directly, need no configuration or engine, and create no run, so a host
@@ -44,12 +51,34 @@ block, the header row and column names, the type of each column, the
 number of data rows, its tables, and a few typed sample rows. Named ranges
 and the date system are listed for the workbook.
 
+A sheet hidden from the workbook's tabs is marked (hidden), and a sheet
+with rows hidden by a filter or by hand counts them, as in "300 rows, 12
+hidden"; dagu xlsx read --skip-hidden leaves those rows out.
+
+Types and a profile of each column come from every data row of the block,
+up to 5000: how many cells are filled and blank, how many distinct values
+there are, the values themselves when a few repeat, the lowest and highest
+number or date, and the cells that do not read as the column's type, such
+as 未定 in a number column. The text format shows the profile after each
+column name:
+
+  Columns: 状態 (string: 済, 未; 40 blank), 数量 (number; 1..250; 1 odd: D300 "未定")
+
 This is what xlsx.info publishes, read straight from the file. Nothing is
 written and no run is created.
 
+A path of "-" reads the workbook from standard input, up to 64 MiB.
+
+A protected workbook needs a password. Set DAGU_XLSX_PASSWORD rather
+than --password where other users share the host: a flag value shows in
+the process list and stays in shell history. The flag wins when both are
+set.
+
 With --format json, the result is one JSON object: path, date_system,
-sheets (each with name, used_range, range, header_row, headers, types,
-row_count, tables, and sample), named_ranges, and warnings.
+sheets (each with name, hidden, used_range, range, header_row, headers,
+types, row_count, hidden_rows, columns, profile_truncated, tables, and
+sample), named_ranges, and warnings. Each column has name, type, filled,
+blank, distinct, values, min, max, odd, and odd_cells.
 `,
 		Example: `  dagu xlsx inspect orders.xlsx
   dagu xlsx inspect orders.xlsx --sheet Orders --rows 10
@@ -60,6 +89,7 @@ row_count, tables, and sample), named_ranges, and warnings.
 	}
 	cmd.Flags().IntP("rows", "n", 5, "Typed sample rows to show per sheet")
 	cmd.Flags().String("sheet", "", "Describe this sheet only")
+	cmd.Flags().String("password", "", "Password of a protected workbook; prefer DAGU_XLSX_PASSWORD, which keeps it out of the process list")
 	cmd.Flags().StringP("format", "f", "text", "Output format: text or json (default: text)")
 	return cmd
 }
@@ -70,15 +100,31 @@ func xlsxReadCommand() *cobra.Command {
 		Short: "Print the typed rows of a sheet",
 		Long: `Print the rows of a sheet the way xlsx.read publishes them: numbers stay
 numbers, dates become ISO 8601 text, text keeps its leading zeros, and each
-row carries _row, its sheet row number.
+row carries _row, its sheet row number. Rows hidden by a filter or by hand
+are read unless --skip-hidden leaves them out.
 
 With --format json, the result is one JSON object: rows, count, headers,
 sheet, range, warnings, and truncated. The text format prints a tab-separated
 header line and one line per row.
+
+A path of "-" reads the workbook from standard input, up to 64 MiB.
+
+--types pins column types as xlsx.read's types does, Japanese forms such as
+１２３,４５６ and 令和8年10月3日 included: name:type pairs, or a JSON object
+when a name holds a comma. A cell that cannot convert fails the read, or
+with --on-type-error warn reads as null, or with keep stays as it was read;
+both of those add a warning.
+
+A protected workbook needs a password. Set DAGU_XLSX_PASSWORD rather
+than --password where other users share the host: a flag value shows in
+the process list and stays in shell history. The flag wins when both are
+set.
 `,
 		Example: `  dagu xlsx read orders.xlsx
   dagu xlsx read orders.xlsx --sheet Orders --range A2:F --header false
-  dagu xlsx read orders.xlsx --columns "Invoice No,Amount" --format json`,
+  dagu xlsx read orders.xlsx --columns "Invoice No,Amount" --format json
+  dagu xlsx read orders.xlsx --types "Amount:number,Due:date" --on-type-error keep
+  dagu xlsx read orders.xlsx --skip-hidden`,
 		Args:         cobra.ExactArgs(1),
 		SilenceUsage: true,
 		RunE:         runXlsxRead,
@@ -87,9 +133,23 @@ header line and one line per row.
 	cmd.Flags().String("range", "", "Cell range, Sheet!A2:F reference, named range, or table name")
 	cmd.Flags().String("header", "true", "Header: true, false, a row number, or rows such as 3,4")
 	cmd.Flags().String("columns", "", "Columns to keep, comma-separated, with optional name:alias renames")
+	cmd.Flags().String("types", "", "Column types to pin: name:type pairs, comma-separated, or a JSON object")
+	cmd.Flags().String("on-type-error", "fail", "What a cell that fails its type does: fail, warn (read as null; also spelled null), or keep")
 	cmd.Flags().Int("max-rows", 0, "Most rows to print (default 5000)")
+	cmd.Flags().Bool("skip-hidden", false, "Leave out rows hidden by a filter or by hand")
+	cmd.Flags().String("password", "", "Password of a protected workbook; prefer DAGU_XLSX_PASSWORD, which keeps it out of the process list")
 	cmd.Flags().StringP("format", "f", "text", "Output format: text or json (default: text)")
 	return cmd
+}
+
+// xlsxPassword returns the workbook password. A --password that was set,
+// including an empty one, wins over DAGU_XLSX_PASSWORD.
+func xlsxPassword(cmd *cobra.Command) string {
+	if cmd.Flags().Changed("password") {
+		password, _ := cmd.Flags().GetString("password")
+		return password
+	}
+	return os.Getenv(xlsxPasswordEnv)
 }
 
 func xlsxFormat(cmd *cobra.Command) (string, error) {
@@ -112,26 +172,46 @@ func xlsxPath(arg string) (string, error) {
 	return filepath.Abs(resolved)
 }
 
+func xlsxStdin(cmd *cobra.Command) ([]byte, error) {
+	data, err := io.ReadAll(io.LimitReader(cmd.InOrStdin(), maxXlsxStdinBytes+1))
+	if err != nil {
+		return nil, fmt.Errorf("reading workbook from stdin: %w", err)
+	}
+	if len(data) > maxXlsxStdinBytes {
+		return nil, fmt.Errorf("stdin workbook exceeds 64 MiB limit")
+	}
+	return data, nil
+}
+
 func runXlsxInspect(cmd *cobra.Command, args []string) error {
 	format, err := xlsxFormat(cmd)
-	if err != nil {
-		return err
-	}
-	path, err := xlsxPath(args[0])
 	if err != nil {
 		return err
 	}
 	rows, _ := cmd.Flags().GetInt("rows")
 	sheet, _ := cmd.Flags().GetString("sheet")
 
-	info, err := workbook.Inspect(cmd.Context(), path, workbook.InspectOptions{SampleRows: max(rows, 0)})
+	var info *workbook.Info
+	opts := workbook.InspectOptions{
+		Password:   xlsxPassword(cmd),
+		Sheet:      sheet,
+		SampleRows: max(rows, 0),
+	}
+	if strings.TrimSpace(args[0]) == "-" {
+		data, readErr := xlsxStdin(cmd)
+		if readErr != nil {
+			return readErr
+		}
+		info, err = workbook.InspectBytes(cmd.Context(), "-", data, opts)
+	} else {
+		path, pathErr := xlsxPath(args[0])
+		if pathErr != nil {
+			return pathErr
+		}
+		info, err = workbook.Inspect(cmd.Context(), path, opts)
+	}
 	if err != nil {
 		return err
-	}
-	if sheet != "" {
-		if err := keepSheet(info, sheet); err != nil {
-			return err
-		}
 	}
 	out := cmd.OutOrStdout()
 	if format == "json" {
@@ -140,44 +220,16 @@ func runXlsxInspect(cmd *cobra.Command, args []string) error {
 	return renderInfo(out, info)
 }
 
-func keepSheet(info *workbook.Info, name string) error {
-	var kept []workbook.SheetInfo
-	for _, s := range info.Sheets {
-		if s.Name == name {
-			kept = append(kept, s)
-		}
-	}
-	if len(kept) == 0 {
-		for _, s := range info.Sheets {
-			if strings.EqualFold(s.Name, name) {
-				kept = append(kept, s)
-			}
-		}
-	}
-	if len(kept) == 0 {
-		names := make([]string, 0, len(info.Sheets))
-		for _, s := range info.Sheets {
-			names = append(names, s.Name)
-		}
-		return fmt.Errorf("%s: sheet %q not found; sheets present: %s", workbook.Base(info.Path), name, strings.Join(names, ", "))
-	}
-	info.Sheets = kept
-	return nil
-}
-
 func runXlsxRead(cmd *cobra.Command, args []string) error {
 	format, err := xlsxFormat(cmd)
 	if err != nil {
 		return err
 	}
-	path, err := xlsxPath(args[0])
-	if err != nil {
-		return err
-	}
-	opts := workbook.ReadOptions{}
+	opts := workbook.ReadOptions{Password: xlsxPassword(cmd)}
 	opts.Sheet, _ = cmd.Flags().GetString("sheet")
 	opts.Range, _ = cmd.Flags().GetString("range")
 	opts.MaxRows, _ = cmd.Flags().GetInt("max-rows")
+	opts.SkipHidden, _ = cmd.Flags().GetBool("skip-hidden")
 	header, _ := cmd.Flags().GetString("header")
 	if opts.Header, err = workbook.ParseHeader(header); err != nil {
 		return fmt.Errorf("--header: %w", err)
@@ -188,8 +240,32 @@ func runXlsxRead(cmd *cobra.Command, args []string) error {
 			return fmt.Errorf("--columns: %w", err)
 		}
 	}
+	types, _ := cmd.Flags().GetString("types")
+	if opts.Types, err = workbook.ParseTypes(types); err != nil {
+		return fmt.Errorf("--types: %w", err)
+	}
+	onTypeError, _ := cmd.Flags().GetString("on-type-error")
+	switch mode := workbook.TypeErrorMode(onTypeError); mode {
+	case workbook.TypeErrorFail, workbook.TypeErrorWarn, workbook.TypeErrorNull, workbook.TypeErrorKeep:
+		opts.OnTypeError = mode
+	default:
+		return fmt.Errorf("--on-type-error: %q is not fail, warn, null, or keep", onTypeError)
+	}
 
-	result, err := workbook.Read(cmd.Context(), path, opts)
+	var result *workbook.ReadResult
+	if strings.TrimSpace(args[0]) == "-" {
+		data, readErr := xlsxStdin(cmd)
+		if readErr != nil {
+			return readErr
+		}
+		result, err = workbook.ReadBytes(cmd.Context(), "-", data, opts)
+	} else {
+		path, pathErr := xlsxPath(args[0])
+		if pathErr != nil {
+			return pathErr
+		}
+		result, err = workbook.Read(cmd.Context(), path, opts)
+	}
 	if err != nil {
 		return err
 	}
@@ -225,15 +301,26 @@ func renderInfo(out io.Writer, info *workbook.Info) error {
 	w := &lineWriter{out: out}
 	w.printf("%s: %d sheets, %s date system\n", workbook.Base(info.Path), len(info.Sheets), info.DateSystem)
 	for _, s := range info.Sheets {
+		name := fmt.Sprintf("%q", s.Name)
+		if s.Hidden {
+			name += " (hidden)"
+		}
 		if s.HeaderRow == 0 {
-			w.printf("Sheet %q: empty\n", s.Name)
+			w.printf("Sheet %s: empty\n", name)
 			continue
 		}
-		w.printf("Sheet %q: used %s, table %s, header row %d, %d rows\n",
-			s.Name, strings.TrimPrefix(s.UsedRange, s.Name+"!"), s.Range, s.HeaderRow, s.RowCount)
-		columns := make([]string, 0, len(s.Headers))
-		for _, h := range s.Headers {
-			columns = append(columns, fmt.Sprintf("%s (%s)", h, s.Types[h]))
+		rows := fmt.Sprintf("%d rows", s.RowCount)
+		if s.HiddenRows > 0 {
+			rows += fmt.Sprintf(", %d hidden", s.HiddenRows)
+		}
+		if s.ProfileTruncated && len(s.Columns) > 0 {
+			rows += fmt.Sprintf(", first %d profiled", s.Columns[0].Filled+s.Columns[0].Blank)
+		}
+		w.printf("Sheet %s: used %s, table %s, header row %d, %s\n",
+			name, strings.TrimPrefix(s.UsedRange, s.Name+"!"), s.Range, s.HeaderRow, rows)
+		columns := make([]string, 0, len(s.Columns))
+		for _, c := range s.Columns {
+			columns = append(columns, columnSummary(c))
 		}
 		w.printf("  Columns: %s\n", strings.Join(columns, ", "))
 		for _, t := range s.Tables {
@@ -254,6 +341,35 @@ func renderInfo(out io.Writer, info *workbook.Info) error {
 		w.printf("Warning: %s\n", msg)
 	}
 	return w.err
+}
+
+// columnSummary renders a column and its profile on one line: the type,
+// the listed values, the range, the blank count, and the odd cells, as in
+// `数量 (number; 1..250; 1 odd: D300 "未定")`.
+func columnSummary(c workbook.ColumnInfo) string {
+	head := c.Type
+	if len(c.Values) > 0 {
+		values := make([]string, 0, len(c.Values))
+		for _, v := range c.Values {
+			values = append(values, displayValue(v))
+		}
+		head += ": " + strings.Join(values, ", ")
+	}
+	parts := []string{head}
+	if c.Min != nil {
+		parts = append(parts, displayValue(c.Min)+".."+displayValue(c.Max))
+	}
+	if c.Blank > 0 {
+		parts = append(parts, fmt.Sprintf("%d blank", c.Blank))
+	}
+	if c.Odd > 0 {
+		cells := make([]string, 0, len(c.OddCells))
+		for _, cell := range c.OddCells {
+			cells = append(cells, cell.Cell+" "+strconv.Quote(cell.Text))
+		}
+		parts = append(parts, fmt.Sprintf("%d odd: %s", c.Odd, strings.Join(cells, ", ")))
+	}
+	return fmt.Sprintf("%s (%s)", c.Name, strings.Join(parts, "; "))
 }
 
 func renderRows(out io.Writer, result *workbook.ReadResult) error {

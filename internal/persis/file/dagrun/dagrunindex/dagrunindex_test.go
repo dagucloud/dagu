@@ -279,6 +279,76 @@ func TestTryLoadForDay_VersionMismatch(t *testing.T) {
 	assert.True(t, fromIndex)
 }
 
+func TestDayIndexLookup(t *testing.T) {
+	dayDir := t.TempDir()
+	createDayDir(t, dayDir, 12, ir.Succeeded)
+	_, fromIndex, err := TryLoadForDay(t.Context(), dayDir, readDayDir(t, dayDir))
+	require.NoError(t, err)
+	require.True(t, fromIndex)
+	created := time.Date(2024, 1, 15, 12, 0, 0, 0, time.UTC)
+
+	// Change one run after the index was written.
+	statusPath := filepath.Join(dayDir, "dag-run_20240115_120000Z_runB", "attempt_20240115_120000_001Z_abc123", "status.jsonl")
+	f, err := os.OpenFile(statusPath, os.O_APPEND|os.O_WRONLY, 0600)
+	require.NoError(t, err)
+	_, err = f.WriteString(`{"status":3}` + "\n")
+	require.NoError(t, err)
+	require.NoError(t, f.Close())
+
+	index := NewDayIndex(dayDir, 12)
+	_, ok := index.Lookup("dag-run_20240115_120000Z_runL", time.Now().Add(time.Hour))
+	assert.False(t, ok, "a run created after the index was written")
+	entry, ok := index.Lookup("dag-run_20240115_120000Z_runL", created)
+	require.True(t, ok)
+	assert.Equal(t, "runL", entry.DagRunID)
+	assert.Equal(t, ir.Succeeded, entry.Status)
+	assert.Equal(t, []string{"env=prod"}, entry.Labels)
+	_, ok = index.Lookup("dag-run_20240115_120000Z_runC0", created)
+	assert.False(t, ok, "a run the index does not hold")
+	_, ok = index.Lookup("dag-run_20240115_120000Z_runB", created)
+	assert.False(t, ok, "a run changed after the index was written")
+	_, ok = index.Lookup("dag-run_20240115_120000Z_runA", created)
+	assert.True(t, ok)
+}
+
+// A day index keeps only the entries its lookups can reach, counted from the
+// first run looked up.
+func TestDayIndexLookup_Reach(t *testing.T) {
+	dayDir := t.TempDir()
+	createDayDir(t, dayDir, 12, ir.Succeeded)
+	_, _, err := TryLoadForDay(t.Context(), dayDir, readDayDir(t, dayDir))
+	require.NoError(t, err)
+	created := time.Date(2024, 1, 15, 12, 0, 0, 0, time.UTC)
+
+	index := NewDayIndex(dayDir, 2)
+	for _, run := range []string{"runK", "runJ"} {
+		_, ok := index.Lookup("dag-run_20240115_120000Z_"+run, created)
+		assert.True(t, ok, run)
+	}
+	for _, run := range []string{"runL", "runI"} {
+		_, ok := index.Lookup("dag-run_20240115_120000Z_"+run, created)
+		assert.False(t, ok, run)
+	}
+}
+
+func TestDayIndexLookup_NoUsableIndex(t *testing.T) {
+	dayDir := t.TempDir()
+	createDayDir(t, dayDir, 12, ir.Succeeded)
+	created := time.Date(2024, 1, 15, 12, 0, 0, 0, time.UTC)
+
+	_, ok := NewDayIndex(dayDir, 12).Lookup("dag-run_20240115_120000Z_runA", created)
+	assert.False(t, ok, "no index")
+
+	data, err := proto.Marshal(&indexv1.DAGRunIndex{
+		Version: 999,
+		Entries: []*indexv1.DAGRunIndexEntry{{DagRunDir: "dag-run_20240115_120000Z_runA"}},
+	})
+	require.NoError(t, err)
+	require.NoError(t, os.WriteFile(filepath.Join(dayDir, IndexFileName), data, 0600))
+	_, ok = NewDayIndex(dayDir, 12).Lookup("dag-run_20240115_120000Z_runA", created)
+	assert.False(t, ok, "an index of another version")
+}
+
 func TestDeleteIndex(t *testing.T) {
 	dayDir := t.TempDir()
 

@@ -50,70 +50,42 @@ func TestKeyValue(t *testing.T) {
 		input     stringutil.KeyValue
 		wantKey   string
 		wantValue string
-		wantBool  bool
 	}{
 		{
 			name:      "NormalKeyValue",
 			input:     stringutil.KeyValue("foo=bar"),
 			wantKey:   "foo",
 			wantValue: "bar",
-			wantBool:  false,
 		},
 		{
 			name:      "EmptyValue",
 			input:     stringutil.KeyValue("foo="),
 			wantKey:   "foo",
 			wantValue: "",
-			wantBool:  false,
 		},
 		{
 			name:      "EmptyKey",
 			input:     stringutil.KeyValue("=bar"),
 			wantKey:   "",
 			wantValue: "bar",
-			wantBool:  false,
 		},
 		{
 			name:      "NoEqualsSign",
 			input:     stringutil.KeyValue("foobar"),
 			wantKey:   "foobar",
 			wantValue: "",
-			wantBool:  false,
 		},
 		{
 			name:      "EmptyString",
 			input:     stringutil.KeyValue(""),
 			wantKey:   "",
 			wantValue: "",
-			wantBool:  false,
-		},
-		{
-			name:      "BoolTrue",
-			input:     stringutil.KeyValue("flag=true"),
-			wantKey:   "flag",
-			wantValue: "true",
-			wantBool:  true,
-		},
-		{
-			name:      "BoolFalse",
-			input:     stringutil.KeyValue("flag=false"),
-			wantKey:   "flag",
-			wantValue: "false",
-			wantBool:  false,
-		},
-		{
-			name:      "BoolInvalid",
-			input:     stringutil.KeyValue("flag=notbool"),
-			wantKey:   "flag",
-			wantValue: "notbool",
-			wantBool:  false,
 		},
 		{
 			name:      "MultipleEqualsSigns",
 			input:     stringutil.KeyValue("foo=bar=baz"),
 			wantKey:   "foo",
 			wantValue: "bar=baz",
-			wantBool:  false,
 		},
 	}
 
@@ -125,9 +97,6 @@ func TestKeyValue(t *testing.T) {
 			}
 			if got := tt.input.Value(); got != tt.wantValue {
 				t.Errorf("KeyValue.Value() = %v, want %v", got, tt.wantValue)
-			}
-			if got := tt.input.Bool(); got != tt.wantBool {
-				t.Errorf("KeyValue.Bool() = %v, want %v", got, tt.wantBool)
 			}
 			if got := tt.input.String(); got != string(tt.input) {
 				t.Errorf("KeyValue.String() = %v, want %v", got, string(tt.input))

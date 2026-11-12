@@ -1,0 +1,117 @@
+# Spec 078: JS Run Action
+
+## Status
+
+Implemented.
+
+## Scope
+
+This spec covers `js.run` input binding, output publication, sandbox
+boundaries, timeout, and configuration errors. ECMAScript language semantics
+and host-object details belong to executor tests.
+
+## Goal
+
+Workflow authors can transform data between steps with a short JavaScript
+function without installing Node.js or another interpreter on the host.
+
+## Behavior
+
+`with.script` is a JavaScript function body. Dagu passes the text to the
+engine as written: workflow references such as `${steps.a.outputs.x}` are not
+resolved inside it, so JavaScript template literals keep their meaning.
+Workflow values reach the script through `with.input`.
+
+`with.input` is any YAML value bound to the function's `input` parameter.
+Objects and lists arrive as native JavaScript objects and arrays. String values
+follow ordinary executor-config reference resolution and contribute inferred
+dependencies.
+
+`with.input_file` names a file whose contents are bound to `input`.
+`with.format` selects how string input is interpreted. `auto` (default)
+parses a string that is a JSON object or array and binds any other string
+as-is, `text` always binds the string as-is, and `json` always parses and
+rejects invalid JSON. The option applies to `input_file` contents and to a
+string `input`. `input` and `input_file` are mutually exclusive. When neither
+is set, `input` is `undefined`.
+
+The script body may use `await`. Promises settle through the microtask queue
+drained after the body returns; there is no event loop or timer, so a promise
+that is still pending afterwards fails the step.
+
+The returned value is written to stdout. `undefined` writes nothing. A string
+is written as-is followed by a newline. Any other value is written as JSON
+with two-space indentation followed by a newline, using JavaScript
+serialization semantics (`toJSON`, `Date`, dropped function properties).
+
+The sandbox exposes the ECMAScript builtins, `console` (whose methods write to
+the step's stderr), `URL`, and `URLSearchParams`. It has no `require`,
+`fetch`, filesystem access, `process`, or timers.
+
+### Language Level
+
+The engine implements ECMAScript 5.1 in full and the ES2015 through ES2022
+syntax and builtins: classes with private fields and static blocks,
+destructuring, spread, generators, `async`/`await`, optional chaining,
+nullish coalescing, logical assignment, `BigInt`, typed arrays, `Proxy`,
+regular expressions with named groups, lookbehind, and the `s`, `u`, and `y`
+flags, plus later additions such as `Array.prototype.toSorted` and the
+ES2025 `Set` methods.
+
+Absent: ES modules (`import`, `export`, dynamic `import()`), `Object.groupBy`
+and `Map.groupBy`, `Promise.withResolvers`, `Array.fromAsync`, the regular
+expression `v` flag, `WeakRef`, and `FinalizationRegistry`. Host APIs that
+are not part of ECMAScript, including `Intl`, `structuredClone`,
+`TextEncoder`, `TextDecoder`, `atob`, and `btoa`, are also absent.
+
+`with.timeout` bounds script execution, as integer seconds or a duration
+string. When it is unset, a step `timeout` governs alone; without either,
+`60s` applies. Expiry, step timeout, and a stop request interrupt the engine
+and fail the step.
+
+## Errors
+
+`dagu validate` rejects a missing `with.script`, configurations that set
+both `with.input` and `with.input_file`, a `with` field other than `script`,
+`input`, `input_file`, `format`, and `timeout`, and a script that does not
+compile. It exits nonzero with an error identifying the invalid
+configuration; a compile error names the script line, and an unknown field's
+error names the field and, when a defined field is a likely misspelling of
+it, suggests that field.
+
+An invalid `with.format`, an invalid `with.timeout`, a missing or unreadable
+`input_file`, and invalid JSON under `format: json` fail executor setup.
+
+A thrown value or rejected promise fails the step. The error names the
+exception and the script line, and the JavaScript stack trace, with lines and
+columns matching the script text, is written to stderr. A script that
+returns `undefined` succeeds with empty stdout and a notice on stderr. A
+script that exceeds `with.timeout` fails the step.
+
+Memory use is not bounded, and the interrupt takes effect between JavaScript
+instructions only, so a single long-running builtin call cannot be stopped.
+
+## Examples
+
+```yaml
+steps:
+  - id: links
+    action: js.run
+    with:
+      input:
+        html: '<a href="/a">x</a>'
+      script: |
+        const urls = [];
+        for (const m of input.html.matchAll(/href="([^"]+)"/g)) {
+          urls.push(new URL(m[1], "https://example.com").href);
+        }
+        return urls;
+    output: LINKS
+```
+
+## Conformance
+
+`conformance/spec078_js_run/` runs fixtures with `dagu start` and checks the
+written stdout for each output shape, inline and file input, template
+literals, console output, and failures from thrown errors and timeouts. It
+checks `dagu validate` for the configuration errors above.

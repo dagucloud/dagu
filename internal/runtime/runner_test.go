@@ -4,6 +4,7 @@
 package runtime_test
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -19,6 +20,8 @@ import (
 	"time"
 
 	"github.com/dagucloud/dagu/v2/internal/cmn/cmdutil"
+	"github.com/dagucloud/dagu/v2/internal/cmn/runenv"
+	"github.com/dagucloud/dagu/v2/internal/cmn/stringutil"
 
 	"github.com/dagucloud/dagu/v2/internal/executor/registry"
 
@@ -602,6 +605,26 @@ func TestRunner(t *testing.T) {
 		result.assertNodeStatus(t, "1", ir.NodeFailed)
 		result.assertNodeStatus(t, "2", ir.NodeSucceeded)
 	})
+	t.Run("ContinueOnExitCodeSetupFailure", func(t *testing.T) {
+		// A step that fails during setup never runs, so its reset exit
+		// code of 0 must not match continue_on.exit_code.
+		r := setupRunner(t)
+
+		plan := r.newPlan(t,
+			newStep("1",
+				withStdin("${no_such_step.stdout}"),
+				withCommand("true"),
+				withContinueOn(ir.ContinueOn{ExitCode: []int{0, 1}, MarkSuccess: true}),
+			),
+			successStep("2", "1"),
+		)
+
+		result := plan.assertRun(t, ir.Failed)
+
+		result.assertNodeStatus(t, "1", ir.NodeFailed)
+		result.assertNodeStatus(t, "2", ir.NodeAborted)
+		require.ErrorContains(t, result.nodeByName(t, "1").State().Error, "must resolve before execution")
+	})
 	t.Run("ContinueOnOutputStdout", func(t *testing.T) {
 		r := setupRunner(t)
 
@@ -760,6 +783,29 @@ func TestRunner(t *testing.T) {
 
 		node := result.nodeByName(t, "1")
 		require.Equal(t, 2, node.State().RetryCount) // 2 retry
+	})
+	t.Run("RetryPolicyFailMarkSuccess", func(t *testing.T) {
+		// An exit code outside retryPolicy.exitCodes ends the step without
+		// retrying; continueOn.markSuccess must still apply to it.
+		r := setupRunner(t)
+
+		plan := r.newPlan(t,
+			newStep("1",
+				withCommand("false"), // exit code 1
+				withRetryPolicy(3, 0),
+				func(step *ir.Step) { step.RetryPolicy.ExitCodes = []int{127} },
+				withContinueOn(ir.ContinueOn{ExitCode: []int{0, 1}, MarkSuccess: true}),
+			),
+			successStep("2", "1"),
+		)
+
+		result := plan.assertRun(t, ir.Succeeded)
+
+		result.assertNodeStatus(t, "1", ir.NodeSucceeded)
+		result.assertNodeStatus(t, "2", ir.NodeSucceeded)
+
+		node := result.nodeByName(t, "1")
+		require.Equal(t, 0, node.State().RetryCount)
 	})
 	t.Run("RetryWithScript", func(t *testing.T) {
 		r := setupRunner(t)
@@ -1101,6 +1147,67 @@ func TestRunner(t *testing.T) {
 
 		require.ErrorIs(t, result.Error, context.Canceled)
 		result.assertNodeStatus(t, "onExit", ir.NodeFailed)
+	})
+	// A selected-steps run without a graph end step sets SkipHandlers. The
+	// handlers that run after the steps get no node, so they do not run and
+	// the status has no node for them.
+	t.Run("SkipHandlersOnSuccess", func(t *testing.T) {
+		r := setupRunner(t,
+			withSkipHandlers(),
+			withOnSuccess(successStep("onSuccess")),
+			withOnExit(successStep("onExit")),
+		)
+
+		plan := r.newPlan(t, successStep("a"), successStep("b", "a"))
+		result := plan.assertRun(t, ir.Succeeded)
+
+		result.assertNodeStatus(t, "b", ir.NodeSucceeded)
+		require.Nil(t, r.runner.HandlerNode(ir.HandlerOnSuccess))
+		require.Nil(t, r.runner.HandlerNode(ir.HandlerOnExit))
+	})
+	t.Run("SkipHandlersOnFailure", func(t *testing.T) {
+		r := setupRunner(t,
+			withSkipHandlers(),
+			withOnFailure(successStep("onFailure")),
+			withOnExit(successStep("onExit")),
+		)
+
+		plan := r.newPlan(t, failStep("a"))
+		result := plan.assertRun(t, ir.Failed)
+
+		result.assertNodeStatus(t, "a", ir.NodeFailed)
+		require.Nil(t, r.runner.HandlerNode(ir.HandlerOnFailure))
+		require.Nil(t, r.runner.HandlerNode(ir.HandlerOnExit))
+	})
+	t.Run("SkipHandlersOnAbort", func(t *testing.T) {
+		r := setupRunner(t,
+			withSkipHandlers(),
+			withOnAbort(successStep("onAbort")),
+		)
+
+		plan := r.newPlan(t, newStep("1", withCommand("sleep 0.5")))
+		go func() {
+			waitForNodeStatus(plan.Plan, "1", ir.NodeRunning, 5*time.Second)
+			plan.signal(syscall.SIGTERM)
+		}()
+		result := plan.assertRun(t, ir.Aborted)
+
+		result.assertNodeStatus(t, "1", ir.NodeAborted)
+		require.Nil(t, r.runner.HandlerNode(ir.HandlerOnAbort))
+	})
+	t.Run("SkipHandlersKeepsInitHandler", func(t *testing.T) {
+		r := setupRunner(t,
+			withSkipHandlers(),
+			withOnInit(successStep("onInit")),
+			withOnSuccess(successStep("onSuccess")),
+		)
+
+		plan := r.newPlan(t, successStep("a"))
+		plan.assertRun(t, ir.Succeeded)
+
+		require.NotNil(t, r.runner.HandlerNode(ir.HandlerOnInit))
+		require.Equal(t, ir.NodeSucceeded, r.runner.HandlerNode(ir.HandlerOnInit).State().Status)
+		require.Nil(t, r.runner.HandlerNode(ir.HandlerOnSuccess))
 	})
 	t.Run("OnFailureHandlerSkippedWhileRootDAGAutoRetryPending", func(t *testing.T) {
 		r := setupRunner(t,
@@ -1544,6 +1651,24 @@ func TestRunner(t *testing.T) {
 		assert.Contains(t, string(content), "downstream")
 	})
 
+	t.Run("RedirectToDevNull", func(t *testing.T) {
+		if windowsShellTest() {
+			t.Skip("uses /dev/null")
+		}
+		r := setupRunner(t)
+
+		plan := r.newPlan(t,
+			newStep("quiet",
+				withCommand("echo discarded"),
+				withStdout("/dev/null"),
+				withStderr("/dev/null"),
+			),
+		)
+
+		result := plan.assertRun(t, ir.Succeeded)
+		result.assertNodeStatus(t, "quiet", ir.NodeSucceeded)
+	})
+
 	t.Run("StdinPipesStepStdoutFileToProcess", func(t *testing.T) {
 		if windowsShellTest() {
 			t.Skip("uses cat to read stdin")
@@ -1797,6 +1922,95 @@ func TestRunner(t *testing.T) {
 		assert.Equal(t, 2, node.State().DoneCount)
 	})
 
+	// Each repeat resolves the step again, so the index advances in
+	// Dagu-resolved fields and step env as well as in the environment variable.
+	// ACC refers to its own earlier value and must not grow across repeats.
+	t.Run("RepeatIndex", func(t *testing.T) {
+		appendIndexes := func(file string) string {
+			return test.ForOS(
+				"printf '%s|%s|%s|%s\\n' '${context.step.repeat_index}' \"$IDX\" \"$DAG_RUN_STEP_REPEAT_INDEX\" \"$ACC\" >> "+test.PosixQuote(file),
+				"Add-Content -Path "+test.PowerShellQuote(file)+" -Value ('${context.step.repeat_index}' + '|' + $env:IDX + '|' + $env:DAG_RUN_STEP_REPEAT_INDEX + '|' + $env:ACC)",
+			)
+		}
+		cases := []struct {
+			name string
+			run  func(file string) stepOption
+		}{
+			{name: "Script", run: func(file string) stepOption { return withScript(appendIndexes(file)) }},
+			{name: "Command", run: func(file string) stepOption { return withCommand(appendIndexes(file)) }},
+		}
+		for _, tc := range cases {
+			t.Run(tc.name, func(t *testing.T) {
+				r := setupRunner(t)
+				file := filepath.Join(t.TempDir(), "indexes.log")
+				plan := r.newPlan(t,
+					newStep("1",
+						tc.run(file),
+						withEnvVars("IDX=${context.step.repeat_index}", "ACC=a", "ACC=${ACC}b"),
+						func(step *ir.Step) {
+							step.RepeatPolicy.RepeatMode = ir.RepeatModeWhile
+							step.RepeatPolicy.Limit = 3
+						},
+					),
+				)
+				result := plan.assertRun(t, ir.Succeeded)
+				assert.Equal(t, 3, result.nodeByName(t, "1").State().DoneCount)
+				data, err := os.ReadFile(file)
+				require.NoError(t, err)
+				// PowerShell's Add-Content writes CRLF line endings.
+				got := strings.ReplaceAll(string(data), "\r\n", "\n")
+				assert.Equal(t, "0|0|0|ab\n1|1|1|ab\n2|2|2|ab\n", got)
+			})
+		}
+	})
+
+	// A parallel parent schedules the retries of its child's steps. The retry
+	// resumes the repeat sequence, so the failed execution runs again with its
+	// own index and the repeat limit still counts the earlier executions.
+	t.Run("RepeatIndexAfterParentRetry", func(t *testing.T) {
+		r := setupRunner(t)
+		dir := t.TempDir()
+		file := filepath.Join(dir, "indexes.log")
+		failedOnce := filepath.Join(dir, "failed-once")
+		step := newStep("1",
+			withScript(test.ForOS(
+				"printf '%s\\n' \"$DAG_RUN_STEP_REPEAT_INDEX\" >> "+test.PosixQuote(file)+"\n"+
+					"if [ \"$DAG_RUN_STEP_REPEAT_INDEX\" = 1 ] && [ ! -e "+test.PosixQuote(failedOnce)+" ]; then : > "+test.PosixQuote(failedOnce)+"; exit 1; fi",
+				"Add-Content -Path "+test.PowerShellQuote(file)+" -Value $env:DAG_RUN_STEP_REPEAT_INDEX\n"+
+					"if ($env:DAG_RUN_STEP_REPEAT_INDEX -eq '1' -and -not (Test-Path "+test.PowerShellQuote(failedOnce)+")) { New-Item -ItemType File -Path "+test.PowerShellQuote(failedOnce)+" | Out-Null; exit 1 }",
+			)),
+			func(step *ir.Step) {
+				step.RetryPolicy.Limit = 1
+				step.RepeatPolicy.RepeatMode = ir.RepeatModeWhile
+				step.RepeatPolicy.Limit = 3
+			},
+		)
+		dag := &ir.DAG{Name: "test_dag", WorkingDir: dir, Steps: []ir.Step{step}}
+		run := func(plan *runtime.Plan) {
+			ctx := runtime.NewContext(r.Context, dag, r.cfg.DAGRunID,
+				filepath.Join(r.cfg.LogDir, "test_dag.log"),
+				runtime.WithEnvVars(runenv.EnvKeyExternalStepRetry+"=1"),
+			)
+			_ = r.runner.Run(ctx, plan, nil)
+		}
+
+		plan, err := runtime.NewPlan(step)
+		require.NoError(t, err)
+		run(plan)
+		require.Equal(t, ir.NodeRetrying, plan.GetNodeByName("1").State().Status)
+
+		retryPlan, err := runtime.CreateStepRetryPlan(dag, plan.Nodes(), "1")
+		require.NoError(t, err)
+		run(retryPlan)
+
+		assert.Equal(t, ir.NodeSucceeded, retryPlan.GetNodeByName("1").State().Status)
+		data, err := os.ReadFile(file)
+		require.NoError(t, err)
+		// PowerShell's Add-Content writes CRLF line endings.
+		got := strings.ReplaceAll(string(data), "\r\n", "\n")
+		assert.Equal(t, "0\n1\n1\n2\n", got)
+	})
+
 	t.Run("RepeatErrorContinueOn", func(t *testing.T) {
 		cases := []struct {
 			name            string
@@ -1969,6 +2183,31 @@ func TestRunner(t *testing.T) {
 		output, ok := node.NodeData().State.OutputVariables.Load("ERROR_MSG")
 		require.True(t, ok, "output variable not found")
 		require.Equal(t, "ERROR_MSG=error_output", output, "expected output %q, got %q", "error_output", output)
+	})
+	t.Run("RepeatFailureClearsOutput", func(t *testing.T) {
+		r := setupRunner(t)
+		counterFile := filepath.Join(t.TempDir(), "counter")
+
+		// The first attempt succeeds and publishes; the repeated attempt fails,
+		// so its output must not resolve to the earlier attempt's value.
+		plan := r.newPlan(t,
+			newStep("1",
+				withScript(retryOutputSequenceScript(counterFile, []string{`{"value":1}`, ""}, 1)),
+				func(step *ir.Step) {
+					step.StructuredOutput = map[string]ir.StepOutputEntry{
+						"value": {From: ir.StepOutputSourceStdout, Decode: ir.StepOutputDecodeJSON, Select: ".value"},
+					}
+					step.RepeatPolicy.RepeatMode = ir.RepeatModeWhile
+					step.RepeatPolicy.ExitCode = []int{0}
+					step.RepeatPolicy.Interval = 20 * time.Millisecond
+				},
+			),
+		)
+
+		result := plan.assertRun(t, ir.Failed)
+		node := result.nodeByName(t, "1")
+		require.Equal(t, 2, node.State().DoneCount)
+		require.Nil(t, node.State().OutputValue)
 	})
 	t.Run("RetryPolicySubDAGRunWithOutputCapture", func(t *testing.T) {
 		r := setupRunner(t)
@@ -2224,6 +2463,48 @@ func TestRunner_DryRunStepChecks(t *testing.T) {
 		result.assertNodeStatus(t, "onSuccess", ir.NodeSucceeded)
 	})
 
+	// The following subtests use a missing shell rather than a missing
+	// command: command names are not checked under the Windows default
+	// shell, while a missing shell is reported on every platform.
+	missingShell := withShell(missing + "-shell")
+
+	// A repeating step reports its problems once, not on every pass.
+	t.Run("RepeatingStepCheckedOnce", func(t *testing.T) {
+		r := setupRunner(t, func(cfg *runtime.Config) {
+			cfg.Dry = true
+		})
+		step := newStep("1", withCommand("true"), missingShell, withRepeatPolicy(true, 0))
+		step.RepeatPolicy.Limit = 3
+
+		plan := r.newPlan(t, step)
+
+		result := plan.assertRun(t, ir.Succeeded)
+		require.Equal(t, []runtime.DryRunCheck{{
+			Step:    "1",
+			Field:   "shell",
+			Message: fmt.Sprintf("shell %q not found on this host", missing+"-shell"),
+		}}, result.runner.DryRunChecks(result.Plan))
+	})
+
+	t.Run("ChecksFollowRunOrder", func(t *testing.T) {
+		r := setupRunner(t,
+			func(cfg *runtime.Config) {
+				cfg.Dry = true
+			},
+			withOnInit(newStep("onInit", withCommand("true"), missingShell)),
+			withOnExit(newStep("onExit", withCommand("true"), missingShell)),
+		)
+
+		plan := r.newPlan(t, newStep("1", withCommand("true"), missingShell))
+
+		result := plan.assertRun(t, ir.Succeeded)
+		var steps []string
+		for _, check := range result.runner.DryRunChecks(result.Plan) {
+			steps = append(steps, check.Step)
+		}
+		require.Equal(t, []string{"onInit", "1", "onExit"}, steps)
+	})
+
 	t.Run("HandlerEnvErrorFailsHandler", func(t *testing.T) {
 		handler := successStep("onSuccess")
 		handler.Env = []string{"DAGU_TEST_NO_EQUALS"}
@@ -2375,6 +2656,32 @@ func TestRunner_Metrics(t *testing.T) {
 	result.assertNodeStatus(t, "2", ir.NodeFailed)
 	result.assertNodeStatus(t, "3", ir.NodeSkipped)
 	result.assertNodeStatus(t, "4", ir.NodeSucceeded)
+}
+
+// A failing step or handler precondition is logged with the step it gates, so
+// the run log shows which condition skipped which step.
+func TestRunner_LogsFailedPreconditionStep(t *testing.T) {
+	notMet := func() stepOption {
+		return withPrecondition(&ir.Condition{Condition: "ready", Expected: "waiting"})
+	}
+	r := setupRunner(t, withOnExit(newStep("onExit", withCommand("exit 0"), notMet())))
+	plan := r.newPlan(t, newStep("gated", withCommand("exit 0"), notMet()))
+
+	logPath := filepath.Join(t.TempDir(), "run.log")
+	logFile, err := os.Create(logPath)
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = logFile.Close() })
+	plan.Context = withLogCapture(plan.Context, logFile)
+
+	plan.assertRun(t, ir.Succeeded)
+
+	logs, err := os.ReadFile(logPath)
+	require.NoError(t, err)
+	var steps []string
+	for _, entry := range conditionLogs(t, bytes.NewReader(logs)) {
+		steps = append(steps, entry.Step)
+	}
+	require.ElementsMatch(t, []string{"gated", "onExit"}, steps)
 }
 
 func TestRunner_DAGPreconditions(t *testing.T) {
@@ -2710,6 +3017,71 @@ func TestRunner_ComplexDependencyChains(t *testing.T) {
 		result.assertNodeStatus(t, "3", ir.NodeSucceeded)
 		result.assertNodeStatus(t, "4", ir.NodeAborted) // Canceled due to 2's failure
 	})
+}
+
+// A step must never record a start earlier than the finish of a step it
+// depends on, even when the steps are instantaneous. The plan holds a chain
+// and many diamonds, so that a join starts while its branches finish.
+func TestRunner_StepTimesFollowDependencies(t *testing.T) {
+	r := setupRunner(t)
+
+	const length = 30
+	const diamonds = 20
+	var steps []ir.Step
+	depends := map[string][]string{}
+	add := func(name string, deps ...string) {
+		steps = append(steps, successStep(name, deps...))
+		depends[name] = deps
+	}
+	add("s0")
+	for i := 1; i < length; i++ {
+		add(fmt.Sprintf("s%d", i), fmt.Sprintf("s%d", i-1))
+	}
+	for i := range diamonds {
+		top := fmt.Sprintf("d%d-top", i)
+		add(top)
+		add(fmt.Sprintf("d%d-left", i), top)
+		add(fmt.Sprintf("d%d-right", i), top)
+		add(fmt.Sprintf("d%d-join", i), fmt.Sprintf("d%d-left", i), fmt.Sprintf("d%d-right", i))
+	}
+	result := r.newPlan(t, steps...).assertRun(t, ir.Succeeded)
+
+	for name, deps := range depends {
+		state := result.GetNodeByName(name).State()
+		require.False(t, state.StartedAt.IsZero(), name)
+		require.False(t, state.FinishedAt.Before(state.StartedAt), "step %s finishes before it starts", name)
+		for _, dep := range deps {
+			finished := result.GetNodeByName(dep).State().FinishedAt
+			require.False(t, state.StartedAt.Before(finished),
+				"step %s starts at %s, before the finish of %s at %s", name,
+				stringutil.FormatTime(state.StartedAt), dep, stringutil.FormatTime(finished))
+		}
+	}
+}
+
+// A clock that went back after a dependency finished must not give the next
+// step a start earlier than that finish. The step keeps its real start when it
+// is later.
+func TestRunner_StepStartClampedToDependencyFinish(t *testing.T) {
+	r := setupRunner(t)
+
+	finished := time.Now().Add(time.Hour)
+	plan, err := runtime.NewPlanFromNodes(
+		runtime.NewNode(successStep("1"), runtime.NodeState{
+			Status:     ir.NodeSucceeded,
+			StartedAt:  finished.Add(-time.Second),
+			FinishedAt: finished,
+		}),
+		runtime.NewNode(successStep("2", "1"), runtime.NodeState{Status: ir.NodeNotStarted}),
+	)
+	require.NoError(t, err)
+
+	result := planHelper{testHelper: r, Plan: plan, workDir: t.TempDir()}.assertRun(t, ir.Succeeded)
+
+	state := result.GetNodeByName("2").State()
+	require.True(t, state.StartedAt.Equal(finished), "start %s, want %s",
+		stringutil.FormatTime(state.StartedAt), stringutil.FormatTime(finished))
+	require.False(t, state.FinishedAt.Before(state.StartedAt), "finish before start")
 }
 
 func TestRunner_EdgeCases(t *testing.T) {

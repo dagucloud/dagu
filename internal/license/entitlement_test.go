@@ -45,6 +45,13 @@ func TestHasActiveLicense(t *testing.T) {
 		assert.False(t, HasActiveLicense(&s))
 	})
 
+	t.Run("free license returns false", func(t *testing.T) {
+		t.Parallel()
+		var s State
+		s.Update(freeClaims(), "tok")
+		assert.False(t, HasActiveLicense(&s))
+	})
+
 	t.Run("perpetual license returns true", func(t *testing.T) {
 		t.Parallel()
 		var s State
@@ -72,5 +79,33 @@ func TestHasActiveLicense(t *testing.T) {
 			GraceDays:     &zero,
 		}, "tok")
 		assert.False(t, HasActiveLicense(&s))
+	})
+}
+
+func TestHasLicense(t *testing.T) {
+	t.Parallel()
+
+	for _, tc := range []struct {
+		name   string
+		claims *LicenseClaims
+		want   bool
+	}{
+		{name: "community", claims: nil, want: false},
+		{name: "paid license", claims: validClaims(), want: true},
+		{name: "free license", claims: freeClaims(), want: true},
+		{name: "expired license in grace period", claims: expiredInGraceClaims(), want: true},
+		{name: "expired license past grace period", claims: expiredPastGraceClaims(), want: false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			var s State
+			s.Update(tc.claims, "tok")
+			assert.Equal(t, tc.want, HasLicense(&s))
+		})
+	}
+
+	t.Run("nil checker", func(t *testing.T) {
+		t.Parallel()
+		assert.False(t, HasLicense(nil))
 	})
 }

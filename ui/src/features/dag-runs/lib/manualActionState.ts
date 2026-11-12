@@ -13,6 +13,8 @@ type ManualActionState = {
   isWaiting: boolean;
   waitingApprovalNodes: DAGRunNode[];
   waitingHumanTaskNodes: DAGRunNode[];
+  /** Steps that wait while a run that they called waits for a person. */
+  waitingSubRunNodes: DAGRunNode[];
   hasHumanTaskWork: boolean;
 };
 
@@ -27,6 +29,7 @@ export function getManualActionState(dagRun?: DAGRun): ManualActionState {
       isWaiting,
       waitingApprovalNodes: [],
       waitingHumanTaskNodes: [],
+      waitingSubRunNodes: [],
       hasHumanTaskWork: false,
     };
   }
@@ -38,6 +41,13 @@ export function getManualActionState(dagRun?: DAGRun): ManualActionState {
   const waitingHumanTaskNodes = dagRun.nodes.filter(
     (node) =>
       node.status === NodeStatus.Waiting && node.step.humanTask !== undefined
+  );
+  const waitingSubRunNodes = dagRun.nodes.filter(
+    (node) =>
+      node.status === NodeStatus.Waiting &&
+      node.step.approval === undefined &&
+      node.step.humanTask === undefined &&
+      (node.subRuns?.length ?? 0) + (node.subRunsRepeated?.length ?? 0) > 0
   );
   // Open tasks stay listed while a resume executes the run so their drafts
   // survive until the run is waiting again.
@@ -51,6 +61,7 @@ export function getManualActionState(dagRun?: DAGRun): ManualActionState {
     isWaiting,
     waitingApprovalNodes,
     waitingHumanTaskNodes,
+    waitingSubRunNodes,
     hasHumanTaskWork,
   };
 }

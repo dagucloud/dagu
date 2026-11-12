@@ -16,6 +16,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"syscall"
 
 	"github.com/dagucloud/dagu/v2/internal/cmn/runenv"
 
@@ -29,6 +30,7 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/runtime"
 	dockerexec "github.com/dagucloud/dagu/v2/internal/runtime/builtin/docker"
 	"github.com/dagucloud/dagu/v2/internal/runtime/executor"
+	"github.com/dagucloud/dagu/v2/internal/runtime/modelusage"
 	"github.com/dagucloud/dagu/v2/internal/runtime/resourcelimit"
 	"github.com/goccy/go-yaml"
 	dockerclient "github.com/moby/moby/client"
@@ -64,6 +66,11 @@ type containerRunResult struct {
 type harnessExecutor struct {
 	mu                     sync.Mutex
 	process                *cmdutil.ManagedProcess
+	acpCancel              context.CancelFunc
+	acpClient              *acpHarnessClient
+	acpStopCode            int
+	managedCancel          context.CancelFunc
+	stopRequested          bool
 	stdout                 io.Writer
 	stderr                 io.Writer
 	exitCode               int
@@ -81,6 +88,7 @@ type harnessExecutor struct {
 	agentSession           *ir.AgentSession
 	progressCallback       func()
 	managedHost            opencodehost.Config
+	promptSubmitted        bool
 	determinedStatus       ir.NodeStatus
 	hasDeterminedStatus    bool
 
@@ -154,6 +162,7 @@ func (e *harnessExecutor) Stop(intent cmdutil.TerminationIntent) error {
 	return e.stop(cmdutil.StopRequest{Intent: intent})
 }
 
+// stop cancels an ACP turn or forwards the stop request to the active execution backend.
 func (e *harnessExecutor) stop(req cmdutil.StopRequest) error {
 	e.mu.Lock()
 	host := e.managedHost
@@ -162,6 +171,18 @@ func (e *harnessExecutor) stop(req cmdutil.StopRequest) error {
 		sessionID = e.agentSession.SessionID
 	}
 	workDir := e.workDir
+	if req.Intent.IsTermination() {
+		e.stopRequested = true
+		e.acpStopCode = 143
+		if req.Intent.IsForce() {
+			e.acpStopCode = 137
+		}
+		if sig, ok := req.Intent.Signal.(syscall.Signal); ok && sig > 0 {
+			e.acpStopCode = 128 + int(sig)
+		}
+	}
+	acpCancel, acpClient := e.acpCancel, e.acpClient
+	managedCancel := e.managedCancel
 	process := e.process
 	cli := e.containerClient
 	containerCancel := e.containerCancel
@@ -170,6 +191,19 @@ func (e *harnessExecutor) stop(req cmdutil.StopRequest) error {
 	e.sharedContainerCancel = nil
 	e.mu.Unlock()
 
+	if acpCancel != nil && req.Intent.IsTermination() {
+		// A graceful stop lets the agent end its turn; the run escalates to a
+		// forced stop once max_clean_up_time_sec elapses.
+		if req.Intent.IsForce() || !acpClient.cancelTurn() {
+			acpCancel()
+		}
+		return nil
+	}
+	if managedCancel != nil && req.Intent.IsTermination() {
+		// The managed run interrupts its session and confirms that it stopped.
+		managedCancel()
+		return nil
+	}
 	var stopErr error
 	if host.URL != "" && sessionID != "" {
 		stopErr = abortManagedOpenCode(context.Background(), host, sessionID, workDir)
@@ -229,6 +263,7 @@ func (e *harnessExecutor) effectivePrompt() string {
 	return strings.TrimRight(sb.String(), "\n")
 }
 
+// Run tries providers in order and publishes only the successful attempt's output.
 func (e *harnessExecutor) Run(ctx context.Context) error {
 	var lastErr error
 
@@ -244,6 +279,17 @@ func (e *harnessExecutor) Run(ctx context.Context) error {
 		}
 
 		lastErr = err
+		if cfg.definition != nil && cfg.definition.Protocol == ir.HarnessProtocolACP {
+			e.mu.Lock()
+			stopped, stopCode := e.stopRequested, e.acpStopCode
+			e.mu.Unlock()
+			if stopped || errors.Is(err, context.Canceled) {
+				if stopCode != 0 {
+					e.exitCode = stopCode
+				}
+				return err
+			}
+		}
 		if ctx.Err() != nil {
 			if errors.Is(ctx.Err(), context.DeadlineExceeded) {
 				e.exitCode = 124 // Standard timeout exit code
@@ -253,6 +299,10 @@ func (e *harnessExecutor) Run(ctx context.Context) error {
 			}
 			// Cancellation can race a real failure, such as a missing binary.
 			return errors.Join(ctx.Err(), err)
+		}
+		if e.isStopRequested() {
+			// A graceful stop leaves ctx intact; a stopped step starts no fallback.
+			return err
 		}
 		if i+1 < len(e.configs) {
 			next := e.configs[i+1]
@@ -275,7 +325,19 @@ func (e *harnessExecutor) Run(ctx context.Context) error {
 	return nil
 }
 
+func (e *harnessExecutor) isStopRequested() bool {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	return e.stopRequested
+}
+
+// runOnce dispatches one provider attempt to its protocol and execution backend.
 func (e *harnessExecutor) runOnce(ctx context.Context, cfg providerConfig) (*os.File, error) {
+	if cfg.definition != nil && cfg.definition.Protocol == ir.HarnessProtocolACP {
+		// An ACP agent does not report what its models used.
+		modelusage.FromContext(ctx).MarkNotReported(cfg.name)
+		return e.runACP(ctx, cfg)
+	}
 	hasRootContainer := rootContainerConfigured(ctx)
 	if cfg.managed && e.step.Container == nil && !hasRootContainer {
 		host, available, err := opencodehost.ConfigFromContext(ctx)
@@ -285,7 +347,7 @@ func (e *harnessExecutor) runOnce(ctx context.Context, cfg providerConfig) (*os.
 		fallbackReported := false
 		if err == nil && available {
 			stdout, managedErr := e.runManagedOpenCode(ctx, cfg, host)
-			if managedErr == nil || cfg.required {
+			if managedErr == nil || cfg.required || ctx.Err() != nil || e.isStopRequested() {
 				return stdout, managedErr
 			}
 			e.mu.Lock()
@@ -319,6 +381,9 @@ func (e *harnessExecutor) runOnce(ctx context.Context, cfg providerConfig) (*os.
 		_, _ = fmt.Fprintln(e.stderrWriter(), "harness: using legacy OpenCode CLI: "+cfg.modeReason)
 	}
 
+	// A coding agent's command line does not report what its models used.
+	modelusage.FromContext(ctx).MarkNotReported(cfg.name)
+
 	if e.step.Container != nil {
 		return e.runContainerOnce(ctx, cfg)
 	}
@@ -339,6 +404,12 @@ func rootContainerConfigured(ctx context.Context) bool {
 // non-container path). Unchanged from the original runOnce behavior.
 func (e *harnessExecutor) runHostSubprocessOnce(ctx context.Context, cfg providerConfig) (*os.File, error) {
 	e.mu.Lock()
+	// Checked under the lock that registers the backend, so a stop either
+	// keeps it from starting or finds it to stop.
+	if e.stopRequested {
+		e.mu.Unlock()
+		return nil, context.Canceled
+	}
 
 	env := runtime.GetEnv(ctx)
 	tw := executor.NewTailWriterWithEncoding(e.stderrWriter(), 0, env.LogEncodingCharset)
@@ -378,7 +449,8 @@ func (e *harnessExecutor) runHostSubprocessOnce(ctx context.Context, cfg provide
 }
 
 func (e *harnessExecutor) invocationCommand(ctx context.Context, cfg providerConfig, args []string, stdin io.Reader, stdout *os.File, stderr io.Writer) (*exec.Cmd, error) {
-	binaryPath, err := resolveBinaryPath(cfg.binaryName(), e.workDir, runtime.AllEnvsMap(ctx))
+	envs := runtime.AllEnvsMap(ctx)
+	binaryPath, err := resolveBinaryPath(cfg.binaryName(), e.workDir, envs)
 	if err != nil {
 		if errors.Is(err, exec.ErrNotFound) {
 			return nil, fmt.Errorf("harness: %q CLI not found in PATH; install it first: %w", cfg.binaryName(), err)
@@ -394,6 +466,11 @@ func (e *harnessExecutor) invocationCommand(ctx context.Context, cfg providerCon
 		cmd.Args[0] = cfg.binaryName()
 	}
 	cmd.Env = append(cmd.Env, runtime.AllEnvs(ctx)...)
+	if err := adaptBatchCommand(cmd, func(name string) (string, error) {
+		return resolveBinaryPath(name, e.workDir, envs)
+	}); err != nil {
+		return nil, err
+	}
 	cmd.Dir = e.workDir
 	cmd.Stdout = stdout
 	cmd.Stderr = stderr
@@ -502,6 +579,12 @@ func buildHarnessContainerRunConfig(
 // chosen by the DAGU_CONTAINER_RUNTIME service setting. No docker/podman CLI subprocess is used.
 func (e *harnessExecutor) runContainerOnce(ctx context.Context, cfg providerConfig) (*os.File, error) {
 	e.mu.Lock()
+	// Checked under the lock that registers the backend, so a stop either
+	// keeps it from starting or finds it to stop.
+	if e.stopRequested {
+		e.mu.Unlock()
+		return nil, context.Canceled
+	}
 
 	env := runtime.GetEnv(ctx)
 	tw := executor.NewTailWriterWithEncoding(e.stderrWriter(), 0, env.LogEncodingCharset)
@@ -676,6 +759,12 @@ func waitForCanceledContainerRun(ctx context.Context, runDone <-chan containerRu
 
 func (e *harnessExecutor) runSharedContainerOnce(ctx context.Context, cfg providerConfig) (*os.File, error) {
 	e.mu.Lock()
+	// Checked under the lock that registers the backend, so a stop either
+	// keeps it from starting or finds it to stop.
+	if e.stopRequested {
+		e.mu.Unlock()
+		return nil, context.Canceled
+	}
 
 	env := runtime.GetEnv(ctx)
 	tw := executor.NewTailWriterWithEncoding(e.stderrWriter(), 0, env.LogEncodingCharset)
@@ -858,9 +947,10 @@ func (e *harnessExecutor) stderrWriter() io.Writer {
 
 // reservedKeys are config keys consumed by the harness executor itself, not passed as CLI flags.
 var reservedKeys = map[string]bool{
-	"provider": true,
-	"fallback": true,
-	"managed":  true,
+	"provider":       true,
+	"fallback":       true,
+	"managed":        true,
+	acpPermissionKey: true,
 }
 
 // configToFlags converts config map entries into CLI flags.
@@ -950,6 +1040,7 @@ func newHarness(ctx context.Context, step ir.Step) (executor.Executor, error) {
 	if err != nil {
 		return nil, err
 	}
+	dropInheritedRemoteOptions(&configs[0], step.ExecutorConfig.Metadata)
 
 	prompt := extractPrompt(step)
 
@@ -962,6 +1053,31 @@ func newHarness(ctx context.Context, step ir.Step) (executor.Executor, error) {
 		script:  step.Script,
 		workDir: env.WorkingDir,
 	}, nil
+}
+
+// dropInheritedRemoteOptions removes DAG-level options that a step inherited
+// before its provider resolved to a remote ACP agent, which accepts none.
+// Options set on the step itself remain, so the attempt still rejects them.
+func dropInheritedRemoteOptions(cfg *providerConfig, metadata map[string]any) {
+	if cfg.definition == nil || !cfg.definition.IsRemote() {
+		return
+	}
+	var keys []string
+	switch inherited := metadata[ir.HarnessInheritedOptionsKey].(type) {
+	case []string:
+		keys = inherited
+	case []any: // decoded from a persisted step
+		for _, key := range inherited {
+			if name, ok := key.(string); ok {
+				keys = append(keys, name)
+			}
+		}
+	}
+	for _, key := range keys {
+		if !reservedKeys[key] {
+			delete(cfg.flags, key)
+		}
+	}
 }
 
 func buildProviderConfigs(cfg map[string]any, defs ir.HarnessDefinitions) ([]providerConfig, error) {
@@ -1379,19 +1495,9 @@ func knownProviders(defs ir.HarnessDefinitions) []string {
 	return names
 }
 
+// cloneDefinition copies a reusable harness definition without sharing mutable options.
 func cloneDefinition(def *ir.HarnessDefinition) *ir.HarnessDefinition {
-	if def == nil {
-		return nil
-	}
-	return &ir.HarnessDefinition{
-		Binary:         def.Binary,
-		PrefixArgs:     append([]string(nil), def.PrefixArgs...),
-		PromptMode:     def.PromptMode,
-		PromptFlag:     def.PromptFlag,
-		PromptPosition: def.PromptPosition,
-		FlagStyle:      def.FlagStyle,
-		OptionFlags:    maps.Clone(def.OptionFlags),
-	}
+	return ir.CloneHarnessDefinition(def)
 }
 
 func isTemplatedValue(value string) bool {

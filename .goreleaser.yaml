@@ -11,6 +11,12 @@ builds:
     binary: dagu
     env:
       - CGO_ENABLED=0
+    # Signs each Windows binary in place before it is archived and checksummed,
+    # and does nothing unless the release workflow configured Artifact Signing.
+    hooks:
+      post:
+        - cmd: bash scripts/ci/sign-windows.sh "{{ .Path }}"
+          output: true
     goos:
       - linux
       - darwin
@@ -51,6 +57,23 @@ changelog:
       - "^docs:"
       - "^test:"
 
+archives:
+  # The default tar.gz archive for every platform. The PowerShell installer,
+  # the Inno Setup job, the npm packages, and the packslip attestation all
+  # download these, so their names must not change.
+  - id: default
+
+  # Scoop can only install from zip archives, so Windows builds are also
+  # packaged as zip. Non-Windows targets are skipped with the "none" format
+  # so this entry adds nothing for them.
+  - id: windows-zip
+    formats:
+      - none
+    format_overrides:
+      - goos: windows
+        formats:
+          - zip
+
 brews:
   - skip_upload: auto
     repository:
@@ -60,6 +83,12 @@ brews:
     homepage: "https://github.com/dagucloud/dagu"
     description: "A compact, portable, and language-agnostic workflow engine"
     license: "GNU General Public License v3.0"
+    caveats: |
+      Start Dagu as a background service:
+        brew services start dagu
+      Or run it in a terminal:
+        dagu start-all
+      Then open http://localhost:8080 and create the admin account.
     custom_block: |
       service do
         run [opt_bin/"dagu", "start-all"]
@@ -78,6 +107,12 @@ brews:
     homepage: "https://github.com/dagucloud/dagu"
     description: "A compact, portable, and language-agnostic workflow engine"
     license: "GNU General Public License v3.0"
+    caveats: |
+      Start Dagu as a background service:
+        brew services start dagu
+      Or run it in a terminal:
+        dagu start-all
+      Then open http://localhost:8080 and create the admin account.
     custom_block: |
       service do
         run [opt_bin/"dagu", "start-all"]
@@ -86,3 +121,17 @@ brews:
         log_path var/"log/dagu.log"
         working_dir var
       end
+
+scoops:
+  - ids:
+      - windows-zip
+    skip_upload: auto
+    repository:
+      owner: dagucloud
+      name: scoop-bucket
+    directory: bucket
+    homepage: "https://github.com/dagucloud/dagu"
+    description: "A compact, portable, and language-agnostic workflow engine"
+    license: "GPL-3.0"
+    post_install:
+      - 'Write-Host "Run ''dagu start-all'' and open http://localhost:8080 to create the admin account."'

@@ -20,6 +20,8 @@ const (
 	TypeErrorWarn TypeErrorMode = "warn"
 	// TypeErrorNull is accepted as a spelling of TypeErrorWarn.
 	TypeErrorNull TypeErrorMode = "null"
+	// TypeErrorKeep keeps the cell's value as read and records a warning.
+	TypeErrorKeep TypeErrorMode = "keep"
 )
 
 func (m TypeErrorMode) warns() bool {
@@ -43,6 +45,8 @@ type ReadOptions struct {
 	Where         map[string]any
 	// MaxRows caps the rows returned; zero means DefaultMaxRows.
 	MaxRows int
+	// SkipHidden leaves out rows hidden by a filter or by hand.
+	SkipHidden bool
 
 	// quietLimit drops the warning a hit MaxRows adds; Inspect samples a
 	// few rows on purpose and reports the row count separately.
@@ -65,6 +69,17 @@ type ReadResult struct {
 // Read returns the typed rows of a sheet.
 func Read(ctx context.Context, path string, opts ReadOptions) (*ReadResult, error) {
 	w, err := open(path, opts.Password)
+	if err != nil {
+		return nil, err
+	}
+	defer w.close()
+	return w.read(ctx, opts)
+}
+
+// ReadBytes reads a workbook supplied as bytes. Path is used only as the
+// result and error label, so callers can report stdin as "-".
+func ReadBytes(ctx context.Context, path string, data []byte, opts ReadOptions) (*ReadResult, error) {
+	w, err := openBytes(path, data, opts.Password)
 	if err != nil {
 		return nil, err
 	}
@@ -120,6 +135,9 @@ func (w *file) read(ctx context.Context, opts ReadOptions) (*ReadResult, error) 
 	for r := layout.dataStart; r <= reg.R2; r++ {
 		if err := ctx.Err(); err != nil {
 			return nil, err
+		}
+		if opts.SkipHidden && w.rowHidden(sheet, grid, r) {
+			continue
 		}
 		full, empty, err := w.readRow(sheet, reg, r, grid, merges, headers, plan.types, opts, warn)
 		if err != nil {
@@ -209,6 +227,18 @@ func (w *file) locate(sheetName, rangeRef string, header HeaderSpec) (location, 
 	}
 }
 
+// rowHidden reports whether a sheet row is hidden, by a filter or by hand.
+// Rows past the last one holding a cell, row len(grid)-1 since the grid is
+// indexed from row 1, count as shown: they are blank, and the library
+// reports every row past the stored ones as hidden.
+func (w *file) rowHidden(sheet string, grid [][]string, row int) bool {
+	if row >= len(grid) {
+		return false
+	}
+	visible, err := w.f.GetRowVisible(sheet, row)
+	return err == nil && !visible
+}
+
 // readRow types every cell of one sheet row under the region's headers.
 func (w *file) readRow(sheet string, reg region, r int, grid [][]string, merges mergeFill, headers []string, types map[string]ColumnType, opts ReadOptions, warn func(string)) (row Row, empty bool, err error) {
 	row = make(Row, len(headers)+1)
@@ -224,10 +254,14 @@ func (w *file) readRow(sheet string, reg region, r int, grid [][]string, merges 
 		if t, ok := types[name]; ok && value != nil {
 			coerced, cerr := coerce(value, t, w.date1904)
 			if cerr != nil {
-				if opts.OnTypeError.warns() {
+				switch {
+				case opts.OnTypeError == TypeErrorKeep:
+					warn(fmt.Sprintf("%s!%s: %v", sheet, cellName(c, r), cerr))
+					coerced = value
+				case opts.OnTypeError.warns():
 					warn(fmt.Sprintf("%s!%s: %v", sheet, cellName(c, r), cerr))
 					coerced = nil
-				} else {
+				default:
 					return nil, false, w.cellError(sheet, c, r, cerr.Error())
 				}
 			}

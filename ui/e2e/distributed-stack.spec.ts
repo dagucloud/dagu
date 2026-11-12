@@ -167,7 +167,7 @@ test('exercises the web UI against the real distributed worker stack', async ({
 
     await page.goto(`/queues/${stack.queues.shared}`);
     await expect(
-      page.getByText('No DAG runs are currently executing in this queue.')
+      page.getByText('No runs are executing in this queue.')
     ).toBeVisible();
     await expect(
       page.getByText('No queued items in this queue.')

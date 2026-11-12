@@ -6,6 +6,8 @@ import { useLicenseState } from '@/hooks/useLicense';
 import { useI18n } from '@/i18n/I18nProvider';
 import { I18nTemplate } from '@/i18n/I18nTemplate';
 import {
+  isFreeLicense,
+  LICENSE_WARNING_DAYS,
   licenseDaysLeft,
   licenseLink,
   TRIAL_WARNING_DAYS,
@@ -38,7 +40,8 @@ export function LicenseBanner() {
         {warning}
       </div>
     );
-  if (license.community) return null;
+  // A free license unlocks nothing that its expiry would take away.
+  if (license.community || isFreeLicense(license)) return null;
 
   const trial = license.plan === 'trial';
   const action = (label: string) =>
@@ -76,7 +79,10 @@ export function LicenseBanner() {
   if (!license.valid) return null;
 
   const days = licenseDaysLeft(license.expiry, now);
-  if (days === undefined || days > (trial ? TRIAL_WARNING_DAYS : 30))
+  if (
+    days === undefined ||
+    days > (trial ? TRIAL_WARNING_DAYS : LICENSE_WARNING_DAYS)
+  )
     return null;
   const urgent = days <= (trial ? TRIAL_WARNING_DAYS : 7);
   const dismissalKey = `license-banner-${remoteNode}-${license.plan}-${license.expiry}-${urgent ? 'urgent' : 'notice'}`;

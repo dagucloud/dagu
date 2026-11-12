@@ -5,6 +5,7 @@ package spec
 
 import (
 	"context"
+	"fmt"
 	"path/filepath"
 	"runtime"
 	"strings"
@@ -311,6 +312,74 @@ steps:
 
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "registry.ref is required")
+}
+
+func TestLoadDAGToolsAcceptsLocalRegistry(t *testing.T) {
+	t.Parallel()
+	for _, path := range []string{"/etc/dagu/aqua-registry.yaml", `C:\dagu\registry.yaml`, `C:/dagu/registry.yaml`, `\\server\share\registry.yaml`, filepath.Join(t.TempDir(), "registry.yaml")} {
+		t.Run(path, func(t *testing.T) {
+			dag, err := LoadYAML(context.Background(), []byte(fmt.Sprintf(`
+tools:
+  registry:
+    type: local
+    path: %q
+  packages:
+    - package: example/tool
+      version: v1.0.0
+      commands: [tool]
+steps:
+  - id: check
+    run: tool
+`, path)))
+
+			require.NoError(t, err)
+			require.NotNil(t, dag.Tools)
+			require.NotNil(t, dag.Tools.Registry)
+			assert.Equal(t, "local", dag.Tools.Registry.Name)
+			assert.Equal(t, "local", dag.Tools.Registry.Type)
+			assert.Equal(t, path, dag.Tools.Registry.Path)
+			assert.Empty(t, dag.Tools.Registry.Ref)
+		})
+	}
+}
+
+func TestLoadDAGToolsRejectsLocalRegistryWithoutPath(t *testing.T) {
+	t.Parallel()
+
+	_, err := LoadYAML(context.Background(), []byte(`
+tools:
+  registry:
+    type: local
+  packages:
+    - package: example/tool
+      version: v1.0.0
+steps:
+  - id: check
+    run: tool
+`))
+
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "registry.path: path is required")
+}
+
+func TestLoadDAGToolsRejectsLocalRegistryRelativePath(t *testing.T) {
+	t.Parallel()
+
+	_, err := LoadYAML(context.Background(), []byte(`
+tools:
+  registry:
+    type: local
+    path: registry.yaml
+  packages:
+    - package: example/tool
+      version: v1.0.0
+steps:
+  - id: check
+    run: tool
+`))
+
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "registry.path: path must be an absolute path")
 }
 
 func TestLoadDAGToolsRejectsFloatingLatestVersion(t *testing.T) {
@@ -2320,7 +2389,7 @@ func TestBuildSteps(t *testing.T) {
 		t.Parallel()
 		d := &dag{Steps: nil}
 		result := &ir.DAG{}
-		steps, err := buildSteps(testBuildContext(), d, result)
+		steps, err := buildSteps(testBuildContext(), d, result, nil)
 		require.NoError(t, err)
 		assert.Nil(t, steps)
 	})
@@ -2334,7 +2403,7 @@ func TestBuildSteps(t *testing.T) {
 			},
 		}
 		result := &ir.DAG{}
-		steps, err := buildSteps(testBuildContext(), d, result)
+		steps, err := buildSteps(testBuildContext(), d, result, nil)
 		require.NoError(t, err)
 		assert.Len(t, steps, 2)
 		assert.Equal(t, "step1", steps[0].Name)
@@ -2350,7 +2419,7 @@ func TestBuildSteps(t *testing.T) {
 			},
 		}
 		result := &ir.DAG{}
-		steps, err := buildSteps(testBuildContext(), d, result)
+		steps, err := buildSteps(testBuildContext(), d, result, nil)
 		require.NoError(t, err)
 		assert.Len(t, steps, 2)
 	})
@@ -2366,7 +2435,7 @@ func TestBuildSteps(t *testing.T) {
 			},
 		}
 		result := &ir.DAG{}
-		steps, err := buildSteps(testBuildContext(), d, result)
+		steps, err := buildSteps(testBuildContext(), d, result, nil)
 		require.NoError(t, err)
 		assert.Len(t, steps, 2)
 	})
@@ -2379,7 +2448,7 @@ func TestBuildSteps(t *testing.T) {
 			},
 		}
 		result := &ir.DAG{}
-		_, err := buildSteps(testBuildContext(), d, result)
+		_, err := buildSteps(testBuildContext(), d, result, nil)
 		require.Error(t, err)
 	})
 
@@ -2391,7 +2460,7 @@ func TestBuildSteps(t *testing.T) {
 			},
 		}
 		result := &ir.DAG{}
-		_, err := buildSteps(testBuildContext(), d, result)
+		_, err := buildSteps(testBuildContext(), d, result, nil)
 		require.Error(t, err)
 	})
 }
@@ -2771,7 +2840,7 @@ func TestBuildHandlers(t *testing.T) {
 			},
 		}
 		result := &ir.DAG{}
-		handlerOn, err := buildHandlers(testBuildContext(), d, result)
+		handlerOn, err := buildHandlers(testBuildContext(), d, result, nil)
 		require.NoError(t, err)
 		require.NotNil(t, handlerOn.Init)
 		require.Len(t, handlerOn.Init.Commands, 1)
@@ -2797,7 +2866,7 @@ func TestBuildHandlers(t *testing.T) {
 		t.Parallel()
 		d := &dag{}
 		result := &ir.DAG{}
-		handlerOn, err := buildHandlers(testBuildContext(), d, result)
+		handlerOn, err := buildHandlers(testBuildContext(), d, result, nil)
 		require.NoError(t, err)
 		assert.Nil(t, handlerOn.Init)
 		assert.Nil(t, handlerOn.Exit)
@@ -2815,7 +2884,7 @@ func TestBuildHandlers(t *testing.T) {
 			},
 		}
 		result := &ir.DAG{}
-		_, err := buildHandlers(testBuildContext(), d, result)
+		_, err := buildHandlers(testBuildContext(), d, result, nil)
 		require.Error(t, err)
 	})
 
@@ -2827,7 +2896,7 @@ func TestBuildHandlers(t *testing.T) {
 			},
 		}
 		result := &ir.DAG{}
-		_, err := buildHandlers(testBuildContext(), d, result)
+		_, err := buildHandlers(testBuildContext(), d, result, nil)
 		require.Error(t, err)
 	})
 
@@ -2839,7 +2908,7 @@ func TestBuildHandlers(t *testing.T) {
 			},
 		}
 		result := &ir.DAG{}
-		_, err := buildHandlers(testBuildContext(), d, result)
+		_, err := buildHandlers(testBuildContext(), d, result, nil)
 		require.Error(t, err)
 	})
 
@@ -2851,7 +2920,7 @@ func TestBuildHandlers(t *testing.T) {
 			},
 		}
 		result := &ir.DAG{}
-		_, err := buildHandlers(testBuildContext(), d, result)
+		_, err := buildHandlers(testBuildContext(), d, result, nil)
 		require.Error(t, err)
 	})
 
@@ -2863,7 +2932,7 @@ func TestBuildHandlers(t *testing.T) {
 			},
 		}
 		result := &ir.DAG{}
-		_, err := buildHandlers(testBuildContext(), d, result)
+		_, err := buildHandlers(testBuildContext(), d, result, nil)
 		require.Error(t, err)
 	})
 
@@ -2875,7 +2944,7 @@ func TestBuildHandlers(t *testing.T) {
 			},
 		}
 		result := &ir.DAG{}
-		handlerOn, err := buildHandlers(testBuildContext(), d, result)
+		handlerOn, err := buildHandlers(testBuildContext(), d, result, nil)
 		require.NoError(t, err)
 		require.NotNil(t, handlerOn.Wait)
 		require.Len(t, handlerOn.Wait.Commands, 1)
@@ -2891,7 +2960,7 @@ func TestBuildHandlers(t *testing.T) {
 			},
 		}
 		result := &ir.DAG{}
-		_, err := buildHandlers(testBuildContext(), d, result)
+		_, err := buildHandlers(testBuildContext(), d, result, nil)
 		require.Error(t, err)
 	})
 }
@@ -3863,6 +3932,48 @@ func TestRouterSharedTarget(t *testing.T) {
 	assert.Equal(t, []string{"router", "router2"}, steps["shared"].Depends)
 	assert.Equal(t, []*ir.Condition{{Condition: "${MODE}", Expected: "full"}}, steps["single"].Preconditions)
 	assert.Equal(t, []*ir.Condition{{Condition: "${MODE}", Expected: "x"}}, steps["repeated"].Preconditions)
+}
+
+// A route names its target by id or by name, as depends does. Either way the
+// built route lists the step name, and both forms share one precondition.
+func TestRouterTargetByID(t *testing.T) {
+	t.Parallel()
+
+	built, err := (&dag{
+		Type: "graph",
+		Steps: []any{
+			map[string]any{
+				"id":    "pick",
+				"name":  "Pick route",
+				"type":  "router",
+				"value": "${MODE}",
+				"routes": map[string]any{
+					"a":     []string{"route_a"},
+					"b":     []string{"route_b"},
+					"re:^b": []string{"Route B"},
+				},
+			},
+			map[string]any{"id": "route_a", "name": "Route A", "command": "echo A"},
+			map[string]any{"id": "route_b", "name": "Route B", "command": "echo B"},
+		},
+	}).build(testBuildContext())
+	require.NoError(t, err)
+
+	steps := make(map[string]ir.Step, len(built.Steps))
+	for _, step := range built.Steps {
+		steps[step.Name] = step
+	}
+	assert.Equal(t, []ir.RouteEntry{
+		{Pattern: "a", Targets: []string{"Route A"}},
+		{Pattern: "b", Targets: []string{"Route B"}},
+		{Pattern: "re:^b", Targets: []string{"Route B"}},
+	}, steps["Pick route"].Router.Routes)
+	assert.Equal(t, []*ir.Condition{{Condition: "${MODE}", Expected: "a"}}, steps["Route A"].Preconditions)
+	assert.Equal(t, []string{"Pick route"}, steps["Route A"].Depends)
+	assert.Equal(t, []*ir.Condition{
+		{Condition: "${MODE}", ExpectedAny: []string{"b", "re:^b"}},
+	}, steps["Route B"].Preconditions)
+	assert.Equal(t, []string{"Pick route"}, steps["Route B"].Depends)
 }
 
 func TestRouterNumericRoutePattern(t *testing.T) {

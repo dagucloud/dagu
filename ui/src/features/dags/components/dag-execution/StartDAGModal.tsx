@@ -56,8 +56,9 @@ import {
   buildParamSchemaUiSchema,
   stringifyParamSchemaFormData,
 } from './paramSchemaForm';
-import { schemaFormTemplates } from './schemaFormTemplates';
-import { schemaFormWidgets } from './schemaFormWidgets';
+import { ParamLabel } from './ParamLabel';
+import { paramFormTemplates } from './paramFormTemplates';
+import { paramFormWidgets } from './paramFormWidgets';
 import { autoGrowTextarea } from './textareaAutoGrow';
 import { I18nText } from '@/i18n/I18nText';
 import { I18nProps } from '@/i18n/I18nProps';
@@ -72,6 +73,7 @@ type SchemaFormData = Record<string, unknown>;
 type ParamField = {
   key: string;
   name?: string;
+  title?: string;
   type: ParamDefType;
   value: string;
   hasValue: boolean;
@@ -97,7 +99,8 @@ type Props = {
     dagRunId?: string,
     immediate?: boolean,
     profile?: string,
-    noReuse?: boolean
+    noReuse?: boolean,
+    scheduleTime?: string
   ) => Promise<void> | void;
   action?: 'start' | 'enqueue';
   profiles?: components['schemas']['RuntimeProfileResponse'][];
@@ -108,6 +111,16 @@ type Props = {
 
 const DAG_DEFAULT_PROFILE_VALUE = '__dag_default__';
 const NO_PROFILE_VALUE = '__none__';
+const NO_SLOT_VALUE = '__no_slot__';
+const OTHER_SLOT_VALUE = '__other_slot__';
+
+type RecentFire = components['schemas']['RecentFire'];
+
+// formatRecentFire shows a fire in the zone of its schedule, as the API
+// returns it, e.g. "2026-11-11 02:00 (Asia/Tokyo)".
+function formatRecentFire(fire: RecentFire): string {
+  return `${fire.time.slice(0, 10)} ${fire.time.slice(11, 16)} (${fire.timezone})`;
+}
 
 function profileOverrideForSelection(
   selection: string,
@@ -128,6 +141,7 @@ function createParamFields(paramDefs: ParamDef[] = []): ParamField[] {
     return {
       key: def.name ?? `__pos_${index}`,
       name: def.name,
+      title: def.title,
       type: def.type,
       value: hasDefault ? scalarToString(def.default as ScalarValue) : '',
       hasValue: hasDefault,
@@ -347,8 +361,15 @@ function StartDAGModal({
   );
   const [isFullscreen, setIsFullscreen] = React.useState(false);
   const forceEnqueue = action === 'enqueue';
-  const [enqueue, setEnqueue] = React.useState(forceEnqueue);
+  // A run waits in the queue unless the user unchecks Enqueue.
+  const [enqueue, setEnqueue] = React.useState(true);
   const [noReuse, setNoReuse] = React.useState(false);
+  const [slotSelection, setSlotSelection] = React.useState(NO_SLOT_VALUE);
+  const [customSlot, setCustomSlot] = React.useState('');
+  const recentFires = React.useMemo(
+    () => dagDetails?.recentFires ?? [],
+    [dagDetails]
+  );
   const isBuild = dagDetails?.type === 'build';
   const activeProfiles = React.useMemo(
     () =>
@@ -358,6 +379,17 @@ function StartDAGModal({
     [profiles]
   );
   const hasDefaultProfile = defaultProfile !== '';
+  // The listed slots come from the DAG's default profile. Another profile
+  // can have schedules of its own, which decide the run's window.
+  const defaultProfileName = defaultProfile ?? '';
+  const selectedProfileName =
+    profileSelection === DAG_DEFAULT_PROFILE_VALUE
+      ? defaultProfileName
+      : profileSelection === NO_PROFILE_VALUE
+        ? ''
+        : profileSelection;
+  const slotsFollowOtherProfile =
+    recentFires.length > 0 && selectedProfileName !== defaultProfileName;
   const showProfileSelector =
     defaultProfileLoading ||
     profilesLoading ||
@@ -403,7 +435,10 @@ function StartDAGModal({
     runConfig?: { disableParamEdit?: boolean; disableRunIdEdit?: boolean };
   };
 
-  const paramsReadOnly = dagWithRunConfig?.runConfig?.disableParamEdit ?? false;
+  // A workflow without parameters has none to lock, so it gets no note.
+  const paramsReadOnly =
+    (dagWithRunConfig?.runConfig?.disableParamEdit ?? false) &&
+    parameterCount > 0;
   const runIdReadOnly = dagWithRunConfig?.runConfig?.disableRunIdEdit ?? false;
   const schemaFormUiSchema = React.useMemo<
     UiSchema<SchemaFormData> | undefined
@@ -447,15 +482,16 @@ function StartDAGModal({
     setProfileSelection(
       defaultProfile ? DAG_DEFAULT_PROFILE_VALUE : NO_PROFILE_VALUE
     );
-    setEnqueue(forceEnqueue);
+    setEnqueue(true);
     setNoReuse(false);
+    setSlotSelection(NO_SLOT_VALUE);
+    setCustomSlot('');
   }, [
     defaultProfile,
     visible,
     initialSchemaFormData,
     initialTypedFields,
     initialRawParams,
-    forceEnqueue,
   ]);
 
   const cancelButtonRef = React.useRef<HTMLButtonElement>(null);
@@ -514,6 +550,17 @@ function StartDAGModal({
       paramsPayload = stringifyParams(rawParams);
     }
 
+    let scheduleTime: string | undefined;
+    if (slotSelection === OTHER_SLOT_VALUE) {
+      scheduleTime = customSlot.trim();
+      if (!scheduleTime) {
+        setSubmitError('Enter the scheduled time, or choose None.');
+        return;
+      }
+    } else if (slotSelection !== NO_SLOT_VALUE) {
+      scheduleTime = slotSelection;
+    }
+
     setSubmitting(true);
     setSubmitError(null);
     try {
@@ -521,7 +568,16 @@ function StartDAGModal({
         profileSelection,
         hasDefaultProfile
       );
-      if (isBuild) {
+      if (scheduleTime) {
+        await onSubmit(
+          paramsPayload,
+          dagRunId || undefined,
+          !enqueue,
+          profileOverride,
+          isBuild ? noReuse : undefined,
+          scheduleTime
+        );
+      } else if (isBuild) {
         await onSubmit(
           paramsPayload,
           dagRunId || undefined,
@@ -548,6 +604,7 @@ function StartDAGModal({
       setSubmitting(false);
     }
   }, [
+    customSlot,
     dag,
     dagRunId,
     dismissModal,
@@ -563,6 +620,7 @@ function StartDAGModal({
     useSchemaFields,
     submitting,
     profileSelection,
+    slotSelection,
     typedFields,
     useTypedFields,
   ]);
@@ -605,6 +663,16 @@ function StartDAGModal({
     };
   }, [dismissModal, handleSubmit, visible]);
 
+  // Without a note, an error or a parameter, the body would be an empty band.
+  const hasBody =
+    isFullscreen ||
+    paramsReadOnly ||
+    runIdReadOnly ||
+    !!loadError ||
+    !!submitError ||
+    loading ||
+    parameterCount > 0;
+
   return (
     <Dialog open={visible} onOpenChange={(open) => !open && dismissModal()}>
       <DialogContent
@@ -618,9 +686,9 @@ function StartDAGModal({
         <DialogHeader className="min-h-12 shrink-0 border-b border-border px-6 py-3 pr-24">
           <DialogTitle>
             {forceEnqueue ? (
-              <I18nText text={'Enqueue the DAG'} />
+              <I18nText text={'Enqueue workflow'} />
             ) : (
-              <I18nText text={'Start the DAG'} />
+              <I18nText text={'Start workflow'} />
             )}
           </DialogTitle>
           <DialogDescription className="sr-only">
@@ -656,8 +724,10 @@ function StartDAGModal({
             >
               {!forceEnqueue && (
                 <div className="space-y-1.5">
-                  <span className="text-sm font-medium">
-                    <I18nText text={'Enqueue'} />
+                  {/* Keeps the row of the labels of the other fields; the
+                      checkbox label says Enqueue once. */}
+                  <span aria-hidden="true" className="block text-sm">
+                    &nbsp;
                   </span>
                   <div className="flex h-7 items-center gap-2">
                     <Checkbox
@@ -677,12 +747,12 @@ function StartDAGModal({
 
               <div className="space-y-1.5">
                 <Label htmlFor="dagRun-id">
-                  <I18nText text={'DAG-Run ID (optional)'} />
+                  <I18nText text={'Run ID (optional)'} />
                 </Label>
                 <I18nProps>
                   <Input
                     id="dagRun-id"
-                    placeholder="Enter custom DAG-Run ID"
+                    placeholder="Enter a custom run ID"
                     value={dagRunId}
                     readOnly={runIdReadOnly}
                     disabled={runIdReadOnly || loading || submitting}
@@ -699,6 +769,70 @@ function StartDAGModal({
                   />
                 </I18nProps>
               </div>
+
+              {recentFires.length > 0 && (
+                <div className="space-y-1.5">
+                  <Label htmlFor="scheduled-at">
+                    <I18nText text={'Scheduled at (optional)'} />
+                  </Label>
+                  <Select
+                    value={slotSelection}
+                    disabled={loading || submitting}
+                    onValueChange={setSlotSelection}
+                  >
+                    <SelectTrigger
+                      id="scheduled-at"
+                      className="h-7 w-full px-2 py-1"
+                    >
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value={NO_SLOT_VALUE}>
+                        <I18nText text={'None (run now)'} />
+                      </SelectItem>
+                      {recentFires.map((fire) => (
+                        <SelectItem key={fire.time} value={fire.time}>
+                          {formatRecentFire(fire)}
+                        </SelectItem>
+                      ))}
+                      <SelectItem value={OTHER_SLOT_VALUE}>
+                        <I18nText text={'Other time'} />
+                      </SelectItem>
+                    </SelectContent>
+                  </Select>
+                  {slotSelection === OTHER_SLOT_VALUE && (
+                    <I18nProps>
+                      <Input
+                        id="scheduled-at-custom"
+                        aria-label="Scheduled time"
+                        placeholder="latest, 2026-11-09, 2026-11-09T02:00, or RFC 3339"
+                        value={customSlot}
+                        disabled={loading || submitting}
+                        className="h-7 px-2"
+                        onChange={(event) => setCustomSlot(event.target.value)}
+                      />
+                    </I18nProps>
+                  )}
+                  {slotSelection !== NO_SLOT_VALUE && (
+                    <p className="text-xs text-muted-foreground">
+                      <I18nText
+                        text={
+                          'The run gets the schedule time and window of this slot.'
+                        }
+                      />
+                    </p>
+                  )}
+                  {slotsFollowOtherProfile && (
+                    <p className="text-xs text-muted-foreground">
+                      <I18nText
+                        text={
+                          "The listed times follow the DAG's default profile. The run's window follows the selected profile."
+                        }
+                      />
+                    </p>
+                  )}
+                </div>
+              )}
 
               {showProfileSelector && (
                 <div className="space-y-1.5">
@@ -803,202 +937,239 @@ function StartDAGModal({
           </fieldset>
         </I18nProps>
 
-        <div className="min-h-0 flex-1 overflow-y-auto px-6 py-4">
-          <div className="space-y-4">
-            {(paramsReadOnly || runIdReadOnly) && (
-              <div className="rounded-md border border-warning/30 bg-warning-muted p-3">
-                <p className="text-sm text-warning">
-                  <strong>
-                    <I18nText text={'Note:'} />
-                  </strong>{' '}
-                  <I18nText text={'This DAG has restrictions:'} />
-                  {paramsReadOnly && runIdReadOnly && (
-                    <span>
-                      {' '}
-                      <I18nText
-                        text={
-                          'Parameter editing and custom run IDs are disabled.'
-                        }
-                      />
-                    </span>
-                  )}
-                  {paramsReadOnly && !runIdReadOnly && (
-                    <span>
-                      {' '}
-                      <I18nText text={'Parameter editing is disabled.'} />
-                    </span>
-                  )}
-                  {!paramsReadOnly && runIdReadOnly && (
-                    <span>
-                      {' '}
-                      <I18nText text={'Custom run IDs are disabled.'} />
-                    </span>
-                  )}
-                </p>
-              </div>
-            )}
-
-            {(loadError || submitError) && (
-              <Alert ref={submitErrorRef} variant="destructive" tabIndex={-1}>
-                <AlertTriangle className="h-4 w-4" />
-                <AlertDescription>{loadError ?? submitError}</AlertDescription>
-              </Alert>
-            )}
-
-            <section
-              aria-labelledby="dag-parameters-heading"
-              className="space-y-4"
-            >
-              <div className="flex items-center gap-2">
-                <h3 id="dag-parameters-heading" className="font-semibold">
-                  <I18nText text={'Parameters'} />
-                </h3>
-                <Badge variant="secondary" className="font-normal">
-                  {parameterCount}{' '}
-                  {parameterCount === 1 ? (
-                    <I18nText text={'field'} />
-                  ) : (
-                    <I18nText text={'fields'} />
-                  )}
-                </Badge>
-              </div>
-
-              {loading && (
-                <div className="rounded-md border border-border bg-muted/40 p-3 text-sm text-muted-foreground">
-                  <I18nText text={'Loading DAG details...'} />
+        {hasBody && (
+          <div
+            data-testid="start-dag-body"
+            className="min-h-0 flex-1 overflow-y-auto px-6 py-4"
+          >
+            <div className="space-y-4">
+              {(paramsReadOnly || runIdReadOnly) && (
+                <div className="rounded-md border border-warning/30 bg-warning-muted p-3">
+                  <p className="text-sm text-warning">
+                    <strong>
+                      <I18nText text={'Note:'} />
+                    </strong>{' '}
+                    <I18nText text={'This DAG has restrictions:'} />
+                    {paramsReadOnly && runIdReadOnly && (
+                      <span>
+                        {' '}
+                        <I18nText
+                          text={
+                            'Parameter editing and custom run IDs are disabled.'
+                          }
+                        />
+                      </span>
+                    )}
+                    {paramsReadOnly && !runIdReadOnly && (
+                      <span>
+                        {' '}
+                        <I18nText text={'Parameter editing is disabled.'} />
+                      </span>
+                    )}
+                    {!paramsReadOnly && runIdReadOnly && (
+                      <span>
+                        {' '}
+                        <I18nText text={'Custom run IDs are disabled.'} />
+                      </span>
+                    )}
+                  </p>
                 </div>
               )}
 
-              {!loading && dag && paramSchema && (
-                <Form
-                  ref={schemaFormRef}
-                  tagName="div"
-                  schema={paramSchema as RJSFSchema}
-                  validator={validator}
-                  formData={schemaFormData}
-                  uiSchema={schemaFormUiSchema}
-                  templates={schemaFormTemplates}
-                  widgets={schemaFormWidgets}
-                  disabled={paramsReadOnly || submitting}
-                  readonly={paramsReadOnly}
-                  noHtml5Validate
-                  showErrorList={false}
-                  onChange={(event: IChangeEvent<SchemaFormData>) => {
-                    setSchemaFormData((event.formData ?? {}) as SchemaFormData);
-                    setSubmitError(null);
-                  }}
-                  onError={() =>
-                    setSubmitError(
-                      'Fix the highlighted parameter errors before submitting.'
-                    )
-                  }
-                />
+              {(loadError || submitError) && (
+                <Alert ref={submitErrorRef} variant="destructive" tabIndex={-1}>
+                  <AlertTriangle className="h-4 w-4" />
+                  <AlertDescription>
+                    {loadError ?? submitError}
+                  </AlertDescription>
+                </Alert>
               )}
 
-              {!loading && dag && useTypedFields && (
-                <>
-                  {typedFields.map((field, index) => {
-                    const label = field.name || `Parameter ${index + 1}`;
-                    const error = fieldErrors[field.key];
-                    const disableField = paramsReadOnly || submitting;
-                    const showUnsetButton =
-                      !field.required && !field.hasDefault && field.hasValue;
+              {(loading || parameterCount > 0) && (
+                <section
+                  aria-labelledby="dag-parameters-heading"
+                  className="space-y-4"
+                >
+                  <div className="flex items-center gap-2">
+                    <h3 id="dag-parameters-heading" className="font-semibold">
+                      <I18nText text={'Parameters'} />
+                    </h3>
+                    <Badge variant="secondary" className="font-normal">
+                      {parameterCount}{' '}
+                      {parameterCount === 1 ? (
+                        <I18nText text={'field'} />
+                      ) : (
+                        <I18nText text={'fields'} />
+                      )}
+                    </Badge>
+                  </div>
 
-                    return (
-                      <div key={field.key} className="space-y-2">
-                        <div className="flex items-center justify-between gap-3">
-                          <Label htmlFor={`param-${field.key}`}>
-                            {label}
-                            {field.required ? ' *' : ''}
-                          </Label>
-                          {showUnsetButton && (
-                            <Button
-                              type="button"
-                              variant="ghost"
-                              size="sm"
-                              className="h-7 px-2 text-xs"
-                              disabled={disableField}
-                              onClick={() =>
-                                handleTypedFieldChange(field.key, {
-                                  hasValue: false,
-                                  value: '',
-                                })
-                              }
-                            >
-                              <I18nText text={'Unset'} />
-                            </Button>
-                          )}
-                        </div>
-
-                        {renderTypedField({
-                          field,
-                          disabled: disableField,
-                          onChange: (patch) =>
-                            handleTypedFieldChange(field.key, patch),
-                        })}
-
-                        {field.description && (
-                          <p className="text-xs text-muted-foreground">
-                            {field.description}
-                          </p>
-                        )}
-                        {error && (
-                          <p className="text-xs text-destructive">{error}</p>
-                        )}
-                      </div>
-                    );
-                  })}
-                </>
-              )}
-
-              {!loading && dag && !useSchemaFields && !useTypedFields && (
-                <>
-                  {rawParams.map((param, index) => (
-                    <div
-                      key={`${param.Name ?? 'pos'}-${index}`}
-                      className="space-y-2"
-                    >
-                      <Label htmlFor={`param-${index}`}>
-                        {param.Name ?? `Parameter ${index + 1}`}
-                      </Label>
-                      <Textarea
-                        id={`param-${index}`}
-                        ref={(element) => {
-                          if (element) {
-                            autoGrowTextarea(element);
-                          }
-                        }}
-                        rows={1}
-                        value={rawParams[index]?.Value ?? ''}
-                        readOnly={paramsReadOnly}
-                        disabled={paramsReadOnly || submitting}
-                        className={
-                          paramsReadOnly ? 'bg-muted cursor-not-allowed' : ''
-                        }
-                        onInput={(event) =>
-                          autoGrowTextarea(event.currentTarget)
-                        }
-                        onChange={(event) => {
-                          if (paramsReadOnly) {
-                            return;
-                          }
-                          setRawParams((prev) =>
-                            prev.map((item, itemIndex) =>
-                              itemIndex === index
-                                ? { ...item, Value: event.target.value }
-                                : item
-                            )
-                          );
-                          setSubmitError(null);
-                        }}
-                      />
+                  {loading && (
+                    <div className="rounded-md border border-border bg-muted/40 p-3 text-sm text-muted-foreground">
+                      <I18nText text={'Loading workflow...'} />
                     </div>
-                  ))}
-                </>
+                  )}
+
+                  {!loading && dag && paramSchema && (
+                    <Form
+                      ref={schemaFormRef}
+                      tagName="div"
+                      schema={paramSchema as RJSFSchema}
+                      validator={validator}
+                      formData={schemaFormData}
+                      uiSchema={schemaFormUiSchema}
+                      templates={paramFormTemplates}
+                      widgets={paramFormWidgets}
+                      disabled={paramsReadOnly || submitting}
+                      readonly={paramsReadOnly}
+                      noHtml5Validate
+                      showErrorList={false}
+                      onChange={(event: IChangeEvent<SchemaFormData>) => {
+                        setSchemaFormData(
+                          (event.formData ?? {}) as SchemaFormData
+                        );
+                        setSubmitError(null);
+                      }}
+                      onError={() =>
+                        setSubmitError(
+                          'Fix the highlighted parameter errors before submitting.'
+                        )
+                      }
+                    />
+                  )}
+
+                  {!loading && dag && useTypedFields && (
+                    <>
+                      {typedFields.map((field, index) => {
+                        const label =
+                          field.title || field.name || `Parameter ${index + 1}`;
+                        const error = fieldErrors[field.key];
+                        const descriptionId = `param-${field.key}-description`;
+                        const errorId = `param-${field.key}-error`;
+                        const describedBy =
+                          [field.description && descriptionId, error && errorId]
+                            .filter(Boolean)
+                            .join(' ') || undefined;
+                        const disableField = paramsReadOnly || submitting;
+                        const showUnsetButton =
+                          !field.required &&
+                          !field.hasDefault &&
+                          field.hasValue;
+
+                        return (
+                          <div key={field.key} className="space-y-2">
+                            <div className="flex items-center justify-between gap-3">
+                              <ParamLabel
+                                htmlFor={`param-${field.key}`}
+                                name={field.name}
+                                label={label}
+                              >
+                                {label}
+                                {field.required ? ' *' : ''}
+                              </ParamLabel>
+                              {showUnsetButton && (
+                                <Button
+                                  type="button"
+                                  variant="ghost"
+                                  size="sm"
+                                  className="h-7 px-2 text-xs"
+                                  disabled={disableField}
+                                  onClick={() =>
+                                    handleTypedFieldChange(field.key, {
+                                      hasValue: false,
+                                      value: '',
+                                    })
+                                  }
+                                >
+                                  <I18nText text={'Unset'} />
+                                </Button>
+                              )}
+                            </div>
+
+                            {field.description && (
+                              <p
+                                id={descriptionId}
+                                className="text-xs text-muted-foreground"
+                              >
+                                {field.description}
+                              </p>
+                            )}
+
+                            {renderTypedField({
+                              field,
+                              disabled: disableField,
+                              describedBy,
+                              invalid: !!error,
+                              onChange: (patch) =>
+                                handleTypedFieldChange(field.key, patch),
+                            })}
+
+                            {error && (
+                              <p
+                                id={errorId}
+                                className="text-xs text-destructive"
+                              >
+                                {error}
+                              </p>
+                            )}
+                          </div>
+                        );
+                      })}
+                    </>
+                  )}
+
+                  {!loading && dag && !useSchemaFields && !useTypedFields && (
+                    <>
+                      {rawParams.map((param, index) => (
+                        <div
+                          key={`${param.Name ?? 'pos'}-${index}`}
+                          className="space-y-2"
+                        >
+                          <Label htmlFor={`param-${index}`}>
+                            {param.Name ?? `Parameter ${index + 1}`}
+                          </Label>
+                          <Textarea
+                            id={`param-${index}`}
+                            ref={(element) => {
+                              if (element) {
+                                autoGrowTextarea(element);
+                              }
+                            }}
+                            rows={1}
+                            value={rawParams[index]?.Value ?? ''}
+                            readOnly={paramsReadOnly}
+                            disabled={paramsReadOnly || submitting}
+                            className={
+                              paramsReadOnly
+                                ? 'bg-muted cursor-not-allowed'
+                                : ''
+                            }
+                            onInput={(event) =>
+                              autoGrowTextarea(event.currentTarget)
+                            }
+                            onChange={(event) => {
+                              if (paramsReadOnly) {
+                                return;
+                              }
+                              setRawParams((prev) =>
+                                prev.map((item, itemIndex) =>
+                                  itemIndex === index
+                                    ? { ...item, Value: event.target.value }
+                                    : item
+                                )
+                              );
+                              setSubmitError(null);
+                            }}
+                          />
+                        </div>
+                      ))}
+                    </>
+                  )}
+                </section>
               )}
-            </section>
+            </div>
           </div>
-        </div>
+        )}
 
         <DialogFooter className="shrink-0 border-t border-border px-6 py-4">
           <Button
@@ -1011,6 +1182,7 @@ function StartDAGModal({
             <I18nText text={'Cancel'} />
           </Button>
           <Button
+            variant="primary"
             onClick={() => void handleSubmit()}
             disabled={loading || !!loadError || submitting}
           >
@@ -1043,10 +1215,14 @@ function StartDAGModal({
 function renderTypedField({
   field,
   disabled,
+  describedBy,
+  invalid,
   onChange,
 }: {
   field: ParamField;
   disabled: boolean;
+  describedBy?: string;
+  invalid: boolean;
   onChange: (patch: Partial<ParamField>) => void;
 }) {
   const controlClass = 'w-full';
@@ -1065,7 +1241,12 @@ function renderTypedField({
           onChange({ value, hasValue: true });
         }}
       >
-        <SelectTrigger id={`param-${field.key}`} className={controlClass}>
+        <SelectTrigger
+          id={`param-${field.key}`}
+          aria-describedby={describedBy}
+          aria-invalid={invalid || undefined}
+          className={controlClass}
+        >
           <SelectValue placeholder={placeholder} />
         </SelectTrigger>
         <SelectContent>
@@ -1094,6 +1275,8 @@ function renderTypedField({
         <I18nProps>
           <Input
             id={`param-${field.key}`}
+            aria-describedby={describedBy}
+            aria-invalid={invalid || undefined}
             type="number"
             className={controlClass}
             min={field.minimum}
@@ -1126,7 +1309,12 @@ function renderTypedField({
               onChange({ value, hasValue: true });
             }}
           >
-            <SelectTrigger id={`param-${field.key}`} className={controlClass}>
+            <SelectTrigger
+              id={`param-${field.key}`}
+              aria-describedby={describedBy}
+              aria-invalid={invalid || undefined}
+              className={controlClass}
+            >
               <I18nProps>
                 <SelectValue placeholder="Not set" />
               </I18nProps>
@@ -1148,6 +1336,9 @@ function renderTypedField({
       return (
         <div className="flex items-center gap-3 rounded-md border border-border px-3 py-2">
           <Switch
+            id={`param-${field.key}`}
+            aria-describedby={describedBy}
+            aria-invalid={invalid || undefined}
             checked={field.value === 'true'}
             disabled={disabled}
             onCheckedChange={(checked) =>
@@ -1170,6 +1361,8 @@ function renderTypedField({
         <I18nProps>
           <Textarea
             id={`param-${field.key}`}
+            aria-describedby={describedBy}
+            aria-invalid={invalid || undefined}
             className={`${controlClass} h-7 min-h-7 py-1`}
             rows={1}
             ref={(element) => {

@@ -11,6 +11,7 @@ import (
 	"fmt"
 	"net/http"
 	"os"
+	"strings"
 	"testing"
 	"time"
 
@@ -89,6 +90,83 @@ steps:
 		dag.AssertOutputs(t, map[string]any{
 			"CHECK_RESULT": "found",
 		})
+	})
+
+	t.Run("AsFile", func(t *testing.T) {
+		t.Parallel()
+		th := test.Setup(t)
+
+		dag := th.DAG(t, `
+name: webhook-payload-file
+
+params:
+  - WEBHOOK_PAYLOAD: '{"event":"push"}'
+
+steps:
+  - name: compare-file
+    run: |
+      if [ "$(cat "$WEBHOOK_PAYLOAD_FILE")" = "$WEBHOOK_PAYLOAD" ]; then echo same; else echo differs; fi
+    with:
+      shell: bash
+    output: FILE_RESULT
+`)
+		dag.Agent().RunSuccess(t)
+		dag.AssertOutputs(t, map[string]any{
+			"FILE_RESULT": "same",
+		})
+	})
+
+	// A body too large for one environment variable reaches steps only as a
+	// file, which is removed when the run ends.
+	t.Run("LargeOnlyAsFile", func(t *testing.T) {
+		t.Parallel()
+		th := test.Setup(t)
+
+		dag := th.DAG(t, fmt.Sprintf(`
+name: webhook-large-payload
+
+params:
+  - WEBHOOK_PAYLOAD: '%s'
+
+steps:
+  - name: payload-file
+    run: echo "$WEBHOOK_PAYLOAD_FILE"
+    with:
+      shell: bash
+    output: PAYLOAD_FILE
+  - name: payload-sizes
+    run: echo "${#WEBHOOK_PAYLOAD} $(wc -c < "$WEBHOOK_PAYLOAD_FILE" | tr -d ' ')"
+    with:
+      shell: bash
+    output: PAYLOAD_SIZES
+  - name: params-json
+    run: echo "$DAG_PARAMS_JSON"
+    with:
+      shell: bash
+    output: PARAMS_JSON
+  - name: longest-env-entry
+    run: |
+      env | awk '{ if (length($0) > max) max = length($0) } END { print (max < 131072 ? "fits" : "too long") }'
+    with:
+      shell: bash
+    output: ENV_ENTRIES
+`, strings.Repeat("a", 200_000)))
+		dag.Agent().RunSuccess(t)
+		dag.AssertOutputs(t, map[string]any{
+			"PAYLOAD_SIZES": "0 200000",
+			"PARAMS_JSON":   "{}",
+			// Linux refuses to start a step with an entry this long.
+			"ENV_ENTRIES": "fits",
+		})
+
+		status, err := dag.DAGRunMgr.GetLatestStatus(dag.Context, dag.DAG)
+		require.NoError(t, err)
+		value, ok := status.Nodes[0].OutputVariables.Load("PAYLOAD_FILE")
+		require.True(t, ok)
+		path := strings.TrimPrefix(value.(string), "PAYLOAD_FILE=")
+		require.NotEmpty(t, path)
+		_, err = os.Stat(path)
+		require.ErrorIs(t, err, os.ErrNotExist, "the payload file outlives the run")
 	})
 }
 

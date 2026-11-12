@@ -54,6 +54,8 @@ export function useSchedulerPause(pollInterval: number = PAUSE_POLL_INTERVAL) {
     pausedBy: data?.pausedBy,
     pausedAt: data?.pausedAt,
     reason: data?.reason,
+    /** Whether a scheduler is running; undefined when the server cannot tell. */
+    schedulerRunning: data?.schedulerRunning,
     error,
     isLoading: !data && !error,
     mutate,

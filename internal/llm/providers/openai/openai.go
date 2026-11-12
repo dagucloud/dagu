@@ -14,6 +14,7 @@ import (
 
 	"github.com/dagucloud/dagu/v2/internal/llm"
 	"github.com/dagucloud/dagu/v2/internal/llm/providers/chatcontent"
+	"github.com/dagucloud/dagu/v2/internal/llm/providers/chatusage"
 )
 
 const (
@@ -86,11 +87,7 @@ func (p *Provider) Chat(ctx context.Context, req *llm.ChatRequest) (*llm.ChatRes
 		Content:          choice.Message.Content,
 		ReasoningContent: reasoningContent,
 		FinishReason:     choice.FinishReason,
-		Usage: llm.Usage{
-			PromptTokens:     resp.Usage.PromptTokens,
-			CompletionTokens: resp.Usage.CompletionTokens,
-			TotalTokens:      resp.Usage.TotalTokens,
-		},
+		Usage:            resp.Usage.LLM(),
 	}
 
 	// Extract tool calls if present
@@ -200,11 +197,7 @@ func (p *Provider) buildRequestBody(req *llm.ChatRequest, stream bool) ([]byte, 
 
 	// Add reasoning configuration if enabled
 	if req.Thinking != nil && req.Thinking.Enabled {
-		effort := req.Thinking.Effort
-		if effort == "" {
-			effort = llm.ThinkingEffortMedium
-		}
-		chatReq.Reasoning = &reasoningRequest{Effort: string(effort)}
+		chatReq.Reasoning = &reasoningRequest{Effort: string(reasoningEffort(req.Thinking.Effort))}
 
 		// For reasoning models, use max_completion_tokens instead of max_tokens
 		if req.MaxTokens != nil {
@@ -225,6 +218,20 @@ func (p *Provider) buildRequestBody(req *llm.ChatRequest, stream bool) ([]byte, 
 	return json.Marshal(chatReq)
 }
 
+// reasoningEffort returns the reasoning effort to send: the requested level,
+// or xhigh for max, which the API lacks. An unset effort is medium.
+func reasoningEffort(effort llm.ThinkingEffort) llm.ThinkingEffort {
+	switch effort {
+	case llm.ThinkingEffortNone, llm.ThinkingEffortMinimal, llm.ThinkingEffortLow,
+		llm.ThinkingEffortMedium, llm.ThinkingEffortHigh, llm.ThinkingEffortXHigh:
+		return effort
+	case llm.ThinkingEffortMax:
+		return llm.ThinkingEffortXHigh
+	default:
+		return llm.ThinkingEffortMedium
+	}
+}
+
 func (p *Provider) doRequest(ctx context.Context, body []byte) (io.ReadCloser, error) {
 	return p.httpClient.Do(ctx, p.config.BaseURL+defaultChatEndpoint, body, p.authHeaders())
 }
@@ -240,6 +247,7 @@ func (p *Provider) streamResponse(ctx context.Context, body io.ReadCloser, event
 	defer func() { _ = body.Close() }()
 
 	scanner := bufio.NewScanner(body)
+	scanner.Buffer(make([]byte, 0, 64*1024), 8*1024*1024)
 	var usage *llm.Usage
 
 	for scanner.Scan() {
@@ -272,11 +280,8 @@ func (p *Provider) streamResponse(ctx context.Context, body io.ReadCloser, event
 
 		// Capture usage if present
 		if chunk.Usage != nil {
-			usage = &llm.Usage{
-				PromptTokens:     chunk.Usage.PromptTokens,
-				CompletionTokens: chunk.Usage.CompletionTokens,
-				TotalTokens:      chunk.Usage.TotalTokens,
-			}
+			chunkUsage := chunk.Usage.LLM()
+			usage = &chunkUsage
 		}
 
 		if len(chunk.Choices) > 0 && chunk.Choices[0].Delta.Content != "" {
@@ -361,11 +366,7 @@ type chatCompletionResponse struct {
 		Message      responseMessage `json:"message"`
 		FinishReason string          `json:"finish_reason"`
 	} `json:"choices"`
-	Usage struct {
-		PromptTokens     int `json:"prompt_tokens"`
-		CompletionTokens int `json:"completion_tokens"`
-		TotalTokens      int `json:"total_tokens"`
-	} `json:"usage"`
+	Usage chatusage.Usage `json:"usage"`
 }
 
 type responseMessage struct {
@@ -392,9 +393,5 @@ type streamChunk struct {
 		} `json:"delta"`
 		FinishReason string `json:"finish_reason,omitempty"`
 	} `json:"choices"`
-	Usage *struct {
-		PromptTokens     int `json:"prompt_tokens"`
-		CompletionTokens int `json:"completion_tokens"`
-		TotalTokens      int `json:"total_tokens"`
-	} `json:"usage,omitempty"`
+	Usage *chatusage.Usage `json:"usage,omitempty"`
 }

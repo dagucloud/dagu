@@ -9,6 +9,7 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -237,6 +238,59 @@ func TestWriteCellsOutputLeavesTheTemplateAlone(t *testing.T) {
 
 	_, err = WriteCells(context.Background(), path, WriteCellsOptions{Output: filepath.Join(filepath.Dir(path), "out.csv"), Cells: map[string]CellValue{"B1": {Value: 1}}})
 	require.ErrorIs(t, err, ErrUnsupportedFormat)
+}
+
+func TestWriteCellsOutputCreatesTheParentFolder(t *testing.T) {
+	t.Parallel()
+	path := templateBook(t)
+	output := filepath.Join(t.TempDir(), "invoices", "2026", "INV-1.xlsx")
+
+	result, err := WriteCells(context.Background(), path, WriteCellsOptions{Output: output, Cells: map[string]CellValue{"B1": {Value: "Acme"}}})
+	require.NoError(t, err)
+	assert.Equal(t, output, result.Path)
+	filled, err := Read(context.Background(), output, ReadOptions{Header: HeaderSpec{Mode: HeaderNone}})
+	require.NoError(t, err)
+	assert.Equal(t, "Acme", filled.Rows[0]["B"])
+
+	// A dry run and a refused fill leave no folder behind.
+	dry := filepath.Join(t.TempDir(), "dry", "INV-2.xlsx")
+	_, err = WriteCells(context.Background(), path, WriteCellsOptions{Output: dry, DryRun: true, Cells: map[string]CellValue{"B1": {Value: "Acme"}}})
+	require.NoError(t, err)
+	_, err = os.Stat(filepath.Dir(dry))
+	require.ErrorIs(t, err, os.ErrNotExist)
+
+	bad := filepath.Join(t.TempDir(), "bad", "INV-3.xlsx")
+	_, err = WriteCells(context.Background(), path, WriteCellsOptions{Output: bad, Cells: map[string]CellValue{"not-a-cell": {Value: 1}}})
+	require.Error(t, err)
+	_, err = os.Stat(filepath.Dir(bad))
+	require.ErrorIs(t, err, os.ErrNotExist)
+
+	// A file where the folder should be is refused, and kept.
+	root := t.TempDir()
+	parent := filepath.Join(root, "parent")
+	require.NoError(t, os.WriteFile(parent, []byte("keep"), 0o600))
+	_, err = WriteCells(context.Background(), path, WriteCellsOptions{Output: filepath.Join(parent, "INV-4.xlsx"), Cells: map[string]CellValue{"B1": {Value: 1}}})
+	require.ErrorContains(t, err, "not a directory")
+	kept, err := os.ReadFile(parent)
+	require.NoError(t, err)
+	assert.Equal(t, "keep", string(kept))
+}
+
+func TestWriteCellsWaitsForOutput(t *testing.T) {
+	t.Parallel()
+	path := templateBook(t)
+	output := filepath.Join(t.TempDir(), "filled.xlsx")
+	holdWorkbook(t, output)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
+	defer cancel()
+	_, err := WriteCells(ctx, path, WriteCellsOptions{
+		Output: output,
+		Cells:  map[string]CellValue{"B1": {Value: "Acme"}},
+	})
+	require.ErrorIs(t, err, context.DeadlineExceeded)
+	_, err = os.Stat(output)
+	assert.ErrorIs(t, err, os.ErrNotExist)
 }
 
 func TestWriteCellsDryRunAndErrors(t *testing.T) {

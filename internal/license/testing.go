@@ -15,17 +15,31 @@ import (
 // It generates an ephemeral ed25519 key pair, signs a JWT with the requested features,
 // and updates the manager's internal state so Checker() returns a licensed state.
 func NewTestManager(features ...string) *Manager {
-	return newTestManager(time.Now().Add(24*time.Hour), nil, features...)
+	return newTestManager("pro", time.Now().Add(24*time.Hour), nil, features...)
+}
+
+// NewConnectedTestManager creates a Manager like NewTestManager whose server
+// is connected to Dagu Cloud.
+func NewConnectedTestManager(features ...string) *Manager {
+	m := NewTestManager(features...)
+	m.activation = &ActivationData{ServerID: "server-test", HeartbeatSecret: "heartbeat-test"}
+	return m
 }
 
 // NewExpiredTestManager creates a Manager with a loaded license that is expired
 // and outside its grace period.
 func NewExpiredTestManager(features ...string) *Manager {
 	zeroGraceDays := 0
-	return newTestManager(time.Now().Add(-time.Hour), &zeroGraceDays, features...)
+	return newTestManager("pro", time.Now().Add(-time.Hour), &zeroGraceDays, features...)
 }
 
-func newTestManager(expiresAt time.Time, graceDays *int, features ...string) *Manager {
+// NewFreeTestManager creates a Manager with a valid license on the free plan
+// that claims the given features.
+func NewFreeTestManager(features ...string) *Manager {
+	return newTestManager(PlanFree, time.Now().Add(24*time.Hour), nil, features...)
+}
+
+func newTestManager(plan string, expiresAt time.Time, graceDays *int, features ...string) *Manager {
 	pub, priv, err := ed25519.GenerateKey(nil)
 	if err != nil {
 		panic("ed25519.GenerateKey: " + err.Error())
@@ -39,7 +53,7 @@ func newTestManager(expiresAt time.Time, graceDays *int, features ...string) *Ma
 			Subject:   "test-license",
 		},
 		ClaimsVersion: 1,
-		Plan:          "pro",
+		Plan:          plan,
 		Features:      features,
 		ActivationID:  "act-test",
 		GraceDays:     graceDays,

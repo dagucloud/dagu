@@ -6,17 +6,28 @@
  *
  * @module features/dags/components/dag-editor
  */
-import {
-  KILN_DARK,
-  KILN_LIGHT,
-  registerKilnThemes,
-} from '@/lib/monaco-theme';
+import { KILN_DARK, KILN_LIGHT, registerKilnThemes } from '@/lib/monaco-theme';
 import type { JSONSchema } from '@/lib/schema-utils';
 import { cn } from '@/lib/utils';
 import MonacoEditor, { loader } from '@monaco-editor/react';
 import * as monaco from 'monaco-editor';
-import { configureMonacoYaml } from 'monaco-yaml';
-import { useEffect, useId, useRef, useState } from 'react';
+import { monacoYaml } from '@/lib/monaco-yaml';
+import { registerReferenceCompletion } from '@/features/visual-editor/references/monacoCompletion';
+import type { ReferenceEditorState } from '@/features/visual-editor/references/editorState';
+import { useEffect, useId, useMemo, useRef, useState } from 'react';
+import { buildEditorOptions } from './editorOptions';
+import { EditorSkeleton } from './EditorSkeleton';
+import { ISSUE_MARKER_OWNER } from './issueMarkers';
+import {
+  registerQuickFixSource,
+  type QuickFixSource,
+} from './quickFixProvider';
+import { useChangeBars, type ChangeBarEditor } from './useChangeBars';
+import {
+  registerStepLenses,
+  type StepLensRegistration,
+  type StepLensSource,
+} from './stepLenses';
 import {
   buildSchemaRegistration,
   removeSchemaRegistration,
@@ -31,16 +42,6 @@ declare function getConfig(): { basePath: string };
 const schemaUrl = `${getConfig().basePath}/assets/dag.schema.json`;
 
 const schemaRegistrations = new Map<string, StoredSchemaRegistration>();
-
-// Configure YAML language service once at module load time.
-const monacoYaml = configureMonacoYaml(monaco, {
-  enableSchemaRequest: true,
-  hover: true,
-  completion: true,
-  validate: true,
-  format: true,
-  schemas: [],
-});
 
 loader.config({ monaco });
 
@@ -85,6 +86,28 @@ type Props = {
   schema?: JSONSchema | null;
   /** Server-side validation markers rendered under the 'dagu-server' owner */
   markers?: monaco.editor.IMarkerData[];
+  /**
+   * The issues behind the markers. With it, the editor offers their quick
+   * fixes as code actions: hover, lightbulb and Ctrl+.
+   */
+  quickFixSource?: QuickFixSource;
+  /** Receives the editor after it mounts, and null when it unmounts. */
+  onEditorMount?: (editor: monaco.editor.IStandaloneCodeEditor | null) => void;
+  /**
+   * Scope of the value references, read at each completion. When set, the
+   * editor completes and explains `${...}` references.
+   */
+  referenceState?: () => ReferenceEditorState;
+  /**
+   * The saved text. With it, a bar in the margin marks each line that
+   * differs from it: added, modified, and where lines are gone.
+   */
+  changeBaseline?: string;
+  /**
+   * The lenses above the steps of the whole file: each opens its step in
+   * the full-screen step view.
+   */
+  stepLenses?: StepLensSource;
 };
 
 /**
@@ -101,26 +124,74 @@ function DAGEditor({
   modelUri,
   schema,
   markers,
+  quickFixSource,
+  onEditorMount,
+  referenceState,
+  changeBaseline,
+  stepLenses,
 }: Omit<Props, 'highlightLine'>) {
   const editorRef = useRef<monaco.editor.IStandaloneCodeEditor | null>(null);
+  const onEditorMountRef = useRef(onEditorMount);
+  onEditorMountRef.current = onEditorMount;
   const activeSchemaRegistrationRef = useRef<SchemaRegistrationOwner | null>(
     null
   );
   const effectiveModelUri = modelUri ?? 'inmemory://dagu/editor/default.yaml';
   const schemaRegistrationOwnerId = useId();
-  const nextSchemaRegistration = buildSchemaRegistration(
-    schemaRegistrationOwnerId,
-    effectiveModelUri,
-    schema,
-    schemaUrl
+  // The fingerprint serialises the whole schema: build it when an input
+  // changes, not at each render.
+  const nextSchemaRegistration = useMemo(
+    () =>
+      buildSchemaRegistration(
+        schemaRegistrationOwnerId,
+        effectiveModelUri,
+        schema,
+        schemaUrl
+      ),
+    [schemaRegistrationOwnerId, effectiveModelUri, schema]
   );
   const nextSchemaRegistrationRef = useRef(nextSchemaRegistration);
   nextSchemaRegistrationRef.current = nextSchemaRegistration;
 
-  // Clean up editor on unmount
+  // Only an editor that gives a scope registers reference completion, for its
+  // own model.
+  const referenceStateRef = useRef(referenceState);
+  referenceStateRef.current = referenceState;
+  const wantsReferences = referenceState !== undefined;
+  useEffect(() => {
+    if (!wantsReferences) {
+      return;
+    }
+    const registration = registerReferenceCompletion(
+      monaco,
+      () => referenceStateRef.current?.() ?? {},
+      effectiveModelUri
+    );
+    return () => registration.dispose();
+  }, [wantsReferences, effectiveModelUri]);
+
+  // The code actions of the quick fixes go to this editor's model only, and
+  // go away with it.
+  const quickFixSourceRef = useRef(quickFixSource);
+  quickFixSourceRef.current = quickFixSource;
+  const wantsQuickFixes = quickFixSource !== undefined;
+  useEffect(() => {
+    if (!wantsQuickFixes) {
+      return;
+    }
+    const registration = registerQuickFixSource(monaco, effectiveModelUri, {
+      getPlan: () => quickFixSourceRef.current?.getPlan() ?? null,
+      onApplied: (text) => quickFixSourceRef.current?.onApplied?.(text),
+    });
+    return () => registration.dispose();
+  }, [wantsQuickFixes, effectiveModelUri]);
+
+  // The editor and its model are disposed by @monaco-editor/react, which
+  // reads the model from the editor: disposing the editor here first would
+  // leave the model, with its text, for the next editor of the same path.
   useEffect(() => {
     return () => {
-      editorRef.current?.dispose();
+      onEditorMountRef.current?.(null);
     };
   }, []);
 
@@ -181,6 +252,56 @@ function DAGEditor({
   // owner so monaco-yaml's own schema diagnostics are untouched. The model
   // exists only after the editor mounts.
   const [isEditorMounted, setIsEditorMounted] = useState(false);
+  useChangeBars(
+    isEditorMounted ? (editorRef.current as ChangeBarEditor | null) : null,
+    changeBaseline,
+    value
+  );
+  // The lenses of the steps stand in the editor that gets them, and follow
+  // the steps and the label.
+  const stepLensesRef = useRef(stepLenses);
+  stepLensesRef.current = stepLenses;
+  const wantsStepLenses = stepLenses !== undefined;
+  const stepLensRegistration = useRef<StepLensRegistration | null>(null);
+  useEffect(() => {
+    const codeEditor = editorRef.current;
+    if (!isEditorMounted || !wantsStepLenses || !codeEditor) {
+      return;
+    }
+    const registration = registerStepLenses(
+      monaco,
+      codeEditor,
+      () => stepLensesRef.current ?? null
+    );
+    stepLensRegistration.current = registration;
+    return () => {
+      stepLensRegistration.current = null;
+      registration.dispose();
+    };
+  }, [isEditorMounted, wantsStepLenses]);
+  const settled = useEditorSettled(
+    isEditorMounted ? editorRef.current : null,
+    (stepLenses?.steps.length ?? 0) > 0,
+    effectiveModelUri
+  );
+  // The skeleton stays for the fade of the editor, which takes its place.
+  const [fadedIn, setFadedIn] = useState<string | null>(null);
+  useEffect(() => {
+    if (!settled) return;
+    const timer = setTimeout(
+      () => setFadedIn(effectiveModelUri),
+      SKELETON_FADE_MS
+    );
+    return () => clearTimeout(timer);
+  }, [settled, effectiveModelUri]);
+  const skeleton = fadedIn !== effectiveModelUri;
+
+  const lensKey = stepLenses
+    ? `${stepLenses.label}\n${stepLenses.steps.map((step) => `${step.line}:${step.name}`).join('\n')}`
+    : '';
+  useEffect(() => {
+    stepLensRegistration.current?.refresh();
+  }, [lensKey]);
   useEffect(() => {
     if (!isEditorMounted) {
       return;
@@ -189,10 +310,10 @@ function DAGEditor({
     if (!model) {
       return;
     }
-    monaco.editor.setModelMarkers(model, 'dagu-server', markers ?? []);
+    monaco.editor.setModelMarkers(model, ISSUE_MARKER_OWNER, markers ?? []);
     return () => {
       if (!model.isDisposed()) {
-        monaco.editor.setModelMarkers(model, 'dagu-server', []);
+        monaco.editor.setModelMarkers(model, ISSUE_MARKER_OWNER, []);
       }
     };
   }, [markers, effectiveModelUri, isEditorMounted]);
@@ -229,6 +350,7 @@ function DAGEditor({
   const editorDidMount = (editor: monaco.editor.IStandaloneCodeEditor) => {
     editorRef.current = editor;
     setIsEditorMounted(true);
+    onEditorMountRef.current?.(editor);
 
     if (!readOnly) {
       editor.addAction({
@@ -278,46 +400,108 @@ function DAGEditor({
     }
   };
 
+  // One options object per setting: the editor applies the options again when
+  // the object changes, and would reset the line numbers that the step view sets.
+  const options = useMemo(
+    () => buildEditorOptions({ readOnly, lineNumbers }),
+    [readOnly, lineNumbers]
+  );
+
   // Detect dark mode
   const isDarkMode =
     typeof window !== 'undefined' &&
     document.documentElement.classList.contains('dark');
 
   return (
-    <div className={cn('h-full', className)}>
-      <MonacoEditor
-        height="100%"
-        language="yaml"
-        path={effectiveModelUri}
-        theme={isDarkMode ? KILN_DARK : KILN_LIGHT}
-        value={value}
-        onChange={readOnly ? undefined : onChange}
-        onMount={editorDidMount}
-        options={{
-          readOnly: readOnly,
-          // automaticLayout: true,
-          minimap: { enabled: false },
-          scrollBeyondLastLine: false,
-          quickSuggestions: readOnly
-            ? false
-            : { other: true, comments: false, strings: true },
-          suggestOnTriggerCharacters: !readOnly,
-          formatOnType: false,
-          formatOnPaste: !readOnly,
-          renderValidationDecorations: readOnly ? 'off' : 'on',
-          lineNumbers: lineNumbers ? 'on' : 'off',
-          glyphMargin: true,
-          fontFamily:
-            "'JetBrains Mono', 'Fira Code', Menlo, Monaco, 'Courier New', monospace",
-          fontSize: 13,
-          padding: {
-            top: 8,
-            bottom: 8,
-          },
-        }}
-      />
+    <div className={cn('relative h-full', className)}>
+      {skeleton && (
+        <EditorSkeleton
+          text={value ?? ''}
+          lenses={stepLenses?.steps}
+          className={cn(
+            'transition-opacity duration-80 ease-out motion-reduce:transition-none',
+            settled && 'opacity-0'
+          )}
+        />
+      )}
+      <div
+        data-settled={settled}
+        className={cn(
+          'h-full',
+          // It fades in, and hides at once: the text of a new model never
+          // shows while it is fading out.
+          settled
+            ? 'opacity-100 transition-opacity duration-80 ease-out motion-reduce:transition-none'
+            : 'opacity-0'
+        )}
+      >
+        <MonacoEditor
+          height="100%"
+          language="yaml"
+          path={effectiveModelUri}
+          // A run definition has a model per run. Restoring the view state of
+          // a model seen before makes Monaco cancel a pending word highlight
+          // and leave the rejection unhandled.
+          saveViewState={false}
+          theme={isDarkMode ? KILN_DARK : KILN_LIGHT}
+          value={value}
+          onChange={readOnly ? undefined : onChange}
+          onMount={editorDidMount}
+          options={options}
+          // The skeleton shows while Monaco loads.
+          loading={null}
+        />
+      </div>
     </div>
   );
+}
+
+/** The longest wait for an editor to settle before it shows anyway. */
+const SETTLE_TIMEOUT_MS = 1500;
+/** The fade of the editor over its skeleton (duration-80). */
+const SKELETON_FADE_MS = 80;
+
+/**
+ * Whether the editor has settled since it mounted or took the model of
+ * `modelKey`: its text coloured and, when the text has steps, the lenses
+ * above them drawn. Each of them repaints or moves the text, so the editor
+ * shows once they are done.
+ */
+function useEditorSettled(
+  codeEditor: monaco.editor.IStandaloneCodeEditor | null,
+  expectLenses: boolean,
+  modelKey: string
+): boolean {
+  const [settledKey, setSettledKey] = useState<string | null>(null);
+  const settled = settledKey === modelKey;
+  const expectLensesRef = useRef(expectLenses);
+  expectLensesRef.current = expectLenses;
+  useEffect(() => {
+    if (settled || !codeEditor) return;
+    const setSettled = () => setSettledKey(modelKey);
+    const node = codeEditor.getDomNode();
+    const done = () =>
+      !node ||
+      ((codeEditor.getModel()?.getValueLength() === 0 ||
+        node.querySelector('.view-line span[class*="mtk"]:not(.mtk1)') !==
+          null) &&
+        (!expectLensesRef.current ||
+          node.querySelector('.codelens-decoration') !== null));
+    if (done()) {
+      setSettled();
+      return;
+    }
+    const observer = new MutationObserver(() => {
+      if (done()) setSettled();
+    });
+    observer.observe(node!, { childList: true, subtree: true });
+    const timer = setTimeout(setSettled, SETTLE_TIMEOUT_MS);
+    return () => {
+      observer.disconnect();
+      clearTimeout(timer);
+    };
+  }, [codeEditor, settled, modelKey]);
+  return settled;
 }
 
 export default DAGEditor;

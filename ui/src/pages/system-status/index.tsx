@@ -15,6 +15,7 @@ import { cn } from '../../lib/utils';
 import { I18nText } from '@/i18n/I18nText';
 import { I18nProps } from '@/i18n/I18nProps';
 import { useI18n } from '@/i18n/I18nProvider';
+import { getQueryErrorMessage } from '@/lib/queryErrors';
 
 type SchedulerInstance = components['schemas']['SchedulerInstance'];
 type CoordinatorInstance = components['schemas']['CoordinatorInstance'];
@@ -30,7 +31,9 @@ type TunnelStatusResponse = components['schemas']['TunnelStatusResponse'];
  * @returns The rendered System Status UI containing service cards, resource charts, and refresh controls.
  */
 function SystemStatus() {
-  const { ts } = useI18n();
+  const { t, ts } = useI18n();
+  const errorText = (error: unknown): string | undefined =>
+    error ? getQueryErrorMessage(error, t('common.requestFailed')) : undefined;
   const appBarContext = React.useContext(AppBarContext);
   const config = useConfig();
   const [isRefreshing, setIsRefreshing] = React.useState(false);
@@ -110,7 +113,7 @@ function SystemStatus() {
       },
     },
     {
-      refreshInterval: autoRefresh ? 1000 : 0,
+      refreshInterval: autoRefresh ? 2000 : 0,
     }
   );
 
@@ -156,11 +159,11 @@ function SystemStatus() {
   }, [resourceData]);
 
   return (
-    <div className="flex flex-col gap-4 max-w-7xl">
+    <div className="flex flex-col gap-4">
       {/* Header */}
       <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
         <div>
-          <h1 className="text-2xl font-bold">
+          <h1 className="text-2xl font-semibold tracking-[-0.01em]">
             <I18nText text={'System Status'} />
           </h1>
           <p className="text-sm text-muted-foreground">
@@ -174,6 +177,7 @@ function SystemStatus() {
           <SchedulerPauseControl />
           <Button
             onClick={() => setAutoRefresh(!autoRefresh)}
+            aria-pressed={autoRefresh}
             aria-label={ts('Auto-refresh {state}', {
               state: ts(autoRefresh ? 'enabled' : 'disabled'),
             })}
@@ -184,8 +188,11 @@ function SystemStatus() {
             <Activity
               className={cn('h-4 w-4', autoRefresh && 'text-success')}
             />
-            <I18nText text={'Auto:'} />{' '}
-            {autoRefresh ? <I18nText text={'ON'} /> : <I18nText text={'OFF'} />}
+            {autoRefresh ? (
+              <I18nText text={'Live'} />
+            ) : (
+              <I18nText text={'Paused'} />
+            )}
           </Button>
           <I18nProps>
             <Button
@@ -219,7 +226,7 @@ function SystemStatus() {
             }
             icon={<Calendar className="h-4 w-4" />}
             isLoading={!schedulerData && !schedulerError}
-            error={schedulerError ? String(schedulerError) : undefined}
+            error={errorText(schedulerError)}
           />
         </I18nProps>
 
@@ -238,7 +245,7 @@ function SystemStatus() {
             }
             icon={<Server className="h-4 w-4" />}
             isLoading={!coordinatorData && !coordinatorError}
-            error={coordinatorError ? String(coordinatorError) : undefined}
+            error={errorText(coordinatorError)}
           />
         </I18nProps>
 
@@ -246,7 +253,7 @@ function SystemStatus() {
         <TunnelStatusCard
           data={tunnelData as TunnelStatusResponse}
           isLoading={!tunnelData && !tunnelError}
-          error={tunnelError ? String(tunnelError) : undefined}
+          error={errorText(tunnelError)}
         />
       </div>
 
@@ -254,11 +261,17 @@ function SystemStatus() {
       <h2 className="text-xl font-semibold mt-8 mb-4">
         <I18nText text={'Workers'} />
       </h2>
-      <div className="card-obsidian" style={{ minHeight: '200px' }}>
+      {/* Bounded so a long worker list scrolls inside the card. */}
+      <div
+        className="card-obsidian flex max-h-[60vh] flex-col overflow-hidden"
+        style={{ minHeight: '200px' }}
+      >
         <WorkersSummary
           workers={workersData?.workers || []}
           isLoading={!workersData && !workersError}
-          errors={workersData?.errors}
+          errors={
+            workersError ? [errorText(workersError)!] : workersData?.errors
+          }
         />
       </div>
 
@@ -273,7 +286,7 @@ function SystemStatus() {
             data={resourceData?.cpu}
             color="#73BF69"
             isLoading={!resourceData && !resourceError}
-            error={resourceError ? String(resourceError) : undefined}
+            error={errorText(resourceError)}
           />
         </I18nProps>
         <I18nProps>
@@ -282,7 +295,7 @@ function SystemStatus() {
             data={resourceData?.memory}
             color="#73BF69"
             isLoading={!resourceData && !resourceError}
-            error={resourceError ? String(resourceError) : undefined}
+            error={errorText(resourceError)}
             totalBytes={resourceData?.memoryTotalBytes}
             usedBytes={resourceData?.memoryUsedBytes}
           />
@@ -293,19 +306,19 @@ function SystemStatus() {
             data={resourceData?.disk}
             color="#73BF69"
             isLoading={!resourceData && !resourceError}
-            error={resourceError ? String(resourceError) : undefined}
+            error={errorText(resourceError)}
             totalBytes={resourceData?.diskTotalBytes}
             usedBytes={resourceData?.diskUsedBytes}
           />
         </I18nProps>
         <I18nProps>
           <ResourceChart
-            title="Load Average"
+            title="Load average"
             data={resourceData?.load}
             color="#73BF69"
             unit=""
             isLoading={!resourceData && !resourceError}
-            error={resourceError ? String(resourceError) : undefined}
+            error={errorText(resourceError)}
           />
         </I18nProps>
       </div>

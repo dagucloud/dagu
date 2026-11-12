@@ -104,8 +104,13 @@ Rules:
 - After loading, dependency lists identify runtime step names.
 - Dependency entries are not trimmed. Matching is exact and case-sensitive.
 - Dependencies must stay inside one DAG document.
+- A supported step output reference adds an inferred dependency on the
+  producing step under [Spec 007](007-value-resolution-steps.md). Inferred
+  dependencies participate in ordering, cycle detection, and rewind-target
+  validation the same way `depends` entries do, and an empty `depends`
+  sequence does not suppress them.
 - A dependency graph with a cycle cannot execute. A direct self-dependency is a
-  cycle.
+  cycle. A cycle closed by an inferred dependency is a load error.
 
 Execution-status behavior for failed, skipped, rejected, waiting, retrying, or
 continued dependencies belongs to the step execution specs and lifecycle specs.

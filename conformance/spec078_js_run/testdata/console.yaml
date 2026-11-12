@@ -1,0 +1,9 @@
+working_dir: .
+steps:
+  - action: js.run
+    stdout: result.out
+    stderr: err.out
+    with:
+      script: |
+        console.log("debug", {n: 1});
+        return "done";

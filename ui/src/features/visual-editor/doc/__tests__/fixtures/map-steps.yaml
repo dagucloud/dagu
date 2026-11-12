@@ -1,0 +1,20 @@
+# Map-form steps: the key is the step name.
+name: map-form
+steps:
+  # Entry point.
+  fetch:
+    run: curl -sSf https://example.com/data.csv -o data.csv   # download
+
+  parse:
+    depends: [fetch]
+    run: wc -l data.csv
+    env:
+      - LC_ALL: C
+
+  "publish-all":
+    depends:
+      - parse
+    action: http.request
+    with:
+      method: POST
+      url: https://example.com/publish

@@ -5,9 +5,11 @@ package cmd_test
 
 import (
 	"bytes"
+	"encoding/json"
 	"testing"
 
 	"github.com/dagucloud/dagu/v2/internal/cmd"
+	"github.com/dagucloud/dagu/v2/internal/cmn/config"
 	"github.com/dagucloud/dagu/v2/internal/test"
 	"github.com/spf13/cobra"
 	"github.com/stretchr/testify/assert"
@@ -17,7 +19,7 @@ import (
 func TestConfigCommand(t *testing.T) {
 	th := test.SetupCommand(t)
 
-	runConfigCmd := func(t *testing.T) string {
+	execConfigCmd := func(t *testing.T, args ...string) (string, error) {
 		t.Helper()
 
 		root := &cobra.Command{Use: "root"}
@@ -25,11 +27,18 @@ func TestConfigCommand(t *testing.T) {
 
 		var buf bytes.Buffer
 		root.SetOut(&buf)
-		root.SetArgs([]string{"config", "--config", th.Config.Paths.ConfigFileUsed})
+		root.SetArgs(append([]string{"config", "--config", th.Config.Paths.ConfigFileUsed}, args...))
 
 		err := root.ExecuteContext(th.Context)
+		return buf.String(), err
+	}
+
+	runConfigCmd := func(t *testing.T, args ...string) string {
+		t.Helper()
+
+		out, err := execConfigCmd(t, args...)
 		require.NoError(t, err)
-		return buf.String()
+		return out
 	}
 
 	t.Run("ShowsLabels", func(t *testing.T) {
@@ -53,5 +62,39 @@ func TestConfigCommand(t *testing.T) {
 		assert.Contains(t, out, th.Config.Paths.LogDir)
 		assert.Contains(t, out, th.Config.Paths.DataDir)
 		assert.Contains(t, out, th.Config.Paths.ToolsDir)
+	})
+
+	t.Run("ValuesTable", func(t *testing.T) {
+		t.Setenv("DAGU_HOST", "0.0.0.0")
+
+		out := runConfigCmd(t, "--values")
+		assert.Regexp(t, `(?m)^KEY\s+VALUE\s+SOURCE$`, out)
+		assert.Regexp(t, `(?m)^host\s+0\.0\.0\.0\s+env:DAGU_HOST$`, out)
+		assert.NotContains(t, out, "DAGs directory:")
+	})
+
+	t.Run("ValuesJSON", func(t *testing.T) {
+		t.Setenv("DAGU_AUTH_TOKEN_SECRET", "do-not-print")
+
+		out := runConfigCmd(t, "--values", "--format", "json")
+		assert.NotContains(t, out, "do-not-print")
+
+		var settings []config.Setting
+		require.NoError(t, json.Unmarshal([]byte(out), &settings))
+		assert.Contains(t, settings, config.Setting{
+			Key:    "auth.builtin.token.secret",
+			Value:  config.MaskedValue,
+			Source: "env:DAGU_AUTH_TOKEN_SECRET",
+		})
+	})
+
+	t.Run("FormatRequiresValues", func(t *testing.T) {
+		_, err := execConfigCmd(t, "--format", "json")
+		require.ErrorContains(t, err, "--format requires --values")
+	})
+
+	t.Run("InvalidFormat", func(t *testing.T) {
+		_, err := execConfigCmd(t, "--values", "--format", "yaml")
+		require.ErrorContains(t, err, "invalid format")
 	})
 }

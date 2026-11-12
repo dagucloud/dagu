@@ -5,6 +5,7 @@ package browser
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -29,9 +30,19 @@ type profileLease struct {
 	stop context.CancelFunc
 }
 
-// acquireProfile waits for the named profile. It fails fast when a run that
-// is waiting for input still holds the profile's browser open.
-func acquireProfile(ctx context.Context, browserDir, name string, store *browserhost.Store, ownRecordID string) (*profileLease, error) {
+// profileHeldError reports a profile whose browser something else keeps
+// open: a step waiting for input, a browser session, or a running step.
+type profileHeldError struct {
+	message string
+}
+
+func (e *profileHeldError) Error() string { return e.message }
+
+// acquireProfile takes the named profile for the record ownRecordID. When
+// wait is set, it waits while another browser uses the profile; otherwise
+// it fails at once. Either way it fails fast when a step waiting for input
+// or a browser session keeps the profile's browser open between uses.
+func acquireProfile(ctx context.Context, browserDir, name, ownRecordID string, wait bool) (*profileLease, error) {
 	profilesDir := filepath.Join(browserDir, profilesDirName)
 	dir := filepath.Join(profilesDir, name)
 	lockDir := dir + profileLockSuffix
@@ -42,22 +53,53 @@ func acquireProfile(ctx context.Context, browserDir, name string, store *browser
 		return nil, fmt.Errorf("create browser profile lock %q: %w", name, err)
 	}
 	lock := dirlock.New(lockDir, nil)
-	if err := lock.Lock(ctx); err != nil {
+	var err error
+	if wait {
+		err = lock.Lock(ctx)
+	} else {
+		err = lock.TryLock()
+	}
+	if errors.Is(err, dirlock.ErrLockConflict) {
+		if heldErr := profileHolder(browserDir, name, ownRecordID); heldErr != nil {
+			return nil, heldErr
+		}
+		return nil, &profileHeldError{message: fmt.Sprintf("browser profile %q is in use by a running browser step", name)}
+	}
+	if err != nil {
 		return nil, fmt.Errorf("lock browser profile %q: %w", name, err)
 	}
-	records, err := store.List()
-	if err != nil {
+	if heldErr := profileHolder(browserDir, name, ownRecordID); heldErr != nil {
 		_ = lock.Unlock()
-		return nil, err
-	}
-	for _, record := range records {
-		if record.Profile == name && record.ID != ownRecordID && record.State == browserhost.StateDetached {
-			_ = lock.Unlock()
-			return nil, fmt.Errorf("browser profile %q is held by DAG run %s, which is waiting for input", name, record.DAGRunID)
-		}
+		return nil, heldErr
 	}
 	stop := agentstep.KeepLockAlive(ctx, lock)
 	return &profileLease{dir: dir, lock: lock, stop: stop}, nil
+}
+
+// profileHolder returns why a browser kept open between uses holds the
+// named profile, or nil when none does. ownRecordID is not counted.
+func profileHolder(browserDir, name, ownRecordID string) error {
+	steps, err := browserhost.NewStore(browserDir).List()
+	if err != nil {
+		return err
+	}
+	for _, record := range steps {
+		if record.Profile == name && record.ID != ownRecordID && record.State == browserhost.StateDetached {
+			return &profileHeldError{message: fmt.Sprintf("browser profile %q is held by DAG run %s, which is waiting for input", name, record.DAGRunID)}
+		}
+	}
+	sessions, err := browserhost.NewInteractiveStore(browserDir).List()
+	if err != nil {
+		return err
+	}
+	for _, record := range sessions {
+		held := record.State == browserhost.StateInteractive || record.State == browserhost.StateRunning
+		if record.Profile == name && record.ID != ownRecordID && held {
+			return &profileHeldError{message: fmt.Sprintf("browser profile %q is held by browser session %s; close it with \"dagu browser session close %s\"",
+				name, record.ID, record.ID)}
+		}
+	}
+	return nil
 }
 
 func (l *profileLease) release() {

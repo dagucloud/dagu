@@ -1011,6 +1011,15 @@ func (s *Service) DeleteWebhook(ctx context.Context, dagName string) error {
 	return s.webhookStore.DeleteByDAGName(ctx, dagName)
 }
 
+// RenameWebhook moves a DAG's webhook to the DAG's new name, keeping its
+// tokens, settings, and public URL.
+func (s *Service) RenameWebhook(ctx context.Context, oldName, newName string) error {
+	if s.webhookStore == nil {
+		return ErrWebhookNotConfigured
+	}
+	return s.webhookStore.RenameDAG(ctx, oldName, newName)
+}
+
 // RegenerateWebhookToken generates a new token for an existing webhook.
 // The old token becomes invalid immediately.
 func (s *Service) RegenerateWebhookToken(ctx context.Context, dagName string) (*CreateWebhookResult, error) {

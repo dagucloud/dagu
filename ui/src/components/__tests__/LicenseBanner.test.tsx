@@ -1,10 +1,16 @@
 import { render, screen } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
 import * as React from 'react';
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { LicenseBanner } from '@/components/LicenseBanner';
-import { ConfigContext, type Config } from '@/contexts/ConfigContext';
+import {
+  ConfigContext,
+  type Config,
+  type LicenseStatus,
+} from '@/contexts/ConfigContext';
 
-vi.mock('@/contexts/AuthContext', () => ({ useIsAdmin: () => true }));
+const { isAdmin } = vi.hoisted(() => ({ isAdmin: vi.fn(() => true) }));
+vi.mock('@/contexts/AuthContext', () => ({ useIsAdmin: isAdmin }));
 
 function makeConfig(overrides: Partial<Config> = {}): Config {
   return {
@@ -28,6 +34,9 @@ function makeConfig(overrides: Partial<Config> = {}): Config {
     gitSyncEnabled: false,
     updateAvailable: false,
     latestVersion: '',
+    upgradeCommand: '',
+    restartRequired: false,
+    restartCommand: '',
     permissions: {
       writeDags: true,
       runDags: true,
@@ -62,9 +71,20 @@ function makeConfig(overrides: Partial<Config> = {}): Config {
   };
 }
 
+function renderBanner(license: Partial<LicenseStatus>) {
+  const config = makeConfig();
+  config.license = { ...config.license, ...license };
+  return render(
+    <ConfigContext.Provider value={config}>
+      <LicenseBanner />
+    </ConfigContext.Provider>
+  );
+}
+
 describe('LicenseBanner', () => {
   beforeEach(() => {
     localStorage.clear();
+    isAdmin.mockReturnValue(true);
   });
 
   it('renders the server-provided grace end date', () => {
@@ -100,5 +120,75 @@ describe('LicenseBanner', () => {
     expect(screen.getByRole('alert')).toHaveTextContent(
       'License token verification failed'
     );
+  });
+
+  describe('before a paid license expires', () => {
+    const paid = {
+      valid: true,
+      plan: 'team',
+      gracePeriod: false,
+      graceEndsAt: '',
+    };
+
+    beforeEach(() => {
+      vi.useFakeTimers({ toFake: ['Date'] });
+      vi.setSystemTime(new Date('2026-10-01T00:00:00Z'));
+    });
+    afterEach(() => {
+      vi.useRealTimers();
+    });
+
+    it('stays quiet more than 30 days ahead', () => {
+      renderBanner({ ...paid, expiry: '2026-11-01T00:00:00Z' });
+
+      expect(screen.queryByText(/expires in/)).not.toBeInTheDocument();
+    });
+
+    it('notes the expiry 30 days ahead and turns urgent at seven', () => {
+      const view = renderBanner({ ...paid, expiry: '2026-10-31T00:00:00Z' });
+      expect(screen.getByRole('status')).toHaveTextContent(
+        'Your Dagu license expires in 30 days. Please renew.'
+      );
+      view.unmount();
+
+      renderBanner({ ...paid, expiry: '2026-10-08T00:00:00Z' });
+      expect(screen.getByRole('alert')).toHaveTextContent(
+        'Your Dagu license expires in 7 days. Please renew.'
+      );
+    });
+
+    it('remembers a dismissal for this server, plan, expiry, and urgency', async () => {
+      const expiry = '2026-10-31T00:00:00Z';
+      const view = renderBanner({ ...paid, expiry });
+      await userEvent.click(
+        screen.getByRole('button', {
+          name: 'Dismiss license expiry notification',
+        })
+      );
+
+      expect(screen.queryByRole('status')).not.toBeInTheDocument();
+      expect(
+        localStorage.getItem(`license-banner-local-team-${expiry}-notice`)
+      ).toBe('true');
+      view.unmount();
+      renderBanner({ ...paid, expiry });
+      expect(screen.queryByRole('status')).not.toBeInTheDocument();
+    });
+
+    it('stays quiet for a free license', () => {
+      renderBanner({ ...paid, plan: 'free', expiry: '2026-10-02T00:00:00Z' });
+      expect(screen.queryByRole('status')).not.toBeInTheDocument();
+      expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+    });
+
+    it('asks non-admins to contact their administrator', () => {
+      isAdmin.mockReturnValue(false);
+      renderBanner({ ...paid, expiry: '2026-10-31T00:00:00Z' });
+
+      expect(screen.getByRole('status')).toHaveTextContent(
+        'Please contact your administrator.'
+      );
+      expect(screen.queryByRole('link')).not.toBeInTheDocument();
+    });
   });
 });

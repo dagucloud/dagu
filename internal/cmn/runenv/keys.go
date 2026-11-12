@@ -26,6 +26,10 @@ const (
 	// EnvKeyDAGRunStepStderrFile holds the path to the stderr log file for the current step.
 	EnvKeyDAGRunStepStderrFile = "DAG_RUN_STEP_STDERR_FILE"
 
+	// EnvKeyDAGRunStepRepeatIndex holds the zero-based repetition index of the
+	// current execution of a repeating step.
+	EnvKeyDAGRunStepRepeatIndex = "DAG_RUN_STEP_REPEAT_INDEX"
+
 	// EnvKeyDAGUOutputFile holds the file path used for declared step outputs.
 	EnvKeyDAGUOutputFile = "DAGU_OUTPUT_FILE"
 
@@ -82,6 +86,14 @@ const (
 // EnvKeyPWD holds the resolved working directory of the executing step.
 const EnvKeyPWD = "PWD"
 
+// Trace context keys of the OpenTelemetry environment carrier. Dagu sets them
+// for a step that runs inside a recorded span. A workflow may also set them, so
+// they are not reserved run names.
+const (
+	EnvKeyTraceParent = "TRACEPARENT"
+	EnvKeyTraceState  = "TRACESTATE"
+)
+
 // reservedRunEnvNames are the environment variable names Dagu generates for a
 // run or a step. They describe one run on one host, so an authored workflow may
 // neither define them nor carry them into another run.
@@ -92,6 +104,7 @@ var reservedRunEnvNames = []string{
 	EnvKeyDAGRunStepName,
 	EnvKeyDAGRunStepStdoutFile,
 	EnvKeyDAGRunStepStderrFile,
+	EnvKeyDAGRunStepRepeatIndex,
 	EnvKeyDAGRunStatus,
 	EnvKeyDAGWikiDir,
 	EnvKeyDAGDocsDir,

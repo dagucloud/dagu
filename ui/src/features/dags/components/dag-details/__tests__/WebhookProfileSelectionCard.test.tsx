@@ -3,6 +3,7 @@
 
 import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
+import { createQueryHook } from 'swr-openapi';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   components,
@@ -12,15 +13,25 @@ import {
 import { useClient } from '../../../../../hooks/api';
 import WebhookProfileSelectionCard from '../WebhookProfileSelectionCard';
 
+const api = vi.hoisted(() => ({
+  getMock: vi.fn(),
+  putMock: vi.fn(),
+  useQuery: null as unknown as (...args: unknown[]) => unknown,
+}));
+
+// The query hook is the real swr-openapi hook over the mocked GET. A new key
+// prefix in each test gives each test an empty SWR cache.
 vi.mock('../../../../../hooks/api', () => ({
   useClient: vi.fn(),
+  useQuery: (...args: unknown[]) => api.useQuery(...args),
 }));
 
 type WebhookDetails = components['schemas']['WebhookDetails'];
 
-const getMock = vi.fn();
-const putMock = vi.fn();
+const getMock = api.getMock;
+const putMock = api.putMock;
 const useClientMock = vi.mocked(useClient);
+let testIndex = 0;
 
 const webhook: WebhookDetails = {
   id: 'webhook-1',
@@ -56,9 +67,17 @@ const activeProfilesResponse = {
   },
 };
 
+// parity:webhook-profile-selection parity:test-webhook-profiles parity:api-settings
+// The card reads /profiles through useProfiles, the key shared with the Start
+// dialog and Settings > Runtime profile.
 describe('WebhookProfileSelectionCard', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    testIndex += 1;
+    api.useQuery = createQueryHook(
+      { GET: getMock } as never,
+      `test-${testIndex}`
+    ) as (...args: unknown[]) => unknown;
     useClientMock.mockReturnValue({
       GET: getMock,
       PUT: putMock,
@@ -176,5 +195,61 @@ describe('WebhookProfileSelectionCard', () => {
     });
     expect(onActiveProfileNamesChange).toHaveBeenCalledWith(['prod']);
     expect(onWebhookChange).toHaveBeenCalledWith(updatedWebhook);
+  });
+
+  it('shows the allowed profiles as badges to a non-admin without a request', () => {
+    const onActiveProfileNamesChange = vi.fn();
+    render(
+      <WebhookProfileSelectionCard
+        fileName="example"
+        isAdmin={false}
+        remoteNode="worker-a"
+        webhook={{
+          ...webhook,
+          profileSelection: { allowedProfiles: ['prod', 'staging'] },
+        }}
+        onActiveProfileNamesChange={onActiveProfileNamesChange}
+        onWebhookChange={vi.fn()}
+      />
+    );
+
+    expect(screen.getByText('prod')).toBeVisible();
+    expect(screen.getByText('staging')).toBeVisible();
+    expect(screen.queryByRole('checkbox')).toBeNull();
+    expect(
+      screen.queryByRole('button', { name: 'Save profile selection' })
+    ).toBeNull();
+    expect(getMock).not.toHaveBeenCalled();
+    expect(onActiveProfileNamesChange).toHaveBeenLastCalledWith([]);
+  });
+
+  it('reports no active profile while the load fails', async () => {
+    getMock.mockResolvedValue({ error: { message: 'Down' } });
+    const onActiveProfileNamesChange = vi.fn();
+    render(
+      <WebhookProfileSelectionCard
+        fileName="example"
+        isAdmin
+        remoteNode="worker-a"
+        webhook={{
+          ...webhook,
+          profileSelection: { allowedProfiles: ['prod'] },
+        }}
+        onActiveProfileNamesChange={onActiveProfileNamesChange}
+        onWebhookChange={vi.fn()}
+      />
+    );
+
+    expect(await screen.findByText('Down')).toBeVisible();
+    expect(
+      screen.getByText(
+        'Runtime profiles could not be loaded. Editing is disabled.'
+      )
+    ).toBeVisible();
+    expect(screen.getByText('Status unknown')).toBeVisible();
+    expect(
+      screen.getByRole('button', { name: 'Save profile selection' })
+    ).toBeDisabled();
+    expect(onActiveProfileNamesChange).toHaveBeenLastCalledWith([]);
   });
 });

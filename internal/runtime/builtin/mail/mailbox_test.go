@@ -5,9 +5,13 @@ package mail
 
 import (
 	"context"
+	"crypto/sha256"
+	"crypto/tls"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"io"
+	"net"
 	netmail "net/mail"
 	"strings"
 	"testing"
@@ -58,6 +62,77 @@ func accountContextWithPassword(
 	return runtime.NewContext(context.Background(), &ir.DAG{
 		MailAccounts: ir.MailAccounts{"support@example.com": account},
 	}, "", "", options...)
+}
+
+// pinOf returns the SHA-256 of the leaf certificate a test server presents.
+func pinOf(t *testing.T, host, port string) string {
+	t.Helper()
+	conn, err := tls.Dial("tcp", net.JoinHostPort(host, port), &tls.Config{InsecureSkipVerify: true}) //nolint:gosec // reads the self-signed test certificate
+	require.NoError(t, err)
+	defer func() { _ = conn.Close() }()
+	sum := sha256.Sum256(conn.ConnectionState().PeerCertificates[0].Raw)
+	return hex.EncodeToString(sum[:])
+}
+
+// tls_cert_sha256 on an account reaches both the IMAP and the SMTP
+// connection: the right pin connects without skip_tls_verify, and a wrong pin
+// fails even with skip_tls_verify set.
+func TestAccountPinsServerCertificates(t *testing.T) {
+	t.Parallel()
+
+	imapServer := mailtest.StartIMAP(t)
+	smtpServer := mailtest.StartSMTP(t)
+	imapPin := pinOf(t, imapServer.Host, imapServer.Port)
+	smtpPin := pinOf(t, smtpServer.Host, smtpServer.Port)
+	wrong := strings.Repeat("00", 32)
+
+	run := func(imapPin, smtpPin string, skipVerify bool) (searchErr, sendErr error) {
+		ctx := runtime.NewContext(context.Background(), &ir.DAG{MailAccounts: ir.MailAccounts{
+			"support@example.com": {
+				Provider: ir.MailProviderIMAP,
+				IMAP: &ir.MailServer{
+					Host: imapServer.Host, Port: imapServer.Port, Security: ir.MailSecurityTLS,
+					SkipTLSVerify: skipVerify, TLSCertSHA256: imapPin,
+				},
+				SMTP: &ir.MailServer{
+					Host: smtpServer.Host, Port: smtpServer.Port, Security: ir.MailSecurityTLS,
+					SkipTLSVerify: skipVerify, TLSCertSHA256: smtpPin,
+				},
+				Username: imapServer.Username,
+				Password: imapServer.Password,
+			},
+		}}, "", "")
+		steps := []ir.Step{
+			operationStep(opSearch, map[string]any{"mailbox": "support@example.com"}),
+			sendStep(map[string]any{
+				"mailbox": "support@example.com", "to": "team@example.com", "subject": "Pinned", "message": "hi",
+			}),
+		}
+		errs := make([]error, len(steps))
+		for i, step := range steps {
+			exec, err := newMail(ctx, step)
+			require.NoError(t, err)
+			exec.SetStdout(io.Discard)
+			exec.SetStderr(io.Discard)
+			errs[i] = exec.Run(ctx)
+		}
+		return errs[0], errs[1]
+	}
+
+	searchErr, sendErr := run(imapPin, smtpPin, false)
+	require.NoError(t, searchErr)
+	require.NoError(t, sendErr)
+	require.Len(t, smtpServer.Deliveries(), 1)
+
+	searchErr, sendErr = run(wrong, wrong, true)
+	require.ErrorContains(t, searchErr, "does not match tls_cert_sha256")
+	require.ErrorContains(t, sendErr, "does not match tls_cert_sha256")
+	assert.Len(t, smtpServer.Deliveries(), 1)
+
+	// Without a pin or skip_tls_verify, the self-signed certificate is refused.
+	searchErr, sendErr = run("", "", false)
+	require.Error(t, searchErr)
+	require.Error(t, sendErr)
 }
 
 func operationStep(operation string, with map[string]any) ir.Step {

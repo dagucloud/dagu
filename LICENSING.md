@@ -8,7 +8,7 @@ This document does not relicense any source file. Files that currently carry `SP
 
 The Go package `github.com/dagucloud/dagu/v2` exposes an experimental embedded API. Applications that import or link this package and distribute the resulting binary should evaluate GPL obligations for the combined work.
 
-For proprietary products that need to distribute Dagu as part of a non-GPL application, contact `contact@dagu.sh` to discuss a separate commercial embedding license.
+For proprietary products that need to distribute Dagu as part of a non-GPL application, contact `company@descarty.com` to discuss a separate commercial embedding license.
 
 Commercial embedding rights are not granted by this repository, this document, or the public GPL license. They require a separate written agreement with the copyright holder or authorized licensor.
 
@@ -20,4 +20,4 @@ Using the Dagu CLI or server as a separate program is different from importing t
 
 ## Dependencies
 
-Third-party libraries linked into Dagu binaries must be available under a license compatible with `GPL-3.0-or-later` that also permits the separate embedding license above: permissive licenses such as BSD, MIT, or Apache-2.0, or file-level copyleft licenses such as MPL-2.0, which some existing dependencies use. Strong copyleft dependencies (GPL, LGPL, AGPL) are not accepted. The spreadsheet engine `github.com/xuri/excelize/v2` (BSD-3-Clause) follows this rule.
+Third-party libraries linked into Dagu binaries must be available under a license compatible with `GPL-3.0-or-later` that also permits the separate embedding license above: permissive licenses such as BSD, MIT, or Apache-2.0, or file-level copyleft licenses such as MPL-2.0, which some existing dependencies use. Strong copyleft dependencies (GPL, LGPL, AGPL) are not accepted. The spreadsheet engine `github.com/xuri/excelize/v2` (BSD-3-Clause) follows this rule, as do the PDF reader `github.com/klippa-app/go-pdfium` (MIT), which carries PDFium (BSD-3-Clause) as WebAssembly, and the WebAssembly runtime `github.com/tetratelabs/wazero` (Apache-2.0).

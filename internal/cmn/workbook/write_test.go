@@ -27,6 +27,101 @@ func orders() Table {
 	}
 }
 
+func TestWriteNestedPath(t *testing.T) {
+	t.Parallel()
+	for _, inPlace := range []bool{false, true} {
+		name := "atomic"
+		if inPlace {
+			name = "in-place"
+		}
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+			path := filepath.Join(t.TempDir(), "reports", "monthly", "out.xlsx")
+			result, err := Write(context.Background(), path, orders(), WriteOptions{
+				Sheet: "Orders", Header: true, InPlace: inPlace,
+			})
+			require.NoError(t, err)
+			assert.Equal(t, path, result.Path)
+			back, err := Read(context.Background(), path, ReadOptions{})
+			require.NoError(t, err)
+			assert.Equal(t, 2, back.Count)
+			assert.Equal(t, int64(10), back.Rows[0]["Amount"])
+		})
+	}
+}
+
+func TestWriteNoDirectoriesWithoutSave(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		name        string
+		call        func(string) error
+		wantErr     bool
+		expectedErr error
+	}{
+		{
+			name: "dry run",
+			call: func(path string) error {
+				_, err := Write(context.Background(), path, orders(), WriteOptions{Header: true, DryRun: true})
+				return err
+			},
+			wantErr: false,
+		},
+		{
+			name: "canceled context",
+			call: func(path string) error {
+				ctx, cancel := context.WithCancel(context.Background())
+				cancel()
+				_, err := Write(ctx, path, orders(), WriteOptions{Header: true})
+				return err
+			},
+			wantErr:     true,
+			expectedErr: context.Canceled,
+		},
+		{
+			name: "invalid input",
+			call: func(path string) error {
+				bad := Table{Columns: []string{"amount"}, Rows: [][]any{{"N/A"}}}
+				_, err := Write(context.Background(), path, bad, WriteOptions{
+					Header: true, Types: map[string]ColumnType{"amount": TypeNumber},
+				})
+				return err
+			},
+			wantErr: true,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			path := filepath.Join(t.TempDir(), "nested", "output.xlsx")
+			err := tt.call(path)
+			if !tt.wantErr {
+				require.NoError(t, err)
+			} else if tt.expectedErr != nil {
+				require.ErrorIs(t, err, tt.expectedErr)
+			} else {
+				require.Error(t, err)
+			}
+			_, statErr := os.Stat(filepath.Dir(path))
+			require.ErrorIs(t, statErr, os.ErrNotExist)
+		})
+	}
+}
+
+func TestWriteRejectsFileAsParent(t *testing.T) {
+	t.Parallel()
+	root := t.TempDir()
+	parent := filepath.Join(root, "parent")
+	original := []byte("keep this file")
+	require.NoError(t, os.WriteFile(parent, original, 0o600))
+
+	path := filepath.Join(parent, "output.xlsx")
+	_, err := Write(context.Background(), path, orders(), WriteOptions{Header: true})
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "not a directory")
+	after, readErr := os.ReadFile(parent)
+	require.NoError(t, readErr)
+	assert.Equal(t, original, after)
+}
+
 func TestWriteNewWorkbookTableStyle(t *testing.T) {
 	t.Parallel()
 	path := filepath.Join(t.TempDir(), "out.xlsx")
@@ -80,6 +175,132 @@ func TestWriteNewWorkbookTableStyle(t *testing.T) {
 	entries, err := os.ReadDir(filepath.Dir(path))
 	require.NoError(t, err)
 	require.Len(t, entries, 1, "no temporary file left behind")
+}
+
+// TestWriteNumberFormats covers the number format style: table gives a
+// column. JSON delivers every number as float64, so a whole one still counts
+// as an integer, and a pinned type sets the format whatever the values are.
+func TestWriteNumberFormats(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		name    string
+		rows    [][]any
+		types   map[string]ColumnType
+		cell    string
+		builtin int    // built-in format id; 0 is General
+		custom  string // custom format code
+		shown   string
+	}{
+		{name: "WholeFloats", rows: [][]any{{float64(17500)}, {float64(-17500)}, {nil}}, cell: "A2", shown: "17500"},
+		{name: "Fraction", rows: [][]any{{20.5}, {float64(10)}}, cell: "A3", custom: "#,##0.00", shown: "10.00"},
+		{name: "NumericMajority", rows: [][]any{{"a"}, {"b"}, {"c"}, {float64(1)}, {float64(2)}, {1.5}, {2.5}}, cell: "A5", custom: "#,##0.00", shown: "1.00"},
+		{name: "PinnedNumber", rows: [][]any{{"17500"}, {float64(200)}}, types: map[string]ColumnType{"v": TypeNumber}, cell: "A2", custom: "#,##0.00", shown: "17,500.00"},
+		{name: "PinnedInteger", rows: [][]any{{17500}}, types: map[string]ColumnType{"v": TypeInteger}, cell: "A2", shown: "17500"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			path := filepath.Join(t.TempDir(), "out.xlsx")
+			_, err := Write(context.Background(), path, Table{Columns: []string{"v"}, Rows: tt.rows}, WriteOptions{Header: true, Types: tt.types})
+			require.NoError(t, err)
+			f, err := excelize.OpenFile(path)
+			require.NoError(t, err)
+			defer func() { _ = f.Close() }()
+			builtin, custom := cellNumFmt(t, f, "Sheet1", tt.cell)
+			assert.Equal(t, tt.builtin, builtin)
+			assert.Equal(t, tt.custom, custom)
+			shown, err := f.GetCellValue("Sheet1", tt.cell)
+			require.NoError(t, err)
+			assert.Equal(t, tt.shown, shown)
+		})
+	}
+}
+
+// TestWriteColumnFormats covers an explicit per-column number format under
+// either style: it applies to an integer column, whose kind has no format of
+// its own, and wins over the kind-based format of a fractional column.
+func TestWriteColumnFormats(t *testing.T) {
+	t.Parallel()
+	for _, style := range []StyleMode{StyleTable, StyleNone} {
+		t.Run(string(style), func(t *testing.T) {
+			t.Parallel()
+			path := filepath.Join(t.TempDir(), "out.xlsx")
+			table := Table{Columns: []string{"Total", "Rate"}, Rows: [][]any{{int64(17500), 0.125}}}
+			_, err := Write(context.Background(), path, table, WriteOptions{
+				Header: true, Style: style, Formats: map[string]string{"Total": "#,##0", "Rate": "0.0%"},
+			})
+			require.NoError(t, err)
+			f, err := excelize.OpenFile(path)
+			require.NoError(t, err)
+			defer func() { _ = f.Close() }()
+			for cell, want := range map[string]string{"A2": "17,500", "B2": "12.5%"} {
+				shown, err := f.GetCellValue("Sheet1", cell)
+				require.NoError(t, err)
+				assert.Equal(t, want, shown, cell)
+			}
+		})
+	}
+}
+
+// TestAppendColumnFormats covers a named format on rows appended below
+// existing ones: it replaces the number format the cell above passes down
+// and keeps the rest of that cell's style.
+func TestAppendColumnFormats(t *testing.T) {
+	t.Parallel()
+	f := excelize.NewFile()
+	setRow(t, f, "Sheet1", "A1", "Total")
+	bordered, err := f.NewStyle(&excelize.Style{Border: []excelize.Border{{Type: "left", Color: "000000", Style: 1}}})
+	require.NoError(t, err)
+	require.NoError(t, f.SetCellInt("Sheet1", "A2", 100))
+	require.NoError(t, f.SetCellStyle("Sheet1", "A2", "A2", bordered))
+	path := saveBook(t, f, "totals.xlsx")
+
+	_, err = Append(context.Background(), path, Table{Columns: []string{"Total"}, Rows: [][]any{{int64(17500)}}},
+		WriteOptions{Header: true, Formats: map[string]string{"Total": "#,##0"}})
+	require.NoError(t, err)
+	g, err := excelize.OpenFile(path)
+	require.NoError(t, err)
+	defer func() { _ = g.Close() }()
+	shown, err := g.GetCellValue("Sheet1", "A3")
+	require.NoError(t, err)
+	assert.Equal(t, "17,500", shown)
+	id, err := g.GetCellStyle("Sheet1", "A3")
+	require.NoError(t, err)
+	style, err := g.GetStyle(id)
+	require.NoError(t, err)
+	require.Len(t, style.Border, 1)
+	assert.Equal(t, excelize.Border{Type: "left", Color: "000000", Style: 1}, style.Border[0], "the border of the cell above survives")
+}
+
+// TestAppendKeepsFractionDigits covers a fraction appended below a column of
+// whole numbers: it copies the integer format and still shows its digits.
+func TestAppendKeepsFractionDigits(t *testing.T) {
+	t.Parallel()
+	path := filepath.Join(t.TempDir(), "log.xlsx")
+	_, err := Write(context.Background(), path, Table{Columns: []string{"v"}, Rows: [][]any{{float64(1)}, {float64(2)}}}, WriteOptions{Header: true})
+	require.NoError(t, err)
+	_, err = Append(context.Background(), path, Table{Columns: []string{"v"}, Rows: [][]any{{20.5}}}, WriteOptions{Header: true})
+	require.NoError(t, err)
+	f, err := excelize.OpenFile(path)
+	require.NoError(t, err)
+	defer func() { _ = f.Close() }()
+	shown, err := f.GetCellValue("Sheet1", "A4")
+	require.NoError(t, err)
+	assert.Equal(t, "20.5", shown)
+}
+
+// cellNumFmt returns a cell's number format: a built-in id, or zero and a
+// custom format code.
+func cellNumFmt(t *testing.T, f *excelize.File, sheet, cell string) (int, string) {
+	t.Helper()
+	id, err := f.GetCellStyle(sheet, cell)
+	require.NoError(t, err)
+	style, err := f.GetStyle(id)
+	require.NoError(t, err)
+	if style.CustomNumFmt != nil {
+		return 0, *style.CustomNumFmt
+	}
+	return style.NumFmt, ""
 }
 
 func TestWriteStyleNoneAndColumnWidthClamp(t *testing.T) {
@@ -807,4 +1028,46 @@ func TestAppendNewColumnUnderMergedHeaderIsRefused(t *testing.T) {
 	_, err := Append(context.Background(), path, more, WriteOptions{Header: true})
 	require.EqualError(t, err, `header.xlsx Sheet1!C1: merged cell B1:C1 covers the header cell of new column "note"; unmerge it to add the column`)
 	assert.Equal(t, before, fileHash(t, path))
+}
+
+func TestAppendOutputLeavesTheWorkbookAlone(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	path := filepath.Join(dir, "log.xlsx")
+	_, err := Write(context.Background(), path, Table{Columns: []string{"a", "b"}, Rows: [][]any{{1, 2}}}, WriteOptions{Header: true})
+	require.NoError(t, err)
+	before, err := os.ReadFile(path)
+	require.NoError(t, err)
+
+	output := filepath.Join(dir, "copies", "log.xlsx")
+	result, err := Append(context.Background(), path, Table{Columns: []string{"a", "b"}, Rows: [][]any{{3, 4}}}, WriteOptions{Header: true, Output: output})
+	require.NoError(t, err)
+	assert.Equal(t, output, result.Path)
+	assert.Equal(t, "Sheet1!A3:B3", result.Changes.Range)
+	after, err := os.ReadFile(path)
+	require.NoError(t, err)
+	assert.Equal(t, before, after, "the workbook at path is byte-identical")
+	back, err := Read(context.Background(), output, ReadOptions{})
+	require.NoError(t, err)
+	assert.Equal(t, 2, back.Count, "the output holds the existing rows and the appended one")
+	assert.Equal(t, int64(3), back.Rows[1]["a"])
+
+	_, err = Append(context.Background(), path, Table{Columns: []string{"a"}, Rows: [][]any{{5}}}, WriteOptions{Header: true, Output: filepath.Join(dir, ".", "log.xlsx")})
+	require.ErrorContains(t, err, "log.xlsx: output must be a different file from path; leave output out to append to the workbook in place")
+	_, err = Append(context.Background(), path, Table{Columns: []string{"a"}, Rows: [][]any{{5}}}, WriteOptions{Header: true, Output: filepath.Join(dir, "out.csv")})
+	require.ErrorIs(t, err, ErrUnsupportedFormat)
+	after, err = os.ReadFile(path)
+	require.NoError(t, err)
+	assert.Equal(t, before, after)
+
+	// A path that does not exist starts a new workbook at the output.
+	missing := filepath.Join(dir, "none.xlsx")
+	fresh := filepath.Join(dir, "fresh.xlsx")
+	_, err = Append(context.Background(), missing, Table{Columns: []string{"a"}, Rows: [][]any{{1}}}, WriteOptions{Header: true, Output: fresh})
+	require.NoError(t, err)
+	_, err = os.Stat(missing)
+	assert.ErrorIs(t, err, os.ErrNotExist, "path stays absent")
+	back, err = Read(context.Background(), fresh, ReadOptions{})
+	require.NoError(t, err)
+	assert.Equal(t, []string{"a"}, back.Headers)
 }

@@ -10,6 +10,7 @@ import (
 
 	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/pagination"
+	"github.com/dagucloud/dagu/v2/internal/spec"
 	"github.com/dagucloud/dagu/v2/internal/textsearch"
 	"github.com/dagucloud/dagu/v2/internal/workspace"
 )
@@ -47,6 +48,11 @@ type DAGDefinitionStore interface {
 	Delete(ctx context.Context, id string) error
 	Get(ctx context.Context, id string) (DAGDefinition, error)
 	Update(ctx context.Context, id string, source []byte) error
+	// UpdateIfMatch is Update for a source that is still the one with the
+	// SHA-256 expectedSHA256, in hex. Otherwise it writes nothing and returns an
+	// error that wraps ErrConflict. The check and the write are atomic for every
+	// process that shares the store.
+	UpdateIfMatch(ctx context.Context, id, expectedSHA256 string, source []byte) error
 	Rename(ctx context.Context, oldID, newID string) error
 	GetMetadata(ctx context.Context, id string) (*ir.DAG, error)
 	Catalog(ctx context.Context) (DAGCatalog, error)
@@ -55,6 +61,13 @@ type DAGDefinitionStore interface {
 	// alt_dags_dir). Stores without additional search paths may return the same
 	// result as Catalog.
 	CatalogIncludingSearchPaths(ctx context.Context) (DAGCatalog, error)
+	// ServiceDAGNames returns the names of the DAGs that set a restart policy.
+	// It may read a listing saved earlier, so a definition changed outside the
+	// store can count only after the next Catalog.
+	ServiceDAGNames(ctx context.Context) ([]string, error)
+	// SavedServiceDAGNames is ServiceDAGNames that never builds a listing: it
+	// reports false when no saved listing can be read.
+	SavedServiceDAGNames() ([]string, bool)
 	MigrateSuspensionState(ctx context.Context) error
 	SetSuspended(ctx context.Context, id string, suspended bool) error
 	IsSuspended(ctx context.Context, id string) (bool, error)
@@ -70,19 +83,26 @@ type DAGLoadOptions struct {
 type DAGRepositoryOptions struct {
 	BaseConfigPath         string
 	WorkspaceBaseConfigDir string
+	// Calendars loads the calendar files that schedules name.
+	Calendars *spec.CalendarSource
 }
 
 // DAGListOptions contains parameters for paginated DAG listing.
 type DAGListOptions struct {
-	Paginator         *pagination.Paginator
-	Name              string
-	Labels            []string
-	ActiveOnly        bool
+	Paginator  *pagination.Paginator
+	Name       string
+	Labels     []string
+	ActiveOnly bool
+	// OnlyServiceDAGs keeps the DAGs that set a restart policy.
+	OnlyServiceDAGs   bool
 	Sort              string
 	Order             string
 	Time              *time.Time
 	NextRunProjection func(*ir.DAG, time.Time) time.Time
 	WorkspaceFilter   *workspace.WorkspaceFilter
+	// PinnedIDs holds DAG IDs listed before all other DAGs. Sort and Order
+	// apply within the pinned and unpinned parts. Nil disables pinning.
+	PinnedIDs map[string]struct{}
 }
 
 // DAGSearchOptions contains parameters for cursor-based DAG search.

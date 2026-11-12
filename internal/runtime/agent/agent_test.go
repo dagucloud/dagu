@@ -233,6 +233,9 @@ func TestStopHandlerBudgets(t *testing.T) {
 	}
 }
 
+// A second stop shares the first stop's cleanup deadline. Both calls return
+// once that deadline forces termination; a restarted deadline would hold them
+// until about five seconds. Process teardown time is not part of the bound.
 func TestStopConcurrentDeadline(t *testing.T) {
 	th := test.Setup(t)
 	ready := filepath.Join(t.TempDir(), "ready")
@@ -258,9 +261,10 @@ steps:
 	go func() { defer close(firstStop); dagAgent.Signal(th.Context, os.Interrupt) }()
 	time.Sleep(2 * time.Second)
 	go func() { defer close(secondStop); dagAgent.Signal(th.Context, os.Interrupt) }()
-	waitForCancel(t, done, time.Until(started.Add(4*time.Second)))
-	waitForCancel(t, firstStop, time.Second)
-	waitForCancel(t, secondStop, time.Second)
+	deadline := started.Add(4 * time.Second)
+	waitForCancel(t, firstStop, time.Until(deadline))
+	waitForCancel(t, secondStop, time.Until(deadline))
+	waitForCancel(t, done, agentRunCompletionTimeout())
 	dag.AssertLatestStatus(t, ir.Aborted)
 }
 
@@ -468,7 +472,7 @@ func TestRejectedStatus(t *testing.T) {
 				waitForCancel(t, done, agentRunCompletionTimeout())
 			})
 			waitForCancel(t, pusher.rejected, agentRunStartTimeout())
-			waitForCancel(t, done, 3*time.Second)
+			waitForCancel(t, done, agentRunCompletionTimeout())
 			data, err := os.ReadFile(marker)
 			if nodeStatus == ir.NodeNotStarted {
 				require.ErrorIs(t, err, os.ErrNotExist, "handler ran before startup completed")
@@ -655,6 +659,44 @@ func (a *observedRunStateAttempt) RecordStatus(ctx context.Context, status ir.DA
 	return a.Attempt.RecordStatus(ctx, status)
 }
 
+type blockedOutputRunStateStore struct {
+	runstate.Store
+	outputStarted chan struct{}
+	releaseOutput chan struct{}
+}
+
+func (s *blockedOutputRunStateStore) BeginAttempt(
+	ctx context.Context,
+	req runstate.BeginAttemptRequest,
+) (runstate.Attempt, error) {
+	attempt, err := s.Store.BeginAttempt(ctx, req)
+	if err != nil {
+		return nil, err
+	}
+	return &blockedOutputRunStateAttempt{
+		Attempt:       attempt,
+		outputStarted: s.outputStarted,
+		releaseOutput: s.releaseOutput,
+	}, nil
+}
+
+type blockedOutputRunStateAttempt struct {
+	runstate.Attempt
+	outputStarted     chan struct{}
+	releaseOutput     <-chan struct{}
+	outputStartedOnce sync.Once
+}
+
+func (a *blockedOutputRunStateAttempt) RecordOutputs(ctx context.Context, outputs *ir.DAGRunOutputs) error {
+	a.outputStartedOnce.Do(func() { close(a.outputStarted) })
+	select {
+	case <-a.releaseOutput:
+	case <-ctx.Done():
+		return ctx.Err()
+	}
+	return a.Attempt.RecordOutputs(ctx, outputs)
+}
+
 func TestAgent_Run(t *testing.T) {
 	if runtime.GOOS != "windows" {
 		t.Parallel()
@@ -726,6 +768,95 @@ func TestAgent_Run(t *testing.T) {
 		require.False(t, observer.observedInvalidContext())
 		dag.AssertLatestStatus(t, ir.Succeeded)
 	})
+	for _, tc := range []struct {
+		name       string
+		runID      string
+		command    string
+		finalState ir.Status
+		wantErr    bool
+	}{
+		{name: "Success", runID: "outputs-before-completion-success", command: `echo "result"`, finalState: ir.Succeeded},
+		{name: "Failure", runID: "outputs-before-completion-failure", command: `echo "result"; exit 1`, finalState: ir.Failed, wantErr: true},
+	} {
+		t.Run("PersistsOutputsBeforeTerminalStatus/"+tc.name, func(t *testing.T) {
+			th := test.Setup(t)
+			dag := th.DAG(t, fmt.Sprintf(`steps:
+  - name: emit
+    run: %q
+    output: RESULT
+`, tc.command))
+			outputStarted := make(chan struct{})
+			releaseOutput := make(chan struct{})
+			var releaseOutputOnce sync.Once
+			release := func() { releaseOutputOnce.Do(func() { close(releaseOutput) }) }
+			stateStore := &blockedOutputRunStateStore{
+				Store:         persis.NewRunStateStore(th.DAGRunRepository, nil),
+				outputStarted: outputStarted,
+				releaseOutput: releaseOutput,
+			}
+			dagAgent := dag.Agent(
+				test.WithDAGRunID(tc.runID),
+				test.WithAgentOptions(agent.Options{
+					RunStateStore:       stateStore,
+					SocketServerFactory: fakeSocketServerFactory(nil),
+				}),
+			)
+
+			runDone := make(chan error, 1)
+			runExited := make(chan struct{})
+			t.Cleanup(func() {
+				release()
+				select {
+				case <-runExited:
+				case <-time.After(agentRunCompletionTimeout()):
+					t.Error("timed out waiting for DAG run cleanup")
+				}
+			})
+			go func() {
+				defer close(runExited)
+				runDone <- dagAgent.Run(th.Context)
+			}()
+
+			select {
+			case <-outputStarted:
+			case <-time.After(agentRunCompletionTimeout()):
+				t.Fatal("timed out waiting for output write")
+			}
+
+			storedAttempt, err := th.DAGRunRepository.FindAttempt(th.Context, ir.NewDAGRunRef(dag.Name, tc.runID))
+			require.NoError(t, err)
+			storedStatus, err := storedAttempt.ReadStatus(th.Context)
+			require.NoError(t, err)
+			require.Equal(t, ir.Running, storedStatus.Status)
+			storedOutputs, err := storedAttempt.ReadOutputs(th.Context)
+			require.NoError(t, err)
+			require.Nil(t, storedOutputs)
+
+			release()
+			select {
+			case err := <-runDone:
+				if tc.wantErr {
+					require.Error(t, err)
+				} else {
+					require.NoError(t, err)
+				}
+			case <-time.After(agentRunCompletionTimeout()):
+				t.Fatal("timed out waiting for DAG run to finish")
+			}
+
+			storedStatus, err = storedAttempt.ReadStatus(th.Context)
+			require.NoError(t, err)
+			require.Equal(t, tc.finalState, storedStatus.Status)
+			storedOutputs, err = storedAttempt.ReadOutputs(th.Context)
+			require.NoError(t, err)
+			require.NotNil(t, storedOutputs)
+			require.Equal(t, dag.Name, storedOutputs.Metadata.DAGName)
+			require.Equal(t, tc.runID, storedOutputs.Metadata.DAGRunID)
+			require.Equal(t, storedStatus.AttemptID, storedOutputs.Metadata.AttemptID)
+			require.Equal(t, storedStatus.Status.String(), storedOutputs.Metadata.Status)
+			require.Equal(t, "result", storedOutputs.Outputs["result"])
+		})
+	}
 	t.Run("RecordsTriggerActor", func(t *testing.T) {
 		th := test.Setup(t)
 		dag := th.DAG(t, `steps:
@@ -1896,6 +2027,52 @@ steps:
 	require.NotContains(t, string(statusJSON), secretValue)
 }
 
+// A precondition that compares a secret quotes the resolved value in its
+// error, while stored run status keeps only the mask.
+func TestAgent_PreconditionSecretMasking(t *testing.T) {
+	t.Parallel()
+
+	cases := []struct {
+		name string
+		yaml string
+	}{
+		{"DAG", `preconditions:
+  - condition: "${API_TOKEN}"
+    expected: "nope"
+steps:
+  - run: echo gated
+`},
+		{"Step", `steps:
+  - name: gated
+    preconditions:
+      - condition: "${API_TOKEN}"
+        expected: "nope"
+    run: echo gated
+`},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			th := test.Setup(t)
+
+			secretValue := "precondition-secret-8c1d"
+			secretFile := th.TempFile(t, "secret.txt", []byte(secretValue))
+			dag := th.DAG(t, `secrets:
+  - name: API_TOKEN
+    provider: file
+    key: `+secretFile+"\n"+tc.yaml)
+			require.NoError(t, dag.Agent().Run(th.Context))
+
+			latest, err := th.DAGRunMgr.GetLatestStatus(th.Context, dag.DAG)
+			require.NoError(t, err)
+			statusJSON, err := json.Marshal(latest)
+			require.NoError(t, err)
+			require.Contains(t, string(statusJSON), `expected \"nope\"`)
+			require.NotContains(t, string(statusJSON), secretValue)
+		})
+	}
+}
+
 func TestAgent_RegistryRefSecretResolution(t *testing.T) {
 	t.Parallel()
 	th := test.Setup(t)
@@ -2135,6 +2312,72 @@ steps:
 	require.NoError(t, err)
 	require.NotContains(t, string(statusJSON), "workspace-default-secret")
 	require.Contains(t, string(statusJSON), "*******")
+}
+
+// The env secret provider reads runtime profile entries, both inherited
+// defaults and the selected profile, as steps do.
+func TestAgent_EnvSecretReadsRuntimeProfile(t *testing.T) {
+	t.Parallel()
+	th := test.Setup(t)
+
+	backend := testutil.NewMemoryBackend()
+	enc, err := crypto.NewEncryptor("test-key")
+	require.NoError(t, err)
+	secretStore, err := store.NewSecretStore(backend.Collection("secrets"), enc)
+	require.NoError(t, err)
+	profileStore, err := store.NewProfileStore(backend.Collection("profiles"))
+	require.NoError(t, err)
+
+	now := time.Now().UTC()
+	globalRef := profilepkg.GlobalInheritedRef()
+	globalDefaults, err := profilepkg.NewInherited(globalRef, profilepkg.InheritedCreateInput{
+		CreatedBy: "alice",
+	}, now)
+	require.NoError(t, err)
+	token, err := secretpkg.New(secretpkg.CreateInput{
+		Ref:          globalRef.SecretRef("TEST_KEY"),
+		ProviderType: secretpkg.ProviderDaguManaged,
+		CreatedBy:    "alice",
+	}, now)
+	require.NoError(t, err)
+	require.NoError(t, secretStore.Create(context.Background(), token, &secretpkg.WriteValueInput{
+		Value:     "global-secret",
+		CreatedBy: "alice",
+		CreatedAt: now,
+	}))
+	require.NoError(t, globalDefaults.SetSecret("TEST_KEY", token.ID, "alice", now))
+	require.NoError(t, profileStore.Create(context.Background(), globalDefaults))
+
+	selected, err := profilepkg.New(profilepkg.CreateInput{
+		Name:      "prod",
+		CreatedBy: "alice",
+	}, now)
+	require.NoError(t, err)
+	require.NoError(t, selected.SetVariable("REGION", "eu", "alice", now))
+	require.NoError(t, profileStore.Create(context.Background(), selected))
+
+	dag := th.DAG(t, `
+secrets:
+  - name: TOKEN
+    provider: env
+    key: TEST_KEY
+  - name: SECRET_REGION
+    provider: env
+    key: REGION
+steps:
+  - name: step1
+    run: test "$TOKEN|$SECRET_REGION" = "global-secret|eu" && echo ok
+    output: RESPONSE`)
+
+	dagAgent := dag.Agent(test.WithAgentOptions(agent.Options{
+		ProfileStore: profileStore,
+		SecretStore:  secretStore,
+		ProfileName:  "prod",
+	}))
+	dagAgent.RunSuccess(t)
+
+	outputs := dag.ReadOutputs(t)
+	require.Equal(t, "ok", outputs["response"])
 }
 
 func TestAgent_SubDAGRunVisibleWhileRunning(t *testing.T) {

@@ -19,6 +19,8 @@ import (
 	"net/http/httptest"
 	"os"
 	"os/exec"
+	"path/filepath"
+	"regexp"
 	"runtime"
 	"strings"
 	"sync"
@@ -40,9 +42,13 @@ func TestComputerValidation(t *testing.T) {
 
 	for _, tc := range []struct{ fixture, message string }{
 		{"missing_llm.yaml", "computer actions need a model"},
-		{"duplicate_output.yaml", `output "invoice" is already extracted by do[0]`},
+		{"duplicate_output.yaml", `output "invoice" is already published by do[0]`},
+		{"duplicate_outline.yaml", `output "invoice" is already published by do[0]`},
 		{"native_mode.yaml", `provider "openrouter" has no native computer use`},
 		{"unknown_variable.yaml", "act references %password%"},
+		{"unknown_input.yaml", "mouse does not equal any of: [screen direct]"},
+		{"extract_never_object.yaml", "has no field that reads from an element"},
+		{"bad_pin.yaml", "linux"},
 	} {
 		t.Run(tc.fixture, func(t *testing.T) {
 			t.Parallel()
@@ -84,9 +90,10 @@ var magenta = color.RGBA{R: 255, G: 0, B: 255, A: 255}
 const minWindowPixels = 500
 
 // scriptedModel answers generic-mode computer requests in the OpenAI chat
-// format by reading the screenshot it is sent: it waits until the magenta
-// text box appears, clicks it and types the greeting, then reports the task
-// done. Extract requests return the greeting.
+// format by reading the screenshot it is sent: it asks for one when a turn
+// comes with the element list alone, waits until the magenta text box
+// appears, clicks it and types the greeting, then reports the task done.
+// Extract requests return the greeting.
 type scriptedModel struct {
 	mu        sync.Mutex
 	sawWindow bool
@@ -121,6 +128,8 @@ func (m *scriptedModel) serve(w http.ResponseWriter, r *http.Request) {
 		calls = []toolCall{{"respond", map[string]any{"text": greeting}}}
 	case req.typed():
 		calls = []toolCall{{"done", map[string]any{"success": true, "summary": "Typed the greeting"}}}
+	case req.latest().screenshot == "":
+		calls = []toolCall{{"screenshot", map[string]any{}}}
 	default:
 		center, found, err := req.findWindow()
 		if err != nil {
@@ -154,27 +163,48 @@ func (req chatRequest) typed() bool {
 	return false
 }
 
-// findWindow returns the center of the magenta text box in the latest
-// screenshot, in its pixels.
-func (req chatRequest) findWindow() (image.Point, bool, error) {
-	var dataURL string
+// observation is what the latest user message showed the model: its text,
+// and its screenshot as a data URL, empty for a turn that came with the
+// element list alone.
+type observation struct {
+	text, screenshot string
+}
+
+// latest returns the request's latest observation.
+func (req chatRequest) latest() observation {
+	var latest observation
 	for _, message := range req.Messages {
+		if message.Role != "user" {
+			continue
+		}
+		latest = observation{}
+		if json.Unmarshal(message.Content, &latest.text) == nil {
+			continue
+		}
 		var parts []struct {
 			Type     string `json:"type"`
+			Text     string `json:"text"`
 			ImageURL struct {
 				URL string `json:"url"`
 			} `json:"image_url"`
 		}
-		if json.Unmarshal(message.Content, &parts) != nil {
-			continue
-		}
+		_ = json.Unmarshal(message.Content, &parts)
 		for _, part := range parts {
-			if part.Type == "image_url" {
-				dataURL = part.ImageURL.URL
+			switch part.Type {
+			case "image_url":
+				latest.screenshot = part.ImageURL.URL
+			case "text":
+				latest.text = part.Text
 			}
 		}
 	}
-	_, encoded, ok := strings.Cut(dataURL, ";base64,")
+	return latest
+}
+
+// findWindow returns the center of the magenta text box in the latest
+// screenshot, in its pixels.
+func (req chatRequest) findWindow() (image.Point, bool, error) {
+	_, encoded, ok := strings.Cut(req.latest().screenshot, ";base64,")
 	if !ok {
 		return image.Point{}, false, errors.New("no screenshot in the request")
 	}
@@ -278,7 +308,160 @@ func TestComputerTypesIntoWindow(t *testing.T) {
 	require.True(t, model.sawWindow, "the model found the window in a screenshot")
 }
 
+// elementModel answers generic-mode computer requests from the element
+// list alone: it types 1200 into the elements window's first field and
+// presses the 保存 button outside the payment group, both by id, then
+// reports the task done once the window shows 保存しました. It counts the
+// turns that came with a screenshot, which a window listed in full needs
+// none of.
+type elementModel struct {
+	mu          sync.Mutex
+	screenshots int
+}
+
+var (
+	// firstField and saveButton find the ids of the window's first text
+	// field and of the 保存 button no group holds in an element list.
+	firstField = regexp.MustCompile(`(?m)^- (e\d+): text_field[^\n]*\[click_element, type\]$`)
+	saveButton = regexp.MustCompile(`(?m)^- (e\d+): button "保存" \[`)
+)
+
+func (m *elementModel) serve(w http.ResponseWriter, r *http.Request) {
+	var req chatRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil || len(req.Tools) == 0 {
+		http.Error(w, "expected a tool request", http.StatusBadRequest)
+		return
+	}
+	latest := req.latest()
+	m.mu.Lock()
+	if latest.screenshot != "" {
+		m.screenshots++
+	}
+	m.mu.Unlock()
+	field, save := firstField.FindStringSubmatch(latest.text), saveButton.FindStringSubmatch(latest.text)
+	var calls []toolCall
+	switch {
+	case strings.Contains(latest.text, `- text "保存しました"`):
+		calls = []toolCall{{"done", map[string]any{"success": true, "summary": "Saved 1200"}}}
+	case req.typed() || field == nil || save == nil:
+		calls = []toolCall{{"done", map[string]any{"success": false, "summary": "The form is not saved: " + latest.text}}}
+	default:
+		calls = []toolCall{
+			{"type", map[string]any{"element_id": field[1], "text": "1200"}},
+			{"click_element", map[string]any{"element_id": save[1]}},
+		}
+	}
+	writeToolCalls(w, calls)
+}
+
+// An act on a window its elements describe in full is decided from them
+// with no screenshot: the model types into a field and presses a button by
+// id, and the field takes the value through the element.
+func TestComputerElementTurns(t *testing.T) {
+	if runtime.GOOS != "windows" || os.Getenv("DAGU_DESKTOP_E2E") != "1" {
+		t.Skip("set DAGU_DESKTOP_E2E=1 on an interactive Windows desktop to run")
+	}
+	dagu := harness.NewRunner(t).WithCommandTimeout(desktopCommandTimeout)
+	t.Cleanup(func() {
+		_ = exec.Command("taskkill", "/F", "/FI", "WINDOWTITLE eq "+elementsWindowTitle).Run()
+	})
+	model := &elementModel{}
+	server := httptest.NewServer(http.HandlerFunc(model.serve))
+	t.Cleanup(server.Close)
+
+	result := dagu.RunWithEnv([]string{"LLM_BASE_URL=" + server.URL}, "start", "element_turns.yaml")
+	t.Cleanup(func() {
+		if t.Failed() {
+			t.Logf("stdout:\n%s\nstderr:\n%s", result.Stdout(), result.Stderr())
+		}
+	})
+	result.ExpectExitCode(0)
+	model.mu.Lock()
+	defer model.mu.Unlock()
+	require.Zero(t, model.screenshots, "no turn came with a screenshot")
+	match := stepLog.FindStringSubmatch(result.Stdout())
+	require.NotNil(t, match, "the step log is named in the output")
+	data, err := os.ReadFile(filepath.Clean(match[1]))
+	require.NoError(t, err)
+	require.Contains(t, string(data), "set_value text_field", "the field took the value through the element")
+}
+
 const testWindowFilter = "WINDOWTITLE eq Dagu desktop test"
+
+// A pinned act runs its authored step with no model configured: it clicks
+// the 保存 button named by its pin, and the status label it updates is read
+// by the exact check that follows.
+func TestComputerPinnedAct(t *testing.T) {
+	if runtime.GOOS != "windows" || os.Getenv("DAGU_DESKTOP_E2E") != "1" {
+		t.Skip("set DAGU_DESKTOP_E2E=1 on an interactive Windows desktop to run")
+	}
+	dagu := harness.NewRunner(t).WithCommandTimeout(desktopCommandTimeout)
+	t.Cleanup(func() {
+		_ = exec.Command("taskkill", "/F", "/FI", "WINDOWTITLE eq "+elementsWindowTitle).Run()
+	})
+	result := dagu.Run("start", "pinned.yaml")
+	t.Cleanup(func() {
+		if t.Failed() {
+			t.Logf("stdout:\n%s\nstderr:\n%s", result.Stdout(), result.Stderr())
+		}
+	})
+	result.ExpectExitCode(0)
+}
+
+// An outline lists the window the step launched with no model, each control
+// nested under the group that holds it.
+func TestComputerOutlineStep(t *testing.T) {
+	if runtime.GOOS != "windows" || os.Getenv("DAGU_DESKTOP_E2E") != "1" {
+		t.Skip("set DAGU_DESKTOP_E2E=1 on an interactive Windows desktop to run")
+	}
+	dagu := harness.NewRunner(t).WithCommandTimeout(desktopCommandTimeout)
+	t.Cleanup(func() {
+		_ = exec.Command("taskkill", "/F", "/FI", "WINDOWTITLE eq "+elementsWindowTitle).Run()
+	})
+	result := dagu.Run("start", "outline.yaml")
+	t.Cleanup(func() {
+		if t.Failed() {
+			t.Logf("stdout:\n%s\nstderr:\n%s", result.Stdout(), result.Stderr())
+		}
+	})
+	result.ExpectExitCode(0)
+	// The step prints its outputs as JSON, which escapes the quotes and the
+	// line breaks of the outline.
+	dagu.ExpectFileContains("outline.json",
+		`window \"Dagu elements test\" app=\"powershell\"\n`,
+		`\n  button \"保存\" id=\"saveButton\"\n`,
+		`\n  group \"支払情報\" id=\"paymentGroup\"\n`,
+		`\n    button \"保存\" id=\"paymentSaveButton\"\n`,
+	)
+}
+
+// A pinned choose step sets the elements window's payment method pop-up to
+// an option by name, which the window's status label reports, on a real
+// macOS or Windows desktop.
+func TestComputerChoosesAnOption(t *testing.T) {
+	if (runtime.GOOS != "windows" && runtime.GOOS != "darwin") || os.Getenv("DAGU_DESKTOP_E2E") != "1" {
+		t.Skip("set DAGU_DESKTOP_E2E=1 on an interactive macOS or Windows desktop to run")
+	}
+	dagu := harness.NewRunner(t).WithCommandTimeout(desktopCommandTimeout)
+	fixture := "choose.yaml"
+	t.Cleanup(func() {
+		if runtime.GOOS == "darwin" {
+			_ = exec.Command("pkill", "-f", "elements.js").Run()
+			return
+		}
+		_ = exec.Command("taskkill", "/F", "/FI", "WINDOWTITLE eq "+elementsWindowTitle).Run()
+	})
+	if runtime.GOOS == "darwin" {
+		fixture = "choose_macos.yaml"
+	}
+	result := dagu.Run("start", fixture)
+	t.Cleanup(func() {
+		if t.Failed() {
+			t.Logf("stdout:\n%s\nstderr:\n%s", result.Stdout(), result.Stderr())
+		}
+	})
+	result.ExpectExitCode(0)
+}
 
 // closeTestWindow ends the test window and waits for its process to exit.
 func closeTestWindow(t *testing.T) {

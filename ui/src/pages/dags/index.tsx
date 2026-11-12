@@ -12,25 +12,34 @@ import {
   ViewSpecType,
 } from '../../api/v1/schema';
 import { Button } from '@/components/ui/button';
+import { useErrorModal } from '@/components/ui/error-modal';
 import { AppBarContext } from '../../contexts/AppBarContext';
-import { useCanWriteForWorkspace } from '../../contexts/AuthContext';
+import {
+  useCanWriteForWorkspace,
+  useWorkspaceWriteCheck,
+} from '../../contexts/AuthContext';
 import { useSearchState } from '../../contexts/SearchStateContext';
 import { useUserPreferences } from '../../contexts/UserPreference';
-import { DAGDetailsModal } from '../../features/dags/components/dag-details';
-import { DAGErrors } from '../../features/dags/components/dag-editor';
+import DAGErrors from '../../features/dags/components/dag-editor/DAGErrors';
 import {
   DAGTable,
   type DAGDeleteResult,
 } from '../../features/dags/components/dag-list';
 import DAGListHeader from '../../features/dags/components/dag-list/DAGListHeader';
-import type {
-  WorkflowFilterSet,
-  WorkflowFilterView,
+import {
+  isRunSortField,
+  maxRunSortDAGs,
+  type WorkflowFilterSet,
+  type WorkflowFilterView,
 } from '../../features/dags/components/dag-list/workflowViews';
 import {
   viewMatchesScope,
   viewScopeForSelection,
 } from '../../features/views/viewScope';
+import { buildDAGPageURL } from '../../features/dag-runs/lib/dagRunUrls';
+import { setDAGPinned } from '../../features/dags/lib/dagPins';
+import { PeekHost } from '../../features/peek/PeekHost';
+import { withoutPeek } from '../../features/peek/peekParams';
 import { useClient, useQuery } from '../../hooks/api';
 import { useDAGsListSSE } from '../../hooks/useDAGsListSSE';
 import {
@@ -45,6 +54,8 @@ import {
 import LoadingIndicator from '@/components/ui/loading-indicator';
 import { useViews, type View, type ViewSpec } from '@/hooks/useViews';
 import { I18nText } from '@/i18n/I18nText';
+import { useI18n } from '@/i18n/I18nProvider';
+import { LoadErrorState } from '@/components/PageStates';
 
 type DAGDefinitionsFilters = WorkflowFilterSet;
 
@@ -80,8 +91,10 @@ const ALL_WORKFLOWS_VIEW_PARAM = 'all';
 const DELETE_BATCH_SIZE = 5;
 
 function normalizeWorkflowSortField(value?: string | null): ViewSortField {
-  return value === ViewSortField.nextRun
-    ? ViewSortField.nextRun
+  return value === ViewSortField.nextRun ||
+    value === ViewSortField.status ||
+    value === ViewSortField.lastRun
+    ? (value as ViewSortField)
     : ViewSortField.name;
 }
 
@@ -94,7 +107,11 @@ function workflowSortFieldQuery(
 ): PathsDagsGetParametersQuerySort {
   return value === ViewSortField.nextRun
     ? PathsDagsGetParametersQuerySort.nextRun
-    : PathsDagsGetParametersQuerySort.name;
+    : value === ViewSortField.status
+      ? PathsDagsGetParametersQuerySort.status
+      : value === ViewSortField.lastRun
+        ? PathsDagsGetParametersQuerySort.lastRun
+        : PathsDagsGetParametersQuerySort.name;
 }
 
 function workflowSortOrderQuery(
@@ -182,6 +199,8 @@ function mergeUniqueDAGFiles(
   return merged;
 }
 
+const NO_LOADED_PAGES = { through: 1, headOrder: '' };
+
 function getNextPage(
   pagination: components['schemas']['Pagination'] | undefined
 ): number | null {
@@ -242,6 +261,7 @@ function supportsIntersectionObserver(): boolean {
 function DAGsContent() {
   const location = useLocation();
   const navigate = useNavigate();
+  const { ts } = useI18n();
   const query = React.useMemo(
     () => new URLSearchParams(location.search),
     [location.search]
@@ -250,6 +270,7 @@ function DAGsContent() {
   const appBarContext = React.useContext(AppBarContext);
   const searchState = useSearchState();
   const client = useClient();
+  const { showError } = useErrorModal();
   const remoteNode = appBarContext.selectedRemoteNode || 'local';
   const workspaceSelection = appBarContext.workspaceSelection;
   const workspaceQuery = React.useMemo(
@@ -268,6 +289,13 @@ function DAGsContent() {
   );
   const canManageWorkflowViews = useCanWriteForWorkspace(
     workflowViewScope.workspace
+  );
+  const canWriteWorkspace = useWorkspaceWriteCheck();
+  // The server authorizes a pin against the workflow's own workspace.
+  const canPinDAG = React.useCallback(
+    (dag: components['schemas']['DAGFile']) =>
+      canWriteWorkspace(dag.dag.workspace),
+    [canWriteWorkspace]
   );
   const {
     views: sharedWorkflowViews,
@@ -290,30 +318,6 @@ function DAGsContent() {
   const defaultWorkflowViewId = scopedWorkflowViews.find(
     (view) => view.isDefault
   )?.id;
-  const previousWorkspaceKeyRef = React.useRef(workspaceKey);
-  const [selectedDAG, setSelectedDAG] = React.useState<string | null>(() =>
-    query.get('selectedDAG')
-  );
-  const updateSelectedDAG = React.useCallback(
-    (fileName: string | null, replace = false) => {
-      setSelectedDAG(fileName);
-      const params = new URLSearchParams(location.search);
-      if (fileName) {
-        params.set('selectedDAG', fileName);
-      } else {
-        params.delete('selectedDAG');
-      }
-      const search = params.toString();
-      navigate(
-        {
-          pathname: location.pathname,
-          search: search ? `?${search}` : '',
-        },
-        { replace }
-      );
-    },
-    [location.pathname, location.search, navigate]
-  );
   const [olderDAGFiles, setOlderDAGFiles] = React.useState<
     components['schemas']['DAGFile'][]
   >([]);
@@ -331,6 +335,9 @@ function DAGsContent() {
   const autoLoadPendingRef = React.useRef(false);
   const loadMoreControllerRef = React.useRef<AbortController | null>(null);
   const paginationGenerationRef = React.useRef(0);
+  // The last page that the list holds, 1 while it holds only the first one,
+  // and the order of the first page that the pages after it were read with.
+  const [loadedPages, setLoadedPages] = React.useState(NO_LOADED_PAGES);
 
   const defaultFilters = React.useMemo<DAGDefinitionsFilters>(
     () => ({
@@ -355,22 +362,20 @@ function DAGsContent() {
     null
   );
 
+  // Links from before the workflow page replaced the side panel carry the
+  // workflow in ?selectedDAG; they open its page.
   React.useEffect(() => {
-    setSelectedDAG(query.get('selectedDAG'));
-  }, [query]);
-
-  React.useEffect(() => {
-    if (previousWorkspaceKeyRef.current === workspaceKey) {
-      return;
+    const fileName = query.get('selectedDAG');
+    if (fileName) {
+      navigate(buildDAGPageURL({ fileName, remoteNode }), { replace: true });
     }
-    previousWorkspaceKeyRef.current = workspaceKey;
-    updateSelectedDAG(null, true);
-  }, [updateSelectedDAG, workspaceKey]);
+  }, [navigate, query, remoteNode]);
 
   const resetLoadedPages = React.useCallback(() => {
     paginationGenerationRef.current += 1;
     loadMoreControllerRef.current?.abort();
     loadMoreControllerRef.current = null;
+    setLoadedPages(NO_LOADED_PAGES);
     setOlderDAGFiles([]);
     setContinuationPageOverride(undefined);
     setLoadMoreError(null);
@@ -505,9 +510,9 @@ function DAGsContent() {
     };
 
     if (scopeChanged) {
-      params.delete('selectedDAG');
+      // A peek of the previous scope does not carry over.
       const nextSearch = buildWorkflowFilterSearch(
-        params.toString(),
+        withoutPeek(params.toString()),
         next,
         nextActiveViewId ?? ALL_WORKFLOWS_VIEW_PARAM
       );
@@ -617,7 +622,7 @@ function DAGsContent() {
   );
 
   const dagsListSSE = useDAGsListSSE(queryParams, filtersReady);
-  const { data, mutate, isLoading } = useQuery(
+  const { data, error, mutate, isLoading } = useQuery(
     '/dags',
     filtersReady
       ? {
@@ -743,23 +748,13 @@ function DAGsContent() {
         .map((result) => result.fileName);
 
       if (deletedFileNames.length > 0) {
-        if (selectedDAG && deletedFileNames.includes(selectedDAG)) {
-          updateSelectedDAG(null, true);
-        }
         resetLoadedPages();
         await mutate();
       }
 
       return results;
     },
-    [
-      client,
-      mutate,
-      remoteNode,
-      resetLoadedPages,
-      selectedDAG,
-      updateSelectedDAG,
-    ]
+    [client, mutate, remoteNode, resetLoadedPages]
   );
 
   const handleRenameDAG = React.useCallback(
@@ -775,25 +770,32 @@ function DAGsContent() {
         throw new Error(error.message || 'Failed to rename workflow');
       }
 
-      if (selectedDAG === fileName) {
-        updateSelectedDAG(newFileName, true);
-      }
       resetLoadedPages();
       await mutate();
     },
-    [
-      client,
-      mutate,
-      remoteNode,
-      resetLoadedPages,
-      selectedDAG,
-      updateSelectedDAG,
-    ]
+    [client, mutate, remoteNode, resetLoadedPages]
   );
 
-  const handleSelectDAG = React.useCallback(
-    (fileName: string) => updateSelectedDAG(fileName),
-    [updateSelectedDAG]
+  // Pinning moves a workflow across pages, so the list reloads from page one.
+  const reloadDAGList = React.useCallback(async () => {
+    resetLoadedPages();
+    await mutate();
+  }, [mutate, resetLoadedPages]);
+
+  const handleSetDAGPinned = React.useCallback(
+    async (fileName: string, pinned: boolean): Promise<void> => {
+      try {
+        await setDAGPinned(client, { fileName, pinned, remoteNode });
+      } catch (error) {
+        showError(
+          error instanceof Error ? error.message : String(error),
+          'Please try again or check the server connection.'
+        );
+        return;
+      }
+      await reloadDAGList();
+    },
+    [client, reloadDAGList, remoteNode, showError]
   );
 
   React.useEffect(() => {
@@ -816,6 +818,21 @@ function DAGsContent() {
     },
     [activeWorkflowViewId, applyQueryFilters, updateFilterLocation]
   );
+
+  // Above maxRunSortDAGs matching workflows the server sorts a status or
+  // lastRun request by name instead. Switch the filters to the name sort too,
+  // keeping the user's order, so the header, the URL and a saved view match
+  // the order on screen.
+  React.useEffect(() => {
+    if (
+      data &&
+      !isLoading &&
+      data.pagination.totalRecords > maxRunSortDAGs &&
+      isRunSortField(requestFilters.sortField)
+    ) {
+      patchFilters({ sortField: ViewSortField.name }, true);
+    }
+  }, [data, isLoading, requestFilters.sortField, patchFilters]);
 
   const searchTextChange = (nextSearchText: string) => {
     patchFilters({ searchText: nextSearchText });
@@ -1015,10 +1032,21 @@ function DAGsContent() {
     };
   }, [data?.dags, olderDAGFiles]);
 
+  // The order of the first page: its workflows and the total.
+  const headOrder = React.useMemo(
+    () =>
+      [
+        data?.pagination.totalRecords ?? 0,
+        ...(data?.dags ?? []).map((dag) => dag.fileName),
+      ].join('\n'),
+    [data]
+  );
+
   const handleLoadMore = React.useCallback(async (): Promise<void> => {
     if (isLoadingMore || !nextPage) {
       return;
     }
+    const readWith = headOrder;
 
     const generation = paginationGenerationRef.current;
     loadMoreControllerRef.current?.abort();
@@ -1070,6 +1098,7 @@ function DAGsContent() {
       setOlderDAGFiles((previous) =>
         mergeUniqueDAGFiles(previous, pageData.dags ?? [])
       );
+      setLoadedPages({ through: nextPage, headOrder: readWith });
       setContinuationPageOverride(getNextPage(pageData.pagination));
     } catch (caughtError) {
       if (controller.signal.aborted) {
@@ -1088,7 +1117,51 @@ function DAGsContent() {
         setIsLoadingMore(false);
       }
     }
-  }, [client, isLoadingMore, nextPage, queryParams]);
+  }, [client, headOrder, isLoadingMore, nextPage, queryParams]);
+
+  // The first page is live; the pages after it are read once. When the first
+  // page gains or loses a workflow, as a sort by status or last run does when
+  // runs start and end, a workflow crosses into the next page: the pages
+  // after it are read again, also when they were read while it changed, so
+  // that the workflow is neither lost nor shown twice.
+  React.useEffect(() => {
+    const { through, headOrder: readWith } = loadedPages;
+    if (through < 2 || readWith === headOrder) {
+      return;
+    }
+    const generation = paginationGenerationRef.current;
+    const controller = new AbortController();
+    const pages = Array.from({ length: through - 1 }, (_, index) => index + 2);
+    void Promise.all(
+      pages.map((page) =>
+        client.GET('/dags', {
+          params: { query: { ...queryParams, page } },
+          signal: controller.signal,
+        })
+      )
+    )
+      .then((responses) => {
+        if (
+          controller.signal.aborted ||
+          generation !== paginationGenerationRef.current
+        ) {
+          return;
+        }
+        // A failed read keeps the rows on screen until the next change.
+        if (responses.some((response) => response.error || !response.data)) {
+          return;
+        }
+        setOlderDAGFiles(
+          responses.flatMap((response) => response.data?.dags ?? [])
+        );
+        setContinuationPageOverride(
+          getNextPage(responses[responses.length - 1]?.data?.pagination)
+        );
+        setLoadedPages({ through, headOrder });
+      })
+      .catch(() => undefined);
+    return () => controller.abort();
+  }, [client, headOrder, loadedPages, queryParams]);
 
   React.useEffect(() => {
     if (!isLoadingMore) {
@@ -1114,7 +1187,7 @@ function DAGsContent() {
   );
 
   return (
-    <div className="max-w-7xl">
+    <div>
       <DAGListHeader onRefresh={refreshFn} />
       {filtersReady && data ? (
         <>
@@ -1156,9 +1229,9 @@ function DAGsContent() {
             onDeleteWorkflowView={handleDeleteWorkflowView}
             onDeleteDAGs={handleDeleteDAGs}
             onRenameDAG={handleRenameDAG}
+            canPinDAG={canPinDAG}
+            onSetDAGPinned={handleSetDAGPinned}
             resultCount={data.pagination.totalRecords}
-            selectedDAG={selectedDAG}
-            onSelectDAG={handleSelectDAG}
           />
           <div className="mt-3 flex flex-col items-center gap-2">
             {loadMoreError && (
@@ -1193,23 +1266,25 @@ function DAGsContent() {
             ) : null}
           </div>
         </>
+      ) : error ? (
+        <LoadErrorState
+          title={ts("Couldn't load workflows")}
+          error={error}
+          onRetry={() => void mutate()}
+        />
       ) : (
         <LoadingIndicator />
-      )}
-
-      {selectedDAG && (
-        <DAGDetailsModal
-          fileName={selectedDAG}
-          isOpen={!!selectedDAG}
-          onClose={() => updateSelectedDAG(null, true)}
-        />
       )}
     </div>
   );
 }
 
 function DAGs() {
-  return <DAGsContent />;
+  return (
+    <PeekHost>
+      <DAGsContent />
+    </PeekHost>
+  );
 }
 
 export default DAGs;

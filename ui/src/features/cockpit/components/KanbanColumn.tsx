@@ -11,7 +11,7 @@ type DAGRunSummary = components['schemas']['DAGRunSummary'];
 interface Props {
   title: string;
   column: KanbanColumnData;
-  onCardClick: (run: DAGRunSummary) => void;
+  onCardClick: (run: DAGRunSummary, event?: React.MouseEvent) => void;
   onArtifactsClick: (run: DAGRunSummary) => void;
   hideHeader?: boolean;
 }
@@ -72,10 +72,10 @@ export function KanbanColumn({
     >
       {!hideHeader && (
         <div className="flex items-center gap-2 px-1 pb-2">
-          <span className="text-xs font-medium text-muted-foreground uppercase tracking-wide">
+          <span className="text-xs font-medium text-muted-foreground">
             {localizedTitle}
           </span>
-          <span className="text-[11px] text-muted-foreground/60">
+          <span className="text-[11px] text-muted-foreground">
             {visibleCountLabel}
           </span>
         </div>
@@ -101,13 +101,18 @@ export function KanbanColumn({
           </div>
         ) : (
           <>
+            {runs.length === 0 && (
+              <div className="rounded-md border border-dashed border-border px-2 py-6 text-center text-xs text-muted-foreground">
+                <I18nText text={'No runs'} />
+              </div>
+            )}
             <LayoutGroup>
               <AnimatePresence mode="popLayout">
                 {runs.map((run) => (
                   <KanbanCard
                     key={run.dagRunId}
                     run={run}
-                    onClick={() => onCardClick(run)}
+                    onClick={(event) => onCardClick(run, event)}
                     onArtifactsClick={() => onArtifactsClick(run)}
                   />
                 ))}

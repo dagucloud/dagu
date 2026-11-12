@@ -63,6 +63,16 @@ func checkLockFile(path string) (warning string, err error) {
 	return fmt.Sprintf("%s exists; the workbook may be open in another program, or the lock file may be a leftover", filepath.Base(lock)), nil
 }
 
+// classifyRenameError is classifyError for a rename over target, which
+// Windows refuses with access denied rather than a sharing violation while
+// another program holds the target open.
+func classifyRenameError(path, target string, err error) error {
+	if renameRefusedByHolder(target, err) {
+		return &LockedError{Path: path}
+	}
+	return classifyError(path, err)
+}
+
 // classifyError turns a sharing violation into a LockedError and leaves
 // every other error alone.
 func classifyError(path string, err error) error {

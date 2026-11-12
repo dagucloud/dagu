@@ -9,15 +9,20 @@ import {
   within,
 } from '@testing-library/react';
 import React from 'react';
-import { MemoryRouter } from 'react-router-dom';
+import { MemoryRouter, useLocation } from 'react-router-dom';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { Status, ViewSortField, ViewSortOrder } from '@/api/v1/schema';
 import { PanelWidthContext } from '@/components/SplitLayout';
 import { AppBarContext } from '@/contexts/AppBarContext';
+import { ConfigContext } from '@/contexts/ConfigContext';
+import { UserPreferencesProvider } from '@/contexts/UserPreference';
+import { PeekContext, type PeekController } from '@/features/peek/PeekContext';
+import { I18nProvider } from '@/i18n/I18nProvider';
 import { WorkspaceKind } from '@/lib/workspace';
 import DAGTable from '../DAGTable';
 
 vi.mock('@/hooks/api', () => ({
+  useClient: () => ({ POST: vi.fn() }),
   useQuery: () => ({
     data: {
       labels: ['team=ops'],
@@ -33,10 +38,31 @@ vi.mock('@/features/dags/components/common/LiveSwitch', () => ({
   default: () => null,
 }));
 
-vi.mock('@/features/dags/components/common', () => ({
-  CreateDAGModal: () => null,
+vi.mock('@/features/dags/components/common', async (importOriginal) => ({
+  ...(await importOriginal<object>()),
   DAGPagination: () => null,
 }));
+
+vi.mock('@/contexts/AuthContext', () => ({
+  useCanWrite: () => true,
+  useCanManageWebhooks: () => false,
+}));
+
+// Reads the locale from stored preferences, as the app does.
+function I18nWrapper({ children }: { children: React.ReactNode }) {
+  return (
+    <UserPreferencesProvider>
+      <I18nProvider>{children}</I18nProvider>
+    </UserPreferencesProvider>
+  );
+}
+
+function LocationProbe() {
+  const location = useLocation();
+  return (
+    <div data-testid="location">{`${location.pathname}${location.search}`}</div>
+  );
+}
 
 function renderTable(
   searchText = '',
@@ -51,8 +77,13 @@ function renderTable(
     canRenameDAGs?: boolean;
     onDeleteDAGs?: React.ComponentProps<typeof DAGTable>['onDeleteDAGs'];
     onRenameDAG?: (fileName: string, newFileName: string) => Promise<void>;
+    canPinDAG?: React.ComponentProps<typeof DAGTable>['canPinDAG'];
+    /** A peek host above the table. */
+    peek?: PeekController;
+    resultCount?: number;
   } = {}
 ) {
+  const onSortChange = vi.fn();
   const onShowAllWorkflows = vi.fn();
   const handleActiveOnlyChange = vi.fn();
   const onDeleteDAGs =
@@ -64,74 +95,121 @@ function renderTable(
       );
   const onRenameDAG =
     options.onRenameDAG ?? vi.fn().mockResolvedValue(undefined);
+  const onSetDAGPinned = vi.fn().mockResolvedValue(undefined);
   const result = render(
-    <MemoryRouter>
-      <AppBarContext.Provider
-        value={
-          {
-            selectedRemoteNode: 'local',
-            workspaceSelection: { kind: WorkspaceKind.all },
-          } as never
-        }
-      >
-        <PanelWidthContext.Provider value={options.panelWidth ?? null}>
-          <DAGTable
-            dags={
-              options.dags ?? [
-                {
-                  fileName: 'example.yaml',
-                  dag: {
-                    name: searchText || 'example',
-                  },
-                  latestDAGRun: {
-                    status: Status.Success,
-                    statusLabel: 'Success',
-                  },
-                  suspended: false,
-                  errors: [],
-                } as never,
-              ]
-            }
-            group=""
-            refreshFn={vi.fn()}
-            searchText={searchText}
-            handleSearchTextChange={vi.fn()}
-            searchLabels={[]}
-            handleSearchLabelsChange={vi.fn()}
-            activeOnly={options.activeOnly ?? false}
-            handleActiveOnlyChange={handleActiveOnlyChange}
-            sortField="name"
-            sortOrder="asc"
-            onSortChange={vi.fn()}
-            workflowViews={options.workflowViews ?? []}
-            activeWorkflowViewId={options.activeWorkflowViewId ?? null}
-            isAllWorkflowsView={options.isAllWorkflowsView ?? true}
-            isWorkflowViewEdited={false}
-            canManageWorkflowViews={true}
-            canDeleteDAGs={options.canDeleteDAGs ?? true}
-            canRenameDAGs={options.canRenameDAGs ?? true}
-            onSelectWorkflowView={vi.fn()}
-            onShowAllWorkflows={onShowAllWorkflows}
-            onResetWorkflowView={vi.fn()}
-            onSaveWorkflowView={vi.fn()}
-            onUpdateWorkflowView={vi.fn()}
-            onSetDefaultWorkflowView={vi.fn()}
-            onSetPinnedWorkflowView={vi.fn()}
-            onDeleteWorkflowView={vi.fn()}
-            onDeleteDAGs={onDeleteDAGs}
-            onRenameDAG={onRenameDAG}
-          />
-        </PanelWidthContext.Provider>
-      </AppBarContext.Provider>
-    </MemoryRouter>
+    <MemoryRouter initialEntries={['/dags']}>
+      <LocationProbe />
+      <ConfigContext.Provider value={{ basePath: '' } as never}>
+        <AppBarContext.Provider
+          value={
+            {
+              selectedRemoteNode: 'local',
+              workspaceSelection: { kind: WorkspaceKind.all },
+            } as never
+          }
+        >
+          <PanelWidthContext.Provider value={options.panelWidth ?? null}>
+            <DAGTable
+              dags={
+                options.dags ?? [
+                  {
+                    fileName: 'example.yaml',
+                    dag: {
+                      name: searchText || 'example',
+                    },
+                    latestDAGRun: {
+                      status: Status.Success,
+                      statusLabel: 'Success',
+                    },
+                    suspended: false,
+                    errors: [],
+                  } as never,
+                ]
+              }
+              group=""
+              refreshFn={vi.fn()}
+              searchText={searchText}
+              handleSearchTextChange={vi.fn()}
+              searchLabels={[]}
+              handleSearchLabelsChange={vi.fn()}
+              activeOnly={options.activeOnly ?? false}
+              handleActiveOnlyChange={handleActiveOnlyChange}
+              sortField="name"
+              sortOrder="asc"
+              onSortChange={onSortChange}
+              workflowViews={options.workflowViews ?? []}
+              activeWorkflowViewId={options.activeWorkflowViewId ?? null}
+              isAllWorkflowsView={options.isAllWorkflowsView ?? true}
+              isWorkflowViewEdited={false}
+              canManageWorkflowViews={true}
+              canDeleteDAGs={options.canDeleteDAGs ?? true}
+              canRenameDAGs={options.canRenameDAGs ?? true}
+              onSelectWorkflowView={vi.fn()}
+              onShowAllWorkflows={onShowAllWorkflows}
+              onResetWorkflowView={vi.fn()}
+              onSaveWorkflowView={vi.fn()}
+              onUpdateWorkflowView={vi.fn()}
+              onSetDefaultWorkflowView={vi.fn()}
+              onSetPinnedWorkflowView={vi.fn()}
+              onDeleteWorkflowView={vi.fn()}
+              onDeleteDAGs={onDeleteDAGs}
+              onRenameDAG={onRenameDAG}
+              canPinDAG={options.canPinDAG ?? (() => true)}
+              onSetDAGPinned={onSetDAGPinned}
+              resultCount={options.resultCount}
+            />
+          </PanelWidthContext.Provider>
+        </AppBarContext.Provider>
+      </ConfigContext.Provider>
+    </MemoryRouter>,
+    {
+      wrapper: ({ children }) => (
+        <I18nWrapper>
+          <PeekContext.Provider value={options.peek ?? null}>
+            {children}
+          </PeekContext.Provider>
+        </I18nWrapper>
+      ),
+    }
   );
   return {
     ...result,
     handleActiveOnlyChange,
     onDeleteDAGs,
     onRenameDAG,
+    onSetDAGPinned,
     onShowAllWorkflows,
+    onSortChange,
   };
+}
+
+function workflow({
+  name,
+  group,
+  pinned = false,
+  status = Status.Success,
+}: {
+  name: string;
+  group?: string;
+  pinned?: boolean;
+  status?: Status;
+}): React.ComponentProps<typeof DAGTable>['dags'][number] {
+  return {
+    fileName: `${name}.yaml`,
+    dag: { name, group },
+    latestDAGRun: { status, statusLabel: Status[status] },
+    suspended: false,
+    pinned,
+    errors: [],
+  } as never;
+}
+
+// Text of each body row, so tests can check the order rows appear in.
+function bodyRowTexts(table: HTMLElement): string[] {
+  return within(table)
+    .getAllByRole('row')
+    .slice(1)
+    .map((row) => row.textContent ?? '');
 }
 
 describe('DAGTable', () => {
@@ -143,13 +221,17 @@ describe('DAGTable', () => {
 
   afterEach(() => {
     vi.unstubAllGlobals();
+    localStorage.clear();
   });
 
   it('links workflow names to their canonical detail pages', () => {
     renderTable();
 
     for (const link of screen.getAllByRole('link', { name: 'example' })) {
-      expect(link).toHaveAttribute('href', '/dags/example.yaml');
+      expect(link).toHaveAttribute(
+        'href',
+        '/dags/example.yaml?remoteNode=local'
+      );
     }
   });
 
@@ -165,12 +247,7 @@ describe('DAGTable', () => {
     const controlSurface = searchInput.closest(
       '[data-testid="workflow-controls"]'
     );
-    expect(controlSurface?.className).toContain('mb-3');
-    expect(controlSurface?.className).toContain('rounded-lg');
-    expect(controlSurface?.className).toContain('border');
-    expect(controlSurface?.className).toContain('border-border');
-    expect(controlSurface?.className).toContain('bg-card/50');
-    expect(controlSurface?.className).toContain('p-3');
+    expect(controlSurface?.className).toContain('mb-4');
 
     const labelInput = screen.getByRole('combobox', {
       name: 'Filter by labels...',
@@ -383,8 +460,8 @@ describe('DAGTable', () => {
     );
 
     const dialog = screen.getByRole('dialog');
-    expect(dialog).toHaveTextContent('Rename DAG');
-    const nameInput = within(dialog).getByLabelText('DAG Name');
+    expect(dialog).toHaveTextContent('Rename workflow');
+    const nameInput = within(dialog).getByLabelText('Workflow name');
     expect(nameInput).toHaveValue('example.yaml');
     fireEvent.change(nameInput, { target: { value: 'renamed.yaml' } });
     fireEvent.click(within(dialog).getByRole('button', { name: 'Rename' }));
@@ -427,6 +504,20 @@ describe('DAGTable', () => {
       screen.getAllByText('Create your first workflow to get started.').length
     ).toBeGreaterThan(0);
     expect(screen.queryByText('No workflows found')).not.toBeInTheDocument();
+    // All workspaces, the default selection, still allows creating one.
+    expect(
+      screen.getAllByRole('button', { name: 'Create new DAG' }).length
+    ).toBeGreaterThan(0);
+  });
+
+  it('translates the empty state', () => {
+    localStorage.setItem('user_preferences', JSON.stringify({ locale: 'ja' }));
+
+    renderTable('', { dags: [] });
+
+    expect(
+      screen.getAllByText('ワークフローはまだありません').length
+    ).toBeGreaterThan(0);
   });
 
   it('explains an empty saved view and offers to show all workflows', () => {
@@ -463,5 +554,291 @@ describe('DAGTable', () => {
       within(cardView).getByRole('button', { name: 'Show all workflows' })
     );
     expect(onShowAllWorkflows).toHaveBeenCalledOnce();
+  });
+
+  // A pinned workflow leaves its group so it stays visible at the top.
+  it('lists pinned workflows first in their own section', () => {
+    renderTable('', {
+      dags: [
+        workflow({ name: 'reports', group: 'nightly', pinned: true }),
+        workflow({ name: 'alpha' }),
+        workflow({ name: 'cleanup', group: 'nightly' }),
+      ],
+    });
+
+    const table = screen.getByRole('table');
+    const texts = bodyRowTexts(table);
+    const position = (text: string) =>
+      texts.findIndex((rowText) => rowText.includes(text));
+    expect(position('Pinned')).toBe(0);
+    expect(position('reports')).toBe(1);
+    expect(position('nightly')).toBeGreaterThan(position('reports'));
+    expect(position('alpha')).toBeGreaterThan(position('nightly'));
+    expect(
+      within(table).getAllByRole('link', { name: 'reports' })
+    ).toHaveLength(1);
+  });
+
+  it('shows no pinned section when no visible workflow is pinned', () => {
+    renderTable();
+
+    expect(
+      within(screen.getByRole('table')).queryByText('Pinned')
+    ).not.toBeInTheDocument();
+  });
+
+  // The server sorts by status. The table asks for that sort and keeps the
+  // rows it gets, with pinned workflows on top.
+  it('asks the server to sort by status and keeps pinned workflows on top', () => {
+    const { onSortChange } = renderTable('', {
+      dags: [
+        workflow({ name: 'alpha', status: Status.Failed }),
+        workflow({ name: 'zeta', pinned: true, status: Status.Success }),
+      ],
+    });
+    const table = screen.getByRole('table');
+
+    fireEvent.click(within(table).getByRole('button', { name: /^Status/ }));
+
+    expect(onSortChange).toHaveBeenCalledWith('status', 'asc');
+    const texts = bodyRowTexts(table);
+    expect(texts.findIndex((text) => text.includes('zeta'))).toBeLessThan(
+      texts.findIndex((text) => text.includes('alpha'))
+    );
+  });
+
+  it('disables the run sorts when more workflows match than the server sorts by run', () => {
+    renderTable('', { resultCount: 301 });
+    const table = screen.getByRole('table');
+
+    expect(
+      within(table).queryByRole('button', { name: /^Status/ })
+    ).not.toBeInTheDocument();
+    expect(
+      within(table).queryByRole('button', { name: /^Last Run/ })
+    ).not.toBeInTheDocument();
+    expect(
+      within(table).getByRole('button', { name: /^Name/ })
+    ).toBeInTheDocument();
+  });
+
+  it('pins and unpins workflows from their rows', () => {
+    const { onSetDAGPinned } = renderTable('', {
+      dags: [
+        workflow({ name: 'reports', pinned: true }),
+        workflow({ name: 'alpha' }),
+      ],
+    });
+    const table = screen.getByRole('table');
+
+    const pinAlpha = within(table).getByRole('button', {
+      name: 'Pin workflow alpha',
+    });
+    expect(pinAlpha).toHaveAttribute('aria-pressed', 'false');
+    fireEvent.click(pinAlpha);
+    fireEvent.click(
+      within(table).getByRole('button', { name: 'Pin workflow reports' })
+    );
+
+    expect(onSetDAGPinned).toHaveBeenNthCalledWith(1, 'alpha.yaml', true);
+    expect(onSetDAGPinned).toHaveBeenNthCalledWith(2, 'reports.yaml', false);
+  });
+
+  it('marks pinned workflows without a pin button for read-only users', () => {
+    renderTable('', {
+      canPinDAG: (dag) => dag.fileName === 'alpha.yaml',
+      dags: [
+        workflow({ name: 'reports', pinned: true }),
+        workflow({ name: 'alpha' }),
+      ],
+    });
+    const table = screen.getByRole('table');
+
+    expect(within(table).getByRole('img', { name: 'Pinned' })).toBeVisible();
+    expect(
+      within(table).queryByRole('button', { name: 'Pin workflow reports' })
+    ).not.toBeInTheDocument();
+    expect(
+      within(table).getByRole('button', { name: 'Pin workflow alpha' })
+    ).toBeInTheDocument();
+  });
+
+  it('shows the pinned section and pin buttons in the card view', () => {
+    renderTable('', {
+      panelWidth: 600,
+      dags: [
+        workflow({ name: 'reports', pinned: true }),
+        workflow({ name: 'alpha' }),
+      ],
+    });
+    const cards = screen.getByTestId('workflow-card-view');
+
+    expect(within(cards).getByText('Pinned')).toBeInTheDocument();
+    expect(
+      within(cards).getByRole('button', { name: 'Pin workflow reports' })
+    ).toHaveAttribute('aria-pressed', 'true');
+    expect(
+      within(cards).getByRole('button', { name: 'Pin workflow alpha' })
+    ).toHaveAttribute('aria-pressed', 'false');
+  });
+
+  it('opens the workflow page when a row is clicked', () => {
+    renderTable('', {
+      dags: [workflow({ name: 'alpha' }), workflow({ name: 'reports' })],
+    });
+    const table = screen.getByRole('table');
+
+    fireEvent.click(
+      within(table).getByRole('link', { name: 'reports' }).closest('tr')!
+    );
+
+    expect(screen.getByTestId('location')).toHaveTextContent(
+      '/dags/reports.yaml?remoteNode=local'
+    );
+  });
+
+  it('opens the workflow page when a card is clicked', () => {
+    renderTable('', {
+      panelWidth: 600,
+      dags: [workflow({ name: 'alpha' }), workflow({ name: 'reports' })],
+    });
+    const cards = screen.getByTestId('workflow-card-view');
+
+    fireEvent.click(
+      within(cards)
+        .getByRole('link', { name: 'alpha' })
+        .closest('.card-obsidian')!
+    );
+
+    expect(screen.getByTestId('location')).toHaveTextContent(
+      '/dags/alpha.yaml?remoteNode=local'
+    );
+  });
+
+  it('opens a new tab on Ctrl click and keeps the list', () => {
+    const openMock = vi.spyOn(window, 'open').mockImplementation(() => null);
+    renderTable('', { dags: [workflow({ name: 'alpha' })] });
+    const table = screen.getByRole('table');
+
+    fireEvent.click(
+      within(table).getByRole('link', { name: 'alpha' }).closest('tr')!,
+      { ctrlKey: true }
+    );
+
+    expect(openMock).toHaveBeenCalledWith(
+      '/dags/alpha.yaml?remoteNode=local',
+      '_blank',
+      'noopener'
+    );
+    expect(screen.getByTestId('location')).toHaveTextContent('/dags');
+    expect(screen.getByTestId('location')).not.toHaveTextContent('alpha');
+    openMock.mockRestore();
+  });
+
+  describe('under a peek host', () => {
+    const peekHost = () => ({ open: vi.fn(), isOpen: false });
+
+    it('shows the peek of a workflow when its row is clicked', () => {
+      const peek = peekHost();
+      renderTable('', {
+        peek,
+        dags: [workflow({ name: 'alpha' }), workflow({ name: 'reports' })],
+      });
+      const table = screen.getByRole('table');
+
+      fireEvent.click(
+        within(table).getByRole('link', { name: 'reports' }).closest('tr')!
+      );
+
+      expect(peek.open).toHaveBeenCalledWith({ dag: 'reports.yaml' });
+      expect(screen.getByTestId('location')).toHaveTextContent(/^\/dags$/);
+    });
+
+    it('shows the peek of a workflow when its card is clicked', () => {
+      const peek = peekHost();
+      renderTable('', {
+        peek,
+        panelWidth: 600,
+        dags: [workflow({ name: 'alpha' })],
+      });
+      const cards = screen.getByTestId('workflow-card-view');
+
+      fireEvent.click(
+        within(cards)
+          .getByRole('link', { name: 'alpha' })
+          .closest('.card-obsidian')!
+      );
+
+      expect(peek.open).toHaveBeenCalledWith({ dag: 'alpha.yaml' });
+    });
+
+    // Enter on a focused row or card shows its peek; Enter on a control
+    // inside it stays with that control.
+    it('shows the peek of a focused row on Enter', () => {
+      const peek = peekHost();
+      renderTable('', {
+        peek,
+        dags: [workflow({ name: 'alpha' }), workflow({ name: 'reports' })],
+      });
+      const link = within(screen.getByRole('table')).getByRole('link', {
+        name: 'reports',
+      });
+      const row = link.closest('tr')!;
+
+      row.focus();
+      expect(row).toHaveFocus();
+      fireEvent.keyDown(row, { key: 'Enter' });
+      fireEvent.keyDown(link, { key: 'Enter' });
+
+      expect(peek.open).toHaveBeenCalledTimes(1);
+      expect(peek.open).toHaveBeenCalledWith({ dag: 'reports.yaml' });
+    });
+
+    it('shows the peek of a focused card on Enter', () => {
+      const peek = peekHost();
+      renderTable('', {
+        peek,
+        panelWidth: 600,
+        dags: [workflow({ name: 'alpha' })],
+      });
+      const link = within(screen.getByTestId('workflow-card-view')).getByRole(
+        'link',
+        { name: 'alpha' }
+      );
+      const card = link.closest<HTMLElement>('.card-obsidian')!;
+
+      card.focus();
+      expect(card).toHaveFocus();
+      fireEvent.keyDown(card, { key: 'Enter' });
+      fireEvent.keyDown(link, { key: 'Enter' });
+
+      expect(peek.open).toHaveBeenCalledTimes(1);
+      expect(peek.open).toHaveBeenCalledWith({ dag: 'alpha.yaml' });
+    });
+
+    it.each([
+      { view: 'row', panelWidth: null, list: () => screen.getByRole('table') },
+      {
+        view: 'card',
+        panelWidth: 600,
+        list: () => screen.getByTestId('workflow-card-view'),
+      },
+    ])(
+      'shows the peek when the name of a $view is clicked',
+      ({ panelWidth, list }) => {
+        const peek = peekHost();
+        renderTable('', {
+          peek,
+          panelWidth,
+          dags: [workflow({ name: 'alpha' })],
+        });
+
+        fireEvent.click(within(list()).getByRole('link', { name: 'alpha' }));
+
+        expect(peek.open).toHaveBeenCalledTimes(1);
+        expect(peek.open).toHaveBeenCalledWith({ dag: 'alpha.yaml' });
+        expect(screen.getByTestId('location')).toHaveTextContent(/^\/dags$/);
+      }
+    );
   });
 });

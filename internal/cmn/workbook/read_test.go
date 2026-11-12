@@ -5,15 +5,19 @@ package workbook
 
 import (
 	"archive/zip"
+	"bytes"
 	"context"
+	"encoding/binary"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 	"time"
 
+	"github.com/richardlehane/mscfb"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/xuri/excelize/v2"
@@ -348,6 +352,11 @@ func TestReadWhereColumnsTypes(t *testing.T) {
 	assert.Nil(t, lenient.Rows[2]["Amount"])
 	assert.Contains(t, lenient.Warnings[0], `Sheet1!C4: expected number, found "N/A"`)
 
+	kept, err := Read(context.Background(), path, ReadOptions{Types: map[string]ColumnType{"Amount": TypeNumber}, OnTypeError: TypeErrorKeep})
+	require.NoError(t, err)
+	assert.Equal(t, "N/A", kept.Rows[2]["Amount"])
+	assert.Equal(t, lenient.Warnings, kept.Warnings)
+
 	_, err = Read(context.Background(), path, ReadOptions{Columns: []ColumnSelect{{Source: "Nope", As: "n"}}})
 	require.ErrorContains(t, err, `columns: column "Nope" not found; headers present: Invoice No, Status, Amount`)
 	_, err = Read(context.Background(), path, ReadOptions{Where: map[string]any{"Status": map[string]any{"like": "x"}}})
@@ -450,6 +459,25 @@ func TestParseHeaderAndColumns(t *testing.T) {
 	require.Error(t, err)
 	_, err = ParseColumns(5)
 	require.Error(t, err)
+
+	types, err := ParseTypes("Amount:number, 単価:税込:int")
+	require.NoError(t, err)
+	assert.Equal(t, map[string]ColumnType{"Amount": TypeNumber, "単価:税込": TypeInteger}, types)
+	types, err = ParseTypes(`{"a,b": "date"}`)
+	require.NoError(t, err)
+	assert.Equal(t, map[string]ColumnType{"a,b": TypeDate}, types)
+	types, err = ParseTypes(" ")
+	require.NoError(t, err)
+	assert.Nil(t, types)
+	for text, want := range map[string]string{
+		"Amount":        `"Amount" must be name:type`,
+		":number":       "a column name is empty",
+		"Amount:money":  `types.Amount: unknown column type "money"`,
+		`{"Amount": 1}`: "types must be a JSON object",
+	} {
+		_, err := ParseTypes(text)
+		require.ErrorContains(t, err, want, text)
+	}
 }
 
 func TestCustomFormatKind(t *testing.T) {
@@ -528,14 +556,234 @@ func TestInspect(t *testing.T) {
 	assert.Equal(t, []TableInfo{{Name: "OrderTable", Range: "A1:C3"}}, orders.Tables)
 	require.Len(t, orders.Sample, 1)
 	assert.Equal(t, "INV-1", orders.Sample[0]["Invoice No"])
+	assert.Equal(t, []ColumnInfo{
+		{Name: "Invoice No", Type: "string", Filled: 2, Distinct: 2},
+		{Name: "Amount", Type: "number", Filled: 2, Distinct: 2, Min: int64(10), Max: 20.5},
+		{Name: "Due", Type: "date", Filled: 1, Blank: 1, Distinct: 1, Min: "2026-10-01", Max: "2026-10-01"},
+	}, orders.Columns)
 	notes := info.Sheets[1]
 	assert.Equal(t, 0, notes.HeaderRow)
 	assert.Empty(t, notes.Headers)
+	assert.Empty(t, notes.Columns)
 	assert.Equal(t, []NamedRange{{Name: "Total", RefersTo: "Orders!$B$2:$B$3", Scope: "Workbook"}}, info.NamedRanges)
+
+	one, err := Inspect(context.Background(), path, InspectOptions{Sheet: "notes"})
+	require.NoError(t, err)
+	require.Len(t, one.Sheets, 1)
+	assert.Equal(t, "Notes", one.Sheets[0].Name)
+	_, err = Inspect(context.Background(), path, InspectOptions{Sheet: "Nope"})
+	require.ErrorContains(t, err, `sheet "Nope" not found; sheets present: Orders, Notes`)
 
 	sheets, err := ListSheets(path, "")
 	require.NoError(t, err)
 	assert.Equal(t, []string{"Orders", "Notes"}, sheets)
+}
+
+// TestInspectProfile covers what the profile sees below the first rows: a
+// number column with 未定 at row 300, Japanese numerals a pinned number
+// reads, which count toward its range as 三千 does for the max, a status
+// column of repeated values and blanks, a column of unique identifiers, and
+// a date column.
+func TestInspectProfile(t *testing.T) {
+	t.Parallel()
+	f := excelize.NewFile()
+	setRow(t, f, "Sheet1", "A1", "ID", "状態", "日付", "数量")
+	start := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
+	blanks := 0
+	for r := 2; r <= 301; r++ {
+		var status any
+		switch r % 3 {
+		case 0:
+			status = "済"
+		case 1:
+			status = "未"
+		default:
+			blanks++
+		}
+		var qty any = r
+		switch r {
+		case 5:
+			qty = 2.5
+		case 10:
+			qty = "１２"
+		case 11:
+			qty = "三千"
+		case 300:
+			qty = "未定"
+		}
+		setRow(t, f, "Sheet1", fmt.Sprintf("A%d", r), fmt.Sprintf("ORD-%03d", r), status, start.AddDate(0, 0, r-2), qty)
+	}
+	require.NoError(t, f.SetCellStyle("Sheet1", "C2", "C301", styleID(t, f, &excelize.Style{NumFmt: 14})))
+	path := saveBook(t, f, "profile.xlsx")
+
+	info, err := Inspect(context.Background(), path, InspectOptions{})
+	require.NoError(t, err)
+	require.Len(t, info.Sheets, 1)
+	sheet := info.Sheets[0]
+	assert.Equal(t, 300, sheet.RowCount)
+	assert.False(t, sheet.ProfileTruncated)
+	assert.Equal(t, map[string]string{"ID": "string", "状態": "string", "日付": "date", "数量": "number"}, sheet.Types)
+	assert.Equal(t, []ColumnInfo{
+		{Name: "ID", Type: "string", Filled: 300, Distinct: 300},
+		{Name: "状態", Type: "string", Filled: 300 - blanks, Blank: blanks, Distinct: 2, Values: []string{"済", "未"}},
+		{Name: "日付", Type: "date", Filled: 300, Distinct: 300, Min: "2026-01-01", Max: "2026-10-27"},
+		{Name: "数量", Type: "number", Filled: 300, Distinct: 300, Min: int64(2), Max: int64(3000),
+			Odd: 1, OddCells: []OddCell{{Cell: "D300", Text: "未定"}}},
+	}, sheet.Columns)
+}
+
+// TestInspectProfileCap covers a table longer than the profile reads, and
+// the bounds on what one column reports.
+func TestInspectProfileCap(t *testing.T) {
+	t.Parallel()
+	f := excelize.NewFile()
+	long := strings.Repeat("あ", 50)
+	setRow(t, f, "Sheet1", "A1", "ID", "Qty", "Note")
+	for r := 2; r <= DefaultMaxRows+2; r++ {
+		var qty any = r
+		if r%1000 == 0 {
+			qty = "n/a"
+		}
+		setRow(t, f, "Sheet1", fmt.Sprintf("A%d", r), r, qty, long)
+	}
+	path := saveBook(t, f, "cap.xlsx")
+
+	info, err := Inspect(context.Background(), path, InspectOptions{})
+	require.NoError(t, err)
+	sheet := info.Sheets[0]
+	assert.Equal(t, DefaultMaxRows+1, sheet.RowCount)
+	assert.True(t, sheet.ProfileTruncated)
+	id, qty, note := sheet.Columns[0], sheet.Columns[1], sheet.Columns[2]
+	assert.Equal(t, DefaultMaxRows, id.Filled)
+	assert.Equal(t, 1000, id.Distinct)
+	assert.Equal(t, 5, qty.Odd)
+	assert.Equal(t, []OddCell{{Cell: "B1000", Text: "n/a"}, {Cell: "B2000", Text: "n/a"}, {Cell: "B3000", Text: "n/a"}}, qty.OddCells)
+	assert.Equal(t, []string{strings.Repeat("あ", 39) + "…"}, note.Values)
+
+	// A sample larger than the cap is read whole; the profile is not.
+	info, err = Inspect(context.Background(), path, InspectOptions{SampleRows: DefaultMaxRows + 1})
+	require.NoError(t, err)
+	sheet = info.Sheets[0]
+	assert.Len(t, sheet.Sample, DefaultMaxRows+1)
+	assert.True(t, sheet.ProfileTruncated)
+	assert.Equal(t, DefaultMaxRows, sheet.Columns[0].Filled)
+}
+
+// hiddenBook has a sheet with one row hidden by hand and two hidden by an
+// autofilter on 状態, a hidden sheet, and a very hidden sheet.
+func hiddenBook(t *testing.T) string {
+	t.Helper()
+	f := excelize.NewFile()
+	require.NoError(t, f.SetSheetName("Sheet1", "Data"))
+	setRow(t, f, "Data", "A1", "ID", "状態")
+	for i, status := range []string{"済", "未", "済", "未", "保留", "済"} {
+		setRow(t, f, "Data", fmt.Sprintf("A%d", i+2), fmt.Sprintf("A-%d", i+1), status)
+	}
+	require.NoError(t, f.SetRowVisible("Data", 3, false))
+	require.NoError(t, f.AutoFilter("Data", "A1:B7", []excelize.AutoFilterOptions{{Column: "B", Expression: "x == 済"}}))
+	require.NoError(t, f.SetRowVisible("Data", 5, false))
+	require.NoError(t, f.SetRowVisible("Data", 6, false))
+	for _, name := range []string{"Archive", "Secret"} {
+		_, err := f.NewSheet(name)
+		require.NoError(t, err)
+		setRow(t, f, name, "A1", "ID", "Note")
+		setRow(t, f, name, "A2", "Z-1", "old")
+	}
+	require.NoError(t, f.SetSheetVisible("Archive", false))
+	require.NoError(t, f.SetSheetVisible("Secret", false, true))
+	return saveBook(t, f, "hidden.xlsx")
+}
+
+func TestInspectHidden(t *testing.T) {
+	t.Parallel()
+	info, err := Inspect(context.Background(), hiddenBook(t), InspectOptions{})
+	require.NoError(t, err)
+	require.Len(t, info.Sheets, 3)
+	data, archive, secret := info.Sheets[0], info.Sheets[1], info.Sheets[2]
+	assert.False(t, data.Hidden)
+	assert.Equal(t, 3, data.HiddenRows)
+	assert.Equal(t, 6, data.Columns[1].Filled, "the profile still counts hidden rows")
+	assert.True(t, archive.Hidden)
+	assert.Zero(t, archive.HiddenRows)
+	assert.True(t, secret.Hidden, "a very hidden sheet is hidden")
+}
+
+func TestSkipHidden(t *testing.T) {
+	t.Parallel()
+	path := hiddenBook(t)
+	ctx := context.Background()
+
+	all, err := Read(ctx, path, ReadOptions{})
+	require.NoError(t, err)
+	assert.Equal(t, 6, all.Count, "hidden rows are read by default")
+	visible, err := Read(ctx, path, ReadOptions{SkipHidden: true})
+	require.NoError(t, err)
+	require.Equal(t, 3, visible.Count)
+	for i, want := range []int{2, 4, 7} {
+		assert.Equal(t, want, visible.Rows[i][RowNumberKey])
+		assert.Equal(t, "済", visible.Rows[i]["状態"])
+	}
+
+	checked, err := Validate(ctx, path, ValidateOptions{SkipHidden: true, Allowed: map[string][]any{"状態": {"済"}}})
+	require.NoError(t, err)
+	assert.Equal(t, 3, checked.Rows)
+	assert.True(t, checked.OK, "the rows the filter hides are not checked")
+
+	out := filepath.Join(t.TempDir(), "visible.csv")
+	converted, err := Convert(ctx, path, ConvertOptions{Output: out, SkipHidden: true})
+	require.NoError(t, err)
+	assert.Equal(t, 3, converted.Count)
+	csv, err := os.ReadFile(out)
+	require.NoError(t, err)
+	assert.Equal(t, "ID,状態\nA-1,済\nA-3,済\nA-6,済\n", string(csv))
+}
+
+func TestSkipHiddenLastRow(t *testing.T) {
+	t.Parallel()
+	f := excelize.NewFile()
+	setRow(t, f, "Sheet1", "A1", "ID", "Note")
+	setRow(t, f, "Sheet1", "A2", "A-1", "shown")
+	setRow(t, f, "Sheet1", "A3", "A-2", "hidden")
+	require.NoError(t, f.SetRowVisible("Sheet1", 3, false))
+	path := saveBook(t, f, "last.xlsx")
+
+	visible, err := Read(context.Background(), path, ReadOptions{SkipHidden: true})
+	require.NoError(t, err)
+	require.Equal(t, 1, visible.Count)
+	assert.Equal(t, "A-1", visible.Rows[0]["ID"])
+	info, err := Inspect(context.Background(), path, InspectOptions{})
+	require.NoError(t, err)
+	assert.Equal(t, 1, info.Sheets[0].HiddenRows)
+}
+
+// TestSkipHiddenLimits covers skipped rows meeting max_rows and
+// stop_at_blank: a hidden row does not count toward the cap, and a hidden
+// blank row does not stop the read.
+func TestSkipHiddenLimits(t *testing.T) {
+	t.Parallel()
+	f := excelize.NewFile()
+	setRow(t, f, "Sheet1", "A1", "ID", "Note")
+	setRow(t, f, "Sheet1", "A2", "A-1", "shown")
+	setRow(t, f, "Sheet1", "A3", "A-2", "hidden")
+	setRow(t, f, "Sheet1", "A5", "A-3", "shown")
+	require.NoError(t, f.SetRowVisible("Sheet1", 3, false))
+	require.NoError(t, f.SetRowVisible("Sheet1", 4, false))
+	path := saveBook(t, f, "limits.xlsx")
+	ctx := context.Background()
+
+	capped, err := Read(ctx, path, ReadOptions{SkipHidden: true, MaxRows: 2})
+	require.NoError(t, err)
+	require.Equal(t, 2, capped.Count)
+	assert.Equal(t, "A-3", capped.Rows[1]["ID"], "the hidden row does not count toward max_rows")
+	assert.False(t, capped.Truncated)
+
+	stopped, err := Read(ctx, path, ReadOptions{StopAtBlank: true})
+	require.NoError(t, err)
+	assert.Equal(t, 2, stopped.Count, "the hidden blank row stops a read that keeps hidden rows")
+	visible, err := Read(ctx, path, ReadOptions{SkipHidden: true, StopAtBlank: true})
+	require.NoError(t, err)
+	require.Equal(t, 2, visible.Count)
+	assert.Equal(t, "A-3", visible.Rows[1]["ID"])
 }
 
 func TestOpenErrors(t *testing.T) {
@@ -553,6 +801,179 @@ func TestOpenErrors(t *testing.T) {
 	require.NoError(t, os.WriteFile(bad, []byte("not a zip"), 0o600))
 	_, err = Read(context.Background(), bad, ReadOptions{})
 	require.ErrorIs(t, err, ErrNotWorkbook)
+	// A password, such as one exported in DAGU_XLSX_PASSWORD, does not turn
+	// a corrupt unprotected file into a password error.
+	_, err = Read(context.Background(), bad, ReadOptions{Password: "secret"})
+	require.ErrorIs(t, err, ErrNotWorkbook)
+	assert.Equal(t, "bad.xlsx: not a valid .xlsx workbook", err.Error())
+
+	// A compound file whose directory has no EncryptionInfo stream is not a
+	// protected workbook, so a renamed .xls stays "not a valid .xlsx workbook".
+	ole := filepath.Join(dir, "ole.xlsx")
+	raw := renamedEncryptionInfo(t, protectedWorkbookBytes(t))
+	require.NoError(t, os.WriteFile(ole, raw, 0o600))
+	_, err = Read(context.Background(), ole, ReadOptions{Password: "secret"})
+	require.ErrorIs(t, err, ErrNotWorkbook)
+}
+
+// protectedWorkbookBytes returns a one-sheet workbook saved with the
+// password "secret".
+func protectedWorkbookBytes(t *testing.T) []byte {
+	t.Helper()
+	f := excelize.NewFile()
+	require.NoError(t, f.SetCellValue("Sheet1", "A1", "Invoice No"))
+	require.NoError(t, f.SetCellValue("Sheet1", "A2", "INV-1"))
+	var buf bytes.Buffer
+	require.NoError(t, f.Write(&buf, excelize.Options{Password: "secret"}))
+	require.NoError(t, f.Close())
+	return buf.Bytes()
+}
+
+// renamedEncryptionInfo renames the EncryptionInfo directory entry of an
+// encrypted package. The UTF-16LE name occurs only in the directory, so the
+// result is a compound file that is not a protected workbook.
+func renamedEncryptionInfo(t *testing.T, raw []byte) []byte {
+	t.Helper()
+	utf16 := func(s string) []byte {
+		b := make([]byte, 0, 2*len(s))
+		for _, c := range []byte(s) {
+			b = append(b, c, 0)
+		}
+		return b
+	}
+	name := utf16("EncryptionInfo")
+	require.Equal(t, 1, bytes.Count(raw, name))
+	return bytes.ReplaceAll(raw, name, utf16("EncryptionXnfo"))
+}
+
+func TestProtectedWorkbook(t *testing.T) {
+	t.Parallel()
+	path := filepath.Join(t.TempDir(), "protected.xlsx")
+	require.NoError(t, os.WriteFile(path, protectedWorkbookBytes(t), 0o600))
+
+	ctx := context.Background()
+	const want = "protected.xlsx: workbook password is missing or incorrect"
+	_, err := Read(ctx, path, ReadOptions{})
+	require.ErrorIs(t, err, ErrPassword)
+	assert.Equal(t, want, err.Error())
+	_, err = Inspect(ctx, path, InspectOptions{Password: "nope"})
+	require.ErrorIs(t, err, ErrPassword)
+	assert.Equal(t, want, err.Error())
+
+	got, err := Read(ctx, path, ReadOptions{Password: "secret"})
+	require.NoError(t, err)
+	require.Equal(t, 1, got.Count)
+	assert.Equal(t, "INV-1", got.Rows[0]["Invoice No"])
+}
+
+// A protected workbook that the right password decrypts but whose contents
+// are broken, or whose EncryptionInfo is cut short, is not a workbook; the
+// password is not at fault.
+func TestCorruptProtectedWorkbook(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	ctx := context.Background()
+
+	broken := filepath.Join(dir, "broken.xlsx")
+	require.NoError(t, os.WriteFile(broken, encryptedBrokenWorkbook(t), 0o600))
+	_, err := Read(ctx, broken, ReadOptions{Password: "secret"})
+	require.ErrorIs(t, err, ErrNotWorkbook)
+	require.NotErrorIs(t, err, ErrPassword)
+
+	short := filepath.Join(dir, "short.xlsx")
+	require.NoError(t, os.WriteFile(short, shortEncryptionInfo(t, protectedWorkbookBytes(t)), 0o600))
+	_, err = Read(ctx, short, ReadOptions{Password: "secret"})
+	require.ErrorIs(t, err, ErrNotWorkbook)
+	require.NotErrorIs(t, err, ErrUnsupportedEncryption)
+}
+
+// encryptedBrokenWorkbook returns a workbook whose xl/workbook.xml is cut
+// off mid-tag, encrypted with the password "secret".
+func encryptedBrokenWorkbook(t *testing.T) []byte {
+	t.Helper()
+	f := excelize.NewFile()
+	var plain bytes.Buffer
+	require.NoError(t, f.Write(&plain))
+	require.NoError(t, f.Close())
+	zr, err := zip.NewReader(bytes.NewReader(plain.Bytes()), int64(plain.Len()))
+	require.NoError(t, err)
+
+	var out bytes.Buffer
+	zw := zip.NewWriter(&out)
+	for _, entry := range zr.File {
+		w, err := zw.Create(entry.Name)
+		require.NoError(t, err)
+		if entry.Name == "xl/workbook.xml" {
+			_, err = w.Write([]byte("<workbook"))
+			require.NoError(t, err)
+			continue
+		}
+		r, err := entry.Open()
+		require.NoError(t, err)
+		_, err = io.Copy(w, r)
+		require.NoError(t, err)
+		require.NoError(t, r.Close())
+	}
+	require.NoError(t, zw.Close())
+	raw, err := excelize.Encrypt(out.Bytes(), &excelize.Options{Password: "secret"})
+	require.NoError(t, err)
+	return raw
+}
+
+// shortEncryptionInfo sets the EncryptionInfo stream size in its directory
+// entry to two bytes, too short to hold the version.
+func shortEncryptionInfo(t *testing.T, raw []byte) []byte {
+	t.Helper()
+	name := []byte{}
+	for _, c := range []byte("EncryptionInfo") {
+		name = append(name, c, 0)
+	}
+	at := bytes.Index(raw, name)
+	require.GreaterOrEqual(t, at, 0)
+	// A directory entry starts with its name; the stream size is at byte 120.
+	binary.LittleEndian.PutUint64(raw[at+120:], 2)
+	return raw
+}
+
+// A mechanism excelize cannot decrypt is reported as such, not as a wrong
+// password, whatever password is supplied.
+func TestUnsupportedEncryption(t *testing.T) {
+	t.Parallel()
+	path := filepath.Join(t.TempDir(), "protected.xlsx")
+	require.NoError(t, os.WriteFile(path, protectedWorkbookBytes(t), 0o600))
+	setEncryptionInfoVersion(t, path, 3, 3)
+
+	ctx := context.Background()
+	const want = "protected.xlsx: workbook encryption is not supported"
+	_, err := Read(ctx, path, ReadOptions{Password: "secret"})
+	require.ErrorIs(t, err, ErrUnsupportedEncryption)
+	assert.Equal(t, want, err.Error())
+	_, err = Inspect(ctx, path, InspectOptions{})
+	require.ErrorIs(t, err, ErrUnsupportedEncryption)
+	assert.Equal(t, want, err.Error())
+}
+
+// setEncryptionInfoVersion rewrites the version words of the EncryptionInfo
+// stream in place. Version 3.3 is the extensible mechanism.
+func setEncryptionInfoVersion(t *testing.T, path string, major, minor uint16) {
+	t.Helper()
+	f, err := os.OpenFile(path, os.O_RDWR, 0)
+	require.NoError(t, err)
+	defer func() { require.NoError(t, f.Close()) }()
+	doc, err := mscfb.New(f)
+	require.NoError(t, err)
+	for entry, err := doc.Next(); err == nil; entry, err = doc.Next() {
+		if entry.Name != "EncryptionInfo" {
+			continue
+		}
+		var version [4]byte
+		binary.LittleEndian.PutUint16(version[:2], major)
+		binary.LittleEndian.PutUint16(version[2:], minor)
+		_, err := entry.WriteAt(version[:], 0)
+		require.NoError(t, err)
+		return
+	}
+	t.Fatal("no EncryptionInfo stream")
 }
 
 func TestLockFile(t *testing.T) {

@@ -84,6 +84,14 @@ func TestRouteRuntime(t *testing.T) {
 			want: []routeFile{{"review.out", "review\n"}},
 		},
 		{
+			// branch_a is the id of a step named "Branch A"; the diagnostic
+			// lists each target by its step name.
+			name:   "a route targets a step by id",
+			file:   "target_by_id.yaml",
+			want:   []routeFile{{"a.out", "ran-a\n"}, {"route.txt", "Router evaluating: a\n  a -> [Branch A]\n  b -> [Branch B]\n"}},
+			absent: []string{"b.out"},
+		},
+		{
 			name:   "no matching pattern skips every target and still succeeds",
 			file:   "no_route_matches.yaml",
 			absent: []string{"a.out"},

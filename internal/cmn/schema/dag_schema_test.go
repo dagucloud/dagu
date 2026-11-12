@@ -4,12 +4,17 @@
 package schema
 
 import (
+	"context"
 	"encoding/json"
 	"os"
 	"path/filepath"
 	"runtime"
 	"testing"
 
+	"github.com/dagucloud/dagu/v2/internal/ir"
+	// Registers the built-in actions the parser checks steps against.
+	_ "github.com/dagucloud/dagu/v2/internal/runtime/builtin"
+	"github.com/dagucloud/dagu/v2/internal/spec"
 	"github.com/google/jsonschema-go/jsonschema"
 	"github.com/stretchr/testify/require"
 	"gopkg.in/yaml.v3"
@@ -515,6 +520,7 @@ steps:
       template: "Hello, {{ .name }}!"
       data:
         name: Alice
+      output: hello.txt
 `,
 		},
 		{
@@ -547,6 +553,18 @@ steps:
     with:
       template: "Hello"
       template_ref: ${env.TEMPLATE}
+`,
+			wantErr: "did not validate",
+		},
+		{
+			name: "RejectTemplateRenderUnknownField",
+			spec: `
+steps:
+  - action: template.render
+    with:
+      template: "Hello, {{ .name }}!"
+      datas:
+        name: Alice
 `,
 			wantErr: "did not validate",
 		},
@@ -710,6 +728,10 @@ steps:
   - action: wait.until
     with:
       until: "2026-01-02T03:04:05Z"
+      offset: 5m
+      timezone: Europe/London
+      if_past: window
+      window: 10m
   - action: wait.file
     with:
       path: out/ready.flag
@@ -723,6 +745,19 @@ steps:
 `,
 		},
 		{
+			name: "WaitActionsReferenceIfPast",
+			spec: `
+steps:
+  - action: wait.until
+    with:
+      until: "09:00"
+      offset: ${params.offset}
+      timezone: ${params.zone}
+      if_past: ${params.on_past}
+      window: ${params.grace}
+`,
+		},
+		{
 			name: "RejectWaitActionUnknownConfigField",
 			spec: `
 steps:
@@ -730,6 +765,17 @@ steps:
     with:
       duration: 10s
       seconds: 10
+`,
+			wantErr: "did not validate",
+		},
+		{
+			name: "RejectWaitUntilUnknownIfPast",
+			spec: `
+steps:
+  - action: wait.until
+    with:
+      until: "09:00"
+      if_past: retry
 `,
 			wantErr: "did not validate",
 		},
@@ -1239,6 +1285,45 @@ steps:
 `,
 		},
 		{
+			name: "BusinessDayCalendar",
+			spec: `
+calendar: jp-banking
+schedule:
+  - "0 18 * * *"
+  - expression: "0 23 * * *"
+    calendar: weekdays
+    business_days: [3, -1]
+  - expression: "0 3 * * *"
+    calendar: none
+steps:
+  - run: echo hi
+`,
+		},
+		{
+			name: "RejectCalendarOnStopSchedule",
+			spec: `
+schedule:
+  stop:
+    expression: "0 18 * * *"
+    calendar: jp-banking
+steps:
+  - run: echo hi
+`,
+			wantErr: "schedule",
+		},
+		{
+			name: "RejectBusinessDayZero",
+			spec: `
+schedule:
+  - expression: "0 18 * * *"
+    calendar: weekdays
+    business_days: [0]
+steps:
+  - run: echo hi
+`,
+			wantErr: "schedule",
+		},
+		{
 			name: "RejectTypedCronWithoutExpression",
 			spec: `
 schedule:
@@ -1538,6 +1623,35 @@ steps:
 	err := resolved.Validate(doc)
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "retry_policy")
+}
+
+// The loader reads restart_policy case-insensitively, so the schema accepts
+// what the loader accepts.
+func TestDAGSchemaRestartPolicy(t *testing.T) {
+	t.Parallel()
+
+	resolved := mustResolveDAGSchema(t)
+	for value, valid := range map[string]bool{
+		`always`:             true,
+		`Always`:             true,
+		`" UNLESS-STOPPED "`: true,
+		`"no"`:               true,
+		`""`:                 true,
+		`sometimes`:          false,
+		`on-failure`:         false,
+	} {
+		t.Run(value, func(t *testing.T) {
+			t.Parallel()
+			doc := mustParseYAMLDocument(t, "restart_policy: "+value+"\nrestart_wait_sec: 5\nsteps:\n  - run: echo hi\n")
+			err := resolved.Validate(doc)
+			if valid {
+				require.NoError(t, err)
+				return
+			}
+			require.Error(t, err)
+			require.Contains(t, err.Error(), "restart_policy")
+		})
+	}
 }
 
 func TestDAGSchemaResources(t *testing.T) {
@@ -2402,6 +2516,22 @@ steps:
 `,
 			wantErr: "steps",
 		},
+		{
+			name: "AcceptCustomAndInterpolatedProviders",
+			spec: `
+harnesses:
+  team-agent:
+    binary: team-agent
+
+steps:
+  - action: harness.run
+    with:
+      prompt: Write tests
+      provider: ${HARNESS_PROVIDER}
+      fallback:
+        - provider: team-agent
+`,
+		},
 	}
 
 	for _, tt := range tests {
@@ -2418,6 +2548,25 @@ steps:
 			require.Contains(t, err.Error(), tt.wantErr)
 		})
 	}
+}
+
+// The editors suggest the built-in providers from the schema, so its list
+// must name the providers that the runtime knows.
+func TestDAGSchemaHarnessProvidersMatchRuntime(t *testing.T) {
+	t.Parallel()
+
+	var doc struct {
+		Definitions struct {
+			HarnessProvider struct {
+				AnyOf []struct {
+					Enum []string `json:"enum"`
+				} `json:"anyOf"`
+			} `json:"harnessProvider"`
+		} `json:"definitions"`
+	}
+	require.NoError(t, json.Unmarshal(DAGSchemaJSON, &doc))
+	require.NotEmpty(t, doc.Definitions.HarnessProvider.AnyOf)
+	require.Equal(t, ir.BuiltinCLIHarnessProviderNames(), doc.Definitions.HarnessProvider.AnyOf[0].Enum)
 }
 
 func TestDAGSchemaRepoCopyMatchesEmbeddedSchema(t *testing.T) {
@@ -2685,6 +2834,298 @@ steps:
 			}
 			require.Error(t, err)
 			require.Contains(t, err.Error(), tt.wantErr)
+		})
+	}
+}
+
+func TestDAGSchemaLLMThinkingEffort(t *testing.T) {
+	t.Parallel()
+
+	resolved := mustResolveDAGSchema(t)
+	for effort, valid := range map[string]bool{
+		"none":    true,
+		"minimal": true,
+		"xhigh":   true,
+		"max":     true,
+		"extreme": false,
+	} {
+		t.Run(effort, func(t *testing.T) {
+			t.Parallel()
+			doc := mustParseYAMLDocument(t, `
+llm:
+  provider: anthropic
+  model: claude-opus-5-5
+  thinking:
+    enabled: true
+    effort: `+effort+`
+steps:
+  - run: echo ok
+`)
+			err := resolved.Validate(doc)
+			if valid {
+				require.NoError(t, err)
+				return
+			}
+			require.Error(t, err)
+		})
+	}
+}
+
+func TestDAGSchemaLLMProviderOrder(t *testing.T) {
+	t.Parallel()
+
+	resolved := mustResolveDAGSchema(t)
+	for name, tc := range map[string]struct {
+		llm   string
+		valid bool
+	}{
+		"shared list": {llm: `
+  provider: openrouter
+  model: openai/gpt-6.1-terra
+  provider_order: [azure/eu, openai]`, valid: true},
+		"shared scalar": {llm: `
+  provider: openrouter
+  model: openai/gpt-6.1-terra
+  provider_order: azure/eu`},
+		"entry list": {llm: `
+  model:
+    - provider: openrouter
+      name: openai/gpt-6.1-terra
+      provider_order: [azure/eu, openai]`, valid: true},
+		"entry scalar": {llm: `
+  model:
+    - provider: openrouter
+      name: openai/gpt-6.1-terra
+      provider_order: azure/eu`},
+	} {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+			doc := mustParseYAMLDocument(t, "llm:"+tc.llm+`
+steps:
+  - action: chat.completion
+    with:
+      prompt: Hello.
+`)
+			err := resolved.Validate(doc)
+			if tc.valid {
+				require.NoError(t, err)
+				return
+			}
+			require.Error(t, err)
+		})
+	}
+}
+
+func TestDAGSchemaLocalRegistry(t *testing.T) {
+	resolved := mustResolveDAGSchema(t)
+	for _, tc := range []struct {
+		name     string
+		registry map[string]any
+		valid    bool
+	}{
+		{"POSIX", map[string]any{"type": "local", "path": "/etc/registry.yaml"}, true},
+		{"Windows", map[string]any{"type": "local", "path": `C:\dagu\registry.yaml`}, true},
+		{"UNC", map[string]any{"type": "local", "path": `\\server\share\registry.yaml`}, true},
+		{"Missing", map[string]any{"type": "local"}, false},
+		{"Empty", map[string]any{"type": "local", "path": ""}, false},
+		{"Relative", map[string]any{"type": "local", "path": "registry.yaml"}, false},
+		{"DriveRelative", map[string]any{"type": "local", "path": `C:registry.yaml`}, false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			err := resolved.Validate(map[string]any{"tools": map[string]any{"registry": tc.registry, "packages": []any{"example/tool@v1.0.0"}}, "steps": []any{map[string]any{"run": "tool"}}})
+			if tc.valid {
+				require.NoError(t, err)
+			} else {
+				require.Error(t, err)
+			}
+		})
+	}
+}
+
+// The schema must accept every field the DAG parser accepts and reject fields
+// the parser rejects, so editors and MCP previews agree with `dagu validate`.
+// Each sample runs through both the schema and the parser.
+func TestDAGSchemaAgreesWithParser(t *testing.T) {
+	t.Parallel()
+
+	const digest = "sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
+	resolved := mustResolveDAGSchema(t)
+	tests := []struct {
+		name   string
+		source string
+		valid  bool
+	}{
+		{"wait mail", `
+mail_on: {wait: true}
+wait_mail: {from: dagu@example.com, to: ops@example.com}
+steps: [{run: "true"}]
+`, true},
+		{"SMTP OAuth", `
+smtp:
+  username: alerts@example.com
+  oauth: {provider: microsoft, tenant_id: t, client_id: c, client_secret: s}
+steps: [{run: "true"}]
+`, true},
+		{"tool digest", `
+tools:
+  packages:
+    - {package: jqlang/jq, version: jq-1.7.1, digest: ` + digest + `}
+steps: [{run: "true"}]
+`, true},
+		{"tool shorthand digest", `
+tools: [jqlang/jq@jq-1.7.1#` + digest + `]
+steps: [{run: "true"}]
+`, true},
+		{"DAG LLM tools", `
+llm: {provider: openai, model: gpt-4o, tools: [calculator], max_tool_iterations: 5}
+steps: [{run: "true"}]
+`, true},
+		{"DAG-level Redis TLS", `
+redis: {host: localhost, tls: true}
+steps: [{action: redis.ping}]
+`, true},
+		{"DAG-level Redis TLS file", `
+redis: {host: localhost, tls: true, tls_ca: /etc/ssl/ca.pem}
+steps: [{action: redis.ping}]
+`, false},
+		{"step worker_selector labels", `
+steps:
+  - action: dag.run
+    with: {dag: child}
+    worker_selector: {gpu: "true"}
+`, true},
+		{"step worker_selector local", `
+steps:
+  - action: dag.run
+    with: {dag: child}
+    worker_selector: local
+`, false},
+		{"SMTP OAuth blank extra credential", `
+smtp:
+  username: alerts@example.com
+  oauth: {provider: microsoft, tenant_id: t, client_id: c, client_secret: s, refresh_token: ""}
+steps: [{run: "true"}]
+`, true},
+		{"SMTP OAuth Google service account", `
+smtp:
+  username: alerts@example.com
+  oauth: {provider: google_service_account, service_account_json: "{}"}
+steps: [{run: "true"}]
+`, true},
+		{"SMTP OAuth Google service account with client ID", `
+smtp:
+  username: alerts@example.com
+  oauth: {provider: google_service_account, service_account_json: "{}", client_id: c}
+steps: [{run: "true"}]
+`, false},
+		{"SMTP OAuth Google refresh token", `
+smtp:
+  username: alerts@example.com
+  oauth: {provider: google_refresh, client_id: c, client_secret: s, refresh_token: r}
+steps: [{run: "true"}]
+`, true},
+		{"SMTP OAuth Google refresh without token", `
+smtp:
+  username: alerts@example.com
+  oauth: {provider: google_refresh, client_id: c, client_secret: s}
+steps: [{run: "true"}]
+`, false},
+		{"one tool round", `
+llm: {provider: openai, model: gpt-4o, max_tool_iterations: 1}
+steps: [{run: "true"}]
+`, true},
+		{"no tool rounds", `
+llm: {provider: openai, model: gpt-4o, max_tool_iterations: 0}
+steps: [{run: "true"}]
+`, false},
+		{"openai-codex provider", `
+llm: {provider: openai-codex, model: gpt-5}
+steps: [{run: "true"}]
+`, false},
+		{"chat provider", `
+steps:
+  - action: chat.completion
+    with: {provider: openai, model: gpt-5, prompt: hi}
+`, true},
+		{"chat unknown provider", `
+steps:
+  - action: chat.completion
+    with: {provider: bogus, model: gpt-5, prompt: hi}
+`, false},
+		{"chat unknown fallback provider", `
+steps:
+  - action: chat.completion
+    with:
+      prompt: hi
+      model: [{provider: bogus, name: m}]
+`, false},
+		{"chat unbraced provider reference", `
+steps:
+  - id: fetch
+    run: echo openai
+  - action: chat.completion
+    with: {provider: $fetch.stdout, model: gpt-5, prompt: hi}
+`, true},
+		{"chat unbraced fallback provider reference", `
+steps:
+  - id: fetch
+    run: echo openai
+  - action: chat.completion
+    with:
+      prompt: hi
+      model: [{provider: $fetch.stdout, name: m}]
+`, true},
+		{"SMTP OAuth missing tenant", `
+smtp:
+  username: alerts@example.com
+  oauth: {provider: microsoft, client_id: c, client_secret: s}
+steps: [{run: "true"}]
+`, false},
+		{"SMTP OAuth blank secret", `
+smtp:
+  username: alerts@example.com
+  oauth: {provider: microsoft, tenant_id: t, client_id: c, client_secret: "  "}
+steps: [{run: "true"}]
+`, false},
+		{"SMTP OAuth without username", `
+smtp:
+  oauth: {provider: microsoft, tenant_id: t, client_id: c, client_secret: s}
+steps: [{run: "true"}]
+`, false},
+		{"SMTP OAuth with password", `
+smtp:
+  username: alerts@example.com
+  password: p
+  oauth: {provider: microsoft, tenant_id: t, client_id: c, client_secret: s}
+steps: [{run: "true"}]
+`, false},
+		{"malformed tool digest", `
+tools:
+  packages:
+    - {package: jqlang/jq, version: jq-1.7.1, digest: md5:abc}
+steps: [{run: "true"}]
+`, false},
+		{"malformed shorthand digest", `
+tools: [jqlang/jq@jq-1.7.1#md5:abc]
+steps: [{run: "true"}]
+`, false},
+		{"latest shorthand with digest", `
+tools: [jqlang/jq@latest#` + digest + `]
+steps: [{run: "true"}]
+`, false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			schemaErr := resolved.Validate(mustParseYAMLDocument(t, tt.source))
+			_, parserErr := spec.LoadYAML(context.Background(), []byte(tt.source))
+			if tt.valid {
+				require.NoError(t, schemaErr, "schema")
+				require.NoError(t, parserErr, "parser")
+				return
+			}
+			require.Error(t, schemaErr, "schema")
+			require.Error(t, parserErr, "parser")
 		})
 	}
 }

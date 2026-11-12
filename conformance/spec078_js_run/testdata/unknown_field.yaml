@@ -1,0 +1,5 @@
+steps:
+  - action: js.run
+    with:
+      script: return input
+      inputs: {n: "5"}

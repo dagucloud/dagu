@@ -7,10 +7,12 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -173,6 +175,24 @@ func TestLoadSchemaFromURL(t *testing.T) {
 		assert.Contains(t, err.Error(), "unsupported URL scheme")
 	})
 
+	t.Run("CredentialsSentAsBasicAuth", func(t *testing.T) {
+		t.Parallel()
+
+		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			if user, pass, ok := r.BasicAuth(); !ok || user != "user" || pass != "s3cret" {
+				w.WriteHeader(http.StatusUnauthorized)
+				return
+			}
+			_, _ = w.Write([]byte(`{"type":"object"}`))
+		}))
+		defer server.Close()
+
+		schemaURL := strings.Replace(server.URL, "http://", "http://user:s3cret@", 1) + "/schema.json"
+		data, err := loadSchemaFromURL(schemaURL)
+		require.NoError(t, err)
+		assert.Equal(t, `{"type":"object"}`, string(data))
+	})
+
 	t.Run("ConnectionRefused", func(t *testing.T) {
 		t.Parallel()
 
@@ -180,6 +200,21 @@ func TestLoadSchemaFromURL(t *testing.T) {
 		_, err := loadSchemaFromURL("http://127.0.0.1:59999/schema.json")
 		require.Error(t, err)
 		assert.True(t, IsSourceUnavailable(err))
+	})
+
+	t.Run("ExceedsSizeLimit", func(t *testing.T) {
+		t.Parallel()
+
+		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusOK)
+			_, _ = w.Write(make([]byte, schemaMaxResponseBytes+1))
+		}))
+		defer server.Close()
+
+		_, err := loadSchemaFromURL(server.URL + "/schema.json")
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "10 MiB")
 	})
 }
 
@@ -204,6 +239,34 @@ func TestLoadSchemaFromURLUsesIsolatedHTTPClient(t *testing.T) {
 	data, err := loadSchemaFromURL(server.URL + "/schema.json")
 	require.NoError(t, err)
 	assert.Equal(t, `{"type":"object"}`, string(data))
+}
+
+// The schema client is built from http.DefaultTransport, so a fake transport
+// stands in for an HTTPS host that redirects to plain HTTP.
+func TestLoadSchemaFromURLRefusesHTTPSDowngrade(t *testing.T) {
+	originalTransport := http.DefaultTransport
+	http.DefaultTransport = roundTripperFunc(func(req *http.Request) (*http.Response, error) {
+		if req.URL.Scheme == "https" {
+			return &http.Response{
+				StatusCode: http.StatusFound,
+				Header:     http.Header{"Location": []string{"http://schema.test/schema.json"}},
+				Body:       http.NoBody,
+				Request:    req,
+			}, nil
+		}
+		return &http.Response{
+			StatusCode: http.StatusOK,
+			Body:       io.NopCloser(strings.NewReader(`{"type":"object"}`)),
+			Request:    req,
+		}, nil
+	})
+	t.Cleanup(func() {
+		http.DefaultTransport = originalTransport
+	})
+
+	_, err := loadSchemaFromURL("https://schema.test/schema.json")
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "redirect from https to http")
 }
 
 func TestLoadSchemaFromFile(t *testing.T) {
@@ -366,6 +429,21 @@ func TestGetSchemaFromRef(t *testing.T) {
 		assert.NotNil(t, resolved)
 	})
 
+	t.Run("UppercaseScheme", func(t *testing.T) {
+		t.Parallel()
+
+		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write([]byte(validSchemaContent))
+		}))
+		defer server.Close()
+
+		ref := strings.Replace(server.URL, "http://", "HTTP://", 1) + "/schema.json"
+		resolved, err := getSchemaFromRef("", "", ref)
+		require.NoError(t, err)
+		assert.NotNil(t, resolved)
+	})
+
 	t.Run("HTTPSSchemaReference", func(t *testing.T) {
 		t.Parallel()
 
@@ -415,6 +493,49 @@ func TestGetSchemaFromRef(t *testing.T) {
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), "failed to load schema")
 		assert.True(t, IsSourceUnavailable(err))
+	})
+
+	// Load errors reach the API and UI, so URL credentials must not appear in
+	// them regardless of which stage of the fetch fails.
+	t.Run("RedactsCredentials", func(t *testing.T) {
+		t.Parallel()
+
+		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+			w.WriteHeader(http.StatusNotFound)
+		}))
+		t.Cleanup(server.Close)
+
+		tests := []struct {
+			name   string
+			ref    string
+			secret string
+		}{
+			{
+				name:   "HTTPError",
+				ref:    strings.Replace(server.URL, "http://", "http://user:s3cret@", 1) + "/missing.json",
+				secret: "s3cret",
+			},
+			{
+				name:   "ConnectionError",
+				ref:    "http://ghp_token@127.0.0.1:59999/schema.json",
+				secret: "ghp_token",
+			},
+			{
+				name:   "InvalidURL",
+				ref:    "http://user:s3cret%zz@127.0.0.1/schema.json",
+				secret: "s3cret",
+			},
+		}
+		for _, tt := range tests {
+			t.Run(tt.name, func(t *testing.T) {
+				t.Parallel()
+
+				_, err := getSchemaFromRef("", "", tt.ref)
+				require.Error(t, err)
+				assert.Contains(t, err.Error(), "failed to load schema from")
+				assert.NotContains(t, err.Error(), tt.secret)
+			})
+		}
 	})
 }
 
@@ -806,6 +927,40 @@ params:
 		require.Contains(t, dag.Params, "batch_size=7")
 	})
 
+	t.Run("FromAuthoredFile", func(t *testing.T) {
+		// A worker and an in-process child run a copy of the definition from a
+		// temporary file. A relative schema path still resolves next to the file
+		// the author wrote.
+		schemaContent := `{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "batch_size": {"type": "integer", "default": 5}
+  }
+}`
+
+		authoredDir := t.TempDir()
+		require.NoError(t, os.MkdirAll(filepath.Join(authoredDir, "schemas"), 0o750))
+		require.NoError(t, os.MkdirAll(filepath.Join(authoredDir, "children"), 0o750))
+		require.NoError(t, os.WriteFile(filepath.Join(authoredDir, "schemas", "run.json"), []byte(schemaContent), 0600))
+
+		dagYaml := []byte(`
+params:
+  schema: "../schemas/run.json"
+`)
+		authored := filepath.Join(authoredDir, "children", "unit-a.yaml")
+		require.NoError(t, os.WriteFile(authored, dagYaml, 0600))
+		copied := filepath.Join(t.TempDir(), "unit-a-1234.yaml")
+		require.NoError(t, os.WriteFile(copied, dagYaml, 0600))
+
+		_, err := Load(context.Background(), copied)
+		require.Error(t, err, "the copy's directory has no schema")
+
+		dag, err := Load(context.Background(), copied, WithSourceFile(authored))
+		require.NoError(t, err)
+		require.Contains(t, dag.Params, "batch_size=5")
+	})
+
 	t.Run("PrefersCWDOverWorkingDir", func(t *testing.T) {
 		cwdSchemaContent := `{
   "$schema": "https://json-schema.org/draft/2020-12/schema",
@@ -908,6 +1063,42 @@ params:
 		require.Error(t, err)
 		require.Contains(t, err.Error(), "parameter validation failed")
 		require.Contains(t, err.Error(), "maximum: 100/1 is greater than 50")
+	})
+
+	t.Run("FailureReportedOnce", func(t *testing.T) {
+		t.Parallel()
+
+		// params, default_params, param_defs, param_schema and params_json share
+		// one parse, so a failure is listed once, under params.
+		schemaContent := `{
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "MODE": {"type": "string", "enum": ["daily", "full"]}
+  }
+}`
+		schemaPath := filepath.Join(t.TempDir(), "run.json")
+		require.NoError(t, os.WriteFile(schemaPath, []byte(schemaContent), 0600))
+
+		data := fmt.Appendf(nil, `
+params:
+  schema: "%s"
+`, filepath.ToSlash(schemaPath))
+
+		_, err := LoadYAML(context.Background(), data, WithParams("MODE=weekly"))
+		require.Error(t, err)
+		assert.Equal(t, 1, strings.Count(err.Error(), "parameter validation failed"), err.Error())
+		assert.Contains(t, err.Error(), "field 'params':")
+		assert.NotContains(t, err.Error(), "field 'default_params'")
+
+		_, err = LoadYAML(context.Background(), []byte(`
+params:
+  schema: "missing-schema.json"
+  values:
+    foo: "bar"
+`))
+		require.Error(t, err)
+		assert.Equal(t, 1, strings.Count(err.Error(), "failed to get JSON schema"), err.Error())
 	})
 
 	t.Run("DefaultsApplied", func(t *testing.T) {

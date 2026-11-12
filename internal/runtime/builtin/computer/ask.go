@@ -33,9 +33,7 @@ func (r *run) waitForInput(_ context.Context, index int, spec askSpec) error {
 		Cursor:     index + 1,
 		Outputs:    r.outputs,
 	}
-	if r.cache != nil {
-		record.ReplayPending, record.ReplayUsed = r.cache.Held()
-	}
+	record.ReplayPending, record.ReplayUsed = r.cache.Held()
 	if err := r.store.Save(record); err != nil {
 		return r.fail(context.Background(), index, opAsk, err)
 	}
@@ -92,9 +90,7 @@ func (r *run) resume(session *ir.AgentSession, answer agentstep.AskAnswer) (int,
 	}
 	r.refreshMasker()
 	maps.Copy(r.outputs, record.Outputs)
-	if r.cache != nil {
-		r.cache.Hold(record.ReplayPending, record.ReplayUsed)
-	}
+	r.cache.Hold(record.ReplayPending, record.ReplayUsed)
 	return record.Cursor, nil
 }
 

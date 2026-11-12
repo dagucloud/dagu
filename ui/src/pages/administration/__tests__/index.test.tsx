@@ -47,7 +47,7 @@ describe('AdministrationPage', () => {
     );
     expect(screen.getByRole('link', { name: /remote nodes/i })).toHaveAttribute(
       'href',
-      '/remote-nodes'
+      '/settings#remote-nodes'
     );
     expect(screen.getByText('Manage accounts and roles.')).toBeVisible();
     expect(
@@ -58,7 +58,7 @@ describe('AdministrationPage', () => {
     ).toBeVisible();
     expect(screen.getByText('Open a server-side shell.')).toBeVisible();
     expect(
-      screen.getByText('Review plan and entitlement status.')
+      screen.getByText('License, Dagu Console connection, and monitoring.')
     ).toBeVisible();
     expect(setTitle).toHaveBeenCalledWith('Administration');
   });

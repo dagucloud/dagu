@@ -1,0 +1,11 @@
+# A step that repeats until a condition holds, at most six times.
+description: Repeat until a random check passes (one time in three), up to six times.
+type: graph
+steps:
+  - name: poll
+    run: echo "polling"
+    repeat_policy:
+      repeat: until
+      condition: test $(( $(od -An -N1 -tu1 /dev/urandom) % 3 )) -eq 0
+      interval_sec: 3
+      limit: 6

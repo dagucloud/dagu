@@ -15,3 +15,7 @@ func isSharingViolation(error) bool { return false }
 // lockFileHeld is always false where no process can hold a file against
 // others; a ~$ lock file there is only a hint.
 func lockFileHeld(string) bool { return false }
+
+// renameRefusedByHolder is always false where a rename over an open file
+// succeeds.
+func renameRefusedByHolder(string, error) bool { return false }

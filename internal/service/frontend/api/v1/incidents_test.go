@@ -24,6 +24,16 @@ func TestIncidentManagement_RequireActiveLicense(t *testing.T) {
 		ExpectStatus(http.StatusForbidden).Send(t)
 }
 
+func TestIncidentManagement_RefusesFreePlan(t *testing.T) {
+	t.Parallel()
+
+	server := test.SetupServer(t,
+		test.WithServerOptions(frontend.WithLicenseManager(license.NewFreeTestManager())),
+	)
+	server.Client().Get("/api/v1/incident-providers").
+		ExpectStatus(http.StatusForbidden).Send(t)
+}
+
 func TestIncidentManagement_AcceptsExistingLicenseWithoutFeatureClaim(t *testing.T) {
 	t.Parallel()
 

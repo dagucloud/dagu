@@ -60,6 +60,20 @@ func TestChatReplaysAssistantTurn(t *testing.T) {
 	assert.JSONEq(t, toolTurnContent, string(replayed))
 }
 
+// A response's prompt count includes the tokens read from and written to the
+// prompt cache, which the API reports apart from input_tokens.
+func TestChatCountsCachedInput(t *testing.T) {
+	t.Parallel()
+
+	server := messagesServer(`{"content":[{"type":"text","text":"done"}],"stop_reason":"end_turn","usage":{"input_tokens":10,"output_tokens":5,"cache_creation_input_tokens":20,"cache_read_input_tokens":30}}`)
+	provider, err := llm.NewProvider(llm.ProviderAnthropic, llm.Config{APIKey: "test-key", BaseURL: server.Start(t)})
+	require.NoError(t, err)
+
+	resp, err := provider.Chat(context.Background(), &llm.ChatRequest{Model: "claude-sonnet-4-6", Messages: []llm.Message{{Role: llm.RoleUser, Content: "hi"}}})
+	require.NoError(t, err)
+	assert.Equal(t, llm.Usage{PromptTokens: 60, CompletionTokens: 5, TotalTokens: 65, CachedPromptTokens: 30, CacheWritePromptTokens: 20}, resp.Usage)
+}
+
 // A record from another provider does not replace the turn; the turn is
 // rebuilt from its tool calls.
 func TestChatIgnoresOtherProviderState(t *testing.T) {

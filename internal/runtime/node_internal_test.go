@@ -8,6 +8,7 @@ import (
 	"sort"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/dagucloud/dagu/v2/internal/cmn/config"
 	cmnvalue "github.com/dagucloud/dagu/v2/internal/cmn/value"
@@ -659,4 +660,27 @@ func TestResolveSubDAGPassEnv(t *testing.T) {
 		require.NoError(t, err)
 		require.Nil(t, envs)
 	})
+}
+
+// ClampStartedAt raises an earlier start to the given time. A later start, a
+// zero limit and a node that never started stay as they are.
+func TestData_ClampStartedAt(t *testing.T) {
+	base := time.Date(2026, 1, 2, 3, 4, 5, 0, time.UTC)
+	limit := base.Add(10 * time.Millisecond)
+
+	for name, tc := range map[string]struct {
+		started, limit, want time.Time
+	}{
+		"earlier start is raised": {started: base, limit: limit, want: limit},
+		"equal start is kept":     {started: limit, limit: limit, want: limit},
+		"later start is kept":     {started: limit.Add(time.Millisecond), limit: limit, want: limit.Add(time.Millisecond)},
+		"zero limit is ignored":   {started: base, limit: time.Time{}, want: base},
+		"no start is ignored":     {started: time.Time{}, limit: limit, want: time.Time{}},
+	} {
+		t.Run(name, func(t *testing.T) {
+			node := NewNode(ir.Step{Name: "step"}, NodeState{StartedAt: tc.started})
+			node.ClampStartedAt(tc.limit)
+			require.True(t, tc.want.Equal(node.State().StartedAt))
+		})
+	}
 }

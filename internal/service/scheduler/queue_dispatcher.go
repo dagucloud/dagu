@@ -122,7 +122,7 @@ type dispatchAdmissionInput struct {
 }
 
 const (
-	dagRunConditionRunnable              = "Runnable"
+	dagRunConditionRunnable              = ir.DAGRunConditionRunnable
 	dagRunConditionConcurrencyReady      = "ConcurrencyReady"
 	dagRunConditionWorkerAssignmentReady = "WorkerAssignmentReady"
 	dagRunConditionRunRecordReady        = "RunRecordReady"
@@ -138,9 +138,9 @@ const (
 	queuedConditionReasonAssignmentUnavailable     = "AssignmentUnavailable"
 	queuedConditionReasonAttemptIdentityMissing    = "AttemptIdentityMissing"
 	queuedConditionReasonDAGSnapshotUnavailable    = "DAGSnapshotUnavailable"
-	queuedConditionReasonNoMatchingWorker          = "NoMatchingWorker"
-	queuedConditionReasonNoAvailableWorker         = "NoAvailableWorker"
-	queuedConditionReasonWorkerDispatchUnavailable = "WorkerDispatchUnavailable"
+	queuedConditionReasonNoMatchingWorker          = ir.DAGRunReasonNoMatchingWorker
+	queuedConditionReasonNoAvailableWorker         = ir.DAGRunReasonNoAvailableWorker
+	queuedConditionReasonWorkerDispatchUnavailable = ir.DAGRunReasonWorkerDispatchUnavailable
 	queuedConditionReasonLaunchFailed              = "LaunchFailed"
 	queuedConditionReasonStartupNotObserved        = "StartupNotObserved"
 	queuedConditionReasonRunLivenessUnavailable    = "RunLivenessUnavailable"

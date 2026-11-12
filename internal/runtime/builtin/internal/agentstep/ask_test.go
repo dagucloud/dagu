@@ -31,7 +31,7 @@ func TestPendingAnswer(t *testing.T) {
 	session.Interactions[1].Answers = [][]string{{"731902"}}
 	answer, ok := agentstep.PendingAnswer(session, "computer")
 	require.True(t, ok)
-	assert.Equal(t, agentstep.AskAnswer{InteractionID: current.ID}, answer)
+	assert.Equal(t, agentstep.AskAnswer{InteractionID: current.ID, Index: 2}, answer)
 	assert.Equal(t, map[int]string{2: "731902"}, agentstep.AnsweredAsks(session))
 
 	_, ok = agentstep.PendingAnswer(session, "browser")
@@ -46,6 +46,21 @@ func TestPendingAnswer(t *testing.T) {
 	answer, ok = agentstep.PendingAnswer(session, "computer")
 	require.True(t, ok)
 	assert.True(t, answer.Rejected)
+}
+
+// A permission is answered with a decision, which the answer carries.
+func TestPendingAnswerOfAPermission(t *testing.T) {
+	t.Parallel()
+
+	permission := agentstep.PermissionInteraction(3, 1, ir.AgentPermissionBrowserWrite, []string{"POST https://x/deals? {amount}"}, "Browser write", "Send it?", time.Now().Add(time.Hour))
+	assert.Equal(t, ir.AgentInteractionPermission, permission.Kind)
+	assert.Equal(t, permission.Patterns, permission.AllowForSessionPatterns, "the write may be allowed for the session")
+	permission.Status, permission.Decision = ir.AgentInteractionAnswered, ir.AgentDecisionSkip
+	session := &ir.AgentSession{Provider: "browser", Generation: 1, Interactions: []ir.AgentInteraction{permission}}
+
+	answer, ok := agentstep.PendingAnswer(session, "browser")
+	require.True(t, ok)
+	assert.Equal(t, agentstep.AskAnswer{InteractionID: permission.ID, Index: 3, Decision: ir.AgentDecisionSkip}, answer)
 }
 
 func TestCheckSecrets(t *testing.T) {

@@ -207,7 +207,7 @@ func prepareBuildAttempt(
 	if err != nil {
 		return ctx, "", err
 	}
-	node.resetForBuildAttempt(declaredStep)
+	node.resetForAttempt(declaredStep)
 	attemptCtx, err := withBuildPaths(ctx, node, session.InputPaths(), outputs, true)
 	if err != nil {
 		return ctx, stagingPath, err

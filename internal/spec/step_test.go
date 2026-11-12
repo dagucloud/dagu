@@ -46,9 +46,10 @@ func TestMain(m *testing.M) {
 	})
 	// jq and http: support command and script
 	registry.RegisterExecutorCapabilities("jq", registry.ExecutorCapabilities{Command: true, Script: true})
+	registry.RegisterExecutorCapabilities("js", registry.ExecutorCapabilities{Script: true})
 	registry.RegisterExecutorCapabilities("http", registry.ExecutorCapabilities{Command: true, Script: true})
-	// SQL executors: support query command and script execution
-	for _, t := range []string{"postgres", "sqlite"} {
+	// SQL and ClickHouse executors: support query command and script execution
+	for _, t := range []string{"postgres", "sqlite", "clickhouse"} {
 		registry.RegisterExecutorCapabilities(t, registry.ExecutorCapabilities{Command: true, Script: true})
 	}
 	// kubernetes: supports a single command only
@@ -59,8 +60,10 @@ func TestMain(m *testing.M) {
 	registry.RegisterExecutorCapabilities("archive", registry.ExecutorCapabilities{Command: true})
 	// artifact: supports command only
 	registry.RegisterExecutorCapabilities("artifact", registry.ExecutorCapabilities{Command: true})
-	// file: supports command only
-	registry.RegisterExecutorCapabilities("file", registry.ExecutorCapabilities{Command: true})
+	// file: supports command only and takes path inputs
+	registry.RegisterExecutorCapabilities("file", registry.ExecutorCapabilities{
+		Command: true, PathInputs: []string{"path", "source", "destination"},
+	})
 	// data: supports operation commands only
 	registry.RegisterExecutorCapabilities("data", registry.ExecutorCapabilities{Command: true})
 	// wait: supports command only
@@ -85,8 +88,6 @@ func TestMain(m *testing.M) {
 	registry.RegisterExecutorCapabilities("chat", registry.ExecutorCapabilities{LLM: true, Messages: true})
 	// llm_tool: uses an llm config without chat messages
 	registry.RegisterExecutorCapabilities("llm_tool", registry.ExecutorCapabilities{LLM: true})
-	// browser: uses an llm config without chat messages
-	registry.RegisterExecutorCapabilities(ir.ExecutorTypeBrowser, registry.ExecutorCapabilities{LLM: true})
 	// computer: uses an llm config without chat messages
 	registry.RegisterExecutorCapabilities(ir.ExecutorTypeComputer, registry.ExecutorCapabilities{LLM: true})
 
@@ -930,7 +931,18 @@ func TestBuildStepRepeatPolicy(t *testing.T) {
 			repeatPolicy: &repeatPolicy{
 				Repeat: types.RepeatModeFromString("while"),
 			},
-			wantErr: true,
+			expected: ir.RepeatPolicy{
+				RepeatMode: ir.RepeatModeWhile,
+			},
+		},
+		{
+			name: "UntilWithoutConditionOrExitCode",
+			repeatPolicy: &repeatPolicy{
+				Repeat: types.RepeatModeFromString("until"),
+			},
+			expected: ir.RepeatPolicy{
+				RepeatMode: ir.RepeatModeUntil,
+			},
 		},
 		{
 			name: "NumericExpected",
@@ -3793,6 +3805,16 @@ func TestBuildThinkingConfig(t *testing.T) {
 			wantErr: false,
 		},
 		{
+			name:    "ValidNoneEffort",
+			cfg:     &thinkingConfig{Enabled: true, Effort: "none"},
+			wantErr: false,
+		},
+		{
+			name:    "ValidMaxEffort",
+			cfg:     &thinkingConfig{Enabled: true, Effort: "max"},
+			wantErr: false,
+		},
+		{
 			name:    "InvalidEffort",
 			cfg:     &thinkingConfig{Enabled: true, Effort: "invalid"},
 			wantErr: true,
@@ -4392,5 +4414,30 @@ func TestArtifactPathSchemaPatternMatchesParser(t *testing.T) {
 			assert.Equal(t, err != nil, schemaRejects,
 				"schema and parser disagree on %q", input)
 		})
+	}
+}
+
+// An llm block given on its own reads and is checked as a step's llm field
+// is.
+func TestParseLLMConfig(t *testing.T) {
+	t.Parallel()
+
+	cfg, err := ParseLLMConfig([]byte("provider: openrouter\nmodel: deepseek/deepseek-v4-flash\napi_key_name: OPENROUTER_API_KEY\n"))
+	require.NoError(t, err)
+	assert.Equal(t, &ir.LLMConfig{Provider: "openrouter", Model: "deepseek/deepseek-v4-flash", APIKeyName: "OPENROUTER_API_KEY"}, cfg)
+
+	cfg, err = ParseLLMConfig([]byte(`{"model": [{"provider": "openai", "name": "gpt-5-mini"}, {"provider": "local", "name": "qwen3", "base_url": "http://127.0.0.1:11434/v1"}]}`))
+	require.NoError(t, err)
+	require.Len(t, cfg.Models, 2)
+	assert.Equal(t, "http://127.0.0.1:11434/v1", cfg.Models[1].BaseURL)
+
+	for input, want := range map[string]string{
+		"provider: someai\nmodel: m\n":               "llm.provider",
+		"provider: openai\n":                         "model must be specified",
+		"provider: openai\nmodel_name: gpt-5-mini\n": "model_name",
+		"provider: openai\nmodel: m\ntemperature: 3": "temperature must be between 0.0 and 2.0",
+	} {
+		_, err := ParseLLMConfig([]byte(input))
+		assert.ErrorContains(t, err, want, input)
 	}
 }

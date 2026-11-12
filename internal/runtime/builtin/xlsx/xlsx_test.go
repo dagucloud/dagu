@@ -6,6 +6,7 @@ package xlsx
 import (
 	"bytes"
 	"context"
+	"fmt"
 	"path/filepath"
 	"testing"
 
@@ -92,6 +93,35 @@ func TestReadPublishesRows(t *testing.T) {
 	assert.Equal(t, 0, te.exec.ExitCode())
 }
 
+func TestReadSkipsHiddenRows(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	f := excelize.NewFile()
+	for i, row := range [][]any{{"Invoice No", "Amount"}, {"INV-1", 10}, {"INV-2", 20}} {
+		require.NoError(t, f.SetSheetRow("Sheet1", fmt.Sprintf("A%d", i+1), &row))
+	}
+	require.NoError(t, f.SetRowVisible("Sheet1", 2, false))
+	require.NoError(t, f.SaveAs(filepath.Join(dir, "orders.xlsx")))
+	require.NoError(t, f.Close())
+
+	te, err := newTestExecutor(t, dir, opRead, map[string]any{"path": "orders.xlsx", "skip_hidden": true})
+	require.NoError(t, err)
+	require.NoError(t, te.exec.Run(context.Background()))
+	rows, ok := te.exec.GetOutputs()["rows"].([]workbook.Row)
+	require.True(t, ok)
+	require.Len(t, rows, 1)
+	assert.Equal(t, "INV-2", rows[0]["Invoice No"])
+
+	// validate and convert take the field too.
+	for op, cfg := range map[string]map[string]any{
+		opValidate: {"path": "orders.xlsx", "skip_hidden": true, "required": "Amount"},
+		opConvert:  {"path": "orders.xlsx", "skip_hidden": true, "output": "out.csv"},
+	} {
+		step := ir.Step{Commands: []ir.CommandEntry{{Command: op}}, ExecutorConfig: ir.ExecutorConfig{Type: executorType, Config: cfg}}
+		require.NoError(t, validateStep(step), op)
+	}
+}
+
 func TestReadFitsOutputBudget(t *testing.T) {
 	t.Parallel()
 	dir := t.TempDir()
@@ -138,6 +168,20 @@ func TestOnTypeErrorNullSpelling(t *testing.T) {
 	assert.Contains(t, te.stderr.String(), `warning: Sheet1!A2: expected number, found "N/A"`)
 }
 
+func TestOnTypeErrorKeep(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	writeBook(t, dir, "orders.xlsx", []any{"Amount"}, []any{"N/A"}, []any{"７"})
+	te, err := newTestExecutor(t, dir, opRead, map[string]any{"path": "orders.xlsx", "types": map[string]any{"Amount": "number"}, "on_type_error": "keep"})
+	require.NoError(t, err)
+	require.NoError(t, te.exec.Run(context.Background()))
+	rows := te.exec.GetOutputs()["rows"].([]workbook.Row)
+	require.Len(t, rows, 2)
+	assert.Equal(t, "N/A", rows[0]["Amount"])
+	assert.Equal(t, int64(7), rows[1]["Amount"])
+	assert.Contains(t, te.stderr.String(), `warning: Sheet1!A2: expected number, found "N/A"`)
+}
+
 func TestInfoAndListSheets(t *testing.T) {
 	t.Parallel()
 	dir := t.TempDir()
@@ -152,6 +196,10 @@ func TestInfoAndListSheets(t *testing.T) {
 	require.Len(t, sheets, 1)
 	assert.Equal(t, []string{"Invoice No", "Amount"}, sheets[0].Headers)
 	assert.Equal(t, 1, sheets[0].HeaderRow)
+	assert.Equal(t, []workbook.ColumnInfo{
+		{Name: "Invoice No", Type: "string", Filled: 1, Distinct: 1},
+		{Name: "Amount", Type: "integer", Filled: 1, Distinct: 1, Min: int64(10), Max: int64(10)},
+	}, sheets[0].Columns)
 	assert.Equal(t, "1900", outputs["date_system"])
 	assert.Equal(t, "orders.xlsx: 1 sheets\n", info.stdout.String())
 
@@ -172,12 +220,14 @@ func TestValidation(t *testing.T) {
 		{"missing path", opRead, map[string]any{}, "path is required for read"},
 		{"unknown field", opRead, map[string]any{"path": "a.xlsx", "strip": true}, "invalid keys: strip"},
 		{"foreign field", opInfo, map[string]any{"path": "a.xlsx", "range": "A1:B2"}, "with.range is not valid for xlsx.info"},
+		{"skip_hidden on info", opInfo, map[string]any{"path": "a.xlsx", "skip_hidden": true}, "with.skip_hidden is not valid for xlsx.info"},
 		{"bad merged", opRead, map[string]any{"path": "a.xlsx", "merged": "middle"}, "merged must be fill or first"},
 		{"bad formulas", opRead, map[string]any{"path": "a.xlsx", "formulas": "eval"}, "formulas must be cached, text, or calculate"},
-		{"bad on_type_error", opRead, map[string]any{"path": "a.xlsx", "on_type_error": "ignore"}, "on_type_error must be fail, warn, or null"},
+		{"bad on_type_error", opRead, map[string]any{"path": "a.xlsx", "on_type_error": "ignore"}, "on_type_error must be fail, warn, null, or keep"},
 		{"bad header", opRead, map[string]any{"path": "a.xlsx", "header": "yes"}, "header must be true, false, a row number"},
 		{"bad columns", opRead, map[string]any{"path": "a.xlsx", "columns": map[string]any{"a": "b"}}, "columns must be a list"},
 		{"bad type", opRead, map[string]any{"path": "a.xlsx", "types": map[string]any{"a": "money"}}, `types.a: unknown column type "money"`},
+		{"empty format", opWrite, map[string]any{"path": "a.xlsx", "rows": "[]", "formats": map[string]any{"Total": ""}}, "formats.Total must not be empty"},
 		{"max_rows zero", opRead, map[string]any{"path": "a.xlsx", "max_rows": 0}, "max_rows must be >= 1"},
 		{"bad where", opRead, map[string]any{"path": "a.xlsx", "where": map[string]any{"a": map[string]any{"like": "x"}}}, `where: a: unknown operator "like"`},
 		{"unsupported op", "pivot", map[string]any{"path": "a.xlsx"}, `unsupported operation "pivot"`},
@@ -302,6 +352,15 @@ func TestConfigSchemaRejectsUnknownKeys(t *testing.T) {
 	require.NoError(t, registry.ValidateExecutorConfig(executorType, map[string]any{"path": "a.xlsx", "max_rows": 10}))
 	require.Error(t, registry.ValidateExecutorConfig(executorType, map[string]any{"path": "a.xlsx", "strip": true}))
 	require.Error(t, registry.ValidateExecutorConfig(executorType, map[string]any{"path": "a.xlsx", "merged": "middle"}))
+}
+
+func TestConfigSchemaAcceptsFormats(t *testing.T) {
+	t.Parallel()
+	require.NoError(t, registry.ValidateExecutorConfig(executorType, map[string]any{
+		"path":    "a.xlsx",
+		"rows":    []any{map[string]any{"Total": 17500}},
+		"formats": map[string]any{"Total": "#,##0"},
+	}))
 }
 
 func TestResolvePath(t *testing.T) {

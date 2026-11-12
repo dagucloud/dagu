@@ -97,6 +97,7 @@ var legacyToSnakeCaseKey = map[string]string{
 	"paths.adminlogsdir":       "paths.admin_logs_dir",
 	"paths.eventstoredir":      "paths.event_store_dir",
 	"paths.baseconfig":         "paths.base_config",
+	"paths.calendarsdir":       "paths.calendars_dir",
 	"paths.altdagsdir":         "paths.alt_dags_dir",
 	"paths.dagrunsdir":         "paths.dag_runs_dir",
 	"paths.dagrunworkdir":      "paths.dag_run_work_dir",
@@ -136,6 +137,7 @@ var legacyToSnakeCaseKey = map[string]string{
 
 	// Worker
 	"worker.maxactiveruns":                "worker.max_active_runs",
+	"worker.shutdowntimeout":              "worker.shutdown_timeout",
 	"worker.postgrespool":                 "worker.postgres_pool",
 	"worker.postgrespool.maxopenconns":    "worker.postgres_pool.max_open_conns",
 	"worker.postgrespool.maxidleconns":    "worker.postgres_pool.max_idle_conns",
@@ -146,6 +148,8 @@ var legacyToSnakeCaseKey = map[string]string{
 	"scheduler.lockstalethreshold":      "scheduler.lock_stale_threshold",
 	"scheduler.lockretryinterval":       "scheduler.lock_retry_interval",
 	"scheduler.zombiedetectioninterval": "scheduler.zombie_detection_interval",
+	"scheduler.failoverrecoverywindow":  "scheduler.failover_recovery_window",
+	"scheduler.wakehold":                "scheduler.wake_hold",
 	"scheduler.heartbeatinterval":       "scheduler.heartbeat_interval",
 	"scheduler.stalethreshold":          "scheduler.stale_threshold",
 	"scheduler.failurethreshold":        "scheduler.failure_threshold",

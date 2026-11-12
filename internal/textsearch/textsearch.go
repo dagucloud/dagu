@@ -10,6 +10,8 @@ import (
 	"math"
 	"regexp"
 	"strings"
+
+	"github.com/dagucloud/dagu/v2/internal/cmn/fileutil"
 )
 
 var (
@@ -121,6 +123,7 @@ func GrepWindow(dat []byte, pattern string, opts GrepOptions) (*WindowResult, er
 	}
 
 	scanner := bufio.NewScanner(bytes.NewReader(dat))
+	fileutil.ConfigureScanner(scanner)
 	beforeBuf := make([]string, 0, opts.Before)
 	results := make([]*Match, 0, min(limit, 8))
 	pending := make([]*pendingMatch, 0, min(limit, 4))
@@ -211,6 +214,7 @@ func getMatcher(pattern string, opts GrepOptions) (Matcher, error) {
 // scanLines scans through data and returns lines and their matched indices.
 func scanLines(dat []byte, matcher Matcher) ([]string, []int, error) {
 	scanner := bufio.NewScanner(bytes.NewReader(dat))
+	fileutil.ConfigureScanner(scanner)
 	var lines []string
 	var matches []int
 	var idx int

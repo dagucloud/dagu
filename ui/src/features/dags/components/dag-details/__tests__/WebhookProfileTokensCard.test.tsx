@@ -47,7 +47,10 @@ const customerToken = {
 function renderCard(
   overrides: Partial<WebhookDetails> = {},
   isAdmin = true
-): { onWebhookChange: () => void; onTokenCreated: () => void } {
+): {
+  onWebhookChange: () => void;
+  onTokenCreated: () => void;
+} {
   const onWebhookChange = vi.fn();
   const onTokenCreated = vi.fn();
   render(
@@ -64,6 +67,7 @@ function renderCard(
   return { onWebhookChange, onTokenCreated };
 }
 
+// parity:webhook-profile-tokens
 describe('WebhookProfileTokensCard', () => {
   beforeEach(() => {
     vi.clearAllMocks();

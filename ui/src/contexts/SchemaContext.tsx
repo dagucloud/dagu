@@ -1,4 +1,4 @@
-import { dereferenceSchema, type JSONSchema } from '@/lib/schema-utils';
+import type { JSONSchema } from '@/lib/schema-utils';
 import React, {
   createContext,
   useContext,
@@ -39,7 +39,12 @@ async function loadAndDereferenceSchema(): Promise<JSONSchema> {
   }
 
   cachePromise = (async () => {
-    const response = await fetch(SCHEMA_URL);
+    // schema-utils loads on demand: it brings the YAML parser, which the
+    // initial bundle does not need.
+    const [response, { dereferenceSchema }] = await Promise.all([
+      fetch(SCHEMA_URL),
+      import('@/lib/schema-utils'),
+    ]);
     if (!response.ok) {
       throw new Error(`Failed to fetch schema: ${response.statusText}`);
     }

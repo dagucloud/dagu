@@ -4,12 +4,15 @@
 package cli_test
 
 import (
+	"bytes"
 	"encoding/json"
+	"path/filepath"
 	"strings"
 	"testing"
 
 	"github.com/dagucloud/dagu/v2/conformance/harness"
 	"github.com/stretchr/testify/require"
+	"github.com/xuri/excelize/v2"
 )
 
 func TestXlsxInspectAndReadCommands(t *testing.T) {
@@ -29,7 +32,12 @@ func TestXlsxInspectAndReadCommands(t *testing.T) {
 			Headers   []string          `json:"headers"`
 			Types     map[string]string `json:"types"`
 			RowCount  int               `json:"row_count"`
-			Sample    []map[string]any  `json:"sample"`
+			Columns   []struct {
+				Name string `json:"name"`
+				Min  any    `json:"min"`
+				Max  any    `json:"max"`
+			} `json:"columns"`
+			Sample []map[string]any `json:"sample"`
 		} `json:"sheets"`
 	}
 	require.NoError(t, json.Unmarshal([]byte(inspect.Stdout()), &info), inspect.Stdout())
@@ -41,6 +49,10 @@ func TestXlsxInspectAndReadCommands(t *testing.T) {
 	require.Equal(t, "number", info.Sheets[0].Types["Amount"])
 	require.Equal(t, "date", info.Sheets[0].Types["Due"])
 	require.Equal(t, 2, info.Sheets[0].RowCount)
+	require.Len(t, info.Sheets[0].Columns, 3)
+	require.Equal(t, "Amount", info.Sheets[0].Columns[1].Name)
+	require.Equal(t, float64(10), info.Sheets[0].Columns[1].Min)
+	require.Equal(t, 20.5, info.Sheets[0].Columns[1].Max)
 	require.Len(t, info.Sheets[0].Sample, 1)
 
 	read := dagu.Run("xlsx", "read", "orders.xlsx", "--format", "json")
@@ -65,6 +77,51 @@ func TestXlsxInspectAndReadCommands(t *testing.T) {
 	missing := dagu.Run("xlsx", "read", "missing.xlsx")
 	missing.ExpectNonZeroExitCode()
 	missing.ExpectStderrContains("missing.xlsx: workbook not found")
+}
+
+func TestXlsxStdin(t *testing.T) {
+	t.Parallel()
+
+	f := excelize.NewFile()
+	require.NoError(t, f.SetSheetName("Sheet1", "Orders"))
+	require.NoError(t, f.SetCellValue("Orders", "A1", "Invoice No"))
+	require.NoError(t, f.SetCellValue("Orders", "B1", "Amount"))
+	require.NoError(t, f.SetCellValue("Orders", "A2", "INV-1"))
+	require.NoError(t, f.SetCellValue("Orders", "B2", 10))
+	var input bytes.Buffer
+	require.NoError(t, f.Write(&input))
+	require.NoError(t, f.Close())
+
+	dagu := harness.NewRunner(t)
+	inspect := dagu.RunWithStdin(nil, bytes.NewReader(input.Bytes()), "xlsx", "inspect", "-", "--format", "json")
+	inspect.ExpectExitCode(0)
+	var info struct {
+		Path   string `json:"path"`
+		Sheets []struct {
+			Name     string `json:"name"`
+			RowCount int    `json:"row_count"`
+		} `json:"sheets"`
+	}
+	require.NoError(t, json.Unmarshal([]byte(inspect.Stdout()), &info), inspect.Stdout())
+	require.Equal(t, "-", info.Path)
+	require.Len(t, info.Sheets, 1)
+	require.Equal(t, "Orders", info.Sheets[0].Name)
+	require.Equal(t, 1, info.Sheets[0].RowCount)
+
+	read := dagu.RunWithStdin(nil, bytes.NewReader(input.Bytes()), "xlsx", "read", "-", "--format", "json")
+	read.ExpectExitCode(0)
+	var result struct {
+		Rows  []map[string]any `json:"rows"`
+		Range string           `json:"range"`
+	}
+	require.NoError(t, json.Unmarshal([]byte(read.Stdout()), &result), read.Stdout())
+	require.Equal(t, "Orders!A1:B2", result.Range)
+	require.Equal(t, "INV-1", result.Rows[0]["Invoice No"])
+	require.Equal(t, float64(10), result.Rows[0]["Amount"])
+
+	bad := dagu.RunWithStdin(nil, bytes.NewReader([]byte("broken")), "xlsx", "read", "-")
+	bad.ExpectNonZeroExitCode()
+	bad.ExpectStderrContains("-: not a valid .xlsx workbook")
 }
 
 func TestXlsxReadCommandFlags(t *testing.T) {
@@ -150,6 +207,46 @@ func TestXlsxInspectCommandSheet(t *testing.T) {
 	lines := strings.Split(strings.ReplaceAll(text.Stdout(), "\r\n", "\n"), "\n")
 	require.Equal(t, "orders.xlsx: 2 sheets, 1900 date system", lines[0])
 	require.Equal(t, `Sheet "Orders": used A1:C3, table Orders!A1:C3, header row 1, 2 rows`, lines[1])
-	require.Equal(t, "  Columns: Invoice No (string), Amount (number), Due (date)", lines[2])
+	require.Equal(t, "  Columns: Invoice No (string), Amount (number; 10..20.5), Due (date; 2026-10-01..2026-10-02)", lines[2])
 	require.Equal(t, "  Row 2: Invoice No=INV-1  Amount=10  Due=2026-10-01", lines[3])
+	require.Equal(t, `Sheet "Second": used A1:B4, table Second!A1:B4, header row 1, 3 rows`, lines[4])
+	require.Equal(t, `  Columns: Quarterly report (string), Q3 (integer; 3..5; 1 odd: B2 "Qty")`, lines[5])
+}
+
+func TestXlsxProtectedWorkbookCommands(t *testing.T) {
+	t.Parallel()
+
+	dagu := harness.NewRunner(t)
+	path := filepath.Join(t.TempDir(), "protected.xlsx")
+	f := excelize.NewFile()
+	require.NoError(t, f.SetCellValue("Sheet1", "A1", "Invoice No"))
+	require.NoError(t, f.SetCellValue("Sheet1", "A2", "INV-1"))
+	require.NoError(t, f.SaveAs(path, excelize.Options{Password: "secret"}))
+	require.NoError(t, f.Close())
+
+	const want = "protected.xlsx: workbook password is missing or incorrect"
+	missing := dagu.Run("xlsx", "inspect", path)
+	missing.ExpectNonZeroExitCode()
+	missing.ExpectStderrContains(want)
+
+	wrong := dagu.Run("xlsx", "read", path, "--password", "nope")
+	wrong.ExpectNonZeroExitCode()
+	wrong.ExpectStderrContains(want)
+
+	byFlag := dagu.Run("xlsx", "inspect", path, "--password", "secret", "--format", "json")
+	byFlag.ExpectExitCode(0)
+	require.Contains(t, byFlag.Stdout(), "INV-1")
+
+	byEnv := dagu.RunWithEnv([]string{"DAGU_XLSX_PASSWORD=secret"}, "xlsx", "read", path, "--format", "json")
+	byEnv.ExpectExitCode(0)
+	require.Contains(t, byEnv.Stdout(), "INV-1")
+
+	// The flag wins over the environment variable, including when it is empty.
+	flagWins := dagu.RunWithEnv([]string{"DAGU_XLSX_PASSWORD=nope"}, "xlsx", "read", path, "--password", "secret", "--format", "json")
+	flagWins.ExpectExitCode(0)
+	require.Contains(t, flagWins.Stdout(), "INV-1")
+
+	emptyFlag := dagu.RunWithEnv([]string{"DAGU_XLSX_PASSWORD=secret"}, "xlsx", "inspect", path, "--password", "")
+	emptyFlag.ExpectNonZeroExitCode()
+	emptyFlag.ExpectStderrContains(want)
 }

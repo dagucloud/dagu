@@ -23,6 +23,10 @@ var ErrAskRejected = errors.New("the input request was rejected")
 type AskAnswer struct {
 	InteractionID string
 	Rejected      bool
+	// Index is the operation the interaction asked about, and Decision the
+	// decision of a permission's answer.
+	Index    int
+	Decision string
 }
 
 // askInteractionID names the interaction for the ask operation at index.
@@ -68,6 +72,23 @@ func AskInteraction(index, generation int, header, prompt string, deadline time.
 	}
 }
 
+// PermissionInteraction is the pending permission for the operation at
+// index, which may be answered for patterns once or for the session;
+// question describes what is asked.
+func PermissionInteraction(index, generation int, permission string, patterns []string, header, question string, deadline time.Time) ir.AgentInteraction {
+	return ir.AgentInteraction{
+		ID:                      askInteractionID(index, generation),
+		Kind:                    ir.AgentInteractionPermission,
+		Status:                  ir.AgentInteractionPending,
+		Permission:              permission,
+		Patterns:                patterns,
+		AllowForSessionPatterns: patterns,
+		Questions:               []ir.AgentQuestion{{Header: header, Question: question}},
+		CreatedAt:               time.Now().UTC().Format(time.RFC3339Nano),
+		ExpiresAt:               deadline.UTC().Format(time.RFC3339Nano),
+	}
+}
+
 // PendingAnswer returns the current generation's answered or rejected ask
 // that has not been applied yet, for a session of provider.
 func PendingAnswer(session *ir.AgentSession, provider string) (AskAnswer, bool) {
@@ -75,15 +96,15 @@ func PendingAnswer(session *ir.AgentSession, provider string) (AskAnswer, bool) 
 		return AskAnswer{}, false
 	}
 	for _, interaction := range session.Interactions {
-		_, generation, ok := parseAskInteractionID(interaction.ID)
+		index, generation, ok := parseAskInteractionID(interaction.ID)
 		if !ok || generation != session.Generation || interaction.Applied {
 			continue
 		}
 		switch interaction.Status {
 		case ir.AgentInteractionRejected:
-			return AskAnswer{InteractionID: interaction.ID, Rejected: true}, true
+			return AskAnswer{InteractionID: interaction.ID, Rejected: true, Index: index, Decision: interaction.Decision}, true
 		case ir.AgentInteractionAnswered:
-			return AskAnswer{InteractionID: interaction.ID}, true
+			return AskAnswer{InteractionID: interaction.ID, Index: index, Decision: interaction.Decision}, true
 		case ir.AgentInteractionPending:
 		}
 	}

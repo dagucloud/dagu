@@ -72,7 +72,11 @@ func appendPowerShellCommandArgs(args []string, cmdStr string) []string {
 	if !hasShellArg(result, "-Command", "-C") {
 		result = append(result, "-Command")
 	}
-	return append(result, cmdStr)
+	// A using directive must be the first statement, so it cannot follow the import.
+	if fields := strings.Fields(cmdStr); len(fields) > 0 && strings.EqualFold(fields[0], "using") {
+		return append(result, cmdStr)
+	}
+	return append(result, cmdutil.PowerShellImportCoreModules+"; "+cmdStr)
 }
 
 func appendShellCommandArgs(args []string, flag, cmdStr string) []string {
@@ -99,7 +103,8 @@ func hasShellArg(args []string, flags ...string) bool {
 }
 
 // runCommandWithContext executes cmdStr in a shell using the EnvScope from context,
-// falling back to os.Environ() when no scope is present.
+// falling back to the process environment, without Dagu's internal and
+// credential variables, when no scope is present.
 func runCommandWithContext(ctx context.Context, cmdStr string) (string, error) {
 	commandCtx, cancel, timeout := withCommandTimeout(ctx, substituteCommandTimeout())
 	defer cancel()
@@ -118,11 +123,11 @@ func runCommandWithContext(ctx context.Context, cmdStr string) (string, error) {
 		cmd.Dir = dir
 	}
 
-	if scope := GetEnvScope(ctx); scope != nil {
-		cmd.Env = scope.ToSlice()
-	} else {
-		cmd.Env = os.Environ()
+	scope := GetEnvScope(ctx)
+	if scope == nil {
+		scope = NewEnvScope(nil, true)
 	}
+	cmd.Env = scope.ToSlice()
 
 	var stdout, stderr bytes.Buffer
 	cmd.Stdout = &stdout

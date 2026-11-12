@@ -34,6 +34,9 @@ type Plan struct {
 	nodeByName    map[string]*Node
 	inferredEdges map[[2]int]struct{}
 	stepRetry     *stepRetrySelection
+	// retrySelection holds the steps a step retry selected. It is nil for every
+	// other plan, which sets out to run all of its steps.
+	retrySelection map[int]struct{}
 
 	// Adjacency lists (immutable after planning; exposed for unit tests)
 	DependencyMap map[int][]int // node ID -> list of dependency node IDs (upstream)
@@ -78,8 +81,21 @@ func NewPlan(steps ...ir.Step) (*Plan, error) {
 	return p, nil
 }
 
+// RetryPlanOptions configures a default retry plan.
+type RetryPlanOptions struct {
+	// Resume preserves partially succeeded nodes for a checkpoint resume.
+	// Explicit retries leave this false and rerun partial work.
+	Resume bool
+}
+
 // CreateRetryPlan creates a new execution plan for retrying specific nodes.
 func CreateRetryPlan(ctx context.Context, dag *ir.DAG, nodes ...*Node) (*Plan, error) {
+	return CreateRetryPlanWithOptions(ctx, dag, RetryPlanOptions{}, nodes...)
+}
+
+// CreateRetryPlanWithOptions creates a default retry plan with explicit
+// checkpoint-resume behavior.
+func CreateRetryPlanWithOptions(ctx context.Context, dag *ir.DAG, opts RetryPlanOptions, nodes ...*Node) (*Plan, error) {
 	p := &Plan{
 		nodeByID:      make(map[int]*Node),
 		nodeByName:    make(map[string]*Node),
@@ -108,7 +124,7 @@ func CreateRetryPlan(ctx context.Context, dag *ir.DAG, nodes ...*Node) (*Plan, e
 	}
 
 	// Setup retry state
-	if err := p.setupRetry(ctx, steps); err != nil {
+	if err := p.setupRetry(ctx, steps, opts); err != nil {
 		return nil, err
 	}
 
@@ -193,11 +209,12 @@ func CreateStepRetryPlanWithOptions(dag *ir.DAG, nodes []*Node, stepName string,
 	if opts.BypassPreconditions {
 		targetNode.SetBypassPreconditions(true)
 	}
+	p.retrySelection = map[int]struct{}{targetNode.id: {}}
 
 	if opts.IncludeDownstream {
 		p.stepRetry = &stepRetrySelection{
 			targetID:            targetNode.id,
-			resetIDs:            map[int]struct{}{targetNode.id: {}},
+			resetIDs:            p.retrySelection,
 			bypassPreconditions: opts.BypassPreconditions,
 			steps:               steps,
 		}
@@ -209,16 +226,21 @@ func CreateStepRetryPlanWithOptions(dag *ir.DAG, nodes []*Node, stepName string,
 
 // resetStepRetryNode clears node for another run. It keeps the node's current
 // step, which build planning may have resolved, but takes the human-task
-// template so a reopened task resolves its prompt and artifacts again.
-func resetStepRetryNode(node *Node, template ir.Step, preserveRetryBudget bool) {
+// template so a reopened task resolves its prompt and artifacts again. A retry
+// that resumes a retrying node keeps its retry budget and its execution count,
+// which the repeat index and limit read.
+func resetStepRetryNode(node *Node, template ir.Step, resumeRetry bool) {
 	retryCount := node.GetRetryCount()
+	doneCount := node.GetDoneCount()
 	step := node.Step()
 	step.HumanTask = template.HumanTask
 	clearNodeForRetry(node, step)
 	node.SetRetryCount(retryCount)
-	if !preserveRetryBudget {
-		node.retryPolicy = RetryPolicy{} // manual step retries start with a fresh retry budget
+	if resumeRetry {
+		node.setDoneCount(doneCount)
+		return
 	}
+	node.retryPolicy = RetryPolicy{} // manual step retries start with a fresh retry budget
 }
 
 func (p *Plan) expandStepRetrySelection() {
@@ -322,6 +344,13 @@ func (p *Plan) buildEdges() error {
 	if p.isCyclic() {
 		return ErrCyclicPlan
 	}
+	for _, node := range p.nodes {
+		for _, dep := range node.Step().InferredDepends {
+			if err := p.AddInferredDependency(dep.Step, node.Name()); err != nil {
+				return err
+			}
+		}
+	}
 	return nil
 }
 
@@ -374,7 +403,8 @@ func (p *Plan) addEdge(from, to *Node) bool {
 	return true
 }
 
-// AddInferredDependency adds one file-derived dependency before execution starts.
+// AddInferredDependency adds one data-derived dependency, from a matching
+// build path or a step-output reference, before execution starts.
 func (p *Plan) AddInferredDependency(producerName, consumerName string) error {
 	producer := p.GetNodeByName(producerName)
 	consumer := p.GetNodeByName(consumerName)
@@ -407,7 +437,8 @@ func removeNodeID(ids []int, target int) []int {
 	return ids
 }
 
-// IsInferredDependency reports whether an edge was derived from matching paths.
+// IsInferredDependency reports whether an edge was derived from data rather
+// than from depends.
 // It may be called concurrently after planning is complete.
 func (p *Plan) IsInferredDependency(producerID, consumerID int) bool {
 	_, ok := p.inferredEdges[[2]int{producerID, consumerID}]
@@ -445,9 +476,11 @@ func (p *Plan) isCyclic() bool {
 	return processedCount != len(p.nodes)
 }
 
-// setupRetry resets the state of failed/aborted nodes and their dependents.
-func (p *Plan) setupRetry(ctx context.Context, steps map[string]ir.Step) error {
-	// Identify nodes that need to be retried (failed or aborted)
+// setupRetry resets retryable nodes and their dependents. Checkpoint resumes
+// preserve partially succeeded nodes so completed manual gates stay complete.
+func (p *Plan) setupRetry(ctx context.Context, steps map[string]ir.Step, opts RetryPlanOptions) error {
+	// Identify nodes that need to be retried, including partial nodes for an
+	// explicit retry but excluding them for a checkpoint resume.
 	toRetry := make(map[int]bool)
 	nodeStatus := make(map[int]ir.NodeStatus)
 
@@ -468,6 +501,7 @@ func (p *Plan) setupRetry(ctx context.Context, steps map[string]ir.Step) error {
 		for _, u := range frontier {
 			shouldRetry := toRetry[u] ||
 				nodeStatus[u] == ir.NodeFailed ||
+				(nodeStatus[u] == ir.NodePartiallySucceeded && !opts.Resume) ||
 				nodeStatus[u] == ir.NodeRetrying ||
 				nodeStatus[u] == ir.NodeAborted ||
 				nodeStatus[u] == ir.NodeRejected
@@ -515,6 +549,15 @@ func clearNodeForRetry(node *Node, step ir.Step) {
 }
 
 // --- Accessors ---
+
+// inRetrySelection reports whether this plan set out to run node.
+func (p *Plan) inRetrySelection(node *Node) bool {
+	if p.retrySelection == nil {
+		return true
+	}
+	_, selected := p.retrySelection[node.id]
+	return selected
+}
 
 // Nodes returns a slice of all nodes in the plan.
 func (p *Plan) Nodes() []*Node {

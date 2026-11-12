@@ -1,0 +1,755 @@
+// Copyright (C) 2026 Yota Hamada
+// SPDX-License-Identifier: GPL-3.0-or-later
+
+import { useEffect, useId, useState, type ReactNode } from 'react';
+import { AlertTriangle, ExternalLink, Info, Loader2 } from 'lucide-react';
+import { LicenseRemoteAccessLevel } from '@/api/v1/schema';
+import { Button } from '@/components/ui/button';
+import { CopyButton } from '@/components/ui/copy-button';
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog';
+import RelativeTime from '@/components/ui/relative-time';
+import { Switch } from '@/components/ui/switch';
+import { useQuery } from '@/hooks/api';
+import type { LicenseRemoteAccess } from '@/hooks/useLicenseRemoteAccess';
+import { useI18n } from '@/i18n/I18nProvider';
+import dayjs from '@/lib/dayjs';
+import { licenseLink, remoteAccessLevelLabels } from '@/lib/license';
+import { cn } from '@/lib/utils';
+import { LicenseCallout } from './LicenseAlerts';
+
+/**
+ * How the server's plan treats calls from Dagu Cloud: a trial or a paid plan
+ * lets them through; under the free plan Dagu Cloud refuses them.
+ */
+export type RemoteAccessPlan = 'trial' | 'paid' | 'free';
+
+/** A level at which calls from Dagu Cloud reach this server. */
+export type OnLevel = Exclude<
+  LicenseRemoteAccessLevel,
+  LicenseRemoteAccessLevel.off
+>;
+
+/** What each level lets a call do, as the configuration reference words it. */
+const choices: { level: OnLevel; allows: string }[] = [
+  {
+    level: LicenseRemoteAccessLevel.viewer,
+    allows: 'Read DAGs, runs, and logs.',
+  },
+  {
+    level: LicenseRemoteAccessLevel.operator,
+    allows:
+      'Also start, enqueue, retry, and stop runs of existing DAGs, with any parameters those DAGs take.',
+  },
+  {
+    level: LicenseRemoteAccessLevel.developer,
+    allows:
+      'Also change DAG definitions and run inline specs. DAG steps run commands, so this runs any command on this machine.',
+  },
+];
+
+/** What MCP calls may do at each level, shown beside the level in effect. */
+const levelSummaries: Record<LicenseRemoteAccessLevel, string> = {
+  [LicenseRemoteAccessLevel.off]: 'MCP calls are refused.',
+  [LicenseRemoteAccessLevel.viewer]: 'MCP calls read DAGs, runs, and logs.',
+  [LicenseRemoteAccessLevel.operator]:
+    'MCP calls read DAGs, runs, and logs, and start, retry, and stop runs.',
+  [LicenseRemoteAccessLevel.developer]:
+    'MCP calls also change DAG definitions, so they can run any command on this machine.',
+};
+
+/** What the offer to turn remote access on says under each plan. */
+const offPromptDetails: Record<RemoteAccessPlan | 'unknown', string> = {
+  trial:
+    'Included in your trial. Turn on remote access, then add the MCP URL to your client.',
+  paid: 'Included in your plan. Turn on remote access, then add the MCP URL to your client.',
+  free: 'Needs a paid plan or a trial. The 14-day trial is free, with no card needed.',
+  unknown: 'Turn on remote access, then add the MCP URL to your client.',
+};
+
+/**
+ * The level offered first. MCP clients are mostly used to manage workflows,
+ * which takes changing DAG definitions.
+ */
+export const DEFAULT_REMOTE_ACCESS_LEVEL: OnLevel =
+  LicenseRemoteAccessLevel.developer;
+
+/** How many recent calls the section lists. */
+const ACTIVITY_ROWS = 8;
+
+/** Audit actions that end a call, as opposed to those that start it. */
+const finishedCall = /\.(succeeded|failed|denied)$/;
+
+function Row({ label, children }: { label: string; children: ReactNode }) {
+  return (
+    <>
+      <dt className="text-muted-foreground">{label}</dt>
+      <dd className="min-w-0">{children}</dd>
+    </>
+  );
+}
+
+/**
+ * Shows how far MCP calls through Dagu Cloud may go on this server, whether
+ * their calls reach it, how to connect one, and what they did lately, and lets
+ * an administrator change it unless the configuration fixes it. While it is
+ * off, it offers to turn it on, or to start the trial it needs first.
+ */
+export function RemoteAccessSection({
+  remoteAccess,
+  remoteNode,
+  consoleURL,
+  plan,
+  trialEndsAt,
+  trialURL,
+  onOpenTrial,
+  showActivity,
+  loadError,
+  onRetry,
+  onChange,
+}: {
+  remoteAccess?: LicenseRemoteAccess;
+  remoteNode: string;
+  /** The base URL of the Dagu Console whose MCP endpoint AI apps use. */
+  consoleURL: string;
+  /** The server's plan; unknown for a license that lapsed. */
+  plan?: RemoteAccessPlan;
+  /** When the trial ends, for a server on a trial. */
+  trialEndsAt?: string;
+  /** The Dagu Console page where a trial starts. */
+  trialURL: string;
+  /** Called as the trial page opens, so the plan is read again on return. */
+  onOpenTrial: () => void;
+  /** Lists recent calls, which audit logs record. */
+  showActivity: boolean;
+  loadError: boolean;
+  onRetry: () => void;
+  onChange: (change: {
+    level?: LicenseRemoteAccessLevel;
+    approvals?: boolean;
+  }) => Promise<void>;
+}) {
+  const { ts } = useI18n();
+  const [choosing, setChoosing] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const on =
+    remoteAccess !== undefined &&
+    remoteAccess.level !== LicenseRemoteAccessLevel.off;
+  const mcpURL = `${consoleURL}/mcp`;
+  const trialLink = (variant: 'primary' | 'outline') => (
+    <Button asChild size="sm" variant={variant}>
+      <a
+        href={trialURL}
+        target="_blank"
+        rel="noopener noreferrer"
+        onClick={onOpenTrial}
+      >
+        <ExternalLink className="h-3.5 w-3.5" aria-hidden="true" />
+        {ts('Start free trial')}
+      </a>
+    </Button>
+  );
+
+  async function change(next: {
+    level?: LicenseRemoteAccessLevel;
+    approvals?: boolean;
+  }) {
+    setSaving(true);
+    setError(null);
+    try {
+      await onChange(next);
+    } catch (err) {
+      setError(
+        err instanceof Error && err.message
+          ? err.message
+          : ts('Could not change remote access.')
+      );
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return (
+    <section
+      id="remote-access"
+      className="card-obsidian p-4 space-y-3 scroll-mt-4"
+      aria-labelledby="license-remote-access"
+    >
+      <div className="min-w-0 space-y-1">
+        <h2 id="license-remote-access" className="text-sm font-medium">
+          {ts('Remote access')}
+        </h2>
+        <p className="text-xs text-muted-foreground">
+          {ts(
+            'Serves the MCP tools of this server through the Dagu Cloud MCP endpoint. The server connects out to Dagu Cloud, so no inbound port is opened.'
+          )}
+        </p>
+      </div>
+      {loadError && !remoteAccess ? (
+        <div
+          role="status"
+          className="flex flex-wrap items-center gap-2 text-sm"
+        >
+          <span>{ts('Remote access status unavailable')}</span>
+          <Button size="sm" variant="outline" onClick={onRetry}>
+            {ts('Retry')}
+          </Button>
+        </div>
+      ) : (
+        remoteAccess && (
+          <>
+            {!on && !remoteAccess.levelConfigured && (
+              <div className="flex flex-wrap items-center justify-between gap-3 rounded-md border border-primary/30 bg-primary/5 p-3">
+                <div className="min-w-0 flex-1 space-y-0.5">
+                  <p className="text-sm font-medium">
+                    {ts(
+                      'Use this server from Claude, ChatGPT, and other MCP clients'
+                    )}
+                  </p>
+                  <p className="text-xs text-muted-foreground">
+                    {ts(offPromptDetails[plan ?? 'unknown'])}
+                  </p>
+                </div>
+                <span className="flex flex-wrap items-center gap-2">
+                  {plan === 'free' && trialLink('primary')}
+                  <Button
+                    size="sm"
+                    variant={plan === 'free' ? 'outline' : 'primary'}
+                    disabled={saving}
+                    onClick={() => setChoosing(true)}
+                  >
+                    {ts('Turn on')}
+                  </Button>
+                </span>
+              </div>
+            )}
+            {on && plan === 'free' && (
+              <LicenseCallout
+                tone="warning"
+                title={ts('MCP calls need a paid plan or a trial')}
+                action={trialLink('outline')}
+              >
+                {ts(
+                  'Dagu Cloud refuses calls to this server until its workspace has one. The 14-day trial is free, with no card needed.'
+                )}
+              </LicenseCallout>
+            )}
+            <dl className="grid grid-cols-[7.5rem_minmax(0,1fr)] items-center gap-x-4 gap-y-1.5 text-sm">
+              <Row label={ts('Access')}>
+                <span className="flex flex-wrap items-center justify-between gap-2">
+                  <span className="min-w-0">
+                    {ts(remoteAccessLevelLabels[remoteAccess.level])}
+                    <span className="text-muted-foreground">
+                      {' · '}
+                      {ts(levelSummaries[remoteAccess.level])}
+                    </span>
+                  </span>
+                  {remoteAccess.levelConfigured ? (
+                    <span className="text-xs text-muted-foreground">
+                      {ts('Set in configuration')}
+                    </span>
+                  ) : on ? (
+                    <span className="flex flex-wrap items-center gap-2">
+                      <Button
+                        size="xs"
+                        variant="outline"
+                        disabled={saving}
+                        onClick={() => setChoosing(true)}
+                      >
+                        {ts('Change')}
+                      </Button>
+                      <Button
+                        size="xs"
+                        variant="outline"
+                        disabled={saving}
+                        onClick={() =>
+                          void change({ level: LicenseRemoteAccessLevel.off })
+                        }
+                      >
+                        {ts('Turn off')}
+                      </Button>
+                    </span>
+                  ) : null}
+                </span>
+              </Row>
+              <Row label={ts('Human tasks')}>
+                <span className="flex flex-wrap items-center justify-between gap-2">
+                  <span className="text-muted-foreground">
+                    {ts(
+                      'Let MCP calls complete human tasks. Needs Operator or Developer access.'
+                    )}
+                  </span>
+                  {remoteAccess.approvalsConfigured ? (
+                    <span className="text-xs text-muted-foreground">
+                      {ts(remoteAccess.approvals ? 'On' : 'Off')} ·{' '}
+                      {ts('Set in configuration')}
+                    </span>
+                  ) : (
+                    <Switch
+                      checked={remoteAccess.approvals}
+                      disabled={saving}
+                      aria-label={ts('Human tasks')}
+                      onCheckedChange={(approvals) =>
+                        void change({ approvals })
+                      }
+                    />
+                  )}
+                </span>
+              </Row>
+              {on && (
+                <Row label={ts('Connection')}>
+                  <ConnectionState remoteAccess={remoteAccess} />
+                </Row>
+              )}
+              {on && (
+                <Row label={ts('Last call')}>
+                  <LastCall remoteAccess={remoteAccess} />
+                </Row>
+              )}
+              {on && (
+                <Row label={ts('MCP URL')}>
+                  <span className="flex min-w-0 items-center gap-1">
+                    <code className="min-w-0 whitespace-normal break-words font-mono text-xs">
+                      {mcpURL}
+                    </code>
+                    <CopyButton
+                      size="sm"
+                      text={mcpURL}
+                      label={ts('Copy MCP URL')}
+                      copiedLabel={ts('MCP URL copied')}
+                    />
+                  </span>
+                </Row>
+              )}
+            </dl>
+            {on && <ClientGuide mcpURL={mcpURL} consoleURL={consoleURL} />}
+            {on && plan === 'trial' && trialEndsAt && (
+              <p className="flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-muted-foreground">
+                {ts(
+                  'Included in your trial until {date}. Choose a plan to keep MCP clients working.',
+                  { date: dayjs(trialEndsAt).format('YYYY-MM-DD') }
+                )}
+                <a
+                  href={licenseLink('plans', 'remote-access')}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="inline-flex items-center gap-1 text-foreground underline underline-offset-2"
+                >
+                  <ExternalLink className="h-3 w-3" aria-hidden="true" />
+                  {ts('View plans')}
+                </a>
+              </p>
+            )}
+            {(remoteAccess.levelConfigured ||
+              remoteAccess.approvalsConfigured) && (
+              <p className="text-sm text-muted-foreground flex items-start gap-2">
+                <Info className="h-4 w-4 shrink-0 mt-0.5" />
+                {ts(
+                  'cloud.remote_access and cloud.remote_approvals in the server configuration set these. Change them there and restart Dagu.'
+                )}
+              </p>
+            )}
+            {error && (
+              <p role="alert" className="text-sm text-destructive">
+                {error}
+              </p>
+            )}
+            {showActivity && on && <AgentActivity remoteNode={remoteNode} />}
+          </>
+        )
+      )}
+      <RemoteAccessDialog
+        open={choosing}
+        level={remoteAccess?.level}
+        onSave={async (level) => {
+          await onChange({ level });
+          setChoosing(false);
+        }}
+        onCancel={() => setChoosing(false)}
+      />
+    </section>
+  );
+}
+
+function ConnectionState({
+  remoteAccess,
+}: {
+  remoteAccess: LicenseRemoteAccess;
+}) {
+  const { ts } = useI18n();
+  if (remoteAccess.connected) {
+    return (
+      <span className="inline-flex items-center gap-1.5">
+        <span
+          className="h-2 w-2 shrink-0 rounded-full bg-success"
+          aria-hidden="true"
+        />
+        {ts('Connected')}
+      </span>
+    );
+  }
+  if (remoteAccess.error) {
+    return (
+      <span className="inline-flex items-start gap-1.5 text-warning">
+        <AlertTriangle
+          className="h-3.5 w-3.5 shrink-0 mt-0.5"
+          aria-hidden="true"
+        />
+        {remoteAccess.error}
+      </span>
+    );
+  }
+  return <span className="text-muted-foreground">{ts('Connecting…')}</span>;
+}
+
+/**
+ * Names the latest call that reached the server through Dagu Cloud: the app,
+ * the person, and when.
+ */
+function LastCall({ remoteAccess }: { remoteAccess: LicenseRemoteAccess }) {
+  const { ts } = useI18n();
+  const call = remoteAccess.lastCall;
+  if (!call) {
+    return <span className="text-muted-foreground">{ts('No calls yet')}</span>;
+  }
+  return (
+    <span className="flex min-w-0 flex-wrap items-center gap-x-1.5">
+      {[call.client, call.user].filter(Boolean).map((part) => (
+        <span key={part} className="min-w-0 break-words">
+          {part} ·
+        </span>
+      ))}
+      <RelativeTime timestamp={call.at} />
+    </span>
+  );
+}
+
+/** The command that adds the Dagu Cloud MCP endpoint to Claude Code. */
+function claudeCodeCommand(mcpURL: string): string {
+  return `claude mcp add --transport http --scope user dagu ${mcpURL}`;
+}
+
+/**
+ * Tells how to add the Dagu Cloud MCP endpoint to Claude, ChatGPT, and
+ * Claude Code, as Dagu Cloud's MCP page does, which covers the other clients.
+ */
+function ClientGuide({
+  mcpURL,
+  consoleURL,
+}: {
+  mcpURL: string;
+  consoleURL: string;
+}) {
+  const { ts } = useI18n();
+  const command = claudeCodeCommand(mcpURL);
+  return (
+    <div className="space-y-1.5">
+      <h3 className="text-xs font-medium text-muted-foreground">
+        {ts('Connect a client')}
+      </h3>
+      <dl className="grid grid-cols-[7.5rem_minmax(0,1fr)] gap-x-4 gap-y-2 text-sm">
+        <Row label="Claude">
+          <span className="block">
+            {ts(
+              'In Claude, open Customize, then Connectors. Select + Add, then Add custom connector. Paste the URL, select Continue, and sign in.'
+            )}
+          </span>
+          <span className="block text-xs text-muted-foreground">
+            {ts(
+              'On Team and Enterprise, an owner adds it first under Organization settings, then Connectors.'
+            )}
+          </span>
+        </Row>
+        <Row label="ChatGPT">
+          <a
+            href="https://chatgpt.com/plugins"
+            target="_blank"
+            rel="noopener noreferrer"
+            className="underline underline-offset-2"
+          >
+            chatgpt.com/plugins
+          </a>{' '}
+          {ts(
+            'Select +, then Add custom MCP server. Paste the URL as the Server URL, choose OAuth, confirm, and select Create as a plugin. Install the plugin, then sign in.'
+          )}
+        </Row>
+        <Row label="Claude Code">
+          <span className="flex min-w-0 items-center gap-1">
+            <code className="min-w-0 whitespace-normal break-all font-mono text-xs">
+              {command}
+            </code>
+            <CopyButton
+              size="sm"
+              text={command}
+              label={ts('Copy command')}
+              copiedLabel={ts('Command copied')}
+            />
+          </span>
+          <span className="block text-xs text-muted-foreground">
+            {ts('Then run /mcp in Claude Code to sign in.')}
+          </span>
+        </Row>
+      </dl>
+      <a
+        href={`${consoleURL}/mcp-access`}
+        target="_blank"
+        rel="noopener noreferrer"
+        className="inline-flex items-center gap-1 text-xs underline underline-offset-2"
+      >
+        <ExternalLink className="h-3 w-3" aria-hidden="true" />
+        {ts('Other clients and connections in Dagu Cloud')}
+      </a>
+    </div>
+  );
+}
+
+/** Lists the latest calls from Dagu Cloud that audit logs recorded. */
+function AgentActivity({ remoteNode }: { remoteNode: string }) {
+  const { ts } = useI18n();
+  const { data } = useQuery(
+    '/audit',
+    {
+      params: {
+        query: { remoteNode, credentialType: 'cloud', limit: 50 },
+      },
+    },
+    { refreshInterval: 30_000 }
+  );
+  const calls = (data?.entries ?? [])
+    .filter((entry) => finishedCall.test(entry.action))
+    .slice(0, ACTIVITY_ROWS);
+
+  return (
+    <div className="space-y-1.5">
+      <h3 className="text-xs font-medium text-muted-foreground">
+        {ts('Agent activity')}
+      </h3>
+      {calls.length === 0 ? (
+        <p className="text-sm text-muted-foreground">
+          {ts('No calls from Dagu Cloud yet.')}
+        </p>
+      ) : (
+        <ul className="divide-y divide-border text-sm">
+          {calls.map((entry) => {
+            const details = parseDetails(entry.details);
+            const failed = !entry.action.endsWith('.succeeded');
+            return (
+              <li
+                key={entry.id}
+                className="flex items-center gap-3 py-1.5 min-w-0"
+              >
+                <span className="w-28 shrink-0 whitespace-nowrap text-xs text-muted-foreground">
+                  <RelativeTime timestamp={entry.timestamp} />
+                </span>
+                <span className="min-w-0 flex-1 truncate">
+                  <span className="font-mono text-xs">
+                    {[entry.mcpTool, details.mcp_action, details.resource_id]
+                      .filter(Boolean)
+                      .join(' ')}
+                  </span>
+                </span>
+                <span className="hidden sm:block max-w-[12rem] truncate text-xs text-muted-foreground">
+                  {entry.username}
+                </span>
+                {failed && (
+                  <span className="shrink-0 text-xs text-warning">
+                    {ts(entry.action.endsWith('.denied') ? 'Denied' : 'Failed')}
+                  </span>
+                )}
+              </li>
+            );
+          })}
+        </ul>
+      )}
+    </div>
+  );
+}
+
+/** Reads the fields of an audit entry's details that name what a call did. */
+function parseDetails(details?: string): {
+  mcp_action?: string;
+  resource_id?: string;
+} {
+  try {
+    const parsed = JSON.parse(details ?? '{}');
+    return typeof parsed === 'object' && parsed !== null ? parsed : {};
+  } catch {
+    return {};
+  }
+}
+
+/**
+ * Lists the levels at which MCP calls through Dagu Cloud may reach this
+ * server, with what each allows, and warns that developer runs any command.
+ */
+export function RemoteAccessChoices({
+  selected,
+  onSelect,
+  disabled,
+  className,
+}: {
+  selected: OnLevel;
+  onSelect: (level: OnLevel) => void;
+  disabled?: boolean;
+  className?: string;
+}) {
+  const { ts } = useI18n();
+  const name = useId();
+  return (
+    <>
+      <fieldset className={cn('space-y-2', className)} disabled={disabled}>
+        <legend className="sr-only">{ts('Remote access')}</legend>
+        {choices.map((choice) => {
+          const id = `${name}-${choice.level}`;
+          return (
+            <label
+              key={choice.level}
+              htmlFor={id}
+              className={cn(
+                'flex cursor-pointer items-start gap-3 rounded-md border p-3',
+                selected === choice.level
+                  ? 'border-primary bg-primary/5'
+                  : 'border-border'
+              )}
+            >
+              <input
+                id={id}
+                type="radio"
+                name={name}
+                value={choice.level}
+                checked={selected === choice.level}
+                onChange={() => onSelect(choice.level)}
+                aria-labelledby={`${id}-title`}
+                aria-describedby={`${id}-allows`}
+                className="mt-1"
+              />
+              <span className="space-y-1">
+                <span id={`${id}-title`} className="block text-sm font-medium">
+                  {ts(remoteAccessLevelLabels[choice.level])}
+                </span>
+                <span
+                  id={`${id}-allows`}
+                  className="block text-sm text-muted-foreground"
+                >
+                  {ts(choice.allows)}
+                </span>
+              </span>
+            </label>
+          );
+        })}
+      </fieldset>
+      {selected === LicenseRemoteAccessLevel.developer && (
+        <p role="alert" className="flex items-start gap-2 text-sm text-warning">
+          <AlertTriangle
+            className="h-4 w-4 shrink-0 mt-0.5"
+            aria-hidden="true"
+          />
+          {ts(
+            'Developer lets the Dagu Cloud users this reaches run any command on this machine, as the user Dagu runs as. Choose it only where you would give them a shell here.'
+          )}
+        </p>
+      )}
+    </>
+  );
+}
+
+/**
+ * Asks an administrator how far calls from Dagu Cloud may go, listing what
+ * each role allows before any call reaches the server.
+ */
+function RemoteAccessDialog({
+  open,
+  level,
+  onSave,
+  onCancel,
+}: {
+  open: boolean;
+  level?: LicenseRemoteAccessLevel;
+  onSave: (level: OnLevel) => Promise<void>;
+  onCancel: () => void;
+}) {
+  const { ts } = useI18n();
+  const [selected, setSelected] = useState<OnLevel>(
+    DEFAULT_REMOTE_ACCESS_LEVEL
+  );
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const on = level !== undefined && level !== LicenseRemoteAccessLevel.off;
+
+  useEffect(() => {
+    if (!open) return;
+    setSelected(on ? (level as OnLevel) : DEFAULT_REMOTE_ACCESS_LEVEL);
+    setError(null);
+  }, [open, level, on]);
+
+  async function save() {
+    setSaving(true);
+    setError(null);
+    try {
+      await onSave(selected);
+    } catch (err) {
+      setError(
+        err instanceof Error && err.message
+          ? err.message
+          : ts('Could not change remote access.')
+      );
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return (
+    <Dialog
+      open={open}
+      onOpenChange={(next) => {
+        if (!next && !saving) onCancel();
+      }}
+    >
+      <DialogContent className="max-h-[90dvh] overflow-y-auto sm:max-w-[560px]">
+        <DialogHeader>
+          <DialogTitle>{ts('Choose remote access')}</DialogTitle>
+          <DialogDescription>
+            {ts(
+              'The highest role a Dagu Cloud user gets on this server. Dagu Cloud may grant less, never more.'
+            )}
+          </DialogDescription>
+        </DialogHeader>
+        <RemoteAccessChoices
+          selected={selected}
+          onSelect={setSelected}
+          disabled={saving}
+        />
+        <p className="text-sm text-muted-foreground">
+          {ts(
+            'Calls never reach the terminal, users, API keys, the license, or these settings. Each carries a short-lived assertion that Dagu Cloud signs for that call alone. Turning remote access off closes the connection and ends the calls in flight.'
+          )}
+        </p>
+        {error && (
+          <p role="alert" className="text-sm text-destructive">
+            {error}
+          </p>
+        )}
+        <DialogFooter className="gap-2">
+          <Button variant="ghost" disabled={saving} onClick={onCancel}>
+            {ts('Cancel')}
+          </Button>
+          <Button
+            variant="primary"
+            disabled={saving}
+            onClick={() => void save()}
+          >
+            {saving && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
+            {ts(on ? 'Save' : 'Turn on')}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}

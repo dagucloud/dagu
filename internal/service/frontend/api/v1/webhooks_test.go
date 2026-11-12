@@ -95,6 +95,13 @@ func defaultTestLicenseManager() *license.Manager {
 // Pro license. Extra config mutators are applied after the base auth config.
 func setupWebhookTestServer(t *testing.T, extraMutators ...func(*config.Config)) test.Server {
 	t.Helper()
+	return setupWebhookTestServerWithLicense(t, defaultTestLicenseManager(), extraMutators...)
+}
+
+// setupWebhookTestServerWithLicense is setupWebhookTestServer with the given
+// license manager.
+func setupWebhookTestServerWithLicense(t *testing.T, licenseManager *license.Manager, extraMutators ...func(*config.Config)) test.Server {
+	t.Helper()
 
 	server := test.SetupServer(t,
 		test.WithConfigMutator(func(cfg *config.Config) {
@@ -105,7 +112,7 @@ func setupWebhookTestServer(t *testing.T, extraMutators ...func(*config.Config))
 				m(cfg)
 			}
 		}),
-		test.WithServerOptions(frontend.WithLicenseManager(defaultTestLicenseManager())),
+		test.WithServerOptions(frontend.WithLicenseManager(licenseManager)),
 	)
 
 	// Create admin via setup endpoint
@@ -601,6 +608,29 @@ func TestWebhooks_TriggerWithDagRunID(t *testing.T) {
 		}).WithBearerToken(webhookToken).Send(t)
 		return resp.Response.StatusCode() == http.StatusConflict
 	}, 30*time.Second, 100*time.Millisecond, "duplicate dag-run ID should return 409 Conflict")
+}
+
+// The dag-run ID becomes part of run storage paths, so the webhook must apply
+// the same character rules as the other run endpoints.
+func TestWebhooks_TriggerRejectsUnsafeDagRunID(t *testing.T) {
+	t.Parallel()
+	server := setupWebhookTestServer(t)
+	token := getWebhookAdminToken(t, server)
+
+	dagName := "webhook_unsafe_run_id_test"
+	createTestDAG(t, server, token, dagName)
+
+	createResp := server.Client().Post("/api/v1/dags/"+dagName+"/webhook", nil).
+		WithBearerToken(token).ExpectStatus(http.StatusCreated).Send(t)
+
+	var createResult api.WebhookCreateResponse
+	createResp.Unmarshal(t, &createResult)
+
+	for _, dagRunID := range []string{"../../escape", "run/../escape", `run\escape`} {
+		server.Client().Post("/api/v1/webhooks/"+dagName, api.WebhookRequest{
+			DagRunId: &dagRunID,
+		}).WithBearerToken(createResult.Token).ExpectStatus(http.StatusBadRequest).Send(t)
+	}
 }
 
 func TestWebhooks_TriggerUsesDAGDefaultProfile(t *testing.T) {
@@ -1210,4 +1240,27 @@ func mapsKeys[M ~map[string]V, V any](m M) []string {
 		keys = append(keys, key)
 	}
 	return keys
+}
+
+// A webhook starts no run next to the active run of a DAG with a restart_policy.
+func TestWebhooks_ServiceDAGRunsOneAtATime(t *testing.T) {
+	webhookParallel(t)
+	server := setupWebhookTestServer(t)
+	token := getWebhookAdminToken(t, server)
+
+	const dagName = "webhook-service"
+	createTestDAGWithSpec(t, server, token, dagName, `restart_policy: always
+restart_wait_sec: 1
+steps:
+  - run: echo ok
+`)
+	var created api.WebhookCreateResponse
+	server.Client().Post("/api/v1/dags/"+dagName+"/webhook", nil).
+		WithBearerToken(token).ExpectStatus(http.StatusCreated).Send(t).Unmarshal(t, &created)
+
+	// The first run stays queued: the test server runs no scheduler.
+	for _, want := range []int{http.StatusOK, http.StatusConflict} {
+		server.Client().Post("/api/v1/webhooks/"+dagName, api.WebhookRequest{}).
+			WithBearerToken(created.Token).ExpectStatus(want).Send(t)
+	}
 }

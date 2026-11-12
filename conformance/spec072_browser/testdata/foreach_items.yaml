@@ -1,0 +1,31 @@
+working_dir: .
+env:
+  - SHOP_URL: ${SHOP_URL}
+steps:
+  - id: each
+    foreach:
+      # The first item keeps its browser open while the second starts its
+      # own.
+      items: [8s, 1s]
+      max_concurrent: 2
+      steps:
+        - id: turn
+          action: wait.http
+          with:
+            url: ${SHOP_URL}/items/turn?item=${foreach.index}
+            poll_interval: 200ms
+        - id: look
+          depends: turn
+          action: browser.run
+          with:
+            url: ${SHOP_URL}/items/page?item=${foreach.index}
+            do:
+              - wait: {duration: "${foreach.item}"}
+              - expect: {text: "Item ${foreach.index}"}
+    output: EACH
+  - id: record
+    depends: each
+    action: file.write
+    with:
+      path: each.out
+      content: ${EACH}

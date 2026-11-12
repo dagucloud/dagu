@@ -138,12 +138,13 @@ func ResolveWorkingDir(ctx context.Context, dag *ir.DAG) (string, error) {
 		},
 		cmnvalue.WithValueReferenceNotices(&notices),
 	)
-	workingDir, err := resolver.String(ctx, dag.WorkingDir, cmnvalue.DAGWorkingDirField("working_dir"))
+	field := cmnvalue.DAGWorkingDirField("working_dir")
+	workingDir, err := resolver.String(ctx, dag.WorkingDir, field)
 	if err != nil {
 		return "", err
 	}
-	workingDir = scope.Expand(workingDir)
-	cmnvalue.ReportUnresolvedEnvExpansionNotices(workingDir, "working_dir", scope, &notices)
+	workingDir = scope.ExpandPath(workingDir)
+	cmnvalue.ReportUnresolvedEnvExpansionNotices(workingDir, field, scope, &notices)
 	if unresolved := notices.Notices(); len(unresolved) > 0 {
 		return "", fmt.Errorf("working_dir %q could not be resolved: %s", dag.WorkingDir, unresolved[0].Message)
 	}
@@ -172,11 +173,11 @@ func expandDotenvPath(dag *ir.DAG, path string, scope *cmnvalue.EnvScope) string
 		cmnvalue.StaticScope{Consts: cmnvalue.Values(dag.Consts)},
 		cmnvalue.RuntimeScope{Consts: cmnvalue.Values(dag.Consts)},
 	)
-	expanded, err := resolver.String(context.Background(), path, cmnvalue.StaticValidationField("dotenv"))
+	expanded, err := resolver.String(context.Background(), path, cmnvalue.DAGWorkingDirField("working_dir"))
 	if err != nil {
 		expanded = path
 	}
-	return scope.Expand(expanded)
+	return scope.ExpandPath(expanded)
 }
 
 func loadFile(

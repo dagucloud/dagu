@@ -327,6 +327,10 @@ func TestNewContext_DAGEnvCanReferenceBuiltInRunContext(t *testing.T) {
 			"TRIGGER_ACTOR_REF=${context.trigger.actor}",
 			"STARTED_REF=${context.attempt.started_at}",
 			"SCHEDULED_REF=${context.run.scheduled_at}",
+			"INTERVAL_START_REF=${context.run.interval_start}",
+			"INTERVAL_END_REF=${context.run.interval_end}",
+			"NEXT_SCHEDULED_REF=${context.run.next_scheduled_at}",
+			"TIMEZONE_REF=${context.run.timezone}",
 			"ROOT_NAME_REF=${context.run.root_name}",
 			"ROOT_ID_REF=${context.run.root_id}",
 			"LOG_REF=${context.paths.log_file}",
@@ -344,6 +348,11 @@ func TestNewContext_DAGEnvCanReferenceBuiltInRunContext(t *testing.T) {
 		runctx.WithTriggerActor("alice"),
 		runctx.WithRunStartedAt(startedAt),
 		runctx.WithScheduleTime(scheduledAt),
+		runctx.WithScheduleWindow(ir.ScheduleWindow{
+			Start:    time.Date(2026, 3, 13, 9, 0, 0, 0, time.UTC),
+			Next:     time.Date(2026, 3, 13, 11, 0, 0, 0, time.UTC),
+			Timezone: "Asia/Tokyo",
+		}),
 		runctx.WithWorkDir(workDir),
 		runctx.WithArtifactDir(artifactDir),
 		runctx.WithRuntimeProfile("prod", profileResolvedAt, nil),
@@ -357,6 +366,10 @@ func TestNewContext_DAGEnvCanReferenceBuiltInRunContext(t *testing.T) {
 	assert.Equal(t, "alice", envs["TRIGGER_ACTOR_REF"])
 	assert.Equal(t, startedAt, envs["STARTED_REF"])
 	assert.Equal(t, scheduledAt, envs["SCHEDULED_REF"])
+	assert.Equal(t, "2026-03-13T09:00:00Z", envs["INTERVAL_START_REF"])
+	assert.Equal(t, scheduledAt, envs["INTERVAL_END_REF"])
+	assert.Equal(t, "2026-03-13T11:00:00Z", envs["NEXT_SCHEDULED_REF"])
+	assert.Equal(t, "Asia/Tokyo", envs["TIMEZONE_REF"])
 	assert.Equal(t, "root", envs["ROOT_NAME_REF"])
 	assert.Equal(t, "root-run-1", envs["ROOT_ID_REF"])
 	assert.Equal(t, logFile, envs["LOG_REF"])
@@ -586,12 +599,14 @@ func TestNewContext_AllEnvsUsesFilteredBaseEnv(t *testing.T) {
 		"EXEC_CONTEXT_ALLOWED=allowed",
 		"KUBERNETES_SERVICE_HOST=10.0.0.1",
 		"KUBERNETES_SERVICE_PORT=443",
+		"DAGU_HOME=/srv/dagu",
+		"DAGU_AUTH_BASIC_PASSWORD=server-password",
 	})
 
 	ctx := config.WithConfig(context.Background(), cfg)
 	dag := &ir.DAG{
 		Name: "test-dag",
-		Env:  []string{"DAG_VAR=dag"},
+		Env:  []string{"DAG_VAR=dag", "FROM_CREDENTIAL=${env.DAGU_AUTH_BASIC_PASSWORD}"},
 	}
 
 	ctx = runctx.NewContext(ctx, dag, "run-1", "test.log")
@@ -603,7 +618,13 @@ func TestNewContext_AllEnvsUsesFilteredBaseEnv(t *testing.T) {
 	assert.Contains(t, envs, "KUBERNETES_SERVICE_HOST=10.0.0.1")
 	assert.Contains(t, envs, "KUBERNETES_SERVICE_PORT=443")
 	assert.Contains(t, envs, "DAG_VAR=dag")
+	assert.Contains(t, envs, "DAGU_HOME=/srv/dagu")
 	assert.NotContains(t, envs, "EXEC_CONTEXT_HOST_ONLY=host-value")
+	// Dagu's own credentials reach neither the step nor a DAG env entry that
+	// names one.
+	for _, env := range envs {
+		assert.NotContains(t, env, "server-password")
+	}
 }
 
 func TestPendingStepRetryJSON(t *testing.T) {

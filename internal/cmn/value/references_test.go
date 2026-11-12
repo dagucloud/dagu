@@ -73,6 +73,8 @@ func TestIsExactRef(t *testing.T) {
 		{token: "${steps.fetch.outputs.template}", want: true},
 		{token: "${foreach.item}", want: true},
 		{token: "${foreach.item.template}", want: true},
+		{token: "${foreach.row._row}", want: true},
+		{token: "${foreach.row.請求番号}", want: true},
 		{token: "${context.run.id}", want: true},
 		{token: "${params}", want: false},
 		{token: "${run.id}", want: false},
@@ -432,4 +434,110 @@ func TestIsWholeReference(t *testing.T) {
 	for _, text := range notWhole {
 		assert.False(t, value.IsWholeReference(text), "%q should not be a whole reference", text)
 	}
+}
+
+func TestHasAnyReference(t *testing.T) {
+	t.Parallel()
+
+	withReference := []string{
+		"${params.delay}",
+		"${BASE_URL}",
+		"$BASE_URL",
+		"${BASE_URL}/health",
+		"http://$HOST:8080/ready",
+		"${SECS}s",
+		"$params.delay",
+		"$1",
+	}
+	for _, text := range withReference {
+		assert.True(t, value.HasAnyReference(text), "%q should hold a reference", text)
+	}
+
+	withoutReference := []string{
+		"",
+		"30s",
+		"http://example.com/ready",
+		"$",
+		`\${BASE_URL}/health`,
+		`\$BASE_URL`,
+	}
+	for _, text := range withoutReference {
+		assert.False(t, value.HasAnyReference(text), "%q should not hold a reference", text)
+	}
+}
+
+func TestStepTextReferences(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name string
+		raw  string
+		want []value.StepTextReference
+	}{
+		{
+			name: "WholeOutput",
+			raw:  `echo '${agent.output}'`,
+			want: []value.StepTextReference{{Expression: "${agent.output}", StepName: "agent"}},
+		},
+		{
+			name: "OutputField",
+			raw:  `echo '${agent.output.summary}'`,
+			want: []value.StepTextReference{{Expression: "${agent.output.summary}", StepName: "agent", Field: "summary"}},
+		},
+		{
+			name: "NestedOutputField",
+			raw:  `echo '${agent.output.report.title}'`,
+			want: []value.StepTextReference{{Expression: "${agent.output.report.title}", StepName: "agent", Field: "report"}},
+		},
+		{
+			name: "IndexedField",
+			raw:  `echo '${agent.output.items[0]}'`,
+			want: []value.StepTextReference{{Expression: "${agent.output.items[0]}", StepName: "agent", Field: "items"}},
+		},
+		{
+			name: "IndexedOutput",
+			raw:  `echo '${agent.output[0]}'`,
+			want: []value.StepTextReference{{Expression: "${agent.output[0]}", StepName: "agent"}},
+		},
+		{
+			name: "SlicedOutput",
+			raw:  `echo '${agent.output:0:5}'`,
+			want: []value.StepTextReference{{Expression: "${agent.output:0:5}", StepName: "agent"}},
+		},
+		{
+			name: "PublishedOutput",
+			raw:  `echo '${agent.outputs.summary}'`,
+			want: []value.StepTextReference{{Expression: "${agent.outputs.summary}", StepName: "agent", Field: "summary"}},
+		},
+		{
+			name: "StrictOutput",
+			raw:  `echo '${steps.agent.outputs.summary}'`,
+			want: []value.StepTextReference{{Expression: "${steps.agent.outputs.summary}", StepName: "agent", Field: "summary"}},
+		},
+		{name: "StdoutIsAPath", raw: `cat '${agent.stdout}'`},
+		{name: "StderrIsAPath", raw: `cat '${agent.stderr}'`},
+		{name: "ExitCode", raw: `test '${agent.exit_code}' = 0`},
+		{name: "SimilarProperty", raw: `echo '${agent.outputsize}'`},
+		{name: "Escaped", raw: `echo '\${agent.output.summary}'`},
+		{name: "BareName", raw: `echo "${SUMMARY}"`},
+		{name: "OtherNamespace", raw: `echo '${params.output}'`},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			got := value.WorkflowField("run").StepTextReferences(tt.raw)
+			assert.Equal(t, tt.want, got)
+		})
+	}
+}
+
+func TestFieldReachesShell(t *testing.T) {
+	t.Parallel()
+
+	command := value.CommandContext{}
+	assert.True(t, value.ShellCommandField("run", command).ReachesShell())
+	assert.True(t, value.CommandScriptField("run", command).ReachesShell())
+	assert.False(t, value.DirectCommandField("run", command).ReachesShell())
+	assert.False(t, value.StepEnvField("env").ReachesShell())
+	assert.False(t, value.WorkflowField("prompt").ReachesShell())
 }

@@ -16,6 +16,10 @@ const (
 	AuthProviderOIDC = "oidc"
 	// AuthProviderProxy identifies users authenticated through proxy authentication.
 	AuthProviderProxy = "proxy"
+	// AuthProviderCloud identifies users Dagu Cloud vouches for on the calls
+	// it carries to the server. They are never stored, and their role limits
+	// them even on a server without users of its own.
+	AuthProviderCloud = "dagu_cloud"
 )
 
 // User represents a user in the system.

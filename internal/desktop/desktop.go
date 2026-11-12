@@ -16,6 +16,7 @@ import (
 	"image"
 	"slices"
 	"strings"
+	"sync"
 	"time"
 )
 
@@ -50,6 +51,9 @@ func ParseButton(name string) (Button, error) {
 type Backend interface {
 	// Capture returns the primary display in physical pixels.
 	Capture() (*image.RGBA, error)
+	// CaptureApps captures the windows of applications, named by App, as
+	// Driver.CaptureApps describes.
+	CaptureApps(apps []string) (Capture, error)
 	// MoveTo moves the pointer to a physical pixel position.
 	MoveTo(x, y int) error
 	// Position reports the pointer's physical pixel position.
@@ -63,6 +67,30 @@ type Backend interface {
 	Key(key Key, down bool) error
 	// Type types text at the keyboard focus.
 	Type(text string) error
+	// FocusedWindow reports the window that has the keyboard focus, or a
+	// zero WindowID where the system does not say.
+	FocusedWindow() WindowID
+	// WindowAt reports the top-level window under a physical pixel
+	// position, or a zero WindowID where the system does not say.
+	WindowAt(x, y int) WindowID
+	// Windows lists the visible top-level windows, the front of the
+	// Z-order first. It is empty where the system does not enumerate them.
+	Windows() []WindowID
+	// ReachableWindows lists every visible top-level window a pointer
+	// action can land in, the front of the Z-order first: those Windows
+	// lists, and the untitled ones and those of menus, status items, the
+	// Dock or the taskbar it leaves out, but not a menu bar the front
+	// application draws in. It is empty where the system does not
+	// enumerate them.
+	ReachableWindows() []WindowID
+	// Raise brings a window to the foreground. It is a best effort: the
+	// system may refuse a foreground change asked by a background process.
+	Raise(w WindowID) error
+	// Maximize makes a window fill the primary display's work area, moving
+	// it there from another display. It reports false, doing nothing, for
+	// a window that cannot be maximized, such as a dialog or a window of
+	// fixed size, and for one already maximized.
+	Maximize(w WindowID) (bool, error)
 	// LastInput reports when the desktop last received pointer or keyboard
 	// input from any source, the driver included, or the zero time when it
 	// cannot tell.
@@ -115,6 +143,24 @@ func (d Diagnostics) Err() error {
 	return errors.New(strings.Join(messages, "; "))
 }
 
+// AwaitsPerson reports whether the desktop is unusable only until a person
+// unlocks the screen, logs in, or switches back to this user, so a caller
+// can wait for it rather than fail. It is false for a usable desktop and
+// whenever a problem needs a permission or the setup changed.
+func (d Diagnostics) AwaitsPerson() bool {
+	if len(d.Problems) == 0 {
+		return false
+	}
+	for _, problem := range d.Problems {
+		switch problem.Code {
+		case problemScreenLocked, problemNoSession, problemOtherSession:
+		default:
+			return false
+		}
+	}
+	return true
+}
+
 // Timing of composite input. Applications miss events that arrive
 // faster than a person could produce them.
 const (
@@ -126,11 +172,58 @@ const (
 	inputEcho = time.Second
 )
 
+// maxScrollNotches bounds one scroll along each axis, about ten screens,
+// so a mistaken count cannot flood the desktop with wheel input.
+const maxScrollNotches = 100
+
+// WindowID names a top-level window the way the system reports it, so a
+// step can tell whether the focus moved and whose window an action would
+// operate.
+type WindowID struct {
+	Handle uint64
+	Title  string
+	PID    uint32
+	// App is the window's process image name without its extension, the
+	// stable identity a replay raises a window by, since a title often
+	// shows the document's contents. Empty where the system does not say.
+	App string
+	// Bounds is the window's frame in display pixels, empty where the
+	// system does not say.
+	Bounds image.Rectangle
+	// Minimized marks a window the system lists while it shows nothing on
+	// the screen, which only bringing it forward shows again.
+	Minimized bool
+}
+
+// Known reports a window the system named.
+func (w WindowID) Known() bool { return w.Handle != 0 }
+
 // Driver performs desktop actions on a Backend.
 type Driver struct {
 	backend Backend
 	// lastInput is when the driver last sent input.
 	lastInput time.Time
+	// owned are the processes whose windows the driver never operates: its
+	// own, and the ones that started it, which is the automation's own
+	// application. Listing processes takes a moment, so it waits for the
+	// first action that needs it.
+	owned     map[uint32]bool
+	ownedOnce sync.Once
+	// protectedApps are applications, by App, whose windows the driver
+	// never operates either, such as the one a person runs the automation
+	// from when the system did not start it as the automation's parent.
+	protectedApps []string
+	// protectedTitles are window titles the driver never operates, such as
+	// the automation's own pages in a browser a person also uses.
+	protectedTitles []string
+	// held are the buttons PressButton pressed and nothing released since.
+	held []Button
+	// marks shows a person where each action lands, labelled with
+	// markName, and focusMark is the element keys are marked on; see
+	// ShowMarks.
+	marks     Marks
+	markName  string
+	focusMark image.Rectangle
 }
 
 // New returns a driver for a backend.
@@ -140,9 +233,109 @@ func New(backend Backend) *Driver {
 	return d
 }
 
+func (d *Driver) family() map[uint32]bool {
+	d.ownedOnce.Do(func() {
+		family := ownProcessFamily()
+		for pid := range d.owned {
+			family[pid] = true
+		}
+		d.owned = family
+	})
+	return d.owned
+}
+
+// FocusedWindow reports the window that has the keyboard focus.
+func (d *Driver) FocusedWindow() WindowID { return d.backend.FocusedWindow() }
+
+// WindowAt reports the top-level window under a display position.
+func (d *Driver) WindowAt(at image.Point) WindowID { return d.backend.WindowAt(at.X, at.Y) }
+
+// Windows lists the visible top-level windows, the front of the Z-order
+// first, so a step can find one to bring forward.
+func (d *Driver) Windows() []WindowID { return d.backend.Windows() }
+
+// ReachableWindows lists every visible window a pointer action can land in,
+// the front first.
+func (d *Driver) ReachableWindows() []WindowID { return d.backend.ReachableWindows() }
+
+// Raise brings a window to the foreground, a best effort.
+func (d *Driver) Raise(w WindowID) error { return d.backend.Raise(w) }
+
+// Maximize makes a window fill the primary display's work area. It reports
+// false for a window that cannot be maximized or already is.
+func (d *Driver) Maximize(w WindowID) (bool, error) { return d.backend.Maximize(w) }
+
+// Protect adds processes whose windows the driver never operates.
+func (d *Driver) Protect(pids ...uint32) {
+	if d.owned == nil {
+		d.owned = map[uint32]bool{}
+	}
+	for _, pid := range pids {
+		d.owned[pid] = true
+	}
+}
+
+// ProtectApps adds applications, by App compared ignoring case, whose
+// windows the driver never operates.
+func (d *Driver) ProtectApps(apps ...string) {
+	for _, app := range apps {
+		if app = strings.TrimSpace(app); app != "" {
+			d.protectedApps = append(d.protectedApps, app)
+		}
+	}
+}
+
+// ProtectTitles adds window titles, matched as WindowMatches matches them,
+// whose windows the driver never operates.
+func (d *Driver) ProtectTitles(titles ...string) {
+	for _, title := range titles {
+		if title = strings.TrimSpace(title); title != "" {
+			d.protectedTitles = append(d.protectedTitles, title)
+		}
+	}
+}
+
+// Owned reports a window of the automation's own application, which a step
+// never operates: a keystroke to it could close the application that runs
+// the step, and a click in its pages could start the automation again.
+func (d *Driver) Owned(w WindowID) bool {
+	return d.ownedApplication(w) || d.protectsTitle(w)
+}
+
+// OwnedPage reports a window Owned only for its title: a page of the
+// automation's own application that another application, such as a
+// browser, shows.
+func (d *Driver) OwnedPage(w WindowID) bool {
+	return d.protectsTitle(w) && !d.ownedApplication(w)
+}
+
+func (d *Driver) ownedApplication(w WindowID) bool {
+	if w.PID != 0 && d.family()[w.PID] {
+		return true
+	}
+	return w.App != "" && slices.ContainsFunc(d.protectedApps, func(app string) bool { return strings.EqualFold(app, w.App) })
+}
+
+func (d *Driver) protectsTitle(w WindowID) bool {
+	return w.Title != "" && slices.ContainsFunc(d.protectedTitles, func(title string) bool { return WindowMatches(w.Title, title) })
+}
+
 // InputSentAt reports when the driver last sent input.
 func (d *Driver) InputSentAt() time.Time {
 	return d.lastInput
+}
+
+// sinceLastUse reports how long ago the desktop last saw any input, the
+// driver's own included. It is zero when the clock cannot be read.
+func (d *Driver) sinceLastUse() time.Duration {
+	last := d.backend.LastInput()
+	if last.IsZero() {
+		return 0
+	}
+	if since := time.Since(last); since > 0 {
+		return since
+	}
+	return 0
 }
 
 // AssumeInputSent records that input was sent at, such as by an earlier
@@ -167,11 +360,12 @@ func (d *Driver) PersonInputSince(since time.Time) bool {
 }
 
 // WaitForIdle returns once nobody but the driver has used the desktop for
-// idle, checking every poll. onWait runs once if the driver has to wait.
-func (d *Driver) WaitForIdle(ctx context.Context, idle, poll time.Duration, onWait func()) error {
+// idle, checking every poll. onWait runs once if the driver has to wait,
+// told how long ago the desktop was last used so a view can say why.
+func (d *Driver) WaitForIdle(ctx context.Context, idle, poll time.Duration, onWait func(lastUsed time.Duration)) error {
 	for waited := false; d.PersonInputSince(time.Now().Add(-idle)); waited = true {
 		if !waited {
-			onWait()
+			onWait(d.sinceLastUse())
 		}
 		if err := pause(ctx, poll); err != nil {
 			return err
@@ -180,14 +374,26 @@ func (d *Driver) WaitForIdle(ctx context.Context, idle, poll time.Duration, onWa
 	return nil
 }
 
-// Close releases the driver.
+// Close releases the driver, every button still pressed, and its marks.
 func (d *Driver) Close() error {
-	return d.backend.Close()
+	return errors.Join(d.ReleaseHeld(), d.closeMarks(), d.backend.Close())
 }
 
 // Screenshot captures the primary display.
 func (d *Driver) Screenshot() (*image.RGBA, error) {
 	return d.backend.Capture()
+}
+
+// CaptureApps captures the windows of applications, named by App and
+// compared ignoring case, with the menus, sheets, and dialogs they open, and
+// on macOS the menu bar while one of them is in front: each as it draws
+// itself, the parts other windows cover included, at its place and in its
+// order on the primary display, with nothing else of the screen. The
+// picture covers the part of the display those windows cover and is black
+// where none is. Minimized windows are not shown. It fails with
+// ErrNoWindows when none of the windows shows on the display.
+func (d *Driver) CaptureApps(apps []string) (Capture, error) {
+	return d.backend.CaptureApps(apps)
 }
 
 // CursorPosition reports the pointer position.
@@ -207,6 +413,7 @@ func (d *Driver) Move(ctx context.Context, at image.Point) error {
 // MoveHolding moves the pointer while holding modifiers, as when hovering
 // with a key pressed.
 func (d *Driver) MoveHolding(ctx context.Context, at image.Point, modifiers []Key) error {
+	d.markAt("move", at)
 	return d.withKeys(ctx, modifiers, func() error {
 		return d.Move(ctx, at)
 	})
@@ -215,6 +422,7 @@ func (d *Driver) MoveHolding(ctx context.Context, at image.Point, modifiers []Ke
 // Click clicks a button count times at a position, or at the pointer when
 // at is nil, while holding modifiers.
 func (d *Driver) Click(ctx context.Context, at *image.Point, button Button, count int, modifiers []Key) error {
+	d.markAt(clickAction(button, count), pointsAt(at)...)
 	if at != nil {
 		if err := d.Move(ctx, *at); err != nil {
 			return err
@@ -233,14 +441,43 @@ func (d *Driver) Click(ctx context.Context, at *image.Point, button Button, coun
 	})
 }
 
-// PressButton presses a button at the pointer.
+// PressButton presses a button at the pointer, which stays pressed until
+// ReleaseButton or ReleaseHeld releases it.
 func (d *Driver) PressButton(button Button) error {
-	return d.backend.Button(button, true, 1)
+	d.markAt("press " + string(button))
+	if err := d.backend.Button(button, true, 1); err != nil {
+		return err
+	}
+	if !slices.Contains(d.held, button) {
+		d.held = append(d.held, button)
+	}
+	return nil
 }
 
 // ReleaseButton releases a button at the pointer.
 func (d *Driver) ReleaseButton(button Button) error {
-	return d.backend.Button(button, false, 1)
+	d.markAt("release " + string(button))
+	if err := d.backend.Button(button, false, 1); err != nil {
+		return err
+	}
+	d.held = slices.DeleteFunc(d.held, func(b Button) bool { return b == button })
+	return nil
+}
+
+// Holding reports whether a button PressButton pressed is still down.
+func (d *Driver) Holding() bool { return len(d.held) > 0 }
+
+// ReleaseHeld releases, at the pointer, every button PressButton pressed
+// and nothing has released since. A button whose release fails stays
+// pressed for the next ReleaseHeld.
+func (d *Driver) ReleaseHeld() error {
+	var errs []error
+	d.held = slices.DeleteFunc(d.held, func(button Button) bool {
+		err := d.backend.Button(button, false, 1)
+		errs = append(errs, err)
+		return err == nil
+	})
+	return errors.Join(errs...)
 }
 
 // Drag holds the left button from the first point of a path to the last,
@@ -249,6 +486,7 @@ func (d *Driver) Drag(ctx context.Context, path []image.Point, modifiers []Key) 
 	if len(path) < 2 {
 		return errors.New("a drag needs at least two points")
 	}
+	d.markAt("drag", path...)
 	if err := d.Move(ctx, path[0]); err != nil {
 		return err
 	}
@@ -279,8 +517,13 @@ func (d *Driver) glide(ctx context.Context, path []image.Point) error {
 }
 
 // Scroll scrolls wheel notches at a position, or at the pointer when at is
-// nil, while holding modifiers.
+// nil, while holding modifiers. A scroll moves at most 100 notches along
+// each axis.
 func (d *Driver) Scroll(ctx context.Context, at *image.Point, dx, dy int, modifiers []Key) error {
+	if dx < -maxScrollNotches || dx > maxScrollNotches || dy < -maxScrollNotches || dy > maxScrollNotches {
+		return fmt.Errorf("a scroll moves at most %d notches at a time", maxScrollNotches)
+	}
+	d.markAt("scroll", pointsAt(at)...)
 	if at != nil {
 		if err := d.Move(ctx, *at); err != nil {
 			return err
@@ -296,6 +539,11 @@ func (d *Driver) PressKeys(ctx context.Context, keys []Key, repeat int) error {
 	if len(keys) == 0 {
 		return errors.New("no keys to press")
 	}
+	d.markKeys(keysAction("press", keys), false)
+	return d.pressKeys(ctx, keys, repeat)
+}
+
+func (d *Driver) pressKeys(ctx context.Context, keys []Key, repeat int) error {
 	for range max(repeat, 1) {
 		if err := d.withKeys(ctx, keys[:len(keys)-1], func() error {
 			last := keys[len(keys)-1]
@@ -315,6 +563,7 @@ func (d *Driver) PressKeys(ctx context.Context, keys []Key, repeat int) error {
 
 // HoldKeys holds keys down for a duration.
 func (d *Driver) HoldKeys(ctx context.Context, keys []Key, duration time.Duration) error {
+	d.markKeys(keysAction("hold", keys), false)
 	return d.withKeys(ctx, keys, func() error {
 		return pause(ctx, duration)
 	})
@@ -323,10 +572,11 @@ func (d *Driver) HoldKeys(ctx context.Context, keys []Key, duration time.Duratio
 // Type types text. Line breaks are sent as the Enter key, which
 // applications treat more consistently than a typed newline.
 func (d *Driver) Type(ctx context.Context, text string) error {
+	d.markKeys("type", !strings.ContainsAny(text, "\r\n"))
 	lines := strings.Split(strings.ReplaceAll(text, "\r\n", "\n"), "\n")
 	for i, line := range lines {
 		if i > 0 {
-			if err := d.PressKeys(ctx, []Key{KeyEnter}, 1); err != nil {
+			if err := d.pressKeys(ctx, []Key{KeyEnter}, 1); err != nil {
 				return err
 			}
 		}

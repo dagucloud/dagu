@@ -58,6 +58,9 @@ function makeConfig(overrides: Partial<Config> = {}): Config {
     gitSyncEnabled: false,
     updateAvailable: false,
     latestVersion: '',
+    upgradeCommand: '',
+    restartRequired: false,
+    restartCommand: '',
     permissions: {
       writeDags: true,
       runDags: true,
@@ -203,6 +206,35 @@ describe('EventLogsPage', () => {
     expect(await screen.findByText('Partially succeeded')).toBeInTheDocument();
   });
 
+  it('renders unknown outcomes as words', async () => {
+    useQueryMock.mockImplementation(() =>
+      mockQueryResult({
+        data: {
+          entries: [
+            {
+              id: 'evt-timeout',
+              schemaVersion: 1,
+              occurredAt: '2026-04-01T00:00:00Z',
+              recordedAt: '2026-04-01T00:00:01Z',
+              kind: 'dag_run',
+              type: 'dag.run.timed_out',
+              sourceService: 'scheduler',
+              dagName: 'demo',
+              dagRunId: 'run-timeout',
+              attemptId: 'attempt-timeout',
+              status: 'timed_out',
+            },
+          ],
+          nextCursor: undefined,
+        },
+      })
+    );
+
+    renderPage();
+
+    expect(await screen.findByText('timed out')).toBeInTheDocument();
+  });
+
   it('queries event logs with a fixed dag_run kind and the selected remote node', async () => {
     const calls: QueryCall[] = [];
     useQueryMock.mockImplementation((path, init) => {
@@ -288,15 +320,16 @@ describe('EventLogsPage', () => {
 
     renderPage();
 
-    const dagNameInputs =
-      await screen.findAllByPlaceholderText('Filter by DAG name');
+    const dagNameInputs = await screen.findAllByPlaceholderText(
+      'Filter by workflow name'
+    );
     const dagNameInput = dagNameInputs[dagNameInputs.length - 1];
     expect(dagNameInput).toBeDefined();
     if (!dagNameInput) {
       throw new Error('Expected DAG name input to be rendered');
     }
     fireEvent.change(dagNameInput, { target: { value: 'demo' } });
-    fireEvent.click(screen.getByRole('button', { name: 'Apply Filters' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Search' }));
 
     await waitFor(() => {
       const call = latestEventLogsCall(calls);
@@ -326,8 +359,9 @@ describe('EventLogsPage', () => {
     });
 
     const firstRender = renderPage();
-    const dagNameInput =
-      await screen.findByPlaceholderText('Filter by DAG name');
+    const dagNameInput = await screen.findByPlaceholderText(
+      'Filter by workflow name'
+    );
     fireEvent.change(dagNameInput, { target: { value: 'draft-only' } });
 
     firstRender.unmount();
@@ -349,7 +383,7 @@ describe('EventLogsPage', () => {
     });
 
     expect(
-      await screen.findByPlaceholderText('Filter by DAG name')
+      await screen.findByPlaceholderText('Filter by workflow name')
     ).toHaveValue('');
   });
 
@@ -361,10 +395,11 @@ describe('EventLogsPage', () => {
     });
 
     const firstRender = renderPage();
-    const dagNameInput =
-      await screen.findByPlaceholderText('Filter by DAG name');
+    const dagNameInput = await screen.findByPlaceholderText(
+      'Filter by workflow name'
+    );
     fireEvent.change(dagNameInput, { target: { value: 'payments' } });
-    fireEvent.click(screen.getByRole('button', { name: 'Apply Filters' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Search' }));
 
     await waitFor(() => {
       const call = latestEventLogsCall(calls);
@@ -398,7 +433,7 @@ describe('EventLogsPage', () => {
     });
 
     expect(
-      await screen.findByPlaceholderText('Filter by DAG name')
+      await screen.findByPlaceholderText('Filter by workflow name')
     ).toHaveValue('payments');
   });
 
@@ -448,7 +483,7 @@ describe('EventLogsPage', () => {
 
     renderPage();
 
-    fireEvent.click(await screen.findByRole('button', { name: 'Load More' }));
+    fireEvent.click(await screen.findByRole('button', { name: 'Load more' }));
 
     await waitFor(() => {
       expect(clientGetMock).toHaveBeenCalledWith('/event-logs', {

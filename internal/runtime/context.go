@@ -56,8 +56,13 @@ var (
 	WithRunStartedAt = runctx.WithRunStartedAt
 	// WithScheduleTime sets the logical schedule time.
 	WithScheduleTime = runctx.WithScheduleTime
+	// WithScheduleWindow sets the window the schedule slot owns.
+	WithScheduleWindow = runctx.WithScheduleWindow
 	// WithParams sets runtime parameters.
 	WithParams = runctx.WithParams
+	// WithParamsJSON replaces the DAG's params JSON in the environment steps
+	// see.
+	WithParamsJSON = runctx.WithParamsJSON
 	// WithDefaultEnvVars sets low-precedence inherited environment variables.
 	WithDefaultEnvVars = runctx.WithDefaultEnvVars
 	// WithEnvVars sets additional execution-scoped environment variables.

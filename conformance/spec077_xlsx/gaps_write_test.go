@@ -5,6 +5,7 @@ package spec077_xlsx_test
 
 import (
 	"encoding/json"
+	"fmt"
 	"testing"
 
 	"github.com/dagucloud/dagu/v2/conformance/harness"
@@ -150,6 +151,22 @@ func TestXlsxUpdateRowsForeach(t *testing.T) {
 	require.Equal(t, "submitted", out.Rows[3]["Status"])
 }
 
+func TestXlsxUpdateRowsConcurrentForeach(t *testing.T) {
+	t.Parallel()
+	dagu := harness.NewRunner(t)
+	dagu.Run("start", "update_rows_concurrent_foreach.yaml").ExpectExitCode(0)
+
+	var out struct {
+		Rows []map[string]any `json:"rows"`
+	}
+	readJSON(t, dagu, "out.json", &out)
+	require.Len(t, out.Rows, 30)
+	for i, row := range out.Rows {
+		require.Equal(t, fmt.Sprintf("row-%02d", i), row["ID"])
+		require.Equal(t, "done", row["Status"], "row %d", i)
+	}
+}
+
 // TestXlsxUpdateRowsRules covers the matching and writing rules of
 // update_rows: trimmed keys, _row matches, explicit null, typed change
 // counting, a date into a text column, missing: skip, and literals.
@@ -178,6 +195,32 @@ func TestXlsxUpdateRowsRules(t *testing.T) {
 	require.Equal(t, "yes", out.Rows[1]["Reviewed"])
 	require.Equal(t, "Open", out.Rows[2]["Status"])
 	require.Nil(t, out.Rows[2]["Reviewed"], "the skipped row and the untouched row get no literal")
+}
+
+// TestXlsxUpdateRowsEmpty covers an update_rows run with nothing pending: an
+// empty rows list succeeds with or without set, changes no cell, and adds
+// no set column the header row lacks.
+func TestXlsxUpdateRowsEmpty(t *testing.T) {
+	t.Parallel()
+	dagu := harness.NewRunner(t)
+	dagu.Run("start", "update_rows_empty.yaml").ExpectExitCode(0)
+
+	var out struct {
+		Changes        changes          `json:"changes"`
+		DefaultChanges changes          `json:"default_changes"`
+		Headers        []string         `json:"headers"`
+		Rows           []map[string]any `json:"rows"`
+	}
+	readJSON(t, dagu, "out.json", &out)
+	for _, c := range []changes{out.Changes, out.DefaultChanges} {
+		require.Zero(t, c.RowsUpdated)
+		require.Zero(t, c.RowsAppended)
+		require.Zero(t, c.ColumnsAdded)
+		require.Zero(t, c.CellsChanged)
+	}
+	require.Equal(t, []string{"Invoice No", "Status"}, out.Headers, "no set column is added")
+	require.Len(t, out.Rows, 1)
+	require.Equal(t, "Open", out.Rows[0]["Status"])
 }
 
 // TestXlsxUpdateRowsErrors covers the runtime errors of update_rows and

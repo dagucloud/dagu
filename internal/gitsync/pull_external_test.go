@@ -46,7 +46,7 @@ func TestPullCreatesMissingDAGsDirOnInitialSync(t *testing.T) {
 		Enabled:    true,
 		Repository: remotePath,
 		Branch:     "main",
-	}, dagsDir, filepath.Join(dagsDir, "docs"), dataDir)
+	}, dagsDir, filepath.Join(dagsDir, "docs"), "", dataDir)
 
 	result, err := svc.Pull(ctx)
 
@@ -89,7 +89,7 @@ func TestPullPreservesShortYAMLExtension(t *testing.T) {
 		Enabled:    true,
 		Repository: remotePath,
 		Branch:     "main",
-	}, dagsDir, filepath.Join(dagsDir, "docs"), dataDir)
+	}, dagsDir, filepath.Join(dagsDir, "docs"), "", dataDir)
 
 	result, err := svc.Pull(ctx)
 
@@ -126,7 +126,7 @@ func TestPullSyncsTrackedSupportingFiles(t *testing.T) {
 		Enabled:    true,
 		Repository: remotePath,
 		Branch:     "main",
-	}, dagsDir, filepath.Join(dagsDir, "wiki"), dataDir)
+	}, dagsDir, filepath.Join(dagsDir, "wiki"), "", dataDir)
 
 	result, err := svc.Pull(ctx)
 	require.NoError(t, err)
@@ -189,7 +189,7 @@ func TestPullHandlesRemoteKindChange(t *testing.T) {
 				Enabled:    true,
 				Repository: remotePath,
 				Branch:     "main",
-			}, dagsDir, filepath.Join(dagsDir, "wiki"), dataDir)
+			}, dagsDir, filepath.Join(dagsDir, "wiki"), "", dataDir)
 
 			_, err := svc.Pull(ctx)
 			require.NoError(t, err)
@@ -236,6 +236,181 @@ func TestPullHandlesRemoteKindChange(t *testing.T) {
 	}
 }
 
+// Calendar files sync with the calendars directory, where Dagu reads them,
+// not with the DAGs directory.
+func TestPullSyncsCalendars(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	root := t.TempDir()
+	remotePath := filepath.Join(root, "remote")
+	remoteRepo := initPullExternalTestRepo(t, remotePath)
+	commitPullExternalTestFile(t, remoteRepo, remotePath, "workflow.yaml", "steps: []\n", "workflow")
+	commitPullExternalTestFile(t, remoteRepo, remotePath, "calendars/jp.yaml", "holidays: [2027-01-11]\n", "calendar")
+	commitPullExternalTestFile(t, remoteRepo, remotePath, "calendars/nested/report.yaml", "steps: []\n", "nested")
+
+	dataDir := filepath.Join(root, "data")
+	clonePullExternalTestRepo(ctx, t, dataDir, remotePath)
+	dagsDir := filepath.Join(root, "dags")
+	calendarsDir := filepath.Join(root, "calendars")
+	svc := gitsync.NewService(&gitsync.Config{
+		Enabled:    true,
+		Repository: remotePath,
+		Branch:     "main",
+	}, dagsDir, filepath.Join(dagsDir, "wiki"), calendarsDir, dataDir)
+
+	result, err := svc.Pull(ctx)
+	require.NoError(t, err)
+	require.True(t, result.Success)
+	assert.Contains(t, result.Synced, "calendars/jp")
+
+	assert.Equal(t, "holidays: [2027-01-11]\n", readPullExternalTestFile(t, filepath.Join(calendarsDir, "jp.yaml")))
+	assert.NoFileExists(t, filepath.Join(dagsDir, "calendars", "jp.yaml"))
+	status, err := svc.GetStatus(ctx)
+	require.NoError(t, err)
+	assert.Equal(t, gitsync.SyncItemKindCalendar, status.Items["calendars/jp"].Kind)
+	assert.Equal(t, gitsync.SyncItemKindDAG, status.Items["calendars/nested/report"].Kind)
+}
+
+// Calendars are often made on the server before Git Sync is set up. One the
+// repository also has must keep its content as a conflict, whether or not a
+// status check listed it as untracked first.
+func TestPullKeepsUntrackedLocalCalendar(t *testing.T) {
+	for _, tc := range []struct {
+		name          string
+		checkedBefore bool
+	}{
+		{name: "never listed"},
+		{name: "listed as untracked", checkedBefore: true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			ctx := context.Background()
+			root := t.TempDir()
+			remotePath := filepath.Join(root, "remote")
+			remoteRepo := initPullExternalTestRepo(t, remotePath)
+			commitPullExternalTestFile(t, remoteRepo, remotePath, "calendars/jp.yaml", "holidays: [2027-01-11]\n", "calendar")
+
+			dataDir := filepath.Join(root, "data")
+			clonePullExternalTestRepo(ctx, t, dataDir, remotePath)
+			dagsDir := filepath.Join(root, "dags")
+			calendarsDir := filepath.Join(root, "calendars")
+			require.NoError(t, os.MkdirAll(calendarsDir, 0755))
+			localPath := filepath.Join(calendarsDir, "jp.yaml")
+			require.NoError(t, os.WriteFile(localPath, []byte("holidays: [2027-05-03]\n"), 0600))
+			svc := gitsync.NewService(&gitsync.Config{
+				Enabled:    true,
+				Repository: remotePath,
+				Branch:     "main",
+			}, dagsDir, filepath.Join(dagsDir, "wiki"), calendarsDir, dataDir)
+			if tc.checkedBefore {
+				_, err := svc.GetStatus(ctx)
+				require.NoError(t, err)
+			}
+
+			result, err := svc.Pull(ctx)
+			require.NoError(t, err)
+			assert.Contains(t, result.Conflicts, "calendars/jp")
+			assert.Equal(t, "holidays: [2027-05-03]\n", readPullExternalTestFile(t, localPath))
+			status, err := svc.GetStatus(ctx)
+			require.NoError(t, err)
+			assert.Equal(t, gitsync.StatusConflict, status.Items["calendars/jp"].Status)
+		})
+	}
+}
+
+// Calendars synced before the calendar kind existed were tracked as DAGs
+// of the same ID. A .yml file is still a DAG, so renaming it to .yaml takes
+// the same switch.
+func TestPullSwitchesCalendarTrackedAsDAG(t *testing.T) {
+	for _, tc := range []struct {
+		name        string
+		modifyLocal bool
+	}{
+		{name: "unchanged local copy"},
+		{name: "modified local copy", modifyLocal: true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			ctx := context.Background()
+			root := t.TempDir()
+			remotePath := filepath.Join(root, "remote")
+			remoteRepo := initPullExternalTestRepo(t, remotePath)
+			commitPullExternalTestFile(t, remoteRepo, remotePath, "calendars/jp.yml", "holidays: []\n", "as DAG")
+
+			dataDir := filepath.Join(root, "data")
+			clonePullExternalTestRepo(ctx, t, dataDir, remotePath)
+			dagsDir := filepath.Join(root, "dags")
+			calendarsDir := filepath.Join(root, "calendars")
+			svc := gitsync.NewService(&gitsync.Config{
+				Enabled:    true,
+				Repository: remotePath,
+				Branch:     "main",
+			}, dagsDir, filepath.Join(dagsDir, "wiki"), calendarsDir, dataDir)
+			_, err := svc.Pull(ctx)
+			require.NoError(t, err)
+			oldCopy := filepath.Join(dagsDir, "calendars", "jp.yml")
+			if tc.modifyLocal {
+				require.NoError(t, os.WriteFile(oldCopy, []byte("holidays: [2027-01-11]\n"), 0600))
+			}
+
+			removePullExternalTestFile(t, remoteRepo, "calendars/jp.yml", "remove DAG")
+			commitPullExternalTestFile(t, remoteRepo, remotePath, "calendars/jp.yaml", "holidays: []\n", "as calendar")
+			result, err := svc.Pull(ctx)
+			require.NoError(t, err)
+
+			if tc.modifyLocal {
+				assert.Contains(t, result.Conflicts, "calendars/jp")
+				assert.FileExists(t, oldCopy)
+				return
+			}
+			assert.Contains(t, result.Synced, "calendars/jp")
+			assert.NoFileExists(t, oldCopy)
+			assert.FileExists(t, filepath.Join(calendarsDir, "jp.yaml"))
+			status, err := svc.GetStatus(ctx)
+			require.NoError(t, err)
+			assert.Equal(t, gitsync.SyncItemKindCalendar, status.Items["calendars/jp"].Kind)
+		})
+	}
+}
+
+// A calendar made on the server is offered for publishing, and publishes,
+// moves and deletes as a calendar file of the repository.
+func TestCalendarWriteLifecycle(t *testing.T) {
+	t.Parallel()
+
+	env := newPullExternalPushTest(t, []pullExternalTestFile{{path: "workflow.yaml", content: "steps: []\n"}})
+	require.NoError(t, os.MkdirAll(env.calendarsDir, 0755))
+	localPath := filepath.Join(env.calendarsDir, "ops.yaml")
+	require.NoError(t, os.WriteFile(localPath, []byte("holidays: []\n"), 0600))
+
+	status, err := env.svc.GetStatus(env.ctx)
+	require.NoError(t, err)
+	require.Contains(t, status.Items, "calendars/ops")
+	assert.Equal(t, gitsync.SyncItemKindCalendar, status.Items["calendars/ops"].Kind)
+	assert.Equal(t, gitsync.StatusUntracked, status.Items["calendars/ops"].Status)
+
+	_, err = env.svc.Publish(env.ctx, "calendars/ops", "add calendar", false)
+	require.NoError(t, err)
+	assert.Equal(t, "holidays: []\n", pullExternalFileContent(t, env.remoteRepo, "calendars/ops.yaml"))
+
+	require.NoError(t, os.WriteFile(localPath, []byte("holidays: [2027-01-11]\n"), 0600))
+	status, err = env.svc.GetStatus(env.ctx)
+	require.NoError(t, err)
+	assert.Equal(t, gitsync.StatusModified, status.Items["calendars/ops"].Status)
+	_, err = env.svc.Publish(env.ctx, "calendars/ops", "edit calendar", false)
+	require.NoError(t, err)
+	assert.Equal(t, "holidays: [2027-01-11]\n", pullExternalFileContent(t, env.remoteRepo, "calendars/ops.yaml"))
+
+	require.NoError(t, env.svc.Move(env.ctx, "calendars/ops", "calendars/ops-v2", "rename calendar", false))
+	assertPullExternalHeadFileMissing(t, env.remoteRepo, "calendars/ops.yaml")
+	assert.Equal(t, "holidays: [2027-01-11]\n", readPullExternalTestFile(t, filepath.Join(env.calendarsDir, "ops-v2.yaml")))
+
+	require.NoError(t, env.svc.Delete(env.ctx, "calendars/ops-v2", "delete calendar", false))
+	assertPullExternalHeadFileMissing(t, env.remoteRepo, "calendars/ops-v2.yaml")
+	assert.NoFileExists(t, filepath.Join(env.calendarsDir, "ops-v2.yaml"))
+}
+
 func TestPullSyncsSupportingFilesUnderConfiguredPath(t *testing.T) {
 	t.Parallel()
 
@@ -255,7 +430,7 @@ func TestPullSyncsSupportingFilesUnderConfiguredPath(t *testing.T) {
 		Repository: remotePath,
 		Branch:     "main",
 		Path:       "workflows",
-	}, dagsDir, filepath.Join(dagsDir, "wiki"), dataDir)
+	}, dagsDir, filepath.Join(dagsDir, "wiki"), "", dataDir)
 
 	result, err := svc.Pull(ctx)
 	require.NoError(t, err)
@@ -265,46 +440,160 @@ func TestPullSyncsSupportingFilesUnderConfiguredPath(t *testing.T) {
 	assert.NoFileExists(t, filepath.Join(dagsDir, "outside.txt"))
 }
 
-func TestPullRemovesUnchangedSupportingFileDeletedRemotely(t *testing.T) {
-	t.Parallel()
-
-	ctx := context.Background()
-	root := t.TempDir()
-	remotePath := filepath.Join(root, "remote")
-	remoteRepo := initPullExternalTestRepo(t, remotePath)
-	commitPullExternalTestFile(t, remoteRepo, remotePath, "scripts/run.sh", "echo ok\n", "script")
-
-	dataDir := filepath.Join(root, "data")
-	clonePullExternalTestRepo(ctx, t, dataDir, remotePath)
-	dagsDir := filepath.Join(root, "dags")
-	svc := gitsync.NewService(&gitsync.Config{
-		Enabled:    true,
-		Repository: remotePath,
-		Branch:     "main",
-	}, dagsDir, filepath.Join(dagsDir, "wiki"), dataDir)
-
-	_, err := svc.Pull(ctx)
-	require.NoError(t, err)
-	removePullExternalTestFile(t, remoteRepo, "scripts/run.sh", "remove script")
-
-	result, err := svc.Pull(ctx)
-	require.NoError(t, err)
-	assert.Contains(t, result.Deleted, "scripts/run.sh")
-	assert.NoFileExists(t, filepath.Join(dagsDir, "scripts", "run.sh"))
-
-	status, err := svc.GetStatus(ctx)
-	require.NoError(t, err)
-	assert.NotContains(t, status.Items, "scripts/run.sh")
+// remoteDeleteTestItems covers every tracked item kind. Paths are relative to
+// the DAGs directory, which also hosts the Wiki directory. prunedDir is left
+// empty by the removal; rootDir holds the item and must survive it.
+var remoteDeleteTestItems = []struct {
+	name      string
+	repoPath  string
+	localPath string
+	prunedDir string
+	rootDir   string
+	id        string
+	kind      gitsync.SyncItemKind
+}{
+	{
+		name:      "supporting file",
+		repoPath:  "scripts/run.sh",
+		localPath: "scripts/run.sh",
+		prunedDir: "scripts",
+		rootDir:   ".",
+		id:        "scripts/run.sh",
+		kind:      gitsync.SyncItemKindFile,
+	},
+	{
+		name:      "DAG",
+		repoPath:  "task.yaml",
+		localPath: "task.yaml",
+		rootDir:   ".",
+		id:        "task",
+		kind:      gitsync.SyncItemKindDAG,
+	},
+	{
+		name:      "Wiki page",
+		repoPath:  "wiki/guides/setup.md",
+		localPath: "wiki/guides/setup.md",
+		prunedDir: "wiki/guides",
+		rootDir:   "wiki",
+		id:        "wiki/guides/setup",
+		kind:      gitsync.SyncItemKindWikiPage,
+	},
+	{
+		name:      "Wiki page attachment",
+		repoPath:  "wiki/.attachments/guide/logo.png",
+		localPath: "wiki/.attachments/guide/logo.png",
+		prunedDir: "wiki/.attachments",
+		rootDir:   "wiki",
+		id:        "wiki/.attachments/guide/logo.png",
+		kind:      gitsync.SyncItemKindWikiPageAsset,
+	},
 }
 
-func TestPullPreservesModifiedSupportingFileDeletedRemotely(t *testing.T) {
+func TestPullRemovesUnchangedItemDeletedRemotely(t *testing.T) {
+	t.Parallel()
+
+	for _, tc := range remoteDeleteTestItems {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			ctx := context.Background()
+			root := t.TempDir()
+			remotePath := filepath.Join(root, "remote")
+			remoteRepo := initPullExternalTestRepo(t, remotePath)
+			commitPullExternalTestFile(t, remoteRepo, remotePath, tc.repoPath, "remote\n", "add item")
+
+			dataDir := filepath.Join(root, "data")
+			clonePullExternalTestRepo(ctx, t, dataDir, remotePath)
+			dagsDir := filepath.Join(root, "dags")
+			svc := gitsync.NewService(&gitsync.Config{
+				Enabled:    true,
+				Repository: remotePath,
+				Branch:     "main",
+			}, dagsDir, filepath.Join(dagsDir, "wiki"), "", dataDir)
+
+			_, err := svc.Pull(ctx)
+			require.NoError(t, err)
+			localPath := filepath.Join(dagsDir, filepath.FromSlash(tc.localPath))
+			require.FileExists(t, localPath)
+			removePullExternalTestFile(t, remoteRepo, tc.repoPath, "remove item")
+
+			result, err := svc.Pull(ctx)
+			require.NoError(t, err)
+			assert.Contains(t, result.Deleted, tc.id)
+			assert.NoFileExists(t, localPath)
+			if tc.prunedDir != "" {
+				assert.NoDirExists(t, filepath.Join(dagsDir, filepath.FromSlash(tc.prunedDir)))
+			}
+			assert.DirExists(t, filepath.Join(dagsDir, filepath.FromSlash(tc.rootDir)))
+
+			status, err := svc.GetStatus(ctx)
+			require.NoError(t, err)
+			assert.NotContains(t, status.Items, tc.id)
+		})
+	}
+}
+
+func TestPullPreservesModifiedItemDeletedRemotely(t *testing.T) {
+	t.Parallel()
+
+	for _, tc := range remoteDeleteTestItems {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			ctx := context.Background()
+			root := t.TempDir()
+			remotePath := filepath.Join(root, "remote")
+			remoteRepo := initPullExternalTestRepo(t, remotePath)
+			commitPullExternalTestFile(t, remoteRepo, remotePath, tc.repoPath, "remote\n", "add item")
+
+			dataDir := filepath.Join(root, "data")
+			clonePullExternalTestRepo(ctx, t, dataDir, remotePath)
+			dagsDir := filepath.Join(root, "dags")
+			svc := gitsync.NewService(&gitsync.Config{
+				Enabled:    true,
+				Repository: remotePath,
+				Branch:     "main",
+			}, dagsDir, filepath.Join(dagsDir, "wiki"), "", dataDir)
+
+			_, err := svc.Pull(ctx)
+			require.NoError(t, err)
+			// Keep the size and mtime so only a content check can detect the edit.
+			localPath := filepath.Join(dagsDir, filepath.FromSlash(tc.localPath))
+			info, err := os.Stat(localPath)
+			require.NoError(t, err)
+			require.NoError(t, os.WriteFile(localPath, []byte("edited\n"), 0600))
+			require.NoError(t, os.Chtimes(localPath, info.ModTime(), info.ModTime()))
+			removePullExternalTestFile(t, remoteRepo, tc.repoPath, "remove item")
+
+			result, err := svc.Pull(ctx)
+			require.NoError(t, err)
+			assert.Contains(t, result.Conflicts, tc.id)
+			assert.NotContains(t, result.Deleted, tc.id)
+			assert.Equal(t, "edited\n", readPullExternalTestFile(t, localPath))
+
+			diff, err := svc.GetSyncItemDiff(ctx, tc.id)
+			require.NoError(t, err)
+			assert.True(t, diff.RemoteDeleted)
+			assert.Equal(t, tc.kind, diff.Kind)
+			assert.Empty(t, diff.RemoteContent)
+
+			require.NoError(t, svc.Discard(ctx, tc.id))
+			assert.NoFileExists(t, localPath)
+			status, err := svc.GetStatus(ctx)
+			require.NoError(t, err)
+			assert.NotContains(t, status.Items, tc.id)
+		})
+	}
+}
+
+func TestPullFollowsRemoteDAGRename(t *testing.T) {
 	t.Parallel()
 
 	ctx := context.Background()
 	root := t.TempDir()
 	remotePath := filepath.Join(root, "remote")
 	remoteRepo := initPullExternalTestRepo(t, remotePath)
-	commitPullExternalTestFile(t, remoteRepo, remotePath, "scripts/run.sh", "echo remote\n", "script")
+	commitPullExternalTestFile(t, remoteRepo, remotePath, "old.yaml", "steps: []\n", "add workflow")
 
 	dataDir := filepath.Join(root, "data")
 	clonePullExternalTestRepo(ctx, t, dataDir, remotePath)
@@ -313,35 +602,63 @@ func TestPullPreservesModifiedSupportingFileDeletedRemotely(t *testing.T) {
 		Enabled:    true,
 		Repository: remotePath,
 		Branch:     "main",
-	}, dagsDir, filepath.Join(dagsDir, "wiki"), dataDir)
+	}, dagsDir, filepath.Join(dagsDir, "wiki"), "", dataDir)
 
 	_, err := svc.Pull(ctx)
 	require.NoError(t, err)
-	localPath := filepath.Join(dagsDir, "scripts", "run.sh")
-	info, err := os.Stat(localPath)
-	require.NoError(t, err)
-	require.NoError(t, os.WriteFile(localPath, []byte("echo edited\n"), 0600))
-	require.NoError(t, os.Chtimes(localPath, info.ModTime(), info.ModTime()))
-	removePullExternalTestFile(t, remoteRepo, "scripts/run.sh", "remove script")
+	commitPullExternalTestFile(t, remoteRepo, remotePath, "new.yaml", "steps: []\n", "copy workflow")
+	removePullExternalTestFile(t, remoteRepo, "old.yaml", "remove old workflow")
 
 	result, err := svc.Pull(ctx)
 	require.NoError(t, err)
-	assert.Contains(t, result.Conflicts, "scripts/run.sh")
-	content, err := os.ReadFile(localPath)
-	require.NoError(t, err)
-	assert.Equal(t, "echo edited\n", string(content))
+	assert.Equal(t, []string{"old"}, result.Deleted)
+	assert.Equal(t, []string{"new"}, result.Synced)
+	assert.NoFileExists(t, filepath.Join(dagsDir, "old.yaml"))
+	assert.Equal(t, "steps: []\n", readPullExternalTestFile(t, filepath.Join(dagsDir, "new.yaml")))
 
-	diff, err := svc.GetSyncItemDiff(ctx, "scripts/run.sh")
-	require.NoError(t, err)
-	assert.True(t, diff.RemoteDeleted)
-	assert.Equal(t, gitsync.SyncItemKindFile, diff.Kind)
-	assert.Empty(t, diff.RemoteContent)
-
-	require.NoError(t, svc.Discard(ctx, "scripts/run.sh"))
-	assert.NoFileExists(t, localPath)
 	status, err := svc.GetStatus(ctx)
 	require.NoError(t, err)
-	assert.NotContains(t, status.Items, "scripts/run.sh")
+	assert.NotContains(t, status.Items, "old")
+	require.Contains(t, status.Items, "new")
+	assert.Equal(t, gitsync.StatusSynced, status.Items["new"].Status)
+}
+
+func TestPullKeepsUntrackedLocalDAG(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	root := t.TempDir()
+	remotePath := filepath.Join(root, "remote")
+	remoteRepo := initPullExternalTestRepo(t, remotePath)
+	commitPullExternalTestFile(t, remoteRepo, remotePath, "remote.yaml", "steps: []\n", "add workflow")
+
+	dataDir := filepath.Join(root, "data")
+	clonePullExternalTestRepo(ctx, t, dataDir, remotePath)
+	dagsDir := filepath.Join(root, "dags")
+	svc := gitsync.NewService(&gitsync.Config{
+		Enabled:    true,
+		Repository: remotePath,
+		Branch:     "main",
+	}, dagsDir, filepath.Join(dagsDir, "wiki"), "", dataDir)
+
+	_, err := svc.Pull(ctx)
+	require.NoError(t, err)
+	localPath := filepath.Join(dagsDir, "local.yaml")
+	require.NoError(t, os.WriteFile(localPath, []byte("steps: []\n"), 0600))
+
+	// The first pull registers the local DAG as untracked; the next must keep it.
+	for range 2 {
+		result, err := svc.Pull(ctx)
+		require.NoError(t, err)
+		assert.NotContains(t, result.Deleted, "local")
+		assert.NotContains(t, result.Conflicts, "local")
+	}
+	assert.FileExists(t, localPath)
+
+	status, err := svc.GetStatus(ctx)
+	require.NoError(t, err)
+	require.Contains(t, status.Items, "local")
+	assert.Equal(t, gitsync.StatusUntracked, status.Items["local"].Status)
 }
 
 func TestPullAfterRacyEdit(t *testing.T) {
@@ -387,7 +704,7 @@ func TestPullPreservesPercentInSupportingFileNames(t *testing.T) {
 		Enabled:    true,
 		Repository: remotePath,
 		Branch:     "main",
-	}, dagsDir, filepath.Join(dagsDir, "wiki"), dataDir)
+	}, dagsDir, filepath.Join(dagsDir, "wiki"), "", dataDir)
 
 	result, err := svc.Pull(ctx)
 	require.NoError(t, err)
@@ -761,7 +1078,7 @@ func TestSupportingFileModeChangeIsModified(t *testing.T) {
 		Enabled:    true,
 		Repository: remotePath,
 		Branch:     "main",
-	}, dagsDir, filepath.Join(dagsDir, "wiki"), dataDir)
+	}, dagsDir, filepath.Join(dagsDir, "wiki"), "", dataDir)
 
 	_, err := svc.Pull(ctx)
 	require.NoError(t, err)
@@ -795,7 +1112,7 @@ func TestPullRejectsSupportingFileIDCollision(t *testing.T) {
 		Enabled:    true,
 		Repository: remotePath,
 		Branch:     "main",
-	}, dagsDir, filepath.Join(dagsDir, "wiki"), dataDir)
+	}, dagsDir, filepath.Join(dagsDir, "wiki"), "", dataDir)
 
 	_, err := svc.Pull(ctx)
 	require.Error(t, err)
@@ -845,7 +1162,7 @@ func TestSupportingFileWriteLifecycle(t *testing.T) {
 			AuthorName:  "Test User",
 			AuthorEmail: "test@example.com",
 		},
-	}, dagsDir, filepath.Join(dagsDir, "wiki"), dataDir)
+	}, dagsDir, filepath.Join(dagsDir, "wiki"), "", dataDir)
 
 	_, err = svc.Pull(ctx)
 	require.NoError(t, err)
@@ -973,7 +1290,7 @@ func TestPullAdoptsLegacyDocsDirectory(t *testing.T) {
 		Enabled:    true,
 		Repository: remotePath,
 		Branch:     "main",
-	}, dagsDir, wikiPath, dataDir)
+	}, dagsDir, wikiPath, "", dataDir)
 
 	result, err := svc.Pull(ctx)
 
@@ -1014,7 +1331,7 @@ func TestPullReturnsErrorWhenMissingDAGsDirCannotBeCreated(t *testing.T) {
 		Enabled:    true,
 		Repository: remotePath,
 		Branch:     "main",
-	}, dagsDir, filepath.Join(dagsDir, "docs"), dataDir)
+	}, dagsDir, filepath.Join(dagsDir, "docs"), "", dataDir)
 
 	result, err := svc.Pull(ctx)
 
@@ -1056,7 +1373,7 @@ func TestPullSyncsWikiPageAttachments(t *testing.T) {
 		Enabled:    true,
 		Repository: remotePath,
 		Branch:     "main",
-	}, dagsDir, wikiDir, dataDir)
+	}, dagsDir, wikiDir, "", dataDir)
 
 	result, err := svc.Pull(ctx)
 	require.NoError(t, err)
@@ -1121,14 +1438,15 @@ type pullExternalTestFile struct {
 }
 
 type pullExternalPushTest struct {
-	ctx        context.Context
-	remoteRepo *git.Repository
-	seedRepo   *git.Repository
-	seedPath   string
-	dataDir    string
-	dagsDir    string
-	svc        gitsync.Service
-	baseHead   plumbing.Hash
+	ctx          context.Context
+	remoteRepo   *git.Repository
+	seedRepo     *git.Repository
+	seedPath     string
+	dataDir      string
+	dagsDir      string
+	calendarsDir string
+	svc          gitsync.Service
+	baseHead     plumbing.Hash
 }
 
 func newPullExternalPushTest(t *testing.T, files []pullExternalTestFile) *pullExternalPushTest {
@@ -1166,6 +1484,7 @@ func newPullExternalPushTest(t *testing.T, files []pullExternalTestFile) *pullEx
 	dataDir := filepath.Join(root, "data")
 	clonePullExternalTestRepo(ctx, t, dataDir, remotePath)
 	dagsDir := filepath.Join(root, "dags")
+	calendarsDir := filepath.Join(root, "calendars")
 	svc := gitsync.NewService(&gitsync.Config{
 		Enabled:     true,
 		Repository:  remotePath,
@@ -1175,19 +1494,20 @@ func newPullExternalPushTest(t *testing.T, files []pullExternalTestFile) *pullEx
 			AuthorName:  "Test User",
 			AuthorEmail: "test@example.com",
 		},
-	}, dagsDir, filepath.Join(dagsDir, "wiki"), dataDir)
+	}, dagsDir, filepath.Join(dagsDir, "wiki"), calendarsDir, dataDir)
 	_, err = svc.Pull(ctx)
 	require.NoError(t, err)
 
 	return &pullExternalPushTest{
-		ctx:        ctx,
-		remoteRepo: remoteRepo,
-		seedRepo:   seedRepo,
-		seedPath:   seedPath,
-		dataDir:    dataDir,
-		dagsDir:    dagsDir,
-		svc:        svc,
-		baseHead:   baseHead,
+		ctx:          ctx,
+		remoteRepo:   remoteRepo,
+		seedRepo:     seedRepo,
+		seedPath:     seedPath,
+		dataDir:      dataDir,
+		dagsDir:      dagsDir,
+		calendarsDir: calendarsDir,
+		svc:          svc,
+		baseHead:     baseHead,
 	}
 }
 

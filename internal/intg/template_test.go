@@ -10,6 +10,7 @@ import (
 
 	"github.com/dagucloud/dagu/v2/internal/cmd"
 	"github.com/dagucloud/dagu/v2/internal/ir"
+	"github.com/dagucloud/dagu/v2/internal/spec"
 	"github.com/dagucloud/dagu/v2/internal/test"
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
@@ -575,20 +576,20 @@ steps:
 		})
 	})
 
+	// Blocked functions are unknown to the parser, so the DAG is rejected at build time.
 	t.Run("SlimSprigBlockedFunctions", func(t *testing.T) {
 		t.Parallel()
 
 		th := test.Setup(t)
-		dag := th.DAG(t, `steps:
+		testFile := th.TempFile(t, "blocked-func.yaml", []byte(`steps:
   - name: render
     action: template.render
     with:
       template: '{{ env "HOME" }}'
-`)
-		agent := dag.Agent()
-		agent.RunCheckErr(t, "error")
+`))
 
-		dag.AssertLatestStatus(t, ir.Failed)
+		_, err := spec.Load(th.Context, testFile)
+		require.ErrorContains(t, err, `function "env" not defined`)
 	})
 
 	t.Run("SlimSprigMissingKeyBoundary", func(t *testing.T) {

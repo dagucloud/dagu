@@ -101,7 +101,7 @@ describe('HomePage', () => {
       'href',
       '/'
     );
-    expect(screen.getByRole('link', { name: /DAG Runs/i })).toHaveAttribute(
+    expect(screen.getByRole('link', { name: /All runs/i })).toHaveAttribute(
       'href',
       '/dag-runs'
     );

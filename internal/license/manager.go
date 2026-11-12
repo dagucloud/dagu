@@ -9,7 +9,9 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"net/http"
 	"os"
+	"strings"
 	"sync"
 	"time"
 
@@ -17,7 +19,10 @@ import (
 )
 
 const (
-	heartbeatInterval = 24 * time.Hour
+	heartbeatInterval = time.Hour
+	// releaseTimeout bounds the console call made while disconnecting, which
+	// runs inside an API request.
+	releaseTimeout = 10 * time.Second
 
 	licenseDiscoveryFailure    = "License discovery failed. Check the configured license file and server logs."
 	licenseActivationFailure   = "License activation failed. Check the configured license key, network access, and server logs."
@@ -32,6 +37,9 @@ type ManagerConfig struct {
 	LicenseDir string
 	ConfigKey  string
 	CloudURL   string
+	// ServerName identifies this server in Dagu Console. Empty means the
+	// hostname.
+	ServerName string
 }
 
 // ActivationResult is returned after a successful activation.
@@ -49,10 +57,15 @@ type Manager struct {
 	client *CloudClient
 	pubKey ed25519.PublicKey
 	logger *slog.Logger
+	// serverName is resolved once because Status is read on every page load.
+	serverName string
 
 	statusMu sync.RWMutex
 	source   DiscoverySource
 	failure  string
+	// activation is the cloud activation behind the current license, or nil
+	// when the license never checks in.
+	activation *ActivationData
 
 	transitionMu sync.Mutex
 
@@ -60,6 +73,12 @@ type Manager struct {
 	cancel           context.CancelFunc
 	wg               sync.WaitGroup
 	heartbeatRunning bool
+
+	// connectMu guards connect. Lock order: connectMu, then transitionMu.
+	connectMu   sync.Mutex
+	connect     *connectSession
+	connectPoll time.Duration
+	connectTTL  time.Duration
 }
 
 // NewManager creates a new license manager.
@@ -68,13 +87,30 @@ func NewManager(cfg ManagerConfig, pubKey ed25519.PublicKey, store ActivationSto
 		logger = slog.Default()
 	}
 	return &Manager{
-		cfg:    cfg,
-		state:  &State{},
-		store:  store,
-		client: NewCloudClient(cfg.CloudURL),
-		pubKey: pubKey,
-		logger: logger,
+		cfg:         cfg,
+		state:       &State{},
+		store:       store,
+		client:      NewCloudClient(cfg.CloudURL),
+		pubKey:      pubKey,
+		logger:      logger,
+		serverName:  resolveServerName(cfg.ServerName, logger),
+		connectPoll: connectPollInterval,
+		connectTTL:  connectTTL,
 	}
+}
+
+// resolveServerName returns the configured server name, falling back to the
+// hostname.
+func resolveServerName(configured string, logger *slog.Logger) string {
+	if name := strings.TrimSpace(configured); name != "" {
+		return name
+	}
+	hostname, err := os.Hostname()
+	if err != nil || hostname == "" {
+		logger.Warn("Failed to get hostname", slog.Any("error", err))
+		return "unknown"
+	}
+	return hostname
 }
 
 // Checker returns the Checker interface backed by the manager's state.
@@ -117,6 +153,88 @@ func (m *Manager) setFailure(failure string) {
 	m.failure = failure
 }
 
+func (m *Manager) setActivation(ad *ActivationData) {
+	var cp *ActivationData
+	if ad != nil {
+		c := *ad
+		cp = &c
+	}
+	m.statusMu.Lock()
+	defer m.statusMu.Unlock()
+	m.activation = cp
+}
+
+func (m *Manager) currentActivation() *ActivationData {
+	m.statusMu.RLock()
+	defer m.statusMu.RUnlock()
+	if m.activation == nil {
+		return nil
+	}
+	c := *m.activation
+	return &c
+}
+
+// CloudCredentials identify this server's activation to Dagu Console.
+type CloudCredentials struct {
+	// CloudURL is the Dagu Console base URL, without a trailing slash.
+	CloudURL        string
+	LicenseID       string
+	ServerID        string
+	HeartbeatSecret string
+	// Free is set while the license is on free monitoring.
+	Free bool
+	// Plan is the plan the license names, which changes as a trial starts or
+	// a plan replaces it.
+	Plan string
+}
+
+// CloudCredentials returns the credentials of the current activation. It
+// reports false unless the license is an online activation that checks in
+// with Dagu Console.
+func (m *Manager) CloudCredentials() (CloudCredentials, bool) {
+	ad := m.currentActivation()
+	claims := m.state.Claims()
+	if ad == nil || claims == nil {
+		return CloudCredentials{}, false
+	}
+	return CloudCredentials{
+		CloudURL:        m.client.baseURL,
+		LicenseID:       claims.ID,
+		ServerID:        ad.ServerID,
+		HeartbeatSecret: ad.HeartbeatSecret,
+		Free:            claims.IsFree(),
+		Plan:            claims.Plan,
+	}, true
+}
+
+// StoredCloudCredentials returns a function that reads the credentials of
+// the activation saved in store, for a process that does not run the
+// license manager, such as a scheduler on its own. pubKey verifies the
+// activation's token; cloudURL is the configured Dagu Console URL, empty for
+// the production one. The function reports false while there is no
+// activation or its token does not verify.
+func StoredCloudCredentials(store ActivationStore, pubKey ed25519.PublicKey, cloudURL string) func() (CloudCredentials, bool) {
+	baseURL := NewCloudClient(cloudURL).baseURL
+	return func() (CloudCredentials, bool) {
+		ad, err := store.Load()
+		if err != nil || ad == nil || ad.Token == "" || ad.HeartbeatSecret == "" {
+			return CloudCredentials{}, false
+		}
+		claims, err := VerifyTokenLenient(pubKey, ad.Token)
+		if err != nil {
+			return CloudCredentials{}, false
+		}
+		return CloudCredentials{
+			CloudURL:        baseURL,
+			LicenseID:       claims.ID,
+			ServerID:        ad.ServerID,
+			HeartbeatSecret: ad.HeartbeatSecret,
+			Free:            claims.IsFree(),
+			Plan:            claims.Plan,
+		}, true
+	}
+}
+
 // Start performs discovery, optional activation, JWT verification, and starts the heartbeat loop.
 // It always returns nil for graceful degradation: license errors are logged but never prevent
 // the application from starting.
@@ -125,6 +243,7 @@ func (m *Manager) Start(ctx context.Context) error {
 	defer m.transitionMu.Unlock()
 
 	m.setFailure("")
+	m.setActivation(nil)
 	var activationToPersist *ActivationData
 	result, err := Discover(m.cfg.LicenseDir, m.cfg.ConfigKey, m.store)
 	if err != nil {
@@ -203,8 +322,10 @@ func (m *Manager) Start(ctx context.Context) error {
 	return nil
 }
 
-// Stop cancels the heartbeat goroutine and waits for completion.
+// Stop cancels the heartbeat goroutine and any pending Dagu Console
+// connection request, and waits for both to finish.
 func (m *Manager) Stop() {
+	m.CancelConnect()
 	m.transitionMu.Lock()
 	defer m.transitionMu.Unlock()
 	m.stopHeartbeat()
@@ -222,37 +343,81 @@ func (m *Manager) stopHeartbeat() {
 	m.wg.Wait()
 }
 
-// Deactivate stops the heartbeat, clears in-memory state, and removes persisted activation data.
-// It returns an error if the license was configured via an environment variable (the user must
-// remove the env var instead) or if there is no active license to deactivate.
-func (m *Manager) Deactivate(_ context.Context) error {
+// DeactivateResult describes a completed deactivation.
+type DeactivateResult struct {
+	// ReleaseFailed reports that Dagu Console could not be told, so the
+	// server's slot stays in use until it is disconnected in the console.
+	ReleaseFailed bool
+}
+
+// Deactivate frees the server's slot in Dagu Console, stops the heartbeat,
+// clears in-memory state, and removes persisted activation data. Failing to
+// reach the console does not stop the local deactivation; it is reported in
+// the result instead. It returns an error if the license was configured via
+// an environment variable (the user must remove the env var instead) or if
+// there is no active license to deactivate.
+func (m *Manager) Deactivate(ctx context.Context) (DeactivateResult, error) {
+	m.CancelConnect()
 	m.transitionMu.Lock()
 	defer m.transitionMu.Unlock()
 
 	if m.Source().IsEnv() {
-		return fmt.Errorf("cannot deactivate: license is configured via environment variable; remove DAGU_LICENSE or DAGU_LICENSE_KEY instead")
+		return DeactivateResult{}, fmt.Errorf("cannot deactivate: license is configured via environment variable; remove DAGU_LICENSE or DAGU_LICENSE_KEY instead")
 	}
 	if m.state.IsCommunity() {
-		return fmt.Errorf("no active license to deactivate")
+		return DeactivateResult{}, fmt.Errorf("no active license to deactivate")
 	}
 
 	m.stopHeartbeat()
+	var result DeactivateResult
+	if ad := m.currentActivation(); ad != nil && m.Source().NeedsHeartbeat() {
+		result.ReleaseFailed = !m.release(ctx, ad)
+	}
 	m.state.Update(nil, "")
 	m.setSource(SourceNone)
 	m.setFailure("")
+	m.setActivation(nil)
 
 	if m.store != nil {
 		if err := m.store.Remove(); err != nil {
-			return fmt.Errorf("failed to remove activation data: %w", err)
+			return result, fmt.Errorf("failed to remove activation data: %w", err)
 		}
 	}
 
-	return nil
+	return result, nil
+}
+
+// release tells Dagu Console that the server no longer uses its slot and
+// reports whether the slot is free.
+func (m *Manager) release(ctx context.Context, ad *ActivationData) bool {
+	claims := m.state.Claims()
+	if claims == nil {
+		return false
+	}
+	ctx, cancel := context.WithTimeout(ctx, releaseTimeout)
+	defer cancel()
+
+	err := m.client.Release(ctx, ReleaseRequest{
+		LicenseID:       claims.ID,
+		ServerID:        ad.ServerID,
+		HeartbeatSecret: ad.HeartbeatSecret,
+	})
+	if err == nil {
+		return true
+	}
+	// The console already dropped an activation it no longer accepts.
+	if cloudErr, ok := errors.AsType[*CloudError](err); ok &&
+		(cloudErr.StatusCode == http.StatusUnauthorized || cloudErr.StatusCode == http.StatusGone) {
+		return true
+	}
+	m.logger.Warn("Failed to release the server in Dagu Console", slog.String("error", err.Error()))
+	return false
 }
 
 // ActivateWithKey performs activation with the given key and updates internal state.
 // This is used by the API handler for frontend-initiated activation.
 func (m *Manager) ActivateWithKey(ctx context.Context, key string) (*ActivationResult, error) {
+	m.CancelConnect()
 	m.transitionMu.Lock()
 	defer m.transitionMu.Unlock()
 
@@ -261,18 +426,10 @@ func (m *Manager) ActivateWithKey(ctx context.Context, key string) (*ActivationR
 		return nil, err
 	}
 
-	claims, verifyErr := VerifyToken(m.pubKey, ad.Token)
-	if verifyErr != nil {
-		return nil, fmt.Errorf("activated token verification failed: %w", verifyErr)
+	claims, err := m.installActivation(ad)
+	if err != nil {
+		return nil, err
 	}
-
-	m.stopHeartbeat()
-	m.saveActivation(ad)
-	m.setSource(SourceActivationFile)
-	m.state.Update(claims, ad.Token)
-	m.setFailure("")
-
-	m.startHeartbeat(ad)
 
 	result := &ActivationResult{
 		Plan:     claims.Plan,
@@ -284,22 +441,34 @@ func (m *Manager) ActivateWithKey(ctx context.Context, key string) (*ActivationR
 	return result, nil
 }
 
+// installActivation verifies ad's token, persists ad, and makes it the
+// current license. The caller must hold transitionMu.
+func (m *Manager) installActivation(ad *ActivationData) (*LicenseClaims, error) {
+	claims, err := VerifyToken(m.pubKey, ad.Token)
+	if err != nil {
+		return nil, fmt.Errorf("activated token verification failed: %w", err)
+	}
+
+	m.stopHeartbeat()
+	m.saveActivation(ad)
+	m.setSource(SourceActivationFile)
+	m.state.Update(claims, ad.Token)
+	m.setFailure("")
+
+	m.startHeartbeat(ad)
+	return claims, nil
+}
+
 func (m *Manager) activate(ctx context.Context, key string) (*ActivationData, error) {
 	serverID, err := GetOrCreateServerID(m.cfg.LicenseDir)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get server ID: %w", err)
 	}
 
-	hostname, err := os.Hostname()
-	if err != nil {
-		m.logger.Warn("Failed to get hostname", slog.String("error", err.Error()))
-		hostname = "unknown"
-	}
-
 	resp, err := m.client.Activate(ctx, ActivateRequest{
 		Key:           key,
 		ServerID:      serverID,
-		MachineName:   hostname,
+		MachineName:   m.serverName,
 		ClientVersion: config.Version,
 	})
 	if err != nil {
@@ -311,6 +480,8 @@ func (m *Manager) activate(ctx context.Context, key string) (*ActivationData, er
 		HeartbeatSecret: resp.HeartbeatSecret,
 		LicenseKey:      key,
 		ServerID:        serverID,
+		Via:             ConnectedViaKey,
+		CheckedInAt:     time.Now(),
 	}
 
 	return ad, nil
@@ -341,6 +512,7 @@ func (m *Manager) loadCachedActivation(licenseKey string) *ActivationData {
 }
 
 func (m *Manager) startHeartbeat(ad *ActivationData) {
+	m.setActivation(ad)
 	m.cancelMu.Lock()
 	defer m.cancelMu.Unlock()
 	if m.heartbeatRunning {
@@ -367,15 +539,33 @@ func (m *Manager) heartbeatLoop(ctx context.Context, ad *ActivationData) {
 		case <-ctx.Done():
 			return
 		case <-ticker.C:
+			if current := m.currentActivation(); current != nil {
+				ad = current
+			}
 			m.doHeartbeat(ctx, ad)
 		}
 	}
 }
 
+// doHeartbeat checks in with Dagu Console; failures are logged and reflected
+// in the license state.
 func (m *Manager) doHeartbeat(ctx context.Context, ad *ActivationData) {
+	_ = m.checkIn(ctx, ad)
+}
+
+// checkIn sends a heartbeat and applies the console's answer. It returns an
+// error only when the console could not be reached or answered with a token
+// that does not verify; rejections are applied to the license state instead.
+func (m *Manager) checkIn(ctx context.Context, ad *ActivationData) error {
+	return m.sendHeartbeat(ctx, ad, true)
+}
+
+// sendHeartbeat performs one check-in. mayRetry allows one more attempt with
+// credentials that another instance saved in the shared store.
+func (m *Manager) sendHeartbeat(ctx context.Context, ad *ActivationData, mayRetry bool) error {
 	claims := m.state.Claims()
 	if claims == nil {
-		return
+		return nil
 	}
 
 	resp, err := m.client.Heartbeat(ctx, HeartbeatRequest{
@@ -383,6 +573,7 @@ func (m *Manager) doHeartbeat(ctx context.Context, ad *ActivationData) {
 		ServerID:        ad.ServerID,
 		HeartbeatSecret: ad.HeartbeatSecret,
 		ClientVersion:   config.Version,
+		ServerName:      m.serverName,
 	})
 	if err != nil {
 		if cloudErr, ok := errors.AsType[*CloudError](err); ok {
@@ -391,49 +582,80 @@ func (m *Manager) doHeartbeat(ctx context.Context, ad *ActivationData) {
 				m.logger.Error("License has been revoked, clearing in-memory state")
 				m.state.Update(nil, "")
 				m.setFailure(licenseRevokedFailure)
-				return
+				return nil
 			case 401: // Unauthorized - deactivated or credentials invalid
+				if rotated := m.rotatedActivation(ad); rotated != nil {
+					if !mayRetry {
+						// Credentials still changing say nothing about the license.
+						return fmt.Errorf("license credentials kept changing during heartbeat: %w", err)
+					}
+					m.logger.Info("License heartbeat secret changed in the shared store, retrying with it")
+					return m.sendHeartbeat(ctx, rotated, false)
+				}
 				m.logger.Error("License heartbeat unauthorized, license may have been deactivated",
 					slog.String("error", cloudErr.Message))
 				m.state.Update(nil, "")
 				m.setFailure(licenseUnauthorizedFailure)
-				return
+				return nil
 			case 400: // Expired - keep cached token so runtime can enforce expiry/grace locally
 				m.logger.Warn("License heartbeat reported an expired license, continuing with cached token",
 					slog.String("error", cloudErr.Message))
 				if !m.state.IsGracePeriod() {
 					m.setFailure(licenseExpiredFailure)
 				}
-				return
+				return nil
 			}
 		}
 		// Network error or other transient failure - continue with cached JWT
 		m.logger.Warn("License heartbeat failed, continuing with cached token",
 			slog.String("error", err.Error()))
-		return
+		return err
 	}
 
-	// Verify the refreshed token
-	newClaims, verifyErr := VerifyToken(m.pubKey, resp.Token)
-	if verifyErr != nil {
+	newClaims, err := m.applyToken(ad, resp.Token, time.Now())
+	if err != nil {
+		return err
+	}
+
+	m.logger.Debug("License heartbeat successful",
+		slog.String("plan", newClaims.Plan))
+	return nil
+}
+
+// rotatedActivation returns the stored activation when it holds credentials
+// other than ad's. Instances sharing a store each activate, and every activation
+// replaces the credentials the console accepts for the others.
+func (m *Manager) rotatedActivation(ad *ActivationData) *ActivationData {
+	stored := m.loadCachedActivation(ad.LicenseKey)
+	if stored == nil || (stored.HeartbeatSecret == ad.HeartbeatSecret && stored.ServerID == ad.ServerID) {
+		return nil
+	}
+	return stored
+}
+
+// applyToken verifies a token Dagu Console issued for the activation ad,
+// makes it the current license, and saves it with checkedInAt.
+func (m *Manager) applyToken(ad *ActivationData, token string, checkedInAt time.Time) (*LicenseClaims, error) {
+	newClaims, err := VerifyToken(m.pubKey, token)
+	if err != nil {
 		m.logger.Warn("Refreshed token verification failed",
-			slog.String("error", verifyErr.Error()))
-		return
+			slog.String("error", err.Error()))
+		return nil, fmt.Errorf("refreshed token verification failed: %w", err)
 	}
 
-	m.state.Update(newClaims, resp.Token)
+	m.state.Update(newClaims, token)
 	m.setFailure("")
 
 	// Persist the refreshed token using a copy to avoid mutating the shared ActivationData.
+	updated := *ad
+	updated.Token = token
+	updated.CheckedInAt = checkedInAt
+	m.setActivation(&updated)
 	if m.store != nil {
-		updated := *ad
-		updated.Token = resp.Token
 		if err := m.store.Save(&updated); err != nil {
 			m.logger.Warn("Failed to persist refreshed token",
 				slog.String("error", err.Error()))
 		}
 	}
-
-	m.logger.Debug("License heartbeat successful",
-		slog.String("plan", newClaims.Plan))
+	return newClaims, nil
 }

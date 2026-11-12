@@ -33,6 +33,16 @@ const (
 	AgentInteractionRejected AgentInteractionStatus = "rejected"
 )
 
+// AgentPermissionBrowserWrite is the permission a browser step asks for
+// before an operation that sends a write. Besides once, session, and
+// reject, its answer may be AgentDecisionSkip.
+const AgentPermissionBrowserWrite = "browser.write"
+
+// AgentDecisionSkip answers a browser write permission: neither the
+// operation nor any after it runs, so nothing further is sent, and the
+// step ends without failing.
+const AgentDecisionSkip = "skip"
+
 // AgentQuestion is one question in a managed agent interaction.
 type AgentQuestion struct {
 	Header   string                `json:"header"`
@@ -87,6 +97,17 @@ type AgentSessionEvent struct {
 	Name      string   `json:"name,omitempty"`
 	Status    string   `json:"status,omitempty"`
 	Files     []string `json:"files,omitempty"`
+	// Position is the operation's place in with.do, from 1, as the run
+	// log counts; 0 for an event that is not one operation.
+	Position int `json:"position,omitempty"`
+	// Via is how an operation ran: "element" when a recording was replayed
+	// by the window's elements, "screen" when it was replayed by the
+	// pixels of the screen, "model", or "exact" for a check that read the
+	// window's elements without a model.
+	Via string `json:"via,omitempty"`
+	// DurationMs and Tokens are what the operation took.
+	DurationMs int64 `json:"durationMs,omitempty"`
+	Tokens     int64 `json:"tokens,omitempty"`
 }
 
 // AgentUsage contains aggregate model usage for a managed session.
@@ -187,6 +208,21 @@ func CloneAgentSession(session *AgentSession) *AgentSession {
 		clone.Events[i].Files = append([]string(nil), session.Events[i].Files...)
 	}
 	return &clone
+}
+
+// MaskAgentSession returns a detached copy of session with mask applied to
+// its displayed text. Interaction answers are kept as given, since a resumed
+// step reads them back from status.
+func MaskAgentSession(session *AgentSession, mask func(string) string) *AgentSession {
+	if session == nil {
+		return nil
+	}
+	masked := CloneAgentSession(session)
+	masked.LastError = mask(masked.LastError)
+	for i := range masked.Events {
+		masked.Events[i].Content = mask(masked.Events[i].Content)
+	}
+	return masked
 }
 
 // MergeAgentSessionResources retains every Dagu-owned provider session observed by a DAG run.

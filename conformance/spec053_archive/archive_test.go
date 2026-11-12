@@ -53,3 +53,17 @@ func TestArchiveValidation(t *testing.T) {
 		})
 	}
 }
+
+// Relative paths resolve under the step working directory, and extraction
+// without a destination writes into it, not into the process directory.
+func TestArchiveRelativeWorkingDir(t *testing.T) {
+	t.Parallel()
+	dagu := harness.NewRunner(t)
+	dagu.WriteFile("work/data/a.txt", "alpha")
+	dagu.Run("start", "relative_working_dir.yaml").ExpectExitCode(0)
+	dagu.ExpectFileContent("work/data/a.txt", "alpha")
+	_, err := os.Stat(dagu.ProjectPath("work/out/data.tar.gz"))
+	require.NoError(t, err)
+	dagu.ExpectNoFile("out")
+	dagu.ExpectNoFile("data")
+}

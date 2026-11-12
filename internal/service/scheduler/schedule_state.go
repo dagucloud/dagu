@@ -18,7 +18,8 @@ func isZeroDAGWatermark(w schedulerstate.DAGWatermark) bool {
 		w.StartScheduleFingerprint == "" &&
 		w.SkipSuccessResetAt.IsZero() &&
 		len(w.OneOffs) == 0 &&
-		w.NextRun == nil
+		w.NextRun == nil &&
+		w.LastSlot == nil
 }
 
 func sameTimePtr(a, b *time.Time) bool {

@@ -7,7 +7,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"maps"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -63,6 +62,26 @@ func WithBaseConfigContent(content []byte) LoadOption {
 func WithWorkspaceBaseConfigDir(dir string) LoadOption {
 	return func(o *buildOpts) {
 		o.WorkspaceBaseConfigDir = dir
+	}
+}
+
+// WithCalendars sets the source of the calendar files that schedules name.
+// Without one, a schedule naming a calendar file stays unbound and never
+// fires; built-in calendars bind either way.
+func WithCalendars(source *CalendarSource) LoadOption {
+	return func(o *buildOpts) {
+		o.Calendars = source
+	}
+}
+
+// WithCalendarsDir reads the calendar files that schedules name from dir,
+// without reusing calendars across loads. An empty dir sets no source.
+func WithCalendarsDir(dir string) LoadOption {
+	return func(o *buildOpts) {
+		o.Calendars = nil
+		if dir != "" {
+			o.Calendars = NewCalendarSource(dir)
+		}
 	}
 }
 
@@ -441,8 +460,13 @@ func assembleLoadedDAGs(dags []*ir.DAG, emptyErr error) (*ir.DAG, error) {
 	if err := attachLocalDAGs(mainDAG, dags[1:]); err != nil {
 		return nil, err
 	}
+	// Warnings about the shared base config are identical in every document.
 	for _, localDAG := range dags[1:] {
-		mainDAG.BuildWarnings = append(mainDAG.BuildWarnings, localDAG.BuildWarnings...)
+		for _, warning := range localDAG.BuildWarnings {
+			if !slices.Contains(mainDAG.BuildWarnings, warning) {
+				mainDAG.BuildWarnings = append(mainDAG.BuildWarnings, warning)
+			}
+		}
 	}
 
 	return mainDAG, nil
@@ -919,10 +943,14 @@ func documentYAML(index int, doc map[string]any, fullData []byte) ([]byte, error
 
 // buildBaseDAG builds a new base DAG from the base definition.
 func buildBaseDAG(ctx buildContext, baseDef *dag) (*ir.DAG, error) {
+	if err := validateBaseRestartPolicy(baseDef); err != nil {
+		return nil, fmt.Errorf("failed to build base ir.DAG: %w", err)
+	}
+
 	buildOpts := ctx.opts
 	buildOpts.Parameters = ""
 	buildOpts.ParametersList = nil
-	buildOpts.Flags |= buildFlagDeferWorkerSelector
+	buildOpts.Flags |= buildFlagDeferWorkerSelector | buildFlagBaseDefinition
 
 	customStepTypes, err := buildCustomStepActionRegistry(stepTypesOf(baseDef), nil, actionsOf(baseDef), nil)
 	if err != nil {
@@ -1027,9 +1055,7 @@ func resolveYamlFilePath(ctx buildContext, file string) (string, error) {
 		file = filepath.Join(ctx.opts.DAGsDir, file)
 	}
 
-	if !strings.HasSuffix(file, ".yaml") && !strings.HasSuffix(file, ".yml") {
-		file += ".yaml"
-	}
+	file = fileutil.EnsureYAMLExtension(file)
 
 	return filepath.Abs(file)
 }
@@ -1146,20 +1172,7 @@ func (*mergeTransformer) Transformer(
 				return nil
 			}
 
-			cloneDef := func(def *ir.HarnessDefinition) *ir.HarnessDefinition {
-				if def == nil {
-					return nil
-				}
-				return &ir.HarnessDefinition{
-					Binary:         def.Binary,
-					PrefixArgs:     append([]string(nil), def.PrefixArgs...),
-					PromptMode:     def.PromptMode,
-					PromptFlag:     def.PromptFlag,
-					PromptPosition: def.PromptPosition,
-					FlagStyle:      def.FlagStyle,
-					OptionFlags:    maps.Clone(def.OptionFlags),
-				}
-			}
+			cloneDef := ir.CloneHarnessDefinition
 
 			cloneDefs := func(defs ir.HarnessDefinitions) ir.HarnessDefinitions {
 				if defs == nil {

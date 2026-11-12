@@ -291,6 +291,18 @@ func (s *claimReleaseStore) HasOutstandingAttempt(context.Context, string, time.
 	return false, nil
 }
 
+func (s *claimReleaseStore) ListExpiredHeld(context.Context, time.Time) ([]*dispatch.DispatchTask, error) {
+	return nil, nil
+}
+
+func (s *claimReleaseStore) ListStalePending(context.Context, time.Time) ([]*dispatch.DispatchTask, error) {
+	return nil, nil
+}
+
+func (s *claimReleaseStore) DeletePending(context.Context, string) error {
+	return nil
+}
+
 type pollingDispatchStore struct {
 	claimed    atomic.Pointer[dispatch.ClaimedDispatchTask]
 	claimCalls atomic.Int64
@@ -327,6 +339,18 @@ func (s *pollingDispatchStore) CountOutstandingByQueue(context.Context, string, 
 
 func (s *pollingDispatchStore) HasOutstandingAttempt(context.Context, string, time.Duration) (bool, error) {
 	return false, nil
+}
+
+func (s *pollingDispatchStore) ListExpiredHeld(context.Context, time.Time) ([]*dispatch.DispatchTask, error) {
+	return nil, nil
+}
+
+func (s *pollingDispatchStore) ListStalePending(context.Context, time.Time) ([]*dispatch.DispatchTask, error) {
+	return nil, nil
+}
+
+func (s *pollingDispatchStore) DeletePending(context.Context, string) error {
+	return nil
 }
 
 func (s *pollingDispatchStore) SetClaimed(claimed *dispatch.ClaimedDispatchTask) {

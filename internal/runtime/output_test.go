@@ -542,6 +542,35 @@ func TestOutputCoordinator_CloseResources(t *testing.T) {
 		_ = oc.closeResources()
 		assert.True(t, oc.closed)
 	})
+
+	t.Run("NoSyncErrorOnPipe", func(t *testing.T) {
+		t.Parallel()
+
+		tests := []struct {
+			name string
+			oc   func(*os.File) *OutputCoordinator
+		}{
+			{
+				name: "Stdout",
+				oc:   func(f *os.File) *OutputCoordinator { return &OutputCoordinator{stdoutRedirectFile: f} },
+			},
+			{
+				name: "Stderr",
+				oc:   func(f *os.File) *OutputCoordinator { return &OutputCoordinator{StderrRedirectFile: f} },
+			},
+		}
+		for _, tt := range tests {
+			t.Run(tt.name, func(t *testing.T) {
+				t.Parallel()
+
+				reader, writer, err := os.Pipe()
+				require.NoError(t, err)
+				t.Cleanup(func() { _ = reader.Close() })
+
+				assert.NoError(t, tt.oc(writer).closeResources())
+			})
+		}
+	})
 }
 
 func TestCaptureRetryAfterLimit(t *testing.T) {

@@ -85,6 +85,39 @@ func envReportScript(names ...string) string {
 }
 
 func TestInlineSubDAG(t *testing.T) {
+	t.Run("FailedChildPublishesNoInternalState", func(t *testing.T) {
+		th := test.Setup(t)
+
+		testDAG := th.DAG(t, `
+steps:
+  - name: run-local-child
+    action: dag.run
+    with:
+      dag: failing-child
+
+---
+
+name: failing-child
+steps:
+  - name: check
+    run: exit 1
+`)
+
+		agent := testDAG.Agent()
+		require.Error(t, agent.Run(agent.Context))
+
+		testDAG.AssertLatestStatus(t, ir.Failed)
+
+		dagRunStatus, err := th.DAGRunMgr.GetLatestStatus(th.Context, testDAG.DAG)
+		require.NoError(t, err)
+		require.Len(t, dagRunStatus.Nodes, 1)
+
+		result, err := os.ReadFile(dagRunStatus.Nodes[0].Stdout)
+		require.NoError(t, err)
+		require.Contains(t, string(result), "failing-child")
+		require.NotContains(t, string(result), "CONTINUE_ON")
+	})
+
 	t.Run("SimpleExecution", func(t *testing.T) {
 		th := test.Setup(t)
 

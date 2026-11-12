@@ -1,0 +1,976 @@
+// Copyright (C) 2026 Yota Hamada
+// SPDX-License-Identifier: GPL-3.0-or-later
+
+//go:build windows && (amd64 || arm64)
+
+package desktop
+
+import (
+	"context"
+	"errors"
+	"fmt"
+	"path/filepath"
+	"runtime"
+	"slices"
+	"strings"
+	"sync"
+	"time"
+
+	"golang.org/x/sys/windows"
+)
+
+const (
+	// elementsTimeout bounds a request to the automation thread. A call
+	// that outlives it is abandoned, not cancelled: UI Automation offers no
+	// way to stop one.
+	elementsTimeout = 5 * time.Second
+	// closeTimeout bounds the wait for the automation thread to finish.
+	closeTimeout = time.Second
+	// findLimit is how many elements a search reads from a window.
+	findLimit = 5000
+	// chromiumWait is how long to let a Chromium window build its
+	// accessibility tree, which it does when a client first asks.
+	chromiumWait = 300 * time.Millisecond
+	// maxDepth bounds the walk from an element up to its window.
+	maxDepth = 64
+)
+
+var errElementsClosed = errors.New("elements closed")
+
+// elementProperties are cached for every element read.
+var elementProperties = []int32{
+	uiaRuntimeIdProperty, uiaBoundingRectangleProperty, uiaControlTypeProperty, uiaNameProperty,
+	uiaAutomationIdProperty, uiaClassNameProperty, uiaLabeledByProperty, uiaIsPasswordProperty,
+	uiaNativeWindowHandleProperty, uiaIsOffscreenProperty, uiaFrameworkIdProperty,
+	uiaValueValueProperty, uiaLegacyIAccessibleValueProperty, uiaToggleToggleStateProperty,
+	uiaIsEnabledProperty,
+}
+
+// toggle state values a checkbox or radio button reports.
+const (
+	toggleStateOff = 0
+	toggleStateOn  = 1
+)
+
+// parentProperties are cached for an element's ancestors and their
+// children, which only need to be told apart and placed.
+var parentProperties = []int32{
+	uiaRuntimeIdProperty, uiaControlTypeProperty, uiaNameProperty, uiaNativeWindowHandleProperty,
+}
+
+// roles maps UI Automation control types onto roles.
+var roles = map[int32]string{
+	uiaButton: RoleButton, uiaSplitButton: RoleButton,
+	uiaEdit: RoleTextField, uiaDocument: RoleTextField,
+	uiaText:        RoleText,
+	uiaCheckBox:    RoleCheckbox,
+	uiaRadioButton: RoleRadio,
+	uiaComboBox:    RoleComboBox,
+	uiaListItem:    RoleListItem, uiaTreeItem: RoleListItem,
+	uiaMenuItem:  RoleMenuItem,
+	uiaTabItem:   RoleTab,
+	uiaHyperlink: RoleLink,
+	uiaDataItem:  RoleCell, uiaHeaderItem: RoleCell,
+	uiaList: RoleList, uiaDataGrid: RoleList, uiaTable: RoleList, uiaTree: RoleList,
+	uiaGroup:  RoleGroup,
+	uiaWindow: RoleWindow,
+}
+
+// roleOf maps a control type onto a role. A top-level element is a window
+// whatever its control type, since some frameworks expose a pane.
+func roleOf(controlType int32, topLevel bool) string {
+	if topLevel {
+		return RoleWindow
+	}
+	if role, ok := roles[controlType]; ok {
+		return role
+	}
+	return RoleOther
+}
+
+// uiaElements reads elements through UI Automation. Every call runs on
+// one thread that owns the COM apartment and every COM pointer; callers
+// receive plain values. A reader InWindow returns shares the thread.
+type uiaElements struct {
+	requests  chan request
+	quit      chan struct{}
+	done      chan struct{}
+	closeOnce sync.Once
+	// scope is the window a reader InWindow returned reads in place of the
+	// one in front.
+	scope *WindowID
+}
+
+type request struct {
+	fn     func(*uiaWorker) (any, error)
+	result chan response
+}
+
+type response struct {
+	value any
+	err   error
+}
+
+// uiaWorker is the automation thread's state.
+type uiaWorker struct {
+	auto         *automation
+	root         *element
+	walker       *treeWalker
+	cacheElement *cacheRequest
+	cacheParent  *cacheRequest
+	cacheSubtree *cacheRequest
+}
+
+// OpenElements starts reading elements through UI Automation. It needs
+// no desktop lease; reading elements beside a running step is harmless.
+func OpenElements() (Elements, error) {
+	makeDPIAware()
+	e := &uiaElements{requests: make(chan request), quit: make(chan struct{}), done: make(chan struct{})}
+	ready := make(chan error, 1)
+	go e.serve(ready)
+	if err := <-ready; err != nil {
+		return nil, fmt.Errorf("UI Automation is unavailable: %w", err)
+	}
+	return e, nil
+}
+
+// serve runs the automation thread. The thread is locked for the COM
+// apartment and never unlocked, so Go lets it end with the goroutine.
+func (e *uiaElements) serve(ready chan<- error) {
+	runtime.LockOSThread()
+	defer close(e.done)
+	if err := windows.CoInitializeEx(0, windows.COINIT_MULTITHREADED); err != nil {
+		ready <- err
+		return
+	}
+	defer windows.CoUninitialize()
+	w, err := newWorker()
+	if err != nil {
+		ready <- err
+		return
+	}
+	defer w.release()
+	ready <- nil
+	for {
+		select {
+		case <-e.quit:
+			return
+		case req := <-e.requests:
+			value, err := req.fn(w)
+			req.result <- response{value: value, err: err}
+		}
+	}
+}
+
+// call performs fn on the automation thread and waits for its answer.
+// The answer travels only through the channel, so a call abandoned at the
+// deadline cannot write into anything its caller still holds. The send is
+// bounded too, since a hung application keeps the thread busy.
+func call[T any](e *uiaElements, what string, fn func(*uiaWorker) (T, error)) (T, error) {
+	var zero T
+	req := request{
+		fn:     func(w *uiaWorker) (any, error) { return fn(w) },
+		result: make(chan response, 1),
+	}
+	deadline := time.NewTimer(elementsTimeout)
+	defer deadline.Stop()
+	select {
+	case e.requests <- req:
+	case <-e.quit:
+		return zero, errElementsClosed
+	case <-deadline.C:
+		return zero, fmt.Errorf("%s: the automation thread is still busy after %s: %w", what, elementsTimeout, context.DeadlineExceeded)
+	}
+	select {
+	case res := <-req.result:
+		if res.err != nil {
+			return zero, res.err
+		}
+		value, _ := res.value.(T)
+		return value, nil
+	case <-deadline.C:
+		return zero, fmt.Errorf("%s: no answer within %s: %w", what, elementsTimeout, context.DeadlineExceeded)
+	}
+}
+
+// run performs fn on the automation thread for its error alone.
+func (e *uiaElements) run(what string, fn func(*uiaWorker) error) error {
+	_, err := call(e, what, func(w *uiaWorker) (struct{}, error) { return struct{}{}, fn(w) })
+	return err
+}
+
+// InWindow reads one top-level window through the same automation thread.
+func (e *uiaElements) InWindow(w WindowID) Elements {
+	return &uiaElements{requests: e.requests, quit: e.quit, done: e.done, scope: &w}
+}
+
+func (e *uiaElements) Close() error {
+	if e.scope != nil {
+		return nil
+	}
+	e.closeOnce.Do(func() { close(e.quit) })
+	select {
+	case <-e.done:
+		return nil
+	case <-time.After(closeTimeout):
+		return errors.New("UI Automation is still busy; its thread is left behind")
+	}
+}
+
+func (e *uiaElements) At(x, y int) (Element, error) {
+	return call(e, "element at point", func(w *uiaWorker) (Element, error) {
+		el, err := w.auto.elementFromPoint(x, y, w.cacheElement)
+		if err != nil {
+			return Element{}, err
+		}
+		defer el.release()
+		return w.place(el)
+	})
+}
+
+func (e *uiaElements) Focused() (Element, error) {
+	return call(e, "focused element", func(w *uiaWorker) (Element, error) {
+		el, err := w.auto.focusedElement(w.cacheElement)
+		if err != nil {
+			return Element{}, err
+		}
+		defer el.release()
+		return w.place(el)
+	})
+}
+
+func (e *uiaElements) FrontWindow() (Element, error) {
+	return call(e, "front window", func(w *uiaWorker) (Element, error) {
+		top, err := w.top(e.scope)
+		if err != nil {
+			return Element{}, err
+		}
+		defer top.el.release()
+		return top.window, nil
+	})
+}
+
+func (e *uiaElements) Find(sel Selector) ([]Element, error) {
+	return call(e, "find", func(w *uiaWorker) ([]Element, error) {
+		top, err := w.top(e.scope)
+		if err != nil {
+			return nil, err
+		}
+		defer top.el.release()
+		tree, err := w.subtree(top, findLimit)
+		if err != nil {
+			return nil, err
+		}
+		defer tree.release()
+		return Match(top.window, tree.elements, sel)
+	})
+}
+
+func (e *uiaElements) Outline(window Element, limit int) ([]Element, error) {
+	return call(e, "outline", func(w *uiaWorker) ([]Element, error) {
+		top, err := w.resolveWindow(window, e.scope)
+		if err != nil {
+			return nil, err
+		}
+		defer top.el.release()
+		tree, err := w.subtree(top, limit)
+		if err != nil {
+			return nil, err
+		}
+		defer tree.release()
+		return tree.elements, nil
+	})
+}
+
+// Focus finds the element again and gives it the keyboard focus. Like
+// Apply, it fails in a window Windows keeps this process's input from.
+func (e *uiaElements) Focus(target Element) error {
+	return e.run("focus", func(w *uiaWorker) error {
+		el, err := w.locate(target, e.scope)
+		if err != nil {
+			return err
+		}
+		defer el.release()
+		return el.setFocus()
+	})
+}
+
+// Apply finds the element again and has it perform a pattern. The call
+// runs on a thread of its own, with an automation client of its own: an
+// application may run the element's handler inside the call, and one that
+// opens a dialog there holds the call until the dialog closes, which must
+// not hold the thread that reads the screen. In a window of a higher
+// integrity level than this process, or one whose level cannot be read, it
+// fails before anything is asked of the element, with the error pointer
+// input to that window gets, as a refusal: Windows hides such a window's
+// elements from this process or drops what is asked of them.
+func (e *uiaElements) Apply(target Element, pattern Pattern, value string) error {
+	select {
+	case <-e.quit:
+		return errElementsClosed
+	default:
+	}
+	// UI Automation brings an element's window forward to perform a
+	// pattern: Windows' own proxies, which serve Win32 and Windows Forms
+	// controls, focus the control first, and Chromium takes the foreground
+	// to set a field's value.
+	if e.scope != nil {
+		return ErrForeground
+	}
+	return actAlone(string(pattern), func(w *uiaWorker) error {
+		el, err := w.locate(target, e.scope)
+		if err != nil {
+			return err
+		}
+		defer el.release()
+		if enabled, err := el.currentIsEnabled(); err == nil && !enabled {
+			return ErrDisabled
+		}
+		err = perform(el, pattern, value)
+		switch {
+		case errors.Is(err, hrElementNotEnabled):
+			return ErrDisabled
+		case errors.Is(err, hrElementNotAvailable):
+			return fmt.Errorf("%w: the element went away", ErrNotFound)
+		}
+		return err
+	})
+}
+
+// actAlone runs fn on a locked thread that lives for the call, with an
+// automation client of its own, and waits elementsTimeout for its answer.
+// A call the application holds is abandoned with its thread, as the
+// automation thread's calls are.
+func actAlone(what string, fn func(*uiaWorker) error) error {
+	result := make(chan error, 1)
+	go func() {
+		runtime.LockOSThread()
+		result <- func() error {
+			if err := windows.CoInitializeEx(0, windows.COINIT_MULTITHREADED); err != nil {
+				return err
+			}
+			defer windows.CoUninitialize()
+			w, err := newActor()
+			if err != nil {
+				return err
+			}
+			defer w.release()
+			return fn(w)
+		}()
+	}()
+	deadline := time.NewTimer(elementsTimeout)
+	defer deadline.Stop()
+	select {
+	case err := <-result:
+		return err
+	case <-deadline.C:
+		// The call is abandoned, not stopped, so it may still be running
+		// or may already have taken effect, such as an Invoke whose handler
+		// opened a dialog.
+		return fmt.Errorf("%s: no answer within %s; the application may still be handling it: %w", what, elementsTimeout, context.DeadlineExceeded)
+	}
+}
+
+// readAlone runs fn on a locked thread that lives for the call, with an
+// automation client of its own, and waits until ctx is done rather than the
+// reader's five seconds, so a long read, such as a large table, has the
+// operation's time without holding the reader thread. An abandoned call
+// ends with its thread.
+func readAlone[T any](ctx context.Context, what string, fn func(*uiaWorker) (T, error)) (T, error) {
+	type answer struct {
+		value T
+		err   error
+	}
+	result := make(chan answer, 1)
+	go func() {
+		runtime.LockOSThread()
+		result <- func() answer {
+			if err := windows.CoInitializeEx(0, windows.COINIT_MULTITHREADED); err != nil {
+				return answer{err: err}
+			}
+			defer windows.CoUninitialize()
+			w, err := newActor()
+			if err != nil {
+				return answer{err: err}
+			}
+			defer w.release()
+			value, err := fn(w)
+			return answer{value: value, err: err}
+		}()
+	}()
+	select {
+	case res := <-result:
+		return res.value, res.err
+	case <-ctx.Done():
+		var zero T
+		return zero, fmt.Errorf("%s: %w", what, ctx.Err())
+	}
+}
+
+// locate finds an element again, under its centre first and then by its
+// path in the front window, and returns it live. In a window a reader is
+// scoped to it goes by the path alone, since another window may cover the
+// centre. The window it is found in must take this process's input, as
+// checkWindow decides: one that does not fails with the error pointer input
+// to it gets, as a refusal, before anything is asked of the element. The
+// caller releases it.
+func (w *uiaWorker) locate(target Element, scope *WindowID) (*element, error) {
+	if scope == nil && !target.Bounds.Empty() {
+		centre := target.Bounds.Min.Add(target.Bounds.Size().Div(2))
+		if el, err := w.auto.elementFromPoint(centre.X, centre.Y, w.cacheElement); err == nil {
+			found, err := w.convert(el, false)
+			if err == nil && found.Role == target.Role && found.Name == target.Name && found.ID == target.ID {
+				if err := checkWindow(inputWindowAt(centre.X, centre.Y)); err != nil {
+					el.release()
+					return nil, refusedError{err}
+				}
+				return el, nil
+			}
+			el.release()
+		}
+	}
+	if len(target.Path) == 0 {
+		return nil, fmt.Errorf("%w: the element is not where it was", ErrNotFound)
+	}
+	top, err := w.top(scope)
+	if err != nil {
+		return nil, err
+	}
+	defer top.el.release()
+	// An elevated window hides its elements from this process, so it is
+	// checked before its tree is read, which would find nothing in it.
+	if err := checkWindow(windowID(top.hwnd)); err != nil {
+		return nil, refusedError{err}
+	}
+	tree, err := w.subtree(top, findLimit)
+	if err != nil {
+		return nil, err
+	}
+	defer tree.release()
+	for _, node := range tree.nodes {
+		if slices.Equal(node.path, target.Path) {
+			// The tree releases its elements; the caller gets a reference
+			// of its own.
+			node.el.com().addRef()
+			return node.el, nil
+		}
+	}
+	return nil, fmt.Errorf("%w: no element has the path %v in %q", ErrNotFound, target.Path, top.window.Name)
+}
+
+// newWorker creates the automation client and what every call shares.
+func newWorker() (*uiaWorker, error) {
+	obj, err := coCreateInstance(&clsidCUIAutomation8, &iidIUIAutomation)
+	if err != nil {
+		if obj, err = coCreateInstance(&clsidCUIAutomation, &iidIUIAutomation); err != nil {
+			return nil, fmt.Errorf("create the automation client: %w", err)
+		}
+	}
+	return setUp(obj)
+}
+
+// newActor creates the client a pattern call uses: the newer one, which
+// bounds how long an application may hold a call. Without that bound a call
+// to an application that hangs never returns, so actAlone's deadline frees
+// the caller while the locked thread and its COM apartment stay alive. When
+// the bound is unavailable, the pattern is reported as unoffered so the
+// action falls back to the screen instead.
+func newActor() (*uiaWorker, error) {
+	obj, err := coCreateInstance(&clsidCUIAutomation8, &iidIUIAutomation2)
+	if err != nil {
+		return nil, ErrNoPattern
+	}
+	if err := check("put_TransactionTimeout", obj.call(uia2PutTransactionTimeout, uintptr(transactionTimeout/time.Millisecond))); err != nil {
+		obj.release()
+		return nil, ErrNoPattern
+	}
+	return setUp(obj)
+}
+
+func setUp(obj *comObject) (*uiaWorker, error) {
+	w := &uiaWorker{auto: (*automation)(obj)}
+	if err := w.setup(); err != nil {
+		w.release()
+		return nil, err
+	}
+	return w, nil
+}
+
+func (w *uiaWorker) setup() error {
+	filter, err := w.auto.controlViewCondition()
+	if err != nil {
+		return err
+	}
+	defer filter.release()
+	if w.cacheElement, err = w.newCache(filter, treeScopeElement, elementProperties); err != nil {
+		return err
+	}
+	if w.cacheParent, err = w.newCache(filter, treeScopeElement|treeScopeChildren, parentProperties); err != nil {
+		return err
+	}
+	if w.cacheSubtree, err = w.newCache(filter, treeScopeSubtree, elementProperties); err != nil {
+		return err
+	}
+	if w.walker, err = w.auto.controlViewWalker(); err != nil {
+		return err
+	}
+	w.root, err = w.auto.rootElement(w.cacheParent)
+	return err
+}
+
+func (w *uiaWorker) newCache(filter *condition, scope int32, properties []int32) (*cacheRequest, error) {
+	cache, err := w.auto.createCacheRequest()
+	if err != nil {
+		return nil, err
+	}
+	for _, id := range properties {
+		if err := cache.addProperty(id); err != nil {
+			cache.release()
+			return nil, err
+		}
+	}
+	if err := errors.Join(cache.setTreeScope(scope), cache.setTreeFilter(filter), cache.setElementMode(automationElementModeFull)); err != nil {
+		cache.release()
+		return nil, err
+	}
+	return cache, nil
+}
+
+func (w *uiaWorker) release() {
+	w.cacheElement.release()
+	w.cacheParent.release()
+	w.cacheSubtree.release()
+	w.walker.release()
+	w.root.release()
+	w.auto.release()
+}
+
+// topWindow is a top-level window: its element with every property
+// cached, which the holder releases, its value, its class name, and its
+// handle.
+type topWindow struct {
+	el        *element
+	window    Element
+	className string
+	hwnd      windows.HWND
+}
+
+// top reads the window in front, or the window scope names. A handle
+// that now names another process's window, as a closed window's handle
+// reused, is a window that closed.
+func (w *uiaWorker) top(scope *WindowID) (*topWindow, error) {
+	hwnd := windows.GetForegroundWindow()
+	if scope != nil {
+		hwnd = windows.HWND(scope.Handle) //nolint:gosec // a window handle round-trips through uintptr for Win32
+		var pid uint32
+		if _, err := windows.GetWindowThreadProcessId(hwnd, &pid); err != nil || pid != scope.PID {
+			hwnd = 0
+		}
+	}
+	if hwnd == 0 {
+		return nil, ErrNoWindow
+	}
+	el, err := w.auto.elementFromHandle(uintptr(hwnd), w.cacheElement)
+	if err != nil {
+		return nil, err
+	}
+	top, err := w.asWindow(el)
+	if err != nil {
+		el.release()
+		return nil, err
+	}
+	return top, nil
+}
+
+// asWindow describes a top-level element whose properties are cached. The
+// caller keeps ownership of el.
+func (w *uiaWorker) asWindow(el *element) (*topWindow, error) {
+	window, err := w.convert(el, true)
+	if err != nil {
+		return nil, err
+	}
+	window.Window = window.Name
+	native, _ := el.cachedInt(uiaNativeWindowHandleProperty)
+	hwnd := windows.HWND(native) //nolint:gosec // A window handle fits in 32 bits.
+	window.App = appName(hwnd)
+	className, _ := el.cachedClassName()
+	if holdsOwner(hwnd) {
+		window.Role = RoleDialog
+	}
+	return &topWindow{el: el, window: window, className: className, hwnd: hwnd}, nil
+}
+
+// placement is where an element sits: its top-level window, which the
+// holder releases, the path down from it, and the window's title.
+type placement struct {
+	top   *element
+	path  []PathStep
+	title string
+}
+
+// resolveWindow finds the window an element describes: the one in front,
+// or the top-level window under the element's centre. A reader scoped to a
+// window reads that one.
+func (w *uiaWorker) resolveWindow(window Element, scope *WindowID) (*topWindow, error) {
+	front, err := w.top(scope)
+	if err != nil {
+		return nil, err
+	}
+	if scope != nil || window.Name == "" || window.Name == front.window.Name {
+		return front, nil
+	}
+	front.el.release()
+	if window.Bounds.Empty() {
+		return nil, fmt.Errorf("window %q is not in front", window.Name)
+	}
+	centre := window.Bounds.Min.Add(window.Bounds.Size().Div(2))
+	at, err := w.auto.elementFromPoint(centre.X, centre.Y, w.cacheElement)
+	if err != nil {
+		return nil, err
+	}
+	defer at.release()
+	place, err := w.ancestry(at)
+	if err != nil {
+		return nil, err
+	}
+	defer place.top.release()
+	// The walk cached only what places an element; the window needs
+	// everything.
+	full, err := place.top.buildUpdatedCache(w.cacheElement)
+	if err != nil {
+		return nil, err
+	}
+	found, err := w.asWindow(full)
+	if err != nil {
+		full.release()
+		return nil, err
+	}
+	if found.window.Name != window.Name {
+		full.release()
+		return nil, fmt.Errorf("window %q is not on screen; %q is there", window.Name, found.window.Name)
+	}
+	return found, nil
+}
+
+// place describes an element whose properties are cached, with its window
+// and path.
+func (w *uiaWorker) place(el *element) (Element, error) {
+	place, err := w.ancestry(el)
+	if err != nil {
+		return Element{}, err
+	}
+	defer place.top.release()
+	if len(place.path) == 0 {
+		window, err := w.asWindow(el)
+		if err != nil {
+			return Element{}, err
+		}
+		return window.window, nil
+	}
+	found, err := w.convert(el, false)
+	if err != nil {
+		return Element{}, err
+	}
+	found.Path, found.Window = place.path, place.title
+	return found, nil
+}
+
+// ancestry walks from an element up to its top-level window. The caller
+// releases the window it returns. An element that is itself a window has
+// an empty path.
+func (w *uiaWorker) ancestry(el *element) (placement, error) {
+	var steps []PathStep
+	current, owned := el, false
+	drop := func() {
+		if owned {
+			current.release()
+		}
+	}
+	for range maxDepth {
+		parent, err := w.walker.parent(current, w.cacheParent)
+		if err != nil {
+			drop()
+			return placement{}, err
+		}
+		if parent == nil {
+			drop()
+			return placement{}, errors.New("the element has no window")
+		}
+		isRoot, err := w.auto.compareElements(parent, w.root)
+		if err != nil {
+			parent.release()
+			drop()
+			return placement{}, err
+		}
+		if isRoot {
+			parent.release()
+			title, err := current.cachedName()
+			if err != nil {
+				drop()
+				return placement{}, err
+			}
+			if !owned {
+				// The caller's element is its own window; give the caller a
+				// reference of its own to release.
+				current.com().addRef()
+			}
+			slices.Reverse(steps)
+			return placement{top: current, path: steps, title: title}, nil
+		}
+		step, err := w.stepOf(parent, current)
+		if err != nil {
+			parent.release()
+			drop()
+			return placement{}, err
+		}
+		steps = append(steps, step)
+		drop()
+		current, owned = parent, true
+	}
+	drop()
+	return placement{}, errors.New("the element is nested too deep")
+}
+
+// stepOf describes child's place among parent's cached children.
+func (w *uiaWorker) stepOf(parent, child *element) (PathStep, error) {
+	controlType, err := child.cachedControlType()
+	if err != nil {
+		return PathStep{}, err
+	}
+	name, err := child.cachedName()
+	if err != nil {
+		return PathStep{}, err
+	}
+	step := PathStep{Role: roleOf(controlType, false), Name: name}
+	children, err := parent.cachedChildren()
+	if err != nil {
+		return PathStep{}, err
+	}
+	if children == nil {
+		return PathStep{}, errors.New("the element's parent lists no children")
+	}
+	defer children.release()
+	n, err := children.length()
+	if err != nil {
+		return PathStep{}, err
+	}
+	for i := range n {
+		sibling, err := children.element(i)
+		if err != nil {
+			return PathStep{}, err
+		}
+		same, err := w.auto.compareElements(sibling, child)
+		if err == nil && same {
+			sibling.release()
+			return step, nil
+		}
+		siblingType, err := sibling.cachedControlType()
+		sibling.release()
+		if err != nil {
+			return PathStep{}, err
+		}
+		if roleOf(siblingType, false) == step.Role {
+			step.Index++
+		}
+	}
+	return step, errors.New("the element is not among its parent's children")
+}
+
+// convert reads an element's cached properties.
+func (w *uiaWorker) convert(el *element, topLevel bool) (Element, error) {
+	controlType, err := el.cachedControlType()
+	if err != nil {
+		return Element{}, err
+	}
+	name, err := el.cachedName()
+	if err != nil {
+		return Element{}, err
+	}
+	id, err := el.cachedAutomationID()
+	if err != nil {
+		return Element{}, err
+	}
+	bounds, err := el.cachedBoundingRectangle()
+	if err != nil {
+		return Element{}, err
+	}
+	found := Element{Role: roleOf(controlType, topLevel), Name: name, ID: id, Bounds: bounds}
+	if enabled, err := el.cachedIsEnabled(); err == nil {
+		found.Disabled = !enabled
+	}
+	if password, err := el.cachedIsPassword(); err == nil && !password {
+		found.Value = w.value(el)
+	}
+	// A checkbox or radio button holds its state, not text, so its value is
+	// its toggle state as a boolean a person would read.
+	if found.Value == "" && (found.Role == RoleCheckbox || found.Role == RoleRadio) {
+		switch state, err := el.cachedInt(uiaToggleToggleStateProperty); {
+		case err == nil && state == toggleStateOn:
+			found.Value = "true"
+		case err == nil && state == toggleStateOff:
+			found.Value = "false"
+		}
+	}
+	if label, err := el.cachedLabeledBy(); err == nil && label != nil {
+		found.Label, _ = label.currentName()
+		label.release()
+	}
+	return found, nil
+}
+
+// value reads what an element holds: its value pattern first, then what
+// the older accessibility interface reports.
+func (w *uiaWorker) value(el *element) string {
+	if text, err := el.cachedText(uiaValueValueProperty); err == nil && text != "" {
+		return text
+	}
+	text, _ := el.cachedText(uiaLegacyIAccessibleValueProperty)
+	return text
+}
+
+// subtree reads the whole control tree of a window in one request and
+// walks it. A Chromium window builds its tree when a client first asks,
+// so a sparse answer from one is read again after a moment.
+func (w *uiaWorker) subtree(top *topWindow, limit int) (*subtree, error) {
+	tree, err := w.readSubtree(top, limit)
+	if err != nil {
+		return nil, err
+	}
+	if len(tree.nodes) <= 2 && strings.HasPrefix(top.className, "Chrome_WidgetWin") {
+		tree.release()
+		time.Sleep(chromiumWait)
+		if tree, err = w.readSubtree(top, limit); err != nil {
+			return nil, err
+		}
+	}
+	if len(tree.nodes) == 0 {
+		tree.release()
+		return nil, fmt.Errorf("%w: %q may belong to a process run as administrator, or draw its own controls", ErrNoElements, top.window.Name)
+	}
+	return tree, nil
+}
+
+func (w *uiaWorker) readSubtree(top *topWindow, limit int) (*subtree, error) {
+	rootEl, err := top.el.buildUpdatedCache(w.cacheSubtree)
+	if err != nil {
+		return nil, err
+	}
+	iconic, _, _ := procIsIconic.Call(uintptr(top.hwnd))
+	tree := &subtree{worker: w, pool: []*element{rootEl}, minimized: iconic != 0}
+	root := &subtreeNode{tree: tree, el: rootEl}
+	tree.elements = outlineTree(root, top.window.Name, limit)
+	if tree.err != nil {
+		tree.release()
+		return nil, tree.err
+	}
+	return tree, nil
+}
+
+// subtree is one window's cached control tree. Every element it created
+// is released together. A minimized window shows none of its elements,
+// though they keep their size at the place Windows parks the window and do
+// not report themselves offscreen.
+type subtree struct {
+	worker    *uiaWorker
+	pool      []*element
+	nodes     []*subtreeNode
+	elements  []Element
+	err       error
+	minimized bool
+}
+
+func (t *subtree) release() {
+	for _, el := range t.pool {
+		el.release()
+	}
+	t.pool = nil
+}
+
+// subtreeNode adapts a cached element to the tree walk.
+type subtreeNode struct {
+	tree    *subtree
+	el      *element
+	path    []PathStep
+	loaded  bool
+	value   Element
+	visibly bool
+}
+
+func (n *subtreeNode) load() {
+	if n.loaded {
+		return
+	}
+	n.loaded = true
+	found, err := n.tree.worker.convert(n.el, false)
+	if err != nil {
+		n.tree.err = errors.Join(n.tree.err, err)
+		return
+	}
+	n.value = found
+	offscreen, _ := n.el.cachedIsOffscreen()
+	n.visibly = !n.tree.minimized && !offscreen && !found.Bounds.Empty()
+}
+
+func (n *subtreeNode) element() Element {
+	n.load()
+	return n.value
+}
+
+func (n *subtreeNode) visible() bool {
+	n.load()
+	return n.visibly
+}
+
+func (n *subtreeNode) placed(path []PathStep) {
+	n.path = path
+}
+
+func (n *subtreeNode) children() []treeNode {
+	children, err := n.el.cachedChildren()
+	if err != nil || children == nil {
+		return nil
+	}
+	defer children.release()
+	count, err := children.length()
+	if err != nil {
+		n.tree.err = errors.Join(n.tree.err, err)
+		return nil
+	}
+	out := make([]treeNode, 0, count)
+	for i := range count {
+		el, err := children.element(i)
+		if err != nil {
+			n.tree.err = errors.Join(n.tree.err, err)
+			continue
+		}
+		n.tree.pool = append(n.tree.pool, el)
+		child := &subtreeNode{tree: n.tree, el: el}
+		n.tree.nodes = append(n.tree.nodes, child)
+		out = append(out, child)
+	}
+	return out
+}
+
+// appName returns the image name of the process that owns a window,
+// without its extension, or "" when it cannot be read.
+func appName(hwnd windows.HWND) string {
+	if hwnd == 0 {
+		return ""
+	}
+	var pid uint32
+	if _, err := windows.GetWindowThreadProcessId(hwnd, &pid); err != nil || pid == 0 {
+		return ""
+	}
+	process, err := windows.OpenProcess(windows.PROCESS_QUERY_LIMITED_INFORMATION, false, pid)
+	if err != nil {
+		return ""
+	}
+	defer func() { _ = windows.CloseHandle(process) }()
+	buf := make([]uint16, windows.MAX_LONG_PATH)
+	size := uint32(len(buf)) //nolint:gosec // The buffer is small.
+	if err := windows.QueryFullProcessImageName(process, 0, &buf[0], &size); err != nil {
+		return ""
+	}
+	base := filepath.Base(windows.UTF16ToString(buf[:size]))
+	return strings.TrimSuffix(base, filepath.Ext(base))
+}

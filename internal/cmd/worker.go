@@ -4,13 +4,17 @@
 package cmd
 
 import (
+	"context"
 	"fmt"
 	"log/slog"
 	"os"
+	"syscall"
+	"time"
 
 	"github.com/dagucloud/dagu/v2/internal/cmn/logger"
 	"github.com/dagucloud/dagu/v2/internal/cmn/logger/tag"
 	"github.com/dagucloud/dagu/v2/internal/service/coordinator"
+	"github.com/dagucloud/dagu/v2/internal/service/resource"
 	"github.com/dagucloud/dagu/v2/internal/service/worker"
 	"github.com/spf13/cobra"
 )
@@ -34,6 +38,8 @@ Flags:
   --worker.health-port int                 Port number for the HTTP health check server (default: 8092, 0 disables)
   --worker.labels -l string                Worker labels for capability matching (format: key1=value1,key2=value2)
   --worker.coordinators string             Coordinator addresses (format: host1:port1,host2:port2)
+  --worker.shutdown-timeout string         How long to drain running DAG runs on SIGINT/SIGTERM before
+                                           canceling them (default: 60s, 0 waits without a bound)
 
 TLS Configuration (uses global peer settings):
   --peer.insecure                          Use insecure connection (h2c) instead of TLS (default: true)
@@ -57,7 +63,13 @@ Example:
   dagu worker --worker.coordinators=coordinator-1:50055 --peer.insecure=false --peer.client-ca-file=ca.crt
   dagu worker --worker.coordinators=coordinator-1:50055 --peer.insecure=false --peer.skip-tls-verify  # For self-signed certificates
 
-This process runs continuously in the foreground until terminated.
+This process runs continuously in the foreground until terminated. On SIGINT or
+SIGTERM it stops polling and lets running DAG runs finish their cleanup and
+lifecycle handlers. Once --worker.shutdown-timeout has passed, it cancels the
+runs that are still going. Set the supervisor's stop timeout at least 15s above
+this value (systemd TimeoutStopSec defaults to 90s, docker stop to 10s,
+Kubernetes terminationGracePeriodSeconds to 30s), or the process is killed
+before the canceled runs report their final status.
 `,
 		}, workerFlags, runWorker,
 	)
@@ -69,6 +81,7 @@ var workerFlags = []commandLineFlag{
 	workerHealthPortFlag,
 	workerLabelsFlag,
 	workerCoordinatorsFlag,
+	workerShutdownTimeoutFlag,
 	// Peer configuration flags for TLS
 	peerInsecureFlag,
 	peerCertFileFlag,
@@ -78,6 +91,9 @@ var workerFlags = []commandLineFlag{
 }
 
 func runWorker(ctx *Context, _ []string) error {
+	signalCtx, stop := notifyShutdownContext(ctx.Context, syscall.SIGINT, syscall.SIGTERM)
+	defer stop()
+
 	workerID := ctx.Config.Worker.ID
 	// Default to hostname@PID if not configured
 	if workerID == "" {
@@ -116,12 +132,23 @@ func runWorker(ctx *Context, _ []string) error {
 	w.SetHandler(worker.NewRemoteTaskHandler(handlerCfg))
 	logger.Info(ctx, "Using remote task handler")
 
+	// Heartbeats carry the machine's figures, which the server reports to
+	// Dagu Cloud on paid licenses.
+	machine := resource.NewService(ctx.Config)
+	if err := machine.Start(ctx); err != nil {
+		return fmt.Errorf("failed to start resource monitoring: %w", err)
+	}
+	defer func() { _ = machine.Stop(ctx.Context) }()
+	w.SetMachine(machine)
+
 	logger.Info(ctx, "Starting worker", tag.WorkerID(workerID), tag.MaxConcurrency(maxActiveRuns), slog.Any("labels", labels))
 	// Run status lives with the coordinator, so the worker closes waiting
 	// browsers by deadline and owner liveness only.
 	startBrowserReaper(ctx, ctx.Config.Paths.DataDir, nil)
 
-	// Start the worker in a goroutine to allow for graceful shutdown
+	// Start the worker in a goroutine to allow for graceful shutdown. It gets
+	// the parent context because canceling it would cancel running tasks
+	// instead of letting Stop drain them.
 	errCh := make(chan error, 1)
 	go func() {
 		if err := w.Start(ctx); err != nil {
@@ -131,9 +158,14 @@ func runWorker(ctx *Context, _ []string) error {
 
 	// Wait for either context cancellation or an error
 	select {
-	case <-ctx.Done():
-		logger.Info(ctx, "Worker shutting down")
-		if err := w.Stop(ctx); err != nil {
+	case <-signalCtx.Done():
+		// Let a second SIGINT end shutdown; SIGTERM stays absorbed.
+		stop()
+		shutdownTimeout := ctx.Config.Worker.ShutdownTimeout
+		logger.Info(ctx, "Worker shutting down", slog.Duration("timeout", shutdownTimeout))
+		stopCtx, cancel := workerStopContext(ctx.Context, shutdownTimeout)
+		defer cancel()
+		if err := w.Stop(stopCtx); err != nil {
 			return fmt.Errorf("failed to stop worker: %w", err)
 		}
 	case err := <-errCh:
@@ -141,6 +173,15 @@ func runWorker(ctx *Context, _ []string) error {
 	}
 
 	return nil
+}
+
+// workerStopContext returns the context for Worker.Stop. A positive timeout
+// bounds the drain of running DAG runs; zero leaves it unbounded.
+func workerStopContext(parent context.Context, timeout time.Duration) (context.Context, context.CancelFunc) {
+	if timeout > 0 {
+		return context.WithTimeout(parent, timeout)
+	}
+	return context.WithCancel(parent)
 }
 
 // createCoordinatorClient creates the worker coordinator client.

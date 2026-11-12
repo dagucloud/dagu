@@ -13,6 +13,7 @@ import (
 	"fmt"
 	"maps"
 	"regexp"
+	"slices"
 	"strings"
 	"time"
 
@@ -119,6 +120,43 @@ func StructuredAnswer(resp *llmpkg.ChatResponse) (json.RawMessage, error) {
 		return json.RawMessage(text), nil
 	}
 	return nil, errors.New("model did not return structured output")
+}
+
+const (
+	correctionFormat = "Your answer could not be used: %v. Call the respond tool again with arguments that match its parameter schema."
+	emptyAnswer      = "(no answer)"
+)
+
+// Correction asks a model to answer again through the respond tool after
+// an answer that could not be used for reason.
+func Correction(reason error) string {
+	return fmt.Sprintf(correctionFormat, reason)
+}
+
+// AppendCorrection adds the rejected answer and a correction for reason to
+// req, as plain messages. The messages go on req's own copy, so a slice
+// that other requests share is never written.
+func AppendCorrection(req *llmpkg.ChatRequest, rejected string, reason error) {
+	req.Messages = append(slices.Clip(req.Messages),
+		llmpkg.Message{Role: llmpkg.RoleAssistant, Content: rejected},
+		llmpkg.Message{Role: llmpkg.RoleUser, Content: Correction(reason)},
+	)
+}
+
+// RejectedAnswer returns what the model answered: the respond call's
+// arguments, otherwise its text, whichever is first not blank. A blank
+// answer becomes a placeholder, since providers reject an empty assistant
+// message.
+func RejectedAnswer(resp *llmpkg.ChatResponse) string {
+	for _, call := range resp.ToolCalls {
+		if call.Function.Name == RespondToolName && strings.TrimSpace(call.Function.Arguments) != "" {
+			return call.Function.Arguments
+		}
+	}
+	if strings.TrimSpace(resp.Content) != "" {
+		return resp.Content
+	}
+	return emptyAnswer
 }
 
 // lockHeartbeatInterval keeps a held lock well inside dirlock's staleness

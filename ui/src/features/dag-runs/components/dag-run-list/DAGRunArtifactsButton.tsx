@@ -8,6 +8,7 @@ import {
   TooltipContent,
   TooltipTrigger,
 } from '@/components/ui/tooltip';
+import { PeekLink } from '@/features/peek/PeekLink';
 import { I18nText } from '@/i18n/I18nText';
 import { useI18n } from '@/i18n/I18nProvider';
 
@@ -15,12 +16,10 @@ type DAGRunSummary = components['schemas']['DAGRunSummary'];
 
 type Props = {
   dagRun: DAGRunSummary;
-  onClick: () => void;
 };
 
 export function DAGRunArtifactsButton({
   dagRun,
-  onClick,
 }: Props): React.ReactElement | null {
   const { ts } = useI18n();
 
@@ -31,20 +30,17 @@ export function DAGRunArtifactsButton({
   return (
     <Tooltip>
       <TooltipTrigger asChild>
-        <button
-          type="button"
+        <PeekLink
+          peek={{ dag: dagRun.name, run: dagRun.dagRunId, dock: 'artifacts' }}
           aria-label={ts('View artifacts for {name} {runId}', {
             name: dagRun.name,
             runId: dagRun.dagRunId,
           })}
           className="inline-flex size-7 shrink-0 items-center justify-center rounded-md border border-border bg-background/80 text-muted-foreground shadow-sm transition-colors hover:border-primary/40 hover:bg-primary/10 hover:text-primary focus:outline-none focus:ring-2 focus:ring-primary/40"
-          onClick={(event) => {
-            event.stopPropagation();
-            onClick();
-          }}
+          onClick={(event) => event.stopPropagation()}
         >
           <Archive className="h-4 w-4" />
-        </button>
+        </PeekLink>
       </TooltipTrigger>
       <TooltipContent>
         <I18nText text={'View artifacts'} />

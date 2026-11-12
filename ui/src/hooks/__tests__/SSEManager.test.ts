@@ -78,6 +78,10 @@ describe('endpointToTopic', () => {
       ],
       ['/events/dag-runs/mydag/run-1', 'dagrun:mydag/run-1'],
       [
+        '/events/dag-run-activity?workspace=ops&hours=24',
+        'dagrunactivity:hours=24&workspace=ops',
+      ],
+      [
         '/events/dag-runs/mydag/run-1/sub-dag-runs/sub-1',
         'subdagrun:mydag/run-1/sub-1',
       ],

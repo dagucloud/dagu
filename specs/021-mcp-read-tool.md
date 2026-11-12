@@ -46,13 +46,16 @@ Tool input is a JSON object. Fields outside this table fail with
 | Field | Type | Allowed in mode | Required rule | Meaning |
 | --- | --- | --- | --- | --- |
 | `target` | string | Target mode only. | Required for target mode. | Case-sensitive read target literal. |
-| `name` | string | Target mode only. | Required for `dag`, `dag_spec`, `run`, `run_logs`, and `step_log`; optional for `reference`; forbidden for the remaining targets. | DAG name or reference topic name. |
-| `dagRunId` | string | Target mode only. | Required for `run`, `run_logs`, and `step_log`; forbidden for all other targets. | DAG-run identifier. |
-| `subRunId` | string | Target mode only. | Optional for `run` and `step_log`; forbidden for all other targets. | Child DAG-run identifier addressed under the root run selected by `name` and `dagRunId`. |
-| `stepName` | string | Target mode only. | Required for `step_log`; forbidden for all other targets. | Step name inside the DAG-run. |
-| `query` | string | Target mode only. | Optional only for `dags`, `wiki`, `runs`, `run_logs`, and `step_log`; forbidden for all other targets. | URL query string without a leading `?`. |
+| `name` | string | Target mode only. | Required for `dag`, `dag_spec`, `run`, `run_logs`, `step_log`, `foreach_items`, and `foreach_item`; optional for `reference`; forbidden for the remaining targets. | DAG name or reference topic name. |
+| `dagRunId` | string | Target mode only. | Required for `run`, `run_logs`, `step_log`, `foreach_items`, and `foreach_item`; forbidden for all other targets. | DAG-run identifier. |
+| `subRunId` | string | Target mode only. | Optional for `run`, `step_log`, `foreach_items`, and `foreach_item`; forbidden for all other targets. | Child DAG-run identifier addressed under the root run selected by `name` and `dagRunId`. |
+| `stepName` | string | Target mode only. | Required for `step_log`, `foreach_items`, and `foreach_item`; forbidden for all other targets. | Step name inside the DAG-run. |
+| `item` | string | Target mode only. | Required for `foreach_item`; optional for `step_log`, where it requires `bodyStepName`; forbidden for all other targets. | Foreach item path: the item index, or for an item of a nested foreach the `foreachParent` a body step reports followed by `.` and the index. |
+| `bodyStepName` | string | Target mode only. | Optional for `step_log`, where it requires `item`; forbidden for all other targets. | Body step name or ID inside the foreach item. |
+| `query` | string | Target mode only. | Optional only for `dags`, `wiki`, `runs`, `run_logs`, `step_log`, and `foreach_items`; forbidden for all other targets. | URL query string without a leading `?`. |
 | `workspace` | string | Target mode only. | Required for `wiki_page`, where `all` is not allowed; optional for `wiki`, `wiki_search`, and `dag_search`, defaulting to `all`; forbidden for all other targets. | Workspace selector. |
 | `path` | string | Target mode only. | Required for `wiki_page` and `workbook`; forbidden for all other targets. | Wiki page path without the `.md` extension, or for `workbook` a file path on the server. |
+| `password` | string | Target mode only. | Optional for `workbook`; forbidden for all other targets. | Password of a protected workbook, kept exactly as supplied. It is not recorded in the audit log. |
 | `search` | string | Target mode only. | Required for `wiki_search` and `dag_search`; forbidden for all other targets. | Search text. |
 | `prefix` | string | Target mode only. | Optional for `wiki` and `wiki_search`; forbidden for all other targets. | Wiki page path prefix. |
 | `cursor` | string | Target mode only. | Optional for `wiki_search` and `dag_search`; forbidden for all other targets. | Opaque continuation cursor returned by the same search target. |
@@ -61,11 +64,14 @@ Tool input is a JSON object. Fields outside this table fail with
 
 Supported fields other than `limit`, when present and not `null`, must be
 strings, and `limit` must be an integer. `null` is treated as absent. String
-field values are trimmed of leading and trailing whitespace. The trimmed value
-is the effective value used for mode selection, resource lookup, returned
-`target`, returned `uri`, and error fields. A string that is empty after
-trimming is treated as absent. A forbidden field fails when its trimmed value
-is non-empty. Supported target names are case-sensitive.
+field values other than `password` are trimmed of leading and trailing
+whitespace. The trimmed value is the effective value used for mode selection,
+resource lookup, returned `target`, returned `uri`, and error fields. A string
+that is empty after trimming is treated as absent. A forbidden field fails
+when its trimmed value is non-empty. `password` is kept exactly as supplied,
+including leading and trailing spaces and a value that is only spaces. An
+empty `password` and `null` are absent, and a forbidden `password` fails when
+the supplied value is non-empty. Supported target names are case-sensitive.
 
 The `docs`, `doc`, and `doc_search` target values are deprecated aliases that
 resolve to `wiki`, `wiki_page`, and `wiki_search`. They are accepted but not
@@ -100,6 +106,14 @@ Rules:
   - `dagu://runs/{name}/{dagRunId}/sub/{subRunId}` resolves to `run`.
   - `dagu://runs/{name}/{dagRunId}/sub/{subRunId}/steps/{stepName}/logs`
     resolves to `step_log`.
+  - `dagu://runs/{name}/{dagRunId}/steps/{stepName}/foreach` resolves to
+    `foreach_items`.
+  - `dagu://runs/{name}/{dagRunId}/steps/{stepName}/foreach/{item}` resolves
+    to `foreach_item`.
+  - `dagu://runs/{name}/{dagRunId}/steps/{stepName}/foreach/{item}/steps/{bodyStepName}/logs`
+    resolves to `step_log` with `item` and `bodyStepName`.
+  - The three foreach shapes under `dagu://runs/{name}/{dagRunId}/sub/{subRunId}`
+    resolve the same way with `subRunId`.
   - Query parameters do not affect target derivation.
 
 ### Target contracts
@@ -115,11 +129,13 @@ Rules:
 | `wiki` | None. | `workspace`, `query`, `prefix`. | `dagu://wiki` or `dagu://wiki/{workspace}`, plus query when present. | Wiki collection model. |
 | `wiki_page` | `workspace`, `path`. | None. | `dagu://wiki/{workspace}/{path}`. | Wiki page model. |
 | `wiki_search` | `search`. | `workspace`, `prefix`, `cursor`, `limit`. | Omitted. | Wiki search model. |
-| `workbook` | `path`. | None. | Omitted. | Workbook model. The output also carries `path` as supplied. |
+| `workbook` | `path`. | `password`. | Omitted. | Workbook model. The output also carries `path` as supplied. |
 | `runs` | None. | `query`. | Omitted in target mode; `dagu://runs` plus query in URI mode. | Run collection model. |
 | `run` | `name`, `dagRunId`. | `subRunId`. | `dagu://runs/{name}/{dagRunId}` or its `/sub/{subRunId}` child URI. | Run detail model. |
 | `run_logs` | `name`, `dagRunId`. | `query`. | `dagu://runs/{name}/{dagRunId}/logs`, with the supplied query appended when present. | Run-log model. |
-| `step_log` | `name`, `dagRunId`, `stepName`. | `subRunId`, `query`. | The root or child step-log URI, with the supplied query appended when present. | Step-log model. |
+| `step_log` | `name`, `dagRunId`, `stepName`. | `subRunId`, `query`, `item` with `bodyStepName`. | The root or child step-log URI, or the foreach step-log URI when `item` is supplied, with the supplied query appended when present. | Step-log model. |
+| `foreach_items` | `name`, `dagRunId`, `stepName`. | `subRunId`, `query`. | The root or child foreach-items URI, with the supplied query appended when present. | Foreach items model. |
+| `foreach_item` | `name`, `dagRunId`, `stepName`, `item`. | `subRunId`. | The root or child foreach-item URI. | Foreach item model. |
 
 Minimum `data` models:
 
@@ -131,14 +147,18 @@ Minimum `data` models:
 | DAG detail | `data.name` is the DAG name string. `data.specUri` is the canonical `dagu://dags/{name}/spec` URI. `data.suspended` is a boolean. When the DAG has run at least once, `data.latestRun` is an object with `dagRunId` string, `status` number, and `statusLabel` string. |
 | DAG spec | `data.name` is the DAG name string. `data.mimeType` is `application/yaml`. `data.spec` is the YAML document string. `data.errors` is an array of strings. |
 | Run collection | `data.items` is an array. Each item has `name` string, `dagRunId` string, `uri` string, `status` number, and `statusLabel` string. `uri` is the canonical `dagu://runs/{name}/{dagRunId}` URI. An item carries `startedAt` and `finishedAt` strings once those timestamps are recorded. When another page is available, `data.nextCursor` is an opaque cursor string. |
-| Run detail | `data.name` is the resolved DAG name string. `data.dagRunId` is the resolved DAG-run ID string. `data.uri` is the canonical root or child run URI. Root runs include the canonical `data.logsUri`. `data.status` is a number. `data.statusLabel` is a string. The run carries `startedAt` and `finishedAt` strings once those timestamps are recorded. `data.steps` is an array with one entry per step in execution order; each entry has `name` string, `status` number, `statusLabel` string, and a root- or child-addressed `logUri` string, and a failed step carries its `error` string when one was recorded. A step waiting on an open human task carries `humanTask` with its resolved `prompt` string and, when the task declares a form, its normalized `form` object. A step waiting on an approval gate carries `approval` with the gate's `prompt` string, `input` array, and `required` array, each present when the gate declares it. `data.humanTaskResumePending` is `true` when accepted human-task input is durable but the run still needs its retry queued. |
+| Run detail | `data.name` is the resolved DAG name string. `data.dagRunId` is the resolved DAG-run ID string. `data.uri` is the canonical root or child run URI. Root runs include the canonical `data.logsUri`. `data.attemptId` is the string identifier of the run's current attempt once one is recorded; each retry of the run, including a resume after manual action, records a new attempt. `data.status` is a number. `data.statusLabel` is a string. The run carries `startedAt` and `finishedAt` strings once those timestamps are recorded. `data.steps` is an array with one entry per step in execution order; each entry has `name` string, `status` number, `statusLabel` string, and a root- or child-addressed `logUri` string, and a failed step carries its `error` string when one was recorded. A `foreach` step carries `foreachUri`, the canonical foreach-items URI for that step. A step waiting on an open human task carries `humanTask` with its resolved `prompt` string and, when the task declares a form, its normalized `form` object. A step waiting on an approval gate carries `approval` with the gate's `prompt` string, `input` array, and `required` array, each present when the gate declares it. `data.humanTaskResumePending` is `true` when accepted human-task input is durable but the run still needs its retry queued. A finished run with collected outputs carries `data.outputs`, an object of output name to string value read from the same source as `GET /dag-runs/{name}/{dagRunId}/outputs`, for root and child runs alike; a run without outputs, or one whose status is `not_started`, `queued`, `running` or `waiting`, has no `outputs` field. `data.outputs` holds at most 50 values, none longer than 4 KiB, and at most 32 KiB of names and values in total. A value that does not fit is left out whole, never cut, and `data.outputsOmitted` is the number of values left out. When no value fits, there is no `outputs` field and `data.outputsOmitted` counts every value. When the outputs cannot be read, or were recorded by an attempt other than `data.attemptId`, the run details are still returned with `data.outputsError` text instead of `data.outputs`; that text does not include the underlying read error. |
 | Run logs | `data.schedulerLog` is an object with `content` string, `lineCount` number, `totalLines` number, and `hasMore` boolean. `data.stepLogs` is an array. Each step-log item has `stepName` string, `status` number, `statusLabel` string, `hasStdout` boolean, and `hasStderr` boolean. |
 | Step log | `data.stdoutContent` and `data.stderrContent` are strings holding the selected log lines; a stream excluded by the `stream` parameter is empty. `data.lineCount`, `data.totalLines`, and `data.hasMore` describe the returned stream, following stdout unless only stderr was requested. |
+| Foreach items | `data.total` is the number of items the step expanded to. `data.counts` is an object with `notStarted`, `running`, `succeeded`, `failed`, and `aborted` numbers. `data.items` is one page of items sorted failed first, then running, then the rest in index order; each has `item` string, `index` number, `key` string, `status` number, and `statusLabel` string, and carries `error`, `startedAt`, and `finishedAt` strings once recorded. |
+| Foreach item | `data.item`, `data.key`, `data.statusLabel` are strings, `data.index` and `data.status` numbers, and `data.error` a string when the body run failed. `data.steps` is an array in execution order; each entry has `name` string, `status` number, `statusLabel` string, `hasStdout` and `hasStderr` booleans, carries `error`, `startedAt`, and `finishedAt` strings once recorded, and for a body step that is itself a foreach carries `foreachParent`, the `parent` query value that lists its items. A body step that kept an agent session, such as the operations of a browser step, carries it as `agentSession`, with the run's secrets masked, and a body step that called models carries `modelUsage`; both have the shape the run's own steps have in the HTTP API. |
 | DAG search | `data.results` is an array. Each result has `name` string, `uri` string set to the canonical `dagu://dags/{name}/spec` URI, `matches` array of line-level snippets, and `hasMoreMatches` boolean. `data.hasMore` is a boolean, and `data.nextCursor` is an opaque cursor string when another page is available. |
-| Workbook | `data.path` is the resolved file path string and `data.date_system` is a string, `1900` or `1904`. `data.sheets` is an array with one entry per sheet, each with `name` string, `used_range` string, `range` string, `header_row` number (0 for an empty sheet), `headers` array of strings, `types` object mapping header to `string`, `number`, `integer`, `boolean`, `date`, or `datetime`, `row_count` number, `tables` array of `{name, range}`, and, for a sheet with a header row, `sample` array of up to five typed rows keyed by header, each carrying `_row`. `data.named_ranges` is an array of `{name, refers_to, scope}` and `data.warnings` an array of strings. The path is any workbook the server process can read, the same trust as DAG authoring, and the audit record carries it as `workbook_path`. A path that is not `.xlsx` or `.xlsm` is `invalid_tool_input` on `path`, a missing file is `resource_not_found`, and a file another program holds or that is not a workbook is `resource_unavailable`. |
+| Workbook | `data.path` is the resolved file path string and `data.date_system` is a string, `1900` or `1904`. `data.sheets` is an array with one entry per sheet, each with `name` string, `hidden` boolean `true` for a hidden or very hidden sheet, `used_range` string, `range` string, `header_row` number (0 for an empty sheet), `headers` array of strings, `types` object mapping header to `string`, `number`, `integer`, `boolean`, `date`, or `datetime`, `row_count` number, `hidden_rows` number of data rows hidden by a filter or by hand when there are any, `columns` array profiling each column in header order, `profile_truncated` boolean `true` when the table holds more data rows than the profile reads, `tables` array of `{name, range}`, and, for a sheet with a header row, `sample` array of up to five typed rows keyed by header, each carrying `_row`. Each `columns` entry has `name` string, `type` string, and `filled`, `blank`, and `distinct` numbers, and may carry `values` array of strings, `min` and `max`, `odd` number, and `odd_cells` array of `{cell, text}`; Spec 077 defines the profile. `data.named_ranges` is an array of `{name, refers_to, scope}` and `data.warnings` an array of strings. The path is any workbook the server process can read, the same trust as DAG authoring, and the audit record carries it as `workbook_path`. A path that is not `.xlsx` or `.xlsm` is `invalid_tool_input` on `path`, a missing file is `resource_not_found`, and a file another program holds or that is not a workbook is `resource_unavailable`. A protected workbook needs `password`; a missing or wrong password is `invalid_tool_input` on `password`, with `<name>: workbook password is missing or incorrect`, and a workbook whose encryption is not supported is `resource_unavailable`. The password is not recorded in the audit log. |
 | Wiki collection | `data.pagination` is an object describing the returned page. Tree mode returns `data.tree`, and flat mode returns `data.items`; entries carry `id` strings and canonical `dagu://wiki/{workspace}/{path}` URIs for pages. |
 | Wiki page | `data.id` is the page path string. `data.content` is the Markdown string. `data.mimeType` is `text/markdown`. `data.uri` is the canonical `dagu://wiki/{workspace}/{path}` URI. |
 | Wiki search | `data.results` is an array. Each result has `id` string, `uri` string, `matches` array of snippets, and `hasMoreMatches` boolean. `data.hasMore` is a boolean, and `data.nextCursor` is an opaque cursor string when another page is available. |
+
+Every `startedAt` and `finishedAt` value in these models is an RFC 3339 string with millisecond precision, for example `2026-10-27T08:02:02.158Z`. A run that an older version stored can have second precision, with no fraction.
 
 Implementations may add fields inside `data`. Conformance tests must not require
 absence of additional fields.
@@ -148,7 +168,7 @@ absence of additional fields.
 Rules:
 
 - The `query` field is allowed only in target mode for `dags`, `wiki`,
-  `runs`, `run_logs`, and `step_log`.
+  `runs`, `run_logs`, `step_log`, and `foreach_items`.
 - The `query` field must not start with `?`.
 - The same parameter names are allowed in URI-mode collection and log URIs.
 - Query parameter order is not normative.
@@ -187,6 +207,10 @@ outside the table below fail with `invalid_tool_input` in target mode and
 | `step_log` | `offset` | Integer greater than or equal to `1`. |
 | `step_log` | `limit` | Integer from `1` through `10000`. |
 | `step_log` | `stream` | One of `stdout` or `stderr`. |
+| `foreach_items` | `parent` | A `foreachParent` value reported by a `foreach_item` body step. |
+| `foreach_items` | `status` | One of `not_started`, `running`, `succeeded`, `failed`, or `aborted`. |
+| `foreach_items` | `page` | Integer greater than or equal to `1`. |
+| `foreach_items` | `perPage` | Integer from `1` through `500`. |
 
 For `step_log`, at most one of `tail`, `head`, and `offset` may be supplied.
 `limit` may be combined only with `offset`; `limit` alone reads from the
@@ -224,8 +248,9 @@ Rules:
 - For `dags`, the success text is `Dagu read completed.`, followed by a blank
   line and indented JSON containing the same value as `data`.
 - For every other target, the success text is exactly `Dagu read completed.`.
-- `step_log` results additionally echo `name`, `dagRunId`, and `stepName` at
-  the top level, plus `subRunId` when supplied; Wiki results echo `workspace`,
+- `step_log`, `foreach_items`, and `foreach_item` results additionally echo
+  `name`, `dagRunId`, and `stepName` at the top level, plus `subRunId`,
+  `item`, and `bodyStepName` when supplied; Wiki results echo `workspace`,
   `path`, and `prefix` when supplied.
 - A result with `uri` has exactly two content items: `content[0]` is a text
   content item with the target-specific success text, and `content[1]` is a
@@ -250,6 +275,10 @@ such as `title` and `description`, may be present.
 | `dagu://runs/{name}/{dagRunId}/steps/{stepName}/logs` | `dag_run_step_log` | `application/json` |
 | `dagu://runs/{name}/{dagRunId}/sub/{subRunId}` | `sub_dag_run` | `application/json` |
 | `dagu://runs/{name}/{dagRunId}/sub/{subRunId}/steps/{stepName}/logs` | `sub_dag_run_step_log` | `application/json` |
+| `dagu://runs/{name}/{dagRunId}/steps/{stepName}/foreach` | `dag_run_foreach_items` | `application/json` |
+| `dagu://runs/{name}/{dagRunId}/steps/{stepName}/foreach/{item}` | `dag_run_foreach_item` | `application/json` |
+| `dagu://runs/{name}/{dagRunId}/steps/{stepName}/foreach/{item}/steps/{bodyStepName}/logs` | `dag_run_foreach_step_log` | `application/json` |
+| The three foreach shapes under `dagu://runs/{name}/{dagRunId}/sub/{subRunId}` | `sub_dag_run_foreach_items`, `sub_dag_run_foreach_item`, `sub_dag_run_foreach_step_log` | `application/json` |
 | `dagu://wiki` and `dagu://wiki/{workspace}` | `wiki` | `application/json` |
 | `dagu://wiki/{workspace}/{path}` | `wiki_page` | `text/markdown` |
 

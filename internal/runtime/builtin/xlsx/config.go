@@ -32,6 +32,7 @@ type config struct {
 	Merged        string            `mapstructure:"merged"`
 	StopAtBlank   bool              `mapstructure:"stop_at_blank"`
 	KeepEmptyRows bool              `mapstructure:"keep_empty_rows"`
+	SkipHidden    bool              `mapstructure:"skip_hidden"`
 	Trim          bool              `mapstructure:"trim"`
 	Formulas      string            `mapstructure:"formulas"`
 	Types         map[string]string `mapstructure:"types"`
@@ -43,6 +44,7 @@ type config struct {
 	Format        string            `mapstructure:"format"`
 	Mode          string            `mapstructure:"mode"`
 	Style         string            `mapstructure:"style"`
+	Formats       map[string]string `mapstructure:"formats"`
 	Atomic        bool              `mapstructure:"atomic"`
 	DryRun        bool              `mapstructure:"dry_run"`
 	WaitForUnlock string            `mapstructure:"wait_for_unlock"`
@@ -166,22 +168,22 @@ func holdsReference(v any) bool {
 // fieldsByOperation lists the with fields each operation accepts.
 var fieldsByOperation = map[string][]string{
 	opRead: {"path", "password", "sheet", "range", "header", "columns", "merged", "stop_at_blank",
-		"keep_empty_rows", "trim", "formulas", "types", "on_type_error", "where", "max_rows"},
+		"keep_empty_rows", "skip_hidden", "trim", "formulas", "types", "on_type_error", "where", "max_rows"},
 	opInfo:       {"path", "password"},
 	opListSheets: {"path", "password"},
 	opWrite: {"path", "password", "sheet", "rows", "input", "format", "encoding", "delimiter", "columns", "header",
-		"mode", "style", "types", "atomic", "dry_run", "wait_for_unlock", "artifact"},
+		"mode", "style", "types", "formats", "atomic", "dry_run", "wait_for_unlock", "artifact"},
 	opAppend: {"path", "password", "sheet", "rows", "input", "format", "encoding", "delimiter", "columns", "header",
-		"types", "atomic", "dry_run", "wait_for_unlock", "artifact"},
-	opUpdateRows: {"path", "password", "sheet", "header", "rows", "key", "set", "missing", "atomic",
+		"types", "formats", "output", "atomic", "dry_run", "wait_for_unlock", "artifact"},
+	opUpdateRows: {"path", "password", "sheet", "header", "rows", "key", "set", "missing", "output", "atomic",
 		"dry_run", "wait_for_unlock", "artifact"},
-	opValidate: {"path", "password", "sheet", "range", "header", "columns", "merged", "trim", "formulas",
+	opValidate: {"path", "password", "sheet", "range", "header", "columns", "merged", "skip_hidden", "trim", "formulas",
 		"required", "not_blank", "unique", "types", "allowed", "on_problem", "max_problems"},
 	opWriteCells: {"path", "password", "sheet", "cells", "merge", "output", "atomic", "dry_run", "wait_for_unlock", "artifact"},
 	opSheet: {"path", "password", "operation", "sheet", "to", "if_exists", "missing", "position", "atomic",
 		"dry_run", "wait_for_unlock", "artifact"},
 	opConvert: {"path", "password", "sheet", "range", "header", "columns", "types", "trim", "merged", "formulas",
-		"output", "format", "encoding", "delimiter", "atomic", "artifact"},
+		"skip_hidden", "output", "format", "encoding", "delimiter", "atomic", "artifact"},
 	opExtract: {"path", "password", "sheet", "range", "instruction", "schema", "send_values", "cache", "trim", "formulas"},
 }
 
@@ -232,9 +234,9 @@ func validateConfig(operation string, cfg *config) error {
 		cfg.OnTypeError = string(workbook.TypeErrorWarn)
 	}
 	switch cfg.OnTypeError {
-	case "", string(workbook.TypeErrorFail), string(workbook.TypeErrorWarn), string(workbook.TypeErrorNull):
+	case "", string(workbook.TypeErrorFail), string(workbook.TypeErrorWarn), string(workbook.TypeErrorNull), string(workbook.TypeErrorKeep):
 	default:
-		return fmt.Errorf("%w: on_type_error must be fail, warn, or null", errConfig)
+		return fmt.Errorf("%w: on_type_error must be fail, warn, null, or keep", errConfig)
 	}
 	if cfg.MaxRows < 0 {
 		return fmt.Errorf("%w: max_rows must be >= 1", errConfig)
@@ -250,6 +252,11 @@ func validateConfig(operation string, cfg *config) error {
 				return fmt.Errorf("%w: types.%s: %v", errConfig, column, err)
 			}
 			cfg.types[column] = t
+		}
+	}
+	for column, format := range cfg.Formats {
+		if strings.TrimSpace(format) == "" {
+			return fmt.Errorf("%w: formats.%s must not be empty", errConfig, column)
 		}
 	}
 	if err := workbook.ValidateWhere(cfg.Where); err != nil {
@@ -496,6 +503,8 @@ func validateWriterConfig(operation string, cfg *config) error {
 				}
 			}
 		}
+	}
+	if operation == opWriteCells || operation == opUpdateRows || operation == opAppend {
 		if cfg.provided("output") {
 			if err := workbook.CheckExtension(cfg.Output); err != nil {
 				return fmt.Errorf("%w: output: %v", errConfig, err)
@@ -555,7 +564,7 @@ func (cfg config) lockOptions(log func(string)) workbook.LockOptions {
 	return workbook.LockOptions{WaitFor: cfg.wait, Log: log}
 }
 
-func (cfg config) writeOptions(log func(string)) workbook.WriteOptions {
+func (cfg config) writeOptions(output string, log func(string)) workbook.WriteOptions {
 	// Writers take header: true or false only; a row-number header is a
 	// read concept.
 	header := cfg.header.Mode != workbook.HeaderNone
@@ -566,6 +575,8 @@ func (cfg config) writeOptions(log func(string)) workbook.WriteOptions {
 		Header:   header,
 		Style:    workbook.StyleMode(cfg.Style),
 		Types:    cfg.types,
+		Formats:  cfg.Formats,
+		Output:   output,
 		InPlace:  !cfg.Atomic,
 		DryRun:   cfg.DryRun,
 		Lock:     cfg.lockOptions(log),
@@ -600,6 +611,7 @@ func (cfg config) readOptions() workbook.ReadOptions {
 		Merged:        workbook.MergedMode(cfg.Merged),
 		StopAtBlank:   cfg.StopAtBlank,
 		KeepEmptyRows: cfg.KeepEmptyRows,
+		SkipHidden:    cfg.SkipHidden,
 		Trim:          cfg.Trim,
 		Formulas:      workbook.FormulaMode(cfg.Formulas),
 		Types:         cfg.types,
@@ -666,6 +678,7 @@ func (cfg config) validateOptions() workbook.ValidateOptions {
 		Merged:      workbook.MergedMode(cfg.Merged),
 		Trim:        cfg.Trim,
 		Formulas:    workbook.FormulaMode(cfg.Formulas),
+		SkipHidden:  cfg.SkipHidden,
 		Required:    cfg.Required,
 		NotBlank:    cfg.NotBlank,
 		Unique:      cfg.Unique,
@@ -705,24 +718,25 @@ func (cfg config) sheetOptions(log func(string)) workbook.SheetOptions {
 
 func (cfg config) convertOptions(output string) workbook.ConvertOptions {
 	return workbook.ConvertOptions{
-		Password:  cfg.Password,
-		Output:    output,
-		Format:    cfg.convertFormat,
-		Sheet:     cfg.Sheet,
-		Range:     cfg.Range,
-		Header:    cfg.header,
-		Columns:   cfg.columns,
-		Types:     cfg.types,
-		Trim:      cfg.Trim,
-		Merged:    workbook.MergedMode(cfg.Merged),
-		Formulas:  workbook.FormulaMode(cfg.Formulas),
-		Encoding:  cfg.encoding,
-		Delimiter: cfg.delimiter,
-		InPlace:   !cfg.Atomic,
+		Password:   cfg.Password,
+		Output:     output,
+		Format:     cfg.convertFormat,
+		Sheet:      cfg.Sheet,
+		Range:      cfg.Range,
+		Header:     cfg.header,
+		Columns:    cfg.columns,
+		Types:      cfg.types,
+		Trim:       cfg.Trim,
+		Merged:     workbook.MergedMode(cfg.Merged),
+		Formulas:   workbook.FormulaMode(cfg.Formulas),
+		SkipHidden: cfg.SkipHidden,
+		Encoding:   cfg.encoding,
+		Delimiter:  cfg.delimiter,
+		InPlace:    !cfg.Atomic,
 	}
 }
 
-func (cfg config) updateOptions(rows []workbook.Row, log func(string)) workbook.UpdateOptions {
+func (cfg config) updateOptions(rows []workbook.Row, output string, log func(string)) workbook.UpdateOptions {
 	return workbook.UpdateOptions{
 		Password: cfg.Password,
 		Sheet:    cfg.Sheet,
@@ -731,6 +745,7 @@ func (cfg config) updateOptions(rows []workbook.Row, log func(string)) workbook.
 		Rows:     rows,
 		Set:      cfg.set,
 		Missing:  workbook.MissingMode(cfg.Missing),
+		Output:   output,
 		InPlace:  !cfg.Atomic,
 		DryRun:   cfg.DryRun,
 		Lock:     cfg.lockOptions(log),
@@ -758,13 +773,14 @@ var configSchema = &jsonschema.Schema{
 			Description: "How merged cells are read: fill (default) repeats the value into every covered cell; first keeps it in the top-left cell only."},
 		"stop_at_blank":   boolOrRef("Stop at the first fully empty row instead of reading to the end of the used range."),
 		"keep_empty_rows": boolOrRef("Keep trailing empty rows as rows of nulls."),
+		"skip_hidden":     boolOrRef("Leave out rows hidden by a filter or by hand. Defaults to false: hidden rows are read."),
 		"trim":            boolOrRef("Trim surrounding white space, including full-width spaces, from text cells."),
 		"formulas": {Type: "string", Enum: []any{"cached", "text", "calculate"},
 			Description: "What formula cells yield: cached (default) the stored result, text the formula itself, calculate an evaluation."},
 		"types": {Type: "object", AdditionalProperties: &jsonschema.Schema{Type: "string", Enum: []any{"string", "number", "integer", "boolean", "date", "datetime"}},
 			Description: "Column types to enforce, such as {amount: number, due: date}. A cell that cannot convert fails the step naming the cell."},
-		"on_type_error": {Enum: []any{"fail", "warn", "null", nil},
-			Description: "What a cell that fails its type does: fail (default) the step, or warn and read the cell as null."},
+		"on_type_error": {Enum: []any{"fail", "warn", "null", "keep", nil},
+			Description: "What a cell that fails its type does: fail (default) the step, warn and read the cell as null, or keep the cell's value as read with a warning."},
 		"where":    {Type: "object", Description: "Rows to keep: {Status: \"\"} matches empty cells, {Status: {ne: Done}} excludes a value, {Status: {in: [A, B]}} matches a list."},
 		"max_rows": {Description: "Most rows to read, 1 or more. Defaults to 5000; truncated is true when more rows exist."},
 		"rows": {Description: "Rows to write: a list of objects or arrays, usually ${steps.<id>.outputs.rows}. " +
@@ -775,6 +791,8 @@ var configSchema = &jsonschema.Schema{
 			Description: "What xlsx.write does to an existing sheet: replace (default) its contents, or append below its last row."},
 		"style": {Type: "string", Enum: []any{"table", "none"},
 			Description: "How a new sheet looks: table (default) has a bold frozen header, fitted widths, and number formats by column; none writes bare cells."},
+		"formats": {Type: "object", AdditionalProperties: &jsonschema.Schema{Type: "string"},
+			Description: "xlsx.write and xlsx.append: an explicit number format per column, such as {Total: \"#,##0\", Rate: \"0.0%\"}. It applies to every cell written to the column, on a new sheet or below existing rows, and wins over the format the column's values or the cell above would give."},
 		"atomic":  boolOrRef("Save through a temporary file renamed over the workbook. Defaults to true."),
 		"dry_run": boolOrRef("Compute and report the changes without saving the workbook."),
 		"wait_for_unlock": {Type: "string", Description: "How long to retry a workbook that another program holds open, such as 5m. " +
@@ -800,7 +818,7 @@ var configSchema = &jsonschema.Schema{
 			"An address is a cell, Sheet!cell, or a defined name for one cell."},
 		"merge": {Description: "xlsx.write_cells: ranges to merge before the cells are written, such as [A1:D1]. " +
 			"A merged range keeps only its top-left value; a range covering a cell that holds something, or overlapping another merged region, fails the step."},
-		"output": {Type: "string", Description: "xlsx.write_cells: workbook to write the result to, leaving path as it was, so a template can be filled many times. " +
+		"output": {Type: "string", Description: "xlsx.write_cells, xlsx.update_rows, and xlsx.append: a different workbook to write the result to, leaving path as it was, so a template can be filled many times. " +
 			"xlsx.convert: the csv, json, or jsonl file to write."},
 		"operation": {Type: "string", Enum: []any{"add", "copy", "rename", "delete"},
 			Description: "What xlsx.sheet does: add a sheet named sheet, copy sheet to to, rename sheet to to, or delete sheet."},

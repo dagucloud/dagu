@@ -8,6 +8,8 @@ import (
 	"errors"
 	"fmt"
 	"math"
+	"os"
+	"path/filepath"
 	"time"
 
 	"github.com/xuri/excelize/v2"
@@ -54,6 +56,14 @@ type WriteOptions struct {
 	// become real dates, number strings become numbers, and string keeps
 	// ISO-looking text as text.
 	Types map[string]ColumnType
+	// Formats names an explicit number format per column, such as
+	// {Total: "#,##0"}. It applies to every cell written to the column
+	// under either style, and wins over the number format the column's kind
+	// or the cell above would give.
+	Formats map[string]string
+	// Output, when set, receives the result while the workbook at path is
+	// left as it was.
+	Output string
 	// InPlace saves directly instead of through a temporary file.
 	InPlace bool
 	DryRun  bool
@@ -64,7 +74,6 @@ const (
 	headerFill  = "DDEBF7"
 	minColWidth = 8.0
 	maxColWidth = 60.0
-	fmtInteger  = 1
 	fmtText     = 49
 	fmtNumber   = "#,##0.00"
 	fmtDate     = "yyyy-mm-dd"
@@ -85,7 +94,7 @@ func Write(ctx context.Context, path string, table Table, opts WriteOptions) (*W
 	}
 	return withLock(ctx, path, opts.Lock, func() (*WriteResult, error) {
 		return writeOnce(ctx, path, table, opts)
-	})
+	}, opts.Output)
 }
 
 // Append is Write with WriteAppend.
@@ -106,6 +115,13 @@ func writeOnce(ctx context.Context, path string, table Table, opts WriteOptions)
 	}
 	if warning != "" {
 		warn(warning)
+	}
+	if opts.Output != "" {
+		// Only append reaches here: validation refuses output for xlsx.write.
+		if err := checkOutput(path, opts.Output, "append to", warn); err != nil {
+			return nil, err
+		}
+		result.Path = opts.Output
 	}
 	w, created, err := openOrCreate(path, opts.Password, opts.Sheet)
 	if err != nil {
@@ -182,6 +198,25 @@ func writeOnce(ctx context.Context, path string, table Table, opts WriteOptions)
 			}
 		}
 	}
+	// named is the style of each column with a named format: the style its
+	// cells would otherwise get, with that number format. A fresh table
+	// sheet takes its named formats in styleTable instead.
+	named := make([]int, len(table.Columns))
+	if !fresh || opts.Style != StyleTable {
+		for c, name := range table.Columns {
+			format, ok := opts.Formats[name]
+			if !ok {
+				continue
+			}
+			base := 0
+			if !fresh {
+				base = bases[c]
+			}
+			if named[c], err = w.numFmtStyle(base, &excelize.Style{CustomNumFmt: &format}); err != nil {
+				return nil, w.sheetError(sheet, fmt.Sprintf("formats.%s: %v", name, err))
+			}
+		}
+	}
 	// An append below existing rows never writes a header; an append that
 	// starts an empty sheet writes one so the first run creates a table.
 	writeHeader := opts.Header
@@ -224,7 +259,13 @@ func writeOnce(ctx context.Context, path string, table Table, opts WriteOptions)
 			if err := w.setCell(sheet, cols[c], r, v); err != nil {
 				return nil, err
 			}
-			if !fresh {
+			switch {
+			case named[c] != 0:
+				cell := cellName(cols[c], r)
+				if err := w.f.SetCellStyle(sheet, cell, cell, named[c]); err != nil {
+					return nil, w.cellError(sheet, cols[c], r, err.Error())
+				}
+			case !fresh:
 				w.styleWrittenCell(sheet, cols[c], r, bases[c], v, opts.Types[table.Columns[c]])
 			}
 			cells++
@@ -242,7 +283,7 @@ func writeOnce(ctx context.Context, path string, table Table, opts WriteOptions)
 	result.Changes.CellsChanged = cells
 
 	if fresh && opts.Style == StyleTable && len(table.Columns) > 0 {
-		if err := w.styleTable(sheet, table, kinds, startRow, writeHeader, lastRow); err != nil {
+		if err := w.styleTable(sheet, table, kinds, opts.Formats, startRow, writeHeader, lastRow); err != nil {
 			return nil, err
 		}
 	}
@@ -250,10 +291,32 @@ func writeOnce(ctx context.Context, path string, table Table, opts WriteOptions)
 	if opts.DryRun {
 		return result, nil
 	}
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	if opts.Output != "" {
+		w.path, w.base = opts.Output, Base(opts.Output)
+	}
+	if err := ensureParentDir(w.path); err != nil {
+		return nil, err
+	}
 	if err := w.save(opts.InPlace); err != nil {
 		return nil, err
 	}
 	return result, nil
+}
+
+// ensureParentDir creates the output directory only after a write has been
+// validated. Existing directories keep their permissions.
+func ensureParentDir(path string) error {
+	dir := filepath.Dir(path)
+	if info, err := os.Stat(dir); err == nil && !info.IsDir() {
+		return fmt.Errorf("%s: parent path %q is not a directory", filepath.Base(path), dir)
+	}
+	if err := os.MkdirAll(dir, 0o750); err != nil {
+		return fmt.Errorf("%s: create parent directory %q: %w", filepath.Base(path), dir, err)
+	}
+	return nil
 }
 
 // notMerged refuses an appended cell inside a merged cell.
@@ -478,7 +541,7 @@ func lastUsedRow(grid [][]string, used region) int {
 }
 
 // columnKinds picks the kind each column is written as: the pinned type, or
-// the dominant kind of its values.
+// the dominant kind of its values, where a whole number is an integer.
 func columnKinds(table Table, types map[string]ColumnType) []ColumnType {
 	kinds := make([]ColumnType, len(table.Columns))
 	for c, name := range table.Columns {
@@ -489,28 +552,44 @@ func columnKinds(table Table, types map[string]ColumnType) []ColumnType {
 		counts := map[string]int{}
 		for _, row := range table.Rows {
 			if c < len(row) {
-				if k := detectKind(row[c]); k != "" {
+				k := detectKind(row[c])
+				// JSON numbers arrive as float64, whole ones included.
+				if f, ok := row[c].(float64); ok && wholeNumber(f) {
+					k = string(TypeInteger)
+				}
+				if k != "" {
 					counts[k]++
 				}
 			}
 		}
 		best, bestCount := "", 0
-		for _, k := range []string{string(TypeString), string(TypeInteger), string(TypeNumber), string(TypeDate), string(TypeDateTime), string(TypeBoolean)} {
-			if counts[k] > bestCount {
-				best, bestCount = k, counts[k]
+		// Integers and decimals count as one kind, and a column mixing
+		// them is a number column.
+		numeric := counts[string(TypeInteger)] + counts[string(TypeNumber)]
+		for _, k := range []string{string(TypeString), string(TypeInteger), string(TypeDate), string(TypeDateTime), string(TypeBoolean)} {
+			n := counts[k]
+			if k == string(TypeInteger) {
+				n = numeric
+			}
+			if n > bestCount {
+				best, bestCount = k, n
 			}
 		}
-		// A column mixing integers and decimals is a number column, and
-		// one mixing dates and datetimes keeps the time.
 		if best == string(TypeInteger) && counts[string(TypeNumber)] > 0 {
 			best = string(TypeNumber)
 		}
+		// A column mixing dates and datetimes keeps the time.
 		if best == string(TypeDate) && counts[string(TypeDateTime)] > 0 {
 			best = string(TypeDateTime)
 		}
 		kinds[c] = ColumnType(best)
 	}
 	return kinds
+}
+
+// wholeNumber reports whether f is written as an integer cell.
+func wholeNumber(f float64) bool {
+	return f == math.Trunc(f) && math.Abs(f) <= maxExactInt
 }
 
 // outValue converts a table value into what the cell receives. Pinned
@@ -560,7 +639,7 @@ func (w *file) setCell(sheet string, col, row int, v any) error {
 	case int:
 		err = w.f.SetCellInt(sheet, cell, int64(x))
 	case float64:
-		if x == math.Trunc(x) && math.Abs(x) <= maxExactInt {
+		if wholeNumber(x) {
 			err = w.f.SetCellInt(sheet, cell, int64(x))
 		} else {
 			err = w.f.SetCellFloat(sheet, cell, x, -1, 64)
@@ -581,7 +660,7 @@ func (w *file) setCell(sheet string, col, row int, v any) error {
 // styleTable makes a fresh sheet look finished: bold header on a light
 // fill, frozen below the header, widths fitted to content, and number
 // formats by column kind.
-func (w *file) styleTable(sheet string, table Table, kinds []ColumnType, startRow int, header bool, lastRow int) error {
+func (w *file) styleTable(sheet string, table Table, kinds []ColumnType, formats map[string]string, startRow int, header bool, lastRow int) error {
 	if header {
 		id, err := w.f.NewStyle(&excelize.Style{
 			Font:      &excelize.Font{Bold: true},
@@ -619,6 +698,11 @@ func (w *file) styleTable(sheet string, table Table, kinds []ColumnType, startRo
 			continue
 		}
 		style := kindStyle(kinds[c])
+		if format, named := formats[name]; named {
+			// An explicit column format wins over the kind-based one and
+			// applies even to a column whose kind has no format of its own.
+			style = &excelize.Style{CustomNumFmt: &format}
+		}
 		if style == nil {
 			continue
 		}
@@ -636,7 +720,9 @@ func (w *file) styleTable(sheet string, table Table, kinds []ColumnType, startRo
 func kindStyle(kind ColumnType) *excelize.Style {
 	switch kind {
 	case TypeInteger:
-		return &excelize.Style{NumFmt: fmtInteger}
+		// Integers keep General, which shows a whole number plain and a
+		// fraction appended below it with its digits.
+		return nil
 	case TypeNumber:
 		f := fmtNumber
 		return &excelize.Style{CustomNumFmt: &f}
@@ -690,10 +776,12 @@ func isNarrow(r rune) bool {
 	return r >= 0xFF61 && r <= 0xFF9F // half-width katakana
 }
 
-// datedKey identifies a style derived from a base style for a date kind.
-type datedKey struct {
-	base int
-	kind ColumnType
+// numFmtKey identifies a style derived from a base style with another
+// number format.
+type numFmtKey struct {
+	base   int
+	numFmt int
+	custom string
 }
 
 // styleAt returns the style of a cell, or zero for a plain cell or a row
@@ -729,30 +817,42 @@ func (w *file) styleWrittenCell(sheet string, col, row, base int, value any, pin
 	}
 }
 
-// datedStyle returns a style like base with the number format of kind,
-// made once per base and kind for the life of the open workbook. Zero
-// means no style could be made.
+// datedStyle returns a style like base with the number format of kind.
+// Zero means no style could be made.
 func (w *file) datedStyle(base int, kind ColumnType) int {
-	key := datedKey{base: base, kind: kind}
-	if id, ok := w.dated[key]; ok {
-		return id
+	style := kindStyle(kind)
+	if style == nil {
+		return 0
 	}
-	id := 0
-	if style := kindStyle(kind); style != nil {
-		if base != 0 {
-			if existing, err := w.f.GetStyle(base); err == nil && existing != nil {
-				existing.NumFmt = style.NumFmt
-				existing.CustomNumFmt = style.CustomNumFmt
-				style = existing
-			}
-		}
-		if made, err := w.f.NewStyle(style); err == nil {
-			id = made
-		}
-	}
-	if w.dated == nil {
-		w.dated = map[datedKey]int{}
-	}
-	w.dated[key] = id
+	id, _ := w.numFmtStyle(base, style)
 	return id
+}
+
+// numFmtStyle returns a style like base with the number format of numFmt,
+// made once per base and format for the life of the open workbook.
+func (w *file) numFmtStyle(base int, numFmt *excelize.Style) (int, error) {
+	key := numFmtKey{base: base, numFmt: numFmt.NumFmt}
+	if numFmt.CustomNumFmt != nil {
+		key.custom = *numFmt.CustomNumFmt
+	}
+	if id, ok := w.numFmts[key]; ok {
+		return id, nil
+	}
+	style := numFmt
+	if base != 0 {
+		if existing, err := w.f.GetStyle(base); err == nil && existing != nil {
+			existing.NumFmt = numFmt.NumFmt
+			existing.CustomNumFmt = numFmt.CustomNumFmt
+			style = existing
+		}
+	}
+	id, err := w.f.NewStyle(style)
+	if err != nil {
+		return 0, err
+	}
+	if w.numFmts == nil {
+		w.numFmts = map[numFmtKey]int{}
+	}
+	w.numFmts[key] = id
+	return id, nil
 }

@@ -93,6 +93,37 @@ not run. Reaching `with.max_tool_iterations` without an answer fails that
 model, like an unusable answer: the next `with.model` entry starts over,
 and the step fails when no model is left.
 
+### Files
+
+`with.files` names the files the model reads with the prompt: one path or
+glob pattern, several of them as a list or one per line, or a list an
+earlier step published, such as the emails `mail.search` found with
+`save_attachments: true`. A leading `~` is the home directory, and a
+relative path is under the step's working directory. Each file is read
+once, in the order named, before any request.
+
+A text file (`.txt`, `.md`, `.csv`, `.tsv`, `.json`, `.jsonl`, `.yaml`,
+`.yml`, `.xml`, `.html`, `.htm`, `.log`), a Word document (`.docx`) and an
+Excel workbook (`.xlsx`, `.xlsm`) are given as text, a paragraph or row a
+line; a text file in Shift_JIS is decoded. A PDF is given page by page,
+and a page without text of its own, such as a scan, is rendered to an
+image. An image file (PNG, JPEG, GIF, WebP) is given as an image, scaled
+down to a long edge of 1568 pixels when larger. Files of other kinds, a
+file over 50 MB, a missing file, and a pattern matching nothing fail the
+step before any request.
+
+The text goes ahead of the step's last user message, each file in a
+`<file name="…">` block, a PDF's pages set apart by `--- page N ---`
+lines; the images go with that message, in the order they are named, and
+the text names each by its place: `[Image 1 is receipt.png.]`, or
+`--- page 2: image 1 ---` for a scanned page. Together the files may hold
+up to 1,000,000 characters of text and 50 images.
+
+The session keeps the text, so a later step of the session still reads it;
+the images go with the one request and are not kept. A push-back resends
+the feedback without the files. `files` is refused in a DAG-level `llm`
+block, since it belongs with the prompt it goes with.
+
 ## Errors
 
 `dagu validate` rejects missing prompt/message input and a configured
@@ -124,6 +155,27 @@ steps:
       base_url: http://localhost:8080
       prompt: Summarize the supplied text.
       stream: false
+```
+
+Reading an invoice, PDF or photographed, into typed values:
+
+```yaml
+steps:
+  - id: read
+    action: chat.completion
+    with:
+      provider: local
+      model: local-model
+      base_url: http://localhost:8080
+      prompt: Read the invoice and give its number, date, and total.
+      files: ~/Downloads/invoice-*.pdf
+    output_schema:
+      type: object
+      properties:
+        number: {type: string}
+        date: {type: string}
+        total: {type: number}
+      required: [number]
 ```
 
 Structured output, published as step outputs:

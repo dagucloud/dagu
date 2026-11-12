@@ -77,6 +77,12 @@ var (
 	// ErrWebhookHMACDecryptFailed is returned when an encrypted HMAC secret
 	// cannot be decrypted from storage.
 	ErrWebhookHMACDecryptFailed = errors.New("failed to decrypt webhook HMAC secret")
+	// ErrWebhookPublicEncryptorRequired is returned when a public webhook URL
+	// is stored or read without an encryptor for its token and sender secret.
+	ErrWebhookPublicEncryptorRequired = errors.New("webhook public URL requires encryptor")
+	// ErrWebhookPublicDecryptFailed is returned when a public webhook URL's
+	// token or sender secret cannot be decrypted.
+	ErrWebhookPublicDecryptFailed = errors.New("failed to decrypt webhook public URL secrets")
 )
 
 // UserStore defines the interface for user persistence operations.
@@ -221,6 +227,12 @@ type WebhookStore interface {
 	// DeleteByDAGName removes a webhook by its DAG name.
 	// Returns ErrWebhookNotFound if no webhook exists for the DAG.
 	DeleteByDAGName(ctx context.Context, dagName string) error
+
+	// RenameDAG moves a DAG's webhook to the DAG's new name, keeping its
+	// tokens and settings.
+	// Returns ErrWebhookAlreadyExists if a webhook exists for newName,
+	// checked first, and ErrWebhookNotFound if none exists for oldName.
+	RenameDAG(ctx context.Context, oldName, newName string) error
 
 	// UpdateLastUsed records recent use of a webhook and, when profileTokenID
 	// is not empty, of that profile token, persisting each timestamp at most

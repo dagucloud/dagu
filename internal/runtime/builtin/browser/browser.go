@@ -6,7 +6,6 @@ package browser
 
 import (
 	"context"
-	"errors"
 	"io"
 	"maps"
 	"os"
@@ -47,14 +46,8 @@ type browserExecutor struct {
 }
 
 func newExecutor(_ context.Context, step ir.Step) (executor.Executor, error) {
-	if step.LLM == nil {
-		return nil, errors.New("browser actions need a model: set llm at the DAG level or with.llm on the step")
-	}
-	cfg, err := parseConfig(step.ExecutorConfig.Config)
+	cfg, err := checkStep(step)
 	if err != nil {
-		return nil, err
-	}
-	if err := cfg.validate(); err != nil {
 		return nil, err
 	}
 	return &browserExecutor{

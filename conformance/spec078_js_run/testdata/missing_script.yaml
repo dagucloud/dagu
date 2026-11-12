@@ -1,0 +1,4 @@
+steps:
+  - action: js.run
+    with:
+      input: 1

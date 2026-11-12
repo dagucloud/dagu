@@ -83,7 +83,7 @@ function CreateDAGButton() {
 
   return (
     <>
-      <I18nProps><Button aria-label="Create new DAG" onClick={() => setIsOpen(true)}>
+      <I18nProps><Button aria-label="Create new DAG" variant="primary" onClick={() => setIsOpen(true)}>
         <Plus className="h-4 w-4" />
         <I18nText text={"New"} />
       </Button></I18nProps>

@@ -1,0 +1,24 @@
+[0-2] RootWebArea: ログイン｜取引先ポータル
+  [0-8] scrollable, html
+    [0-12] body
+      [0-13] banner
+        [0-14] navigation
+          [0-15] link: Home
+          [0-38] StaticText: 
+          [0-17] link: Help
+      [0-19] heading: 取引先ポータル
+      [0-3] form
+        [0-21] paragraph
+          [0-22] LabelText
+            [0-23] StaticText: ログインID
+            [0-4] textbox: ログインID
+        [0-26] paragraph
+          [0-27] LabelText
+            [0-28] StaticText: パスワード
+            [0-5] textbox: パスワード
+        [0-31] paragraph
+          [0-6] checkbox: Remember me [checked]
+        [0-34] paragraph
+          [0-7] button: ログイン
+      [0-36] alert
+        [0-37] StaticText: IDまたはパスワードが違います。

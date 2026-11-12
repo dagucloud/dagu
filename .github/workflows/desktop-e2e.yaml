@@ -1,8 +1,9 @@
 name: Desktop E2E
 
 # Operates the interactive desktop of a hosted Windows runner: the desktop
-# driver moves the pointer and types, and a computer step types into a test
-# window through a scripted model that reads the screenshots.
+# driver moves the pointer, types, and captures windows others cover, and a
+# computer step types into a test window through a scripted model that
+# reads the screenshots.
 on:
   pull_request:
     types:
@@ -14,6 +15,7 @@ on:
       - internal/desktop/**
       - internal/llm/computeruse/**
       - internal/runtime/builtin/computer/**
+      - internal/cmd/computer*.go
       - conformance/spec074_computer/**
       - .github/workflows/desktop-e2e.yaml
   push:
@@ -23,6 +25,7 @@ on:
       - internal/desktop/**
       - internal/llm/computeruse/**
       - internal/runtime/builtin/computer/**
+      - internal/cmd/computer*.go
       - conformance/spec074_computer/**
       - .github/workflows/desktop-e2e.yaml
   workflow_dispatch:
@@ -35,7 +38,7 @@ concurrency:
   cancel-in-progress: true
 
 env:
-  GO_VERSION: "1.27.0"
+  GO_VERSION: "1.27.4"
 
 jobs:
   windows-desktop:
@@ -65,17 +68,21 @@ jobs:
 
       - name: Test the desktop driver
         shell: bash
-        run: go test -count=1 -run 'TestWindowsDesktop|TestInputMatchesWin32Layout' ./internal/desktop/
+        run: go test -count=1 -v -run 'TestWindowsDesktop|TestWindowsCapture|TestWindowsMarks|TestInputMatchesWin32Layout|TestWindowsElements|TestWindowsElevatedWindow|TestWindowsDirectInput|TestWindowsTableRead|TestWindowsElementTimings|TestVariantLayout|TestPointArg|TestRoleOf|TestOpenElementsCloses|TestPatternConstants|TestBstrAlloc|TestPatternAsWithoutPattern' ./internal/desktop/
+
+      - name: List the elements of the window in front
+        shell: bash
+        run: ./.local/bin/dagu.exe computer elements --format json --limit 20 || true
 
       - name: Test a computer step
         shell: bash
         env:
           DESKTOP_E2E_ARTIFACTS: ${{ runner.temp }}/desktop-artifacts
-        run: DAGU_BIN="$PWD/.local/bin/dagu.exe" go test -count=1 -run TestComputerTypesIntoWindow -v ./conformance/spec074_computer/
+        run: DAGU_BIN="$PWD/.local/bin/dagu.exe" go test -count=1 -run 'TestComputerTypesIntoWindow|TestComputerElements|TestComputerPinnedAct|TestComputerOutlineStep|TestComputerChoosesAnOption|TestComputerElementTurns' -v ./conformance/spec074_computer/
 
       - name: Upload screenshots
         if: failure()
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: desktop-e2e-screenshots
           path: ${{ runner.temp }}/desktop-artifacts

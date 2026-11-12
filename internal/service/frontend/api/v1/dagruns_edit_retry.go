@@ -148,6 +148,9 @@ func (a *API) EditRetryDAGRun(ctx context.Context, request api.EditRetryDAGRunRe
 	if err := a.ensureDAGRunIDUnique(ctx, plan.editedDAG, plan.newDAGRunID); err != nil {
 		return nil, err
 	}
+	if err := a.checkServiceRunOfDefinition(ctx, plan.editedDAG, plan.newDAGRunID); err != nil {
+		return nil, err
+	}
 
 	queued, err := a.launchEditRetryDAGRun(ctx, plan)
 	if err != nil {
@@ -274,6 +277,9 @@ func (a *API) buildEditRetryPlan(
 	}
 	if status == nil {
 		return nil, nil, fmt.Errorf("failed to read status: status data is nil")
+	}
+	if err := rejectEphemeralRun(status, "edited"); err != nil {
+		return nil, nil, err
 	}
 	if status.Status.IsActive() || status.Status == ir.NotStarted {
 		return nil, nil, badEditRetryRequest(fmt.Sprintf("dag-run %s is %s and cannot be edit-retried", sourceDAGRunID, status.Status.String()))

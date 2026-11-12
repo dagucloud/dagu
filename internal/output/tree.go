@@ -8,6 +8,7 @@ import (
 	"strconv"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	"github.com/dagucloud/dagu/v2/internal/cmn/stringutil"
 	"github.com/dagucloud/dagu/v2/internal/ir"
@@ -191,6 +192,10 @@ func (r *Renderer) renderStepHeader(node *ir.Node, isLast bool, prefix string) s
 		lineParts = append(lineParts, r.text(label))
 	}
 
+	if node.Repeated && node.DoneCount > 1 {
+		lineParts = append(lineParts, r.gray("×"+strconv.Itoa(node.DoneCount)))
+	}
+
 	return prefix + branchChar(isLast) + strings.Join(lineParts, " ") + "\n"
 }
 
@@ -337,7 +342,7 @@ func formatInteractionTime(value string) string {
 	if err != nil {
 		return value
 	}
-	return stringutil.FormatTime(t.Local())
+	return stringutil.FormatTimeSeconds(t.Local())
 }
 
 // renderDetails renders one line per detail, splitting multi-line values.
@@ -458,8 +463,17 @@ func wrapText(text string, maxWidth int) []string {
 				currentLine.Reset()
 			}
 			for len(word) > maxWidth {
-				lines = append(lines, word[:maxWidth])
-				word = word[maxWidth:]
+				// Never split a UTF-8 codepoint; if the first rune alone
+				// exceeds maxWidth, emit it whole.
+				cut := maxWidth
+				for cut > 0 && !utf8.RuneStart(word[cut]) {
+					cut--
+				}
+				if cut == 0 {
+					_, cut = utf8.DecodeRuneInString(word)
+				}
+				lines = append(lines, word[:cut])
+				word = word[cut:]
 			}
 			if len(word) > 0 {
 				currentLine.WriteString(word)

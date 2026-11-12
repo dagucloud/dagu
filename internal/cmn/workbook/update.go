@@ -48,6 +48,9 @@ type UpdateOptions struct {
 	// other than the key and _row to the column of the same name.
 	Set     map[string]SetValue
 	Missing MissingMode
+	// Output, when set, receives the result while the workbook at path is
+	// left as it was.
+	Output  string
 	InPlace bool
 	DryRun  bool
 	Lock    LockOptions
@@ -115,7 +118,7 @@ func ParseSet(v any) (map[string]SetValue, error) {
 // objects, as a step output or a loop item arrives. A _row value becomes
 // an int.
 func DecodeUpdateRows(value any) ([]Row, error) {
-	list, _, err := rowList(value, "objects")
+	list, _, err := rowList(value, "objects", true)
 	if err != nil {
 		return nil, err
 	}
@@ -132,6 +135,9 @@ func DecodeUpdateRows(value any) ([]Row, error) {
 		if n, ok := row[RowNumberKey]; ok && n != nil {
 			r, ok := toRowNumber(n)
 			if !ok {
+				if ref, ok := n.(string); ok && isReference(ref) {
+					return nil, unresolvedError(fmt.Sprintf("rows[%d]._row", i), ref)
+				}
 				return nil, fmt.Errorf("rows[%d]: _row must be a row number", i)
 			}
 			row[RowNumberKey] = r
@@ -157,7 +163,7 @@ func UpdateRows(ctx context.Context, path string, opts UpdateOptions) (*WriteRes
 	}
 	return withLock(ctx, path, opts.Lock, func() (*WriteResult, error) {
 		return updateOnce(ctx, path, opts)
-	})
+	}, opts.Output)
 }
 
 type updatePlan struct {
@@ -213,6 +219,12 @@ func updateOnce(ctx context.Context, path string, opts UpdateOptions) (*WriteRes
 	if warning != "" {
 		warn(warning)
 	}
+	if opts.Output != "" {
+		if err := checkOutput(path, opts.Output, "update", warn); err != nil {
+			return nil, err
+		}
+		result.Path = opts.Output
+	}
 	w, err := open(path, opts.Password)
 	if err != nil {
 		return nil, err
@@ -231,9 +243,10 @@ func updateOnce(ctx context.Context, path string, opts UpdateOptions) (*WriteRes
 		return nil, err
 	}
 
-	// Add missing columns at the right of the header row.
+	// Add missing columns at the right of the header row, only when some
+	// row is written, so an update with nothing to write changes nothing.
 	for i := range plan.set {
-		if !plan.set[i].added {
+		if !plan.set[i].added || len(targets)+len(appends) == 0 {
 			continue
 		}
 		plan.reg.C2++
@@ -281,8 +294,17 @@ func updateOnce(ctx context.Context, path string, opts UpdateOptions) (*WriteRes
 	plan.reg.R2 = lastRow
 	result.Changes.Range = region{Sheet: plan.sheet, C1: plan.reg.C1, R1: plan.layout.dataStart, C2: plan.reg.C2, R2: max(lastRow, plan.layout.dataStart)}.String()
 	w.forget(plan.sheet)
-	if opts.DryRun {
+	// A run that changed no cell leaves the workbook file as it is; an
+	// output still gets its copy.
+	unchanged := result.Changes.CellsChanged == 0 && result.Changes.ColumnsAdded == 0
+	if opts.DryRun || (unchanged && opts.Output == "") {
 		return result, nil
+	}
+	if opts.Output != "" {
+		if err := ensureParentDir(opts.Output); err != nil {
+			return nil, err
+		}
+		w.path, w.base = opts.Output, Base(opts.Output)
 	}
 	if err := w.save(opts.InPlace); err != nil {
 		return nil, err
@@ -332,12 +354,12 @@ func (w *file) planUpdate(opts UpdateOptions, warn func(string)) (*updatePlan, e
 	set := opts.Set
 	if set == nil {
 		set = defaultSet(opts.Rows, opts.Key)
-		if len(set) == 0 {
+		if len(set) == 0 && len(opts.Rows) > 0 {
 			return nil, w.sheetError(sheet, "rows carry no fields to write; set is empty")
 		}
 	}
 	for column, value := range set {
-		if !value.IsLiteral && !anyRowHas(opts.Rows, value.Field) {
+		if len(opts.Rows) > 0 && !value.IsLiteral && !anyRowHas(opts.Rows, value.Field) {
 			return nil, w.sheetError(sheet, fmt.Sprintf("set.%s: field %q is not in any row", column, value.Field))
 		}
 	}

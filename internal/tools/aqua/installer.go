@@ -143,7 +143,11 @@ func (i *Installer) installResolved(ctx context.Context, cfg *ir.ToolConfig, opt
 	if platform == "" {
 		platform = rt.Env()
 	}
-	hash, err := tools.ToolsetHash(cfg, platform)
+	local := cfg.Registry != nil && strings.TrimSpace(cfg.Registry.Type) == "local"
+	if local && !filepath.IsAbs(strings.TrimSpace(cfg.Registry.Path)) {
+		return nil, fmt.Errorf("registry.path %q is not absolute for worker %s", cfg.Registry.Path, rt.Env())
+	}
+	hash, snapshot, err := tools.ToolsetHash(cfg, platform)
 	if err != nil {
 		return nil, err
 	}
@@ -151,7 +155,7 @@ func (i *Installer) installResolved(ctx context.Context, cfg *ir.ToolConfig, opt
 	if err != nil {
 		return nil, err
 	}
-	paths = applyDigestIsolation(paths, cfg)
+	paths = applyRootIsolation(paths, cfg)
 	if manifest, err := readyManifest(paths, platform, hash); err != nil {
 		return nil, err
 	} else if manifest != nil {
@@ -186,7 +190,21 @@ func (i *Installer) installResolved(ctx context.Context, cfg *ir.ToolConfig, opt
 	if err := os.MkdirAll(paths.RootDir, 0o750); err != nil {
 		return nil, fmt.Errorf("create aqua root dir: %w", err)
 	}
-	data, err := RenderConfigForPlatform(cfg, platform)
+	renderCfg := cfg
+	if local {
+		registry := *cfg.Registry
+		registry.Path, err = filepath.Abs(filepath.Join(paths.EnvDir, "registry.yaml"))
+		if err != nil {
+			return nil, fmt.Errorf("resolve local registry snapshot path: %w", err)
+		}
+		if err := fileutil.WriteFileAtomic(registry.Path, snapshot, 0o600); err != nil {
+			return nil, fmt.Errorf("write local registry snapshot: %w", err)
+		}
+		copyCfg := *cfg
+		copyCfg.Registry = &registry
+		renderCfg = &copyCfg
+	}
+	data, err := RenderConfigForPlatform(renderCfg, platform)
 	if err != nil {
 		return nil, err
 	}
@@ -412,13 +430,13 @@ func (i *Installer) packageCommands(ctx context.Context, cfg *ir.ToolConfig, par
 	return commandSets, nil
 }
 
-// applyDigestIsolation moves the aqua root under the toolset env dir when any
-// package declares a digest. Digest verification compares against checksums
-// recorded for this install, and aqua skips downloading packages that already
-// exist under the root; a shared root could therefore hold bytes the recorded
-// checksums do not describe.
-func applyDigestIsolation(paths tools.CacheLayout, cfg *ir.ToolConfig) tools.CacheLayout {
-	if !hasPackageDigests(cfg) {
+// applyRootIsolation gives local registries and digest-pinned packages a private
+// aqua root so its exists-check cannot reuse bytes from another toolset. Local
+// registry content is part of the hash, so an interrupted install can reuse the
+// same root; only digest-pinned installs need to clear the env before verifying.
+func applyRootIsolation(paths tools.CacheLayout, cfg *ir.ToolConfig) tools.CacheLayout {
+	local := cfg.Registry != nil && strings.TrimSpace(cfg.Registry.Type) == "local"
+	if !hasPackageDigests(cfg) && !local {
 		return paths
 	}
 	paths.RootDir = filepath.Join(paths.EnvDir, "root")
@@ -758,8 +776,11 @@ func describeRegistry(registry *ir.ToolRegistry) string {
 	if registry == nil {
 		return "standard"
 	}
-	if strings.TrimSpace(registry.Type) == "github_content" {
+	switch strings.TrimSpace(registry.Type) {
+	case "github_content":
 		return fmt.Sprintf("%s/%s@%s", registry.RepoOwner, registry.RepoName, shortRef(registry.Ref))
+	case "local":
+		return "local:" + strings.TrimSpace(registry.Path)
 	}
 	return "standard@" + shortRef(registry.Ref)
 }
@@ -838,5 +859,13 @@ func aquaParam(paths tools.CacheLayout, workDir string) *aquaparam.Param {
 		RequireChecksum:        true,
 		EnforceChecksum:        true,
 		EnforceRequireChecksum: true,
+		// Aqua's implicit default policy allows only the standard registry
+		// (github_content resolving to aquaproj/aqua-registry). Every registry
+		// a DAG declares beyond that — a pinned standard registry is fine, but
+		// any github_content registry pointing elsewhere — would be rejected
+		// with "this package isn't allowed", and per-worker "aqua policy
+		// allow" approvals do not fit DAG-driven installs. The DAG file is the
+		// trust boundary; checksum enforcement still guards artifact integrity.
+		DisablePolicy: true,
 	}
 }

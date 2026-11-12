@@ -5,18 +5,28 @@ steps:
       items:
         - slug: one
           url: https://example.com/one
+          リンク: https://example.com/one
+          limit: 1000000
         - slug: two
           url: https://example.com/two
+          リンク: https://example.com/two
+          limit: 1000000
       as: episode
       key: ${foreach.episode.slug}
       max_concurrent: 2
       steps:
         - id: summarize
           run: |
-            printf '%s\n' '${foreach.episode.url}'
+            printf '%s\n' '${foreach.episode."リンク"}'
           output: BODY_RESULT
+          retry_policy:
+            limit: ${foreach.episode["limit"]}
+            interval_sec: 1
       collect:
         markdown: ${summarize.output}
+        link: ${foreach.episode["リンク"]}
+        bare_link: ${foreach.episode.リンク}
+        limit: ${foreach.episode."limit"}
     output: FOREACH_RESULTS
   - name: consume
     depends: each

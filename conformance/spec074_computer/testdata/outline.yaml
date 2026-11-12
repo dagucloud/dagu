@@ -1,0 +1,15 @@
+working_dir: .
+steps:
+  - id: look
+    action: computer.run
+    stdout: outline.json
+    with:
+      ai: never
+      idle: "0"
+      maximize: false
+      do:
+        - launch:
+            command: powershell.exe
+            args: [-NoProfile, -ExecutionPolicy, Bypass, -File, elements.ps1]
+        - expect: {window: "Dagu elements test", within: 30s}
+        - outline: window

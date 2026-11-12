@@ -46,12 +46,37 @@ cannot judge, such as a file another program holds. Every problem the check
 finds is listed in the one warning, and the command checks above still run
 for the same step.
 
+A dry run also warns when the run's dotenv files, runtime profile, or
+secrets do not resolve, which the real run fails on before any step starts.
+Like a step warning, it never fails the dry run: the real run may resolve
+them on the host where it runs.
+
 ## Diagnostics
 
 Each warning is written to stderr, contains
 `Dry run: step may fail on this host`, and names the unresolved command, shell,
 or script, or the `with` field an executor's check found wanting, as
 `field 'with.path': orders.xlsx: workbook not found`.
+
+A warning about preparing the run contains
+`Dry run: run may fail on this host` and the resolution error, which names
+the secret, dotenv file, or profile.
+
+`--format text` is the default. It leaves those warnings on stderr and prints
+the run summary on stdout.
+
+`--format json` prints one JSON object on stdout and no run summary. The
+warnings stay on stderr. `checks` lists every problem, in step order, and is
+empty when every step passes. Several problems of one step are several
+objects, in the order the check reported them. `step` is the step name,
+`field` is the name inside the warning (`with.sheet`, `run`, `shell`), and
+`message` is the text after that field label. A problem preparing the run
+comes first, with an empty `step` and `field` `dotenv`, `profile`, or
+`secrets`. The exit status is unchanged.
+
+```json
+{"checks": [{"step": "read", "field": "with.sheet", "message": "orders.xlsx: sheet \"Order\" not found; sheets present: Orders, Summary"}]}
+```
 
 ## Examples
 
@@ -69,5 +94,7 @@ steps:
 step-level shell, and a non-executable script invoked by path, each producing a
 warning with exit status 0 and no step output. It also covers a resolvable
 command, shell, and executable script producing no warning. The execute
-permission checks are skipped on Windows. The xlsx actions' registered check
-is covered in `conformance/spec077_xlsx/`.
+permission checks are skipped on Windows. `--format json` is covered by a DAG
+whose xlsx and file steps each produce one check, and by a dry run that
+produces none. The xlsx actions' registered check is covered in
+`conformance/spec077_xlsx/`.

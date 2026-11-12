@@ -91,3 +91,8 @@ func LoadRemoteTaskDAGForTest(ctx context.Context, cfg *config.Config, task *coo
 	}
 	return loaded.dag, loaded.cleanup, nil
 }
+
+// CleanupErrorMessageForTest exposes cleanupErrorMessage for tests.
+func CleanupErrorMessageForTest(err error) string {
+	return cleanupErrorMessage(err)
+}

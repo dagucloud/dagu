@@ -26,6 +26,15 @@ import (
 
 const staleLocalRunStartupGrace = 2 * time.Second
 
+// ServiceRunStartTimeout is how long a run of a DAG that sets restart_policy may
+// stay queued or not started before the scheduler checks whether anything will
+// still start it.
+const ServiceRunStartTimeout = 5 * time.Minute
+
+// ErrServiceRunActive says a DAG that sets restart_policy has an active run, which
+// a new run would run next to.
+var ErrServiceRunActive = errors.New("a DAG with a restart_policy has one run at a time")
+
 // ManagerOption configures a Manager.
 type ManagerOption func(*Manager)
 
@@ -43,6 +52,13 @@ func WithLatestStatusAllHistory() ManagerOption {
 	return func(m *Manager) {
 		m.latestAttemptOptions.AllHistory = true
 	}
+}
+
+// AllHistory returns a Manager whose latest-status lookups search all retained
+// runs, whatever the latest_status_today setting says.
+func (m Manager) AllHistory() Manager {
+	m.latestAttemptOptions.AllHistory = true
+	return m
 }
 
 // NewManager creates a new Manager instance.
@@ -75,7 +91,7 @@ type processRepository interface {
 	ListAlive(ctx context.Context, groupName string) ([]ir.DAGRunRef, error)
 	IsRunAlive(ctx context.Context, groupName string, dagRun ir.DAGRunRef) (bool, error)
 	IsAttemptAlive(ctx context.Context, groupName string, dagRun ir.DAGRunRef, attemptID string) (bool, error)
-	LatestFreshEntryByDAGName(ctx context.Context, groupName, dagName string) (*proc.ProcEntry, error)
+	FreshEntriesByDAGName(ctx context.Context, groupName, dagName string) ([]proc.ProcEntry, error)
 }
 
 // Stop stops running DAG-runs and can cancel an explicit failed DAG-run that is
@@ -438,40 +454,58 @@ func (m *Manager) resolveRunningStatus(
 // GetLatestStatus retrieves the latest status of a DAG.
 // If the DAG is running, it attempts to get the current status from the socket.
 // If that fails and the local proc is dead, it repairs the stale run before returning it.
+// An ephemeral run is never the latest, as it reaches no history.
+// A latest run that cannot be read is reported as the initial status.
 func (m *Manager) GetLatestStatus(ctx context.Context, dag *ir.DAG) (ir.DAGRunStatus, error) {
+	status, err := m.ReadLatestStatus(ctx, dag)
+	if err != nil {
+		return ir.InitialStatus(dag), nil
+	}
+	return status, nil
+}
+
+// ReadLatestStatus is GetLatestStatus for a caller that must tell a DAG
+// without a run from a latest run that cannot be read: it returns the initial
+// status only for the first, and the read error for the second.
+func (m *Manager) ReadLatestStatus(ctx context.Context, dag *ir.DAG) (ir.DAGRunStatus, error) {
 	if m.dagRunRepository == nil {
 		return ir.InitialStatus(dag), nil
 	}
 
 	if m.procRepository != nil {
-		if entry, err := m.procRepository.LatestFreshEntryByDAGName(ctx, dag.ProcGroup(), dag.Name); err == nil && entry != nil {
-			attempt, findErr := m.findAttemptForProcEntry(ctx, *entry)
-			if findErr == nil {
-				st, readErr := attempt.ReadStatus(ctx)
-				if readErr == nil && st.AttemptID == entry.Meta.AttemptID {
-					st = m.resolveRunningStatus(ctx, dag, attempt, st, entry.IsRoot())
-					return *st, nil
-				}
-			}
-		} else if err != nil {
+		entries, err := m.procRepository.FreshEntriesByDAGName(ctx, dag.ProcGroup(), dag.Name)
+		if err != nil {
 			logger.Debug(ctx, "Failed to resolve freshest proc entry for latest status", tag.Error(err))
+		}
+		for _, entry := range entries {
+			attempt, findErr := m.findAttemptForProcEntry(ctx, entry)
+			if findErr != nil {
+				break
+			}
+			st, readErr := attempt.ReadStatus(ctx)
+			if readErr != nil || st.AttemptID != entry.Meta.AttemptID {
+				break
+			}
+			if st.Ephemeral {
+				// An ephemeral run reaches no history; the next fresh run
+				// may stand for the DAG.
+				continue
+			}
+			st = m.resolveRunningStatus(ctx, dag, attempt, st, entry.IsRoot())
+			return *st, nil
 		}
 	}
 
-	// Find the latest status by name
 	attempt, err := m.dagRunRepository.LatestAttempt(ctx, dag.Name, m.latestAttemptOptions)
-	if err != nil {
-		// If the latest status is not found, return the default status
-		ret := ir.InitialStatus(dag)
-		return ret, nil
+	if errors.Is(err, dagrun.ErrNoStatusData) {
+		return ir.InitialStatus(dag), nil
 	}
-
-	// Read the latest status
+	if err != nil {
+		return ir.DAGRunStatus{}, fmt.Errorf("find the latest run of %s: %w", dag.Name, err)
+	}
 	st, err := attempt.ReadStatus(ctx)
 	if err != nil {
-		// If the latest status is not found, return the default status
-		ret := ir.InitialStatus(dag)
-		return ret, nil
+		return ir.DAGRunStatus{}, fmt.Errorf("read the latest status of %s: %w", dag.Name, err)
 	}
 
 	if st.Status == ir.Running && isLocalWorkerID(st.WorkerID) {
@@ -487,6 +521,35 @@ func (m *Manager) GetLatestStatus(ctx context.Context, dag *ir.DAG) (ir.DAGRunSt
 	}
 
 	return *st, nil
+}
+
+// CheckServiceRun returns ErrServiceRunActive when dag sets restart_policy and a
+// run other than dagRunID is active. A latest run that cannot be read does not
+// count, so that it cannot keep an operator from bringing the DAG back.
+func (m *Manager) CheckServiceRun(ctx context.Context, dag *ir.DAG, dagRunID string) error {
+	if !dag.RestartPolicy.Enabled() {
+		return nil
+	}
+	allHistory := m.AllHistory()
+	status, err := allHistory.ReadLatestStatus(ctx, dag)
+	if err != nil {
+		logger.Warn(ctx, "Failed to read the latest run of a service DAG", tag.DAG(dag.Name), tag.Error(err))
+		return nil
+	}
+	if status.DAGRunID == "" || status.DAGRunID == dagRunID || !m.serviceRunActive(&status) {
+		return nil
+	}
+	return fmt.Errorf("%w: run %s of DAG %s is %s", ErrServiceRunActive, status.DAGRunID, dag.Name, status.Status)
+}
+
+// serviceRunActive reports whether a run counts as active. A run that waits for a
+// worker has not started; after ServiceRunStartTimeout it may be left behind by a
+// crash, and the scheduler that would fail it may not be running.
+func (m *Manager) serviceRunActive(status *ir.DAGRunStatus) bool {
+	if status.Status == ir.NotStarted {
+		return status.CreatedAt > 0 && m.nowFunc().Sub(time.UnixMilli(status.CreatedAt)) < ServiceRunStartTimeout
+	}
+	return status.Status.IsActive()
 }
 
 // repairStaleLocalRunIfDead repairs a persisted local Running status only when

@@ -1,0 +1,29 @@
+[0-458] RootWebArea: Framed
+  [0-461] scrollable, html
+    [0-464] body
+      [0-465] heading: Outer
+      [0-466] Iframe: login frame
+        [1-467] RootWebArea: ログイン｜取引先ポータル
+          [1-474] scrollable, html
+            [1-478] body
+              [1-479] banner
+                [1-480] navigation
+                  [1-481] link: Home
+                  [1-504] StaticText: 
+                  [1-483] link: Help
+              [1-485] heading: 取引先ポータル
+              [1-468] form
+                [1-487] paragraph
+                  [1-488] LabelText
+                    [1-489] StaticText: ログインID
+                    [1-469] textbox: ログインID
+                [1-492] paragraph
+                  [1-493] LabelText
+                    [1-494] StaticText: パスワード
+                    [1-470] textbox: パスワード
+                [1-497] paragraph
+                  [1-471] checkbox: Remember me [checked]
+                [1-500] paragraph
+                  [1-472] button: ログイン
+              [1-502] alert
+                [1-503] StaticText: IDまたはパスワードが違います。

@@ -13,7 +13,13 @@ import {
 
 describe('sync-kind', () => {
   it('exposes every kind as a filter with labels and counts', () => {
-    expect(syncKindFilters).toEqual(['dag', 'doc', 'doc-asset', 'file']);
+    expect(syncKindFilters).toEqual([
+      'dag',
+      'calendar',
+      'doc',
+      'doc-asset',
+      'file',
+    ]);
     for (const kind of syncKindFilters) {
       expect(syncKindLabels[kind].plural).toBeTruthy();
       expect(createSyncKindCounts()[kind]).toBe(0);
@@ -32,5 +38,6 @@ describe('sync-kind', () => {
     expect(normalizeSyncItemKind(SyncItemKind.doc)).toBe('doc');
     expect(normalizeSyncItemKind(SyncItemKind.doc_asset)).toBe('doc-asset');
     expect(normalizeSyncItemKind(SyncItemKind.file)).toBe('file');
+    expect(normalizeSyncItemKind(SyncItemKind.calendar)).toBe('calendar');
   });
 });

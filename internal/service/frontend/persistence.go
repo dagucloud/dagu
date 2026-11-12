@@ -6,11 +6,14 @@ package frontend
 import (
 	"github.com/dagucloud/dagu/v2/internal/audit"
 	authmodel "github.com/dagucloud/dagu/v2/internal/auth"
+	"github.com/dagucloud/dagu/v2/internal/dagpin"
 	"github.com/dagucloud/dagu/v2/internal/dagsettings"
 	"github.com/dagucloud/dagu/v2/internal/eventstore"
 	"github.com/dagucloud/dagu/v2/internal/incident"
 	"github.com/dagucloud/dagu/v2/internal/notification"
+	"github.com/dagucloud/dagu/v2/internal/persis"
 	"github.com/dagucloud/dagu/v2/internal/profile"
+	"github.com/dagucloud/dagu/v2/internal/publicwebhook"
 	"github.com/dagucloud/dagu/v2/internal/remotenode"
 	"github.com/dagucloud/dagu/v2/internal/secret"
 	authservice "github.com/dagucloud/dagu/v2/internal/service/auth"
@@ -25,6 +28,7 @@ import (
 type Stores struct {
 	WorkspaceBaseConfig  dagsettings.BaseConfigProvider
 	BaseConfig           dagsettings.BaseConfigStore
+	Calendar             persis.CalendarStore
 	AuthService          *authservice.Service
 	UserStore            authmodel.UserStore
 	AuthSetupRequired    bool
@@ -32,6 +36,7 @@ type Stores struct {
 	Secret               secret.Store
 	Profile              profile.Store
 	DAGSettings          dagsettings.Store
+	DAGPins              dagpin.Store
 	Wiki                 wiki.PageStore
 	Notification         notification.Store
 	NotificationState    chatbridge.StateStore
@@ -44,4 +49,5 @@ type Stores struct {
 	Audit                audit.Store
 	Event                *eventstore.Service
 	View                 view.Store
+	PublicWebhooks       publicwebhook.Store
 }

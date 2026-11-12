@@ -198,9 +198,9 @@ steps:
 		require.NotContains(t, th.LoggingOutput.String(), "MY_ENDPOINT")
 	})
 
-	t.Run("StepOutputValueReferenceNoticeReason", func(t *testing.T) {
+	t.Run("StepOutputReferenceInfersDependency", func(t *testing.T) {
 		th.LoggingOutput.Reset()
-		dagFile := th.CreateDAGFile(t, "step_value_resolution_notice.yaml", `
+		dagFile := th.CreateDAGFile(t, "step_output_inferred_dependency.yaml", `
 steps:
   - id: build
     run: printf 'image=v1\n' >> "$DAGU_OUTPUT_FILE"
@@ -212,8 +212,30 @@ steps:
 
 		th.RunCommand(t, cmd.Validate(), test.CmdTest{
 			Args:        []string{"validate", dagFile},
-			ExpectedOut: []string{"${steps.build.outputs.image}", "was left unchanged", "reason=missing_dependency"},
+			ExpectedOut: []string{"inferred: build -> deploy (steps[1].run)"},
 		})
+		require.NotContains(t, th.LoggingOutput.String(), "was left unchanged")
+	})
+
+	t.Run("StepOutputReferenceCycle", func(t *testing.T) {
+		th.LoggingOutput.Reset()
+		dagFile := th.CreateDAGFile(t, "step_output_reference_cycle.yaml", `
+steps:
+  - id: a
+    run: echo ${steps.b.outputs.y}
+    outputs:
+      - name: x
+  - id: b
+    run: echo ${steps.a.outputs.x}
+    outputs:
+      - name: y
+`)
+
+		err := th.RunCommandWithError(t, cmd.Validate(), test.CmdTest{
+			Args: []string{"validate", dagFile},
+		})
+		require.Error(t, err)
+		require.Contains(t, err.Error(), "inferred dependency a -> b creates a cycle")
 	})
 
 	t.Run("V2SyntaxDoesNotWarn", func(t *testing.T) {

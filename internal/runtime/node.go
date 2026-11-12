@@ -42,10 +42,6 @@ import (
 	"github.com/google/jsonschema-go/jsonschema"
 )
 
-// systemVarPrefix is the prefix for temporary variables used internally by Dagu
-// to avoid conflicts with user-defined variables.
-const systemVarPrefix = "DAGU_"
-
 // Node is a node in a DAG. It executes a command.
 type Node struct {
 	Data
@@ -58,6 +54,9 @@ type Node struct {
 	done         atomic.Bool
 	retryPolicy  RetryPolicy
 	cmdEvaluated atomic.Bool
+	// continueOnDecision caches ShouldContinue's answer for the current attempt,
+	// because matching continue_on.output reads the step's log. Guarded by mu.
+	continueOnDecision *bool
 	// bypassPreconditions skips step precondition evaluation for this node.
 	// Step-retry plans set it when the retry asks to bypass preconditions.
 	bypassPreconditions bool
@@ -163,30 +162,35 @@ func (n *Node) ShouldContinue(ctx context.Context) bool {
 
 	}
 
-	cacheKey := systemVarPrefix + "CONTINUE_ON." + n.Name()
-	if v, ok := n.getBoolVariable(cacheKey); ok {
-		return v
+	if n.continueOnDecision != nil {
+		return *n.continueOnDecision
 	}
 
 	if n.MatchExitCode(continueOn.ExitCode) {
-		n.setBoolVariable(cacheKey, true)
-		return true
+		return n.cacheContinueOnDecision(true)
 	}
 
 	if len(continueOn.Output) > 0 {
 		ok, err := n.LogContainsPattern(ctx, continueOn.Output)
 		if err != nil {
 			logger.Error(ctx, "Failed to check log for pattern", tag.Error(err))
+			// Not cached: a failed read says nothing about the log, and the next
+			// check can still read it.
 			return false
 		}
 		if ok {
-			n.setBoolVariable(cacheKey, true)
-			return true
+			return n.cacheContinueOnDecision(true)
 		}
 	}
 
-	n.setBoolVariable(cacheKey, false)
-	return false
+	return n.cacheContinueOnDecision(false)
+}
+
+// cacheContinueOnDecision records decision for the current attempt and returns
+// it. The caller holds mu.
+func (n *Node) cacheContinueOnDecision(decision bool) bool {
+	n.continueOnDecision = &decision
+	return decision
 }
 
 func (n *Node) Execute(ctx context.Context, onSetup ...func()) error {
@@ -202,7 +206,11 @@ func (n *Node) setupContextWithTimeout(ctx context.Context) (context.Context, co
 		stepTimeout = step.Timeout
 		ctx, cancel := context.WithTimeout(ctx, stepTimeout)
 		n.setExecCancel(cancel)
-		logger.Info(ctx, "Step execution started with timeout",
+		logExec := logger.Info
+		if isContinuousStep(step) {
+			logExec = logger.Debug // once for each execution, for years
+		}
+		logExec(ctx, "Step execution started with timeout",
 			tag.Timeout(stepTimeout),
 		)
 		return ctx, func() {
@@ -366,7 +374,7 @@ func (n *Node) captureOutput(ctx context.Context) error {
 
 	var schemaOutput string
 	var schemaErr error
-	if step.HasOutputSchema() {
+	if step.HasOutputSchema() && n.Error() == nil {
 		raw, err := captureStdout()
 		if err != nil {
 			schemaErr = fmt.Errorf("failed to capture stdout for output_schema: %w", err)
@@ -378,7 +386,7 @@ func (n *Node) captureOutput(ctx context.Context) error {
 				schemaOutput = value
 			}
 		}
-		if schemaErr != nil && n.Error() == nil {
+		if schemaErr != nil {
 			return schemaErr
 		}
 	}
@@ -395,6 +403,11 @@ func (n *Node) captureOutput(ctx context.Context) error {
 		}
 	}
 
+	// Failed attempts retain legacy variables but do not decode or publish named outputs.
+	if n.Error() != nil {
+		return nil
+	}
+
 	// The last mechanism to publish wins, matching the order the legacy outputs
 	// object is built below.
 	var capturedOutputs string
@@ -409,9 +422,6 @@ func (n *Node) captureOutput(ctx context.Context) error {
 		capturedOutputs = value
 	}
 
-	// A failed step leaves schemaOutput empty because the schema error is
-	// suppressed above in favor of the step's own error. Publishing it would
-	// make the output resolve as present and empty rather than absent.
 	if step.HasOutputSchema() && !step.HasStructuredOutput() && schemaOutput != "" {
 		n.setOutputValue(schemaOutput)
 		capturedOutputs = schemaOutput
@@ -854,19 +864,12 @@ func (n *Node) determineNodeStatus(cmd executor.Executor) error {
 	return nil
 }
 
-// clearVariable removes a variable from the Node's internal state.
-// Variables are scoped to the Node to avoid race conditions when
-// multiple DAG steps or concurrent tasks run simultaneously.
-func (n *Node) clearVariable(key string) {
-	n.ClearVariable(key)
-}
-
 func (n *Node) setupExecutor(ctx context.Context) (context.Context, executor.Executor, error) {
 	n.mu.Lock()
 	defer n.mu.Unlock()
 
-	// Clear the cache
-	n.clearVariable(systemVarPrefix + "CONTINUE_ON." + n.Name())
+	// A new attempt decides again.
+	n.continueOnDecision = nil
 
 	// Reset the state
 	n.ResetError()
@@ -930,7 +933,8 @@ func (n *Node) setupExecutor(ctx context.Context) (context.Context, executor.Exe
 	// carries a reference, would otherwise be indistinguishable from an unset
 	// field and leave the step reading empty standard input.
 	if raw := n.Step().Stdin; raw != "" {
-		resolved, err := resolveRuntimeString(ctx, raw, cmnvalue.StepArtifactOutputField("stdin"))
+		field := cmnvalue.StepArtifactOutputField("stdin")
+		resolved, err := resolveRuntimeString(ctx, raw, field)
 		if err != nil {
 			return ctx, nil, fmt.Errorf("failed to eval stdin: %w", err)
 		}
@@ -938,7 +942,7 @@ func (n *Node) setupExecutor(ctx context.Context) (context.Context, executor.Exe
 		if resolved == "" {
 			return ctx, nil, fmt.Errorf("stdin %q resolved to an empty path", raw)
 		}
-		if cmnvalue.HasValueReference(resolved) {
+		if field.HasValueReference(resolved) {
 			return ctx, nil, fmt.Errorf("stdin %q must resolve before execution", raw)
 		}
 		n.SetStdin(resolved)
@@ -972,6 +976,7 @@ func (n *Node) setupExecutor(ctx context.Context) (context.Context, executor.Exe
 }
 
 func (n *Node) setupStepOutputFile(ctx context.Context) (context.Context, error) {
+	n.clearOutputValue()
 	n.clearOutputsValue()
 	n.clearStepOutputsValue()
 	n.setStepOutputFile("")
@@ -1017,16 +1022,16 @@ func (n *Node) cleanupStepOutputFile() error {
 
 func evalExecutorConfig(ctx context.Context, step ir.Step) (map[string]any, error) {
 	if step.ExecutorConfig.Type == "template" {
-		return evalTemplateConfig(ctx, step.ExecutorConfig.Config)
+		return evalTemplateConfig(ctx, step.ExecutorConfig.Config, registry.PathInputs(step))
 	}
-	got, err := resolveRuntimeObject(ctx, step.ExecutorConfig.Config, cmnvalue.ExecutorConfigField("with"))
+	got, err := resolveRuntimeObject(ctx, step.ExecutorConfig.Config, registry.ConfigField(step, "with"))
 	if err != nil {
 		return nil, err
 	}
 	return objectAsConfig(got)
 }
 
-func evalTemplateConfig(ctx context.Context, config map[string]any) (map[string]any, error) {
+func evalTemplateConfig(ctx context.Context, config map[string]any, pathKeys []string) (map[string]any, error) {
 	env := GetEnv(ctx)
 	scope := env.Scope
 	if scope == nil {
@@ -1038,7 +1043,7 @@ func evalTemplateConfig(ctx context.Context, config map[string]any) (map[string]
 	rawRef, hasRef := config["template_ref"]
 	delete(config, "template_ref")
 
-	got, err := resolveRuntimeObjectWithScope(ctx, env, scope, config, cmnvalue.TemplateConfigField("with"))
+	got, err := resolveRuntimeObjectWithScope(ctx, env, scope, config, cmnvalue.TemplateConfigField("with").WithPathKeys(pathKeys...))
 	if err != nil {
 		return nil, err
 	}
@@ -1068,7 +1073,7 @@ func evalTemplateConfig(ctx context.Context, config map[string]any) (map[string]
 }
 
 func scriptField(ctx context.Context, step ir.Step) cmnvalue.Field {
-	if step.ExecutorConfig.Type == "template" {
+	if step.ExecutorConfig.IsVerbatimScript() {
 		return cmnvalue.TemplateScriptField("run")
 	}
 	command := registry.ScriptResolution(ctx, step)
@@ -1337,7 +1342,9 @@ func (n *Node) ResetForRerun(step ir.Step) {
 	n.cmdEvaluated.Store(false)
 }
 
-func (n *Node) resetForBuildAttempt(step ir.Step) {
+// resetForAttempt restores the declared step so that the next execution
+// resolves its fields against the current context.
+func (n *Node) resetForAttempt(step ir.Step) {
 	n.SetStep(step)
 	n.cmdEvaluated.Store(false)
 }
@@ -1490,10 +1497,21 @@ func (n *Node) buildChildRunParams(ctx context.Context, subDAG *ir.SubDAG) ([]ex
 			return nil, fmt.Errorf("failed to eval parallel variable %q: %w", parallel.Variable, err)
 		}
 
-		// Parse the value using smart separator detection
-		parsedItems, err := stringutil.ParseSeparatedValues(value)
-		if err != nil {
-			return nil, fmt.Errorf("failed to parse parallel variable %q: %w", parallel.Variable, err)
+		var parsedItems []string
+		if parallel.Separator != "" {
+			// An explicit separator splits on that separator alone, so an item
+			// may contain other delimiter characters without being split.
+			separator, ok := stringutil.ParseSeparatorName(parallel.Separator)
+			if !ok {
+				return nil, fmt.Errorf("unknown parallel separator %q", parallel.Separator)
+			}
+			parsedItems = stringutil.SplitBySeparator(value, separator)
+		} else {
+			// Parse the value using smart separator detection
+			parsedItems, err = stringutil.ParseSeparatedValues(value)
+			if err != nil {
+				return nil, fmt.Errorf("failed to parse parallel variable %q: %w", parallel.Variable, err)
+			}
 		}
 		for _, item := range parsedItems {
 			items = append(items, item)

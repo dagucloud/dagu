@@ -65,6 +65,38 @@ func TestSubCmdBuilderStartInheritsParentEnv(t *testing.T) {
 	assert.True(t, spec.RuntimeResolved)
 }
 
+// A --dagu-home flag sets DAGU_HOME in the base environment only. The
+// commands that inherit the parent environment must still run in that home.
+func TestSubCmdBuilderParentEnvKeepsConfiguredHome(t *testing.T) {
+	t.Setenv("DAGU_HOME", "/home/from-parent")
+
+	builder := launcher.NewSubCmdBuilder(&config.Config{
+		Paths: config.PathsConfig{Executable: "/path/to/dagu"},
+		Core: config.Core{
+			// The last entry wins, as in an environment.
+			BaseEnv: config.NewBaseEnv([]string{"PATH=/usr/bin", "DAGU_HOME=/home/from-parent", "DAGU_HOME=/home/from-flag"}),
+		},
+	})
+	dag := &ir.DAG{Name: "test-dag", Location: "/tmp/test.yaml"}
+
+	specs := map[string]launcher.CmdSpec{
+		"start":   builder.Start(dag, launcher.StartOptions{}),
+		"restart": builder.Restart(dag, launcher.RestartOptions{}),
+		"retry":   builder.Retry(dag, launcher.RetryOptions{DAGRunID: "run-1"}),
+	}
+	for name, spec := range specs {
+		// Compare only the DAGU_HOME entries: a failure must not print the
+		// whole environment of the test process.
+		var homes []string
+		for _, entry := range spec.Env {
+			if strings.HasPrefix(entry, "DAGU_HOME=") {
+				homes = append(homes, entry)
+			}
+		}
+		assert.Equal(t, []string{"DAGU_HOME=/home/from-flag"}, homes, name)
+	}
+}
+
 func TestSubCmdBuilderFilteredCommandsUseBaseEnv(t *testing.T) {
 	t.Setenv("SUBCMD_PARENT_ENV", "from-parent")
 
@@ -270,6 +302,31 @@ func platformTestDuration(nonWindows, windows time.Duration) time.Duration {
 	return nonWindows
 }
 
+func TestRunEnqueueWithBuiltExecutableTakesParamsLargerThanACommandLine(t *testing.T) {
+	th := test.Setup(t, test.WithBuiltExecutable())
+
+	dagFile := th.DAG(t, `name: built-exec-enqueue-large-params
+params:
+  - PAYLOAD: ""
+steps:
+  - name: step1
+    run: echo enqueued
+`)
+
+	// Larger than one Linux argument or a whole Windows command line.
+	payload := strings.Repeat("x", 200*1024)
+	spec := th.SubCmdBuilder.Enqueue(dagFile.DAG, launcher.EnqueueOptions{
+		Params:   fmt.Sprintf(`{"PAYLOAD":%q}`, payload),
+		DAGRunID: "built-exec-enqueue-large-params-run",
+	})
+	require.NoError(t, launcher.Run(th.Context, spec))
+
+	status, err := th.DAGRunMgr.GetLatestStatus(th.Context, dagFile.DAG)
+	require.NoError(t, err)
+	require.Equal(t, "built-exec-enqueue-large-params-run", status.DAGRunID)
+	require.Contains(t, status.ParamsList, "PAYLOAD="+payload)
+}
+
 func TestRunStartWithBuiltExecutablePreservesExplicitEnv(t *testing.T) {
 	th := test.Setup(t, test.WithBuiltExecutable())
 	t.Setenv("SUBCMD_START_EXPLICIT_ENV", "from-host")
@@ -376,8 +433,9 @@ func TestStart(t *testing.T) {
 		}
 		spec := builder.Start(dag, opts)
 
-		assert.Contains(t, spec.Args, "-p")
-		assert.Contains(t, spec.Args, `"key=value"`)
+		assert.Contains(t, spec.Args, "--params-stdin")
+		assert.NotContains(t, spec.Args, "key=value")
+		assert.Equal(t, "key=value", spec.Params)
 	})
 
 	t.Run("StartWithQuiet", func(t *testing.T) {
@@ -420,14 +478,23 @@ func TestStart(t *testing.T) {
 		spec := builder.Start(dag, opts)
 
 		assert.Contains(t, spec.Args, "start")
-		assert.Contains(t, spec.Args, "-p")
-		assert.Contains(t, spec.Args, `"env=prod"`)
+		assert.Contains(t, spec.Args, "--params-stdin")
+		assert.Equal(t, "env=prod", spec.Params)
 		assert.Contains(t, spec.Args, "-q")
 		assert.Contains(t, spec.Args, "--run-id=full-test-id")
 		assert.Contains(t, spec.Args, "--trigger-actor=alice")
 		assert.Contains(t, spec.Args, "--no-reuse")
 		assert.Contains(t, spec.Args, "--config")
 		assert.Contains(t, spec.Args, "/path/to/dag.yaml")
+	})
+
+	t.Run("StartWithWorkerSelector", func(t *testing.T) {
+		t.Parallel()
+		spec := builder.Start(dag, launcher.StartOptions{
+			WorkerSelector: map[string]string{"zone": "b", "gpu": "yes"},
+		})
+
+		assert.Equal(t, []string{"--worker-label=gpu=yes", "--worker-label=zone=b"}, workerLabelArgsOf(spec.Args))
 	})
 
 	t.Run("StartWithoutConfigFile", func(t *testing.T) {
@@ -444,6 +511,17 @@ func TestStart(t *testing.T) {
 
 		assert.NotContains(t, spec.Args, "--config")
 	})
+}
+
+// workerLabelArgsOf keeps the --worker-label arguments of a spec, in order.
+func workerLabelArgsOf(args []string) []string {
+	var labels []string
+	for _, arg := range args {
+		if strings.HasPrefix(arg, "--worker-label=") {
+			labels = append(labels, arg)
+		}
+	}
+	return labels
 }
 
 func TestEnqueue(t *testing.T) {
@@ -483,8 +561,19 @@ func TestEnqueue(t *testing.T) {
 		}
 		spec := builder.Enqueue(dag, opts)
 
-		assert.Contains(t, spec.Args, "-p")
-		assert.Contains(t, spec.Args, `"key=value"`)
+		assert.Contains(t, spec.Args, "--params-stdin")
+		assert.NotContains(t, spec.Args, "key=value")
+		assert.Equal(t, "key=value", spec.Params)
+	})
+
+	t.Run("EnqueueWithWorkerSelector", func(t *testing.T) {
+		t.Parallel()
+		spec := builder.Enqueue(dag, launcher.EnqueueOptions{
+			WorkerSelector: map[string]string{"zone": "b", "gpu": "yes"},
+		})
+
+		assert.Equal(t, []string{"--worker-label=gpu=yes", "--worker-label=zone=b"}, workerLabelArgsOf(spec.Args))
+		assert.Equal(t, "/path/to/dag.yaml", spec.Args[len(spec.Args)-1], "the DAG stays the last argument")
 	})
 
 	t.Run("EnqueueWithQuiet", func(t *testing.T) {
@@ -531,8 +620,8 @@ func TestEnqueue(t *testing.T) {
 		spec := builder.Enqueue(dag, opts)
 
 		assert.Contains(t, spec.Args, "enqueue")
-		assert.Contains(t, spec.Args, "-p")
-		assert.Contains(t, spec.Args, `"env=staging"`)
+		assert.Contains(t, spec.Args, "--params-stdin")
+		assert.Equal(t, "env=staging", spec.Params)
 		assert.Contains(t, spec.Args, "-q")
 		assert.Contains(t, spec.Args, "--run-id=full-enqueue-id")
 		assert.Contains(t, spec.Args, "--queue")

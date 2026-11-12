@@ -70,6 +70,9 @@ type RunStatus struct {
 	Status             Status
 	PreconditionNotMet bool `json:"-"`
 	PendingStepRetries []PendingStepRetry
+	// ModelUsage is what every step of the run used on models, for the
+	// parent step that ran it. It is not part of the step's output.
+	ModelUsage []ModelUsage `json:"-"`
 }
 
 // MarshalJSON implements json.Marshaler.

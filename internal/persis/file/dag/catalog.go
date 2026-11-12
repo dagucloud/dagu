@@ -7,6 +7,7 @@ import (
 	"context"
 	"fmt"
 	"path/filepath"
+	"slices"
 	"sort"
 	"strings"
 
@@ -29,7 +30,7 @@ func (store *Store) loadCatalog(ctx context.Context, includeSearchPaths bool) (*
 		return nil, err
 	}
 
-	entries, err := store.loadIndex(ctx, scan.Files)
+	entries, err := store.loadIndex(ctx, store.withoutBaseConfig(scan.Files))
 	if err != nil {
 		return nil, err
 	}
@@ -49,6 +50,7 @@ func (store *Store) loadCatalog(ctx context.Context, includeSearchPaths bool) (*
 				return nil, err
 			}
 			allErrors = append(allErrors, altScan.Errors...)
+			altScan.Files = store.withoutBaseConfig(altScan.Files)
 			altFiles := make([]dagindex.YAMLFileMeta, 0, len(altScan.Files))
 			for _, file := range altScan.Files {
 				rel, err := filepath.Rel(store.baseDir, filepath.Join(searchPath, filepath.FromSlash(file.RelPath)))
@@ -68,6 +70,26 @@ func (store *Store) loadCatalog(ctx context.Context, includeSearchPaths bool) (*
 	}
 
 	return newCatalog(entries, allErrors, store.recursive), nil
+}
+
+// withoutBaseConfig drops the global base config from discovered files. The
+// base config applies to every DAG but is not one, even when it lives in a DAG
+// directory.
+func (store *Store) withoutBaseConfig(files []DiscoveredFile) []DiscoveredFile {
+	if store.baseConfigPath == "" {
+		return files
+	}
+	baseConfig, err := filepath.Abs(store.baseConfigPath)
+	if err != nil {
+		return files
+	}
+	baseConfig, err = filepath.EvalSymlinks(baseConfig)
+	if err != nil {
+		return files
+	}
+	return slices.DeleteFunc(files, func(file DiscoveredFile) bool {
+		return file.ResolvedPath == baseConfig
+	})
 }
 
 func newCatalog(entries []*indexv1.DAGIndexEntry, scanErrors []error, checkConflicts bool) *catalog {

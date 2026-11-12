@@ -142,6 +142,10 @@ func TestNormalizeFilename(t *testing.T) {
 		{"MixedReservedAndNormal", "mix<ed>name", "-", "mix-ed-name"},
 		{"MultipleSpaces", "a  b  c", "-", "a--b--c"},
 		{"UnderscoreReplacement", "hello world", "_", "hello_world"},
+		{"ReservedWithMultiDotExt", "con.foo.txt", "-", "-.foo.txt"},
+		{"ReservedWithEmptySegment", "CON..txt", "-", "-..txt"},
+		{"ReservedLowerMultiDot", "aux.tar.gz", "-", "-.tar.gz"},
+		{"NotReservedPrefix", "console.txt", "-", "console.txt"},
 	}
 
 	for _, tt := range tests {

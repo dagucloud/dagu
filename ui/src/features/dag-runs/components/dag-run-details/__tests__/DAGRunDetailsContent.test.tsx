@@ -17,8 +17,8 @@ vi.mock('@/features/dag-runs/components/common', () => ({
   DAGRunActions: () => null,
 }));
 
-vi.mock('@/features/dags/components', () => ({
-  DAGStatus: () => null,
+vi.mock('@/features/dags/components/DAGStatus', () => ({
+  default: () => null,
 }));
 
 vi.mock('@/components/ui/matrix-text', () => ({
@@ -72,7 +72,7 @@ describe('DAGRunDetailsContent', () => {
 
     expect(screen.getByText('Root:')).toBeInTheDocument();
     expect(screen.getByRole('link', { name: 'root' })).toBeInTheDocument();
-    expect(screen.getByText(StatusLabel.running)).toBeInTheDocument();
+    expect(screen.getByText('Running')).toBeInTheDocument();
     expect(useBoundedDAGRunDetailsMock).toHaveBeenCalledWith({
       target: {
         remoteNode: 'local',

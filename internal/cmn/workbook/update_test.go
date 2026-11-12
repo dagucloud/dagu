@@ -233,6 +233,11 @@ func TestParseSetAndDecodeUpdateRows(t *testing.T) {
 	require.Error(t, err)
 	_, err = DecodeUpdateRows(`[{"_row": "two"}]`)
 	require.Error(t, err)
+	unresolved := "rows[0]._row: ${foreach.row._row} was not resolved; check that the value it names exists"
+	_, err = DecodeUpdateRows(`[{"_row": "${foreach.row._row}"}]`)
+	require.EqualError(t, err, unresolved)
+	_, err = DecodeUpdateRows([]any{map[string]any{"_row": "${foreach.row._row}"}})
+	require.EqualError(t, err, unresolved)
 	_, err = DecodeUpdateRows("nope")
 	require.Error(t, err)
 }
@@ -430,5 +435,100 @@ func TestUpdateRowsAddedColumnUnderMergedHeader(t *testing.T) {
 	require.NoError(t, err)
 	_, err = UpdateRows(context.Background(), path, UpdateOptions{Key: "ID", Rows: []Row{{"ID": 1}}, Set: set})
 	require.EqualError(t, err, `merged.xlsx Sheet1!E1: merged cell D1:E1 covers the header cell of new column "Checked"; unmerge it to add the column`)
+	assert.Equal(t, before, fileHash(t, path))
+}
+
+// TestUpdateRowsWithNothingToWrite covers runs that change no cell: an
+// empty rows list (with set naming an existing or a missing column, or
+// with set left to default), rows that are all skipped, and rows whose
+// values are already there. Each succeeds without saving the workbook,
+// and an output still receives its copy.
+func TestUpdateRowsWithNothingToWrite(t *testing.T) {
+	t.Parallel()
+	for _, tc := range []struct {
+		name    string
+		rows    []Row
+		set     map[string]any
+		missing MissingMode
+		output  bool
+	}{
+		{name: "EmptyExistingColumn", set: map[string]any{"Status": "status"}},
+		{name: "EmptyNewColumn", set: map[string]any{"Result": "result"}},
+		{name: "EmptyDefaultSet"},
+		{name: "EmptyWithOutput", set: map[string]any{"Status": "status"}, output: true},
+		{name: "AllSkipped", rows: []Row{{"Invoice No": "INV-9", "Result": "x"}}, set: map[string]any{"Result": "Result"}, missing: MissingSkip},
+		{name: "Unchanged", rows: []Row{{"Invoice No": "INV-2", "Status": "Done"}}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			path := ordersBook(t)
+			before := fileHash(t, path)
+			info, err := os.Stat(path)
+			require.NoError(t, err)
+			opts := UpdateOptions{Key: "Invoice No", Rows: tc.rows, Missing: tc.missing}
+			if tc.set != nil {
+				set, err := ParseSet(tc.set)
+				require.NoError(t, err)
+				opts.Set = set
+			}
+			if tc.output {
+				opts.Output = filepath.Join(filepath.Dir(path), "updated.xlsx")
+			}
+			result, err := UpdateRows(context.Background(), path, opts)
+			require.NoError(t, err)
+			assert.Zero(t, result.Changes.RowsUpdated)
+			assert.Zero(t, result.Changes.RowsAppended)
+			assert.Zero(t, result.Changes.CellsChanged)
+			assert.Zero(t, result.Changes.ColumnsAdded)
+			// A save replaces the file through a rename, so a saved workbook
+			// is no longer the same file even when its bytes match.
+			now, err := os.Stat(path)
+			require.NoError(t, err)
+			assert.True(t, os.SameFile(info, now), "the workbook is not saved")
+			assert.Equal(t, before, fileHash(t, path))
+			if tc.output {
+				back, err := Read(context.Background(), opts.Output, ReadOptions{})
+				require.NoError(t, err)
+				assert.Equal(t, 3, back.Count)
+			}
+		})
+	}
+}
+
+func TestUpdateRowsOutputLeavesTheWorkbookAlone(t *testing.T) {
+	t.Parallel()
+	path := ordersBook(t)
+	before := fileHash(t, path)
+	output := filepath.Join(filepath.Dir(path), "updated.xlsx")
+	rows := []Row{{"Invoice No": "INV-1", "Status": "Submitted"}}
+	result, err := UpdateRows(context.Background(), path, UpdateOptions{Key: "Invoice No", Rows: rows, Output: output})
+	require.NoError(t, err)
+	assert.Equal(t, output, result.Path)
+	assert.Equal(t, 1, result.Changes.RowsUpdated)
+	assert.Equal(t, before, fileHash(t, path), "the workbook at path is untouched")
+	back, err := Read(context.Background(), output, ReadOptions{})
+	require.NoError(t, err)
+	assert.Equal(t, "Submitted", back.Rows[0]["Status"])
+	assert.Equal(t, "Done", back.Rows[1]["Status"], "the output carries the rest of the workbook")
+
+	nested := filepath.Join(filepath.Dir(path), "copies", "updated.xlsx")
+	result, err = UpdateRows(context.Background(), path, UpdateOptions{Key: "Invoice No", Rows: rows, Output: nested})
+	require.NoError(t, err, "the output's parent directory is created, as for write_cells and append")
+	assert.Equal(t, nested, result.Path)
+	back, err = Read(context.Background(), nested, ReadOptions{})
+	require.NoError(t, err)
+	assert.Equal(t, "Submitted", back.Rows[0]["Status"])
+	assert.Equal(t, before, fileHash(t, path))
+
+	dry, err := UpdateRows(context.Background(), path, UpdateOptions{Key: "Invoice No", Rows: rows, Output: filepath.Join(filepath.Dir(path), "dry.xlsx"), DryRun: true})
+	require.NoError(t, err)
+	assert.Equal(t, filepath.Join(filepath.Dir(path), "dry.xlsx"), dry.Path)
+	_, err = os.Stat(dry.Path)
+	assert.ErrorIs(t, err, os.ErrNotExist, "a dry run writes no output")
+
+	_, err = UpdateRows(context.Background(), path, UpdateOptions{Key: "Invoice No", Rows: rows, Output: path})
+	require.ErrorContains(t, err, "orders.xlsx: output must be a different file from path; leave output out to update the workbook in place")
+	_, err = UpdateRows(context.Background(), path, UpdateOptions{Key: "Invoice No", Rows: rows, Output: filepath.Join(filepath.Dir(path), "out.csv")})
+	require.ErrorIs(t, err, ErrUnsupportedFormat)
 	assert.Equal(t, before, fileHash(t, path))
 }

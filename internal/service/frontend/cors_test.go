@@ -326,6 +326,73 @@ func TestCORSPolicy_SameOriginDetection(t *testing.T) {
 	}
 }
 
+// Entries that match differently than they read are reported, so operators
+// learn when the policy allows more, or less, than the entry suggests.
+func TestCORSPolicy_OriginWarnings(t *testing.T) {
+	t.Parallel()
+
+	const (
+		pathWarning     = "only scheme://host[:port] is enforced"
+		wildcardWarning = "use scheme://*.domain[:port]"
+		invalidWarning  = "is not an http(s) origin"
+	)
+	tests := []struct {
+		origin string
+		want   string
+	}{
+		{origin: "https://app.example.com"},
+		{origin: "https://app.example.com/"},
+		{origin: "https://app.example.com:443"},
+		{origin: "*"},
+		{origin: "https://*.example.com"},
+		{origin: "https://app.example.com/admin", want: pathWarning},
+		{origin: "https://app.example.com?x=1", want: pathWarning},
+		{origin: "https://app.example.com#section", want: pathWarning},
+		{origin: "https://example.com*", want: wildcardWarning},
+		{origin: "https://*example.com", want: wildcardWarning},
+		{origin: "https://*.example.com/", want: wildcardWarning},
+		{origin: "https://*.example.com:443", want: wildcardWarning},
+		{origin: "app.example.com", want: invalidWarning},
+		{origin: "ftp://app.example.com", want: invalidWarning},
+		{origin: "null", want: invalidWarning},
+	}
+	for _, tt := range tests {
+		t.Run(tt.origin, func(t *testing.T) {
+			t.Parallel()
+
+			warnings := corsPolicy{allowedOrigins: []string{tt.origin}}.originWarnings()
+			if tt.want == "" {
+				assert.Empty(t, warnings)
+				return
+			}
+			require.Len(t, warnings, 1)
+			assert.Contains(t, warnings[0], tt.origin)
+			assert.Contains(t, warnings[0], tt.want)
+		})
+	}
+}
+
+// Credentials put in an entry by mistake must not reach the startup log.
+func TestCORSPolicy_OriginWarningsRedactCredentials(t *testing.T) {
+	t.Parallel()
+
+	for _, origin := range []string{
+		"https://user:secret@app.example.com",
+		"https://secret@app.example.com/admin",
+		"https://user:secret@*.example.com",
+		"user:secret@app.example.com",
+	} {
+		t.Run(origin, func(t *testing.T) {
+			t.Parallel()
+
+			warnings := corsPolicy{allowedOrigins: []string{origin}}.originWarnings()
+			require.Len(t, warnings, 1)
+			assert.NotContains(t, warnings[0], "secret")
+			assert.Contains(t, warnings[0], "example.com")
+		})
+	}
+}
+
 func newPreflightRequest(requestPath, origin string) *http.Request {
 	req := httptest.NewRequest(http.MethodOptions, "http://dagu.example"+requestPath, nil)
 	req.Header.Set("Origin", origin)

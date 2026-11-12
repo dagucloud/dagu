@@ -11,3 +11,8 @@ var SplitStatements = splitStatements
 
 // IsSelectQuery exports isSelectQuery for testing.
 var IsSelectQuery = isSelectQuery
+
+// CommentSyntax and PostgresComments export the comment rules for testing.
+type CommentSyntax = commentSyntax
+
+var PostgresComments = postgresComments

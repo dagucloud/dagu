@@ -13,6 +13,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/dagucloud/dagu/v2/internal/cmn/config"
 	"github.com/dagucloud/dagu/v2/internal/cmn/runenv"
 	cmnvalue "github.com/dagucloud/dagu/v2/internal/cmn/value"
 
@@ -315,6 +316,217 @@ func TestRunner_StepRetryWithDownstreamIncludesInferredBuildDescendant(t *testin
 	assert.Equal(t, ir.BuildDecisionDeferred, consumerBuild.Decision)
 }
 
+// A step retry can select a step whose upstream still failed. That step never
+// runs, which must not read as a successful run, whatever else the retry ran.
+func TestRunner_StepRetryBlockedByFailedUpstreamFails(t *testing.T) {
+	t.Parallel()
+
+	failed := ir.Step{ID: "failed", Name: "failed", Commands: []ir.CommandEntry{{Command: "false"}}}
+	succeeds := func(name string, depends ...string) ir.Step {
+		return ir.Step{ID: name, Name: name, Commands: []ir.CommandEntry{{Command: "true"}}, Depends: depends}
+	}
+	retry := func(t *testing.T, workingDir, step string, downstream bool, states map[string]NodeState, steps ...ir.Step) (*Runner, *Plan, context.Context, error) {
+		t.Helper()
+		dag := &ir.DAG{Name: "step-retry", WorkingDir: workingDir, WorkingDirExplicit: true, Steps: steps}
+		nodes := make([]*Node, 0, len(steps))
+		for _, s := range steps {
+			nodes = append(nodes, NodeWithData(NodeData{Step: s, State: states[s.Name]}))
+		}
+		plan, err := CreateStepRetryPlanWithOptions(dag, nodes, step, StepRetryPlanOptions{IncludeDownstream: downstream})
+		require.NoError(t, err)
+		runner := New(&Config{DAGRunID: "run-1", LogDir: t.TempDir()})
+		ctx := NewContext(context.Background(), dag, "run-1", filepath.Join(workingDir, "dag.log"), WithAttemptID("attempt-1"))
+		return runner, plan, ctx, runner.Run(ctx, plan, nil)
+	}
+	run := func(t *testing.T, workingDir, step string, states map[string]NodeState, steps ...ir.Step) (*Runner, *Plan, context.Context, error) {
+		t.Helper()
+		return retry(t, workingDir, step, true, states, steps...)
+	}
+	wasFailed, wasAborted := NodeState{Status: ir.NodeFailed}, NodeState{Status: ir.NodeAborted}
+
+	t.Run("the selected step and its downstream are blocked", func(t *testing.T) {
+		t.Parallel()
+		blocked, next := succeeds("blocked", failed.Name), succeeds("next", "blocked")
+		runner, plan, ctx, err := run(t, t.TempDir(), blocked.Name,
+			map[string]NodeState{failed.Name: wasFailed, blocked.Name: wasAborted, next.Name: wasAborted},
+			failed, blocked, next)
+
+		require.ErrorIs(t, err, ErrUpstreamFailed)
+		assert.Equal(t, ir.Failed, runner.Status(ctx, plan))
+		assert.Equal(t, ir.NodeFailed, plan.GetNodeByName(failed.Name).State().Status)
+		assert.Equal(t, ir.NodeAborted, plan.GetNodeByName(blocked.Name).State().Status)
+		assert.Equal(t, ir.NodeAborted, plan.GetNodeByName(next.Name).State().Status)
+	})
+
+	t.Run("the selected step is behind a step an earlier attempt blocked", func(t *testing.T) {
+		t.Parallel()
+		gate, blocked := succeeds("gate", failed.Name), succeeds("blocked", "gate")
+		restored := NodeState{Status: ir.NodeAborted, Error: errors.New(ErrUpstreamFailed.Error())}
+		runner, plan, ctx, err := run(t, t.TempDir(), blocked.Name,
+			map[string]NodeState{failed.Name: wasFailed, gate.Name: restored, blocked.Name: wasAborted},
+			failed, gate, blocked)
+
+		require.ErrorIs(t, err, ErrUpstreamAborted)
+		assert.Equal(t, ir.Failed, runner.Status(ctx, plan))
+		assert.Equal(t, ir.NodeAborted, plan.GetNodeByName(gate.Name).State().Status)
+		assert.Equal(t, ir.NodeAborted, plan.GetNodeByName(blocked.Name).State().Status)
+	})
+
+	t.Run("the selected step is behind a step without an error", func(t *testing.T) {
+		t.Parallel()
+		gate, blocked := succeeds("gate"), succeeds("blocked", "gate")
+		runner, plan, ctx, err := run(t, t.TempDir(), blocked.Name,
+			map[string]NodeState{gate.Name: wasAborted, blocked.Name: wasAborted},
+			gate, blocked)
+
+		require.ErrorIs(t, err, ErrUpstreamAborted)
+		assert.Equal(t, ir.Failed, runner.Status(ctx, plan))
+	})
+
+	t.Run("a downstream step is listed before the step blocking it", func(t *testing.T) {
+		t.Parallel()
+		blocked, next := succeeds("blocked", failed.Name), succeeds("next", "blocked")
+		runner, plan, ctx, err := run(t, t.TempDir(), blocked.Name,
+			map[string]NodeState{failed.Name: wasFailed, blocked.Name: wasAborted, next.Name: wasAborted},
+			next, blocked, failed)
+
+		require.ErrorIs(t, err, ErrUpstreamFailed)
+		assert.Equal(t, ir.Failed, runner.Status(ctx, plan))
+		assert.Equal(t, ir.NodeAborted, plan.GetNodeByName(next.Name).State().Status)
+	})
+
+	t.Run("a join is blocked once the selected step ran", func(t *testing.T) {
+		t.Parallel()
+		target, join := succeeds("target"), succeeds("join", "target", failed.Name)
+		runner, plan, ctx, err := run(t, t.TempDir(), target.Name,
+			map[string]NodeState{failed.Name: wasFailed, target.Name: {Status: ir.NodeSucceeded}, join.Name: wasAborted},
+			failed, target, join)
+
+		require.ErrorIs(t, err, ErrUpstreamFailed)
+		assert.Equal(t, ir.Failed, runner.Status(ctx, plan))
+		assert.Equal(t, ir.NodeSucceeded, plan.GetNodeByName(target.Name).State().Status)
+		assert.Equal(t, ir.NodeAborted, plan.GetNodeByName(join.Name).State().Status)
+	})
+
+	t.Run("a repeating step clears its own failure beside a blocked join", func(t *testing.T) {
+		t.Parallel()
+		workingDir := t.TempDir()
+		// It fails once, which the repeat clears from the last error, then succeeds.
+		target := ir.Step{
+			ID:   "target",
+			Name: "target",
+			Commands: []ir.CommandEntry{{Command: "sh", Args: []string{
+				"-c", "test -f marker || { touch marker; exit 1; }",
+			}}},
+			RepeatPolicy: ir.RepeatPolicy{RepeatMode: ir.RepeatModeUntil, ExitCode: []int{0}, Limit: 3, Interval: time.Millisecond},
+		}
+		join := succeeds("join", "target", failed.Name)
+		runner, plan, ctx, err := run(t, workingDir, target.Name,
+			map[string]NodeState{failed.Name: wasFailed, target.Name: {Status: ir.NodeSucceeded}, join.Name: wasAborted},
+			failed, target, join)
+
+		require.ErrorIs(t, err, ErrUpstreamFailed)
+		assert.Equal(t, ir.Failed, runner.Status(ctx, plan))
+		assert.FileExists(t, filepath.Join(workingDir, "marker"))
+		assert.Equal(t, ir.NodeAborted, plan.GetNodeByName(join.Name).State().Status)
+	})
+
+	t.Run("the selected step is blocked without its downstream", func(t *testing.T) {
+		t.Parallel()
+		blocked, next := succeeds("blocked", failed.Name), succeeds("next", "blocked")
+		runner, plan, ctx, err := retry(t, t.TempDir(), blocked.Name, false,
+			map[string]NodeState{failed.Name: wasFailed, blocked.Name: wasAborted, next.Name: wasAborted},
+			failed, blocked, next)
+
+		require.ErrorIs(t, err, ErrUpstreamFailed)
+		assert.Equal(t, ir.Failed, runner.Status(ctx, plan))
+	})
+
+	t.Run("the selected step is blocked beside a failure allowed to continue", func(t *testing.T) {
+		t.Parallel()
+		tolerated := ir.Step{
+			ID:         "tolerated",
+			Name:       "tolerated",
+			Commands:   []ir.CommandEntry{{Command: "false"}},
+			ContinueOn: ir.ContinueOn{Failure: true},
+		}
+		done, gate, blocked := succeeds("done"), succeeds("gate"), succeeds("blocked", "gate")
+		runner, plan, ctx, err := retry(t, t.TempDir(), blocked.Name, false,
+			map[string]NodeState{
+				tolerated.Name: wasFailed,
+				done.Name:      {Status: ir.NodeSucceeded},
+				gate.Name:      wasAborted,
+				blocked.Name:   wasAborted,
+			},
+			tolerated, done, gate, blocked)
+
+		require.ErrorIs(t, err, ErrUpstreamAborted)
+		assert.Equal(t, ir.Failed, runner.Status(ctx, plan))
+	})
+
+	t.Run("a selected step fails and may continue while its join is blocked", func(t *testing.T) {
+		t.Parallel()
+		target := ir.Step{
+			ID:         "target",
+			Name:       "target",
+			Commands:   []ir.CommandEntry{{Command: "false"}},
+			ContinueOn: ir.ContinueOn{Failure: true},
+		}
+		done, gate, join := succeeds("done"), succeeds("gate"), succeeds("join", "target", "gate")
+		runner, plan, ctx, err := run(t, t.TempDir(), target.Name,
+			map[string]NodeState{
+				target.Name: wasFailed,
+				done.Name:   {Status: ir.NodeSucceeded},
+				gate.Name:   wasAborted,
+				join.Name:   wasAborted,
+			},
+			target, done, gate, join)
+
+		require.Error(t, err)
+		assert.Equal(t, ir.Failed, runner.Status(ctx, plan))
+		assert.Equal(t, ir.NodeFailed, plan.GetNodeByName(target.Name).State().Status)
+		assert.Equal(t, ir.NodeAborted, plan.GetNodeByName(join.Name).State().Status)
+	})
+
+	t.Run("a canceled run leaves a step behind one left aborted outside the selection", func(t *testing.T) {
+		t.Parallel()
+		first, second, third := succeeds("first"), succeeds("second", "first"), succeeds("third", "second")
+		runner, plan, ctx, err := retry(t, t.TempDir(), first.Name, false,
+			map[string]NodeState{first.Name: wasAborted, second.Name: wasAborted},
+			first, second, third)
+
+		require.NoError(t, err)
+		assert.Equal(t, ir.Succeeded, runner.Status(ctx, plan))
+		assert.Equal(t, ir.NodeSucceeded, plan.GetNodeByName(first.Name).State().Status)
+		assert.Equal(t, ir.NodeAborted, plan.GetNodeByName(second.Name).State().Status)
+	})
+
+	t.Run("a canceled run leaves a step behind one failed outside the selection", func(t *testing.T) {
+		t.Parallel()
+		stranded, other := succeeds("stranded", failed.Name), succeeds("other")
+		runner, plan, ctx, err := retry(t, t.TempDir(), other.Name, false,
+			map[string]NodeState{failed.Name: wasFailed, other.Name: wasFailed},
+			failed, stranded, other)
+
+		require.NoError(t, err)
+		assert.Equal(t, ir.Succeeded, runner.Status(ctx, plan))
+		assert.Equal(t, ir.NodeSucceeded, plan.GetNodeByName(other.Name).State().Status)
+	})
+
+	t.Run("a step an earlier attempt blocked outside the selection changes nothing", func(t *testing.T) {
+		t.Parallel()
+		blocked, other := succeeds("blocked", failed.Name), succeeds("other")
+		restored := NodeState{Status: ir.NodeAborted, Error: errors.New(ErrUpstreamFailed.Error())}
+		runner, plan, ctx, err := run(t, t.TempDir(), other.Name,
+			map[string]NodeState{failed.Name: wasFailed, blocked.Name: restored, other.Name: wasFailed},
+			failed, blocked, other)
+
+		require.NoError(t, err)
+		assert.Equal(t, ir.Succeeded, runner.Status(ctx, plan))
+		assert.Equal(t, ir.NodeSucceeded, plan.GetNodeByName(other.Name).State().Status)
+	})
+}
+
 // Descendants reached through inferred build edges are reset at run start,
 // after build planning resolved their paths. A reset human task still reopens
 // from its template, and the other reset steps keep their resolved paths.
@@ -438,6 +650,86 @@ func TestPrepareBuildPlanChecksPlainRedirectWhenArtifactRedirectIsSet(t *testing
 
 	err = prepareBuildPlan(ctx, plan)
 	require.ErrorContains(t, err, "stdout path aliases build output")
+}
+
+// Creating the parents of a redirect beneath a declared path would turn that
+// file into a directory and break later runs, so the plan must reject it first.
+func TestBuildRedirectUnderDeclaredPath(t *testing.T) {
+	t.Parallel()
+
+	const inputName, outputName = "source.txt", "result.txt"
+	tests := []struct {
+		name       string
+		parent     string
+		targetKind string
+	}{
+		{name: "Input", parent: inputName, targetKind: "input"},
+		{name: "Output", parent: outputName, targetKind: "output"},
+		{name: "DeepOutput", parent: filepath.Join(outputName, "logs", "deep"), targetKind: "output"},
+	}
+	declarations := func(step ir.Step) ir.Step {
+		step.Inputs = []ir.StepInputDeclaration{{Name: "source", Path: inputName}}
+		step.Outputs = []ir.StepOutputDeclaration{{Name: "result", Path: outputName}}
+		return step
+	}
+	newContext := func(workingDir string) context.Context {
+		return NewContext(context.Background(), &ir.DAG{
+			Name:               "build-test",
+			Type:               ir.TypeBuild,
+			WorkingDir:         workingDir,
+			WorkingDirExplicit: true,
+		}, "run-1", filepath.Join(workingDir, "dag.log"))
+	}
+	newWorkingDir := func(t *testing.T) string {
+		t.Helper()
+		workingDir := t.TempDir()
+		require.NoError(t, os.WriteFile(filepath.Join(workingDir, inputName), []byte("source"), 0o600))
+		return workingDir
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name+"Static", func(t *testing.T) {
+			t.Parallel()
+
+			workingDir := newWorkingDir(t)
+			plan, err := NewPlan(declarations(ir.Step{
+				ID:     "build",
+				Name:   "build",
+				Stdout: filepath.Join(tt.parent, "build.log"),
+			}))
+			require.NoError(t, err)
+
+			err = prepareBuildPlan(newContext(workingDir), plan)
+			require.ErrorContains(t, err, "stdout path is inside build "+tt.targetKind)
+			assert.NoDirExists(t, filepath.Join(workingDir, outputName))
+		})
+
+		t.Run(tt.name+"LateResolved", func(t *testing.T) {
+			t.Parallel()
+
+			workingDir := newWorkingDir(t)
+			plan, err := NewPlan(
+				ir.Step{ID: "producer", Name: "producer", Output: "TARGET"},
+				declarations(ir.Step{
+					ID:      "consumer",
+					Name:    "consumer",
+					Depends: []string{"producer"},
+					Stdout:  "${producer.output}",
+				}),
+			)
+			require.NoError(t, err)
+			ctx := newContext(workingDir)
+			require.NoError(t, prepareBuildPlan(ctx, plan))
+
+			plan.GetNodeByName("producer").setOutputValue(filepath.Join(workingDir, tt.parent, "build.log"))
+			consumer := plan.GetNodeByName("consumer")
+			ctx, err = New(&Config{}).setupVariables(ctx, plan, consumer)
+			require.NoError(t, err)
+
+			err = validateBuildRuntimeRedirectAliases(ctx, plan, consumer)
+			require.ErrorContains(t, err, "stdout path is inside build "+tt.targetKind)
+		})
+	}
 }
 
 func TestValidateBuildRuntimeRedirectAliases(t *testing.T) {
@@ -735,7 +1027,11 @@ echo complete > "${outputs.artifact}"
 		WorkingDirExplicit: true,
 		Shell:              "sh",
 	}
-	ctx := NewContext(context.Background(), dag, "run-1", filepath.Join(workingDir, "dag.log"))
+	// touch comes from the host PATH, which steps only see through BaseEnv.
+	ctx := config.WithConfig(context.Background(), &config.Config{
+		Core: config.Core{BaseEnv: config.NewBaseEnv([]string{"PATH=" + os.Getenv("PATH")})},
+	})
+	ctx = NewContext(ctx, dag, "run-1", filepath.Join(workingDir, "dag.log"))
 
 	require.NoError(t, runner.Run(ctx, plan, nil))
 	content, err := os.ReadFile(outputPath)
@@ -951,4 +1247,42 @@ func TestResolveHumanTaskArtifacts(t *testing.T) {
 
 		require.ErrorContains(t, err, "must be relative")
 	})
+}
+
+// A dependent can start while the finish of its dependency is being recorded:
+// the status of the dependency is final before its finish time is set. The
+// start of the dependent then moves to that finish.
+func TestRunner_ClampDependentStarts(t *testing.T) {
+	base := time.Date(2026, 1, 2, 3, 4, 5, 0, time.UTC)
+	finished := base.Add(50 * time.Millisecond)
+
+	dep := NewNode(ir.Step{Name: "dep"}, NodeState{Status: ir.NodeSucceeded, StartedAt: base, FinishedAt: finished})
+	early := NewNode(ir.Step{Name: "early", Depends: []string{"dep"}}, NodeState{
+		Status:     ir.NodeSucceeded,
+		StartedAt:  base.Add(30 * time.Millisecond),
+		FinishedAt: base.Add(40 * time.Millisecond),
+	})
+	late := NewNode(ir.Step{Name: "late", Depends: []string{"dep"}}, NodeState{
+		Status:    ir.NodeRunning,
+		StartedAt: base.Add(80 * time.Millisecond),
+	})
+	// A dependent that kept the times of an earlier run, as in a step retry
+	// without its downstream steps.
+	kept := NewNode(ir.Step{Name: "kept", Depends: []string{"dep"}}, NodeState{
+		Status:     ir.NodeSucceeded,
+		StartedAt:  base.Add(-time.Hour),
+		FinishedAt: base.Add(-59 * time.Minute),
+	})
+	plan, err := NewPlanFromNodes(dep, early, late, kept)
+	require.NoError(t, err)
+
+	New(&Config{}).clampDependentStarts(plan, plan.GetNodeByName("dep"))
+
+	state := plan.GetNodeByName("early").State()
+	assert.True(t, state.StartedAt.Equal(finished), "start %s", state.StartedAt)
+	assert.False(t, state.FinishedAt.Before(state.StartedAt), "finish before start")
+	assert.True(t, plan.GetNodeByName("late").State().StartedAt.Equal(base.Add(80*time.Millisecond)))
+	keptState := plan.GetNodeByName("kept").State()
+	assert.True(t, keptState.StartedAt.Equal(base.Add(-time.Hour)), "start %s", keptState.StartedAt)
+	assert.True(t, keptState.FinishedAt.Equal(base.Add(-59*time.Minute)), "finish %s", keptState.FinishedAt)
 }

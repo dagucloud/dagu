@@ -1,0 +1,33 @@
+name: spec031_partial_foreach_checkpoint
+working_dir: .
+steps:
+  - id: each
+    foreach:
+      items: ["a", "b"]
+      key: ${foreach.item}
+      steps:
+        - id: body
+          run: |
+            printf 'run\n' >> "foreach-${foreach.item}.out"
+            if [ "${foreach.item}" = "b" ] && [ ! -f allow-b.txt ]; then
+              exit 1
+            fi
+
+  - id: review
+    depends: each
+    action: human.task
+    with:
+      prompt: Review the partial foreach
+
+  - id: other
+    action: human.task
+    with:
+      prompt: Review the independent branch
+
+  - id: after_review
+    depends: review
+    run: printf 'resumed\n' > resumed.txt
+
+  - id: finished
+    depends: [after_review, other]
+    run: printf 'finished\n' > finished.txt

@@ -13,6 +13,7 @@ import { AppBarContext } from '../../contexts/AppBarContext';
 import { useConfig } from '../../contexts/ConfigContext';
 import { I18nText } from '@/i18n/I18nText';
 import { I18nProps } from '@/i18n/I18nProps';
+import { LoadErrorState, PageLoading } from '@/components/PageStates';
 
 type ConfigScope = 'global' | 'workspace';
 
@@ -41,7 +42,11 @@ function BaseConfigPage(): React.ReactNode {
     appBarContext.setTitle('Base Config');
   }, [appBarContext]);
 
-  const { data: globalData, mutate: mutateGlobal } = useQuery(
+  const {
+    data: globalData,
+    error: globalError,
+    mutate: mutateGlobal,
+  } = useQuery(
     '/settings/base-config',
     {
       params: {
@@ -54,7 +59,11 @@ function BaseConfigPage(): React.ReactNode {
     }
   );
 
-  const { data: workspaceData, mutate: mutateWorkspace } = useQuery(
+  const {
+    data: workspaceData,
+    error: workspaceError,
+    mutate: mutateWorkspace,
+  } = useQuery(
     '/settings/workspaces/{workspaceName}/base-config',
     whenEnabled(hasWorkspaceConfig, {
       params: {
@@ -105,6 +114,11 @@ function BaseConfigPage(): React.ReactNode {
     activeScope === 'workspace' ? workspaceValue : globalValue;
   const currentSpec =
     activeScope === 'workspace' ? workspaceData?.spec : globalData?.spec;
+  const currentData = activeScope === 'workspace' ? workspaceData : globalData;
+  const currentLoadError =
+    activeScope === 'workspace'
+      ? !workspaceData && workspaceError
+      : !globalData && globalError;
   const hasUnsavedChanges =
     activeScope === 'workspace' ? workspaceDirty : globalDirty;
   const modelUri =
@@ -230,7 +244,7 @@ function BaseConfigPage(): React.ReactNode {
   return (
     <div className="flex flex-col flex-1 min-h-0 space-y-4 p-4">
       <div>
-        <h1 className="text-lg font-semibold">
+        <h1 className="text-2xl font-semibold tracking-[-0.01em]">
           <I18nText text={'Base Configuration'} />
         </h1>
         <p className="text-sm text-muted-foreground">
@@ -240,9 +254,7 @@ function BaseConfigPage(): React.ReactNode {
               values={{ workspace: selectedWorkspace ?? '' }}
             />
           ) : (
-            <I18nText
-              text={'Global defaults inherited by all DAG definitions'}
-            />
+            <I18nText text={'Global defaults inherited by all workflows'} />
           )}
         </p>
       </div>
@@ -278,42 +290,57 @@ function BaseConfigPage(): React.ReactNode {
         </I18nProps>
       ) : null}
 
-      <DAGEditorWithDocs
-        value={
-          editable ? (currentValue ?? currentSpec ?? '') : (currentSpec ?? '')
-        }
-        readOnly={!editable}
-        onChange={editable ? handleChange : undefined}
-        className="min-h-[400px]"
-        modelUri={modelUri}
-        headerActions={
-          editable ? (
-            <>
-              <I18nProps>
-                <Button
-                  variant="outline"
-                  title="Revert to last saved version"
-                  disabled={!hasUnsavedChanges}
-                  onClick={handleRevert}
-                >
-                  <RotateCcw className="h-4 w-4" />
-                  <I18nText text={'Revert'} />
-                </Button>
-              </I18nProps>
-              <I18nProps>
-                <Button
-                  title="Save changes (Ctrl+S / Cmd+S)"
-                  disabled={!hasUnsavedChanges}
-                  onClick={handleSave}
-                >
-                  <Save className="h-4 w-4" />
-                  <I18nText text={'Save'} />
-                </Button>
-              </I18nProps>
-            </>
-          ) : undefined
-        }
-      />
+      {currentLoadError ? (
+        <LoadErrorState
+          title={<I18nText text={"Couldn't load the base config"} />}
+          error={currentLoadError}
+          onRetry={() =>
+            void (activeScope === 'workspace'
+              ? mutateWorkspace()
+              : mutateGlobal())
+          }
+        />
+      ) : !currentData ? (
+        <PageLoading />
+      ) : (
+        <DAGEditorWithDocs
+          value={
+            editable ? (currentValue ?? currentSpec ?? '') : (currentSpec ?? '')
+          }
+          readOnly={!editable}
+          onChange={editable ? handleChange : undefined}
+          className="min-h-[400px]"
+          modelUri={modelUri}
+          headerActions={
+            editable ? (
+              <>
+                <I18nProps>
+                  <Button
+                    variant="outline"
+                    title="Revert to last saved version"
+                    disabled={!hasUnsavedChanges}
+                    onClick={handleRevert}
+                  >
+                    <RotateCcw className="h-4 w-4" />
+                    <I18nText text={'Revert'} />
+                  </Button>
+                </I18nProps>
+                <I18nProps>
+                  <Button
+                    variant="primary"
+                    title="Save changes (Ctrl+S / Cmd+S)"
+                    disabled={!hasUnsavedChanges}
+                    onClick={handleSave}
+                  >
+                    <Save className="h-4 w-4" />
+                    <I18nText text={'Save'} />
+                  </Button>
+                </I18nProps>
+              </>
+            ) : undefined
+          }
+        />
+      )}
     </div>
   );
 }

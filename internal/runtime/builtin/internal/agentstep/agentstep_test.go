@@ -4,6 +4,7 @@
 package agentstep_test
 
 import (
+	"errors"
 	"testing"
 
 	llmpkg "github.com/dagucloud/dagu/v2/internal/llm"
@@ -27,6 +28,44 @@ func TestStructuredAnswer(t *testing.T) {
 
 	_, err = agentstep.StructuredAnswer(&llmpkg.ChatResponse{Content: "I cannot help"})
 	assert.Error(t, err)
+}
+
+// A blank answer is replaced, since providers reject an empty assistant
+// message.
+func TestRejectedAnswer(t *testing.T) {
+	t.Parallel()
+
+	respond := func(arguments string) *llmpkg.ChatResponse {
+		return &llmpkg.ChatResponse{ToolCalls: []llmpkg.ToolCall{{
+			Function: llmpkg.ToolCallFunction{Name: agentstep.RespondToolName, Arguments: arguments},
+		}}}
+	}
+	assert.Equal(t, `{"ok":`, agentstep.RejectedAnswer(respond(`{"ok":`)))
+	assert.Equal(t, "(no answer)", agentstep.RejectedAnswer(respond("")))
+	assert.Equal(t, "(no answer)", agentstep.RejectedAnswer(respond("  \n")))
+	assert.Equal(t, "plain text", agentstep.RejectedAnswer(&llmpkg.ChatResponse{Content: "plain text"}))
+	assert.Equal(t, "(no answer)", agentstep.RejectedAnswer(&llmpkg.ChatResponse{Content: " "}))
+	assert.Equal(t, "(no answer)", agentstep.RejectedAnswer(&llmpkg.ChatResponse{}))
+
+	// Text beside a blank respond call is what the model actually said.
+	blankCall := respond("")
+	blankCall.Content = "I could not find the total."
+	assert.Equal(t, "I could not find the total.", agentstep.RejectedAnswer(blankCall))
+}
+
+// The correction goes on the request's own copy of the messages, so a
+// slice shared with the next model's request is never written.
+func TestAppendCorrection(t *testing.T) {
+	t.Parallel()
+
+	shared := make([]llmpkg.Message, 2, 4)
+	req := &llmpkg.ChatRequest{Messages: shared}
+	agentstep.AppendCorrection(req, `{"total":`, errors.New("bad answer"))
+
+	require.Len(t, req.Messages, 4)
+	assert.Equal(t, llmpkg.Message{Role: llmpkg.RoleAssistant, Content: `{"total":`}, req.Messages[2])
+	assert.Equal(t, llmpkg.Message{Role: llmpkg.RoleUser, Content: agentstep.Correction(errors.New("bad answer"))}, req.Messages[3])
+	assert.Empty(t, shared[:4][2].Role, "the shared slice is not written")
 }
 
 func TestToolParametersStripsAnnotations(t *testing.T) {

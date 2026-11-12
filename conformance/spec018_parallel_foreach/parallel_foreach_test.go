@@ -18,6 +18,7 @@ func TestParallelValidation(t *testing.T) {
 
 	validCases := []string{
 		"parallel_flat_mapping_valid.yaml",
+		"defaults_max_concurrent_valid.yaml",
 	}
 	for _, file := range validCases {
 		t.Run(file, func(t *testing.T) {
@@ -46,6 +47,22 @@ func TestParallelValidation(t *testing.T) {
 		{
 			file:        "parallel_max_concurrent_too_high.yaml",
 			stderrParts: []string{"parallel.max_concurrent", "1000"},
+		},
+		{
+			file:        "defaults_max_concurrent_float.yaml",
+			stderrParts: []string{"defaults.max_concurrent", "integer"},
+		},
+		{
+			file:        "defaults_max_concurrent_too_high.yaml",
+			stderrParts: []string{"defaults.max_concurrent", "1000"},
+		},
+		{
+			file:        "parallel_separator_unknown.yaml",
+			stderrParts: []string{"parallel.separator", "newline"},
+		},
+		{
+			file:        "parallel_separator_static_items.yaml",
+			stderrParts: []string{"parallel.separator", "string item source"},
 		},
 		{
 			file:        "parallel_nested_mapping_item.yaml",
@@ -102,6 +119,22 @@ func TestParallelDAGRunRuntime(t *testing.T) {
 			`"CHILD_VALUE": "beta"`,
 		)
 	})
+
+	// Without an explicit separator the single pipe-delimited line would be
+	// split on pipes into three items.
+	t.Run("explicit separator keeps delimiter characters inside one item", func(t *testing.T) {
+		t.Parallel()
+
+		dagu := harness.NewRunner(t)
+		result := dagu.Run("start", "parallel_separator_newline.yaml")
+		result.ExpectExitCode(0)
+		dagu.ExpectFileContains(
+			"parallel-separator-results.txt",
+			`"total": 1`,
+			`"succeeded": 1`,
+			`"CHILD_VALUE": "|volumeSnapshotName=snapshot-3a24|restoreSize=1Gi|sourcePvcName=test-pvc1|"`,
+		)
+	})
 }
 
 func TestForeachValidation(t *testing.T) {
@@ -109,6 +142,8 @@ func TestForeachValidation(t *testing.T) {
 
 	validCases := []string{
 		"foreach_success_collect.yaml",
+		"foreach_unbraced.yaml",
+		"foreach_missing_collect.yaml",
 		"foreach_string_items.yaml",
 		"foreach_zero_items.yaml",
 	}
@@ -143,6 +178,63 @@ func TestForeachRuntime(t *testing.T) {
 			`"key":"two"`,
 			`"markdown":"https://example.com/one"`,
 			`"markdown":"https://example.com/two"`,
+			`"link":"https://example.com/one"`,
+			`"link":"https://example.com/two"`,
+			`"bare_link":"https://example.com/one"`,
+			`"bare_link":"https://example.com/two"`,
+			`"limit":"1000000"`,
+		)
+	})
+
+	t.Run("unbraced references and inserted values stay literal", func(t *testing.T) {
+		t.Parallel()
+
+		dagu := harness.NewRunner(t)
+		result := dagu.Run("start", "foreach_unbraced.yaml")
+		result.ExpectExitCode(0)
+		dagu.ExpectFileContent("foreach-unbraced-body.txt", "$foreach.item.value")
+		dagu.ExpectFileContains(
+			"foreach-unbraced-results.txt",
+			`"literal":"$foreach.item.value"`,
+			`"quoted":"$SECRET"`,
+		)
+	})
+
+	t.Run("an item field without the foreach namespace fails its item", func(t *testing.T) {
+		t.Parallel()
+
+		dagu := harness.NewRunner(t)
+		result := dagu.Run("start", "foreach_unqualified_item_field.yaml")
+		result.ExpectNonZeroExitCode()
+		result.ExpectStderrContains("${item.wallet} does not reference the foreach item; use ${foreach.item.wallet}")
+		dagu.ExpectNoFile("foreach-unqualified-item-field.txt")
+	})
+
+	t.Run("an unqualified item field reads a dotenv value of the same name", func(t *testing.T) {
+		t.Parallel()
+
+		dagu := harness.NewRunner(t)
+		dagu.WriteFile(".env", `item={"wallet":"from-dotenv"}`+"\n")
+		result := dagu.Run("start", "foreach_unqualified_item_field.yaml")
+		result.ExpectExitCode(0)
+		dagu.ExpectFileContent("foreach-unqualified-item-field.txt", "from-dotenv")
+	})
+
+	t.Run("a missing quoted collect field fails its item", func(t *testing.T) {
+		t.Parallel()
+
+		dagu := harness.NewRunner(t)
+		result := dagu.Run("start", "foreach_missing_collect.yaml")
+		result.ExpectExitCode(0)
+		dagu.ExpectFileContent("foreach-body-two.txt", "body-ok")
+		dagu.ExpectFileContains(
+			"foreach-missing-results.txt",
+			`"total":2`,
+			`"succeeded":1`,
+			`"failed":1`,
+			`"key":"two","status":"failed"`,
+			"foreach.collect.value resolved with unresolved reference",
+			`"outputs":[{"value":"present"}]`,
 		)
 	})
 
@@ -157,6 +249,20 @@ func TestForeachRuntime(t *testing.T) {
 			`"total":2`,
 			`"markdown":"alpha"`,
 			`"markdown":"beta"`,
+		)
+	})
+
+	t.Run("string item source from a step output infers the dependency", func(t *testing.T) {
+		t.Parallel()
+
+		dagu := harness.NewRunner(t)
+		result := dagu.Run("start", "foreach_items_from_step_output.yaml")
+		result.ExpectExitCode(0)
+		dagu.ExpectFileContains(
+			"foreach-from-output.txt",
+			`"total":2`,
+			`"item":"item=1"`,
+			`"item":"item=2"`,
 		)
 	})
 

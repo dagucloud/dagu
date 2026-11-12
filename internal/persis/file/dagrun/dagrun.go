@@ -12,6 +12,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"sort"
 	"strings"
 	"time"
@@ -20,6 +21,7 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/cmn/fileutil"
 	"github.com/dagucloud/dagu/v2/internal/cmn/logger"
 	"github.com/dagucloud/dagu/v2/internal/cmn/logger/tag"
+	"github.com/dagucloud/dagu/v2/internal/cmn/logpath"
 	"github.com/dagucloud/dagu/v2/internal/dagrun"
 	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/persis"
@@ -256,6 +258,24 @@ func (dr DAGRun) LatestAttempt(ctx context.Context, cache *fileutil.Cache[*ir.DA
 	return nil, dagrun.ErrNoStatusData
 }
 
+// newestAttemptID returns the ID of the newest visible attempt, including an
+// attempt that has no status file yet.
+func (dr DAGRun) newestAttemptID() (string, error) {
+	attDirs, err := dr.listAttemptDirs()
+	if err != nil {
+		return "", err
+	}
+	for _, attDir := range attDirs {
+		if strings.HasPrefix(attDir, ".") {
+			continue
+		}
+		if id, ok := attemptIDFromDir(attDir); ok {
+			return id, nil
+		}
+	}
+	return "", nil
+}
+
 // AttemptByDir constructs an Attempt directly from a known attempt directory name,
 // skipping the directory listing and sorting done by LatestAttempt.
 func (dr DAGRun) AttemptByDir(attemptDir string, cache *fileutil.Cache[*ir.DAGRunStatus]) (*Attempt, error) {
@@ -328,6 +348,17 @@ func (dr DAGRun) removeLogFiles(ctx context.Context) error {
 				tag.File(file))
 		}
 		parentDirs[filepath.Dir(file)] = struct{}{}
+	}
+	// Foreach body logs are not recorded in the status; they live in a
+	// fixed directory beside the step's own log files.
+	for dir := range parentDirs {
+		foreachDir := filepath.Join(dir, logpath.ForeachLogDirName)
+		if err := fileutil.RemoveAll(foreachDir); err != nil {
+			logger.Error(ctx, "Failed to remove foreach body log directory",
+				tag.Error(err),
+				tag.RunID(dr.dagRunID),
+				tag.Dir(foreachDir))
+		}
 	}
 	for dir := range uniqueArtifactDirs {
 		// The index record always lives in the trusted root, even when the DAG
@@ -452,7 +483,7 @@ func (dr DAGRun) listLogFiles(ctx context.Context) ([]string, error) {
 		return nil, fmt.Errorf("failed to list attempt directories: %w", err)
 	}
 
-	var logFiles []string
+	var logFiles, nodeLogs, logDirs []string
 	for _, attDir := range attDirs {
 		attempt, err := NewAttempt(filepath.Join(dr.baseDir, attDir, JSONLStatusFile), nil)
 		if err != nil {
@@ -474,15 +505,32 @@ func (dr DAGRun) listLogFiles(ctx context.Context) ([]string, error) {
 			continue
 		}
 		logFiles = append(logFiles, status.Log)
+		if status.Log != "" {
+			logDirs = append(logDirs, filepath.Dir(status.Log))
+		}
 		for _, n := range status.NodesInRunOrder() {
 			if n == nil {
 				continue
 			}
-			logFiles = append(logFiles, n.Stdout, n.Stderr)
+			nodeLogs = append(nodeLogs, n.Stdout, n.Stderr)
+		}
+	}
+	// A step skipped in a run seeded from another run names the logs of that
+	// run, which stay with it. The logs of the run's own attempts lie in the
+	// directories of their scheduler logs.
+	for _, file := range nodeLogs {
+		if slices.ContainsFunc(logDirs, func(dir string) bool { return pathWithin(file, dir) }) {
+			logFiles = append(logFiles, file)
 		}
 	}
 
 	return logFiles, nil
+}
+
+// pathWithin reports whether path lies inside dir.
+func pathWithin(path, dir string) bool {
+	rel, err := filepath.Rel(dir, path)
+	return err == nil && rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator))
 }
 
 func (dr DAGRun) listArtifactDirs(ctx context.Context) ([]string, error) {

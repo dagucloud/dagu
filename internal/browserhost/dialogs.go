@@ -9,6 +9,7 @@ import (
 	"errors"
 	"sync"
 	"sync/atomic"
+	"time"
 
 	"github.com/coder/websocket"
 )
@@ -16,6 +17,9 @@ import (
 const (
 	targetTypePage   = "page"
 	dialogTypePrompt = "prompt"
+	// answerTimeout bounds the answer to a dialog, which holds the lock that
+	// Take waits for.
+	answerTimeout = 5 * time.Second
 )
 
 // Dialog is a JavaScript dialog a page opened and the watcher accepted.
@@ -90,6 +94,18 @@ func (w *DialogWatcher) Close() error {
 	return err
 }
 
+// answer accepts a dialog and records it. The answer and its record share
+// the lock, so a Take made once the page has gone on reports the dialog.
+func (w *DialogWatcher) answer(ctx context.Context, sessionID string, params map[string]any, dialog Dialog) {
+	ctx, cancel := context.WithTimeout(ctx, answerTimeout)
+	defer cancel()
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	if writeCommand(ctx, w.conn, w.lastID.Add(1), sessionID, "Page.handleJavaScriptDialog", params) == nil {
+		w.accepted = append(w.accepted, dialog)
+	}
+}
+
 func (w *DialogWatcher) read(ctx context.Context, acknowledged chan<- error) {
 	defer close(w.done)
 	for {
@@ -138,11 +154,7 @@ func (w *DialogWatcher) read(ctx context.Context, acknowledged chan<- error) {
 			if event.Type == dialogTypePrompt {
 				params["promptText"] = event.DefaultPrompt
 			}
-			if writeCommand(ctx, w.conn, w.lastID.Add(1), message.SessionID, "Page.handleJavaScriptDialog", params) == nil {
-				w.mu.Lock()
-				w.accepted = append(w.accepted, Dialog{Type: event.Type, Message: event.Message})
-				w.mu.Unlock()
-			}
+			w.answer(ctx, message.SessionID, params, Dialog{Type: event.Type, Message: event.Message})
 		}
 	}
 }

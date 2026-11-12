@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"sync"
 	"time"
@@ -16,6 +17,7 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/cmn/config"
 	"github.com/dagucloud/dagu/v2/internal/cmn/filenotify"
 	persisfile "github.com/dagucloud/dagu/v2/internal/persis/file"
+	"github.com/dagucloud/dagu/v2/internal/workspace"
 	"github.com/fsnotify/fsnotify"
 )
 
@@ -184,11 +186,14 @@ type directoryWatcher struct {
 	skipDirName    string
 	newFileWatcher fileWatcherFactory
 	watcher        filenotify.FileWatcher
-	onEvent        func(root, relPath string, op fsnotify.Op)
-	onReset        func(reason string)
-	done           chan struct{}
-	stopOnce       sync.Once
-	wg             sync.WaitGroup
+	// awaitDir is the nearest existing ancestor of a missing root, watched
+	// until the root appears; empty while the root itself is watched.
+	awaitDir string
+	onEvent  func(root, relPath string, op fsnotify.Op)
+	onReset  func(reason string)
+	done     chan struct{}
+	stopOnce sync.Once
+	wg       sync.WaitGroup
 }
 
 type appWatcher interface {
@@ -243,34 +248,31 @@ func defaultFileWatcherFactory() (filenotify.FileWatcher, error) {
 	return filenotify.New(time.Second), nil
 }
 
+// Start watches the root. A missing root is attached when it appears, with the
+// entries it already holds reported as created.
 func (w *directoryWatcher) Start(ctx context.Context) error {
 	ready, err := prepareWatchRoot(w.root, w.createRoot)
-	if err != nil || !ready {
+	if err != nil {
 		return err
+	}
+	if !ready && w.root == "" {
+		return nil
 	}
 
 	w.watcher, err = w.newFileWatcher()
 	if err != nil {
 		return err
 	}
-	if err := w.addWatch(w.root); err != nil {
-		return err
-	}
-
-	if w.scope == watchScopeOneLevel || w.scope == watchScopeRecursive {
-		paths, err := watchPathsForScope(w.root, w.scope, w.skipDirName)
-		if err != nil {
+	if !ready {
+		if err := w.awaitRoot(); err != nil {
+			// A root that cannot be awaited stays unwatched.
 			_ = w.watcher.Close()
-			return err
+			w.watcher = nil
+			return nil
 		}
-		for _, path := range paths {
-			if path == w.root {
-				continue
-			}
-			if err := w.addWatch(path); err != nil {
-				return err
-			}
-		}
+	} else if err := w.addRootWatches(); err != nil {
+		_ = w.watcher.Close()
+		return err
 	}
 
 	w.wg.Go(func() {
@@ -279,12 +281,117 @@ func (w *directoryWatcher) Start(ctx context.Context) error {
 	return nil
 }
 
-func (w *directoryWatcher) addWatch(path string) error {
-	if err := w.watcher.Add(path); err != nil {
-		_ = w.watcher.Close()
-		return err
+// addRootWatches watches the root and the directories below it that the scope
+// covers.
+func (w *directoryWatcher) addRootWatches() error {
+	paths := []string{w.root}
+	if w.scope == watchScopeOneLevel || w.scope == watchScopeRecursive {
+		scoped, err := watchPathsForScope(w.root, w.scope, w.skipDirName)
+		if err != nil {
+			return err
+		}
+		paths = scoped
+	}
+	for _, path := range paths {
+		if err := w.watcher.Add(path); err != nil {
+			return err
+		}
 	}
 	return nil
+}
+
+// awaitRoot watches the nearest existing ancestor of the missing root, and
+// attaches the root once it exists. A directory made before its parent was
+// watched raises no event, so the watch moves down as far as the chain toward
+// the root already exists.
+func (w *directoryWatcher) awaitRoot() error {
+	for !isDir(w.root) {
+		dir := existingAncestor(w.root)
+		if dir == "" {
+			return fmt.Errorf("no existing ancestor of %s", w.root)
+		}
+		if dir == w.awaitDir {
+			return nil
+		}
+		if err := w.watcher.Add(dir); err != nil {
+			return err
+		}
+		if w.awaitDir != "" {
+			_ = w.watcher.Remove(w.awaitDir)
+		}
+		w.awaitDir = dir
+	}
+	return w.attachRoot()
+}
+
+// attachRoot moves the watch from the awaited ancestor to the root that
+// appeared.
+func (w *directoryWatcher) attachRoot() error {
+	if err := w.addRootWatches(); err != nil {
+		return err
+	}
+	if w.awaitDir != "" {
+		_ = w.watcher.Remove(w.awaitDir)
+		w.awaitDir = ""
+	}
+	w.reportEntries(w.root)
+	return nil
+}
+
+// existingAncestor returns the nearest ancestor directory of path that exists,
+// or an empty string when none does.
+func existingAncestor(path string) string {
+	for dir := filepath.Dir(path); ; dir = filepath.Dir(dir) {
+		if isDir(dir) {
+			return dir
+		}
+		if filepath.Dir(dir) == dir {
+			return ""
+		}
+	}
+}
+
+// reportEntries reports the entries below a newly watched directory that the
+// scope covers as created, since entries made before the watch raise no
+// event.
+func (w *directoryWatcher) reportEntries(dir string) {
+	var maxDepth int // the depth below the root that the scope covers; zero has no limit
+	switch w.scope {
+	case watchScopeRootOnly:
+		maxDepth = 1
+	case watchScopeOneLevel:
+		maxDepth = 2
+	case watchScopeRecursive:
+	}
+	_ = filepath.WalkDir(dir, func(path string, entry os.DirEntry, err error) error {
+		if err != nil || path == dir {
+			return nil
+		}
+		if entry.IsDir() && w.skipDirName != "" && entry.Name() == w.skipDirName {
+			return filepath.SkipDir
+		}
+		relPath, err := filepath.Rel(w.root, path)
+		if err != nil {
+			return nil
+		}
+		relPath = filepath.ToSlash(relPath)
+		w.onEvent(w.root, relPath, fsnotify.Create)
+		if entry.IsDir() && maxDepth > 0 && strings.Count(relPath, "/")+1 >= maxDepth {
+			return filepath.SkipDir
+		}
+		return nil
+	})
+}
+
+func isDir(path string) bool {
+	info, err := os.Stat(path)
+	return err == nil && info.IsDir()
+}
+
+// isWithin reports whether path is dir or lies below it.
+func isWithin(path, dir string) bool {
+	relPath, err := filepath.Rel(dir, path)
+	return err == nil && filepath.IsLocal(relPath)
 }
 
 func (w *directoryWatcher) Stop() {
@@ -323,6 +430,15 @@ func (w *directoryWatcher) handleEvent(event fsnotify.Event) {
 		return
 	}
 
+	if w.awaitDir != "" {
+		if event.Op&fsnotify.Create != 0 && isWithin(w.root, event.Name) {
+			if err := w.awaitRoot(); err != nil {
+				w.onReset(fmt.Sprintf("failed to register watcher for %s: %v", w.root, err))
+			}
+		}
+		return
+	}
+
 	if event.Op&fsnotify.Create != 0 && (w.scope == watchScopeOneLevel || w.scope == watchScopeRecursive) {
 		if err := w.addCreatedDirWatches(event.Name); err != nil {
 			w.onReset(fmt.Sprintf("failed to register watcher for %s: %v", event.Name, err))
@@ -330,7 +446,8 @@ func (w *directoryWatcher) handleEvent(event fsnotify.Event) {
 	}
 
 	relPath, err := filepath.Rel(w.root, event.Name)
-	if err != nil || relPath == "." {
+	// Events of the parent can still arrive after the root was attached.
+	if err != nil || relPath == "." || !filepath.IsLocal(relPath) {
 		return
 	}
 	w.onEvent(w.root, filepath.ToSlash(relPath), event.Op)
@@ -348,6 +465,14 @@ func (w *directoryWatcher) addCreatedDirWatches(path string) error {
 	if w.scope == watchScopeOneLevel && parent != filepath.Clean(w.root) {
 		return nil
 	}
+	if err := w.addCreatedDirTree(path); err != nil {
+		return err
+	}
+	w.reportEntries(path)
+	return nil
+}
+
+func (w *directoryWatcher) addCreatedDirTree(path string) error {
 	if w.scope != watchScopeRecursive {
 		return w.watcher.Add(path)
 	}
@@ -662,6 +787,26 @@ func NewAppStreamService(cfg AppStreamConfig) (*AppStreamService, error) {
 			service.publishReset,
 		))
 	}
+	if cfg.Paths.BaseConfig != "" {
+		baseConfig := filepath.Clean(cfg.Paths.BaseConfig)
+		// A DAG root watcher already reports a base config stored in that root.
+		if baseDir := filepath.Dir(baseConfig); !slices.Contains(paths, baseDir) {
+			service.watchers = append(service.watchers, newDirectoryWatcher(
+				baseDir,
+				false,
+				service.baseConfigEventHandler(filepath.Base(baseConfig)),
+				service.publishReset,
+			))
+		}
+	}
+	if workspaceBaseDir := workspace.BaseConfigDir(cfg.Paths.DAGsDir); workspaceBaseDir != "" {
+		service.watchers = append(service.watchers, newOneLevelDirectoryWatcher(
+			workspaceBaseDir,
+			false,
+			service.handleWorkspaceBaseConfigEvent,
+			service.publishReset,
+		))
+	}
 	if cfg.Paths.DataDir != "" {
 		service.watchers = append(service.watchers, newDirectoryWatcher(
 			persisfile.SchedulerStateDir(cfg.Paths),
@@ -751,6 +896,34 @@ func (s *AppStreamService) handleSuspendFlagEvent(_, relPath string, op fsnotify
 	s.coalescer.Enqueue(AppEvent{
 		Type:   AppEventTypeDAGChanged,
 		Reason: "suspend_flag_" + fileEventReason(op),
+	})
+}
+
+// baseConfigEventHandler refreshes every DAG when the named base config file
+// changes, since each DAG inherits it.
+func (s *AppStreamService) baseConfigEventHandler(name string) func(root, relPath string, op fsnotify.Op) {
+	return func(_, relPath string, op fsnotify.Op) {
+		if relPath != name {
+			return
+		}
+		s.enqueueBaseConfigChange(op)
+	}
+}
+
+// handleWorkspaceBaseConfigEvent refreshes every DAG when the base config of a
+// workspace changes.
+func (s *AppStreamService) handleWorkspaceBaseConfigEvent(_, relPath string, op fsnotify.Op) {
+	parts := strings.Split(relPath, "/")
+	if len(parts) != 2 || parts[1] != workspace.BaseConfigFileName {
+		return
+	}
+	s.enqueueBaseConfigChange(op)
+}
+
+func (s *AppStreamService) enqueueBaseConfigChange(op fsnotify.Op) {
+	s.coalescer.Enqueue(AppEvent{
+		Type:   AppEventTypeDAGChanged,
+		Reason: "base_config_" + fileEventReason(op),
 	})
 }
 

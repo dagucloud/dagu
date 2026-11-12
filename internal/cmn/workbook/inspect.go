@@ -5,18 +5,24 @@ package workbook
 
 import (
 	"context"
+	"fmt"
 	"path/filepath"
+	"strings"
 )
 
-// InspectOptions controls what Inspect samples.
+// InspectOptions controls what Inspect describes.
 type InspectOptions struct {
 	Password string
+	// Sheet limits the description to one sheet, matched the way a read
+	// matches its sheet; empty describes every sheet.
+	Sheet string
 	// SampleRows is how many typed rows per sheet to include; zero includes none.
 	SampleRows int
 }
 
-// typeSampleRows is how many rows column types are detected from.
-const typeSampleRows = 20
+// maxSheetWarnings caps the read warnings reported per sheet: the profile
+// reads every row, and a column of error cells warns on each one.
+const maxSheetWarnings = 20
 
 // Info describes a workbook the way a sheet picker or an agent needs it.
 type Info struct {
@@ -27,17 +33,67 @@ type Info struct {
 	Warnings    []string     `json:"warnings"`
 }
 
-// SheetInfo describes one worksheet.
+// SheetInfo describes one worksheet. Types and Columns cover the data rows
+// of the detected table, up to DefaultMaxRows of them.
 type SheetInfo struct {
-	Name      string            `json:"name"`
+	Name string `json:"name"`
+	// Hidden is true for a sheet hidden from the workbook's tabs, very
+	// hidden ones included.
+	Hidden    bool              `json:"hidden,omitempty"`
 	UsedRange string            `json:"used_range"`
 	Range     string            `json:"range"`
 	HeaderRow int               `json:"header_row"`
 	Headers   []string          `json:"headers"`
 	Types     map[string]string `json:"types"`
 	RowCount  int               `json:"row_count"`
-	Tables    []TableInfo       `json:"tables"`
-	Sample    []Row             `json:"sample,omitempty"`
+	// HiddenRows counts the data rows holding a value that are hidden, by
+	// a filter or by hand, among the rows Types and Columns cover.
+	HiddenRows int `json:"hidden_rows,omitempty"`
+	// Columns profiles each column, in header order.
+	Columns []ColumnInfo `json:"columns"`
+	// ProfileTruncated is true when the table holds more data rows than
+	// Types and Columns cover.
+	ProfileTruncated bool        `json:"profile_truncated,omitempty"`
+	Tables           []TableInfo `json:"tables"`
+	Sample           []Row       `json:"sample,omitempty"`
+}
+
+// ColumnInfo profiles the cells of one column. Counts cover the rows that
+// hold a value; a row whose cells are all empty is not counted.
+type ColumnInfo struct {
+	Name string `json:"name"`
+	// Type is the column's entry in SheetInfo.Types.
+	Type string `json:"type"`
+	// Filled and Blank count the cells that hold a value and those that
+	// are empty or white space only.
+	Filled int `json:"filled"`
+	Blank  int `json:"blank"`
+	// Distinct counts the distinct values, compared as trimmed text, up
+	// to 1000.
+	Distinct int `json:"distinct"`
+	// Values lists the distinct values in order of first appearance when
+	// there are 12 or fewer and at least one repeats, so a column of
+	// unique identifiers lists none. A value longer than 40 characters is
+	// cut and ends in "…".
+	Values []string `json:"values,omitempty"`
+	// Min and Max are the lowest and highest value of an integer, number,
+	// date, or datetime column, over the cells that read as that type the
+	// way a pinned type reads them, so １２ counts as 12.
+	Min any `json:"min,omitempty"`
+	Max any `json:"max,omitempty"`
+	// Odd counts the cells that hold a value which does not read as Type,
+	// even when the type is pinned with types.
+	Odd int `json:"odd,omitempty"`
+	// OddCells names the first three odd cells.
+	OddCells []OddCell `json:"odd_cells,omitempty"`
+}
+
+// OddCell is a cell whose value does not read as its column's type.
+type OddCell struct {
+	// Cell is the A1 address, such as D300.
+	Cell string `json:"cell"`
+	// Text is the cell's text, cut like ColumnInfo.Values.
+	Text string `json:"text"`
 }
 
 // TableInfo is a table defined on a sheet.
@@ -63,23 +119,46 @@ func ListSheets(path, password string) ([]string, error) {
 	return append([]string(nil), w.sheets...), nil
 }
 
-// Inspect describes every sheet: used range, detected table, headers,
-// column types, row count, tables, and optionally sample rows.
+// Inspect describes every sheet, or the one opts.Sheet names: used range,
+// detected table, headers, column types, a profile of each column, row
+// count, tables, and optionally sample rows.
 func Inspect(ctx context.Context, path string, opts InspectOptions) (*Info, error) {
 	w, err := open(path, opts.Password)
 	if err != nil {
 		return nil, err
 	}
 	defer w.close()
+	return inspect(ctx, w, opts)
+}
 
-	info := &Info{Path: path, DateSystem: "1900", Sheets: []SheetInfo{}, NamedRanges: []NamedRange{}, Warnings: []string{}}
+// InspectBytes describes a workbook supplied as bytes. Path is used only as
+// the result and error label, so callers can report stdin as "-".
+func InspectBytes(ctx context.Context, path string, data []byte, opts InspectOptions) (*Info, error) {
+	w, err := openBytes(path, data, opts.Password)
+	if err != nil {
+		return nil, err
+	}
+	defer w.close()
+	return inspect(ctx, w, opts)
+}
+
+func inspect(ctx context.Context, w *file, opts InspectOptions) (*Info, error) {
+	info := &Info{Path: w.path, DateSystem: "1900", Sheets: []SheetInfo{}, NamedRanges: []NamedRange{}, Warnings: []string{}}
 	if w.date1904 {
 		info.DateSystem = "1904"
 	}
 	for _, dn := range w.f.GetDefinedName() {
 		info.NamedRanges = append(info.NamedRanges, NamedRange{Name: dn.Name, RefersTo: dn.RefersTo, Scope: dn.Scope})
 	}
-	for _, sheet := range w.sheets {
+	sheets := w.sheets
+	if strings.TrimSpace(opts.Sheet) != "" {
+		sheet, err := w.resolveSheet(opts.Sheet)
+		if err != nil {
+			return nil, err
+		}
+		sheets = []string{sheet}
+	}
+	for _, sheet := range sheets {
 		if err := ctx.Err(); err != nil {
 			return nil, err
 		}
@@ -97,7 +176,10 @@ func Inspect(ctx context.Context, path string, opts InspectOptions) (*Info, erro
 }
 
 func (w *file) inspectSheet(ctx context.Context, sheet string, sampleRows int, warn func(string)) (SheetInfo, error) {
-	si := SheetInfo{Name: sheet, Headers: []string{}, Types: map[string]string{}, Tables: []TableInfo{}}
+	si := SheetInfo{Name: sheet, Headers: []string{}, Types: map[string]string{}, Columns: []ColumnInfo{}, Tables: []TableInfo{}}
+	if visible, err := w.f.GetSheetVisible(sheet); err == nil {
+		si.Hidden = !visible
+	}
 	used, err := w.usedRange(sheet)
 	if err != nil {
 		return si, err
@@ -121,16 +203,30 @@ func (w *file) inspectSheet(ctx context.Context, sheet string, sampleRows int, w
 	si.HeaderRow = reg.R1
 	si.RowCount = max(reg.rows()-1, 0)
 
-	limit := max(typeSampleRows, sampleRows)
+	limit := max(DefaultMaxRows, sampleRows)
 	result, err := w.read(ctx, ReadOptions{Sheet: sheet, Range: reg.String(), MaxRows: limit, quietLimit: true})
 	if err != nil {
 		return si, err
 	}
-	for _, msg := range result.Warnings {
+	for i, msg := range result.Warnings {
+		if i == maxSheetWarnings {
+			warn(fmt.Sprintf("%s: %d more warnings", sheet, len(result.Warnings)-i))
+			break
+		}
 		warn(sheet + ": " + msg)
 	}
 	si.Headers = result.Headers
-	si.Types = detectTypes(result.Headers, result.Rows)
+	// A sample larger than the profile is read whole, but the profile
+	// still stops at DefaultMaxRows.
+	profiled, more := profileRows(result.Rows, result.Headers, DefaultMaxRows)
+	si.Types = detectTypes(result.Headers, profiled)
+	si.Columns = w.profileColumns(reg, result.Headers, si.Types, profiled)
+	si.ProfileTruncated = result.Truncated || more
+	for _, row := range profiled {
+		if r, _ := row[RowNumberKey].(int); !rowIsNull(row, result.Headers) && w.rowHidden(sheet, grid, r) {
+			si.HiddenRows++
+		}
+	}
 	if sampleRows > 0 {
 		si.Sample = result.Rows[:min(sampleRows, len(result.Rows))]
 	}

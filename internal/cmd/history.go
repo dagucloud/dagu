@@ -14,6 +14,7 @@ import (
 	"text/tabwriter"
 	"time"
 
+	"github.com/dagucloud/dagu/v2/internal/cmn/stringutil"
 	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/persis"
 	"github.com/spf13/cobra"
@@ -728,7 +729,7 @@ func formatParams(params string) string {
 	// Truncate if too long (max 40 chars for table readability)
 	maxLen := 40
 	if len(params) > maxLen {
-		return params[:maxLen-3] + "..."
+		return stringutil.TruncUTF8Bytes(params, maxLen-3) + "..."
 	}
 
 	return params

@@ -61,6 +61,13 @@ var (
 		usage:  "Recompute build steps instead of reusing prior materializations",
 		isBool: true,
 	}
+
+	dryFormatFlag = commandLineFlag{
+		name:         "format",
+		shorthand:    "f",
+		defaultValue: "text",
+		usage:        "Output format for dry-run checks: text (default) or json",
+	}
 )
 
 // Server and directory flags
@@ -291,6 +298,13 @@ var (
 		usage:        "Worker HTTP health check server port (default: 8092, 0 disables)",
 		bindViper:    true,
 		viperKey:     "worker.health_port",
+	}
+
+	workerShutdownTimeoutFlag = commandLineFlag{
+		name:      "worker.shutdown-timeout",
+		usage:     "How long a stopping worker drains running DAG runs before it cancels them (default: 60s, 0 waits without a bound)",
+		bindViper: true,
+		viperKey:  "worker.shutdown_timeout",
 	}
 
 	workerCoordinatorsFlag = commandLineFlag{

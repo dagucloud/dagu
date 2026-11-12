@@ -97,11 +97,28 @@ func createScriptTempFallback(workDir, pattern string, systemTempErr error) (*os
 	return file, nil
 }
 
+// utf8BOM is the UTF-8 byte order mark. Windows PowerShell decodes a script file
+// without one using the ANSI code page, which corrupts non-ASCII script text
+// before the UTF-8 preamble below can run.
+const utf8BOM = "\xEF\xBB\xBF"
+
 func hasShebang(script string) bool {
 	return strings.HasPrefix(script, "#!")
 }
 
+// powerShellPreambleStatements run before every PowerShell script and inline
+// command. The first statement imports the two core modules by name. Without
+// it, the first unknown cmdlet (the preamble's own New-Object, or Set-Content
+// in a user script) makes Windows PowerShell discover the module through
+// command auto-discovery, which analyzes every module on PSModulePath when the
+// module analysis cache is cold: each module is imported, or its assembly is
+// loaded in a throwaway AppDomain, before the script's first line runs. On a
+// fresh machine that takes tens of seconds; a short-lived process never saves
+// the cache, so it pays again every time. Importing by name skips discovery
+// and costs a few milliseconds in both Windows PowerShell and pwsh, where the
+// modules are already loaded.
 var powerShellPreambleStatements = []string{
+	cmdutil.PowerShellImportCoreModules,
 	"$ErrorActionPreference = 'Stop'",
 	"$utf8NoBom = New-Object -TypeName System.Text.UTF8Encoding -ArgumentList $false",
 	"[Console]::InputEncoding = $utf8NoBom",
@@ -136,13 +153,16 @@ func scriptLineOffset(scriptFile string) int {
 }
 
 // preprocessScript returns the script content adjusted for the shell indicated by ext.
-// For ".ps1" it prepends PowerShell directives that make cmdlet errors stop
-// execution and normalize UTF-8 console/pipeline encoding; for other extensions
-// it returns the original script.
+// For ".ps1" it prefixes a UTF-8 byte order mark so Windows PowerShell reads the
+// file as UTF-8 regardless of the console code page, then prepends PowerShell
+// directives that make cmdlet errors stop execution and normalize UTF-8
+// console/pipeline encoding; for other extensions it returns the original script.
 func preprocessScript(script, ext string) string {
 	switch ext {
 	case ".ps1":
-		return powerShellPreamble() + "\n" + script
+		// The BOM precedes the preamble so scriptLineOffset still counts only
+		// the prepended statements. pwsh accepts the BOM as well.
+		return utf8BOM + powerShellPreamble() + "\n" + script
 	default:
 		return script
 	}

@@ -1,12 +1,18 @@
 import { useState, useEffect } from 'react';
-import { useNavigate, useLocation, useSearchParams } from 'react-router-dom';
+import {
+  Navigate,
+  useNavigate,
+  useLocation,
+  useSearchParams,
+} from 'react-router-dom';
 import { useAuth } from '@/contexts/AuthContext';
 import { useConfig } from '@/contexts/ConfigContext';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import { LanguageSelector } from '@/components/LanguageSelector';
+import { AuthLayout } from '@/components/AuthLayout';
 import { setAuthSession } from '@/lib/authSession';
+import { requestedPath } from '@/lib/requestedPath';
 import {
   AlertCircle,
   LogIn,
@@ -35,7 +41,7 @@ export default function LoginPage() {
   const [isLoading, setIsLoading] = useState(false);
   const [welcomeMessage, setWelcomeMessage] = useState<string | null>(null);
 
-  const from = (location.state as { from?: Location })?.from?.pathname || '/';
+  const from = requestedPath(location.state);
 
   // Handle external authentication callbacks: token from the hash fragment,
   // error/welcome from query parameters.
@@ -99,109 +105,105 @@ export default function LoginPage() {
 
   const externalLoginEnabled = config.oidcEnabled || config.proxyEnabled;
 
+  // Only built-in authentication has a sign-in page.
+  if (config.authMode !== 'builtin') {
+    return <Navigate to="/" replace />;
+  }
+
   return (
-    <div className="min-h-screen flex items-center justify-center bg-muted/50">
-      <div className="w-full max-w-sm p-6 space-y-6">
-        <div className="text-center space-y-2">
-          <h1 className="text-2xl font-bold">{config.title || 'Dagu'}</h1>
-          <p className="text-sm text-muted-foreground">
-            {t('auth.signInToAccount')}
-          </p>
+    <AuthLayout subtitle={t('auth.signInToAccount')}>
+      {welcomeMessage && (
+        <div className="flex items-center gap-2 rounded-md bg-success-muted p-3 text-sm text-success">
+          <CheckCircle className="h-4 w-4 flex-shrink-0" />
+          <span>{welcomeMessage}</span>
+        </div>
+      )}
+
+      {error && (
+        <div className="flex items-center gap-2 p-3 text-sm text-destructive bg-destructive/10 rounded-md">
+          <AlertCircle className="h-4 w-4 flex-shrink-0" />
+          <span>{error}</span>
+        </div>
+      )}
+
+      <form onSubmit={handleSubmit} className="space-y-4">
+        <div className="space-y-1.5">
+          <Label htmlFor="username" className="text-sm">
+            {t('auth.username')}
+          </Label>
+          <Input
+            id="username"
+            type="text"
+            value={username}
+            onChange={(e) => setUsername(e.target.value)}
+            required
+            autoComplete="username"
+            autoFocus
+            className="h-9"
+          />
         </div>
 
-        <div className="space-y-4">
-          {welcomeMessage && (
-            <div className="flex items-center gap-2 p-3 text-sm text-green-700 dark:text-green-400 bg-green-100 dark:bg-green-900/30 rounded-md">
-              <CheckCircle className="h-4 w-4 flex-shrink-0" />
-              <span>{welcomeMessage}</span>
-            </div>
-          )}
+        <div className="space-y-1.5">
+          <Label htmlFor="password" className="text-sm">
+            {t('auth.password')}
+          </Label>
+          <Input
+            id="password"
+            type="password"
+            value={password}
+            onChange={(e) => setPassword(e.target.value)}
+            required
+            autoComplete="current-password"
+            className="h-9"
+          />
+        </div>
 
-          {error && (
-            <div className="flex items-center gap-2 p-3 text-sm text-destructive bg-destructive/10 rounded-md">
-              <AlertCircle className="h-4 w-4 flex-shrink-0" />
-              <span>{error}</span>
-            </div>
-          )}
+        <Button
+          type="submit"
+          variant="primary"
+          className="w-full h-9"
+          disabled={isLoading}
+        >
+          <LogIn className="h-4 w-4" />
+          {isLoading ? t('auth.signingIn') : t('auth.signIn')}
+        </Button>
+      </form>
 
-          <form onSubmit={handleSubmit} className="space-y-4">
-            <div className="space-y-1.5">
-              <Label htmlFor="username" className="text-sm">
-                {t('auth.username')}
-              </Label>
-              <Input
-                id="username"
-                type="text"
-                value={username}
-                onChange={(e) => setUsername(e.target.value)}
-                required
-                autoComplete="username"
-                autoFocus
-                className="h-9"
-              />
+      {externalLoginEnabled && (
+        <>
+          <div className="relative">
+            <div className="absolute inset-0 flex items-center">
+              <span className="w-full border-t" />
             </div>
-
-            <div className="space-y-1.5">
-              <Label htmlFor="password" className="text-sm">
-                {t('auth.password')}
-              </Label>
-              <Input
-                id="password"
-                type="password"
-                value={password}
-                onChange={(e) => setPassword(e.target.value)}
-                required
-                autoComplete="current-password"
-                className="h-9"
-              />
+            <div className="relative flex justify-center text-xs uppercase">
+              <span className="bg-card px-2 text-muted-foreground">
+                {t('auth.or')}
+              </span>
             </div>
+          </div>
 
-            <Button type="submit" className="w-full h-9" disabled={isLoading}>
-              <LogIn className="h-4 w-4" />
-              {isLoading ? t('auth.signingIn') : t('auth.signIn')}
+          {config.oidcEnabled && (
+            <Button
+              type="button"
+              variant="outline"
+              className="w-full h-9"
+              onClick={handleOIDCLogin}
+            >
+              <KeyRound className="h-4 w-4" />
+              {config.oidcButtonLabel || t('auth.loginWithSso')}
             </Button>
-          </form>
-
-          {externalLoginEnabled && (
-            <>
-              <div className="relative">
-                <div className="absolute inset-0 flex items-center">
-                  <span className="w-full border-t" />
-                </div>
-                <div className="relative flex justify-center text-xs uppercase">
-                  <span className="bg-background px-2 text-muted-foreground">
-                    {t('auth.or')}
-                  </span>
-                </div>
-              </div>
-
-              {config.oidcEnabled && (
-                <Button
-                  type="button"
-                  variant="outline"
-                  className="w-full h-9"
-                  onClick={handleOIDCLogin}
-                >
-                  <KeyRound className="h-4 w-4" />
-                  {config.oidcButtonLabel || t('auth.loginWithSso')}
-                </Button>
-              )}
-
-              {config.proxyEnabled && (
-                <Button asChild variant="outline" className="w-full h-9">
-                  <a href={`${config.basePath}/proxy-login`}>
-                    <ShieldCheck className="h-4 w-4" />
-                    {config.proxyButtonLabel || t('auth.continueWithSso')}
-                  </a>
-                </Button>
-              )}
-            </>
           )}
-        </div>
-        <div className="flex justify-center">
-          <LanguageSelector />
-        </div>
-      </div>
-    </div>
+
+          {config.proxyEnabled && (
+            <Button asChild variant="outline" className="w-full h-9">
+              <a href={`${config.basePath}/proxy-login`}>
+                <ShieldCheck className="h-4 w-4" />
+                {config.proxyButtonLabel || t('auth.continueWithSso')}
+              </a>
+            </Button>
+          )}
+        </>
+      )}
+    </AuthLayout>
   );
 }

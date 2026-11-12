@@ -372,6 +372,29 @@ func TestRuntime(t *testing.T) {
 		dagu.ExpectFileContent("direct-process-env.txt", "from-process\n")
 	})
 
+	t.Run("Dagu credential settings never reach a step", func(t *testing.T) {
+		t.Parallel()
+
+		dagu := harness.NewRunner(t)
+		buildArgWriter(t, dagu)
+		buildEnvWriter(t, dagu)
+		result := dagu.RunWithEnv(
+			[]string{
+				// The built-in secret store's key, in the form Dagu generates.
+				"DAGU_ENCRYPTION_KEY=AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=",
+				"DAGU_SECRETS_VAULT_TOKEN=conformance-vault-token",
+				"DAGU_CONFORMANCE_SETTING=visible",
+			},
+			"start",
+			"dagu_credentials_hidden.yaml",
+		)
+		result.ExpectExitCode(0)
+		dagu.ExpectFileContent("dagu-credentials-env.txt",
+			"DAGU_ENCRYPTION_KEY unset\nDAGU_SECRETS_VAULT_TOKEN unset\nDAGU_CONFORMANCE_SETTING=visible\nFROM_ROOT_ENV=${DAGU_SECRETS_VAULT_TOKEN}\nFROM_ENV_REF=${env.DAGU_ENCRYPTION_KEY}\n")
+		dagu.ExpectFileContent("dagu-credentials-expansion.txt",
+			"$DAGU_ENCRYPTION_KEY|${DAGU_SECRETS_VAULT_TOKEN}|visible\n")
+	})
+
 	t.Run("action inputs do not use inherited process env fallback", func(t *testing.T) {
 		t.Parallel()
 
@@ -459,12 +482,24 @@ func TestSubDAGPassedEnv(t *testing.T) {
 // environment resolution independently of a cold Go build cache.
 func buildArgWriter(t *testing.T, dagu *harness.Runner) {
 	t.Helper()
+	buildTestTool(t, dagu, "write_arg")
+}
 
-	name := "write_arg"
+// buildEnvWriter builds write_env, which reports variables from its own
+// process environment.
+func buildEnvWriter(t *testing.T, dagu *harness.Runner) {
+	t.Helper()
+	buildTestTool(t, dagu, "write_env")
+}
+
+func buildTestTool(t *testing.T, dagu *harness.Runner, name string) {
+	t.Helper()
+
+	binary := name
 	if runtime.GOOS == "windows" {
-		name += ".exe"
+		binary += ".exe"
 	}
-	cmd := exec.CommandContext(t.Context(), "go", "build", "-o", dagu.ProjectPath(name), "testdata/write_arg.go")
+	cmd := exec.CommandContext(t.Context(), "go", "build", "-o", dagu.ProjectPath(binary), "testdata/"+name+".go")
 	output, err := cmd.CombinedOutput()
 	require.NoError(t, err, "%s", output)
 }

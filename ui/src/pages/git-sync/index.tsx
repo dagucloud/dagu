@@ -72,6 +72,11 @@ import {
   type SyncKind,
 } from './sync-kind';
 import { useSyncReconcile } from './useSyncReconcile';
+import {
+  EmptyState,
+  LoadErrorState,
+  PageLoading,
+} from '@/components/PageStates';
 
 type SyncStatusResponse = components['schemas']['SyncStatusResponse'];
 type SyncConfigResponse = components['schemas']['SyncConfigResponse'];
@@ -211,7 +216,11 @@ export default function GitSyncPage() {
   const remoteNode = appBarContext.selectedRemoteNode || 'local';
 
   // Fetch sync status
-  const { data: statusData, mutate: mutateStatus } = useQuery(
+  const {
+    data: statusData,
+    error: statusError,
+    mutate: mutateStatus,
+  } = useQuery(
     '/sync/status',
     {
       params: {
@@ -340,7 +349,10 @@ export default function GitSyncPage() {
         showError(response.error.message || 'Pull failed');
       } else {
         showToast(
-          `Pulled ${response.data?.synced?.length || 0} items; removed ${response.data?.deleted?.length || 0}`
+          ts('Pulled {synced}, removed {deleted}', {
+            synced: response.data?.synced?.length || 0,
+            deleted: response.data?.deleted?.length || 0,
+          })
         );
         mutateStatus();
       }
@@ -373,10 +385,17 @@ export default function GitSyncPage() {
       if (response.error) {
         showError(response.error.message || 'Publish failed');
       } else {
-        const count = itemId
-          ? itemId
-          : `${response.data?.synced?.length || 0} items`;
-        showToast(`Published ${count}`);
+        const syncedCount = response.data?.synced?.length || 0;
+        showToast(
+          itemId
+            ? ts('Published {item}', { item: itemId })
+            : ts(
+                syncedCount === 1
+                  ? 'Published {count} item'
+                  : 'Published {count} items',
+                { count: syncedCount }
+              )
+        );
         setPublishModal({ open: false });
         setDiffModal({ open: false });
         setCommitMessage('');
@@ -416,7 +435,7 @@ export default function GitSyncPage() {
       if (response.error) {
         showError(response.error.message || 'Connection test failed');
       } else if (response.data?.success) {
-        showToast('Connection successful');
+        showToast('Connection successful', { variant: 'info' });
       } else {
         showError(response.data?.error || 'Connection test failed');
       }
@@ -628,31 +647,42 @@ export default function GitSyncPage() {
 
   const missingCount = status?.counts?.missing || 0;
 
+  if (!status) {
+    return statusError ? (
+      <LoadErrorState
+        title={ts("Couldn't load Git sync status")}
+        error={statusError}
+        onRetry={() => void mutateStatus()}
+      />
+    ) : (
+      <PageLoading />
+    );
+  }
+
   // Not configured state
-  if (!status?.enabled) {
+  if (!status.enabled) {
     return (
-      <div className="flex flex-col items-center justify-center h-[60vh] text-center">
-        <GitBranch className="h-16 w-16 text-muted-foreground/30 mb-4" />
-        <h2 className="text-xl font-semibold mb-2">
-          <I18nText text={'Git Sync Not Configured'} />
-        </h2>
-        <p className="text-muted-foreground max-w-md">
+      <EmptyState
+        headingLevel={1}
+        icon={<GitBranch />}
+        title={<I18nText text={'Git sync is not configured'} />}
+        description={
           <I18nText
             text={
               'Git sync allows you to synchronize workflow definitions and Wiki pages with a remote Git repository. Configure it in your server settings.'
             }
           />
-        </p>
-      </div>
+        }
+      />
     );
   }
 
   return (
-    <div className="flex flex-col gap-4 max-w-7xl pb-8">
+    <div className="flex flex-col gap-4 pb-8">
       {/* Compact Header */}
       <div className="flex items-center justify-between py-2">
         <div className="flex items-center gap-4">
-          <h1 className="text-lg font-semibold">
+          <h1 className="text-2xl font-semibold tracking-[-0.01em]">
             <I18nText text={'Git Sync'} />
           </h1>
           <span className="text-xs text-muted-foreground font-mono">
@@ -749,7 +779,7 @@ export default function GitSyncPage() {
                 title="Delete all missing items from remote repository"
               >
                 <Trash2 className="h-4 w-4 mr-1" />
-                <I18nText text={'Delete Missing'} />
+                <I18nText text={'Delete missing'} />
               </Button>
             </I18nProps>
           )}
@@ -886,7 +916,11 @@ export default function GitSyncPage() {
               <TableHead className="w-28">
                 <I18nText text={'Synced'} />
               </TableHead>
-              <TableHead className="w-28"></TableHead>
+              <TableHead className="w-28">
+                <span className="sr-only">
+                  <I18nText text={'Actions'} />
+                </span>
+              </TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
@@ -1096,7 +1130,7 @@ export default function GitSyncPage() {
                 className="w-full mt-2"
                 onClick={handleTestConnection}
               >
-                <I18nText text={'Test Connection'} />
+                <I18nText text={'Test connection'} />
               </Button>
             )}
           </div>

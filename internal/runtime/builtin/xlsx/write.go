@@ -203,7 +203,11 @@ func (e *writeExecutor) run(ctx context.Context) (outcome, error) {
 		if err != nil {
 			return outcome{}, err
 		}
-		opts := e.cfg.writeOptions(e.lockLog(ctx))
+		output, err := e.outputPath()
+		if err != nil {
+			return outcome{}, err
+		}
+		opts := e.cfg.writeOptions(output, e.lockLog(ctx))
 		var result *workbook.WriteResult
 		if e.op == opAppend {
 			result, err = workbook.Append(ctx, e.path, table, opts)
@@ -223,7 +227,11 @@ func (e *writeExecutor) run(ctx context.Context) (outcome, error) {
 		if err != nil {
 			return outcome{}, fmt.Errorf("%w: %v", errConfig, err)
 		}
-		result, err := workbook.UpdateRows(ctx, e.path, e.cfg.updateOptions(rows, e.lockLog(ctx)))
+		output, err := e.outputPath()
+		if err != nil {
+			return outcome{}, err
+		}
+		result, err := workbook.UpdateRows(ctx, e.path, e.cfg.updateOptions(rows, output, e.lockLog(ctx)))
 		if err != nil {
 			return outcome{}, err
 		}

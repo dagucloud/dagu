@@ -1,7 +1,9 @@
 // Copyright (C) 2026 Yota Hamada
 // SPDX-License-Identifier: GPL-3.0-or-later
 
+import { ChevronDown, ChevronUp, Maximize2, X } from 'lucide-react';
 import React from 'react';
+import { createPortal } from 'react-dom';
 import {
   BrowserRouter,
   Navigate,
@@ -13,12 +15,19 @@ import { SWRConfig, mutate as globalMutate } from 'swr';
 
 import { LicenseFeaturePrompt } from '@/components/LicenseFeaturePrompt';
 import { hasActiveLicense, type LicensedFeature } from '@/lib/license';
+import { preloadedLazy } from '@/lib/preloadedLazy';
 
 import { ProtectedRoute } from './components/ProtectedRoute';
 import { QueryFeedback } from './components/QueryFeedback';
 import { ErrorModalProvider } from '@/components/ui/error-modal';
 import { ToastProvider } from '@/components/ui/simple-toast';
+import { WorkspaceLoading } from '@/features/workflow-workspace/WorkspaceLoading';
+import { useDAGDetailsQuery } from '@/features/dags/hooks/useDAGDetailsQuery';
+import { useDAGSpecQuery } from '@/features/dags/components/dag-editor/useDAGSpecQuery';
+import { useRemoteNode } from '@/contexts/RemoteNodeContext';
+import { PREFETCH_OPTIONS } from '@/hooks/queryUtils';
 import RunProgressStack from '@/features/dags/components/dag-execution/RunProgressStack';
+import LegacyRunRedirect from './pages/dag-runs/LegacyRunRedirect';
 import { AppBarContext } from './contexts/AppBarContext';
 import { AuthProvider, useCanAccessGitSync } from './contexts/AuthContext';
 import { Config, ConfigContext } from './contexts/ConfigContext';
@@ -27,7 +36,7 @@ import { SchemaProvider } from './contexts/SchemaContext';
 import { SearchStateProvider } from './contexts/SearchStateContext';
 import {
   UserPreferencesProvider,
-  useUserPreferences,
+  useResolvedTheme,
 } from './contexts/UserPreference';
 import Layout from './layouts/Layout';
 import fetchJson from './lib/fetchJson';
@@ -49,7 +58,23 @@ import LoginPage from './pages/login';
 import SetupPage from './pages/setup';
 import LoadingIndicator from '@/components/ui/loading-indicator';
 import { I18nProvider, useI18n } from '@/i18n/I18nProvider';
-import { translateStatic } from '@/i18n/staticMessages';
+import { IconButton } from '@/components/ui/icon-button';
+import { LayoutChromeContext } from '@/contexts/LayoutChromeContext';
+import {
+  OverlayResizeHandle,
+  useOverlayWidth,
+} from '@/features/peek/OverlayResizeHandle';
+import { useOpenPage } from '@/features/dag-runs/lib/useOpenPage';
+import { overlayStepOfKey } from '@/features/peek/overlayKeys';
+import { peekPageURL, type PeekTarget } from '@/features/peek/peekParams';
+import {
+  useWorkflowOverlay,
+  WorkflowOverlayProvider,
+} from '@/features/peek/WorkflowOverlay';
+import { escFree } from '@/features/workflow-workspace/canvas/escFree';
+import { useOverlayExit } from '@/features/peek/useOverlayExit';
+import { cn } from '@/lib/utils';
+import { translateStatic } from '@/i18n/translateStatic';
 import { I18nText } from '@/i18n/I18nText';
 
 const AdministrationPage = React.lazy(() => import('./pages/administration'));
@@ -58,10 +83,15 @@ const APIDocsPage = React.lazy(() => import('./pages/api-docs'));
 const ArtifactsPage = React.lazy(() => import('./pages/artifacts'));
 const AuditLogsPage = React.lazy(() => import('./pages/audit-logs'));
 const BaseConfigPage = React.lazy(() => import('./pages/base-config'));
+const CalendarsPage = React.lazy(() => import('./pages/calendars'));
+const CalendarPage = React.lazy(() => import('./pages/calendars/calendar'));
 const DAGRuns = React.lazy(() => import('./pages/dag-runs'));
-const DAGRunDetails = React.lazy(() => import('./pages/dag-runs/dag-run'));
 const DAGs = React.lazy(() => import('./pages/dags'));
-const DAGDetails = React.lazy(() => import('./pages/dags/dag'));
+// The workflow page opens from most pages: its code preloads while the
+// browser is idle (see preloadWhenIdle), and once loaded it renders at once.
+const workflowPage = preloadedLazy(() => import('./pages/dags/dag'));
+const loadWorkflowPage = workflowPage.preload;
+const DAGDetails = workflowPage.Component;
 const WikiPage = React.lazy(() => import('./pages/wiki'));
 const EventLogsPage = React.lazy(() => import('./pages/event-logs'));
 const GitSyncPage = React.lazy(() => import('./pages/git-sync'));
@@ -74,7 +104,7 @@ const IncidentProvidersPage = React.lazy(
 );
 const IncidentsPage = React.lazy(() => import('./pages/incidents'));
 const IntegrationsPage = React.lazy(() => import('./pages/integrations'));
-const LicensePage = React.lazy(() => import('./pages/license'));
+const NotFoundPage = React.lazy(() => import('./pages/not-found'));
 const NotificationChannelsPage = React.lazy(
   () => import('./pages/notification-channels')
 );
@@ -88,9 +118,9 @@ const ProfilesPage = React.lazy(() => import('./pages/profiles'));
 const Queues = React.lazy(() => import('./pages/queues'));
 const QueueDetailsPage = React.lazy(() => import('./pages/queues/queue'));
 const Search = React.lazy(() => import('./pages/search'));
+const SettingsPage = React.lazy(() => import('./pages/settings'));
 const SystemStatus = React.lazy(() => import('./pages/system-status'));
 const TerminalPage = React.lazy(() => import('./pages/terminal'));
-const RemoteNodesPage = React.lazy(() => import('./pages/remote-nodes'));
 const UsersPage = React.lazy(() => import('./pages/users'));
 const WebhooksPage = React.lazy(() => import('./pages/webhooks'));
 
@@ -105,6 +135,7 @@ const STATIC_PAGE_TITLES = new Set([
   'Artifacts',
   'Audit Logs',
   'Base Config',
+  'Calendars',
   'Cockpit',
   'Events',
   'Executions',
@@ -118,7 +149,7 @@ const STATIC_PAGE_TITLES = new Set([
   'Notifications',
   'Profiles & Secrets',
   'Queue',
-  'Queue Dashboard',
+  'Queues',
   'Remote Nodes',
   'Search',
   'System Status',
@@ -141,6 +172,16 @@ function LegacyWikiRouteRedirect() {
   return (
     <Navigate to={`/wiki${suffix}${location.search}${location.hash}`} replace />
   );
+}
+
+/**
+ * Sends a page that became a section of Settings there, keeping the query
+ * and, unless the section is named, the hash.
+ */
+function SettingsRedirect({ section }: { section?: string }) {
+  const location = useLocation();
+  const hash = section ? `#${section}` : location.hash;
+  return <Navigate to={`/settings${location.search}${hash}`} replace />;
 }
 
 function isWorkspaceSensitiveTargetPath(path: unknown): boolean {
@@ -242,7 +283,7 @@ function LicensedRoute({
 }): React.ReactElement {
   const hasFeature = useHasFeature(feature);
   if (hasFeature) return children;
-  return <LicenseFeaturePrompt feature={feature} />;
+  return <LicenseFeaturePrompt feature={feature} headingLevel={1} />;
 }
 
 function ActiveLicenseDeveloperElement({
@@ -254,7 +295,11 @@ function ActiveLicenseDeveloperElement({
   const licensed = hasActiveLicense(license);
   return (
     <DeveloperElement>
-      {licensed ? children : <LicenseFeaturePrompt feature="incidents" />}
+      {licensed ? (
+        children
+      ) : (
+        <LicenseFeaturePrompt feature="incidents" headingLevel={1} />
+      )}
     </DeveloperElement>
   );
 }
@@ -296,7 +341,7 @@ class LazyRouteErrorBoundary extends React.Component<
           </p>
           <button
             type="button"
-            className="rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground"
+            className="rounded-md bg-primary-fill px-4 py-2 text-sm font-medium text-primary-foreground"
             onClick={() => window.location.reload()}
           >
             <I18nText text={'Reload'} />
@@ -309,17 +354,297 @@ class LazyRouteErrorBoundary extends React.Component<
   }
 }
 
+/**
+ * The fallback while a page chunk loads. A workflow page gets its own loading
+ * frame, so that the bar is in place from the first paint.
+ */
+function RouteFallback(): React.ReactElement {
+  const { pathname } = useLocation();
+  const workflow = /^\/dags\/([^/]+)/.exec(pathname);
+  if (workflow) {
+    let name = workflow[1]!;
+    try {
+      name = decodeURIComponent(name);
+    } catch {
+      // A name that is not valid text stays as it is.
+    }
+    return <WorkspaceLoading fileName={name} />;
+  }
+  return <LoadingIndicator />;
+}
+
+// How long the preload waits for an idle moment before it runs anyway.
+const IDLE_PRELOAD_TIMEOUT_MS = 5000;
+
+/**
+ * Loads the code of the workflow page, its canvas included, once the browser
+ * is idle, so that opening a workflow does not wait for it. Returns a cancel
+ * function.
+ */
+function preloadWhenIdle(): () => void {
+  const preload = () => {
+    void loadWorkflowPage().catch(() => {
+      // A failed preload is retried by the page when it opens.
+    });
+  };
+  if (typeof window.requestIdleCallback === 'function') {
+    const id = window.requestIdleCallback(preload, {
+      timeout: IDLE_PRELOAD_TIMEOUT_MS,
+    });
+    return () => window.cancelIdleCallback(id);
+  }
+  const id = window.setTimeout(preload, IDLE_PRELOAD_TIMEOUT_MS);
+  return () => window.clearTimeout(id);
+}
+
 function LazyRoutes({
   children,
 }: {
   children: React.ReactNode;
 }): React.ReactElement {
+  // While a workflow page shows over the page, the page keeps its location
+  // and takes no input. The routes always get a location: with one, they
+  // render under a provider of their own, and a switch between none and one
+  // would mount the page again and lose its state.
+  const overlay = useWorkflowOverlay();
+  const location = useLocation();
+  const shown = overlay?.background ?? location;
+  // The page below renders again only for its own location: a change of the
+  // overlay over it would render the whole page for nothing.
+  const routes = React.useMemo(
+    () => <Routes location={shown}>{children}</Routes>,
+    [shown, children]
+  );
   return (
     <LazyRouteErrorBoundary>
-      <React.Suspense fallback={<LoadingIndicator />}>
-        <Routes>{children}</Routes>
+      <React.Suspense fallback={<RouteFallback />}>
+        <div className="contents" inert={overlay?.isOpen || undefined}>
+          {routes}
+        </div>
       </React.Suspense>
     </LazyRouteErrorBoundary>
+  );
+}
+
+/**
+ * Asks for the details and the spec of the workflow of a row, with the keys
+ * that the workflow page reads, so that the page mounts on their answers.
+ */
+function usePrefetchWorkflow(target: PeekTarget | null): void {
+  const remoteNode = useRemoteNode();
+  const fileName = target?.dag ?? '';
+  const enabled = fileName !== '';
+  useDAGDetailsQuery(fileName, remoteNode, PREFETCH_OPTIONS, enabled);
+  useDAGSpecQuery(fileName, remoteNode, PREFETCH_OPTIONS, enabled);
+}
+
+/**
+ * A row that a step of the overlay can show: its workflow is read ahead,
+ * so that the step shows it at once instead of the loading frame.
+ */
+function PrefetchWorkflow({ target }: { target: PeekTarget }): null {
+  usePrefetchWorkflow(target);
+  return null;
+}
+
+/**
+ * The overlay from the click until the URL names the workflow. It reads
+ * the workflow meanwhile.
+ */
+function OverlayLoading({
+  target,
+}: {
+  target: PeekTarget | null;
+}): React.ReactElement {
+  const remoteNode = useRemoteNode();
+  const fileName = target?.dag ?? '';
+  usePrefetchWorkflow(target);
+  // The frame of the page that the URL is about to name.
+  return (
+    <WorkspaceLoading
+      fileName={fileName}
+      url={target ? peekPageURL(target, remoteNode) : undefined}
+    />
+  );
+}
+
+/** Keeps the title of the tab as the page below set it. */
+function keepTitle(): void {
+  return;
+}
+
+/**
+ * The workflow page over the page that opened it, as a sheet from the
+ * right. The backdrop, the close button and an Esc that the workflow page
+ * leaves go back to the page below; the expand button keeps the workflow
+ * page as the page.
+ */
+function WorkflowOverlayHost(): React.ReactElement | null {
+  const overlay = useWorkflowOverlay();
+  const { ts } = useI18n();
+  // The page below keeps the title of the tab: a title from the workflow
+  // page made that page set its own again, and both rendered each time.
+  const appBar = React.useContext(AppBarContext);
+  const overlayAppBar = React.useMemo(
+    () => ({ ...appBar, setTitle: keepTitle }),
+    [appBar]
+  );
+  const location = useLocation();
+  const openPage = useOpenPage();
+  const panelRef = React.useRef<HTMLElement>(null);
+  const overlayWidth = useOverlayWidth();
+  const isOpen = overlay?.isOpen ?? false;
+  // The workflow page and the page below, as they were while open: the
+  // panel shows that page while it slides out, and slides out only for a
+  // return to the page below.
+  const below = overlay?.background ?? null;
+  const [shown, setShown] = React.useState<{
+    panel: typeof location;
+    below: typeof location;
+  } | null>(null);
+  if (isOpen && below && (shown?.panel !== location || shown.below !== below)) {
+    setShown({ panel: location, below });
+  }
+  const closing = useOverlayExit(
+    isOpen,
+    shown !== null &&
+      location.pathname === shown.below.pathname &&
+      location.search === shown.below.search
+  );
+  const close = overlay?.close;
+  const step = overlay?.step;
+  React.useEffect(() => {
+    if (!isOpen || !close || !step) return;
+    // The window hears a key after the handlers of the workflow page. Up and
+    // Down step through the rows of the page below, as the list does.
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (escFree(event)) {
+        close();
+        return;
+      }
+      const delta = overlayStepOfKey(event);
+      if (delta === null) return;
+      event.preventDefault();
+      step(delta);
+    };
+    window.addEventListener('keydown', onKeyDown);
+    return () => window.removeEventListener('keydown', onKeyDown);
+  }, [isOpen, close, step]);
+  if (!overlay || !shown || (!isOpen && !closing)) return null;
+  // The panel slides in from the right and back out, over a light dim of the
+  // page below. A closing panel takes no input and leaves the a11y tree.
+  return createPortal(
+    <div
+      className={cn('fixed inset-0 z-40', closing && 'pointer-events-none')}
+      aria-hidden={closing || undefined}
+      inert={closing || undefined}
+    >
+      <div
+        aria-hidden="true"
+        className={cn(
+          'absolute inset-0 bg-black/20 transition-opacity duration-200 ease-out starting:opacity-0 motion-reduce:transition-none',
+          closing && 'opacity-0'
+        )}
+        onClick={overlay.close}
+      />
+      {/* A panel inset from the window, so that the dimmed page below shows
+          around it: a layer over the page, not a new page. */}
+      <section
+        role="dialog"
+        aria-modal="true"
+        aria-label={ts('Workflow')}
+        ref={panelRef}
+        // The width that the user set applies from md: a narrow window shows
+        // the panel at full width.
+        style={
+          overlayWidth.width === null
+            ? undefined
+            : ({
+                '--overlay-width': `${overlayWidth.width}px`,
+              } as React.CSSProperties)
+        }
+        className={cn(
+          'absolute inset-0 flex min-w-0 flex-col bg-background shadow-lg transition-[translate,opacity] duration-200 ease-out starting:translate-x-full starting:opacity-0 motion-reduce:transition-none md:inset-y-3 md:left-auto md:right-3 md:w-[var(--overlay-width,min(76rem,calc(100vw-18rem)))] md:max-w-[calc(100vw-6rem)] md:rounded-xl md:border md:border-border',
+          closing && 'translate-x-full opacity-0'
+        )}
+      >
+        <OverlayResizeHandle
+          width={() => panelRef.current?.getBoundingClientRect().width ?? 0}
+          onResize={overlayWidth.set}
+          onReset={overlayWidth.reset}
+        />
+        <div className="flex h-8 shrink-0 items-center justify-end gap-1 border-b border-border px-2">
+          <IconButton
+            icon={ChevronUp}
+            size="sm"
+            label={ts('Previous')}
+            shortcut="↑"
+            disabled={!overlay.canStep(-1)}
+            onClick={() => overlay.step(-1)}
+          />
+          <IconButton
+            icon={ChevronDown}
+            size="sm"
+            label={ts('Next')}
+            shortcut="↓"
+            disabled={!overlay.canStep(1)}
+            onClick={() => overlay.step(1)}
+          />
+          <span className="mx-0.5 h-4 w-px bg-border" aria-hidden="true" />
+          <IconButton
+            icon={Maximize2}
+            size="sm"
+            label={ts('Open workflow')}
+            description={ts('Cmd/Ctrl+Click for new tab')}
+            onClick={(event) => {
+              // The URL is the workflow page: a new tab opens it alone.
+              if (event.metaKey || event.ctrlKey) {
+                openPage(`${location.pathname}${location.search}`, event);
+                return;
+              }
+              overlay.expand();
+            }}
+          />
+          <IconButton
+            icon={X}
+            size="sm"
+            label={ts('Close')}
+            onClick={overlay.close}
+          />
+        </div>
+        {isOpen &&
+          overlay.neighbours.map((row) => (
+            <PrefetchWorkflow
+              key={`${row.dag}\u0000${row.run ?? ''}`}
+              target={row}
+            />
+          ))}
+        <div className="relative flex min-h-0 flex-1 flex-col overflow-hidden md:rounded-b-xl">
+          {/* The frame and the title of the page below stay as they are. */}
+          <AppBarContext.Provider value={overlayAppBar}>
+            <LayoutChromeContext.Provider value={null}>
+              <LazyRouteErrorBoundary>
+                <React.Suspense fallback={<RouteFallback />}>
+                  <Routes location={isOpen ? location : shown.panel}>
+                    <Route
+                      path="/dags/:fileName/:tab"
+                      element={<DAGDetails />}
+                    />
+                    <Route path="/dags/:fileName/" element={<DAGDetails />} />
+                    {/* From the click until the URL names the workflow. */}
+                    <Route
+                      path="*"
+                      element={<OverlayLoading target={overlay.target} />}
+                    />
+                  </Routes>
+                </React.Suspense>
+              </LazyRouteErrorBoundary>
+            </LayoutChromeContext.Provider>
+          </AppBarContext.Provider>
+        </div>
+      </section>
+    </div>,
+    document.body
   );
 }
 
@@ -333,8 +658,7 @@ function AppInner({ config: initialConfig }: Props): React.ReactElement {
   }, []);
 
   const [title, setTitle] = React.useState<string>('');
-  const { preferences } = useUserPreferences();
-  const theme = preferences.theme || 'dark';
+  const theme = useResolvedTheme();
 
   const [remoteNodes, setRemoteNodes] = React.useState<string[]>(() =>
     parseRemoteNodes(config.remoteNodes)
@@ -579,7 +903,13 @@ function AppInner({ config: initialConfig }: Props): React.ReactElement {
   ]);
 
   React.useEffect(() => {
+    if (!canFetchAuthenticatedResources) return;
+    return preloadWhenIdle();
+  }, [canFetchAuthenticatedResources]);
+
+  React.useEffect(() => {
     document.documentElement.classList.toggle('dark', theme === 'dark');
+    document.documentElement.style.colorScheme = theme;
     document.documentElement.style.backgroundColor = 'var(--background)';
   }, [theme]);
 
@@ -637,248 +967,268 @@ function AppInner({ config: initialConfig }: Props): React.ReactElement {
                               path="/*"
                               element={
                                 <ProtectedRoute>
-                                  <Layout navbarColor={config.navbarColor}>
-                                    <LazyRoutes>
-                                      <Route
-                                        path="/"
-                                        element={<OverviewPage />}
-                                      />
-                                      <Route
-                                        path="/dashboard"
-                                        element={
-                                          <OverviewPage initialTab="timeline" />
-                                        }
-                                      />
-                                      <Route
-                                        path="/cockpit"
-                                        element={
-                                          <OverviewPage initialTab="cockpit" />
-                                        }
-                                      />
-                                      <Route
-                                        path="/views/:viewId"
-                                        element={<ViewPage />}
-                                      />
-                                      <Route
-                                        path="/home"
-                                        element={<HomePage />}
-                                      />
-                                      <Route
-                                        path="/api-docs"
-                                        element={<APIDocsPage />}
-                                      />
-                                      <Route
-                                        path="/integrations"
-                                        element={<IntegrationsPage />}
-                                      />
-                                      <Route
-                                        path="/notifications"
-                                        element={
-                                          <DeveloperElement>
-                                            <NotificationsPage />
-                                          </DeveloperElement>
-                                        }
-                                      />
-                                      <Route
-                                        path="/notification-rules"
-                                        element={
-                                          <DeveloperElement>
-                                            <NotificationRulesPage />
-                                          </DeveloperElement>
-                                        }
-                                      />
-                                      <Route
-                                        path="/notification-channels"
-                                        element={
-                                          <DeveloperElement>
-                                            <NotificationChannelsPage />
-                                          </DeveloperElement>
-                                        }
-                                      />
-                                      <Route
-                                        path="/incidents"
-                                        element={
-                                          <ActiveLicenseDeveloperElement>
-                                            <IncidentsPage />
-                                          </ActiveLicenseDeveloperElement>
-                                        }
-                                      />
-                                      <Route
-                                        path="/incident-providers"
-                                        element={
-                                          <ActiveLicenseDeveloperElement>
-                                            <IncidentProvidersPage />
-                                          </ActiveLicenseDeveloperElement>
-                                        }
-                                      />
-                                      <Route
-                                        path="/incident-policies"
-                                        element={
-                                          <ActiveLicenseDeveloperElement>
-                                            <IncidentPoliciesPage />
-                                          </ActiveLicenseDeveloperElement>
-                                        }
-                                      />
-                                      <Route path="/dags/" element={<DAGs />} />
-                                      <Route
-                                        path="/dags/:fileName/:tab"
-                                        element={<DAGDetails />}
-                                      />
-                                      <Route
-                                        path="/dags/:fileName/"
-                                        element={<DAGDetails />}
-                                      />
-                                      <Route
-                                        path="/search/"
-                                        element={<Search />}
-                                      />
-                                      <Route
-                                        path="/wiki/*"
-                                        element={<WikiPage />}
-                                      />
-                                      <Route
-                                        path="/docs/*"
-                                        element={<LegacyWikiRouteRedirect />}
-                                      />
-                                      <Route
-                                        path="/queues"
-                                        element={<Queues />}
-                                      />
-                                      <Route
-                                        path="/queues/:name"
-                                        element={<QueueDetailsPage />}
-                                      />
-                                      <Route
-                                        path="/dag-runs"
-                                        element={<DAGRuns />}
-                                      />
-                                      <Route
-                                        path="/artifacts"
-                                        element={<ArtifactsPage />}
-                                      />
-                                      <Route
-                                        path="/dag-runs/:name/:dagRunId"
-                                        element={<DAGRunDetails />}
-                                      />
-                                      <Route
-                                        path="/system-status"
-                                        element={
-                                          <DeveloperElement>
-                                            <SystemStatus />
-                                          </DeveloperElement>
-                                        }
-                                      />
-                                      <Route
-                                        path="/base-config"
-                                        element={
-                                          <DeveloperElement>
-                                            <BaseConfigPage />
-                                          </DeveloperElement>
-                                        }
-                                      />
-                                      <Route
-                                        path="/users"
-                                        element={
-                                          <AdminElement>
-                                            <UsersPage />
-                                          </AdminElement>
-                                        }
-                                      />
-                                      <Route
-                                        path="/administration"
-                                        element={
-                                          <AdminElement>
-                                            <AdministrationPage />
-                                          </AdminElement>
-                                        }
-                                      />
-                                      <Route
-                                        path="/remote-nodes"
-                                        element={
-                                          <AdminElement>
-                                            <RemoteNodesPage />
-                                          </AdminElement>
-                                        }
-                                      />
-                                      <Route
-                                        path="/api-keys"
-                                        element={
-                                          <AdminElement>
-                                            <APIKeysPage />
-                                          </AdminElement>
-                                        }
-                                      />
-                                      <Route
-                                        path="/webhooks"
-                                        element={
-                                          <DeveloperElement>
-                                            <WebhooksPage />
-                                          </DeveloperElement>
-                                        }
-                                      />
-                                      <Route
-                                        path="/secrets"
-                                        element={
-                                          <Navigate
-                                            to="/profiles#secret-refs"
-                                            replace
-                                          />
-                                        }
-                                      />
-                                      <Route
-                                        path="/profiles"
-                                        element={
-                                          <ManagerElement>
-                                            <ProfilesPage />
-                                          </ManagerElement>
-                                        }
-                                      />
-                                      <Route
-                                        path="/terminal"
-                                        element={
-                                          <AdminElement>
-                                            <TerminalPage />
-                                          </AdminElement>
-                                        }
-                                      />
-                                      <Route
-                                        path="/event-logs"
-                                        element={
-                                          <ManagerElement>
-                                            <EventLogsPage />
-                                          </ManagerElement>
-                                        }
-                                      />
-                                      <Route
-                                        path="/audit-logs"
-                                        element={
-                                          <ManagerElement>
-                                            <LicensedRoute feature="audit">
-                                              <AuditLogsPage />
-                                            </LicensedRoute>
-                                          </ManagerElement>
-                                        }
-                                      />
-                                      <Route
-                                        path="/license"
-                                        element={
-                                          <AdminElement>
-                                            <LicensePage
-                                              key={selectedRemoteNode}
+                                  <WorkflowOverlayProvider>
+                                    <Layout navbarColor={config.navbarColor}>
+                                      <LazyRoutes>
+                                        <Route
+                                          path="/"
+                                          element={<OverviewPage />}
+                                        />
+                                        <Route
+                                          path="/dashboard"
+                                          element={
+                                            <OverviewPage initialTab="timeline" />
+                                          }
+                                        />
+                                        <Route
+                                          path="/cockpit"
+                                          element={
+                                            <OverviewPage initialTab="cockpit" />
+                                          }
+                                        />
+                                        <Route
+                                          path="/views/:viewId"
+                                          element={<ViewPage />}
+                                        />
+                                        <Route
+                                          path="/home"
+                                          element={<HomePage />}
+                                        />
+                                        <Route
+                                          path="/api-docs"
+                                          element={<APIDocsPage />}
+                                        />
+                                        <Route
+                                          path="/integrations"
+                                          element={<IntegrationsPage />}
+                                        />
+                                        <Route
+                                          path="/notifications"
+                                          element={
+                                            <DeveloperElement>
+                                              <NotificationsPage />
+                                            </DeveloperElement>
+                                          }
+                                        />
+                                        <Route
+                                          path="/notification-rules"
+                                          element={
+                                            <DeveloperElement>
+                                              <NotificationRulesPage />
+                                            </DeveloperElement>
+                                          }
+                                        />
+                                        <Route
+                                          path="/notification-channels"
+                                          element={
+                                            <DeveloperElement>
+                                              <NotificationChannelsPage />
+                                            </DeveloperElement>
+                                          }
+                                        />
+                                        <Route
+                                          path="/incidents"
+                                          element={
+                                            <ActiveLicenseDeveloperElement>
+                                              <IncidentsPage />
+                                            </ActiveLicenseDeveloperElement>
+                                          }
+                                        />
+                                        <Route
+                                          path="/incident-providers"
+                                          element={
+                                            <ActiveLicenseDeveloperElement>
+                                              <IncidentProvidersPage />
+                                            </ActiveLicenseDeveloperElement>
+                                          }
+                                        />
+                                        <Route
+                                          path="/incident-policies"
+                                          element={
+                                            <ActiveLicenseDeveloperElement>
+                                              <IncidentPoliciesPage />
+                                            </ActiveLicenseDeveloperElement>
+                                          }
+                                        />
+                                        <Route
+                                          path="/dags/"
+                                          element={<DAGs />}
+                                        />
+                                        <Route
+                                          path="/dags/:fileName/:tab"
+                                          element={<DAGDetails />}
+                                        />
+                                        <Route
+                                          path="/dags/:fileName/"
+                                          element={<DAGDetails />}
+                                        />
+                                        <Route
+                                          path="/search/"
+                                          element={<Search />}
+                                        />
+                                        <Route
+                                          path="/wiki/*"
+                                          element={<WikiPage />}
+                                        />
+                                        <Route
+                                          path="/docs/*"
+                                          element={<LegacyWikiRouteRedirect />}
+                                        />
+                                        <Route
+                                          path="/queues"
+                                          element={<Queues />}
+                                        />
+                                        <Route
+                                          path="/queues/:name"
+                                          element={<QueueDetailsPage />}
+                                        />
+                                        <Route
+                                          path="/dag-runs"
+                                          element={<DAGRuns />}
+                                        />
+                                        <Route
+                                          path="/artifacts"
+                                          element={<ArtifactsPage />}
+                                        />
+                                        <Route
+                                          path="/dag-runs/:name/:dagRunId"
+                                          element={<LegacyRunRedirect />}
+                                        />
+                                        <Route
+                                          path="/system-status"
+                                          element={
+                                            <DeveloperElement>
+                                              <SystemStatus />
+                                            </DeveloperElement>
+                                          }
+                                        />
+                                        <Route
+                                          path="/base-config"
+                                          element={
+                                            <DeveloperElement>
+                                              <BaseConfigPage />
+                                            </DeveloperElement>
+                                          }
+                                        />
+                                        <Route
+                                          path="/calendars"
+                                          element={<CalendarsPage />}
+                                        />
+                                        <Route
+                                          path="/calendars/:name"
+                                          element={<CalendarPage />}
+                                        />
+                                        <Route
+                                          path="/users"
+                                          element={
+                                            <AdminElement>
+                                              <UsersPage />
+                                            </AdminElement>
+                                          }
+                                        />
+                                        <Route
+                                          path="/administration"
+                                          element={
+                                            <AdminElement>
+                                              <AdministrationPage />
+                                            </AdminElement>
+                                          }
+                                        />
+                                        <Route
+                                          path="/remote-nodes"
+                                          element={
+                                            <SettingsRedirect section="remote-nodes" />
+                                          }
+                                        />
+                                        <Route
+                                          path="/api-keys"
+                                          element={
+                                            <AdminElement>
+                                              <APIKeysPage />
+                                            </AdminElement>
+                                          }
+                                        />
+                                        <Route
+                                          path="/webhooks"
+                                          element={
+                                            <DeveloperElement>
+                                              <WebhooksPage />
+                                            </DeveloperElement>
+                                          }
+                                        />
+                                        <Route
+                                          path="/secrets"
+                                          element={
+                                            <Navigate
+                                              to="/profiles#secret-refs"
+                                              replace
                                             />
-                                          </AdminElement>
-                                        }
-                                      />
-                                      <Route
-                                        path="/git-sync"
-                                        element={
-                                          <GitSyncElement>
-                                            <GitSyncPage />
-                                          </GitSyncElement>
-                                        }
-                                      />
-                                    </LazyRoutes>
-                                  </Layout>
+                                          }
+                                        />
+                                        <Route
+                                          path="/profiles"
+                                          element={
+                                            <ManagerElement>
+                                              <ProfilesPage />
+                                            </ManagerElement>
+                                          }
+                                        />
+                                        <Route
+                                          path="/terminal"
+                                          element={
+                                            <AdminElement>
+                                              <TerminalPage />
+                                            </AdminElement>
+                                          }
+                                        />
+                                        <Route
+                                          path="/event-logs"
+                                          element={
+                                            <ManagerElement>
+                                              <EventLogsPage />
+                                            </ManagerElement>
+                                          }
+                                        />
+                                        <Route
+                                          path="/audit-logs"
+                                          element={
+                                            <ManagerElement>
+                                              <LicensedRoute feature="audit">
+                                                <AuditLogsPage />
+                                              </LicensedRoute>
+                                            </ManagerElement>
+                                          }
+                                        />
+                                        <Route
+                                          path="/settings"
+                                          element={
+                                            <AdminElement>
+                                              <SettingsPage
+                                                key={selectedRemoteNode}
+                                              />
+                                            </AdminElement>
+                                          }
+                                        />
+                                        <Route
+                                          path="/license"
+                                          element={<SettingsRedirect />}
+                                        />
+                                        <Route
+                                          path="/git-sync"
+                                          element={
+                                            <GitSyncElement>
+                                              <GitSyncPage />
+                                            </GitSyncElement>
+                                          }
+                                        />
+                                        <Route
+                                          path="*"
+                                          element={<NotFoundPage />}
+                                        />
+                                      </LazyRoutes>
+                                      <WorkflowOverlayHost />
+                                    </Layout>
+                                  </WorkflowOverlayProvider>
                                 </ProtectedRoute>
                               }
                             />

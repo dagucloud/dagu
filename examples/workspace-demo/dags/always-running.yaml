@@ -1,0 +1,9 @@
+# A step that repeats every ten seconds, with no limit.
+description: Repeat while the command succeeds. The graph card shows the repeat marker and the count.
+type: graph
+steps:
+  - name: heartbeat
+    run: echo "beat"
+    repeat_policy:
+      repeat: while
+      interval_sec: 10

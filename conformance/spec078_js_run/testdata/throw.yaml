@@ -1,0 +1,6 @@
+working_dir: .
+steps:
+  - action: js.run
+    stderr: err.out
+    with:
+      script: throw new Error("boom")

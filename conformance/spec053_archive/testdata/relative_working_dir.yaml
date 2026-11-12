@@ -1,0 +1,18 @@
+working_dir: work
+steps:
+  - id: create
+    action: archive.create
+    with:
+      source: data
+      destination: out/data.tar.gz
+  - id: remove_source
+    depends: create
+    action: file.delete
+    with:
+      path: data
+      recursive: true
+  - id: extract
+    depends: remove_source
+    action: archive.extract
+    with:
+      source: out/data.tar.gz

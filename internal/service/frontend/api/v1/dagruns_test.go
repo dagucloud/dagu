@@ -57,7 +57,8 @@ func dagRunEventuallyTimeout(base time.Duration) time.Duration {
 	if runtime.GOOS == "windows" {
 		return base * 24
 	}
-	return base
+	// A loaded CI host can stall a single command for over ten seconds.
+	return max(base, 30*time.Second)
 }
 
 func dagRunSyncTimeoutSeconds() int {
@@ -367,6 +368,78 @@ func TestLogPageLimits(t *testing.T) {
 								}
 							})
 						}
+					}
+				})
+			}
+		})
+	}
+}
+
+func TestStepLogStream(t *testing.T) {
+	for _, strict := range []bool{false, true} {
+		t.Run(fmt.Sprintf("strict=%t", strict), func(t *testing.T) {
+			server := test.SetupServer(t, test.WithConfigMutator(func(cfg *config.Config) {
+				cfg.Server.StrictValidation = strict
+			}))
+			logDir := t.TempDir()
+			stdout := filepath.Join(logDir, "stdout.log")
+			stderr := filepath.Join(logDir, "stderr.log")
+			require.NoError(t, os.WriteFile(stdout, []byte("stdout"), 0o600))
+			require.NoError(t, os.WriteFile(stderr, []byte("stderr"), 0o600))
+
+			dag := &ir.DAG{Name: "step-log-stream", Steps: []ir.Step{{Name: "main"}}}
+			root := ir.NewDAGRunRef(dag.Name, "root")
+			for _, runID := range []string{root.ID, "child"} {
+				opts := persis.DAGRunCreateAttemptOptions{}
+				if runID != root.ID {
+					opts.RootDAGRun = root
+				}
+				attempt, err := server.DAGRunRepository.CreateAttempt(server.Context, dag, time.Now(), runID, opts)
+				require.NoError(t, err)
+				status := ir.InitialStatus(dag)
+				status.DAGRunID = runID
+				status.AttemptID = attempt.ID()
+				status.Root = root
+				status.Nodes[0].Stdout = stdout
+				status.Nodes[0].Stderr = stderr
+				if runID == root.ID {
+					status.Nodes[0].SubRuns = []ir.SubDAGRun{{DAGRunID: "child", DAGName: dag.Name}}
+				}
+				require.NoError(t, attempt.Open(server.Context))
+				require.NoError(t, attempt.Write(server.Context, status))
+				require.NoError(t, attempt.Close(server.Context))
+			}
+
+			for _, path := range []string{
+				"/steps/main/log",
+				"/sub-dag-runs/child/steps/main/log",
+			} {
+				t.Run(path, func(t *testing.T) {
+					for _, tc := range []struct {
+						name    string
+						query   string
+						content string
+					}{
+						{name: "omitted", content: "stdout"},
+						{name: "stdout", query: "?stream=stdout", content: "stdout"},
+						{name: "stderr", query: "?stream=stderr", content: "stderr"},
+						{name: "false", query: "?stream=false", content: "stdout"},
+					} {
+						t.Run(tc.name, func(t *testing.T) {
+							want := http.StatusOK
+							// Strict validation rejects values outside the stream enum.
+							if strict && tc.name == "false" {
+								want = http.StatusBadRequest
+							}
+							resp := server.Client().Get(fmt.Sprintf(
+								"/api/v1/dag-runs/%s/%s%s%s", dag.Name, root.ID, path, tc.query,
+							)).ExpectStatus(want).Send(t)
+							if want == http.StatusOK {
+								var body api.GetDAGRunStepLog200JSONResponse
+								resp.Unmarshal(t, &body)
+								assert.Equal(t, tc.content, body.Content)
+							}
+						})
 					}
 				})
 			}
@@ -1362,8 +1435,17 @@ func TestPushBackRemoteResumeStaysQueued(t *testing.T) {
 	startResp.Unmarshal(t, &startBody)
 
 	waiting := waitForStoredDAGRunStatus(t, server, dagName, startBody.DagRunId, 10*time.Second, func(status *ir.DAGRunStatus) bool {
-		return status.Status == ir.Waiting && status.FinishedAt != "" && hasNodeWithStatus(status, "review", ir.NodeWaiting)
+		return status.Status == ir.Waiting && status.FinishedAt != "" && hasNodeWithStatus(status, "review", ir.NodeWaiting) &&
+			hasRunProcessIdentity(status)
 	})
+	// The run actually waited in a local process, which compacts its status
+	// file on exit and would replace the writes below with its last status.
+	// A remote worker leaves no such process, so wait until the process
+	// itself is gone; a stale heartbeat alone does not prove that.
+	require.Eventually(t, func() bool {
+		matched, _, ok := procutil.MatchesStartTime(int(waiting.PID), waiting.PIDStartedAt)
+		return !ok || !matched
+	}, dagRunEventuallyTimeout(10*time.Second), 100*time.Millisecond)
 
 	// The wait was reported by a remote worker that stays alive but idle.
 	const workerID = "worker-1"
@@ -2353,6 +2435,66 @@ steps:
 	require.Contains(t, rescheduledStatus.ParamsList, "MESSAGE=hello world")
 }
 
+// The current file gives its own DAG name, which is not the name of a run
+// started with --name: a new run takes the override, else the name of its run.
+func TestRescheduleCurrentDAGFileName(t *testing.T) {
+	const (
+		dagName = "reschedule_current_file_name"
+		runName = dagName + "_run"
+	)
+	override := dagName + "_override"
+	server := test.SetupServer(t, test.WithConfigMutator(func(cfg *config.Config) {
+		cfg.Queues.Enabled = true
+		cfg.Queues.Config = []config.QueueConfig{{Name: dagName, MaxActiveRuns: 1}}
+	}))
+
+	spec := fmt.Sprintf("queue: %s\nsteps:\n  - name: main\n    run: echo done", dagName)
+	server.Client().Post("/api/v1/dags", api.CreateNewDAGJSONRequestBody{
+		Name: dagName,
+		Spec: &spec,
+	}).ExpectStatus(http.StatusCreated).Send(t)
+
+	name := runName
+	var started api.ExecuteDAG200JSONResponse
+	server.Client().Post(
+		fmt.Sprintf("/api/v1/dags/%s/start", dagName),
+		api.ExecuteDAGJSONRequestBody{DagName: &name},
+	).ExpectStatus(http.StatusOK).Send(t).Unmarshal(t, &started)
+	waitForStoredDAGRunStatus(t, server, runName, started.DagRunId, 10*time.Second, func(status *ir.DAGRunStatus) bool {
+		return status.Status == ir.Succeeded
+	})
+
+	tests := []struct {
+		name         string
+		dagName      *string
+		wantRunNamed string
+	}{
+		{name: "keeps the name of the run", wantRunNamed: runName},
+		{name: "takes the override", dagName: &override, wantRunNamed: override},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			useCurrentDagFile := true
+			var rescheduled api.RescheduleDAGRun200JSONResponse
+			server.Client().Post(
+				fmt.Sprintf("/api/v1/dag-runs/%s/%s/reschedule", runName, started.DagRunId),
+				api.RescheduleDAGRunJSONRequestBody{DagName: tt.dagName, UseCurrentDagFile: &useCurrentDagFile},
+			).ExpectStatus(http.StatusOK).Send(t).Unmarshal(t, &rescheduled)
+
+			server.Client().Get(
+				fmt.Sprintf("/api/v1/dag-runs/%s/%s", tt.wantRunNamed, rescheduled.DagRunId),
+			).ExpectStatus(http.StatusOK).Send(t)
+
+			// The queue rebuilds the stored DAG: the run keeps the name when it runs.
+			test.ProcessQueuedInlineRun(t, server, dagName)
+			waitForStoredDAGRunStatus(t, server, tt.wantRunNamed, rescheduled.DagRunId, 10*time.Second, func(status *ir.DAGRunStatus) bool {
+				return status.Status == ir.Succeeded
+			})
+		})
+	}
+}
+
 func TestRescheduleDAGRunRequiresQueuesEnabled(t *testing.T) {
 	server := test.SetupServer(t, test.WithConfigMutator(func(cfg *config.Config) {
 		cfg.Queues.Enabled = false
@@ -3292,20 +3434,20 @@ func TestListDAGRunsFilterByPartialName(t *testing.T) {
 		)
 	}
 
-	resp := server.Client().Get("/api/v1/dag-runs?name=test").
-		ExpectStatus(http.StatusOK).Send(t)
+	require.Eventually(t, func() bool {
+		resp := server.Client().Get("/api/v1/dag-runs?name=test").
+			ExpectStatus(http.StatusOK).Send(t)
 
-	var body api.ListDAGRuns200JSONResponse
-	resp.Unmarshal(t, &body)
+		var body api.ListDAGRuns200JSONResponse
+		resp.Unmarshal(t, &body)
 
-	names := make(map[string]bool)
-	for _, run := range body.DagRuns {
-		names[run.Name] = true
-	}
+		names := make(map[string]bool)
+		for _, run := range body.DagRuns {
+			names[run.Name] = true
+		}
 
-	require.True(t, names["test-params-flag"])
-	require.True(t, names["alpha-test-case"])
-	require.False(t, names["other-dag"])
+		return names["test-params-flag"] && names["alpha-test-case"] && !names["other-dag"]
+	}, dagRunEventuallyTimeout(5*time.Second), 200*time.Millisecond)
 }
 
 func TestListDAGRunsByNameRemainsExact(t *testing.T) {
@@ -3330,16 +3472,23 @@ func TestListDAGRunsByNameRemainsExact(t *testing.T) {
 		)
 	}
 
-	resp := server.Client().Get("/api/v1/dag-runs/test-params-flag").
-		ExpectStatus(http.StatusOK).Send(t)
+	require.Eventually(t, func() bool {
+		resp := server.Client().Get("/api/v1/dag-runs/test-params-flag").
+			ExpectStatus(http.StatusOK).Send(t)
 
-	var body api.ListDAGRunsByName200JSONResponse
-	resp.Unmarshal(t, &body)
+		var body api.ListDAGRunsByName200JSONResponse
+		resp.Unmarshal(t, &body)
 
-	require.NotEmpty(t, body.DagRuns)
-	for _, run := range body.DagRuns {
-		require.Equal(t, "test-params-flag", run.Name)
-	}
+		if len(body.DagRuns) == 0 {
+			return false
+		}
+		for _, run := range body.DagRuns {
+			if run.Name != "test-params-flag" {
+				return false
+			}
+		}
+		return true
+	}, dagRunEventuallyTimeout(5*time.Second), 200*time.Millisecond)
 }
 
 func TestGetDAGRunDetailsExposesLocalProcessWhileRunning(t *testing.T) {

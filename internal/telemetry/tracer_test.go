@@ -5,6 +5,9 @@ package telemetry
 
 import (
 	"context"
+	"net/http"
+	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 
@@ -150,6 +153,92 @@ func TestNewTracer(t *testing.T) {
 		err = tracer.Shutdown(context.Background())
 		assert.NoError(t, err)
 	})
+}
+
+func TestIsHTTPEndpoint(t *testing.T) {
+	tests := []struct {
+		endpoint string
+		want     bool
+	}{
+		{"localhost:4317", false},
+		{"http://localhost:4317", false},
+		{"localhost:4318/v1/traces", true},
+		{"http://collector:4318/v1/traces", true},
+		{"https://collector.example.com/v1/traces", true},
+	}
+	for _, tt := range tests {
+		assert.Equal(t, tt.want, isHTTPEndpoint(tt.endpoint), tt.endpoint)
+	}
+}
+
+// An endpoint that ends with /v1/traces must reach an OTLP/HTTP receiver,
+// with or without the URL scheme.
+func TestHTTPExporter(t *testing.T) {
+	tests := []struct {
+		name     string
+		endpoint func(serverURL string) string
+	}{
+		{
+			name:     "URL",
+			endpoint: func(serverURL string) string { return serverURL + "/v1/traces" },
+		},
+		{
+			name: "HostPortPath",
+			endpoint: func(serverURL string) string {
+				return strings.TrimPrefix(serverURL, "http://") + "/v1/traces"
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			requests := make(chan string, 16)
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				requests <- r.Method + " " + r.URL.Path
+				w.WriteHeader(http.StatusOK)
+			}))
+			defer server.Close()
+
+			dag := &ir.DAG{
+				Name: "test-dag",
+				OTel: &ir.OTelConfig{
+					Enabled:  true,
+					Endpoint: tt.endpoint(server.URL),
+					Insecure: true,
+					Timeout:  2 * time.Second,
+				},
+			}
+
+			tracer, err := NewTracer(context.Background(), dag, nil)
+			require.NoError(t, err)
+
+			_, span := tracer.Start(context.Background(), "test-span")
+			span.End()
+			require.NoError(t, tracer.Shutdown(context.Background()))
+
+			select {
+			case got := <-requests:
+				assert.Equal(t, "POST /v1/traces", got)
+			default:
+				t.Fatal("the OTLP/HTTP receiver got no request")
+			}
+		})
+	}
+}
+
+func TestHTTPExporterInvalidScheme(t *testing.T) {
+	dag := &ir.DAG{
+		Name: "test-dag",
+		OTel: &ir.OTelConfig{
+			Enabled:  true,
+			Endpoint: "ftp://collector:4318/v1/traces",
+		},
+	}
+
+	tracer, err := NewTracer(context.Background(), dag, nil)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "scheme must be http or https")
+	assert.Nil(t, tracer)
 }
 
 func TestTracerStart(t *testing.T) {

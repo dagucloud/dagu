@@ -218,3 +218,13 @@ func TestConcurrentAccess(t *testing.T) {
 	require.NoError(t, err)
 	assert.NotEmpty(t, spec)
 }
+
+func TestUpdateSpecCallsOnChange(t *testing.T) {
+	filePath := filepath.Join(t.TempDir(), "base.yaml")
+	calls := 0
+	store, err := New(filePath, WithOnChange(func(context.Context) { calls++ }))
+	require.NoError(t, err)
+
+	require.NoError(t, store.UpdateSpec(context.Background(), []byte("env:\n  - A=1\n")))
+	assert.Equal(t, 1, calls)
+}

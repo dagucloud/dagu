@@ -59,12 +59,17 @@ Run and step metadata:
 | `${context.run.id}` | Current DAG run ID |
 | `${context.run.status}` | Current run status when status is available, such as lifecycle handler scopes |
 | `${context.run.scheduled_at}` | Scheduled time for a scheduled run |
+| `${context.run.interval_start}` | Previous fire time of the DAG's schedule before `scheduled_at` |
+| `${context.run.interval_end}` | Same instant as `scheduled_at`; the window is `[interval_start, interval_end)` |
+| `${context.run.next_scheduled_at}` | Next fire time of the DAG's schedule after `scheduled_at` |
+| `${context.run.timezone}` | Zone of the slot's schedule, such as `Asia/Tokyo` |
 | `${context.run.root_name}` | Root DAG name when this run is part of a nested run |
 | `${context.run.root_id}` | Root run ID when this run is part of a nested run |
 | `${context.attempt.id}` | Current attempt ID |
 | `${context.attempt.started_at}` | Current attempt start time |
 | `${context.step.id}` | Current step ID |
 | `${context.step.name}` | Current step name |
+| `${context.step.repeat_index}` | Zero-based execution index of a step with `repeat_policy`; also `DAG_RUN_STEP_REPEAT_INDEX` |
 | `${context.trigger.type}` | Run trigger type when trigger metadata is available |
 | `${context.trigger.actor}` | Trigger actor when trigger metadata includes one |
 

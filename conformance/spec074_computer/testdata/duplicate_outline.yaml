@@ -1,0 +1,11 @@
+steps:
+  - id: post
+    action: computer.run
+    with:
+      ai: never
+      do:
+        - extract:
+            instruction: The invoice number
+            schema: {type: object, properties: {invoice: {type: string}}}
+            fields: {windows: {invoice: {role: text, id: invoiceNumber}}}
+        - outline: invoice

@@ -4,6 +4,7 @@
 package cli_test
 
 import (
+	"encoding/json"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -45,6 +46,55 @@ func TestConfigLoadsNamedTimeZone(t *testing.T) {
 	env := []string{"DAGU_TZ=Asia/Tokyo", "GOROOT=" + t.TempDir(), "ZONEINFO="}
 
 	dagu.RunWithEnv(env, "config").ExpectExitCode(0)
+}
+
+// TestConfigValuesReportsSources proves `dagu config --values` names the
+// source of each value and never prints a secret: the port comes from the
+// file, the host from the environment, the token secret is masked, and
+// auth.mode reports the builtin mode Dagu falls back to when none is set.
+func TestConfigValuesReportsSources(t *testing.T) {
+	t.Parallel()
+
+	dagu := harness.NewRunner(t)
+	dagu.WriteFile("config.yaml", "port: 9090\n")
+	env := []string{
+		"DAGU_HOME=" + filepath.Join(t.TempDir(), "dagu"),
+		"DAGU_HOST=0.0.0.0",
+		"DAGU_AUTH_TOKEN_SECRET=do-not-print",
+		// The harness sets auth.mode to none; clear it to see the fallback.
+		"DAGU_AUTH_MODE=",
+	}
+
+	result := dagu.RunWithEnv(env, "config", "--config", dagu.ProjectPath("config.yaml"), "--values", "--format", "json")
+	result.ExpectExitCode(0)
+
+	if strings.Contains(result.Stdout(), "do-not-print") {
+		t.Fatalf("secret printed; output:\n%s", result.Stdout())
+	}
+	var settings []struct {
+		Key    string `json:"key"`
+		Value  string `json:"value"`
+		Source string `json:"source"`
+	}
+	if err := json.Unmarshal([]byte(result.Stdout()), &settings); err != nil {
+		t.Fatalf("decoding output: %v; output:\n%s", err, result.Stdout())
+	}
+	got := make(map[string][2]string, len(settings))
+	for _, s := range settings {
+		got[s.Key] = [2]string{s.Value, s.Source}
+	}
+
+	want := map[string][2]string{
+		"port":                      {"9090", "file"},
+		"host":                      {"0.0.0.0", "env:DAGU_HOST"},
+		"auth.builtin.token.secret": {"********", "env:DAGU_AUTH_TOKEN_SECRET"},
+		"auth.mode":                 {"builtin", "default"},
+	}
+	for key, w := range want {
+		if got[key] != w {
+			t.Errorf("%s = %q, want %q", key, got[key], w)
+		}
+	}
 }
 
 // requireLineContains fails the test unless some line starts with label and

@@ -1,7 +1,87 @@
-import { NodeStatus, Status } from '@/api/v1/schema';
+import {
+  NodeStatus,
+  NodeStatusLabel,
+  Status,
+  StatusLabel,
+} from '@/api/v1/schema';
+
+const STATUS_LABEL_TEXT: Record<StatusLabel | NodeStatusLabel, string> = {
+  not_started: 'Not started',
+  running: 'Running',
+  failed: 'Failed',
+  aborted: 'Aborted',
+  succeeded: 'Succeeded',
+  queued: 'Queued',
+  partially_succeeded: 'Partially succeeded',
+  waiting: 'Waiting',
+  rejected: 'Rejected',
+  skipped: 'Skipped',
+  retrying: 'Retrying',
+};
+
+/**
+ * Returns the English display text for an API status label such as
+ * `partially_succeeded`. Unknown labels are returned unchanged.
+ */
+export function statusLabelText(label: string): string {
+  return Object.prototype.hasOwnProperty.call(STATUS_LABEL_TEXT, label)
+    ? STATUS_LABEL_TEXT[label as StatusLabel | NodeStatusLabel]
+    : label;
+}
+
+const RUN_STATUS_LABELS: Record<Status, StatusLabel> = {
+  [Status.NotStarted]: StatusLabel.not_started,
+  [Status.Running]: StatusLabel.running,
+  [Status.Failed]: StatusLabel.failed,
+  [Status.Aborted]: StatusLabel.aborted,
+  [Status.Success]: StatusLabel.succeeded,
+  [Status.Queued]: StatusLabel.queued,
+  [Status.PartialSuccess]: StatusLabel.partially_succeeded,
+  [Status.Waiting]: StatusLabel.waiting,
+  [Status.Rejected]: StatusLabel.rejected,
+};
+
+const NODE_STATUS_LABELS: Record<NodeStatus, NodeStatusLabel> = {
+  [NodeStatus.NotStarted]: NodeStatusLabel.not_started,
+  [NodeStatus.Running]: NodeStatusLabel.running,
+  [NodeStatus.Failed]: NodeStatusLabel.failed,
+  [NodeStatus.Aborted]: NodeStatusLabel.aborted,
+  [NodeStatus.Success]: NodeStatusLabel.succeeded,
+  [NodeStatus.Skipped]: NodeStatusLabel.skipped,
+  [NodeStatus.PartialSuccess]: NodeStatusLabel.partially_succeeded,
+  [NodeStatus.Waiting]: NodeStatusLabel.waiting,
+  [NodeStatus.Rejected]: NodeStatusLabel.rejected,
+  [NodeStatus.Retrying]: NodeStatusLabel.retrying,
+};
+
+/** Returns the English display text for a DAG-run status. */
+export function runStatusText(status: Status): string {
+  const label = RUN_STATUS_LABELS[status];
+  return label ? statusLabelText(label) : 'Unknown';
+}
+
+/** Returns the English display text for a step status. */
+export function nodeStatusText(status: NodeStatus): string {
+  const label = NODE_STATUS_LABELS[status];
+  return label ? statusLabelText(label) : 'Unknown';
+}
 
 export function isActiveNodeStatus(status?: NodeStatus): boolean {
   return status === NodeStatus.Running || status === NodeStatus.Retrying;
+}
+
+/**
+ * A run whose time still counts: it runs, or it waits for a person. A
+ * waiting run has a finish time from the moment it paused, which is not its
+ * end.
+ */
+export function isLiveRunStatus(status?: Status): boolean {
+  return status === Status.Running || status === Status.Waiting;
+}
+
+/** A step whose time still counts: it runs, or it waits for a person. */
+export function isLiveNodeStatus(status?: NodeStatus): boolean {
+  return isActiveNodeStatus(status) || status === NodeStatus.Waiting;
 }
 
 /**
@@ -58,9 +138,7 @@ export function getStatusClass(status?: Status | NodeStatus): string {
  * @param status - The Status or NodeStatus enum value
  * @returns Object with bgClass, textClass, borderClass, and animation
  */
-export function getStatusColors(
-  status?: Status | NodeStatus
-): {
+export function getStatusColors(status?: Status | NodeStatus): {
   bgClass: string;
   textClass: string;
   borderClass: string;

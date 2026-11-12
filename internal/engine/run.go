@@ -528,6 +528,7 @@ func (e *Engine) runDistributed(ctx context.Context, dag *ir.DAG, runID string, 
 	}
 	taskOpts := []runtimeexec.TaskOption{
 		runtimeexec.WithBaseConfig(runtimeexec.ResolveBaseConfig(dag.BaseConfigData, e.cfg.Paths.BaseConfig), dag.BaseConfigWorkspace),
+		runtimeexec.WithTriggerType(ir.TriggerTypeManual),
 	}
 	if len(dist.WorkerSelector) > 0 {
 		taskOpts = append(taskOpts, runtimeexec.WithWorkerSelector(dist.WorkerSelector))

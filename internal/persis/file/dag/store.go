@@ -12,10 +12,13 @@ import (
 	"os"
 	"path"
 	"path/filepath"
+	"slices"
 	"sort"
 	"strings"
 	"sync"
+	"time"
 
+	"github.com/dagucloud/dagu/v2/internal/cmn/dirlock"
 	"github.com/dagucloud/dagu/v2/internal/cmn/fileutil"
 	"github.com/dagucloud/dagu/v2/internal/cmn/logger"
 	"github.com/dagucloud/dagu/v2/internal/cmn/logger/tag"
@@ -29,6 +32,13 @@ import (
 
 var _ persis.DAGDefinitionStore = (*Store)(nil)
 
+// The lock that orders the writes of a DAG file.
+const (
+	specLockDirName        = "spec-locks"
+	specLockStaleThreshold = 30 * time.Second
+	specLockRetryInterval  = 50 * time.Millisecond
+)
+
 // Option configures filesystem DAG definition storage.
 type Option func(*Options)
 
@@ -39,6 +49,7 @@ type Options struct {
 	SearchPaths            []string                 // Additional search paths for DAG files
 	BaseConfigPath         string                   // Optional base config file applied when loading DAGs
 	WorkspaceBaseConfigDir string                   // Optional directory containing workspace base configs
+	Calendars              *spec.CalendarSource     // Optional source of the calendar files schedules name
 	SkipExamples           bool                     // Skip creating example DAGs
 	Recursive              bool                     // Discover DAG definitions in subdirectories
 	Symlinks               bool                     // Include recursive file symlinks and external targets
@@ -111,6 +122,13 @@ func WithWorkspaceBaseConfigDir(dir string) Option {
 	}
 }
 
+// WithCalendars sets the source of the calendar files that schedules name.
+func WithCalendars(source *spec.CalendarSource) Option {
+	return func(o *Options) {
+		o.Calendars = source
+	}
+}
+
 // WithSkipExamples controls example DAG creation.
 func WithSkipExamples(skip bool) Option {
 	return func(o *Options) {
@@ -148,12 +166,14 @@ func NewStore(baseDir string, opts ...Option) *Store {
 	return &Store{
 		baseDir:                baseDir,
 		indexPath:              resolveIndexPath(baseDir, options.indexDir),
+		changeMarker:           NewChangeMarker(ChangeMarkerPath(options.indexDir, baseDir)),
 		flagsBaseDir:           options.FlagsBaseDir,
 		legacyFlagsBaseDir:     options.legacyFlagsBaseDir,
 		fileCache:              options.FileCache,
 		searchPaths:            searchPaths,
 		baseConfigPath:         options.BaseConfigPath,
 		workspaceBaseConfigDir: options.WorkspaceBaseConfigDir,
+		calendars:              options.Calendars,
 		skipExamples:           options.SkipExamples,
 		recursive:              options.Recursive,
 		symlinks:               options.Symlinks,
@@ -163,21 +183,25 @@ func NewStore(baseDir string, opts ...Option) *Store {
 
 // Store persists DAG definitions in local files.
 type Store struct {
-	baseDir                string // Base directory for DAG storage
-	indexPath              string // DAG definition index file
-	flagsBaseDir           string // Base directory for flag store
+	baseDir                string        // Base directory for DAG storage
+	indexPath              string        // DAG definition index file
+	changeMarker           *ChangeMarker // Signals DAG definition changes to other hosts
+	flagsBaseDir           string        // Base directory for flag store
 	legacyFlagsBaseDir     string
 	fileCache              *fileutil.Cache[*ir.DAG] // Optional cache for DAG objects
 	searchPaths            []string                 // Additional search paths for DAG files
 	baseConfigPath         string                   // Optional base config file applied when loading DAGs
 	workspaceBaseConfigDir string                   // Optional directory containing workspace base configs
+	calendars              *spec.CalendarSource     // Optional source of the calendar files schedules name
 	baseConfigState        string                   // Empty until first load so indexes from previous processes are invalidated
+	calendarsState         string                   // Calendar files as of the last index check
 	skipExamples           bool                     // Skip creating example DAGs
 	recursive              bool                     // Discover DAG definitions in subdirectories
 	symlinks               bool                     // Include recursive file symlinks and external targets
 	skipDirectoryCreation  bool                     // Skip creating base directory for execution-scoped stores
 	baseConfigMu           sync.Mutex               // Protects base config state refresh and invalidation
 	indexMu                sync.Mutex               // Protects index load/rebuild/invalidate
+	serviceDAGs            serviceDAGNameCache      // Service DAG names of the last index read
 }
 
 func (store *Store) Get(ctx context.Context, id string) (persis.DAGDefinition, error) {
@@ -211,6 +235,81 @@ func (store *Store) CatalogIncludingSearchPaths(ctx context.Context) (persis.DAG
 	return store.catalog(ctx, true)
 }
 
+// ServiceDAGNames returns the names of the DAGs that set a restart policy, as
+// the saved index records them. It does not check the index against the DAG
+// files, so a file changed outside the store counts after the next listing.
+func (store *Store) ServiceDAGNames(ctx context.Context) ([]string, error) {
+	if names, ok := store.SavedServiceDAGNames(); ok {
+		return names, nil
+	}
+	current, err := store.loadCatalog(ctx, false)
+	if err != nil {
+		return nil, err
+	}
+	return serviceDAGNamesOf(current), nil
+}
+
+// SavedServiceDAGNames is ServiceDAGNames without building an index: it
+// reports false when no saved index can be read.
+func (store *Store) SavedServiceDAGNames() ([]string, bool) {
+	info, err := os.Stat(store.indexPath)
+	if err != nil {
+		return nil, false
+	}
+	if names, ok := store.serviceDAGs.get(info); ok {
+		return names, true
+	}
+	entries, ok := dagindex.ReadEntries(store.indexPath)
+	if !ok {
+		return nil, false
+	}
+	names := serviceDAGNamesOf(newCatalog(entries, nil, store.recursive))
+	store.serviceDAGs.put(info, names)
+	return slices.Clone(names), true
+}
+
+func serviceDAGNamesOf(current *catalog) []string {
+	names := make([]string, 0)
+	for _, entry := range current.entries {
+		if entry.RestartPolicy != "" {
+			names = append(names, entry.Name)
+		}
+	}
+	return names
+}
+
+// serviceDAGNameCache holds the service DAG names of the last index read.
+type serviceDAGNameCache struct {
+	mu    sync.Mutex
+	index os.FileInfo
+	names []string
+}
+
+func (c *serviceDAGNameCache) get(info os.FileInfo) ([]string, bool) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if c.index == nil || !sameIndexFile(c.index, info) {
+		return nil, false
+	}
+	return slices.Clone(c.names), true
+}
+
+func (c *serviceDAGNameCache) put(info os.FileInfo, names []string) {
+	// Windows reads the identity of a file at its first comparison, so read it
+	// now, while the path still names the file the names came from.
+	_ = os.SameFile(info, info)
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.index, c.names = info, names
+}
+
+// sameIndexFile reports whether two stats describe one unchanged index file.
+// The store replaces the file at each write, so its identity changes even
+// where timestamps are too coarse to tell two writes apart.
+func sameIndexFile(a, b os.FileInfo) bool {
+	return os.SameFile(a, b) && a.Size() == b.Size() && a.ModTime().Equal(b.ModTime())
+}
+
 func (store *Store) catalog(ctx context.Context, includeSearchPaths bool) (persis.DAGCatalog, error) {
 	catalog, err := store.loadCatalog(ctx, includeSearchPaths)
 	if err != nil {
@@ -221,9 +320,11 @@ func (store *Store) catalog(ctx context.Context, includeSearchPaths bool) (persi
 		Issues: append([]string(nil), catalog.errors...),
 	}
 	for _, entry := range catalog.entries {
+		dag := dagindex.DAGFromEntry(entry, store.baseDir)
+		spec.BindScheduleCalendars(dag.Schedule, store.calendars)
 		result.Items = append(result.Items, persis.DAGListItem{
 			ID:        entryStem(entry),
-			DAG:       dagindex.DAGFromEntry(entry, store.baseDir),
+			DAG:       dag,
 			Suspended: entry.Suspended,
 		})
 	}
@@ -237,6 +338,9 @@ func (store *Store) defaultLoadOptions(opts ...spec.LoadOption) []spec.LoadOptio
 	}
 	if store.workspaceBaseConfigDir != "" {
 		loadOpts = append(loadOpts, spec.WithWorkspaceBaseConfigDir(store.workspaceBaseConfigDir))
+	}
+	if store.calendars != nil {
+		loadOpts = append(loadOpts, spec.WithCalendars(store.calendars))
 	}
 	loadOpts = append(loadOpts, opts...)
 	return loadOpts
@@ -258,6 +362,94 @@ func (store *Store) refreshBaseConfigState() string {
 		store.baseConfigState = state
 	}
 	return store.baseConfigState
+}
+
+// refreshCalendarsState rebuilds the index after the calendar files change,
+// so load errors naming a calendar follow its file. Metadata is not reset:
+// calendarsCurrent checks each cached DAG against its own calendars.
+func (store *Store) refreshCalendarsState() {
+	dir := store.calendarsDir()
+	if dir == "" {
+		return
+	}
+	state := describeCalendarsState(dir)
+	store.baseConfigMu.Lock()
+	defer store.baseConfigMu.Unlock()
+	if state != store.calendarsState {
+		store.invalidateIndex()
+		store.calendarsState = state
+		// The state follows content, which a cached calendar misses when a
+		// rewrite keeps the file's identity, size and modification time.
+		store.calendars.Invalidate()
+	}
+}
+
+// calendarsCurrent reports whether the calendars bound to a cached DAG's
+// schedules are still current, so a calendar edit reloads only the DAGs
+// that name the calendar.
+func (store *Store) calendarsCurrent(dag *ir.DAG) bool {
+	if store.calendars == nil || dag == nil {
+		return true
+	}
+	for _, sched := range dag.Schedule {
+		if !sched.HasCalendar() {
+			continue
+		}
+		cal, err := store.calendars.Calendar(sched.Calendar)
+		bound, ok := sched.BoundCalendar()
+		if ok != (err == nil) || ok && bound.Digest != cal.Digest {
+			return false
+		}
+	}
+	return true
+}
+
+// calendarsDir returns the directory of the calendar files, or "" without a
+// calendar source.
+func (store *Store) calendarsDir() string {
+	if store.calendars == nil {
+		return ""
+	}
+	return store.calendars.Dir()
+}
+
+// describeDefinitionInputState describes the files besides a DAG's own that
+// its loaded definition depends on: base configs and calendar files.
+func describeDefinitionInputState(basePath, workspaceDir, calendarsDir string) string {
+	state := describeBaseConfigStateSet(basePath, workspaceDir)
+	if calendarsDir == "" {
+		return state
+	}
+	return state + "|calendars=" + describeCalendarsState(calendarsDir)
+}
+
+func describeCalendarsState(dir string) string {
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			return "missing"
+		}
+		return "error:" + err.Error()
+	}
+
+	states := make([]string, 0, len(entries))
+	for _, entry := range entries {
+		if !strings.HasSuffix(entry.Name(), ".yaml") {
+			continue
+		}
+		// The content is the state: a replacement can keep the size and
+		// modification time, as symlink swaps and time-preserving copies do.
+		// Calendar files are few and small, so reading them stays cheap.
+		data, err := os.ReadFile(filepath.Join(dir, entry.Name())) //nolint:gosec // entry names come from listing the calendars directory.
+		if err != nil {
+			states = append(states, entry.Name()+":error:"+err.Error())
+			continue
+		}
+		sum := sha256.Sum256(data)
+		states = append(states, entry.Name()+":"+hex.EncodeToString(sum[:]))
+	}
+	sort.Strings(states)
+	return strings.Join(states, ",")
 }
 
 func describeBaseConfigStateSet(basePath, workspaceDir string) string {
@@ -302,7 +494,8 @@ func describeWorkspaceBaseConfigState(dir string) string {
 
 	states := make([]string, 0, len(entries))
 	for _, entry := range entries {
-		if !entry.IsDir() {
+		// Workspace base configs are also read through symlinked directories.
+		if !entry.IsDir() && (!fileutil.IsSymlinkDirEntry(entry) || !fileutil.IsDir(filepath.Join(dir, entry.Name()))) {
 			continue
 		}
 
@@ -348,9 +541,16 @@ func (store *Store) GetMetadata(ctx context.Context, name string) (*ir.DAG, erro
 	if store.fileCache == nil {
 		return spec.Load(ctx, resolved.ResolvedPath, loadOpts...)
 	}
-	return store.fileCache.LoadLatestByKey(store.metadataCacheKey(resolved, baseState), resolved.ResolvedPath, func() (*ir.DAG, error) {
+	key := store.metadataCacheKey(resolved, baseState)
+	load := func() (*ir.DAG, error) {
 		return spec.Load(ctx, resolved.ResolvedPath, loadOpts...)
-	})
+	}
+	dag, err := store.fileCache.LoadLatestByKey(key, resolved.ResolvedPath, load)
+	if err != nil || store.calendarsCurrent(dag) {
+		return dag, err
+	}
+	store.fileCache.Invalidate(key)
+	return store.fileCache.LoadLatestByKey(key, resolved.ResolvedPath, load)
 }
 
 // Cache keys include base state so an older in-flight load cannot replace current metadata.
@@ -370,6 +570,64 @@ func (store *Store) Update(ctx context.Context, name string, yamlSpec []byte) er
 	if resolved.ExternalSymlink {
 		return fmt.Errorf("%w: external DAG file symlink", persis.ErrDAGReadOnly)
 	}
+	switch unlock, err := store.lockSpec(ctx, name, resolved); {
+	case err == nil:
+		defer unlock()
+	case ctx.Err() != nil:
+		return err
+	default:
+		// A lock directory that cannot hold the lock fails every conditional
+		// write as well, so no write can race with this one.
+		logger.Warn(ctx, "Writing DAG file without the spec lock", tag.Name(name), tag.Error(err))
+	}
+	return store.write(ctx, resolved, yamlSpec)
+}
+
+// UpdateIfMatch replaces the DAG file when it still has the SHA-256
+// expectedSHA256. The check and the write hold the lock of the file that
+// Update takes too, so no other write lands between them.
+func (store *Store) UpdateIfMatch(ctx context.Context, name, expectedSHA256 string, yamlSpec []byte) error {
+	resolved, err := store.locateDAG(ctx, name)
+	if err != nil {
+		return fmt.Errorf("failed to locate DAG %s: %w", name, err)
+	}
+	if resolved.ExternalSymlink {
+		return fmt.Errorf("%w: external DAG file symlink", persis.ErrDAGReadOnly)
+	}
+	unlock, err := store.lockSpec(ctx, name, resolved)
+	if err != nil {
+		return err
+	}
+	defer unlock()
+
+	current, err := fileutil.ReadFile(resolved.ResolvedPath)
+	if err != nil {
+		return err
+	}
+	sum := sha256.Sum256(current)
+	if actual := hex.EncodeToString(sum[:]); actual != expectedSHA256 {
+		return fmt.Errorf("%w: DAG %s has sha256 %s", persis.ErrConflict, name, actual)
+	}
+	return store.write(ctx, resolved, yamlSpec)
+}
+
+// lockSpec takes the lock that orders the writes of a located DAG file. The
+// lock lives in the directory of the index, which every process that shares
+// the store uses. The returned function releases it.
+func (store *Store) lockSpec(ctx context.Context, name string, resolved ResolvedFile) (func(), error) {
+	key := sha256.Sum256([]byte(resolved.ResolvedPath))
+	lock := dirlock.New(filepath.Join(filepath.Dir(store.indexPath), specLockDirName, hex.EncodeToString(key[:8])), &dirlock.LockOptions{
+		StaleThreshold: specLockStaleThreshold,
+		RetryInterval:  specLockRetryInterval,
+	})
+	if err := lock.Lock(ctx); err != nil {
+		return nil, fmt.Errorf("failed to lock DAG %s: %w", name, err)
+	}
+	return func() { _ = lock.Unlock() }, nil
+}
+
+// write replaces a located DAG file and announces the change.
+func (store *Store) write(ctx context.Context, resolved ResolvedFile, yamlSpec []byte) error {
 	if err := fileutil.WriteFileAtomic(resolved.ResolvedPath, yamlSpec, defaultPerm); err != nil {
 		return err
 	}
@@ -377,11 +635,12 @@ func (store *Store) Update(ctx context.Context, name string, yamlSpec []byte) er
 		store.fileCache.Invalidate(store.metadataCacheKey(resolved, store.refreshBaseConfigState()))
 	}
 	store.invalidateIndex()
+	store.changeMarker.Bump(ctx)
 	return nil
 }
 
 // Create creates a new DAG with the given name and specification.
-func (store *Store) Create(_ context.Context, name string, spec []byte) error {
+func (store *Store) Create(ctx context.Context, name string, spec []byte) error {
 	if err := store.ensureDirExist(); err != nil {
 		return fmt.Errorf("failed to create DAGs directory %s: %w", store.baseDir, err)
 	}
@@ -393,6 +652,7 @@ func (store *Store) Create(_ context.Context, name string, spec []byte) error {
 		return fmt.Errorf("failed to write DAG %s: %w", name, err)
 	}
 	store.invalidateIndex()
+	store.changeMarker.Bump(ctx)
 	return nil
 }
 
@@ -415,6 +675,7 @@ func (store *Store) Delete(ctx context.Context, name string) error {
 		store.fileCache.Invalidate(store.metadataCacheKey(resolved, store.refreshBaseConfigState()))
 	}
 	store.invalidateIndex()
+	store.changeMarker.Bump(ctx)
 	return nil
 }
 
@@ -441,6 +702,7 @@ func (store *Store) ensureDirExist() error {
 // loadIndex returns validated index entries, rebuilding the index when needed.
 func (store *Store) loadIndex(ctx context.Context, files []DiscoveredFile) ([]*indexv1.DAGIndexEntry, error) {
 	store.refreshBaseConfigState()
+	store.refreshCalendarsState()
 
 	store.indexMu.Lock()
 	defer store.indexMu.Unlock()
@@ -478,6 +740,10 @@ func (store *Store) loadIndex(ctx context.Context, files []DiscoveredFile) ([]*i
 	// Rebuild.
 	logger.Info(ctx, "Rebuilding DAG definition index", tag.Dir(store.baseDir))
 	idx := dagindex.Build(ctx, store.baseDir, yamlFiles, flags, store.defaultLoadOptions()...)
+	// A cancel stops the build part way, and a partial index would hide DAGs.
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
 	if err := dagindex.Write(indexPath, idx); err != nil {
 		logger.Warn(ctx, "Failed to write DAG definition index", tag.Error(err))
 	}
@@ -530,6 +796,7 @@ func (store *Store) Rename(ctx context.Context, oldID, newID string) error {
 		return err
 	}
 	store.invalidateIndex()
+	store.changeMarker.Bump(ctx)
 	return nil
 }
 
@@ -669,12 +936,10 @@ func relativeToBase(baseDir, path string) (string, bool) {
 }
 
 func dagFileCandidates(name string) []string {
-	switch filepath.Ext(name) {
-	case ".yaml", ".yml":
+	if fileutil.IsYAMLFile(name) {
 		return []string{name}
-	default:
-		return []string{name + ".yaml", name + ".yml"}
 	}
+	return []string{name + ".yaml", name + ".yml"}
 }
 
 // fileExists checks if a file exists.
@@ -721,6 +986,8 @@ func (store *Store) createExampleDAGs() error {
 			// Continue creating other examples even if one fails
 		}
 	}
+
+	store.changeMarker.Bump(context.Background())
 
 	// Create marker file to indicate examples were created
 	markerFile := filepath.Join(store.baseDir, ".examples-created")

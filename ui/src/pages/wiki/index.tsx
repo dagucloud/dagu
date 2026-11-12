@@ -25,7 +25,6 @@ import {
 import { UnsavedChangesProvider } from '@/contexts/UnsavedChangesContext';
 import { useUserPreferences } from '@/contexts/UserPreference';
 import { CockpitToolbar } from '@/features/cockpit/components/CockpitToolbar';
-import { useCockpitState } from '@/features/cockpit/hooks/useCockpitState';
 import { useClient, useQuery } from '@/hooks/api';
 import { useIsMobile } from '@/hooks/useIsMobile';
 import { useWikiTreeSSE } from '@/hooks/useWikiTreeSSE';
@@ -92,13 +91,11 @@ function WikiContent() {
   const { showToast } = useSimpleToast();
   const isMobile = useIsMobile();
 
-  const { selectedTemplate, selectTemplate } = useCockpitState();
   const workspaceSelection = appBarContext.workspaceSelection;
   const normalizedWorkspaceSelection =
     sanitizeWorkspaceSelection(workspaceSelection);
   const selectedWorkspace = workspaceNameForSelection(workspaceSelection);
-  const canCreateAtRoot =
-    normalizedWorkspaceSelection.kind !== WorkspaceKind.all;
+  // From the all view, root pages go to the default (no-workspace) Wiki.
   const rootCreateWorkspace =
     normalizedWorkspaceSelection.kind === WorkspaceKind.workspace
       ? (normalizedWorkspaceSelection.workspace ?? null)
@@ -405,12 +402,16 @@ function WikiContent() {
       workspace?: string | null
     ) => {
       if (!canWrite) {
-        showToast('You do not have permission to edit Wiki pages');
+        showToast('You do not have permission to edit Wiki pages', {
+          variant: 'error',
+        });
         return;
       }
       const mutationWorkspace = normalizedWikiWorkspace(workspace);
       if (hasUnsavedTabs(oldPath, mutationWorkspace)) {
-        showToast('Save open changes before renaming or moving this path');
+        showToast('Save open changes before renaming or moving this path', {
+          variant: 'info',
+        });
         return;
       }
       const failureMessage = `Failed to ${
@@ -424,7 +425,7 @@ function WikiContent() {
         revalidateOnFailure: true,
       });
       if (error) {
-        showToast(error);
+        showToast(error, { variant: 'error' });
         return;
       }
       showToast(`Wiki page ${action}`);
@@ -456,14 +457,16 @@ function WikiContent() {
   // Delete handler (supports both files and directories)
   const handleDelete = useCallback(async () => {
     if (!canWrite) {
-      showToast('You do not have permission to delete Wiki pages');
+      showToast('You do not have permission to delete Wiki pages', {
+        variant: 'error',
+      });
       setDeleteConfirmOpen(false);
       return;
     }
     try {
       const error = await deletePath(deleteWikiPagePath, deleteWorkspace);
       if (error) {
-        showToast(error);
+        showToast(error, { variant: 'error' });
         return;
       }
       showToast('Wiki page deleted');
@@ -475,7 +478,9 @@ function WikiContent() {
   // Batch delete handler
   const handleBatchDelete = useCallback(async () => {
     if (!canWrite) {
-      showToast('You do not have permission to delete Wiki pages');
+      showToast('You do not have permission to delete Wiki pages', {
+        variant: 'error',
+      });
       setBatchDeleteConfirmOpen(false);
       setBatchDeleteTargets([]);
       return;
@@ -484,17 +489,30 @@ function WikiContent() {
       const { deletedCount, failedCount } =
         await deleteBatch(batchDeleteTargets);
       if (failedCount > 0) {
-        showToast(`Deleted ${deletedCount}, ${failedCount} failed`);
+        showToast(
+          ts('Deleted {deleted}, {failed} failed', {
+            deleted: deletedCount,
+            failed: failedCount,
+          }),
+          { variant: 'error' }
+        );
       } else {
-        showToast(`Deleted ${deletedCount} items`);
+        showToast(
+          ts(
+            deletedCount === 1
+              ? 'Deleted {count} item'
+              : 'Deleted {count} items',
+            { count: deletedCount }
+          )
+        );
       }
     } catch {
-      showToast('Failed to delete Wiki pages');
+      showToast('Failed to delete Wiki pages', { variant: 'error' });
     } finally {
       setBatchDeleteConfirmOpen(false);
       setBatchDeleteTargets([]);
     }
-  }, [batchDeleteTargets, canWrite, deleteBatch, showToast]);
+  }, [batchDeleteTargets, canWrite, deleteBatch, showToast, ts]);
 
   // Batch delete from selection bar
   const handleBatchDeleteFromBar = useCallback(
@@ -523,12 +541,7 @@ function WikiContent() {
       error={treeError}
       onRetry={() => mutate()}
       onContextAction={handleContextAction}
-      canCreateNew={canCreateAtRoot}
       onCreateNew={() => {
-        if (!canCreateAtRoot) {
-          showToast('Select a workspace before creating a Wiki page');
-          return;
-        }
         setCreateParentDir('');
         setCreateWorkspace(rootCreateWorkspace);
         setCreateError(null);
@@ -551,11 +564,7 @@ function WikiContent() {
 
   const cockpitToolbar = (
     <div className="[&>div]:mb-0">
-      <CockpitToolbar
-        selectedWorkspace={selectedWorkspace}
-        selectedTemplate={selectedTemplate}
-        onSelectTemplate={selectTemplate}
-      />
+      <CockpitToolbar selectedWorkspace={selectedWorkspace} />
     </div>
   );
 
@@ -606,19 +615,22 @@ function WikiContent() {
       <I18nProps>
         <ConfirmModal
           title="Delete Wiki"
-          buttonText={ts('Delete {count} items', {
-            count: batchDeleteTargets.length,
-          })}
+          buttonText={ts(
+            batchDeleteTargets.length === 1
+              ? 'Delete {count} item'
+              : 'Delete {count} items',
+            { count: batchDeleteTargets.length }
+          )}
           visible={batchDeleteConfirmOpen}
           dismissModal={() => setBatchDeleteConfirmOpen(false)}
           onSubmit={handleBatchDelete}
         >
           <p className="text-sm text-muted-foreground">
             {ts(
-              'Are you sure you want to delete {count} items? This cannot be undone.',
-              {
-                count: batchDeleteTargets.length,
-              }
+              batchDeleteTargets.length === 1
+                ? 'Are you sure you want to delete {count} item? This cannot be undone.'
+                : 'Are you sure you want to delete {count} items? This cannot be undone.',
+              { count: batchDeleteTargets.length }
             )}
           </p>
         </ConfirmModal>
@@ -694,6 +706,9 @@ function WikiPage() {
         key={wikiTabStorageKey}
         storageKey={wikiTabStorageKey}
       >
+        <h1 className="sr-only">
+          <I18nText text={'Wiki'} />
+        </h1>
         <WikiContent />
       </WikiPageTabProvider>
     </UnsavedChangesProvider>

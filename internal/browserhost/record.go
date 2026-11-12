@@ -14,6 +14,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/dagucloud/dagu/v2/internal/cmn/dirlock"
 	"github.com/dagucloud/dagu/v2/internal/cmn/fileutil"
 )
 
@@ -29,18 +30,31 @@ const (
 type State string
 
 const (
-	// StateRunning means a step execution is driving the browser.
+	// StateRunning means a step execution, or a browser session command, is
+	// driving the browser.
 	StateRunning State = "running"
 	// StateDetached means the browser waits for a step to resume it.
 	StateDetached State = "detached"
+	// StateInteractive means a browser session's browser waits for the
+	// session's next command.
+	StateInteractive State = "interactive"
+	// StateEnded means a browser session's browser is closed. Its record
+	// keeps the session's history until its deadline.
+	StateEnded State = "ended"
 )
 
 const (
-	recordsDirName = "sessions"
-	recordFileExt  = ".json"
-	recordFileMode = 0o600
-	recordDirMode  = 0o700
+	recordsDirName     = "sessions"
+	interactiveDirName = "interactive"
+	recordFileExt      = ".json"
+	recordFileMode     = 0o600
+	recordDirMode      = 0o700
+	sessionLockSuffix  = ".lock"
 )
+
+// SessionRetention is how long a browser session's history is kept after
+// its browser closed on its own.
+const SessionRetention = 24 * time.Hour
 
 // Record is the durable description of one browser session kept by a step.
 type Record struct {
@@ -67,6 +81,23 @@ type Record struct {
 	BrowserPID       int   `json:"browserPid,omitempty"`
 	BrowserStartedAt int64 `json:"browserStartedAt,omitempty"`
 
+	// CertProxyURL locates the proxy presenting the browser's client
+	// certificates, which runs while the browser does; CertProxyPID and
+	// CertProxyStartedAt identify its process, so it can be ended with the
+	// browser.
+	CertProxyURL       string `json:"certProxyUrl,omitempty"`
+	CertProxyPID       int    `json:"certProxyPid,omitempty"`
+	CertProxyStartedAt int64  `json:"certProxyStartedAt,omitempty"`
+
+	// WriteGateURL locates the gate deciding the browser's writes;
+	// WriteGatePID and WriteGateStartedAt identify its process. A browser
+	// whose gate is gone sends writes nothing decides, so it is closed.
+	// WriteGateSeq is the last of the gate's events reported.
+	WriteGateURL       string `json:"writeGateUrl,omitempty"`
+	WriteGatePID       int    `json:"writeGatePid,omitempty"`
+	WriteGateStartedAt int64  `json:"writeGateStartedAt,omitempty"`
+	WriteGateSeq       int64  `json:"writeGateSeq,omitempty"`
+
 	// OwnerPID and OwnerStartedAt identify the process driving a running
 	// browser, so a crashed owner can be detected even after PID reuse.
 	OwnerPID       int   `json:"ownerPid,omitempty"`
@@ -82,11 +113,21 @@ type Record struct {
 	// were read.
 	ReplayPending map[string]json.RawMessage `json:"replayPending,omitempty"`
 	ReplayUsed    map[string]json.RawMessage `json:"replayUsed,omitempty"`
+
+	// WorkDir holds the files a browser session owns, such as its
+	// screenshots and downloads. It is removed with the browser.
+	WorkDir string `json:"workDir,omitempty"`
+	// Interactive is a browser session's own state, which the browser
+	// runtime defines.
+	Interactive json.RawMessage `json:"interactive,omitempty"`
 }
 
-// RecordID returns the record identifier for a step of a DAG run.
-func RecordID(dagRunID, stepName string) string {
-	sum := sha256.Sum256([]byte(dagRunID + "\x00" + stepName))
+// RecordID returns the record identifier for a step of a DAG run. item
+// identifies the foreach item whose body runs the step, so the items of one
+// foreach each have a record of their own; it is empty for a step outside a
+// foreach body.
+func RecordID(dagRunID, item, stepName string) string {
+	sum := sha256.Sum256([]byte(dagRunID + "\x00" + item + "\x00" + stepName))
 	return hex.EncodeToString(sum[:16])
 }
 
@@ -95,9 +136,37 @@ type Store struct {
 	dir string
 }
 
-// NewStore returns a store rooted under the browser data directory.
+// NewStore returns the store of the browsers steps keep, rooted under the
+// browser data directory.
 func NewStore(browserDataDir string) *Store {
 	return &Store{dir: filepath.Join(browserDataDir, recordsDirName)}
+}
+
+// NewInteractiveStore returns the store of browser sessions, rooted under
+// the browser data directory. It is kept apart from the steps' store, whose
+// sweeps release records in states they do not know.
+func NewInteractiveStore(browserDataDir string) *Store {
+	return &Store{dir: filepath.Join(browserDataDir, interactiveDirName)}
+}
+
+// WorkDir returns the directory for the files the session id owns.
+func (s *Store) WorkDir(id string) string {
+	return filepath.Join(s.dir, id)
+}
+
+// SessionLock returns the lock held by whatever uses the browser of the
+// session id: one of its commands, or a sweep closing it.
+func (s *Store) SessionLock(id string) dirlock.DirLock {
+	return dirlock.New(s.lockDir(id), nil)
+}
+
+// Purge removes the record of id with its work and lock directories.
+func (s *Store) Purge(id string) error {
+	return errors.Join(os.RemoveAll(s.WorkDir(id)), os.RemoveAll(s.lockDir(id)), s.Delete(id))
+}
+
+func (s *Store) lockDir(id string) string {
+	return filepath.Join(s.dir, id+sessionLockSuffix)
 }
 
 // Save writes the record, replacing any previous version.

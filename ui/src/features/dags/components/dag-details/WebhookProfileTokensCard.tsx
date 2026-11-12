@@ -270,7 +270,7 @@ function WebhookProfileTokensCard({
 
       <I18nProps>
         <ConfirmModal
-          title="Revoke Profile Token"
+          title="Revoke profile token"
           buttonText="Revoke"
           visible={pendingRevoke !== null}
           dismissModal={() => setPendingRevoke(null)}

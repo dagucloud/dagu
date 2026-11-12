@@ -29,6 +29,7 @@ vi.mock('@/contexts/AuthContext', () => ({
 
 vi.mock('@/contexts/UserPreference', () => ({
   useUserPreferences: () => ({ preferences: { theme: 'light' } }),
+  useResolvedTheme: () => 'light',
 }));
 
 vi.mock('@/components/ui/error-modal', () => ({
@@ -43,9 +44,9 @@ import GitSyncPage from '..';
 
 const itemID = 'scripts/a,b.sh';
 
-function renderPage() {
+function renderPage(search = '?type=file') {
   render(
-    <MemoryRouter initialEntries={['/?type=file']}>
+    <MemoryRouter initialEntries={[`/${search}`]}>
       <AppBarContext.Provider
         value={{ selectedRemoteNode: 'local', setTitle: vi.fn() } as never}
       >
@@ -71,6 +72,13 @@ beforeEach(() => {
           displayName: itemID,
           status: SyncStatus.modified,
           kind: SyncItemKind.file,
+        },
+        {
+          itemId: 'calendars/jp',
+          filePath: 'calendars/jp.yaml',
+          displayName: 'calendars/jp.yaml',
+          status: SyncStatus.synced,
+          kind: SyncItemKind.calendar,
         },
       ],
       counts: {
@@ -102,8 +110,17 @@ describe('GitSyncPage', () => {
     await user.click(screen.getByTitle('Configuration'));
 
     expect(
-      screen.queryByRole('button', { name: 'Test Connection' })
+      screen.queryByRole('button', { name: 'Test connection' })
     ).not.toBeInTheDocument();
+  });
+
+  it('lists calendars under their own filter', () => {
+    renderPage('?type=calendar');
+
+    expect(screen.getByText('calendars/jp.yaml')).toBeInTheDocument();
+    expect(screen.getByText('calendar')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Calendars (1)' })).toBeVisible();
+    expect(screen.queryByText(itemID)).not.toBeInTheDocument();
   });
 
   it('batch publishes comma-containing item IDs unchanged', async () => {

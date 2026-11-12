@@ -123,10 +123,11 @@ func validateBuildRuntimeRedirectAliases(ctx context.Context, plan *Plan, node *
 		return nil
 	}
 	step := node.Step()
-	if !cmnvalue.HasValueReference(step.Stdout) &&
-		!cmnvalue.HasValueReference(step.Stderr) &&
-		!cmnvalue.HasValueReference(step.StdoutArtifact) &&
-		!cmnvalue.HasValueReference(step.StderrArtifact) {
+	field := cmnvalue.StepArtifactOutputField("")
+	if !field.HasValueReference(step.Stdout) &&
+		!field.HasValueReference(step.Stderr) &&
+		!field.HasValueReference(step.StdoutArtifact) &&
+		!field.HasValueReference(step.StderrArtifact) {
 		return nil
 	}
 
@@ -185,11 +186,12 @@ func validateBuildRedirectAliases(
 		if redirect.path == "" {
 			continue
 		}
-		resolved, err := resolver.String(ctx, redirect.path, cmnvalue.StepArtifactOutputField(redirect.field))
+		field := cmnvalue.StepArtifactOutputField(redirect.field)
+		resolved, err := resolver.String(ctx, redirect.path, field)
 		if err != nil {
 			return err
 		}
-		if cmnvalue.HasValueReference(resolved) {
+		if field.HasValueReference(resolved) {
 			if deferUnresolved {
 				continue
 			}
@@ -215,8 +217,16 @@ func validateBuildRedirectAliases(
 		} else if !filepath.IsAbs(resolved) {
 			resolved = filepath.Join(base, resolved)
 		}
-		if declaration, ok := declaredPaths[pathKeys.ComparisonKey(filepath.Clean(resolved))]; ok {
+		cleaned := filepath.Clean(resolved)
+		if declaration, ok := declaredPaths[pathKeys.ComparisonKey(cleaned)]; ok {
 			return fmt.Errorf("step %s %s path aliases %s: %s", step.Name, redirect.field, declaration, resolved)
+		}
+		// Declared paths are regular files, so nothing can exist beneath one.
+		// Creating the redirect's parents would replace the file with a directory.
+		for parent := filepath.Dir(cleaned); parent != filepath.Dir(parent); parent = filepath.Dir(parent) {
+			if declaration, ok := declaredPaths[pathKeys.ComparisonKey(parent)]; ok {
+				return fmt.Errorf("step %s %s path is inside %s: %s", step.Name, redirect.field, declaration, resolved)
+			}
 		}
 	}
 	return nil

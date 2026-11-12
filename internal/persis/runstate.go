@@ -120,6 +120,15 @@ type runStateAttempt struct {
 	workDirRef dagrun.WorkDirRef
 }
 
+// AttemptDir returns the directory of the attempt, or "" when the attempt
+// does not live in a local directory.
+func (a runStateAttempt) AttemptDir() string {
+	if d, ok := a.Attempt.(interface{ Dir() string }); ok {
+		return d.Dir()
+	}
+	return ""
+}
+
 func (a runStateAttempt) RecordStatus(ctx context.Context, status ir.DAGRunStatus) error {
 	return a.Write(ctx, status)
 }

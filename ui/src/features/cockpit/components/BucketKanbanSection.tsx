@@ -20,7 +20,7 @@ interface Props {
   toStr: string;
   isLive: boolean;
   filters?: KanbanFilters;
-  onCardClick: (run: DAGRunSummary) => void;
+  onCardClick: (run: DAGRunSummary, event?: React.MouseEvent) => void;
   onArtifactsClick: (run: DAGRunSummary) => void;
   visibleColumns?: readonly ViewColumn[];
 }

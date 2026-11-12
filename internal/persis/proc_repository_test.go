@@ -91,10 +91,10 @@ func TestProcRepositoryLivenessQueries(t *testing.T) {
 		"queue-b": {ir.NewDAGRunRef("gamma", "run-4")},
 	}, all)
 
-	latest, err := repository.LatestFreshEntryByDAGName(t.Context(), "queue-a", "alpha")
+	fresh, err := repository.FreshEntriesByDAGName(t.Context(), "queue-a", "alpha")
 	require.NoError(t, err)
-	require.NotNil(t, latest)
-	assert.Equal(t, "run-2", latest.Meta.DAGRunID)
+	require.NotEmpty(t, fresh)
+	assert.Equal(t, "run-2", fresh[0].Meta.DAGRunID, "the latest started first")
 }
 
 func newProcRepositoryTestEntry(groupName, dagName, runID, attemptID string, startedAt, heartbeatAt int64, fresh bool) proc.ProcEntry {

@@ -144,12 +144,12 @@ func (stopDAGRunProcRepository) IsAttemptAlive(context.Context, string, ir.DAGRu
 	return false, nil
 }
 
-func (stopDAGRunProcRepository) LatestFreshEntryByDAGName(context.Context, string, string) (*proc.ProcEntry, error) {
+func (stopDAGRunProcRepository) FreshEntriesByDAGName(context.Context, string, string) ([]proc.ProcEntry, error) {
 	return nil, nil
 }
 
-func (s failingHistoryDAGRunStore) RecentStatuses(context.Context, string, int) ([]ir.DAGRunStatus, error) {
-	return nil, s.err
+func (s failingHistoryDAGRunStore) QueryStatuses(context.Context, persis.DAGRunStatusQuery) (persis.DAGRunStatusPage, error) {
+	return persis.DAGRunStatusPage{}, s.err
 }
 
 func (s failingHistoryDAGRunStore) FindAttempt(context.Context, ir.DAGRunRef) (dagrun.Attempt, error) {
@@ -697,6 +697,7 @@ func TestManualResumeLaunchFailure(t *testing.T) {
 			latest, err := attempt.ReadStatusUncached(t.Context())
 			require.NoError(t, err)
 			assert.Equal(t, status.Nodes, latest.Nodes)
+			assert.False(t, latest.Resume)
 			// A failed launch must leave the checkpoint available for admission.
 			admission, err := queue.PrepareRetry(t.Context(), repository, dag, latest, queue.EnqueueRetryOptions{})
 			require.NoError(t, err)
@@ -737,6 +738,7 @@ func TestManualResumeDispatch(t *testing.T) {
 			} else {
 				require.NoError(t, err)
 				assert.Equal(t, ir.Queued, status.Status)
+				assert.True(t, status.Resume)
 				require.NoError(t, a.resumeWaitingDAGRun(t.Context(), status.DAGRun(), before))
 				assert.Len(t, recorder.dispatched, 1)
 			}
@@ -1365,6 +1367,81 @@ func TestDAGRunListOptionsFromQueryStringRejectsInvalidStatuses(t *testing.T) {
 	require.Contains(t, apiErr.Message, "invalid status parameter")
 }
 
+func TestValidateDAGRunsListQuery(t *testing.T) {
+	t.Parallel()
+
+	api := &API{}
+	require.NoError(t, api.ValidateDAGRunsListQuery(
+		context.Background(),
+		"fromDate=1700000000&toDate=1700086400&limit=25",
+	))
+
+	cases := []struct {
+		name        string
+		queryString string
+		wantMessage string
+	}{
+		{name: "fromDate", queryString: "fromDate=not-a-timestamp", wantMessage: `invalid fromDate parameter: "not-a-timestamp"`},
+		{name: "toDate", queryString: "toDate=not-a-timestamp", wantMessage: `invalid toDate parameter: "not-a-timestamp"`},
+		{name: "limit", queryString: "limit=many", wantMessage: `invalid limit parameter: "many"`},
+		{name: "padded limit", queryString: "limit=10+", wantMessage: `invalid limit parameter: "10 "`},
+		{name: "malformed query", queryString: "fromDate=%zz", wantMessage: "invalid query parameters"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			err := api.ValidateDAGRunsListQuery(context.Background(), tc.queryString)
+
+			var apiErr *Error
+			require.ErrorAs(t, err, &apiErr)
+			require.Equal(t, http.StatusBadRequest, apiErr.HTTPStatus)
+			require.Equal(t, openapiv1.ErrorCodeBadRequest, apiErr.Code)
+			require.Contains(t, apiErr.Message, tc.wantMessage)
+		})
+	}
+}
+
+func TestGetDAGRunsListDataRejectsInvalidCursor(t *testing.T) {
+	t.Parallel()
+
+	api := &API{
+		dagRunRepository: persis.NewDAGRunRepository(invalidCursorDAGRunStore{}, nil, persis.DAGRunRepositoryOptions{}),
+	}
+
+	_, err := api.GetDAGRunsListData(context.Background(), "cursor=stale")
+
+	var apiErr *Error
+	require.ErrorAs(t, err, &apiErr)
+	require.Equal(t, http.StatusBadRequest, apiErr.HTTPStatus)
+	require.Equal(t, openapiv1.ErrorCodeBadRequest, apiErr.Code)
+}
+
+type invalidCursorDAGRunStore struct {
+	testutil.DAGRunStoreStub
+}
+
+func (invalidCursorDAGRunStore) QueryStatuses(context.Context, persis.DAGRunStatusQuery) (persis.DAGRunStatusPage, error) {
+	return persis.DAGRunStatusPage{}, fmt.Errorf("%w: filters changed", persis.ErrInvalidDAGRunQueryCursor)
+}
+
+func TestDAGRunListQueryParsesDateRange(t *testing.T) {
+	t.Parallel()
+
+	api := &API{}
+	opts, err := api.dagRunListOptionsFromQueryString(
+		context.Background(),
+		"fromDate=1700000000&toDate=1700086400&limit=25",
+	)
+	require.NoError(t, err)
+
+	applied := statusQueryFromOptions(t, opts.query)
+
+	require.Equal(t, time.Unix(1700000000, 0).UTC(), applied.From.Time)
+	require.Equal(t, time.Unix(1700086400, 0).UTC(), applied.To.Time)
+	require.Equal(t, 25, applied.Limit)
+}
+
 type blockingDAGRunStore struct {
 	testutil.DAGRunStoreStub
 }
@@ -1580,6 +1657,44 @@ func TestSubDAGRunDataRequiresRootAndChildWorkspaceAccess(t *testing.T) {
 	require.Equal(t, http.StatusNotFound, apiErr.HTTPStatus)
 }
 
+// The live step log stream feeds a stdout-only viewer, so reading stderr on
+// every refresh is wasted I/O.
+func TestStepLogStreamReadsOnlyStdout(t *testing.T) {
+	ctx := t.Context()
+	dir := t.TempDir()
+	stdoutPath := filepath.Join(dir, "stdout.log")
+	stderrPath := filepath.Join(dir, "stderr.log")
+	require.NoError(t, os.WriteFile(stdoutPath, []byte("out\n"), 0o600))
+	require.NoError(t, os.WriteFile(stderrPath, []byte("err\n"), 0o600))
+
+	repository := testutil.NewFileDAGRunRepository(t.TempDir(), persis.DAGRunRepositoryOptions{})
+	dag := &ir.DAG{Name: "logs"}
+	attempt, err := repository.CreateAttempt(ctx, dag, time.Now(), "run-1", persis.DAGRunCreateAttemptOptions{})
+	require.NoError(t, err)
+	require.NoError(t, attempt.Open(ctx))
+	status := ir.InitialStatus(dag)
+	status.DAGRunID = "run-1"
+	status.AttemptID = attempt.ID()
+	status.Nodes = []*ir.Node{{Step: ir.Step{Name: "main"}, Stdout: stdoutPath, Stderr: stderrPath}}
+	require.NoError(t, attempt.Write(ctx, status))
+	require.NoError(t, attempt.Close(ctx))
+
+	cfg := &config.Config{}
+	a := &API{
+		dagRunRepository: repository,
+		dagRunMgr:        runtimepkg.NewManager(repository, nil, cfg),
+		config:           cfg,
+	}
+
+	result, err := a.GetStepLogData(ctx, "logs/run-1/main")
+
+	require.NoError(t, err)
+	resp, ok := result.(StepLogResponse)
+	require.True(t, ok)
+	require.Equal(t, "out", resp.StdoutContent)
+	require.Empty(t, resp.StderrContent)
+}
+
 func TestStepLogLimitWithoutOffsetReadsFromBeginning(t *testing.T) {
 	stdoutPath := filepath.Join(t.TempDir(), "stdout.log")
 	require.NoError(t, os.WriteFile(stdoutPath, []byte("one\ntwo\nthree\n"), 0o600))
@@ -1691,12 +1806,14 @@ func TestAgentResumeQueue(t *testing.T) {
 				assert.Empty(t, f.recorder.dispatched)
 			} else if tt.direct {
 				assert.Equal(t, ir.Queued, status.Status)
+				assert.True(t, f.recorder.dispatched[0].PreviousStatus.Resume)
 				assert.Empty(t, items)
 				require.Len(t, f.recorder.dispatched, 1)
 				assert.Equal(t, ir.Queued, f.recorder.dispatched[0].PreviousStatus.Status)
 			} else {
 				assert.Empty(t, f.recorder.dispatched)
 				assert.Equal(t, ir.Queued, status.Status)
+				assert.True(t, status.Resume)
 				require.Len(t, items, 1)
 				ref, err := items[0].Data()
 				require.NoError(t, err)
@@ -1704,6 +1821,24 @@ func TestAgentResumeQueue(t *testing.T) {
 			}
 		})
 	}
+}
+
+// A failed agent step in a finished child run offers a clean restart, which
+// must start a new attempt rather than require the child to be waiting.
+func TestAgentRestartFinishedChild(t *testing.T) {
+	f := newAgentResumeFixture(t, true, false)
+	f.status.Status = ir.Failed
+	f.status.Nodes = f.status.Nodes[:1]
+	agentNode := f.status.Nodes[0]
+	agentNode.Status = ir.NodeFailed
+	agentNode.AgentSession.State = ir.AgentSessionFailed
+	agentNode.AgentSession.Interactions = nil
+
+	_, err := f.api.restartAgentSession(t.Context(), f.root, f.subRunID, "agent")
+	require.NoError(t, err)
+	require.Len(t, f.recorder.dispatched, 1)
+	assert.Equal(t, ir.Queued, f.recorder.dispatched[0].PreviousStatus.Status)
+	assert.True(t, f.recorder.dispatched[0].PreviousStatus.Resume)
 }
 
 // Agent actions on a run that is still executing must leave it untouched: a
@@ -1738,6 +1873,64 @@ func TestAgentActionWhileRunning(t *testing.T) {
 			assert.Equal(t, ir.AgentInteractionPending, f.status.Nodes[0].AgentSession.Interactions[0].Status)
 			assert.Empty(t, f.recorder.dispatched)
 		})
+	}
+}
+
+// Answering an agent interaction or restarting an agent session changes run
+// state and can queue execution, so a viewer who can read the run is refused
+// while an operator succeeds.
+func TestAgentActionRequiresExecute(t *testing.T) {
+	answers := [][]string{{"yes"}}
+	body := &openapiv1.AgentInteractionResponseRequest{Answers: &answers}
+	actions := []struct {
+		name  string
+		child bool
+		ok    any
+		call  func(context.Context, *agentResumeFixture) (any, error)
+	}{
+		{name: "Respond", ok: &openapiv1.RespondDAGRunStepAgentInteraction200JSONResponse{}, call: func(ctx context.Context, f *agentResumeFixture) (any, error) {
+			return f.api.RespondDAGRunStepAgentInteraction(ctx, openapiv1.RespondDAGRunStepAgentInteractionRequestObject{
+				Name: f.root.Name, DagRunId: f.root.ID, StepName: "agent", InteractionId: "ask-1", Body: body,
+			})
+		}},
+		{name: "RespondSub", child: true, ok: &openapiv1.RespondSubDAGRunStepAgentInteraction200JSONResponse{}, call: func(ctx context.Context, f *agentResumeFixture) (any, error) {
+			return f.api.RespondSubDAGRunStepAgentInteraction(ctx, openapiv1.RespondSubDAGRunStepAgentInteractionRequestObject{
+				Name: f.root.Name, DagRunId: f.root.ID, SubDAGRunId: f.subRunID, StepName: "agent", InteractionId: "ask-1", Body: body,
+			})
+		}},
+		{name: "Restart", ok: &openapiv1.RestartDAGRunStepAgentSession200JSONResponse{}, call: func(ctx context.Context, f *agentResumeFixture) (any, error) {
+			return f.api.RestartDAGRunStepAgentSession(ctx, openapiv1.RestartDAGRunStepAgentSessionRequestObject{
+				Name: f.root.Name, DagRunId: f.root.ID, StepName: "agent",
+			})
+		}},
+		{name: "RestartSub", child: true, ok: &openapiv1.RestartSubDAGRunStepAgentSession200JSONResponse{}, call: func(ctx context.Context, f *agentResumeFixture) (any, error) {
+			return f.api.RestartSubDAGRunStepAgentSession(ctx, openapiv1.RestartSubDAGRunStepAgentSessionRequestObject{
+				Name: f.root.Name, DagRunId: f.root.ID, SubDAGRunId: f.subRunID, StepName: "agent",
+			})
+		}},
+	}
+	for _, action := range actions {
+		for _, role := range []auth.Role{auth.RoleViewer, auth.RoleOperator} {
+			t.Run(action.name+"/"+role.String(), func(t *testing.T) {
+				f := newAgentResumeFixture(t, action.child, false)
+				f.api.config.Server.Permissions = map[config.Permission]bool{config.PermissionRunDAGs: true}
+				f.api.authService = struct{ AuthService }{}
+				ctx := auth.WithUser(t.Context(), &auth.User{Role: role})
+				before, err := cloneManualStatus(f.status)
+				require.NoError(t, err)
+
+				response, err := action.call(ctx, f)
+
+				if role == auth.RoleViewer {
+					require.ErrorIs(t, err, errInsufficientPermissions)
+					assert.Equal(t, before, f.status)
+					assert.Empty(t, f.recorder.dispatched)
+					return
+				}
+				require.NoError(t, err)
+				require.IsType(t, action.ok, response)
+			})
+		}
 	}
 }
 
@@ -1874,12 +2067,39 @@ func TestValidateAgentQuestionResponse(t *testing.T) {
 				return &openapiv1.AgentInteractionResponseRequest{Decision: &decision}
 			}(),
 		},
+		{
+			name:        "skip of a permission other than a browser write",
+			interaction: ir.AgentInteraction{Kind: ir.AgentInteractionPermission, Permission: "edit"},
+			body: func() *openapiv1.AgentInteractionResponseRequest {
+				decision := openapiv1.AgentInteractionResponseRequestDecisionSkip
+				return &openapiv1.AgentInteractionResponseRequest{Decision: &decision}
+			}(),
+		},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
 			require.Error(t, validateAgentInteractionResponse(test.interaction, test.body))
 		})
 	}
+}
+
+// A browser write may be skipped: the step goes on without running the
+// operation that would send it.
+func TestApplyAgentInteractionSkipsABrowserWrite(t *testing.T) {
+	t.Parallel()
+
+	node := &ir.Node{Status: ir.NodeWaiting, AgentSession: &ir.AgentSession{
+		State: ir.AgentSessionWaiting,
+		Interactions: []ir.AgentInteraction{{
+			ID: "ask-2-1", Kind: ir.AgentInteractionPermission, Status: ir.AgentInteractionPending,
+			Permission: ir.AgentPermissionBrowserWrite, Patterns: []string{"POST https://x/deals? {amount}"},
+		}},
+	}}
+	decision := openapiv1.AgentInteractionResponseRequestDecisionSkip
+	require.NoError(t, applyAgentInteractionResponse(t.Context(), node, "ask-2-1", &openapiv1.AgentInteractionResponseRequest{Decision: &decision}))
+	assert.Equal(t, ir.AgentInteractionAnswered, node.AgentSession.Interactions[0].Status)
+	assert.Equal(t, ir.AgentDecisionSkip, node.AgentSession.Interactions[0].Decision)
+	assert.Equal(t, ir.NodeNotStarted, node.Status, "the step runs again to apply the answer")
 }
 
 func TestApplyAgentInteractionRejectsPermission(t *testing.T) {
@@ -1952,7 +2172,7 @@ func TestBrowserSessionWaiting(t *testing.T) {
 			dataDir := t.TempDir()
 			if test.record != nil {
 				record := *test.record
-				record.ID = browserhost.RecordID("run-1", "login")
+				record.ID = browserhost.RecordID("run-1", "", "login")
 				require.NoError(t, browserhost.NewStore(filepath.Join(dataDir, browserhost.DataDirName)).Save(record))
 			}
 			waiting, err := browserSessionWaiting(t.Context(), dataDir, "run-1", "login", now)

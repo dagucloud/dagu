@@ -8,11 +8,13 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
+	"maps"
 	"os"
 	"os/exec"
 	"runtime/debug"
-	"strconv"
+	"slices"
 	"strings"
+	"unicode/utf8"
 
 	"github.com/dagucloud/dagu/v2/internal/cmn/runenv"
 
@@ -88,6 +90,9 @@ type SubCmdBuilder struct {
 	executable string
 	configFile string
 	baseEnv    config.BaseEnv
+	// homeEnv is the DAGU_HOME entry of the base environment, if any. A
+	// --dagu-home flag sets it there and not in the process environment.
+	homeEnv string
 }
 
 // NewSubCmdBuilder returns a new SubCmdBuilder initialized from cfg.
@@ -98,7 +103,22 @@ func NewSubCmdBuilder(cfg *config.Config) *SubCmdBuilder {
 		executable: cfg.Paths.Executable,
 		configFile: cfg.Paths.ConfigFileUsed,
 		baseEnv:    cfg.Core.BaseEnv,
+		homeEnv:    envEntry(cfg.Core.BaseEnv.AsSlice(), daguHomeEnvKey),
 	}
+}
+
+const daguHomeEnvKey = "DAGU_HOME"
+
+// envEntry returns the last KEY=value entry of env for key, or "".
+func envEntry(env []string, key string) string {
+	prefix := key + "="
+	entry := ""
+	for _, e := range env {
+		if strings.HasPrefix(e, prefix) {
+			entry = e
+		}
+	}
+	return entry
 }
 
 func (b *SubCmdBuilder) filteredEnv(extra ...string) []string {
@@ -111,8 +131,16 @@ func (b *SubCmdBuilder) filteredEnv(extra ...string) []string {
 	return env
 }
 
+// parentEnv is the process environment for commands that run a DAG, with
+// the DAGU_HOME of the configuration so that the child uses the same home.
 func (b *SubCmdBuilder) parentEnv(extra ...string) []string {
 	env := filterExecutionEnv(os.Environ())
+	if b.homeEnv != "" {
+		env = slices.DeleteFunc(env, func(e string) bool {
+			return strings.HasPrefix(e, daguHomeEnvKey+"=")
+		})
+		env = append(env, b.homeEnv)
+	}
 	env = append(env, extra...)
 	return env
 }
@@ -135,7 +163,7 @@ func (b *SubCmdBuilder) Start(dag *ir.DAG, opts StartOptions) CmdSpec {
 	args := []string{"start"}
 
 	if opts.Params != "" {
-		args = append(args, "-p", strconv.Quote(opts.Params))
+		args = append(args, "--params-stdin")
 	}
 	if opts.Quiet {
 		args = append(args, "-q")
@@ -171,6 +199,7 @@ func (b *SubCmdBuilder) Start(dag *ir.DAG, opts StartOptions) CmdSpec {
 	if opts.NoReuse {
 		args = append(args, "--no-reuse")
 	}
+	args = append(args, workerLabelArgs(opts.WorkerSelector)...)
 	if b.configFile != "" {
 		args = append(args, "--config", b.configFile)
 	}
@@ -183,6 +212,7 @@ func (b *SubCmdBuilder) Start(dag *ir.DAG, opts StartOptions) CmdSpec {
 	return CmdSpec{
 		Executable:      b.executable,
 		Args:            args,
+		Params:          opts.Params,
 		Env:             b.parentEnv(definitionIDEnv(opts.DefinitionID)...),
 		BuildEnv:        append([]string{}, dag.Env...),
 		RuntimeResolved: dag.RuntimeResolved,
@@ -194,7 +224,7 @@ func (b *SubCmdBuilder) Enqueue(dag *ir.DAG, opts EnqueueOptions) CmdSpec {
 	args := []string{"enqueue"}
 
 	if opts.Params != "" {
-		args = append(args, "-p", strconv.Quote(opts.Params))
+		args = append(args, "--params-stdin")
 	}
 	if opts.Quiet {
 		args = append(args, "-q")
@@ -229,11 +259,13 @@ func (b *SubCmdBuilder) Enqueue(dag *ir.DAG, opts EnqueueOptions) CmdSpec {
 	if opts.NoReuse {
 		args = append(args, "--no-reuse")
 	}
+	args = append(args, workerLabelArgs(opts.WorkerSelector)...)
 	args = append(args, dag.Location)
 
 	return CmdSpec{
 		Executable:      b.executable,
 		Args:            args,
+		Params:          opts.Params,
 		Env:             b.filteredEnv(definitionIDEnv(opts.DefinitionID)...),
 		BuildEnv:        append([]string{}, dag.Env...),
 		RuntimeResolved: dag.RuntimeResolved,
@@ -325,10 +357,16 @@ func (b *SubCmdBuilder) Retry(dag *ir.DAG, opts RetryOptions) CmdSpec {
 	return spec
 }
 
+// MaxParamsSize is the most bytes of params a started or enqueued run takes.
+const MaxParamsSize = 1 << 20
+
 // CmdSpec describes a command to be executed with all its configuration.
 type CmdSpec struct {
-	Executable      string
-	Args            []string
+	Executable string
+	Args       []string
+	// Params are the run's params, passed on the command's standard input
+	// so their size is not bound by the platform's command-line limit.
+	Params          string
 	Env             []string
 	BuildEnv        []string
 	RuntimeResolved bool
@@ -354,6 +392,8 @@ type StartOptions struct {
 	ProfileName  string  // Runtime profile name
 	DefinitionID string  // Stable DAG definition identity
 	NoReuse      bool    // Disable build materialization reuse
+	// WorkerSelector replaces the DAG's worker_selector for this run.
+	WorkerSelector map[string]string
 }
 
 // EnqueueOptions contains options for enqueuing a dag-run.
@@ -371,6 +411,18 @@ type EnqueueOptions struct {
 	ProfileName  string // Runtime profile name
 	DefinitionID string // Stable DAG definition identity
 	NoReuse      bool   // Disable build materialization reuse
+	// WorkerSelector replaces the DAG's worker_selector for this run.
+	WorkerSelector map[string]string
+}
+
+// workerLabelArgs renders a per-run worker selector as repeatable
+// --worker-label flags, in key order so a spec is the same for the same input.
+func workerLabelArgs(selector map[string]string) []string {
+	args := make([]string, 0, len(selector))
+	for _, key := range slices.Sorted(maps.Keys(selector)) {
+		args = append(args, fmt.Sprintf("--worker-label=%s=%s", key, selector[key]))
+	}
+	return args
 }
 
 func definitionIDEnv(id string) []string {
@@ -431,8 +483,8 @@ func Run(ctx context.Context, spec CmdSpec) error {
 func buildCommandError(err error, stdout, stderr *cappedBuffer) error {
 	return &CommandError{
 		Err:    err,
-		Stdout: strings.TrimSpace(stdout.String()),
-		Stderr: strings.TrimSpace(stderr.String()),
+		Stdout: strings.TrimSpace(strings.ToValidUTF8(stdout.String(), string(utf8.RuneError))),
+		Stderr: strings.TrimSpace(strings.ToValidUTF8(stderr.String(), string(utf8.RuneError))),
 	}
 }
 
@@ -510,6 +562,9 @@ func newCommand(ctx context.Context, spec CmdSpec, withContext bool) (*exec.Cmd,
 	}
 
 	cmdutil.SetupCommand(cmd)
+	if spec.Params != "" {
+		cmd.Stdin = strings.NewReader(spec.Params)
+	}
 	var env []string
 	if spec.Env != nil {
 		env = append([]string{}, spec.Env...)

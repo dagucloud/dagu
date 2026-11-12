@@ -18,7 +18,7 @@ export function graphExportBackground(): string {
     return value;
   }
   return document.documentElement.classList.contains('dark')
-    ? '#181b22'
+    ? '#141417'
     : '#ffffff';
 }
 
@@ -57,7 +57,7 @@ function replaceForeignObjectLabels(
     const labelStyle = source?.firstElementChild
       ? window.getComputedStyle(source.firstElementChild)
       : null;
-    text.style.fill = labelStyle?.color || '#14161b';
+    text.style.fill = labelStyle?.color || '#111114';
     text.style.stroke = 'none';
     text.style.fontFamily = labelStyle?.fontFamily || 'Arial, sans-serif';
     text.style.fontSize = labelStyle?.fontSize || '16px';
@@ -68,7 +68,7 @@ function replaceForeignObjectLabels(
 
 /**
  * Serializes the rendered graph SVG for export: strips the on-screen zoom
- * transform, pins explicit dimensions from the viewBox, converts HTML labels
+ * size, pins explicit dimensions from the viewBox, converts HTML labels
  * to SVG text, and paints an opaque background rect. Mermaid embeds its
  * styles inside the SVG, so the clone is self-contained.
  */
@@ -77,8 +77,8 @@ export function serializeGraphSvg(
   background: string
 ): { blob: Blob; width: number; height: number } {
   const clone = svg.cloneNode(true) as SVGSVGElement;
-  clone.style.transform = '';
-  clone.style.transformOrigin = '';
+  clone.style.removeProperty('width');
+  clone.style.removeProperty('height');
   replaceForeignObjectLabels(clone, svg);
 
   const viewBox = clone.viewBox.baseVal;

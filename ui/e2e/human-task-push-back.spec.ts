@@ -21,9 +21,15 @@ test.describe('Human task push-back', () => {
   }) => {
     const stack = await loadStack();
     await loginViaUI(page, stack.auth.adminUsername, stack.auth.adminPassword);
-    const token = await loginViaAPI(request, stack.auth.adminUsername, stack.auth.adminPassword);
+    const token = await loginViaAPI(
+      request,
+      stack.auth.adminUsername,
+      stack.auth.adminPassword
+    );
     const dagName = uniqueName('e2e-push-back');
-    const fileName = await writeLocalDAG(dagName, `
+    const fileName = await writeLocalDAG(
+      dagName,
+      `
 name: ${dagName}
 steps:
   - id: implement
@@ -45,12 +51,15 @@ steps:
   - id: publish
     depends: review
     run: echo published
-`);
+`
+    );
     await waitForDAGAvailable(request, token, fileName);
     const runId = await startDAG(request, token, fileName);
     await waitForRunStatus(request, token, dagName, runId, ['waiting']);
 
-    await page.goto(`/dag-runs/${encodeURIComponent(dagName)}/${encodeURIComponent(runId)}`);
+    await page.goto(
+      `/dag-runs/${encodeURIComponent(dagName)}/${encodeURIComponent(runId)}?tab=human-tasks`
+    );
     await expect(page.getByText('Review the implementation')).toBeVisible();
     await page.getByRole('button', { name: 'Request changes' }).click();
     await expect(
@@ -64,7 +73,9 @@ steps:
     // The rewound step runs again with the feedback before the task reopens.
     await expect
       .poll(async () =>
-        getStepStdout(request, token, dagName, runId, 'implement', { retryNotFound: true })
+        getStepStdout(request, token, dagName, runId, 'implement', {
+          retryNotFound: true,
+        })
       )
       .toContain('attempt=1 feedback=Add tests');
     await waitForRunStatus(request, token, dagName, runId, ['waiting']);
@@ -74,6 +85,8 @@ steps:
     await page.getByRole('button', { name: 'Complete task' }).click();
 
     await waitForRunStatus(request, token, dagName, runId, ['succeeded']);
-    expect(await getStepStdout(request, token, dagName, runId, 'publish')).toContain('published');
+    expect(
+      await getStepStdout(request, token, dagName, runId, 'publish')
+    ).toContain('published');
   });
 });

@@ -6,6 +6,7 @@ package queue
 import (
 	"context"
 	"errors"
+	"time"
 
 	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/pagination"
@@ -43,6 +44,21 @@ type QueueStore interface {
 	QueueList(ctx context.Context) ([]string, error)
 	// Watcher returns a QueueWatcher for the queue data
 	QueueWatcher(ctx context.Context) QueueWatcher
+}
+
+// Summary is one queue that holds queued items: how many wait, and the
+// next of them in line, by its item ID and when it was queued.
+type Summary struct {
+	Name         string
+	Queued       int
+	Next         string
+	NextQueuedAt time.Time
+}
+
+// Summarizer sums up the queues that hold queued items, in name order,
+// without reading the items.
+type Summarizer interface {
+	Summaries(ctx context.Context) ([]Summary, error)
 }
 
 // QueueWatcher watches the queue state

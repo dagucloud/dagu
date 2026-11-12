@@ -150,6 +150,13 @@ Rules:
   environment only if Dagu already imported that value into the run environment
   scope through an explicit source such as inherited base environment, root
   `env`, dotenv, runtime profile, or secret exposure.
+- Dagu configuration variables that carry a credential, such as
+  `DAGU_AUTH_BASIC_PASSWORD`, `DAGU_SECRETS_VAULT_TOKEN`, or
+  `DAGU_ENCRYPTION_KEY`, are never inherited into a run environment scope and
+  are never read through host process environment fallback. They reach neither
+  a step's process environment nor an expanded value. Dagu's own child
+  processes still receive them, and other `DAGU_` variables are inherited as
+  before.
 
 - Environment names are matched exactly during Dagu value resolution.
 - When Dagu builds a process environment on a platform where environment names are case-insensitive, duplicate names that differ only by case collapse according to the platform rule, and the higher-precedence Dagu source wins.
@@ -167,13 +174,30 @@ Initial current-step Dagu-managed environment names include:
 
 - `PWD`
 - `DAG_RUN_STEP_NAME`
+- `DAG_RUN_STEP_REPEAT_INDEX`
 
 `PWD` is the resolved working directory for the current step.
 `DAG_RUN_STEP_NAME` is the current step's effective runtime name. When a step
 omits `name` and uses `id`, the effective runtime name is that `id`.
+`DAG_RUN_STEP_REPEAT_INDEX` is present only for steps with `repeat_policy`
+and is defined by [Spec 017](017-built-in-run-context.md).
 
 `DAG_RUN_STATUS`, when present for a handler or status-aware surface, is an
 initial current-step Dagu-managed value for that surface.
+
+`TRACEPARENT` and `TRACESTATE`, when present for an executable step, are
+initial current-step Dagu-managed values. They carry the trace context of the
+step span defined by [Spec 017](017-built-in-run-context.md#trace-context-projection).
+They differ from the other initial current-step names in these ways:
+
+- They are not protected and not secret-reserved. They are standard names that
+  workflows and tools also set.
+- They replace a value of the same name from the root run environment scope.
+- A step-local source that sets either name shadows both names. Dagu then adds
+  neither name, so a step-local `TRACEPARENT` is never paired with the trace
+  state of the step span. When only one name is step-local, Dagu replaces a
+  root-scope value of the other name with an empty value, because the two
+  names form one trace context.
 
 Execution-attempt Dagu-managed environment names include:
 
@@ -201,6 +225,7 @@ Secret-reserved Dagu-managed environment names include every name starting with
 - `DAG_RUN_ID`
 - `DAG_RUN_LOG_FILE`
 - `DAG_RUN_STEP_NAME`
+- `DAG_RUN_STEP_REPEAT_INDEX`
 - `DAG_RUN_STEP_STDOUT_FILE`
 - `DAG_RUN_STEP_STDERR_FILE`
 - `DAG_RUN_STATUS`
@@ -241,7 +266,8 @@ Rules:
   output variable for this spec.
 - Output variables enter only the environment scope of downstream steps that
   directly or transitively depend on the producing step.
-- Output variables do not create dependencies.
+- Output variables do not create dependencies. Only supported step output
+  references do, under Spec 007.
 
 ### Environment Declarations
 
@@ -320,10 +346,10 @@ Rules:
 - Names Dagu manages for a run or a step are rejected. A child run resolves its
   own, and the parent's describe the parent run and the host executing it:
   `DAG_NAME`, `DAG_RUN_ID`, `DAG_RUN_LOG_FILE`, `DAG_RUN_STEP_NAME`,
-  `DAG_RUN_STEP_STDOUT_FILE`, `DAG_RUN_STEP_STDERR_FILE`, `DAG_RUN_STATUS`,
-  `DAG_RUN_WORK_DIR`, `DAG_RUN_ARTIFACTS_DIR`, `DAG_WIKI_DIR`, `DAG_DOCS_DIR`,
-  `DAG_PARAMS_JSON`, `DAGU_PARAMS_JSON`, `DAG_PUSHBACK*`, `PWD`, and the
-  internal retry markers.
+  `DAG_RUN_STEP_REPEAT_INDEX`, `DAG_RUN_STEP_STDOUT_FILE`,
+  `DAG_RUN_STEP_STDERR_FILE`, `DAG_RUN_STATUS`, `DAG_RUN_WORK_DIR`,
+  `DAG_RUN_ARTIFACTS_DIR`, `DAG_WIKI_DIR`, `DAG_DOCS_DIR`, `DAG_PARAMS_JSON`,
+  `DAGU_PARAMS_JSON`, `DAG_PUSHBACK*`, `PWD`, and the internal retry markers.
 - A listed name resolves against the environment scope visible to the calling
   step. Resolution never reads the Dagu process environment directly, so a host
   process value reaches a child only when the operator's base environment policy
@@ -475,6 +501,14 @@ process.
 ### Single-Quoted Environment References
 
 - Single-quoted `$NAME` and `${NAME}` are preserved during Dagu environment expansion.
+
+- Exception: in `steps[].run`, a bare reference written as `"${NAME}"` in a template slot is resolved by Dagu and its value is re-quoted, because the shell never expands it there. A template slot is a single-quoted span, such as a JSON body in `'{"key":"${NAME}"}'`, or a here-document body. For POSIX and Nix shells in local runs, an apostrophe in a value resolved into a single-quoted span is written as `'\''`, so the value cannot end the span.
+
+- A secret is never written into the command text of a local POSIX or Nix shell run, even in a template slot; the reference stays for the shell. To pass a secret into a single-quoted body, close the quotes around it: `'{"token":"'"${TOKEN}"'"}'`.
+
+- Quote spans follow POSIX shell rules. An apostrophe inside double quotes, or preceded by an odd number of consecutive backslashes, opens no single-quoted span; after an even number it opens one. A `$(...)` or backquoted command substitution and a `${...}` parameter expansion keep their own quotes, so quotes inside them do not end an outer span. A comment and the body of a here-document open no span.
+
+- Outside template slots, POSIX and Nix shells used for local `steps[].run` commands own `"${NAME}"` like an unquoted reference. Dagu inlines a safe home-relative value such as `~/data` only where the reference is unquoted, so the shell can expand the `~`, and never inlines a secret.
 
 - "Single-quoted" means the reference starts inside a single-quoted span in the field text after YAML parsing.
 

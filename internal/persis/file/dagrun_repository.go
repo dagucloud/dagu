@@ -4,6 +4,8 @@
 package file
 
 import (
+	"path/filepath"
+
 	"github.com/dagucloud/dagu/v2/internal/cmn/config"
 	"github.com/dagucloud/dagu/v2/internal/cmn/fileutil"
 	"github.com/dagucloud/dagu/v2/internal/ir"
@@ -60,10 +62,21 @@ func NewDAGRunRepository(cfg *config.Config, opts ...DAGRunRepositoryOption) *pe
 		storeOpts = append(storeOpts, filedagrun.WithHistoryFileCache(options.HistoryFileCache))
 	}
 	store := filedagrun.NewStore(cfg.Paths.DAGRunsDir, storeOpts...)
+	// Ephemeral runs live in a tree of their own, outside the history, so no
+	// listing, retention pass or index of the history reaches them.
+	ephemeralStore := filedagrun.NewStore(EphemeralDAGRunsDir(cfg.Paths.DAGRunsDir), storeOpts...)
 	workDirs := filedagrun.NewWorkDirStore(cfg.Paths.DAGRunWorkDir, cfg.Paths.DAGRunsDir)
 	return persis.NewDAGRunRepository(store, workDirs, persis.DAGRunRepositoryOptions{
 		LatestStatusToday: options.LatestStatusToday,
 		Location:          cfg.Core.Location,
 		RemovalEnqueuer:   options.RemovalEnqueuer,
+		EphemeralStore:    ephemeralStore,
 	})
+}
+
+// EphemeralDAGRunsDir returns the directory that holds ephemeral runs. It is
+// a sibling of the history directory, never inside it.
+func EphemeralDAGRunsDir(dagRunsDir string) string {
+	clean := filepath.Clean(dagRunsDir)
+	return filepath.Join(filepath.Dir(clean), filepath.Base(clean)+"-ephemeral")
 }

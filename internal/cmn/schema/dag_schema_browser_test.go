@@ -37,6 +37,10 @@ steps:
         allowed_domains: [portal.example.com]
         screenshots: each
         profile: vendor
+        client_certificates:
+          - hosts: [portal.example.com]
+            pfx_file: certs/client.p12
+            passphrase: ${CERT_PASSPHRASE}
       variables:
         user: alice
       do:
@@ -53,6 +57,11 @@ steps:
         - extract:
             instruction: The latest invoice
             schema: {type: object, properties: {invoice_number: {type: string}}}
+        - upload: {files: receipts/*.pdf}
+        - upload:
+            files: [invoice.pdf, "${steps.mail.outputs.messages}"]
+            into: The receipt drop area
+            cache: false
         - wait: {selector: "#done"}
         - wait: {duration: 2s}
         - screenshot: billing
@@ -69,8 +78,13 @@ steps:
 		{"unknown screenshot policy", "screenshots: each", "screenshots: sometimes"},
 		{"invalid variable name", "        user: alice", "        user-name: alice"},
 		{"unknown browser option", "headless: true", "stealth: true"},
+		{"client certificate without hosts", "hosts: [portal.example.com]", "ca_file: certs/ca.pem"},
+		{"unknown client certificate option", "pfx_file: certs/client.p12", "pfx: certs/client.p12"},
 		{"condition with two checks", "expect: {text: Invoice}", "expect: {text: Invoice, url: /x}"},
 		{"unknown condition check", "when: {url: /billing}", "when: {title: Billing}"},
+		{"upload without files", "upload: {files: receipts/*.pdf}", "upload: {into: Receipts}"},
+		{"upload with no file listed", "upload: {files: receipts/*.pdf}", "upload: {files: []}"},
+		{"unknown upload option", "cache: false\n        - wait", "multiple: true\n        - wait"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			doc := mustParseYAMLDocument(t, strings.Replace(source, tc.from, tc.to, 1))

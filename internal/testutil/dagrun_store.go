@@ -29,6 +29,10 @@ func (DAGRunStoreStub) LatestAttempt(context.Context, persis.DAGRunLatestAttempt
 	panic("unexpected DAG-run store call: LatestAttempt")
 }
 
+func (DAGRunStoreStub) LatestStatuses(context.Context, persis.DAGRunLatestStatusesQuery) ([]*ir.DAGRunStatus, error) {
+	panic("unexpected DAG-run store call: LatestStatuses")
+}
+
 func (DAGRunStoreStub) QueryStatuses(context.Context, persis.DAGRunStatusQuery) (persis.DAGRunStatusPage, error) {
 	panic("unexpected DAG-run store call: QueryStatuses")
 }

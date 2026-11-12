@@ -4,6 +4,7 @@
 package gemini
 
 import (
+	"cmp"
 	"context"
 	"encoding/json"
 	"errors"
@@ -21,11 +22,14 @@ const (
 	desktopEnvironment = "ENVIRONMENT_DESKTOP"
 	// normalizedScale is the size of the coordinate grid Gemini computer use
 	// reports positions on, regardless of the screenshot size.
-	normalizedScale      = 1000
-	requireConfirmation  = "require_confirmation"
-	defaultWaitDuration  = time.Second
-	legacyWaitDuration   = 5 * time.Second
-	defaultScrollNotches = 3
+	normalizedScale     = 1000
+	requireConfirmation = "require_confirmation"
+	defaultWaitDuration = time.Second
+	legacyWaitDuration  = 5 * time.Second
+	// Scroll distances Gemini documents for a call that names none: pixels
+	// for scroll, and on the grid for the legacy scroll_at.
+	defaultScrollPixels   = 300
+	legacyScrollMagnitude = 800
 )
 
 // computerImageLimit is the screen size Gemini computer use is tuned for.
@@ -113,6 +117,10 @@ func (s *computerSession) Next(ctx context.Context, obs computeruse.Observation)
 	var resp computerResponse
 	if err := json.NewDecoder(respBody).Decode(&resp); err != nil {
 		return nil, llm.WrapError(providerName, fmt.Errorf("failed to decode response: %w", err))
+	}
+	// The call is billed whether or not its answer can be used.
+	if resp.UsageMetadata != nil {
+		llm.RecordUsage(ctx, llm.UsageRecord{Provider: providerName, Model: s.opts.Model, Usage: resp.UsageMetadata.llm()})
 	}
 	if len(resp.Candidates) == 0 {
 		reason := "no candidates"
@@ -231,11 +239,7 @@ func (s *computerSession) turn(content json.RawMessage, screen computeruse.Scree
 
 	turn := &computeruse.Turn{}
 	if usage != nil {
-		turn.Usage = llm.Usage{
-			PromptTokens:     usage.PromptTokenCount,
-			CompletionTokens: usage.CandidatesTokenCount + usage.ThoughtsTokenCount,
-			TotalTokens:      usage.TotalTokenCount,
-		}
+		turn.Usage = usage.llm()
 	}
 	s.pending = s.pending[:0]
 	var confirmations []string
@@ -305,11 +309,26 @@ type computerResponse struct {
 	UsageMetadata *usageMetadata `json:"usageMetadata"`
 }
 
+// usageMetadata is a response's usage. The prompt count includes the cached
+// content; the candidates count leaves out the thinking tokens.
 type usageMetadata struct {
-	PromptTokenCount     int `json:"promptTokenCount"`
-	CandidatesTokenCount int `json:"candidatesTokenCount"`
-	ThoughtsTokenCount   int `json:"thoughtsTokenCount"`
-	TotalTokenCount      int `json:"totalTokenCount"`
+	PromptTokenCount        int `json:"promptTokenCount"`
+	CandidatesTokenCount    int `json:"candidatesTokenCount"`
+	ThoughtsTokenCount      int `json:"thoughtsTokenCount"`
+	CachedContentTokenCount int `json:"cachedContentTokenCount"`
+	TotalTokenCount         int `json:"totalTokenCount"`
+}
+
+// llm returns the usage as llm.Usage, whose completion counts the thinking
+// tokens too.
+func (u usageMetadata) llm() llm.Usage {
+	return llm.Usage{
+		PromptTokens:       u.PromptTokenCount,
+		CompletionTokens:   u.CandidatesTokenCount + u.ThoughtsTokenCount,
+		TotalTokens:        u.TotalTokenCount,
+		CachedPromptTokens: u.CachedContentTokenCount,
+		ReasoningTokens:    u.ThoughtsTokenCount,
+	}
 }
 
 // geminiArgs holds the arguments of every predefined computer use
@@ -416,11 +435,7 @@ func computerActions(callID, name string, args geminiArgs, screen computeruse.Sc
 				return nil, err
 			}
 		}
-		amount := computeruse.PixelsToNotches(max(args.MagnitudeInPixels, args.Magnitude))
-		if amount == 0 {
-			amount = defaultScrollNotches
-		}
-		action.ScrollX, action.ScrollY, err = computeruse.ScrollDelta(args.Direction, amount)
+		action.ScrollX, action.ScrollY, err = scrollNotches(name, args, screen)
 	case "press_key":
 		action.Kind = computeruse.KindKey
 		action.Keys = computeruse.SplitKeys(args.Key)
@@ -448,6 +463,19 @@ func computerActions(callID, name string, args geminiArgs, screen computeruse.Sc
 		return nil, fmt.Errorf("%s needs keys", name)
 	}
 	return []computeruse.Action{action}, nil
+}
+
+// scrollNotches converts a scroll's distance to wheel notches. Gemini gives
+// magnitude_in_pixels in screenshot pixels, and the legacy magnitude on the
+// grid positions are on, along the scroll's axis.
+func scrollNotches(name string, args geminiArgs, screen computeruse.Screen) (x, y int, err error) {
+	legacy := args.MagnitudeInPixels == 0 && (args.Magnitude != 0 || name != "scroll")
+	if !legacy {
+		x, y, err = computeruse.ScrollDelta(args.Direction, cmp.Or(args.MagnitudeInPixels, defaultScrollPixels))
+		return computeruse.PixelsToNotches(x), computeruse.PixelsToNotches(y), err
+	}
+	x, y, err = computeruse.ScrollDelta(args.Direction, cmp.Or(args.Magnitude, legacyScrollMagnitude))
+	return computeruse.PixelsToNotches(x * screen.Width / normalizedScale), computeruse.PixelsToNotches(y * screen.Height / normalizedScale), err
 }
 
 // typeActions types at the focus, or clicks the given position first. A

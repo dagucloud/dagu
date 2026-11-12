@@ -73,7 +73,7 @@ export function DeleteDialog({
       <DialogContent className="sm:max-w-md">
         <DialogHeader>
           <DialogTitle className="text-base">
-            <I18nText text={'Delete Sync Item'} />
+            <I18nText text={'Delete sync item'} />
           </DialogTitle>
           <DialogDescription className="text-xs">
             <I18nText text={'This action cannot be undone.'} />
