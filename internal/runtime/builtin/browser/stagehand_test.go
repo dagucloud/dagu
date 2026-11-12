@@ -54,19 +54,30 @@ const shopPage = `<!doctype html><html><head><title>Shop</title></head><body>
 <button onclick="document.getElementById('status').textContent='clicked'">Submit</button>
 </body></html>`
 
-// testBrowserDir keeps what test browsers learn about the executable, so
-// only the first headless launch of a test process learns its user agent.
-var testBrowserDir string
+var (
+	browserDirOnce sync.Once
+	browserDir     string
+	browserDirErr  error
+)
+
+// testBrowserDir returns where test browsers keep what they learn about the
+// executable, so only the first headless launch of a test process learns its
+// user agent. It is made on first use, so a helper process that launches no
+// browser leaves none behind when a test kills it.
+func testBrowserDir(t *testing.T) string {
+	t.Helper()
+	browserDirOnce.Do(func() {
+		browserDir, browserDirErr = os.MkdirTemp("", "dagu-browser-state-")
+	})
+	require.NoError(t, browserDirErr)
+	return browserDir
+}
 
 func TestMain(m *testing.M) {
-	dir, err := os.MkdirTemp("", "dagu-browser-state-")
-	if err != nil {
-		fmt.Fprintln(os.Stderr, err)
-		os.Exit(1)
-	}
-	testBrowserDir = dir
 	code := m.Run()
-	_ = os.RemoveAll(dir)
+	if browserDir != "" {
+		_ = os.RemoveAll(browserDir)
+	}
 	os.Exit(code)
 }
 
@@ -142,7 +153,7 @@ func launchBrowser(t *testing.T, opts launchOptions) engine {
 		opts.UserDataDir = browserProfileDir(t)
 	}
 	opts.NoSandbox = true
-	opts.BrowserDir = cmp.Or(opts.BrowserDir, testBrowserDir)
+	opts.BrowserDir = cmp.Or(opts.BrowserDir, testBrowserDir(t))
 	var eng engine
 	err := withStartupSlot(func() (err error) {
 		eng, err = stagehandLauncher{}.Launch(ctx, opts)
@@ -2490,7 +2501,7 @@ func TestStagehandWriteGateDecidesFromTheFirstPage(t *testing.T) {
 	var eng engine
 	err := withStartupSlot(func() (err error) {
 		eng, err = launcher.Launch(t.Context(), launchOptions{
-			Executable: chrometest.Path(), Headless: true, UserDataDir: browserProfileDir(t), NoSandbox: true, BrowserDir: testBrowserDir,
+			Executable: chrometest.Path(), Headless: true, UserDataDir: browserProfileDir(t), NoSandbox: true, BrowserDir: testBrowserDir(t),
 			Generate: model.generate, WriteGate: &writeGateOptions{Mode: writegate.ModeRehearse},
 		})
 		return err
