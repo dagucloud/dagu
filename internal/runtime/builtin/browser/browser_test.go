@@ -1124,6 +1124,24 @@ func TestUnguardedAskFailsBeforeLaunchWithoutAskSupport(t *testing.T) {
 	assert.Empty(t, run.launcher.launches)
 }
 
+// The error names the step's URL, which is masked like other output when
+// it holds a secret.
+func TestUnguardedAskErrorMasksSecretInURL(t *testing.T) {
+	t.Parallel()
+
+	run := newTestRun(t, pageModel(nil))
+	run.noAsk = true
+	run.secrets = map[string]string{"TOKEN": "s3cr3t-token"}
+	execution := run.execute(`{"browser": {"profile": "shop"}, "do": [
+		{"goto": "https://shop.example.com/login?token=s3cr3t-token"},
+		{"ask": {"prompt": "Enter the code sent to your phone", "as": "otp"}}
+	]}`, nil)
+
+	require.ErrorContains(t, execution.err, "dagu browser session open https://shop.example.com/login?token=******* --headed --profile shop")
+	assert.NotContains(t, execution.err.Error(), "s3cr3t-token")
+	assert.Empty(t, run.launcher.launches)
+}
+
 // A when-guarded ask that does not run does not fail the step where asks
 // are unsupported, so a DAG whose profile is already signed in runs on every
 // host.

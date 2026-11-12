@@ -214,7 +214,8 @@ func (r *run) execute(ctx context.Context) error {
 	// An ask without a when certainly runs, so the step fails before starting
 	// a browser; a when-guarded ask fails at its operation if it runs.
 	if r.cfg.hasUnguardedAsk() && !r.exec.askSupported {
-		return fmt.Errorf("browser: %w", r.cfg.askUnsupportedError())
+		// The URL the error names may hold a secret.
+		return errors.New("browser: " + r.masker.MaskString(r.cfg.askUnsupportedError().Error()))
 	}
 	if mode, err := writeGateMode(ctx, r.cfg.Browser.WriteGate); err == nil && mode == writegate.ModeAsk && !r.exec.askSupported {
 		return errors.New("browser: write_gate ask is not supported on Windows, where the browser cannot outlive the step process")
