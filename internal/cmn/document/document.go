@@ -23,12 +23,11 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
-	"unicode/utf8"
 
 	"github.com/dagucloud/dagu/v2/internal/cmn/imagefit"
+	"github.com/dagucloud/dagu/v2/internal/cmn/workbook"
 	"github.com/xuri/excelize/v2"
 	_ "golang.org/x/image/webp" // decoded by image.Decode
-	"golang.org/x/text/encoding/japanese"
 )
 
 const (
@@ -305,12 +304,10 @@ func workbookText(data []byte) (string, error) {
 }
 
 // plainText reads a text file, in UTF-8 or else Shift_JIS, as Japanese
-// Windows writes them.
+// Windows writes them; one in neither encoding fails rather than being
+// given to the model as replacement characters.
 func plainText(data []byte) (string, error) {
-	if utf8.Valid(data) {
-		return string(data), nil
-	}
-	decoded, err := japanese.ShiftJIS.NewDecoder().Bytes(data)
+	decoded, _, err := workbook.DetectText(data)
 	if err != nil {
 		return "", fmt.Errorf("the text file could not be read: %w", err)
 	}

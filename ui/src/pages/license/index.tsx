@@ -421,6 +421,7 @@ export default function LicenseSection({
             remoteNode={remoteNode}
             consoleURL={consoleBaseURL(license)}
             plan={remoteAccessPlan}
+            trialEndsAt={license.plan === 'trial' ? license.expiry : undefined}
             trialURL={consoleHref}
             onOpenTrial={() => (consoleOpened.current = true)}
             showActivity={license.features.includes('audit')}

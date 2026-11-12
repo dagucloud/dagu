@@ -3158,6 +3158,10 @@ func buildLLM(_ buildContext, d *dag) (*ir.LLMConfig, error) {
 		return nil, ir.NewValidationError("llm.files", cfg.Files.Value(),
 			fmt.Errorf("files is not valid in a DAG-level llm block; set it on a chat.completion step, under with"))
 	}
+	if cfg.MaxFileChars != nil {
+		return nil, ir.NewValidationError("llm.max_file_chars", *cfg.MaxFileChars,
+			fmt.Errorf("max_file_chars is not valid in a DAG-level llm block; set it on a chat.completion step, under with"))
+	}
 
 	thinking, err := buildThinkingConfig(cfg.Thinking)
 	if err != nil {

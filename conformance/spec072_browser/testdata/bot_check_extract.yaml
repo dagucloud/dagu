@@ -1,0 +1,30 @@
+working_dir: .
+env:
+  - SHOP_URL: ${SHOP_URL}
+  - LLM_BASE_URL: ${LLM_BASE_URL}
+llm:
+  provider: local
+  model: test-model
+  base_url: ${LLM_BASE_URL}
+steps:
+  - id: orders
+    action: browser.run
+    with:
+      url: ${SHOP_URL}/guarded
+      do:
+        - extract:
+            instruction: Every order the table lists
+            schema:
+              type: object
+              properties:
+                orders:
+                  type: array
+                  items:
+                    type: object
+                    properties:
+                      number: {type: string}
+                    required: [number]
+              required: [orders]
+  - id: record
+    depends: orders
+    run: echo "${steps.orders.outputs.orders}" > orders.out
