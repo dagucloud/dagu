@@ -58,6 +58,7 @@ func (r *run) detachForAnswer(ctx context.Context, index, cursor int, kind strin
 	r.record.Deadline = deadline
 	r.record.Cursor = cursor
 	r.record.Outputs = r.outputs
+	r.record.Downloads = r.downloads
 	r.record.ReplayPending, r.record.ReplayUsed = r.cache.Held()
 	r.record.WriteGateSeq = r.writeSeq
 	r.record.OwnerPID = 0
@@ -145,6 +146,7 @@ func (r *run) resumeSession(ctx context.Context, recordID string, session *ir.Ag
 		return 0, err
 	}
 	maps.Copy(r.outputs, record.Outputs)
+	r.downloads = append(record.Downloads, r.downloads...)
 	r.cache.Hold(record.ReplayPending, record.ReplayUsed)
 	r.timeline.Lifecycle(agentstep.StatusRunning, "Resumed browser after input")
 	return record.Cursor, nil

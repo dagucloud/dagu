@@ -184,8 +184,17 @@ The top-level properties each `extract` schema lists become step outputs,
 readable as `${steps.<id>.outputs.<name>}` and known when the DAG loads. Two
 extract operations in one step that list the same property fail validation.
 Only listed properties are published; extracted fields a schema does not list
-are dropped. When the step succeeds with outputs, stdout is one JSON object of
-those outputs. Operation progress is written to stderr.
+are dropped.
+
+Every browser step also publishes `downloads`: a JSON array of the absolute
+paths of the files it saved ([Downloads](#downloads)), in the order they
+finished, and empty when it saved none. The name is reserved: an `extract`
+schema that lists a `downloads` property fails validation. A later step can
+pass `${steps.<id>.outputs.downloads}` to a command, to an `upload`
+operation's `files`, or to `chat.completion` `files`.
+
+When the step succeeds, stdout is one JSON object of its outputs. Operation
+progress is written to stderr.
 
 ### Browser options
 
@@ -430,6 +439,12 @@ also waits a few seconds for a download to begin. A download may run for the
 longest timeout of the acts and gotos run so far. A canceled download, or one
 still running at that timeout, fails the step.
 
+The step publishes the absolute path of every file it saved in its
+`downloads` output ([Outputs](#outputs)), so a later step need not rebuild
+the path from the step id and the name the site chose. A step in a `foreach`
+body publishes only the files its own item saved. The files saved before an
+`ask` pauses the step are published when the resumed step ends.
+
 ### Dialogs
 
 The step accepts every JavaScript dialog a page opens, so a dialog never
@@ -549,7 +564,9 @@ because the browser cannot outlive the step process there.
 
 A missing `with.do`, `with.url` for `browser.extract`, `with.instruction`, or
 `with.schema` fails validation with a diagnostic naming the field. An operation
-or condition that sets zero or several keys fails validation. A step fails when
+or condition that sets zero or several keys fails validation. An `extract`
+schema that lists a `downloads` property fails validation:
+`output "downloads" is reserved for the files the step downloads`. A step fails when
 an `act` does not complete, an `expect` does not hold, a selector does not
 appear before the timeout, a download does not finish, the page leaves the
 allowed domains, the browser stops responding, or the browser cannot be

@@ -180,8 +180,8 @@ func TestRunPublishesExtractedOutputs(t *testing.T) {
 	execution := run.execute(checkoutSteps, nil)
 	require.NoError(t, execution.err)
 
-	assert.Equal(t, map[string]any{"order": "A-100"}, execution.exec.GetOutputs())
-	assert.JSONEq(t, `{"order":"A-100"}`, execution.stdout.String())
+	assert.Equal(t, map[string]any{"order": "A-100", "downloads": []string{}}, execution.exec.GetOutputs())
+	assert.JSONEq(t, `{"order":"A-100","downloads":[]}`, execution.stdout.String())
 	assert.Contains(t, execution.stderr.String(), `[1/3] act "Click the checkout button"`)
 
 	session := execution.exec.GetAgentSession()
@@ -984,6 +984,8 @@ func TestAskWaitsAndResumesSameBrowser(t *testing.T) {
 	// the browser's process identifies.
 	run.engine.handle.BrowserPID = 4242
 	run.engine.handle.BrowserStartedAt = 1_700_000_000_000
+	// A download saved before the ask is published by the resumed step.
+	run.engine.downloads = []string{"statement.pdf"}
 	waiting := run.execute(loginSteps, nil)
 	require.NoError(t, waiting.err)
 
@@ -1018,7 +1020,10 @@ func TestAskWaitsAndResumesSameBrowser(t *testing.T) {
 	assert.Equal(t, []string{"Sign in", "Type %otp% and submit"}, run.engine.actInstructions())
 	assert.Equal(t, "123456", run.engine.acts[1].variables["otp"])
 	assert.Equal(t, []string{"otp"}, run.engine.acts[1].secret, "an answer is secret")
-	assert.Equal(t, map[string]any{"account": "acme"}, resumed.exec.GetOutputs())
+	assert.Equal(t, map[string]any{
+		"account":   "acme",
+		"downloads": []string{filepath.Join(run.artifacts, "browser", "shop", "downloads", "statement.pdf")},
+	}, resumed.exec.GetOutputs())
 	assert.True(t, resumed.exec.GetAgentSession().Interactions[0].Applied)
 	assert.True(t, run.engine.closed)
 	assert.Empty(t, run.records())
@@ -1470,11 +1475,13 @@ func TestNavigationOutsideAllowedDomainsFailsStep(t *testing.T) {
 	assert.True(t, run.engine.closed)
 }
 
+// The files a step downloads appear in its timeline and, as absolute paths in
+// the order they finished, in its downloads output.
 func TestDownloadsAreRecorded(t *testing.T) {
 	t.Parallel()
 
 	run := newTestRun(t, pageModel(nil))
-	run.engine.downloads = []string{"invoice.pdf"}
+	run.engine.downloads = []string{"invoice.pdf", "receipt.pdf"}
 	execution := run.execute(`{"do": [{"act": "Download the latest invoice"}]}`, nil)
 	require.NoError(t, execution.err)
 
@@ -1484,7 +1491,27 @@ func TestDownloadsAreRecorded(t *testing.T) {
 			files = append(files, event.Files...)
 		}
 	}
-	assert.Equal(t, []string{"browser/shop/downloads/invoice.pdf"}, files)
+	assert.Equal(t, []string{"browser/shop/downloads/invoice.pdf", "browser/shop/downloads/receipt.pdf"}, files)
+
+	downloadsDir := filepath.Join(run.artifacts, "browser", "shop", "downloads")
+	saved := []string{filepath.Join(downloadsDir, "invoice.pdf"), filepath.Join(downloadsDir, "receipt.pdf")}
+	assert.Equal(t, map[string]any{"downloads": saved}, execution.exec.GetOutputs())
+	var stdout map[string][]string
+	require.NoError(t, json.Unmarshal(execution.stdout.Bytes(), &stdout))
+	assert.Equal(t, map[string][]string{"downloads": saved}, stdout)
+}
+
+// A step that saved nothing publishes an empty downloads list, so a later
+// step can pass the output on without checking for it.
+func TestNoDownloadsPublishesEmptyList(t *testing.T) {
+	t.Parallel()
+
+	run := newTestRun(t, pageModel(nil))
+	execution := run.execute(`{"do": [{"act": "Open the latest invoice"}]}`, nil)
+	require.NoError(t, execution.err)
+
+	assert.Equal(t, map[string]any{"downloads": []string{}}, execution.exec.GetOutputs())
+	assert.JSONEq(t, `{"downloads":[]}`, execution.stdout.String())
 }
 
 func TestUnfinishedDownloadFailsStep(t *testing.T) {

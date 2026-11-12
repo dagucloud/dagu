@@ -33,6 +33,11 @@ const (
 	opAsk        = "ask"
 )
 
+// outputDownloads is the output every browser step publishes: the absolute
+// paths of the files it downloaded, in the order they finished. An extract
+// schema may not list a property of that name.
+const outputDownloads = "downloads"
+
 // Automatic screenshot policies.
 const (
 	// screenshotsOnFailure captures the page only when the step fails.
@@ -421,6 +426,9 @@ func (c config) validate() error {
 		if op.Extract != nil {
 			properties, _ := op.Extract.Schema["properties"].(map[string]any)
 			for name := range properties {
+				if name == outputDownloads {
+					return fmt.Errorf("browser: do[%d]: output %q is reserved for the files the step downloads", i, name)
+				}
 				if first, exists := outputs[name]; exists {
 					return fmt.Errorf("browser: do[%d]: output %q is already extracted by do[%d]", i, name, first)
 				}
