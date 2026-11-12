@@ -93,6 +93,16 @@ func TestMakePlanNamedAndPendingSlots(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, "Asia/Tokyo", zonedRange.Slots[0].Location().String(), "a named slot reads in its schedule's zone")
 
+	// A resumed 02:00 slot of a schedule moved to 01:00 fires under no
+	// current schedule, and still reads in the schedule's zone.
+	moved := req
+	moved.Schedule = dailyAt(t, "CRON_TZ=America/New_York 0 1 * * *")
+	moved.Slots = []time.Time{time.Date(2026, 10, 2, 6, 0, 0, 0, time.UTC)}
+	moved.Resume = true
+	movedRange, err := backfill.SlotsOf(moved)
+	require.NoError(t, err)
+	assert.Equal(t, "America/New_York", movedRange.Slots[0].Location().String())
+
 	plan := backfill.MakePlan(req, rng, []backfill.Slot{
 		{At: rng.Slots[0], Status: backfill.SlotSucceeded},
 		{At: rng.Slots[1], Status: backfill.SlotSucceeded, RunID: "earlier"},

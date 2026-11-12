@@ -134,11 +134,7 @@ func SlotsOf(req PlanRequest) (SlotRange, error) {
 		slices.SortFunc(slots, func(a, b time.Time) int { return a.Compare(b) })
 		slots = slices.CompactFunc(slots, func(a, b time.Time) bool { return a.Equal(b) })
 		for i, slot := range slots {
-			// A slot reads in the zone of the schedule that fires at it, as
-			// the slots of a range do.
-			if fires, _ := ir.ScheduleFiresBetween(req.Schedule.Schedules, req.Schedule.Profile, req.Schedule.Location, slot, slot, 1); len(fires) == 1 {
-				slots[i] = fires[0]
-			}
+			slots[i] = inScheduleZone(req.Schedule, slot)
 		}
 		return SlotRange{Slots: slots}, checkMaxSlots(len(slots), req.MaxSlots)
 	}
@@ -168,6 +164,24 @@ func maxSlotsOf(bound int) int {
 		return DefaultMaxSlots
 	}
 	return bound
+}
+
+// inScheduleZone returns a slot in the zone of the schedule that fires at
+// it, as the slots of a range read, or else in the zone its window names. A
+// resumed slot whose schedule has moved fires under no current schedule.
+func inScheduleZone(sched SlotSchedule, slot time.Time) time.Time {
+	if fires, _ := ir.ScheduleFiresBetween(sched.Schedules, sched.Profile, sched.Location, slot, slot, 1); len(fires) == 1 {
+		return fires[0]
+	}
+	if zone := ir.ScheduleWindowAt(sched.Schedules, sched.Profile, sched.Location, slot).Timezone; zone != "" {
+		if loc, err := time.LoadLocation(zone); err == nil {
+			return slot.In(loc)
+		}
+	}
+	if sched.Location != nil {
+		return slot.In(sched.Location)
+	}
+	return slot
 }
 
 func checkMaxSlots(count, bound int) error {
