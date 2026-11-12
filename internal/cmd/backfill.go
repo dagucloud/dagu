@@ -97,7 +97,176 @@ The scheduler starts the runs through the DAG's queue.`,
 	cmd.AddCommand(backfillStartCommand())
 	cmd.AddCommand(backfillLsCommand())
 	cmd.AddCommand(backfillStatusCommand())
+	cmd.AddCommand(backfillCancelCommand())
+	cmd.AddCommand(backfillResumeCommand())
 	return cmd
+}
+
+var backfillStopRunningFlag = commandLineFlag{
+	name:   "stop-running",
+	usage:  "Also stop the backfill's runs that are running or waiting",
+	isBool: true,
+}
+
+func backfillCancelCommand() *cobra.Command {
+	return NewCommand(&cobra.Command{
+		Use:   "cancel [flags] <backfill id>",
+		Short: "Cancel a backfill",
+		Long: `Cancel an open backfill. Its queued runs are withdrawn, so their slots
+count as missing again, and the slots it has not reached are cancelled.
+Runs already running finish, unless --stop-running stops them too.`,
+		Args: cobra.ExactArgs(1),
+	}, []commandLineFlag{backfillStopRunningFlag}, runBackfillCancel)
+}
+
+func runBackfillCancel(ctx *Context, args []string) error {
+	stopRunning, err := ctx.Command.Flags().GetBool("stop-running")
+	if err != nil {
+		return err
+	}
+	service := &backfill.Service{Store: ctx.Persistence.BackfillStore, History: ctx.Persistence.DAGRunRepository}
+	record, err := service.Cancel(ctx, args[0], backfillRunControl(ctx), stopRunning)
+	switch {
+	case errors.Is(err, backfill.ErrNotFound):
+		return fmt.Errorf("backfill %q not found", args[0])
+	case errors.Is(err, backfill.ErrEnded):
+		return fmt.Errorf("backfill %s has already ended %s", record.ID, record.Status)
+	case err != nil:
+		return err
+	}
+	_, err = fmt.Fprintf(ctx.Command.OutOrStdout(), "Cancelled backfill %s.\n", record.ID)
+	return err
+}
+
+func backfillResumeCommand() *cobra.Command {
+	return NewCommand(&cobra.Command{
+		Use:   "resume [flags] <backfill id>",
+		Short: "Run the slots of a backfill that have not succeeded",
+		Long: `Plan again the slots of a backfill that have not succeeded, with the DAG's
+current definition, and run them in order with new runs. On an open
+backfill, its queued runs are withdrawn first and its running runs finish.
+--max-concurrency and --on-failure replace the backfill's.`,
+		Args: cobra.ExactArgs(1),
+	}, []commandLineFlag{
+		{name: "max-concurrency", usage: "Runs of this backfill allowed at once (default: the backfill's)"},
+		{name: "on-failure", usage: "What to do after a slot fails: stop or continue (default: the backfill's)"},
+		backfillDryRunFlag, backfillFormatFlag, backfillYesFlag,
+	}, runBackfillResume)
+}
+
+func runBackfillResume(ctx *Context, args []string) error {
+	flags := ctx.Command.Flags()
+	req := backfill.ResumeRequest{ID: args[0], MaxSlots: ctx.Config.Scheduler.BackfillMaxSlots}
+	if value, _ := flags.GetString("max-concurrency"); value != "" {
+		n, err := strconv.Atoi(value)
+		if err != nil || n < 1 {
+			return fmt.Errorf("--max-concurrency must be a positive integer")
+		}
+		req.MaxConcurrency = n
+	}
+	if value, _ := flags.GetString("on-failure"); value != "" {
+		onFailure, err := backfill.ParseOnFailure(value)
+		if err != nil {
+			return err
+		}
+		req.OnFailure = onFailure
+	}
+	dryRun, _ := flags.GetBool("dry-run")
+	yes, _ := flags.GetBool("yes")
+	format, _ := flags.GetString("format")
+	if !dryRun && !yes && (format == backfillFormatJSON || !isTerminal(os.Stdin)) {
+		return errors.New("no terminal to confirm the resume on; pass --yes to resume")
+	}
+
+	record, err := ctx.Persistence.BackfillStore.Get(ctx, args[0])
+	if errors.Is(err, backfill.ErrNotFound) {
+		return fmt.Errorf("backfill %q not found", args[0])
+	}
+	if err != nil {
+		return err
+	}
+	dag, err := loadBackfillDAG(ctx, record.DAGFile)
+	if err != nil {
+		return fmt.Errorf("load the DAG's current definition: %w", err)
+	}
+	req.DAG = dag
+	req.Schedule = backfill.SlotSchedule{Schedules: dag.Schedule, Profile: record.Options.Profile, Location: ctx.Config.Core.Location}
+	service := &backfill.Service{Store: ctx.Persistence.BackfillStore, History: ctx.Persistence.DAGRunRepository}
+	control := backfillRunControl(ctx)
+
+	req.DryRun = true
+	shown, err := service.Resume(ctx, req, control)
+	if err != nil {
+		return err
+	}
+	out := ctx.Command.OutOrStdout()
+	options := record.Options
+	if req.MaxConcurrency > 0 {
+		options.MaxConcurrency = req.MaxConcurrency
+	}
+	if req.OnFailure != "" {
+		options.OnFailure = req.OnFailure
+	}
+	if format == backfillFormatJSON {
+		if dryRun {
+			return json.NewEncoder(out).Encode(shown.Plan)
+		}
+	} else if err := renderBackfillPlan(out, shown.Plan, options, backfillWarnings(ctx, dag, shown.Plan)); err != nil {
+		return err
+	}
+	runs := len(shown.Plan.Runs())
+	if dryRun {
+		return nil
+	}
+	if runs == 0 {
+		_, err := fmt.Fprintln(out, "Nothing to run.")
+		return err
+	}
+	if !yes && !confirmAction(fmt.Sprintf("Resume with %s?", countRuns(runs))) {
+		_, err := fmt.Fprintln(out, "Cancelled.")
+		return err
+	}
+	req.DryRun = false
+	req.Revision = shown.Plan.Revision
+	result, err := service.Resume(ctx, req, control)
+	if errors.Is(err, backfill.ErrStalePlan) {
+		return errors.New("the plan changed while it was shown; run the command again to see the new plan")
+	}
+	if err != nil {
+		return err
+	}
+	if format == backfillFormatJSON {
+		return json.NewEncoder(out).Encode(map[string]any{"id": result.Record.ID, "plan": result.Plan})
+	}
+	_, err = fmt.Fprintf(out, "Resumed backfill %s: %s.\n", result.Record.ID, countRuns(len(result.Record.Slots)))
+	return err
+}
+
+// backfillRunControl reaches a backfill's runs: a queued run is withdrawn as
+// dagu dequeue withdraws it, and an active one is stopped as dagu stop stops
+// it.
+func backfillRunControl(ctx *Context) backfill.RunControl {
+	return backfill.RunControl{
+		ReadRun: latestRunStatus(ctx.Persistence.DAGRunRepository),
+		Withdraw: func(_ context.Context, ref ir.DAGRunRef) error {
+			queueName, err := queueNameForDAGRun(ctx, ref)
+			if err != nil {
+				return err
+			}
+			return dequeueQueuedDAGRun(ctx, queueName, ref)
+		},
+		Stop: func(_ context.Context, ref ir.DAGRunRef) error {
+			attempt, err := ctx.Persistence.DAGRunRepository.FindAttempt(ctx, ref)
+			if err != nil {
+				return err
+			}
+			dag, err := attempt.ReadDAG(ctx)
+			if err != nil {
+				return err
+			}
+			return ctx.DAGRunMgr.Stop(ctx, dag, ref.ID)
+		},
+	}
 }
 
 func backfillLsCommand() *cobra.Command {

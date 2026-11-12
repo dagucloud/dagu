@@ -77,7 +77,7 @@ func (s *Service) Submit(ctx context.Context, req SubmitRequest) (SubmitResult, 
 		}
 	}
 
-	plan, err := s.plan(ctx, req.Plan, pending)
+	plan, err := s.plan(ctx, req.Plan, pending, nil)
 	if err != nil {
 		return SubmitResult{}, err
 	}
@@ -102,6 +102,7 @@ func (s *Service) Submit(ctx context.Context, req SubmitRequest) (SubmitResult, 
 		Options:    req.Options,
 		Actor:      req.Actor,
 		CreatedAt:  req.Plan.Now.UTC(),
+		PlannedAt:  req.Plan.Now.UTC(),
 		Revision:   plan.Revision,
 	}
 	for _, slot := range runs {
@@ -114,7 +115,9 @@ func (s *Service) Submit(ctx context.Context, req SubmitRequest) (SubmitResult, 
 	return result, nil
 }
 
-func (s *Service) plan(ctx context.Context, req PlanRequest, pending map[time.Time]bool) (Plan, error) {
+// plan makes the plan of a request. Runs named in ignore are left out of the
+// slots' history, as a resume leaves out the queued runs it withdraws.
+func (s *Service) plan(ctx context.Context, req PlanRequest, pending map[time.Time]bool, ignore map[string]bool) (Plan, error) {
 	rng, err := SlotsOf(req)
 	if err != nil {
 		return Plan{}, err
@@ -125,6 +128,15 @@ func (s *Service) plan(ctx context.Context, req PlanRequest, pending map[time.Ti
 	history, err := LoadHistory(ctx, s.History, req.DAG, req.Schedule, rng.Slots[0], rng.Slots[len(rng.Slots)-1])
 	if err != nil {
 		return Plan{}, err
+	}
+	if len(ignore) > 0 {
+		kept := history.Events[:0]
+		for _, event := range history.Events {
+			if !ignore[event.RunID] {
+				kept = append(kept, event)
+			}
+		}
+		history.Events = kept
 	}
 	return MakePlan(req, rng, SlotStates(rng.Slots, req.Schedule, history), pending), nil
 }

@@ -282,3 +282,50 @@ func TestSchedulerRunsBackfill(t *testing.T) {
 		t.Fatalf("backfill ls does not list %s:\n%s", submit.ID, listed.Stdout())
 	}
 }
+
+// Cancelling an open backfill cancels its slots, and resuming it runs them
+// again with new runs.
+func TestCancelAndResume(t *testing.T) {
+	t.Parallel()
+	p := newProject(t)
+	submitted := p.run("backfill", "start", "etl.yaml", "--from", "2025-10-01", "--to", "2025-10-03", "--yes", "--format", "json")
+	submitted.ExpectExitCode(0)
+	var submit struct {
+		ID string `json:"id"`
+	}
+	if err := json.Unmarshal([]byte(submitted.Stdout()), &submit); err != nil {
+		t.Fatalf("decoding submit: %v\n%s", err, submitted.Stdout())
+	}
+	status := func() (string, []string) {
+		t.Helper()
+		result := p.run("backfill", "status", submit.ID, "--format", "json")
+		result.ExpectExitCode(0)
+		var out struct {
+			Status string `json:"status"`
+			Slots  []struct {
+				State string `json:"state"`
+			} `json:"slots"`
+		}
+		if err := json.Unmarshal([]byte(result.Stdout()), &out); err != nil {
+			t.Fatalf("decoding status: %v\n%s", err, result.Stdout())
+		}
+		states := make([]string, len(out.Slots))
+		for i, slot := range out.Slots {
+			states[i] = slot.State
+		}
+		return out.Status, states
+	}
+
+	p.run("backfill", "cancel", submit.ID).ExpectExitCode(0)
+	if got, states := status(); got != "cancelled" || strings.Join(states, ",") != "cancelled,cancelled,cancelled" {
+		t.Fatalf("after cancel: %s %v", got, states)
+	}
+	again := p.run("backfill", "cancel", submit.ID)
+	again.ExpectExitCode(1)
+	again.ExpectStderrContains("already ended")
+
+	p.run("backfill", "resume", submit.ID, "--yes").ExpectExitCode(0)
+	if got, states := status(); got != "waiting for scheduler" || strings.Join(states, ",") != "pending,pending,pending" {
+		t.Fatalf("after resume: %s %v", got, states)
+	}
+}

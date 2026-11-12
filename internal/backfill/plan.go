@@ -62,8 +62,11 @@ type PlanRequest struct {
 	// now. Both are unset when Slots names the slots.
 	From, To time.Time
 	// Slots names the slots to run, instead of a range.
-	Slots    []time.Time
-	Rerun    Rerun
+	Slots []time.Time
+	Rerun Rerun
+	// Resume plans named slots by Rerun, as a resume does, rather than run
+	// them whatever their history.
+	Resume   bool
 	MaxSlots int
 	Now      time.Time
 }
@@ -179,7 +182,7 @@ func MakePlan(req PlanRequest, rng SlotRange, states []Slot, pending map[time.Ti
 		Rerun:     req.Rerun,
 		RunCounts: make(map[Rerun]int, len(Reruns)),
 	}
-	named := len(req.Slots) > 0
+	named := len(req.Slots) > 0 && !req.Resume
 	for i, at := range rng.Slots {
 		state := states[i]
 		if pending[at.UTC()] {

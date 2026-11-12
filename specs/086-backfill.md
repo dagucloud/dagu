@@ -4,9 +4,9 @@
 
 Partially implemented. Slot history, `slot_retention_days`, planning,
 submitting with `dagu backfill start`, the scheduler running a backfill, and
-`dagu backfill ls` and `status` are implemented, and conformance covers them.
-Cancelling and resuming a backfill are not implemented. Further sections are
-added as the behavior they describe lands.
+`dagu backfill ls`, `status`, `cancel`, and `resume` are implemented, and
+conformance covers them. Further sections are added as the behavior they
+describe lands.
 
 ## Scope
 
@@ -150,8 +150,14 @@ dagu backfill start <DAG> (--from <time> [--to <time>] | --slot <time>...) [flag
   the next slots of a backfill, oldest first, while fewer than
   `--max-concurrency` of its runs are queued, running, or waiting. With a
   concurrency of 1, a slot is queued only after the slot before it finished.
-- A backfill waits while no scheduler runs. A paused scheduler queues no
-  new run of a backfill.
+- A backfill waits while no scheduler runs.
+- A paused scheduler queues no new run of a backfill and holds its queued
+  runs: they are neither started nor aborted, and start when the scheduler
+  resumes. A suspended DAG's backfill runs still run.
+- These rules follow a backfill run's retries, by hand or by the DAG's retry
+  policy.
+- A backfill whose DAG is renamed or deleted ends `cancelled`, with the slots
+  it had not queued cancelled.
 - Each run is queued through the DAG's queue and counts against its limit.
   It runs the definition pinned at submit, with the backfill's params and
   profile, and has its slot's scheduled time and window. Its
@@ -181,7 +187,27 @@ dagu backfill status <backfill id> [--format text|json]
   `queued`, `running`, `waiting`, `succeeded`, `failed`, `skipped`, or
   `not run`, with the slot's run ID once queued.
 - An open backfill's status is `running`, or `waiting for scheduler` when no
-  scheduler runs. An ended backfill's status is `succeeded` or `failed`.
+  scheduler runs. An ended backfill's status is `succeeded`, `failed`, or
+  `cancelled`.
+
+### Cancelling and resuming
+
+```sh
+dagu backfill cancel <backfill id> [--stop-running]
+dagu backfill resume <backfill id> [--max-concurrency <n>] [--on-failure <policy>] [--dry-run] [--format text|json] [--yes]
+```
+
+- `cancel` ends an open backfill `cancelled`. Its queued runs are withdrawn,
+  so their slots count as missing again, and the slots it had not queued are
+  `cancelled`. Running and waiting runs finish, unless `--stop-running`
+  stops them too. Cancelling an ended backfill fails.
+- `resume` plans again the slots of a backfill that have not succeeded or
+  been skipped, with the DAG's current definition, and runs them in order
+  with new runs. A slot that gained a successful run since is skipped. On an
+  open backfill it first withdraws the queued runs and lets running ones
+  finish. `--max-concurrency` and `--on-failure` replace the backfill's.
+- `resume` shows its plan and asks before resuming, as `start` does. A dry
+  run prints the plan the resume then runs. The backfill keeps its ID.
 
 ## Configuration
 
@@ -230,4 +256,6 @@ rejections under Errors fail with status 1; and that submitting the same
 backfill while it is open starts nothing while an overlapping one leaves the
 open backfill's slots active. With a scheduler running, it asserts that a
 backfill's slots each end with a succeeded run of the backfill, that the
-backfill ends `succeeded`, and that `ls` lists it.
+backfill ends `succeeded`, and that `ls` lists it. It asserts that `cancel`
+cancels an open backfill's slots and fails on an ended one, and that
+`resume` makes the slots pending again.

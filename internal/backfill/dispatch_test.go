@@ -222,6 +222,24 @@ func TestDispatchSkipsSlotThatGainedARun(t *testing.T) {
 	assert.Equal(t, backfill.RunID(record, at(3, 2)), f.queued[1], "the slot that gained a run is skipped")
 }
 
+// A backfill whose DAG was renamed or deleted ends cancelled, with the slots
+// it did not reach cancelled.
+func TestDispatchCancelsWhenTheDAGIsGone(t *testing.T) {
+	t.Parallel()
+	f := newDispatchFixture(t)
+	record := f.submit(backfill.Options{})
+	f.tick()
+	f.dispatcher.DAGExists = func(context.Context, *backfill.Record) (bool, error) { return false, nil }
+	f.finish(f.queued[0], ir.Succeeded)
+	f.tick()
+
+	assert.Len(t, f.queued, 1)
+	assert.Equal(t, backfill.StatusCancelled, f.record(record.ID).Status)
+	report, err := backfill.Describe(f.ctx, f.store, f.dispatcher.ReadRun, f.record(record.ID))
+	require.NoError(t, err)
+	assert.Equal(t, 2, report.Counts[backfill.SlotStateCancelled])
+}
+
 // A run queued just before a crash is found again instead of queued twice.
 func TestDispatchFindsARunQueuedBeforeACrash(t *testing.T) {
 	t.Parallel()

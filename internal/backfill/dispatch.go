@@ -52,7 +52,11 @@ type Dispatcher struct {
 	// Enqueue queues the run of a slot. It returns an error wrapping
 	// dagrun.ErrDAGRunAlreadyExists when the run is already queued.
 	Enqueue func(ctx context.Context, record *Record, target Target, slot RecordSlot, runID string) error
-	Now     func() time.Time
+	// DAGExists reports whether a backfill's DAG still has its definition.
+	// A backfill whose DAG was renamed or deleted is cancelled. Nil assumes
+	// it has.
+	DAGExists func(ctx context.Context, record *Record) (bool, error)
+	Now       func() time.Time
 }
 
 // Tick advances every open backfill: it queues the next slots while fewer
@@ -65,11 +69,29 @@ func (d *Dispatcher) Tick(ctx context.Context) error {
 	}
 	var errs []error
 	for _, record := range records {
-		if err := d.advance(ctx, record); err != nil {
+		if err := d.advanceLocked(ctx, record.ID, record.DAGName); err != nil {
 			errs = append(errs, fmt.Errorf("backfill %s: %w", record.ID, err))
 		}
 	}
 	return errors.Join(errs...)
+}
+
+// advanceLocked advances a backfill under its DAG's lock, which a submit,
+// a cancel, and a resume also hold, and rereads the record under it.
+func (d *Dispatcher) advanceLocked(ctx context.Context, id, dagName string) error {
+	unlock, err := d.Store.LockDAG(ctx, dagName)
+	if err != nil {
+		return err
+	}
+	defer unlock()
+	record, err := d.Store.Get(ctx, id)
+	if err != nil {
+		return err
+	}
+	if !record.Open() {
+		return nil
+	}
+	return d.advance(ctx, record)
 }
 
 // slotOutcome is where a slot of a backfill stands.
@@ -88,10 +110,7 @@ func (d *Dispatcher) advance(ctx context.Context, record *Record) error {
 	if err != nil {
 		return err
 	}
-	byslot := make(map[time.Time]Progress, len(progress))
-	for _, event := range progress {
-		byslot[event.Slot.UTC()] = event
-	}
+	byslot := currentProgress(record, progress)
 
 	var pending []RecordSlot
 	active, failed := 0, false
@@ -111,6 +130,15 @@ func (d *Dispatcher) advance(ctx context.Context, record *Record) error {
 		}
 	}
 
+	if d.DAGExists != nil && len(pending) > 0 {
+		exists, err := d.DAGExists(ctx, record)
+		if err != nil {
+			return err
+		}
+		if !exists {
+			return d.cancelRemaining(ctx, record, pending)
+		}
+	}
 	if failed && record.Options.OnFailure == OnFailureStop {
 		if active > 0 {
 			return nil
@@ -148,7 +176,7 @@ func (d *Dispatcher) advance(ctx context.Context, record *Record) error {
 // queued, from its run.
 func (d *Dispatcher) outcome(ctx context.Context, record *Record, event Progress) (slotOutcome, error) {
 	switch event.Kind {
-	case ProgressSkipped, ProgressNotRun:
+	case ProgressSkipped, ProgressNotRun, ProgressCancelled:
 		return slotSettled, nil
 	case ProgressEnqueued:
 	default:
@@ -180,13 +208,13 @@ func (d *Dispatcher) dispatch(ctx context.Context, record *Record, target Target
 		return false, err
 	}
 	if skip {
-		return false, d.Store.Append(ctx, record.ID, Progress{Slot: slot.At, Kind: ProgressSkipped, At: d.now()})
+		return false, d.Store.Append(ctx, record.ID, Progress{Slot: slot.At, Kind: ProgressSkipped, Generation: record.Generation, At: d.now()})
 	}
 	runID := RunID(record, slot.At)
 	if err := d.Enqueue(ctx, record, target, slot, runID); err != nil && !errors.Is(err, dagrun.ErrDAGRunAlreadyExists) {
 		return false, fmt.Errorf("queue the run of %s: %w", slot.At.Format(time.RFC3339), err)
 	}
-	return true, d.Store.Append(ctx, record.ID, Progress{Slot: slot.At, Kind: ProgressEnqueued, RunID: runID, At: d.now()})
+	return true, d.Store.Append(ctx, record.ID, Progress{Slot: slot.At, Kind: ProgressEnqueued, RunID: runID, Generation: record.Generation, At: d.now()})
 }
 
 // recheck reports whether a slot gained a run since the backfill was
@@ -203,10 +231,24 @@ func (d *Dispatcher) recheck(ctx context.Context, record *Record, target Target,
 	if state.Status == SlotActive {
 		return true, nil
 	}
-	if !state.RecordedAt.After(record.CreatedAt) {
+	if !state.RecordedAt.After(record.PlannedAt) {
 		return false, nil
 	}
 	return actionFor(state.Status, record.Options.Rerun, len(record.Options.Slots) > 0) != ActionRun, nil
+}
+
+// cancelRemaining ends a backfill whose DAG is gone, with the slots it did
+// not reach cancelled.
+func (d *Dispatcher) cancelRemaining(ctx context.Context, record *Record, pending []RecordSlot) error {
+	now := d.now()
+	events := make([]Progress, len(pending))
+	for i, slot := range pending {
+		events[i] = Progress{Slot: slot.At, Kind: ProgressCancelled, Generation: record.Generation, At: now}
+	}
+	if err := d.Store.Append(ctx, record.ID, events...); err != nil {
+		return err
+	}
+	return d.Store.End(ctx, record.ID, StatusCancelled, now)
 }
 
 // stop marks the slots a stopped backfill did not reach and ends it failed.
@@ -215,7 +257,7 @@ func (d *Dispatcher) stop(ctx context.Context, record *Record, pending []RecordS
 		now := d.now()
 		events := make([]Progress, len(pending))
 		for i, slot := range pending {
-			events[i] = Progress{Slot: slot.At, Kind: ProgressNotRun, At: now}
+			events[i] = Progress{Slot: slot.At, Kind: ProgressNotRun, Generation: record.Generation, At: now}
 		}
 		if err := d.Store.Append(ctx, record.ID, events...); err != nil {
 			return err

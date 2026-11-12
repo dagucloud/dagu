@@ -24,12 +24,13 @@ const (
 	SlotStateFailed    SlotState = "failed"
 	SlotStateSkipped   SlotState = "skipped"
 	SlotStateNotRun    SlotState = "not run"
+	SlotStateCancelled SlotState = "cancelled"
 )
 
 // SlotStateOrder lists every SlotState in the order a report shows them.
 var SlotStateOrder = []SlotState{
 	SlotStatePending, SlotStateQueued, SlotStateRunning, SlotStateWaiting,
-	SlotStateSucceeded, SlotStateFailed, SlotStateSkipped, SlotStateNotRun,
+	SlotStateSucceeded, SlotStateFailed, SlotStateSkipped, SlotStateNotRun, SlotStateCancelled,
 }
 
 // SlotReport is one slot of a backfill and its run.
@@ -54,10 +55,7 @@ func Describe(ctx context.Context, store Store, readRun func(context.Context, ir
 	if err != nil {
 		return Report{}, err
 	}
-	byslot := make(map[time.Time]Progress, len(progress))
-	for _, event := range progress {
-		byslot[event.Slot.UTC()] = event
-	}
+	byslot := currentProgress(record, progress)
 	report := Report{Record: record, Counts: make(map[SlotState]int)}
 	for _, slot := range record.Slots {
 		event := byslot[slot.At.UTC()]
@@ -67,6 +65,8 @@ func Describe(ctx context.Context, store Store, readRun func(context.Context, ir
 			item.State = SlotStateSkipped
 		case ProgressNotRun:
 			item.State = SlotStateNotRun
+		case ProgressCancelled:
+			item.State = SlotStateCancelled
 		case ProgressEnqueued:
 			if item.State, err = runState(ctx, readRun, record.DAGName, event.RunID); err != nil {
 				return Report{}, err

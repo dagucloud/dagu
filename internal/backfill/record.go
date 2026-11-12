@@ -69,6 +69,9 @@ type Record struct {
 	Options    Options   `json:"options"`
 	Actor      string    `json:"actor,omitempty"`
 	CreatedAt  time.Time `json:"createdAt"`
+	// PlannedAt is when the slots were last planned, at submit or resume. A
+	// run recorded later can make a slot skip at its turn.
+	PlannedAt time.Time `json:"plannedAt"`
 	// Slots are the slots the backfill runs, oldest first, each with the
 	// window it owns.
 	Slots    []RecordSlot `json:"slots"`
@@ -106,6 +109,9 @@ const (
 	ProgressSkipped ProgressKind = "skipped"
 	// ProgressNotRun records that the backfill stopped before the slot.
 	ProgressNotRun ProgressKind = "not_run"
+	// ProgressCancelled records that the backfill was cancelled before the
+	// slot's run started.
+	ProgressCancelled ProgressKind = "cancelled"
 )
 
 // Progress is one event of a backfill's slots.
@@ -113,7 +119,21 @@ type Progress struct {
 	Slot  time.Time    `json:"slot"`
 	Kind  ProgressKind `json:"kind"`
 	RunID string       `json:"runId,omitempty"`
-	At    time.Time    `json:"at"`
+	// Generation is the resume the event belongs to.
+	Generation int       `json:"generation,omitempty"`
+	At         time.Time `json:"at"`
+}
+
+// currentProgress returns the last event of each slot in the record's
+// current generation.
+func currentProgress(record *Record, events []Progress) map[time.Time]Progress {
+	byslot := make(map[time.Time]Progress, len(events))
+	for _, event := range events {
+		if event.Generation == record.Generation {
+			byslot[event.Slot.UTC()] = event
+		}
+	}
+	return byslot
 }
 
 // RecordSlot is one slot a backfill runs.
@@ -149,6 +169,9 @@ type Store interface {
 	Progress(ctx context.Context, id string) ([]Progress, error)
 	// End records how a backfill ended.
 	End(ctx context.Context, id string, status Status, at time.Time) error
+	// Update rewrites an existing record, as a resume does, and marks it
+	// open while it has not ended.
+	Update(ctx context.Context, record *Record) error
 }
 
 var (

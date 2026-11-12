@@ -5,7 +5,10 @@ package scheduler
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"os"
+	"path/filepath"
 	"time"
 
 	"github.com/dagucloud/dagu/v2/internal/backfill"
@@ -38,10 +41,28 @@ func (s *Scheduler) newBackfillDispatcher(store backfill.Store) *backfill.Dispat
 			}
 			return attempt.ReadStatus(ctx)
 		},
-		Target:  s.backfillTarget,
-		Enqueue: s.enqueueBackfillRun,
-		Now:     s.clock,
+		Target:    s.backfillTarget,
+		Enqueue:   s.enqueueBackfillRun,
+		DAGExists: s.backfillDAGExists,
+		Now:       s.clock,
 	}
+}
+
+// backfillDAGExists reports whether the file a backfill's DAG was submitted
+// from is still there; a rename or a delete removes it.
+func (s *Scheduler) backfillDAGExists(_ context.Context, record *backfill.Record) (bool, error) {
+	path := record.DAGFile
+	if path == "" {
+		return true, nil
+	}
+	if !filepath.IsAbs(path) {
+		path = filepath.Join(s.config.Paths.DAGsDir, path)
+	}
+	_, err := os.Stat(path)
+	if errors.Is(err, os.ErrNotExist) {
+		return false, nil
+	}
+	return err == nil, err
 }
 
 // backfillTarget loads a backfill's DAG from the definition pinned at submit.
@@ -142,15 +163,13 @@ func (s *Scheduler) advanceBackfills(ctx context.Context) {
 	if s.leaseExpired(ctx) {
 		return
 	}
-	if s.pauseStore != nil {
-		pause, err := s.pauseStore.Get(ctx)
-		if err != nil {
-			logger.Error(ctx, "Failed to read the scheduler pause", tag.Error(err))
-			return
-		}
-		if pause.Paused && !pause.WakeHold() {
-			return
-		}
+	paused, err := newPauseChecker(s.pauseStore)(ctx)
+	if err != nil {
+		logger.Error(ctx, "Failed to read the scheduler pause", tag.Error(err))
+		return
+	}
+	if paused {
+		return
 	}
 	if err := s.backfills.Tick(ctx); err != nil {
 		logger.Error(ctx, "Failed to advance backfills", tag.Error(err))

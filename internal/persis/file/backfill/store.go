@@ -232,6 +232,26 @@ func (s *Store) End(ctx context.Context, id string, status backfill.Status, at t
 	return nil
 }
 
+// Update rewrites a record and restores its open marker while it is open.
+func (s *Store) Update(ctx context.Context, record *backfill.Record) error {
+	if _, err := s.Get(ctx, record.ID); err != nil {
+		return err
+	}
+	if record.Open() {
+		if err := fileutil.WriteFileAtomic(s.openPath(record.ID), nil, filePerms); err != nil {
+			return fmt.Errorf("backfill store: mark %s open: %w", record.ID, err)
+		}
+	}
+	data, err := json.Marshal(record)
+	if err != nil {
+		return fmt.Errorf("backfill store: encode %s: %w", record.ID, err)
+	}
+	if err := fileutil.WriteFileAtomic(s.recordPath(record.ID), data, filePerms); err != nil {
+		return fmt.Errorf("backfill store: write %s: %w", record.ID, err)
+	}
+	return nil
+}
+
 func (s *Store) openPath(id string) string {
 	return filepath.Join(s.dir, id+openSuffix)
 }
