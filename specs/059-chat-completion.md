@@ -105,7 +105,8 @@ once, in the order named, before any request.
 A text file (`.txt`, `.md`, `.csv`, `.tsv`, `.json`, `.jsonl`, `.yaml`,
 `.yml`, `.xml`, `.html`, `.htm`, `.log`), a Word document (`.docx`) and an
 Excel workbook (`.xlsx`, `.xlsm`) are given as text, a paragraph or row a
-line; a text file in Shift_JIS is decoded. A PDF is given page by page,
+line; a text file in Shift_JIS is decoded, and one that is neither UTF-8
+nor Shift_JIS fails as `the text file could not be read`. A PDF is given page by page,
 and a page without text of its own, such as a scan, is rendered to an
 image. An image file (PNG, JPEG, GIF, WebP) is given as an image, scaled
 down to a long edge of 1568 pixels when larger. Files of other kinds, a

@@ -1096,7 +1096,9 @@ does not carry tables, images, or charts.
 no cap; `_row` is not. It publishes `path`, `format`, `count`, `sheet`,
 `range`, `warnings`, and with `artifact: true` the file's copy. The reverse
 direction is `xlsx.write` with `input`, whose csv also takes `encoding` and
-`delimiter`.
+`delimiter`; without `encoding` the input is detected as UTF-8 or else
+Shift_JIS, and a file that is neither, or not UTF-8 under `encoding: utf-8`,
+fails naming it.
 
 `xlsx.extract` reads fields out of a sheet laid out as a form rather than a
 table, such as a supplier's quote whose layout differs by sender. `path`,

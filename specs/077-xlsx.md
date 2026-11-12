@@ -854,7 +854,14 @@ The other direction, a csv, json, or jsonl file into a workbook, is
 
 The `input` file of `xlsx.write` and `xlsx.append` takes the same
 `encoding` and `delimiter` when it is csv; a byte order mark is dropped
-either way. Both fields require `input`.
+either way. Both fields require `input`. Without `encoding` the csv's
+encoding is detected: a UTF-8 byte order mark means UTF-8, valid UTF-8 is
+UTF-8, and otherwise the file is Shift_JIS when every byte decodes as it,
+which is how Excel on Japanese Windows saves a CSV. A file that is neither
+fails naming it, `input: <path>: not valid UTF-8 or Shift_JIS`. With
+`encoding: utf-8` or `utf-8-bom`, and for a json or jsonl input, a file
+that is not valid UTF-8 fails as `input: <path>: not valid UTF-8`; bytes
+that are not UTF-8 are never written as replacement characters.
 
 ### Dry-run checks
 
