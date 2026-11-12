@@ -72,6 +72,54 @@ func TestMasker_MaskString(t *testing.T) {
 			input:    "This should not be masked at all",
 			expected: "This should not be masked at all",
 		},
+		{
+			name: "plain secret in JSON text",
+			sources: SourcedEnvVars{
+				Secrets: []string{"API_KEY=secret123"},
+			},
+			input:    `{"key":"secret123"}`,
+			expected: `{"key":"*******"}`,
+		},
+		{
+			name: "quoted secret escaped in JSON text",
+			sources: SourcedEnvVars{
+				Secrets: []string{`API_KEY=secret-"quoted"-value`},
+			},
+			input:    `{"error":"bad key secret-\"quoted\"-value"} secret-"quoted"-value`,
+			expected: `{"error":"bad key *******"} *******`,
+		},
+		{
+			name: "backslash secret escaped in JSON text",
+			sources: SourcedEnvVars{
+				Secrets: []string{`PATH_SECRET=C:\secret\dir`},
+			},
+			input:    `{"path":"C:\\secret\\dir"}`,
+			expected: `{"path":"*******"}`,
+		},
+		{
+			name: "newline secret escaped in JSON text",
+			sources: SourcedEnvVars{
+				Secrets: []string{"PEM=line one\nline two"},
+			},
+			input:    `{"pem":"line one\nline two"}`,
+			expected: `{"pem":"*******"}`,
+		},
+		{
+			name: "non-ASCII secret as unicode escapes",
+			sources: SourcedEnvVars{
+				Secrets: []string{"TOKEN=héllo🔑"},
+			},
+			input:    `{"literal":"héllo🔑","ascii":"h\u00e9llo\ud83d\udd11"}`,
+			expected: `{"literal":"*******","ascii":"*******"}`,
+		},
+		{
+			name: "HTML characters as unicode escapes",
+			sources: SourcedEnvVars{
+				Secrets: []string{"TOKEN=a<b&c>"},
+			},
+			input:    `{"literal":"a<b&c>","go":"a\u003cb\u0026c\u003e"}`,
+			expected: `{"literal":"*******","go":"*******"}`,
+		},
 	}
 
 	for _, tt := range tests {
