@@ -92,6 +92,9 @@ type run struct {
 	// downloadWindow is the longest timeout of the acts and gotos run so
 	// far, which can start downloads; zero until one runs.
 	downloadWindow time.Duration
+	// downloads holds the absolute paths of the files saved so far, in the
+	// order they finished; the step publishes them as its downloads output.
+	downloads []string
 	// writeGate is the write gate mode the browser runs in.
 	writeGate string
 	// writeSeq is the last write gate event reported, and writes are those
@@ -771,12 +774,24 @@ func (r *run) settleDownloads(ctx context.Context, index int, final bool) error 
 	names, err := r.eng.WaitForDownloads(ctx, grace, r.downloadWindow)
 	for _, name := range names {
 		rel := downloadPath(r.artifacts, name)
+		r.downloads = append(r.downloads, filepath.Join(r.artifacts.Dir(), downloadsSubdir, name))
 		r.timeline.Operation(agentstep.Report{
 			Index: index, Kind: kindDownload, Subject: name, Status: agentstep.StatusCompleted,
 			Detail: rel, Files: []string{rel},
 		})
 	}
 	return err
+}
+
+// publishDownloads adds the files the step saved to its outputs. A step
+// that saved nothing publishes an empty list, so a later step can pass the
+// output on without checking for it.
+func (r *run) publishDownloads() {
+	downloads := r.downloads
+	if downloads == nil {
+		downloads = []string{}
+	}
+	r.outputs[outputDownloads] = downloads
 }
 
 // startSession launches a browser, or reattaches to the one an answered ask
@@ -1026,13 +1041,12 @@ func (r *run) finish(ctx context.Context, summary string, files []string) error 
 		s.State = ir.AgentSessionSucceeded
 		s.Usage = ir.AgentUsage{InputTokens: int64(usage.Input), OutputTokens: int64(usage.Output), TotalTokens: int64(usage.total())}
 	})
+	r.publishDownloads()
 	r.exec.setOutputs(r.outputs)
-	if len(r.outputs) > 0 {
-		encoder := json.NewEncoder(r.exec.stdout)
-		encoder.SetEscapeHTML(false)
-		if err := encoder.Encode(r.outputs); err != nil {
-			return err
-		}
+	encoder := json.NewEncoder(r.exec.stdout)
+	encoder.SetEscapeHTML(false)
+	if err := encoder.Encode(r.outputs); err != nil {
+		return err
 	}
 	return nil
 }

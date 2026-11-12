@@ -118,7 +118,7 @@ func TestExportedStepReplaysTheSession(t *testing.T) {
 
 	assert.Zero(t, actRequests(run.provider), "every act replays the session's recording")
 	assert.Len(t, run.engine.replays, 3)
-	assert.Equal(t, map[string]any{"orders": []any{"PO-1", "PO-2"}}, execution.exec.GetOutputs())
+	assert.Equal(t, map[string]any{"orders": []any{"PO-1", "PO-2"}, "downloads": []string{}}, execution.exec.GetOutputs())
 }
 
 func mustJSON(t *testing.T, value any) []byte {

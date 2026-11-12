@@ -575,13 +575,14 @@ func TestBrowserTextCheckFoldsWidth(t *testing.T) {
 }
 
 // A file the page downloads is saved in the run artifacts before the step
-// ends.
+// ends, and its absolute path is published in the step's downloads output.
 func TestBrowserDownload(t *testing.T) {
 	t.Parallel()
 
 	b := newBrowserEnv(t)
 	b.dagu.RunWithEnv(b.env, "start", "download.yaml").ExpectExitCode(0)
 	b.dagu.ExpectTextFileContent("report.out", reportBody)
+	b.dagu.ExpectFileContains("downloads.out", `["`, string(filepath.Separator)+`report.csv"]`)
 }
 
 // A goto to a file the site answers as a download ends as soon as the
