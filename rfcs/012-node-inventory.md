@@ -25,9 +25,9 @@ This RFC defines the inventory, the filter language, and the surfaces that
 show them. [RFC 013](013-node-targeting.md) runs steps on the nodes a filter
 selects.
 
-RFCs 014 to 018, cited below, are not written yet.
-[#3777](https://github.com/dagucloud/dagu/issues/3777) lists them and their
-order.
+RFCs 015 to 018, cited below, and the RFC for DAG-scoped grants are not
+written yet. [#3777](https://github.com/dagucloud/dagu/issues/3777) lists
+them and their order.
 
 ```text
 nodes.yaml ──┐
@@ -238,6 +238,7 @@ Rules:
 | `host_key` | Pinned public key, such as `ssh-ed25519 AAAA...` |
 | `strict_host_key` | Default `true` |
 | `known_host_file` | Path of an extra known-hosts file, as in the DAG-level `ssh` field |
+| `via` | A worker selector. The connection opens from a worker that matches it, as [RFC 014](014-site-relay.md) defines |
 | `shell` | Remote shell, as `ssh.run`'s `shell` |
 | `timeout` | Connect timeout for runs. Default `30s` |
 
@@ -600,7 +601,8 @@ RFC 017's `adhoc` is another. System names are reserved:
 - While such a DAG exists in a project, the system run is refused there,
   with an error that names the DAG to rename. A system run therefore never
   shares run history, per-DAG settings, or retention with a user DAG.
-- A selector grant cannot name a system DAG (RFC 014).
+- A selector grant cannot name a system DAG
+  ([#3772](https://github.com/dagucloud/dagu/issues/3772)).
 
 `strict_host_key: false` is allowed. The Nodes page marks such nodes.
 
