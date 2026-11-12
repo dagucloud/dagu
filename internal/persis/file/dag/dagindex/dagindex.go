@@ -24,7 +24,7 @@ const (
 	// IndexFileName is the name of the DAG definition index file.
 	IndexFileName = ".dag.index"
 	// IndexVersion is the current index format version.
-	IndexVersion = 7
+	IndexVersion = 8
 )
 
 // YAMLFileMeta holds stat metadata for a single YAML file.
@@ -161,10 +161,10 @@ func buildEntry(
 	entry.Description = dag.Description
 	entry.Labels = labelsToStrings(dag.Labels)
 	entry.Schedule = scheduleToString(dag.Schedule)
+	entry.Queue = dag.Queue
 	if dag.RestartPolicy.Enabled() {
 		entry.RestartPolicy = string(dag.RestartPolicy)
 		entry.RestartWaitSec = int64(dag.RestartWait / time.Second)
-		entry.Queue = dag.Queue
 	}
 
 	if len(dag.BuildErrors) > 0 {
@@ -260,6 +260,7 @@ func DAGFromEntry(entry *indexv1.DAGIndexEntry, baseDir string) *ir.DAG {
 		Group:       entry.Group,
 		Description: entry.Description,
 		Labels:      ir.NewLabels(entry.Labels),
+		Queue:       entry.Queue,
 	}
 
 	if entry.LoadError != "" {
@@ -273,7 +274,6 @@ func DAGFromEntry(entry *indexv1.DAGIndexEntry, baseDir string) *ir.DAG {
 	if policy, err := ir.ParseRestartPolicy(entry.RestartPolicy); err == nil {
 		dag.RestartPolicy = policy
 		dag.RestartWait = time.Duration(entry.RestartWaitSec) * time.Second
-		dag.Queue = entry.Queue
 	}
 
 	return dag

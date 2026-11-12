@@ -101,7 +101,7 @@ type DAGIndexEntry struct {
 	LoadPath       string                 `protobuf:"bytes,11,opt,name=load_path,json=loadPath,proto3" json:"load_path,omitempty"`
 	RestartPolicy  string                 `protobuf:"bytes,12,opt,name=restart_policy,json=restartPolicy,proto3" json:"restart_policy,omitempty"`
 	RestartWaitSec int64                  `protobuf:"varint,13,opt,name=restart_wait_sec,json=restartWaitSec,proto3" json:"restart_wait_sec,omitempty"`
-	// Queue that the runs of a service DAG enter, as the DAG sets it.
+	// Queue that the DAG sets; empty when it sets none.
 	Queue         string `protobuf:"bytes,14,opt,name=queue,proto3" json:"queue,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
