@@ -143,9 +143,17 @@ dagu backfill start <DAG> (--from <time> [--to <time>] | --slot <time>...) [flag
 - A dry run starts nothing and prints the plan a submit would then record.
 - Planning and recording hold a lock per DAG, so two submits never select the
   same slot.
+- The plan states the concurrency, which is the lower of `--max-concurrency`
+  and the limit of the DAG's queue. It also states the queue's limit. When
+  the DAG has recent successful runs, the plan gives an estimate: the median
+  duration of up to 20 of those runs, times the number of rounds the runs
+  take at that concurrency.
 - The plan warns when no scheduler is running, when the DAG is suspended,
-  which `handler_on` steps will run once per slot, and how many slots run
-  because the schedule's cadence changed since their runs.
+  when the queue's limit lowers the concurrency, when the backfill can fill
+  the queue so live runs may wait behind an executing backfill run (with the
+  median duration when known), which `handler_on` steps will run once per
+  slot, and how many slots run because the schedule's cadence changed since
+  their runs.
 
 ### Running a backfill
 

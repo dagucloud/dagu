@@ -33,13 +33,15 @@ func TestRenderBackfillPlan(t *testing.T) {
 		})
 	}
 	var out bytes.Buffer
-	require.NoError(t, renderBackfillPlan(&out, plan, backfill.Options{MaxConcurrency: 2, OnFailure: backfill.OnFailureStop}, []string{"No scheduler is running."}))
+	require.NoError(t, renderBackfillPlan(&out, plan, backfill.Options{MaxConcurrency: 2, OnFailure: backfill.OnFailureStop},
+		backfill.Outlook{MaxConcurrency: 2, Concurrency: 2, QueueLimit: 4, RunDuration: 10 * time.Minute}, []string{"No scheduler is running."}))
 	text := out.String()
 
 	assert.Contains(t, text, "Backfill etl, UTC, --rerun none")
 	assert.Contains(t, text, "Fires       2026-10-01 02:00 to 2026-10-08 02:00")
 	assert.Contains(t, text, "8 slots: run 7, skip succeeded 1")
-	assert.Contains(t, text, "Concurrency 2, on failure stop")
+	assert.Contains(t, text, "Concurrency 2 (queue limit 4), on failure stop")
+	assert.Contains(t, text, "Estimate 40m from recent runs", "seven runs, two at a time")
 	assert.Contains(t, text, "2026-10-03 02:00")
 	assert.NotContains(t, text, "2026-10-04 02:00  2026-10-03")
 	assert.Contains(t, text, "...")

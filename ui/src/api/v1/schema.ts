@@ -5046,6 +5046,12 @@ export interface components {
             };
             /** @description Slots that run because their nearest run fired under a schedule of another cadence */
             otherCadence?: number;
+            /** @description Runs of the backfill at once: the lower of its max concurrency and the queue's limit */
+            concurrency: number;
+            /** @description Runs of the DAG's queue at once */
+            queueLimit: number;
+            /** @description How long the plan's runs take, from the median duration of the DAG's recent successful runs. Absent without such runs. */
+            estimateSeconds?: number;
             revision: string;
             slots: components["schemas"]["BackfillPlanSlot"][];
             warnings?: string[];

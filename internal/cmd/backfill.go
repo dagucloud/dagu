@@ -214,7 +214,7 @@ func runBackfillResume(ctx *Context, args []string) error {
 		if dryRun {
 			return json.NewEncoder(out).Encode(shown.Plan)
 		}
-	} else if err := renderBackfillPlan(out, shown.Plan, options, backfillWarnings(ctx, dag, shown.Plan)); err != nil {
+	} else if err := showBackfillPlan(ctx, out, dag, shown.Plan, options); err != nil {
 		return err
 	}
 	runs := len(shown.Plan.Runs())
@@ -450,7 +450,7 @@ func runBackfillStart(ctx *Context, args []string) error {
 		if opts.dryRun {
 			return json.NewEncoder(out).Encode(shown.Plan)
 		}
-	} else if err := renderBackfillPlan(out, shown.Plan, options, backfillWarnings(ctx, dag, shown.Plan)); err != nil {
+	} else if err := showBackfillPlan(ctx, out, dag, shown.Plan, options); err != nil {
 		return err
 	}
 	if opts.dryRun {
@@ -530,14 +530,21 @@ func loadBackfillDAG(ctx *Context, name string) (*ir.DAG, error) {
 	return spec.Load(ctx, name, loadOpts...)
 }
 
-// backfillWarnings lists what the operator should know before starting.
-func backfillWarnings(ctx *Context, dag *ir.DAG, plan backfill.Plan) []string {
+// showBackfillPlan prints a plan with how it would run on the DAG's queue
+// and what the operator should know before starting it.
+func showBackfillPlan(ctx *Context, out io.Writer, dag *ir.DAG, plan backfill.Plan, options backfill.Options) error {
+	outlook, err := backfill.LoadOutlook(ctx, ctx.Persistence.DAGRunRepository, dag, options.MaxConcurrency, ctx.Config.QueueLimit(dag.ProcGroup()))
+	if err != nil {
+		return err
+	}
 	suspended, err := ctx.Persistence.DAGRepository.IsSuspended(ctx, dag.SuspendFlagName())
-	return plan.Warnings(backfill.WarningInput{
+	warnings := plan.Warnings(backfill.WarningInput{
 		SchedulerRunning: schedulerRunning(ctx),
 		Suspended:        err == nil && suspended,
 		DAG:              dag,
+		Outlook:          outlook,
 	})
+	return renderBackfillPlan(out, plan, options, outlook, warnings)
 }
 
 func schedulerRunning(ctx *Context) bool {
@@ -556,7 +563,7 @@ func schedulerRunning(ctx *Context) bool {
 	return false
 }
 
-func renderBackfillPlan(out io.Writer, plan backfill.Plan, options backfill.Options, warnings []string) error {
+func renderBackfillPlan(out io.Writer, plan backfill.Plan, options backfill.Options, outlook backfill.Outlook, warnings []string) error {
 	var b strings.Builder
 	zone := ""
 	if len(plan.Slots) > 0 {
@@ -578,7 +585,11 @@ func renderBackfillPlan(out io.Writer, plan backfill.Plan, options backfill.Opti
 	}
 	b.WriteString("\n")
 	fmt.Fprintf(&b, "%d slots: %s\n", len(plan.Slots), backfillActionCounts(plan))
-	fmt.Fprintf(&b, "Concurrency %d, on failure %s\n\n", options.MaxConcurrency, options.OnFailure)
+	fmt.Fprintf(&b, "Concurrency %d (queue limit %d), on failure %s\n", outlook.Concurrency, outlook.QueueLimit, options.OnFailure)
+	if estimate := outlook.Estimate(len(plan.Runs())); estimate > 0 {
+		fmt.Fprintf(&b, "Estimate %s from recent runs\n", formatDurationHuman(estimate.Round(time.Minute)))
+	}
+	b.WriteString("\n")
 	if _, err := io.WriteString(out, b.String()); err != nil {
 		return err
 	}

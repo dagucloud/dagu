@@ -727,6 +727,16 @@ func (c *Config) FindQueueConfig(queueName string) *QueueConfig {
 	return nil
 }
 
+// QueueLimit returns how many runs of a queue run at once: the
+// max_active_runs of a configured queue, at least 1, or 1 for a DAG's own
+// queue.
+func (c *Config) QueueLimit(queueName string) int {
+	if queue := c.FindQueueConfig(queueName); queue != nil {
+		return max(queue.MaxActiveRuns, 1)
+	}
+	return 1
+}
+
 // Coordinator represents the coordinator service configuration.
 type Coordinator struct {
 	Enabled    bool   // Default: true

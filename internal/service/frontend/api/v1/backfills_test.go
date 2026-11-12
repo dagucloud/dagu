@@ -34,9 +34,12 @@ steps:
 		return out
 	}
 
-	dry := submit(api.BackfillRequest{From: &from, To: &to, DryRun: new(true)}, http.StatusOK)
+	dry := submit(api.BackfillRequest{From: &from, To: &to, MaxConcurrency: new(3), DryRun: new(true)}, http.StatusOK)
 	require.Len(t, dry.Plan.Slots, 3)
 	assert.Equal(t, 3, dry.Plan.RunCounts.None)
+	assert.Equal(t, 1, dry.Plan.Concurrency, "the DAG's own queue runs one at a time")
+	assert.Equal(t, 1, dry.Plan.QueueLimit)
+	assert.Nil(t, dry.Plan.EstimateSeconds, "no estimate without successful runs")
 	assert.Nil(t, dry.Backfill)
 
 	submitted := submit(api.BackfillRequest{From: &from, To: &to, Revision: &dry.Plan.Revision}, http.StatusOK)
