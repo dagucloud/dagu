@@ -86,10 +86,17 @@ func (e *APIError) Reason(mask func(string) string) string {
 	reason := ""
 	_, messages := apiErrorDetails(e.Message)
 	for _, message := range messages {
-		if strings.TrimSpace(message) != "" {
-			reason = mask(message)
-			break
+		if strings.TrimSpace(message) == "" {
+			continue
 		}
+		if message == e.Message {
+			// The whole body stood in for a message: it is not one JSON value,
+			// but may start with one that hides a secret behind JSON escapes.
+			reason = maskJSONStrings(message, mask)
+		} else {
+			reason = mask(message)
+		}
+		break
 	}
 	if reason == "" {
 		reason = maskJSONStrings(e.Message, mask)
@@ -103,7 +110,8 @@ func (e *APIError) Reason(mask func(string) string) string {
 
 // maskJSONStrings applies mask to every string in a JSON document, keys
 // included, and then to its compact re-encoding, which also covers a secret
-// that matches a bare token. Text that is not JSON is masked as a whole.
+// that matches a bare token. Text after the document is masked as text, and
+// text that is not JSON is masked as a whole.
 func maskJSONStrings(body string, mask func(string) string) string {
 	decoder := json.NewDecoder(strings.NewReader(body))
 	decoder.UseNumber()
@@ -137,7 +145,11 @@ func maskJSONStrings(body string, mask func(string) string) string {
 	if err := encoder.Encode(maskValue(decoded)); err != nil {
 		return mask(body)
 	}
-	return mask(buf.String())
+	masked := mask(strings.TrimSuffix(buf.String(), "\n"))
+	if rest := body[decoder.InputOffset():]; strings.TrimSpace(rest) != "" {
+		masked += mask(rest)
+	}
+	return masked
 }
 
 // NewAPIError creates a new APIError with the given parameters.

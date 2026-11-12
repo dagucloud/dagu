@@ -73,6 +73,7 @@ func TestAPIError_ReasonMasked(t *testing.T) {
 		{"whitespace", "denied for multi word\nsecret here", "denied for ******* here"},
 		{"boundary", strings.Repeat("a", 195) + "multi word\nsecret", strings.Repeat("a", 195) + "*****..."},
 		{"escaped", `{"error":{"message":"bad key quoted-\"secret\""}}`, "bad key *******"},
+		{"escaped_trailing", `{"state":"quoted-\"secret\""} extra`, `{"state":"*******"} extra`},
 		{"escaped_no_message", `{"state":"quoted-\"secret\"","detail":["quoted-\"secret\""],"code":402}`, `{"code":402,"detail":["*******"],"state":"*******"}`},
 		// A secret matching a bare token must not break the parse that finds
 		// the escaped one.
