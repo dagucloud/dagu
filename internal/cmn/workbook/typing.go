@@ -90,6 +90,107 @@ const (
 	FormulaCalculate FormulaMode = "calculate"
 )
 
+// cached reports whether formula cells yield their stored result; the
+// empty mode is the default, cached.
+func (m FormulaMode) cached() bool {
+	return m != FormulaText && m != FormulaCalculate
+}
+
+// maxStaleCells caps the cells a stale formula warning names.
+const maxStaleCells = 5
+
+// staleCells collects the formula cells of one sheet whose cached value is
+// not what their formula evaluates to, for one bounded warning. A nil
+// collector, used when formulas are not read cached, checks nothing.
+type staleCells struct {
+	w     *file
+	sheet string
+	cells []string
+	count int
+}
+
+// check records the cell when it holds a formula whose evaluation
+// disagrees with raw, its cached value.
+func (s *staleCells) check(col, row int, raw string) {
+	if s == nil || raw == "" {
+		return
+	}
+	cell := cellName(col, row)
+	if !s.w.staleFormula(s.sheet, cell, raw) {
+		return
+	}
+	s.count++
+	if len(s.cells) < maxStaleCells {
+		s.cells = append(s.cells, s.sheet+"!"+cell)
+	}
+}
+
+// checkRow checks the cells of one returned row in the columns read. A
+// covered cell shows its merge origin's value, which is checked where it
+// lies, so a merged region is named once.
+func (s *staleCells) checkRow(row int, cols []int, grid [][]string, merges mergeFill) {
+	if s == nil {
+		return
+	}
+	for _, c := range cols {
+		if oc, or := merges.origin(c, row); oc == c && or == row {
+			s.check(c, row, cellAt(grid, c, row))
+		}
+	}
+}
+
+// report adds the warning naming the stale cells, when there are any.
+func (s *staleCells) report(warn func(string)) {
+	if s == nil || s.count == 0 {
+		return
+	}
+	names := strings.Join(s.cells, ", ")
+	if more := s.count - len(s.cells); more > 0 {
+		names += fmt.Sprintf(" and %d more cells", more)
+	}
+	warn(names + ": cached formula value is stale; set formulas: calculate to read current values")
+}
+
+// staleFormula reports whether a cell holds a formula that evaluates to
+// something other than raw, its cached value. Only a successful evaluation
+// counts: a formula the engine cannot evaluate, or one that evaluates to
+// an Excel error, says nothing about the cache.
+func (w *file) staleFormula(sheet, cell, raw string) bool {
+	formula, err := w.f.GetCellFormula(sheet, cell)
+	if err != nil || formula == "" {
+		return false
+	}
+	calculated, err := w.f.CalcCellValue(sheet, cell, rawValues)
+	if err != nil || calculated == "" || excelErrors[calculated] {
+		return false
+	}
+	return !sameCellValue(raw, calculated)
+}
+
+// sameCellValue compares a cached value with an evaluated one: numbers
+// compare as numbers, so the digits a writer kept do not matter, a boolean
+// as its stored 1 or 0, and the rest as text.
+func sameCellValue(cached, calculated string) bool {
+	a, aerr := strconv.ParseFloat(boolDigit(cached), 64)
+	b, berr := strconv.ParseFloat(boolDigit(calculated), 64)
+	if aerr == nil && berr == nil {
+		return math.Abs(a-b) <= 1e-9*math.Max(math.Abs(a), math.Abs(b))
+	}
+	return cached == calculated
+}
+
+// boolDigit maps the TRUE and FALSE an evaluation yields to the 1 and 0 a
+// boolean cell stores.
+func boolDigit(s string) string {
+	switch {
+	case strings.EqualFold(s, "TRUE"):
+		return "1"
+	case strings.EqualFold(s, "FALSE"):
+		return "0"
+	}
+	return s
+}
+
 const (
 	dateLayout     = "2006-01-02"
 	dateTimeLayout = "2006-01-02T15:04:05"

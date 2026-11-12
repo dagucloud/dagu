@@ -4,8 +4,10 @@
 package spec077_xlsx_test
 
 import (
+	"archive/zip"
 	"encoding/json"
 	"fmt"
+	"os"
 	"strings"
 	"testing"
 
@@ -304,6 +306,66 @@ func TestXlsxFormulasAndEmptyRows(t *testing.T) {
 		require.False(t, capped.Truncated, "exactly max_rows countable rows is not truncated")
 		require.Empty(t, capped.Warnings)
 	})
+}
+
+// writeStaleBook writes, by hand, a workbook no action or library can: a
+// 明細 sheet whose 金額 formulas in D cache the amounts of older quantities,
+// as a program that sets cells without recalculating leaves them.
+func writeStaleBook(t *testing.T, dagu *harness.Runner) {
+	t.Helper()
+	const cell = `<c r="%s"><v>%d</v></c>`
+	var rows strings.Builder
+	rows.WriteString(`<row r="1"><c r="A1" t="inlineStr"><is><t>品名</t></is></c><c r="B1" t="inlineStr"><is><t>数量</t></is></c><c r="C1" t="inlineStr"><is><t>単価</t></is></c><c r="D1" t="inlineStr"><is><t>金額</t></is></c></row>`)
+	for i, line := range [][3]int{{40, 3100, 93000}, {600, 386, 193000}, {12, 5200, 52000}} {
+		r := i + 2
+		fmt.Fprintf(&rows, `<row r="%d"><c r="A%d" t="inlineStr"><is><t>品目%d</t></is></c>`, r, r, i+1)
+		fmt.Fprintf(&rows, cell, fmt.Sprintf("B%d", r), line[0])
+		fmt.Fprintf(&rows, cell, fmt.Sprintf("C%d", r), line[1])
+		fmt.Fprintf(&rows, `<c r="D%d"><f>B%d*C%d</f><v>%d</v></c></row>`, r, r, r, line[2])
+	}
+	parts := map[string]string{
+		"[Content_Types].xml": `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="xml" ContentType="application/xml"/><Override PartName="/xl/workbook.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml"/><Override PartName="/xl/worksheets/sheet1.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/></Types>`,
+		"_rels/.rels": `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="xl/workbook.xml"/></Relationships>`,
+		"xl/workbook.xml": `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"><sheets><sheet name="明細" sheetId="1" r:id="rId1"/></sheets></workbook>`,
+		"xl/_rels/workbook.xml.rels": `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet1.xml"/></Relationships>`,
+		"xl/worksheets/sheet1.xml": `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"><sheetData>` + rows.String() + `</sheetData></worksheet>`,
+	}
+	out, err := os.Create(dagu.ProjectPath("stale_formulas.xlsx"))
+	require.NoError(t, err)
+	zw := zip.NewWriter(out)
+	for name, body := range parts {
+		w, err := zw.Create(name)
+		require.NoError(t, err)
+		_, err = w.Write([]byte(body))
+		require.NoError(t, err)
+	}
+	require.NoError(t, zw.Close())
+	require.NoError(t, out.Close())
+}
+
+// Spec 077 "Typing", formula: a cached read names the cells whose cached
+// value is not what their formula evaluates to and still reads the cache;
+// formulas: calculate reads the current values with no such warning.
+func TestXlsxStaleCachedFormulas(t *testing.T) {
+	t.Parallel()
+	dagu := harness.NewRunner(t)
+	writeStaleBook(t, dagu)
+	dagu.Run("start", "stale_formulas.yaml").ExpectExitCode(0)
+	var out map[string]readOut
+	readJSON(t, dagu, "out.json", &out)
+
+	cached := out["cached"]
+	require.Equal(t, []string{"93000", "193000", "52000"}, names(cached.Rows, "amount"), "the cached values are still what is read")
+	require.Equal(t, []string{"明細!D2, 明細!D3, 明細!D4: cached formula value is stale; set formulas: calculate to read current values"}, cached.Warnings)
+
+	calculated := out["calculated"]
+	require.Equal(t, []string{"124000", "231600", "62400"}, names(calculated.Rows, "amount"))
+	require.Empty(t, calculated.Warnings)
 }
 
 func TestXlsxWhere(t *testing.T) {

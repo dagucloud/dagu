@@ -151,7 +151,7 @@ and standard encryption can be opened; any other mechanism fails with
 | Text, including text-formatted numbers | String, so leading zeros survive. `trim: true` removes surrounding white space, including the full-width space U+3000. |
 | Text under a pinned `number`, `integer`, `date`, `datetime`, or `boolean` | Japanese forms are read as the section below describes: full-width text, yen amounts, kanji numerals, kanji and era dates, times of day, and yes/no marks. The failure message quotes the text as the cell holds it. |
 | Boolean | `true` or `false`. |
-| Formula | Its cached value. `formulas: text` yields `=` and the formula; `formulas: calculate` evaluates it. A formula without a cached value is evaluated with the warning `Sheet!B2: formula had no cached value; evaluated`; one that cannot be evaluated is null with `Sheet!B3: formula NA() could not be evaluated: #N/A`. |
+| Formula | Its cached value. `formulas: text` yields `=` and the formula; `formulas: calculate` evaluates it. A formula without a cached value is evaluated with the warning `Sheet!B2: formula had no cached value; evaluated`; one that cannot be evaluated is null with `Sheet!B3: formula NA() could not be evaluated: #N/A`. A cached read also evaluates the formulas of the cells it returns, the read columns of the rows read, and when a value disagrees with its cache the cached value is still read, with one warning naming the first five such cells, `Sheet!D2, Sheet!D3, Sheet!D4: cached formula value is stale; set formulas: calculate to read current values`, or `Sheet!D2, Sheet!D3, Sheet!D4, Sheet!D5, Sheet!D6 and 7 more cells: ...` past five. Numbers compare as numbers, so a writer's digits do not matter; a formula that cannot be evaluated, or evaluates to an error, says nothing about its cache. |
 | Error such as `#N/A` | Null, with the warning `Sheet!B3: error cell #N/A`. |
 | Empty | Null. Trailing rows whose cells are all null are dropped unless `keep_empty_rows: true`. |
 
@@ -694,7 +694,7 @@ next configured model is asked, and when every model's answer is unusable
 the step fails with `model request failed: <provider>/<model>: ...` naming
 each answer's fault. An empty cell within the range is a null value, since
 a form may leave a box blank. `trim` and `formulas` read the cell as `xlsx.read`
-would. A property's `type` pins the cell: `number`, `integer`, `boolean`,
+would, its stale cached formula warning included. A property's `type` pins the cell: `number`, `integer`, `boolean`,
 `string`, and `string` with `format: date` or `date-time`; a property
 without a type gets the cell's own typed value. A cell that fails its type
 fails the step with the usual `quote.xlsx Sheet1!B7: expected number,

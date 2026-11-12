@@ -1128,6 +1128,60 @@ func TestFormulasCalculateRecomputesCachedCells(t *testing.T) {
 	assert.Equal(t, int64(3), fresh.Rows[0]["f"])
 }
 
+// staleBook is a sheet whose amounts in C were cached for older
+// quantities: C is stale in every row, D is current, E cannot be
+// evaluated, F is a boolean formula, and G is stale but never read.
+func staleBook(t *testing.T, rows int) string {
+	t.Helper()
+	var b strings.Builder
+	b.WriteString(`<sheetData><row r="1">` + inline("A1", "qty") + inline("B1", "price") + inline("C1", "amount") + inline("D1", "ok") + inline("E1", "unsupported") + inline("F1", "flag") + inline("G1", "other") + `</row>`)
+	for r := 2; r < rows+2; r++ {
+		fmt.Fprintf(&b, `<row r="%d"><c r="A%d"><v>40</v></c><c r="B%d"><v>3100</v></c>`, r, r, r)
+		fmt.Fprintf(&b, `<c r="C%d"><f>A%d*B%d</f><v>93000</v></c>`, r, r, r)
+		fmt.Fprintf(&b, `<c r="D%d"><f>A%d+B%d</f><v>3140</v></c>`, r, r, r)
+		fmt.Fprintf(&b, `<c r="E%d"><f>NOSUCHFN(A%d)</f><v>1</v></c>`, r, r)
+		fmt.Fprintf(&b, `<c r="F%d" t="b"><f>A%d&gt;1</f><v>1</v></c>`, r, r)
+		fmt.Fprintf(&b, `<c r="G%d"><f>A%d*2</f><v>0</v></c></row>`, r, r)
+	}
+	b.WriteString(`</sheetData>`)
+	return rawBook(t, b.String())
+}
+
+// A cached read says which formula cells hold a value their formula no
+// longer evaluates to, so a workflow can stop or read with formulas:
+// calculate. Only the returned columns and rows are checked, a formula
+// the engine cannot evaluate says nothing, and the warning names at most
+// five cells.
+func TestStaleCachedFormulasWarn(t *testing.T) {
+	t.Parallel()
+	path := staleBook(t, 7)
+	const stale = ": cached formula value is stale; set formulas: calculate to read current values"
+
+	result, err := Read(context.Background(), path, ReadOptions{Columns: []ColumnSelect{{Source: "amount", As: "amount"}, {Source: "ok", As: "ok"}, {Source: "unsupported", As: "u"}, {Source: "flag", As: "flag"}}})
+	require.NoError(t, err)
+	assert.Equal(t, int64(93000), result.Rows[0]["amount"], "the cached value is still what is read")
+	assert.Equal(t, true, result.Rows[0]["flag"])
+	assert.Equal(t, []string{"Raw!C2, Raw!C3, Raw!C4, Raw!C5, Raw!C6 and 2 more cells" + stale}, result.Warnings)
+
+	current, err := Read(context.Background(), path, ReadOptions{Columns: []ColumnSelect{{Source: "ok", As: "ok"}, {Source: "unsupported", As: "u"}, {Source: "flag", As: "flag"}}})
+	require.NoError(t, err)
+	assert.Empty(t, current.Warnings, "columns not read are not checked; a formula that cannot be evaluated is not stale")
+
+	limited, err := Read(context.Background(), path, ReadOptions{Columns: []ColumnSelect{{Source: "amount", As: "amount"}}, MaxRows: 2})
+	require.NoError(t, err)
+	assert.Contains(t, limited.Warnings, "Raw!C2, Raw!C3"+stale, "only the rows returned are checked")
+
+	filtered, err := Read(context.Background(), path, ReadOptions{Columns: []ColumnSelect{{Source: "amount", As: "amount"}}, Where: map[string]any{"qty": 41}})
+	require.NoError(t, err)
+	assert.Empty(t, filtered.Warnings, "rows a where filter drops are not checked")
+
+	for _, mode := range []FormulaMode{FormulaCalculate, FormulaText} {
+		fresh, err := Read(context.Background(), path, ReadOptions{Formulas: mode})
+		require.NoError(t, err)
+		assert.Empty(t, fresh.Warnings, string(mode))
+	}
+}
+
 // Japanese text under a pinned type: full-width digits and punctuation,
 // yen signs, kanji dates, and era dates, long and short.
 func TestCoerceJapaneseText(t *testing.T) {
