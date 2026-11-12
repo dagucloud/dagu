@@ -59,21 +59,25 @@ func TestPageResponseWatcherKeepsPageDocuments(t *testing.T) {
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = watcher.Close() })
 
+	// The answers are read once every host asserted on is stored, since the
+	// watcher stores them as it reads the events.
+	want := map[string]browserhost.PageResponse{
+		"portal.example.com": {Status: 200},
+		"shop.example.com":   {Status: 403, BotCheck: browserhost.BotCheckCloudflare},
+		// AWS WAF answers its Challenge action with 202 and its CAPTCHA
+		// action with 405.
+		"api.example.com":   {Status: 202, BotCheck: browserhost.BotCheckAWSWAFChallenge},
+		"store.example.com": {Status: 405, BotCheck: browserhost.BotCheckAWSWAFCaptcha},
+	}
 	require.EventuallyWithT(t, func(c *assert.CollectT) {
-		response, ok := watcher.Response("portal.example.com")
-		assert.True(c, ok)
-		assert.Equal(c, browserhost.PageResponse{Status: 200}, response)
+		for host, response := range want {
+			stored, ok := watcher.Response(host)
+			if assert.True(c, ok, host) {
+				assert.Equal(c, response, stored, host)
+			}
+		}
 	}, 5*time.Second, 20*time.Millisecond)
-	response, ok := watcher.Response("shop.example.com")
-	require.True(t, ok)
-	assert.Equal(t, browserhost.PageResponse{Status: 403, BotCheck: browserhost.BotCheckCloudflare}, response)
-	response, ok = watcher.Response("api.example.com")
-	require.True(t, ok)
-	assert.Equal(t, browserhost.PageResponse{Status: 202, BotCheck: browserhost.BotCheckAWSWAFChallenge}, response, "AWS WAF answers its Challenge action with 202")
-	response, ok = watcher.Response("store.example.com")
-	require.True(t, ok)
-	assert.Equal(t, browserhost.PageResponse{Status: 405, BotCheck: browserhost.BotCheckAWSWAFCaptcha}, response, "AWS WAF answers its CAPTCHA action with 405")
-	_, ok = watcher.Response("ads.example.net")
+	_, ok := watcher.Response("ads.example.net")
 	assert.False(t, ok, "a frame's document is not the page's")
 	_, ok = watcher.Response("cdn.example.net")
 	assert.False(t, ok, "a script is not a document")

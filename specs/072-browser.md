@@ -388,10 +388,13 @@ error page. A site answered with a bot check when the answer carries the
 header `cf-mitigated: challenge`, which is Cloudflare's check, or the header
 `x-amzn-waf-action: challenge` or `x-amzn-waf-action: captcha`, which are
 AWS WAF's challenge, answered with `202`, and CAPTCHA, answered with `405`.
-A page shows a bot check when a frame it shows, nested in a frame it shows
-too, loads a known challenge: `www.google.com/recaptcha/` or
-`recaptcha.net/recaptcha/` is a reCAPTCHA, a subdomain of `hcaptcha.com` an
-hCaptcha, and `challenges.cloudflare.com` a Cloudflare Turnstile. A frame
+A page shows a bot check when a frame it shows loads a known challenge:
+`www.google.com/recaptcha/` or `recaptcha.net/recaptcha/` is a reCAPTCHA, a
+subdomain of `hcaptcha.com` an hCaptcha, and `challenges.cloudflare.com` a
+Cloudflare Turnstile. The frames looked at are those of the page's own
+document and of the documents of the frames it shows from its own origin,
+nested as deep as they stay on it; a frame from another origin is looked at
+by its address alone, so a challenge nested inside one is not seen. A frame
 that is not rendered or is hidden, or whose address says `size=invisible`,
 as an invisible reCAPTCHA's badge does, shows no check. A page a client
 certificate kept from opening is not counted; Client certificates explains
