@@ -39,53 +39,32 @@ func TestAPIError(t *testing.T) {
 	})
 }
 
+// A body without a usable message is returned as received: the text is not
+// re-encoded, collapsed, or cut, so a caller can mask it whole first.
 func TestAPIError_Reason(t *testing.T) {
 	t.Parallel()
 	for _, tc := range []struct{ name, message, want string }{
 		{"empty", "", ""},
-		{"blank", " \n\t ", ""},
+		{"blank", " \n\t ", " \n\t "},
 		{"openai", `{"error":{"message":"Insufficient credits","code":402}}`, "Insufficient credits"},
 		{"trailing_text", `{"message":"bad request"} maximum context length`, `{"message":"bad request"} maximum context length`},
 		{"anthropic", `{"type":"error","error":{"type":"not_found_error","message":"model: no-such-model"}}`, "model: no-such-model"},
 		{"error_string", `{"error":"busy"}`, "busy"},
+		{"escaped_error_string", `{"error":"quoted-\"secret\""}`, `quoted-"secret"`},
 		{"top_level_message", `{"message":"quota exceeded"}`, "quota exceeded"},
 		{"blank_then_nested", `{"message":"","error":{"message":"Insufficient credits"}}`, "Insufficient credits"},
-		{"message_whitespace", `{"error":{"message":"  line one\n\n  line two  "}}`, "line one line two"},
+		{"message_whitespace", `{"error":{"message":"  line one\n\n  line two  "}}`, "  line one\n\n  line two  "},
 		{"message_empty", `{"error":{"message":""}}`, `{"error":{"message":""}}`},
+		{"no_message", `{"state":"quoted-\"secret\"","code":402}`, `{"state":"quoted-\"secret\"","code":402}`},
+		{"overflow", `{"code":1e400,"state":"x"}`, `{"code":1e400,"state":"x"}`},
 		{"json_array", `["unexpected"]`, `["unexpected"]`},
-		{"text", "  <html>\n  Bad Gateway\t</html>  ", "<html> Bad Gateway </html>"},
-		{"long", strings.Repeat("é", 300), strings.Repeat("é", 200) + "..."},
+		{"text", "  <html>\n  Bad Gateway\t</html>  ", "  <html>\n  Bad Gateway\t</html>  "},
+		{"long", strings.Repeat("é", 300), strings.Repeat("é", 300)},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 			err := &APIError{Provider: "test", StatusCode: 400, Message: tc.message}
-			assert.Equal(t, tc.want, err.Reason(nil))
-		})
-	}
-}
-
-// The mask sees the text before whitespace is collapsed or the length bound
-// is applied, and sees the decoded message where JSON escaping hid the secret.
-func TestAPIError_ReasonMasked(t *testing.T) {
-	t.Parallel()
-	mask := strings.NewReplacer("multi word\nsecret", "*******", `quoted-"secret"`, "*******", "4021", "*******", "1234\nprivate-token", "*******").Replace
-	for _, tc := range []struct{ name, message, want string }{
-		{"whitespace", "denied for multi word\nsecret here", "denied for ******* here"},
-		{"boundary", strings.Repeat("a", 195) + "multi word\nsecret", strings.Repeat("a", 195) + "*****..."},
-		{"escaped", `{"error":{"message":"bad key quoted-\"secret\""}}`, "bad key *******"},
-		{"escaped_trailing", `{"state":"quoted-\"secret\""} extra`, `{"state":"*******"} extra`},
-		{"spanning", "1234\nprivate-token", "*******"},
-		{"escaped_no_message", `{"state":"quoted-\"secret\"","detail":["quoted-\"secret\""],"code":402}`, `{"code":402,"detail":["*******"],"state":"*******"}`},
-		// A secret matching a bare token must not break the parse that finds
-		// the escaped one.
-		{"token_and_escaped", `{"code":4021,"state":"quoted-\"secret\""}`, `{"code":*******,"state":"*******"}`},
-		{"token_in_message", `{"code":4021,"error":{"message":"account 4021 is suspended"}}`, "account ******* is suspended"},
-		{"overflow_and_escaped", `{"code":1e400,"state":"quoted-\"secret\""}`, `{"code":1e400,"state":"*******"}`},
-	} {
-		t.Run(tc.name, func(t *testing.T) {
-			t.Parallel()
-			err := &APIError{Provider: "test", StatusCode: 400, Message: tc.message}
-			assert.Equal(t, tc.want, err.Reason(mask))
+			assert.Equal(t, tc.want, err.Reason())
 		})
 	}
 }
@@ -122,6 +101,9 @@ func TestNewAPIError_ClassifiesContextOverflow(t *testing.T) {
 		`{"type":"error","error":{"type":"invalid_request_error","message":"prompt is too long: 120000 tokens > 100000 maximum"}}`,
 		`{"error":{"code":400,"message":"The input token count exceeds the maximum number of tokens allowed."}}`,
 		`{"error":"request exceeds the available context size"}`,
+		// Text after a JSON value makes the body plain text, matched whole.
+		`{"message":"bad request"} maximum context length`,
+		"<html>Request exceeds the available context size</html>",
 	}
 	for _, body := range tests {
 		err := NewAPIError("test", 400, body)
