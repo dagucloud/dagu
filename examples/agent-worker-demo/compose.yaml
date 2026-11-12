@@ -1,0 +1,278 @@
+# Agent worker demo: all parts are real except the AI (a fake claude CLI and a fake
+# model API). The server, the scheduler and the coordinator run in the container
+# dagu-unified-demo, which run-demo.sh starts and connects to the network
+# dagu-aw-internal with the alias dagu-coordinator.
+#
+# run-demo.sh builds the images dagu-aw-agent:demo and dagu-aw-git-server:demo, makes
+# the files in run/ and starts this file. Set HOST_UID and HOST_GID to the IDs of the
+# host user before you run docker compose by hand.
+
+name: dagu-aw
+
+x-labels: &labels
+  dagu.demo: agent-worker
+
+# The security settings of an agent worker (Spec 092, "Security settings").
+# The worker starts as root because the change to the restricted user needs CAP_SETUID.
+x-agent-security: &agent-security
+  user: "0:0"
+  cap_drop: [ALL]
+  cap_add: [CHOWN, DAC_OVERRIDE, FOWNER, SETUID, SETGID, KILL]
+  security_opt: ["no-new-privileges:true"]
+  read_only: true
+  init: true
+  # Docker mounts a tmpfs with noexec. The tests of a run are scripts in the work
+  # directory, so these two mounts need exec.
+  tmpfs:
+    - /tmp:mode=1777,exec
+    # The restricted user must reach the work directory under this folder.
+    - /var/lib/dagu:mode=0755,exec
+
+x-agent-environment: &agent-environment
+  DAGU_HOME: /var/lib/dagu
+  # Dagu replaces the address and the key with those of the relay for each attempt.
+  # The proxy has no model route, so these two values reach no model API.
+  ANTHROPIC_BASE_URL: http://egress-proxy:8081
+  ANTHROPIC_API_KEY: placeholder
+  HTTP_PROXY: http://egress-proxy:8081
+  HTTPS_PROXY: http://egress-proxy:8081
+  # git uses libcurl. libcurl reads only the lower case name http_proxy.
+  http_proxy: http://egress-proxy:8081
+  https_proxy: http://egress-proxy:8081
+  # The CLI sends the requests to the tool bridge (127.0.0.1) and to the MCP server of the
+  # Dagu server through HTTP_PROXY when NO_PROXY does not name their host.
+  NO_PROXY: dagu-coordinator,127.0.0.1,localhost
+  no_proxy: dagu-coordinator,127.0.0.1,localhost
+  CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC: "1"
+
+services:
+  # The proxy carries the traffic of git and of the message step. It has no model route:
+  # each agent.run step of the demo names the endpoint demo-upstream, so the CLI calls the
+  # relay, and the coordinator holds the key.
+  egress-proxy:
+    image: dagu-aw-agent:demo
+    container_name: dagu-aw-egress-proxy
+    labels: *labels
+    user: "${HOST_UID:?set HOST_UID}:${HOST_GID:?set HOST_GID}"
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+    read_only: true
+    command:
+      - dagu
+      - egress-proxy
+      - serve
+      - --listen=0.0.0.0:8081
+      - --allow=git-server:8080
+      - --allow=172.17.0.1:8099
+    networks: [internal, egress]
+    restart: unless-stopped
+
+  fake-anthropic:
+    image: python:3-slim
+    container_name: dagu-aw-fake-anthropic
+    labels: *labels
+    user: "${HOST_UID:?set HOST_UID}:${HOST_GID:?set HOST_GID}"
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+    read_only: true
+    environment:
+      PYTHONDONTWRITEBYTECODE: "1"
+    command:
+      - python3
+      - /app/server.py
+      - --key-file=/run/secrets/anthropic-key
+      - --log-file=/var/log/fake-anthropic/requests.jsonl
+      - --port=8080
+    volumes:
+      - ./fake-anthropic/server.py:/app/server.py:ro
+      - ./run/secrets/anthropic-key:/run/secrets/anthropic-key:ro
+      - ./run/logs/fake-anthropic:/var/log/fake-anthropic
+    networks: [egress]
+    restart: unless-stopped
+
+  # A MCP server that needs a bearer token. The named MCP entry "vault" of the endpoint
+  # demo points to it. Only the coordinator reaches it: the server container is on this
+  # network, and the agent worker is not.
+  fake-mcp:
+    image: python:3-slim
+    container_name: dagu-aw-fake-mcp
+    labels: *labels
+    user: "${HOST_UID:?set HOST_UID}:${HOST_GID:?set HOST_GID}"
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+    read_only: true
+    environment:
+      PYTHONDONTWRITEBYTECODE: "1"
+    command:
+      - python3
+      - /app/server.py
+      - --token-file=/run/secrets/mcp-token
+      - --log-file=/var/log/fake-mcp/requests.jsonl
+      - --port=8080
+    volumes:
+      - ./fake-mcp/server.py:/app/server.py:ro
+      - ./run/secrets/mcp-token:/run/secrets/mcp-token:ro
+      - ./run/logs/fake-mcp:/var/log/fake-mcp
+    networks: [egress]
+    restart: unless-stopped
+
+  git-server:
+    image: dagu-aw-git-server:demo
+    build:
+      context: ./git-server
+      labels: *labels
+    container_name: dagu-aw-git-server
+    labels: *labels
+    user: "${HOST_UID:?set HOST_UID}:${HOST_GID:?set HOST_GID}"
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+    read_only: true
+    command:
+      - --root=/srv/git
+      - --seed=/seed
+      - --token-file=/run/secrets/git-token
+      - --port=8080
+    volumes:
+      - ./seed:/seed:ro
+      - ./run/secrets/git-token:/run/secrets/git-token:ro
+    # The repository lives in memory. A new start makes a new repository.
+    tmpfs:
+      - /srv/git:mode=0755,uid=${HOST_UID:-1000},gid=${HOST_GID:-1000}
+      - /tmp:mode=1777
+    networks: [egress]
+    restart: unless-stopped
+
+  general-worker:
+    image: dagu-aw-agent:demo
+    container_name: dagu-aw-general-worker
+    labels: *labels
+    user: "0:0"
+    cap_drop: [ALL]
+    # DAC_OVERRIDE lets root read the key, which has the mode 0400 and the owner of the host user.
+    cap_add: [DAC_OVERRIDE]
+    security_opt: ["no-new-privileges:true"]
+    read_only: true
+    init: true
+    tmpfs:
+      - /tmp:mode=1777,exec
+      - /var/lib/dagu:mode=0755,exec
+    environment:
+      DAGU_HOME: /var/lib/dagu
+    command: [dagu, worker, --config=/etc/dagu/config.yaml]
+    volumes:
+      - ./run/config/general-worker.yaml:/etc/dagu/config.yaml:ro
+      - ./run/certs/general-worker:/etc/dagu/tls:ro
+    networks: [internal]
+    restart: unless-stopped
+
+  agent-worker:
+    <<: *agent-security
+    image: dagu-aw-agent:demo
+    container_name: dagu-aw-agent-worker
+    labels: *labels
+    environment: *agent-environment
+    command:
+      - dagu
+      - worker
+      - --config=/etc/dagu/config.yaml
+      - --agent=claude=/usr/local/bin/claude
+    volumes:
+      - ./run/config/agent-worker.yaml:/etc/dagu/config.yaml:ro
+      - ./run/certs/agent-claude:/etc/dagu/tls:ro
+    networks: [internal]
+    # The worker takes one run and exits. The restart policy starts a new worker.
+    restart: always
+
+  # The attack services. Each one is a worker with a certificate that must not claim an
+  # agent run. The coordinator must refuse it. Run one with:
+  #   docker compose --profile attacks run --rm attack-rogue
+  # The limit of 40 seconds stops a worker that the coordinator does not refuse.
+
+  # The CN "rogue" is in no worker pool.
+  attack-rogue:
+    <<: *agent-security
+    profiles: [attacks]
+    image: dagu-aw-agent:demo
+    labels: *labels
+    environment: *agent-environment
+    entrypoint:
+      - timeout
+      - -k
+      - "5"
+      - "40"
+      - dagu
+      - worker
+      - --config=/etc/dagu/config.yaml
+      - --agent=claude=/usr/local/bin/claude
+      - --worker.id=attack-rogue
+      - --peer.cert-file=/etc/dagu/tls/rogue.crt
+      - --peer.key-file=/etc/dagu/tls/rogue.key
+    command: []
+    volumes:
+      - ./run/config/agent-worker.yaml:/etc/dagu/config.yaml:ro
+      - ./run/certs/rogue:/etc/dagu/tls:ro
+    networks: [internal]
+    restart: "no"
+
+  # The CN "general-worker" is in the pool "general". The pool does not allow the label
+  # agent.provider.claude.
+  attack-general:
+    <<: *agent-security
+    profiles: [attacks]
+    image: dagu-aw-agent:demo
+    labels: *labels
+    environment: *agent-environment
+    entrypoint:
+      - timeout
+      - -k
+      - "5"
+      - "40"
+      - dagu
+      - worker
+      - --config=/etc/dagu/config.yaml
+      - --agent=claude=/usr/local/bin/claude
+      - --worker.id=attack-general
+      - --peer.cert-file=/etc/dagu/tls/general-worker.crt
+      - --peer.key-file=/etc/dagu/tls/general-worker.key
+    command: []
+    volumes:
+      - ./run/config/agent-worker.yaml:/etc/dagu/config.yaml:ro
+      - ./run/certs/general-worker:/etc/dagu/tls:ro
+    networks: [internal]
+    restart: "no"
+
+  # The CN is "agent-claude", but the certificate comes from a CA that the coordinator
+  # does not trust.
+  attack-other-ca:
+    <<: *agent-security
+    profiles: [attacks]
+    image: dagu-aw-agent:demo
+    labels: *labels
+    environment: *agent-environment
+    entrypoint:
+      - timeout
+      - -k
+      - "5"
+      - "40"
+      - dagu
+      - worker
+      - --config=/etc/dagu/config.yaml
+      - --agent=claude=/usr/local/bin/claude
+      - --worker.id=attack-other-ca
+    command: []
+    volumes:
+      - ./run/config/agent-worker.yaml:/etc/dagu/config.yaml:ro
+      - ./run/certs/other-ca-client:/etc/dagu/tls:ro
+    networks: [internal]
+    restart: "no"
+
+networks:
+  # No route to the outside. Only the coordinator, the workers and the proxy are here.
+  internal:
+    name: dagu-aw-internal
+    internal: true
+    labels: *labels
+  # The proxy, the fake model API and the git server.
+  egress:
+    name: dagu-aw-egress
+    labels: *labels

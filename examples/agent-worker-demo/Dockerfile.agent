@@ -1,0 +1,28 @@
+# The image of the agent worker demo. The same image serves the agent worker, the
+# general worker, the egress proxy and the attack services. Each service sets its
+# own command.
+#
+# run-demo.sh builds the context run/agent-image/. It holds a static dagu and the
+# files of the fake claude CLI.
+FROM debian:stable-slim
+
+# git: the git steps and the restricted user. jq: the gate of the DAG.
+# procps: the evidence step uses pgrep.
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends git python3 ca-certificates jq procps \
+    && rm -rf /var/lib/apt/lists/*
+
+# The restricted user reads a repository that the worker owns.
+RUN git config --system --add safe.directory '*'
+
+# No setuid or setgid binary stays in the image.
+RUN find / -xdev -perm /6000 -type f -exec chmod a-s {} + ; true
+
+COPY dagu /usr/local/bin/dagu
+# The fake claude CLI: the script, the demo scenario and the MCP client.
+COPY claude demo_agent.py mcp_client.py /usr/local/bin/
+RUN chmod 0755 /usr/local/bin/dagu /usr/local/bin/claude /usr/local/bin/demo_agent.py \
+    && chmod 0644 /usr/local/bin/mcp_client.py
+
+# The Dagu home and the temporary files are tmpfs mounts at run time.
+ENV HOME=/tmp

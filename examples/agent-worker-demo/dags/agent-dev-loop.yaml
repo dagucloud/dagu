@@ -1,0 +1,224 @@
+description: >-
+  The verify loop of Spec 092 with a fake claude. Round 1 fixes the failing test. The verify
+  script finds a second bug that the tests do not show, so verify_1 fails and writes a log.
+  Round 2 reads the log and fixes the second bug. Round 3 and its verify are skipped. One DAG,
+  one run. With SCENARIO=loop_stuck the agent never fixes the second bug: the three verify
+  steps fail, the run fails, and nothing is pushed.
+type: graph
+max_active_runs: 1
+params:
+  - name: TASK
+    type: string
+    default: Fix the failing test of the calculator.
+  - name: REPO
+    type: string
+    default: http://git-server:8080/app.git
+  - name: BRANCH
+    type: string
+    default: agent/loop-calculator
+  - name: SCENARIO
+    type: string
+    description: The scenario of the fake claude, loop or loop_stuck.
+    default: loop
+env:
+  - FAKE_CLAUDE_SCENARIO: ${SCENARIO}
+secrets:
+  - name: GIT_TOKEN
+    ref: git-token
+steps:
+  - id: clone
+    action: git.checkout
+    secrets: [GIT_TOKEN]
+    with: { repository: "${REPO}", path: repo, token: "${GIT_TOKEN}" }
+
+  # Round 1.
+  - id: code_1
+    depends: [clone]
+    working_dir: repo
+    action: agent.run
+    timeout_sec: 1800
+    retry_policy: { limit: 12, interval_sec: 300, exit_code: [75] }
+    preconditions:
+      - condition: "${TASK}"
+        expected: "re:.+"
+    output_schema:
+      type: object
+      additionalProperties: false
+      properties:
+        verdict: { type: string, enum: [done, blocked] }
+        summary: { type: string }
+      required: [verdict, summary]
+    with:
+      prompt: |
+        ${TASK}
+        Run ./scripts/test.sh and fix the code until it passes.
+      system: Write small, tested changes. Never edit the files of the CI.
+      endpoint:
+        name: demo-upstream
+        model: claude-demo
+      provider: claude
+      max_tool_iterations: 40
+      tools:
+        builtin:
+          read: true
+          write: true
+          edit: true
+          search: true
+          shell:
+            allow: ["./scripts/test.sh", "git diff *", "git status *", "git log *"]
+            deny: ["git push *", "git remote *"]
+
+  # The verify runs a stricter script than the one that the agent knows. The step has no key
+  # untrusted: the DAG has an agent.run step, so the step is untrusted by default and runs as
+  # the restricted user. Its exit code is the verdict. The log goes to a file for the next round.
+  - id: verify_1
+    depends: [code_1]
+    working_dir: repo
+    continue_on: { failure: true }
+    run: |
+      rc=0
+      ./scripts/verify.sh > "${DAG_RUN_WORK_DIR}/${DAG_RUN_STEP_NAME}.log" 2>&1 || rc=$?
+      cat "${DAG_RUN_WORK_DIR}/${DAG_RUN_STEP_NAME}.log"
+      exit $rc
+
+  # Round 2. It runs only when verify_1 failed.
+  - id: code_2
+    depends: [verify_1]
+    working_dir: repo
+    action: agent.run
+    timeout_sec: 1800
+    retry_policy: { limit: 12, interval_sec: 300, exit_code: [75] }
+    preconditions:
+      - condition: "${verify_1.exit_code}"
+        expected: "0"
+        negate: true
+    with:
+      prompt: |
+        ${TASK}
+        The check of the project failed after your last change. The log is in the file
+        ${DAG_RUN_WORK_DIR}/verify_1.log
+        Read the log, fix the code, and run ./scripts/test.sh again.
+      system: Write small, tested changes. Never edit the files of the CI.
+      endpoint:
+        name: demo-upstream
+        model: claude-demo
+      provider: claude
+      max_tool_iterations: 40
+      tools:
+        builtin:
+          read: true
+          write: true
+          edit: true
+          search: true
+          shell:
+            allow: ["./scripts/test.sh", "git diff *", "git status *", "git log *"]
+            deny: ["git push *", "git remote *"]
+
+  - id: verify_2
+    depends: [code_2]
+    working_dir: repo
+    continue_on: { failure: true }
+    run: |
+      rc=0
+      ./scripts/verify.sh > "${DAG_RUN_WORK_DIR}/${DAG_RUN_STEP_NAME}.log" 2>&1 || rc=$?
+      cat "${DAG_RUN_WORK_DIR}/${DAG_RUN_STEP_NAME}.log"
+      exit $rc
+
+  # Round 3, the last. A failed verify_3 fails the run.
+  - id: code_3
+    depends: [verify_2]
+    working_dir: repo
+    action: agent.run
+    timeout_sec: 1800
+    retry_policy: { limit: 12, interval_sec: 300, exit_code: [75] }
+    preconditions:
+      - condition: "${verify_2.exit_code}"
+        expected: "0"
+        negate: true
+    with:
+      prompt: |
+        ${TASK}
+        The check of the project failed after your last change. The log is in the file
+        ${DAG_RUN_WORK_DIR}/verify_2.log
+        Read the log, fix the code, and run ./scripts/test.sh again.
+      system: Write small, tested changes. Never edit the files of the CI.
+      endpoint:
+        name: demo-upstream
+        model: claude-demo
+      provider: claude
+      max_tool_iterations: 40
+      tools:
+        builtin:
+          read: true
+          write: true
+          edit: true
+          search: true
+          shell:
+            allow: ["./scripts/test.sh", "git diff *", "git status *", "git log *"]
+            deny: ["git push *", "git remote *"]
+
+  # This step also runs when a round before it passed. Then Dagu skipped code_3.
+  - id: verify_3
+    depends: [code_3]
+    working_dir: repo
+    continue_on: { skipped: true }
+    run: |
+      rc=0
+      ./scripts/verify.sh > "${DAG_RUN_WORK_DIR}/${DAG_RUN_STEP_NAME}.log" 2>&1 || rc=$?
+      cat "${DAG_RUN_WORK_DIR}/${DAG_RUN_STEP_NAME}.log"
+      exit $rc
+
+  # The evidence of the demo. This trusted step runs after the last verify. It fails when the
+  # agent left a process, a hook or a changed git configuration behind.
+  - id: evidence
+    depends: [verify_3]
+    untrusted: false
+    working_dir: repo
+    description: Record what the agent left behind.
+    run: |
+      echo "== processes of the restricted user (user ID 10001)"
+      if pgrep -u 10001 -a; then echo "a process of the restricted user is left" >&2; exit 1; fi
+      echo "none"
+      echo "== files in .git/hooks that are not samples"
+      if ls .git/hooks | grep -v '\.sample$'; then echo "the agent changed .git/hooks" >&2; exit 1; fi
+      echo "none"
+      echo "== core.fsmonitor in the git configuration"
+      if git config --get core.fsmonitor; then echo "the agent changed the git configuration" >&2; exit 1; fi
+      echo "none"
+      echo "== git status --porcelain"
+      git status --porcelain
+
+  - id: check_paths
+    depends: [evidence]
+    untrusted: false
+    working_dir: repo
+    run: |
+      if git status --porcelain | cut -c4- | grep -Eq '^(scripts/|test_|\.github/)'; then
+        echo "the agent changed a test, a script or the CI" >&2; exit 1
+      fi
+
+  - id: message
+    depends: [check_paths]
+    action: chat.completion
+    with:
+      provider: local
+      model: mock
+      base_url: http://172.17.0.1:8099/v1
+      stream: false
+      prompt: "Write a one-line commit message for: ${TASK}"
+    output: COMMIT_MSG
+
+  - id: push
+    depends: [message]
+    working_dir: repo
+    # The step needs the token. It runs no file of the repository: untrusted: false.
+    untrusted: false
+    secrets: [GIT_TOKEN]
+    # The message comes from a model: a variable, not script text.
+    env:
+      - MESSAGE: ${COMMIT_MSG}
+    run: |
+      git checkout -b "${BRANCH}"
+      git add -A
+      git -c user.name=dagu -c user.email=dagu@localhost commit -m "$MESSAGE"
+      git -c credential.helper='!f() { echo username=git; echo "password=$GIT_TOKEN"; }; f' push origin "${BRANCH}"

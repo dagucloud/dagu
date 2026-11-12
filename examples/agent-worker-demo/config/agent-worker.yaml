@@ -1,0 +1,34 @@
+# Dagu configuration of the agent worker (Spec 092, "Configuration of an agent worker").
+# Start: dagu worker --config /etc/dagu/config.yaml --agent claude=/usr/local/bin/claude
+peer:
+  insecure: false
+  skip_tls_verify: false
+  cert_file: /etc/dagu/tls/agent-claude.crt
+  key_file: /etc/dagu/tls/agent-claude.key
+  client_ca_file: /etc/dagu/tls/ca.crt
+
+worker:
+  coordinators: [dagu-coordinator:50055]
+
+# The restricted user. It runs the CLI agent and each untrusted step.
+untrusted:
+  uid: 10001
+  gid: 10001
+
+# The variables that the steps get from the environment of the worker.
+# The agent gets a placeholder key. Dagu sets the key and the address of the relay for each attempt.
+# The lower case names are for git. libcurl reads http_proxy in lower case only.
+env_passthrough:
+  - ANTHROPIC_BASE_URL
+  - ANTHROPIC_API_KEY
+  - HTTP_PROXY
+  - HTTPS_PROXY
+  - NO_PROXY
+  - http_proxy
+  - https_proxy
+  - no_proxy
+  - CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC
+  # The real Claude Code also needs these variables to turn off its other traffic.
+  - DISABLE_TELEMETRY
+  - DISABLE_AUTOUPDATER
+  - DISABLE_ERROR_REPORTING

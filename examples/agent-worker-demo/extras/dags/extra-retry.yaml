@@ -1,0 +1,33 @@
+description: >-
+  Real test 5. A run fails at a trusted gate after a real agent step. The operator opens the
+  gate (a registry secret) and retries the run with the REST API. A new agent worker takes the
+  retry.
+secrets:
+  - name: GATE
+    ref: demo-gate
+steps:
+  - id: code
+    action: agent.run
+    timeout_sec: 300
+    output_schema:
+      type: object
+      additionalProperties: false
+      properties:
+        word: { type: string }
+      required: [word]
+    with:
+      endpoint:
+        name: claude-sub
+        model: claude-haiku-4-5
+      provider: claude
+      prompt: Give the word ready in the field word. Use no tool.
+      max_tool_iterations: 3
+
+  - id: gate
+    depends: [code]
+    # The step needs its secret: untrusted: false.
+    untrusted: false
+    secrets: [GATE]
+    run: |
+      if [ "$GATE" != open ]; then echo "the gate is closed" >&2; exit 1; fi
+      echo "the gate is open"

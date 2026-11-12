@@ -1,0 +1,106 @@
+# Network rules (Spec 092, "Network"). A NetworkPolicy needs a network plugin that
+# enforces it. Without such a plugin, these objects have no effect.
+#
+# 1. default-deny: no pod of the namespace gets or sends a packet until a rule allows it.
+# 2. agent-worker: egress only to the coordinator, the proxy and DNS. No ingress.
+# 3. egress-proxy: ingress only from the agent workers. Egress to DNS and to public
+#    addresses on port 443. Not to the addresses of the cluster.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: default-deny
+  namespace: dagu-agent
+spec:
+  podSelector: {}
+  policyTypes: [Ingress, Egress]
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: agent-worker
+  namespace: dagu-agent
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: agent-worker
+  policyTypes: [Ingress, Egress]
+  # No ingress rule: nothing connects to an agent worker.
+  ingress: []
+  egress:
+    # The coordinator. The pods of the control plane are in the namespace "dagu".
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: dagu
+          podSelector:
+            matchLabels:
+              app.kubernetes.io/name: dagu-coordinator
+      ports:
+        - protocol: TCP
+          port: 50055
+    # The egress proxy.
+    - to:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: egress-proxy
+      ports:
+        - protocol: TCP
+          port: 8081
+    # DNS. A name server can carry data out in the names that it gets. Use a resolver
+    # that answers only the names of the cluster, or accept this limit.
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: kube-system
+          podSelector:
+            matchLabels:
+              k8s-app: kube-dns
+      ports:
+        - protocol: UDP
+          port: 53
+        - protocol: TCP
+          port: 53
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: egress-proxy
+  namespace: dagu-agent
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: egress-proxy
+  policyTypes: [Ingress, Egress]
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: agent-worker
+      ports:
+        - protocol: TCP
+          port: 8081
+  egress:
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: kube-system
+          podSelector:
+            matchLabels:
+              k8s-app: kube-dns
+      ports:
+        - protocol: UDP
+          port: 53
+        - protocol: TCP
+          port: 53
+    # Public addresses only. The proxy does not reach the pods or the services of the cluster.
+    - to:
+        - ipBlock:
+            cidr: 0.0.0.0/0
+            except:
+              - 10.0.0.0/8
+              - 172.16.0.0/12
+              - 192.168.0.0/16
+              - 169.254.0.0/16
+      ports:
+        - protocol: TCP
+          port: 443

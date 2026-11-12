@@ -1,0 +1,40 @@
+description: >-
+  Real test 4. Two limits of agent.run with Claude Code: max_tool_iterations stops the step
+  "turns" after one turn with the reason max_tool_iterations, and max_tool_calls limits the
+  calls of the tool bridge in the step "calls".
+type: graph
+steps:
+  - id: turns
+    action: agent.run
+    timeout_sec: 300
+    with:
+      endpoint:
+        name: claude-sub
+        model: claude-haiku-4-5
+      provider: claude
+      prompt: Run the three commands "echo one", "echo two" and "echo three", one shell call for each, then list the three outputs.
+      max_tool_iterations: 1
+      tools:
+        builtin:
+          shell:
+            allow: ["echo *"]
+  # The bridge runs the first call. It refuses the second and the third call with an error
+  # result, and the attempt continues.
+  - id: calls
+    action: agent.run
+    timeout_sec: 300
+    with:
+      endpoint:
+        name: claude-sub
+        model: claude-haiku-4-5
+      provider: claude
+      prompt: Call the tool lookup-ticket three times, with the questions "one", "two" and "three", one call for each, then list the result of each call.
+      max_tool_iterations: 8
+      max_tool_calls: 1
+      dags:
+        - name: lookup-ticket
+          params:
+            CUSTOMER_ID: c-1
+            QUESTION:
+              from_ai:
+                description: The question

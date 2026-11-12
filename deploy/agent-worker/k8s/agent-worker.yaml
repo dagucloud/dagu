@@ -1,0 +1,193 @@
+# The agent worker (Spec 092, "Security settings").
+#
+# The worker takes one run, then exits. The kubelet restarts the container with a new
+# file system. The restart delay of Kubernetes (up to 5 minutes after repeated exits)
+# applies, also after an exit with the code 0. See README.md, "Open items".
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: agent-worker-config
+  namespace: dagu-agent
+  labels:
+    app.kubernetes.io/name: agent-worker
+    app.kubernetes.io/part-of: dagu
+data:
+  config.yaml: |
+    peer:
+      insecure: false
+      skip_tls_verify: false
+      cert_file: /etc/dagu/tls/agent-claude.crt
+      key_file: /etc/dagu/tls/agent-claude.key
+      client_ca_file: /etc/dagu/tls/ca.crt
+    worker:
+      # The Service of the coordinator. Its name must be in the SAN of the coordinator certificate.
+      coordinators: [dagu-coordinator.dagu.svc.cluster.local:50055]
+    untrusted:
+      uid: 10001
+      gid: 10001
+    env_passthrough:
+      - ANTHROPIC_BASE_URL
+      - ANTHROPIC_API_KEY
+      - HTTP_PROXY
+      - HTTPS_PROXY
+      - NO_PROXY
+      - http_proxy
+      - https_proxy
+      - no_proxy
+      - CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC
+      - DISABLE_TELEMETRY
+      - DISABLE_AUTOUPDATER
+      - DISABLE_ERROR_REPORTING
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: agent-worker
+  namespace: dagu-agent
+  labels:
+    app.kubernetes.io/name: agent-worker
+    app.kubernetes.io/part-of: dagu
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: agent-worker
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: agent-worker
+        app.kubernetes.io/part-of: dagu
+    spec:
+      # The pod has no token of the Kubernetes API.
+      automountServiceAccountToken: false
+      # A user namespace maps the user ID 0 of the pod to an unprivileged user ID of the node.
+      # Remove this line when the cluster does not support user namespaces (Kubernetes 1.30 or later,
+      # with a runtime that supports them). The pod does not start when the cluster refuses the field.
+      hostUsers: false
+      enableServiceLinks: false
+      terminationGracePeriodSeconds: 90
+      securityContext:
+        seccompProfile:
+          type: RuntimeDefault
+      initContainers:
+        # An emptyDir has the mode 0777. The restricted user must not rename or remove
+        # the folders of the worker, so the Dagu home gets the mode 0755 and /tmp the
+        # sticky mode 1777.
+        - name: fix-modes
+          image: registry.example.com/dagu-agent-worker:CHANGE-ME
+          imagePullPolicy: IfNotPresent
+          command: ["sh", "-c", "chmod 0755 /var/lib/dagu && chmod 1777 /tmp"]
+          securityContext:
+            runAsUser: 0
+            runAsGroup: 0
+            runAsNonRoot: false
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            privileged: false
+            capabilities:
+              drop: ["ALL"]
+            seccompProfile:
+              type: RuntimeDefault
+          resources:
+            requests:
+              cpu: 10m
+              memory: 16Mi
+            limits:
+              cpu: 100m
+              memory: 64Mi
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
+            - name: dagu-home
+              mountPath: /var/lib/dagu
+      containers:
+        - name: agent-worker
+          # Build the image from deploy/agent-worker/Dockerfile and push it to your own registry.
+          image: registry.example.com/dagu-agent-worker:CHANGE-ME
+          imagePullPolicy: IfNotPresent
+          # The image entrypoint is: dagu worker --config /etc/dagu/config.yaml --agent claude=/usr/local/bin/claude
+          env:
+            - name: DAGU_HOME
+              value: /var/lib/dagu
+            # Dagu replaces the address and the key with those of the relay for each attempt.
+            # The proxy has no model route, so these two values reach no model API.
+            - name: ANTHROPIC_BASE_URL
+              value: http://egress-proxy.dagu-agent.svc.cluster.local:8081
+            - name: ANTHROPIC_API_KEY
+              value: placeholder
+            - name: HTTP_PROXY
+              value: http://egress-proxy.dagu-agent.svc.cluster.local:8081
+            - name: HTTPS_PROXY
+              value: http://egress-proxy.dagu-agent.svc.cluster.local:8081
+            # git uses libcurl. libcurl reads only the lower case name http_proxy.
+            - name: http_proxy
+              value: http://egress-proxy.dagu-agent.svc.cluster.local:8081
+            - name: https_proxy
+              value: http://egress-proxy.dagu-agent.svc.cluster.local:8081
+            # Claude Code sends the requests for ANTHROPIC_BASE_URL and for the tool bridge
+            # (127.0.0.1) through HTTP_PROXY when NO_PROXY does not name them, and the proxy
+            # refuses them.
+            - name: NO_PROXY
+              value: dagu-coordinator.dagu.svc.cluster.local,egress-proxy.dagu-agent.svc.cluster.local,127.0.0.1,localhost
+            - name: no_proxy
+              value: dagu-coordinator.dagu.svc.cluster.local,egress-proxy.dagu-agent.svc.cluster.local,127.0.0.1,localhost
+            - name: CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC
+              value: "1"
+            - name: DISABLE_TELEMETRY
+              value: "1"
+            - name: DISABLE_AUTOUPDATER
+              value: "1"
+            - name: DISABLE_ERROR_REPORTING
+              value: "1"
+          securityContext:
+            # The change to the restricted user needs CAP_SETUID.
+            runAsUser: 0
+            runAsGroup: 0
+            runAsNonRoot: false
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            privileged: false
+            capabilities:
+              drop: ["ALL"]
+              add: ["CHOWN", "DAC_OVERRIDE", "FOWNER", "SETUID", "SETGID", "KILL"]
+            seccompProfile:
+              type: RuntimeDefault
+          resources:
+            requests:
+              cpu: 500m
+              memory: 512Mi
+            limits:
+              cpu: "2"
+              memory: 2Gi
+          volumeMounts:
+            - name: config
+              mountPath: /etc/dagu/config.yaml
+              subPath: config.yaml
+              readOnly: true
+            - name: tls
+              mountPath: /etc/dagu/tls
+              readOnly: true
+            - name: tmp
+              mountPath: /tmp
+            - name: dagu-home
+              mountPath: /var/lib/dagu
+      volumes:
+        - name: config
+          configMap:
+            name: agent-worker-config
+            defaultMode: 0400
+        # The key and the certificate of the identity "agent-claude", and ca.crt.
+        # The mode 0400 and the owner root keep the key from the restricted user.
+        - name: tls
+          secret:
+            secretName: agent-claude-tls
+            defaultMode: 0400
+        # The files of a run are in memory. A new container starts with empty folders.
+        - name: tmp
+          emptyDir:
+            medium: Memory
+            sizeLimit: 512Mi
+        - name: dagu-home
+          emptyDir:
+            medium: Memory
+            sizeLimit: 1Gi

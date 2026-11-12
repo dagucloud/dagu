@@ -1,0 +1,31 @@
+description: A support agent. It handles a ticket with DAG tools and two skills.
+type: graph
+params:
+  - name: CUSTOMER
+    type: string
+    default: c-42
+steps:
+  - id: triage
+    description: The agent handles the ticket with the tools it is offered
+    action: chat.completion
+    with:
+      provider: local
+      model: mock
+      base_url: http://172.17.0.1:8099/v1
+      stream: false
+      system: You are a support agent. Use the tools that you are offered.
+      prompt: Customer ${CUSTOMER} asks for a refund of 12 euros.
+      max_tools: 16
+      skills:
+        - tone-of-voice
+        - refund-policy
+      dags:
+        - name: lookup-customer
+        - name: refund
+          params:
+            CUSTOMER_ID: ${CUSTOMER}
+            AMOUNT:
+              from_ai:
+                description: Amount to refund, in euros
+        - name: invoice
+        - name: ops_notify

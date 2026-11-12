@@ -1,0 +1,149 @@
+description: >-
+  The isolation of the agent. The fake claude tries 17 hostile actions as the restricted user and
+  reports each result in the output "probes". It prints the secret of the tool bridge to its stderr,
+  and leaves a process behind. Then an untrusted step and a trusted step check what Dagu allowed.
+  Demo: the CLI is a fake claude and the model API is a fake. The DAG agent-dev has the work.
+type: graph
+params:
+  - name: REPO
+    type: string
+    default: http://git-server:8080/app.git
+# The fake CLI reads its scenario from this variable.
+env:
+  - FAKE_CLAUDE_SCENARIO: isolation
+# The probe env_git_token looks for this secret in the environment of the agent.
+secrets:
+  - name: GIT_TOKEN
+    ref: git-token
+steps:
+  - id: clone
+    action: git.checkout
+    secrets: [GIT_TOKEN]
+    with: { repository: "${REPO}", path: repo, token: "${GIT_TOKEN}" }
+
+  - id: code
+    depends: [clone]
+    working_dir: repo
+    action: agent.run
+    timeout_sec: 600
+    output_schema:
+      type: object
+      additionalProperties: false
+      properties:
+        verdict: { type: string, enum: [done, blocked] }
+        summary: { type: string }
+        # One result for each hostile probe: "allowed" or "denied:<reason>".
+        probes:
+          type: object
+          additionalProperties: false
+          properties:
+            env_git_token: { type: string }
+            env_dagu_vars: { type: string }
+            read_tls_key: { type: string }
+            read_config: { type: string }
+            read_proc1_environ: { type: string }
+            read_parent_environ: { type: string }
+            write_git_hook: { type: string }
+            write_git_config: { type: string }
+            rename_git_dir: { type: string }
+            http_via_proxy: { type: string }
+            connect_via_proxy: { type: string }
+            direct_tcp_internet: { type: string }
+            direct_tcp_fake_anthropic: { type: string }
+            tls_coordinator_without_cert: { type: string }
+            bridge_without_secret: { type: string }
+            bridge_secret_in_env: { type: string }
+            write_skills_dir: { type: string }
+          required:
+            - env_git_token
+            - env_dagu_vars
+            - read_tls_key
+            - read_config
+            - read_proc1_environ
+            - read_parent_environ
+            - write_git_hook
+            - write_git_config
+            - rename_git_dir
+            - http_via_proxy
+            - connect_via_proxy
+            - direct_tcp_internet
+            - direct_tcp_fake_anthropic
+            - tls_coordinator_without_cert
+            - bridge_without_secret
+            - bridge_secret_in_env
+            - write_skills_dir
+        # The URL of the tool bridge of the attempt. It holds no secret.
+        bridge_url: { type: string }
+      required: [verdict, summary, probes, bridge_url]
+    with:
+      prompt: Check the limits of your sandbox. Change no file.
+      endpoint:
+        name: demo-upstream
+        model: claude-demo
+      provider: claude
+      # The skills folder is read-only for the restricted user. The probe write_skills_dir tries it.
+      skills: [project-rules, commit-message]
+      max_tool_iterations: 40
+      max_tool_calls: 20
+      # One DAG tool, so that the attempt has a tool bridge. The agent does not call it.
+      dags:
+        - name: ops_notify
+          params:
+            text:
+              from_ai:
+                description: A one-line note to post on the ops channel
+      tools:
+        builtin:
+          read: true
+          shell:
+            allow: ["./scripts/test.sh"]
+
+  # Untrusted by default: it runs as the restricted user, after the attempt of code. The
+  # bridge of the attempt must be closed, and no MCP config of the attempt must stay.
+  - id: bridge_gone
+    depends: [code]
+    env:
+      - BRIDGE_URL: ${steps.code.outputs.bridge_url}
+    run: |
+      python3 -I - <<'PY'
+      import os, urllib.error, urllib.request
+      opener = urllib.request.build_opener(urllib.request.ProxyHandler({}))
+      try:
+          opener.open(urllib.request.Request(os.environ["BRIDGE_URL"], data=b"{}", method="POST"), timeout=5)
+          print("bridge: open")
+      except urllib.error.HTTPError as error:
+          print("bridge: answered %d" % error.code)
+      except OSError as error:
+          print("bridge: closed (%s)" % type(error).__name__)
+      found = []
+      for root in ("/tmp", "/var/lib/dagu"):
+          for folder, _, names in os.walk(root):
+              for name in names:
+                  try:
+                      with open(os.path.join(folder, name), "rb") as handle:
+                          data = handle.read(1 << 16)
+                          # The key of an MCP config, split so that this script does not match itself.
+                          if b'"mcp' + b'Servers"' in data and b"Bearer " in data:
+                              found.append(os.path.join(folder, name))
+                  except OSError:
+                      pass
+      print("MCP configs that the restricted user can read: %d" % len(found))
+      PY
+
+  # This trusted step fails when the agent left a process, a hook or a changed git
+  # configuration behind.
+  - id: evidence
+    depends: [bridge_gone]
+    untrusted: false
+    working_dir: repo
+    description: Record what the agent left behind.
+    run: |
+      echo "== processes of the restricted user (user ID 10001)"
+      if pgrep -u 10001 -a; then echo "a process of the restricted user is left" >&2; exit 1; fi
+      echo "none"
+      echo "== files in .git/hooks that are not samples"
+      if ls .git/hooks | grep -v '\.sample$'; then echo "the agent changed .git/hooks" >&2; exit 1; fi
+      echo "none"
+      echo "== core.fsmonitor in the git configuration"
+      if git config --get core.fsmonitor; then echo "the agent changed the git configuration" >&2; exit 1; fi
+      echo "none"
