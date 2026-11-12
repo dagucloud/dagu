@@ -656,7 +656,7 @@ The step's `output` variable (Spec 012) holds JSON:
 
 | Rundeck job | Dagu |
 | --- | --- |
-| `nodefilters.filter` | `nodes.filter` |
+| `nodefilters.filter` | `nodes.filter`, with keywords rewritten as RFC 012 lists |
 | `nodefilters.dispatch.threadcount` | `nodes.max_concurrent` |
 | `nodefilters.dispatch.keepgoing` | `nodes.keep_going` |
 | `nodefilters.dispatch.rankAttribute` | `nodes.rank_by` |

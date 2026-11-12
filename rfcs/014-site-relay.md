@@ -248,7 +248,7 @@ matter as a coordinator's do.
 are nodes like any other worker, and `site` is one of their attributes:
 
 ```yaml
-nodes: "site: osaka tags: web"
+nodes: "site: osaka labels: web"
 ```
 
 RFC 013 sends each such item to its worker, so one step already covers

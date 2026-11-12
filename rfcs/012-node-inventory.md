@@ -36,8 +36,8 @@ workers ─────┘        │
 
 ## Problem statement
 
-Rundeck users keep their fleet in a resource model: every host, its tags, its
-SSH user, and the Key Storage path of its key. Jobs select hosts with a node
+Rundeck users keep their fleet in a resource model: every host, how it is
+grouped, its SSH user, and the Key Storage path of its key. Jobs select hosts with a node
 filter, and nothing in a job names a host. Ansible users keep the same data in
 an inventory.
 
@@ -56,8 +56,9 @@ Dagu has no such list:
 1. A project lists its nodes in one place, with labels, from files,
    scripts, or workers.
 2. Rundeck resource files and Ansible inventories load without conversion.
-3. Rundeck node filters keep working. Where Dagu differs, the spec lists the
-   difference, and no difference selects more nodes than Rundeck would.
+3. A Rundeck node filter, rewritten by the import tool, selects the same
+   nodes. Where Dagu differs, the spec lists the difference, and no
+   difference selects more nodes than Rundeck would.
 4. SSH credentials come from the secret store and never reach logs, run
    status, API responses, or disk outside the store.
 5. A user sees which nodes a filter matches, and checks that Dagu can reach
@@ -263,7 +264,7 @@ server without Ansible reads a saved copy of that output as a `file` source.
 | `nodename`, or the map key | `name` |
 | `hostname`, including `host:port` | `hostname` and `port` |
 | `username` | `user` |
-| `tags` | Labels with no value |
+| The node's group list | Labels with no value |
 | `description` | `description` |
 | `ssh-key-storage-path` | `ssh.key` as `{ secret: <ref> }` |
 | `ssh-password-storage-path` | `ssh.password` as `{ secret: <ref> }` |
@@ -340,8 +341,6 @@ Rules:
 - A clause with no key matches `name`. A clause on `name`, `hostname`,
   `port`, `user`, `description`, `transport`, or `source` reads that field.
   A clause on any other key reads the value of the label with that key.
-- For Rundeck filters, `tags:` is accepted as `labels:`, and `nodename` and
-  `username` as `name` and `user`.
 - A value is a comma-separated list. Each item matches when it equals the
   value or, as an RE2 regular expression, matches the whole value. Items of
   a `labels:` clause are exact.
@@ -354,9 +353,12 @@ Rules:
 - An empty filter is an error. Every node is selected only by `.*`.
 - The matched list is sorted by name.
 
-The spec defines compatibility as a set of resource files and filters run
-against Rundeck, with the nodes Rundeck selects. Each case where Dagu selects
-differently is listed in the spec, and none selects more.
+Rundeck's filter keywords differ only in name. The import tool (RFC 018)
+rewrites its grouping keyword as `labels:`, and `nodename` and `username` as
+`name` and `user`. The spec defines compatibility as a set of resource files
+and rewritten filters run against Rundeck, with the nodes Rundeck selects.
+Each case where Dagu selects differently is listed in the spec, and none
+selects more.
 
 ### Reading the inventory from a run
 
@@ -637,9 +639,7 @@ checked with RFC 013's first rollout phase.
 - **Dagu Cloud as the only place the inventory lives.** Nothing to keep on
   the server, but runs would stop whenever Dagu Cloud is unreachable.
 - **A new selector syntax**, such as Kubernetes label selectors. Every
-  Rundeck filter would need rewriting.
-- **Rundeck's tags and attributes as two concepts.** DAGs and workers in Dagu
-  already have labels, and a label with no value is a tag.
+  Rundeck filter would need more than a keyword rewrite.
 - **Merging one node's fields from several places.** Rundeck does this. It
   lets a stale source overwrite a correct value without a sign, and makes
   every node's origin hard to explain.
