@@ -1,0 +1,31 @@
+working_dir: .
+steps:
+  - id: write
+    action: xlsx.write
+    with:
+      path: multi_merged.xlsx
+      header: false
+      rows:
+        - ["Invoice No", "Amount", null, "Note"]
+        - [null, "Net", "Tax", null]
+        - ["INV-1", 100, 10, "x"]
+  - id: merge
+    depends: write
+    action: xlsx.write_cells
+    with:
+      path: multi_merged.xlsx
+      merge: [A1:A2, B1:C1, D1:D2]
+      cells: {A3: INV-1}
+  - id: read
+    depends: merge
+    action: xlsx.read
+    with:
+      path: multi_merged.xlsx
+      header: [1, 2]
+      columns: [{Invoice No: invoice}, {Amount Net: net}, Note]
+  - id: out
+    depends: read
+    action: file.write
+    with:
+      path: out.json
+      content: '{"headers": ${steps.read.outputs.headers}, "rows": ${steps.read.outputs.rows}}'
