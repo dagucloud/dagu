@@ -1332,3 +1332,96 @@ func TestFailRepeatLimitGracefulStop(t *testing.T) {
 	assert.Equal(t, ir.NodeSucceeded, node.State().Status,
 		"a graceful stop must be left to the abort outcome")
 }
+
+// A retry restores a step's outputs from a status stored with secrets masked.
+// A step that reads such an output fails instead of running on starred text.
+func TestSetupVariablesFailsOnMaskedOutputs(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name    string
+		command string
+		noID    bool // fetch has no id, so steps.<name> is the key
+		masked  *ir.MaskedOutputs
+		wantErr string // the output named in the error; empty when the step runs
+	}{
+		{
+			name:    "step output reference",
+			command: "deploy ${steps.fetch.outputs.token}",
+			masked:  &ir.MaskedOutputs{Names: []string{"token"}},
+			wantErr: `output "token" of step "fetch"`,
+		},
+		{
+			name:    "output variable",
+			command: "deploy ${TOKEN}",
+			masked:  &ir.MaskedOutputs{Names: []string{"TOKEN"}},
+			wantErr: `output "TOKEN" of step "fetch"`,
+		},
+		{
+			name:    "whole output",
+			command: "deploy ${steps.fetch.outputs.region}",
+			masked:  &ir.MaskedOutputs{All: true},
+			wantErr: `output "region" of step "fetch"`,
+		},
+		{
+			name:    "whole output hides every variable",
+			command: "deploy $TOKEN",
+			masked:  &ir.MaskedOutputs{All: true},
+			wantErr: `output "TOKEN" of step "fetch"`,
+		},
+		{
+			name:    "step without id is keyed by name",
+			command: "deploy ${steps.fetch.outputs.token}",
+			noID:    true,
+			masked:  &ir.MaskedOutputs{Names: []string{"token"}},
+			wantErr: `output "token" of step "fetch"`,
+		},
+		{
+			name:    "unmasked step output",
+			command: "deploy ${steps.fetch.outputs.region}",
+			masked:  &ir.MaskedOutputs{Names: []string{"token"}},
+		},
+		{
+			name:    "similar variable name",
+			command: "deploy ${TOKEN_ID}",
+			masked:  &ir.MaskedOutputs{Names: []string{"TOKEN"}},
+		},
+		{
+			name:    "nothing masked",
+			command: "deploy ${steps.fetch.outputs.token} ${TOKEN}",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			fetchID := "fetch"
+			if tt.noID {
+				fetchID = ""
+			}
+			plan, err := NewPlan(
+				ir.Step{ID: fetchID, Name: "fetch", Output: "TOKEN"},
+				ir.Step{ID: "use", Name: "use", Depends: []string{"fetch"}, Command: tt.command},
+			)
+			require.NoError(t, err)
+			fetch := plan.GetNodeByName("fetch")
+			fetch.setVariable("TOKEN", "***")
+			fetch.inner.State.MaskedOutputs = tt.masked
+
+			ctx := NewContext(
+				context.Background(),
+				&ir.DAG{Name: "test-dag", WorkingDir: t.TempDir()},
+				"run-1",
+				filepath.Join(t.TempDir(), "dag.log"),
+			)
+			_, err = New(&Config{}).setupVariables(ctx, plan, plan.GetNodeByName("use"))
+			if tt.wantErr == "" {
+				require.NoError(t, err)
+				return
+			}
+			require.ErrorContains(t, err, `step "use" reads `+tt.wantErr)
+			require.ErrorContains(t, err, `step "fetch" has to run again`)
+		})
+	}
+}

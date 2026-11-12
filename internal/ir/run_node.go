@@ -115,7 +115,10 @@ type Node struct {
 	OutputValue         *string              `json:"outputValue,omitempty"`
 	OutputsValue        *string              `json:"outputsValue,omitempty"`
 	StepOutputsValue    *string              `json:"stepOutputsValue,omitempty"`
-	HumanTaskInput      json.RawMessage      `json:"humanTaskInput,omitempty"`
+	// MaskedOutputs records which of the outputs above secret masking changed,
+	// so a retry does not feed the masked text to a step as if it were the value.
+	MaskedOutputs  *MaskedOutputs  `json:"maskedOutputs,omitempty"`
+	HumanTaskInput json.RawMessage `json:"humanTaskInput,omitempty"`
 	// AgentState stores the goal progress of an agent DAG's agent
 	// step, so a suspended run resumes with its task list intact.
 	AgentState json.RawMessage `json:"agentState,omitempty"`
@@ -167,6 +170,49 @@ type Node struct {
 	// Only StoredStatus sets them; reading a node restores the value.
 	outputsValueFrom     string
 	stepOutputsValueFrom string
+}
+
+// MaskedOutputs names the outputs of a node whose stored text secret masking
+// changed. The original text is not stored, so a run that restores the node
+// cannot use these outputs.
+type MaskedOutputs struct {
+	// Names are the output names changed: variables set by the step, and the
+	// names it published.
+	Names []string `json:"names,omitempty"`
+	// All is set when the names cannot be trusted, because masking changed an
+	// output name or masked a whole output document as text.
+	All bool `json:"all,omitempty"`
+}
+
+// Has reports whether the output name is masked.
+func (m *MaskedOutputs) Has(name string) bool {
+	return m != nil && (m.All || slices.Contains(m.Names, name))
+}
+
+// Merge adds names, and sets All when all is true.
+func (m *MaskedOutputs) Merge(names []string, all bool) {
+	m.Names = append(m.Names, names...)
+	m.All = m.All || all
+}
+
+// OrNil returns m with its names sorted and unique, or nil when no output is
+// masked.
+func (m *MaskedOutputs) OrNil() *MaskedOutputs {
+	m.Names = slices.DeleteFunc(m.Names, func(name string) bool { return name == "" })
+	slices.Sort(m.Names)
+	m.Names = slices.Compact(m.Names)
+	if len(m.Names) == 0 && !m.All {
+		return nil
+	}
+	return m
+}
+
+// Clone returns a copy of m.
+func (m *MaskedOutputs) Clone() *MaskedOutputs {
+	if m == nil {
+		return nil
+	}
+	return &MaskedOutputs{Names: slices.Clone(m.Names), All: m.All}
 }
 
 // The output fields a stored node's other output fields may repeat.

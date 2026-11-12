@@ -94,6 +94,8 @@ type NodeState struct {
 	OutputsValue *string
 	// StepOutputsValue stores declared file-based outputs for ${steps.<id>.outputs.<name>} references.
 	StepOutputsValue *string
+	// MaskedOutputs names the outputs above that were stored masked.
+	MaskedOutputs *ir.MaskedOutputs
 	// HumanTaskInput stores the validated input submitted to complete a human task.
 	HumanTaskInput json.RawMessage
 	// AgentState stores the goal progress of an agent DAG. It is carried

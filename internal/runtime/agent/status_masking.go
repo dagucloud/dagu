@@ -74,10 +74,25 @@ func maskNodeSecrets(masker *masking.Masker, node *ir.Node) {
 	node.Step = maskStepSecrets(masker, node.Step)
 	node.Error = masker.MaskString(node.Error)
 	node.StatusDetails = maskNodeStatusDetails(masker, node.StatusDetails)
-	node.OutputVariables = maskOutputVariables(masker, node.OutputVariables)
-	node.OutputValue = maskStringPointer(masker, node.OutputValue)
-	node.OutputsValue = maskOutputDocument(masker, node.OutputsValue)
-	node.StepOutputsValue = maskStepOutputs(masker, node)
+	masked := node.MaskedOutputs.Clone()
+	if masked == nil {
+		masked = &ir.MaskedOutputs{}
+	}
+	if node.OutputVariables != nil {
+		node.OutputVariables = maskOutputVariables(masker, node.OutputVariables, masked)
+	}
+	outputValue := maskStringPointer(masker, node.OutputValue)
+	if outputValue != nil && *outputValue != *node.OutputValue {
+		masked.Names = append(masked.Names, node.Step.Output)
+	}
+	node.OutputValue = outputValue
+	outputsValue := maskOutputDocument(masker, node.OutputsValue)
+	masked.Merge(changedOutputNames(node.OutputsValue, outputsValue))
+	node.OutputsValue = outputsValue
+	stepOutputsValue := maskStepOutputs(masker, node)
+	masked.Merge(changedOutputNames(node.StepOutputsValue, stepOutputsValue))
+	node.StepOutputsValue = stepOutputsValue
+	node.MaskedOutputs = masked.OrNil()
 	node.AgentSession = ir.MaskAgentSession(node.AgentSession, masker.MaskString)
 }
 
@@ -170,21 +185,51 @@ func maskNodeStatusDetails(masker *masking.Masker, details []ir.NodeStatusDetail
 	return masked
 }
 
-func maskOutputVariables(masker *masking.Masker, values *collections.SyncMap) *collections.SyncMap {
+func maskOutputVariables(masker *masking.Masker, values *collections.SyncMap, masked *ir.MaskedOutputs) *collections.SyncMap {
 	if values == nil {
 		return nil
 	}
-	masked := &collections.SyncMap{}
+	result := &collections.SyncMap{}
 	values.Range(func(key, value any) bool {
 		text, ok := value.(string)
 		if !ok {
-			masked.Store(key, value)
+			result.Store(key, value)
 			return true
 		}
-		masked.Store(key, masker.MaskString(text))
+		maskedText := masker.MaskString(text)
+		if maskedText != text {
+			// The stored text is NAME=value, so the key is the output name.
+			name, _ := key.(string)
+			masked.Names = append(masked.Names, name)
+		}
+		result.Store(key, maskedText)
 		return true
 	})
-	return masked
+	return result
+}
+
+// changedOutputNames returns the top-level names of the output document whose
+// text masking changed, and whether the names cannot be trusted: the document
+// is not an object, or masking changed a key or the number of keys.
+func changedOutputNames(before, after *string) ([]string, bool) {
+	if before == nil || after == nil || *before == *after {
+		return nil, false
+	}
+	var old, now map[string]json.RawMessage
+	if json.Unmarshal([]byte(*before), &old) != nil || json.Unmarshal([]byte(*after), &now) != nil || len(old) != len(now) {
+		return nil, true
+	}
+	var names []string
+	for name, raw := range old {
+		current, ok := now[name]
+		if !ok {
+			return nil, true
+		}
+		if !bytes.Equal(raw, current) {
+			names = append(names, name)
+		}
+	}
+	return names, false
 }
 
 func maskStepSecrets(masker *masking.Masker, step ir.Step) ir.Step {

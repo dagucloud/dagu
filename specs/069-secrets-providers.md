@@ -85,6 +85,14 @@ stored value, so each secret in a reused output reads as `*******`. This
 covers retry, resume after an approval or a human task, and runs that reuse
 another run's outputs.
 
+Stored status records which outputs masking changed. A step that runs after
+such a retry and reads one of them, as `${steps.<id>.outputs.<name>}` or as the
+plain `${NAME}` variable, fails with an error that names the step and the
+output and says the producing step has to run again, instead of running on
+`*******`. When masking changed an output name, or masked a whole output
+document as text, every output of that step counts as masked. Outputs that
+masking did not change are reused as before.
+
 Provider-specific behavior covered here:
 
 - `env`: resolves `key` from the DAG's own env scope and the run's runtime

@@ -5,11 +5,13 @@ package runtime
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"log/slog"
 	"maps"
 	"os"
+	"regexp"
 	"runtime/debug"
 	"slices"
 	"strconv"
@@ -1130,6 +1132,9 @@ func (r *Runner) setupVariables(ctx context.Context, plan *Plan, node *Node) (co
 			}
 			env.Scope = env.Scope.WithStepOutputs(outputs, stepID)
 		}
+	}
+	if err := checkMaskedOutputs(plan, node); err != nil {
+		return ctx, err
 	}
 
 	// Path-dependent environment values are resolved after build paths
@@ -2382,4 +2387,56 @@ func planPredecessorNodes(plan *Plan, node *Node) []*Node {
 		}
 	}
 	return nodes
+}
+
+// checkMaskedOutputs fails a step that reads an output of a predecessor that a
+// retry restored from a status stored with that output masked. The original
+// text is gone, so the step would run on starred text. Both reference forms are
+// checked: ${steps.ID.outputs.NAME} and the plain ${NAME} variable.
+func checkMaskedOutputs(plan *Plan, node *Node) error {
+	var text string
+	for _, pred := range planPredecessorNodes(plan, node) {
+		masked := pred.State().MaskedOutputs
+		if masked == nil {
+			continue
+		}
+		if text == "" {
+			data, err := json.Marshal(node.Step())
+			if err != nil {
+				return fmt.Errorf("failed to check the outputs step %q reads: %w", node.Name(), err)
+			}
+			text = string(data)
+		}
+		// Each pattern captures the output name it matched.
+		var patterns []string
+		// Same step key setupVariables puts in scope: the ID, else the name.
+		id := pred.Step().ID
+		if id == "" {
+			id = pred.Step().Name
+		}
+		if id != "" {
+			prefix := `\$\{\s*steps\.` + regexp.QuoteMeta(id) + `\.outputs\.`
+			if masked.All {
+				patterns = append(patterns, prefix+`([A-Za-z0-9_-]+)`)
+			}
+			for _, name := range masked.Names {
+				patterns = append(patterns, prefix+`(`+regexp.QuoteMeta(name)+`)\b`)
+			}
+		}
+		for name := range pred.OutputVariablesMap() {
+			if masked.Has(name) {
+				patterns = append(patterns, `\$\{?(`+regexp.QuoteMeta(name)+`)\b`)
+			}
+		}
+		slices.Sort(patterns)
+		for _, pattern := range patterns {
+			if match := regexp.MustCompile(pattern).FindStringSubmatch(text); match != nil {
+				return fmt.Errorf(
+					"step %q reads output %q of step %q, which was stored masked because it holds a secret; step %q has to run again to produce it",
+					node.Name(), match[1], pred.Name(), pred.Name(),
+				)
+			}
+		}
+	}
+	return nil
 }

@@ -6,8 +6,10 @@ package transform_test
 import (
 	"encoding/json"
 	"testing"
+	"time"
 
 	"github.com/dagucloud/dagu/v2/internal/ir"
+	"github.com/dagucloud/dagu/v2/internal/runtime"
 	"github.com/dagucloud/dagu/v2/internal/runtime/transform"
 	"github.com/stretchr/testify/require"
 )
@@ -80,4 +82,43 @@ func TestSeedNodesFailedSource(t *testing.T) {
 
 	require.Equal(t, ir.NodeSkipped, nodes[0].State.Status)
 	require.Nil(t, nodes[0].State.StepOutputsValue)
+}
+
+// Step retry and edited-DAG retry seed nodes from the earlier status. The
+// masked outputs go with the restored outputs, but only for the steps that
+// carry them.
+func TestSeedNodesCarryMaskedOutputs(t *testing.T) {
+	dag := &ir.DAG{Steps: []ir.Step{{Name: "fetch"}, {Name: "other"}}}
+	masked := &ir.MaskedOutputs{Names: []string{"token"}}
+	source := &ir.DAGRunStatus{Nodes: []*ir.Node{
+		{Step: ir.Step{Name: "fetch"}, Status: ir.NodeSucceeded, MaskedOutputs: masked},
+		{Step: ir.Step{Name: "other"}, Status: ir.NodeSucceeded, MaskedOutputs: masked},
+	}}
+
+	nodes := transform.SeedNodes(dag, source, []string{"fetch"})
+	require.Equal(t, masked, nodes[0].State.MaskedOutputs)
+	require.NotSame(t, masked, nodes[0].State.MaskedOutputs)
+	require.Nil(t, nodes[1].State.MaskedOutputs)
+
+	nodes = transform.SeedNodesCarrying(dag, source, []string{"fetch", "other"}, map[string]struct{}{"fetch": {}})
+	require.Equal(t, masked, nodes[0].State.MaskedOutputs)
+	require.Nil(t, nodes[1].State.MaskedOutputs)
+}
+
+// A plain retry restores nodes with ToNode, and the status written afterwards
+// converts them back, so the masked outputs survive both ways.
+func TestNodeMaskedOutputsRoundTrip(t *testing.T) {
+	original := &ir.Node{
+		Step:          ir.Step{Name: "fetch"},
+		Status:        ir.NodeSucceeded,
+		MaskedOutputs: &ir.MaskedOutputs{Names: []string{"TOKEN"}, All: true},
+	}
+
+	restored := transform.ToNode(original)
+	require.Equal(t, original.MaskedOutputs, restored.State().MaskedOutputs)
+
+	dag := &ir.DAG{Name: "test", Steps: []ir.Step{original.Step}}
+	status := ir.NewStatusBuilder(dag).Create("run-1", ir.Succeeded, 0, time.Now(),
+		transform.WithNodes([]runtime.NodeData{{Step: original.Step, State: restored.State()}}))
+	require.Equal(t, original.MaskedOutputs, status.Nodes[0].MaskedOutputs)
 }
