@@ -1,0 +1,18 @@
+# The coordinator, the scheduler and the server of the tests of the relay. The test
+# writes the certificates in tls/. The pools are the pools of the example of Spec 092.
+peer:
+  insecure: false
+  cert_file: tls/coordinator.crt
+  key_file: tls/coordinator.key
+  client_ca_file: tls/dagu-ca.crt
+coordinator:
+  worker_pools:
+    - name: agent-claude
+      identities: [agent-claude]
+      labels:
+        agent.provider.claude: "true"
+    - name: general
+      identities: [general-worker]
+      labels:
+        zone: "*"
+  dispatchers: [coordinator]

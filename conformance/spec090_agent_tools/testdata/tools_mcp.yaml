@@ -1,0 +1,21 @@
+working_dir: .
+env:
+  - LLM_BASE_URL: ${LLM_BASE_URL}
+  - TIER: ${TIER}
+  - CUSTOMER: ${CUSTOMER}
+  - MCP_URL: ${MCP_URL}
+steps:
+  - action: chat.completion
+    stdout: result.out
+    with:
+      prompt: help the customer
+      provider: local
+      model: test-model
+      base_url: $LLM_BASE_URL
+      tools:
+        mcp:
+          - name: docs
+            url: ${MCP_URL}
+            headers:
+              Authorization: Bearer test-token
+            allow: [echo]
