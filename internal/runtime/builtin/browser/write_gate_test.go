@@ -252,6 +252,27 @@ func TestRehearsalStopsAtAWriteAfterTheLastOperation(t *testing.T) {
 	require.NotNil(t, run.readReport().WouldSend)
 }
 
+// A confirm the step did not expect while the last downloads settle fails
+// it even where the rehearsal would have stopped at a write sent meanwhile;
+// the write keeps its commit point and stays reported.
+func TestUnexpectedConfirmAfterTheLastOperation(t *testing.T) {
+	t.Parallel()
+
+	run := newTestRun(t, pageModel(nil))
+	run.engine.handle.WriteGate = runningGate()
+	run.engine.lateDownloadWrites = []writegate.Event{blockedSave}
+	run.engine.lateDialogs = []dialog{{Type: "confirm", Message: "Leave without saving?", Dismissed: true}}
+	execution := run.execute(`{"url": "https://books.example.com/deals", "browser": {"write_gate": "rehearse", "on_confirm": "fail"}, "do": [{"act": "Click the Save button"}]}`, nil)
+
+	require.EqualError(t, execution.err, `browser: do[0] act failed: confirm dialog "Leave without saving?" was not expected`)
+	status, _ := execution.exec.DetermineNodeStatus()
+	assert.NotEqual(t, ir.NodePartiallySucceeded, status)
+	points := run.commitPoints()
+	require.Len(t, points, 1)
+	assert.Equal(t, "Click the Save button", points[0].Operation)
+	assert.Len(t, run.readReport().Writes, 1)
+}
+
 // A step cancelled after the gate decided a write still reports it.
 func TestCancelledStepReportsItsWrites(t *testing.T) {
 	t.Parallel()
@@ -630,7 +651,7 @@ func TestAskSettlesDownloadsBeforeItWaits(t *testing.T) {
 // Where the browser cannot outlive the step process, write_gate ask fails
 // before starting a browser, and the error names the alternative: signing
 // the profile in once in a headed browser session.
-func TestWriteGateAskFailsBeforeLaunchWithoutAskSupport(t *testing.T) {
+func TestUnsupportedWriteGateAsk(t *testing.T) {
 	t.Parallel()
 
 	run := newTestRun(t, pageModel(nil))
@@ -638,7 +659,7 @@ func TestWriteGateAskFailsBeforeLaunchWithoutAskSupport(t *testing.T) {
 	execution := run.execute(`{"url": "https://books.example.com/deals", "browser": {"write_gate": "ask", "profile": "books"}, "do": [{"act": "Click the Save button"}]}`, nil)
 
 	require.ErrorContains(t, execution.err, "write_gate ask is not supported on Windows, where the browser cannot outlive the step process")
-	require.ErrorContains(t, execution.err, `sign the profile in once in a headed browser session instead: dagu browser session open https://books.example.com/deals --headed --profile books`)
+	require.ErrorContains(t, execution.err, `sign the profile in once in a headed browser session instead: dagu browser session open "https://books.example.com/deals" --headed --profile books`)
 	assert.Empty(t, run.launcher.launches)
 }
 

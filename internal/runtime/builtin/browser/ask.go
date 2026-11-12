@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"maps"
 	"os"
+	"strings"
 	"time"
 
 	"github.com/dagucloud/dagu/v2/internal/browserhost"
@@ -39,8 +40,9 @@ func (r *run) hasUnguardedAsk() bool {
 // askUnsupported explains that what, askOperations or writeGateAsk, cannot
 // run where the browser cannot outlive the step process, as on Windows,
 // and names the alternative: signing the profile in once in a headed
-// browser session. The URL it names may hold a secret, so the message is
-// masked.
+// browser session. The command quotes the URL, whose query a shell would
+// otherwise cut at its first &. The URL may hold a secret, so the message
+// is masked.
 func (r *run) askUnsupported(what string) error {
 	url := r.cfg.URL
 	for _, op := range r.cfg.Do {
@@ -49,8 +51,9 @@ func (r *run) askUnsupported(what string) error {
 		}
 		url = op.Goto
 	}
-	message := fmt.Sprintf("%s not supported on Windows, where the browser cannot outlive the step process; sign the profile in once in a headed browser session instead: dagu browser session open %s --headed --profile %s",
-		what, cmp.Or(url, "<url>"), cmp.Or(r.cfg.Browser.Profile, "<name>"))
+	url = strings.ReplaceAll(cmp.Or(url, "<url>"), `"`, `\"`)
+	message := fmt.Sprintf("%s not supported on Windows, where the browser cannot outlive the step process; sign the profile in once in a headed browser session instead: dagu browser session open \"%s\" --headed --profile %s",
+		what, url, cmp.Or(r.cfg.Browser.Profile, "<name>"))
 	return errors.New(r.masker.MaskString(message))
 }
 

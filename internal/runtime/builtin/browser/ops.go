@@ -229,13 +229,16 @@ func (r *run) execute(ctx context.Context) error {
 	start, err := r.startSession(ctx)
 	// What the browser did while the start URL opened, or while an answered
 	// ask held it, belongs to the operation before start.
-	if done, err := r.afterOperation(ctx, start-1, err); done {
+	if done, err := r.afterOperation(ctx, start-1, r.kindAt(start-1), err); done {
 		return err
 	}
 	if err := r.checkPage(ctx, -1); err != nil {
 		return r.fail(ctx, -1, "", err)
 	}
 	r.reportRefusal(ctx, -1)
+	// ran is the operation that ran last, which a wait after it settles for;
+	// an operation its when skipped is not it.
+	ran := start - 1
 	for i := start; i < len(r.cfg.Do); i++ {
 		op := r.cfg.Do[i]
 		if op.When != nil {
@@ -262,7 +265,7 @@ func (r *run) execute(ctx context.Context) error {
 		// A person sees the page once the downloads of the operations before
 		// have settled.
 		if waits {
-			if err := r.settle(ctx, i-1, true); err != nil {
+			if done, err := r.settle(ctx, ran, true); done {
 				return err
 			}
 		}
@@ -287,13 +290,14 @@ func (r *run) execute(ctx context.Context) error {
 		case commit && !r.sendsCommit(ctx, i, decision):
 			return r.skipCommit(ctx, i, op)
 		}
+		ran = i
 		r.beginWrites(ctx, i, op)
 		result, err := r.runOperation(ctx, i, op)
 		r.opActions = result.Actions
 		if err == nil {
 			r.reportResult(ctx, result)
 		}
-		if done, err := r.afterOperation(ctx, i, err); done {
+		if done, err := r.afterOperation(ctx, i, op.kind(), err); done {
 			return err
 		}
 		if err := r.checkPage(ctx, i); err != nil {
@@ -303,12 +307,12 @@ func (r *run) execute(ctx context.Context) error {
 		if op.Act != nil || op.Goto != "" {
 			r.downloadWindow = max(r.downloadWindow, op.timeout())
 		}
-		if err := r.settle(ctx, i, false); err != nil {
+		if done, err := r.settle(ctx, i, false); done {
 			return err
 		}
 	}
 	last := len(r.cfg.Do) - 1
-	if err := r.settle(ctx, last, true); err != nil {
+	if done, err := r.settle(ctx, ran, true); done {
 		return err
 	}
 	// The allowance left ends as the browser closes with its gate, and a
@@ -344,16 +348,15 @@ func (r *run) checkRefusal(ctx context.Context, index int, op operation) error {
 
 // afterOperation reports the dialogs the browser answered, the requests
 // allowed_domains blocked, and what the write gate decided while the
-// operation at index ran, or while the start URL opened when index is
-// before the first operation, and ends the step when one of them or opErr,
-// the operation's error, decides it: done is then true with the step's
-// result. A write the gate kept back ends the step there, whatever the
-// operation made of the page that did not get its answer: a rehearsal
-// partially succeeds, and in record mode the step fails. A confirm the
-// step did not expect fails it even where a rehearsal would have stopped
-// and partially succeeded.
-func (r *run) afterOperation(ctx context.Context, index int, opErr error) (done bool, err error) {
-	kind := r.kindAt(index)
+// operation at index ran, or while the step waited after it, or while the
+// start URL opened when index is before the first operation, and ends the
+// step when one of them or opErr, the operation's error of kind, decides
+// it: done is then true with the step's result. A write the gate kept back
+// ends the step there, whatever the operation made of the page that did
+// not get its answer: a rehearsal partially succeeds, and in record mode
+// the step fails. A confirm the step did not expect fails it even where a
+// rehearsal would have stopped and partially succeeded.
+func (r *run) afterOperation(ctx context.Context, index int, kind string, opErr error) (done bool, err error) {
 	dialogErr := r.reportDialogs(index)
 	r.reportBlocked(index)
 	stop, gateErr := r.reportWrites(ctx, index)
@@ -379,18 +382,16 @@ func (r *run) afterOperation(ctx context.Context, index int, opErr error) (done 
 
 // settle waits for the downloads the operation at index started, with a
 // moment for one to begin when the step ends or pauses after it, and
-// reports the dialogs the page opened meanwhile, before a browser that
-// detaches would lose them. A download that does not finish, or a confirm
-// on_confirm: fail did not expect, fails the operation; the error is the
-// step's.
-func (r *run) settle(ctx context.Context, index int, final bool) error {
-	if err := r.settleDownloads(ctx, index, final); err != nil {
-		return r.fail(ctx, index, kindDownload, err)
+// reports what the browser did meanwhile as the operation's, before a
+// browser that detaches would lose it. A download that does not finish
+// fails the operation, unless a write the gate kept back decided the step
+// first: done is then true with the step's result.
+func (r *run) settle(ctx context.Context, index int, final bool) (done bool, err error) {
+	kind, err := r.kindAt(index), r.settleDownloads(ctx, index, final)
+	if err != nil {
+		kind = kindDownload
 	}
-	if err := r.reportDialogs(index); err != nil {
-		return r.fail(ctx, index, r.kindAt(index), err)
-	}
-	return nil
+	return r.afterOperation(ctx, index, kind, err)
 }
 
 // kindAt is the kind of the operation at index, or empty before the first.

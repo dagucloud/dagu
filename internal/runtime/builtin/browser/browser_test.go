@@ -470,7 +470,7 @@ func TestConfirmBeforeAskFailsStep(t *testing.T) {
 
 // A download that does not finish while the step waits before an ask fails
 // the operation that started it, not the ask.
-func TestUnfinishedDownloadBeforeAskFailsItsOperation(t *testing.T) {
+func TestDownloadBeforeAsk(t *testing.T) {
 	t.Parallel()
 
 	run := newTestRun(t, pageModel(nil))
@@ -482,6 +482,22 @@ func TestUnfinishedDownloadBeforeAskFailsItsOperation(t *testing.T) {
 
 	require.ErrorContains(t, execution.err, "do[0] download failed: download of invoice.pdf did not finish")
 	assert.False(t, run.engine.detached, "the step fails instead of waiting")
+}
+
+// A download that does not finish while the step waits at its end fails
+// the operation that ran last, not one its when skipped after it.
+func TestDownloadAfterSkippedOperation(t *testing.T) {
+	t.Parallel()
+
+	run := newTestRun(t, pageModel(nil))
+	run.engine.lateDownloadErr = errors.New("download of invoice.pdf did not finish within 2m0s")
+	execution := run.execute(`{"do": [
+		{"act": "Download the latest invoice"},
+		{"act": "Close the banner", "when": {"text": "Cookies"}}
+	]}`, nil)
+
+	require.ErrorContains(t, execution.err, "do[0] download failed: download of invoice.pdf did not finish")
+	assert.Equal(t, []string{"act:completed", "act:skipped"}, eventNames(execution.exec.GetAgentSession()))
 }
 
 // A confirm the step did not expect fails it even when the same operation
@@ -1367,7 +1383,7 @@ func TestUnguardedAskFailsBeforeLaunchWithoutAskSupport(t *testing.T) {
 	]}`, nil)
 
 	require.ErrorContains(t, execution.err, "ask operations are not supported on Windows, where the browser cannot outlive the step process")
-	require.ErrorContains(t, execution.err, `sign the profile in once in a headed browser session instead: dagu browser session open https://shop.example.com/account --headed --profile shop`)
+	require.ErrorContains(t, execution.err, `sign the profile in once in a headed browser session instead: dagu browser session open "https://shop.example.com/account" --headed --profile shop`)
 	assert.Empty(t, run.launcher.launches)
 }
 
@@ -1384,7 +1400,7 @@ func TestUnguardedAskErrorMasksSecretInURL(t *testing.T) {
 		{"ask": {"prompt": "Enter the code sent to your phone", "as": "otp"}}
 	]}`, nil)
 
-	require.ErrorContains(t, execution.err, "dagu browser session open https://shop.example.com/login?token=******* --headed --profile shop")
+	require.ErrorContains(t, execution.err, "dagu browser session open \"https://shop.example.com/login?token=*******\" --headed --profile shop")
 	assert.NotContains(t, execution.err.Error(), "s3cr3t-token")
 	assert.Empty(t, run.launcher.launches)
 }
@@ -1426,7 +1442,7 @@ func TestGuardedAskFailsAtOperationWithoutAskSupport(t *testing.T) {
 	]}`, nil)
 
 	require.ErrorContains(t, execution.err, "do[1] ask failed: ask operations are not supported on Windows, where the browser cannot outlive the step process")
-	require.ErrorContains(t, execution.err, `dagu browser session open https://shop.example.com/account --headed --profile shop`)
+	require.ErrorContains(t, execution.err, `dagu browser session open "https://shop.example.com/account" --headed --profile shop`)
 	assert.Len(t, run.launcher.launches, 1)
 	assert.Equal(t, []string{"Open the account page"}, run.engine.actInstructions())
 	assert.False(t, run.engine.detached)

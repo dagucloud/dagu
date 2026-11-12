@@ -105,8 +105,10 @@ type fakeEngine struct {
 	// writesErr is the error every read of the write gate reports.
 	writesErr error
 	// downloadWrites are the writes the gate decides while the next
-	// download wait runs.
-	downloadWrites []writegate.Event
+	// download wait runs, and lateDownloadWrites those it decides only
+	// during a wait that allows downloads to begin.
+	downloadWrites     []writegate.Event
+	lateDownloadWrites []writegate.Event
 	// allowed are the signatures the write gate was told the operation
 	// running may send, one entry per operation, and allowing whether it
 	// still runs; endErr is the error telling the gate it ended reports.
@@ -516,6 +518,8 @@ func (e *fakeEngine) WaitForDownloads(_ context.Context, grace time.Duration, ti
 		e.lateDownloads = nil
 		e.dialogs = append(e.dialogs, e.lateDialogs...)
 		e.lateDialogs = nil
+		e.keepWrites(e.lateDownloadWrites)
+		e.lateDownloadWrites = nil
 		err = cmp.Or(err, e.lateDownloadErr)
 	}
 	return downloads, err
