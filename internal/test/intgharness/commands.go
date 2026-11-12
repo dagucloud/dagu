@@ -5,6 +5,7 @@ package intgharness
 
 import (
 	"fmt"
+	"path/filepath"
 	"runtime"
 	"strconv"
 	"strings"
@@ -94,12 +95,15 @@ func (c Commands) EnvOutputWithSeparator(separator string, names ...string) stri
 	return fmt.Sprintf("printf '%s' %s", strings.Join(placeholders, separator), strings.Join(values, " "))
 }
 
-// WaitForFile returns a shell snippet that blocks until path exists.
+// WaitForFile returns a shell snippet that blocks until path exists. It fails
+// once the directory holding path is gone, so a step that outlives its test
+// does not wait forever.
 func (c Commands) WaitForFile(path string) string {
 	if c.shell == powerShell {
-		return fmt.Sprintf("while (-not (Test-Path %s)) {\n  Start-Sleep -Milliseconds 50\n}", testutil.PowerShellQuote(path))
+		quoted := testutil.PowerShellQuote(path)
+		return fmt.Sprintf("while (-not (Test-Path %s)) {\n  if (-not (Test-Path (Split-Path -Parent %s))) { exit 1 }\n  Start-Sleep -Milliseconds 50\n}", quoted, quoted)
 	}
-	return fmt.Sprintf("while [ ! -f %s ]; do\n  sleep 0.05\ndone", testutil.PosixQuote(path))
+	return fmt.Sprintf("while [ ! -f %s ]; do\n  [ -d %s ] || exit 1\n  sleep 0.05\ndone", testutil.PosixQuote(path), testutil.PosixQuote(filepath.Dir(path)))
 }
 
 // BlockUntil is an alias for WaitForFile in long-running integration steps.
