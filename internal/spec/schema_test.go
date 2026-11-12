@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -196,8 +197,7 @@ func TestLoadSchemaFromURL(t *testing.T) {
 	t.Run("ConnectionRefused", func(t *testing.T) {
 		t.Parallel()
 
-		// Use a port that's unlikely to be in use
-		_, err := loadSchemaFromURL("http://127.0.0.1:59999/schema.json")
+		_, err := loadSchemaFromURL("http://" + closedAddr(t) + "/schema.json")
 		require.Error(t, err)
 		assert.True(t, IsSourceUnavailable(err))
 	})
@@ -517,7 +517,7 @@ func TestGetSchemaFromRef(t *testing.T) {
 			},
 			{
 				name:   "ConnectionError",
-				ref:    "http://ghp_token@127.0.0.1:59999/schema.json",
+				ref:    "http://ghp_token@" + closedAddr(t) + "/schema.json",
 				secret: "ghp_token",
 			},
 			{
@@ -1204,4 +1204,16 @@ params:
 		require.Contains(t, dag.Params, "debug=false")
 		require.Contains(t, dag.Params, "timeout=600")
 	})
+}
+
+// closedAddr returns a local address no server listens on: a port a
+// listener has just released. A fixed port can fall in the ephemeral range,
+// where another test's server may take it.
+func closedAddr(t *testing.T) string {
+	t.Helper()
+	listener, err := net.Listen("tcp", "127.0.0.1:0")
+	require.NoError(t, err)
+	addr := listener.Addr().String()
+	require.NoError(t, listener.Close())
+	return addr
 }
