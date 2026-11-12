@@ -66,7 +66,7 @@ func newExecutor(ctx context.Context, step ir.Step) (executor.Executor, error) {
 	return &decisionExecutor{
 		stdout: os.Stdout,
 		cfg:    cfg,
-		client: &client{http: sharedHTTPClient, provider: cfg.Provider, endpoint: endpoint, apiKey: key, maxResponseBytes: limit, mask: masker.MaskString},
+		client: &client{http: sharedHTTPClient, provider: cfg.Provider, endpoint: endpoint, apiKey: key, maxResponseBytes: limit, masker: masker},
 		masker: masker,
 		cancel: cancel,
 		ctx:    requestCtx,

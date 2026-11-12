@@ -18,6 +18,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/dagucloud/dagu/v2/internal/cmn/masking"
 	"github.com/dagucloud/dagu/v2/internal/cmn/value"
 	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/llm"
@@ -255,8 +256,11 @@ func TestHTTPFailures(t *testing.T) {
 		{"overloaded", 529, `{"error":"busy"}`, "(HTTP 529): busy", 2},
 		{"message", http.StatusPaymentRequired, `{"error":{"message":"Insufficient credits","code":402}}`, "(HTTP 402): Insufficient credits", 1},
 		{"text", http.StatusBadGateway, "  Bad\n\tGateway  ", "(HTTP 502): Bad Gateway", 2},
+		{"message_whitespace", http.StatusBadRequest, `{"error":{"message":"  line one\n\n  line two  "}}`, "(HTTP 400): line one line two", 1},
 		{"empty", http.StatusForbidden, "", "(HTTP 403)", 1},
+		{"blank", http.StatusForbidden, " \n\t ", "(HTTP 403)", 1},
 		{"long", http.StatusBadRequest, strings.Repeat("x", 300), "(HTTP 400): " + strings.Repeat("x", 200) + "...", 1},
+		{"long_runes", http.StatusBadRequest, strings.Repeat("é", 300), "(HTTP 400): " + strings.Repeat("é", 200) + "...", 1},
 		{"malformed", http.StatusOK, `not json`, "must be a JSON object", 1},
 		{"trailing", http.StatusOK, responseJSON + `{}`, "one JSON object", 1},
 	} {
@@ -272,7 +276,7 @@ func TestHTTPFailures(t *testing.T) {
 			cfg := llm.DefaultConfig()
 			cfg.MaxRetries = 1
 			cfg.InitialInterval = time.Millisecond
-			c := client{http: llm.NewHTTPClient(cfg), endpoint: server.URL, apiKey: "key", maxResponseBytes: ir.DefaultMaxOutputSize}
+			c := client{http: llm.NewHTTPClient(cfg), endpoint: server.URL, apiKey: "key", maxResponseBytes: ir.DefaultMaxOutputSize, masker: masking.NewMasker(masking.SourcedEnvVars{})}
 			_, err := c.evaluate(t.Context(), request{})
 			require.ErrorContains(t, err, tc.wantErr)
 			if tc.status != http.StatusOK {
@@ -285,15 +289,22 @@ func TestHTTPFailures(t *testing.T) {
 
 // A secret echoed in the provider's error body stays hidden in the step
 // error, even when JSON escaping, whitespace, or the length bound would keep
-// the masker from seeing it whole.
+// the masker from seeing it whole. A body without a message is reported as
+// received, masked.
 func TestHTTPFailureMasked(t *testing.T) {
 	t.Parallel()
 	const whitespace = "multi word\nsecret"
+	const quoted = "secret-\"quoted\"-value"
 	for _, tc := range []struct{ name, secret, body, wantErr string }{
-		{"escaped", "secret-\"quoted\"-value", `{"error":{"message":"invalid key secret-\"quoted\"-value"}}`, "(HTTP 401): invalid key *******"},
-		{"escaped_no_message", "secret-\"quoted\"-value", `{"state":"secret-\"quoted\"-value"}`, `(HTTP 401): {"state":"*******"}`},
-		{"token_and_escaped", "secret-\"quoted\"-value", `{"code":4021,"state":"secret-\"quoted\"-value"}`, `(HTTP 401): {"code":*******,"state":"*******"}`},
+		{"escaped", quoted, `{"error":{"message":"invalid key secret-\"quoted\"-value"}}`, "(HTTP 401): invalid key *******"},
+		{"escaped_error_string", quoted, `{"error":"secret-\"quoted\"-value"}`, "(HTTP 401): *******"},
+		{"escaped_no_message", quoted, `{"state":"secret-\"quoted\"-value","detail":["secret-\"quoted\"-value"],"code":402}`, `(HTTP 401): {"state":"*******","detail":["*******"],"code":402}`},
+		{"escaped_trailing", quoted, `{"state":"secret-\"quoted\"-value"} extra`, `(HTTP 401): {"state":"*******"} extra`},
+		{"token_and_escaped", quoted, `{"code":4021,"state":"secret-\"quoted\"-value"}`, `(HTTP 401): {"code":*******,"state":"*******"}`},
+		{"token_in_message", quoted, `{"code":4021,"error":{"message":"account 4021 is suspended"}}`, "(HTTP 401): account ******* is suspended"},
+		{"overflow_and_escaped", quoted, `{"code":1e400,"state":"secret-\"quoted\"-value"}`, `(HTTP 401): {"code":1e400,"state":"*******"}`},
 		{"whitespace", whitespace, "denied for multi word\nsecret here", "(HTTP 401): denied for ******* here"},
+		{"spanning", "1234\nprivate-token", "1234\nprivate-token", "(HTTP 401): *******"},
 		{"boundary", whitespace, strings.Repeat("a", 195) + whitespace, "(HTTP 401): " + strings.Repeat("a", 195) + "*****..."},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
