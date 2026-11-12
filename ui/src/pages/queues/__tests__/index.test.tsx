@@ -65,8 +65,10 @@ vi.mock('@/contexts/SearchStateContext', () => ({
   useSearchState: () => searchState,
 }));
 
+const serviceDAGs = vi.hoisted(() => ({ current: [] as unknown[] }));
+
 vi.mock('@/features/service-dags/hooks/useServiceDAGs', () => ({
-  useServiceDAGs: () => ({ serviceDAGs: [worker], error: null }),
+  useServiceDAGs: () => ({ serviceDAGs: serviceDAGs.current, error: null }),
 }));
 
 function renderPage(): void {
@@ -89,11 +91,27 @@ describe('Queues', () => {
   // The queue of a service DAG between two runs is drawn by the page, so the
   // search must filter it as it filters the queues of the server.
   it('leaves the queues of service DAGs out of a search that misses them', () => {
+    serviceDAGs.current = [worker];
     renderPage();
     expect(screen.getByRole('link', { name: /worker/ })).toBeVisible();
 
     fireEvent.change(screen.getByPlaceholderText('Search queues...'), {
       target: { value: 'batch' },
+    });
+
+    expect(screen.getByRole('link', { name: /batch/ })).toBeVisible();
+    expect(screen.queryByRole('link', { name: /worker/ })).toBeNull();
+  });
+
+  // A remote node of an older version lists service DAGs without their queue.
+  it('shows the queues of a server that does not report service DAG queues', () => {
+    const older: Partial<typeof worker> = { ...worker };
+    delete older.queue;
+    serviceDAGs.current = [older];
+
+    renderPage();
+    fireEvent.change(screen.getByPlaceholderText('Search queues...'), {
+      target: { value: 'b' },
     });
 
     expect(screen.getByRole('link', { name: /batch/ })).toBeVisible();

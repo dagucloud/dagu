@@ -127,10 +127,12 @@ function Queues() {
       })
       .sort((a, b) => a.name.localeCompare(b.name));
   }, [data?.queues, searchText]);
+  // Only a service DAG that owns its queue gets a card, and that queue has the
+  // name of the DAG. A server older than the queue field leaves it out.
   const filteredServiceDAGs = React.useMemo(() => {
     const search = searchText.toLowerCase();
     return serviceDAGs.filter((dag) =>
-      dag.queue.toLowerCase().includes(search)
+      dag.name.toLowerCase().includes(search)
     );
   }, [serviceDAGs, searchText]);
 
