@@ -89,6 +89,13 @@ func ReadCells(ctx context.Context, path string, opts ReadCellsOptions) (*ReadCe
 	result := &ReadCellsResult{Sheet: sheet, Values: map[string]any{}, Cells: map[string]string{}, Warnings: []string{}}
 	warn := func(msg string) { result.Warnings = append(result.Warnings, msg) }
 	readOpts := ReadOptions{Trim: opts.Trim, Formulas: opts.Formulas}
+	// A cached read checks each field's formula against its cached value,
+	// once per cell, since two fields may name the same one.
+	var stale *staleCells
+	if opts.Formulas.cached() {
+		stale = &staleCells{w: w, sheet: sheet}
+	}
+	checked := map[string]bool{}
 	for _, field := range sortedKeys(opts.Cells) {
 		addr := strings.TrimSpace(opts.Cells[field])
 		if addr == "" {
@@ -127,6 +134,11 @@ func ReadCells(ctx context.Context, path string, opts ReadCellsOptions) (*ReadCe
 		}
 		result.Values[field] = value
 		result.Cells[field] = sheet + "!" + cellName(col, row)
+		if cell := cellName(col, row); !checked[cell] {
+			checked[cell] = true
+			stale.check(col, row, cellAt(grid, col, row))
+		}
 	}
+	stale.report(warn)
 	return result, nil
 }

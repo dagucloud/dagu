@@ -124,6 +124,14 @@ func (w *file) read(ctx context.Context, opts ReadOptions) (*ReadResult, error) 
 	if maxRows <= 0 {
 		maxRows = DefaultMaxRows
 	}
+	// A cached read checks the formulas of the cells it returns, column
+	// and row, against their cached values; evaluating nothing else keeps
+	// the check cheap.
+	var stale *staleCells
+	if opts.Formulas.cached() {
+		stale = &staleCells{w: w, sheet: sheet}
+	}
+	readCols := plan.readColumns(reg, headers)
 
 	// Empty rows are held back until a later row proves they are not
 	// trailing, so they do not survive at the end unless keep_empty_rows
@@ -165,7 +173,9 @@ func (w *file) read(ctx context.Context, opts ReadOptions) (*ReadResult, error) 
 		result.Rows = append(result.Rows, row)
 		pending = nil
 		counted++
+		stale.checkRow(r, readCols, grid, merges)
 	}
+	stale.report(warn)
 	result.Count = len(result.Rows)
 	result.Headers = plan.names()
 	result.Range = reg.String()
@@ -301,6 +311,24 @@ func (p columnPlan) names() []string {
 		names = append(names, s.As)
 	}
 	return names
+}
+
+// readColumns are the sheet columns of the region whose cells the read
+// returns: every column, or the selected ones by their resolved header.
+func (p columnPlan) readColumns(reg region, headers []string) []int {
+	cols := columnsOf(reg)
+	if p.selects == nil {
+		return cols
+	}
+	byHeader := make(map[string]int, len(headers))
+	for i, h := range headers {
+		byHeader[h] = cols[i]
+	}
+	selected := make([]int, 0, len(p.selects))
+	for _, s := range p.selects {
+		selected = append(selected, byHeader[s.Source])
+	}
+	return selected
 }
 
 func (p columnPlan) project(row Row) Row {
