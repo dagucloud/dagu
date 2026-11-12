@@ -173,7 +173,7 @@ describe('QueueDetailsPage', () => {
     expect(screen.queryByRole('link', { name: /Failing/ })).toBeNull();
   });
 
-  // The server lists a DAG queue only while a run is alive or waiting. An
+  // The server lists a DAG queue only while a run is alive or waiting. A
   // service DAG is between two runs for a few seconds, and its queue is idle,
   // not missing.
   it('shows the queue of a service DAG as idle while the server does not list it', async () => {

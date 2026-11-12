@@ -73,7 +73,9 @@ export function ServiceDAGRuns({ name }: { name: string }): React.ReactElement {
   if (runs.length === 0) {
     return (
       <p className="px-2.5 py-2 text-xs text-muted-foreground">
-        {isLoading ? ts('Loading runs...') : ts('No run in the last 7 days')}
+        {isLoading
+          ? ts('Loading runs...')
+          : ts('No run in the last {days} days', { days: WINDOW_DAYS })}
       </p>
     );
   }

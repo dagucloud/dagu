@@ -26,6 +26,7 @@ import {
 import { useGettingStarted } from '../features/activity/hooks/useGettingStarted';
 import { ServiceDAGStrip } from '../features/service-dags/components/ServiceDAGStrip';
 import { useServiceDAGs } from '../features/service-dags/hooks/useServiceDAGs';
+import { filterServiceDAGsByName } from '../features/service-dags/lib/filterServiceDAGs';
 import {
   attentionItems,
   fitRange,
@@ -248,10 +249,10 @@ function Dashboard(): React.ReactElement {
       filteredRuns: runs.filter((run) => matches(run.name)),
     };
   }, [activity, runs, filter]);
-  const filteredServiceDAGs = React.useMemo(() => {
-    const query = filter.trim().toLowerCase();
-    return serviceDAGs.filter((dag) => dag.name.toLowerCase().includes(query));
-  }, [serviceDAGs, filter]);
+  const filteredServiceDAGs = React.useMemo(
+    () => filterServiceDAGsByName(serviceDAGs, filter),
+    [serviceDAGs, filter]
+  );
 
   // The lanes also draw runs still going from before the window, which the
   // window's run list leaves out, so the empty states count them too.

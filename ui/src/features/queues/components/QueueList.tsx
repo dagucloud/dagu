@@ -52,7 +52,7 @@ function QueueList({ queues, isLoading, serviceDAGs = [] }: QueueListProps) {
     queue.type === QueueType.dag_based
       ? serviceDAGByQueue.get(queue.name)
       : undefined;
-  // The server lists a DAG queue only while a run is alive or waiting, so an
+  // The server lists a DAG queue only while a run is alive or waiting, so a
   // service DAG between two runs has no queue in the list. Its card stays,
   // drawn as an idle queue, unless a global queue of the same name is its queue.
   const serviceDAGQueues = queueOwners.flatMap((dag) => {

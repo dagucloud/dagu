@@ -9,6 +9,7 @@ import { useI18n } from '@/i18n/I18nProvider';
 import { getQueryErrorMessage } from '@/lib/queryErrors';
 import { cn } from '@/lib/utils';
 import { useServiceDAGs } from '../hooks/useServiceDAGs';
+import { filterServiceDAGsByName } from '../lib/filterServiceDAGs';
 import { ServiceDAGRuns } from './ServiceDAGRuns';
 import {
   ServiceDAGFailure,
@@ -102,10 +103,7 @@ export function ServiceDAGStrip({
 }): React.ReactElement | null {
   const { ts } = useI18n();
   const { serviceDAGs: allServiceDAGs, error } = useServiceDAGs();
-  const query = nameFilter.trim().toLowerCase();
-  const serviceDAGs = query
-    ? allServiceDAGs.filter((dag) => dag.name.toLowerCase().includes(query))
-    : allServiceDAGs;
+  const serviceDAGs = filterServiceDAGsByName(allServiceDAGs, nameFilter);
   const [open, setOpen] = useState<string | null>(null);
   // The lists leave out the runs of service DAGs, so a list that cannot be read
   // says so rather than look like one without a service DAG.
