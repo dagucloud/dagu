@@ -19192,12 +19192,31 @@ components:
         error:
           type: string
           description: "Why the last connection failed or Dagu Cloud refused it, such as a workspace without a plan or a trial"
+        lastCall:
+          $ref: "#/components/schemas/LicenseRemoteAccessLastCall"
       required:
         - level
         - levelConfigured
         - approvals
         - approvalsConfigured
         - connected
+
+    LicenseRemoteAccessLastCall:
+      type: object
+      description: "The latest call from Dagu Cloud the server served, absent before the first"
+      properties:
+        at:
+          type: string
+          format: date-time
+          description: "When the call reached the server, to the minute"
+        client:
+          type: string
+          description: "The MCP client that made the call, such as Claude"
+        user:
+          type: string
+          description: "The Dagu Cloud user the call ran as"
+      required:
+        - at
 
     ChangePasswordRequest:
       type: object
