@@ -6,6 +6,7 @@ package workbook
 import (
 	"context"
 	"fmt"
+	"slices"
 	"strings"
 )
 
@@ -131,7 +132,7 @@ func (w *file) read(ctx context.Context, opts ReadOptions) (*ReadResult, error) 
 	if opts.Formulas.cached() {
 		stale = &staleCells{w: w, sheet: sheet}
 	}
-	readCols := plan.readColumns(reg, headers)
+	readCols := plan.readColumns(reg)
 
 	// Empty rows are held back until a later row proves they are not
 	// trailing, so they do not survive at the end unless keep_empty_rows
@@ -297,9 +298,18 @@ func columnsOf(reg region) []int {
 // columnPlan is the selection, renaming, and typing a read applies to
 // each row.
 type columnPlan struct {
-	selects []ColumnSelect // resolved: Source is an existing header
+	selects []selectedColumn
 	all     []string
 	types   map[string]ColumnType // keyed by resolved header
+}
+
+// selectedColumn is one resolved column selection: the header it reads,
+// that header's index among the region's columns, and the name the column
+// is returned under.
+type selectedColumn struct {
+	source string
+	index  int
+	as     string
 }
 
 func (p columnPlan) names() []string {
@@ -308,25 +318,20 @@ func (p columnPlan) names() []string {
 	}
 	names := make([]string, 0, len(p.selects))
 	for _, s := range p.selects {
-		names = append(names, s.As)
+		names = append(names, s.as)
 	}
 	return names
 }
 
 // readColumns are the sheet columns of the region whose cells the read
-// returns: every column, or the selected ones by their resolved header.
-func (p columnPlan) readColumns(reg region, headers []string) []int {
-	cols := columnsOf(reg)
+// returns: every column, or the selected ones.
+func (p columnPlan) readColumns(reg region) []int {
 	if p.selects == nil {
-		return cols
-	}
-	byHeader := make(map[string]int, len(headers))
-	for i, h := range headers {
-		byHeader[h] = cols[i]
+		return columnsOf(reg)
 	}
 	selected := make([]int, 0, len(p.selects))
 	for _, s := range p.selects {
-		selected = append(selected, byHeader[s.Source])
+		selected = append(selected, reg.C1+s.index)
 	}
 	return selected
 }
@@ -337,7 +342,7 @@ func (p columnPlan) project(row Row) Row {
 	}
 	out := make(Row, len(p.selects)+1)
 	for _, s := range p.selects {
-		out[s.As] = row[s.Source]
+		out[s.as] = row[s.source]
 	}
 	out[RowNumberKey] = row[RowNumberKey]
 	return out
@@ -347,8 +352,8 @@ func (p columnPlan) project(row Row) Row {
 // exact header, a loose match, or the alias of a selected column.
 func (p columnPlan) alias(name string) (string, bool) {
 	for _, s := range p.selects {
-		if s.As == name {
-			return s.Source, true
+		if s.as == name {
+			return s.source, true
 		}
 	}
 	if i, near := findColumn(p.all, name); i >= 0 {
@@ -375,19 +380,16 @@ func (w *file) planColumns(sheet string, headers []string, opts ReadOptions) (co
 	if opts.Columns == nil {
 		return plan, nil
 	}
-	plan.selects = make([]ColumnSelect, 0, len(opts.Columns))
+	plan.selects = make([]selectedColumn, 0, len(opts.Columns))
 	for _, sel := range opts.Columns {
 		i, near := findColumn(headers, sel.Source)
-		var source string
-		switch {
-		case i >= 0:
-			source = headers[i]
-		case near != "":
-			source = near
-		default:
+		if i < 0 && near != "" {
+			i = slices.Index(headers, near)
+		}
+		if i < 0 {
 			return plan, w.sheetError(sheet, fmt.Sprintf("columns: column %q not found; headers present: %s", sel.Source, strings.Join(headers, ", ")))
 		}
-		plan.selects = append(plan.selects, ColumnSelect{Source: source, As: sel.As})
+		plan.selects = append(plan.selects, selectedColumn{source: headers[i], index: i, as: sel.As})
 	}
 	return plan, nil
 }
