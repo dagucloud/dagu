@@ -354,9 +354,9 @@ every way of starting one shows the slot, window, and dates:
 - Spec 017 gains the new `context.run` fields and their availability in
   sub-DAGs. A new spec owns `dates`. Specs 003 and 005 add its namespace and
   its use in `params[].eval`, and Spec 003 moves `params[].eval` from DAG
-  build to run creation. An `eval` that runs a command now runs once per run
-  rather than at every DAG build, which also stops it running when a DAG is
-  only listed or validated.
+  build to run creation. `dagu validate` and metadata-only loads skip `eval`
+  today and keep doing so; `dagu dry` keeps running it, for the slot it
+  previews.
 
 ## Verification and acceptance criteria
 
