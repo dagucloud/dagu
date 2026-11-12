@@ -282,6 +282,7 @@ func newScheduler(
 		dagExecutor,
 		cfg.Queues,
 		WithIsSuspended(isSuspended),
+		WithIsPaused(newPauseChecker(pauseStore)),
 	)
 	defaultClock := Clock(time.Now)
 
@@ -429,6 +430,7 @@ func newScheduler(
 		return nil, fmt.Errorf("failed to initialize retry scanner: %w", err)
 	}
 	retryScanner.processes = procRepository
+	retryScanner.isPaused = newPauseChecker(pauseStore)
 
 	s := &Scheduler{
 		quit:             make(chan any),

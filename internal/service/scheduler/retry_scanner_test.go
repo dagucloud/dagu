@@ -6,6 +6,7 @@ package scheduler
 import (
 	"context"
 	"errors"
+	"fmt"
 	"slices"
 	"testing"
 	"time"
@@ -620,6 +621,59 @@ func TestRetryScannerScanSkipsSuspendedPersistedRetries(t *testing.T) {
 	assert.Equal(t, 0, store.latestAttemptCalls)
 	assert.Len(t, store.listCalls, 1)
 	assert.Equal(t, 0, store.findAttemptCalls)
+}
+
+// A backfill run is retried on a suspended DAG, behind live runs, and its
+// retry waits while the scheduler is paused.
+func TestRetryScannerRetriesBackfillRunUnlessPaused(t *testing.T) {
+	t.Parallel()
+
+	for _, paused := range []bool{false, true} {
+		t.Run(fmt.Sprintf("paused=%v", paused), func(t *testing.T) {
+			t.Parallel()
+			now := time.Date(2026, 3, 14, 14, 0, 0, 0, time.UTC)
+			dag := &ir.DAG{
+				Name:        "retry-dag",
+				Location:    "/tmp/retry-dag.yaml",
+				RetryPolicy: &ir.DAGRetryPolicy{Limit: 3, Interval: time.Minute, MaxInterval: 10 * time.Minute},
+			}
+			status := &ir.DAGRunStatus{
+				Name:         dag.Name,
+				DAGRunID:     "backfill-bf123456-0-20260314T130000Z",
+				AttemptID:    "att-1",
+				Status:       ir.Failed,
+				TriggerType:  ir.TriggerTypeBackfill,
+				BackfillID:   "bf123456",
+				FinishedAt:   now.Add(-2 * time.Minute).Format(time.RFC3339),
+				ScheduleTime: now.Add(-time.Hour).Format(time.RFC3339),
+			}
+			store := newRetryScannerStore(dag, status)
+			queueStore := &testutil.MockQueueStore{}
+			if !paused {
+				queueStore.On("Enqueue", mock.Anything, dag.ProcGroup(), queuedomain.QueuePriorityLow, status.DAGRun()).Return(nil).Once()
+			}
+			scanner, err := NewRetryScanner(
+				store.repository(),
+				queueStore,
+				func(context.Context, string) (bool, error) { return true, nil },
+				24*time.Hour,
+				func() time.Time { return now },
+			)
+			require.NoError(t, err)
+			scanner.isPaused = func(context.Context) (bool, error) { return paused, nil }
+
+			require.NoError(t, scanner.scan(context.Background()))
+
+			queueStore.AssertExpectations(t)
+			retried := store.mustStatus(status.DAGRun())
+			if paused {
+				assert.Equal(t, ir.Failed, retried.Status)
+				return
+			}
+			assert.Equal(t, ir.Queued, retried.Status)
+			assert.Equal(t, "bf123456", retried.BackfillID)
+		})
+	}
 }
 
 func TestRetryScannerLeavesRetryPendingWhenSuspensionReadFails(t *testing.T) {
