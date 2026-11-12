@@ -5085,6 +5085,8 @@ export interface components {
             counts: {
                 [key: string]: number;
             };
+            /** @description Why an open backfill makes no progress: a run waits for a person, or its next run waits in the queue. Set only when one backfill is read. */
+            waiting?: string;
         };
         BackfillSubmitResponse: {
             plan: components["schemas"]["BackfillPlan"];

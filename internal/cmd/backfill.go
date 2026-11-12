@@ -30,6 +30,8 @@ const (
 	backfillPlanEdgeRows = 3
 	backfillFormatText   = "text"
 	backfillFormatJSON   = "json"
+	// backfillWatchInterval is how often status --watch reads the backfill.
+	backfillWatchInterval = 2 * time.Second
 )
 
 var (
@@ -74,6 +76,11 @@ var (
 		name:         "format",
 		usage:        "Plan output: text or json",
 		defaultValue: backfillFormatText,
+	}
+	backfillWatchFlag = commandLineFlag{
+		name:   "watch",
+		usage:  "Follow the backfill until it ends; exit 0 only when it succeeds",
+		isBool: true,
 	}
 	backfillYesFlag = commandLineFlag{
 		name:      "yes",
@@ -309,43 +316,110 @@ func backfillStatusCommand() *cobra.Command {
 		Use:   "status <backfill id>",
 		Short: "Show where a backfill stands",
 		Long: `Show a backfill's status and the state of each of its slots: pending,
-queued, running, waiting, succeeded, failed, skipped, or not run.`,
+queued, running, waiting, succeeded, failed, skipped, not run, or cancelled.
+
+With --watch, follow the backfill, print a line each time its progress
+changes, and print the status when it ends. The command then exits 0 only
+when the backfill succeeded.`,
 		Args: cobra.ExactArgs(1),
-	}, []commandLineFlag{backfillFormatFlag}, runBackfillStatus)
+	}, []commandLineFlag{backfillFormatFlag, backfillWatchFlag}, runBackfillStatus)
 }
 
 func runBackfillStatus(ctx *Context, args []string) error {
-	record, err := ctx.Persistence.BackfillStore.Get(ctx, args[0])
+	format, _ := ctx.Command.Flags().GetString("format")
+	watch, _ := ctx.Command.Flags().GetBool("watch")
+	out := ctx.Command.OutOrStdout()
+	if !watch {
+		status, err := readBackfillStatus(ctx, args[0])
+		if err != nil {
+			return err
+		}
+		return writeBackfillStatus(ctx, out, format, status)
+	}
+
+	ticker := time.NewTicker(backfillWatchInterval)
+	defer ticker.Stop()
+	last := ""
+	for {
+		status, err := readBackfillStatus(ctx, args[0])
+		if err != nil {
+			return err
+		}
+		if record := status.report.Record; !record.Open() {
+			if err := writeBackfillStatus(ctx, out, format, status); err != nil {
+				return err
+			}
+			if record.Status != backfill.StatusSucceeded {
+				return fmt.Errorf("backfill %s ended %s", record.ID, record.Status)
+			}
+			return nil
+		}
+		line := status.label + ": " + backfillSlotCounts(status.report)
+		if status.wait != "" {
+			line += "; " + status.wait
+		}
+		if line != last {
+			if _, err := fmt.Fprintf(out, "%s %s\n", time.Now().In(ctx.Config.Core.Location).Format(time.TimeOnly), line); err != nil {
+				return err
+			}
+			last = line
+		}
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-ticker.C:
+		}
+	}
+}
+
+// backfillStatus is where a backfill stands, as status prints it.
+type backfillStatus struct {
+	report backfill.Report
+	label  string
+	wait   string
+}
+
+func readBackfillStatus(ctx *Context, id string) (backfillStatus, error) {
+	record, err := ctx.Persistence.BackfillStore.Get(ctx, id)
 	if errors.Is(err, backfill.ErrNotFound) {
-		return fmt.Errorf("backfill %q not found", args[0])
+		return backfillStatus{}, fmt.Errorf("backfill %q not found", id)
 	}
 	if err != nil {
-		return err
+		return backfillStatus{}, err
 	}
 	report, err := backfill.Describe(ctx, ctx.Persistence.BackfillStore, latestRunStatus(ctx.Persistence.DAGRunRepository), record)
 	if err != nil {
-		return err
+		return backfillStatus{}, err
 	}
-	format, _ := ctx.Command.Flags().GetString("format")
-	out := ctx.Command.OutOrStdout()
+	wait, err := backfill.WaitReason(ctx, report, backfill.QueueView{
+		Items: ctx.Persistence.QueueStore,
+		Procs: ctx.Persistence.ProcRepository,
+		Limit: ctx.Config.QueueLimit,
+	}, ctx.Config.Core.Location)
+	if err != nil {
+		return backfillStatus{}, err
+	}
+	return backfillStatus{report: report, label: backfillStatusLabel(ctx, record), wait: wait}, nil
+}
+
+func writeBackfillStatus(ctx *Context, out io.Writer, format string, status backfillStatus) error {
+	record, report := status.report.Record, status.report
 	if format == backfillFormatJSON {
 		return json.NewEncoder(out).Encode(map[string]any{
-			"id":     record.ID,
-			"dag":    record.DAGName,
-			"status": backfillStatusLabel(ctx, record),
-			"counts": report.Counts,
-			"slots":  report.Slots,
+			"id":      record.ID,
+			"dag":     record.DAGName,
+			"status":  status.label,
+			"waiting": status.wait,
+			"counts":  report.Counts,
+			"slots":   report.Slots,
 		})
 	}
 	var b strings.Builder
-	fmt.Fprintf(&b, "Backfill %s of %s: %s\n", record.ID, record.DAGName, backfillStatusLabel(ctx, record))
-	var parts []string
-	for _, state := range backfill.SlotStateOrder {
-		if n := report.Counts[state]; n > 0 {
-			parts = append(parts, fmt.Sprintf("%s %d", state, n))
-		}
+	fmt.Fprintf(&b, "Backfill %s of %s: %s\n", record.ID, record.DAGName, status.label)
+	if status.wait != "" {
+		fmt.Fprintln(&b, status.wait)
 	}
-	fmt.Fprintf(&b, "%d slots: %s\n\n", len(report.Slots), strings.Join(parts, ", "))
+	fmt.Fprintf(&b, "%d slots: %s\n\n", len(report.Slots), backfillSlotCounts(report))
 	if _, err := io.WriteString(out, b.String()); err != nil {
 		return err
 	}
@@ -355,6 +429,16 @@ func runBackfillStatus(ctx *Context, args []string) error {
 		_, _ = fmt.Fprintf(w, "%s\t%s\t%s\n", formatBackfillTime(slot.At.In(ctx.Config.Core.Location)), slot.State, slot.RunID)
 	}
 	return w.Flush()
+}
+
+func backfillSlotCounts(report backfill.Report) string {
+	var parts []string
+	for _, state := range backfill.SlotStateOrder {
+		if n := report.Counts[state]; n > 0 {
+			parts = append(parts, fmt.Sprintf("%s %d", state, n))
+		}
+	}
+	return strings.Join(parts, ", ")
 }
 
 // latestRunStatus reads the latest status of a run.

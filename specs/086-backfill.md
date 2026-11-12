@@ -214,17 +214,25 @@ dagu backfill start <DAG> (--from <time> [--to <time>] | --slot <time>...) [flag
 
 ```sh
 dagu backfill ls [<DAG>]
-dagu backfill status <backfill id> [--format text|json]
+dagu backfill status <backfill id> [--watch] [--format text|json]
 ```
 
 - `ls` lists the backfills of every DAG, or of one, oldest first, with their
   status and number of slots.
 - `status` shows a backfill's status and each slot's state: `pending`,
-  `queued`, `running`, `waiting`, `succeeded`, `failed`, `skipped`, or
-  `not run`, with the slot's run ID once queued.
+  `queued`, `running`, `waiting`, `succeeded`, `failed`, `skipped`,
+  `not run`, or `cancelled`, with the slot's run ID once queued.
 - An open backfill's status is `running`, or `waiting for scheduler` when no
   scheduler runs. An ended backfill's status is `succeeded`, `failed`, or
   `cancelled`.
+- `status` also says why an open backfill makes no progress. A run waiting
+  for a person gives `Blocked: the run of slot <slot> is waiting for a
+  person`. Otherwise, the backfill's oldest queued run gives `Waiting: queue
+  at limit, <n> runs ahead` when the queue runs its limit, `Waiting: <n> runs
+  ahead in the queue`, or `Waiting: next in the queue`.
+- `status --watch` prints a line each time the backfill's progress changes,
+  then the status when the backfill ends. It exits 0 only when the backfill
+  succeeded.
 
 ### Cancelling and resuming
 
@@ -254,7 +262,7 @@ dagu backfill resume <backfill id> [--max-concurrency <n>] [--on-failure <policy
 | `POST /api/v1/dags/{fileName}/backfills` | Plan and submit, with the options of `dagu backfill start`. `dryRun` returns the plan only. |
 | `GET /api/v1/dags/{fileName}/slots` | The slots of a range, each with its window start and state: `missing`, `succeeded`, `failed`, or `active`. |
 | `GET /api/v1/backfills` | Backfills, oldest first, of every DAG or of `dag`. |
-| `GET /api/v1/backfills/{id}` | A backfill's status and the number of slots in each state. |
+| `GET /api/v1/backfills/{id}` | A backfill's status, the number of slots in each state, and `waiting`, the reason `status` gives. |
 | `GET /api/v1/backfills/{id}/slots` | A backfill's slots, `limit` at a time from `offset`, filtered by `state`. |
 | `POST /api/v1/backfills/{id}/cancel` | Cancel, with `stopRunning`. |
 | `POST /api/v1/backfills/{id}/resume` | Resume, with `maxConcurrency` and `onFailure`. `dryRun` returns the plan only. |

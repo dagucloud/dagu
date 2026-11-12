@@ -142,12 +142,31 @@ func (a *API) ListBackfills(ctx context.Context, request api.ListBackfillsReques
 }
 
 func (a *API) GetBackfill(ctx context.Context, request api.GetBackfillRequestObject) (api.GetBackfillResponseObject, error) {
-	store, report, err := a.backfillReport(ctx, request.BackfillId)
+	_, report, err := a.backfillReport(ctx, request.BackfillId)
 	if err != nil {
 		return nil, err
 	}
-	_ = store
-	return api.GetBackfill200JSONResponse(toAPIBackfill(report, a.schedulerActive(ctx))), nil
+	item := toAPIBackfill(report, a.schedulerActive(ctx))
+	if a.queueStore != nil && a.procRepository != nil {
+		wait, err := backfill.WaitReason(ctx, report, backfill.QueueView{
+			Items: a.queueStore,
+			Procs: aliveRuns{a.procRepository},
+			Limit: a.config.QueueLimit,
+		}, a.config.Core.Location)
+		if err != nil {
+			return nil, err
+		}
+		item.Waiting = stringOrNil(wait)
+	}
+	return api.GetBackfill200JSONResponse(item), nil
+}
+
+// aliveRuns counts a queue's runs in progress on this server's processes.
+type aliveRuns struct{ procs processRepository }
+
+func (r aliveRuns) CountAlive(ctx context.Context, groupName string) (int, error) {
+	alive, err := r.procs.ListAllAlive(ctx)
+	return len(alive[groupName]), err
 }
 
 func (a *API) ListBackfillSlots(ctx context.Context, request api.ListBackfillSlotsRequestObject) (api.ListBackfillSlotsResponseObject, error) {

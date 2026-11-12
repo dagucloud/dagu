@@ -4,6 +4,7 @@
 package backfill
 
 import (
+	"cmp"
 	"context"
 	"errors"
 	"time"
@@ -45,6 +46,8 @@ type Report struct {
 	Record *Record
 	Slots  []SlotReport
 	Counts map[SlotState]int
+	// queue is the queue of the backfill's oldest queued run.
+	queue string
 }
 
 // Describe reports each slot of a backfill from its progress and runs.
@@ -68,8 +71,12 @@ func Describe(ctx context.Context, store Store, readRun func(context.Context, ir
 		case ProgressCancelled:
 			item.State = SlotStateCancelled
 		case ProgressEnqueued:
-			if item.State, err = runState(ctx, readRun, record.DAGName, event.RunID); err != nil {
+			var queue string
+			if item.State, queue, err = runState(ctx, readRun, record.DAGName, event.RunID); err != nil {
 				return Report{}, err
+			}
+			if item.State == SlotStateQueued && report.queue == "" {
+				report.queue = queue
 			}
 		}
 		report.Slots = append(report.Slots, item)
@@ -78,24 +85,26 @@ func Describe(ctx context.Context, store Store, readRun func(context.Context, ir
 	return report, nil
 }
 
-func runState(ctx context.Context, readRun func(context.Context, ir.DAGRunRef) (*ir.DAGRunStatus, error), dagName, runID string) (SlotState, error) {
+// runState returns the state of a backfill run and the queue it runs on.
+func runState(ctx context.Context, readRun func(context.Context, ir.DAGRunRef) (*ir.DAGRunStatus, error), dagName, runID string) (SlotState, string, error) {
 	status, err := readRun(ctx, ir.NewDAGRunRef(dagName, runID))
 	if errors.Is(err, dagrun.ErrDAGRunIDNotFound) {
-		return SlotStateFailed, nil
+		return SlotStateFailed, "", nil
 	}
 	if err != nil {
-		return "", err
+		return "", "", err
 	}
+	queue := cmp.Or(status.ProcGroup, dagName)
 	switch {
 	case status.Status == ir.Queued:
-		return SlotStateQueued, nil
+		return SlotStateQueued, queue, nil
 	case status.Status.IsWaiting():
-		return SlotStateWaiting, nil
+		return SlotStateWaiting, queue, nil
 	case status.Status == ir.Running:
-		return SlotStateRunning, nil
+		return SlotStateRunning, queue, nil
 	case status.Status.IsSuccess():
-		return SlotStateSucceeded, nil
+		return SlotStateSucceeded, queue, nil
 	default:
-		return SlotStateFailed, nil
+		return SlotStateFailed, queue, nil
 	}
 }

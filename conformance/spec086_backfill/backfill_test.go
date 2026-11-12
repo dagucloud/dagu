@@ -11,7 +11,6 @@ import (
 	"slices"
 	"strings"
 	"testing"
-	"time"
 
 	"github.com/dagucloud/dagu/v2/conformance/harness"
 )
@@ -245,7 +244,12 @@ func TestSchedulerRunsBackfill(t *testing.T) {
 		t.Fatalf("decoding submit: %v\n%s", err, submitted.Stdout())
 	}
 
-	type statusJSON struct {
+	// status --watch follows the backfill and exits 0 once it succeeds. Two
+	// slots run one after the other, so it gets the budget of two waits.
+	p.WithCommandTimeout(2 * harness.WaitTimeout(t))
+	watched := p.run("backfill", "status", submit.ID, "--watch", "--format", "json")
+	watched.ExpectExitCode(0)
+	var status struct {
 		Status string `json:"status"`
 		Slots  []struct {
 			Slot  string `json:"slot"`
@@ -253,22 +257,9 @@ func TestSchedulerRunsBackfill(t *testing.T) {
 			RunID string `json:"runId"`
 		} `json:"slots"`
 	}
-	var status statusJSON
-	deadline := time.Now().Add(2 * harness.WaitTimeout(t))
-	for {
-		result := p.run("backfill", "status", submit.ID, "--format", "json")
-		result.ExpectExitCode(0)
-		status = statusJSON{}
-		if err := json.Unmarshal([]byte(result.Stdout()), &status); err != nil {
-			t.Fatalf("decoding status: %v\n%s", err, result.Stdout())
-		}
-		if status.Status == "succeeded" {
-			break
-		}
-		if time.Now().After(deadline) {
-			t.Fatalf("backfill did not succeed: %+v", status)
-		}
-		time.Sleep(time.Second)
+	lines := strings.Split(strings.TrimSpace(watched.Stdout()), "\n")
+	if err := json.Unmarshal([]byte(lines[len(lines)-1]), &status); err != nil || status.Status != "succeeded" {
+		t.Fatalf("decoding the final status: %v\n%s", err, watched.Stdout())
 	}
 	for i, want := range []string{"2025-10-01T02:00:00Z", "2025-10-02T02:00:00Z"} {
 		slot := status.Slots[i]
@@ -323,6 +314,9 @@ func TestCancelAndResume(t *testing.T) {
 	again := p.run("backfill", "cancel", submit.ID)
 	again.ExpectExitCode(1)
 	again.ExpectStderrContains("already ended")
+	watched := p.run("backfill", "status", submit.ID, "--watch")
+	watched.ExpectExitCode(1)
+	watched.ExpectStderrContains("ended cancelled")
 
 	p.run("backfill", "resume", submit.ID, "--yes").ExpectExitCode(0)
 	if got, states := status(); got != "waiting for scheduler" || strings.Join(states, ",") != "pending,pending,pending" {
