@@ -68,12 +68,13 @@ func TestAPIError_Reason(t *testing.T) {
 // is applied, and sees the decoded message where JSON escaping hid the secret.
 func TestAPIError_ReasonMasked(t *testing.T) {
 	t.Parallel()
-	mask := strings.NewReplacer("multi word\nsecret", "*******", `quoted-"secret"`, "*******", "4021", "*******").Replace
+	mask := strings.NewReplacer("multi word\nsecret", "*******", `quoted-"secret"`, "*******", "4021", "*******", "1234\nprivate-token", "*******").Replace
 	for _, tc := range []struct{ name, message, want string }{
 		{"whitespace", "denied for multi word\nsecret here", "denied for ******* here"},
 		{"boundary", strings.Repeat("a", 195) + "multi word\nsecret", strings.Repeat("a", 195) + "*****..."},
 		{"escaped", `{"error":{"message":"bad key quoted-\"secret\""}}`, "bad key *******"},
 		{"escaped_trailing", `{"state":"quoted-\"secret\""} extra`, `{"state":"*******"} extra`},
+		{"spanning", "1234\nprivate-token", "*******"},
 		{"escaped_no_message", `{"state":"quoted-\"secret\"","detail":["quoted-\"secret\""],"code":402}`, `{"code":402,"detail":["*******"],"state":"*******"}`},
 		// A secret matching a bare token must not break the parse that finds
 		// the escaped one.

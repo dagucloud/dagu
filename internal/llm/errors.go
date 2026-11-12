@@ -145,11 +145,13 @@ func maskJSONStrings(body string, mask func(string) string) string {
 	if err := encoder.Encode(maskValue(decoded)); err != nil {
 		return mask(body)
 	}
-	masked := mask(strings.TrimSuffix(buf.String(), "\n"))
+	masked := strings.TrimSuffix(buf.String(), "\n")
 	if rest := body[decoder.InputOffset():]; strings.TrimSpace(rest) != "" {
-		masked += mask(rest)
+		masked += rest
 	}
-	return masked
+	// One pass over the whole text also catches a secret that spans the
+	// document and the text after it.
+	return mask(masked)
 }
 
 // NewAPIError creates a new APIError with the given parameters.
