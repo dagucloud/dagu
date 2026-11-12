@@ -69,7 +69,7 @@ Dagu has no such list:
 
 - Running anything on a node. [RFC 013](013-node-targeting.md) does that.
 - WinRM, AWS SSM, or other transports. The model leaves room for them. See
-  [Open questions](#open-questions).
+  [Resolved questions](#resolved-questions).
 - Built-in cloud sources such as EC2 or Kubernetes. A `command` source that
   calls the vendor CLI covers them.
 - Configuration management, package state, or facts gathering.
@@ -203,6 +203,7 @@ Unknown root fields are a validation error.
 | `description` | Text shown in the UI |
 | `tags` | A list, or a comma-separated string |
 | `ssh` | Connection settings. See below. These are not attributes |
+| `disabled` | `true` keeps runs off the node. Default `false`. This is not an attribute |
 | Any other key | A custom attribute. The value must be a scalar and is kept as a string |
 
 Dagu adds three read-only attributes to every node:
@@ -228,6 +229,10 @@ Rules:
   with an optional `:port`. `user` matches `^[A-Za-z0-9_][A-Za-z0-9._-]*$`.
   Built-in attributes are therefore safe to insert into a command unquoted.
 - After merging, a node with transport `ssh` must have a `hostname`.
+- A disabled node is still listed and matched by filters, and the Nodes page
+  marks it. RFC 013 does not run it, and records it as `disabled`. Test
+  connection still reaches it. A `nodes` entry that sets only `disabled`
+  disables the discovered node or worker of the same name.
 - A node that breaks any other rule is still listed and still matched by
   filters. It carries a problem message, and RFC 013 fails any step item that
   targets it. Leaving it out would make a filter match fewer hosts without
@@ -251,8 +256,8 @@ Rules:
 `{ secret: <ref> }` names a Dagu-managed entry in the project's secret
 registry, the only kind of entry a registry ref resolves to. A key kept in
 Vault or another provider is copied into the registry. See
-[Open questions](#open-questions). Literal passwords and literal credential
-headers are rejected, so `nodes.yaml` is safe to commit.
+[Resolved questions](#resolved-questions). Literal passwords and literal
+credential headers are rejected, so `nodes.yaml` is safe to commit.
 
 A `file` key, or a path string, names a file on the host that opens the
 connection: the server for a local run or a test from the server, the worker
@@ -801,8 +806,8 @@ Rollout:
 
 ## Verification and acceptance criteria
 
-Items 14, 16, and 22 connect to a node from a step, so they are checked with
-RFC 013's first rollout phase. Item 23 needs its worker nodes.
+Items 14, 16, 22, and 26 connect to a node from a step, so they are checked
+with RFC 013's first rollout phase. Item 23 needs its worker nodes.
 
 1. The three Rundeck examples in [Filters](#filters) select the stated nodes.
 2. `tags: a+b,x` selects nodes with both `a` and `b`, and nodes with `x`.
@@ -884,6 +889,9 @@ RFC 013's first rollout phase. Item 23 needs its worker nodes.
     `paths.inventory_dir`. The same DAG runs on each server's own nodes. A
     `nodes.yaml` in a DAG directory is not read as an inventory, and git
     sync never writes one.
+26. A node with `disabled: true` is listed and matched. A step that matches
+    it and two other nodes runs the two, records the third as `disabled`, and
+    succeeds. A step whose matched nodes are all disabled fails.
 
 ## Alternatives considered
 
@@ -906,7 +914,7 @@ RFC 013's first rollout phase. Item 23 needs its worker nodes.
   variables, ranges, and plugins. `ansible-inventory` is exact.
 - **A server-wide inventory.** Simpler for one team, but RFC 003 makes the
   project the unit of access, and hosts are part of what a team owns. See
-  [Open questions](#open-questions).
+  [Resolved questions](#resolved-questions).
 
 ## Consequences
 
@@ -919,23 +927,33 @@ RFC 013's first rollout phase. Item 23 needs its worker nodes.
   limit.
 - "Node" now means an inventory entry in the UI and docs.
 
-## Open questions
+## Resolved questions
 
-Questions 6, 8, and 9 change the file format. They are settled before the
-spec of rollout phase 2 is written.
-
-1. Should a server-wide inventory exist, shared by projects that opt in?
-2. Should `workers: true` be the default once targeting ships?
-3. Should Dagu parse static Ansible INI and YAML files itself, for hosts
-   without Ansible installed?
-4. Should built-in sources exist for EC2, Azure, GCP, and Kubernetes, or is a
-   `command` source enough?
-5. Should a node carry a `disabled` flag that every filter skips, to drain a
-   host without editing filters?
-6. Should tags merge as a union, as proposed, or should a later source replace
-   them?
-7. Should the node drawer show the node's recent runs? That needs an index of
-   runs by node.
-8. Should the model reserve fields now for WinRM and other transports?
-9. Should `key`, `password`, and `passphrase` also accept Spec 069's direct
-   `provider` and `key` form, so keys can stay in Vault or AWS?
+1. **No server-wide inventory.** Each project has its own. Projects that
+   share hosts name the same `file`, `command`, or `url` source, and keep
+   their own secrets and trusted host keys.
+2. **`workers` stays `false` by default.** Turning it on changes what `.*`
+   and other broad filters match, and a worker leaves the list when it
+   disconnects.
+3. **Dagu does not parse Ansible inventory files.** A host without Ansible
+   uses the saved output of `ansible-inventory --list` as a `file` source
+   with `format: ansible`.
+4. **No built-in cloud sources.** A `command` source that calls the vendor
+   CLI covers them, and Dagu holds no cloud credentials.
+5. **A node can be disabled.** `disabled: true` keeps runs off it. The node
+   is still matched and is recorded as `disabled`, so a run shows which
+   hosts it did not reach.
+6. **Tags merge as a union.** A tag-only entry in the `nodes` block then adds
+   to a discovered node without repeating its tags. Rundeck's resource
+   sources merge tags the same way.
+7. **The node drawer does not show recent runs.** That needs an index of
+   runs by node, which belongs with RFC 013's per-node records.
+8. **No fields are reserved for other transports.** A custom attribute is a
+   scalar, so a later transport can add its own map beside `ssh`, and a new
+   `transport` value, without colliding with one.
+9. **Credentials take registry refs only.** One kind of ref keeps one way to
+   resolve it and one record of what an attempt may read. A provider form
+   would first be a change to Spec 069 and
+   [#3769](https://github.com/dagucloud/dagu/issues/3769).
+10. **The inventory stays out of DAG directories**, as
+    [Where the inventory lives](#where-the-inventory-lives) explains.

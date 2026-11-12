@@ -283,6 +283,10 @@ Validation does not read the inventory, so it works offline and in CI.
 - A resolution error fails the step before any node starts.
 - A step that matches no nodes fails with "filter matched no nodes", unless
   `allow_empty` is set, in which case it succeeds.
+- A matched node with `disabled: true` (RFC 012) is not run. It is `disabled`
+  in the aggregate and the Nodes tab, with the others, and does not fail the
+  step. A step whose matched nodes are all disabled fails with "every matched
+  node is disabled", unless `allow_empty` is set.
 - A step that matches nodes, but none after the run's target, is skipped.
   The skip does not block dependents, as a skip kept by a retry does not.
   Narrowing a run to the web hosts should neither fail its database step nor
@@ -574,7 +578,7 @@ The step's `output` variable (Spec 012) holds JSON:
 
 ```json
 {
-  "summary": { "total": 3, "succeeded": 1, "failed": 2, "aborted": 0, "not_started": 1, "removed": 0 },
+  "summary": { "total": 3, "succeeded": 1, "failed": 2, "aborted": 0, "not_started": 1, "removed": 0, "disabled": 0 },
   "nodes": [
     { "name": "web01", "status": "succeeded", "exit_code": 0, "output": "..." },
     { "name": "web02", "status": "failed", "exit_code": 1, "error": "..." },
@@ -589,7 +593,9 @@ The step's `output` variable (Spec 012) holds JSON:
 - A node's `status` is `succeeded`, `failed`, `aborted`, or `not_started`.
   For `dag.run` it can also be `partially_succeeded`, which counts as
   successful, as in Spec 018. After a retry it can be `removed`. Removed
-  nodes count in `total` and `summary.removed` only, not in `failed`.
+  nodes count in `total` and `summary.removed` only, not in `failed`. A
+  disabled node is `disabled`, and counts in `total` and `summary.disabled`
+  only.
 - A node kept from an earlier attempt by a retry has `"reused": true`.
 - `nodes` follows the matched order.
 - `output` is the node's captured stdout. The whole aggregate is limited by
@@ -715,6 +721,7 @@ The step's `output` variable (Spec 012) holds JSON:
 | A node's credential ref does not resolve | That node fails, naming the field and ref. Other nodes follow `keep_going`. The failure is kept for the rest of the attempt, so nodes that share the ref do not resolve it again |
 | A node has an RFC 012 problem, such as no hostname | That node fails, with the problem |
 | A worker node disconnects during its item | That node fails, as a worker loss fails a run today |
+| A matched node is disabled | That node is `disabled` and not run. The step does not fail for it. A binding to it is rejected at admission, naming the node |
 | A node is gone from the inventory at retry | That node is `removed` and not run. A run bound to it fails, with "no longer in the inventory" |
 | The run process is killed, or its worker is lost, during a node step | The run fails. A retry reads the outcome file and reruns only nodes that did not succeed |
 | `${node.<attribute>}` names a missing attribute | That node fails, with the node and attribute names |
