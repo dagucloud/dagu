@@ -541,10 +541,17 @@ func registerForeachProbeExecutor(t *testing.T) (string, *foreachProbeState) {
 		if _, ok := step.ExecutorConfig.Config["record_working_dir"]; ok {
 			workingDir = runtimepkg.GetEnv(ctx).WorkingDir
 		}
+		var childEnv []string
+		if _, ok := step.ExecutorConfig.Config["record_child_env"]; ok {
+			for _, entry := range runtimepkg.GetDAGContext(ctx).InheritedEnvs() {
+				childEnv = append(childEnv, entry.Key)
+			}
+		}
 		return &foreachProbeExecutor{
 			state:      state,
 			cfg:        step.ExecutorConfig.Config,
 			workingDir: workingDir,
+			childEnv:   childEnv,
 		}, nil
 	}, nil, registry.ExecutorCapabilities{})
 	t.Cleanup(func() {
@@ -566,6 +573,8 @@ type foreachProbeRecord struct {
 	Value      string
 	Key        string
 	WorkingDir string
+	// ChildEnv names the values a child run started by the step inherits.
+	ChildEnv []string
 }
 
 func (s *foreachProbeState) start() {
@@ -626,6 +635,7 @@ type foreachProbeExecutor struct {
 	state      *foreachProbeState
 	cfg        map[string]any
 	workingDir string
+	childEnv   []string
 	stdout     io.Writer
 	stderr     io.Writer
 	output     map[string]any
@@ -650,6 +660,7 @@ func (e *foreachProbeExecutor) Run(ctx context.Context) error {
 			Value:      stringConfigValue(e.cfg["value"]),
 			Key:        stringConfigValue(e.cfg["key"]),
 			WorkingDir: e.workingDir,
+			ChildEnv:   e.childEnv,
 		})
 	}()
 
@@ -726,12 +737,36 @@ func TestForeachRuntimeBodyInheritsParentEnvAndPredecessorOutputs(t *testing.T) 
 	}, 1)
 	parent.Depends = []string{"plan"}
 	parent.Env = []string{"REGION=eu"}
-	parent.Foreach.Steps[0].ExecutorConfig.Config["value"] = `${GREETING}|${env.REGION}`
+	// The step name is a value Dagu sets per step, so it stays the body step's.
+	parent.Foreach.Steps[0].ExecutorConfig.Config["value"] = `${GREETING}|${env.REGION}|${env.DAG_RUN_STEP_NAME}`
 
 	plan := newStep("plan", withCommand("echo hello"), withOutput("GREETING"))
 
 	r.newPlan(t, plan, parent).assertRun(t, ir.Succeeded)
 	assert.ElementsMatch(t, []foreachProbeRecord{
-		{Value: "hello|eu", Key: "one"},
+		{Value: "hello|eu|write", Key: "one"},
 	}, state.records())
+}
+
+// The values a body step reads from the foreach step belong to that step. A
+// child run started from the body must not inherit them.
+func TestForeachRuntimeBodyKeepsChildRunEnv(t *testing.T) {
+	probeType, state := registerForeachProbeExecutor(t)
+	r := setupRunner(t)
+
+	parent := foreachRuntimeStep(probeType, []any{
+		map[string]any{"slug": "one", "url": "one"},
+	}, 1)
+	parent.Depends = []string{"plan"}
+	parent.Env = []string{"REGION=eu"}
+	parent.Foreach.Steps[0].ExecutorConfig.Config["record_child_env"] = true
+
+	plan := newStep("plan", withCommand("echo hello"), withOutput("GREETING"))
+
+	r.newPlan(t, plan, parent).assertRun(t, ir.Succeeded)
+	records := state.records()
+	require.Len(t, records, 1)
+	assert.Contains(t, records[0].ChildEnv, "DAG_RUN_ID")
+	assert.NotContains(t, records[0].ChildEnv, "REGION")
+	assert.NotContains(t, records[0].ChildEnv, "GREETING")
 }
