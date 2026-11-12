@@ -120,6 +120,47 @@ func parseScheduleSlot(value string, active []Schedule, loc *time.Location, now 
 		value, ScheduleSlotLatest)
 }
 
+// RangeBound says which end of a range of slots a time names.
+type RangeBound int
+
+const (
+	// RangeStart reads a date as the start of that day.
+	RangeStart RangeBound = iota
+	// RangeEnd reads a date as the end of that day.
+	RangeEnd
+)
+
+// ResolveRangeBound resolves one end of a range of slots: a date, a time
+// without an offset, or an RFC 3339 time with an offset. A date or a time
+// without an offset is read in the zone of the recurring start schedules for
+// the profile, as ResolveScheduleSlot reads one.
+func ResolveRangeBound(value string, schedules []Schedule, profile string, loc *time.Location, bound RangeBound) (time.Time, error) {
+	if loc == nil {
+		loc = time.Local
+	}
+	value = strings.TrimSpace(value)
+	if at, err := time.Parse(time.RFC3339, value); err == nil {
+		return at, nil
+	}
+	zone, err := slotZone(activeWindowSchedules(schedules, profile), loc)
+	if err != nil {
+		return time.Time{}, err
+	}
+	if day, err := time.ParseInLocation(slotDateLayout, value, zone); err == nil {
+		if bound == RangeEnd {
+			return day.AddDate(0, 0, 1).Add(-time.Nanosecond), nil
+		}
+		return day, nil
+	}
+	if at, err := time.ParseInLocation(slotLocalMinuteLayout, value, zone); err == nil {
+		if at.Format(slotLocalMinuteLayout) != value {
+			return time.Time{}, fmt.Errorf("time %q does not exist in %s; give the time with an offset", value, zone)
+		}
+		return at, nil
+	}
+	return time.Time{}, fmt.Errorf("invalid time %q: use a date (2006-01-02), a time (2006-01-02T15:04), or RFC 3339 with an offset", value)
+}
+
 func minuteSlot(at time.Time, value string) (time.Time, error) {
 	if at.Second() != 0 || at.Nanosecond() != 0 {
 		return time.Time{}, fmt.Errorf("invalid scheduled time %q: seconds must be :00", value)
