@@ -16,7 +16,7 @@ Let a step run on every node a filter selects from the inventory of
 steps:
   - id: uptime
     run: uptime
-    nodes: "tags: web+prod"
+    nodes: "labels: web+prod"
 ```
 
 The step runs once per matched node, over SSH or on a worker, with a log and a
@@ -38,7 +38,7 @@ steps:
     with:
       dag: deploy-one
     nodes:
-      filter: "tags: web+${params.env}"
+      filter: "labels: web+${params.env}"
       max_concurrent: 2
 
 ---
@@ -105,18 +105,18 @@ Dagu can run a command on many hosts only through `parallel`, which works for
 `nodes` is an optional step field. The string form is a filter:
 
 ```yaml
-nodes: "tags: web !name: web03"
+nodes: "labels: web !name: web03"
 ```
 
-A filter with `: ` must be quoted. An unquoted `nodes: tags: web` is a YAML
+A filter with `: ` must be quoted. An unquoted `nodes: labels: web` is a YAML
 error. `dagu validate` and the editor report it with the fix:
-`nodes: "tags: web"`.
+`nodes: "labels: web"`.
 
 The object form adds dispatch settings:
 
 ```yaml
 nodes:
-  filter: "tags: web+${params.env}"
+  filter: "labels: web+${params.env}"
   max_concurrent: 5
   keep_going: true
   rank_by: rack
@@ -130,7 +130,7 @@ nodes:
 | `filter` | Required | An RFC 012 filter. Value-resolved, so it can use `${params.*}`, `${consts.*}`, and step outputs, as [values](#references-in-a-filter) |
 | `max_concurrent` | `1` | Nodes running at once, `1` through `1000` |
 | `keep_going` | `false` | Whether other nodes start after one fails |
-| `rank_by` | `name` | Attribute that orders the nodes |
+| `rank_by` | `name` | Field or label key that orders the nodes |
 | `rank_order` | `asc` | `asc` or `desc` |
 | `allow_empty` | `false` | Whether matching no nodes succeeds |
 | `retry` | `failed` | `failed` reruns failed nodes on retry, `all` reruns every node |
@@ -147,9 +147,9 @@ service should not reach every host at once unless the author says so.
 A reference in a filter inserts values, never filter syntax:
 
 - A scalar is literal text. It is regex-escaped, and its `,`, `+`, `!`, `:`,
-  quotes, and spaces add no item, tag term, or clause. With `host` set to
+  quotes, and spaces add no item, label term, or clause. With `host` set to
   `.*`, `name: ${params.host}` matches only a node named `.*`, and none can
-  exist. With `env` set to `prod,db`, `tags: web+${params.env}` matches no
+  exist. With `env` set to `prod,db`, `labels: web+${params.env}` matches no
   node. `name: web-${params.env}-.*` stays a regex around the literal value.
 - An RFC 015 `type: array` or `type: nodes` param that makes up a whole item
   inserts one literal item per element, with or without `delimiter`.
@@ -274,7 +274,7 @@ Validation does not read the inventory, so it works offline and in CI.
   dependencies and preconditions.
 - The run's [target](#narrowing-a-run), if any, is applied.
 - Nodes are ordered by `rank_by`, then by name. Two values compare as numbers
-  when both are numbers, and as strings otherwise. Nodes without the attribute
+  when both are numbers, and as strings otherwise. Nodes without the label
   come last.
 - The ordered list of node names is recorded in the step's status. Retries
   use it.
@@ -373,17 +373,17 @@ The Spec 003 namespace registry gains `node`:
 | `${node.name}` | Node name |
 | `${node.hostname}`, `${node.port}`, `${node.user}` | Connection fields |
 | `${node.description}`, `${node.transport}`, `${node.source}` | Other built-in fields |
-| `${node.tags}` | Tags, comma-separated, sorted |
-| `${node.<attribute>}` | A custom attribute |
-| `${node."<attribute>"}` | An attribute whose name is not an identifier, such as `gpu.type` or `region-1`, as Spec 018 quotes item fields |
+| `${node.labels}` | Labels, comma-separated, sorted, as `key` or `key=value` |
+| `${node.<key>}` | The value of the label with that key |
+| `${node."<key>"}` | The same, for a key that is not an identifier, such as `gpu.type` or `region-1`, as Spec 018 quotes item fields |
 
 Rules:
 
 - `node` is available in every value-resolved field of a step with `nodes`,
   including `with`, except `nodes.filter` itself.
 - `node` is available in every field of a [bound run](#node-first-runs).
-- Where `node` is available, a reference to an attribute the node lacks fails
-  that node's item, with the node and attribute names. Elsewhere a
+- Where `node` is available, a reference to a label the node lacks fails
+  that node's item, with the node name and the label key. Elsewhere a
   `${node.*}` reference is preserved with a passive notice. This is the
   missing behavior of the `node` row in the Spec 003 registry. It differs on
   purpose from `foreach`, which preserves a missing item field: the text goes
@@ -403,7 +403,7 @@ The object form also limits which nodes the DAG can be bound to:
 ```yaml
 node:
   required: true
-  filter: "tags: web"
+  filter: "labels: web"
 ```
 
 - `filter` is a literal RFC 012 filter, checked by `dagu validate`.
@@ -425,7 +425,7 @@ run is bound to its node. The child must declare `node: required`.
 
 A bound run:
 
-- records its node, with its attributes and without secrets, in its status.
+- records its node, with its labels and without secrets, in its status.
   The run header shows it, and the start's audit entry names it.
 - resolves `${node.*}` in every field.
 - looks its node up by exact name (RFC 012), never as a filter, so
@@ -484,11 +484,11 @@ keep, and node names to exclude. It applies to every `nodes` step in the run
 and in its child runs. A node is targeted only when it matches the step's
 filter and each part of the target, each evaluated on its own. Filters are
 never joined into one string, since RFC 012 merges clauses on the same
-attribute into an OR list. `nodes: local` is not affected.
+key into an OR list. `nodes: local` is not affected.
 
 ```text
-step filter   tags: web          → web01 web02 web03 canary01
-target        tags: canary       → canary01 canary02
+step filter   labels: web        → web01 web02 web03 canary01
+target        labels: canary     → canary01 canary02
 targeted      both               → canary01
 ```
 
@@ -623,7 +623,7 @@ The step's `output` variable (Spec 012) holds JSON:
 ### Run view
 
 ```text
-┌ deploy ── run 2026-11-12 09:14 ── target: tags: web+prod ─────────┐
+┌ deploy ── run 2026-11-12 09:14 ── target: labels: web+prod ───────┐
 │ Graph  Nodes  Logs                                                │
 │                                                                   │
 │ Nodes          drain  restart  health  enable                     │
@@ -701,10 +701,9 @@ The step's `output` variable (Spec 012) holds JSON:
   run status.
 - Host keys are checked as RFC 012 defines, on a worker too. A run never
   trusts a new key.
-- Built-in attributes follow RFC 012's character rules and are safe to insert
-  unquoted. Custom attributes can come from scripts and URLs, so authors quote
-  them in shell commands: `"${node.role}"`. The docs show this in every
-  example.
+- Node fields and label values follow RFC 012's character rules and are
+  safe to insert unquoted. Labels can come from scripts, so the docs still
+  quote them in shell commands: `"${node.role}"`.
 - On a worker node, the item runs as the worker's OS user, as worker runs do
   today. Its text goes to the shell's standard input, so a secret in it
   never reaches a process argv on the worker.
@@ -724,7 +723,7 @@ The step's `output` variable (Spec 012) holds JSON:
 | A matched node is disabled | That node is `disabled` and not run. The step does not fail for it. A binding to it is rejected at admission, naming the node |
 | A node is gone from the inventory at retry | That node is `removed` and not run. A run bound to it fails, with "no longer in the inventory" |
 | The run process is killed, or its worker is lost, during a node step | The run fails. A retry reads the outcome file and reruns only nodes that did not succeed |
-| `${node.<attribute>}` names a missing attribute | That node fails, with the node and attribute names |
+| `${node.<key>}` names a label the node lacks | That node fails, with the node name and the label key |
 | A `dag.run` step with `nodes` calls a child without `node: required` | The step fails before any node starts |
 | A binding names a node outside the DAG's `node.filter` | A start is rejected at admission, naming the node. A bound parent's step that passes it fails |
 | A target names an unknown node, or its filter matches no node | The run is rejected at admission, naming the offender |
@@ -764,7 +763,7 @@ Rollout:
 
 ## Verification and acceptance criteria
 
-1. A `run` step with `nodes: "tags: web"` over three SSH nodes runs on each,
+1. A `run` step with `nodes: "labels: web"` over three SSH nodes runs on each,
    and its aggregate lists three nodes in name order.
 2. `max_concurrent: 1` runs nodes one at a time in rank order, and
    `rank_order: desc` reverses it.
@@ -782,12 +781,12 @@ Rollout:
    then retrying, runs only the other two.
 8. `--target-nodes 'name: web01'` limits every node step and child run to
    `web01`. A step with `name: web01,web02` and target `name: db01` targets
-   no node. A step with `tags: web` and target `tags: canary` targets only
-   nodes with both tags.
+   no node. A step with `labels: web` and target `labels: canary` targets only
+   nodes with both labels.
 9. A narrowed run admitted through the queue, by `dagu enqueue`, the enqueue
    API, or the run dialog's default, runs only on the selected nodes. So does
    the new run that `dagu restart` starts from it.
-10. On a DAG with a `tags: web` step and a step whose filter reads
+10. On a DAG with a `labels: web` step and a step whose filter reads
     `${steps.pick_db.output}`, unchecking `web03` in the run dialog removes
     only `web03`. The second step still runs on every node it matches.
 11. `--target-nodes 'name: web1'` and `targetNodes.names: [web1]`, with no
@@ -804,9 +803,9 @@ Rollout:
 14. `dagu start deploy-one --bind-node web01` runs the child alone, bound to
     `web01`. Starting it without a node fails, enabling a webhook on it
     fails, and `--bind-node` on a DAG without `node: required` fails. With
-    `node: { required: true, filter: "tags: web" }`, `--bind-node db01` is
-    rejected, the picker lists only `tags: web` nodes, and a parent step
-    with `nodes: "tags: prod"` runs it only on nodes with both tags.
+    `node: { required: true, filter: "labels: web" }`, `--bind-node db01` is
+    rejected, the picker lists only `labels: web` nodes, and a parent step
+    with `nodes: "labels: prod"` runs it only on nodes with both labels.
 15. With a base config that sets `container`, a `run` step with `nodes` runs
     on each node over SSH, and a `node: required` DAG validates and runs its
     `run` steps on the bound node.
@@ -827,7 +826,7 @@ Rollout:
 22. With `keep_going: true`, a node whose key ref does not exist fails,
     naming the field and ref, and the other nodes run. Five hundred nodes
     that share the missing ref try to resolve it once.
-23. `name: ${params.host}` with `.*`, and `tags: web+${params.env}` with
+23. `name: ${params.host}` with `.*`, and `labels: web+${params.env}` with
     `prod,db`, match no node. An array param `[web01, web02]` in
     `name: ${params.hosts}` matches both. `!name: ${params.skip}` with
     `web01,web02` fails the step with "use an array param", and with

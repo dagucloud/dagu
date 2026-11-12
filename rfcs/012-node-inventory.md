@@ -10,15 +10,16 @@
 ## Summary
 
 Give each project a list of the hosts it runs commands on. A node has a name,
-a hostname, tags, attributes, and SSH settings whose credentials come from the
-secret store. Nodes come from a `nodes.yaml` file, from Rundeck resource files
+a hostname, labels, and SSH settings whose credentials come from the secret
+store. Labels are the same `key` or `key=value` labels that DAGs and workers
+already have. Nodes come from a `nodes.yaml` file, from Rundeck resource files
 and Ansible inventories, from scripts, and from connected workers. A form or
 one command adds a host.
 
 A filter selects nodes with Rundeck's filter syntax:
 
 ```text
-tags: web+prod !name: web03
+labels: web+prod !name: web03
 ```
 
 This RFC defines the inventory, the filter language, and the surfaces that
@@ -52,8 +53,8 @@ Dagu has no such list:
 
 ## Goals
 
-1. A project lists its nodes in one place, with tags and attributes, from
-   files, scripts, or workers.
+1. A project lists its nodes in one place, with labels, from files,
+   scripts, or workers.
 2. Rundeck resource files and Ansible inventories load without conversion.
 3. Rundeck node filters keep working. Where Dagu differs, the spec lists the
    difference, and no difference selects more nodes than Rundeck would.
@@ -85,7 +86,7 @@ The inventory belongs to a project, as defined in
 | Project | `projects/<name>/nodes.yaml` | `projects/<name>/data/nodes/` |
 
 The inventory belongs to the server, not to the DAG files. A DAG is the same
-in every environment and names a role, such as `tags: web`. Which hosts have
+in every environment and names a role, such as `labels: web`. Which hosts have
 that role differs between staging and production. So the inventory never
 lives in a DAG directory, and git sync never reads or writes it.
 
@@ -108,18 +109,17 @@ defaults:
 nodes:
   web01:
     hostname: 10.0.1.11
-    tags: [web, prod]
-    region: us-east-1
+    labels: [web, prod, region=us-east-1]
   db01:
     hostname: db01.internal:2222
     user: postgres
-    tags: [db, prod]
+    labels: [db, prod]
     ssh:
       key: { secret: ssh/db }
       bastion: jump01
   jump01:
     hostname: jump.example.com
-    tags: [bastion]
+    labels: [bastion]
 
 sources:
   - name: legacy
@@ -153,31 +153,27 @@ never rewrites `nodes.yaml`, so hand-written comments and layout stay.
 | `port` | SSH port. Default `22` |
 | `user` | SSH user |
 | `description` | Text shown in the UI |
-| `tags` | A list, or a comma-separated string |
-| `ssh` | Connection settings. See below. These are not attributes |
-| `disabled` | `true` keeps runs off the node. Default `false`. This is not an attribute |
-| Any other key | A custom attribute. The value must be a scalar and is kept as a string |
+| `labels` | Labels in any form a DAG's `labels` field takes, such as `[web, region=tokyo]` |
+| `ssh` | Connection settings. See below |
+| `disabled` | `true` keeps runs off the node. Default `false` |
 
-Dagu sets three attributes on every node:
-
-| Attribute | Value |
-| --- | --- |
-| `name` | The node's key |
-| `transport` | `ssh` or `worker` |
-| `source` | `nodes.yaml`, the source's name, or `workers` |
+Unknown node fields are a validation error. Dagu also sets two fields on every
+node: `transport`, which is `ssh` or `worker`, and `source`, which is
+`nodes.yaml`, the source's name, or `workers`.
 
 Rules:
 
 - Node names match `^[A-Za-z0-9][A-Za-z0-9_.@:-]*$`, so hostnames, worker
   IDs, and names such as `app_server_01` are valid. `local` is reserved.
-- Attribute names match `^[A-Za-z0-9][A-Za-z0-9_.-]*$`, the pattern of DAG
-  label keys. `name`, `transport`, `source`, `nodename`, and `username` are
-  reserved. Tags match `^[A-Za-z0-9][A-Za-z0-9_.:-]*$`, so Ansible groups
-  such as `web_servers` are valid. An invalid or reserved name is dropped,
-  with a warning.
+- Labels follow the rules of DAG labels (`internal/ir/label.go`), and their
+  keys and values ignore case. The keys `name`, `hostname`, `port`, `user`,
+  `description`, `transport`, `source`, `nodename`, and `username` are
+  reserved, since filters read those fields. An invalid or reserved label is
+  dropped, with a warning.
 - `hostname` is a DNS name, an IPv4 address, or a bracketed IPv6 address,
   with an optional `:port`. `user` matches `^[A-Za-z0-9_][A-Za-z0-9._-]*$`.
-  Built-in attributes are therefore safe to insert into a command unquoted.
+  These fields and label values are therefore safe to insert into a command
+  unquoted.
 - An SSH node must have a `hostname`.
 - A disabled node is listed and matched by filters, and the Nodes page marks
   it. RFC 013 does not run it and records it as `disabled`.
@@ -213,17 +209,16 @@ Rules:
 A node comes from one place: the `nodes` block, one source, or one worker.
 
 - A name that two places declare is a problem on the node, naming both.
-- A `nodes` entry that sets only `tags`, custom attributes, `description`,
-  or `disabled` does not declare a node. It adds to the node of that name
-  from a source or a worker. Its tags join the others. This is how an
-  operator tags a discovered host or a worker. An entry that matches no node
-  is a problem.
+- A `nodes` entry that sets only `labels`, `description`, or `disabled`
+  does not declare a node. It adds to the node of that name from a source or
+  a worker, and its labels win over theirs. This is how an operator labels a
+  discovered host or a worker. An entry that matches no node is a problem.
 - A source's `defaults` fill fields its nodes did not set, then the file's
   `defaults` fill the rest. Defaults do not apply to workers.
 
-Tags and attributes from the `nodes` block are assigned by the operator. The
-labels a worker sends are its own claim. The Nodes page and the API show
-which is which.
+Labels from the `nodes` block are assigned by the operator. The labels a
+worker sends are its own claim. The Nodes page and the API show which is
+which.
 
 ### Sources
 
@@ -268,14 +263,14 @@ server without Ansible reads a saved copy of that output as a `file` source.
 | `nodename`, or the map key | `name` |
 | `hostname`, including `host:port` | `hostname` and `port` |
 | `username` | `user` |
-| `tags` | `tags` |
+| `tags` | Labels with no value |
 | `description` | `description` |
 | `ssh-key-storage-path` | `ssh.key` as `{ secret: <ref> }` |
 | `ssh-password-storage-path` | `ssh.password` as `{ secret: <ref> }` |
 | `ssh-key-passphrase-storage-path` | `ssh.passphrase` as `{ secret: <ref> }` |
 | `node-executor` naming an SSH executor, or unset | `transport: ssh` |
 | `node-executor` naming anything else | The node is listed with a problem |
-| Any other attribute, such as `osFamily` | A custom attribute of the same name |
+| Any other attribute, such as `osFamily: unix` | A label, `osfamily=unix` |
 
 A Key Storage path becomes a secret ref by dropping a leading `keys/`,
 lowercasing, and replacing each run of characters other than `a-z`, `0-9`,
@@ -293,8 +288,8 @@ that map to one ref are a problem on each node that uses them.
 | `ansible_ssh_private_key_file` | `ssh.key` as a file path |
 | `ansible_connection` unset, `ssh`, `smart`, or `paramiko` | `transport: ssh` |
 | Any other `ansible_connection`, such as `local` or `winrm` | The node is listed with a problem |
-| Every group containing the host, except `all` and `ungrouped` | `tags` |
-| Other scalar host variables | Custom attributes |
+| Every group containing the host, except `all` and `ungrouped` | Labels with no value |
+| Other scalar host variables | Labels, `key=value` |
 | Non-scalar variables | Dropped, with a warning |
 | `ansible_password`, `ansible_ssh_pass`, `ansible_become_password` | Not read, with a warning. Use a secret |
 
@@ -308,7 +303,7 @@ Every worker that connects to the coordinator is a node, unless `workers` is
 | `name` | The worker ID |
 | `transport` | `worker` |
 | `hostname` | The host the worker reports in its heartbeat |
-| Attributes | The worker's labels. An invalid or reserved name is dropped, with a warning |
+| `labels` | The worker's labels. An invalid or reserved one is dropped, with a warning |
 
 A worker that sets `worker.id` stays listed after it disconnects. It is
 `offline`, with the time it was last seen, and RFC 013 fails an item that
@@ -329,29 +324,33 @@ A filter is a string of clauses separated by whitespace.
 | `web01` | `name` matches `web01` |
 | `name: web.*` | `name` matches the regular expression `web.*` |
 | `name: web01,web02` | `name` matches `web01` or `web02` |
-| `region: us-east-1` | The attribute `region` matches |
-| `tags: web` | The node has tag `web` |
-| `tags: web+prod` | The node has both tags |
-| `tags: web+prod,canary` | The node has both `web` and `prod`, or has `canary` |
-| `!tags: dev` | Excludes nodes with tag `dev` |
+| `hostname: 10.0.1.11` | `hostname` matches |
+| `labels: web` | The node has a label with key `web` |
+| `labels: web+prod` | The node has both |
+| `labels: web+prod,canary` | The node has both `web` and `prod`, or has `canary` |
+| `labels: region=tokyo` | The node has label `region=tokyo` |
+| `region: tokyo` | The same, in Rundeck's attribute form |
+| `!labels: dev` | Excludes nodes with label `dev` |
 | `.*` | Every node |
 
 Rules:
 
 - A node is selected when it matches every include clause and no exclude
   clause. A filter with only exclude clauses starts from every node.
-- A clause with no attribute name matches `name`. `nodename` and `username`
-  are aliases of `name` and `user`.
+- A clause with no key matches `name`. A clause on `name`, `hostname`,
+  `port`, `user`, `description`, `transport`, or `source` reads that field.
+  A clause on any other key reads the value of the label with that key.
+- For Rundeck filters, `tags:` is accepted as `labels:`, and `nodename` and
+  `username` as `name` and `user`.
 - A value is a comma-separated list. Each item matches when it equals the
-  value or, as an RE2 regular expression, matches the whole value. Tag terms
-  are exact.
+  value or, as an RE2 regular expression, matches the whole value. Items of
+  a `labels:` clause are exact.
 - An item that does not compile, including the Java constructs RE2 lacks
   such as lookaround, is a filter error with its position. Comparing it for
   equality instead could make an exclusion exclude nothing.
-- An include clause on an attribute a node lacks does not match that node.
-  An exclude clause on it does not exclude it.
-- A value with spaces is written in double quotes. Matching is
-  case-sensitive.
+- An include clause on a label a node lacks does not match that node. An
+  exclude clause on it does not exclude it.
+- Label keys and values match without case. Other fields match with case.
 - An empty filter is an error. Every node is selected only by `.*`.
 - The matched list is sorted by name.
 
@@ -450,12 +449,12 @@ A **Nodes** page in each project:
 
 ```text
 ┌ Nodes ───────────────────────────────────────────────────────────┐
-│ Filter: tags: web+prod !name: web03        14 of 212 nodes match │
+│ Filter: labels: web+prod !name: web03      14 of 212 nodes match │
 │                                                                  │
 │ Sources  legacy 180 ✓ 2m ago   ansible 30 ⚠ failed 1h ago        │
 │          workers 2 ✓ 1 offline                                   │
 │                                                                  │
-│ ☐ name    hostname     user    transport tags        source      │
+│ ☐ name    hostname     user    transport labels      source      │
 │ ☐ web01   10.0.1.11    deploy  ssh       web,prod    nodes.yaml  │
 │ ☐ web02   10.0.1.12    deploy  ssh       web,prod    legacy      │
 │ ...                                                              │
@@ -463,16 +462,16 @@ A **Nodes** page in each project:
 └──────────────────────────────────────────────────────────────────┘
 ```
 
-- The filter box completes attribute names, values, and tags, explains
+- The filter box completes label keys and values, explains
   syntax errors in place, and updates the match count as the user types.
-- **Add node** is a form for one host: name, hostname, user, tags, and key.
+- **Add node** is a form for one host: name, hostname, user, labels, and key.
   It tests the connection and shows the host key to trust before it saves.
   **Import** takes a Rundeck or Ansible file and adds it as a `file` source.
 - **Test connection** checks the selected or matched nodes and shows each
   result as it arrives, with **Trust** next to unknown or changed keys.
-- A node's drawer shows its attributes and tags with where each came from,
-  its SSH settings with secret refs, and its last test result. It edits the
-  node's tags, disables it, and removes it.
+- A node's drawer shows its labels with where each came from, its SSH
+  settings with secret refs, and its last test result. It edits the node's
+  labels, disables it, and removes it.
 - **Edit as YAML** opens `nodes.yaml` with schema validation. An invalid
   file cannot be saved.
 
@@ -483,7 +482,7 @@ A **Nodes** page in each project:
 | `GET /nodes?filter=` | Matched nodes, one page at a time, with the total and filter errors |
 | `GET /nodes/{name}` | One node |
 | `PUT /nodes/{name}`, `DELETE /nodes/{name}` | Add, change, or remove an entry in `nodes.ui.yaml`. `DELETE` also forgets an offline worker |
-| `GET /node-attributes` | Attribute names, values, and tags, for completion |
+| `GET /node-labels` | Label keys and values, for completion |
 | `POST /node-imports` | Add an uploaded Rundeck or Ansible file as a `file` source |
 | `POST /node-connection-tests` | Test named nodes or a filter's matches |
 | `POST /node-host-keys` | Trust host keys, given each node and the fingerprint the user saw |
@@ -498,15 +497,15 @@ trusts answer with a server-sent event stream, one event per node.
 #### CLI
 
 ```sh
-dagu nodes add web01 --hostname 10.0.1.11 --user deploy --tags web,prod
+dagu nodes add web01 --hostname 10.0.1.11 --user deploy --labels web,prod
 dagu nodes remove web01
 dagu nodes forget osaka-1           # an offline worker
-dagu nodes list 'tags: web'
+dagu nodes list 'labels: web'
 dagu nodes show web01
-dagu nodes test 'tags: web'
+dagu nodes test 'labels: web'
 dagu nodes refresh [--source ansible]
 dagu nodes validate
-dagu nodes list 'tags: web' --inventory ./out/nodes.yaml --output json
+dagu nodes list 'labels: web' --inventory ./out/nodes.yaml --output json
 ```
 
 Each command works against a remote server like the other remote CLI
@@ -544,15 +543,15 @@ The inventory is in the free tier.
   every log and status the run writes.
 - `command` sources run as the Dagu user, without Dagu's own credentials in
   their environment.
-- Attribute values from scripts and Ansible are untrusted text. RFC 013
-  inserts them into commands only where the author writes `${node.*}`.
-- The labels a worker sends are its own claim. Tags set in `nodes.yaml` are
-  the operator's.
+- Labels from scripts and Ansible are untrusted text. RFC 013 inserts them
+  into commands only where the author writes `${node.*}`.
+- The labels a worker sends are its own claim. Labels set in `nodes.yaml`
+  are the operator's.
 - With strict checking on, no credential is sent to a host whose key is
   unknown or has changed, even by Test connection. Only a user with the trust
   role adds a key, and only the key whose fingerprint that user saw.
-- Dagu Cloud sync sends hostnames, users, tags, attributes, and secret refs,
-  and nothing else. A server that pulls a version runs its `command`
+- Dagu Cloud sync sends hostnames, users, labels, and secret refs, and
+  nothing else. A server that pulls a version runs its `command`
   sources, so servers that sync one project trust each other's inventory
   editors. Host key trust is never synced, so a hostname changed in a pulled
   version still meets strict checking.
@@ -609,7 +608,7 @@ checked with RFC 013's first rollout phase.
 2. A Rundeck resource document in each of its four forms, and
    `ansible-inventory --list` output, load into the nodes the mapping tables
    give.
-3. A tag-only `nodes` entry adds to a discovered node or a worker, and a
+3. A label-only `nodes` entry adds to a discovered node or a worker, and a
    name declared in two places is a problem.
 4. Every case in [Failure behavior](#failure-behavior) ends as stated.
 5. No secret value appears in any API response, snapshot, log, or audit
@@ -639,6 +638,8 @@ checked with RFC 013's first rollout phase.
   the server, but runs would stop whenever Dagu Cloud is unreachable.
 - **A new selector syntax**, such as Kubernetes label selectors. Every
   Rundeck filter would need rewriting.
+- **Rundeck's tags and attributes as two concepts.** DAGs and workers in Dagu
+  already have labels, and a label with no value is a tag.
 - **Merging one node's fields from several places.** Rundeck does this. It
   lets a stale source overwrite a correct value without a sign, and makes
   every node's origin hard to explain.
