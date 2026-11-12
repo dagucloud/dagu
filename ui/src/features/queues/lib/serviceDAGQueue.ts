@@ -13,6 +13,19 @@ export function ownsQueue(dag: components['schemas']['ServiceDAG']): boolean {
 }
 
 /**
+ * How many service DAGs own a queue that the server does not list. The page
+ * draws each of them as an idle queue.
+ */
+export function countIdleServiceDAGQueues(
+  queues: components['schemas']['Queue'][],
+  serviceDAGs: components['schemas']['ServiceDAG'][]
+): number {
+  const listed = new Set(queues.map((queue) => queue.name));
+  return serviceDAGs.filter((dag) => ownsQueue(dag) && !listed.has(dag.name))
+    .length;
+}
+
+/**
  * The queue of a service DAG while no run is alive or waiting. The server
  * lists a DAG queue only then, so for the wait before each restart the page
  * draws the queue as idle and not as missing.

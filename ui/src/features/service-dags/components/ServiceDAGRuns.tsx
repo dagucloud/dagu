@@ -6,6 +6,7 @@ import { Link } from 'react-router-dom';
 import { components, Status } from '@/api/v1/schema';
 import RelativeTime from '@/components/ui/relative-time';
 import StatusChip from '@/components/ui/status-chip';
+import Ticker from '@/components/ui/ticker';
 import { AppBarContext } from '@/contexts/AppBarContext';
 import { buildDAGRunPageURL } from '@/features/dag-runs/lib/dagRunUrls';
 import { useQuery } from '@/hooks/api';
@@ -115,9 +116,17 @@ export function ServiceDAGRuns({ name }: { name: string }): React.ReactElement {
                 fallback="--"
                 className="w-10 text-muted-foreground"
               />
+              {/* A live run's elapsed time keeps counting between reads. */}
               <span className="w-16 tabular-nums text-muted-foreground">
-                {formatElapsed(run.startedAt, run.finishedAt, { live: true }) ??
-                  '--'}
+                <Ticker intervalMs={1000}>
+                  {() => (
+                    <>
+                      {formatElapsed(run.startedAt, run.finishedAt, {
+                        live: true,
+                      }) ?? '--'}
+                    </>
+                  )}
+                </Ticker>
               </span>
               <code className="ml-auto truncate font-mono text-[11px] text-muted-foreground">
                 {run.dagRunId}

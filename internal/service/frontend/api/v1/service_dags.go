@@ -120,6 +120,15 @@ func (a *API) listServiceDAGs(ctx context.Context, filter *workspace.WorkspaceFi
 			ConsecutiveFailures: a.failureStreak(ctx, item.DAG, latest),
 		})
 	}
+	// A list of every service DAG tells which ones were deleted. A list of some
+	// workspaces does not, so it keeps the counts of the other DAGs.
+	if filter == nil || !filter.Enabled {
+		names := make(map[string]struct{}, len(result.Items))
+		for _, item := range result.Items {
+			names[item.Name] = struct{}{}
+		}
+		a.serviceDAGFailures.retain(names)
+	}
 	if errList == nil {
 		errList = []string{}
 	}
@@ -195,6 +204,18 @@ func (s *failureStreaks) put(name string, latest ir.DAGRunStatus, count int) {
 		s.counts = make(map[string]failureStreak)
 	}
 	s.counts[name] = failureStreak{runID: latest.DAGRunID, status: latest.Status, count: count}
+}
+
+// retain forgets the counts of the DAGs that are not named, such as a deleted
+// one.
+func (s *failureStreaks) retain(names map[string]struct{}) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	for name := range s.counts {
+		if _, ok := names[name]; !ok {
+			delete(s.counts, name)
+		}
+	}
 }
 
 // failureStreak counts the newest ended runs of a service DAG in a row that

@@ -1,7 +1,7 @@
 // Copyright (C) 2026 Yota Hamada
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-import { fireEvent, render, screen, within } from '@testing-library/react';
+import { act, fireEvent, render, screen, within } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
@@ -410,6 +410,43 @@ describe('ServiceDAGStrip runs', () => {
       screen.getByRole('button', { name: 'Hide runs of ingest' })
     );
     expect(screen.queryByRole('list')).toBeNull();
+  });
+
+  it('keeps the elapsed time of a live run current', () => {
+    // The clock asks whether motion is reduced when it ticks.
+    vi.stubGlobal(
+      'matchMedia',
+      vi.fn().mockImplementation((query: string) => ({
+        matches: false,
+        media: query,
+        addEventListener: vi.fn(),
+        removeEventListener: vi.fn(),
+      }))
+    );
+    hook.runs = [
+      {
+        name: 'ingest',
+        dagRunId: 'run-3',
+        status: Status.Running,
+        statusLabel: 'running',
+        startedAt: '2026-10-20T11:59:40Z',
+      },
+    ];
+    renderStrip(true);
+    fireEvent.click(
+      screen.getByRole('button', { name: 'Show runs of ingest' })
+    );
+    const row = within(screen.getByRole('list')).getByRole('link');
+    expect(row).toHaveTextContent('20s');
+
+    act(() => {
+      vi.advanceTimersByTime(3000);
+    });
+
+    // The start time counts on its own, so the elapsed time must not lag it.
+    expect(row).toHaveTextContent('23s');
+    expect(row).not.toHaveTextContent('20s');
+    vi.unstubAllGlobals();
   });
 
   // A run that ended with some failures has not succeeded.

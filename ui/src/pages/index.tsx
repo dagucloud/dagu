@@ -1,6 +1,7 @@
 // Copyright (C) 2026 Yota Hamada
 // SPDX-License-Identifier: GPL-3.0-or-later
 
+import { ServiceDAGState } from '@/api/v1/schema';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { RefreshButton } from '@/components/ui/refresh-button';
@@ -502,6 +503,11 @@ function Dashboard(): React.ReactElement {
                 queues={filteredActivity.queues}
                 remoteNode={remoteNode}
                 nowSeconds={nowSeconds}
+                serviceDAGsRunning={
+                  filteredServiceDAGs.filter(
+                    (dag) => dag.state === ServiceDAGState.running
+                  ).length
+                }
               />
               <UpNext
                 upcoming={filteredActivity.upcoming}

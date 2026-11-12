@@ -6052,7 +6052,7 @@ export interface components {
          */
         TriggerType: TriggerType;
         /**
-         * @description Restart policy of a DAG: the scheduler keeps a run of the DAG alive and starts the next run restartWaitSec seconds after the previous one ends. With unless-stopped, no run follows a run that an operator stopped. Omitted when the DAG has no restart policy.
+         * @description Restart policy of a DAG: the scheduler keeps a run of the DAG alive and queues the next run restartWaitSec seconds after the previous one ends, longer while runs fail soon after they start; a busy queue can start it later. With unless-stopped, no run follows a run that an operator stopped. Omitted when the DAG has no restart policy.
          * @enum {string}
          */
         RestartPolicy: RestartPolicy;
@@ -7682,7 +7682,7 @@ export interface components {
             queue: string;
             /**
              * Format: date-time
-             * @description When the scheduler starts the next run: restartWaitSec after the latest run ended, longer while the runs in a row fail soon after they start. Set only with the states restarting and failing, and not with restartHold.
+             * @description When the next run is due: restartWaitSec after the latest run ended, longer while the runs in a row fail soon after they start. The scheduler then queues the run, so a busy queue can start it later. Set only with the states restarting and failing, and not with restartHold.
              */
             nextRestartAt?: string;
             restartHold?: components["schemas"]["ServiceDAGRestartHold"];

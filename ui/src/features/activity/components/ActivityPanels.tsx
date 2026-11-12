@@ -340,11 +340,14 @@ export function InProgress({
   queues,
   remoteNode,
   nowSeconds,
+  serviceDAGsRunning = 0,
 }: {
   runs: ActivityRun[];
   queues: ActivityQueue[];
   remoteNode: string;
   nowSeconds: number;
+  /** Service DAGs with a run alive, whose runs the activity leaves out. */
+  serviceDAGsRunning?: number;
 }): React.ReactElement {
   const { ts } = useI18n();
   return (
@@ -354,7 +357,13 @@ export function InProgress({
       </SectionTitle>
       {runs.length === 0 && queues.length === 0 ? (
         <p className="text-sm text-muted-foreground">
-          <I18nText text={'Nothing is running.'} />
+          <I18nText
+            text={
+              serviceDAGsRunning > 0
+                ? 'Only service DAGs are running.'
+                : 'Nothing is running.'
+            }
+          />
         </p>
       ) : (
         <ul className="flex flex-col gap-1">
