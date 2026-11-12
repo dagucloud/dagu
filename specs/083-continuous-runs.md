@@ -33,6 +33,8 @@ This spec does not define:
   [Spec 075: Repeat Policy](075-repeat-policy.md).
 - any change to a step that repeats with a `limit`
 - alerts and notifications on a failed sample
+- the run history of a service DAG. See
+  [Spec 097: Service Run History](097-service-run-history.md).
 
 ## Goal
 
@@ -150,6 +152,10 @@ availability.
 The windows are the last 24 hours, 7 days, 30 days and 365 days. The server
 computes them from the finest tier that covers each part of the window.
 
+A continuous step has one figure for each window. The response of a step has no
+`uptime`. [Spec 097](097-service-run-history.md) adds the uptime for the run
+history of a service DAG.
+
 ### Status Record
 
 - The status record of a run stays the single source of truth for the state of
@@ -256,6 +262,10 @@ The page of a run shows a continuous step with:
 The chart draws at most the `points` buckets of the response. It never draws
 one element for each sample.
 
+A run that has a continuous step keeps its normal status in every view, for
+example Running. A run reads Healthy only when its DAG is a service DAG
+(Spec 097). A cron DAG or a manual DAG with a continuous step reads Running.
+
 ## Constraints
 
 - The raw tier of one continuous step uses at most 3 MiB of disk for each
@@ -307,4 +317,5 @@ fixtures in `conformance/spec083_continuous_runs/testdata` give both.
 - The three queries return the documented fields, and the response of
   `samples` has at most `points` buckets for a window of three years.
 - A request for a step that is not continuous gets `404`.
+- A running run with a continuous step reads Running for a cron DAG, and Healthy for a service DAG.
 - The compact count rounds down, and the tooltip gives the whole count.
