@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"testing"
 
+	"github.com/dagucloud/dagu/v2/internal/cmn/config"
 	"github.com/spf13/cobra"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -184,5 +185,8 @@ func TestCommandFamilyNameUsesPathBelowRoot(t *testing.T) {
 	assert.Equal(t, "backfill start", commandFamilyName(nested))
 	assert.Equal(t, commandScopeContextAware, scopeForCommand(commandFamilyName(start)))
 	assert.Equal(t, commandScopeLocalOnly, scopeForCommand(commandFamilyName(nested)))
-	assert.NotEqual(t, serviceForCommand(commandFamilyName(start)), serviceForCommand(commandFamilyName(nested)))
+	assert.Equal(t, config.ServiceAgent, serviceForCommand(commandFamilyName(start)))
+	// backfill start reads the scheduler's backfill_max_slots, which only
+	// the full config loads.
+	assert.Equal(t, config.ServiceNone, serviceForCommand(commandFamilyName(nested)))
 }
