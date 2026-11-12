@@ -78,29 +78,15 @@ func (w *file) save(inPlace bool) error {
 	// its Path, which SaveAs would have set, so a new workbook learns its
 	// target here.
 	w.f.Path = w.path
-	fill := func(name string) error {
-		f, err := os.OpenFile(name, os.O_WRONLY|os.O_TRUNC|os.O_CREATE, os.ModePerm) //nolint:gosec // the path is the workbook the step names, with the mode excelize's SaveAs gives
-		if err != nil {
-			return err
-		}
-		if err := w.f.Write(f); err != nil {
-			_ = f.Close()
-			return err
-		}
-		return f.Close()
-	}
-	if inPlace {
-		return classifyError(w.path, fill(w.path))
-	}
-	return replaceAtomically(w.path, filepath.Ext(w.base), fill)
+	return writeFileAtomic(w.path, inPlace, func(out io.Writer) error { return w.f.Write(out) })
 }
 
 // replaceAtomically fills a short temporary name beside target and renames
 // it over target, keeping the target's permission bits and following a
 // symbolic link so the file it points to is replaced. The temporary name
-// keeps ext, and stays short so a long name near the filesystem limit still
-// gets a valid temporary name.
-func replaceAtomically(path, ext string, fill func(tmp string) error) error {
+// stays short so a long name near the filesystem limit still gets a valid
+// temporary name.
+func replaceAtomically(path string, fill func(tmp string) error) error {
 	target := path
 	if resolved, err := filepath.EvalSymlinks(path); err == nil {
 		target = resolved
@@ -109,7 +95,7 @@ func replaceAtomically(path, ext string, fill func(tmp string) error) error {
 	if _, err := rand.Read(suffix[:]); err != nil {
 		return err
 	}
-	tmp := filepath.Join(filepath.Dir(target), ".dagu-"+hex.EncodeToString(suffix[:])+ext)
+	tmp := filepath.Join(filepath.Dir(target), ".dagu-"+hex.EncodeToString(suffix[:]))
 	if err := fill(tmp); err != nil {
 		_ = os.Remove(tmp)
 		return classifyError(path, err)
@@ -172,10 +158,10 @@ func withLock[T any](ctx context.Context, path string, opts LockOptions, attempt
 
 // writeFileAtomic writes a file through write. With inPlace the target is
 // written directly; otherwise write fills a temporary file in the target's
-// directory that is renamed over the target the way save does.
+// directory that is renamed over the target, as replaceAtomically does.
 func writeFileAtomic(target string, inPlace bool, write func(io.Writer) error) error {
 	fill := func(name string) error {
-		f, err := os.Create(name) //nolint:gosec // the path is the output file the step names
+		f, err := os.Create(name) //nolint:gosec // the path is the file the step names
 		if err != nil {
 			return err
 		}
@@ -188,7 +174,5 @@ func writeFileAtomic(target string, inPlace bool, write func(io.Writer) error) e
 	if inPlace {
 		return classifyError(target, fill(target))
 	}
-	// A text file needs no extension on its temporary name, and a long
-	// one would push the name past what the filesystem allows.
-	return replaceAtomically(target, "", fill)
+	return replaceAtomically(target, fill)
 }
