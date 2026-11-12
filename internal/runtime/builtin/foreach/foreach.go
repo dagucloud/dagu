@@ -501,20 +501,46 @@ func contextWithItemScope(ctx context.Context, stepName, alias string, index int
 	if err != nil {
 		return ctx, fmt.Errorf("failed to serialize foreach item scope: %w", err)
 	}
+	env.ForeachParentEntries = stepLocalEntries(scope)
 	env.Scope = scope.WithEntry("foreach", string(data), cmnvalue.EnvSourceStepEnv)
 	env.Foreach = cmnvalue.Values(payload)
 	// An item nested in another extends that item's identity. The quoted
 	// name keeps one step's item apart from another's whose name holds
 	// brackets.
 	env.ForeachItem += fmt.Sprintf("%q[%d]", stepName, index)
-	ctx = runtime.WithEnv(ctx, env)
-	// Body steps build their env from the DAG context's scope, not from the
-	// Env stored above. Inherit the parent step's scope (its env and its
-	// predecessors' output variables) without the foreach entry: adding that
-	// to the scope would resolve bare `$foreach` references in body text.
-	rCtx := runtime.GetDAGContext(ctx)
-	rCtx.EnvScope = scope
-	return runtime.WithDAGContext(ctx, rCtx), nil
+	return runtime.WithEnv(ctx, env), nil
+}
+
+// stepLocalEntries returns the entries of scope that a foreach step holds on
+// its own account: its env and the output variables visible to it. Values Dagu
+// sets for each step, such as the step name and the trace context, are left
+// out so that a body step keeps its own.
+func stepLocalEntries(scope *cmnvalue.EnvScope) []cmnvalue.EnvEntry {
+	names := scope.AllBySource(cmnvalue.EnvSourceStepEnv)
+	maps.Copy(names, scope.AllBySource(cmnvalue.EnvSourceOutput))
+
+	entries := make([]cmnvalue.EnvEntry, 0, len(names))
+	for name := range names {
+		if runenv.IsNonTransferableRunEnvKey(name) || isTraceContextKey(name) {
+			continue
+		}
+		// Only the entry that wins the scope counts: a step-local value
+		// shadowed by another source is not what the foreach step reads.
+		entry, ok := scope.GetEntry(name)
+		if !ok || !isStepLocalSource(entry.Source) {
+			continue
+		}
+		entries = append(entries, entry)
+	}
+	return entries
+}
+
+func isStepLocalSource(source cmnvalue.EnvSource) bool {
+	return source == cmnvalue.EnvSourceStepEnv || source == cmnvalue.EnvSourceOutput
+}
+
+func isTraceContextKey(name string) bool {
+	return name == runenv.EnvKeyTraceParent || name == runenv.EnvKeyTraceState
 }
 
 func containsUnresolvedSupportedReference(value string) bool {
