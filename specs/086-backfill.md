@@ -76,7 +76,7 @@ A backfill reads each slot's state from its history:
 - A run counts for its slot while it exists, with its own status. A removed
   run counts with the final status the slot kept, unless it was dropped.
 - A run that never started counts for nothing: one cancelled or dequeued
-  while it was queued.
+  while it was queued. A run whose retry was cancelled that way did start.
 - A slot is active while any run that counts for it is queued, running, or
   waiting. Otherwise it takes the status of its latest run that counts.
   Partially succeeded counts as succeeded.
@@ -87,7 +87,10 @@ A backfill reads each slot's state from its history:
   slot, when the two schedules fire on the same days, once a day or once an
   hour, and differ only in when. After a move from 02:00 to 01:00, the 02:00
   run of October 5 covers the 01:00 slot of October 5. A run of another
-  cadence covers nothing. A manual run counts only for its own slot.
+  cadence covers nothing, even at a current fire time: an hourly run at
+  02:00 does not cover a daily 02:00 slot. Days are compared by the days a
+  schedule selects, so `MON-FRI` and `1-5` fire on the same days. A manual
+  run counts only for its own slot.
 
 ### Starting a backfill
 
@@ -157,7 +160,10 @@ dagu backfill start <DAG> (--from <time> [--to <time>] | --slot <time>...) [flag
 - These rules follow a backfill run's retries, by hand or by the DAG's retry
   policy.
 - A backfill whose DAG is renamed or deleted ends `cancelled`, with the slots
-  it had not queued cancelled.
+  it had not queued cancelled. A rename of the file, or of the DAG inside
+  it, counts as a rename.
+- A backfill run that history retention removed counts for the backfill with
+  the final status its slot kept.
 
 ### Live runs come first
 
@@ -222,8 +228,10 @@ dagu backfill resume <backfill id> [--max-concurrency <n>] [--on-failure <policy
 - `resume` plans again the slots of a backfill that have not succeeded or
   been skipped, with the DAG's current definition, and runs them in order
   with new runs. A slot that gained a successful run since is skipped. On an
-  open backfill it first withdraws the queued runs and lets running ones
-  finish. `--max-concurrency` and `--on-failure` replace the backfill's.
+  open backfill it first withdraws the queued runs. Its running and waiting
+  runs finish as part of the resumed backfill: they count against its
+  concurrency, and a failure among them fails it. `--max-concurrency` and
+  `--on-failure` replace the backfill's.
 - `resume` shows its plan and asks before resuming, as `start` does. A dry
   run prints the plan the resume then runs. The backfill keeps its ID.
 
