@@ -1182,6 +1182,41 @@ func TestStaleCachedFormulasWarn(t *testing.T) {
 	}
 }
 
+// The stale check follows the cell's type: a text result compares exactly,
+// so leading zeros count and an empty `=""` is a value; a number cell
+// whose evaluation is empty, a reference to a blank cell, is not stale;
+// and a merged region is checked at its origin, once, even when only a
+// covered cell is read.
+func TestStaleCachedFormulasByCellType(t *testing.T) {
+	t.Parallel()
+	const stale = ": cached formula value is stale; set formulas: calculate to read current values"
+	path := rawBook(t, `<sheetData><row r="1">`+inline("A1", "merged")+inline("B1", "covered")+inline("C1", "zeros")+inline("D1", "blank")+inline("E1", "empty")+inline("F1", "number")+`</row>`+
+		`<row r="2"><c r="A2"><f>1+2</f><v>5</v></c>`+
+		`<c r="C2" t="str"><f>"123"</f><v>00123</v></c>`+
+		`<c r="D2"><f>H2</f><v>0</v></c>`+
+		`<c r="E2" t="str"><f>""</f><v>old</v></c>`+
+		`<c r="F2"><f>1/3</f><v>0.33333333333333331</v></c></row></sheetData>`+
+		`<mergeCells count="1"><mergeCell ref="A2:B2"/></mergeCells>`)
+
+	covered, err := Read(context.Background(), path, ReadOptions{Columns: []ColumnSelect{{Source: "covered", As: "covered"}}})
+	require.NoError(t, err)
+	assert.Equal(t, int64(5), covered.Rows[0]["covered"])
+	assert.Equal(t, []string{"Raw!A2" + stale}, covered.Warnings, "a covered cell is checked at its merge origin")
+
+	both, err := Read(context.Background(), path, ReadOptions{Columns: []ColumnSelect{{Source: "merged", As: "m"}, {Source: "covered", As: "c"}}})
+	require.NoError(t, err)
+	assert.Equal(t, []string{"Raw!A2" + stale}, both.Warnings, "an origin read through two cells is named once")
+
+	text, err := Read(context.Background(), path, ReadOptions{Columns: []ColumnSelect{{Source: "zeros", As: "zeros"}, {Source: "empty", As: "empty"}}})
+	require.NoError(t, err)
+	assert.Equal(t, "00123", text.Rows[0]["zeros"])
+	assert.Equal(t, []string{"Raw!C2, Raw!E2" + stale}, text.Warnings, "text compares exactly and an empty text result is a value")
+
+	numbers, err := Read(context.Background(), path, ReadOptions{Columns: []ColumnSelect{{Source: "blank", As: "blank"}, {Source: "number", As: "number"}}})
+	require.NoError(t, err)
+	assert.Empty(t, numbers.Warnings, "a blank reference evaluates to nothing, and digits beyond a writer's precision do not count")
+}
+
 // Japanese text under a pinned type: full-width digits and punctuation,
 // yen signs, kanji dates, and era dates, long and short.
 func TestCoerceJapaneseText(t *testing.T) {

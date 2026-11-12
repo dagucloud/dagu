@@ -107,6 +107,9 @@ type staleCells struct {
 	sheet string
 	cells []string
 	count int
+	// seen holds the merge origins checked so far: a merged region shows
+	// its origin's value in every cell it covers, and is checked once.
+	seen map[string]bool
 }
 
 // check records the cell when it holds a formula whose evaluation
@@ -126,16 +129,27 @@ func (s *staleCells) check(col, row int, raw string) {
 }
 
 // checkRow checks the cells of one returned row in the columns read. A
-// covered cell shows its merge origin's value, which is checked where it
-// lies, so a merged region is named once.
+// covered cell shows its merge origin's value, so the origin is checked
+// in its place, once however many returned cells it covers.
 func (s *staleCells) checkRow(row int, cols []int, grid [][]string, merges mergeFill) {
 	if s == nil {
 		return
 	}
 	for _, c := range cols {
-		if oc, or := merges.origin(c, row); oc == c && or == row {
+		reg, merged := merges.at(c, row)
+		if !merged {
 			s.check(c, row, cellAt(grid, c, row))
+			continue
 		}
+		origin := cellName(reg.C1, reg.R1)
+		if s.seen[origin] {
+			continue
+		}
+		if s.seen == nil {
+			s.seen = map[string]bool{}
+		}
+		s.seen[origin] = true
+		s.check(reg.C1, reg.R1, cellAt(grid, reg.C1, reg.R1))
 	}
 }
 
@@ -154,29 +168,47 @@ func (s *staleCells) report(warn func(string)) {
 // staleFormula reports whether a cell holds a formula that evaluates to
 // something other than raw, its cached value. Only a successful evaluation
 // counts: a formula the engine cannot evaluate, or one that evaluates to
-// an Excel error, says nothing about the cache.
+// an Excel error, says nothing about the cache. Nor does an empty
+// evaluation of a number cell: the engine yields nothing for a reference
+// to a blank cell, where Excel caches 0. An empty text result, as from
+// `=""`, is a value and is compared.
 func (w *file) staleFormula(sheet, cell, raw string) bool {
 	formula, err := w.f.GetCellFormula(sheet, cell)
 	if err != nil || formula == "" {
 		return false
 	}
 	calculated, err := w.f.CalcCellValue(sheet, cell, rawValues)
-	if err != nil || calculated == "" || excelErrors[calculated] {
+	if err != nil || excelErrors[calculated] {
 		return false
 	}
-	return !sameCellValue(raw, calculated)
+	cellType, err := w.f.GetCellType(sheet, cell)
+	if err != nil {
+		return false
+	}
+	text := cellType == excelize.CellTypeFormula || cellType == excelize.CellTypeSharedString || cellType == excelize.CellTypeInlineString
+	if calculated == "" && !text {
+		return false
+	}
+	return !sameCellValue(raw, calculated, cellType)
 }
 
-// sameCellValue compares a cached value with an evaluated one: numbers
-// compare as numbers, so the digits a writer kept do not matter, a boolean
-// as its stored 1 or 0, and the rest as text.
-func sameCellValue(cached, calculated string) bool {
-	a, aerr := strconv.ParseFloat(boolDigit(cached), 64)
-	b, berr := strconv.ParseFloat(boolDigit(calculated), 64)
-	if aerr == nil && berr == nil {
-		return math.Abs(a-b) <= 1e-9*math.Max(math.Abs(a), math.Abs(b))
+// sameCellValue compares a cached value with an evaluated one by the
+// cell's own type: a text cell exactly, leading zeros included; a boolean
+// as its stored 1 or 0; a number as a number, so the digits a writer kept
+// do not matter.
+func sameCellValue(cached, calculated string, cellType excelize.CellType) bool {
+	switch cellType {
+	case excelize.CellTypeFormula, excelize.CellTypeSharedString, excelize.CellTypeInlineString, excelize.CellTypeDate:
+		return cached == calculated
+	case excelize.CellTypeBool:
+		return boolDigit(cached) == boolDigit(calculated)
 	}
-	return cached == calculated
+	a, aerr := strconv.ParseFloat(cached, 64)
+	b, berr := strconv.ParseFloat(calculated, 64)
+	if aerr != nil || berr != nil {
+		return cached == calculated
+	}
+	return math.Abs(a-b) <= 1e-9*math.Max(math.Abs(a), math.Abs(b))
 }
 
 // boolDigit maps the TRUE and FALSE an evaluation yields to the 1 and 0 a
