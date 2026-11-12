@@ -9,6 +9,7 @@ on:
       - reopened
       - synchronize
       - ready_for_review
+      - converted_to_draft # cancels the run in progress
     paths:
       - Dockerfile.dev
       - entrypoint.sh
@@ -51,6 +52,7 @@ jobs:
   browser-step:
     name: Browser step on ${{ matrix.platform }}
     runs-on: ${{ matrix.runner }}
+    if: github.event.pull_request.draft != true
     strategy:
       fail-fast: false
       matrix:

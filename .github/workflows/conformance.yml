@@ -21,6 +21,7 @@ on:
       - reopened
       - synchronize
       - ready_for_review
+      - converted_to_draft # cancels the run in progress
     paths:
       - ".github/actions/setup-go-cache/**"
       - ".github/workflows/conformance.yml"
@@ -54,6 +55,7 @@ jobs:
   changes:
     name: Detect changes
     runs-on: ubuntu-latest
+    if: github.event.pull_request.draft != true
     outputs:
       os: ${{ steps.filter.outputs.os }}
     steps:

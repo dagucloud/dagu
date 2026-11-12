@@ -29,6 +29,7 @@ on:
       - reopened # new commits are pushed to the branch that the PR is based on
       - synchronize # new commits are pushed to the branch that the PR is based on
       - ready_for_review # PR is ready for review
+      - converted_to_draft # cancels the run in progress
     paths:
       - "api/**"
       - "*.go"
@@ -68,6 +69,7 @@ jobs:
   changes:
     name: Detect changes
     runs-on: ubuntu-latest
+    if: github.event.pull_request.draft != true
     outputs:
       go: ${{ steps.filter.outputs.go }}
       windows: ${{ steps.filter.outputs.windows }}
