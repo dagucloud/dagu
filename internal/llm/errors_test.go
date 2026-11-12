@@ -45,6 +45,7 @@ func TestAPIError_Reason(t *testing.T) {
 		{"empty", "", ""},
 		{"blank", " \n\t ", ""},
 		{"openai", `{"error":{"message":"Insufficient credits","code":402}}`, "Insufficient credits"},
+		{"trailing_text", `{"message":"bad request"} maximum context length`, `{"message":"bad request"} maximum context length`},
 		{"anthropic", `{"type":"error","error":{"type":"not_found_error","message":"model: no-such-model"}}`, "model: no-such-model"},
 		{"error_string", `{"error":"busy"}`, "busy"},
 		{"top_level_message", `{"message":"quota exceeded"}`, "quota exceeded"},

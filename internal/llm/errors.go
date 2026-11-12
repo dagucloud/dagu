@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"strings"
 )
 
@@ -185,6 +186,9 @@ func apiErrorDetails(body string) (codes []string, messages []string) {
 	decoder.UseNumber()
 	var decoded any
 	if err := decoder.Decode(&decoded); err != nil {
+		return nil, []string{body}
+	}
+	if _, err := decoder.Token(); err != io.EOF {
 		return nil, []string{body}
 	}
 	value, ok := decoded.(map[string]any)
