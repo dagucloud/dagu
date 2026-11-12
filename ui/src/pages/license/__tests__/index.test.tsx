@@ -1805,7 +1805,8 @@ describe('LicensePage', () => {
           license: {
             ...online,
             plan: 'trial',
-            expiry: '2099-11-25T00:00:00Z',
+            // Midday, so the date is the same in every timezone.
+            expiry: '2099-11-25T12:00:00Z',
           },
         }
       );

@@ -305,6 +305,28 @@ describe('useGettingStarted', () => {
     }
   );
 
+  // The step completes while the list is open: remote access is read again
+  // until a call from Dagu Cloud arrives.
+  it('reads remote access again until the first call arrives', () => {
+    serve({ sample: list(examples), remoteAccess: { level: 'viewer' } });
+
+    renderGettingStarted({ license: connected });
+
+    const call = (
+      useQueryMock.mock.calls as unknown as [string, Init, object?][]
+    ).find(([path, init]) => path === '/license/remote-access' && init);
+    const { refreshInterval } = call![2] as {
+      refreshInterval: (latest?: object) => number;
+    };
+    expect(refreshInterval({ level: 'viewer' })).toBeGreaterThan(0);
+    expect(
+      refreshInterval({
+        level: 'viewer',
+        lastCall: { at: '2026-11-12T09:30:00Z' },
+      })
+    ).toBe(0);
+  });
+
   // A key from a server older than key surfaces is accepted on all of them.
   it('counts an API key without surfaces as a connected AI app', () => {
     serve({

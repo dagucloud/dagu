@@ -39,6 +39,9 @@ export type GettingStarted =
 
 const queryOptions = { revalidateOnFocus: false };
 
+/** How often remote access is read again while no call has arrived. */
+const FIRST_CALL_REFRESH_MS = 10_000;
+
 /**
  * Tracks the first steps on a new server for users who can write workflows.
  * A server whose first three steps are done when first seen never shows the
@@ -108,10 +111,16 @@ export function useGettingStarted(): GettingStarted {
       : null,
     queryOptions
   );
+  // Read again until a call from Dagu Cloud arrives, so the AI app step
+  // completes while the list is open.
   const { data: remoteAccess, error: remoteAccessError } = useQuery(
     '/license/remote-access',
     active && isAdmin && online ? { params: { query: { remoteNode } } } : null,
-    queryOptions
+    {
+      ...queryOptions,
+      refreshInterval: (latest?: { lastCall?: unknown }) =>
+        latest?.lastCall ? 0 : FIRST_CALL_REFRESH_MS,
+    }
   );
   const { data: keyList, error: keysError } = useQuery(
     '/api-keys',
