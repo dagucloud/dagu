@@ -157,6 +157,12 @@ func TestRuntime(t *testing.T) {
 			outputContent: "https://example.test/api/true/3/1.25\n",
 		},
 		{
+			name:          "params eval resolves consts before it runs",
+			file:          "params_eval_const_reference.yaml",
+			outputFile:    "params-eval-const.txt",
+			outputContent: "tokyo-logs\n",
+		},
+		{
 			name:          "single-quoted env references are preserved during execution",
 			file:          "single_quoted_env_references.yaml",
 			outputFile:    "single-quoted-env.txt",

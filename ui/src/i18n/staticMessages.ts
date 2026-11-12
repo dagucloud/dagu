@@ -536,9 +536,12 @@ const baseEnglish = {
   'Scheduled at (optional)': 'Scheduled at (optional)',
   'None (run now)': 'None (run now)',
   'Other time': 'Other time',
-  "The listed times follow the DAG's default profile. The run's window follows the selected profile.": "The listed times follow the DAG's default profile. The run's window follows the selected profile.",
-  'latest, 2026-11-09, 2026-11-09T02:00, or RFC 3339': 'latest, 2026-11-09, 2026-11-09T02:00, or RFC 3339',
-  'The run gets the schedule time and window of this slot.': 'The run gets the schedule time and window of this slot.',
+  "The listed times follow the DAG's default profile. The run's window follows the selected profile.":
+    "The listed times follow the DAG's default profile. The run's window follows the selected profile.",
+  'latest, 2026-11-09, 2026-11-09T02:00, or RFC 3339':
+    'latest, 2026-11-09, 2026-11-09T02:00, or RFC 3339',
+  'The run gets the schedule time and window of this slot.':
+    'The run gets the schedule time and window of this slot.',
   'DAG:': 'DAG:',
   'Run error': 'Run error',
   'Run precondition not met': 'Run precondition not met',
@@ -3045,8 +3048,23 @@ const baseEnglish = {
   'MCP URL': 'MCP URL',
   'Copy MCP URL': 'Copy MCP URL',
   'MCP URL copied': 'MCP URL copied',
-  'Add this URL to your MCP client as a remote MCP server, then sign in to Dagu Cloud. Workspace owners choose what each client may do.':
-    'Add this URL to your MCP client as a remote MCP server, then sign in to Dagu Cloud. Workspace owners choose what each client may do.',
+  'Last call': 'Last call',
+  'No calls yet': 'No calls yet',
+  'Connect a client': 'Connect a client',
+  'In Claude, open Customize, then Connectors. Select + Add, then Add custom connector. Paste the URL, select Continue, and sign in.':
+    'In Claude, open Customize, then Connectors. Select + Add, then Add custom connector. Paste the URL, select Continue, and sign in.',
+  'On Team and Enterprise, an owner adds it first under Organization settings, then Connectors.':
+    'On Team and Enterprise, an owner adds it first under Organization settings, then Connectors.',
+  'Select +, then Add custom MCP server. Paste the URL as the Server URL, choose OAuth, confirm, and select Create as a plugin. Install the plugin, then sign in.':
+    'Select +, then Add custom MCP server. Paste the URL as the Server URL, choose OAuth, confirm, and select Create as a plugin. Install the plugin, then sign in.',
+  'Copy command': 'Copy command',
+  'Command copied': 'Command copied',
+  'Then run /mcp in Claude Code to sign in.':
+    'Then run /mcp in Claude Code to sign in.',
+  'Other clients and connections in Dagu Cloud':
+    'Other clients and connections in Dagu Cloud',
+  'Included in your trial until {date}. Choose a plan to keep MCP clients working.':
+    'Included in your trial until {date}. Choose a plan to keep MCP clients working.',
   'Use this server from Claude, ChatGPT, and other MCP clients':
     'Use this server from Claude, ChatGPT, and other MCP clients',
   'Included in your trial. Turn on remote access, then add the MCP URL to your client.':
@@ -3061,8 +3079,6 @@ const baseEnglish = {
     'MCP calls need a paid plan or a trial',
   'Dagu Cloud refuses calls to this server until its workspace has one. The 14-day trial is free, with no card needed.':
     'Dagu Cloud refuses calls to this server until its workspace has one. The 14-day trial is free, with no card needed.',
-  'Setup steps for Claude, ChatGPT, and more':
-    'Setup steps for Claude, ChatGPT, and more',
   'Choose remote access': 'Choose remote access',
   'The highest role a Dagu Cloud user gets on this server. Dagu Cloud may grant less, never more.':
     'The highest role a Dagu Cloud user gets on this server. Dagu Cloud may grant less, never more.',
@@ -3714,9 +3730,12 @@ const baseChinese = {
   'Scheduled at (optional)': '计划时间（可选）',
   'None (run now)': '无（立即运行）',
   'Other time': '其他时间',
-  "The listed times follow the DAG's default profile. The run's window follows the selected profile.": '列出的时间来自 DAG 的默认配置文件。本次运行的时间窗口按所选配置文件计算。',
-  'latest, 2026-11-09, 2026-11-09T02:00, or RFC 3339': 'latest、2026-11-09、2026-11-09T02:00 或 RFC 3339',
-  'The run gets the schedule time and window of this slot.': '本次运行使用该时间槽的计划时间和时间窗口。',
+  "The listed times follow the DAG's default profile. The run's window follows the selected profile.":
+    '列出的时间来自 DAG 的默认配置文件。本次运行的时间窗口按所选配置文件计算。',
+  'latest, 2026-11-09, 2026-11-09T02:00, or RFC 3339':
+    'latest、2026-11-09、2026-11-09T02:00 或 RFC 3339',
+  'The run gets the schedule time and window of this slot.':
+    '本次运行使用该时间槽的计划时间和时间窗口。',
   'DAG:': 'DAG：',
   'Run error': '运行错误',
   'Run precondition not met': '运行前置条件未满足',
@@ -6147,8 +6166,23 @@ const baseChinese = {
   'MCP URL': 'MCP URL',
   'Copy MCP URL': '复制 MCP URL',
   'MCP URL copied': '已复制 MCP URL',
-  'Add this URL to your MCP client as a remote MCP server, then sign in to Dagu Cloud. Workspace owners choose what each client may do.':
-    '将此 URL 作为远程 MCP 服务器添加到你的 MCP 客户端，然后登录 Dagu Cloud。工作区所有者决定每个客户端可以执行的操作。',
+  'Last call': '最近调用',
+  'No calls yet': '尚无调用',
+  'Connect a client': '连接客户端',
+  'In Claude, open Customize, then Connectors. Select + Add, then Add custom connector. Paste the URL, select Continue, and sign in.':
+    '在 Claude 中打开 Customize，然后选择 Connectors。选择 + Add，然后选择 Add custom connector。粘贴 URL，选择 Continue，然后登录。',
+  'On Team and Enterprise, an owner adds it first under Organization settings, then Connectors.':
+    '在 Team 和 Enterprise 方案中，需由所有者先在 Organization settings 的 Connectors 中添加。',
+  'Select +, then Add custom MCP server. Paste the URL as the Server URL, choose OAuth, confirm, and select Create as a plugin. Install the plugin, then sign in.':
+    '选择 +，然后选择 Add custom MCP server。在 Server URL 中粘贴 URL，选择 OAuth 并确认，然后选择 Create as a plugin。安装插件，然后登录。',
+  'Copy command': '复制命令',
+  'Command copied': '命令已复制',
+  'Then run /mcp in Claude Code to sign in.':
+    '然后在 Claude Code 中运行 /mcp 登录。',
+  'Other clients and connections in Dagu Cloud':
+    'Dagu Cloud 中的其他客户端和连接',
+  'Included in your trial until {date}. Choose a plan to keep MCP clients working.':
+    '试用期内包含此功能，截至 {date}。选择套餐以继续使用 MCP 客户端。',
   'Use this server from Claude, ChatGPT, and other MCP clients':
     '在 Claude、ChatGPT 和其他 MCP 客户端中使用此服务器',
   'Included in your trial. Turn on remote access, then add the MCP URL to your client.':
@@ -6162,8 +6196,6 @@ const baseChinese = {
   'MCP calls need a paid plan or a trial': 'MCP 调用需要付费套餐或试用',
   'Dagu Cloud refuses calls to this server until its workspace has one. The 14-day trial is free, with no card needed.':
     '在此服务器的工作区拥有付费套餐或试用之前，Dagu Cloud 会拒绝对它的调用。14 天试用免费，无需银行卡。',
-  'Setup steps for Claude, ChatGPT, and more':
-    'Claude、ChatGPT 等客户端的设置步骤',
   'Choose remote access': '选择远程访问',
   'The highest role a Dagu Cloud user gets on this server. Dagu Cloud may grant less, never more.':
     'Dagu Cloud 用户在此服务器上获得的最高角色。Dagu Cloud 可以授予更低的角色，但绝不会更高。',
@@ -6818,9 +6850,12 @@ const baseJapanese = {
   'Scheduled at (optional)': 'スケジュール時刻（任意）',
   'None (run now)': 'なし（今すぐ実行）',
   'Other time': 'その他の時刻',
-  "The listed times follow the DAG's default profile. The run's window follows the selected profile.": '一覧の時刻は DAG のデフォルトプロファイルに基づきます。実行のウィンドウは選択したプロファイルに従います。',
-  'latest, 2026-11-09, 2026-11-09T02:00, or RFC 3339': 'latest、2026-11-09、2026-11-09T02:00、または RFC 3339',
-  'The run gets the schedule time and window of this slot.': 'この実行はこのスロットのスケジュール時刻とウィンドウを使います。',
+  "The listed times follow the DAG's default profile. The run's window follows the selected profile.":
+    '一覧の時刻は DAG のデフォルトプロファイルに基づきます。実行のウィンドウは選択したプロファイルに従います。',
+  'latest, 2026-11-09, 2026-11-09T02:00, or RFC 3339':
+    'latest、2026-11-09、2026-11-09T02:00、または RFC 3339',
+  'The run gets the schedule time and window of this slot.':
+    'この実行はこのスロットのスケジュール時刻とウィンドウを使います。',
   'DAG:': 'DAG：',
   'Run error': '実行エラー',
   'Run precondition not met': '実行の前提条件が満たされていません',
@@ -9353,8 +9388,23 @@ const baseJapanese = {
   'MCP URL': 'MCP URL',
   'Copy MCP URL': 'MCP URL をコピー',
   'MCP URL copied': 'MCP URL をコピーしました',
-  'Add this URL to your MCP client as a remote MCP server, then sign in to Dagu Cloud. Workspace owners choose what each client may do.':
-    'この URL をリモート MCP サーバーとして MCP クライアントに追加し、Dagu Cloud にサインインしてください。各クライアントに許可する操作はワークスペースのオーナーが決めます。',
+  'Last call': '最後の呼び出し',
+  'No calls yet': 'まだ呼び出しはありません',
+  'Connect a client': 'クライアントを接続',
+  'In Claude, open Customize, then Connectors. Select + Add, then Add custom connector. Paste the URL, select Continue, and sign in.':
+    'Claude で Customize を開き、Connectors を選びます。+ Add を選び、Add custom connector を選びます。URL を貼り付けて Continue を選び、サインインします。',
+  'On Team and Enterprise, an owner adds it first under Organization settings, then Connectors.':
+    'Team と Enterprise では、先にオーナーが Organization settings の Connectors で追加します。',
+  'Select +, then Add custom MCP server. Paste the URL as the Server URL, choose OAuth, confirm, and select Create as a plugin. Install the plugin, then sign in.':
+    '+ を選び、Add custom MCP server を選びます。Server URL に URL を貼り付け、OAuth を選んで確認し、Create as a plugin を選びます。プラグインをインストールし、サインインします。',
+  'Copy command': 'コマンドをコピー',
+  'Command copied': 'コマンドをコピーしました',
+  'Then run /mcp in Claude Code to sign in.':
+    'その後、Claude Code で /mcp を実行してサインインします。',
+  'Other clients and connections in Dagu Cloud':
+    'Dagu Cloud のほかのクライアントと接続',
+  'Included in your trial until {date}. Choose a plan to keep MCP clients working.':
+    'トライアルに {date} まで含まれています。MCP クライアントを使い続けるにはプランを選んでください。',
   'Use this server from Claude, ChatGPT, and other MCP clients':
     'Claude、ChatGPT などの MCP クライアントからこのサーバーを使う',
   'Included in your trial. Turn on remote access, then add the MCP URL to your client.':
@@ -9369,7 +9419,6 @@ const baseJapanese = {
     'MCP の呼び出しには有料プランまたはトライアルが必要です',
   'Dagu Cloud refuses calls to this server until its workspace has one. The 14-day trial is free, with no card needed.':
     'ワークスペースに有料プランかトライアルがあるまで、Dagu Cloud はこのサーバーへの呼び出しを拒否します。14 日間のトライアルは無料で、カードは不要です。',
-  'Setup steps for Claude, ChatGPT, and more': 'Claude、ChatGPT などの設定手順',
   'Choose remote access': 'リモートアクセスを選択',
   'The highest role a Dagu Cloud user gets on this server. Dagu Cloud may grant less, never more.':
     'Dagu Cloud のユーザーがこのサーバーで得る最も高いロールです。Dagu Cloud はこれより低いロールを付与することはあっても、高いロールは付与しません。',

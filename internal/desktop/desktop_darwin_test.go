@@ -418,3 +418,29 @@ func TestValueText(t *testing.T) {
 	defer cfRelease(text)
 	assert.Equal(t, "保存しました", valueText(text))
 }
+
+// Typing switches the keyboard to an ASCII-capable input source and puts
+// the previous one back after; a keyboard already on one stays as it is.
+func TestASCIITyping(t *testing.T) {
+	require.NoError(t, load())
+	before := tisCopyCurrentKeyboardInputSource()
+	if before == 0 {
+		t.Skip("no keyboard input source")
+	}
+	t.Cleanup(func() { cfRelease(before) })
+
+	restore, err := (&darwinBackend{}).ASCIITyping()
+	require.NoError(t, err)
+	during := tisCopyCurrentKeyboardInputSource()
+	require.NotZero(t, during)
+	t.Cleanup(func() { cfRelease(during) })
+	asciiCapable, ok := cfBool(tisGetInputSourceProperty(during, tisPropertyInputSourceIsASCIICapable))
+	require.True(t, ok)
+	assert.True(t, asciiCapable, inputSourceID(during))
+
+	require.NoError(t, restore())
+	after := tisCopyCurrentKeyboardInputSource()
+	require.NotZero(t, after)
+	t.Cleanup(func() { cfRelease(after) })
+	assert.Equal(t, inputSourceID(before), inputSourceID(after))
+}

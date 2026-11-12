@@ -65,10 +65,10 @@ func TestOutputs(t *testing.T) {
 				var expected map[string]json.RawMessage
 				require.NoError(t, json.Unmarshal([]byte(response), &expected))
 				assert.JSONEq(t, string(expected["answers"]), string(data))
-				// A reference reads the persisted value, so estimate arrives as
-				// the plain decimal persistence wrote, not the provider's
-				// exponent form.
-				dagu.ExpectFileContent("numbers.txt", "4.2e-06|9007199254740993|12300000000000000000\n")
+				// A reference inserts numbers as base-10 decimal text (Spec 003),
+				// so cost and estimate arrive in plain decimal form, not the
+				// provider's exponent form.
+				dagu.ExpectFileContent("numbers.txt", "0.0000042|9007199254740993|12300000000000000000\n")
 				usage, err := os.ReadFile(dagu.ProjectPath("usage.json"))
 				require.NoError(t, err)
 				var numbers map[string]json.RawMessage
