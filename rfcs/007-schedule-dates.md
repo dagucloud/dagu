@@ -244,6 +244,15 @@ Rules:
 - **Params.** Dates resolve before params, so the slot is known when
   `params[].eval` runs and `eval` can read `${dates.NAME}`.
   `params[].default` stays literal.
+- **When `params[].eval` runs.** Today `eval` runs when the DAG is built,
+  before the run exists, so it can read OS environment variables, `consts`,
+  and earlier params, but not `${context.*}`. This release moves it to run
+  creation, after the slot, its window, and `dates` resolve, and before root
+  `env`, which may reference params. `eval` then also reads `${dates.*}` and
+  the `${context.run.*}` fields a run has at creation: `id`,
+  `scheduled_at`, the window, and `timezone`. A metadata-only load still
+  skips `eval`. The order of a run's values becomes: consts, slot and
+  window, dates, params, env, steps.
 - **Building on another entry.** `from: target_day` starts from that entry's
   instant after its `shift`. The new entry takes that entry's `timezone`
   unless it sets its own, and does not take its `format`. An entry cannot be
@@ -344,7 +353,10 @@ every way of starting one shows the slot, window, and dates:
   release notes must say so.
 - Spec 017 gains the new `context.run` fields and their availability in
   sub-DAGs. A new spec owns `dates`. Specs 003 and 005 add its namespace and
-  its use in `params[].eval`.
+  its use in `params[].eval`, and Spec 003 moves `params[].eval` from DAG
+  build to run creation. An `eval` that runs a command now runs once per run
+  rather than at every DAG build, which also stops it running when a DAG is
+  only listed or validated.
 
 ## Verification and acceptance criteria
 
