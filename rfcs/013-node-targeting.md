@@ -717,7 +717,7 @@ The step's `output` variable (Spec 012) holds JSON:
 | The filter does not parse at run time | The step fails, with the position and the error |
 | A scalar in an exclude clause holds a character outside node names | The step fails before any node starts, with "use an array param" |
 | SSH connection or authentication fails | That node fails, with the host, port, error, and the hop that failed: the bastion or the node |
-| The host key is unknown or has changed | That node fails, with the fingerprint. The Nodes page can trust a new key. A host that only a worker reaches is tested and trusted through RFC 012's `node-test` run on that worker |
+| The host key is unknown or has changed | That node fails, with the fingerprint. The Nodes page can trust a new key. A host that only a worker reaches pins its key with `ssh.host_key` |
 | A node's credential ref does not resolve | That node fails, naming the field and ref. Other nodes follow `keep_going`. The failure is kept for the rest of the attempt, so nodes that share the ref do not resolve it again |
 | A node has an RFC 012 problem, such as no hostname | That node fails, with the problem |
 | A worker node disconnects during its item | That node fails, as a worker loss fails a run today |
@@ -756,8 +756,7 @@ Rollout:
    with `nodes`, bound runs, `--bind-node`, and the node picker that
    RFC 015's node parameter reuses.
 4. **Worker nodes**, for command items and bound runs, with text on the
-   shell's standard input, and RFC 012's `node-test` run for hosts that only
-   a worker reaches.
+   shell's standard input.
 5. **Retry failed nodes**, for step-first and node-first steps, locally and
    on workers.
 6. **Docs**: "Coming from Rundeck" and "Coming from Ansible", with the mapping
