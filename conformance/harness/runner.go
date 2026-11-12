@@ -6,7 +6,6 @@ package harness
 import (
 	"bytes"
 	"context"
-	"errors"
 	"fmt"
 	"io"
 	"math/rand/v2"
@@ -45,10 +44,34 @@ type Process struct {
 	t        *testing.T
 	proc     *cmdutil.ManagedProcess
 	done     chan struct{}
-	stdout   *bytes.Buffer
-	stderr   *bytes.Buffer
+	stdout   *lockedBuffer
+	stderr   *lockedBuffer
 	err      error
 	stopOnce sync.Once
+}
+
+// lockedBuffer is a buffer that a test can read while the command still writes to it.
+type lockedBuffer struct {
+	mu  sync.Mutex
+	buf bytes.Buffer
+}
+
+func (b *lockedBuffer) Write(p []byte) (int, error) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return b.buf.Write(p)
+}
+
+func (b *lockedBuffer) String() string {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return b.buf.String()
+}
+
+// Output returns what the command wrote to stdout and stderr until now. It is safe to call
+// while the command runs.
+func (p *Process) Output() string {
+	return p.stdout.String() + p.stderr.String()
 }
 
 // ExitCode returns the command's process exit code.
@@ -128,8 +151,8 @@ func (r *Runner) RunWithStdin(env []string, stdin io.Reader, args ...string) *Re
 func (r *Runner) StartWithEnv(env []string, args ...string) *Process {
 	r.t.Helper()
 
-	stdout := &bytes.Buffer{}
-	stderr := &bytes.Buffer{}
+	stdout := &lockedBuffer{}
+	stderr := &lockedBuffer{}
 	// Binary-level tests intentionally execute the configured Dagu binary.
 	cmd := exec.Command(daguBinary(r.t), args...) //nolint:gosec
 	cmd.Dir = r.dir
@@ -195,6 +218,23 @@ func (p *Process) Done() <-chan struct{} {
 	return p.done
 }
 
+// ExitCode returns the exit code of the command after it exits. It returns -1
+// while the command runs, and for a command that a signal stopped.
+func (p *Process) ExitCode() int {
+	select {
+	case <-p.done:
+	default:
+		return -1
+	}
+	if p.err == nil {
+		return 0
+	}
+	if exitErr, ok := p.err.(*exec.ExitError); ok {
+		return exitErr.ExitCode()
+	}
+	return -1
+}
+
 // Stop terminates the command and waits for it to exit. A graceful shutdown
 // is requested first so the managed process can reap children and settle
 // persisted state before its temp directory is removed; teardown falls back
@@ -238,19 +278,6 @@ const stopGracePeriod = 5 * time.Second
 // PID returns the command's process ID.
 func (p *Process) PID() int {
 	return p.proc.PID()
-}
-
-// ExitCode returns the process exit code after the command exits.
-func (p *Process) ExitCode() int {
-	p.t.Helper()
-	<-p.done
-	if exitErr, ok := errors.AsType[*exec.ExitError](p.err); ok {
-		return exitErr.ExitCode()
-	}
-	if p.err != nil {
-		p.t.Fatalf("waiting for command: %v", p.err)
-	}
-	return 0
 }
 
 // FailureOutput returns captured output after the command exits.

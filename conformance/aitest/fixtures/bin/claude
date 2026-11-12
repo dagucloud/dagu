@@ -1,0 +1,15 @@
+#!/bin/sh
+# A fake claude CLI for the conformance tests of the AI feature (Spec 093, Spec 094 and
+# Spec 095). It records that it ran.
+# A step that names an endpoint must fail before this script starts, unless the
+# endpoint exists and the step may use it.
+#
+# With the file scenario in the directory, the script runs relay_cli.py, which calls
+# the model API at ANTHROPIC_BASE_URL with the key ANTHROPIC_API_KEY.
+dir="${FAKE_CLAUDE_DIR:-$AITEST_DIR}"
+[ -n "$dir" ] || { echo "FAKE_CLAUDE_DIR or AITEST_DIR is required" >&2; exit 2; }
+echo ran >> "$dir/ran"
+if [ -f "$dir/scenario" ]; then
+  exec python3 "$(dirname "$0")/relay_cli.py" "$@"
+fi
+echo '{"type":"result","subtype":"success","is_error":false,"result":"done"}'

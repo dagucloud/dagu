@@ -1,0 +1,14 @@
+working_dir: .
+env:
+  - LLM_BASE_URL: ${LLM_BASE_URL}
+  - TIER: ${TIER}
+steps:
+  - action: chat.completion
+    stdout: result.out
+    with:
+      prompt: Refund 12 euros for c-42
+      provider: local
+      model: test-model
+      base_url: $LLM_BASE_URL
+      stream: false
+      skills: [nowhere]

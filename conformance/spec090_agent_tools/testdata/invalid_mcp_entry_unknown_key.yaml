@@ -1,0 +1,13 @@
+working_dir: .
+steps:
+  - action: chat.completion
+    with:
+      prompt: help the customer
+      provider: local
+      model: test-model
+      tools:
+        mcp:
+          - name: docs
+            url: http://127.0.0.1:1/mcp
+            allow: [echo]
+            retries: 3

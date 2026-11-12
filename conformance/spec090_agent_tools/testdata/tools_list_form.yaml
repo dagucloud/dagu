@@ -1,0 +1,35 @@
+working_dir: .
+env:
+  - LLM_BASE_URL: ${LLM_BASE_URL}
+  - TIER: ${TIER}
+  - CUSTOMER: ${CUSTOMER}
+  - MCP_URL: ${MCP_URL}
+steps:
+  - action: chat.completion
+    stdout: result.out
+    with:
+      prompt: help the customer
+      provider: local
+      model: test-model
+      base_url: $LLM_BASE_URL
+      tools:
+        - lookup
+---
+name: lookup
+description: Look up a customer
+params: [CUSTOMER_ID]
+steps:
+  - command: echo "customer=$CUSTOMER_ID"
+    output: INFO
+---
+name: silent
+params: [CUSTOMER_ID]
+steps:
+  - command: echo "silent for $CUSTOMER_ID"
+    output: RESULT
+---
+name: docs_echo
+description: A DAG that takes the tool name of an MCP tool
+steps:
+  - command: echo "docs"
+    output: RESULT

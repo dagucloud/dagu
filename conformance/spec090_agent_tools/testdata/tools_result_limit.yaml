@@ -1,0 +1,24 @@
+working_dir: .
+env:
+  - LLM_BASE_URL: ${LLM_BASE_URL}
+  - TIER: ${TIER}
+  - CUSTOMER: ${CUSTOMER}
+  - MCP_URL: ${MCP_URL}
+steps:
+  - action: chat.completion
+    stdout: result.out
+    with:
+      prompt: help the customer
+      provider: local
+      model: test-model
+      base_url: $LLM_BASE_URL
+      tool_result_max_bytes: 60
+      dags:
+        - name: lookup
+---
+name: lookup
+description: Look up a customer
+params: [CUSTOMER_ID]
+steps:
+  - command: echo "customer=$CUSTOMER_ID and a very long description that does not fit in the limit"
+    output: INFO

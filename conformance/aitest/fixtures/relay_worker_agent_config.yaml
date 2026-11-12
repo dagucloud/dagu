@@ -1,0 +1,11 @@
+# The agent worker of the tests of the relay. The certificate has the identity
+# agent-claude, which is in the pool agent-claude.
+peer:
+  insecure: false
+  cert_file: tls/agent-claude.crt
+  key_file: tls/agent-claude.key
+  client_ca_file: tls/dagu-ca.crt
+untrusted:
+  uid: 10001
+  gid: 10001
+env_passthrough_prefixes: [AITEST_]
