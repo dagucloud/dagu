@@ -398,6 +398,21 @@ func TestRecordFailsAWriteAfterTheLastOperation(t *testing.T) {
 	require.Len(t, run.commitPoints(), 1)
 }
 
+// A write nothing approved, sent during a download wait that then failed,
+// is still the operation's failure, not the download's.
+func TestBlockedWriteBeatsFailedDownload(t *testing.T) {
+	t.Parallel()
+
+	run := newTestRun(t, pageModel(nil))
+	run.engine.handle.WriteGate = runningGate()
+	run.engine.downloadWrites = []writegate.Event{blockedSave}
+	run.engine.downloadErr = errors.New("download of deals.csv did not finish within 2m0s")
+	execution := run.execute(`{"url": "https://books.example.com/deals", "browser": {"write_gate": "record"}, "do": [{"act": "Click the Save button"}]}`, nil)
+
+	require.ErrorContains(t, execution.err, "do[0] act failed: write_blocked")
+	require.Len(t, run.commitPoints(), 1)
+}
+
 // The approved write a commit act's page sends while the last downloads
 // settle is sent, as one sent during the act is.
 func TestRecordSendsAnApprovedWriteAfterTheLastOperation(t *testing.T) {

@@ -373,12 +373,22 @@ func (r *run) afterOperation(ctx context.Context, index int, kind string, opErr 
 		}
 		return true, r.rehearsed(ctx, index, *stop)
 	case opErr != nil:
+		if errors.As(opErr, new(downloadFailure)) {
+			kind = kindDownload
+		}
 		return true, r.fail(ctx, index, kind, opErr)
 	case dialogErr != nil:
 		return true, r.fail(ctx, index, kind, dialogErr)
 	}
 	return false, nil
 }
+
+// downloadFailure is a download that did not finish, which fails the
+// operation that started it as a download failure.
+type downloadFailure struct{ cause error }
+
+func (d downloadFailure) Error() string { return d.cause.Error() }
+func (d downloadFailure) Unwrap() error { return d.cause }
 
 // settle waits for the downloads the operation at index started, with a
 // moment for one to begin when the step ends or pauses after it, and
@@ -387,11 +397,11 @@ func (r *run) afterOperation(ctx context.Context, index int, kind string, opErr 
 // fails the operation, unless a write the gate kept back decided the step
 // first: done is then true with the step's result.
 func (r *run) settle(ctx context.Context, index int, final bool) (done bool, err error) {
-	kind, err := r.kindAt(index), r.settleDownloads(ctx, index, final)
-	if err != nil {
-		kind = kindDownload
+	var failure error
+	if err := r.settleDownloads(ctx, index, final); err != nil {
+		failure = downloadFailure{err}
 	}
-	return r.afterOperation(ctx, index, kind, err)
+	return r.afterOperation(ctx, index, r.kindAt(index), failure)
 }
 
 // kindAt is the kind of the operation at index, or empty before the first.
