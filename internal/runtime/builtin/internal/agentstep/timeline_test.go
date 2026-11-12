@@ -71,6 +71,7 @@ func TestScreenshotNames(t *testing.T) {
 	t.Parallel()
 	for _, tc := range []struct{ label, name string }{
 		{"prices.png", "01-prices.png"},
+		{strings.Repeat("画", 120), "01-" + strings.Repeat("画", 33) + ".png"},
 		{"請求書画面", "01-請求書画面.png"},
 		{"résumé.png", "01-résumé.png"},
 		{"../請求書:画面\\draft.png", "01-.._請求書_画面_draft.png"},

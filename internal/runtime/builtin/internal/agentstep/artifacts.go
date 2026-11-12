@@ -12,6 +12,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"unicode/utf8"
 
 	"github.com/dagucloud/dagu/v2/internal/cmn/fileutil"
 )
@@ -73,8 +74,11 @@ func (s *ArtifactStore) WriteScreenshot(label string, data []byte) (string, erro
 		s.sequence = lastScreenshotSequence(dir)
 	}
 	label = fileutil.NormalizeFilename(strings.TrimSuffix(label, screenshotExt), "_")
-	if runes := []rune(label); len(runes) > fileutil.MaxSafeNameLength {
-		label = string(runes[:fileutil.MaxSafeNameLength])
+	if len(label) > fileutil.MaxSafeNameLength {
+		label = label[:fileutil.MaxSafeNameLength]
+		for !utf8.ValidString(label) {
+			label = label[:len(label)-1]
+		}
 	}
 	for {
 		s.sequence++
