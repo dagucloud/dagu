@@ -7,7 +7,6 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"slices"
 	"strings"
@@ -128,7 +127,7 @@ func SlotsOf(req PlanRequest) (SlotRange, error) {
 	if len(req.Slots) > 0 {
 		for _, slot := range req.Slots {
 			if slot.After(req.Now) {
-				return SlotRange{}, fmt.Errorf("slot %s is later than now", slot.Format(time.RFC3339))
+				return SlotRange{}, invalid("slot %s is later than now", slot.Format(time.RFC3339))
 			}
 		}
 		slots := slices.Clone(req.Slots)
@@ -137,7 +136,7 @@ func SlotsOf(req PlanRequest) (SlotRange, error) {
 		return SlotRange{Slots: slots}, checkMaxSlots(len(slots), req.MaxSlots)
 	}
 	if req.From.After(req.Now) {
-		return SlotRange{}, fmt.Errorf("--from %s is later than now", req.From.Format(time.RFC3339))
+		return SlotRange{}, invalid("from %s is later than now", req.From.Format(time.RFC3339))
 	}
 	rng := SlotRange{To: req.To}
 	// Fires in the current minute or later are left to the live schedule.
@@ -147,11 +146,11 @@ func SlotsOf(req PlanRequest) (SlotRange, error) {
 		rng.To = liveFrom.Add(-time.Nanosecond)
 	}
 	if rng.To.Before(req.From) {
-		return SlotRange{}, errors.New("--to is before --from")
+		return SlotRange{}, invalid("to is before from")
 	}
 	slots, more := ir.ScheduleFiresBetween(req.Schedule.Schedules, req.Schedule.Profile, req.Schedule.Location, req.From, rng.To, maxSlotsOf(req.MaxSlots))
 	if more {
-		return SlotRange{}, fmt.Errorf("the range has more than %d slots, the bound set by scheduler.backfill_max_slots", maxSlotsOf(req.MaxSlots))
+		return SlotRange{}, invalid("the range has more than %d slots, the bound set by scheduler.backfill_max_slots", maxSlotsOf(req.MaxSlots))
 	}
 	rng.Slots = slots
 	return rng, nil
@@ -166,7 +165,7 @@ func maxSlotsOf(bound int) int {
 
 func checkMaxSlots(count, bound int) error {
 	if count > maxSlotsOf(bound) {
-		return fmt.Errorf("%d slots exceed %d, the bound set by scheduler.backfill_max_slots", count, maxSlotsOf(bound))
+		return invalid("%d slots exceed %d, the bound set by scheduler.backfill_max_slots", count, maxSlotsOf(bound))
 	}
 	return nil
 }

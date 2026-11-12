@@ -172,8 +172,8 @@ func TestStartRejects(t *testing.T) {
 	}{
 		{name: "from later than now", args: []string{"--from", "2099-01-01", "--dry-run"}, stderr: "later than now"},
 		{name: "slot that is not a fire time", args: []string{"--slot", "2025-10-02T03:00", "--dry-run"}, stderr: "not a fire time"},
-		{name: "slot with a range", args: []string{"--slot", "2025-10-02T02:00", "--from", "2025-10-01", "--dry-run"}, stderr: "--slot"},
-		{name: "no range", args: []string{"--dry-run"}, stderr: "--from"},
+		{name: "slot with a range", args: []string{"--slot", "2025-10-02T02:00", "--from", "2025-10-01", "--dry-run"}, stderr: "slots cannot be combined"},
+		{name: "no range", args: []string{"--dry-run"}, stderr: "give from"},
 		{name: "more slots than the bound", env: []string{"DAGU_SCHEDULER_BACKFILL_MAX_SLOTS=3"}, args: []string{"--from", "2025-10-01", "--to", "2025-10-05", "--dry-run"}, stderr: "more than 3 slots"},
 		{name: "no terminal and no --yes", args: []string{"--from", "2025-10-01", "--to", "2025-10-05"}, stderr: "--yes"},
 	} {

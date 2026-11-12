@@ -403,16 +403,10 @@ Examples:
 
 // backfillStartOptions are the parsed flags of 'backfill start'.
 type backfillStartOptions struct {
-	from, to  string
-	slots     []string
-	rerun     backfill.Rerun
-	options   backfill.Options
-	dryRun    bool
-	yes       bool
-	format    string
-	rerunSet  bool
-	rangeSet  bool
-	slotNamed bool
+	request backfill.Request
+	dryRun  bool
+	yes     bool
+	format  string
 }
 
 func runBackfillStart(ctx *Context, args []string) error {
@@ -431,19 +425,13 @@ func runBackfillStart(ctx *Context, args []string) error {
 	if err != nil {
 		return err
 	}
-	if len(dag.Schedule) == 0 {
-		return fmt.Errorf("DAG %q has no schedule to backfill", dag.Name)
-	}
-	sched := backfill.SlotSchedule{Schedules: dag.Schedule, Profile: opts.options.Profile, Location: ctx.Config.Core.Location}
-	planReq, err := backfillPlanRequest(ctx, dag, sched, opts)
+	sched := backfill.SlotSchedule{Schedules: dag.Schedule, Profile: strings.TrimSpace(opts.request.Profile), Location: ctx.Config.Core.Location}
+	planReq, options, err := opts.request.Resolve(dag, sched, ctx.Config.Scheduler.BackfillMaxSlots, time.Now())
 	if err != nil {
 		return err
 	}
-	// The range as given identifies the backfill; To stays zero when it
-	// defaulted to now.
-	opts.options.From, opts.options.To, opts.options.Slots = planReq.From, planReq.To, planReq.Slots
 	service := &backfill.Service{Store: ctx.Persistence.BackfillStore, History: ctx.Persistence.DAGRunRepository}
-	submit := backfill.SubmitRequest{Plan: planReq, Options: opts.options, DAGFile: dag.Location, DryRun: true}
+	submit := backfill.SubmitRequest{Plan: planReq, Options: options, DAGFile: dag.Location, DryRun: true}
 
 	// The plan is shown first and submitted with its revision, so the
 	// backfill that starts is the one confirmed.
@@ -455,12 +443,11 @@ func runBackfillStart(ctx *Context, args []string) error {
 	if shown.Existing && !opts.dryRun {
 		return reportBackfillSubmit(out, opts.format, shown)
 	}
-	warnings := backfillWarnings(ctx, dag, shown.Plan)
 	if opts.format == backfillFormatJSON {
 		if opts.dryRun {
 			return json.NewEncoder(out).Encode(shown.Plan)
 		}
-	} else if err := renderBackfillPlan(out, shown.Plan, opts.options, warnings); err != nil {
+	} else if err := renderBackfillPlan(out, shown.Plan, options, backfillWarnings(ctx, dag, shown.Plan)); err != nil {
 		return err
 	}
 	if opts.dryRun {
@@ -492,42 +479,26 @@ func parseBackfillStartFlags(ctx *Context) (backfillStartOptions, error) {
 	flags := ctx.Command.Flags()
 	var opts backfillStartOptions
 	var err error
-	if opts.from, err = flags.GetString("from"); err != nil {
+	req := &opts.request
+	if req.From, err = flags.GetString("from"); err != nil {
 		return opts, err
 	}
-	if opts.to, err = flags.GetString("to"); err != nil {
+	if req.To, err = flags.GetString("to"); err != nil {
 		return opts, err
 	}
-	if opts.slots, err = flags.GetStringArray("slot"); err != nil {
+	if req.Slots, err = flags.GetStringArray("slot"); err != nil {
 		return opts, err
 	}
-	opts.rangeSet = opts.from != "" || opts.to != ""
-	opts.slotNamed = len(opts.slots) > 0
-	opts.rerunSet = flags.Changed("rerun")
-	switch {
-	case opts.slotNamed && (opts.rangeSet || opts.rerunSet):
-		return opts, errors.New("--slot cannot be combined with --from, --to, or --rerun")
-	case !opts.slotNamed && opts.from == "":
-		return opts, errors.New("give --from, or name slots with --slot")
-	}
-
-	rerun, _ := flags.GetString("rerun")
-	if opts.rerun, err = backfill.ParseRerun(rerun); err != nil {
-		return opts, err
+	if flags.Changed("rerun") {
+		req.Rerun, _ = flags.GetString("rerun")
 	}
 	concurrency, _ := flags.GetString("max-concurrency")
-	maxConcurrency, err := strconv.Atoi(concurrency)
-	if err != nil || maxConcurrency < 1 {
+	if req.MaxConcurrency, err = strconv.Atoi(concurrency); err != nil || req.MaxConcurrency < 1 {
 		return opts, fmt.Errorf("--max-concurrency must be a positive integer")
 	}
-	onFailureValue, _ := flags.GetString("on-failure")
-	onFailure, err := backfill.ParseOnFailure(onFailureValue)
-	if err != nil {
-		return opts, err
-	}
-	params, _ := flags.GetString("params")
-	profile, err := runtimeProfileNameParam(ctx)
-	if err != nil {
+	req.OnFailure, _ = flags.GetString("on-failure")
+	req.Params, _ = flags.GetString("params")
+	if req.Profile, err = runtimeProfileNameParam(ctx); err != nil {
 		return opts, err
 	}
 	if opts.dryRun, err = flags.GetBool("dry-run"); err != nil {
@@ -539,13 +510,6 @@ func parseBackfillStartFlags(ctx *Context) (backfillStartOptions, error) {
 	opts.format, _ = flags.GetString("format")
 	if opts.format != backfillFormatText && opts.format != backfillFormatJSON {
 		return opts, fmt.Errorf("invalid --format %q: use text or json", opts.format)
-	}
-	opts.options = backfill.Options{
-		Rerun:          opts.rerun,
-		MaxConcurrency: maxConcurrency,
-		OnFailure:      onFailure,
-		Params:         params,
-		Profile:        profile,
 	}
 	return opts, nil
 }
@@ -563,63 +527,14 @@ func loadBackfillDAG(ctx *Context, name string) (*ir.DAG, error) {
 	return spec.Load(ctx, name, loadOpts...)
 }
 
-// backfillPlanRequest resolves the range or the named slots of a submit.
-func backfillPlanRequest(ctx *Context, dag *ir.DAG, sched backfill.SlotSchedule, opts backfillStartOptions) (backfill.PlanRequest, error) {
-	req := backfill.PlanRequest{
-		DAG:      dag,
-		Schedule: sched,
-		Rerun:    opts.rerun,
-		MaxSlots: ctx.Config.Scheduler.BackfillMaxSlots,
-		Now:      time.Now(),
-	}
-	if opts.slotNamed {
-		for _, value := range opts.slots {
-			slot, err := ir.ResolveScheduleSlot(ir.ScheduleSlotRequest{
-				Value:     value,
-				Schedules: sched.Schedules,
-				Profile:   sched.Profile,
-				Location:  sched.Location,
-				Now:       req.Now,
-			})
-			if err != nil {
-				return req, fmt.Errorf("--slot %s: %w", value, err)
-			}
-			if slot.Warning != "" {
-				return req, fmt.Errorf("--slot %s: %s", value, slot.Warning)
-			}
-			req.Slots = append(req.Slots, slot.At)
-		}
-		return req, nil
-	}
-	from, err := ir.ResolveRangeBound(opts.from, sched.Schedules, sched.Profile, sched.Location, ir.RangeStart)
-	if err != nil {
-		return req, fmt.Errorf("--from: %w", err)
-	}
-	req.From = from
-	if opts.to != "" {
-		if req.To, err = ir.ResolveRangeBound(opts.to, sched.Schedules, sched.Profile, sched.Location, ir.RangeEnd); err != nil {
-			return req, fmt.Errorf("--to: %w", err)
-		}
-	}
-	return req, nil
-}
-
 // backfillWarnings lists what the operator should know before starting.
 func backfillWarnings(ctx *Context, dag *ir.DAG, plan backfill.Plan) []string {
-	var warnings []string
-	if !schedulerRunning(ctx) {
-		warnings = append(warnings, "No scheduler is running; the backfill starts when dagu scheduler or dagu start-all runs.")
-	}
-	if suspended, err := ctx.Persistence.DAGRepository.IsSuspended(ctx, dag.SuspendFlagName()); err == nil && suspended {
-		warnings = append(warnings, "The DAG is suspended; its backfill runs still run.")
-	}
-	if handlers := handlerNames(dag); len(handlers) > 0 {
-		warnings = append(warnings, fmt.Sprintf("handler_on steps run once per slot: %s.", strings.Join(handlers, ", ")))
-	}
-	if plan.OtherCadence > 0 {
-		warnings = append(warnings, fmt.Sprintf("%d slots run because the schedule's cadence changed since their runs.", plan.OtherCadence))
-	}
-	return warnings
+	suspended, err := ctx.Persistence.DAGRepository.IsSuspended(ctx, dag.SuspendFlagName())
+	return plan.Warnings(backfill.WarningInput{
+		SchedulerRunning: schedulerRunning(ctx),
+		Suspended:        err == nil && suspended,
+		DAG:              dag,
+	})
 }
 
 func schedulerRunning(ctx *Context) bool {
@@ -636,16 +551,6 @@ func schedulerRunning(ctx *Context) bool {
 		}
 	}
 	return false
-}
-
-func handlerNames(dag *ir.DAG) []string {
-	var names []string
-	for _, step := range []*ir.Step{dag.HandlerOn.Init, dag.HandlerOn.Success, dag.HandlerOn.Failure, dag.HandlerOn.Abort, dag.HandlerOn.Exit, dag.HandlerOn.Wait} {
-		if step != nil {
-			names = append(names, step.Name)
-		}
-	}
-	return names
 }
 
 func renderBackfillPlan(out io.Writer, plan backfill.Plan, options backfill.Options, warnings []string) error {
