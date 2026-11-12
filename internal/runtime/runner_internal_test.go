@@ -1425,3 +1425,48 @@ func TestSetupVariablesFailsOnMaskedOutputs(t *testing.T) {
 		})
 	}
 }
+
+// Handler steps (onExit, onFailure, ...) see the outputs of every step, so they
+// fail on a masked output too, not only steps that depend on its producer.
+func TestSetupEnvironEventHandlerFailsOnMaskedOutputs(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name    string
+		command string
+		masked  *ir.MaskedOutputs
+		wantErr bool
+	}{
+		{name: "output variable", command: "notify ${TOKEN}", masked: &ir.MaskedOutputs{Names: []string{"TOKEN"}}, wantErr: true},
+		{name: "step output reference", command: "notify ${steps.fetch.outputs.token}", masked: &ir.MaskedOutputs{Names: []string{"token"}}, wantErr: true},
+		{name: "unmasked output", command: "notify ${steps.fetch.outputs.region}", masked: &ir.MaskedOutputs{Names: []string{"token"}}},
+		{name: "nothing masked", command: "notify ${TOKEN}"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			plan, err := NewPlan(ir.Step{ID: "fetch", Name: "fetch", Output: "TOKEN"})
+			require.NoError(t, err)
+			fetch := plan.GetNodeByName("fetch")
+			fetch.setVariable("TOKEN", "***")
+			fetch.inner.State.MaskedOutputs = tt.masked
+
+			ctx := NewContext(
+				context.Background(),
+				&ir.DAG{Name: "test-dag", WorkingDir: t.TempDir()},
+				"run-1",
+				filepath.Join(t.TempDir(), "dag.log"),
+			)
+			handler := NewNode(ir.Step{Name: "onExit", Command: tt.command}, NodeState{})
+			_, err = New(&Config{}).setupEnvironEventHandler(ctx, plan, handler, nil)
+			if !tt.wantErr {
+				require.NoError(t, err)
+				return
+			}
+			require.ErrorContains(t, err, `step "onExit" reads output`)
+			require.ErrorContains(t, err, `step "fetch" has to run again`)
+		})
+	}
+}

@@ -1133,7 +1133,7 @@ func (r *Runner) setupVariables(ctx context.Context, plan *Plan, node *Node) (co
 			env.Scope = env.Scope.WithStepOutputs(outputs, stepID)
 		}
 	}
-	if err := checkMaskedOutputs(plan, node); err != nil {
+	if err := checkMaskedOutputs(planPredecessorNodes(plan, node), node); err != nil {
 		return ctx, err
 	}
 
@@ -1299,6 +1299,9 @@ func (r *Runner) setupEnvironEventHandler(
 			}
 			env.Scope = env.Scope.WithStepOutputs(outputs, stepID)
 		}
+	}
+	if err := checkMaskedOutputs(plan.Nodes(), node); err != nil {
+		return ctx, err
 	}
 
 	return WithEnv(ctx, env), nil
@@ -2389,13 +2392,14 @@ func planPredecessorNodes(plan *Plan, node *Node) []*Node {
 	return nodes
 }
 
-// checkMaskedOutputs fails a step that reads an output of a predecessor that a
-// retry restored from a status stored with that output masked. The original
-// text is gone, so the step would run on starred text. Both reference forms are
-// checked: ${steps.ID.outputs.NAME} and the plain ${NAME} variable.
-func checkMaskedOutputs(plan *Plan, node *Node) error {
+// checkMaskedOutputs fails a step that reads an output of one of nodes (its
+// predecessors, or every node for a handler step) that a retry restored from a
+// status stored with that output masked. The original text is gone, so the step
+// would run on starred text. Both reference forms are checked:
+// ${steps.ID.outputs.NAME} and the plain ${NAME} variable.
+func checkMaskedOutputs(nodes []*Node, node *Node) error {
 	var text string
-	for _, pred := range planPredecessorNodes(plan, node) {
+	for _, pred := range nodes {
 		masked := pred.State().MaskedOutputs
 		if masked == nil {
 			continue
