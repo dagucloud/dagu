@@ -160,7 +160,7 @@ func resolveBindings(
 			return protectOriginal(token), nil
 		}
 		placeholder := uniqueToken(taken, "\uE000DAGU_RESOLVED_REF_")
-		text := formatBindingValue(value)
+		text := FormatScalar(value)
 		all = append(all, placeholder, text)
 		toCommand = append(toCommand, placeholder, text)
 		return placeholder, nil
@@ -772,7 +772,11 @@ func validBuiltinContextSegments(segments []string) bool {
 	return true
 }
 
-func formatBindingValue(value any) string {
+// FormatScalar renders a scalar as the text Dagu inserts into a string field:
+// strings as written, booleans as true or false, and numbers as base-10
+// decimal text with no exponent, the shortest form that round-trips. Other
+// values use their default Go formatting.
+func FormatScalar(value any) string {
 	switch v := value.(type) {
 	case string:
 		return v
@@ -787,6 +791,13 @@ func formatBindingValue(value any) string {
 	case float64:
 		return strconv.FormatFloat(v, 'f', -1, 64)
 	case json.Number:
+		// Integer literals stay verbatim so digits beyond float64 precision
+		// survive; other literals take decimal form.
+		if strings.ContainsAny(v.String(), ".eE") {
+			if f, err := v.Float64(); err == nil {
+				return strconv.FormatFloat(f, 'f', -1, 64)
+			}
+		}
 		return v.String()
 	default:
 		return fmt.Sprint(v)

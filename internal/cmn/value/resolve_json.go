@@ -83,9 +83,6 @@ func NormalizeJSONNumbers(v any) any {
 }
 
 func stringifyResolvedValue(value any) string {
-	if value == nil {
-		return fmt.Sprintf("%v", value)
-	}
 	switch value.(type) {
 	case map[string]any, []any:
 		if data, err := jsonutil.MarshalUnescaped(value); err == nil {
@@ -100,5 +97,5 @@ func stringifyResolvedValue(value any) string {
 			return string(data)
 		}
 	}
-	return formatBindingValue(value)
+	return FormatScalar(value)
 }
