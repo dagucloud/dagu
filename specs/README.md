@@ -97,6 +97,7 @@ It must not be treated as product behavior until implementation catches up.
 | [096: Skills](096-skills.md) | Implemented |
 | [097: Derived Dates](097-derived-dates.md) | Partially implemented |
 | [098: MCP Call Action](098-mcp-call.md) | Implemented |
+| [099: Service Run History](099-service-run-history.md) | Implemented |
 
 **Writing guidelines:**
 
