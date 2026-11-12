@@ -664,6 +664,30 @@ describe('DashboardPage', () => {
     expect(item).toHaveTextContent('3 failures in a row: serve: exit status 3');
   });
 
+  // The panel leaves out the runs of service DAGs, so it must not say that
+  // nothing runs while one does.
+  it('says when only service DAGs are running', () => {
+    serviceDAGs.current = [
+      {
+        fileName: 'worker',
+        name: 'worker',
+        restartPolicy: RestartPolicy.always,
+        restartWaitSec: 5,
+        queue: 'worker',
+        state: ServiceDAGState.running,
+        suspended: false,
+        consecutiveFailures: 0,
+        latestRun: { dagRunId: 'w-1', status: Status.Running },
+      },
+    ];
+    mockActivity({ activity: makeActivity({ runs: reportRuns }) });
+
+    renderPage();
+
+    expect(screen.queryByText('Nothing is running.')).toBeNull();
+    expect(screen.getByText('Only service DAGs are running.')).toBeVisible();
+  });
+
   it('says all is clear when nothing needs attention', () => {
     mockActivity({ activity: makeActivity({ runs: reportRuns }) });
 
