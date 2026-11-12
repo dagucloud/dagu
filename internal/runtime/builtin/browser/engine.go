@@ -221,7 +221,7 @@ type pageOutcome struct {
 	Text string `json:"text"`
 	// BotCheck names the check the site answered with in place of the page,
 	// such as browserhost.BotCheckCloudflare, or the check the page shows
-	// in a frame, such as botCheckRecaptcha, or is empty.
+	// in a frame, such as browserhost.BotCheckRecaptcha, or is empty.
 	BotCheck string `json:"botCheck"`
 }
 

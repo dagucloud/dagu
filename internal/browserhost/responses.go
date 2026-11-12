@@ -14,8 +14,9 @@ import (
 	"github.com/coder/websocket"
 )
 
-// The checks of whether a browser is run by a person that a site answers
-// with in place of the page, told by the answer's headers.
+// The checks of whether a browser is run by a person: those a site answers
+// with in place of the page, told by the answer's headers, and those a page
+// shows in a frame, told by the frame's address.
 const (
 	// BotCheckCloudflare is Cloudflare's check.
 	BotCheckCloudflare = "cloudflare"
@@ -25,6 +26,13 @@ const (
 	// BotCheckAWSWAFCaptcha is the CAPTCHA AWS WAF asks a person to solve,
 	// answered with HTTP 405.
 	BotCheckAWSWAFCaptcha = "aws-waf-captcha"
+	// BotCheckRecaptcha is a reCAPTCHA challenge shown in a frame.
+	BotCheckRecaptcha = "recaptcha"
+	// BotCheckHCaptcha is an hCaptcha challenge shown in a frame.
+	BotCheckHCaptcha = "hcaptcha"
+	// BotCheckTurnstile is a Cloudflare Turnstile challenge shown in a
+	// frame.
+	BotCheckTurnstile = "turnstile"
 )
 
 const (

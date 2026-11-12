@@ -2245,9 +2245,9 @@ func TestStagehandTellsRefusedPages(t *testing.T) {
 		"/checked":    {Host: host, Status: http.StatusForbidden, BotCheck: browserhost.BotCheckCloudflare},
 		"/captcha":    {Host: host, Status: http.StatusMethodNotAllowed, BotCheck: browserhost.BotCheckAWSWAFCaptcha},
 		"/challenged": {Host: host, Status: http.StatusAccepted, BotCheck: browserhost.BotCheckAWSWAFChallenge},
-		"/recaptcha":  {Host: host, Status: http.StatusOK, BotCheck: botCheckRecaptcha},
-		"/hcaptcha":   {Host: host, Status: http.StatusOK, BotCheck: botCheckHCaptcha},
-		"/turnstile":  {Host: host, Status: http.StatusOK, BotCheck: botCheckTurnstile},
+		"/recaptcha":  {Host: host, Status: http.StatusOK, BotCheck: browserhost.BotCheckRecaptcha},
+		"/hcaptcha":   {Host: host, Status: http.StatusOK, BotCheck: browserhost.BotCheckHCaptcha},
+		"/turnstile":  {Host: host, Status: http.StatusOK, BotCheck: browserhost.BotCheckTurnstile},
 		"/forbidden":  {Host: host, Status: http.StatusForbidden},
 	} {
 		// A browser that shows its own error page for the answer reports

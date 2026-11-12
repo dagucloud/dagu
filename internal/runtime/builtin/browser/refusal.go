@@ -14,14 +14,6 @@ import (
 // a body.
 const httpErrorCode = "ERR_HTTP_RESPONSE_CODE_FAILURE"
 
-// The checks of whether a browser is run by a person that a page shows in a
-// frame, told by the frame's address.
-const (
-	botCheckRecaptcha = "recaptcha"
-	botCheckHCaptcha  = "hcaptcha"
-	botCheckTurnstile = "turnstile"
-)
-
 // challengeFrame is a check known by the address of the frame that shows
 // it: one at Host, or a subdomain of it, under Path.
 type challengeFrame struct {
@@ -32,10 +24,10 @@ type challengeFrame struct {
 
 // challengeFrames lists the frames known to show a check.
 var challengeFrames = []challengeFrame{
-	{Kind: botCheckRecaptcha, Host: "www.google.com", Path: "/recaptcha/"},
-	{Kind: botCheckRecaptcha, Host: "recaptcha.net", Path: "/recaptcha/"},
-	{Kind: botCheckHCaptcha, Host: "hcaptcha.com", Path: "/"},
-	{Kind: botCheckTurnstile, Host: "challenges.cloudflare.com", Path: "/"},
+	{Kind: browserhost.BotCheckRecaptcha, Host: "www.google.com", Path: "/recaptcha/"},
+	{Kind: browserhost.BotCheckRecaptcha, Host: "recaptcha.net", Path: "/recaptcha/"},
+	{Kind: browserhost.BotCheckHCaptcha, Host: "hcaptcha.com", Path: "/"},
+	{Kind: browserhost.BotCheckTurnstile, Host: "challenges.cloudflare.com", Path: "/"},
 }
 
 // botCheckPhrases says, by kind, how a page shows a bot check, with the
@@ -44,9 +36,9 @@ var botCheckPhrases = map[string]string{
 	browserhost.BotCheckCloudflare:      "answered with a Cloudflare bot check (HTTP %d) in place of the page",
 	browserhost.BotCheckAWSWAFChallenge: "answered with an AWS WAF challenge (HTTP %d) in place of the page",
 	browserhost.BotCheckAWSWAFCaptcha:   "answered with an AWS WAF CAPTCHA (HTTP %d) in place of the page",
-	botCheckRecaptcha:                   "shows a reCAPTCHA challenge (HTTP %d)",
-	botCheckHCaptcha:                    "shows an hCaptcha challenge (HTTP %d)",
-	botCheckTurnstile:                   "shows a Cloudflare Turnstile challenge (HTTP %d)",
+	browserhost.BotCheckRecaptcha:       "shows a reCAPTCHA challenge (HTTP %d)",
+	browserhost.BotCheckHCaptcha:        "shows an hCaptcha challenge (HTTP %d)",
+	browserhost.BotCheckTurnstile:       "shows a Cloudflare Turnstile challenge (HTTP %d)",
 }
 
 // refusal is a site answering with a refusal or a bot check in place of

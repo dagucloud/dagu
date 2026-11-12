@@ -4,10 +4,13 @@
 package browser
 
 import (
+	"os"
+	"regexp"
 	"testing"
 
 	"github.com/dagucloud/dagu/v2/internal/browserhost"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 // A page counts as refused when the site answered with a bot check, or the
@@ -50,15 +53,15 @@ func TestRefusalOf(t *testing.T) {
 			message: "store.example.com answered with an AWS WAF CAPTCHA (HTTP 405) in place of the page",
 		},
 		"reCAPTCHA frame": {
-			page:    pageOutcome{Host: "portal.example.com", Status: 200, Title: "Sign in", BotCheck: botCheckRecaptcha},
+			page:    pageOutcome{Host: "portal.example.com", Status: 200, Title: "Sign in", BotCheck: browserhost.BotCheckRecaptcha},
 			message: "portal.example.com shows a reCAPTCHA challenge (HTTP 200)",
 		},
 		"hCaptcha frame": {
-			page:    pageOutcome{Host: "portal.example.com", Status: 200, BotCheck: botCheckHCaptcha},
+			page:    pageOutcome{Host: "portal.example.com", Status: 200, BotCheck: browserhost.BotCheckHCaptcha},
 			message: "portal.example.com shows an hCaptcha challenge (HTTP 200)",
 		},
 		"Turnstile frame": {
-			page:    pageOutcome{Host: "portal.example.com", Status: 200, BotCheck: botCheckTurnstile},
+			page:    pageOutcome{Host: "portal.example.com", Status: 200, BotCheck: browserhost.BotCheckTurnstile},
 			message: "portal.example.com shows a Cloudflare Turnstile challenge (HTTP 200)",
 		},
 		"unknown check": {
@@ -71,5 +74,19 @@ func TestRefusalOf(t *testing.T) {
 		if ok {
 			assert.Equal(t, tc.message, refused.String(), name)
 		}
+	}
+}
+
+// Every bot check browserhost tells apart has its own sentence, so none is
+// described by the fallback for an unknown kind.
+func TestBotCheckPhrasesCoverKinds(t *testing.T) {
+	t.Parallel()
+
+	source, err := os.ReadFile("../../../browserhost/responses.go")
+	require.NoError(t, err)
+	kinds := regexp.MustCompile(`(?m)^\s*BotCheck\w+\s*=\s*"([^"]+)"`).FindAllStringSubmatch(string(source), -1)
+	require.NotEmpty(t, kinds)
+	for _, kind := range kinds {
+		assert.Contains(t, botCheckPhrases, kind[1])
 	}
 }
