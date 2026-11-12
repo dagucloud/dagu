@@ -1212,7 +1212,10 @@ steps:
 steps:
   - name: child_failing_step
     run: |
-      echo child_stderr_marker 1>&2
+      `+test.ForOS(
+		"echo child_stderr_marker 1>&2",
+		"[Console]::Error.WriteLine('child_stderr_marker')",
+	)+`
       exit 1
 `)
 
