@@ -17,28 +17,42 @@ type RunReader func(context.Context, ir.DAGRunRef) (*ir.DAGRunStatus, error)
 
 // Latest reports the backfill of a DAG an operator should see: its newest
 // open backfill, or else its newest backfill that ended failed while a slot
-// it failed has not succeeded since. It returns nil when there is none.
+// it failed has not succeeded since. It returns nil when there is none. The
+// slots of a failed backfill are read under the profile it ran with.
 func Latest(ctx context.Context, store Store, readRun RunReader, history HistoryReader, dag *ir.DAG, sched SlotSchedule) (*Report, error) {
 	records, err := store.List(ctx, dag.Name)
 	if err != nil {
 		return nil, err
 	}
-	var lastFailed *Record
 	for _, record := range slices.Backward(records) {
 		if record.Open() {
 			return describe(ctx, store, readRun, record)
 		}
-		if lastFailed == nil && record.Status == StatusFailed {
-			lastFailed = record
+	}
+	for _, record := range slices.Backward(records) {
+		if record.Status != StatusFailed {
+			continue
+		}
+		report, err := describe(ctx, store, readRun, record)
+		if err != nil {
+			return nil, err
+		}
+		recordSched := sched
+		recordSched.Profile = record.Options.Profile
+		unresolved, err := hasUnresolvedFailure(ctx, history, dag, recordSched, report)
+		if err != nil {
+			return nil, err
+		}
+		if unresolved {
+			return report, nil
 		}
 	}
-	if lastFailed == nil {
-		return nil, nil
-	}
-	report, err := describe(ctx, store, readRun, lastFailed)
-	if err != nil {
-		return nil, err
-	}
+	return nil, nil
+}
+
+// hasUnresolvedFailure reports whether a slot a backfill failed has not
+// succeeded since.
+func hasUnresolvedFailure(ctx context.Context, history HistoryReader, dag *ir.DAG, sched SlotSchedule, report *Report) (bool, error) {
 	var failed []time.Time
 	for _, slot := range report.Slots {
 		if slot.State == SlotStateFailed {
@@ -46,18 +60,18 @@ func Latest(ctx context.Context, store Store, readRun RunReader, history History
 		}
 	}
 	if len(failed) == 0 {
-		return nil, nil
+		return false, nil
 	}
 	past, err := LoadHistory(ctx, history, dag, sched, failed[0], failed[len(failed)-1])
 	if err != nil {
-		return nil, err
+		return false, err
 	}
 	for _, state := range SlotStates(failed, sched, past) {
 		if state.Status != SlotSucceeded {
-			return report, nil
+			return true, nil
 		}
 	}
-	return nil, nil
+	return false, nil
 }
 
 func describe(ctx context.Context, store Store, readRun RunReader, record *Record) (*Report, error) {
