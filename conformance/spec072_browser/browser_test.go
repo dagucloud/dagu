@@ -645,7 +645,7 @@ func TestBrowserNamesBotCheck(t *testing.T) {
 	t.Parallel()
 
 	b := newBrowserEnv(t)
-	result := b.dagu.RunWithEnv(b.env, "start", "bot_check.yaml")
+	result := b.dagu.RunWithEnv(append(b.env, "BOT_CHECK=guarded"), "start", "bot_check.yaml")
 	result.ExpectNonZeroExitCode()
 	result.ExpectStderrContains("answered with a Cloudflare bot check (HTTP 403) in place of the page")
 }
@@ -669,7 +669,7 @@ func TestBrowserNamesAWSWAFCaptcha(t *testing.T) {
 	t.Parallel()
 
 	b := newBrowserEnv(t)
-	result := b.dagu.RunWithEnv(b.env, "start", "bot_check_captcha.yaml")
+	result := b.dagu.RunWithEnv(append(b.env, "BOT_CHECK=captcha"), "start", "bot_check.yaml")
 	result.ExpectNonZeroExitCode()
 	result.ExpectStderrContains("answered with an AWS WAF CAPTCHA (HTTP 405) in place of the page")
 }
@@ -680,7 +680,7 @@ func TestBrowserNamesChallengeFrame(t *testing.T) {
 	t.Parallel()
 
 	b := newBrowserEnv(t)
-	result := b.dagu.RunWithEnv(b.env, "start", "bot_check_frame.yaml")
+	result := b.dagu.RunWithEnv(append(b.env, "BOT_CHECK=recaptcha"), "start", "bot_check.yaml")
 	result.ExpectNonZeroExitCode()
 	result.ExpectStderrContains("shows a reCAPTCHA challenge (HTTP 200)")
 }
