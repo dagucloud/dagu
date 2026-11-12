@@ -20,7 +20,6 @@ on:
       - synchronize
       - ready_for_review
       - converted_to_draft # cancels the run in progress
-      - labeled # the full-ci label runs the Windows, Conformance, and E2E jobs
     paths:
       - "scripts/installer.cmd"
       - "scripts/installer.iss"
@@ -33,21 +32,14 @@ permissions:
   contents: read
 
 concurrency:
-  # A run started by any label but full-ci skips every job, and its own
-  # group keeps it from cancelling the run in progress.
-  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}${{ github.event.action == 'labeled' && github.event.label.name != 'full-ci' && format('-{0}', github.run_id) || '' }}
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
   test-windows-installer:
     name: Test Windows installer
     runs-on: windows-latest
-    # A pull request runs these jobs only with the full-ci label.
-    if: >-
-      github.event_name != 'pull_request' || (
-      !github.event.pull_request.draft &&
-      contains(github.event.pull_request.labels.*.name, 'full-ci') &&
-      (github.event.action != 'labeled' || github.event.label.name == 'full-ci'))
+    if: github.event.pull_request.draft != true
     timeout-minutes: 20
     steps:
       - name: Check out code
