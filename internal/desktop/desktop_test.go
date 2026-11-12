@@ -193,6 +193,13 @@ func TestDriverTypeOnASCIIInputSource(t *testing.T) {
 	driver = desktop.New(backend)
 	assert.ErrorContains(t, driver.Type(context.Background(), "a"), "restore failed")
 	assert.Equal(t, []string{"ascii input source", "type a", "previous input source"}, backend.events)
+
+	backend = &asciiBackend{recordingBackend: recordingBackend{failKey: desktop.KeyEnter}, failRestore: true}
+	driver = desktop.New(backend)
+	err := driver.Type(context.Background(), "a\nb")
+	assert.ErrorContains(t, err, "key failed")
+	assert.ErrorContains(t, err, "restore failed")
+	assert.Equal(t, []string{"ascii input source", "type a", "previous input source"}, backend.events)
 }
 
 func TestDriverScrollAtPoint(t *testing.T) {

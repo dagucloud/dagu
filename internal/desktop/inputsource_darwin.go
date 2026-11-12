@@ -8,6 +8,7 @@ package desktop
 import (
 	"errors"
 	"fmt"
+	"sync"
 	"time"
 	"unsafe"
 
@@ -36,6 +37,12 @@ var (
 	tisPropertyInputSourceID             uintptr
 	tisPropertyInputSourceIsASCIICapable uintptr
 )
+
+// tisMu serializes the Text Input Source calls. The API is not thread
+// safe: a process that runs no event loop on its main thread, as this one,
+// must not call it from two threads at once, and only a UI application
+// has to call it on the main thread.
+var tisMu sync.Mutex
 
 // loadInputSourceFuncs binds what switching the keyboard input source
 // needs.
@@ -71,6 +78,8 @@ func loadInputSourceFuncs() error {
 // source again. A keyboard already on an ASCII-capable input source stays
 // as it is.
 func (b *darwinBackend) ASCIITyping() (restore func() error, err error) {
+	tisMu.Lock()
+	defer tisMu.Unlock()
 	current := tisCopyCurrentKeyboardInputSource()
 	if current == 0 {
 		return nil, errors.New("read the keyboard input source")
@@ -81,8 +90,9 @@ func (b *darwinBackend) ASCIITyping() (restore func() error, err error) {
 	}
 	ascii := tisCopyCurrentASCIICapableKeyboardInputSource()
 	if ascii == 0 {
+		currentID := inputSourceID(current)
 		cfRelease(current)
-		return nil, fmt.Errorf("the keyboard input source %s is not ASCII-capable and no ASCII-capable one is enabled; add one, such as ABC, in System Settings > Keyboard > Input Sources", inputSourceID(current))
+		return nil, fmt.Errorf("the keyboard input source %s is not ASCII-capable and no ASCII-capable one is enabled; add one, such as ABC, in System Settings > Keyboard > Input Sources", currentID)
 	}
 	defer cfRelease(ascii)
 	if status := tisSelectInputSource(ascii); status != 0 {
@@ -91,6 +101,8 @@ func (b *darwinBackend) ASCIITyping() (restore func() error, err error) {
 	}
 	time.Sleep(inputSourceSettle)
 	return func() error {
+		tisMu.Lock()
+		defer tisMu.Unlock()
 		defer cfRelease(current)
 		if status := tisSelectInputSource(current); status != 0 {
 			return fmt.Errorf("select the keyboard input source %s again: OSStatus %d", inputSourceID(current), status)
