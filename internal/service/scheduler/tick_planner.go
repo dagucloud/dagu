@@ -449,33 +449,20 @@ func (tp *TickPlanner) recordMissedSlot(ctx context.Context, entry DAGEntry, act
 	tp.recordSlot(entry.DAG.Name, slot, schedulerstate.SlotMissed)
 }
 
-// missedSlotLookback bounds how far back the latest missed slot is looked
-// for.
-const missedSlotLookback = 32 * 24 * time.Hour
-
 // latestCronSlot returns the latest fire time of the cron schedules after
 // from and before to.
 func latestCronSlot(schedules []ir.Schedule, from, to time.Time) (time.Time, bool) {
-	if earliest := to.Add(-missedSlotLookback); from.Before(earliest) {
-		from = earliest
-	}
-	var latest time.Time
+	var parsed []ir.Schedule
 	for _, schedule := range schedules {
-		if !schedule.IsCron() || schedule.Parsed == nil {
-			continue
-		}
-		for t := schedule.Parsed.Next(from); !t.IsZero() && t.Before(to); {
-			if t.After(latest) {
-				latest = t
-			}
-			next := schedule.Parsed.Next(t)
-			if !next.After(t) {
-				break
-			}
-			t = next
+		if schedule.IsCron() && schedule.Parsed != nil {
+			parsed = append(parsed, schedule)
 		}
 	}
-	return latest, !latest.IsZero()
+	latest := ir.PreviousFire(parsed, to)
+	if latest.IsZero() || !latest.After(from) {
+		return time.Time{}, false
+	}
+	return latest, true
 }
 
 // recordSlot keeps what came of a start slot as the DAG's latest, unless a
@@ -1116,29 +1103,18 @@ func (tp *TickPlanner) pendingOneOffState(dagName, fingerprint string) (schedule
 	return oneOff, true
 }
 
-// computePrevExecTime calculates the previous schedule fire time before next.
-// It walks forward from (next - 32 days) to find the last fire time before next.
-// 32 days covers monthly schedules, the most common sparse cron interval.
-// This correctly handles non-uniform cron schedules (e.g., "0 9,17 * * *").
+// computePrevExecTime returns the schedule's latest fire before next. When the
+// schedule has not fired within the lookback of ir.PreviousFire, it assumes
+// the interval between next and the fire after it.
 func computePrevExecTime(next time.Time, schedule ir.Schedule) time.Time {
 	if schedule.Parsed == nil {
 		return next
 	}
-	// Walk forward from 32 days before next to find the last fire time before next.
-	seed := next.Add(-32 * 24 * time.Hour)
-	var prev time.Time
-	t := schedule.Parsed.Next(seed)
-	for !t.IsZero() && t.Before(next) {
-		prev = t
-		t = schedule.Parsed.Next(t)
+	if prev := ir.PreviousFire([]ir.Schedule{schedule}, next); !prev.IsZero() {
+		return prev
 	}
-	if prev.IsZero() {
-		// Fallback: no previous fire time found within the 7-day window.
-		// Use interval heuristic as last resort.
-		nextNext := schedule.Parsed.Next(next.Add(time.Second))
-		return next.Add(-(nextNext.Sub(next)))
-	}
-	return prev
+	nextNext := schedule.Parsed.Next(next.Add(time.Second))
+	return next.Add(-(nextNext.Sub(next)))
 }
 
 // scheduleDueAt returns the next fire time if the schedule is due at the given
