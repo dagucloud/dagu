@@ -78,9 +78,10 @@ disconnects while a step runs fails the operation that next reads the screen.
 On macOS typed text goes through an ASCII-capable keyboard input source.
 While the keyboard is on an input method, such as Japanese, that would turn
 typed keys into other text, a step selects the current ASCII-capable input
-source before it types, text and line breaks alike, and selects the previous
-one again once the typing ends, also when it fails. A keyboard on an
-ASCII-capable input source stays as it is. With no ASCII-capable input
+source before it types, text and line breaks alike, pauses briefly so
+applications learn of the switch before the keys reach them, and selects
+the previous one again once the typing ends, also when it fails. A keyboard
+on an ASCII-capable input source stays as it is. With no ASCII-capable input
 source enabled, typing fails, naming the input source the keyboard is on.
 
 A step that starts while only a person can make the desktop usable, because

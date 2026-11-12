@@ -6,6 +6,7 @@
 package desktop
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"sync"
@@ -41,7 +42,8 @@ var (
 // tisMu serializes the Text Input Source calls. The API is not thread
 // safe: a process that runs no event loop on its main thread, as this one,
 // must not call it from two threads at once, and only a UI application
-// has to call it on the main thread.
+// has to call it on the main thread. Only the calls are serialized:
+// typing on one desktop from two goroutines at once is unsupported.
 var tisMu sync.Mutex
 
 // loadInputSourceFuncs binds what switching the keyboard input source
@@ -76,8 +78,9 @@ func loadInputSourceFuncs() error {
 // the keyboard is on an input method, such as Japanese, that would turn
 // typed keys into other text, and returns what selects the previous input
 // source again. A keyboard already on an ASCII-capable input source stays
-// as it is.
-func (b *darwinBackend) ASCIITyping() (restore func() error, err error) {
+// as it is. A context done during the pause after the switch selects the
+// previous input source again and fails with the context's error.
+func (b *darwinBackend) ASCIITyping(ctx context.Context) (restore func() error, err error) {
 	tisMu.Lock()
 	defer tisMu.Unlock()
 	current := tisCopyCurrentKeyboardInputSource()
@@ -99,15 +102,20 @@ func (b *darwinBackend) ASCIITyping() (restore func() error, err error) {
 		cfRelease(current)
 		return nil, fmt.Errorf("select the keyboard input source %s for typing: OSStatus %d", inputSourceID(ascii), status)
 	}
-	time.Sleep(inputSourceSettle)
-	return func() error {
-		tisMu.Lock()
-		defer tisMu.Unlock()
+	selectPrevious := func() error {
 		defer cfRelease(current)
 		if status := tisSelectInputSource(current); status != 0 {
 			return fmt.Errorf("select the keyboard input source %s again: OSStatus %d", inputSourceID(current), status)
 		}
 		return nil
+	}
+	if err := pause(ctx, inputSourceSettle); err != nil {
+		return nil, errors.Join(err, selectPrevious())
+	}
+	return func() error {
+		tisMu.Lock()
+		defer tisMu.Unlock()
+		return selectPrevious()
 	}, nil
 }
 
