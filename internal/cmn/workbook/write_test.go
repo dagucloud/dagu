@@ -109,10 +109,7 @@ func TestWriteNewMacroWorkbook(t *testing.T) {
 func longPath(t *testing.T, name string) string {
 	t.Helper()
 	dir := t.TempDir()
-	pad := 220 - len(filepath.Join(dir, "x", name))
-	if pad < 1 {
-		pad = 1
-	}
+	pad := max(220-len(filepath.Join(dir, "x", name)), 1)
 	dir = filepath.Join(dir, strings.Repeat("d", pad))
 	require.NoError(t, os.Mkdir(dir, 0o750))
 	return filepath.Join(dir, name)
