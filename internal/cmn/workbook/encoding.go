@@ -29,12 +29,14 @@ const (
 	EncodingShiftJIS Encoding = "shift_jis"
 )
 
-// ParseEncoding reads an encoding option; empty means UTF-8. Shift_JIS
-// accepts the names it goes by: shift_jis, shift-jis, sjis, cp932,
-// windows-31j, and ms932.
+// ParseEncoding reads an encoding option. Empty is no encoding, the zero
+// Encoding, which LoadOptions detects. Shift_JIS accepts the names it goes
+// by: shift_jis, shift-jis, sjis, cp932, windows-31j, and ms932.
 func ParseEncoding(s string) (Encoding, error) {
 	switch strings.ToLower(strings.TrimSpace(s)) {
-	case "", "utf-8", "utf8":
+	case "":
+		return "", nil
+	case "utf-8", "utf8":
 		return EncodingUTF8, nil
 	case "utf-8-bom", "utf8-bom", "utf-8-sig":
 		return EncodingUTF8BOM, nil

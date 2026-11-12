@@ -164,9 +164,15 @@ func TestLoadTableEncodingsAndDelimiter(t *testing.T) {
 	_, err = LoadTable(badJSON, LoadOptions{})
 	require.EqualError(t, err, "input: "+badJSON+": not valid UTF-8")
 
-	for _, name := range []string{"utf-8", "UTF8", "utf-8-bom", "shift_jis", "Shift-JIS", "sjis", "cp932", "windows-31j", "ms932", ""} {
-		_, err := ParseEncoding(name)
+	for name, want := range map[string]Encoding{
+		"utf-8": EncodingUTF8, "UTF8": EncodingUTF8, "utf-8-bom": EncodingUTF8BOM,
+		"shift_jis": EncodingShiftJIS, "Shift-JIS": EncodingShiftJIS, "sjis": EncodingShiftJIS,
+		"cp932": EncodingShiftJIS, "windows-31j": EncodingShiftJIS, "ms932": EncodingShiftJIS,
+		"": "", " ": "",
+	} {
+		enc, err := ParseEncoding(name)
 		assert.NoError(t, err, name)
+		assert.Equal(t, want, enc, name)
 	}
 	_, err = ParseEncoding("latin1")
 	require.ErrorContains(t, err, `unknown encoding "latin1": use utf-8, utf-8-bom, or shift_jis`)
